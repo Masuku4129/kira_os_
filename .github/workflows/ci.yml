@@ -67,7 +67,9 @@ jobs:
         if: always()
         with:
           name: vm-${{ matrix.scenario }}
-          path: ci-out/${{ matrix.scenario }}
+          path: |
+            ci-out/${{ matrix.scenario }}
+            !ci-out/${{ matrix.scenario }}/*.img
 
   # Итоги - в ветку ci-results (одна свежая копия): журналы и снимки читаются через git, без хранилища артефактов.
   report:

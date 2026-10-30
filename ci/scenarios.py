@@ -11,7 +11,7 @@ FLASH = "ci-out/flash.img"          # создаёт ci/make_flash.sh (FAT32 + �
 
 BOOT_LOG = [r"\[KIRA SCHED\] Preemptive scheduler online", r"\[KIRA MIND\] Mind online", r"\[KIRA CONSOLE\] Command line ready",
             r"\[KIRA FS\] KiraFS mounted"]
-NO_ERR = [r"\[KIRA GS\]", r"\[KIRA VMM ERROR\]", r"Kernel thread stack overflow", r"bad free|double free", r"\[KIRA SMP\].*did not answer"]
+NO_ERR = [r"kernel-mode fault", r"\[KIRA IRET\]", r"\[KIRA GS\]", r"\[KIRA VMM ERROR\]", r"Kernel thread stack overflow", r"bad free|double free", r"\[KIRA SMP\].*did not answer"]
 
 BASIC = [
     {"log": BOOT_LOG},

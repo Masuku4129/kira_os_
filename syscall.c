@@ -55,8 +55,10 @@ extern void syscall_entry_asm(void);
 
 void syscall_init_cpu(void) {
     cpu_wrmsr(MSR_EFER, cpu_rdmsr(MSR_EFER) | 1);                 // EFER.SCE
-    // SYSCALL: CS=0x08, SS=0x10. SYSRET64: SS=0x10+8|3=0x1B, CS=0x10+16|3=0x23 (порядок data->code в GDT).
-    cpu_wrmsr(MSR_STAR, ((uint64_t)0x08 << 32) | ((uint64_t)0x10 << 48));
+    // SYSCALL: CS=0x08, SS=0x10. SYSRET64: SS=0x13+8=0x1B, CS=0x13+16=0x23 (порядок data->code в GDT).
+    // База SYSRET - с RPL 3 (0x13): Intel сам ставит RPL=3 в SS, а AMD берёт биты из STAR как есть - с базой 0x10
+    // программа на AMD жила с SS=0x18 (RPL 0), и первый же iretq из прерывания в неё давал #GP (стенд, EPYC).
+    cpu_wrmsr(MSR_STAR, ((uint64_t)0x08 << 32) | ((uint64_t)0x13 << 48));
     cpu_wrmsr(MSR_LSTAR, (uint64_t)(uintptr_t)syscall_entry_asm);
     cpu_wrmsr(MSR_FMASK, 0x40700);                                // сбросить IF, TF, DF, AC при входе (IF обратно включает обработчик после смены стека)
 }
