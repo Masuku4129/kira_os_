@@ -15,4 +15,5 @@ void uart_flush_all(void);             // авария: вывести нако�
 void uart_print_hex(uint64_t value);   // "0x..." без ведущих нулей
 void uart_print_dec(uint64_t value);   // беззнаковое десятичное
 
+uint64_t uart_tx_dropped(void);   // байт, не ушедших в порт: он не успевал (вывод при этом есть в журнале)
 #endif
