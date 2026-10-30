@@ -45,6 +45,13 @@ bits 64
     jnz %%done                      ; не ноль: GS уже ядерный
     swapgs
     mov eax, 1
+    test qword [rsp + 144], 3
+    jnz %%done
+    lock inc qword [rel gs_fixups]  ; ядро прервано с GS процесса: запомнить где (диагностика, см. kernel.c)
+    mov rcx, [rsp + 136]
+    mov [rel gs_fixup_rip], rcx
+    mov ecx, [rsp + 120]
+    mov [rel gs_fixup_vec], ecx
 %%done:
     push rax                        ; флаг
     push rax                        ; выравнивание (стек до вызова C должен быть кратен 16)
@@ -58,6 +65,12 @@ bits 64
     swapgs
 %%skip:
 %endmacro
+
+section .data
+global gs_fixups, gs_fixup_rip, gs_fixup_vec
+gs_fixups:    dq 0
+gs_fixup_rip: dq 0
+gs_fixup_vec: dd 0, 0
 
 section .text
 

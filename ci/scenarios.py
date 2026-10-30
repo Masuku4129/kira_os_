@@ -11,7 +11,7 @@ FLASH = "ci-out/flash.img"          # создаёт ci/make_flash.sh (FAT32 + �
 
 BOOT_LOG = [r"\[KIRA SCHED\] Preemptive scheduler online", r"\[KIRA MIND\] Mind online", r"\[KIRA CONSOLE\] Command line ready",
             r"\[KIRA FS\] KiraFS mounted"]
-NO_ERR = [r"\[KIRA VMM ERROR\]", r"Kernel thread stack overflow", r"bad free|double free", r"\[KIRA SMP\].*did not answer"]
+NO_ERR = [r"\[KIRA GS\]", r"\[KIRA VMM ERROR\]", r"Kernel thread stack overflow", r"bad free|double free", r"\[KIRA SMP\].*did not answer"]
 
 BASIC = [
     {"log": BOOT_LOG},
@@ -51,7 +51,11 @@ ALL = [
     ]),
     sc("smp", "проверка ядер: расчёт, замок, вытеснение на всех ядрах", [
         {"log": [r"Processors online: 8"]},
-        {"cmd": "test smp", "must": [r"RESULT: PASS"], "timeout": 60},
+        {"cmd": "test smp", "must": [r"started \d+ worker"]},
+        {"sleep": 15},
+        {"log": [r"RESULT: PASS"]},
+        {"log_forbid": [r"RESULT: FAIL", r"MOVED to another core", r"LOST UPDATES"]},
+        {"responsive": "status", "within": 3},
         {"log_forbid": NO_ERR},
     ], smp=8, mem="2G"),
     sc("usb-xhci", "USB xHCI: хаб, клавиатура, планшет, флешка FAT32 -> /usb0", [

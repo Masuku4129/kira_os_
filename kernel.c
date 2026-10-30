@@ -264,6 +264,16 @@ void kernel_main(unsigned long magic, unsigned long addr) {
         }
 
         watchdog_feed();
+        {   /* ядро было прервано с GS процесса: такого окна быть не должно - сообщить, где (раз на новое значение) */
+            extern volatile uint64_t gs_fixups, gs_fixup_rip; extern volatile uint32_t gs_fixup_vec;
+            static uint64_t seen_fix;
+            uint64_t n = gs_fixups;
+            if (n != seen_fix) {
+                seen_fix = n;
+                uart_print("[KIRA GS] kernel entered with the process GS: vector "); uart_print_dec(gs_fixup_vec);
+                uart_print(" at RIP "); uart_print_hex(gs_fixup_rip); uart_print(", times "); uart_print_dec(n); uart_print("\n");
+            }
+        }
         sched_sleep_ticks(TIMER_PER_10MS);
     }
 }
