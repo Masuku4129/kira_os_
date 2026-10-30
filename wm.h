@@ -98,5 +98,10 @@ int  wm_button_center(int id, int which, int* x, int* y);
 int  wm_tab_center(int i, int* x, int* y);
 /* Перерисовывает накопленный damage в экран. 1 - нарисовано, *x,*y,*w,*h - что показать. */
 int  wm_compose(int* x, int* y, int* w, int* h);
+/* Параллельная сборка: изменённые места экрана (плитки 64x64) режутся на полосы, полосы собираются на нескольких
+   ядрах (через runner) и каждая сразу выводится present. Вернёт число полос; *pixels - сколько точек собрано. */
+typedef void (*wm_runner_t)(void (*fn)(void* ctx, uint32_t i), void* ctx, uint32_t n);
+void wm_set_runner(wm_runner_t r);
+uint32_t wm_compose_par(void (*present)(int x, int y, int w, int h), uint64_t* pixels);
 
 #endif

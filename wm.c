@@ -59,12 +59,27 @@ static const char* const cursor_art[CUR_H] = {
     "#.# #..#    ", "##  #..#    ", "#    #..#   ", "     #..#   ", "      #..#  ", "      #..#  ", "       ##   "
 };
 
+/* Изменённые места экрана - карта плиток 64x64 (а не одна охватывающая рамка): два окна в разных углах экрана
+   перерисовываются как две области, а не как весь экран между ними. Плитки собираются в полосы-задания, которые
+   композитор раздаёт ядрам (wm_compose_par). */
+#define DTILE 64
+#define TMAX_X 160                       /* экран до 10240 точек в ширину */
+#define TMAX_Y 160
+static uint8_t tdirty[TMAX_Y][TMAX_X];
+
 static void damage(int x0, int y0, int x1, int y1) {
     if (x0 < 0) x0 = 0;
     if (y0 < 0) y0 = 0;
     if (x1 > scr->w) x1 = scr->w;
     if (y1 > scr->h) y1 = scr->h;
     if (x0 >= x1 || y0 >= y1) return;
+    {
+        int ty1 = (y1 - 1) / DTILE, tx1 = (x1 - 1) / DTILE;
+        if (ty1 >= TMAX_Y) ty1 = TMAX_Y - 1;
+        if (tx1 >= TMAX_X) tx1 = TMAX_X - 1;
+        for (int ty = y0 / DTILE; ty <= ty1; ty++)
+            for (int tx = x0 / DTILE; tx <= tx1; tx++) tdirty[ty][tx] = 1;
+    }
     if (!dmg_valid) { dx0 = x0; dy0 = y0; dx1 = x1; dy1 = y1; dmg_valid = 1; return; }
     if (x0 < dx0) dx0 = x0;
     if (y0 < dy0) dy0 = y0;
@@ -746,18 +761,26 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
 
 /* --- рисование (в поверхность clip, координаты экрана сдвинуты на ox,oy) --- */
 
+/* Масштабированная копия. Без общих таблиц: композитор рисует полосы экрана на нескольких ядрах одновременно.
+   Номер столбца источника (i - dx) * w / dw ведётся приращениями - точно то же значение, без деления на точку. */
 static void blit_scaled(surface_t* c, int dx, int dy, int dw, int dh, const surface_t* src) {
     if (dw == src->w && dh == src->h) { gfx_blit(c, dx, dy, src, 0, 0, src->w, src->h); return; }
-    static int xmap[4096];
+    if (dw <= 0 || dh <= 0) return;
     int xa = dx < 0 ? 0 : dx, xb = dx + dw > c->w ? c->w : dx + dw;
     int ya = dy < 0 ? 0 : dy, yb = dy + dh > c->h ? c->h : dy + dh;
-    if (xb - xa > 4096) xb = xa + 4096;
     if (xa >= xb || ya >= yb) return;
-    for (int i = xa; i < xb; i++) xmap[i - xa] = (i - dx) * src->w / dw;
+    long n0 = (long)(xa - dx) * src->w;
+    int q0 = (int)(n0 / dw);
+    long r0 = n0 - (long)q0 * dw;
     for (int j = ya; j < yb; j++) {
         const uint32_t* sp = src->px + (long)((j - dy) * src->h / dh) * src->pitch;
         uint32_t* dp = &c->px[(long)j * c->pitch];
-        for (int i = xa; i < xb; i++) dp[i] = sp[xmap[i - xa]];
+        int q = q0; long r = r0;
+        for (int i = xa; i < xb; i++) {
+            dp[i] = sp[q];
+            r += src->w;
+            while (r >= dw) { r -= dw; q++; }
+        }
     }
 }
 
@@ -974,17 +997,22 @@ static void draw_cursor(surface_t* c, int ox, int oy) {
 static int cull_enabled = 1;
 void wm_set_culling(int on) { cull_enabled = on; }
 
-int wm_compose(int* x, int* y, int* w, int* h) {
+/* Признаки, меняющие всю картинку (полноэкранный режим, плашка, вкладка), - до сборки изменённых мест. */
+static int compose_prepare(void) {
     int fs = fs_top();
     if (fs != last_fs) { last_fs = fs; damage(0, 0, scr->w, scr->h); }
     int pill = pill_visible(fs);
     if (pill != last_pill) { last_pill = pill; damage_pill(); }
     int at = active_tab();
     if (at != last_tab) { last_tab = at; damage_top(); }
-    if (!dmg_valid) return 0;
-    int x0 = dx0, y0 = dy0, x1 = dx1, y1 = dy1;
-    dmg_valid = 0;
+    return fs;
+}
+
+/* Собрать прямоугольник экрана [x0,x1)x[y0,y1). Только читает состояние оконного менеджера: несколько
+   прямоугольников собираются параллельно, пока поток дисплея ждёт (wm_compose_par). */
+static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     int rw = x1 - x0, rh = y1 - y0;
+    int pill = last_pill;
     surface_t clip = { scr->px + (long)y0 * scr->pitch + x0, rw, rh, scr->pitch };
     int ox = -x0, oy = -y0;
 
@@ -1035,6 +1063,70 @@ int wm_compose(int* x, int* y, int* w, int* h) {
         if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
     draw_cursor(&clip, ox, oy);
-    *x = x0; *y = y0; *w = rw; *h = rh;
+}
+
+static void tiles_clear(void) {
+    int tw = (scr->w + DTILE - 1) / DTILE, th = (scr->h + DTILE - 1) / DTILE;
+    if (tw > TMAX_X) tw = TMAX_X;
+    if (th > TMAX_Y) th = TMAX_Y;
+    for (int y = 0; y < th; y++) for (int x = 0; x < tw; x++) tdirty[y][x] = 0;
+}
+
+/* Одна охватывающая область (проверки и простые случаи). */
+int wm_compose(int* x, int* y, int* w, int* h) {
+    int fs = compose_prepare();
+    if (!dmg_valid) return 0;
+    int x0 = dx0, y0 = dy0, x1 = dx1, y1 = dy1;
+    dmg_valid = 0;
+    tiles_clear();
+    compose_rect(fs, x0, y0, x1, y1);
+    *x = x0; *y = y0; *w = x1 - x0; *h = y1 - y0;
     return 1;
+}
+
+/* ---- параллельная сборка ---- */
+static wm_runner_t runner;
+void wm_set_runner(wm_runner_t r) { runner = r; }
+
+typedef struct { int16_t x0, y0, x1, y1; } job_t;
+static job_t jobs[TMAX_X * TMAX_Y / 2 + TMAX_Y];
+static uint32_t njobs;
+static int job_fs;
+static void (*job_present)(int x, int y, int w, int h);
+
+static void run_job(void* ctx, uint32_t i) {
+    (void)ctx;
+    const job_t* j = &jobs[i];
+    compose_rect(job_fs, j->x0, j->y0, j->x1, j->y1);
+    if (job_present) job_present(j->x0, j->y0, j->x1 - j->x0, j->y1 - j->y0);   /* полоса - сразу на экран, тем же ядром */
+}
+
+uint32_t wm_compose_par(void (*present)(int x, int y, int w, int h), uint64_t* pixels) {
+    int fs = compose_prepare();
+    if (!dmg_valid) return 0;
+    dmg_valid = 0;
+    int tw = (scr->w + DTILE - 1) / DTILE, th = (scr->h + DTILE - 1) / DTILE;
+    if (tw > TMAX_X) tw = TMAX_X;
+    if (th > TMAX_Y) th = TMAX_Y;
+    njobs = 0;
+    uint64_t px = 0;
+    for (int ty = 0; ty < th; ty++) {
+        for (int tx = 0; tx < tw; ) {
+            if (!tdirty[ty][tx]) { tx++; continue; }
+            int a = tx;
+            while (tx < tw && tdirty[ty][tx]) tdirty[ty][tx++] = 0;
+            job_t j = { (int16_t)(a * DTILE), (int16_t)(ty * DTILE), (int16_t)(tx * DTILE > scr->w ? scr->w : tx * DTILE),
+                        (int16_t)((ty + 1) * DTILE > scr->h ? scr->h : (ty + 1) * DTILE) };
+            /* та же полоса столбцов, что у строки выше, - одно задание выше ростом (меньше заданий, меньше накладных) */
+            if (njobs && jobs[njobs - 1].x0 == j.x0 && jobs[njobs - 1].x1 == j.x1 && jobs[njobs - 1].y1 == j.y0 &&
+                jobs[njobs - 1].y1 - jobs[njobs - 1].y0 < 4 * DTILE) jobs[njobs - 1].y1 = j.y1;
+            else if (njobs < sizeof jobs / sizeof jobs[0]) jobs[njobs++] = j;
+            px += (uint64_t)(j.x1 - j.x0) * (uint64_t)(j.y1 - j.y0);
+        }
+    }
+    job_fs = fs; job_present = present;
+    if (runner) runner(run_job, 0, njobs);
+    else for (uint32_t i = 0; i < njobs; i++) run_job(0, i);
+    if (pixels) *pixels = px;
+    return njobs;
 }

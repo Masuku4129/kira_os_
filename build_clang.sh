@@ -17,7 +17,7 @@ COMMON="-ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2"
 
-C_SOURCES="mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c idt.c gdt.c keyboard.c timer.c syscall.c apic.c mind.c mind_sys.c rtc.c pic.c watchdog.c immune.c sha256.c uart.c exceptions.c fpu.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c ioapic.c irqmode.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c fscmd.c pci.c virtio.c virtio_blk.c blk.c bootmap.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c percpu.c smp.c kmutex.c linebuf.c corefault.c scale.c kobj.c futex.c"
+C_SOURCES="mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c idt.c gdt.c keyboard.c timer.c syscall.c apic.c mind.c mind_sys.c rtc.c pic.c watchdog.c immune.c sha256.c uart.c exceptions.c fpu.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c ioapic.c irqmode.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c pci.c virtio.c virtio_blk.c blk.c bootmap.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c percpu.c smp.c kmutex.c linebuf.c corefault.c scale.c kobj.c futex.c"
 
 echo "[*] Ассемблер..."
 rm -f *.o kira.bin

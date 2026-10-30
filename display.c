@@ -1,4 +1,9 @@
 #include "display.h"
+#include "kpar.h"
+#ifndef KIRA_HOST_TEST
+#include "hwprofile.h"
+#include "scale.h"
+#endif
 #include "fb.h"
 #include "fbcon.h"
 #include "sched.h"
@@ -54,6 +59,7 @@ static struct {
     uint64_t worst_gap_ns;    // самый большой промежуток между началами циклов
     uint64_t worst_busy_ns;   // самый тяжёлый цикл
     uint64_t last_t0;
+    uint64_t pixels;          // собрано точек (все полосы всех кадров)
 } st;
 
 /* снимки данных для приложений */
@@ -408,8 +414,8 @@ static void display_main(void* arg) {
         wm_anim((uint32_t)(now0 / 1000000ULL), mv.activity);
 
         uint64_t tp0 = clock_ns();
-        int rx, ry, rw, rh;
-        if (wm_compose(&rx, &ry, &rw, &rh)) { fb_present_rect(rx, ry, rw, rh); st.composed++; }
+        uint64_t px = 0;
+        if (wm_compose_par(fb_present_rect, &px)) { st.composed++; st.pixels += px; }
         st.present_ns = clock_ns() - tp0;
         st.frames++;
 
@@ -444,6 +450,13 @@ int display_init(unsigned long mbi) {
     wm_raise(w_con);
     explorer_init();
     st.start_ns = clock_ns();
+#ifndef KIRA_HOST_TEST
+    {   /* композитор - на всех ядрах: помощников по числу ядер сверх одного (поток дисплея работает сам) */
+        unsigned cpus = scale_cpus(hw_get()->cpus);
+        kpar_init(cpus > 1 ? cpus - 1 : 0);
+        wm_set_runner(kpar_run);
+    }
+#endif
     if (!sched_create("display", display_main, 0, PRIO_CRITICAL)) {
         uart_print("[KIRA DISPLAY] cannot create display thread.\n");
         return -6;
@@ -451,7 +464,7 @@ int display_init(unsigned long mbi) {
     ready = 1;
     uart_print("[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, "
                "apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, "
-               "fullscreen (F11), minimize (F10), damage-tracked present.\n");
+               "fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.\n");
     return 0;
 }
 
