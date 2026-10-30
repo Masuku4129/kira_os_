@@ -135,7 +135,13 @@ static void corefault_handle(uint64_t vector, uint64_t err, uint64_t rip) {
 
 void exception_handler_main(uint64_t vector, uint64_t err_code, uint64_t rip, uint64_t cr2, uint64_t cs, const uint64_t* frame) {
     // NMI от ядра, остановившего систему при аварии: молча встаём, без второго дампа.
-    if (vector == 2 && smp_halting()) for (;;) __asm__ volatile ("cli; hlt");
+    if (vector == 2 && smp_halting()) {
+        percpu_t* me = this_cpu();                 /* где стояло ядро: по этому отчёт об аварии показывает место зависания */
+        me->halt_rip = rip;
+        me->halt_rbp = (cs & 3) ? 0 : frame[8];    /* кадр: r15..rax, RBP - девятый */
+        __atomic_store_n(&me->halted, 1, __ATOMIC_RELEASE);
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
 
     // Страница программы исчезла во время копирования ядром (другой поток снял отображение): вызов вернёт ошибку.
     if (vector == 14 && (cs & 3) == 0 && uaccess_fixup((uint64_t*)(uintptr_t)frame, rip)) return;

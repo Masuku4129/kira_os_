@@ -594,19 +594,13 @@ static void put_hex(void (*out)(const char*), uint64_t v) {
 extern char stack_bottom[], stack_top[];      /* стек запуска (boot.s): на нём живёт поток core */
 #endif
 
-// Где ядро стояло при последнем прерывании и цепочка вызовов (ядро собрано с указателями кадров).
-// Кадры читаются только внутри стека этого потока, поэтому обход не может сам упасть на чужой памяти.
-static void crash_trace(void (*out)(const char*), unsigned cpu, const percpu_t* c, const thread_t* t) {
-    out("[KIRA SCHED]   core "); put_num(out, cpu); out(" last irq at "); put_hex(out, c->irq_rip);
-    uint64_t lo = 0, hi = 0;
-#ifndef KIRA_HOST_TEST
-    if (t && t->stack_base) { lo = (uint64_t)(uintptr_t)t->stack_base; hi = lo + SCHED_STACK_SIZE; }
-    else if (t && cpu == 0) { lo = (uint64_t)(uintptr_t)stack_bottom; hi = (uint64_t)(uintptr_t)stack_top; }
-#endif
-    uint64_t fp = c->irq_rbp;
+// Где стояло ядро и цепочка вызовов (ядро собрано с указателями кадров). Кадры читаются только внутри стека этого
+// потока, поэтому обход не может сам упасть на чужой памяти.
+static void trace_line(void (*out)(const char*), const char* what, uint64_t rip, uint64_t fp, uint64_t lo, uint64_t hi) {
+    out("[KIRA SCHED]     "); out(what); put_hex(out, rip);
     if (fp && lo) {
         out(" calls");
-        for (int n = 0; n < 10 && fp >= lo && fp + 16 <= hi && !(fp & 7); n++) {
+        for (int n = 0; n < 12 && fp >= lo && fp + 16 <= hi && !(fp & 7); n++) {
             const uint64_t* f = (const uint64_t*)(uintptr_t)fp;
             out(" "); put_hex(out, f[1]);
             if (f[0] <= fp) break;                /* кадры идут только вверх по стеку */
@@ -616,11 +610,46 @@ static void crash_trace(void (*out)(const char*), unsigned cpu, const percpu_t* 
     out("\n");
 }
 
+static void crash_trace(void (*out)(const char*), unsigned cpu, const percpu_t* c, const thread_t* t) {
+    uint64_t lo = 0, hi = 0;
+#ifndef KIRA_HOST_TEST
+    if (t && t->stack_base) { lo = (uint64_t)(uintptr_t)t->stack_base; hi = lo + SCHED_STACK_SIZE; }
+    else if (t && cpu == 0) { lo = (uint64_t)(uintptr_t)stack_bottom; hi = (uint64_t)(uintptr_t)stack_top; }
+#else
+    (void)cpu; (void)t;
+#endif
+    if (__atomic_load_n(&c->halted, __ATOMIC_ACQUIRE)) trace_line(out, "now at ", c->halt_rip, c->halt_rbp, lo, hi);
+    else if (c == this_cpu()) out("[KIRA SCHED]     (this core reports)\n");
+    else out("[KIRA SCHED]     did not answer the halt NMI\n");
+    trace_line(out, "last irq entered at ", c->irq_rip, c->irq_rbp, lo, hi);
+}
+
+/* Остальные ядра получили аварийное NMI: подождать (до ~50 мс), пока они запишут, где стояли. */
+void sched_crash_wait_halted(void) {
+#ifndef KIRA_HOST_TEST
+    uint64_t khz = tsc_khz ? tsc_khz : 1000000, t0 = rdtsc();
+    for (;;) {
+        unsigned pending = 0;
+        for (unsigned i = 0; i < percpu_count(); i++) {
+            const percpu_t* c = &percpu_table[i];
+            if (c != this_cpu() && c->online && !__atomic_load_n(&c->halted, __ATOMIC_ACQUIRE)) pending++;
+        }
+        if (!pending || rdtsc() - t0 > khz * 50) return;
+        __asm__ volatile ("pause");
+    }
+#endif
+}
+
 void sched_crash_report(void (*out)(const char*)) {
     static const char* const st[] = { "unused", "ready", "RUNNING", "sleep", "zombie", "blocked" };
     out("[KIRA SCHED] ticks "); put_num(out, timer_get_ticks());
     out(", next wake "); put_num(out, next_wake == ~0ULL ? 0 : next_wake);
-    out(", ready epoch "); put_num(out, ready_epoch); out("\n");
+    out(", ready epoch "); put_num(out, ready_epoch);
+    out(", sched_lock next "); put_num(out, sched_lock.next); out(" owner "); put_num(out, sched_lock.owner);
+#ifndef KIRA_HOST_TEST
+    out(", reported by core "); put_num(out, this_cpu()->cpu_id);
+#endif
+    out("\n");
     for (unsigned i = 0; i < percpu_count(); i++) {
         const percpu_t* c = &percpu_table[i];
         out("[KIRA SCHED] core "); put_num(out, i);

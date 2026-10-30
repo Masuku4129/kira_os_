@@ -45,6 +45,9 @@ typedef struct percpu {
     uint32_t irq_pad;             /* 172 */
     volatile uint64_t irq_rip;    /* 176: где ядро было прервано последним IRQ (диагностика зависаний) */
     volatile uint64_t irq_rbp;    /* 184: RBP прерванного кода ядра (цепочка вызовов; 0 - прервана программа) */
+    volatile uint64_t halt_rip;   /* 192: где ядро стояло, когда его остановило аварийное NMI (дамп зависания) */
+    volatile uint64_t halt_rbp;   /* 200 */
+    volatile uint32_t halted;     /* 208: ядро встало по аварийному NMI и записало halt_rip */
 } percpu_t;
 
 extern percpu_t percpu_table[PERCPU_MAX_CPUS];

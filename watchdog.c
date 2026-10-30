@@ -34,11 +34,14 @@ void watchdog_trigger_panic(const char* reason) {
     __asm__ volatile ("cli");
     smp_halt_others();                // остановить остальные ядра: иначе «система остановлена» было бы неправдой
     spin_bust_locks();                // замок мог держать зависший код: отчёт не должен на нём встать
+    sched_crash_wait_halted();        // ядра записывают, где стояли: отчёт покажет место зависания
     uart_print("\n[KIRA KERNEL PANIC] Fatal: ");
     uart_print(reason);
     uart_print("\n[KIRA WATCHDOG] last feed at tick ");
     uart_print_dec(__atomic_load_n(&last_feed_tick, __ATOMIC_ACQUIRE));
     uart_print(". State at the moment of the hang:\n");
+    { uint32_t n, o; timer_lock_state(&n, &o);
+      uart_print("[KIRA WATCHDOG] tick_lock next "); uart_print_dec(n); uart_print(" owner "); uart_print_dec(o); uart_print("\n"); }
     sched_crash_report(uart_print);
     uart_print("[KIRA WATCHDOG] Halting execution immediately.\n");
     uart_flush_all();

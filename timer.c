@@ -66,6 +66,7 @@ void timer_handler(void) {
 }
 
 uint64_t timer_get_irqs(void) { return irqs; }
+void timer_lock_state(uint32_t* next, uint32_t* owner) { *next = tick_lock.next; *owner = tick_lock.owner; }
 
 uint64_t timer_get_ticks(void) {
     return ticks;

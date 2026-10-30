@@ -14,6 +14,7 @@ void timer_handler(void);
 // Программы и «человеческие» величины считают в тиках по 10 мс (прежние 100 Гц): ABI не меняется при смене частоты.
 #define TIMER_PER_10MS (TIMER_HZ / 100)
 uint64_t timer_get_ticks(void);
+void timer_lock_state(uint32_t* next, uint32_t* owner);   /* для аварийного отчёта */
 uint64_t timer_get_irqs(void);   // сколько прерываний таймера реально пришло (тики при потерях догоняются по TSC)
 
 #endif

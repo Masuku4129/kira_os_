@@ -54,6 +54,11 @@ ALL = [
         {"log_forbid": [r"\(FAIL\)", r"isolation broken", r"ipc (server|client): FAIL", r"mt: FAIL"] + NO_ERR},
         {"responsive": "status", "within": 5},
     ]),
+    sc("soak-8cpu", "8 ядер, 30 с жизни с фоновой нагрузкой: зависаний и аварий нет", [
+        {"log": BOOT_LOG}, {"sleep": 8}, {"send": "plasma"}, {"sleep": 10}, {"cmd": "test smp"}, {"sleep": 12},
+        {"responsive": "status", "within": 3},
+        {"log_forbid": NO_ERR + [r"KERNEL PANIC"]},
+    ], smp=8, mem="4G"),
     sc("smp", "проверка ядер: расчёт, замок, вытеснение на всех ядрах", [
         {"log": [r"Processors online: 8"]},
         {"cmd": "test smp", "must": [r"started \d+ worker"]},
