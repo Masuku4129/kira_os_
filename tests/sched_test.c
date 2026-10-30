@@ -355,6 +355,34 @@ int main(void) {
     memset(cpu_ticks, 0, sizeof cpu_ticks);
     for (int i = 0; i < 2000; i++) tick();
     CHECK(cpu_ticks[wb->id] >= 2000 * 45 / 100 && cpu_ticks[wb->id] <= 2000 * 55 / 100);
+    sched_set_proc_limit(502, 100);
+
+    // ---- 9. рефлекс: проснувшийся поток программы в фокусе (вес 6) вытесняет фоновый (вес 4) сразу, не дожидаясь
+    //         конца кванта; вытесненный фон идёт следующим с остатком кванта, а не в хвост ----
+    {
+        sched_set_quantum(20);
+        thread_t* fg = sched_create("fg", dummy, 0, PRIO_NORMAL);
+        fg->pid = 503;
+        sched_set_proc_weight(503, 6);
+        thread_t* bg2 = sched_create("bg2", dummy, 0, PRIO_NORMAL);
+        bg2->pid = 504;
+        for (int i = 0; i < 200 && sched_current() != fg; i++) tick();
+        CHECK(sched_current() == fg);
+        sched_sleep_ticks(5);                                    // фокус ждёт ввода
+        for (int i = 0; i < 200 && !(sched_current() != fg && sched_current()->quantum_left > 10); i++) tick();
+        thread_t* running_bg = (thread_t*)sched_current();
+        CHECK(running_bg != fg && running_bg->weight == 4);
+        fg->wake_tick = fake_ticks + 1;
+        sched_set_wake_tick(fg, fake_ticks + 1);
+        tick();                                                  // срок: фокус проснулся
+        CHECK(sched_current() == fg);                            // и пошёл сразу, хотя у фона квант не кончился
+        CHECK(running_bg->state == THREAD_READY && running_bg->quantum_left > 0);
+        sched_sleep_ticks(1000);                                 // фокус снова ждёт: идёт вытесненный фон, с остатком
+        CHECK(sched_current() == running_bg);
+        fg->state = THREAD_ZOMBIE; bg2->state = THREAD_ZOMBIE;
+        if (sched_current() == bg2) sched_yield();
+        sched_set_quantum(4);
+    }
 
     printf("%s\n", fails ? "FAILED" : "ALL SCHEDULER TESTS PASSED");
     return fails != 0;

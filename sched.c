@@ -153,6 +153,21 @@ static void rq_push(unsigned cpu, thread_t* t, int front) {
     q->cnt[p]++; q->n++; rq_total[p]++;
 }
 
+/* Вытесненный, не доживший до конца кванта: в голову своей очереди, но после более тяжёлых (рефлекс поставил их туда
+   именно для того, чтобы они пошли раньше). */
+static void rq_push_preempted(unsigned cpu, thread_t* t) {
+    runq_t* q = &rq[cpu];
+    unsigned p = (unsigned)t->prio;
+    thread_t* after = 0;
+    for (thread_t* x = q->head[p]; x && x->weight > t->weight; x = x->rq_next) after = x;
+    if (!after) { rq_push(cpu, t, 1); return; }
+    t->rq_cpu = (int32_t)cpu;
+    t->rq_prev = after; t->rq_next = after->rq_next;
+    if (after->rq_next) after->rq_next->rq_prev = t; else q->tail[p] = t;
+    after->rq_next = t;
+    q->cnt[p]++; q->n++; rq_total[p]++;
+}
+
 static void rq_remove(thread_t* t) {
     if (t->rq_cpu < 0) return;
     runq_t* q = &rq[t->rq_cpu];
@@ -171,9 +186,19 @@ static unsigned cpu_load(unsigned c) {
 }
 /* Поток класса p начнёт исполняться на ядре c сразу: ядро простаивает или занято менее важным, и в его очереди нет
    работы того же или более важного класса. */
-static int runs_now(unsigned c, unsigned p) {
+/* Рефлекс (нижний уровень Разума): вес потока - политика, которую задаёт Разум (программа в фокусе - 6, голодающая -
+   8, обычная - 4). Проснувшийся поток с большим весом не ждёт конца чужого кванта в своём классе: он вытесняет
+   более лёгкий поток того же класса сразу (микросекунды, без участия Разума). Только при пробуждении - вытесненный
+   поток стоит в голове очереди с остатком кванта, поэтому перекидывания туда-обратно нет. */
+static int outranks(const thread_t* t, const thread_t* cur) {
+    if (t->prio != cur->prio) return t->prio > cur->prio;
+    return t->prio > PRIO_IDLE && t->weight > (cur->weight ? cur->weight : SCHED_WEIGHT_NORMAL);
+}
+
+static int runs_now(unsigned c, const thread_t* t) {
     const percpu_t* pc = &percpu_table[c];
-    if (pc->current && pc->current != pc->idle && (unsigned)pc->current->prio >= p) return 0;
+    unsigned p = (unsigned)t->prio;
+    if (pc->current && pc->current != pc->idle && !outranks(t, pc->current)) return 0;
     for (unsigned k = p; k < NPRIO; k++) if (rq[c].cnt[k]) return 0;
     return 1;
 }
@@ -181,13 +206,13 @@ static int runs_now(unsigned c, unsigned p) {
 /* Куда поставить готовый поток: на ядро, где он пойдёт сразу (прежнее ядро - первым: его кэш ещё тёплый), иначе на
    наименее загруженное разрешённое (при равенстве - прежнее). */
 static unsigned choose_cpu(const thread_t* t) {
-    unsigned n = percpu_count(), last = t->last_cpu, p = (unsigned)t->prio;
+    unsigned n = percpu_count(), last = t->last_cpu;
     int last_ok = cpu_usable(last) && cm_test(&t->affinity, last);
-    if (last_ok && runs_now(last, p)) return last;
+    if (last_ok && runs_now(last, t)) return last;
     unsigned best = ~0u, best_load = ~0u, now_cpu = ~0u;
     for (unsigned c = 0; c < n; c++) {
         if (!cpu_usable(c) || !cm_test(&t->affinity, c)) continue;
-        if (now_cpu == ~0u && runs_now(c, p)) now_cpu = c;
+        if (now_cpu == ~0u && runs_now(c, t)) now_cpu = c;
         unsigned l = cpu_load(c);
         if (l < best_load) { best = c; best_load = l; }
     }
@@ -275,12 +300,12 @@ static void make_ready_locked(thread_t* t) {
     t->ready_since = timer_get_ticks();
     ready_epoch++;
     unsigned c = choose_cpu(t);
-    rq_push(c, t, 0);
+    rq_push(c, t, t->weight > SCHED_WEIGHT_NORMAL);       /* тяжёлый (фокус, голодающий) - в голову очереди */
     percpu_t* me = this_cpu();
     percpu_t* pc = &percpu_table[c];
     if (!pc->sched_on || !sched_ready) return;
-    if (pc == me) { if (t->prio > me->current->prio) me->need_resched = 1; }
-    else if (pc->current == pc->idle || t->prio > pc->current->prio) RESCHED_CPU(c);
+    if (pc == me) { if (me->current == me->idle || outranks(t, me->current)) me->need_resched = 1; }
+    else if (pc->current == pc->idle || outranks(t, pc->current)) RESCHED_CPU(c);
 }
 
 // Завершает переключение уже на стеке нового потока: прежний поток теперь можно запускать где угодно,
@@ -320,7 +345,10 @@ static void schedule_locked(void) {
         // Вытеснен, не дожив до конца кванта: встаёт в голову своей очереди и
         // сохраняет остаток (иначе поток с частыми прерываниями получал бы новый квант
         // каждый раз и никогда не уступал бы); истративший квант - в хвост.
-        if (!(prev->flags & THREAD_F_IDLE)) rq_push(cpu->cpu_id, prev, prev->quantum_left > 0);
+        if (!(prev->flags & THREAD_F_IDLE)) {
+            if (prev->quantum_left > 0) rq_push_preempted(cpu->cpu_id, prev);
+            else rq_push(cpu->cpu_id, prev, 0);
+        }
     }
     thread_t* next = pick_next(cpu->cpu_id, prev);
 
