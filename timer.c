@@ -13,8 +13,8 @@
 static volatile uint64_t ticks = 0;
 static volatile uint64_t irqs = 0;
 static uint64_t anchor_ns, anchor_ticks;
-static int anchored;
-static spinlock_t tick_lock = SPINLOCK_INIT;     /* общее время обновляют все ядра: каждое получает тик своего LAPIC */
+static volatile int anchored;
+static spinlock_t tick_lock = SPINLOCK_INIT;     /* только для однократной установки точки отсчёта */
 
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
@@ -47,19 +47,27 @@ void timer_handler(void) {
     /* Ядра равнозначны: каждое получает тик своего таймера LAPIC и обновляет общее время (оно выводится из TSC и
        только растёт, поэтому порядок ядер не важен). Падение любого ядра не оставляет систему без часов. */
     __atomic_fetch_add(&irqs, 1, __ATOMIC_RELAXED);
-    spin_lock_raw(&tick_lock);                       /* в обработчике прерывания IF уже 0 */
     /* Часы TSC точнее счёта прерываний: если эмулятор или нагрузка потеряли часть прерываний таймера,
-       тики догоняют реальное время, и сон, кванты по времени и «жизнь» не отстают. */
+       тики догоняют реальное время, и сон, кванты по времени и «жизнь» не отстают.
+       Общий счётчик двигают все ядра без замка (сравнение-обмен, только вперёд): тик не должен стоять в очереди
+       за другими ядрами - на виртуальной машине, где ядер больше, чем у хозяина, такая очередь растягивалась. */
     if (clock_ready()) {
-        if (!anchored) { anchor_ns = clock_ns(); anchor_ticks = ticks; anchored = 1; ticks++; }
-        else {
+        if (!__atomic_load_n(&anchored, __ATOMIC_ACQUIRE)) {
+            spin_lock_raw(&tick_lock);                   /* один раз за жизнь: точка отсчёта */
+            if (!anchored) {
+                anchor_ns = clock_ns(); anchor_ticks = ticks + 1;
+                __atomic_store_n(&ticks, anchor_ticks, __ATOMIC_RELEASE);
+                __atomic_store_n(&anchored, 1, __ATOMIC_RELEASE);
+            }
+            spin_unlock_raw(&tick_lock);
+        } else {
             uint64_t d = anchor_ticks + (clock_ns() - anchor_ns) / (1000000000ULL / TIMER_HZ);
-            if (d > ticks) ticks = d;
+            uint64_t cur = __atomic_load_n(&ticks, __ATOMIC_RELAXED);
+            while (d > cur && !__atomic_compare_exchange_n(&ticks, &cur, d, 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) { }
         }
     } else {
-        ticks++;
+        __atomic_fetch_add(&ticks, 1, __ATOMIC_RELEASE);
     }
-    spin_unlock_raw(&tick_lock);
     uart_tick_flush();
     watchdog_check();
     sched_tick(); // пробуждение спящих, учёт кванта; само вытеснение - после EOI

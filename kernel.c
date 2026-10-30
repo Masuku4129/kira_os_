@@ -274,6 +274,16 @@ void kernel_main(unsigned long magic, unsigned long addr) {
                 uart_print(" at RIP "); uart_print_hex(gs_fixup_rip); uart_print(", times "); uart_print_dec(n); uart_print("\n");
             }
         }
+        {   /* машина стояла целиком (хозяин приостановил ВМ): сообщить, сторож этот промежуток не засчитал */
+            extern volatile uint64_t watchdog_stalls, watchdog_stall_max;
+            static uint64_t seen_stalls;
+            uint64_t n = watchdog_stalls;
+            if (n != seen_stalls) {
+                seen_stalls = n;
+                uart_print("[KIRA WATCHDOG] the whole machine stood still (longest "); uart_print_dec(watchdog_stall_max * 1000 / TIMER_HZ);
+                uart_print(" ms, times "); uart_print_dec(n); uart_print("): host paused the VM; not counted as a hang\n");
+            }
+        }
         sched_sleep_ticks(TIMER_PER_10MS);
     }
 }

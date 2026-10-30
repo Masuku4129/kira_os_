@@ -23,7 +23,23 @@ void watchdog_feed(void) {
     __atomic_store_n(&last_feed_tick, timer_get_ticks(), __ATOMIC_RELEASE);
 }
 
+/* Остановка всей машины - не зависание системы. Хранитель времени тикает всегда (каждые 2 мс), поэтому если между
+   двумя проверками прошло больше 200 мс, машина стояла целиком: хозяин приостановил виртуальную машину (эмулятор
+   на телефоне, перегруженный сервер) или все ядра одновременно были с выключенными прерываниями. Время TSC при
+   этом ушло вперёд, но ни один поток не мог исполняться - этот промежуток не засчитывается кормящему потоку. */
+#define WATCHDOG_STALL (TIMER_HZ / 5)
+static volatile uint64_t last_check_tick;
+volatile uint64_t watchdog_stalls, watchdog_stall_max;     /* сколько раз и на сколько тиков машина стояла */
+
 void watchdog_check(void) {
+    uint64_t now = timer_get_ticks();
+    uint64_t prev = __atomic_load_n(&last_check_tick, __ATOMIC_ACQUIRE);
+    while (now > prev && !__atomic_compare_exchange_n(&last_check_tick, &prev, now, 1, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) { }
+    if (prev && now > prev && now - prev > WATCHDOG_STALL) {
+        __atomic_fetch_add(&last_feed_tick, now - prev, __ATOMIC_ACQ_REL);
+        __atomic_fetch_add(&watchdog_stalls, 1, __ATOMIC_RELAXED);
+        if (now - prev > watchdog_stall_max) watchdog_stall_max = now - prev;
+    }
     uint64_t last = __atomic_load_n(&last_feed_tick, __ATOMIC_ACQUIRE);
     if (timer_get_ticks() - last > WATCHDOG_TIMEOUT_LIMIT) {
         watchdog_trigger_panic("Watchdog timeout: System thread hang detected!");

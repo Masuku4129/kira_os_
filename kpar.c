@@ -8,6 +8,9 @@ void kpar_run(kpar_fn fn, void* ctx, uint32_t n) { for (uint32_t i = 0; i < n; i
 #include "sched.h"
 #include "spinlock.h"
 #include "uart.h"
+#include "clock.h"
+#include "timer.h"
+#include "cpu.h"
 
 /* Работа выдаётся «билетами»: старшие 32 бита - номер поколения, младшие - номер следующей части. Помощник берёт
    часть только сравнением-обменом с ожидаемым поколением, поэтому опоздавший помощник (проснулся, когда это
@@ -22,6 +25,7 @@ static volatile uint32_t done;
 static kpar_fn cur_fn;
 static void* cur_ctx;
 static uint32_t cur_n;
+static thread_t* volatile caller;    /* поток kpar_run, уснувший до конца поколения (0 - никто не спит) */
 
 static uint32_t work(uint32_t g, kpar_fn fn, void* ctx, uint32_t n) {
     uint32_t did = 0;
@@ -32,7 +36,13 @@ static uint32_t work(uint32_t g, kpar_fn fn, void* ctx, uint32_t n) {
         fn(ctx, (uint32_t)t);
         did++;
     }
-    if (did) __atomic_add_fetch(&done, did, __ATOMIC_ACQ_REL);
+    if (did && __atomic_add_fetch(&done, did, __ATOMIC_ACQ_REL) == n && __atomic_load_n(&caller, __ATOMIC_ACQUIRE)) {
+        uint64_t f = spin_lock_irqsave(&lk);           /* последняя часть: разбудить ждущего вызывающего */
+        thread_t* c = caller;
+        caller = 0;
+        if (c) sched_wake_waiter(c);
+        spin_unlock_irqrestore(&lk, f);
+    }
     return did;
 }
 
@@ -84,6 +94,20 @@ void kpar_run(kpar_fn fn, void* ctx, uint32_t n) {
         if (sleeping[i]) { sleeping[i] = 0; sched_wake_waiter(helper[i]); woke++; }
     spin_unlock_irqrestore(&lk, f);
     work(g, fn, ctx, n);
-    while (__atomic_load_n(&done, __ATOMIC_ACQUIRE) < n) __asm__ volatile ("pause");   /* части короткие (доли мс) */
+    /* Части короткие: сначала короткое ожидание на месте. Если помощник с частью вытеснен (другим потоком или, на
+       виртуальной машине, самим хозяином), вызывающий не жжёт ядро до конца кванта, а спит до последней части. */
+    uint64_t t0 = rdtsc(), spin = clock_tsc_khz() / 20;        /* ~50 мкс */
+    while (__atomic_load_n(&done, __ATOMIC_ACQUIRE) < n) {
+        if (!spin || rdtsc() - t0 < spin || !sched_can_sleep()) { __asm__ volatile ("pause"); continue; }
+        f = spin_lock_irqsave(&lk);
+        caller = (thread_t*)sched_current();                     /* сначала объявиться, потом проверить: */
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);                  /* иначе последний помощник мог не увидеть ждущего */
+        if (__atomic_load_n(&done, __ATOMIC_ACQUIRE) >= n) { caller = 0; spin_unlock_irqrestore(&lk, f); break; }
+        sched_wait_and_unlock(&lk, TIMER_HZ / 50);                /* страховка: 20 мс, затем проверить снова */
+        irq_restore(f);
+        f = spin_lock_irqsave(&lk);
+        caller = 0;
+        spin_unlock_irqrestore(&lk, f);
+    }
 }
 #endif

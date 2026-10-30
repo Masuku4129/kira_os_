@@ -432,6 +432,26 @@ void sched_tick(void) {
     unsigned id = cpu->cpu_id;
     thread_t* cur = cpu->current;
 
+    /* Обычный тик обходится без общего замка: квант и доля процессора текущего потока принадлежат этому ядру.
+       Замок нужен, только когда есть что решать: настал срок пробуждения, холостое ядро может взять работу, квант
+       кончился. Иначе каждое ядро брало бы замок 500 раз в секунду, и на виртуальной машине, где ядер больше, чем
+       у хозяина, очередь за замком (ожидающий ядро-поток вытеснен хозяином) останавливала всех. */
+    int need = now >= __atomic_load_n(&next_wake, __ATOMIC_RELAXED);
+    if (cur == cpu->idle) {
+        need |= cpu->seen_epoch != __atomic_load_n(&ready_epoch, __ATOMIC_RELAXED);
+    } else {
+        if (cur->limit && cur->limit < 100) {           /* ограничение доли процессора (Разум) */
+            if (now - cur->lim_start >= SCHED_LIMIT_WINDOW) { cur->lim_start = now; cur->lim_used = 0; }
+            if (++cur->lim_used * 100 >= cur->limit * SCHED_LIMIT_WINDOW) {
+                cur->throttled_until = cur->lim_start + SCHED_LIMIT_WINDOW;
+                cpu->need_resched = 1;
+            }
+        }
+        if (cur->quantum_left > 0) cur->quantum_left--;
+        need |= cur->quantum_left == 0 && !cpu->need_resched;
+    }
+    if (!need) return;
+
     spin_lock_raw(&sched_lock);
     if (now >= next_wake) {
         uint64_t nw = ~0ULL;
@@ -459,25 +479,15 @@ void sched_tick(void) {
                 if (threads[i].prio != PRIO_IDLE && runnable_on(&threads[i], id, cur)) { cpu->need_resched = 1; break; }
             }
         }
-    } else {
-        if (cur->limit && cur->limit < 100) {           /* ограничение доли процессора (Разум) */
-            if (now - cur->lim_start >= SCHED_LIMIT_WINDOW) { cur->lim_start = now; cur->lim_used = 0; }
-            if (++cur->lim_used * 100 >= cur->limit * SCHED_LIMIT_WINDOW) {
-                cur->throttled_until = cur->lim_start + SCHED_LIMIT_WINDOW;
+    } else if (cur->quantum_left == 0 && !cpu->need_resched) {
+        for (unsigned i = 0; i < thread_hi; i++) {
+            const thread_t* t = &threads[i];
+            if (t != cur && t->prio != PRIO_IDLE && runnable_on(t, id, cur) && t->prio >= cur->prio) {
                 cpu->need_resched = 1;
+                break;
             }
         }
-        if (cur->quantum_left > 0) cur->quantum_left--;
-        if (cur->quantum_left == 0) {
-            for (unsigned i = 0; i < thread_hi; i++) {
-                const thread_t* t = &threads[i];
-                if (t != cur && t->prio != PRIO_IDLE && runnable_on(t, id, cur) && t->prio >= cur->prio) {
-                    cpu->need_resched = 1;
-                    break;
-                }
-            }
-            if (!cpu->need_resched) cur->quantum_left = wq(cur); // конкурентов нет - новый квант
-        }
+        if (!cpu->need_resched) cur->quantum_left = wq(cur); // конкурентов нет - новый квант
     }
     spin_unlock_raw(&sched_lock);
 }
