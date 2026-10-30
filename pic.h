@@ -22,6 +22,6 @@ int  irq_has_handler(unsigned irq);
 void irq_unregister_handler(unsigned irq);
 
 // Вызывается из ассемблерной заглушки с номером вектора (32..47)
-void irq_dispatch(uint64_t vector, uint64_t cs);   /* cs - сегмент прерванного кода (Ring 3: проверка завершения процесса) */
+void irq_dispatch(uint64_t vector, uint64_t cs, uint64_t rip, uint64_t rbp);   /* cs - сегмент прерванного кода (Ring 3: проверка завершения процесса) */
 
 #endif

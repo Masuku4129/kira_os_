@@ -109,14 +109,17 @@ static int is_spurious(unsigned char irq) {
     return 0;
 }
 
-void irq_dispatch(uint64_t vector, uint64_t cs) {
+void irq_dispatch(uint64_t vector, uint64_t cs, uint64_t rip, uint64_t rbp) {
     unsigned char irq = (unsigned char)(vector - 32);
     if (irq >= 16) return;
 
     int via_apic = (eoi_apic_mask >> irq) & 1;
     if (!via_apic && is_spurious(irq)) return;
 
-    this_cpu()->irq_depth++;
+    percpu_t* me = this_cpu();
+    me->irq_rip = rip;                        // где стояло ядро: по этому дамп watchdog показывает место зависания
+    me->irq_rbp = (cs & 3) ? 0 : rbp;
+    me->irq_depth++;
     if (irq_handlers[irq]) {
         irq_handlers[irq]();
     } else {

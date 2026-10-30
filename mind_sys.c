@@ -17,6 +17,7 @@
 #include "cpu.h"
 #include "devhealth.h"
 #include "usb.h"
+#include "kmutex.h"
 
 #define MODEL_PATH   "/var/mind.dat"
 #define PROF_DIR     "/var/mind"
@@ -37,7 +38,10 @@ static thread_info_t* tinfo;
 static unsigned tcap;
 static uint64_t prev_idle[256], prev_total[256], prev_loops, prev_late, prev_blk_n, prev_blk_t, prev_msgs, prev_sw;
 static uint32_t prev_faults;
-static volatile int req_mode = -1, req_fx = -1, req_rtc = -1;
+static volatile int req_mode = -1, req_fx = -1, req_rtc = -1, req_cap = -1;
+static kmutex_t mmx = KMUTEX_INIT;
+static thread_info_t* tt_info; static unsigned tt_cap;
+static void tact_main(void* arg);          /* секундный шаг и тактика меняют одни и те же записи Разума */
 static volatile int32_t req_tz = 0x7FFFFFFF;
 
 /* ---------------- исполнители ---------------- */
@@ -285,7 +289,11 @@ void mind_sys_init(void) {
     mind_init(&M, have ? &saved : 0, cores ? cores : 1);
     tcap = sched_thread_capacity();
     tinfo = (thread_info_t*)kmalloc(sizeof(thread_info_t) * tcap);
+    tt_cap = tcap;
+    tt_info = (thread_info_t*)kmalloc(sizeof(thread_info_t) * tt_cap);
     ready = 1;
+    if (tt_info && !sched_create("mind-tact", tact_main, 0, PRIO_CRITICAL))
+        uart_print("[KIRA MIND] cannot start the fast (tactical) loop.\n");
     publish();
     uart_print("[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), ");
     uart_print("tunes the scheduler quantum by measurement, limits background programs when the screen is late, ");
@@ -317,8 +325,11 @@ void mind_sys_tick(uint64_t seconds) {
     if (req_fx >= 0) { mind_set_fx_user(&M, req_fx, &act); req_fx = -1; mind_sys_save(); }
     if (req_tz != 0x7FFFFFFF) { M.m.tz_min = req_tz; req_tz = 0x7FFFFFFF; mind_sys_save(); }
     if (req_rtc >= 0) { M.m.rtc_local = (uint8_t)req_rtc; req_rtc = -1; mind_sys_save(); }
+    if (req_cap >= 0) { M.m.core_cap = (uint8_t)req_cap; req_cap = -1; mind_sys_save(); }
     gather(seconds);
+    kmutex_lock(&mmx);
     mind_step(&M, &S, &act);
+    kmutex_unlock(&mmx);
     /* Новые записи журнала - в журнал ядра (видны в консоли и в последовательном порту). */
     uint32_t fresh = M.jn - printed;
     if (fresh > MIND_JOURNAL) fresh = MIND_JOURNAL;
@@ -343,6 +354,74 @@ void mind_sys_tick(uint64_t seconds) {
     if (telemetry) uart_print(line); else uart_print_serial(line);
     if (seconds - last_save >= SAVE_PERIOD) { last_save = seconds; mind_sys_save(); }
 }
+
+/* ---- тактика: ~40 раз в секунду ---- */
+static struct { uint32_t pid; uint64_t cyc; } tt_prev[MIND_TACT_MAXP];
+static uint64_t tt_idle[PERCPU_MAX_CPUS], tt_total[PERCPU_MAX_CPUS], tt_loops, tt_late;
+static mind_tact_in_t TI;
+static uint64_t tt_cyc[MIND_TACT_MAXP];
+
+static void tact_main(void* arg) {
+    (void)arg;
+    uint64_t last = clock_ms();
+    for (;;) {
+        sched_sleep_ticks(TIMER_HZ >= 40 ? TIMER_HZ / 40 : 1);
+        uint64_t now = clock_ms(), khz = clock_tsc_khz();
+        uint32_t win = (uint32_t)(now - last);
+        if (!khz || win == 0) { last = now; continue; }
+        last = now;
+        mind_tact_in_t* in = &TI;
+        in->t_ms = (uint32_t)now; in->window_ms = win; in->nproc = 0; in->busy_x10 = 0; in->fg_wait_ms = 0;
+        unsigned n = percpu_count(), cores = 0;
+        for (unsigned i = 0; i < n && i < PERCPU_MAX_CPUS; i++) {
+            uint64_t idle, total, sw;
+            if (sched_cpu_stats(i, &idle, &total, &sw) != 0) continue;
+            uint64_t di = idle - tt_idle[i], dt = total - tt_total[i];
+            tt_idle[i] = idle; tt_total[i] = total;
+            if (dt) in->busy_x10 += (uint32_t)(1000 - (di >= dt ? 1000 : di * 1000 / dt));
+            cores++;
+        }
+        in->cores = cores ? cores : 1;
+        uint64_t loops, late, gap;
+        display_get_stats(&loops, &late, &gap);
+        in->loops = (uint32_t)(loops - tt_loops); in->late = (uint32_t)(late - tt_late);
+        tt_loops = loops; tt_late = late;
+        int focus = gfx_focus_pid();
+        unsigned nt = sched_snapshot(tt_info, tt_cap);
+        for (unsigned i = 0; i < nt; i++) {
+            const thread_info_t* t = &tt_info[i];
+            uint32_t wms = (uint32_t)(t->waiting * 1000 / TIMER_HZ);
+            if ((t->pid == 0 && t->prio != PRIO_IDLE) || (focus > 0 && t->pid == (uint32_t)focus))
+                if (wms > in->fg_wait_ms) in->fg_wait_ms = wms;
+            if (!t->pid) continue;
+            unsigned k = 0;
+            while (k < in->nproc && in->p[k].pid != t->pid) k++;
+            if (k == in->nproc) {
+                if (k >= MIND_TACT_MAXP) continue;
+                in->p[k].pid = t->pid; in->p[k].threads = 0; in->p[k].cpu_x10 = 0; in->nproc++;
+                tt_cyc[k] = 0;
+            }
+            in->p[k].threads++;
+            tt_cyc[k] += t->cpu_cycles;
+        }
+        for (unsigned k = 0; k < in->nproc; k++) {                       /* такты за окно -> доля ядра */
+            uint64_t prev = 0;
+            for (unsigned j = 0; j < MIND_TACT_MAXP; j++) if (tt_prev[j].pid == in->p[k].pid) { prev = tt_prev[j].cyc; break; }
+            uint64_t dc = tt_cyc[k] >= prev ? tt_cyc[k] - prev : 0;
+            in->p[k].cpu_x10 = (uint32_t)(dc * 1000 / (khz * win));
+        }
+        for (unsigned j = 0; j < MIND_TACT_MAXP; j++) {
+            tt_prev[j].pid = j < in->nproc ? in->p[j].pid : 0;
+            tt_prev[j].cyc = j < in->nproc ? tt_cyc[j] : 0;
+        }
+        kmutex_lock(&mmx);
+        mind_tact_step(&M, in, &act);
+        kmutex_unlock(&mmx);
+    }
+}
+
+void mind_sys_request_cap(int pct) { if (pct >= 10 && pct <= 100) req_cap = pct; }
+unsigned mind_sys_core_cap(void) { return mind_core_cap(&M); }
 
 void mind_sys_request_mode(int mode) { req_mode = mode ? MIND_ACT : MIND_OBSERVE; }
 void mind_sys_request_fx(int fx) { if (fx >= 0 && fx <= MIND_FX_AUTO) req_fx = fx; }

@@ -584,6 +584,38 @@ static void put_num(void (*out)(const char*), uint64_t v) {
     out(&b[i]);
 }
 
+static void put_hex(void (*out)(const char*), uint64_t v) {
+    char b[19]; b[0] = '0'; b[1] = 'x';
+    for (int i = 0; i < 16; i++) b[2 + i] = "0123456789abcdef"[(v >> (60 - 4 * i)) & 0xF];
+    b[18] = 0; out(b);
+}
+
+#ifndef KIRA_HOST_TEST
+extern char stack_bottom[], stack_top[];      /* стек запуска (boot.s): на нём живёт поток core */
+#endif
+
+// Где ядро стояло при последнем прерывании и цепочка вызовов (ядро собрано с указателями кадров).
+// Кадры читаются только внутри стека этого потока, поэтому обход не может сам упасть на чужой памяти.
+static void crash_trace(void (*out)(const char*), unsigned cpu, const percpu_t* c, const thread_t* t) {
+    out("[KIRA SCHED]   core "); put_num(out, cpu); out(" last irq at "); put_hex(out, c->irq_rip);
+    uint64_t lo = 0, hi = 0;
+#ifndef KIRA_HOST_TEST
+    if (t && t->stack_base) { lo = (uint64_t)(uintptr_t)t->stack_base; hi = lo + SCHED_STACK_SIZE; }
+    else if (t && cpu == 0) { lo = (uint64_t)(uintptr_t)stack_bottom; hi = (uint64_t)(uintptr_t)stack_top; }
+#endif
+    uint64_t fp = c->irq_rbp;
+    if (fp && lo) {
+        out(" calls");
+        for (int n = 0; n < 10 && fp >= lo && fp + 16 <= hi && !(fp & 7); n++) {
+            const uint64_t* f = (const uint64_t*)(uintptr_t)fp;
+            out(" "); put_hex(out, f[1]);
+            if (f[0] <= fp) break;                /* кадры идут только вверх по стеку */
+            fp = f[0];
+        }
+    }
+    out("\n");
+}
+
 void sched_crash_report(void (*out)(const char*)) {
     static const char* const st[] = { "unused", "ready", "RUNNING", "sleep", "zombie", "blocked" };
     out("[KIRA SCHED] ticks "); put_num(out, timer_get_ticks());
@@ -597,6 +629,7 @@ void sched_crash_report(void (*out)(const char*)) {
         out(": running '"); out(t ? t->name : "?"); out("'");
         if (t) { out(" prio "); put_num(out, t->prio); out(", quantum left "); put_num(out, t->quantum_left); }
         out(", irq depth "); put_num(out, c->irq_depth); out(", locks "); put_num(out, c->locks_held); out("\n");
+        crash_trace(out, i, c, t);
     }
     if (threads && thread_hi) {
         const thread_t* core = &threads[0];

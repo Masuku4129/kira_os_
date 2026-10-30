@@ -31,7 +31,12 @@ def sc(name, about, steps, **kw):
 
 
 ALL = [
-    sc("boot-virtio", "загрузка: virtio-blk, 4 ядра, базовые проверки", BASIC + [{"log": [r"Processors online: 4"]}]),
+    sc("boot-virtio", "загрузка: virtio-blk, 4 ядра, базовые проверки", BASIC + [
+        {"log": [r"Processors online: 4", r"parallel helpers: 3"]},
+        {"cmd": "ps", "must": [r"mind-tact", r"par-0"]},
+        {"cmd": "ai cap", "must": [r"предел загрузки ядер фоном сейчас 50%"]},
+        {"cmd": "ai cap 70", "must": [r"70%"]},
+    ]),
     sc("boot-ata", "загрузка: IDE (как в Limbo)", BASIC, disk="ata", smp=2),
     sc("boot-sata", "загрузка: AHCI (SATA) на плате q35", BASIC + [{"log": [r"\[KIRA AHCI\] sata0"]}], disk="sata", machine="q35"),
     sc("boot-nvme", "загрузка: NVMe", BASIC + [{"log": [r"\[KIRA NVMe\] nvme0n1"]}], disk="nvme"),

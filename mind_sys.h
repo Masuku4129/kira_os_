@@ -54,6 +54,9 @@ void mind_sys_request_rtc_local(int on);
 /* Допуск запуска программы (вызывает загрузчик). same - сколько копий уже работает. 1 - можно; 0 - нет,
    причина в why. Пределы - mind_launch_limits по текущему здоровью и числу ядер. */
 int  mind_sys_admit(const char* name, unsigned same, char* why, unsigned cap);
+/* Предел загрузки ядер фоном, когда системе или окну в фокусе не хватает процессора (10..100 %). */
+void mind_sys_request_cap(int pct);
+unsigned mind_sys_core_cap(void);
 int  mind_sys_rtc_local(void);
 int32_t mind_sys_local_offset(void);
 

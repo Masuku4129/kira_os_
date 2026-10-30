@@ -275,6 +275,7 @@ static void apply_weight(mind_t* s, mind_track_t* t, uint32_t w, const mind_act_
 
 static void apply_limit(mind_track_t* t, const mind_act_t* act) {
     uint32_t want = (t->flagged == 1 || t->throttled_bg) ? 50 : 100;
+    if (t->tact_limit && t->tact_limit < want) want = t->tact_limit;
     if (t->limit == want) return;
     t->limit = want;
     if (act->set_limit) act->set_limit(t->pid, want);
@@ -316,12 +317,13 @@ static void processes(mind_t* s, const mind_sample_t* in, const mind_act_t* act,
             mzero(t, sizeof *t);
             t->alive = 1; t->pid = p->pid; scopy(t->name, p->name, sizeof t->name);
             t->last_sysc = p->syscalls; t->last_cyc = p->cpu_cycles;
-            t->weight = 4; t->limit = 100;
+            t->weight = 4; t->limit = 100; t->threads = p->threads;
             if (act->profile_get && act->profile_get(t->name, &t->prof) == 0) t->has_profile = 1;
             if (t->has_profile && t->prof.runs >= 4 && t->prof.crashes * 2 > t->prof.runs)
                 jlog(s, now, MJ_BEHAVIOR, 0, t->pid, "%s часто падает: %u аварий из %u запусков", t->name, t->prof.crashes, t->prof.runs);
             continue;
         }
+        t->threads = p->threads;
         uint64_t dc = p->cpu_cycles >= t->last_cyc ? p->cpu_cycles - t->last_cyc : 0;
         uint64_t ds = p->syscalls >= t->last_sysc ? p->syscalls - t->last_sysc : 0;
         t->last_cyc = p->cpu_cycles; t->last_sysc = p->syscalls;
@@ -541,6 +543,69 @@ static void memory(mind_t* s, const mind_sample_t* in, const mind_act_t* act, ui
 /* ---------------- устройства и иммунитет ввода ---------------- */
 
 static int same_name(const char* a, const char* b) { int i = 0; while (i < 16 && a[i] == b[i] && a[i]) i++; return i == 16 || a[i] == b[i]; }
+
+unsigned mind_core_cap(const mind_t* s) { return s->m.core_cap ? s->m.core_cap : 50; }
+
+void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) {
+    s->tact_steps++;
+    int acting = s->m.mode == MIND_ACT;
+    uint32_t cores = in->cores ? in->cores : 1;
+    for (unsigned k = 0; k < in->nproc && k < MIND_TACT_MAXP; k++) {
+        mind_track_t* t = track_of(s, in->p[k].pid);
+        if (t) t->tact_cpu_x10 = in->p[k].cpu_x10;
+    }
+    uint32_t bg = 0, nbg = 0;
+    for (int i = 0; i < MIND_PROC_MAX; i++) {
+        mind_track_t* t = &s->tr[i];
+        if (!t->alive || t->pid == s->focus_pid) continue;
+        bg += t->tact_cpu_x10; nbg++;
+    }
+    uint32_t fg = in->busy_x10 > bg ? in->busy_x10 - bg : 0;
+    int pressure = (in->late > 0) || in->fg_wait_ms > 20;
+    uint32_t cap_x10 = mind_core_cap(s) * 10 * cores;
+    uint32_t budget = cap_x10 > fg ? cap_x10 - fg : 0;
+    if (budget < 50 * nbg) budget = 50 * nbg;                     /* фон не останавливается совсем: от 5% каждому */
+    if (pressure && nbg && bg > budget) {
+        s->tact_calm_ms = 0;
+        s->tact_budget_x10 = budget;
+        for (int i = 0; i < MIND_PROC_MAX; i++) {
+            mind_track_t* t = &s->tr[i];
+            if (!t->alive || t->pid == s->focus_pid || t->tact_cpu_x10 < 20) continue;
+            uint32_t share = (uint32_t)((uint64_t)t->tact_cpu_x10 * budget / bg);       /* % x10 процесса */
+            uint32_t thr = t->threads ? t->threads : 1;
+            uint32_t lim = share / 10 / thr;
+            if (lim < 5) lim = 5;
+            if (lim >= 100) continue;
+            if (t->tact_limit && t->tact_limit <= lim) continue;           /* уже не мягче нужного */
+            t->tact_limit = lim;
+            if (acting) apply_limit(t, act);
+            s->tact_actions++;
+        }
+        if (!s->tact_on || in->t_ms - s->tact_logged_ms >= 2000) {
+            jlog(s, in->t_ms / 1000, MJ_LIMIT, acting, 0, "%sтактика: %s - фон ужат до %u%% ядер (предел %u%%)",
+                 acting ? "" : "(наблюдение) ", in->late ? "экран опаздывает" : "система ждёт процессор",
+                 budget / 10 / cores, mind_core_cap(s));
+            s->tact_logged_ms = in->t_ms;
+        }
+        s->tact_on = 1;
+    } else if (s->tact_on) {
+        s->tact_calm_ms += in->window_ms;
+        if (!pressure && s->tact_calm_ms >= 400) {                         /* спокойно: отпускать по четверти */
+            int any = 0;
+            for (int i = 0; i < MIND_PROC_MAX; i++) {
+                mind_track_t* t = &s->tr[i];
+                if (!t->alive || !t->tact_limit) continue;
+                uint32_t nl = t->tact_limit * 5 / 4 + 1;
+                t->tact_limit = nl >= 100 ? 0 : nl;
+                if (acting) apply_limit(t, act);
+                any |= t->tact_limit != 0;
+            }
+            s->tact_calm_ms = 200;                                         /* следующий шаг - через ~0,2 с */
+            if (!any) { s->tact_on = 0; jlog(s, in->t_ms / 1000, MJ_RESTORE, acting, 0, "тактика: давления нет - фон снова без пределов"); }
+        }
+    }
+    s->tact_last_ms = in->t_ms;
+}
 
 void mind_launch_limits(const mind_t* s, unsigned cores, mind_launch_t* out) {
     if (cores < 1) cores = 1;

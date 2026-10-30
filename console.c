@@ -417,6 +417,18 @@ static void cmd_ai(const char* arg) {
     if (word_eq(arg, "why")) { mind_sys_print("why"); return; }
     if (word_eq(arg, "norms")) { mind_sys_print("norms"); return; }
     if (word_eq(arg, "procs")) { mind_sys_print("procs"); return; }
+    if (arg[0] == 'c' && arg[1] == 'a' && arg[2] == 'p' && (arg[3] == ' ' || !arg[3])) {
+        const char* v = arg + 3; while (*v == ' ') v++;
+        int n = 0; while (*v >= '0' && *v <= '9') n = n * 10 + (*v++ - '0');
+        if (n < 10 || n > 100) {
+            uart_print("предел загрузки ядер фоном сейчас "); uart_print_dec(mind_sys_core_cap());
+            uart_print("%: когда экран опаздывает или система ждёт процессор, фон получает не больше этой доли всех ядер.\n"
+                       "изменить: ai cap 10..100\n");
+            return;
+        }
+        mind_sys_request_cap(n); uart_print("предел загрузки ядер фоном: "); uart_print_dec((uint64_t)n); uart_print("%\n");
+        return;
+    }
     if (word_eq(arg, "act")) { mind_sys_request_mode(1); uart_print("Разум: режим управления (применится в течение секунды)\n"); return; }
     if (word_eq(arg, "observe")) { mind_sys_request_mode(0); uart_print("Разум: режим наблюдения - решения только записываются, всё изменённое возвращается к обычному\n"); return; }
     if (arg[0] == 'f' && arg[1] == 'x' && arg[2] == ' ') {

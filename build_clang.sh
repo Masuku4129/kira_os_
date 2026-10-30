@@ -12,7 +12,7 @@
 set -e
 
 CC="clang --target=x86_64-unknown-none-elf"
-COMMON="-ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -O2 -Wall -Wextra -Werror"
+COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -O2 -Wall -Wextra -Werror"
 # Ядро собирается БЕЗ SSE/MMX: обработчики прерываний не трогают регистры xmm,
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2"

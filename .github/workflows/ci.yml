@@ -30,7 +30,13 @@ jobs:
       - name: tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools
       - name: build (clang, -Werror)
-        run: ./build_clang.sh --no-run
+        run: |
+          ./build_clang.sh --no-run
+          mkdir -p sym && nm -n kira.bin > sym/kira.sym
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vm-symbols
+          path: sym/kira.sym
       - uses: actions/upload-artifact@v4
         with:
           name: kira-image

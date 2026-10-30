@@ -46,6 +46,8 @@ mb_info:
 
 section .text
 global start
+global stack_bottom
+global stack_top
 extern kernel_main
 
 start:

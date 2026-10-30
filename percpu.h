@@ -42,6 +42,9 @@ typedef struct percpu {
     uint64_t tsc_rtt;             /* 152: время обмена при этом замере (точность оценки), такты */
     uint64_t seen_epoch;          /* 160: эпоха готовых потоков, которую холостое ядро уже просмотрело */
     volatile uint32_t tick_off;   /* 168: ядро простаивает и выключило свой тик (будят межъядерным прерыванием) */
+    uint32_t irq_pad;             /* 172 */
+    volatile uint64_t irq_rip;    /* 176: где ядро было прервано последним IRQ (диагностика зависаний) */
+    volatile uint64_t irq_rbp;    /* 184: RBP прерванного кода ядра (цепочка вызовов; 0 - прервана программа) */
 } percpu_t;
 
 extern percpu_t percpu_table[PERCPU_MAX_CPUS];

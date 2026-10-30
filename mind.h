@@ -107,7 +107,8 @@ typedef struct {
     uint32_t magic, version;
     mind_norm_t norm[MIND_SIG_N];
     uint8_t  q_best[8];        /* лучший квант (x10 мс) по группам числа ядер; 0 - не выучен */
-    uint8_t  mode, fx_user, rtc_local, reserved;   /* rtc_local: часы ПК идут по местному времени (Windows, Limbo/QEMU localtime) */
+    uint8_t  mode, fx_user, rtc_local, core_cap;   /* rtc_local: часы ПК идут по местному времени (Windows, Limbo/QEMU localtime);
+                                                     core_cap: предел загрузки ядер фоном при нехватке, % (0 - по умолчанию 50) */
     int32_t  tz_min;           /* часовой пояс для часов в оболочке, минуты от UTC */
     uint32_t lifetime_s, decisions, anomalies, kills, tune_trials, tune_wins;
     uint32_t crc;
@@ -120,7 +121,10 @@ typedef struct {
     char     name[16];
     uint64_t last_sysc, last_cyc;
     uint32_t seen, cpu_sum_x10, sysc_sum, heap_peak, sysc_rate, cpu_x10;
+    uint32_t threads;
     uint32_t weight, limit;
+    uint32_t tact_limit;       /* тактический предел доли на поток, % (0 - нет) */
+    uint32_t tact_cpu_x10;     /* доля одного ядра за последнее окно тактики, % x10 */
     uint32_t odd_s, calm_s;
     uint8_t  has_profile, flagged, throttled_bg, alive;
     mind_profile_t prof;
@@ -167,6 +171,9 @@ typedef struct {
     char     dev_last[16];
     uint32_t hid_blocked;
     uint32_t denied_launches;                 /* отклонено запусков за прошлую секунду (заполняет обвязка) */
+    /* тактика (десятки мс) */
+    uint32_t tact_on, tact_calm_ms, tact_last_ms, tact_logged_ms, tact_steps, tact_actions;
+    uint32_t tact_budget_x10;                 /* сколько процессора отдано фону при последнем ограничении */
     char     denied_name[16];
 } mind_t;
 
@@ -177,6 +184,23 @@ void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act);
    Зависит от числа ядер и здоровья: при тревоге копий меньше и запуски реже. Доверенная программа - не значит
    безлимитная: спам запусками одной программы останавливается здесь. */
 typedef struct { uint32_t max_same, rate_same, rate_total; } mind_launch_t;
+
+/* ---- тактика: каждые ~25 мс ----
+   Быстрый контур поверх секундного Разума: если экран опаздывает или системные потоки и программа в фокусе ждут
+   процессор, фоновые программы ужимаются так, чтобы фон занимал не больше core_cap% всех ядер (предел загрузки
+   ядер); нет давления ~0,4 с - пределы плавно отпускаются. Когда ждать некому, фон работает на всех ядрах. */
+#define MIND_TACT_MAXP 256
+typedef struct {
+    uint32_t t_ms, window_ms;
+    uint32_t cores;
+    uint32_t busy_x10;         /* занятость всех ядер за окно, % x10 (сумма по ядрам, до cores*1000) */
+    uint32_t loops, late;      /* циклы дисплея за окно и опоздавшие */
+    uint32_t fg_wait_ms;       /* дольше всех ждущий готовый поток ядра или программы в фокусе */
+    uint32_t nproc;
+    struct { uint32_t pid, threads, cpu_x10; } p[MIND_TACT_MAXP];   /* cpu_x10 - доля одного ядра за окно */
+} mind_tact_in_t;
+void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act);
+unsigned mind_core_cap(const mind_t* s);
 void mind_launch_limits(const mind_t* s, unsigned cores, mind_launch_t* out);
 void mind_set_mode(mind_t* s, int mode, const mind_act_t* act);
 void mind_set_fx_user(mind_t* s, int fx, const mind_act_t* act);

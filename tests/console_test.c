@@ -70,6 +70,8 @@ int mind_sys_telemetry(void) { return tele; }
 static char mind_req[32];
 void mind_sys_print(const char* w) { snprintf(mind_req, sizeof mind_req, "print:%s", w); emit("[MIND]\n"); }
 void mind_sys_request_mode(int m) { snprintf(mind_req, sizeof mind_req, "mode:%d", m); }
+void mind_sys_request_cap(int p) { snprintf(mind_req, sizeof mind_req, "cap:%d", p); }
+unsigned mind_sys_core_cap(void) { return 50; }
 void mind_sys_request_fx(int f) { snprintf(mind_req, sizeof mind_req, "fx:%d", f); }
 void mind_sys_view(mind_view_t* v) { memset(v, 0, sizeof *v); v->health = 91; strcpy(v->mood, "спокойна"); v->mode = 1; v->quantum_ms = 30; }
 uint64_t timer_get_ticks(void) { return 0; }

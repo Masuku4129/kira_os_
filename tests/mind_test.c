@@ -223,6 +223,41 @@ int main(void) {
         CHECK(journal_has("не допущено запусков: 7 (последний: plasma)"));
     }
 
-    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission passed");
+    /* тактика: экран опаздывает - фон ужимается до предела ядер за доли секунды; спокойно - пределы отпускаются */
+    {
+        mind_t* d = &M; mind_init(d, 0, 4);
+        for (uint32_t t = 1; t <= 3; t++) {
+            base(t);
+            add_proc(10, "editor", (uint64_t)t * 300000000ull, t * 50, 100, 1);
+            add_proc(20, "render", (uint64_t)t * 1000000000ull, t * 50, 100, 0);
+            add_proc(30, "miner", (uint64_t)t * 1000000000ull, t * 50, 100, 0);
+            mind_step(d, &S, &act);
+        }
+        limit[10] = limit[20] = limit[30] = 100;
+        static mind_tact_in_t ti; memset(&ti, 0, sizeof ti);
+        ti.cores = 4; ti.window_ms = 25; ti.busy_x10 = 2300; ti.loops = 2; ti.late = 1; ti.nproc = 3;
+        ti.p[0].pid = 10; ti.p[0].threads = 1; ti.p[0].cpu_x10 = 300;
+        ti.p[1].pid = 20; ti.p[1].threads = 1; ti.p[1].cpu_x10 = 1000;
+        ti.p[2].pid = 30; ti.p[2].threads = 1; ti.p[2].cpu_x10 = 1000;
+        ti.t_ms = 4000; mind_tact_step(d, &ti, &act);
+        /* фон 200% ядра, на переднем плане 30%, предел 50% от 4 ядер = 200%: фону остаётся 170%, по 85% каждому */
+        CHECK(limit[20] == 85 && limit[30] == 85 && limit[10] == 100 && journal_has("тактика: экран опаздывает"));
+        ti.late = 0; ti.fg_wait_ms = 0;
+        ti.p[1].cpu_x10 = ti.p[2].cpu_x10 = 850; ti.busy_x10 = 2000;
+        for (int k = 0; k < 15; k++) { ti.t_ms += 25; mind_tact_step(d, &ti, &act); }
+        CHECK(limit[20] == 85);                                  /* 0,4 с спокойствия ещё не прошли */
+        for (int k = 0; k < 60; k++) { ti.t_ms += 25; mind_tact_step(d, &ti, &act); }
+        CHECK(limit[20] == 100 && limit[30] == 100 && !d->tact_on && journal_has("фон снова без пределов"));
+        /* без давления фон не трогается, даже если он занимает все ядра */
+        ti.p[1].cpu_x10 = ti.p[2].cpu_x10 = 2000; ti.busy_x10 = 4000;
+        ti.t_ms += 25; mind_tact_step(d, &ti, &act);
+        CHECK(limit[20] == 100 && !d->tact_on);
+        /* наблюдение: записывает, но не применяет */
+        mind_set_mode(d, MIND_OBSERVE, &act); ti.late = 2; ti.t_ms += 25; mind_tact_step(d, &ti, &act);
+        CHECK(limit[20] == 100 && journal_has("(наблюдение) тактика"));
+        mind_tact_step(d, &ti, &none);
+    }
+
+    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap) passed");
     return fails != 0;
 }

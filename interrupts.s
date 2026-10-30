@@ -255,6 +255,8 @@ irq_common_stub:
     cld
     mov rdi, [rsp + 136]        ; вектор
     mov rsi, [rsp + 160]        ; CS прерванного кода: из Ring 3 - проверить, не завершается ли процесс
+    mov rdx, [rsp + 152]        ; RIP прерванного кода (диагностика зависаний)
+    mov rcx, [rsp + 80]         ; его RBP (сохранён среди регистров: 64 + 16 байт флага GS)
     call irq_dispatch
     GS_LEAVE
 
