@@ -210,6 +210,19 @@ int main(void) {
         base(46); S.hid_suspect = 1; mind_step(d, &S, &none);    /* без исполнителя - без падения */
     }
 
-    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity passed");
+    /* допуск запусков: при тревоге копий меньше и запуски реже; не допущенные - в журнал */
+    {
+        mind_t* d = &M; mind_init(d, 0, 8);
+        mind_launch_t L;
+        d->health = 95; mind_launch_limits(d, 8, &L);
+        CHECK(L.max_same == 16 && L.rate_same == 8 && L.rate_total == 20);
+        d->health = 50; mind_launch_limits(d, 8, &L); CHECK(L.max_same == 8);
+        d->health = 30; mind_launch_limits(d, 8, &L); CHECK(L.max_same == 4 && L.rate_same == 4);
+        d->health = 30; mind_launch_limits(d, 1, &L); CHECK(L.max_same == 2 && L.rate_same == 2);
+        base(5); S.denied = 7; strcpy(S.denied_name, "plasma"); mind_step(d, &S, &act);
+        CHECK(journal_has("не допущено запусков: 7 (последний: plasma)"));
+    }
+
+    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission passed");
     return fails != 0;
 }

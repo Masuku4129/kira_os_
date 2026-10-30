@@ -71,6 +71,8 @@ typedef struct {
     uint32_t hid_suspect;      /* устройств ввода задержано рефлексом за секунду */
     uint32_t hid_rate;         /* их скорость, нажатий/с */
     char     hid_name[16];
+    uint32_t denied;           /* запусков, не допущенных за секунду */
+    char     denied_name[16];
 } mind_sample_t;
 
 /* Профиль программы (хранится на диске между запусками). */
@@ -164,10 +166,18 @@ typedef struct {
     uint32_t dev_last_t, dev_err_s, dev_warned;
     char     dev_last[16];
     uint32_t hid_blocked;
+    uint32_t denied_launches;                 /* отклонено запусков за прошлую секунду (заполняет обвязка) */
+    char     denied_name[16];
 } mind_t;
 
 void mind_init(mind_t* s, const mind_model_t* saved, unsigned cores);   /* saved - с диска или 0 */
 void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act);
+
+/* Допуск запусков: сколько копий одной программы и сколько запусков в секунду система выдержит сейчас.
+   Зависит от числа ядер и здоровья: при тревоге копий меньше и запуски реже. Доверенная программа - не значит
+   безлимитная: спам запусками одной программы останавливается здесь. */
+typedef struct { uint32_t max_same, rate_same, rate_total; } mind_launch_t;
+void mind_launch_limits(const mind_t* s, unsigned cores, mind_launch_t* out);
 void mind_set_mode(mind_t* s, int mode, const mind_act_t* act);
 void mind_set_fx_user(mind_t* s, int fx, const mind_act_t* act);
 

@@ -104,6 +104,40 @@ static const mind_act_t act = { a_quantum, a_weight, a_limit, a_fx, a_trim, a_re
 
 /* ---------------- замеры ---------------- */
 
+/* ---- допуск запусков ---- */
+static spinlock_t adm_lock = SPINLOCK_INIT;
+static struct { char name[16]; uint64_t win_ms; uint32_t n; } adm[64];
+static uint64_t adm_win_ms; static uint32_t adm_total, adm_denied;
+static char adm_denied_name[16];
+
+static void put(char* out, unsigned cap, unsigned* k, const char* s) { while (*s && *k + 1 < cap) out[(*k)++] = *s++; out[*k] = 0; }
+static void put_n(char* out, unsigned cap, unsigned* k, uint32_t v) { char t[12]; int n = 0; do { t[n++] = (char)('0' + v % 10); v /= 10; } while (v); while (n && *k + 1 < cap) out[(*k)++] = t[--n]; out[*k] = 0; }
+static int same_name16(const char* a, const char* b) { for (int i = 0; i < 16; i++) { if (a[i] != b[i]) return 0; if (!a[i]) return 1; } return 1; }
+
+int mind_sys_admit(const char* name, unsigned same, char* why, unsigned cap) {
+    mind_launch_t L;
+    mind_launch_limits(&M, percpu_count(), &L);
+    uint64_t now = clock_ms();
+    unsigned k = 0; if (cap) why[0] = 0;
+    uint64_t f = spin_lock_irqsave(&adm_lock);
+    if (now - adm_win_ms >= 1000) { adm_win_ms = now; adm_total = 0; }
+    int slot = -1, oldest = 0;
+    for (int i = 0; i < 64; i++) {
+        if (adm[i].name[0] && same_name16(adm[i].name, name)) { slot = i; break; }
+        if (adm[i].win_ms < adm[oldest].win_ms) oldest = i;
+    }
+    if (slot < 0) { slot = oldest; int i = 0; for (; name[i] && i < 15; i++) adm[slot].name[i] = name[i]; adm[slot].name[i] = 0; adm[slot].win_ms = now; adm[slot].n = 0; }
+    if (now - adm[slot].win_ms >= 1000) { adm[slot].win_ms = now; adm[slot].n = 0; }
+    int ok = 1;
+    if (same >= L.max_same) { ok = 0; put(why, cap, &k, "уже "); put_n(why, cap, &k, same); put(why, cap, &k, " копий - предел сейчас "); put_n(why, cap, &k, L.max_same); }
+    else if (adm[slot].n >= L.rate_same) { ok = 0; put(why, cap, &k, "больше "); put_n(why, cap, &k, L.rate_same); put(why, cap, &k, " запусков в секунду"); }
+    else if (adm_total >= L.rate_total) { ok = 0; put(why, cap, &k, "система запускает больше "); put_n(why, cap, &k, L.rate_total); put(why, cap, &k, " программ в секунду"); }
+    if (ok) { adm[slot].n++; adm_total++; }
+    else { adm_denied++; int i = 0; for (; name[i] && i < 15; i++) adm_denied_name[i] = name[i]; adm_denied_name[i] = 0; }
+    spin_unlock_irqrestore(&adm_lock, f);
+    return ok;
+}
+
 static void gather(uint64_t seconds) {
     mind_sample_t* s = &S;
     __builtin_memset(s, 0, sizeof *s);
@@ -149,6 +183,12 @@ static void gather(uint64_t seconds) {
 
     devhealth_take(&s->dev_errors, s->dev_name);
     devhealth_hid_take(&s->hid_suspect, &s->hid_rate, s->hid_name);
+    {
+        uint64_t f = spin_lock_irqsave(&adm_lock);
+        s->denied = adm_denied; adm_denied = 0;
+        for (int i = 0; i < 16; i++) s->denied_name[i] = adm_denied_name[i];
+        spin_unlock_irqrestore(&adm_lock, f);
+    }
 
     static proc_stat_t ps[MIND_PROC_MAX];                   /* 256 записей - не на стек потока */
     unsigned np = proc_stats(ps, MIND_PROC_MAX);
@@ -310,6 +350,7 @@ void mind_sys_request_tz(int32_t minutes) { if (minutes >= -720 && minutes <= 84
 void mind_sys_set_telemetry(int on) { telemetry = on != 0; }
 int  mind_sys_telemetry(void) { return telemetry; }
 int32_t mind_sys_tz(void) { return M.m.tz_min; }
+
 void mind_sys_request_rtc_local(int on) { req_rtc = on ? 1 : 0; }
 int  mind_sys_rtc_local(void) { return M.m.rtc_local != 0; }
 int32_t mind_sys_local_offset(void) { return M.m.rtc_local ? 0 : M.m.tz_min; }

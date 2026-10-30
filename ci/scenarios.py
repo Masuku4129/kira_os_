@@ -74,6 +74,7 @@ ALL = [
         {"log": BOOT_LOG},
         *[{"send": "plasma"} for _ in range(20)],
         {"sleep": 10}, {"shot": "spam"},
+        {"log": [r"не допущен"]},                         # бюджет Разума: 20 копий за секунду не проходят
         {"responsive": "status", "within": 3},
         {"cmd": "ps", "must": [r"plasma"]},
         {"cmd": "smp"},

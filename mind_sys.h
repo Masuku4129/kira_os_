@@ -51,6 +51,9 @@ int32_t mind_sys_tz(void);
 /* Часы ПК (CMOS) идут по UTC (Linux, QEMU по умолчанию) или по местному времени (Windows, Limbo). Отсюда - сколько
    минут прибавить к времени часов, чтобы получить местное: пояс или 0. */
 void mind_sys_request_rtc_local(int on);
+/* Допуск запуска программы (вызывает загрузчик). same - сколько копий уже работает. 1 - можно; 0 - нет,
+   причина в why. Пределы - mind_launch_limits по текущему здоровью и числу ядер. */
+int  mind_sys_admit(const char* name, unsigned same, char* why, unsigned cap);
 int  mind_sys_rtc_local(void);
 int32_t mind_sys_local_offset(void);
 

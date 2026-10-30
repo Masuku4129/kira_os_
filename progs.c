@@ -11,6 +11,7 @@
 #include "manifest.h"      /* создаётся сборкой (kfstool manifest) */
 #include "heap.h"
 #include "pmm.h"
+#include "mind_sys.h"
 
 /* Размер программы ограничен только памятью: образ читается в буфер из кучи по размеру файла, но не больше
    четверти свободной ОЗУ (остальное нужно самой программе и системе). */
@@ -38,6 +39,20 @@ static void hex(const uint8_t* d, unsigned n) {
 int prog_run(const char* name) {
     if (!kfs_mounted()) { uart_print("[PROG] нет файловой системы\n"); return -1; }
     if (!name_ok(name)) { uart_print("[PROG] недопустимое имя программы\n"); return -1; }
+    {                                                                      /* допуск: бюджет Разума */
+        static proc_stat_t ps[256];
+        unsigned np = proc_stats(ps, 256), same = 0;
+        for (unsigned i = 0; i < np; i++) {
+            unsigned k = 0; while (k < 15 && ps[i].name[k] && ps[i].name[k] == name[k]) k++;
+            if (!ps[i].dying && ps[i].name[k] == name[k]) same++;
+        }
+        char why[96];
+        if (!mind_sys_admit(name, same, why, sizeof why)) {
+            uart_print("[KIRA MIND] запуск "); uart_print(name); uart_print(" не допущен: "); uart_print(why); uart_print("\n");
+            life_note("denied-launch", name, (int)same);
+            return -4;
+        }
+    }
     char path[NAME_MAX + 8]; unsigned n = 0;
     for (const char* p = "/bin/"; *p; p++) path[n++] = *p;
     for (const char* p = name; *p; p++) path[n++] = *p;

@@ -542,6 +542,19 @@ static void memory(mind_t* s, const mind_sample_t* in, const mind_act_t* act, ui
 
 static int same_name(const char* a, const char* b) { int i = 0; while (i < 16 && a[i] == b[i] && a[i]) i++; return i == 16 || a[i] == b[i]; }
 
+void mind_launch_limits(const mind_t* s, unsigned cores, mind_launch_t* out) {
+    if (cores < 1) cores = 1;
+    uint32_t same = cores * 2;
+    if (s->health && s->health < 60) same = cores;
+    if (s->health && s->health < 40) same = cores / 2;
+    if (same < 2) same = 2;
+    if (same > 64) same = 64;
+    out->max_same = same;
+    out->rate_same = cores < 3 ? 3 : cores;             /* burnall запускает по копии на ядро разом */
+    out->rate_total = 2 * out->rate_same + 4;
+    if (s->health && s->health < 40) { out->rate_same = (out->rate_same + 1) / 2; out->rate_total = (out->rate_total + 1) / 2; }
+}
+
 static void devices(mind_t* s, const mind_sample_t* in, const mind_act_t* act, uint32_t now) {
     if (in->dev_errors) {
         s->stab_debt += in->dev_errors > 10 ? 30 : in->dev_errors * 3;     /* сбой железа - удар по стабильности */
@@ -559,6 +572,11 @@ static void devices(mind_t* s, const mind_sample_t* in, const mind_act_t* act, u
     } else if (s->dev_err_s) {
         s->dev_err_s = 0;
         s->dev_warned = 0;
+    }
+    if (in->denied) {
+        jlog(s, now, MJ_LIMIT, 1, 0, "не допущено запусков: %u (последний: %s) - больше, чем выдержит система",
+             in->denied, in->denied_name);
+        s->denied_launches = in->denied;
     }
     if (in->hid_suspect) {
         int block = s->m.mode == MIND_ACT;
