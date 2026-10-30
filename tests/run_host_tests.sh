@@ -1,0 +1,197 @@
+#!/bin/bash
+# Хост-тесты ядра (без QEMU). Нужны gcc (или clang), nasm.
+set -e
+cd "$(dirname "$0")/.."
+CC=${CC:-gcc}
+FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -no-pie"
+SSE="-msse2 -mfpmath=sse -fno-math-errno"
+T=$(mktemp -d)
+
+echo "== logic (sha256, immune) =="
+$CC $FLAGS -o $T/logic tests/logic_test.c immune.c sha256.c \
+    -Wl,--defsym=ro_start=ro_area -Wl,--defsym=ro_end=ro_area+256 \
+    -Wl,--defsym=text_start=text_area -Wl,--defsym=text_end=text_area+512
+$T/logic
+
+echo "== kernel heap (size classes, large page runs, ownership table, bad frees, random load, OOM) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/heap tests/heap_test.c heap.c
+$T/heap
+
+echo "== kernel string functions (rep movsb/stosb, overlap both ways) =="
+$CC -O1 -Wall -fno-builtin -Dmemcpy=k_memcpy -Dmemmove=k_memmove -Dmemset=k_memset -Dmemcmp=k_memcmp -c mem.c -o $T/kmem.o
+$CC -O1 -Wall -o $T/mem tests/mem_test.c $T/kmem.o
+$T/mem
+
+echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
+$CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
+$T/pmm | head -4
+
+echo "== ramext (mapping RAM above 1 GB) =="
+$CC $FLAGS -o $T/ramext tests/ramext_test.c ramext.c
+$T/ramext
+
+echo "== scheduler policy (incl. regression: pulsing critical thread) =="
+$CC $FLAGS -o $T/sched tests/sched_test.c sched.c scale.c percpu.c
+$T/sched
+
+echo "== REAL context switch + FXSAVE/FXRSTOR (context.s, 3 threads, xmm live across switches) =="
+RF="-O1 -g -Wall -DKIRA_HOST_TEST -I. -no-pie -fno-omit-frame-pointer -mno-red-zone"
+nasm -f elf64 context.s -o $T/context.o
+$CC $RF -DKIRA_HOST_REAL_FPU -mno-sse -c sched.c -o $T/sched_r.o
+$CC $RF -mno-sse -c percpu.c -o $T/percpu.o
+$CC $RF -mno-sse -c scale.c -o $T/scale.o
+$CC $RF -mno-sse -c tests/tick_hook.c -o $T/hook.o
+$CC $RF -DKIRA_HOST_REAL_FPU -c tests/ctx_fpu_test.c -o $T/ctx.o
+$CC -no-pie -o $T/ctx_fpu $T/ctx.o $T/sched_r.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
+$T/ctx_fpu
+$CC $RF -mno-sse -c sched.c -o $T/sched_n.o
+$CC $RF -c tests/ctx_fpu_test.c -o $T/ctx_n.o
+$CC -no-pie -o $T/ctx_fpu_n $T/ctx_n.o $T/sched_n.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
+$T/ctx_fpu_n --nofpu
+
+echo "== input layer (PS/2 decoder, ring, overflow) =="
+$CC $FLAGS -o $T/input tests/input_test.c input.c
+$T/input
+
+echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
+$CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
+$T/acpi
+
+echo "== IOAPIC (ISO resolution, redirection encoding) =="
+$CC $FLAGS -o $T/ioapic tests/ioapic_test.c ioapic.c
+$T/ioapic
+
+echo "== persistent store (CRC32, A/B generations, torn write, corruption) =="
+$CC $FLAGS -o $T/store tests/store_test.c store.c
+$T/store
+
+echo "== KiraFS (files, dirs, crash at every write, corruption fuzz) =="
+$CC $FLAGS -fsanitize=address,undefined -Itests -o $T/kfs tests/kfs_test.c tests/kfs_v1_ref.c kfs.c store.c
+$T/kfs
+
+echo "== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS over virtio) =="
+$CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c kfs.c store.c
+$T/virtio
+
+echo "== programs: ELF validation, trust manifest, life log in KiraFS =="
+$CC $FLAGS -O1 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c
+if ls userland/*.elf >/dev/null 2>&1; then $T/kfstool manifest userland/*.elf | sed 's/PROG_MANIFEST/TEST_MANIFEST/g' > tests/manifest_test.h
+else printf '#include "trust.h"\nstatic const trust_entry_t TEST_MANIFEST[] = { { "none", {0} } };\n#define TEST_MANIFEST_COUNT 0\n' > tests/manifest_test.h; fi
+$CC $FLAGS -fsanitize=undefined -Itests -o $T/prog tests/prog_test.c elf.c trust.c life.c kfs.c store.c sha256.c
+$T/prog
+rm -f tests/manifest_test.h
+
+echo "== program file service (sandbox /data/<name>) =="
+$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c kfs.c store.c
+$T/fsrv
+$CC $FLAGS -fsanitize=undefined -Itests/stub -o $T/paint tests/paint_test.c fsrv.c kfs.c store.c
+$T/paint
+
+echo "== spinlock (ticket lock: real threads, mutual exclusion, FIFO, panic bust; ThreadSanitizer) =="
+$CC ${FLAGS//-I./-iquote .} -O2 -fsanitize=thread -o $T/spin tests/spinlock_test.c -lpthread
+$T/spin
+
+echo "== SMP (AP selection, ICR commands, percpu table) =="
+$CC $FLAGS -o $T/kmutex tests/kmutex_test.c kmutex.c sched.c scale.c percpu.c
+$T/kmutex
+
+echo "== kernel objects: ports, shared memory, handles, futex =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kobj tests/kobj_test.c kobj.c futex.c percpu.c
+$T/kobj
+
+echo "== core fault isolation decision + per-core log line buffer =="
+$CC $FLAGS -o $T/corefault tests/corefault_test.c corefault.c linebuf.c
+$T/corefault
+
+echo "== scaling: size policy and scheduler on 1, 2, 3, 4, 8, 16, 64 cores =="
+$CC $FLAGS -o $T/scale tests/scale_test.c scale.c sched.c percpu.c
+for n in 1 2 3 4 8 16 64 65 128 256; do $T/scale $n; done
+$CC $FLAGS -o $T/smp tests/smp_test.c smp.c percpu.c
+$T/smp
+
+echo "== user program log (prefix per line, interleaving) =="
+$CC $FLAGS -fsanitize=undefined -o $T/ulog tests/userlog_test.c userlog.c
+$T/ulog
+
+echo "== early window (bootmap page tables) =="
+$CC $FLAGS -fsanitize=undefined -o $T/bootmap tests/bootmap_test.c bootmap.c
+$T/bootmap
+
+echo "== early output (Multiboot2 above 1 GB, early console RGB/text, crash dump) =="
+$CC $FLAGS -fsanitize=undefined,address -o $T/early tests/early_test.c mbinfo.c earlycon.c crashdump.c klog.c font8x16.c
+$T/early
+
+echo "== program heap policy (machine-dependent quota, memory reserve) =="
+$CC $FLAGS -fsanitize=undefined -o $T/uheap tests/uheap_test.c uheap.c
+$T/uheap
+
+echo "== hardware profile (CPUID decoding on synthetic CPUs, scaling limits) =="
+$CC $FLAGS -fsanitize=undefined -o $T/hw tests/hwprofile_test.c hwprofile.c uheap.c
+$T/hw
+
+echo "== user programs: cube3d (3D renderer, z-buffer in heap), fpu, burn =="
+$CC $FLAGS $SSE -Itests -fsanitize=undefined -o $T/cube3d tests/cube3d_test.c
+$T/cube3d
+$CC $FLAGS $SSE -Itests -o $T/fpuburn tests/fpu_burn_test.c
+$T/fpuburn
+
+echo "== graphics (2D, UTF-8, font, clock, klog, fbcon) =="
+$CC $FLAGS -o $T/gfx tests/gfx_test.c gfx2d.c font8x16.c clock.c klog.c fbcon.c
+$T/gfx
+
+echo "== console command line (Enter, backspace, history, clear, Ctrl keys) =="
+$CC $FLAGS -o $T/console tests/console_test.c console.c hwprofile.c uheap.c percpu.c
+$T/console
+
+echo "== UI primitives (angles, arcs, anti-aliasing) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/ui tests/ui_test.c gfxui.c gfx2d.c font8x16.c -lm
+$T/ui
+
+echo "== mind (norms, anomalies, health, quantum self-tuning, memory, focus, starvation, behavior, persistence) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c
+$T/mind
+
+echo "== real-time clock (calendar, CMOS decode, epoch, Russian date) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/rtc tests/rtc_test.c rtc.c
+$T/rtc
+
+echo "== explorer tree (KiraFS listing: order, nesting, limits) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/explorer tests/explorer_test.c explorer.c
+ASAN_OPTIONS=detect_leaks=0 $T/explorer
+
+echo "== USB: HID, hubs, flash drives (Bulk-Only/SCSI -> FAT -> /usbN), stack core, UHCI and xHCI drivers against controller models =="
+USB_STACK="usb.c usbhid.c usbhub.c usbmsc.c input.c fat.c part.c vfs.c kfs.c store.c devhealth.c"
+$CC $FLAGS -fsanitize=address,undefined -o $T/usbhid tests/usbhid_test.c usbhid.c input.c
+$T/usbhid
+$CC $FLAGS -Itests -fsanitize=address,undefined -o $T/usb tests/usb_test.c $USB_STACK
+ASAN_OPTIONS=detect_leaks=0 $T/usb
+$CC $FLAGS -Itests -fsanitize=address,undefined -o $T/uhci tests/uhci_test.c uhci.c $USB_STACK
+ASAN_OPTIONS=detect_leaks=0 $T/uhci
+$CC $FLAGS -Itests -fsanitize=address,undefined -o $T/xhci tests/xhci_test.c xhci.c $USB_STACK
+ASAN_OPTIONS=detect_leaks=0 $T/xhci
+
+echo "== FAT12/16/32, partitions, VFS (cross-check with dosfstools + mtools if installed) =="
+MKFS_FAT=${MKFS_FAT:-$(command -v mkfs.fat || command -v mkfs.vfat || true)}
+FSCK_FAT=${FSCK_FAT:-$(command -v fsck.fat || command -v fsck.vfat || true)}
+MTOOLS=${MTOOLS:-$(dirname "$(command -v mcopy 2>/dev/null || echo /nonexistent/mcopy)")}
+if [ -x "$MKFS_FAT" ] && [ -x "$FSCK_FAT" ] && [ -x "$MTOOLS/mcopy" ]; then
+    $CC $FLAGS -Wno-unused-result -fsanitize=address,undefined -o $T/fat tests/fat_test.c fat.c part.c vfs.c kfs.c store.c
+    MKFS_FAT=$MKFS_FAT FSCK_FAT=$FSCK_FAT MTOOLS=$MTOOLS ASAN_OPTIONS=detect_leaks=0 $T/fat
+else
+    echo "SKIPPED: нужны mkfs.fat, fsck.fat (пакет dosfstools) и mcopy (пакет mtools) - эталон для проверки FAT"
+fi
+
+echo "== quick-launch dock (/var/dock) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/dock tests/dock_test.c dock.c
+$T/dock
+
+echo "== shell (top bar, side launcher, traffic lights, fullscreen, drag, input, live background, culling) =="
+$CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c
+$T/wm
+
+echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c wm.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c mind.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+ASAN_OPTIONS=detect_leaks=0 $T/disp | tail -1
+for r in "1280 720" "1920 1080"; do ASAN_OPTIONS=detect_leaks=0 $T/disp $r | tail -1; done
+rm -rf $T
+echo "ALL HOST TESTS PASSED"

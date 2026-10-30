@@ -1,0 +1,184 @@
+#ifndef MIND_H
+#define MIND_H
+
+#include <stdint.h>
+
+/* Разум Киры. Раз в секунду получает замеры системы (mind_sample_t), учит для каждого сигнала норму этой машины
+   (среднее и разброс), оценивает здоровье и принимает решения через исполнителей (mind_act_t):
+     - доля процессора: программа в фокусе получает больший квант, фоновая программа, из-за которой опаздывает экран
+       или которая ведёт себя не так, как обычно, ограничивается по доле процессора;
+     - самонастройка кванта планировщика: проба соседнего значения, сравнение по замерам, откат, если не лучше;
+     - уровень анимации оболочки по запасу времени кадра;
+     - давление памяти: возврат запасов ядра, осторожный рост куч, в крайнем случае остановка самой большой программы;
+     - голодание: поток, который долго не получает процессор, получает больший вес;
+     - поведение программ: профиль каждой программы (процессор, вызовы, память, сбои) хранится между запусками;
+     - устройства: ошибки обмена дисков и USB снижают стабильность и попадают в журнал с именем устройства;
+       постоянные ошибки - предупреждение «сохраните данные»;
+     - иммунитет ввода: устройство ввода, печатающее быстрее человека (атака BadUSB: «флешка», которая сама набирает
+       команды), рефлекторно задерживается драйвером; Разум решает - заблокировать (режим действий) или отпустить.
+   Каждое решение записывается в журнал с причиной. В режиме наблюдения решения только записываются.
+   Модуль чистый (без железа): все входы - в замере, все действия - через исполнителей; проверяется на хосте. */
+
+#define MIND_SIG_N    8
+#define MIND_HIST     60
+#define MIND_PROC_MAX 256       /* = наибольшее число программ (scale_procs): Разум видит каждую */
+#define MIND_JOURNAL  24
+#define MIND_TEXT     176
+#define MIND_NQ       6
+
+enum { MS_LOAD, MS_QUEUE, MS_MEM, MS_LATE, MS_DISK, MS_IPC, MS_FAULT, MS_SYSC };
+enum { MIND_OBSERVE = 0, MIND_ACT = 1 };
+enum { MIND_FX_OFF = 0, MIND_FX_LOW = 1, MIND_FX_MID = 2, MIND_FX_HIGH = 3, MIND_FX_AUTO = 4 };
+
+typedef enum {
+    MJ_LEARN = 1, MJ_ANOMALY, MJ_FOCUS, MJ_LIMIT, MJ_RESTORE, MJ_TUNE_TRY, MJ_TUNE_KEEP, MJ_TUNE_BACK,
+    MJ_FX, MJ_MEMORY, MJ_KILL, MJ_STARVE, MJ_BEHAVIOR, MJ_INFO
+} mind_kind_t;
+
+typedef struct {
+    uint32_t pid;
+    char     name[16];
+    uint64_t cpu_cycles;       /* сумма тактов TSC всех потоков процесса (растёт) */
+    uint64_t syscalls;         /* системных вызовов за жизнь процесса (растёт) */
+    uint32_t heap_kb;
+    uint32_t threads;
+    uint32_t wait_ms;          /* дольше всех ждущий готовый поток процесса, мс */
+    uint8_t  focus;            /* окно процесса сейчас в фокусе */
+} mind_proc_t;
+
+typedef struct {
+    uint32_t t;                /* секунда жизни этого запуска */
+    uint64_t tsc_khz;
+    uint32_t cores;            /* ядер в планировании */
+    uint8_t  busy[256];        /* занятость каждого ядра, % */
+    uint32_t load;             /* средняя занятость, % */
+    uint32_t runnable;         /* потоков готовы или исполняются (без холостых) */
+    uint32_t mem_used;         /* % ОЗУ */
+    uint32_t mem_total_mb;
+    uint32_t loops, late;      /* циклов дисплея за секунду и сколько из них опоздали */
+    uint32_t worst_gap_ms;
+    uint32_t disk_ops, disk_lat_us;
+    uint32_t ipc;              /* сообщений через порты за секунду */
+    uint32_t faults;           /* аварийных завершений программ за секунду */
+    uint32_t switches;         /* переключений потоков за секунду (все ядра) */
+    uint32_t max_wait_ms;      /* дольше всех ждущий готовый поток (любой), мс */
+    uint32_t kwait_ms;         /* дольше всех ждущий готовый поток ядра, мс */
+    char     kwait_name[16];
+    uint32_t nproc;
+    mind_proc_t proc[MIND_PROC_MAX];
+    uint32_t dev_errors;       /* ошибок обмена с устройствами за секунду (диски, флешки, USB) */
+    char     dev_name[16];     /* устройство последней ошибки */
+    uint32_t hid_suspect;      /* устройств ввода задержано рефлексом за секунду */
+    uint32_t hid_rate;         /* их скорость, нажатий/с */
+    char     hid_name[16];
+} mind_sample_t;
+
+/* Профиль программы (хранится на диске между запусками). */
+typedef struct {
+    uint32_t runs;
+    uint32_t crashes;
+    uint32_t cpu_x10;          /* средняя доля одного ядра, % * 10 */
+    uint32_t sysc;             /* системных вызовов в секунду, в среднем */
+    uint32_t heap_kb;          /* обычный пик кучи */
+    uint32_t flags;
+} mind_profile_t;
+
+typedef struct {
+    void (*set_quantum)(uint32_t ticks10ms);
+    void (*set_weight)(uint32_t pid, uint32_t weight);        /* 1..8, 4 - обычный квант */
+    void (*set_limit)(uint32_t pid, uint32_t pct);            /* доля одного ядра на поток, 100 - без ограничения */
+    void (*set_fx)(int level);                                /* 0..3 */
+    unsigned (*mem_trim)(void);                               /* вернуть запасы ядра; страниц */
+    void (*heap_restrict)(int level);                         /* 0 - обычно, 2 - осторожно */
+    int  (*kill)(uint32_t pid);
+    int  (*profile_get)(const char* name, mind_profile_t* out);   /* 0 - есть */
+    void (*profile_put)(const char* name, const mind_profile_t* p);
+    void (*hid_verdict)(int block);                          /* задержанные устройства ввода: 1 - отключить, 0 - отпустить */
+} mind_act_t;
+
+typedef struct { int64_t mean_x100; uint64_t var_x100; uint32_t n; } mind_norm_t;
+
+/* То, что переживает перезагрузку (сохраняется как есть, проверяется по crc). */
+#define MIND_MAGIC   0x444E494DU   /* "MIND" */
+#define MIND_VERSION 1
+typedef struct {
+    uint32_t magic, version;
+    mind_norm_t norm[MIND_SIG_N];
+    uint8_t  q_best[8];        /* лучший квант (x10 мс) по группам числа ядер; 0 - не выучен */
+    uint8_t  mode, fx_user, rtc_local, reserved;   /* rtc_local: часы ПК идут по местному времени (Windows, Limbo/QEMU localtime) */
+    int32_t  tz_min;           /* часовой пояс для часов в оболочке, минуты от UTC */
+    uint32_t lifetime_s, decisions, anomalies, kills, tune_trials, tune_wins;
+    uint32_t crc;
+} mind_model_t;
+
+typedef struct { uint32_t t; uint8_t kind; uint8_t applied; uint32_t pid; char text[MIND_TEXT]; } mind_event_t;
+
+typedef struct {
+    uint32_t pid;
+    char     name[16];
+    uint64_t last_sysc, last_cyc;
+    uint32_t seen, cpu_sum_x10, sysc_sum, heap_peak, sysc_rate, cpu_x10;
+    uint32_t weight, limit;
+    uint32_t odd_s, calm_s;
+    uint8_t  has_profile, flagged, throttled_bg, alive;
+    mind_profile_t prof;
+} mind_track_t;
+
+typedef struct {
+    mind_model_t m;
+    /* сигналы */
+    int32_t  cur_x100[MIND_SIG_N];
+    int32_t  z_x10[MIND_SIG_N];
+    uint8_t  hot[MIND_SIG_N];
+    uint32_t last_anom_t[MIND_SIG_N];
+    uint8_t  hist[MIND_SIG_N][MIND_HIST];   /* значения, приведённые к 0..100 для графиков */
+    uint8_t  health_hist[MIND_HIST];
+    uint32_t hpos;
+    /* здоровье */
+    uint8_t  health, c_resp, c_room, c_bal, c_stab;
+    uint8_t  low_health_t;
+    const char* mood;
+    uint32_t stab_debt;                       /* недавние сбои и необычности (затухают) */
+    /* самонастройка кванта */
+    int      q_idx, q_base_idx, q_dir, t_state;
+    uint32_t t_cool, t_n, t_fails, t_idle;
+    uint8_t  started;
+    uint64_t t_score, t_base_score;
+    uint32_t t_run_sum, t_base_run;
+    /* анимация */
+    int      fx;
+    uint32_t fx_bad_s, fx_calm_s;
+    /* память */
+    int      mem_level;
+    uint32_t last_kill_t;
+    /* фон и фокус */
+    uint32_t late_s, calm_s, focus_pid;
+    /* процессы */
+    mind_track_t tr[MIND_PROC_MAX];
+    /* журнал */
+    mind_event_t j[MIND_JOURNAL];
+    uint32_t jn;
+    uint32_t activity;                        /* событий за последнюю секунду (оболочка зажигает узлы «нейросети») */
+    uint32_t starve_t;
+    /* устройства */
+    uint32_t dev_last_t, dev_err_s, dev_warned;
+    char     dev_last[16];
+    uint32_t hid_blocked;
+} mind_t;
+
+void mind_init(mind_t* s, const mind_model_t* saved, unsigned cores);   /* saved - с диска или 0 */
+void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act);
+void mind_set_mode(mind_t* s, int mode, const mind_act_t* act);
+void mind_set_fx_user(mind_t* s, int fx, const mind_act_t* act);
+
+int  mind_model_valid(const mind_model_t* m);
+void mind_model_seal(mind_model_t* m);       /* посчитать crc перед записью */
+
+const char* mind_signal_name(int sig);
+const char* mind_signal_unit(int sig);
+unsigned    mind_quantum_ms(const mind_t* s);
+int         mind_fx_level(const mind_t* s);
+/* Журнал: i = 0 - самое свежее. 0 - нет такой записи. */
+const mind_event_t* mind_journal(const mind_t* s, unsigned i);
+
+#endif

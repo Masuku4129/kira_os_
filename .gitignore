@@ -1,0 +1,11 @@
+*.o
+*.elf
+kira.bin
+kira.disk
+kira.iso
+isodir/
+tools/kfstool
+manifest.h
+ci-out/
+qemu.log
+kira_flash.img

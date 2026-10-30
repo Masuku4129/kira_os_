@@ -1,0 +1,215 @@
+// Хост-тест Разума: нормы и необычности, здоровье, самонастройка кванта на модели нагрузки, фокус и фон,
+// поведение программ против профиля, давление памяти, голодание, режим наблюдения, анимация, сохранение модели.
+#include <stdio.h>
+#include <string.h>
+#include "mind.h"
+
+static int fails;
+#define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
+
+/* ---- исполнители-записыватели ---- */
+static uint32_t q_now = 4, weight[100], limit[100], killed, trims, restrict_lvl, fx_now = 99, q_sets;
+static mind_profile_t profs[8]; static char prof_names[8][16]; static int nprof;
+static void a_q(uint32_t t) { q_now = t; q_sets++; }
+static void a_w(uint32_t pid, uint32_t w) { weight[pid] = w; }
+static void a_l(uint32_t pid, uint32_t p) { limit[pid] = p; }
+static void a_fx(int l) { fx_now = (uint32_t)l; }
+static unsigned a_trim(void) { trims++; return 7; }
+static void a_r(int l) { restrict_lvl = (uint32_t)l; }
+static int a_kill(uint32_t pid) { killed = pid; return 0; }
+static int a_pget(const char* n, mind_profile_t* o) { for (int i = 0; i < nprof; i++) if (!strcmp(prof_names[i], n)) { *o = profs[i]; return 0; } return -1; }
+static void a_pput(const char* n, const mind_profile_t* p) {
+    for (int i = 0; i < nprof; i++) if (!strcmp(prof_names[i], n)) { profs[i] = *p; return; }
+    strcpy(prof_names[nprof], n); profs[nprof++] = *p;
+}
+static int hid_v = -1;
+static void a_hid(int b) { hid_v = b; }
+static const mind_act_t act = { a_q, a_w, a_l, a_fx, a_trim, a_r, a_kill, a_pget, a_pput, a_hid };
+static const mind_act_t none = { 0 };
+
+static mind_t M;
+static mind_sample_t S;
+
+static void base(uint32_t t) {
+    memset(&S, 0, sizeof S);
+    S.t = t; S.tsc_khz = 1000000; S.cores = 4; S.load = 10; S.runnable = 2; S.mem_used = 20; S.mem_total_mb = 512;
+    S.loops = 60; S.late = 0; S.switches = 400; S.disk_ops = 0;
+}
+static void add_proc(uint32_t pid, const char* name, uint64_t cyc, uint64_t sysc, uint32_t heap, int focus) {
+    mind_proc_t* p = &S.proc[S.nproc++];
+    p->pid = pid; strcpy(p->name, name); p->cpu_cycles = cyc; p->syscalls = sysc; p->heap_kb = heap; p->focus = (uint8_t)focus; p->threads = 1;
+}
+static int journal_has(const char* w) {
+    for (unsigned i = 0; ; i++) { const mind_event_t* e = mind_journal(&M, i); if (!e) return 0; if (strstr(e->text, w)) return 1; }
+}
+
+int main(void) {
+    /* ---- нормы и необычности ---- */
+    mind_init(&M, 0, 4);
+    CHECK(M.m.mode == MIND_ACT && M.m.fx_user == MIND_FX_AUTO && journal_has("первая жизнь"));
+    uint32_t t = 1;
+    for (; t <= 200; t++) { base(t); S.load = 10 + t % 5; mind_step(&M, &S, &act); }
+    CHECK(q_now == 4 && fx_now == 3);                            /* при старте применены квант и анимация */
+    CHECK(M.m.norm[MS_LOAD].n == 200 && M.m.norm[MS_LOAD].mean_x100 > 900 && M.m.norm[MS_LOAD].mean_x100 < 1500);
+    CHECK(M.m.anomalies == 0 && M.health >= 90 && !strcmp(M.mood, "спокойна"));
+    uint32_t a0 = M.m.anomalies;
+    for (int k = 0; k < 2; k++, t++) { base(t); S.load = 95; mind_step(&M, &S, &act); }
+    CHECK(M.m.anomalies == a0);                                   /* две секунды - ещё не необычность */
+    base(t++); S.load = 95; mind_step(&M, &S, &act);
+    CHECK(M.m.anomalies == a0 + 1 && journal_has("необычно: нагрузка 95"));
+    int64_t mean_after = M.m.norm[MS_LOAD].mean_x100;
+    CHECK(mean_after < 1700);                                     /* выброс почти не сдвинул норму */
+    for (int k = 0; k < 10; k++, t++) { base(t); S.load = 95; mind_step(&M, &S, &act); }
+    CHECK(M.m.anomalies == a0 + 1);                               /* повтор не чаще раза в 30 с */
+
+    /* ---- здоровье ---- */
+    base(t++); S.loops = 50; S.late = 20; S.mem_used = 96; S.runnable = 20; mind_step(&M, &S, &act);
+    CHECK(M.c_resp < 10 && M.c_room < 30 && M.c_bal <= 30 && M.health < 50 && !strcmp(M.mood, "тревога"));
+    for (int k = 0; k < 40; k++, t++) { base(t); mind_step(&M, &S, &act); }
+    CHECK(M.health >= 90);
+
+    /* ---- память ---- */
+    trims = 0; restrict_lvl = 0; killed = 0;
+    base(t++); S.mem_used = 89; add_proc(7, "hog", 0, 0, 200 * 1024, 0); mind_step(&M, &S, &act);
+    CHECK(trims == 1 && M.mem_level == 1 && journal_has("вернула запасы ядра (7 страниц)"));
+    base(t++); S.mem_used = 94; add_proc(7, "hog", 0, 0, 200 * 1024, 0); mind_step(&M, &S, &act);
+    CHECK(restrict_lvl == 2 && killed == 0);
+    base(t++); S.mem_used = 98; add_proc(7, "hog", 0, 0, 200 * 1024, 0); add_proc(8, "tiny", 0, 0, 1024, 0); mind_step(&M, &S, &act);
+    CHECK(killed == 7 && M.m.kills == 1 && journal_has("остановлена hog"));
+    killed = 0;
+    base(t++); S.mem_used = 98; add_proc(8, "tiny", 0, 0, 1024, 0); mind_step(&M, &S, &act);
+    CHECK(killed == 0);                                           /* маленькую программу не трогает */
+    base(t++); S.mem_used = 50; mind_step(&M, &S, &act);
+    CHECK(restrict_lvl == 0 && M.mem_level == 0 && journal_has("давление памяти ушло"));
+
+    /* ---- фокус и фоновое ограничение ---- */
+    memset(weight, 0, sizeof weight); memset(limit, 0, sizeof limit);
+    uint64_t cyc1 = 0, cyc2 = 0;
+    for (int k = 0; k < 3; k++, t++) {
+        base(t); cyc1 += 900000000ULL; cyc2 += 300000000ULL;      /* 90% и 30% ядра */
+        add_proc(11, "burn", cyc1, 0, 0, 0); add_proc(12, "cube3d", cyc2, 0, 0, 1);
+        mind_step(&M, &S, &act);
+    }
+    CHECK(weight[12] == 6 && journal_has("фокус: cube3d"));
+    for (int k = 0; k < 3; k++, t++) {
+        base(t); S.late = 9; cyc1 += 900000000ULL; cyc2 += 300000000ULL;
+        add_proc(11, "burn", cyc1, 0, 0, 0); add_proc(12, "cube3d", cyc2, 0, 0, 1);
+        mind_step(&M, &S, &act);
+    }
+    CHECK(limit[11] == 50 && limit[12] == 0 && journal_has("ограничиваю фоновую burn"));
+    for (int k = 0; k < 11; k++, t++) {
+        base(t); cyc1 += 450000000ULL; cyc2 += 300000000ULL;
+        add_proc(11, "burn", cyc1, 0, 0, 0); add_proc(12, "cube3d", cyc2, 0, 0, 1);
+        mind_step(&M, &S, &act);
+    }
+    CHECK(limit[11] == 100 && journal_has("burn снова без ограничения"));
+    base(t++); mind_step(&M, &S, &act);                           /* обе программы завершились: профили записаны */
+    mind_profile_t pb; CHECK(a_pget("burn", &pb) == 0 && pb.runs == 1 && pb.cpu_x10 >= 500 && pb.cpu_x10 <= 900);
+
+    /* ---- поведение против профиля ---- */
+    strcpy(prof_names[nprof], "chat"); profs[nprof++] = (mind_profile_t){ .runs = 5, .sysc = 300, .heap_kb = 1024 };
+    uint64_t sc = 0;
+    for (int k = 0; k < 7; k++, t++) { base(t); sc += 50000; add_proc(20, "chat", 0, sc, 1024, 0); mind_step(&M, &S, &act); }
+    CHECK(limit[20] == 50 && journal_has("chat ведёт себя необычно: 50000 вызовов/с при обычных 300"));
+    for (int k = 0; k < 11; k++, t++) { base(t); sc += 200; add_proc(20, "chat", 0, sc, 1024, 0); mind_step(&M, &S, &act); }
+    CHECK(limit[20] == 100 && journal_has("chat снова ведёт себя как обычно"));
+    base(t++); add_proc(20, "chat", 0, sc, 64 * 1024, 0); mind_step(&M, &S, &act);
+    CHECK(journal_has("chat заняла 64 МБ кучи при обычных 1 МБ"));
+    strcpy(prof_names[nprof], "flaky"); profs[nprof++] = (mind_profile_t){ .runs = 6, .crashes = 4 };
+    base(t++); add_proc(21, "flaky", 0, 0, 0, 0); mind_step(&M, &S, &act);
+    CHECK(journal_has("flaky часто падает: 4 аварий из 6"));
+
+    /* ---- голодание ---- */
+    base(t++); S.max_wait_ms = 2500; add_proc(30, "slow", 0, 0, 0, 0); S.proc[0].wait_ms = 2500; mind_step(&M, &S, &act);
+    CHECK(weight[30] == 8 && journal_has("slow ждал процессор 2500 мс"));
+
+    /* ---- самонастройка кванта на модели: переключения ~ 1/квант, ожидание ~ квант ---- */
+    mind_t* m = &M;
+    mind_init(m, 0, 4);
+    q_now = 0; q_sets = 0;
+    for (t = 1; t <= 1500; t++) {
+        base(t);
+        S.runnable = 12;                                          /* потоков больше, чем ядер */
+        uint32_t q = q_now ? q_now : 4;
+        S.switches = 40000 / q;                                   /* оценка: 2*sw/4 + 20*wait */
+        S.max_wait_ms = q * 3;                                    /* = 20000/q + 60q -> лучше всего около q = 18 -> 12 (120 мс) */
+        mind_step(m, &S, &act);
+    }
+    CHECK(m->m.tune_trials >= 3 && m->m.tune_wins >= 2);
+    CHECK(q_now == 12 || q_now == 8);
+    CHECK(m->m.q_best[2] == q_now);                               /* лучшее запомнено для группы 3-4 ядер */
+    CHECK(journal_has("оставляю и запоминаю для 4 ядер"));
+    /* модель, где короткий квант лучше */
+    mind_init(m, 0, 4); q_now = 0;
+    for (t = 1; t <= 1500; t++) {
+        base(t); S.runnable = 12;
+        uint32_t q = q_now ? q_now : 4;
+        S.switches = 400 / q; S.max_wait_ms = q * 30;
+        mind_step(m, &S, &act);
+    }
+    CHECK(q_now == 2 && m->m.q_best[2] == 2);
+    /* без конкуренции за ядра квант не трогается */
+    mind_init(m, 0, 4); q_now = 0;
+    for (t = 1; t <= 400; t++) { base(t); S.runnable = 3; mind_step(m, &S, &act); }
+    CHECK(q_now == 4 && m->m.tune_trials == 0);
+
+    /* ---- режим наблюдения: ничего не меняет, но записывает ---- */
+    mind_init(m, 0, 4);
+    mind_set_mode(m, MIND_OBSERVE, &act);
+    q_sets = 0; killed = 0; trims = 0; memset(weight, 0, sizeof weight); memset(limit, 0, sizeof limit);
+    for (t = 1; t <= 600; t++) {
+        base(t); S.runnable = 12; S.switches = 10000; S.max_wait_ms = 50; S.late = 10; S.mem_used = t > 500 ? 99 : 30;
+        add_proc(40, "big", (uint64_t)t * 900000000ULL, 0, 300 * 1024, 0); add_proc(41, "front", 0, 0, 0, 1);
+        mind_step(m, &S, &act);
+    }
+    CHECK(q_sets == 0 && killed == 0 && trims == 0 && weight[41] == 0 && limit[40] == 0);
+    CHECK(journal_has("(наблюдение) фокус: front") && journal_has("(наблюдение) память занята"));
+
+    /* ---- анимация по запасу времени кадра ---- */
+    mind_init(m, 0, 4); fx_now = 99;
+    for (t = 1; t <= 4; t++) { base(t); S.late = 12; mind_step(m, &S, &act); }
+    CHECK(fx_now == 2 && journal_has("анимация фона - уровень 2"));
+    for (t = 5; t <= 40; t++) { base(t); mind_step(m, &S, &act); }
+    CHECK(fx_now == 3);
+    mind_set_fx_user(m, MIND_FX_LOW, &act);
+    for (t = 41; t <= 50; t++) { base(t); S.late = 30; mind_step(m, &S, &act); }
+    CHECK(fx_now == 1);                                           /* ручной уровень разум не меняет */
+
+    /* ---- сохранение модели ---- */
+    mind_model_t saved = M.m;
+    mind_model_seal(&saved);
+    CHECK(mind_model_valid(&saved));
+    mind_init(m, &saved, 4);
+    CHECK(m->m.norm[MS_LOAD].n == saved.norm[MS_LOAD].n && journal_has("опыт загружен"));
+    saved.norm[0].n ^= 1;
+    CHECK(!mind_model_valid(&saved));
+    mind_model_t learned = { 0 }; learned.q_best[2] = 8; learned.mode = MIND_ACT; mind_model_seal(&learned);
+    mind_init(m, &learned, 4);
+    CHECK(mind_quantum_ms(m) == 80);                              /* выученный квант применяется с первой секунды */
+    base(1); q_now = 0; mind_step(m, &S, &act);
+    CHECK(q_now == 8);
+    mind_init(m, 0, 4); base(1); mind_step(m, &S, &none);         /* без исполнителей - без падений */
+
+    /* устройства: ошибки обмена - журнал с именем, стабильность падает; 10 с подряд - предупреждение */
+    {
+        mind_t* d = &M; mind_init(d, 0, 4);
+        for (uint32_t t = 1; t <= 30; t++) { base(t); mind_step(d, &S, &act); }
+        uint8_t h0 = d->health;
+        for (uint32_t t = 31; t <= 42; t++) { base(t); S.dev_errors = 3; strcpy(S.dev_name, "sata0"); mind_step(d, &S, &act); }
+        CHECK(journal_has("устройство sata0: ошибок обмена 3") && journal_has("sata0 ошибается 10 с подряд"));
+        CHECK(d->health < h0);
+        unsigned n0 = d->jn;
+        base(43); S.dev_errors = 1; strcpy(S.dev_name, "sata0"); mind_step(d, &S, &act);
+        CHECK(d->jn == n0);                                       /* то же устройство: не чаще раза в 30 с */
+        /* иммунитет ввода: режим действий - отключить, наблюдение - отпустить */
+        base(44); S.hid_suspect = 1; S.hid_rate = 400; strcpy(S.hid_name, "kbd 1234:abcd"); mind_step(d, &S, &act);
+        CHECK(hid_v == 1 && d->hid_blocked == 1 && journal_has("kbd 1234:abcd: 400"));
+        mind_set_mode(d, MIND_OBSERVE, &act); hid_v = -1;
+        base(45); S.hid_suspect = 1; S.hid_rate = 300; strcpy(S.hid_name, "kbd 1:2"); mind_step(d, &S, &act);
+        CHECK(hid_v == 0 && journal_has("наблюдение: ввод пропущен"));
+        base(46); S.hid_suspect = 1; mind_step(d, &S, &none);    /* без исполнителя - без падения */
+    }
+
+    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity passed");
+    return fails != 0;
+}

@@ -1,0 +1,106 @@
+/* kfstool - инструмент сборки на хосте: кладёт файлы в образ диска с KiraFS (тот же kfs.c, что и в ядре) и составляет
+   манифест доверенных программ. Образ должен быть выключен (не подключён к QEMU).
+     kfstool образ init                 создать KiraFS, если её нет (существующая не трогается)
+     kfstool образ put /путь файл       записать файл (недостающие каталоги создаются)
+     kfstool образ ls [/путь]           список
+     kfstool образ cat /путь            содержимое в stdout
+     kfstool manifest файл...           manifest.h для ядра: имя (без каталога и .elf) и SHA-256 каждого файла */
+#include "kfs.h"
+#include "immune.h"
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+static int img_fd;
+static int rd(blk_dev_t* d, uint64_t lba, uint32_t n, void* b) { (void)d; return pread(img_fd, b, (size_t)n * 512, (off_t)(lba * 512)) == (ssize_t)(n * 512) ? 0 : -1; }
+static int wr(blk_dev_t* d, uint64_t lba, uint32_t n, const void* b) { (void)d; return pwrite(img_fd, b, (size_t)n * 512, (off_t)(lba * 512)) == (ssize_t)(n * 512) ? 0 : -1; }
+static int fl(blk_dev_t* d) { (void)d; return fsync(img_fd); }
+static blk_dev_t dev;
+
+static void die(const char* what, int e) { fprintf(stderr, "kfstool: %s: %s\n", what, kfs_strerror(e)); exit(1); }
+
+static uint8_t* slurp(const char* path, size_t* n) {
+    FILE* f = fopen(path, "rb");
+    if (!f) { perror(path); exit(1); }
+    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+    if (sz < 0) { perror(path); exit(1); }
+    uint8_t* b = malloc((size_t)sz + 1);
+    if (!b || fread(b, 1, (size_t)sz, f) != (size_t)sz) { perror(path); exit(1); }
+    fclose(f); *n = (size_t)sz;
+    return b;
+}
+
+static int open_image(const char* path, int create_fs) {
+    img_fd = open(path, O_RDWR);
+    if (img_fd < 0) { perror(path); exit(1); }
+    off_t size = lseek(img_fd, 0, SEEK_END);
+    strcpy(dev.name, "image"); dev.sectors = (uint64_t)size / 512; dev.read = rd; dev.write = wr; dev.flush = fl;
+    int r = kfs_mount(&dev, KFS_BASE_LBA);
+    if (r == KFS_ERR_NOFS && create_fs) { r = kfs_format(&dev, KFS_BASE_LBA); if (r == 0) printf("kfstool: создана KiraFS на %s\n", path); }
+    if (r) die(path, r);
+    return 0;
+}
+
+static void mkdirs(const char* path) {
+    char tmp[256]; size_t n = strlen(path);
+    if (n >= sizeof tmp) { fprintf(stderr, "kfstool: слишком длинный путь\n"); exit(1); }
+    strcpy(tmp, path);
+    for (size_t i = 1; i < n; i++) {
+        if (tmp[i] != '/') continue;
+        tmp[i] = 0;
+        kfs_stat_t st;
+        if (kfs_stat(tmp, &st) != 0) { int r = kfs_mkdir(tmp); if (r) die(tmp, r); }
+        tmp[i] = '/';
+    }
+}
+
+static int ls_cb(void* c, const char* name, const kfs_stat_t* st) {
+    (void)c; printf("%s %10llu %s\n", st->type == KFS_DIR ? "d" : "-", (unsigned long long)st->size, name); return 0;
+}
+
+int main(int argc, char** argv) {
+    if (argc >= 3 && !strcmp(argv[1], "manifest")) {
+        printf("/* Создано tools/kfstool manifest. Не редактировать: эталон доверенных программ для иммунной системы. */\n");
+        printf("#include \"trust.h\"\n");
+        printf("static const trust_entry_t PROG_MANIFEST[] = {\n");
+        for (int i = 2; i < argc; i++) {
+            size_t n; uint8_t* b = slurp(argv[i], &n);
+            uint8_t d[32]; sha256(b, n, d);
+            const char* base = strrchr(argv[i], '/'); base = base ? base + 1 : argv[i];
+            char name[64]; snprintf(name, sizeof name, "%s", base);
+            char* dot = strrchr(name, '.'); if (dot && !strcmp(dot, ".elf")) *dot = 0;
+            printf("    { \"%s\", {", name);
+            for (int k = 0; k < 32; k++) printf("%s0x%02x", k ? "," : "", d[k]);
+            printf("} },\n");
+            free(b);
+        }
+        printf("};\n#define PROG_MANIFEST_COUNT %d\n", argc - 2);
+        return 0;
+    }
+    if (argc < 3) { fprintf(stderr, "использование: kfstool образ init|put|ls|cat ...  |  kfstool manifest файл...\n"); return 2; }
+    const char* cmd = argv[2];
+    if (!strcmp(cmd, "init")) { open_image(argv[1], 1); printf("kfstool: KiraFS готова\n"); return 0; }
+    open_image(argv[1], 0);
+    if (!strcmp(cmd, "put") && argc == 5) {
+        size_t n; uint8_t* b = slurp(argv[4], &n);
+        mkdirs(argv[3]);
+        int r = kfs_write(argv[3], b, n);
+        if (r) die(argv[3], r);
+        printf("kfstool: %s <- %s (%zu байт)\n", argv[3], argv[4], n);
+        return 0;
+    }
+    if (!strcmp(cmd, "ls")) { int r = kfs_list(argc > 3 ? argv[3] : "/", ls_cb, 0); if (r) die("ls", r); return 0; }
+    if (!strcmp(cmd, "cat") && argc == 4) {
+        kfs_stat_t st; int r = kfs_stat(argv[3], &st); if (r) die(argv[3], r);
+        uint8_t* b = malloc((size_t)st.size + 1);
+        int64_t got = kfs_read(argv[3], 0, b, (size_t)st.size);
+        if (got < 0) die(argv[3], (int)got);
+        fwrite(b, 1, (size_t)got, stdout);
+        return 0;
+    }
+    fprintf(stderr, "kfstool: неизвестная команда\n");
+    return 2;
+}
