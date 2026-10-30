@@ -147,6 +147,15 @@ void exception_handler_main(uint64_t vector, uint64_t err_code, uint64_t rip, ui
     }
 
     __asm__ volatile ("cli");
+    if ((cs & 3) == 0 && vector == 13 && rip >= 0x100000 && rip < (1ULL << 30) &&
+        ((const uint8_t*)(uintptr_t)rip)[0] == 0x48 && ((const uint8_t*)(uintptr_t)rip)[1] == 0xCF) {
+        /* iretq отказал: что именно он пытался загрузить (код ошибки #GP - селектор-виновник) */
+        const uint64_t* f = (const uint64_t*)(uintptr_t)frame[20];
+        uart_print("[KIRA IRET] #GP on iretq, error code (selector) "); uart_print_hex(err_code);
+        uart_print(", frame RIP "); uart_print_hex(f[0]); uart_print(" CS "); uart_print_hex(f[1]);
+        uart_print(" RFLAGS "); uart_print_hex(f[2]); uart_print(" RSP "); uart_print_hex(f[3]); uart_print(" SS "); uart_print_hex(f[4]);
+        uart_print(", this CPU "); uart_print_dec(this_cpu()->cpu_id); uart_print("\n");
+    }
     if ((cs & 3) == 0 && vector != 2 && vector != 8 && vector < 32) corefault_handle(vector, err_code, rip);
     smp_halt_others();  // остальные ядра встают (второе падающее ядро встанет молча)
     spin_bust_locks();  // замок мог держать упавший код: аварийный вывод не должен на нём зависнуть
