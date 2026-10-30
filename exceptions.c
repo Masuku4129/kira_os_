@@ -178,7 +178,7 @@ void exception_handler_main(uint64_t vector, uint64_t err_code, uint64_t rip, ui
         int kst = vmm_is_kstack(rsp) && !vmm_kstack_guard_hit(rsp) && !vmm_kstack_guard_hit(rsp + 63) && vmm_is_kstack(rsp + 63);
         const uint64_t* stack = ((cs & 3) == 0 && (rsp & 7) == 0 && (kst || (rsp >= 0x1000 && rsp + 64 <= (1ULL << 30))))
                                     ? (const uint64_t*)(uintptr_t)rsp : 0;
-        if ((cs & 3) == 0 && (vmm_kstack_guard_hit(rsp) || (vector == 14 && vmm_kstack_guard_hit(cr2))))
+        if ((cs & 3) == 0 && (vmm_kstack_guard_hit(rsp) || ((vector == 14 || vector == 8) && vmm_kstack_guard_hit(cr2))))
             uart_print("[KIRA FATAL] Kernel thread stack overflow: the guard area below the stack was hit.\n");
         crash_regs_t cr = { read_cr(0), cr2, read_cr(3), read_cr(4) };
         crashdump_print(frame, &cr, stack, dump_out);
