@@ -36,7 +36,7 @@ uint64_t acpi_scan(uint64_t from, uint64_t to, const char* sig, unsigned sig_len
 int acpi_init(uint64_t mbi_phys);
 
 // Ядро ставит хук, который делает таблицу выше max_phys читаемой (0 - не удалось); без хука такие таблицы пропускаются.
-void acpi_set_map_hook(int (*hook)(uint64_t phys, uint64_t len));
+void acpi_set_map_hook(const void* (*hook)(uint64_t phys, uint64_t len));   /* адрес для чтения таблицы или 0 */
 const acpi_info_t* acpi_get(void);
 
 #endif

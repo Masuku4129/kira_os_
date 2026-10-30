@@ -67,6 +67,14 @@ static void fat_clock(uint16_t* date, uint16_t* time) {
     *time = (uint16_t)(t.hour << 11 | t.min << 5 | t.sec / 2);
 }
 
+/* Таблицы ACPI выше тождественной карты: в памяти типа «ACPI» - отображаем тождественно (только чтение), иначе
+   (SeaBIOS и многие прошивки кладут их в «зарезервированную» память у верхней границы ОЗУ) - через окно MMIO ядра
+   без кэширования: так читается что угодно где угодно, не трогая чужие области обычной картой. */
+static const void* acpi_map(uint64_t phys, uint64_t len) {
+    if (ramext_map_read(phys, len)) return (const void*)(uintptr_t)phys;
+    return (const void*)vmm_map_mmio(phys, len, VMM_MMIO_UC);
+}
+
 void kernel_main(unsigned long magic, unsigned long addr) {
     percpu_set_gs(&percpu_table[0]);   /* учёт замков и вывод обращаются к данным ядра с первой строки */
     uart_init();
@@ -108,7 +116,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
                         : "[KIRA VMM] SMAP not offered by this CPU (user copies are still checked and fault-safe).\n");
     }
     ramext_init();
-    acpi_set_map_hook(ramext_map_read);
+    acpi_set_map_hook(acpi_map);
     acpi_init(addr);
     {
         const acpi_info_t* ai = acpi_get();

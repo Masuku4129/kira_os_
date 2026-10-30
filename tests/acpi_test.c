@@ -9,6 +9,8 @@ void uart_print_hex(uint64_t v){(void)v;}
 #define CHECK(c) do{ if(!(c)){ printf("FAIL line %d: %s\n",__LINE__,#c); exit(1);} }while(0)
 static void fix(uint8_t* t, uint32_t len, uint32_t csum_off){ t[csum_off]=0; uint8_t s=0; for(uint32_t i=0;i<len;i++) s+=t[i]; t[csum_off]=(uint8_t)(0-s); }
 static void hdr(uint8_t* t, const char* sig, uint32_t len){ memset(t,0,len); memcpy(t,sig,4); memcpy(t+4,&len,4); t[8]=1; }
+static uint64_t hook_base; static uint8_t* hook_buf; static int hook_calls;
+static const void* hook(uint64_t phys, uint64_t len){ hook_calls++; if(!hook_buf || phys < hook_base || phys + len > hook_base + 0x700) return 0; return hook_buf + (phys - hook_base); }
 int main(void){
     uint8_t* m = mmap((void*)0x10000000, 1<<16, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
     CHECK(m == (uint8_t*)0x10000000);
@@ -43,6 +45,17 @@ int main(void){
     rsdp[3]='X'; CHECK(acpi_parse(base, base+(1<<16), &i)==-2); rsdp[3]=' ';
     rsdp[10]^=1; CHECK(acpi_parse(base, base+(1<<16), &i)==-3); rsdp[10]^=1;
     CHECK(acpi_parse(base, base+0x120, &i)==-5);   /* корень вне доступной памяти */
+    /* корень и таблицы выше тождественной карты: читаются через хук ядра (там они в другом месте адресного пространства) */
+    {
+        static uint8_t hi[0x700];
+        memcpy(hi, m, sizeof hi);                       /* те же таблицы «в высокой памяти» */
+        hook_base = base; hook_buf = hi; hook_calls = 0;
+        acpi_set_map_hook(hook);
+        CHECK(acpi_parse(base, base + 0x40, &i) == 0 && i.cpu_count == 2 && i.tables_seen == 3 && hook_calls >= 4);
+        hook_buf = 0;                                    /* ядро не смогло отобразить: таблица пропущена, не падение */
+        CHECK(acpi_parse(base, base + 0x40, &i) == -5);
+        acpi_set_map_hook(0);
+    }
     CHECK(acpi_parse(0, 1<<30, &i)==-1);
     /* ---- таблицы Intel MP (как у SeaBIOS при выключенном ACPI) ---- */
     {

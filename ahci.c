@@ -103,11 +103,13 @@ static int comreset(ahci_port_t* p) {
     return 0;
 }
 
+/* Порядок по AHCI 1.3 (10.3.1): сначала приём FIS (FRE) - без него первый D2H FIS устройства с подписью и
+   состоянием некуда положить, и TFD так и остаётся «занят»; потом ждать BSY/DRQ = 0; потом ST. */
 static int port_start(ahci_port_t* p) {
+    w32(p->pr, P_CMD, r32(p->pr, P_CMD) | CMD_FRE);
     if (wait_reg(p->pr, P_TFD, TFD_BSY | TFD_DRQ, 0, 3000)) {          /* диск занят - сброс линии и ещё попытка */
         if (comreset(p) || wait_reg(p->pr, P_TFD, TFD_BSY | TFD_DRQ, 0, 5000)) return -1;
     }
-    w32(p->pr, P_CMD, r32(p->pr, P_CMD) | CMD_FRE);
     w32(p->pr, P_CMD, r32(p->pr, P_CMD) | CMD_ST);
     return 0;
 }

@@ -5,14 +5,16 @@ typedef struct { char sig[8]; uint8_t csum; char oem[6]; uint8_t rev; uint32_t r
 typedef struct { char sig[4]; uint32_t len; uint8_t rev; uint8_t csum; char oem[6]; char tid[8]; uint32_t orev; uint32_t cid; uint32_t crev; } __attribute__((packed)) sdt_t;
 
 static acpi_info_t info;
-static int (*map_hook)(uint64_t phys, uint64_t len);
+static const void* (*map_hook)(uint64_t phys, uint64_t len);
 
-void acpi_set_map_hook(int (*hook)(uint64_t phys, uint64_t len)) { map_hook = hook; }
+void acpi_set_map_hook(const void* (*hook)(uint64_t phys, uint64_t len)) { map_hook = hook; }
 
-/* Таблица читаема: лежит ниже max_phys либо хук (ядро) сумел её отобразить. */
-static int reach(uint64_t phys, uint64_t len, uint64_t max_phys) {
-    if (phys + len >= phys && phys + len <= max_phys) return 1;
-    return map_hook && phys + len >= phys && map_hook(phys, len);
+/* Адрес, по которому таблицу можно читать: ниже max_phys - тот же (тождественная карта), выше - что дал хук ядра
+   (таблицы ACPI на ПК с 2+ ГБ лежат у верхней границы ОЗУ, на серверах - и выше 4 ГБ). 0 - не читается. */
+static const uint8_t* reach(uint64_t phys, uint64_t len, uint64_t max_phys) {
+    if (phys + len < phys) return 0;
+    if (phys + len <= max_phys) return (const uint8_t*)(uintptr_t)phys;
+    return map_hook ? (const uint8_t*)map_hook(phys, len) : 0;
 }
 
 static int sum_ok(const void* p, uint32_t n) {
@@ -61,9 +63,10 @@ static void parse_madt(const sdt_t* t, acpi_info_t* o) {
 }
 
 static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
-    if (phys == 0 || !reach(phys, sizeof(sdt_t), max_phys)) { o->tables_skipped_high++; return; }
-    const sdt_t* t = (const sdt_t*)(uintptr_t)phys;
-    if (t->len < sizeof(sdt_t) || !reach(phys, t->len, max_phys)) { o->tables_skipped_high++; return; }
+    const sdt_t* t = phys ? (const sdt_t*)reach(phys, sizeof(sdt_t), max_phys) : 0;
+    if (!t) { o->tables_skipped_high++; return; }
+    uint32_t tl = t->len;
+    if (tl < sizeof(sdt_t) || !(t = (const sdt_t*)reach(phys, tl, max_phys))) { o->tables_skipped_high++; return; }
     if (!sum_ok(t, t->len)) { o->tables_bad++; return; }
     o->tables_seen++;
     if (sig_is(t->sig, "APIC")) parse_madt(t, o);
@@ -88,9 +91,10 @@ int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {
         use_x = r->xsdt != 0;
     }
     uint64_t root = use_x ? r->xsdt : r->rsdt;
-    if (root == 0 || !reach(root, sizeof(sdt_t), max_phys)) return -5;
-    const sdt_t* rt = (const sdt_t*)(uintptr_t)root;
-    if (rt->len < sizeof(sdt_t) || !reach(root, rt->len, max_phys) || !sum_ok(rt, rt->len)) return -6;
+    const sdt_t* rt = root ? (const sdt_t*)reach(root, sizeof(sdt_t), max_phys) : 0;
+    if (!rt) return -5;
+    uint32_t rl = rt->len;
+    if (rl < sizeof(sdt_t) || !(rt = (const sdt_t*)reach(root, rl, max_phys)) || !sum_ok(rt, rt->len)) return -6;
     uint32_t esz = use_x ? 8 : 4;
     uint32_t n = (rt->len - sizeof(sdt_t)) / esz;
     const uint8_t* ents = (const uint8_t*)rt + sizeof(sdt_t);

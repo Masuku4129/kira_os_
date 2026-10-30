@@ -153,9 +153,25 @@ class VM:
                 for pat in FATAL:
                     m = re.search(pat, bytes(self.log[-len(d) - 200:]))
                     if m:
-                        raise Fail("авария ядра: " + m.group(0).decode(errors="replace"))
+                        self.drain(4.0)                 # дочитать аварийный дамп (регистры, стек, причина)
+                        i = bytes(self.log).rfind(m.group(0))
+                        tail = bytes(self.log[i:i + 3000]).decode(errors="replace")
+                        raise Fail("авария ядра:\n" + tail)
         if self.qemu.poll() is not None:
             raise Fail(f"QEMU завершился (код {self.qemu.returncode})")
+
+    def drain(self, seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            r, _, _ = select.select([self.ser], [], [], 0.2)
+            if r:
+                try:
+                    d = self.ser.recv(65536)
+                except (BlockingIOError, OSError):
+                    d = b""
+                if not d and self.qemu.poll() is not None:
+                    break
+                self.log += d
 
     def expect(self, pattern, timeout, since):
         rx = re.compile(pattern.encode() if isinstance(pattern, str) else pattern)
