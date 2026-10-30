@@ -32,6 +32,12 @@ typedef struct {
     uint8_t  rtc_local;
     uint32_t nproc;
     struct { uint32_t pid, threads, heap_kb, cpu_x10, sysc, weight, limit; char name[16]; uint8_t flagged, focus; } p[16];
+    /* предвидение */
+    uint32_t risk;                         /* % */
+    int      risk_why;
+    uint32_t net_n, net_pos, net_prec, net_rec, forecasts, net_loss_x1e4;
+    uint8_t  net_trusted;
+    int32_t  net_w[MNET_F];
 } mind_view_t;
 
 void mind_sys_init(void);                 /* после файловой системы */

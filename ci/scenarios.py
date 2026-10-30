@@ -36,6 +36,8 @@ ALL = [
         {"cmd": "ps", "must": [r"mind-tact", r"par-0"]},
         {"cmd": "ai cap", "must": [r"предел загрузки ядер фоном сейчас 50%"]},
         {"cmd": "ai cap 70", "must": [r"70%"]},
+        {"cmd": "ai", "must": [r"предвидение: риск опоздания экрана", r"модель обучена на \d+ с"]},
+        {"cmd": "ai model", "must": [r"фоновые программы: -?\d+\.\d\d", r"обучено на \d+ с"]},
     ]),
     sc("boot-ata", "загрузка: IDE (как в Limbo)", BASIC, disk="ata", smp=2),
     sc("boot-sata", "загрузка: AHCI (SATA) на плате q35", BASIC + [{"log": [r"\[KIRA AHCI\] sata0"]}], disk="sata", machine="q35"),

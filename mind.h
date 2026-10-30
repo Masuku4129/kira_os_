@@ -2,6 +2,7 @@
 #define MIND_H
 
 #include <stdint.h>
+#include "mindnet.h"
 
 /* Разум Киры. Раз в секунду получает замеры системы (mind_sample_t), учит для каждого сигнала норму этой машины
    (среднее и разброс), оценивает здоровье и принимает решения через исполнителей (mind_act_t):
@@ -102,17 +103,24 @@ typedef struct { int64_t mean_x100; uint64_t var_x100; uint32_t n; } mind_norm_t
 
 /* То, что переживает перезагрузку (сохраняется как есть, проверяется по crc). */
 #define MIND_MAGIC   0x444E494DU   /* "MIND" */
-#define MIND_VERSION 1
-typedef struct {
-    uint32_t magic, version;
-    mind_norm_t norm[MIND_SIG_N];
-    uint8_t  q_best[8];        /* лучший квант (x10 мс) по группам числа ядер; 0 - не выучен */
-    uint8_t  mode, fx_user, rtc_local, core_cap;   /* rtc_local: часы ПК идут по местному времени (Windows, Limbo/QEMU localtime);
-                                                     core_cap: предел загрузки ядер фоном при нехватке, % (0 - по умолчанию 50) */
-    int32_t  tz_min;           /* часовой пояс для часов в оболочке, минуты от UTC */
+#define MIND_VERSION 2             /* 2: модель предвидения (веса) */
+#define MIND_MODEL_COMMON \
+    uint32_t magic, version; \
+    mind_norm_t norm[MIND_SIG_N]; \
+    uint8_t  q_best[8];        /* лучший квант (x10 мс) по группам числа ядер; 0 - не выучен */ \
+    uint8_t  mode, fx_user, rtc_local, core_cap;   /* rtc_local: часы ПК идут по местному времени (Windows, Limbo/QEMU localtime); \
+                                                     core_cap: предел загрузки ядер фоном при нехватке, % (0 - по умолчанию 50) */ \
+    int32_t  tz_min;           /* часовой пояс для часов в оболочке, минуты от UTC */ \
     uint32_t lifetime_s, decisions, anomalies, kills, tune_trials, tune_wins;
+typedef struct {
+    MIND_MODEL_COMMON
+    mnet_t   net;              /* модель предвидения: веса этой машины */
+    uint32_t forecasts;        /* упреждающих решений за жизнь */
     uint32_t crc;
 } mind_model_t;
+typedef struct { MIND_MODEL_COMMON uint32_t crc; } mind_model_v1_t;   /* прежний формат: читается и дополняется */
+/* Опыт с диска (len байт) -> модель текущего формата. 1 - годен (формат 2 или поднятый из 1), 0 - нет. */
+int mind_model_load(mind_model_t* out, const void* buf, unsigned len);
 
 typedef struct { uint32_t t; uint8_t kind; uint8_t applied; uint32_t pid; char text[MIND_TEXT]; } mind_event_t;
 
@@ -174,6 +182,13 @@ typedef struct {
     /* тактика (десятки мс) */
     uint32_t tact_on, tact_calm_ms, tact_last_ms, tact_logged_ms, tact_steps, tact_actions;
     uint32_t tact_budget_x10;                 /* сколько процессора отдано фону при последнем ограничении */
+    /* предвидение (стратегия): признаки прошлой секунды ждут своего исхода */
+    int32_t  nx_prev[MNET_F];
+    uint8_t  nx_have, nx_acted;               /* есть пример; в его секунду действовало упреждение (исход не честный) */
+    uint32_t risk_q16;                        /* вероятность опоздания экрана в следующую секунду */
+    uint32_t pre_until_ms;                    /* до этого момента тактика держит фон ужатым заранее */
+    uint32_t pre_logged_t, pre_skip;          /* журнал не чаще; каждая 10-я опасная секунда - без упреждения (проверка) */
+    int      risk_why;                        /* главный признак риска */
     char     denied_name[16];
 } mind_t;
 
@@ -209,6 +224,7 @@ int  mind_model_valid(const mind_model_t* m);
 void mind_model_seal(mind_model_t* m);       /* посчитать crc перед записью */
 
 const char* mind_signal_name(int sig);
+const char* mind_feature_name(int f);       /* признак модели предвидения */
 const char* mind_signal_unit(int sig);
 unsigned    mind_quantum_ms(const mind_t* s);
 int         mind_fx_level(const mind_t* s);

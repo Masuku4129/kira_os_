@@ -4,6 +4,7 @@
 /* ---------------- мелочи без libc ---------------- */
 
 static void mzero(void* p, unsigned long n) { uint8_t* b = (uint8_t*)p; while (n--) *b++ = 0; }
+static void mcopy(void* d, const void* src, unsigned long n) { uint8_t* a = (uint8_t*)d; const uint8_t* b = (const uint8_t*)src; while (n--) *a++ = *b++; }
 static void scopy(char* d, const char* s, unsigned cap) { unsigned i = 0; while (s[i] && i + 1 < cap) { d[i] = s[i]; i++; } d[i] = 0; }
 
 static uint64_t isqrt64(uint64_t v) {
@@ -76,6 +77,26 @@ int mind_model_valid(const mind_model_t* m) {
     return crc32_m(&t, sizeof t) == c;
 }
 
+int mind_model_load(mind_model_t* out, const void* buf, unsigned len) {
+    if (len == sizeof(mind_model_t)) {
+        mcopy(out, buf, sizeof *out);
+        return mind_model_valid(out);
+    }
+    if (len == sizeof(mind_model_v1_t)) {                     /* опыт прежней версии: нормы и настройки сохраняются */
+        mind_model_v1_t o;
+        mcopy(&o, buf, sizeof o);
+        if (o.magic != MIND_MAGIC || o.version != 1) return 0;
+        uint32_t c = o.crc; o.crc = 0;
+        if (crc32_m(&o, sizeof o) != c) return 0;
+        mzero(out, sizeof *out);
+        mcopy(out, &o, __builtin_offsetof(mind_model_v1_t, crc));
+        mnet_init(&out->net);
+        mind_model_seal(out);
+        return 1;
+    }
+    return 0;
+}
+
 /* ---------------- журнал ---------------- */
 
 static void jlog(mind_t* s, uint32_t now, int kind, int applied, uint32_t pid, const char* f, ...) {
@@ -103,6 +124,7 @@ void mind_init(mind_t* s, const mind_model_t* saved, unsigned cores) {
         s->m.mode = MIND_ACT;
         s->m.fx_user = MIND_FX_AUTO;
         s->m.tz_min = 180;
+        mnet_init(&s->m.net);
     }
     if (s->m.mode > MIND_ACT) s->m.mode = MIND_ACT;
     if (s->m.fx_user > MIND_FX_AUTO) s->m.fx_user = MIND_FX_AUTO;
@@ -118,8 +140,8 @@ void mind_init(mind_t* s, const mind_model_t* saved, unsigned cores) {
     int learned = 0;
     for (int i = 0; i < MIND_SIG_N; i++) if (s->m.norm[i].n >= 60) learned++;
     if (saved && mind_model_valid(saved))
-        jlog(s, 0, MJ_LEARN, 0, 0, "опыт загружен: %u из %u норм выучены, квант %u мс, решений за жизнь %u",
-             (uint32_t)learned, (uint32_t)MIND_SIG_N, (uint32_t)Qv[s->q_idx] * 10, s->m.decisions);
+        jlog(s, 0, MJ_LEARN, 0, 0, "опыт загружен: %u из %u норм выучены, квант %u мс, решений за жизнь %u, модель предвидения обучена на %u с",
+             (uint32_t)learned, (uint32_t)MIND_SIG_N, (uint32_t)Qv[s->q_idx] * 10, s->m.decisions, s->m.net.n);
     else
         jlog(s, 0, MJ_LEARN, 0, 0, "первая жизнь: учусь, что для этой машины нормально");
 }
@@ -552,7 +574,7 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
     uint32_t cores = in->cores ? in->cores : 1;
     for (unsigned k = 0; k < in->nproc && k < MIND_TACT_MAXP; k++) {
         mind_track_t* t = track_of(s, in->p[k].pid);
-        if (t) t->tact_cpu_x10 = in->p[k].cpu_x10;
+        if (t) { t->tact_cpu_x10 = in->p[k].cpu_x10; if (in->p[k].threads) t->threads = in->p[k].threads; }
     }
     uint32_t bg = 0, nbg = 0;
     for (int i = 0; i < MIND_PROC_MAX; i++) {
@@ -561,7 +583,8 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
         bg += t->tact_cpu_x10; nbg++;
     }
     uint32_t fg = in->busy_x10 > bg ? in->busy_x10 - bg : 0;
-    int pressure = (in->late > 0) || in->fg_wait_ms > 20;
+    int foresee = in->t_ms < s->pre_until_ms;                     /* стратегия предвидит опоздание */
+    int pressure = (in->late > 0) || in->fg_wait_ms > 20 || foresee;
     uint32_t cap_x10 = mind_core_cap(s) * 10 * cores;
     uint32_t budget = cap_x10 > fg ? cap_x10 - fg : 0;
     if (budget < 50 * nbg) budget = 50 * nbg;                     /* фон не останавливается совсем: от 5% каждому */
@@ -583,7 +606,7 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
         }
         if (!s->tact_on || in->t_ms - s->tact_logged_ms >= 2000) {
             jlog(s, in->t_ms / 1000, MJ_LIMIT, acting, 0, "%sтактика: %s - фон ужат до %u%% ядер (предел %u%%)",
-                 acting ? "" : "(наблюдение) ", in->late ? "экран опаздывает" : "система ждёт процессор",
+                 acting ? "" : "(наблюдение) ", in->late ? "экран опаздывает" : in->fg_wait_ms > 20 ? "система ждёт процессор" : "упреждение",
                  budget / 10 / cores, mind_core_cap(s));
             s->tact_logged_ms = in->t_ms;
         }
@@ -656,6 +679,68 @@ static void devices(mind_t* s, const mind_sample_t* in, const mind_act_t* act, u
     }
 }
 
+/* ---------------- предвидение (стратегия, раз в секунду) ----------------
+   Модель (mindnet) по состоянию системы сейчас оценивает вероятность того, что в следующую секунду экран будет
+   опаздывать. Через секунду исход известен - модель учится на нём. Если модели можно доверять (её предупреждения
+   сбывались) и риск высок, тактика ужимает фон заранее, до первого опоздавшего кадра, а не после.
+   Секунды, когда упреждение действовало, не учат модель: опоздания не было, но, возможно, только благодаря ему.
+   Поэтому каждая десятая опасная секунда проходит без упреждения - модель видит честный исход и не застывает. */
+static const char* const feat_name[MNET_F] = {
+    "загрузка ядер", "очередь потоков", "память", "фоновые программы", "программа в фокусе", "обмен сообщениями",
+    "задержка диска", "переключения потоков", "число программ", "опоздания сейчас", "ожидание процессора", "анимация"
+};
+const char* mind_feature_name(int f) { return f >= 0 && f < MNET_F ? feat_name[f] : "?"; }
+
+static int32_t q16(uint64_t num, uint64_t den) {
+    if (!den) return 0;
+    uint64_t v = num * MNET_ONE / den;
+    return (int32_t)(v > MNET_ONE ? MNET_ONE : v);
+}
+
+static void features(const mind_t* s, const mind_sample_t* in, int32_t* x) {
+    unsigned cores = in->cores ? in->cores : 1;
+    uint64_t bg = 0, fg = 0;
+    for (int i = 0; i < MIND_PROC_MAX; i++) {
+        const mind_track_t* t = &s->tr[i];
+        if (!t->alive) continue;
+        if (t->pid == s->focus_pid) fg += t->cpu_x10; else bg += t->cpu_x10;
+    }
+    x[0] = q16(in->load, 100);
+    x[1] = q16(in->runnable, (uint64_t)cores * 4);
+    x[2] = q16(in->mem_used, 100);
+    x[3] = q16(bg, (uint64_t)cores * 1000);
+    x[4] = q16(fg, 1000);
+    x[5] = q16(ilog2u((uint64_t)in->ipc + 1), 16);
+    x[6] = q16(ilog2u((uint64_t)in->disk_lat_us + 1), 20);
+    x[7] = q16(ilog2u((uint64_t)in->switches / cores + 1), 16);
+    x[8] = q16(in->nproc, (uint64_t)cores * 4);
+    x[9] = q16(in->late, in->loops ? in->loops : 1);
+    x[10] = q16(ilog2u((uint64_t)in->max_wait_ms + 1), 12);
+    x[11] = q16((uint64_t)(s->fx < 0 ? 0 : s->fx), 3);
+}
+
+static void foresight(mind_t* s, const mind_sample_t* in, uint32_t now) {
+    uint32_t late_pct = in->loops ? in->late * 100 / in->loops : 0;
+    if (s->nx_have && !s->nx_acted && in->loops) mnet_train(&s->m.net, s->nx_prev, late_pct >= 5);
+    int32_t x[MNET_F];
+    features(s, in, x);
+    s->risk_q16 = mnet_predict(&s->m.net, x);
+    for (int i = 0; i < MNET_F; i++) s->nx_prev[i] = x[i];
+    s->nx_have = in->loops != 0;                               /* без кадров дисплея исхода не будет */
+    s->nx_acted = 0;
+    int acting = s->m.mode == MIND_ACT;
+    if (s->risk_q16 >= MNET_ONE * 6 / 10 && mnet_trusted(&s->m.net) && s->nx_have) {
+        if (++s->pre_skip >= 10) { s->pre_skip = 0; return; }  /* проверка: эта секунда - без упреждения */
+        s->risk_why = mnet_top_feature(&s->m.net, x);
+        if (acting) { s->pre_until_ms = (now + 1) * 1000 + 300; s->nx_acted = 1; s->m.forecasts++; }
+        if (in->late == 0 && (now - s->pre_logged_t >= 30 || !s->pre_logged_t)) {   /* опоздания уже идут - это видно и так */
+            s->pre_logged_t = now;
+            jlog(s, now, MJ_LIMIT, acting, 0, "%sпредвижу опоздание экрана (риск %u%%, главная причина - %s): фон ужимается заранее",
+                 acting ? "" : "(наблюдение) ", s->risk_q16 * 100 / MNET_ONE, mind_feature_name(s->risk_why));
+        }
+    }
+}
+
 void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act) {
     uint32_t now = in->t;
     s->activity = 0;
@@ -666,6 +751,7 @@ void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act) {
         if (act->set_fx) act->set_fx(s->fx);
     }
     processes(s, in, act, now);
+    foresight(s, in, now);
     learn(s, in, now);
     assess(s, in, now);
     tuner(s, in, act, now);

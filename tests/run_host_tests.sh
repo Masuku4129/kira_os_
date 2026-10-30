@@ -148,8 +148,12 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/ui tests/ui_test.c gfxui.c gfx2d.c
 $T/ui
 
 echo "== mind (norms, anomalies, health, quantum self-tuning, memory, focus, starvation, behavior, persistence) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c mindnet.c
 $T/mind
+
+echo "== mind foresight model (online logistic regression, calibration, trust) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/mindnet tests/mindnet_test.c mindnet.c -lm
+$T/mindnet
 
 echo "== real-time clock (calendar, CMOS decode, epoch, Russian date) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/rtc tests/rtc_test.c rtc.c
@@ -190,7 +194,7 @@ $CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brai
 $T/wm
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c mind.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
 ASAN_OPTIONS=detect_leaks=0 $T/disp | tail -1
 for r in "1280 720" "1920 1080"; do ASAN_OPTIONS=detect_leaks=0 $T/disp $r | tail -1; done
 rm -rf $T

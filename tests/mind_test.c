@@ -258,6 +258,62 @@ int main(void) {
         mind_tact_step(d, &ti, &none);
     }
 
-    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap) passed");
+    /* предвидение: в этом мире тяжёлый фон в эту секунду означает опоздания экрана в следующую. Модель учится,
+       получает доверие и затем ужимает фон заранее - до первого опоздавшего кадра (тактика видит «упреждение»). */
+    {
+        mind_t* d = &M; mind_init(d, 0, 4);
+        uint64_t cyc = 0; int heavy_prev = 0; uint32_t seed = 12345;
+        uint32_t t = 1;
+        for (; t <= 900; t++) {
+            seed = seed * 1103515245u + 12345u;
+            int heavy = (seed >> 16) % 4 == 0;
+            cyc += heavy ? 3000000000ull : 200000000ull;
+            base(t);
+            S.late = heavy_prev ? 12 : 0;
+            S.load = heavy ? 85 : 20;
+            add_proc(10, "editor", (uint64_t)t * 100000000ull, t * 50, 100, 1);
+            add_proc(20, "render", cyc, t * 50, 100, 0);
+            mind_step(d, &S, &act);
+            heavy_prev = heavy;
+        }
+        printf("foresight: n=%u pos=%u precision=%u%% recall=%u%% trusted=%d w[bg]=%d w[late]=%d forecasts=%u\n",
+               d->m.net.n, d->m.net.pos, mnet_precision(&d->m.net), mnet_recall(&d->m.net), mnet_trusted(&d->m.net),
+               d->m.net.w[3] / 655, d->m.net.w[9] / 655, d->m.forecasts);
+        CHECK(mnet_trusted(&d->m.net) && d->m.net.w[3] > 0);
+        CHECK(d->m.forecasts > 0 && journal_has("предвижу опоздание экрана"));
+        /* опасная секунда: без единого опоздавшего кадра тактика ужимает фон заранее */
+        d->pre_skip = 0;
+        cyc += 3000000000ull; base(t); S.load = 85;
+        add_proc(10, "editor", (uint64_t)t * 100000000ull, t * 50, 100, 1);
+        add_proc(20, "render", cyc, t * 50, 100, 0);
+        mind_step(d, &S, &act);
+        CHECK(d->risk_q16 > MNET_ONE / 2 && d->pre_until_ms > t * 1000);
+        limit[20] = 100;
+        static mind_tact_in_t ti; memset(&ti, 0, sizeof ti);
+        ti.cores = 4; ti.window_ms = 25; ti.busy_x10 = 3100; ti.loops = 2; ti.late = 0; ti.nproc = 2;
+        ti.p[0].pid = 10; ti.p[0].threads = 1; ti.p[0].cpu_x10 = 100;
+        ti.p[1].pid = 20; ti.p[1].threads = 4; ti.p[1].cpu_x10 = 3000;
+        ti.t_ms = t * 1000 + 100; mind_tact_step(d, &ti, &act);
+        CHECK(limit[20] < 100 && journal_has("упреждение"));
+        /* модель переживает перезагрузку; опыт прежнего формата (без модели) читается и дополняется */
+        mind_model_t sv = d->m; mind_model_seal(&sv);
+        mind_model_t back;
+        CHECK(mind_model_load(&back, &sv, sizeof sv) && back.net.n == d->m.net.n && back.net.w[3] == d->m.net.w[3]);
+        mind_model_v1_t old; memset(&old, 0, sizeof old);
+        memcpy(&old, &sv, __builtin_offsetof(mind_model_v1_t, crc));
+        old.version = 1; old.norm[MS_LOAD].n = 777;
+        old.crc = 0;
+        {   /* crc прежнего формата - тем же CRC-32 */
+            uint32_t c = 0xFFFFFFFFu; const uint8_t* p = (const uint8_t*)&old;
+            for (unsigned i = 0; i < sizeof old; i++) { c ^= p[i]; for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); }
+            old.crc = ~c;
+        }
+        CHECK(mind_model_load(&back, &old, sizeof old) && back.norm[MS_LOAD].n == 777 && back.net.n == 0 && mind_model_valid(&back));
+        old.norm[MS_LOAD].n = 778;                                /* испорченный файл не принимается */
+        CHECK(!mind_model_load(&back, &old, sizeof old));
+        CHECK(!mind_model_load(&back, &old, 100));
+    }
+
+    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap), foresight model (learns, earns trust, acts ahead, persists, upgrades v1) passed");
     return fails != 0;
 }

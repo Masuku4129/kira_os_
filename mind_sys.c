@@ -254,6 +254,10 @@ static void publish(void) {
         v.nj++;
     }
     v.tz_min = M.m.tz_min; v.rtc_local = M.m.rtc_local;
+    v.risk = M.risk_q16 * 100 / MNET_ONE; v.risk_why = M.risk_why;
+    v.net_n = M.m.net.n; v.net_pos = M.m.net.pos; v.net_prec = mnet_precision(&M.m.net); v.net_rec = mnet_recall(&M.m.net);
+    v.net_trusted = (uint8_t)mnet_trusted(&M.m.net); v.forecasts = M.m.forecasts; v.net_loss_x1e4 = M.m.net.loss_x1e4;
+    for (int i = 0; i < MNET_F; i++) v.net_w[i] = M.m.net.w[i];
     v.nproc = 0;
     for (int i = 0; i < MIND_PROC_MAX && v.nproc < 16; i++) {
         const mind_track_t* t = &M.tr[i];
@@ -284,7 +288,11 @@ uint32_t mind_sys_version(void) { return __atomic_load_n(&version, __ATOMIC_ACQU
 void mind_sys_init(void) {
     mind_model_t saved;
     int have = 0;
-    if (kfs_mounted() && kfs_read(MODEL_PATH, 0, &saved, sizeof saved) == (int64_t)sizeof saved && mind_model_valid(&saved)) have = 1;
+    if (kfs_mounted()) {                                    /* опыт прежнего формата поднимается до текущего */
+        static uint8_t raw[sizeof(mind_model_t) + 16];
+        int64_t got = kfs_read(MODEL_PATH, 0, raw, sizeof raw);
+        if (got > 0 && mind_model_load(&saved, raw, (unsigned)got)) have = 1;
+    }
     unsigned cores = sched_cpu_count();
     mind_init(&M, have ? &saved : 0, cores ? cores : 1);
     tcap = sched_thread_capacity();
@@ -463,6 +471,19 @@ void mind_sys_print(const char* what) {
             uart_print(" / "); uart_print_dec(v->learned[k]); uart_print("\n");
         }
         uart_print("\n");
+    } else if (what[0] == 'm') {                            /* model: веса модели предвидения */
+        uart_print("\n[MIND] модель предвидения (логистическая регрессия, учится каждую секунду; вес > 0 - признак ведёт к опозданию):\n");
+        for (int i = 0; i < MNET_F; i++) {
+            uart_print("  "); uart_print(mind_feature_name(i)); uart_print(": ");
+            int32_t w = v->net_w[i];
+            if (w < 0) { uart_print("-"); w = -w; }
+            uart_print_dec((uint64_t)w / MNET_ONE); uart_print(".");
+            uint64_t fr = ((uint64_t)w % MNET_ONE) * 100 / MNET_ONE; if (fr < 10) uart_print("0"); uart_print_dec(fr);
+            uart_print("\n");
+        }
+        uart_print("  обучено на "); uart_print_dec(v->net_n); uart_print(" с, средняя ошибка (лог-потеря) 0.");
+        uint64_t l = v->net_loss_x1e4; if (l < 1000) uart_print("0"); if (l < 100) uart_print("0"); if (l < 10) uart_print("0"); uart_print_dec(l);
+        uart_print("\n\n");
     } else if (what[0] == 'p') {                            /* procs: что разум знает о программах */
         uart_print("\n[MIND] программы: pid имя  процессор  вызовы/с  куча  вес  предел\n");
         for (unsigned i = 0; i < v->nproc; i++) {
@@ -489,7 +510,12 @@ void mind_sys_print(const char* what) {
         uart_print("\n[MIND] за жизнь: "); uart_print_dec(v->lifetime_s); uart_print(" с, решений ");
         uart_print_dec(v->decisions); uart_print(", необычностей "); uart_print_dec(v->anomalies);
         uart_print(", остановлено программ "); uart_print_dec(v->kills);
-        uart_print("\n[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai act | ai observe, ai fx auto|0..3\n\n");
+        uart_print("\n[MIND] предвидение: риск опоздания экрана в следующую секунду "); uart_print_dec(v->risk);
+        uart_print("%; модель обучена на "); uart_print_dec(v->net_n); uart_print(" с (опозданий "); uart_print_dec(v->net_pos);
+        uart_print("), предупреждения сбываются "); uart_print_dec(v->net_prec); uart_print("%, замечено опозданий заранее ");
+        uart_print_dec(v->net_rec); uart_print("%, "); uart_print(v->net_trusted ? "доверие есть" : "пока без права действовать");
+        uart_print(", упреждений "); uart_print_dec(v->forecasts);
+        uart_print("\n[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai act | ai observe, ai fx auto|0..3\n\n");
     }
     kfree(v);
 }
