@@ -94,6 +94,14 @@ int main(int argc, char** argv) {
         unsigned ran = 0;
         for (unsigned i = 0; i < n; i++) if (ticks_of[w[i]->id] > 0) ran++;
         CHECK(ran == n);                                    // и лишнему потоку (n-й на n-1 ядре) время тоже достаётся
+        // Очереди у ядер свои, но доли равны: n потоков на n-1 ядре получают поровну (не «свой» поток всё ядро,
+        // а лишний - крохи): чужой поток, ждущий дольше, забирается.
+        for (unsigned i = 0; i < n; i++) ticks_of[w[i]->id] = 0;
+        for (unsigned r = 0; r < 4000; r++) round_all(n);
+        unsigned long long lo = ~0ULL, hi = 0;
+        for (unsigned i = 0; i < n; i++) { unsigned long long v = ticks_of[w[i]->id]; if (v < lo) lo = v; if (v > hi) hi = v; }
+        if (n > 2) { CHECK(hi <= lo * 3 / 2 + 50); }
+        if (fails) printf("share n=%u: min %llu max %llu\n", n, lo, hi);
     }
     host_cpu = 0;
 

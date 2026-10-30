@@ -42,11 +42,14 @@ static uint64_t ready_epoch = 1;
 
 extern void kernel_panic(const char* reason) __attribute__((noreturn));
 
+static void rq_remove(struct thread* t);
+
 // Свободный слот таблицы (вызывать под sched_lock); занятый слот расширяет границу обходов.
 static thread_t* take_slot(void) {
     for (unsigned i = 0; i < thread_cap; i++) {
         if (threads[i].state == THREAD_UNUSED) {
             if (i + 1 > thread_hi) thread_hi = i + 1;
+            rq_remove(&threads[i]);         /* свободный слот в очереди не стоит; страховка от чужой правки состояния */
             return &threads[i];
         }
     }
@@ -106,15 +109,125 @@ static void charge_current(void) {
     c->last_switch_tsc = now;
 }
 
-/* Поток можно запустить на ядре cpu: готов, не исполняется в другом месте и разрешён маской. */
 /* Квант потока с учётом веса процесса (не меньше тика). */
 static uint32_t wq(const thread_t* t) {
     uint32_t q = quantum_ticks * (t->weight ? t->weight : SCHED_WEIGHT_NORMAL) / SCHED_WEIGHT_NORMAL;
     return q ? q : 1;
 }
 
-static int runnable_on(const thread_t* t, unsigned cpu, const thread_t* self) {
-    return t->state == THREAD_READY && (t == self || !t->on_cpu) && cm_test(&t->affinity, cpu);
+/* ---- Очереди готовых: у каждого ядра своя, по классу приоритета (FIFO внутри класса) ----
+   Готовый поток стоит ровно в одной очереди (rq_cpu), холостые потоки ядер - ни в одной. Выбор следующего потока
+   смотрит только свою очередь и счётчики по классам (rq_total), а не всю таблицу потоков: цена переключения не
+   растёт с числом потоков. Работа более важного класса на чужой очереди забирается сразу; работа своего класса -
+   когда своя очередь пуста (простаивающее ядро, конец кванта), поэтому ядра делят нагрузку по кругу, как с общей
+   очередью. Пока общий замок один (sched_lock), очереди меняются под ним. */
+#define NPRIO 4
+typedef struct {
+    thread_t* head[NPRIO];
+    thread_t* tail[NPRIO];
+    uint32_t cnt[NPRIO];
+    uint32_t n;
+} runq_t;
+static runq_t rq[PERCPU_MAX_CPUS];
+static uint32_t rq_total[NPRIO];
+
+#ifdef KIRA_HOST_TEST
+#define RESCHED_CPU(c) ((void)(c))
+#else
+#define RESCHED_CPU(c) smp_resched_cpu(c)
+#endif
+
+static void rq_push(unsigned cpu, thread_t* t, int front) {
+    runq_t* q = &rq[cpu];
+    unsigned p = (unsigned)t->prio;
+    t->rq_cpu = (int32_t)cpu;
+    if (front) {
+        t->rq_prev = 0; t->rq_next = q->head[p];
+        if (q->head[p]) q->head[p]->rq_prev = t; else q->tail[p] = t;
+        q->head[p] = t;
+    } else {
+        t->rq_next = 0; t->rq_prev = q->tail[p];
+        if (q->tail[p]) q->tail[p]->rq_next = t; else q->head[p] = t;
+        q->tail[p] = t;
+    }
+    q->cnt[p]++; q->n++; rq_total[p]++;
+}
+
+static void rq_remove(thread_t* t) {
+    if (t->rq_cpu < 0) return;
+    runq_t* q = &rq[t->rq_cpu];
+    unsigned p = (unsigned)t->prio;
+    if (t->rq_prev) t->rq_prev->rq_next = t->rq_next; else q->head[p] = t->rq_next;
+    if (t->rq_next) t->rq_next->rq_prev = t->rq_prev; else q->tail[p] = t->rq_prev;
+    t->rq_next = t->rq_prev = 0;
+    t->rq_cpu = -1;
+    q->cnt[p]--; q->n--; rq_total[p]--;
+}
+
+static int cpu_usable(unsigned c) { return c < percpu_count() && percpu_table[c].sched_on && !percpu_table[c].failed; }
+static unsigned cpu_load(unsigned c) {
+    const percpu_t* pc = &percpu_table[c];
+    return rq[c].n + (pc->current && pc->current != pc->idle);
+}
+/* Поток класса p начнёт исполняться на ядре c сразу: ядро простаивает или занято менее важным, и в его очереди нет
+   работы того же или более важного класса. */
+static int runs_now(unsigned c, unsigned p) {
+    const percpu_t* pc = &percpu_table[c];
+    if (pc->current && pc->current != pc->idle && (unsigned)pc->current->prio >= p) return 0;
+    for (unsigned k = p; k < NPRIO; k++) if (rq[c].cnt[k]) return 0;
+    return 1;
+}
+
+/* Куда поставить готовый поток: на ядро, где он пойдёт сразу (прежнее ядро - первым: его кэш ещё тёплый), иначе на
+   наименее загруженное разрешённое (при равенстве - прежнее). */
+static unsigned choose_cpu(const thread_t* t) {
+    unsigned n = percpu_count(), last = t->last_cpu, p = (unsigned)t->prio;
+    int last_ok = cpu_usable(last) && cm_test(&t->affinity, last);
+    if (last_ok && runs_now(last, p)) return last;
+    unsigned best = ~0u, best_load = ~0u, now_cpu = ~0u;
+    for (unsigned c = 0; c < n; c++) {
+        if (!cpu_usable(c) || !cm_test(&t->affinity, c)) continue;
+        if (now_cpu == ~0u && runs_now(c, p)) now_cpu = c;
+        unsigned l = cpu_load(c);
+        if (l < best_load) { best = c; best_load = l; }
+    }
+    if (now_cpu != ~0u) return now_cpu;
+    if (last_ok && cpu_load(last) <= best_load) return last;
+    if (best != ~0u) return best;
+    /* разрешённое ядро ещё не подключено (или его нет): поток ждёт в его очереди, как ждал бы в общей */
+    for (unsigned c = 0; c < PERCPU_MAX_CPUS; c++) if (cm_test(&t->affinity, c)) return c;
+    return this_cpu()->cpu_id;                                   /* пустая маска: вызывающий такого не ставит */
+}
+
+static thread_t* rq_first(unsigned c, unsigned p, unsigned cpu, const thread_t* self) {
+    for (thread_t* t = rq[c].head[p]; t; ) {
+        thread_t* nx = t->rq_next;
+        if (t->state != THREAD_READY) rq_remove(t);   /* страховка: в очереди только готовые */
+        else if ((t == self || !t->on_cpu) && cm_test(&t->affinity, cpu)) return t;
+        t = nx;
+    }
+    return 0;
+}
+
+/* Поток класса p с чужой очереди, который можно исполнять на ядре cpu: дольше всех ждущий (головы очередей). */
+static thread_t* steal(unsigned cpu, unsigned p, const thread_t* self) {
+    thread_t* best = 0;
+    for (unsigned c = 0; c < percpu_count(); c++) {
+        if (c == cpu || !rq[c].cnt[p]) continue;
+        thread_t* t = rq_first(c, p, cpu, self);
+        if (t && (!best || t->ready_since < best->ready_since)) best = t;
+    }
+    return best;
+}
+
+/* Есть ли для ядра работа класса не ниже minp (своя или чужая). */
+static int has_work(unsigned cpu, unsigned minp, const thread_t* self) {
+    for (int p = NPRIO - 1; p >= (int)minp; p--) {
+        if (!rq_total[p]) continue;
+        if (rq[cpu].cnt[p] && rq_first(cpu, (unsigned)p, cpu, self)) return 1;
+        if (rq_total[p] > rq[cpu].cnt[p] && steal(cpu, (unsigned)p, self)) return 1;
+    }
+    return 0;
 }
 
 /* Стек потока: в ядре - ячейка с пустотой ниже (vmm), в хост-тесте - обычная память. */
@@ -135,31 +248,39 @@ static void check_canary(const thread_t* t) {
     }
 }
 
-// Выбор следующего потока: наивысший приоритет среди READY; внутри класса - по кругу.
-// У каждого класса свой курсор rr_next[]: поток, которого вытеснил более важный
-// (например, просыпающийся каждый тик core), возвращается в голову очереди с остатком
-// кванта, а истративший квант уходит в хвост. Курсор нельзя считать от "текущего"
-// потока: им часто оказывается поток другого класса, и тогда первый в таблице
-// всегда выигрывал бы у остальных.
-static unsigned rr_next[4];
-
+// Выбор следующего потока: наивысший класс, для которого есть работа; внутри класса - своя очередь по кругу, а если
+// она пуста или чужой поток ждёт намного дольше - чужая. Вытесненный, не доживший до конца кванта, стоит в голове своей очереди с остатком кванта.
 static thread_t* pick_next(unsigned cpu, const thread_t* self) {
-    int top = -1;
-    for (unsigned i = 0; i < thread_hi; i++) {
-        if (runnable_on(&threads[i], cpu, self) && (int)threads[i].prio > top) top = (int)threads[i].prio;
-    }
-    if (top < 0) return this_cpu()->idle;
-
-    unsigned start = rr_next[top] % thread_hi;
-    for (unsigned i = 0; i < thread_hi; i++) {
-        unsigned idx = (start + i) % thread_hi;
-        thread_t* t = &threads[idx];
-        if (runnable_on(t, cpu, self) && (int)t->prio == top) {
-            rr_next[top] = (idx + 1) % thread_hi;
-            return t;
+    for (int p = NPRIO - 1; p >= 0; p--) {
+        if (!rq_total[p]) continue;
+        thread_t* t = rq[cpu].cnt[p] ? rq_first(cpu, (unsigned)p, cpu, self) : 0;
+        if (rq_total[p] > rq[cpu].cnt[p]) {
+            /* Чужой поток того же класса берётся, если своя очередь пуста или он ждёт заметно дольше своего (на
+               два кванта): иначе поток, попавший за долгую работу другого ядра, ждал бы, пока остальные ядра
+               делят время между своими. Небольшая разница - в пользу своего (его данные в кэше этого ядра).
+               Если «своя» очередь - только что истративший квант текущий поток, ждущий чужой идёт первым. */
+            thread_t* far = steal(cpu, (unsigned)p, self);
+            if (far && (!t || (t == self && self->quantum_left == 0) ||
+                        far->ready_since + 2ULL * quantum_ticks < t->ready_since)) t = far;
         }
+        if (t) { rq_remove(t); return t; }
     }
-    return this_cpu()->idle; // недостижимо: top найден выше
+    return this_cpu()->idle;
+}
+
+/* Поток стал готовым (проснулся, создан, получил событие): в очередь подходящего ядра; ядру, где он должен идти
+   сразу, - пора выбрать заново (своему - флаг, чужому - межъядерное прерывание). Под sched_lock. */
+static void make_ready_locked(thread_t* t) {
+    t->state = THREAD_READY;
+    t->ready_since = timer_get_ticks();
+    ready_epoch++;
+    unsigned c = choose_cpu(t);
+    rq_push(c, t, 0);
+    percpu_t* me = this_cpu();
+    percpu_t* pc = &percpu_table[c];
+    if (!pc->sched_on || !sched_ready) return;
+    if (pc == me) { if (t->prio > me->current->prio) me->need_resched = 1; }
+    else if (pc->current == pc->idle || t->prio > pc->current->prio) RESCHED_CPU(c);
 }
 
 // Завершает переключение уже на стеке нового потока: прежний поток теперь можно запускать где угодно,
@@ -196,10 +317,10 @@ static void schedule_locked(void) {
     if (prev->state == THREAD_RUNNING) {
         prev->state = THREAD_READY;
         prev->ready_since = now_tick;
-        // Вытеснен, не дожив до конца кванта: встаёт в голову своего класса и
+        // Вытеснен, не дожив до конца кванта: встаёт в голову своей очереди и
         // сохраняет остаток (иначе поток с частыми прерываниями получал бы новый квант
-        // каждый раз и никогда не уступал бы).
-        if (prev->quantum_left > 0) rr_next[prev->prio] = (unsigned)(prev - threads);
+        // каждый раз и никогда не уступал бы); истративший квант - в хвост.
+        if (!(prev->flags & THREAD_F_IDLE)) rq_push(cpu->cpu_id, prev, prev->quantum_left > 0);
     }
     thread_t* next = pick_next(cpu->cpu_id, prev);
 
@@ -312,12 +433,10 @@ static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg
     t->last_cpu = this_cpu()->cpu_id;
     t->wait_next = 0;
     t->on_cpu = 0;
+    t->rq_next = t->rq_prev = 0;
+    t->rq_cpu = -1;
     __builtin_memcpy(t->fpu, fpu_initial_state(), FPU_STATE_SIZE);
-    t->state = THREAD_READY;     // последним: до этого слот считается свободным
-    ready_epoch++;
-    percpu_t* cpu = this_cpu();
-    if (sched_ready && prio > cpu->current->prio && cm_test(&affinity, cpu->cpu_id)) cpu->need_resched = 1;
-    else if (sched_ready && prio > PRIO_IDLE) KICK_IDLE(affinity);
+    make_ready_locked(t);        // последним: до этого слот считается свободным
     spin_unlock_raw(&sched_lock);
     irq_restore(f);
     return t;
@@ -332,7 +451,7 @@ void sched_init(unsigned cpus, uint64_t ram_kb) {
     __builtin_memset(threads, 0, (size_t)thread_cap * sizeof(thread_t));
     thread_hi = 1;
     uint64_t f = irq_save();
-    for (unsigned i = 0; i < thread_cap; i++) threads[i].state = THREAD_UNUSED;
+    for (unsigned i = 0; i < thread_cap; i++) { threads[i].state = THREAD_UNUSED; threads[i].rq_cpu = -1; }
 
     // Текущий контекст (kernel_main на boot-стеке) становится потоком "core"
     thread_t* core = &threads[0];
@@ -351,6 +470,7 @@ void sched_init(unsigned cpus, uint64_t ram_kb) {
     core->mutexes_held = 0;
     core->last_cpu = 0;
     core->on_cpu = 1;
+    core->rq_cpu = -1;
     __builtin_memcpy(core->fpu, fpu_initial_state(), FPU_STATE_SIZE);
     this_cpu()->current = core;
     this_cpu()->last_switch_tsc = rdtsc();
@@ -358,9 +478,16 @@ void sched_init(unsigned cpus, uint64_t ram_kb) {
     this_cpu()->sched_on = 1;
     irq_restore(f);
 
-    this_cpu()->idle = sched_create("idle", idle_main, 0, PRIO_IDLE);
-    if (!this_cpu()->idle) kernel_panic("Cannot create idle thread");
-    this_cpu()->idle->affinity = SCHED_AFFINITY_BSP;
+    thread_t* idle = sched_create("idle", idle_main, 0, PRIO_IDLE);
+    if (!idle) kernel_panic("Cannot create idle thread");
+    f = irq_save();
+    spin_lock_raw(&sched_lock);
+    rq_remove(idle);                        /* холостой поток в очереди не стоит: его выбирают, когда работы нет */
+    idle->affinity = SCHED_AFFINITY_BSP;
+    idle->flags |= THREAD_F_IDLE;
+    this_cpu()->idle = idle;
+    spin_unlock_raw(&sched_lock);
+    irq_restore(f);
 
     sched_ready = 1;
     uart_print("[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.\n");
@@ -459,12 +586,7 @@ void sched_tick(void) {
             thread_t* t = &threads[i];
             if (t->state != THREAD_SLEEPING) continue;
             if (t->wake_tick <= now) {
-                t->state = THREAD_READY;
-                t->ready_since = now;
-                ready_epoch++;
-                // более важный проснулся; потоки других ядер заметят это в тике своего ядра
-                if (t->prio > cur->prio && cm_test(&t->affinity, id)) cpu->need_resched = 1;
-                else if (t->prio > PRIO_IDLE) KICK_IDLE(t->affinity);
+                make_ready_locked(t);                   // в очередь ядра, где пойдёт; более важный вытесняет сразу
             } else if (t->wake_tick < nw) {
                 nw = t->wake_tick;
             }
@@ -475,18 +597,11 @@ void sched_tick(void) {
     if (cur == cpu->idle) {
         if (cpu->seen_epoch != ready_epoch) {
             cpu->seen_epoch = ready_epoch;
-            for (unsigned i = 0; i < thread_hi; i++) {
-                if (threads[i].prio != PRIO_IDLE && runnable_on(&threads[i], id, cur)) { cpu->need_resched = 1; break; }
-            }
+            if (has_work(id, PRIO_NORMAL, cur)) cpu->need_resched = 1;
         }
     } else if (cur->quantum_left == 0 && !cpu->need_resched) {
-        for (unsigned i = 0; i < thread_hi; i++) {
-            const thread_t* t = &threads[i];
-            if (t != cur && t->prio != PRIO_IDLE && runnable_on(t, id, cur) && t->prio >= cur->prio) {
-                cpu->need_resched = 1;
-                break;
-            }
-        }
+        /* конец кванта: уступить, если работа того же или более важного класса ждёт здесь или на другом ядре */
+        if (has_work(id, cur->prio > PRIO_IDLE ? (unsigned)cur->prio : PRIO_NORMAL, cur)) cpu->need_resched = 1;
         if (!cpu->need_resched) cur->quantum_left = wq(cur); // конкурентов нет - новый квант
     }
     spin_unlock_raw(&sched_lock);
@@ -527,7 +642,9 @@ int sched_attach_cpu(void) {
     t->entry = 0;
     t->arg = 0;
     t->affinity = cm_one(cpu->cpu_id);
-    t->flags = 0;
+    t->flags = THREAD_F_IDLE;
+    t->rq_next = t->rq_prev = 0;
+    t->rq_cpu = -1;
     t->mutexes_held = 0;
     t->pid = 0;
     t->weight = SCHED_WEIGHT_NORMAL;
@@ -634,6 +751,26 @@ static void crash_trace(void (*out)(const char*), unsigned cpu, const percpu_t* 
     trace_line(out, "last irq entered at ", c->irq_rip, c->irq_rbp, lo, hi);
 }
 
+/* Цепочка вызовов кода, прерванного на этом ядре (rbp - его указатель кадра), в пределах стека текущего потока. */
+unsigned sched_trace_current(uint64_t fp, uint64_t* out, unsigned max) {
+    unsigned n = 0;
+#ifndef KIRA_HOST_TEST
+    const thread_t* t = this_cpu()->current;
+    uint64_t lo = 0, hi = 0;
+    if (t && t->stack_base) { lo = (uint64_t)(uintptr_t)t->stack_base; hi = lo + SCHED_STACK_SIZE; }
+    else if (t && this_cpu()->cpu_id == 0) { lo = (uint64_t)(uintptr_t)stack_bottom; hi = (uint64_t)(uintptr_t)stack_top; }
+    while (n < max && fp && lo && fp >= lo && fp + 16 <= hi && !(fp & 7)) {
+        const uint64_t* f = (const uint64_t*)(uintptr_t)fp;
+        out[n++] = f[1];
+        if (f[0] <= fp) break;
+        fp = f[0];
+    }
+#else
+    (void)fp; (void)out; (void)max;
+#endif
+    return n;
+}
+
 /* Остальные ядра получили аварийное NMI: подождать (до ~50 мс), пока они запишут, где стояли. */
 void sched_crash_wait_halted(void) {
 #ifndef KIRA_HOST_TEST
@@ -713,14 +850,23 @@ unsigned sched_core_fail(void) {
        стек из-под ног (за отказавшее ядро платим одним стеком потока). */
     if (cur && cur != idle) cur->state = THREAD_ZOMBIE;
     c->switch_from = 0;
+    c->sched_on = 0;                               /* до переселения очереди: на это ядро больше не ставят */
     for (unsigned i = 0; i < thread_hi; i++) {
         thread_t* t = &threads[i];
         if (t == cur || t == idle || t->state == THREAD_UNUSED || t->state == THREAD_ZOMBIE) continue;
         if (!cm_test(&t->affinity, id)) continue;
         cm_clear(&t->affinity, id);
         if (cm_empty(&t->affinity) && t->state != THREAD_BLOCKED) {   // идти больше некуда; ждущего в очереди мьютекса не трогаем
+            rq_remove(t);
             t->state = THREAD_ZOMBIE;
             orphans++;
+        }
+    }
+    for (unsigned p = 0; p < NPRIO; p++) {         /* очередь отказавшего ядра - на остальные ядра */
+        while (rq[id].head[p]) {
+            thread_t* t = rq[id].head[p];
+            rq_remove(t);
+            rq_push(choose_cpu(t), t, 0);
         }
     }
     if (idle) {                                    // холостой поток умершего ядра больше не выбирается
@@ -813,15 +959,6 @@ void sched_wait_and_unlock(spinlock_t* l, uint64_t ticks) {
     schedule_locked();
 }
 
-static void make_ready_locked(thread_t* t) {
-    t->state = THREAD_READY;
-    t->ready_since = timer_get_ticks();
-    ready_epoch++;
-    percpu_t* cpu = this_cpu();
-    if (t->prio > cpu->current->prio && cm_test(&t->affinity, cpu->cpu_id)) cpu->need_resched = 1;
-    else if (t->prio > PRIO_IDLE) KICK_IDLE(t->affinity);
-}
-
 void sched_wake_waiter(thread_t* t) {
     uint64_t f = irq_save();
     spin_lock_raw(&sched_lock);
@@ -853,14 +990,7 @@ void sched_set_wake_tick(thread_t* t, uint64_t tick) {
 void sched_wake(thread_t* t) {
     uint64_t f = irq_save();
     spin_lock_raw(&sched_lock);
-    if (t->state == THREAD_BLOCKED) {
-        t->state = THREAD_READY;
-        t->ready_since = timer_get_ticks();
-        ready_epoch++;
-        percpu_t* cpu = this_cpu();
-        if (t->prio > cpu->current->prio && cm_test(&t->affinity, cpu->cpu_id)) cpu->need_resched = 1;
-        else if (t->prio > PRIO_IDLE) KICK_IDLE(t->affinity);
-    }
+    if (t->state == THREAD_BLOCKED) make_ready_locked(t);
     spin_unlock_raw(&sched_lock);
     irq_restore(f);
 }

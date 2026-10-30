@@ -255,7 +255,7 @@ int main(void) {
         CHECK(sched_reap() == 4);   // only1, plain, both и roam
         {   // ядро 1 в тесте больше не работает: поток, который оно держало, возвращается в общую очередь
             thread_t* held = percpu_table[1].current;
-            if (held && held != idle1) { held->state = THREAD_READY; held->on_cpu = 0; }
+            if (held && held != idle1 && held->state == THREAD_RUNNING) { held->state = THREAD_BLOCKED; held->on_cpu = 0; sched_wake(held); }
         }
         idle1->state = THREAD_UNUSED; idle1->on_cpu = 0;
         percpu_table[1].sched_on = 0; percpu_table[1].current = 0; percpu_table[1].idle = 0;

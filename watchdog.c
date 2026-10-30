@@ -4,6 +4,7 @@
 #include "smp.h"
 #include "spinlock.h"
 #include "sched.h"
+#include "percpu.h"
 #include "display.h"
 
 // Тики таймера (TIMER_HZ): 5 секунд без watchdog_feed() => паника.
@@ -30,6 +31,9 @@ void watchdog_feed(void) {
 #define WATCHDOG_STALL (TIMER_HZ / 5)
 static volatile uint64_t last_check_tick;
 volatile uint64_t watchdog_stalls, watchdog_stall_max;     /* сколько раз и на сколько тиков машина стояла */
+#define WD_TRACE 6
+uint64_t watchdog_stall_where[WD_TRACE];                    /* где застал ядро первый тик после самой долгой остановки */
+uint32_t watchdog_stall_cpu;
 
 void watchdog_check(void) {
     uint64_t now = timer_get_ticks();
@@ -38,7 +42,16 @@ void watchdog_check(void) {
     if (prev && now > prev && now - prev > WATCHDOG_STALL) {
         __atomic_fetch_add(&last_feed_tick, now - prev, __ATOMIC_ACQ_REL);
         __atomic_fetch_add(&watchdog_stalls, 1, __ATOMIC_RELAXED);
-        if (now - prev > watchdog_stall_max) watchdog_stall_max = now - prev;
+        if (now - prev > watchdog_stall_max) {
+            /* Прерывание таймера приходит сразу, как только ядро снова включило прерывания: место, где оно застало
+               ядро, - конец участка с выключенными прерываниями (если машину не останавливал хозяин). */
+            percpu_t* me = this_cpu();
+            watchdog_stall_max = now - prev;
+            watchdog_stall_where[0] = me->irq_rip;
+            unsigned k = sched_trace_current(me->irq_rbp, &watchdog_stall_where[1], WD_TRACE - 1);
+            for (k++; k < WD_TRACE; k++) watchdog_stall_where[k] = 0;
+            watchdog_stall_cpu = me->cpu_id;
+        }
     }
     uint64_t last = __atomic_load_n(&last_feed_tick, __ATOMIC_ACQUIRE);
     if (timer_get_ticks() - last > WATCHDOG_TIMEOUT_LIMIT) {

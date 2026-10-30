@@ -281,7 +281,12 @@ void kernel_main(unsigned long magic, unsigned long addr) {
             if (n != seen_stalls) {
                 seen_stalls = n;
                 uart_print("[KIRA WATCHDOG] the whole machine stood still (longest "); uart_print_dec(watchdog_stall_max * 1000 / TIMER_HZ);
-                uart_print(" ms, times "); uart_print_dec(n); uart_print("): host paused the VM; not counted as a hang\n");
+                uart_print(" ms, times "); uart_print_dec(n);
+                uart_print("): not counted as a hang. Either the host paused the VM or this code ran with interrupts off: core ");
+                extern uint64_t watchdog_stall_where[]; extern uint32_t watchdog_stall_cpu;
+                uart_print_dec(watchdog_stall_cpu); uart_print(" at");
+                for (int k = 0; k < 6 && watchdog_stall_where[k]; k++) { uart_print(" "); uart_print_hex(watchdog_stall_where[k]); }
+                uart_print("\n");
             }
         }
         sched_sleep_ticks(TIMER_PER_10MS);

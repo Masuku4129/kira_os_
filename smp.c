@@ -231,6 +231,13 @@ void smp_kick_idle(cpumask_t affinity) {
     }
 }
 
+void smp_resched_cpu(unsigned cpu) {
+    if (cpu >= percpu_count()) return;
+    percpu_t* p = &percpu_table[cpu];
+    if (p == this_cpu() || !p->sched_on || p->need_resched) return;
+    apic_send_ipi(p->apic_id, ICR_FIXED(IPI_RESCHED_VECTOR));
+}
+
 unsigned smp_online(void) {
     unsigned n = 0;
     for (unsigned i = 0; i < percpu_count(); i++) if (percpu_table[i].online) n++;
@@ -313,7 +320,7 @@ unsigned smp_start(const acpi_info_t* acpi) {
     if (ok) {
         uart_print("[KIRA SMP] IPI ping answered by "); uart_print_dec(pong);
         uart_print(" of "); uart_print_dec(ok);
-        uart_print(" started processors. Each core runs its own scheduler tick and takes threads from the shared ready queue.\n");
+        uart_print(" started processors. Each core runs its own scheduler tick and its own ready queue; idle cores take waiting work from busy ones.\n");
         uint64_t worst = 0, rtt = 0;
         for (unsigned i = 1; i < percpu_count(); i++) {
             const percpu_t* p = &percpu_table[i];
@@ -501,4 +508,5 @@ int smp_crash_test(unsigned mode, unsigned cpu) {
 #else
 void ipi_dispatch(uint64_t vector, uint64_t cs) { (void)vector; (void)cs; }
 void smp_kick_idle(cpumask_t affinity) { (void)affinity; }
+void smp_resched_cpu(unsigned cpu) { (void)cpu; }
 #endif
