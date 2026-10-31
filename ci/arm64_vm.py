@@ -60,6 +60,16 @@ SC = [
                ("cat /data/edit/note.txt", [r"hello kira"]),
                ("view /pic.png", [r"view: /pic\.png - PNG 97x61, .* sum %08x" % mkfiles_sums["/pic.png"]]), ("@sleep 2", []), ("@shot view", []),
                ("ps", [r"core\s+RUNNING"])]),
+    # Изоляция, как сценарий isolation у x86-64: враждебные программы останавливаются, ядро живо
+    dict(name="arm64-isolation", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci",
+         allow=[r"process terminated", r"exception on core"],
+         must=[r"Processors online: 4 of 4"],
+         cmds=[("test isolation", [r"address spaces are isolated \(PASS\)", r"address spaces are isolated \(PASS\)[\s\S]*address spaces are isolated \(PASS\)"]),
+               ("test atk", [r"kernel pointer passed to write\(\) was rejected \(PASS\)", r"jumping into kernel memory"]),
+               ("@sleep 3", []),
+               ("test fpu", [r"fpu: rounds \d+, mismatches 0 - PASS[\s\S]*- PASS[\s\S]*- PASS"]),
+               ("test threads", [r"mt: .* - PASS"]),
+               ("status", [r"interrupts: GICv3"])]),
     dict(name="arm64-fault", m="virt,gic-version=3", cpu="cortex-a72", smp=1, mem="256M",
          must=[r"Processors online: 1 of 1"],
          cmds=[("fault", [r"exception on core 0: data abort .*", r"FAR 0x0000600000000000"])], fault=True),
@@ -197,7 +207,7 @@ def run(sc, out):
                     if err: break
             if not err:
                 text = log.decode(errors="replace")
-                forbid = [x for x in NO_ERR if not (sc.get("fault") and x == r"exception on core")]
+                forbid = [x for x in NO_ERR if not (sc.get("fault") and x == r"exception on core") and x not in sc.get("allow", [])]
                 for rx in forbid:
                     if re.search(rx, text): err = f"в журнале «{rx}»"; break
     finally:

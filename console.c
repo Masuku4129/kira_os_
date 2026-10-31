@@ -313,8 +313,13 @@ static void cmd_ipc(const char* a) { (void)a; uart_print("[TEST] two ipc process
 static void cmd_isolation(const char* a) { (void)a; uart_print("[TEST] two demo processes write the same address: each must see only its own value\n"); prog_start("demo"); prog_start("demo"); }
 static void cmd_atk(const char* a) {
     (void)a;
+#if defined(__aarch64__)
+    uart_print("[TEST] four hostile programs: kernel memory write, privileged instruction, kernel pointer to a syscall, jump into kernel code; each must be stopped, the kernel lives\n");
+    prog_start("atk-mem"); prog_start("atk-priv"); prog_start("atk-sys"); prog_start("atk-jmp");
+#else
     uart_print("[TEST] four hostile programs: kernel memory write, privileged instruction, kernel pointer to a syscall, corrupted GS; each must be stopped, the kernel lives\n");
     prog_start("atk-mem"); prog_start("atk-priv"); prog_start("atk-sys"); prog_start("atk-gs");
+#endif
 }
 static void cmd_smp(const char* a) { (void)a; smp_describe(uart_print); }
 static void cmd_smptest(const char* a) {

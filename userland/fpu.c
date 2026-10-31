@@ -5,7 +5,20 @@
 #include "kira.h"
 KIRA_ENTRY()
 
-typedef float v4sf __attribute__((vector_size(16)));
+typedef float v4sf __attribute__((vector_size(16)));       /* SSE на x86-64, NEON на ARM64 */
+#if defined(__aarch64__)
+typedef double ext_t;                       /* long double на ARM64 - программная четверная точность: вместо неё ещё double */
+#define EXT_ONE 1.0
+#define EXT_K   1.0000001
+#define EXT_C   0.001
+#define FP_NAME "FP/NEON + double"
+#else
+typedef long double ext_t;                  /* x87, 80 бит */
+#define EXT_ONE 1.0L
+#define EXT_K   1.0000001L
+#define EXT_C   0.001L
+#define FP_NAME "x87 + SSE + double"
+#endif
 typedef struct { u64 w[4]; } digest_t;
 
 #define STEPS 20000
@@ -17,17 +30,17 @@ __attribute__((noinline)) static digest_t work(unsigned id) {
     v4sf c = {0.5f * (float)(id + 1), 0.25f, 0.125f * (float)(id + 1), 0.0625f};
     double d = 1.0 + (double)id;
     float s = 0.5f;
-    long double ld = 1.0L + (long double)id;
+    ext_t ld = EXT_ONE + (ext_t)id;
     for (int i = 0; i < STEPS; i++) {
         a = a * k + c;
         d = d * 1.0000001 + 0.001;
         s = s * 0.999f + (float)(i & 15) * 0.01f;
-        ld = ld * 1.0000001L + 0.001L;
+        ld = ld * EXT_K + EXT_C;
     }
     union { v4sf v; u64 q[2]; } ua; ua.v = a;
     union { double d; u64 q; } ud; ud.d = d;
     union { float f; u32 q; } us; us.f = s;
-    union { long double l; u64 q[2]; } ul; ul.q[0] = 0; ul.q[1] = 0; ul.l = ld;
+    union { ext_t l; u64 q[2]; } ul; ul.q[0] = 0; ul.q[1] = 0; ul.l = ld;
     digest_t r;
     r.w[0] = ua.q[0] ^ (ud.q * 0x9E3779B97F4A7C15ULL);
     r.w[1] = ua.q[1] ^ ((u64)us.q << 17);
@@ -55,7 +68,7 @@ int umain(void) {
     digest_t other = work(id + 1);
     int distinct = !same(&ref, &other);          /* контроль самого теста: разные параметры - разные эталоны */
     u64 rounds = 0, bad = (same(&ref, &ref2) ? 0 : 1);
-    say("fpu: x87 + SSE + double, every result checked against a reference, 3 s...\n");
+    say("fpu: " FP_NAME ", every result checked against a reference, 3 s...\n");
     u64 end = k_ticks() + RUN_TICKS;
     while (k_ticks() < end) {
         digest_t r = work(id);
@@ -63,7 +76,7 @@ int umain(void) {
         rounds++;
     }
     say("fpu: rounds "); say_u(rounds); say(", mismatches "); say_u(bad);
-    if (distinct && bad == 0 && rounds > 0) { say(" - PASS: x87/SSE state is private to every process\n"); return 0; }
+    if (distinct && bad == 0 && rounds > 0) { say(" - PASS: FP/vector state is private to every process\n"); return 0; }
     say(" - FAIL\n");
     return 1;
 }
