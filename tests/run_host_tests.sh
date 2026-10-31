@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")/.."
 CC=${CC:-gcc}
-FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -no-pie"
+FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie"
 SSE="-msse2 -mfpmath=sse -fno-math-errno"
 T=$(mktemp -d)
 
@@ -31,14 +31,14 @@ $CC $FLAGS -o $T/ramext tests/ramext_test.c ramext.c
 $T/ramext
 
 echo "== scheduler policy (incl. regression: pulsing critical thread) =="
-$CC $FLAGS -o $T/sched tests/sched_test.c sched.c scale.c percpu.c
+$CC $FLAGS -o $T/sched tests/sched_test.c sched.c scale.c arch/x86_64/percpu.c
 $T/sched
 
-echo "== REAL context switch + FXSAVE/FXRSTOR (context.s, 3 threads, xmm live across switches) =="
-RF="-O1 -g -Wall -DKIRA_HOST_TEST -I. -no-pie -fno-omit-frame-pointer -mno-red-zone"
-nasm -f elf64 context.s -o $T/context.o
+echo "== REAL context switch + FXSAVE/FXRSTOR (arch/x86_64/context.s, 3 threads, xmm live across switches) =="
+RF="-O1 -g -Wall -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fno-omit-frame-pointer -mno-red-zone"
+nasm -f elf64 arch/x86_64/context.s -o $T/context.o
 $CC $RF -DKIRA_HOST_REAL_FPU -mno-sse -c sched.c -o $T/sched_r.o
-$CC $RF -mno-sse -c percpu.c -o $T/percpu.o
+$CC $RF -mno-sse -c arch/x86_64/percpu.c -o $T/percpu.o
 $CC $RF -mno-sse -c scale.c -o $T/scale.o
 $CC $RF -mno-sse -c tests/tick_hook.c -o $T/hook.o
 $CC $RF -DKIRA_HOST_REAL_FPU -c tests/ctx_fpu_test.c -o $T/ctx.o
@@ -58,7 +58,7 @@ $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
 $T/acpi
 
 echo "== IOAPIC (ISO resolution, redirection encoding) =="
-$CC $FLAGS -o $T/ioapic tests/ioapic_test.c ioapic.c
+$CC $FLAGS -o $T/ioapic tests/ioapic_test.c arch/x86_64/ioapic.c
 $T/ioapic
 
 echo "== persistent store (CRC32, A/B generations, torn write, corruption) =="
@@ -92,11 +92,11 @@ $CC ${FLAGS//-I./-iquote .} -O2 -fsanitize=thread -o $T/spin tests/spinlock_test
 $T/spin
 
 echo "== SMP (AP selection, ICR commands, percpu table) =="
-$CC $FLAGS -o $T/kmutex tests/kmutex_test.c kmutex.c sched.c scale.c percpu.c
+$CC $FLAGS -o $T/kmutex tests/kmutex_test.c kmutex.c sched.c scale.c arch/x86_64/percpu.c
 $T/kmutex
 
 echo "== kernel objects: ports, shared memory, handles, futex =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/kobj tests/kobj_test.c kobj.c futex.c percpu.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/kobj tests/kobj_test.c kobj.c futex.c arch/x86_64/percpu.c
 $T/kobj
 
 echo "== core fault isolation decision + per-core log line buffer =="
@@ -104,9 +104,9 @@ $CC $FLAGS -o $T/corefault tests/corefault_test.c corefault.c linebuf.c
 $T/corefault
 
 echo "== scaling: size policy and scheduler on 1, 2, 3, 4, 8, 16, 64 cores =="
-$CC $FLAGS -o $T/scale tests/scale_test.c scale.c sched.c percpu.c
+$CC $FLAGS -o $T/scale tests/scale_test.c scale.c sched.c arch/x86_64/percpu.c
 for n in 1 2 3 4 8 16 64 65 128 256; do $T/scale $n; done
-$CC $FLAGS -o $T/smp tests/smp_test.c smp.c percpu.c
+$CC $FLAGS -o $T/smp tests/smp_test.c arch/x86_64/smp.c arch/x86_64/percpu.c
 $T/smp
 
 echo "== user program log (prefix per line, interleaving) =="
@@ -140,7 +140,7 @@ $CC $FLAGS -o $T/gfx tests/gfx_test.c gfx2d.c font8x16.c clock.c klog.c fbcon.c
 $T/gfx
 
 echo "== console command line (Enter, backspace, history, clear, Ctrl keys) =="
-$CC $FLAGS -o $T/console tests/console_test.c console.c hwprofile.c uheap.c percpu.c
+$CC $FLAGS -o $T/console tests/console_test.c console.c hwprofile.c uheap.c arch/x86_64/percpu.c
 $T/console
 
 echo "== UI primitives (angles, arcs, anti-aliasing) =="

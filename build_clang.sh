@@ -15,17 +15,20 @@ CC="clang --target=x86_64-unknown-none-elf"
 COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -O2 -Wall -Wextra -Werror"
 # Ядро собирается БЕЗ SSE/MMX: обработчики прерываний не трогают регистры xmm,
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
-CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2"
+CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
 
-C_SOURCES="mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c idt.c gdt.c keyboard.c timer.c syscall.c apic.c mind.c mindnet.c mind_sys.c rtc.c pic.c watchdog.c immune.c sha256.c uart.c exceptions.c fpu.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c ioapic.c irqmode.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c pci.c virtio.c virtio_blk.c blk.c bootmap.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c percpu.c smp.c kmutex.c linebuf.c corefault.c scale.c kobj.c futex.c"
+C_SOURCES="mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c pci.c virtio.c virtio_blk.c blk.c bootmap.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c scale.c kobj.c futex.c"
+# Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
+ARCH=arch/x86_64
+ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu.c"
 
 echo "[*] Ассемблер..."
-rm -f *.o kira.bin
-nasm -f elf64 boot.s -o boot.o
-nasm -f elf64 interrupts.s -o interrupts.o
-nasm -f elf64 context.s -o context.o
-nasm -f elf64 ap_tramp.s -o ap_tramp.o
-nasm -f elf64 uaccess.s -o uaccess_s.o
+rm -f *.o arch/x86_64/*.o kira.bin
+nasm -f elf64 $ARCH/boot.s -o boot.o
+nasm -f elf64 $ARCH/interrupts.s -o interrupts.o
+nasm -f elf64 $ARCH/context.s -o context.o
+nasm -f elf64 $ARCH/ap_tramp.s -o ap_tramp.o
+nasm -f elf64 $ARCH/uaccess.s -o uaccess_s.o
 
 echo "[*] Userland (Ring 3): программы собираются в ELF и кладутся на диск, ядро их не содержит..."
 UCFLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
@@ -51,7 +54,7 @@ done
 
 echo "[*] Инструмент kfstool, манифест доверенных программ и установка в образ диска..."
 HOSTCC="${HOSTCC:-clang}"
-$HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
+$HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
 tools/kfstool manifest $UELF > manifest.h
 [ -f kira.disk ] || dd if=/dev/zero of=kira.disk bs=1M count=8 2>/dev/null
 tools/kfstool kira.disk init
@@ -61,14 +64,14 @@ done
 
 echo "[*] Компиляция C..."
 OBJ="boot.o"
-for src in $C_SOURCES; do
+for src in $C_SOURCES $ARCH_SOURCES; do
     $CC $CFLAGS -c $src -o ${src%.c}.o
     OBJ="$OBJ ${src%.c}.o"
 done
 OBJ="$OBJ interrupts.o context.o ap_tramp.o uaccess_s.o"
 
 echo "[*] Линковка..."
-ld.lld -T linker.ld -nostdlib -z max-page-size=0x1000 $OBJ -o kira.bin
+ld.lld -T $ARCH/linker.ld -nostdlib -z max-page-size=0x1000 $OBJ -o kira.bin
 
 echo "[*] ISO..."
 rm -rf isodir kira.iso
