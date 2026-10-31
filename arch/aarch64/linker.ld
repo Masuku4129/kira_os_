@@ -6,6 +6,7 @@ SECTIONS
 {
     . = 0;
     __kernel_start = .;
+    kernel_start = .;            /* то же имя, что у x86-64 (проверка памяти консоли) */
     .text : { text_start = .; KEEP(*(.text.boot)) *(.text*) text_end = .; }
     .rodata : ALIGN(16) { ro_start = .; *(.rodata*) ro_end = .; }
     .data.rel.ro : ALIGN(16) { *(.data.rel.ro*) }

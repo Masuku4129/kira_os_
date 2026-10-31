@@ -142,9 +142,9 @@ ALL = [
     sc("apps-view", "просмотр: PNG (фильтры, dynamic/stored), BMP, PPM, текст, двоичный - разбор в Ring 3, суммы пикселей против эталона", [
         {"log": BOOT_LOG},
         *[x for f, s in [("/pic.png", SUMS["/pic.png"]), ("/rgba.png", SUMS["/rgba.png"]), ("/pic.bmp", SUMS["/pic.bmp"]), ("/pic.ppm", SUMS["/pic.ppm"])]
-          for x in ({"cmd": "view " + f}, {"sleep": 2}, {"log": [r"view: %s - .* sum %08x" % (re.escape(f), s)]})],
-        {"shot": "view-png"},
-        {"cmd": "view /note.txt"}, {"sleep": 2}, {"shot": "view-text"},
+          for x in ({"cmd": "view " + f}, {"sleep": 2}, {"log": [r"view: %s - .* sum %08x" % (re.escape(f), s)]},
+                    {"shot": "view-" + f.strip("/").replace(".", "-")}, {"keys": "q"}, {"sleep": 1})],   # q - закрыть окно
+        {"cmd": "view /note.txt"}, {"sleep": 2}, {"shot": "view-text"}, {"keys": "q"}, {"sleep": 1},
         {"cmd": "view /blob.bin"}, {"sleep": 2},
         {"log": [r"view: /note\.txt - текст, 31 байт", r"view: /blob\.bin - двоичный, 512 байт"]},
         {"log_forbid": NO_ERR},

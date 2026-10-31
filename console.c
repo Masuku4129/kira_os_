@@ -367,12 +367,23 @@ static void cmd_save(const char* a) {
 static void cmd_mem(const char* a) { (void)a; self_test_memory(); }
 static void cmd_immune(const char* a) { (void)a; immune_demo(); }
 static void cmd_crash_null(const char* a) { (void)a; uart_print("[TEST] reading address 0...\n"); (void)*(volatile char*)0; }
+#if defined(__x86_64__)
 static void cmd_crash_ud(const char* a) { (void)a; uart_print("[TEST] executing ud2...\n"); __asm__ volatile ("ud2"); }
 static void cmd_crash_df(const char* a) {
     (void)a;
     uart_print("[TEST] corrupting RSP and raising #UD -> double fault expected...\n");
     __asm__ volatile ("xor %%rsp, %%rsp\n\tud2" : : : "memory");
 }
+#elif defined(__aarch64__)
+static void cmd_crash_ud(const char* a) { (void)a; uart_print("[TEST] executing udf #0...\n"); __asm__ volatile ("udf #0"); }
+static void cmd_crash_df(const char* a) {           /* у ARM64 нет отдельного стека двойной ошибки (IST) - это шаг плана */
+    (void)a;
+    uart_print("[TEST] ARM64: a fault on a corrupted kernel stack is not caught on a spare stack yet (plan) - not run.\n");
+}
+#else
+static void cmd_crash_ud(const char* a) { (void)a; uart_print("[TEST] not on this host\n"); }
+static void cmd_crash_df(const char* a) { (void)a; uart_print("[TEST] not on this host\n"); }
+#endif
 static void cmd_lspci(const char* a) { (void)a; pci_print(); }
 static void cmd_disk(const char* a) { (void)a; blk_print(); }
 static void cmd_run(const char* arg) {

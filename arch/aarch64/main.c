@@ -651,56 +651,6 @@ void arm_secondary_main(void) {
 
 /* ---------------- консоль ---------------- */
 static int word(const char* l, const char* w) { while (*w && *l == *w) { l++; w++; } return !*w && (!*l || *l == ' '); }
-static const char* arg(const char* l) { while (*l && *l != ' ') l++; while (*l == ' ') l++; return l; }
-/* Слово - имя программы из /bin: запустить (0). Иначе -1 (не программа). */
-static int prog_run_quiet(const char* l) {
-    char path[48] = "/bin/";
-    unsigned n = 5;
-    for (unsigned i = 0; l[i] && l[i] != ' ' && n + 1 < sizeof path; i++) path[n++] = l[i];
-    path[n] = 0;
-    kfs_stat_t st;
-    if (!kfs_mounted() || kfs_stat(path, &st) != 0) return -1;
-    prog_run(path + 5);
-    return 0;
-}
-/* ---------------- консоль: команды оболочки и клавиатура экрана ---------------- */
-#define REQ_N   4
-#define REQ_LEN 64
-static spinlock_t req_lock = SPINLOCK_INIT;
-static char req_q[REQ_N][REQ_LEN];
-static unsigned req_head, req_tail;
-
-int console_request(const char* l) {
-    uint64_t f = spin_lock_irqsave(&req_lock);
-    if (req_head - req_tail >= REQ_N) { spin_unlock_irqrestore(&req_lock, f); return -1; }
-    char* d = req_q[req_head % REQ_N];
-    unsigned i = 0;
-    while (l[i] && i < REQ_LEN - 1) { d[i] = l[i]; i++; }
-    d[i] = 0;
-    req_head++;
-    spin_unlock_irqrestore(&req_lock, f);
-    return 0;
-}
-static int req_take(char* out) {
-    uint64_t f = spin_lock_irqsave(&req_lock);
-    int got = req_tail != req_head;
-    if (got) { unsigned i = 0; const char* q = req_q[req_tail % REQ_N]; while ((out[i] = q[i])) i++; req_tail++; }
-    spin_unlock_irqrestore(&req_lock, f);
-    return got;
-}
-/* Клавиатура (virtio-input/USB) пишет в консоль, пока клавиатуру не забрало окно программы. */
-static int key_char(void) {
-    if (gfx_focus_pid()) return -1;
-    input_event_t ev;
-    while (input_pop(&ev)) {
-        if (ev.type != INPUT_KEY_DOWN) continue;
-        if (ev.key == KEY_ENTER) return '\r';
-        if (ev.key == KEY_BACKSPACE) return 8;
-        if (ev.ch && ev.ch < 128) return (int)ev.ch;
-    }
-    return -1;
-}
-
 unsigned platform_cpus(void) { return ncpu; }
 const char* platform_irq_name(void) { return gic_v3 ? "GICv3" : "GICv2"; }
 
@@ -713,54 +663,55 @@ static void rtc_pl031(const void* fdt) {
     if (r) rtc_set_epoch((int64_t)mmio_r32((uint64_t)(uintptr_t)r), "PL031, UTC");
 }
 
-static void cmd(const char* l) {
-    if (l[0] == 's' && l[1] == 'm' && l[2] == 'p' && !l[3]) {
-        for (unsigned i = 0; i < ncpu; i++)
-            kprintf("  core %u: MPIDR %x, %s, ticks %u\n", (uint64_t)i, cpus[i].mpidr, cpus[i].online ? "online" : "OFF", cpus[i].ticks);
-    } else if (l[0] == 'm' && l[1] == 'e' && l[2] == 'm' && !l[3]) {
+/* ---------------- общая консоль: то, что есть только у ARM64 ---------------- */
+unsigned smp_online(void) { unsigned n = 0; for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online) n++; return n; }
+void smp_describe(void (*out)(const char*)) {
+    for (unsigned i = 0; i < ncpu; i++) {
+        char b[96]; int k = 0;
+        const char* parts[8]; char n1[24], n2[24], n3[24];
+        int j = 23; uint64_t v = i; n1[j] = 0; do { n1[--j] = (char)('0' + v % 10); v /= 10; } while (v);
+        parts[0] = "  core "; parts[1] = n1 + j;
+        static const char hx[] = "0123456789ABCDEF";
+        n2[0] = '0'; n2[1] = 'x'; for (int q = 0; q < 16; q++) n2[2 + q] = hx[(cpus[i].mpidr >> (60 - 4 * q)) & 15]; n2[18] = 0;
+        parts[2] = ": MPIDR "; parts[3] = n2; parts[4] = cpus[i].online ? ", online, ticks " : ", OFF, ticks ";
+        j = 23; v = cpus[i].ticks; n3[j] = 0; do { n3[--j] = (char)('0' + v % 10); v /= 10; } while (v);
+        parts[5] = n3 + j; parts[6] = "\n"; parts[7] = 0;
+        for (int p = 0; parts[p]; p++) for (const char* c = parts[p]; *c && k + 1 < (int)sizeof b; c++) b[k++] = *c;
+        b[k] = 0; out(b);
+    }
+}
+int smp_selftest_start(void) { selftest_arm_start(); return (int)smp_online(); }
+int smp_crash_test(unsigned mode, unsigned cpu) { (void)mode; (void)cpu; return -4; }   /* изоляция сбоя ядра на ARM64 - план */
+
+void platform_status(void (*out)(const char*)) {
+    out("interrupts: "); out(platform_irq_name()); out(v2m ? " + GICv2m (MSI)" : ""); out(", generic timer (virtual), PSCI\n");
+}
+void platform_hw(void (*out)(const char*)) {
+    uint64_t midr = SYSREG_R(midr_el1), isar0 = SYSREG_R(id_aa64isar0_el1), pfr0 = SYSREG_R(id_aa64pfr0_el1), mmfr0 = SYSREG_R(id_aa64mmfr0_el1);
+    kprintf("[KIRA HW] CPU MIDR %x (implementer %x, part %x), cores %u, RAM %u MB\n", midr, (midr >> 24) & 0xFF, (midr >> 4) & 0xFFF,
+            (uint64_t)ncpu, pmm_get_total_memory_kb() / 1024);
+    kprintf("[KIRA HW] features: AES %u, SHA2 %u, atomics %u, FP %s, SIMD %s, physical address bits code %u\n",
+            (isar0 >> 4) & 15, (isar0 >> 12) & 15, (isar0 >> 20) & 15, ((pfr0 >> 16) & 15) == 15 ? "no" : "yes",
+            ((pfr0 >> 20) & 15) == 15 ? "no" : "yes", mmfr0 & 15);
+    (void)out;
+}
+int platform_console_cmd(const char* l, const char* a) {
+    if (word(l, "mem")) {
         for (unsigned i = 0; i < nram; i++) kprintf("  RAM %x .. %x (%u MB)\n", ram[i].base, ram[i].base + ram[i].size, ram[i].size >> 20);
         kprintf("  kernel %x .. %x, early allocations up to %x\n", (uint64_t)(uintptr_t)__kernel_start, (uint64_t)(uintptr_t)__kernel_end, bump);
         heap_stats_t hs; heap_get_stats(&hs);
         kprintf("  pages: %u KB free of %u KB; kernel heap: %u bytes in %u blocks\n", (uint64_t)pmm_get_free_memory_kb(),
                 (uint64_t)pmm_get_total_memory_kb(), (uint64_t)hs.used_bytes, (uint64_t)hs.used_blocks);
-    } else if (l[0] == 'p' && l[1] == 's' && !l[2]) {
-        sched_dump();
-    } else if (word(l, "disk")) { blk_print();
-    } else if (word(l, "pci")) { pci_print();
-    } else if (word(l, "net")) { netcmd_net(arg(l));
-    } else if (word(l, "ping")) { netcmd_ping(arg(l));
-    } else if (word(l, "dns")) { netcmd_dns(arg(l));
-    } else if (word(l, "view")) { if (arg(l)[0] == '/') prog_request_file("view", arg(l)); else kprintf("view /путь\n");
-    } else if (word(l, "sound")) { hdacmd_sound(arg(l));
-    } else if (word(l, "beep")) { hdacmd_beep(arg(l));
-    } else if (word(l, "http")) { netcmd_http(arg(l));
-    } else if (word(l, "ls")) { fscmd_ls(arg(l));
-    } else if (word(l, "cat")) { fscmd_cat(arg(l));
-    } else if (word(l, "write")) { fscmd_write(arg(l));
-    } else if (word(l, "mkdir")) { fscmd_mkdir(arg(l));
-    } else if (word(l, "rm")) { fscmd_rm(arg(l));
-    } else if (word(l, "df")) { fscmd_df(arg(l));
-    } else if (word(l, "cp")) { fscmd_cp(arg(l));
-    } else if (word(l, "format")) { fscmd_format(arg(l));
-    } else if (word(l, "ai")) {
-        const char* a = arg(l);
-        if (a[0] == 'c' && a[1] == 'a' && a[2] == 'p') {
-            const char* v = a + 3; while (*v == ' ') v++;
-            int n = 0; while (*v >= '0' && *v <= '9') n = n * 10 + (*v++ - '0');
-            if (n >= 10 && n <= 100) { mind_sys_request_cap(n); kprintf("core load cap for background: %u%%\n", (uint64_t)n); }
-            else kprintf("core load cap for background now %u%% (ai cap 10..100)\n", (uint64_t)mind_sys_core_cap());
-        } else mind_sys_print(a);
-    } else if (l[0] == 't' && l[1] == 'e' && l[2] == 's' && l[3] == 't' && !l[4]) {
-        selftest_arm_start();
-    } else if (l[0] == 'f' && l[1] == 'a' && l[2] == 'u' && l[3] == 'l' && l[4] == 't' && !l[5]) {
+        return 1;
+    }
+    if (word(l, "pci")) { pci_print(); return 1; }
+    if (word(l, "fault")) {
         kprintf("reading an address outside the map: the exception vectors must report it\n");
         (void)*(volatile uint64_t*)(uintptr_t)0x0000600000000000ull;
-    } else if (word(l, "run")) {
-        prog_run(arg(l));
-    } else if (l[0] && prog_run_quiet(l) == 0) {
-    } else if (l[0]) {
-        kprintf("commands: smp, mem, ps, test, disk, pci, ls, cat, write, mkdir, rm, df, cp, format, ai [why|norms|procs|model|cap N], run NAME (or just NAME from /bin), fault\n");
+        return 1;
     }
+    (void)a;
+    return 0;
 }
 
 /* ---------------- PCI Express из дерева устройств ----------------
@@ -1000,37 +951,21 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     hda_probe();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 
-    char line[64]; unsigned n = 0;
-    kprintf("kira-arm64> ");
-    for (;;) {
-        char rq[REQ_LEN];
-        if (req_take(rq)) {                                      /* команда оболочки (Проводник): как набранная */
-            for (unsigned k = 0; k < n; k++) kprintf("\b \b");
-            kprintf("%s\n", rq); cmd(rq);
-            kprintf("kira-arm64> ");
-            for (unsigned k = 0; k < n; k++) { char e[2] = { line[k], 0 }; kprintf("%s", e); }
+    console_init();                                              /* общая консоль: те же команды, что у x86-64 */
+    for (;;) {                                                   /* поток core: консоль и секундные дела */
+        console_poll();
+        static uint64_t last_sec, seconds;
+        if (timer_get_ticks() - last_sec >= TIMER_HZ) {          /* раз в секунду: Разум, опыт, журнал, сборка стеков */
+            last_sec = timer_get_ticks();
+            seconds++;
+            mind_sys_tick(seconds);
+            experience_tick(seconds);
+            sched_reap();
         }
-        int c = uart_getc();
-        if (c < 0) c = key_char();
-        if (c < 0) {                                             /* поток core спит, ядро отдаётся другим потокам */
-            static uint64_t last_sec, seconds;
-            if (timer_get_ticks() - last_sec >= TIMER_HZ) {      /* раз в секунду: Разум, опыт, журнал, сборка стеков */
-                last_sec = timer_get_ticks();
-                seconds++;
-                mind_sys_tick(seconds);
-                experience_tick(seconds);
-                sched_reap();
-            }
-            prog_poll();                                         /* запуск, заказанный оболочкой (док, Проводник) */
-            life_tick();
-            watchdog_feed();
-            sched_sleep_ticks(1);
-            continue;
-        }
-        if (c == '\r' || c == '\n') {
-            line[n] = 0; kprintf("\n"); cmd(line); n = 0; kprintf("kira-arm64> ");
-        } else if ((c == 8 || c == 127) && n) { n--; kprintf("\b \b"); }
-        else if (c >= 32 && n + 1 < sizeof line) { line[n++] = (char)c; char e[2] = { (char)c, 0 }; kprintf("%s", e); }
+        prog_poll();                                             /* запуск, заказанный оболочкой (док, Проводник) */
+        life_tick();
+        watchdog_feed();
+        sched_sleep_ticks(1);
     }
 }
 

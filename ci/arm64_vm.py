@@ -18,7 +18,7 @@ SC = [
          net=True,
          cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]),
                ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)", r"kernel heap: \d+ bytes"]),
-               ("test", [r"RESULT: PASS", r"preempted by tick", r"kernel mutex .*: 8000 of 8000 ok"]),
+               ("test smp", [r"RESULT: PASS", r"preempted by tick", r"kernel mutex .*: 8000 of 8000 ok"]),
                ("ps", [r"core\s+RUNNING", r"idle", r"mind-tact"]),
                ("disk", [r"\[системный\]"]), ("df", [r"KiraFS"]),
                ("write /hello.txt kira-arm64", []), ("cat /hello.txt", [r"kira-arm64"]), ("ls /", [r"hello.txt"]),
@@ -28,6 +28,8 @@ SC = [
                ("mt", [r"mt: .* - PASS"]),
                ("ipc", []), ("ipc", [r"ipc server: .* - PASS", r"ipc client: .* - PASS"]),
                ("ps", [r"core\s+RUNNING"]),
+               ("help", [r"status", r"hw", r"progs", r"telemetry"]),            # общая консоль - те же команды, что у x86-64
+               ("status", [r"interrupts: GICv3"]), ("hw", [r"\[KIRA HW\] CPU MIDR"]), ("progs", [r"mt", r"edit"]),
                ("net", [r"канал есть", r"адрес 10\.0\.2\.15"]), ("ping 10.0.2.2 3", [r"ответ от 10\.0\.2\.2", r"получено [1-3]"]),
                ("http 10.0.2.100 /arm", [r"kira-tcp-ok GET /arm HTTP/1\.0", r"получено 3\d\d\d байт .*сервер закрыл соединение"]),
                ("dns example.com", [r"example\.com -> \d+\.\d+\.\d+\.\d+"]),
@@ -35,12 +37,12 @@ SC = [
     dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M", disk="nvme",
          must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB",
                r"\[KIRA NVMe\] nvme0n1", r"\[KIRA FS\] KiraFS mounted", r"NVMe .*completion by interrupt"],
-         cmds=[("smp", [r"core 1: .*online"]), ("test", [r"RESULT: PASS"]),
+         cmds=[("smp", [r"core 1: .*online"]), ("test smp", [r"RESULT: PASS"]),
                ("write /irq.txt kira-v2m", []), ("cat /irq.txt", [r"kira-v2m"]),
                ("disk", [r"прерываний устройств \(MSI\): [1-9]"])]),
     dict(name="arm64-el2-8cpu", m="virt,gic-version=3,virtualization=on", cpu="cortex-a57", smp=8, mem="3G",
          must=[r"entered at EL2, running at EL1", r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"RAM: 3072 MB"],
-         cmds=[("test", [r"RESULT: PASS", r"worker 8: core 0"])]),
+         cmds=[("test smp", [r"RESULT: PASS", r"worker 8: core 0"])]),
     # Экран и ввод как в Limbo ARM: virtio-gpu, virtio-клавиатура и планшет. Команды "@keys ..." набираются на
     # клавиатуре virtio (QMP send-key), "@tap X Y" - касание планшета (0..32767), "@shot имя" - снимок экрана.
     dict(name="arm64-gui", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", gui=True, files=True,

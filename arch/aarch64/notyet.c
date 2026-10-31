@@ -4,6 +4,9 @@
      - USB - вместе с xHCI на ARM64 (ввод сейчас - virtio-input). */
 #include <stdint.h>
 #include "usb.h"
+#include "uart.h"
 
 /* без USB: задержанных устройств ввода не бывает */
 void usb_hid_verdict(int block) { (void)block; }
+void usb_hid_allow_all(void) { uart_print("USB on ARM64: not yet (xHCI port is in the plan) - no held devices.\n"); }
+void usb_print(void) { uart_print("USB on ARM64: not yet (xHCI port is in the plan); input - virtio-input.\n"); }
