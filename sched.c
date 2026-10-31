@@ -7,8 +7,9 @@
 #include "timer.h"
 #include "uart.h"
 #include "scale.h"
+#include "arch_sched.h"
 #ifndef KIRA_HOST_TEST
-#include "vmm.h"
+#include "kstack.h"
 #endif
 
 #define STACK_CANARY 0x4B49524153544B21ULL // "KIRASTK!"
@@ -65,9 +66,9 @@ extern void host_halt(void);
 #define CPU_CLI()   ((void)0)
 #define CPU_STI()   ((void)0)
 #else
-#define CPU_HALT()  __asm__ volatile ("hlt")
-#define CPU_CLI()   __asm__ volatile ("cli")
-#define CPU_STI()   __asm__ volatile ("sti")
+#define CPU_HALT()  cpu_halt()          /* cpu.h своей архитектуры */
+#define CPU_CLI()   cpu_irq_off()
+#define CPU_STI()   cpu_irq_on()
 #endif
 
 // Готовый поток может взять простаивающее ядро: его будят межъядерным прерыванием, а не ждут его тика (до 2 мс).
@@ -427,17 +428,12 @@ static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg
 
     *(uint64_t*)stack = STACK_CANARY;
 
-    // Начальный кадр: 6 регистров, адрес входа (его "вернёт" ret в context_switch)
-    // и фиктивный адрес возврата - так на входе в trampoline rsp = 8 (mod 16), как у
-    // обычной функции по ABI.
-    // ABI требует выравнивания вершины стека по 16 байт (блоки кучи такого размера выровнены по странице, но не полагаемся)
+    // Начальный кадр - как его снимает context_switch своей архитектуры (arch_sched.h): первый «возврат» уходит
+    // в thread_trampoline. Вершина стека выровнена по 16 байт (требование ABI обеих архитектур).
     uint64_t* top = (uint64_t*)(((uintptr_t)(stack + SCHED_STACK_SIZE)) & ~(uintptr_t)0xF);
     uint64_t kstack_top = (uint64_t)(uintptr_t)top;
-    *--top = 0;                                   // фиктивный адрес возврата
-    *--top = (uint64_t)(uintptr_t)thread_trampoline;
-    for (int i = 0; i < 6; i++) *--top = 0;       // rbp rbx r12 r13 r14 r15
 
-    t->rsp = (uint64_t)(uintptr_t)top;
+    t->rsp = arch_thread_stack(top, thread_trampoline);
     t->id = next_id++;
     str_copy(t->name, name, SCHED_NAME_LEN);
     t->prio = prio;

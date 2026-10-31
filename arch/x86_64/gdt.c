@@ -83,7 +83,7 @@ void gdt_init(void) {
     );
 
     __asm__ volatile ("ltr %w0" : : "r"((uint16_t)GDT_TSS));
-    percpu_set_gs(&percpu_table[0]);   /* загрузка селектора в %gs обнулила GS_BASE */
+    percpu_install(&percpu_table[0]);   /* загрузка селектора в %gs обнулила GS_BASE */
 
     uart_print("[KIRA GDT] GDT loaded (Ring0/Ring3 segments), TSS loaded with 3 IST stacks (#DF, NMI, #MC).\n");
 }

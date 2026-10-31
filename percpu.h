@@ -56,18 +56,14 @@ extern percpu_t percpu_table[PERCPU_MAX_CPUS];
 extern unsigned host_cpu;      /* в тесте номер «текущего» ядра выбирает сам тест */
 static inline percpu_t* this_cpu(void) { return &percpu_table[host_cpu]; }
 #else
-static inline percpu_t* this_cpu(void) {
-    percpu_t* p;
-    __asm__ volatile ("mov %%gs:0, %0" : "=r"(p));
-    return p;
-}
+#include "arch_percpu.h"       /* this_cpu(): x86-64 - GS:0, ARM64 - TPIDR_EL1 */
 #endif
 
-// Загрузочный процессор: заполняет запись 0 и ставит GS. Вызывать после gdt_init (она перезагружает GS).
+// Загрузочный процессор: заполняет запись 0 и ставит её данными ядра. На x86-64 - после gdt_init (она перезагружает GS).
 void percpu_init_bsp(uint32_t apic_id);
 // Запись для другого процессора (используется при запуске остальных ядер); NULL, если таблица полна.
 percpu_t* percpu_alloc(uint32_t apic_id);
 unsigned percpu_count(void);
-void percpu_set_gs(percpu_t* p);      /* GS_BASE = p, KERNEL_GS_BASE = 0 (значение процесса) */
+void percpu_install(percpu_t* p);    /* данные этого ядра = p (x86-64: GS_BASE = p, KERNEL_GS_BASE = 0; ARM64: TPIDR_EL1) */
 
 #endif

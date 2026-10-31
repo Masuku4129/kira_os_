@@ -87,10 +87,10 @@ static void tsc_sync_bsp(percpu_t* p) {
 // Вход не загрузочного процессора (из трамплина, на своём стеке). Сюда не возвращаются.
 void smp_ap_main(uint64_t idx) {
     percpu_t* p = &percpu_table[idx];
-    percpu_set_gs(p);                           /* gdt_init_ap берёт замок кучи, а замки считаются на ядро */
+    percpu_install(p);                           /* gdt_init_ap берёт замок кучи, а замки считаются на ядро */
     void* tss = gdt_init_ap();
     if (!tss) for (;;) __asm__ volatile ("cli; hlt");
-    percpu_set_gs(p);                           /* после GDT: загрузка селектора в %gs обнуляет GS_BASE */
+    percpu_install(p);                           /* после GDT: загрузка селектора в %gs обнуляет GS_BASE */
     p->tss = tss;
     idt_load_this_cpu();
     fpu_init_cpu();

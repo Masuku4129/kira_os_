@@ -62,10 +62,7 @@ int      vmm_space_unmap(uint64_t root, uint64_t va);
 void     vmm_tlb_shootdown(uint64_t root, uint64_t va, uint32_t pages);
 int      vmm_user_range_ok(uint64_t va, uint64_t len, int write);
 // Стеки потоков ядра с пустотой ниже (переполнение - #PF/#DF, а не порча памяти). bytes кратно 4 КБ, одинаково для всех.
-void*    vmm_kstack_alloc(uint32_t bytes);            // нижний адрес стека или 0
-void     vmm_kstack_free(void* base);
-int      vmm_kstack_guard_hit(uint64_t addr);         // 1 - адрес в пустоте под стеком
-int      vmm_is_kstack(uint64_t addr);
+#include "kstack.h"
 int      vmm_enable_smep(void);
 void     vmm_cpu_init_ap(void);                        // CR0.WP, SMEP, PAT на не загрузочном процессоре                        // 1 - включён, 0 - процессор не умеет
 

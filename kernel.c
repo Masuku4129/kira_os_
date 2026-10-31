@@ -76,7 +76,7 @@ static const void* acpi_map(uint64_t phys, uint64_t len) {
 }
 
 void kernel_main(unsigned long magic, unsigned long addr) {
-    percpu_set_gs(&percpu_table[0]);   /* учёт замков и вывод обращаются к данным ядра с первой строки */
+    percpu_install(&percpu_table[0]);   /* учёт замков и вывод обращаются к данным ядра с первой строки */
     uart_init();
     uart_print("\n==================================================\n");
     uart_print("[KIRA OS] Kernel core starting...\n");

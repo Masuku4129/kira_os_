@@ -55,4 +55,10 @@ static inline void irq_restore(uint64_t flags) {
 }
 #endif
 
+#ifndef KIRA_HOST_TEST
+static inline void cpu_halt(void) { __asm__ volatile ("hlt"); }
+static inline void cpu_irq_off(void) { __asm__ volatile ("cli" ::: "memory"); }
+static inline void cpu_irq_on(void) { __asm__ volatile ("sti" ::: "memory"); }
+#endif
+
 #endif
