@@ -43,6 +43,7 @@
 #include "rtc.h"
 #include "spinlock.h"
 #include "platform.h"
+#include "msi.h"
 
 #define MAX_RAM 16
 
@@ -369,6 +370,33 @@ static uint64_t my_gicr(void) {
 #define ICC_SGI1R_EL1 S3_0_C12_C11_5
 static uint8_t gic_mask_me;                                      /* GICv2: маска интерфейса этого ядра (на время init) */
 
+/* ---------------- прерывания сообщениями (msi.h) ----------------
+   GICv2m: устройство пишет номер SPI в регистр SETSPI_NS кадра MSI - контроллер поднимает этот SPI (по фронту).
+   GICv3 (ITS: таблицы устройств, очередь команд, LPI) - следующий шаг: там msi_alloc пока отказывает, драйверы на опросе. */
+static uint64_t v2m;
+static unsigned v2m_spi, v2m_n, v2m_used;
+#define MSI_MAX 16
+static struct { msi_fn fn; void* ctx; } msis[MSI_MAX];
+static spinlock_t msi_lk = SPINLOCK_INIT;
+
+int msi_alloc(msi_fn fn, void* ctx, uint64_t* addr, uint32_t* data) {
+    if (!v2m) return -1;
+    uint64_t f = spin_lock_irqsave(&msi_lk);
+    if (v2m_used >= v2m_n || v2m_used >= MSI_MAX) { spin_unlock_irqrestore(&msi_lk, f); return -1; }
+    unsigned i = v2m_used, spi = v2m_spi + i;
+    msis[i].fn = fn; msis[i].ctx = ctx;
+    __atomic_store_n(&v2m_used, i + 1, __ATOMIC_RELEASE);
+    uint64_t cfg = gicd + 0xC00 + (spi / 16) * 4;
+    mmio_w32(cfg, mmio_r32(cfg) | (2u << ((spi % 16) * 2)));                       /* GICD_ICFGR: по фронту */
+    *(volatile uint8_t*)(uintptr_t)(gicd + 0x400 + spi) = 0x80;                    /* приоритет */
+    *(volatile uint8_t*)(uintptr_t)(gicd + 0x800 + spi) = *(volatile uint8_t*)(uintptr_t)(gicd + 0x800);   /* этому ядру */
+    mmio_w32(gicd + 0x100 + (spi / 32) * 4, 1u << (spi % 32));                     /* GICD_ISENABLER */
+    spin_unlock_irqrestore(&msi_lk, f);
+    *addr = v2m + 0x40;                                                            /* MSI_SETSPI_NS */
+    *data = spi;
+    return 0;
+}
+
 static int gic_cpu_init(void) {
     if (gic_v3) {
         uint64_t r = my_gicr();
@@ -563,6 +591,9 @@ void arm_exception(uint64_t* frame, uint64_t kind) {
             cpus[c ? c->cpu_id : my_cpu()].ticks++;
             ticks_advance();
             if (sched_up) { watchdog_check(); sched_tick(); }
+        } else if (v2m && id >= v2m_spi && id < v2m_spi + __atomic_load_n(&v2m_used, __ATOMIC_ACQUIRE)) {
+            unsigned i = id - v2m_spi;                           /* сообщение устройства (MSI через GICv2m) */
+            if (msis[i].fn) msis[i].fn(msis[i].ctx);
         } else if (id == SGI_RESCHED) {
             if (c) c->need_resched = 1;                          /* выбор потока - после EOI */
         } else if (id == SGI_HALT) {
@@ -835,6 +866,12 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
         if (g < 0) { kprintf("[KIRA ARM64] FATAL: no supported interrupt controller in the device tree\n"); for (;;) __asm__ volatile ("wfe"); }
         fdt_reg(fdt, g, 0, &gicd, &sz);
         fdt_reg(fdt, g, 1, &gicc, &sz);
+        int m = fdt_find_compatible(fdt, -1, "arm,gic-v2m-frame");          /* кадр MSI у GICv2 */
+        if (m >= 0 && fdt_reg(fdt, m, 0, &v2m, &sz) == 0) {
+            uint32_t t = mmio_r32(v2m + 0x8);                                /* MSI_TYPER: первый SPI и их число */
+            v2m_spi = (t >> 16) & 0x3FF; v2m_n = t & 0x3FF;
+            if (!v2m_n) v2m = 0;
+        } else v2m = 0;
     }
     /* таймер: прерывания в порядке secure phys, phys, virt, hyp; берём виртуальный */
     int tn = fdt_find_compatible(fdt, -1, "arm,armv8-timer");
