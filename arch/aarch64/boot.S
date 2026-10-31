@@ -1,14 +1,42 @@
 /* Kira OS, ARM64: вход в ядро. Загрузчик (QEMU -kernel, U-Boot, прошивка) передаёт адрес дерева устройств в x0
-   (или кладёт дерево в начало памяти - это проверяет main.c). Ядро может прийти на EL3, EL2 или EL1: работает на
+   (так велит протокол загрузки образа ARM64). Ядро может прийти на EL3, EL2 или EL1: работает на
    EL1, поэтому с более высокого уровня спускается, разрешив EL1 64-битный режим и прямой доступ к таймеру.
    Остальные ядра стартуют позже через PSCI CPU_ON (secondary_entry). */
 
     .section .text.boot, "ax"
     .global _start
+/* Заголовок образа ARM64 (как у Linux): загрузчики (QEMU -kernel, U-Boot booti, прошивки плат) кладут образ по
+   2 МБ-выровненному адресу + text_offset и передают адрес дерева устройств в x0. Флаги: little-endian, страницы
+   4 КБ, размещение где угодно - ядро позиционно-независимо и само правит свои указатели (R_AARCH64_RELATIVE). */
 _start:
+    b       real_start                  // code0
+    .long   0                           // code1
+    .quad   0x80000                     // text_offset
+    .quad   __image_size                // image_size (с .bss)
+    .quad   0xA                         // flags
+    .quad   0, 0, 0
+    .ascii  "ARM\x64"                   // magic
+    .long   0
+
+real_start:
     mov     x19, x0                     // адрес дерева устройств
     bl      drop_to_el1
-    adrp    x0, boot_stack_top
+    // Перемещение: ядро собрано с адреса 0, исполняется там, куда положили; поправить абсолютные указатели
+    adr     x20, _start                 // база = смещение загрузки
+    adrp    x0, __rela_start
+    add     x0, x0, :lo12:__rela_start
+    adrp    x1, __rela_end
+    add     x1, x1, :lo12:__rela_end
+5:  cmp     x0, x1
+    b.hs    6f
+    ldp     x2, x3, [x0], #16           // r_offset, r_info
+    ldr     x4, [x0], #8                // r_addend
+    cmp     w3, #1027                   // R_AARCH64_RELATIVE
+    b.ne    5b
+    add     x4, x4, x20
+    str     x4, [x20, x2]
+    b       5b
+6:  adrp    x0, boot_stack_top
     add     x0, x0, :lo12:boot_stack_top
     mov     sp, x0
     // .bss - нулями (компоновщик выравнивает границы на 16)

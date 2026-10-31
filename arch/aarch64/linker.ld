@@ -1,15 +1,21 @@
-/* ARM64: ядро загружается по физическому адресу из этого файла (QEMU virt: ОЗУ с 0x40000000, первые 512 КБ -
-   дереву устройств). Адреса виртуальные = физические (тождественная карта MMU). */
+/* ARM64: ядро собрано с адреса 0 как позиционно-независимое (PIE): загрузчик кладёт образ куда угодно
+   (2 МБ-выровненный адрес + 0x80000), boot.S сам применяет перемещения. Адреса виртуальные = физические
+   (тождественная карта MMU). */
 ENTRY(_start)
 SECTIONS
 {
-    . = 0x40080000;
+    . = 0;
     __kernel_start = .;
     .text : { KEEP(*(.text.boot)) *(.text*) }
     .rodata : ALIGN(16) { *(.rodata*) }
+    .data.rel.ro : ALIGN(16) { *(.data.rel.ro*) }
+    .rela.dyn : ALIGN(8) { __rela_start = .; *(.rela*) __rela_end = .; }
+    .dynamic : { *(.dynamic) }
+    .got : { *(.got*) }
     .data : ALIGN(16) { *(.data*) }
     .bss (NOLOAD) : ALIGN(16) { __bss_start = .; *(.bss*) *(COMMON) . = ALIGN(16); __bss_end = .; }
     . = ALIGN(4096);
     __kernel_end = .;
-    /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) }
+    __image_size = __kernel_end - __kernel_start;
+    /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) *(.dynsym) *(.dynstr) *(.hash) *(.gnu.hash) *(.interp) }
 }

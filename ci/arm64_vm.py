@@ -27,7 +27,7 @@ SC = [
 def run(sc, out):
     d = os.path.join(out, sc["name"]); os.makedirs(d, exist_ok=True)
     args = ["qemu-system-aarch64", "-M", sc["m"], "-cpu", sc["cpu"], "-smp", str(sc["smp"]), "-m", sc["mem"],
-            "-nographic", "-monitor", "none", "-serial", "stdio", "-kernel", "kira-arm64.elf",
+            "-nographic", "-monitor", "none", "-serial", "stdio", "-kernel", "kira-arm64.img",
             "-d", "int,guest_errors,unimp", "-D", os.path.join(d, "qemu-debug.log")]
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     log = b""; t0 = time.time(); err = None
