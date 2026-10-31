@@ -95,7 +95,7 @@ ALL = [
         {"responsive": "status", "within": 3},
         {"cmd": "ps", "must": [r"plasma"]},
         {"cmd": "smp"},
-        {"cmd": "ai", "timeout": 10},
+        {"cmd": "ai", "must": [r"замок планировщика: ядра ждут его \d+,\d%"], "timeout": 10},
         {"responsive": "status", "within": 3},
         {"log_forbid": NO_ERR},
     ], smp=8, mem="2G"),
@@ -104,7 +104,7 @@ ALL = [
         *[{"send": "plasma"} for _ in range(8)],
         {"sleep": 25}, {"shot": "limbo-spam"},
         {"responsive": "status", "within": 10},
-        {"cmd": "ai", "must": [r"тактика: фон", r"композитор: .*параллельно [1-9]\d* нс, на одном ядре [1-9]"], "timeout": 20},
+        {"cmd": "ai", "must": [r"тактика: фон", r"замок планировщика: ядра ждут его", r"композитор: .*параллельно [1-9]\d* нс, на одном ядре [1-9]"], "timeout": 20},
         {"cmd": "ai why", "timeout": 20},
         {"cmd": "ai levers", "must": [r"темп фоновых окон", r"сборка кадра"], "timeout": 20},
         {"log": [r"фоновые окна не чаще \d+ кадров/с"]},   # режим сборки выбирает замер (оба режима измерены - выше)
@@ -115,6 +115,7 @@ ALL = [
         {"sleep": 8}, {"shot": "load"},
         {"responsive": "status", "within": 3},
         {"log": [r"cube3d: selftest PASS"]},
+        {"cmd": "ai", "must": [r"замок планировщика: ядра ждут его \d+,\d%"], "timeout": 10},
         {"log_forbid": NO_ERR},
     ], smp=4, mem="1G"),
 ]

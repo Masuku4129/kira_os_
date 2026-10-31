@@ -30,6 +30,32 @@ static unsigned thread_hi;
    новый поток (finish_switch), поэтому прежний поток не может стать готовым и попасть на другое ядро, пока
    его стек ещё в работе. Прерывания на это время выключены. */
 static spinlock_t sched_lock = SPINLOCK_INIT;
+
+/* Замер общего замка: сколько тактов ядра стоят в очереди за ним (решение «делить ли замок» - по числам, а не на
+   глаз). Ожидание считается только при занятом замке: свободный берётся так же, как раньше (одна атомарная операция). */
+static uint64_t sl_wait[PERCPU_MAX_CPUS], sl_contended[PERCPU_MAX_CPUS], sl_taken[PERCPU_MAX_CPUS];
+static inline void sl_lock(void) {
+    if (spin_bust) return;
+    uint32_t t = __atomic_fetch_add(&sched_lock.next, 1, __ATOMIC_RELAXED);
+#ifndef KIRA_HOST_TEST
+    unsigned c = this_cpu()->cpu_id;
+    sl_taken[c]++;
+    if (__atomic_load_n(&sched_lock.owner, __ATOMIC_ACQUIRE) != t) {
+        uint64_t t0 = rdtsc();
+        while (__atomic_load_n(&sched_lock.owner, __ATOMIC_ACQUIRE) != t) spin_relax();
+        sl_wait[c] += rdtsc() - t0;
+        sl_contended[c]++;
+    }
+#else
+    while (__atomic_load_n(&sched_lock.owner, __ATOMIC_ACQUIRE) != t) spin_relax();
+#endif
+    SPIN_HELD_INC();
+}
+
+void sched_lock_stats(unsigned cpu, uint64_t* wait_cycles, uint64_t* contended, uint64_t* taken) {
+    if (cpu >= PERCPU_MAX_CPUS) { *wait_cycles = *contended = *taken = 0; return; }
+    *wait_cycles = sl_wait[cpu]; *contended = sl_contended[cpu]; *taken = sl_taken[cpu];
+}
 static int sched_ready;
 static uint32_t quantum_ticks = DEFAULT_QUANTUM;
 static uint64_t total_switches;
@@ -416,7 +442,7 @@ static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg
     if (!stack) return 0;
 
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     thread_t* t = 0;
     t = take_slot();
     if (!t) {
@@ -505,7 +531,7 @@ void sched_init(unsigned cpus, uint64_t ram_kb) {
     thread_t* idle = sched_create("idle", idle_main, 0, PRIO_IDLE);
     if (!idle) kernel_panic("Cannot create idle thread");
     f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     rq_remove(idle);                        /* холостой поток в очереди не стоит: его выбирают, когда работы нет */
     idle->affinity = SCHED_AFFINITY_BSP;
     idle->flags |= THREAD_F_IDLE;
@@ -526,7 +552,7 @@ void sched_detach_space(void) {
 
 void sched_yield(void) {
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     this_cpu()->current->quantum_left = 0; // добровольно отдаёт остаток кванта: уходит в хвост очереди
     schedule_locked();
     irq_restore(f);
@@ -535,7 +561,7 @@ void sched_yield(void) {
 void sched_sleep_ticks(uint32_t ticks) {
     if (ticks == 0) { sched_yield(); return; }
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     this_cpu()->current->wake_tick = timer_get_ticks() + ticks;
     this_cpu()->current->state = THREAD_SLEEPING;
     if (this_cpu()->current->wake_tick < next_wake) next_wake = this_cpu()->current->wake_tick;
@@ -545,7 +571,7 @@ void sched_sleep_ticks(uint32_t ticks) {
 
 void sched_exit(void) {
     CPU_CLI();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     this_cpu()->current->state = THREAD_ZOMBIE;
     schedule_locked();
     for (;;) CPU_HALT(); // сюда не возвращаемся
@@ -554,7 +580,7 @@ void sched_exit(void) {
 unsigned sched_reap(void) {
     unsigned n = 0;
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     for (unsigned i = 0; i < thread_hi; i++) {
         thread_t* t = &threads[i];
         /* on_cpu: пока ядро не ушло со стека завершённого потока, освобождать его нельзя */
@@ -566,7 +592,7 @@ unsigned sched_reap(void) {
             irq_restore(f);
             kstack_del(stack);
             f = irq_save();
-            spin_lock_raw(&sched_lock);
+            sl_lock();
             n++;
         }
     }
@@ -603,7 +629,7 @@ void sched_tick(void) {
     }
     if (!need) return;
 
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     if (now >= next_wake) {
         uint64_t nw = ~0ULL;
         for (unsigned i = 0; i < thread_hi; i++) {
@@ -636,7 +662,7 @@ void sched_irq_exit(void) {
     percpu_t* cpu = this_cpu();
     if (!cpu->need_resched) return;
     cpu->need_resched = 0;
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     schedule_locked(); // прерывания в обработчике уже выключены
 }
 
@@ -644,7 +670,7 @@ void sched_irq_exit(void) {
 int sched_attach_cpu(void) {
     percpu_t* cpu = this_cpu();
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     thread_t* t = 0;
     t = take_slot();
     if (!t) { spin_unlock_raw(&sched_lock); irq_restore(f); return -1; }
@@ -690,7 +716,7 @@ int sched_attach_cpu(void) {
 int sched_cpu_stats(unsigned cpu, uint64_t* idle_cycles, uint64_t* total_cycles, uint64_t* switches) {
     if (cpu >= PERCPU_MAX_CPUS) return -1;
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     const percpu_t* c = &percpu_table[cpu];
     int ok = c->sched_on && c->idle;
     if (ok) {
@@ -852,7 +878,7 @@ int sched_can_sleep(void) {
 int sched_thread_alive(uint32_t id) {
     int alive = 0;
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     for (unsigned i = 0; i < thread_hi; i++) {
         const thread_t* t = &threads[i];
         if (t->id == id && t->state != THREAD_UNUSED && t->state != THREAD_ZOMBIE) { alive = 1; break; }
@@ -865,7 +891,7 @@ int sched_thread_alive(uint32_t id) {
 unsigned sched_core_fail(void) {
     percpu_t* c = this_cpu();
     unsigned id = c->cpu_id, orphans = 0;
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     thread_t* cur = c->current;
     thread_t* idle = c->idle;
     /* Ядро продолжает стоять на стеке текущего потока, поэтому on_cpu у него остаётся 1: sched_reap не освободит
@@ -910,7 +936,7 @@ unsigned sched_set_proc_weight(uint32_t pid, uint32_t weight) {
     if (weight > 8) weight = 8;
     unsigned n = 0;
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     for (unsigned i = 0; i < thread_hi; i++) {
         thread_t* t = &threads[i];
         if (t->pid != pid || t->state == THREAD_UNUSED || t->state == THREAD_ZOMBIE) continue;
@@ -929,7 +955,7 @@ unsigned sched_set_proc_limit(uint32_t pid, uint32_t pct) {
     if (pct >= 100) pct = 0;
     unsigned n = 0;
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     for (unsigned i = 0; i < thread_hi; i++) {
         thread_t* t = &threads[i];
         if (t->pid != pid || t->state == THREAD_UNUSED || t->state == THREAD_ZOMBIE) continue;
@@ -945,7 +971,7 @@ unsigned sched_set_proc_limit(uint32_t pid, uint32_t pct) {
 unsigned sched_runnable(void) {
     unsigned n = 0;
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     for (unsigned i = 0; i < thread_hi; i++) {
         const thread_t* t = &threads[i];
         if ((t->state == THREAD_READY || t->state == THREAD_RUNNING) && t->prio > PRIO_IDLE) n++;
@@ -964,14 +990,14 @@ unsigned sched_cpu_count(void) {
 // Поток блокируется до sched_wake. Замок l отпускается после того, как поток помечен ожидающим и
 // планировщик взят: ни одно пробуждение не может проскочить между проверкой условия и сном.
 void sched_block_and_unlock(spinlock_t* l) {
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     spin_unlock_raw(l);
     this_cpu()->current->state = THREAD_BLOCKED;
     schedule_locked();
 }
 
 void sched_wait_and_unlock(spinlock_t* l, uint64_t ticks) {
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     spin_unlock_raw(l);
     thread_t* cur = this_cpu()->current;
     uint64_t now = timer_get_ticks();
@@ -983,7 +1009,7 @@ void sched_wait_and_unlock(spinlock_t* l, uint64_t ticks) {
 
 void sched_wake_waiter(thread_t* t) {
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     if (t->state == THREAD_SLEEPING) make_ready_locked(t);
     spin_unlock_raw(&sched_lock);
     irq_restore(f);
@@ -991,7 +1017,7 @@ void sched_wake_waiter(thread_t* t) {
 
 void sched_wake_proc(void* proc) {
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     for (unsigned i = 0; i < thread_hi; i++)
         if (threads[i].proc == proc && threads[i].state == THREAD_SLEEPING) make_ready_locked(&threads[i]);
     spin_unlock_raw(&sched_lock);
@@ -1000,7 +1026,7 @@ void sched_wake_proc(void* proc) {
 
 void sched_set_wake_tick(thread_t* t, uint64_t tick) {
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     if (t->state == THREAD_SLEEPING) {
         t->wake_tick = tick;
         if (tick < next_wake) next_wake = tick;
@@ -1011,7 +1037,7 @@ void sched_set_wake_tick(thread_t* t, uint64_t tick) {
 
 void sched_wake(thread_t* t) {
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     if (t->state == THREAD_BLOCKED) make_ready_locked(t);
     spin_unlock_raw(&sched_lock);
     irq_restore(f);
@@ -1021,7 +1047,7 @@ unsigned sched_snapshot(thread_info_t* out, unsigned max) {
     uint64_t now_t = timer_get_ticks();
     unsigned n = 0;
     uint64_t f = irq_save();
-    spin_lock_raw(&sched_lock);
+    sl_lock();
     uint64_t now = rdtsc();
     for (unsigned i = 0; i < thread_hi && n < max; i++) {
         const thread_t* t = &threads[i];

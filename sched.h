@@ -133,7 +133,9 @@ void sched_wake_proc(void* proc);
 // Новый срок пробуждения спящего потока (раньше или позже прежнего); на потоки в других состояниях не действует.
 void sched_set_wake_tick(thread_t* t, uint64_t tick);
 void sched_wake(thread_t* t);
-unsigned sched_cpu_count(void);          // ядер, участвующих в планировании
+unsigned sched_cpu_count(void);
+/* Общий замок планировщика на ядре cpu: такты ожидания, взятий с ожиданием, всего взятий (с запуска). */
+void sched_lock_stats(unsigned cpu, uint64_t* wait_cycles, uint64_t* contended, uint64_t* taken);          // ядер, участвующих в планировании
 int sched_thread_alive(uint32_t id);     // поток с таким id существует и не завершён
 // Можно ли сейчас уснуть: планировщик работает, прерывания включены, не обработчик прерывания, спин-замков нет.
 int sched_can_sleep(void);
