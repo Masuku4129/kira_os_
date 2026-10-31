@@ -352,7 +352,7 @@ int64_t proc_thread_create(uint64_t rip, uint64_t stack_top, uint64_t arg) {
     if (!vmm_user_range_ok(stack_top - 64, 64, 1)) return KE_ARG;              /* вершина стека - память программы, запись */
     uthread_start_t* s = (uthread_start_t*)kmalloc(sizeof *s);
     if (!s) return KE_NOMEM;
-    s->rip = rip; s->rsp = stack_top - 8; s->arg = arg;                          /* как после call: rsp = 8 (mod 16) */
+    s->rip = rip; s->rsp = USER_THREAD_SP(stack_top); s->arg = arg;              /* по ABI архитектуры (arch_vmm.h) */
     kmutex_lock(&p->mx);
     /* потоков у программы - сколько вмещает таблица планировщика (она по ядрам и ОЗУ), кроме запаса ядру */
     unsigned cap = sched_thread_capacity(), reserve = cap / 8 < 16 ? 16 : cap / 8;

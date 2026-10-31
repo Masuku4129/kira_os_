@@ -34,7 +34,7 @@ SC = [
          cmds=[("test", [r"RESULT: PASS", r"worker 8: core 0"])]),
     dict(name="arm64-fault", m="virt,gic-version=3", cpu="cortex-a72", smp=1, mem="256M",
          must=[r"Processors online: 1 of 1"],
-         cmds=[("fault", [r"exception on core 0: data abort .*", r"FAR 0x0000F00000000000"])], fault=True),
+         cmds=[("fault", [r"exception on core 0: data abort .*", r"FAR 0x0000600000000000"])], fault=True),
 ]
 
 

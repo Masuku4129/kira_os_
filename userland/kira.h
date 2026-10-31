@@ -83,7 +83,7 @@ __asm__(".text\n.global k_thread_tramp\nk_thread_tramp:\n ldr x9, [sp]\n blr x9\
 void k_thread_tramp(void);
 static inline i64 k_thread_create(void (*fn)(u64), void* stack, u64 size, u64 arg) {
     u64 top = ((u64)stack + size) & ~15ull;
-    ((u64*)top)[-2] = (u64)fn;
+    ((u64*)top)[-2] = (u64)fn;                   /* ядро ставит sp = переданной вершине (кратна 16) */
     return ksys(K_THREAD_CREATE, (u64)k_thread_tramp, top - 16, arg);
 }
 #else
