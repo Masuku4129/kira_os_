@@ -709,7 +709,12 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("kira-arm64> ");
     for (;;) {
         int c = uart_getc();
-        if (c < 0) { sched_sleep_ticks(1); continue; }           /* поток core спит, ядро отдаётся другим потокам */
+        if (c < 0) {                                             /* поток core спит, ядро отдаётся другим потокам */
+            static uint64_t last_reap;
+            if (timer_get_ticks() - last_reap >= TIMER_HZ) { last_reap = timer_get_ticks(); sched_reap(); }   /* стеки завершённых */
+            sched_sleep_ticks(1);
+            continue;
+        }
         if (c == '\r' || c == '\n') {
             line[n] = 0; kprintf("\n"); cmd(line); n = 0; kprintf("kira-arm64> ");
         } else if ((c == 8 || c == 127) && n) { n--; kprintf("\b \b"); }

@@ -15,7 +15,7 @@ SC = [
          cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]),
                ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)", r"kernel heap: \d+ bytes"]),
                ("test", [r"RESULT: PASS", r"preempted by tick", r"kernel mutex .*: 8000 of 8000 ok"]),
-               ("ps", [r"core\s+RUNNING", r"idle"])]),
+               ("ps", [r"core\s+RUNNING", r"idle"]), ("ps", [r"threads: 5 of"])]),
     dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M",
          must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB"],
          cmds=[("smp", [r"core 1: .*online"]), ("test", [r"RESULT: PASS"])]),
