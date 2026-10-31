@@ -425,7 +425,6 @@ static volatile uint64_t gticks;
 static uint64_t anchor_cnt;
 static volatile int sched_up, percpu_up, halting;
 static unsigned boot_cpu;
-uint64_t timer_get_ticks(void) { return gticks; }
 /* Общего замка тика на ARM64 нет (время двигается сравнением-обменом): в аварийном отчёте - нули. */
 void timer_lock_state(uint32_t* next, uint32_t* owner) { *next = 0; *owner = 0; }
 
@@ -433,6 +432,9 @@ static void ticks_advance(void) {
     uint64_t d = (now_cnt() - anchor_cnt) / tick_cycles, cur = gticks;
     while (d > cur && !__atomic_compare_exchange_n(&gticks, &cur, d, 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) { }
 }
+/* Время в тиках - по счётчику, а не по числу обработанных прерываний: запоздавшее прерывание (эмуляция, долгий
+   участок с выключенными прерываниями) не делает срок сна короче. До запуска таймера - то, что насчитано. */
+uint64_t timer_get_ticks(void) { if (tick_cycles) ticks_advance(); return gticks; }
 
 static void send_sgi(unsigned cpu, unsigned id) {
     uint64_t mp = cpus[cpu].mpidr;
