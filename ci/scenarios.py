@@ -6,7 +6,9 @@
   {"log": [regex...]}, {"log_forbid": [regex...]} - проверки всего журнала с начала
   {"responsive": "команда", "within": с} - система отвечает на команду не дольше заданного (стабильность под нагрузкой)
 Сроки - для KVM; без KVM стенд умножает их (--timeout-scale)."""
-import os
+import os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from mkfiles import SUMS
 
 FLASH = "ci-out/flash.img"          # создаёт ci/make_flash.sh (FAT32 + файл hello.txt)
 
@@ -137,6 +139,16 @@ ALL = [
         {"cmd": "cat /data/edit/note.txt", "must": [r"hello kira", r"line two"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M"),
+    sc("apps-view", "просмотр: PNG (фильтры, dynamic/stored), BMP, PPM, текст, двоичный - разбор в Ring 3, суммы пикселей против эталона", [
+        {"log": BOOT_LOG},
+        *[x for f, s in [("/pic.png", SUMS["/pic.png"]), ("/rgba.png", SUMS["/rgba.png"]), ("/pic.bmp", SUMS["/pic.bmp"]), ("/pic.ppm", SUMS["/pic.ppm"])]
+          for x in ({"cmd": "view " + f}, {"sleep": 2}, {"log": [r"view: %s - .* sum %08x" % (re.escape(f), s)]})],
+        {"shot": "view-png"},
+        {"cmd": "view /note.txt"}, {"sleep": 2}, {"shot": "view-text"},
+        {"cmd": "view /blob.bin"}, {"sleep": 2},
+        {"log": [r"view: /note\.txt - текст, 31 байт", r"view: /blob\.bin - двоичный, 512 байт"]},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="1G", files=True),
     sc("sound-hda", "звук: Intel HDA (как Sound: hda в Limbo) - кодек, путь к выходу, тон через DMA", [
         {"log": BOOT_LOG + [r"\[KIRA HDA\] Sound: codec .* output path pin \d+ <- DAC \d+"]},
         {"cmd": "sound", "must": [r"выход: вывод \d+ <- ЦАП \d+"]},

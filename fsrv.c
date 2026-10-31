@@ -1,4 +1,5 @@
 #include "fsrv.h"
+#include "vfs.h"
 #include "kfs.h"
 
 static size_t slen(const char* s) { size_t n = 0; while (s[n]) n++; return n; }
@@ -148,9 +149,34 @@ void fsrv_execute(fsrv_req_t* r) {
 static kmutex_t fsrv_mx = KMUTEX_INIT;
 
 #include "uaccess.h"
+/* Файл, выданный программе при запуске (Проводник открыл его в программе просмотра): только чтение, только он.
+   Путь берётся из процесса (ядро записало его до первого потока), а не из запроса - другой файл так не прочесть. */
+static int64_t grant_op(const fsrv_user_req_t* u) {
+    const char* path = proc_current_grant();
+    if (!path[0]) return FS_E_DENIED;
+    if (u->op == FS_OP_GRANT_STAT) {
+        kfs_stat_t st;
+        int e = vfs_stat(path, &st);
+        return e ? e : (st.type == KFS_FILE ? (int64_t)st.size : FS_E_DENIED);
+    }
+    if (!u->buf_len || u->buf_len > fsrv_max_data() || !user_range(u->buf_ptr, u->buf_len, 1)) return FS_E_ARG;
+    if (u->op == FS_OP_GRANT_NAME) {
+        uint64_t n = 0; while (path[n]) n++;
+        if (n + 1 > u->buf_len) return FS_E_ARG;
+        return copy_to_user(u->buf_ptr, path, n + 1) ? FS_E_ARG : (int64_t)n;
+    }
+    uint8_t* b = (uint8_t*)kmalloc(u->buf_len);
+    if (!b) return KFS_ERR_NOSPC;
+    int64_t r = vfs_read(path, u->off, b, (size_t)u->buf_len);
+    if (r > 0 && copy_to_user(u->buf_ptr, b, (uint64_t)r) != 0) r = FS_E_ARG;
+    kfree(b);
+    return r;
+}
+
 int64_t fsrv_syscall(uint64_t up) {
     fsrv_user_req_t u;                                                           /* своя копия: программа не изменит её во время проверки */
     if (copy_from_user(&u, up, sizeof u) != 0) return FS_E_ARG;
+    if (u.op >= FS_OP_GRANT_READ && u.op <= FS_OP_GRANT_NAME) return grant_op(&u);
     if (u.op < FS_OP_READ || u.op > FS_OP_REMOVE) return FS_E_ARG;
     const char* prog = proc_current_name();
     if (!fsrv_prog_ok(prog)) return FS_E_DENIED;

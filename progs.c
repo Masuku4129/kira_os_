@@ -18,6 +18,7 @@
 #define NAME_MAX (KFS_NAME_MAX + 1)
 
 static char pending[NAME_MAX];
+static char pending_file[128];
 static volatile int pending_set;
 static spinlock_t prog_lock = SPINLOCK_INIT;
 
@@ -36,7 +37,10 @@ static void hex(const uint8_t* d, unsigned n) {
     for (unsigned i = 0; i < n; i++) { uart_putchar("0123456789abcdef"[d[i] >> 4]); uart_putchar("0123456789abcdef"[d[i] & 15]); }
 }
 
-int prog_run(const char* name) {
+static int prog_run_grant(const char* name, const char* grant);
+int prog_run(const char* name) { return prog_run_grant(name, 0); }
+
+static int prog_run_grant(const char* name, const char* grant) {
     if (!kfs_mounted()) { uart_print("[PROG] нет файловой системы\n"); return -1; }
     if (!name_ok(name)) { uart_print("[PROG] недопустимое имя программы\n"); return -1; }
     {                                                                      /* допуск: бюджет Разума */
@@ -85,7 +89,7 @@ int prog_run(const char* name) {
     }
     immune_register_self(digest);
     (void)fsrv_sandbox(name);                                              /* песочница /data/<имя> создаётся только для доверенной программы */
-    int pid = proc_spawn_elf(name, image, (size_t)st.size);
+    int pid = proc_spawn_elf_grant(name, image, (size_t)st.size, grant);
     immune_phagocytose(image, (size_t)st.size);                            /* копия в буфере больше не нужна */
     kfree(image);
     if (pid < 0) return -3;
@@ -93,28 +97,34 @@ int prog_run(const char* name) {
     return pid;
 }
 
-void prog_request(const char* name) {
+void prog_request_file(const char* name, const char* file) {
     if (!name_ok(name)) return;
     uint64_t f = spin_lock_irqsave(&prog_lock);
     if (!pending_set) {
         unsigned i = 0;
         while (name[i]) { pending[i] = name[i]; i++; }
         pending[i] = 0;
+        i = 0;
+        if (file) for (; file[i] && i + 1 < sizeof pending_file; i++) pending_file[i] = file[i];
+        pending_file[i] = 0;
         pending_set = 1;
     }
     spin_unlock_irqrestore(&prog_lock, f);
 }
+void prog_request(const char* name) { prog_request_file(name, 0); }
 
 void prog_poll(void) {
     if (!pending_set) return;
-    char name[NAME_MAX];
+    char name[NAME_MAX], file[128];
     uint64_t f = spin_lock_irqsave(&prog_lock);
     unsigned i = 0;
     while (pending[i]) { name[i] = pending[i]; i++; }
     name[i] = 0;
+    for (i = 0; pending_file[i]; i++) file[i] = pending_file[i];
+    file[i] = 0;
     pending_set = 0;
     spin_unlock_irqrestore(&prog_lock, f);
-    (void)prog_run(name);
+    (void)prog_run_grant(name, file[0] ? file : 0);
 }
 
 /* Список /bin: имена собираются в буфер из кучи (сколько программ - столько записей), затем проверяется каждая. */

@@ -18,7 +18,7 @@ for app in mt ipc burn plasma cube3d paint; do   # fpu проверяет x87 (l
     ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/$app.elf build-arm64/u_$app.o
     UELF="$UELF build-arm64/$app.elf"
 done
-for app in edit; do                 # с текстом: шрифт ядра вместе с программой
+for app in edit view; do                 # с текстом: шрифт ядра вместе с программой
     $CC $UCFLAGS -I. -c userland/$app.c -o build-arm64/u_$app.o
     $CC $UCFLAGS -I. -c font8x16.c -o build-arm64/u_font_$app.o
     ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/$app.elf build-arm64/u_$app.o build-arm64/u_font_$app.o

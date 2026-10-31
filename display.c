@@ -197,8 +197,13 @@ static void on_input(int id, int type, int x, int y, unsigned buttons) {
         if (type == 4) files_btn = buttons;
         if (press) {
             uint64_t now = clock_ns();
-            if (h >= 0 && h == files_click_row && now - files_click_ns < 450000000ULL && ev.row[h].sel && !ev.row[h].dir && app_files_program(&ev)) {
-                files_run(app_files_program(&ev));                     /* двойной щелчок по программе */
+            if (h >= 0 && h == files_click_row && now - files_click_ns < 450000000ULL && ev.row[h].sel && !ev.row[h].dir) {
+                if (app_files_program(&ev)) files_run(app_files_program(&ev));   /* двойной щелчок по программе */
+                else {                                                   /* по файлу - открыть в просмотре (Ring 3) */
+                    prog_request_file("view", ev.sel_path);
+                    int p = scpy(files_status, 0, "открыто в просмотре: ", sizeof files_status);
+                    (void)scpy(files_status, p, ev.sel_path, sizeof files_status);
+                }
                 files_click_row = -1;
             } else if (h >= 0) {
                 if (!ev.row[h].sel) files_status[0] = 0;                 /* другой файл: прежний итог запуска убираем */

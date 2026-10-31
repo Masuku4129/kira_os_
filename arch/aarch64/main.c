@@ -730,6 +730,7 @@ static void cmd(const char* l) {
     } else if (word(l, "net")) { netcmd_net(arg(l));
     } else if (word(l, "ping")) { netcmd_ping(arg(l));
     } else if (word(l, "dns")) { netcmd_dns(arg(l));
+    } else if (word(l, "view")) { if (arg(l)[0] == '/') prog_request_file("view", arg(l)); else kprintf("view /путь\n");
     } else if (word(l, "sound")) { hdacmd_sound(arg(l));
     } else if (word(l, "beep")) { hdacmd_beep(arg(l));
     } else if (word(l, "http")) { netcmd_http(arg(l));

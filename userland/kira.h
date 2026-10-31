@@ -25,7 +25,7 @@ static inline i64 ksys(u64 n, u64 a, u64 b, u64 c) {
 #endif
 
 enum { K_FS = 10, K_HEAP = 11 };
-enum { KFS_READ = 1, KFS_WRITE = 2, KFS_STAT = 3, KFS_LIST = 4, KFS_REMOVE = 5 };
+enum { KFS_READ = 1, KFS_WRITE = 2, KFS_STAT = 3, KFS_LIST = 4, KFS_REMOVE = 5, KFS_GRANT_READ = 6, KFS_GRANT_STAT = 7, KFS_GRANT_NAME = 8 };
 typedef struct { u32 op, name_len; u64 name_ptr, buf_ptr, buf_len, off; } kfs_req_t;
 enum { K_WRITE = 1, K_EXIT = 2, K_TICKS = 3, K_SLEEP = 4, K_YIELD = 5, K_GETPID = 6,
        K_GFX_CREATE = 7, K_GFX_PRESENT = 8, K_GFX_EVENT = 9 };
@@ -61,6 +61,10 @@ static inline i64 k_file_write(const char* name, const void* buf, u64 len) { ret
 static inline i64 k_file_size(const char* name) { return k_fs(KFS_STAT, name, k_strlen(name), (void*)0, 0, 0); }
 static inline i64 k_file_remove(const char* name) { return k_fs(KFS_REMOVE, name, k_strlen(name), (void*)0, 0, 0); }
 static inline i64 k_file_list(char* buf, u64 cap) { return k_fs(KFS_LIST, "", 0, buf, cap, 0); }
+/* Файл, выданный при запуске (открыт из Проводника): размер, путь, чтение кусками (вне песочницы, только он). */
+static inline i64 k_grant_size(void) { return k_fs(KFS_GRANT_STAT, "", 0, (void*)0, 0, 0); }
+static inline i64 k_grant_name(char* buf, u64 cap) { return k_fs(KFS_GRANT_NAME, "", 0, buf, cap, 0); }
+static inline i64 k_grant_read(void* buf, u64 len, u64 off) { return k_fs(KFS_GRANT_READ, "", 0, buf, len, off); }
 
 /* ---- Потоки, futex, порты, разделяемая память, часы ---- */
 enum { K_THREAD_CREATE = 12, K_THREAD_EXIT = 13, K_GETTID = 14, K_FUTEX_WAIT = 15, K_FUTEX_WAKE = 16,

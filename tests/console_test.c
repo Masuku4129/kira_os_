@@ -60,6 +60,7 @@ int prog_run(const char* n) {
     return -1;
 }
 void prog_list(void) {}
+void prog_request_file(const char* n, const char* f) { (void)n; (void)f; }
 void life_print(void) {}
 void display_print_info(void) { emit("[FB] info\n"); }
 int experience_save_now(void) { saved++; return 0; }

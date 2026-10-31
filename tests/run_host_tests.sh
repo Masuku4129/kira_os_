@@ -205,6 +205,15 @@ for r in "" "1280 720" "1920 1080"; do
     tail -1 $T/disp.out
     [ $rc -eq 0 ] || { cat $T/disp.out | grep FAIL | head; exit 1; }
 done
+echo "== view: formats against reference sums (ci/mkfiles.py), fuzz of damaged files =="
+python3 ci/mkfiles.py $T/files > $T/sums.txt
+$CC -O1 -g -w -DKIRA_HOST_TEST -I. -fsanitize=address,undefined -o $T/view tests/view_host.c font8x16.c
+sum() { python3 -c "import sys; sys.path.insert(0,'ci'); import mkfiles as m; print('sum %08x' % m.SUMS['$1'])"; }
+ASAN_OPTIONS=detect_leaks=0 $T/view $T/files/pic.png "$(sum /pic.png)" $T/files/rgba.png "$(sum /rgba.png)" \
+    $T/files/pic.bmp "$(sum /pic.bmp)" $T/files/pic.ppm "$(sum /pic.ppm)" \
+    $T/files/note.txt "текст, " $T/files/blob.bin "двоичный, 512" > $T/view.out 2>&1 || { cat $T/view.out; exit 1; }
+tail -1 $T/view.out
+for f in pic.png rgba.png pic.bmp pic.ppm; do ASAN_OPTIONS=detect_leaks=0 $T/view fuzz $T/files/$f > $T/view.out 2>&1 || { tail -20 $T/view.out; exit 1; }; tail -1 $T/view.out; done
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
 rm -rf $T

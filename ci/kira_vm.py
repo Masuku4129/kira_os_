@@ -29,6 +29,10 @@ class VM:
         os.makedirs(out, exist_ok=True)
         self.disk = os.path.join(out, "disk.img")
         shutil.copyfile(disk, self.disk)
+        if sc.get("files"):                         # тестовые файлы (ci/mkfiles.py) - на диск машины
+            import mkfiles
+            for dst, src in mkfiles.make(os.path.join(out, "files")).items():
+                subprocess.run(["tools/kfstool", self.disk, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
         if sc.get("disk_mb"):
             with open(self.disk, "r+b") as f:
                 f.truncate(sc["disk_mb"] * 1024 * 1024)

@@ -47,6 +47,7 @@ typedef struct {
     uint64_t root;
     uint64_t entry;
     char name[16];
+    char grant[128];                   /* файл, который программе разрешено читать (выдан при запуске; "" - нет) */
     uint32_t heap_pages;
     volatile uint32_t nthreads;
     volatile uint32_t dying;
@@ -107,7 +108,9 @@ static uint32_t max_proc_pages(void) {
     return (uint32_t)(by_ram < win ? by_ram : win);
 }
 
-int proc_spawn_elf(const char* name, const void* image, size_t len) {
+int proc_spawn_elf(const char* name, const void* image, size_t len) { return proc_spawn_elf_grant(name, image, len, 0); }
+
+int proc_spawn_elf_grant(const char* name, const void* image, size_t len, const char* grant) {
     elf_info_t info;
     int e = elf_parse(image, len, USER_CODE_VA, USER_CODE_END, max_proc_pages(), &info);
     if (e != ELF_OK) {
@@ -120,6 +123,11 @@ int proc_spawn_elf(const char* name, const void* image, size_t len) {
     for (unsigned i = 0; i < max_procs; i++) if (!procs[i].used) { p = &procs[i]; break; }
     if (!p) { spin_unlock_irqrestore(&proc_lock, f); return -1; }
     p->used = 1;                       /* занят до конца настройки */
+    {   /* право на чтение файла - до первого потока: программа видит его с первой команды */
+        unsigned i = 0;
+        if (grant) for (; grant[i] && i + 1 < sizeof p->grant; i++) p->grant[i] = grant[i];
+        p->grant[i] = 0;
+    }
     uint32_t pid = next_pid++;         /* под замком: процессы запускают с разных ядер */
     spin_unlock_irqrestore(&proc_lock, f);
 
@@ -212,6 +220,7 @@ static int64_t heap_grow_locked(proc_t* p, uint64_t pages) {
 
 int proc_in_user_thread(void) { return current_proc() != 0; }
 const char* proc_current_name(void) { proc_t* p = current_proc(); return p ? p->name : ""; }
+const char* proc_current_grant(void) { proc_t* p = current_proc(); return p ? p->grant : ""; }
 uint32_t proc_current_pid(void) { proc_t* p = current_proc(); return p ? p->pid : 0; }
 
 unsigned proc_limit(void) { return max_procs; }

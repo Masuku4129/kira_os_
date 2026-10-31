@@ -5,7 +5,8 @@
    Диск трогает только основной поток ядра: другие контексты (дисплей) вызывают prog_request, а prog_poll выполняет запрос. */
 
 int  prog_run(const char* name);        /* pid (>0) или отрицательный код: -1 нет файла/ошибка, -2 отказ иммунитета, -3 не принят как ELF */
-void prog_request(const char* name);    /* из любого потока: запуск будет выполнен в prog_poll */
+void prog_request(const char* name);
+void prog_request_file(const char* name, const char* file);   /* программа с правом читать файл file */    /* из любого потока: запуск будет выполнен в prog_poll */
 void prog_poll(void);                   /* основной цикл ядра */
 void prog_list(void);                   /* /bin с вердиктом доверия */
 

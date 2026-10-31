@@ -10,6 +10,9 @@ void proc_init(unsigned cpus, uint64_t ram_kb);   /* лимит одноврем
 unsigned proc_limit(void);
 /* Запускает программу из образа ELF (проверяется elf_parse). Решение «доверять ли» принимает progs.c до вызова. pid или -1. */
 int  proc_spawn_elf(const char* name, const void* image, size_t len);
+/* То же с правом читать один файл grant (путь VFS): его получает программа просмотра из Проводника. */
+int  proc_spawn_elf_grant(const char* name, const void* image, size_t len, const char* grant);
+const char* proc_current_grant(void);   /* "" - права нет */
 void proc_exit(int code) __attribute__((noreturn));
 int  proc_stack_fault(uint64_t cr2, uint64_t err);   /* #PF программы в резерве стека: 1 - стек вырос */
 void proc_fault(uint64_t vector, uint64_t err, uint64_t rip, uint64_t cr2) __attribute__((noreturn));

@@ -3,6 +3,8 @@
 железом (GICv2/GICv3, число ядер, ОЗУ, процессор, вход на EL1 или EL2); ядро обязано найти всё по дереву устройств.
 Итог - ci-out/arm64-<имя>/serial.log и result.json."""
 import json, os, re, select, shutil, socket, struct, subprocess, sys, time, zlib
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from mkfiles import SUMS as mkfiles_sums
 
 READY = r"\[KIRA ARM64\] Ready\."
 COMMON = [r"MMU on: identity map", r"generic timer verified: ([5-9]\d|1[0-4]\d) ticks in 200 ms",
@@ -41,7 +43,7 @@ SC = [
          cmds=[("test", [r"RESULT: PASS", r"worker 8: core 0"])]),
     # Экран и ввод как в Limbo ARM: virtio-gpu, virtio-клавиатура и планшет. Команды "@keys ..." набираются на
     # клавиатуре virtio (QMP send-key), "@tap X Y" - касание планшета (0..32767), "@shot имя" - снимок экрана.
-    dict(name="arm64-gui", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", gui=True,
+    dict(name="arm64-gui", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", gui=True, files=True,
          must=[r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout", r"\[KIRA INPUT\] virtio-input: .*[Kk]eyboard",
                r"\[KIRA INPUT\] virtio-input: .*\(absolute pointer\)", r"\[KIRA DISPLAY\] Shell online",
                r"\[KIRA RTC\] Real-time clock \(PL031, UTC\): "],
@@ -54,6 +56,7 @@ SC = [
                ("beep 440 300", [r"DMA прошёл [1-9]\d* байт - карта играет"]),
                ("edit", []), ("@sleep 3", []), ("@type hello kira", []), ("@key f2", []), ("@sleep 2", []), ("@shot edit", []),
                ("cat /data/edit/note.txt", [r"hello kira"]),
+               ("view /pic.png", [r"view: /pic\.png - PNG 97x61, .* sum %08x" % mkfiles_sums["/pic.png"]]), ("@sleep 2", []), ("@shot view", []),
                ("ps", [r"core\s+RUNNING"])]),
     dict(name="arm64-fault", m="virt,gic-version=3", cpu="cortex-a72", smp=1, mem="256M",
          must=[r"Processors online: 1 of 1"],
@@ -105,6 +108,10 @@ def run(sc, out):
             "-d", "guest_errors,unimp", "-D", os.path.join(d, "qemu-debug.log")]
     if sc.get("disk"):                              # свежая копия диска с KiraFS на каждую машину
         img = os.path.join(d, "disk.img"); shutil.copyfile("kira-arm64.disk", img)
+        if sc.get("files"):                         # тестовые файлы (ci/mkfiles.py) - на диск машины
+            sys.path.insert(0, os.path.dirname(__file__)); import mkfiles
+            for dst, src in mkfiles.make(os.path.join(d, "files")).items():
+                subprocess.run(["tools/kfstool", img, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
         args += ["-drive", f"file={img},if=none,id=d0,format=raw"]
         args += ["-device", "nvme,drive=d0,serial=KIRA0001" if sc["disk"] == "nvme" else f"{sc['disk']},drive=d0"]
     if sc.get("net"):

@@ -69,6 +69,7 @@ void gfx_on_input(int w, int t, int x, int y, unsigned b) { (void)w; (void)t; (v
 void gfx_on_close(int w) { (void)w; }
 static char spawned[16];
 void prog_request(const char* n) { snprintf(spawned, sizeof spawned, "%s", n); }
+void prog_request_file(const char* n, const char* f) { (void)f; snprintf(spawned, sizeof spawned, "%s", n); }
 static char con_cmd[64]; static int con_n;
 int console_request(const char* l) { snprintf(con_cmd, sizeof con_cmd, "%s", l); con_n++; return 0; }
 
