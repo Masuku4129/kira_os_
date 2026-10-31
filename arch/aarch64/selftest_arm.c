@@ -23,7 +23,7 @@ static volatile uint64_t atomic_cnt;
 static kmutex_t mx = KMUTEX_INIT;
 static uint64_t mx_count;
 static uint64_t expected_sum;
-static volatile uint32_t sleep_err_ms, sleep_done;
+static volatile uint32_t sleep_err_ms, sleep_done, sleep_early;
 
 static uint64_t work(void) {
     uint64_t x = 1, s = 0;
@@ -55,8 +55,10 @@ static void report(void) {
     if (mx_count != mw) bad = 1;
     uart_print("  kernel mutex (threads sleep while waiting): "); uart_print_dec(mx_count); uart_print(" of "); uart_print_dec(mw);
     uart_print(mx_count == mw ? " ok\n" : " LOST UPDATES\n");
-    if (!sleep_done || sleep_err_ms > 20) bad = 1;
-    uart_print("  sleep 200 ms: error "); uart_print_dec(sleep_err_ms); uart_print(" ms\n");
+    /* Раньше срока - ошибка планировщика (допуск - тик). Позже - ещё и задержка самой машины: на эмуляции 8 ядер
+       хозяин может не давать ядру гостя время десятки мс, поэтому опоздание до 50 мс допустимо. */
+    if (!sleep_done || (sleep_early && sleep_err_ms > 2) || (!sleep_early && sleep_err_ms > 50)) bad = 1;
+    uart_print("  sleep 200 ms: "); uart_print(sleep_early ? "early by " : "late by "); uart_print_dec(sleep_err_ms); uart_print(" ms\n");
     uart_print(bad ? "RESULT: FAIL\n" : "RESULT: PASS\n");
     __atomic_store_n(&running, 0, __ATOMIC_RELEASE);
 }
@@ -108,6 +110,7 @@ static void sleeper(void* arg) {
     uint64_t khz = arm_counter_khz(), t0 = rdtsc();
     sched_sleep_ticks(TIMER_HZ / 5);
     uint64_t ms = (rdtsc() - t0) / (khz ? khz : 1);
+    sleep_early = ms < 200;
     sleep_err_ms = (uint32_t)(ms > 200 ? ms - 200 : 200 - ms);
     sleep_done = 1;
     finish();

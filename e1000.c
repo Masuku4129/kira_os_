@@ -127,7 +127,8 @@ int e1000_probe(void) {
     static const char hx[] = "0123456789abcdef";
     char m[18];
     for (int i = 0; i < 6; i++) { m[3 * i] = hx[e.nd.mac[i] >> 4]; m[3 * i + 1] = hx[e.nd.mac[i] & 15]; m[3 * i + 2] = i < 5 ? ':' : 0; }
-    uart_print("[KIRA NET] e1000 (8086:"); uart_print_hex(p->device); uart_print("): MAC "); uart_print(m);
+    char id[5]; for (int i = 0; i < 4; i++) id[i] = hx[(p->device >> (12 - 4 * i)) & 15]; id[4] = 0;
+    uart_print("[KIRA NET] e1000 (8086:"); uart_print(id); uart_print("): MAC "); uart_print(m);
     uart_print(link(&e.nd) ? ", link up\n" : ", no link yet\n");
     net_register(&e.nd);
     return 0;

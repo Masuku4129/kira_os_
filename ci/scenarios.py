@@ -112,6 +112,7 @@ ALL = [
     ], smp=4, mem="1G", disk="ata", limbo=True),
     sc("net-e1000", "сеть: Intel e1000 (как в Limbo), DHCP от QEMU, ping шлюза", [
         {"log": BOOT_LOG},
+        {"sleep": 8},
         {"log": [r"\[KIRA NET\] e1000 .*MAC 52:54:00", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24, gateway 10\.0\.2\.2"]},
         {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
         {"cmd": "ping 10.0.2.2 3", "must": [r"ответ от 10\.0\.2\.2", r"отправлено 3, получено [1-3]"], "timeout": 20},
