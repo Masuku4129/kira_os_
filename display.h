@@ -12,6 +12,9 @@ void display_print_info(void);
 void display_panic_flush(void);              // синхронно вывести журнал на экран (паника/исключение)
 // Для Разума: циклов дисплея и опозданий с начала (растут), худший промежуток между циклами с прошлого вызова.
 void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns);
-void display_set_fx(int level);               // уровень анимации фона 0..3 (решает Разум)
+void display_set_fx(int level);
+/* Композитор сам выбирает, собирать кадр на всех ядрах или на одном: по замеренной цене на этой машине (на эмуляторе
+   с одним настоящим потоком параллельная сборка только дороже). par - сейчас параллельно; цена 1000 точек, нс. */
+void display_compositor_stats(uint32_t* par, uint32_t* ns_kpx_par, uint32_t* ns_kpx_ser);               // уровень анимации фона 0..3 (решает Разум)
 
 #endif

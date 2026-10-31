@@ -54,6 +54,7 @@ static unsigned a_trim(void) { return heap_trim(); }
 static void a_restrict(int level) { proc_set_heap_restrict(level); }
 static int a_kill(uint32_t pid) { return proc_kill(pid); }
 static void a_hid(int block) { usb_hid_verdict(block); }
+static void a_bgfps(uint32_t fps) { gfx_set_bg_period(fps ? (TIMER_HZ + fps - 1) / fps : 0); }
 
 typedef struct { uint32_t magic; mind_profile_t p; uint32_t check; } prof_file_t;
 
@@ -104,7 +105,7 @@ static void a_pput(const char* name, const mind_profile_t* p) {
     kfs_write(path, &f, sizeof f);
 }
 
-static const mind_act_t act = { a_quantum, a_weight, a_limit, a_fx, a_trim, a_restrict, a_kill, a_pget, a_pput, a_hid };
+static const mind_act_t act = { a_quantum, a_weight, a_limit, a_fx, a_trim, a_restrict, a_kill, a_pget, a_pput, a_hid, a_bgfps };
 
 /* ---------------- замеры ---------------- */
 
@@ -258,6 +259,8 @@ static void publish(void) {
     v.net_n = M.m.net.n; v.net_pos = M.m.net.pos; v.net_prec = mnet_precision(&M.m.net); v.net_rec = mnet_recall(&M.m.net);
     v.net_trusted = (uint8_t)mnet_trusted(&M.m.net); v.forecasts = M.m.forecasts; v.net_loss_x1e4 = M.m.net.loss_x1e4;
     for (int i = 0; i < MNET_F; i++) v.net_w[i] = M.m.net.w[i];
+    v.bg_fps = mind_bg_fps(&M); v.core_cap = mind_core_cap(&M);
+    display_compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
     v.nproc = 0;
     for (int i = 0; i < MIND_PROC_MAX && v.nproc < 16; i++) {
         const mind_track_t* t = &M.tr[i];
@@ -515,6 +518,12 @@ void mind_sys_print(const char* what) {
         uart_print("), предупреждения сбываются "); uart_print_dec(v->net_prec); uart_print("%, замечено опозданий заранее ");
         uart_print_dec(v->net_rec); uart_print("%, "); uart_print(v->net_trusted ? "доверие есть" : "пока без права действовать");
         uart_print(", упреждений "); uart_print_dec(v->forecasts);
+        uart_print("\n[MIND] тактика: фон - не больше "); uart_print_dec(v->core_cap); uart_print("% ядер при нехватке; фоновые окна - ");
+        if (v->bg_fps) { uart_print("не чаще "); uart_print_dec(v->bg_fps); uart_print(" кадров/с"); } else uart_print("без предела кадров");
+        uart_print("\n[MIND] композитор: ");
+        uart_print(v->comp_par ? "параллельно на всех ядрах" : "на одном ядре");
+        uart_print(" (цена 1000 точек: параллельно "); uart_print_dec(v->comp_ns_kpx_par); uart_print(" нс, на одном ядре ");
+        uart_print_dec(v->comp_ns_kpx_ser); uart_print(" нс; 0 - ещё не мерили)");
         uart_print("\n[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai act | ai observe, ai fx auto|0..3\n\n");
     }
     kfree(v);

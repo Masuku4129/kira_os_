@@ -69,7 +69,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [boot-virtio, boot-ata, boot-sata, boot-nvme, boot-1cpu, boot-8cpu, soak-8cpu, isolation, smp, usb-xhci, usb-uhci, stress-spam, stress-3d]
+        scenario: [boot-virtio, boot-ata, boot-sata, boot-nvme, boot-1cpu, boot-8cpu, soak-8cpu, isolation, smp, usb-xhci, usb-uhci, stress-spam, stress-3d, limbo-spam]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

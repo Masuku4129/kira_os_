@@ -166,6 +166,10 @@ void mind_set_mode(mind_t* s, int mode, const mind_act_t* act) {
         if (s->mem_level >= 2 && act->heap_restrict) act->heap_restrict(0);
         s->mem_level = 0;
         s->focus_pid = 0;
+        if (s->bg_fps_level && act->set_bg_fps) act->set_bg_fps(0);
+        s->bg_fps_level = 0;
+        for (int i = 0; i < MIND_PROC_MAX; i++) s->tr[i].tact_limit = 0;
+        s->tact_on = 0;
     }
     jlog(s, 0, MJ_INFO, 0, 0, mode ? "режим: управление (решения применяются)" : "режим: наблюдение (решения только записываются)");
 }
@@ -568,6 +572,25 @@ static int same_name(const char* a, const char* b) { int i = 0; while (i < 16 &&
 
 unsigned mind_core_cap(const mind_t* s) { return s->m.core_cap ? s->m.core_cap : 50; }
 
+/* Ступени темпа фоновых окон: экран опаздывает - каждые 200 мс ступень ниже; спокойно 1 с - каждые 0,5 с выше. */
+static const uint8_t bg_fps_steps[] = { 0, 30, 15, 8, 4 };
+#define BG_STEPS (sizeof bg_fps_steps / sizeof bg_fps_steps[0])
+unsigned mind_bg_fps(const mind_t* s) { return bg_fps_steps[s->bg_fps_level]; }
+
+static void bg_fps_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act, int pressure, int acting) {
+    uint32_t lvl = s->bg_fps_level;
+    s->bg_calm_ms = pressure ? 0 : s->bg_calm_ms + in->window_ms;
+    if (pressure && in->late && lvl + 1 < BG_STEPS && in->t_ms - s->bg_fps_ms >= 200) lvl++;
+    else if (!pressure && lvl && s->bg_calm_ms >= 1000 && in->t_ms - s->bg_fps_ms >= 500) lvl--;
+    if (lvl == s->bg_fps_level) return;
+    int down = lvl > s->bg_fps_level;
+    s->bg_fps_level = lvl; s->bg_fps_ms = in->t_ms;
+    if (acting && act->set_bg_fps) act->set_bg_fps(bg_fps_steps[lvl]);
+    if (lvl == 0) jlog(s, in->t_ms / 1000, MJ_RESTORE, acting, 0, "тактика: экран успевает - фоновые окна снова без предела кадров");
+    else if (down) jlog(s, in->t_ms / 1000, MJ_LIMIT, acting, 0, "%sтактика: экран опаздывает - фоновые окна не чаще %u кадров/с (их копия и сборка - работа экрана)",
+                        acting ? "" : "(наблюдение) ", (uint32_t)bg_fps_steps[lvl]);
+}
+
 void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) {
     s->tact_steps++;
     int acting = s->m.mode == MIND_ACT;
@@ -627,6 +650,7 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
             if (!any) { s->tact_on = 0; jlog(s, in->t_ms / 1000, MJ_RESTORE, acting, 0, "тактика: давления нет - фон снова без пределов"); }
         }
     }
+    bg_fps_step(s, in, act, pressure, acting);
     s->tact_last_ms = in->t_ms;
 }
 

@@ -355,6 +355,39 @@ static void update_files(void) {
     draw_files();
 }
 
+/* ---------------- сборка кадра: на всех ядрах или на одном ----------------
+   Параллельная сборка выгодна, только если ядра настоящие: на эмуляторе, который исполняет все виртуальные ядра одним
+   потоком телефона (Limbo), помощники лишь добавляют переключения. Поэтому цена 1000 точек меряется в обоих режимах
+   (скользящее среднее по крупным кадрам), раз в 5 с 16 кадров собираются другим способом, и выбирается дешёвый
+   (если дешевле хотя бы на 10%). */
+static struct { uint32_t par; uint64_t cost[2]; uint32_t n[2]; uint32_t probe; uint64_t next_ns; } cs;
+
+void display_compositor_stats(uint32_t* par, uint32_t* ns_par, uint32_t* ns_ser) {
+    *par = cs.par; *ns_par = (uint32_t)cs.cost[1]; *ns_ser = (uint32_t)cs.cost[0];
+}
+
+static int comp_mode(uint64_t now) {
+    if (!kpar_helpers()) return 0;
+    if (!cs.probe && now >= cs.next_ns) { cs.probe = 16; cs.next_ns = now + 5000000000ULL; }
+    return cs.probe ? !cs.par : (int)cs.par;
+}
+
+static void comp_note(int mode, uint64_t ns, uint64_t px) {
+    if (px < 20000) return;                                   /* мелкие кадры не показательны: накладные расходы */
+    uint64_t c = ns * 1000 / px;
+    cs.cost[mode] = cs.n[mode] ? (cs.cost[mode] * 7 + c) / 8 : c;
+    cs.n[mode]++;
+    if (cs.probe && --cs.probe == 0 && cs.n[0] >= 8 && cs.n[1] >= 8) {
+        uint32_t other = !cs.par;
+        if (cs.cost[other] * 100 < cs.cost[cs.par] * 90) {
+            cs.par = other;
+            uart_print(other ? "[KIRA DISPLAY] compositor: all cores are cheaper here (" : "[KIRA DISPLAY] compositor: one core is cheaper here (");
+            uart_print_dec(cs.cost[other]); uart_print(" vs "); uart_print_dec(cs.cost[!other]);
+            uart_print(" ns per 1000 pixels) - switching.\n");
+        }
+    }
+}
+
 /* ---------------- цикл ---------------- */
 
 static void display_main(void* arg) {
@@ -415,8 +448,11 @@ static void display_main(void* arg) {
 
         uint64_t tp0 = clock_ns();
         uint64_t px = 0;
+        int cmode = comp_mode(tp0);
+        wm_set_runner(cmode ? kpar_run : 0);
         if (wm_compose_par(fb_present_rect, &px)) { st.composed++; st.pixels += px; }
         st.present_ns = clock_ns() - tp0;
+        comp_note(cmode, st.present_ns, px);
         st.frames++;
 
         uint64_t now = clock_ns();
@@ -455,6 +491,7 @@ int display_init(unsigned long mbi) {
         unsigned cpus = scale_cpus(hw_get()->cpus);
         kpar_init(cpus > 1 ? cpus - 1 : 0);
         wm_set_runner(kpar_run);
+        cs.par = kpar_helpers() ? 1 : 0;
     }
 #endif
     if (!sched_create("display", display_main, 0, PRIO_CRITICAL)) {

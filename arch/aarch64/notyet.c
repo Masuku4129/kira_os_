@@ -13,6 +13,8 @@ void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns) 
 void display_set_fx(int level) { (void)level; }
 void display_panic_flush(void) { }
 int  gfx_focus_pid(void) { return 0; }
+void gfx_set_bg_period(uint32_t ticks) { (void)ticks; }          /* окон нет - темп задавать некому */
+void display_compositor_stats(uint32_t* par, uint32_t* ns_par, uint32_t* ns_ser) { *par = 0; *ns_par = 0; *ns_ser = 0; }
 
 /* без экрана окна программ не создаются: вызовы графики отвечают ошибкой, как на x86 без оболочки */
 int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h) { (void)pid; (void)title; (void)w; (void)h; return -1; }

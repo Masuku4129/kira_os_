@@ -24,7 +24,9 @@ static void a_pput(const char* n, const mind_profile_t* p) {
 }
 static int hid_v = -1;
 static void a_hid(int b) { hid_v = b; }
-static const mind_act_t act = { a_q, a_w, a_l, a_fx, a_trim, a_r, a_kill, a_pget, a_pput, a_hid };
+static int bgfps = -1;
+static void a_bgfps(uint32_t f) { bgfps = (int)f; }
+static const mind_act_t act = { a_q, a_w, a_l, a_fx, a_trim, a_r, a_kill, a_pget, a_pput, a_hid, a_bgfps };
 static const mind_act_t none = { 0 };
 
 static mind_t M;
@@ -258,6 +260,25 @@ int main(void) {
         mind_tact_step(d, &ti, &none);
     }
 
+    /* темп фоновых окон: экран опаздывает - ступени 30, 15, 8, 4 кадров/с через 200 мс; спокойно - обратно */
+    {
+        mind_t* d = &M; mind_init(d, 0, 4); bgfps = -1;
+        static mind_tact_in_t ti; memset(&ti, 0, sizeof ti);
+        ti.cores = 4; ti.window_ms = 25; ti.loops = 2; ti.late = 1; ti.busy_x10 = 1000;
+        for (ti.t_ms = 1000; ti.t_ms <= 1000 + 25 * 40; ti.t_ms += 25) mind_tact_step(d, &ti, &act);
+        CHECK(bgfps == 4 && mind_bg_fps(d) == 4 && journal_has("фоновые окна не чаще 4 кадров/с"));
+        ti.late = 0;
+        uint32_t t0 = ti.t_ms;
+        for (; ti.t_ms <= t0 + 900; ti.t_ms += 25) mind_tact_step(d, &ti, &act);
+        CHECK(bgfps == 4);                                     /* спокойно меньше секунды - не отпускает */
+        for (; ti.t_ms <= t0 + 4000; ti.t_ms += 25) mind_tact_step(d, &ti, &act);
+        CHECK(bgfps == 0 && journal_has("фоновые окна снова без предела"));
+        ti.late = 1; ti.t_ms += 25; mind_tact_step(d, &ti, &act);   /* снова опоздание - сразу первая ступень */
+        CHECK(bgfps == 30);
+        mind_set_mode(d, MIND_OBSERVE, &act);
+        CHECK(bgfps == 0);                                     /* наблюдение: всё возвращается */
+    }
+
     /* предвидение: в этом мире тяжёлый фон в эту секунду означает опоздания экрана в следующую. Модель учится,
        получает доверие и затем ужимает фон заранее - до первого опоздавшего кадра (тактика видит «упреждение»). */
     {
@@ -314,6 +335,6 @@ int main(void) {
         CHECK(!mind_model_load(&back, &old, 100));
     }
 
-    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap), foresight model (learns, earns trust, acts ahead, persists, upgrades v1) passed");
+    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1) passed");
     return fails != 0;
 }

@@ -28,6 +28,7 @@ void gfx_server_run(void);
 void gfx_on_input(int win, int type, int x, int y, unsigned buttons);
 void gfx_on_close(int win);
 
-int  gfx_focus_pid(void);   /* pid приложения, чьё окно сверху, иначе 0 */
+int  gfx_focus_pid(void);
+void gfx_set_bg_period(uint32_t ticks);   /* фоновые окна: кадр не чаще раза в ticks тиков (0 - без предела); решает Разум */   /* pid приложения, чьё окно сверху, иначе 0 */
 
 #endif

@@ -23,6 +23,7 @@ class Fail(Exception):
 class VM:
     def __init__(self, sc, out, iso, disk, kvm, timeout_scale):
         self.sc, self.out, self.iso, self.kvm, self.k = sc, out, iso, kvm, timeout_scale
+        if sc.get("limbo"): self.k = max(self.k, 8.0)       # эмуляция одним потоком в разы медленнее KVM
         self.log = bytearray()
         self.notes = []
         os.makedirs(out, exist_ok=True)
@@ -46,7 +47,9 @@ class VM:
              "-chardev", f"socket,id=ser0,path={self.ser_path},server=on,wait=on", "-serial", "chardev:ser0",
              "-qmp", f"unix:{self.qmp_path},server=on,wait=off",
              "-audiodev", "none,id=a0", "-d", "guest_errors", "-D", os.path.join(self.out, "qemu.log")]
-        if self.kvm:
+        if sc.get("limbo"):                         # как Limbo на телефоне: эмуляция одним потоком, без KVM
+            a += ["-accel", "tcg,thread=single", "-cpu", "qemu64"]
+        elif self.kvm:
             a += ["-enable-kvm", "-cpu", sc.get("cpu", "host")]
         else:
             a += ["-cpu", sc.get("cpu_tcg", "max")]

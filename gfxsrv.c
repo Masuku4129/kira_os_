@@ -27,6 +27,7 @@ typedef struct {
     volatile uint32_t seq;            /* нечётный, пока идёт копия кадра в передний буфер */
     gfx_event_t q[EVQ];
     volatile uint32_t qh, qt;         /* пишет поток дисплея, читает системный вызов */
+    uint64_t last_present;            /* тик последнего кадра (темп фоновых окон) */
 } app_t;
 
 static app_t apps[MAX_APPS];
@@ -88,9 +89,21 @@ int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h) 
     return (int64_t)GFX_USER_VA;
 }
 
+/* Темп фоновых окон (задаёт Разум): окно не сверху отдаёт кадр не чаще раза в bg_period тиков. Каждый кадр окна -
+   это копия размером с окно и сборка его плиток композитором: десять окон, рисующих по 60 кадров, съедают экран
+   так же, как одно большое. Программа при этом просто ждёт - и её процессор тоже свободен. 0 - без предела. */
+static volatile uint32_t bg_period;
+void gfx_set_bg_period(uint32_t ticks) { __atomic_store_n(&bg_period, ticks, __ATOMIC_RELEASE); }
+
 int64_t gfx_sys_present(uint32_t pid) {
     app_t* a = find_pid(pid);
     if (!a) return -1;
+    uint32_t per = __atomic_load_n(&bg_period, __ATOMIC_ACQUIRE);
+    if (per && gfx_focus_pid() != (int)pid) {
+        uint64_t due = a->last_present + per, now = timer_get_ticks();
+        if (now < due && !proc_dying()) sched_sleep_ticks((uint32_t)(due - now));
+    }
+    a->last_present = timer_get_ticks();
     /* Программа рисует в задний буфер; композитор видит только готовые кадры. Писатель один (поток процесса-
        владельца), читатель - композитор, возможно на другом ядре: счётчик seq нечётен, пока идёт копия, и
        композитор перечитывает кадр (wm.c). Обе записи seq - с полным барьером (xchg), поэтому слабо упорядоченные

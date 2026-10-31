@@ -99,6 +99,16 @@ ALL = [
         {"responsive": "status", "within": 3},
         {"log_forbid": NO_ERR},
     ], smp=8, mem="2G"),
+    sc("limbo-spam", "как Limbo (эмуляция одним потоком, 4 ядра, IDE): 8 plasma - Разум держит экран (темп фона, сборка на одном ядре)", [
+        {"log": BOOT_LOG},
+        *[{"send": "plasma"} for _ in range(8)],
+        {"sleep": 25}, {"shot": "limbo-spam"},
+        {"responsive": "status", "within": 10},
+        {"cmd": "ai", "must": [r"тактика: фон", r"композитор:"], "timeout": 20},
+        {"cmd": "ai why", "timeout": 20},
+        {"log": [r"фоновые окна не чаще \d+ кадров/с", r"compositor: one core is cheaper"]},
+        {"log_forbid": NO_ERR},
+    ], smp=4, mem="1G", disk="ata", limbo=True),
     sc("stress-3d", "cube3d + plasma x4 + burnall: отклик консоли", [
         {"send": "3d"}, *[{"send": "plasma"} for _ in range(4)], {"send": "burnall"},
         {"sleep": 8}, {"shot": "load"},
