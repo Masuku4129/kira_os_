@@ -89,7 +89,7 @@ int  uart_getchar(void) { return uart_getc(); }
 /* ---------------- память ---------------- */
 static struct { uint64_t base, size; } ram[MAX_RAM];
 static unsigned nram;
-static uint64_t bump, bump_end;
+static uint64_t bump, bump_end, bump_start;
 
 static void* palloc(uint64_t bytes, uint64_t align) {          /* страницы для таблиц и стеков - за ядром */
     uint64_t a = (bump + align - 1) & ~(align - 1);
@@ -496,8 +496,11 @@ void arm_secondary_main(void) {
     cpus[me].gic_mask = gic_mask_me;
     if (sched_attach_cpu() != 0) kprintf("[KIRA ARM64] core %u: no thread slot for its idle thread\n", (uint64_t)me);
     timer_start();
-    __atomic_store_n(&cpus[me].online, 1, __ATOMIC_RELEASE);
     __asm__ volatile ("msr daifclr, #2");
+    /* первый тик своего таймера - до объявления «в строю»: потом простаивающее ядро тик выключает */
+    uint64_t w0 = now_cnt();
+    while (!cpus[me].ticks && now_cnt() - w0 < cnt_freq / 10) __asm__ volatile ("wfi");
+    __atomic_store_n(&cpus[me].online, 1, __ATOMIC_RELEASE);
     for (;;) {                                                   /* это ядро теперь - его холостой поток */
         smp_idle_tick_off();
         __asm__ volatile ("wfi");
@@ -579,7 +582,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     bump = (uint64_t)(uintptr_t)__kernel_end;
     uint64_t fdt_end = (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt);
     if ((uint64_t)(uintptr_t)fdt >= bump && fdt_end > bump) bump = fdt_end;   /* дерево за ядром - не затирать */
-    bump_end = bump;
+    bump_end = bump; bump_start = bump;
     for (unsigned i = 0; i < nram; i++) if (bump >= ram[i].base && bump < ram[i].base + ram[i].size) bump_end = ram[i].base + ram[i].size;
     kprintf("[KIRA ARM64] RAM: %u MB in %u region(s)\n", total >> 20, (uint64_t)nram);
 
@@ -647,9 +650,10 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     lo &= ~4095ull;
     void* map = palloc(pmm_arm_map_bytes(lo, hi), 8);
     if (!map) kernel_panic("no memory for the page map");
-    uint64_t res_lo = (uint64_t)(uintptr_t)__kernel_start;
-    if ((uint64_t)(uintptr_t)fdt < res_lo) res_lo = (uint64_t)(uintptr_t)fdt;
-    pmm_arm_init((const pmm_arm_region_t*)ram, nram, lo, hi, map, res_lo, bump);
+    /* занято: ядро, дерево устройств, ранние выделения (таблицы MMU, сама карта) */
+    pmm_arm_init((const pmm_arm_region_t*)ram, nram, lo, hi, map, (uint64_t)(uintptr_t)__kernel_start, (uint64_t)(uintptr_t)__kernel_end);
+    pmm_arm_reserve((uint64_t)(uintptr_t)fdt, (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt));
+    pmm_arm_reserve(bump_start, bump);
     bump_end = bump;                                             /* дальше страницы выдаёт только pmm */
     heap_init();
     sched_init(ncpu, total / 1024);
@@ -698,7 +702,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     while (now_cnt() - t0 < cnt_freq / 5) __asm__ volatile ("wfi");
     unsigned ticking = 0;
     for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && cpus[i].ticks > 0 && cpus[i].gic_ok) ticking++;
-    kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u\n", (uint64_t)ticking, (uint64_t)started);
+    kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u (idle cores then switch their tick off)\n", (uint64_t)ticking, (uint64_t)started);
     kprintf("[KIRA ARM64] Ready. Commands: smp, mem, ps, test, fault\n");
 
     char line[64]; unsigned n = 0;

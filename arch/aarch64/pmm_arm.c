@@ -15,6 +15,11 @@ static void set_free(uint64_t i) { bits[i >> 6] &= ~(1ull << (i & 63)); }
 
 uint64_t pmm_arm_map_bytes(uint64_t lo, uint64_t hi) { return (((hi - lo) / 4096 + 63) / 64) * 8; }
 
+void pmm_arm_reserve(uint64_t res_lo, uint64_t res_hi) {
+    for (uint64_t p = res_lo / 4096; p < (res_hi + 4095) / 4096; p++)
+        if (p >= base_pfn && p < base_pfn + npages && !used(p - base_pfn)) { set_used(p - base_pfn); free_pages--; }
+}
+
 void pmm_arm_init(const pmm_arm_region_t* r, unsigned n, uint64_t lo, uint64_t hi, void* map,
                   uint64_t res_lo, uint64_t res_hi) {
     base_pfn = lo / 4096; npages = (hi - lo) / 4096;
@@ -25,8 +30,7 @@ void pmm_arm_init(const pmm_arm_region_t* r, unsigned n, uint64_t lo, uint64_t h
         uint64_t a = (r[k].base + 4095) / 4096, b = (r[k].base + r[k].size) / 4096;
         for (uint64_t p = a; p < b; p++) { set_free(p - base_pfn); free_pages++; total_pages++; }
     }
-    for (uint64_t p = res_lo / 4096; p < (res_hi + 4095) / 4096; p++)
-        if (p >= base_pfn && p < base_pfn + npages && !used(p - base_pfn)) { set_used(p - base_pfn); free_pages--; }
+    pmm_arm_reserve(res_lo, res_hi);
 }
 
 uint64_t pmm_alloc_page(void) {
