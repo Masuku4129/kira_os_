@@ -130,7 +130,8 @@ void selftest_arm_start(void) {
         if (!sched_create_on("smpwork", worker, &w[i], PRIO_NORMAL, cm_one(w[i].cpu))) { w[i].sum = 0; finish(); }
     for (unsigned i = 0; i < MX_THREADS; i++)
         if (!sched_create("mxwork", mx_worker, 0, PRIO_NORMAL)) finish();
-    if (!sched_create("sleeper", sleeper, 0, PRIO_NORMAL)) finish();
+    /* сон проверяется отдельно от очереди: критический поток не ждёт квант рабочих, ошибка - только от таймера */
+    if (!sched_create("sleeper", sleeper, 0, PRIO_CRITICAL)) finish();
     uart_print("[KIRA SELFTEST] started: "); uart_print_dec(nw); uart_print(" pinned workers, ");
     uart_print_dec(MX_THREADS); uart_print(" mutex threads, 1 sleeper\n");
 }
