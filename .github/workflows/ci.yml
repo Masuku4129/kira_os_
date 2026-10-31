@@ -53,7 +53,7 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld qemu-system-arm
       - name: build ARM64 (clang, -Werror)
         run: ./build_arm64.sh
-      - name: scenarios (QEMU virt: GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)
+      - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"
         run: |
           set -o pipefail
           python3 ci/arm64_vm.py ci-out/arm64 2>&1 | tee arm64.txt
