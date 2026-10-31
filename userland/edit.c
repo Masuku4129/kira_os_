@@ -74,17 +74,20 @@ static void draw(void) {
     if (cl < top_line) top_line = cl;
     if (cl >= top_line + ROWS) top_line = cl - ROWS + 1;
     u32 p = line_pos(top_line);
+    int drawn = 0;                                                  /* курсор рисуется один раз */
     for (int r = 0; r < ROWS; r++) {
         int y = TOP + r * CH;
         int x = 0;
         while (p < len && text[p] != '\n' && x + CW <= W) {
             u32 cp, k = utf8(text + p, len - p, &cp);
             if (cp == '\t') cp = ' ';
-            int on = p == cur;
+            int on = p == cur && !drawn;
+            if (on) drawn = 1;
             glyph(x, y, cp < 32 ? '?' : cp, on ? 0x00101820 : 0x00D0D8E0, on ? 0x00F0C040 : 0x00101820);
             x += CW; p += k;
         }
-        int cur_here = p == cur && (p >= len || text[p] == '\n');
+        int cur_here = !drawn && p == cur && (p >= len || text[p] == '\n');
+        if (cur_here) drawn = 1;
         for (; x < W; x += CW) {
             glyph(x, y, ' ', 0, cur_here ? 0x00F0C040 : 0x00101820);
             cur_here = 0;
