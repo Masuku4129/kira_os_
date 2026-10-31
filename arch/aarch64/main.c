@@ -246,7 +246,15 @@ static const char* ec_name(unsigned ec) {
     }
 }
 
+/* Проба адреса (адрес дерева в x0 не обязан быть годным: часть загрузчиков оставляет там мусор): ошибка доступа во
+   время пробы не авария - команда пропускается, проба считается неудачной. */
+static volatile int probing, probe_failed;
+
 void arm_exception(uint64_t* frame, uint64_t kind) {
+    if ((kind == 0 || kind == 4) && probing) {
+        unsigned ec0 = (unsigned)(frame[33] >> 26) & 0x3F;
+        if (ec0 == 0x24 || ec0 == 0x25) { probe_failed = 1; frame[31] += 4; return; }
+    }
     if (kind == 1 || kind == 5 || kind == 9) {                   /* IRQ */
         uint32_t iar = gic_ack();
         uint32_t id = iar & 0xFFFFFF;
@@ -304,8 +312,12 @@ static void cmd(const char* l) {
 
 /* ---------------- вход ---------------- */
 static const void* find_fdt(uint64_t x0) {
-    if (x0 && fdt_valid((const void*)(uintptr_t)x0, 0)) return (const void*)(uintptr_t)x0;
-    return 0;
+    if (!x0 || (x0 & 7)) return 0;
+    probing = 1; probe_failed = 0;
+    int ok = *(volatile uint32_t*)(uintptr_t)x0 == 0xEDFE0DD0u;   /* FDT_MAGIC в памяти (большой порядок байт) */
+    if (ok && !probe_failed) ok = fdt_valid((const void*)(uintptr_t)x0, 0);
+    probing = 0;
+    return ok && !probe_failed ? (const void*)(uintptr_t)x0 : 0;
 }
 
 void arm_main(uint64_t dtb) {
