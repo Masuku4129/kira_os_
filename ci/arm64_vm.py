@@ -4,20 +4,24 @@
 Итог - ci-out/arm64-<имя>/serial.log и result.json."""
 import json, os, re, select, subprocess, sys, time
 
-READY = r"Ready \(platform layer\)"
-COMMON = [r"MMU on: identity map", r"generic timer verified: ([5-9]\d|1[0-4]\d) ticks in 200 ms"]
-NO_ERR = [r"FATAL", r"exception on core", r"did not come up", r"CPU_ON .* failed"]
+READY = r"\[KIRA ARM64\] Ready\."
+COMMON = [r"MMU on: identity map", r"generic timer verified: ([5-9]\d|1[0-4]\d) ticks in 200 ms",
+          r"memory manager: \d+ MB free pages; kernel heap and scheduler online"]
+NO_ERR = [r"FATAL", r"exception on core", r"did not come up", r"CPU_ON .* failed", r"KERNEL PANIC", r"RESULT: FAIL", r"no thread slot"]
 
 SC = [
     dict(name="arm64-gicv3", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G",
          must=[r"GICv3", r"Processors online: 4 of 4 \(PSCI via hvc\)", r"working timer interrupt: 4 of 4", r"entered at EL1", r"RAM: 1024 MB"],
-         cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]), ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)"])]),
+         cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]),
+               ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)", r"kernel heap: \d+ bytes"]),
+               ("test", [r"RESULT: PASS", r"preempted by tick", r"kernel mutex .*: 8000 of 8000 ok"]),
+               ("ps", [r"core\s+RUNNING", r"idle"])]),
     dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M",
          must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB"],
-         cmds=[("smp", [r"core 1: .*online"])]),
+         cmds=[("smp", [r"core 1: .*online"]), ("test", [r"RESULT: PASS"])]),
     dict(name="arm64-el2-8cpu", m="virt,gic-version=3,virtualization=on", cpu="cortex-a57", smp=8, mem="3G",
          must=[r"entered at EL2, running at EL1", r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"RAM: 3072 MB"],
-         cmds=[]),
+         cmds=[("test", [r"RESULT: PASS", r"worker 8: core 0"])]),
     dict(name="arm64-fault", m="virt,gic-version=3", cpu="cortex-a72", smp=1, mem="256M",
          must=[r"Processors online: 1 of 1"],
          cmds=[("fault", [r"exception on core 0: data abort .*", r"FAR 0x0000F00000000000"])], fault=True),
@@ -61,7 +65,12 @@ def run(sc, out):
                     start = len(log)
                     for ch in cmd + "\r":
                         p.stdin.write(ch.encode()); p.stdin.flush(); time.sleep(0.01)
-                    pump(1.5)
+                    end = time.time() + 60
+                    while time.time() < end:                 # ждать, пока сбудется всё нужное (или 60 с)
+                        part = log[start:].decode(errors="replace")
+                        if all(re.search(rx, part) for rx in must) or re.search(r"RESULT: FAIL|exception on core", part): break
+                        pump(0.3)
+                    pump(0.5)
                     part = log[start:].decode(errors="replace")
                     for rx in must:
                         if not re.search(rx, part): err = f"{cmd}: нет «{rx}»"; break

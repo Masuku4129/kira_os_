@@ -37,6 +37,8 @@ __attribute__((weak)) volatile int spin_bust = 0;
 static inline void spin_relax(void) {
 #if defined(__x86_64__) || defined(__i386__)
     __asm__ volatile ("pause");
+#elif defined(__aarch64__)
+    __asm__ volatile ("yield");
 #endif
 }
 

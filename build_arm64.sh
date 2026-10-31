@@ -6,13 +6,17 @@ set -e
 cd "$(dirname "$0")"
 A=arch/aarch64
 CC="clang --target=aarch64-unknown-none-elf"
-CFLAGS="$KIRA_ARM64_EXTRA -ffreestanding -fno-builtin -nostdlib -mgeneral-regs-only -mstrict-align -fpie -fno-stack-protector -fno-omit-frame-pointer -fno-asynchronous-unwind-tables -O2 -Wall -Wextra -Werror -I. -I$A"
+CFLAGS="$KIRA_ARM64_EXTRA -ffreestanding -fno-builtin -nostdlib -mgeneral-regs-only -mstrict-align -fpie -fno-stack-protector -fno-omit-frame-pointer -fno-asynchronous-unwind-tables -O2 -Wall -Wextra -Werror -I$A -I."
 mkdir -p build-arm64
-$CC $CFLAGS -c $A/boot.S -o build-arm64/boot.o
-$CC $CFLAGS -c $A/mem.S -o build-arm64/mem.o
-$CC $CFLAGS -c $A/main.c -o build-arm64/main.o
-$CC $CFLAGS -c fdt.c -o build-arm64/fdt.o
-ld.lld -T $A/linker.ld -nostdlib -pie --no-dynamic-linker -z text -z max-page-size=4096 build-arm64/boot.o build-arm64/mem.o build-arm64/main.o build-arm64/fdt.o -o kira-arm64.elf
+OBJ=""
+for f in $A/boot.S $A/mem.S $A/context.S $A/fpu.S; do
+    o=build-arm64/$(basename $f .S)_s.o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
+done
+# Общее ядро (те же файлы, что и на x86-64) и платформа ARM64
+for f in fdt.c percpu.c sched.c scale.c kmutex.c heap.c $A/main.c $A/pmm_arm.c $A/selftest_arm.c; do
+    o=build-arm64/$(basename $f .c).o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
+done
+ld.lld -T $A/linker.ld -nostdlib -pie --no-dynamic-linker -z text -z norelro -z max-page-size=4096 $OBJ -o kira-arm64.elf
 llvm-objcopy -O binary kira-arm64.elf kira-arm64.img
 echo "[*] kira-arm64.img (образ ARM64 с заголовком загрузки): $(stat -c %s kira-arm64.img) байт"
 if [ "$1" = "--run" ]; then

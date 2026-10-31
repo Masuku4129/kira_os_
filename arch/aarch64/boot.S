@@ -70,12 +70,13 @@ secondary_entry:
 4:  wfe
     b       4b
 
-/* Общее для каждого ядра: вектора исключений, доступ к FP/SIMD (ядро его не использует - запрет до программ). */
+/* Общее для каждого ядра: вектора исключений, доступ к SIMD/FP (код ядра его не использует; переключение потоков сохраняет). */
 cpu_common:
     adrp    x0, vectors
     add     x0, x0, :lo12:vectors
     msr     vbar_el1, x0
-    msr     cpacr_el1, xzr
+    mov     x0, #(3 << 20)              // CPACR_EL1.FPEN: SIMD/FP без ловушки (ядро само его не трогает, бережёт для потоков)
+    msr     cpacr_el1, x0
     isb
     ret
 
@@ -192,6 +193,9 @@ exc_common:
 
     .section .bss
     .balign 16
+    .global stack_bottom, stack_top
+stack_bottom:
 boot_stack:
     .skip 16384
+stack_top:
 boot_stack_top:

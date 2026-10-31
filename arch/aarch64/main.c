@@ -2,11 +2,23 @@
    порт PL011, ОЗУ (все узлы memory), контроллер прерываний GICv2 или GICv3, общий таймер ARM, ядра и способ их
    запуска (PSCI через hvc или smc). Включается MMU с тождественной картой (ОЗУ - обычная кэшируемая память,
    остальное - устройства без исполнения), каждое ядро получает свой тик и проверяется.
-   Это первый этап переноса: общие части ядра (планировщик, Разум, файловые системы) подключаются следующими. */
+   Второй этап: поверх платформы работает общее ядро - менеджер страниц, куча, планировщик с очередями на каждом
+   ядре, мьютексы ядра; межъядерные сигналы - SGI контроллера GIC. Файловые системы, Разум, программы - дальше. */
 #include <stdint.h>
 #include "fdt.h"
+#include "timer.h"
+#include "cpu.h"
+#include "fpu.h"
+#include "percpu.h"
+#include "sched.h"
+#include "heap.h"
+#include "uart.h"
+#include "smp.h"
+#include "kstack.h"
+#include "pmm_arm.h"
+#include "pmm.h"
+#include "selftest_arm.h"
 
-#define TIMER_HZ 500
 #define MAX_RAM 16
 
 extern char __kernel_start[], __kernel_end[];
@@ -39,15 +51,20 @@ static int uart_getc(void) {
     if (!uart || (mmio_r32(uart + 0x18) & (1u << 4))) return -1;                    /* FR.RXFE: пусто */
     return (int)(mmio_r32(uart) & 0xFF);
 }
-static void lock(void) { if (mmu_on) while (__atomic_exchange_n(&print_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield"); }
-static void unlock(void) { if (mmu_on) __atomic_store_n(&print_lock, 0, __ATOMIC_RELEASE); }
+/* Замок вывода берётся с выключенными прерываниями: иначе обработчик прерывания на этом же ядре ждал бы сам себя. */
+static uint64_t lock(void) {
+    uint64_t f = irq_save();
+    if (mmu_on) while (__atomic_exchange_n(&print_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
+    return f;
+}
+static void unlock(uint64_t f) { if (mmu_on) __atomic_store_n(&print_lock, 0, __ATOMIC_RELEASE); irq_restore(f); }
 static void puts_raw(const char* s) { for (; *s; s++) { if (*s == '\n') uart_putc('\r'); uart_putc(*s); } }
 static void put_dec_raw(uint64_t v) { char b[21]; int i = 20; b[i] = 0; do { b[--i] = (char)('0' + v % 10); v /= 10; } while (v); puts_raw(&b[i]); }
 static void put_hex_raw(uint64_t v) { char b[19]; b[0] = '0'; b[1] = 'x'; for (int i = 0; i < 16; i++) b[2 + i] = "0123456789ABCDEF"[(v >> (60 - 4 * i)) & 15]; b[18] = 0; puts_raw(b); }
 /* Строка целиком под замком: строки разных ядер не перемешиваются. Формат: %s %u %x. */
 static void kprintf(const char* f, ...) {
     __builtin_va_list ap; __builtin_va_start(ap, f);
-    lock();
+    uint64_t fl = lock();
     for (; *f; f++) {
         if (*f != '%') { if (*f == '\n') uart_putc('\r'); uart_putc(*f); continue; }
         f++;
@@ -56,9 +73,18 @@ static void kprintf(const char* f, ...) {
         else if (*f == 'x') put_hex_raw(__builtin_va_arg(ap, uint64_t));
         else if (*f == '%') uart_putc('%');
     }
-    unlock();
+    unlock(fl);
     __builtin_va_end(ap);
 }
+
+/* Интерфейс uart.h для общего ядра. Вывод не буферизуется (строка уходит в порт сразу под замком), поэтому при
+   смене потока досылать нечего. */
+void uart_print(const char* s) { uint64_t f = lock(); puts_raw(s); unlock(f); }
+void uart_putchar(char c) { char b[2] = { c, 0 }; uart_print(b); }
+void uart_print_dec(uint64_t v) { uint64_t f = lock(); put_dec_raw(v); unlock(f); }
+void uart_print_hex(uint64_t v) { uint64_t f = lock(); put_hex_raw(v); unlock(f); }
+void uart_switch_flush(void) { }
+int  uart_getchar(void) { return uart_getc(); }
 
 /* ---------------- память ---------------- */
 static struct { uint64_t base, size; } ram[MAX_RAM];
@@ -156,6 +182,76 @@ static int mmu_init(uint64_t top) {
     return (int)bits;
 }
 
+/* ---------------- стеки потоков ядра с пустотой ниже ----------------
+   Отдельное окно адресов (вне тождественной карты): ячейки по 64 КБ, отображена только верхняя часть размером со
+   стек (страницы 4 КБ), ниже - пустота: переполнение стека - ошибка доступа, а не порча соседней памяти.
+   Освобождённая ячейка остаётся отображённой и уходит в список свободных (номер следующей - в её первом слове). */
+#define KSTACK_VA     0x0000C00000000000ull
+#define KSTACK_STRIDE 0x10000ull
+#define KSTACK_SLOTS  65536ull
+#define PTE_PAGE      3ull
+#define PTE_KDATA     ((2ull << 2) | PTE_AF | PTE_SH_IN | (1ull << 53) | (1ull << 54))
+static uint64_t ks_next, ks_free = ~0ull, ks_size;
+static volatile uint32_t ks_lock;
+
+static uint64_t* table_page(uint64_t* t, unsigned idx) {          /* после включения MMU - страницы из pmm */
+    if (!(t[idx] & PTE_VALID)) {
+        uint64_t pa = pmm_alloc_page();
+        if (!pa) return 0;
+        for (int i = 0; i < 512; i++) ((volatile uint64_t*)(uintptr_t)pa)[i] = 0;
+        dsb();
+        t[idx] = pa | PTE_TABLE;
+    } else if ((t[idx] & 3) != PTE_TABLE) return 0;
+    return (uint64_t*)(uintptr_t)(t[idx] & 0x0000FFFFFFFFF000ull);
+}
+
+static int map_kpage(uint64_t va, uint64_t pa) {
+    uint64_t* l1 = table_page(l0, (unsigned)(va >> 39) & 511);
+    uint64_t* l2 = l1 ? table_page(l1, (unsigned)(va >> 30) & 511) : 0;
+    uint64_t* l3 = l2 ? table_page(l2, (unsigned)(va >> 21) & 511) : 0;
+    if (!l3) return -1;
+    l3[(va >> 12) & 511] = pa | PTE_KDATA | PTE_PAGE;
+    __asm__ volatile ("dsb ishst\n isb" ::: "memory");
+    return 0;
+}
+
+void* vmm_kstack_alloc(uint32_t bytes) {
+    bytes = (bytes + 4095) & ~4095u;
+    if (bytes >= KSTACK_STRIDE) return 0;
+    uint64_t f = irq_save();
+    while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
+    uint64_t va = 0;
+    if (ks_size == bytes && ks_free != ~0ull) {
+        va = KSTACK_VA + ks_free * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
+        ks_free = *(volatile uint64_t*)(uintptr_t)va;
+    } else if (ks_next < KSTACK_SLOTS && (!ks_size || ks_size == bytes)) {
+        uint64_t slot = ks_next, base = KSTACK_VA + slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
+        int ok = 1;
+        for (uint64_t o = 0; o < bytes && ok; o += 4096) {
+            uint64_t pa = pmm_alloc_page();
+            ok = pa && map_kpage(base + o, pa) == 0;
+        }
+        if (ok) { ks_next++; ks_size = bytes; va = base; }
+    }
+    __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
+    irq_restore(f);
+    return (void*)(uintptr_t)va;
+}
+
+void vmm_kstack_free(void* base) {
+    uint64_t va = (uint64_t)(uintptr_t)base;
+    if (!vmm_is_kstack(va)) return;
+    uint64_t f = irq_save();
+    while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
+    *(volatile uint64_t*)(uintptr_t)va = ks_free;
+    ks_free = (va - KSTACK_VA) / KSTACK_STRIDE;
+    __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
+    irq_restore(f);
+}
+
+int vmm_is_kstack(uint64_t a) { return a >= KSTACK_VA && a < KSTACK_VA + KSTACK_SLOTS * KSTACK_STRIDE; }
+int vmm_kstack_guard_hit(uint64_t a) { return vmm_is_kstack(a) && ks_size && (a - KSTACK_VA) % KSTACK_STRIDE < KSTACK_STRIDE - ks_size; }
+
 /* ---------------- GIC ---------------- */
 static int gic_v3;
 static uint64_t gicd, gicc, gicr_base, gicr_size;
@@ -192,6 +288,11 @@ static uint64_t my_gicr(void) {
     return 0;
 }
 
+#define SGI_RESCHED 1
+#define SGI_HALT    2
+#define ICC_SGI1R_EL1 S3_0_C12_C11_5
+static uint8_t gic_mask_me;                                      /* GICv2: маска интерфейса этого ядра (на время init) */
+
 static int gic_cpu_init(void) {
     if (gic_v3) {
         uint64_t r = my_gicr();
@@ -199,9 +300,11 @@ static int gic_cpu_init(void) {
         mmio_w32(r + 0x14, mmio_r32(r + 0x14) & ~(1u << 1));     /* GICR_WAKER.ProcessorSleep = 0 */
         for (int i = 0; i < 1000000 && (mmio_r32(r + 0x14) & (1u << 2)); i++) { }   /* ChildrenAsleep */
         uint64_t sgi = r + 0x10000;
-        mmio_w32(sgi + 0x80, mmio_r32(sgi + 0x80) | (1u << timer_intid));   /* IGROUPR0: группа 1 */
+        mmio_w32(sgi + 0x80, mmio_r32(sgi + 0x80) | (1u << timer_intid) | (1u << SGI_RESCHED) | (1u << SGI_HALT));   /* IGROUPR0: группа 1 */
         *(volatile uint8_t*)(uintptr_t)(sgi + 0x400 + timer_intid) = 0x80;  /* приоритет */
-        mmio_w32(sgi + 0x100, 1u << timer_intid);                           /* ISENABLER0 */
+        *(volatile uint8_t*)(uintptr_t)(sgi + 0x400 + SGI_RESCHED) = 0x80;
+        *(volatile uint8_t*)(uintptr_t)(sgi + 0x400 + SGI_HALT) = 0x00;    /* остановка при аварии - важнее всего */
+        mmio_w32(sgi + 0x100, (1u << timer_intid) | (1u << SGI_RESCHED) | (1u << SGI_HALT));   /* ISENABLER0 */
         SREG_W(ICC_SRE_EL1, SREG_R(ICC_SRE_EL1) | 1);
         isb();
         SREG_W(ICC_PMR_EL1, 0xFF);
@@ -209,7 +312,10 @@ static int gic_cpu_init(void) {
         isb();
     } else {
         *(volatile uint8_t*)(uintptr_t)(gicd + 0x400 + timer_intid) = 0x80;   /* GICD_IPRIORITYR (банк ядра) */
-        mmio_w32(gicd + 0x100, 1u << timer_intid);                            /* GICD_ISENABLER0 */
+        *(volatile uint8_t*)(uintptr_t)(gicd + 0x400 + SGI_RESCHED) = 0x80;
+        *(volatile uint8_t*)(uintptr_t)(gicd + 0x400 + SGI_HALT) = 0x00;
+        mmio_w32(gicd + 0x100, (1u << timer_intid) | (1u << SGI_RESCHED) | (1u << SGI_HALT));   /* GICD_ISENABLER0 */
+        gic_mask_me = *(volatile uint8_t*)(uintptr_t)(gicd + 0x800);         /* GICD_ITARGETSR0: бит этого ядра */
         mmio_w32(gicc + 0x4, 0xFF);                                          /* GICC_PMR */
         mmio_w32(gicc, 1);                                                   /* GICC_CTLR */
     }
@@ -221,7 +327,7 @@ static void gic_eoi(uint32_t iar) { if (gic_v3) SREG_W(ICC_EOIR1_EL1, iar); else
 
 /* ---------------- ядра и таймер ---------------- */
 #define CPU_MAX 256
-typedef struct { uint64_t mpidr; volatile uint64_t ticks; volatile uint32_t online; uint32_t gic_ok; } cpu_t;
+typedef struct { uint64_t mpidr; volatile uint64_t ticks; volatile uint32_t online; uint32_t gic_ok; uint8_t gic_mask; } cpu_t;
 static cpu_t cpus[CPU_MAX];
 static unsigned ncpu;
 static uint64_t cnt_freq, tick_cycles;
@@ -236,6 +342,87 @@ static uint64_t now_cnt(void) { isb(); return SYSREG_R(cntvct_el0); }
 static void timer_start(void) {
     SYSREG_W(cntv_tval_el0, tick_cycles);
     SYSREG_W(cntv_ctl_el0, 1);                                   /* ENABLE, прерывание не замаскировано */
+}
+
+/* Общее время в тиках: из счётчика (не из числа прерываний), двигается вперёд сравнением-обменом любым ядром. */
+static volatile uint64_t gticks;
+static uint64_t anchor_cnt;
+static volatile int sched_up, percpu_up, halting;
+static unsigned boot_cpu;
+uint64_t timer_get_ticks(void) { return gticks; }
+
+static void ticks_advance(void) {
+    uint64_t d = (now_cnt() - anchor_cnt) / tick_cycles, cur = gticks;
+    while (d > cur && !__atomic_compare_exchange_n(&gticks, &cur, d, 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) { }
+}
+
+static void send_sgi(unsigned cpu, unsigned id) {
+    uint64_t mp = cpus[cpu].mpidr;
+    if (gic_v3) {
+        uint64_t aff0 = mp & 0xFF;
+        uint64_t v = (((mp >> 32) & 0xFF) << 48) | (((mp >> 16) & 0xFF) << 32) | ((uint64_t)id << 24) |
+                     (((mp >> 8) & 0xFF) << 16) | ((aff0 >> 4) << 44) | (1ull << (aff0 & 15));
+        __asm__ volatile ("dsb ishst" ::: "memory");
+        SREG_W(ICC_SGI1R_EL1, v);
+        isb();
+    } else {
+        dsb();
+        mmio_w32(gicd + 0xF00, ((uint32_t)cpus[cpu].gic_mask << 16) | id);   /* GICD_SGIR */
+    }
+}
+
+/* ---- межъядерные сигналы планировщика (smp.h) ---- */
+void smp_resched_cpu(unsigned cpu) {
+    if (cpu >= percpu_count()) return;
+    percpu_t* p = &percpu_table[cpu];
+    if (p == this_cpu() || !p->sched_on || p->need_resched) return;
+    send_sgi(cpu, SGI_RESCHED);
+}
+void smp_kick_idle(cpumask_t affinity) {
+    percpu_t* me = this_cpu();
+    for (unsigned i = 0; i < percpu_count(); i++) {
+        percpu_t* p = &percpu_table[i];
+        if (p == me || !p->sched_on || !cm_test(&affinity, i)) continue;
+        if (p->current != p->idle || p->need_resched) continue;
+        send_sgi(i, SGI_RESCHED);
+        return;
+    }
+}
+/* Простаивающее ядро выключает тик (кроме загрузочного - хранителя времени): будят его сигналом. */
+void smp_idle_tick_off(void) {
+    percpu_t* c = this_cpu();
+    if (c->tick_off || c->cpu_id == boot_cpu) return;
+    uint64_t f = irq_save();
+    if (c->sched_on && c->current == c->idle && !c->need_resched) { SYSREG_W(cntv_ctl_el0, 0); c->tick_off = 1; }
+    irq_restore(f);
+}
+void smp_idle_tick_on(void) {
+    percpu_t* c = this_cpu();
+    if (!c->tick_off) return;
+    c->tick_off = 0;
+    timer_start();
+}
+int smp_halting(void) { return halting; }
+
+/* Адресное пространство следующего потока: на ARM64 пока все потоки - потоки ядра в общей тождественной карте
+   (TTBR0), переключать нечего; пространства программ появятся вместе с программами. */
+void proc_arch_switch(const thread_t* next) { (void)next; }
+
+const void* fpu_initial_state(void) {
+    static uint8_t z[FPU_STATE_SIZE] __attribute__((aligned(16)));   /* FPCR = 0: округление к ближайшему, без ловушек */
+    return z;
+}
+
+void kernel_panic(const char* reason) __attribute__((noreturn));
+void kernel_panic(const char* reason) {
+    __asm__ volatile ("msr daifset, #2");
+    if (__atomic_exchange_n(&halting, 1, __ATOMIC_ACQ_REL)) for (;;) __asm__ volatile ("wfi");
+    for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && (!percpu_up || i != this_cpu()->cpu_id)) send_sgi(i, SGI_HALT);
+    mmu_on = 0;                                                  /* вывод без замка: его мог держать упавший код */
+    kprintf("\n[KIRA KERNEL PANIC] %s\n", reason);
+    if (sched_up) sched_crash_report(uart_print);
+    kprintf("[KIRA ARM64] Halting.\n");
+    for (;;) __asm__ volatile ("wfi");
 }
 
 static const char* ec_name(unsigned ec) {
@@ -264,16 +451,28 @@ void arm_exception(uint64_t* frame, uint64_t kind) {
         uint32_t iar = gic_ack();
         uint32_t id = iar & 0xFFFFFF;
         if (id >= 1020 && id <= 1023) return;                    /* ложное */
+        percpu_t* c = percpu_up ? this_cpu() : 0;
+        if (c) { c->irq_rip = frame[31]; c->irq_rbp = frame[29]; c->irq_depth++; }
         if (id == timer_intid) {
             SYSREG_W(cntv_tval_el0, tick_cycles);
-            cpus[my_cpu()].ticks++;
+            cpus[c ? c->cpu_id : my_cpu()].ticks++;
+            ticks_advance();
+            if (sched_up) sched_tick();
+        } else if (id == SGI_RESCHED) {
+            if (c) c->need_resched = 1;                          /* выбор потока - после EOI */
+        } else if (id == SGI_HALT) {
+            gic_eoi(iar);
+            for (;;) __asm__ volatile ("msr daifset, #0xf\n wfi");   /* авария на другом ядре */
         }
         gic_eoi(iar);
+        if (c) c->irq_depth--;
+        if (sched_up && c && c->sched_on) sched_irq_exit();     /* вытеснение - после EOI, как на x86 */
         return;
     }
     uint64_t esr = frame[33], elr = frame[31], far = frame[34];
     unsigned ec = (unsigned)(esr >> 26) & 0x3F;
     mmu_on = 0;                                                  /* авария: печатать без замка */
+    if (vmm_kstack_guard_hit(far)) kprintf("\n[KIRA ARM64] kernel thread stack overflow (guard area hit)\n");
     kprintf("\n[KIRA ARM64] exception on core %u: %s (class %x, vector %u), ESR %x\n", (uint64_t)my_cpu(), ec_name(ec), (uint64_t)ec, kind, esr);
     kprintf("[KIRA ARM64] ELR %x  FAR %x  SPSR %x  LR %x  SP %x\n", elr, far, frame[32], frame[30], (uint64_t)(uintptr_t)(frame + 36));
     kprintf("[KIRA ARM64] Halting this core.\n");
@@ -292,11 +491,17 @@ static int64_t psci_call(uint64_t fn, uint64_t a1, uint64_t a2, uint64_t a3) {
 void arm_secondary_main(void) {
     mmu_enable_this_cpu();
     unsigned me = my_cpu();
+    percpu_install(&percpu_table[me]);
     cpus[me].gic_ok = gic_cpu_init() == 0;
+    cpus[me].gic_mask = gic_mask_me;
+    if (sched_attach_cpu() != 0) kprintf("[KIRA ARM64] core %u: no thread slot for its idle thread\n", (uint64_t)me);
     timer_start();
     __atomic_store_n(&cpus[me].online, 1, __ATOMIC_RELEASE);
     __asm__ volatile ("msr daifclr, #2");
-    for (;;) __asm__ volatile ("wfi");
+    for (;;) {                                                   /* это ядро теперь - его холостой поток */
+        smp_idle_tick_off();
+        __asm__ volatile ("wfi");
+    }
 }
 
 /* ---------------- консоль ---------------- */
@@ -307,11 +512,18 @@ static void cmd(const char* l) {
     } else if (l[0] == 'm' && l[1] == 'e' && l[2] == 'm' && !l[3]) {
         for (unsigned i = 0; i < nram; i++) kprintf("  RAM %x .. %x (%u MB)\n", ram[i].base, ram[i].base + ram[i].size, ram[i].size >> 20);
         kprintf("  kernel %x .. %x, early allocations up to %x\n", (uint64_t)(uintptr_t)__kernel_start, (uint64_t)(uintptr_t)__kernel_end, bump);
+        heap_stats_t hs; heap_get_stats(&hs);
+        kprintf("  pages: %u KB free of %u KB; kernel heap: %u bytes in %u blocks\n", (uint64_t)pmm_get_free_memory_kb(),
+                (uint64_t)pmm_get_total_memory_kb(), (uint64_t)hs.used_bytes, (uint64_t)hs.used_blocks);
+    } else if (l[0] == 'p' && l[1] == 's' && !l[2]) {
+        sched_dump();
+    } else if (l[0] == 't' && l[1] == 'e' && l[2] == 's' && l[3] == 't' && !l[4]) {
+        selftest_arm_start();
     } else if (l[0] == 'f' && l[1] == 'a' && l[2] == 'u' && l[3] == 'l' && l[4] == 't' && !l[5]) {
         kprintf("reading an address outside the map: the exception vectors must report it\n");
         (void)*(volatile uint64_t*)(uintptr_t)0x0000F00000000000ull;
     } else if (l[0]) {
-        kprintf("commands: smp, mem, fault\n");
+        kprintf("commands: smp, mem, ps, test, fault\n");
     }
 }
 
@@ -413,6 +625,11 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     }
     if (!ncpu) { cpus[0].mpidr = SYSREG_R(mpidr_el1) & 0xFF00FFFFFFull; ncpu = 1; }
     unsigned me = my_cpu();
+    /* данные ядер: номер ядра = позиция в /cpus; загрузочное ставит свои */
+    for (unsigned i = 0; i < ncpu; i++) percpu_alloc((uint32_t)cpus[i].mpidr);
+    percpu_install(&percpu_table[me]);
+    percpu_up = 1;
+    boot_cpu = me;
     int ps = fdt_find_compatible(fdt, -1, "arm,psci-1.0");
     if (ps < 0) ps = fdt_find_compatible(fdt, -1, "arm,psci-0.2");
     if (ps < 0) ps = fdt_find_compatible(fdt, -1, "arm,psci");
@@ -421,8 +638,30 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
         if (m && len >= 3) psci_hvc = m[0] == 'h';
     }
 
+    /* менеджер страниц: всё ОЗУ, кроме ядра, дерева устройств и ранних выделений (их граница - после карты) */
+    uint64_t lo = ~0ull, hi = 0;
+    for (unsigned i = 0; i < nram; i++) {
+        if (ram[i].base < lo) lo = ram[i].base;
+        if (ram[i].base + ram[i].size > hi) hi = ram[i].base + ram[i].size;
+    }
+    lo &= ~4095ull;
+    void* map = palloc(pmm_arm_map_bytes(lo, hi), 8);
+    if (!map) kernel_panic("no memory for the page map");
+    uint64_t res_lo = (uint64_t)(uintptr_t)__kernel_start;
+    if ((uint64_t)(uintptr_t)fdt < res_lo) res_lo = (uint64_t)(uintptr_t)fdt;
+    pmm_arm_init((const pmm_arm_region_t*)ram, nram, lo, hi, map, res_lo, bump);
+    bump_end = bump;                                             /* дальше страницы выдаёт только pmm */
+    heap_init();
+    sched_init(ncpu, total / 1024);
+    sched_set_tsc_khz(cnt_freq / 1000);
+    kprintf("[KIRA ARM64] memory manager: %u MB free pages; kernel heap and scheduler online (per-core ready queues, %u thread slots)\n",
+            (uint64_t)pmm_get_free_memory_kb() / 1024, (uint64_t)sched_thread_capacity());
+
     gic_dist_init();
     cpus[me].gic_ok = gic_cpu_init() == 0;
+    cpus[me].gic_mask = gic_mask_me;
+    anchor_cnt = now_cnt();
+    sched_up = 1;
     timer_start();
     cpus[me].online = 1;
     __asm__ volatile ("msr daifclr, #2");
@@ -438,8 +677,12 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     if (psci_hvc >= 0) {
         for (unsigned i = 0; i < ncpu; i++) {
             if (i == me) continue;
-            uint8_t* st = (uint8_t*)palloc(16384, 16);
+            uint8_t* st = (uint8_t*)(uintptr_t)pmm_alloc_contiguous(4);
             if (!st) { kprintf("[KIRA ARM64] no memory for the stack of core %u\n", (uint64_t)i); break; }
+            /* ядро пишет в этот стек ещё без MMU (мимо кэша): строки кэша этих страниц - в память и сбросить */
+            for (uint64_t x = (uint64_t)(uintptr_t)st; x < (uint64_t)(uintptr_t)st + 16384; x += 64)
+                __asm__ volatile ("dc civac, %0" : : "r"(x) : "memory");
+            dsb();
             int64_t r = psci_call(0xC4000003ull, cpus[i].mpidr, (uint64_t)(uintptr_t)secondary_entry, (uint64_t)(uintptr_t)(st + 16384));
             if (r != 0) { kprintf("[KIRA ARM64] PSCI CPU_ON for core %u (MPIDR %x) failed: %u\n", (uint64_t)i, cpus[i].mpidr, (uint64_t)-r); continue; }
             uint64_t w = now_cnt();
@@ -456,16 +699,21 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     unsigned ticking = 0;
     for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && cpus[i].ticks > 0 && cpus[i].gic_ok) ticking++;
     kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u\n", (uint64_t)ticking, (uint64_t)started);
-    kprintf("[KIRA ARM64] Ready (platform layer). Commands: smp, mem, fault\n");
+    kprintf("[KIRA ARM64] Ready. Commands: smp, mem, ps, test, fault\n");
 
     char line[64]; unsigned n = 0;
     kprintf("kira-arm64> ");
     for (;;) {
         int c = uart_getc();
-        if (c < 0) { __asm__ volatile ("wfi"); continue; }
+        if (c < 0) { sched_sleep_ticks(1); continue; }           /* поток core спит, ядро отдаётся другим потокам */
         if (c == '\r' || c == '\n') {
             line[n] = 0; kprintf("\n"); cmd(line); n = 0; kprintf("kira-arm64> ");
         } else if ((c == 8 || c == 127) && n) { n--; kprintf("\b \b"); }
         else if (c >= 32 && n + 1 < sizeof line) { line[n++] = (char)c; char e[2] = { (char)c, 0 }; kprintf("%s", e); }
     }
 }
+
+uint64_t arm_counter_khz(void) { return cnt_freq / 1000; }
+
+/* Данные этого ядра: адрес записи - в TPIDR_EL1 (this_cpu читает его одной командой). */
+void percpu_install(percpu_t* p) { __asm__ volatile ("msr tpidr_el1, %0" : : "r"(p) : "memory"); }

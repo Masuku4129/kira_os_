@@ -806,7 +806,7 @@ void sched_crash_wait_halted(void) {
             if (c != this_cpu() && c->online && !__atomic_load_n(&c->halted, __ATOMIC_ACQUIRE)) pending++;
         }
         if (!pending || rdtsc() - t0 > khz * 50) return;
-        __asm__ volatile ("pause");
+        spin_relax();
     }
 #endif
 }
@@ -843,10 +843,8 @@ int sched_can_sleep(void) {
 #ifdef KIRA_HOST_TEST
     return 0;
 #else
-    uint64_t fl;
-    __asm__ volatile ("pushfq; pop %0" : "=r"(fl));
     percpu_t* c = this_cpu();
-    return sched_ready && (fl & 0x200) && c->sched_on && c->current && c->current != c->idle &&
+    return sched_ready && cpu_irq_enabled() && c->sched_on && c->current && c->current != c->idle &&
            c->irq_depth == 0 && c->locks_held == 0;
 #endif
 }

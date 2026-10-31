@@ -59,6 +59,7 @@ static inline void irq_restore(uint64_t flags) {
 static inline void cpu_halt(void) { __asm__ volatile ("hlt"); }
 static inline void cpu_irq_off(void) { __asm__ volatile ("cli" ::: "memory"); }
 static inline void cpu_irq_on(void) { __asm__ volatile ("sti" ::: "memory"); }
+static inline int cpu_irq_enabled(void) { uint64_t f; __asm__ volatile ("pushfq; pop %0" : "=r"(f)); return (f >> 9) & 1; }
 #endif
 
 #endif
