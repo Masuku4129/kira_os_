@@ -608,10 +608,18 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
     uint32_t fg = in->busy_x10 > bg ? in->busy_x10 - bg : 0;
     int foresee = in->t_ms < s->pre_until_ms;                     /* стратегия предвидит опоздание */
     int pressure = (in->late > 0) || in->fg_wait_ms > 20 || foresee;
-    uint32_t cap_x10 = mind_core_cap(s) * 10 * cores;
-    uint32_t budget = cap_x10 > fg ? cap_x10 - fg : 0;
+    /* Бюджет фона: то, что не нужно переднему плану (экран, ядро, окно в фокусе), за вычетом запаса в 10% ядер
+       (не меньше пятой части ядра) - и не больше предела core_cap от всех ядер. Раньше предел считался от «всего
+       минус передний план»: на 4 ядрах при занятом экране фону оставалось 1-2% ядер, а три ядра стояли пустыми. */
+    uint32_t total = cores * 1000, cap_x10 = mind_core_cap(s) * 10 * cores;
+    uint32_t reserve = total / 10 > 200 ? total / 10 : 200;
+    uint32_t spare = total > fg + reserve ? total - fg - reserve : 0;
+    uint32_t budget = cap_x10 < spare ? cap_x10 : spare;
     if (budget < 50 * nbg) budget = 50 * nbg;                     /* фон не останавливается совсем: от 5% каждому */
-    if (pressure && nbg && bg > budget) {
+    /* Ядра простаивают (свободно больше целого ядра), а экран всё равно опаздывает - дело не в процессоре: ужимать
+       фон бесполезно, работает темп фоновых окон (их кадры - работа экрана). */
+    int cpu_short = in->busy_x10 + 1000 > total;
+    if (pressure && cpu_short && nbg && bg > budget) {
         s->tact_calm_ms = 0;
         s->tact_budget_x10 = budget;
         for (int i = 0; i < MIND_PROC_MAX; i++) {

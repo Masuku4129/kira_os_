@@ -474,6 +474,22 @@ void mind_sys_print(const char* what) {
             uart_print(" / "); uart_print_dec(v->learned[k]); uart_print("\n");
         }
         uart_print("\n");
+    } else if (what[0] == 'l') {                            /* levers: чем Разум управляет и что сейчас выставлено */
+        uart_print("\n[MIND] рычаги (что Разум меняет сам; режим ");
+        uart_print(v->mode ? "управление" : "наблюдение - только записывает"); uart_print("):\n");
+        uart_print("  1. квант планировщика: "); uart_print_dec(v->quantum_ms); uart_print(" мс (сам пробует соседние и оставляет лучший)\n");
+        uart_print("  2. вес потоков: окно в фокусе x1,5, голодающий x2; проснувшийся более тяжёлый вытесняет лёгкий сразу (рефлекс в планировщике)\n");
+        uart_print("  3. доля ядра фоновых программ: при нехватке процессора фон получает не больше "); uart_print_dec(v->core_cap);
+        uart_print("% всех ядер и не больше свободного (ai cap N)\n");
+        uart_print("  4. темп фоновых окон: "); if (v->bg_fps) { uart_print("не чаще "); uart_print_dec(v->bg_fps); uart_print(" кадров/с"); } else uart_print("без предела");
+        uart_print(" (ступени 30/15/8/4 по опозданию экрана)\n");
+        uart_print("  5. сборка кадра: "); uart_print(v->comp_par ? "на всех ядрах" : "на одном ядре"); uart_print(" (по замеренной цене)\n");
+        uart_print("  6. анимация фона: уровень "); uart_print_dec(v->fx); uart_print(v->fx_user == MIND_FX_AUTO ? " (решает Разум)\n" : " (задана вручную)\n");
+        uart_print("  7. допуск запусков: копий одной программы и запусков в секунду - по ядрам и здоровью\n");
+        uart_print("  8. память: возврат запасов ядра, осторожный рост куч, в крайнем случае остановка самой большой программы\n");
+        uart_print("  9. поведение программ: необычная по своему профилю программа ограничивается до 50% ядра\n");
+        uart_print(" 10. устройства ввода: печатающее быстрее человека (BadUSB) - отключается\n");
+        uart_print(" 11. предвидение: при доверии модели фон ужимается до опоздания экрана (сейчас риск "); uart_print_dec(v->risk); uart_print("%)\n\n");
     } else if (what[0] == 'm') {                            /* model: веса модели предвидения */
         uart_print("\n[MIND] модель предвидения (логистическая регрессия, учится каждую секунду; вес > 0 - признак ведёт к опозданию):\n");
         for (int i = 0; i < MNET_F; i++) {
@@ -524,7 +540,7 @@ void mind_sys_print(const char* what) {
         uart_print(v->comp_par ? "параллельно на всех ядрах" : "на одном ядре");
         uart_print(" (цена 1000 точек: параллельно "); uart_print_dec(v->comp_ns_kpx_par); uart_print(" нс, на одном ядре ");
         uart_print_dec(v->comp_ns_kpx_ser); uart_print(" нс; 0 - ещё не мерили)");
-        uart_print("\n[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai act | ai observe, ai fx auto|0..3\n\n");
+        uart_print("\n[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai levers (рычаги), ai act | ai observe, ai fx auto|0..3\n\n");
     }
     kfree(v);
 }

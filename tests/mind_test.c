@@ -239,15 +239,20 @@ int main(void) {
         static mind_tact_in_t ti; memset(&ti, 0, sizeof ti);
         ti.cores = 4; ti.window_ms = 25; ti.busy_x10 = 2300; ti.loops = 2; ti.late = 1; ti.nproc = 3;
         ti.p[0].pid = 10; ti.p[0].threads = 1; ti.p[0].cpu_x10 = 300;
-        ti.p[1].pid = 20; ti.p[1].threads = 1; ti.p[1].cpu_x10 = 1000;
-        ti.p[2].pid = 30; ti.p[2].threads = 1; ti.p[2].cpu_x10 = 1000;
+        ti.p[1].pid = 20; ti.p[1].threads = 2; ti.p[1].cpu_x10 = 1000;
+        ti.p[2].pid = 30; ti.p[2].threads = 2; ti.p[2].cpu_x10 = 1000;
         ti.t_ms = 4000; mind_tact_step(d, &ti, &act);
-        /* фон 200% ядра, на переднем плане 30%, предел 50% от 4 ядер = 200%: фону остаётся 170%, по 85% каждому */
-        CHECK(limit[20] == 85 && limit[30] == 85 && limit[10] == 100 && journal_has("тактика: экран опаздывает"));
+        /* экран опаздывает, но почти два ядра свободны: дело не в процессоре - фон не трогается */
+        CHECK(limit[20] == 100 && limit[30] == 100 && !d->tact_on);
+        /* ядра заняты: фон 360% (по 180%), на переднем плане 30%; запас 40%, предел 50% от 4 ядер = 200% -> фону 200%,
+           по 100% каждому, по 50% на каждый из двух потоков */
+        ti.p[1].cpu_x10 = ti.p[2].cpu_x10 = 1800; ti.busy_x10 = 3900;
+        ti.t_ms += 25; mind_tact_step(d, &ti, &act);
+        CHECK(limit[20] == 50 && limit[30] == 50 && limit[10] == 100 && journal_has("тактика: экран опаздывает"));
         ti.late = 0; ti.fg_wait_ms = 0;
-        ti.p[1].cpu_x10 = ti.p[2].cpu_x10 = 850; ti.busy_x10 = 2000;
+        ti.p[1].cpu_x10 = ti.p[2].cpu_x10 = 1000; ti.busy_x10 = 2300;
         for (int k = 0; k < 15; k++) { ti.t_ms += 25; mind_tact_step(d, &ti, &act); }
-        CHECK(limit[20] == 85);                                  /* 0,4 с спокойствия ещё не прошли */
+        CHECK(limit[20] == 50);                                  /* 0,4 с спокойствия ещё не прошли */
         for (int k = 0; k < 60; k++) { ti.t_ms += 25; mind_tact_step(d, &ti, &act); }
         CHECK(limit[20] == 100 && limit[30] == 100 && !d->tact_on && journal_has("фон снова без пределов"));
         /* без давления фон не трогается, даже если он занимает все ядра */
@@ -313,7 +318,7 @@ int main(void) {
         static mind_tact_in_t ti; memset(&ti, 0, sizeof ti);
         ti.cores = 4; ti.window_ms = 25; ti.busy_x10 = 3100; ti.loops = 2; ti.late = 0; ti.nproc = 2;
         ti.p[0].pid = 10; ti.p[0].threads = 1; ti.p[0].cpu_x10 = 100;
-        ti.p[1].pid = 20; ti.p[1].threads = 4; ti.p[1].cpu_x10 = 3000;
+        ti.p[1].pid = 20; ti.p[1].threads = 8; ti.p[1].cpu_x10 = 3000;     /* 8 потоков: предел на поток ниже прежних 50% */
         ti.t_ms = t * 1000 + 100; mind_tact_step(d, &ti, &act);
         CHECK(limit[20] < 100 && journal_has("упреждение"));
         /* модель переживает перезагрузку; опыт прежнего формата (без модели) читается и дополняется */

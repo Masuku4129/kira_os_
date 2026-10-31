@@ -418,6 +418,7 @@ static void cmd_ai(const char* arg) {
     if (word_eq(arg, "norms")) { mind_sys_print("norms"); return; }
     if (word_eq(arg, "procs")) { mind_sys_print("procs"); return; }
     if (word_eq(arg, "model")) { mind_sys_print("model"); return; }
+    if (word_eq(arg, "levers")) { mind_sys_print("levers"); return; }
     if (arg[0] == 'c' && arg[1] == 'a' && arg[2] == 'p' && (arg[3] == ' ' || !arg[3])) {
         const char* v = arg + 3; while (*v == ' ') v++;
         int n = 0; while (*v >= '0' && *v <= '9') n = n * 10 + (*v++ - '0');
@@ -438,7 +439,7 @@ static void cmd_ai(const char* arg) {
         if (word_eq(v, "auto")) { mind_sys_request_fx(MIND_FX_AUTO); uart_print("анимация фона: решает Разум\n"); return; }
         if (v[0] >= '0' && v[0] <= '3' && (!v[1] || v[1] == ' ')) { mind_sys_request_fx(v[0] - '0'); uart_print("анимация фона: задана вручную\n"); return; }
     }
-    uart_print("использование: ai [why | norms | procs | model | cap N | act | observe | fx auto|0..3]\n");
+    uart_print("использование: ai [why | norms | procs | model | levers | cap N | act | observe | fx auto|0..3]\n");
 }
 
 // Проверки системы - отдельной таблицей под командой test: в основном списке остаются рабочие команды.

@@ -106,8 +106,9 @@ ALL = [
         {"responsive": "status", "within": 10},
         {"cmd": "ai", "must": [r"тактика: фон", r"композитор:"], "timeout": 20},
         {"cmd": "ai why", "timeout": 20},
+        {"cmd": "ai levers", "must": [r"темп фоновых окон", r"сборка кадра"], "timeout": 20},
         {"log": [r"фоновые окна не чаще \d+ кадров/с", r"compositor: one core is cheaper"]},
-        {"log_forbid": NO_ERR},
+        {"log_forbid": NO_ERR + [r"фон ужат до [0-4]% ядер"]},   # фон не морится голодом при свободных ядрах
     ], smp=4, mem="1G", disk="ata", limbo=True),
     sc("stress-3d", "cube3d + plasma x4 + burnall: отклик консоли", [
         {"send": "3d"}, *[{"send": "plasma"} for _ in range(4)], {"send": "burnall"},
