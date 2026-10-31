@@ -1,7 +1,6 @@
 #include "display.h"
 #include "kpar.h"
 #ifndef KIRA_HOST_TEST
-#include "hwprofile.h"
 #include "scale.h"
 #endif
 #include "fb.h"
@@ -17,7 +16,8 @@
 #include "gfxsrv.h"
 #include "proc.h"
 #include "progs.h"
-#include "irqmode.h"
+#include "platform.h"
+#include "virtio_gpu.h"
 #include "mind_sys.h"
 #include "explorer.h"
 #include "apps.h"
@@ -116,7 +116,7 @@ static void draw_files(void) {
 static void settings_state(app_settings_t* s) {
     surface_t* scr = fb_surface();
     s->mode = mv.mode; s->fx_user = mv.fx_user; s->fx = mv.fx; s->tz_min = mv.t ? mv.tz_min : mind_sys_tz(); s->rtc_local = mind_sys_rtc_local();
-    s->telemetry = mind_sys_telemetry(); s->experience = experience_enabled(); s->apic = irqmode_is_apic();
+    s->telemetry = mind_sys_telemetry(); s->experience = experience_enabled(); s->irqc = platform_irq_name();
     s->cores = (int)sched_cpu_count(); s->ram_mb = (uint32_t)(pmm_get_total_memory_kb() / 1024);
     s->scr_w = scr->w; s->scr_h = scr->h;
 }
@@ -453,6 +453,7 @@ static void display_main(void* arg) {
         if (wm_compose_par(fb_present_rect, &px)) { st.composed++; st.pixels += px; }
         st.present_ns = clock_ns() - tp0;
         comp_note(cmode, st.present_ns, px);
+        fb_frame_done();                                   /* virtio-gpu: изменённое - устройству (без кадрового буфера в памяти устройства) */
         st.frames++;
 
         uint64_t now = clock_ns();
@@ -467,7 +468,9 @@ static void display_main(void* arg) {
 static void* wm_alloc(uint64_t bytes) { return gfx_alloc_pages(bytes); }
 
 int display_init(unsigned long mbi) {
-    int rc = fb_init(mbi);
+    /* кадровый буфер от загрузчика (multiboot), иначе - virtio-gpu по PCI (QEMU virt на ARM64, машины без VBE) */
+    int rc = mbi ? fb_init(mbi) : -1;
+    if (rc != 0 && virtio_gpu_probe() == 0) rc = 0;
     if (rc != 0) return rc;
     wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt };
     wm_init(fb_surface(), &ops);
@@ -488,7 +491,7 @@ int display_init(unsigned long mbi) {
     st.start_ns = clock_ns();
 #ifndef KIRA_HOST_TEST
     {   /* композитор - на всех ядрах: помощников по числу ядер сверх одного (поток дисплея работает сам) */
-        unsigned cpus = scale_cpus(hw_get()->cpus);
+        unsigned cpus = scale_cpus(sched_cpu_count());
         kpar_init(cpus > 1 ? cpus - 1 : 0);
         wm_set_runner(kpar_run);
         cs.par = kpar_helpers() ? 1 : 0;

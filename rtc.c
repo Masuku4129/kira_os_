@@ -93,13 +93,31 @@ void rtc_format_hm(const rtc_time_t* t, char* out, unsigned cap) {
 #include "cpu.h"
 #include "uart.h"
 
-static inline void outb_(uint16_t p, uint8_t v) { __asm__ volatile ("outb %0, %1" : : "a"(v), "Nd"(p)); }
-static inline uint8_t inb_(uint16_t p) { uint8_t v; __asm__ volatile ("inb %1, %0" : "=a"(v) : "Nd"(p)); return v; }
-static uint8_t cmos(uint8_t reg) { outb_(0x70, (uint8_t)(0x80 | reg)); return inb_(0x71); }   /* бит 7: NMI не трогаем */
-
 static int64_t boot_epoch;
 static uint64_t boot_ns;
 static int have;
+
+/* Время из часов платформы (секунды UTC от 1970) - запоминается вместе с моментом чтения. */
+int rtc_set_epoch(int64_t epoch, const char* source) {
+    rtc_time_t t;
+    rtc_from_epoch(epoch, &t);
+    if (t.year < 2000 || t.year > 2199) {
+        uart_print("[KIRA RTC] Real-time clock unreadable: date and time are not shown.\n");
+        return -1;
+    }
+    boot_epoch = epoch;
+    boot_ns = clock_ns();
+    have = 1;
+    char d[48], hm[8];
+    rtc_format_date(&t, d, sizeof d); rtc_format_hm(&t, hm, sizeof hm);
+    uart_print("[KIRA RTC] Real-time clock ("); uart_print(source); uart_print("): "); uart_print(d); uart_print(" "); uart_print(hm); uart_print("\n");
+    return 0;
+}
+
+#ifdef __x86_64__
+static inline void outb_(uint16_t p, uint8_t v) { __asm__ volatile ("outb %0, %1" : : "a"(v), "Nd"(p)); }
+static inline uint8_t inb_(uint16_t p) { uint8_t v; __asm__ volatile ("inb %1, %0" : "=a"(v) : "Nd"(p)); return v; }
+static uint8_t cmos(uint8_t reg) { outb_(0x70, (uint8_t)(0x80 | reg)); return inb_(0x71); }   /* бит 7: NMI не трогаем */
 
 int rtc_init(void) {
     static const uint8_t regs[6] = { 0x00, 0x02, 0x04, 0x07, 0x08, 0x09 };
@@ -124,14 +142,9 @@ int rtc_init(void) {
         uart_print("[KIRA RTC] Real-time clock unreadable: date and time are not shown.\n");
         return -1;
     }
-    boot_epoch = rtc_to_epoch(&t);
-    boot_ns = clock_ns();
-    have = 1;
-    char d[48], hm[8];
-    rtc_format_date(&t, d, sizeof d); rtc_format_hm(&t, hm, sizeof hm);
-    uart_print("[KIRA RTC] Real-time clock (CMOS, read as UTC): "); uart_print(d); uart_print(" "); uart_print(hm); uart_print("\n");
-    return 0;
+    return rtc_set_epoch(rtc_to_epoch(&t), "CMOS, read as UTC");
 }
+#endif
 
 int rtc_now(int32_t tz_min, rtc_time_t* out) {
     if (!have) return -1;

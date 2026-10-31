@@ -16,6 +16,10 @@ typedef struct {
 // заводит задний буфер в обычной памяти. 0 - успех; отрицательное - экрана нет
 // (текстовый режим, неподдерживаемый формат пикселя, нет памяти): ядро продолжает на UART.
 int fb_init(unsigned long mbi_addr);
+/* Готовый кадровый буфер 32 бита 0x00RRGGBB в ОЗУ (virtio-gpu, ramfb): front - его адрес для ядра. flush - сообщить
+   устройству изменённую область (0 - не нужно); зовётся один раз за кадр с охватом всех изменений (fb_frame_done). */
+int fb_attach_linear(uint64_t phys, void* front, uint32_t w, uint32_t h, uint32_t pitch, void (*flush)(int x, int y, int w, int h));
+void fb_frame_done(void);
 int fb_available(void);
 const fb_info_t* fb_get_info(void);
 

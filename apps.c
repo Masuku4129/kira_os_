@@ -533,7 +533,7 @@ void app_settings_draw(surface_t* s, const app_settings_t* st, int hover) {
     p = cat(t, 0, "ядер "); p = cat_u(t, p, (uint64_t)st->cores); p = cat(t, p, " · память "); app_fmt_kb(a, (uint64_t)st->ram_mb * 1024); cat(t, p, a);
     gfx_text(s, 24, y + 34, t, TH_TEXT_DIM, -1);
     p = cat(t, 0, "экран "); p = cat_u(t, p, (uint64_t)st->scr_w); p = cat(t, p, "×"); p = cat_u(t, p, (uint64_t)st->scr_h);
-    p = cat(t, p, " · прерывания "); cat(t, p, st->apic ? "IOAPIC" : "PIC");
+    p = cat(t, p, " · прерывания "); cat(t, p, st->irqc ? st->irqc : "?");
     gfx_text(s, 24, y + 54, t, TH_TEXT_DIM, -1);
     gfx_text(s, 24, y + 74, st->experience ? "опыт и модель Разума сохраняются на диск" : "диска нет: опыт живёт до перезагрузки",
              st->experience ? TH_GREEN : TH_AMBER, -1);

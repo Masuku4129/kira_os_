@@ -2,7 +2,7 @@
 """Стенд ARM64: QEMU virt (эмуляция TCG), последовательный порт на stdio. Каждый сценарий - машина с другим
 железом (GICv2/GICv3, число ядер, ОЗУ, процессор, вход на EL1 или EL2); ядро обязано найти всё по дереву устройств.
 Итог - ci-out/arm64-<имя>/serial.log и result.json."""
-import json, os, re, select, shutil, subprocess, sys, time
+import json, os, re, select, shutil, socket, struct, subprocess, sys, time, zlib
 
 READY = r"\[KIRA ARM64\] Ready\."
 COMMON = [r"MMU on: identity map", r"generic timer verified: ([5-9]\d|1[0-4]\d) ticks in 200 ms",
@@ -32,21 +32,76 @@ SC = [
     dict(name="arm64-el2-8cpu", m="virt,gic-version=3,virtualization=on", cpu="cortex-a57", smp=8, mem="3G",
          must=[r"entered at EL2, running at EL1", r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"RAM: 3072 MB"],
          cmds=[("test", [r"RESULT: PASS", r"worker 8: core 0"])]),
+    # Экран и ввод как в Limbo ARM: virtio-gpu, virtio-клавиатура и планшет. Команды "@keys ..." набираются на
+    # клавиатуре virtio (QMP send-key), "@tap X Y" - касание планшета (0..32767), "@shot имя" - снимок экрана.
+    dict(name="arm64-gui", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", gui=True,
+         must=[r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout", r"\[KIRA INPUT\] virtio-input: .*[Kk]eyboard",
+               r"\[KIRA INPUT\] virtio-input: .*\(absolute pointer\)", r"\[KIRA DISPLAY\] Shell online",
+               r"\[KIRA RTC\] Real-time clock \(PL031, UTC\): "],
+         cmds=[("@sleep 3", []), ("@shot desktop", []),
+               ("@keys smp", [r"core 3: MPIDR 0x0+3, online"]),              # клавиатура virtio -> консоль
+               ("@tap 16000 16000", []),
+               ("plasma", []), ("cube3d", []), ("@sleep 10", []), ("@shot apps", []),
+               ("ps", [r"plasma", r"cube3d", r"display"]),
+               ("ai", [r"композитор: ", r"тактика"]),
+               ("ps", [r"core\s+RUNNING"])]),
     dict(name="arm64-fault", m="virt,gic-version=3", cpu="cortex-a72", smp=1, mem="256M",
          must=[r"Processors online: 1 of 1"],
          cmds=[("fault", [r"exception on core 0: data abort .*", r"FAR 0x0000600000000000"])], fault=True),
 ]
 
 
+def ppm_to_png(ppm, png):
+    """PPM (P6) от screendump -> PNG без сторонних библиотек."""
+    data = open(ppm, "rb").read()
+    parts = data.split(maxsplit=4)
+    w, h = int(parts[1]), int(parts[2])
+    px = parts[4][: w * h * 3]
+    raw = b"".join(b"\x00" + px[y * w * 3:(y + 1) * w * 3] for y in range(h))
+    def chunk(t, b): return struct.pack(">I", len(b)) + t + b + struct.pack(">I", zlib.crc32(t + b) & 0xFFFFFFFF)
+    open(png, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) +
+                          chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
+
+
+class Qmp:
+    def __init__(self, path):
+        for _ in range(100):
+            try:
+                self.s = socket.socket(socket.AF_UNIX); self.s.connect(path); break
+            except OSError:
+                time.sleep(0.1)
+        self.s.settimeout(10); self.buf = b""
+        self.read(); self.cmd("qmp_capabilities")
+
+    def read(self):
+        while b"\n" not in self.buf: self.buf += self.s.recv(65536)
+        line, self.buf = self.buf.split(b"\n", 1)
+        return json.loads(line)
+
+    def cmd(self, name, **a):
+        self.s.sendall(json.dumps({"execute": name, "arguments": a} if a else {"execute": name}).encode() + b"\n")
+        while True:
+            m = self.read()
+            if "return" in m or "error" in m: return m
+
+
+QCODE = {" ": "spc", "\r": "ret", "-": "minus", "/": "slash", ".": "dot"}
+
+
 def run(sc, out):
     d = os.path.join(out, sc["name"]); os.makedirs(d, exist_ok=True)
     args = ["qemu-system-aarch64", "-M", sc["m"], "-cpu", sc["cpu"], "-smp", str(sc["smp"]), "-m", sc["mem"],
-            "-nographic", "-monitor", "none", "-serial", "stdio", "-kernel", "kira-arm64.img",
+            "-display", "none", "-monitor", "none", "-serial", "stdio", "-kernel", "kira-arm64.img",
             "-d", "guest_errors,unimp", "-D", os.path.join(d, "qemu-debug.log")]
     if sc.get("disk"):                              # свежая копия диска с KiraFS на каждую машину
         img = os.path.join(d, "disk.img"); shutil.copyfile("kira-arm64.disk", img)
         args += ["-drive", f"file={img},if=none,id=d0,format=raw"]
         args += ["-device", "nvme,drive=d0,serial=KIRA0001" if sc["disk"] == "nvme" else f"{sc['disk']},drive=d0"]
+    qmp_path = os.path.join(d, "qmp.sock")
+    if sc.get("gui"):
+        if os.path.exists(qmp_path): os.unlink(qmp_path)
+        args += ["-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
+                 "-qmp", f"unix:{qmp_path},server=on,wait=off"]
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     log = b""; t0 = time.time(); err = None
 
@@ -74,11 +129,31 @@ def run(sc, out):
             text = log.decode(errors="replace")
             for rx in COMMON + sc["must"]:
                 if not re.search(rx, text): err = f"нет «{rx}»"; break
+            q = Qmp(qmp_path) if sc.get("gui") and not err else None
             if not err:
                 for cmd, must in sc["cmds"]:
                     start = len(log)
-                    for ch in cmd + "\r":
-                        p.stdin.write(ch.encode()); p.stdin.flush(); time.sleep(0.01)
+                    if cmd.startswith("@sleep "):
+                        pump(float(cmd[7:])); continue
+                    if cmd.startswith("@shot "):
+                        ppm = os.path.abspath(os.path.join(d, cmd[6:] + ".ppm"))
+                        q.cmd("screendump", filename=ppm); time.sleep(0.5)
+                        if os.path.exists(ppm): ppm_to_png(ppm, ppm[:-4] + ".png"); os.unlink(ppm)
+                        else: err = f"снимок {cmd[6:]} не получен"; break
+                        continue
+                    if cmd.startswith("@tap "):
+                        x, y = (int(v) for v in cmd[5:].split())
+                        ev = [{"type": "abs", "data": {"axis": "x", "value": x}}, {"type": "abs", "data": {"axis": "y", "value": y}}]
+                        q.cmd("input-send-event", events=ev)
+                        q.cmd("input-send-event", events=[{"type": "btn", "data": {"button": "left", "down": True}}])
+                        q.cmd("input-send-event", events=[{"type": "btn", "data": {"button": "left", "down": False}}])
+                        pump(0.5); continue
+                    if cmd.startswith("@keys "):
+                        for ch in cmd[6:] + "\r":
+                            q.cmd("send-key", keys=[{"type": "qcode", "data": QCODE.get(ch, ch)}]); time.sleep(0.05)
+                    else:
+                        for ch in cmd + "\r":
+                            p.stdin.write(ch.encode()); p.stdin.flush(); time.sleep(0.01)
                     end = time.time() + 60
                     while time.time() < end:                 # ждать, пока сбудется всё нужное (или 60 с)
                         part = log[start:].decode(errors="replace")

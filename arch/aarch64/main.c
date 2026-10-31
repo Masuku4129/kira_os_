@@ -32,6 +32,15 @@
 #include "uaccess.h"
 #include "progs.h"
 #include "kfs.h"
+#include "klog.h"
+#include "input.h"
+#include "display.h"
+#include "gfxsrv.h"
+#include "console.h"
+#include "virtio_input.h"
+#include "rtc.h"
+#include "spinlock.h"
+#include "platform.h"
 
 #define MAX_RAM 16
 
@@ -57,6 +66,7 @@ static volatile int mmu_on;
 static volatile uint32_t print_lock;
 
 static void uart_putc(char c) {
+    if (mmu_on && c != '\r') klog_putc(c);                       /* копия в журнал: её показывает окно «Терминал» */
     if (!uart) return;
     for (int i = 0; i < 1000000 && (mmio_r32(uart + 0x18) & (1u << 5)); i++) { }   /* FR.TXFF: очередь полна */
     mmio_w32(uart, (uint8_t)c);
@@ -269,6 +279,10 @@ void vmm_kstack_free(void* base) {
     __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
     irq_restore(f);
 }
+
+/* Write-combining x86 (PAT) нужен кадровому буферу от загрузчика (fb_init, multiboot) - на ARM64 его нет: экран
+   идёт через virtio-gpu, изображение лежит в обычной кэшируемой памяти, устройство забирает его командой переноса. */
+int vmm_enable_write_combining(void) { return -1; }
 
 int vmm_is_kstack(uint64_t a) { return a >= KSTACK_VA && a < KSTACK_VA + KSTACK_SLOTS * KSTACK_STRIDE; }
 int vmm_kstack_guard_hit(uint64_t a) { return vmm_is_kstack(a) && ks_size && (a - KSTACK_VA) % KSTACK_STRIDE < KSTACK_STRIDE - ks_size; }
@@ -613,6 +627,55 @@ static int prog_run_quiet(const char* l) {
     prog_run(path + 5);
     return 0;
 }
+/* ---------------- консоль: команды оболочки и клавиатура экрана ---------------- */
+#define REQ_N   4
+#define REQ_LEN 64
+static spinlock_t req_lock = SPINLOCK_INIT;
+static char req_q[REQ_N][REQ_LEN];
+static unsigned req_head, req_tail;
+
+int console_request(const char* l) {
+    uint64_t f = spin_lock_irqsave(&req_lock);
+    if (req_head - req_tail >= REQ_N) { spin_unlock_irqrestore(&req_lock, f); return -1; }
+    char* d = req_q[req_head % REQ_N];
+    unsigned i = 0;
+    while (l[i] && i < REQ_LEN - 1) { d[i] = l[i]; i++; }
+    d[i] = 0;
+    req_head++;
+    spin_unlock_irqrestore(&req_lock, f);
+    return 0;
+}
+static int req_take(char* out) {
+    uint64_t f = spin_lock_irqsave(&req_lock);
+    int got = req_tail != req_head;
+    if (got) { unsigned i = 0; const char* q = req_q[req_tail % REQ_N]; while ((out[i] = q[i])) i++; req_tail++; }
+    spin_unlock_irqrestore(&req_lock, f);
+    return got;
+}
+/* Клавиатура (virtio-input/USB) пишет в консоль, пока клавиатуру не забрало окно программы. */
+static int key_char(void) {
+    if (gfx_focus_pid()) return -1;
+    input_event_t ev;
+    while (input_pop(&ev)) {
+        if (ev.type != INPUT_KEY_DOWN) continue;
+        if (ev.key == KEY_ENTER) return '\r';
+        if (ev.key == KEY_BACKSPACE) return 8;
+        if (ev.ch && ev.ch < 128) return (int)ev.ch;
+    }
+    return -1;
+}
+
+const char* platform_irq_name(void) { return gic_v3 ? "GICv3" : "GICv2"; }
+
+/* Часы реального времени PL031 (QEMU virt и многие платы): регистр данных - секунды UTC от 1970. */
+static void rtc_pl031(const void* fdt) {
+    int n = fdt_find_compatible(fdt, -1, "arm,pl031");
+    uint64_t base, size;
+    if (n < 0 || fdt_reg(fdt, n, 0, &base, &size)) { kprintf("[KIRA RTC] No PL031 real-time clock: date and time are not shown.\n"); return; }
+    volatile void* r = vmm_map_mmio(base, size ? size : 4096, 0);
+    if (r) rtc_set_epoch((int64_t)mmio_r32((uint64_t)(uintptr_t)r), "PL031, UTC");
+}
+
 static void cmd(const char* l) {
     if (l[0] == 's' && l[1] == 'm' && l[2] == 'p' && !l[3]) {
         for (unsigned i = 0; i < ncpu; i++)
@@ -877,12 +940,25 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN %s; user pointers validated.\n",
             uaccess_enable_smap() ? "on (kernel touches programs only via LDTR/STTR)" : "not offered by this CPU (copies still use LDTR/STTR)");
     mind_sys_init();         /* Разум: нормы, модель предвидения, тактика ~40 Гц */
+    rtc_pl031(fdt);
+
+    input_init();
+    if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu): serial console only.\n");
+    virtio_input_init();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 
     char line[64]; unsigned n = 0;
     kprintf("kira-arm64> ");
     for (;;) {
+        char rq[REQ_LEN];
+        if (req_take(rq)) {                                      /* команда оболочки (Проводник): как набранная */
+            for (unsigned k = 0; k < n; k++) kprintf("\b \b");
+            kprintf("%s\n", rq); cmd(rq);
+            kprintf("kira-arm64> ");
+            for (unsigned k = 0; k < n; k++) { char e[2] = { line[k], 0 }; kprintf("%s", e); }
+        }
         int c = uart_getc();
+        if (c < 0) c = key_char();
         if (c < 0) {                                             /* поток core спит, ядро отдаётся другим потокам */
             static uint64_t last_sec, seconds;
             if (timer_get_ticks() - last_sec >= TIMER_HZ) {      /* раз в секунду: Разум, опыт, журнал, сборка стеков */
@@ -892,6 +968,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
                 experience_tick(seconds);
                 sched_reap();
             }
+            prog_poll();                                         /* запуск, заказанный оболочкой (док, Проводник) */
             life_tick();
             watchdog_feed();
             sched_sleep_ticks(1);

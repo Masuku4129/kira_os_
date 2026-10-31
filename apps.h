@@ -31,7 +31,8 @@ int  app_files_visible_rows(void);
 /* Настройки. Коды элементов: 10+режим (0 наблюдает, 1 действует), 20+анимация (0..3, 4 - авто),
    30 - пояс минус, 31 - пояс плюс, 40+телеметрия (0/1). */
 typedef struct {
-    int mode, fx_user, fx, tz_min, telemetry, experience, apic, cores, rtc_local;
+    int mode, fx_user, fx, tz_min, telemetry, experience, cores, rtc_local;
+    const char* irqc;     /* контроллер прерываний (platform_irq_name) */
     uint32_t ram_mb;
     int scr_w, scr_h;
 } app_settings_t;

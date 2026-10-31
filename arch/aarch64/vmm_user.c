@@ -230,3 +230,23 @@ void proc_arch_switch(const thread_t* next) {
         vmm_switch(want);
     }
 }
+
+/* vmm.h: страница программы в текущем пространстве - того процесса, чей системный вызов сейчас исполняется
+   (как CR3 на x86-64; так окно программы получает свою поверхность). Ядро своих страниц так не отображает:
+   ОЗУ уже в тождественной карте. */
+static uint64_t cur_root(void) {
+    uint64_t t;
+    __asm__ volatile ("mrs %0, ttbr0_el1" : "=r"(t));
+    return t & 0x0000FFFFFFFFF000ull;                              /* без ASID и CnP */
+}
+int vmm_map_page(uint64_t va, uint64_t pa, uint64_t flags) {
+    uint64_t root = cur_root();
+    if (!(flags & VMM_USER) || root == vmm_kernel_root()) return -1;
+    return vmm_space_map(root, va, pa, flags);
+}
+int vmm_unmap_page(uint64_t va) {
+    uint64_t root = cur_root();
+    if (root == vmm_kernel_root() || vmm_space_unmap(root, va) != 0) return -1;
+    vmm_tlb_shootdown(root, va, 1);
+    return 0;
+}

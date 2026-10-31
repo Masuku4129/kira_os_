@@ -179,6 +179,30 @@ void virtio_driver_ok(virtio_dev_t* v) {
 
 typedef struct { uint64_t addr; uint32_t len; uint16_t flags, next; } desc_t;
 
+/* Очередь событий (устройство пишет, ядро забирает без ожидания): дескриптор i всегда указывает на буфер i. */
+void virtq_post(virtq_t* q, uint16_t id, uint64_t addr, uint32_t len, int device_writes) {
+    desc_t* desc = (desc_t*)q->mem;
+    desc[id].addr = addr; desc[id].len = len; desc[id].flags = (uint16_t)(device_writes ? 2 : 0); desc[id].next = 0;
+    volatile uint16_t* avail = (volatile uint16_t*)(q->mem + q->avail_off);
+    avail[2 + (q->avail_idx & (q->size - 1))] = id;
+    barrier();
+    q->avail_idx++;
+    avail[1] = q->avail_idx;
+    barrier();
+}
+void virtq_kick(virtq_t* q) { MMIO_W16(q->notify_addr, q->index); }
+int virtq_take(virtq_t* q, uint16_t* id, uint32_t* len) {
+    volatile uint16_t* used = (volatile uint16_t*)(q->mem + q->used_off);
+    barrier();
+    if (used[1] == q->last_used) return 0;
+    volatile uint32_t* ring = (volatile uint32_t*)(q->mem + q->used_off + 4);
+    uint32_t slot = q->last_used & (q->size - 1);
+    *id = (uint16_t)ring[slot * 2]; *len = ring[slot * 2 + 1];
+    q->last_used++;
+    barrier();
+    return 1;
+}
+
 int virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n) {
     if (n < 1 || n > 8 || n > q->size) return -2;
     desc_t* desc = (desc_t*)q->mem;

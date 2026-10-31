@@ -21,6 +21,7 @@ void    rtc_format_date(const rtc_time_t* t, char* out, unsigned cap);
 void    rtc_format_hm(const rtc_time_t* t, char* out, unsigned cap);
 
 /* Ядро */
+int     rtc_set_epoch(int64_t epoch, const char* source);   /* время платформы (UTC); 0 - принято */
 int     rtc_init(void);                    /* 0 - время прочитано */
 int     rtc_now(int32_t tz_min, rtc_time_t* out);   /* 0 - есть время */
 

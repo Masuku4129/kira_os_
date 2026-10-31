@@ -46,7 +46,7 @@ void input_push_mouse_byte(uint8_t byte);       /* из IRQ */
 int  input_pop_mouse(mouse_event_t* ev);
 /* Источники кроме PS/2 (USB): у каждого свой декодер (префиксы E0 и Shift разных клавиатур не смешиваются).
    Можно звать из потока: очередь защищена замком. */
-enum { INPUT_SRC_PS2 = 0, INPUT_SRC_USB = 1, INPUT_SRC_N = 2 };
+enum { INPUT_SRC_PS2 = 0, INPUT_SRC_USB = 1, INPUT_SRC_VIRTIO = 2, INPUT_SRC_N = 3 };
 void input_push_scancode_from(int src, uint8_t byte);
 void input_push_mouse(const mouse_event_t* ev);
 

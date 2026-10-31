@@ -1,4 +1,5 @@
 #include "irqmode.h"
+#include "../../platform.h"
 #include "acpi.h"
 #include "apic.h"
 #include "ioapic.h"
@@ -136,3 +137,5 @@ int irqmode_enable_apic(uint64_t khz, uint64_t rate, int have_lapic, uint32_t ti
     uart_print(" device lines routed through IOAPIC, legacy PIC and PIT disabled.\n");
     return 0;
 }
+
+const char* platform_irq_name(void) { return apic_mode ? "IOAPIC" : "PIC"; }

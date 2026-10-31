@@ -3,6 +3,7 @@
 #include "vmm.h"
 #include "uart.h"
 #include "fbpix.h"
+#include "spinlock.h"
 
 #define MB2_TAG_END 0
 #define MB2_TAG_FRAMEBUFFER 8
@@ -23,6 +24,9 @@ static surface_t back;
 static uint8_t* front;     // видеопамять (виртуальный адрес)
 static fbpix_fmt_t fmt;    // формат пикселя видеопамяти
 static int native;         // 32 бита 0x00RRGGBB: копирование без перевода
+static void (*flush_hook)(int, int, int, int);
+static spinlock_t dlk = SPINLOCK_INIT;
+static int dx0 = 1 << 30, dy0 = 1 << 30, dx1, dy1;   /* охват изменений кадра для flush_hook (полосы - с разных ядер) */
 
 int fb_available(void) { return ready; }
 const fb_info_t* fb_get_info(void) { return &info; }
@@ -123,6 +127,14 @@ void fb_present_rect(int x, int y, int w, int h) {
             fbpix_row(front + (uint64_t)j * info.pitch_bytes + (uint64_t)x0 * fmt.bytes, back.px + (long)j * back.pitch + x0, (uint32_t)(x1 - x0), &fmt);
         return;
     }
+    if (flush_hook) {
+        uint64_t f = spin_lock_irqsave(&dlk);
+        if (x0 < dx0) dx0 = x0;
+        if (y0 < dy0) dy0 = y0;
+        if (x1 > dx1) dx1 = x1;
+        if (y1 > dy1) dy1 = y1;
+        spin_unlock_irqrestore(&dlk, f);
+    }
     x0 &= ~1;                                     // выравнивание по 8 байт для rep movsq
     for (int j = y0; j < y1; j++) {
         copy_row(front + (uint64_t)j * info.pitch_bytes + (uint64_t)x0 * 4,
@@ -130,11 +142,38 @@ void fb_present_rect(int x, int y, int w, int h) {
     }
 }
 
+void fb_frame_done(void) {
+    if (!ready || !flush_hook) return;
+    uint64_t f = spin_lock_irqsave(&dlk);
+    int x0 = dx0, y0 = dy0, x1 = dx1, y1 = dy1;
+    dx0 = dy0 = 1 << 30; dx1 = dy1 = 0;
+    spin_unlock_irqrestore(&dlk, f);
+    if (x1 > x0 && y1 > y0) flush_hook(x0, y0, x1 - x0, y1 - y0);
+}
+
+int fb_attach_linear(uint64_t phys, void* fr, uint32_t w, uint32_t h, uint32_t pitch, void (*flush)(int, int, int, int)) {
+    if (ready || w < 320 || h < 200 || pitch < w * 4) return -1;
+    fmt = (fbpix_fmt_t){ 4, 16, 8, 8, 8, 0, 8 };
+    native = 1;
+    front = (uint8_t*)fr;
+    uint32_t back_bytes = w * h * 4;
+    uint64_t bb = pmm_alloc_contiguous((back_bytes + 4095) / 4096);
+    if (!bb) return -5;
+    info.phys = phys; info.width = w; info.height = h; info.pitch_bytes = pitch; info.bpp = 32;
+    info.write_combining = 0; info.back_phys = bb; info.back_bytes = back_bytes;
+    back.px = (uint32_t*)(uintptr_t)bb; back.w = (int)w; back.h = (int)h; back.pitch = (int)w;
+    gfx_fill(&back, 0x000000);
+    flush_hook = flush;
+    ready = 1;
+    return 0;
+}
+
 void fb_present(void) {
     if (!ready) return;
-    if (native && info.pitch_bytes == info.width * 4) {
+    if (native && info.pitch_bytes == info.width * 4 && !flush_hook) {
         gfx_copy64(front, back.px, (uint64_t)info.width * info.height / 2);
     } else {
         fb_present_rect(0, 0, (int)info.width, (int)info.height);
+        fb_frame_done();
     }
 }

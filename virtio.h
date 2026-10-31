@@ -47,6 +47,11 @@ void virtio_fail(virtio_dev_t* v);                      /* FAILED + сброс: 
 /* Отправляет цепочку буферов (до 8) и ждёт завершения. 0 - готово, -1 - таймаут. */
 int  virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n);
 
+/* Без ожидания (очереди событий): положить буфер под дескриптор id, сообщить устройству, забрать готовый. */
+void virtq_post(virtq_t* q, uint16_t id, uint64_t addr, uint32_t len, int device_writes);
+void virtq_kick(virtq_t* q);
+int  virtq_take(virtq_t* q, uint16_t* id, uint32_t* len);   /* 1 - взят */
+
 /* Непрерывная память для DMA (обнулена). Возвращает указатель; *phys - адрес для устройства. 0 - нет памяти. */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
 

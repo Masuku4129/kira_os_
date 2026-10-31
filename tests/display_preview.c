@@ -42,6 +42,8 @@ static fb_info_t finfo = { 0xFD000000ULL, 1024, 768, 4096, 32, 1, 0x1000000, 314
 const fb_info_t* fb_get_info(void) { return &finfo; }
 void fb_present(void) { presents_full++; }
 void fb_present_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; presents_rect++; }
+void fb_frame_done(void) {}
+int virtio_gpu_probe(void) { return -1; }
 
 uint64_t pmm_alloc_contiguous(uint32_t pages) { return (uint64_t)(uintptr_t)aligned_alloc(4096, (size_t)pages * 4096); }
 int pmm_free_contiguous(uint64_t p, uint32_t pages) { (void)pages; free((void*)(uintptr_t)p); return 0; }
@@ -60,7 +62,7 @@ unsigned sched_snapshot(thread_info_t* o, unsigned max) { (void)o; return max < 
 unsigned sched_cpu_count(void) { return 4; }
 
 int experience_enabled(void) { return 1; }
-int irqmode_is_apic(void) { return 1; }
+const char* platform_irq_name(void) { return "IOAPIC"; }
 void gfx_server_run(void) {}
 static int gin_n;
 void gfx_on_input(int w, int t, int x, int y, unsigned b) { (void)w; (void)t; (void)x; (void)y; (void)b; gin_n++; }

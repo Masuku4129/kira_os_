@@ -11,9 +11,9 @@ mkdir -p build-arm64
 # Программы для ARM64 (EL0): те же исходники, что и для x86-64; ядро их не содержит - они лежат на диске в /bin
 HOSTCC="${HOSTCC:-clang}"
 [ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
-UCFLAGS="-ffreestanding -fno-builtin -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
+UCFLAGS="-ffreestanding -fno-builtin -fno-math-errno -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 UELF=""
-for app in mt ipc burn; do          # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
+for app in mt ipc burn plasma cube3d paint; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
     $CC $UCFLAGS -c userland/$app.c -o build-arm64/u_$app.o
     ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/$app.elf build-arm64/u_$app.o
     UELF="$UELF build-arm64/$app.elf"
@@ -27,6 +27,8 @@ done
 for f in fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
          experience.c fscmd.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
          immune.c kobj.c futex.c watchdog.c proc.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
+         virtio_gpu.c virtio_input.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c dock.c \
+         icons.c brainfx.c input.c rtc.c \
          $A/main.c $A/pmm_arm.c $A/selftest_arm.c $A/notyet.c $A/vmm_user.c $A/uaccess_arch.c; do
     o=build-arm64/$(basename $f .c).o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
 done
@@ -38,5 +40,6 @@ echo "[*] kira-arm64.img (образ ARM64 с заголовком загруз�
 tools/kfstool kira-arm64.disk init >/dev/null
 for e in $UELF; do tools/kfstool kira-arm64.disk put /bin/$(basename $e .elf) $e >/dev/null; done
 if [ "$1" = "--run" ]; then
-    exec qemu-system-aarch64 -M virt,gic-version=3 -cpu cortex-a72 -smp 4 -m 1G -nographic -kernel kira-arm64.img -drive file=kira-arm64.disk,if=none,id=d0,format=raw -device virtio-blk-pci,drive=d0
+    exec qemu-system-aarch64 -M virt,gic-version=3 -cpu cortex-a72 -smp 4 -m 1G -serial mon:stdio -kernel kira-arm64.img -drive file=kira-arm64.disk,if=none,id=d0,format=raw -device virtio-blk-pci,drive=d0 \
+        -device virtio-gpu-pci -device virtio-keyboard-pci -device virtio-tablet-pci
 fi
