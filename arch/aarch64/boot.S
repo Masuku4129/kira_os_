@@ -144,7 +144,7 @@ vectors:
     VEC 14
     VEC 15
 
-/* Кадр: x0..x30, elr, spsr, esr, far (36 слов, 288 байт). x0/x1 уже сохранены входом, в x1 - номер входа. */
+/* Кадр: x0..x30, elr, spsr, esr, far, sp_el0 (36 слов, 288 байт). x0/x1 уже сохранены входом, в x1 - номер. */
 exc_common:
     stp     x2, x3, [sp, #16]
     stp     x4, x5, [sp, #32]
@@ -166,9 +166,12 @@ exc_common:
     mrs     x2, esr_el1
     stp     x0, x2, [sp, #256]
     mrs     x0, far_el1
-    str     x0, [sp, #272]
+    mrs     x2, sp_el0                  // стек программы: поток может смениться, пока он в ядре
+    stp     x0, x2, [sp, #272]
     mov     x0, sp
     bl      arm_exception
+    ldr     x2, [sp, #280]
+    msr     sp_el0, x2
     ldp     x0, x1, [sp, #256]
     msr     spsr_el1, x0
     ldp     x30, x0, [sp, #240]

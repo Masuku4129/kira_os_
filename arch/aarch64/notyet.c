@@ -2,12 +2,10 @@
    Это не имитация работы: функции честно сообщают «устройства/программ нет», как сообщила бы система x86
    без экрана, без USB и без запущенных программ. Каждая уходит отсюда, когда переносится настоящая подсистема:
      - экран и оболочка (display, gfxsrv) - этап «экран на ARM64» (ramfb / virtio-gpu);
-     - программы (proc) - этап «программы на ARM64» (EL0, системные вызовы, адресные пространства);
      - USB - вместе с xHCI на ARM64. */
 #include <stdint.h>
 #include "display.h"
 #include "gfxsrv.h"
-#include "proc.h"
 #include "usb.h"
 
 /* без экрана: кадров нет, опозданий нет, анимации нет */
@@ -16,11 +14,11 @@ void display_set_fx(int level) { (void)level; }
 void display_panic_flush(void) { }
 int  gfx_focus_pid(void) { return 0; }
 
-/* без программ: ни одного процесса, сбоев нет, остановить некого */
-unsigned proc_stats(proc_stat_t* out, unsigned max) { (void)out; (void)max; return 0; }
-uint32_t proc_faults_total(void) { return 0; }
-int      proc_kill(uint32_t pid) { (void)pid; return -1; }
-void     proc_set_heap_restrict(int level) { (void)level; }
+/* без экрана окна программ не создаются: вызовы графики отвечают ошибкой, как на x86 без оболочки */
+int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h) { (void)pid; (void)title; (void)w; (void)h; return -1; }
+int64_t gfx_sys_present(uint32_t pid) { (void)pid; return -1; }
+int64_t gfx_sys_event(uint32_t pid, uint64_t user_ptr) { (void)pid; (void)user_ptr; return -1; }
+void gfx_proc_gone(uint32_t pid) { (void)pid; }                  /* окон нет - закрывать нечего */
 
 /* без USB: задержанных устройств ввода не бывает */
 void usb_hid_verdict(int block) { (void)block; }

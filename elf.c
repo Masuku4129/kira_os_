@@ -11,7 +11,12 @@ int elf_parse(const void* image, size_t len, uint64_t win_lo, uint64_t win_hi, u
     if (!b || len < 64) return ELF_ERR_SHORT;
     if (b[0] != 0x7F || b[1] != 'E' || b[2] != 'L' || b[3] != 'F') return ELF_ERR_MAGIC;
     if (b[4] != 2 || b[5] != 1 || b[6] != 1) return ELF_ERR_FORMAT;                 /* 64 бита, little endian, версия 1 */
-    if (r16(b + 16) != 2 || r16(b + 18) != 62) return ELF_ERR_FORMAT;               /* ET_EXEC, x86-64 */
+#if defined(__aarch64__) && !defined(KIRA_HOST_TEST)
+#define ELF_MACHINE 183                                                                /* EM_AARCH64 */
+#else
+#define ELF_MACHINE 62                                                                 /* EM_X86_64 */
+#endif
+    if (r16(b + 16) != 2 || r16(b + 18) != ELF_MACHINE) return ELF_ERR_FORMAT;      /* ET_EXEC своей архитектуры */
     uint64_t entry = r64(b + 24), phoff = r64(b + 32);
     uint16_t phentsize = r16(b + 54), phnum = r16(b + 56);
     if (phentsize != 56 || phnum == 0 || phnum > 64) return ELF_ERR_FORMAT;

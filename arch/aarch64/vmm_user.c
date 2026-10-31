@@ -146,6 +146,12 @@ int vmm_space_map(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) {
     uint64_t v = (pa & PTE_ADDR) | PTE_PAGE | PTE_AF | PTE_SH_IN | PTE_NG | PTE_NORMAL_ATTR | PTE_AP_EL0 | PTE_PXN;
     if (!(flags & VMM_WRITE)) v |= PTE_AP_RO;
     if (flags & VMM_NOEXEC) v |= PTE_UXN;
+    else {
+        /* Код программы записан командами записи данных: кэш данных - до точки единства, кэш команд сбросить,
+           иначе ядро процессора может исполнить старое содержимое страницы (на эмуляторе незаметно, на железе - да). */
+        for (uint64_t x = pa; x < pa + 4096; x += 64) __asm__ volatile ("dc cvau, %0" : : "r"(x) : "memory");
+        __asm__ volatile ("dsb ish\n ic ialluis\n dsb ish\n isb" ::: "memory");
+    }
     if (flags & VMM_SHARED) v |= PTE_SW_SHARED;
     __asm__ volatile ("dsb ishst" ::: "memory");
     *e = v;

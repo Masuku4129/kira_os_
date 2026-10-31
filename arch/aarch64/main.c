@@ -27,6 +27,11 @@
 #include "immune.h"
 #include "watchdog.h"
 #include "clock.h"
+#include "proc.h"
+#include "syscall.h"
+#include "uaccess.h"
+#include "progs.h"
+#include "kfs.h"
 
 #define MAX_RAM 16
 
@@ -188,6 +193,7 @@ static int mmu_init(uint64_t top) {
     if (top > (1ull << bits)) top = 1ull << bits;
     for (uint64_t gb = 0; gb < top; gb += 1ull << 30) if (map_gb(gb)) return -1;
     tcr_val = 16ull | (1ull << 8) | (1ull << 10) | (3ull << 12) | (1ull << 23) | (parange << 32);
+    if (((SYSREG_R(id_aa64mmfr0_el1) >> 4) & 0xF) == 2) tcr_val |= 1ull << 36;   /* TCR.AS: ASID 16 бит */
     mmu_enable_this_cpu();
     mmu_on = 1;
     return (int)bits;
@@ -197,13 +203,16 @@ static int mmu_init(uint64_t top) {
    Отдельное окно адресов (вне тождественной карты): ячейки по 64 КБ, отображена только верхняя часть размером со
    стек (страницы 4 КБ), ниже - пустота: переполнение стека - ошибка доступа, а не порча соседней памяти.
    Освобождённая ячейка остаётся отображённой и уходит в список свободных (номер следующей - в её первом слове). */
-#define KSTACK_VA     0x0000C00000000000ull
+#define KSTACK_VA     0x0000700000000000ull               /* нижняя половина TTBR0: верхняя - программам */
 #define KSTACK_STRIDE 0x10000ull
 #define KSTACK_SLOTS  65536ull
 #define PTE_PAGE      3ull
 #define PTE_KDATA     ((2ull << 2) | PTE_AF | PTE_SH_IN | (1ull << 53) | (1ull << 54))
 static uint64_t ks_next, ks_free = ~0ull, ks_size;
 static volatile uint32_t ks_lock;
+
+void vmm_user_kernel_l0_changed(unsigned idx, uint64_t entry);
+uint64_t* arm_kernel_l0(void) { return l0; }
 
 static uint64_t* table_page(uint64_t* t, unsigned idx) {          /* после включения MMU - страницы из pmm */
     if (!(t[idx] & PTE_VALID)) {
@@ -212,6 +221,7 @@ static uint64_t* table_page(uint64_t* t, unsigned idx) {          /* после 
         for (int i = 0; i < 512; i++) ((volatile uint64_t*)(uintptr_t)pa)[i] = 0;
         dsb();
         t[idx] = pa | PTE_TABLE;
+        if (t == l0) vmm_user_kernel_l0_changed(idx, t[idx]);       /* пространства программ видят ядро целиком */
     } else if ((t[idx] & 3) != PTE_TABLE) return 0;
     return (uint64_t*)(uintptr_t)(t[idx] & 0x0000FFFFFFFFF000ull);
 }
@@ -462,9 +472,7 @@ void smp_halt_others(void) {
     for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && (!percpu_up || i != this_cpu()->cpu_id)) send_sgi(i, SGI_HALT);
 }
 
-/* Адресное пространство следующего потока: на ARM64 пока все потоки - потоки ядра в общей тождественной карте
-   (TTBR0), переключать нечего; пространства программ появятся вместе с программами. */
-void proc_arch_switch(const thread_t* next) { (void)next; }
+
 
 const void* fpu_initial_state(void) {
     static uint8_t z[FPU_STATE_SIZE] __attribute__((aligned(16)));   /* FPCR = 0: округление к ближайшему, без ловушек */
@@ -499,6 +507,28 @@ static const char* ec_name(unsigned ec) {
    время пробы не авария - команда пропускается, проба считается неудачной. */
 static volatile int probing, probe_failed;
 
+/* Синхронное исключение программы: SVC - системный вызов (номер в x8, аргументы x0..x2, результат в x0);
+   ошибка доступа в резерве стека - стек растёт; любая другая ошибка - процесс завершается, ядро живёт. */
+static void user_exception(uint64_t* frame) {
+    uint64_t esr = frame[33], far = frame[34];
+    unsigned ec = (unsigned)(esr >> 26) & 0x3F;
+    if (ec == 0x15) {
+        cpu_irq_on();                                            /* вызов вытесняем, как на x86 */
+        frame[0] = syscall_handler(frame[8], frame[0], frame[1], frame[2]);
+        cpu_irq_off();
+        return;
+    }
+    if (ec == 0x24) {
+        unsigned dfsc = (unsigned)esr & 0x3F;
+        uint64_t err = (dfsc & 0x3C) == 0x0C ? 1 : 0;           /* ошибка прав (страница есть) - не рост стека */
+        if (proc_stack_fault(far, err)) return;
+    }
+    cpu_irq_on();
+    kprintf("[KIRA PROC] pid %u: %s at PC %x, address %x (ESR %x): process terminated, the kernel keeps running.\n",
+            (uint64_t)proc_current_pid(), ec_name(ec), frame[31], far, esr);
+    proc_exit(-1);
+}
+
 void arm_exception(uint64_t* frame, uint64_t kind) {
     if ((kind == 0 || kind == 4) && probing) {
         unsigned ec0 = (unsigned)(frame[33] >> 26) & 0x3F;
@@ -524,9 +554,12 @@ void arm_exception(uint64_t* frame, uint64_t kind) {
         }
         gic_eoi(iar);
         if (c) c->irq_depth--;
+        if (kind == 9) proc_return_check();                     /* прервана программа, процесс которой завершается */
         if (sched_up && c && c->sched_on) sched_irq_exit();     /* вытеснение - после EOI, как на x86 */
         return;
     }
+    if (kind == 8) { user_exception(frame); return; }           /* синхронное из EL0: вызов или ошибка программы */
+    if ((kind == 4 || kind == 0) && uaccess_fixup(frame, frame[31])) return;   /* сбой внутри копирования из программы */
     uint64_t esr = frame[33], elr = frame[31], far = frame[34];
     unsigned ec = (unsigned)(esr >> 26) & 0x3F;
     mmu_on = 0;                                                  /* авария: печатать без замка */
@@ -550,6 +583,7 @@ void arm_secondary_main(void) {
     mmu_enable_this_cpu();
     unsigned me = my_cpu();
     percpu_install(&percpu_table[me]);
+    (void)uaccess_enable_smap();                                 /* PAN на каждом ядре */
     cpus[me].gic_ok = gic_cpu_init() == 0;
     cpus[me].gic_mask = gic_mask_me;
     if (sched_attach_cpu() != 0) kprintf("[KIRA ARM64] core %u: no thread slot for its idle thread\n", (uint64_t)me);
@@ -568,6 +602,17 @@ void arm_secondary_main(void) {
 /* ---------------- консоль ---------------- */
 static int word(const char* l, const char* w) { while (*w && *l == *w) { l++; w++; } return !*w && (!*l || *l == ' '); }
 static const char* arg(const char* l) { while (*l && *l != ' ') l++; while (*l == ' ') l++; return l; }
+/* Слово - имя программы из /bin: запустить (0). Иначе -1 (не программа). */
+static int prog_run_quiet(const char* l) {
+    char path[48] = "/bin/";
+    unsigned n = 5;
+    for (unsigned i = 0; l[i] && l[i] != ' ' && n + 1 < sizeof path; i++) path[n++] = l[i];
+    path[n] = 0;
+    kfs_stat_t st;
+    if (!kfs_mounted() || kfs_stat(path, &st) != 0) return -1;
+    prog_run(path + 5);
+    return 0;
+}
 static void cmd(const char* l) {
     if (l[0] == 's' && l[1] == 'm' && l[2] == 'p' && !l[3]) {
         for (unsigned i = 0; i < ncpu; i++)
@@ -602,9 +647,12 @@ static void cmd(const char* l) {
         selftest_arm_start();
     } else if (l[0] == 'f' && l[1] == 'a' && l[2] == 'u' && l[3] == 'l' && l[4] == 't' && !l[5]) {
         kprintf("reading an address outside the map: the exception vectors must report it\n");
-        (void)*(volatile uint64_t*)(uintptr_t)0x0000F00000000000ull;
+        (void)*(volatile uint64_t*)(uintptr_t)0x0000600000000000ull;
+    } else if (word(l, "run")) {
+        prog_run(arg(l));
+    } else if (l[0] && prog_run_quiet(l) == 0) {
     } else if (l[0]) {
-        kprintf("commands: smp, mem, ps, test, disk, pci, ls, cat, write, mkdir, rm, df, cp, format, ai [why|norms|procs|model|cap N], fault\n");
+        kprintf("commands: smp, mem, ps, test, disk, pci, ls, cat, write, mkdir, rm, df, cp, format, ai [why|norms|procs|model|cap N], run NAME (or just NAME from /bin), fault\n");
     }
 }
 
@@ -825,6 +873,9 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     experience_init();       /* диски (virtio, NVMe, AHCI по PCI) и опыт прошлых жизней */
     fs_init();               /* KiraFS на системном диске */
     life_init();
+    proc_init(ncpu, total / 1024);
+    kprintf("[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN %s; user pointers validated.\n",
+            uaccess_enable_smap() ? "on (kernel touches programs only via LDTR/STTR)" : "not offered by this CPU (copies still use LDTR/STTR)");
     mind_sys_init();         /* Разум: нормы, модель предвидения, тактика ~40 Гц */
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 

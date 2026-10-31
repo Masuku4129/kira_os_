@@ -1,16 +1,29 @@
 #ifndef KIRA_USER_H
 #define KIRA_USER_H
-/* API программ Ring 3 для Kira OS. Без libc: только системные вызовы.
-   Вызов: rax = номер, rdi/rsi/rdx = аргументы, результат в rax. */
+/* API программ для Kira OS (x86-64 Ring 3 и ARM64 EL0). Без libc: только системные вызовы.
+   x86-64: rax = номер, rdi/rsi/rdx = аргументы, результат в rax. ARM64: x8 = номер, x0..x2, результат в x0. */
 typedef unsigned char u8; typedef unsigned short u16; typedef unsigned int u32;
 typedef unsigned long long u64; typedef long long i64;
 
+#if defined(__aarch64__)
+/* ARM64: svc #0, номер в x8, аргументы x0..x2, результат в x0; ядро возвращает остальные регистры нетронутыми. */
+static inline i64 ksys(u64 n, u64 a, u64 b, u64 c) {
+    register u64 x8 __asm__("x8") = n;
+    register u64 x0 __asm__("x0") = a;
+    register u64 x1 __asm__("x1") = b;
+    register u64 x2 __asm__("x2") = c;
+    __asm__ volatile ("svc #0" : "+r"(x0), "+r"(x1), "+r"(x2) : "r"(x8) : "memory");
+    return (i64)x0;
+}
+#else
 static inline i64 ksys(u64 n, u64 a, u64 b, u64 c) {
     i64 r;
     /* Ядро обнуляет rdi/rsi/rdx/r8-r10 при возврате (не отдаёт процессу свои значения). */
     __asm__ volatile ("syscall" : "=a"(r), "+D"(a), "+S"(b), "+d"(c) : "a"(n) : "rcx", "r11", "r8", "r9", "r10", "memory");
     return r;
 }
+#endif
+
 enum { K_FS = 10, K_HEAP = 11 };
 enum { KFS_READ = 1, KFS_WRITE = 2, KFS_STAT = 3, KFS_LIST = 4, KFS_REMOVE = 5 };
 typedef struct { u32 op, name_len; u64 name_ptr, buf_ptr, buf_len, off; } kfs_req_t;
@@ -63,6 +76,17 @@ enum { KOPEN_CREATE = 1, KOPEN_EXCL = 2 };
 static inline u64 k_gettid(void) { return (u64)ksys(K_GETTID, 0, 0, 0); }
 static inline u64 k_clock_ns(void) { return (u64)ksys(K_CLOCK_NS, 0, 0, 0); }
 static inline __attribute__((noreturn)) void k_thread_exit(int code) { for (;;) ksys(K_THREAD_EXIT, (u64)code, 0, 0); }
+#if defined(__aarch64__)
+/* ARM64: поток начинается в трамплине: функция лежит в слоте на вершине стека, аргумент - в x0 (его ставит ядро);
+   возврат из функции завершает поток. */
+__asm__(".text\n.global k_thread_tramp\nk_thread_tramp:\n ldr x9, [sp]\n blr x9\n mov x0, #0\n mov x8, #13\n svc #0\n1: b 1b\n");
+void k_thread_tramp(void);
+static inline i64 k_thread_create(void (*fn)(u64), void* stack, u64 size, u64 arg) {
+    u64 top = ((u64)stack + size) & ~15ull;
+    ((u64*)top)[-2] = (u64)fn;
+    return ksys(K_THREAD_CREATE, (u64)k_thread_tramp, top - 16, arg);
+}
+#else
 static void __attribute__((noreturn, used)) k_thread_return(void) { k_thread_exit(0); }
 /* Новый поток: fn(arg) на стеке [stack, stack+size) (память программы, например из k_heap_grow).
    Возврат из fn завершает поток. Результат - id потока или отрицательный код. */
@@ -71,6 +95,8 @@ static inline i64 k_thread_create(void (*fn)(u64), void* stack, u64 size, u64 ar
     ((u64*)top)[-1] = (u64)k_thread_return;      /* куда вернётся fn: ядро ставит rsp = top - 8 */
     return ksys(K_THREAD_CREATE, (u64)fn, top, arg);
 }
+#endif
+
 /* futex: спать, пока *w == expected (срок в 10 мс, K_FOREVER - без срока); разбудить n ждущих на w. */
 static inline i64 k_futex_wait(volatile u32* w, u32 expected, u64 timeout) { return ksys(K_FUTEX_WAIT, (u64)w, expected, timeout); }
 static inline i64 k_futex_wake(volatile u32* w, u32 n) { return ksys(K_FUTEX_WAKE, (u64)w, n, 0); }
@@ -96,7 +122,13 @@ static inline i64 k_shm_unmap(void* va) { return ksys(K_SHM_UNMAP, (u64)va, 0, 0
 static inline i64 k_close(i64 h) { return ksys(K_CLOSE, (u64)h, 0, 0); }
 
 /* Точка входа: выравнивает стек, вызывает umain, затем exit. */
+#if defined(__aarch64__)
+#define KIRA_ENTRY() \
+    int umain(void); \
+    __asm__(".section .text.start\n.global _start\n_start:\n mov x9, sp\n and x9, x9, #-16\n mov sp, x9\n mov x29, #0\n bl umain\n mov x0, #0\n mov x8, #2\n svc #0\n1: b 1b\n.text\n");
+#else
 #define KIRA_ENTRY() \
     int umain(void); \
     __asm__(".section .text.start\n.global _start\n_start:\n and $-16,%rsp\n call umain\n mov $2,%eax\n xor %edi,%edi\n syscall\n1: jmp 1b\n.text\n");
+#endif
 #endif

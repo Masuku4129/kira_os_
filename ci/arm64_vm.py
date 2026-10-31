@@ -7,12 +7,12 @@ import json, os, re, select, shutil, subprocess, sys, time
 READY = r"\[KIRA ARM64\] Ready\."
 COMMON = [r"MMU on: identity map", r"generic timer verified: ([5-9]\d|1[0-4]\d) ticks in 200 ms",
           r"memory manager: \d+ MB free pages; kernel heap and scheduler online"]
-NO_ERR = [r"FATAL", r"exception on core", r"did not come up", r"CPU_ON .* failed", r"KERNEL PANIC", r"RESULT: FAIL", r"no thread slot"]
+NO_ERR = [r"FATAL", r"exception on core", r"did not come up", r"CPU_ON .* failed", r"KERNEL PANIC", r"RESULT: FAIL", r"no thread slot", r"process terminated", r"FAIL"]
 
 SC = [
     dict(name="arm64-gicv3", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci",
          must=[r"GICv3", r"Processors online: 4 of 4 \(PSCI via hvc\)", r"working timer interrupt: 4 of 4", r"entered at EL1", r"RAM: 1024 MB",
-               r"\[KIRA PCI\] ECAM at .*BAR\(s\) assigned", r"virtio-blk", r"\[KIRA FS\] KiraFS mounted", r"\[KIRA MIND\] Mind online"],
+               r"\[KIRA PCI\] ECAM at .*BAR\(s\) assigned", r"virtio-blk", r"\[KIRA FS\] KiraFS mounted", r"\[KIRA MIND\] Mind online", r"\[KIRA SYSCALL\] SVC from EL0"],
          cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]),
                ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)", r"kernel heap: \d+ bytes"]),
                ("test", [r"RESULT: PASS", r"preempted by tick", r"kernel mutex .*: 8000 of 8000 ok"]),
@@ -20,7 +20,11 @@ SC = [
                ("disk", [r"\[системный\]"]), ("df", [r"KiraFS"]),
                ("write /hello.txt kira-arm64", []), ("cat /hello.txt", [r"kira-arm64"]), ("ls /", [r"hello.txt"]),
                ("ai", [r"предвидение: риск опоздания экрана", r"здоровье \d+"]), ("ai model", [r"обучено на \d+ с"]),
-               ("ai cap 70", [r"70%"])]),
+               ("ai cap 70", [r"70%"]),
+               ("ls /bin", [r"mt", r"ipc"]),
+               ("mt", [r"mt: .* - PASS"]),
+               ("ipc", []), ("ipc", [r"ipc server: .* - PASS", r"ipc client: .* - PASS"]),
+               ("ps", [r"core\s+RUNNING"])]),
     dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M", disk="nvme",
          must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB",
                r"\[KIRA NVMe\] nvme0n1", r"\[KIRA FS\] KiraFS mounted"],
