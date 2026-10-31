@@ -40,6 +40,7 @@
 #include "virtio_input.h"
 #include "e1000.h"
 #include "net.h"
+#include "hda.h"
 #include "rtc.h"
 #include "spinlock.h"
 #include "platform.h"
@@ -729,6 +730,8 @@ static void cmd(const char* l) {
     } else if (word(l, "net")) { netcmd_net(arg(l));
     } else if (word(l, "ping")) { netcmd_ping(arg(l));
     } else if (word(l, "dns")) { netcmd_dns(arg(l));
+    } else if (word(l, "sound")) { hdacmd_sound(arg(l));
+    } else if (word(l, "beep")) { hdacmd_beep(arg(l));
     } else if (word(l, "http")) { netcmd_http(arg(l));
     } else if (word(l, "ls")) { fscmd_ls(arg(l));
     } else if (word(l, "cat")) { fscmd_cat(arg(l));
@@ -993,6 +996,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     virtio_input_init();
     e1000_probe();
     net_start();
+    hda_probe();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 
     char line[64]; unsigned n = 0;

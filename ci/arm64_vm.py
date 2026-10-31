@@ -51,6 +51,7 @@ SC = [
                ("plasma", []), ("cube3d", []), ("@sleep 10", []), ("@shot apps", []),
                ("ps", [r"plasma", r"cube3d", r"display"]),
                ("ai", [r"композитор: ", r"тактика"]),
+               ("beep 440 300", [r"DMA прошёл [1-9]\d* байт - карта играет"]),
                ("ps", [r"core\s+RUNNING"])]),
     dict(name="arm64-fault", m="virt,gic-version=3", cpu="cortex-a72", smp=1, mem="256M",
          must=[r"Processors online: 1 of 1"],
@@ -112,6 +113,7 @@ def run(sc, out):
     qmp_path = os.path.join(d, "qmp.sock")
     if sc.get("gui"):
         if os.path.exists(qmp_path): os.unlink(qmp_path)
+        args += ["-audiodev", "none,id=snd0", "-device", "intel-hda", "-device", "hda-output,audiodev=snd0"]
         args += ["-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
                  "-qmp", f"unix:{qmp_path},server=on,wait=off"]
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

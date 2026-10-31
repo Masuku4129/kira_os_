@@ -140,7 +140,7 @@ $CC $FLAGS -o $T/gfx tests/gfx_test.c gfx2d.c font8x16.c clock.c klog.c fbcon.c
 $T/gfx
 
 echo "== console command line (Enter, backspace, history, clear, Ctrl keys) =="
-$CC $FLAGS -o $T/console tests/console_test.c console.c hwprofile.c uheap.c percpu.c net.c
+$CC $FLAGS -o $T/console tests/console_test.c console.c hwprofile.c uheap.c percpu.c net.c hda.c
 $T/console
 
 echo "== UI primitives (angles, arcs, anti-aliasing) =="

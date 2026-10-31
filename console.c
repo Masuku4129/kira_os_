@@ -1,5 +1,6 @@
 #include "console.h"
 #include "net.h"
+#include "hda.h"
 #include "input.h"
 #include "proc.h"
 #include "progs.h"
@@ -519,6 +520,8 @@ static const cmd_t cmds[] = {
     { "lspci",     0,   "устройства на шине PCI", cmd_lspci },
     { "net",       0,   "сеть: карта, канал, адрес (DHCP), шлюз, счётчики", netcmd_net },
     { "ping",      0,   "ping адрес [число]: эхо ICMP, время ответа", netcmd_ping },
+    { "sound",     0,   "звук: карта Intel HDA, кодек, путь к выходу", hdacmd_sound },
+    { "beep",      0,   "beep [Гц] [мс]: тон через звуковую карту", hdacmd_beep },
     { "dns",       0,   "dns имя: адрес по DNS", netcmd_dns },
     { "http",      0,   "http адрес[:порт] [путь]: запрос по TCP, начало ответа", netcmd_http },
     { "exp",       'e', "опыт: выученная норма, запуски, поколение на диске", cmd_exp },
