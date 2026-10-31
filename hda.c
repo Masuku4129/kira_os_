@@ -179,9 +179,12 @@ int hda_probe(void) {
     w8(RIRBSIZE, 2);
     w16(RIRBWP, 0x8000); h.rirb_rp = 0;
     w16(RINTCNT, 1);
-    w8(CORBCTL, 2); w8(RIRBCTL, 2);                              /* оба кольца - в работу */
+    /* RIRBCTL: DMA ответов и флаг «ответ получен» (RINTCTL). Без флага контроллер (QEMU - так точно) после RINTCNT
+       ответов ждёт его снятия и не берёт следующие команды. Прерывания процессору выключены (INTCTL = 0). */
+    w8(CORBCTL, 2); w8(RIRBCTL, 3);
     int rc = codec_init();
-    if (rc) { uart_print("[KIRA HDA] codec has no usable output path.\n"); return -7; }
+    if (rc) { uart_print("[KIRA HDA] codec "); uart_print_hex(h.vendor); uart_print(" has no usable output path (step ");
+              uart_print_dec((uint64_t)-rc); uart_print(").\n"); return -7; }
     unsigned iss = (r16(GCAP) >> 8) & 15;
     h.sd = h.r + 0x80 + 0x20 * iss;
     h.up = 1;
