@@ -27,6 +27,8 @@ SC = [
                ("ipc", []), ("ipc", [r"ipc server: .* - PASS", r"ipc client: .* - PASS"]),
                ("ps", [r"core\s+RUNNING"]),
                ("net", [r"канал есть", r"адрес 10\.0\.2\.15"]), ("ping 10.0.2.2 3", [r"ответ от 10\.0\.2\.2", r"получено [1-3]"]),
+               ("http 10.0.2.100 /arm", [r"kira-tcp-ok GET /arm HTTP/1\.0", r"получено 3\d\d\d байт .*сервер закрыл соединение"]),
+               ("dns example.com", [r"example\.com -> \d+\.\d+\.\d+\.\d+"]),
                ]),
     dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M", disk="nvme",
          must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB",
@@ -103,7 +105,8 @@ def run(sc, out):
         args += ["-drive", f"file={img},if=none,id=d0,format=raw"]
         args += ["-device", "nvme,drive=d0,serial=KIRA0001" if sc["disk"] == "nvme" else f"{sc['disk']},drive=d0"]
     if sc.get("net"):
-        args += ["-netdev", "user,id=n0", "-device", "e1000,netdev=n0"]
+        srv = os.path.abspath(os.path.join(os.path.dirname(__file__), "http_once.py"))
+        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv}", "-device", "e1000,netdev=n0"]
     else:
         args += ["-nic", "none"]
     qmp_path = os.path.join(d, "qmp.sock")

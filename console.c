@@ -519,6 +519,8 @@ static const cmd_t cmds[] = {
     { "lspci",     0,   "устройства на шине PCI", cmd_lspci },
     { "net",       0,   "сеть: карта, канал, адрес (DHCP), шлюз, счётчики", netcmd_net },
     { "ping",      0,   "ping адрес [число]: эхо ICMP, время ответа", netcmd_ping },
+    { "dns",       0,   "dns имя: адрес по DNS", netcmd_dns },
+    { "http",      0,   "http адрес[:порт] [путь]: запрос по TCP, начало ответа", netcmd_http },
     { "exp",       'e', "опыт: выученная норма, запуски, поколение на диске", cmd_exp },
     { "save",      'v', "сохранить опыт на диск сейчас", cmd_save },
     { "life",      0,   "журнал организма из /var/life.log", cmd_life },

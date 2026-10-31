@@ -728,6 +728,8 @@ static void cmd(const char* l) {
     } else if (word(l, "pci")) { pci_print();
     } else if (word(l, "net")) { netcmd_net(arg(l));
     } else if (word(l, "ping")) { netcmd_ping(arg(l));
+    } else if (word(l, "dns")) { netcmd_dns(arg(l));
+    } else if (word(l, "http")) { netcmd_http(arg(l));
     } else if (word(l, "ls")) { fscmd_ls(arg(l));
     } else if (word(l, "cat")) { fscmd_cat(arg(l));
     } else if (word(l, "write")) { fscmd_write(arg(l));
