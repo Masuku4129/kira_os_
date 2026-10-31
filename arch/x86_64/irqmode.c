@@ -1,5 +1,6 @@
 #include "irqmode.h"
 #include "../../platform.h"
+#include "hwprofile.h"
 #include "acpi.h"
 #include "apic.h"
 #include "ioapic.h"
@@ -139,3 +140,4 @@ int irqmode_enable_apic(uint64_t khz, uint64_t rate, int have_lapic, uint32_t ti
 }
 
 const char* platform_irq_name(void) { return apic_mode ? "IOAPIC" : "PIC"; }
+unsigned platform_cpus(void) { return hw_get()->cpus; }

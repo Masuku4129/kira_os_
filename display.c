@@ -491,7 +491,7 @@ int display_init(unsigned long mbi) {
     st.start_ns = clock_ns();
 #ifndef KIRA_HOST_TEST
     {   /* композитор - на всех ядрах: помощников по числу ядер сверх одного (поток дисплея работает сам) */
-        unsigned cpus = scale_cpus(sched_cpu_count());
+        unsigned cpus = scale_cpus(platform_cpus());
         kpar_init(cpus > 1 ? cpus - 1 : 0);
         wm_set_runner(kpar_run);
         cs.par = kpar_helpers() ? 1 : 0;

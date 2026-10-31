@@ -665,6 +665,7 @@ static int key_char(void) {
     return -1;
 }
 
+unsigned platform_cpus(void) { return ncpu; }
 const char* platform_irq_name(void) { return gic_v3 ? "GICv3" : "GICv2"; }
 
 /* Часы реального времени PL031 (QEMU virt и многие платы): регистр данных - секунды UTC от 1970. */
