@@ -417,6 +417,35 @@ isr_stub_table:
     dq irq0,  irq1,  irq2,  irq3,  irq4,  irq5,  irq6,  irq7
     dq irq8,  irq9,  irq10, irq11, irq12, irq13, irq14, irq15
 
+; MSI / MSI-X: векторы 0x50..0x5F, тот же путь, что у аппаратных IRQ (irq_dispatch различает по вектору)
+%macro MSI 1
+global msi%1
+msi%1:
+    push 0
+    push 0x50 + %1
+    jmp irq_common_stub
+%endmacro
+MSI 0
+MSI 1
+MSI 2
+MSI 3
+MSI 4
+MSI 5
+MSI 6
+MSI 7
+MSI 8
+MSI 9
+MSI 10
+MSI 11
+MSI 12
+MSI 13
+MSI 14
+MSI 15
+global msi_stub_table
+msi_stub_table:
+    dq msi0, msi1, msi2, msi3, msi4, msi5, msi6, msi7
+    dq msi8, msi9, msi10, msi11, msi12, msi13, msi14, msi15
+
 global load_idt
 load_idt:
     lidt [rdi]

@@ -3,6 +3,7 @@
 #include "pci.h"
 #include "uart.h"
 #include "kmutex.h"
+#include "msi.h"
 
 /* NVMe: регистры в памяти (BAR0), очереди команд и завершений в памяти, «дверные звонки» по смещению 0x1000 с шагом
    из CAP.DSTRD. Порядок по спецификации NVMe 1.4: выключить контроллер (CC.EN = 0, ждать CSTS.RDY = 0), очереди
@@ -40,6 +41,8 @@ typedef struct {
     char model[41];
     int index;
     kmutex_t mx;                        /* пространства имён одного контроллера делят очередь и буфер */
+    int irq;                            /* завершения приходят прерыванием MSI-X/MSI (вектор 0 обеих очередей) */
+    irqwait_t iw;
     uint8_t keep[PAGE];                 /* хвостовой блок при записи неполных блоков 4 КБ */
 } nvme_ctl_t;
 
@@ -83,8 +86,9 @@ static int submit(nvme_ctl_t* c, int qi, uint32_t* cmd, uint32_t* result) {
     BARRIER();
     c->q[qi].tail = (uint16_t)((c->q[qi].tail + 1) % QN);
     uint16_t qid = c->q[qi].qid;
-    w32(c->regs, 0x1000 + (2u * qid) * c->dstrd, c->q[qi].tail);
     blk_wait_t w; blk_wait_begin(&w, c->timeout_ms);
+    if (c->irq) blk_wait_irq(&w, &c->iw);                            /* до звонка: ответ не проскочит */
+    w32(c->regs, 0x1000 + (2u * qid) * c->dstrd, c->q[qi].tail);
     do {
         volatile uint32_t* ce = (volatile uint32_t*)(c->q[qi].cq + (uint32_t)c->q[qi].head * 16);
         BARRIER();
@@ -230,6 +234,8 @@ static void add_ns(nvme_ctl_t* c, uint32_t nsid) {
     blk_register(&n->dev, nm, c->model);
 }
 
+static void nvme_irq(void* ctx) { irqwait_fire(&((nvme_ctl_t*)ctx)->iw); }
+
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[0].io || !pd->bar[0].base || pd->bar[0].size < 0x2000) { uart_print("[KIRA NVMe] controller without BAR0: skipped\n"); return; }
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
@@ -246,6 +252,10 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     rg = (volatile uint8_t*)pci_map_bar(pd, 0, 0, need);
     if (!rg) return;
     c->regs = rg;
+    {   /* завершения - прерыванием: MSI-X (запись 0), иначе MSI; без них - опрос */
+        uint64_t ma; uint32_t md;
+        if (msi_alloc(nvme_irq, c, &ma, &md) == 0 && (pci_msix_setup(pd, 0, ma, md) == 0 || pci_msi_setup(pd, ma, md) == 0)) c->irq = 1;
+    }
     c->timeout_ms = (uint32_t)((cap >> 24) & 0xFF) * 500; if (c->timeout_ms < 500) c->timeout_ms = 500;
     if (!((cap >> 37) & 1)) { uart_print("[KIRA NVMe] controller without NVM command set: skipped\n"); return; }
     if (((cap >> 48) & 15) != 0) { uart_print("[KIRA NVMe] controller does not support 4 KB pages: skipped\n"); return; }
@@ -278,14 +288,16 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     uint32_t nn = *(const uint32_t*)(c->buf + 516);
     uint32_t vs = r32(rg, R_VS);
     uart_print("[KIRA NVMe] "); uart_print(c->model); uart_print(", NVMe "); uart_print_dec(vs >> 16); uart_print(".");
-    uart_print_dec((vs >> 8) & 0xFF); uart_print(", namespaces "); uart_print_dec(nn); uart_print(", polled\n");
+    uart_print_dec((vs >> 8) & 0xFF); uart_print(", namespaces "); uart_print_dec(nn);
+    uart_print(c->irq ? ", completion by interrupt\n" : ", polled\n");
 
     uint32_t cmd[16] = { 0x09 };                                        /* Set Features: одна пара очередей */
     cmd[10] = 0x07; cmd[11] = 0;
     submit(c, 0, cmd, 0);
     uint32_t cq[16] = { 0x05 };                                         /* Create I/O Completion Queue 1 */
     cq[6] = (uint32_t)c->q[1].cq_phys; cq[7] = (uint32_t)(c->q[1].cq_phys >> 32);
-    cq[10] = (uint32_t)(QN - 1) << 16 | 1u; cq[11] = 1u;               /* непрерывная, без прерываний */
+    cq[10] = (uint32_t)(QN - 1) << 16 | 1u;
+    cq[11] = c->irq ? 3u : 1u;                                          /* непрерывная; IEN - прерывания (вектор 0) */
     if (submit(c, 0, cq, 0) != 0) { uart_print("[KIRA NVMe] Create I/O CQ failed\n"); return; }
     uint32_t sq[16] = { 0x01 };                                         /* Create I/O Submission Queue 1 -> CQ 1 */
     sq[6] = (uint32_t)c->q[1].sq_phys; sq[7] = (uint32_t)(c->q[1].sq_phys >> 32);

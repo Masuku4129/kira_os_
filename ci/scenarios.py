@@ -30,9 +30,14 @@ def sc(name, about, steps, **kw):
     return d
 
 
+# Диск на прерываниях: запись и чтение файла, затем счётчик сообщений MSI в команде disk
+DISK_IRQ = [{"cmd": "write /irqtest.txt kira-irq"}, {"cmd": "cat /irqtest.txt", "must": [r"kira-irq"]},
+            {"cmd": "disk", "must": [r"прерываний устройств \(MSI\): [1-9]"]}]
+
 ALL = [
     sc("boot-virtio", "загрузка: virtio-blk, 4 ядра, базовые проверки", BASIC + [
-        {"log": [r"Processors online: 4", r"parallel helpers: 3"]},
+        {"log": [r"Processors online: 4", r"parallel helpers: 3", r"virtio-blk, .*completion by MSI-X interrupt"]},
+        *DISK_IRQ,
         {"cmd": "ps", "must": [r"mind-tact", r"par-0"]},
         {"cmd": "ai cap", "must": [r"предел загрузки ядер фоном сейчас 50%"]},
         {"cmd": "ai cap 70", "must": [r"70%"]},
@@ -40,8 +45,8 @@ ALL = [
         {"cmd": "ai model", "must": [r"фоновые программы: -?\d+\.\d\d", r"обучено на \d+ с"]},
     ]),
     sc("boot-ata", "загрузка: IDE (как в Limbo)", BASIC, disk="ata", smp=2),
-    sc("boot-sata", "загрузка: AHCI (SATA) на плате q35", BASIC + [{"log": [r"\[KIRA AHCI\] sata0"]}], disk="sata", machine="q35"),
-    sc("boot-nvme", "загрузка: NVMe", BASIC + [{"log": [r"\[KIRA NVMe\] nvme0n1"]}], disk="nvme"),
+    sc("boot-sata", "загрузка: AHCI (SATA) на плате q35", BASIC + [{"log": [r"\[KIRA AHCI\] sata0", r"completion by MSI interrupt"]}] + DISK_IRQ, disk="sata", machine="q35"),
+    sc("boot-nvme", "загрузка: NVMe", BASIC + [{"log": [r"\[KIRA NVMe\] nvme0n1", r"NVMe .*completion by interrupt"]}] + DISK_IRQ, disk="nvme"),
     sc("boot-1cpu", "одно ядро, 256 МБ", BASIC, smp=1, mem="256M"),
     sc("boot-8cpu", "восемь ядер, 4 ГБ (память выше 1 ГБ)", BASIC + [{"log": [r"Processors online: 8", r"Mapped RAM above 1 GB: [1-9]"]}], smp=8, mem="4G"),
     sc("isolation", "изоляция: адресные пространства, враждебные программы, IPC, потоки, FPU", [

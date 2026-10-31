@@ -48,7 +48,11 @@ void blk_udelay(uint32_t us);
    завершается за десятки мкс), дальше процессор отдаётся другим потокам (если можно уснуть), а срок считается
    по часам TSC. До запуска часов (опрос дисков при загрузке) - по счёту задержек.
    blk_wait_begin(&w, мс); while (!готово) if (!blk_wait_step(&w)) -> срок вышел. */
-typedef struct { uint64_t start, end; uint8_t real; } blk_wait_t;
+struct irqwait;
+typedef struct { uint64_t start, end; uint8_t real; struct irqwait* iw; uint32_t mark; } blk_wait_t;
+/* С прерыванием устройства: звать после blk_wait_begin и ДО запуска команды - дальше ожидание спит до прерывания
+   (не дольше тика за раз), а не уступает процессор, оставаясь готовым. */
+void blk_wait_irq(blk_wait_t* w, struct irqwait* iw);
 void blk_wait_begin(blk_wait_t* w, uint32_t ms);
 int  blk_wait_step(blk_wait_t* w);
 

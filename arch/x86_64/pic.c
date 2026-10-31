@@ -109,9 +109,20 @@ static int is_spurious(unsigned char irq) {
     return 0;
 }
 
+int msi_dispatch(uint64_t vector);
+
 void irq_dispatch(uint64_t vector, uint64_t cs, uint64_t rip, uint64_t rbp) {
     unsigned char irq = (unsigned char)(vector - 32);
-    if (irq >= 16) return;
+    if (irq >= 16) {                                  /* сообщение устройства (MSI): только через Local APIC */
+        percpu_t* me = this_cpu();
+        me->irq_rip = rip; me->irq_rbp = (cs & 3) ? 0 : rbp; me->irq_depth++;
+        msi_dispatch(vector);
+        apic_send_eoi();
+        this_cpu()->irq_depth--;
+        if ((cs & 3) == 3) proc_return_check();
+        sched_irq_exit();
+        return;
+    }
 
     int via_apic = (eoi_apic_mask >> irq) & 1;
     if (!via_apic && is_spurious(irq)) return;

@@ -12,6 +12,12 @@
    засыпает на тик между проверками: ядро уходит в hlt и не отнимает процессор у остальных (в эмуляторе - у потока,
    который как раз обрабатывает запрос устройства; при всех ядрах в нагрузке кручение растягивало запрос на секунды).
    Срок - по времени, а не по числу проверок. До запуска планировщика и с выключенными прерываниями - только кручение. */
+#include "msi.h"
+/* С прерыванием: короткое ожидание на месте (ответ часто приходит за микросекунды), затем сон до прерывания
+   очереди; срок сна - тик, так что потерянное сообщение стоит не больше прежнего опроса. */
+#define IW_MARK()       uint32_t iw_mark = q->iw ? irqwait_mark(q->iw) : 0
+#define IW_READY(t0)    (q->iw && clock_tsc_khz() && rdtsc() - (t0) > clock_tsc_khz() / 50 && sched_can_sleep())
+#define IW_SLEEP()      do { irqwait_wait(q->iw, iw_mark, 1); iw_mark = irqwait_mark(q->iw); } while (0)
 #define WAIT_T0()       rdtsc()
 #define WAIT_SPUN(t0)   (clock_tsc_khz() && rdtsc() - (t0) > clock_tsc_khz())   /* 1 мс */
 #define WAIT_SLEEP_OK() sched_can_sleep()
@@ -19,6 +25,9 @@
 #define WAIT_NOW()      timer_get_ticks()
 #define WAIT_LIMIT      (10ULL * TIMER_HZ)
 #else
+#define IW_MARK()       ((void)0)
+#define IW_READY(t0)    ((void)(t0), 0)
+#define IW_SLEEP()      ((void)0)
 #define WAIT_T0()       0ULL
 #define WAIT_SPUN(t0)   ((void)(t0), 0)
 #define WAIT_SLEEP_OK() 0
@@ -71,7 +80,7 @@ extern volatile void* host_map_bar(const pci_dev_t* d, int bar, uint64_t off, ui
 #endif
 
 int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
-    v->pci = d; v->common = v->notify = v->isr = v->devcfg = 0; v->notify_mult = 0; v->features = 0;
+    v->pci = d; v->common = v->notify = v->isr = v->devcfg = 0; v->notify_mult = 0; v->features = 0; v->msix_vec = 0xFFFF;
     uint8_t id; uint16_t cap = 0;
     for (int guard = 0; guard < 48; guard++) {
         cap = pci_next_cap(d, cap, &id);
@@ -163,7 +172,9 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
     q->mem = (uint8_t*)virtio_dma_alloc(q->used_off + 6 + 8 * (uint32_t)n, &q->mem_phys);
     if (!q->mem) return -2;
     MMIO_W16(v->common + R_QSIZE, n);
-    MMIO_W16(v->common + R_QMSIX, 0xFFFF);                        /* без MSI-X */
+    MMIO_W16(v->common + R_QMSIX, v->msix_vec);                  /* запись MSI-X очереди или 0xFFFF - без прерываний */
+    q->iw = 0;
+    if (v->msix_vec != 0xFFFF && MMIO_R16(v->common + R_QMSIX) != v->msix_vec) MMIO_W16(v->common + R_QMSIX, 0xFFFF);
     MMIO_W32(v->common + R_QDESC, (uint32_t)q->mem_phys);              MMIO_W32(v->common + R_QDESC + 4, (uint32_t)(q->mem_phys >> 32));
     MMIO_W32(v->common + R_QAVAIL, (uint32_t)(q->mem_phys + q->avail_off)); MMIO_W32(v->common + R_QAVAIL + 4, (uint32_t)((q->mem_phys + q->avail_off) >> 32));
     MMIO_W32(v->common + R_QUSED, (uint32_t)(q->mem_phys + q->used_off));   MMIO_W32(v->common + R_QUSED + 4, (uint32_t)((q->mem_phys + q->used_off) >> 32));
@@ -218,12 +229,16 @@ int virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n) {
     q->avail_idx++;
     avail[1] = q->avail_idx;
     barrier();
+    IW_MARK();
     MMIO_W16(q->notify_addr, q->index);
     uint64_t start = WAIT_NOW(), t0 = WAIT_T0();
     for (uint32_t i = 0; ; i++) {
         barrier();
         if (used[1] != q->last_used) { q->last_used++; barrier(); return 0; }
-        if (WAIT_SPUN(t0) && WAIT_SLEEP_OK()) {
+        if (IW_READY(t0)) {                                      /* прерывание очереди есть: спать до него */
+            IW_SLEEP();
+            if (WAIT_NOW() - start > WAIT_LIMIT) return -1;
+        } else if (WAIT_SPUN(t0) && WAIT_SLEEP_OK()) {
             WAIT_SLEEP();
             if (WAIT_NOW() - start > WAIT_LIMIT) return -1;
         } else {

@@ -1,5 +1,6 @@
 #include "cpu.h"
 #include "blk.h"
+#include "msi.h"
 #include "pci.h"
 #include "uart.h"
 
@@ -58,6 +59,7 @@ typedef struct {
     volatile uint8_t* abar;
     int s64;
     uint32_t cap;
+    int irq;                            /* события портов приходят сообщением MSI */
 } ahci_ctl_t;
 
 typedef struct {
@@ -68,6 +70,7 @@ typedef struct {
     uint8_t* mem; uint64_t mem_phys;    /* список команд, FIS, таблица команды */
     uint8_t* buf; uint64_t buf_phys;    /* данные */
     uint32_t errors;
+    irqwait_t iw;                       /* конец команды этого порта (прерывание) */
 } ahci_port_t;
 
 static ahci_ctl_t ctls[MAXCTL];
@@ -149,8 +152,9 @@ static int ata_cmd(ahci_port_t* p, uint8_t cmd, uint64_t lba, uint32_t count, ui
     hdr[2] = (uint32_t)ctp; hdr[3] = (uint32_t)(ctp >> 32);
     BARRIER();
     w32(p->pr, P_IS, 0xFFFFFFFFu);
-    w32(p->pr, P_CI, 1u);
     blk_wait_t w; blk_wait_begin(&w, timeout_ms);
+    if (p->c->irq) blk_wait_irq(&w, &p->iw);                          /* до запуска: конец команды не проскочит */
+    w32(p->pr, P_CI, 1u);
     do {
         uint32_t is = r32(p->pr, P_IS);
         if (is & IS_FATAL) break;
@@ -241,7 +245,7 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     if (c->cap & (1u << 27)) cmd |= CMD_SUD;                            /* раскрутка (Staggered Spin-up) */
     w32(pr, P_CMD, cmd);
     w32(pr, P_SERR, 0xFFFFFFFFu);
-    w32(pr, P_IE, 0);
+    w32(pr, P_IE, c->irq ? 0x7800000Fu : 0);                          /* D2H, PIO, DMA, SDB и ошибки - или опрос */
     if ((r32(pr, P_SSTS) & 0xF) != 3 && wait_reg(pr, P_SSTS, 0xF, 3, 50) && comreset(p)) {
         uart_print("[KIRA AHCI] port "); uart_print_dec((uint64_t)pn); uart_print(": no link\n"); return;
     }
@@ -272,6 +276,15 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     blk_register(&p->dev, p->dev.name, model);
 }
 
+/* Сообщение контроллера: какие порты отметились - тех и будить. Флаги порта (PxIS) снимает сама команда. */
+static void ahci_irq(void* ctx) {
+    ahci_ctl_t* c = (ahci_ctl_t*)ctx;
+    uint32_t is = r32(c->abar, IS);
+    w32(c->abar, IS, is);
+    for (unsigned i = 0; i < sizeof ports / sizeof ports[0]; i++)          /* и порт, который ещё опознаётся */
+        if (ports[i].c == c && (is & (1u << ports[i].port))) irqwait_fire(&ports[i].iw);
+}
+
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[5].io || !pd->bar[5].base || pd->bar[5].size < 0x180) { uart_print("[KIRA AHCI] controller without ABAR: skipped\n"); return; }
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
@@ -289,14 +302,20 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     }
     w32(ab, GHC, r32(ab, GHC) | GHC_HR);                               /* сброс контроллера */
     if (wait_reg(ab, GHC, GHC_HR, 0, 1000)) { uart_print("[KIRA AHCI] controller reset timeout\n"); return; }
-    w32(ab, GHC, GHC_AE);                                              /* без прерываний */
+    {   /* прерывание сообщением MSI: поток спит до конца команды */
+        uint64_t ma; uint32_t md;
+        if (msi_alloc(ahci_irq, c, &ma, &md) == 0 && pci_msi_setup(pd, ma, md) == 0) c->irq = 1;
+    }
+    w32(ab, IS, 0xFFFFFFFFu);
+    w32(ab, GHC, c->irq ? GHC_AE | GHC_IE : GHC_AE);
     c->cap = r32(ab, CAP);
     c->s64 = (c->cap >> 31) & 1;
     uint32_t pi = r32(ab, PI), np = (c->cap & 31) + 1;
     uint32_t vs = r32(ab, VS);
     uart_print("[KIRA AHCI] controller "); uart_print_hex(pd->vendor); uart_print(":"); uart_print_hex(pd->device);
     uart_print(", AHCI "); uart_print_dec(vs >> 16); uart_print("."); uart_print_dec((vs >> 8) & 0xFF);
-    uart_print(", ports "); uart_print_dec(np); uart_print(c->s64 ? ", 64-bit DMA" : ", 32-bit DMA"); uart_print(", polled\n");
+    uart_print(", ports "); uart_print_dec(np); uart_print(c->s64 ? ", 64-bit DMA" : ", 32-bit DMA");
+    uart_print(c->irq ? ", completion by MSI interrupt\n" : ", polled\n");
     blk_udelay(10000);                                                 /* линии успевают подняться после сброса */
     if ((uint64_t)0x100 + 0x80 * MAXPORT > sz) pi &= (uint32_t)((1ull << ((sz - 0x100) / 0x80)) - 1);
     for (int pn = 0; pn < MAXPORT; pn++) if (pi & (1u << pn)) port_init(c, pn, ci);

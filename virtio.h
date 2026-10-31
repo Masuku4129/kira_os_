@@ -24,6 +24,7 @@ typedef struct {
     volatile uint8_t* isr;
     volatile uint8_t* devcfg;
     uint64_t features;               /* согласованные */
+    uint16_t msix_vec;               /* запись MSI-X для очередей (0xFFFF - без прерываний, опрос) */
 } virtio_dev_t;
 
 typedef struct {
@@ -33,6 +34,7 @@ typedef struct {
     uint8_t* mem;                    /* desc | avail | used */
     uint64_t mem_phys;
     uint32_t avail_off, used_off;
+    struct irqwait* iw;              /* ожидание сном до прерывания очереди (0 - опрос) */
 } virtq_t;
 
 typedef struct { uint64_t addr; uint32_t len; uint8_t device_writes; } virtq_buf_t;

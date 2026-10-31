@@ -8,6 +8,7 @@
 #include "devhealth.h"
 #include "clock.h"
 #include "sched.h"
+#include "msi.h"
 
 /* Диски системы. Порядок опроса: virtio-blk (виртуальные машины), NVMe, AHCI (SATA), и только если на шине есть
    IDE-контроллер (или PCI нет вообще) - ATA PIO по старым портам: в режиме AHCI те же диски через порты не видны,
@@ -39,11 +40,17 @@ void blk_wait_begin(blk_wait_t* w, uint32_t ms) {
     w->real = clock_ready() && clock_tsc_khz() != 0;
     w->start = now_us(w->real);
     w->end = w->start + (uint64_t)ms * 1000;
+    w->iw = 0; w->mark = 0;
 }
+void blk_wait_irq(blk_wait_t* w, struct irqwait* iw) { w->iw = iw; w->mark = irqwait_mark(iw); }
 int blk_wait_step(blk_wait_t* w) {
     uint64_t t = now_us(w->real);
     if (t >= w->end) return 0;
     if (!w->real) blk_udelay(t - w->start < 200 ? 2 : 20);
+    else if (w->iw && t - w->start >= 20 && sched_can_sleep()) {          /* прерывание есть: спать до него */
+        irqwait_wait(w->iw, w->mark, 1);
+        w->mark = irqwait_mark(w->iw);
+    }
     else if (t - w->start < 200) { for (int i = 0; i < 64; i++) cpu_relax(); }
     else if (sched_can_sleep()) sched_yield();                         /* долгая команда: процессор - другим */
     else for (int i = 0; i < 256; i++) cpu_relax();
@@ -174,4 +181,8 @@ void blk_print(void) {
         uart_print(&s->pub == primary ? "  [системный]" : s->info.kira ? "  [данные Киры]" : s->info.foreign ? "  [чужие данные: только чтение]" : "  [пустой]");
         uart_print("\n");
     }
+    uint64_t fired, woken;
+    irqwait_stats(&fired, &woken);
+    uart_print("прерываний устройств (MSI): "); uart_print_dec(fired); uart_print(", из них разбудили ждущий поток: ");
+    uart_print_dec(woken); uart_print("\n");
 }

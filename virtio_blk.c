@@ -73,6 +73,13 @@ static int vblk_flush(blk_dev_t* d) {
     return request(T_FLUSH, 0, 0);
 }
 
+#ifndef KIRA_HOST_TEST
+#include "msi.h"
+static irqwait_t vblk_iw = IRQWAIT_INIT;
+static void vblk_irq(void* ctx) { (void)ctx; irqwait_fire(&vblk_iw); }
+uint64_t virtio_blk_irq_wakeups(void) { return vblk_iw.wakeups; }
+#endif
+
 blk_dev_t* virtio_blk_probe(void) {
     present = 0; dead = 0;
     const pci_dev_t* pd = pci_find(VIRTIO_VENDOR, 0x1042);     /* virtio-blk, современный */
@@ -81,7 +88,17 @@ blk_dev_t* virtio_blk_probe(void) {
     if (virtio_attach(&vdev, pd) != 0) { uart_print("[KIRA VIRTIO] blk: no virtio 1.0 capabilities (legacy-only device unsupported).\n"); return 0; }
     if (!vdev.devcfg) { uart_print("[KIRA VIRTIO] blk: no device config.\n"); return 0; }
     if (virtio_begin(&vdev, BLK_F_SIZE_MAX | BLK_F_SEG_MAX | BLK_F_RO | BLK_F_FLUSH) != 0) { uart_print("[KIRA VIRTIO] blk: feature negotiation failed.\n"); return 0; }
+    int irq = 0;
+#ifndef KIRA_HOST_TEST
+    {   /* прерывание очереди сообщением MSI-X: поток спит до ответа диска, а не проверяет его каждый тик */
+        uint64_t ma; uint32_t md;
+        if (msi_alloc(vblk_irq, 0, &ma, &md) == 0 && pci_msix_setup(pd, 0, ma, md) == 0) { vdev.msix_vec = 0; irq = 1; }
+    }
+#endif
     if (virtio_queue_setup(&vdev, &vq, 0, 64) != 0) { virtio_fail(&vdev); uart_print("[KIRA VIRTIO] blk: queue setup failed.\n"); return 0; }
+#ifndef KIRA_HOST_TEST
+    if (irq && MMIO_R16(vdev.common + 26) == 0) vq.iw = &vblk_iw; else irq = 0;
+#endif
 
     uint64_t dma_phys;
     uint8_t* dma = (uint8_t*)virtio_dma_alloc(4096 + BOUNCE_SECTORS * BLK_SECTOR, &dma_phys);
@@ -108,7 +125,7 @@ blk_dev_t* virtio_blk_probe(void) {
     present = 1;
     uart_print("[KIRA VIRTIO] Disk virtio-blk, "); uart_print_dec(cap / 2048); uart_print(" MB (PCI ");
     uart_print_dec(pd->bus); uart_print(":"); uart_print_dec(pd->dev); uart_print(".");  uart_print_dec(pd->fn);
-    uart_print(", virtio 1.0, polling");
+    uart_print(irq ? ", virtio 1.0, completion by MSI-X interrupt" : ", virtio 1.0, polling");
     if (vdev.features & BLK_F_RO) uart_print(", READ-ONLY");
     uart_print(").\n");
     return &disk;
