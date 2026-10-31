@@ -16,7 +16,7 @@ SC = [
          must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB"],
          cmds=[("smp", [r"core 1: .*online"])]),
     dict(name="arm64-el2-8cpu", m="virt,gic-version=3,virtualization=on", cpu="cortex-a57", smp=8, mem="3G",
-         must=[r"entered at EL2", r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"RAM: 3072 MB"],
+         must=[r"entered at EL2, running at EL1", r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"RAM: 3072 MB"],
          cmds=[]),
     dict(name="arm64-fault", m="virt,gic-version=3", cpu="cortex-a72", smp=1, mem="256M",
          must=[r"Processors online: 1 of 1"],
@@ -28,7 +28,7 @@ def run(sc, out):
     d = os.path.join(out, sc["name"]); os.makedirs(d, exist_ok=True)
     args = ["qemu-system-aarch64", "-M", sc["m"], "-cpu", sc["cpu"], "-smp", str(sc["smp"]), "-m", sc["mem"],
             "-nographic", "-monitor", "none", "-serial", "stdio", "-kernel", "kira-arm64.img",
-            "-d", "int,guest_errors,unimp", "-D", os.path.join(d, "qemu-debug.log")]
+            "-d", "guest_errors,unimp", "-D", os.path.join(d, "qemu-debug.log")]
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     log = b""; t0 = time.time(); err = None
 

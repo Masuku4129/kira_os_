@@ -325,7 +325,7 @@ static const void* find_fdt(uint64_t x0) {
     return ok && !probe_failed ? (const void*)(uintptr_t)x0 : 0;
 }
 
-void arm_main(uint64_t dtb) {
+void arm_main(uint64_t dtb, uint64_t entry_el) {
 #ifdef KIRA_EARLY_UART
     kprintf("[early] arm_main x0=%x EL%u\n", dtb, (SYSREG_R(CurrentEL) >> 2) & 3);
 #endif
@@ -349,7 +349,7 @@ void arm_main(uint64_t dtb) {
     if (u >= 0) fdt_reg(fdt, u, 0, &uart, &sz);
     kprintf("\n[KIRA ARM64] Kira OS on ARM64: device tree at %x (%u bytes), console PL011 at %x\n",
             (uint64_t)(uintptr_t)fdt, (uint64_t)fdt_total_size(fdt), uart);
-    kprintf("[KIRA ARM64] entered at EL%u\n", (SYSREG_R(CurrentEL) >> 2) & 3);
+    kprintf("[KIRA ARM64] entered at EL%u, running at EL%u\n", entry_el & 3, (SYSREG_R(CurrentEL) >> 2) & 3);
 
     /* ОЗУ: все узлы device_type = memory, все пары reg */
     uint64_t top = 4ull << 30;
