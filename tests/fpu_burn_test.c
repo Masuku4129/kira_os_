@@ -32,7 +32,7 @@ int main(void) {
 
     stub_ticks_now = 0; stub_ticks_step = 1; stub_pid = 7; stub_log[0] = 0;
     CHECK(fpu_umain() == 0);
-    CHECK(strstr(stub_log, "PASS: x87/SSE state is private to every process"));
+    CHECK(strstr(stub_log, "PASS: FP/vector state is private to every process"));
     CHECK(strstr(stub_log, "mismatches 0"));
 
     // burn: считает до срока, печатает число итераций (кратное 4096: время проверяется блоками)
