@@ -52,6 +52,8 @@ SC = [
                ("ps", [r"plasma", r"cube3d", r"display"]),
                ("ai", [r"композитор: ", r"тактика"]),
                ("beep 440 300", [r"DMA прошёл [1-9]\d* байт - карта играет"]),
+               ("edit", []), ("@sleep 3", []), ("@type hello kira", []), ("@key f2", []), ("@sleep 2", []), ("@shot edit", []),
+               ("cat /data/edit/note.txt", [r"hello kira"]),
                ("ps", [r"core\s+RUNNING"])]),
     dict(name="arm64-fault", m="virt,gic-version=3", cpu="cortex-a72", smp=1, mem="256M",
          must=[r"Processors online: 1 of 1"],
@@ -162,6 +164,12 @@ def run(sc, out):
                         q.cmd("input-send-event", events=[{"type": "btn", "data": {"button": "left", "down": True}}])
                         q.cmd("input-send-event", events=[{"type": "btn", "data": {"button": "left", "down": False}}])
                         pump(0.5); continue
+                    if cmd.startswith("@key "):
+                        q.cmd("send-key", keys=[{"type": "qcode", "data": cmd[5:]}]); pump(0.5); continue
+                    if cmd.startswith("@type "):                 # набор без Enter в конце
+                        for ch in cmd[6:]:
+                            q.cmd("send-key", keys=[{"type": "qcode", "data": QCODE.get(ch, ch)}]); time.sleep(0.05)
+                        pump(0.3); continue
                     if cmd.startswith("@keys "):
                         for ch in cmd[6:] + "\r":
                             q.cmd("send-key", keys=[{"type": "qcode", "data": QCODE.get(ch, ch)}]); time.sleep(0.05)

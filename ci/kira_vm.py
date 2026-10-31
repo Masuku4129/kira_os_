@@ -231,6 +231,15 @@ def run(sc, args):
                         raise Fail(f"«{cmd}»: в выводе «{bad.group(0)}»\n{outp[-1500:]}")
             elif "send" in st:                        # без ожидания приглашения (нагрузка, запуск программ)
                 vm.send(st["send"] + "\r")
+            elif "keys" in st:                        # набор на клавиатуре машины (окну в фокусе), затем клавиши qcode
+                qc = {" ": "spc", "\n": "ret", ".": "dot", "-": "minus", "/": "slash"}
+                for ch in st["keys"]:
+                    vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": qc.get(ch, ch)}]}})
+                    time.sleep(0.05)
+                for k in st.get("then", []):
+                    vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": k}]}})
+                    time.sleep(0.05)
+                vm.pump(0.5)
             elif "sleep" in st:
                 end_t = time.time() + st["sleep"] * args.timeout_scale
                 while time.time() < end_t:

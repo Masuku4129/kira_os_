@@ -46,6 +46,13 @@ for app in cube3d fpu; do
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
 done
+# Программы с текстом: шрифт ядра (font8x16.c) собирается вместе с программой
+for app in edit; do
+    $CC $UCFLAGS -I. -c userland/$app.c -o userland/$app.o
+    $CC $UCFLAGS -I. -c font8x16.c -o userland/font_$app.o
+    ld.lld $ULINK -o userland/$app.elf userland/$app.o userland/font_$app.o
+    UELF="$UELF userland/$app.elf"
+done
 for app in demo atk-mem atk-priv atk-sys atk-gs; do
     nasm -f elf64 userland/$app.s -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o

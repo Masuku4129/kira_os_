@@ -364,6 +364,7 @@ static void cmd_smpcrash(const char* a) {
     else uart_print("[KIRA SMPCRASH] crash thread started.\n");
 }
 static void cmd_plasma(const char* a) { (void)a; prog_start("plasma"); }
+static void cmd_edit(const char* a) { (void)a; prog_start("edit"); }
 static void cmd_paint(const char* a) { (void)a; prog_start("paint"); }
 static void cmd_exp(const char* a) { (void)a; experience_print(); }
 static void cmd_save(const char* a) {
@@ -504,6 +505,7 @@ static const cmd_t cmds[] = {
     { "burnall",   0,   "по процессу-нагрузке на каждое ядро, 3 с (сравни итерации с burn)", cmd_burnall },
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },
     { "plasma",    'a', "приложение Ring 3: плазма", cmd_plasma },
+    { "edit",      0,   "приложение Ring 3: текстовый редактор (F2 - сохранить, F3 - другой файл, F4 - новый)", cmd_edit },
     { "paint",     'b', "приложение Ring 3: холст (мышь, клавиши 1-8, c - очистить)", cmd_paint },
     { "run",       0,   "запустить программу с диска: run имя (/bin/имя, проверка иммунитетом)", cmd_run },
     { "progs",     0,   "программы в /bin и вердикт иммунитета", cmd_progs },

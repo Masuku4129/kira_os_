@@ -129,6 +129,14 @@ ALL = [
         {"cmd": "dns example.com", "must": [r"example\.com -> \d+\.\d+\.\d+\.\d+"], "timeout": 20},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"]),
+    sc("apps-edit", "редактор: окно, набор на клавиатуре, сохранение в песочницу, файл виден в /data/edit", [
+        {"log": BOOT_LOG},
+        {"cmd": "run edit"}, {"sleep": 2},
+        {"keys": "hello kira\nline two", "then": ["f2"]}, {"sleep": 2}, {"shot": "edit"},
+        {"log": [r"edit: note\.txt - сохранено: 19 байт"]},
+        {"cmd": "cat /data/edit/note.txt", "must": [r"hello kira", r"line two"]},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M"),
     sc("sound-hda", "звук: Intel HDA (как Sound: hda в Limbo) - кодек, путь к выходу, тон через DMA", [
         {"log": BOOT_LOG + [r"\[KIRA HDA\] Sound: codec .* output path pin \d+ <- DAC \d+"]},
         {"cmd": "sound", "must": [r"выход: вывод \d+ <- ЦАП \d+"]},

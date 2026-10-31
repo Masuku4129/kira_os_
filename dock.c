@@ -35,7 +35,7 @@ int dock_remove(dock_t* d, const char* name) {
     return 0;
 }
 
-void dock_default(dock_t* d) { d->n = 0; dock_add(d, "plasma"); dock_add(d, "paint"); dock_add(d, "cube3d"); }
+void dock_default(dock_t* d) { d->n = 0; dock_add(d, "plasma"); dock_add(d, "paint"); dock_add(d, "cube3d"); dock_add(d, "edit"); }
 
 int dock_parse(dock_t* d, const char* t, unsigned len) {
     d->n = 0;
