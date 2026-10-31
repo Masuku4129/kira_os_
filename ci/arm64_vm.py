@@ -74,6 +74,10 @@ def run(sc, out):
     finally:
         p.kill(); p.wait()
         open(os.path.join(d, "serial.log"), "wb").write(log)
+        dbg = os.path.join(d, "qemu-debug.log")
+        if os.path.exists(dbg):                     # начало журнала исключений QEMU - самое ценное, остальное - тики
+            with open(dbg, "rb") as f: head = f.read(200000)
+            with open(dbg, "wb") as f: f.write(head)
     res = {"name": sc["name"], "ok": err is None, "error": err, "seconds": round(time.time() - t0, 1)}
     json.dump(res, open(os.path.join(d, "result.json"), "w"), ensure_ascii=False)
     print(("OK  " if res["ok"] else "FAIL"), sc["name"], res["seconds"], "с", err or "")
