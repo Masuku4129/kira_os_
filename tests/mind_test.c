@@ -26,7 +26,9 @@ static int hid_v = -1;
 static void a_hid(int b) { hid_v = b; }
 static int bgfps = -1;
 static void a_bgfps(uint32_t f) { bgfps = (int)f; }
-static const mind_act_t act = { a_q, a_w, a_l, a_fx, a_trim, a_r, a_kill, a_pget, a_pput, a_hid, a_bgfps };
+static int core_on = -1; static uint32_t core_pid; static unsigned core_calls;
+static void a_core(int on, uint32_t pid) { core_on = on; core_pid = pid; core_calls++; }
+static const mind_act_t act = { a_q, a_w, a_l, a_fx, a_trim, a_r, a_kill, a_pget, a_pput, a_hid, a_bgfps, a_core };
 static const mind_act_t none = { 0 };
 
 static mind_t M;
@@ -282,6 +284,39 @@ int main(void) {
         CHECK(bgfps == 30);
         mind_set_mode(d, MIND_OBSERVE, &act);
         CHECK(bgfps == 0);                                     /* наблюдение: всё возвращается */
+    }
+
+    /* ядро фокуса: экран опаздывает на 4 ядрах при фоне - ядро отдаётся окну в фокусе, повторяется каждый такт
+       (новые потоки фона), после 3 с спокойствия возвращается; на двух ядрах и в наблюдении - не отдаётся */
+    {
+        mind_t* d = &M; mind_init(d, 0, 4);
+        for (uint32_t t = 1; t <= 3; t++) {
+            base(t);
+            add_proc(10, "editor", (uint64_t)t * 300000000ull, t * 50, 100, 1);
+            add_proc(20, "render", (uint64_t)t * 1000000000ull, t * 50, 100, 0);
+            mind_step(d, &S, &act);
+        }
+        static mind_tact_in_t ti; memset(&ti, 0, sizeof ti);
+        ti.cores = 4; ti.window_ms = 25; ti.busy_x10 = 1500; ti.loops = 2; ti.late = 1; ti.nproc = 2;
+        ti.p[0].pid = 10; ti.p[0].threads = 1; ti.p[0].cpu_x10 = 300;
+        ti.p[1].pid = 20; ti.p[1].threads = 1; ti.p[1].cpu_x10 = 1000;
+        core_on = -1; ti.t_ms = 4000; mind_tact_step(d, &ti, &act);
+        CHECK(core_on == 1 && core_pid == 10 && mind_core_reserved_pid(d) == 10 && journal_has("ядро отдано окну в фокусе"));
+        unsigned calls = core_calls; ti.t_ms += 25; mind_tact_step(d, &ti, &act);
+        CHECK(core_calls == calls + 1 && core_on == 1);           /* повтор каждый такт */
+        ti.late = 0;
+        for (int k = 0; k < 100; k++) { ti.t_ms += 25; mind_tact_step(d, &ti, &act); }
+        CHECK(core_on == 1);                                      /* 2,5 с спокойствия - ещё держит */
+        for (int k = 0; k < 30; k++) { ti.t_ms += 25; mind_tact_step(d, &ti, &act); }
+        CHECK(core_on == 0 && mind_core_reserved_pid(d) == 0 && journal_has("ядро фокуса снова общее"));
+        ti.cores = 2; ti.late = 1; core_on = -1; ti.t_ms += 25; mind_tact_step(d, &ti, &act);
+        CHECK(core_on == -1 && mind_core_reserved_pid(d) == 0);   /* двух ядер мало */
+        ti.cores = 4; ti.t_ms += 25; mind_tact_step(d, &ti, &act);
+        CHECK(core_on == 1);
+        mind_set_mode(d, MIND_OBSERVE, &act);
+        CHECK(core_on == 0 && mind_core_reserved_pid(d) == 0);
+        ti.t_ms += 25; mind_tact_step(d, &ti, &act);
+        CHECK(mind_core_reserved_pid(d) == 0);                    /* наблюдение: не отдаёт */
     }
 
     /* предвидение: в этом мире тяжёлый фон в эту секунду означает опоздания экрана в следующую. Модель учится,

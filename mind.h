@@ -98,6 +98,7 @@ typedef struct {
     void (*profile_put)(const char* name, const mind_profile_t* p);
     void (*hid_verdict)(int block);                          /* задержанные устройства ввода: 1 - отключить, 0 - отпустить */
     void (*set_bg_fps)(uint32_t fps);                         /* темп фоновых окон, кадров/с (0 - без предела) */
+    void (*reserve_core)(int on, uint32_t keep_pid);          /* отдать ядро окну в фокусе (фон - на остальных); 0 - вернуть */
 } mind_act_t;
 
 typedef struct { int64_t mean_x100; uint64_t var_x100; uint32_t n; } mind_norm_t;
@@ -183,7 +184,8 @@ typedef struct {
     /* тактика (десятки мс) */
     uint32_t tact_on, tact_calm_ms, tact_last_ms, tact_logged_ms, tact_steps, tact_actions;
     uint32_t tact_budget_x10;                 /* сколько процессора отдано фону при последнем ограничении */
-    uint32_t bg_fps_level, bg_fps_ms, bg_calm_ms;         /* темп фоновых окон: ступень (0 - без предела) и время смены */
+    uint32_t bg_fps_level, bg_fps_ms, bg_calm_ms;
+    uint32_t core_res_pid, core_calm_ms;                  /* ядро отдано программе в фокусе (0 - нет) и время спокойствия */         /* темп фоновых окон: ступень (0 - без предела) и время смены */
     /* предвидение (стратегия): признаки прошлой секунды ждут своего исхода */
     int32_t  nx_prev[MNET_F];
     uint8_t  nx_have, nx_acted;               /* есть пример; в его секунду действовало упреждение (исход не честный) */
@@ -218,7 +220,8 @@ typedef struct {
 } mind_tact_in_t;
 void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act);
 unsigned mind_core_cap(const mind_t* s);
-unsigned mind_bg_fps(const mind_t* s);       /* текущий предел кадров фоновых окон (0 - нет) */
+unsigned mind_bg_fps(const mind_t* s);
+uint32_t mind_core_reserved_pid(const mind_t* s);    /* программа, которой отдано ядро (0 - ядро не отдано) */       /* текущий предел кадров фоновых окон (0 - нет) */
 void mind_launch_limits(const mind_t* s, unsigned cores, mind_launch_t* out);
 void mind_set_mode(mind_t* s, int mode, const mind_act_t* act);
 void mind_set_fx_user(mind_t* s, int fx, const mind_act_t* act);

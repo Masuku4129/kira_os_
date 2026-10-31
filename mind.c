@@ -168,6 +168,8 @@ void mind_set_mode(mind_t* s, int mode, const mind_act_t* act) {
         s->focus_pid = 0;
         if (s->bg_fps_level && act->set_bg_fps) act->set_bg_fps(0);
         s->bg_fps_level = 0;
+        if (s->core_res_pid && act->reserve_core) act->reserve_core(0, 0);
+        s->core_res_pid = 0;
         for (int i = 0; i < MIND_PROC_MAX; i++) s->tr[i].tact_limit = 0;
         s->tact_on = 0;
     }
@@ -591,6 +593,27 @@ static void bg_fps_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* a
                         acting ? "" : "(наблюдение) ", (uint32_t)bg_fps_steps[lvl]);
 }
 
+/* Рычаг «ядро фокуса»: экран не успевает при 3+ ядрах и фоновых программах - одно ядро отдаётся окну в фокусе,
+   фон работает на остальных (его потоки не встают в очередь к фокусу и не вытесняются рефлексом туда-обратно).
+   Возврат - после 3 с спокойствия, при смене режима на наблюдение, без фокуса или фона. Пока ядро отдано, вызов
+   повторяется каждый такт: новые потоки фоновых программ тоже уходят с него. */
+static void core_res_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act, int pressure, int acting,
+                          uint32_t cores, uint32_t nbg) {
+    s->core_calm_ms = pressure ? 0 : s->core_calm_ms + in->window_ms;
+    uint32_t pid = s->core_res_pid;
+    if (acting && pressure && in->late && cores >= 3 && s->focus_pid && nbg) pid = s->focus_pid;
+    else if (!acting || !s->focus_pid || !nbg || s->core_calm_ms >= 3000) pid = 0;
+    if (!act->reserve_core) { s->core_res_pid = 0; return; }
+    if (pid == s->core_res_pid) { if (pid) act->reserve_core(1, pid); return; }
+    act->reserve_core(pid != 0, pid);
+    if (pid) jlog(s, in->t_ms / 1000, MJ_LIMIT, 1, pid, "тактика: экран опаздывает - ядро отдано окну в фокусе (pid %u), фоновые программы - на остальных %u",
+                  pid, cores - 1);
+    else jlog(s, in->t_ms / 1000, MJ_RESTORE, 1, 0, "тактика: экран успевает - ядро фокуса снова общее");
+    s->core_res_pid = pid;
+}
+
+uint32_t mind_core_reserved_pid(const mind_t* s) { return s->core_res_pid; }
+
 void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) {
     s->tact_steps++;
     int acting = s->m.mode == MIND_ACT;
@@ -659,6 +682,7 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
         }
     }
     bg_fps_step(s, in, act, pressure, acting);
+    core_res_step(s, in, act, pressure, acting, cores, nbg);
     s->tact_last_ms = in->t_ms;
 }
 

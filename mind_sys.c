@@ -55,6 +55,10 @@ static void a_restrict(int level) { proc_set_heap_restrict(level); }
 static int a_kill(uint32_t pid) { return proc_kill(pid); }
 static void a_hid(int block) { usb_hid_verdict(block); }
 static void a_bgfps(uint32_t fps) { gfx_set_bg_period(fps ? (TIMER_HZ + fps - 1) / fps : 0); }
+static void a_core(int on, uint32_t pid) {                         /* отдаётся последнее ядро: загрузочное занято ядром */
+    unsigned n = sched_cpu_count();
+    sched_reserve_core(on && n >= 3 ? (int)n - 1 : -1, pid);
+}
 
 typedef struct { uint32_t magic; mind_profile_t p; uint32_t check; } prof_file_t;
 
@@ -105,7 +109,7 @@ static void a_pput(const char* name, const mind_profile_t* p) {
     kfs_write(path, &f, sizeof f);
 }
 
-static const mind_act_t act = { a_quantum, a_weight, a_limit, a_fx, a_trim, a_restrict, a_kill, a_pget, a_pput, a_hid, a_bgfps };
+static const mind_act_t act = { a_quantum, a_weight, a_limit, a_fx, a_trim, a_restrict, a_kill, a_pget, a_pput, a_hid, a_bgfps, a_core };
 
 /* ---------------- замеры ---------------- */
 
@@ -260,6 +264,7 @@ static void publish(void) {
     v.net_trusted = (uint8_t)mnet_trusted(&M.m.net); v.forecasts = M.m.forecasts; v.net_loss_x1e4 = M.m.net.loss_x1e4;
     for (int i = 0; i < MNET_F; i++) v.net_w[i] = M.m.net.w[i];
     v.bg_fps = mind_bg_fps(&M); v.core_cap = mind_core_cap(&M);
+    v.core_res_pid = mind_core_reserved_pid(&M); v.core_res = sched_reserved_core();
     display_compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
     v.nproc = 0;
     for (int i = 0; i < MIND_PROC_MAX && v.nproc < 16; i++) {
@@ -489,7 +494,11 @@ void mind_sys_print(const char* what) {
         uart_print("  8. память: возврат запасов ядра, осторожный рост куч, в крайнем случае остановка самой большой программы\n");
         uart_print("  9. поведение программ: необычная по своему профилю программа ограничивается до 50% ядра\n");
         uart_print(" 10. устройства ввода: печатающее быстрее человека (BadUSB) - отключается\n");
-        uart_print(" 11. предвидение: при доверии модели фон ужимается до опоздания экрана (сейчас риск "); uart_print_dec(v->risk); uart_print("%)\n\n");
+        uart_print(" 11. предвидение: при доверии модели фон ужимается до опоздания экрана (сейчас риск "); uart_print_dec(v->risk); uart_print("%)\n");
+        uart_print(" 12. ядро фокуса: при опоздании экрана (3+ ядра) одно ядро - окну в фокусе, фон - на остальных: ");
+        if (v->core_res >= 0) { uart_print("ядро "); uart_print_dec((uint64_t)v->core_res); uart_print(" отдано pid "); uart_print_dec(v->core_res_pid); }
+        else uart_print("сейчас общее");
+        uart_print("\n\n");
     } else if (what[0] == 'm') {                            /* model: веса модели предвидения */
         uart_print("\n[MIND] модель предвидения (логистическая регрессия, учится каждую секунду; вес > 0 - признак ведёт к опозданию):\n");
         for (int i = 0; i < MNET_F; i++) {
