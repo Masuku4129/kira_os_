@@ -1,0 +1,134 @@
+/* Intel 8254x (e1000): сетевая карта QEMU/Limbo по умолчанию и многих ПК. Кольца дескрипторов приёма и передачи в
+   памяти ядра, без прерываний: поток «net» забирает принятые кадры опросом каждый тик. */
+#include "e1000.h"
+#include "net.h"
+#include "pci.h"
+#include "virtio.h"          /* virtio_dma_alloc (непрерывная память для устройства), MMIO_R32/W32 */
+#include "uart.h"
+#include "spinlock.h"
+#include "vmm.h"
+#include "cpu.h"
+
+enum { CTRL = 0x0, STATUS = 0x8, EERD = 0x14, IMC = 0xD8, RCTL = 0x100, TCTL = 0x400, TIPG = 0x410,
+       RDBAL = 0x2800, RDBAH = 0x2804, RDLEN = 0x2808, RDH = 0x2810, RDT = 0x2818,
+       TDBAL = 0x3800, TDBAH = 0x3804, TDLEN = 0x3808, TDH = 0x3810, TDT = 0x3818, MTA = 0x5200, RAL0 = 0x5400, RAH0 = 0x5404 };
+#define NRX 64
+#define NTX 32
+#define BUF 2048
+
+typedef struct { uint64_t addr; uint16_t len, csum; uint8_t status, errors; uint16_t special; } rxd_t;
+typedef struct { uint64_t addr; uint16_t len; uint8_t cso, cmd, status, css; uint16_t special; } txd_t;
+
+static const uint16_t ids[] = { 0x100E, 0x100F, 0x1004, 0x1009, 0x100C, 0x100D, 0x1010, 0x1011, 0x1015, 0x1026, 0x1076, 0x1079, 0x107C };
+
+static struct {
+    volatile uint8_t* r;
+    rxd_t* rx; txd_t* tx;
+    uint8_t* rxb; uint8_t* txb;
+    uint64_t rxb_p, txb_p;
+    unsigned rx_next, tx_next;
+    spinlock_t txlk;
+    netdev_t nd;
+} e;
+
+static uint32_t rd(unsigned o) { return MMIO_R32(e.r + o); }
+static void wr(unsigned o, uint32_t v) { MMIO_W32(e.r + o, v); }
+
+static int send(netdev_t* d, const void* frame, uint32_t len) {
+    (void)d;
+    if (len > BUF || len < 14) return -1;
+    uint32_t n = len;
+    if (len < 60) len = 60;                                        /* короче нельзя: дополняется нулями */
+    uint64_t f = spin_lock_irqsave(&e.txlk);
+    txd_t* t = &e.tx[e.tx_next];
+    if (t->cmd && !(t->status & 1)) { spin_unlock_irqrestore(&e.txlk, f); return -1; }   /* кольцо полно */
+    uint8_t* b = e.txb + e.tx_next * BUF;
+    const uint8_t* s = (const uint8_t*)frame;
+    for (uint32_t i = 0; i < len; i++) b[i] = i < n ? s[i] : 0;
+    t->addr = e.txb_p + e.tx_next * BUF; t->len = (uint16_t)len; t->cso = 0; t->css = 0; t->special = 0;
+    t->status = 0; t->cmd = 1 | 2 | 8;                            /* EOP, IFCS (контрольную сумму кадра считает карта), RS */
+    e.tx_next = (e.tx_next + 1) % NTX;
+    cpu_mb();
+    wr(TDT, e.tx_next);
+    spin_unlock_irqrestore(&e.txlk, f);
+    return 0;
+}
+
+static int recv(netdev_t* d, void* buf, uint32_t max) {
+    (void)d;
+    rxd_t* x = &e.rx[e.rx_next];
+    cpu_mb();
+    if (!(x->status & 1)) return 0;                               /* DD: кадр ещё не принят */
+    uint32_t n = x->len;
+    int ok = (x->status & 2) && !x->errors && n <= max;           /* целый кадр (EOP), без ошибок */
+    if (ok) { const uint8_t* s = e.rxb + e.rx_next * BUF; uint8_t* o = (uint8_t*)buf; for (uint32_t i = 0; i < n; i++) o[i] = s[i]; }
+    x->status = 0;
+    unsigned done = e.rx_next;
+    e.rx_next = (e.rx_next + 1) % NRX;
+    cpu_mb();
+    wr(RDT, done);                                                /* буфер снова у карты */
+    return ok ? (int)n : 0;
+}
+
+static int link(netdev_t* d) { (void)d; return (rd(STATUS) >> 1) & 1; }
+
+static uint16_t eeprom(uint8_t a) {
+    wr(EERD, 1u | ((uint32_t)a << 8));
+    for (int i = 0; i < 100000; i++) { uint32_t v = rd(EERD); if (v & 0x10) return (uint16_t)(v >> 16); }
+    return 0xFFFF;
+}
+
+int e1000_probe(void) {
+    const pci_dev_t* p = 0;
+    for (unsigned i = 0; i < sizeof ids / sizeof ids[0] && !p; i++) p = pci_find(0x8086, ids[i]);
+    if (!p) return -1;
+    if (p->bar[0].io || !p->bar[0].base) { uart_print("[KIRA NET] e1000: register BAR is not memory - not supported.\n"); return -2; }
+    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER);
+    e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
+    if (!e.r) return -3;
+
+    wr(IMC, 0xFFFFFFFF);                                          /* без прерываний: опрос */
+    wr(CTRL, rd(CTRL) | (1u << 26));                              /* сброс */
+    for (int i = 0; i < 1000000 && (rd(CTRL) & (1u << 26)); i++) cpu_relax();
+    wr(IMC, 0xFFFFFFFF);
+    wr(CTRL, (rd(CTRL) | (1u << 6) | (1u << 5)) & ~(1u << 3));    /* SLU, ASDE; без сброса канала */
+
+    uint32_t lo = rd(RAL0), hi = rd(RAH0);
+    if (hi & (1u << 31)) {
+        for (int i = 0; i < 4; i++) e.nd.mac[i] = (uint8_t)(lo >> (8 * i));
+        e.nd.mac[4] = (uint8_t)hi; e.nd.mac[5] = (uint8_t)(hi >> 8);
+    } else {                                                      /* адрес не загружен - прочитать из EEPROM */
+        for (int i = 0; i < 3; i++) { uint16_t w = eeprom((uint8_t)i); e.nd.mac[2 * i] = (uint8_t)w; e.nd.mac[2 * i + 1] = (uint8_t)(w >> 8); }
+        wr(RAL0, (uint32_t)e.nd.mac[0] | (uint32_t)e.nd.mac[1] << 8 | (uint32_t)e.nd.mac[2] << 16 | (uint32_t)e.nd.mac[3] << 24);
+        wr(RAH0, (uint32_t)e.nd.mac[4] | (uint32_t)e.nd.mac[5] << 8 | (1u << 31));
+    }
+    for (int i = 0; i < 128; i++) wr(MTA + 4 * (unsigned)i, 0);
+
+    uint64_t rx_p, tx_p;
+    e.rx = (rxd_t*)virtio_dma_alloc(NRX * sizeof(rxd_t), &rx_p);
+    e.tx = (txd_t*)virtio_dma_alloc(NTX * sizeof(txd_t), &tx_p);
+    e.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &e.rxb_p);
+    e.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &e.txb_p);
+    if (!e.rx || !e.tx || !e.rxb || !e.txb) { uart_print("[KIRA NET] e1000: no memory for rings.\n"); return -4; }
+    for (unsigned i = 0; i < NRX; i++) { e.rx[i].addr = e.rxb_p + i * BUF; e.rx[i].status = 0; }
+    for (unsigned i = 0; i < NTX; i++) { e.tx[i].cmd = 0; e.tx[i].status = 1; }
+
+    wr(RDBAL, (uint32_t)rx_p); wr(RDBAH, (uint32_t)(rx_p >> 32)); wr(RDLEN, NRX * sizeof(rxd_t));
+    wr(RDH, 0); wr(RDT, NRX - 1);
+    wr(RCTL, (1u << 1) | (1u << 15) | (1u << 26));               /* EN, BAM (широковещательные), SECRC; буфер 2048 */
+    wr(TDBAL, (uint32_t)tx_p); wr(TDBAH, (uint32_t)(tx_p >> 32)); wr(TDLEN, NTX * sizeof(txd_t));
+    wr(TDH, 0); wr(TDT, 0);
+    wr(TIPG, 0x0060200A);
+    wr(TCTL, (1u << 1) | (1u << 3) | (0x0Fu << 4) | (0x40u << 12)); /* EN, PSP, порог коллизий, полный дуплекс */
+
+    const char nm[] = "e1000";
+    for (unsigned i = 0; i < sizeof nm; i++) e.nd.name[i] = nm[i];
+    e.nd.send = send; e.nd.recv = recv; e.nd.link = link; e.nd.priv = 0;
+    static const char hx[] = "0123456789abcdef";
+    char m[18];
+    for (int i = 0; i < 6; i++) { m[3 * i] = hx[e.nd.mac[i] >> 4]; m[3 * i + 1] = hx[e.nd.mac[i] & 15]; m[3 * i + 2] = i < 5 ? ':' : 0; }
+    uart_print("[KIRA NET] e1000 (8086:"); uart_print_hex(p->device); uart_print("): MAC "); uart_print(m);
+    uart_print(link(&e.nd) ? ", link up\n" : ", no link yet\n");
+    net_register(&e.nd);
+    return 0;
+}

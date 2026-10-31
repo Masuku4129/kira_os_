@@ -38,6 +38,8 @@
 #include "gfxsrv.h"
 #include "console.h"
 #include "virtio_input.h"
+#include "e1000.h"
+#include "net.h"
 #include "rtc.h"
 #include "spinlock.h"
 #include "platform.h"
@@ -691,6 +693,8 @@ static void cmd(const char* l) {
         sched_dump();
     } else if (word(l, "disk")) { blk_print();
     } else if (word(l, "pci")) { pci_print();
+    } else if (word(l, "net")) { netcmd_net(arg(l));
+    } else if (word(l, "ping")) { netcmd_ping(arg(l));
     } else if (word(l, "ls")) { fscmd_ls(arg(l));
     } else if (word(l, "cat")) { fscmd_cat(arg(l));
     } else if (word(l, "write")) { fscmd_write(arg(l));
@@ -946,6 +950,8 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     input_init();
     if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu): serial console only.\n");
     virtio_input_init();
+    e1000_probe();
+    net_start();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 
     char line[64]; unsigned n = 0;

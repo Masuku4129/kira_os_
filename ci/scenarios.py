@@ -110,6 +110,13 @@ ALL = [
         {"log": [r"фоновые окна не чаще \d+ кадров/с"]},   # режим сборки выбирает замер (оба режима измерены - выше)
         {"log_forbid": NO_ERR + [r"фон ужат до [0-4]% ядер"]},   # фон не морится голодом при свободных ядрах
     ], smp=4, mem="1G", disk="ata", limbo=True),
+    sc("net-e1000", "сеть: Intel e1000 (как в Limbo), DHCP от QEMU, ping шлюза", [
+        {"log": BOOT_LOG},
+        {"log": [r"\[KIRA NET\] e1000 .*MAC 52:54:00", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24, gateway 10\.0\.2\.2"]},
+        {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"ответ от 10\.0\.2\.2", r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0", "-device", "e1000,netdev=n0"]),
     sc("limbo-mttcg", "Limbo с галочкой Enable MTTCG (эмуляция потоком на ядро): 8 plasma - сравнить сборку и отклик с limbo-spam", [
         {"log": BOOT_LOG},
         *[{"send": "plasma"} for _ in range(8)],

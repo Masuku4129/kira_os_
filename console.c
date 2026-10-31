@@ -1,4 +1,5 @@
 #include "console.h"
+#include "net.h"
 #include "input.h"
 #include "proc.h"
 #include "progs.h"
@@ -516,6 +517,8 @@ static const cmd_t cmds[] = {
     { "format",    0,   "KiraFS на диске (стирает его): format ИМЯ yes; без слов - справка", fscmd_format },
     { "disk",      0,   "диски (NVMe, SATA, virtio, ATA) и какой из них системный", cmd_disk },
     { "lspci",     0,   "устройства на шине PCI", cmd_lspci },
+    { "net",       0,   "сеть: карта, канал, адрес (DHCP), шлюз, счётчики", netcmd_net },
+    { "ping",      0,   "ping адрес [число]: эхо ICMP, время ответа", netcmd_ping },
     { "exp",       'e', "опыт: выученная норма, запуски, поколение на диске", cmd_exp },
     { "save",      'v', "сохранить опыт на диск сейчас", cmd_save },
     { "life",      0,   "журнал организма из /var/life.log", cmd_life },

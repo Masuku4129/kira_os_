@@ -140,7 +140,7 @@ $CC $FLAGS -o $T/gfx tests/gfx_test.c gfx2d.c font8x16.c clock.c klog.c fbcon.c
 $T/gfx
 
 echo "== console command line (Enter, backspace, history, clear, Ctrl keys) =="
-$CC $FLAGS -o $T/console tests/console_test.c console.c hwprofile.c uheap.c percpu.c
+$CC $FLAGS -o $T/console tests/console_test.c console.c hwprofile.c uheap.c percpu.c net.c
 $T/console
 
 echo "== UI primitives (angles, arcs, anti-aliasing) =="
@@ -201,5 +201,7 @@ echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
 ASAN_OPTIONS=detect_leaks=0 $T/disp | tail -1
 for r in "1280 720" "1920 1080"; do ASAN_OPTIONS=detect_leaks=0 $T/disp $r | tail -1; done
+$CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
+$T/net
 rm -rf $T
 echo "ALL HOST TESTS PASSED"

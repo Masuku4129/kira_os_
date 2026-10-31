@@ -19,6 +19,8 @@
 #include "clock.h"
 #include "display.h"
 #include "virtio_input.h"
+#include "e1000.h"
+#include "net.h"
 #include "acpi.h"
 #include "hwprofile.h"
 #include "ramext.h"
@@ -152,7 +154,9 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     mouse_init();   // необязательна: без мыши клавиатура работает как раньше
     fat_set_clock(fat_clock);
     usb_init();
-    virtio_input_init();   // клавиатура/мышь/планшет virtio (если машина их даёт)     // USB: клавиатуры, мыши, планшеты, хабы, флешки (UHCI, xHCI): свой поток, работает рядом с PS/2
+    virtio_input_init();
+    e1000_probe();         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
+    net_start();           // стек: ARP, IPv4, ICMP, UDP, DHCP - свой поток   // клавиатура/мышь/планшет virtio (если машина их даёт)     // USB: клавиатуры, мыши, планшеты, хабы, флешки (UHCI, xHCI): свой поток, работает рядом с PS/2
     if (timer_init(TIMER_HZ) != 0)  kernel_panic("Timer initialization failed");
 
     // Частота TSC - до прерываний и без тика: канал 2 PIT / CPUID 0x15 (см. clock.c). От неё зависят часы,

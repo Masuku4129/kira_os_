@@ -13,6 +13,7 @@ SC = [
     dict(name="arm64-gicv3", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci",
          must=[r"GICv3", r"Processors online: 4 of 4 \(PSCI via hvc\)", r"working timer interrupt: 4 of 4", r"entered at EL1", r"RAM: 1024 MB",
                r"\[KIRA PCI\] ECAM at .*BAR\(s\) assigned", r"virtio-blk", r"\[KIRA FS\] KiraFS mounted", r"\[KIRA MIND\] Mind online", r"\[KIRA SYSCALL\] SVC from EL0"],
+         net=True,
          cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]),
                ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)", r"kernel heap: \d+ bytes"]),
                ("test", [r"RESULT: PASS", r"preempted by tick", r"kernel mutex .*: 8000 of 8000 ok"]),
@@ -24,7 +25,9 @@ SC = [
                ("ls /bin", [r"mt", r"ipc"]),
                ("mt", [r"mt: .* - PASS"]),
                ("ipc", []), ("ipc", [r"ipc server: .* - PASS", r"ipc client: .* - PASS"]),
-               ("ps", [r"core\s+RUNNING"])]),
+               ("ps", [r"core\s+RUNNING"]),
+               ("net", [r"канал есть", r"адрес 10\.0\.2\.15"]), ("ping 10.0.2.2 3", [r"ответ от 10\.0\.2\.2", r"получено [1-3]"]),
+               ]),
     dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M", disk="nvme",
          must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB",
                r"\[KIRA NVMe\] nvme0n1", r"\[KIRA FS\] KiraFS mounted"],
@@ -97,6 +100,10 @@ def run(sc, out):
         img = os.path.join(d, "disk.img"); shutil.copyfile("kira-arm64.disk", img)
         args += ["-drive", f"file={img},if=none,id=d0,format=raw"]
         args += ["-device", "nvme,drive=d0,serial=KIRA0001" if sc["disk"] == "nvme" else f"{sc['disk']},drive=d0"]
+    if sc.get("net"):
+        args += ["-netdev", "user,id=n0", "-device", "e1000,netdev=n0"]
+    else:
+        args += ["-nic", "none"]
     qmp_path = os.path.join(d, "qmp.sock")
     if sc.get("gui"):
         if os.path.exists(qmp_path): os.unlink(qmp_path)
