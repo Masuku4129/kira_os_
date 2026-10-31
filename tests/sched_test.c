@@ -384,6 +384,32 @@ int main(void) {
         sched_set_quantum(4);
     }
 
+    // ---- 10. рычаг Разума: ядро отдано окну в фокусе - потоки других программ с него уходят, свои закрепления
+    //          программ и потоки ядра не трогаются; освобождение возвращает всё ----
+    {
+        extern unsigned host_cpu;
+        for (unsigned c = 2; c <= 3; c++) { percpu_alloc(c); host_cpu = c; CHECK(sched_attach_cpu() == 0); }
+        host_cpu = 0;
+        thread_t* f1 = sched_create("focus", dummy, 0, PRIO_NORMAL); f1->pid = 600;
+        thread_t* b1 = sched_create("bg", dummy, 0, PRIO_NORMAL);    b1->pid = 601;
+        thread_t* pin = sched_create_on("pinned", dummy, 0, PRIO_NORMAL, cm_from64(8)); pin->pid = 601;
+        thread_t* kt = sched_create("kthread", dummy, 0, PRIO_NORMAL);
+        CHECK(sched_reserve_core(3, 600) >= 1 && sched_reserved_core() == 3);
+        CHECK(!cm_test(&b1->affinity, 3) && cm_test(&b1->affinity, 2) && (b1->flags & THREAD_F_OFFCORE));
+        CHECK(cm_test(&f1->affinity, 3) && !(f1->flags & THREAD_F_OFFCORE));
+        CHECK(cm_is64(&pin->affinity, 8));                        // закрепление программы - её решение
+        CHECK(cm_is_all(&kt->affinity));                          // потоки ядра не трогаются
+        CHECK(b1->rq_cpu != 3);                                   // из очереди отданного ядра ушёл
+        thread_t* b2 = sched_create("bg-new", dummy, 0, PRIO_NORMAL); b2->pid = 601;
+        sched_reserve_core(3, 600);                               // повтор подхватывает новый поток
+        CHECK(!cm_test(&b2->affinity, 3));
+        sched_reserve_core(2, 601);                               // фокус сменился: теперь 601, ядро 2
+        CHECK(cm_is_all(&b1->affinity) && !cm_test(&f1->affinity, 2) && cm_test(&f1->affinity, 3));
+        sched_reserve_core(-1, 0);
+        CHECK(cm_is_all(&b1->affinity) && cm_is_all(&b2->affinity) && cm_is_all(&f1->affinity) && sched_reserved_core() == -1);
+        f1->state = b1->state = pin->state = kt->state = b2->state = THREAD_ZOMBIE;
+    }
+
     printf("%s\n", fails ? "FAILED" : "ALL SCHEDULER TESTS PASSED");
     return fails != 0;
 }

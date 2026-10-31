@@ -26,7 +26,8 @@ typedef enum {
 } thread_prio_t;
 
 #define THREAD_F_SERVICE 1u            // поток, без которого система не живёт и не перезапускается (core): сбой в нём - авария
-#define THREAD_F_IDLE    2u            // холостой поток ядра: в очереди готовых не стоит, выбирается, когда работы нет
+#define THREAD_F_IDLE    2u
+#define THREAD_F_OFFCORE 4u            // Разум убрал поток программы с ядра, отданного окну в фокусе (sched_reserve_core)            // холостой поток ядра: в очереди готовых не стоит, выбирается, когда работы нет
 
 typedef struct thread {
     uint64_t rsp;                  // сохранённый указатель стека (должен быть первым полем)
@@ -118,6 +119,11 @@ unsigned sched_set_proc_weight(uint32_t pid, uint32_t weight);
 // pct процентов, остальное время спит (ядро свободно для других и, на эмуляторе, для машины-хозяина). 100 - снять.
 #define SCHED_LIMIT_WINDOW 50
 unsigned sched_set_proc_limit(uint32_t pid, uint32_t pct);
+/* Рычаг Разума: ядро core - только программе keep_pid (окно в фокусе) и потокам ядра; потоки остальных программ
+   уходят с него (стоящие в его очереди - в другие, идущий на нём - вытесняется). core < 0 - вернуть всё как было.
+   Повторный вызов с тем же core подхватывает новые потоки. Возвращает число перенесённых потоков. */
+unsigned sched_reserve_core(int core, uint32_t keep_pid);
+int      sched_reserved_core(void);          /* -1 - ядро не отдано */
 // Сколько потоков (кроме холостых) сейчас готовы или исполняются.
 unsigned sched_runnable(void);
 

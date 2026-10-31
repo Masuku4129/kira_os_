@@ -71,6 +71,7 @@ typedef struct {
     uint8_t* buf; uint64_t buf_phys;    /* данные */
     uint32_t errors;
     irqwait_t iw;                       /* конец команды этого порта (прерывание) */
+    volatile uint32_t is_seen;          /* флаги PxIS, снятые обработчиком прерывания (для проверки ошибок команды) */
 } ahci_port_t;
 
 static ahci_ctl_t ctls[MAXCTL];
@@ -152,11 +153,12 @@ static int ata_cmd(ahci_port_t* p, uint8_t cmd, uint64_t lba, uint32_t count, ui
     hdr[2] = (uint32_t)ctp; hdr[3] = (uint32_t)(ctp >> 32);
     BARRIER();
     w32(p->pr, P_IS, 0xFFFFFFFFu);
+    __atomic_store_n(&p->is_seen, 0, __ATOMIC_RELEASE);
     blk_wait_t w; blk_wait_begin(&w, timeout_ms);
     if (p->c->irq) blk_wait_irq(&w, &p->iw);                          /* до запуска: конец команды не проскочит */
     w32(p->pr, P_CI, 1u);
     do {
-        uint32_t is = r32(p->pr, P_IS);
+        uint32_t is = r32(p->pr, P_IS) | __atomic_load_n(&p->is_seen, __ATOMIC_ACQUIRE);
         if (is & IS_FATAL) break;
         if (!(r32(p->pr, P_CI) & 1u)) {
             BARRIER();
@@ -276,13 +278,20 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     blk_register(&p->dev, p->dev.name, model);
 }
 
-/* Сообщение контроллера: какие порты отметились - тех и будить. Флаги порта (PxIS) снимает сама команда. */
+/* Сообщение контроллера: флаги отметившихся портов снимаются здесь (сначала PxIS, потом IS - по AHCI 1.3, иначе
+   контроллер повторяет сообщение без конца) и сохраняются для команды, которая проверит в них ошибки. */
 static void ahci_irq(void* ctx) {
     ahci_ctl_t* c = (ahci_ctl_t*)ctx;
     uint32_t is = r32(c->abar, IS);
+    for (unsigned i = 0; i < sizeof ports / sizeof ports[0]; i++) {       /* и порт, который ещё опознаётся */
+        ahci_port_t* p = &ports[i];
+        if (p->c != c || !(is & (1u << p->port)) || !p->pr) continue;
+        uint32_t pis = r32(p->pr, P_IS);
+        w32(p->pr, P_IS, pis);
+        __atomic_or_fetch(&p->is_seen, pis, __ATOMIC_RELEASE);
+        irqwait_fire(&p->iw);
+    }
     w32(c->abar, IS, is);
-    for (unsigned i = 0; i < sizeof ports / sizeof ports[0]; i++)          /* и порт, который ещё опознаётся */
-        if (ports[i].c == c && (is & (1u << ports[i].port))) irqwait_fire(&ports[i].iw);
 }
 
 static void ctl_init(const pci_dev_t* pd, int ci) {

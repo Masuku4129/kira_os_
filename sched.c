@@ -373,7 +373,8 @@ static void schedule_locked(void) {
         // сохраняет остаток (иначе поток с частыми прерываниями получал бы новый квант
         // каждый раз и никогда не уступал бы); истративший квант - в хвост.
         if (!(prev->flags & THREAD_F_IDLE)) {
-            if (prev->quantum_left > 0) rq_push_preempted(cpu->cpu_id, prev);
+            if (!cm_test(&prev->affinity, cpu->cpu_id)) rq_push(choose_cpu(prev), prev, 0);   /* ядро ему запретили */
+            else if (prev->quantum_left > 0) rq_push_preempted(cpu->cpu_id, prev);
             else rq_push(cpu->cpu_id, prev, 0);
         }
     }
@@ -943,6 +944,39 @@ unsigned sched_set_proc_weight(uint32_t pid, uint32_t weight) {
         t->weight = weight;
         if (t->quantum_left > wq(t)) t->quantum_left = wq(t);
         n++;
+    }
+    spin_unlock_raw(&sched_lock);
+    irq_restore(f);
+    return n;
+}
+
+static int reserved_core = -1;
+int sched_reserved_core(void) { return reserved_core; }
+
+unsigned sched_reserve_core(int core, uint32_t keep_pid) {
+    unsigned n = 0;
+    uint64_t f = irq_save();
+    sl_lock();
+    if (core >= 0 && (!cpu_usable((unsigned)core) || sched_cpu_count() < 3)) core = -1;   /* меньше трёх ядер - не отдаём */
+    reserved_core = core;
+    for (unsigned i = 0; i < thread_hi; i++) {
+        thread_t* t = &threads[i];
+        if (!t->pid || t->state == THREAD_UNUSED || t->state == THREAD_ZOMBIE) continue;
+        int out = core >= 0 && t->pid != keep_pid;
+        if (t->flags & THREAD_F_OFFCORE) {
+            if (out && !cm_test(&t->affinity, (unsigned)core)) continue;   /* уже не на этом ядре */
+            t->affinity = cm_all();                                     /* ядро освобождено, сменилось или поток - фокус */
+            t->flags &= ~THREAD_F_OFFCORE;
+            n++;
+        }
+        if (!out || !cm_is_all(&t->affinity)) continue;                 /* своё закрепление программы не трогаем */
+        cm_clear(&t->affinity, (unsigned)core);
+        t->flags |= THREAD_F_OFFCORE;
+        n++;
+        if (t->state == THREAD_READY && t->rq_cpu == core) { rq_remove(t); rq_push(choose_cpu(t), t, 0); }
+        else if (percpu_table[core].current == t) {                     /* идёт на этом ядре - вытеснить */
+            if ((unsigned)core == this_cpu()->cpu_id) this_cpu()->need_resched = 1; else RESCHED_CPU((unsigned)core);
+        }
     }
     spin_unlock_raw(&sched_lock);
     irq_restore(f);
