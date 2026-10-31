@@ -1,6 +1,7 @@
 #ifndef KIRA_VIRTIO_H
 #define KIRA_VIRTIO_H
 #include <stdint.h>
+#include "cpu.h"
 #include <stddef.h>
 #include "pci.h"
 
@@ -71,7 +72,7 @@ void host_relax(void);
 #define MMIO_W8(a, v)  (*(volatile uint8_t*)(a) = (uint8_t)(v))
 #define MMIO_W16(a, v) (*(volatile uint16_t*)(a) = (uint16_t)(v))
 #define MMIO_W32(a, v) (*(volatile uint32_t*)(a) = (uint32_t)(v))
-#define CPU_RELAX() __asm__ volatile ("pause" ::: "memory")
+#define CPU_RELAX() cpu_relax()
 #endif
 
 #endif

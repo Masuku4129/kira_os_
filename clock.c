@@ -36,7 +36,8 @@ uint64_t clock_khz_from_cpuid15(uint32_t eax_den, uint32_t ebx_num, uint32_t ecx
     return (uint64_t)ecx_hz * ebx_num / eax_den / 1000;
 }
 
-#ifndef KIRA_HOST_TEST
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+/* Калибровка нужна только TSC x86: у ARM частота счётчика известна (CNTFRQ_EL0), её передают в clock_init. */
 static inline void outb_(uint16_t p, uint8_t v) { __asm__ volatile ("outb %0, %1" : : "a"(v), "Nd"(p)); }
 static inline uint8_t inb_(uint16_t p) { uint8_t v; __asm__ volatile ("inb %1, %0" : "=a"(v) : "Nd"(p)); return v; }
 

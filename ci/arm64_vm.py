@@ -2,7 +2,7 @@
 """Стенд ARM64: QEMU virt (эмуляция TCG), последовательный порт на stdio. Каждый сценарий - машина с другим
 железом (GICv2/GICv3, число ядер, ОЗУ, процессор, вход на EL1 или EL2); ядро обязано найти всё по дереву устройств.
 Итог - ci-out/arm64-<имя>/serial.log и result.json."""
-import json, os, re, select, subprocess, sys, time
+import json, os, re, select, shutil, subprocess, sys, time
 
 READY = r"\[KIRA ARM64\] Ready\."
 COMMON = [r"MMU on: identity map", r"generic timer verified: ([5-9]\d|1[0-4]\d) ticks in 200 ms",
@@ -10,14 +10,20 @@ COMMON = [r"MMU on: identity map", r"generic timer verified: ([5-9]\d|1[0-4]\d) 
 NO_ERR = [r"FATAL", r"exception on core", r"did not come up", r"CPU_ON .* failed", r"KERNEL PANIC", r"RESULT: FAIL", r"no thread slot"]
 
 SC = [
-    dict(name="arm64-gicv3", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G",
-         must=[r"GICv3", r"Processors online: 4 of 4 \(PSCI via hvc\)", r"working timer interrupt: 4 of 4", r"entered at EL1", r"RAM: 1024 MB"],
+    dict(name="arm64-gicv3", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci",
+         must=[r"GICv3", r"Processors online: 4 of 4 \(PSCI via hvc\)", r"working timer interrupt: 4 of 4", r"entered at EL1", r"RAM: 1024 MB",
+               r"\[KIRA PCI\] ECAM at .*BAR\(s\) assigned", r"virtio-blk", r"\[KIRA FS\] KiraFS mounted", r"\[KIRA MIND\] Mind online"],
          cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]),
                ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)", r"kernel heap: \d+ bytes"]),
                ("test", [r"RESULT: PASS", r"preempted by tick", r"kernel mutex .*: 8000 of 8000 ok"]),
-               ("ps", [r"core\s+RUNNING", r"idle"]), ("ps", [r"threads: 5 of"])]),
-    dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M",
-         must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB"],
+               ("ps", [r"core\s+RUNNING", r"idle", r"mind-tact"]),
+               ("disk", [r"\[системный\]"]), ("df", [r"KiraFS"]),
+               ("write /hello.txt kira-arm64", []), ("cat /hello.txt", [r"kira-arm64"]), ("ls /", [r"hello.txt"]),
+               ("ai", [r"предвидение: риск опоздания экрана", r"здоровье \d+"]), ("ai model", [r"обучено на \d+ с"]),
+               ("ai cap 70", [r"70%"])]),
+    dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M", disk="nvme",
+         must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB",
+               r"\[KIRA NVMe\] nvme0n1", r"\[KIRA FS\] KiraFS mounted"],
          cmds=[("smp", [r"core 1: .*online"]), ("test", [r"RESULT: PASS"])]),
     dict(name="arm64-el2-8cpu", m="virt,gic-version=3,virtualization=on", cpu="cortex-a57", smp=8, mem="3G",
          must=[r"entered at EL2, running at EL1", r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"RAM: 3072 MB"],
@@ -33,6 +39,10 @@ def run(sc, out):
     args = ["qemu-system-aarch64", "-M", sc["m"], "-cpu", sc["cpu"], "-smp", str(sc["smp"]), "-m", sc["mem"],
             "-nographic", "-monitor", "none", "-serial", "stdio", "-kernel", "kira-arm64.img",
             "-d", "guest_errors,unimp", "-D", os.path.join(d, "qemu-debug.log")]
+    if sc.get("disk"):                              # свежая копия диска с KiraFS на каждую машину
+        img = os.path.join(d, "disk.img"); shutil.copyfile("kira-arm64.disk", img)
+        args += ["-drive", f"file={img},if=none,id=d0,format=raw"]
+        args += ["-device", "nvme,drive=d0,serial=KIRA0001" if sc["disk"] == "nvme" else f"{sc['disk']},drive=d0"]
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     log = b""; t0 = time.time(); err = None
 
@@ -83,6 +93,7 @@ def run(sc, out):
     finally:
         p.kill(); p.wait()
         open(os.path.join(d, "serial.log"), "wb").write(log)
+        if os.path.exists(os.path.join(d, "disk.img")): os.unlink(os.path.join(d, "disk.img"))
         dbg = os.path.join(d, "qemu-debug.log")
         if os.path.exists(dbg):                     # начало журнала исключений QEMU - самое ценное, остальное - тики
             with open(dbg, "rb") as f: head = f.read(200000)

@@ -31,9 +31,8 @@ static volatile uint64_t req_count, req_tsc;      /* для Разума: чис
 
 void blk_stats(uint64_t* requests, uint64_t* tsc_total) { *requests = req_count; *tsc_total = req_tsc; }
 
-static inline void outb80(void) { __asm__ volatile ("outb %%al, $0x80" :: "a"(0)); }
 static volatile uint64_t fake_us;
-void blk_udelay(uint32_t us) { fake_us += us; while (us--) outb80(); }
+void blk_udelay(uint32_t us) { fake_us += us; while (us--) cpu_io_delay(); }
 
 static uint64_t now_us(int real) { return real ? clock_ns() / 1000 : fake_us; }
 void blk_wait_begin(blk_wait_t* w, uint32_t ms) {
@@ -45,9 +44,9 @@ int blk_wait_step(blk_wait_t* w) {
     uint64_t t = now_us(w->real);
     if (t >= w->end) return 0;
     if (!w->real) blk_udelay(t - w->start < 200 ? 2 : 20);
-    else if (t - w->start < 200) { for (int i = 0; i < 64; i++) __asm__ volatile ("pause"); }
+    else if (t - w->start < 200) { for (int i = 0; i < 64; i++) cpu_relax(); }
     else if (sched_can_sleep()) sched_yield();                         /* долгая команда: процессор - другим */
-    else for (int i = 0; i < 256; i++) __asm__ volatile ("pause");
+    else for (int i = 0; i < 256; i++) cpu_relax();
     return 1;
 }
 
@@ -113,11 +112,13 @@ void blk_register(blk_dev_t* raw, const char* id, const char* model) {
     classify(s);
 }
 
+#if defined(__x86_64__)
 static int has_ide(void) {
     if (pci_count() == 0) return 1;
     for (int i = 0; i < pci_count(); i++) { const pci_dev_t* p = pci_get(i); if (p->class_code == 0x01 && p->subclass == 0x01) return 1; }
     return 0;
 }
+#endif
 
 void blk_probe(void) {
     nslots = 0; primary = 0;
@@ -127,7 +128,9 @@ void blk_probe(void) {
     if (v) blk_register(v, "vda", "virtio-blk");
     nvme_probe();
     ahci_probe();
-    if (has_ide()) { blk_dev_t* a = ata_probe(); if (a) blk_register(a, "ata0", a->name); }
+#if defined(__x86_64__)
+    if (has_ide()) { blk_dev_t* a = ata_probe(); if (a) blk_register(a, "ata0", a->name); }   /* порты IDE - только у ПК */
+#endif
     for (int i = 0; i < nslots; i++) if (slots[i].info.kira) { primary = &slots[i].pub; break; }
     if (nslots && !primary) {
         int blank = -1;

@@ -18,6 +18,15 @@
 #include "pmm_arm.h"
 #include "pmm.h"
 #include "selftest_arm.h"
+#include "pci.h"
+#include "blk.h"
+#include "experience.h"
+#include "fscmd.h"
+#include "life.h"
+#include "mind_sys.h"
+#include "immune.h"
+#include "watchdog.h"
+#include "clock.h"
 
 #define MAX_RAM 16
 
@@ -84,6 +93,8 @@ void uart_putchar(char c) { char b[2] = { c, 0 }; uart_print(b); }
 void uart_print_dec(uint64_t v) { uint64_t f = lock(); put_dec_raw(v); unlock(f); }
 void uart_print_hex(uint64_t v) { uint64_t f = lock(); put_hex_raw(v); unlock(f); }
 void uart_switch_flush(void) { }
+void uart_print_serial(const char* s) { uart_print(s); }
+void uart_flush_all(void) { }                                    /* буферов нет: досылать нечего */   /* экрана нет: весь вывод - в порт */
 int  uart_getchar(void) { return uart_getc(); }
 
 /* ---------------- память ---------------- */
@@ -252,6 +263,45 @@ void vmm_kstack_free(void* base) {
 int vmm_is_kstack(uint64_t a) { return a >= KSTACK_VA && a < KSTACK_VA + KSTACK_SLOTS * KSTACK_STRIDE; }
 int vmm_kstack_guard_hit(uint64_t a) { return vmm_is_kstack(a) && ks_size && (a - KSTACK_VA) % KSTACK_STRIDE < KSTACK_STRIDE - ks_size; }
 
+/* ---------------- окно устройств и проверка отображения (vmm.h) ----------------
+   Тождественная карта уже покрывает ОЗУ и первые 4 ГБ; регистры устройств выше (ECAM, окна PCIe за 4 ГБ)
+   отображаются по требованию гигабайтными блоками «устройство, без исполнения». */
+static volatile uint32_t map_lock;
+volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
+    (void)cache;                                                 /* устройства - всегда nGnRE */
+    if (!len || pa + len < pa || pa + len > (1ull << 48)) return 0;
+    uint64_t f = irq_save();
+    while (__atomic_exchange_n(&map_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
+    int ok = 1;
+    for (uint64_t gb = pa & ~0x3FFFFFFFull; gb < pa + len && ok; gb += 1ull << 30) {
+        uint64_t* l1 = table_page(l0, (unsigned)(gb >> 39) & 511);
+        if (!l1) { ok = 0; break; }
+        unsigned i1 = (unsigned)(gb >> 30) & 511;
+        if (!(l1[i1] & PTE_VALID)) { l1[i1] = gb | PTE_DEVICE | PTE_BLOCK; __asm__ volatile ("dsb ishst\n isb" ::: "memory"); }
+    }
+    __atomic_store_n(&map_lock, 0, __ATOMIC_RELEASE);
+    irq_restore(f);
+    return ok ? (volatile void*)(uintptr_t)pa : 0;
+}
+
+/* Обход таблиц: адрес отображён и куда. 0 - да. */
+int vmm_translate(uint64_t va, uint64_t* pa) {
+    uint64_t* t = l0;
+    for (int lvl = 0; lvl < 4; lvl++) {
+        unsigned sh = 39 - 9 * lvl;
+        uint64_t e = t[(va >> sh) & 511];
+        if (!(e & PTE_VALID)) return -1;
+        if (lvl == 3 || (e & 3) == PTE_BLOCK) {
+            if (lvl == 0) return -1;
+            uint64_t mask = (1ull << sh) - 1;
+            if (pa) *pa = (e & 0x0000FFFFFFFFF000ull & ~mask) | (va & mask);
+            return 0;
+        }
+        t = (uint64_t*)(uintptr_t)(e & 0x0000FFFFFFFFF000ull);
+    }
+    return -1;
+}
+
 /* ---------------- GIC ---------------- */
 static int gic_v3;
 static uint64_t gicd, gicc, gicr_base, gicr_size;
@@ -350,6 +400,8 @@ static uint64_t anchor_cnt;
 static volatile int sched_up, percpu_up, halting;
 static unsigned boot_cpu;
 uint64_t timer_get_ticks(void) { return gticks; }
+/* Общего замка тика на ARM64 нет (время двигается сравнением-обменом): в аварийном отчёте - нули. */
+void timer_lock_state(uint32_t* next, uint32_t* owner) { *next = 0; *owner = 0; }
 
 static void ticks_advance(void) {
     uint64_t d = (now_cnt() - anchor_cnt) / tick_cycles, cur = gticks;
@@ -403,6 +455,12 @@ void smp_idle_tick_on(void) {
     timer_start();
 }
 int smp_halting(void) { return halting; }
+/* Авария: остальные ядра встают (сигнал SGI с высшим приоритетом; ядро с выключенными прерываниями его не примет -
+   на ARM нет немаскируемого прерывания, как NMI у x86, его роль выполнит псевдо-NMI GICv3 позже). */
+void smp_halt_others(void) {
+    if (__atomic_exchange_n(&halting, 1, __ATOMIC_ACQ_REL)) for (;;) __asm__ volatile ("msr daifset, #2\n wfi");
+    for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && (!percpu_up || i != this_cpu()->cpu_id)) send_sgi(i, SGI_HALT);
+}
 
 /* Адресное пространство следующего потока: на ARM64 пока все потоки - потоки ядра в общей тождественной карте
    (TTBR0), переключать нечего; пространства программ появятся вместе с программами. */
@@ -416,8 +474,7 @@ const void* fpu_initial_state(void) {
 void kernel_panic(const char* reason) __attribute__((noreturn));
 void kernel_panic(const char* reason) {
     __asm__ volatile ("msr daifset, #2");
-    if (__atomic_exchange_n(&halting, 1, __ATOMIC_ACQ_REL)) for (;;) __asm__ volatile ("wfi");
-    for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && (!percpu_up || i != this_cpu()->cpu_id)) send_sgi(i, SGI_HALT);
+    smp_halt_others();
     mmu_on = 0;                                                  /* вывод без замка: его мог держать упавший код */
     kprintf("\n[KIRA KERNEL PANIC] %s\n", reason);
     if (sched_up) sched_crash_report(uart_print);
@@ -457,10 +514,11 @@ void arm_exception(uint64_t* frame, uint64_t kind) {
             SYSREG_W(cntv_tval_el0, tick_cycles);
             cpus[c ? c->cpu_id : my_cpu()].ticks++;
             ticks_advance();
-            if (sched_up) sched_tick();
+            if (sched_up) { watchdog_check(); sched_tick(); }
         } else if (id == SGI_RESCHED) {
             if (c) c->need_resched = 1;                          /* выбор потока - после EOI */
         } else if (id == SGI_HALT) {
+            if (c) { c->halt_rip = frame[31]; c->halt_rbp = frame[29]; __atomic_store_n(&c->halted, 1, __ATOMIC_RELEASE); }
             gic_eoi(iar);
             for (;;) __asm__ volatile ("msr daifset, #0xf\n wfi");   /* авария на другом ядре */
         }
@@ -508,6 +566,8 @@ void arm_secondary_main(void) {
 }
 
 /* ---------------- консоль ---------------- */
+static int word(const char* l, const char* w) { while (*w && *l == *w) { l++; w++; } return !*w && (!*l || *l == ' '); }
+static const char* arg(const char* l) { while (*l && *l != ' ') l++; while (*l == ' ') l++; return l; }
 static void cmd(const char* l) {
     if (l[0] == 's' && l[1] == 'm' && l[2] == 'p' && !l[3]) {
         for (unsigned i = 0; i < ncpu; i++)
@@ -520,14 +580,69 @@ static void cmd(const char* l) {
                 (uint64_t)pmm_get_total_memory_kb(), (uint64_t)hs.used_bytes, (uint64_t)hs.used_blocks);
     } else if (l[0] == 'p' && l[1] == 's' && !l[2]) {
         sched_dump();
+    } else if (word(l, "disk")) { blk_print();
+    } else if (word(l, "pci")) { pci_print();
+    } else if (word(l, "ls")) { fscmd_ls(arg(l));
+    } else if (word(l, "cat")) { fscmd_cat(arg(l));
+    } else if (word(l, "write")) { fscmd_write(arg(l));
+    } else if (word(l, "mkdir")) { fscmd_mkdir(arg(l));
+    } else if (word(l, "rm")) { fscmd_rm(arg(l));
+    } else if (word(l, "df")) { fscmd_df(arg(l));
+    } else if (word(l, "cp")) { fscmd_cp(arg(l));
+    } else if (word(l, "format")) { fscmd_format(arg(l));
+    } else if (word(l, "ai")) {
+        const char* a = arg(l);
+        if (a[0] == 'c' && a[1] == 'a' && a[2] == 'p') {
+            const char* v = a + 3; while (*v == ' ') v++;
+            int n = 0; while (*v >= '0' && *v <= '9') n = n * 10 + (*v++ - '0');
+            if (n >= 10 && n <= 100) { mind_sys_request_cap(n); kprintf("core load cap for background: %u%%\n", (uint64_t)n); }
+            else kprintf("core load cap for background now %u%% (ai cap 10..100)\n", (uint64_t)mind_sys_core_cap());
+        } else mind_sys_print(a);
     } else if (l[0] == 't' && l[1] == 'e' && l[2] == 's' && l[3] == 't' && !l[4]) {
         selftest_arm_start();
     } else if (l[0] == 'f' && l[1] == 'a' && l[2] == 'u' && l[3] == 'l' && l[4] == 't' && !l[5]) {
         kprintf("reading an address outside the map: the exception vectors must report it\n");
         (void)*(volatile uint64_t*)(uintptr_t)0x0000F00000000000ull;
     } else if (l[0]) {
-        kprintf("commands: smp, mem, ps, test, fault\n");
+        kprintf("commands: smp, mem, ps, test, disk, pci, ls, cat, write, mkdir, rm, df, cp, format, ai [why|norms|procs|model|cap N], fault\n");
     }
+}
+
+/* ---------------- PCI Express из дерева устройств ----------------
+   Узел pci-host-ecam-generic: reg - окно конфигурации ECAM, bus-range - шины, ranges - окна адресов для BAR
+   (3 ячейки адреса шины: тип пространства в старшей - 1 порты, 2 память 32 бита, 3 память 64 бита). Прошивки нет,
+   поэтому адреса BAR назначает ядро. Драйверы (virtio, NVMe, AHCI, xHCI) - те же, что на x86-64. */
+static void arm_pci_init(const void* fdt) {
+    int n = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
+    if (n < 0) { kprintf("[KIRA PCI] no PCI Express host bridge in the device tree\n"); return; }
+    uint64_t base, size;
+    if (fdt_reg(fdt, n, 0, &base, &size)) return;
+    uint32_t len, bus0 = 0, bus1 = (uint32_t)(size >> 20) - 1;
+    const uint8_t* br = (const uint8_t*)fdt_prop(fdt, n, "bus-range", &len);
+    if (br && len >= 8) { bus0 = fdt_u32(br); bus1 = fdt_u32(br + 4); }
+    if (bus1 > 255) bus1 = 255;
+    volatile void* e = vmm_map_mmio(base, size, 0);
+    if (!e) return;
+    pci_use_ecam(e, (uint8_t)bus0, (uint8_t)bus1);
+    pci_window_t m32 = { 0, 0, 0, 0 }, m64 = { 0, 0, 0, 0 };
+    uint32_t pac = 2, sc = 2;
+    int par = fdt_parent(fdt, n);
+    if (par >= 0) fdt_prop_u32(fdt, par, "#address-cells", &pac);
+    fdt_prop_u32(fdt, n, "#size-cells", &sc);
+    const uint8_t* r = (const uint8_t*)fdt_prop(fdt, n, "ranges", &len);
+    uint32_t stride = 4 * (3 + pac + sc);
+    for (uint32_t o = 0; r && stride && o + stride <= len; o += stride) {
+        uint32_t hi = fdt_u32(r + o);
+        uint64_t pci = (uint64_t)fdt_u32(r + o + 4) << 32 | fdt_u32(r + o + 8), cpu = 0, sz = 0;
+        for (uint32_t i = 0; i < pac; i++) cpu = cpu << 32 | fdt_u32(r + o + 12 + 4 * i);
+        for (uint32_t i = 0; i < sc; i++) sz = sz << 32 | fdt_u32(r + o + 12 + 4 * pac + 4 * i);
+        pci_window_t* w = ((hi >> 24) & 3) == 2 ? &m32 : ((hi >> 24) & 3) == 3 ? &m64 : 0;
+        if (w && sz > w->size) { w->pci_base = pci; w->next = pci; w->size = sz; w->cpu_off = (int64_t)(cpu - pci); }
+    }
+    int nd = pci_init();
+    int nb = pci_assign(&m32, &m64);
+    kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\n",
+            base, (uint64_t)bus0, (uint64_t)bus1, (uint64_t)nd, (uint64_t)nb, m32.pci_base, m64.pci_base);
 }
 
 /* ---------------- вход ---------------- */
@@ -703,15 +818,31 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     unsigned ticking = 0;
     for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && cpus[i].ticks > 0 && cpus[i].gic_ok) ticking++;
     kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u (idle cores then switch their tick off)\n", (uint64_t)ticking, (uint64_t)started);
-    kprintf("[KIRA ARM64] Ready. Commands: smp, mem, ps, test, fault\n");
+    clock_init(cnt_freq / 1000);
+    arm_pci_init(fdt);
+    immune_init();
+    watchdog_init();
+    experience_init();       /* диски (virtio, NVMe, AHCI по PCI) и опыт прошлых жизней */
+    fs_init();               /* KiraFS на системном диске */
+    life_init();
+    mind_sys_init();         /* Разум: нормы, модель предвидения, тактика ~40 Гц */
+    kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 
     char line[64]; unsigned n = 0;
     kprintf("kira-arm64> ");
     for (;;) {
         int c = uart_getc();
         if (c < 0) {                                             /* поток core спит, ядро отдаётся другим потокам */
-            static uint64_t last_reap;
-            if (timer_get_ticks() - last_reap >= TIMER_HZ) { last_reap = timer_get_ticks(); sched_reap(); }   /* стеки завершённых */
+            static uint64_t last_sec, seconds;
+            if (timer_get_ticks() - last_sec >= TIMER_HZ) {      /* раз в секунду: Разум, опыт, журнал, сборка стеков */
+                last_sec = timer_get_ticks();
+                seconds++;
+                mind_sys_tick(seconds);
+                experience_tick(seconds);
+                sched_reap();
+            }
+            life_tick();
+            watchdog_feed();
             sched_sleep_ticks(1);
             continue;
         }

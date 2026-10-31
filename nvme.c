@@ -1,3 +1,4 @@
+#include "cpu.h"
 #include "blk.h"
 #include "pci.h"
 #include "uart.h"
@@ -59,7 +60,7 @@ static inline uint32_t r32(volatile uint8_t* b, uint32_t o) { return *(volatile 
 static inline void w32(volatile uint8_t* b, uint32_t o, uint32_t v) { *(volatile uint32_t*)(b + o) = v; }
 static inline uint64_t r64(volatile uint8_t* b, uint32_t o) { return (uint64_t)r32(b, o) | (uint64_t)r32(b, o + 4) << 32; }
 static inline void w64(volatile uint8_t* b, uint32_t o, uint64_t v) { w32(b, o, (uint32_t)v); w32(b, o + 4, (uint32_t)(v >> 32)); }
-#define BARRIER() __asm__ volatile ("" ::: "memory")
+#define BARRIER() cpu_mb()            /* DMA и регистры устройства: на ARM нужен настоящий барьер */
 
 static int wait_rdy(nvme_ctl_t* c, uint32_t want) {
     blk_wait_t w; blk_wait_begin(&w, c->timeout_ms);

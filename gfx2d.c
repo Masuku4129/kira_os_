@@ -9,7 +9,15 @@ void gfx_fill64(void* dst, uint64_t pattern, uint64_t n) {
     __asm__ volatile ("rep stosq" : "+D"(dst), "+c"(n) : "a"(pattern) : "memory");
 }
 #else
-#error "gfx2d: x86_64 only"
+/* Без строковых команд x86: по 8 байт (поверхности выровнены по 8). */
+void gfx_copy64(void* dst, const void* src, uint64_t n) {
+    uint64_t* d = (uint64_t*)dst; const uint64_t* s = (const uint64_t*)src;
+    while (n--) *d++ = *s++;
+}
+void gfx_fill64(void* dst, uint64_t pattern, uint64_t n) {
+    uint64_t* d = (uint64_t*)dst;
+    while (n--) *d++ = pattern;
+}
 #endif
 
 static inline int imin(int a, int b) { return a < b ? a : b; }

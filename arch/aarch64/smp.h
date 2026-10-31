@@ -7,4 +7,5 @@ void smp_resched_cpu(unsigned cpu);       // ядру cpu - выбрать по�
 void smp_idle_tick_off(void);             // простаивающее ядро (кроме хранителя времени) выключает тик
 void smp_idle_tick_on(void);
 int  smp_halting(void);
+void smp_halt_others(void);              // авария: остальные ядра встают
 #endif

@@ -6,8 +6,8 @@ SECTIONS
 {
     . = 0;
     __kernel_start = .;
-    .text : { KEEP(*(.text.boot)) *(.text*) }
-    .rodata : ALIGN(16) { *(.rodata*) }
+    .text : { text_start = .; KEEP(*(.text.boot)) *(.text*) text_end = .; }
+    .rodata : ALIGN(16) { ro_start = .; *(.rodata*) ro_end = .; }
     .data.rel.ro : ALIGN(16) { *(.data.rel.ro*) }
     .rela.dyn : ALIGN(8) { __rela_start = .; *(.rela*) __rela_end = .; }
     .dynamic : { *(.dynamic) }

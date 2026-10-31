@@ -12,3 +12,4 @@ kira_flash.img
 build-arm64/
 kira-arm64.elf
 kira-arm64.img
+kira-arm64.disk

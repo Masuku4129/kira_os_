@@ -1,3 +1,4 @@
+#include "cpu.h"
 #include "usb.h"
 #include "pci.h"
 
@@ -82,7 +83,7 @@ static int started;
 static xhci_t* X;
 #define xs (*X)
 
-#define BARRIER() __asm__ volatile ("" ::: "memory")
+#define BARRIER() cpu_mb()            /* DMA и регистры устройства: на ARM нужен настоящий барьер */
 static inline uint32_t r32(volatile uint8_t* b, uint32_t off) { return *(volatile uint32_t*)(b + off); }
 static inline void w32(volatile uint8_t* b, uint32_t off, uint32_t v) { *(volatile uint32_t*)(b + off) = v; }
 static inline void w64(volatile uint8_t* b, uint32_t off, uint64_t v) { w32(b, off, (uint32_t)v); w32(b, off + 4, (uint32_t)(v >> 32)); }

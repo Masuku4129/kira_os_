@@ -98,7 +98,7 @@ void kpar_run(kpar_fn fn, void* ctx, uint32_t n) {
        виртуальной машине, самим хозяином), вызывающий не жжёт ядро до конца кванта, а спит до последней части. */
     uint64_t t0 = rdtsc(), spin = clock_tsc_khz() / 20;        /* ~50 мкс */
     while (__atomic_load_n(&done, __ATOMIC_ACQUIRE) < n) {
-        if (!spin || rdtsc() - t0 < spin || !sched_can_sleep()) { __asm__ volatile ("pause"); continue; }
+        if (!spin || rdtsc() - t0 < spin || !sched_can_sleep()) { cpu_relax(); continue; }
         f = spin_lock_irqsave(&lk);
         caller = (thread_t*)sched_current();                     /* сначала объявиться, потом проверить: */
         __atomic_thread_fence(__ATOMIC_SEQ_CST);                  /* иначе последний помощник мог не увидеть ждущего */

@@ -55,10 +55,21 @@ static inline void irq_restore(uint64_t flags) {
 }
 #endif
 
+#ifdef KIRA_HOST_TEST
+static inline void cpu_relax(void) { }
+static inline void cpu_mb(void) { __asm__ volatile ("" ::: "memory"); }
+static inline void cpu_io_delay(void) { }
+#endif
 #ifndef KIRA_HOST_TEST
 static inline void cpu_halt(void) { __asm__ volatile ("hlt"); }
 static inline void cpu_irq_off(void) { __asm__ volatile ("cli" ::: "memory"); }
 static inline void cpu_irq_on(void) { __asm__ volatile ("sti" ::: "memory"); }
+static inline void cpu_relax(void) { __asm__ volatile ("pause" ::: "memory"); }
+/* Порядок записей в память (буферы DMA) и в регистры устройства: на x86-64 он и так соблюдается (запись в
+   некэшируемую память не обгоняет прежние), нужен только барьер компилятора. */
+static inline void cpu_mb(void) { __asm__ volatile ("" ::: "memory"); }
+/* Пауза ~1 мкс без часов (до калибровки TSC): запись в порт 0x80 занимает около микросекунды на любом ПК. */
+static inline void cpu_io_delay(void) { __asm__ volatile ("outb %%al, $0x80" :: "a"(0)); }
 static inline int cpu_irq_enabled(void) { uint64_t f; __asm__ volatile ("pushfq; pop %0" : "=r"(f)); return (f >> 9) & 1; }
 #endif
 

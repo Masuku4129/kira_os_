@@ -1,4 +1,5 @@
 #include "watchdog.h"
+#include "cpu.h"
 #include "uart.h"
 #include "timer.h"
 #include "smp.h"
@@ -60,7 +61,7 @@ void watchdog_check(void) {
 }
 
 void watchdog_trigger_panic(const char* reason) {
-    __asm__ volatile ("cli");
+    cpu_irq_off();
     smp_halt_others();                // остановить остальные ядра: иначе «система остановлена» было бы неправдой
     spin_bust_locks();                // замок мог держать зависший код: отчёт не должен на нём встать
     sched_crash_wait_halted();        // ядра записывают, где стояли: отчёт покажет место зависания
@@ -75,7 +76,5 @@ void watchdog_trigger_panic(const char* reason) {
     uart_print("[KIRA WATCHDOG] Halting execution immediately.\n");
     uart_flush_all();
     display_panic_flush();
-    for (;;) {
-        __asm__ volatile ("hlt");
-    }
+    for (;;) cpu_halt();
 }

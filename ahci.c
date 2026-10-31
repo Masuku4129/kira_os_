@@ -1,3 +1,4 @@
+#include "cpu.h"
 #include "blk.h"
 #include "pci.h"
 #include "uart.h"
@@ -77,7 +78,7 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
 
 static inline uint32_t r32(volatile uint8_t* b, uint32_t off) { return *(volatile uint32_t*)(b + off); }
 static inline void w32(volatile uint8_t* b, uint32_t off, uint32_t v) { *(volatile uint32_t*)(b + off) = v; }
-#define BARRIER() __asm__ volatile ("" ::: "memory")
+#define BARRIER() cpu_mb()            /* DMA и регистры устройства: на ARM нужен настоящий барьер */
 
 /* Ждать, пока (reg & mask) == want; не дольше ms миллисекунд. 0 - дождались. */
 static int wait_reg(volatile uint8_t* b, uint32_t off, uint32_t mask, uint32_t want, uint32_t ms) {

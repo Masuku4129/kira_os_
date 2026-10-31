@@ -21,7 +21,10 @@ typedef struct {                 /* способ доступа к конфиг�
     void (*write32)(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t val);
 } pci_backend_t;
 
-void pci_set_backend(const pci_backend_t* b);      /* 0 - порты 0xCF8/0xCFC */
+void pci_set_backend(const pci_backend_t* b);      /* 0 - порты 0xCF8/0xCFC (только x86) */
+void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end);   /* конфигурация через ECAM */
+typedef struct { uint64_t pci_base, size, next; int64_t cpu_off; } pci_window_t;   /* окно адресов моста */
+int  pci_assign(pci_window_t* mem32, pci_window_t* mem64);   /* назначить пустые BAR (после pci_init); число BAR */
 int  pci_init(void);                               /* число найденных устройств */
 int  pci_count(void);
 const pci_dev_t* pci_get(int i);
