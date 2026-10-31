@@ -359,7 +359,7 @@ static void update_files(void) {
    Параллельная сборка выгодна, только если ядра настоящие: на эмуляторе, который исполняет все виртуальные ядра одним
    потоком телефона (Limbo), помощники лишь добавляют переключения. Поэтому цена 1000 точек меряется в обоих режимах
    (скользящее среднее по крупным кадрам), раз в 5 с 16 кадров собираются другим способом, и выбирается дешёвый
-   (если дешевле хотя бы на 10%). */
+   (если дешевле хотя бы на 15%). */
 static struct { uint32_t par; uint64_t cost[2]; uint32_t n[2]; uint32_t probe; uint64_t next_ns; } cs;
 
 void display_compositor_stats(uint32_t* par, uint32_t* ns_par, uint32_t* ns_ser) {
@@ -379,7 +379,7 @@ static void comp_note(int mode, uint64_t ns, uint64_t px) {
     cs.n[mode]++;
     if (cs.probe && --cs.probe == 0 && cs.n[0] >= 8 && cs.n[1] >= 8) {
         uint32_t other = !cs.par;
-        if (cs.cost[other] * 100 < cs.cost[cs.par] * 90) {
+        if (cs.cost[other] * 100 < cs.cost[cs.par] * 85) {       /* запас 15%: шум замера не качает выбор туда-сюда */
             cs.par = other;
             uart_print(other ? "[KIRA DISPLAY] compositor: all cores are cheaper here (" : "[KIRA DISPLAY] compositor: one core is cheaper here (");
             uart_print_dec(cs.cost[other]); uart_print(" vs "); uart_print_dec(cs.cost[!other]);
