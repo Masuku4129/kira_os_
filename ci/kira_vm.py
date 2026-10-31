@@ -48,7 +48,7 @@ class VM:
              "-qmp", f"unix:{self.qmp_path},server=on,wait=off",
              "-audiodev", "none,id=a0", "-d", "guest_errors", "-D", os.path.join(self.out, "qemu.log")]
         if sc.get("limbo"):                         # как Limbo на телефоне: эмуляция одним потоком, без KVM
-            a += ["-accel", "tcg,thread=single", "-cpu", "qemu64"]
+            a += ["-accel", "tcg,thread=" + ("multi" if sc.get("mttcg") else "single"), "-cpu", "qemu64"]
         elif self.kvm:
             a += ["-enable-kvm", "-cpu", sc.get("cpu", "host")]
         else:

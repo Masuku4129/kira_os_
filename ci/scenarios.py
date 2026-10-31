@@ -110,6 +110,15 @@ ALL = [
         {"log": [r"фоновые окна не чаще \d+ кадров/с"]},   # режим сборки выбирает замер (оба режима измерены - выше)
         {"log_forbid": NO_ERR + [r"фон ужат до [0-4]% ядер"]},   # фон не морится голодом при свободных ядрах
     ], smp=4, mem="1G", disk="ata", limbo=True),
+    sc("limbo-mttcg", "Limbo с галочкой Enable MTTCG (эмуляция потоком на ядро): 8 plasma - сравнить сборку и отклик с limbo-spam", [
+        {"log": BOOT_LOG},
+        *[{"send": "plasma"} for _ in range(8)],
+        {"sleep": 25}, {"shot": "limbo-mttcg"},
+        {"responsive": "status", "within": 10},
+        {"cmd": "ai", "must": [r"замок планировщика: ядра ждут его", r"композитор: .*параллельно [1-9]\d* нс, на одном ядре [1-9]"], "timeout": 20},
+        {"cmd": "smp", "timeout": 20},
+        {"log_forbid": NO_ERR},
+    ], smp=4, mem="1G", disk="ata", limbo=True, mttcg=True),
     sc("stress-3d", "cube3d + plasma x4 + burnall: отклик консоли", [
         {"send": "3d"}, *[{"send": "plasma"} for _ in range(4)], {"send": "burnall"},
         {"sleep": 8}, {"shot": "load"},
