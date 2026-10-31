@@ -60,6 +60,9 @@ int prog_run(const char* n) {
     return -1;
 }
 void prog_list(void) {}
+void platform_status(void (*out)(const char*)) { out("IRQ stub\n"); }
+void platform_hw(void (*out)(const char*)) { hw_describe(hw_get(), out); }
+int platform_console_cmd(const char* c, const char* a) { (void)c; (void)a; return 0; }
 void prog_request_file(const char* n, const char* f) { (void)n; (void)f; }
 void life_print(void) {}
 void display_print_info(void) { emit("[FB] info\n"); }

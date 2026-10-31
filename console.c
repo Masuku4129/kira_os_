@@ -7,7 +7,7 @@
 #include "life.h"
 #include "gfxsrv.h"
 #include "experience.h"
-#include "hwprofile.h"
+#include "platform.h"
 #include "smp.h"
 #include "uart.h"
 #include "timer.h"
@@ -16,7 +16,6 @@
 #include "heap.h"
 #include "immune.h"
 #include "mind_sys.h"
-#include "apic.h"
 #include "watchdog.h"
 #include "sched.h"
 #include "clock.h"
@@ -28,11 +27,6 @@
 #include "usb.h"
 
 static volatile uint32_t event_count;
-static uint64_t apic_timer_rate;       // результат калибровки (0 - нет)
-
-void console_set_apic_rate(uint64_t rate) {
-    apic_timer_rate = rate;
-}
 
 void console_note_event(void) {
     event_count++;
@@ -87,16 +81,9 @@ static void print_status(void) {
     uart_print_dec(immune_antibody_count());
     uart_print(", quarantine ");
     uart_print_dec(immune_quarantine_count());
-    uart_print("\n[STATUS] LAPIC: ");
-    if (apic_is_enabled()) {
-        uart_print("enabled, id ");
-        uart_print_dec(apic_get_id());
-        uart_print(", timer ");
-        uart_print_dec(apic_timer_rate / 1000);
-        uart_print(" kcounts/s (div 16)\n\n");
-    } else {
-        uart_print("not available (running on PIT)\n\n");
-    }
+    uart_print("\n[STATUS] ");
+    platform_status(uart_print);                          /* контроллер прерываний и таймер этой архитектуры */
+    uart_print("\n");
 }
 
 typedef struct {
@@ -306,7 +293,7 @@ static void cmd_burnall(const char* a) {
 static void cmd_starve(const char* a) { (void)a; uart_print("[TEST] realtime burner for 8 s: 'core' will starve, watchdog must fire (~5 s)...\n"); spawn_burners(1, 8, PRIO_REALTIME); }
 static void cmd_3d(const char* a) { (void)a; prog_start("cube3d"); }
 static void cmd_fb(const char* a) { (void)a; display_print_info(); }
-static void cmd_hw(const char* a) { (void)a; hw_describe(hw_get(), uart_print); }
+static void cmd_hw(const char* a) { (void)a; platform_hw(uart_print); }
 static void cmd_fpu(const char* a) { (void)a; uart_print("[FPU TEST] 3 fpu processes compute x87 + SSE + double in parallel; each reports its own verdict\n"); prog_start("fpu"); prog_start("fpu"); prog_start("fpu"); }
 static void cmd_keys(const char* a) {
     (void)a;
@@ -360,6 +347,7 @@ static void cmd_smpcrash(const char* a) {
     int r = smp_crash_test(mode, cpu);
     if (r == -1) uart_print("[KIRA SMPCRASH] no such online core.\n");
     else if (r == -3) uart_print("[KIRA SMPCRASH] that core does not run threads (no LAPIC tick: see the boot log, IRQ mode).\n");
+    else if (r == -4) uart_print("[KIRA SMPCRASH] not available on this architecture yet (docs/HANDOFF.md, plan).\n");
     else if (r < 0) uart_print("[KIRA SMPCRASH] cannot create the thread.\n");
     else uart_print("[KIRA SMPCRASH] crash thread started.\n");
 }
@@ -573,6 +561,7 @@ static void run_line(char* l) {
         }
     }
     if (l[0] == '?' && !l[1]) { cmd_help(arg); return; }
+    if (platform_console_cmd(l, arg)) return;               /* команды только этой архитектуры */
     int r = prog_run(l);                                    /* как в оболочке: имя программы из /bin запускает её */
     if (r == -1) { uart_print("неизвестная команда: "); uart_print(l); uart_print(" (help - список, progs - программы)\n"); }
     else if (r == -3) uart_print("[PROG] файл не принят как программа (см. сообщение выше)\n");

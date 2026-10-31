@@ -141,3 +141,22 @@ int irqmode_enable_apic(uint64_t khz, uint64_t rate, int have_lapic, uint32_t ti
 
 const char* platform_irq_name(void) { return apic_mode ? "IOAPIC" : "PIC"; }
 unsigned platform_cpus(void) { return hw_get()->cpus; }
+
+/* ---- консоль (platform.h) ---- */
+#include "apic.h"
+#include "console.h"
+static uint64_t apic_timer_rate;       /* калибровка таймера LAPIC (0 - нет) */
+void console_set_apic_rate(uint64_t rate) { apic_timer_rate = rate; }
+
+void platform_status(void (*out)(const char*)) {
+    char b[24]; int i;
+    out("LAPIC: ");
+    if (!apic_is_enabled()) { out("not available (running on PIT)\n"); return; }
+    out("enabled, id ");
+    uint64_t v = apic_get_id(); i = 23; b[i] = 0; do { b[--i] = (char)('0' + v % 10); v /= 10; } while (v); out(b + i);
+    out(", timer ");
+    v = apic_timer_rate / 1000; i = 23; b[i] = 0; do { b[--i] = (char)('0' + v % 10); v /= 10; } while (v); out(b + i);
+    out(" kcounts/s (div 16); interrupts: "); out(platform_irq_name()); out("\n");
+}
+void platform_hw(void (*out)(const char*)) { hw_describe(hw_get(), out); }
+int  platform_console_cmd(const char* cmd, const char* arg) { (void)cmd; (void)arg; return 0; }    /* у x86-64 все команды - в общей таблице */

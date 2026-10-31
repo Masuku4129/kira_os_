@@ -84,6 +84,8 @@ jobs:
           ls -l /dev/kvm || true
       - name: QEMU
         run: sudo apt-get update -q && sudo apt-get install -y -q qemu-system-x86 dosfstools mtools python3-pil
+      - name: kfstool (test files on the VM disk)
+        run: gcc -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
       - name: scenario
         run: |
           ci/make_flash.sh
