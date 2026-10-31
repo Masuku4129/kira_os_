@@ -189,6 +189,7 @@ int umain(void) {
             else if (k == KEY_ENTER) insert("\n", 1);
             else if (k == KEY_TAB) insert("    ", 4);
             else if (ch >= 32 && ch < 127 && !(ev.c & MOD_CTRL)) { char c = (char)ch; insert(&c, 1); }
+            else if (ch >= 0x80 && ch < 0x800) { char u[2] = { (char)(0xC0 | ch >> 6), (char)(0x80 | (ch & 0x3F)) }; insert(u, 2); }
             else dirty = 0;
         }
         if (dirty) draw();

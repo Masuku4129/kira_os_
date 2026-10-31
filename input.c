@@ -187,6 +187,26 @@ unsigned input_raw_take(uint8_t* out, unsigned max) {
     return n;
 }
 
+uint16_t input_cyr(uint16_t key, uint16_t ch, uint16_t mods) {
+    static const char lat[] = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`/";
+    static const uint16_t cyr[] = { 0x439, 0x446, 0x443, 0x43A, 0x435, 0x43D, 0x433, 0x448, 0x449, 0x437, 0x445, 0x44A,
+                                    0x444, 0x44B, 0x432, 0x430, 0x43F, 0x440, 0x43E, 0x43B, 0x434, 0x436, 0x44D,
+                                    0x44F, 0x447, 0x441, 0x43C, 0x438, 0x442, 0x44C, 0x431, 0x44E, 0x451, '.' };
+    if (!ch || (mods & (INPUT_MOD_CTRL | INPUT_MOD_ALT))) return ch;
+    for (unsigned i = 0; lat[i]; i++) {
+        if (key != (uint8_t)lat[i]) continue;
+        int upper = !!(mods & INPUT_MOD_SHIFT) ^ !!(mods & INPUT_MOD_CAPS);
+        uint16_t c = cyr[i];
+        if (c == '.') return upper ? ',' : '.';
+        if (!upper) return c;
+        return c == 0x451 ? 0x401 : (uint16_t)(c - 0x20);
+    }
+    return ch;
+}
+
+static volatile int layout_ru;
+int input_layout(void) { return layout_ru; }
+
 void input_push_scancode_from(int src, uint8_t byte) {
     if (src < 0 || src >= INPUT_SRC_N) return;
     uint64_t f = spin_lock_irqsave(&prod_lock);
@@ -196,6 +216,11 @@ void input_push_scancode_from(int src, uint8_t byte) {
     }
     input_event_t ev;
     if (ps2_decoder_feed(&decs[src], byte, &ev)) {
+        if (ev.type == INPUT_KEY_DOWN &&                     /* Alt+Shift - другая раскладка */
+            (((ev.key == KEY_LSHIFT || ev.key == KEY_RSHIFT) && (ev.mods & INPUT_MOD_ALT)) ||
+             ((ev.key == KEY_LALT || ev.key == KEY_RALT) && (ev.mods & INPUT_MOD_SHIFT))))
+            layout_ru = !layout_ru;
+        if (layout_ru) ev.ch = input_cyr(ev.key, ev.ch, ev.mods);
         if (ev.key == KEY_F10 || ev.key == KEY_F11) {     /* горячие клавиши оболочки: в очередь не кладём */
             if (ev.type == INPUT_KEY_DOWN) __atomic_store_n(&hotkey_pending, (int)ev.key, __ATOMIC_RELEASE);
         } else {

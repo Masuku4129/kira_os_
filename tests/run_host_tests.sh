@@ -199,8 +199,12 @@ $T/wm
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
-ASAN_OPTIONS=detect_leaks=0 $T/disp | tail -1
-for r in "1280 720" "1920 1080"; do ASAN_OPTIONS=detect_leaks=0 $T/disp $r | tail -1; done
+# код возврата превью - не через tail (раньше сбой терялся в конвейере)
+for r in "" "1280 720" "1920 1080"; do
+    ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1; rc=$?
+    tail -1 $T/disp.out
+    [ $rc -eq 0 ] || { cat $T/disp.out | grep FAIL | head; exit 1; }
+done
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
 rm -rf $T

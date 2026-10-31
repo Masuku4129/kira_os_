@@ -42,6 +42,13 @@ int main(void) {
     for (int i = 0; i < 100; i++) { input_push_mouse_byte(0x08); input_push_mouse_byte(0); input_push_mouse_byte(0); }
     int cnt = 0; while (input_pop_mouse(&m)) cnt++;
     CHECK(cnt == 64);
-    printf("input: all decoder checks passed\n");
+    /* кириллица: ЙЦУКЕН, Shift и Caps - заглавные, Ctrl/Alt - без перевода, не буквы - как есть */
+    if (input_cyr('q', 'q', 0) != 0x439 || input_cyr('q', 'Q', INPUT_MOD_SHIFT) != 0x419) { printf("FAIL cyr q\n"); return 1; }
+    if (input_cyr('`', '`', 0) != 0x451 || input_cyr('`', '~', INPUT_MOD_SHIFT) != 0x401) { printf("FAIL cyr yo\n"); return 1; }
+    if (input_cyr(';', ';', 0) != 0x436 || input_cyr('f', 'F', INPUT_MOD_CAPS) != 0x410) { printf("FAIL cyr zh/a\n"); return 1; }
+    if (input_cyr('f', 'f', INPUT_MOD_SHIFT | INPUT_MOD_CAPS) != 0x430) { printf("FAIL cyr shift+caps\n"); return 1; }
+    if (input_cyr('/', '/', 0) != '.' || input_cyr('/', '?', INPUT_MOD_SHIFT) != ',') { printf("FAIL cyr dot\n"); return 1; }
+    if (input_cyr('c', 'c', INPUT_MOD_CTRL) != 'c' || input_cyr('1', '1', 0) != '1' || input_cyr(KEY_ENTER, 0, 0) != 0) { printf("FAIL cyr passthrough\n"); return 1; }
+    printf("input: all decoder checks passed (incl. Cyrillic layout)\n");
     return 0;
 }

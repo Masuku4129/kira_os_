@@ -51,6 +51,11 @@ void input_push_scancode_from(int src, uint8_t byte);
 void input_push_mouse(const mouse_event_t* ev);
 
 /* Кольцевая очередь событий: один писатель (IRQ), один читатель. Без блокировок. */
+/* Раскладка: 0 - латиница, 1 - кириллица (ЙЦУКЕН). Переключение - Alt+Shift (в слое ввода, для всех клавиатур). */
+int  input_layout(void);
+/* Символ клавиши в кириллице (чистая функция): key - логический код (буква латиницы), mods - INPUT_MOD_*;
+   ch - символ латиницы. Возвращает код Unicode кириллической буквы или ch, если клавиша не буквенная. */
+uint16_t input_cyr(uint16_t key, uint16_t ch, uint16_t mods);
 void input_init(void);
 void input_push_scancode(uint8_t byte);        /* из IRQ */
 unsigned input_raw_take(uint8_t* out, unsigned max);   /* сырые байты клавиатуры с прошлого вызова (диагностика) */
