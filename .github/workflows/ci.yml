@@ -45,6 +45,24 @@ jobs:
             kira.disk
             kira.bin
 
+  arm64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld qemu-system-arm
+      - name: build ARM64 (clang, -Werror)
+        run: ./build_arm64.sh
+      - name: scenarios (QEMU virt: GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)
+        run: |
+          set -o pipefail
+          python3 ci/arm64_vm.py ci-out/arm64 2>&1 | tee arm64.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vm-arm64
+          path: ci-out/arm64
+
   vm:
     needs: build
     runs-on: ubuntu-24.04
@@ -79,7 +97,7 @@ jobs:
 
   # Итоги - в ветку ci-results (одна свежая копия): журналы и снимки читаются через git, без хранилища артефактов.
   report:
-    needs: [host-tests, build, vm]
+    needs: [host-tests, build, vm, arm64]
     if: always()
     runs-on: ubuntu-24.04
     permissions:
@@ -101,9 +119,9 @@ jobs:
           {
             echo "# Прогон ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
             echo
-            echo "host-tests: ${{ needs.host-tests.result }}, build: ${{ needs.build.result }}, vm: ${{ needs.vm.result }}"
+            echo "host-tests: ${{ needs.host-tests.result }}, build: ${{ needs.build.result }}, vm: ${{ needs.vm.result }}, arm64: ${{ needs.arm64.result }}"
             echo
-            for r in latest/vm-*/result.json; do
+            for r in latest/vm-*/result.json latest/vm-arm64/*/result.json; do
               python3 -c "import json,sys; r=json.load(open(sys.argv[1])); print(('OK  ' if r['ok'] else 'FAIL'), r['name'], r.get('seconds'), 'с', '' if r['ok'] else '- ' + (r.get('error') or '').splitlines()[0][:300])" "$r" || true
             done
           } > latest/SUMMARY.md

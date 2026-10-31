@@ -9,3 +9,5 @@ manifest.h
 ci-out/
 qemu.log
 kira_flash.img
+build-arm64/
+kira-arm64.elf
