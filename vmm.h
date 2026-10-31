@@ -45,9 +45,12 @@ int vmm_guard_null_page(void);
 int vmm_translate(uint64_t virtual_addr, uint64_t* physical_addr);
 
 // --- Адресные пространства процессов ---
-// Пользовательская половина: PML4[1..255]. Нижние 512 ГБ - только ядро (без бита USER).
-#define VMM_USER_BASE 0x0000008000000000ULL
-#define VMM_USER_TOP  0x0000800000000000ULL
+// Раскладка памяти программы одна для всех архитектур, сдвинута на VMM_USER_SHIFT своей архитектуры (arch_vmm.h):
+// x86-64 - пользовательская половина PML4[1..255] (нижние 512 ГБ - только ядро); ARM64 - верхняя половина TTBR0
+// (нижняя занята тождественной картой ядра).
+#include "arch_vmm.h"
+#define VMM_USER_BASE USER_VA(0x0000008000000000ULL)
+#define VMM_USER_TOP  USER_VA(0x0000800000000000ULL)
 
 uint64_t vmm_kernel_root(void);
 void     vmm_switch(uint64_t root);

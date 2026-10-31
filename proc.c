@@ -4,7 +4,6 @@
 #include "percpu.h"
 #include "vmm.h"
 #include "pmm.h"
-#include "gdt.h"
 #include "cpu.h"
 #include "spinlock.h"
 #include "uart.h"
@@ -26,15 +25,15 @@
      0x80_8000_0000 .. 0x81_8000_0000  окно графики (gfxsrv)
      0x82_0000_0000 .. 1 ТБ            куча (uheap)
      0x1000_0000_0000 .. 0x2000_0000_0000  разделяемая память */
-#define USER_CODE_VA    0x0000008000000000ULL
-#define USER_CODE_END   0x0000008040000000ULL
-#define USER_DATA_VA    0x0000008000200000ULL
-#define USER_STACK_TOP  0x0000008080000000ULL
+#define USER_CODE_VA    USER_VA(0x0000008000000000ULL)
+#define USER_CODE_END   USER_VA(0x0000008040000000ULL)
+#define USER_DATA_VA    USER_VA(0x0000008000200000ULL)
+#define USER_STACK_TOP  USER_VA(0x0000008080000000ULL)
 #define USER_STACK_RESERVE (64ULL << 20)
 #define USER_STACK_PAGES 16
 
-#define SHM_VA_BASE      0x0000100000000000ULL
-#define SHM_VA_END       0x0000200000000000ULL
+#define SHM_VA_BASE      USER_VA(0x0000100000000000ULL)
+#define SHM_VA_END       USER_VA(0x0000200000000000ULL)
 
 typedef struct { kobj_t* shm; uint64_t va; uint32_t pages; } shm_map_t;
 
@@ -76,21 +75,6 @@ void proc_init(unsigned cpus, uint64_t ram_kb) {
     __builtin_memset(procs, 0, sizeof(proc_t) * max_procs);
     uart_print("[KIRA PROC] up to "); uart_print_dec(max_procs); uart_print(" programs at once ("); uart_print_dec(cpus);
     uart_print(" cores, "); uart_print_dec(ram_kb / 1024); uart_print(" MB RAM).\n");
-}
-
-/* Вызывается планировщиком перед каждым переключением потоков (прерывания выключены). */
-void proc_arch_switch(const thread_t* next) {
-    if (next->kstack_top) {
-        tss_set_rsp0(next->kstack_top);        /* куда CPU положит кадр при входе из Ring 3 */
-        this_cpu()->syscall_kernel_rsp = next->kstack_top; /* стек для SYSCALL этого ядра */
-    }
-    uint64_t want = next->cr3 ? next->cr3 : vmm_kernel_root();
-    if (want != this_cpu()->active_cr3) {
-        /* Сначала объявить, потом загрузить: рассылка сброса TLB (vmm_tlb_shootdown) смотрит на active_cr3 других
-           ядер; ядро, которое ещё не объявило новое пространство, загрузит его уже с новыми таблицами. */
-        __atomic_store_n(&this_cpu()->active_cr3, want, __ATOMIC_SEQ_CST);
-        vmm_switch(want);
-    }
 }
 
 static void user_entry(void* arg) {
@@ -315,7 +299,7 @@ static void teardown(proc_t* p) {
 /* Текущий поток процесса уходит. Сначала ядро переходит в своё адресное пространство, потом поток перестаёт
    считаться: последний поток уничтожает пространство, и ни одно ядро не должно в этот момент на нём стоять. */
 static void __attribute__((noreturn)) thread_leave(void) {
-    __asm__ volatile ("cli");
+    cpu_irq_off();
     proc_t* p = current_proc();
     if (!p) sched_exit();
     sched_detach_space();
@@ -484,12 +468,12 @@ int proc_stack_fault(uint64_t cr2, uint64_t err) {
     if (!p || (err & 1) || cr2 < USER_STACK_TOP - USER_STACK_RESERVE || cr2 >= USER_STACK_TOP) return 0;
     uint64_t total = pmm_get_total_memory_kb();
     if (pmm_get_free_memory_kb() < uheap_reserve_kb(total) + 64) return 0;   /* память на исходе: стек не растёт */
-    __asm__ volatile ("sti");
+    cpu_irq_on();
     kmutex_lock(&p->mx);
     uint64_t va = cr2 & ~4095ULL;
     int ok = vmm_user_range_ok(va, 1, 1) || map_fresh(p->root, va, VMM_WRITE | VMM_NOEXEC, 0, 0) == 0;   /* другой поток мог успеть */
     kmutex_unlock(&p->mx);
-    __asm__ volatile ("cli");
+    cpu_irq_off();
     return ok;
 }
 
