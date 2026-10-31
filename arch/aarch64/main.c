@@ -21,7 +21,12 @@ static inline void isb(void) { __asm__ volatile ("isb" ::: "memory"); }
 static inline void dsb(void) { __asm__ volatile ("dsb sy" ::: "memory"); }
 
 /* ---------------- порт PL011 ---------------- */
+/* Отладка подъёма: сборка с -DKIRA_EARLY_UART=адрес печатает и до разбора дерева (только для стенда). */
+#ifdef KIRA_EARLY_UART
+static uint64_t uart = KIRA_EARLY_UART;
+#else
 static uint64_t uart;
+#endif
 static volatile int mmu_on;
 static volatile uint32_t print_lock;
 
@@ -321,16 +326,26 @@ static const void* find_fdt(uint64_t x0) {
 }
 
 void arm_main(uint64_t dtb) {
+#ifdef KIRA_EARLY_UART
+    kprintf("[early] arm_main x0=%x EL%u\n", dtb, (SYSREG_R(CurrentEL) >> 2) & 3);
+#endif
     const void* fdt = find_fdt(dtb);
     /* QEMU кладёт дерево в начало ОЗУ, когда ядро - не образ Linux; адрес начала ОЗУ - ниже ядра */
     if (!fdt) {
         uint64_t k = (uint64_t)(uintptr_t)__kernel_start;
         for (uint64_t a = k & ~0x3FFFFFFFull; a < k && !fdt; a += 0x200000) fdt = find_fdt(a);
     }
+#ifdef KIRA_EARLY_UART
+    { uint64_t k = (uint64_t)(uintptr_t)__kernel_start & ~0x3FFFFFFFull;
+      kprintf("[early] fdt=%x, word at RAM base %x = %x\n", (uint64_t)(uintptr_t)fdt, k, (uint64_t)*(volatile uint32_t*)(uintptr_t)k); }
+#endif
     if (!fdt) for (;;) __asm__ volatile ("wfe");                 /* без дерева нет даже адреса порта */
 
     int u = fdt_find_compatible(fdt, -1, "arm,pl011");
     uint64_t sz;
+#ifdef KIRA_EARLY_UART
+    kprintf("[early] pl011 node %x\n", (uint64_t)(int64_t)u);
+#endif
     if (u >= 0) fdt_reg(fdt, u, 0, &uart, &sz);
     kprintf("\n[KIRA ARM64] Kira OS on ARM64: device tree at %x (%u bytes), console PL011 at %x\n",
             (uint64_t)(uintptr_t)fdt, (uint64_t)fdt_total_size(fdt), uart);

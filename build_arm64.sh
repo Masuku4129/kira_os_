@@ -6,7 +6,7 @@ set -e
 cd "$(dirname "$0")"
 A=arch/aarch64
 CC="clang --target=aarch64-unknown-none-elf"
-CFLAGS="-ffreestanding -fno-builtin -nostdlib -mgeneral-regs-only -mstrict-align -fno-pic -fno-pie -fno-stack-protector -fno-omit-frame-pointer -fno-asynchronous-unwind-tables -O2 -Wall -Wextra -Werror -I. -I$A"
+CFLAGS="$KIRA_ARM64_EXTRA -ffreestanding -fno-builtin -nostdlib -mgeneral-regs-only -mstrict-align -fno-pic -fno-pie -fno-stack-protector -fno-omit-frame-pointer -fno-asynchronous-unwind-tables -O2 -Wall -Wextra -Werror -I. -I$A"
 mkdir -p build-arm64
 $CC $CFLAGS -c $A/boot.S -o build-arm64/boot.o
 $CC $CFLAGS -c $A/mem.S -o build-arm64/mem.o

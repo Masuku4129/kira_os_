@@ -52,7 +52,7 @@ jobs:
       - name: tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld qemu-system-arm
       - name: build ARM64 (clang, -Werror)
-        run: ./build_arm64.sh
+        run: KIRA_ARM64_EXTRA=-DKIRA_EARLY_UART=0x09000000 ./build_arm64.sh
       - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"
         run: |
           set -o pipefail
