@@ -70,27 +70,12 @@ ASID), `uaccess_arch.c` (PAN, вход в программу), `selftest_arm.c` 
 x86-64: всё прежнее (оболочка, программы, USB, диски, Разум) + этапы 1-2 плана; все 13 сценариев стенда - OK.
 ARM64 (проверено стендом на 4 машинах QEMU virt): загрузка, MMU, GICv2/v3, PSCI до 8 ядер, планировщик, куча,
 мьютексы, PCIe (ECAM), virtio-blk и NVMe, KiraFS (запись/чтение файлов), опыт, Разум (все уровни), сторож.
-В работе (не закончено, не проверено): программы на ARM64 - `vmm_user.c`, `uaccess.S`, `uaccess_arch.c` написаны,
-но ещё не подключены к сборке и не проверены.
+Программы на ARM64 работают (стенд): mt (потоки, futex) и ipc (порты, разделяемая память) - PASS.
 
 ## 6. Следующие шаги (по порядку)
-1. Программы на ARM64:
-   - main.c: `arm_kernel_l0()`; при создании новой записи в L0 ядра (table_page с t == l0, map_gb) вызывать
-     `vmm_user_kernel_l0_changed(idx, entry)`; окно стеков ядра (`KSTACK_VA`) перенести в нижнюю половину
-     (например 0x0000700000000000, сейчас 0x0000C00000000000 попадает в половину программ); адрес проверки `fault`
-     - тоже в нижнюю половину; TCR.AS = 1 при 16-битных ASID (ID_AA64MMFR0.ASIDBits == 2).
-   - Исключения из EL0 в `arm_exception` (kind 8 = синхронное, 9 = IRQ): SVC (ESR.EC 0x15) -> номер в x8,
-     аргументы x0..x2, `cpu_irq_on(); r = syscall_handler(...); cpu_irq_off(); frame[0] = r`; ошибка данных
-     (EC 0x24) -> `proc_stack_fault(far, err)` (err = 1 при ошибке прав, DFSC 0b0011xx), иначе завершить процесс
-     (`proc_exit(-1)` с включёнными прерываниями); IRQ из EL0 -> после обработки `proc_return_check()`.
-     Ошибка в EL1 внутри uaccess -> `uaccess_fixup(frame, elr)`.
-   - Подключить к build_arm64.sh: proc.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c,
-     arch/aarch64/{vmm_user.c,uaccess_arch.c,uaccess.S}; убрать из notyet.c функции proc_*; добавить туда
-     gfx_sys_create/present/event (экрана нет: -1). manifest.h для ARM - из ARM-программ (`-Ibuild-arm64` первым).
-   - userland: `kira.h` - вариант для aarch64 (`svc #0`, номер в x8, аргументы x0..x2, `_start` выравнивает sp,
-     поток: kernel ставит sp = вершина, x0 = аргумент; функция потока - через трамплин); `user_arm64.ld` с базой
-     USER_VA(0x8000000000) = 0x808000000000. Программы без экрана для проверки: mt, ipc, burn, fpu (без SSE-асм).
-   - Стенд: сценарий arm64 с запуском mt и ipc (PASS в выводе), изоляция.
+1. Программы на ARM64 - сделано (см. PROGRESS). Осталось: враждебные программы для ARM64 (аналоги atk-* на
+   ассемблере ARM: запись в память ядра, привилегированная команда, указатель ядра в вызов), проверка FP в EL0
+   (аналог fpu.c без long double), cube3d/plasma/paint - вместе с экраном.
 2. Экран на ARM64 (ramfb через fw_cfg или virtio-gpu) -> перенести display/wm/gfxsrv, убрать заглушки из notyet.c.
 3. USB xHCI на ARM64 (тот же xhci.c через PCI), ввод - virtio-input или USB.
 4. Общая консоль: разделить console.c на общую таблицу команд и команды архитектуры, использовать на ARM64.
