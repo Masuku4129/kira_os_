@@ -7,10 +7,15 @@
 KCtx K;
 
 void *ka_new(size_t n) {
+    if (n > ((size_t)1 << 40)) n = (size_t)1 << 40;            /* заведомо больше любой арены: уйдёт в отказ ниже */
     n = (n + 7) & ~(size_t)7;
     if (n > K.acap - K.aused) {
-        snprintf(K.err, sizeof K.err, "error: arena exhausted (limit %zu bytes)", K.acap);
-        longjmp(K.jb, 1);
+        size_t nc = K.cfg && K.cfg->grow ? K.cfg->grow(K.cfg->ud, K.acap, K.aused + n) : 0;
+        if (nc < K.aused + n) {
+            snprintf(K.err, sizeof K.err, "error: arena exhausted (limit %zu bytes)", K.acap);
+            longjmp(K.jb, 1);
+        }
+        K.acap = nc;
     }
     void *p = K.abase + K.aused;
     K.aused += n;

@@ -428,3 +428,33 @@ for _n in (2, 4):
     _d = _copy.deepcopy(next(x for x in ALL if x["name"] == "stress-spam"))
     _d["name"] = "stress-spam-%d" % _n; _d["smp"] = _n
     ALL.append(_d)
+
+# kcc на Кире (дорожка M3, x86-64): компилятор /bin/kcc (Ring 3, только CAP_FS) собирает программы из /data/kcc, runlocal запускает их без прав.
+_CC = os.path.join("tests", "kcc", "native")
+ALL.append(sc("cc-native", "kcc на Кире: cc собирает C-программу (функции, структуры, строки, цикл, вывод через kira.h), runlocal запускает без прав; ошибка синтаксиса с номером строки; отказ сокета KE_PERM", [
+    {"log": BOOT_LOG},
+    {"cmd": "ls /etc/kcc/include", "must": [r"kira\.h", r"stdio\.h", r"stdlib\.h", r"string\.h"]},
+    {"cmd": "cc hello.c", "must": [r"использование: cc исходник результат"]},
+    {"send": "cc hello.c hello"}, {"sleep": 10},
+    {"log": [r"kcc: ok: hello\.c -> hello, \d+ байт"]},
+    {"cmd": "ls /data/kcc", "must": [r"hello\.c", r"\d+\s+hello\s"]},
+    {"send": "runlocal hello"}, {"sleep": 6},
+    {"log": [r"\[LOCAL\] /data/kcc/hello запускается по явной команде пользователя как 'local-hello' без прав",
+             r"native: hello from kcc on Kira", r"native: total=240", r"native: fib20=6765", r"native: sorted gear bolt nut",
+             r"native: reversed=so-arik", r"native: hex=c0ffee", r"native: clock ok", r"native: done"]},
+    # синтаксическая ошибка: сообщение с именем файла и номером строки, результат не создаётся
+    {"send": "cc bad.c bad"}, {"sleep": 8},
+    {"log": [r"bad\.c:9: error: "]},
+    {"send": "runlocal bad"}, {"sleep": 3},
+    {"log": [r"\[LOCAL\] /data/kcc/bad: "]},
+    # программа без прав: сеть и файлы отказывают
+    {"send": "cc net.c net"}, {"sleep": 10},
+    {"log": [r"kcc: ok: net\.c -> net, \d+ байт"]},
+    {"send": "runlocal net"}, {"sleep": 6},
+    {"log": [r"net: dns=-12 connect=-12 file=-100", r"net: refused \(PASS\)", r"\[KIRA CAPS\] process 'local-net' .* denied, no right CAP_NET"]},
+    # компилятору дано только CAP_FS: он ни разу не получил отказ; имя с путём не принимается
+    {"log_forbid": NO_ERR + [r"\[KIRA CAPS\] process 'kcc'", r"NOT refused", r"native: .*BAD", r"native: malloc failed", r"\[IMMUNE\] /data/kcc/.*отклонён"]},
+    {"cmd": "runlocal ../bin/plasma", "must": [r"\[LOCAL\] недопустимое имя файла"]},
+    {"responsive": "status", "within": 5},
+], smp=2, mem="1G", put={"/data/kcc/hello.c": os.path.join(_CC, "hello.c"), "/data/kcc/bad.c": os.path.join(_CC, "bad.c"),
+                          "/data/kcc/net.c": os.path.join(_CC, "net.c")}))

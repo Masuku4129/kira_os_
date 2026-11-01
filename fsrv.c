@@ -25,6 +25,21 @@ int fsrv_name_ok(const char* n) {
     return 1;
 }
 
+int fsrv_local_name(const char* file, char out[16]) {
+    if (!fsrv_name_ok(file)) return 0;
+    unsigned n = 0;
+    for (const char* pre = "local-"; *pre; pre++) out[n++] = *pre;
+    unsigned k = 0;
+    for (; file[k] && file[k] != '.'; k++) {
+        char c = file[k];
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_') || n >= 15) return 0;
+        out[n++] = c;
+    }
+    out[n] = 0;
+    return k > 0 && fsrv_prog_ok(out);
+}
+
 static size_t mkpath(char* out, const char* prog, const char* name) {
     size_t n = 0;
     const char* a = "/data/";
@@ -176,16 +191,16 @@ static int64_t grant_op(const fsrv_user_req_t* u) {
 
 /* Общие файлы системы для всех программ - только чтение и только из /etc/ssl (хранилище корневых сертификатов).
    Имя - одно имя файла по правилам песочницы (без «/» и «..»), путь собирает ядро. */
-static int64_t sys_op(const fsrv_user_req_t* u) {
-    char name[FSRV_NAME_MAX + 1], path[16 + FSRV_NAME_MAX];
+static int64_t sys_op(const fsrv_user_req_t* u, const char* pre) {
+    char name[FSRV_NAME_MAX + 1], path[24 + FSRV_NAME_MAX];
     if (u->name_len == 0 || u->name_len > FSRV_NAME_MAX || copy_from_user(name, u->name_ptr, u->name_len) != 0) return FS_E_ARG;
     name[u->name_len] = 0;
     if (!fsrv_name_ok(name)) return FS_E_DENIED;
-    const char* pre = "/etc/ssl/"; unsigned n = 0;
+    unsigned n = 0;
     while (pre[n]) { path[n] = pre[n]; n++; }
     for (unsigned i = 0; name[i]; i++) path[n++] = name[i];
     path[n] = 0;
-    if (u->op == FS_OP_SYS_STAT) {
+    if (u->op == FS_OP_SYS_STAT || u->op == FS_OP_INC_STAT) {
         kfs_stat_t st;
         int e = vfs_stat(path, &st);
         return e ? e : (st.type == KFS_FILE ? (int64_t)st.size : FS_E_DENIED);
@@ -203,7 +218,12 @@ int64_t fsrv_syscall(uint64_t up) {
     fsrv_user_req_t u;                                                           /* своя копия: программа не изменит её во время проверки */
     if (copy_from_user(&u, up, sizeof u) != 0) return FS_E_ARG;
     uint32_t caps = proc_current_caps();
-    if (u.op == FS_OP_SYS_READ || u.op == FS_OP_SYS_STAT) { if (!(caps & CAP_SYSFILES)) return proc_cap_denied(CAP_SYSFILES, 10), FS_E_DENIED; return sys_op(&u); }
+    if (u.op == FS_OP_SYS_READ || u.op == FS_OP_SYS_STAT) { if (!(caps & CAP_SYSFILES)) return proc_cap_denied(CAP_SYSFILES, 10), FS_E_DENIED; return sys_op(&u, "/etc/ssl/"); }
+    if (u.op == FS_OP_INC_READ || u.op == FS_OP_INC_STAT) {       /* заголовки для компилятора: только kcc (имя известно ядру по манифесту) и только при CAP_FS */
+        const char* who = proc_current_name();
+        if (!(caps & CAP_FS) || !who || who[0] != 'k' || who[1] != 'c' || who[2] != 'c' || who[3]) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
+        return sys_op(&u, "/etc/kcc/include/");
+    }
     if (u.op >= FS_OP_GRANT_READ && u.op <= FS_OP_GRANT_NAME) { if (!(caps & CAP_GRANT)) return proc_cap_denied(CAP_GRANT, 10), FS_E_DENIED; return grant_op(&u); }
     if (u.op < FS_OP_READ || u.op > FS_OP_REMOVE) return FS_E_ARG;
     if (!(caps & CAP_FS)) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;

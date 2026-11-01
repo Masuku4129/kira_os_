@@ -23,6 +23,10 @@ typedef struct {
     const char **incdirs; int nincdirs;
     const char **defs; int ndefs;           /* "N" или "N=V" */
     const char *target;                      /* "x86_64" (по умолчанию) или "aarch64" */
+    /* Необязательно: рост арены по требованию (на Кире - SYS_HEAP). Вызывается, когда в арене не хватает места:
+       cap - текущая ёмкость, need - сколько байт нужно всего. Возвращает новую ёмкость (память продолжает арену
+       без разрыва) или 0, если расти нельзя (лимит ядра). */
+    size_t (*grow)(void *ud, size_t cap, size_t need);
 } KCfg;
 
 typedef struct { char *p; size_t len, cap; } SB;

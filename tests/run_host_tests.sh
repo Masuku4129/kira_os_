@@ -82,7 +82,7 @@ $T/prog
 rm -f tests/manifest_test.h
 
 echo "== program file service (sandbox /data/<name>) =="
-$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c kfs.c store.c
+$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c caps.c kfs.c store.c
 $T/fsrv
 $CC $FLAGS -fsanitize=undefined -Itests/stub -o $T/paint tests/paint_test.c fsrv.c kfs.c store.c
 $T/paint

@@ -459,6 +459,24 @@ static void cmd_run(const char* arg) {
     if (r == -3) uart_print("[PROG] файл не принят как программа (см. сообщение выше)\n");
 }
 static void cmd_progs(const char* a) { (void)a; prog_list(); }
+/* cc исходник результат: компилятор kcc (программа /bin/kcc, Ring 3) собирает /data/kcc/исходник в ELF /data/kcc/результат;
+   сообщения об ошибках с номером строки он пишет в журнал (строки "[USER pid N] ..."). */
+static void cmd_cc(const char* arg) {
+    while (*arg == ' ') arg++;
+    unsigned w = 0, i = 0;
+    for (; arg[i]; i++) if (arg[i] != ' ' && (i == 0 || arg[i - 1] == ' ')) w++;
+    if (w != 2) { uart_print("использование: cc исходник результат   (файлы в /data/kcc, например: cc hello.c hello; запуск: runlocal hello)\n"); return; }
+    (void)prog_run_args("kcc", arg);
+}
+/* runlocal файл: запуск собранного ELF из /data/kcc как программы local-<имя> без прав (progs.c: prog_run_local). */
+static void cmd_runlocal(const char* arg) {
+    while (*arg == ' ') arg++;
+    char name[48]; unsigned n = 0;
+    while (arg[n] && arg[n] != ' ' && n < sizeof name - 1) { name[n] = arg[n]; n++; }
+    name[n] = 0;
+    if (!n || arg[n]) { uart_print("использование: runlocal файл   (файл в /data/kcc, собранный командой cc; программа запускается без прав)\n"); return; }
+    (void)prog_run_local(name);
+}
 static void cmd_life(const char* a) { (void)a; life_print(); }
 static void cmd_telemetry(const char* arg) {
     if (arg[0] == 'o' && arg[1] == 'n' && !arg[2]) mind_sys_set_telemetry(1);
@@ -587,6 +605,8 @@ static const cmd_t cmds[] = {
     { "paint",     'b', "приложение Ring 3: холст (мышь, клавиши 1-8, c - очистить)", cmd_paint },
     { "run",       0,   "запустить программу с диска: run имя (/bin/имя, проверка иммунитетом)", cmd_run },
     { "progs",     0,   "программы в /bin и вердикт иммунитета", cmd_progs },
+    { "cc",        0,   "компилятор C на Кире: cc исходник результат (файлы в /data/kcc)", cmd_cc },
+    { "runlocal",  0,   "запустить собранное в /data/kcc как local-имя БЕЗ прав: runlocal файл", cmd_runlocal },
     { "ls",        0,   "список файлов: ls [путь]", fscmd_ls },
     { "cat",       0,   "содержимое файла: cat путь", fscmd_cat },
     { "write",     0,   "записать текст в файл: write путь текст", fscmd_write },

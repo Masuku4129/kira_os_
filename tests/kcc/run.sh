@@ -105,6 +105,55 @@ for f in tests/kcc/elfbad/*.c; do
     grep -qF -- "$want" $T/err || note "$f: ожидалось '$want': $(head -c 200 $T/err)"
 done
 
+# M3: libc-lite для программ Киры (kcc/include: kira.h, stdio.h, stdlib.h, string.h...) и сам kcc как программа Ring 3.
+# Программа компилируется хост-kcc, выполняется загрузчиком; ожидаемый вывод записан в tests/kcc/native/*.out.
+total=$((total+1))
+if ! $T/kcc -I kcc/include -o $T/n.elf tests/kcc/native/hello.c 2>$T/err; then note "native/hello.c: не собран: $(head -c 200 $T/err)"
+else
+    $T/kloader $T/n.elf >$T/got 2>&1
+    cmp -s tests/kcc/native/hello.out $T/got || note "native/hello.c: вывод расходится с ожидаемым: $(head -c 160 $T/got | tr '\n' ' ')"
+fi
+total=$((total+1))
+$T/kcc -I kcc/include -o $T/n.elf tests/kcc/native/net.c 2>$T/err || note "native/net.c: не собран: $(head -c 200 $T/err)"
+total=$((total+1))
+$T/kcc -I kcc/include -o $T/n.elf tests/kcc/native/bad.c 2>$T/err; rc=$?
+if [ $rc != 1 ] || ! grep -q '^tests/kcc/native/bad.c:9: error: ' $T/err; then note "native/bad.c: ждали ошибку на строке 9: $(head -c 200 $T/err)"; fi
+# kcc, собранный как программа Киры (userland/kcc.c + kcc/*.c + userland/kccrt*), работает под тем же загрузчиком:
+# K_FS - каталоги хоста (песочница и заголовки), K_ARGS - строка запуска, арена растёт через K_HEAP.
+if command -v ld.lld >/dev/null && clang --target=x86_64-unknown-none-elf -ffreestanding -c -x c /dev/null -o $T/probe.o 2>/dev/null; then
+    UC="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra -Werror -nostdlibinc"
+    KC="clang --target=x86_64-unknown-none-elf $UC"
+    objs=""; built=1
+    for src in kcc/*.c; do
+        [ $src = kcc/main.c ] && continue
+        $KC -Iuserland/kccrt -c $src -o $T/ku_$(basename $src .c).o 2>$T/err || { built=0; break; }
+        objs="$objs $T/ku_$(basename $src .c).o"
+    done
+    $KC -Iuserland/kccrt -Iuserland -c userland/kcc.c -o $T/ku_main.o 2>>$T/err && $KC -Iuserland -c userland/kccrt.c -o $T/ku_rt.o 2>>$T/err &&
+        $KC -c userland/libc_min.c -o $T/ku_lm.o 2>>$T/err && ld.lld -T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro -o $T/kcc_kira.elf $T/ku_main.o $objs $T/ku_rt.o $T/ku_lm.o 2>>$T/err || built=0
+    total=$((total+1))
+    if [ $built != 1 ]; then note "kcc как программа Киры не собрана: $(head -c 300 $T/err)"
+    else
+        mkdir -p $T/sb; cp tests/kcc/native/*.c $T/sb/
+        $T/kloader -s $T/sb -i kcc/include -a "hello.c hello" $T/kcc_kira.elf >$T/got 2>&1
+        grep -q '^kcc: ok: hello.c -> hello' $T/got || note "kcc-на-Кире: hello.c не собран: $(head -c 200 $T/got)"
+        total=$((total+1))
+        $T/kloader $T/sb/hello >$T/got 2>&1
+        cmp -s tests/kcc/native/hello.out $T/got || note "kcc-на-Кире: собранная программа печатает другое: $(head -c 160 $T/got | tr '\n' ' ')"
+        total=$((total+1))
+        $T/kloader -s $T/sb -i kcc/include -a "bad.c bad" $T/kcc_kira.elf >$T/got 2>&1
+        grep -q '^bad.c:9: error: ' $T/got || note "kcc-на-Кире: ошибка без номера строки: $(head -c 200 $T/got)"
+        total=$((total+1))
+        $T/kloader -s $T/sb -i kcc/include -a "nofile.c out" $T/kcc_kira.elf >$T/got 2>&1
+        grep -q 'nofile.c' $T/got && grep -q 'not found\|cannot\|No such' $T/got || note "kcc-на-Кире: нет файла должно давать сообщение: $(head -c 200 $T/got)"
+        total=$((total+1))
+        $T/kloader -s $T/sb -i kcc/include -a "one" $T/kcc_kira.elf >$T/got 2>&1
+        grep -q 'использование: cc' $T/got || note "kcc-на-Кире: без результата должна быть справка: $(head -c 200 $T/got)"
+    fi
+else
+    echo "kcc: сборка kcc как программы Киры пропущена: нет ld.lld или clang для x86_64-unknown-none-elf"
+fi
+
 # враждебные входы: глубокая вложенность и длинные цепочки не должны ронять стек
 rep() { yes "$1" | head -n "$2" | tr -d '\n'; }
 stress() { # имя, ожидаемый rc (0 или 1)

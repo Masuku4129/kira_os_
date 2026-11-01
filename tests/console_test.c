@@ -59,7 +59,12 @@ int prog_run(const char* n) {
     for (unsigned i = 0; i < sizeof known / sizeof *known; i++) if (!strcmp(n, known[i])) return 7;
     return -1;
 }
-int prog_run_args(const char* n, const char* a) { (void)a; return prog_run(n); }
+static char cc_args[64], local_file[64];
+int prog_run_args(const char* n, const char* a) {
+    if (!strcmp(n, "kcc")) { snprintf(cc_args, sizeof cc_args, "%s", a); return 5; }
+    return prog_run(n);
+}
+int prog_run_local(const char* f) { snprintf(local_file, sizeof local_file, "%s", f); return 6; }
 void prog_list(void) {}
 void platform_status(void (*out)(const char*)) { out("IRQ stub\n"); }
 void platform_hw(void (*out)(const char*)) { hw_describe(hw_get(), out); }
@@ -147,6 +152,20 @@ int main(void) {
     feed("a\n");
     CHECK(spawned_name && !strcmp(spawned_name, "plasma"));
     /* неизвестная команда */
+    /* cc и runlocal: два слова / одно слово, иначе справка и ничего не запускается */
+    reset(); feed("cc hello.c hello\n");
+    CHECK(!strcmp(cc_args, "hello.c hello"));
+    cc_args[0] = 0; reset(); feed("cc hello.c\n");
+    CHECK(!cc_args[0] && has("использование: cc исходник результат"));
+    reset(); feed("cc a b c\n");
+    CHECK(!cc_args[0] && has("использование: cc"));
+    reset(); feed("runlocal hello\n");
+    CHECK(!strcmp(local_file, "hello"));
+    local_file[0] = 0; reset(); feed("runlocal\n");
+    CHECK(!local_file[0] && has("использование: runlocal"));
+    reset(); feed("runlocal a b\n");
+    CHECK(!local_file[0] && has("использование: runlocal"));
+
     reset(); feed("blah\n");
     CHECK(has("неизвестная команда: blah"));
     /* имя программы с диска запускает её без run (как в обычной оболочке) */

@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
     char *buf = malloc(cap), *orig = malloc(cap);
     if (!mem || !buf || !orig) return 2;
     const char *incs[2] = { "tests/kcc/inc", "kcc/include" };
-    KCfg cfg = { rd, NULL, incs, 2, NULL, 0, "x86_64" };
+    KCfg cfg = { rd, NULL, incs, 2, NULL, 0, "x86_64", NULL };
     signal(SIGALRM, on_alarm);
     long ok = 0, rej = 0;
     for (long it = 0; it < iters; it++) {

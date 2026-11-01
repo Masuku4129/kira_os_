@@ -1,5 +1,6 @@
 // Песочницы программ: имена, права, квота, размеры, изоляция между программами (на KiraFS в памяти).
 #include "fsrv.h"
+#include "caps.h"
 #include "kfs.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,6 +85,18 @@ int main(void) {
 
     /* данные переживают перемонтирование */
     CHECK(kfs_mount(&dev, 16) == 0 && call("plasma", FS_OP_READ, "pic", 0, 10, 0) == 4 && memcmp(R.data, "mine", 4) == 0);
+
+    /* имя процесса для собранных пользователем программ (runlocal) */
+    char ln[16];
+    CHECK(fsrv_local_name("hello", ln) && !strcmp(ln, "local-hello"));
+    CHECK(fsrv_local_name("Hello.elf", ln) && !strcmp(ln, "local-hello"));
+    CHECK(fsrv_local_name("a-b_9", ln) && !strcmp(ln, "local-a-b_9"));
+    CHECK(fsrv_local_name("123456789", ln) && !strcmp(ln, "local-123456789"));
+    CHECK(!fsrv_local_name("1234567890", ln));                    /* больше 15 знаков вместе с приставкой */
+    CHECK(!fsrv_local_name("", ln) && !fsrv_local_name(".hid", ln) && !fsrv_local_name("a/b", ln) && !fsrv_local_name("a b", ln));
+    CHECK(caps_for_program("kcc") == CAP_FS);                     /* компилятору - файлы и больше ничего */
+    CHECK(caps_for_program("local-hello") == 0 && caps_for_program("local-") == 0 && caps_for_program("local-plasma") == 0);
+    CHECK(caps_for_program("nonexistent") == 0);
 
     printf("fsrv: sandbox names/paths, isolation between programs, size and quota limits, atomic replace, persistence passed\n");
     return 0;

@@ -16,6 +16,7 @@ static const struct { const char* name; uint32_t caps; } table[] = {
     { "rec",      CAP_REC | CAP_FS },
     { "ipc",      CAP_IPC },
     { "mt",       CAP_THREAD },
+    { "kcc",      CAP_FS },                 /* компилятор: исходники и результат в /data/kcc, заголовки - FS_OP_INC_* (только kcc); больше ничего */
     { "burn",     0 },
     { "fpu",      0 },
     { "demo",     0 },
@@ -28,6 +29,12 @@ static const struct { const char* name; uint32_t caps; } table[] = {
 };
 
 uint32_t caps_for_program(const char* name) {
+    /* Программа, собранная пользователем на Кире и запущенная командой runlocal (progs.c): доверие дано явной командой, а не манифестом
+       сборки, поэтому прав нет вообще - ни файлов, ни сети, ни окон. Имена с этой приставкой в таблице не заводятся. */
+    const char* lp = "local-";
+    unsigned j = 0;
+    while (lp[j] && name[j] == lp[j]) j++;
+    if (!lp[j]) return 0;
     for (unsigned i = 0; i < sizeof table / sizeof table[0]; i++) {
         unsigned k = 0;
         while (table[i].name[k] && name[k] == table[i].name[k]) k++;

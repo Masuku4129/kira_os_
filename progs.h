@@ -8,6 +8,7 @@ int  prog_run(const char* name);        /* pid (>0) или отрицатель�
 void prog_request(const char* name);
 int  prog_run_args(const char* name, const char* args);   /* запуск с аргументами (run имя аргументы) */
 void prog_request_file(const char* name, const char* file);   /* программа с правом читать файл file */    /* из любого потока: запуск будет выполнен в prog_poll */
+int  prog_run_local(const char* file);  /* runlocal: /data/kcc/<файл> как local-<имя> без прав (явная команда пользователя) */
 void prog_poll(void);                   /* основной цикл ядра */
 void prog_list(void);                   /* /bin с вердиктом доверия */
 

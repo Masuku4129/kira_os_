@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
     size_t memsz = (size_t)512 << 20;
     void *mem = malloc(memsz);
     if (!mem) { fprintf(stderr, "kcc: out of memory\n"); return 2; }
-    KCfg cfg = { read_file, NULL, incs, ni, defs, nd, target };
+    KCfg cfg = { read_file, NULL, incs, ni, defs, nd, target, NULL };
     KResult r;
     int rc = kcc_compile(&cfg, mem, memsz, in, ir ? 1 : 2, &r);
     if (r.warn) fputs(r.warn, stderr);

@@ -54,6 +54,19 @@ $CC $UCFLAGS -I. -Iuserland -c userland/net6.c -o userland/net6.o
 $CC $UCFLAGS -I. -c ip6.c -o userland/u_ip6.o
 ld.lld $ULINK -o userland/net6.elf userland/net6.o userland/u_ip6.o
 UELF="$UELF userland/net6.elf"
+# kcc: компилятор C как программа Ring 3 (kcc/*.c без main.c + userland/kcc.c). Мини-libc для него - userland/kccrt (заголовки) и
+# userland/kccrt.c (строки, vsnprintf, qsort, setjmp); mem* - libc_min.c. Заголовки для программ пользователя (kcc/include) кладутся
+# на диск Киры как /etc/kcc/include/*.h (см. ниже) - kcc ищет их там.
+KCC_OBJ=""
+for src in kcc/*.c; do
+    [ "$src" = kcc/main.c ] && continue
+    $CC $UCFLAGS -nostdlibinc -Iuserland/kccrt -c $src -o userland/kcc_$(basename $src .c).o
+    KCC_OBJ="$KCC_OBJ userland/kcc_$(basename $src .c).o"
+done
+$CC $UCFLAGS -nostdlibinc -Iuserland/kccrt -Iuserland -c userland/kcc.c -o userland/kcc.o
+$CC $UCFLAGS -nostdlibinc -Iuserland -c userland/kccrt.c -o userland/u_kccrt.o
+ld.lld $ULINK -o userland/kcc.elf userland/kcc.o $KCC_OBJ userland/u_kccrt.o userland/u_libc_min.o
+UELF="$UELF userland/kcc.elf"
 # Программы с вещественной арифметикой (3D, тест FPU): SSE2 разрешён только им, ядро собирается без SSE.
 USSE_FLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -msse2 -mfpmath=sse -mno-mmx -fno-math-errno -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 for app in cube3d fpu wasm; do
@@ -82,6 +95,9 @@ tools/kfstool manifest $UELF > manifest.h
 tools/kfstool kira.disk init
 for e in $UELF; do
     tools/kfstool kira.disk put /bin/$(basename $e .elf) $e
+done
+for h in kcc/include/*.h; do
+    tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h     # заголовки libc-lite для kcc на Кире
 done
 userland/wasm/build.sh                                   # модули WebAssembly - в /wasm (те же файлы, что у ARM64)
 for w in build-wasm/*.wasm; do tools/kfstool kira.disk put /wasm/$(basename $w) $w; done
@@ -130,6 +146,7 @@ case "$1" in
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
             for e in $UELF; do tools/kfstool "$OUT/kira_disk.img" put /bin/$(basename $e .elf) $e >/dev/null; done
             for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
+            for h in kcc/include/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
             [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."
         else
