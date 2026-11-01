@@ -124,7 +124,7 @@ SC = [
                ("drv", [r"drv-edu pid \d+", r"отображений 1"]),
                ("drv stop edu", [r"останавливаю drv-edu"]), ("@sleep 2", []),
                ("@log \\[KIRA DRV\\] drv-edu \\(pid \\d+\\) завершён: устройство .* остановлено", []),
-               ("@log \\[KIRA DRV\\] edu: возвращено памяти DMA и колец 1 из 1 стр\\..*утечек нет", []),
+               ("@log \\[KIRA DRV\\] edu: возвращено памяти DMA и колец 0 из 0 стр\\..*утечек нет", []),
                ("drv start edunc", [r"драйвер запущен как drv-edunc"]), ("@sleep 3", []),
                ("@log drvedu: dma rc=-12", []), ("@log \\[KIRA CAPS\\] process 'drv-edunc' .* denied, no right CAP_DMA", []),
                ("drv stop edunc", []), ("@sleep 2", []),
