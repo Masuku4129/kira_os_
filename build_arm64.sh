@@ -57,7 +57,7 @@ done
 for f in fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
          experience.c fscmd.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
          immune.c kobj.c futex.c corefault.c crypto.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
-         virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
+         virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
          icons.c brainfx.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
          $A/main.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c; do
     o=build-arm64/$(basename $f .c).o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
@@ -72,6 +72,10 @@ for e in $UELF; do tools/kfstool kira-arm64.disk put /bin/$(basename $e .elf) $e
 for h in kcc/include/*.h; do                              # заголовки libc-lite для kcc на Кире (те же файлы, что у x86-64)
     tools/kfstool kira-arm64.disk put /etc/kcc/include/$(basename $h) $h >/dev/null
 done
+# Драйвер Ring 3 (тестовый, для QEMU -device edu) и его пакеты в /drv
+$CC $UCFLAGS -I. -Iuserland -c userland/drvedu.c -o build-arm64/drvedu.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/drvedu.elf build-arm64/drvedu.o
+tools/mkdrv.sh kira-arm64.disk build-arm64/drvedu.elf "$HOSTCC"
 userland/wasm/build.sh                                   # модули WebAssembly - те же файлы, что у x86-64
 for w in build-wasm/*.wasm; do tools/kfstool kira-arm64.disk put /wasm/$(basename $w) $w >/dev/null; done
 # Корневые сертификаты для HTTPS: системная связка хозяина (PEM) -> /etc/ssl/roots.der на диске Киры

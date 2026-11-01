@@ -33,6 +33,7 @@
 #include "fscmd.h"
 #include "life.h"
 #include "progs.h"
+#include "kdrv.h"
 #include "fsrv.h"
 #include "experience.h"
 #include "irqmode.h"
@@ -249,6 +250,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     for (;;) {
         console_poll();
         prog_poll();         // запуск, заказанный дисплеем (иконки дока)
+        kdrv_poll();         // драйверы Ring 3: первое сканирование /drv, возврат памяти погибших
         life_tick();         // журнал организма: запись накопленных событий
 
         uint64_t now = timer_get_ticks();

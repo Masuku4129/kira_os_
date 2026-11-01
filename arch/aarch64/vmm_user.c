@@ -143,9 +143,11 @@ int vmm_space_map(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) {
     if (!user_va(va) || (pa & 4095)) return -1;
     uint64_t* e = pte(root, va, 1);
     if (!e || (*e & PTE_VALID)) return -1;
-    uint64_t v = (pa & PTE_ADDR) | PTE_PAGE | PTE_AF | PTE_SH_IN | PTE_NG | PTE_NORMAL_ATTR | PTE_AP_EL0 | PTE_PXN;
+    /* VMM_NOCACHE - регистры устройства драйвера Ring 3 (kdrv.c): атрибут «устройство nGnRE» (MAIR 1) и никогда не исполняется. */
+    uint64_t attr = (flags & VMM_NOCACHE) ? (1ull << 2) : PTE_NORMAL_ATTR;
+    uint64_t v = (pa & PTE_ADDR) | PTE_PAGE | PTE_AF | PTE_SH_IN | PTE_NG | attr | PTE_AP_EL0 | PTE_PXN;
     if (!(flags & VMM_WRITE)) v |= PTE_AP_RO;
-    if (flags & VMM_NOEXEC) v |= PTE_UXN;
+    if (flags & (VMM_NOEXEC | VMM_NOCACHE)) v |= PTE_UXN;
     else {
         /* Код программы записан командами записи данных: кэш данных - до точки единства, кэш команд сбросить,
            иначе ядро процессора может исполнить старое содержимое страницы (на эмуляторе незаметно, на железе - да). */

@@ -17,6 +17,7 @@ typedef struct netdev {
 } netdev_t;
 
 void net_register(netdev_t* d);       /* драйвер нашёл карту; первая карта становится основной */
+netdev_t* net_dev(void);              /* основная карта (0 - нет): драйвер Ring 3 не регистрирует вторую */
 int  net_start(void);                 /* поток «net» и DHCP, если карта есть; число карт */
 
 /* Чистые функции (проверяются на хосте) */

@@ -1,5 +1,6 @@
 #include "console.h"
 #include "net.h"
+#include "kdrv.h"
 #include "hda.h"
 #include "input.h"
 #include "proc.h"
@@ -468,6 +469,7 @@ static void cmd_cc(const char* arg) {
     if (w != 2) { uart_print("использование: cc исходник результат   (файлы в /data/kcc, например: cc hello.c hello; запуск: runlocal hello)\n"); return; }
     (void)prog_run_args("kcc", arg);
 }
+static void cmd_drv(const char* arg) { kdrv_cmd(arg); }
 /* runlocal файл: запуск собранного ELF из /data/kcc как программы local-<имя> без прав (progs.c: prog_run_local). */
 static void cmd_runlocal(const char* arg) {
     while (*arg == ' ') arg++;
@@ -606,6 +608,7 @@ static const cmd_t cmds[] = {
     { "run",       0,   "запустить программу с диска: run имя (/bin/имя, проверка иммунитетом)", cmd_run },
     { "progs",     0,   "программы в /bin и вердикт иммунитета", cmd_progs },
     { "cc",        0,   "компилятор C на Кире: cc исходник результат (файлы в /data/kcc)", cmd_cc },
+    { "drv",       0,   "драйверы Ring 3 (/drv): drv - список; drv start ИМЯ [арг]; drv stop ИМЯ; drv rescan", cmd_drv },
     { "runlocal",  0,   "запустить собранное в /data/kcc как local-имя БЕЗ прав: runlocal файл", cmd_runlocal },
     { "ls",        0,   "список файлов: ls [путь]", fscmd_ls },
     { "cat",       0,   "содержимое файла: cat путь", fscmd_cat },

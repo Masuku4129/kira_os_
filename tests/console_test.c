@@ -65,6 +65,7 @@ int prog_run_args(const char* n, const char* a) {
     return prog_run(n);
 }
 int prog_run_local(const char* f) { snprintf(local_file, sizeof local_file, "%s", f); return 6; }
+void kdrv_cmd(const char* a) { (void)a; }
 void prog_list(void) {}
 void platform_status(void (*out)(const char*)) { out("IRQ stub\n"); }
 void platform_hw(void (*out)(const char*)) { hw_describe(hw_get(), out); }

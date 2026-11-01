@@ -1,6 +1,9 @@
 #include "pci.h"
 
 #if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+#include "spinlock.h"
+/* Порты 0xCF8/0xCFC - пара обращений: с драйверов Ring 3 (kdrv.c) конфигурацию читают и пишут разные ядра и потоки одновременно. */
+static spinlock_t cfg_port_lock = SPINLOCK_INIT;
 static inline void outl(uint16_t p, uint32_t v) { __asm__ volatile ("outl %0, %1" : : "a"(v), "Nd"(p)); }
 static inline uint32_t inl(uint16_t p) { uint32_t v; __asm__ volatile ("inl %1, %0" : "=a"(v) : "Nd"(p)); return v; }
 #endif
@@ -8,16 +11,21 @@ static inline uint32_t inl(uint16_t p) { uint32_t v; __asm__ volatile ("inl %1, 
 /* Порты 0xCF8/0xCFC - только у x86; на других архитектурах конфигурация - через ECAM (pci_use_ecam). */
 static uint32_t port_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
 #if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+    uint64_t f = spin_lock_irqsave(&cfg_port_lock);
     outl(0xCF8, 0x80000000u | ((uint32_t)bus << 16) | ((uint32_t)dev << 11) | ((uint32_t)fn << 8) | (off & 0xFC));
-    return inl(0xCFC);
+    uint32_t v = inl(0xCFC);
+    spin_unlock_irqrestore(&cfg_port_lock, f);
+    return v;
 #else
     (void)bus; (void)dev; (void)fn; (void)off; return 0xFFFFFFFFu;
 #endif
 }
 static void port_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t v) {
 #if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+    uint64_t f = spin_lock_irqsave(&cfg_port_lock);
     outl(0xCF8, 0x80000000u | ((uint32_t)bus << 16) | ((uint32_t)dev << 11) | ((uint32_t)fn << 8) | (off & 0xFC));
     outl(0xCFC, v);
+    spin_unlock_irqrestore(&cfg_port_lock, f);
 #else
     (void)bus; (void)dev; (void)fn; (void)off; (void)v;
 #endif
