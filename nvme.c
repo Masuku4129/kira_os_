@@ -254,7 +254,7 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     c->regs = rg;
     {   /* завершения - прерыванием: MSI-X (запись 0), иначе MSI; без них - опрос */
         uint64_t ma; uint32_t md;
-        if (msi_alloc(nvme_irq, c, &ma, &md) == 0 && (pci_msix_setup(pd, 0, ma, md) == 0 || pci_msi_setup(pd, ma, md) == 0)) c->irq = 1;
+        if (msi_alloc(pd, nvme_irq, c, &ma, &md) == 0 && (pci_msix_setup(pd, 0, ma, md) == 0 || pci_msi_setup(pd, ma, md) == 0)) c->irq = 1;
     }
     c->timeout_ms = (uint32_t)((cap >> 24) & 0xFF) * 500; if (c->timeout_ms < 500) c->timeout_ms = 500;
     if (!((cap >> 37) & 1)) { uart_print("[KIRA NVMe] controller without NVM command set: skipped\n"); return; }

@@ -313,7 +313,7 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     if (wait_reg(ab, GHC, GHC_HR, 0, 1000)) { uart_print("[KIRA AHCI] controller reset timeout\n"); return; }
     {   /* прерывание сообщением MSI: поток спит до конца команды */
         uint64_t ma; uint32_t md;
-        if (msi_alloc(ahci_irq, c, &ma, &md) == 0 && pci_msi_setup(pd, ma, md) == 0) c->irq = 1;
+        if (msi_alloc(pd, ahci_irq, c, &ma, &md) == 0 && pci_msi_setup(pd, ma, md) == 0) c->irq = 1;
     }
     w32(ab, IS, 0xFFFFFFFFu);
     w32(ab, GHC, c->irq ? GHC_AE | GHC_IE : GHC_AE);

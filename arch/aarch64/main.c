@@ -373,14 +373,122 @@ static uint8_t gic_mask_me;                                      /* GICv2: ма�
 
 /* ---------------- прерывания сообщениями (msi.h) ----------------
    GICv2m: устройство пишет номер SPI в регистр SETSPI_NS кадра MSI - контроллер поднимает этот SPI (по фронту).
-   GICv3 (ITS: таблицы устройств, очередь команд, LPI) - следующий шаг: там msi_alloc пока отказывает, драйверы на опросе. */
+   GICv3: ITS переводит запись устройства (номер устройства на шине PCI + номер события) в LPI загрузочного ядра. */
 static uint64_t v2m;
 static unsigned v2m_spi, v2m_n, v2m_used;
 #define MSI_MAX 16
 static struct { msi_fn fn; void* ctx; } msis[MSI_MAX];
 static spinlock_t msi_lk = SPINLOCK_INIT;
 
-int msi_alloc(msi_fn fn, void* ctx, uint64_t* addr, uint32_t* data) {
+/* ---- ITS (GICv3) ---- */
+#define LPI_BASE 8192u
+#define LPI_IDBITS 14u                                           /* номера LPI до 16383 */
+static uint64_t its, its_rd;                                     /* кадр ITS; цель коллекции 0 (адрес или номер RD) */
+static uint8_t* lpi_cfg;                                         /* таблица настроек LPI (байт на LPI) */
+static uint8_t* its_cmdq; static uint32_t its_cw;
+static unsigned lpi_used;
+static struct { msi_fn fn; void* ctx; } lpis[MSI_MAX];
+static struct { uint16_t id; uint8_t* itt; } its_devs[MSI_MAX];
+static unsigned its_ndev;
+
+static void w64(uint64_t a, uint64_t v) { *(volatile uint64_t*)(uintptr_t)a = v; }
+/* Таблицы в обычной памяти: контроллер может читать мимо кэша процессора - записанное дописать до памяти. */
+static void flush(const void* p, uint64_t n) {
+    for (uint64_t a = (uint64_t)(uintptr_t)p & ~63ull; a < (uint64_t)(uintptr_t)p + n; a += 64) __asm__ volatile ("dc civac, %0" : : "r"(a) : "memory");
+    __asm__ volatile ("dsb sy" ::: "memory");
+}
+static int its_cmd(uint64_t d0, uint64_t d1, uint64_t d2, uint64_t d3) {
+    uint64_t* c = (uint64_t*)(its_cmdq + its_cw);
+    c[0] = d0; c[1] = d1; c[2] = d2; c[3] = d3;
+    flush(c, 32);
+    its_cw = (its_cw + 32) % 4096;
+    w64(its + 0x88, its_cw);                                     /* GITS_CWRITER */
+    for (int i = 0; i < 1000000; i++) {
+        uint64_t rd = mmio_r64(its + 0x90);                      /* GITS_CREADR: бит 0 - ошибка очереди */
+        if (rd & 1) return -1;
+        if ((rd & 0xFFFE0) == its_cw) return 0;
+    }
+    return -1;
+}
+static uint64_t pages(unsigned n) {
+    uint64_t pa = pmm_alloc_contiguous(n);
+    if (pa) { for (uint64_t i = 0; i < (uint64_t)n * 4096; i++) ((volatile uint8_t*)(uintptr_t)pa)[i] = 0; flush((void*)(uintptr_t)pa, (uint64_t)n * 4096); }
+    return pa;
+}
+
+/* LPI в редистрибуторе загрузочного ядра и сам ITS. 0 - готово. */
+static int its_init(const void* fdt) {
+    int n = fdt_find_compatible(fdt, -1, "arm,gic-v3-its");
+    uint64_t sz;
+    if (n < 0 || fdt_reg(fdt, n, 0, &its, &sz) != 0) { its = 0; return -1; }
+    uint64_t rd = my_gicr();
+    if (!rd || !(mmio_r64(rd + 0x8) & 1)) { its = 0; return -2; }   /* GICR_TYPER.PLPIS */
+    /* таблица настроек: байт на LPI с 8192; таблица ожидания: бит на номер, выровнена на 64 КБ */
+    uint64_t cfg = pages(((1u << LPI_IDBITS) - LPI_BASE) / 4096), pend = pmm_alloc_contiguous(32);
+    if (!cfg || !pend) { its = 0; return -3; }
+    uint64_t pend64 = (pend + 0xFFFF) & ~0xFFFFull;             /* 32 страницы: внутри есть выровненные 64 КБ */
+    for (uint64_t i = 0; i < 0x10000 / 8 && pend64 + i * 8 < pend + 32 * 4096; i++) ((volatile uint64_t*)(uintptr_t)pend64)[i] = 0;
+    flush((void*)(uintptr_t)pend64, (1u << LPI_IDBITS) / 8);
+    lpi_cfg = (uint8_t*)(uintptr_t)cfg;
+    w64(rd + 0x70, cfg | (7ull << 7) | (1ull << 10) | (LPI_IDBITS - 1));   /* PROPBASER: WB, внутр. общая, 14 бит */
+    w64(rd + 0x78, pend64 | (7ull << 7) | (1ull << 10));                   /* PENDBASER */
+    mmio_w32(rd, mmio_r32(rd) | 1);                                        /* GICR_CTLR.EnableLPIs */
+    /* ITS: таблицы устройств и коллекций (плоские), очередь команд 4 КБ */
+    uint64_t typer = mmio_r64(its + 0x8);
+    unsigned devbits = (unsigned)((typer >> 13) & 31) + 1;
+    if (devbits > 16) devbits = 16;                              /* номер устройства PCI - 16 бит */
+    for (unsigned b = 0; b < 8; b++) {
+        uint64_t reg = its + 0x100 + 8 * b, v = mmio_r64(reg);
+        unsigned type = (unsigned)((v >> 56) & 7), esz = (unsigned)((v >> 48) & 31) + 1;
+        if (type != 1 && type != 4) continue;                    /* 1 - устройства, 4 - коллекции */
+        uint64_t entries = type == 1 ? (1ull << devbits) : 64, bytes = entries * esz, np = (bytes + 4095) / 4096;
+        if (np > 256) np = 256;
+        uint64_t t = pages((unsigned)np);
+        if (!t) { its = 0; return -4; }
+        w64(reg, (1ull << 63) | (7ull << 59) | ((uint64_t)type << 56) | ((uint64_t)(esz - 1) << 48) | t | (1ull << 10) | (np - 1));
+    }
+    uint64_t q = pages(1);
+    if (!q) { its = 0; return -5; }
+    its_cmdq = (uint8_t*)(uintptr_t)q; its_cw = 0;
+    w64(its + 0x80, (1ull << 63) | (7ull << 59) | q | (1ull << 10));       /* GITS_CBASER: 1 страница */
+    w64(its + 0x88, 0);
+    mmio_w32(its, mmio_r32(its) | 1);                                      /* GITS_CTLR.Enabled */
+    /* коллекция 0 -> редистрибутор загрузочного ядра: адрес (PTA) или номер процессора */
+    its_rd = (typer & (1ull << 19)) ? (rd & 0xFFFFFFFFF0000ull) : ((mmio_r64(rd + 0x8) >> 8) & 0xFFFF) << 16;
+    if (its_cmd(0x09, 0, (1ull << 63) | its_rd, 0) || its_cmd(0x05, 0, its_rd, 0)) { its = 0; return -6; }   /* MAPC, SYNC */
+    kprintf("[KIRA GIC] ITS at %x: LPIs on the boot core, device id bits %u - PCI interrupts by message (MSI/MSI-X)\n", its, (uint64_t)devbits);
+    return 0;
+}
+
+static int its_alloc(const pci_dev_t* d, msi_fn fn, void* ctx, uint64_t* addr, uint32_t* data) {
+    if (!its || !d) return -1;
+    uint64_t f = spin_lock_irqsave(&msi_lk);
+    int r = -1;
+    uint16_t devid = (uint16_t)(d->bus << 8 | d->dev << 3 | d->fn);
+    if (lpi_used < MSI_MAX && its_ndev < MSI_MAX) {
+        unsigned i = lpi_used, lpi = LPI_BASE + i;
+        uint64_t itt = pages(1);                                 /* таблица событий устройства: 2 события */
+        if (itt) {
+            lpis[i].fn = fn; lpis[i].ctx = ctx;
+            lpi_cfg[lpi - LPI_BASE] = 0xA0 | 1;                 /* приоритет, включён */
+            flush(&lpi_cfg[lpi - LPI_BASE], 1);
+            if (!its_cmd(0x08 | (uint64_t)devid << 32, 0, (1ull << 63) | itt, 0) &&               /* MAPD: 1 бит события */
+                !its_cmd(0x0A | (uint64_t)devid << 32, (uint64_t)lpi << 32, 0, 0) &&              /* MAPTI: событие 0 -> LPI, коллекция 0 */
+                !its_cmd(0x0D, 0, 0, 0) && !its_cmd(0x05, 0, its_rd, 0)) {                         /* INVALL, SYNC */
+                __atomic_store_n(&lpi_used, i + 1, __ATOMIC_RELEASE);
+                its_devs[its_ndev].id = devid; its_devs[its_ndev].itt = (uint8_t*)(uintptr_t)itt; its_ndev++;
+                *addr = its + 0x10040;                           /* GITS_TRANSLATER */
+                *data = 0;                                       /* событие 0 этого устройства */
+                r = 0;
+            }
+        }
+    }
+    spin_unlock_irqrestore(&msi_lk, f);
+    return r;
+}
+
+int msi_alloc(const pci_dev_t* d, msi_fn fn, void* ctx, uint64_t* addr, uint32_t* data) {
+    if (its) return its_alloc(d, fn, ctx, addr, data);
     if (!v2m) return -1;
     uint64_t f = spin_lock_irqsave(&msi_lk);
     if (v2m_used >= v2m_n || v2m_used >= MSI_MAX) { spin_unlock_irqrestore(&msi_lk, f); return -1; }
@@ -592,6 +700,9 @@ void arm_exception(uint64_t* frame, uint64_t kind) {
             cpus[c ? c->cpu_id : my_cpu()].ticks++;
             ticks_advance();
             if (sched_up) { watchdog_check(); sched_tick(); }
+        } else if (its && id >= LPI_BASE && id < LPI_BASE + __atomic_load_n(&lpi_used, __ATOMIC_ACQUIRE)) {
+            unsigned i = id - LPI_BASE;                          /* сообщение устройства через ITS (LPI) */
+            if (lpis[i].fn) lpis[i].fn(lpis[i].ctx);
         } else if (v2m && id >= v2m_spi && id < v2m_spi + __atomic_load_n(&v2m_used, __ATOMIC_ACQUIRE)) {
             unsigned i = id - v2m_spi;                           /* сообщение устройства (MSI через GICv2m) */
             if (msis[i].fn) msis[i].fn(msis[i].ctx);
@@ -891,6 +1002,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     gic_dist_init();
     cpus[me].gic_ok = gic_cpu_init() == 0;
     cpus[me].gic_mask = gic_mask_me;
+    if (gic_v3 && its_init(fdt) != 0) kprintf("[KIRA GIC] no usable ITS: PCI devices stay on polling\n");
     anchor_cnt = now_cnt();
     sched_up = 1;
     timer_start();

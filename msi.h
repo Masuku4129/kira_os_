@@ -7,7 +7,8 @@
 /* Прерывания устройств сообщениями (MSI / MSI-X): устройство само пишет «сообщение» по адресу контроллера
    прерываний, линии и таблицы маршрутов ACPI не нужны. Архитектура выдаёт вектор и пару адрес/данные. */
 typedef void (*msi_fn)(void* ctx);
-int  msi_alloc(msi_fn fn, void* ctx, uint64_t* addr, uint32_t* data);   /* 0 - вектор выдан; -1 - нет (опрос) */
+/* d - устройство PCI (ITS у ARM64 GICv3 различает устройства по номеру на шине; x86-64 и GICv2m его не используют). */
+int  msi_alloc(const pci_dev_t* d, msi_fn fn, void* ctx, uint64_t* addr, uint32_t* data);   /* 0 - выдан; -1 - нет (опрос) */
 int  pci_msix_setup(const pci_dev_t* d, unsigned entry, uint64_t addr, uint32_t data);   /* 0 - MSI-X включён */
 int  pci_msi_setup(const pci_dev_t* d, uint64_t addr, uint32_t data);                    /* 0 - MSI включён */
 

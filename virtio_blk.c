@@ -92,7 +92,7 @@ blk_dev_t* virtio_blk_probe(void) {
 #ifndef KIRA_HOST_TEST
     {   /* прерывание очереди сообщением MSI-X: поток спит до ответа диска, а не проверяет его каждый тик */
         uint64_t ma; uint32_t md;
-        if (msi_alloc(vblk_irq, 0, &ma, &md) == 0 && pci_msix_setup(pd, 0, ma, md) == 0) { vdev.msix_vec = 0; irq = 1; }
+        if (msi_alloc(pd, vblk_irq, 0, &ma, &md) == 0 && pci_msix_setup(pd, 0, ma, md) == 0) { vdev.msix_vec = 0; irq = 1; }
     }
 #endif
     if (virtio_queue_setup(&vdev, &vq, 0, 64) != 0) { virtio_fail(&vdev); uart_print("[KIRA VIRTIO] blk: queue setup failed.\n"); return 0; }

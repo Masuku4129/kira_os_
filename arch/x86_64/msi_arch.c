@@ -13,7 +13,8 @@ static struct { msi_fn fn; void* ctx; } tab[MSI_N];
 static unsigned nvec;
 static spinlock_t lk = SPINLOCK_INIT;
 
-int msi_alloc(msi_fn fn, void* ctx, uint64_t* addr, uint32_t* data) {
+int msi_alloc(const pci_dev_t* d, msi_fn fn, void* ctx, uint64_t* addr, uint32_t* data) {
+    (void)d;
     uint32_t dest = percpu_table[0].apic_id;
     if (dest > 255) return -1;                              /* в адресе MSI - 8 бит номера ядра */
     uint64_t f = spin_lock_irqsave(&lk);
