@@ -1,6 +1,6 @@
 #ifndef KIRA_TLS_H
 #define KIRA_TLS_H
-/* TLS 1.3 (RFC 8446) - клиент для программ: X25519, TLS_CHACHA20_POLY1305_SHA256. Работает поверх соединения TCP
+/* TLS 1.3 (RFC 8446) - клиент для программ: X25519, TLS_CHACHA20_POLY1305_SHA256 и TLS_AES_128_GCM_SHA256. Работает поверх соединения TCP
    ядра (k_net_*), вся криптография - в программе (кольцо 3 / EL0), ядро видит только шифротекст.
    Сервер доказывает владение ключом сертификата (CertificateVerify проверяется всегда). С хранилищем корневых
    (roots) - ещё цепочка X.509 до корневого, имя хоста и срок (now - секунды UTC, 0 - часы неизвестны): иначе отказ.
@@ -10,6 +10,7 @@
 #else
 #include "kira.h"
 #endif
+#include "../crypto.h"
 
 typedef struct {
     i64 sock;
@@ -22,6 +23,7 @@ typedef struct {
     u16 cipher;
     u32 cert_count, leaf_len;
     u8 rkey[32], riv[12], wkey[32], wiv[12], rsec[32];
+    aes_gcm_t rg, wg;                /* развёрнутые ключи AES-128-GCM (если сервер выбрал его) */
     u64 rseq, wseq;
     u8 in[16384 + 512]; u32 in_len;  /* сырой входной поток (записи) */
     u8 pt[16384 + 256]; u32 pt_off, pt_len;   /* расшифрованные данные приложения */

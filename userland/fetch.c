@@ -46,7 +46,8 @@ int umain(void) {
         if (tls_connect(&tls, h, host, 10000, roots, (u32)rl, now > 0 ? now : 0)) {
             say("fetch: TLS failed: "); say(tls.err); say("\n"); k_net_close(h); return 1;
         }
-        say("fetch: TLS 1.3, X25519 + ChaCha20-Poly1305; certificate verified (chain to a root, name");
+        say(tls.cipher == 0x1301 ? "fetch: TLS 1.3, X25519 + AES-128-GCM" : "fetch: TLS 1.3, X25519 + ChaCha20-Poly1305");
+        say("; certificate verified (chain to a root, name");
         say(now > 0 ? ", dates)" : "; dates NOT checked: no real-time clock)");
         if (tls.weak_random) say("; key from timing-only randomness (no hardware RNG)");
         say("\n");

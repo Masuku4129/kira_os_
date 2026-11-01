@@ -7,6 +7,7 @@
 enum { CT_CCS = 20, CT_ALERT = 21, CT_HS = 22, CT_APP = 23 };
 enum { HS_CH = 1, HS_SH = 2, HS_NST = 4, HS_EE = 8, HS_CERT = 11, HS_CV = 15, HS_FIN = 20, HS_KU = 24 };
 #define SUITE_CHACHA 0x1303
+#define SUITE_AES128 0x1301
 
 static u8 hs[40000]; static u32 hs_len;          /* собранные сообщения рукопожатия (могут идти через записи) */
 static sha256_ctx_t th;                           /* хэш переписки */
@@ -20,9 +21,14 @@ static u32 be24(const u8* p) { return (u32)p[0] << 16 | (u32)p[1] << 8 | p[2]; }
 static void th_hash(u8 out[32]) { sha256_ctx_t c = th; sha256_final(&c, out); }
 static int fail(tls_t* t, const char* e) { t->err = e; t->state = -1; return -1; }
 
-static void keys(const u8 secret[32], u8 key[32], u8 iv[12]) {
-    hkdf_expand_label(secret, "key", 0, 0, key, 32);
-    hkdf_expand_label(secret, "iv", 0, 0, iv, 12);
+/* Ключ и IV направления из секрета трафика: ChaCha20 - 32 байта ключа, AES-128-GCM - 16 (и развёрнутые раунды). */
+static void keys(tls_t* t, const u8 secret[32], int write) {
+    u8* key = write ? t->wkey : t->rkey;
+    int kl = t->cipher == SUITE_AES128 ? 16 : 32;
+    hkdf_expand_label(secret, "key", 0, 0, key, (size_t)kl);
+    hkdf_expand_label(secret, "iv", 0, 0, write ? t->wiv : t->riv, 12);
+    if (kl == 16) aes128_gcm_init(write ? &t->wg : &t->rg, key);
+    if (write) t->wseq = 0; else t->rseq = 0;
 }
 static void nonce(const u8 iv[12], u64 seq, u8 n[12]) {
     for (int i = 0; i < 12; i++) n[i] = iv[i];
@@ -58,7 +64,9 @@ static u8 rec[16384 + 512];
 static int open_record(tls_t* t, const u8* hdr, u8* body, u32 len, u8* itype, u32* plen) {
     if (len < 17) return fail(t, "short encrypted record");
     u8 n[12]; nonce(t->riv, t->rseq, n);
-    if (aead_chacha20_poly1305_open(t->rkey, n, hdr, 5, body, len - 16, body + len - 16, body) != 0)
+    int bad = t->cipher == SUITE_AES128 ? aes128_gcm_open(&t->rg, n, hdr, 5, body, len - 16, body + len - 16, body)
+                                        : aead_chacha20_poly1305_open(t->rkey, n, hdr, 5, body, len - 16, body + len - 16, body);
+    if (bad)
         return fail(t, "record authentication failed (bad key or tampering)");
     t->rseq++;
     u32 k = len - 16;
@@ -75,7 +83,8 @@ static int write_record(tls_t* t, u8 itype, const u8* p, u32 n) {
     out[0] = CT_APP; out[1] = 3; out[2] = 3; out[3] = (u8)(L >> 8); out[4] = (u8)L;
     cp(out + 5, p, n); out[5 + n] = itype;
     u8 nn[12]; nonce(t->wiv, t->wseq, nn);
-    aead_chacha20_poly1305_seal(t->wkey, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1);
+    if (t->cipher == SUITE_AES128) aes128_gcm_seal(&t->wg, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1);
+    else aead_chacha20_poly1305_seal(t->wkey, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1);
     t->wseq++;
     return send_all(t, out, 5 + L);
 }
@@ -132,7 +141,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     ch[n++] = 3; ch[n++] = 3;
     cp(ch + n, rnd, 32); n += 32;                                 /* random */
     ch[n++] = 32; cp(ch + n, rnd + 32, 32); n += 32;              /* session id (режим совместимости) */
-    n += put16(ch + n, 2); n += put16(ch + n, SUITE_CHACHA);
+    n += put16(ch + n, 4); n += put16(ch + n, SUITE_CHACHA); n += put16(ch + n, SUITE_AES128);   /* ChaCha20 - первым: без таблиц */
     ch[n++] = 1; ch[n++] = 0;                                     /* сжатие: нет */
     u32 ext = n; n += 2;
     int ip_literal = 1;                                           /* адрес IPv4: имя сервера не передаётся (RFC 6066) */
@@ -165,7 +174,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     u32 o = 34, sid = s[o]; o += 1 + sid;
     if (o + 5 > bl) return fail(t, "bad ServerHello");
     t->cipher = (u16)be16(s + o); o += 3;
-    if (t->cipher != SUITE_CHACHA) return fail(t, "server chose a cipher that was not offered");
+    if (t->cipher != SUITE_CHACHA && t->cipher != SUITE_AES128) return fail(t, "server chose a cipher that was not offered");
     u32 el = be16(s + o); o += 2;
     int v13 = 0; const u8* spub = 0;
     for (u32 e = o; e + 4 <= o + el && e + 4 <= bl; ) {
@@ -192,7 +201,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     th_hash(h);
     hkdf_expand_label(hsec, "c hs traffic", h, 32, csec, 32);
     hkdf_expand_label(hsec, "s hs traffic", h, 32, ssec, 32);
-    keys(ssec, t->rkey, t->riv); t->rseq = 0;
+    keys(t, ssec, 0);
 
     /* ---- EncryptedExtensions, Certificate, CertificateVerify, Finished ---- */
     int got_fin = 0;
@@ -263,15 +272,15 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     /* ---- Finished клиента (ключом рукопожатия) ---- */
     static const u8 ccs[6] = { CT_CCS, 3, 3, 0, 1, 1 };
     if (send_all(t, ccs, 6)) return fail(t, "send failed");
-    keys(csec, t->wkey, t->wiv); t->wseq = 0;
+    keys(t, csec, 1);
     u8 fk[32], fin[36];
     hkdf_expand_label(csec, "finished", 0, 0, fk, 32);
     fin[0] = HS_FIN; fin[1] = 0; fin[2] = 0; fin[3] = 32;
     hmac_sha256(fk, 32, h, 32, fin + 4);
     if (write_record(t, CT_HS, fin, 36)) return fail(t, "Finished not sent");
 
-    keys(cap, t->wkey, t->wiv); t->wseq = 0;
-    keys(sap, t->rkey, t->riv); t->rseq = 0;
+    keys(t, cap, 1);
+    keys(t, sap, 0);
     cp(t->rsec, sap, 32);
     crypto_wipe(hsec, 32); crypto_wipe(csec, 32); crypto_wipe(ssec, 32); crypto_wipe(ms_, 32); crypto_wipe(cap, 32); crypto_wipe(sap, 32);
     crypto_wipe(fk, 32); crypto_wipe(early, 32);
@@ -312,7 +321,7 @@ i64 tls_recv(tls_t* t, void* p, u32 n, u32 timeout_ms) {
                 if (rec[c] == HS_KU) {                            /* новый ключ чтения; ответить своим, если просят */
                     u8 ns[32];
                     hkdf_expand_label(t->rsec, "traffic upd", 0, 0, ns, 32);
-                    cp(t->rsec, ns, 32); keys(ns, t->rkey, t->riv); t->rseq = 0;
+                    cp(t->rsec, ns, 32); keys(t, ns, 0);
                     if (ml >= 1 && rec[c + 4] == 1) { fail(t, "server requested KeyUpdate (not supported yet)"); return -1; }
                 }
                 c += 4 + ml;
@@ -328,6 +337,6 @@ i64 tls_recv(tls_t* t, void* p, u32 n, u32 timeout_ms) {
 
 void tls_close(tls_t* t) {
     if (t->state == 2 || t->state == 3) { static const u8 cn[2] = { 1, 0 }; (void)write_record(t, CT_ALERT, cn, 2); }
-    crypto_wipe(t->rkey, 32); crypto_wipe(t->wkey, 32); crypto_wipe(t->rsec, 32);
+    crypto_wipe(t->rkey, 32); crypto_wipe(t->wkey, 32); crypto_wipe(t->rsec, 32); crypto_wipe(&t->rg, sizeof t->rg); crypto_wipe(&t->wg, sizeof t->wg);
     t->state = 0;
 }

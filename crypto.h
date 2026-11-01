@@ -34,6 +34,17 @@ void hkdf_extract(const uint8_t* salt, size_t slen, const uint8_t* ikm, size_t i
 void hkdf_expand(const uint8_t prk[32], const uint8_t* info, size_t ilen, uint8_t* out, size_t olen);
 void hkdf_expand_label(const uint8_t secret[32], const char* label, const uint8_t* ctx, size_t clen, uint8_t* out, size_t olen);
 
+/* AES-128-GCM (FIPS 197, SP 800-38D): обязательный набор TLS 1.3 (TLS_AES_128_GCM_SHA256), nonce 12 байт.
+   AES - по таблице S-блока (время доступа к таблице зависит от ключа: для клиента TLS это приемлемо, для
+   долгоживущих ключей сервера - нет); GHASH - побитовое умножение без таблиц. */
+typedef struct { uint32_t rk[44]; uint8_t h[16]; } aes_gcm_t;
+void aes128_gcm_init(aes_gcm_t* g, const uint8_t key[16]);
+void aes128_gcm_seal(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
+                     const uint8_t* in, size_t len, uint8_t* out, uint8_t tag[16]);
+int  aes128_gcm_open(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
+                     const uint8_t* in, size_t len, const uint8_t tag[16], uint8_t* out);   /* 0 - метка верна */
+void aes128_encrypt_block(const uint32_t rk[44], const uint8_t in[16], uint8_t out[16]);
+
 /* SHA-512 и SHA-384 (FIPS 180-4): подписи сертификатов (ECDSA P-384, RSA с SHA-384/512). */
 typedef struct { uint64_t h[8]; uint64_t len; uint8_t buf[128]; uint32_t n; int out; } sha512_ctx_t;
 void sha512_init(sha512_ctx_t* c);

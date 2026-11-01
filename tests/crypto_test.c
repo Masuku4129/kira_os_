@@ -68,6 +68,23 @@ int main(void) {
     sha512_final(&q5, out);
     CHECK(eqhex(out, "f54480689c6b0b11d0303285d9a81b21a93bca6ba5a1b4472765dca4da45ee328082d469c650cd3b61b16d3266ab8ced"));
 
-    printf(fails ? "CRYPTO TESTS FAILED\n" : "crypto: ChaCha20, Poly1305, AEAD (+forgery), X25519 (+low order), HMAC-SHA256, HKDF, TLS 1.3 labels - RFC vectors passed\n");
+    { uint8_t k[16], blk[16]; aes_gcm_t g;                                   /* FIPS-197 C.1; GCM: McGrew-Viega 3 и 4 */
+      for (int i = 0; i < 16; i++) k[i] = (uint8_t)i;
+      hex("00112233445566778899aabbccddeeff", blk); aes128_gcm_init(&g, k); aes128_encrypt_block(g.rk, blk, out);
+      CHECK(eqhex(out, "69c4e0d86a7b0430d8cdb78070b4c55a"));
+      uint8_t P[64], A[20], N[12], C[64], back2[64];
+      hex("feffe9928665731c6d6a8f9467308308", k); hex("cafebabefacedbaddecaf888", N);
+      hex("d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b391aafd255", P);
+      hex("feedfacedeadbeeffeedfacedeadbeefabaddad2", A);
+      aes128_gcm_init(&g, k);
+      aes128_gcm_seal(&g, N, 0, 0, P, 64, C, tag);
+      CHECK(eqhex(C, "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091473f5985"));
+      CHECK(eqhex(tag, "4d5c2af327cd64a62cf35abd2ba6fab4"));
+      aes128_gcm_seal(&g, N, A, 20, P, 60, C, tag);
+      CHECK(eqhex(tag, "5bc94fbc3221a5db94fae95ae7121a47"));
+      CHECK(aes128_gcm_open(&g, N, A, 20, C, 60, tag, back2) == 0 && !memcmp(back2, P, 60));
+      C[7] ^= 1; CHECK(aes128_gcm_open(&g, N, A, 20, C, 60, tag, back2) == -1); }
+
+    printf(fails ? "CRYPTO TESTS FAILED\n" : "crypto: ChaCha20, Poly1305, AEAD (+forgery), AES-128, AES-128-GCM (+forgery), SHA-384/512, X25519 (+low order), HMAC-SHA256, HKDF, TLS 1.3 labels - RFC vectors passed\n");
     return fails != 0;
 }

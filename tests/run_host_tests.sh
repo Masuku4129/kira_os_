@@ -248,5 +248,9 @@ tls_run() {   # порт, ключ сервера, ожидание
 }
 tls_run 18443 "--chain $T/chain" ok
 tls_run 18444 "--self $T/chain" untrusted
+openssl s_server -quiet -accept 18445 -cert $T/chain/leaf.pem -key $T/chain/leaf.key -cert_chain $T/chain/inter.pem \
+    -tls1_3 -ciphersuites TLS_AES_128_GCM_SHA256 -www -naccept 1 > $T/ossl.log 2>&1 &
+sleep 1
+$T/tls 18445 $T/chain/root.der aes
 rm -rf $T
 echo "ALL HOST TESTS PASSED"
