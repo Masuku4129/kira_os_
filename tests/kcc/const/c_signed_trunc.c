@@ -1,0 +1,9 @@
+long long c1 = (char)200;
+long long c2 = (signed char)129;
+long long c3 = (short)70000;
+long long c4 = (int)4294967296LL;
+long long c5 = (int)3000000000u;
+long long c6 = (char)0x1FF;
+long long c7 = (short)-32769;
+long long c8 = (_Bool)5;
+long long c9 = (_Bool)0;

@@ -1,0 +1,12 @@
+long long c1 = 1 < 2;
+long long c2 = 2 <= 2;
+long long c3 = 3 > 4;
+long long c4 = 5 >= 5;
+long long c5 = 1 == 1;
+long long c6 = 1 != 1;
+long long c7 = -1 < 0u;
+long long c8 = -1 < 0;
+long long c9 = 1 < 2 < 3;
+long long c10 = 3 > 2 > 1;
+long long c11 = (char)-1 < 0;
+long long c12 = (unsigned char)-1 > 0;

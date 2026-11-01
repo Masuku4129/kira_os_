@@ -1,0 +1,10 @@
+long long c1 = 0 / 5;
+long long c2 = 5 / 1;
+long long c3 = -2147483647 / -1;
+long long c4 = 2147483647 % 2;
+long long c5 = (-2147483647 - 1) / 2;
+long long c6 = 7u / 2u;
+long long c7 = 7u % 4u;
+long long c8 = 4294967295u / 3;
+long long c9 = -9 / 4;
+long long c10 = -9 % 4;

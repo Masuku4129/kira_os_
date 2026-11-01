@@ -1,0 +1,10 @@
+long long c1 = 0x7fffffff;
+long long c2 = 0xffffffff;
+long long c3 = 0x100000000;
+long long c4 = 017;
+long long c5 = 0;
+long long c6 = 12345678901LL;
+long long c7 = 0xFFFFFFFFFFFFFFFFull;
+long long c8 = 9223372036854775807;
+long long c9 = 0b1010;
+long long c10 = 0XaBcD;

@@ -1,0 +1,12 @@
+enum { N = 3 };
+int a[N * 2 + 1];
+int b[sizeof(int) * 2];
+int c[(1 ? 4 : 5)];
+int d[N][N + 1];
+char e[sizeof(a)];
+long long c1 = sizeof a / sizeof(int);
+long long c2 = sizeof b / sizeof(int);
+long long c3 = sizeof c / sizeof(int);
+long long c4 = sizeof d;
+long long c5 = sizeof e;
+long long c6 = sizeof d[0];

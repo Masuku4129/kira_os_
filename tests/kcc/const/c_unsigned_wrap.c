@@ -1,0 +1,10 @@
+long long c1 = 0u - 1;
+long long c2 = 4294967295u + 1;
+long long c3 = (unsigned)-1;
+long long c4 = (unsigned char)300;
+long long c5 = (unsigned short)-1;
+long long c6 = 4294967295u * 2u;
+long long c7 = 0u - 1 > 0;
+long long c8 = (unsigned long long)-1;
+long long c9 = 18446744073709551615ull;
+long long c10 = 2147483648u;

@@ -1,0 +1,9 @@
+long long c1 = 1 << 10;
+long long c2 = 1024 >> 3;
+long long c3 = -16 >> 2;
+long long c4 = 1u << 31;
+long long c5 = 1LL << 40;
+long long c6 = 0x80000000u >> 31;
+long long c7 = (unsigned char)255 << 4;
+long long c8 = 3 << 2 >> 1;
+long long c9 = 1 << 2 + 1;

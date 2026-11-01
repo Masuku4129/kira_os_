@@ -1,0 +1,11 @@
+long long c1 = 'a';
+long long c2 = '\n';
+long long c3 = '\\';
+long long c4 = '\'';
+long long c5 = '"';
+long long c6 = '\0';
+long long c7 = '\x41';
+long long c8 = '\101';
+long long c9 = '\377';
+long long c10 = 'a' + 1;
+long long c11 = '9' - '0';

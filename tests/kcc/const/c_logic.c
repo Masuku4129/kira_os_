@@ -1,0 +1,9 @@
+long long c1 = 1 && 2;
+long long c2 = 0 || 0;
+long long c3 = 5 || 0;
+long long c4 = !0;
+long long c5 = !7;
+long long c6 = !!9;
+long long c7 = 1 && 0 || 1;
+long long c8 = 1 || 0 && 0;
+long long c9 = 0 && (1 / 1);

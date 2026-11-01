@@ -1,0 +1,2 @@
+int x;
+long x;

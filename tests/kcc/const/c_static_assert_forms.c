@@ -1,0 +1,10 @@
+_Static_assert(sizeof(int) == 4, "int");
+_Static_assert(sizeof(long) == 8 && sizeof(void *) == 8, "lp64");
+_Static_assert(-1 < 0, "neg");
+_Static_assert((1 << 3) == 8, "shl");
+_Static_assert((char)0x1ff == -1, "trunc");
+struct S { int a; char b; };
+_Static_assert(sizeof(struct S) == 8, "pad");
+enum { N = 4 };
+_Static_assert(N * 2 == 8, "enum");
+long long c1 = 1;

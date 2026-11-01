@@ -1,0 +1,9 @@
+long long c1 = 0xF0 | 0x0F;
+long long c2 = 0xFF & 0x3C;
+long long c3 = 0xAA ^ 0xFF;
+long long c4 = ~0;
+long long c5 = ~5;
+long long c6 = ~0u;
+long long c7 = 6 & 3 | 8 ^ 1;
+long long c8 = 1 | 2 & 3 ^ 4;
+long long c9 = ~(~0u << 4);

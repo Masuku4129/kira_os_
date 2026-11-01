@@ -1,0 +1,9 @@
+long long c1 = 1 + 2 * 3 - 4 / 2;
+long long c2 = (1 + 2) * (3 - 4) / 2;
+long long c3 = 100 % 7 + 100 / 7;
+long long c4 = -7 / 2;
+long long c5 = -7 % 3;
+long long c6 = 7 / -2;
+long long c7 = 7 % -3;
+long long c8 = 2147483647 - 1 + 1;
+long long c9 = 3 * 4 % 5 + 6 / 4;

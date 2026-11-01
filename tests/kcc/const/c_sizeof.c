@@ -1,0 +1,15 @@
+struct S { char a; int b; char c; };
+union U { char a[5]; int i; };
+long long c1 = sizeof(char);
+long long c2 = sizeof(short);
+long long c3 = sizeof(int);
+long long c4 = sizeof(long);
+long long c5 = sizeof(long long);
+long long c6 = sizeof(void *);
+long long c7 = sizeof(struct S);
+long long c8 = sizeof(union U);
+long long c9 = sizeof(int[10]);
+long long c10 = sizeof(_Bool);
+long long c11 = sizeof(int *[3]);
+long long c12 = sizeof(int (*)[3]);
+long long c13 = sizeof(struct S[2]);

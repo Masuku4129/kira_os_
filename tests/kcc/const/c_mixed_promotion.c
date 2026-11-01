@@ -1,0 +1,9 @@
+long long c1 = -1 + 0u;
+long long c2 = -1L + 0u;
+long long c3 = (char)1 + (char)2;
+long long c4 = 'a' * 2;
+long long c5 = (unsigned char)200 + (unsigned char)200;
+long long c6 = (short)30000 + (short)30000;
+long long c7 = (unsigned short)65535 + 1;
+long long c8 = -1 > 0u ? 1 : 2;
+long long c9 = -1LL > 0u ? 1 : 2;

@@ -1,0 +1,11 @@
+int arr[7];
+char str[] = "hello";
+long long c1 = sizeof arr;
+long long c2 = sizeof arr / sizeof arr[0];
+long long c3 = sizeof str;
+long long c4 = sizeof "abc";
+long long c5 = sizeof(1 + 1);
+long long c6 = sizeof(1LL);
+long long c7 = sizeof('a');
+long long c8 = sizeof(arr[0] + 1L);
+long long c9 = sizeof(char) + sizeof(short);

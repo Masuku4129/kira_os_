@@ -308,5 +308,7 @@ for o in good deleg; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.d
 for o in revoked forged other; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
 for o in stale unknown; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
 ossl_run 18450 resume 3
+echo "== kcc (препроцессор, лексер, разбор, типы, IR; сверка с clang; fuzz; ASAN/UBSAN) =="
+bash tests/kcc/run.sh
 rm -rf $T
 echo "ALL HOST TESTS PASSED"

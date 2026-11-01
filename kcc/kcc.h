@@ -1,0 +1,144 @@
+/* kcc: компилятор C для Киры. Общие объявления (этап M1: препроцессор, лексер, разбор, типы, IR).
+ * Чистый C99, без внешних библиотек; из libc нужны только string.h, stdarg.h, setjmp.h, snprintf/vsnprintf.
+ * Память: одна арена (bump) с лимитом, выделяется вызывающим; malloc не используется. */
+#ifndef KCC_H
+#define KCC_H
+#include <stddef.h>
+#include <stdint.h>
+#include <setjmp.h>
+
+typedef struct Type Type;
+typedef struct Token Token;
+typedef struct Node Node;
+typedef struct Obj Obj;
+typedef struct Member Member;
+typedef struct Param Param;
+typedef struct Reloc Reloc;
+typedef struct HS HS;
+
+/* ---------- util.c ---------- */
+typedef struct {
+    const char *(*read)(void *ud, const char *path, size_t *len); /* NULL, если файла нет */
+    void *ud;
+    const char **incdirs; int nincdirs;
+    const char **defs; int ndefs;           /* "N" или "N=V" */
+    const char *target;                      /* "x86_64" (по умолчанию) или "aarch64" */
+} KCfg;
+
+typedef struct { char *p; size_t len, cap; } SB;
+
+typedef struct {
+    char *abase; size_t acap, aused;
+    jmp_buf jb;
+    char err[600];
+    const KCfg *cfg;
+    SB warn;
+    int counter;
+    long tokbudget;                          /* защита от взрыва макрорасширения */
+    int depth;                               /* вложенность разбора */
+} KCtx;
+extern KCtx K;
+
+void *ka_new(size_t n);                      /* обнулённая память арены, выравнивание 8 */
+char *ka_strdup(const char *s, size_t n);
+void kerr(const char *file, int line, const char *fmt, ...) __attribute__((noreturn, format(printf, 3, 4)));
+void kerr_tok(const Token *t, const char *fmt, ...) __attribute__((noreturn, format(printf, 2, 3)));
+void kwarn(const char *file, int line, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+void sb_add(SB *b, const char *s, size_t n);
+void sb_printf(SB *b, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+char *kfmt(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+
+/* ---------- lex.c ---------- */
+typedef enum { TK_EOF, TK_ID, TK_KW, TK_NUM, TK_STR, TK_CHR, TK_PUNCT } TKind;
+struct Token {
+    TKind k; Token *next;
+    const char *s; int len;                  /* исходное написание */
+    int line; const char *file;
+    unsigned bol : 1, sp : 1, hdr : 1, mark : 1;
+    HS *hs;
+    int64_t ival; Type *ty;                  /* TK_NUM, TK_CHR после convert_tokens */
+    const char *str; int slen;               /* TK_STR после convert_tokens: байты без завершающего 0 */
+};
+Token *lex_buf(const char *file, const char *src, size_t len);
+void convert_tokens(Token *t);
+void parse_intlit(const Token *t, int64_t *v, Type **ty);
+int tok_is(const Token *t, const char *s);
+void conv_char(Token *t);
+int decode_escape(const Token *t, const char **pp);   /* для строк/символов; *pp за '\\' */
+
+/* ---------- pp.c ---------- */
+Token *preprocess(const char *path);
+Token *pp_lex_one(Token *tmpl, const char *text);
+
+/* ---------- type.c ---------- */
+typedef enum { TY_VOID, TY_BOOL, TY_CHAR, TY_SHORT, TY_INT, TY_LONG, TY_LLONG, TY_ENUM,
+               TY_PTR, TY_ARRAY, TY_FUNC, TY_STRUCT, TY_UNION } TyKind;
+struct Param { Param *next; Type *ty; const char *name; };
+struct Member { Member *next; const char *name; Type *ty; int off, bw, bo, idx; const Token *tok; };
+struct Type {
+    TyKind k; int size, align;
+    unsigned is_unsigned : 1, is_const : 1, is_volatile : 1, complete : 1, variadic : 1, noproto : 1, packed : 1, noret : 1;
+    Type *base; int64_t alen;                /* PTR/ARRAY/FUNC(возврат); alen<0 - неполный массив */
+    Member *mem; int nmem;                   /* STRUCT/UNION */
+    Param *params;                           /* FUNC */
+    const char *tag; int id;
+    Type *orig;                              /* исходный тип без квалификаторов */
+};
+extern Type ty_void, ty_bool, ty_char, ty_uchar, ty_short, ty_ushort, ty_int, ty_uint, ty_long, ty_ulong, ty_llong, ty_ullong;
+Type *ty_new(TyKind k, int size, int align);
+Type *ty_ptr(Type *base);
+Type *ty_array(Type *base, int64_t len);
+Type *ty_func(Type *ret, Param *params, int variadic, int noproto);
+Type *ty_qual(Type *t, int is_const, int is_volatile);
+Type *ty_unqual(Type *t);
+int ty_is_int(const Type *t);                /* целые, bool, enum */
+int ty_is_scalar(const Type *t);
+int ty_is_agg(const Type *t);
+int ty_compat(const Type *a, const Type *b);
+Type *ty_promote(Type *t);
+Type *ty_common(Type *a, Type *b);
+const char *ty_name(const Type *t);
+int ty_bits(const Type *t);
+
+/* ---------- parse.c ---------- */
+typedef enum {
+    ND_NUM, ND_STR, ND_VAR, ND_ADD, ND_SUB, ND_MUL, ND_DIV, ND_MOD, ND_AND, ND_OR, ND_XOR, ND_SHL, ND_SHR,
+    ND_EQ, ND_NE, ND_LT, ND_LE, ND_LOGAND, ND_LOGOR, ND_NOT, ND_BITNOT, ND_NEG,
+    ND_ASSIGN, ND_OPASSIGN, ND_COMMA, ND_COND, ND_ADDR, ND_DEREF, ND_MEMBER, ND_CAST, ND_CALL, ND_INCDEC,
+    ND_STMTEXPR, ND_ZERO, ND_ASM, ND_UNREACH,
+    ND_BLOCK, ND_IF, ND_FOR, ND_DO, ND_SWITCH, ND_CASE, ND_BREAK, ND_CONTINUE, ND_GOTO, ND_LABEL, ND_RETURN, ND_EXPR
+} NKind;
+struct Node {
+    NKind k; Type *ty; const Token *tok;
+    Node *lhs, *rhs, *c, *t, *e, *ini, *inc, *body, *next, *args, *cases, *dflt;
+    Obj *var; Member *mem; Type *oty; Node *gnext;
+    int64_t val;                             /* NUM; CASE; INCDEC: +1/-1 */
+    int op;                                  /* OPASSIGN: вид операции; INCDEC: 1=постфиксная */
+    int lbl, lbl2;                           /* метки: BREAK/CONTINUE/CASE/LABEL/FOR/SWITCH */
+    const char *name;                        /* GOTO/LABEL/ASM */
+    Node *ao, *ai;                           /* ASM: выходы, входы (списки по next) */
+    int nao, nai;
+};
+struct Reloc { Reloc *next; int off; const char *sym; int64_t addend; };
+struct Obj {
+    Obj *next; const char *name; Type *ty;
+    unsigned is_local : 1, is_func : 1, is_static : 1, is_extern : 1, is_def : 1, is_inline : 1,
+             is_str : 1, is_param : 1, is_ro : 1, used : 1, tentative : 1, noret : 1;
+    int slot, align, line, nparams;
+    Obj *params, *locals;                    /* функция: параметры (по next), все локальные */
+    Node *body; int nlabels;
+    unsigned char *init; Reloc *relocs;      /* данные глобала (size байт) или NULL = нули */
+};
+typedef struct { Obj *globals; Obj *funcs_tail; } Prog;
+Obj *parse_program(Token *tok);
+int64_t eval_const(Node *n);
+
+/* ---------- ir.c ---------- */
+void ir_dump(Obj *globals, SB *out);
+
+/* ---------- API ---------- */
+typedef struct { const char *ir; const char *err; const char *warn; } KResult;
+/* Компиляция одного файла. mem/memsz - арена. emit_ir=0: только проверка. Возврат 0 - успех. */
+int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res);
+
+#endif
