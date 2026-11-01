@@ -15,6 +15,8 @@
      - поведение программ: профиль каждой программы (процессор, вызовы, память, сбои) хранится между запусками;
      - устройства: ошибки обмена дисков и USB снижают стабильность и попадают в журнал с именем устройства;
        постоянные ошибки - предупреждение «сохраните данные»;
+     - рычаги 13-30 (ML_*): 18 величин с лесенкой значений, измеримой оценкой и откатом; проверяются по одной (A/B),
+       при ухудшении откатываются; бесполезные помечаются «не помогает» до смены нагрузки (см. блок «Рычаги» ниже);
      - иммунитет ввода: устройство ввода, печатающее быстрее человека (атака BadUSB: «флешка», которая сама набирает
        команды), рефлекторно задерживается драйвером; Разум решает - заблокировать (режим действий) или отпустить.
    Каждое решение записывается в журнал с причиной. В режиме наблюдения решения только записываются.
@@ -33,7 +35,7 @@ enum { MIND_FX_OFF = 0, MIND_FX_LOW = 1, MIND_FX_MID = 2, MIND_FX_HIGH = 3, MIND
 
 typedef enum {
     MJ_LEARN = 1, MJ_ANOMALY, MJ_FOCUS, MJ_LIMIT, MJ_RESTORE, MJ_TUNE_TRY, MJ_TUNE_KEEP, MJ_TUNE_BACK,
-    MJ_FX, MJ_MEMORY, MJ_KILL, MJ_STARVE, MJ_BEHAVIOR, MJ_INFO
+    MJ_FX, MJ_MEMORY, MJ_KILL, MJ_STARVE, MJ_BEHAVIOR, MJ_INFO, MJ_LEVER
 } mind_kind_t;
 
 typedef struct {
@@ -74,6 +76,12 @@ typedef struct {
     char     hid_name[16];
     uint32_t denied;           /* запусков, не допущенных за секунду */
     char     denied_name[16];
+    /* для рычагов 13-30 */
+    uint32_t audio_mixed;      /* кадров звука от программ, смешано за секунду (0 - звука нет) */
+    uint32_t audio_under;      /* недоборов микшера за секунду */
+    uint32_t disk_kb;          /* КБ, переданных дискам за секунду */
+    uint32_t tact_cpu_x100;    /* поток mind-tact: доля одного ядра, % x100 */
+    uint32_t audio_cpu_x100;   /* поток audio: доля одного ядра, % x100 */
 } mind_sample_t;
 
 /* Профиль программы (хранится на диске между запусками). */
@@ -99,13 +107,14 @@ typedef struct {
     void (*hid_verdict)(int block);                          /* задержанные устройства ввода: 1 - отключить, 0 - отпустить */
     void (*set_bg_fps)(uint32_t fps);                         /* темп фоновых окон, кадров/с (0 - без предела) */
     void (*reserve_core)(int on, uint32_t keep_pid);          /* отдать ядро окну в фокусе (фон - на остальных); 0 - вернуть */
+    void (*set_lever)(int lever, int32_t value);              /* рычаги ядра (ML_AUDIO_LEAD...); значения политики Разум держит у себя */
 } mind_act_t;
 
 typedef struct { int64_t mean_x100; uint64_t var_x100; uint32_t n; } mind_norm_t;
 
 /* То, что переживает перезагрузку (сохраняется как есть, проверяется по crc). */
 #define MIND_MAGIC   0x444E494DU   /* "MIND" */
-#define MIND_VERSION 2             /* 2: модель предвидения (веса) */
+#define MIND_VERSION 3             /* 2: модель предвидения (веса); 3: состояние рычагов 13-30 */
 #define MIND_MODEL_COMMON \
     uint32_t magic, version; \
     mind_norm_t norm[MIND_SIG_N]; \
@@ -114,15 +123,30 @@ typedef struct { int64_t mean_x100; uint64_t var_x100; uint32_t n; } mind_norm_t
                                                      core_cap: предел загрузки ядер фоном при нехватке, % (0 - по умолчанию 50) */ \
     int32_t  tz_min;           /* часовой пояс для часов в оболочке, минуты от UTC */ \
     uint32_t lifetime_s, decisions, anomalies, kills, tune_trials, tune_wins;
+/* Рычаги 13-30. Номер в таблице = ML_*; на экране и в журнале рычаг имеет номер 13 + ML_*. */
+#define ML_N 18
+enum { ML_FOCUS_W, ML_STARVE_MS, ML_RISK_THR, ML_PRE_HOLD, ML_RELEASE, ML_TACT_PERIOD, ML_ADMIT, ML_ODD_LIMIT, ML_CORE_RES,
+       ML_BG_CALM, ML_BG_STEP, ML_FX_CALM, ML_FX_BAD, ML_AUDIO_LEAD, ML_AUDIO_PERIOD, ML_KFS_RUN, ML_STEAL, ML_LIM_WIN };
+typedef struct { uint8_t best, flags; uint16_t trials, wins; } mind_lv_saved_t;   /* лучшее найденное значение (индекс) и счётчики */
+#define MF_SEED 1                  /* модель взята из семени опыта (data/mind_seed.bin), а не накоплена на этой машине */
 typedef struct {
     MIND_MODEL_COMMON
     mnet_t   net;              /* модель предвидения: веса этой машины */
     uint32_t forecasts;        /* упреждающих решений за жизнь */
+    mind_lv_saved_t lv[ML_N];  /* рычаги */
+    uint32_t mflags;           /* MF_* */
     uint32_t crc;
 } mind_model_t;
+typedef struct { MIND_MODEL_COMMON mnet_t net; uint32_t forecasts; uint32_t crc; } mind_model_v2_t;   /* прежний формат (без рычагов) */
 typedef struct { MIND_MODEL_COMMON uint32_t crc; } mind_model_v1_t;   /* прежний формат: читается и дополняется */
 /* Опыт с диска (len байт) -> модель текущего формата. 1 - годен (формат 2 или поднятый из 1), 0 - нет. */
 int mind_model_load(mind_model_t* out, const void* buf, unsigned len);
+/* Семя опыта (файл опыта, полученный на другой машине - в QEMU) -> стартовая модель. Берутся ТОЛЬКО веса модели
+   предвидения (число наблюдений урезано до MIND_SEED_N, ниже порога доверия: предупреждения придётся заслужить на
+   этой машине) и подсказки по рычагам (счётчики урезаны); нормы устройства, квант, профили, часы - нет: они зависят
+   от железа. 1 - годно. */
+#define MIND_SEED_N 90
+int mind_model_seed(mind_model_t* out, const void* buf, unsigned len);
 
 typedef struct { uint32_t t; uint8_t kind; uint8_t applied; uint32_t pid; char text[MIND_TEXT]; } mind_event_t;
 
@@ -140,8 +164,33 @@ typedef struct {
     mind_profile_t prof;
 } mind_track_t;
 
+/* Состояние рычагов (рабочее). Секундные записи нужны для сравнения «до» и «после» пробы. */
+#define ML_RING 32
+#define ML_W 8                                 /* окно пробы, секунд */
+typedef struct {
+    uint32_t late, loops, wait, bg_pm, load, run, under, ops, kb, busy_us, tact, aud, audio_on, lead, errs, denied;
+} ml_rec_t;
+typedef struct {
+    uint8_t idx, dir, fails, rounds, useless, hint;
+    uint32_t sig, cool_until, last_try;
+    uint16_t trials, wins, backs;              /* за этот запуск */
+} ml_one_t;
+typedef struct {
+    ml_one_t one[ML_N];
+    ml_rec_t rec[ML_RING];
+    uint32_t rn;                               /* записей всего */
+    int      state, lever, from, to;           /* 0 - нет пробы, 1 - проба, 2 - подтверждение */
+    uint32_t rn0, t0, next_t, frozen_until, guard_until, guard_late_pm, emerg_t[3], emerg_n;
+    int32_t  base_s;
+    uint32_t base_load, base_ops, base_late_pm, base_wait, base_under, base_audio;
+    uint32_t chg_t[6], chg_n, total_changes, general_rollbacks;
+    uint32_t sig; int8_t sigc[8];
+    uint32_t seen_fc, seen_tact, seen_core, seen_bg, seen_odd, seen_fxbad, seen_fxlow, prev_fc;
+} ml_t;
+
 typedef struct {
     mind_model_t m;
+    ml_t lv;
     /* сигналы */
     int32_t  cur_x100[MIND_SIG_N];
     int32_t  z_x10[MIND_SIG_N];
@@ -224,6 +273,17 @@ unsigned mind_bg_fps(const mind_t* s);
 uint32_t mind_core_reserved_pid(const mind_t* s);    /* программа, которой отдано ядро (0 - ядро не отдано) */       /* текущий предел кадров фоновых окон (0 - нет) */
 void mind_launch_limits(const mind_t* s, unsigned cores, mind_launch_t* out);
 void mind_set_mode(mind_t* s, int mode, const mind_act_t* act);
+
+/* ---- рычаги 13-30 ---- */
+int32_t     mind_lever_val(const mind_t* s, int lever);        /* текущее значение */
+const char* mind_lever_name(int lever);
+const char* mind_lever_unit(int lever);
+int32_t     mind_lever_default(int lever);
+/* Состояние для вывода: 0 - обычное значение, 1 - значение изменено (оставлено по замеру), 2 - идёт проба,
+   3 - «не помогает» (не трогаю до смены нагрузки), 4 - остыл/ждёт. */
+int         mind_lever_state(const mind_t* s, int lever);
+void        mind_lever_stats(const mind_t* s, int lever, unsigned* trials, unsigned* wins, unsigned* backs);
+void        mind_levers_reset(mind_t* s, const mind_act_t* act);
 void mind_set_fx_user(mind_t* s, int fx, const mind_act_t* act);
 
 int  mind_model_valid(const mind_model_t* m);

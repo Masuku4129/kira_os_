@@ -18,8 +18,11 @@
 #include "devhealth.h"
 #include "usb.h"
 #include "kmutex.h"
+#include "audio.h"
+#include "kfs.h"
 
 #define MODEL_PATH   "/var/mind.dat"
+#define SEED_PATH    "/etc/mind_seed.bin"
 #define PROF_DIR     "/var/mind"
 #define SAVE_PERIOD  60
 #define PROF_MAGIC   0x464F5250U   /* "PROF" */
@@ -38,6 +41,7 @@ static thread_info_t* tinfo;
 static unsigned tcap;
 static uint64_t prev_idle[256], prev_total[256], prev_loops, prev_late, prev_blk_n, prev_blk_t, prev_msgs, prev_sw;
 static uint32_t prev_faults;
+static uint64_t prev_a_mixed, prev_a_under, prev_bytes, prev_tact_cyc, prev_aud_cyc;
 static volatile int req_mode = -1, req_fx = -1, req_rtc = -1, req_cap = -1;
 static kmutex_t mmx = KMUTEX_INIT;
 static thread_info_t* tt_info; static unsigned tt_cap;
@@ -109,7 +113,20 @@ static void a_pput(const char* name, const mind_profile_t* p) {
     kfs_write(path, &f, sizeof f);
 }
 
-static const mind_act_t act = { a_quantum, a_weight, a_limit, a_fx, a_trim, a_restrict, a_kill, a_pget, a_pput, a_hid, a_bgfps, a_core };
+/* Рычаги ядра (13-30, те, чьё значение живёт вне Разума). Границы значений уже заданы лесенкой Разума и проверены ещё раз в самих модулях. */
+static void a_lever(int lever, int32_t v) {
+    if (v <= 0) return;
+    switch (lever) {
+    case ML_AUDIO_LEAD:   audio_set_lead_ms((uint32_t)v); break;
+    case ML_AUDIO_PERIOD: audio_set_period_ms((uint32_t)v); break;
+    case ML_KFS_RUN:      kfs_set_run_max((uint32_t)v); break;
+    case ML_STEAL:        sched_set_steal_bias((uint32_t)v); break;
+    case ML_LIM_WIN:      sched_set_limit_window((uint32_t)v); break;
+    default: break;
+    }
+}
+
+static const mind_act_t act = { a_quantum, a_weight, a_limit, a_fx, a_trim, a_restrict, a_kill, a_pget, a_pput, a_hid, a_bgfps, a_core, a_lever };
 
 /* ---------------- замеры ---------------- */
 
@@ -146,6 +163,8 @@ int mind_sys_admit(const char* name, unsigned same, char* why, unsigned cap) {
     spin_unlock_irqrestore(&adm_lock, f);
     return ok;
 }
+
+static int name_is(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 
 static void gather(uint64_t seconds) {
     mind_sample_t* s = &S;
@@ -209,7 +228,26 @@ static void gather(uint64_t seconds) {
         p->syscalls = ps[i].syscalls; p->heap_kb = ps[i].heap_kb; p->threads = ps[i].threads;
         p->focus = focus > 0 && (uint32_t)focus == ps[i].pid;
     }
+    {   /* для рычагов: звук, объём обмена с дисками */
+        uint64_t mixed, under, by = blk_bytes();
+        audio_stats(&mixed, &under);
+        s->audio_mixed = (uint32_t)(mixed - prev_a_mixed); s->audio_under = (uint32_t)(under - prev_a_under);
+        s->disk_kb = (uint32_t)((by - prev_bytes) / 1024);
+        prev_a_mixed = mixed; prev_a_under = under; prev_bytes = by;
+    }
     unsigned nt = tinfo ? sched_snapshot(tinfo, tcap) : 0;
+    {   /* доля ядра потоков mind-tact и audio за секунду (% x100): цена тактики и микшера */
+        uint64_t tact = 0, aud = 0;
+        for (unsigned i = 0; i < nt; i++) {
+            if (name_is(tinfo[i].name, "mind-tact")) tact += tinfo[i].cpu_cycles;
+            else if (name_is(tinfo[i].name, "audio")) aud += tinfo[i].cpu_cycles;
+        }
+        if (s->tsc_khz) {
+            s->tact_cpu_x100 = tact >= prev_tact_cyc ? (uint32_t)((tact - prev_tact_cyc) * 10 / s->tsc_khz) : 0;
+            s->audio_cpu_x100 = aud >= prev_aud_cyc ? (uint32_t)((aud - prev_aud_cyc) * 10 / s->tsc_khz) : 0;
+        }
+        prev_tact_cyc = tact; prev_aud_cyc = aud;
+    }
     for (unsigned i = 0; i < nt; i++) {
         const thread_info_t* t = &tinfo[i];
         uint32_t wms = (uint32_t)(t->waiting * 1000 / TIMER_HZ);
@@ -266,6 +304,13 @@ static void publish(void) {
     v.bg_fps = mind_bg_fps(&M); v.core_cap = mind_core_cap(&M);
     v.core_res_pid = mind_core_reserved_pid(&M); v.core_res = sched_reserved_core();
     display_compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
+    for (int L = 0; L < ML_N; L++) {
+        v.lv[L].val = mind_lever_val(&M, L); v.lv[L].def = mind_lever_default(L);
+        unsigned tr, wi, ba; mind_lever_stats(&M, L, &tr, &wi, &ba);
+        v.lv[L].trials = (uint16_t)tr; v.lv[L].wins = (uint16_t)wi; v.lv[L].backs = (uint16_t)ba;
+        v.lv[L].state = (uint8_t)mind_lever_state(&M, L);
+    }
+    v.lv_changes = M.lv.total_changes; v.lv_general = M.lv.general_rollbacks; v.lv_seed = (M.m.mflags & MF_SEED) != 0;
     v.nproc = 0;
     for (int i = 0; i < MIND_PROC_MAX && v.nproc < 16; i++) {
         const mind_track_t* t = &M.tr[i];
@@ -300,6 +345,10 @@ void mind_sys_init(void) {
         static uint8_t raw[sizeof(mind_model_t) + 16];
         int64_t got = kfs_read(MODEL_PATH, 0, raw, sizeof raw);
         if (got > 0 && mind_model_load(&saved, raw, (unsigned)got)) have = 1;
+        if (!have) {                                        /* опыта этой машины нет: семя (data/mind_seed.bin -> /etc/mind_seed.bin) */
+            got = kfs_read(SEED_PATH, 0, raw, sizeof raw);
+            if (got > 0 && mind_model_seed(&saved, raw, (unsigned)got)) have = 1;
+        }
     }
     unsigned cores = sched_cpu_count();
     mind_init(&M, have ? &saved : 0, cores ? cores : 1);
@@ -384,7 +433,8 @@ static void tact_main(void* arg) {
     (void)arg;
     uint64_t last = clock_ms();
     for (;;) {
-        sched_sleep_ticks(TIMER_HZ >= 40 ? TIMER_HZ / 40 : 1);
+        uint32_t period = (uint32_t)((uint64_t)TIMER_HZ * (uint32_t)mind_lever_val(&M, ML_TACT_PERIOD) / 1000);   /* рычаг 18: 25 мс по умолчанию */
+        sched_sleep_ticks(period ? period : 1);
         uint64_t now = clock_ms(), khz = clock_tsc_khz();
         uint32_t win = (uint32_t)(now - last);
         if (!khz || win == 0) { last = now; continue; }
@@ -466,7 +516,10 @@ void mind_sys_print(const char* what) {
     mind_view_t* v = (mind_view_t*)kmalloc(sizeof(mind_view_t));
     if (!v) return;
     mind_sys_view(v);
-    if (what[0] == 'w') {                                   /* why: журнал решений */
+    if (what[0] == 's') {                                   /* save: записать опыт сейчас (тренажёр mind-train забирает файл с диска) */
+        mind_sys_save();
+        uart_print("[MIND] опыт записан: /var/mind.dat\n");
+    } else if (what[0] == 'w') {                                   /* why: журнал решений */
         uart_print("\n[MIND] решения и наблюдения (свежие сверху):\n");
         for (unsigned i = 0; i < v->nj; i++) {
             uart_print("  "); uart_print_dec(v->j[i].t); uart_print(" с  "); uart_print(v->j[i].text); uart_print("\n");
@@ -501,6 +554,21 @@ void mind_sys_print(const char* what) {
         uart_print(" 12. ядро фокуса: при опоздании экрана (3+ ядра) одно ядро - окну в фокусе, фон - на остальных: ");
         if (v->core_res >= 0) { uart_print("ядро "); uart_print_dec((uint64_t)v->core_res); uart_print(" отдано pid "); uart_print_dec(v->core_res_pid); }
         else uart_print("сейчас общее");
+        uart_print("\n\n");
+        uart_print("  Рычаги 13-30 (каждый проверяется по замеру: проба соседнего значения, сравнение с базой, подтверждение вторым окном, "
+                   "откат при ухудшении; не больше одной пробы за раз; 5 смен в минуту; общий откат, если экран стал опаздывать сильнее). "
+                   "Колонки: номер, имя, значение (обычное), состояние, проб/удач/откатов.\n");
+        for (int L = 0; L < ML_N; L++) {
+            uart_print(" "); uart_print_dec((uint64_t)(13 + L)); uart_print(". "); uart_print(mind_lever_name(L)); uart_print(": ");
+            uart_print_dec((uint64_t)v->lv[L].val); uart_print(" "); uart_print(mind_lever_unit(L));
+            uart_print(" (обычно "); uart_print_dec((uint64_t)v->lv[L].def); uart_print(") - ");
+            static const char* const st[] = { "обычное значение", "изменено по замеру", "идёт проба", "не помогает при такой нагрузке - не трогаю", "" };
+            uart_print(st[v->lv[L].state < 4 ? v->lv[L].state : 4]);
+            uart_print("; проб "); uart_print_dec(v->lv[L].trials); uart_print(", удач "); uart_print_dec(v->lv[L].wins);
+            uart_print(", откатов "); uart_print_dec(v->lv[L].backs); uart_print("\n");
+        }
+        uart_print("  смен значений за запуск "); uart_print_dec(v->lv_changes); uart_print(", общих откатов "); uart_print_dec(v->lv_general);
+        if (v->lv_seed) uart_print("; стартовые подсказки взяты из семени опыта (получено в QEMU)");
         uart_print("\n\n");
     } else if (what[0] == 'm') {                            /* model: веса модели предвидения */
         uart_print("\n[MIND] модель предвидения (логистическая регрессия, учится каждую секунду; вес > 0 - признак ведёт к опозданию):\n");

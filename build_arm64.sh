@@ -66,6 +66,8 @@ done
 ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
 [ -n "$ROOTS_N" ] && echo "[*] Корневые сертификаты: $ROOTS_N из $ROOTS_SRC" || echo "[!] Связки корневых сертификатов нет (пакет ca-certificates): fetch https откажется проверять сервер"
 [ -n "$ROOTS_N" ] && tools/kfstool kira-arm64.disk put /etc/ssl/roots.der tools/roots.der >/dev/null
+# Семя опыта Разума (см. build_clang.sh)
+[ -f data/mind_seed.bin ] && tools/kfstool kira-arm64.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
 if [ "$1" = "--run" ]; then
     exec qemu-system-aarch64 -M virt,gic-version=3 -cpu cortex-a72 -smp 4 -m 1G -serial mon:stdio -kernel kira-arm64.img -drive file=kira-arm64.disk,if=none,id=d0,format=raw -device virtio-blk-pci,drive=d0 \
         -device virtio-gpu-pci -device virtio-keyboard-pci -device virtio-tablet-pci

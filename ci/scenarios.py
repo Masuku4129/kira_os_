@@ -362,6 +362,66 @@ ALL = [
                                  "-device", "virtio-net-pci,netdev=n0"]),
 ]
 
+# ---- Разум: рычаги 13-30 ----
+MELODY_LOOP = [st for _ in range(75) for st in ({"send": "melody"}, {"sleep": 1.5})]      # звук без перерывов ~2 мин: рычагам звука есть что измерять
+LEVERS_LIST = [r"13\. вес окна в фокусе: 6 /4 \(обычно 6\)", r"18\. период тактики: 25 мс \(обычно 25\)", r"26\. опережение звука перед картой: 100 мс \(обычно 100\)",
+               r"28\. предел одного запроса к диску: 256 блоков", r"30\. окно предела доли процессора: 50 тиков"]
+ALL.append(sc("mind-levers", "Разум: 18 рычагов (13-30) в `ai levers`; звук без перерыва - рычаг опережения пробуется, оставляется или откатывается по замеру; натиск программ; опыт записывается", [
+    {"log": BOOT_LOG},
+    {"cmd": "ai levers", "must": LEVERS_LIST, "timeout": 10},
+    *MELODY_LOOP,
+    {"log": [r"\[KIRA MIND\] рычаг 26 «опережение звука перед картой»: пробую \d+ мс вместо 100 \(причина: ",
+             r"\[KIRA MIND\] рычаг 26 «опережение звука перед картой»: (оставлено|откат на|срочный откат) "]},
+    {"cmd": "ai levers", "must": [r"26\. опережение звука перед картой: \d+ мс \(обычно 100\) - [^\n]*проб [1-9]", r"смен значений за запуск [1-9]"], "timeout": 10},
+    *[{"send": "plasma"} for _ in range(8)],
+    {"sleep": 40}, {"shot": "levers-load"},
+    {"responsive": "status", "within": 5},
+    {"cmd": "ai why", "must": [r"."], "timeout": 10},
+    {"cmd": "ai save", "must": [r"опыт записан"], "timeout": 10},
+    {"cmd": "ls /var", "must": [r"mind\.dat"]},
+    {"log_forbid": NO_ERR},
+], smp=4, mem="2G", extra=["-device", "intel-hda", "-device", "hda-duplex,audiodev=a0"]))
+
+# Семя опыта: файл /etc/mind_seed.bin (здесь - испытательный образец tools/mindseed --fixture, не результат обучения) читается ядром,
+# когда своего опыта на диске нет: веса предвидения и подсказки берутся, нормы устройства - нет, доверие ограничено
+ALL.append(sc("mind-seed", "Разум: при первой загрузке без своего опыта ядро берёт семя (веса предвидения со сниженным числом наблюдений и подсказки по рычагам), нормы машины выучивает само", [
+    {"log": BOOT_LOG}, {"sleep": 4},
+    {"log": [r"\[KIRA MIND\] нет своего опыта: взято семя \(из QEMU, на железе лишь подсказка\), веса на 90 с"]},
+    {"cmd": "ai model", "must": [r"фоновые программы: -?\d\.\d\d", r"обучено на (9\d|1[0-4]\d) с"], "timeout": 10},
+    {"cmd": "ai", "must": [r"пока без права действовать"], "timeout": 10},
+    {"cmd": "ai levers", "must": [r"стартовые подсказки взяты из семени опыта"], "timeout": 10},
+    {"log_forbid": NO_ERR},
+], smp=2, mem="512M", put={"/etc/mind_seed.bin": "ci-out/mind_seed_fixture.bin"}))
+
+# Тренажёр (долгий, ОТДЕЛЬНЫЙ job workflow mind-train.yml, не в основной матрице): разные нагрузки подряд; в конце опыт
+# записывается на диск образа, машина выключается, файл /var/mind.dat достаётся kfstool и становится артефактом.
+def _train_phases():
+    st = []
+    for rnd in range(3):
+        st += [{"send": "plasma"} for _ in range(10)]                         # спам программ
+        st += [{"sleep": 60}]
+        st += [{"cmd": "cp /bin/fetch /t%d_a" % rnd, "timeout": 60}, {"cmd": "cp /bin/wasm /t%d_b" % rnd, "timeout": 60},
+               {"cmd": "cp /bin/cube3d /t%d_c" % rnd, "timeout": 60}]          # диск
+        st += [{"cmd": "cp /t%d_a /t%d_a2" % (rnd, rnd), "timeout": 60}, {"cmd": "cp /t%d_b /t%d_b2" % (rnd, rnd), "timeout": 60}]
+        st += [{"send": "fetch 10.0.2.100 /train"} for _ in range(4)]          # сеть
+        st += [{"sleep": 20}]
+        st += [{"send": "3d"}] + [{"send": "plasma"} for _ in range(3)] + [{"sleep": 60}]     # 3D с фоном
+        st += [st_ for _ in range(40) for st_ in ({"send": "melody"}, {"sleep": 1.5})]        # звук
+        st += [{"send": "burnall"}, {"sleep": 45}]                           # все ядра заняты
+        st += [{"sleep": 30}]                                                # покой: нормы обновляются и без нагрузки
+    return st
+ALL.append(sc("mind-train", "Тренажёр Разума (долгий, ~25 мин): спам программ, диск, сеть, звук, 3D по кругу; опыт - в образ диска, затем workflow mind-train забирает /var/mind.dat", [
+    {"log": BOOT_LOG},
+    *_train_phases(),
+    {"cmd": "ai", "must": [r"предвидение: риск опоздания экрана"], "timeout": 20},
+    {"cmd": "ai levers", "must": [r"13\. вес окна в фокусе"], "timeout": 20},
+    {"cmd": "ai save", "must": [r"опыт записан"], "timeout": 20},
+    {"sleep": 3},
+    {"exit": "poweroff", "within": 30},
+    {"log_forbid": NO_ERR},
+], smp=4, mem="2G", boot_timeout=120, extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "virtio-net-pci,netdev=n0",
+                                        "-device", "intel-hda", "-device", "hda-duplex,audiodev=a0"]))
+
 # Тот же натиск на другом числе ядер: плавающий сбой при старте программ (kernel-mode fault в plasma) ловится чаще
 import copy as _copy
 for _n in (2, 4):

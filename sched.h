@@ -117,7 +117,9 @@ void sched_block_and_unlock(spinlock_t* l);
 unsigned sched_set_proc_weight(uint32_t pid, uint32_t weight);
 // Ограничение доли процессора для потоков процесса: в каждом окне SCHED_LIMIT_WINDOW тиков поток исполняется не больше
 // pct процентов, остальное время спит (ядро свободно для других и, на эмуляторе, для машины-хозяина). 100 - снять.
-#define SCHED_LIMIT_WINDOW 50
+#define SCHED_LIMIT_WINDOW 50           /* окно по умолчанию; Разум меняет через sched_set_limit_window */
+void sched_set_limit_window(uint32_t ticks);   /* 10..200 тиков */
+void sched_set_steal_bias(uint32_t quanta);     /* во сколько квантов чужой поток должен ждать дольше своего, чтобы ядро взяло его (1..16; по умолчанию 2) */
 unsigned sched_set_proc_limit(uint32_t pid, uint32_t pct);
 /* Рычаг Разума: ядро core - только программе keep_pid (окно в фокусе) и потокам ядра; потоки остальных программ
    уходят с него (стоящие в его очереди - в другие, идущий на нём - вытесняется). core < 0 - вернуть всё как было.

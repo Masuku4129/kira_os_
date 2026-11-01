@@ -1,0 +1,69 @@
+name: mind-train
+
+# Тренажёр Разума: долгая смесь нагрузок (спам программ, диск, сеть, звук, 3D) в QEMU/KVM; в конце файл опыта /var/mind.dat
+# достаётся из образа диска (kfstool) и собирается в data/mind_seed.bin. Запускается вручную и в основную матрицу не входит.
+#
+# ЧЕСТНО О СЕМЕНИ: опыт получен на виртуальной машине QEMU. На настоящем железе он - только стартовая подсказка: ядро берёт из
+# него веса модели предвидения (с урезанным числом наблюдений, ниже порога доверия) и подсказки по рычагам; нормы устройства
+# (загрузка, диск, задержки) в семя не входят, их каждая машина выучивает сама, а подсказки рычагов проверяются пробой.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "записать data/mind_seed.bin в эту ветку (иначе только артефакт)"
+        type: boolean
+        default: false
+
+jobs:
+  train:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools dosfstools qemu-system-x86 python3-pil python3-cryptography openssl
+      - name: build (training starts from scratch: no seed on the disk)
+        run: |
+          rm -f data/mind_seed.bin
+          ./build_clang.sh --no-run
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || true
+      - name: kfstool and mindseed
+        run: |
+          gcc -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
+          gcc -O1 -Wall -DKIRA_HOST_TEST -I. -Iarch/x86_64 -o tools/mindseed tools/mindseed.c mind.c mindnet.c
+      - name: scenario mind-train (about 25 minutes)
+        run: |
+          ci/make_flash.sh
+          python3 ci/kira_vm.py --scenario mind-train --out ci-out
+      - name: experience file from the disk image -> seed
+        if: always()
+        run: |
+          mkdir -p seed
+          tools/kfstool ci-out/mind-train/disk.img cat /var/mind.dat > seed/mind.dat
+          ls -l seed/mind.dat
+          tools/mindseed seed/mind.dat seed/mind_seed.bin | tee seed/summary.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mind-seed
+          path: |
+            seed/
+            ci-out/mind-train/serial.log
+            ci-out/mind-train/result.json
+      - name: commit data/mind_seed.bin
+        if: inputs.commit
+        run: |
+          mkdir -p data
+          cp seed/mind_seed.bin data/mind_seed.bin
+          git config user.name "kira-ci"; git config user.email "ci@kira.invalid"
+          git add data/mind_seed.bin
+          git commit -m "data: mind_seed.bin from the mind-train simulator (QEMU, not hardware); weights of the foresight model and lever hints only"
+          git push origin HEAD:${{ github.ref_name }}

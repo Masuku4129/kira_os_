@@ -41,6 +41,7 @@ int  blk_flush_all(void);                              /* дописать кэ�
 void blk_register(blk_dev_t* raw, const char* id, const char* model);
 
 void blk_stats(uint64_t* requests, uint64_t* tsc_total);   /* операций с дисками и их суммарное время в тактах TSC */
+uint64_t blk_bytes(void);                                   /* байт, переданных дискам (чтение и запись) с запуска */
 
 /* Ожидание без таймера (диски опрашиваются ещё до запуска часов): примерно us микросекунд (порт 0x80). */
 void blk_udelay(uint32_t us);

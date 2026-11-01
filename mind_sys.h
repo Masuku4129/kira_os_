@@ -41,6 +41,9 @@ typedef struct {
     uint32_t bg_fps, core_cap;
     uint32_t core_res_pid; int core_res;   /* ядро фокуса: кому отдано (0 - никому) и какое (-1 - нет) */             /* тактика: предел кадров фоновых окон (0 - нет), предел загрузки ядер фоном */
     uint32_t comp_par, comp_ns_kpx_par, comp_ns_kpx_ser;   /* композитор: параллельно ли сейчас и цена 1000 точек */
+    /* рычаги 13-30 */
+    struct { int32_t val, def; uint16_t trials, wins, backs; uint8_t state; } lv[ML_N];
+    uint32_t lv_changes, lv_general, lv_seed;
 } mind_view_t;
 
 void mind_sys_init(void);                 /* после файловой системы */
