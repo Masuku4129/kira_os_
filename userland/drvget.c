@@ -1,0 +1,520 @@
+/* drvget - установка драйверов Ring 3 из ИСХОДНИКОВ на самой Кире (docs/DRIVERS.md, пакет L). Без GitHub-сборки и без подписей:
+   доверие = явное подтверждение пользователя + SHA-256, который он видит и вводит сам.
+     drvget install ИМЯ|https://адрес/drvget.rec   скачать рецепт и исходники по HTTPS (TLS 1.3, корневые /etc/ssl/roots.der), проверить лицензию
+                                                    (BSD-2/BSD-3/MIT/ISC; GPL и бинарники отвергаются), показать источник, лицензию, SHA-256, права;
+                                                    ничего не ставит
+     drvget confirm ИМЯ ХЕШ                         ХЕШ - первые 8+ знаков SHA-256 набора исходников из отчёта install: сверяет набор, собирает
+                                                    встроенным kcc (со слоем /etc/kcc/include/kdrv_bsd.h), пишет /drv/ИМЯ.kdrv и /drv/ИМЯ.rec
+     drvget list | verify ИМЯ | remove ИМЯ | base [https://адрес]
+   Права программы: CAP_NET, CAP_FS, CAP_SYSFILES. Запись в /drv - только отсюда (FS_OP_DRV_*, ядро проверяет заголовок и хеши само).
+   Исходники и промежуточные файлы - песочница /data/drvget. */
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+#include "kira.h"
+#include "tls.h"
+#include "drvget_core.h"
+#include "../immune.h"
+#include "../kcc/kcc.h"
+
+KIRA_ENTRY()
+
+enum { KFS_INC_READ = 11, KFS_INC_STAT = 12, KFS_DRV_STAT = 13, KFS_DRV_READ = 14, KFS_DRV_WRITE = 15, KFS_DRV_REMOVE = 16, KFS_DRV_LIST = 17 };
+#define INC_DIR "/etc/kcc/include"
+#define STAGE_DIR "/stage/"
+#define PAGE 4096ul
+#define CHUNK_PAGES 256ul
+#ifndef DRVGET_DEFAULT_BASE
+#define DRVGET_DEFAULT_BASE "https://raw.githubusercontent.com/Masuku4129/kira_os_/main/drivers"
+#endif
+
+static void say(const char *s) {
+    size_t n = strlen(s);
+    while (n) { size_t k = n > 2048 ? 2048 : n; k_write(s, k); s += k; n -= k; }
+}
+static void sayf(const char *fmt, ...) {
+    char b[700];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(b, sizeof b, fmt, ap);
+    va_end(ap);
+    say(b);
+}
+
+static tls_t tls;
+static u8 roots[512 * 1024];
+static i64 roots_len = -1;
+static u8 body[DG_SRC_MAX + 16 * 1024];
+static char recipe_txt[DG_RECIPE_MAX + 1];
+static dg_recipe_t R;
+static char g_name[KDRV_NAME_MAX + 2];
+
+/* ---------- сеть: HTTPS GET ---------- */
+static int load_roots(void) {
+    if (roots_len >= 0) return roots_len > 0 ? 0 : -1;
+    i64 sz = k_sys_stat("roots.der"), rl = 0;
+    roots_len = 0;
+    if (sz > 0 && (u64)sz <= sizeof roots)
+        while (rl < sz) { i64 r = k_sys_read("roots.der", roots + rl, (u64)(sz - rl), (u64)rl); if (r <= 0) break; rl += r; }
+    if (rl != sz || sz <= 0) return -1;
+    roots_len = sz;
+    return 0;
+}
+
+static int ci_has(const char *h, size_t hl, const char *needle) {        /* заголовок ответа: есть ли строка (без учёта регистра) */
+    size_t nl = strlen(needle);
+    for (size_t i = 0; i + nl <= hl; i++) {
+        size_t k = 0;
+        while (k < nl && ((h[i + k] | 0x20) == (needle[k] | 0x20))) k++;
+        if (k == nl) return 1;
+    }
+    return 0;
+}
+
+/* GET по https: тело ответа в body (с начала), длина в *len. 0 - готово (HTTP 200); иначе строка ошибки. */
+static const char *http_get(const dg_url_t *u, u32 *len) {
+    static char err[160];
+    if (load_roots()) return "нет корневых сертификатов (/etc/ssl/roots.der): личность сервера проверить нечем, соединяться не буду";
+    i64 ip = k_net_dns(u->host);
+    if (ip < 0) { snprintf(err, sizeof err, "адрес не найден: %s (код %lld)", u->host, (long long)ip); return err; }
+    i64 h = k_net_connect((u32)ip, u->port);
+    if (h < 0) { snprintf(err, sizeof err, "соединение не установлено (код %lld; сети нет или порт закрыт)", (long long)h); return err; }
+    i64 now = k_time();
+    if (tls_connect(&tls, h, u->host, 10000, roots, (u32)roots_len, now > 0 ? now : 0, 0)) {
+        snprintf(err, sizeof err, "TLS: %s", tls.err ? tls.err : "ошибка");
+        k_net_close(h);
+        return err;
+    }
+    char req[DG_URL_MAX + 160];
+    int rn = snprintf(req, sizeof req, "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: KiraOS-drvget\r\nConnection: close\r\n\r\n", u->path, u->host);
+    if (rn <= 0 || (size_t)rn >= sizeof req || tls_send(&tls, req, (u32)rn) != rn) { tls_close(&tls); k_net_close(h); return "запрос не отправлен"; }
+    u32 total = 0;
+    i64 r;
+    while ((r = tls_recv(&tls, body + total, (u32)(sizeof body - total > 4096 ? 4096 : sizeof body - total), 10000)) > 0) {
+        total += (u32)r;
+        if (total >= sizeof body) { tls_close(&tls); k_net_close(h); return "ответ слишком велик"; }
+    }
+    tls_close(&tls);
+    k_net_close(h);
+    if (r < 0) return "соединение прервано до конца ответа";
+    u32 he = 0;
+    while (he + 3 < total && !(body[he] == '\r' && body[he + 1] == '\n' && body[he + 2] == '\r' && body[he + 3] == '\n')) he++;
+    if (he + 3 >= total) return "ответ без заголовков";
+    if (total < 12 || memcmp(body, "HTTP/1.", 7) != 0) return "это не ответ HTTP";
+    int status = (body[9] - '0') * 100 + (body[10] - '0') * 10 + (body[11] - '0');
+    if (status != 200) {
+        snprintf(err, sizeof err, "сервер ответил HTTP %d%s", status, (status >= 300 && status < 400) ? " (перенаправления не выполняются: укажите конечный адрес)" : "");
+        return err;
+    }
+    if (ci_has((const char *)body, he, "transfer-encoding: chunked")) return "сервер прислал chunked: нужен HTTP/1.0-ответ с Content-Length";
+    if (ci_has((const char *)body, he, "content-encoding:")) return "сервер сжал ответ (Content-Encoding): не поддерживается";
+    u32 off = he + 4, blen = total - off;
+    const char *cl = 0;
+    for (u32 i = 0; i + 16 < he; i++)
+        if ((body[i] | 0x20) == 'c' && ci_has((const char *)body + i, 15, "content-length:")) { cl = (const char *)body + i + 15; break; }
+    if (cl) {
+        while (*cl == ' ') cl++;
+        u64 want = 0;
+        while (*cl >= '0' && *cl <= '9') want = want * 10 + (u64)(*cl++ - '0');
+        if (want != blen) return "тело короче заявленного Content-Length (обрыв)";
+    }
+    memmove(body, body + off, blen);
+    *len = blen;
+    return 0;
+}
+
+/* ---------- файлы песочницы и /drv ---------- */
+static void stage_name(char *out, size_t cap, const char *file) { snprintf(out, cap, "s-%s-%s", g_name, file); }
+
+static i64 fread_all(const char *name, void *buf, u64 cap) {
+    i64 sz = k_file_size(name);
+    if (sz < 0) return sz;
+    if ((u64)sz > cap) return -101;
+    if (sz && k_file_read(name, buf, (u64)sz, 0) != sz) return -6;
+    return sz;
+}
+
+static i64 drv_op(u32 op, const char *name, void *buf, u64 len, u64 off) { return k_fs(op, name, strlen(name), buf, len, off); }
+
+static void stage_clear(void) {
+    static char lst[4096];
+    i64 n = k_file_list(lst, sizeof lst - 1);
+    if (n <= 0) return;
+    lst[n] = 0;
+    char pre[24];
+    snprintf(pre, sizeof pre, "s-%s-", g_name);
+    for (char *p = lst; *p;) {
+        char *e = strchr(p, '\n');
+        if (e) *e = 0;
+        if (!strncmp(p, pre, strlen(pre))) k_file_remove(p);
+        if (!e) break;
+        p = e + 1;
+    }
+}
+
+static int name_ok(const char *n) {
+    size_t k = strlen(n);
+    if (k < 1 || k > KDRV_NAME_MAX) return 0;
+    for (size_t i = 0; i < k; i++) { char c = n[i]; if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return 0; }
+    return 1;
+}
+
+static int base_url(char *out, size_t cap) {
+    char b[DG_URL_MAX] = { 0 };
+    i64 n = k_file_read("base", b, sizeof b - 1, 0);
+    if (n > 0) {
+        b[n] = 0;
+        while (n > 0 && (b[n - 1] == '\n' || b[n - 1] == '\r' || b[n - 1] == ' ' || b[n - 1] == '/')) b[--n] = 0;
+        if (n > 0) { snprintf(out, cap, "%s", b); return 1; }
+    }
+    snprintf(out, cap, "%s", DRVGET_DEFAULT_BASE);
+    return 0;
+}
+
+static const char *cap_text(u32 c) {
+    switch (c) {
+    case CAP_MMIO: return "CAP_MMIO - отображать регистры (BAR) СВОЕГО устройства";
+    case CAP_IRQ: return "CAP_IRQ - ждать прерывание СВОЕГО устройства";
+    case CAP_DMA: return "CAP_DMA - получать непрерывную память для обмена устройства с ОЗУ";
+    case CAP_PCIDEV: return "CAP_PCIDEV - читать и (частично) писать конфигурацию PCI СВОЕГО устройства";
+    case CAP_NETDEV: return "CAP_NETDEV - отдать ядру сетевую карту (кольца кадров)";
+    default: return "?";
+    }
+}
+
+/* ---------- install ---------- */
+static int cmd_install(const char *arg) {
+    char url[DG_URL_MAX];
+    const char *err = "";
+    if (strstr(arg, "://")) snprintf(url, sizeof url, "%s", arg);
+    else {
+        if (!name_ok(arg)) { say("drvget: имя драйвера: a-z 0-9 - _ (до 11 знаков) или полный адрес https://.../drvget.rec\n"); return 2; }
+        char b[DG_URL_MAX];
+        int own = base_url(b, sizeof b);
+        snprintf(url, sizeof url, "%s/%s/drvget.rec", b, arg);
+        sayf("drvget: каталог рецептов: %s%s\n", b, own ? "" : " (по умолчанию; свой: drvget base https://адрес)");
+    }
+    dg_url_t ru;
+    if (dg_url_parse(url, &ru, &err)) { sayf("drvget: отказ: %s\n", err); return 1; }
+    sayf("drvget: скачиваю рецепт %s\n", url);
+    u32 n = 0;
+    if ((err = http_get(&ru, &n))) { sayf("drvget: отказ: %s\n", err); return 1; }
+    if (n > DG_RECIPE_MAX) { say("drvget: отказ: рецепт слишком велик\n"); return 1; }
+    memcpy(recipe_txt, body, n);
+    recipe_txt[n] = 0;
+    if (dg_parse_recipe(recipe_txt, n, &R, &err)) { sayf("drvget: отказ: рецепт: %s\n", err); return 1; }
+    if (!strstr(arg, "://") && strcmp(arg, R.name)) { sayf("drvget: отказ: запрошен '%s', а рецепт называет драйвер '%s'\n", arg, R.name); return 1; }
+    snprintf(g_name, sizeof g_name, "%s", R.name);
+    stage_clear();
+
+    dg_hash_t hs;
+    dg_set_begin(&hs);
+    dg_set_add(&hs, "drvget.rec", (const u8 *)recipe_txt, n);
+    static char lic[DG_FILES][24];
+    static u32 flen[DG_FILES];
+    static u8 fsha[DG_FILES][32];
+    for (u32 i = 0; i < R.nfile; i++) {
+        char fu[DG_URL_MAX];
+        dg_url_t fu_p;
+        if (dg_url_join(&ru, R.file[i].url, fu, sizeof fu, &err) || dg_url_parse(fu, &fu_p, &err)) { sayf("drvget: отказ: файл %s: %s\n", R.file[i].name, err); stage_clear(); return 1; }
+        sayf("drvget: скачиваю %s\n", fu);
+        u32 len = 0;
+        if ((err = http_get(&fu_p, &len))) { sayf("drvget: отказ: %s: %s\n", R.file[i].name, err); stage_clear(); return 1; }
+        if (R.file[i].sha[0]) {
+            u8 want[32];
+            dg_hex_parse(R.file[i].sha, want, 32);
+            sha256(body, len, fsha[i]);
+            if (memcmp(want, fsha[i], 32)) { sayf("drvget: отказ: SHA-256 файла %s не совпал с рецептом (подмена или повреждение)\n", R.file[i].name); stage_clear(); return 1; }
+        } else sha256(body, len, fsha[i]);
+        if (dg_scan_source(R.file[i].name, body, len, lic[i], &err)) { sayf("drvget: отказ: %s: %s\n", R.file[i].name, err); stage_clear(); return 1; }
+        dg_set_add(&hs, R.file[i].name, body, len);
+        flen[i] = len;
+        char sn[48];
+        stage_name(sn, sizeof sn, R.file[i].name);
+        i64 w = k_file_write(sn, body, len);
+        if (w < 0) { sayf("drvget: не удалось сохранить %s (код %lld)\n", sn, (long long)w); stage_clear(); return 1; }
+    }
+    char sn[48];
+    stage_name(sn, sizeof sn, "recipe");
+    if (k_file_write(sn, recipe_txt, n) < 0) { say("drvget: не удалось сохранить рецепт\n"); stage_clear(); return 1; }
+    stage_name(sn, sizeof sn, "url");
+    if (k_file_write(sn, url, strlen(url)) < 0) { say("drvget: не удалось сохранить адрес\n"); stage_clear(); return 1; }
+    u8 set[32];
+    char hx[65];
+    dg_set_end(&hs, set);
+    dg_hex(set, 32, hx);
+
+    sayf("\n=== драйвер '%s' версия %u ===\n", R.name, (unsigned)R.version);
+    sayf("источник:   %s\n", url);
+    sayf("лицензия:   заявлена %s; проверено по тексту каждого файла (SPDX/текст), GPL и бинарных файлов нет:\n", R.license);
+    for (u32 i = 0; i < R.nfile; i++) {
+        char fh[65];
+        dg_hex(fsha[i], 32, fh);
+        sayf("  %-24s %6u байт  %s  sha256 %s\n", R.file[i].name, (unsigned)flen[i], lic[i], fh);
+    }
+    sayf("SHA-256 набора исходников (рецепт + файлы): %s\n", hx);
+    say("устройства PCI:");
+    for (u32 i = 0; i < R.nmatch; i++) {
+        if (R.match[i].vendor != KDRV_ANY) sayf(" %04x:%04x", R.match[i].vendor, R.match[i].device);
+        else sayf(" класс %06x/маска %06x", (unsigned)R.match[i].cls, (unsigned)R.match[i].cls_mask);
+    }
+    say("\nзапрашиваемые права:\n");
+    for (u32 b = 1; b; b <<= 1) if (R.caps & b) sayf("  %s\n", cap_text(b));
+    say("ограничения: права действуют только на устройство драйвера. Без IOMMU устройство с DMA способно писать в любую память - защититься\n"
+        "от этого программно нельзя; ставьте только те драйверы, чьим исходникам доверяете.\n");
+    sayf("\nУстановка НЕ выполнена. Прочитайте источник и права выше. Чтобы собрать и установить ровно этот набор, введите:\n  drvget confirm %s %.8s\n", R.name, hx);
+    return 0;
+}
+
+/* ---------- сборка kcc ---------- */
+static char *arena;
+
+static size_t grow(void *ud, size_t cap, size_t need) {
+    (void)ud;
+    unsigned long pages = (unsigned long)((need - cap + PAGE - 1) / PAGE), want = pages > CHUNK_PAGES ? pages : CHUNK_PAGES;
+    void *p = k_heap_grow(want);
+    if (!p && want > pages) { want = pages; p = k_heap_grow(want); }
+    if (!p || (char *)p != arena + cap) return 0;
+    return cap + want * PAGE;
+}
+
+static const char *rd(void *ud, const char *path, size_t *len) {
+    (void)ud;
+    const char *n = path;
+    int inc = 0;
+    char sn[48];
+    if (!strncmp(path, INC_DIR "/", sizeof INC_DIR)) { n = path + sizeof INC_DIR; inc = 1; }
+    else if (!strncmp(path, STAGE_DIR, sizeof STAGE_DIR - 1)) { n = path + sizeof STAGE_DIR - 1; if (!*n || strchr(n, '/')) return 0; stage_name(sn, sizeof sn, n); n = sn; }
+    else return 0;
+    if (!*n || strchr(n, '/')) return 0;
+    u64 nl = strlen(n);
+    i64 sz = inc ? k_fs(KFS_INC_STAT, n, nl, 0, 0, 0) : k_file_size(n);
+    if (sz < 0) return 0;
+    char *buf = ka_new((size_t)sz + 1);
+    if (sz) {
+        i64 got = inc ? k_fs(KFS_INC_READ, n, nl, buf, (u64)sz, 0) : k_file_read(n, buf, (u64)sz, 0);
+        if (got != sz) return 0;
+    }
+    *len = (size_t)sz;
+    return buf;
+}
+
+static int load_stage(u8 set[32], char *lic_seen) {
+    const char *err = "";
+    char sn[48];
+    stage_name(sn, sizeof sn, "recipe");
+    i64 n = fread_all(sn, recipe_txt, DG_RECIPE_MAX);
+    if (n <= 0) { sayf("drvget: нет подготовленного набора для '%s': сначала drvget install %s\n", g_name, g_name); return -1; }
+    recipe_txt[n] = 0;
+    if (dg_parse_recipe(recipe_txt, (u32)n, &R, &err)) { sayf("drvget: рецепт в песочнице повреждён: %s\n", err); return -1; }
+    if (strcmp(R.name, g_name)) { say("drvget: имя в рецепте не совпало с запрошенным\n"); return -1; }
+    dg_hash_t hs;
+    dg_set_begin(&hs);
+    dg_set_add(&hs, "drvget.rec", (const u8 *)recipe_txt, (u32)n);
+    for (u32 i = 0; i < R.nfile; i++) {
+        char lic[24];
+        stage_name(sn, sizeof sn, R.file[i].name);
+        i64 len = fread_all(sn, body, DG_SRC_MAX);
+        if (len <= 0) { sayf("drvget: нет файла %s в подготовленном наборе\n", R.file[i].name); return -1; }
+        if (dg_scan_source(R.file[i].name, body, (u32)len, lic, &err)) { sayf("drvget: %s: %s\n", R.file[i].name, err); return -1; }
+        dg_set_add(&hs, R.file[i].name, body, (u32)len);
+        if (lic_seen && !i) snprintf(lic_seen, 24, "%s", lic);
+    }
+    dg_set_end(&hs, set);
+    return 0;
+}
+
+/* «слово1 слово2» -> a, b; 0 - ровно два слова, помещаются */
+static int split2(const char *s, char *a, size_t ca, char *b, size_t cb) {
+    size_t i = 0, k = 0;
+    while (*s == ' ') s++;
+    while (*s && *s != ' ') { if (i + 1 >= ca) return -1; a[i++] = *s++; }
+    a[i] = 0;
+    while (*s == ' ') s++;
+    while (*s && *s != ' ') { if (k + 1 >= cb) return -1; b[k++] = *s++; }
+    b[k] = 0;
+    while (*s == ' ') s++;
+    return (i && k && !*s) ? 0 : -1;
+}
+
+static int cmd_confirm(const char *arg) {
+    char nm[16], typed[80];
+    if (split2(arg, nm, sizeof nm, typed, sizeof typed)) { say("использование: drvget confirm ИМЯ ХЕШ (первые 8 и более знаков SHA-256 набора из отчёта install)\n"); return 2; }
+    if (!name_ok(nm)) { say("drvget: неверное имя\n"); return 2; }
+    snprintf(g_name, sizeof g_name, "%s", nm);
+    u8 set[32];
+    if (load_stage(set, 0)) return 1;
+    if (!dg_hex_prefix(typed, set)) { say("drvget: введённый хеш не совпал с SHA-256 подготовленного набора - установка отменена (повторите install и сверьте хеш)\n"); return 1; }
+    char url[DG_URL_MAX] = { 0 };
+    char sn[48];
+    stage_name(sn, sizeof sn, "url");
+    i64 un = k_file_read(sn, url, sizeof url - 1, 0);
+    if (un < 0) un = 0;
+    url[un] = 0;
+
+    void *base = k_heap_grow(CHUNK_PAGES);
+    if (!base) { say("drvget: нет памяти для компилятора\n"); return 1; }
+    arena = base;
+    size_t arena_cap = CHUNK_PAGES * PAGE;
+    static const char *incs[1] = { INC_DIR };
+#if defined(__aarch64__)
+    KCfg cfg = { rd, 0, incs, 1, 0, 0, "aarch64", grow };
+#else
+    KCfg cfg = { rd, 0, incs, 1, 0, 0, "x86_64", grow };
+#endif
+    char mainp[64];
+    snprintf(mainp, sizeof mainp, STAGE_DIR "%s", R.main_file);
+    sayf("drvget: собираю %s встроенным kcc (%s)...\n", R.main_file, cfg.target);
+    KResult kr;
+    int rc = kcc_compile(&cfg, arena, arena_cap, mainp, 2, &kr);
+    if (kr.warn && *kr.warn) say(kr.warn);
+    if (rc) { say(kr.err); say("\ndrvget: сборка не удалась, ничего не установлено\n"); return 1; }
+    sayf("drvget: собрано, образ ELF %lu байт\n", (unsigned long)kr.elflen);
+
+    size_t total = sizeof(kdrv_header_t) + kr.elflen;
+    u8 *pkg = ka_new(total);
+    kdrv_header_t *h = (kdrv_header_t *)pkg;
+    h->magic = KDRV_MAGIC; h->format = KDRV_FORMAT; h->hdr_size = sizeof *h;
+    memcpy(h->name, R.name, strlen(R.name));
+    h->version = R.version; h->caps = R.caps; h->elf_size = (u32)kr.elflen; h->nmatch = R.nmatch;
+    for (u32 i = 0; i < R.nmatch; i++) h->match[i] = R.match[i];
+    memcpy(pkg + sizeof *h, kr.elf, kr.elflen);
+
+    kdrv_rec_t rec;
+    memset(&rec, 0, sizeof rec);
+    rec.magic = KREC_MAGIC; rec.format = KDRV_FORMAT; rec.rec_size = sizeof rec;
+    sha256(kr.elf, kr.elflen, rec.elf_sha);
+    sha256(pkg, total, rec.pkg_sha);
+    memcpy(rec.src_sha, set, 32);
+    rec.caps_ok = R.caps;                        /* пользователь подтвердил именно эти права, введя хеш отчёта, где они перечислены */
+    rec.confirmed = KREC_CONFIRMED;
+    i64 now = k_time();
+    rec.date = now > 0 ? (u64)now : 0;
+    snprintf(rec.source, sizeof rec.source, "%s", url);
+
+    char f1[32], f2[32];
+    snprintf(f1, sizeof f1, "%s.kdrv", R.name);
+    snprintf(f2, sizeof f2, "%s.rec", R.name);
+    i64 w = drv_op(KFS_DRV_WRITE, f1, pkg, total, 0);
+    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f1, (long long)w); return 1; }
+    w = drv_op(KFS_DRV_WRITE, f2, &rec, sizeof rec, 0);
+    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f2, (long long)w); drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0); return 1; }
+    stage_clear();
+    sayf("drvget: установлено: /drv/%s и /drv/%s; драйвер подойдёт устройствам из списка выше, ядро просматривает /drv сразу (журнал: [KIRA DRV])\n", f1, f2);
+    return 0;
+}
+
+/* ---------- list / verify / remove ---------- */
+static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sha_ok) {
+    char f1[32], f2[32];
+    snprintf(f1, sizeof f1, "%s.kdrv", name);
+    snprintf(f2, sizeof f2, "%s.rec", name);
+    i64 sz = drv_op(KFS_DRV_STAT, f1, 0, 0, 0);
+    if (sz < (i64)sizeof *h) return -1;
+    if (sz > (i64)sizeof body) { *sha_ok = -1; sz = (i64)sizeof body; }
+    i64 got = drv_op(KFS_DRV_READ, f1, body, (u64)sz, 0);
+    if (got != sz && *sha_ok != -1) return -1;
+    memcpy(h, body, sizeof *h);
+    memset(rec, 0, sizeof *rec);
+    if (drv_op(KFS_DRV_READ, f2, rec, sizeof *rec, 0) != (i64)sizeof *rec) return -2;
+    if (*sha_ok == -1) return 0;
+    uint8_t d1[32], d2[32];
+    int hc = kdrv_header_check(body, (uint32_t)sz, h);
+    if (hc != KDRV_OK) { *sha_ok = 0; return 0; }
+    sha256(body + sizeof *h, h->elf_size, d1);
+    sha256(body, (size_t)sz, d2);
+    *sha_ok = !memcmp(d1, rec->elf_sha, 32) && !memcmp(d2, rec->pkg_sha, 32) && kdrv_rec_check(rec, sizeof *rec, rec) == KDRV_OK;
+    return 0;
+}
+
+static void show_caps(u32 c) {
+    static const struct { u32 b; const char *n; } t[] = { { CAP_MMIO, "MMIO" }, { CAP_IRQ, "IRQ" }, { CAP_DMA, "DMA" }, { CAP_PCIDEV, "PCIDEV" }, { CAP_NETDEV, "NETDEV" } };
+    for (unsigned i = 0; i < sizeof t / sizeof *t; i++) if (c & t[i].b) sayf(" %s", t[i].n);
+    if (!c) say(" -");
+}
+
+static int cmd_list(void) {
+    static char lst[4096];
+    i64 n = drv_op(KFS_DRV_LIST, "", lst, sizeof lst - 1, 0);
+    if (n < 0) { say("drvget: каталога /drv нет или он недоступен\n"); return 1; }
+    lst[n] = 0;
+    int cnt = 0;
+    for (char *p = lst; *p;) {
+        char *e = strchr(p, '\n');
+        if (e) *e = 0;
+        size_t l = strlen(p);
+        if (l > 5 && !strcmp(p + l - 5, ".kdrv")) {
+            char nm[16];
+            kdrv_header_t h; kdrv_rec_t rec; int ok = 0;
+            snprintf(nm, sizeof nm, "%.*s", (int)(l - 5 > 11 ? 11 : l - 5), p);
+            cnt++;
+            int rc = read_pkg(nm, &h, &rec, &ok);
+            if (rc == -1) sayf("  %s: пакет не читается\n", nm);
+            else if (rc == -2) sayf("  %s: нет подтверждения (%s.rec) - не будет запущен\n", nm, nm);
+            else { sayf("  %s: версия %u, права:", nm, (unsigned)h.version); show_caps(h.caps); sayf(", SHA-256 %s, источник: %s\n", ok ? "сверен" : "НЕ СОВПАДАЕТ", rec.source); }
+        }
+        if (!e) break;
+        p = e + 1;
+    }
+    sayf("drvget: пакетов в /drv: %d (работающие драйверы: команда drv)\n", cnt);
+    return 0;
+}
+
+static int cmd_verify(const char *nm) {
+    kdrv_header_t h; kdrv_rec_t rec; int ok = 0;
+    if (!name_ok(nm)) { say("drvget: неверное имя\n"); return 2; }
+    int rc = read_pkg(nm, &h, &rec, &ok);
+    if (rc) { sayf("drvget: verify %s: пакета или подтверждения нет\n", nm); return 1; }
+    char a[65], b[65], c[65];
+    dg_hex(rec.elf_sha, 32, a); dg_hex(rec.pkg_sha, 32, b); dg_hex(rec.src_sha, 32, c);
+    sayf("drvget: %s: SHA-256 образа %s, пакета %s, исходников %s\n", nm, a, b, c);
+    sayf("drvget: verify %s: %s\n", nm, ok == 1 ? "OK (хеши сходятся с записью, пользователь подтверждал установку)" : "ОШИБКА: хеши не сходятся или запись недействительна");
+    return ok == 1 ? 0 : 1;
+}
+
+static int cmd_remove(const char *nm) {
+    char f[32];
+    if (!name_ok(nm)) { say("drvget: неверное имя\n"); return 2; }
+    snprintf(f, sizeof f, "%s.kdrv", nm);
+    i64 r = drv_op(KFS_DRV_REMOVE, f, 0, 0, 0);
+    if (r < 0) { sayf("drvget: remove %s: пакета нет (код %lld)\n", nm, (long long)r); return 1; }
+    sayf("drvget: пакет %s удалён из /drv вместе с подтверждением. Если драйвер работает, остановите его: drv stop %s\n", nm, nm);
+    return 0;
+}
+
+static int cmd_base(const char *arg) {
+    char b[DG_URL_MAX];
+    if (!*arg) { int own = base_url(b, sizeof b); sayf("drvget: каталог рецептов: %s%s\n", b, own ? "" : " (по умолчанию)"); return 0; }
+    dg_url_t u;
+    const char *err = "";
+    if (dg_url_parse(arg, &u, &err)) { sayf("drvget: %s\n", err); return 1; }
+    if (k_file_write("base", arg, strlen(arg)) < 0) { say("drvget: не удалось сохранить\n"); return 1; }
+    sayf("drvget: каталог рецептов теперь %s (рецепт ИМЯ ищется как %s/ИМЯ/drvget.rec)\n", arg, arg);
+    return 0;
+}
+
+int umain(void) {
+    char args[200];
+    i64 al = k_args(args, sizeof args - 1);
+    if (al < 0) al = 0;
+    args[al] = 0;
+    char *p = args;
+    while (*p == ' ') p++;
+    char *verb = p;
+    while (*p && *p != ' ') p++;
+    if (*p) *p++ = 0;
+    while (*p == ' ') p++;
+    if (!strcmp(verb, "install") && *p) return cmd_install(p);
+    if (!strcmp(verb, "confirm") && *p) return cmd_confirm(p);
+    if (!strcmp(verb, "list")) return cmd_list();
+    if (!strcmp(verb, "verify") && *p) return cmd_verify(p);
+    if (!strcmp(verb, "remove") && *p) return cmd_remove(p);
+    if (!strcmp(verb, "base")) return cmd_base(p);
+    say("использование:\n"
+        "  drvget install ИМЯ|https://адрес/drvget.rec   скачать исходники, проверить лицензию, показать источник, SHA-256 и права (ничего не ставит)\n"
+        "  drvget confirm ИМЯ ХЕШ                        собрать на устройстве и установить, если ХЕШ (8+ знаков) - SHA-256 набора из отчёта\n"
+        "  drvget list | verify ИМЯ | remove ИМЯ         пакеты в /drv\n"
+        "  drvget base [https://адрес]                   каталог рецептов (по умолчанию " DRVGET_DEFAULT_BASE ")\n"
+        "GPL-код и бинарные драйверы (Windows .sys, модули Linux .ko) не принимаются.\n");
+    return 2;
+}

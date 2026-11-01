@@ -17,6 +17,7 @@ static const struct { const char* name; uint32_t caps; } table[] = {
     { "ipc",      CAP_IPC },
     { "mt",       CAP_THREAD },
     { "kcc",      CAP_FS },                 /* компилятор: исходники и результат в /data/kcc, заголовки - FS_OP_INC_* (только kcc); больше ничего */
+    { "drvget",   CAP_NET | CAP_FS | CAP_SYSFILES },   /* загрузка исходников драйвера по HTTPS, сборка встроенным kcc, запись пакета в /drv (FS_OP_DRV_*, только drvget) */
     { "burn",     0 },
     { "fpu",      0 },
     { "demo",     0 },

@@ -202,6 +202,18 @@ class VM:
         self._qmp_read()
         self.qmp_cmd({"execute": "qmp_capabilities"})
 
+    def restart(self, extra):
+        """Вторая фаза сценария: тот же диск (disk.img), другие устройства. Журнал продолжается; phase_mark - где он начался."""
+        for sk in (self.ser, self.qmp):
+            try: sk.close()
+            except OSError: pass
+        for pth in (self.ser_path, self.qmp_path):
+            if os.path.exists(pth):
+                os.unlink(pth)
+        self.sc = dict(self.sc, extra=extra)
+        self.phase_mark = len(self.log)
+        self.start()
+
     def stop(self):
         for p in getattr(self, "daemons", []):
             p.terminate()
@@ -348,6 +360,19 @@ def run(sc, args):
                     raise Fail(f"«{st['exit']}»: QEMU завершился с кодом {vm.qemu.returncode}")
                 vm.exited = True
                 result["checks"].append({"exit": st["exit"], "ok": True})
+            elif "relaunch" in st:                    # выключить машину и поднять её снова на ТОМ ЖЕ диске с другим набором устройств (extra):
+                vm.send("poweroff\r")                  # драйвер, установленный в первой фазе, нужен устройству, которого в первой фазе не было
+                end_t = time.time() + 30 * args.timeout_scale
+                while vm.qemu.poll() is None and time.time() < end_t:
+                    vm.drain(0.5)
+                if vm.qemu.poll() is None or vm.qemu.returncode != 0:
+                    raise Fail("relaunch: машина не выключилась сама")
+                vm.drain(0.5)
+                vm.restart(st["relaunch"])
+                vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
+                time.sleep(1.0)
+                mark = len(vm.log)
+                result["checks"].append({"relaunch": True, "ok": True})
             elif "combo" in st:                       # одновременное нажатие (Alt+Shift - раскладка)
                 vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": k} for k in st["combo"]]}})
                 vm.pump(0.3)

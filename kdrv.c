@@ -324,9 +324,13 @@ static void release(bind_t* b) {
     __atomic_sub_fetch(&ndead, 1, __ATOMIC_ACQ_REL);
 }
 
+static int rescan_req;
+void kdrv_request_rescan(void) { __atomic_store_n(&rescan_req, 1, __ATOMIC_RELEASE); }
+
 void kdrv_poll(void) {
     static int scanned;
     if (!scanned) { scanned = 1; scan(); }
+    else if (__atomic_exchange_n(&rescan_req, 0, __ATOMIC_ACQ_REL)) scan();               /* drvget установил пакет */
     if (!__atomic_load_n(&ndead, __ATOMIC_ACQUIRE)) return;
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         bind_t* b = &binds[i];

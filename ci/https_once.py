@@ -3,7 +3,9 @@
 «--port N» - один раз на TCP 127.0.0.1:N (хост-тест). «--chain каталог» - цепочка из ci/mkchain.py (сервер +
 промежуточный), «--self каталог» - самоподписанный оттуда же; без них - самоподписанный, созданный при запуске.
 «--prefix ed_|pss_» - с «--chain»: цепочка Ed25519 (ed_chain.pem) или с ключом RSA-PSS (pss_chain.pem).
-Тело - больше 16 КБ (несколько записей TLS); первая строка называет версию и шифр, которые выбрал сервер."""
+Тело - больше 16 КБ (несколько записей TLS); первая строка называет версию и шифр, которые выбрал сервер.
+«--serve каталог» - отдавать файлы каталога (GET /путь), для drvget; «--loop» с «--port» - обслуживать соединения без конца.
+"""
 import os, ssl, socket, subprocess, sys, tempfile, threading, time
 
 args = sys.argv[1:]
@@ -53,42 +55,58 @@ else:
                    check=True, capture_output=True)
     ctx.load_cert_chain(d + "/c.pem", d + "/k.pem")
 
+
+def serve(rd, wr):
+    inc, out = ssl.MemoryBIO(), ssl.MemoryBIO()
+    s = ctx.wrap_bio(inc, out, server_side=True)
+    def pump():
+        b = out.read()
+        if b: wr(b)
+    def feed():
+        b = rd()
+        if not b: raise EOFError
+        inc.write(b)
+    def call(f, *a):
+        while True:
+            try:
+                r = f(*a); pump(); return r
+            except ssl.SSLWantReadError:
+                pump(); feed()
+    call(s.do_handshake)
+    req = b""
+    while b"\r\n\r\n" not in req:
+        req += call(s.read, 4096)
+    line = req.split(b"\r\n", 1)[0].decode(errors="replace")
+    if opt("--serve"):          # файловый сервер для drvget: GET /путь -> файл из каталога; HTTP/1.0 с Content-Length, потом закрытие
+        parts = line.split(" ")
+        rel = os.path.normpath(parts[1].lstrip("/")) if len(parts) > 1 else ""
+        fp = os.path.join(opt("--serve"), rel)
+        if rel.startswith("..") or not os.path.isfile(fp):
+            body, hd = b"not found\n", b"HTTP/1.0 404 Not Found\r\n"
+        else:
+            body, hd = open(fp, "rb").read(), b"HTTP/1.0 200 OK\r\n"
+        call(s.write, hd + b"Content-Length: %d\r\n\r\n" % len(body) + body)
+    else:
+        body = ("kira-tls-ok %s %s %s\n" % (s.version(), s.cipher()[0], line)).encode() + b"".join(b"%04d-0123456789abcdef\n" % i for i in range(1000))
+        call(s.write, b"HTTP/1.0 200 OK\r\nContent-Length: %d\r\n\r\n" % len(body) + body)
+    try:
+        s.unwrap()
+    except ssl.SSLError:
+        pass
+    pump()
+
 if opt("--port"):
     ls = socket.socket(); ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    ls.bind(("127.0.0.1", int(opt("--port")))); ls.listen(1)
+    ls.bind(("127.0.0.1", int(opt("--port")))); ls.listen(8)
     print("ready", flush=True)
-    conn, _ = ls.accept()
-    rd = lambda: conn.recv(16384)
-    wr = conn.sendall
-else:
-    rd = lambda: sys.stdin.buffer.read1(16384)
-    def wr(b): sys.stdout.buffer.write(b); sys.stdout.buffer.flush()
-
-inc, out = ssl.MemoryBIO(), ssl.MemoryBIO()
-s = ctx.wrap_bio(inc, out, server_side=True)
-def pump():
-    b = out.read()
-    if b: wr(b)
-def feed():
-    b = rd()
-    if not b: raise EOFError
-    inc.write(b)
-def call(f, *a):
-    while True:
+    while True:                  # --loop: соединения до тех пор, пока процесс не убьют (хост-тест drvget); иначе одно
+        conn, _ = ls.accept()
         try:
-            r = f(*a); pump(); return r
-        except ssl.SSLWantReadError:
-            pump(); feed()
-
-call(s.do_handshake)
-req = b""
-while b"\r\n\r\n" not in req:
-    req += call(s.read, 4096)
-line = req.split(b"\r\n", 1)[0].decode(errors="replace")
-body = ("kira-tls-ok %s %s %s\n" % (s.version(), s.cipher()[0], line)).encode() + b"".join(b"%04d-0123456789abcdef\n" % i for i in range(1000))
-call(s.write, b"HTTP/1.0 200 OK\r\nContent-Length: %d\r\n\r\n" % len(body) + body)
-try:
-    s.unwrap()
-except ssl.SSLError:
-    pass
-pump()
+            serve(lambda: conn.recv(16384), conn.sendall)
+        except (EOFError, ssl.SSLError, OSError):
+            pass
+        conn.close()
+        if "--loop" not in args: break
+else:
+    def wr(b): sys.stdout.buffer.write(b); sys.stdout.buffer.flush()
+    serve(lambda: sys.stdin.buffer.read1(16384), wr)

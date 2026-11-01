@@ -5,10 +5,16 @@
  * окна адресов 0x8000000000..0x8fffffffff (код загруженной программы) и обрабатывается таблицей k_* ниже. Остальные вызовы хоста не затрагиваются.
  * Печатает "<код выхода>" программы так же, как эталон: printf("%d\n", main()).
  * Для проверки kcc, собранного как программа Киры (userland/kcc.c): kloader [-s песочница] [-i каталог заголовков] [-a "аргументы"] prog.elf
- * K_FS (ops 1 READ, 2 WRITE, 3 STAT песочницы и 11 INC_READ, 12 INC_STAT) и K_ARGS обслуживаются каталогами хоста по тем же правилам имён, что fsrv.c. */
+ * -y каталог (=/etc/ssl, ops 9/10), -d каталог (=/drv, ops 13..17 FS_OP_DRV_*), сеть K_NET_* на сокетах хоста, K_TIME/K_RANDOM/K_CLOCK_NS (для drvget).
+ * K_FS (ops 1 READ, 2 WRITE, 3 STAT, 4 LIST, 5 REMOVE песочницы и 11 INC_READ, 12 INC_STAT) и K_ARGS обслуживаются каталогами хоста по тем же правилам имён, что fsrv.c. */
 #define _GNU_SOURCE
 #include "../../elf.h"
+#include <arpa/inet.h>
+#include <dirent.h>
 #include <errno.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
 #include <fcntl.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
@@ -19,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/random.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <time.h>
@@ -30,10 +37,11 @@
 #define HEAP_BASE 0x8800000000ULL
 #define HEAP_MAX_PAGES 1024
 
-enum { K_WRITE = 1, K_EXIT = 2, K_TICKS = 3, K_SLEEP = 4, K_YIELD = 5, K_GETPID = 6, K_FS = 10, K_HEAP = 11, K_ARGS = 30 };
+enum { K_WRITE = 1, K_EXIT = 2, K_TICKS = 3, K_SLEEP = 4, K_YIELD = 5, K_GETPID = 6, K_FS = 10, K_HEAP = 11, K_CLOCK_NS = 24, K_NET_DNS = 25, K_NET_CONNECT = 26,
+       K_NET_SEND = 27, K_NET_RECV = 28, K_NET_CLOSE = 29, K_ARGS = 30, K_RANDOM = 36, K_TIME = 37 };
 
 static unsigned long heap_pages;
-static const char *sandbox_dir, *inc_dir, *prog_args = "";
+static const char *sandbox_dir, *inc_dir, *sys_dir, *drv_dir, *prog_args = "";
 typedef struct { uint32_t op, name_len; uint64_t name_ptr, buf_ptr, buf_len, off; } fsreq_t;
 
 static int name_ok(const char *n, uint32_t len) {
@@ -48,13 +56,30 @@ static int name_ok(const char *n, uint32_t len) {
 
 static long fs_op(const fsreq_t *q) {
     char path[256], name[48];
+    if (q->op == 4 || q->op == 17) {                     /* LIST песочницы (4) и каталога /drv (17): имена файлов через перевод строки */
+        const char *dir = q->op == 4 ? sandbox_dir : drv_dir;
+        if (!dir) return -101;
+        DIR *d = opendir(dir);
+        if (!d) return -2;
+        size_t used = 0;
+        struct dirent *e;
+        while ((e = readdir(d))) {
+            if (e->d_name[0] == '.') continue;
+            size_t n = strlen(e->d_name);
+            if (used + n + 1 > q->buf_len) break;
+            memcpy((char *)q->buf_ptr + used, e->d_name, n); used += n; ((char *)q->buf_ptr)[used++] = '\n';
+        }
+        closedir(d);
+        return (long)used;
+    }
     if (!name_ok((const char *)q->name_ptr, q->name_len)) return -100;
     memcpy(name, (const void *)q->name_ptr, q->name_len); name[q->name_len] = 0;
-    int inc = q->op == 11 || q->op == 12;
-    const char *dir = inc ? inc_dir : sandbox_dir;
-    if (!dir || (q->op != 1 && q->op != 2 && q->op != 3 && !inc)) return -101;
+    int inc = q->op == 11 || q->op == 12, sysf = q->op == 9 || q->op == 10, drv = q->op >= 13 && q->op <= 16;
+    const char *dir = inc ? inc_dir : sysf ? sys_dir : drv ? drv_dir : sandbox_dir;
+    if (!dir || q->op < 1 || q->op > 16) return -101;
     snprintf(path, sizeof path, "%s/%s", dir, name);
-    if (q->op == 2) {
+    if (q->op == 5 || q->op == 16) return unlink(path) ? -2 : 0;
+    if (q->op == 2 || q->op == 15) {
         FILE *f = fopen(path, "wb");
         if (!f) return -6;
         size_t w = q->buf_len ? fwrite((const void *)q->buf_ptr, 1, q->buf_len, f) : 0;
@@ -66,7 +91,7 @@ static long fs_op(const fsreq_t *q) {
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     long r = sz;
-    if (q->op == 1 || q->op == 11) {
+    if (q->op == 1 || q->op == 11 || q->op == 9 || q->op == 14) {
         if (q->buf_len == 0) r = -101;
         else if (fseek(f, (long)q->off, SEEK_SET) != 0) r = -101;
         else r = (long)fread((void *)q->buf_ptr, 1, q->buf_len, f);
@@ -74,6 +99,30 @@ static long fs_op(const fsreq_t *q) {
     fclose(f);
     return r;
 }
+
+/* Сеть Киры на сокетах хоста (для drvget: TLS работает внутри программы поверх этих вызовов). Адрес - число 0xAABBCCDD, как в k_net_*. */
+static long net_dns(const char *name, uint64_t len) {
+    char b[64]; struct in_addr a;
+    if (len == 0 || len >= sizeof b) return -10;
+    memcpy(b, name, len); b[len] = 0;
+    return inet_pton(AF_INET, b, &a) == 1 ? (long)ntohl(a.s_addr) : -2;
+}
+static long net_connect(uint32_t ip, uint32_t port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in sa; memset(&sa, 0, sizeof sa);
+    sa.sin_family = AF_INET; sa.sin_port = htons((uint16_t)port); sa.sin_addr.s_addr = htonl(ip);
+    if (fd < 0 || connect(fd, (struct sockaddr *)&sa, sizeof sa)) { if (fd >= 0) close(fd); return -2; }
+    return fd;
+}
+static long net_recv(int fd, void *p, uint64_t n, uint32_t ms) {
+    struct pollfd pf = { fd, POLLIN, 0 };
+    int pr = poll(&pf, 1, ms ? (int)ms : 10000);
+    if (pr <= 0) return -5;
+    ssize_t r = recv(fd, p, (size_t)n, 0);
+    return r < 0 ? -2 : (long)r;
+}
+
+static unsigned long c_arg(const greg_t *g) { return (unsigned long)g[REG_RDX]; }
 
 static void on_sys(int sig, siginfo_t *si, void *ucv) {
     (void)sig; (void)si;
@@ -89,6 +138,14 @@ static void on_sys(int sig, siginfo_t *si, void *ucv) {
     case K_YIELD: sched_yield(); break;
     case K_GETPID: r = 1; break;
     case K_FS: r = fs_op((const fsreq_t *)a); break;
+    case K_NET_DNS: r = net_dns((const char *)a, b); break;
+    case K_NET_CONNECT: r = net_connect((uint32_t)a, (uint32_t)b); break;
+    case K_NET_SEND: r = send((int)a, (const void *)b, (size_t)c_arg(g), MSG_NOSIGNAL); break;
+    case K_NET_RECV: r = net_recv((int)a, (void *)b, c_arg(g) & 0xffffffffu, (uint32_t)(c_arg(g) >> 32)); break;
+    case K_NET_CLOSE: r = close((int)a); break;
+    case K_CLOCK_NS: { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); r = (long)ts.tv_sec * 1000000000L + ts.tv_nsec; break; }
+    case K_TIME: r = (long)time(NULL); break;
+    case K_RANDOM: { ssize_t got = getrandom((void *)a, b > 256 ? 256 : b, 0); r = got < 0 ? -1 : 1; break; }
     case K_ARGS: { size_t n = strlen(prog_args); if (n + 1 > b) { r = -1; break; } memcpy((void *)a, prog_args, n + 1); r = (long)n; break; }
     case K_HEAP: {
         if (a == 0 || heap_pages + a > HEAP_MAX_PAGES) { r = -1; break; }
@@ -123,11 +180,13 @@ int main(int argc, char **argv) {
     while (argc > 2 && argv[1][0] == '-' && argv[1][1] && argv[1][2] == 0 && argc > 3) {
         if (argv[1][1] == 's') sandbox_dir = argv[2];
         else if (argv[1][1] == 'i') inc_dir = argv[2];
+        else if (argv[1][1] == 'y') sys_dir = argv[2];
+        else if (argv[1][1] == 'd') drv_dir = argv[2];
         else if (argv[1][1] == 'a') prog_args = argv[2];
         else break;
         argv += 2; argc -= 2;
     }
-    if (argc < 2) { fprintf(stderr, "usage: kloader [-s dir] [-i dir] [-a args] prog.elf\n"); return 2; }
+    if (argc < 2) { fprintf(stderr, "usage: kloader [-s песочница] [-i заголовки] [-y /etc/ssl] [-d /drv] [-a args] prog.elf\n"); return 2; }
     int fd = open(argv[1], O_RDONLY);
     if (fd < 0) { perror(argv[1]); return 2; }
     off_t len = lseek(fd, 0, SEEK_END);

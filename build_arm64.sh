@@ -42,6 +42,17 @@ $CC $KCFLAGS -Iuserland -c userland/kccrt.c -o build-arm64/ukccrt.o
 $CC $UCFLAGS -c userland/libc_min.c -o build-arm64/ukcc_libc_min.o
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/kcc.elf build-arm64/kcc_main.o $KCC_OBJ build-arm64/ukccrt.o build-arm64/ukcc_libc_min.o
 UELF="$UELF build-arm64/kcc.elf"
+# drvget (см. build_clang.sh): TLS-клиент, kcc и запись пакетов в /drv в одной программе EL0
+$CC $KCFLAGS -I. -Iuserland -Iuserland/kccrt -c userland/drvget.c -o build-arm64/dg_main.o
+$CC $UCFLAGS -I. -c userland/drvget_core.c -o build-arm64/dg_core.o
+$CC $UCFLAGS -I. -c kdrv_fmt.c -o build-arm64/dg_kdrv_fmt.o
+DG_TLS=""
+for f in userland/tls.c userland/x509.c pk.c crypto.c sha256.c; do
+    $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/dg_$(basename $f .c).o; DG_TLS="$DG_TLS build-arm64/dg_$(basename $f .c).o"
+done
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/drvget.elf build-arm64/dg_main.o build-arm64/dg_core.o build-arm64/dg_kdrv_fmt.o \
+    $KCC_OBJ build-arm64/ukccrt.o $DG_TLS build-arm64/ukcc_libc_min.o
+UELF="$UELF build-arm64/drvget.elf"
 for app in edit view; do                 # с текстом: шрифт ядра вместе с программой
     $CC $UCFLAGS -I. -c userland/$app.c -o build-arm64/u_$app.o
     $CC $UCFLAGS -I. -c font8x16.c -o build-arm64/u_font_$app.o

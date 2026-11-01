@@ -17,7 +17,11 @@ uint64_t fsrv_max_files(void);
 enum { FS_OP_READ = 1, FS_OP_WRITE = 2, FS_OP_STAT = 3, FS_OP_LIST = 4, FS_OP_REMOVE = 5,
        FS_OP_GRANT_READ = 6, FS_OP_GRANT_STAT = 7, FS_OP_GRANT_NAME = 8,
        FS_OP_SYS_READ = 9, FS_OP_SYS_STAT = 10,
-       FS_OP_INC_READ = 11, FS_OP_INC_STAT = 12 };   /* /etc/kcc/include/<имя>: заголовки libc-lite, только чтение и только для компилятора kcc */   /* /etc/ssl/<имя>: общие файлы системы, только чтение (корневые сертификаты) */   /* выданный при запуске файл (вне песочницы) */
+       FS_OP_INC_READ = 11, FS_OP_INC_STAT = 12,
+       FS_OP_DRV_STAT = 13, FS_OP_DRV_READ = 14, FS_OP_DRV_WRITE = 15, FS_OP_DRV_REMOVE = 16, FS_OP_DRV_LIST = 17 };
+/* FS_OP_DRV_*: пакеты драйверов Ring 3 в /drv (kdrv_format.h) - только программе drvget с CAP_FS. Имя - «ИМЯ.kdrv» или «ИМЯ.rec».
+   WRITE пишет файл целиком (смещение 0) и проверяет его: .kdrv - заголовок и имя, .rec - подтверждение и SHA-256 уже лежащего
+   рядом .kdrv (пересчитывает ядро, а не берёт у программы). Удаление .kdrv удаляет и .rec. */   /* /etc/kcc/include/<имя>: заголовки libc-lite, только чтение и только для компилятора kcc */   /* /etc/ssl/<имя>: общие файлы системы, только чтение (корневые сертификаты) */   /* выданный при запуске файл (вне песочницы) */
 enum { FS_E_DENIED = -100, FS_E_ARG = -101, FS_E_QUOTA = -102 };    /* прочие отрицательные значения - коды kfs.h */
 
 typedef struct {                        /* то, что программа передаёт в системный вызов (48 байт) */
@@ -39,6 +43,7 @@ int  fsrv_name_ok(const char* name);    /* [A-Za-z0-9._-], первый симв
 /* Имя процесса для собранной пользователем программы /data/kcc/<file>: «local-» + имя файла до первой точки (строчные буквы,
    цифры, '-', '_'; всего до 15 знаков). 1 - готово, 0 - имя не подходит. Песочница у такой программы своя: /data/local-<...>. */
 int  fsrv_local_name(const char* file, char out[16]);
+int  fsrv_drv_name(const char* file, char stem[16], int* is_rec);   /* «ИМЯ.kdrv»/«ИМЯ.rec» -> ИМЯ ([a-z0-9_-], до 11 знаков); 1 - верно */
 int  fsrv_sandbox(const char* prog);    /* создаёт /data/<prog>; 0 - готово */
 void fsrv_execute(fsrv_req_t* r);       /* выполняет запрос на KiraFS, результат в r->result */
 

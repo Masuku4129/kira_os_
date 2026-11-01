@@ -2,6 +2,7 @@
 #include "fsrv.h"
 #include "vfs.h"
 #include "kfs.h"
+#include "kdrv_format.h"
 
 static size_t slen(const char* s) { size_t n = 0; while (s[n]) n++; return n; }
 
@@ -90,10 +91,132 @@ uint64_t fsrv_max_data(void) {
 }
 #endif
 
+extern void sha256(const void* data, size_t len, uint8_t out[32]);
+#ifdef KIRA_HOST_TEST
+#include <stdlib.h>
+#define kdrv_tmp_alloc(n) malloc(n)
+#define kdrv_tmp_free(p) free(p)
+#define kdrv_installed(stem) ((void)(stem))
+#else
+#include "heap.h"
+#include "kdrv.h"
+#define kdrv_tmp_alloc(n) kmalloc(n)
+#define kdrv_tmp_free(p) kfree(p)
+#define kdrv_installed(stem) kdrv_request_rescan()          /* установленный пакет сразу получает свою очередь на устройство */
+#endif
+
+int fsrv_drv_name(const char* file, char stem[16], int* is_rec) {
+    size_t n = slen(file), ext;
+    if (n > 5 && file[n - 5] == '.' && file[n - 4] == 'k' && file[n - 3] == 'd' && file[n - 2] == 'r' && file[n - 1] == 'v') { ext = 5; *is_rec = 0; }
+    else if (n > 4 && file[n - 4] == '.' && file[n - 3] == 'r' && file[n - 2] == 'e' && file[n - 1] == 'c') { ext = 4; *is_rec = 1; }
+    else return 0;
+    size_t k = n - ext;
+    if (k < 1 || k > KDRV_NAME_MAX) return 0;
+    for (size_t i = 0; i < k; i++) {
+        char c = file[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return 0;
+        stem[i] = c;
+    }
+    stem[k] = 0;
+    return 1;
+}
+
+static int drv_dir(void) {
+    kfs_stat_t st;
+    if (kfs_stat("/drv", &st) == 0) return st.type == KFS_DIR ? 0 : -1;
+    return kfs_mkdir("/drv") == 0 ? 0 : -1;
+}
+
+static int streq16(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
+
+/* FS_OP_DRV_*: пакеты драйверов. Вызывающий - только drvget (проверено выше и здесь по имени процесса). */
+static void drv_execute(fsrv_req_t* r) {
+    if (!streq16(r->prog, "drvget")) { r->result = FS_E_DENIED; return; }
+    char path[48];
+    if (r->op == FS_OP_DRV_LIST) {
+        scan_t s = { 0, r->data, (size_t)r->len, 0, 0, 0, 0 };
+        int e = kfs_list("/drv", scan_cb, &s);
+        r->result = e ? e : (int64_t)s.used;
+        return;
+    }
+    char stem[16]; int is_rec;
+    if (!fsrv_drv_name(r->name, stem, &is_rec)) { r->result = FS_E_DENIED; return; }
+    { size_t n = 0; for (const char* a = "/drv/"; *a; a++) path[n++] = *a; for (size_t i = 0; r->name[i]; i++) path[n++] = r->name[i]; path[n] = 0; }
+    kfs_stat_t st;
+    switch (r->op) {
+    case FS_OP_DRV_STAT: {
+        int e = kfs_stat(path, &st);
+        r->result = e ? e : (st.type == KFS_FILE ? (int64_t)st.size : KFS_ERR_ISDIR);
+        return;
+    }
+    case FS_OP_DRV_READ:
+        if (r->len == 0 || r->len > fsrv_max_data()) { r->result = FS_E_ARG; return; }
+        r->result = kfs_read(path, r->off, r->data, (size_t)r->len);
+        return;
+    case FS_OP_DRV_REMOVE: {
+        int e = kfs_stat(path, &st);
+        if (e) { r->result = e; return; }
+        if (st.type != KFS_FILE) { r->result = KFS_ERR_ISDIR; return; }
+        if (!is_rec) {                                                    /* без пакета подтверждение бессмысленно: убираем и его */
+            char rp[48]; size_t n = 0;
+            for (const char* a = "/drv/"; *a; a++) rp[n++] = *a;
+            for (size_t i = 0; stem[i]; i++) rp[n++] = stem[i];
+            for (const char* a = ".rec"; *a; a++) rp[n++] = *a;
+            rp[n] = 0;
+            if (kfs_stat(rp, &st) == 0 && st.type == KFS_FILE) kfs_unlink(rp);
+        }
+        r->result = kfs_unlink(path);
+        return;
+    }
+    case FS_OP_DRV_WRITE: {
+        if (r->off != 0 || r->len == 0 || r->len > sizeof(kdrv_header_t) + KDRV_ELF_MAX || r->len > fsrv_max_data()) { r->result = FS_E_ARG; return; }
+        if (drv_dir() != 0) { r->result = KFS_ERR_IO; return; }
+        if (!is_rec) {
+            kdrv_header_t h;
+            int rc = kdrv_header_check(r->data, (uint32_t)r->len, &h);
+            if (rc != KDRV_OK || !streq16(h.name, stem)) { r->result = FS_E_ARG; return; }
+        } else {
+            kdrv_rec_t rec;
+            if (kdrv_rec_check(r->data, (uint32_t)r->len, &rec) != KDRV_OK) { r->result = FS_E_ARG; return; }
+            char kp[48]; size_t n = 0;
+            for (const char* a = "/drv/"; *a; a++) kp[n++] = *a;
+            for (size_t i = 0; stem[i]; i++) kp[n++] = stem[i];
+            for (const char* a = ".kdrv"; *a; a++) kp[n++] = *a;
+            kp[n] = 0;
+            if (kfs_stat(kp, &st) != 0 || st.type != KFS_FILE || st.size > sizeof(kdrv_header_t) + KDRV_ELF_MAX) { r->result = FS_E_DENIED; return; }
+            uint8_t* b = (uint8_t*)kdrv_tmp_alloc((size_t)st.size);
+            if (!b) { r->result = KFS_ERR_NOSPC; return; }
+            kdrv_header_t h;
+            int ok = kfs_read(kp, 0, b, (size_t)st.size) == (int64_t)st.size && kdrv_header_check(b, (uint32_t)st.size, &h) == KDRV_OK && streq16(h.name, stem);
+            uint8_t d1[32], d2[32];
+            if (ok) { sha256(b + sizeof h, h.elf_size, d1); sha256(b, (size_t)st.size, d2); }
+            kdrv_tmp_free(b);
+            if (!ok) { r->result = FS_E_DENIED; return; }
+            for (int i = 0; i < 32; i++) if (d1[i] != rec.elf_sha[i] || d2[i] != rec.pkg_sha[i]) { r->result = FS_E_DENIED; return; }
+            if (rec.caps_ok & ~h.caps) { r->result = FS_E_DENIED; return; }       /* подтвердить можно только то, что пакет просит */
+        }
+        kfs_info_t fi; kfs_info(&fi);
+        uint64_t keep = (uint64_t)fi.total_blocks / 16, need = (r->len + 4095) / 4096 + 1;
+        int exists = kfs_stat(path, &st) == 0;
+        uint64_t had = exists ? (st.size + 4095) / 4096 : 0;
+        if (need > had && (uint64_t)fi.free_blocks < keep + (need - had)) { r->result = FS_E_QUOTA; return; }
+        r->result = kfs_write(path, r->data, (size_t)r->len);
+        if (r->result == 0 && is_rec) kdrv_installed(stem);
+        return;
+    }
+    default: r->result = FS_E_ARG; return;
+    }
+}
+
 void fsrv_execute(fsrv_req_t* r) {
     r->result = FS_E_ARG;
     if (!kfs_mounted()) { r->result = KFS_ERR_NOFS; return; }
     if (!fsrv_prog_ok(r->prog)) { r->result = FS_E_DENIED; return; }
+    if (r->op >= FS_OP_DRV_STAT && r->op <= FS_OP_DRV_LIST) {
+        if (r->op != FS_OP_DRV_LIST && !fsrv_name_ok(r->name)) { r->result = FS_E_DENIED; return; }
+        drv_execute(r);
+        return;
+    }
     char path[96];
     if (r->op == FS_OP_LIST) {
         if (fsrv_sandbox(r->prog) != 0) { r->result = KFS_ERR_IO; return; }
@@ -221,24 +344,33 @@ int64_t fsrv_syscall(uint64_t up) {
     if (u.op == FS_OP_SYS_READ || u.op == FS_OP_SYS_STAT) { if (!(caps & CAP_SYSFILES)) return proc_cap_denied(CAP_SYSFILES, 10), FS_E_DENIED; return sys_op(&u, "/etc/ssl/"); }
     if (u.op == FS_OP_INC_READ || u.op == FS_OP_INC_STAT) {       /* заголовки для компилятора: только kcc (имя известно ядру по манифесту) и только при CAP_FS */
         const char* who = proc_current_name();
-        if (!(caps & CAP_FS) || !who || who[0] != 'k' || who[1] != 'c' || who[2] != 'c' || who[3]) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
+        int is_kcc = who && who[0] == 'k' && who[1] == 'c' && who[2] == 'c' && !who[3];
+        int is_drvget = who && who[0] == 'd' && who[1] == 'r' && who[2] == 'v' && who[3] == 'g' && who[4] == 'e' && who[5] == 't' && !who[6];   /* drvget собирает драйвер тем же компилятором, встроенным в него */
+        if (!(caps & CAP_FS) || !(is_kcc || is_drvget)) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
         return sys_op(&u, "/etc/kcc/include/");
     }
-    if (u.op >= FS_OP_GRANT_READ && u.op <= FS_OP_GRANT_NAME) { if (!(caps & CAP_GRANT)) return proc_cap_denied(CAP_GRANT, 10), FS_E_DENIED; return grant_op(&u); }
-    if (u.op < FS_OP_READ || u.op > FS_OP_REMOVE) return FS_E_ARG;
+    if (u.op >= FS_OP_DRV_STAT && u.op <= FS_OP_DRV_LIST) {      /* пакеты драйверов в /drv: только drvget (имя известно ядру по манифесту) и только при CAP_FS */
+        const char* who = proc_current_name();
+        static const char me[] = "drvget";
+        unsigned k = 0;
+        while (who && me[k] && who[k] == me[k]) k++;
+        if (!(caps & CAP_FS) || !who || me[k] || who[k]) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
+    }
+    else if (u.op >= FS_OP_GRANT_READ && u.op <= FS_OP_GRANT_NAME) { if (!(caps & CAP_GRANT)) return proc_cap_denied(CAP_GRANT, 10), FS_E_DENIED; return grant_op(&u); }
+    if ((u.op < FS_OP_READ || u.op > FS_OP_REMOVE) && !(u.op >= FS_OP_DRV_STAT && u.op <= FS_OP_DRV_LIST)) return FS_E_ARG;
     if (!(caps & CAP_FS)) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
     const char* prog = proc_current_name();
     if (!fsrv_prog_ok(prog)) return FS_E_DENIED;
 
     char name[FSRV_NAME_MAX + 1]; name[0] = 0;
-    if (u.op != FS_OP_LIST) {
+    if (u.op != FS_OP_LIST && u.op != FS_OP_DRV_LIST) {
         if (u.name_len == 0 || u.name_len > FSRV_NAME_MAX || copy_from_user(name, u.name_ptr, u.name_len) != 0) return FS_E_ARG;
         name[u.name_len] = 0;
         if (!fsrv_name_ok(name)) { life_note("deny-fs", prog, (int)u.op); return FS_E_DENIED; }
     }
-    int to_user = (u.op == FS_OP_READ || u.op == FS_OP_LIST), from_user = (u.op == FS_OP_WRITE);
+    int to_user = (u.op == FS_OP_READ || u.op == FS_OP_LIST || u.op == FS_OP_DRV_READ || u.op == FS_OP_DRV_LIST), from_user = (u.op == FS_OP_WRITE || u.op == FS_OP_DRV_WRITE);
     if (to_user || from_user) {
-        if (u.buf_len > fsrv_max_data() || (u.buf_len == 0 && u.op != FS_OP_WRITE) || (u.buf_len && !user_range(u.buf_ptr, u.buf_len, to_user))) return FS_E_ARG;
+        if (u.buf_len > fsrv_max_data() || (u.buf_len == 0 && u.op != FS_OP_WRITE && u.op != FS_OP_DRV_WRITE) || (u.buf_len && !user_range(u.buf_ptr, u.buf_len, to_user))) return FS_E_ARG;
     }
 
     fsrv_req_t* r = (fsrv_req_t*)kmalloc(sizeof(fsrv_req_t));

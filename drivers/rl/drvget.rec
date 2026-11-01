@@ -1,0 +1,11 @@
+# Рецепт drvget для драйвера RTL8139 (порт rl(4)): drvget install rl
+# Файлы - относительно адреса этого рецепта. Лицензия BSD-3-Clause (Bill Paul); текст лицензии и SPDX - в каждом файле.
+drvget-recipe 1
+name rl
+version 1
+license BSD-3-Clause
+pci 10ec:8139
+caps mmio dma pcidev netdev
+main rl.c
+file rl.c rl.c
+file if_rlreg.h if_rlreg.h

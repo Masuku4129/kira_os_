@@ -57,6 +57,13 @@ echo "== driver package format (kdrv_format.h: header, record, matching, hostile
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c
 $T/kdrv
 
+echo "== drvget: https-only, рецепт, лицензии (GPL/бинарники отвергаются), хеш набора =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/drvget tests/drvget_test.c userland/drvget_core.c sha256.c
+$T/drvget
+
+echo "== драйвер rl(4) (RTL8139) против модели чипа =="
+tests/rl_build.sh $T/rl
+
 echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
 $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
 $T/acpi
@@ -86,7 +93,7 @@ $T/prog
 rm -f tests/manifest_test.h
 
 echo "== program file service (sandbox /data/<name>) =="
-$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c caps.c kfs.c store.c
+$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c caps.c kfs.c store.c kdrv_fmt.c sha256.c
 $T/fsrv
 $CC $FLAGS -fsanitize=undefined -Itests/stub -o $T/paint tests/paint_test.c fsrv.c kfs.c store.c
 $T/paint
@@ -312,6 +319,9 @@ for o in good deleg; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.d
 for o in revoked forged other; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
 for o in stale unknown; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
 ossl_run 18450 resume 3
+echo "== drvget целиком на хосте: TLS-сервер, install, confirm, сборка kcc, /drv =="
+bash tests/drvget_e2e.sh $T/e2e
+
 echo "== kcc (препроцессор, лексер, разбор, типы, IR; сверка с clang; fuzz; ASAN/UBSAN) =="
 bash tests/kcc/run.sh
 rm -rf $T

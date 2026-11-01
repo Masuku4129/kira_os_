@@ -12,6 +12,7 @@
 void    kdrv_poll(void);                                  /* основной цикл ядра: первое сканирование /drv, отложенное освобождение */
 void    kdrv_proc_gone(uint32_t slot, uint32_t pid);      /* proc.c, при гибели процесса-драйвера (прерывания выключены, спать нельзя) */
 int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3);   /* syscall.c: вызовы KDRV_SYS_* */
+void    kdrv_request_rescan(void);                        /* fsrv.c: установлен пакет - основной цикл просмотрит /drv ещё раз */
 void    kdrv_cmd(const char* arg);                        /* консоль: drv [start ИМЯ [арг] | stop ИМЯ | rescan] */
 
 #endif

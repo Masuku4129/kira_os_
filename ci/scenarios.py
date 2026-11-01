@@ -489,3 +489,64 @@ ALL.append(sc("drv-edu", "драйвер Ring 3: найден по PCI-ID и з�
     {"log_forbid": [r"drvedu: .*\(FAIL\)", r"УТЕЧКА"] + NO_ERR},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", extra=["-device", "edu"]))
+
+
+# drvget + драйвер RTL8139 (пакет L, N). Фаза 1: сеть virtio; drvget по настоящему TLS 1.3 скачивает исходники драйвера rl с хозяина,
+# показывает источник/лицензию/SHA-256/права, ставит только после подтверждения хешем, собирает kcc на устройстве и пишет /drv.
+# Фаза 2 (relaunch на том же диске): вместо virtio-net - rtl8139; драйвер из /drv находит карту по PCI-ID и регистрирует сетевой интерфейс.
+def _drv_www():
+    import hashlib, shutil, struct
+    w = os.path.abspath("ci-out/drvwww")
+    shutil.rmtree(w, ignore_errors=True)
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "drivers", "rl")
+    def clone(name):
+        os.makedirs(os.path.join(w, name))
+        for f in ("drvget.rec", "rl.c", "if_rlreg.h"):
+            shutil.copy(os.path.join(src, f), os.path.join(w, name, f))
+    def edit(name, f, fn):
+        pth = os.path.join(w, name, f)
+        b = open(pth, "rb").read(); open(pth, "wb").write(fn(b))
+    clone("rl")
+    clone("gpl"); edit("gpl", "drvget.rec", lambda b: b.replace(b"\nname rl", b"\nname gpl"))
+    edit("gpl", "if_rlreg.h", lambda b: b.replace(b"SPDX-License-Identifier: BSD-3-Clause", b"SPDX-License-Identifier: GPL-2.0-only"))
+    clone("bin"); edit("bin", "drvget.rec", lambda b: b.replace(b"\nname rl", b"\nname bin"))
+    edit("bin", "if_rlreg.h", lambda b: b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00This program cannot be run in DOS mode.")
+    clone("nolic"); edit("nolic", "drvget.rec", lambda b: b.replace(b"\nname rl", b"\nname nolic"))
+    edit("nolic", "if_rlreg.h", lambda b: b"/* no licence information */\n" + b"\n".join(b.split(b"\n")[40:]))
+    h = hashlib.sha256()
+    for n in ("drvget.rec", "rl.c", "if_rlreg.h"):          # так же, как dg_set_add в userland/drvget_core.c
+        d = open(os.path.join(w, "rl", n), "rb").read()
+        h.update(n.encode() + b"\0" + struct.pack("<Q", len(d)) + d)
+    return w, h.hexdigest()[:8]
+
+_DRV_WWW, _DRV_SET8 = _drv_www()
+_DRV_HTTP = "guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE
+ALL.append(sc("drvget-rl", "drvget: исходники драйвера по HTTPS, отчёт и подтверждение хешем, сборка kcc на устройстве, GPL/бинарник/без лицензии - отказ; затем сетевая карта RTL8139 под этим драйвером (DHCP, ping, http)", [
+    {"log": BOOT_LOG}, {"sleep": 6},
+    {"cmd": "drvget base https://10.0.2.100", "must": [r"каталог рецептов теперь https://10\.0\.2\.100"]},
+    {"cmd": "drvget install gpl", "must": [r"drvget: отказ: .*GPL"], "timeout": 90},
+    {"cmd": "drvget install bin", "must": [r"drvget: отказ: "], "timeout": 90},
+    {"cmd": "drvget install nolic", "must": [r"drvget: отказ: "], "timeout": 90},
+    {"cmd": "drvget install http://10.0.2.100/rl/drvget.rec", "must": [r"разрешён только https"]},
+    {"cmd": "drv", "forbid": [r"drv-rl"]},
+    {"cmd": "drvget install rl", "must": [r"лицензия:   заявлена BSD-3-Clause", r"if_rlreg\.h", r"10ec:8139", r"CAP_DMA", r"CAP_NETDEV", r"IOMMU",
+                                          r"Установка НЕ выполнена", r"drvget confirm rl " + _DRV_SET8], "timeout": 120},
+    {"cmd": "drvget confirm rl 00000000", "must": [r"хеш не совпал"]},
+    {"cmd": "drvget confirm rl " + _DRV_SET8, "must": [r"собрано, образ ELF \d+ байт", r"установлено: /drv/rl\.kdrv и /drv/rl\.rec"], "timeout": 240},
+    {"cmd": "drvget list", "must": [r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен"]},
+    {"cmd": "drvget verify rl", "must": [r"rl"]},
+    {"log_forbid": NO_ERR},
+    {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "rtl8139,netdev=n0"]},
+    {"sleep": 10},
+    {"log": [r"\[KIRA DRV\] rl: устройство .* 10ec:8139 -> драйвер запущен", r"rl: network interface registered, link up",
+             r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+    {"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
+    {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 25},
+    {"cmd": "fetch 10.0.2.100 /kira"}, {"sleep": 4},
+    {"log": [r"fetch: 10\.0\.2\.100/kira - HTTP/1\.0 200 OK", r"rl: first frame received", r"rl: first frame transmitted"]},
+    {"cmd": "drv", "must": [r"drv-rl pid \d+"]},
+    {"log_forbid": NO_ERR + [r"УТЕЧКА"]},
+    {"responsive": "status", "within": 5},
+], smp=2, mem="1G", tls_chain=True,
+    extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + " --serve " + _DRV_WWW,
+           "-device", "virtio-net-pci,netdev=n0"]))
