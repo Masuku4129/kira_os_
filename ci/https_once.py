@@ -4,10 +4,41 @@
 промежуточный), «--self каталог» - самоподписанный оттуда же; без них - самоподписанный, созданный при запуске.
 «--prefix ed_|pss_» - с «--chain»: цепочка Ed25519 (ed_chain.pem) или с ключом RSA-PSS (pss_chain.pem).
 Тело - больше 16 КБ (несколько записей TLS); первая строка называет версию и шифр, которые выбрал сервер."""
-import os, ssl, socket, subprocess, sys, tempfile
+import os, ssl, socket, subprocess, sys, tempfile, threading, time
 
 args = sys.argv[1:]
 opt = lambda k: args[args.index(k) + 1] if k in args else None
+
+def bridge(port):
+    """stdin/stdout <-> TCP 127.0.0.1:port (сервер openssl s_server, нужный там, где Python ssl не умеет: OCSP stapling, билеты)."""
+    s = socket.create_connection(("127.0.0.1", port))
+    def up():
+        while True:
+            b = sys.stdin.buffer.read1(16384)
+            if not b: break
+            s.sendall(b)
+        try: s.shutdown(socket.SHUT_WR)
+        except OSError: pass
+    threading.Thread(target=up, daemon=True).start()
+    while True:
+        b = s.recv(16384)
+        if not b: break
+        sys.stdout.buffer.write(b); sys.stdout.buffer.flush()
+
+if opt("--bridge"):                       # постоянный сервер хозяина (сценарий запускает его сам): билеты живут между соединениями
+    bridge(int(opt("--bridge"))); sys.exit(0)
+if opt("--ocsp"):                         # openssl s_server с прикреплённым ответом OCSP из ci/mkchain.py, на одно соединение
+    d = opt("--chain")
+    probe = socket.socket(); probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]; probe.close()
+    srv = subprocess.Popen(["openssl", "s_server", "-quiet", "-accept", str(port), "-cert", d + "/leaf.pem", "-key", d + "/leaf.key",
+                            "-cert_chain", d + "/inter.pem", "-tls1_3", "-www", "-status_file", d + "/ocsp_" + opt("--ocsp") + ".der"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(100):
+        try: socket.create_connection(("127.0.0.1", port), timeout=1).close(); break
+        except OSError: time.sleep(0.1)
+    try: bridge(port)
+    finally: srv.terminate()
+    sys.exit(0)
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ctx.minimum_version = ssl.TLSVersion.TLSv1_3
 if opt("--chain"):
