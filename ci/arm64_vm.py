@@ -45,6 +45,9 @@ SC = [
                ("disk", [r"прерываний устройств \(MSI\): [1-9]"]),
                ("@sleep 4", []), ("net", [r"карта virtio-net, канал есть", r"адрес 10\.0\.2\.15"]),
                ("fetch 10.0.2.100 /v2m", [r"fetch: 10\.0\.2\.100/v2m - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"]),
+               ("fetch https://10.0.2.100/arm-tls", [r"fetch: TLS 1\.3, X25519 \+ ChaCha20-Poly1305, server Finished verified",
+                 r"fetch: 10\.0\.2\.100/arm-tls - HTTP/1\.0 200 OK - 2\d\d\d\d bytes .*server closed"]),
+               ("random", [r"источники - .*interrupt timing", r"проба: [0-9a-f]{32}"]),
                ("serve", [r"serve: listening on port 8080"]),
                ("@http 18081 /arm-server", [r"\[HOST\] http /arm-server: 19\d\d\d bytes, first line 'kira-server-ok /arm-server', window lines 900"])]),
     dict(name="arm64-el2-8cpu", m="virt,gic-version=3,virtualization=on", cpu="cortex-a57", smp=8, mem="3G",
@@ -184,7 +187,9 @@ def run(sc, out):
     if sc.get("net"):
         srv = os.path.abspath(os.path.join(os.path.dirname(__file__), "http_once.py"))
         nic = "virtio-net-pci" if sc["net"] == "virtio" else "e1000"
-        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},hostfwd=tcp:127.0.0.1:18081-:8080", "-device", f"{nic},netdev=n0"]
+        tls = os.path.abspath(os.path.join(os.path.dirname(__file__), "https_once.py"))
+        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},guestfwd=tcp:10.0.2.100:443-cmd:python3 {tls},hostfwd=tcp:127.0.0.1:18081-:8080",
+                 "-device", f"{nic},netdev=n0"]
     else:
         args += ["-nic", "none"]
     qmp_path = os.path.join(d, "qmp.sock")

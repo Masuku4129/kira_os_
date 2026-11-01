@@ -1,4 +1,5 @@
 /* Ожидание событий устройств сном (см. msi.h) и включение MSI / MSI-X в конфигурации PCI. */
+#include "rng.h"
 #include "msi.h"
 #include "sched.h"
 #include "vmm.h"
@@ -7,6 +8,7 @@ static uint64_t total_fired, total_woken;
 void irqwait_stats(uint64_t* fired, uint64_t* woken) { *fired = total_fired; *woken = total_woken; }
 
 void irqwait_fire(irqwait_t* w) {
+    rng_event();                                  /* время прерывания устройства - в пул генератора */
     __atomic_add_fetch(&total_fired, 1, __ATOMIC_RELAXED);
     uint64_t f = spin_lock_irqsave(&w->lk);
     __atomic_add_fetch(&w->fired, 1, __ATOMIC_ACQ_REL);

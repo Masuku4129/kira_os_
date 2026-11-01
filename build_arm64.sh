@@ -13,11 +13,17 @@ HOSTCC="${HOSTCC:-clang}"
 [ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
 UCFLAGS="-ffreestanding -fno-builtin -fno-math-errno -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 UELF=""
-for app in mt ipc burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk-jmp fetch serve melody wasm; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
+for app in mt ipc burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk-jmp serve melody wasm; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
     $CC $UCFLAGS -c userland/$app.c -o build-arm64/u_$app.o
     ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/$app.elf build-arm64/u_$app.o
     UELF="$UELF build-arm64/$app.elf"
 done
+# fetch: HTTP и HTTPS (TLS 1.3 и криптография внутри программы)
+for f in userland/fetch.c userland/tls.c crypto.c sha256.c userland/libc_min.c; do
+    $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/uf_$(basename $f .c).o
+done
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/fetch.elf build-arm64/uf_*.o
+UELF="$UELF build-arm64/fetch.elf"
 for app in edit view; do                 # с текстом: шрифт ядра вместе с программой
     $CC $UCFLAGS -I. -c userland/$app.c -o build-arm64/u_$app.o
     $CC $UCFLAGS -I. -c font8x16.c -o build-arm64/u_font_$app.o
@@ -32,7 +38,7 @@ done
 # Общее ядро (те же файлы, что и на x86-64) и платформа ARM64
 for f in fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
          experience.c fscmd.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
-         immune.c kobj.c futex.c corefault.c watchdog.c proc.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
+         immune.c kobj.c futex.c corefault.c crypto.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
          virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c irqwait.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c dock.c \
          icons.c brainfx.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
          $A/main.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c; do

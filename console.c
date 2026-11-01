@@ -24,6 +24,7 @@
 #include "pci.h"
 #include "blk.h"
 #include "vfs.h"
+#include "rng.h"
 #include "spinlock.h"
 #include "usb.h"
 
@@ -370,6 +371,16 @@ static void power_prepare(void) {
     int bad = blk_flush_all();
     if (bad) { uart_print("[KIRA DISK] write cache not flushed on "); uart_print_dec((uint64_t)bad); uart_print(" disk(s)\n"); }
 }
+static void cmd_random(const char* a) {
+    (void)a;
+    uint8_t b[16];
+    int q = rng_get(b, sizeof b);
+    uart_print("генератор случайных чисел: источники - "); uart_print(rng_sources());
+    uart_print(q ? " (засеян аппаратным источником)\n" : " (аппаратного источника нет: только времена событий - для ключей слабее)\n");
+    uart_print("проба: ");
+    for (int i = 0; i < 16; i++) { uart_putchar("0123456789abcdef"[b[i] >> 4]); uart_putchar("0123456789abcdef"[b[i] & 15]); }
+    uart_print("\n");
+}
 static void cmd_poweroff(const char* a) { (void)a; power_prepare(); platform_poweroff(); }
 static void cmd_reboot(const char* a) { (void)a; power_prepare(); platform_reboot(); }
 static void cmd_wasm(const char* a) {                       /* модуль WebAssembly - в интерпретаторе (Ring 3) */
@@ -536,6 +547,7 @@ static const cmd_t cmds[] = {
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },
     { "plasma",    'a', "приложение Ring 3: плазма", cmd_plasma },
     { "edit",      0,   "приложение Ring 3: текстовый редактор (F2 - сохранить, F3 - другой файл, F4 - новый)", cmd_edit },
+    { "random",    0,   "генератор случайных чисел: источники и проба", cmd_random },
     { "poweroff",  0,   "выключить машину (опыт и диски сохраняются; ACPI S5 / PSCI)", cmd_poweroff },
     { "reboot",    0,   "перезагрузить машину (опыт и диски сохраняются)", cmd_reboot },
     { "wasm",      0,   "wasm /путь.wasm: программа WebAssembly (один файл для x86-64 и ARM64; модули в /wasm)", cmd_wasm },

@@ -41,6 +41,7 @@
 #include "spinlock.h"
 #include "rtc.h"
 #include "usb.h"
+#include "rng.h"
 #include "uaccess.h"
 #include "fat.h"
 
@@ -155,6 +156,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     if (keyboard_init() != 0)       kernel_panic("Keyboard IRQ registration failed");
     mouse_init();   // необязательна: без мыши клавиатура работает как раньше
     fat_set_clock(fat_clock);
+    rng_init();            // генератор случайных чисел: RDSEED/RDRAND, virtio-rng, времена прерываний
     usb_init();
     virtio_input_init();
     if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)

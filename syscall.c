@@ -1,5 +1,7 @@
 /* Системные вызовы программ: номера и обработка общие для всех архитектур. Вход в ядро (SYSCALL на x86-64, SVC на
    ARM64) и регистры - в arch/<архитектура>/syscall_arch.c и ассемблере входа. */
+#include "rng.h"
+#include "crypto.h"
 #include "syscall.h"
 #include "net.h"
 #include "audio.h"
@@ -57,6 +59,7 @@ static userlog_t ulog;
 #define SYS_SND_OPEN      33 // () -> поток звука программы
 #define SYS_SND_WRITE     34 // (поток, буфер, байт) -> принято байт (кадры 48 кГц, 16 бит, стерео)
 #define SYS_SND_CLOSE     35 // (поток)
+#define SYS_RANDOM        36 // (буф, байт <= 256) -> 1 аппаратный источник, 0 - только время событий
 
 #define SYS_MAX_WRITE 4096
 #define SYS_MAX_SLEEP 1000
@@ -215,6 +218,14 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return (uint64_t)net_sys((unsigned)(nr - SYS_NET_DNS), a1, a2, a3);
     case SYS_SND_OPEN: case SYS_SND_WRITE: case SYS_SND_CLOSE:
         return (uint64_t)audio_sys((unsigned)(nr - SYS_SND_OPEN), a1, a2, a3);
+    case SYS_RANDOM: {
+        uint8_t rb[256];
+        if (a2 > sizeof rb) return (uint64_t)-2;
+        int q = rng_get(rb, a2);
+        int bad = a2 && copy_to_user(a1, rb, a2) != 0;
+        crypto_wipe(rb, sizeof rb);
+        return bad ? (uint64_t)-10 : (uint64_t)q;
+    }
     case SYS_ARGS: {
         const char* s = proc_current_args();
         uint64_t len = 0; while (s[len]) len++;

@@ -46,6 +46,7 @@
 #include "rtc.h"
 #include "corefault.h"
 #include "usb.h"
+#include "rng.h"
 #include "spinlock.h"
 #include "platform.h"
 #include "msi.h"
@@ -1143,6 +1144,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u (idle cores then switch their tick off)\n", (uint64_t)ticking, (uint64_t)started);
     clock_init(cnt_freq / 1000);
     arm_pci_init(fdt);
+    rng_init();              /* генератор случайных чисел: RNDR, virtio-rng, времена прерываний */
     immune_init();
     watchdog_init();
     experience_init();       /* диски (virtio, NVMe, AHCI по PCI) и опыт прошлых жизней */

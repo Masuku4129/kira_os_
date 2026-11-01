@@ -229,5 +229,10 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c
 $T/audio
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
+echo "== TLS 1.3 client against OpenSSL =="
+$CC $FLAGS -DTLS_HOST -Itests -Iuserland -fsanitize=address,undefined -o $T/tls tests/tls_host.c userland/tls.c crypto.c sha256.c
+python3 ci/https_once.py --port 18443 > $T/tls_srv.log 2>&1 &
+for i in $(seq 1 50); do grep -q ready $T/tls_srv.log 2>/dev/null && break; sleep 0.1; done
+$T/tls 18443
 rm -rf $T
 echo "ALL HOST TESTS PASSED"
