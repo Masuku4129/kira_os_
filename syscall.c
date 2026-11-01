@@ -51,6 +51,8 @@ static userlog_t ulog;
 #define SYS_NET_RECV      28 // (h, буфер, длина | мс << 32) -> байт; 0 - собеседник закрыл
 #define SYS_NET_CLOSE     29 // (h)
 #define SYS_ARGS          30 // (буфер, ёмкость) -> длина строки аргументов запуска
+#define SYS_NET_LISTEN    31 // (порт) -> номер слушателя (100+)
+#define SYS_NET_ACCEPT    32 // (слушатель, мс; 0 - без срока) -> номер соединения
 
 #define SYS_MAX_WRITE 4096
 #define SYS_MAX_SLEEP 1000
@@ -205,6 +207,7 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
     case SYS_CLOCK_NS:
         return clock_ns();
     case SYS_NET_DNS: case SYS_NET_CONNECT: case SYS_NET_SEND: case SYS_NET_RECV: case SYS_NET_CLOSE:
+    case SYS_NET_LISTEN: case SYS_NET_ACCEPT:
         return (uint64_t)net_sys((unsigned)(nr - SYS_NET_DNS), a1, a2, a3);
     case SYS_ARGS: {
         const char* s = proc_current_args();

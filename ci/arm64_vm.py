@@ -44,7 +44,9 @@ SC = [
                ("write /irq.txt kira-v2m", []), ("cat /irq.txt", [r"kira-v2m"]),
                ("disk", [r"прерываний устройств \(MSI\): [1-9]"]),
                ("@sleep 4", []), ("net", [r"карта virtio-net, канал есть", r"адрес 10\.0\.2\.15"]),
-               ("fetch 10.0.2.100 /v2m", [r"fetch: 10\.0\.2\.100/v2m - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"])]),
+               ("fetch 10.0.2.100 /v2m", [r"fetch: 10\.0\.2\.100/v2m - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"]),
+               ("serve", [r"serve: listening on port 8080"]),
+               ("@http 18081 /arm-server", [r"\[HOST\] http /arm-server: 19\d\d\d bytes, first line 'kira-server-ok /arm-server', window lines 900"])]),
     dict(name="arm64-el2-8cpu", m="virt,gic-version=3,virtualization=on", cpu="cortex-a57", smp=8, mem="3G",
          must=[r"entered at EL2, running at EL1", r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"RAM: 3072 MB"],
          cmds=[("test smp", [r"RESULT: PASS", r"worker 8: core 0"])]),
@@ -115,6 +117,18 @@ class Qmp:
             if "return" in m or "error" in m: return m
 
 
+def host_http(port, path):
+    """Запрос с машины-хозяина к серверу в гостевой системе (hostfwd): строка итога для журнала."""
+    import urllib.request
+    try:
+        body = urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=30).read()
+        first = body.split(b"\n", 1)[0].decode(errors="replace")
+        lines = body.count(b" kira tcp window\n")
+        return f"[HOST] http {path}: {len(body)} bytes, first line '{first}', window lines {lines}\n"
+    except Exception as e:
+        return f"[HOST] http {path}: error {e}\n"
+
+
 QCODE = {" ": "spc", "\r": "ret", "-": "minus", "/": "slash", ".": "dot"}
 
 
@@ -134,7 +148,7 @@ def run(sc, out):
     if sc.get("net"):
         srv = os.path.abspath(os.path.join(os.path.dirname(__file__), "http_once.py"))
         nic = "virtio-net-pci" if sc["net"] == "virtio" else "e1000"
-        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv}", "-device", f"{nic},netdev=n0"]
+        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},hostfwd=tcp:127.0.0.1:18081-:8080", "-device", f"{nic},netdev=n0"]
     else:
         args += ["-nic", "none"]
     qmp_path = os.path.join(d, "qmp.sock")
@@ -176,6 +190,14 @@ def run(sc, out):
                     start = len(log)
                     if cmd.startswith("@sleep "):
                         pump(float(cmd[7:])); continue
+                    if cmd.startswith("@http "):                 # запрос с хозяина к серверу в гостевой (hostfwd)
+                        port, path = cmd[6:].split()
+                        log += host_http(int(port), path).encode()
+                        part = log[start:].decode(errors="replace")
+                        for rx in must:
+                            if not re.search(rx, part): err = f"{cmd}: нет «{rx}»"; break
+                        if err: break
+                        continue
                     if cmd.startswith("@shot "):
                         ppm = os.path.abspath(os.path.join(d, cmd[6:] + ".ppm"))
                         q.cmd("screendump", filename=ppm); time.sleep(0.5)

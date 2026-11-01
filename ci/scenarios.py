@@ -165,8 +165,13 @@ ALL = [
         {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
         {"cmd": "fetch 10.0.2.100 /virtio"}, {"sleep": 3},
         {"log": [r"fetch: 10\.0\.2\.100/virtio - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"]},
+        {"cmd": "serve"}, {"sleep": 2}, {"log": [r"serve: listening on port 8080"]},           # Кира - сервер: запрос с хозяина
+        {"host_http": [18080, "/hello"]}, {"host_http": [18080, "/again"]},
+        {"log": [r"\[HOST\] http /hello: 19\d\d\d bytes, first line 'kira-server-ok /hello', window lines 900",
+                 r"\[HOST\] http /again: 19\d\d\d bytes, first line 'kira-server-ok /again'", r"serve: GET /again -> 200"]},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "virtio-net-pci,netdev=n0"]),
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE + ",hostfwd=tcp:127.0.0.1:18080-:8080",
+                                 "-device", "virtio-net-pci,netdev=n0"]),
     sc("limbo-mttcg", "Limbo с галочкой Enable MTTCG (эмуляция потоком на ядро): 8 plasma - сравнить сборку и отклик с limbo-spam", [
         {"log": BOOT_LOG},
         *[{"send": "plasma"} for _ in range(8)],

@@ -277,23 +277,29 @@ int net_dns(const char* name, uint32_t* ip) {
     return -6;
 }
 
-/* ---------- TCP (клиент) ----------
-   Соединения ядра: установка (SYN, SYN+ACK, ACK), приём по порядку в кольцо с окном по свободному месту, передача
-   по одному сегменту с ожиданием подтверждения и повтором (1, 2, 4... с, 6 попыток), закрытие с обеих сторон.
-   Вне порядка пришедшее не хранится: повторное подтверждение - отправитель пошлёт заново. */
-#define TCP_MAX 4
+/* ---------- TCP ----------
+   Соединения ядра - исходящие (tcp_connect) и входящие (tcp_listen + tcp_accept). Передача - окном: в пути сколько
+   позволяет окно собеседника и кольцо отправки (16 КБ), сегментами по MSS; по сроку повторяется первый
+   неподтверждённый сегмент (1, 2, 4... с, 8 попыток), три повторных подтверждения - быстрый повтор. Приём - по порядку
+   в кольцо 16 КБ с окном по свободному месту; вне порядка - повтор подтверждения. TIME_WAIT не держится: порт
+   исходящих каждый раз новый, у входящих четвёрка адресов разная. */
+#define TCP_MAX 8
 #define TCP_RX  16384
-enum { T_FREE, T_SYN_SENT, T_EST, T_FIN_WAIT1, T_FIN_WAIT2, T_CLOSE_WAIT, T_LAST_ACK, T_CLOSED };
+#define TCP_TX  16384
+#define LISTEN_MAX 4
+#define BACKLOG 4
+enum { T_FREE, T_SYN_SENT, T_SYN_RCVD, T_EST, T_FIN_WAIT1, T_FIN_WAIT2, T_CLOSE_WAIT, T_LAST_ACK, T_CLOSED };
 enum { F_FIN = 1, F_SYN = 2, F_RST = 4, F_PSH = 8, F_ACK = 16 };
 typedef struct {
-    int state, reset, fin_rcvd;
+    int state, reset, fin_rcvd, fin_sent, accepted, listener;
     uint32_t rip; uint16_t rport, lport; uint8_t mac[6];
-    uint32_t snd_una, snd_nxt, rcv_nxt; uint16_t mss;
-    uint8_t tx[1460]; uint32_t tx_len, tx_seq; uint8_t tx_flags; int tx_busy; uint64_t tx_time; unsigned tx_tries;
-    uint8_t rx[TCP_RX]; uint32_t rx_head, rx_tail;              /* занято: tail - head */
-    uint64_t rx_bytes;
+    uint32_t iss, snd_una, snd_nxt, snd_wnd, rcv_nxt; uint16_t mss;
+    uint8_t tx[TCP_TX]; uint32_t tx_len;                      /* данные с snd_una (неподтверждённые + ждущие) */
+    uint64_t rto_at; unsigned tries, dupacks;
+    uint8_t rx[TCP_RX]; uint32_t rx_head, rx_tail;           /* занято: tail - head */
 } tcb_t;
 static tcb_t tcbs[TCP_MAX];
+static struct { uint16_t port; int used; } listens[LISTEN_MAX];
 static spinlock_t tlk = SPINLOCK_INIT;
 static uint16_t next_lport = 49152;
 
@@ -312,16 +318,49 @@ static void tcp_out(tcb_t* t, uint8_t flags, uint32_t seq, const uint8_t* data, 
     ip_send(t->mac, my_ip, t->rip, 6, h, hl + len);
 }
 
-/* Сегмент, ждущий подтверждения: запомнить и отправить (под tlk). */
-static void tcp_queue(tcb_t* t, uint8_t flags, const uint8_t* data, uint32_t len) {
-    t->tx_flags = flags; t->tx_len = len; t->tx_seq = t->snd_nxt;
-    cpy(t->tx, data, len);
-    t->snd_nxt += len + ((flags & (F_SYN | F_FIN)) ? 1 : 0);
-    t->tx_busy = 1; t->tx_tries = 0; t->tx_time = timer_get_ticks();
-    tcp_out(t, flags, t->tx_seq, t->tx, len);
+/* Отправить, что позволяет окно (под tlk). SYN и FIN занимают по номеру, данных у них нет. */
+static void tcp_push(tcb_t* t, uint64_t now) {
+    if (t->state == T_SYN_SENT || t->state == T_SYN_RCVD || t->state == T_CLOSED) return;
+    uint32_t wnd = t->snd_wnd ? t->snd_wnd : t->mss;
+    for (;;) {
+        uint32_t flight = t->snd_nxt - t->snd_una - (t->fin_sent && t->snd_nxt != t->snd_una ? 1 : 0);
+        if (flight >= t->tx_len || flight >= wnd) break;
+        uint32_t n = t->tx_len - flight;
+        if (n > t->mss) n = t->mss;
+        if (n > wnd - flight) n = wnd - flight;
+        if (!n) break;
+        uint8_t seg[1460];
+        for (uint32_t i = 0; i < n; i++) seg[i] = t->tx[(flight + i) % TCP_TX];
+        tcp_out(t, F_ACK | F_PSH, t->snd_una + flight, seg, n);
+        t->snd_nxt = t->snd_una + flight + n;
+        if (!t->rto_at) t->rto_at = now + TIMER_HZ;
+    }
 }
 
-static void tcp_input(uint32_t src, const uint8_t* g, uint32_t len) {
+/* Повтор первого неподтверждённого (по сроку или трём повторам подтверждения). */
+static void tcp_retransmit(tcb_t* t) {
+    if (t->state == T_SYN_SENT) { tcp_out(t, F_SYN, t->iss, 0, 0); return; }
+    if (t->state == T_SYN_RCVD) { tcp_out(t, F_SYN | F_ACK, t->iss, 0, 0); return; }
+    uint32_t n = t->tx_len < t->mss ? t->tx_len : t->mss;
+    if (n) {
+        uint8_t seg[1460];
+        for (uint32_t i = 0; i < n; i++) seg[i] = t->tx[i % TCP_TX];
+        tcp_out(t, F_ACK | F_PSH, t->snd_una, seg, n);
+    } else if (t->fin_sent) tcp_out(t, F_FIN | F_ACK, t->snd_nxt - 1, 0, 0);
+}
+
+static tcb_t* tcb_new(void) {
+    for (int i = 0; i < TCP_MAX; i++) if (tcbs[i].state == T_FREE) {
+        tcb_t* t = &tcbs[i];
+        t->reset = t->fin_rcvd = t->fin_sent = t->accepted = 0; t->listener = -1;
+        t->rx_head = t->rx_tail = 0; t->tx_len = 0; t->rto_at = 0; t->tries = 0; t->dupacks = 0;
+        t->mss = 536; t->snd_wnd = 0;
+        return t;
+    }
+    return 0;
+}
+
+static void tcp_input(uint32_t src, const uint8_t* eth_src, const uint8_t* g, uint32_t len) {
     if (len < 20) return;
     uint32_t hl = (uint32_t)(g[12] >> 4) * 4;
     if (hl < 20 || hl > len) return;
@@ -335,46 +374,80 @@ static void tcp_input(uint32_t src, const uint8_t* g, uint32_t len) {
     uint16_t sport = get16(g), dport = get16(g + 2);
     uint32_t seq = get32(g + 4), ack = get32(g + 8);
     uint8_t fl = g[13];
+    uint16_t win = get16(g + 14);
     const uint8_t* data = g + hl; uint32_t dl = len - hl;
+    uint16_t mss = 536;
+    for (uint32_t i = 20; i + 1 < hl; ) {                       /* MSS собеседника (в SYN) */
+        uint8_t k = g[i];
+        if (k == 0) break;
+        if (k == 1) { i++; continue; }
+        if (g[i + 1] < 2) break;
+        if (k == 2 && g[i + 1] == 4 && i + 4 <= hl) mss = get16(g + i + 2);
+        i += g[i + 1];
+    }
+    if (mss > 1460) mss = 1460;
+    uint64_t now = timer_get_ticks();
     uint64_t f = spin_lock_irqsave(&tlk);
     tcb_t* t = 0;
     for (int i = 0; i < TCP_MAX; i++)
         if (tcbs[i].state != T_FREE && tcbs[i].rip == src && tcbs[i].rport == sport && tcbs[i].lport == dport) t = &tcbs[i];
-    if (!t || t->state == T_CLOSED) { spin_unlock_irqrestore(&tlk, f); return; }
-    if (fl & F_RST) { t->reset = 1; t->state = T_CLOSED; t->tx_busy = 0; spin_unlock_irqrestore(&tlk, f); return; }
+    if (!t) {                                                   /* новое входящее: только SYN на слушаемый порт */
+        int l = -1;
+        for (int i = 0; i < LISTEN_MAX; i++) if (listens[i].used && listens[i].port == dport) l = i;
+        if (l >= 0 && (fl & (F_SYN | F_ACK | F_RST)) == F_SYN) {
+            unsigned pending = 0;
+            for (int i = 0; i < TCP_MAX; i++) if (tcbs[i].state != T_FREE && tcbs[i].listener == l && !tcbs[i].accepted) pending++;
+            tcb_t* n = pending < BACKLOG ? tcb_new() : 0;
+            if (n) {
+                n->rip = src; n->rport = sport; n->lport = dport; cpy(n->mac, eth_src, 6); n->listener = l;
+                n->iss = (uint32_t)(clock_ns() >> 6); n->snd_una = n->iss; n->snd_nxt = n->iss + 1;
+                n->rcv_nxt = seq + 1; n->mss = mss; n->snd_wnd = win;
+                n->state = T_SYN_RCVD; n->rto_at = now + TIMER_HZ;
+                tcp_out(n, F_SYN | F_ACK, n->iss, 0, 0);
+            }
+        }
+        spin_unlock_irqrestore(&tlk, f);
+        return;
+    }
+    if (t->state == T_CLOSED) { spin_unlock_irqrestore(&tlk, f); return; }
+    if (fl & F_RST) { t->reset = 1; t->state = T_CLOSED; spin_unlock_irqrestore(&tlk, f); return; }
     if (t->state == T_SYN_SENT) {
         if ((fl & (F_SYN | F_ACK)) == (F_SYN | F_ACK) && ack == t->snd_nxt) {
-            t->rcv_nxt = seq + 1; t->snd_una = ack; t->tx_busy = 0;
-            t->mss = 536;
-            for (uint32_t i = 20; i + 1 < hl; ) {                   /* MSS собеседника */
-                uint8_t k = g[i];
-                if (k == 0) break;
-                if (k == 1) { i++; continue; }
-                if (g[i + 1] < 2) break;
-                if (k == 2 && g[i + 1] == 4 && i + 4 <= hl) t->mss = get16(g + i + 2);
-                i += g[i + 1];
-            }
-            if (t->mss > 1460) t->mss = 1460;
+            t->rcv_nxt = seq + 1; t->snd_una = ack; t->mss = mss; t->snd_wnd = win; t->rto_at = 0; t->tries = 0;
             t->state = T_EST;
             tcp_out(t, F_ACK, t->snd_nxt, 0, 0);
         }
         spin_unlock_irqrestore(&tlk, f);
         return;
     }
-    if ((fl & F_ACK) && (int32_t)(ack - t->snd_una) > 0 && (int32_t)(ack - t->snd_nxt) <= 0) {
-        t->snd_una = ack;
-        if (ack == t->snd_nxt) {
-            t->tx_busy = 0;
-            if (t->state == T_FIN_WAIT1) t->state = T_FIN_WAIT2;
-            else if (t->state == T_LAST_ACK) t->state = T_CLOSED;
-        }
+    if (t->state == T_SYN_RCVD) {
+        if ((fl & F_ACK) && ack == t->snd_nxt) { t->snd_una = ack; t->state = T_EST; t->rto_at = 0; t->tries = 0; t->snd_wnd = win; }
+        else if (fl & F_SYN) { tcp_out(t, F_SYN | F_ACK, t->iss, 0, 0); spin_unlock_irqrestore(&tlk, f); return; }   /* повтор SYN */
+        else { spin_unlock_irqrestore(&tlk, f); return; }
+    }
+    if (fl & F_ACK) {
+        int32_t adv = (int32_t)(ack - t->snd_una);
+        if (adv > 0 && (int32_t)(ack - t->snd_nxt) <= 0) {
+            uint32_t data_acked = (uint32_t)adv;
+            if (t->fin_sent && ack == t->snd_nxt) data_acked--;   /* номер FIN - не данные */
+            if (data_acked > t->tx_len) data_acked = t->tx_len;
+            for (uint32_t i = 0; i + data_acked < t->tx_len; i++) t->tx[i] = t->tx[i + data_acked];
+            t->tx_len -= data_acked;
+            t->snd_una = ack; t->tries = 0; t->dupacks = 0;
+            t->rto_at = t->snd_una != t->snd_nxt ? now + TIMER_HZ : 0;
+            if (ack == t->snd_nxt && t->fin_sent) {
+                if (t->state == T_FIN_WAIT1) t->state = T_FIN_WAIT2;
+                else if (t->state == T_LAST_ACK) t->state = T_CLOSED;
+            }
+        } else if (adv == 0 && !dl && t->snd_una != t->snd_nxt && ++t->dupacks == 3) tcp_retransmit(t);   /* быстрый повтор */
+        t->snd_wnd = win;
     }
     int need_ack = 0;
     if (dl) {
         if (seq == t->rcv_nxt) {
             uint32_t room = TCP_RX - (t->rx_tail - t->rx_head), take = dl < room ? dl : room;
             for (uint32_t i = 0; i < take; i++) t->rx[(t->rx_tail + i) % TCP_RX] = data[i];
-            t->rx_tail += take; t->rcv_nxt += take; t->rx_bytes += take;
+            t->rx_tail += take; t->rcv_nxt += take;
         }
         need_ack = 1;                                               /* и на чужой порядок - повтор подтверждения */
     }
@@ -383,20 +456,20 @@ static void tcp_input(uint32_t src, const uint8_t* g, uint32_t len) {
         if (t->state == T_EST) t->state = T_CLOSE_WAIT;
         else if (t->state == T_FIN_WAIT1 || t->state == T_FIN_WAIT2) t->state = T_CLOSED;   /* TIME_WAIT не держим */
     }
+    tcp_push(t, now);
     if (need_ack) tcp_out(t, F_ACK, t->snd_nxt, 0, 0);
     spin_unlock_irqrestore(&tlk, f);
 }
 
-/* Повтор неподтверждённого сегмента (поток «net», каждый тик). */
+/* Сроки повтора (поток «net», каждый тик). */
 static void tcp_tick(uint64_t now) {
     uint64_t f = spin_lock_irqsave(&tlk);
     for (int i = 0; i < TCP_MAX; i++) {
         tcb_t* t = &tcbs[i];
-        if (!t->tx_busy || t->state == T_CLOSED || t->state == T_FREE) continue;
-        if (now - t->tx_time < ((uint64_t)TIMER_HZ << t->tx_tries)) continue;
-        if (++t->tx_tries > 6) { t->state = T_CLOSED; t->reset = 1; t->tx_busy = 0; continue; }
-        t->tx_time = now;
-        tcp_out(t, t->tx_flags, t->tx_seq, t->tx, t->tx_len);
+        if (t->state == T_FREE || t->state == T_CLOSED || !t->rto_at || now < t->rto_at) continue;
+        if (++t->tries > 8) { t->state = T_CLOSED; t->reset = 1; t->rto_at = 0; continue; }
+        t->rto_at = now + ((uint64_t)TIMER_HZ << (t->tries < 6 ? t->tries : 6));
+        tcp_retransmit(t);
     }
     spin_unlock_irqrestore(&tlk, f);
 }
@@ -410,7 +483,8 @@ static int tcp_wait(tcb_t* t, int (*cond)(const tcb_t*), uint64_t ticks) {
     return 0;
 }
 static int c_open(const tcb_t* t) { return t->state != T_SYN_SENT; }
-static int c_sent(const tcb_t* t) { return !t->tx_busy || t->state == T_CLOSED; }
+static int c_room(const tcb_t* t) { return t->tx_len < TCP_TX || t->state == T_CLOSED; }
+static int c_sent(const tcb_t* t) { return t->tx_len == 0 || t->state == T_CLOSED; }
 static int c_data(const tcb_t* t) { return t->rx_tail != t->rx_head || t->fin_rcvd || t->state == T_CLOSED; }
 static int c_closed(const tcb_t* t) { return t->state == T_CLOSED; }
 
@@ -419,20 +493,55 @@ int tcp_connect(uint32_t ip, uint16_t port) {
     uint8_t mac[6];
     if (resolve(ip, mac) != 0) return -2;
     uint64_t f = spin_lock_irqsave(&tlk);
-    int h = -1;
-    for (int i = 0; i < TCP_MAX && h < 0; i++) if (tcbs[i].state == T_FREE) h = i;
-    if (h < 0) { spin_unlock_irqrestore(&tlk, f); return -3; }
-    tcb_t* t = &tcbs[h];
-    t->reset = t->fin_rcvd = 0; t->rip = ip; t->rport = port; t->lport = next_lport++;
+    tcb_t* t = tcb_new();
+    if (!t) { spin_unlock_irqrestore(&tlk, f); return -3; }
+    t->rip = ip; t->rport = port; t->lport = next_lport++;
     if (next_lport < 49152) next_lport = 49152;
     cpy(t->mac, mac, 6);
-    t->snd_una = t->snd_nxt = (uint32_t)(clock_ns() >> 6); t->rcv_nxt = 0; t->mss = 536;
-    t->rx_head = t->rx_tail = 0; t->rx_bytes = 0;
-    t->state = T_SYN_SENT;
-    tcp_queue(t, F_SYN, 0, 0);
+    t->iss = (uint32_t)(clock_ns() >> 6); t->snd_una = t->iss; t->snd_nxt = t->iss + 1; t->rcv_nxt = 0;
+    t->state = T_SYN_SENT; t->rto_at = timer_get_ticks() + TIMER_HZ;
+    tcp_out(t, F_SYN, t->iss, 0, 0);
     spin_unlock_irqrestore(&tlk, f);
-    if (tcp_wait(t, c_open, 10 * TIMER_HZ) != 0 || t->state != T_EST) { t->state = T_FREE; return -4; }
-    return h;
+    if (tcp_wait(t, c_open, 30 * TIMER_HZ) != 0 || t->state != T_EST) { t->state = T_FREE; return -4; }
+    return (int)(t - tcbs);
+}
+
+int tcp_listen(uint16_t port) {
+    uint64_t f = spin_lock_irqsave(&tlk);
+    int l = -1;
+    for (int i = 0; i < LISTEN_MAX; i++) if (listens[i].used && listens[i].port == port) { spin_unlock_irqrestore(&tlk, f); return -3; }
+    for (int i = 0; i < LISTEN_MAX && l < 0; i++) if (!listens[i].used) l = i;
+    if (l >= 0) { listens[l].used = 1; listens[l].port = port; }
+    spin_unlock_irqrestore(&tlk, f);
+    return l < 0 ? -9 : l;
+}
+
+int tcp_accept(int l, uint32_t timeout_ticks) {
+    if (l < 0 || l >= LISTEN_MAX || !listens[l].used) return -1;
+    uint64_t until = timer_get_ticks() + timeout_ticks;
+    for (;;) {
+        uint64_t f = spin_lock_irqsave(&tlk);
+        for (int i = 0; i < TCP_MAX; i++) {
+            tcb_t* t = &tcbs[i];
+            if (t->listener == l && !t->accepted && t->state != T_FREE && t->state != T_SYN_RCVD) {
+                t->accepted = 1;
+                spin_unlock_irqrestore(&tlk, f);
+                return i;
+            }
+        }
+        spin_unlock_irqrestore(&tlk, f);
+        if (timer_get_ticks() >= until) return -5;
+        sched_sleep_ticks(1);
+    }
+}
+
+void tcp_unlisten(int l) {
+    if (l < 0 || l >= LISTEN_MAX) return;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    listens[l].used = 0;
+    for (int i = 0; i < TCP_MAX; i++)                            /* не принятые - сбросить */
+        if (tcbs[i].listener == l && !tcbs[i].accepted && tcbs[i].state != T_FREE) { tcp_out(&tcbs[i], F_RST | F_ACK, tcbs[i].snd_nxt, 0, 0); tcbs[i].state = T_FREE; }
+    spin_unlock_irqrestore(&tlk, f);
 }
 
 int tcp_send(int h, const void* data, uint32_t len) {
@@ -442,13 +551,16 @@ int tcp_send(int h, const void* data, uint32_t len) {
     uint32_t done = 0;
     while (done < len) {
         if (t->state != T_EST && t->state != T_CLOSE_WAIT) return done ? (int)done : -1;
-        uint32_t n = len - done < t->mss ? len - done : t->mss;
+        if (tcp_wait(t, c_room, 60 * TIMER_HZ) != 0 || t->state == T_CLOSED) return done ? (int)done : -2;
         uint64_t f = spin_lock_irqsave(&tlk);
-        tcp_queue(t, F_ACK | F_PSH, p + done, n);
+        uint32_t room = TCP_TX - t->tx_len, n = len - done < room ? len - done : room;
+        for (uint32_t i = 0; i < n; i++) t->tx[t->tx_len + i] = p[done + i];
+        t->tx_len += n;
+        tcp_push(t, timer_get_ticks());
         spin_unlock_irqrestore(&tlk, f);
-        if (tcp_wait(t, c_sent, 70 * TIMER_HZ) != 0 || t->reset) return -2;
         done += n;
     }
+    if (tcp_wait(t, c_sent, 60 * TIMER_HZ) != 0 || t->reset) return -2;    /* вызов возвращается, когда всё подтверждено */
     return (int)done;
 }
 
@@ -474,23 +586,32 @@ int tcp_recv(int h, void* buf, uint32_t max, uint32_t timeout_ticks) {
 void tcp_close(int h) {
     if (h < 0 || h >= TCP_MAX) return;
     tcb_t* t = &tcbs[h];
+    tcp_wait(t, c_sent, 10 * TIMER_HZ);                          /* сначала - отправленное */
     uint64_t f = spin_lock_irqsave(&tlk);
-    if (t->state == T_EST) { t->state = T_FIN_WAIT1; tcp_queue(t, F_FIN | F_ACK, 0, 0); }
-    else if (t->state == T_CLOSE_WAIT) { t->state = T_LAST_ACK; tcp_queue(t, F_FIN | F_ACK, 0, 0); }
+    if (t->state == T_EST || t->state == T_CLOSE_WAIT) {
+        t->state = t->state == T_EST ? T_FIN_WAIT1 : T_LAST_ACK;
+        t->fin_sent = 1;
+        tcp_out(t, F_FIN | F_ACK, t->snd_nxt, 0, 0);
+        t->snd_nxt++;
+        t->rto_at = timer_get_ticks() + TIMER_HZ;
+    }
     spin_unlock_irqrestore(&tlk, f);
     tcp_wait(t, c_closed, 3 * TIMER_HZ);
     f = spin_lock_irqsave(&tlk);
-    t->state = T_FREE; t->tx_busy = 0;
+    t->state = T_FREE; t->rto_at = 0; t->listener = -1;
     spin_unlock_irqrestore(&tlk, f);
 }
+
 
 /* ---------- сеть для программ (системные вызовы) ----------
    Соединение принадлежит процессу, который его открыл: чужой номер - отказ; при завершении процесса его соединения
    закрываются (net_proc_gone). Данные копируются через буфер ядра проверенными копиями (uaccess). */
 #include "uaccess.h"
 #include "proc.h"
-static uint32_t tcp_owner[TCP_MAX];
+static uint32_t tcp_owner[TCP_MAX], listen_owner[LISTEN_MAX];
 static int own(int64_t h) { return h >= 0 && h < TCP_MAX && tcp_owner[h] && tcp_owner[h] == proc_current_pid(); }
+#define LH 100                                                   /* номера слушателей: 100 + индекс */
+static int own_l(int64_t h) { return h >= LH && h < LH + LISTEN_MAX && listen_owner[h - LH] == proc_current_pid(); }
 
 int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
     if (op == NET_SYS_DNS) {                                     /* (имя, длина) -> адрес */
@@ -507,6 +628,21 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
         if (h >= 0) tcp_owner[h] = proc_current_pid();
         return h;
     }
+    if (op == NET_SYS_LISTEN) {                                  /* (порт) -> номер слушателя */
+        if (!a1 || a1 > 65535) return -10;
+        int l = tcp_listen((uint16_t)a1);
+        if (l < 0) return l;
+        listen_owner[l] = proc_current_pid();
+        return LH + l;
+    }
+    if (op == NET_SYS_ACCEPT) {                                  /* (слушатель, мс) -> номер соединения */
+        if (!own_l((int64_t)a1)) return -8;
+        uint64_t ticks = a2 ? (a2 * TIMER_HZ + 999) / 1000 : ~0u;
+        int h = tcp_accept((int)(a1 - LH), (uint32_t)(ticks > 0xFFFFFFFFull ? 0xFFFFFFFFull : ticks));
+        if (h >= 0) tcp_owner[h] = proc_current_pid();
+        return h;
+    }
+    if (op == NET_SYS_CLOSE && own_l((int64_t)a1)) { listen_owner[a1 - LH] = 0; tcp_unlisten((int)(a1 - LH)); return 0; }
     if (!own((int64_t)a1)) return -8;                            /* неверный дескриптор */
     int h = (int)a1;
     if (op == NET_SYS_SEND) {                                    /* (h, буфер, длина) -> отправлено */
@@ -536,6 +672,7 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
 }
 
 void net_proc_gone(uint32_t pid) {
+    for (int i = 0; i < LISTEN_MAX; i++) if (listen_owner[i] == pid) { listen_owner[i] = 0; tcp_unlisten(i); }
     for (int i = 0; i < TCP_MAX; i++) if (tcp_owner[i] == pid) { tcp_owner[i] = 0; tcp_close(i); }
 }
 
@@ -566,7 +703,7 @@ static void ip_input(const uint8_t* eth_src, const uint8_t* p, uint32_t len) {
     if (p[9] == 1) icmp_input(eth_src, src, d, n);
     else if (p[9] == 17 && n >= 8 && get16(d + 2) == 68 && get16(d) == 67) dhcp_input(d + 8, n - 8);
     else if (p[9] == 17 && n >= 8 && dns_port && get16(d + 2) == dns_port && get16(d) == 53 && src == my_dns) dns_input(d + 8, n - 8);
-    else if (p[9] == 6) tcp_input(src, d, n);
+    else if (p[9] == 6) tcp_input(src, eth_src, d, n);
 }
 
 static void net_main(void* arg) {

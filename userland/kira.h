@@ -132,7 +132,10 @@ static inline i64 k_net_connect(u32 ip, u32 port) { return ksys(K_NET_CONNECT, i
 static inline i64 k_net_send(i64 h, const void* p, u64 n) { return ksys(K_NET_SEND, (u64)h, (u64)p, n); }
 /* Байт принято; 0 - собеседник закрыл; < 0 - сброс или срок (timeout_ms, 0 - 10 с). */
 static inline i64 k_net_recv(i64 h, void* p, u32 n, u32 timeout_ms) { return ksys(K_NET_RECV, (u64)h, (u64)p, (u64)n | ((u64)timeout_ms << 32)); }
-static inline i64 k_net_close(i64 h) { return ksys(K_NET_CLOSE, (u64)h, 0, 0); }
+static inline i64 k_net_close(i64 h) { return ksys(K_NET_CLOSE, (u64)h, 0, 0); }   /* соединение или слушатель */
+enum { K_NET_LISTEN = 31, K_NET_ACCEPT = 32 };
+static inline i64 k_net_listen(u32 port) { return ksys(K_NET_LISTEN, port, 0, 0); }             /* слушатель (100+) */
+static inline i64 k_net_accept(i64 l, u32 timeout_ms) { return ksys(K_NET_ACCEPT, (u64)l, timeout_ms, 0); }   /* 0 мс - ждать без срока */
 /* Строка аргументов запуска (run имя аргументы): длина или < 0. */
 static inline i64 k_args(char* buf, u64 cap) { return ksys(K_ARGS, (u64)buf, cap, 0); }
 

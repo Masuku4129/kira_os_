@@ -34,9 +34,13 @@ int  tcp_connect(uint32_t ip, uint16_t port);                     /* номер 
 int  tcp_send(int h, const void* data, uint32_t len);             /* отправлено байт (подтверждено) или <0 */
 int  tcp_recv(int h, void* buf, uint32_t max, uint32_t timeout_ticks);   /* байт; 0 - собеседник закрыл; <0 - сброс/срок */
 void tcp_close(int h);
+int  tcp_listen(uint16_t port);                                   /* номер слушателя или <0 (-3 порт занят) */
+int  tcp_accept(int l, uint32_t timeout_ticks);                   /* номер соединения или <0 (-5 срок) */
+void tcp_unlisten(int l);
 
 /* Системные вызовы сети для программ (syscall.c): соединение принадлежит открывшему процессу. */
-enum { NET_SYS_DNS = 0, NET_SYS_CONNECT = 1, NET_SYS_SEND = 2, NET_SYS_RECV = 3, NET_SYS_CLOSE = 4 };
+enum { NET_SYS_DNS = 0, NET_SYS_CONNECT = 1, NET_SYS_SEND = 2, NET_SYS_RECV = 3, NET_SYS_CLOSE = 4,
+       NET_SYS_LISTEN = 6, NET_SYS_ACCEPT = 7 };          /* 5 - вызов ARGS (не сеть) */
 int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3);
 void net_proc_gone(uint32_t pid);       /* процесс завершён: его соединения закрыть */
 #endif

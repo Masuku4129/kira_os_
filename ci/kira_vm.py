@@ -12,6 +12,18 @@ import argparse, json, os, re, select, shutil, socket, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scenarios  # noqa: E402
 
+def host_http(port, path):
+    """Запрос с машины-хозяина к серверу в гостевой системе (hostfwd): строка итога для журнала."""
+    import urllib.request
+    try:
+        body = urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=30).read()
+        first = body.split(b"\n", 1)[0].decode(errors="replace")
+        lines = body.count(b" kira tcp window\n")
+        return f"[HOST] http {path}: {len(body)} bytes, first line '{first}', window lines {lines}\n"
+    except Exception as e:
+        return f"[HOST] http {path}: error {e}\n"
+
+
 PROMPT = "кира> ".encode()
 FATAL = [rb"\[KIRA FATAL\]", rb"\[KIRA KERNEL PANIC\]", rb"\[KIRA WATCHDOG\] Halting"]
 
@@ -244,6 +256,9 @@ def run(sc, args):
                     vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": k}]}})
                     time.sleep(0.05)
                 vm.pump(0.5)
+            elif "host_http" in st:                   # запрос с хозяина к серверу Киры (hostfwd)
+                port, path = st["host_http"]
+                vm.log += host_http(port, path).encode()
             elif "sleep" in st:
                 end_t = time.time() + st["sleep"] * args.timeout_scale
                 while time.time() < end_t:
