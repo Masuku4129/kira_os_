@@ -190,6 +190,16 @@ ALL = [
         {"log": [r"rec: 24000 frames \(48 kHz stereo\), peak \d+, RMS \d+, saved to /data/rec/last\.wav"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", extra=["-device", "intel-hda", "-device", "hda-duplex,audiodev=a0"]),
+    sc("sound-ac97", "звук: Intel AC'97 (как Sound: ac97 в Limbo) - вывод через тот же микшер, тон, программа, запись", [
+        {"log": BOOT_LOG + [r"\[KIRA AC97\] Sound: codec 0x[0-9A-F]+, 48 kHz 16-bit stereo output and microphone input"]},
+        {"cmd": "sound", "must": [r"AC'97: кодек", r"микшер: работает", r"вход: microphone"]},
+        {"cmd": "beep 440 400", "must": [r"DMA прошёл [1-9]\d* байт - карта играет"], "timeout": 15},
+        {"cmd": "melody"}, {"sleep": 6},
+        {"log": [r"melody: 8 notes, 76800 frames queued"]},
+        {"cmd": "sound", "must": [r"от программ смешано (7[6-9]|[89]\d)\d\d\d", r"недоборов 0"]},
+        {"cmd": "record 300", "must": [r"запись: microphone, 14400 кадров за \d+ мс"], "timeout": 10},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", extra=["-device", "AC97,audiodev=a0"]),
     sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] virtio-net: MAC 52:54:00.*MSI-X", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},

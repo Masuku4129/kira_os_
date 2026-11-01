@@ -1,4 +1,4 @@
-/* Микшер звука (см. audio.h). Кольцо карты - hda_ring_*; источники - очереди программ (1 с) и тон. */
+/* Микшер звука (см. audio.h). Кольцо карты - audio_card_t (Intel HDA, AC'97); источники - очереди программ (1 с) и тон. */
 #include "audio.h"
 
 void audio_mix(int16_t* out, const int16_t* const* in, const uint32_t* gain, unsigned nin, uint32_t samples, uint32_t master) {
@@ -35,7 +35,6 @@ uint32_t audio_resample(audio_rs_t* r, const int16_t* in, uint32_t nin, int16_t*
 }
 
 #ifndef KIRA_HOST_TEST
-#include "hda.h"
 #include "sched.h"
 #include "timer.h"
 #include "spinlock.h"
@@ -60,6 +59,7 @@ static volatile unsigned tone_step, tone_left; static unsigned tone_phase;
 static uint64_t hw, wr, mixed_prog, underruns;
 static uint32_t last_pos;
 static int running;
+static const audio_card_t* card;
 static uint32_t master_gain = 65536; static int master_pct = 100;
 
 static int16_t sine(uint32_t ph) {                                  /* та же таблица, что у hda.c */
@@ -97,11 +97,12 @@ static void mix_chunk(int16_t* out, uint32_t frames) {
 
 static void audio_main(void* arg) {
     (void)arg;
-    uint32_t ring = hda_ring_bytes() / 4;
-    int16_t* buf = hda_ring_buf();
-    last_pos = hda_ring_pos() / 4; wr = hw = 0;
+    uint32_t ring = card->bytes / 4;
+    int16_t* buf = card->buf;
+    last_pos = card->pos() / 4; wr = hw = 0;
     for (;;) {
-        uint32_t pos = hda_ring_pos() / 4;
+        if (card->service) card->service();
+        uint32_t pos = card->pos() / 4;
         hw += (pos + ring - last_pos) % ring; last_pos = pos;
         if (wr < hw) { underruns++; wr = hw; }                     /* не успели: догоняем карту */
         while (wr < hw + LEAD) {
@@ -115,10 +116,13 @@ static void audio_main(void* arg) {
     }
 }
 
-int audio_start(void) {
-    if (running) return 0;
+int audio_running(void) { return running; }
+
+int audio_attach(const audio_card_t* c) {
+    if (running) return -3;                                         /* одна карта: первая найденная */
     for (int k = 0; k < AUDIO_SRC_MAX; k++) if (!src[k].q) src[k].q = (int16_t*)kmalloc(SRC_FRAMES * 4);
-    if (hda_ring_start() != 0) return -1;
+    card = c;
+    if (c->start() != 0) { card = 0; return -1; }
     if (!sched_create("audio", audio_main, 0, PRIO_CRITICAL)) return -2;
     running = 1;
     uart_print("[KIRA AUDIO] Mixer online: up to 4 programs + tone, 48 kHz 16-bit stereo, 100 ms ahead of the card.\n");
@@ -207,18 +211,18 @@ int64_t audio_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
 static volatile int rec_busy;
 
 int audio_capture(int16_t* out, uint32_t frames, uint64_t timeout_ticks) {
-    if (!hda_in_ready()) return -1;
-    uint32_t ring = hda_in_bytes() / 4;
+    if (!card || !card->in_ready) return -1;
+    uint32_t ring = card->in_bytes / 4;
     if (frames > ring / 2) return -10;
     if (__atomic_exchange_n(&rec_busy, 1, __ATOMIC_ACQUIRE)) return -3;
-    uint32_t start = hda_in_pos() / 4;
+    uint32_t start = card->in_pos() / 4;
     uint64_t until = timer_get_ticks() + timeout_ticks;
     int rc = -5;
     for (;;) {
-        uint32_t avail = (hda_in_pos() / 4 + ring - start) % ring;
+        uint32_t avail = (card->in_pos() / 4 + ring - start) % ring;
         if (avail >= frames) {
             cpu_mb();
-            const int16_t* b = hda_in_buf();
+            const int16_t* b = card->in_buf;
             for (uint32_t i = 0; i < frames; i++) { uint32_t j = (start + i) % ring; out[2 * i] = b[2 * j]; out[2 * i + 1] = b[2 * j + 1]; }
             rc = 0; break;
         }
@@ -260,7 +264,7 @@ void audiocmd_record(const char* a) {
         for (uint32_t i = 0; i < frames * 2; i++) { int v = k[i] < 0 ? -k[i] : k[i]; if (v > peak) peak = v; sq += (uint64_t)((int64_t)k[i] * k[i]); }
         uint64_t rms = 0, m = sq / (frames * 2ull);
         while ((rms + 1) * (rms + 1) <= m) rms++;
-        uart_print("запись: "); uart_print(hda_in_name()); uart_print(", "); uart_print_dec(frames); uart_print(" кадров за ");
+        uart_print("запись: "); uart_print(card->in_name); uart_print(", "); uart_print_dec(frames); uart_print(" кадров за ");
         uart_print_dec((timer_get_ticks() - t0) * 1000 / TIMER_HZ); uart_print(" мс, пик "); uart_print_dec((uint64_t)peak);
         uart_print(", RMS "); uart_print_dec(rms); uart_print(peak ? "\n" : " (тишина на входе)\n");
     }
@@ -271,5 +275,34 @@ void audio_proc_gone(uint32_t pid) {
     uint64_t f = spin_lock_irqsave(&lk);
     for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used && src[k].pid == pid) src[k].used = 0;
     spin_unlock_irqrestore(&lk, f);
+}
+#endif
+
+#ifndef KIRA_HOST_TEST
+void audiocmd_sound(const char* a) {
+    (void)a;
+    if (!card) { uart_print("звуковой карты нет (поддерживаются Intel HDA и AC'97: в Limbo - Sound: hda или ac97)\n"); return; }
+    if (card->print) card->print(); else { uart_print(card->name); uart_print("\n"); }
+    audio_print();
+    uart_print(card->in_ready ? "вход: " : "вход: нет");
+    if (card->in_ready) uart_print(card->in_name);
+    uart_print("\nпроверка: beep [Гц] [мс], record [мс]\n");
+}
+
+void audiocmd_beep(const char* a) {
+    unsigned hz = 440, ms = 500;
+    while (a && *a == ' ') a++;
+    if (a && *a >= '0' && *a <= '9') { hz = 0; while (*a >= '0' && *a <= '9') hz = hz * 10 + (unsigned)(*a++ - '0'); }
+    while (a && *a == ' ') a++;
+    if (a && *a >= '0' && *a <= '9') { ms = 0; while (*a >= '0' && *a <= '9') ms = ms * 10 + (unsigned)(*a++ - '0'); }
+    if (!running) { uart_print("звуковой карты нет\n"); return; }
+    if (hz < 20 || hz > 20000 || !ms) { uart_print("beep [Гц 20..20000] [мс]\n"); return; }
+    if (ms > 2000) ms = 2000;
+    uint64_t hw0 = hw;
+    audio_tone(hz, ms);
+    sched_sleep_ticks((uint64_t)ms * TIMER_HZ / 1000 + 1);
+    uint64_t pos = (hw - hw0) * 4;
+    uart_print("звук "); uart_print_dec(hz); uart_print(" Гц, "); uart_print_dec(ms);
+    uart_print(" мс: DMA прошёл "); uart_print_dec(pos); uart_print(pos ? " байт - карта играет\n" : " байт - карта не забирает звук\n");
 }
 #endif

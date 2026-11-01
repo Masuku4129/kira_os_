@@ -4,11 +4,7 @@
    Вход: вывод с возможностью входа (микрофон, затем линейный вход) -> (смеситель/переключатель) -> АЦП, поток 2
    записи по такому же вечному кольцу. */
 #include "hda.h"
-#ifdef KIRA_HOST_TEST
-/* хост: драйвера нет (тест консоли видит только команды) */
-void hdacmd_sound(const char* a) { (void)a; }
-void hdacmd_beep(const char* a) { (void)a; }
-#else
+#ifndef KIRA_HOST_TEST
 #include "pci.h"
 #include "virtio.h"          /* virtio_dma_alloc, MMIO_* */
 #include "vmm.h"
@@ -217,6 +213,7 @@ static void stream_ring(volatile uint8_t* sd, uint32_t* bdl, uint64_t bdl_p, uin
     MMIO_W8(sd + SD_CTL, 2);                                     /* пуск: дальше - по кругу */
 }
 
+static void hda_print(void);
 int hda_probe(void) {
     const pci_dev_t* p = 0;
     for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x03) p = d; }
@@ -270,7 +267,11 @@ int hda_probe(void) {
     if (h.in_up) { uart_print("[KIRA HDA] Input: "); uart_print(hda_in_name()); uart_print(" pin "); uart_print_dec(h.in_pin);
                    uart_print(" -> ADC "); uart_print_dec(h.adc); uart_print(", recording ring running (command: record).\n"); }
     else uart_print(h.adc || h.in_pin ? "[KIRA HDA] Input: path found but no input stream on the controller.\n" : "[KIRA HDA] Input: codec has no usable input (microphone/line in).\n");
-    audio_start();
+    static audio_card_t card;
+    card.name = "Intel HDA"; card.start = hda_ring_start; card.pos = hda_ring_pos; card.buf = (int16_t*)h.buf; card.bytes = BUFSZ;
+    card.service = 0; card.in_ready = h.in_up; card.in_pos = hda_in_pos; card.in_buf = (const int16_t*)h.ibuf; card.in_bytes = BUFSZ;
+    card.in_name = hda_in_name(); card.print = hda_print;
+    audio_attach(&card);
     return 0;
 }
 
@@ -293,39 +294,9 @@ uint32_t hda_in_bytes(void) { return BUFSZ; }
 const char* hda_in_name(void) { return h.in_dev == 0xA ? "microphone" : h.in_dev == 8 ? "line in" : "input"; }
 uint32_t hda_ring_bytes(void) { return BUFSZ; }
 
-/* Тон через микшер; dma_bytes - сколько байт карта забрала за это время. */
-int hda_beep(unsigned hz, unsigned ms, uint32_t* dma_bytes) {
-    if (!h.up) return -1;
-    if (hz < 20 || hz > 20000 || !ms) return -2;
-    if (ms > 2000) ms = 2000;
-    uint64_t hw0 = audio_hw_frames();
-    if (audio_tone(hz, ms) != 0) return -1;
-    sched_sleep_ticks((uint64_t)ms * TIMER_HZ / 1000 + 1);
-    if (dma_bytes) *dma_bytes = (uint32_t)((audio_hw_frames() - hw0) * 4);
-    return 0;
-}
-
-void hdacmd_sound(const char* a) {
-    (void)a;
-    if (!h.up) { uart_print("звуковой карты нет (поддерживается Intel HDA: в Limbo - Sound: hda)\n"); return; }
+static void hda_print(void) {
     uart_print("Intel HDA: кодек "); uart_print_hex(h.vendor); uart_print(" (адрес "); uart_print_dec(h.cad);
     uart_print("), выход: вывод "); uart_print_dec(h.pin); uart_print(" <- ЦАП "); uart_print_dec(h.dac);
     uart_print(", 48 кГц, 16 бит, стерео\n");
-    audio_print();
-    uart_print("проверка: beep [Гц] [мс]\n");
-}
-
-void hdacmd_beep(const char* a) {
-    unsigned hz = 440, ms = 500;
-    while (a && *a == ' ') a++;
-    if (a && *a >= '0' && *a <= '9') { hz = 0; while (*a >= '0' && *a <= '9') hz = hz * 10 + (unsigned)(*a++ - '0'); }
-    while (a && *a == ' ') a++;
-    if (a && *a >= '0' && *a <= '9') { ms = 0; while (*a >= '0' && *a <= '9') ms = ms * 10 + (unsigned)(*a++ - '0'); }
-    uint32_t pos = 0;
-    int r = hda_beep(hz, ms, &pos);
-    if (r == -1) { uart_print("звуковой карты нет\n"); return; }
-    if (r == -2) { uart_print("beep [Гц 20..20000] [мс]\n"); return; }
-    uart_print("звук "); uart_print_dec(hz); uart_print(" Гц, "); uart_print_dec(ms > 2000 ? 2000 : ms);
-    uart_print(" мс: DMA прошёл "); uart_print_dec(pos); uart_print(pos ? " байт - карта играет\n" : " байт - карта не забирает звук\n");
 }
 #endif

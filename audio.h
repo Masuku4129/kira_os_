@@ -18,10 +18,24 @@ typedef struct { uint32_t step, pos; int16_t prev[2]; int have; unsigned ch; } a
 void     audio_rs_init(audio_rs_t* r, unsigned in_rate, unsigned ch);
 uint32_t audio_resample(audio_rs_t* r, const int16_t* in, uint32_t in_frames, int16_t* out, uint32_t max_out);
 
-int  audio_start(void);                        /* карта готова: запустить поток смешивания; 0 - готово */
+/* Звуковая карта для микшера: вечное кольцо вывода (48 кГц 16 бит стерео), позиция карты в нём; service - что
+   карте нужно каждые ~10 мс (AC'97: сдвинуть последний буфер, чтобы не встала); вход - такое же кольцо записи. */
+typedef struct {
+    const char* name;
+    int (*start)(void);
+    uint32_t (*pos)(void);                     /* байт от начала кольца вывода */
+    int16_t* buf; uint32_t bytes;
+    void (*service)(void);                     /* 0 - не нужно */
+    int in_ready; uint32_t (*in_pos)(void); const int16_t* in_buf; uint32_t in_bytes; const char* in_name;
+    void (*print)(void);                       /* подробности карты (команда sound) */
+} audio_card_t;
+int  audio_attach(const audio_card_t* c);      /* карта готова: запустить поток смешивания; 0 - готово */
+int  audio_running(void);
 int  audio_tone(unsigned hz, unsigned ms);     /* тон (beep) как источник; 0 - принят */
 uint64_t audio_hw_frames(void);                /* сколько кадров карта забрала с запуска */
 void audio_print(void);                        /* состояние микшера (команда sound) */
+void audiocmd_sound(const char* arg);
+void audiocmd_beep(const char* arg);
 
 /* Для программ (системные вызовы): поток звука принадлежит процессу. */
 /* 0 open(частота или 0 = 48000, каналы 1/2 или 0 = 2), 1 write(h, buf, байт) -> принято байт, 2 close(h),
