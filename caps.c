@@ -11,6 +11,7 @@ static const struct { const char* name; uint32_t caps; } table[] = {
     { "fetch",    CAP_NET | CAP_FS | CAP_SYSFILES },
     { "serve",    CAP_NET_SERVE },
     { "udpecho",  CAP_UDP },
+    { "net6",     CAP_NET | CAP_UDP },
     { "melody",   CAP_SND },
     { "rec",      CAP_REC | CAP_FS },
     { "ipc",      CAP_IPC },
