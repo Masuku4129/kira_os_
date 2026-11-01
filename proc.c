@@ -1,4 +1,5 @@
 #include "proc.h"
+#include "net.h"
 #include "syscall.h"
 #include "sched.h"
 #include "percpu.h"
@@ -48,6 +49,7 @@ typedef struct {
     uint64_t entry;
     char name[16];
     char grant[128];                   /* файл, который программе разрешено читать (выдан при запуске; "" - нет) */
+    char args[128];                    /* строка аргументов запуска (run имя аргументы) */
     uint32_t heap_pages;
     volatile uint32_t nthreads;
     volatile uint32_t dying;
@@ -108,9 +110,10 @@ static uint32_t max_proc_pages(void) {
     return (uint32_t)(by_ram < win ? by_ram : win);
 }
 
-int proc_spawn_elf(const char* name, const void* image, size_t len) { return proc_spawn_elf_grant(name, image, len, 0); }
+int proc_spawn_elf(const char* name, const void* image, size_t len) { return proc_spawn_elf_ex(name, image, len, 0, 0); }
+int proc_spawn_elf_grant(const char* name, const void* image, size_t len, const char* grant) { return proc_spawn_elf_ex(name, image, len, grant, 0); }
 
-int proc_spawn_elf_grant(const char* name, const void* image, size_t len, const char* grant) {
+int proc_spawn_elf_ex(const char* name, const void* image, size_t len, const char* grant, const char* args) {
     elf_info_t info;
     int e = elf_parse(image, len, USER_CODE_VA, USER_CODE_END, max_proc_pages(), &info);
     if (e != ELF_OK) {
@@ -127,6 +130,9 @@ int proc_spawn_elf_grant(const char* name, const void* image, size_t len, const 
         unsigned i = 0;
         if (grant) for (; grant[i] && i + 1 < sizeof p->grant; i++) p->grant[i] = grant[i];
         p->grant[i] = 0;
+        i = 0;
+        if (args) for (; args[i] && i + 1 < sizeof p->args; i++) p->args[i] = args[i];
+        p->args[i] = 0;
     }
     uint32_t pid = next_pid++;         /* под замком: процессы запускают с разных ядер */
     spin_unlock_irqrestore(&proc_lock, f);
@@ -221,6 +227,7 @@ static int64_t heap_grow_locked(proc_t* p, uint64_t pages) {
 int proc_in_user_thread(void) { return current_proc() != 0; }
 const char* proc_current_name(void) { proc_t* p = current_proc(); return p ? p->name : ""; }
 const char* proc_current_grant(void) { proc_t* p = current_proc(); return p ? p->grant : ""; }
+const char* proc_current_args(void) { proc_t* p = current_proc(); return p ? p->args : ""; }
 uint32_t proc_current_pid(void) { proc_t* p = current_proc(); return p ? p->pid : 0; }
 
 unsigned proc_limit(void) { return max_procs; }
@@ -287,6 +294,7 @@ void proc_dump(void) {
 static void teardown(proc_t* p) {
     uint32_t pid = p->pid;
     gfx_proc_gone(pid);                    /* окно приложения снимет поток дисплея */
+    net_proc_gone(pid);                    /* соединения TCP программы закрываются */
     syscall_proc_gone(pid);                /* его незаконченная строка журнала */
     for (uint32_t h = 1; h <= htab_cap(&p->handles); h++) kobj_release(htab_take(&p->handles, (int)h));
     htab_free(&p->handles);

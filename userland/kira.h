@@ -124,6 +124,17 @@ static inline i64 k_shm_open(const char* name, u32 pages, u32 flags) { return ks
 static inline void* k_shm_map(i64 h) { i64 r = ksys(K_SHM_MAP, (u64)h, 0, 0); return r < 0 ? (void*)0 : (void*)(u64)r; }
 static inline i64 k_shm_unmap(void* va) { return ksys(K_SHM_UNMAP, (u64)va, 0, 0); }
 static inline i64 k_close(i64 h) { return ksys(K_CLOSE, (u64)h, 0, 0); }
+/* ---- Сеть (TCP ядра) и аргументы запуска ---- */
+enum { K_NET_DNS = 25, K_NET_CONNECT = 26, K_NET_SEND = 27, K_NET_RECV = 28, K_NET_CLOSE = 29, K_ARGS = 30 };
+/* Адрес по имени (или строка «a.b.c.d»): >= 0 - адрес IPv4 (старший байт - первое число), < 0 - ошибка. */
+static inline i64 k_net_dns(const char* name) { return ksys(K_NET_DNS, (u64)name, k_strlen(name), 0); }
+static inline i64 k_net_connect(u32 ip, u32 port) { return ksys(K_NET_CONNECT, ip, port, 0); }   /* номер соединения */
+static inline i64 k_net_send(i64 h, const void* p, u64 n) { return ksys(K_NET_SEND, (u64)h, (u64)p, n); }
+/* Байт принято; 0 - собеседник закрыл; < 0 - сброс или срок (timeout_ms, 0 - 10 с). */
+static inline i64 k_net_recv(i64 h, void* p, u32 n, u32 timeout_ms) { return ksys(K_NET_RECV, (u64)h, (u64)p, (u64)n | ((u64)timeout_ms << 32)); }
+static inline i64 k_net_close(i64 h) { return ksys(K_NET_CLOSE, (u64)h, 0, 0); }
+/* Строка аргументов запуска (run имя аргументы): длина или < 0. */
+static inline i64 k_args(char* buf, u64 cap) { return ksys(K_ARGS, (u64)buf, cap, 0); }
 
 /* Точка входа: выравнивает стек, вызывает umain, затем exit. */
 #if defined(__aarch64__)

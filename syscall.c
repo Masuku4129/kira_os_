@@ -1,6 +1,7 @@
 /* Системные вызовы программ: номера и обработка общие для всех архитектур. Вход в ядро (SYSCALL на x86-64, SVC на
    ARM64) и регистры - в arch/<архитектура>/syscall_arch.c и ассемблере входа. */
 #include "syscall.h"
+#include "net.h"
 #include "uart.h"
 #include "vmm.h"
 #include "proc.h"
@@ -44,6 +45,12 @@ static userlog_t ulog;
 #define SYS_SHM_UNMAP     22 // (адрес)
 #define SYS_CLOSE         23 // (дескриптор)
 #define SYS_CLOCK_NS      24 // -> наносекунды монотонных часов
+#define SYS_NET_DNS       25 // (имя, длина) -> адрес IPv4 или <0
+#define SYS_NET_CONNECT   26 // (адрес, порт) -> номер соединения TCP
+#define SYS_NET_SEND      27 // (h, буфер, длина) -> отправлено (подтверждено)
+#define SYS_NET_RECV      28 // (h, буфер, длина | мс << 32) -> байт; 0 - собеседник закрыл
+#define SYS_NET_CLOSE     29 // (h)
+#define SYS_ARGS          30 // (буфер, ёмкость) -> длина строки аргументов запуска
 
 #define SYS_MAX_WRITE 4096
 #define SYS_MAX_SLEEP 1000
@@ -197,6 +204,14 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return (uint64_t)proc_handle_close((int)a1);
     case SYS_CLOCK_NS:
         return clock_ns();
+    case SYS_NET_DNS: case SYS_NET_CONNECT: case SYS_NET_SEND: case SYS_NET_RECV: case SYS_NET_CLOSE:
+        return (uint64_t)net_sys((unsigned)(nr - SYS_NET_DNS), a1, a2, a3);
+    case SYS_ARGS: {
+        const char* s = proc_current_args();
+        uint64_t len = 0; while (s[len]) len++;
+        if (!a2 || len + 1 > a2) return (uint64_t)-10;
+        return copy_to_user(a1, s, len + 1) ? (uint64_t)-10 : len;
+    }
     default:
         return (uint64_t)-1;
     }

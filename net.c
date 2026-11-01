@@ -33,6 +33,7 @@ void netcmd_net(const char* a) { (void)a; }
 void netcmd_ping(const char* a) { (void)a; }
 void netcmd_dns(const char* a) { (void)a; }
 void netcmd_http(const char* a) { (void)a; }
+void net_proc_gone(uint32_t pid) { (void)pid; }
 #else
 #include "sched.h"
 #include "timer.h"
@@ -480,6 +481,61 @@ void tcp_close(int h) {
     f = spin_lock_irqsave(&tlk);
     t->state = T_FREE; t->tx_busy = 0;
     spin_unlock_irqrestore(&tlk, f);
+}
+
+/* ---------- сеть для программ (системные вызовы) ----------
+   Соединение принадлежит процессу, который его открыл: чужой номер - отказ; при завершении процесса его соединения
+   закрываются (net_proc_gone). Данные копируются через буфер ядра проверенными копиями (uaccess). */
+#include "uaccess.h"
+#include "proc.h"
+static uint32_t tcp_owner[TCP_MAX];
+static int own(int64_t h) { return h >= 0 && h < TCP_MAX && tcp_owner[h] && tcp_owner[h] == proc_current_pid(); }
+
+int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
+    if (op == NET_SYS_DNS) {                                     /* (имя, длина) -> адрес */
+        char name[128];
+        if (!a2 || a2 >= sizeof name || copy_from_user(name, a1, a2)) return -10;
+        name[a2] = 0;
+        uint32_t ip;
+        int r = net_dns(name, &ip);
+        return r ? r : (int64_t)ip;
+    }
+    if (op == NET_SYS_CONNECT) {                                 /* (адрес, порт) -> номер соединения */
+        if (a1 > 0xFFFFFFFFull || !a2 || a2 > 65535) return -10;
+        int h = tcp_connect((uint32_t)a1, (uint16_t)a2);
+        if (h >= 0) tcp_owner[h] = proc_current_pid();
+        return h;
+    }
+    if (!own((int64_t)a1)) return -8;                            /* неверный дескриптор */
+    int h = (int)a1;
+    if (op == NET_SYS_SEND) {                                    /* (h, буфер, длина) -> отправлено */
+        uint8_t b[1024]; uint64_t done = 0;
+        if (a3 > (1u << 20) || (a3 && !user_range(a2, a3, 0))) return -10;
+        while (done < a3) {
+            uint64_t n = a3 - done < sizeof b ? a3 - done : sizeof b;
+            if (copy_from_user(b, a2 + done, n)) return -10;
+            int r = tcp_send(h, b, (uint32_t)n);
+            if (r < 0) return done ? (int64_t)done : r;
+            done += (uint64_t)r;
+        }
+        return (int64_t)done;
+    }
+    if (op == NET_SYS_RECV) {                                    /* (h, буфер, длина | мс << 32) -> байт, 0 - закрыто */
+        uint8_t b[1024];
+        uint64_t len = a3 & 0xFFFFFFFFull, ms = a3 >> 32;
+        if (!len || !user_range(a2, len, 1)) return -10;
+        if (len > sizeof b) len = sizeof b;
+        uint64_t ticks = ms ? (ms * TIMER_HZ + 999) / 1000 : 10 * TIMER_HZ;
+        int r = tcp_recv(h, b, (uint32_t)len, (uint32_t)ticks);
+        if (r > 0 && copy_to_user(a2, b, (uint64_t)r)) return -10;
+        return r;
+    }
+    if (op == NET_SYS_CLOSE) { tcp_owner[h] = 0; tcp_close(h); return 0; }
+    return -10;
+}
+
+void net_proc_gone(uint32_t pid) {
+    for (int i = 0; i < TCP_MAX; i++) if (tcp_owner[i] == pid) { tcp_owner[i] = 0; tcp_close(i); }
 }
 
 /* ---------- приём ---------- */

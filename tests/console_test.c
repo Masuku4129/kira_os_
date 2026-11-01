@@ -59,6 +59,7 @@ int prog_run(const char* n) {
     for (unsigned i = 0; i < sizeof known / sizeof *known; i++) if (!strcmp(n, known[i])) return 7;
     return -1;
 }
+int prog_run_args(const char* n, const char* a) { (void)a; return prog_run(n); }
 void prog_list(void) {}
 void platform_status(void (*out)(const char*)) { out("IRQ stub\n"); }
 void platform_hw(void (*out)(const char*)) { hw_describe(hw_get(), out); }

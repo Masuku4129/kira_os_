@@ -34,6 +34,8 @@ SC = [
                ("net", [r"канал есть", r"адрес 10\.0\.2\.15"]), ("ping 10.0.2.2 3", [r"ответ от 10\.0\.2\.2", r"получено [1-3]"]),
                ("http 10.0.2.100 /arm", [r"kira-tcp-ok GET /arm HTTP/1\.0", r"получено 3\d\d\d байт .*сервер закрыл соединение"]),
                ("dns example.com", [r"example\.com -> \d+\.\d+\.\d+\.\d+"]),
+               ("fetch 10.0.2.100 /prog", [r"fetch: 10\.0\.2\.100/prog - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"]),
+               ("cat /data/fetch/last.txt", [r"kira-tcp-ok GET /prog HTTP/1\.0"]),
                ]),
     dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M", disk="nvme",
          must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB",

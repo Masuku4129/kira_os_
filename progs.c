@@ -37,10 +37,12 @@ static void hex(const uint8_t* d, unsigned n) {
     for (unsigned i = 0; i < n; i++) { uart_putchar("0123456789abcdef"[d[i] >> 4]); uart_putchar("0123456789abcdef"[d[i] & 15]); }
 }
 
-static int prog_run_grant(const char* name, const char* grant);
-int prog_run(const char* name) { return prog_run_grant(name, 0); }
+static int prog_run_ex(const char* name, const char* grant, const char* args);
+int prog_run(const char* name) { return prog_run_ex(name, 0, 0); }
+int prog_run_args(const char* name, const char* args) { return prog_run_ex(name, 0, args && *args ? args : 0); }
+static int prog_run_grant(const char* name, const char* grant) { return prog_run_ex(name, grant, 0); }
 
-static int prog_run_grant(const char* name, const char* grant) {
+static int prog_run_ex(const char* name, const char* grant, const char* args) {
     if (!kfs_mounted()) { uart_print("[PROG] нет файловой системы\n"); return -1; }
     if (!name_ok(name)) { uart_print("[PROG] недопустимое имя программы\n"); return -1; }
     {                                                                      /* допуск: бюджет Разума */
@@ -89,7 +91,7 @@ static int prog_run_grant(const char* name, const char* grant) {
     }
     immune_register_self(digest);
     (void)fsrv_sandbox(name);                                              /* песочница /data/<имя> создаётся только для доверенной программы */
-    int pid = proc_spawn_elf_grant(name, image, (size_t)st.size, grant);
+    int pid = proc_spawn_elf_ex(name, image, (size_t)st.size, grant, args);
     immune_phagocytose(image, (size_t)st.size);                            /* копия в буфере больше не нужна */
     kfree(image);
     if (pid < 0) return -3;

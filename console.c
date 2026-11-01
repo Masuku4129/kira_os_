@@ -397,7 +397,9 @@ static void cmd_run(const char* arg) {
     char name[20]; unsigned n = 0;
     while (arg[n] && arg[n] != ' ' && n < sizeof name - 1) { name[n] = arg[n]; n++; }
     name[n] = 0;
-    prog_start(name);
+    const char* rest = arg + n; while (*rest == ' ') rest++;
+    int r = prog_run_args(name, rest);                       /* остаток строки - аргументы программы */
+    if (r == -3) uart_print("[PROG] файл не принят как программа (см. сообщение выше)\n");
 }
 static void cmd_progs(const char* a) { (void)a; prog_list(); }
 static void cmd_life(const char* a) { (void)a; life_print(); }
@@ -578,7 +580,7 @@ static void run_line(char* l) {
     }
     if (l[0] == '?' && !l[1]) { cmd_help(arg); return; }
     if (platform_console_cmd(l, arg)) return;               /* команды только этой архитектуры */
-    int r = prog_run(l);                                    /* как в оболочке: имя программы из /bin запускает её */
+    int r = prog_run_args(l, arg);                          /* как в оболочке: имя программы из /bin, дальше - аргументы */
     if (r == -1) { uart_print("неизвестная команда: "); uart_print(l); uart_print(" (help - список, progs - программы)\n"); }
     else if (r == -3) uart_print("[PROG] файл не принят как программа (см. сообщение выше)\n");
 }
