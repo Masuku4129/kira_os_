@@ -16,3 +16,4 @@ kira-arm64.disk
 build-wasm/
 tools/pem2der
 tools/roots.der
+.claude/

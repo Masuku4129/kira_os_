@@ -161,6 +161,10 @@ static int touches_ram(uint64_t a, uint64_t len) {
 #define PTE_SH_IN   (3ull << 8)
 #define PTE_NORMAL  ((2ull << 2) | PTE_AF | PTE_SH_IN)
 #define PTE_DEVICE  ((1ull << 2) | PTE_AF | (1ull << 53) | (1ull << 54))
+/* Пул DMA для плат, где устройства не видят кэш процессора (в дереве нет dma-coherent): обычная память без кэша
+   (MAIR 3 = 0x44, внешняя общая), без исполнения. Блоки по 2 МБ, поэтому гигабайт с пулом дробится. */
+#define PTE_DMA_NC  ((3ull << 2) | PTE_AF | (2ull << 8) | (1ull << 53) | (1ull << 54))
+static uint64_t dma_lo, dma_hi, dma_bump;                       /* границы пула и «указатель» выдачи; dma_lo == 0 - пула нет */
 static uint64_t* l0;
 
 static uint64_t* next_table(uint64_t* t, unsigned idx) {
@@ -178,20 +182,23 @@ static int map_gb(uint64_t gb) {
     if (!l1) return -1;
     unsigned i1 = (unsigned)(gb >> 30) & 511;
     if (l1[i1] & PTE_VALID) return 0;
-    if (in_ram(gb, 1ull << 30)) { l1[i1] = gb | PTE_NORMAL | PTE_BLOCK; return 0; }
+    int has_pool = dma_lo && dma_lo < gb + (1ull << 30) && dma_hi > gb;
+    if (in_ram(gb, 1ull << 30) && !has_pool) { l1[i1] = gb | PTE_NORMAL | PTE_BLOCK; return 0; }
     if (!touches_ram(gb, 1ull << 30)) { l1[i1] = gb | PTE_DEVICE | PTE_BLOCK; return 0; }
     uint64_t* l2 = next_table(l1, i1);
     if (!l2) return -1;
     for (unsigned i = 0; i < 512; i++) {
         uint64_t a = gb + ((uint64_t)i << 21);
-        l2[i] = a | (in_ram(a, 1ull << 21) ? PTE_NORMAL : PTE_DEVICE) | PTE_BLOCK;
+        uint64_t attr = in_ram(a, 1ull << 21) ? PTE_NORMAL : PTE_DEVICE;
+        if (dma_lo && a >= dma_lo && a + (1ull << 21) <= dma_hi) attr = PTE_DMA_NC;
+        l2[i] = a | attr | PTE_BLOCK;
     }
     return 0;
 }
 
 static uint64_t tcr_val;
 static void mmu_enable_this_cpu(void) {
-    SYSREG_W(mair_el1, 0x00ull | (0x04ull << 8) | (0xFFull << 16));
+    SYSREG_W(mair_el1, 0x00ull | (0x04ull << 8) | (0xFFull << 16) | (0x44ull << 24));
     SYSREG_W(tcr_el1, tcr_val);
     SYSREG_W(ttbr0_el1, (uint64_t)(uintptr_t)l0);
     dsb(); isb();
@@ -201,6 +208,62 @@ static void mmu_enable_this_cpu(void) {
     sctlr &= ~(1ull << 1);                                       /* без проверки выравнивания */
     SYSREG_W(sctlr_el1, sctlr);
     isb();
+}
+
+/* Устройства видят память согласованно с кэшем процессора только если дерево устройств так говорит (dma-coherent у
+   корня или у узла хоста PCI). Иначе (Raspberry Pi 4 и др.) буферы устройств берутся из пула без кэша. Параметр
+   загрузки kira.dma=noncoherent / kira.dma=coherent переопределяет решение (проверка на стенде и обход ошибок
+   дерева устройств). */
+static int bootarg_has(const void* fdt, const char* word) {
+    int c = fdt_find_path(fdt, "/chosen");
+    uint32_t len = 0;
+    const char* a = c >= 0 ? (const char*)fdt_prop(fdt, c, "bootargs", &len) : 0;
+    if (!a) return 0;
+    unsigned wl = 0; while (word[wl]) wl++;
+    for (uint32_t i = 0; i + wl <= len; i++) {
+        if (i && a[i - 1] != ' ') continue;
+        unsigned k = 0; while (k < wl && a[i + k] == word[k]) k++;
+        if (k == wl && (i + wl == len || a[i + wl] == ' ' || a[i + wl] == 0)) return 1;
+    }
+    return 0;
+}
+static int dma_noncoherent(const void* fdt) {
+    if (bootarg_has(fdt, "kira.dma=noncoherent")) return 1;
+    if (bootarg_has(fdt, "kira.dma=coherent")) return 0;
+    uint32_t l;
+    if (fdt_prop(fdt, fdt_root(fdt), "dma-coherent", &l)) return 0;
+    int pci = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
+    if (pci >= 0) return fdt_prop(fdt, pci, "dma-coherent", &l) ? 0 : 1;
+    int depth = 0;                                               /* нет PCI-узла: любой узел с dma-coherent - согласованная платформа */
+    for (int n = fdt_root(fdt); n >= 0; n = fdt_next_node(fdt, n, &depth)) if (fdt_prop(fdt, n, "dma-coherent", &l)) return 0;
+    return 1;
+}
+/* Пул - верх того участка ОЗУ, где лежат ядро и ранние выделения: до 32 МБ (но не больше 1/8 участка), блоки по 2 МБ. */
+static void dma_pool_choose(void) {
+    for (unsigned i = 0; i < nram; i++) {
+        if (!(bump >= ram[i].base && bump < ram[i].base + ram[i].size)) continue;
+        uint64_t end = (ram[i].base + ram[i].size) & ~((2ull << 20) - 1), sz = ram[i].size / 8;
+        if (sz > (32ull << 20)) sz = 32ull << 20;
+        sz &= ~((2ull << 20) - 1);
+        if (sz < (2ull << 20) || end < sz || end - sz < bump + (8ull << 20)) return;      /* места нет - пула нет */
+        dma_lo = end - sz; dma_hi = end; dma_bump = dma_lo;
+        bump_end = dma_lo;                                       /* ранние выделения (таблицы MMU) не залезают в пул */
+        return;
+    }
+}
+void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) {
+    if (!dma_lo) return 0;
+    uint64_t need = ((uint64_t)bytes + 4095) & ~4095ull, f = irq_save(), a = 0;
+    static volatile uint32_t lk;
+    while (__atomic_exchange_n(&lk, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
+    if (dma_bump + need <= dma_hi && (!below_4g || dma_bump + need <= 0x100000000ull)) { a = dma_bump; dma_bump += need; }
+    __atomic_store_n(&lk, 0, __ATOMIC_RELEASE);
+    irq_restore(f);
+    if (!a) return 0;
+    for (uint64_t i = 0; i < need; i += 8) *(volatile uint64_t*)(uintptr_t)(a + i) = 0;
+    dsb();
+    *phys = a;
+    return (void*)(uintptr_t)a;
 }
 
 static int mmu_init(uint64_t top) {
@@ -1016,8 +1079,11 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     for (unsigned i = 0; i < nram; i++) if (bump >= ram[i].base && bump < ram[i].base + ram[i].size) bump_end = ram[i].base + ram[i].size;
     kprintf("[KIRA ARM64] RAM: %u MB in %u region(s)\n", total >> 20, (uint64_t)nram);
 
+    if (dma_noncoherent(fdt)) dma_pool_choose();
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
+    if (dma_lo) kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at %x without CPU cache for device buffers\n", (dma_hi - dma_lo) >> 20, dma_lo);
+    else kprintf("[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)\n");
     kprintf("[KIRA ARM64] MMU on: identity map up to %x, %u-bit physical addresses, RAM cached, devices non-executable\n", top, (uint64_t)bits);
 
     /* контроллер прерываний */
@@ -1090,6 +1156,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     pmm_arm_init((const pmm_arm_region_t*)ram, nram, lo, hi, map, (uint64_t)(uintptr_t)__kernel_start, (uint64_t)(uintptr_t)__kernel_end);
     pmm_arm_reserve((uint64_t)(uintptr_t)fdt, (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt));
     pmm_arm_reserve(bump_start, bump);
+    if (dma_lo) pmm_arm_reserve(dma_lo, dma_hi);                 /* пул DMA - не для pmm */
     arm_fb_reserve(fdt, pmm_arm_reserve);                        /* кадр simple-framebuffer, /reserved-memory */
     arm_fb_init(fdt);
     bump_end = bump;                                             /* дальше страницы выдаёт только pmm */

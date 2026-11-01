@@ -126,6 +126,19 @@ SC = [
                ("reboot", [r"\[KIRA PSCI\] rebooting \(SYSTEM_RESET\)", READY]), ("@sleep 2", []),
                ("cat /reboot.txt", [r"kira-before-reboot"]),
                ("@exit poweroff", [r"\[KIRA PSCI\] powering off \(SYSTEM_OFF\)"])]),
+    # Устройства без согласованности кэша: kira.dma=noncoherent включает пул DMA без кэша (на настоящей плате решает дерево
+    # устройств). QEMU согласован всегда, поэтому стенд проверяет отображение пула, выдачу буферов и работу драйверов
+    # поверх него; сама некогерентность на кремнии здесь не проверяется.
+    dict(name="arm64-dma-nc", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="1G", disk="virtio-blk-pci", gui=True, files=True, flash=True,
+         net="virtio",
+         extra=["-append", "kira.dma=noncoherent", "-device", "qemu-xhci,id=xhci", "-device", "usb-storage,bus=xhci.0,port=3,drive=stick,removable=on"],
+         must=[r"DMA: devices are NOT cache-coherent: \d+ MB pool at 0x[0-9A-Fa-f]+", r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout",
+               r"\[KIRA DISPLAY\] Shell online", r"Processors online: 2 of 2"],
+         cmds=[("@sleep 3", []), ("@shot dma-nc", []),
+               ("df", [r"usb0"]), ("cat /usb0/hello.txt", [r"kira-ci"]),
+               ("write /nc.txt dma-pool-ok", []), ("cat /nc.txt", [r"dma-pool-ok"]),
+               ("beep 440 300", [r"DMA прошёл [1-9]\d* байт - карта играет"]),
+               ("ps", [r"core\s+RUNNING"])]),
 ]
 
 
