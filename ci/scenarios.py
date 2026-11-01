@@ -158,6 +158,15 @@ ALL = [
         {"cmd": "beep 440 400", "must": [r"DMA прошёл [1-9]\d* байт - карта играет"], "timeout": 15},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", extra=["-device", "intel-hda", "-device", "hda-output,audiodev=a0"]),
+    sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [
+        {"log": BOOT_LOG}, {"sleep": 8},
+        {"log": [r"\[KIRA NET\] virtio-net: MAC 52:54:00.*MSI-X", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+        {"cmd": "net", "must": [r"карта virtio-net, канал есть", r"адрес 10\.0\.2\.15"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"cmd": "fetch 10.0.2.100 /virtio"}, {"sleep": 3},
+        {"log": [r"fetch: 10\.0\.2\.100/virtio - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"]},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "virtio-net-pci,netdev=n0"]),
     sc("limbo-mttcg", "Limbo с галочкой Enable MTTCG (эмуляция потоком на ядро): 8 plasma - сравнить сборку и отклик с limbo-spam", [
         {"log": BOOT_LOG},
         *[{"send": "plasma"} for _ in range(8)],

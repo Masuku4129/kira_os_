@@ -37,12 +37,14 @@ SC = [
                ("fetch 10.0.2.100 /prog", [r"fetch: 10\.0\.2\.100/prog - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"]),
                ("cat /data/fetch/last.txt", [r"kira-tcp-ok GET /prog HTTP/1\.0"]),
                ]),
-    dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M", disk="nvme",
+    dict(name="arm64-gicv2", m="virt,gic-version=2", cpu="cortex-a53", smp=2, mem="512M", disk="nvme", net="virtio",
          must=[r"GICv2", r"Processors online: 2 of 2", r"working timer interrupt: 2 of 2", r"RAM: 512 MB",
                r"\[KIRA NVMe\] nvme0n1", r"\[KIRA FS\] KiraFS mounted", r"NVMe .*completion by interrupt"],
          cmds=[("smp", [r"core 1: .*online"]), ("test smp", [r"RESULT: PASS"]),
                ("write /irq.txt kira-v2m", []), ("cat /irq.txt", [r"kira-v2m"]),
-               ("disk", [r"прерываний устройств \(MSI\): [1-9]"])]),
+               ("disk", [r"прерываний устройств \(MSI\): [1-9]"]),
+               ("@sleep 4", []), ("net", [r"карта virtio-net, канал есть", r"адрес 10\.0\.2\.15"]),
+               ("fetch 10.0.2.100 /v2m", [r"fetch: 10\.0\.2\.100/v2m - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"])]),
     dict(name="arm64-el2-8cpu", m="virt,gic-version=3,virtualization=on", cpu="cortex-a57", smp=8, mem="3G",
          must=[r"entered at EL2, running at EL1", r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"RAM: 3072 MB"],
          cmds=[("test smp", [r"RESULT: PASS", r"worker 8: core 0"])]),
@@ -131,7 +133,8 @@ def run(sc, out):
         args += ["-device", "nvme,drive=d0,serial=KIRA0001" if sc["disk"] == "nvme" else f"{sc['disk']},drive=d0"]
     if sc.get("net"):
         srv = os.path.abspath(os.path.join(os.path.dirname(__file__), "http_once.py"))
-        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv}", "-device", "e1000,netdev=n0"]
+        nic = "virtio-net-pci" if sc["net"] == "virtio" else "e1000"
+        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv}", "-device", f"{nic},netdev=n0"]
     else:
         args += ["-nic", "none"]
     qmp_path = os.path.join(d, "qmp.sock")

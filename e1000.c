@@ -123,7 +123,7 @@ int e1000_probe(void) {
 
     const char nm[] = "e1000";
     for (unsigned i = 0; i < sizeof nm; i++) e.nd.name[i] = nm[i];
-    e.nd.send = send; e.nd.recv = recv; e.nd.link = link; e.nd.priv = 0;
+    e.nd.send = send; e.nd.recv = recv; e.nd.link = link; e.nd.priv = 0; e.nd.iw = 0;
     static const char hx[] = "0123456789abcdef";
     char m[18];
     for (int i = 0; i < 6; i++) { m[3 * i] = hx[e.nd.mac[i] >> 4]; m[3 * i + 1] = hx[e.nd.mac[i] & 15]; m[3 * i + 2] = i < 5 ? ':' : 0; }

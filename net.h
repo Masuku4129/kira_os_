@@ -12,6 +12,7 @@ typedef struct netdev {
     int  (*recv)(struct netdev* d, void* buf, uint32_t max);           /* длина кадра или 0 - пусто */
     int  (*link)(struct netdev* d);                                     /* 1 - кабель/канал есть */
     void* priv;
+    struct irqwait* iw;                                                 /* прерывание приёма (0 - опрос по тику) */
 } netdev_t;
 
 void net_register(netdev_t* d);       /* драйвер нашёл карту; первая карта становится основной */

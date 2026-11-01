@@ -39,6 +39,7 @@
 #include "console.h"
 #include "virtio_input.h"
 #include "e1000.h"
+#include "virtio_net.h"
 #include "net.h"
 #include "hda.h"
 #include "rtc.h"
@@ -1058,7 +1059,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     input_init();
     if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu): serial console only.\n");
     virtio_input_init();
-    e1000_probe();
+    if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */
     net_start();
     hda_probe();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");

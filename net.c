@@ -40,6 +40,7 @@ void net_proc_gone(uint32_t pid) { (void)pid; }
 #include "clock.h"
 #include "uart.h"
 #include "spinlock.h"
+#include "msi.h"
 
 static netdev_t* dev;
 static uint32_t my_ip, my_mask, my_gw, my_dns, lease_s;
@@ -572,6 +573,7 @@ static void net_main(void* arg) {
     (void)arg;
     static uint8_t f[2048];
     int had_link = -1;
+    uint32_t mark = dev->iw ? irqwait_mark(dev->iw) : 0;
     for (;;) {
         int n;
         while ((n = dev->recv(dev, f, sizeof f)) > 0) {
@@ -589,7 +591,8 @@ static void net_main(void* arg) {
         }
         dhcp_tick(timer_get_ticks());
         tcp_tick(timer_get_ticks());
-        sched_sleep_ticks(1);
+        if (dev->iw) { irqwait_wait(dev->iw, mark, 1); mark = irqwait_mark(dev->iw); }   /* до прерывания (не дольше тика) */
+        else sched_sleep_ticks(1);
     }
 }
 
@@ -605,7 +608,7 @@ int net_start(void) {
 /* ---------- команды ---------- */
 void netcmd_net(const char* a) {
     (void)a;
-    if (!dev) { uart_print("сетевой карты нет (поддерживается Intel e1000: в Limbo - Network: User, NIC: e1000)\n"); return; }
+    if (!dev) { uart_print("сетевой карты нет (поддерживаются Intel e1000 и virtio-net: в Limbo - Network: User, NIC: e1000 или virtio)\n"); return; }
     uart_print("карта "); uart_print(dev->name); uart_print(", канал "); uart_print(dev->link(dev) ? "есть" : "нет");
     uart_print("\n");
     if (dstate == D_BOUND) {
