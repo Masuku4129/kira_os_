@@ -134,8 +134,17 @@ ALL = [
         {"cmd": "fetch 10.0.2.100 /prog"}, {"sleep": 3},                 # программа Ring 3: сеть через системные вызовы
         {"log": [r"fetch: 10\.0\.2\.100/prog - HTTP/1\.0 200 OK - 3\d\d\d bytes in \d+ ms \(server closed\), saved"]},
         {"cmd": "cat /data/fetch/last.txt", "must": [r"kira-tcp-ok GET /prog HTTP/1\.0"]},
+        {"log": [r"\[KIRA NET\] e1000 \(8086:100e\).*no MSI on this card - polled every tick"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"]),
+    sc("net-e1000e", "сеть: Intel 82574 (e1000e) на q35 - приём по прерыванию MSI, DHCP, TCP, программа fetch", [
+        {"log": BOOT_LOG}, {"sleep": 8},
+        {"log": [r"\[KIRA NET\] e1000 \(8086:10d3\).*receive by MSI interrupt", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+        {"cmd": "fetch 10.0.2.100 /e1000e"}, {"sleep": 3},
+        {"log": [r"fetch: 10\.0\.2\.100/e1000e - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"]},
+        {"cmd": "net", "must": [r"канал есть", r"прерываний приёма [1-9]\d*"]},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", machine="q35", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000e,netdev=n0"]),
     sc("apps-edit", "редактор: окно, набор на клавиатуре, сохранение в песочницу, файл виден в /data/edit", [
         {"log": BOOT_LOG},
         {"combo": ["alt", "shift"]}, {"keys": "ghbdtn\n"}, {"sleep": 1},      # кириллица в строке терминала (Alt+Shift)
@@ -186,12 +195,18 @@ ALL = [
         {"log": [r"fetch: TLS 1\.3, X25519 \+ ChaCha20-Poly1305; certificate verified \(chain to a root, name, dates\)",
                  r"fetch: 10\.0\.2\.100/tls - HTTP/1\.0 200 OK - 2\d\d\d\d bytes .*server closed"]},
         {"cmd": "random", "must": [r"источники - .*virtio-rng", r"засеян аппаратным источником", r"проба: [0-9a-f]{32}"]},
+        {"host_http": [18080, "/closed"]},                                                  # порт не слушается: RST сразу
+        {"log": [r"\[HOST\] http /closed: error .* in [0-4]\.\d s"]},
         {"cmd": "serve"}, {"sleep": 2}, {"log": [r"serve: listening on port 8080"]},           # Кира - сервер: запрос с хозяина
         {"host_http": [18080, "/hello"]}, {"host_http": [18080, "/again"]}, {"sleep": 4},   # строку о запросе serve пишет после закрытия соединения
         {"log": [r"\[HOST\] http /hello: 19\d\d\d bytes, first line 'kira-server-ok /hello', window lines 900",
                  r"\[HOST\] http /again: 19\d\d\d bytes, first line 'kira-server-ok /again'", r"serve: GET /again -> 200"]},
+        {"cmd": "net", "must": [r"TIME_WAIT: [1-9]"]},                                      # serve закрывал первым
+        {"send": "udpecho 9000 2"}, {"sleep": 2},                                           # UDP для программ: эхо хозяину
+        {"host_udp": [18082, "ping-1"]}, {"host_udp": [18082, "ping-2"]}, {"sleep": 2},
+        {"log": [r"\[HOST\] udp reply 'kira-udp: ping-1'", r"\[HOST\] udp reply 'kira-udp: ping-2'", r"udpecho: done, 2 answered"]},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE + ",guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + ",guestfwd=tcp:10.0.2.100:8443-cmd:python3 " + HTTPS_ONCE + " --self " + TLS_CHAIN + ",hostfwd=tcp:127.0.0.1:18080-:8080",
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE + ",guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + ",guestfwd=tcp:10.0.2.100:8443-cmd:python3 " + HTTPS_ONCE + " --self " + TLS_CHAIN + ",hostfwd=tcp:127.0.0.1:18080-:8080,hostfwd=udp:127.0.0.1:18082-:9000",
                                  "-device", "virtio-net-pci,netdev=n0", "-device", "virtio-rng-pci"], tls_chain=True),
     sc("limbo-mttcg", "Limbo с галочкой Enable MTTCG (эмуляция потоком на ядро): 8 plasma - сравнить сборку и отклик с limbo-spam", [
         {"log": BOOT_LOG},

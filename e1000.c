@@ -1,5 +1,7 @@
-/* Intel 8254x (e1000): сетевая карта QEMU/Limbo по умолчанию и многих ПК. Кольца дескрипторов приёма и передачи в
-   памяти ядра, без прерываний: поток «net» забирает принятые кадры опросом каждый тик. */
+/* Intel 8254x/8257x (e1000, e1000e 82574): сетевая карта QEMU/Limbo по умолчанию и многих ПК. Кольца дескрипторов
+   приёма и передачи в памяти ядра. Если карта умеет MSI (82546, 82571, 82574 - QEMU e1000e) - прерывание приёма будит
+   поток «net»; у 82540EM (e1000 QEMU и Limbo) MSI нет, а маршрут INTx на x86 описан только в AML (_PRT) - там опрос
+   каждый тик. */
 #include "e1000.h"
 #include "net.h"
 #include "pci.h"
@@ -8,8 +10,9 @@
 #include "spinlock.h"
 #include "vmm.h"
 #include "cpu.h"
+#include "msi.h"
 
-enum { CTRL = 0x0, STATUS = 0x8, EERD = 0x14, IMC = 0xD8, RCTL = 0x100, TCTL = 0x400, TIPG = 0x410,
+enum { CTRL = 0x0, STATUS = 0x8, EERD = 0x14, ICR = 0xC0, IMS = 0xD0, IMC = 0xD8, RCTL = 0x100, TCTL = 0x400, TIPG = 0x410,
        RDBAL = 0x2800, RDBAH = 0x2804, RDLEN = 0x2808, RDH = 0x2810, RDT = 0x2818,
        TDBAL = 0x3800, TDBAH = 0x3804, TDLEN = 0x3808, TDH = 0x3810, TDT = 0x3818, MTA = 0x5200, RAL0 = 0x5400, RAH0 = 0x5404 };
 #define NRX 64
@@ -19,7 +22,8 @@ enum { CTRL = 0x0, STATUS = 0x8, EERD = 0x14, IMC = 0xD8, RCTL = 0x100, TCTL = 0
 typedef struct { uint64_t addr; uint16_t len, csum; uint8_t status, errors; uint16_t special; } rxd_t;
 typedef struct { uint64_t addr; uint16_t len; uint8_t cso, cmd, status, css; uint16_t special; } txd_t;
 
-static const uint16_t ids[] = { 0x100E, 0x100F, 0x1004, 0x1009, 0x100C, 0x100D, 0x1010, 0x1011, 0x1015, 0x1026, 0x1076, 0x1079, 0x107C };
+static const uint16_t ids[] = { 0x100E, 0x100F, 0x1004, 0x1009, 0x100C, 0x100D, 0x1010, 0x1011, 0x1015, 0x1026, 0x1076, 0x1079, 0x107C,
+                                0x10D3 };   /* 82574L (QEMU e1000e): тот же устаревший формат дескрипторов */
 
 static struct {
     volatile uint8_t* r;
@@ -29,7 +33,12 @@ static struct {
     unsigned rx_next, tx_next;
     spinlock_t txlk;
     netdev_t nd;
-} e;
+    irqwait_t iw;
+    uint64_t irqs;
+} e = { .iw = IRQWAIT_INIT };
+
+/* Прерывание (MSI): причина читается - это её же и сбрасывает; поток сети просыпается и забирает кадры. */
+static void irq(void* ctx) { (void)ctx; uint32_t c = MMIO_R32(e.r + ICR); if (c) { e.irqs++; irqwait_fire(&e.iw); } }
 
 static uint32_t rd(unsigned o) { return MMIO_R32(e.r + o); }
 static void wr(unsigned o, uint32_t v) { MMIO_W32(e.r + o, v); }
@@ -72,9 +81,10 @@ static int recv(netdev_t* d, void* buf, uint32_t max) {
 
 static int link(netdev_t* d) { (void)d; return (rd(STATUS) >> 1) & 1; }
 
+static int e82574;                                                 /* у 82574 другой формат EERD */
 static uint16_t eeprom(uint8_t a) {
-    wr(EERD, 1u | ((uint32_t)a << 8));
-    for (int i = 0; i < 100000; i++) { uint32_t v = rd(EERD); if (v & 0x10) return (uint16_t)(v >> 16); }
+    wr(EERD, 1u | ((uint32_t)a << (e82574 ? 2 : 8)));
+    for (int i = 0; i < 100000; i++) { uint32_t v = rd(EERD); if (v & (e82574 ? 0x2 : 0x10)) return (uint16_t)(v >> 16); }
     return 0xFFFF;
 }
 
@@ -82,6 +92,7 @@ int e1000_probe(void) {
     const pci_dev_t* p = 0;
     for (unsigned i = 0; i < sizeof ids / sizeof ids[0] && !p; i++) p = pci_find(0x8086, ids[i]);
     if (!p) return -1;
+    e82574 = p->device == 0x10D3;
     if (p->bar[0].io || !p->bar[0].base) { uart_print("[KIRA NET] e1000: register BAR is not memory - not supported.\n"); return -2; }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER);
     e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
@@ -124,12 +135,21 @@ int e1000_probe(void) {
     const char nm[] = "e1000";
     for (unsigned i = 0; i < sizeof nm; i++) e.nd.name[i] = nm[i];
     e.nd.send = send; e.nd.recv = recv; e.nd.link = link; e.nd.priv = 0; e.nd.iw = 0;
+    int has_msi = 0; uint8_t cid;
+    for (uint16_t c = pci_next_cap(p, 0, &cid); c; c = pci_next_cap(p, c, &cid)) if (cid == 0x05) has_msi = 1;
+    uint64_t ma; uint32_t md;
+    if (has_msi && msi_alloc(p, irq, 0, &ma, &md) == 0 && pci_msi_setup(p, ma, md) == 0) {
+        (void)rd(ICR);
+        wr(IMS, (1u << 7) | (1u << 6) | (1u << 4) | (1u << 2));   /* RXT0 (кадр принят), RXO, RXDMT0 (кольцо почти пусто), LSC */
+        e.nd.iw = &e.iw;
+    }
     static const char hx[] = "0123456789abcdef";
     char m[18];
     for (int i = 0; i < 6; i++) { m[3 * i] = hx[e.nd.mac[i] >> 4]; m[3 * i + 1] = hx[e.nd.mac[i] & 15]; m[3 * i + 2] = i < 5 ? ':' : 0; }
     char id[5]; for (int i = 0; i < 4; i++) id[i] = hx[(p->device >> (12 - 4 * i)) & 15]; id[4] = 0;
     uart_print("[KIRA NET] e1000 (8086:"); uart_print(id); uart_print("): MAC "); uart_print(m);
-    uart_print(link(&e.nd) ? ", link up\n" : ", no link yet\n");
+    uart_print(link(&e.nd) ? ", link up" : ", no link yet");
+    uart_print(e.nd.iw ? ", receive by MSI interrupt\n" : has_msi ? ", MSI refused - polled\n" : ", no MSI on this card - polled every tick\n");
     net_register(&e.nd);
     return 0;
 }

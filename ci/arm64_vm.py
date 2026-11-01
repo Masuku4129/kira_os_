@@ -49,6 +49,8 @@ SC = [
                ("fetch https://10.0.2.100/arm-tls", [r"fetch: TLS 1\.3, X25519 \+ ChaCha20-Poly1305; certificate verified \(chain to a root, name, dates\)",
                  r"fetch: 10\.0\.2\.100/arm-tls - HTTP/1\.0 200 OK - 2\d\d\d\d bytes .*server closed"]),
                ("random", [r"источники - .*interrupt timing", r"проба: [0-9a-f]{32}"]),
+               ("udpecho 9000 1", [r"udpecho: listening on UDP port 9000"]),
+               ("@udp 18083 arm-ping", [r"\[HOST\] udp reply 'kira-udp: arm-ping'"]), ("@sleep 2", []),
                ("serve", [r"serve: listening on port 8080"]),
                ("@http 18081 /arm-server", [r"\[HOST\] http /arm-server: 19\d\d\d bytes, first line 'kira-server-ok /arm-server', window lines 900"])]),
     dict(name="arm64-el2-8cpu", m="virt,gic-version=3,virtualization=on", cpu="cortex-a57", smp=8, mem="3G",
@@ -193,7 +195,7 @@ def run(sc, out):
         srv = os.path.abspath(os.path.join(os.path.dirname(__file__), "http_once.py"))
         nic = "virtio-net-pci" if sc["net"] == "virtio" else "e1000"
         tls = os.path.abspath(os.path.join(os.path.dirname(__file__), "https_once.py"))
-        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},guestfwd=tcp:10.0.2.100:443-cmd:python3 {tls} --chain {os.path.abspath("ci-out/tlschain")},guestfwd=tcp:10.0.2.100:8443-cmd:python3 {tls} --self {os.path.abspath("ci-out/tlschain")},hostfwd=tcp:127.0.0.1:18081-:8080",
+        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},guestfwd=tcp:10.0.2.100:443-cmd:python3 {tls} --chain {os.path.abspath("ci-out/tlschain")},guestfwd=tcp:10.0.2.100:8443-cmd:python3 {tls} --self {os.path.abspath("ci-out/tlschain")},hostfwd=tcp:127.0.0.1:18081-:8080,hostfwd=udp:127.0.0.1:18083-:9000",
                  "-device", f"{nic},netdev=n0"]
     else:
         args += ["-nic", "none"]
@@ -260,6 +262,20 @@ def run(sc, out):
                         part = log[start:].decode(errors="replace")
                         if p.poll() is None: err = f"{cmd}: машина не выключилась за 20 с"; break
                         if p.returncode != 0: err = f"{cmd}: QEMU завершился с кодом {p.returncode}"; break
+                        for rx in must:
+                            if not re.search(rx, part): err = f"{cmd}: нет «{rx}»"; break
+                        if err: break
+                        continue
+                    if cmd.startswith("@udp "):                  # датаграмма с хозяина программе в гостевой (hostfwd udp)
+                        port, msg = cmd[5:].split(None, 1)
+                        s_ = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s_.settimeout(10)
+                        try:
+                            s_.sendto(msg.encode(), ("127.0.0.1", int(port))); data, _ = s_.recvfrom(2048)
+                            log += f"[HOST] udp reply '{data.decode(errors='replace')}'\n".encode()
+                        except Exception as e:
+                            log += f"[HOST] udp error {e}\n".encode()
+                        s_.close()
+                        part = log[start:].decode(errors="replace")
                         for rx in must:
                             if not re.search(rx, part): err = f"{cmd}: нет «{rx}»"; break
                         if err: break

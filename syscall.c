@@ -60,6 +60,10 @@ static userlog_t ulog;
 #define SYS_SND_OPEN      33 // () -> поток звука программы
 #define SYS_SND_WRITE     34 // (поток, буфер, байт) -> принято байт (кадры 48 кГц, 16 бит, стерео)
 #define SYS_SND_CLOSE     35 // (поток)
+#define SYS_UDP_OPEN      38 // (порт или 0) -> сокет UDP
+#define SYS_UDP_SEND      39 // (сокет | порт << 16 | адрес << 32, буфер, длина)
+#define SYS_UDP_RECV      40 // (сокет, буфер, ёмкость | мс << 32) -> байт; буфер: адрес, порт, длина, данные
+#define SYS_UDP_CLOSE     41 // (сокет)
 #define SYS_TIME          37 // -> секунды UTC от 1970 (часы реального времени) или -1, если часов нет
 #define SYS_RANDOM        36 // (буф, байт <= 256) -> 1 аппаратный источник, 0 - только время событий
 
@@ -220,6 +224,8 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return (uint64_t)net_sys((unsigned)(nr - SYS_NET_DNS), a1, a2, a3);
     case SYS_SND_OPEN: case SYS_SND_WRITE: case SYS_SND_CLOSE:
         return (uint64_t)audio_sys((unsigned)(nr - SYS_SND_OPEN), a1, a2, a3);
+    case SYS_UDP_OPEN: case SYS_UDP_SEND: case SYS_UDP_RECV: case SYS_UDP_CLOSE:
+        return (uint64_t)net_udp_sys((unsigned)(nr - SYS_UDP_OPEN), a1, a2, a3);
     case SYS_TIME: {
         rtc_time_t tm;
         return rtc_now(0, &tm) == 0 ? (uint64_t)rtc_to_epoch(&tm) : (uint64_t)-1;

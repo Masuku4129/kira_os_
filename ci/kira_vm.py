@@ -15,13 +15,27 @@ import scenarios  # noqa: E402
 def host_http(port, path):
     """Запрос с машины-хозяина к серверу в гостевой системе (hostfwd): строка итога для журнала."""
     import urllib.request
+    t0 = time.time()
     try:
         body = urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=30).read()
         first = body.split(b"\n", 1)[0].decode(errors="replace")
         lines = body.count(b" kira tcp window\n")
         return f"[HOST] http {path}: {len(body)} bytes, first line '{first}', window lines {lines}\n"
     except Exception as e:
-        return f"[HOST] http {path}: error {e}\n"
+        return f"[HOST] http {path}: error {e} in {time.time() - t0:.1f} s\n"
+
+
+def host_udp(port, msg):
+    """Датаграмма с хозяина в гостевую систему (hostfwd udp) и ответ: строка итога для журнала."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(10)
+    try:
+        s.sendto(msg.encode(), ("127.0.0.1", port))
+        data, _ = s.recvfrom(2048)
+        return f"[HOST] udp reply '{data.decode(errors='replace')}'\n"
+    except Exception as e:
+        return f"[HOST] udp error {e}\n"
+    finally:
+        s.close()
 
 
 PROMPT = "кира> ".encode()
@@ -285,6 +299,9 @@ def run(sc, args):
             elif "host_http" in st:                   # запрос с хозяина к серверу Киры (hostfwd)
                 port, path = st["host_http"]
                 vm.log += host_http(port, path).encode()
+            elif "host_udp" in st:                    # датаграмма с хозяина программе Киры (hostfwd udp)
+                port, msg = st["host_udp"]
+                vm.log += host_udp(port, msg).encode()
             elif "sleep" in st:
                 end_t = time.time() + st["sleep"] * args.timeout_scale
                 while time.time() < end_t:

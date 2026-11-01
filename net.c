@@ -281,8 +281,9 @@ int net_dns(const char* name, uint32_t* ip) {
    Соединения ядра - исходящие (tcp_connect) и входящие (tcp_listen + tcp_accept). Передача - окном: в пути сколько
    позволяет окно собеседника и кольцо отправки (16 КБ), сегментами по MSS; по сроку повторяется первый
    неподтверждённый сегмент (1, 2, 4... с, 8 попыток), три повторных подтверждения - быстрый повтор. Приём - по порядку
-   в кольцо 16 КБ с окном по свободному месту; вне порядка - повтор подтверждения. TIME_WAIT не держится: порт
-   исходящих каждый раз новый, у входящих четвёрка адресов разная. */
+   в кольцо 16 КБ с окном по свободному месту; вне порядка - повтор подтверждения. Закрывший первым держит
+   TIME_WAIT 2*MSL (60 с) в маленькой таблице (не в слоте соединения): на повтор FIN собеседника - снова ACK, четвёрка
+   адресов не используется заново. На сегмент без соединения - RST (RFC 793), чтобы собеседник не ждал зря. */
 #define TCP_MAX 8
 #define TCP_RX  16384
 #define TCP_TX  16384
@@ -303,19 +304,33 @@ static struct { uint16_t port; int used; } listens[LISTEN_MAX];
 static spinlock_t tlk = SPINLOCK_INIT;
 static uint16_t next_lport = 49152;
 
+#define TW_MAX 32
+#define TW_TICKS (60 * TIMER_HZ)                                   /* 2*MSL: MSL = 30 с */
+static struct { uint32_t rip, snd_nxt, rcv_nxt; uint16_t rport, lport; uint8_t mac[6]; uint64_t until; } tw[TW_MAX];
+static uint64_t tw_total;
+static int tw_find(uint32_t rip, uint16_t rport, uint16_t lport, uint64_t now) {
+    for (int i = 0; i < TW_MAX; i++)
+        if (tw[i].until > now && tw[i].rip == rip && tw[i].rport == rport && tw[i].lport == lport) return i;
+    return -1;
+}
+
 static uint16_t tcp_win(const tcb_t* t) { uint32_t f = TCP_RX - (t->rx_tail - t->rx_head); return (uint16_t)(f > 65535 ? 65535 : f); }
 
-static void tcp_out(tcb_t* t, uint8_t flags, uint32_t seq, const uint8_t* data, uint32_t len) {
+static void tcp_seg(const uint8_t* mac, uint32_t rip, uint16_t lport, uint16_t rport, uint8_t flags, uint32_t seq,
+                    uint32_t ack, uint16_t win, const uint8_t* data, uint32_t len) {
     uint8_t s[12 + 24 + 1460];
     uint8_t* h = s + 12;                                            /* перед заголовком - псевдозаголовок для суммы */
     uint32_t hl = (flags & F_SYN) ? 24 : 20;
-    put32(s, my_ip); put32(s + 4, t->rip); s[8] = 0; s[9] = 6; put16(s + 10, (uint16_t)(hl + len));
-    put16(h, t->lport); put16(h + 2, t->rport); put32(h + 4, seq); put32(h + 8, (flags & F_ACK) ? t->rcv_nxt : 0);
-    h[12] = (uint8_t)((hl / 4) << 4); h[13] = flags; put16(h + 14, tcp_win(t)); put16(h + 16, 0); put16(h + 18, 0);
+    put32(s, my_ip); put32(s + 4, rip); s[8] = 0; s[9] = 6; put16(s + 10, (uint16_t)(hl + len));
+    put16(h, lport); put16(h + 2, rport); put32(h + 4, seq); put32(h + 8, (flags & F_ACK) ? ack : 0);
+    h[12] = (uint8_t)((hl / 4) << 4); h[13] = flags; put16(h + 14, win); put16(h + 16, 0); put16(h + 18, 0);
     if (flags & F_SYN) { h[20] = 2; h[21] = 4; put16(h + 22, 1460); }   /* MSS */
     cpy(h + hl, data, len);
     put16(h + 16, net_csum(s, 12 + hl + len));
-    ip_send(t->mac, my_ip, t->rip, 6, h, hl + len);
+    ip_send(mac, my_ip, rip, 6, h, hl + len);
+}
+static void tcp_out(tcb_t* t, uint8_t flags, uint32_t seq, const uint8_t* data, uint32_t len) {
+    tcp_seg(t->mac, t->rip, t->lport, t->rport, flags, seq, t->rcv_nxt, tcp_win(t), data, len);
 }
 
 /* Отправить, что позволяет окно (под tlk). SYN и FIN занимают по номеру, данных у них нет. */
@@ -391,6 +406,14 @@ static void tcp_input(uint32_t src, const uint8_t* eth_src, const uint8_t* g, ui
     tcb_t* t = 0;
     for (int i = 0; i < TCP_MAX; i++)
         if (tcbs[i].state != T_FREE && tcbs[i].rip == src && tcbs[i].rport == sport && tcbs[i].lport == dport) t = &tcbs[i];
+    if (!t) {
+        int w = tw_find(src, sport, dport, now);
+        if (w >= 0) {                                           /* TIME_WAIT: повтор FIN - снова подтвердить */
+            if (fl & F_FIN) tcp_seg(tw[w].mac, src, dport, sport, F_ACK, tw[w].snd_nxt, tw[w].rcv_nxt, 0, 0, 0);
+            spin_unlock_irqrestore(&tlk, f);
+            return;
+        }
+    }
     if (!t) {                                                   /* новое входящее: только SYN на слушаемый порт */
         int l = -1;
         for (int i = 0; i < LISTEN_MAX; i++) if (listens[i].used && listens[i].port == dport) l = i;
@@ -405,6 +428,9 @@ static void tcp_input(uint32_t src, const uint8_t* eth_src, const uint8_t* g, ui
                 n->state = T_SYN_RCVD; n->rto_at = now + TIMER_HZ;
                 tcp_out(n, F_SYN | F_ACK, n->iss, 0, 0);
             }
+        } else if (l < 0 && !(fl & F_RST) && my_ip) {           /* порт закрыт: RST, а не молчание */
+            if (fl & F_ACK) tcp_seg(eth_src, src, dport, sport, F_RST, ack, 0, 0, 0, 0);
+            else tcp_seg(eth_src, src, dport, sport, F_RST | F_ACK, 0, seq + dl + ((fl & F_SYN) ? 1 : 0) + ((fl & F_FIN) ? 1 : 0), 0, 0, 0);
         }
         spin_unlock_irqrestore(&tlk, f);
         return;
@@ -454,7 +480,14 @@ static void tcp_input(uint32_t src, const uint8_t* eth_src, const uint8_t* g, ui
     if ((fl & F_FIN) && seq + dl == t->rcv_nxt && !t->fin_rcvd) {
         t->rcv_nxt++; t->fin_rcvd = 1; need_ack = 1;
         if (t->state == T_EST) t->state = T_CLOSE_WAIT;
-        else if (t->state == T_FIN_WAIT1 || t->state == T_FIN_WAIT2) t->state = T_CLOSED;   /* TIME_WAIT не держим */
+        else if (t->state == T_FIN_WAIT1 || t->state == T_FIN_WAIT2) {   /* закрыли первыми: TIME_WAIT */
+            int k = 0;
+            for (int i = 1; i < TW_MAX; i++) if (tw[i].until < tw[k].until) k = i;   /* свободная или самая старая */
+            tw[k].rip = t->rip; tw[k].rport = t->rport; tw[k].lport = t->lport; cpy(tw[k].mac, t->mac, 6);
+            tw[k].snd_nxt = t->snd_nxt; tw[k].rcv_nxt = t->rcv_nxt; tw[k].until = now + TW_TICKS;
+            tw_total++;
+            t->state = T_CLOSED;
+        }
     }
     tcp_push(t, now);
     if (need_ack) tcp_out(t, F_ACK, t->snd_nxt, 0, 0);
@@ -495,8 +528,12 @@ int tcp_connect(uint32_t ip, uint16_t port) {
     uint64_t f = spin_lock_irqsave(&tlk);
     tcb_t* t = tcb_new();
     if (!t) { spin_unlock_irqrestore(&tlk, f); return -3; }
-    t->rip = ip; t->rport = port; t->lport = next_lport++;
-    if (next_lport < 49152) next_lport = 49152;
+    uint64_t now0 = timer_get_ticks();
+    do {                                                            /* четвёрка в TIME_WAIT заново не берётся */
+        t->lport = next_lport++;
+        if (next_lport < 49152) next_lport = 49152;
+    } while (tw_find(ip, port, t->lport, now0) >= 0);
+    t->rip = ip; t->rport = port;
     cpy(t->mac, mac, 6);
     t->iss = (uint32_t)(clock_ns() >> 6); t->snd_una = t->iss; t->snd_nxt = t->iss + 1; t->rcv_nxt = 0;
     t->state = T_SYN_SENT; t->rto_at = timer_get_ticks() + TIMER_HZ;
@@ -671,7 +708,9 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
     return -10;
 }
 
+static void udp_gone(uint32_t pid);
 void net_proc_gone(uint32_t pid) {
+    udp_gone(pid);
     for (int i = 0; i < LISTEN_MAX; i++) if (listen_owner[i] == pid) { listen_owner[i] = 0; tcp_unlisten(i); }
     for (int i = 0; i < TCP_MAX; i++) if (tcp_owner[i] == pid) { tcp_owner[i] = 0; tcp_close(i); }
 }
@@ -690,6 +729,41 @@ static void icmp_input(const uint8_t* eth_src, uint32_t src, const uint8_t* m, u
     }
 }
 
+/* ---------- UDP для программ ----------
+   Сокет - локальный порт и очередь из 8 датаграмм (до 1472 байт); принадлежит открывшему процессу. Приём - поток
+   «net» кладёт в очередь (контрольная сумма проверяется, если задана), полная очередь - датаграмма отбрасывается
+   (счётчик). Порты 67/68 (DHCP ядра) и уже занятые - отказ. */
+#define UDP_MAX 8
+#define UDP_Q 8
+#define UDP_DATA 1472
+#define UH 300
+typedef struct { uint32_t ip; uint16_t port, len; uint8_t data[UDP_DATA]; } udg_t;
+static struct { uint32_t owner; uint16_t lport; udg_t q[UDP_Q]; unsigned head, tail; uint64_t dropped; } us[UDP_MAX];
+static spinlock_t ulk = SPINLOCK_INIT;
+static uint16_t next_uport = 50000;
+
+static void udp_input(uint32_t src, const uint8_t* d, uint32_t n) {
+    uint16_t sport = get16(d), dport = get16(d + 2), ul = get16(d + 4);
+    if (ul < 8 || ul > n) return;
+    if (get16(d + 6)) {                                             /* сумма задана - проверить */
+        static uint8_t c[12 + 1500];
+        if (ul > 1500) return;
+        put32(c, src); put32(c + 4, my_ip); c[8] = 0; c[9] = 17; put16(c + 10, ul);
+        cpy(c + 12, d, ul);
+        if (net_csum(c, 12 + ul) != 0) return;
+    }
+    uint64_t f = spin_lock_irqsave(&ulk);
+    for (int i = 0; i < UDP_MAX; i++) {
+        if (!us[i].owner || us[i].lport != dport) continue;
+        if (us[i].tail - us[i].head >= UDP_Q || ul - 8 > UDP_DATA) { us[i].dropped++; break; }
+        udg_t* g = &us[i].q[us[i].tail % UDP_Q];
+        g->ip = src; g->port = sport; g->len = (uint16_t)(ul - 8); cpy(g->data, d + 8, ul - 8);
+        us[i].tail++;
+        break;
+    }
+    spin_unlock_irqrestore(&ulk, f);
+}
+
 static void ip_input(const uint8_t* eth_src, const uint8_t* p, uint32_t len) {
     if (len < 20 || (p[0] >> 4) != 4) return;
     uint32_t ihl = (uint32_t)(p[0] & 15) * 4, tot = get16(p + 2);
@@ -704,6 +778,68 @@ static void ip_input(const uint8_t* eth_src, const uint8_t* p, uint32_t len) {
     else if (p[9] == 17 && n >= 8 && get16(d + 2) == 68 && get16(d) == 67) dhcp_input(d + 8, n - 8);
     else if (p[9] == 17 && n >= 8 && dns_port && get16(d + 2) == dns_port && get16(d) == 53 && src == my_dns) dns_input(d + 8, n - 8);
     else if (p[9] == 6) tcp_input(src, eth_src, d, n);
+    else if (p[9] == 17 && n >= 8 && my_ip) udp_input(src, d, n);
+}
+
+static void udp_gone(uint32_t pid) { for (int i = 0; i < UDP_MAX; i++) if (us[i].owner == pid) us[i].owner = 0; }
+static int uown(int64_t h) { return h >= UH && h < UH + UDP_MAX && us[h - UH].owner && us[h - UH].owner == proc_current_pid(); }
+
+int64_t net_udp_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
+    if (op == NET_UDP_OPEN) {                                       /* (порт или 0) -> сокет */
+        if (!dev || dstate != D_BOUND) return -1;
+        if (a1 > 65535 || a1 == 67 || a1 == 68) return -10;
+        uint64_t f = spin_lock_irqsave(&ulk);
+        uint16_t port = (uint16_t)a1;
+        for (int tries = 0; !port && tries < 16000; tries++) {      /* свободный эфемерный */
+            uint16_t c = next_uport++; if (next_uport < 50000) next_uport = 50000;
+            int busy = 0; for (int i = 0; i < UDP_MAX; i++) if (us[i].owner && us[i].lport == c) busy = 1;
+            if (!busy) port = c;
+        }
+        int slot = -1;
+        for (int i = 0; i < UDP_MAX; i++) { if (us[i].owner && us[i].lport == port) { slot = -2; break; } if (!us[i].owner && slot == -1) slot = i; }
+        if (slot >= 0) { us[slot].owner = proc_current_pid(); us[slot].lport = port; us[slot].head = us[slot].tail = 0; us[slot].dropped = 0; }
+        spin_unlock_irqrestore(&ulk, f);
+        return slot >= 0 ? UH + slot : slot == -2 ? -3 : -4;
+    }
+    if (!uown((int64_t)(a1 & 0xFFFF))) return -8;
+    int s = (int)(a1 & 0xFFFF) - UH;
+    if (op == NET_UDP_CLOSE) { uint64_t f = spin_lock_irqsave(&ulk); us[s].owner = 0; spin_unlock_irqrestore(&ulk, f); return 0; }
+    if (op == NET_UDP_SEND) {                                       /* (сокет | порт << 16 | адрес << 32, буфер, длина) */
+        uint32_t ip = (uint32_t)(a1 >> 32); uint16_t port = (uint16_t)(a1 >> 16);
+        if (!port || !ip || a3 > UDP_DATA) return -10;
+        uint8_t u[12 + 8 + UDP_DATA];                               /* на стеке вызова: у каждого свой */
+        uint8_t mac[6];
+        uint8_t* b = u + 12;
+        if (a3 && copy_from_user(b + 8, a2, a3)) return -10;
+        if (resolve(ip, mac) != 0) return -2;
+        put16(b, us[s].lport); put16(b + 2, port); put16(b + 4, (uint16_t)(8 + a3)); put16(b + 6, 0);
+        put32(u, my_ip); put32(u + 4, ip); u[8] = 0; u[9] = 17; put16(u + 10, (uint16_t)(8 + a3));
+        uint16_t cs = net_csum(u, 12 + 8 + (uint32_t)a3); put16(b + 6, cs ? cs : 0xFFFF);
+        ip_send(mac, my_ip, ip, 17, b, 8 + (uint32_t)a3);
+        return (int64_t)a3;
+    }
+    if (op == NET_UDP_RECV) {                                       /* (сокет, буфер, ёмкость | мс << 32) -> байт данных */
+        uint32_t cap = (uint32_t)a3, ms = (uint32_t)(a3 >> 32);
+        if (cap < 8 || !user_range(a2, cap, 1)) return -10;
+        uint64_t until = timer_get_ticks() + ((uint64_t)(ms ? ms : 10000) * TIMER_HZ + 999) / 1000;
+        uint8_t out[8 + UDP_DATA];
+        for (;;) {
+            uint64_t f = spin_lock_irqsave(&ulk);
+            if (us[s].tail != us[s].head) {
+                udg_t* g = &us[s].q[us[s].head % UDP_Q];
+                uint32_t n = g->len < cap - 8 ? g->len : cap - 8;  /* не влезло - хвост теряется, как у recvfrom */
+                put32(out, g->ip); put16(out + 4, g->port); put16(out + 6, g->len);
+                cpy(out + 8, g->data, n);
+                us[s].head++;
+                spin_unlock_irqrestore(&ulk, f);
+                return copy_to_user(a2, out, 8 + n) ? -10 : (int64_t)n;
+            }
+            spin_unlock_irqrestore(&ulk, f);
+            if (timer_get_ticks() >= until) return -5;
+            sched_sleep_ticks(1);
+        }
+    }
+    return -10;
 }
 
 static void net_main(void* arg) {
@@ -747,6 +883,13 @@ void netcmd_net(const char* a) {
     (void)a;
     if (!dev) { uart_print("сетевой карты нет (поддерживаются Intel e1000 и virtio-net: в Limbo - Network: User, NIC: e1000 или virtio)\n"); return; }
     uart_print("карта "); uart_print(dev->name); uart_print(", канал "); uart_print(dev->link(dev) ? "есть" : "нет");
+    {
+        uint64_t now = timer_get_ticks(); unsigned n = 0;
+        for (int i = 0; i < TW_MAX; i++) if (tw[i].until > now) n++;
+        uart_print(", TIME_WAIT: "); uart_print_dec(n); uart_print(" (всего "); uart_print_dec(tw_total); uart_print(")");
+    }
+    if (dev->iw) { uart_print(", прерываний приёма "); uart_print_dec(__atomic_load_n(&dev->iw->fired, __ATOMIC_RELAXED)); }
+    else uart_print(", приём опросом");
     uart_print("\n");
     if (dstate == D_BOUND) {
         uart_print("адрес "); print_ip(my_ip); uart_print(", маска "); print_ip(my_mask); uart_print(", шлюз "); print_ip(my_gw);

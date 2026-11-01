@@ -34,7 +34,7 @@ echo "[*] Userland (Ring 3): программы собираются в ELF и �
 UCFLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 ULINK="-T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro"
 UELF=""
-for app in plasma paint burn mt ipc serve melody wasm; do
+for app in plasma paint burn mt ipc serve melody wasm udpecho; do
     $CC $UCFLAGS -c userland/$app.c -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"

@@ -136,7 +136,7 @@ static inline i64 k_net_send(i64 h, const void* p, u64 n) { return ksys(K_NET_SE
 /* Байт принято; 0 - собеседник закрыл; < 0 - сброс или срок (timeout_ms, 0 - 10 с). */
 static inline i64 k_net_recv(i64 h, void* p, u32 n, u32 timeout_ms) { return ksys(K_NET_RECV, (u64)h, (u64)p, (u64)n | ((u64)timeout_ms << 32)); }
 static inline i64 k_net_close(i64 h) { return ksys(K_NET_CLOSE, (u64)h, 0, 0); }   /* соединение или слушатель */
-enum { K_NET_LISTEN = 31, K_NET_ACCEPT = 32, K_SND_OPEN = 33, K_SND_WRITE = 34, K_SND_CLOSE = 35, K_RANDOM = 36, K_TIME = 37 };
+enum { K_NET_LISTEN = 31, K_NET_ACCEPT = 32, K_SND_OPEN = 33, K_SND_WRITE = 34, K_SND_CLOSE = 35, K_RANDOM = 36, K_TIME = 37, K_UDP_OPEN = 38, K_UDP_SEND = 39, K_UDP_RECV = 40, K_UDP_CLOSE = 41 };
 /* Звук: поток программы (кадры 48 кГц, 16 бит, стерео - 4 байта); write принимает, сколько влезло в очередь (1 с). */
 static inline i64 k_snd_open(void) { return ksys(K_SND_OPEN, 0, 0, 0); }
 static inline i64 k_snd_write(i64 h, const void* p, u64 bytes) { return ksys(K_SND_WRITE, (u64)h, (u64)p, bytes); }
@@ -144,6 +144,11 @@ static inline i64 k_snd_close(i64 h) { return ksys(K_SND_CLOSE, (u64)h, 0, 0); }
 /* случайные байты ядра (до 256): 1 - засеяно аппаратным источником, 0 - только временем событий, <0 - ошибка */
 static inline i64 k_random(void* buf, u64 n) { return ksys(K_RANDOM, (u64)buf, n, 0); }
 static inline i64 k_time(void) { return ksys(K_TIME, 0, 0, 0); }      /* секунды UTC от 1970; -1 - часов нет */
+/* UDP: сокет на порту (0 - любой свободный); отправка по адресу и порту; приём - buf: адрес(4) порт(2) длина(2) данные. */
+static inline i64 k_udp_open(u32 port) { return ksys(K_UDP_OPEN, port, 0, 0); }
+static inline i64 k_udp_send(i64 s, u32 ip, u32 port, const void* p, u64 n) { return ksys(K_UDP_SEND, (u64)s | (u64)port << 16 | (u64)ip << 32, (u64)p, n); }
+static inline i64 k_udp_recv(i64 s, void* buf, u32 cap, u32 timeout_ms) { return ksys(K_UDP_RECV, (u64)s, (u64)buf, (u64)cap | (u64)timeout_ms << 32); }
+static inline i64 k_udp_close(i64 s) { return ksys(K_UDP_CLOSE, (u64)s, 0, 0); }
 static inline i64 k_net_listen(u32 port) { return ksys(K_NET_LISTEN, port, 0, 0); }             /* слушатель (100+) */
 static inline i64 k_net_accept(i64 l, u32 timeout_ms) { return ksys(K_NET_ACCEPT, (u64)l, timeout_ms, 0); }   /* 0 мс - ждать без срока */
 /* Строка аргументов запуска (run имя аргументы): длина или < 0. */

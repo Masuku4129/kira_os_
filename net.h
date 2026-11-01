@@ -43,4 +43,8 @@ enum { NET_SYS_DNS = 0, NET_SYS_CONNECT = 1, NET_SYS_SEND = 2, NET_SYS_RECV = 3,
        NET_SYS_LISTEN = 6, NET_SYS_ACCEPT = 7 };          /* 5 - вызов ARGS (не сеть) */
 int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3);
 void net_proc_gone(uint32_t pid);       /* процесс завершён: его соединения закрыть */
+/* UDP для программ: вызовы 38-41 (open, send, recv, close); получатель/отправитель - в аргументах и заголовке
+   из 8 байт перед данными при приёме (адрес 4, порт 2, длина 2 - большой порядок). */
+enum { NET_UDP_OPEN = 0, NET_UDP_SEND = 1, NET_UDP_RECV = 2, NET_UDP_CLOSE = 3 };
+int64_t net_udp_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3);
 #endif
