@@ -139,7 +139,7 @@ ALL = [
         {"log": [r"\[KIRA NET\] IPv6: fec0::5054:ff:fe12:3456 \(SLAAC /64, DAD passed\) ready"]},   # RA приходит на групповой MAC: фильтр MTA карты
         {"cmd": "ping6 fec0::2 2", "must": [r"ответ от fec0::2", r"отправлено 2, получено [1-2]"], "timeout": 20},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv6=on,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"]),
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv4=on,ipv6=on,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"]),
     sc("net-e1000e", "сеть: Intel 82574 (e1000e) на q35 - приём по прерыванию MSI, DHCP, TCP, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] e1000 \(8086:10d3\).*receive by MSI interrupt", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
@@ -300,6 +300,6 @@ ALL = [
         {"log": [r"\[HOST\] udp reply 'kira-udp: small'", r"\[HOST\] udp big 4000: reassembled ok", r"udpecho: done, 2 answered"]},
         {"cmd": "net", "must": [r"фрагменты IP: собрано [1-9]\d*"]},
         {"log_forbid": NO_ERR + [r"is already used by another node"]},
-    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv6=on,hostfwd=udp:127.0.0.1:18082-:9000",
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv4=on,ipv6=on,hostfwd=udp:127.0.0.1:18082-:9000",
                                  "-device", "virtio-net-pci,netdev=n0"]),
 ]
