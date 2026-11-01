@@ -126,8 +126,74 @@ static Node *rv(Node *n);
 static int64_t const_expr(void);
 static Obj *new_gvar(const Token *nm, Type *ty);
 
+#define ENTER() do { if (++K.depth > 600) kerr_tok(tok, "nesting is too deep"); } while (0)
 #define TSZ(t) (ty_unqual(t)->size)
 #define TAL(t) (ty_unqual(t)->align)
+
+/* обёртки с ограничением глубины рекурсии (защита стека от враждебного ввода) */
+static Node *unary_(void);
+static Node *stmt_(void);
+static Node *cond_expr_(void);
+static Type *declarator_(Type *ty, Token **name);
+static Type *type_suffix_(Type *ty);
+static Type *struct_decl_(int is_union);
+static Type *declspec_(Attr *a);
+static void init2_(Init *in);
+
+static Node * unary(void) {
+    ENTER();
+    Node * r = unary_();
+    K.depth--;
+    return r;
+}
+
+static Node * stmt(void) {
+    ENTER();
+    Node * r = stmt_();
+    K.depth--;
+    return r;
+}
+
+static Node * cond_expr(void) {
+    ENTER();
+    Node * r = cond_expr_();
+    K.depth--;
+    return r;
+}
+
+static Type * declarator(Type *ty, Token **name) {
+    ENTER();
+    Type * r = declarator_(ty, name);
+    K.depth--;
+    return r;
+}
+
+static Type * type_suffix(Type *ty) {
+    ENTER();
+    Type * r = type_suffix_(ty);
+    K.depth--;
+    return r;
+}
+
+static Type * struct_decl(int is_union) {
+    ENTER();
+    Type * r = struct_decl_(is_union);
+    K.depth--;
+    return r;
+}
+
+static Type * declspec(Attr *a) {
+    ENTER();
+    Type * r = declspec_(a);
+    K.depth--;
+    return r;
+}
+
+static void init2(Init *in) {
+    ENTER();
+    init2_(in);
+    K.depth--;
+}
 
 /* ---------- атрибуты ---------- */
 static void attrs(Attr *a) {
@@ -187,7 +253,7 @@ static int is_typename(const Token *t) {
 static Type *struct_decl(int is_union);
 static Type *enum_decl(void);
 
-static Type *declspec(Attr *a) {
+static Type *declspec_(Attr *a) {
     Attr scratch = {0};
     if (!a) a = &scratch;
     Type *ty = NULL;
@@ -324,7 +390,7 @@ static void layout_struct(Type *ty, int is_union, int packed, int align_attr) {
     ty->size = (int)sz; ty->align = maxal; ty->complete = 1; ty->nmem = idx;
 }
 
-static Type *struct_decl(int is_union) {
+static Type *struct_decl_(int is_union) {
     Attr at = {0};
     attrs(&at);
     Token *tag = NULL;
@@ -480,7 +546,7 @@ static Param *func_params(int *variadic, int *noproto) {
     return head.next;
 }
 
-static Type *type_suffix(Type *ty) {
+static Type *type_suffix_(Type *ty) {
     if (eat("(")) {
         int var, nop;
         Param *ps = func_params(&var, &nop);
@@ -525,7 +591,7 @@ static Type *pointers(Type *ty) {
     return ty;
 }
 
-static Type *declarator(Type *ty, Token **name) {
+static Type *declarator_(Type *ty, Token **name) {
     ty = pointers(ty);
     if (P("(")) {
         const Token *n = tok->next;
@@ -1129,8 +1195,9 @@ static Node *primary(void) {
 
 static Node *postfix(void) {
     Node *n = primary();
-    for (;;) {
+    for (int nops = 0;; nops++) {
         const Token *t = tok;
+        if (nops > 4000) kerr_tok(tok, "expression is too long");
         if (eat("(")) { n = funcall(n, t); continue; }
         if (eat("[")) {
             Node *i = expr();
@@ -1146,7 +1213,7 @@ static Node *postfix(void) {
     }
 }
 
-static Node *unary(void) {
+static Node *unary_(void) {
     const Token *t = tok;
     if (eat("+")) {
         Node *e = rv(cast_expr());
@@ -1258,8 +1325,10 @@ static Node *apply_bin(const Token *op, Node *l, Node *r) {
 
 static Node *binary(int minp) {
     Node *l = cast_expr();
+    int nops = 0;
     for (;;) {
         int p = prec_of(tok);
+        if (p && ++nops > 4000) kerr_tok(tok, "expression is too long");
         if (!p || p < minp) return l;
         const Token *op = tok;
         tok = tok->next;
@@ -1290,7 +1359,7 @@ static Node *make_cond(Node *c, Node *a, Node *b, const Token *t) {
     return n;
 }
 
-static Node *cond_expr(void) {
+static Node *cond_expr_(void) {
     Node *c = binary(1);
     const Token *t = tok;
     if (!eat("?")) return c;
@@ -1316,8 +1385,10 @@ static Node *assign(void) {
 
 static Node *expr(void) {
     Node *n = assign();
+    int nops = 0;
     while (P(",")) {
         const Token *t = tok;
+        if (++nops > 4000) kerr_tok(tok, "expression is too long");
         tok = tok->next;
         Node *r = rv(assign());
         n = new_bin(ND_COMMA, n, r, r->ty, t);
@@ -1516,7 +1587,7 @@ static void st_unbraced(Init *in) {
     unbraced(in, n, ms);
 }
 
-static void init2(Init *in) {
+static void init2_(Init *in) {
     Type *ty = in->ty;
     if (ty->k == TY_ARRAY && tok->k == TK_STR && ty->base->size == 1 && ty_is_int(ty->base)) { init_string(in); return; }
     if (ty->k == TY_ARRAY) {
@@ -1954,7 +2025,7 @@ static Node *compound(int new_sc) {
     return blk;
 }
 
-static Node *stmt(void) {
+static Node *stmt_(void) {
     const Token *t = tok;
     if (P("{")) return compound(1);
     if (eat(";")) return new_node(ND_BLOCK, t);

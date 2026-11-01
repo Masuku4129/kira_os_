@@ -171,8 +171,10 @@ static void tl_replace_last(TL *l, Token *n) {
 
 static Token *expanded(MArg *a) {
     if (!a->has_exp) {
+        if (++K.depth > 400) kerr_tok(a->tok, "macro expansion is nested too deeply");
         a->exp = expand_arg_list(copy_list(a->tok));
         a->has_exp = 1;
+        K.depth--;
     }
     return a->exp;
 }
