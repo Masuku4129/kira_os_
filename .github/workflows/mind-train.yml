@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools dosfstools qemu-system-x86 python3-pil python3-cryptography openssl
-      - name: build (training starts from scratch: no seed on the disk)
+      - name: "build (training starts from scratch, no seed on the disk)"
         run: |
           rm -f data/mind_seed.bin
           ./build_clang.sh --no-run
