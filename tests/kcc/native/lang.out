@@ -1,0 +1,7 @@
+atomic: counter=9 ok1=1 ok2=0 seen=100 xchg=100 sync=42
+struct: 526 42 -5
+varargs: 60 45
+case: zero digit two-digit big
+elvis: 11 6
+fmt: [   42][ab   ][000ff][k]
+0

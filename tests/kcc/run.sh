@@ -181,6 +181,12 @@ done
 total=$((total+1))
 $T/kcc -target aarch64 -I kcc/include -o $T/n64.elf tests/kcc/native/hello.c 2>$T/err && $T/a64emu $T/n64.elf >$T/got 2>&1
 cmp -s tests/kcc/native/hello.out $T/got || note "native/hello.c (AArch64): вывод расходится с ожидаемым: $(head -c 160 $T/got | tr '\n' ' ')"
+# расширения языка (атомарные операции, struct по значению, va_list, case-диапазоны, ?:, printf): оба бэкенда печатают то же, что clang на хосте
+total=$((total+2))
+$T/kcc -I kcc/include -o $T/n.elf tests/kcc/native/lang.c 2>$T/err && $T/kloader $T/n.elf >$T/got 2>&1
+cmp -s tests/kcc/native/lang.out $T/got || note "native/lang.c (x86-64): вывод расходится с ожидаемым: $(head -c 200 $T/got | tr '\n' ' ') $(head -c 100 $T/err)"
+$T/kcc -target aarch64 -I kcc/include -o $T/n64.elf tests/kcc/native/lang.c 2>$T/err && $T/a64emu $T/n64.elf >$T/got 2>&1
+cmp -s tests/kcc/native/lang.out $T/got || note "native/lang.c (AArch64): вывод расходится с ожидаемым: $(head -c 200 $T/got | tr '\n' ' ') $(head -c 100 $T/err)"
 
 # враждебные входы: глубокая вложенность и длинные цепочки не должны ронять стек
 rep() { yes "$1" | head -n "$2" | tr -d '\n'; }
