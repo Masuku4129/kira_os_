@@ -103,7 +103,8 @@ static void audio_main(void* arg) {
     for (;;) {
         if (card->service) card->service();
         uint32_t pos = card->pos() / 4;
-        hw += (pos + ring - last_pos) % ring; last_pos = pos;
+        uint32_t d = (pos + ring - last_pos) % ring;
+        if (d < ring - ring / 8) { hw += d; last_pos = pos; }      /* шаг назад (< 1/8 кольца - дрожание позиции карты) - не «почти круг вперёд» */
         if (wr < hw) { underruns++; wr = hw; }                     /* не успели: догоняем карту */
         while (wr < hw + LEAD) {
             uint32_t at = (uint32_t)(wr % ring), n = CHUNK;

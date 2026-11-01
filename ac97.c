@@ -48,8 +48,12 @@ static void box_start(uint16_t box, uint32_t bdl_p) {
 }
 static uint32_t box_pos(uint16_t box) {
     uint16_t b = (uint16_t)(a.nabm + box);
-    uint8_t civ = inb((uint16_t)(b + B_CIV)) & (NBD - 1);
-    uint16_t left = inw((uint16_t)(b + B_PICB));                 /* осталось отсчётов в текущем буфере */
+    uint8_t civ, again; uint16_t left; int tries = 0;
+    do {                                                         /* номер буфера и остаток - одной парой: если карта */
+        civ = inb((uint16_t)(b + B_CIV)) & (NBD - 1);            /* перешла к следующему буферу между чтениями, */
+        left = inw((uint16_t)(b + B_PICB));                      /* остаток относится к новому - позиция прыгала назад */
+        again = inb((uint16_t)(b + B_CIV)) & (NBD - 1);
+    } while (again != civ && ++tries < 4);
     uint32_t done = PART - (uint32_t)left * 2;
     if (done > PART) done = 0;
     return (civ * PART + done) % BUFSZ;
