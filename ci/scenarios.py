@@ -166,7 +166,7 @@ ALL = [
         {"cmd": "fetch 10.0.2.100 /virtio"}, {"sleep": 3},
         {"log": [r"fetch: 10\.0\.2\.100/virtio - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"]},
         {"cmd": "serve"}, {"sleep": 2}, {"log": [r"serve: listening on port 8080"]},           # Кира - сервер: запрос с хозяина
-        {"host_http": [18080, "/hello"]}, {"host_http": [18080, "/again"]},
+        {"host_http": [18080, "/hello"]}, {"host_http": [18080, "/again"]}, {"sleep": 4},   # строку о запросе serve пишет после закрытия соединения
         {"log": [r"\[HOST\] http /hello: 19\d\d\d bytes, first line 'kira-server-ok /hello', window lines 900",
                  r"\[HOST\] http /again: 19\d\d\d bytes, first line 'kira-server-ok /again'", r"serve: GET /again -> 200"]},
         {"log_forbid": NO_ERR},
