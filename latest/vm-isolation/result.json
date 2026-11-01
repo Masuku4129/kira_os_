@@ -1,0 +1,129 @@
+{
+ "name": "isolation",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "address spaces are isolated \\(PASS\\)",
+   "ok": true
+  },
+  {
+   "log": "kernel GS intact after the attack \\(PASS\\)",
+   "ok": true
+  },
+  {
+   "log": "kernel pointer passed to write\\(\\) was rejected \\(PASS\\)",
+   "ok": true
+  },
+  {
+   "log": "mt: .* - PASS|- PASS",
+   "ok": true
+  },
+  {
+   "log": "atk-cap: 14 calls without rights refused, harmless calls work \\(PASS\\)",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CAPS\\] process 'atk-cap' .* denied, no right CAP_GFX",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\(FAIL\\)",
+   "ok": true
+  },
+  {
+   "log_forbid": "isolation broken",
+   "ok": true
+  },
+  {
+   "log_forbid": "ipc (server|client): FAIL",
+   "ok": true
+  },
+  {
+   "log_forbid": "mt: FAIL",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.04,
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.4,
+ "seconds": 46.5,
+ "commands": [
+  {
+   "cmd": "test isolation",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "test atk",
+   "seconds": 0.05
+  },
+  {
+   "cmd": "test caps",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "test ipc",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "test threads",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "test fpu",
+   "seconds": 0.03
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.01
+  }
+ ]
+}
