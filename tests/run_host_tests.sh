@@ -244,6 +244,12 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c -
 $T/audio
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
+echo "== IPv4/IPv6 fragment reassembly (all orders, overlaps, duplicates, oversize, TTL, memory limits) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/ipfrag tests/ipfrag_test.c ipfrag.c
+$T/ipfrag
+echo "== IPv6 (text forms RFC 4291/5952, EUI-64/SLAAC, pseudo-header checksums, ND/RA, extension headers) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/ip6 tests/ip6_test.c ip6.c
+$T/ip6
 echo "== X.509 and TLS 1.3 client against OpenSSL =="
 $CC $FLAGS -Iuserland -fsanitize=address,undefined -o $T/pk tests/pk_test.c pk.c crypto.c sha256.c
 $T/pk

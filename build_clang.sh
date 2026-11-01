@@ -17,7 +17,7 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
 
-C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c irqwait.c hda.c ac97.c audio.c blk.c bootmap.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c crypto.c rng.c virtio_rng.c scale.c kobj.c futex.c"
+C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c hda.c ac97.c audio.c blk.c bootmap.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c crypto.c rng.c virtio_rng.c scale.c kobj.c futex.c"
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
 ARCH=arch/x86_64
 ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c"
@@ -49,6 +49,11 @@ $CC $UCFLAGS -I. -c sha256.c -o userland/u_sha256.o
 $CC $UCFLAGS -c userland/libc_min.c -o userland/u_libc_min.o
 ld.lld $ULINK -o userland/fetch.elf userland/fetch.o userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_libc_min.o
 UELF="$UELF userland/fetch.elf"
+# net6: сокеты IPv6; разбор адреса - ip6.c (тот же файл, что у ядра)
+$CC $UCFLAGS -I. -Iuserland -c userland/net6.c -o userland/net6.o
+$CC $UCFLAGS -I. -c ip6.c -o userland/u_ip6.o
+ld.lld $ULINK -o userland/net6.elf userland/net6.o userland/u_ip6.o
+UELF="$UELF userland/net6.elf"
 # Программы с вещественной арифметикой (3D, тест FPU): SSE2 разрешён только им, ядро собирается без SSE.
 USSE_FLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -msse2 -mfpmath=sse -mno-mmx -fno-math-errno -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 for app in cube3d fpu wasm; do

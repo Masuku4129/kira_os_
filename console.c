@@ -581,6 +581,7 @@ static const cmd_t cmds[] = {
     { "lspci",     0,   "устройства на шине PCI", cmd_lspci },
     { "net",       0,   "сеть: карта, канал, адрес (DHCP), шлюз, счётчики", netcmd_net },
     { "ping",      0,   "ping адрес [число]: эхо ICMP, время ответа", netcmd_ping },
+    { "ping6",     0,   "ping6 адрес [число]: эхо ICMPv6 (например ping6 fec0::2)", netcmd_ping6 },
     { "sound",     0,   "звук: карта Intel HDA, кодек, путь к выходу", audiocmd_sound },
     { "beep",      0,   "beep [Гц] [мс]: тон через звуковую карту", audiocmd_beep },
     { "dns",       0,   "dns имя: адрес по DNS", netcmd_dns },

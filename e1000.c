@@ -81,6 +81,15 @@ static int recv(netdev_t* d, void* buf, uint32_t max) {
 
 static int link(netdev_t* d) { (void)d; return (rd(STATUS) >> 1) & 1; }
 
+/* Групповой адрес в таблицу MTA (хэш по битам 47:36 адреса при RCTL.MO = 0, как у драйвера Intel): карта принимает кадры
+   на него, остальные групповые по-прежнему отбрасываются. Биты только добавляются (сброс - при инициализации). */
+static int mcast_add(netdev_t* d, const uint8_t mac[6]) {
+    (void)d;
+    unsigned h = (((unsigned)mac[4] >> 4) | ((unsigned)mac[5] << 4)) & 0xFFF;
+    wr(MTA + 4 * (h >> 5), rd(MTA + 4 * (h >> 5)) | (1u << (h & 31)));
+    return 0;
+}
+
 static int e82574;                                                 /* у 82574 другой формат EERD */
 static uint16_t eeprom(uint8_t a) {
     wr(EERD, 1u | ((uint32_t)a << (e82574 ? 2 : 8)));
@@ -134,7 +143,7 @@ int e1000_probe(void) {
 
     const char nm[] = "e1000";
     for (unsigned i = 0; i < sizeof nm; i++) e.nd.name[i] = nm[i];
-    e.nd.send = send; e.nd.recv = recv; e.nd.link = link; e.nd.priv = 0; e.nd.iw = 0;
+    e.nd.send = send; e.nd.recv = recv; e.nd.link = link; e.nd.priv = 0; e.nd.iw = 0; e.nd.mcast_add = mcast_add;
     int has_msi = 0; uint8_t cid;
     for (uint16_t c = pci_next_cap(p, 0, &cid); c; c = pci_next_cap(p, c, &cid)) if (cid == 0x05) has_msi = 1;
     uint64_t ma; uint32_t md;
