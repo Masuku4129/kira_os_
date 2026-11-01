@@ -1,0 +1,185 @@
+== logic (sha256, immune) ==
+sha256 boundary vectors checked: 12
+ALL LOGIC TESTS PASSED
+== kernel heap (size classes, large page runs, ownership table, bad frees, random load, OOM) ==
+heap: classes, alignment, large blocks, ownership table growth, bad frees, 200k random ops, OOM recovery passed
+== kernel string functions (rep movsb/stosb, overlap both ways) ==
+mem: memcpy/memmove (both directions)/memset/memcmp passed
+== pmm (synthetic Multiboot2 memory map, contiguous blocks) ==
+free kb = 521084, expected 521084 (info_size=168)
+contiguous 3 MB block at 0x320000
+allocated 130271 pages, first=0x320000 last=0x1FFFF000
+ALL PMM TESTS PASSED
+== ramext (mapping RAM above 1 GB) ==
+ALL RAMEXT TESTS PASSED
+== scheduler policy (incl. regression: pulsing critical thread) ==
+fair share: A=400 B=400 idle=0 switches=200
+fair share with a pulsing critical thread: A=1000 B=1000 pulses=2000
+quantum 8: switches=100
+core wake: due 3610, got 3610
+periodic runs=20 max wake latency=0 ticks
+extra threads created: 32
+ALL SCHEDULER TESTS PASSED
+== REAL context switch + FXSAVE/FXRSTOR (arch/x86_64/context.s, 3 threads, xmm live across switches) ==
+real FPU save/restore: context switches=102965, workers=3, rounds each=40, mismatches=0
+PASS
+no-FPU-save control: context switches=102965, workers=3, rounds each=40, mismatches=120
+CONTROL OK: corruption detected without FPU save
+== input layer (PS/2 decoder, ring, overflow) ==
+input: all decoder checks passed (incl. Cyrillic layout)
+== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) ==
+acpi: all parser checks passed (incl. Intel MP tables, BIOS scan)
+== IOAPIC (ISO resolution, redirection encoding) ==
+ioapic: ISO resolution and redirection-entry encoding passed
+== persistent store (CRC32, A/B generations, torn write, corruption) ==
+store: CRC vector, A/B generations, torn write, corruption fallback passed
+== KiraFS (files, dirs, crash at every write, corruption fuzz) ==
+crash cases: 191
+fuzz: mounted 334, rejected 66
+kfs v2: 1500-entry directory, inode table growth, volume growth with the disk, 5 MB files, v1 upgrade passed
+kfs ok
+== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS over virtio) ==
+virtio: PCI bus/bridge/BAR/capabilities, virtio 1.0 init order, rings, chunking, size_max, RO, flush, timeout, KiraFS over virtio passed
+== programs: ELF validation, trust manifest, life log in KiraFS ==
+programs: ELF validation (0 real binaries, 20000 corruptions), trust manifest, life log and profiles in KiraFS passed
+== program file service (sandbox /data/<name>) ==
+fsrv: sandbox names/paths, isolation between programs, size and quota limits, atomic replace, persistence passed
+paint: save/load round-trip, strict validation of corrupt files, oversize refusal passed
+== spinlock (ticket lock: real threads, mutual exclusion, FIFO, panic bust; ThreadSanitizer) ==
+spinlock: mutual exclusion (2 threads x 50000), FIFO order, panic bust passed
+== SMP (AP selection, ICR commands, percpu table) ==
+kmutex: fair queue, ownership hand-off, wake-up, no overtaking, recursion detection passed
+== kernel objects: ports, shared memory, handles, futex ==
+kobj: names, handles, ports (order, overflow, wait/timeout/wake, kill), shared memory, futex passed
+== core fault isolation decision + per-core log line buffer ==
+ALL COREFAULT/LINEBUF TESTS PASSED
+== scaling: size policy and scheduler on 1, 2, 3, 4, 8, 16, 64 cores ==
+cores=1 capacity=36 procs=8 ok
+cores=2 capacity=48 procs=8 ok
+cores=3 capacity=60 procs=12 ok
+cores=4 capacity=72 procs=16 ok
+cores=8 capacity=120 procs=32 ok
+cores=16 capacity=216 procs=64 ok
+cores=64 capacity=792 procs=256 ok
+cores=65 capacity=804 procs=256 ok
+cores=128 capacity=1560 procs=256 ok
+cores=256 capacity=2048 procs=256 ok
+smp: AP selection (BSP excluded, duplicates, limit), ICR commands, SIPI vector, percpu table, work checksum passed
+== user program log (prefix per line, interleaving) ==
+userlog: whole lines per process, interleaved writers, exit flush, long lines, slot pressure passed
+== early window (bootmap page tables) ==
+bootmap: all checks passed
+== early output (Multiboot2 above 1 GB, early console RGB/text, crash dump) ==
+early: all checks passed
+== program heap policy (machine-dependent quota, memory reserve) ==
+uheap: machine-dependent quota and reserve, argument, quota, memory and overflow checks passed
+== hardware profile (CPUID decoding on synthetic CPUs, scaling limits) ==
+hwprofile: CPUID decoding (Intel, AMD, VM, empty leaves, AVX without XSAVE), description, real CPUID passed
+== user programs: cube3d (3D renderer, z-buffer in heap), fpu, burn ==
+cube3d: self-test, render (deterministic, sub-surface, bounds), z-buffer from heap, program loop and failure paths passed
+fpu/burn: reference stability, distinct parameters, verdict and iteration counting passed
+== graphics (2D, UTF-8, font, clock, klog, fbcon) ==
+repaint vs incremental differences: 0 px
+ALL GFX TESTS PASSED
+== console command line (Enter, backspace, history, clear, Ctrl keys) ==
+console: 47 commands and 12 aliases from help all resolve and run
+console: Enter-driven command line, backspace, history, clear, Ctrl+L/C/U, telemetry switch, ai commands passed
+== UI primitives (angles, arcs, anti-aliasing) ==
+ui: angles, arcs, anti-aliased discs, rounded rects, alpha passed
+== mind (norms, anomalies, health, quantum self-tuning, memory, focus, starvation, behavior, persistence) ==
+foresight: n=719 pos=58 precision=100% recall=63% trusted=1 w[bg]=374 w[late]=-15 forecasts=180
+mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1) passed
+== device tree (FDT) parser ==
+fdt: QEMU-virt-like tree, paths, reg cells, compatible lists, cpu count, corrupted blobs passed
+crypto: ChaCha20, Poly1305, AEAD (+forgery), AES-128 without tables (FIPS 197, + 2000 random keys/blocks equal to the old table version), AES-128-GCM (+forgery), SHA-1, SHA-384/512, X25519 (+low order), HMAC-SHA256, HKDF, TLS 1.3 labels - RFC vectors passed
+== mind foresight model (online logistic regression, calibration, trust) ==
+weights: -0.15 0.04 -0.22 6.59 -0.01 0.10 0.10 -0.14 -0.10 4.79 0.20 -0.19 b=-6.65
+n=30000 pos=5850 precision=63% recall=48% loss=0.335
+p(hot)=0.989 (true 0.993) p(calm)=0.0021 (true 0.0018)
+noise world: precision=0% recall=0% trusted=0
+mindnet: sigmoid, online learning, calibration, explanation, trust gating passed
+== real-time clock (calendar, CMOS decode, epoch, Russian date) ==
+rtc: calendar, weekdays, leap years, CMOS BCD/binary/12h decode, time zone rollover, Russian date passed
+== explorer tree (KiraFS listing: order, nesting, limits) ==
+explorer: sort (dirs first), nested open dirs, failing dir, row limit, EXP_DIR_MAX per dir, >4 GB sizes, depth limit passed
+== USB: HID, hubs, flash drives (Bulk-Only/SCSI -> FAT -> /usbN), stack core, UHCI and xHCI drivers against controller models ==
+usbhid: config descriptor (incl. corrupt/fuzz), keyboard -> set 1 (modifiers, E0, rollover, autorepeat), tablet, mouse, boot mouse, report IDs, fuzz passed
+usb core: HID setup and reports, autorepeat, unplug with key held, HS hub + FS hub (route, TT, power, reset, change endpoint), nested keyboards, flash stick (BOT/SCSI, not-ready, STALL, reset recovery, MBR+FAT16 -> /usb0, 100 KB write/read, write-protect, no medium), hot unplug/replug, whole tree removal, keystroke-injection reflex (hold, release, block, allow) passed
+uhci: reset/run, port reset, low/full speed, addressing, descriptors, HID setup, reports, DATA0/1, unplug/replug, FS hub, LS keyboard behind hub, flash stick bulk TD chains (256 TDs/frame) + short packet stop, /usb0 read/write, removal passed (1304 frames)
+xhci: hubs (route string, TT for LS/FS behind HS hub, hub slot context), flash stick (bulk 16 KB TRBs, STALL recovery, short data), /usb0 read/write, unplug from hub, whole tree removal passed
+xhci: BIOS handoff, reset, DCBAA+scratchpad, command/event rings, Enable Slot, Address Device, Evaluate Context, Configure Endpoint, control (short, STALL), interrupt reports across ring wrap, unplug/Disable Slot passed (447 events)
+== FAT12/16/32, partitions, VFS (cross-check with dosfstools + mtools if installed) ==
+  partitions: GPT basic data with header CRC, broken GPT rejected
+  fat12: read (mkfs.fat + mcopy), write/replace/mkdir/unlink (fsck.fat clean, mtools reads back), write failure, corruption fuzz
+  fat16 in MBR partition: read (mkfs.fat + mcopy), write/replace/mkdir/unlink (fsck.fat clean, mtools reads back), write failure, corruption fuzz
+  fat32 in MBR partition: read (mkfs.fat + mcopy), write/replace/mkdir/unlink (fsck.fat clean, mtools reads back), write failure, corruption fuzz
+  fat32: read (mkfs.fat + mcopy), write/replace/mkdir/unlink (fsck.fat clean, mtools reads back), write failure, corruption fuzz
+  vfs: KiraFS root + /usb0 FAT volume, copy across, unmount, fsck clean
+fat: FAT12/16/32 cross-checked with dosfstools and mtools passed
+== quick-launch dock (/var/dock) ==
+dock: parse (junk, duplicates, long names, CRLF), format round trip, add/remove, limit, fuzz passed
+== shell (top bar, side launcher, traffic lights, fullscreen, drag, input, live background, culling) ==
+wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw passed
+== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) ==
+display preview: terminal, mind, monitor, files, settings, home, apps, resize passed
+display preview: terminal, mind, monitor, files, settings, home, apps, resize passed
+display preview: terminal, mind, monitor, files, settings, home, apps, resize passed
+== view: formats against reference sums (ci/mkfiles.py), fuzz of damaged files ==
+view: PNG (filters, dynamic/stored), BMP, PPM, GIF (LZW resets, interlace, local palette), text, binary passed
+view: JPEG baseline and progressive (4:2:0, 4:2:2, 4:4:4, restart, grayscale) match libjpeg within IDCT rounding - passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/pic.png (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/rgba.png (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/pic.bmp (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/pic.ppm (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/pic.gif (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/lace.gif (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/pic.jpg (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/p444.jpg (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/prog.jpg (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/prog-rst.jpg (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/prog-opt.jpg (3000 damaged copies) passed
+view: fuzz /tmp/tmp.hEJviy76ot/files/prog-gray.jpg (3000 damaged copies) passed
+== wasm: interpreter output equals the same program compiled natively ==
+wasm: interpreter output equals native (wtest: fib(24)=46368 primes<20000=2262 sort=ad642057dcc4b702...)
+wasm: graphics program (window, f32 frames) equals native (wgfx: frame0=0000000054f339aa frame30=000000000943d884)
+wasm: f32/f64 interpreter output equals native (ftest: mandel inside=662 iters=146978 pi=400921f61616ca3a f32sum=00000...)
+wasm: calls, call_indirect, i64, br_table, loops, 8/16-bit memory, memory.copy, f64 (-O2 and -O0 builds) equal native
+wasm: fuzz build-wasm/wtest.wasm (3000 damaged copies: 2582 stopped with a trap, the rest finished) passed
+wasm: fuzz build-wasm/ftest.wasm (3000 damaged copies: 2963 stopped with a trap, the rest finished) passed
+wasm: fuzz build-wasm/wgfx.wasm (3000 damaged copies: 2998 stopped with a trap, the rest finished) passed
+wasm: fuzz build-wasm/wmix.wasm (3000 damaged copies: 2570 stopped with a trap, the rest finished) passed
+wasm: fuzz build-wasm/wmix0.wasm (3000 damaged copies: 2523 stopped with a trap, the rest finished) passed
+wasm: wgfx 31 frames (unsanitized -O2 build) in 763 ms
+  filter 96000 -> 48000: stopband 24 kHz..48.0 kHz worst -57.3 dB, passband 50 Hz..20 kHz -0.170..0.017 dB
+  filter 88200 -> 48000: stopband 24 kHz..44.1 kHz worst -58.7 dB, passband 50 Hz..20 kHz -0.170..0.016 dB
+  filter 64000 -> 48000: stopband 24 kHz..32.0 kHz worst -57.2 dB, passband 50 Hz..20 kHz -0.169..0.016 dB
+  filter 50000 -> 48000: stopband 24 kHz..25.0 kHz worst -55.5 dB, passband 50 Hz..20 kHz -0.170..0.016 dB
+  filter 48001 -> 48000: stopband 24 kHz..24.0 kHz worst -52.4 dB, passband 50 Hz..20 kHz -0.169..0.016 dB
+  filter saturation: worst-case phase gives -67326 before the limiter, output -32768
+  filter saturation: worst-case phase gives 67326 before the limiter, output 32767
+audio: mixing with per-stream/master volume and clipping, volume curve, resampling 8/22.05/44.1/96 kHz mono+stereo -> 48 kHz (frame count, chunking-independent, sine error bounded), downsampling FIR 96/88.2/64/50/48.001 kHz -> 48 kHz (table = formula, sine above 24 kHz suppressed >= 50 dB, passband 50 Hz..20 kHz within 0.2 dB, DC exact, saturation without wrap, equals double reference) passed
+sb16: mixer register decoding (IRQ, 8/16-bit DMA, ambiguous/empty values rejected) and 8237 16-bit channel ports passed
+net: checksum, address parsing passed
+== IPv4/IPv6 fragment reassembly (all orders, overlaps, duplicates, oversize, TTL, memory limits) ==
+ipfrag: reassembly in all orders, duplicates, overlaps, bad/oversize, ttl, memory and per-source limits, IPv6 passed
+== IPv6 (text forms RFC 4291/5952, EUI-64/SLAAC, pseudo-header checksums, ND/RA, extension headers) ==
+ip6: text forms, EUI-64/SLAAC, checksums (RFC 1071 + pseudo-header vectors), ND builders/parsers, extension headers passed
+== X.509 and TLS 1.3 client against OpenSSL ==
+pk: RSA 2048/3072/4096 PKCS#1 v1.5 + PSS (SHA-256/384/512), ECDSA P-256/P-384 (+truncated hash), Ed25519 (RFC 8032 TEST 1-3), forgeries rejected - passed
+pk: cross-check with python cryptography/OpenSSL: 240 Ed25519 and 360 RSA-PSS signatures (valid and corrupted; hash, MGF1 hash, salt length vary) - passed
+x509: chain RSA root -> P-384 -> P-256 (SHA-256/384), RSA-PSS and Ed25519 chains, RSASSA-PSS key, OCSP (good, delegated responder, revoked, unknown, stale, forged, other certificate), names (DNS, wildcard, IPv4), validity, untrusted/expired/tampered rejected; system roots parsed: 120 - passed
+tls: TLS 1.3 with OpenSSL (X25519, ChaCha20-Poly1305, Finished, CertificateVerify scheme 0x0403, X.509 chain to root + name + dates), 22114 bytes over several records, close_notify passed
+tls: self-signed server rejected: issuer is not trusted (no path to a root certificate) - passed
+tls: TLS 1.3 with Ed25519 chain (intermediate signed with RSA-PSS) (X25519, ChaCha20-Poly1305, Finished, CertificateVerify scheme 0x0807, X.509 chain to root + name + dates), 22114 bytes over several records, close_notify passed
+tls: TLS 1.3 with RSASSA-PSS server key (certificate signed with RSA-PSS sha384) (X25519, ChaCha20-Poly1305, Finished, CertificateVerify scheme 0x0809, X.509 chain to root + name + dates), 22114 bytes over several records, close_notify passed
+tls: openssl s_server with only TLS_AES_128_GCM_SHA256 - AES-128-GCM records (AES without tables), chain verified, 4113 bytes - passed
+tls: ocsp-none: stapled=0 ocsp=0 - passed
+tls: ocsp-good: stapled=1 ocsp=1 - passed
+tls: ocsp-deleg: stapled=1 ocsp=1 - passed
+tls: revoked stapled OCSP response - connection refused (OCSP: the certificate has been revoked) - passed
+tls: forged stapled OCSP response - connection refused (OCSP: the response is not signed by the issuer or by an authorized responder) - passed
+tls: other stapled OCSP response - connection refused (OCSP: the response is not about the server certificate) - passed
+tls: ocsp-stale: stapled=1 ocsp=0 - OCSP: the stapled response is stale (nextUpdate passed) - passed
+tls: ocsp-unknown: stapled=1 ocsp=0 - OCSP: the responder does not know this certificate (status unknown) - passed
+tls: session resumption with openssl s_server: NewSessionTicket -> PSK (psk_dhe_ke) -> server says Reused, no certificates, identity from the first connection; a corrupted ticket falls back to a full handshake - passed
+ALL HOST TESTS PASSED
