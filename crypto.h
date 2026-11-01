@@ -34,6 +34,13 @@ void hkdf_extract(const uint8_t* salt, size_t slen, const uint8_t* ikm, size_t i
 void hkdf_expand(const uint8_t prk[32], const uint8_t* info, size_t ilen, uint8_t* out, size_t olen);
 void hkdf_expand_label(const uint8_t secret[32], const char* label, const uint8_t* ctx, size_t clen, uint8_t* out, size_t olen);
 
+/* SHA-512 и SHA-384 (FIPS 180-4): подписи сертификатов (ECDSA P-384, RSA с SHA-384/512). */
+typedef struct { uint64_t h[8]; uint64_t len; uint8_t buf[128]; uint32_t n; int out; } sha512_ctx_t;
+void sha512_init(sha512_ctx_t* c);
+void sha384_init(sha512_ctx_t* c);
+void sha512_update(sha512_ctx_t* c, const void* d, size_t n);
+void sha512_final(sha512_ctx_t* c, uint8_t* out);          /* 64 байта (SHA-512) или 48 (SHA-384) */
+
 int  crypto_eq(const void* a, const void* b, size_t n);   /* сравнение за постоянное время: 1 - равны */
 void crypto_wipe(void* p, size_t n);                      /* стереть секрет (компилятор не выбросит) */
 #endif

@@ -173,9 +173,35 @@ static int64_t grant_op(const fsrv_user_req_t* u) {
     return r;
 }
 
+/* Общие файлы системы для всех программ - только чтение и только из /etc/ssl (хранилище корневых сертификатов).
+   Имя - одно имя файла по правилам песочницы (без «/» и «..»), путь собирает ядро. */
+static int64_t sys_op(const fsrv_user_req_t* u) {
+    char name[FSRV_NAME_MAX + 1], path[16 + FSRV_NAME_MAX];
+    if (u->name_len == 0 || u->name_len > FSRV_NAME_MAX || copy_from_user(name, u->name_ptr, u->name_len) != 0) return FS_E_ARG;
+    name[u->name_len] = 0;
+    if (!fsrv_name_ok(name)) return FS_E_DENIED;
+    const char* pre = "/etc/ssl/"; unsigned n = 0;
+    while (pre[n]) { path[n] = pre[n]; n++; }
+    for (unsigned i = 0; name[i]; i++) path[n++] = name[i];
+    path[n] = 0;
+    if (u->op == FS_OP_SYS_STAT) {
+        kfs_stat_t st;
+        int e = vfs_stat(path, &st);
+        return e ? e : (st.type == KFS_FILE ? (int64_t)st.size : FS_E_DENIED);
+    }
+    if (!u->buf_len || u->buf_len > fsrv_max_data() || !user_range(u->buf_ptr, u->buf_len, 1)) return FS_E_ARG;
+    uint8_t* b = (uint8_t*)kmalloc(u->buf_len);
+    if (!b) return KFS_ERR_NOSPC;
+    int64_t r = vfs_read(path, u->off, b, (size_t)u->buf_len);
+    if (r > 0 && copy_to_user(u->buf_ptr, b, (uint64_t)r) != 0) r = FS_E_ARG;
+    kfree(b);
+    return r;
+}
+
 int64_t fsrv_syscall(uint64_t up) {
     fsrv_user_req_t u;                                                           /* своя копия: программа не изменит её во время проверки */
     if (copy_from_user(&u, up, sizeof u) != 0) return FS_E_ARG;
+    if (u.op == FS_OP_SYS_READ || u.op == FS_OP_SYS_STAT) return sys_op(&u);
     if (u.op >= FS_OP_GRANT_READ && u.op <= FS_OP_GRANT_NAME) return grant_op(&u);
     if (u.op < FS_OP_READ || u.op > FS_OP_REMOVE) return FS_E_ARG;
     const char* prog = proc_current_name();

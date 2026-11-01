@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
-"""HTTPS-ответ для проверки TLS 1.3 Киры. Без аргументов - через stdin/stdout (QEMU guestfwd на 10.0.2.100:443);
-«--port N» - один раз на TCP 127.0.0.1:N (хост-тест). Сертификат - самоподписанный ECDSA P-256, создаётся при запуске.
+"""HTTPS-ответ для проверки TLS 1.3 Киры. Без --port - через stdin/stdout (QEMU guestfwd на 10.0.2.100:443);
+«--port N» - один раз на TCP 127.0.0.1:N (хост-тест). «--chain каталог» - цепочка из ci/mkchain.py (сервер +
+промежуточный), «--self каталог» - самоподписанный оттуда же; без них - самоподписанный, созданный при запуске.
 Тело - больше 16 КБ (несколько записей TLS); первая строка называет версию и шифр, которые выбрал сервер."""
 import os, ssl, socket, subprocess, sys, tempfile
 
-d = tempfile.mkdtemp()
-subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes",
-                "-keyout", d + "/k.pem", "-out", d + "/c.pem", "-days", "1", "-subj", "/CN=kira.test"],
-               check=True, capture_output=True)
+args = sys.argv[1:]
+opt = lambda k: args[args.index(k) + 1] if k in args else None
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ctx.minimum_version = ssl.TLSVersion.TLSv1_3
-ctx.load_cert_chain(d + "/c.pem", d + "/k.pem")
+if opt("--chain"):
+    ctx.load_cert_chain(os.path.join(opt("--chain"), "chain.pem"), os.path.join(opt("--chain"), "leaf.key"))
+elif opt("--self"):
+    ctx.load_cert_chain(os.path.join(opt("--self"), "self.pem"), os.path.join(opt("--self"), "self.key"))
+else:
+    d = tempfile.mkdtemp()
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes",
+                    "-keyout", d + "/k.pem", "-out", d + "/c.pem", "-days", "1", "-subj", "/CN=kira.test"],
+                   check=True, capture_output=True)
+    ctx.load_cert_chain(d + "/c.pem", d + "/k.pem")
 
-if len(sys.argv) > 2 and sys.argv[1] == "--port":
+if opt("--port"):
     ls = socket.socket(); ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    ls.bind(("127.0.0.1", int(sys.argv[2]))); ls.listen(1)
+    ls.bind(("127.0.0.1", int(opt("--port")))); ls.listen(1)
     print("ready", flush=True)
     conn, _ = ls.accept()
     rd = lambda: conn.recv(16384)

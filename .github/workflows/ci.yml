@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm dosfstools mtools
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm dosfstools mtools python3-cryptography ca-certificates openssl
       - name: host tests (models of devices, file systems, scheduler, mind)
         run: |
           mkdir -p ci-out
@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld llvm qemu-system-arm dosfstools mtools
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld llvm qemu-system-arm dosfstools mtools python3-cryptography ca-certificates openssl
       - name: build ARM64 (clang, -Werror)
         run: ./build_arm64.sh && ci/make_flash.sh
       - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"
@@ -83,7 +83,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm || true
       - name: QEMU
-        run: sudo apt-get update -q && sudo apt-get install -y -q qemu-system-x86 dosfstools mtools python3-pil
+        run: sudo apt-get update -q && sudo apt-get install -y -q qemu-system-x86 dosfstools mtools python3-pil python3-cryptography openssl
       - name: kfstool (test files on the VM disk)
         run: gcc -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
       - name: scenario

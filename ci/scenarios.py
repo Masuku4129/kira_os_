@@ -39,6 +39,7 @@ DISK_IRQ = [{"cmd": "write /irqtest.txt kira-irq"}, {"cmd": "cat /irqtest.txt", 
 
 HTTP_ONCE = os.path.abspath(os.path.join(os.path.dirname(__file__), "http_once.py"))
 HTTPS_ONCE = os.path.abspath(os.path.join(os.path.dirname(__file__), "https_once.py"))
+TLS_CHAIN = os.path.abspath("ci-out/tlschain")       # создаёт стенд (tls_chain=True): ci/mkchain.py
 
 ALL = [
     sc("boot-virtio", "загрузка: virtio-blk, 4 ядра, базовые проверки", BASIC + [
@@ -180,7 +181,9 @@ ALL = [
         {"cmd": "fetch 10.0.2.100 /virtio"}, {"sleep": 3},
         {"log": [r"fetch: 10\.0\.2\.100/virtio - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"]},
         {"cmd": "fetch https://10.0.2.100/tls"}, {"sleep": 10},                            # TLS 1.3 с OpenSSL хозяина
-        {"log": [r"fetch: TLS 1\.3, X25519 \+ ChaCha20-Poly1305, server Finished verified",
+        {"cmd": "fetch https://10.0.2.100:8443/self"}, {"sleep": 6},                     # самоподписанный - отказ
+        {"log": [r"fetch: TLS failed: issuer is not trusted"]},
+        {"log": [r"fetch: TLS 1\.3, X25519 \+ ChaCha20-Poly1305; certificate verified \(chain to a root, name, dates\)",
                  r"fetch: 10\.0\.2\.100/tls - HTTP/1\.0 200 OK - 2\d\d\d\d bytes .*server closed"]},
         {"cmd": "random", "must": [r"источники - .*virtio-rng", r"засеян аппаратным источником", r"проба: [0-9a-f]{32}"]},
         {"cmd": "serve"}, {"sleep": 2}, {"log": [r"serve: listening on port 8080"]},           # Кира - сервер: запрос с хозяина
@@ -188,8 +191,8 @@ ALL = [
         {"log": [r"\[HOST\] http /hello: 19\d\d\d bytes, first line 'kira-server-ok /hello', window lines 900",
                  r"\[HOST\] http /again: 19\d\d\d bytes, first line 'kira-server-ok /again'", r"serve: GET /again -> 200"]},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE + ",guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + ",hostfwd=tcp:127.0.0.1:18080-:8080",
-                                 "-device", "virtio-net-pci,netdev=n0", "-device", "virtio-rng-pci"]),
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE + ",guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + ",guestfwd=tcp:10.0.2.100:8443-cmd:python3 " + HTTPS_ONCE + " --self " + TLS_CHAIN + ",hostfwd=tcp:127.0.0.1:18080-:8080",
+                                 "-device", "virtio-net-pci,netdev=n0", "-device", "virtio-rng-pci"], tls_chain=True),
     sc("limbo-mttcg", "Limbo с галочкой Enable MTTCG (эмуляция потоком на ядро): 8 plasma - сравнить сборку и отклик с limbo-spam", [
         {"log": BOOT_LOG},
         *[{"send": "plasma"} for _ in range(8)],

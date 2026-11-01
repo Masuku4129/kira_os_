@@ -61,6 +61,13 @@ int main(void) {
     hkdf_expand_label(early, "derived", empty, 32, derived, 32);
     CHECK(eqhex(derived, "6f2615a108c702c5678f54fc9dbab69716c076189c48250cebeac3576c3611ba"));
 
+    sha512_ctx_t q5; sha512_init(&q5); sha512_update(&q5, "abc", 3); sha512_final(&q5, out);
+    CHECK(eqhex(out, "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"));
+    sha384_init(&q5);
+    for (int i = 0; i < 1000; i++) sha512_update(&q5, "a", 1);           /* через границу блока */
+    sha512_final(&q5, out);
+    CHECK(eqhex(out, "f54480689c6b0b11d0303285d9a81b21a93bca6ba5a1b4472765dca4da45ee328082d469c650cd3b61b16d3266ab8ced"));
+
     printf(fails ? "CRYPTO TESTS FAILED\n" : "crypto: ChaCha20, Poly1305, AEAD (+forgery), X25519 (+low order), HMAC-SHA256, HKDF, TLS 1.3 labels - RFC vectors passed\n");
     return fails != 0;
 }

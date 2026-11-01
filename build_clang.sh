@@ -42,10 +42,12 @@ done
 # fetch: HTTP и HTTPS - TLS 1.3 и криптография (crypto.c, sha256.c - те же файлы, что у ядра) внутри программы
 $CC $UCFLAGS -I. -Iuserland -c userland/fetch.c -o userland/fetch.o
 $CC $UCFLAGS -I. -Iuserland -c userland/tls.c -o userland/u_tls.o
+$CC $UCFLAGS -I. -Iuserland -c userland/x509.c -o userland/u_x509.o
+$CC $UCFLAGS -I. -c pk.c -o userland/u_pk.o
 $CC $UCFLAGS -I. -c crypto.c -o userland/u_crypto.o
 $CC $UCFLAGS -I. -c sha256.c -o userland/u_sha256.o
 $CC $UCFLAGS -c userland/libc_min.c -o userland/u_libc_min.o
-ld.lld $ULINK -o userland/fetch.elf userland/fetch.o userland/u_tls.o userland/u_crypto.o userland/u_sha256.o userland/u_libc_min.o
+ld.lld $ULINK -o userland/fetch.elf userland/fetch.o userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_libc_min.o
 UELF="$UELF userland/fetch.elf"
 # Программы с вещественной арифметикой (3D, тест FPU): SSE2 разрешён только им, ядро собирается без SSE.
 USSE_FLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -msse2 -mfpmath=sse -mno-mmx -fno-math-errno -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
@@ -78,6 +80,15 @@ for e in $UELF; do
 done
 userland/wasm/build.sh                                   # модули WebAssembly - в /wasm (те же файлы, что у ARM64)
 for w in build-wasm/*.wasm; do tools/kfstool kira.disk put /wasm/$(basename $w) $w; done
+# Корневые сертификаты для HTTPS: системная связка хозяина (PEM) -> /etc/ssl/roots.der на диске Киры
+$HOSTCC -O1 -Wall -o tools/pem2der tools/pem2der.c
+ROOTS_SRC=""
+for b in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt ${PREFIX:-/nonexistent}/etc/tls/cert.pem /etc/ssl/cert.pem; do
+    [ -f "$b" ] && ROOTS_SRC=$b && break
+done
+ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
+[ -n "$ROOTS_N" ] && echo "[*] Корневые сертификаты: $ROOTS_N из $ROOTS_SRC" || echo "[!] Связки корневых сертификатов нет (пакет ca-certificates): fetch https откажется проверять сервер"
+[ -n "$ROOTS_N" ] && tools/kfstool kira.disk put /etc/ssl/roots.der tools/roots.der
 
 echo "[*] Компиляция C..."
 OBJ="boot.o"
@@ -112,6 +123,7 @@ case "$1" in
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
             for e in $UELF; do tools/kfstool "$OUT/kira_disk.img" put /bin/$(basename $e .elf) $e >/dev/null; done
             for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
+            [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."
         else
             cp kira.disk "$OUT/kira_disk.img"

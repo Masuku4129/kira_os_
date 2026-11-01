@@ -45,7 +45,8 @@ SC = [
                ("disk", [r"прерываний устройств \(MSI\): [1-9]"]),
                ("@sleep 4", []), ("net", [r"карта virtio-net, канал есть", r"адрес 10\.0\.2\.15"]),
                ("fetch 10.0.2.100 /v2m", [r"fetch: 10\.0\.2\.100/v2m - HTTP/1\.0 200 OK - 3\d\d\d bytes .*server closed"]),
-               ("fetch https://10.0.2.100/arm-tls", [r"fetch: TLS 1\.3, X25519 \+ ChaCha20-Poly1305, server Finished verified",
+               ("fetch https://10.0.2.100:8443/self", [r"fetch: TLS failed: issuer is not trusted"]),
+               ("fetch https://10.0.2.100/arm-tls", [r"fetch: TLS 1\.3, X25519 \+ ChaCha20-Poly1305; certificate verified \(chain to a root, name, dates\)",
                  r"fetch: 10\.0\.2\.100/arm-tls - HTTP/1\.0 200 OK - 2\d\d\d\d bytes .*server closed"]),
                ("random", [r"источники - .*interrupt timing", r"проба: [0-9a-f]{32}"]),
                ("serve", [r"serve: listening on port 8080"]),
@@ -182,13 +183,17 @@ def run(sc, out):
             sys.path.insert(0, os.path.dirname(__file__)); import mkfiles
             for dst, src in mkfiles.make(os.path.join(d, "files")).items():
                 subprocess.run(["tools/kfstool", img, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
+        if sc.get("net"):                           # тестовая цепочка TLS: её корневой - единственный доверенный на этом диске
+            chain = os.path.abspath("ci-out/tlschain")
+            subprocess.run([sys.executable, "-I", "ci/mkchain.py", chain], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["tools/kfstool", img, "put", "/etc/ssl/roots.der", os.path.join(chain, "root.der")], check=True, stdout=subprocess.DEVNULL)
         args += ["-drive", f"file={img},if=none,id=d0,format=raw"]
         args += ["-device", "nvme,drive=d0,serial=KIRA0001" if sc["disk"] == "nvme" else f"{sc['disk']},drive=d0"]
     if sc.get("net"):
         srv = os.path.abspath(os.path.join(os.path.dirname(__file__), "http_once.py"))
         nic = "virtio-net-pci" if sc["net"] == "virtio" else "e1000"
         tls = os.path.abspath(os.path.join(os.path.dirname(__file__), "https_once.py"))
-        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},guestfwd=tcp:10.0.2.100:443-cmd:python3 {tls},hostfwd=tcp:127.0.0.1:18081-:8080",
+        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},guestfwd=tcp:10.0.2.100:443-cmd:python3 {tls} --chain {os.path.abspath("ci-out/tlschain")},guestfwd=tcp:10.0.2.100:8443-cmd:python3 {tls} --self {os.path.abspath("ci-out/tlschain")},hostfwd=tcp:127.0.0.1:18081-:8080",
                  "-device", f"{nic},netdev=n0"]
     else:
         args += ["-nic", "none"]

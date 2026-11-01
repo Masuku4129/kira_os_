@@ -14,3 +14,5 @@ kira-arm64.elf
 kira-arm64.img
 kira-arm64.disk
 build-wasm/
+tools/pem2der
+tools/roots.der

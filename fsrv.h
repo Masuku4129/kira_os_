@@ -15,7 +15,8 @@ uint64_t fsrv_max_data(void);
 uint64_t fsrv_max_files(void);
 
 enum { FS_OP_READ = 1, FS_OP_WRITE = 2, FS_OP_STAT = 3, FS_OP_LIST = 4, FS_OP_REMOVE = 5,
-       FS_OP_GRANT_READ = 6, FS_OP_GRANT_STAT = 7, FS_OP_GRANT_NAME = 8 };   /* выданный при запуске файл (вне песочницы) */
+       FS_OP_GRANT_READ = 6, FS_OP_GRANT_STAT = 7, FS_OP_GRANT_NAME = 8,
+       FS_OP_SYS_READ = 9, FS_OP_SYS_STAT = 10 };   /* /etc/ssl/<имя>: общие файлы системы, только чтение (корневые сертификаты) */   /* выданный при запуске файл (вне песочницы) */
 enum { FS_E_DENIED = -100, FS_E_ARG = -101, FS_E_QUOTA = -102 };    /* прочие отрицательные значения - коды kfs.h */
 
 typedef struct {                        /* то, что программа передаёт в системный вызов (48 байт) */

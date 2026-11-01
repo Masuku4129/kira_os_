@@ -229,10 +229,24 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c
 $T/audio
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
-echo "== TLS 1.3 client against OpenSSL =="
-$CC $FLAGS -DTLS_HOST -Itests -Iuserland -fsanitize=address,undefined -o $T/tls tests/tls_host.c userland/tls.c crypto.c sha256.c
-python3 ci/https_once.py --port 18443 > $T/tls_srv.log 2>&1 &
-for i in $(seq 1 50); do grep -q ready $T/tls_srv.log 2>/dev/null && break; sleep 0.1; done
-$T/tls 18443
+echo "== X.509 and TLS 1.3 client against OpenSSL =="
+$CC $FLAGS -Iuserland -fsanitize=address,undefined -o $T/pk tests/pk_test.c pk.c crypto.c sha256.c
+$T/pk
+python3 -I ci/mkchain.py $T/chain >/dev/null
+$CC -O1 -Wall -o $T/pem2der tools/pem2der.c
+SYSROOTS=""
+for b in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt $PREFIX/etc/tls/cert.pem; do
+    [ -f "$b" ] && $T/pem2der "$b" $T/sysroots.der >/dev/null && SYSROOTS=$T/sysroots.der && break
+done
+$CC $FLAGS -Iuserland -fsanitize=address,undefined -o $T/x509 tests/x509_test.c userland/x509.c pk.c crypto.c sha256.c
+$T/x509 $T/chain $SYSROOTS
+$CC $FLAGS -DTLS_HOST -Itests -Iuserland -fsanitize=address,undefined -o $T/tls tests/tls_host.c userland/tls.c userland/x509.c pk.c crypto.c sha256.c
+tls_run() {   # порт, ключ сервера, ожидание
+    python3 ci/https_once.py --port $1 $2 > $T/tls_srv.log 2>&1 &
+    for i in $(seq 1 50); do grep -q ready $T/tls_srv.log 2>/dev/null && break; sleep 0.1; done
+    $T/tls $1 $T/chain/root.der $3
+}
+tls_run 18443 "--chain $T/chain" ok
+tls_run 18444 "--self $T/chain" untrusted
 rm -rf $T
 echo "ALL HOST TESTS PASSED"

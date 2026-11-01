@@ -2,6 +2,7 @@
    проверка Finished сервера (подлинность рукопожатия), Finished клиента, данные приложения, KeyUpdate, close_notify. */
 #include "tls.h"
 #include "../crypto.h"
+#include "x509.h"
 
 enum { CT_CCS = 20, CT_ALERT = 21, CT_HS = 22, CT_APP = 23 };
 enum { HS_CH = 1, HS_SH = 2, HS_NST = 4, HS_EE = 8, HS_CERT = 11, HS_CV = 15, HS_FIN = 20, HS_KU = 24 };
@@ -9,6 +10,9 @@ enum { HS_CH = 1, HS_SH = 2, HS_NST = 4, HS_EE = 8, HS_CERT = 11, HS_CV = 15, HS
 
 static u8 hs[40000]; static u32 hs_len;          /* собранные сообщения рукопожатия (могут идти через записи) */
 static sha256_ctx_t th;                           /* хэш переписки */
+static u8 certmsg[40000]; static u32 certmsg_len;  /* сообщение Certificate: цепочка сервера */
+static const u8* cert_p[8]; static size_t cert_l[8]; static int cert_n;
+static x509_t leaf;
 
 static void cp(u8* d, const u8* s, u32 n) { for (u32 i = 0; i < n; i++) d[i] = s[i]; }
 static u32 be16(const u8* p) { return (u32)p[0] << 8 | p[1]; }
@@ -110,7 +114,7 @@ static void hs_consume(u32 blen, int to_transcript) {
 
 static u32 put16(u8* p, u32 v) { p[0] = (u8)(v >> 8); p[1] = (u8)v; return 2; }
 
-int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms) {
+int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* roots, u32 roots_len, i64 now) {
     for (u32 i = 0; i < sizeof *t; i++) ((u8*)t)[i] = 0;
     t->sock = sock; t->state = 1; hs_len = 0;
     sha256_init(&th);
@@ -139,9 +143,9 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms) {
     }
     n += put16(ch + n, 0x002b); n += put16(ch + n, 3); ch[n++] = 2; n += put16(ch + n, 0x0304);   /* supported_versions */
     n += put16(ch + n, 0x000a); n += put16(ch + n, 4); n += put16(ch + n, 2); n += put16(ch + n, 0x001d);   /* x25519 */
-    static const u16 sigs[] = { 0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0807 };
-    n += put16(ch + n, 0x000d); n += put16(ch + n, 2 + 2 * 7); n += put16(ch + n, 2 * 7);
-    for (int i = 0; i < 7; i++) n += put16(ch + n, sigs[i]);
+    static const u16 sigs[] = { 0x0403, 0x0503, 0x0804, 0x0805, 0x0806, 0x0401, 0x0501, 0x0601 };   /* то, что умеет pk.c */
+    n += put16(ch + n, 0x000d); n += put16(ch + n, 2 + 2 * 8); n += put16(ch + n, 2 * 8);
+    for (int i = 0; i < 8; i++) n += put16(ch + n, sigs[i]);
     n += put16(ch + n, 0x0033); n += put16(ch + n, 2 + 4 + 32); n += put16(ch + n, 4 + 32);
     n += put16(ch + n, 0x001d); n += put16(ch + n, 32); cp(ch + n, pub, 32); n += 32;   /* key_share */
     put16(ch + ext, n - ext - 2);
@@ -197,19 +201,39 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms) {
         const u8* m = hs + 4;
         if (ty == HS_EE) { hs_consume(bl, 1); continue; }
         if (ty == HS_CERT) {                                      /* цепочка: контекст, список (длина 3), записи */
-            if (bl < 4) return fail(t, "bad Certificate");
-            u32 c = 1 + m[0], end = c + 3 + be24(m + c);
+            if (bl < 4 || bl > sizeof certmsg) return fail(t, "bad or too large Certificate");
+            cp(certmsg, m, bl); certmsg_len = bl; cert_n = 0;
+            u32 c = 1 + certmsg[0];
+            if (c + 3 > bl) return fail(t, "bad Certificate");
+            u32 end = c + 3 + be24(certmsg + c);
+            if (end > bl) return fail(t, "bad Certificate");
             c += 3;
-            while (c + 3 <= end && c + 3 <= bl) {
-                u32 cl = be24(m + c);
+            while (c + 3 <= end) {
+                u32 cl = be24(certmsg + c);
+                if (c + 3 + cl + 2 > end) return fail(t, "bad Certificate entry");
+                if (cert_n < 8) { cert_p[cert_n] = certmsg + c + 3; cert_l[cert_n] = cl; cert_n++; }
                 if (!t->cert_count) t->leaf_len = cl;
                 t->cert_count++;
-                c += 3 + cl; if (c + 2 > bl) break;
-                c += 2 + be16(m + c);
+                c += 3 + cl;
+                c += 2 + be16(certmsg + c);
             }
+            if (!cert_n || x509_parse(cert_p[0], cert_l[0], &leaf)) return fail(t, "server certificate is not valid X.509");
             hs_consume(bl, 1); continue;
         }
-        if (ty == HS_CV) { hs_consume(bl, 1); continue; }         /* подпись не проверяется (см. tls.h) */
+        if (ty == HS_CV) {                                        /* подпись переписки ключом сертификата сервера */
+            if (!cert_n || bl < 4 || 4 + be16(m + 2) != bl) return fail(t, "bad CertificateVerify");
+            static u8 cvd[64 + 34 + 32];
+            for (int i = 0; i < 64; i++) cvd[i] = 0x20;
+            const char* ctx = "TLS 1.3, server CertificateVerify";
+            for (int i = 0; i < 33; i++) cvd[64 + i] = (u8)ctx[i];
+            cvd[97] = 0;
+            th_hash(cvd + 98);
+            int vr = x509_verify_scheme(&leaf, be16(m), cvd, sizeof cvd, m + 4, bl - 4);
+            if (vr == -2) return fail(t, "server signed with an unsupported scheme");
+            if (vr) return fail(t, "CertificateVerify signature is wrong (server does not own the certificate key)");
+            t->cv_ok = 1;
+            hs_consume(bl, 1); continue;
+        }
         if (ty == HS_FIN) {
             u8 fk[32], want[32];
             hkdf_expand_label(ssec, "finished", 0, 0, fk, 32);
@@ -221,7 +245,12 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms) {
         }
         return fail(t, "unexpected handshake message");
     }
-    if (!t->cert_count) return fail(t, "server sent no certificate");
+    if (!t->cert_count || !t->cv_ok) return fail(t, "server did not prove its certificate (no Certificate/CertificateVerify)");
+    if (roots) {                                                  /* цепочка до корневого, имя, срок */
+        const char* why = 0;
+        if (x509_verify_chain(cert_p, cert_l, cert_n, roots, roots_len, host, now, &why)) return fail(t, why);
+        t->verified = 1; t->why = why;
+    }
 
     /* ---- ключи приложения (по переписке до Finished сервера включительно) ---- */
     u8 ms_[32], cap[32], sap[32];
@@ -247,7 +276,6 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms) {
     crypto_wipe(hsec, 32); crypto_wipe(csec, 32); crypto_wipe(ssec, 32); crypto_wipe(ms_, 32); crypto_wipe(cap, 32); crypto_wipe(sap, 32);
     crypto_wipe(fk, 32); crypto_wipe(early, 32);
     t->state = 2;
-    t->verified = 0;
     return 0;
 }
 

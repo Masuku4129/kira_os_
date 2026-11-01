@@ -7,6 +7,7 @@ KIRA_ENTRY()
 
 static tls_t tls;
 static int use_tls;
+static u8 roots[512 * 1024];                     /* /etc/ssl/roots.der - корневые сертификаты системы */
 static i64 xsend(i64 h, const void* p, u32 n) { return use_tls ? tls_send(&tls, p, n) : k_net_send(h, p, n); }
 static i64 xrecv(i64 h, void* p, u32 n, u32 ms) { return use_tls ? tls_recv(&tls, p, n, ms) : k_net_recv(h, p, n, ms); }
 
@@ -34,8 +35,19 @@ int umain(void) {
     i64 h = k_net_connect((u32)ip, port);
     if (h < 0) { say("fetch: connection refused or no network\n"); return 1; }
     if (use_tls) {
-        if (tls_connect(&tls, h, host, 10000)) { say("fetch: TLS failed: "); say(tls.err); say("\n"); k_net_close(h); return 1; }
-        say("fetch: TLS 1.3, X25519 + ChaCha20-Poly1305, server Finished verified; certificate NOT verified (X.509 check is not implemented yet)");
+        i64 rl = 0, sz = k_sys_stat("roots.der");
+        if (sz > 0 && (u64)sz <= sizeof roots)
+            while (rl < sz) { i64 r = k_sys_read("roots.der", roots + rl, (u64)(sz - rl), (u64)rl); if (r <= 0) break; rl += r; }
+        if (rl != sz || sz <= 0) {                                /* без корневых личность сервера не проверить: отказ */
+            say("fetch: no root certificates (/etc/ssl/roots.der): the server identity cannot be checked, not connecting\n");
+            k_net_close(h); return 1;
+        }
+        i64 now = k_time();
+        if (tls_connect(&tls, h, host, 10000, roots, (u32)rl, now > 0 ? now : 0)) {
+            say("fetch: TLS failed: "); say(tls.err); say("\n"); k_net_close(h); return 1;
+        }
+        say("fetch: TLS 1.3, X25519 + ChaCha20-Poly1305; certificate verified (chain to a root, name");
+        say(now > 0 ? ", dates)" : "; dates NOT checked: no real-time clock)");
         if (tls.weak_random) say("; key from timing-only randomness (no hardware RNG)");
         say("\n");
     }

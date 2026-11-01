@@ -19,7 +19,7 @@ for app in mt ipc burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk
     UELF="$UELF build-arm64/$app.elf"
 done
 # fetch: HTTP и HTTPS (TLS 1.3 и криптография внутри программы)
-for f in userland/fetch.c userland/tls.c crypto.c sha256.c userland/libc_min.c; do
+for f in userland/fetch.c userland/tls.c userland/x509.c pk.c crypto.c sha256.c userland/libc_min.c; do
     $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/uf_$(basename $f .c).o
 done
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/fetch.elf build-arm64/uf_*.o
@@ -53,6 +53,15 @@ tools/kfstool kira-arm64.disk init >/dev/null
 for e in $UELF; do tools/kfstool kira-arm64.disk put /bin/$(basename $e .elf) $e >/dev/null; done
 userland/wasm/build.sh                                   # модули WebAssembly - те же файлы, что у x86-64
 for w in build-wasm/*.wasm; do tools/kfstool kira-arm64.disk put /wasm/$(basename $w) $w >/dev/null; done
+# Корневые сертификаты для HTTPS: системная связка хозяина (PEM) -> /etc/ssl/roots.der на диске Киры
+$HOSTCC -O1 -Wall -o tools/pem2der tools/pem2der.c
+ROOTS_SRC=""
+for b in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt ${PREFIX:-/nonexistent}/etc/tls/cert.pem /etc/ssl/cert.pem; do
+    [ -f "$b" ] && ROOTS_SRC=$b && break
+done
+ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
+[ -n "$ROOTS_N" ] && echo "[*] Корневые сертификаты: $ROOTS_N из $ROOTS_SRC" || echo "[!] Связки корневых сертификатов нет (пакет ca-certificates): fetch https откажется проверять сервер"
+[ -n "$ROOTS_N" ] && tools/kfstool kira-arm64.disk put /etc/ssl/roots.der tools/roots.der >/dev/null
 if [ "$1" = "--run" ]; then
     exec qemu-system-aarch64 -M virt,gic-version=3 -cpu cortex-a72 -smp 4 -m 1G -serial mon:stdio -kernel kira-arm64.img -drive file=kira-arm64.disk,if=none,id=d0,format=raw -device virtio-blk-pci,drive=d0 \
         -device virtio-gpu-pci -device virtio-keyboard-pci -device virtio-tablet-pci

@@ -25,7 +25,7 @@ static inline i64 ksys(u64 n, u64 a, u64 b, u64 c) {
 #endif
 
 enum { K_FS = 10, K_HEAP = 11 };
-enum { KFS_READ = 1, KFS_WRITE = 2, KFS_STAT = 3, KFS_LIST = 4, KFS_REMOVE = 5, KFS_GRANT_READ = 6, KFS_GRANT_STAT = 7, KFS_GRANT_NAME = 8 };
+enum { KFS_READ = 1, KFS_WRITE = 2, KFS_STAT = 3, KFS_LIST = 4, KFS_REMOVE = 5, KFS_GRANT_READ = 6, KFS_GRANT_STAT = 7, KFS_GRANT_NAME = 8, KFS_SYS_READ = 9, KFS_SYS_STAT = 10 };
 typedef struct { u32 op, name_len; u64 name_ptr, buf_ptr, buf_len, off; } kfs_req_t;
 enum { K_WRITE = 1, K_EXIT = 2, K_TICKS = 3, K_SLEEP = 4, K_YIELD = 5, K_GETPID = 6,
        K_GFX_CREATE = 7, K_GFX_PRESENT = 8, K_GFX_EVENT = 9 };
@@ -64,6 +64,9 @@ static inline i64 k_file_list(char* buf, u64 cap) { return k_fs(KFS_LIST, "", 0,
 /* Файл, выданный при запуске (открыт из Проводника): размер, путь, чтение кусками (вне песочницы, только он). */
 static inline i64 k_grant_size(void) { return k_fs(KFS_GRANT_STAT, "", 0, (void*)0, 0, 0); }
 static inline i64 k_grant_name(char* buf, u64 cap) { return k_fs(KFS_GRANT_NAME, "", 0, buf, cap, 0); }
+/* Общие файлы системы (/etc/ssl/<имя>), только чтение: корневые сертификаты. */
+static inline i64 k_sys_read(const char* name, void* buf, u64 cap, u64 off) { return k_fs(KFS_SYS_READ, name, k_strlen(name), buf, cap, off); }
+static inline i64 k_sys_stat(const char* name) { return k_fs(KFS_SYS_STAT, name, k_strlen(name), 0, 0, 0); }
 static inline i64 k_grant_read(void* buf, u64 len, u64 off) { return k_fs(KFS_GRANT_READ, "", 0, buf, len, off); }
 
 /* ---- Потоки, futex, порты, разделяемая память, часы ---- */
@@ -133,13 +136,14 @@ static inline i64 k_net_send(i64 h, const void* p, u64 n) { return ksys(K_NET_SE
 /* Байт принято; 0 - собеседник закрыл; < 0 - сброс или срок (timeout_ms, 0 - 10 с). */
 static inline i64 k_net_recv(i64 h, void* p, u32 n, u32 timeout_ms) { return ksys(K_NET_RECV, (u64)h, (u64)p, (u64)n | ((u64)timeout_ms << 32)); }
 static inline i64 k_net_close(i64 h) { return ksys(K_NET_CLOSE, (u64)h, 0, 0); }   /* соединение или слушатель */
-enum { K_NET_LISTEN = 31, K_NET_ACCEPT = 32, K_SND_OPEN = 33, K_SND_WRITE = 34, K_SND_CLOSE = 35, K_RANDOM = 36 };
+enum { K_NET_LISTEN = 31, K_NET_ACCEPT = 32, K_SND_OPEN = 33, K_SND_WRITE = 34, K_SND_CLOSE = 35, K_RANDOM = 36, K_TIME = 37 };
 /* Звук: поток программы (кадры 48 кГц, 16 бит, стерео - 4 байта); write принимает, сколько влезло в очередь (1 с). */
 static inline i64 k_snd_open(void) { return ksys(K_SND_OPEN, 0, 0, 0); }
 static inline i64 k_snd_write(i64 h, const void* p, u64 bytes) { return ksys(K_SND_WRITE, (u64)h, (u64)p, bytes); }
 static inline i64 k_snd_close(i64 h) { return ksys(K_SND_CLOSE, (u64)h, 0, 0); }
 /* случайные байты ядра (до 256): 1 - засеяно аппаратным источником, 0 - только временем событий, <0 - ошибка */
 static inline i64 k_random(void* buf, u64 n) { return ksys(K_RANDOM, (u64)buf, n, 0); }
+static inline i64 k_time(void) { return ksys(K_TIME, 0, 0, 0); }      /* секунды UTC от 1970; -1 - часов нет */
 static inline i64 k_net_listen(u32 port) { return ksys(K_NET_LISTEN, port, 0, 0); }             /* слушатель (100+) */
 static inline i64 k_net_accept(i64 l, u32 timeout_ms) { return ksys(K_NET_ACCEPT, (u64)l, timeout_ms, 0); }   /* 0 мс - ждать без срока */
 /* Строка аргументов запуска (run имя аргументы): длина или < 0. */

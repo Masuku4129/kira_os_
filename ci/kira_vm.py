@@ -45,6 +45,10 @@ class VM:
             import mkfiles
             for dst, src in mkfiles.make(os.path.join(out, "files")).items():
                 subprocess.run(["tools/kfstool", self.disk, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
+        if sc.get("tls_chain"):                     # тестовая цепочка: корневой - единственный доверенный на этом диске
+            chain = os.path.abspath("ci-out/tlschain")
+            subprocess.run([sys.executable, "-I", "ci/mkchain.py", chain], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["tools/kfstool", self.disk, "put", "/etc/ssl/roots.der", os.path.join(chain, "root.der")], check=True, stdout=subprocess.DEVNULL)
         if sc.get("disk_mb"):
             with open(self.disk, "r+b") as f:
                 f.truncate(sc["disk_mb"] * 1024 * 1024)
