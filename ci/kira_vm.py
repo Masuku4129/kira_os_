@@ -247,6 +247,9 @@ def run(sc, args):
                         raise Fail(f"«{cmd}»: в выводе «{bad.group(0)}»\n{outp[-1500:]}")
             elif "send" in st:                        # без ожидания приглашения (нагрузка, запуск программ)
                 vm.send(st["send"] + "\r")
+            elif "combo" in st:                       # одновременное нажатие (Alt+Shift - раскладка)
+                vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": k} for k in st["combo"]]}})
+                vm.pump(0.3)
             elif "keys" in st:                        # набор на клавиатуре машины (окну в фокусе), затем клавиши qcode
                 qc = {" ": "spc", "\n": "ret", ".": "dot", "-": "minus", "/": "slash"}
                 for ch in st["keys"]:

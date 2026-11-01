@@ -331,6 +331,12 @@ static void update_clock(void) {
     if (rtc_now(mind_sys_local_offset(), &t) != 0) { wm_set_clock("", ""); return; }
     rtc_format_date(&t, date, sizeof date);
     rtc_format_hm(&t, hm, sizeof hm);
+    {   /* раскладка клавиатуры (Alt+Shift) - рядом с датой */
+        unsigned n = 0; while (date[n]) n++;
+        const char* l = input_layout() ? "  ·  RU" : "  ·  EN";
+        for (unsigned i = 0; l[i] && n + 1 < sizeof date; i++) date[n++] = l[i];
+        date[n] = 0;
+    }
     wm_set_clock(date, hm);
 }
 

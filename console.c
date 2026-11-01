@@ -603,6 +603,7 @@ static void history_add(const char* l) {
 
 #define CK_UP   0x1001
 #define CK_DOWN 0x1002
+#define CK_CP   0x10000                  /* символ Unicode с клавиатуры (в строку - как UTF-8) */
 
 /* Источник ввода: ASCII-символ, CK_UP/CK_DOWN или -1. UART, затем события клавиатуры. */
 static int console_next_char(void) {
@@ -615,6 +616,7 @@ static int console_next_char(void) {
         if (ev.key == KEY_UP) return CK_UP;
         if (ev.key == KEY_DOWN) return CK_DOWN;
         if (ev.ch && ev.ch < 128) return (int)ev.ch;
+        if (ev.ch >= 0x80 && ev.ch < 0x800) return CK_CP | ev.ch;   /* кириллица (раскладка ЙЦУКЕН): код символа */
     }
     return -1;
 }
@@ -677,7 +679,11 @@ void console_poll(void) {
             line_len = 0; hist_pos = hist_n;
             show_prompt();
         } else if (c == 8 || c == 127) {
-            if (line_len) { line_len--; uart_print("\b \b"); }
+            if (line_len) {                                           /* символ целиком: UTF-8 - несколько байт */
+                while (line_len && ((unsigned char)line[line_len - 1] & 0xC0) == 0x80) line_len--;
+                if (line_len) line_len--;
+                uart_print("\b \b");
+            }
         } else if (c == 21) {                                         // Ctrl+U
             erase_echo();
         } else if (c == 3) {                                          // Ctrl+C
@@ -692,6 +698,15 @@ void console_poll(void) {
             if (hist_pos + 1 < hist_n) { hist_pos++; set_line(hist[hist_pos]); }
             else { hist_pos = hist_n; erase_echo(); }
         } else if (c >= 0x20 && c < 0x7F) {
+            if (line_len < LINE_MAX - 1) { line[line_len++] = (char)c; uart_putchar((char)c); }
+        } else if (c & CK_CP) {                                       /* с клавиатуры: два байта UTF-8 */
+            unsigned cp = (unsigned)c & 0x7FF;
+            if (line_len + 2 < LINE_MAX) {
+                char u[3] = { (char)(0xC0 | cp >> 6), (char)(0x80 | (cp & 0x3F)), 0 };
+                line[line_len++] = u[0]; line[line_len++] = u[1];
+                uart_print(u);
+            }
+        } else if (c >= 0x80 && c <= 0xF4 && c != 0xC0 && c != 0xC1) {   /* из порта - байт UTF-8 (0xFF «пустого» порта - нет) */
             if (line_len < LINE_MAX - 1) { line[line_len++] = (char)c; uart_putchar((char)c); }
         }
     }

@@ -136,6 +136,9 @@ ALL = [
     ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"]),
     sc("apps-edit", "редактор: окно, набор на клавиатуре, сохранение в песочницу, файл виден в /data/edit", [
         {"log": BOOT_LOG},
+        {"combo": ["alt", "shift"]}, {"keys": "ghbdtn\n"}, {"sleep": 1},      # кириллица в строке терминала (Alt+Shift)
+        {"log": [r"неизвестная команда: привет"]},
+        {"combo": ["alt", "shift"]},
         {"cmd": "run edit"}, {"sleep": 2},
         {"keys": "hello kira\nline two", "then": ["f2"]}, {"sleep": 2}, {"shot": "edit"},
         {"log": [r"edit: note\.txt - сохранено: 19 байт"]},
