@@ -11,6 +11,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: lint (заглушки в новых строках)
+        if: github.ref_name != 'main' && github.ref_name != 'stable'
+        run: |
+          git fetch -q origin stable main || true
+          ci/lint.sh
       - name: tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm dosfstools mtools python3-cryptography python3-pil ca-certificates openssl
       - name: host tests (models of devices, file systems, scheduler, mind)
