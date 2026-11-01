@@ -101,6 +101,7 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     o->smi_cmd = rd32(f + 48); o->acpi_enable = f[52];
     o->pm1a_cnt = rd32(f + 64); o->pm1b_cnt = rd32(f + 68);
     uint32_t flags = rd32(f + 112);
+    if (len >= 111 && f[8] >= 2 && (f[109] & 1)) o->legacy_isa = 1;   /* IAPC_BOOT_ARCH: LEGACY_DEVICES */
     if (len >= 129 && (flags & (1u << 10))) {                    /* RESET_REG_SUP */
         o->reset_space = f[116]; o->reset_addr = rd64(f + 120); o->reset_value = f[128];
         o->reset_valid = o->reset_addr && (o->reset_space == 0 || o->reset_space == 1);
@@ -219,6 +220,7 @@ int mp_parse(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
         }
         off += el;
     }
+    for (unsigned b = 0; b < sizeof isa; b++) if (isa[b]) o->legacy_isa = 1;   /* в таблицах MP есть шина ISA */
     off = 44;                                             /* второй проход: назначения прерываний (шины и IOAPIC уже известны) */
     for (uint32_t n = 0; n < count && off < len; n++) {
         uint8_t type = t[off];

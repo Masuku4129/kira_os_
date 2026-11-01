@@ -208,6 +208,15 @@ ALL = [
         {"cmd": "record 300", "must": [r"запись: microphone, 14400 кадров за \d+ мс"], "timeout": 10},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", extra=["-device", "AC97,audiodev=a0"]),
+    sc("sound-sb16", "звук: Sound Blaster 16 (ISA, как Sound: sb16 в Limbo) - порт, IRQ и DMA от самой карты, 16 бит стерео через 8237 и микшер", [
+        {"log": BOOT_LOG + [r"\[KIRA SB16\] Sound: Sound Blaster 16 DSP 4\.\d+ at port 0x[0-9A-F]+ \(DSP reset answered\), IRQ \d+, DMA 8-bit \d+, 16-bit [567] \(from the card's mixer registers 0x80/0x81\)"]},
+        {"cmd": "sound", "must": [r"Sound Blaster 16: DSP 4\.\d+, порт 0x[0-9A-F]+, IRQ \d+", r"DMA 8 бит \d+, 16 бит [567]", r"микшер: работает", r"вход: нет"]},
+        {"cmd": "beep 440 400", "must": [r"DMA прошёл [1-9]\d* байт - карта играет"], "timeout": 15},
+        {"cmd": "melody"}, {"sleep": 6},
+        {"log": [r"melody: 8 notes, 76800 frames queued"]},
+        {"cmd": "sound", "must": [r"от программ смешано (7[6-9]|[89]\d)\d\d\d", r"недоборов 0", r"карта забрала кадров [1-9]\d{5,}", r"блоков подтверждено [1-9]"]},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", extra=["-device", "sb16,audiodev=a0"]),
     sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] virtio-net: MAC 52:54:00.*MSI-X", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},

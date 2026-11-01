@@ -32,6 +32,7 @@ typedef struct {
     uint8_t  reset_space;          /* 0 - память, 1 - порт */
     uint64_t reset_addr;
     uint8_t  reset_value;
+    int      legacy_isa;           /* платформа сообщает, что устаревшие устройства ISA есть: бит 0 IAPC_BOOT_ARCH в FADT (ACPI 2.0+) или шина ISA в таблицах MP */
 } acpi_info_t;
 
 /* Пакет \_S5 в байт-коде AML (чистая функция, тест на хосте): 0 - найден, в a и b - SLP_TYPa и SLP_TYPb. */

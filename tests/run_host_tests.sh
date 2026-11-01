@@ -242,6 +242,8 @@ echo "wasm: graphics program (window, f32 frames) equals native ($(head -1 $T/g_
 echo "wasm: f32/f64 interpreter output equals native ($(cat $T/f_native.txt | cut -c1-70)...)"
 $CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c -lm
 $T/audio
+$CC $FLAGS -fsanitize=address,undefined -o $T/sb16 tests/sb16_test.c sb16.c
+$T/sb16
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
 echo "== X.509 and TLS 1.3 client against OpenSSL =="

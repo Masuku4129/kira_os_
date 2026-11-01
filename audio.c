@@ -1,5 +1,6 @@
-/* Микшер звука (см. audio.h). Кольцо карты - audio_card_t (Intel HDA, AC'97); источники - очереди программ (1 с) и тон. */
+/* Микшер звука (см. audio.h). Кольцо карты - audio_card_t (Intel HDA, AC'97, Sound Blaster 16); источники - очереди программ (1 с) и тон. */
 #include "audio.h"
+#include "audio_fir.h"
 
 void audio_mix(int16_t* out, const int16_t* const* in, const uint32_t* gain, unsigned nin, uint32_t samples, uint32_t master) {
     for (uint32_t i = 0; i < samples; i++) {
@@ -15,9 +16,55 @@ uint32_t audio_vol_gain(unsigned p) { if (p > 100) p = 100; return p * p * 65536
 void audio_rs_init(audio_rs_t* r, unsigned in_rate, unsigned ch) {
     r->step = in_rate; r->pos = 0;                                  /* позиция - в долях 1/48000 входного кадра: точно */ r->have = 0; r->ch = ch == 1 ? 1 : 2;
     r->prev[0] = r->prev[1] = 0;
+    r->fir = in_rate > AUDIO_RATE; r->nin = r->m = 0;
+    for (unsigned i = 0; i < AUDIO_FIR_HIST * 2; i++) r->hist[i] = 0;
+}
+
+/* Понижение частоты: выходной кадр m стоит во входном времени c = m*R/48000 (R - входная частота); его значение -
+   сумма входных кадров n, |n - c| < HALF*R/48000, с весом ядра в выходных кадрах x = (n - c)*48000/R. Индекс таблицы
+   (Q16, 1/RES выходного кадра) идёт от первого кадра с шагом inc - без деления на каждый отсчёт; вес между узлами -
+   линейно. Сумма весов считается тут же и делит результат: постоянная составляющая проходит ровно 1:1 при любой
+   дробной позиции. Кадры до начала потока в сумму не входят. */
+static uint32_t fir_down(audio_rs_t* r, const int16_t* in, uint32_t nin, int16_t* out, uint32_t max_out) {
+    const int64_t R = (int64_t)r->step, F = AUDIO_RATE, H = AUDIO_FIR_HALF, MAXIDX = (int64_t)AUDIO_FIR_HALF * AUDIO_FIR_RES;
+    const int64_t inc = F * AUDIO_FIR_RES * 65536 / R;
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < nin; i++) {
+        uint32_t slot = (uint32_t)(r->nin & (AUDIO_FIR_HIST - 1));
+        r->hist[2 * slot] = in[i * r->ch];
+        r->hist[2 * slot + 1] = r->ch == 2 ? in[i * r->ch + 1] : in[i * r->ch];
+        r->nin++;
+        while (n < max_out) {
+            int64_t c = (int64_t)r->m * R;                           /* центр в 1/48000 входного кадра */
+            int64_t last = (c + H * R) / F;                          /* последний входной кадр ядра */
+            if (last >= (int64_t)r->nin) break;                      /* ещё не пришёл: ждём следующий вход */
+            int64_t first = c > H * R ? (c - H * R + F - 1) / F : 0;
+            int64_t oldest = (int64_t)r->nin - AUDIO_FIR_HIST;       /* глубже история не хранит */
+            if (first < oldest) first = oldest;
+            int64_t idx = (first * F - c) * (AUDIO_FIR_RES * 65536) / R;
+            int64_t acc0 = 0, acc1 = 0, wsum = 0;
+            for (int64_t k = first; k <= last; k++, idx += inc) {
+                int64_t a = idx < 0 ? -idx : idx;
+                int64_t j = a >> 16;
+                if (j >= MAXIDX) continue;                           /* за краем ядра вес 0 */
+                int32_t w0 = audio_fir_tab[j], w1 = audio_fir_tab[j + 1];
+                int32_t w = w0 + (int32_t)(((int64_t)(w1 - w0) * (a & 0xFFFF) + 32768) >> 16);   /* с округлением: сумма весов без смещения */
+                uint32_t sl = (uint32_t)(k & (AUDIO_FIR_HIST - 1));
+                acc0 += (int64_t)r->hist[2 * sl] * w; acc1 += (int64_t)r->hist[2 * sl + 1] * w; wsum += w;
+            }
+            for (int ch = 0; ch < 2; ch++) {
+                int64_t acc = ch ? acc1 : acc0, v = 0;
+                if (wsum > 0) v = (acc + (acc >= 0 ? wsum / 2 : -(wsum / 2))) / wsum;
+                out[2 * n + (unsigned)ch] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+            }
+            n++; r->m++;
+        }
+    }
+    return n;
 }
 
 uint32_t audio_resample(audio_rs_t* r, const int16_t* in, uint32_t nin, int16_t* out, uint32_t max_out) {
+    if (r->fir) return fir_down(r, in, nin, out, max_out);
     uint32_t n = 0;
     for (uint32_t i = 0; i < nin; i++) {
         int16_t c0 = in[i * r->ch], c1 = r->ch == 2 ? in[i * r->ch + 1] : c0;
@@ -282,7 +329,7 @@ void audio_proc_gone(uint32_t pid) {
 #ifndef KIRA_HOST_TEST
 void audiocmd_sound(const char* a) {
     (void)a;
-    if (!card) { uart_print("звуковой карты нет (поддерживаются Intel HDA и AC'97: в Limbo - Sound: hda или ac97)\n"); return; }
+    if (!card) { uart_print("звуковой карты нет (поддерживаются Intel HDA, AC'97 и Sound Blaster 16: в Limbo - Sound: hda, ac97 или sb16)\n"); return; }
     if (card->print) card->print(); else { uart_print(card->name); uart_print("\n"); }
     audio_print();
     uart_print(card->in_ready ? "вход: " : "вход: нет");
