@@ -95,14 +95,21 @@ static void tx_pump(void) {
 
 /* Авария: выдать кольцо целиком, ожидая передатчик (не дольше ~мс на байт: зависший порт не держит вечно). */
 static void tx_drain_sync(void) {
-    if (!present) { tx_tail = tx_head; return; }
-    while (tx_tail != tx_head) {
+    if (!present) { __atomic_store_n(&tx_tail, __atomic_load_n(&tx_head, __ATOMIC_ACQUIRE), __ATOMIC_RELEASE); return; }
+    /* Порт может обслуживать tx_pump другого ядра: дождаться его (недолго - при аварии оно могло встать с флагом),
+       иначе оба двигали бы tx_tail и хвост мог уйти за голову - бесконечная выдача кольца. */
+    for (int i = 0; i < 1000000 && __atomic_exchange_n(&tx_busy, 1, __ATOMIC_ACQUIRE); i++) cpu_relax();
+    for (;;) {
+        uint32_t t = __atomic_load_n(&tx_tail, __ATOMIC_ACQUIRE), h = __atomic_load_n(&tx_head, __ATOMIC_ACQUIRE);
+        if ((int32_t)(h - t) <= 0) break;
+        if (h - t > TX_RING) t = h - TX_RING;                         /* старше кольца - уже затёрто */
         int ok = 0;
         for (int i = 0; i < 200000; i++) if (inb(PORT + 5) & 0x20) { ok = 1; break; }
-        if (!ok) { tx_tail = tx_head; return; }
-        outb(PORT, (uint8_t)tx_ring[tx_tail % TX_RING]);
-        tx_tail++;
+        if (!ok) { __atomic_store_n(&tx_tail, h, __ATOMIC_RELEASE); break; }
+        outb(PORT, (uint8_t)tx_ring[t % TX_RING]);
+        __atomic_store_n(&tx_tail, t + 1, __ATOMIC_RELEASE);
     }
+    __atomic_store_n(&tx_busy, 0, __ATOMIC_RELEASE);
 }
 
 uint64_t uart_tx_dropped(void) { return tx_dropped; }
