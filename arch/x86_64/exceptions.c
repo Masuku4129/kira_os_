@@ -117,9 +117,9 @@ static void corefault_handle(uint64_t vector, uint64_t err, uint64_t rip, uint64
         uint64_t sp = frame[20], tmp;
         uart_print("[KIRA CORE] fault detail: error "); uart_print_hex(err); uart_print(", CR2 "); uart_print_hex(cr2);
         uart_print(", RSP "); uart_print_hex(sp); uart_print(", RBP "); uart_print_hex(frame[8]);
-        if (sp >= 0x1000 && !(sp & 7) && vmm_translate(sp, &tmp) == 0 && vmm_translate(sp + 63, &tmp) == 0) {
-            uart_print(", stack:");
-            for (unsigned i = 0; i < 8; i++) { uart_print(" "); uart_print_hex(((const uint64_t*)(uintptr_t)sp)[i]); }
+        uart_print(", stack:");
+        for (unsigned i = 0; i < 8 && sp >= 0x1000 && !(sp & 7) && vmm_translate(sp + 8ull * i, &tmp) == 0; i++) {   /* до конца отображённого стека */
+            uart_print(" "); uart_print_hex(((const uint64_t*)(uintptr_t)sp)[i]);
         }
         uart_print("\n");
         c->in_fault = 0;
