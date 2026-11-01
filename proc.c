@@ -235,8 +235,19 @@ uint32_t proc_current_caps(void) { proc_t* p = current_proc(); return p ? p->cap
 int proc_cap_denied(uint32_t cap, uint64_t nr) {
     proc_t* p = current_proc();
     if (p && __atomic_fetch_add(&p->cap_denied, 1, __ATOMIC_RELAXED) == 0) {
-        uart_print("[KIRA CAPS] process '"); uart_print(p->name); uart_print("' (pid "); uart_print_dec(p->pid);
-        uart_print("): system call "); uart_print_dec(nr); uart_print(" denied, no right "); uart_print(caps_bit_name(cap)); uart_print(".\n");
+        char m[160]; unsigned n = 0;                                 /* строка собирается целиком и выводится одним вызовом: вывод других потоков её не разорвёт */
+        const char* a = "[KIRA CAPS] process '"; while (*a) m[n++] = *a++;
+        for (const char* q = p->name; *q && n < 60; q++) m[n++] = *q;
+        a = "' (pid "; while (*a) m[n++] = *a++;
+        char d[24]; unsigned dn = 0; uint64_t v = p->pid; do { d[dn++] = (char)('0' + v % 10); v /= 10; } while (v);
+        while (dn) m[n++] = d[--dn];
+        a = "): system call "; while (*a) m[n++] = *a++;
+        v = nr; do { d[dn++] = (char)('0' + v % 10); v /= 10; } while (v);
+        while (dn) m[n++] = d[--dn];
+        a = " denied, no right "; while (*a) m[n++] = *a++;
+        for (const char* q = caps_bit_name(cap); *q && n < 140; q++) m[n++] = *q;
+        m[n++] = '.'; m[n++] = '\n'; m[n] = 0;
+        uart_print(m);
     }
     return -12;                                                   /* KE_PERM */
 }
