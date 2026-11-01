@@ -61,6 +61,7 @@ static userlog_t ulog;
 #define SYS_SND_WRITE     34 // (поток, буфер, байт) -> принято байт (кадры 48 кГц, 16 бит, стерео)
 #define SYS_SND_CLOSE     35 // (поток)
 #define SYS_SND_VOLUME    42 // (поток, 0..100) - громкость своего потока
+#define SYS_SND_RECORD    43 // (буф, байт <= 1 с, мс) -> записано байт (48 кГц стерео 16 бит со входа карты)
 #define SYS_UDP_OPEN      38 // (порт или 0) -> сокет UDP
 #define SYS_UDP_SEND      39 // (сокет | порт << 16 | адрес << 32, буфер, длина)
 #define SYS_UDP_RECV      40 // (сокет, буфер, ёмкость | мс << 32) -> байт; буфер: адрес, порт, длина, данные
@@ -227,6 +228,8 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return (uint64_t)audio_sys((unsigned)(nr - SYS_SND_OPEN), a1, a2, a3);
     case SYS_SND_VOLUME:
         return (uint64_t)audio_sys(3, a1, a2, 0);
+    case SYS_SND_RECORD:
+        return (uint64_t)audio_record_sys(a1, a2, a3);
     case SYS_UDP_OPEN: case SYS_UDP_SEND: case SYS_UDP_RECV: case SYS_UDP_CLOSE:
         return (uint64_t)net_udp_sys((unsigned)(nr - SYS_UDP_OPEN), a1, a2, a3);
     case SYS_TIME: {

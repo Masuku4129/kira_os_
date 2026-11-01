@@ -72,6 +72,7 @@ SC = [
                ("melody", [r"melody: 8 notes, 76800 frames queued"]), ("sound", [r"от программ смешано (7[6-9]|[89]\d)\d\d\d"]),
                ("melody 22050", [r"melody: 8 notes, 35280 frames queued at 22050 Hz stereo"]), ("@sleep 2", []),
                ("sound", [r"от программ смешано 15[2-4]\d\d\d"]),
+               ("record 200", [r"запись: (microphone|line in), 9600 кадров за \d+ мс"]),
                ("edit", []), ("@sleep 3", []), ("@type hello kira", []), ("@key f2", []), ("@sleep 2", []), ("@shot edit", []),
                ("cat /data/edit/note.txt", [r"hello kira"]),
                ("view /pic.png", [r"view: /pic\.png - PNG 97x61, .* sum %08x" % mkfiles_sums["/pic.png"]]), ("@sleep 2", []), ("@shot view", []),
@@ -211,7 +212,7 @@ def run(sc, out):
     if sc.get("qmp") and not sc.get("gui"):
         args += ["-qmp", f"unix:{qmp_path},server=on,wait=off"]
     if sc.get("gui"):
-        args += ["-audiodev", "none,id=snd0", "-device", "intel-hda", "-device", "hda-output,audiodev=snd0"]
+        args += ["-audiodev", "none,id=snd0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0"]
         args += ["-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
                  "-qmp", f"unix:{qmp_path},server=on,wait=off"]
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

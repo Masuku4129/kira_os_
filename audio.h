@@ -27,6 +27,11 @@ void audio_print(void);                        /* состояние микше�
 /* 0 open(частота или 0 = 48000, каналы 1/2 или 0 = 2), 1 write(h, buf, байт) -> принято байт, 2 close(h),
    3 volume(h, 0..100) - громкость своего потока. */
 int64_t audio_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3);
-int  audio_master(int percent);                /* общая громкость: <0 - только узнать; возврат - текущая */
+int  audio_master(int percent);
+/* Запись со входа карты (микрофон/линейный): frames кадров 48 кГц стерео, начиная с «сейчас». 0 - записано;
+   -1 - входа нет; -3 - запись уже идёт (один писатель); -5 - срок вышел (карта не пишет). */
+int  audio_capture(int16_t* out, uint32_t frames, uint64_t timeout_ticks);
+int64_t audio_record_sys(uint64_t ubuf, uint64_t bytes, uint64_t timeout_ms);   /* вызов 43 */
+void audiocmd_record(const char* arg);           /* команда record [мс] */                /* общая громкость: <0 - только узнать; возврат - текущая */
 void audio_proc_gone(uint32_t pid);
 #endif

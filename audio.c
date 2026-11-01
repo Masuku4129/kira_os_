@@ -203,6 +203,70 @@ int64_t audio_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
     return -10;
 }
 
+/* ---------- запись ---------- */
+static volatile int rec_busy;
+
+int audio_capture(int16_t* out, uint32_t frames, uint64_t timeout_ticks) {
+    if (!hda_in_ready()) return -1;
+    uint32_t ring = hda_in_bytes() / 4;
+    if (frames > ring / 2) return -10;
+    if (__atomic_exchange_n(&rec_busy, 1, __ATOMIC_ACQUIRE)) return -3;
+    uint32_t start = hda_in_pos() / 4;
+    uint64_t until = timer_get_ticks() + timeout_ticks;
+    int rc = -5;
+    for (;;) {
+        uint32_t avail = (hda_in_pos() / 4 + ring - start) % ring;
+        if (avail >= frames) {
+            cpu_mb();
+            const int16_t* b = hda_in_buf();
+            for (uint32_t i = 0; i < frames; i++) { uint32_t j = (start + i) % ring; out[2 * i] = b[2 * j]; out[2 * i + 1] = b[2 * j + 1]; }
+            rc = 0; break;
+        }
+        if (timer_get_ticks() >= until) break;
+        sched_sleep_ticks(1);
+    }
+    __atomic_store_n(&rec_busy, 0, __ATOMIC_RELEASE);
+    return rc;
+}
+
+int64_t audio_record_sys(uint64_t ubuf, uint64_t bytes, uint64_t ms) {
+    uint32_t frames = (uint32_t)(bytes / 4);
+    if (!frames || bytes > AUDIO_RATE * 4 || !user_range(ubuf, frames * 4ull, 1)) return -10;
+    int16_t* k = (int16_t*)kmalloc(frames * 4);
+    if (!k) return -4;
+    uint64_t t = ((ms ? ms : 2000) + (uint64_t)frames * 1000 / AUDIO_RATE) * TIMER_HZ / 1000 + 1;
+    int rc = audio_capture(k, frames, t);
+    int64_t r = rc ? rc : copy_to_user(ubuf, k, frames * 4ull) ? -10 : (int64_t)frames * 4;
+    kfree(k);
+    return r;
+}
+
+void audiocmd_record(const char* a) {
+    unsigned ms = 500;
+    while (a && *a == ' ') a++;
+    if (a && *a >= '0' && *a <= '9') { ms = 0; while (*a >= '0' && *a <= '9') ms = ms * 10 + (unsigned)(*a++ - '0'); }
+    if (ms < 10) ms = 10;
+    if (ms > 1000) ms = 1000;
+    uint32_t frames = AUDIO_RATE / 1000 * ms;
+    int16_t* k = (int16_t*)kmalloc(frames * 4);
+    if (!k) { uart_print("нет памяти\n"); return; }
+    uint64_t t0 = timer_get_ticks();
+    int rc = audio_capture(k, frames, (uint64_t)(ms + 1000) * TIMER_HZ / 1000);
+    if (rc == -1) uart_print("входа нет (нужен кодек с микрофоном или линейным входом: в QEMU -device hda-duplex)\n");
+    else if (rc == -3) uart_print("запись уже идёт (программа)\n");
+    else if (rc) uart_print("карта не пишет: за срок не пришло нужного числа кадров\n");
+    else {
+        int peak = 0; uint64_t sq = 0;
+        for (uint32_t i = 0; i < frames * 2; i++) { int v = k[i] < 0 ? -k[i] : k[i]; if (v > peak) peak = v; sq += (uint64_t)((int64_t)k[i] * k[i]); }
+        uint64_t rms = 0, m = sq / (frames * 2ull);
+        while ((rms + 1) * (rms + 1) <= m) rms++;
+        uart_print("запись: "); uart_print(hda_in_name()); uart_print(", "); uart_print_dec(frames); uart_print(" кадров за ");
+        uart_print_dec((timer_get_ticks() - t0) * 1000 / TIMER_HZ); uart_print(" мс, пик "); uart_print_dec((uint64_t)peak);
+        uart_print(", RMS "); uart_print_dec(rms); uart_print(peak ? "\n" : " (тишина на входе)\n");
+    }
+    kfree(k);
+}
+
 void audio_proc_gone(uint32_t pid) {
     uint64_t f = spin_lock_irqsave(&lk);
     for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used && src[k].pid == pid) src[k].used = 0;

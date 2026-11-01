@@ -1,6 +1,8 @@
 /* Intel High Definition Audio: контроллер по PCI (класс 04.03) и кодек на шине HDA. Команды кодеку - через кольца
    CORB/RIRB; путь звука ищется по графу виджетов: вывод (pin) с выходом -> (смеситель/переключатель) -> ЦАП.
-   Поток вывода: 48 кГц, 16 бит, стерео, список буферов (BDL) в памяти, DMA без прерываний (позиция - LPIB). */
+   Поток вывода: 48 кГц, 16 бит, стерео, список буферов (BDL) в памяти, DMA без прерываний (позиция - LPIB).
+   Вход: вывод с возможностью входа (микрофон, затем линейный вход) -> (смеситель/переключатель) -> АЦП, поток 2
+   записи по такому же вечному кольцу. */
 #include "hda.h"
 #ifdef KIRA_HOST_TEST
 /* хост: драйвера нет (тест консоли видит только команды) */
@@ -37,6 +39,10 @@ static struct {
     uint8_t* buf; uint64_t buf_p;
     uint32_t* bdl; uint64_t bdl_p;
     int up;
+    volatile uint8_t* isd;           /* дескриптор первого потока записи */
+    unsigned in_pin, adc, in_dev; int in_up;
+    uint8_t* ibuf; uint64_t ibuf_p;
+    uint32_t* ibdl; uint64_t ibdl_p;
     kmutex_t mx;
 } h = { .mx = KMUTEX_INIT };
 
@@ -121,6 +127,49 @@ static void unmute_path(void) {
     if (pc & (1u << 16)) verb(h.pin, 0x70C02u);                  /* EAPD - внешний усилитель */
 }
 
+/* Вход: от АЦП вглубь до вывода in_pin (не глубже 4), по пути - выбрать вход и снять глушение входных усилителей. */
+static int find_pin_from(unsigned nid, unsigned depth) {
+    if (depth >= 4) return 0;
+    if (nid == h.in_pin) return 1;
+    unsigned t = wtype(nid);
+    if (depth && t != 2 && t != 3) return 0;
+    unsigned c[16], n = conns(nid, c);
+    for (unsigned i = 0; i < n; i++) {
+        if (find_pin_from(c[i], depth + 1)) {
+            verb(nid, 0x70500u);
+            if (t == 3 || t == 1) verb(nid, 0x70100u | i);       /* переключатель / вход АЦП */
+            uint32_t ic = param(nid, 0x0D);                        /* входной усилитель: 0 дБ */
+            verb(nid, 0x37000u | i << 8 | (ic ? (ic & 0x7F) : 0x7F));
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void input_init(unsigned w0, unsigned wn) {
+    int best = -1;
+    for (unsigned w = w0; w < w0 + wn; w++) {
+        if (wtype(w) != 4 || !(param(w, 0x0C) & (1u << 5))) continue;   /* вывод с возможностью входа */
+        uint32_t cfg = verb(w, 0xF1C00u);
+        unsigned conn = cfg >> 30, dev = (cfg >> 20) & 15;
+        if (conn == 1) continue;
+        int score = dev == 0xA ? 3 : dev == 8 ? 2 : dev == 0xB || dev == 0xC ? 1 : -1;   /* микрофон, линейный, прочие */
+        if (score > best) { best = score; h.in_pin = w; h.in_dev = dev; }
+    }
+    if (best < 0) return;
+    for (unsigned w = w0; w < w0 + wn && !h.adc; w++) if (wtype(w) == 1 && find_pin_from(w, 0)) h.adc = w;
+    if (!h.adc) return;
+    uint32_t pc = param(h.in_pin, 0x0C);
+    unsigned vref = (pc & (1u << 10)) ? 4 : (pc & (1u << 9)) ? 2 : (pc & (1u << 8)) ? 1 : 0;   /* питание микрофона */
+    verb(h.in_pin, 0x70500u);
+    verb(h.in_pin, 0x70700u | 0x20 | (h.in_dev == 0xA ? vref : 0));   /* вход включён */
+    uint32_t pa = param(h.in_pin, 0x0D);
+    if (pa) verb(h.in_pin, 0x37000u | (pa & 0x7F));
+    verb(h.adc, 0x70500u);
+    verb(h.adc, 0x70620u);                                       /* поток 2, канал 0 */
+    verb(h.adc, 0x20000u | 0x0011);                              /* 48 кГц, 16 бит, 2 канала */
+}
+
 static int codec_init(void) {
     uint32_t root = param(0, 0x04);
     unsigned first = (root >> 16) & 0xFF, n = root & 0xFF, afg = 0;
@@ -145,7 +194,27 @@ static int codec_init(void) {
     unmute_path();
     verb(h.dac, 0x70610u);                                       /* поток 1, канал 0 */
     verb(h.dac, 0x20000u | 0x0011);                              /* 48 кГц, 16 бит, 2 канала */
+    input_init(w0, wn);
     return 0;
+}
+
+static void stream_ring(volatile uint8_t* sd, uint32_t* bdl, uint64_t bdl_p, uint64_t buf_p, unsigned tag) {
+    for (unsigned i = 0; i < NBDL; i++) {
+        uint64_t a = buf_p + (uint64_t)i * (BUFSZ / NBDL);
+        bdl[4 * i] = (uint32_t)a; bdl[4 * i + 1] = (uint32_t)(a >> 32); bdl[4 * i + 2] = BUFSZ / NBDL; bdl[4 * i + 3] = 0;
+    }
+    cpu_mb();
+    MMIO_W8(sd + SD_CTL, 1);                                     /* сброс потока */
+    for (int i = 0; i < 100000 && !(MMIO_R8(sd + SD_CTL) & 1); i++) cpu_relax();
+    MMIO_W8(sd + SD_CTL, 0);
+    for (int i = 0; i < 100000 && (MMIO_R8(sd + SD_CTL) & 1); i++) cpu_relax();
+    MMIO_W32(sd + SD_BDPL, (uint32_t)bdl_p); MMIO_W32(sd + SD_BDPU, (uint32_t)(bdl_p >> 32));
+    MMIO_W32(sd + SD_CBL, BUFSZ);
+    MMIO_W16(sd + SD_LVI, NBDL - 1);
+    MMIO_W16(sd + SD_FMT, 0x0011);
+    MMIO_W8(sd + SD_CTL + 2, (uint8_t)(tag << 4));               /* номер потока */
+    MMIO_W8(sd + SD_STS, 0x1C);
+    MMIO_W8(sd + SD_CTL, 2);                                     /* пуск: дальше - по кругу */
 }
 
 int hda_probe(void) {
@@ -189,9 +258,18 @@ int hda_probe(void) {
     unsigned iss = (r16(GCAP) >> 8) & 15;
     h.sd = h.r + 0x80 + 0x20 * iss;
     h.up = 1;
+    if (h.adc && iss) {                                          /* запись: первый поток входа */
+        h.isd = h.r + 0x80;
+        h.ibuf = (uint8_t*)virtio_dma_alloc(BUFSZ, &h.ibuf_p);
+        h.ibdl = (uint32_t*)virtio_dma_alloc(NBDL * 16, &h.ibdl_p);
+        if (h.ibuf && h.ibdl) { stream_ring(h.isd, h.ibdl, h.ibdl_p, h.ibuf_p, 2); h.in_up = 1; }
+    }
     uart_print("[KIRA HDA] Sound: codec "); uart_print_hex(h.vendor >> 16); uart_print(":"); uart_print_hex(h.vendor & 0xFFFF);
     uart_print(", output path pin "); uart_print_dec(h.pin); uart_print(" <- DAC "); uart_print_dec(h.dac);
     uart_print(", 48 kHz 16-bit stereo (commands: sound, beep).\n");
+    if (h.in_up) { uart_print("[KIRA HDA] Input: "); uart_print(hda_in_name()); uart_print(" pin "); uart_print_dec(h.in_pin);
+                   uart_print(" -> ADC "); uart_print_dec(h.adc); uart_print(", recording ring running (command: record).\n"); }
+    else uart_print(h.adc || h.in_pin ? "[KIRA HDA] Input: path found but no input stream on the controller.\n" : "[KIRA HDA] Input: codec has no usable input (microphone/line in).\n");
     audio_start();
     return 0;
 }
@@ -202,28 +280,17 @@ int hda_ring_start(void) {
     if (!h.up) return -1;
     kmutex_lock(&h.mx);
     for (uint32_t i = 0; i < BUFSZ; i++) h.buf[i] = 0;
-    for (unsigned i = 0; i < NBDL; i++) {
-        uint64_t a = h.buf_p + (uint64_t)i * (BUFSZ / NBDL);
-        h.bdl[4 * i] = (uint32_t)a; h.bdl[4 * i + 1] = (uint32_t)(a >> 32); h.bdl[4 * i + 2] = BUFSZ / NBDL; h.bdl[4 * i + 3] = 0;
-    }
-    cpu_mb();
-    volatile uint8_t* sd = h.sd;
-    MMIO_W8(sd + SD_CTL, 1);                                     /* сброс потока */
-    for (int i = 0; i < 100000 && !(MMIO_R8(sd + SD_CTL) & 1); i++) cpu_relax();
-    MMIO_W8(sd + SD_CTL, 0);
-    for (int i = 0; i < 100000 && (MMIO_R8(sd + SD_CTL) & 1); i++) cpu_relax();
-    MMIO_W32(sd + SD_BDPL, (uint32_t)h.bdl_p); MMIO_W32(sd + SD_BDPU, (uint32_t)(h.bdl_p >> 32));
-    MMIO_W32(sd + SD_CBL, BUFSZ);
-    MMIO_W16(sd + SD_LVI, NBDL - 1);
-    MMIO_W16(sd + SD_FMT, 0x0011);
-    MMIO_W8(sd + SD_CTL + 2, 1u << 4);                           /* номер потока 1 */
-    MMIO_W8(sd + SD_STS, 0x1C);
-    MMIO_W8(sd + SD_CTL, 2);                                     /* пуск: дальше - по кругу */
+    stream_ring(h.sd, h.bdl, h.bdl_p, h.buf_p, 1);
     kmutex_unlock(&h.mx);
     return 0;
 }
 uint32_t hda_ring_pos(void) { return h.up ? MMIO_R32(h.sd + SD_LPIB) % BUFSZ : 0; }
 int16_t* hda_ring_buf(void) { return (int16_t*)h.buf; }
+int hda_in_ready(void) { return h.in_up; }
+uint32_t hda_in_pos(void) { return h.in_up ? MMIO_R32(h.isd + SD_LPIB) % BUFSZ : 0; }
+const int16_t* hda_in_buf(void) { return (const int16_t*)h.ibuf; }
+uint32_t hda_in_bytes(void) { return BUFSZ; }
+const char* hda_in_name(void) { return h.in_dev == 0xA ? "microphone" : h.in_dev == 8 ? "line in" : "input"; }
 uint32_t hda_ring_bytes(void) { return BUFSZ; }
 
 /* Тон через микшер; dma_bytes - сколько байт карта забрала за это время. */

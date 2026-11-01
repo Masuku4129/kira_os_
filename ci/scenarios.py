@@ -181,11 +181,15 @@ ALL = [
         {"log": [r"melody: 8 notes, 76800 frames queued"]},
         {"cmd": "sound", "must": [r"микшер: работает", r"от программ смешано (7[6-9]|[89]\d)\d\d\d"]},
         {"cmd": "volume 30", "must": [r"громкость: 30%"]},
-        {"cmd": "melody 8000 mono"}, {"sleep": 5},                         # 8 кГц моно: ядро пересчитывает в 48 кГц стерео
-        {"log": [r"melody: 8 notes, 16000 frames queued at 8000 Hz mono"]},
+        {"cmd": "melody 8000 mono"}, {"sleep": 8},                         # 8 кГц моно: ядро пересчитывает в 48 кГц стерео
+        {"log": [r"melody: 8 notes, 12800 frames queued at 8000 Hz mono"]},
         {"cmd": "sound", "must": [r"от программ смешано 15[2-4]\d\d\d", r"громкость 30%"]},
+        {"log": [r"\[KIRA HDA\] Input: (microphone|line in) pin \d+ -> ADC \d+, recording ring running"]},
+        {"cmd": "record 300", "must": [r"запись: (microphone|line in), 14400 кадров за \d+ мс"], "timeout": 10},   # вход QEMU none - тишина
+        {"cmd": "rec 500"}, {"sleep": 4},
+        {"log": [r"rec: 24000 frames \(48 kHz stereo\), peak \d+, RMS \d+, saved to /data/rec/last\.wav"]},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M", extra=["-device", "intel-hda", "-device", "hda-output,audiodev=a0"]),
+    ], smp=2, mem="512M", extra=["-device", "intel-hda", "-device", "hda-duplex,audiodev=a0"]),
     sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] virtio-net: MAC 52:54:00.*MSI-X", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
