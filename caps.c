@@ -50,6 +50,9 @@ const char* caps_bit_name(uint32_t bit) {
     case CAP_SND: return "CAP_SND";           case CAP_REC: return "CAP_REC";
     case CAP_IPC: return "CAP_IPC";           case CAP_THREAD: return "CAP_THREAD";
     case CAP_FS: return "CAP_FS";             case CAP_GRANT: return "CAP_GRANT";
-    case CAP_SYSFILES: return "CAP_SYSFILES"; default: return "CAP_?";
+    case CAP_SYSFILES: return "CAP_SYSFILES";
+    case CAP_MMIO: return "CAP_MMIO";         case CAP_IRQ: return "CAP_IRQ";
+    case CAP_DMA: return "CAP_DMA";           case CAP_PCIDEV: return "CAP_PCIDEV";
+    case CAP_NETDEV: return "CAP_NETDEV";     default: return "CAP_?";
     }
 }
