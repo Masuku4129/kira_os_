@@ -154,6 +154,40 @@ else
     echo "kcc: сборка kcc как программы Киры пропущена: нет ld.lld или clang для x86_64-unknown-none-elf"
 fi
 
+# M4: AArch64. Кодировщик сверяется с эталоном llvm-mc; программы выполняет хост-эмулятор EL0 (tests/kcc/a64emu.c: только подмножество A64,
+# которое выдаёт kcc; ELF проверяется elf_parse() ядра ARM64): вывод и код возврата как у clang -O0 на хосте.
+total=$((total+1))
+if ! $CC -std=gnu99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -o $T/a64enc tests/kcc/a64_enc.c kcc/asm_a64.c; then note "a64_enc не собран"
+else
+    $T/a64enc >$T/a64.txt
+    diff tests/kcc/a64_ref.txt $T/a64.txt >$T/d || note "кодировки A64 расходятся с эталоном llvm-mc: $(head -4 $T/d | tr '\n' ' ')"
+fi
+$CC -std=gnu99 -O2 -g -Wall -Wextra -Werror -DKIRA_HOST_TEST -DKIRA_HOST_ARM64 -o $T/a64emu tests/kcc/a64emu.c elf.c || exit 1
+for f in tests/kcc/run/*.c tests/kcc/exec/*.c; do
+    total=$((total+1))
+    if ! $T/kcc -target aarch64 -I $INC -I kcc/include -o $T/p64.elf $f 2>$T/err; then note "$f: ELF AArch64 не собран: $(head -c 200 $T/err)"; continue; fi
+    if ! refbuild $f; then note "$f: clang не собрал: $(head -1 $T/rerr)"; continue; fi
+    $T/a64emu $T/p64.elf >$T/got 2>&1
+    cmp -s $T/want $T/got || note "$f: вывод AArch64 расходится с clang: $(head -c 120 $T/got | tr '\n' ' ') != $(head -c 120 $T/want | tr '\n' ' ')"
+done
+for f in tests/kcc/elfbad_a64/*.c; do
+    total=$((total+1))
+    $T/kcc -target aarch64 -I $INC -I kcc/include -o $T/p64.elf $f 2>$T/err; rc=$?
+    if [ $rc != 1 ]; then note "$f: kcc должен отвергнуть при генерации кода AArch64 (rc=$rc)"; continue; fi
+    lineinfo || note "$f: ошибка без номера строки: $(head -c 200 $T/err)"
+    want=$(sed -n 's|^// expect: ||p' $f | head -1)
+    grep -qF -- "$want" $T/err || note "$f: ожидалось '$want': $(head -c 200 $T/err)"
+done
+total=$((total+1))
+$T/kcc -target aarch64 -I kcc/include -o $T/n64.elf tests/kcc/native/hello.c 2>$T/err && $T/a64emu $T/n64.elf >$T/got 2>&1
+cmp -s tests/kcc/native/hello.out $T/got || note "native/hello.c (AArch64): вывод расходится с ожидаемым: $(head -c 160 $T/got | tr '\n' ' ')"
+# расширения языка (атомарные операции, struct по значению, va_list, case-диапазоны, ?:, printf): оба бэкенда печатают то же, что clang на хосте
+total=$((total+2))
+$T/kcc -I kcc/include -o $T/n.elf tests/kcc/native/lang.c 2>$T/err && $T/kloader $T/n.elf >$T/got 2>&1
+cmp -s tests/kcc/native/lang.out $T/got || note "native/lang.c (x86-64): вывод расходится с ожидаемым: $(head -c 200 $T/got | tr '\n' ' ') $(head -c 100 $T/err)"
+$T/kcc -target aarch64 -I kcc/include -o $T/n64.elf tests/kcc/native/lang.c 2>$T/err && $T/a64emu $T/n64.elf >$T/got 2>&1
+cmp -s tests/kcc/native/lang.out $T/got || note "native/lang.c (AArch64): вывод расходится с ожидаемым: $(head -c 200 $T/got | tr '\n' ' ') $(head -c 100 $T/err)"
+
 # враждебные входы: глубокая вложенность и длинные цепочки не должны ронять стек
 rep() { yes "$1" | head -n "$2" | tr -d '\n'; }
 stress() { # имя, ожидаемый rc (0 или 1)

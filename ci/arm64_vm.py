@@ -55,6 +55,27 @@ SC = [
                ("@udp 18083 arm-ping", [r"\[HOST\] udp reply 'kira-udp: arm-ping'"]), ("@sleep 2", []),
                ("serve", [r"serve: listening on port 8080"]),
                ("@http 18081 /arm-server", [r"\[HOST\] http /arm-server: 19\d\d\d bytes, first line 'kira-server-ok /arm-server', window lines 900"])]),
+    # kcc на Кире ARM64 (дорожка M4): /bin/kcc (EL0, только CAP_FS) собирает программы из /data/kcc с target aarch64, runlocal запускает их без прав
+    dict(name="arm64-cc", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="1G", disk="virtio-blk-pci",
+         put={"/data/kcc/hello.c": "tests/kcc/native/hello.c", "/data/kcc/bad.c": "tests/kcc/native/bad.c",
+              "/data/kcc/net.c": "tests/kcc/native/net.c", "/data/kcc/lang.c": "tests/kcc/native/lang.c"},
+         must=[r"\[KIRA FS\] KiraFS mounted", r"\[KIRA SYSCALL\] SVC from EL0"],
+         cmds=[("ls /etc/kcc/include", [r"kira\.h", r"stdio\.h", r"stdlib\.h", r"string\.h"]),
+               ("cc hello.c", [r"использование: cc исходник результат"]),
+               ("cc hello.c hello", [r"kcc: ok: hello\.c -> hello, \d+ байт"]),
+               ("ls /data/kcc", [r"hello\.c", r"\d+\s+hello\s"]),
+               ("runlocal hello", [r"\[LOCAL\] /data/kcc/hello запускается по явной команде пользователя как 'local-hello' без прав",
+                                  r"native: hello from kcc on Kira", r"native: total=240", r"native: fib20=6765", r"native: sorted gear bolt nut",
+                                  r"native: reversed=so-arik", r"native: hex=c0ffee", r"native: clock ok", r"native: done"]),
+               ("cc bad.c bad", [r"bad\.c:9: error: "]),
+               ("runlocal bad", [r"\[LOCAL\] /data/kcc/bad: "]),
+               ("cc net.c net", [r"kcc: ok: net\.c -> net, \d+ байт"]),
+               ("runlocal net", [r"net: dns=-12 connect=-12 file=-100", r"net: refused \(PASS\)", r"\[KIRA CAPS\] process 'local-net' .* denied, no right CAP_NET"]),
+               ("cc lang.c lang", [r"kcc: ok: lang\.c -> lang, \d+ байт"]),
+               ("runlocal lang", [r"atomic: counter=9 ok1=1 ok2=0 seen=100 xchg=100 sync=42", r"struct: 526 42 -5", r"varargs: 60 45",
+                                  r"case: zero digit two-digit big", r"elvis: 11 6", r"fmt: \[   42\]\[ab   \]\[000ff\]\[k\]"]),
+               ("runlocal ../bin/plasma", [r"\[LOCAL\] недопустимое имя файла"]),
+               ("status", [r"."])]),
     dict(name="arm64-el2-8cpu", m="virt,gic-version=3,virtualization=on", cpu="cortex-a57", smp=8, mem="3G",
          must=[r"entered at EL2, running at EL1", r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"RAM: 3072 MB"],
          cmds=[("test smp", [r"RESULT: PASS", r"worker 8: core 0"])]),
@@ -226,6 +247,8 @@ def run(sc, out):
             chain = os.path.abspath("ci-out/tlschain")
             subprocess.run([sys.executable, "-I", "ci/mkchain.py", chain], check=True, stdout=subprocess.DEVNULL)
             subprocess.run(["tools/kfstool", img, "put", "/etc/ssl/roots.der", os.path.join(chain, "root.der")], check=True, stdout=subprocess.DEVNULL)
+        for dst, src in sc.get("put", {}).items():  # отдельные файлы на диск машины
+            subprocess.run(["tools/kfstool", img, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
         args += ["-drive", f"file={img},if=none,id=d0,format=raw"]
         args += ["-device", "nvme,drive=d0,serial=KIRA0001" if sc["disk"] == "nvme" else f"{sc['disk']},drive=d0"]
     if sc.get("net"):

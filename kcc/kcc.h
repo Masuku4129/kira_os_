@@ -110,14 +110,14 @@ typedef enum {
     ND_NUM, ND_STR, ND_VAR, ND_ADD, ND_SUB, ND_MUL, ND_DIV, ND_MOD, ND_AND, ND_OR, ND_XOR, ND_SHL, ND_SHR,
     ND_EQ, ND_NE, ND_LT, ND_LE, ND_LOGAND, ND_LOGOR, ND_NOT, ND_BITNOT, ND_NEG,
     ND_ASSIGN, ND_OPASSIGN, ND_COMMA, ND_COND, ND_ADDR, ND_DEREF, ND_MEMBER, ND_CAST, ND_CALL, ND_INCDEC,
-    ND_STMTEXPR, ND_ZERO, ND_ASM, ND_UNREACH,
+    ND_STMTEXPR, ND_ZERO, ND_ASM, ND_UNREACH, ND_VASTART, ND_VAARG, ND_ATOMIC,
     ND_BLOCK, ND_IF, ND_FOR, ND_DO, ND_SWITCH, ND_CASE, ND_BREAK, ND_CONTINUE, ND_GOTO, ND_LABEL, ND_RETURN, ND_EXPR
 } NKind;
 struct Node {
     NKind k; Type *ty; const Token *tok;
     Node *lhs, *rhs, *c, *t, *e, *ini, *inc, *body, *next, *args, *cases, *dflt;
     Obj *var; Member *mem; Type *oty; Node *gnext;
-    int64_t val;                             /* NUM; CASE; INCDEC: +1/-1 */
+    int64_t val, val2;                       /* NUM; CASE (val2 - конец диапазона при op==2); INCDEC: +1/-1; ATOMIC: форма результата */
     int op;                                  /* OPASSIGN: вид операции; INCDEC: 1=постфиксная */
     int lbl, lbl2;                           /* метки: BREAK/CONTINUE/CASE/LABEL/FOR/SWITCH */
     const char *name;                        /* GOTO/LABEL/ASM */
@@ -142,10 +142,18 @@ int64_t eval_const(Node *n);
 
 /* ---------- ir.c ---------- */
 typedef enum { IR_LABEL, IR_CONST, IR_GADDR, IR_LADDR, IR_PARAM, IR_LOAD, IR_STORE, IR_MOV, IR_BIN, IR_NEG, IR_NOT,
-               IR_CMP, IR_EXT, IR_JMP, IR_BRZ, IR_BRNZ, IR_CALL, IR_RET, IR_COPY, IR_ZERO, IR_ASM, IR_UNREACH } IrOp;
+               IR_CMP, IR_EXT, IR_JMP, IR_BRZ, IR_BRNZ, IR_CALL, IR_RET, IR_COPY, IR_ZERO, IR_ASM, IR_UNREACH,
+               IR_ATOMIC, IR_VAINFO } IrOp;
+/* IR_ATOMIC.sub: операции над целым/указателем шириной w (1,2,4,8) с порядком seq_cst; a - адрес, b - значение (для CAS - ожидаемое),
+   c - новое значение CAS; dst - прежнее значение в каноническом виде (LOAD - загруженное; STORE, FENCE - без dst) */
+enum { AT_LOAD = 1, AT_STORE, AT_XCHG, AT_CAS, AT_ADD, AT_SUB, AT_AND, AT_OR, AT_XOR, AT_NAND, AT_FENCE };
+/* IR_VAINFO.sub: 0 - dst = адрес области сохранения регистровых аргументов (целочисленные подряд), 1 - адрес первого анонимного
+   аргумента в стеке, 2 - число целочисленных регистров, занятых именованными параметрами */
 typedef struct Ins Ins;
 struct Ins {
-    IrOp op; int sub, dst, a, b, w, sgn, vol, nargs, nout;
+    IrOp op; int sub, dst, a, b, c, w, sgn, vol, nargs, nout;
+    int rsz, rt;                             /* CALL: размер возвращаемого агрегата (0 - нет) и vreg с адресом буфера результата; RET: sub=1 - агрегат размера w */
+    int *asz;                                /* CALL: по аргументу размер агрегата (0 - скаляр; тогда args[k] - адрес агрегата) */
     int64_t imm; const char *sym; int *args; Ins *next;
     int line; const char *file;              /* только IR_ASM: место в исходнике */
 };
@@ -156,6 +164,8 @@ void ir_dump(Obj *globals, SB *out);
 /* ---------- gen_x86.c / asm_x86.c / elf.c (этап M2) ---------- */
 /* Компиляция программы в исполняемый ELF Киры (x86-64). Результат - в арене. Ошибки - через kerr. */
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
+/* gen_a64.c / asm_a64.c (этап M4): то же для AArch64 (EL0 Киры ARM64). */
+void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
 
 /* ---------- API ---------- */
 typedef struct { const char *ir; const char *err; const char *warn; const unsigned char *elf; size_t elflen; } KResult;

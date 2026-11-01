@@ -452,9 +452,16 @@ ALL.append(sc("cc-native", "kcc на Кире: cc собирает C-прогр�
     {"log": [r"kcc: ok: net\.c -> net, \d+ байт"]},
     {"send": "runlocal net"}, {"sleep": 6},
     {"log": [r"net: dns=-12 connect=-12 file=-100", r"net: refused \(PASS\)", r"\[KIRA CAPS\] process 'local-net' .* denied, no right CAP_NET"]},
+    # расширения языка: атомарные операции, struct по значению, va_list, case-диапазоны, ?:, printf
+    {"send": "cc lang.c lang"}, {"sleep": 12},
+    {"log": [r"kcc: ok: lang\.c -> lang, \d+ байт"]},
+    {"send": "runlocal lang"}, {"sleep": 6},
+    {"log": [r"atomic: counter=9 ok1=1 ok2=0 seen=100 xchg=100 sync=42", r"struct: 526 42 -5", r"varargs: 60 45", r"case: zero digit two-digit big",
+             r"elvis: 11 6", r"fmt: \[   42\]\[ab   \]\[000ff\]\[k\]"]},
     # компилятору дано только CAP_FS: он ни разу не получил отказ; имя с путём не принимается
     {"log_forbid": NO_ERR + [r"\[KIRA CAPS\] process 'kcc'", r"NOT refused", r"native: .*BAD", r"native: malloc failed", r"\[IMMUNE\] /data/kcc/.*отклонён"]},
     {"cmd": "runlocal ../bin/plasma", "must": [r"\[LOCAL\] недопустимое имя файла"]},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", put={"/data/kcc/hello.c": os.path.join(_CC, "hello.c"), "/data/kcc/bad.c": os.path.join(_CC, "bad.c"),
-                          "/data/kcc/net.c": os.path.join(_CC, "net.c")}))
+                          "/data/kcc/net.c": os.path.join(_CC, "net.c"),
+                          "/data/kcc/lang.c": os.path.join(_CC, "lang.c")}))

@@ -540,6 +540,7 @@ static const char *const predef[] = {
     "__CHAR_BIT__ 8", "__SIZEOF_SHORT__ 2", "__SIZEOF_INT__ 4", "__SIZEOF_LONG__ 8", "__SIZEOF_LONG_LONG__ 8",
     "__SIZEOF_POINTER__ 8", "__SIZE_TYPE__ unsigned long", "__PTRDIFF_TYPE__ long", "__INT_MAX__ 2147483647",
     "__LONG_MAX__ 9223372036854775807L", "__LONG_LONG_MAX__ 9223372036854775807LL",
+    "__ATOMIC_RELAXED 0", "__ATOMIC_CONSUME 1", "__ATOMIC_ACQUIRE 2", "__ATOMIC_RELEASE 3", "__ATOMIC_ACQ_REL 4", "__ATOMIC_SEQ_CST 5",
     "__ORDER_LITTLE_ENDIAN__ 1234", "__ORDER_BIG_ENDIAN__ 4321", "__BYTE_ORDER__ __ORDER_LITTLE_ENDIAN__", 0 };
 
 static int file_once(const char *path) {

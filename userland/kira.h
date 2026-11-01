@@ -5,7 +5,13 @@
 typedef unsigned char u8; typedef unsigned short u16; typedef unsigned int u32;
 typedef unsigned long long u64; typedef long long i64;
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) && defined(__KIRA__)
+/* kcc (компилятор на Кире): нет привязки переменных к регистрам; шаблон svc берёт x0..x2 и x8 по именам ограничений. */
+static inline i64 ksys(u64 n, u64 a, u64 b, u64 c) {
+    __asm__ volatile ("svc #0" : "+x0"(a), "+x1"(b), "+x2"(c) : "x8"(n) : "memory");
+    return (i64)a;
+}
+#elif defined(__aarch64__)
 /* ARM64: svc #0, номер в x8, аргументы x0..x2, результат в x0; ядро возвращает остальные регистры нетронутыми. */
 static inline i64 ksys(u64 n, u64 a, u64 b, u64 c) {
     register u64 x8 __asm__("x8") = n;
@@ -38,6 +44,8 @@ enum { KEV_KEY_DOWN = 1, KEV_KEY_UP = 2, KEV_MOUSE_MOVE = 3, KEV_MOUSE_BUTTON = 
 static inline void k_write(const char* s, u64 n) { ksys(K_WRITE, (u64)s, n, 0); }
 static inline void k_sleep(u64 ticks) { ksys(K_SLEEP, ticks, 0, 0); }
 static inline u64 k_ticks(void) { return (u64)ksys(K_TICKS, 0, 0, 0); }
+static inline void k_yield(void) { ksys(K_YIELD, 0, 0, 0); }
+static inline void k_puts(const char* s) { u64 n = 0; while (s[n]) n++; k_write(s, n); }
 static inline u64 k_getpid(void) { return (u64)ksys(K_GETPID, 0, 0, 0); }
 static inline __attribute__((noreturn)) void k_exit(int code) { for (;;) ksys(K_EXIT, (u64)code, 0, 0); }
 /* Окно w x h пикселей. Возвращает указатель на пиксели 0x00RRGGBB (шаг = w) или 0. */
@@ -76,14 +84,16 @@ enum { K_THREAD_CREATE = 12, K_THREAD_EXIT = 13, K_GETTID = 14, K_FUTEX_WAIT = 1
 /* Ошибки: -2 нет такого, -3 уже есть, -4 очередь полна, -5 срок вышел, -6 значение другое / нет сообщения,
    -7 нет памяти, -8 неверный дескриптор, -9 предел, -10 неверные аргументы, -11 процесс завершается. */
 enum { KE_NOENT = -2, KE_EXIST = -3, KE_FULL = -4, KE_TIMEOUT = -5, KE_AGAIN = -6, KE_NOMEM = -7, KE_BADH = -8,
-       KE_LIMIT = -9, KE_ARG = -10, KE_INTR = -11 };
+       KE_LIMIT = -9, KE_ARG = -10, KE_INTR = -11, KE_PERM = -12 };   /* -12 - у программы нет права на вызов (caps.h) */
 enum { KOPEN_CREATE = 1, KOPEN_EXCL = 2 };
 #define K_FOREVER 0xFFFFFFFFull
 
 static inline u64 k_gettid(void) { return (u64)ksys(K_GETTID, 0, 0, 0); }
 static inline u64 k_clock_ns(void) { return (u64)ksys(K_CLOCK_NS, 0, 0, 0); }
 static inline __attribute__((noreturn)) void k_thread_exit(int code) { for (;;) ksys(K_THREAD_EXIT, (u64)code, 0, 0); }
-#if defined(__aarch64__)
+#if defined(__aarch64__) && defined(__KIRA__)
+/* kcc на ARM64: трамплин потока - файловый asm, его kcc не собирает; k_thread_create здесь не определён (использование - ошибка компиляции). */
+#elif defined(__aarch64__)
 /* ARM64: поток начинается в трамплине: функция лежит в слоте на вершине стека, аргумент - в x0 (его ставит ядро);
    возврат из функции завершает поток. */
 __asm__(".text\n.weak k_thread_tramp\nk_thread_tramp:\n ldr x9, [sp]\n blr x9\n mov x0, #0\n mov x8, #13\n svc #0\n1: b 1b\n");

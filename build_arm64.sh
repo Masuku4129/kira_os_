@@ -28,6 +28,20 @@ $CC $UCFLAGS -I. -Iuserland -c userland/net6.c -o build-arm64/un6_net6.o       #
 $CC $UCFLAGS -I. -c ip6.c -o build-arm64/un6_ip6.o
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/net6.elf build-arm64/un6_*.o
 UELF="$UELF build-arm64/net6.elf"
+# kcc: компилятор C как программа EL0 (те же kcc/*.c без main.c и userland/kcc.c, что у x86-64; мини-libc - userland/kccrt.c). Целевая архитектура
+# программ, которые он собирает, - ARM64 (userland/kcc.c). Без вещественных регистров: setjmp/longjmp их не сохраняют.
+KCC_OBJ=""
+KCFLAGS="$UCFLAGS -mgeneral-regs-only -nostdlibinc"
+for src in kcc/*.c; do
+    [ "$src" = kcc/main.c ] && continue
+    $CC $KCFLAGS -Iuserland/kccrt -c $src -o build-arm64/kcc_$(basename $src .c).o
+    KCC_OBJ="$KCC_OBJ build-arm64/kcc_$(basename $src .c).o"
+done
+$CC $KCFLAGS -Iuserland/kccrt -Iuserland -c userland/kcc.c -o build-arm64/kcc_main.o
+$CC $KCFLAGS -Iuserland -c userland/kccrt.c -o build-arm64/ukccrt.o
+$CC $UCFLAGS -c userland/libc_min.c -o build-arm64/ukcc_libc_min.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/kcc.elf build-arm64/kcc_main.o $KCC_OBJ build-arm64/ukccrt.o build-arm64/ukcc_libc_min.o
+UELF="$UELF build-arm64/kcc.elf"
 for app in edit view; do                 # с текстом: шрифт ядра вместе с программой
     $CC $UCFLAGS -I. -c userland/$app.c -o build-arm64/u_$app.o
     $CC $UCFLAGS -I. -c font8x16.c -o build-arm64/u_font_$app.o
@@ -55,6 +69,9 @@ echo "[*] kira-arm64.img (образ ARM64 с заголовком загруз�
 [ -f kira-arm64.disk ] || dd if=/dev/zero of=kira-arm64.disk bs=1M count=16 2>/dev/null
 tools/kfstool kira-arm64.disk init >/dev/null
 for e in $UELF; do tools/kfstool kira-arm64.disk put /bin/$(basename $e .elf) $e >/dev/null; done
+for h in kcc/include/*.h; do                              # заголовки libc-lite для kcc на Кире (те же файлы, что у x86-64)
+    tools/kfstool kira-arm64.disk put /etc/kcc/include/$(basename $h) $h >/dev/null
+done
 userland/wasm/build.sh                                   # модули WebAssembly - те же файлы, что у x86-64
 for w in build-wasm/*.wasm; do tools/kfstool kira-arm64.disk put /wasm/$(basename $w) $w >/dev/null; done
 # Корневые сертификаты для HTTPS: системная связка хозяина (PEM) -> /etc/ssl/roots.der на диске Киры
