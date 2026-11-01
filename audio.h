@@ -13,8 +13,18 @@
 void audio_mix(int16_t* out, const int16_t* const* in, const uint32_t* gain, unsigned nin, uint32_t samples, uint32_t master);
 uint32_t audio_vol_gain(unsigned percent);     /* 0..100 -> доля 65536 (по громкости слуха: квадрат) */
 /* Пересчёт частоты: вход in_rate, ch каналов -> 48 кГц стерео. Состояние переносит дробную позицию и прошлый кадр
-   между вызовами (поток режется на куски как угодно - результат тот же). Возвращает число выходных кадров. */
-typedef struct { uint32_t step, pos; int16_t prev[2]; int have; unsigned ch; } audio_rs_t;   /* step - входная частота */
+   между вызовами (поток режется на куски как угодно - результат тот же). Возвращает число выходных кадров.
+   Вход выше 48 кГц (понижение): оконный sinc-фильтр (Кайзер, окно 40 выходных кадров), полифазно по
+   дробной позиции, целые числа, без кучи: полоса до 20 кГц сохранена (в пределах 0,2 дБ), от 24 кГц (новая
+   частота Найквиста) подавление не хуже 50 дБ (проверка - tests/audio_test.c); постоянная составляющая точно 1:1, насыщение до 16 бит. Звук выходит с задержкой
+   AUDIO_FIR_HALF кадров (центрированное ядро; без прибавки фазы) - места в out должно быть не меньше in_frames + 1.
+   Вход не выше 48 кГц (повышение) - линейная интерполяция. */
+#define AUDIO_FIR_HIST 128                     /* история входа: степень двойки, >= 2*AUDIO_FIR_HALF*2 + 2 кадров (вход <= 96 кГц) */
+typedef struct {
+    uint32_t step, pos; int16_t prev[2]; int have; unsigned ch;   /* step - входная частота */
+    int fir; uint64_t nin, m;                  /* фильтр: принято входных кадров, номер следующего выходного */
+    int16_t hist[AUDIO_FIR_HIST * 2];          /* последние входные кадры (L, R) по кругу */
+} audio_rs_t;
 void     audio_rs_init(audio_rs_t* r, unsigned in_rate, unsigned ch);
 uint32_t audio_resample(audio_rs_t* r, const int16_t* in, uint32_t in_frames, int16_t* out, uint32_t max_out);
 

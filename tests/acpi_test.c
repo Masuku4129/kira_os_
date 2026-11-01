@@ -82,6 +82,7 @@ int main(void){
         CHECK(acpi_scan(base, base + 0x1000, "RSD PTR ", 8, 20) == base);
         acpi_info_t mp; memset(&mp, 0, sizeof mp);
         CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == 0);
+        CHECK(mp.legacy_isa);                              /* в таблице есть шина ISA */
         CHECK(mp.valid && mp.source == 1 && mp.cpu_count == 3 && mp.cpu_apic_id[2] == 3 && mp.max_apic_id == 3 && mp.lapic_addr == 0xFEE00000);
         CHECK(mp.ioapic_count == 1 && mp.ioapic[0].id == 4 && mp.ioapic[0].addr == 0xFEC00000 && mp.ioapic[0].gsi_base == 0);
         CHECK(mp.iso_valid[0] && mp.iso_gsi[0] == 2 && mp.iso_valid[1] && mp.iso_gsi[1] == 1 && mp.iso_flags[9] == 0x0F && mp.irq_override_count == 2);
@@ -98,6 +99,19 @@ int main(void){
             uint16_t c2 = (uint16_t)(rand() % 300); memcpy(ct + 34, &c2, 2); fix(ct, tl, 7);
             mp_parse(base + 0x800, base + (1 << 16), &mp);
             CHECK(mp.ioapic_count <= 64 && mp.cpu_count <= 300);
+        }
+    }
+    {   /* FADT: бит LEGACY_DEVICES (IAPC_BOOT_ARCH, смещение 109) - платформа сообщает, что устройства ISA есть */
+        uint8_t *rs = m + 0x3000, *xs = m + 0x3100, *fa = m + 0x3200;
+        for (int ver = 0; ver < 4; ver++) {
+            static const uint8_t arch[4] = { 0x03, 0x00, 0x02, 0x01 };            /* 0 и 3: бит 0 стоит; 2: другие флаги; 1: ревизия FADT 1 */
+            hdr(fa, "FACP", 136); fa[8] = (uint8_t)(ver == 1 ? 1 : 3); fa[109] = arch[ver]; fix(fa, 136, 9);   /* ver 1: ревизия 1 - поля нет */
+            uint32_t xl = 36 + 8; hdr(xs, "XSDT", xl); uint64_t fp = base + 0x3200; memcpy(xs + 36, &fp, 8); fix(xs, xl, 9);
+            memset(rs, 0, 36); memcpy(rs, "RSD PTR ", 8); rs[15] = 2; uint32_t rl = 36; memcpy(rs + 20, &rl, 4);
+            uint64_t xa = base + 0x3100; memcpy(rs + 24, &xa, 8); fix(rs, 20, 8); fix(rs, 36, 32);
+            acpi_info_t fi;
+            CHECK(acpi_parse(base + 0x3000, base + (1 << 16), &fi) == 0 && fi.tables_seen == 1);
+            CHECK(fi.legacy_isa == (ver == 0 || ver == 3));
         }
     }
     {   /* \_S5: как у QEMU (Name(\_S5, Package(4){5, 5, 0, 0}) через BytePrefix), Zero/One, длина пакета в 2 байта, ложные */
