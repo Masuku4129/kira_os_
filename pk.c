@@ -131,37 +131,45 @@ int rsa_verify_pkcs1(const uint8_t* n, size_t nlen, const uint8_t* e, size_t ele
     return 0;
 }
 
-int rsa_verify_pss(const uint8_t* n, size_t nlen, const uint8_t* e, size_t elen, int alg, const uint8_t* digest,
-                   const uint8_t* sig, size_t slen) {
+/* RSASSA-PSS (RFC 8017 §9.1.2) с произвольными параметрами из сертификата: alg - хэш сообщения (digest этой длины),
+   mgf_alg - хэш в MGF1, salt - длина соли в байтах. */
+int rsa_verify_pss_ex(const uint8_t* n, size_t nlen, const uint8_t* e, size_t elen, int alg, int mgf_alg, size_t salt,
+                      const uint8_t* digest, const uint8_t* sig, size_t slen) {
     static uint8_t em_full[512], db[512];
     size_t k; int mb;
     if (alg != PK_SHA256 && alg != PK_SHA384 && alg != PK_SHA512) return -1;
+    if (mgf_alg != PK_SHA256 && mgf_alg != PK_SHA384 && mgf_alg != PK_SHA512) return -1;
     if (rsa_em(n, nlen, e, elen, sig, slen, em_full, &k, &mb)) return -1;
-    size_t embits = (size_t)mb - 1, emlen = (embits + 7) / 8, h = (size_t)alg, slen_ = h;
+    size_t embits = (size_t)mb - 1, emlen = (embits + 7) / 8, h = (size_t)alg, mh = (size_t)mgf_alg;
     const uint8_t* em = em_full + (k - emlen);
     if (k > emlen && em_full[0]) return -1;
-    if (emlen < h + slen_ + 2 || em[emlen - 1] != 0xbc) return -1;
+    if (emlen < h + salt + 2 || em[emlen - 1] != 0xbc) return -1;
     size_t dbl = emlen - h - 1;
     const uint8_t* H = em + dbl;
     unsigned top = (unsigned)(8 * emlen - embits);
     if (top && (em[0] >> (8 - top))) return -1;
-    uint8_t cnt[4 + 64 + 4], blk[64];                              /* MGF1: Hash(H || счётчик) */
+    uint8_t cnt[64 + 4], blk[64];                                  /* MGF1: Hash(H || счётчик), H длиной h */
     for (size_t i = 0; i < h; i++) cnt[i] = H[i];
     for (uint32_t c = 0, done = 0; done < dbl; c++) {
         cnt[h] = (uint8_t)(c >> 24); cnt[h + 1] = (uint8_t)(c >> 16); cnt[h + 2] = (uint8_t)(c >> 8); cnt[h + 3] = (uint8_t)c;
-        pk_hash(alg, cnt, h + 4, blk);
-        for (size_t i = 0; i < h && done < dbl; i++, done++) db[done] = em[done] ^ blk[i];
+        pk_hash(mgf_alg, cnt, h + 4, blk);
+        for (size_t i = 0; i < mh && done < dbl; i++, done++) db[done] = em[done] ^ blk[i];
     }
     if (top) db[0] &= (uint8_t)(0xFF >> top);
-    size_t z = dbl - slen_ - 1;
+    size_t z = dbl - salt - 1;
     for (size_t i = 0; i < z; i++) if (db[i]) return -1;
     if (db[z] != 1) return -1;
-    uint8_t mp[8 + 64 + 64], hh[64];
+    uint8_t mp[8 + 64 + 512], hh[64];
+    if (salt > 512) return -1;
     for (int i = 0; i < 8; i++) mp[i] = 0;
     for (size_t i = 0; i < h; i++) mp[8 + i] = digest[i];
-    for (size_t i = 0; i < slen_; i++) mp[8 + h + i] = db[z + 1 + i];
-    pk_hash(alg, mp, 8 + h + slen_, hh);
+    for (size_t i = 0; i < salt; i++) mp[8 + h + i] = db[z + 1 + i];
+    pk_hash(alg, mp, 8 + h + salt, hh);
     return crypto_eq(hh, H, h) ? 0 : -1;
+}
+int rsa_verify_pss(const uint8_t* n, size_t nlen, const uint8_t* e, size_t elen, int alg, const uint8_t* digest,
+                   const uint8_t* sig, size_t slen) {
+    return rsa_verify_pss_ex(n, nlen, e, elen, alg, alg, (size_t)alg, digest, sig, slen);
 }
 
 /* ---------------- ECDSA: кривые NIST с a = -3 ---------------- */
@@ -272,4 +280,120 @@ int ecdsa_verify(int curve, const uint8_t* pub, size_t publen, const uint8_t* di
     mont_pow(&fp, zi, X.z, pm2, L); fmul(z2, zi, zi); fmul(x, X.x, z2); from_m(&fp, x, x);
     if (bn_cmp(x, n, L) >= 0) bn_sub(x, x, n, L);
     return bn_cmp(x, R, L) == 0 ? 0 : -1;
+}
+
+/* ---------------- Ed25519 (RFC 8032 §5.1.7): проверка подписи ----------------
+   Кривая -x^2 + y^2 = 1 + d x^2 y^2 над GF(2^255 - 19), расширенные координаты (X:Y:Z:T), полное сложение
+   (add-2008-hwcd-3: годится и для удвоения). Поле - та же арифметика Монтгомери, что у ECDSA, но своя (ep). Проверка
+   [S]B = R + [k]A делается как сравнение кодировки [S]B + [k](-A) с R из подписи: числа открыты, постоянное время не нужно. */
+typedef uint32_t fe_t[8];
+typedef struct { fe_t x, y, z, t; } ept_t;
+static mont_t ep;
+static fe_t ed_d, ed_d2, ed_i;                                   /* d, 2d, sqrt(-1) - в форме Монтгомери */
+
+static const char ED_P[]   = "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed";
+static const char ED_PM2[] = "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeb";   /* p - 2: обратное по Ферма */
+static const char ED_E58[] = "0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd";   /* (p - 5) / 8 */
+static const char ED_E14[] = "1ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffb";   /* (p - 1) / 4: sqrt(-1) = 2^это */
+static const char ED_L[]   = "1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed";   /* порядок группы */
+static const uint8_t ED_BASE[32] = { 0x58,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,
+                                     0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66 };   /* y = 4/5, x чётный */
+
+static void ea(uint32_t* r, const uint32_t* a, const uint32_t* b) { if (bn_add(r, a, b, 8) || bn_cmp(r, ep.n, 8) >= 0) bn_sub(r, r, ep.n, 8); }
+static void es(uint32_t* r, const uint32_t* a, const uint32_t* b) { if (bn_sub(r, a, b, 8)) bn_add(r, r, ep.n, 8); }
+static void em(uint32_t* r, const uint32_t* a, const uint32_t* b) { mont_mul(&ep, r, a, b); }
+static void epow(uint32_t* r, const uint32_t* a, const char* hexe) { fe_t e; hexnum(e, 8, hexe); mont_pow(&ep, r, a, e, 8); }
+static void e_from_int(uint32_t* r, uint32_t v) { fe_t t; bn_zero(t, 8); t[0] = v; to_m(&ep, r, t); }
+
+static int ed_init(void) {
+    fe_t p, a, b, t;
+    hexnum(p, 8, ED_P);
+    if (mont_init(&ep, p, 8)) return -1;
+    e_from_int(a, 121665); e_from_int(b, 121666);
+    epow(t, b, ED_PM2); em(t, a, t);                              /* 121665 / 121666 */
+    bn_zero(a, 8); es(ed_d, a, t);                                /* d = -121665/121666 */
+    ea(ed_d2, ed_d, ed_d);
+    e_from_int(a, 2); epow(ed_i, a, ED_E14);                      /* sqrt(-1) = 2^((p-1)/4) */
+    return 0;
+}
+
+static void ept_id(ept_t* r) { bn_zero(r->x, 8); bn_copy(r->y, ep.one, 8); bn_copy(r->z, ep.one, 8); bn_zero(r->t, 8); }
+static void ept_add(ept_t* r, const ept_t* p, const ept_t* q) {
+    fe_t a, b, c, d, e, f, g, h, t1, t2;
+    es(t1, p->y, p->x); es(t2, q->y, q->x); em(a, t1, t2);
+    ea(t1, p->y, p->x); ea(t2, q->y, q->x); em(b, t1, t2);
+    em(c, p->t, q->t); em(c, c, ed_d2);
+    em(d, p->z, q->z); ea(d, d, d);
+    es(e, b, a); es(f, d, c); ea(g, d, c); ea(h, b, a);
+    em(r->x, e, f); em(r->y, g, h); em(r->t, e, h); em(r->z, f, g);
+}
+/* r = k * p, k - число из 8 частей (двоичный метод слева направо). */
+static void ept_mul(ept_t* r, const ept_t* p, const uint32_t* k) {
+    ept_t acc; ept_id(&acc);
+    for (int i = bn_bits(k, 8) - 1; i >= 0; i--) {
+        ept_add(&acc, &acc, &acc);
+        if ((k[i / 32] >> (i % 32)) & 1) ept_add(&acc, &acc, p);
+    }
+    *r = acc;
+}
+/* Число из 32 байт в порядке «младший первый»; 0 - ок. */
+static void le_to_bn(uint32_t* a, int L, const uint8_t* b, size_t n) {
+    bn_zero(a, L);
+    for (size_t i = 0; i < n; i++) a[i / 4] |= (uint32_t)b[i] << (8 * (i % 4));
+}
+/* Распаковка точки (RFC 8032 §5.1.3): 0 - ок. */
+static int ept_decode(ept_t* r, const uint8_t enc[32]) {
+    fe_t y, yn, p, y2, u, v, v3, v7, x, t, c, one;
+    uint8_t buf[32]; for (int i = 0; i < 32; i++) buf[i] = enc[i];
+    int sign = buf[31] >> 7; buf[31] &= 0x7f;
+    le_to_bn(yn, 8, buf, 32); hexnum(p, 8, ED_P);
+    if (bn_cmp(yn, p, 8) >= 0) return -1;                         /* y >= p: не каноническая запись */
+    to_m(&ep, y, yn);
+    bn_copy(one, ep.one, 8);
+    em(y2, y, y); es(u, y2, one); em(v, y2, ed_d); ea(v, v, one);   /* u = y^2 - 1, v = d y^2 + 1 */
+    em(v3, v, v); em(v3, v3, v);                                  /* v^3 */
+    em(v7, v3, v3); em(v7, v7, v);                                /* v^7 */
+    em(t, u, v7); epow(t, t, ED_E58); em(x, u, v3); em(x, x, t);  /* x = u v^3 (u v^7)^((p-5)/8) */
+    em(c, x, x); em(c, c, v);                                     /* v x^2 */
+    if (bn_cmp(c, u, 8) != 0) {
+        fe_t nu; bn_zero(t, 8); es(nu, t, u);
+        if (bn_cmp(c, nu, 8) != 0) return -1;                     /* корня нет: не точка кривой */
+        em(x, x, ed_i);
+    }
+    fe_t xn; from_m(&ep, xn, x);
+    if (bn_is_zero(xn, 8) && sign) return -1;
+    if ((int)(xn[0] & 1) != sign) { bn_zero(t, 8); es(x, t, x); }
+    bn_copy(r->x, x, 8); bn_copy(r->y, y, 8); bn_copy(r->z, one, 8); em(r->t, x, y);
+    return 0;
+}
+static void ept_encode(uint8_t out[32], const ept_t* p) {
+    fe_t zi, x, y;
+    epow(zi, p->z, ED_PM2); em(x, p->x, zi); em(y, p->y, zi);
+    from_m(&ep, x, x); from_m(&ep, y, y);
+    for (int i = 0; i < 32; i++) out[i] = (uint8_t)(y[i / 4] >> (8 * (i % 4)));
+    out[31] |= (uint8_t)((x[0] & 1) << 7);
+}
+
+int ed25519_verify(const uint8_t pub[32], const uint8_t* msg, size_t mlen, const uint8_t sig[64]) {
+    fe_t S, L, k, zero;
+    ept_t A, B, sB, kA, R;
+    if (ed_init()) return -1;
+    le_to_bn(S, 8, sig + 32, 32); hexnum(L, 8, ED_L);
+    if (bn_cmp(S, L, 8) >= 0) return -1;                          /* S < L обязательно (RFC 8032 §5.1.7) */
+    if (ept_decode(&A, pub)) return -1;
+    if (ept_decode(&B, ED_BASE)) return -1;
+    sha512_ctx_t c; uint8_t h[64];
+    sha512_init(&c); sha512_update(&c, sig, 32); sha512_update(&c, pub, 32); sha512_update(&c, msg, mlen); sha512_final(&c, h);
+    bn_zero(k, 8);                                                /* k = h mod L: сдвиг по биту с вычитанием */
+    for (int i = 511; i >= 0; i--) {
+        uint32_t carry = bn_add(k, k, k, 8);
+        k[0] |= (uint32_t)((h[i / 8] >> (i % 8)) & 1);
+        if (carry || bn_cmp(k, L, 8) >= 0) bn_sub(k, k, L, 8);
+    }
+    ept_mul(&sB, &B, S);
+    bn_zero(zero, 8); es(A.x, zero, A.x); es(A.t, zero, A.t);     /* -A = (-x, y, z, -t) */
+    ept_mul(&kA, &A, k);
+    ept_add(&R, &sB, &kA);
+    uint8_t enc[32]; ept_encode(enc, &R);
+    return crypto_eq(enc, sig, 32) ? 0 : -1;
 }

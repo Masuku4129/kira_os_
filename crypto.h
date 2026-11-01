@@ -35,8 +35,8 @@ void hkdf_expand(const uint8_t prk[32], const uint8_t* info, size_t ilen, uint8_
 void hkdf_expand_label(const uint8_t secret[32], const char* label, const uint8_t* ctx, size_t clen, uint8_t* out, size_t olen);
 
 /* AES-128-GCM (FIPS 197, SP 800-38D): обязательный набор TLS 1.3 (TLS_AES_128_GCM_SHA256), nonce 12 байт.
-   AES - по таблице S-блока (время доступа к таблице зависит от ключа: для клиента TLS это приемлемо, для
-   долгоживущих ключей сервера - нет); GHASH - побитовое умножение без таблиц. */
+   AES - без таблиц: S-блок вычисляется в GF(2^8) в битовой нарезке (без индексирования по секрету и ветвей),
+   GHASH - побитовое умножение без таблиц. */
 typedef struct { uint32_t rk[44]; uint8_t h[16]; } aes_gcm_t;
 void aes128_gcm_init(aes_gcm_t* g, const uint8_t key[16]);
 void aes128_gcm_seal(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
@@ -51,6 +51,9 @@ void sha512_init(sha512_ctx_t* c);
 void sha384_init(sha512_ctx_t* c);
 void sha512_update(sha512_ctx_t* c, const void* d, size_t n);
 void sha512_final(sha512_ctx_t* c, uint8_t* out);          /* 64 байта (SHA-512) или 48 (SHA-384) */
+
+/* SHA-1 (FIPS 180-4): только для идентификаторов CertID в OCSP (RFC 6960), не для защиты. */
+void sha1(const void* data, size_t len, uint8_t out[20]);
 
 int  crypto_eq(const void* a, const void* b, size_t n);   /* сравнение за постоянное время: 1 - равны */
 void crypto_wipe(void* p, size_t n);                      /* стереть секрет (компилятор не выбросит) */

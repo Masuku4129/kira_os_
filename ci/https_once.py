@@ -2,6 +2,7 @@
 """HTTPS-ответ для проверки TLS 1.3 Киры. Без --port - через stdin/stdout (QEMU guestfwd на 10.0.2.100:443);
 «--port N» - один раз на TCP 127.0.0.1:N (хост-тест). «--chain каталог» - цепочка из ci/mkchain.py (сервер +
 промежуточный), «--self каталог» - самоподписанный оттуда же; без них - самоподписанный, созданный при запуске.
+«--prefix ed_|pss_» - с «--chain»: цепочка Ed25519 (ed_chain.pem) или с ключом RSA-PSS (pss_chain.pem).
 Тело - больше 16 КБ (несколько записей TLS); первая строка называет версию и шифр, которые выбрал сервер."""
 import os, ssl, socket, subprocess, sys, tempfile
 
@@ -10,7 +11,8 @@ opt = lambda k: args[args.index(k) + 1] if k in args else None
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ctx.minimum_version = ssl.TLSVersion.TLSv1_3
 if opt("--chain"):
-    ctx.load_cert_chain(os.path.join(opt("--chain"), "chain.pem"), os.path.join(opt("--chain"), "leaf.key"))
+    pre = opt("--prefix") or ""
+    ctx.load_cert_chain(os.path.join(opt("--chain"), pre + "chain.pem"), os.path.join(opt("--chain"), pre + "leaf.key"))
 elif opt("--self"):
     ctx.load_cert_chain(os.path.join(opt("--self"), "self.pem"), os.path.join(opt("--self"), "self.key"))
 else:
