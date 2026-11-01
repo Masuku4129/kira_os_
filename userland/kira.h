@@ -136,11 +136,14 @@ static inline i64 k_net_send(i64 h, const void* p, u64 n) { return ksys(K_NET_SE
 /* Байт принято; 0 - собеседник закрыл; < 0 - сброс или срок (timeout_ms, 0 - 10 с). */
 static inline i64 k_net_recv(i64 h, void* p, u32 n, u32 timeout_ms) { return ksys(K_NET_RECV, (u64)h, (u64)p, (u64)n | ((u64)timeout_ms << 32)); }
 static inline i64 k_net_close(i64 h) { return ksys(K_NET_CLOSE, (u64)h, 0, 0); }   /* соединение или слушатель */
-enum { K_NET_LISTEN = 31, K_NET_ACCEPT = 32, K_SND_OPEN = 33, K_SND_WRITE = 34, K_SND_CLOSE = 35, K_RANDOM = 36, K_TIME = 37, K_UDP_OPEN = 38, K_UDP_SEND = 39, K_UDP_RECV = 40, K_UDP_CLOSE = 41 };
+enum { K_NET_LISTEN = 31, K_NET_ACCEPT = 32, K_SND_OPEN = 33, K_SND_WRITE = 34, K_SND_CLOSE = 35, K_RANDOM = 36, K_TIME = 37, K_UDP_OPEN = 38, K_UDP_SEND = 39, K_UDP_RECV = 40, K_UDP_CLOSE = 41, K_SND_VOLUME = 42 };
 /* Звук: поток программы (кадры 48 кГц, 16 бит, стерео - 4 байта); write принимает, сколько влезло в очередь (1 с). */
-static inline i64 k_snd_open(void) { return ksys(K_SND_OPEN, 0, 0, 0); }
+static inline i64 k_snd_open(void) { return ksys(K_SND_OPEN, 0, 0, 0); }                 /* 48 кГц стерео */
+/* Поток со своим форматом: частота 8000..96000, каналов 1 или 2 (кадр - 2 байта на канал); ядро пересчитывает в 48 кГц. */
+static inline i64 k_snd_open_fmt(u32 rate, u32 ch) { return ksys(K_SND_OPEN, rate, ch, 0); }
 static inline i64 k_snd_write(i64 h, const void* p, u64 bytes) { return ksys(K_SND_WRITE, (u64)h, (u64)p, bytes); }
 static inline i64 k_snd_close(i64 h) { return ksys(K_SND_CLOSE, (u64)h, 0, 0); }
+static inline i64 k_snd_volume(i64 h, u32 percent) { return ksys(K_SND_VOLUME, (u64)h, percent, 0); }
 /* случайные байты ядра (до 256): 1 - засеяно аппаратным источником, 0 - только временем событий, <0 - ошибка */
 static inline i64 k_random(void* buf, u64 n) { return ksys(K_RANDOM, (u64)buf, n, 0); }
 static inline i64 k_time(void) { return ksys(K_TIME, 0, 0, 0); }      /* секунды UTC от 1970; -1 - часов нет */

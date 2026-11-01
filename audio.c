@@ -1,12 +1,37 @@
 /* Микшер звука (см. audio.h). Кольцо карты - hda_ring_*; источники - очереди программ (1 с) и тон. */
 #include "audio.h"
 
-void audio_mix(int16_t* out, const int16_t* const* in, unsigned nin, uint32_t samples) {
+void audio_mix(int16_t* out, const int16_t* const* in, const uint32_t* gain, unsigned nin, uint32_t samples, uint32_t master) {
     for (uint32_t i = 0; i < samples; i++) {
-        int32_t s = 0;
-        for (unsigned k = 0; k < nin; k++) s += in[k][i];
+        int64_t s = 0;
+        for (unsigned k = 0; k < nin; k++) s += (int64_t)in[k][i] * (gain ? gain[k] : 65536u);
+        s = (s >> 16) * master >> 16;
         out[i] = (int16_t)(s > 32767 ? 32767 : s < -32768 ? -32768 : s);
     }
+}
+
+uint32_t audio_vol_gain(unsigned p) { if (p > 100) p = 100; return p * p * 65536u / 10000u; }
+
+void audio_rs_init(audio_rs_t* r, unsigned in_rate, unsigned ch) {
+    r->step = in_rate; r->pos = 0;                                  /* позиция - в долях 1/48000 входного кадра: точно */ r->have = 0; r->ch = ch == 1 ? 1 : 2;
+    r->prev[0] = r->prev[1] = 0;
+}
+
+uint32_t audio_resample(audio_rs_t* r, const int16_t* in, uint32_t nin, int16_t* out, uint32_t max_out) {
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < nin; i++) {
+        int16_t c0 = in[i * r->ch], c1 = r->ch == 2 ? in[i * r->ch + 1] : c0;
+        if (!r->have) { r->prev[0] = c0; r->prev[1] = c1; r->have = 1; continue; }   /* первый кадр - только опора */
+        while (r->pos < AUDIO_RATE && n < max_out) {                 /* точки между прошлым и этим кадром */
+            int32_t w = (int32_t)r->pos;
+            out[2 * n]     = (int16_t)(r->prev[0] + ((int32_t)c0 - r->prev[0]) * w / AUDIO_RATE);
+            out[2 * n + 1] = (int16_t)(r->prev[1] + ((int32_t)c1 - r->prev[1]) * w / AUDIO_RATE);
+            n++; r->pos += r->step;
+        }
+        r->pos -= AUDIO_RATE;
+        r->prev[0] = c0; r->prev[1] = c1;
+    }
+    return n;
 }
 
 #ifndef KIRA_HOST_TEST
@@ -25,7 +50,9 @@ void audio_mix(int16_t* out, const int16_t* const* in, unsigned nin, uint32_t sa
 
 typedef struct {
     int used; uint32_t pid;
-    int16_t* q; uint32_t head, tail;           /* кадры: занято tail - head */
+    int16_t* q; uint32_t head, tail;           /* кадры 48 кГц стерео: занято tail - head */
+    audio_rs_t rs; unsigned rate, ch;          /* формат программы и пересчёт */
+    uint32_t gain;                             /* громкость потока (доля 65536) */
 } src_t;
 static src_t src[AUDIO_SRC_MAX];
 static spinlock_t lk = SPINLOCK_INIT;
@@ -33,6 +60,7 @@ static volatile unsigned tone_step, tone_left; static unsigned tone_phase;
 static uint64_t hw, wr, mixed_prog, underruns;
 static uint32_t last_pos;
 static int running;
+static uint32_t master_gain = 65536; static int master_pct = 100;
 
 static int16_t sine(uint32_t ph) {                                  /* та же таблица, что у hda.c */
     static const uint16_t q[17] = { 0, 3212, 6393, 9512, 12539, 15446, 18204, 20787, 23170, 25329, 27245, 28898, 30273, 31356, 32137, 32609, 32767 };
@@ -43,7 +71,7 @@ static int16_t sine(uint32_t ph) {                                  /* та же
 
 static void mix_chunk(int16_t* out, uint32_t frames) {
     static int16_t tmp[AUDIO_SRC_MAX + 1][CHUNK * 2];
-    const int16_t* in[AUDIO_SRC_MAX + 1]; unsigned n = 0;
+    const int16_t* in[AUDIO_SRC_MAX + 1]; uint32_t gain[AUDIO_SRC_MAX + 1]; unsigned n = 0;
     uint64_t f = spin_lock_irqsave(&lk);
     for (int k = 0; k < AUDIO_SRC_MAX; k++) {
         src_t* s = &src[k];
@@ -54,16 +82,17 @@ static void mix_chunk(int16_t* out, uint32_t frames) {
             tmp[n][2 * i] = i < take ? s->q[2 * j] : 0; tmp[n][2 * i + 1] = i < take ? s->q[2 * j + 1] : 0;
         }
         s->head += take; mixed_prog += take;
-        in[n] = tmp[n]; n++;
+        in[n] = tmp[n]; gain[n] = s->gain; n++;
     }
     if (tone_left) {
         uint32_t take = tone_left < frames ? tone_left : frames;
         for (uint32_t i = 0; i < frames; i++) { int16_t v = i < take ? sine(tone_phase) : 0; tmp[n][2 * i] = tmp[n][2 * i + 1] = v; if (i < take) tone_phase += tone_step; }
         tone_left -= take;
-        in[n] = tmp[n]; n++;
+        in[n] = tmp[n]; gain[n] = 65536; n++;
     }
+    uint32_t mg = master_gain;
     spin_unlock_irqrestore(&lk, f);
-    audio_mix(out, in, n, frames * 2);
+    audio_mix(out, in, gain, n, frames * 2, mg);
 }
 
 static void audio_main(void* arg) {
@@ -110,39 +139,66 @@ void audio_print(void) {
     unsigned n = 0; for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used) n++;
     uart_print("микшер: "); uart_print(running ? "работает" : "не запущен");
     uart_print(", программ со звуком "); uart_print_dec(n); uart_print(", карта забрала кадров "); uart_print_dec(hw);
-    uart_print(", от программ смешано "); uart_print_dec(mixed_prog); uart_print(", недоборов "); uart_print_dec(underruns); uart_print("\n");
+    uart_print(", от программ смешано "); uart_print_dec(mixed_prog); uart_print(", недоборов "); uart_print_dec(underruns);
+    uart_print(", громкость "); uart_print_dec((uint64_t)master_pct); uart_print("%\n");
+    for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used) {
+        uart_print("  поток "); uart_print_dec((uint64_t)k); uart_print(": процесс "); uart_print_dec(src[k].pid);
+        uart_print(", "); uart_print_dec(src[k].rate); uart_print(" Гц, каналов "); uart_print_dec(src[k].ch);
+        uart_print(src[k].rate != AUDIO_RATE || src[k].ch != 2 ? " (пересчёт в 48 кГц стерео)\n" : "\n");
+    }
+}
+
+int audio_master(int pct) {
+    if (pct >= 0) {
+        if (pct > 100) pct = 100;
+        uint64_t f = spin_lock_irqsave(&lk);
+        master_pct = pct; master_gain = audio_vol_gain((unsigned)pct);
+        spin_unlock_irqrestore(&lk, f);
+    }
+    return master_pct;
 }
 
 int64_t audio_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
     uint32_t pid = proc_current_pid();
     if (!running) return -2;
-    if (op == 0) {                                                  /* open */
+    if (op == 0) {                                                  /* open(частота, каналы) */
+        unsigned rate = a1 ? (unsigned)a1 : AUDIO_RATE, ch = a2 ? (unsigned)a2 : 2;
+        if (a1 > 96000 || rate < 8000 || ch > 2) return -10;
         uint64_t f = spin_lock_irqsave(&lk);
         int h = -9;
         for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used && src[k].pid == pid) { h = -3; break; }
-        if (h == -9) for (int k = 0; k < AUDIO_SRC_MAX; k++) if (!src[k].used && src[k].q) { src[k].used = 1; src[k].pid = pid; src[k].head = src[k].tail = 0; h = k; break; }
+        if (h == -9) for (int k = 0; k < AUDIO_SRC_MAX; k++) if (!src[k].used && src[k].q) {
+            src_t* s = &src[k];
+            s->used = 1; s->pid = pid; s->head = s->tail = 0; s->rate = rate; s->ch = ch; s->gain = 65536;
+            audio_rs_init(&s->rs, rate, ch);
+            h = k; break;
+        }
         spin_unlock_irqrestore(&lk, f);
         return h;
     }
     if (a1 >= AUDIO_SRC_MAX || !src[a1].used || src[a1].pid != pid) return -8;
     src_t* s = &src[a1];
     if (op == 2) { uint64_t f = spin_lock_irqsave(&lk); s->used = 0; spin_unlock_irqrestore(&lk, f); return 0; }
-    if (op == 1) {                                                  /* write: сколько влезло (кадрами по 4 байта) */
-        uint64_t frames = a3 / 4, done = 0;
+    if (op == 3) { if (a2 > 100) return -10; s->gain = audio_vol_gain((unsigned)a2); return 0; }
+    if (op == 1) {                                                  /* write: сколько влезло (байт во формате программы) */
+        uint32_t fb = 2 * s->ch;                                     /* байт в кадре программы */
+        uint64_t frames = a3 / fb, done = 0;
         if (a3 > (1u << 22) || (a3 && !user_range(a2, a3, 0))) return -10;
-        int16_t tmp[512 * 2];                                        /* своя копия на стеке вызова: программы пишут параллельно */
+        int16_t tmp[128 * 2], rs[(128 * 6 + 2) * 2];                /* до 128 кадров за раз: при 8 кГц -> до 6x */
         while (done < frames) {
             uint32_t space = SRC_FRAMES - (s->tail - s->head);
-            if (!space) break;
-            uint64_t n = frames - done; if (n > space) n = space; if (n > 512) n = 512;
-            if (copy_from_user(tmp, a2 + done * 4, n * 4)) return done ? (int64_t)(done * 4) : -10;
+            uint64_t n = frames - done; if (n > 128) n = 128;
+            uint64_t need = (n * 48000 + s->rate - 1) / s->rate + 2;  /* сколько кадров 48 кГц может выйти */
+            if (space < need) break;
+            if (copy_from_user(tmp, a2 + done * fb, n * fb)) return done ? (int64_t)(done * fb) : -10;
             uint64_t f = spin_lock_irqsave(&lk);
-            for (uint64_t i = 0; i < n; i++) { uint32_t j = (s->tail + (uint32_t)i) % SRC_FRAMES; s->q[2 * j] = tmp[2 * i]; s->q[2 * j + 1] = tmp[2 * i + 1]; }
-            s->tail += (uint32_t)n;
+            uint32_t m = audio_resample(&s->rs, tmp, (uint32_t)n, rs, (uint32_t)(sizeof rs / 4));
+            for (uint32_t i = 0; i < m; i++) { uint32_t j = (s->tail + i) % SRC_FRAMES; s->q[2 * j] = rs[2 * i]; s->q[2 * j + 1] = rs[2 * i + 1]; }
+            s->tail += m;
             spin_unlock_irqrestore(&lk, f);
             done += n;
         }
-        return (int64_t)(done * 4);
+        return (int64_t)(done * fb);
     }
     return -10;
 }

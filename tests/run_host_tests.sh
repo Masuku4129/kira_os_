@@ -225,7 +225,7 @@ UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wt
 grep -v "^wasm: " $T/w_interp.txt > $T/w_body.txt
 cmp -s $T/w_native.txt $T/w_body.txt || { echo "WASM OUTPUT DIFFERS"; cat $T/w_native.txt $T/w_interp.txt; exit 1; }
 echo "wasm: interpreter output equals native ($(cat $T/w_native.txt | cut -c1-60)...)"
-$CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c -lm
 $T/audio
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net

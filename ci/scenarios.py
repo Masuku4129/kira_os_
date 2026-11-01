@@ -180,6 +180,10 @@ ALL = [
         {"cmd": "melody"}, {"sleep": 5},                                   # программа: звук через k_snd_* и микшер ядра
         {"log": [r"melody: 8 notes, 76800 frames queued"]},
         {"cmd": "sound", "must": [r"микшер: работает", r"от программ смешано (7[6-9]|[89]\d)\d\d\d"]},
+        {"cmd": "volume 30", "must": [r"громкость: 30%"]},
+        {"cmd": "melody 8000 mono"}, {"sleep": 5},                         # 8 кГц моно: ядро пересчитывает в 48 кГц стерео
+        {"log": [r"melody: 8 notes, 16000 frames queued at 8000 Hz mono"]},
+        {"cmd": "sound", "must": [r"от программ смешано 15[2-4]\d\d\d", r"громкость 30%"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", extra=["-device", "intel-hda", "-device", "hda-output,audiodev=a0"]),
     sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [

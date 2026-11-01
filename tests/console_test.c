@@ -68,6 +68,7 @@ void platform_poweroff(void) {}
 void platform_reboot(void) {}
 int rng_get(void* o, unsigned long n) { for (unsigned long i = 0; i < n; i++) ((unsigned char*)o)[i] = (unsigned char)i; return 0; }
 const char* rng_sources(void) { return "test"; }
+int audio_master(int p) { return p < 0 ? 100 : p; }
 int blk_flush_all(void) { return 0; }
 int vfs_flush(int n) { (void)n; return 0; }
 void prog_request_file(const char* n, const char* f) { (void)n; (void)f; }

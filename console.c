@@ -25,6 +25,7 @@
 #include "blk.h"
 #include "vfs.h"
 #include "rng.h"
+#include "audio.h"
 #include "spinlock.h"
 #include "usb.h"
 
@@ -371,6 +372,14 @@ static void power_prepare(void) {
     int bad = blk_flush_all();
     if (bad) { uart_print("[KIRA DISK] write cache not flushed on "); uart_print_dec((uint64_t)bad); uart_print(" disk(s)\n"); }
 }
+static void cmd_volume(const char* a) {
+    while (a && *a == ' ') a++;
+    if (a && *a >= '0' && *a <= '9') {
+        int v = 0; while (*a >= '0' && *a <= '9') v = v * 10 + (*a++ - '0');
+        audio_master(v > 100 ? 100 : v);
+    }
+    uart_print("громкость: "); uart_print_dec((uint64_t)audio_master(-1)); uart_print("% (volume 0..100)\n");
+}
 static void cmd_random(const char* a) {
     (void)a;
     uint8_t b[16];
@@ -547,6 +556,7 @@ static const cmd_t cmds[] = {
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },
     { "plasma",    'a', "приложение Ring 3: плазма", cmd_plasma },
     { "edit",      0,   "приложение Ring 3: текстовый редактор (F2 - сохранить, F3 - другой файл, F4 - новый)", cmd_edit },
+    { "volume",    0,   "громкость звука: volume [0..100]", cmd_volume },
     { "random",    0,   "генератор случайных чисел: источники и проба", cmd_random },
     { "poweroff",  0,   "выключить машину (опыт и диски сохраняются; ACPI S5 / PSCI)", cmd_poweroff },
     { "reboot",    0,   "перезагрузить машину (опыт и диски сохраняются)", cmd_reboot },

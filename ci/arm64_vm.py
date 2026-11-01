@@ -70,6 +70,8 @@ SC = [
                ("ai", [r"композитор: ", r"тактика"]),
                ("beep 440 300", [r"DMA прошёл [1-9]\d* байт - карта играет"]),
                ("melody", [r"melody: 8 notes, 76800 frames queued"]), ("sound", [r"от программ смешано (7[6-9]|[89]\d)\d\d\d"]),
+               ("melody 22050", [r"melody: 8 notes, 35280 frames queued at 22050 Hz stereo"]), ("@sleep 2", []),
+               ("sound", [r"от программ смешано 15[2-4]\d\d\d"]),
                ("edit", []), ("@sleep 3", []), ("@type hello kira", []), ("@key f2", []), ("@sleep 2", []), ("@shot edit", []),
                ("cat /data/edit/note.txt", [r"hello kira"]),
                ("view /pic.png", [r"view: /pic\.png - PNG 97x61, .* sum %08x" % mkfiles_sums["/pic.png"]]), ("@sleep 2", []), ("@shot view", []),
