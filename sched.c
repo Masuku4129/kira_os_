@@ -406,8 +406,14 @@ static void schedule_locked(void) {
 // Точка входа нового потока (на неё "возвращается" context_switch).
 static void thread_trampoline(void) {
     finish_switch();
+    /* Функция и аргумент читаются, пока прерывания выключены: после CPU_STI поток могут вытеснить и перенести на другое ядро,
+       а адрес percpu прежнего ядра компилятор мог запомнить - тогда current оказался бы чужим потоком (у простоя entry = 0:
+       переход по адресу 0, плавающий «kernel-mode fault #14 at RIP 0x0» при старте программ). */
+    thread_t* self = this_cpu()->current;
+    void (*entry)(void*) = self->entry;
+    void* arg = self->arg;
     CPU_STI();
-    this_cpu()->current->entry(this_cpu()->current->arg);
+    entry(arg);
     sched_exit();
 }
 
