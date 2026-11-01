@@ -41,7 +41,7 @@ int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out) {
     if (r.magic != KREC_MAGIC) return KDRV_E_MAGIC;
     if (r.format != KDRV_FORMAT || r.rec_size != sizeof r || len != sizeof r) return KDRV_E_FORMAT;
     unsigned z = 0;
-    for (; z < sizeof r.source && r.source[z]; z++) { }
+    while (z < sizeof r.source && r.source[z]) z++;
     if (z == sizeof r.source) return KDRV_E_FORMAT;     /* строка без нуля */
     if (r.confirmed != KREC_CONFIRMED) return KDRV_E_UNCONFIRMED;
     if (r.caps_ok & ~(uint32_t)CAP_DRIVER_) return KDRV_E_CAPS;

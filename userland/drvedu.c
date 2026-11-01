@@ -38,7 +38,7 @@ int umain(void) {
     KDRV_R32(m, LIVE) = 0x12345678;
     if (KDRV_R32(m, LIVE) != ~0x12345678u) { say("drvedu: liveness (FAIL)\n"); ok = 0; }
     KDRV_R32(m, FACT) = 10;
-    for (int i = 0; i < 1000000 && (KDRV_R32(m, STATUS) & 1); i++) { }
+    for (int i = 0; i < 1000000 && (KDRV_R32(m, STATUS) & 1); i++) { __asm__ volatile ("" ::: "memory"); }
     u32 f = KDRV_R32(m, FACT);
     say("drvedu: 10!="); put(f); say("\n");
     if (f != 3628800) ok = 0;
@@ -61,10 +61,10 @@ int umain(void) {
         KDRV_R32(m, DMA_DST) = DEV_BUF; KDRV_R32(m, DMA_DST + 4) = 0;
         KDRV_R32(m, DMA_CNT) = 256; KDRV_R32(m, DMA_CNT + 4) = 0;
         KDRV_R32(m, DMA_CMD) = 1;
-        for (int i = 0; i < 1000000 && (KDRV_R32(m, DMA_CMD) & 1); i++) { }
+        for (int i = 0; i < 1000000 && (KDRV_R32(m, DMA_CMD) & 1); i++) { __asm__ volatile ("" ::: "memory"); }
         KDRV_R32(m, DMA_SRC) = DEV_BUF; KDRV_R32(m, DMA_DST) = (u32)d.phys + 2048; KDRV_R32(m, DMA_CNT) = 256;
         KDRV_R32(m, DMA_CMD) = 3;                            /* из устройства в память */
-        for (int i = 0; i < 1000000 && (KDRV_R32(m, DMA_CMD) & 1); i++) { }
+        for (int i = 0; i < 1000000 && (KDRV_R32(m, DMA_CMD) & 1); i++) { __asm__ volatile ("" ::: "memory"); }
         int same = 1;
         for (int i = 0; i < 256; i++) if (p[2048 + i] != p[i]) same = 0;
         say("drvedu: dma round trip "); say(same ? "equal\n" : "DIFFERENT (FAIL)\n");
