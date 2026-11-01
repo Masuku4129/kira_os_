@@ -63,6 +63,7 @@ SC = [
                ("ps", [r"plasma", r"cube3d", r"display"]),
                ("ai", [r"композитор: ", r"тактика"]),
                ("beep 440 300", [r"DMA прошёл [1-9]\d* байт - карта играет"]),
+               ("melody", [r"melody: 8 notes, 76800 frames queued"]), ("sound", [r"от программ смешано (7[6-9]|[89]\d)\d\d\d"]),
                ("edit", []), ("@sleep 3", []), ("@type hello kira", []), ("@key f2", []), ("@sleep 2", []), ("@shot edit", []),
                ("cat /data/edit/note.txt", [r"hello kira"]),
                ("view /pic.png", [r"view: /pic\.png - PNG 97x61, .* sum %08x" % mkfiles_sums["/pic.png"]]), ("@sleep 2", []), ("@shot view", []),

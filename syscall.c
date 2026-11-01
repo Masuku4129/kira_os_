@@ -2,6 +2,7 @@
    ARM64) и регистры - в arch/<архитектура>/syscall_arch.c и ассемблере входа. */
 #include "syscall.h"
 #include "net.h"
+#include "audio.h"
 #include "uart.h"
 #include "vmm.h"
 #include "proc.h"
@@ -53,6 +54,9 @@ static userlog_t ulog;
 #define SYS_ARGS          30 // (буфер, ёмкость) -> длина строки аргументов запуска
 #define SYS_NET_LISTEN    31 // (порт) -> номер слушателя (100+)
 #define SYS_NET_ACCEPT    32 // (слушатель, мс; 0 - без срока) -> номер соединения
+#define SYS_SND_OPEN      33 // () -> поток звука программы
+#define SYS_SND_WRITE     34 // (поток, буфер, байт) -> принято байт (кадры 48 кГц, 16 бит, стерео)
+#define SYS_SND_CLOSE     35 // (поток)
 
 #define SYS_MAX_WRITE 4096
 #define SYS_MAX_SLEEP 1000
@@ -209,6 +213,8 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
     case SYS_NET_DNS: case SYS_NET_CONNECT: case SYS_NET_SEND: case SYS_NET_RECV: case SYS_NET_CLOSE:
     case SYS_NET_LISTEN: case SYS_NET_ACCEPT:
         return (uint64_t)net_sys((unsigned)(nr - SYS_NET_DNS), a1, a2, a3);
+    case SYS_SND_OPEN: case SYS_SND_WRITE: case SYS_SND_CLOSE:
+        return (uint64_t)audio_sys((unsigned)(nr - SYS_SND_OPEN), a1, a2, a3);
     case SYS_ARGS: {
         const char* s = proc_current_args();
         uint64_t len = 0; while (s[len]) len++;

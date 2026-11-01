@@ -15,6 +15,7 @@ void hdacmd_beep(const char* a) { (void)a; }
 #include "timer.h"
 #include "kmutex.h"
 #include "cpu.h"
+#include "audio.h"
 
 enum { GCAP = 0x00, GCTL = 0x08, STATESTS = 0x0E, INTCTL = 0x20, CORBLBASE = 0x40, CORBUBASE = 0x44, CORBWP = 0x48,
        CORBRP = 0x4A, CORBCTL = 0x4C, CORBSIZE = 0x4E, RIRBLBASE = 0x50, RIRBUBASE = 0x54, RIRBWP = 0x58,
@@ -191,30 +192,17 @@ int hda_probe(void) {
     uart_print("[KIRA HDA] Sound: codec "); uart_print_hex(h.vendor >> 16); uart_print(":"); uart_print_hex(h.vendor & 0xFFFF);
     uart_print(", output path pin "); uart_print_dec(h.pin); uart_print(" <- DAC "); uart_print_dec(h.dac);
     uart_print(", 48 kHz 16-bit stereo (commands: sound, beep).\n");
+    audio_start();
     return 0;
 }
 
-/* Синус по таблице четверти периода (0..32767), фаза - 16.16. */
-static int16_t sine(uint32_t ph) {
-    static const uint16_t q[17] = { 0, 3212, 6393, 9512, 12539, 15446, 18204, 20787, 23170, 25329, 27245, 28898, 30273, 31356, 32137, 32609, 32767 };
-    uint32_t i = (ph >> 12) & 63;                                /* 64 шага на период */
-    int s = i < 16 ? q[i] : i < 32 ? q[32 - i] : i < 48 ? -q[i - 32] : -q[64 - i];
-    return (int16_t)(s / 4);                                     /* -12 дБ: не громко */
-}
 
-int hda_beep(unsigned hz, unsigned ms, uint32_t* dma_bytes) {
+/* Вечный поток вывода: кольцо из 4 частей по 0,5 с, карта идёт по нему по кругу; что в нём - пишет микшер (audio.c). */
+int hda_ring_start(void) {
     if (!h.up) return -1;
-    if (hz < 20 || hz > 20000 || !ms) return -2;
-    if (ms > 2000) ms = 2000;
     kmutex_lock(&h.mx);
-    uint32_t frames = RATE * ms / 1000, step = (uint32_t)(((uint64_t)hz << 18) / RATE);   /* период - 2^18 фазы */
-    int16_t* s = (int16_t*)h.buf; uint32_t ph = 0;
-    for (uint32_t i = 0; i < BUFSZ / 4; i++) {
-        int16_t v = i < frames ? sine(ph) : 0;
-        s[2 * i] = s[2 * i + 1] = v;
-        ph += step;
-    }
-    for (unsigned i = 0; i < NBDL; i++) {                        /* список буферов: четыре части по 0,5 с */
+    for (uint32_t i = 0; i < BUFSZ; i++) h.buf[i] = 0;
+    for (unsigned i = 0; i < NBDL; i++) {
         uint64_t a = h.buf_p + (uint64_t)i * (BUFSZ / NBDL);
         h.bdl[4 * i] = (uint32_t)a; h.bdl[4 * i + 1] = (uint32_t)(a >> 32); h.bdl[4 * i + 2] = BUFSZ / NBDL; h.bdl[4 * i + 3] = 0;
     }
@@ -230,14 +218,23 @@ int hda_beep(unsigned hz, unsigned ms, uint32_t* dma_bytes) {
     MMIO_W16(sd + SD_FMT, 0x0011);
     MMIO_W8(sd + SD_CTL + 2, 1u << 4);                           /* номер потока 1 */
     MMIO_W8(sd + SD_STS, 0x1C);
-    MMIO_W8(sd + SD_CTL, 2);                                     /* пуск */
-    uint64_t until = timer_get_ticks() + (uint64_t)ms * TIMER_HZ / 1000 + 1;
-    uint32_t pos = 0, last;
-    while (timer_get_ticks() < until) { last = MMIO_R32(sd + SD_LPIB); if (last > pos) pos = last; sched_sleep_ticks(1); }
-    last = MMIO_R32(sd + SD_LPIB); if (last > pos) pos = last;
-    MMIO_W8(sd + SD_CTL, 0);                                     /* стоп */
+    MMIO_W8(sd + SD_CTL, 2);                                     /* пуск: дальше - по кругу */
     kmutex_unlock(&h.mx);
-    if (dma_bytes) *dma_bytes = pos;
+    return 0;
+}
+uint32_t hda_ring_pos(void) { return h.up ? MMIO_R32(h.sd + SD_LPIB) % BUFSZ : 0; }
+int16_t* hda_ring_buf(void) { return (int16_t*)h.buf; }
+uint32_t hda_ring_bytes(void) { return BUFSZ; }
+
+/* Тон через микшер; dma_bytes - сколько байт карта забрала за это время. */
+int hda_beep(unsigned hz, unsigned ms, uint32_t* dma_bytes) {
+    if (!h.up) return -1;
+    if (hz < 20 || hz > 20000 || !ms) return -2;
+    if (ms > 2000) ms = 2000;
+    uint64_t hw0 = audio_hw_frames();
+    if (audio_tone(hz, ms) != 0) return -1;
+    sched_sleep_ticks((uint64_t)ms * TIMER_HZ / 1000 + 1);
+    if (dma_bytes) *dma_bytes = (uint32_t)((audio_hw_frames() - hw0) * 4);
     return 0;
 }
 
@@ -246,7 +243,9 @@ void hdacmd_sound(const char* a) {
     if (!h.up) { uart_print("звуковой карты нет (поддерживается Intel HDA: в Limbo - Sound: hda)\n"); return; }
     uart_print("Intel HDA: кодек "); uart_print_hex(h.vendor); uart_print(" (адрес "); uart_print_dec(h.cad);
     uart_print("), выход: вывод "); uart_print_dec(h.pin); uart_print(" <- ЦАП "); uart_print_dec(h.dac);
-    uart_print(", 48 кГц, 16 бит, стерео\nпроверка: beep [Гц] [мс]\n");
+    uart_print(", 48 кГц, 16 бит, стерео\n");
+    audio_print();
+    uart_print("проверка: beep [Гц] [мс]\n");
 }
 
 void hdacmd_beep(const char* a) {

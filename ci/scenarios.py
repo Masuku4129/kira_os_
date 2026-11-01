@@ -156,6 +156,10 @@ ALL = [
         {"log": BOOT_LOG + [r"\[KIRA HDA\] Sound: codec .* output path pin \d+ <- DAC \d+"]},
         {"cmd": "sound", "must": [r"выход: вывод \d+ <- ЦАП \d+"]},
         {"cmd": "beep 440 400", "must": [r"DMA прошёл [1-9]\d* байт - карта играет"], "timeout": 15},
+        {"log": [r"\[KIRA AUDIO\] Mixer online"]},
+        {"cmd": "melody"}, {"sleep": 5},                                   # программа: звук через k_snd_* и микшер ядра
+        {"log": [r"melody: 8 notes, 76800 frames queued"]},
+        {"cmd": "sound", "must": [r"микшер: работает", r"от программ смешано (7[6-9]|[89]\d)\d\d\d"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", extra=["-device", "intel-hda", "-device", "hda-output,audiodev=a0"]),
     sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [

@@ -214,6 +214,8 @@ ASAN_OPTIONS=detect_leaks=0 $T/view $T/files/pic.png "$(sum /pic.png)" $T/files/
     $T/files/note.txt "текст, " $T/files/blob.bin "двоичный, 512" > $T/view.out 2>&1 || { cat $T/view.out; exit 1; }
 tail -1 $T/view.out
 for f in pic.png rgba.png pic.bmp pic.ppm; do ASAN_OPTIONS=detect_leaks=0 $T/view fuzz $T/files/$f > $T/view.out 2>&1 || { tail -20 $T/view.out; exit 1; }; tail -1 $T/view.out; done
+$CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c
+$T/audio
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
 rm -rf $T

@@ -1,5 +1,6 @@
 #include "proc.h"
 #include "net.h"
+#include "audio.h"
 #include "syscall.h"
 #include "sched.h"
 #include "percpu.h"
@@ -295,6 +296,7 @@ static void teardown(proc_t* p) {
     uint32_t pid = p->pid;
     gfx_proc_gone(pid);                    /* окно приложения снимет поток дисплея */
     net_proc_gone(pid);                    /* соединения TCP программы закрываются */
+    audio_proc_gone(pid);                  /* и её поток звука */
     syscall_proc_gone(pid);                /* его незаконченная строка журнала */
     for (uint32_t h = 1; h <= htab_cap(&p->handles); h++) kobj_release(htab_take(&p->handles, (int)h));
     htab_free(&p->handles);
