@@ -118,6 +118,11 @@ class VM:
             chain = os.path.abspath("ci-out/tlschain")
             subprocess.run([sys.executable, "-I", "ci/mkchain.py", chain], check=True, stdout=subprocess.DEVNULL)
             subprocess.run(["tools/kfstool", self.disk, "put", "/etc/ssl/roots.der", os.path.join(chain, "root.der")], check=True, stdout=subprocess.DEVNULL)
+        self.daemons = []
+        for argv in sc.get("daemons", []):          # процессы хозяина на время сценария (постоянный openssl s_server: билеты сессий живут между соединениями)
+            chain = os.path.abspath("ci-out/tlschain")
+            self.daemons.append(subprocess.Popen([a.replace("{chain}", chain) for a in argv], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        if self.daemons: time.sleep(1.5)
         if sc.get("disk_mb"):
             with open(self.disk, "r+b") as f:
                 f.truncate(sc["disk_mb"] * 1024 * 1024)
@@ -196,6 +201,8 @@ class VM:
         self.qmp_cmd({"execute": "qmp_capabilities"})
 
     def stop(self):
+        for p in getattr(self, "daemons", []):
+            p.terminate()
         try:
             self.qmp_cmd({"execute": "quit"})
         except Exception:

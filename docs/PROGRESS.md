@@ -167,3 +167,9 @@ capabilities и программы WASM -> сеть -> виртуальные м
 - Сокеты: семейство при открытии (порт | семейство << 16), вызовы 44-47 (connect/sendto/recvfrom/peer с адресом сокета).
   Программа `net6`, `ping6`; `udpecho` отвечает на большие датаграммы суммой FNV-1a.
 - Стенд: сценарий `net-ipv6`, проверки IPv6 в `net-e1000`.
+## Пакет D: TLS (01.11)
+- Ed25519 (RFC 8032) в `pk.c`; X.509: подписи и ключи Ed25519 (RFC 8410), RSA-PSS (параметры хэша, MGF1, соли) в подписи и ключ id-RSASSA-PSS с ограничениями; схемы CertificateVerify 0x0807, 0x0809-0x080b.
+- AES-128 без таблиц: S-блок считается (x^254 в GF(2^8) + аффинное преобразование) в битовой нарезке, без индексов и ветвей по секрету. Цена: ~2,3 МиБ/с против ~9,6 на хосте (GHASH - тоже побитовый). SHA-1 добавлен только для CertID в OCSP.
+- OCSP stapling: `status_request`, ответ из записи листа; `x509_ocsp` проверяет подпись издателя или уполномоченного ответчика (EKU OCSPSigning), CertID, срок. `tls_t`: `ocsp_stapled`, `ocsp`, `ocsp_why`. Нет ответа - не ошибка; revoked, подделка, чужой сертификат - отказ; устарел/unknown/ошибка ответчика - ocsp=0 с причиной.
+- Сессии: NewSessionTicket -> PSK (`resumption_master_secret`), `psk_dhe_ke`, binder; билет `tls_ticket_t` в `tls_t.ticket`, `tls_connect(..., const tls_ticket_t*)`; билет только для того же имени и до конца срока; отказ сервера - полное рукопожатие. `fetch -r` повторяет запрос по билету.
+- Проверено на хосте (`tests/run_host_tests.sh`): векторы RFC 8032 и сверка 240 подписей Ed25519 / 360 RSA-PSS с python cryptography; AES против прежней табличной версии на 2000 случайных ключах; цепочки Ed25519 и RSA-PSS, ответы OCSP (good, уполномоченный, revoked, unknown, stale, forged, other) и резюмирование - против Python ssl и `openssl s_server`.

@@ -41,6 +41,12 @@ HTTP_ONCE = os.path.abspath(os.path.join(os.path.dirname(__file__), "http_once.p
 HTTPS_ONCE = os.path.abspath(os.path.join(os.path.dirname(__file__), "https_once.py"))
 WGFX = ("0000000054f339aa", "000000000943d884")       # суммы кадров wgfx.wasm - как у эталона, собранного обычным компилятором
 TLS_CHAIN = os.path.abspath("ci-out/tlschain")       # создаёт стенд (tls_chain=True): ci/mkchain.py
+_G = ",guestfwd=tcp:10.0.2.100:%d-cmd:python3 " + HTTPS_ONCE + " %s"
+OCSP_FWD = (_G % (8444, "--chain " + TLS_CHAIN + " --prefix ed_") + _G % (8445, "--chain " + TLS_CHAIN + " --prefix pss_") +
+            _G % (8446, "--chain " + TLS_CHAIN + " --ocsp good") + _G % (8447, "--chain " + TLS_CHAIN + " --ocsp revoked") +
+            _G % (8448, "--bridge 18449"))        # 8448: постоянный openssl s_server (daemons) - билеты сессий
+RESUME_DAEMON = ["openssl", "s_server", "-quiet", "-accept", "18449", "-cert", "{chain}/leaf.pem", "-key", "{chain}/leaf.key",
+                 "-cert_chain", "{chain}/inter.pem", "-tls1_3", "-www"]
 
 ALL = [
     sc("boot-virtio", "загрузка: virtio-blk, 4 ядра, базовые проверки", BASIC + [
@@ -222,6 +228,17 @@ ALL = [
         {"cmd": "fetch https://10.0.2.100/tls"}, {"sleep": 10},                            # TLS 1.3 с OpenSSL хозяина
         {"cmd": "fetch https://10.0.2.100:8443/self"}, {"sleep": 6},                     # самоподписанный - отказ
         {"log": [r"fetch: TLS failed: issuer is not trusted"]},
+        {"cmd": "fetch https://10.0.2.100:8444/ed"}, {"sleep": 10},                       # цепочка Ed25519 (промежуточный подписан RSA-PSS)
+        {"cmd": "fetch https://10.0.2.100:8445/pss"}, {"sleep": 10},                      # ключ id-RSASSA-PSS, подпись корневого RSA-PSS
+        {"cmd": "fetch https://10.0.2.100:8446/ocsp"}, {"sleep": 10},                     # прикреплённый ответ OCSP: good
+        {"cmd": "fetch https://10.0.2.100:8447/ocsp"}, {"sleep": 8},                      # revoked - отказ
+        {"cmd": "fetch -r https://10.0.2.100:8448/resume"}, {"sleep": 16},                # билет сессии: второе соединение по PSK
+        {"log": [r"fetch: 10\.0\.2\.100/ed - HTTP/1\.0 200 OK", r"fetch: 10\.0\.2\.100/pss - HTTP/1\.0 200 OK",
+                 r"fetch: OCSP: stapled response checked \(signature, certificate, dates\): status good",
+                 r"fetch: TLS failed: OCSP: the certificate has been revoked",
+                 r"fetch: second connection with the session ticket",
+                 r"session resumed from a ticket \(psk_dhe_ke\): no certificates sent"]},
+        {"log": [r"fetch: OCSP: no stapled response \(not an error\)"]},
         {"log": [r"fetch: TLS 1\.3, X25519 \+ ChaCha20-Poly1305; certificate verified \(chain to a root, name, dates\)",
                  r"fetch: 10\.0\.2\.100/tls - HTTP/1\.0 200 OK - 2\d\d\d\d bytes .*server closed"]},
         {"cmd": "random", "must": [r"источники - .*virtio-rng", r"засеян аппаратным источником", r"проба: [0-9a-f]{32}"]},
@@ -236,8 +253,8 @@ ALL = [
         {"host_udp": [18082, "ping-1"]}, {"host_udp": [18082, "ping-2"]}, {"sleep": 2},
         {"log": [r"\[HOST\] udp reply 'kira-udp: ping-1'", r"\[HOST\] udp reply 'kira-udp: ping-2'", r"udpecho: done, 2 answered"]},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE + ",guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + ",guestfwd=tcp:10.0.2.100:8443-cmd:python3 " + HTTPS_ONCE + " --self " + TLS_CHAIN + ",hostfwd=tcp:127.0.0.1:18080-:8080,hostfwd=udp:127.0.0.1:18082-:9000",
-                                 "-device", "virtio-net-pci,netdev=n0", "-device", "virtio-rng-pci"], tls_chain=True),
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE + ",guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + ",guestfwd=tcp:10.0.2.100:8443-cmd:python3 " + HTTPS_ONCE + " --self " + TLS_CHAIN + OCSP_FWD + ",hostfwd=tcp:127.0.0.1:18080-:8080,hostfwd=udp:127.0.0.1:18082-:9000",
+                                 "-device", "virtio-net-pci,netdev=n0", "-device", "virtio-rng-pci"], tls_chain=True, daemons=[RESUME_DAEMON]),
     sc("limbo-mttcg", "Limbo с галочкой Enable MTTCG (эмуляция потоком на ядро): 8 plasma - сравнить сборку и отклик с limbo-spam", [
         {"log": BOOT_LOG},
         *[{"send": "plasma"} for _ in range(8)],

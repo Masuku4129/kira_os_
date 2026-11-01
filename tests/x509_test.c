@@ -1,9 +1,11 @@
 // Хост-тест X.509: цепочка корневой RSA -> промежуточный P-384 -> сервер P-256 (ci/mkchain.py, создаётся при каждом
-// запуске), имена (DNS, *, IPv4), срок, недоверенный и просроченный сертификаты, подмена байта; разбор системной
-// связки корневых сертификатов (если есть).
+// запуске), имена (DNS, *, IPv4), срок, недоверенный и просроченный сертификаты, подмена байта; цепочка Ed25519
+// (подпись корневого RSA-PSS), сервер с ключом id-RSASSA-PSS и подписью RSA-PSS sha384; ответы OCSP (good, уполномоченный
+// ответчик, revoked, unknown, устарел, подделка, чужой сертификат); разбор системной связки корневых сертификатов (если есть).
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "x509.h"
 
 static int fails;
@@ -46,9 +48,55 @@ int main(int argc, char** argv) {
     memcpy(big, leaf, ll); big[60] ^= 1;                                                    /* испорчено тело */
     CHECK(x509_verify_chain(cb, l2, 2, root, rl, "kira.test", now, &why) < 0);
 
+    /* ---- Ed25519: промежуточный (подпись корневого RSA-PSS sha256/соль 32) и сервер (подпись Ed25519) ---- */
+    static uint8_t einter[4096], eleaf[4096], pleaf[4096], ob[8192];
+    size_t eil = rd(d, "ed_inter.der", einter, sizeof einter), ell = rd(d, "ed_leaf.der", eleaf, sizeof eleaf), pl = rd(d, "pss_leaf.der", pleaf, sizeof pleaf);
+    CHECK(eil && ell && pl);
+    x509_t EI, EL, PL;
+    CHECK(x509_parse(einter, eil, &EI) == 0 && EI.key_type == X509_KEY_ED25519 && EI.sig_alg == X509_SIG_RSA_PSS && EI.is_ca);
+    CHECK(EI.pss_hash == 32 && EI.pss_mgf == 32 && EI.pss_salt == 32);
+    CHECK(x509_parse(eleaf, ell, &EL) == 0 && EL.key_type == X509_KEY_ED25519 && EL.sig_alg == X509_SIG_ED25519);
+    CHECK(x509_check_sig(&EI, &R) == 0 && x509_check_sig(&EL, &EI) == 0 && x509_check_sig(&EL, &R) == -1 && x509_check_sig(&EI, &EI) == -1);
+    const uint8_t* ced[2] = { eleaf, einter }; size_t led[2] = { ell, eil };
+    CHECK(x509_verify_chain(ced, led, 2, root, rl, "kira.test", EL.not_before + 3600, &why) == 0);
+    memcpy(big, eleaf, ell); big[ell - 5] ^= 1;                                             /* подпись Ed25519 испорчена */
+    const uint8_t* cedb[2] = { big, einter };
+    CHECK(x509_verify_chain(cedb, led, 2, root, rl, "kira.test", EL.not_before + 3600, &why) < 0);
+    memcpy(big, einter, eil); big[eil - 5] ^= 1;                                            /* подпись RSA-PSS испорчена */
+    const uint8_t* cedc[2] = { eleaf, big }; size_t ledc[2] = { ell, eil };
+    CHECK(x509_verify_chain(cedc, ledc, 2, root, rl, "kira.test", EL.not_before + 3600, &why) < 0);
+    CHECK(x509_parse(pleaf, pl, &PL) == 0 && PL.key_type == X509_KEY_RSA_PSS && PL.kp_hash == 32 && PL.kp_mgf == 32 && PL.kp_salt == 32);
+    CHECK(PL.sig_alg == X509_SIG_RSA_PSS && PL.pss_hash == 48 && PL.pss_mgf == 48 && PL.pss_salt == 48);
+    const uint8_t* cp1[1] = { pleaf }; size_t lp1[1] = { pl };
+    CHECK(x509_verify_chain(cp1, lp1, 1, root, rl, "kira.test", PL.not_before + 3600, &why) == 0);
+    memcpy(big, pleaf, pl); big[pl - 7] ^= 1;
+    cp1[0] = big;
+    CHECK(x509_verify_chain(cp1, lp1, 1, root, rl, "kira.test", PL.not_before + 3600, &why) < 0);
+    CHECK(x509_check_sig(&PL, &I) == -1);                                                  /* ключ P-384 не годится для PSS */
+
+    /* ---- OCSP (лист основной цепочки; издатель - промежуточный) ---- */
+    int64_t onow = (int64_t)time(0);                                                       /* ответы OCSP выданы относительно настоящего времени */
+    static const struct { const char* f; int want; const char* what; } OC[] = {
+        { "good", OCSP_GOOD, 0 }, { "deleg", OCSP_GOOD, 0 }, { "revoked", OCSP_REVOKED, "revoked" },
+        { "unknown", OCSP_NOASSURANCE, "unknown" }, { "stale", OCSP_NOASSURANCE, "stale" }, { "tryagain", OCSP_NOASSURANCE, "error status" },
+        { "forged", -1, "not signed" }, { "other", -1, "not about" }, { "noeku", -1, "not signed" } };
+    for (unsigned i = 0; i < sizeof OC / sizeof OC[0]; i++) {
+        char fn[64]; snprintf(fn, sizeof fn, "ocsp_%s.der", OC[i].f);
+        size_t ol = rd(d, fn, ob, sizeof ob); const char* ow = 0;
+        int r = x509_ocsp(ob, ol, c2, l2, 2, root, rl, onow, &ow);
+        if (r != OC[i].want || (OC[i].what && (!ow || !strstr(ow, OC[i].what))) || (!OC[i].what && ow)) { printf("FAIL OCSP %s: %d (%s)\n", OC[i].f, r, ow ? ow : "-"); fails++; }
+    }
+    { size_t ol = rd(d, "ocsp_good.der", ob, sizeof ob); const char* ow = 0;
+      CHECK(x509_ocsp(ob, ol, c2, l2, 2, root, rl, 0, &ow) == OCSP_NOASSURANCE && ow);                 /* часы неизвестны: свежесть не проверить */
+      CHECK(x509_ocsp(ob, ol, c2, l2, 1, root, rl, onow, &ow) == OCSP_NOASSURANCE);                      /* промежуточного нет, но корневой не издатель */
+      CHECK(x509_ocsp(ob, ol, c2, l2, 1, inter, il, onow, &ow) == OCSP_GOOD);                            /* издатель в хранилище */
+      ob[ol - 3] ^= 1; CHECK(x509_ocsp(ob, ol, c2, l2, 2, root, rl, onow, &ow) < 0);                      /* подпись ответа испорчена */
+      ob[ol - 3] ^= 1; ob[ol / 2] ^= 1; CHECK(x509_ocsp(ob, ol, c2, l2, 2, root, rl, onow, &ow) != OCSP_GOOD);   /* тело испорчено */
+      CHECK(x509_ocsp(ob, 20, c2, l2, 2, root, rl, now, &ow) < 0); }                                    /* обрезан */
+
     int sys = -1;
     if (argc > 2) { size_t bl = rd(".", argv[2], big, sizeof big); if (bl) sys = x509_count(big, bl); }
-    printf(fails ? "X509 TESTS FAILED\n" : "x509: chain RSA root -> P-384 -> P-256 (SHA-256/384), names (DNS, wildcard, IPv4), validity, untrusted/expired/tampered rejected");
+    printf(fails ? "X509 TESTS FAILED\n" : "x509: chain RSA root -> P-384 -> P-256 (SHA-256/384), RSA-PSS and Ed25519 chains, RSASSA-PSS key, OCSP (good, delegated responder, revoked, unknown, stale, forged, other certificate), names (DNS, wildcard, IPv4), validity, untrusted/expired/tampered rejected");
     if (!fails && sys >= 0) printf("; system roots parsed: %d", sys);
     printf(fails ? "" : " - passed\n");
     return fails != 0;

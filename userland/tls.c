@@ -1,4 +1,4 @@
-/* TLS 1.3 клиент (RFC 8446): ClientHello с X25519, ServerHello, расписание ключей HKDF, записи ChaCha20-Poly1305,
+/* TLS 1.3 клиент (RFC 8446): ClientHello с X25519 (и статус OCSP, и билет сессии - PSK), ServerHello, расписание ключей HKDF, записи ChaCha20-Poly1305,
    проверка Finished сервера (подлинность рукопожатия), Finished клиента, данные приложения, KeyUpdate, close_notify. */
 #include "tls.h"
 #include "../crypto.h"
@@ -12,6 +12,7 @@ enum { HS_CH = 1, HS_SH = 2, HS_NST = 4, HS_EE = 8, HS_CERT = 11, HS_CV = 15, HS
 static u8 hs[40000]; static u32 hs_len;          /* собранные сообщения рукопожатия (могут идти через записи) */
 static sha256_ctx_t th;                           /* хэш переписки */
 static u8 certmsg[40000]; static u32 certmsg_len;  /* сообщение Certificate: цепочка сервера */
+static const u8* ocsp_p; static u32 ocsp_l;       /* ответ OCSP из записи листа */
 static const u8* cert_p[8]; static size_t cert_l[8]; static int cert_n;
 static x509_t leaf;
 
@@ -123,8 +124,18 @@ static void hs_consume(u32 blen, int to_transcript) {
 
 static u32 put16(u8* p, u32 v) { p[0] = (u8)(v >> 8); p[1] = (u8)v; return 2; }
 
-int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* roots, u32 roots_len, i64 now) {
+int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* roots, u32 roots_len, i64 now,
+                const tls_ticket_t* resume) {
+    static tls_ticket_t tk; int use_tk = 0;                       /* копия: resume может лежать внутри самого t */
+    u32 hlen = 0; while (host[hlen]) hlen++;
+    if (resume && resume->valid && resume->ticket_len && resume->ticket_len <= TLS_TICKET_MAX && hlen < sizeof tk.host) {
+        tk = *resume; use_tk = 1;
+        for (u32 i = 0; i <= hlen; i++) if (tk.host[i] != host[i]) use_tk = 0;                 /* другое имя: билет не подходит */
+        if (now && tk.issued_s && (now < tk.issued_s || (u64)(now - tk.issued_s) > tk.lifetime_s)) use_tk = 0;   /* срок билета вышел */
+    }
     for (u32 i = 0; i < sizeof *t; i++) ((u8*)t)[i] = 0;
+    t->now0 = now;
+    if (hlen < sizeof t->host) for (u32 i = 0; i <= hlen; i++) t->host[i] = host[i];
     t->sock = sock; t->state = 1; hs_len = 0;
     sha256_init(&th);
 
@@ -135,7 +146,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     t->weak_random = q == 0;
     cp(priv, rnd + 64, 32);
     x25519_base(pub, priv);
-    static u8 ch[512];
+    static u8 ch[512 + TLS_TICKET_MAX + 64];
     u32 n = 0, hl = 0; while (host[hl] && hl < 253) hl++;
     ch[n++] = HS_CH; n += 3;                                      /* длина - потом */
     ch[n++] = 3; ch[n++] = 3;
@@ -152,13 +163,38 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     }
     n += put16(ch + n, 0x002b); n += put16(ch + n, 3); ch[n++] = 2; n += put16(ch + n, 0x0304);   /* supported_versions */
     n += put16(ch + n, 0x000a); n += put16(ch + n, 4); n += put16(ch + n, 2); n += put16(ch + n, 0x001d);   /* x25519 */
-    static const u16 sigs[] = { 0x0403, 0x0503, 0x0804, 0x0805, 0x0806, 0x0401, 0x0501, 0x0601 };   /* то, что умеет pk.c */
-    n += put16(ch + n, 0x000d); n += put16(ch + n, 2 + 2 * 8); n += put16(ch + n, 2 * 8);
-    for (int i = 0; i < 8; i++) n += put16(ch + n, sigs[i]);
+    static const u16 sigs[] = { 0x0403, 0x0503, 0x0807, 0x0804, 0x0805, 0x0806, 0x0809, 0x080a, 0x080b, 0x0401, 0x0501, 0x0601 };   /* то, что умеет pk.c; rsa_pkcs1 - только для подписей в цепочке */
+    n += put16(ch + n, 0x000d); n += put16(ch + n, 2 + 2 * 12); n += put16(ch + n, 2 * 12);
+    for (int i = 0; i < 12; i++) n += put16(ch + n, sigs[i]);
+    n += put16(ch + n, 0x0005); n += put16(ch + n, 5); ch[n++] = 1; n += put16(ch + n, 0); n += put16(ch + n, 0);   /* status_request: OCSP, без списка ответчиков и расширений */
     n += put16(ch + n, 0x0033); n += put16(ch + n, 2 + 4 + 32); n += put16(ch + n, 4 + 32);
     n += put16(ch + n, 0x001d); n += put16(ch + n, 32); cp(ch + n, pub, 32); n += 32;   /* key_share */
+    u32 bind_at = 0;                                              /* где в ClientHello список binders (билет сессии) */
+    u8 early[32];
+    if (use_tk) {
+        n += put16(ch + n, 0x002d); n += put16(ch + n, 2); ch[n++] = 1; ch[n++] = 1;           /* psk_key_exchange_modes: psk_dhe_ke */
+        u32 age = 0;
+        if (now && tk.issued_s && now >= tk.issued_s) age = (u32)((now - tk.issued_s) * 1000);
+        age += tk.age_add;
+        u32 idl = 2 + tk.ticket_len + 4;
+        n += put16(ch + n, 0x0029); n += put16(ch + n, 2 + idl + 2 + 1 + 32); n += put16(ch + n, idl);
+        n += put16(ch + n, tk.ticket_len); cp(ch + n, tk.ticket, tk.ticket_len); n += tk.ticket_len;
+        ch[n++] = (u8)(age >> 24); ch[n++] = (u8)(age >> 16); ch[n++] = (u8)(age >> 8); ch[n++] = (u8)age;
+        bind_at = n;
+        n += put16(ch + n, 33); ch[n++] = 32; n += 32;           /* binder - ниже, после хэша усечённого ClientHello */
+    }
     put16(ch + ext, n - ext - 2);
     u32 body = n - 4; ch[1] = (u8)(body >> 16); ch[2] = (u8)(body >> 8); ch[3] = (u8)body;
+    if (use_tk) {                                                 /* binder = HMAC(finished_key(binder_key), Hash(ClientHello до binders)) */
+        u8 emp[32], bk[32], fk0[32], trunc[32];
+        hkdf_extract(0, 0, tk.psk, 32, early);
+        sha256("", 0, emp);
+        hkdf_expand_label(early, "res binder", emp, 32, bk, 32);
+        hkdf_expand_label(bk, "finished", 0, 0, fk0, 32);
+        sha256(ch, bind_at, trunc);
+        hmac_sha256(fk0, 32, trunc, 32, ch + bind_at + 3);
+        crypto_wipe(bk, 32); crypto_wipe(fk0, 32);
+    }
     sha256_update(&th, ch, n);
     u8 rh[5] = { CT_HS, 3, 1, (u8)(n >> 8), (u8)n };
     if (send_all(t, rh, 5) || send_all(t, ch, n)) return fail(t, "ClientHello not sent");
@@ -176,12 +212,13 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     t->cipher = (u16)be16(s + o); o += 3;
     if (t->cipher != SUITE_CHACHA && t->cipher != SUITE_AES128) return fail(t, "server chose a cipher that was not offered");
     u32 el = be16(s + o); o += 2;
-    int v13 = 0; const u8* spub = 0;
+    int v13 = 0, psk_sel = 0; const u8* spub = 0;
     for (u32 e = o; e + 4 <= o + el && e + 4 <= bl; ) {
         u32 et = be16(s + e), elen = be16(s + e + 2);
         const u8* d = s + e + 4;
         if (et == 0x002b && elen == 2 && be16(d) == 0x0304) v13 = 1;
         if (et == 0x0033 && elen == 36 && be16(d) == 0x001d && be16(d + 2) == 32) spub = d + 4;
+        if (et == 0x0029) { if (elen != 2 || be16(d) != 0 || !use_tk) return fail(t, "server selected a pre-shared key that was not offered"); psk_sel = 1; }
         e += 4 + elen;
     }
     if (!v13) return fail(t, "server does not speak TLS 1.3");
@@ -192,9 +229,10 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     hs_consume(bl, 1);
 
     /* ---- расписание ключей рукопожатия ---- */
-    u8 zero[32] = { 0 }, empty[32], early[32], der[32], hsec[32], h[32], csec[32], ssec[32];
+    u8 zero[32] = { 0 }, empty[32], der[32], hsec[32], h[32], csec[32], ssec[32];
     sha256("", 0, empty);
-    hkdf_extract(0, 0, zero, 32, early);
+    if (psk_sel) t->resumed = 1;                                  /* сервер принял билет: ранний секрет - из PSK (уже в early) */
+    else hkdf_extract(0, 0, zero, 32, early);                     /* отказал или билета не было: обычное рукопожатие */
     hkdf_expand_label(early, "derived", empty, 32, der, 32);
     hkdf_extract(der, 32, shared, 32, hsec);
     crypto_wipe(shared, sizeof shared);
@@ -205,10 +243,12 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
 
     /* ---- EncryptedExtensions, Certificate, CertificateVerify, Finished ---- */
     int got_fin = 0;
+    ocsp_p = 0; ocsp_l = 0; cert_n = 0;
     while (!got_fin) {
         if (next_hs(t, 1, &ty, &bl, timeout_ms)) return -1;
         const u8* m = hs + 4;
         if (ty == HS_EE) { hs_consume(bl, 1); continue; }
+        if (t->resumed && (ty == HS_CERT || ty == HS_CV)) return fail(t, "server sent a certificate in a resumed session");
         if (ty == HS_CERT) {                                      /* цепочка: контекст, список (длина 3), записи */
             if (bl < 4 || bl > sizeof certmsg) return fail(t, "bad or too large Certificate");
             cp(certmsg, m, bl); certmsg_len = bl; cert_n = 0;
@@ -222,9 +262,18 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
                 if (c + 3 + cl + 2 > end) return fail(t, "bad Certificate entry");
                 if (cert_n < 8) { cert_p[cert_n] = certmsg + c + 3; cert_l[cert_n] = cl; cert_n++; }
                 if (!t->cert_count) t->leaf_len = cl;
-                t->cert_count++;
                 c += 3 + cl;
-                c += 2 + be16(certmsg + c);
+                u32 xl = be16(certmsg + c), xe = c + 2;
+                if (c + 2 + xl > end) return fail(t, "bad Certificate extensions");
+                if (!t->cert_count)                               /* расширения листа: status_request с ответом OCSP (RFC 8446 4.4.2.1) */
+                    for (u32 x = xe; x + 4 <= xe + xl; ) {
+                        u32 xt = be16(certmsg + x), xn = be16(certmsg + x + 2);
+                        if (x + 4 + xn > xe + xl) return fail(t, "bad Certificate extension");
+                        if (xt == 0x0005 && xn >= 4 && certmsg[x + 4] == 1 && be24(certmsg + x + 5) == xn - 4) { ocsp_p = certmsg + x + 8; ocsp_l = xn - 4; t->ocsp_stapled = 1; }
+                        x += 4 + xn;
+                    }
+                t->cert_count++;
+                c += 2 + xl;
             }
             if (!cert_n || x509_parse(cert_p[0], cert_l[0], &leaf)) return fail(t, "server certificate is not valid X.509");
             hs_consume(bl, 1); continue;
@@ -240,7 +289,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
             int vr = x509_verify_scheme(&leaf, be16(m), cvd, sizeof cvd, m + 4, bl - 4);
             if (vr == -2) return fail(t, "server signed with an unsupported scheme");
             if (vr) return fail(t, "CertificateVerify signature is wrong (server does not own the certificate key)");
-            t->cv_ok = 1;
+            t->cv_ok = 1; t->cv_scheme = (u16)be16(m);
             hs_consume(bl, 1); continue;
         }
         if (ty == HS_FIN) {
@@ -254,11 +303,21 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
         }
         return fail(t, "unexpected handshake message");
     }
-    if (!t->cert_count || !t->cv_ok) return fail(t, "server did not prove its certificate (no Certificate/CertificateVerify)");
-    if (roots) {                                                  /* цепочка до корневого, имя, срок */
-        const char* why = 0;
-        if (x509_verify_chain(cert_p, cert_l, cert_n, roots, roots_len, host, now, &why)) return fail(t, why);
-        t->verified = 1; t->why = why;
+    if (t->resumed) {                                             /* личность доказана прежним соединением: билет выдан тому же имени */
+        t->verified = tk.verified; t->why = "session resumed from a ticket: the identity was checked by the first connection";
+    } else {
+        if (!t->cert_count || !t->cv_ok) return fail(t, "server did not prove its certificate (no Certificate/CertificateVerify)");
+        if (roots) {                                              /* цепочка до корневого, имя, срок */
+            const char* why = 0;
+            if (x509_verify_chain(cert_p, cert_l, cert_n, roots, roots_len, host, now, &why)) return fail(t, why);
+            t->verified = 1; t->why = why;
+            if (ocsp_l) {                                         /* прикреплённый ответ OCSP */
+                const char* ow = 0;
+                int orr = x509_ocsp(ocsp_p, ocsp_l, cert_p, cert_l, cert_n, roots, roots_len, now, &ow);
+                if (orr < 0 || orr == OCSP_REVOKED) return fail(t, ow);
+                if (orr == OCSP_GOOD) t->ocsp = 1; else t->ocsp_why = ow;
+            }
+        }
     }
 
     /* ---- ключи приложения (по переписке до Finished сервера включительно) ---- */
@@ -278,12 +337,15 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     fin[0] = HS_FIN; fin[1] = 0; fin[2] = 0; fin[3] = 32;
     hmac_sha256(fk, 32, h, 32, fin + 4);
     if (write_record(t, CT_HS, fin, 36)) return fail(t, "Finished not sent");
+    sha256_update(&th, fin, 36);                                  /* переписка до Finished клиента включительно: для resumption_master_secret */
+    th_hash(h);
+    hkdf_expand_label(ms_, "res master", h, 32, t->resm, 32);
 
     keys(t, cap, 1);
     keys(t, sap, 0);
     cp(t->rsec, sap, 32);
     crypto_wipe(hsec, 32); crypto_wipe(csec, 32); crypto_wipe(ssec, 32); crypto_wipe(ms_, 32); crypto_wipe(cap, 32); crypto_wipe(sap, 32);
-    crypto_wipe(fk, 32); crypto_wipe(early, 32);
+    crypto_wipe(fk, 32); crypto_wipe(early, 32); crypto_wipe(tk.psk, 32);
     t->state = 2;
     return 0;
 }
@@ -318,6 +380,25 @@ i64 tls_recv(tls_t* t, void* p, u32 n, u32 timeout_ms) {
             u32 c = 0;
             while (c + 4 <= pl) {
                 u32 ml = be24(rec + c + 1);
+                if (rec[c] == HS_NST && ml >= 13 && c + 4 + ml <= pl) {   /* lifetime 4, age_add 4, nonce 1+n, ticket 2+n, расширения */
+                    const u8* m = rec + c + 4; u32 nl = m[8];
+                    if (9 + nl + 2 <= ml) {
+                        u32 tl = be16(m + 9 + nl);
+                        if (tl && tl <= TLS_TICKET_MAX && 9 + nl + 2 + tl + 2 <= ml) {
+                            tls_ticket_t* k = &t->ticket;
+                            crypto_wipe(k, sizeof *k);
+                            k->lifetime_s = (u32)be24(m + 1) | (u32)m[0] << 24;
+                            if (k->lifetime_s > 604800) k->lifetime_s = 604800;
+                            k->age_add = (u32)m[4] << 24 | (u32)m[5] << 16 | (u32)m[6] << 8 | m[7];
+                            cp(k->ticket, m + 9 + nl + 2, tl); k->ticket_len = tl;
+                            hkdf_expand_label(t->resm, "resumption", m + 9, nl, k->psk, 32);
+                            k->issued_s = t->now0; k->cipher = t->cipher; k->verified = t->verified;
+                            u32 hl = 0; while (t->host[hl]) { k->host[hl] = t->host[hl]; hl++; }
+                            k->host[hl] = 0;
+                            k->valid = k->lifetime_s != 0;
+                        }
+                    }
+                }
                 if (rec[c] == HS_KU) {                            /* новый ключ чтения; ответить своим, если просят */
                     u8 ns[32];
                     hkdf_expand_label(t->rsec, "traffic upd", 0, 0, ns, 32);
@@ -337,6 +418,6 @@ i64 tls_recv(tls_t* t, void* p, u32 n, u32 timeout_ms) {
 
 void tls_close(tls_t* t) {
     if (t->state == 2 || t->state == 3) { static const u8 cn[2] = { 1, 0 }; (void)write_record(t, CT_ALERT, cn, 2); }
-    crypto_wipe(t->rkey, 32); crypto_wipe(t->wkey, 32); crypto_wipe(t->rsec, 32); crypto_wipe(&t->rg, sizeof t->rg); crypto_wipe(&t->wg, sizeof t->wg);
+    crypto_wipe(t->rkey, 32); crypto_wipe(t->wkey, 32); crypto_wipe(t->rsec, 32); crypto_wipe(t->resm, 32); crypto_wipe(&t->rg, sizeof t->rg); crypto_wipe(&t->wg, sizeof t->wg);
     t->state = 0;
 }

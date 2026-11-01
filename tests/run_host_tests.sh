@@ -252,7 +252,8 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/ip6 tests/ip6_test.c ip6.c
 $T/ip6
 echo "== X.509 and TLS 1.3 client against OpenSSL =="
 $CC $FLAGS -Iuserland -fsanitize=address,undefined -o $T/pk tests/pk_test.c pk.c crypto.c sha256.c
-$T/pk
+python3 -I ci/pkgen.py $T/pkx.txt        # Ed25519 и RSA-PSS (разные хэши, MGF1, соль) от python cryptography/OpenSSL
+$T/pk $T/pkx.txt
 python3 -I ci/mkchain.py $T/chain >/dev/null
 $CC -O1 -Wall -o $T/pem2der tools/pem2der.c
 SYSROOTS=""
@@ -269,9 +270,20 @@ tls_run() {   # порт, ключ сервера, ожидание
 }
 tls_run 18443 "--chain $T/chain" ok
 tls_run 18444 "--self $T/chain" untrusted
-openssl s_server -quiet -accept 18445 -cert $T/chain/leaf.pem -key $T/chain/leaf.key -cert_chain $T/chain/inter.pem \
-    -tls1_3 -ciphersuites TLS_AES_128_GCM_SHA256 -www -naccept 1 > $T/ossl.log 2>&1 &
-sleep 1
-$T/tls 18445 $T/chain/root.der aes
+tls_run 18446 "--chain $T/chain --prefix ed_" ed           # сервер и промежуточный Ed25519, схема 0x0807
+tls_run 18447 "--chain $T/chain --prefix pss_" pss         # ключ id-RSASSA-PSS, схемы 0x0809-0x080b
+ossl_run() {   # порт, режим клиента, число соединений, доп. параметры s_server (OCSP-ответ и т.п.)
+    p=$1; m=$2; k=$3; shift 3
+    openssl s_server -quiet -accept $p -cert $T/chain/leaf.pem -key $T/chain/leaf.key -cert_chain $T/chain/inter.pem \
+        -tls1_3 -www -naccept $k "$@" > $T/ossl.log 2>&1 &
+    sleep 1
+    $T/tls $p $T/chain/root.der $m
+}
+ossl_run 18445 aes 1 -ciphersuites TLS_AES_128_GCM_SHA256
+ossl_run 18448 ocsp-none 1
+for o in good deleg; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
+for o in revoked forged other; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
+for o in stale unknown; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
+ossl_run 18450 resume 3
 rm -rf $T
 echo "ALL HOST TESTS PASSED"
