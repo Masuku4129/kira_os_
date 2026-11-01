@@ -519,22 +519,26 @@ def _drv_www():
         h.update(n.encode() + b"\0" + struct.pack("<Q", len(d)) + d)
     return w, h.hexdigest()[:8]
 
+def _dg(cmd, rx, t):     # программа запускается в фоне: команда без ожидания приглашения, затем ожидание строки в журнале после неё
+    return [{"send": cmd}, {"expect": rx, "timeout": t}]
+
 _DRV_WWW, _DRV_SET8 = _drv_www()
 _DRV_HTTP = "guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE
 ALL.append(sc("drvget-rl", "drvget: исходники драйвера по HTTPS, отчёт и подтверждение хешем, сборка kcc на устройстве, GPL/бинарник/без лицензии - отказ; затем сетевая карта RTL8139 под этим драйвером (DHCP, ping, http)", [
     {"log": BOOT_LOG}, {"sleep": 6},
-    {"cmd": "drvget base https://10.0.2.100", "must": [r"каталог рецептов теперь https://10\.0\.2\.100"]},
-    {"cmd": "drvget install gpl", "must": [r"drvget: отказ: .*GPL"], "timeout": 90},
-    {"cmd": "drvget install bin", "must": [r"drvget: отказ: "], "timeout": 90},
-    {"cmd": "drvget install nolic", "must": [r"drvget: отказ: "], "timeout": 90},
-    {"cmd": "drvget install http://10.0.2.100/rl/drvget.rec", "must": [r"разрешён только https"]},
+    *_dg("drvget base https://10.0.2.100", r"каталог рецептов теперь https://10\.0\.2\.100", 20),
+    *_dg("drvget install gpl", r"drvget: отказ: .*GPL", 90),
+    *_dg("drvget install bin", r"drvget: отказ: if_rlreg", 90),
+    *_dg("drvget install nolic", r"drvget: отказ: if_rlreg", 90),
+    *_dg("drvget install http://10.0.2.100/rl/drvget.rec", r"разрешён только https", 20),
     {"cmd": "drv", "forbid": [r"drv-rl"]},
-    {"cmd": "drvget install rl", "must": [r"лицензия:   заявлена BSD-3-Clause", r"if_rlreg\.h", r"10ec:8139", r"CAP_DMA", r"CAP_NETDEV", r"IOMMU",
-                                          r"Установка НЕ выполнена", r"drvget confirm rl " + _DRV_SET8], "timeout": 120},
-    {"cmd": "drvget confirm rl 00000000", "must": [r"хеш не совпал"]},
-    {"cmd": "drvget confirm rl " + _DRV_SET8, "must": [r"собрано, образ ELF \d+ байт", r"установлено: /drv/rl\.kdrv и /drv/rl\.rec"], "timeout": 240},
-    {"cmd": "drvget list", "must": [r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен"]},
-    {"cmd": "drvget verify rl", "must": [r"rl"]},
+    *_dg("drvget install rl", r"drvget confirm rl " + _DRV_SET8, 120),
+    {"log": [r"лицензия:   заявлена BSD-3-Clause", r"if_rlreg\.h", r"10ec:8139", r"CAP_DMA", r"CAP_NETDEV", r"IOMMU", r"Установка НЕ выполнена"]},
+    *_dg("drvget confirm rl 00000000", r"хеш не совпал", 20),
+    *_dg("drvget confirm rl " + _DRV_SET8, r"установлено: /drv/rl\.kdrv и /drv/rl\.rec", 240),
+    {"log": [r"собрано, образ ELF \d+ байт"]},
+    *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен", 20),
+    *_dg("drvget verify rl", r"verify rl: OK", 20),
     {"log_forbid": NO_ERR},
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "rtl8139,netdev=n0"]},
     {"sleep": 10},

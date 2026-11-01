@@ -95,7 +95,7 @@ rm -f tests/manifest_test.h
 echo "== program file service (sandbox /data/<name>) =="
 $CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c caps.c kfs.c store.c kdrv_fmt.c sha256.c
 $T/fsrv
-$CC $FLAGS -fsanitize=undefined -Itests/stub -o $T/paint tests/paint_test.c fsrv.c kfs.c store.c
+$CC $FLAGS -fsanitize=undefined -Itests/stub -o $T/paint tests/paint_test.c fsrv.c kfs.c store.c kdrv_fmt.c sha256.c caps.c
 $T/paint
 
 echo "== spinlock (ticket lock: real threads, mutual exclusion, FIFO, panic bust; ThreadSanitizer) =="
