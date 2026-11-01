@@ -1,0 +1,78 @@
+{
+ "name": "smp",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "Processors online: 8",
+   "ok": true
+  },
+  {
+   "step": "test smp",
+   "must": "started \\d+ worker",
+   "ok": true
+  },
+  {
+   "log": "RESULT: PASS",
+   "ok": true
+  },
+  {
+   "log_forbid": "RESULT: FAIL",
+   "ok": true
+  },
+  {
+   "log_forbid": "MOVED to another core",
+   "ok": true
+  },
+  {
+   "log_forbid": "LOST UPDATES",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.04,
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.4,
+ "seconds": 22.5,
+ "commands": [
+  {
+   "cmd": "test smp",
+   "seconds": 0.03
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.01
+  }
+ ]
+}
