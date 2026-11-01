@@ -1,6 +1,7 @@
 /* Creative Sound Blaster 16 (ISA): вывод 48 кГц 16 бит стерео за audio_card_t, как у HDA и AC'97.
    Откуда что берётся:
-   - есть ли вообще шина ISA - от платформы: бит LEGACY_DEVICES в FADT (acpi_info_t.legacy_isa) или шина ISA в таблицах MP;
+   - есть ли вообще шина ISA - от платформы: бит LEGACY_DEVICES в FADT (acpi_info_t.legacy_isa), шина ISA в таблицах MP
+     или мост PCI-ISA/LPC (класс 06.01) на шине PCI;
      без этого порты не трогаются;
    - базовый порт - из набора, который задаёт сама SB16 перемычками (0x220, 0x240, 0x260, 0x280): карта признаётся по
      ответу на сброс DSP (0xAA) и версии DSP 4.xx; других источников порта у ISA нет (в QEMU карты нет в ACPI);
@@ -28,6 +29,7 @@ uint16_t sb16_dma16_port_page(int ch)  { return ch == 5 ? 0x8B : ch == 6 ? 0x89 
 #ifndef KIRA_HOST_TEST
 #include "acpi.h"
 #include "audio.h"
+#include "pci.h"
 #include "pmm.h"
 #include "vmm.h"
 #include "uart.h"
@@ -152,7 +154,9 @@ static void print(void) {
 
 int sb16_probe(void) {
     const acpi_info_t* ai = acpi_get();
-    if (!ai || !ai->legacy_isa) return -1;                        /* платформа не сообщает об ISA: портов не трогаем */
+    int isa = ai && ai->legacy_isa;                               /* FADT / таблицы MP */
+    for (int i = 0; i < pci_count() && !isa; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x06 && d->subclass == 0x01) isa = 1; }   /* мост PCI-ISA/LPC */
+    if (!isa) return -1;                                          /* платформа не сообщает об ISA: портов не трогаем */
     static const uint16_t ports[4] = { 0x220, 0x240, 0x260, 0x280 };   /* перемычки SB16 */
     sb.base = 0;
     for (int i = 0; i < 4 && !sb.base; i++) if (dsp_reset(ports[i]) == 0) sb.base = ports[i];
