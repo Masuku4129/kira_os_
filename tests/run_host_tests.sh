@@ -217,10 +217,12 @@ ASAN_OPTIONS=detect_leaks=0 $T/view $T/files/pic.png "$(sum /pic.png)" $T/files/
     $T/files/note.txt "текст, " $T/files/blob.bin "двоичный, 512" > $T/view.out 2>&1 || { cat $T/view.out; exit 1; }
 tail -1 $T/view.out
 J=$T/files
-ASAN_OPTIONS=detect_leaks=0 $T/view cmp $J/pic.jpg $J/pic.jpg.rgb $J/p422.jpg $J/p422.jpg.rgb $J/p444.jpg $J/p444.jpg.rgb $J/gray.jpg $J/gray.jpg.rgb > $T/view.out 2>&1 || { cat $T/view.out; exit 1; }
+ASAN_OPTIONS=detect_leaks=0 $T/view cmp $J/pic.jpg $J/pic.jpg.rgb $J/p422.jpg $J/p422.jpg.rgb $J/p444.jpg $J/p444.jpg.rgb $J/gray.jpg $J/gray.jpg.rgb \
+    $J/prog.jpg $J/prog.jpg.rgb $J/prog422.jpg $J/prog422.jpg.rgb $J/prog444.jpg $J/prog444.jpg.rgb $J/prog-rst.jpg $J/prog-rst.jpg.rgb \
+    $J/prog-gray.jpg $J/prog-gray.jpg.rgb $J/prog-opt.jpg $J/prog-opt.jpg.rgb > $T/view.out 2>&1 || { cat $T/view.out; exit 1; }
 tail -1 $T/view.out
-ASAN_OPTIONS=detect_leaks=0 $T/view $J/prog.jpg "JPEG: прогрессивный - не поддерживается" > $T/view.out 2>&1 || { cat $T/view.out; exit 1; }
-for f in pic.png rgba.png pic.bmp pic.ppm pic.gif lace.gif pic.jpg p444.jpg; do ASAN_OPTIONS=detect_leaks=0 $T/view fuzz $T/files/$f > $T/view.out 2>&1 || { tail -20 $T/view.out; exit 1; }; tail -1 $T/view.out; done
+ASAN_OPTIONS=detect_leaks=0 $T/view $J/big-prog.jpg "коэффициенты не помещаются в память (больше 4 МБ)" > $T/view.out 2>&1 || { cat $T/view.out; exit 1; }
+for f in pic.png rgba.png pic.bmp pic.ppm pic.gif lace.gif pic.jpg p444.jpg prog.jpg prog-rst.jpg prog-opt.jpg prog-gray.jpg; do ASAN_OPTIONS=detect_leaks=0 $T/view fuzz $T/files/$f > $T/view.out 2>&1 || { tail -20 $T/view.out; exit 1; }; tail -1 $T/view.out; done
 echo "== wasm: interpreter output equals the same program compiled natively =="
 userland/wasm/build.sh
 $CC -O1 -g -w -I. -fsanitize=address,undefined -o $T/wasmh tests/wasm_host.c -lm

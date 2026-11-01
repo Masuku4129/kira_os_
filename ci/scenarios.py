@@ -157,14 +157,17 @@ ALL = [
         {"cmd": "cat /data/edit/note.txt", "must": [r"hello kira", r"line two"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M"),
-    sc("apps-view", "просмотр: PNG (фильтры, dynamic/stored), BMP, PPM, текст, двоичный - разбор в Ring 3, суммы пикселей против эталона", [
+    sc("apps-view", "просмотр: PNG (фильтры, dynamic/stored), BMP, PPM, GIF, JPEG базовый и прогрессивный (отказ при буфере >4 МБ), текст, двоичный - разбор в Ring 3, суммы пикселей против эталона", [
         {"log": BOOT_LOG},
         *[x for f, s in [("/pic.png", SUMS["/pic.png"]), ("/rgba.png", SUMS["/rgba.png"]), ("/pic.bmp", SUMS["/pic.bmp"]), ("/pic.ppm", SUMS["/pic.ppm"]), ("/pic.gif", SUMS["/pic.gif"]), ("/lace.gif", SUMS["/lace.gif"])]
           for x in ({"cmd": "view " + f}, {"sleep": 2}, {"log": [r"view: %s - .* sum %08x" % (re.escape(f), s)]},
                     {"shot": "view-" + f.strip("/").replace(".", "-")}, {"keys": "q"}, {"sleep": 1})],   # q - закрыть окно
         {"cmd": "view /pic.jpg"}, {"sleep": 2}, {"shot": "view-jpeg"}, {"keys": "q"}, {"sleep": 1},
-        {"cmd": "view /prog.jpg"}, {"sleep": 2}, {"keys": "q"}, {"sleep": 1},
-        {"log": [r"view: /pic\.jpg - JPEG 97x61, YCbCr 2x2", r"view: /prog\.jpg - JPEG: прогрессивный - не поддерживается"]},
+        {"cmd": "view /prog.jpg"}, {"sleep": 2}, {"shot": "view-jpeg-progressive"}, {"keys": "q"}, {"sleep": 1},
+        {"cmd": "view /prog-rst.jpg"}, {"sleep": 2}, {"keys": "q"}, {"sleep": 1},
+        {"cmd": "view /big-prog.jpg"}, {"sleep": 2}, {"keys": "q"}, {"sleep": 1},
+        {"log": [r"view: /pic\.jpg - JPEG 97x61, YCbCr 2x2", r"view: /prog\.jpg - JPEG 97x61, YCbCr 2x2, прогрессивный, проходов 10",
+                 r"view: /prog-rst\.jpg - JPEG 83x70, YCbCr 2x2, прогрессивный", r"view: /big-prog\.jpg - JPEG: прогрессивный - коэффициенты не помещаются в память"]},
         {"cmd": "view /note.txt"}, {"sleep": 2}, {"shot": "view-text"}, {"keys": "q"}, {"sleep": 1},
         {"cmd": "view /blob.bin"}, {"sleep": 2},
         {"log": [r"view: /note\.txt - текст, 31 байт", r"view: /blob\.bin - двоичный, 512 байт"]},

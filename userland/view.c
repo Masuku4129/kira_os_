@@ -3,7 +3,7 @@
    Форматы: PNG (свой inflate: блоки stored/fixed/dynamic, фильтры, цвет 0/2/3/4/6, глубина 1-16, без чересстрочности),
    BMP (1/4/8/24/32 бита без сжатия), PPM/PGM (P6/P5, 8 бит), GIF (87a/89a, первый кадр: LZW, общая и своя палитры,
    чересстрочность, прозрачный цвет - как фон), JPEG (базовый и расширенный последовательный, Хаффман, 8 бит, оттенки
-   серого и YCbCr с любым прореживанием 1-2, интервалы перезапуска; прогрессивный - нет), текст UTF-8, остальное - hex.
+   серого и YCbCr с любым прореживанием 1-2, интервалы перезапуска; прогрессивный SOF2: спектральная выборка и уточнение, до 4 МБ коэффициентов), текст UTF-8, остальное - hex.
    Клавиши: стрелки, PgUp/PgDn, Home/End - прокрутка текста; q или Esc - закрыть. */
 #include "kira.h"
 #include "../font.h"
@@ -370,7 +370,7 @@ static int load_gif(void) {
     fail("GIF: в файле нет кадра"); return -1;
 }
 
-/* ---------- JPEG: последовательный, Хаффман ---------- */
+/* ---------- JPEG: последовательный, Хаффман (и общие части прогрессивного) ---------- */
 static const u8 zz[64] = { 0,1,8,16,9,2,3,10,17,24,32,25,18,11,4,5,12,19,26,33,40,48,41,34,27,20,13,6,7,14,21,28,
                            35,42,49,56,57,50,43,36,29,22,15,23,30,37,44,51,58,59,52,45,38,31,39,46,53,60,61,54,47,55,62,63 };
 typedef struct { u8 val[256]; int maxc[18], valp[17], minc[17]; int ok; } jh_t;
@@ -441,6 +441,153 @@ static int jblock(int c, u8* dst, int stride) {
     jidct(co, dst, stride);
     return 0;
 }
+/* ---------- JPEG: прогрессивный (SOF2) ----------
+   Все проходы складываются в буфер квантованных коэффициентов (short, порядок зигзага); после последнего прохода -
+   обратное квантование и то же IDCT, что у последовательного. Память ограничена явно: буфер больше JCOEF_MAX (4 МБ) - отказ с сообщением. */
+#define JCOEF_MAX (4u << 20)
+static short* jcf[3];
+static int jprog;
+static u32 jiw, jih, jmx, jmy, jdri, jeob;
+
+static void jrestart(void) {                                      /* RSTn: выровнять на байт, DC и серия EOB - с нуля */
+    jnb = 0;
+    if (jmarker >= 0xD0 && jmarker <= 0xD7) { jp += 2; jmarker = 0; }
+    else if (jp + 1 < flen && file[jp] == 0xFF && file[jp + 1] >= 0xD0 && file[jp + 1] <= 0xD7) jp += 2;
+    for (int c = 0; c < jn; c++) jc[c].pred = 0;
+    jeob = 0;
+}
+/* Один блок одного прохода. ss..se - спектральная полоса, ah - прежняя точность (0 - первый проход), al - текущая. */
+static int jpblock(int c, short* b, int ss, int se, int ah, int al) {
+    if (ss == 0) {
+        if (!ah) {
+            int t = jdec(&jdc[jc[c].td]); if (t < 0 || t > 11) return -1;
+            jc[c].pred += jext(jget(t), t);
+            b[0] = (short)((u32)jc[c].pred << al);
+        } else if (jbit()) b[0] = (short)(b[0] | (1 << al));      /* уточнение DC: один бит */
+        return 0;
+    }
+    const jh_t* h = &jac[jc[c].ta];
+    int k = ss;
+    if (!ah) {                                                    /* AC, первый проход */
+        if (jeob) { jeob--; return 0; }
+        while (k <= se) {
+            int rs = jdec(h); if (rs < 0) return -1;
+            int r = rs >> 4, s = rs & 15;
+            if (!s) {
+                if (r < 15) { jeob = (1u << r) - 1; if (r) jeob += (u32)jget(r); break; }   /* EOBn: этот и ещё jeob блоков пусты */
+                k += 16; continue;
+            }
+            k += r; if (k > se) return -1;
+            b[k] = (short)((u32)jext(jget(s), s) << al);
+            k++;
+        }
+        return 0;
+    }
+    int p1 = 1 << al, m1 = -p1;                                   /* AC, уточнение: поправки уже ненулевым и новые ±1 */
+    if (!jeob) {
+        for (; k <= se; k++) {
+            int rs = jdec(h); if (rs < 0) return -1;
+            int r = rs >> 4, s = rs & 15, nv = 0;
+            if (s) { if (s != 1) return -1; nv = jbit() ? p1 : m1; }
+            else if (r != 15) { jeob = 1u << r; if (r) jeob += (u32)jget(r); break; }
+            do {
+                int v = b[k];
+                if (v) { if (jbit() && !(v & p1)) b[k] = (short)(v + (v >= 0 ? p1 : m1)); }
+                else if (--r < 0) break;
+                k++;
+            } while (k <= se);
+            if (nv) { if (k > se) return -1; b[k] = (short)nv; }
+        }
+    }
+    if (jeob) {                                                   /* остаток серии EOB: только поправки */
+        for (; k <= se; k++) { int v = b[k]; if (v && jbit() && !(v & p1)) b[k] = (short)(v + (v >= 0 ? p1 : m1)); }
+        jeob--;
+    }
+    return 0;
+}
+/* Проход целиком. Одна компонента - блоки компоненты по строкам, несколько (только DC) - как MCU. */
+static int jscan(const int* sc, int ns, int ss, int se, int ah, int al) {
+    u32 unit = 0;
+    for (int c = 0; c < jn; c++) jc[c].pred = 0;
+    jeob = 0;
+    if (ns == 1) {
+        int c = sc[0];
+        u32 cw = (jiw * (u32)jc[c].h + (u32)jhmax - 1) / (u32)jhmax, ch = (jih * (u32)jc[c].v + (u32)jvmax - 1) / (u32)jvmax;
+        u32 nbx = (cw + 7) / 8, nby = (ch + 7) / 8, stride = (u32)jc[c].bw / 8;
+        for (u32 y = 0; y < nby; y++) for (u32 x = 0; x < nbx; x++, unit++) {
+            if (jdri && unit && unit % jdri == 0) jrestart();
+            if (jpblock(c, jcf[c] + ((u64)y * stride + x) * 64, ss, se, ah, al)) return -1;
+        }
+        return 0;
+    }
+    for (u32 y = 0; y < jmy; y++) for (u32 x = 0; x < jmx; x++, unit++) {
+        if (jdri && unit && unit % jdri == 0) jrestart();
+        for (int i = 0; i < ns; i++) {
+            int c = sc[i]; u32 stride = (u32)jc[c].bw / 8;
+            for (int by = 0; by < jc[c].v; by++) for (int bx = 0; bx < jc[c].h; bx++) {
+                u32 gx = x * (u32)jc[c].h + (u32)bx, gy = y * (u32)jc[c].v + (u32)by;
+                if (jpblock(c, jcf[c] + ((u64)gy * stride + gx) * 64, ss, se, ah, al)) return -1;
+            }
+        }
+    }
+    return 0;
+}
+static int jalloc_planes(void) {
+    for (int c = 0; c < jn; c++) {
+        jc[c].plane = (u8*)alloc((u64)jc[c].bw * (u64)jc[c].bh);
+        if (!jc[c].plane) { fail("нет памяти под картинку"); return -1; }
+    }
+    return 0;
+}
+static int jplanes(void) {                                        /* обратное квантование и IDCT всех блоков */
+    if (jalloc_planes()) return -1;
+    for (int c = 0; c < jn; c++) {
+        u32 nbx = (u32)jc[c].bw / 8, nby = (u32)jc[c].bh / 8;
+        for (u32 y = 0; y < nby; y++) for (u32 x = 0; x < nbx; x++) {
+            const short* b = jcf[c] + ((u64)y * nbx + x) * 64; int co[64];
+            for (int k = 0; k < 64; k++) co[zz[k]] = b[k] * (int)jq[jc[c].tq][k];
+            jidct(co, jc[c].plane + (u64)y * 8 * (u32)jc[c].bw + x * 8, jc[c].bw);
+        }
+    }
+    return 0;
+}
+/* Плоскости компонент -> RGB (повышение разрешения прореженных компонент, YCbCr -> RGB). */
+static int jconvert(void) {
+    u32 JW = jiw, Hh = jih;
+    img = (u32*)alloc((u64)JW * Hh * 4);
+    if (!img) { fail("нет памяти под картинку"); return -1; }
+    for (u32 yy = 0; yy < Hh; yy++) for (u32 xx = 0; xx < JW; xx++) {
+        int v[3];
+        for (int c = 0; c < jn; c++) {                           /* прореженная компонента: треугольный фильтр (как libjpeg) */
+            int fx = jhmax / jc[c].h, fy = jvmax / jc[c].v;
+            int cw = (int)((JW * (u32)jc[c].h + (u32)jhmax - 1) / (u32)jhmax), chh = (int)((Hh * (u32)jc[c].v + (u32)jvmax - 1) / (u32)jvmax);
+            int ix = (int)xx / fx, iy = (int)yy / fy;
+            int nx = fx == 2 ? ((xx & 1) ? ix + 1 : ix - 1) : ix, ny = fy == 2 ? ((yy & 1) ? iy + 1 : iy - 1) : iy;
+            if (nx < 0) nx = 0;
+            if (nx >= cw) nx = cw - 1;
+            if (ny < 0) ny = 0;
+            if (ny >= chh) ny = chh - 1;
+            const u8* pl = jc[c].plane; u32 bw = (u32)jc[c].bw;
+            int wx = fx == 2 ? 3 : 4, wy = fy == 2 ? 3 : 4;       /* веса из 4: ближний 3, соседний 1 */
+            int a = pl[(u64)iy * bw + (u32)ix] * wx + pl[(u64)iy * bw + (u32)nx] * (4 - wx);
+            int b2 = pl[(u64)ny * bw + (u32)ix] * wx + pl[(u64)ny * bw + (u32)nx] * (4 - wx);
+            v[c] = (a * wy + b2 * (4 - wy) + 8) >> 4;
+        }
+        int r, g, b;
+        if (jn == 1) r = g = b = v[0];
+        else {                                                    /* YCbCr -> RGB, коэффициенты * 2^16 */
+            int Y = v[0] << 16, cb = v[1] - 128, cr = v[2] - 128;
+            r = (Y + 91881 * cr + 32768) >> 16; g = (Y - 22554 * cb - 46802 * cr + 32768) >> 16; b = (Y + 116130 * cb + 32768) >> 16;
+        }
+        r = r < 0 ? 0 : r > 255 ? 255 : r; g = g < 0 ? 0 : g > 255 ? 255 : g; b = b < 0 ? 0 : b > 255 ? 255 : b;
+        img[yy * JW + xx] = (u32)r << 16 | (u32)g << 8 | (u32)b;
+    }
+    iw = JW; ih = Hh;
+    info[0] = 0; scat(info, "JPEG ", sizeof info); sdec(info, JW, sizeof info); scat(info, "x", sizeof info); sdec(info, Hh, sizeof info);
+    scat(info, jn == 1 ? ", оттенки серого" : ", YCbCr ", sizeof info);
+    if (jn == 3) { sdec(info, (u64)jc[0].h, sizeof info); scat(info, "x", sizeof info); sdec(info, (u64)jc[0].v, sizeof info); }
+    return 0;
+}
 static int load_jpeg(void) {
     static int init; if (!init) {
         /* таблица косинусов целыми: cos((2x+1)u*pi/16) через рекуррентность без libm (точность 2^-12) */
@@ -455,7 +602,7 @@ static int load_jpeg(void) {
         init = 1;
     }
     for (int i = 0; i < 4; i++) { jdc[i].ok = jac[i].ok = 0; }
-    u32 JW = 0, Hh = 0, dri = 0; int sof = 0; jn = 0;
+    int sof = 0, scans = 0; jn = 0; jprog = 0; jdri = 0; jcf[0] = jcf[1] = jcf[2] = 0;
     u32 p = 2;
     while (p + 4 <= flen) {
         if (file[p] != 0xFF) { fail("JPEG: ожидался маркер"); return -1; }
@@ -465,7 +612,7 @@ static int load_jpeg(void) {
         u32 L = (u32)file[p + 2] << 8 | file[p + 3];
         if (L < 2 || p + 2 + L > flen) { fail("JPEG: сегмент за концом файла"); return -1; }
         const u8* d = file + p + 4; u32 n = L - 2;
-        if (m == 0xC2 || m == 0xC6 || m == 0xCA) { fail("JPEG: прогрессивный - не поддерживается"); return -1; }
+        if (m == 0xC6 || m == 0xCA) { fail("JPEG: прогрессивный с арифметическим кодированием - не поддерживается"); return -1; }
         if ((m >= 0xC3 && m <= 0xCF && m != 0xC4 && m != 0xC8 && m != 0xCC)) { fail("JPEG: этот вид сжатия не поддерживается"); return -1; }
         if (m == 0xDB) {                                          /* таблицы квантования */
             for (u32 i = 0; i < n; ) {
@@ -482,11 +629,12 @@ static int load_jpeg(void) {
                 if (i + 17 + (u32)tot > n || jbuild(tc ? &jac[th] : &jdc[th], d + i + 1, d + i + 17, tot)) { fail("JPEG: таблица Хаффмана"); return -1; }
                 i += 17 + (u32)tot;
             }
-        } else if (m == 0xC0 || m == 0xC1) {
+        } else if (m == 0xC0 || m == 0xC1 || m == 0xC2) {
+            if (sof) { fail("JPEG: два заголовка кадра"); return -1; }
             if (n < 6 || d[0] != 8) { fail("JPEG: только 8 бит"); return -1; }
-            Hh = (u32)d[1] << 8 | d[2]; JW = (u32)d[3] << 8 | d[4]; jn = d[5];
+            jih = (u32)d[1] << 8 | d[2]; jiw = (u32)d[3] << 8 | d[4]; jn = d[5];
             if ((jn != 1 && jn != 3) || n < 6u + 3u * (u32)jn) { fail("JPEG: нужны 1 или 3 компоненты"); return -1; }
-            if (!JW || !Hh || (u64)JW * Hh > MAXPIX) { fail("JPEG: размер больше 1 Мпикс"); return -1; }
+            if (!jiw || !jih || (u64)jiw * jih > MAXPIX) { fail("JPEG: размер больше 1 Мпикс"); return -1; }
             jhmax = jvmax = 1;
             for (int c = 0; c < jn; c++) {
                 jc[c].id = d[6 + 3 * c]; jc[c].h = d[7 + 3 * c] >> 4; jc[c].v = d[7 + 3 * c] & 15; jc[c].tq = d[8 + 3 * c] & 3;
@@ -494,34 +642,52 @@ static int load_jpeg(void) {
                 if (jc[c].h > jhmax) jhmax = jc[c].h;
                 if (jc[c].v > jvmax) jvmax = jc[c].v;
             }
+            u32 mw = 8u * (u32)jhmax, mh = 8u * (u32)jvmax;
+            jmx = (jiw + mw - 1) / mw; jmy = (jih + mh - 1) / mh;
+            u64 cbytes = 0;
+            for (int c = 0; c < jn; c++) { jc[c].bw = (int)(jmx * (u32)jc[c].h * 8); jc[c].bh = (int)(jmy * (u32)jc[c].v * 8); cbytes += (u64)jc[c].bw * (u64)jc[c].bh * 2; }
+            jprog = m == 0xC2;
+            if (jprog) {
+                if (cbytes > JCOEF_MAX) { fail("JPEG: прогрессивный - коэффициенты не помещаются в память (больше 4 МБ)"); return -1; }
+                for (int c = 0; c < jn; c++) {
+                    jcf[c] = (short*)alloc((u64)jc[c].bw * (u64)jc[c].bh * 2);
+                    if (!jcf[c]) { fail("JPEG: прогрессивный - нет памяти под коэффициенты"); return -1; }
+                }
+            }
             sof = 1;
-        } else if (m == 0xDD) { if (n >= 2) dri = (u32)d[0] << 8 | d[1]; }
+        } else if (m == 0xDD) { if (n >= 2) jdri = (u32)d[0] << 8 | d[1]; }
         else if (m == 0xDA) {                                     /* начало данных кадра */
             if (!sof) { fail("JPEG: данные до заголовка кадра"); return -1; }
-            int ns = d[0];
-            if (ns != jn) { fail("JPEG: компоненты в разных проходах не поддерживаются"); return -1; }
+            int ns = n ? d[0] : 0;
+            if (ns < 1 || ns > jn || n < 4u + 2u * (u32)ns) { fail("JPEG: заголовок прохода"); return -1; }
+            if (!jprog && ns != jn) { fail("JPEG: компоненты в разных проходах не поддерживаются"); return -1; }
+            int sc[3] = { 0, 0, 0 };
             for (int i = 0; i < ns; i++) {
                 int cid = d[1 + 2 * i], k = -1;
                 for (int c = 0; c < jn; c++) if (jc[c].id == cid) k = c;
                 if (k < 0) { fail("JPEG: неизвестная компонента"); return -1; }
+                for (int j = 0; j < i; j++) if (sc[j] == k) { fail("JPEG: компонента дважды в проходе"); return -1; }
+                sc[i] = k;
                 jc[k].td = d[2 + 2 * i] >> 4 & 3; jc[k].ta = d[2 + 2 * i] & 3;
-                if (!jdc[jc[k].td].ok || !jac[jc[k].ta].ok) { fail("JPEG: нет таблицы Хаффмана"); return -1; }
-            }
-            u32 mw = 8u * (u32)jhmax, mh = 8u * (u32)jvmax, mx = (JW + mw - 1) / mw, my = (Hh + mh - 1) / mh;
-            for (int c = 0; c < jn; c++) {
-                jc[c].bw = (int)(mx * (u32)jc[c].h * 8); jc[c].bh = (int)(my * (u32)jc[c].v * 8);
-                jc[c].plane = (u8*)alloc((u64)jc[c].bw * (u64)jc[c].bh); jc[c].pred = 0;
-                if (!jc[c].plane) { fail("нет памяти под картинку"); return -1; }
             }
             jp = p + 2 + L; jnb = 0; jmarker = 0;
+            if (jprog) {
+                int ss = d[1 + 2 * ns], se = d[2 + 2 * ns], ah = d[3 + 2 * ns] >> 4, al = d[3 + 2 * ns] & 15;
+                if (ss > se || se > 63 || (!ss && se) || (ss && ns != 1) || al > 13 || (ah && ah != al + 1)) { fail("JPEG: неверные параметры прогрессивного прохода"); return -1; }
+                if (!ss && !ah) { for (int i = 0; i < ns; i++) if (!jdc[jc[sc[i]].td].ok) { fail("JPEG: нет таблицы Хаффмана"); return -1; } }
+                if (ss && !jac[jc[sc[0]].ta].ok) { fail("JPEG: нет таблицы Хаффмана"); return -1; }
+                if (jscan(sc, ns, ss, se, ah, al)) { fail("JPEG: испорченные данные"); return -1; }
+                scans++;
+                p = jp;                                           /* до следующего маркера (не RSTn и не стаффинг) */
+                while (p + 1 < flen && !(file[p] == 0xFF && file[p + 1] && file[p + 1] != 0xFF && !(file[p + 1] >= 0xD0 && file[p + 1] <= 0xD7))) p++;
+                continue;
+            }
+            for (int i = 0; i < ns; i++) if (!jdc[jc[i].td].ok || !jac[jc[i].ta].ok) { fail("JPEG: нет таблицы Хаффмана"); return -1; }
+            if (jalloc_planes()) return -1;
+            for (int c = 0; c < jn; c++) jc[c].pred = 0;
             u32 mcu = 0, bad = 0;
-            for (u32 y = 0; y < my && !bad; y++) for (u32 x = 0; x < mx && !bad; x++, mcu++) {
-                if (dri && mcu && mcu % dri == 0) {               /* перезапуск: маркер RSTn, предсказание DC - с нуля */
-                    jnb = 0;
-                    if (jmarker >= 0xD0 && jmarker <= 0xD7) { jp += 2; jmarker = 0; }
-                    else if (jp + 1 < flen && file[jp] == 0xFF && file[jp + 1] >= 0xD0 && file[jp + 1] <= 0xD7) jp += 2;
-                    for (int c = 0; c < jn; c++) jc[c].pred = 0;
-                }
+            for (u32 y = 0; y < jmy && !bad; y++) for (u32 x = 0; x < jmx && !bad; x++, mcu++) {
+                if (jdri && mcu && mcu % jdri == 0) jrestart();   /* перезапуск: маркер RSTn, предсказание DC - с нуля */
                 for (int c = 0; c < jn && !bad; c++)
                     for (int by = 0; by < jc[c].v && !bad; by++) for (int bx = 0; bx < jc[c].h && !bad; bx++) {
                         u32 ox = (x * (u32)jc[c].h + (u32)bx) * 8, oy = (y * (u32)jc[c].v + (u32)by) * 8;
@@ -529,41 +695,14 @@ static int load_jpeg(void) {
                     }
             }
             if (bad) { fail("JPEG: испорченные данные"); return -1; }
-            img = (u32*)alloc((u64)JW * Hh * 4);
-            if (!img) { fail("нет памяти под картинку"); return -1; }
-            for (u32 yy = 0; yy < Hh; yy++) for (u32 xx = 0; xx < JW; xx++) {
-                int v[3];
-                for (int c = 0; c < jn; c++) {                   /* прореженная компонента: треугольный фильтр (как libjpeg) */
-                    int fx = jhmax / jc[c].h, fy = jvmax / jc[c].v;
-                    int cw = (int)((JW * (u32)jc[c].h + (u32)jhmax - 1) / (u32)jhmax), chh = (int)((Hh * (u32)jc[c].v + (u32)jvmax - 1) / (u32)jvmax);
-                    int ix = (int)xx / fx, iy = (int)yy / fy;
-                    int nx = fx == 2 ? ((xx & 1) ? ix + 1 : ix - 1) : ix, ny = fy == 2 ? ((yy & 1) ? iy + 1 : iy - 1) : iy;
-                    if (nx < 0) nx = 0;
-                    if (nx >= cw) nx = cw - 1;
-                    if (ny < 0) ny = 0;
-                    if (ny >= chh) ny = chh - 1;
-                    const u8* pl = jc[c].plane; u32 bw = (u32)jc[c].bw;
-                    int wx = fx == 2 ? 3 : 4, wy = fy == 2 ? 3 : 4;   /* веса из 4: ближний 3, соседний 1 */
-                    int a = pl[(u64)iy * bw + (u32)ix] * wx + pl[(u64)iy * bw + (u32)nx] * (4 - wx);
-                    int b2 = pl[(u64)ny * bw + (u32)ix] * wx + pl[(u64)ny * bw + (u32)nx] * (4 - wx);
-                    v[c] = (a * wy + b2 * (4 - wy) + 8) >> 4;
-                }
-                int r, g, b;
-                if (jn == 1) r = g = b = v[0];
-                else {                                            /* YCbCr -> RGB, коэффициенты * 2^16 */
-                    int Y = v[0] << 16, cb = v[1] - 128, cr = v[2] - 128;
-                    r = (Y + 91881 * cr + 32768) >> 16; g = (Y - 22554 * cb - 46802 * cr + 32768) >> 16; b = (Y + 116130 * cb + 32768) >> 16;
-                }
-                r = r < 0 ? 0 : r > 255 ? 255 : r; g = g < 0 ? 0 : g > 255 ? 255 : g; b = b < 0 ? 0 : b > 255 ? 255 : b;
-                img[yy * JW + xx] = (u32)r << 16 | (u32)g << 8 | (u32)b;
-            }
-            iw = JW; ih = Hh;
-            info[0] = 0; scat(info, "JPEG ", sizeof info); sdec(info, JW, sizeof info); scat(info, "x", sizeof info); sdec(info, Hh, sizeof info);
-            scat(info, jn == 1 ? ", оттенки серого" : ", YCbCr ", sizeof info);
-            if (jn == 3) { sdec(info, (u64)jc[0].h, sizeof info); scat(info, "x", sizeof info); sdec(info, (u64)jc[0].v, sizeof info); }
-            return 0;
+            return jconvert();
         }
         p += 2 + L;
+    }
+    if (sof && jprog && scans) {                                  /* конец файла или EOI: собрать картинку из накопленного */
+        if (jplanes() || jconvert()) return -1;
+        scat(info, ", прогрессивный, проходов ", sizeof info); sdec(info, (u64)scans, sizeof info);
+        return 0;
     }
     fail("JPEG: нет данных кадра"); return -1;
 }
