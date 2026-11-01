@@ -474,8 +474,8 @@ static void display_main(void* arg) {
             scpy(l, 0, rq_l, FM_PATH); scpy(r, 0, rq_r, FM_PATH); rq_pending = 0;
             spin_unlock_irqrestore(&rq_lk, fl);
             open_app(APP_FILES);
+            if (r[0]) explorer_goto(1, r);                           // левая последней: она становится активной
             if (l[0]) explorer_goto(0, l);
-            if (r[0]) explorer_goto(1, r);
         }
 
         int hk = input_take_hotkey();     // F11 - на весь экран, F10 - свернуть на фон
