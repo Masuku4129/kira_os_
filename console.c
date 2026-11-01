@@ -358,6 +358,11 @@ static void cmd_smpcrash(const char* a) {
 }
 static void cmd_plasma(const char* a) { (void)a; prog_start("plasma"); }
 static void cmd_edit(const char* a) { (void)a; prog_start("edit"); }
+static void cmd_wasm(const char* a) {                       /* модуль WebAssembly - в интерпретаторе (Ring 3) */
+    while (a && *a == ' ') a++;
+    if (!a || *a != '/') { uart_print("wasm /путь/модуль.wasm: программа WebAssembly (одна для x86-64 и ARM64), модули - в /wasm\n"); return; }
+    prog_request_file("wasm", a);
+}
 static void cmd_view(const char* a) {                       /* то же, что двойной щелчок в Проводнике */
     while (a && *a == ' ') a++;
     if (!a || *a != '/') { uart_print("view /путь/к/файлу: просмотр (текст, PNG, BMP, PPM, шестнадцатерично)\n"); return; }
@@ -517,6 +522,7 @@ static const cmd_t cmds[] = {
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },
     { "plasma",    'a', "приложение Ring 3: плазма", cmd_plasma },
     { "edit",      0,   "приложение Ring 3: текстовый редактор (F2 - сохранить, F3 - другой файл, F4 - новый)", cmd_edit },
+    { "wasm",      0,   "wasm /путь.wasm: программа WebAssembly (один файл для x86-64 и ARM64; модули в /wasm)", cmd_wasm },
     { "view",      0,   "view /путь: просмотр файла (текст, PNG, BMP, PPM, двоичный) - как двойной щелчок в Проводнике", cmd_view },
     { "paint",     'b', "приложение Ring 3: холст (мышь, клавиши 1-8, c - очистить)", cmd_paint },
     { "run",       0,   "запустить программу с диска: run имя (/bin/имя, проверка иммунитетом)", cmd_run },

@@ -200,7 +200,9 @@ static void on_input(int id, int type, int x, int y, unsigned buttons) {
             if (h >= 0 && h == files_click_row && now - files_click_ns < 450000000ULL && ev.row[h].sel && !ev.row[h].dir) {
                 if (app_files_program(&ev)) files_run(app_files_program(&ev));   /* двойной щелчок по программе */
                 else {                                                   /* по файлу - открыть в просмотре (Ring 3) */
-                    prog_request_file("view", ev.sel_path);
+                    unsigned pl = 0; while (ev.sel_path[pl]) pl++;
+                    int is_wasm = pl > 5 && ev.sel_path[pl - 5] == '.' && ev.sel_path[pl - 4] == 'w' && ev.sel_path[pl - 3] == 'a' && ev.sel_path[pl - 2] == 's' && ev.sel_path[pl - 1] == 'm';
+                    prog_request_file(is_wasm ? "wasm" : "view", ev.sel_path);
                     int p = scpy(files_status, 0, "открыто в просмотре: ", sizeof files_status);
                     (void)scpy(files_status, p, ev.sel_path, sizeof files_status);
                 }

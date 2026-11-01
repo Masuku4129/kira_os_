@@ -34,7 +34,7 @@ echo "[*] Userland (Ring 3): программы собираются в ELF и �
 UCFLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 ULINK="-T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro"
 UELF=""
-for app in plasma paint burn mt ipc fetch serve melody; do
+for app in plasma paint burn mt ipc fetch serve melody wasm; do
     $CC $UCFLAGS -c userland/$app.c -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
@@ -68,6 +68,8 @@ tools/kfstool kira.disk init
 for e in $UELF; do
     tools/kfstool kira.disk put /bin/$(basename $e .elf) $e
 done
+userland/wasm/build.sh                                   # модули WebAssembly - в /wasm (те же файлы, что у ARM64)
+for w in build-wasm/*.wasm; do tools/kfstool kira.disk put /wasm/$(basename $w) $w; done
 
 echo "[*] Компиляция C..."
 OBJ="boot.o"
@@ -101,6 +103,7 @@ case "$1" in
         if [ -f "$OUT/kira_disk.img" ]; then
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
             for e in $UELF; do tools/kfstool "$OUT/kira_disk.img" put /bin/$(basename $e .elf) $e >/dev/null; done
+            for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."
         else
             cp kira.disk "$OUT/kira_disk.img"

@@ -155,6 +155,12 @@ ALL = [
         {"log": [r"view: /note\.txt - текст, 31 байт", r"view: /blob\.bin - двоичный, 512 байт"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="1G", files=True),
+    sc("apps-wasm", "WebAssembly: тот же /wasm/wtest.wasm, что у ARM64, - результат равен эталону, собранному обычным компилятором", [
+        {"log": BOOT_LOG},
+        {"cmd": "wasm /wasm/wtest.wasm"}, {"sleep": 4},
+        {"log": [r"wasm: /wasm/wtest\.wasm - \d+ functions", r"wtest:\ fib\(24\)=46368\ primes<20000=2262\ sort=ad642057dcc4b702\ switch=4148393079\ ops=ba422c8d525a9aea\ sext=269715", r"wasm: finished with code 0"]},
+        {"log_forbid": NO_ERR + [r"wasm: stopped"]},
+    ], smp=2, mem="512M"),
     sc("sound-hda", "звук: Intel HDA (как Sound: hda в Limbo) - кодек, путь к выходу, тон через DMA", [
         {"log": BOOT_LOG + [r"\[KIRA HDA\] Sound: codec .* output path pin \d+ <- DAC \d+"]},
         {"cmd": "sound", "must": [r"выход: вывод \d+ <- ЦАП \d+"]},
