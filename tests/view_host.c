@@ -26,6 +26,7 @@ static void k_sleep(u64 t) { (void)t; }
 static void run_one(const char* path, u8* data, long len) {
     g_path = path; g_data = data; g_len = len;
     if (!g_arena) g_arena = calloc(8u << 20, 1);
+    memset(g_arena, 0, 8u << 20);                                /* страницы кучи ядра приходят нулевыми */
     g_used = 0; heap_end = 0; heap_left = 0; err[0] = 0; info[0] = 0; img = 0; mode = 0; scroll = 0;
     view_main();
 }
@@ -67,7 +68,7 @@ int main(int argc, char** argv) {
             if (!ok) fails++;
             free(d);
         }
-        printf("%s\n", fails ? "VIEW JPEG FAILED" : "view: JPEG baseline (4:2:0, 4:2:2, 4:4:4 + restart, grayscale) matches libjpeg within IDCT rounding - passed");
+        printf("%s\n", fails ? "VIEW JPEG FAILED" : "view: JPEG baseline and progressive (4:2:0, 4:2:2, 4:4:4, restart, grayscale) match libjpeg within IDCT rounding - passed");
         return fails != 0;
     }
     for (int i = 1; i + 1 < argc; i += 2) {
