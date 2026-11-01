@@ -114,7 +114,8 @@ jobs:
         run: |
           set -e
           mkdir pub && cd pub
-          git init -q -b ci-results
+          B=ci-results; case "$GITHUB_REF_NAME" in main|stable) ;; *) B="ci-results-$(echo "$GITHUB_REF_NAME" | tr '/' '-')";; esac
+          git init -q -b "$B"
           git config user.name "kira-ci"; git config user.email "ci@kira.invalid"
           mkdir latest
           cp -r ../results/* latest/ 2>/dev/null || true
@@ -131,4 +132,4 @@ jobs:
           echo "${GITHUB_SHA}" > latest/SHA
           git add -A
           git commit -q -m "ci: ${GITHUB_SHA::7}"
-          git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ci-results
+          git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"
