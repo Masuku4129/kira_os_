@@ -178,7 +178,7 @@ void mind_init(mind_t* s, const mind_model_t* saved, unsigned cores) {
     int learned = 0;
     for (int i = 0; i < MIND_SIG_N; i++) if (s->m.norm[i].n >= 60) learned++;
     if (saved && mind_model_valid(saved) && (saved->mflags & MF_SEED))
-        jlog(s, 0, MJ_LEARN, 0, 0, "опыта этой машины нет: взято семя (получено в QEMU, на железе - лишь подсказка): веса предвидения на %u с",
+        jlog(s, 0, MJ_LEARN, 0, 0, "нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на %u с",
              s->m.net.n);
     else if (saved && mind_model_valid(saved))
         jlog(s, 0, MJ_LEARN, 0, 0, "опыт загружен: %u из %u норм выучены, квант %u мс, решений за жизнь %u, модель предвидения обучена на %u с",
