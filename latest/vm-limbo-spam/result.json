@@ -1,0 +1,115 @@
+{
+ "name": "limbo-spam",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.07,
+   "ok": true
+  },
+  {
+   "step": "ai",
+   "must": "тактика: фон",
+   "ok": true
+  },
+  {
+   "step": "ai",
+   "must": "замок планировщика: ядра ждут его",
+   "ok": true
+  },
+  {
+   "step": "ai",
+   "must": "композитор: .*параллельно [1-9]\\d* нс, на одном ядре [1-9]",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "темп фоновых окон",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "сборка кадра",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "12\\. ядро фокуса",
+   "ok": true
+  },
+  {
+   "log": "фоновые окна не чаще \\d+ кадров/с",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "log_forbid": "фон ужат до [0-4]% ядер",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.8,
+ "seconds": 33.4,
+ "commands": [
+  {
+   "cmd": "status",
+   "seconds": 0.05
+  },
+  {
+   "cmd": "ai",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "ai why",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "ai levers",
+   "seconds": 0.01
+  }
+ ]
+}
