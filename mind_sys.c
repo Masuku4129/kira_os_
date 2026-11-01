@@ -346,13 +346,16 @@ void mind_sys_tick(uint64_t seconds) {
     kmutex_lock(&mmx);
     mind_step(&M, &S, &act);
     kmutex_unlock(&mmx);
-    /* Новые записи журнала - в журнал ядра (видны в консоли и в последовательном порту). */
+    /* Новые записи журнала - только в последовательный порт (стенд, отладка). На экране их показывает окно Разума
+       и команда ai; в терминал они не копируются, иначе вывод Разума дублировался бы там. */
     uint32_t fresh = M.jn - printed;
     if (fresh > MIND_JOURNAL) fresh = MIND_JOURNAL;
     for (uint32_t i = fresh; i > 0; i--) {
         const mind_event_t* e = mind_journal(&M, i - 1);
         if (!e) continue;
-        uart_print("[KIRA MIND] "); uart_print(e->text); uart_print("\n");
+        char jl[256]; unsigned jn = 0;
+        put_s(jl, &jn, "[KIRA MIND] "); put_s(jl, &jn, e->text); put_s(jl, &jn, "\n");
+        uart_print_serial(jl);
     }
     printed = M.jn;
     publish();
