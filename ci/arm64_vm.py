@@ -117,9 +117,10 @@ SC = [
                ("@log \\[KIRA DRV\\] eduun: пакет отклонён \\(установка не подтверждена пользователем\\)", []),
                ("@log \\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \\(pid \\d+\\), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV", []),
                ("@log drvedu: id=0x10000ed", []), ("@log drvedu: 10!=3628800", []),
-               ("@log drvedu: dma round trip equal", []),
+               ("@log drvedu: dma rc=-7", []),       # RAM платы virt начинается с 1 ГБ, а edu достаёт 30 бит адреса: ядро честно отказывает, DMA на ARM здесь не проверяется
+               
                ("@log drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x", []),
-               ("@log drvedu: PASS", []),
+               ("@log drvedu: partial \\(see above\\)", []),
                ("drv", [r"drv-edu pid \d+", r"отображений 1"]),
                ("drv stop edu", [r"останавливаю drv-edu"]), ("@sleep 2", []),
                ("@log \\[KIRA DRV\\] drv-edu \\(pid \\d+\\) завершён: устройство .* остановлено", []),
