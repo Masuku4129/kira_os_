@@ -22,6 +22,8 @@
 #include "heap.h"
 #include "uaccess.h"
 #include "caps.h"
+#include "kdrv.h"
+#include "kdrv_format.h"
 
 static spinlock_t ulog_lock = SPINLOCK_INIT;
 static userlog_t ulog;
@@ -124,6 +126,13 @@ static uint32_t cap_needed(uint64_t nr) {
     case SYS_SND_RECORD: return CAP_REC;
     case SYS_PORT_OPEN: case SYS_PORT_SEND: case SYS_PORT_RECV: case SYS_SHM_OPEN: case SYS_SHM_MAP: return CAP_IPC;
     case SYS_THREAD_CREATE: return CAP_THREAD;
+    /* Драйверы Ring 3 (kdrv.c): права выдаёт только менеджер драйверов, процессу обычной программы они недоступны; устройство - привязка процесса. */
+    case KDRV_SYS_INFO: return CAP_DRIVER_;                         /* свои устройство и права: любое из прав драйвера */
+    case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: return CAP_PCIDEV;
+    case KDRV_SYS_MMIO_MAP: return CAP_MMIO;
+    case KDRV_SYS_DMA_ALLOC: return CAP_DMA;
+    case KDRV_SYS_IRQ_WAIT: return CAP_IRQ | CAP_NETDEV;          /* ждать звонка: прерывание устройства или кольцо передачи карты */
+    case KDRV_SYS_NETDEV: return CAP_NETDEV;
     default: return 0;                  /* SYS_FS проверяется по операции в fsrv_syscall */
     }
 }
@@ -282,6 +291,9 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         if (!a2 || len + 1 > a2) return (uint64_t)-10;
         return copy_to_user(a1, s, len + 1) ? (uint64_t)-10 : len;
     }
+    case KDRV_SYS_INFO: case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: case KDRV_SYS_MMIO_MAP: case KDRV_SYS_DMA_ALLOC:
+    case KDRV_SYS_IRQ_WAIT: case KDRV_SYS_NETDEV:
+        return (uint64_t)kdrv_sys((unsigned)nr, a1, a2, a3);
     default:
         return (uint64_t)-1;
     }

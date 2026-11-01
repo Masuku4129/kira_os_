@@ -12,6 +12,11 @@ unsigned proc_limit(void);
 int  proc_spawn_elf(const char* name, const void* image, size_t len);
 /* То же с правом читать один файл grant (путь VFS): его получает программа просмотра из Проводника. */
 int  proc_spawn_elf_grant(const char* name, const void* image, size_t len, const char* grant);
+/* Драйвер Ring 3 (kdrv.c): права и привязка к устройству задаёт менеджер драйверов, а не таблица caps.c. 0.. - pid, -1 - отказ. */
+int  proc_spawn_driver(const char* name, const void* image, size_t len, uint32_t caps, uint32_t slot, const char* args);
+uint32_t proc_current_drv(void);         /* номер привязки + 1; 0 - не драйвер */
+int  proc_map_phys(uint64_t va, uint64_t pa, uint32_t pages, uint64_t flags);   /* страницы в пространство текущего процесса (под proc_space_lock); VMM_SHARED добавляется */
+void proc_unmap_pages(uint64_t va, uint32_t pages);                              /* снять и сбросить TLB (под proc_space_lock) */
 uint32_t proc_current_caps(void);        /* права текущего процесса (caps.h); 0 - не процесс */
 int  proc_cap_denied(uint32_t cap, uint64_t nr);   /* записывает отказ в журнал (раз на процесс); возвращает KE_PERM */
 const char* proc_current_grant(void);   /* "" - права нет */

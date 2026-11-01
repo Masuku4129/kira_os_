@@ -32,6 +32,7 @@
 #include "syscall.h"
 #include "uaccess.h"
 #include "progs.h"
+#include "kdrv.h"
 #include "kfs.h"
 #include "klog.h"
 #include "input.h"
@@ -251,6 +252,7 @@ static void dma_pool_choose(void) {
         return;
     }
 }
+int platform_dma_noncoherent(void) { return dma_lo != 0; }   /* драйверам Ring 3 DMA без согласованного кэша не отдаётся (kdrv.c) */
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) {
     if (!dma_lo) return 0;
     uint64_t need = ((uint64_t)bytes + 4095) & ~4095ull, f = irq_save(), a = 0;
@@ -1244,6 +1246,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
             sched_reap();
         }
         prog_poll();                                             /* запуск, заказанный оболочкой (док, Проводник) */
+        kdrv_poll();                                             /* драйверы Ring 3 */
         life_tick();
         watchdog_feed();
         sched_sleep_ticks(1);

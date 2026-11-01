@@ -20,6 +20,7 @@
 #include "futex.h"
 #include "caps.h"
 #include "smp.h"
+#include "kdrv.h"
 
 /* Адреса программы (пользовательская половина):
      0x80_0000_0000 .. 0x80_4000_0000  сегменты ELF (1 ГБ; сколько страниц - по ОЗУ машины)
@@ -58,6 +59,7 @@ typedef struct {
     int exit_code;
     uint32_t caps;                     /* права (caps.h): задаются при запуске, дальше не меняются */
     volatile uint32_t cap_denied;      /* отказов по правам: журнал - только первый */
+    uint32_t drv;                      /* драйвер Ring 3: номер привязки к устройству + 1 (kdrv.c); 0 - обычная программа */
     kmutex_t mx;                 /* таблица дескрипторов, отображения, изменения адресного пространства */
     htab_t handles;
     shm_map_t* maps; uint32_t nmaps;  /* растёт вдвое */
@@ -117,7 +119,20 @@ static uint32_t max_proc_pages(void) {
 int proc_spawn_elf(const char* name, const void* image, size_t len) { return proc_spawn_elf_ex(name, image, len, 0, 0); }
 int proc_spawn_elf_grant(const char* name, const void* image, size_t len, const char* grant) { return proc_spawn_elf_ex(name, image, len, grant, 0); }
 
+static int spawn(const char* name, const void* image, size_t len, const char* grant, const char* args, int own_caps, uint32_t caps, uint32_t drv);
+
 int proc_spawn_elf_ex(const char* name, const void* image, size_t len, const char* grant, const char* args) {
+    return spawn(name, image, len, grant, args, 0, 0, 0);
+}
+
+/* Драйвер Ring 3: права не из таблицы доверенных программ, а из пакета (запрошены в .kdrv и подтверждены в .rec); процесс привязан
+   к одному устройству (slot - привязка в kdrv.c). */
+int proc_spawn_driver(const char* name, const void* image, size_t len, uint32_t caps, uint32_t slot, const char* args) {
+    return spawn(name, image, len, 0, args, 1, caps & CAP_DRIVER_, slot + 1);
+}
+
+
+static int spawn(const char* name, const void* image, size_t len, const char* grant, const char* args, int own_caps, uint32_t caps, uint32_t drv) {
     elf_info_t info;
     int e = elf_parse(image, len, USER_CODE_VA, USER_CODE_END, max_proc_pages(), &info);
     if (e != ELF_OK) {
@@ -130,7 +145,8 @@ int proc_spawn_elf_ex(const char* name, const void* image, size_t len, const cha
     for (unsigned i = 0; i < max_procs; i++) if (!procs[i].used) { p = &procs[i]; break; }
     if (!p) { spin_unlock_irqrestore(&proc_lock, f); return -1; }
     p->used = 1;                       /* занят до конца настройки */
-    p->caps = caps_for_program(name);
+    p->caps = own_caps ? caps : caps_for_program(name);
+    p->drv = drv;
     p->cap_denied = 0;
     {   /* право на чтение файла - до первого потока: программа видит его с первой команды */
         unsigned i = 0;
@@ -231,6 +247,7 @@ static int64_t heap_grow_locked(proc_t* p, uint64_t pages) {
 }
 
 int proc_in_user_thread(void) { return current_proc() != 0; }
+uint32_t proc_current_drv(void) { proc_t* p = current_proc(); return p ? p->drv : 0; }
 uint32_t proc_current_caps(void) { proc_t* p = current_proc(); return p ? p->caps : 0; }
 int proc_cap_denied(uint32_t cap, uint64_t nr) {
     proc_t* p = current_proc();
@@ -323,6 +340,7 @@ static void teardown(proc_t* p) {
     net_proc_gone(pid);                    /* соединения TCP программы закрываются */
     audio_proc_gone(pid);                  /* и её поток звука */
     syscall_proc_gone(pid);                /* его незаконченная строка журнала */
+    if (p->drv) kdrv_proc_gone(p->drv - 1, pid);   /* драйвер: устройство останавливается, DMA и кольца возвращаются позже */
     for (uint32_t h = 1; h <= htab_cap(&p->handles); h++) kobj_release(htab_take(&p->handles, (int)h));
     htab_free(&p->handles);
     for (uint32_t i = 0; i < p->nmaps; i++) if (p->maps[i].shm) { kobj_release(p->maps[i].shm); p->maps[i].shm = 0; }
@@ -499,6 +517,28 @@ int64_t proc_shm_unmap(uint64_t va) {
     kmutex_unlock(&p->mx);
     kobj_release(m.shm);
     return 0;
+}
+
+/* Страницы устройства или DMA (kdrv.c) в пространство текущего процесса. Страницы не принадлежат процессу (VMM_SHARED): пространство
+   при гибели их не освобождает, возвращает их владелец (kdrv.c). Вызывающий держит proc_space_lock. */
+int proc_map_phys(uint64_t va, uint64_t pa, uint32_t pages, uint64_t flags) {
+    proc_t* p = current_proc();
+    if (!p) return -1;
+    for (uint32_t i = 0; i < pages; i++) {
+        if (vmm_space_map(p->root, va + (uint64_t)i * 4096, pa + (uint64_t)i * 4096, flags | VMM_SHARED) != 0) {
+            for (uint32_t k = 0; k < i; k++) vmm_space_unmap(p->root, va + (uint64_t)k * 4096);
+            if (i) vmm_tlb_shootdown(p->root, va, i);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+void proc_unmap_pages(uint64_t va, uint32_t pages) {
+    proc_t* p = current_proc();
+    if (!p) return;
+    for (uint32_t i = 0; i < pages; i++) vmm_space_unmap(p->root, va + (uint64_t)i * 4096);
+    vmm_tlb_shootdown(p->root, va, pages);
 }
 
 void proc_space_lock(void) { proc_t* p = current_proc(); if (p) kmutex_lock(&p->mx); }

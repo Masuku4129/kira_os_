@@ -18,3 +18,4 @@ tools/pem2der
 tools/roots.der
 .claude/
 __pycache__/
+tools/kdrvpack

@@ -234,6 +234,7 @@ uint64_t vmm_space_create(void) {
 
 int vmm_space_map(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) {
     if (va < VMM_USER_BASE || va >= VMM_USER_TOP) return -1;
+    if (flags & VMM_NOCACHE) flags |= VMM_NOEXEC;          /* регистры устройства драйвера Ring 3: исполнять нельзя ни при каких флагах */
     return map_in(root, va, pa, flags | VMM_USER);
 }
 

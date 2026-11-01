@@ -1370,10 +1370,23 @@ static void net_main(void* arg) {
     }
 }
 
-void net_register(netdev_t* d) { if (!dev) dev = d; }
+netdev_t* net_dev(void) { return dev; }
+static int net_up;                    /* net_start уже вызван: карта драйвера Ring 3 может появиться позже (kdrv.c) */
+static int net_launch(void);
+
+void net_register(netdev_t* d) {
+    if (dev) return;
+    dev = d;
+    if (net_up) net_launch();         /* стек уже запускали, а карты не было */
+}
 
 int net_start(void) {
+    net_up = 1;
     if (!dev) { uart_print("[KIRA NET] No supported network card: networking is off.\n"); return 0; }
+    return net_launch();
+}
+
+static int net_launch(void) {
     if (!sched_create("net", net_main, 0, PRIO_NORMAL)) { uart_print("[KIRA NET] cannot create network thread.\n"); return 0; }
     uart_print("[KIRA NET] Network stack online: Ethernet, ARP, IPv4 (fragments), ICMP, UDP, DHCP client, DNS, TCP, IPv6 (ND, SLAAC, ICMPv6, UDP, TCP) (commands: net, ping, ping6, dns, http).\n");
     return 1;
