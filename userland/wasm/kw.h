@@ -11,6 +11,9 @@ static inline int kw_write(const char* s, int n) { return (int)fwrite(s, 1, (siz
 static inline void kw_sleep(int t) { (void)t; }
 static inline long long kw_ticks(void) { return 0; }
 static inline void kw_exit(int c) { exit(c); }
+static inline int kw_gfx_create(int w, int h) { (void)w; (void)h; return 0; }   /* эталон: окна нет, кадры только считаются */
+static inline int kw_gfx_present(const unsigned* px) { (void)px; return 0; }
+static inline int kw_gfx_event(void* ev) { (void)ev; return 0; }
 #else
 #define KW_IMPORT(n) __attribute__((import_module("kira"), import_name(n)))
 KW_IMPORT("write") int kw_write(const char* s, int n);

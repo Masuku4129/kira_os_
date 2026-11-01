@@ -234,6 +234,11 @@ clang -O2 -DKW_NATIVE -w -Iuserland/wasm -o $T/ftest_native userland/wasm/ftest.
 $T/ftest_native > $T/f_native.txt
 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/ftest.wasm | grep -v "^wasm: " > $T/f_body.txt
 cmp -s $T/f_native.txt $T/f_body.txt || { echo "WASM FLOAT OUTPUT DIFFERS"; cat $T/f_native.txt $T/f_body.txt; exit 1; }
+clang -O2 -DKW_NATIVE -w -Iuserland/wasm -o $T/wgfx_native userland/wasm/wgfx.c
+$T/wgfx_native > $T/g_native.txt
+ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wgfx.wasm | grep -v "^wasm: " > $T/g_body.txt
+cmp -s $T/g_native.txt $T/g_body.txt || { echo "WASM GFX OUTPUT DIFFERS"; cat $T/g_native.txt $T/g_body.txt; exit 1; }
+echo "wasm: graphics program (window, f32 frames) equals native ($(head -1 $T/g_native.txt))"
 echo "wasm: f32/f64 interpreter output equals native ($(cat $T/f_native.txt | cut -c1-70)...)"
 $CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c -lm
 $T/audio
