@@ -35,6 +35,7 @@ blk_dev_t* blk_find(const char* id);
 blk_dev_t* blk_primary(void);
 int  blk_set_primary(blk_dev_t* d);                    /* после format: 0 - диск из списка */
 void blk_print(void);                                  /* команда disk */
+int  blk_flush_all(void);                              /* дописать кэши записи всех дисков (перед выключением); ошибок */
 
 /* Для драйверов: добавить диск (id - короткое имя, model - описание). */
 void blk_register(blk_dev_t* raw, const char* id, const char* model);

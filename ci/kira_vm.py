@@ -35,6 +35,8 @@ class Fail(Exception):
 class VM:
     def __init__(self, sc, out, iso, disk, kvm, timeout_scale):
         self.sc, self.out, self.iso, self.kvm, self.k = sc, out, iso, kvm, timeout_scale
+        if not sc.get("reboot"):                    # сброс = выход QEMU (иначе виснущая перезагрузка не видна)
+            a.append("-no-reboot")
         if sc.get("limbo"): self.k = max(self.k, 8.0)       # эмуляция одним потоком в разы медленнее KVM
         self.log = bytearray()
         self.notes = []
@@ -58,7 +60,7 @@ class VM:
     def args(self):
         sc = self.sc
         a = ["qemu-system-x86_64", "-machine", sc.get("machine", "pc"), "-m", str(sc.get("mem", "1G")),
-             "-smp", str(sc.get("smp", 4)), "-vga", "std", "-display", "none", "-no-reboot",
+             "-smp", str(sc.get("smp", 4)), "-vga", "std", "-display", "none",
              "-boot", "order=d", "-cdrom", self.iso,
              "-chardev", f"socket,id=ser0,path={self.ser_path},server=on,wait=on", "-serial", "chardev:ser0",
              "-qmp", f"unix:{self.qmp_path},server=on,wait=off",
@@ -231,6 +233,7 @@ def run(sc, args):
         result["boot_seconds"] = round(time.time() - t0, 1)
         time.sleep(1.0)
         vm.screenshot("00-boot")
+        mark = 0
         for i, st in enumerate(sc["steps"]):
             if "cmd" in st:
                 cmd = st["cmd"]
@@ -246,7 +249,23 @@ def run(sc, args):
                     if bad:
                         raise Fail(f"«{cmd}»: в выводе «{bad.group(0)}»\n{outp[-1500:]}")
             elif "send" in st:                        # без ожидания приглашения (нагрузка, запуск программ)
+                mark = len(vm.log)
                 vm.send(st["send"] + "\r")
+            elif "expect" in st:                      # ждать строку в журнале после последнего send
+                vm.expect(st["expect"], st.get("timeout", 60), mark)
+                result["checks"].append({"expect": st["expect"], "ok": True})
+            elif "exit" in st:                        # команда должна выключить машину: QEMU завершается сам с кодом 0
+                vm.send(st["exit"] + "\r")
+                end_t = time.time() + st.get("within", 20) * args.timeout_scale
+                while vm.qemu.poll() is None and time.time() < end_t:
+                    vm.drain(0.5)
+                if vm.qemu.poll() is None:
+                    raise Fail(f"«{st['exit']}»: машина не выключилась за {st.get('within', 20)} с")
+                vm.drain(0.5)
+                if vm.qemu.returncode != 0:
+                    raise Fail(f"«{st['exit']}»: QEMU завершился с кодом {vm.qemu.returncode}")
+                vm.exited = True
+                result["checks"].append({"exit": st["exit"], "ok": True})
             elif "combo" in st:                       # одновременное нажатие (Alt+Shift - раскладка)
                 vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": k} for k in st["combo"]]}})
                 vm.pump(0.3)
@@ -284,7 +303,8 @@ def run(sc, args):
                 t = time.time()
                 vm.command(st["responsive"], st.get("within", 5))
                 result["checks"].append({"responsive": st["responsive"], "seconds": round(time.time() - t, 2), "ok": True})
-        vm.screenshot("99-end")
+        if not getattr(vm, "exited", False):
+            vm.screenshot("99-end")
         result["ok"] = True
     except Fail as e:
         result["error"] = str(e)

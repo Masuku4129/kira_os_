@@ -100,6 +100,17 @@ int main(void){
             CHECK(mp.ioapic_count <= 64 && mp.cpu_count <= 300);
         }
     }
+    {   /* \_S5: как у QEMU (Name(\_S5, Package(4){5, 5, 0, 0}) через BytePrefix), Zero/One, длина пакета в 2 байта, ложные */
+        uint8_t a = 9, b = 9;
+        static const uint8_t q[] = { 0x10, 0x20, 0x08, '_', 'S', '5', '_', 0x12, 0x0A, 0x04, 0x0A, 0x05, 0x0A, 0x05, 0x00, 0x00 };
+        CHECK(acpi_find_s5(q, sizeof q, &a, &b) == 0 && a == 5 && b == 5);
+        static const uint8_t r[] = { 0x08, '\\', '_', 'S', '5', '_', 0x12, 0x46, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00 };
+        CHECK(acpi_find_s5(r, sizeof r, &a, &b) == 0 && a == 0 && b == 1);
+        static const uint8_t m[] = { 0x5B, 0x80, '_', 'S', '5', '_', 0x12, 0x06, 0x04, 0x0A, 0x07, 0x00, 0x00, 0x00, 0x00 };   /* не NameOp */
+        CHECK(acpi_find_s5(m, sizeof m, &a, &b) != 0);
+        static const uint8_t t[] = { 0x08, '_', 'S', '5', '_', 0x12 };                         /* обрезано */
+        CHECK(acpi_find_s5(t, sizeof t, &a, &b) != 0);
+    }
     printf("acpi: all parser checks passed (incl. Intel MP tables, BIOS scan)\n");
     return 0;
 }

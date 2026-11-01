@@ -23,6 +23,7 @@
 #include "fscmd.h"
 #include "pci.h"
 #include "blk.h"
+#include "vfs.h"
 #include "spinlock.h"
 #include "usb.h"
 
@@ -358,6 +359,16 @@ static void cmd_smpcrash(const char* a) {
 }
 static void cmd_plasma(const char* a) { (void)a; prog_start("plasma"); }
 static void cmd_edit(const char* a) { (void)a; prog_start("edit"); }
+/* Выключение и перезагрузка: сначала опыт и кэши дисков, потом - машина. */
+static void power_prepare(void) {
+    uart_print("сохраняю опыт и данные дисков...\n");
+    experience_save_now();
+    for (int i = 0; i < 4; i++) vfs_flush(i);
+    int bad = blk_flush_all();
+    if (bad) { uart_print("[KIRA DISK] write cache not flushed on "); uart_print_dec((uint64_t)bad); uart_print(" disk(s)\n"); }
+}
+static void cmd_poweroff(const char* a) { (void)a; power_prepare(); platform_poweroff(); }
+static void cmd_reboot(const char* a) { (void)a; power_prepare(); platform_reboot(); }
 static void cmd_wasm(const char* a) {                       /* модуль WebAssembly - в интерпретаторе (Ring 3) */
     while (a && *a == ' ') a++;
     if (!a || *a != '/') { uart_print("wasm /путь/модуль.wasm: программа WebAssembly (одна для x86-64 и ARM64), модули - в /wasm\n"); return; }
@@ -522,6 +533,8 @@ static const cmd_t cmds[] = {
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },
     { "plasma",    'a', "приложение Ring 3: плазма", cmd_plasma },
     { "edit",      0,   "приложение Ring 3: текстовый редактор (F2 - сохранить, F3 - другой файл, F4 - новый)", cmd_edit },
+    { "poweroff",  0,   "выключить машину (опыт и диски сохраняются; ACPI S5 / PSCI)", cmd_poweroff },
+    { "reboot",    0,   "перезагрузить машину (опыт и диски сохраняются)", cmd_reboot },
     { "wasm",      0,   "wasm /путь.wasm: программа WebAssembly (один файл для x86-64 и ARM64; модули в /wasm)", cmd_wasm },
     { "view",      0,   "view /путь: просмотр файла (текст, PNG, BMP, PPM, двоичный) - как двойной щелчок в Проводнике", cmd_view },
     { "paint",     'b', "приложение Ring 3: холст (мышь, клавиши 1-8, c - очистить)", cmd_paint },

@@ -807,6 +807,18 @@ void platform_hw(void (*out)(const char*)) {
             ((pfr0 >> 20) & 15) == 15 ? "no" : "yes", mmfr0 & 15);
     (void)out;
 }
+/* PSCI: SYSTEM_OFF / SYSTEM_RESET (те же hvc/smc, что для запуска ядер) */
+void platform_poweroff(void) {
+    kprintf("[KIRA PSCI] powering off (SYSTEM_OFF)\n");
+    psci_call(0x84000008ull, 0, 0, 0);
+    kprintf("[KIRA PSCI] SYSTEM_OFF returned: firmware refused to power off.\n");
+}
+void platform_reboot(void) {
+    kprintf("[KIRA PSCI] rebooting (SYSTEM_RESET)\n");
+    psci_call(0x84000009ull, 0, 0, 0);
+    kprintf("[KIRA PSCI] SYSTEM_RESET returned: firmware refused to reset.\n");
+}
+
 int platform_console_cmd(const char* l, const char* a) {
     if (word(l, "mem")) {
         for (unsigned i = 0; i < nram; i++) kprintf("  RAM %x .. %x (%u MB)\n", ram[i].base, ram[i].base + ram[i].size, ram[i].size >> 20);

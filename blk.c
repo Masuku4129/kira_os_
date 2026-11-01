@@ -170,6 +170,12 @@ int blk_set_primary(blk_dev_t* d) {
     return -1;
 }
 
+int blk_flush_all(void) {
+    int bad = 0;
+    for (int i = 0; i < nslots; i++) if (slots[i].raw && slots[i].raw->flush && slots[i].raw->flush(slots[i].raw) != 0) bad++;
+    return bad;
+}
+
 void blk_print(void) {
     if (!nslots) { uart_print("дисков нет\n"); return; }
     for (int i = 0; i < nslots; i++) {

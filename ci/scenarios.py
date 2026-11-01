@@ -202,4 +202,20 @@ ALL = [
         {"cmd": "ai", "must": [r"замок планировщика: ядра ждут его \d+,\d%"], "timeout": 10},
         {"log_forbid": NO_ERR},
     ], smp=4, mem="1G"),
+    sc("power-off", "выключение: ACPI S5 из FADT/DSDT (_S5) - машина выключается сама, без -no-reboot-уловок", [
+        {"log": BOOT_LOG},
+        {"exit": "poweroff", "within": 20},
+        {"log": [r"\[KIRA ACPI\] powering off \(S5\)"]},
+        {"log_forbid": NO_ERR + [r"did not power off"]},
+    ], smp=2, mem="512M"),
+    sc("power-reboot", "перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
+        {"log": BOOT_LOG},
+        {"cmd": "write /reboot.txt kira-before-reboot"},
+        {"send": "reboot"},
+        {"expect": r"\[KIRA ACPI\] rebooting", "timeout": 10},
+        {"expect": r"\[KIRA CONSOLE\] Command line ready", "timeout": 120},
+        {"sleep": 2},
+        {"cmd": "cat /reboot.txt", "must": [r"kira-before-reboot"]},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", machine="q35", reboot=True),
 ]

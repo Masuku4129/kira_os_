@@ -5,5 +5,7 @@ unsigned    platform_cpus(void);        /* ядер, найденных на м�
 const char* platform_irq_name(void);
 void        platform_status(void (*out)(const char*));   /* строка состояния: контроллер прерываний и таймер */
 void        platform_hw(void (*out)(const char*));       /* описание процессора и машины (команда hw) */
-int         platform_console_cmd(const char* cmd, const char* arg);   /* команды только этой архитектуры: 1 - выполнена */    /* контроллер прерываний: "IOAPIC"/"PIC" (x86-64), "GICv3"/"GICv2" (ARM64) */
+int         platform_console_cmd(const char* cmd, const char* arg);   /* команды только этой архитектуры: 1 - выполнена */
+void        platform_poweroff(void);   /* выключить машину (ACPI S5 / PSCI); возврат - не получилось */
+void        platform_reboot(void);     /* перезагрузить (регистр сброса ACPI, 0xCF9, 8042 / PSCI); возврат - не получилось */    /* контроллер прерываний: "IOAPIC"/"PIC" (x86-64), "GICv3"/"GICv2" (ARM64) */
 #endif

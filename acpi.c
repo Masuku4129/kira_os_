@@ -62,6 +62,58 @@ static void parse_madt(const sdt_t* t, acpi_info_t* o) {
     }
 }
 
+/* Число AML в пакете: BytePrefix/WordPrefix/DWordPrefix, Zero, One, Ones. -1 - не число. */
+static int aml_int(const uint8_t* p, const uint8_t* e, uint32_t* v, const uint8_t** next) {
+    if (p >= e) return -1;
+    if (*p == 0x00) { *v = 0; *next = p + 1; return 0; }
+    if (*p == 0x01) { *v = 1; *next = p + 1; return 0; }
+    if (*p == 0xFF) { *v = 0xFF; *next = p + 1; return 0; }
+    if (*p == 0x0A && p + 1 < e) { *v = p[1]; *next = p + 2; return 0; }
+    if (*p == 0x0B && p + 2 < e) { *v = p[1] | (uint32_t)p[2] << 8; *next = p + 3; return 0; }
+    if (*p == 0x0C && p + 4 < e) { *v = rd32(p + 1); *next = p + 5; return 0; }
+    return -1;
+}
+
+int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b) {
+    for (uint32_t i = 1; i + 8 < len; i++) {
+        if (aml[i] != '_' || aml[i + 1] != 'S' || aml[i + 2] != '5' || aml[i + 3] != '_') continue;
+        /* имя объявлено: NameOp (0x08) перед именем, возможно с корнем '\\' */
+        if (!(aml[i - 1] == 0x08 || (aml[i - 1] == '\\' && i >= 2 && aml[i - 2] == 0x08))) continue;
+        const uint8_t* p = aml + i + 4; const uint8_t* e = aml + len;
+        if (*p++ != 0x12) continue;                              /* PackageOp */
+        uint32_t follow = (uint32_t)(*p >> 6);                   /* PkgLength: 0-3 дополнительных байта */
+        p += 1 + follow;
+        if (p >= e) continue;
+        p++;                                                     /* NumElements */
+        uint32_t va, vb;
+        if (aml_int(p, e, &va, &p) != 0) continue;
+        if (aml_int(p, e, &vb, &p) != 0) vb = 0;
+        *a = (uint8_t)va; *b = (uint8_t)vb;
+        return 0;
+    }
+    return -1;
+}
+
+static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
+    const uint8_t* f = (const uint8_t*)t;
+    uint32_t len = t->len;
+    if (len < 116) return;
+    o->smi_cmd = rd32(f + 48); o->acpi_enable = f[52];
+    o->pm1a_cnt = rd32(f + 64); o->pm1b_cnt = rd32(f + 68);
+    uint32_t flags = rd32(f + 112);
+    if (len >= 129 && (flags & (1u << 10))) {                    /* RESET_REG_SUP */
+        o->reset_space = f[116]; o->reset_addr = rd64(f + 120); o->reset_value = f[128];
+        o->reset_valid = o->reset_addr && (o->reset_space == 0 || o->reset_space == 1);
+    }
+    uint64_t dsdt = rd32(f + 40);
+    if (len >= 148 && rd64(f + 140)) dsdt = rd64(f + 140);       /* X_DSDT */
+    const sdt_t* d = dsdt ? (const sdt_t*)reach(dsdt, sizeof(sdt_t), max_phys) : 0;
+    if (!d || !sig_is(d->sig, "DSDT") || d->len < sizeof(sdt_t)) return;
+    uint32_t dl = d->len;
+    if (!(d = (const sdt_t*)reach(dsdt, dl, max_phys))) return;
+    if (acpi_find_s5((const uint8_t*)d + sizeof(sdt_t), dl - (uint32_t)sizeof(sdt_t), &o->slp_typa, &o->slp_typb) == 0) o->s5_valid = 1;
+}
+
 static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
     const sdt_t* t = phys ? (const sdt_t*)reach(phys, sizeof(sdt_t), max_phys) : 0;
     if (!t) { o->tables_skipped_high++; return; }
@@ -71,6 +123,7 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
     o->tables_seen++;
     if (sig_is(t->sig, "APIC")) parse_madt(t, o);
     else if (sig_is(t->sig, "HPET")) o->has_hpet = 1;
+    else if (sig_is(t->sig, "FACP")) parse_fadt(t, max_phys, o);
     else if (sig_is(t->sig, "MCFG") && t->len >= 44 + 16) {
         const uint8_t* e = (const uint8_t*)t + 44;
         o->mcfg_base = rd64(e); o->mcfg_bus_start = e[10]; o->mcfg_bus_end = e[11];

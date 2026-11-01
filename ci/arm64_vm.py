@@ -82,6 +82,12 @@ SC = [
     dict(name="arm64-fault", m="virt,gic-version=3", cpu="cortex-a72", smp=1, mem="256M",
          must=[r"Processors online: 1 of 1"],
          cmds=[("fault", [r"exception on core 0: data abort .*", r"FAR 0x0000600000000000"])], fault=True),
+    dict(name="arm64-power", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", disk="virtio-blk-pci",
+         must=[r"Processors online: 2 of 2"],
+         cmds=[("write /reboot.txt kira-before-reboot", []),
+               ("reboot", [r"\[KIRA PSCI\] rebooting \(SYSTEM_RESET\)", READY]), ("@sleep 2", []),
+               ("cat /reboot.txt", [r"kira-before-reboot"]),
+               ("@exit poweroff", [r"\[KIRA PSCI\] powering off \(SYSTEM_OFF\)"])]),
 ]
 
 
@@ -196,6 +202,19 @@ def run(sc, out):
                         port, path = cmd[6:].split()
                         log += host_http(int(port), path).encode()
                         part = log[start:].decode(errors="replace")
+                        for rx in must:
+                            if not re.search(rx, part): err = f"{cmd}: нет «{rx}»"; break
+                        if err: break
+                        continue
+                    if cmd.startswith("@exit "):                 # команда выключает машину: QEMU завершается сам с кодом 0
+                        for ch in cmd[6:] + "\r":
+                            p.stdin.write(ch.encode()); p.stdin.flush(); time.sleep(0.01)
+                        end = time.time() + 20
+                        while p.poll() is None and time.time() < end: pump(0.3)
+                        pump(0.3)
+                        part = log[start:].decode(errors="replace")
+                        if p.poll() is None: err = f"{cmd}: машина не выключилась за 20 с"; break
+                        if p.returncode != 0: err = f"{cmd}: QEMU завершился с кодом {p.returncode}"; break
                         for rx in must:
                             if not re.search(rx, part): err = f"{cmd}: нет «{rx}»"; break
                         if err: break

@@ -23,7 +23,19 @@ typedef struct {
     uint8_t  mcfg_bus_start, mcfg_bus_end;
     uint32_t tables_seen, tables_bad, tables_skipped_high;
     uint8_t  source;               /* 0 - ACPI (MADT), 1 - таблицы Intel MP (ACPI нет или в нём нет процессоров) */
+    /* питание (FADT и \_S5 из DSDT) */
+    uint32_t pm1a_cnt, pm1b_cnt, smi_cmd;   /* порты; 0 - нет */
+    uint8_t  acpi_enable;          /* значение для SMI_CMD: перейти в режим ACPI */
+    int      s5_valid;             /* найден пакет \_S5: SLP_TYPa/b для выключения */
+    uint8_t  slp_typa, slp_typb;
+    int      reset_valid;          /* регистр сброса FADT (ACPI 2.0+) */
+    uint8_t  reset_space;          /* 0 - память, 1 - порт */
+    uint64_t reset_addr;
+    uint8_t  reset_value;
 } acpi_info_t;
+
+/* Пакет \_S5 в байт-коде AML (чистая функция, тест на хосте): 0 - найден, в a и b - SLP_TYPa и SLP_TYPb. */
+int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b);
 
 /* Разбор по физическому адресу RSDP. Таблицы выше max_phys пропускаются (ещё не отображены). */
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* out);
