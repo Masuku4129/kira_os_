@@ -165,9 +165,9 @@ echo "== real-time clock (calendar, CMOS decode, epoch, Russian date) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/rtc tests/rtc_test.c rtc.c
 $T/rtc
 
-echo "== explorer tree (KiraFS listing: order, nesting, limits) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/explorer tests/explorer_test.c explorer.c
-ASAN_OPTIONS=detect_leaks=0 $T/explorer
+echo "== file manager (two panels: sort, hidden, navigation, copy/move/mkdir/rename/delete, cancel, chunks, mouse) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/fm tests/fm_test.c fm.c
+ASAN_OPTIONS=detect_leaks=0 $T/fm
 
 echo "== USB: HID, hubs, flash drives (Bulk-Only/SCSI -> FAT -> /usbN), stack core, UHCI and xHCI drivers against controller models =="
 USB_STACK="usb.c usbhid.c usbhub.c usbmsc.c input.c fat.c part.c vfs.c kfs.c store.c devhealth.c"
@@ -200,7 +200,7 @@ $CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brai
 $T/wm
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c explorer.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
 # код возврата превью - не через tail (раньше сбой терялся в конвейере)
 for r in "" "1280 720" "1920 1080"; do
     ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1; rc=$?

@@ -25,6 +25,15 @@
 #define TH_TEXT_DIM   0x008DA2C0u
 #define TH_TEXT_FAINT 0x00566B8Eu
 
+/* Единый вид приложений оболочки (Проводник, Монитор, Разум, Настройки): карточки, кнопки, полоса состояния */
+#define TH_CARD       0x000B1528u   /* карточка внутри окна */
+#define TH_CARD_EDGE  0x00182844u
+#define TH_TRACK      0x00132139u   /* жёлоб, неактивная кнопка */
+#define TH_ROW_ALT    0x00091426u   /* чередование строк списка */
+#define TH_BAR_H      24            /* высота полосы состояния и полосы подсказки клавиш */
+#define TH_GAP        10            /* отступ между карточками и от края окна */
+#define TH_RADIUS     10            /* скругление карточек */
+
 /* «Светофор» окна */
 #define TH_CLOSE      0x00FF5F57u
 #define TH_MIN        0x00FEBC2Eu

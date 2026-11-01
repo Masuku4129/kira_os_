@@ -77,6 +77,8 @@ int vfs_flush(int n) { (void)n; return 0; }
 void prog_request_file(const char* n, const char* f) { (void)n; (void)f; }
 void life_print(void) {}
 void display_print_info(void) { emit("[FB] info\n"); }
+void display_request_files(const char* l, const char* r) { (void)l; (void)r; }
+int display_kbd_owner(void) { return 0; }
 int experience_save_now(void) { saved++; return 0; }
 void experience_print(void) { emit("[EXP]\n"); }
 void sched_dump(void) { emit("[PS]\n"); }

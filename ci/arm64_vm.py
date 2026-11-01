@@ -78,6 +78,22 @@ SC = [
                ("view /pic.png", [r"view: /pic\.png - PNG 97x61, .* sum %08x" % mkfiles_sums["/pic.png"]]), ("@sleep 2", []), ("@shot view", []),
                ("@key q", []), ("view /pic.jpg", [r"view: /pic\.jpg - JPEG 97x61, YCbCr 2x2"]), ("@sleep 2", []), ("@shot view-jpeg", []),
                ("ps", [r"core\s+RUNNING"])]),
+    # Двухпанельный проводник на ARM64: те же клавиши, что на x86-64 (virtio-клавиатура), затем файлы проверяются командами
+    dict(name="arm64-explorer2", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", gui=True,
+         must=[r"\[KIRA DISPLAY\] Shell online", r"\[KIRA INPUT\] virtio-input: .*[Kk]eyboard.*, MSI-X interrupt"],
+         cmds=[("@sleep 2", []), ("mkdir /fm-a", []), ("mkdir /fm-b", []), ("write /fm-a/one.txt kira-one", []), ("write /fm-a/two.txt kira-two", []),
+               ("files /fm-a /fm-b", [r"\[KIRA FILES\] explorer: /fm-a \| /fm-b"]), ("@sleep 3", []), ("@shot explorer2-open", []),
+               ("@key down", []), ("@key f5", []), ("@sleep 2", []), ("@shot explorer2-copy", []),
+               ("@log \\[KIRA FILES\\] copy /fm-a/one\\.txt -> /fm-b/one\\.txt: 8 байт", []),
+               ("cat /fm-b/one.txt", [r"kira-one"]),
+               ("@key down", []), ("@key f6", []), ("@sleep 2", []),
+               ("@log \\[KIRA FILES\\] move /fm-a/two\\.txt -> /fm-b/two\\.txt: 8 байт", []),
+               ("cat /fm-b/two.txt", [r"kira-two"]), ("ls /fm-a", [r"one\.txt"]),
+               ("@key tab", []), ("@key f7", []), ("@sleep 1", []), ("@shot explorer2-mkdir", []), ("@type sub", []), ("@key ret", []), ("@sleep 2", []),
+               ("@log \\[KIRA FILES\\] mkdir /fm-b/sub", []),
+               ("@key down", []), ("@key f8", []), ("@sleep 1", []), ("@shot explorer2-delete", []), ("@key ret", []), ("@sleep 2", []),
+               ("@log \\[KIRA FILES\\] delete /fm-b/one\\.txt", []),
+               ("ls /fm-b", [r"sub", r"two\.txt"])]),
     # Изоляция, как сценарий isolation у x86-64: враждебные программы останавливаются, ядро живо
     dict(name="arm64-isolation", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci",
          allow=[r"process terminated", r"exception on core"],
@@ -264,6 +280,9 @@ def run(sc, out):
                     start = len(log)
                     if cmd.startswith("@sleep "):
                         pump(float(cmd[7:])); continue
+                    if cmd.startswith("@log "):                  # проверка всего журнала с начала
+                        if not re.search(cmd[5:], log.decode(errors="replace")): err = f"{cmd}: нет в журнале"; break
+                        continue
                     if cmd.startswith("@http "):                 # запрос с хозяина к серверу в гостевой (hostfwd)
                         port, path = cmd[6:].split()
                         log += host_http(int(port), path).encode()

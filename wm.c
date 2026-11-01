@@ -818,8 +818,12 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     ui_round_rect(c, x, y, ow, oh, PANEL_R, TH_PANEL1, 255);
     ui_round_rect(c, x, y, ow, WM_HEAD, PANEL_R, TH_PANEL0, 255);              /* заголовок светлее */
     gfx_rect(c, x + 1, y + PANEL_R, ow - 2, WM_HEAD - PANEL_R, TH_PANEL0);
-    for (int i = 0; i < ow - 2 * PANEL_R; i++)                                   /* неоновая черта под заголовком */
-        ui_blend(c, x + PANEL_R + i, y + WM_HEAD - 1, accent, (unsigned)(focused ? 70 : 25));
+    for (int i = 0; i < ow - 2 * PANEL_R; i++) {                                 /* неоновая черта под заголовком: к краям гаснет */
+        int e = i < (ow - 2 * PANEL_R) / 2 ? i : ow - 2 * PANEL_R - 1 - i;       /* расстояние до ближайшего края */
+        unsigned fade = e >= 40 ? 256u : (unsigned)e * 256u / 40u;
+        ui_blend(c, x + PANEL_R + i, y + WM_HEAD - 1, accent, (focused ? 150u : 40u) * fade / 256u);
+        if (focused) ui_blend(c, x + PANEL_R + i, y + WM_HEAD - 2, accent, 45u * fade / 256u);
+    }
     ui_round_frame(c, x, y, ow, oh, PANEL_R, focused ? ui_mix(TH_BORDER, accent, 150) : TH_BORDER, 255);
     if (!w->pinned) draw_lights(c, x, y, light_hover == id);
     int tw = gfx_text_width(w->title);
@@ -836,7 +840,12 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     }
     for (int i = 0; w->sub[i] && sn < 22; i++) sub[sn++] = w->sub[i];
     sub[sn] = 0;
-    if (sn) gfx_text(c, x + ow - 14 - gfx_text_width(sub), y + 10, sub, TH_TEXT_FAINT, -1);
+    if (sn) {                                                                    /* подзаголовок - плашкой */
+        int sw = gfx_text_width(sub);
+        ui_round_rect(c, x + ow - 22 - sw, y + 7, sw + 16, 22, 8, TH_TRACK, 255);
+        ui_round_frame(c, x + ow - 22 - sw, y + 7, sw + 16, 22, 8, TH_CARD_EDGE, 255);
+        gfx_text(c, x + ow - 14 - sw, y + 10, sub, focused ? TH_TEXT_DIM : TH_TEXT_FAINT, -1);
+    }
     blit_content(c, x + WM_PAD, y + WM_HEAD, disp_w(w), disp_h(w), w);
     if (w->resizable || w->zoomable) {
         uint32_t gc = resizing == id ? TH_CYAN : 0x0035557A;
