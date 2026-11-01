@@ -1,0 +1,311 @@
+
+==================================================
+[KIRA OS] Kernel core starting...
+==================================================
+[KIRA BOOT] Early console is on screen.
+[KIRA GDT] GDT loaded (Ring0/Ring3 segments), TSS loaded with 3 IST stacks (#DF, NMI, #MC).
+[KIRA IDT] Configuring 64-bit Interrupt Descriptor Table...
+[KIRA IDT] IDT loaded: 32 exceptions (#DF/NMI/#MC on IST) + 16 IRQs + LAPIC spurious, other vectors -> unhandled trap.
+[KIRA FPU] x87 + SSE/SSE2 enabled; per-thread FXSAVE state (512 B) saved on every context switch. AVX present but not enabled (needs XSAVE area).
+[KIRA PMM] Parsing Multiboot2 memory map...
+[KIRA PMM] Usable RAM per memory map: 511 MB; allocatable now (below 1 GB, minus kernel and bitmaps): 506 MB; above 1 GB waiting to be mapped: 0 MB; bitmaps 32 KB.
+[KIRA VMM] Verifying paging state...
+[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.
+[KIRA VMM] NULL guard installed: first 2 MB split into 4 KB pages, page 0 unmapped.
+[KIRA VMM] SMEP enabled: kernel cannot execute user pages.
+[KIRA VMM] SMAP enabled: kernel touches user memory only through checked copies.
+[KIRA RAM] Mapped RAM above 1 GB: 0 MB (2 MB pages, no-execute); edges lost to alignment or failures: 0 KB.
+[KIRA ACPI] rev 0, tables ok 4 bad 0 unmapped 0, CPUs 2, IOAPICs 1, HPET yes, PCIe ECAM none
+[KIRA HW] CPU AuthenticAMD family 26 model 2 stepping 1, virtual machine
+[KIRA HW] cores (ACPI): 2, RAM 506 MB, address bits 48/48
+[KIRA HW] features: sse2 nx page1g xsave(2432B) avx avx2 avx512f pcid invpcid smep smap fsgsbase rdrand rdseed x2apic tsc-deadline
+[KIRA HW] TSC not measured yet
+[KIRA HW] limits for this machine: program heap up to 253 MB per program, kernel keeps 31 MB free
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 582417 bytes, prefix e6897b10...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+[KIRA PROC] up to 8 programs at once (2 cores, 506 MB RAM).
+[KIRA SYSCALL] SYSCALL/SYSRET enabled: write, exit, ticks, sleep, yield, getpid, gfx, fs (sandbox /data/<name>), heap (quota), threads, futex, ports, shared memory, clock; user pointers validated.
+[KIRA PCI] 7 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 8 MB (PCI 0:3.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA ATA] No disk on the primary IDE channel (floating bus): persistence disabled.
+[KIRA DISK] vda: virtio-blk, 8 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 7548 KB free.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, first life (no saved model).
+[KIRA FB] Bootloader mode: 1024x768x32 type 1 addr 0xFD000000
+[KIRA FB] 1024x768x32 linear framebuffer at 0xFD000000, write-combining (PAT); back buffer 3072 KB in RAM.
+[KIRA PAR] parallel helpers: 1 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA KEYBOARD] PS/2 IRQ1 handler registered (decoded by the input layer).
+[KIRA MOUSE] PS/2 mouse enabled (IRQ12, 3-byte packets).
+[KIRA NET] e1000 (8086:100e): MAC 52:54:00:12:34:56, link up, no MSI on this card - polled every tick
+[KIRA NET] Network stack online: Ethernet, ARP, IPv4, ICMP, UDP, DHCP client, DNS, TCP (commands: net, ping, dns, http).
+[KIRA TIMER] PIT started, frequency 500 Hz, IRQ0 unmasked.
+[KIRA APIC] xAPIC mode: registers in the kernel MMIO window, base 0xFEE00000, id 0, version 0x14
+[KIRA OS] Core initialization complete. Enabling interrupts.
+[KIRA RTC] Real-time clock (CMOS, read as UTC): ВОСКРЕСЕНЬЕ, 1 НОЯБРЯ 2026 09:04
+[KIRA CPU] TSC 2596464 kHz, measured by PIT channel 2, 3x50 ms median.
+[KIRA APIC] Timer calibrated against TSC: 62513 kcounts/s (bus clock ~1000 MHz).
+[KIRA IOAPIC] id 0 at 0xFEC00000, version 0x11, 24 pins, GSI base 0
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA IRQ] IOAPIC delivery verified end-to-end: RTC -> IOAPIC -> LAPIC, 51 interrupts in 50 ms.
+[KIRA IRQ] LAPIC timer verified: 99 ticks in 200 ms (expected 100).
+[KIRA IRQ] APIC mode: LAPIC timer 500 Hz is the tick source, 2 device lines routed through IOAPIC, legacy PIC and PIT disabled.
+[KIRA SMP] Processors online: 2 of 2 (MADT).
+[KIRA SMP] IPI ping answered by 1 of 1 started processors. Each core runs its own scheduler tick and its own ready queue; idle cores take waiting work from busy ones.
+[KIRA SMP] TSC skew between cores: max 4 ns (measurement precision +-30 ns): clocks agree.
+[KIRA OS] Ready. Type 'help' and press Enter.
+
+кира> [KIRA NET] DHCP: address 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, lease 86400 s
+[KIRA MIND] первая жизнь: учусь, что для этой машины нормально
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA TELEMETRY] t=1s health=86 load=23% mem=2% run=1 frames=46 late=6 q=40ms fx=3
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA TELEMETRY] t=2s health=100 load=2% mem=2% run=2 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=3s health=97 load=2% mem=2% run=3 frames=55 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=4s health=100 load=1% mem=2% run=2 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=5s health=100 load=1% mem=2% run=2 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=6s health=100 load=1% mem=2% run=2 frames=55 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=7s health=100 load=1% mem=2% run=2 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=8s health=100 load=1% mem=2% run=2 frames=55 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=9s health=100 load=1% mem=2% run=2 frames=56 late=0 q=40ms fx=3
+net
+карта e1000, канал есть, TIME_WAIT: 0 (всего 0), приём опросом
+адрес 10.0.2.15, маска 255.255.255.0, шлюз 10.0.2.2, DNS 10.0.2.3 (DHCP, аренда 86400 с)
+кадров принято 2, отправлено 2, отброшено 0
+кира> ping 10.0.2.2 3
+ответ от 10.0.2.2: seq 1, время 1,8 мс
+ответ от 10.0.2.2: seq 2, время 2,0 мс
+ответ от 10.0.2.2: seq 3, время 2,0 мс
+отправлено 3, получено 3, среднее 1,9 мс
+[KIRA TELEMETRY] t=10s health=100 load=1% mem=2% run=1 frames=105 late=0 q=40ms fx=3
+кира> http 10.0.2.100 /kira
+HTTP/1.0 200 OK
+Content-Type: text/plain
+Content-Length: 3331
+
+kira-tcp-ok GET /kira HTTP/1.0
+0000-0123456789abcdef
+0001-0123456789abcdef
+0002-0123456789abcdef
+0003-0123456789abcdef
+0004-0123456789abcdef
+0005-0123456789abcdef
+0006-0123456789abcdef
+0007-0123456789abcdef
+0008-0123456789abcdef
+0009-0123456789abcdef
+0010-0123456789abcdef
+0011-0123456789abcdef
+0012-0123456789abcdef
+0013-0123456789abcdef
+0014-0123456789abcdef
+0015-0123456789abcdef
+0016-0123456789abcdef
+0017-0123456789abcdef
+0018-0123456789abcdef
+0019-0123456789abcdef
+0020-0123456789abcdef
+0021-0123456789abcdef
+0022-0123456789abcdef
+0023-0123456789abcdef
+0024-0123456789abcdef
+0025-0123456789abcdef
+0026-0123456789abcdef
+0027-0123456789abcdef
+0028-0123456789abcdef
+0029-0123456789abcdef
+0030-0123456789abcdef
+0031-0123456789abcdef
+0032-0123456789abcdef
+0033-0123456789abcdef
+0034-0123456789abcdef
+0035-0123456789abcdef
+0036-0123456789abcdef
+0037-0123456789abcdef
+0038-0123456789abcdef
+0039-0123456789abcdef
+0040-0123456789abcdef
+0041-0123456789abcdef
+0042-0123456789abcdef
+0043-0123456789abcdef
+0044-0123456789abcdef
+0045-0123456789abcdef
+0046-0123456789abcdef
+0047-0123456789abcdef
+0048-0123456789abcdef
+0049-0123456789abcdef
+00
+...
+получено 3398 байт от 10.0.2.100:80 за 39 мс (сервер закрыл соединение)
+[KIRA TELEMETRY] t=11s health=100 load=12% mem=2% run=1 frames=8 late=0 q=40ms fx=3
+кира> dns example.com
+example.com -> 172.66.147.243
+кира> fetch 10.0.2.100 /prog
+[KIRA PROC] pid 1 'fetch' started from ELF: Ring 3, own address space, 204 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] fetch: 10.0.2.100/prog - HTTP/1.0 200 OK - 3398 bytes in 22 ms (server closed), saved to /data/fetch/last.txt
+[KIRA PROC] pid 1 'fetch' finished, exit code 0, address space destroyed (221 pages returned to PMM).
+[KIRA TELEMETRY] t=12s health=97 load=2% mem=2% run=3 frames=53 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=13s health=100 load=1% mem=2% run=2 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=14s health=100 load=1% mem=2% run=2 frames=56 late=0 q=40ms fx=3
+cat /data/fetch/last.txt
+HTTP/1.0 200 OK.
+Content-Type: text/plain.
+Content-Length: 3331.
+.
+kira-tcp-ok GET /prog HTTP/1.0
+0000-0123456789abcdef
+0001-0123456789abcdef
+0002-0123456789abcdef
+0003-0123456789abcdef
+0004-0123456789abcdef
+0005-0123456789abcdef
+0006-0123456789abcdef
+0007-0123456789abcdef
+0008-0123456789abcdef
+0009-0123456789abcdef
+0010-0123456789abcdef
+0011-0123456789abcdef
+0012-0123456789abcdef
+0013-0123456789abcdef
+0014-0123456789abcdef
+0015-0123456789abcdef
+0016-0123456789abcdef
+0017-0123456789abcdef
+0018-0123456789abcdef
+0019-0123456789abcdef
+0020-0123456789abcdef
+0021-0123456789abcdef
+0022-0123456789abcdef
+0023-0123456789abcdef
+0024-0123456789abcdef
+0025-0123456789abcdef
+0026-0123456789abcdef
+0027-0123456789abcdef
+0028-0123456789abcdef
+0029-0123456789abcdef
+0030-0123456789abcdef
+0031-0123456789abcdef
+0032-0123456789abcdef
+0033-0123456789abcdef
+0034-0123456789abcdef
+0035-0123456789abcdef
+0036-0123456789abcdef
+0037-0123456789abcdef
+0038-0123456789abcdef
+0039-0123456789abcdef
+0040-0123456789abcdef
+0041-0123456789abcdef
+0042-0123456789abcdef
+0043-0123456789abcdef
+0044-0123456789abcdef
+0045-0123456789abcdef
+0046-0123456789abcdef
+0047-0123456789abcdef
+0048-0123456789abcdef
+0049-0123456789abcdef
+0050-0123456789abcdef
+0051-0123456789abcdef
+0052-0123456789abcdef
+0053-0123456789abcdef
+0054-0123456789abcdef
+0055-0123456789abcdef
+0056-0123456789abcdef
+0057-0123456789abcdef
+0058-0123456789abcdef
+0059-0123456789abcdef
+0060-0123456789abcdef
+0061-0123456789abcdef
+0062-0123456789abcdef
+0063-0123456789abcdef
+0064-0123456789abcdef
+0065-0123456789abcdef
+0066-0123456789abcdef
+0067-0123456789abcdef
+0068-0123456789abcdef
+0069-0123456789abcdef
+0070-0123456789abcdef
+0071-0123456789abcdef
+0072-0123456789abcdef
+0073-0123456789abcdef
+0074-0123456789abcdef
+0075-0123456789abcdef
+0076-0123456789abcdef
+0077-0123456789abcdef
+0078-0123456789abcdef
+0079-0123456789abcdef
+0080-0123456789abcdef
+0081-0123456789abcdef
+0082-0123456789abcdef
+0083-0123456789abcdef
+0084-0123456789abcdef
+0085-0123456789abcdef
+0086-0123456789abcdef
+0087-0123456789abcdef
+0088-0123456789abcdef
+0089-0123456789abcdef
+0090-0123456789abcdef
+0091-0123456789abcdef
+0092-0123456789abcdef
+0093-0123456789abcdef
+0094-0123456789abcdef
+0095-0123456789abcdef
+0096-0123456789abcdef
+0097-0123456789abcdef
+0098-0123456789abcdef
+0099-0123456789abcdef
+0100-0123456789abcdef
+0101-0123456789abcdef
+0102-0123456789abcdef
+0103-0123456789abcdef
+0104-0123456789abcdef
+0105-0123456789abcdef
+0106-0123456789abcdef
+0107-0123456789abcdef
+0108-0123456789abcdef
+0109-0123456789abcdef
+0110-0123456789abcdef
+0111-0123456789abcdef
+0112-0123456789abcdef
+0113-0123456789abcdef
+0114-0123456789abcdef
+0115-0123456789abcdef
+0116-0123456789abcdef
+0117-0123456789abcdef
+0118-0123456789abcdef
+0119-0123456789abcdef
+0120-0123456789abcdef
+0121-0123456789abcdef
+0122-0123456789abcdef
+0123-0123456789abcdef
+0124-0123456789abcdef
+0125-0123456789abcdef
+0126-0123456789abcdef
+0127-0123456789abcdef
+0128-0123456789abcdef
+0129-0123456789abcdef
+0130-0123456789abcdef
+0131-0123456789abcdef
+0132-0123456789abcdef
+0133-0123456789abcdef
+0134-0123456789abcdef
+0135-0123456789abcdef
+0136-0123456789abcdef
+0137-0123456789abcdef
+0138-0123456789abcdef
+0139-0123456789abcdef
+0140-0123456789abcdef
+0141-0123456789abcdef
+0142-0123456789abcdef
+0143-0123456789abcdef
+0144-0123456789abcdef
+0145-0123456789abcdef
+0146-0123456789abcdef
+0147-0123456789abcdef
+0148-0123456789abcdef
+0149-0123456789abcdef
+
+кира> 

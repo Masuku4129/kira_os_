@@ -1,0 +1,156 @@
+{
+ "name": "sound-hda",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA HDA\\] Sound: codec .* output path pin \\d+ <- DAC \\d+",
+   "ok": true
+  },
+  {
+   "step": "sound",
+   "must": "выход: вывод \\d+ <- ЦАП \\d+",
+   "ok": true
+  },
+  {
+   "step": "beep 440 400",
+   "must": "DMA прошёл [1-9]\\d* байт - карта играет",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA AUDIO\\] Mixer online",
+   "ok": true
+  },
+  {
+   "log": "melody: 8 notes, 76800 frames queued",
+   "ok": true
+  },
+  {
+   "step": "sound",
+   "must": "микшер: работает",
+   "ok": true
+  },
+  {
+   "step": "sound",
+   "must": "от программ смешано (7[6-9]|[89]\\d)\\d\\d\\d",
+   "ok": true
+  },
+  {
+   "step": "volume 30",
+   "must": "громкость: 30%",
+   "ok": true
+  },
+  {
+   "log": "melody: 8 notes, 12800 frames queued at 8000 Hz mono",
+   "ok": true
+  },
+  {
+   "step": "sound",
+   "must": "от программ смешано 15[2-4]\\d\\d\\d",
+   "ok": true
+  },
+  {
+   "step": "sound",
+   "must": "громкость 30%",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA HDA\\] Input: (microphone|line in) pin \\d+ -> ADC \\d+, recording ring running",
+   "ok": true
+  },
+  {
+   "step": "record 300",
+   "must": "запись: (microphone|line in), 14400 кадров за \\d+ мс",
+   "ok": true
+  },
+  {
+   "log": "rec: 24000 frames \\(48 kHz stereo\\), peak \\d+, RMS \\d+, saved to /data/rec/last\\.wav",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.2,
+ "seconds": 25.5,
+ "commands": [
+  {
+   "cmd": "sound",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "beep 440 400",
+   "seconds": 0.41
+  },
+  {
+   "cmd": "melody",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "sound",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "volume 30",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "melody 8000 mono",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "sound",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "record 300",
+   "seconds": 0.31
+  },
+  {
+   "cmd": "rec 500",
+   "seconds": 0.0
+  }
+ ]
+}
