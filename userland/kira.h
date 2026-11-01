@@ -156,6 +156,17 @@ static inline i64 k_udp_recv(i64 s, void* buf, u32 cap, u32 timeout_ms) { return
 static inline i64 k_udp_close(i64 s) { return ksys(K_UDP_CLOSE, (u64)s, 0, 0); }
 static inline i64 k_net_listen(u32 port) { return ksys(K_NET_LISTEN, port, 0, 0); }             /* слушатель (100+) */
 static inline i64 k_net_accept(i64 l, u32 timeout_ms) { return ksys(K_NET_ACCEPT, (u64)l, timeout_ms, 0); }   /* 0 мс - ждать без срока */
+/* Адреса любого семейства (вызовы 44-47). Семейство сокета задаёт открытие: порт | семейство << 16 (0 или 4 - IPv4, 6 - IPv6);
+   слушатель TCP - так же. Старые вызовы выше - только IPv4. Отправка датаграммы IPv6 - до 1452 байт (без разбиения). */
+typedef struct { u16 family, port; u8 addr[16]; } ksockaddr_t;      /* family 4: адрес в первых 4 байтах; порт - число хоста */
+enum { K_NET_CONNECT_SA = 44, K_UDP_SENDTO = 45, K_UDP_RECVFROM = 46, K_NET_PEER = 47 };
+static inline i64 k_net_connect_sa(const ksockaddr_t* sa) { return ksys(K_NET_CONNECT_SA, (u64)sa, 0, 0); }
+static inline i64 k_net_peer(i64 h, ksockaddr_t* sa) { return ksys(K_NET_PEER, (u64)h, (u64)sa, 0); }   /* семейство или < 0 */
+static inline i64 k_udp_open_fam(u32 port, u32 family) { return ksys(K_UDP_OPEN, port | family << 16, 0, 0); }
+static inline i64 k_net_listen_fam(u32 port, u32 family) { return ksys(K_NET_LISTEN, port | family << 16, 0, 0); }
+static inline i64 k_udp_sendto(i64 s, const ksockaddr_t* to, const void* p, u64 n) { return ksys(K_UDP_SENDTO, (u64)s | n << 16, (u64)to, (u64)p); }
+/* Приём: buf = адрес отправителя (20 байт), длина датаграммы (u32), данные; cap >= 24. Возвращает байт данных. */
+static inline i64 k_udp_recvfrom(i64 s, void* buf, u32 cap, u32 timeout_ms) { return ksys(K_UDP_RECVFROM, (u64)s, (u64)buf, (u64)cap | (u64)timeout_ms << 32); }
 /* Строка аргументов запуска (run имя аргументы): длина или < 0. */
 static inline i64 k_args(char* buf, u64 cap) { return ksys(K_ARGS, (u64)buf, cap, 0); }
 

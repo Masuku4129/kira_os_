@@ -38,6 +38,61 @@ def host_udp(port, msg):
         s.close()
 
 
+def fnv1a(data):
+    h = 2166136261
+    for b in data:
+        h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+    return h
+
+
+def host_udp_big(port, size):
+    """Большая датаграмма (size байт) хозяин -> гость: QEMU режет её на фрагменты IP, ядро Киры собирает; ответ - FNV-1a всех байт."""
+    data = bytes((i * 7 + 3) & 255 for i in range(size))
+    want = f"kira-udp: big {size} bytes fnv={fnv1a(data):08x}"
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(10)
+    try:
+        s.sendto(data, ("127.0.0.1", port))
+        reply, _ = s.recvfrom(2048)
+        got = reply.decode(errors="replace")
+        return f"[HOST] udp big {size}: {'reassembled ok' if got == want else 'MISMATCH'} (reply '{got}', want '{want}')\n"
+    except Exception as e:
+        return f"[HOST] udp big {size}: error {e}\n"
+    finally:
+        s.close()
+
+
+def host6_serve(udp_port, tcp_port):
+    """Серверы хозяина на [::1] (QEMU user-net отдаёт гостю хозяина как fec0::2): эхо UDP и короткий ответ HTTP по TCP."""
+    import threading
+    try:
+        u = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM); u.bind(("::1", udp_port))
+        t = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        t.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); t.bind(("::1", tcp_port)); t.listen(4)
+    except OSError as e:
+        return f"[HOST] ipv6 loopback unavailable: {e}\n"
+
+    def udp_loop():
+        while True:
+            try:
+                data, addr = u.recvfrom(2048)
+                u.sendto(b"kira-udp6: " + data, addr)
+            except OSError:
+                return
+
+    def tcp_loop():
+        while True:
+            try:
+                c, _ = t.accept()
+                c.recv(1024)
+                c.sendall(b"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nkira-tcp6-ok\n")
+                c.close()
+            except OSError:
+                return
+    threading.Thread(target=udp_loop, daemon=True).start()
+    threading.Thread(target=tcp_loop, daemon=True).start()
+    return f"[HOST] ipv6 servers on [::1]: udp {udp_port}, tcp {tcp_port}\n"
+
+
 PROMPT = "кира> ".encode()
 FATAL = [rb"\[KIRA FATAL\]", rb"\[KIRA KERNEL PANIC\]", rb"\[KIRA WATCHDOG\] Halting"]
 
@@ -302,6 +357,12 @@ def run(sc, args):
             elif "host_udp" in st:                    # датаграмма с хозяина программе Киры (hostfwd udp)
                 port, msg = st["host_udp"]
                 vm.log += host_udp(port, msg).encode()
+            elif "host_udp_big" in st:                # большая датаграмма хозяин -> гость (фрагменты IP)
+                port, size = st["host_udp_big"]
+                vm.log += host_udp_big(port, size).encode()
+            elif "host6_serve" in st:                 # серверы хозяина на [::1] для проверки IPv6 гостя
+                up, tp = st["host6_serve"]
+                vm.log += host6_serve(up, tp).encode()
             elif "sleep" in st:
                 end_t = time.time() + st["sleep"] * args.timeout_scale
                 while time.time() < end_t:

@@ -136,8 +136,10 @@ ALL = [
         {"log": [r"fetch: 10\.0\.2\.100/prog - HTTP/1\.0 200 OK - 3\d\d\d bytes in \d+ ms \(server closed\), saved"]},
         {"cmd": "cat /data/fetch/last.txt", "must": [r"kira-tcp-ok GET /prog HTTP/1\.0"]},
         {"log": [r"\[KIRA NET\] e1000 \(8086:100e\).*no MSI on this card - polled every tick"]},
+        {"log": [r"\[KIRA NET\] IPv6: fec0::5054:ff:fe12:3456 \(SLAAC /64, DAD passed\) ready"]},   # RA приходит на групповой MAC: фильтр MTA карты
+        {"cmd": "ping6 fec0::2 2", "must": [r"ответ от fec0::2", r"отправлено 2, получено [1-2]"], "timeout": 20},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"]),
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv6=on,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"]),
     sc("net-e1000e", "сеть: Intel 82574 (e1000e) на q35 - приём по прерыванию MSI, DHCP, TCP, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] e1000 \(8086:10d3\).*receive by MSI interrupt", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
@@ -278,4 +280,26 @@ ALL = [
         {"send": "plasma"}, {"sleep": 4}, {"responsive": "status", "within": 5},
         {"log_forbid": [x for x in NO_ERR if x != r"kernel-mode fault"]},
     ], smp=4, mem="512M"),
+    sc("net-ipv6", "IPv6 (QEMU user-net ipv6=on, virtio-net): адрес канала + DAD, RA -> SLAAC, ND (NS/NA), ping6, UDP и TCP программой net6; сборка фрагментов IPv4", [
+        {"log": BOOT_LOG}, {"sleep": 10},
+        {"log": [r"\[KIRA NET\] IPv6: fe80::5054:ff:fe12:3456 \(link-local, DAD passed\) ready",
+                 r"\[KIRA NET\] IPv6: router advertisement from fe80::",
+                 r"\[KIRA NET\] IPv6: fec0::5054:ff:fe12:3456 \(SLAAC /64, DAD passed\) ready"]},
+        {"cmd": "net", "must": [r"IPv6: fec0::5054:ff:fe12:3456/64 \(SLAAC\)", r"IPv6: fe80::5054:ff:fe12:3456/64 \(адрес канала\)",
+                                r"IPv6: соседей в кэше [1-9]"]},
+        {"cmd": "ping6 fec0::2 3", "must": [r"ответ от fec0::2", r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"cmd": "ping6 fe80::1", "must": [r"отправлено|не отвечает"], "timeout": 20},          # неизвестный сосед: честный отказ, без зависания
+        {"host6_serve": [9100, 9101]},
+        {"cmd": "net6 fec0::2 9100 9101"}, {"sleep": 6},                                   # программа Ring 3: сокеты семейства 6
+        {"log": [r"\[HOST\] ipv6 servers on",
+                 r"net6: udp reply 'kira-udp6: hello6' from \[fec0::2\]:9100 family 6",
+                 r"net6: tcp peer family 6, \d+ bytes, first line 'HTTP/1\.0 200 OK'"]},
+        {"send": "udpecho 9000 2"}, {"sleep": 2},                                          # IPv4: хозяин шлёт 4000 байт, QEMU режет на фрагменты
+        {"host_udp": [18082, "small"]},
+        {"host_udp_big": [18082, 4000]}, {"sleep": 2},
+        {"log": [r"\[HOST\] udp reply 'kira-udp: small'", r"\[HOST\] udp big 4000: reassembled ok", r"udpecho: done, 2 answered"]},
+        {"cmd": "net", "must": [r"фрагменты IP: собрано [1-9]\d*"]},
+        {"log_forbid": NO_ERR + [r"is already used by another node"]},
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv6=on,hostfwd=udp:127.0.0.1:18082-:9000",
+                                 "-device", "virtio-net-pci,netdev=n0"]),
 ]

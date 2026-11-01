@@ -66,6 +66,10 @@ static userlog_t ulog;
 #define SYS_UDP_SEND      39 // (сокет | порт << 16 | адрес << 32, буфер, длина)
 #define SYS_UDP_RECV      40 // (сокет, буфер, ёмкость | мс << 32) -> байт; буфер: адрес, порт, длина, данные
 #define SYS_UDP_CLOSE     41 // (сокет)
+#define SYS_NET_CONNECT_SA 44 // (адрес сокета: семейство, порт, адрес) -> номер соединения TCP, IPv4 или IPv6
+#define SYS_UDP_SENDTO    45 // (сокет | длина << 16, адрес сокета, буфер)
+#define SYS_UDP_RECVFROM  46 // (сокет, буфер, ёмкость | мс << 32) -> байт данных; в буфере: адрес сокета (20), длина (4), данные
+#define SYS_NET_PEER      47 // (h, адрес сокета) -> семейство собеседника соединения
 #define SYS_TIME          37 // -> секунды UTC от 1970 (часы реального времени) или -1, если часов нет
 #define SYS_RANDOM        36 // (буф, байт <= 256) -> 1 аппаратный источник, 0 - только время событий
 
@@ -232,6 +236,12 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return (uint64_t)audio_record_sys(a1, a2, a3);
     case SYS_UDP_OPEN: case SYS_UDP_SEND: case SYS_UDP_RECV: case SYS_UDP_CLOSE:
         return (uint64_t)net_udp_sys((unsigned)(nr - SYS_UDP_OPEN), a1, a2, a3);
+    case SYS_NET_CONNECT_SA:
+        return (uint64_t)net_sys(NET_SYS_CONNECT_SA, a1, a2, a3);
+    case SYS_NET_PEER:
+        return (uint64_t)net_sys(NET_SYS_PEER, a1, a2, a3);
+    case SYS_UDP_SENDTO: case SYS_UDP_RECVFROM:
+        return (uint64_t)net_udp_sys(nr == SYS_UDP_SENDTO ? NET_UDP_SENDTO : NET_UDP_RECVFROM, a1, a2, a3);
     case SYS_TIME: {
         rtc_time_t tm;
         return rtc_now(0, &tm) == 0 ? (uint64_t)rtc_to_epoch(&tm) : (uint64_t)-1;

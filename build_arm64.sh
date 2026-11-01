@@ -24,6 +24,10 @@ for f in userland/fetch.c userland/tls.c userland/x509.c pk.c crypto.c sha256.c 
 done
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/fetch.elf build-arm64/uf_*.o
 UELF="$UELF build-arm64/fetch.elf"
+$CC $UCFLAGS -I. -Iuserland -c userland/net6.c -o build-arm64/un6_net6.o       # сокеты IPv6; адрес разбирает ip6.c
+$CC $UCFLAGS -I. -c ip6.c -o build-arm64/un6_ip6.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/net6.elf build-arm64/un6_*.o
+UELF="$UELF build-arm64/net6.elf"
 for app in edit view; do                 # с текстом: шрифт ядра вместе с программой
     $CC $UCFLAGS -I. -c userland/$app.c -o build-arm64/u_$app.o
     $CC $UCFLAGS -I. -c font8x16.c -o build-arm64/u_font_$app.o
@@ -39,7 +43,7 @@ done
 for f in fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
          experience.c fscmd.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
          immune.c kobj.c futex.c corefault.c crypto.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
-         virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c irqwait.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c dock.c \
+         virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c dock.c \
          icons.c brainfx.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
          $A/main.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c; do
     o=build-arm64/$(basename $f .c).o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
