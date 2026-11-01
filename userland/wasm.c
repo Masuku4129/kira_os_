@@ -1,13 +1,67 @@
 /* wasm - интерпретатор WebAssembly (программа Ring 3 / EL0): один файл .wasm работает на x86-64 и ARM64.
    Модуль выполняется внутри этого процесса - изоляция та же, что у любой программы Киры, ядро о WASM не знает.
    Поддержано: WebAssembly 1.0 (типы, импорт функций, функции, таблица и call_indirect, память, глобальные,
-   экспорт, данные, элементы) с целыми i32/i64, расширение знака (0xC0-0xC4), memory.copy/fill. Вещественная
-   арифметика - останов с сообщением (загрузка/запись/константы f32/f64 как биты - работают).
+   экспорт, данные, элементы) с целыми i32/i64 и вещественными f32/f64 (IEEE 754: сравнения, арифметика, sqrt,
+   floor/ceil/trunc/nearest без libm, min/max с NaN и -0, преобразования с ловушкой и насыщающие 0xFC 0-7),
+   расширение знака (0xC0-0xC4), memory.copy/fill.
    Импорт модуля "kira": write(ptr,len), sleep(ticks), ticks()->i64, exit(code), gfx_create(w,h)->i32,
    gfx_present(ptr) (пиксели 0x00RRGGBB из памяти модуля), gfx_event(ptr)->i32 (16 байт: type,a,b,c).
    Запуск: wasm /путь/к/модулю.wasm (или двойной щелчок по .wasm в Проводнике). */
 #include "kira.h"
 KIRA_ENTRY()
+
+/* ---------- вещественные: значения на стеке - биты (f32 - младшие 32) ---------- */
+typedef union { float f; u32 u; } F32;
+typedef union { double f; u64 u; } F64;
+static float  gf(u64 v) { F32 x; x.u = (u32)v; return x.f; }
+static double gd(u64 v) { F64 x; x.u = v; return x.f; }
+static u64 pf(float f) { F32 x; x.f = f; return x.u; }
+static u64 pd(double d) { F64 x; x.f = d; return x.u; }
+static int nan_d(double d) { return d != d; }
+static double trunc_d(double x) {                                 /* без libm: |x| >= 2^52 - уже целое */
+    if (nan_d(x) || x >= 4503599627370496.0 || x <= -4503599627370496.0) return x;
+    double t = (double)(i64)x;
+    return t == 0 && pd(x) >> 63 ? -0.0 : t;
+}
+static double floor_d(double x) { double t = trunc_d(x); return t > x ? t - 1 : t; }
+static double ceil_d(double x) { double t = trunc_d(x); double r = t < x ? t + 1 : t; return r == 0 && pd(x) >> 63 ? -0.0 : r; }
+static double nearest_d(double x) {                               /* к чётному: прибавить и вычесть 2^52 */
+    if (nan_d(x) || x >= 4503599627370496.0 || x <= -4503599627370496.0) return x;
+    volatile double big = 4503599627370496.0;
+    double a = x < 0 ? -x : x, r = (a + big) - big;
+    return pd(x) >> 63 ? -r : r;
+}
+static float trunc_f(float x) { return (float)trunc_d(x); }       /* f32 точно представим в f64 */
+static float floor_f(float x) { return (float)floor_d(x); }
+static float ceil_f(float x) { return (float)ceil_d(x); }
+static float nearest_f(float x) {
+    if (x != x || x >= 8388608.0f || x <= -8388608.0f) return x;
+    volatile float big = 8388608.0f;
+    float a = x < 0 ? -x : x, r = (a + big) - big;
+    return pf(x) >> 31 ? -r : r;
+}
+static double min_d(double a, double b) { if (nan_d(a) || nan_d(b)) return gd(0x7FF8000000000000ull); if (a == b) return (pd(a) >> 63) ? a : b; return a < b ? a : b; }
+static double max_d(double a, double b) { if (nan_d(a) || nan_d(b)) return gd(0x7FF8000000000000ull); if (a == b) return (pd(a) >> 63) ? b : a; return a > b ? a : b; }
+static float min_f(float a, float b) { if (a != a || b != b) return gf(0x7FC00000u); if (a == b) return (pf(a) >> 31) ? a : b; return a < b ? a : b; }
+static float max_f(float a, float b) { if (a != a || b != b) return gf(0x7FC00000u); if (a == b) return (pf(a) >> 31) ? b : a; return a > b ? a : b; }
+/* Преобразование в целое: 1 - получилось (*out), 0 - NaN или вне диапазона (ловушка; насыщающий вариант - предел). */
+static int to_int(double x, int bits, int sgn, u64* out) {
+    if (nan_d(x)) { *out = 0; return 0; }
+    double t = trunc_d(x), lo, hi;
+    if (sgn) { lo = bits == 32 ? -2147483648.0 : -9223372036854775808.0; hi = bits == 32 ? 2147483648.0 : 9223372036854775808.0; }
+    else { lo = 0; hi = bits == 32 ? 4294967296.0 : 18446744073709551616.0; }
+    if (t < lo || t >= hi) {
+        if (sgn) *out = t < lo ? (bits == 32 ? 0x80000000u : 0x8000000000000000ull) : (bits == 32 ? 0x7FFFFFFFu : 0x7FFFFFFFFFFFFFFFull);
+        else *out = t < lo ? 0 : (bits == 32 ? 0xFFFFFFFFu : 0xFFFFFFFFFFFFFFFFull);
+        return 0;
+    }
+    if (sgn) { i64 v = (i64)t; *out = bits == 32 ? (u64)(u32)(int)v : (u64)v; }
+    else *out = t >= 9223372036854775808.0 ? (u64)(i64)(t - 9223372036854775808.0) + 0x8000000000000000ull : (u64)(i64)t;
+    if (bits == 32) *out &= 0xFFFFFFFFu;
+    return 1;
+}
+static double u64_to_d(u64 v) { if (!(v >> 63)) return (double)(i64)v; double h = (double)(i64)((v >> 1) | (v & 1)); return h + h; }
+static float u64_to_f(u64 v) { if (!(v >> 63)) return (float)(i64)v; float h = (float)(i64)((v >> 1) | (v & 1)); return h + h; }
 
 #define MAXF 1024
 #define MAXT 128
@@ -455,6 +509,63 @@ static void run(const func_t* f, u32 base) {
             default: r = (a >> (b & 63)) | (a << ((64 - (b & 63)) & 63)); }
             PUSH(r); break;
         }
+        case 0x5B: case 0x5C: case 0x5D: case 0x5E: case 0x5F: case 0x60: {
+            float b = gf(POP()), a = gf(POP()); int r;
+            switch (op) { case 0x5B: r = a == b; break; case 0x5C: r = a != b; break; case 0x5D: r = a < b; break;
+                          case 0x5E: r = a > b; break; case 0x5F: r = a <= b; break; default: r = a >= b; }
+            PUSH(r); break;
+        }
+        case 0x61: case 0x62: case 0x63: case 0x64: case 0x65: case 0x66: {
+            double b = gd(POP()), a = gd(POP()); int r;
+            switch (op) { case 0x61: r = a == b; break; case 0x62: r = a != b; break; case 0x63: r = a < b; break;
+                          case 0x64: r = a > b; break; case 0x65: r = a <= b; break; default: r = a >= b; }
+            PUSH(r); break;
+        }
+        case 0x8B: { u64 a = POP(); PUSH((u32)a & 0x7FFFFFFFu); break; }          /* abs, neg, copysign - битами (NaN как есть) */
+        case 0x8C: { u64 a = POP(); PUSH((u32)a ^ 0x80000000u); break; }
+        case 0x8D: { float a = gf(POP()); PUSH(pf(ceil_f(a))); break; }
+        case 0x8E: { float a = gf(POP()); PUSH(pf(floor_f(a))); break; }
+        case 0x8F: { float a = gf(POP()); PUSH(pf(trunc_f(a))); break; }
+        case 0x90: { float a = gf(POP()); PUSH(pf(nearest_f(a))); break; }
+        case 0x91: { float a = gf(POP()); PUSH(pf(__builtin_sqrtf(a))); break; }
+        case 0x92: case 0x93: case 0x94: case 0x95: case 0x96: case 0x97: {
+            float b = gf(POP()), a = gf(POP()), r;
+            switch (op) { case 0x92: r = a + b; break; case 0x93: r = a - b; break; case 0x94: r = a * b; break;
+                          case 0x95: r = a / b; break; case 0x96: r = min_f(a, b); break; default: r = max_f(a, b); }
+            PUSH(pf(r)); break;
+        }
+        case 0x98: { u32 b = (u32)POP(), a = (u32)POP(); PUSH((a & 0x7FFFFFFFu) | (b & 0x80000000u)); break; }
+        case 0x99: { u64 a = POP(); PUSH(a & 0x7FFFFFFFFFFFFFFFull); break; }
+        case 0x9A: { u64 a = POP(); PUSH(a ^ 0x8000000000000000ull); break; }
+        case 0x9B: { double a = gd(POP()); PUSH(pd(ceil_d(a))); break; }
+        case 0x9C: { double a = gd(POP()); PUSH(pd(floor_d(a))); break; }
+        case 0x9D: { double a = gd(POP()); PUSH(pd(trunc_d(a))); break; }
+        case 0x9E: { double a = gd(POP()); PUSH(pd(nearest_d(a))); break; }
+        case 0x9F: { double a = gd(POP()); PUSH(pd(__builtin_sqrt(a))); break; }
+        case 0xA0: case 0xA1: case 0xA2: case 0xA3: case 0xA4: case 0xA5: {
+            double b = gd(POP()), a = gd(POP()), r;
+            switch (op) { case 0xA0: r = a + b; break; case 0xA1: r = a - b; break; case 0xA2: r = a * b; break;
+                          case 0xA3: r = a / b; break; case 0xA4: r = min_d(a, b); break; default: r = max_d(a, b); }
+            PUSH(pd(r)); break;
+        }
+        case 0xA6: { u64 b = POP(), a = POP(); PUSH((a & 0x7FFFFFFFFFFFFFFFull) | (b & 0x8000000000000000ull)); break; }
+        case 0xA8: case 0xA9: case 0xAA: case 0xAB: case 0xAE: case 0xAF: case 0xB0: case 0xB1: {   /* в целое: NaN/вне диапазона - ловушка */
+            u64 v = POP(); double x = (op == 0xA8 || op == 0xA9 || op == 0xAE || op == 0xAF) ? (double)gf(v) : gd(v);
+            int bits = op <= 0xAB ? 32 : 64, sgn = (op - (op <= 0xAB ? 0xA8 : 0xAE)) % 2 == 0;
+            u64 r;
+            if (!to_int(x, bits, sgn, &r)) { trap(x != x ? "invalid conversion to integer (NaN)" : "integer overflow in float-to-int conversion"); return; }
+            PUSH(r); break;
+        }
+        case 0xB2: { u64 a = POP(); PUSH(pf((float)(int)(u32)a)); break; }
+        case 0xB3: { u64 a = POP(); PUSH(pf(u64_to_f((u32)a))); break; }
+        case 0xB4: { u64 a = POP(); PUSH(pf((float)(i64)a)); break; }
+        case 0xB5: { u64 a = POP(); PUSH(pf(u64_to_f(a))); break; }
+        case 0xB6: { u64 a = POP(); PUSH(pf((float)gd(a))); break; }
+        case 0xB7: { u64 a = POP(); PUSH(pd((double)(int)(u32)a)); break; }
+        case 0xB8: { u64 a = POP(); PUSH(pd((double)(u32)a)); break; }
+        case 0xB9: { u64 a = POP(); PUSH(pd((double)(i64)a)); break; }
+        case 0xBA: { u64 a = POP(); PUSH(pd(u64_to_d(a))); break; }
+        case 0xBB: { u64 a = POP(); PUSH(pd((double)gf(a))); break; }
         case 0xA7: { u64 a = POP(); PUSH((u32)a); break; }
         case 0xAC: { u64 a = POP(); PUSH((u64)(i64)(int)(u32)a); break; }
         case 0xAD: { u64 a = POP(); PUSH((u64)(u32)a); break; }
@@ -475,11 +586,15 @@ static void run(const func_t* f, u32 base) {
                 p++; u32 n = (u32)POP(), v = (u32)POP(), d = (u32)POP();
                 if ((u64)d + n > (u64)mem_pages * 65536) { trap("memory.fill out of bounds"); return; }
                 for (u32 i = 0; i < n; i++) mem[d + i] = (u8)v;
-            } else { trap("unsupported 0xFC instruction (saturating float conversion or passive data)"); return; }
+            } else if (sub <= 7) {                                /* насыщающие преобразования в целое */
+                u64 v = POP(); double x = (sub == 0 || sub == 1 || sub == 4 || sub == 5) ? (double)gf(v) : gd(v);
+                u64 r; to_int(x, sub <= 3 ? 32 : 64, sub % 2 == 0, &r);
+                PUSH(r);
+            } else { trap("unsupported 0xFC instruction (passive data segments)"); return; }
             break;
         }
         default:
-            trap((op >= 0x5B && op <= 0x66) || (op >= 0x8B && op <= 0xBB) ? "floating-point arithmetic is not supported (integer WebAssembly subset)" : "unknown instruction");
+            trap("unknown instruction");
             return;
         }
     }

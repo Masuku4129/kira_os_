@@ -218,13 +218,18 @@ tail -1 $T/view.out
 for f in pic.png rgba.png pic.bmp pic.ppm; do ASAN_OPTIONS=detect_leaks=0 $T/view fuzz $T/files/$f > $T/view.out 2>&1 || { tail -20 $T/view.out; exit 1; }; tail -1 $T/view.out; done
 echo "== wasm: interpreter output equals the same program compiled natively =="
 userland/wasm/build.sh
-$CC -O1 -g -w -I. -fsanitize=address,undefined -o $T/wasmh tests/wasm_host.c
+$CC -O1 -g -w -I. -fsanitize=address,undefined -o $T/wasmh tests/wasm_host.c -lm
 clang -O2 -DKW_NATIVE -w -Iuserland/wasm -o $T/wtest_native userland/wasm/wtest.c
 $T/wtest_native > $T/w_native.txt
 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wtest.wasm > $T/w_interp.txt
 grep -v "^wasm: " $T/w_interp.txt > $T/w_body.txt
 cmp -s $T/w_native.txt $T/w_body.txt || { echo "WASM OUTPUT DIFFERS"; cat $T/w_native.txt $T/w_interp.txt; exit 1; }
 echo "wasm: interpreter output equals native ($(cat $T/w_native.txt | cut -c1-60)...)"
+clang -O2 -DKW_NATIVE -w -Iuserland/wasm -o $T/ftest_native userland/wasm/ftest.c -lm
+$T/ftest_native > $T/f_native.txt
+UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/ftest.wasm | grep -v "^wasm: " > $T/f_body.txt
+cmp -s $T/f_native.txt $T/f_body.txt || { echo "WASM FLOAT OUTPUT DIFFERS"; cat $T/f_native.txt $T/f_body.txt; exit 1; }
+echo "wasm: f32/f64 interpreter output equals native ($(cat $T/f_native.txt | cut -c1-70)...)"
 $CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c -lm
 $T/audio
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c

@@ -170,6 +170,8 @@ ALL = [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wtest.wasm"}, {"sleep": 4},
         {"log": [r"wasm: /wasm/wtest\.wasm - \d+ functions", r"wtest:\ fib\(24\)=46368\ primes<20000=2262\ sort=ad642057dcc4b702\ switch=4148393079\ ops=ba422c8d525a9aea\ sext=269715", r"wasm: finished with code 0"]},
+        {"cmd": "wasm /wasm/ftest.wasm"}, {"sleep": 6},                    # f32/f64: тот же результат, что у эталона
+        {"log": [r"ftest: mandel inside=662 iters=146978 pi=400921f61616ca3a f32sum=000000004004dfe3 hash=225e25f3d90cf161"]},
         {"log_forbid": NO_ERR + [r"wasm: stopped"]},
     ], smp=2, mem="512M"),
     sc("sound-hda", "звук: Intel HDA (как Sound: hda в Limbo) - кодек, путь к выходу, тон через DMA", [

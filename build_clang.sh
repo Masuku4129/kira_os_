@@ -34,7 +34,7 @@ echo "[*] Userland (Ring 3): программы собираются в ELF и �
 UCFLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 ULINK="-T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro"
 UELF=""
-for app in plasma paint burn mt ipc serve melody wasm udpecho rec; do
+for app in plasma paint burn mt ipc serve melody udpecho rec; do
     $CC $UCFLAGS -c userland/$app.c -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
@@ -51,7 +51,7 @@ ld.lld $ULINK -o userland/fetch.elf userland/fetch.o userland/u_tls.o userland/u
 UELF="$UELF userland/fetch.elf"
 # Программы с вещественной арифметикой (3D, тест FPU): SSE2 разрешён только им, ядро собирается без SSE.
 USSE_FLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -msse2 -mfpmath=sse -mno-mmx -fno-math-errno -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
-for app in cube3d fpu; do
+for app in cube3d fpu wasm; do
     $CC $USSE_FLAGS -c userland/$app.c -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
