@@ -53,8 +53,8 @@ SC = [
     # Экран и ввод как в Limbo ARM: virtio-gpu, virtio-клавиатура и планшет. Команды "@keys ..." набираются на
     # клавиатуре virtio (QMP send-key), "@tap X Y" - касание планшета (0..32767), "@shot имя" - снимок экрана.
     dict(name="arm64-gui", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", gui=True, files=True,
-         must=[r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout", r"\[KIRA INPUT\] virtio-input: .*[Kk]eyboard",
-               r"\[KIRA INPUT\] virtio-input: .*\(absolute pointer\)", r"\[KIRA DISPLAY\] Shell online",
+         must=[r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout", r"\[KIRA INPUT\] virtio-input: .*[Kk]eyboard.*, MSI-X interrupt",
+               r"\[KIRA INPUT\] virtio-input: .*\(absolute pointer\), MSI-X interrupt", r"\[KIRA DISPLAY\] Shell online",
                r"\[KIRA RTC\] Real-time clock \(PL031, UTC\): "],
          cmds=[("@sleep 3", []), ("@shot desktop", []),
                ("@keys smp", [r"core 3: MPIDR 0x0+3, online"]),              # клавиатура virtio -> консоль
@@ -82,6 +82,11 @@ SC = [
     dict(name="arm64-fault", m="virt,gic-version=3", cpu="cortex-a72", smp=1, mem="256M",
          must=[r"Processors online: 1 of 1"],
          cmds=[("fault", [r"exception on core 0: data abort .*", r"FAR 0x0000600000000000"])], fault=True),
+    dict(name="arm64-ramfb", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", qmp=True, shot_size=(1024, 768),
+         extra=["-device", "ramfb", "-device", "virtio-keyboard-pci"],
+         must=[r"\[KIRA FB\] ramfb: 1024x768 XRGB8888 frame in RAM, configured through fw_cfg DMA", r"\[KIRA DISPLAY\] Shell online",
+               r"\[KIRA INPUT\] virtio-input: .*, MSI-X interrupt"],
+         cmds=[("@sleep 3", []), ("@shot ramfb", [])]),
     dict(name="arm64-power", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", disk="virtio-blk-pci",
          must=[r"Processors online: 2 of 2"],
          cmds=[("write /reboot.txt kira-before-reboot", []),
@@ -101,6 +106,7 @@ def ppm_to_png(ppm, png):
     def chunk(t, b): return struct.pack(">I", len(b)) + t + b + struct.pack(">I", zlib.crc32(t + b) & 0xFFFFFFFF)
     open(png, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) +
                           chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
+    return w, h, len({px[i:i + 3] for i in range(0, len(px), 3 * 97)})   # размер и число разных цветов (выборка)
 
 
 class Qmp:
@@ -160,8 +166,12 @@ def run(sc, out):
     else:
         args += ["-nic", "none"]
     qmp_path = os.path.join(d, "qmp.sock")
-    if sc.get("gui"):
+    args += sc.get("extra", [])
+    if sc.get("gui") or sc.get("qmp"):
         if os.path.exists(qmp_path): os.unlink(qmp_path)
+    if sc.get("qmp") and not sc.get("gui"):
+        args += ["-qmp", f"unix:{qmp_path},server=on,wait=off"]
+    if sc.get("gui"):
         args += ["-audiodev", "none,id=snd0", "-device", "intel-hda", "-device", "hda-output,audiodev=snd0"]
         args += ["-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
                  "-qmp", f"unix:{qmp_path},server=on,wait=off"]
@@ -192,7 +202,7 @@ def run(sc, out):
             text = log.decode(errors="replace")
             for rx in COMMON + sc["must"]:
                 if not re.search(rx, text): err = f"нет «{rx}»"; break
-            q = Qmp(qmp_path) if sc.get("gui") and not err else None
+            q = Qmp(qmp_path) if (sc.get("gui") or sc.get("qmp")) and not err else None
             if not err:
                 for cmd, must in sc["cmds"]:
                     start = len(log)
@@ -222,7 +232,10 @@ def run(sc, out):
                     if cmd.startswith("@shot "):
                         ppm = os.path.abspath(os.path.join(d, cmd[6:] + ".ppm"))
                         q.cmd("screendump", filename=ppm); time.sleep(0.5)
-                        if os.path.exists(ppm): ppm_to_png(ppm, ppm[:-4] + ".png"); os.unlink(ppm)
+                        if os.path.exists(ppm):
+                            w, h, colors = ppm_to_png(ppm, ppm[:-4] + ".png"); os.unlink(ppm)
+                            if sc.get("shot_size") and ((w, h) != sc["shot_size"] or colors < 8):
+                                err = f"снимок {cmd[6:]}: {w}x{h}, цветов {colors} - экран не нарисован"; break
                         else: err = f"снимок {cmd[6:]} не получен"; break
                         continue
                     if cmd.startswith("@tap "):

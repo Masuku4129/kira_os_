@@ -43,6 +43,11 @@ static unsigned build(void) {
         { uint32_t r[] = { 0, 0x08000000, 0, 0x10000, 0, 0x08010000, 0, 0x10000 }; pcells("reg", r, 8); } end();
       begin("timer"); pstr("compatible", "arm,armv8-timer\0arm,armv7-timer", 32);
         { uint32_t r[] = { 1, 13, 0xf04, 1, 14, 0xf04, 1, 11, 0xf04, 1, 10, 0xf04 }; pcells("interrupts", r, 12); } end();
+      begin("framebuffer@0"); pstr("compatible", "simple-framebuffer", 19); pstr("status", "disabled", 9);
+        { uint32_t r[] = { 0, 0x1000, 0, 0x1000 }; pcells("reg", r, 4); } end();
+      begin("framebuffer@3c000000"); pstr("compatible", "simple-framebuffer", 19); pstr("status", "okay", 5);
+        { uint32_t r[] = { 0, 0x3c000000, 0, 800 * 600 * 4 }; pcells("reg", r, 4); }
+        p1("width", 800); p1("height", 600); p1("stride", 3200); pstr("format", "a8r8g8b8", 9); end();
       begin("chosen"); pstr("stdout-path", "/pl011@9000000", 15); end();
     end();
     w32(9);
@@ -85,6 +90,10 @@ int main(void) {
     CHECK(so && !strcmp(so, "/pl011@9000000"));
     CHECK(fdt_find_path(blob, "/nope") < 0 && fdt_find_compatible(blob, -1, "x,y") < 0);
     CHECK(fdt_find_compatible(blob, uart, "arm,pl011") < 0);          /* второго такого нет */
+
+    fdt_fb_t fb;
+    CHECK(fdt_simplefb(blob, &fb) == 0 && fb.base == 0x3c000000 && fb.width == 800 && fb.height == 600 &&
+          fb.stride == 3200 && !strcmp(fb.format, "a8r8g8b8"));          /* выключенный узел пропущен */
 
     /* испорченные блобы */
     uint8_t bad[8192];

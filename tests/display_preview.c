@@ -44,6 +44,7 @@ void fb_present(void) { presents_full++; }
 void fb_present_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; presents_rect++; }
 void fb_frame_done(void) {}
 int virtio_gpu_probe(void) { return -1; }
+int platform_fb_probe(void) { return -1; }
 
 uint64_t pmm_alloc_contiguous(uint32_t pages) { return (uint64_t)(uintptr_t)aligned_alloc(4096, (size_t)pages * 4096); }
 int pmm_free_contiguous(uint64_t p, uint32_t pages) { (void)pages; free((void*)(uintptr_t)p); return 0; }

@@ -484,6 +484,7 @@ int display_init(unsigned long mbi) {
     /* кадровый буфер от загрузчика (multiboot), иначе - virtio-gpu по PCI (QEMU virt на ARM64, машины без VBE) */
     int rc = mbi ? fb_init(mbi) : -1;
     if (rc != 0 && virtio_gpu_probe() == 0) rc = 0;
+    if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
     wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt };
     wm_init(fb_surface(), &ops);

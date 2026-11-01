@@ -1,12 +1,14 @@
 /* virtio-input: клавиатура, мышь и планшет (абсолютное положение) по PCI - ввод QEMU virt на ARM64 (Limbo ARM) и
    любой машины с virtio. События evdev (тип, код, значение) переводятся в общий слой ввода: клавиши - в сканкоды
    набора 1 (тот же декодер, что у PS/2 и USB), указатель - в mouse_event_t. Очередь событий: все буферы отданы
-   устройству заранее, поток драйвера забирает заполненные и сразу возвращает их (опрос каждый тик). */
+   устройству заранее, поток драйвера забирает заполненные и сразу возвращает их. Прерывание MSI-X (на ARM - GICv2m/ITS)
+   будит поток; если хотя бы у одного устройства его нет - опрос каждый тик. */
 #include "virtio.h"
 #include "virtio_input.h"
 #include "input.h"
 #include "sched.h"
 #include "uart.h"
+#include "msi.h"
 
 #define VIRTIO_INPUT_DEVICE 0x1052          /* 0x1040 + 18 */
 #define MAX_DEV 4
@@ -30,7 +32,9 @@ typedef struct {
 } vin_t;
 
 static vin_t devs[MAX_DEV];
-static int ndev;
+static int ndev, nirq;
+static irqwait_t iw = IRQWAIT_INIT;
+static void irq(void* ctx) { (void)ctx; irqwait_fire(&iw); }
 
 /* Код клавиши evdev -> сканкод набора 1 (0 - клавиши нет в наборе). Коды 1..88 совпадают с набором 1;
    расширенные (стрелки, правые Ctrl/Alt и т.п.) - с префиксом E0. */
@@ -104,6 +108,7 @@ static void event(vin_t* d, const vev_t* e) {
 static void poll_main(void* arg) {
     (void)arg;
     for (;;) {
+        uint32_t mark = irqwait_mark(&iw);
         for (int i = 0; i < ndev; i++) {
             vin_t* d = &devs[i];
             uint16_t id; uint32_t len; int got = 0;
@@ -116,7 +121,8 @@ static void poll_main(void* arg) {
             }
             if (got) virtq_kick(&d->q);
         }
-        sched_sleep_ticks(1);
+        if (nirq == ndev) irqwait_wait(&iw, mark, 100);        /* все на прерываниях: сон до события */
+        else sched_sleep_ticks(1);
     }
 }
 
@@ -131,9 +137,12 @@ static uint32_t cfg_u32(vin_t* d, unsigned off) {
     return v;
 }
 
-static int attach(vin_t* d, const pci_dev_t* p) {
-    if (virtio_attach(&d->dev, p) || !d->dev.devcfg || virtio_begin(&d->dev, 0) || virtio_queue_setup(&d->dev, &d->q, 0, NBUF))
-        return -1;
+static int attach(vin_t* d, const pci_dev_t* p, int* has_irq) {
+    if (virtio_attach(&d->dev, p) || !d->dev.devcfg || virtio_begin(&d->dev, 0)) return -1;
+    uint64_t ma; uint32_t md;
+    *has_irq = msi_alloc(p, irq, 0, &ma, &md) == 0 && pci_msix_setup(p, 0, ma, md) == 0;
+    if (*has_irq) d->dev.msix_vec = 0;
+    if (virtio_queue_setup(&d->dev, &d->q, 0, NBUF)) return -1;
     unsigned n = cfg_query(d, CFG_ID_NAME, 0);
     if (n > sizeof d->name - 1) n = sizeof d->name - 1;
     for (unsigned i = 0; i < n; i++) d->name[i] = (char)MMIO_R8(d->dev.devcfg + CFG_DATA + i);
@@ -157,10 +166,12 @@ int virtio_input_init(void) {
         const pci_dev_t* p = pci_get(i);
         if (p->vendor != VIRTIO_VENDOR || p->device != VIRTIO_INPUT_DEVICE) continue;
         vin_t* d = &devs[ndev];
-        if (attach(d, p) != 0) { uart_print("[KIRA INPUT] virtio-input device did not start.\n"); continue; }
+        int hi = 0;
+        if (attach(d, p, &hi) != 0) { uart_print("[KIRA INPUT] virtio-input device did not start.\n"); continue; }
         uart_print("[KIRA INPUT] virtio-input: "); uart_print(d->name[0] ? d->name : "(no name)");
-        uart_print(d->has_abs ? " (absolute pointer)\n" : "\n");
-        ndev++;
+        uart_print(d->has_abs ? " (absolute pointer)" : "");
+        uart_print(hi ? ", MSI-X interrupt\n" : ", polled\n");
+        ndev++; nirq += hi;
     }
     if (!ndev) return 0;
     if (!sched_create("vinput", poll_main, 0, PRIO_CRITICAL)) {

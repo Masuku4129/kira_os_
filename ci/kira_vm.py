@@ -35,8 +35,6 @@ class Fail(Exception):
 class VM:
     def __init__(self, sc, out, iso, disk, kvm, timeout_scale):
         self.sc, self.out, self.iso, self.kvm, self.k = sc, out, iso, kvm, timeout_scale
-        if not sc.get("reboot"):                    # сброс = выход QEMU (иначе виснущая перезагрузка не видна)
-            a.append("-no-reboot")
         if sc.get("limbo"): self.k = max(self.k, 8.0)       # эмуляция одним потоком в разы медленнее KVM
         self.log = bytearray()
         self.notes = []
@@ -65,6 +63,8 @@ class VM:
              "-chardev", f"socket,id=ser0,path={self.ser_path},server=on,wait=on", "-serial", "chardev:ser0",
              "-qmp", f"unix:{self.qmp_path},server=on,wait=off",
              "-audiodev", "none,id=a0", "-d", "guest_errors", "-D", os.path.join(self.out, "qemu.log")]
+        if not sc.get("reboot"):                    # сброс = выход QEMU (иначе виснущая перезагрузка не видна)
+            a.append("-no-reboot")
         if sc.get("limbo"):                         # как Limbo на телефоне: эмуляция одним потоком, без KVM
             a += ["-accel", "tcg,thread=" + ("multi" if sc.get("mttcg") else "single"), "-cpu", "qemu64"]
         elif self.kvm:

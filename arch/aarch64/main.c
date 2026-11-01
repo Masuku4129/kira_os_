@@ -6,6 +6,7 @@
    ядре, мьютексы ядра; межъядерные сигналы - SGI контроллера GIC. Файловые системы, Разум, программы - дальше. */
 #include <stdint.h>
 #include "fdt.h"
+#include "fb_arm.h"
 #include "timer.h"
 #include "cpu.h"
 #include "fpu.h"
@@ -140,6 +141,7 @@ static int in_ram(uint64_t a, uint64_t len) {
     for (unsigned i = 0; i < nram; i++) if (a >= ram[i].base && a + len <= ram[i].base + ram[i].size) return 1;
     return 0;
 }
+int arm_mem_in_ram(uint64_t a, uint64_t len) { return in_ram(a, len); }
 static int touches_ram(uint64_t a, uint64_t len) {
     for (unsigned i = 0; i < nram; i++) if (a < ram[i].base + ram[i].size && ram[i].base < a + len) return 1;
     return 0;
@@ -1005,6 +1007,8 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     pmm_arm_init((const pmm_arm_region_t*)ram, nram, lo, hi, map, (uint64_t)(uintptr_t)__kernel_start, (uint64_t)(uintptr_t)__kernel_end);
     pmm_arm_reserve((uint64_t)(uintptr_t)fdt, (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt));
     pmm_arm_reserve(bump_start, bump);
+    arm_fb_reserve(fdt, pmm_arm_reserve);                        /* кадр simple-framebuffer, /reserved-memory */
+    arm_fb_init(fdt);
     bump_end = bump;                                             /* дальше страницы выдаёт только pmm */
     heap_init();
     sched_init(ncpu, total / 1024);
@@ -1069,7 +1073,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     rtc_pl031(fdt);
 
     input_init();
-    if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu): serial console only.\n");
+    if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.\n");
     virtio_input_init();
     if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */
     net_start();

@@ -201,3 +201,27 @@ unsigned fdt_count_type(const void* fdt, int parent, const char* type) {
     }
     return n;
 }
+
+
+int fdt_node_enabled(const void* fdt, int node) {
+    uint32_t len;
+    const char* s = (const char*)fdt_prop(fdt, node, "status", &len);
+    if (!s || !len) return 1;
+    return streq(s, "okay") || streq(s, "ok");
+}
+
+int fdt_simplefb(const void* fdt, fdt_fb_t* fb) {
+    int n = -1;
+    do n = fdt_find_compatible(fdt, n, "simple-framebuffer"); while (n >= 0 && !fdt_node_enabled(fdt, n));
+    if (n < 0) return -1;
+    uint32_t len;
+    const char* f = (const char*)fdt_prop(fdt, n, "format", &len);
+    if (fdt_reg(fdt, n, 0, &fb->base, &fb->size) || fdt_prop_u32(fdt, n, "width", &fb->width) ||
+        fdt_prop_u32(fdt, n, "height", &fb->height) || fdt_prop_u32(fdt, n, "stride", &fb->stride) || !f || !len) return -2;
+    unsigned k = slen0(f, len < sizeof fb->format - 1 ? len : sizeof fb->format - 1);
+    for (unsigned i = 0; i < k; i++) fb->format[i] = f[i];
+    fb->format[k] = 0;
+    if (!fb->width || !fb->height || fb->stride < fb->width * 4 || (uint64_t)fb->stride * fb->height > fb->size) return -2;
+    if (!streq(fb->format, "x8r8g8b8") && !streq(fb->format, "a8r8g8b8")) return -3;
+    return 0;
+}

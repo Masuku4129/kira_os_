@@ -47,3 +47,6 @@ void platform_reboot(void) {
     struct { uint16_t lim; uint64_t base; } __attribute__((packed)) z = { 0, 0 };        /* тройная ошибка */
     __asm__ volatile ("lidt %0\n int3" : : "m"(z));
 }
+
+/* Экран x86-64 - от загрузчика (multiboot) или virtio-gpu: своего платформенного нет. */
+int platform_fb_probe(void) { return -1; }
