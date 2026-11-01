@@ -1,0 +1,40 @@
+{
+ "name": "crash-isolation",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CORE \\d+\\] kernel-mode fault #14 at RIP 0x[0-9A-Fa-f]+, thread 'smpcrash'\\. Thread terminated",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CORE\\] fault detail: error 0x[0-9A-Fa-f]+, CR2 0x[0-9A-Fa-f]+, RSP 0x[0-9A-Fa-f]+, RBP 0x[0-9A-Fa-f]+, stack: 0x",
+   "ok": false
+  }
+ ],
+ "error": "в журнале нет «\\[KIRA CORE\\] fault detail: error 0x[0-9A-Fa-f]+, CR2 0x[0-9A-Fa-f]+, RSP 0x[0-9A-Fa-f]+, RBP 0x[0-9A-Fa-f]+, stack: 0x»",
+ "boot_seconds": 5.2,
+ "seconds": 9.1,
+ "commands": [
+  {
+   "cmd": "test crash thread",
+   "seconds": 0.01
+  }
+ ]
+}

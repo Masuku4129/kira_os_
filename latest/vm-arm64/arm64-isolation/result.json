@@ -1,0 +1,1 @@
+{"name": "arm64-isolation", "ok": false, "error": "test caps: нет «\\[KIRA CAPS\\] process 'atk-cap' .* denied, no right CAP_GFX»", "seconds": 67.1}
