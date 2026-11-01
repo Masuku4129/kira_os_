@@ -1,7 +1,8 @@
 /* Просмотр файлов (программа Ring 3 / EL0): Проводник открывает файл двойным щелчком, ядро выдаёт программе право
    читать только его. Разбор чужих файлов идёт здесь, а не в ядре: ошибка в разборе не трогает систему.
    Форматы: PNG (свой inflate: блоки stored/fixed/dynamic, фильтры, цвет 0/2/3/4/6, глубина 1-16, без чересстрочности),
-   BMP (1/4/8/24/32 бита без сжатия), PPM/PGM (P6/P5, 8 бит), текст UTF-8, остальное - шестнадцатерично.
+   BMP (1/4/8/24/32 бита без сжатия), PPM/PGM (P6/P5, 8 бит), GIF (87a/89a, первый кадр: LZW, общая и своя палитры,
+   чересстрочность, прозрачный цвет - как фон), текст UTF-8, остальное - шестнадцатерично.
    Клавиши: стрелки, PgUp/PgDn, Home/End - прокрутка текста; q или Esc - закрыть. */
 #include "kira.h"
 #include "../font.h"
@@ -283,6 +284,91 @@ static int load_pnm(void) {
     return 0;
 }
 
+/* ---------- GIF: первый кадр ---------- */
+static int load_gif(void) {
+    if (flen < 13) { fail("GIF: короткий файл"); return -1; }
+    u32 sw = le16(file + 6), sh = le16(file + 8), fl = file[10], p = 13;
+    u32 gpal = 0, gn = 0, bg = file[11];
+    if (fl & 0x80) { gn = 2u << (fl & 7); gpal = p; p += 3 * gn; if (p > flen) { fail("GIF: палитра за концом файла"); return -1; } }
+    int trans = -1;
+    while (p < flen) {
+        u8 b = file[p++];
+        if (b == 0x3B) break;                                    /* конец файла без кадра */
+        if (b == 0x21) {                                         /* расширение: управление кадром - прозрачный цвет */
+            if (p + 1 > flen) break;
+            u8 label = file[p++];
+            if (label == 0xF9 && p + 5 <= flen && file[p] >= 4 && (file[p + 1] & 1)) trans = file[p + 4];
+            while (p < flen && file[p]) { p += 1u + file[p]; }
+            p++;
+            continue;
+        }
+        if (b != 0x2C) { fail("GIF: неизвестный блок"); return -1; }
+        if (p + 9 > flen) { fail("GIF: короткий заголовок кадра"); return -1; }
+        u32 w = le16(file + p + 4), h = le16(file + p + 6), f2 = file[p + 8]; p += 9;
+        u32 pal = gpal, pn = gn;
+        if (f2 & 0x80) { pn = 2u << (f2 & 7); pal = p; p += 3 * pn; if (p > flen) { fail("GIF: палитра кадра за концом"); return -1; } }
+        if (!pn) { fail("GIF: нет палитры"); return -1; }
+        if (!w || !h || (u64)w * h > MAXPIX) { fail("GIF: размер больше 1 Мпикс"); return -1; }
+        if (p >= flen) { fail("GIF: нет данных кадра"); return -1; }
+        u32 mcs = file[p++];
+        if (mcs < 2 || mcs > 8) { fail("GIF: неверный размер кода LZW"); return -1; }
+        u32 npx = w * h;
+        u8* idx = (u8*)alloc(npx);
+        static u16 prefix[4096]; static u8 suffix[4096], stack[4097];
+        img = (u32*)alloc((u64)npx * 4);
+        if (!idx || !img) { fail("нет памяти под картинку"); return -1; }
+        for (u32 i = 0; i < npx; i++) idx[i] = (u8)(trans >= 0 ? (u32)trans : bg);
+        /* LZW по подблокам: коды младшими битами вперёд, размер растёт до 12 бит, код очистки - сброс таблицы */
+        u32 clear = 1u << mcs, eoi = clear + 1, next = clear + 2, size = mcs + 1, out = 0;
+        u32 bits = 0, nb = 0, blk = 0; int prev = -1; u8 first = 0;
+        for (u32 i = 0; i < clear; i++) { prefix[i] = 0xFFFF; suffix[i] = (u8)i; }
+        for (;;) {
+            while (nb < size) {
+                if (!blk) { if (p >= flen) goto done; blk = file[p++]; if (!blk) goto done; }
+                if (p >= flen) goto done;
+                bits |= (u32)file[p++] << nb; nb += 8; blk--;
+            }
+            u32 code = bits & ((1u << size) - 1); bits >>= size; nb -= size;
+            if (code == clear) { next = clear + 2; size = mcs + 1; prev = -1; continue; }
+            if (code == eoi) break;
+            u32 c = code, sp = 0;
+            if (prev < 0) {
+                if (code >= clear) { fail("GIF: испорченные данные LZW"); return -1; }
+                if (out < npx) idx[out++] = (u8)code;
+                prev = (int)code; first = (u8)code; continue;
+            }
+            if (code > next || (code == next && next >= 4096)) { fail("GIF: испорченные данные LZW"); return -1; }
+            if (code == next) { stack[sp++] = first; c = (u32)prev; }     /* KwKwK: код ещё не в таблице */
+            while (c >= clear) { if (sp >= 4096 || c >= 4096) { fail("GIF: испорченные данные LZW"); return -1; } stack[sp++] = suffix[c]; c = prefix[c]; }
+            stack[sp++] = (u8)c; first = (u8)c;
+            while (sp && out < npx) idx[out++] = stack[--sp];
+            if (next < 4096) { prefix[next] = (u16)prev; suffix[next] = first; next++; if (next == (1u << size) && size < 12) size++; }
+            prev = (int)code;
+        }
+    done:
+        for (u32 y = 0, src = 0, pass = 0, step = 8, row = 0; src < h; src++) {   /* чересстрочно: строки 0,8.. 4,12.. 2,6.. 1,3.. */
+            if (f2 & 0x40) {
+                y = row;
+                row += step;
+                while (row >= h && pass < 3) { pass++; step = pass == 1 ? 8 : pass == 2 ? 4 : 2; row = pass == 1 ? 4 : pass == 2 ? 2 : 1; }
+            } else y = src;
+            for (u32 x = 0; x < w; x++) {
+                u32 v = idx[src * w + x];
+                const u8* q = file + pal + 3 * (v < pn ? v : 0);
+                img[y * w + x] = (int)v == trans ? 0 : (u32)q[0] << 16 | (u32)q[1] << 8 | q[2];
+            }
+        }
+        iw = w; ih = h;
+        info[0] = 0; scat(info, "GIF ", sizeof info); sdec(info, w, sizeof info); scat(info, "x", sizeof info); sdec(info, h, sizeof info);
+        scat(info, ", палитра ", sizeof info); sdec(info, pn, sizeof info);
+        if (f2 & 0x40) scat(info, ", чересстрочный", sizeof info);
+        if (out < npx) scat(info, ", данные кадра неполные", sizeof info);
+        (void)sw; (void)sh;
+        return 0;
+    }
+    fail("GIF: в файле нет кадра"); return -1;
+}
+
 /* ---------- отрисовка ---------- */
 static u32 utf8(const u8* s, u32 n, u32* cp) {
     u8 c = s[0];
@@ -378,6 +464,7 @@ int umain(void) {
         if (flen >= 8 && file[0] == 0x89 && file[1] == 'P' && file[2] == 'N' && file[3] == 'G') { mode = 0; load_png(); }
         else if (flen >= 2 && file[0] == 'B' && file[1] == 'M') { mode = 0; load_bmp(); }
         else if (flen >= 3 && file[0] == 'P' && (file[1] == '6' || file[1] == '5')) { mode = 0; load_pnm(); }
+        else if (flen >= 6 && file[0] == 'G' && file[1] == 'I' && file[2] == 'F' && file[3] == '8') { mode = 0; load_gif(); }
         else if (is_text()) { mode = 1; info[0] = 0; scat(info, "текст, ", sizeof info); sdec(info, flen, sizeof info); scat(info, " байт", sizeof info); }
         else { mode = 2; info[0] = 0; scat(info, "двоичный, ", sizeof info); sdec(info, flen, sizeof info); scat(info, " байт", sizeof info); }
         if (sz > MAXFILE) scat(info, " (показан первый 1 МБ)", sizeof info);

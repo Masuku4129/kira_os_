@@ -213,9 +213,10 @@ $CC -O1 -g -w -DKIRA_HOST_TEST -I. -fsanitize=address,undefined -o $T/view tests
 sum() { python3 -c "import sys; sys.path.insert(0,'ci'); import mkfiles as m; print('sum %08x' % m.SUMS['$1'])"; }
 ASAN_OPTIONS=detect_leaks=0 $T/view $T/files/pic.png "$(sum /pic.png)" $T/files/rgba.png "$(sum /rgba.png)" \
     $T/files/pic.bmp "$(sum /pic.bmp)" $T/files/pic.ppm "$(sum /pic.ppm)" \
+    $T/files/pic.gif "$(sum /pic.gif)" $T/files/lace.gif "$(sum /lace.gif)" \
     $T/files/note.txt "текст, " $T/files/blob.bin "двоичный, 512" > $T/view.out 2>&1 || { cat $T/view.out; exit 1; }
 tail -1 $T/view.out
-for f in pic.png rgba.png pic.bmp pic.ppm; do ASAN_OPTIONS=detect_leaks=0 $T/view fuzz $T/files/$f > $T/view.out 2>&1 || { tail -20 $T/view.out; exit 1; }; tail -1 $T/view.out; done
+for f in pic.png rgba.png pic.bmp pic.ppm pic.gif lace.gif; do ASAN_OPTIONS=detect_leaks=0 $T/view fuzz $T/files/$f > $T/view.out 2>&1 || { tail -20 $T/view.out; exit 1; }; tail -1 $T/view.out; done
 echo "== wasm: interpreter output equals the same program compiled natively =="
 userland/wasm/build.sh
 $CC -O1 -g -w -I. -fsanitize=address,undefined -o $T/wasmh tests/wasm_host.c -lm

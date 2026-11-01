@@ -60,6 +60,6 @@ int main(int argc, char** argv) {
         if (!ok) { printf("     want: %s\n", want); fails++; }
         free(g_data);
     }
-    printf("%s\n", fails ? "VIEW FAILED" : "view: PNG (filters, dynamic/stored), BMP, PPM, text, binary passed");
+    printf("%s\n", fails ? "VIEW FAILED" : "view: PNG (filters, dynamic/stored), BMP, PPM, GIF (LZW resets, interlace, local palette), text, binary passed");
     return fails != 0;
 }
