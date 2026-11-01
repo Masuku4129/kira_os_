@@ -18,6 +18,7 @@
 #include "kmutex.h"
 #include "kobj.h"
 #include "futex.h"
+#include "caps.h"
 #include "smp.h"
 
 /* Адреса программы (пользовательская половина):
@@ -55,6 +56,8 @@ typedef struct {
     volatile uint32_t nthreads;
     volatile uint32_t dying;
     int exit_code;
+    uint32_t caps;                     /* права (caps.h): задаются при запуске, дальше не меняются */
+    volatile uint32_t cap_denied;      /* отказов по правам: журнал - только первый */
     kmutex_t mx;                 /* таблица дескрипторов, отображения, изменения адресного пространства */
     htab_t handles;
     shm_map_t* maps; uint32_t nmaps;  /* растёт вдвое */
@@ -127,6 +130,8 @@ int proc_spawn_elf_ex(const char* name, const void* image, size_t len, const cha
     for (unsigned i = 0; i < max_procs; i++) if (!procs[i].used) { p = &procs[i]; break; }
     if (!p) { spin_unlock_irqrestore(&proc_lock, f); return -1; }
     p->used = 1;                       /* занят до конца настройки */
+    p->caps = caps_for_program(name);
+    p->cap_denied = 0;
     {   /* право на чтение файла - до первого потока: программа видит его с первой команды */
         unsigned i = 0;
         if (grant) for (; grant[i] && i + 1 < sizeof p->grant; i++) p->grant[i] = grant[i];
@@ -226,6 +231,15 @@ static int64_t heap_grow_locked(proc_t* p, uint64_t pages) {
 }
 
 int proc_in_user_thread(void) { return current_proc() != 0; }
+uint32_t proc_current_caps(void) { proc_t* p = current_proc(); return p ? p->caps : 0; }
+int proc_cap_denied(uint32_t cap, uint64_t nr) {
+    proc_t* p = current_proc();
+    if (p && __atomic_fetch_add(&p->cap_denied, 1, __ATOMIC_RELAXED) == 0) {
+        uart_print("[KIRA CAPS] process '"); uart_print(p->name); uart_print("' (pid "); uart_print_dec(p->pid);
+        uart_print("): system call "); uart_print_dec(nr); uart_print(" denied, no right "); uart_print(caps_bit_name(cap)); uart_print(".\n");
+    }
+    return -12;                                                   /* KE_PERM */
+}
 const char* proc_current_name(void) { proc_t* p = current_proc(); return p ? p->name : ""; }
 const char* proc_current_grant(void) { proc_t* p = current_proc(); return p ? p->grant : ""; }
 const char* proc_current_args(void) { proc_t* p = current_proc(); return p ? p->args : ""; }

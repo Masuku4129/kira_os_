@@ -85,6 +85,7 @@ SC = [
          cmds=[("test isolation", [r"address spaces are isolated \(PASS\)", r"address spaces are isolated \(PASS\)[\s\S]*address spaces are isolated \(PASS\)"]),
                ("test atk", [r"kernel pointer passed to write\(\) was rejected \(PASS\)", r"jumping into kernel memory"]),
                ("@sleep 3", []),
+               ("test caps", [r"atk-cap: 14 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX"]),
                ("test fpu", [r"fpu: rounds \d+, mismatches 0 - PASS[\s\S]*- PASS[\s\S]*- PASS"]),
                ("test threads", [r"mt: .* - PASS"]),
                ("status", [r"interrupts: GICv3"]),

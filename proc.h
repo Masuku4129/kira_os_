@@ -12,6 +12,8 @@ unsigned proc_limit(void);
 int  proc_spawn_elf(const char* name, const void* image, size_t len);
 /* То же с правом читать один файл grant (путь VFS): его получает программа просмотра из Проводника. */
 int  proc_spawn_elf_grant(const char* name, const void* image, size_t len, const char* grant);
+uint32_t proc_current_caps(void);        /* права текущего процесса (caps.h); 0 - не процесс */
+int  proc_cap_denied(uint32_t cap, uint64_t nr);   /* записывает отказ в журнал (раз на процесс); возвращает KE_PERM */
 const char* proc_current_grant(void);   /* "" - права нет */
 int  proc_spawn_elf_ex(const char* name, const void* image, size_t len, const char* grant, const char* args);
 const char* proc_current_args(void);    /* аргументы запуска ("" - нет) */

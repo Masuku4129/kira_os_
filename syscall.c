@@ -21,6 +21,7 @@
 #include "clock.h"
 #include "heap.h"
 #include "uaccess.h"
+#include "caps.h"
 
 static spinlock_t ulog_lock = SPINLOCK_INIT;
 static userlog_t ulog;
@@ -107,7 +108,28 @@ uint64_t syscall_handler(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
     return r;
 }
 
+/* Право, которое нужно для вызова (0 - вызов безопасен для всех: касается только самого процесса). */
+static uint32_t cap_needed(uint64_t nr) {
+    switch (nr) {
+    case SYS_GFX_CREATE: case SYS_GFX_PRESENT: case SYS_GFX_EVENT: return CAP_GFX;
+    case SYS_NET_DNS: case SYS_NET_CONNECT: return CAP_NET;
+    case SYS_NET_SEND: case SYS_NET_RECV: case SYS_NET_CLOSE: return CAP_NET | CAP_NET_SERVE;   /* соединение, уже полученное тем или другим путём */
+    case SYS_NET_LISTEN: case SYS_NET_ACCEPT: return CAP_NET_SERVE;
+    case SYS_UDP_OPEN: case SYS_UDP_SEND: case SYS_UDP_RECV: case SYS_UDP_CLOSE: return CAP_UDP;
+    case SYS_SND_OPEN: case SYS_SND_WRITE: case SYS_SND_CLOSE: case SYS_SND_VOLUME: return CAP_SND;
+    case SYS_SND_RECORD: return CAP_REC;
+    case SYS_PORT_OPEN: case SYS_PORT_SEND: case SYS_PORT_RECV: case SYS_SHM_OPEN: case SYS_SHM_MAP: return CAP_IPC;
+    case SYS_THREAD_CREATE: return CAP_THREAD;
+    default: return 0;                  /* SYS_FS проверяется по операции в fsrv_syscall */
+    }
+}
+
 static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
+    uint32_t need = cap_needed(nr);
+    if (need && !(proc_current_caps() & need)) {          /* для вызовов «или-или» достаточно любого из прав */
+        uint32_t first = need & -need;
+        return (uint64_t)(int64_t)proc_cap_denied(first, nr);
+    }
     switch (nr) {
     case SYS_WRITE: {
         if (a2 == 0 || a2 > SYS_MAX_WRITE) return (uint64_t)-1;

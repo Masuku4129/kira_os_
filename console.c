@@ -324,6 +324,7 @@ static void cmd_atk(const char* a) {
     prog_start("atk-mem"); prog_start("atk-priv"); prog_start("atk-sys"); prog_start("atk-gs");
 #endif
 }
+static void cmd_caps(const char* a) { (void)a; uart_print("[TEST] program without rights calls every protected system call: each must be refused\n"); prog_start("atk-cap"); }
 static void cmd_smp(const char* a) { (void)a; smp_describe(uart_print); }
 static void cmd_smptest(const char* a) {
     (void)a;
@@ -505,6 +506,7 @@ static const test_t tests[] = {
     { "ipc",        "обмен между процессами: порты, разделяемая память, futex через общую память", cmd_ipc, 0 },
     { "fpu",        "состояние x87/SSE у трёх процессов", cmd_fpu, 0 },
     { "isolation",  "два процесса пишут по одному адресу: адресные пространства раздельны", cmd_isolation, 0 },
+    { "caps",       "программа без прав вызывает защищённые вызовы: каждый обязан быть отказан", cmd_caps, 0 },
     { "atk",        "четыре враждебные программы: каждую останавливают, ядро живо", cmd_atk, 0 },
     { "mem",        "самопроверка кучи, PMM и страницы NULL", cmd_mem, 0 },
     { "keys",       "сырые байты клавиатуры с прошлого вызова (проверка двойных нажатий)", cmd_keys, 0 },

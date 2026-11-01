@@ -25,6 +25,7 @@
 #define KE_NOMEM   (-7)
 #define KE_BADH    (-8)
 #define KE_LIMIT   (-9)
+#define KE_PERM    (-12)         // у процесса нет права (caps.h)
 #define KE_INTR    (-11)         // процесс завершается
 
 #define KOPEN_CREATE 1           // создать, если нет

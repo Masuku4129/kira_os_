@@ -1,3 +1,4 @@
+#include "caps.h"
 #include "fsrv.h"
 #include "vfs.h"
 #include "kfs.h"
@@ -201,9 +202,11 @@ static int64_t sys_op(const fsrv_user_req_t* u) {
 int64_t fsrv_syscall(uint64_t up) {
     fsrv_user_req_t u;                                                           /* своя копия: программа не изменит её во время проверки */
     if (copy_from_user(&u, up, sizeof u) != 0) return FS_E_ARG;
-    if (u.op == FS_OP_SYS_READ || u.op == FS_OP_SYS_STAT) return sys_op(&u);
-    if (u.op >= FS_OP_GRANT_READ && u.op <= FS_OP_GRANT_NAME) return grant_op(&u);
+    uint32_t caps = proc_current_caps();
+    if (u.op == FS_OP_SYS_READ || u.op == FS_OP_SYS_STAT) { if (!(caps & CAP_SYSFILES)) return proc_cap_denied(CAP_SYSFILES, 10), FS_E_DENIED; return sys_op(&u); }
+    if (u.op >= FS_OP_GRANT_READ && u.op <= FS_OP_GRANT_NAME) { if (!(caps & CAP_GRANT)) return proc_cap_denied(CAP_GRANT, 10), FS_E_DENIED; return grant_op(&u); }
     if (u.op < FS_OP_READ || u.op > FS_OP_REMOVE) return FS_E_ARG;
+    if (!(caps & CAP_FS)) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
     const char* prog = proc_current_name();
     if (!fsrv_prog_ok(prog)) return FS_E_DENIED;
 
