@@ -84,19 +84,31 @@ SC = [
          cmds=[("fault", [r"data abort", r"FAR 0x0000600000000000"])], fault=True, allow=[r"kernel-mode fault"]),
     dict(name="arm64-crash", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="512M",
          allow=[r"kernel-mode fault"], must=[r"Processors online: 4 of 4"],
-         cmds=[("test crash thread", [r"\[KIRA CORE \d+\] kernel-mode fault \(data abort\) at PC 0x[0-9a-f]+, FAR 0x0000600000000000, thread 'smpcrash'\. Thread terminated"]),
+         cmds=[("test crash thread", [r"\[KIRA CORE \d+\] kernel-mode fault \(data abort\) at PC 0x[0-9A-Fa-f]+, FAR 0x0000600000000000, thread 'smpcrash'\. Thread terminated"]),
                ("test crash 1", [r"cannot raise SError from software"]),
                ("test smp", [r"PASS"]),
                ("status", [r"interrupts: GICv3"])]),
     dict(name="arm64-overflow", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", fault=True,
          allow=[r"stack overflow"], must=[r"Processors online: 2 of 2"],
-         cmds=[("test crash stack", [r"Kernel thread stack overflow: guard area hit at SP 0x00007[0-9a-f]+ \(PC 0x[0-9a-f]+\), now on the spare stack",
+         cmds=[("test crash stack", [r"Kernel thread stack overflow: guard area hit at SP 0x00007[0-9A-Fa-f]+ \(PC 0x[0-9A-Fa-f]+\), now on the spare stack",
                                      r"Not isolated: kernel thread stack overflow"])]),
     dict(name="arm64-ramfb", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", qmp=True, shot_size=(1024, 768),
          extra=["-device", "ramfb", "-device", "virtio-keyboard-pci"],
          must=[r"\[KIRA FB\] ramfb: 1024x768 XRGB8888 frame in RAM, configured through fw_cfg DMA", r"\[KIRA DISPLAY\] Shell online",
                r"\[KIRA INPUT\] virtio-input: .*, MSI-X interrupt"],
          cmds=[("@sleep 3", []), ("@shot ramfb", [])]),
+    dict(name="arm64-usb", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", disk="virtio-blk-pci",
+         extra=["-device", "qemu-xhci,id=xhci", "-device", "usb-hub,bus=xhci.0,port=1",
+                "-device", "usb-kbd,bus=xhci.0,port=1.2", "-device", "usb-tablet,bus=xhci.0,port=2",
+                "-device", "usb-storage,bus=xhci.0,port=3,drive=stick,removable=on"], flash=True,
+         must=[r"Processors online: 2 of 2"],
+         cmds=[("@sleep 4", []),
+               ("usb", [r"xHCI", r"хаб", r"клавиатура", r"планшет"]),
+               ("df", [r"usb0"]),
+               ("cat /usb0/hello.txt", [r"kira-ci"]),
+               ("cp /bin/plasma /usb0/plasma.bin", []),
+               ("ls /usb0", [r"plasma\.bin"]),
+               ("umount usb0", [])]),
     dict(name="arm64-power", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", disk="virtio-blk-pci",
          must=[r"Processors online: 2 of 2"],
          cmds=[("write /reboot.txt kira-before-reboot", []),
@@ -176,6 +188,9 @@ def run(sc, out):
     else:
         args += ["-nic", "none"]
     qmp_path = os.path.join(d, "qmp.sock")
+    if sc.get("flash"):                             # флешка FAT32 (ci/make_flash.sh) - свежая копия
+        fl = os.path.join(d, "flash.img"); shutil.copyfile("ci-out/flash.img", fl)
+        args += ["-drive", f"if=none,id=stick,format=raw,file={fl}"]
     args += sc.get("extra", [])
     if sc.get("gui") or sc.get("qmp"):
         if os.path.exists(qmp_path): os.unlink(qmp_path)
@@ -285,7 +300,8 @@ def run(sc, out):
     finally:
         p.kill(); p.wait()
         open(os.path.join(d, "serial.log"), "wb").write(log)
-        if os.path.exists(os.path.join(d, "disk.img")): os.unlink(os.path.join(d, "disk.img"))
+        for im in ("disk.img", "flash.img"):
+            if os.path.exists(os.path.join(d, im)): os.unlink(os.path.join(d, im))
         dbg = os.path.join(d, "qemu-debug.log")
         if os.path.exists(dbg):                     # начало журнала исключений QEMU - самое ценное, остальное - тики
             with open(dbg, "rb") as f: head = f.read(200000)

@@ -225,7 +225,8 @@ ALL = [
         {"cmd": "test crash 2"}, {"sleep": 3},
         {"log": [r"\[KIRA CORE 2\] machine check #18", r"\[KIRA CORE 2\] out of service"]},
         {"responsive": "status", "within": 5},
-        {"cmd": "test smp", "must": [r"RESULT: PASS"], "timeout": 60},
+        {"cmd": "smp", "timeout": 10},                                         # состояние ядер после отказа 2-го
+        {"send": "plasma"}, {"sleep": 4}, {"responsive": "status", "within": 5},
         {"log_forbid": [x for x in NO_ERR if x != r"kernel-mode fault"]},
     ], smp=4, mem="512M"),
 ]

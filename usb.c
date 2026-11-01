@@ -371,10 +371,12 @@ static void usb_main(void* arg) {
         if (p->class_code != 0x0C || p->subclass != 0x03) continue;
         int rc = -1;
         if (p->prog_if == 0x30) rc = xhci_start(&hcs[nhc], p);
+#if defined(__x86_64__)
         else if (p->prog_if == 0x00) rc = uhci_start(&hcs[nhc], p);
+#endif
         else {
             uart_print("[KIRA USB] ");
-            uart_print(p->prog_if == 0x20 ? "EHCI" : p->prog_if == 0x10 ? "OHCI" : "unknown");
+            uart_print(p->prog_if == 0x20 ? "EHCI" : p->prog_if == 0x10 ? "OHCI" : p->prog_if == 0x00 ? "UHCI (needs x86 port I/O)" : "unknown");
             uart_print(" controller at PCI "); uart_print_dec(p->bus); uart_print(":"); uart_print_dec(p->dev);
             uart_print(" - no driver yet (UHCI and xHCI are supported)\n");
             continue;

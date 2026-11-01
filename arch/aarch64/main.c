@@ -45,6 +45,7 @@
 #include "hda.h"
 #include "rtc.h"
 #include "corefault.h"
+#include "usb.h"
 #include "spinlock.h"
 #include "platform.h"
 #include "msi.h"
@@ -875,7 +876,7 @@ static void crash_worker(void* arg) {
 int smp_crash_test(unsigned mode, unsigned cpu) {
     (void)cpu;
     if (mode == 1) return -5;
-    return sched_create("smpcrash", crash_worker, (void*)(uintptr_t)mode, PRIO_NORMAL) ? 0 : -2;
+    return sched_create_on("smpcrash", crash_worker, (void*)(uintptr_t)mode, PRIO_NORMAL, SCHED_AFFINITY_ALL) ? 0 : -2;   /* обычный поток, не служебный */
 }
 
 void platform_status(void (*out)(const char*)) {
@@ -1156,6 +1157,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     input_init();
     if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.\n");
     virtio_input_init();
+    usb_init();              /* USB: xHCI (клавиатура, мышь, планшет, хабы, флешки) - тот же стек, что у x86-64 */
     if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */
     net_start();
     hda_probe();
