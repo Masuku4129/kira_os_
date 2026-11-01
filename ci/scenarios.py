@@ -173,10 +173,10 @@ ALL = [
         {"cmd": "files /fm-a /fm-b"}, {"sleep": 3}, {"shot": "explorer2-open"},
         {"log": [r"\[KIRA FILES\] explorer: /fm-a \| /fm-b"]},
         {"keys": "", "then": ["down", "f5"]}, {"sleep": 2}, {"shot": "explorer2-copy"},                    # курсор на one.txt: копия в правую панель
-        {"log": [r"\[KIRA FILES\] copy /fm-a/one\.txt -> /fm-b/one\.txt: 8 байт"]},
+        {"log": [r"\[KIRA FILES\] copy /fm-a/one\.txt -> /fm-b/one\.txt: 9 байт"]},
         {"cmd": "cat /fm-b/one.txt", "must": [r"kira-one"]}, {"cmd": "cat /fm-a/one.txt", "must": [r"kira-one"]},
         {"keys": "", "then": ["down", "f6"]}, {"sleep": 2},                                              # two.txt: перенос
-        {"log": [r"\[KIRA FILES\] move /fm-a/two\.txt -> /fm-b/two\.txt: 8 байт"]},
+        {"log": [r"\[KIRA FILES\] move /fm-a/two\.txt -> /fm-b/two\.txt: 9 байт"]},
         {"cmd": "cat /fm-b/two.txt", "must": [r"kira-two"]},
         {"cmd": "ls /fm-a", "must": [r"one\.txt"], "forbid": [r"two\.txt"]},
         {"keys": "", "then": ["tab", "f7"]}, {"sleep": 1}, {"shot": "explorer2-mkdir"},                   # правая панель: новый каталог
