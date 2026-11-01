@@ -2,11 +2,18 @@
 #ifndef KTEST_H
 #define KTEST_H
 #ifdef __KIRA__
+#ifdef __aarch64__
+static long ksys(unsigned long n, unsigned long a, unsigned long b, unsigned long c) {
+    __asm__ volatile ("svc #0" : "+x0"(a), "+x1"(b), "+x2"(c) : "x8"(n) : "memory");
+    return (long)a;
+}
+#else
 static long ksys(unsigned long n, unsigned long a, unsigned long b, unsigned long c) {
     long r;
     __asm__ volatile ("syscall" : "=a"(r), "+D"(a), "+S"(b), "+d"(c) : "a"(n) : "rcx", "r11", "r8", "r9", "r10", "memory");
     return r;
 }
+#endif
 #else
 #include <unistd.h>
 static long ksys(unsigned long n, unsigned long a, unsigned long b, unsigned long c) {

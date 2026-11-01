@@ -4,56 +4,13 @@
  * Достижимость: в образ попадают main, функции и данные с внешней видимостью и всё, на что они ссылаются; статические
  * неиспользуемые функции отбрасываются (как --gc-sections). Неопределённый символ - ошибка. */
 #include "x86.h"
+#include "target.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
 static XA xa;
 #define A (&xa)
-
-/* ---------- таблица имён ---------- */
-static Obj **htab;
-static unsigned hcap;
-static unsigned hash(const char *s) { unsigned h = 2166136261u; while (*s) h = (h ^ (unsigned char)*s++) * 16777619u; return h; }
-static void hput(Obj *o) {
-    for (unsigned i = hash(o->name) & (hcap - 1);; i = (i + 1) & (hcap - 1)) {
-        if (!htab[i]) { htab[i] = o; return; }
-        if (!strcmp(htab[i]->name, o->name)) {
-            if ((o->is_func ? o->body != NULL : o->is_def) && !(htab[i]->is_func ? htab[i]->body != NULL : htab[i]->is_def)) htab[i] = o;
-            return;
-        }
-    }
-}
-Obj *gen_lookup(const char *name) {
-    for (unsigned i = hash(name) & (hcap - 1); htab[i]; i = (i + 1) & (hcap - 1))
-        if (!strcmp(htab[i]->name, name)) return htab[i];
-    return NULL;
-}
-
-static int is_defined(const Obj *o) { return o->is_func ? o->body != NULL : o->is_def; }
-static int is_helper_name(const char *n) { return !strcmp(n, "memcpy") || !strcmp(n, "memset") || !strcmp(n, "memcmp") || !strcmp(n, "strlen"); }
-
-/* ---------- достижимость ---------- */
-static Obj **work; static int nwork;
-
-static void mark_ref(const Obj *from, const char *name) {
-    Obj *o = gen_lookup(name);
-    if (!o || (!is_defined(o) && !(o->is_func && is_helper_name(o->name))))
-        kerr(K.srcpath, from ? from->line : 1, "undefined reference to '%s'", name);
-    if (o->emit) return;
-    o->emit = 1;
-    work[nwork++] = o;
-}
-
-static void scan_refs(Obj *o) {
-    if (o->is_func) {
-        if (!o->body) return;
-        for (Ins *i = ((IrFn *)o->ir)->head; i; i = i->next)
-            if ((i->op == IR_GADDR || i->op == IR_CALL) && i->sym) mark_ref(o, i->sym);
-    } else {
-        for (Reloc *r = o->relocs; r; r = r->next) mark_ref(o, r->sym);
-    }
-}
 
 /* ---------- состояние функции ---------- */
 static const int pool[5] = { R_BX, R_12, R_13, R_14, R_15 };
@@ -88,38 +45,6 @@ static int cmp_start(const void *a, const void *b) {
     int x = *(const int *)a, y = *(const int *)b;
     if (vs[x] != vs[y]) return vs[x] < vs[y] ? -1 : 1;
     return x - y;
-}
-
-static void touch(int v, int idx, int nv) {
-    if (v <= 0) return;
-    if (v > nv) kerr(A->file, A->line, "internal: bad vreg %d", v);
-    if (idx < vs[v]) vs[v] = idx;
-    if (idx > ve[v]) ve[v] = idx;
-}
-static void touch_ins(const Ins *i, int idx, int nv) {
-    switch (i->op) {
-    case IR_CONST: case IR_GADDR: case IR_LADDR: case IR_VAINFO: touch(i->dst, idx, nv); break;
-    case IR_PARAM: touch(i->dst, idx, nv); touch(i->a, idx, nv); break;
-    case IR_ATOMIC: touch(i->a, idx, nv); touch(i->b, idx, nv); touch(i->c, idx, nv); touch(i->dst, idx, nv); break;
-    case IR_LOAD: case IR_MOV: case IR_NEG: case IR_NOT: case IR_EXT: touch(i->a, idx, nv); touch(i->dst, idx, nv); break;
-    case IR_STORE: case IR_COPY: touch(i->a, idx, nv); touch(i->b, idx, nv); break;
-    case IR_BIN: case IR_CMP: touch(i->a, idx, nv); touch(i->b, idx, nv); touch(i->dst, idx, nv); break;
-    case IR_BRZ: case IR_BRNZ: case IR_ZERO: touch(i->a, idx, nv); break;
-    case IR_RET: touch(i->a, idx, nv); break;
-    case IR_CALL:
-        if (!i->sym) touch(i->a, idx, nv);
-        for (int k = 0; k < i->nargs; k++) touch(i->args[k], idx, nv);
-        touch(i->rt, idx, nv);
-        touch(i->dst, idx, nv);
-        break;
-    case IR_ASM: {
-        const int *o = (const int *)(intptr_t)i->imm;
-        for (int k = 0; k < i->nargs; k++) touch(i->args[k], idx, nv);
-        for (int k = 0; k < i->nout; k++) touch(o[k], idx, nv);
-        break;
-    }
-    default: break;
-    }
 }
 
 /* ---------- примитивы ---------- */
@@ -441,7 +366,7 @@ static void gen_func(IrFn *fi) {
     for (int l = 0; l <= fi->nlab + 1; l++) labpos[l] = -1;
     int maxout = 0, natom = 0;
     for (int k = 0; k < n; k++) {
-        touch_ins(ins[k], k, nv);
+        gen_live(ins[k], k, nv, vs, ve);
         if (ins[k]->op == IR_LABEL) {
             if (ins[k]->imm < 0 || ins[k]->imm > fi->nlab) kerr(A->file, A->line, "internal: bad label");
             labpos[ins[k]->imm] = k;
@@ -573,28 +498,20 @@ static void gen_helper(Obj *o) {
     xa_labels_end(A);
 }
 
+static void x86_reloc(unsigned char *text, void *ctx) {
+    (void)ctx;
+    for (XFix *f = xa.fix; f; f = f->next) {
+        Obj *t = f->target;
+        if (!t->emit) kerr(K.srcpath, f->line, "undefined reference to '%s'", t->name);
+        int64_t v = (int64_t)t->addr + f->add - (int64_t)(elf_base(ELF_ARCH_X86) + (uint64_t)f->off + 4);
+        if (v < INT32_MIN || v > INT32_MAX) kerr(K.srcpath, f->line, "relocation to '%s' is out of range", t->name);
+        for (int k = 0; k < 4; k++) text[f->off + k] = (unsigned char)((uint32_t)v >> (8 * k));
+    }
+}
+
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
     memset(&xa, 0, sizeof xa);
-    int ng = 0;
-    for (Obj *g = globals; g; g = g->next) ng++;
-    hcap = 16;
-    while (hcap < (unsigned)ng * 2 + 16) hcap <<= 1;
-    htab = ka_new(sizeof(Obj *) * hcap);
-    for (Obj *g = globals; g; g = g->next) hput(g);
-    for (Obj *g = globals; g; g = g->next) {
-        if (g->is_func && g->body) {
-            A->file = K.srcpath; A->line = g->line;
-            g->ir = ir_lower(g);
-        }
-    }
-    work = ka_new(sizeof(Obj *) * (size_t)(ng + 1));
-    nwork = 0;
-    Obj *mainf = gen_lookup("main");
-    if (!mainf || !mainf->is_func || !mainf->body) kerr(K.srcpath, 1, "undefined reference to 'main'");
-    mark_ref(NULL, "main");
-    for (Obj *g = globals; g; g = g->next)
-        if (!g->is_static && is_defined(g) && !g->emit && hcap && gen_lookup(g->name) == g) mark_ref(g, g->name);
-    while (nwork) scan_refs(work[--nwork]);
+    Obj *mainf = gen_prepare(globals);
     /* _start: argc/argv не передаются, main(0, 0); код выхода - в K_EXIT */
     A->file = K.srcpath; A->line = 1;
     xa_ins(A, X_XOR, xr(4, R_BP), xr(4, R_BP));
@@ -609,6 +526,6 @@ void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
     for (Obj *g = globals; g; g = g->next)
         if (g->is_func && g->body && g->emit) gen_func((IrFn *)g->ir);
     for (Obj *g = globals; g; g = g->next)
-        if (g->is_func && !g->body && g->emit && is_helper_name(g->name)) gen_helper(g);
-    elf_emit(globals, A, out, outlen);
+        if (g->is_func && !g->body && g->emit && gen_is_helper_name(g->name)) gen_helper(g);
+    elf_emit(globals, A->p, A->len, ELF_ARCH_X86, x86_reloc, NULL, out, outlen);
 }

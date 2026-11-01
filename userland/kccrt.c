@@ -1,4 +1,4 @@
-/* libc для kcc на Кире: строки, qsort, vsnprintf, setjmp/longjmp (x86-64). mem* - в userland/libc_min.c. */
+/* libc для kcc на Кире: строки, qsort, vsnprintf, setjmp/longjmp (x86-64 и ARM64). mem* - в userland/libc_min.c. */
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -150,6 +150,15 @@ int snprintf(char *buf, size_t cap, const char *fmt, ...) {
 }
 
 /* setjmp/longjmp: сохраняются callee-saved регистры, стек и адрес возврата. setjmp возвращает 0, longjmp(env, v) - v (0 -> 1). */
+#if defined(__aarch64__)
+/* x19-x30 и sp (callee-saved целочисленные; вещественных регистров код kcc не использует: сборка с -mgeneral-regs-only) */
+__asm__(".text\n.global setjmp\nsetjmp:\n"
+        " stp x19, x20, [x0, #0]\n stp x21, x22, [x0, #16]\n stp x23, x24, [x0, #32]\n stp x25, x26, [x0, #48]\n stp x27, x28, [x0, #64]\n"
+        " stp x29, x30, [x0, #80]\n mov x9, sp\n str x9, [x0, #96]\n mov w0, #0\n ret\n"
+        ".global longjmp\nlongjmp:\n"
+        " ldp x19, x20, [x0, #0]\n ldp x21, x22, [x0, #16]\n ldp x23, x24, [x0, #32]\n ldp x25, x26, [x0, #48]\n ldp x27, x28, [x0, #64]\n"
+        " ldp x29, x30, [x0, #80]\n ldr x9, [x0, #96]\n mov sp, x9\n cmp w1, #0\n csinc w0, w1, wzr, ne\n ret\n");
+#else
 __asm__(".text\n.global setjmp\nsetjmp:\n"
         " mov %rbx, 0(%rdi)\n mov %rbp, 8(%rdi)\n mov %r12, 16(%rdi)\n mov %r13, 24(%rdi)\n mov %r14, 32(%rdi)\n mov %r15, 40(%rdi)\n"
         " lea 8(%rsp), %rdx\n mov %rdx, 48(%rdi)\n mov (%rsp), %rdx\n mov %rdx, 56(%rdi)\n xor %eax, %eax\n ret\n"
@@ -157,3 +166,4 @@ __asm__(".text\n.global setjmp\nsetjmp:\n"
         " mov %esi, %eax\n test %eax, %eax\n jnz 1f\n inc %eax\n1:\n"
         " mov 0(%rdi), %rbx\n mov 8(%rdi), %rbp\n mov 16(%rdi), %r12\n mov 24(%rdi), %r13\n mov 32(%rdi), %r14\n mov 40(%rdi), %r15\n"
         " mov 48(%rdi), %rsp\n jmp *56(%rdi)\n");
+#endif

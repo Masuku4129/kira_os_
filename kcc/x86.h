@@ -42,9 +42,5 @@ void xa_label(XA *a, int lab);
 void xa_labels_begin(XA *a, int nlab);        /* метки 0..nlab */
 void xa_labels_end(XA *a);                    /* разрешает переходы; неопределённая метка - ошибка */
 
-/* gen_x86.c */
-Obj *gen_lookup(const char *name);
-/* elf.c: раскладка, разрешение ссылок, запись образа */
-void elf_emit(Obj *globals, XA *xa, unsigned char **out, size_t *outlen);
 
 #endif

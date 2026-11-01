@@ -58,7 +58,7 @@ int main(void) {
     unsigned cnt = 0;
     for (int k = 0; k < 100; k++) {
         unsigned c = __atomic_load_n(&cnt, __ATOMIC_SEQ_CST);
-        while (!__atomic_compare_exchange_n(&cnt, &c, c + (unsigned)k, 1, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {}
+        while (!__atomic_compare_exchange_n(&cnt, &c, c + (unsigned)k, 1, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) continue;
     }
     pn(cnt);
     return 0;

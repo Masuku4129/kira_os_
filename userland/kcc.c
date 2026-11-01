@@ -79,7 +79,11 @@ int umain(void) {
     if (!base) { say("kcc: нет памяти для арены компилятора\n"); k_exit(2); }
     arena = base; arena_cap = CHUNK_PAGES * PAGE;
     static const char *incs[1] = { INC_DIR };
+    #if defined(__aarch64__)
+    KCfg cfg = { rd, 0, incs, 1, 0, 0, "aarch64", grow };      /* программы собираются для той же архитектуры, на которой работает компилятор */
+#else
     KCfg cfg = { rd, 0, incs, 1, 0, 0, "x86_64", grow };
+#endif
     KResult r;
     int rc = kcc_compile(&cfg, arena, arena_cap, src, 2, &r);
     if (r.warn && *r.warn) say(r.warn);

@@ -11,7 +11,7 @@ int elf_parse(const void* image, size_t len, uint64_t win_lo, uint64_t win_hi, u
     if (!b || len < 64) return ELF_ERR_SHORT;
     if (b[0] != 0x7F || b[1] != 'E' || b[2] != 'L' || b[3] != 'F') return ELF_ERR_MAGIC;
     if (b[4] != 2 || b[5] != 1 || b[6] != 1) return ELF_ERR_FORMAT;                 /* 64 бита, little endian, версия 1 */
-#if defined(__aarch64__) && !defined(KIRA_HOST_TEST)
+#if (defined(__aarch64__) && !defined(KIRA_HOST_TEST)) || defined(KIRA_HOST_ARM64)
 #define ELF_MACHINE 183                                                                /* EM_AARCH64 */
 #else
 #define ELF_MACHINE 62                                                                 /* EM_X86_64 */

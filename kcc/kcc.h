@@ -164,6 +164,8 @@ void ir_dump(Obj *globals, SB *out);
 /* ---------- gen_x86.c / asm_x86.c / elf.c (этап M2) ---------- */
 /* Компиляция программы в исполняемый ELF Киры (x86-64). Результат - в арене. Ошибки - через kerr. */
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
+/* gen_a64.c / asm_a64.c (этап M4): то же для AArch64 (EL0 Киры ARM64). */
+void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
 
 /* ---------- API ---------- */
 typedef struct { const char *ir; const char *err; const char *warn; const unsigned char *elf; size_t elflen; } KResult;
