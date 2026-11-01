@@ -1,0 +1,104 @@
+{
+ "name": "usb-xhci",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "step": "usb",
+   "must": "xHCI",
+   "ok": true
+  },
+  {
+   "step": "usb",
+   "must": "хаб",
+   "ok": true
+  },
+  {
+   "step": "usb",
+   "must": "клавиатура",
+   "ok": true
+  },
+  {
+   "step": "usb",
+   "must": "планшет",
+   "ok": true
+  },
+  {
+   "step": "df",
+   "must": "usb0",
+   "ok": true
+  },
+  {
+   "step": "cat /usb0/hello.txt",
+   "must": "kira-ci",
+   "ok": true
+  },
+  {
+   "step": "cp /bin/plasma /usb0/plasma.bin",
+   "forbid": "ошибк|error",
+   "ok": true
+  },
+  {
+   "step": "ls /usb0",
+   "must": "plasma.bin",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.5,
+ "seconds": 11.9,
+ "commands": [
+  {
+   "cmd": "usb",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "df",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "cat /usb0/hello.txt",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "cp /bin/plasma /usb0/plasma.bin",
+   "seconds": 0.34
+  },
+  {
+   "cmd": "ls /usb0",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "umount usb0",
+   "seconds": 0.01
+  }
+ ]
+}
