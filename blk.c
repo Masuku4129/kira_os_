@@ -28,9 +28,10 @@ typedef struct {
 static slot_t slots[BLK_MAX];
 static int nslots;
 static blk_dev_t* primary;
-static volatile uint64_t req_count, req_tsc;      /* для Разума: число операций и суммарное время (такты TSC) */
+static volatile uint64_t req_count, req_tsc, req_bytes;      /* для Разума: число операций и суммарное время (такты TSC) */
 
 void blk_stats(uint64_t* requests, uint64_t* tsc_total) { *requests = req_count; *tsc_total = req_tsc; }
+uint64_t blk_bytes(void) { return req_bytes; }
 
 static volatile uint64_t fake_us;
 void blk_udelay(uint32_t us) { fake_us += us; while (us--) cpu_io_delay(); }
@@ -64,6 +65,7 @@ static int g_read(blk_dev_t* d, uint64_t lba, uint32_t n, void* buf) {
     uint64_t t0 = rdtsc();
     int r = s->raw->read(s->raw, lba, n, buf);
     __atomic_add_fetch(&req_tsc, rdtsc() - t0, __ATOMIC_RELAXED); __atomic_add_fetch(&req_count, 1, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&req_bytes, (uint64_t)n * BLK_SECTOR, __ATOMIC_RELAXED);
     kmutex_unlock(&s->mx);
     if (r) devhealth_error(s->info.id);
     return r;
@@ -75,6 +77,7 @@ static int g_write(blk_dev_t* d, uint64_t lba, uint32_t n, const void* buf) {
     uint64_t t0 = rdtsc();
     int r = s->raw->write(s->raw, lba, n, buf);
     __atomic_add_fetch(&req_tsc, rdtsc() - t0, __ATOMIC_RELAXED); __atomic_add_fetch(&req_count, 1, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&req_bytes, (uint64_t)n * BLK_SECTOR, __ATOMIC_RELAXED);
     kmutex_unlock(&s->mx);
     if (r) devhealth_error(s->info.id);
     return r;

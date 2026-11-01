@@ -58,6 +58,10 @@ void sched_lock_stats(unsigned cpu, uint64_t* wait_cycles, uint64_t* contended, 
 }
 static int sched_ready;
 static uint32_t quantum_ticks = DEFAULT_QUANTUM;
+static volatile uint32_t limit_window = SCHED_LIMIT_WINDOW;   /* рычаги Разума: окно предела доли и порог взятия чужого потока */
+static volatile uint32_t steal_bias = 2;
+void sched_set_limit_window(uint32_t ticks) { limit_window = ticks < 10 ? 10 : ticks > 200 ? 200 : ticks; }
+void sched_set_steal_bias(uint32_t quanta) { steal_bias = quanta < 1 ? 1 : quanta > 16 ? 16 : quanta; }
 static uint64_t total_switches;
 static uint32_t next_id = 1;
 static uint64_t tsc_khz;
@@ -313,7 +317,7 @@ static thread_t* pick_next(unsigned cpu, const thread_t* self) {
                Если «своя» очередь - только что истративший квант текущий поток, ждущий чужой идёт первым. */
             thread_t* far = steal(cpu, (unsigned)p, self);
             if (far && (!t || (t == self && self->quantum_left == 0) ||
-                        far->ready_since + 2ULL * quantum_ticks < t->ready_since)) t = far;
+                        far->ready_since + (uint64_t)steal_bias * quantum_ticks < t->ready_since)) t = far;
         }
         if (t) { rq_remove(t); return t; }
     }
@@ -619,9 +623,10 @@ void sched_tick(void) {
         need |= cpu->seen_epoch != __atomic_load_n(&ready_epoch, __ATOMIC_RELAXED);
     } else {
         if (cur->limit && cur->limit < 100) {           /* ограничение доли процессора (Разум) */
-            if (now - cur->lim_start >= SCHED_LIMIT_WINDOW) { cur->lim_start = now; cur->lim_used = 0; }
-            if (++cur->lim_used * 100 >= cur->limit * SCHED_LIMIT_WINDOW) {
-                cur->throttled_until = cur->lim_start + SCHED_LIMIT_WINDOW;
+            uint32_t lw = limit_window;
+            if (now - cur->lim_start >= lw) { cur->lim_start = now; cur->lim_used = 0; }
+            if (++cur->lim_used * 100 >= cur->limit * lw) {
+                cur->throttled_until = cur->lim_start + lw;
                 cpu->need_resched = 1;
             }
         }

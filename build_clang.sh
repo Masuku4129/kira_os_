@@ -94,6 +94,8 @@ done
 ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
 [ -n "$ROOTS_N" ] && echo "[*] Корневые сертификаты: $ROOTS_N из $ROOTS_SRC" || echo "[!] Связки корневых сертификатов нет (пакет ca-certificates): fetch https откажется проверять сервер"
 [ -n "$ROOTS_N" ] && tools/kfstool kira.disk put /etc/ssl/roots.der tools/roots.der
+# Семя опыта Разума (получено в QEMU workflow mind-train): стартовые веса предвидения и подсказки по рычагам, если своего опыта на диске нет
+[ -f data/mind_seed.bin ] && tools/kfstool kira.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
 
 echo "[*] Компиляция C..."
 OBJ="boot.o"

@@ -42,7 +42,8 @@ static void  kfree_(void* p) { if (p) kfree(p); }
 #define DIRENT_SIZE 64
 #define NEXT 32                          /* участков таблицы инодов */
 #define ICACHE 64
-#define RUN_MAX 256u                     /* блоков в одном запросе к диску */
+static volatile uint32_t run_max = 256u;  /* блоков в одном запросе к диску; меняет Разум (рычаг), 16..256 */
+#define RUN_MAX run_max
 
 typedef struct {
     uint32_t type, flags;
@@ -1019,3 +1020,5 @@ int kfs_mkdir(const char* path) { KFS_LOCK(); int r = kfs_mkdir_impl(path); KFS_
 int kfs_unlink(const char* path) { KFS_LOCK(); int r = kfs_unlink_impl(path); KFS_UNLOCK(); return r; }
 int kfs_list(const char* path, kfs_list_cb cb, void* ctx) { KFS_LOCK(); int r = kfs_list_impl(path, cb, ctx); KFS_UNLOCK(); return r; }
 void kfs_info(kfs_info_t* o) { KFS_LOCK(); kfs_info_impl(o); KFS_UNLOCK(); }
+
+void kfs_set_run_max(uint32_t blocks) { run_max = blocks < 16 ? 16 : blocks > 256 ? 256 : blocks; }

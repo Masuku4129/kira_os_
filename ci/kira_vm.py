@@ -114,6 +114,8 @@ class VM:
             import mkfiles
             for dst, src in mkfiles.make(os.path.join(out, "files")).items():
                 subprocess.run(["tools/kfstool", self.disk, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
+        for dst, src in sc.get("put", {}).items():  # файлы хозяина на диск машины (например, семя опыта Разума)
+            subprocess.run(["tools/kfstool", self.disk, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
         if sc.get("tls_chain"):                     # тестовая цепочка: корневой - единственный доверенный на этом диске
             chain = os.path.abspath("ci-out/tlschain")
             subprocess.run([sys.executable, "-I", "ci/mkchain.py", chain], check=True, stdout=subprocess.DEVNULL)

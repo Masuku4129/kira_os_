@@ -91,7 +91,8 @@ uint32_t audio_resample(audio_rs_t* r, const int16_t* in, uint32_t nin, int16_t*
 #include "heap.h"
 
 #define SRC_FRAMES AUDIO_RATE                  /* очередь источника - 1 с */
-#define LEAD (AUDIO_RATE / 10)                 /* опережение записи - 100 мс */
+static volatile uint32_t lead_frames = AUDIO_RATE / 10;     /* опережение записи, кадров: 100 мс, меняет Разум (рычаг) */
+static volatile uint32_t period_ms = 10;                    /* период работы микшера, мс; меняет Разум */
 #define CHUNK 480                              /* смешивается по 10 мс */
 
 typedef struct {
@@ -153,14 +154,14 @@ static void audio_main(void* arg) {
         uint32_t d = (pos + ring - last_pos) % ring;
         if (d < ring - ring / 8) { hw += d; last_pos = pos; }      /* шаг назад (< 1/8 кольца - дрожание позиции карты) - не «почти круг вперёд» */
         if (wr < hw) { underruns++; wr = hw; }                     /* не успели: догоняем карту */
-        while (wr < hw + LEAD) {
+        while (wr < hw + lead_frames) {
             uint32_t at = (uint32_t)(wr % ring), n = CHUNK;
             if (at + n > ring) n = ring - at;
             mix_chunk(buf + 2 * at, n);
             wr += n;
         }
         cpu_mb();
-        sched_sleep_ticks(TIMER_HZ / 100 ? TIMER_HZ / 100 : 1);    /* ~10 мс */
+        { uint32_t tk = (uint32_t)((uint64_t)TIMER_HZ * period_ms / 1000); sched_sleep_ticks(tk ? tk : 1); }   /* 10 мс по умолчанию */
     }
 }
 
@@ -178,6 +179,16 @@ int audio_attach(const audio_card_t* c) {
 }
 
 uint64_t audio_hw_frames(void) { return hw; }
+
+/* Рычаги Разума: опережение записи (мс) и период микшера (мс). Границы держит Разум; здесь - защита от безумных значений:
+   опережение не меньше 20 мс и не больше четверти кольца карты, период не меньше 2 мс. */
+void audio_set_lead_ms(uint32_t ms) {
+    if (ms < 20) ms = 20;
+    if (ms > 500) ms = 500;
+    lead_frames = (uint32_t)((uint64_t)ms * AUDIO_RATE / 1000);
+}
+void audio_set_period_ms(uint32_t ms) { period_ms = ms < 2 ? 2 : ms > 50 ? 50 : ms; }
+void audio_stats(uint64_t* mixed_frames, uint64_t* under) { *mixed_frames = mixed_prog; *under = underruns; }
 
 int audio_tone(unsigned hz, unsigned ms) {
     if (!running) return -1;

@@ -3,6 +3,7 @@
 
 /* ---------------- мелочи без libc ---------------- */
 
+#define ML(s, L) mind_lever_val((s), (L))
 static void mzero(void* p, unsigned long n) { uint8_t* b = (uint8_t*)p; while (n--) *b++ = 0; }
 static void mcopy(void* d, const void* src, unsigned long n) { uint8_t* a = (uint8_t*)d; const uint8_t* b = (const uint8_t*)src; while (n--) *a++ = *b++; }
 static void scopy(char* d, const char* s, unsigned cap) { unsigned i = 0; while (s[i] && i + 1 < cap) { d[i] = s[i]; i++; } d[i] = 0; }
@@ -82,6 +83,17 @@ int mind_model_load(mind_model_t* out, const void* buf, unsigned len) {
         mcopy(out, buf, sizeof *out);
         return mind_model_valid(out);
     }
+    if (len == sizeof(mind_model_v2_t)) {                     /* версия 2: те же поля без рычагов */
+        mind_model_v2_t o;
+        mcopy(&o, buf, sizeof o);
+        if (o.magic != MIND_MAGIC || o.version != 2) return 0;
+        uint32_t c = o.crc; o.crc = 0;
+        if (crc32_m(&o, sizeof o) != c) return 0;
+        mzero(out, sizeof *out);
+        mcopy(out, &o, __builtin_offsetof(mind_model_v2_t, crc));
+        mind_model_seal(out);
+        return 1;
+    }
     if (len == sizeof(mind_model_v1_t)) {                     /* опыт прежней версии: нормы и настройки сохраняются */
         mind_model_v1_t o;
         mcopy(&o, buf, sizeof o);
@@ -95,6 +107,29 @@ int mind_model_load(mind_model_t* out, const void* buf, unsigned len) {
         return 1;
     }
     return 0;
+}
+
+/* Семя: только веса предвидения (с урезанным числом наблюдений) и подсказки по рычагам. */
+int mind_model_seed(mind_model_t* out, const void* buf, unsigned len) {
+    mind_model_t src;
+    if (!mind_model_load(&src, buf, len)) return 0;
+    if (src.net.n < 60) return 0;                              /* семя из пары минут жизни - не знание */
+    mzero(out, sizeof *out);
+    out->mode = MIND_ACT; out->fx_user = MIND_FX_AUTO; out->tz_min = 180;
+    mnet_init(&out->net);
+    for (int i = 0; i < MNET_F; i++) out->net.w[i] = src.net.w[i];
+    out->net.b = src.net.b;
+    out->net.n = src.net.n < MIND_SEED_N ? src.net.n : MIND_SEED_N;
+    out->net.pos = (uint32_t)((uint64_t)src.net.pos * out->net.n / src.net.n);
+    for (int i = 0; i < ML_N; i++) {
+        if (src.lv[i].wins == 0 || src.lv[i].best >= 8) continue;      /* подсказка только от выигранной пробы */
+        out->lv[i].best = src.lv[i].best;
+        out->lv[i].trials = src.lv[i].trials < 2 ? src.lv[i].trials : 2;
+        out->lv[i].wins = 1;
+    }
+    out->mflags = MF_SEED;
+    mind_model_seal(out);
+    return 1;
 }
 
 /* ---------------- журнал ---------------- */
@@ -117,6 +152,8 @@ const mind_event_t* mind_journal(const mind_t* s, unsigned i) {
 
 /* ---------------- создание ---------------- */
 
+static void ml_init(mind_t* s);
+
 void mind_init(mind_t* s, const mind_model_t* saved, unsigned cores) {
     mzero(s, sizeof *s);
     if (saved && mind_model_valid(saved)) s->m = *saved;
@@ -137,9 +174,13 @@ void mind_init(mind_t* s, const mind_model_t* saved, unsigned cores) {
     s->health = 100; s->c_resp = s->c_room = s->c_bal = s->c_stab = 100;
     s->mood = "просыпается";
     s->q_base_idx = -1;
+    ml_init(s);
     int learned = 0;
     for (int i = 0; i < MIND_SIG_N; i++) if (s->m.norm[i].n >= 60) learned++;
-    if (saved && mind_model_valid(saved))
+    if (saved && mind_model_valid(saved) && (saved->mflags & MF_SEED))
+        jlog(s, 0, MJ_LEARN, 0, 0, "опыта этой машины нет: взято семя (получено в QEMU, на железе - только стартовая подсказка): веса предвидения (на %u с) и подсказки по рычагам; нормы устройства выучу сама",
+             s->m.net.n);
+    else if (saved && mind_model_valid(saved))
         jlog(s, 0, MJ_LEARN, 0, 0, "опыт загружен: %u из %u норм выучены, квант %u мс, решений за жизнь %u, модель предвидения обучена на %u с",
              (uint32_t)learned, (uint32_t)MIND_SIG_N, (uint32_t)Qv[s->q_idx] * 10, s->m.decisions, s->m.net.n);
     else
@@ -172,6 +213,7 @@ void mind_set_mode(mind_t* s, int mode, const mind_act_t* act) {
         s->core_res_pid = 0;
         for (int i = 0; i < MIND_PROC_MAX; i++) s->tr[i].tact_limit = 0;
         s->tact_on = 0;
+        mind_levers_reset(s, act);
     }
     jlog(s, 0, MJ_INFO, 0, 0, mode ? "режим: управление (решения применяются)" : "режим: наблюдение (решения только записываются)");
 }
@@ -301,8 +343,9 @@ static void apply_weight(mind_t* s, mind_track_t* t, uint32_t w, const mind_act_
     if (act->set_weight) act->set_weight(t->pid, w);
 }
 
-static void apply_limit(mind_track_t* t, const mind_act_t* act) {
-    uint32_t want = (t->flagged == 1 || t->throttled_bg) ? 50 : 100;
+static void apply_limit(mind_t* s, mind_track_t* t, const mind_act_t* act) {
+    uint32_t want = t->throttled_bg ? 50 : 100;
+    if (t->flagged == 1 && (uint32_t)ML(s, ML_ODD_LIMIT) < want) want = (uint32_t)ML(s, ML_ODD_LIMIT);
     if (t->tact_limit && t->tact_limit < want) want = t->tact_limit;
     if (t->limit == want) return;
     t->limit = want;
@@ -371,12 +414,12 @@ static void processes(mind_t* s, const mind_sample_t* in, const mind_act_t* act,
                 t->flagged = 1;
                 jlog(s, now, MJ_BEHAVIOR, acting, t->pid, "%s%s ведёт себя необычно: %u вызовов/с при обычных %u - ограничиваю до 50%% ядра",
                      acting ? "" : "(наблюдение) ", t->name, t->sysc_rate, t->prof.sysc);
-                if (acting) apply_limit(t, act); else t->flagged = 2;
+                if (acting) apply_limit(s, t, act); else t->flagged = 2;
             }
             if (t->flagged && t->calm_s >= 10) {
                 int was = t->flagged == 1;
                 t->flagged = 0;
-                if (was) { apply_limit(t, act); jlog(s, now, MJ_RESTORE, 1, t->pid, "%s снова ведёт себя как обычно: ограничение снято", t->name); }
+                if (was) { apply_limit(s, t, act); jlog(s, now, MJ_RESTORE, 1, t->pid, "%s снова ведёт себя как обычно: ограничение снято", t->name); }
             }
             if (t->prof.heap_kb && p->heap_kb > t->prof.heap_kb * 4 && p->heap_kb > 32768 && !(t->prof.flags & 1)) {
                 t->prof.flags |= 1;
@@ -392,8 +435,8 @@ static void processes(mind_t* s, const mind_sample_t* in, const mind_act_t* act,
         s->focus_pid = focus;
         mind_track_t* nw = track_of(s, focus);
         if (nw) {
-            if (acting) apply_weight(s, nw, 6, act);
-            jlog(s, now, MJ_FOCUS, acting, focus, "%sфокус: %s - квант x1,5, пока окно впереди", acting ? "" : "(наблюдение) ", nw->name);
+            if (acting) apply_weight(s, nw, (uint32_t)ML(s, ML_FOCUS_W), act);
+            jlog(s, now, MJ_FOCUS, acting, focus, "%sфокус: %s - вес %u/4 (квант больше обычного), пока окно впереди", acting ? "" : "(наблюдение) ", nw->name, (uint32_t)ML(s, ML_FOCUS_W));
         }
     }
 
@@ -405,7 +448,7 @@ static void processes(mind_t* s, const mind_sample_t* in, const mind_act_t* act,
             mind_track_t* t = &s->tr[i];
             if (!t->alive || t->pid == s->focus_pid || t->throttled_bg || t->cpu_x10 < 500) continue;
             t->throttled_bg = 1;
-            apply_limit(t, act);
+            apply_limit(s, t, act);
             jlog(s, now, MJ_LIMIT, 1, t->pid, "экран опаздывает (%u%% кадров): ограничиваю фоновую %s (%u%% ядра) до 50%%",
                  late_pct, t->name, t->cpu_x10 / 10);
         }
@@ -415,28 +458,29 @@ static void processes(mind_t* s, const mind_sample_t* in, const mind_act_t* act,
             mind_track_t* t = &s->tr[i];
             if (!t->alive || !t->throttled_bg) continue;
             t->throttled_bg = 0;
-            apply_limit(t, act);
+            apply_limit(s, t, act);
             jlog(s, now, MJ_RESTORE, 1, t->pid, "экран успевает 10 с: %s снова без ограничения", t->name);
         }
     }
 
     /* Голодание: поток долго готов, но не получает процессор. */
-    if (in->max_wait_ms >= 2000 && now - s->starve_t >= 10) {
+    uint32_t starve_ms = (uint32_t)ML(s, ML_STARVE_MS);
+    if (in->max_wait_ms >= starve_ms && now - s->starve_t >= 10) {
         uint32_t worst = 0; mind_track_t* wt = 0;
         for (unsigned k = 0; k < in->nproc && k < MIND_PROC_MAX; k++)
             if (in->proc[k].wait_ms > worst) { worst = in->proc[k].wait_ms; wt = track_of(s, in->proc[k].pid); }
-        if (wt && worst >= 2000) {
+        if (wt && worst >= starve_ms) {
             s->starve_t = now;
             if (acting) apply_weight(s, wt, 8, act);
             jlog(s, now, MJ_STARVE, acting, wt->pid, "%s%s ждал процессор %u мс: вес повышен до 2x", acting ? "" : "(наблюдение) ", wt->name, worst);
-        } else if (in->kwait_ms >= 2000) {
+        } else if (in->kwait_ms >= starve_ms) {
             s->starve_t = now;
             jlog(s, now, MJ_STARVE, 0, 0, "поток ядра %s ждал процессор %u мс", in->kwait_name, in->kwait_ms);
         }
     } else if (now - s->starve_t == 10) {                   /* через 10 с повышенный вес возвращается */
         for (int i = 0; i < MIND_PROC_MAX; i++) {
             mind_track_t* t = &s->tr[i];
-            if (t->alive && t->weight == 8 && acting) apply_weight(s, t, t->pid == s->focus_pid ? 6 : 4, act);
+            if (t->alive && t->weight == 8 && acting) apply_weight(s, t, t->pid == s->focus_pid ? (uint32_t)ML(s, ML_FOCUS_W) : 4, act);
         }
     }
 }
@@ -522,11 +566,11 @@ static void visual(mind_t* s, const mind_sample_t* in, const mind_act_t* act, ui
     uint32_t late_pct = in->loops ? in->late * 100 / in->loops : 0;
     if (late_pct >= 10) s->fx_bad_s++; else s->fx_bad_s = 0;
     if (in->late == 0 && in->load < 70) s->fx_calm_s++; else s->fx_calm_s = 0;
-    if (s->fx_bad_s >= 3 && s->fx > MIND_FX_OFF) {
+    if (s->fx_bad_s >= (uint32_t)ML(s, ML_FX_BAD) && s->fx > MIND_FX_OFF) {
         s->fx--; s->fx_bad_s = 0;
         if (act->set_fx) act->set_fx(s->fx);
         jlog(s, now, MJ_FX, 1, 0, "экран не успевает (%u%% кадров опоздали): анимация фона - уровень %u", late_pct, (uint32_t)s->fx);
-    } else if (s->fx_calm_s >= 30 && s->fx < MIND_FX_HIGH) {
+    } else if (s->fx_calm_s >= (uint32_t)ML(s, ML_FX_CALM) && s->fx < MIND_FX_HIGH) {
         s->fx++; s->fx_calm_s = 0;
         if (act->set_fx) act->set_fx(s->fx);
         jlog(s, now, MJ_FX, 1, 0, "у экрана есть запас времени: анимация фона - уровень %u", (uint32_t)s->fx);
@@ -582,8 +626,8 @@ unsigned mind_bg_fps(const mind_t* s) { return bg_fps_steps[s->bg_fps_level]; }
 static void bg_fps_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act, int pressure, int acting) {
     uint32_t lvl = s->bg_fps_level;
     s->bg_calm_ms = pressure ? 0 : s->bg_calm_ms + in->window_ms;
-    if (pressure && in->late && lvl + 1 < BG_STEPS && in->t_ms - s->bg_fps_ms >= 200) lvl++;
-    else if (!pressure && lvl && s->bg_calm_ms >= 1000 && in->t_ms - s->bg_fps_ms >= 500) lvl--;
+    if (pressure && in->late && lvl + 1 < BG_STEPS && in->t_ms - s->bg_fps_ms >= (uint32_t)ML(s, ML_BG_STEP)) lvl++;
+    else if (!pressure && lvl && s->bg_calm_ms >= (uint32_t)ML(s, ML_BG_CALM) && in->t_ms - s->bg_fps_ms >= 500) lvl--;
     if (lvl == s->bg_fps_level) return;
     int down = lvl > s->bg_fps_level;
     s->bg_fps_level = lvl; s->bg_fps_ms = in->t_ms;
@@ -601,7 +645,7 @@ static void core_res_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t*
                           uint32_t cores, uint32_t nbg) {
     s->core_calm_ms = pressure ? 0 : s->core_calm_ms + in->window_ms;
     uint32_t pid = s->core_res_pid;
-    if (acting && pressure && in->late && cores >= 3 && s->focus_pid && nbg) pid = s->focus_pid;
+    if (acting && pressure && in->late >= (uint32_t)ML(s, ML_CORE_RES) && cores >= 3 && s->focus_pid && nbg) pid = s->focus_pid;
     else if (!acting || !s->focus_pid || !nbg || s->core_calm_ms >= 3000) pid = 0;
     if (!act->reserve_core) { s->core_res_pid = 0; return; }
     if (pid == s->core_res_pid) { if (pid) act->reserve_core(1, pid); return; }
@@ -655,7 +699,7 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
             if (lim >= 100) continue;
             if (t->tact_limit && t->tact_limit <= lim) continue;           /* уже не мягче нужного */
             t->tact_limit = lim;
-            if (acting) apply_limit(t, act);
+            if (acting) apply_limit(s, t, act);
             s->tact_actions++;
         }
         if (!s->tact_on || in->t_ms - s->tact_logged_ms >= 2000) {
@@ -667,14 +711,14 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
         s->tact_on = 1;
     } else if (s->tact_on) {
         s->tact_calm_ms += in->window_ms;
-        if (!pressure && s->tact_calm_ms >= 400) {                         /* спокойно: отпускать по четверти */
+        if (!pressure && s->tact_calm_ms >= (uint32_t)ML(s, ML_RELEASE)) {                         /* спокойно: отпускать по четверти */
             int any = 0;
             for (int i = 0; i < MIND_PROC_MAX; i++) {
                 mind_track_t* t = &s->tr[i];
                 if (!t->alive || !t->tact_limit) continue;
                 uint32_t nl = t->tact_limit * 5 / 4 + 1;
                 t->tact_limit = nl >= 100 ? 0 : nl;
-                if (acting) apply_limit(t, act);
+                if (acting) apply_limit(s, t, act);
                 any |= t->tact_limit != 0;
             }
             s->tact_calm_ms = 200;                                         /* следующий шаг - через ~0,2 с */
@@ -691,11 +735,14 @@ void mind_launch_limits(const mind_t* s, unsigned cores, mind_launch_t* out) {
     uint32_t same = cores * 2;
     if (s->health && s->health < 60) same = cores;
     if (s->health && s->health < 40) same = cores / 2;
+    uint32_t pct = (uint32_t)ML(s, ML_ADMIT);            /* рычаг: допуск запусков, % от обычного */
+    same = same * pct / 100;
     if (same < 2) same = 2;
     if (same > 64) same = 64;
     out->max_same = same;
     out->rate_same = cores < 3 ? 3 : cores;             /* burnall запускает по копии на ядро разом */
     out->rate_total = 2 * out->rate_same + 4;
+    if (pct > 100) { out->rate_same = out->rate_same * pct / 100; out->rate_total = out->rate_total * pct / 100; }
     if (s->health && s->health < 40) { out->rate_same = (out->rate_same + 1) / 2; out->rate_total = (out->rate_total + 1) / 2; }
 }
 
@@ -785,16 +832,422 @@ static void foresight(mind_t* s, const mind_sample_t* in, uint32_t now) {
     s->nx_have = in->loops != 0;                               /* без кадров дисплея исхода не будет */
     s->nx_acted = 0;
     int acting = s->m.mode == MIND_ACT;
-    if (s->risk_q16 >= MNET_ONE * 6 / 10 && mnet_trusted(&s->m.net) && s->nx_have) {
+    if (s->risk_q16 >= MNET_ONE / 100 * (uint32_t)ML(s, ML_RISK_THR) && mnet_trusted(&s->m.net) && s->nx_have) {
         if (++s->pre_skip >= 10) { s->pre_skip = 0; return; }  /* проверка: эта секунда - без упреждения */
         s->risk_why = mnet_top_feature(&s->m.net, x);
-        if (acting) { s->pre_until_ms = (now + 1) * 1000 + 300; s->nx_acted = 1; s->m.forecasts++; }
+        if (acting) { s->pre_until_ms = (now + 1) * 1000 + (uint32_t)ML(s, ML_PRE_HOLD); s->nx_acted = 1; s->m.forecasts++; }
         if (in->late == 0 && (now - s->pre_logged_t >= 30 || !s->pre_logged_t)) {   /* опоздания уже идут - это видно и так */
             s->pre_logged_t = now;
             jlog(s, now, MJ_LIMIT, acting, 0, "%sпредвижу опоздание экрана (риск %u%%, главная причина - %s): фон ужимается заранее",
                  acting ? "" : "(наблюдение) ", s->risk_q16 * 100 / MNET_ONE, mind_feature_name(s->risk_why));
         }
     }
+}
+
+/* ---------------- рычаги 13-30: проверка по замеру, откат, арбитраж ----------------
+   Каждый рычаг - величина с лесенкой допустимых значений (границы), обычным значением и оценкой (чем больше, тем
+   лучше), построенной из реальных замеров секунды (см. ml_score). Проверка (A/B) - по одному рычагу за раз:
+     база  - оценка за последние ML_W секунд при текущем значении;
+     проба - соседнее значение ML_W секунд (первую секунду после смены не считаем);
+     выигрыш - оценка выше базы на запас (ml_margin) и нагрузка за окна сравнима, иначе откат;
+     подтверждение - ещё ML_W секунд: оценка не ниже базы, иначе откат (дрейф нагрузки не выдаёт себя за успех).
+   Срочный откат: пока рычаг изменён, опоздания экрана / ожидание потоков / недоборы звука / ошибки диска заметно
+   выросли над базой - значение возвращается сразу, рычаг остывает 2 мин; три срочных за 10 мин - пробы стоят 5 мин.
+   Общий откат: в течение минуты после последнего оставленного изменения опоздания экрана выросли на 30 пунктов -
+   все рычаги к обычным значениям, пробы стоят 3 мин. Бюджет: не больше 5 смен значения в минуту.
+   «Не помогает»: три круга (по две неудачные пробы в обе стороны) без выигрыша - рычаг не трогается, пока не
+   сменится класс нагрузки (сигнатура: загрузка, очередь, звук, диск, опоздания, отказы запусков). */
+enum { SC_SCREEN, SC_WAIT, SC_TACT, SC_AUDIO, SC_AUDCPU, SC_DISK };
+typedef struct { const char* name; const char* unit; uint8_t n, def; int32_t v[5]; uint8_t cls; } ml_def_t;
+static const ml_def_t LD[ML_N] = {
+    { "вес окна в фокусе", "/4", 5, 2, { 4, 5, 6, 7, 8 }, SC_SCREEN },
+    { "порог голодания потока", "мс", 5, 2, { 1000, 1500, 2000, 3000, 4000 }, SC_WAIT },
+    { "порог риска для упреждения", "%", 5, 2, { 40, 50, 60, 70, 80 }, SC_SCREEN },
+    { "срок удержания упреждения", "мс", 4, 1, { 150, 300, 600, 1200 }, SC_SCREEN },
+    { "спокойствие до снятия пределов фона", "мс", 4, 1, { 200, 400, 800, 1600 }, SC_SCREEN },
+    { "период тактики", "мс", 4, 0, { 25, 40, 60, 100 }, SC_TACT },
+    { "допуск копий программ", "%", 4, 1, { 75, 100, 150, 200 }, SC_SCREEN },
+    { "предел необычной программы", "%", 4, 2, { 30, 40, 50, 70 }, SC_SCREEN },
+    { "опоздавших кадров для ядра фокуса", "шт.", 3, 0, { 1, 2, 3 }, SC_SCREEN },
+    { "спокойствие до роста темпа фона", "мс", 3, 1, { 500, 1000, 2000 }, SC_SCREEN },
+    { "интервал сужения темпа фона", "мс", 3, 1, { 100, 200, 400 }, SC_SCREEN },
+    { "спокойствие до роста анимации", "с", 3, 1, { 15, 30, 60 }, SC_SCREEN },
+    { "терпение до снижения анимации", "с", 3, 1, { 2, 3, 5 }, SC_SCREEN },
+    { "опережение звука перед картой", "мс", 5, 2, { 40, 60, 100, 150, 250 }, SC_AUDIO },
+    { "период микшера звука", "мс", 3, 1, { 5, 10, 20 }, SC_AUDCPU },
+    { "предел одного запроса к диску", "блоков", 3, 2, { 16, 64, 256 }, SC_DISK },
+    { "порог взятия чужого потока ядром", "квантов", 4, 1, { 1, 2, 4, 8 }, SC_SCREEN },
+    { "окно предела доли процессора", "тиков", 3, 1, { 25, 50, 100 }, SC_SCREEN },
+};
+
+const char* mind_lever_name(int L) { return L >= 0 && L < ML_N ? LD[L].name : "?"; }
+const char* mind_lever_unit(int L) { return L >= 0 && L < ML_N ? LD[L].unit : ""; }
+int32_t mind_lever_default(int L) { return L >= 0 && L < ML_N ? LD[L].v[LD[L].def] : 0; }
+int32_t mind_lever_val(const mind_t* s, int L) {
+    if (L < 0 || L >= ML_N) return 0;
+    unsigned i = s->lv.one[L].idx;
+    return LD[L].v[i < LD[L].n ? i : LD[L].def];
+}
+int mind_lever_state(const mind_t* s, int L) {
+    const ml_one_t* o = &s->lv.one[L];
+    if (s->lv.state && s->lv.lever == L) return 2;
+    if (o->useless) return 3;
+    if (o->idx != LD[L].def) return 1;
+    return 0;
+}
+void mind_lever_stats(const mind_t* s, int L, unsigned* trials, unsigned* wins, unsigned* backs) {
+    const ml_one_t* o = &s->lv.one[L];
+    *trials = o->trials; *wins = o->wins; *backs = o->backs;
+}
+
+static void ml_init(mind_t* s) {
+    for (int L = 0; L < ML_N; L++) {
+        ml_one_t* o = &s->lv.one[L];
+        o->idx = LD[L].def;
+        const mind_lv_saved_t* sv = &s->m.lv[L];
+        o->hint = sv->wins > 0 && sv->best < LD[L].n && sv->best != LD[L].def;
+        o->dir = o->hint && sv->best < LD[L].def;     /* подсказка вниз - сразу вниз */
+    }
+}
+
+/* Применить значение: политика Разума читает его сама, рычаги ядра - через исполнителя. */
+static void ml_set(mind_t* s, const mind_act_t* act, int L, unsigned idx, uint32_t now) {
+    ml_t* l = &s->lv;
+    l->one[L].idx = (uint8_t)idx;
+    int32_t v = LD[L].v[idx];
+    if (L >= ML_AUDIO_LEAD && act->set_lever) act->set_lever(L, v);
+    if (L == ML_FOCUS_W && s->focus_pid) {
+        mind_track_t* t = track_of(s, s->focus_pid);
+        if (t && t->weight != 8) apply_weight(s, t, (uint32_t)v, act);
+    }
+    if (L == ML_ODD_LIMIT)
+        for (int i = 0; i < MIND_PROC_MAX; i++) if (s->tr[i].alive && s->tr[i].flagged == 1) apply_limit(s, &s->tr[i], act);
+    l->chg_t[l->chg_n++ % 6] = now ? now : 1;
+    l->total_changes++;
+}
+
+static unsigned ml_changes_last_min(const ml_t* l, uint32_t now) {
+    unsigned n = 0;
+    for (int i = 0; i < 6; i++) if (l->chg_t[i] && now - l->chg_t[i] < 60) n++;
+    return n;
+}
+
+static void ml_rec_fill(mind_t* s, const mind_sample_t* in) {
+    ml_t* l = &s->lv;
+    ml_rec_t* r = &l->rec[l->rn % ML_RING];
+    uint32_t cores = in->cores ? in->cores : 1, bg = 0;
+    for (int i = 0; i < MIND_PROC_MAX; i++) if (s->tr[i].alive && s->tr[i].pid != s->focus_pid) bg += s->tr[i].cpu_x10;
+    uint64_t busy = (uint64_t)in->disk_ops * in->disk_lat_us;
+    r->late = in->late; r->loops = in->loops; r->wait = in->max_wait_ms; r->bg_pm = bg / cores;
+    r->load = in->load; r->run = in->runnable; r->under = in->audio_under;
+    r->ops = in->disk_ops; r->kb = in->disk_kb; r->busy_us = busy > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)busy;
+    r->tact = in->tact_cpu_x100; r->aud = in->audio_cpu_x100; r->audio_on = in->audio_mixed > 0;
+    r->lead = (uint32_t)ML(s, ML_AUDIO_LEAD); r->errs = in->dev_errors; r->denied = in->denied;
+    l->rn++;
+}
+
+typedef struct { uint32_t n, loops, late, wait, bg, load, run, under, ops, kb, busy, tact, aud, audio_s, errs, denied, lead; } ml_agg_t;
+static void ml_agg(const ml_t* l, uint32_t from, uint32_t to, ml_agg_t* a) {
+    mzero(a, sizeof *a);
+    if (to > l->rn) to = l->rn;
+    if (l->rn - from > ML_RING) from = l->rn - ML_RING;
+    for (uint32_t k = from; k < to; k++) {
+        const ml_rec_t* r = &l->rec[k % ML_RING];
+        a->n++; a->loops += r->loops; a->late += r->late; a->wait += r->wait; a->bg += r->bg_pm; a->load += r->load;
+        a->run += r->run; a->under += r->under; a->ops += r->ops; a->kb += r->kb; a->busy += r->busy_us;
+        a->tact += r->tact; a->aud += r->aud; a->audio_s += r->audio_on; a->errs += r->errs; a->denied += r->denied; a->lead += r->lead;
+    }
+}
+static int32_t late_pm_of(const ml_agg_t* a) { return a->loops ? (int32_t)((uint64_t)a->late * 1000 / a->loops) : 0; }
+
+/* Оценка: чем больше, тем лучше. Экран важнее фона: 1% опоздавших кадров стоит 4% процессора, отданного фону;
+   ожидание потока 100 мс - как 25 тысячных процессора. */
+static int32_t ml_score(int cls, const ml_agg_t* a) {
+    int32_t n = a->n ? (int32_t)a->n : 1;
+    int32_t late_pm = late_pm_of(a), bg = (int32_t)a->bg / n, wait = (int32_t)(a->wait / (uint32_t)n);
+    int32_t scr = bg - 4 * late_pm - (wait > 1000 ? 1000 : wait) / 4;
+    switch (cls) {
+    case SC_SCREEN: return scr;
+    case SC_WAIT:   return -(wait > 5000 ? 5000 : wait) - 10 * late_pm;
+    case SC_TACT:   return scr - (int32_t)(a->tact / (uint32_t)n) / 4;
+    case SC_AUDIO:  return -(int32_t)(a->under * 1000 / (uint32_t)n) - (int32_t)(a->lead / (uint32_t)n);
+    case SC_AUDCPU: return -(int32_t)(a->under * 1000 / (uint32_t)n) - (int32_t)(a->aud / (uint32_t)n) / 2;
+    default:        return a->busy ? (int32_t)((uint64_t)a->kb * 100000 / a->busy) : 0;     /* КБ на мс занятости диска, x100 */
+    }
+}
+static int32_t ml_margin(int cls, int32_t base) {
+    int32_t a = base < 0 ? -base : base, m;
+    switch (cls) {
+    case SC_SCREEN: case SC_TACT: m = a / 20; return m < 20 ? 20 : m;
+    case SC_WAIT: m = a / 10; return m < 40 ? 40 : m;
+    case SC_AUDIO: return 30;
+    case SC_AUDCPU: m = a / 10; return m < 8 ? 8 : m;
+    default: m = a / 12; return m < 1 ? 1 : m;
+    }
+}
+/* Окна честно сравнимы: нагрузка близка; для звука - играл в обоих; для диска - объём обмена одного порядка. */
+static int ml_comparable(int cls, const ml_t* l, const ml_agg_t* a) {
+    uint32_t n = a->n ? a->n : 1, ld = a->load / n;
+    if ((ld > l->base_load ? ld - l->base_load : l->base_load - ld) > 20) return 0;
+    if (cls == SC_AUDIO || cls == SC_AUDCPU) return a->audio_s * 10 >= n * 7 && l->base_audio * 10 >= ML_W * 7;
+    if (cls == SC_DISK) return a->ops * 2 >= l->base_ops && a->ops <= l->base_ops * 2;
+    return 1;
+}
+
+/* Класс нагрузки: биты с гистерезисом по последним секундам. */
+static void ml_signature(mind_t* s, const mind_sample_t* in) {
+    ml_t* l = &s->lv;
+    uint32_t cores = in->cores ? in->cores : 1;
+    int on[6] = { in->load >= 70, in->runnable > cores, in->audio_mixed > 0, in->disk_ops >= 30,
+                  in->loops && in->late * 20 >= in->loops, in->denied > 0 };
+    uint32_t sig = l->sig;
+    for (int b = 0; b < 6; b++) {
+        int c = l->sigc[b] + (on[b] ? 1 : -1);
+        l->sigc[b] = (int8_t)(c < 0 ? 0 : c > 10 ? 10 : c);
+        if (l->sigc[b] >= 6) sig |= 1u << b;
+        else if (l->sigc[b] <= 3) sig &= ~(1u << b);
+    }
+    l->sig = sig;
+}
+
+static void ml_seen(mind_t* s, const mind_sample_t* in, uint32_t now) {
+    ml_t* l = &s->lv;
+    if (s->m.forecasts != l->prev_fc) { l->prev_fc = s->m.forecasts; l->seen_fc = now; }
+    if (s->tact_on) l->seen_tact = now;
+    if (s->core_res_pid) l->seen_core = now;
+    if (s->bg_fps_level) l->seen_bg = now;
+    for (int i = 0; i < MIND_PROC_MAX; i++) if (s->tr[i].alive && s->tr[i].flagged == 1) { l->seen_odd = now; break; }
+    if (in->loops && in->late * 10 >= in->loops) l->seen_fxbad = now;
+    if (s->fx < MIND_FX_HIGH) l->seen_fxlow = now;
+}
+
+static int ml_recent(uint32_t seen, uint32_t now) { return seen && now - seen <= 30; }
+
+/* Есть ли рычагу что измерять сейчас (0 - нечего: рычаг не трогается). why - причина для журнала. */
+static unsigned ml_need(const mind_t* s, int L, uint32_t now, const char** why) {
+    const ml_t* l = &s->lv;
+    ml_agg_t a;
+    ml_agg(l, l->rn > 16 ? l->rn - 16 : 0, l->rn, &a);
+    uint32_t n = a.n ? a.n : 1;
+    int pressure = late_pm_of(&a) >= 50 || a.wait / n >= 100;
+    *why = "экран опаздывает или потоки ждут процессор";
+    switch (L) {
+    case ML_FOCUS_W: return pressure && s->focus_pid ? 70 : 0;
+    case ML_STARVE_MS: *why = "потоки долго ждут процессор"; return a.wait / n >= 300 ? 60 : 0;
+    case ML_RISK_THR: case ML_PRE_HOLD: *why = "упреждение срабатывало"; return ml_recent(l->seen_fc, now) ? 60 : 0;
+    case ML_RELEASE: case ML_LIM_WIN: *why = "тактика ужимала фон"; return ml_recent(l->seen_tact, now) ? 55 : 0;
+    case ML_TACT_PERIOD: *why = "тактика заметно загружает процессор"; return !pressure && a.tact / n >= 40 ? 25 : 0;
+    case ML_ADMIT: *why = "запуски отклонялись"; return a.denied > 0 ? 60 : 0;
+    case ML_ODD_LIMIT: *why = "необычная программа ограничена"; return ml_recent(l->seen_odd, now) ? 50 : 0;
+    case ML_CORE_RES: *why = "ядро фокуса отдавалось"; return ml_recent(l->seen_core, now) ? 55 : 0;
+    case ML_BG_CALM: case ML_BG_STEP: *why = "темп фона снижался"; return ml_recent(l->seen_bg, now) ? 50 : 0;
+    case ML_FX_CALM: *why = "анимация снижена"; return ml_recent(l->seen_fxlow, now) && !pressure ? 40 : 0;
+    case ML_FX_BAD: *why = "кадры опаздывали"; return ml_recent(l->seen_fxbad, now) ? 45 : 0;
+    case ML_STEAL: *why = "очередь потоков при занятых ядрах"; return pressure && a.run / n > 1 ? 45 : 0;
+    case ML_AUDIO_LEAD: *why = a.under ? "были недоборы звука" : "звук играет - задержку можно уменьшить";
+        return a.audio_s * 2 >= n ? (a.under ? 90 : 40) : 0;
+    case ML_AUDIO_PERIOD: *why = "звук играет - микшер можно разгрузить"; return a.audio_s * 2 >= n ? 30 : 0;
+    case ML_KFS_RUN: *why = "диск занят"; return a.ops / n >= 30 && a.kb / n >= 256 ? 40 : 0;
+    default: return 0;
+    }
+}
+
+static void ml_forget_best(mind_t* s, int L) {
+    s->m.lv[L].best = LD[L].def; s->m.lv[L].wins = 0;
+}
+
+static void ml_back(mind_t* s, const mind_act_t* act, uint32_t now) {      /* вернуть значение до пробы */
+    ml_t* l = &s->lv;
+    ml_set(s, act, l->lever, (unsigned)l->from, now);
+    l->state = 0;
+    l->next_t = now + 10;
+    l->guard_until = 0;
+}
+
+static void ml_trial_done(mind_t* s, int L, int won, uint32_t now) {
+    ml_t* l = &s->lv;
+    ml_one_t* o = &l->one[L];
+    mind_lv_saved_t* sv = &s->m.lv[L];
+    if (o->trials < 0xFFFF) o->trials++;
+    if (sv->trials < 0xFFFF) sv->trials++;
+    if (won) {
+        if (o->wins < 0xFFFF) o->wins++;
+        if (sv->wins < 0xFFFF) sv->wins++;
+        sv->best = o->idx; o->fails = 0; o->rounds = 0;
+        o->cool_until = now + 30;
+        return;
+    }
+    if (o->backs < 0xFFFF) o->backs++;
+    if (sv->wins && sv->best == (uint8_t)l->to) ml_forget_best(s, L);          /* подсказка не подтвердилась */
+    o->dir = !o->dir;
+    if (++o->fails >= 2) {
+        o->fails = 0;
+        o->cool_until = now + 90;
+        if (++o->rounds >= 3) {
+            o->useless = 1; o->sig = l->sig;
+            jlog(s, now, MJ_LEVER, 1, 0, "рычаг %u «%s»: не помогает при такой нагрузке - не трогаю, пока она не изменится",
+                 (uint32_t)(13 + L), LD[L].name);
+        }
+    }
+}
+
+static void ml_freeze(mind_t* s, uint32_t now, uint32_t secs, const char* why) {
+    s->lv.frozen_until = now + secs;
+    jlog(s, now, MJ_LEVER, 1, 0, "пробы рычагов остановлены на %u с: %s", secs, why);
+}
+
+/* Срочный откат во время пробы или подтверждения. */
+static void ml_emergency(mind_t* s, const mind_act_t* act, uint32_t now, const char* why) {
+    ml_t* l = &s->lv;
+    int L = l->lever;
+    jlog(s, now, MJ_LEVER, 1, 0, "рычаг %u «%s»: срочный откат на %d %s - %s", (uint32_t)(13 + L), LD[L].name, LD[L].v[l->from], LD[L].unit, why);
+    ml_back(s, act, now);
+    l->one[L].cool_until = now + 120;
+    l->one[L].dir = !l->one[L].dir;
+    l->one[L].backs++;
+    if (s->m.lv[L].wins && s->m.lv[L].best == (uint8_t)l->to) ml_forget_best(s, L);
+    uint32_t recent = 0;
+    for (int i = 0; i < 3; i++) if (l->emerg_t[i] && now - l->emerg_t[i] < 600) recent++;
+    l->emerg_t[l->emerg_n++ % 3] = now;
+    if (recent >= 2) ml_freeze(s, now, 300, "три срочных отката за 10 минут");
+}
+
+static unsigned ml_nondefault(const ml_t* l) {
+    unsigned n = 0;
+    for (int L = 0; L < ML_N; L++) if (l->one[L].idx != LD[L].def) n++;
+    return n;
+}
+
+void mind_levers_reset(mind_t* s, const mind_act_t* act) {
+    ml_t* l = &s->lv;
+    for (int L = 0; L < ML_N; L++) if (l->one[L].idx != LD[L].def) ml_set(s, act, L, LD[L].def, 0);
+    l->state = 0; l->guard_until = 0;
+}
+
+static void ml_guard(mind_t* s, const mind_act_t* act, uint32_t now) {
+    ml_t* l = &s->lv;
+    if (l->state) {
+        if (l->rn < l->rn0 + 3) return;                      /* меньше двух секунд после смены - судить рано */
+        ml_agg_t a;
+        ml_agg(l, l->rn - 3 < l->rn0 + 1 ? l->rn0 + 1 : l->rn - 3, l->rn, &a);
+        uint32_t n = a.n ? a.n : 1;
+        int cls = LD[l->lever].cls;
+        int32_t lp = late_pm_of(&a);
+        const char* why = 0;
+        if (lp >= (int32_t)l->base_late_pm + 250 && lp >= 150) why = "кадры экрана опаздывают заметно чаще";
+        else if (a.wait / n >= l->base_wait + 1500) why = "потоки стали ждать процессор намного дольше";
+        else if ((cls == SC_AUDIO || cls == SC_AUDCPU) && a.under >= l->base_under * n / ML_W + 3) why = "появились недоборы звука";
+        else if (cls == SC_DISK && a.errs) why = "ошибки обмена с диском";
+        if (why) ml_emergency(s, act, now, why);
+        return;
+    }
+    if (l->guard_until > now && ml_nondefault(l)) {
+        ml_agg_t a;
+        ml_agg(l, l->rn > 5 ? l->rn - 5 : 0, l->rn, &a);
+        int32_t lp = late_pm_of(&a);
+        if (a.n >= 5 && lp >= (int32_t)l->guard_late_pm + 300 && lp >= 200) {
+            unsigned k = ml_nondefault(l);
+            jlog(s, now, MJ_LEVER, 1, 0, "общий откат: %u рычагов возвращены к обычным значениям - после изменений опоздало %u%% кадров против %u%% до них",
+                 k, (uint32_t)(lp / 10), l->guard_late_pm / 10);
+            for (int L = 0; L < ML_N; L++) if (l->one[L].idx != LD[L].def) { ml_set(s, act, L, LD[L].def, now); ml_forget_best(s, L); l->one[L].cool_until = now + 180; }
+            l->guard_until = 0; l->general_rollbacks++;
+            ml_freeze(s, now, 180, "общий откат");
+        }
+    }
+}
+
+static void ml_start(mind_t* s, const mind_act_t* act, uint32_t now) {
+    ml_t* l = &s->lv;
+    if (l->rn < ML_W + 2 || ml_changes_last_min(l, now) >= 5) return;
+    int best = -1; unsigned bestk = 0;
+    for (int L = 0; L < ML_N; L++) {
+        ml_one_t* o = &l->one[L];
+        if (o->useless && o->sig == l->sig) continue;
+        if (o->useless) { o->useless = 0; o->rounds = 0; o->fails = 0; }          /* нагрузка сменилась - рычагу снова можно пробовать */
+        if (o->cool_until > now) continue;
+        const char* why;
+        unsigned need = ml_need(s, L, now, &why);
+        if (!need) continue;
+        unsigned age = now - o->last_try; if (age > 999) age = 999;
+        unsigned k = need * 1000 + age;
+        if (k > bestk) { bestk = k; best = L; }
+    }
+    if (best < 0) return;
+    int L = best;
+    ml_one_t* o = &l->one[L];
+    const char* why; ml_need(s, L, now, &why);
+    ml_agg_t b;
+    ml_agg(l, l->rn - ML_W, l->rn, &b);
+    int cls = LD[L].cls;
+    if ((cls == SC_AUDIO || cls == SC_AUDCPU) && b.audio_s * 10 < ML_W * 7) { o->cool_until = now + 20; return; }
+    if (cls == SC_DISK && b.ops < ML_W * 20) { o->cool_until = now + 20; return; }
+    int tgt;
+    const mind_lv_saved_t* sv = &s->m.lv[L];
+    if (o->hint && sv->wins && sv->best < LD[L].n && sv->best != o->idx) tgt = sv->best;
+    else {
+        tgt = o->idx + (o->dir ? -1 : 1);
+        if (tgt < 0 || tgt >= LD[L].n) { o->dir = !o->dir; tgt = o->idx + (o->dir ? -1 : 1); }
+    }
+    o->hint = 0;
+    if (tgt < 0 || tgt >= LD[L].n) { o->cool_until = now + 120; return; }
+    l->lever = L; l->from = o->idx; l->to = tgt;
+    l->base_s = ml_score(cls, &b);
+    l->base_load = b.load / (b.n ? b.n : 1); l->base_ops = b.ops; l->base_late_pm = (uint32_t)late_pm_of(&b);
+    l->base_wait = b.wait / (b.n ? b.n : 1); l->base_under = b.under; l->base_audio = b.audio_s;
+    o->last_try = now; l->t0 = now;
+    jlog(s, now, MJ_LEVER, 1, 0, "рычаг %u «%s»: пробую %d %s вместо %d (причина: %s; оценка сейчас %d)", (uint32_t)(13 + L), LD[L].name,
+         LD[L].v[tgt], LD[L].unit, LD[L].v[l->from], why, l->base_s);
+    ml_set(s, act, L, (unsigned)tgt, now);
+    l->state = 1; l->rn0 = l->rn;
+}
+
+static void ml_progress(mind_t* s, const mind_act_t* act, uint32_t now) {
+    ml_t* l = &s->lv;
+    if (l->rn < l->rn0 + 1 + ML_W) return;
+    int L = l->lever, cls = LD[L].cls;
+    ml_agg_t a;
+    ml_agg(l, l->rn0 + 1, l->rn, &a);
+    int32_t sc = ml_score(cls, &a), margin = ml_margin(cls, l->base_s);
+    int fair = ml_comparable(cls, l, &a);
+    if (l->state == 1) {
+        if (fair && sc >= l->base_s + margin) {
+            jlog(s, now, MJ_LEVER, 1, 0, "рычаг %u «%s»: проба %d %s дала оценку %d против %d - проверяю ещё %u с", (uint32_t)(13 + L), LD[L].name,
+                 LD[L].v[l->to], LD[L].unit, sc, l->base_s, (uint32_t)ML_W);
+            l->state = 2; l->rn0 = l->rn - 1;
+            return;
+        }
+        jlog(s, now, MJ_LEVER, 1, 0, fair ? "рычаг %u «%s»: откат на %d %s - оценка %d не лучше %d" : "рычаг %u «%s»: откат на %d %s - нагрузка изменилась, сравнение нечестное (%d и %d)",
+             (uint32_t)(13 + L), LD[L].name, LD[L].v[l->from], LD[L].unit, sc, l->base_s);
+        ml_back(s, act, now);
+        if (fair) ml_trial_done(s, L, 0, now); else l->one[L].cool_until = now + 30;
+        return;
+    }
+    /* подтверждение */
+    if (fair && sc >= l->base_s) {
+        jlog(s, now, MJ_LEVER, 1, 0, "рычаг %u «%s»: оставлено %d %s - оценка %d против %d до пробы (подтверждено вторым окном)",
+             (uint32_t)(13 + L), LD[L].name, LD[L].v[l->to], LD[L].unit, sc, l->base_s);
+        l->state = 0; l->next_t = now + 10;
+        l->guard_until = now + 60; l->guard_late_pm = l->base_late_pm;
+        ml_trial_done(s, L, 1, now);
+        return;
+    }
+    jlog(s, now, MJ_LEVER, 1, 0, "рычаг %u «%s»: откат на %d %s - второе окно не подтвердило (оценка %d, было %d)",
+         (uint32_t)(13 + L), LD[L].name, LD[L].v[l->from], LD[L].unit, sc, l->base_s);
+    ml_back(s, act, now);
+    ml_trial_done(s, L, 0, now);
+}
+
+static void levers(mind_t* s, const mind_sample_t* in, const mind_act_t* act, uint32_t now) {
+    ml_t* l = &s->lv;
+    ml_rec_fill(s, in);
+    ml_signature(s, in);
+    ml_seen(s, in, now);
+    if (s->m.mode != MIND_ACT) return;
+    ml_guard(s, act, now);
+    if (l->frozen_until > now) return;
+    if (l->state) { ml_progress(s, act, now); return; }
+    if (now < l->next_t) return;
+    ml_start(s, act, now);
 }
 
 void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act) {
@@ -814,5 +1267,6 @@ void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act) {
     visual(s, in, act, now);
     memory(s, in, act, now);
     devices(s, in, act, now);
+    levers(s, in, act, now);
     s->hpos++;
 }

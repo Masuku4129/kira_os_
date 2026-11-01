@@ -42,6 +42,9 @@ typedef struct {
 int  audio_attach(const audio_card_t* c);      /* карта готова: запустить поток смешивания; 0 - готово */
 int  audio_running(void);
 int  audio_tone(unsigned hz, unsigned ms);     /* тон (beep) как источник; 0 - принят */
+void audio_set_lead_ms(uint32_t ms);           /* опережение записи перед картой, мс (по умолчанию 100) */
+void audio_set_period_ms(uint32_t ms);         /* период потока смешивания, мс (по умолчанию 10) */
+void audio_stats(uint64_t* mixed_frames, uint64_t* under);   /* смешано кадров от программ и недоборов с запуска */
 uint64_t audio_hw_frames(void);                /* сколько кадров карта забрала с запуска */
 void audio_print(void);                        /* состояние микшера (команда sound) */
 void audiocmd_sound(const char* arg);

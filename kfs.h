@@ -40,6 +40,7 @@ int  kfs_mkdir(const char* path);
 int  kfs_unlink(const char* path);                    /* файл или пустой каталог */
 int  kfs_list(const char* path, kfs_list_cb cb, void* ctx);
 void kfs_info(kfs_info_t* out);
+void kfs_set_run_max(uint32_t blocks);   /* предел сплошного участка в одном запросе к диску (16..256 блоков) */
 const char* kfs_strerror(int err);
 
 #endif

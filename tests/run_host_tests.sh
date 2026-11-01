@@ -151,6 +151,10 @@ echo "== mind (norms, anomalies, health, quantum self-tuning, memory, focus, sta
 $CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c mindnet.c
 $T/mind
 
+echo "== mind levers 13-30 (A/B by measurement, rollback, useless marking, budget, general rollback, hints, seed) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/mindlv tests/mind_lever_test.c mind.c mindnet.c
+$T/mindlv
+
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c
 $T/fdt
