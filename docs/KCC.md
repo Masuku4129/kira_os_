@@ -4,7 +4,7 @@
 
 ## Состав (каталог kcc/)
 `pp.c` препроцессор (#include "..."/<...> через виртуальную файловую систему, #define функциональные и объектные, #, ##, __VA_ARGS__, #if/#ifdef/#elif/#else/#endif/defined, #undef, #error, #pragma once, предопределённые __KIRA__, __x86_64__/__aarch64__, __STDC_VERSION__ 199901L),
-`lex.c` лексер, `parse.c` разбор в AST, `type.c` типы и проверка, `ir.c` линейный IR, `gen_x86.c` (M2), `asm_x86.c` свой ассемблер машинного кода (M2), `elf.c` запись ELF Киры (M2), `gen_a64.c` (M4), `main.c` драйвер командной строки `kcc [-I dir] [-D n[=v]] -o out file.c...`.
+`lex.c` лексер, `parse.c` разбор в AST, `type.c` типы и проверка, `ir.c` линейный IR, `gen_x86.c` кодогенерация, `asm_x86.c` свой кодировщик машинного кода, `elf.c` запись ELF Киры (M2 готов; хост-проверка через `tests/kcc/kloader.c`), `gen_a64.c` (M4), `main.c` драйвер командной строки `kcc [-I dir] [-D n[=v]] -o out file.c...`.
 
 ## Язык (подмножество, достаточное для драйверов BSD)
 C99: все типы целых, указатели, массивы, struct/union/enum, typedef, битовые поля, указатели на функции, `static`/`extern`/`inline`/`const`/`volatile`, составные литералы, назначенные инициализаторы, локальные массивы, VLA НЕ нужны. Расширения GNU, которые реально встречаются: `__attribute__((packed, aligned(N), unused, noreturn, always_inline))`, `__asm__ volatile("...")` (встраиваемый ассемблер: поддержать минимальный набор шаблонов для барьеров и in/out/rdtsc — без общего ассемблера), `typeof`, выражения-операторы `({ ... })`, `__builtin_expect/offsetof/memcpy/unreachable`. Не поддерживаются и дают понятную ошибку: VLA, `_Complex`, `_Generic`, float/double в M1–M3 (драйверам не нужны; позже).
