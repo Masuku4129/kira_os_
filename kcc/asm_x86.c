@@ -148,7 +148,19 @@ void xa_ins(XA *a, int op, Opd d, Opd s) {
     case X_SHL: case X_SHR: case X_SAR: {
         int dig = op == X_SHL ? 4 : op == X_SHR ? 5 : 7;
         if (is_rm(&d) && (d.sz == 4 || d.sz == 8) && s.k == OP_REG && s.sz == 1 && s.r == R_CX) { o[0] = 0xD3; enc(a, d.sz == 8, 0, o, 1, dig, &d, 0); return; }
-        fail(a, "shift (only by CL)", op, &d, &s); return;
+        if (is_rm(&d) && (d.sz == 4 || d.sz == 8) && s.k == OP_IMM && s.v >= 0 && s.v < (d.sz == 8 ? 64 : 32)) {
+            o[0] = 0xC1; XFix *f = enc(a, d.sz == 8, 0, o, 1, dig, &d, 0); imm_tail(a, f, s.v, 1); return;
+        }
+        fail(a, "shift (by CL or immediate)", op, &d, &s); return;
+    }
+    case X_XCHG: case X_LXADD: case X_LCMPXCHG: {
+        int sz = d.sz;
+        if (d.k != OP_MEM || s.k != OP_REG || s.sz != sz || !szok(sz)) fail(a, "atomic", op, &d, &s);
+        if (op != X_XCHG) put(a, 0xF0);                       /* lock */
+        if (op == X_XCHG) { o[0] = sz == 1 ? 0x86 : 0x87; enc(a, sz == 8, sz == 2, o, 1, s.r, &d, byte_rex(&s)); return; }
+        o[0] = 0x0F; o[1] = (unsigned char)((op == X_LXADD ? 0xC0 : 0xB0) + (sz == 1 ? 0 : 1));
+        enc(a, sz == 8, sz == 2, o, 2, s.r, &d, byte_rex(&s));
+        return;
     }
     case X_CALLR:
         if (d.k == OP_REG && d.sz == 8) { o[0] = 0xFF; enc(a, 0, 0, o, 1, 2, &d, 0); return; }

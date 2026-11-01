@@ -6,7 +6,8 @@
 
 static Ins *ihead, *itail;
 static int nreg, nlab;
-static Obj *fn;
+static Obj *fn, *ltail;
+static int maxslot;
 static SB *out;
 
 static Ins *emit(IrOp op) {
@@ -49,13 +50,38 @@ static void E_store(int addr, int val, int w, int vol) {
     i->a = addr; i->b = val; i->w = w; i->vol = vol;
 }
 
+/* безымянная локальная переменная функции (буфер агрегата) и её адрес */
+static int new_temp(Type *ty) {
+    Obj *o = ka_new(sizeof *o);
+    Type *tt = ka_new(sizeof *tt);                  /* буфер дополнен до 16 байт: результат вызова пишется регистрами целиком */
+    *tt = *ty; tt->size = (ty->size + 15) & ~15; tt->orig = NULL;
+    ty = tt;
+    o->name = ".tmp"; o->ty = ty; o->is_local = 1; o->slot = ++maxslot; o->align = ty->align; o->line = fn->line;
+    if (ltail) ltail->next = o; else fn->locals = o;
+    ltail = o;
+    Ins *i = emit(IR_LADDR);
+    i->dst = newreg(); i->imm = o->slot;
+    return i->dst;
+}
+
 static int gen_expr(Node *n);
 static int gen_addr(Node *n);
+static void gen_vastart(int ap);
+static int gen_vaarg(int ap, Type *t);
+static int gen_atomic(Node *n);
 static void gen_stmt(Node *n);
 
 static int add_const(int a, int64_t off) {
     if (!off) return a;
     return E_bin(ND_ADD, a, E_const(off), 8, 0);
+}
+
+/* агрегат по значению: ограничения ABI бэкендов */
+static void agg_ok(const Type *t, const Token *tok) {
+    Type *u = ty_unqual((Type *)t);
+    if (u->size <= 0) kerr_tok(tok, "unsupported: zero-sized struct/union passed by value");
+    if (u->align > 8) kerr_tok(tok, "unsupported: struct/union with alignment %d passed by value", u->align);
+    if (u->packed) kerr_tok(tok, "unsupported: packed struct/union passed by value");
 }
 
 static int is_agg_like(const Type *t) { return t->k == TY_ARRAY || t->k == TY_STRUCT || t->k == TY_UNION || t->k == TY_FUNC; }
@@ -120,6 +146,9 @@ static int gen_addr(Node *n) {
     case ND_COMMA:
         gen_expr(n->lhs);
         return gen_addr(n->rhs);
+    case ND_CALL:
+        if (ty_is_agg(n->ty)) return gen_expr(n);
+        kerr_tok(n->tok, "internal: cannot take address of a call result");
     case ND_ASSIGN:
         gen_expr(n);
         return gen_addr(n->lhs);
@@ -187,6 +216,13 @@ static int gen_expr(Node *n) {
         int l_else = newlab(), l_end = newlab();
         int r = t->k == TY_VOID ? -1 : newreg();
         int c = gen_expr(n->c);
+        if (!n->t) {                                /* a ?: b */
+            E_mov(r, c);
+            E_br(IR_BRNZ, c, l_end);
+            E_mov(r, gen_expr(n->e));
+            E_label(l_end);
+            return r;
+        }
         E_br(IR_BRZ, c, l_else);
         int x = gen_expr(n->t);
         if (r > 0) E_mov(r, x);
@@ -249,17 +285,40 @@ static int gen_expr(Node *n) {
     case ND_CALL: {
         int nargs = 0;
         for (Node *x = n->args; x; x = x->next) nargs++;
-        int *regs = ka_new(sizeof(int) * (size_t)(nargs + 1));
+        int *regs = ka_new(sizeof(int) * (size_t)(nargs + 1)), *asz = ka_new(sizeof(int) * (size_t)(nargs + 1));
         int k = 0;
-        for (Node *x = n->args; x; x = x->next) regs[k++] = gen_expr(x);
+        for (Node *x = n->args; x; x = x->next) {
+            regs[k] = gen_expr(x);
+            if (ty_is_agg(x->ty)) {
+                agg_ok(x->ty, x->tok);
+                int sz = ty_unqual(x->ty)->size;
+                asz[k] = sz;
+                if (sz > 16) {                      /* большой агрегат передаётся копией: адрес копии - аргумент */
+                    int tmp = new_temp(ty_unqual(x->ty));
+                    Ins *c = emit(IR_COPY);
+                    c->a = tmp; c->b = regs[k]; c->imm = sz;
+                    regs[k] = tmp;
+                }
+            }
+            k++;
+        }
         Node *f = n->lhs;
         Type *ft = f->ty->base;
         int direct = f->k == ND_ADDR && f->lhs->k == ND_VAR && f->lhs->var->is_func;
         int fr = direct ? 0 : gen_expr(f);
+        int rt = 0;
+        if (ty_is_agg(t)) rt = new_temp(ty_unqual(t));
         Ins *i = emit(IR_CALL);
         if (direct) i->sym = f->lhs->var->name; else i->a = fr;
-        i->args = regs; i->nargs = nargs;
+        i->args = regs; i->nargs = nargs; i->asz = asz;
         i->nout = (int)(ft->variadic || ft->noproto);
+        if (ty_is_agg(t)) {
+            agg_ok(t, n->tok);
+            i->rsz = ty_unqual(t)->size;
+            i->rt = rt;
+            i->dst = -1;
+            return rt;
+        }
         i->w = t->k == TY_VOID ? 0 : t->size;
         i->sgn = !t->is_unsigned && t->k != TY_PTR;
         i->dst = t->k == TY_VOID ? -1 : newreg();
@@ -300,8 +359,111 @@ static int gen_expr(Node *n) {
         return -1;
     }
     case ND_UNREACH: emit(IR_UNREACH); return -1;
+    case ND_VASTART: gen_vastart(gen_expr(n->lhs)); return -1;
+    case ND_VAARG: return gen_vaarg(gen_expr(n->lhs), t);
+    case ND_ATOMIC: return gen_atomic(n);
     default:
         kerr_tok(n->tok, "internal: unsupported expression kind %d in lowering", (int)n->k);
+    }
+}
+
+
+/* ---------- va_list ---------- */
+static int is_a64(void) { return K.cfg->target && !strcmp(K.cfg->target, "aarch64"); }
+static int vainfo(int sub) { Ins *i = emit(IR_VAINFO); i->sub = sub; i->dst = newreg(); return i->dst; }
+static void st_at(int ptr, int64_t off, int v, int w) { E_store(add_const(ptr, off), v, w, 0); }
+
+static void gen_vastart(int ap) {
+    int ngrn = vainfo(2);
+    if (!is_a64()) {                                /* x86-64: gp_offset, fp_offset, overflow_arg_area, reg_save_area */
+        st_at(ap, 0, E_bin(ND_MUL, ngrn, E_const(8), 8, 0), 4);
+        st_at(ap, 4, E_const(176), 4);
+        st_at(ap, 8, vainfo(1), 8);
+        st_at(ap, 16, vainfo(0), 8);
+    } else {                                        /* AAPCS64: stack, gr_top, vr_top, gr_offs, vr_offs */
+        st_at(ap, 0, vainfo(1), 8);
+        st_at(ap, 8, E_bin(ND_ADD, vainfo(0), E_const(64), 8, 0), 8);
+        st_at(ap, 16, E_const(0), 8);
+        st_at(ap, 24, E_bin(ND_SUB, E_bin(ND_MUL, ngrn, E_const(8), 8, 0), E_const(64), 8, 1), 4);
+        st_at(ap, 28, E_const(0), 4);
+    }
+}
+
+static int gen_vaarg(int ap, Type *t) {
+    int r = newreg(), l_stk = newlab(), l_end = newlab();
+    int stk_off = is_a64() ? 0 : 8;
+    if (!is_a64()) {
+        int gp = E_load(ap, 4, 0, 0);
+        E_br(IR_BRZ, E_cmp(ND_LT, gp, E_const(48), 0), l_stk);
+        int base = E_load(add_const(ap, 16), 8, 0, 0);
+        E_mov(r, E_bin(ND_ADD, base, gp, 8, 0));
+        st_at(ap, 0, E_bin(ND_ADD, gp, E_const(8), 4, 0), 4);
+    } else {
+        int off = E_load(add_const(ap, 24), 4, 1, 0);
+        E_br(IR_BRZ, E_cmp(ND_LT, off, E_const(0), 1), l_stk);
+        int top = E_load(add_const(ap, 8), 8, 0, 0);
+        E_mov(r, E_bin(ND_ADD, top, off, 8, 0));
+        st_at(ap, 24, E_bin(ND_ADD, off, E_const(8), 4, 1), 4);
+    }
+    E_jmp(l_end);
+    E_label(l_stk);
+    int sp = E_load(add_const(ap, stk_off), 8, 0, 0);
+    E_mov(r, sp);
+    st_at(ap, stk_off, E_bin(ND_ADD, sp, E_const(8), 8, 0), 8);
+    E_label(l_end);
+    return load_scalar(r, t);
+}
+
+/* ---------- атомарные операции ---------- */
+static int atomic_ins(int sub, int a, int b, int c, int w, int sgn, int want) {
+    Ins *i = emit(IR_ATOMIC);
+    i->sub = sub; i->a = a; i->b = b; i->c = c; i->w = w; i->sgn = sgn;
+    i->dst = want ? newreg() : -1;
+    return i->dst;
+}
+
+static int gen_atomic(Node *n) {
+    if (n->op == AT_FENCE) { atomic_ins(AT_FENCE, 0, 0, 0, 8, 0, 0); return -1; }
+    Type *T = ty_unqual(n->lhs->ty->base);
+    int w = T->size, sgn = !T->is_unsigned && T->k != TY_PTR && T->k != TY_BOOL;
+    int p = gen_expr(n->lhs);
+    switch (n->op) {
+    case AT_LOAD: return atomic_ins(AT_LOAD, p, 0, 0, w, sgn, 1);
+    case AT_STORE: atomic_ins(AT_STORE, p, gen_expr(n->rhs), 0, w, sgn, 0); return -1;
+    case AT_XCHG: return atomic_ins(AT_XCHG, p, gen_expr(n->rhs), 0, w, sgn, 1);
+    case AT_CAS: {
+        int exp, d, ep = 0;
+        if (n->val) { exp = gen_expr(n->rhs); d = gen_expr(n->c); }
+        else { ep = gen_expr(n->rhs); exp = load_scalar(ep, T); d = gen_expr(n->c); }
+        int old = atomic_ins(AT_CAS, p, exp, d, w, sgn, 1);
+        int ok = E_cmp(ND_EQ, old, exp, 1);
+        if (n->val == 1) return old;
+        if (n->val == 2) return ok;
+        int l_ok = newlab();
+        E_br(IR_BRNZ, ok, l_ok);
+        E_store(ep, old, w, 0);
+        E_label(l_ok);
+        return ok;
+    }
+    default: {
+        int v = gen_expr(n->rhs);
+        int old = atomic_ins(n->op, p, v, 0, w, sgn, 1);
+        if (!n->val) return old;
+        int bw = T->k == TY_PTR ? 8 : w;
+        switch (n->op) {
+        case AT_ADD: return E_bin(ND_ADD, old, v, bw, sgn);
+        case AT_SUB: return E_bin(ND_SUB, old, v, bw, sgn);
+        case AT_AND: return E_bin(ND_AND, old, v, bw, sgn);
+        case AT_OR: return E_bin(ND_OR, old, v, bw, sgn);
+        case AT_XOR: return E_bin(ND_XOR, old, v, bw, sgn);
+        default: {
+            int an = E_bin(ND_AND, old, v, bw, sgn);
+            Ins *i = emit(IR_NOT);
+            i->a = an; i->w = bw; i->sgn = sgn; i->dst = newreg();
+            return i->dst;
+        }
+        }
+    }
     }
 }
 
@@ -344,7 +506,11 @@ static void gen_stmt(Node *n) {
     case ND_SWITCH: {
         int v = gen_expr(n->c);
         for (Node *c = n->cases; c; c = c->cases) {
-            int t = E_cmp(ND_EQ, v, E_const(c->val), 1);
+            int t;
+            if (c->op == 2) {                       /* lo...hi: (v - lo) <= (hi - lo) без знака */
+                int d = E_bin(ND_SUB, v, E_const(c->val), 8, 0);
+                t = E_cmp(ND_LE, d, E_const((int64_t)((uint64_t)c->val2 - (uint64_t)c->val)), 0);
+            } else t = E_cmp(ND_EQ, v, E_const(c->val), 1);
             E_br(IR_BRNZ, t, c->lbl);
         }
         E_jmp(n->dflt ? n->dflt->lbl : n->lbl);
@@ -359,10 +525,11 @@ static void gen_stmt(Node *n) {
         int v = -1, w = 0;
         if (n->lhs) {
             v = gen_expr(n->lhs);
-            if (n->lhs->ty->k != TY_VOID) w = n->lhs->ty->size; else v = -1;
+            if (n->lhs->ty->k != TY_VOID) w = ty_unqual(n->lhs->ty)->size; else v = -1;
         }
         Ins *i = emit(IR_RET);
         i->a = v; i->w = w;
+        if (v > 0 && ty_is_agg(n->lhs->ty)) i->sub = 1;
         break;
     }
     default:
@@ -387,7 +554,10 @@ static void print_ins(const Ins *i) {
     case IR_CONST: sb_printf(out, "  %%%d = const %lld\n", i->dst, (long long)i->imm); break;
     case IR_GADDR: sb_printf(out, "  %%%d = gaddr %s\n", i->dst, i->sym); break;
     case IR_LADDR: sb_printf(out, "  %%%d = laddr slot%lld\n", i->dst, (long long)i->imm); break;
-    case IR_PARAM: sb_printf(out, "  %%%d = param %lld\n", i->dst, (long long)i->imm); break;
+    case IR_PARAM:
+        if (i->sub) sb_printf(out, "  param.agg %lld size=%d into [%%%d]\n", (long long)i->imm, i->w, i->a);
+        else sb_printf(out, "  %%%d = param %lld\n", i->dst, (long long)i->imm);
+        break;
     case IR_LOAD: sb_printf(out, "  %%%d = load%s.%d%s [%%%d]\n", i->dst, i->vol ? ".v" : "", i->w, sg, i->a); break;
     case IR_STORE: sb_printf(out, "  store%s.%d [%%%d], %%%d\n", i->vol ? ".v" : "", i->w, i->a, i->b); break;
     case IR_MOV: sb_printf(out, "  %%%d = mov %%%d\n", i->dst, i->a); break;
@@ -404,10 +574,13 @@ static void print_ins(const Ins *i) {
         if (i->dst > 0) sb_printf(out, "%%%d = ", i->dst);
         if (i->sym) sb_printf(out, "call %s(", i->sym); else sb_printf(out, "call *%%%d(", i->a);
         for (int k = 0; k < i->nargs; k++) sb_printf(out, "%s%%%d", k ? ", " : "", i->args[k]);
-        sb_printf(out, ")%s ret=%d%s\n", i->nout ? " varargs" : "", i->w, i->w ? sg : "");
+        sb_printf(out, ")%s ret=%d%s", i->nout ? " varargs" : "", i->w, i->w ? sg : "");
+        if (i->rsz) sb_printf(out, " retagg=%d into [%%%d]", i->rsz, i->rt);
+        for (int k = 0; k < i->nargs; k++) if (i->asz && i->asz[k]) sb_printf(out, " arg%d=agg%d", k, i->asz[k]);
+        sb_printf(out, "\n");
         break;
     case IR_RET:
-        if (i->a > 0) sb_printf(out, "  ret %%%d\n", i->a); else sb_printf(out, "  ret\n");
+        if (i->a > 0) sb_printf(out, "  ret%s %%%d\n", i->sub ? ".agg" : "", i->a); else sb_printf(out, "  ret\n");
         break;
     case IR_COPY: sb_printf(out, "  copy [%%%d], [%%%d], %lld\n", i->a, i->b, (long long)i->imm); break;
     case IR_ZERO: sb_printf(out, "  zero [%%%d], %lld\n", i->a, (long long)i->imm); break;
@@ -421,6 +594,14 @@ static void print_ins(const Ins *i) {
         break;
     }
     case IR_UNREACH: sb_printf(out, "  unreachable\n"); break;
+    case IR_ATOMIC: {
+        static const char *const nm[] = { "?", "load", "store", "xchg", "cas", "add", "sub", "and", "or", "xor", "nand", "fence" };
+        sb_printf(out, "  ");
+        if (i->dst > 0) sb_printf(out, "%%%d = ", i->dst);
+        sb_printf(out, "atomic.%s.%d%s [%%%d], %%%d, %%%d\n", nm[i->sub], i->w, sg, i->a, i->b, i->c);
+        break;
+    }
+    case IR_VAINFO: sb_printf(out, "  %%%d = vainfo %d\n", i->dst, i->sub); break;
     }
 }
 
@@ -428,14 +609,25 @@ IrFn *ir_lower(Obj *f) {
     fn = f;
     ihead = itail = NULL;
     nreg = 0; nlab = f->nlabels;
+    maxslot = -1; ltail = NULL;
+    for (Obj *l = f->locals; l; l = l->next) { if (l->slot > maxslot) maxslot = l->slot; ltail = l; }
     int idx = 0;
     for (Obj *p = f->params; p && idx < f->nparams; p = p->next, idx++) {
+        if (ty_is_agg(p->ty)) {                     /* агрегат-параметр: бэкенд копирует пришедшее значение в локальный слот */
+            agg_ok(p->ty, f->body ? f->body->tok : NULL);
+            Ins *a = emit(IR_LADDR);
+            a->dst = newreg(); a->imm = p->slot;
+            Ins *i = emit(IR_PARAM);
+            i->sub = 1; i->a = a->dst; i->imm = idx; i->w = ty_unqual(p->ty)->size;
+            continue;
+        }
         Ins *i = emit(IR_PARAM);
         i->dst = newreg(); i->imm = idx;
         Ins *a = emit(IR_LADDR);
         a->dst = newreg(); a->imm = p->slot;
         E_store(a->dst, i->dst, p->ty->size, 0);
     }
+    if (ty_is_agg(f->ty->base)) agg_ok(f->ty->base, f->body ? f->body->tok : NULL);
     gen_stmt(f->body);
     Ins *r;
     if (!strcmp(f->name, "main") && f->ty->base->k == TY_INT) {

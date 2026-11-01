@@ -253,6 +253,18 @@ static int is_typename(const Token *t) {
 static Type *struct_decl(int is_union);
 static Type *enum_decl(void);
 
+/* va_list: x86-64 SysV - массив из одной структуры (24 байта), AAPCS64 - структура (32 байта), передаётся по значению */
+static Type *va_ty, *va_st;
+static Type *va_type(void) {
+    if (!va_ty) {
+        int a64 = K.cfg->target && !strcmp(K.cfg->target, "aarch64");
+        va_st = ty_new(TY_STRUCT, a64 ? 32 : 24, 8);
+        va_st->complete = 1; va_st->tag = "__va_list_tag";
+        va_ty = a64 ? va_st : ty_array(va_st, 1);
+    }
+    return va_ty;
+}
+
 static Type *declspec_(Attr *a) {
     Attr scratch = {0};
     if (!a) a = &scratch;
@@ -281,7 +293,11 @@ static Type *declspec_(Attr *a) {
             if (KW("_Alignas")) unsupported(tok, "_Alignas (use __attribute__((aligned(N))))");
             if (KW("_Complex")) unsupported(tok, "_Complex");
             if (KW("float") || KW("double")) unsupported(tok, "float and double (floating point is not supported)");
-            if (KW("__builtin_va_list")) unsupported(tok, "va_list and variadic argument access");
+        }
+        if (KW("__builtin_va_list")) {
+            if (counter || ty) break;
+            ty = va_type(); tok = tok->next; counter += C_OTHER;
+            continue;
         }
         if (KW("struct") || KW("union") || KW("enum") || KW("typeof") || tok->k == TK_ID) {
             if (counter) break;
@@ -536,7 +552,6 @@ static Param *func_params(int *variadic, int *noproto) {
         if (ty->k == TY_VOID) kerr_tok(tok, "parameter cannot have type 'void'");
         if (ty->k == TY_ARRAY) ty = ty_ptr(ty->base);
         else if (ty->k == TY_FUNC) ty = ty_ptr(ty);
-        if (ty_is_agg(ty)) unsupported(nm ? nm : tok, "struct/union passed by value");
         Param *p = ka_new(sizeof *p);
         p->ty = ty; p->name = nm ? tname(nm) : NULL;
         if (nm) for (Param *o = head.next; o; o = o->next) if (o->name && !strcmp(o->name, p->name)) kerr_tok(nm, "redefinition of parameter '%s'", p->name);
@@ -553,7 +568,6 @@ static Type *type_suffix_(Type *ty) {
         expect(")");
         if (ty->k == TY_FUNC) kerr_tok(tok, "function cannot return function type");
         if (ty->k == TY_ARRAY) kerr_tok(tok, "function cannot return array type");
-        if (ty_is_agg(ty)) unsupported(tok, "function returning struct/union by value");
         return ty_func(ty, ps, var, nop);
     }
     if (eat("[")) {
@@ -1030,7 +1044,7 @@ static Node *funcall(Node *fn, const Token *t) {
             a = conv_assign(a, p->ty, at, "passing to parameter of type");
             p = p->next;
         } else if (ft->noproto || ft->variadic) {
-            if (ty_is_agg(a->ty)) unsupported(at, "struct/union passed by value");
+            if (ty_is_agg(a->ty) && !ty_unqual(a->ty)->complete) kerr_tok(at, "passing incomplete type");
             if (ty_is_int(a->ty)) a = new_cast(a, ty_promote(a->ty), at);
         } else kerr_tok(at, "too many arguments to function call, expected %d, have more", n);
         cur->next = a; cur = a;
@@ -1038,8 +1052,9 @@ static Node *funcall(Node *fn, const Token *t) {
     }
     expect(")");
     if (p) kerr_tok(t, "too few arguments to function call, have %d", n);
+    if (ty_is_agg(ft->base) && !ty_unqual(ft->base)->complete) kerr_tok(t, "calling function with incomplete return type '%s'", ty_name(ft->base));
     Node *c = new_node(ND_CALL, t);
-    c->lhs = fn; c->args = head.next; c->ty = ft->base;
+    c->lhs = fn; c->args = head.next; c->ty = ty_unqual(ft->base);
     return c;
 }
 
@@ -1120,6 +1135,208 @@ static Node *offsetof_expr(const Token *t) {
     return new_num(off, &ty_ulong, t);
 }
 
+
+/* ---------- va_list: __builtin_va_start/va_arg/va_end/va_copy ---------- */
+/* Указатель на структуру va_list из выражения ap (массив x86-64, структура-lvalue AAPCS64 или уже указатель параметра). */
+static Node *va_ptr(Node *ap, const Token *t) {
+    va_type();
+    Type *at = ty_unqual(ap->ty);
+    if (at->k == TY_ARRAY || at->k == TY_PTR) {
+        Node *p = rv(ap);
+        if (p->ty->k == TY_PTR && ty_unqual(p->ty->base) == va_st) return p;
+    }
+    if (at == va_st) return new_addr(ap, t);
+    kerr_tok(t, "argument is not a va_list");
+}
+
+static Node *va_builtin(const Token *t, const char *nm, int l) {
+    if (l == 5 && !memcmp(nm, "start", 5)) {
+        expect("(");
+        Node *ap = assign();
+        if (eat(",")) assign();
+        expect(")");
+        if (!cur_fn || !cur_fn->ty->variadic) kerr_tok(t, "'va_start' used in function with fixed args");
+        Node *n = new_node(ND_VASTART, t);
+        n->lhs = va_ptr(ap, t); n->ty = &ty_void;
+        return n;
+    }
+    if (l == 3 && !memcmp(nm, "end", 3)) {
+        expect("(");
+        Node *ap = assign();
+        expect(")");
+        va_ptr(ap, t);
+        return new_cast(new_num(0, &ty_int, t), &ty_void, t);
+    }
+    if (l == 4 && !memcmp(nm, "copy", 4)) {
+        expect("(");
+        Node *d = assign(); expect(","); Node *s2 = assign(); expect(")");
+        Node *dd = new_deref(va_ptr(d, t), t), *ss = new_deref(va_ptr(s2, t), t);
+        return new_assign(dd, ss, t);
+    }
+    if (l == 3 && !memcmp(nm, "arg", 3)) {
+        expect("(");
+        Node *ap = assign(); expect(",");
+        Type *ty = typename();
+        expect(")");
+        if (!ty_is_scalar(ty)) unsupported(t, "va_arg of a struct/union type");
+        Node *n = new_node(ND_VAARG, t);
+        n->lhs = va_ptr(ap, t); n->ty = ty_unqual(ty);
+        return n;
+    }
+    kerr_tok(t, "unsupported builtin '%.*s'", t->len, t->s);
+}
+
+/* ---------- __atomic_* и __sync_*: все операции выполняются с порядком seq_cst (порядок из аргументов проверяется и принимается) ---------- */
+static Node *at_node(int sub, Node *p, Node *v, Node *d, Type *ty, const Token *t) {
+    Node *n = new_node(ND_ATOMIC, t);
+    n->op = sub; n->lhs = p; n->rhs = v; n->c = d; n->ty = ty;
+    return n;
+}
+static Node *at_ptr(const Token *t) {                 /* аргумент-указатель на 1/2/4/8-байтовое целое или указатель */
+    Node *p = rv(assign());
+    if (p->ty->k != TY_PTR) kerr_tok(t, "address argument of '%.*s' is not a pointer", t->len, t->s);
+    Type *b = ty_unqual(p->ty->base);
+    if (!(ty_is_int(b) || b->k == TY_PTR) || (b->size != 1 && b->size != 2 && b->size != 4 && b->size != 8))
+        kerr_tok(t, "'%.*s' needs a pointer to an integer or pointer of size 1, 2, 4 or 8", t->len, t->s);
+    return p;
+}
+static void at_order(const Token *t) {
+    Node *o = rv(assign());
+    if (o->k != ND_NUM || !ty_is_int(o->ty)) kerr_tok(t, "memory order argument of '%.*s' must be a constant", t->len, t->s);
+    if (o->val < 0 || o->val > 5) kerr_tok(t, "invalid memory order %lld", (long long)o->val);
+}
+static Node *at_val(Node *p, int arith, const Token *t) {   /* значение, приведённое к типу объекта (для +,- и т.п. над указателем - как к целому) */
+    Type *b = ty_unqual(p->ty->base);
+    Node *v = rv(assign());
+    return conv_assign(v, arith && b->k == TY_PTR ? &ty_long : b, t, "passing atomic operand of type");
+}
+
+static Node *atomic_builtin(const Token *t) {
+    char nm[48];
+    int l = t->len;
+    if (l >= (int)sizeof nm) kerr_tok(t, "unsupported builtin '%.*s'", t->len, t->s);
+    memcpy(nm, t->s, (size_t)l); nm[l] = 0;
+    int sync = nm[2] == 's';
+    const char *b = nm + (sync ? 7 : 9);
+    expect("(");
+    Node *n = NULL;
+    static const struct { const char *s; int sub; } ar[] = { { "add", AT_ADD }, { "sub", AT_SUB }, { "and", AT_AND }, { "or", AT_OR },
+                                                           { "xor", AT_XOR }, { "nand", AT_NAND }, { 0, 0 } };
+    if (!sync && (!strcmp(b, "thread_fence") || !strcmp(b, "signal_fence"))) {
+        at_order(t); expect(")");
+        return b[0] == 't' ? at_node(AT_FENCE, NULL, NULL, NULL, &ty_void, t) : new_cast(new_num(0, &ty_int, t), &ty_void, t);
+    }
+    if (sync && !strcmp(b, "synchronize")) { expect(")"); return at_node(AT_FENCE, NULL, NULL, NULL, &ty_void, t); }
+    if (!sync && (!strcmp(b, "always_lock_free") || !strcmp(b, "is_lock_free"))) {
+        Node *sz = rv(assign());
+        if (eat(",")) assign();
+        expect(")");
+        if (sz->k != ND_NUM) kerr_tok(t, "size argument of '%.*s' must be a constant", t->len, t->s);
+        return new_num(sz->val == 1 || sz->val == 2 || sz->val == 4 || sz->val == 8, &ty_int, t);
+    }
+    if (!sync && !strcmp(b, "test_and_set")) {
+        Node *p = rv(assign());
+        if (eat(",")) at_order(t);
+        expect(")");
+        if (p->ty->k != TY_PTR) kerr_tok(t, "argument of '%.*s' is not a pointer", t->len, t->s);
+        p = new_cast(p, ty_ptr(&ty_uchar), t);
+        return new_cast(at_node(AT_XCHG, p, new_num(1, &ty_uchar, t), NULL, &ty_uchar, t), &ty_bool, t);
+    }
+    if (!sync && !strcmp(b, "clear")) {
+        Node *p = rv(assign());
+        if (eat(",")) at_order(t);
+        expect(")");
+        if (p->ty->k != TY_PTR) kerr_tok(t, "argument of '%.*s' is not a pointer", t->len, t->s);
+        p = new_cast(p, ty_ptr(&ty_uchar), t);
+        return at_node(AT_STORE, p, new_num(0, &ty_uchar, t), NULL, &ty_void, t);
+    }
+    if (sync && !strcmp(b, "lock_release")) {
+        Node *p = at_ptr(t);
+        while (eat(",")) assign();
+        expect(")");
+        return at_node(AT_STORE, p, new_num(0, &ty_int, t), NULL, &ty_void, t);
+    }
+    Node *p = at_ptr(t);
+    Type *T = ty_unqual(p->ty->base);
+    if (!strcmp(b, "load_n") || !strcmp(b, "load")) {
+        int gen = b[4] == 0;
+        Node *ret = NULL;
+        if (gen) { expect(","); ret = rv(assign()); }
+        expect(","); at_order(t); expect(")");
+        n = at_node(AT_LOAD, p, NULL, NULL, T, t);
+        if (gen) return new_assign(new_deref(ret, t), n, t);
+        return n;
+    }
+    if (!strcmp(b, "store_n") || !strcmp(b, "store")) {
+        int gen = b[5] == 0;
+        expect(",");
+        Node *v;
+        if (gen) v = conv_assign(new_deref(rv(assign()), t), T, t, "storing atomic operand of type"); else v = at_val(p, 0, t);
+        expect(","); at_order(t); expect(")");
+        return at_node(AT_STORE, p, v, NULL, &ty_void, t);
+    }
+    if (!strcmp(b, "exchange_n") || !strcmp(b, "exchange")) {
+        int gen = b[8] == 0;
+        expect(",");
+        Node *v, *ret = NULL;
+        if (gen) { v = conv_assign(new_deref(rv(assign()), t), T, t, "passing atomic operand of type"); expect(","); ret = rv(assign()); }
+        else v = at_val(p, 0, t);
+        expect(","); at_order(t); expect(")");
+        n = at_node(AT_XCHG, p, v, NULL, T, t);
+        return gen ? new_assign(new_deref(ret, t), n, t) : n;
+    }
+    if (!strcmp(b, "compare_exchange_n") || !strcmp(b, "compare_exchange")) {
+        int gen = b[16] == 0;
+        expect(",");
+        Node *ep = rv(assign());
+        if (ep->ty->k != TY_PTR) kerr_tok(t, "expected-value argument of '%.*s' is not a pointer", t->len, t->s);
+        ep = new_cast(ep, ty_ptr(T), t);
+        expect(",");
+        Node *d = gen ? conv_assign(new_deref(rv(assign()), t), T, t, "passing atomic operand of type") : at_val(p, 0, t);
+        expect(","); (void)rv(assign()); expect(","); at_order(t); expect(","); at_order(t); expect(")");
+        n = at_node(AT_CAS, p, ep, d, &ty_int, t);
+        return new_cast(n, &ty_bool, t);
+    }
+    if (sync && (!strcmp(b, "bool_compare_and_swap") || !strcmp(b, "val_compare_and_swap"))) {
+        expect(",");
+        Node *o = at_val(p, 0, t);
+        expect(",");
+        Node *d = at_val(p, 0, t);
+        while (eat(",")) assign();
+        expect(")");
+        n = at_node(AT_CAS, p, o, d, b[0] == 'b' ? &ty_int : T, t);
+        n->val = b[0] == 'b' ? 2 : 1;
+        return n;
+    }
+    if (sync && !strcmp(b, "lock_test_and_set")) {
+        expect(",");
+        Node *v = at_val(p, 0, t);
+        while (eat(",")) assign();
+        expect(")");
+        return at_node(AT_XCHG, p, v, NULL, T, t);
+    }
+    /* fetch_OP / OP_fetch (GCC) и fetch_and_OP / OP_and_fetch (sync) */
+    int newv = 0, sub = 0;
+    const char *op = NULL;
+    if (!strncmp(b, "fetch_and_", 10)) op = b + 10;
+    else if (!strncmp(b, "fetch_", 6)) op = b + 6;
+    if (op) for (int i = 0; ar[i].s; i++) if (!strcmp(op, ar[i].s)) sub = ar[i].sub;
+    if (!sub) {
+        for (int i = 0; ar[i].s; i++) {
+            size_t k = strlen(ar[i].s);
+            if (!strncmp(b, ar[i].s, k) && (!strcmp(b + k, "_fetch") || !strcmp(b + k, "_and_fetch"))) { sub = ar[i].sub; newv = 1; }
+        }
+    }
+    if (!sub) kerr_tok(t, "unsupported builtin '%.*s'", t->len, t->s);
+    expect(",");
+    Node *v = at_val(p, 1, t);
+    if (sync) { while (eat(",")) assign(); } else { expect(","); at_order(t); }
+    expect(")");
+    n = at_node(sub, p, v, NULL, T, t);
+    n->val = newv;
+    return n;
+}
+
 static Node *primary(void) {
     const Token *t = tok;
     if (P("(")) {
@@ -1169,10 +1386,13 @@ static Node *primary(void) {
                 Obj *o = builtin_decl(kfmt("%.*s", l, nm), t);
                 return var_node(o, t);
             }
+            if (l >= 3 && !memcmp(nm, "va_", 3)) return va_builtin(t, nm + 3, l - 3);
             kerr_tok(t, "unsupported builtin '%.*s'", t->len, t->s);
         }
-        if ((t->len > 9 && !memcmp(t->s, "__atomic_", 9)) || (t->len > 7 && !memcmp(t->s, "__sync_", 7)))
-            unsupported(t, kfmt("atomic builtin '%.*s'", t->len, t->s));
+        if ((t->len > 9 && !memcmp(t->s, "__atomic_", 9)) || (t->len > 7 && !memcmp(t->s, "__sync_", 7))) {
+            tok = tok->next;
+            return atomic_builtin(t);
+        }
         if ((t->len == 8 && !memcmp(t->s, "__func__", 8)) || (t->len == 12 && !memcmp(t->s, "__FUNCTION__", 12))) {
             if (!cur_fn) kerr_tok(t, "'__func__' used outside of a function");
             tok = tok->next;
@@ -1363,7 +1583,22 @@ static Node *cond_expr_(void) {
     Node *c = binary(1);
     const Token *t = tok;
     if (!eat("?")) return c;
-    if (P(":")) unsupported(t, "conditional operator with omitted middle operand");
+    if (P(":")) {                                   /* a ?: b - a вычисляется один раз */
+        tok = tok->next;
+        Node *b = cond_expr();
+        c = rv(c); b = rv(b);
+        Type *ct;
+        if (ty_is_int(c->ty) && ty_is_int(b->ty)) ct = ty_common(c->ty, b->ty);
+        else if (c->ty->k == TY_PTR && b->ty->k == TY_PTR) ct = c->ty->base->k == TY_VOID ? b->ty : c->ty;
+        else if (c->ty->k == TY_PTR && ty_is_int(b->ty) && b->k == ND_NUM && b->val == 0) ct = c->ty;
+        else if (b->ty->k == TY_PTR && ty_is_int(c->ty) && c->k == ND_NUM && c->val == 0) ct = b->ty;
+        else kerr_tok(t, "incompatible operand types ('%s' and '%s') in '?:'", ty_name(c->ty), ty_name(b->ty));
+        c = new_cast(c, ct, t); b = new_cast(b, ct, t);
+        if (c->k == ND_NUM) return c->val ? c : b;
+        Node *n = new_node(ND_COND, t);
+        n->c = c; n->e = b; n->ty = ct;             /* t == NULL: значением служит само условие */
+        return n;
+    }
     Node *a = expr();
     expect(":");
     Node *b = cond_expr();
@@ -2077,12 +2312,20 @@ static Node *stmt_(void) {
         tok = tok->next;
         if (!cur_switch) kerr_tok(t, "'case' statement not in switch statement");
         int64_t v = const_expr();
-        if (P("...")) unsupported(tok, "case ranges");
+        int64_t hi = v;
+        int range = 0;
+        if (eat("...")) { hi = const_expr(); range = 1; }
         expect(":");
         v = trunc_ty(v, cur_switch->c->ty);
-        for (Node *c = cur_switch->cases; c; c = c->cases) if (c->val == v) kerr_tok(t, "duplicate case value '%lld'", (long long)v);
+        hi = trunc_ty(hi, cur_switch->c->ty);
+        if (range && (cur_switch->c->ty->is_unsigned ? (uint64_t)hi < (uint64_t)v : hi < v)) kerr_tok(t, "empty case range specified");
+        for (Node *c = cur_switch->cases; c; c = c->cases) {
+            int64_t clo = c->val, chi = c->op == 2 ? c->val2 : c->val;
+            int ov = cur_switch->c->ty->is_unsigned ? ((uint64_t)v <= (uint64_t)chi && (uint64_t)clo <= (uint64_t)hi) : (v <= chi && clo <= hi);
+            if (ov) kerr_tok(t, range || c->op == 2 ? "duplicate case value in range" : "duplicate case value '%lld'", (long long)v);
+        }
         Node *n = new_node(ND_CASE, t);
-        n->val = v; n->lbl = new_lbl();
+        n->val = v; n->val2 = hi; n->op = range ? 2 : 0; n->lbl = new_lbl();
         n->cases = cur_switch->cases; cur_switch->cases = n;
         n->lhs = stmt();
         return n;
@@ -2212,7 +2455,7 @@ static void func_def(Token *nm, Type *ty, Attr *a) {
 
 Obj *parse_program(Token *t) {
     tok = t;
-    globals_head = globals_tail = NULL;
+    globals_head = globals_tail = NULL; va_ty = va_st = NULL;
     cur_fn = NULL; scope = NULL; str_count = static_count = type_count = 0;
     gscope = new_scope(1);
     while (tok->k != TK_EOF) {
