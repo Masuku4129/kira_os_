@@ -36,6 +36,7 @@ typedef struct {
     int counter;
     long tokbudget;                          /* защита от взрыва макрорасширения */
     int depth;                               /* вложенность разбора */
+    const char *srcpath;                     /* главный исходный файл (для сообщений бэкенда) */
 } KCtx;
 extern KCtx K;
 
@@ -123,7 +124,9 @@ struct Reloc { Reloc *next; int off; const char *sym; int64_t addend; };
 struct Obj {
     Obj *next; const char *name; Type *ty;
     unsigned is_local : 1, is_func : 1, is_static : 1, is_extern : 1, is_def : 1, is_inline : 1,
-             is_str : 1, is_param : 1, is_ro : 1, used : 1, tentative : 1, noret : 1;
+             is_str : 1, is_param : 1, is_ro : 1, used : 1, tentative : 1, noret : 1, emit : 1;
+    void *ir;                                /* бэкенд: IrFn функции */
+    uint64_t addr;                           /* бэкенд: функция - смещение в .text, данные - адрес в образе */
     int slot, align, line, nparams;
     Obj *params, *locals;                    /* функция: параметры (по next), все локальные */
     Node *body; int nlabels;
@@ -134,11 +137,25 @@ Obj *parse_program(Token *tok);
 int64_t eval_const(Node *n);
 
 /* ---------- ir.c ---------- */
+typedef enum { IR_LABEL, IR_CONST, IR_GADDR, IR_LADDR, IR_PARAM, IR_LOAD, IR_STORE, IR_MOV, IR_BIN, IR_NEG, IR_NOT,
+               IR_CMP, IR_EXT, IR_JMP, IR_BRZ, IR_BRNZ, IR_CALL, IR_RET, IR_COPY, IR_ZERO, IR_ASM, IR_UNREACH } IrOp;
+typedef struct Ins Ins;
+struct Ins {
+    IrOp op; int sub, dst, a, b, w, sgn, vol, nargs, nout;
+    int64_t imm; const char *sym; int *args; Ins *next;
+    int line; const char *file;              /* только IR_ASM: место в исходнике */
+};
+typedef struct { Obj *f; Ins *head; int nreg, nlab; } IrFn;
+IrFn *ir_lower(Obj *f);                      /* линейный IR одной функции с телом */
 void ir_dump(Obj *globals, SB *out);
 
+/* ---------- gen_x86.c / asm_x86.c / elf.c (этап M2) ---------- */
+/* Компиляция программы в исполняемый ELF Киры (x86-64). Результат - в арене. Ошибки - через kerr. */
+void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
+
 /* ---------- API ---------- */
-typedef struct { const char *ir; const char *err; const char *warn; } KResult;
-/* Компиляция одного файла. mem/memsz - арена. emit_ir=0: только проверка. Возврат 0 - успех. */
+typedef struct { const char *ir; const char *err; const char *warn; const unsigned char *elf; size_t elflen; } KResult;
+/* Компиляция одного файла. mem/memsz - арена. emit_ir=0: только проверка, 1: текстовый IR, 2: ELF x86-64. Возврат 0 - успех. */
 int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res);
 
 #endif

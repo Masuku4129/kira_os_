@@ -82,6 +82,29 @@ for f in tests/kcc/run/*.c; do
     cmp -s $T/want $T/got || note "$f: результат IR $(cat $T/got) != clang $(cat $T/want)"
 done
 
+# M2: ELF Киры (x86-64) -> хост-загрузчик (elf_parse ядра + seccomp-таблица k_*); вывод и код возврата как у clang -O0
+$CC -std=gnu99 -O1 -g -Wall -Wextra -Werror -DKIRA_HOST_TEST -o $T/kloader tests/kcc/kloader.c elf.c || exit 1
+refbuild() { # исходник -> $T/want (stdout эталона + код возврата main)
+    { cat $1; echo '#undef main'; echo '#include <stdio.h>'; echo 'int main(void) { printf("%d\n", kmain()); return 0; }'; } >$T/ref.c
+    $REF -std=gnu99 -w -O0 -fwrapv -I $INC -Dmain=kmain -o $T/ref $T/ref.c 2>$T/rerr || return 1
+    $T/ref >$T/want
+}
+for f in tests/kcc/run/*.c tests/kcc/exec/*.c; do
+    total=$((total+1))
+    if ! $T/kcc -I $INC -I kcc/include -o $T/p.elf $f 2>$T/err; then note "$f: ELF не собран: $(head -c 200 $T/err)"; continue; fi
+    if ! refbuild $f; then note "$f: clang не собрал: $(head -1 $T/rerr)"; continue; fi
+    $T/kloader $T/p.elf >$T/got 2>&1
+    cmp -s $T/want $T/got || note "$f: вывод ELF расходится с clang: $(head -c 120 $T/got | tr '\n' ' ') != $(head -c 120 $T/want | tr '\n' ' ')"
+done
+for f in tests/kcc/elfbad/*.c; do
+    total=$((total+1))
+    $T/kcc -I $INC -I kcc/include -o $T/p.elf $f 2>$T/err; rc=$?
+    if [ $rc != 1 ]; then note "$f: kcc должен отвергнуть при генерации кода (rc=$rc)"; continue; fi
+    lineinfo || note "$f: ошибка без номера строки: $(head -c 200 $T/err)"
+    want=$(sed -n 's|^// expect: ||p' $f | head -1)
+    grep -qF -- "$want" $T/err || note "$f: ожидалось '$want': $(head -c 200 $T/err)"
+done
+
 # враждебные входы: глубокая вложенность и длинные цепочки не должны ронять стек
 rep() { yes "$1" | head -n "$2" | tr -d '\n'; }
 stress() { # имя, ожидаемый rc (0 или 1)

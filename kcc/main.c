@@ -35,19 +35,20 @@ int main(int argc, char **argv) {
         else if (!in) in = a;
         else { fprintf(stderr, "kcc: only one input file is supported at this stage\n"); return 2; }
     }
-    if (!in) { fprintf(stderr, "usage: kcc [-I dir] [-D n[=v]] [-S-ir] [-o out] file.c\n"); return 2; }
-    if (!ir) { fprintf(stderr, "kcc: code generation is not available yet (stage M1): use -S-ir\n"); return 2; }
+    if (!in) { fprintf(stderr, "usage: kcc [-I dir] [-D n[=v]] [-S-ir] -o out file.c\n"); return 2; }
+    if (!ir && !outp) { fprintf(stderr, "kcc: no output: use -o file (ELF) or -S-ir\n"); return 2; }
     size_t memsz = (size_t)512 << 20;
     void *mem = malloc(memsz);
     if (!mem) { fprintf(stderr, "kcc: out of memory\n"); return 2; }
     KCfg cfg = { read_file, NULL, incs, ni, defs, nd, target };
     KResult r;
-    int rc = kcc_compile(&cfg, mem, memsz, in, 1, &r);
+    int rc = kcc_compile(&cfg, mem, memsz, in, ir ? 1 : 2, &r);
     if (r.warn) fputs(r.warn, stderr);
     if (rc) { fprintf(stderr, "%s\n", r.err); return 1; }
     FILE *o = outp ? fopen(outp, "wb") : stdout;
     if (!o) { fprintf(stderr, "kcc: cannot write '%s'\n", outp); return 2; }
-    fputs(r.ir, o);
+    if (ir) fputs(r.ir, o);
+    else if (fwrite(r.elf, 1, r.elflen, o) != r.elflen) { fprintf(stderr, "kcc: write error on '%s'\n", outp); return 2; }
     if (outp) fclose(o);
     return 0;
 }

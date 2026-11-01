@@ -101,12 +101,17 @@ int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int 
         res->warn = K.warn.p;
         return 1;
     }
+    K.srcpath = path;
     Token *t = preprocess(path);
     Obj *prog = parse_program(t);
-    if (emit_ir) {
+    if (emit_ir == 1) {
         SB out = {0};
         ir_dump(prog, &out);
         res->ir = out.p ? out.p : "";
+    } else if (emit_ir == 2) {
+        unsigned char *elf; size_t n;
+        x86_build_elf(prog, &elf, &n);
+        res->elf = elf; res->elflen = n;
     }
     res->warn = K.warn.p;
     return 0;

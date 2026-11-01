@@ -4,15 +4,6 @@
 #include "kcc.h"
 #include <string.h>
 
-typedef enum { IR_LABEL, IR_CONST, IR_GADDR, IR_LADDR, IR_PARAM, IR_LOAD, IR_STORE, IR_MOV, IR_BIN, IR_NEG, IR_NOT,
-               IR_CMP, IR_EXT, IR_JMP, IR_BRZ, IR_BRNZ, IR_CALL, IR_RET, IR_COPY, IR_ZERO, IR_ASM, IR_UNREACH } IrOp;
-
-typedef struct Ins Ins;
-struct Ins {
-    IrOp op; int sub, dst, a, b, w, sgn, vol, nargs, nout;
-    int64_t imm; const char *sym; int *args; Ins *next;
-};
-
 static Ins *ihead, *itail;
 static int nreg, nlab;
 static Obj *fn;
@@ -297,6 +288,7 @@ static int gen_expr(Node *n) {
         for (Node *x = n->ai; x; x = x->next) in[k++] = gen_expr(x);
         Ins *i = emit(IR_ASM);
         i->sym = n->name; i->args = in; i->nargs = nin; i->nout = nout;
+        i->line = n->tok ? n->tok->line : 0; i->file = n->tok ? n->tok->file : NULL;
         int *outs = ka_new(sizeof(int) * (size_t)(nout + 1));
         for (int j = 0; j < nout; j++) outs[j] = newreg();
         i->imm = (int64_t)(intptr_t)outs;
@@ -432,7 +424,7 @@ static void print_ins(const Ins *i) {
     }
 }
 
-static void lower_func(Obj *f) {
+IrFn *ir_lower(Obj *f) {
     fn = f;
     ihead = itail = NULL;
     nreg = 0; nlab = f->nlabels;
@@ -454,10 +446,17 @@ static void lower_func(Obj *f) {
         r = emit(IR_RET);
         r->a = -1;
     }
+    IrFn *res = ka_new(sizeof *res);
+    res->f = f; res->head = ihead; res->nreg = nreg; res->nlab = nlab;
+    return res;
+}
+
+static void lower_func(Obj *f) {
+    IrFn *fi = ir_lower(f);
     sb_printf(out, "func %s%s params=%d\n", f->name, f->is_static ? " static" : "", f->nparams);
     for (Obj *l = f->locals; l; l = l->next)
         sb_printf(out, "  slot%d: size=%d align=%d %s%s\n", l->slot, l->ty->size, l->align ? l->align : 1, l->name, l->is_param ? " (param)" : "");
-    for (Ins *i = ihead; i; i = i->next) print_ins(i);
+    for (Ins *i = fi->head; i; i = i->next) print_ins(i);
     sb_printf(out, "end\n");
 }
 

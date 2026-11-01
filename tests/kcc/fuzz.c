@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
         cur_src = buf; cur_len = n;
         KResult r;
         alarm(20);
-        int rc = kcc_compile(&cfg, mem, memsz, "fuzz.c", (it & 1) == 0, &r);
+        int rc = kcc_compile(&cfg, mem, memsz, "fuzz.c", (int)(it % 3), &r);
         alarm(0);
         if (rc == 0) ok++;
         else {
