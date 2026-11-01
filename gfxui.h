@@ -26,4 +26,16 @@ int  ui_text_smooth_width(const char* utf8, int scale16);
 void ui_vgrad(surface_t* s, int x, int y, int w, int h, uint32_t top, uint32_t bottom);
 void ui_glow(surface_t* s, int x, int y, int w, int h, int r, int size, uint32_t color, unsigned alpha);
 
+
+/* ---- единая тема приложений: карточки, кнопки, полоса состояния, подсказка клавиш ---- */
+typedef struct { const char* key; const char* label; uint32_t color; } ui_key_t;   /* ячейка подсказки: клавиша и действие */
+void ui_text_fit(surface_t* s, int x, int y, const char* utf8, int maxw, uint32_t color);   /* не шире maxw, иначе «…» */
+void ui_card(surface_t* s, int x, int y, int w, int h, const char* title, uint32_t accent);  /* title может быть 0 */
+void ui_button(surface_t* s, int x, int y, int w, int h, const char* label, uint32_t color, int hover, int on);
+/* Полоса состояния внизу окна на всю ширину: слева итог/подсказка, справа сведения. */
+void ui_statusbar(surface_t* s, int y, const char* left, uint32_t left_color, const char* right);
+/* Полоса подсказки клавиш как в mc: n одинаковых ячеек на всю ширину; hover - номер ячейки под мышью или -1. */
+void ui_keybar(surface_t* s, int y, const ui_key_t* k, int n, int hover);
+int  ui_keybar_hit(int width, int n, int x);              /* номер ячейки по x или -1 */
+
 #endif

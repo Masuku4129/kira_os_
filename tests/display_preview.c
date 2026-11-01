@@ -1,7 +1,7 @@
 // Хост-прогон потока дисплея целиком: журнал ядра -> терминал, приложения ядра (Разум, Монитор, Проводник,
 // Настройки), окна Ring 3, разделы и боковая панель, живой фон -> present.
 // Заглушки: fb (экран в памяти), sched (захват точки входа), clock (виртуальные часы), pmm (malloc), снимки Разума и
-// файловой системы (правдоподобные данные). Проводник строит дерево настоящей функцией exp_build.
+// файловой системы (правдоподобные данные). Проводник - настоящая логика панелей fm.c над файловой системой в памяти.
 // Результат - картинки того, что увидит пользователь по VNC: /tmp/kira_gfx/*.ppm
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -23,6 +23,7 @@
 #include "fbcon.h"
 #include "mind_sys.h"
 #include "explorer.h"
+#include "fm.h"
 #include "rtc.h"
 #include "apps.h"
 
@@ -142,60 +143,66 @@ static void fill_mind(void) {
     }
 }
 
-/* ---- Проводник: настоящее построение дерева по вымышленной файловой системе ---- */
-typedef struct { const char* path; int dir; uint32_t size; } fent_t;
-static const fent_t FS[] = {
-    { "/bin", 1, 0 }, { "/data", 1, 0 }, { "/var", 1, 0 }, { "/readme.txt", 0, 412 },
-    { "/bin/plasma", 0, 9144 }, { "/bin/paint", 0, 17096 }, { "/bin/cube3d", 0, 22056 }, { "/bin/burn", 0, 8808 },
-    { "/bin/mt", 0, 13248 }, { "/bin/ipc", 0, 9192 }, { "/bin/fpu", 0, 9120 },
-    { "/data/paint", 1, 0 }, { "/data/paint/canvas.raw", 0, 153600 },
-    { "/var/life.log", 0, 3810 }, { "/var/mind.dat", 0, 556 }, { "/var/mind", 1, 0 },
-    { "/var/mind/cube3d", 0, 40 }, { "/var/mind/burn", 0, 40 },
-};
-static int fake_list(const char* path, void (*emit)(void*, const char*, int, uint64_t), void* ctx) {
+/* ---- Проводник: настоящая логика панелей (fm.c) над файловой системой в памяти ---- */
+typedef struct { char path[FM_PATH]; int dir; uint8_t* data; uint64_t size; int used; } mf_t;
+static mf_t MFS[256];
+static mf_t* mfind(const char* p) { for (int i = 0; i < 256; i++) if (MFS[i].used && !strcmp(MFS[i].path, p)) return &MFS[i]; return 0; }
+static mf_t* mnew(const char* p) { for (int i = 0; i < 256; i++) if (!MFS[i].used) { memset(&MFS[i], 0, sizeof MFS[i]); MFS[i].used = 1; snprintf(MFS[i].path, FM_PATH, "%s", p); return &MFS[i]; } return 0; }
+static void mput(const char* p, int dir, uint64_t size, const char* text) {
+    mf_t* m = mnew(p); m->dir = dir; m->size = size; if (dir) return;
+    m->data = calloc(size + 1, 1); if (text) memcpy(m->data, text, strlen(text) < size ? strlen(text) : size);
+}
+static int m_list(const char* path, void (*emit)(void*, const char*, int, uint64_t), void* ctx) {
+    if (strcmp(path, "/") && !mfind(path)) return -2;
     size_t pl = strlen(path); if (pl == 1) pl = 0;
-    for (unsigned i = 0; i < sizeof FS / sizeof FS[0]; i++) {
-        const char* p = FS[i].path;
-        if (strncmp(p, path, pl) || p[pl] != '/') continue;
-        if (strchr(p + pl + 1, '/')) continue;
-        emit(ctx, p + pl + 1, FS[i].dir, FS[i].size);
+    for (int i = 0; i < 256; i++) {
+        const char* q = MFS[i].path;
+        if (!MFS[i].used || strncmp(q, path, pl) || q[pl] != '/' || strchr(q + pl + 1, '/')) continue;
+        emit(ctx, q + pl + 1, MFS[i].dir, MFS[i].size);
     }
     return 0;
 }
+static int m_stat(const char* q, int* dir, uint64_t* size) { if (!strcmp(q, "/")) { *dir = 1; *size = 0; return 0; } mf_t* m = mfind(q); if (!m) return -2; *dir = m->dir; *size = m->size; return 0; }
+static int64_t m_read(const char* q, uint64_t off, void* b, size_t n) { mf_t* m = mfind(q); if (!m || m->dir || off > m->size) return -2; if (off + n > m->size) n = (size_t)(m->size - off); memcpy(b, m->data + off, n); return (int64_t)n; }
+static int m_write(const char* q, const void* d, size_t n) { mf_t* m = mfind(q); if (!m) m = mnew(q); if (!m) return -6; free(m->data); m->data = malloc(n + 1); memcpy(m->data, d, n); m->size = n; return 0; }
+static int m_mkdir(const char* q) { if (mfind(q)) return -3; mf_t* m = mnew(q); m->dir = 1; return 0; }
+static int m_unlink(const char* q) { mf_t* m = mfind(q); if (!m) return -2; free(m->data); m->used = 0; return 0; }
+static void* m_alloc(size_t n) { return malloc(n); }
+static void m_release(void* q) { free(q); }
+static int m_tick(fm_t* f) { (void)f; return 0; }
+static const char* m_err(int e) { return e == -3 ? "уже есть" : "ошибка"; }
+static void m_log(const char* l) { (void)l; }
+static const fm_io_t IO = { m_list, m_stat, m_read, m_write, m_mkdir, m_unlink, m_alloc, m_release, m_tick, m_err, m_log };
+
 static exp_view_t EV;
-static char opened[24][128]; static int nopen;
-static char paths[EXP_ROWS][128];
 static int clicks;
-static void ex_rebuild(void) {
-    EV.mounted = 1; EV.total_kb = 8192; EV.free_kb = 7790; EV.files = 18;
-    EV.nrows = exp_build(fake_list, opened, nopen, EV.row, paths, EXP_ROWS, &EV.truncated);
-    for (uint32_t i = 0; i < EV.nrows; i++) EV.row[i].sel = !strcmp(paths[i], EV.sel_path);
-    EV.version++;
-}
+static void ex_publish(void) { EV.mounted = 1; EV.total_kb = 8192; EV.free_kb = 7790; EV.files = 18; EV.version++; }
 static char written_path[64], written[256]; static int writes;
-void explorer_expand(const char* path) { int open = 0; for (int i = 0; i < nopen; i++) if (!strcmp(opened[i], path)) open = 1; if (!open) snprintf(opened[nopen++], 128, "%s", path); ex_rebuild(); }
+void explorer_goto(int panel, const char* path) { int pn = panel < 0 ? EV.fm.active : panel; fm_goto(&EV.fm, &IO, pn, path); EV.fm.active = pn; ex_publish(); }
+void explorer_key(int key, int ch) { clicks++; fm_key(&EV.fm, &IO, key, ch); ex_publish(); }
+void explorer_mouse(int kind, int panel, int row) { clicks++; fm_mouse(&EV.fm, &IO, kind, panel, row); ex_publish(); }
+void explorer_page(int panel, int dir) { fm_page(&EV.fm, panel, dir); ex_publish(); }
 int explorer_write(const char* path, const void* data, unsigned len) {
     snprintf(written_path, sizeof written_path, "%s", path); memcpy(written, data, len); written[len] = 0; writes++;
     memcpy(EV.dock_text, data, len); EV.dock_len = (int32_t)len;      /* как будто записалось на диск */
     return 0;
 }
 uint32_t vfs_generation(void) { return 0; }
-void explorer_init(void) { EV.dock_loaded = 1; EV.dock_len = -1; }
-void explorer_refresh(void) { ex_rebuild(); }
+void explorer_init(void) {
+    static const struct { const char* path; int dir; uint32_t size; } S[] = {
+        { "/bin", 1, 0 }, { "/data", 1, 0 }, { "/var", 1, 0 }, { "/readme.txt", 0, 412 }, { "/pic.png", 0, 3300 },
+        { "/bin/plasma", 0, 9144 }, { "/bin/paint", 0, 17096 }, { "/bin/cube3d", 0, 22056 }, { "/bin/burn", 0, 8808 },
+        { "/bin/mt", 0, 13248 }, { "/bin/ipc", 0, 9192 }, { "/bin/fpu", 0, 9120 }, { "/wasm", 1, 0 }, { "/wasm/wtest.wasm", 0, 5120 },
+        { "/data/paint", 1, 0 }, { "/data/paint/canvas.raw", 0, 153600 }, { "/data/notes.txt", 0, 96 },
+        { "/var/life.log", 0, 3810 }, { "/var/mind.dat", 0, 556 }, { "/var/mind", 1, 0 },
+    };
+    for (unsigned i = 0; i < sizeof S / sizeof S[0]; i++) mput(S[i].path, S[i].dir, S[i].size, i == 3 ? "Kira OS" : 0);
+    fm_init(&EV.fm, &IO, "/", "/data");
+    EV.dock_loaded = 1; EV.dock_len = -1; ex_publish();
+}
+void explorer_refresh(void) { fm_reload(&EV.fm, &IO); ex_publish(); }
 uint32_t explorer_version(void) { return EV.version; }
 void explorer_view(exp_view_t* o) { *o = EV; }
-void explorer_click(uint32_t ver, int row) {
-    clicks++;
-    if (ver != EV.version || row < 0 || (uint32_t)row >= EV.nrows) return;
-    if (EV.row[row].dir) { snprintf(opened[nopen++], 128, "%s", paths[row]); }
-    else {
-        snprintf(EV.sel_path, sizeof EV.sel_path, "%s", paths[row]);
-        EV.sel_size = EV.row[row].size;
-        const char* txt = "Kira OS - микроядерная система для x86_64.\n\nРазум живёт в ядре: учит нормы этой машины,\nследит за кадрами, памятью и программами\nи записывает каждое решение с причиной.\n\nКоманды терминала: help, ai why, ls /bin\n";
-        snprintf(EV.prev, sizeof EV.prev, "%s", txt); EV.prev_len = (int32_t)strlen(txt); EV.prev_bin = 0;
-    }
-    ex_rebuild();
-}
 
 static void save_ppm(const char* path) {
     FILE* f = fopen(path, "wb"); fprintf(f, "P6\n%d %d\n255\n", screen.w, screen.h);
@@ -221,7 +228,6 @@ int main(int argc, char** argv) {
     screen.px = px; screen.w = W; screen.h = H; screen.pitch = W;
     finfo.width = (uint32_t)W; finfo.height = (uint32_t)H; finfo.pitch_bytes = (uint32_t)W * 4;
     fill_mind();
-    ex_rebuild();
 
     klog_str("[KIRA OS] Kernel core starting...\n"
              "[KIRA PMM] Usable RAM per memory map: 2047 MB; allocatable: 2040 MB.\n"
@@ -261,56 +267,71 @@ int main(int argc, char** argv) {
     CHECK(w_mon >= 0 && wm_top() == w_mon);
     save_shot("monitor.ppm");
 
-    /* Проводник: раскрыть /bin и /var, выбрать файл */
+    /* Проводник: две панели, мышь и клавиши */
     click_tab(3);
     run(3);
     int w_files = wm_find("Files");
     CHECK(w_files >= 0 && wm_top() == w_files);
     exp_view_t e; explorer_view(&e);
-    CHECK(e.nrows == 4 && e.row[0].dir && !strcmp(e.row[0].name, "bin") && !strcmp(e.row[3].name, "readme.txt"));
-    click_in(w_files, 60, 44 + 8 + 0 * 19 + 9);                    /* /bin */
-    run(2);
+    const int RX0 = 70, RX1 = 70 + 395 - 10, RY = 38 + 46 + 9, KY = 520 - 12;
+    CHECK(!strcmp(e.fm.p[0].path, "/") && !strcmp(e.fm.p[1].path, "/data") && e.fm.p[0].n == 4 && e.fm.p[0].hidden == 2);   /* bin и var скрыты */
+    CHECK(!strcmp(e.fm.p[0].e[0].name, "data") && e.fm.p[0].e[0].dir && !strcmp(e.fm.p[0].e[1].name, "wasm"));
+    save_shot("files-open.ppm");
+    click_in(w_files, RX0, RY + 18 * 1); run(1);                              /* щелчок: курсор на wasm */
+    explorer_view(&e); CHECK(e.fm.active == 0 && e.fm.p[0].cur == 1);
+    click_in(w_files, RX1, RY + 18 * 1); run(1);                              /* щелчок по правой панели: она активна */
+    explorer_view(&e); CHECK(e.fm.active == 1 && e.fm.p[1].cur == 1);
+    click_in(w_files, RX0, RY); click_in(w_files, RX0, RY); run(1);           /* двойной щелчок по data: левая панель входит */
+    explorer_view(&e); CHECK(!strcmp(e.fm.p[0].path, "/data") && e.fm.active == 0);
+    /* клавиши: Tab, F7 - каталог */
+    input_push_scancode(0x0F); input_push_scancode(0x8F); run(2);
+    explorer_view(&e); CHECK(e.fm.active == 1);
+    input_push_scancode(0x41); input_push_scancode(0xC1); run(2);
+    explorer_view(&e); CHECK(e.fm.mode == FM_MODE_INPUT);
+    save_shot("files-dialog.ppm");
+    input_push_scancode(0x31); input_push_scancode(0xB1); input_push_scancode(0x1C); input_push_scancode(0x9C); run(2);   /* "n" Enter */
+    explorer_view(&e); CHECK(e.fm.mode == FM_MODE_NORMAL && mfind("/data/n") && !strcmp(e.fm.p[1].e[e.fm.p[1].cur].name, "n"));
+    click_in(w_files, 4 * 800 / 9 + 30, KY); run(1);                         /* ячейка F5: обе панели в /data - отказ */
+    explorer_view(&e); CHECK(e.fm.msg_err);
+    explorer_goto(0, "/"); run(1);
     explorer_view(&e);
-    CHECK(e.nrows == 11 && e.row[0].open && e.row[1].depth == 1);
-    int var_row = -1; for (uint32_t i = 0; i < e.nrows; i++) if (!strcmp(e.row[i].name, "var")) var_row = (int)i;
-    CHECK(var_row > 0);
-    click_in(w_files, 60, 44 + 8 + var_row * 19 + 9);
-    run(2);
-    explorer_view(&e);
-    int rd = -1; for (uint32_t i = 0; i < e.nrows; i++) if (!strcmp(e.row[i].name, "readme.txt")) rd = (int)i;
-    CHECK(rd > 0);
-    click_in(w_files, 60, 44 + 8 + rd * 19 + 9);
-    run(3);
-    explorer_view(&e);
-    CHECK(!strcmp(e.sel_path, "/readme.txt") && e.row[rd].sel);
-    move_to(200, 600, 0);
-    run(2);
-    save_shot("files.ppm");
-    /* запуск программы из /bin: кнопка «запустить» и двойной щелчок; ipc - проверка парой */
-    click_in(w_files, 60, 44 + 8 + 1 * 19 + 9);                     /* /bin/burn */
-    run(2);
-    explorer_view(&e);
-    CHECK(!strcmp(e.sel_path, "/bin/burn") && app_files_program(&e) && !strcmp(app_files_program(&e), "burn"));
-    con_n = 0; click_in(w_files, 290 + 300 - 12 - 52, 44 + 10 + 14);
-    CHECK(con_n == 1 && !strcmp(con_cmd, "burn"));
-    run(2);
-    click_in(w_files, 60, 44 + 8 + 4 * 19 + 9);                     /* /bin/ipc: первый щелчок - выбор */
+    int dd = -1; for (uint32_t i = 0; i < e.fm.p[1].n; i++) if (!strcmp(e.fm.p[1].e[i].name, "notes.txt")) dd = (int)i;
+    CHECK(dd > 0);
+    {
+        int ox, oy, sc; wm_content_origin(w_files, &ox, &oy, &sc);
+        move_to(ox + RX1, oy + RY + 18 * dd, 0); wm_mouse(0, 0, 1); wm_mouse(-120, 4, 1); wm_mouse(-60, 4, 1); save_shot("files-drag.ppm"); wm_mouse(0, 0, 0);
+    }
     run(1);
-    con_n = 0; click_in(w_files, 60, 44 + 8 + 4 * 19 + 9);          /* второй - запуск */
+    CHECK(mfind("/notes.txt") && mfind("/data/notes.txt"));
+    explorer_view(&e); CHECK(!e.fm.msg_err && strstr(e.fm.msg, "Скопировано"));
+    /* F8: подтверждение и удаление (в правой панели - notes.txt) */
+    input_push_scancode(0x42); input_push_scancode(0xC2); run(2);
+    explorer_view(&e); CHECK(e.fm.mode == FM_MODE_CONFIRM);
+    save_shot("files-confirm.ppm");
+    input_push_scancode(0x1C); input_push_scancode(0x9C); run(2);
+    explorer_view(&e); CHECK(e.fm.mode == FM_MODE_NORMAL && !mfind("/data/notes.txt"));
+    click_in(w_files, 8 * 800 / 9 + 30, KY); run(1);                         /* F9: служебные файлы видны */
+    explorer_view(&e); CHECK(e.fm.show_hidden && e.fm.p[0].n == 7);
+    save_shot("files.ppm");
+    click_in(w_files, 8 * 800 / 9 + 30, KY); run(1);
+    /* программы /bin: двойной щелчок запускает, F4 закрепляет */
+    explorer_goto(0, "/bin"); run(2);
+    explorer_view(&e);
+    int burn = -1, ipc = -1;
+    for (uint32_t i = 0; i < e.fm.p[0].n; i++) { if (!strcmp(e.fm.p[0].e[i].name, "burn")) burn = (int)i; if (!strcmp(e.fm.p[0].e[i].name, "ipc")) ipc = (int)i; }
+    CHECK(burn > 0 && ipc > 0 && e.fm.p[0].e[burn].kind == FM_KIND_PROG);
+    con_n = 0; click_in(w_files, RX0, RY + 18 * burn); run(1); click_in(w_files, RX0, RY + 18 * burn); run(2);
+    CHECK(con_n == 1 && !strcmp(con_cmd, "burn"));
+    run(2); con_n = 0; click_in(w_files, RX0, RY + 18 * ipc); run(1); click_in(w_files, RX0, RY + 18 * ipc); run(2);
     CHECK(con_n == 1 && !strcmp(con_cmd, "test ipc"));
-    con_n = 0; click_in(w_files, 60, 44 + 8 + 11 * 19 + 9);          /* файл не из /bin: двойной щелчок ничего не запускает */
-    run(1); click_in(w_files, 60, 44 + 8 + 11 * 19 + 9);
-    CHECK(con_n == 0);
-    run(2); click_in(w_files, 60, 44 + 8 + 1 * 19 + 9); run(2);
-    click_in(w_files, 290 + 300 - 12 - 52, 44 + 10 + 14);
-    /* закрепить burn в быстром доступе: файл /var/dock, значок слева; правая кнопка на значке - открепить */
-    writes = 0; click_in(w_files, 290 + 300 - 12 - 104 - 8 - 52, 44 + 10 + 14);
-    run(2);
+    run(2); click_in(w_files, RX0, RY + 18 * burn); run(1);
+    move_to(200, 600, 0); run(2);
+    save_shot("files_run.ppm");
+    writes = 0; click_in(w_files, 3 * 800 / 9 + 30, KY); run(2);              /* F4: закрепить burn */
     CHECK(writes == 1 && !strcmp(written_path, "/var/dock") && !strcmp(written, "plasma\npaint\ncube3d\nedit\nburn\n"));
     { int x, y; CHECK(wm_side_center(4, &x, &y) == 0 && wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) != 0); }
     con_n = 0; click_side(4); CHECK(con_n == 1 && !strcmp(con_cmd, "burn"));
-    move_to(200, 600, 0); run(2);
-    save_shot("files_run.ppm");
+    run(1);
     { int x, y; wm_side_center(0, &x, &y); move_to(x, y, 0); wm_mouse(0, 0, 2); wm_mouse(0, 0, 0); }   /* plasma - открепить */
     run(1);
     CHECK(writes == 2 && !strcmp(written, "paint\ncube3d\nedit\nburn\n"));
@@ -318,6 +339,8 @@ int main(int argc, char** argv) {
     click_side(4);
     run(2);
     CHECK(wm_top() == w_files);
+    explorer_view(&e); CHECK(!strcmp(e.fm.p[e.fm.active].path, "/bin"));
+    move_to(200, 600, 0); run(1);
 
     /* Настройки: щелчки доходят до Разума */
     click_tab(5);

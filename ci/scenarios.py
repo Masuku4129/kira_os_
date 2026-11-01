@@ -167,6 +167,30 @@ ALL = [
         {"cmd": "cat /data/edit/note.txt", "must": [r"hello kira", r"line two"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M"),
+    sc("apps-explorer2", "двухпанельный проводник (команда files): клавиатурой Tab, F5 копия, F6 перенос, F7 каталог, F2 имя, F8 удаление с подтверждением; результат проверяется командами ls/cat", [
+        {"log": BOOT_LOG},
+        {"cmd": "mkdir /fm-a"}, {"cmd": "mkdir /fm-b"}, {"cmd": "write /fm-a/one.txt kira-one"}, {"cmd": "write /fm-a/two.txt kira-two"},
+        {"cmd": "files /fm-a /fm-b"}, {"sleep": 3}, {"shot": "explorer2-open"},
+        {"log": [r"\[KIRA FILES\] explorer: /fm-a \| /fm-b"]},
+        {"keys": "", "then": ["down", "f5"]}, {"sleep": 2}, {"shot": "explorer2-copy"},                    # курсор на one.txt: копия в правую панель
+        {"log": [r"\[KIRA FILES\] copy /fm-a/one\.txt -> /fm-b/one\.txt: 9 байт"]},
+        {"cmd": "cat /fm-b/one.txt", "must": [r"kira-one"]}, {"cmd": "cat /fm-a/one.txt", "must": [r"kira-one"]},
+        {"keys": "", "then": ["down", "f6"]}, {"sleep": 2},                                              # two.txt: перенос
+        {"log": [r"\[KIRA FILES\] move /fm-a/two\.txt -> /fm-b/two\.txt: 9 байт"]},
+        {"cmd": "cat /fm-b/two.txt", "must": [r"kira-two"]},
+        {"cmd": "ls /fm-a", "must": [r"one\.txt"], "forbid": [r"two\.txt"]},
+        {"keys": "", "then": ["tab", "f7"]}, {"sleep": 1}, {"shot": "explorer2-mkdir"},                   # правая панель: новый каталог
+        {"keys": "sub\n"}, {"sleep": 2},
+        {"log": [r"\[KIRA FILES\] mkdir /fm-b/sub"]},
+        {"keys": "", "then": ["down", "f8"]}, {"sleep": 1}, {"shot": "explorer2-delete"},               # one.txt: подтверждение
+        {"keys": "", "then": ["ret"]}, {"sleep": 2},
+        {"log": [r"\[KIRA FILES\] delete /fm-b/one\.txt"]},
+        {"cmd": "ls /fm-b", "must": [r"sub", r"two\.txt"], "forbid": [r"one\.txt"]},
+        {"keys": "", "then": ["f2", "backspace", "backspace", "backspace"]}, {"keys": "dat\n"}, {"sleep": 2}, {"shot": "explorer2-rename"},   # two.txt -> two.dat
+        {"log": [r"\[KIRA FILES\] rename /fm-b/two\.txt -> /fm-b/two\.dat"]},
+        {"cmd": "cat /fm-b/two.dat", "must": [r"kira-two"]},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M"),
     sc("apps-view", "просмотр: PNG (фильтры, dynamic/stored), BMP, PPM, GIF, JPEG базовый и прогрессивный (отказ при буфере >4 МБ), текст, двоичный - разбор в Ring 3, суммы пикселей против эталона", [
         {"log": BOOT_LOG},
         *[x for f, s in [("/pic.png", SUMS["/pic.png"]), ("/rgba.png", SUMS["/rgba.png"]), ("/pic.bmp", SUMS["/pic.bmp"]), ("/pic.ppm", SUMS["/pic.ppm"]), ("/pic.gif", SUMS["/pic.gif"]), ("/lace.gif", SUMS["/lace.gif"])]

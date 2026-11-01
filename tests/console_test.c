@@ -77,6 +77,10 @@ int vfs_flush(int n) { (void)n; return 0; }
 void prog_request_file(const char* n, const char* f) { (void)n; (void)f; }
 void life_print(void) {}
 void display_print_info(void) { emit("[FB] info\n"); }
+static char rf_l[160], rf_r[160]; static int rf_n;
+void display_request_files(const char* l, const char* r) { snprintf(rf_l, sizeof rf_l, "%s", l); snprintf(rf_r, sizeof rf_r, "%s", r); rf_n++; }
+static int kbd_owner;                                   /* 1 - клавиатуру читает Проводник */
+int display_kbd_owner(void) { return kbd_owner; }
 int experience_save_now(void) { saved++; return 0; }
 void experience_print(void) { emit("[EXP]\n"); }
 void sched_dump(void) { emit("[PS]\n"); }
@@ -132,6 +136,11 @@ int main(void) {
     /* полное имя и аргументы, пробелы вокруг */
     spawned = -1; spawned_name = 0; reset(); feed("  paint  \n");
     CHECK(spawned_name && !strcmp(spawned_name, "paint"));
+    /* files: Проводник на двух путях; без аргументов - пути не меняются */
+    reset(); feed("files /fm-a   /fm-b\n");
+    CHECK(rf_n == 1 && !strcmp(rf_l, "/fm-a") && !strcmp(rf_r, "/fm-b") && has("[KIRA FILES] explorer: /fm-a | /fm-b"));
+    reset(); feed("files\n");
+    CHECK(rf_n == 2 && !rf_l[0] && !rf_r[0]);
     /* Backspace стирает символ до Enter: "plasmx" -> "plasm" + "a" */
     spawned = -1; spawned_name = 0; reset(); feed("plasmx\b");
     CHECK(has("\b \b"));

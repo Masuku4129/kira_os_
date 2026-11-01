@@ -27,6 +27,8 @@
 #include "console.h"
 #include "dock.h"
 #include "vfs.h"
+#include "spinlock.h"
+#include "cpu.h"
 
 /* Поток дисплея: единственный, кто выводит кадры. Оболочка «ОС Кира»: верхняя панель с разделами, часами и
    индикаторами, боковая панель приложений, окна; приложения ядра (Терминал, Разум, Монитор, Проводник, Настройки)
@@ -66,10 +68,16 @@ static struct {
 static mind_view_t mv;
 static exp_view_t ev;
 static uint32_t mv_ver = ~0u, ev_ver = ~0u;
-static int files_hover = APP_FILES_NONE, files_scroll, set_hover = -1;
+static app_hit_t files_hover;
+static int set_hover = -1, files_drop = -1;
 static unsigned files_btn, set_btn;
 static char files_status[96];
-static uint64_t files_click_ns; static int files_click_row = -1;
+static uint64_t files_click_ns; static int files_click_panel = -1, files_click_row = -1;
+static struct { int on, panel, row, x, y; } drag;       /* файл тащат мышью на другую панель */
+static uint32_t act_seen;                                /* последняя обработанная просьба менеджера (открыть, закрепить) */
+static volatile int files_focus;                         /* клавиатура у Проводника (читает консоль) */
+static spinlock_t rq_lk = SPINLOCK_INIT;                 /* просьба консоли «files» открыть Проводник на путях */
+static char rq_l[FM_PATH], rq_r[FM_PATH]; static int rq_pending;
 
 /* ---------------- приложения ядра ---------------- */
 
@@ -103,13 +111,11 @@ static void draw_monitor(void) {
     wm_invalidate(w_mon);
 }
 
+static int cur_prog_pinned(void);
+
 static void draw_files(void) {
     if (!wm_visible(w_files)) return;
-    int vis = app_files_visible_rows(), max_scroll = (int)ev.nrows - vis;
-    if (max_scroll < 0) max_scroll = 0;
-    if (files_scroll > max_scroll) files_scroll = max_scroll;
-    const char* prog = app_files_program(&ev);
-    app_files_draw(wm_content(w_files), &ev, files_hover, files_scroll, files_status, prog && dock_find(&dock, prog) >= 0);
+    app_files_draw(wm_content(w_files), &ev, &files_hover, files_drop, files_status, cur_prog_pinned());
     wm_invalidate(w_files);
 }
 
@@ -190,34 +196,67 @@ static void files_run(const char* prog) {
 
 static void dock_toggle(const char* name);
 
+static const char* prog_name_of(const char* path) {          /* файл прямо в /bin: имя программы, иначе 0 */
+    if (path[0] != '/' || path[1] != 'b' || path[2] != 'i' || path[3] != 'n' || path[4] != '/' || !path[5]) return 0;
+    for (const char* q = path + 5; *q; q++) if (*q == '/') return 0;
+    return path + 5;
+}
+
+static int cur_prog_pinned(void) {
+    const fm_panel_t* P = &ev.fm.p[ev.fm.active];
+    if (!P->n || P->cur >= (int)P->n || P->e[P->cur].kind != FM_KIND_PROG) return 0;
+    return dock_find(&dock, P->e[P->cur].name) >= 0;
+}
+
+/* Просьба менеджера: Enter/двойной щелчок по файлу (программа из /bin - запуск, иначе просмотр), F3, F4. */
+static void files_act(void) {
+    const char* path = ev.fm.act_path;
+    const char* prog = prog_name_of(path);
+    if (ev.fm.act_kind == FM_ACT_PIN) {
+        if (prog) { char nm[16]; scpy(nm, 0, prog, 16); dock_toggle(nm); }
+        return;
+    }
+    if (ev.fm.act_kind == FM_ACT_OPEN && prog) { files_run(prog); return; }
+    unsigned pl = 0; while (path[pl]) pl++;
+    int is_wasm = ev.fm.act_kind == FM_ACT_OPEN && pl > 5 && path[pl - 5] == '.' && path[pl - 4] == 'w' && path[pl - 3] == 'a' && path[pl - 2] == 's' && path[pl - 1] == 'm';
+    prog_request_file(is_wasm ? "wasm" : "view", path);
+    int p = scpy(files_status, 0, "открыто в просмотре: ", sizeof files_status);
+    (void)scpy(files_status, p, path, sizeof files_status);
+}
+
 static void on_input(int id, int type, int x, int y, unsigned buttons) {
     if (id == w_files) {
-        int h = app_files_hit(&ev, files_scroll, x, y);
+        app_hit_t h; app_files_hit(&ev, x, y, &h);
         int press = type == 4 && (buttons & 1) && !(files_btn & 1);
+        int release = type == 4 && !(buttons & 1) && (files_btn & 1);
+        int old_drop = files_drop, drop = -1;
         if (type == 4) files_btn = buttons;
-        if (press) {
-            uint64_t now = clock_ns();
-            if (h >= 0 && h == files_click_row && now - files_click_ns < 450000000ULL && ev.row[h].sel && !ev.row[h].dir) {
-                if (app_files_program(&ev)) files_run(app_files_program(&ev));   /* двойной щелчок по программе */
-                else {                                                   /* по файлу - открыть в просмотре (Ring 3) */
-                    unsigned pl = 0; while (ev.sel_path[pl]) pl++;
-                    int is_wasm = pl > 5 && ev.sel_path[pl - 5] == '.' && ev.sel_path[pl - 4] == 'w' && ev.sel_path[pl - 3] == 'a' && ev.sel_path[pl - 2] == 's' && ev.sel_path[pl - 1] == 'm';
-                    prog_request_file(is_wasm ? "wasm" : "view", ev.sel_path);
-                    int p = scpy(files_status, 0, "открыто в просмотре: ", sizeof files_status);
-                    (void)scpy(files_status, p, ev.sel_path, sizeof files_status);
-                }
-                files_click_row = -1;
-            } else if (h >= 0) {
-                if (!ev.row[h].sel) files_status[0] = 0;                 /* другой файл: прежний итог запуска убираем */
-                explorer_click(ev.version, h); files_click_row = h; files_click_ns = now;
-            }
-            else if (h == APP_FILES_RUN) files_run(app_files_program(&ev));
-            else if (h == APP_FILES_PIN && app_files_program(&ev)) { char nm[16]; scpy(nm, 0, app_files_program(&ev), 16); dock_toggle(nm); }
-            else if (h == APP_FILES_REFRESH) explorer_refresh();
-            else if (h == APP_FILES_UP) { files_scroll -= app_files_visible_rows() - 2; if (files_scroll < 0) files_scroll = 0; }
-            else if (h == APP_FILES_DOWN) files_scroll += app_files_visible_rows() - 2;
+        if (type == 3 && drag.on && (buttons & 1)) {                    /* тащат: над другой панелью - подсветка цели */
+            int dx = x - drag.x, dy = y - drag.y;
+            if ((dx * dx + dy * dy > 64) && h.kind != APP_HIT_NONE && h.kind <= APP_HIT_SCROLL && h.panel != drag.panel) drop = h.panel;
+            files_drop = drop;
         }
-        if (h != files_hover || press) { files_hover = h; draw_files(); }
+        if (press) {
+            files_status[0] = 0;
+            uint64_t now = clock_ns();
+            if (h.kind == APP_HIT_ROW) {
+                int dbl = h.panel == files_click_panel && h.row == files_click_row && now - files_click_ns < 450000000ULL;
+                explorer_mouse(dbl ? FM_MOUSE_DOUBLE : FM_MOUSE_CLICK, h.panel, h.row);
+                files_click_panel = dbl ? -1 : h.panel; files_click_row = h.row; files_click_ns = now;
+                drag.on = !dbl; drag.panel = h.panel; drag.row = h.row; drag.x = x; drag.y = y;
+            } else if (h.kind == APP_HIT_PANEL) explorer_mouse(FM_MOUSE_CLICK, h.panel, -1);
+            else if (h.kind == APP_HIT_SCROLL) explorer_page(h.panel, h.row < 0 ? -1 : 1);
+            else if (h.kind == APP_HIT_REFRESH) explorer_refresh();
+            else if (h.kind == APP_HIT_HIDDEN) explorer_key(KEY_F9, 0);
+            else if (h.kind == APP_HIT_KEY) explorer_key(KEY_F1 + h.row, 0);
+        }
+        if (release) {
+            if (drag.on && files_drop >= 0) explorer_mouse(FM_MOUSE_DROP, drag.panel, drag.row);
+            drag.on = 0; files_drop = -1;
+        }
+        if (h.kind != files_hover.kind || h.panel != files_hover.panel || h.row != files_hover.row || press || release || files_drop != old_drop) {
+            files_hover = h; draw_files();
+        }
         return;
     }
     if (id == w_set) {
@@ -308,7 +347,7 @@ static void on_launch(int index) {
     if (index < 0 || index >= side_n) return;
     if (side[index].bottom) {                                       /* «+»: Проводник с раскрытым /bin */
         open_app(APP_FILES);
-        explorer_expand("/bin");
+        explorer_goto(-1, "/bin");
         return;
     }
     launch_program(side_names[index]);
@@ -365,6 +404,7 @@ static void update_files(void) {
         }
         side_rebuild(1);
     }
+    if (ev.fm.act_seq != act_seen) { act_seen = ev.fm.act_seq; files_act(); }
     draw_files();
 }
 
@@ -421,6 +461,22 @@ static void display_main(void* arg) {
         int timed = t0 != 0;
 
         gfx_server_run();                 // окна приложений Ring 3: создание, перерисовка, закрытие
+
+        {                                 // Проводник сверху: клавиатура у него (консоль в это время не читает)
+            int own = w_files >= 0 && wm_visible(w_files) && wm_top() == w_files;
+            __atomic_store_n(&files_focus, own, __ATOMIC_RELEASE);
+            input_event_t ke;
+            while (own && input_pop(&ke)) if (ke.type == INPUT_KEY_DOWN && !(ke.key >= KEY_LSHIFT && ke.key <= KEY_CAPS)) explorer_key(ke.key, ke.ch);   // модификаторы - не команды
+        }
+        if (__atomic_load_n(&rq_pending, __ATOMIC_ACQUIRE)) {      // команда «files»: открыть Проводник на этих путях
+            char l[FM_PATH], r[FM_PATH];
+            uint64_t fl = spin_lock_irqsave(&rq_lk);
+            scpy(l, 0, rq_l, FM_PATH); scpy(r, 0, rq_r, FM_PATH); rq_pending = 0;
+            spin_unlock_irqrestore(&rq_lk, fl);
+            open_app(APP_FILES);
+            if (r[0]) explorer_goto(1, r);                           // левая последней: она становится активной
+            if (l[0]) explorer_goto(0, l);
+        }
 
         int hk = input_take_hotkey();     // F11 - на весь экран, F10 - свернуть на фон
         if (hk) {
@@ -528,6 +584,15 @@ void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns) 
     *loops = st.frames; *late = st.late; *worst_gap_ns = st.worst_gap_ns;
     st.worst_gap_ns = 0;                       /* худший промежуток - за период между вызовами */
 }
+
+void display_request_files(const char* left, const char* right) {
+    uint64_t fl = spin_lock_irqsave(&rq_lk);
+    scpy(rq_l, 0, left ? left : "", FM_PATH); scpy(rq_r, 0, right ? right : "", FM_PATH);
+    __atomic_store_n(&rq_pending, 1, __ATOMIC_RELEASE);
+    spin_unlock_irqrestore(&rq_lk, fl);
+}
+
+int display_kbd_owner(void) { return __atomic_load_n(&files_focus, __ATOMIC_ACQUIRE); }
 
 void display_print_info(void) {
     const fb_info_t* i = fb_get_info();

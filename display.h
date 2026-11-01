@@ -9,6 +9,9 @@
 // показывает их один поток.
 int  display_init(unsigned long mbi_addr);   // 0 - экран есть; <0 - работаем без него
 void display_print_info(void);
+/* Команда «files»: открыть Проводник; левая и правая панель - на этих каталогах ("" - не менять). Из любого потока. */
+void display_request_files(const char* left, const char* right);
+int  display_kbd_owner(void);                /* 1 - клавиатуру читает Проводник (консоль её не трогает) */
 void display_panic_flush(void);              // синхронно вывести журнал на экран (паника/исключение)
 // Для Разума: циклов дисплея и опозданий с начала (растут), худший промежуток между циклами с прошлого вызова.
 void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns);

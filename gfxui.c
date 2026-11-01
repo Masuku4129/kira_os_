@@ -1,5 +1,6 @@
 #include "gfxui.h"
 #include "font.h"
+#include "theme.h"
 
 static const uint16_t atan_tab[65] = {
     0, 9, 18, 27, 36, 45, 54, 62, 71, 80, 89, 98, 106, 115, 123, 132, 140, 149, 157, 165, 174, 182, 190, 198, 206,
@@ -276,5 +277,71 @@ void ui_glow(surface_t* s, int x, int y, int w, int h, int r, int size, uint32_t
     for (int k = size; k >= 1; k--) {
         unsigned a = alpha * (unsigned)(size - k + 1) / (unsigned)(size + 1) / 2;
         ui_round_frame(s, x - k, y - k, w + 2 * k, h + 2 * k, r + k, color, a);
+    }
+}
+
+/* ---------------- единая тема приложений ---------------- */
+
+void ui_text_fit(surface_t* s, int x, int y, const char* t, int maxw, uint32_t col) {
+    int maxc = maxw / FONT_W;
+    if (maxc <= 0) return;
+    int n = 0;
+    for (const char* p = t; *p; ) { utf8_next(&p); n++; }
+    if (n <= maxc) { gfx_text(s, x, y, t, col, -1); return; }
+    char buf[200]; int b = 0, k = 0;
+    const char* p = t;
+    while (*p && k < maxc - 1 && b < 190) {
+        const char* q = p; utf8_next(&q);
+        while (p < q) buf[b++] = *p++;
+        k++;
+    }
+    buf[b++] = (char)0xE2; buf[b++] = (char)0x80; buf[b++] = (char)0xA6; buf[b] = 0;       /* «…» */
+    gfx_text(s, x, y, buf, col, -1);
+}
+
+void ui_card(surface_t* s, int x, int y, int w, int h, const char* title, uint32_t accent) {
+    ui_round_rect(s, x, y, w, h, TH_RADIUS, TH_CARD, 255);
+    ui_round_frame(s, x, y, w, h, TH_RADIUS, TH_CARD_EDGE, 255);
+    if (title) {
+        gfx_rect(s, x + 12, y + 11, 3, 12, accent);
+        gfx_text(s, x + 21, y + 9, title, TH_TEXT_FAINT, -1);
+    }
+}
+
+void ui_button(surface_t* s, int x, int y, int w, int h, const char* label, uint32_t color, int hover, int on) {
+    ui_round_rect(s, x, y, w, h, 8, on ? ui_mix(TH_CARD, color, 70) : hover ? ui_mix(TH_CARD, color, 45) : TH_TRACK, 255);
+    ui_round_frame(s, x, y, w, h, 8, on ? color : hover ? ui_mix(TH_CARD_EDGE, color, 140) : TH_CARD_EDGE, 255);
+    int tw = gfx_text_width(label);
+    gfx_text(s, x + (w - tw) / 2, y + (h - 16) / 2, label, on || hover ? TH_TEXT : TH_TEXT_DIM, -1);
+}
+
+void ui_statusbar(surface_t* s, int y, const char* left, uint32_t lc, const char* right) {
+    ui_vgrad(s, 0, y, s->w, TH_BAR_H, TH_BAR0, TH_BAR1);
+    gfx_rect(s, 0, y, s->w, 1, TH_CARD_EDGE);
+    int rw = right && right[0] ? gfx_text_width(right) : 0;
+    if (left && left[0]) ui_text_fit(s, 12, y + 4, left, s->w - 36 - rw, lc);
+    if (rw) gfx_text(s, s->w - 12 - rw, y + 4, right, TH_TEXT_FAINT, -1);
+}
+
+static void keybar_cell(int width, int n, int i, int* x, int* w) {
+    *x = i * width / n; *w = (i + 1) * width / n - *x;
+}
+
+int ui_keybar_hit(int width, int n, int x) {
+    if (n <= 0 || x < 0 || x >= width) return -1;
+    for (int i = 0; i < n; i++) { int cx, cw; keybar_cell(width, n, i, &cx, &cw); if (x >= cx && x < cx + cw) return i; }
+    return -1;
+}
+
+void ui_keybar(surface_t* s, int y, const ui_key_t* k, int n, int hover) {
+    gfx_rect(s, 0, y, s->w, TH_BAR_H, TH_BAR1);
+    for (int i = 0; i < n; i++) {
+        int cx, cw; keybar_cell(s->w, n, i, &cx, &cw);
+        int has = k[i].label && k[i].label[0];
+        int kw = gfx_text_width(k[i].key) + 8;
+        uint32_t c = has ? k[i].color : TH_TEXT_FAINT;
+        ui_round_rect(s, cx + 3, y + 3, kw, TH_BAR_H - 6, 4, hover == i && has ? c : ui_mix(TH_TRACK, c, has ? 90 : 20), 255);
+        gfx_text(s, cx + 7, y + 4, k[i].key, hover == i && has ? TH_BAR1 : has ? TH_TEXT : TH_TEXT_FAINT, -1);
+        if (has) ui_text_fit(s, cx + kw + 7, y + 4, k[i].label, cw - kw - 9, hover == i ? TH_TEXT : TH_TEXT_DIM);
     }
 }

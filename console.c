@@ -20,6 +20,7 @@
 #include "sched.h"
 #include "clock.h"
 #include "display.h"
+#define FM_PATH_MAX 128
 #include "fscmd.h"
 #include "pci.h"
 #include "blk.h"
@@ -365,6 +366,22 @@ static void cmd_smpcrash(const char* a) {
 }
 static void cmd_plasma(const char* a) { (void)a; prog_start("plasma"); }
 static void cmd_edit(const char* a) { (void)a; prog_start("edit"); }
+
+/* files [левый_путь [правый_путь]]: окно Проводника с двумя панелями на этих каталогах. */
+static void cmd_files(const char* a) {
+    char w[2][FM_PATH_MAX]; int n = 0;
+    w[0][0] = w[1][0] = 0;
+    while (*a && n < 2) {
+        while (*a == ' ') a++;
+        unsigned k = 0;
+        while (*a && *a != ' ' && k + 1 < FM_PATH_MAX) w[n][k++] = *a++;
+        w[n][k] = 0;
+        while (*a && *a != ' ') a++;
+        if (k) n++;
+    }
+    display_request_files(w[0], w[1]);
+    uart_print("[KIRA FILES] explorer: "); uart_print(w[0][0] ? w[0] : "(as before)"); uart_print(" | "); uart_print(w[1][0] ? w[1] : "(as before)"); uart_print("\n");
+}
 /* Выключение и перезагрузка: сначала опыт и кэши дисков, потом - машина. */
 static void power_prepare(void) {
     uart_print("сохраняю опыт и данные дисков...\n");
@@ -557,6 +574,7 @@ static const cmd_t cmds[] = {
     { "burnall",   0,   "по процессу-нагрузке на каждое ядро, 3 с (сравни итерации с burn)", cmd_burnall },
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },
     { "plasma",    'a', "приложение Ring 3: плазма", cmd_plasma },
+    { "files",     0,   "Проводник: files [левый_каталог [правый_каталог]] - две панели, F5 копия, F6 перенос, F7 каталог, F8 удалить", cmd_files },
     { "edit",      0,   "приложение Ring 3: текстовый редактор (F2 - сохранить, F3 - другой файл, F4 - новый)", cmd_edit },
     { "record",    0,   "запись со входа звука: record [мс] - уровень", audiocmd_record },
     { "volume",    0,   "громкость звука: volume [0..100]", cmd_volume },
@@ -657,7 +675,7 @@ static void history_add(const char* l) {
 static int console_next_char(void) {
     int c = uart_getchar();
     if (c >= 0) return c;
-    if (gfx_focus_pid()) return -1;      // клавиатура принадлежит окну приложения Ring 3
+    if (gfx_focus_pid() || display_kbd_owner()) return -1;      // клавиатура принадлежит окну приложения Ring 3 или Проводнику
     input_event_t ev;
     while (input_pop(&ev)) {
         if (ev.type != INPUT_KEY_DOWN) continue;
