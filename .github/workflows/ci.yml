@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm dosfstools mtools python3-cryptography ca-certificates openssl
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm dosfstools mtools python3-cryptography python3-pil ca-certificates openssl
       - name: host tests (models of devices, file systems, scheduler, mind)
         run: |
           mkdir -p ci-out
@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld llvm qemu-system-arm dosfstools mtools python3-cryptography ca-certificates openssl
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld llvm qemu-system-arm dosfstools mtools python3-pil python3-cryptography ca-certificates openssl
       - name: build ARM64 (clang, -Werror)
         run: ./build_arm64.sh && ci/make_flash.sh
       - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"

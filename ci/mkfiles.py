@@ -104,6 +104,11 @@ def make(out):
     paths = {}
     for name, data in files.items():
         p = os.path.join(out, name.strip("/")); open(p, "wb").write(data); paths[name] = p
+    try:                                                            # JPEG кодирует Pillow (libjpeg): если он есть
+        import mkjpeg
+        paths.update(mkjpeg.make(out))
+    except ImportError:
+        pass
     return paths
 
 SUMS = {"/pic.png": checksum(97, 61), "/rgba.png": checksum(40, 30), "/pic.bmp": checksum(33, 21), "/pic.ppm": checksum(17, 9),

@@ -45,6 +45,31 @@ int main(int argc, char** argv) {
         printf("view: fuzz %s (3000 damaged copies) passed\n", argv[2]);
         return 0;
     }
+    if (argc >= 4 && !strcmp(argv[1], "cmp")) {               /* cmp файл эталон.rgb ...: пиксели против декодера libjpeg */
+        for (int i = 2; i + 1 < argc; i += 2) {
+            FILE* f = fopen(argv[i], "rb"); if (!f) return 1;
+            fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
+            u8* d = malloc((size_t)n); if (fread(d, 1, (size_t)n, f) != (size_t)n) return 1; fclose(f);
+            run_one(argv[i], d, n);
+            FILE* r = fopen(argv[i + 1], "rb"); if (!r) return 1;
+            u32 rw = 0, rh = 0; if (fread(&rw, 4, 1, r) != 1 || fread(&rh, 4, 1, r) != 1) return 1;
+            if (err[0] || rw != iw || rh != ih) { printf("FAIL %s: %s, %ux%u vs %ux%u\n", argv[i], err, iw, ih, rw, rh); fails++; fclose(r); continue; }
+            u64 tot = 0; int mx = 0;
+            for (u32 k = 0; k < iw * ih; k++) {
+                u8 c[3]; if (fread(c, 1, 3, r) != 3) return 1;
+                int e[3] = { (int)(img[k] >> 16) - c[0], (int)((img[k] >> 8) & 255) - c[1], (int)(img[k] & 255) - c[2] };
+                for (int j = 0; j < 3; j++) { int a = e[j] < 0 ? -e[j] : e[j]; tot += (u64)a; if (a > mx) mx = a; }
+            }
+            fclose(r);
+            double mean = (double)tot / (3.0 * iw * ih);
+            int ok = mean < 1.0 && mx <= 8;               /* IDCT и пересчёт цвета - не побитово как в libjpeg */
+            printf("%s %s: %s, mean error %.2f, max %d\n", ok ? "ok  " : "FAIL", argv[i], info, mean, mx);
+            if (!ok) fails++;
+            free(d);
+        }
+        printf("%s\n", fails ? "VIEW JPEG FAILED" : "view: JPEG baseline (4:2:0, 4:2:2, 4:4:4 + restart, grayscale) matches libjpeg within IDCT rounding - passed");
+        return fails != 0;
+    }
     for (int i = 1; i + 1 < argc; i += 2) {
         FILE* f = fopen(argv[i], "rb"); if (!f) { printf("FAIL open %s\n", argv[i]); return 1; }
         fseek(f, 0, SEEK_END); g_len = ftell(f); fseek(f, 0, SEEK_SET);
