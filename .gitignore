@@ -17,3 +17,4 @@ build-wasm/
 tools/pem2der
 tools/roots.der
 .claude/
+__pycache__/

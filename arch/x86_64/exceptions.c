@@ -94,8 +94,7 @@ static void core_log(const char* tag, uint64_t vector, uint64_t rip, const char*
 
 // Сбой в режиме ядра: если его можно изолировать, гибнет виновный поток (или отказавшее ядро выходит из работы),
 // система живёт. Возвращается только когда изолировать нельзя - тогда обычная авария всей системы.
-static void corefault_handle(uint64_t vector, uint64_t err, uint64_t rip) {
-    (void)err;
+static void corefault_handle(uint64_t vector, uint64_t err, uint64_t rip, uint64_t cr2, const uint64_t* frame) {
     percpu_t* c = this_cpu();
     thread_t* t = c->sched_on ? (thread_t*)sched_current() : 0;
     uint32_t new_apic = 0;
@@ -114,6 +113,15 @@ static void corefault_handle(uint64_t vector, uint64_t err, uint64_t rip) {
 
     if (act == COREFAULT_KILL_THREAD) {
         core_log("kernel-mode fault", vector, rip, t->name, "Thread terminated, the core and the system keep running.");
+        /* Для разбора плавающих сбоев: код ошибки, CR2, RSP и слова с вершины стека (при переходе по адресу 0 первое слово - адрес возврата). */
+        uint64_t sp = frame[20], tmp;
+        uart_print("[KIRA CORE] fault detail: error "); uart_print_hex(err); uart_print(", CR2 "); uart_print_hex(cr2);
+        uart_print(", RSP "); uart_print_hex(sp); uart_print(", RBP "); uart_print_hex(frame[8]);
+        if (sp >= 0x1000 && !(sp & 7) && vmm_translate(sp, &tmp) == 0 && vmm_translate(sp + 63, &tmp) == 0) {
+            uart_print(", stack:");
+            for (unsigned i = 0; i < 8; i++) { uart_print(" "); uart_print_hex(((const uint64_t*)(uintptr_t)sp)[i]); }
+        }
+        uart_print("\n");
         c->in_fault = 0;
         __asm__ volatile ("sti");
         if (proc_in_user_thread()) proc_exit(-1);
@@ -162,7 +170,7 @@ void exception_handler_main(uint64_t vector, uint64_t err_code, uint64_t rip, ui
         uart_print(" RFLAGS "); uart_print_hex(f[2]); uart_print(" RSP "); uart_print_hex(f[3]); uart_print(" SS "); uart_print_hex(f[4]);
         uart_print(", this CPU "); uart_print_dec(this_cpu()->cpu_id); uart_print("\n");
     }
-    if ((cs & 3) == 0 && vector != 2 && vector != 8 && vector < 32) corefault_handle(vector, err_code, rip);
+    if ((cs & 3) == 0 && vector != 2 && vector != 8 && vector < 32) corefault_handle(vector, err_code, rip, cr2, frame);
     smp_halt_others();  // остальные ядра встают (второе падающее ядро встанет молча)
     spin_bust_locks();  // замок мог держать упавший код: аварийный вывод не должен на нём зависнуть
     earlycon_alert();   // если экран ещё в режиме ранней консоли - дальше красным
