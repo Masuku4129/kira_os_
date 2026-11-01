@@ -124,6 +124,29 @@ drop_to_el1:
     b       exc_common
     .endm
 
+/* Вход из EL1 на стеке SP_EL1: если кадр лёг бы в охранную зону стека потока (окно 0x7000_0000_0000, слоты по
+   64 КБ, стек - верхние 16 КБ), стек переполнен - уходим на запасной стек ядра, иначе вход повторял бы сбой без конца.
+   Единственный свободный регистр на входе - x0, его копия - в TPIDRRO_EL0 (так делает и Linux), потом обнуляется. */
+    .macro VECK kind
+    .balign 0x80
+    msr     tpidrro_el0, x0
+    mov     x0, sp
+    lsr     x0, x0, #44
+    cmp     x0, #7
+    b.ne    1f                          // не стек потока
+    mov     x0, sp
+    sub     x0, x0, #288
+    and     x0, x0, #0xC000
+    cmp     x0, #0xC000
+    b.ne    kstack_overflow             // кадр - ниже 48 КБ слота: охранная зона
+1:  mrs     x0, tpidrro_el0
+    msr     tpidrro_el0, xzr
+    sub     sp, sp, #288
+    stp     x0, x1, [sp, #0]
+    mov     x1, #\kind
+    b       exc_common
+    .endm
+
     .balign 0x800
     .global vectors
 vectors:
@@ -131,10 +154,10 @@ vectors:
     VEC 1       //   IRQ
     VEC 2       //   FIQ
     VEC 3       //   SError
-    VEC 4       // текущий EL, SP_ELx
-    VEC 5
-    VEC 6
-    VEC 7
+    VECK 4      // текущий EL, SP_ELx
+    VECK 5
+    VECK 6
+    VECK 7
     VEC 8       // нижний EL, AArch64
     VEC 9
     VEC 10
@@ -143,6 +166,23 @@ vectors:
     VEC 13
     VEC 14
     VEC 15
+
+/* Переполнение стека потока: запасной стек этого ядра (percpu->spare_sp), кадр как обычно, вид 0x10;
+   переполненный SP - в percpu->ovf_sp. Возврата нет: arm_exception решает судьбу (авария). */
+kstack_overflow:
+    mrs     x0, tpidr_el1
+    str     x1, [x0, #224]              // percpu->spare_x1
+    mov     x1, sp
+    str     x1, [x0, #232]              // percpu->ovf_sp
+    ldr     x1, [x0, #216]              // percpu->spare_sp
+    mov     sp, x1
+    ldr     x1, [x0, #224]
+    mrs     x0, tpidrro_el0
+    msr     tpidrro_el0, xzr
+    sub     sp, sp, #288
+    stp     x0, x1, [sp, #0]
+    mov     x1, #0x10
+    b       exc_common
 
 /* Кадр: x0..x30, elr, spsr, esr, far, sp_el0 (36 слов, 288 байт). x0/x1 уже сохранены входом, в x1 - номер. */
 exc_common:

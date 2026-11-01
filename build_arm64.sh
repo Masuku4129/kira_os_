@@ -32,7 +32,7 @@ done
 # Общее ядро (те же файлы, что и на x86-64) и платформа ARM64
 for f in fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
          experience.c fscmd.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
-         immune.c kobj.c futex.c watchdog.c proc.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
+         immune.c kobj.c futex.c corefault.c watchdog.c proc.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
          virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c irqwait.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c dock.c \
          icons.c brainfx.c input.c rtc.c \
          $A/main.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/notyet.c $A/vmm_user.c $A/uaccess_arch.c; do

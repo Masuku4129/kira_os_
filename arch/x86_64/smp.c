@@ -482,9 +482,13 @@ int smp_selftest_start(void) {
 // изолировать нельзя, остановилась аварийно с понятной причиной.
 static spinlock_t crash_lock = SPINLOCK_INIT;
 
+static uint64_t crash_recurse(uint64_t n) { volatile uint8_t pad[512]; pad[0] = (uint8_t)n; if (n > (1u << 30)) return 0; return crash_recurse(n + 1) + pad[0]; }
+
 static void crash_worker(void* arg) {
     unsigned mode = (unsigned)(uintptr_t)arg;
-    if (mode == 1) {
+    if (mode == 3) {
+        (void)crash_recurse(0);                                  // переполнение стека потока: охранная страница, #DF на IST
+    } else if (mode == 1) {
         __asm__ volatile ("int $18");                            // вектор машинной проверки: отказ ядра
     } else if (mode == 2) {
         (void)spin_lock_irqsave(&crash_lock);                    // сбой под спин-замком: изолировать нельзя

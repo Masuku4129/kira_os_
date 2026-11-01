@@ -44,6 +44,7 @@
 #include "net.h"
 #include "hda.h"
 #include "rtc.h"
+#include "corefault.h"
 #include "spinlock.h"
 #include "platform.h"
 #include "msi.h"
@@ -687,6 +688,57 @@ static void user_exception(uint64_t* frame) {
     proc_exit(-1);
 }
 
+/* ---------------- изоляция сбоев ядра (как exceptions.c на x86-64, решение - общий corefault.c) ----------------
+   Синхронный сбой кода ядра в обычном потоке без замков - гибнет поток; SError (асинхронная ошибка памяти/шины -
+   отказ «железа» под этим ядром) - ядро выходит из работы, остальные продолжают; иначе - авария системы. */
+/* Смещения полей percpu, которые читает вход исключений (boot.S), и размер стека потока, по которому вход
+   узнаёт охранную зону (верхние 16 КБ 64-КБ слота - стек). */
+_Static_assert(__builtin_offsetof(percpu_t, cpu_id) == 24 && __builtin_offsetof(percpu_t, spare_sp) == 216 &&
+               __builtin_offsetof(percpu_t, spare_x1) == 224 && __builtin_offsetof(percpu_t, ovf_sp) == 232, "percpu layout for boot.S");
+_Static_assert(SCHED_STACK_SIZE == 16384 && KSTACK_STRIDE == 0x10000 && KSTACK_VA == 0x0000700000000000ull, "kernel stack layout for boot.S");
+#define SPARE_STACK 8192
+static uint8_t spare_stacks[PERCPU_MAX_CPUS][SPARE_STACK] __attribute__((aligned(16)));
+void arm_spare_stack_install(percpu_t* p) { p->spare_sp = (uint64_t)(uintptr_t)(spare_stacks[p - percpu_table] + SPARE_STACK); }
+
+static unsigned other_live_cores(const percpu_t* me) {
+    unsigned n = 0;
+    for (unsigned i = 0; i < percpu_count(); i++) {
+        const percpu_t* p = &percpu_table[i];
+        if (p != me && p->sched_on && p->online && !p->failed) n++;
+    }
+    return n;
+}
+
+static const char* corefault_arm(uint64_t kind, unsigned ec, uint64_t pc, uint64_t far) {
+    percpu_t* c = this_cpu();
+    thread_t* t = c->sched_on ? (thread_t*)sched_current() : 0;
+    int serror = kind == 3 || kind == 7;
+    corefault_input_t in = {
+        .vector = serror ? 18u : 14u,                            /* как на x86: 18 - отказ ядра, 14 - ошибка кода */
+        .locks_held = c->locks_held, .irq_depth = c->irq_depth, .in_fault = c->in_fault,
+        .mutexes_held = t ? t->mutexes_held : 0, .have_thread = t != 0, .service = t ? (t->flags & THREAD_F_SERVICE) != 0 : 0,
+        .other_cores = other_live_cores(c),
+        .irq_move_ok = c->cpu_id != 0,                           /* прерывания устройств (SPI, ITS) идут на ядро 0 */
+    };
+    corefault_action_t act = corefault_decide(&in);
+    c->in_fault = 1; c->fail_vector = ec; c->fail_rip = pc;
+    if (act == COREFAULT_PANIC) return corefault_why_panic(&in);
+    if (act == COREFAULT_KILL_THREAD) {
+        kprintf("[KIRA CORE %u] kernel-mode fault (%s) at PC %x, FAR %x, thread '%s'. Thread terminated, the core and the system keep running.\n",
+                (uint64_t)c->cpu_id, ec_name(ec), pc, far, t->name);
+        c->in_fault = 0;
+        __asm__ volatile ("msr daifclr, #2");
+        if (proc_in_user_thread()) proc_exit(-1);
+        sched_exit();
+    }
+    kprintf("[KIRA CORE %u] SError (asynchronous hardware error) at PC %x, thread '%s'. This core is taken out of service; the others continue.\n",
+            (uint64_t)c->cpu_id, pc, t ? t->name : "-");
+    unsigned orphans = sched_core_fail();
+    SYSREG_W(cntv_ctl_el0, 2);                                   /* тик этого ядра - замаскирован */
+    kprintf("[KIRA CORE %u] out of service: %u pinned thread(s) ended.\n", (uint64_t)c->cpu_id, (uint64_t)orphans);
+    for (;;) __asm__ volatile ("msr daifset, #0xf\n wfi");
+}
+
 void arm_exception(uint64_t* frame, uint64_t kind) {
     if ((kind == 0 || kind == 4) && probing) {
         unsigned ec0 = (unsigned)(frame[33] >> 26) & 0x3F;
@@ -726,7 +778,18 @@ void arm_exception(uint64_t* frame, uint64_t kind) {
     if ((kind == 4 || kind == 0) && uaccess_fixup(frame, frame[31])) return;   /* сбой внутри копирования из программы */
     uint64_t esr = frame[33], elr = frame[31], far = frame[34];
     unsigned ec = (unsigned)(esr >> 26) & 0x3F;
+    const char* why = 0;
+    if (kind == 0x10) {                                          /* вход заметил переполнение стека: мы на запасном */
+        mmu_on = 0;
+        kprintf("\n[KIRA ARM64] Kernel thread stack overflow: guard area hit at SP %x (PC %x), now on the spare stack of core %u\n",
+                this_cpu()->ovf_sp, elr, (uint64_t)my_cpu());
+        why = "kernel thread stack overflow (the thread's stack is unusable)";
+    } else if (kind == 0 || kind == 4 || kind == 3 || kind == 7) {
+        why = corefault_arm(kind, ec, elr, far);                      /* возврат - изолировать нельзя */
+    }
+    if (why && sched_up) smp_halt_others();                      /* авария всей системы, как на x86-64 */
     mmu_on = 0;                                                  /* авария: печатать без замка */
+    if (why) kprintf("[KIRA ARM64] Not isolated: %s\n", why);
     if (vmm_kstack_guard_hit(far)) kprintf("\n[KIRA ARM64] kernel thread stack overflow (guard area hit)\n");
     kprintf("\n[KIRA ARM64] exception on core %u: %s (class %x, vector %u), ESR %x\n", (uint64_t)my_cpu(), ec_name(ec), (uint64_t)ec, kind, esr);
     kprintf("[KIRA ARM64] ELR %x  FAR %x  SPSR %x  LR %x  SP %x\n", elr, far, frame[32], frame[30], (uint64_t)(uintptr_t)(frame + 36));
@@ -795,7 +858,25 @@ void smp_describe(void (*out)(const char*)) {
     }
 }
 int smp_selftest_start(void) { selftest_arm_start(); return (int)smp_online(); }
-int smp_crash_test(unsigned mode, unsigned cpu) { (void)mode; (void)cpu; return -4; }   /* изоляция сбоя ядра на ARM64 - план */
+/* Проверка изоляции (test crash): поток намеренно ломается. 0 - ошибка кода ядра (гибнет поток), 2 - то же под
+   спин-замком (изолировать нельзя: ожидаемая авария), 3 - переполнение стека потока (запасной стек ядра).
+   1 - отказ ядра: на x86 это вектор машинной проверки, на ARM - SError, вызвать который программно этот процессор не
+   умеет (нет FEAT_RAS с вводом ошибок), поэтому режим честно недоступен (-5). */
+static spinlock_t crash_lock = SPINLOCK_INIT;
+static volatile uint64_t* const crash_addr = (volatile uint64_t*)0x0000600000000000ull;   /* не отображено */
+static uint64_t crash_recurse(uint64_t n) { volatile uint8_t pad[512]; pad[0] = (uint8_t)n; if (n > (1u << 30)) return 0; return crash_recurse(n + 1) + pad[0]; }
+static void crash_worker(void* arg) {
+    unsigned mode = (unsigned)(uintptr_t)arg;
+    if (mode == 2) { (void)spin_lock_irqsave(&crash_lock); *crash_addr = 1; }
+    else if (mode == 3) (void)crash_recurse(0);
+    else *crash_addr = 1;
+    for (;;) sched_yield();
+}
+int smp_crash_test(unsigned mode, unsigned cpu) {
+    (void)cpu;
+    if (mode == 1) return -5;
+    return sched_create("smpcrash", crash_worker, (void*)(uintptr_t)mode, PRIO_NORMAL) ? 0 : -2;
+}
 
 void platform_status(void (*out)(const char*)) {
     out("interrupts: "); out(platform_irq_name()); out(v2m ? " + GICv2m (MSI)" : ""); out(", generic timer (virtual), PSCI\n");
@@ -1101,4 +1182,4 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
 uint64_t arm_counter_khz(void) { return cnt_freq / 1000; }
 
 /* Данные этого ядра: адрес записи - в TPIDR_EL1 (this_cpu читает его одной командой). */
-void percpu_install(percpu_t* p) { __asm__ volatile ("msr tpidr_el1, %0" : : "r"(p) : "memory"); }
+void percpu_install(percpu_t* p) { arm_spare_stack_install(p); __asm__ volatile ("msr tpidr_el1, %0" : : "r"(p) : "memory"); }

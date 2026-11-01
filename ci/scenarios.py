@@ -218,4 +218,14 @@ ALL = [
         {"cmd": "cat /reboot.txt", "must": [r"kira-before-reboot"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", machine="q35", reboot=True),
+    sc("crash-isolation", "изоляция сбоев ядра: поток ядра ломается - гибнет только он; ядро 2 «отказывает» (машинная проверка) - выходит из работы, система живёт", [
+        {"log": BOOT_LOG},
+        {"cmd": "test crash thread"}, {"sleep": 2},
+        {"log": [r"\[KIRA CORE \d+\] kernel-mode fault #14 at RIP 0x[0-9A-Fa-f]+, thread 'smpcrash'\. Thread terminated"]},
+        {"cmd": "test crash 2"}, {"sleep": 3},
+        {"log": [r"\[KIRA CORE 2\] machine check #18", r"\[KIRA CORE 2\] out of service"]},
+        {"responsive": "status", "within": 5},
+        {"cmd": "test smp", "must": [r"RESULT: PASS"], "timeout": 60},
+        {"log_forbid": [x for x in NO_ERR if x != r"kernel-mode fault"]},
+    ], smp=4, mem="512M"),
 ]

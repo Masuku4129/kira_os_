@@ -344,16 +344,19 @@ static void cmd_smpcrash(const char* a) {
         for (; *a >= '0' && *a <= '9'; a++) cpu = cpu * 10 + (unsigned)(*a - '0');
     } else if (a && word_is(a, "thread")) mode = 0;
     else if (a && word_is(a, "lock")) mode = 2;                  /* только полным словом: эта проверка останавливает систему */
+    else if (a && word_is(a, "stack")) mode = 3;                 /* переполнение стека потока: тоже авария */
     if (mode == 9) {
         uart_print("usage: test crash N       core N fails (machine check): taken out of service, system continues\n");
         uart_print("       test crash thread  kernel thread faults: only that thread dies\n");
         uart_print("       test crash lock    fault under a spinlock: cannot be isolated, expected full panic\n");
+        uart_print("       test crash stack   kernel thread overflows its stack: spare stack, clear report, expected full panic\n");
         return;
     }
     int r = smp_crash_test(mode, cpu);
     if (r == -1) uart_print("[KIRA SMPCRASH] no such online core.\n");
     else if (r == -3) uart_print("[KIRA SMPCRASH] that core does not run threads (no LAPIC tick: see the boot log, IRQ mode).\n");
     else if (r == -4) uart_print("[KIRA SMPCRASH] not available on this architecture yet (docs/HANDOFF.md, plan).\n");
+    else if (r == -5) uart_print("[KIRA SMPCRASH] core failure is an SError on ARM64; this CPU cannot raise SError from software (no RAS error injection), so the path is not testable here.\n");
     else if (r < 0) uart_print("[KIRA SMPCRASH] cannot create the thread.\n");
     else uart_print("[KIRA SMPCRASH] crash thread started.\n");
 }

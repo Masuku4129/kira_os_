@@ -48,6 +48,10 @@ typedef struct percpu {
     volatile uint64_t halt_rip;   /* 192: где ядро стояло, когда его остановило аварийное NMI (дамп зависания) */
     volatile uint64_t halt_rbp;   /* 200 */
     volatile uint32_t halted;     /* 208: ядро встало по аварийному NMI и записало halt_rip */
+    uint32_t pad2;                /* 212 */
+    uint64_t spare_sp;            /* 216: ARM64 - вершина запасного стека ядра (переполнение стека потока) */
+    uint64_t spare_x1;            /* 224: ARM64 - x1 на время перехода на запасной стек */
+    uint64_t ovf_sp;              /* 232: ARM64 - SP потока в момент переполнения (для отчёта) */
 } percpu_t;
 
 extern percpu_t percpu_table[PERCPU_MAX_CPUS];
