@@ -520,7 +520,7 @@ def _drv_www():
     return w, h.hexdigest()[:8]
 
 def _dg(cmd, rx, t):     # программа запускается в фоне: команда без ожидания приглашения, затем ожидание строки в журнале после неё
-    return [{"send": cmd}, {"expect": rx, "timeout": t}]
+    return [{"sleep": 2}, {"send": cmd}, {"expect": rx, "timeout": t}]   # пауза: Разум не допускает больше 3 запусков программ в секунду
 
 _DRV_WWW, _DRV_SET8 = _drv_www()
 _DRV_HTTP = "guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE
