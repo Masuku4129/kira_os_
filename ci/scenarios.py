@@ -179,6 +179,9 @@ ALL = [
         {"log": [r"wasm: /wasm/wtest\.wasm - \d+ functions", r"wtest:\ fib\(24\)=46368\ primes<20000=2262\ sort=ad642057dcc4b702\ switch=4148393079\ ops=ba422c8d525a9aea\ sext=269715", r"wasm: finished with code 0"]},
         {"cmd": "wasm /wasm/ftest.wasm"}, {"sleep": 6},                    # f32/f64: тот же результат, что у эталона
         {"log": [r"ftest: mandel inside=662 iters=146978 pi=400921f61616ca3a f32sum=000000004004dfe3 hash=225e25f3d90cf161"]},
+        {"cmd": "wasm /wasm/wmix.wasm"}, {"sleep": 5}, {"cmd": "wasm /wasm/wmix0.wasm"}, {"sleep": 6},     # вызовы, i64, br_table, память, f64: -O2 и -O0
+        {"log": [r"wasm: /wasm/wmix\.wasm - \d+ functions", r"wasm: /wasm/wmix0\.wasm - \d+ functions",
+                 r"wmix: rec=d5041c4ef1eb0478 ind=0bdc8491374efd99 i64=df263e1ee75e2d7f sw=607fb6e15329d3f1 loop=7ba9ad70769b882d mem=bed6ff5566642000 f64=ea044c2d18dea474"]},
         {"cmd": "wasm /wasm/wgfx.wasm"}, {"sleep": 1.5}, {"shot": "wasm-gfx"}, {"sleep": 15},   # снимок - пока окно открыто
         {"log": [r"wgfx: frame0=%s frame30=%s" % WGFX, r"wgfx: 31 frames shown, ticks \d+"]},
         {"log_forbid": NO_ERR + [r"wasm: stopped"]},

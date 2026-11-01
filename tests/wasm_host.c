@@ -15,7 +15,8 @@ static i64 k_grant_name(char* b, u64 cap) { snprintf(b, cap, "%s", g_path); retu
 static i64 k_grant_size(void) { return g_len; }
 static i64 k_grant_read(void* b, u64 len, u64 off) { if ((long)off >= g_len) return 0; if ((long)(off + len) > g_len) len = (u64)(g_len - (long)off); memcpy(b, g_data + off, len); return (i64)len; }
 static u64 k_strlen(const char* s) { return strlen(s); }
-static void k_write(const char* s, u64 n) { fwrite(s, 1, n, stdout); }
+static int g_quiet;
+static void k_write(const char* s, u64 n) { if (!g_quiet) fwrite(s, 1, n, stdout); }
 static void k_sleep(u64 t) { (void)t; }
 static u64 k_ticks(void) { return 0; }
 static u64 k_clock_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (u64)t.tv_sec * 1000000000ull + (u64)t.tv_nsec; }
@@ -25,7 +26,44 @@ static void k_gfx_present(void) {}
 static int k_gfx_event(kevent_t* e) { (void)e; return 0; }
 #define umain wasm_main
 #include "../userland/wasm.c"
+#ifdef WASM_FUEL
+/* Состояние интерпретатора - в исходное, чтобы гонять разбор и выполнение много раз в одном процессе. */
+static void wasm_reset(void) {
+    ntypes = nfuncs = nimports = ntable = nglobals = 0; table = 0; mem = 0; mem_pages = mem_max = 0; entry = ~0u;
+    trapped = 0; trap_msg = 0; heap_end = 0; heap_left = 0; code = 0; cn = ccap = 0; sp = 0; exit_req = 0; exit_code = 0; fb = 0;
+    for (u32 i = 0; i < MAXG; i++) globals[i] = 0;
+    g_used = 0;
+}
+static int fuzz_module(const char* path, int iters) {
+    FILE* f = fopen(path, "rb"); if (!f) return 2;
+    fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
+    u8* orig = malloc((size_t)n); if (fread(orig, 1, (size_t)n, f) != (size_t)n) return 2; fclose(f);
+    u8* d = malloc((size_t)n); srand(11); g_quiet = 1; g_path = path;
+    int ran = 0, trapsn = 0;
+    for (int k = 0; k <= iters; k++) {
+        memcpy(d, orig, (size_t)n);
+        if (k) {
+            int flips = 1 + rand() % 6;
+            for (int j = 0; j < flips; j++) {
+                int pos = 8 + rand() % (int)(n - 8);
+                d[pos] = (k % 3 == 0) ? (u8)rand() : (u8)(d[pos] + 1 - 2 * (rand() & 1));   /* и случайный байт, и соседний код команды */
+            }
+        }
+        g_data = d; g_len = k % 11 == 10 ? 8 + rand() % (int)(n - 8) : n;
+        wasm_reset(); wasm_fuel = 3000000;
+        wasm_main();
+        ran++; trapsn += trapped;
+    }
+    g_quiet = 0;
+    printf("wasm: fuzz %s (%d damaged copies: %d stopped with a trap, the rest finished) passed\n", path, iters, trapsn);
+    free(orig); free(d);
+    return ran == iters + 1 ? 0 : 1;
+}
+#endif
 int main(int argc, char** argv) {
+#ifdef WASM_FUEL
+    if (argc == 4 && !strcmp(argv[1], "fuzz")) return fuzz_module(argv[2], atoi(argv[3]));
+#endif
     if (argc < 2) return 2;
     FILE* f = fopen(argv[1], "rb"); if (!f) return 2;
     fseek(f, 0, SEEK_END); g_len = ftell(f); fseek(f, 0, SEEK_SET);

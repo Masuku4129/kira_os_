@@ -242,6 +242,21 @@ ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wgfx.wasm | grep -v "^wasm: " > 
 cmp -s $T/g_native.txt $T/g_body.txt || { echo "WASM GFX OUTPUT DIFFERS"; cat $T/g_native.txt $T/g_body.txt; exit 1; }
 echo "wasm: graphics program (window, f32 frames) equals native ($(head -1 $T/g_native.txt))"
 echo "wasm: f32/f64 interpreter output equals native ($(cat $T/f_native.txt | cut -c1-70)...)"
+clang -O2 -DKW_NATIVE -w -Iuserland/wasm -o $T/wmix_native userland/wasm/wmix.c
+$T/wmix_native > $T/m_native.txt
+for mod in wmix wmix0; do
+    UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/$mod.wasm | grep -v "^wasm: " > $T/m_body.txt
+    cmp -s $T/m_native.txt $T/m_body.txt || { echo "WASM $mod OUTPUT DIFFERS"; cat $T/m_native.txt $T/m_body.txt; exit 1; }
+done
+echo "wasm: calls, call_indirect, i64, br_table, loops, 8/16-bit memory, memory.copy, f64 (-O2 and -O0 builds) equal native"
+$CC -O1 -g -w -DWASM_FUEL -I. -fsanitize=address,undefined -o $T/wasmfz tests/wasm_host.c -lm
+for mod in wtest ftest wgfx wmix wmix0; do
+    UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmfz fuzz build-wasm/$mod.wasm 3000 > $T/wfz.out 2>&1 || { tail -5 $T/wfz.out; exit 1; }
+    tail -1 $T/wfz.out
+done
+$CC -O2 -w -I. -o $T/wasmfast tests/wasm_host.c -lm
+$T/wasmfast build-wasm/wgfx.wasm | grep -o "in [0-9]* ms" | sed 's/^/wasm: wgfx 31 frames (unsanitized -O2 build) /'
+
 $CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c -lm
 $T/audio
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
