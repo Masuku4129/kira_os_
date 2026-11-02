@@ -38,6 +38,7 @@
 
 #define SHM_VA_BASE      USER_VA(0x0000100000000000ULL)
 #define SHM_VA_END       USER_VA(0x0000200000000000ULL)
+#define JIT_VA           USER_VA(0x00000081C0000000ULL)    /* между окном поверхности (до 0x8180000000) и кучей (0x8200000000) */
 
 typedef struct { kobj_t* shm; uint64_t va; uint32_t pages; } shm_map_t;
 
@@ -66,6 +67,8 @@ typedef struct {
     uint64_t shm_next;
     volatile uint64_t syscalls;  /* системных вызовов за жизнь (для Разума: поведение программы) */
     volatile uint32_t killed_by_mind;
+    uint64_t* jit_pa;            /* окно JIT: физический адрес выданной страницы i (0 - нет); состояние - в младшем бите: 1 = запечатана */
+    uint32_t jit_n;              /* сколько страниц окна выдано (подряд от JIT_VA) */
 } proc_t;
 
 static proc_t* procs;          /* таблица выделяется при старте по числу ядер и ОЗУ (scale_procs) */
@@ -190,6 +193,7 @@ static int spawn(const char* name, const void* image, size_t len, const char* gr
     { kmutex_t z = KMUTEX_INIT; p->mx = z; }
     __builtin_memset(&p->handles, 0, sizeof p->handles);
     p->maps = 0; p->nmaps = 0;
+    p->jit_pa = 0; p->jit_n = 0;
     p->shm_next = SHM_VA_BASE;
     p->syscalls = 0;
     p->killed_by_mind = 0;
@@ -244,6 +248,58 @@ static int64_t heap_grow_locked(proc_t* p, uint64_t pages) {
         p->heap_pages++;
     }
     return (int64_t)start;
+}
+
+/* Окно кода JIT. Ядро не может проверить содержимое байтов, поэтому защита устроена границами: (1) право CAP_JIT есть только у
+   wasm (таблица caps.c), (2) запечатать можно лишь страницы, выданные этим же вызовом ALLOC в узком окне (куча, стек, файлы,
+   разделяемая память исполняемыми не становятся никогда), (3) страница либо RW-NX, либо R-X, W+X нет; запечатанная назад не
+   открывается, значит код после запуска изменить нельзя, (4) предел окна - 1 МБ. */
+int64_t proc_jit(uint64_t op, uint64_t a, uint64_t b) {
+    proc_t* p = current_proc();
+    if (!p || !(p->caps & CAP_JIT)) return KE_PERM;
+    int64_t rc = 0;
+    kmutex_lock(&p->mx);
+    if (op == JIT_ALLOC) {
+        if (a == 0 || a > JIT_MAX_PAGES || p->jit_n + a > JIT_MAX_PAGES) rc = KE_LIMIT;
+        else {
+            if (!p->jit_pa) {
+                p->jit_pa = (uint64_t*)kmalloc(sizeof(uint64_t) * JIT_MAX_PAGES);
+                if (p->jit_pa) for (unsigned i = 0; i < JIT_MAX_PAGES; i++) p->jit_pa[i] = 0;
+            }
+            if (!p->jit_pa) rc = KE_NOMEM;
+            uint64_t done = 0;
+            for (; !rc && done < a; done++) {
+                uint64_t va = JIT_VA + (uint64_t)(p->jit_n + done) * 4096ULL, pa = pmm_alloc_page();
+                if (!pa) { rc = KE_NOMEM; break; }
+                zero_page(pa);
+                if (vmm_space_map(p->root, va, pa, VMM_WRITE | VMM_NOEXEC) != 0) { pmm_free_page(pa); rc = KE_NOMEM; break; }
+                p->jit_pa[p->jit_n + done] = pa;
+            }
+            if (rc) {                                        /* неудача посреди выдачи: всё выданное этим вызовом возвращается */
+                for (uint64_t i = 0; i < done; i++) {
+                    uint64_t va = JIT_VA + (uint64_t)(p->jit_n + i) * 4096ULL;
+                    vmm_space_unmap(p->root, va); vmm_tlb_shootdown(p->root, va, 1);
+                    pmm_free_page(p->jit_pa[p->jit_n + i]); p->jit_pa[p->jit_n + i] = 0;
+                }
+            } else { rc = (int64_t)(JIT_VA + (uint64_t)p->jit_n * 4096ULL); p->jit_n += (uint32_t)a; }
+        }
+    } else if (op == JIT_SEAL) {
+        uint64_t first = a >= JIT_VA ? (a - JIT_VA) / 4096ULL : ~0ULL;
+        if ((a & 4095) || a < JIT_VA || b == 0 || first >= p->jit_n || b > p->jit_n - first) rc = KE_ARG;
+        for (uint64_t i = 0; !rc && i < b; i++) if (p->jit_pa[first + i] & 1) rc = KE_ARG;      /* уже запечатана */
+        for (uint64_t i = 0; !rc && i < b; i++) {
+            uint64_t va = JIT_VA + (first + i) * 4096ULL, pa = p->jit_pa[first + i];
+            if (vmm_space_unmap(p->root, va) != 0) { rc = KE_ARG; break; }
+            vmm_tlb_shootdown(p->root, va, 1);               /* другие потоки процесса не должны сохранить записываемую запись */
+            if (vmm_space_map(p->root, va, pa, 0) != 0) {                       /* R-X: ни записи, ни NX */
+                vmm_space_map(p->root, va, pa, VMM_WRITE | VMM_NOEXEC);     /* не вышло - вернуть страницу в записываемое состояние */
+                rc = KE_NOMEM; break;
+            }
+            p->jit_pa[first + i] = pa | 1;
+        }
+    } else rc = KE_ARG;
+    kmutex_unlock(&p->mx);
+    return rc;
 }
 
 int proc_in_user_thread(void) { return current_proc() != 0; }
@@ -345,6 +401,7 @@ static void teardown(proc_t* p) {
     htab_free(&p->handles);
     for (uint32_t i = 0; i < p->nmaps; i++) if (p->maps[i].shm) { kobj_release(p->maps[i].shm); p->maps[i].shm = 0; }
     kfree(p->maps); p->maps = 0; p->nmaps = 0;
+    kfree(p->jit_pa); p->jit_pa = 0; p->jit_n = 0;     /* сами страницы окна JIT освободит vmm_space_destroy (они не SHARED) */
     unsigned freed = vmm_space_destroy(p->root);      /* страницы разделяемой памяти помечены SHARED - не освобождаются */
     int code = p->exit_code;
     uart_print("[KIRA PROC] pid "); uart_print_dec(pid);

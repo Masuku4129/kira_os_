@@ -271,7 +271,28 @@ for mod in wtest ftest wgfx wmix wmix0; do
     tail -1 $T/wfz.out
 done
 $CC -O2 -w -I. -o $T/wasmfast tests/wasm_host.c -lm
-$T/wasmfast build-wasm/wgfx.wasm | grep -o "in [0-9]* ms" | sed 's/^/wasm: wgfx 31 frames (unsanitized -O2 build) /'
+$CC -O2 -w -I. -o $T/wasmfast tests/wasm_host.c -lm
+# JIT x86-64 (то же самое на ARM64 недоступно: там только интерпретатор): те же модули с WASM_NOJIT=1 тоже равны эталону; JIT против интерпретатора
+# на сгенерированных модулях (каждая команда с граничными значениями, ловушки, случайные программы, глубокие выражения); fuzz испорченных модулей без JIT
+for mod in wtest ftest wgfx; do
+    WASM_NOJIT=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/$mod.wasm | grep -v "^wasm: " > $T/nj_$mod.txt
+done
+cmp -s $T/w_native.txt $T/nj_wtest.txt && cmp -s $T/f_native.txt $T/nj_ftest.txt && cmp -s $T/g_native.txt $T/nj_wgfx.txt || { echo "WASM INTERPRETER-ONLY OUTPUT DIFFERS"; exit 1; }
+echo "wasm: interpreter-only mode (WASM_NOJIT=1, as on ARM64) equals native too"
+for mod in wtest wgfx wmix0; do
+    WASM_NOJIT=1 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmfz fuzz build-wasm/$mod.wasm 1500 > $T/wfz.out 2>&1 || { tail -5 $T/wfz.out; exit 1; }
+    tail -1 $T/wfz.out | sed 's/^/(interpreter only) /'
+done
+mkdir -p $T/wd
+UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 tests/wasm_diff.sh $T/wasmh $T/wd 40 > $T/wdiff.out 2>&1 || { tail -20 $T/wdiff.out; exit 1; }
+tail -1 $T/wdiff.out | sed 's/^/(ASan+UBSan) /'
+tests/wasm_diff.sh $T/wasmfast $T/wd 600 > $T/wdiff.out 2>&1 || { tail -20 $T/wdiff.out; exit 1; }
+tail -1 $T/wdiff.out
+# скорость: JIT быстрее интерпретатора не менее чем в 2 раза на wgfx (по лучшему из трёх прогонов; на хосте измерено ~3.3)
+best() { local b=999999 t; for i in 1 2 3; do t=$(env $1 $T/wasmfast build-wasm/wgfx.wasm | grep -o "in [0-9]* ms" | grep -o "[0-9]*"); [ "$t" -lt "$b" ] && b=$t; done; echo $b; }
+tj=$(best X=1); ti=$(best WASM_NOJIT=1)
+echo "wasm: wgfx 31 frames (unsanitized -O2 build): JIT $tj ms, interpreter $ti ms, speedup x$(( ti / (tj ? tj : 1) )).$(( ti * 10 / (tj ? tj : 1) % 10 ))"
+[ $(( ti )) -ge $(( 2 * tj )) ] || { echo "WASM JIT SPEEDUP BELOW 2x"; exit 1; }
 
 $CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c -lm
 $T/audio

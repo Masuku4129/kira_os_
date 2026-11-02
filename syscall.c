@@ -74,6 +74,7 @@ static userlog_t ulog;
 #define SYS_UDP_RECVFROM  46 // (сокет, буфер, ёмкость | мс << 32) -> байт данных; в буфере: адрес сокета (20), длина (4), данные
 #define SYS_NET_PEER      47 // (h, адрес сокета) -> семейство собеседника соединения
 #define SYS_TIME          37 // -> секунды UTC от 1970 (часы реального времени) или -1, если часов нет
+#define SYS_JIT           55 // (операция JIT_ALLOC/JIT_SEAL, a, b) -> адрес окна кода / 0 или отрицательный код; право CAP_JIT
 #define SYS_RANDOM        36 // (буф, байт <= 256) -> 1 аппаратный источник, 0 - только время событий
 
 #define SYS_MAX_WRITE 4096
@@ -126,6 +127,7 @@ static uint32_t cap_needed(uint64_t nr) {
     case SYS_SND_RECORD: return CAP_REC;
     case SYS_PORT_OPEN: case SYS_PORT_SEND: case SYS_PORT_RECV: case SYS_SHM_OPEN: case SYS_SHM_MAP: return CAP_IPC;
     case SYS_THREAD_CREATE: return CAP_THREAD;
+    case SYS_JIT: return CAP_JIT;
     /* Драйверы Ring 3 (kdrv.c): права выдаёт только менеджер драйверов, процессу обычной программы они недоступны; устройство - привязка процесса. */
     case KDRV_SYS_INFO: return CAP_DRIVER_;                         /* свои устройство и права: любое из прав драйвера */
     case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: return CAP_PCIDEV;
@@ -183,6 +185,8 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return (uint64_t)gfx_sys_event(proc_current_pid(), a1);
     case SYS_HEAP:
         return (uint64_t)proc_heap_grow(a1);
+    case SYS_JIT:
+        return (uint64_t)proc_jit(a1, a2, a3);
     case SYS_FS:
         return (uint64_t)fsrv_syscall(a1);
     case SYS_THREAD_CREATE:
