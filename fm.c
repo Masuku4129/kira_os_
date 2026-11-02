@@ -46,7 +46,7 @@ static int is_inside(const char* p, const char* dir) {        /* p совпад�
 
 int fm_is_system(const char* dir, const char* name) {
     if (name[0] == '.') return 1;
-    if (dir[0] == '/' && !dir[1]) return seq(name, "var") || seq(name, "bin") || seq(name, "lost+found");
+    if (dir[0] == '/' && !dir[1]) return seq(name, "var") || seq(name, "lost+found");   /* /bin - список приложений, виден */
     return 0;
 }
 

@@ -101,11 +101,19 @@ for app in demo atk-mem atk-priv atk-sys atk-gs; do
     UELF="$UELF userland/$app.elf"
 done
 
+# Пользовательская сборка (--android или KIRA_RELEASE=1): тестовые и учебные программы на диск не кладутся (CI собирает полный набор).
+TESTPROGS="burn mt ipc udpecho melody demo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
+RELEASE=0; case " $* " in *" --android "*) RELEASE=1 ;; esac; [ -n "$KIRA_RELEASE" ] && RELEASE=1
+if [ "$RELEASE" = 1 ]; then
+    KEEP=""; for e in $UELF; do n=$(basename $e .elf); case " $TESTPROGS " in *" $n "*) ;; *) KEEP="$KEEP $e" ;; esac; done
+    UELF="$KEEP"
+fi
+
 echo "[*] Инструмент kfstool, манифест доверенных программ и установка в образ диска..."
 HOSTCC="${HOSTCC:-clang}"
 $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
 tools/kfstool manifest $UELF > manifest.h
-[ -f kira.disk ] || dd if=/dev/zero of=kira.disk bs=1M count=8 2>/dev/null
+rm -f kira.disk; dd if=/dev/zero of=kira.disk bs=1M count=8 2>/dev/null     # образ каждый раз новый: старые файлы не остаются
 tools/kfstool kira.disk init
 for e in $UELF; do
     tools/kfstool kira.disk put /bin/$(basename $e .elf) $e
@@ -162,6 +170,7 @@ case "$1" in
         cp kira.iso "$OUT/kira.iso"
         if [ -f "$OUT/kira_disk.img" ]; then
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
+            for t in $TESTPROGS; do tools/kfstool "$OUT/kira_disk.img" rm /bin/$t >/dev/null 2>&1 || true; done   # убрать тестовые программы прежних версий
             for e in $UELF; do tools/kfstool "$OUT/kira_disk.img" put /bin/$(basename $e .elf) $e >/dev/null; done
             for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
             for h in kcc/include/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
