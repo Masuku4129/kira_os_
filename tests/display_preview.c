@@ -274,14 +274,14 @@ int main(int argc, char** argv) {
     CHECK(w_files >= 0 && wm_top() == w_files);
     exp_view_t e; explorer_view(&e);
     const int RX0 = 70, RX1 = 70 + 395 - 10, RY = 38 + 46 + 9, KY = 520 - 12;
-    CHECK(!strcmp(e.fm.p[0].path, "/") && !strcmp(e.fm.p[1].path, "/data") && e.fm.p[0].n == 4 && e.fm.p[0].hidden == 2);   /* bin и var скрыты */
-    CHECK(!strcmp(e.fm.p[0].e[0].name, "data") && e.fm.p[0].e[0].dir && !strcmp(e.fm.p[0].e[1].name, "wasm"));
+    CHECK(!strcmp(e.fm.p[0].path, "/") && !strcmp(e.fm.p[1].path, "/data") && e.fm.p[0].n == 5 && e.fm.p[0].hidden == 1);   /* var скрыт, bin виден (список приложений) */
+    CHECK(!strcmp(e.fm.p[0].e[0].name, "bin") && !strcmp(e.fm.p[0].e[1].name, "data") && e.fm.p[0].e[1].dir && !strcmp(e.fm.p[0].e[2].name, "wasm"));
     save_shot("files-open.ppm");
-    click_in(w_files, RX0, RY + 18 * 1); run(1);                              /* щелчок: курсор на wasm */
-    explorer_view(&e); CHECK(e.fm.active == 0 && e.fm.p[0].cur == 1);
+    click_in(w_files, RX0, RY + 18 * 2); run(1);                              /* щелчок: курсор на wasm */
+    explorer_view(&e); CHECK(e.fm.active == 0 && e.fm.p[0].cur == 2);
     click_in(w_files, RX1, RY + 18 * 1); run(1);                              /* щелчок по правой панели: она активна */
     explorer_view(&e); CHECK(e.fm.active == 1 && e.fm.p[1].cur == 1);
-    click_in(w_files, RX0, RY); click_in(w_files, RX0, RY); run(1);           /* двойной щелчок по data: левая панель входит */
+    click_in(w_files, RX0, RY + 18); click_in(w_files, RX0, RY + 18); run(1);  /* двойной щелчок по data: левая панель входит */
     explorer_view(&e); CHECK(!strcmp(e.fm.p[0].path, "/data") && e.fm.active == 0);
     /* клавиши: Tab, F7 - каталог */
     input_push_scancode(0x0F); input_push_scancode(0x8F); run(2);
