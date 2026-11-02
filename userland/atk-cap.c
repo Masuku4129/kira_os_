@@ -19,6 +19,7 @@ int umain(void) {
         { "port_open",    K_PORT_OPEN,   0, 0, 0, -12 },
         { "shm_open",     K_SHM_OPEN,    0, 0, 0, -12 },
         { "thread_create", K_THREAD_CREATE, 0, 0, 0, -12 },
+        { "pci_list",     55 /* KDRV_SYS_PCILIST */, 0, 1, 0, -12 },
     };
     unsigned bad = 0, n = sizeof t / sizeof t[0];
     for (unsigned i = 0; i < n; i++) {

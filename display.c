@@ -179,8 +179,8 @@ static int scpy(char* d, int p, const char* s, int cap) { while (*s && p < cap -
 static void files_run(const char* prog) {
     char cmd[64]; int graphic = 0;
     if (!prog) return;
-    static const char* const gfx_progs[] = { "plasma", "paint", "cube3d" };
-    for (unsigned i = 0; i < 3; i++) { const char* a = gfx_progs[i]; const char* b = prog; while (*a && *a == *b) { a++; b++; } if (!*a && !*b) graphic = 1; }
+    static const char* const gfx_progs[] = { "plasma", "paint", "cube3d", "drvman" };
+    for (unsigned i = 0; i < 4; i++) { const char* a = gfx_progs[i]; const char* b = prog; while (*a && *a == *b) { a++; b++; } if (!*a && !*b) graphic = 1; }
     const char* b = prog; const char* a = "ipc"; while (*a && *a == *b) { a++; b++; }
     if (!*a && !*b) scpy(cmd, 0, "test ipc", sizeof cmd);
     else scpy(cmd, 0, prog, sizeof cmd);
@@ -301,7 +301,7 @@ static void side_rebuild(int force) {
     side_n = 0;
     for (int i = 0; i < dock.n && side_n < SIDE_N - 1; i++) {
         scpy(side_names[side_n], 0, dock.name[i], 16);
-        side[side_n] = (wm_side_item_t){ side_names[side_n], side_names[side_n], dock_color(dock.name[i]), dock_icon(dock.name[i]), 0, 0,
+        side[side_n] = (wm_side_item_t){ dock_title(dock.name[i]) ? dock_title(dock.name[i]) : side_names[side_n], side_names[side_n], dock_color(dock.name[i]), dock_icon(dock.name[i]), 0, 0,
                                          "правая кнопка - открепить", 0 };
         if (side[side_n].icon == ICON_TERMINAL && dock.name[i][0] >= 'a' && dock.name[i][0] <= 'z') side[side_n].badge = (char)(dock.name[i][0] - 32);
         side_n++;
@@ -311,7 +311,7 @@ static void side_rebuild(int force) {
         int dup = 0; for (int k = 0; k < side_n; k++) if (streq(side_names[k], run[i])) dup = 1;
         if (dup) continue;
         scpy(side_names[side_n], 0, run[i], 16);
-        side[side_n] = (wm_side_item_t){ side_names[side_n], side_names[side_n], dock_color(run[i]), dock_icon(run[i]), 0, 1,
+        side[side_n] = (wm_side_item_t){ dock_title(run[i]) ? dock_title(run[i]) : side_names[side_n], side_names[side_n], dock_color(run[i]), dock_icon(run[i]), 0, 1,
                                          "правая кнопка - закрепить", 0 };
         if (side[side_n].icon == ICON_TERMINAL && run[i][0] >= 'a' && run[i][0] <= 'z') side[side_n].badge = (char)(run[i][0] - 32);
         side_n++;

@@ -17,9 +17,12 @@
 #include "../immune.h"
 #include "../kcc/kcc.h"
 
+#ifndef DRVGET_LIB
 KIRA_ENTRY()
+#endif
 
-enum { KFS_INC_READ = 11, KFS_INC_STAT = 12, KFS_DRV_STAT = 13, KFS_DRV_READ = 14, KFS_DRV_WRITE = 15, KFS_DRV_REMOVE = 16, KFS_DRV_LIST = 17 };
+enum { KFS_INC_READ = 11, KFS_INC_STAT = 12, KFS_DRV_STAT = 13, KFS_DRV_READ = 14, KFS_DRV_WRITE = 15, KFS_DRV_REMOVE = 16, KFS_DRV_LIST = 17,
+       KFS_DRV_START = 18, KFS_DRV_STOP = 19 };
 #define INC_DIR "/etc/kcc/include"
 #define STAGE_DIR "/stage/"
 #define PAGE 4096ul
@@ -28,8 +31,12 @@ enum { KFS_INC_READ = 11, KFS_INC_STAT = 12, KFS_DRV_STAT = 13, KFS_DRV_READ = 1
 #define DRVGET_DEFAULT_BASE "https://raw.githubusercontent.com/Masuku4129/kira_os_/main/drivers"
 #endif
 
+/* Куда идёт текст отчёта: по умолчанию в журнал процесса (консоль); окно «Драйверы» (drvman) собирает его в свою панель. */
+static void (*sink)(const char *, size_t);
+
 static void say(const char *s) {
     size_t n = strlen(s);
+    if (sink) { sink(s, n); return; }
     while (n) { size_t k = n > 2048 ? 2048 : n; k_write(s, k); s += k; n -= k; }
 }
 static void sayf(const char *fmt, ...) {
@@ -48,6 +55,8 @@ static u8 body[DG_SRC_MAX + 16 * 1024];
 static char recipe_txt[DG_RECIPE_MAX + 1];
 static dg_recipe_t R;
 static char g_name[KDRV_NAME_MAX + 2];
+static char g_staged_url[DG_URL_MAX];                /* адрес рецепта подготовленного набора */
+static char g_staged_hash[65];                    /* SHA-256 набора, подготовленного последним успешным install (пусто - нет) */
 
 /* ---------- сеть: HTTPS GET ---------- */
 static int load_roots(void) {
@@ -206,6 +215,8 @@ static int cmd_install(const char *arg) {
     if (!strstr(arg, "://") && strcmp(arg, R.name)) { sayf("drvget: отказ: запрошен '%s', а рецепт называет драйвер '%s'\n", arg, R.name); return 1; }
     snprintf(g_name, sizeof g_name, "%s", R.name);
     stage_clear();
+    g_staged_hash[0] = 0;
+    g_staged_url[0] = 0;
 
     dg_hash_t hs;
     dg_set_begin(&hs);
@@ -243,6 +254,8 @@ static int cmd_install(const char *arg) {
     char hx[65];
     dg_set_end(&hs, set);
     dg_hex(set, 32, hx);
+    memcpy(g_staged_hash, hx, sizeof hx);
+    snprintf(g_staged_url, sizeof g_staged_url, "%s", url);
 
     sayf("\n=== драйвер '%s' версия %u ===\n", R.name, (unsigned)R.version);
     sayf("источник:   %s\n", url);
@@ -262,12 +275,18 @@ static int cmd_install(const char *arg) {
     for (u32 b = 1; b; b <<= 1) if (R.caps & b) sayf("  %s\n", cap_text(b));
     say("ограничения: права действуют только на устройство драйвера. Без IOMMU устройство с DMA способно писать в любую память - защититься\n"
         "от этого программно нельзя; ставьте только те драйверы, чьим исходникам доверяете.\n");
+#ifdef DRVGET_LIB
+    say("\nУстановка НЕ выполнена. Прочитайте источник и права выше.\n");
+#else
     sayf("\nУстановка НЕ выполнена. Прочитайте источник и права выше. Чтобы собрать и установить ровно этот набор, введите:\n  drvget confirm %s %.8s\n", R.name, hx);
+#endif
     return 0;
 }
 
 /* ---------- сборка kcc ---------- */
 static char *arena;
+static char *g_arena;                             /* арена kcc одна на процесс: повторные сборки (окно «Драйверы») её переиспользуют, куча не растёт */
+static size_t g_arena_cap;
 
 static size_t grow(void *ud, size_t cap, size_t need) {
     (void)ud;
@@ -352,10 +371,14 @@ static int cmd_confirm(const char *arg) {
     if (un < 0) un = 0;
     url[un] = 0;
 
-    void *base = k_heap_grow(CHUNK_PAGES);
-    if (!base) { say("drvget: нет памяти для компилятора\n"); return 1; }
-    arena = base;
-    size_t arena_cap = CHUNK_PAGES * PAGE;
+    if (!g_arena) {
+        void *base = k_heap_grow(CHUNK_PAGES);
+        if (!base) { say("drvget: нет памяти для компилятора\n"); return 1; }
+        g_arena = base;
+        g_arena_cap = CHUNK_PAGES * PAGE;
+    }
+    arena = g_arena;
+    size_t arena_cap = g_arena_cap;
     static const char *incs[1] = { INC_DIR };
 #if defined(__aarch64__)
     KCfg cfg = { rd, 0, incs, 1, 0, 0, "aarch64", grow };
@@ -367,6 +390,7 @@ static int cmd_confirm(const char *arg) {
     sayf("drvget: собираю %s встроенным kcc (%s)...\n", R.main_file, cfg.target);
     KResult kr;
     int rc = kcc_compile(&cfg, arena, arena_cap, mainp, 2, &kr);
+    if (K.acap > g_arena_cap) g_arena_cap = K.acap;          /* арена могла вырасти по запросу компилятора */
     if (kr.warn && *kr.warn) say(kr.warn);
     if (rc) { say(kr.err); say("\ndrvget: сборка не удалась, ничего не установлено\n"); return 1; }
     sayf("drvget: собрано, образ ELF %lu байт\n", (unsigned long)kr.elflen);
@@ -390,7 +414,14 @@ static int cmd_confirm(const char *arg) {
     rec.confirmed = KREC_CONFIRMED;
     i64 now = k_time();
     rec.date = now > 0 ? (u64)now : 0;
-    snprintf(rec.source, sizeof rec.source, "%s", url);
+    {   /* источник, затем после нуля метка лицензии «L:ИД» (читатели видят только адрес до нуля); адрес укорачивается, лицензия - нет */
+        char lt[32];
+        int ll = snprintf(lt, sizeof lt, "L:%s", R.license);
+        size_t room = sizeof rec.source - 1 - (size_t)(ll > 0 && (size_t)ll < sizeof lt ? ll + 1 : 0), ul = strlen(url);
+        if (ul > room) ul = room;
+        memcpy(rec.source, url, ul);
+        if (ll > 0 && (size_t)ll < sizeof lt) memcpy(rec.source + ul + 1, lt, (size_t)ll);
+    }
 
     char f1[32], f2[32];
     snprintf(f1, sizeof f1, "%s.kdrv", R.name);
@@ -493,6 +524,71 @@ static int cmd_base(const char *arg) {
     return 0;
 }
 
+#ifdef DRVGET_LIB
+/* ---------- та же логика для окна «Драйверы» (userland/drvman.c, userland/drvget_api.h): без разбора командной строки ---------- */
+#include "drvget_api.h"
+void drvget_set_sink(void (*f)(const char *, size_t)) { sink = f; }
+int drvget_find(const char *arg) { return cmd_install(arg); }
+const dg_recipe_t *drvget_staged(void) { return g_staged_hash[0] ? &R : 0; }
+const char *drvget_staged_hash(void) { return g_staged_hash; }
+const char *drvget_staged_url(void) { return g_staged_url; }
+int drvget_install_staged(void) {
+    char a[16 + 66];
+    if (!g_staged_hash[0]) { say("drvget: нечего ставить: сначала «Найти и показать»\n"); return 1; }
+    snprintf(a, sizeof a, "%s %s", R.name, g_staged_hash);   /* полный хеш набора, показанный в отчёте; confirm заново пересчитывает набор из песочницы */
+    return cmd_confirm(a);
+}
+int drvget_remove(const char *name) { return cmd_remove(name); }
+int drvget_verify(const char *name) { return cmd_verify(name); }
+int drvget_list(void) { return cmd_list(); }
+int drvget_base(const char *url) { return cmd_base(url); }
+int drvget_ctl(int start, const char *name) {
+    char f[32];
+    if (!name_ok(name)) { say("drvget: неверное имя\n"); return -1; }
+    snprintf(f, sizeof f, "%s.kdrv", name);
+    return (int)drv_op(start ? KFS_DRV_START : KFS_DRV_STOP, f, 0, 0, 0);
+}
+int drvget_pkgs(drvget_pkg_t *out, int max) {
+    static char lst[4096];
+    i64 n = drv_op(KFS_DRV_LIST, "", lst, sizeof lst - 1, 0);
+    if (n < 0) return -1;
+    lst[n] = 0;
+    int cnt = 0;
+    for (char *p = lst; *p && cnt < max;) {
+        char *e = strchr(p, '\n');
+        if (e) *e = 0;
+        size_t l = strlen(p);
+        if (l > 5 && l - 5 <= KDRV_NAME_MAX && !strcmp(p + l - 5, ".kdrv")) {
+            kdrv_header_t h; kdrv_rec_t rec; int ok = 0;
+            drvget_pkg_t *o = &out[cnt++];
+            memset(o, 0, sizeof *o);
+            memcpy(o->name, p, l - 5);
+            int rc = read_pkg(o->name, &h, &rec, &ok);
+            o->state = rc == -1 ? DGP_UNREADABLE : rc == -2 ? DGP_NOREC : ok == 1 ? DGP_OK : ok == -1 ? DGP_TOOBIG : DGP_BAD;
+            if (o->state == DGP_BAD && kdrv_rec_check(&rec, sizeof rec, 0) == KDRV_E_UNCONFIRMED) o->state = DGP_UNCONF;
+            if (rc == 0 || rc == -2) {
+                o->version = h.version; o->caps = h.caps; o->nmatch = h.nmatch > KDRV_MATCH_MAX ? 0 : h.nmatch;
+                for (uint32_t i = 0; i < o->nmatch; i++) o->match[i] = h.match[i];
+            }
+            if (rc == 0) {
+                o->caps_ok = rec.caps_ok;
+                memcpy(o->elf_sha, rec.elf_sha, 32); memcpy(o->src_sha, rec.src_sha, 32);
+                size_t sl = 0;
+                while (sl < sizeof rec.source && rec.source[sl]) sl++;
+                memcpy(o->source, rec.source, sl < sizeof o->source - 1 ? sl : sizeof o->source - 1);
+                if (sl + 3 < sizeof rec.source && rec.source[sl + 1] == 'L' && rec.source[sl + 2] == ':') {      /* метка лицензии после нуля */
+                    char lic[24] = { 0 };
+                    for (size_t k = 0; k < sizeof lic - 1 && sl + 3 + k < sizeof rec.source && rec.source[sl + 3 + k]; k++) lic[k] = rec.source[sl + 3 + k];
+                    if (dg_license_ok(lic)) memcpy(o->license, lic, sizeof lic);
+                }
+            }
+        }
+        if (!e) break;
+        p = e + 1;
+    }
+    return cnt;
+}
+#else
 int umain(void) {
     char args[200];
     i64 al = k_args(args, sizeof args - 1);
@@ -518,3 +614,4 @@ int umain(void) {
         "GPL-код и бинарные драйверы (Windows .sys, модули Linux .ko) не принимаются.\n");
     return 2;
 }
+#endif

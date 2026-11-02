@@ -13,6 +13,8 @@ void    kdrv_poll(void);                                  /* основной ц
 void    kdrv_proc_gone(uint32_t slot, uint32_t pid);      /* proc.c, при гибели процесса-драйвера (прерывания выключены, спать нельзя) */
 int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3);   /* syscall.c: вызовы KDRV_SYS_* */
 void    kdrv_request_rescan(void);                        /* fsrv.c: установлен пакет - основной цикл просмотрит /drv ещё раз */
+enum { KDRV_CTL_START = 1, KDRV_CTL_STOP = 2 };
+int     kdrv_ctl_request(int op, const char* name);      /* fsrv.c: окно «Драйверы» просит запустить/остановить драйвер; 0 - принято в очередь (основной цикл исполняет), -1 - очередь занята */
 void    kdrv_cmd(const char* arg);                        /* консоль: drv [start ИМЯ [арг] | stop ИМЯ | rescan] */
 
 #endif

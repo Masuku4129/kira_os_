@@ -27,6 +27,11 @@ $K $UCFLAGS -I. -c userland/drvget_core.c -o $O/dgcore.o || exit 1
 $K $UCFLAGS -I. -c kdrv_fmt.c -o $O/kfmt.o || exit 1
 for f in userland/tls.c userland/x509.c pk.c crypto.c sha256.c; do $K $UCFLAGS -I. -Iuserland -c $f -o $O/t_$(basename $f .c).o || exit 1; done
 ld.lld -T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro -o $T/drvget.elf $O/drvget.o $O/dgcore.o $O/kfmt.o $objs $O/kccrt.o $O/t_*.o $O/libc_min.o || exit 1
+# drvman (окно «Драйверы»): та же логика (drvget.c с -DDRVGET_LIB) + окно; здесь проверяется режим do под загрузчиком (вызовов окна и списка PCI у загрузчика нет)
+$K $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -DDRVGET_LIB -c userland/drvget.c -o $O/drvget_lib.o || exit 1
+$K $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -c userland/drvman.c -o $O/drvman.o || exit 1
+$K $UCFLAGS -I. -c font8x16.c -o $O/font.o || exit 1
+ld.lld -T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro -o $T/drvman.elf $O/drvman.o $O/drvget_lib.o $O/dgcore.o $O/kfmt.o $O/font.o $objs $O/kccrt.o $O/t_*.o $O/libc_min.o || exit 1
 gcc -std=gnu99 -O1 -DKIRA_HOST_TEST -o $T/kloader tests/kcc/kloader.c elf.c || exit 1
 gcc -O1 -DKIRA_HOST_TEST -I. -Iarch/x86_64 -o $T/dgcheck tests/drvget_check.c kdrv_fmt.c sha256.c elf.c || exit 1
 
@@ -151,5 +156,35 @@ rm -f $T/out; timeout 120 $T/kloader -s $T/sb -i kcc/include -y $T/ssl2 -d $T/dr
 grep -q "TLS" $T/out && ! grep -q "Установка НЕ выполнена" $T/out || note "TLS с чужими корневыми не отклонён: $(tail -c 300 $T/out)"
 rm -f $T/ssl2/roots.der; rm -f $T/out; timeout 120 $T/kloader -s $T/sb -i kcc/include -y $T/ssl2 -d $T/drv -a "install $U/rl/drvget.rec" $T/drvget.elf >$T/out 2>&1
 grep -q "нет корневых сертификатов" $T/out || note "без корневых соединение не отклонено: $(tail -c 200 $T/out)"
+
+# 5. drvman в режиме do: те же find/install, две установки подряд в одном процессе (арена kcc переиспользуется), отказы, метка лицензии в .rec, честная ошибка списка PCI
+rundm() { rm -f $T/out; timeout 240 $T/kloader -s $T/sb -i kcc/include -y $T/ssl -d $T/drv -a "$1" $T/drvman.elf >$T/out 2>&1; rc=$?; }
+rm -rf $T/sb $T/drv; mkdir -p $T/sb $T/drv
+rundm "do base $U;pci;find rl;install;pkgs;verify rl"
+grep -q "drvman: набор готов к установке" $T/out || note "drvman find: $(tail -c 400 $T/out)"
+grep -q "собрано, образ ELF" $T/out && grep -q "drvman: драйвер rl установлен в /drv" $T/out || note "drvman install: $(tail -c 600 $T/out)"
+grep -q "drvman: список PCI недоступен" $T/out || note "drvman: нет честного сообщения о недоступном списке PCI: $(grep -a 'drvman:' $T/out | head -5)"
+grep -qE "drvman: пакет rl \| rl +v1 +BSD-3-Clause +не запущен +сверка: SHA-256 сходится с записью" $T/out || note "drvman pkgs (лицензия из .rec): $(grep -a 'пакет' $T/out | head -5)"
+grep -qE "drvman: пакет rl \| права запрошены: MMIO DMA PCIDEV NETDEV +подтверждены: MMIO DMA PCIDEV NETDEV" $T/out || note "drvman pkgs: права"
+grep -q "drvman: пакет rl | источник: $U/rl/drvget.rec" $T/out || note "drvman pkgs: источник"
+grep -q "verify rl: OK" $T/out || note "drvman verify"
+chk=$($T/dgcheck $T/drv rl 0x$(python3 -I - <<'PY'
+import re
+s = open('caps.h', encoding='utf-8').read()
+v = {}
+for m in re.finditer(r'(CAP_[A-Z_]+)\s*=\s*(1u?\s*<<\s*(\d+)|0x[0-9a-fA-F]+)', s):
+    v[m.group(1)] = (1 << int(m.group(3))) if m.group(3) else int(m.group(2), 16)
+print('%x' % (v['CAP_MMIO'] | v['CAP_DMA'] | v['CAP_PCIDEV'] | v['CAP_NETDEV']))
+PY
+) 2>&1)
+echo "$chk" | grep -q "^OK rl v1" || note "drvman: пакет в /drv неверен: $chk"
+rundm "do find rl;install;find rl;install;remove rl;pkgs"
+[ "$(grep -ac 'drvman: драйвер rl установлен в /drv' $T/out)" = 2 ] || note "drvman: две установки подряд: $(grep -a 'drvman:' $T/out | tail -6)"
+grep -q "drvman: пакет rl удалён" $T/out && [ ! -e $T/drv/rl.kdrv ] || note "drvman remove"
+rundm "do install"; grep -q "нечего устанавливать" $T/out || note "drvman install без find не отклонён"
+rm -rf $T/sb $T/drv; mkdir -p $T/sb $T/drv
+rundm "do base $U;find gpl;install"; grep -q "drvget: отказ: .*GPL" $T/out && grep -q "drvman: поиск не удался" $T/out && grep -q "нечего устанавливать" $T/out && [ -z "$(ls $T/drv)" ] || note "drvman GPL: $(tail -c 400 $T/out)"
+rundm "do find bin;find pin;find nosuch"; [ "$(grep -ac 'drvman: поиск не удался' $T/out)" = 3 ] && [ -z "$(ls $T/drv)" ] || note "drvman отказы: $(tail -c 500 $T/out)"
+rundm "do frobnicate"; grep -q "неизвестная команда" $T/out && grep -q "drvman: готово с ошибками" $T/out || note "drvman: неизвестная команда принята: $(tail -c 200 $T/out)"
 
 if [ $fail = 0 ]; then echo "drvget e2e: install -> confirm -> сборка kcc на устройстве -> /drv, отказы GPL/бинарник/без лицензии/неверный хеш/http/.sys/чужая цепочка - всё как задумано"; else echo "drvget e2e: провалов $fail"; exit 1; fi

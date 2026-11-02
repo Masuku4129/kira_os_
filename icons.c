@@ -114,6 +114,17 @@ static void shape(const pen_t* p, int kind) {
         poly(p, d, 4, 0);
         break;
     }
+    case ICON_CHIP: {                                    /* микросхема: корпус, сердцевина и выводы по четырём сторонам */
+        static const int body[] = { 16, 16, 48, 16, 48, 48, 16, 48 };
+        poly(p, body, 4, 1);
+        static const int core[] = { 26, 26, 38, 26, 38, 38, 26, 38 };
+        poly(p, core, 4, 1);
+        for (int i = 0; i < 3; i++) {
+            int t = 22 + i * 10;
+            ln(p, t, 16, t, 7); ln(p, t, 48, t, 57); ln(p, 16, t, 7, t); ln(p, 48, t, 57, t);
+        }
+        break;
+    }
     default: break;
     }
 }

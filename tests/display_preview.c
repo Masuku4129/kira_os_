@@ -251,7 +251,7 @@ int main(int argc, char** argv) {
     save_shot("terminal.ppm");
 
     /* левая панель: закреплённые по умолчанию (файла /var/dock нет) и «+» */
-    { int x, y; CHECK(wm_side_center(0, &x, &y) == 0 && wm_side_center(4, &x, &y) == 0 && wm_side_center(5, &x, &y) != 0); }
+    { int x, y; CHECK(wm_side_center(0, &x, &y) == 0 && wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) != 0); }
 
     /* разделы: Разум */
     click_tab(2);
@@ -328,15 +328,15 @@ int main(int argc, char** argv) {
     move_to(200, 600, 0); run(2);
     save_shot("files_run.ppm");
     writes = 0; click_in(w_files, 3 * 800 / 9 + 30, KY); run(2);              /* F4: закрепить burn */
-    CHECK(writes == 1 && !strcmp(written_path, "/var/dock") && !strcmp(written, "plasma\npaint\ncube3d\nedit\nburn\n"));
-    { int x, y; CHECK(wm_side_center(4, &x, &y) == 0 && wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) != 0); }
-    con_n = 0; click_side(4); CHECK(con_n == 1 && !strcmp(con_cmd, "burn"));
+    CHECK(writes == 1 && !strcmp(written_path, "/var/dock") && !strcmp(written, "plasma\npaint\ncube3d\nedit\ndrvman\nburn\n"));
+    { int x, y; CHECK(wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) == 0 && wm_side_center(7, &x, &y) != 0); }
+    con_n = 0; click_side(5); CHECK(con_n == 1 && !strcmp(con_cmd, "burn"));
     run(1);
     { int x, y; wm_side_center(0, &x, &y); move_to(x, y, 0); wm_mouse(0, 0, 2); wm_mouse(0, 0, 0); }   /* plasma - открепить */
     run(1);
-    CHECK(writes == 2 && !strcmp(written, "paint\ncube3d\nedit\nburn\n"));
+    CHECK(writes == 2 && !strcmp(written, "paint\ncube3d\nedit\ndrvman\nburn\n"));
     /* «+» открывает Проводник с /bin */
-    click_side(4);
+    click_side(5);
     run(2);
     CHECK(wm_top() == w_files);
     explorer_view(&e); CHECK(!strcmp(e.fm.p[e.fm.active].path, "/bin"));
@@ -382,9 +382,9 @@ int main(int argc, char** argv) {
     static uint32_t pm[200 * 120];
     int um = wm_create_user("mt", WM_AUTO, WM_AUTO, 200, 120, pm);
     run(2);
-    { int x, y; CHECK(wm_side_center(4, &x, &y) == 0); move_to(x, y, 0); wm_mouse(0, 0, 2); wm_mouse(0, 0, 0); }
+    { int x, y; CHECK(wm_side_center(5, &x, &y) == 0); move_to(x, y, 0); wm_mouse(0, 0, 2); wm_mouse(0, 0, 0); }
     run(1);
-    CHECK(!strcmp(written, "paint\ncube3d\nedit\nburn\nmt\n"));
+    CHECK(!strcmp(written, "paint\ncube3d\nedit\ndrvman\nburn\nmt\n"));
     wm_destroy(um);
     run(4);
     save_shot("apps.ppm");

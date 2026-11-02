@@ -18,6 +18,7 @@ static const struct { const char* name; uint32_t caps; } table[] = {
     { "mt",       CAP_THREAD },
     { "kcc",      CAP_FS },                 /* компилятор: исходники и результат в /data/kcc, заголовки - FS_OP_INC_* (только kcc); больше ничего */
     { "drvget",   CAP_NET | CAP_FS | CAP_SYSFILES },   /* загрузка исходников драйвера по HTTPS, сборка встроенным kcc, запись пакета в /drv (FS_OP_DRV_*, только drvget) */
+    { "drvman",   CAP_GFX | CAP_NET | CAP_FS | CAP_SYSFILES | CAP_THREAD | CAP_PCILIST },   /* окно «Драйверы»: те же возможности, что у drvget (скачать, собрать kcc, записать в /drv), плюс окно, поток для долгих шагов и чтение списка PCI */
     { "burn",     0 },
     { "fpu",      0 },
     { "demo",     0 },
@@ -54,6 +55,7 @@ const char* caps_bit_name(uint32_t bit) {
     case CAP_SYSFILES: return "CAP_SYSFILES";
     case CAP_MMIO: return "CAP_MMIO";         case CAP_IRQ: return "CAP_IRQ";
     case CAP_DMA: return "CAP_DMA";           case CAP_PCIDEV: return "CAP_PCIDEV";
-    case CAP_NETDEV: return "CAP_NETDEV";     default: return "CAP_?";
+    case CAP_NETDEV: return "CAP_NETDEV";     case CAP_PCILIST: return "CAP_PCILIST";
+    default: return "CAP_?";
     }
 }

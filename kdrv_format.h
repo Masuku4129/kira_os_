@@ -69,7 +69,8 @@ enum { KDRV_SYS_INFO = 48,         /* (буфер kdrv_info_t, ёмкость) -
        KDRV_SYS_MMIO_MAP = 51,     /* (номер BAR, смещение, длина) -> адрес; CAP_MMIO; страницы устройства без кэша и без исполнения */
        KDRV_SYS_DMA_ALLOC = 52,    /* (байт, предел адреса в битах или 0, kdrv_dma_t*) -> 0; CAP_DMA; освобождается при гибели драйвера */
        KDRV_SYS_IRQ_WAIT = 53,     /* (срок в 10 мс или ~0) -> маска KDRV_EV_* или KE_TIMEOUT; CAP_IRQ */
-       KDRV_SYS_NETDEV = 54 };     /* (операция KDRV_NET_*, аргумент, флаги) ; CAP_NETDEV */
+       KDRV_SYS_NETDEV = 54,       /* (операция KDRV_NET_*, аргумент, флаги) ; CAP_NETDEV */
+       KDRV_SYS_PCILIST = 55 };    /* (буфер kdrv_pcient_t[], число записей, номер первой) -> записано; ТОЛЬКО ЧТЕНИЕ, право CAP_PCILIST (любая программа, не драйвер) */
 #define KDRV_EV_IRQ 1u             /* пришло прерывание устройства */
 #define KDRV_EV_TX  2u             /* ядро положило кадр в кольцо передачи */
 #define KDRV_MAX_MMIO  16          /* отображений BAR на драйвер */
@@ -92,6 +93,19 @@ typedef struct {
 #define KDRV_BAR_IO 1u                     /* порты ввода-вывода: отобразить нельзя */
 #define KDRV_BAR_MEM64 2u
 #define KDRV_BAR_PREFETCH 4u
+
+/* Список устройств PCI для окна «Драйверы» (KDRV_SYS_PCILIST): ровно то, что нужно показать, без BAR, адресов, конфигурации и pid. */
+typedef struct {
+    uint16_t vendor, device;
+    uint32_t cls;                          /* класс << 16 | подкласс << 8 | prog_if */
+    uint8_t  bus, dev, fn, owner;          /* адрес BDF; owner - KDRV_OWN_* */
+    char     name[16];                     /* KDRV_OWN_RING3: имя пакета драйвера (процесс drv-ИМЯ); иначе пусто */
+} kdrv_pcient_t;
+enum { KDRV_OWN_NONE = 0,                  /* ни встроенного драйвера, ни работающего драйвера Ring 3 */
+       KDRV_OWN_KERNEL = 1,                /* устройство такого типа обслуживает встроенный драйвер ядра (определяется по идентификатору и классу) */
+       KDRV_OWN_RING3 = 2,                 /* работает драйвер Ring 3 drv-ИМЯ */
+       KDRV_OWN_BRIDGE = 3 };              /* мост или шина: драйверу Ring 3 не отдаётся никогда */
+#define KDRV_PCILIST_MAX 64                /* записей за один вызов */
 
 typedef struct { uint64_t va, phys, bytes; } kdrv_dma_t;   /* блок DMA: адрес в драйвере, адрес для устройства, размер (кратен 4 КБ) */
 

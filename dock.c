@@ -35,7 +35,7 @@ int dock_remove(dock_t* d, const char* name) {
     return 0;
 }
 
-void dock_default(dock_t* d) { d->n = 0; dock_add(d, "plasma"); dock_add(d, "paint"); dock_add(d, "cube3d"); dock_add(d, "edit"); }
+void dock_default(dock_t* d) { d->n = 0; dock_add(d, "plasma"); dock_add(d, "paint"); dock_add(d, "cube3d"); dock_add(d, "edit"); dock_add(d, "drvman"); }
 
 int dock_parse(dock_t* d, const char* t, unsigned len) {
     d->n = 0;
@@ -68,14 +68,21 @@ int dock_icon(const char* n) {
     if (same(n, "plasma")) return ICON_WAVE;
     if (same(n, "paint")) return ICON_BRUSH;
     if (same(n, "cube3d")) return ICON_CUBE;
+    if (same(n, "drvman")) return ICON_CHIP;
     if (starts(n, "atk")) return ICON_AI;
     return ICON_TERMINAL;                          /* остальные программы пишут в терминал */
+}
+
+const char* dock_title(const char* n) {
+    if (same(n, "drvman")) return "Драйверы";
+    return 0;
 }
 
 uint32_t dock_color(const char* n) {
     if (same(n, "plasma")) return TH_PINK;
     if (same(n, "paint")) return TH_BLUE;
     if (same(n, "cube3d")) return TH_CYAN;
+    if (same(n, "drvman")) return TH_AMBER;
     static const uint32_t pal[6] = { TH_GREEN, TH_PURPLE, TH_AMBER, TH_CYAN, TH_PINK, TH_BLUE };
     uint32_t h = 2166136261u;
     for (; *n; n++) h = (h ^ (uint8_t)*n) * 16777619u;

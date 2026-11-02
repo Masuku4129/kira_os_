@@ -53,6 +53,13 @@ done
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/drvget.elf build-arm64/dg_main.o build-arm64/dg_core.o build-arm64/dg_kdrv_fmt.o \
     $KCC_OBJ build-arm64/ukccrt.o $DG_TLS build-arm64/ukcc_libc_min.o
 UELF="$UELF build-arm64/drvget.elf"
+# drvman: окно «Драйверы» (см. build_clang.sh): userland/drvget.c с -DDRVGET_LIB + окно и шрифт ядра
+$CC $KCFLAGS -I. -Iuserland -Iuserland/kccrt -DDRVGET_LIB -c userland/drvget.c -o build-arm64/dm_drvget.o
+$CC $KCFLAGS -I. -Iuserland -Iuserland/kccrt -c userland/drvman.c -o build-arm64/dm_main.o
+$CC $UCFLAGS -I. -c font8x16.c -o build-arm64/dm_font.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/drvman.elf build-arm64/dm_main.o build-arm64/dm_drvget.o build-arm64/dg_core.o build-arm64/dg_kdrv_fmt.o \
+    build-arm64/dm_font.o $KCC_OBJ build-arm64/ukccrt.o $DG_TLS build-arm64/ukcc_libc_min.o
+UELF="$UELF build-arm64/drvman.elf"
 for app in edit view; do                 # с текстом: шрифт ядра вместе с программой
     $CC $UCFLAGS -I. -c userland/$app.c -o build-arm64/u_$app.o
     $CC $UCFLAGS -I. -c font8x16.c -o build-arm64/u_font_$app.o

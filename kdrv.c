@@ -339,10 +339,53 @@ static void release(bind_t* b) {
 static int rescan_req;
 void kdrv_request_rescan(void) { __atomic_store_n(&rescan_req, 1, __ATOMIC_RELEASE); }
 
+/* Запросы окна «Драйверы» (fsrv.c, FS_OP_DRV_START/STOP): кольцо из 4 записей. Исполняет основной цикл теми же командами консоли
+   (drv start/stop), поэтому правила и сообщения журнала одинаковы; запрашивающий видит итог по списку PCI. */
+#define CTL_Q 4
+static struct { int op; char name[16]; } ctlq[CTL_Q];
+static unsigned ctl_head, ctl_tail;
+static spinlock_t ctl_lock = SPINLOCK_INIT;
+
+int kdrv_ctl_request(int op, const char* name) {
+    if ((op != KDRV_CTL_START && op != KDRV_CTL_STOP) || !name_valid(name)) return -1;
+    uint64_t f = spin_lock_irqsave(&ctl_lock);
+    int rc = -1;
+    if (ctl_head - ctl_tail < CTL_Q) {
+        unsigned i = ctl_head % CTL_Q, k = 0;
+        ctlq[i].op = op;
+        while (name[k] && k < sizeof ctlq[i].name - 1) { ctlq[i].name[k] = name[k]; k++; }
+        ctlq[i].name[k] = 0;
+        ctl_head++;
+        rc = 0;
+    }
+    spin_unlock_irqrestore(&ctl_lock, f);
+    return rc;
+}
+
+static void ctl_run(void) {
+    for (;;) {
+        char cmd[32]; unsigned n = 0;
+        uint64_t f = spin_lock_irqsave(&ctl_lock);
+        int have = ctl_tail != ctl_head;
+        if (have) {
+            unsigned i = ctl_tail % CTL_Q;
+            const char* v = ctlq[i].op == KDRV_CTL_START ? "start " : "stop ";
+            while (*v) cmd[n++] = *v++;
+            for (unsigned k = 0; ctlq[i].name[k] && n < sizeof cmd - 1; k++) cmd[n++] = ctlq[i].name[k];
+            ctl_tail++;
+        }
+        spin_unlock_irqrestore(&ctl_lock, f);
+        if (!have) return;
+        cmd[n] = 0;
+        kdrv_cmd(cmd);
+    }
+}
+
 void kdrv_poll(void) {
     static int scanned;
     if (!scanned) { scanned = 1; scan(); }
     else if (__atomic_exchange_n(&rescan_req, 0, __ATOMIC_ACQ_REL)) scan();               /* drvget установил пакет */
+    ctl_run();                                                                             /* окно «Драйверы»: запуск и остановка по просьбе */
     if (!__atomic_load_n(&ndead, __ATOMIC_ACQUIRE)) return;
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         bind_t* b = &binds[i];
@@ -554,7 +597,34 @@ static int64_t sys_irq_wait(bind_t* b, uint64_t t10) {
     return rc;
 }
 
+/* Только чтение: кто занимает каждое устройство PCI. Права проверены в syscall.c (CAP_PCILIST); драйверы Ring 3 этим вызовом не пользуются. */
+static int64_t sys_pcilist(uint64_t buf, uint64_t max, uint64_t first) {
+    if (max == 0 || max > KDRV_PCILIST_MAX) return KE_ARG;
+    kdrv_pcient_t* out = (kdrv_pcient_t*)kmalloc(sizeof *out * (size_t)max);
+    if (!out) return KE_ARG;
+    int total = pci_count();
+    uint64_t n = 0;
+    for (uint64_t i = first; i < (uint64_t)total && n < max; i++, n++) {
+        const pci_dev_t* d = pci_get((int)i);
+        kdrv_pcient_t* e = &out[n];
+        uint8_t* z = (uint8_t*)e; for (unsigned k = 0; k < sizeof *e; k++) z[k] = 0;
+        e->vendor = d->vendor; e->device = d->device; e->cls = cls_of(d);
+        e->bus = d->bus; e->dev = d->dev; e->fn = d->fn;
+        e->owner = d->class_code == 0x06 ? KDRV_OWN_BRIDGE : builtin_owned(d) ? KDRV_OWN_KERNEL : KDRV_OWN_NONE;
+        bind_t* b = e->owner == KDRV_OWN_NONE ? find_slot(d, 0) : 0;
+        if (b && b->state == B_RUN) {
+            e->owner = KDRV_OWN_RING3;
+            for (unsigned k = 0; b->name[k] && k < sizeof e->name - 1; k++) e->name[k] = b->name[k];
+        }
+    }
+    int64_t rc = (int64_t)n;
+    if (n && copy_to_user(buf, out, sizeof *out * (size_t)n)) rc = KE_ARG;
+    kfree(out);
+    return rc;
+}
+
 int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
+    if (nr == KDRV_SYS_PCILIST) return sys_pcilist(a1, a2, a3);
     uint32_t slot = proc_current_drv();
     if (!slot || slot > KDRV_SLOTS) return proc_cap_denied(CAP_PCIDEV, nr);          /* не драйвер: даже если бы право было, устройства нет */
     bind_t* b = &binds[slot - 1];

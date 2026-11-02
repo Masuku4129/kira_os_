@@ -127,12 +127,25 @@ int main(void) {
         CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.kdrv", pk, sizeof pk - 1, 0) == FS_E_ARG);       /* размер не по заголовку */
         const char* evil[] = { "../x.kdrv", "demo", "DEMO.kdrv", "a/b.kdrv", ".kdrv", "demo.elf", "waytoolongname1.kdrv", "demo.kdrv.rec" };
         for (unsigned i = 0; i < sizeof evil / sizeof *evil; i++) CHECK(call("drvget", FS_OP_DRV_STAT, evil[i], 0, 0, 0) == FS_E_DENIED);
+        /* окно «Драйверы» (drvman): те же права на /drv, что у drvget; остальные программы - отказ. START/STOP только для .kdrv установленного пакета */
+        CHECK(call("drvman", FS_OP_DRV_STAT, "demo.kdrv", 0, 0, 0) == (int64_t)sizeof pk && call("drvman", FS_OP_DRV_LIST, 0, 0, 0, 0) > 0);
+        CHECK(call("paint", FS_OP_DRV_START, "demo.kdrv", 0, 0, 0) == FS_E_DENIED && call("paint", FS_OP_DRV_STOP, "demo.kdrv", 0, 0, 0) == FS_E_DENIED);
+        CHECK(call("drvman", FS_OP_DRV_START, "demo.kdrv", 0, 0, 0) == 0 && call("drvget", FS_OP_DRV_STOP, "demo.kdrv", 0, 0, 0) == 0);
+        CHECK(call("drvman", FS_OP_DRV_START, "nope.kdrv", 0, 0, 0) == KFS_ERR_NOENT);              /* запускать можно только установленный пакет */
+        CHECK(call("drvman", FS_OP_DRV_START, "demo.rec", 0, 0, 0) == FS_E_ARG && call("drvman", FS_OP_DRV_STOP, "../demo.kdrv", 0, 0, 0) == FS_E_DENIED);
+        CHECK(call("drvman", FS_OP_DRV_WRITE, "demo2.kdrv", pk, sizeof pk, 0) == FS_E_ARG);          /* имя в заголовке demo, файл demo2 */
         CHECK(call("drvget", FS_OP_DRV_REMOVE, "demo.kdrv", 0, 0, 0) == 0);                          /* пакет уходит вместе с подтверждением */
         CHECK(call("drvget", FS_OP_DRV_STAT, "demo.kdrv", 0, 0, 0) == KFS_ERR_NOENT && call("drvget", FS_OP_DRV_STAT, "demo.rec", 0, 0, 0) == KFS_ERR_NOENT);
         CHECK(call("drvget", FS_OP_STAT, "demo.kdrv", 0, 0, 0) == KFS_ERR_NOENT);                    /* обычная песочница drvget - отдельно от /drv */
         char st[16]; int isrec;
         CHECK(fsrv_drv_name("rl.kdrv", st, &isrec) && !isrec && !strcmp(st, "rl") && fsrv_drv_name("a-b_9.rec", st, &isrec) && isrec);
         CHECK(caps_for_program("drvget") == (CAP_NET | CAP_FS | CAP_SYSFILES));
+        /* право CAP_PCILIST (список PCI только для чтения) есть у одного drvman; нет ни у драйверов, ни у остальных программ */
+        CHECK(caps_for_program("drvman") == (CAP_GFX | CAP_NET | CAP_FS | CAP_SYSFILES | CAP_THREAD | CAP_PCILIST));
+        CHECK(!(caps_for_program("drvman") & CAP_DRIVER_));
+        const char* others[] = { "plasma", "cube3d", "paint", "edit", "view", "wasm", "fetch", "serve", "udpecho", "net6", "melody", "rec", "ipc", "mt", "kcc", "drvget", "burn", "fpu", "demo", "atk-cap", "drv-edu", "local-x" };
+        for (unsigned i = 0; i < sizeof others / sizeof *others; i++) CHECK(!(caps_for_program(others[i]) & CAP_PCILIST));
+        CHECK(!strcmp(caps_bit_name(CAP_PCILIST), "CAP_PCILIST") && (CAP_PCILIST & CAP_ALL_) && !(CAP_PCILIST & CAP_DRIVER_));
     }
 
     printf("fsrv: sandbox names/paths, isolation between programs, size and quota limits, atomic replace, persistence passed\n");

@@ -18,11 +18,14 @@ enum { FS_OP_READ = 1, FS_OP_WRITE = 2, FS_OP_STAT = 3, FS_OP_LIST = 4, FS_OP_RE
        FS_OP_GRANT_READ = 6, FS_OP_GRANT_STAT = 7, FS_OP_GRANT_NAME = 8,
        FS_OP_SYS_READ = 9, FS_OP_SYS_STAT = 10,
        FS_OP_INC_READ = 11, FS_OP_INC_STAT = 12,
-       FS_OP_DRV_STAT = 13, FS_OP_DRV_READ = 14, FS_OP_DRV_WRITE = 15, FS_OP_DRV_REMOVE = 16, FS_OP_DRV_LIST = 17 };
-/* FS_OP_DRV_*: пакеты драйверов Ring 3 в /drv (kdrv_format.h) - только программе drvget с CAP_FS. Имя - «ИМЯ.kdrv» или «ИМЯ.rec».
+       FS_OP_DRV_STAT = 13, FS_OP_DRV_READ = 14, FS_OP_DRV_WRITE = 15, FS_OP_DRV_REMOVE = 16, FS_OP_DRV_LIST = 17,
+       FS_OP_DRV_START = 18, FS_OP_DRV_STOP = 19, FS_OP_DRV_LAST = 19 };
+/* FS_OP_DRV_*: пакеты драйверов Ring 3 в /drv (kdrv_format.h) - только программам drvget и drvman с CAP_FS.
+   START/STOP (имя «ИМЯ.kdrv», без данных): ставят в очередь менеджера драйверов запуск или остановку; результат 0 = принято, итог виден
+   по списку PCI (KDRV_SYS_PCILIST) и журналу ядра. Имя - «ИМЯ.kdrv» или «ИМЯ.rec».
    WRITE пишет файл целиком (смещение 0) и проверяет его: .kdrv - заголовок и имя, .rec - подтверждение и SHA-256 уже лежащего
    рядом .kdrv (пересчитывает ядро, а не берёт у программы). Удаление .kdrv удаляет и .rec. */   /* /etc/kcc/include/<имя>: заголовки libc-lite, только чтение и только для компилятора kcc */   /* /etc/ssl/<имя>: общие файлы системы, только чтение (корневые сертификаты) */   /* выданный при запуске файл (вне песочницы) */
-enum { FS_E_DENIED = -100, FS_E_ARG = -101, FS_E_QUOTA = -102 };    /* прочие отрицательные значения - коды kfs.h */
+enum { FS_E_DENIED = -100, FS_E_ARG = -101, FS_E_QUOTA = -102, FS_E_BUSY = -103 };    /* прочие отрицательные значения - коды kfs.h */
 
 typedef struct {                        /* то, что программа передаёт в системный вызов (48 байт) */
     uint32_t op, name_len;

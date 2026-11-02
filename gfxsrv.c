@@ -1,6 +1,7 @@
 #include "uaccess.h"
 #include "gfxsrv.h"
 #include "wm.h"
+#include "dock.h"
 #include "vmm.h"
 #include "pmm.h"
 #include "input.h"
@@ -175,7 +176,11 @@ void gfx_server_run(void) {
             a->win = wm_create_user(a->title, WM_AUTO, WM_AUTO, (int)a->w, (int)a->h, (uint32_t*)(uintptr_t)a->phys);
             a->need_create = 0;
             if (a->win < 0) { uart_print("[KIRA GFX] no free window slot for '"); uart_print(a->title); uart_print("'.\n"); }
-            else { wm_set_frame_seq(a->win, &a->seq); wm_raise(a->win); }
+            else {
+                const char* nice = dock_title(a->title);       /* понятное русское название в заголовке окна; метка (tag) остаётся именем программы */
+                if (nice) wm_set_title(a->win, nice);
+                wm_set_frame_seq(a->win, &a->seq); wm_raise(a->win);
+            }
         }
         if (a->dirty && a->win >= 0) { a->dirty = 0; wm_invalidate(a->win); }
     }

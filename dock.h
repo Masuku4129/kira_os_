@@ -18,6 +18,7 @@ int      dock_find(const dock_t* d, const char* name);          /* индекс 
 int      dock_add(dock_t* d, const char* name);                 /* 0 - добавлено, 1 - уже было, -1 - нельзя */
 int      dock_remove(dock_t* d, const char* name);              /* 0 - убрано, -1 - не было */
 int      dock_icon(const char* name);                           /* ICON_* по имени */
+const char* dock_title(const char* name);                       /* понятное русское название программы или 0 (тогда показывается имя) */
 uint32_t dock_color(const char* name);                          /* неоновый цвет по имени */
 
 #endif

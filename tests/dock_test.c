@@ -8,7 +8,8 @@
 int main(void) {
     dock_t d; char out[256];
     dock_default(&d);
-    CHECK(d.n == 4 && !strcmp(d.name[0], "plasma") && dock_find(&d, "cube3d") == 2 && dock_find(&d, "edit") == 3);
+    CHECK(d.n == 5 && !strcmp(d.name[0], "plasma") && dock_find(&d, "cube3d") == 2 && dock_find(&d, "edit") == 3 && dock_find(&d, "drvman") == 4);
+    CHECK(dock_icon("drvman") == ICON_CHIP && dock_title("drvman") && !strcmp(dock_title("drvman"), "Драйверы") && !dock_title("paint"));
     const char* t = "burn\r\nplasma\n\nBAD NAME\nplasma\nverylongprogramname1\nmt\natk-mem\n";
     CHECK(dock_parse(&d, t, (unsigned)strlen(t)) == 4);
     CHECK(!strcmp(d.name[0], "burn") && !strcmp(d.name[1], "plasma") && !strcmp(d.name[2], "mt") && !strcmp(d.name[3], "atk-mem"));

@@ -97,12 +97,14 @@ extern void sha256(const void* data, size_t len, uint8_t out[32]);
 #define kdrv_tmp_alloc(n) malloc(n)
 #define kdrv_tmp_free(p) free(p)
 #define kdrv_installed(stem) ((void)(stem))
+#define kdrv_ctl_post(op, stem) ((void)(op), (void)(stem), 0)
 #else
 #include "heap.h"
 #include "kdrv.h"
 #define kdrv_tmp_alloc(n) kmalloc(n)
 #define kdrv_tmp_free(p) kfree(p)
 #define kdrv_installed(stem) kdrv_request_rescan()          /* установленный пакет сразу получает свою очередь на устройство */
+#define kdrv_ctl_post(op, stem) kdrv_ctl_request((op) == FS_OP_DRV_START ? KDRV_CTL_START : KDRV_CTL_STOP, (stem))
 #endif
 
 int fsrv_drv_name(const char* file, char stem[16], int* is_rec) {
@@ -129,9 +131,12 @@ static int drv_dir(void) {
 
 static int streq16(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 
-/* FS_OP_DRV_*: пакеты драйверов. Вызывающий - только drvget (проверено выше и здесь по имени процесса). */
+/* Программы, которым разрешены FS_OP_DRV_* и сборка драйвера kcc: drvget (консоль) и drvman (окно «Драйверы», тот же код drvget). */
+static int drv_tool(const char* who) { return who && (streq16(who, "drvget") || streq16(who, "drvman")); }
+
+/* FS_OP_DRV_*: пакеты драйверов. Вызывающий - только drvget или drvman (проверено выше и здесь по имени процесса). */
 static void drv_execute(fsrv_req_t* r) {
-    if (!streq16(r->prog, "drvget")) { r->result = FS_E_DENIED; return; }
+    if (!drv_tool(r->prog)) { r->result = FS_E_DENIED; return; }
     char path[48];
     if (r->op == FS_OP_DRV_LIST) {
         scan_t s = { 0, r->data, (size_t)r->len, 0, 0, 0, 0 };
@@ -144,6 +149,15 @@ static void drv_execute(fsrv_req_t* r) {
     { size_t n = 0; for (const char* a = "/drv/"; *a; a++) path[n++] = *a; for (size_t i = 0; r->name[i]; i++) path[n++] = r->name[i]; path[n] = 0; }
     kfs_stat_t st;
     switch (r->op) {
+    case FS_OP_DRV_START: case FS_OP_DRV_STOP: {
+        if (is_rec) { r->result = FS_E_ARG; return; }
+        if (r->op == FS_OP_DRV_START) {                                   /* запускать можно только установленный пакет */
+            int e = kfs_stat(path, &st);
+            if (e || st.type != KFS_FILE) { r->result = e ? e : KFS_ERR_ISDIR; return; }
+        }
+        r->result = kdrv_ctl_post(r->op, stem) == 0 ? 0 : FS_E_BUSY;
+        return;
+    }
     case FS_OP_DRV_STAT: {
         int e = kfs_stat(path, &st);
         r->result = e ? e : (st.type == KFS_FILE ? (int64_t)st.size : KFS_ERR_ISDIR);
@@ -212,7 +226,7 @@ void fsrv_execute(fsrv_req_t* r) {
     r->result = FS_E_ARG;
     if (!kfs_mounted()) { r->result = KFS_ERR_NOFS; return; }
     if (!fsrv_prog_ok(r->prog)) { r->result = FS_E_DENIED; return; }
-    if (r->op >= FS_OP_DRV_STAT && r->op <= FS_OP_DRV_LIST) {
+    if (r->op >= FS_OP_DRV_STAT && r->op <= FS_OP_DRV_LAST) {
         if (r->op != FS_OP_DRV_LIST && !fsrv_name_ok(r->name)) { r->result = FS_E_DENIED; return; }
         drv_execute(r);
         return;
@@ -345,19 +359,15 @@ int64_t fsrv_syscall(uint64_t up) {
     if (u.op == FS_OP_INC_READ || u.op == FS_OP_INC_STAT) {       /* заголовки для компилятора: только kcc (имя известно ядру по манифесту) и только при CAP_FS */
         const char* who = proc_current_name();
         int is_kcc = who && who[0] == 'k' && who[1] == 'c' && who[2] == 'c' && !who[3];
-        int is_drvget = who && who[0] == 'd' && who[1] == 'r' && who[2] == 'v' && who[3] == 'g' && who[4] == 'e' && who[5] == 't' && !who[6];   /* drvget собирает драйвер тем же компилятором, встроенным в него */
+        int is_drvget = drv_tool(who);   /* drvget и drvman собирают драйвер тем же компилятором, встроенным в них */
         if (!(caps & CAP_FS) || !(is_kcc || is_drvget)) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
         return sys_op(&u, "/etc/kcc/include/");
     }
-    if (u.op >= FS_OP_DRV_STAT && u.op <= FS_OP_DRV_LIST) {      /* пакеты драйверов в /drv: только drvget (имя известно ядру по манифесту) и только при CAP_FS */
-        const char* who = proc_current_name();
-        static const char me[] = "drvget";
-        unsigned k = 0;
-        while (who && me[k] && who[k] == me[k]) k++;
-        if (!(caps & CAP_FS) || !who || me[k] || who[k]) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
+    if (u.op >= FS_OP_DRV_STAT && u.op <= FS_OP_DRV_LAST) {      /* пакеты драйверов в /drv: только drvget и drvman (имя известно ядру по манифесту) и только при CAP_FS */
+        if (!(caps & CAP_FS) || !drv_tool(proc_current_name())) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
     }
     else if (u.op >= FS_OP_GRANT_READ && u.op <= FS_OP_GRANT_NAME) { if (!(caps & CAP_GRANT)) return proc_cap_denied(CAP_GRANT, 10), FS_E_DENIED; return grant_op(&u); }
-    if ((u.op < FS_OP_READ || u.op > FS_OP_REMOVE) && !(u.op >= FS_OP_DRV_STAT && u.op <= FS_OP_DRV_LIST)) return FS_E_ARG;
+    if ((u.op < FS_OP_READ || u.op > FS_OP_REMOVE) && !(u.op >= FS_OP_DRV_STAT && u.op <= FS_OP_DRV_LAST)) return FS_E_ARG;
     if (!(caps & CAP_FS)) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
     const char* prog = proc_current_name();
     if (!fsrv_prog_ok(prog)) return FS_E_DENIED;

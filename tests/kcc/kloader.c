@@ -147,6 +147,8 @@ static void on_sys(int sig, siginfo_t *si, void *ucv) {
     case K_TIME: r = (long)time(NULL); break;
     case K_RANDOM: { ssize_t got = getrandom((void *)a, b > 256 ? 256 : b, 0); r = got < 0 ? -1 : 1; break; }
     case K_ARGS: { size_t n = strlen(prog_args); if (n + 1 > b) { r = -1; break; } memcpy((void *)a, prog_args, n + 1); r = (long)n; break; }
+    case 7: r = -1; break;                    /* K_GFX_CREATE: у загрузчика нет экрана - окно не создаётся (drvman честно работает без окна) */
+    case 55: r = -12; break;                  /* KDRV_SYS_PCILIST: ядра нет - список PCI недоступен (отказ, как без права CAP_PCILIST) */
     case K_HEAP: {
         if (a == 0 || heap_pages + a > HEAP_MAX_PAGES) { r = -1; break; }
         void *p = mmap((void *)(HEAP_BASE + heap_pages * 4096), a * 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
