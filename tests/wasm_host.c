@@ -24,7 +24,8 @@ static u64 k_clock_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, 
 static u32 g_px[1024 * 768];
 static u32* k_gfx_create(u32 w, u32 h) { (void)w; (void)h; return g_px; }
 static void k_gfx_present(void) {}
-static void k_yield(void) {}
+static unsigned g_yields;
+static void k_yield(void) { g_yields++; }
 /* окно кода JIT на хосте: страницы RW, затем одним вызовом R-X (как SYS_JIT на Кире); освобождаются при сбросе состояния */
 static void* g_jwin[64]; static size_t g_jlen[64]; static int g_jn;
 static void* k_jit_alloc(u64 pages) {
