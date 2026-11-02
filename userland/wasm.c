@@ -701,8 +701,11 @@ static u64* host_call(u32 id, const ftype_t* t, u64* s) {
         if (!fb) r = (u64)-1;
         else {
             if ((u64)p + (u64)fbw * fbh * 4 > lim) { trap("memory access out of bounds"); return s; }
-            for (u32 i = 0; i < fbw * fbh; i++) fb[i] = ld32(mem + p + 4 * i);
+            u32 n = fbw * fbh, i = 0;
+            for (; i + 1 < n; i += 2) st64((u8*)(fb + i), ld64(mem + p + 4 * i));           /* по 8 байт: кадр копируется вдвое быстрее */
+            if (i < n) fb[i] = ld32(mem + p + 4 * i);
             k_gfx_present();
+            k_yield();                                            /* кадр отдан композитору: пусть интерфейс успеет, даже если следующий кадр считается долго */
         }
     } else if (id == IMP_GFX_EVENT) {
         u32 p = (u32)a[0]; kevent_t e;
@@ -723,6 +726,25 @@ static u64 wasm_fuel;
 #else
 #define FUEL_TICK do { } while (0)
 #endif
+/* Кванты времени: раз в SLICE_TICKS переходов назад и вызовов проверяется часы; если процессор не отдавался дольше SLICE_NS,
+   программа уступает его (k_yield) - окна и интерфейс не голодают, даже когда модуль считает кадр секундами. */
+#ifdef WASM_FUEL
+#define SLICE_TICKS 16                                            /* хост-тест с испорченными модулями: чаще, каждый переход назад стоит 64 единицы топлива */
+#else
+#define SLICE_TICKS 4096
+#endif
+#define SLICE_NS 4000000ull
+static u64 slice_t0;
+static int wasm_slice(void) {
+#ifdef WASM_FUEL
+    if (wasm_fuel <= SLICE_TICKS * 64u) { wasm_fuel = 0; trap("fuel exhausted"); return 1; }
+    wasm_fuel -= SLICE_TICKS * 64u;
+#endif
+    u64 now = k_clock_ns();
+    if (now - slice_t0 > SLICE_NS) { k_yield(); slice_t0 = k_clock_ns(); }
+    return 0;
+}
+#define IBUD do { if (--ibud <= 0) { ibud = SLICE_TICKS; if (wasm_slice()) { sp = (u32)(s - vs); return; } } } while (0)
 #define NEXT do { FUEL_TICK; w = *pc++; goto *tbl[w & 0x3FFF]; } while (0)    /* диспетчеризация в конце каждой команды (computed goto) */
 #define FIN(r) if (w & 0xC000) { if (w & 0x8000) fp[*pc++] = (r); if (w & 0x4000) s--; } NEXT;
 #define RAW_OPS(X) X(0x1A) X(0x1B) X(0x45) X(0x50) X(0x51) X(0x52) X(0x53) X(0x54) X(0x55) X(0x56) X(0x57) X(0x58) X(0x59) X(0x5A) X(0x61) X(0x62) X(0x63) X(0x64) X(0x65) X(0x66) X(0x67) X(0x68) X(0x69) X(0x6D) X(0x6E) X(0x6F) X(0x70) X(0x77) X(0x78) X(0x79) X(0x7A) X(0x7B) X(0x7C) X(0x7D) X(0x7E) X(0x7F) X(0x80) X(0x81) X(0x82) X(0x83) X(0x84) X(0x85) X(0x86) X(0x87) X(0x88) X(0x89) X(0x8A) X(0x8B) X(0x8C) X(0x8D) X(0x8E) X(0x8F) X(0x90) X(0x91) X(0x96) X(0x97) X(0x98) X(0x99) X(0x9A) X(0x9B) X(0x9C) X(0x9D) X(0x9E) X(0x9F) X(0xA0) X(0xA1) X(0xA2) X(0xA3) X(0xA4) X(0xA5) X(0xA6) X(0xA7) X(0xAC) X(0xAD) X(0xB2) X(0xB3) X(0xB4) X(0xB5) X(0xB6) X(0xB7) X(0xB8) X(0xB9) X(0xBA) X(0xBB) X(0xBC) X(0xBD) X(0xBE) X(0xBF) X(0xC0) X(0xC1) X(0xC2) X(0xC3) X(0xC4)
@@ -750,23 +772,23 @@ static u64 wasm_fuel;
     L_##n##_LS: { float a = gf(fp[w >> 16]), b = gf(s[-1]); u64 r = (u64)(e); s[-1] = r; FIN(r) } \
     L_##n##_KS: { float a = gf(*pc++), b = gf(s[-1]); u64 r = (u64)(e); s[-1] = r; FIN(r) }
 #define CBB(n, e) \
-    L_##n##B_SS: { u32 b = (u32)s[-1], a = (u32)s[-2]; s -= 2; u32 t = *pc++; if (e) pc = cb + t; NEXT; } \
-    L_##n##B_SL: { u32 b = (u32)fp[w >> 16], a = (u32)s[-1]; s--; u32 t = *pc++; if (e) pc = cb + t; NEXT; } \
-    L_##n##B_SK: { u32 b = pc[0], a = (u32)s[-1], t = pc[1]; pc += 2; s--; if (e) pc = cb + t; NEXT; } \
-    L_##n##B_LL: { u32 a = (u32)fp[w >> 16], b = (u32)fp[pc[0]], t = pc[1]; pc += 2; if (e) pc = cb + t; NEXT; } \
-    L_##n##B_LK: { u32 a = (u32)fp[w >> 16], b = pc[0], t = pc[1]; pc += 2; if (e) pc = cb + t; NEXT; } \
-    L_##n##B_LS: { u32 a = (u32)fp[w >> 16], b = (u32)s[-1], t = pc[0]; pc++; s--; if (e) pc = cb + t; NEXT; } \
-    L_##n##B_KS: { u32 a = pc[0], b = (u32)s[-1], t = pc[1]; pc += 2; s--; if (e) pc = cb + t; NEXT; }
+    L_##n##B_SS: { u32 b = (u32)s[-1], a = (u32)s[-2]; s -= 2; u32 t = *pc++; if (e) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##B_SL: { u32 b = (u32)fp[w >> 16], a = (u32)s[-1]; s--; u32 t = *pc++; if (e) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##B_SK: { u32 b = pc[0], a = (u32)s[-1], t = pc[1]; pc += 2; s--; if (e) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##B_LL: { u32 a = (u32)fp[w >> 16], b = (u32)fp[pc[0]], t = pc[1]; pc += 2; if (e) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##B_LK: { u32 a = (u32)fp[w >> 16], b = pc[0], t = pc[1]; pc += 2; if (e) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##B_LS: { u32 a = (u32)fp[w >> 16], b = (u32)s[-1], t = pc[0]; pc++; s--; if (e) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##B_KS: { u32 a = pc[0], b = (u32)s[-1], t = pc[1]; pc += 2; s--; if (e) { pc = cb + t; IBUD; } NEXT; }
 #define ID(x) (x)
 #define NOT(x) (!(x))
 #define CFB1(n, e, sfx, T) \
-    L_##n##sfx##_SS: { float b = gf(s[-1]), a = gf(s[-2]); s -= 2; u32 t = *pc++; if (T(e)) pc = cb + t; NEXT; } \
-    L_##n##sfx##_SL: { float b = gf(fp[w >> 16]), a = gf(s[-1]); s--; u32 t = *pc++; if (T(e)) pc = cb + t; NEXT; } \
-    L_##n##sfx##_SK: { float b = gf(pc[0]), a = gf(s[-1]); u32 t = pc[1]; pc += 2; s--; if (T(e)) pc = cb + t; NEXT; } \
-    L_##n##sfx##_LL: { float a = gf(fp[w >> 16]), b = gf(fp[pc[0]]); u32 t = pc[1]; pc += 2; if (T(e)) pc = cb + t; NEXT; } \
-    L_##n##sfx##_LK: { float a = gf(fp[w >> 16]), b = gf(pc[0]); u32 t = pc[1]; pc += 2; if (T(e)) pc = cb + t; NEXT; } \
-    L_##n##sfx##_LS: { float a = gf(fp[w >> 16]), b = gf(s[-1]); u32 t = pc[0]; pc++; s--; if (T(e)) pc = cb + t; NEXT; } \
-    L_##n##sfx##_KS: { float a = gf(pc[0]), b = gf(s[-1]); u32 t = pc[1]; pc += 2; s--; if (T(e)) pc = cb + t; NEXT; }
+    L_##n##sfx##_SS: { float b = gf(s[-1]), a = gf(s[-2]); s -= 2; u32 t = *pc++; if (T(e)) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##sfx##_SL: { float b = gf(fp[w >> 16]), a = gf(s[-1]); s--; u32 t = *pc++; if (T(e)) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##sfx##_SK: { float b = gf(pc[0]), a = gf(s[-1]); u32 t = pc[1]; pc += 2; s--; if (T(e)) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##sfx##_LL: { float a = gf(fp[w >> 16]), b = gf(fp[pc[0]]); u32 t = pc[1]; pc += 2; if (T(e)) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##sfx##_LK: { float a = gf(fp[w >> 16]), b = gf(pc[0]); u32 t = pc[1]; pc += 2; if (T(e)) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##sfx##_LS: { float a = gf(fp[w >> 16]), b = gf(s[-1]); u32 t = pc[0]; pc++; s--; if (T(e)) { pc = cb + t; IBUD; } NEXT; } \
+    L_##n##sfx##_KS: { float a = gf(pc[0]), b = gf(s[-1]); u32 t = pc[1]; pc += 2; s--; if (T(e)) { pc = cb + t; IBUD; } NEXT; }
 #define CFB(n, e) CFB1(n, e, B, ID) CFB1(n, e, N, NOT)
 #define TBF1(n, e) \
     [n##B_SS] = &&L_##n##B_SS, [n##B_SL] = &&L_##n##B_SL, [n##B_SK] = &&L_##n##B_SK, [n##B_LL] = &&L_##n##B_LL, [n##B_LK] = &&L_##n##B_LK, [n##B_LS] = &&L_##n##B_LS, [n##B_KS] = &&L_##n##B_KS, \
@@ -796,7 +818,7 @@ static void execute(u32 fi0) {
     if ((u64)(fp - vs) + nl + cur->maxh + 1 > VSTK) { trap("value stack overflow"); return; }
     for (u32 i = ct->np; i < nl; i++) fp[i] = 0;
     u64* s = fp + nl;
-    const u32* cb = code; const u32* pc = cb + cur->centry;
+    const u32* cb = code; const u32* pc = cb + cur->centry; int ibud = SLICE_TICKS;
     u8* const m = mem; u64 ml = (u64)mem_pages * 65536;
     int depth = 0; u32 fi = 0;
     static const void* tbl[OP_END] = {                            /* адреса обработчиков по коду; остальное - в L_SLOW */
@@ -819,11 +841,11 @@ static void execute(u32 fi0) {
         L_OP_TEE: fp[w >> 16] = s[-1]; NEXT;
         L_OP_GGET: *s++ = globals[w >> 16]; NEXT;
         L_OP_GSET: globals[w >> 16] = *--s; NEXT;
-        L_OP_JMP: pc = cb + pc[0]; NEXT;
-        L_OP_BRZ_S: { u32 t = *pc++; if (!(u32)*--s) pc = cb + t; NEXT; }
-        L_OP_BRNZ_S: { u32 t = *pc++; if ((u32)*--s) pc = cb + t; NEXT; }
-        L_OP_BRZ_L: { u32 t = *pc++; if (!(u32)fp[w >> 16]) pc = cb + t; NEXT; }
-        L_OP_BRNZ_L: { u32 t = *pc++; if ((u32)fp[w >> 16]) pc = cb + t; NEXT; }
+        L_OP_JMP: pc = cb + pc[0]; IBUD; NEXT;
+        L_OP_BRZ_S: { u32 t = *pc++; if (!(u32)*--s) { pc = cb + t; IBUD; } NEXT; }
+        L_OP_BRNZ_S: { u32 t = *pc++; if ((u32)*--s) { pc = cb + t; IBUD; } NEXT; }
+        L_OP_BRZ_L: { u32 t = *pc++; if (!(u32)fp[w >> 16]) { pc = cb + t; IBUD; } NEXT; }
+        L_OP_BRNZ_L: { u32 t = *pc++; if ((u32)fp[w >> 16]) { pc = cb + t; IBUD; } NEXT; }
         L_OP_INSL: { u32 d = *pc++; u64 v = fp[w >> 16]; for (u32 j = 0; j < d; j++) s[-(int)j] = s[-(int)j - 1]; s[-(int)d] = v; s++; NEXT; }
     L_OP_INSK: { u64 v = pc[0]; u32 d = pc[1]; pc += 2; for (u32 j = 0; j < d; j++) s[-(int)j] = s[-(int)j - 1]; s[-(int)d] = v; s++; NEXT; }
     L_OP_SEL: {                                                   /* виды операндов в старших битах: a - биты 0-1, b - 2-3, условие - 4-5 (0 стек, 1 локальная, 2 константа) */
@@ -839,7 +861,7 @@ static void execute(u32 fi0) {
     L_OP_BRD: {                                            /* переход со снятием drop значений под keep результатами */
             u32 aux = pc[1], drop = aux & 0xFFFF;
             if (aux >> 16) s[-1 - (int)drop] = s[-1];
-            s -= drop; pc = cb + pc[0]; NEXT;
+            s -= drop; pc = cb + pc[0]; IBUD; NEXT;
         }
         I32_ARITH(CBI) I32_CMP(CBI) I32_CMP(CBB) F32_ARITH(CBF) F32_CMP(CBF) F32_CMP(CFB)
         UL_LIST(CUL)
@@ -854,7 +876,7 @@ static void execute(u32 fi0) {
             const u32* e = pc + 1 + 2 * idx; u32 aux = e[1];
             if (aux == 0xFFFFFFFFu) goto do_ret;
             if (aux >> 16) s[-1 - (int)(aux & 0xFFFF)] = s[-1];
-            s -= aux & 0xFFFF; pc = cb + e[0]; continue;
+            s -= aux & 0xFFFF; pc = cb + e[0]; IBUD; continue;
         }
         case OP_RET:
         do_ret: {
@@ -888,7 +910,7 @@ static void execute(u32 fi0) {
             if ((u64)(nfp - vs) + n2 + c->maxh + 1 > VSTK) { trap("value stack overflow"); return; }
             cs[depth].pc = pc; cs[depth].fp = fp; cs[depth].f = cur; depth++;
             for (u32 i = t->np; i < n2; i++) nfp[i] = 0;
-            fp = nfp; s = fp + n2; pc = cb + c->centry; cur = c;
+            fp = nfp; s = fp + n2; pc = cb + c->centry; cur = c; IBUD;
             continue;
         }
         case OP_TRAP: trap(trap_msgs[pc[0]]); return;
@@ -978,6 +1000,10 @@ oob:
     trap("memory access out of bounds");
 }
 
+#if defined(__x86_64__)
+#include "wasm_jit_x64.h"
+#endif
+
 int umain(void) {
     char path[128];
     if (k_grant_name(path, sizeof path) <= 0) { say("wasm: usage: wasm /path/module.wasm (or double click in Files)\n"); return 1; }
@@ -995,7 +1021,12 @@ int umain(void) {
         const ftype_t* t = &types[funcs[entry].type];
         for (u32 i = 0; i < t->np; i++) vs[sp++] = 0;              /* main(argc=0, argv=0) */
         u64 t0 = k_clock_ns();
-        execute(entry);
+#if defined(__x86_64__)
+        int jit_ok = jit_build() == 0;
+        if (jit_ok) { say("wasm: x86-64 native code, "); say_u(jit_code_size); say(" bytes (JIT)\n"); jit_exec(entry); }
+        else
+#endif
+        { say("wasm: interpreter mode\n"); execute(entry); }
         u64 ms = (k_clock_ns() - t0) / 1000000;
         if (!trapped) {
             int code = exit_req ? exit_code : (t->nr ? (int)(u32)vs[sp - 1] : 0);

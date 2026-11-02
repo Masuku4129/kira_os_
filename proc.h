@@ -25,6 +25,11 @@ const char* proc_current_args(void);    /* аргументы запуска (""
 void proc_exit(int code) __attribute__((noreturn));
 int  proc_stack_fault(uint64_t cr2, uint64_t err);   /* #PF программы в резерве стека: 1 - стек вырос */
 void proc_fault(uint64_t vector, uint64_t err, uint64_t rip, uint64_t cr2) __attribute__((noreturn));
+/* SYS_JIT (право CAP_JIT): окно кода JIT процесса - до JIT_MAX_PAGES страниц. Страница живёт в двух состояниях: RW-NX (пишется) и
+   R-X (запечатана навсегда: обратно в запись не открывается, пока процесс жив). Страницы W+X одновременно не бывает никогда. */
+enum { JIT_ALLOC = 1, JIT_SEAL = 2 };
+#define JIT_MAX_PAGES 256u
+int64_t proc_jit(uint64_t op, uint64_t a, uint64_t b);   /* ALLOC(страниц) -> адрес; SEAL(адрес, страниц) -> 0; отрицательный код при отказе */
 int64_t proc_heap_grow(uint64_t pages);                             /* SYS_HEAP: адрес нового куска кучи или отрицательный код */
 int  proc_in_user_thread(void);                                     /* текущий поток - процесс? */
 uint32_t proc_current_pid(void);

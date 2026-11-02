@@ -220,6 +220,13 @@ ALL = [
         {"log": [r"wgfx: frame0=%s frame30=%s" % WGFX, r"wgfx: 31 frames shown, ticks \d+"]},
         {"log_forbid": NO_ERR + [r"wasm: stopped"]},
     ], smp=2, mem="512M"),
+    sc("wasm-speed", "WebAssembly: JIT x86-64 - плазма wgfx на стенде укладывается в порог по времени (до JIT на этом стенде было 1257 мс)", [
+        {"log": BOOT_LOG},
+        {"cmd": "wasm /wasm/wgfx.wasm"}, {"sleep": 6},
+        {"log": [r"wasm: x86-64 native code, \d+ bytes \(JIT\)", r"wgfx: frame0=%s frame30=%s" % WGFX,
+                 r"wasm: finished with code 0 in \d{1,3} ms"]},                 # порог: < 1000 мс
+        {"log_forbid": NO_ERR + [r"wasm: stopped", r"wasm: interpreter mode"]},
+    ], smp=2, mem="512M"),
     sc("sound-hda", "звук: Intel HDA (как Sound: hda в Limbo) - кодек, путь к выходу, тон через DMA", [
         {"log": BOOT_LOG + [r"\[KIRA HDA\] Sound: codec .* output path pin \d+ <- DAC \d+"]},
         {"cmd": "sound", "must": [r"выход: вывод \d+ <- ЦАП \d+"]},

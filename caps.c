@@ -7,7 +7,7 @@ static const struct { const char* name; uint32_t caps; } table[] = {
     { "paint",    CAP_GFX | CAP_FS },
     { "edit",     CAP_GFX | CAP_FS },
     { "view",     CAP_GFX | CAP_GRANT },
-    { "wasm",     CAP_GFX | CAP_GRANT },
+    { "wasm",     CAP_GFX | CAP_GRANT | CAP_JIT },
     { "fetch",    CAP_NET | CAP_FS | CAP_SYSFILES },
     { "serve",    CAP_NET_SERVE },
     { "udpecho",  CAP_UDP },
@@ -56,6 +56,6 @@ const char* caps_bit_name(uint32_t bit) {
     case CAP_MMIO: return "CAP_MMIO";         case CAP_IRQ: return "CAP_IRQ";
     case CAP_DMA: return "CAP_DMA";           case CAP_PCIDEV: return "CAP_PCIDEV";
     case CAP_NETDEV: return "CAP_NETDEV";     case CAP_PCILIST: return "CAP_PCILIST";
-    default: return "CAP_?";
+    case CAP_JIT: return "CAP_JIT";           default: return "CAP_?";
     }
 }

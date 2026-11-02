@@ -157,6 +157,10 @@ static inline i64 k_snd_volume(i64 h, u32 percent) { return ksys(K_SND_VOLUME, (
 /* Запись со входа (микрофон): bytes (до 1 с) 48 кГц стерео 16 бит, начиная с момента вызова. Байт или <0. */
 static inline i64 k_snd_record(void* buf, u64 bytes, u32 timeout_ms) { return ksys(K_SND_RECORD, (u64)buf, bytes, timeout_ms); }
 /* случайные байты ядра (до 256): 1 - засеяно аппаратным источником, 0 - только временем событий, <0 - ошибка */
+/* Окно кода JIT (право CAP_JIT, только wasm): ALLOC - страницы RW-NX, SEAL - один раз и навсегда R-X. */
+enum { K_JIT = 56, K_JIT_ALLOC = 1, K_JIT_SEAL = 2 };
+static inline void* k_jit_alloc(u64 pages) { i64 r = ksys(K_JIT, K_JIT_ALLOC, pages, 0); return r < 0 ? (void*)0 : (void*)(u64)r; }
+static inline int k_jit_seal(void* p, u64 pages) { return (int)ksys(K_JIT, K_JIT_SEAL, (u64)p, pages); }
 static inline i64 k_random(void* buf, u64 n) { return ksys(K_RANDOM, (u64)buf, n, 0); }
 static inline i64 k_time(void) { return ksys(K_TIME, 0, 0, 0); }      /* секунды UTC от 1970; -1 - часов нет */
 /* UDP: сокет на порту (0 - любой свободный); отправка по адресу и порту; приём - buf: адрес(4) порт(2) длина(2) данные. */
