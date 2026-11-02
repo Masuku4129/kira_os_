@@ -234,10 +234,22 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
         return -1;
     }
     b->pid = (uint32_t)pid;
-    uart_print("[KIRA DRV] "); uart_print(name); uart_print(": устройство "); print_bdf(d); uart_print(" "); print_id(d);
-    uart_print(" -> драйвер запущен как "); uart_print(pname); uart_print(" (pid "); uart_print_dec((uint64_t)pid);
-    uart_print("), SHA-256 сверен, права:"); print_caps(granted);
-    uart_print(b->irq_on ? ", прерывание MSI включено" : (granted & CAP_IRQ) ? ", прерывания у устройства нет" : ""); uart_print("\n");
+    /* строка собирается целиком и печатается одним вызовом: драйвер уже работает и пишет в тот же порт */
+    char ln[320]; unsigned n = 0;
+    #define LN_ADD(str) do { const char* _s = (str); while (*_s && n < sizeof ln - 1) ln[n++] = *_s++; } while (0)
+    static const char hx[] = "0123456789abcdef";
+    char bdf[10] = { hx[d->bus >> 4], hx[d->bus & 15], ':', hx[d->dev >> 4], hx[d->dev & 15], '.', (char)('0' + (d->fn & 7)), 0 };
+    char vid[10] = { hx[d->vendor >> 12], hx[(d->vendor >> 8) & 15], hx[(d->vendor >> 4) & 15], hx[d->vendor & 15], ':',
+                     hx[d->device >> 12], hx[(d->device >> 8) & 15], hx[(d->device >> 4) & 15], hx[d->device & 15], 0 };
+    char pidtxt[12]; { unsigned v = (unsigned)pid, l = 0; char t[12]; do { t[l++] = (char)('0' + v % 10); v /= 10; } while (v);
+                       for (unsigned i = 0; i < l; i++) pidtxt[i] = t[l - 1 - i]; pidtxt[l] = 0; }
+    LN_ADD("[KIRA DRV] "); LN_ADD(name); LN_ADD(": устройство "); LN_ADD(bdf); LN_ADD(" "); LN_ADD(vid);
+    LN_ADD(" -> драйвер запущен как "); LN_ADD(pname); LN_ADD(" (pid "); LN_ADD(pidtxt); LN_ADD("), SHA-256 сверен, права:");
+    for (uint32_t bit = 1; bit; bit <<= 1) if ((granted & bit) && (bit & CAP_DRIVER_)) { LN_ADD(" "); LN_ADD(caps_bit_name(bit)); }
+    if (!(granted & CAP_DRIVER_)) LN_ADD(" -");
+    LN_ADD(b->irq_on ? ", прерывание MSI включено" : (granted & CAP_IRQ) ? ", прерывания у устройства нет" : ""); LN_ADD("\n");
+    #undef LN_ADD
+    ln[n] = 0; uart_print(ln);
     life_note("drv-start", name, pid);
     return pid;
 }
