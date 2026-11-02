@@ -413,7 +413,7 @@ static void update_files(void) {
    потоком телефона (Limbo), помощники лишь добавляют переключения. Поэтому цена 1000 точек меряется в обоих режимах
    (скользящее среднее по крупным кадрам), раз в 5 с 16 кадров собираются другим способом, и выбирается дешёвый
    (если дешевле хотя бы на 15%). */
-static struct { uint32_t par; uint64_t cost[2]; uint32_t n[2]; uint32_t probe; uint64_t next_ns; } cs;
+static struct { uint32_t par; uint64_t cost[2]; uint32_t n[2]; uint32_t probe; uint64_t next_ns; uint64_t gap_ns; uint32_t confirm; } cs;   /* gap_ns: пауза между пробами, растёт вдвое, пока выбор подтверждается */
 
 void display_compositor_stats(uint32_t* par, uint32_t* ns_par, uint32_t* ns_ser) {
     *par = cs.par; *ns_par = (uint32_t)cs.cost[1]; *ns_ser = (uint32_t)cs.cost[0];
@@ -421,7 +421,8 @@ void display_compositor_stats(uint32_t* par, uint32_t* ns_par, uint32_t* ns_ser)
 
 static int comp_mode(uint64_t now) {
     if (!kpar_helpers()) return 0;
-    if (!cs.probe && now >= cs.next_ns) { cs.probe = 16; cs.next_ns = now + 5000000000ULL; }
+    if (!cs.gap_ns) cs.gap_ns = 5000000000ULL;
+    if (!cs.probe && now >= cs.next_ns) { cs.probe = 16; cs.next_ns = now + cs.gap_ns; }
     return cs.probe ? !cs.par : (int)cs.par;
 }
 
@@ -432,11 +433,16 @@ static void comp_note(int mode, uint64_t ns, uint64_t px) {
     cs.n[mode]++;
     if (cs.probe && --cs.probe == 0 && cs.n[0] >= 8 && cs.n[1] >= 8) {
         uint32_t other = !cs.par;
-        if (cs.cost[other] * 100 < cs.cost[cs.par] * 85) {       /* запас 15%: шум замера не качает выбор туда-сюда */
-            cs.par = other;
-            uart_print(other ? "[KIRA DISPLAY] compositor: all cores are cheaper here (" : "[KIRA DISPLAY] compositor: one core is cheaper here (");
-            uart_print_dec(cs.cost[other]); uart_print(" vs "); uart_print_dec(cs.cost[!other]);
-            uart_print(" ns per 1000 pixels) - switching.\n");
+        if (cs.cost[other] * 100 < cs.cost[cs.par] * 80) {       /* запас 20%: шум замера не качает выбор туда-сюда */
+            if (++cs.confirm >= 2) {                               /* другой способ должен выиграть две пробы подряд */
+                cs.confirm = 0; cs.par = other; cs.gap_ns = 60000000000ULL;
+                uart_print(other ? "[KIRA DISPLAY] compositor: all cores are cheaper here (" : "[KIRA DISPLAY] compositor: one core is cheaper here (");
+                uart_print_dec(cs.cost[other]); uart_print(" vs "); uart_print_dec(cs.cost[!other]);
+                uart_print(" ns per 1000 pixels) - switching.\n");
+            } else cs.next_ns = 0;                                 /* повторить пробу сразу */
+        } else {                                                   /* выбор подтверждён: проб становится вдвое реже (до 10 минут), каждая проба стоит кадров в худшем способе */
+            cs.confirm = 0;
+            if (cs.gap_ns < 600000000000ULL) cs.gap_ns *= 2;
         }
     }
 }

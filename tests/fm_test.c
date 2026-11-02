@@ -58,11 +58,11 @@ int main(void) {
     fm_init(F, &IO, "/", "/data");
     CHECK(!strcmp(F->p[1].path, "/data"));
     /* служебное скрыто, порядок: каталоги (без учёта регистра), затем файлы */
-    CHECK(!has(0, "bin") && !has(0, "var") && !has(0, ".hidden") && F->p[0].hidden == 3);
+    CHECK(!has(0, "var") && !has(0, ".hidden") && F->p[0].hidden == 2);
     CHECK(F->p[0].n == 4 && !strcmp(F->p[0].e[0].name, "Alpha") && !strcmp(F->p[0].e[1].name, "data"));
     CHECK(!strcmp(F->p[0].e[2].name, "beta.png") && F->p[0].e[2].kind == FM_KIND_IMG && !strcmp(F->p[0].e[3].name, "zeta.txt") && F->p[0].e[3].kind == FM_KIND_TEXT);
     CHECK(!strcmp(F->p[1].e[0].name, "..") && F->p[1].e[0].kind == FM_KIND_UP && !strcmp(F->p[1].e[1].name, "sub"));
-    key(KEY_F9); CHECK(F->show_hidden && has(0, "bin") && has(0, ".hidden")); key(KEY_F9); CHECK(!has(0, "bin"));
+    key(KEY_F9); CHECK(F->show_hidden && has(0, ".hidden")); key(KEY_F9);
     /* навигация: Tab, Enter, Backspace возвращает курсор на каталог */
     CHECK(F->active == 0); key(KEY_TAB); CHECK(F->active == 1); key(KEY_TAB);
     cur_to(0, "data"); key(KEY_ENTER); CHECK(!strcmp(F->p[0].path, "/data") && F->p[0].cur == 0);

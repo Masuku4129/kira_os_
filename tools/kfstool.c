@@ -101,6 +101,7 @@ int main(int argc, char** argv) {
         fwrite(b, 1, (size_t)got, stdout);
         return 0;
     }
+    if (!strcmp(cmd, "rm") && argc == 4) { int r = kfs_unlink(argv[3]); if (r && r != KFS_ERR_NOENT) die(argv[3], r); return 0; }   /* нет файла - не ошибка */
     fprintf(stderr, "kfstool: неизвестная команда\n");
     return 2;
 }
