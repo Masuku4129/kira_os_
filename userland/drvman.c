@@ -250,11 +250,11 @@ static void caps_str(u32 c, char *b, int cap) {
 }
 static const char *pkg_status(const drvget_pkg_t *k) {
     switch (k->state) {
-    case DGP_OK: return "SHA-256 сходится с записью";
-    case DGP_BAD: return "НЕ СОВПАДАЕТ: запуск запрещён";
-    case DGP_NOREC: return "нет файла подтверждения, не запустится";
-    case DGP_UNCONF: return "установка не подтверждена, не запустится";
-    case DGP_TOOBIG: return "слишком велик для проверки";
+    case DGP_OK: return "SHA-256 сходится";
+    case DGP_BAD: return "НЕ СОВПАДАЕТ";
+    case DGP_NOREC: return "нет файла .rec";
+    case DGP_UNCONF: return "не подтверждён";
+    case DGP_TOOBIG: return "слишком велик";
     default: return "не читается";
     }
 }
@@ -265,8 +265,9 @@ static void pkg_line(const drvget_pkg_t *k, int n, char *b, int cap) {
     if (n == 0) {
         snprintf(t, sizeof t, "%s", k->name);                at = addf(b, cap, at, t, 12);
         snprintf(t, sizeof t, "v%u", (unsigned)k->version);  at = addf(b, cap, at, t, 5);
-        at = addf(b, cap, at, k->license[0] ? k->license : "лицензия не записана", 14);
-        at = addf(b, cap, at, running(k->name) ? "ЗАПУЩЕН" : "не запущен", 12);
+        snprintf(t, sizeof t, "лицензия: %s", k->license[0] ? k->license : "не записана");
+        at = addf(b, cap, at, t, 24);
+        at = addf(b, cap, at, running(k->name) ? "ЗАПУЩЕН" : "не запущен", 11);
         snprintf(t, sizeof t, "сверка: %s", pkg_status(k));  addf(b, cap, at, t, 0);
     } else if (n == 1) {
         caps_str(k->caps, cs, sizeof cs);
@@ -286,19 +287,26 @@ static void pkg_line(const drvget_pkg_t *k, int n, char *b, int cap) {
     }
 }
 
+/* Строка журнала процесса рвётся ядром на куски по 160 байт, поэтому строки состояния короткие: пробелы выравнивания сжимаются. */
+static void squeeze(char *s) {
+    char *w = s;
+    for (char *r = s; *r; r++) if (!(*r == ' ' && w > s && w[-1] == ' ')) *w++ = *r;
+    *w = 0;
+}
+
 /* Строки состояния для журнала: те же тексты, что рисуются в окне (так стенд проверяет именно показанное). */
 static void report_pci(void) {
     char b[200];
     if (pci_err) lg("drvman: список PCI недоступен: %s (код %d)\n", err_name(pci_err), pci_err);
     else lg("drvman: устройств PCI: %d\n", npci);
-    for (int i = 0; i < npci; i++) { dev_line(&pci[i], b, sizeof b); lg("drvman: pci %s\n", b); }
+    for (int i = 0; i < npci; i++) { dev_line(&pci[i], b, sizeof b); squeeze(b); lg("drvman: pci %s\n", b); }
 }
 static void report_pkgs(void) {
     char b[200];
     if (npkg < 0) lg("drvman: каталога /drv нет или он недоступен\n");
     else lg("drvman: пакетов в /drv: %d\n", npkg);
     for (int i = 0; i < npkg; i++) {
-        for (int n = 0; n < 4; n++) { pkg_line(&pkg[i], n, b, sizeof b); lg("drvman: пакет %s | %s\n", pkg[i].name, b); }
+        for (int n = 0; n < 4; n++) { pkg_line(&pkg[i], n, b, sizeof b); squeeze(b); lg("drvman: пакет %s | %s\n", pkg[i].name, b); }
     }
 }
 
@@ -311,7 +319,7 @@ static void act_find(const char *arg) {
     if (!*arg) { lg("drvman: введите имя драйвера или адрес https://.../drvget.rec\n"); return; }
     lg("drvman: ищу драйвер «%s» (скачивание по HTTPS, проверка лицензии и хеша)...\n", arg);
     int rc = drvget_find(arg);
-    if (rc == 0) lg("drvman: набор готов к установке. Нажмите «Установить», прочитайте источник, права и хеш и подтвердите.\n");
+    if (rc == 0) lg("drvman: набор готов к установке (F2 или «Установить»: окно подтверждения)\n");
     else lg("drvman: поиск не удался (код %d), ничего не установлено\n", rc);
 }
 static void act_install(void) {
@@ -345,7 +353,10 @@ static void act_start(const char *name) {
     u64 until = k_clock_ns() + 6000000000ull;
     do { k_sleep(10); refresh_pci(); w = running(name); } while (!w && k_clock_ns() < until);
     if (w) lg("drvman: драйвер %s запущен на устройстве %02x:%02x.%x (%04x:%04x)\n", name, pci[w - 1].bus, pci[w - 1].dev, pci[w - 1].fn & 7, pci[w - 1].vendor, pci[w - 1].device);
-    else lg("drvman: драйвер %s не запущен: нет свободного подходящего устройства PCI или пакет не прошёл проверку ядра (причина - в журнале ядра, команда drv)\n", name);
+    else {
+        lg("drvman: драйвер %s не запущен: нет свободного подходящего устройства PCI\n", name);
+        lg("drvman: либо пакет не прошёл проверку ядра: причина в журнале ядра (команда drv)\n");
+    }
 }
 static void act_stop(const char *name) {
     if (!*name) { lg("drvman: выберите пакет в списке\n"); return; }
@@ -391,7 +402,7 @@ static void start_job(int kind, const char *arg) {
     job_kind = kind;
     u8 *st = stacks[stack_turn ^= 1];
     if (!st || k_thread_create(worker, st, STACK_BYTES, 0) < 0) {
-        lg("drvman: не удалось создать рабочий поток, выполняю в окне (окно не отвечает до конца действия)\n");
+        lg("drvman: не удалось создать рабочий поток, выполняю в окне (оно не отвечает)\n");
         run_job(kind, arg);
         refresh_pkgs(); refresh_pci();
         __atomic_store_n(&busy, 0, __ATOMIC_RELEASE);
@@ -564,8 +575,11 @@ static void confirm_open(void) {                           /* окно подт�
     if (!r) return;
     caps_str(r->caps, cs, sizeof cs);
     confirming = 1;
-    lg("drvman: подтверждение: установить %s v%u? источник %s, лицензия %s, права: %s, SHA-256 набора %s%s\n", r->name, (unsigned)r->version,
-       drvget_staged_url(), r->license, cs, drvget_staged_hash(), (r->caps & CAP_DMA) ? ", предупреждение: IOMMU нет, DMA-устройство может писать в любую память" : "");
+    lg("drvman: подтверждение: установить %s v%u?\n", r->name, (unsigned)r->version);
+    lg("drvman: подтверждение: источник %s\n", drvget_staged_url());
+    lg("drvman: подтверждение: лицензия %s, права: %s\n", r->license, cs);
+    lg("drvman: подтверждение: SHA-256 набора %s\n", drvget_staged_hash());
+    if (r->caps & CAP_DMA) lg("drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память\n");
 }
 
 static void press(int id) {
