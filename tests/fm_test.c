@@ -77,6 +77,16 @@ int main(void) {
     key(KEY_F4); CHECK(F->act_seq == seq0 + 2 && F->msg_err);
     fm_goto(F, &IO, 0, "/bin"); cur_to(0, "plasma"); CHECK(F->p[0].e[F->p[0].cur].kind == FM_KIND_PROG); key(KEY_F4);
     CHECK(F->act_kind == FM_ACT_PIN && !strcmp(F->act_path, "/bin/plasma"));
+    /* /bin: русские названия показывает только отрисовка (apps.c); порядок, запуск и закрепление - по системному имени */
+    addf("/bin/paint", "x"); addf("/bin/cube3d", "x"); addf("/bin/zork", "x"); addf("/bin/edit", "x");
+    fm_goto(F, &IO, 0, "/bin");
+    { int ip = at(0, ".."), ic = at(0, "cube3d"), ie = at(0, "edit"), ia = at(0, "paint"), il = at(0, "plasma"), iz = at(0, "zork");
+      CHECK(ip == 0 && ic == 1 && ie == 2 && ia == 3 && il == 4 && iz == 5);                      /* по системному имени, не по русскому («Плазма», «Рисование», «3D-куб») */
+      for (int i = ic; i <= iz; i++) CHECK(F->p[0].e[i].kind == FM_KIND_PROG); }
+    cur_to(0, "paint"); key(KEY_ENTER);
+    CHECK(F->act_kind == FM_ACT_OPEN && !strcmp(F->act_path, "/bin/paint"));                       /* запуск - системное имя */
+    cur_to(0, "zork"); key(KEY_F4); CHECK(F->act_kind == FM_ACT_PIN && !strcmp(F->act_path, "/bin/zork"));
+    fm_goto(F, &IO, 0, "/data"); CHECK(fm_kind_of("/data", "plasma", 0) != FM_KIND_PROG);          /* «программа» - только файл прямо в /bin */
     /* копирование F5: курсор слева, цель справа (/data) */
     fm_goto(F, &IO, 0, "/"); fm_goto(F, &IO, 1, "/data"); F->active = 0;
     cur_to(0, "zeta.txt"); key(KEY_F5);

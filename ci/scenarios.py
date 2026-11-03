@@ -207,6 +207,24 @@ ALL = [
         {"log": [r"view: /note\.txt - текст, 31 байт", r"view: /blob\.bin - двоичный, 512 байт"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="1G", files=True),
+    sc("apps-dock", "левая панель (док): значок появляется при открытии окна программы Ring 3 и исчезает при закрытии (закреплённые остаются), русские названия из единой таблицы; снимки панели", [
+        {"log": BOOT_LOG},
+        {"cmd": "run plasma"}, {"sleep": 3},                          # закреплена по умолчанию: значок и так есть, окно его «зажигает»
+        {"log": [r"\[KIRA DOCK\] открыта: plasma «Плазма» \(закреплена\)"]},
+        {"cmd": "view /note.txt"}, {"sleep": 2}, {"shot": "dock-view-open"},     # временный значок «Просмотр» ниже черты, плазма позади
+        {"log": [r"\[KIRA DOCK\] открыта: view «Просмотр» \(временный значок\)"]},
+        {"cmd": "wasm /wasm/wgfx.wasm"}, {"sleep": 1.5}, {"shot": "dock-wasm-open"},   # ещё один временный значок: «Запуск WebAssembly»
+        {"log": [r"\[KIRA DOCK\] открыта: wasm «Запуск WebAssembly» \(временный значок\)"]},
+        {"sleep": 14},                                                 # wgfx сам завершается: значок убран
+        {"log": [r"\[KIRA DOCK\] закрыта: wasm «Запуск WebAssembly» \(значок убран\)"]},
+        {"keys": "q"}, {"sleep": 2},                                   # q получает окно сверху - просмотр закрывается
+        {"log": [r"\[KIRA DOCK\] закрыта: view «Просмотр» \(значок убран\)"]},
+        {"shot": "dock-view-closed"},
+        {"keys": "q"}, {"sleep": 2},                                   # теперь сверху плазма: закрытие закреплённой оставляет значок
+        {"log": [r"\[KIRA DOCK\] закрыта: plasma «Плазма» \(значок остаётся: закреплена\)"]},
+        {"shot": "dock-plasma-closed"},
+        {"log_forbid": NO_ERR + [r"wasm: stopped"]},
+    ], smp=2, mem="1G", files=True),
     sc("apps-wasm", "WebAssembly: тот же /wasm/wtest.wasm, что у ARM64, - результат равен эталону, собранному обычным компилятором", [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wtest.wasm"}, {"sleep": 4},

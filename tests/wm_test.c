@@ -37,6 +37,68 @@ static void same_as_full(surface_t* scr, const char* what) {
     CHECK(memcmp(snap, scr->px, sizeof snap) == 0);
 }
 
+
+/* Док: состояния значка (нет окна / свёрнуто / открыто / в фокусе), щелчки, несколько окон одной программы,
+   сжатие плиток, когда значков много. Полоса слева от плитки: высокая цветная - открыто, короткая тусклая - свёрнуто. */
+static uint32_t ind(surface_t* sc, int i) { int sx, sy; wm_side_center(i, &sx, &sy); frame(); return px(sc, 11, sy); }
+static void dock_states(void) {
+    static char tags[24][8], labels[24][8];
+    surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb };
+    wm_init(&sc, &ops);
+    wm_side_item_t it[24];
+    for (int i = 0; i < 24; i++) { snprintf(tags[i], 8, "p%d", i); snprintf(labels[i], 8, "P%d", i); it[i] = (wm_side_item_t){ labels[i], tags[i], TH_PINK, ICON_NET, 0, 0, 0, 0, 0 }; }
+    it[5] = (wm_side_item_t){ "+", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, 0, 0, 0 };
+    wm_side_set(it, 6);                                              /* p0..p4 и «+» внизу */
+    frame();
+    uint32_t col = TH_PINK, faint = TH_TEXT_FAINT;
+    CHECK(ind(&sc, 1) != col && ind(&sc, 1) != faint);               /* окна нет - полосы нет */
+    int w1 = wm_create("Рисование", 300, 100, 200, 100, WM_CLOSABLE); wm_set_tag(w1, "p1");
+    int w2 = wm_create("Другое", 340, 140, 200, 100, WM_CLOSABLE); wm_set_tag(w2, "p2");
+    CHECK(ind(&sc, 1) == col && ind(&sc, 2) == col);                 /* оба показаны (открыто); p2 сверху (в фокусе) */
+    CHECK(ind(&sc, 3) != col && ind(&sc, 3) != faint);
+    click_side(2);                                                   /* сверху: щелчок сворачивает */
+    CHECK(!wm_visible(w2) && ind(&sc, 2) == faint && ind(&sc, 1) == col);
+    click_side(2);                                                   /* свёрнуто: щелчок возвращает и выводит вперёд */
+    CHECK(wm_visible(w2) && wm_top() == w2 && ind(&sc, 2) == col);
+    click_side(1);                                                   /* открыто, но не сверху: щелчок выводит вперёд, не сворачивает */
+    CHECK(wm_visible(w1) && wm_top() == w1);
+    click_side(1);
+    CHECK(!wm_visible(w1));
+    wm_destroy(w1);                                                  /* окно закрыто - полоса исчезает, плитка остаётся (закреплённая) */
+    CHECK(ind(&sc, 1) != col && ind(&sc, 1) != faint);
+    /* две программы-окна с одной меткой: щелчок по значку переходит к следующему окну, число окон - в углу */
+    int w3 = wm_create("Копия", 380, 180, 200, 100, WM_CLOSABLE); wm_set_tag(w3, "p2");
+    CHECK(wm_top() == w3);
+    click_side(2); CHECK(wm_top() == w2 && wm_visible(w3));
+    click_side(2); CHECK(wm_top() == w3);
+    wm_destroy(w3); wm_destroy(w2);
+    CHECK(wm_find("p2") < 0 && ind(&sc, 2) != col);
+
+    /* сжатие: плиток много - уменьшаются, но не налезают друг на друга и остаются в панели; сверх предела - нужен «ещё N» */
+    int cap = wm_side_capacity();
+    CHECK(cap >= 14 && cap < WM_SIDE_MAX + 1);
+    for (int n = 4; n <= cap; n += 3) {
+        wm_side_item_t all[24];
+        for (int i = 0; i < n - 1; i++) { all[i] = (wm_side_item_t){ labels[i % 24], tags[i % 24], TH_PINK, ICON_NET, 0, i >= n / 2, 0, 0, 0 }; }
+        all[n - 1] = it[5];
+        wm_side_set(all, n);
+        int ts = wm_side_tile(), py = -1;
+        CHECK(ts >= 26 && ts <= 44);
+        if (n * 54 - 10 > 670) CHECK(ts < 44);
+        for (int i = 0; i < n; i++) {
+            int sx, sy; CHECK(wm_side_center(i, &sx, &sy) == 0);
+            CHECK(sy - ts / 2 >= WM_TOP_H + 10 && sy + ts / 2 <= 768 - 10);
+            if (i && !all[i].bottom) CHECK(sy - py >= ts);
+            if (!all[i].bottom) py = sy;
+        }
+        launches = 0; click_side(n / 2);
+        CHECK(launches == 1 && last_launch == n / 2);                /* щелчок попадает в сжатую плитку */
+    }
+    wm_side_set(it, 6);
+    free(sc.px);
+}
+
 int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
     wm_ops_t ops = { al, nt, inp, lc, rz, tb };
@@ -312,7 +374,8 @@ int main(void) {
             same_as_full(&scr, "pulses");
         }
     }
+    dock_states();
     printf("wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, "
-           "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw passed\n");
+           "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw, dock states / cycling / compression passed\n");
     return 0;
 }

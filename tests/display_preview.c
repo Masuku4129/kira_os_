@@ -51,7 +51,8 @@ uint64_t pmm_alloc_contiguous(uint32_t pages) { return (uint64_t)(uintptr_t)alig
 int pmm_free_contiguous(uint64_t p, uint32_t pages) { (void)pages; free((void*)(uintptr_t)p); return 0; }
 uint32_t pmm_get_total_memory_kb(void) { return 2048 * 1024; }
 
-void uart_print(const char* s) { while (*s) klog_putc(*s++); }
+static char ulog[1 << 16]; static unsigned ulog_n;     /* копия журнала ядра: проверка строк «[KIRA DOCK]» */
+void uart_print(const char* s) { while (*s) { if (ulog_n + 1 < sizeof ulog) ulog[ulog_n++] = *s, ulog[ulog_n] = 0; klog_putc(*s++); } }
 void uart_print_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsigned long long)v); uart_print(b); }
 void uart_print_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); uart_print(b); }
 
@@ -395,6 +396,45 @@ int main(int argc, char** argv) {
     run(3);
     CHECK(!wm_fullscreen(wm_top()));
     wm_destroy(uf);
+
+    /* Док: открытые программы. Закреплённые на месте; незакреплённые добавляются ниже черты и пропадают с закрытием окна;
+       русские названия берутся из единой таблицы, неизвестная программа остаётся со своим именем. */
+    {
+        static uint32_t pw[160 * 100];
+        int base = 0; { int x, y; while (wm_side_center(base, &x, &y) == 0) base++; }          /* значков до открытия программ */
+        ulog_n = 0; ulog[0] = 0;
+        int uw = wm_create_user("wasm", WM_AUTO, WM_AUTO, 160, 100, pw);
+        int up = wm_create_user("paint", WM_AUTO, WM_AUTO, 160, 100, pw);
+        int uk = wm_create_user("zork", WM_AUTO, WM_AUTO, 160, 100, pw);
+        run(2);
+        int now = 0; { int x, y; while (wm_side_center(now, &x, &y) == 0) now++; }
+        CHECK(now == base + 2);                                      /* paint закреплена (значок уже был), wasm и zork - временные */
+        CHECK(strstr(ulog, "[KIRA DOCK] открыта: wasm «Запуск WebAssembly» (временный значок)"));
+        CHECK(strstr(ulog, "[KIRA DOCK] открыта: paint «Рисование» (закреплена)"));
+        CHECK(strstr(ulog, "[KIRA DOCK] открыта: zork «zork» (временный значок)"));
+        { int x, y; wm_side_center(base - 1, &x, &y); move_to(x, y, 0); }       /* подсказка у значка wasm */
+        run(2); save_shot("dock_open.ppm");
+        /* щелчок по значку временной программы с окном: окно выводится вперёд (не запуск) */
+        wm_set_visible(uw, 0); run(1);
+        con_n = 0; click_side(base - 1); run(1);                    /* первый временный значок стоит на месте «+», «+» сдвинулся */
+        CHECK(con_n == 0 && wm_visible(uw) && wm_top() == uw);       /* свёрнутое окно вернулось щелчком, программа не запускалась заново */
+        wm_destroy(uw); wm_destroy(uk); run(3);
+        CHECK(strstr(ulog, "[KIRA DOCK] закрыта: wasm «Запуск WebAssembly» (значок убран)"));
+        CHECK(strstr(ulog, "[KIRA DOCK] закрыта: zork «zork» (значок убран)"));
+        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 == base); }   /* временные пропали */
+        wm_destroy(up); run(3);
+        CHECK(strstr(ulog, "[KIRA DOCK] закрыта: paint «Рисование» (значок остаётся: закреплена)"));
+        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 == base); }   /* закреплённая осталась */
+        /* много программ: плитки сжимаются, лишние сводятся в «Ещё программ: N» */
+        static uint32_t pq[160 * 100]; int many[40], nm = 0;
+        for (int i = 0; i < 40; i++) { char nm_[16]; snprintf(nm_, sizeof nm_, "app%d", i); many[nm++] = wm_create_user(nm_, WM_AUTO, WM_AUTO, 160, 100, pq); }
+        run(3);
+        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 <= WM_SIDE_MAX && n2 > base + 5); CHECK(wm_side_tile() < 44); }
+        save_shot("dock_many.ppm");
+        for (int i = 0; i < nm; i++) wm_destroy(many[i]);
+        run(3);
+        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 == base); CHECK(wm_side_tile() == 44); }
+    }
 
     /* терминал растягивается уголком: больше колонок и строк */
     {

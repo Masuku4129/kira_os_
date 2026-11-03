@@ -1,6 +1,7 @@
 #include "apps.h"
 #include "gfxui.h"
 #include "icons.h"
+#include "dock.h"
 #include "theme.h"
 #include "mind.h"
 
@@ -251,7 +252,12 @@ void app_monitor_draw(surface_t* s, const mind_view_t* v, uint32_t threads) {
         if (q->focus) ui_round_rect(s, 16, y - 1, 568, 18, 4, TH_CYAN, 22);
         uint32_t nc = q->flagged ? TH_RED : q->focus ? TH_CYAN : TH_TEXT;
         app_fmt_u(t, q->pid); gfx_text(s, col[0], y, t, TH_TEXT_DIM, -1);
-        text_fit(s, col[1], y, q->name, col[2] - col[1] - 8, nc);
+        {                                                      /* русское название; системное имя - тусклее рядом, если помещается */
+            const char* ttl = app_label(q->name);
+            int cw = col[2] - col[1] - 8, tw = gfx_text_width(ttl);
+            text_fit(s, col[1], y, ttl, cw, nc);
+            if (ttl != q->name && tw + 8 + gfx_text_width(q->name) <= cw) gfx_text(s, col[1] + tw + 8, y, q->name, TH_TEXT_FAINT, -1);
+        }
         app_fmt_u(t, q->threads); gfx_text(s, col[2], y, t, TH_TEXT_DIM, -1);
         p = cat_u(t, 0, q->cpu_x10 / 10); t[p++] = '.'; t[p++] = (char)('0' + q->cpu_x10 % 10); cat(t, p, "%");
         gfx_text(s, col[3], y, t, load_color(q->cpu_x10 / 10), -1);
@@ -262,10 +268,12 @@ void app_monitor_draw(surface_t* s, const mind_view_t* v, uint32_t threads) {
         else gfx_text(s, col[7], y, "—", TH_TEXT_FAINT, -1);
     }
     /* полоса состояния: самая занятая программа, память и здоровье */
-    char sl[96], sr[48];
+    char sl[128], sr[48];
     if (m) {
         const __typeof__(v->p[0])* top = &v->p[idx[0]];
-        p = cat(sl, 0, "самая занятая: "); p = cat(sl, p, top->name); p = cat(sl, p, " · ЦП ");
+        p = cat(sl, 0, "самая занятая: "); p = cat(sl, p, app_label(top->name));
+        if (app_info(top->name)) { p = cat(sl, p, " ("); p = cat(sl, p, top->name); p = cat(sl, p, ")"); }
+        p = cat(sl, p, " · ЦП ");
         p = cat_u(sl, p, top->cpu_x10 / 10); cat(sl, p, "%");
     } else cat(sl, 0, "программ Ring 3 сейчас нет");
     p = cat(sr, 0, "память "); p = cat_u(sr, p, v->mem_used); p = cat(sr, p, "% · здоровье "); p = cat_u(sr, p, v->health); cat(sr, p, "%");
@@ -352,12 +360,15 @@ static const char* kind_name(int k, int vol) {
     }
 }
 
-static void kind_icon(int k, int vol, int* icon, uint32_t* col) {
+static void kind_icon(int k, int vol, const char* name, int* icon, uint32_t* col) {
     *icon = ICON_FILE; *col = TH_TEXT_DIM;
     switch (k) {
     case FM_KIND_DIR: *icon = ICON_FOLDER; *col = vol ? TH_GREEN : TH_AMBER; break;
     case FM_KIND_UP: *icon = ICON_FOLDER; *col = TH_TEXT_FAINT; break;
-    case FM_KIND_PROG: *icon = ICON_TERMINAL; *col = TH_GREEN; break;
+    case FM_KIND_PROG:                                       /* у каждой программы /bin свой значок; неизвестная - общий */
+        *icon = ICON_TERMINAL; *col = TH_GREEN;
+        if (name && app_info(name)) { *icon = dock_icon(name); *col = dock_color(name); }
+        break;
     case FM_KIND_IMG: *icon = ICON_BRUSH; *col = TH_PINK; break;
     case FM_KIND_TEXT: *icon = ICON_FILE; *col = TH_CYAN; break;
     case FM_KIND_WASM: *icon = ICON_CUBE; *col = TH_PURPLE; break;
@@ -400,13 +411,18 @@ static void draw_panel(surface_t* s, const exp_view_t* e, int p, const app_hit_t
         } else if (hit_eq(hover, APP_HIT_ROW, p, idx)) ui_round_rect(s, px + 4, y, PW - 18, ROW_H - 1, 5, TH_CYAN, 16);
         else if (i & 1) ui_round_rect(s, px + 4, y, PW - 18, ROW_H - 1, 5, TH_ROW_ALT, 255);
         if (r->mark) gfx_rect(s, px + 5, y + 2, 3, ROW_H - 5, TH_AMBER);
-        int icon; uint32_t ic; kind_icon(r->kind, vol >= 0, &icon, &ic);
+        int icon; uint32_t ic; kind_icon(r->kind, vol >= 0, r->name, &icon, &ic);
         icon_draw(s, px + 20, y + 9, 14, icon, ic, 0);
         uint32_t nc = r->mark ? TH_AMBER : r->kind == FM_KIND_UP ? TH_TEXT_DIM : r->dir ? TH_TEXT : TH_TEXT_DIM;
         if (idx == P->cur) nc = r->mark ? TH_AMBER : TH_TEXT;
         int sizew = 66, namew = PW - 26 - 8 - 56 - sizew - 14;
-        int nl = gfx_text_width(r->name); if (nl > namew) nl = namew;
-        ui_text_fit(s, px + 32, y + 1, r->name, namew, nc);
+        const char* shown = r->kind == FM_KIND_PROG ? app_label(r->name) : r->name;   /* /bin: русское название, сортировка и запуск - по системному имени */
+        int nl = gfx_text_width(shown); if (nl > namew) nl = namew;
+        ui_text_fit(s, px + 32, y + 1, shown, namew, nc);
+        if (r->kind == FM_KIND_PROG && shown != r->name) {                   /* системное имя тускло рядом, пока помещается */
+            int lw = namew - nl - 8;
+            if (lw > 0 && gfx_text_width(r->name) <= lw) gfx_text(s, px + 32 + nl + 8, y + 1, r->name, TH_TEXT_FAINT, -1);
+        }
         if (vol >= 0) {                                                      /* метка флешки после имени */
             int lw = namew - nl - 8;
             if (lw > 24) ui_text_fit(s, px + 32 + nl + 8, y + 1, e->vol[vol].label, lw, TH_GREEN);
@@ -518,12 +534,13 @@ void app_files_draw(surface_t* s, const exp_view_t* e, const app_hit_t* hover, i
     /* полоса состояния: итог операции или сведения о строке под курсором */
     const fm_t* f = &e->fm;
     const fm_panel_t* P = &f->p[f->active];
-    const char* left = ""; uint32_t lc = TH_TEXT_DIM; char info[160];
+    const char* left = ""; uint32_t lc = TH_TEXT_DIM; char info[256];
     if (f->msg[0]) { left = f->msg; lc = f->msg_err ? TH_RED : TH_GREEN; }
     else if (status && status[0]) { left = status; lc = TH_GREEN; }
     else if (P->n && P->cur < (int)P->n) {
         const fm_ent_t* r = &P->e[P->cur];
-        p = cat(info, 0, r->kind == FM_KIND_UP ? "вверх, в родительский каталог" : r->name);
+        p = cat(info, 0, r->kind == FM_KIND_UP ? "вверх, в родительский каталог" : r->name);   /* системное имя */
+        if (r->kind == FM_KIND_PROG && app_info(r->name)) { p = cat(info, p, " · "); p = cat(info, p, app_label(r->name)); }
         if (r->kind != FM_KIND_UP) {
             p = cat(info, p, " · "); p = cat(info, p, r->dir ? "каталог" : kind_name(r->kind, 0));
             if (!r->dir) { char z[24]; fmt_size(z, r->size); p = cat(info, p, " · "); cat(info, p, z); }

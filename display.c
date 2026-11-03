@@ -93,7 +93,7 @@ static const wm_tab_t tabs[] = {
 };
 static const int app_of_tab[] = { -1, APP_TERM, APP_MIND, APP_FILES, APP_MON, APP_SET };
 
-#define SIDE_N (DOCK_MAX + 8 + 1)
+#define SIDE_N WM_SIDE_MAX
 static dock_t dock;
 static int dock_ready;                                    /* список прочитан с диска (или принят по умолчанию) */
 static wm_side_item_t side[SIDE_N];
@@ -288,35 +288,87 @@ static void on_resize(int id, int w, int h) {
 
 static int streq(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 
-/* Собрать значки: закреплённые, затем идущие незакреплённые, внизу «+». Перестраивается, только если что-то изменилось. */
+/* Виды плиток боковой панели (side_kind): закреплённая, открытая незакреплённая, «ещё N», «+». */
+enum { SK_PINNED, SK_RUN, SK_MORE, SK_ADD };
+#define RUN_MAX WM_MAX_WIN                                /* просматриваем метки всех окон */
+static unsigned char side_kind[SIDE_N];
+static char side_hints[SIDE_N][64];
+static char side_labels[SIDE_N][40];
+static char run_prev[RUN_MAX][16];                         /* какие программы были открыты в прошлый раз (для журнала) */
+static int run_prev_n;
+
+/* Журнал появления и исчезновения значков: по нему стенд проверяет док без снимков. */
+static void dock_log_changes(char (*run)[16], int nrun) {
+    for (int i = 0; i < nrun; i++) {
+        int seen = 0; for (int k = 0; k < run_prev_n; k++) if (streq(run_prev[k], run[i])) seen = 1;
+        if (seen) continue;
+        uart_print("[KIRA DOCK] открыта: "); uart_print(run[i]); uart_print(" «"); uart_print(app_label(run[i])); uart_print(dock_find(&dock, run[i]) >= 0 ? "» (закреплена)\n" : "» (временный значок)\n");
+    }
+    for (int k = 0; k < run_prev_n; k++) {
+        int seen = 0; for (int i = 0; i < nrun; i++) if (streq(run_prev[k], run[i])) seen = 1;
+        if (seen) continue;
+        uart_print("[KIRA DOCK] закрыта: "); uart_print(run_prev[k]); uart_print(" «"); uart_print(app_label(run_prev[k])); uart_print(dock_find(&dock, run_prev[k]) >= 0 ? "» (значок остаётся: закреплена)\n" : "» (значок убран)\n");
+    }
+    run_prev_n = nrun;
+    for (int i = 0; i < nrun; i++) scpy(run_prev[i], 0, run[i], 16);
+}
+
+/* Заполнить плитку по системному имени программы: русское название, описание, значок, цвет. */
+static void side_fill(int k, const char* name, int kind) {
+    scpy(side_names[k], 0, name, 16);
+    int p = scpy(side_hints[k], 0, name, (int)sizeof side_hints[k]);
+    p = scpy(side_hints[k], p, kind == SK_PINNED ? " · правая кнопка - открепить" : " · правая кнопка - закрепить", (int)sizeof side_hints[k]);
+    side_kind[k] = (unsigned char)kind;
+    side[k] = (wm_side_item_t){ app_label(side_names[k]), side_names[k], dock_color(name), dock_icon(name), 0, kind == SK_RUN, side_hints[k], 0, app_desc(name) };
+    if (side[k].icon == ICON_TERMINAL && name[0] >= 'a' && name[0] <= 'z') side[k].badge = (char)(name[0] - 32);
+}
+
+/* Собрать значки: закреплённые, затем открытые незакреплённые (динамические, на диск не пишутся), «ещё N» если не
+   помещаются, внизу «+». Перестраивается, только если что-то изменилось. Окон приложений Ring 3 может быть много,
+   плитки сжимаются (wm.c), а сверх предела остаётся одна плитка «ещё N» (щелчок открывает первую скрытую программу). */
 static void side_rebuild(int force) {
-    char run[8][16];
-    int nrun = wm_user_tags(run, 8);
-    char sig[SIDE_N * 17]; int sp = 0;
+    static char run[RUN_MAX][16];
+    int raw = wm_user_tags(run, RUN_MAX), nrun = 0;
+    for (int i = 0; i < raw; i++) {                          /* одна плитка на программу, порядок - по окнам */
+        if (!run[i][0]) continue;
+        int dup = 0; for (int k = 0; k < nrun; k++) if (streq(run[k], run[i])) { dup = 1; break; }
+        if (!dup) { if (nrun != i) scpy(run[nrun], 0, run[i], 16); nrun++; }
+    }
+    dock_log_changes(run, nrun);
+    int cap = wm_side_capacity() - dock.n - 1;                /* сколько плиток открытых программ влезет */
+    if (cap < 0) cap = 0;
+    int unp = 0; for (int i = 0; i < nrun; i++) if (dock_find(&dock, run[i]) < 0) unp++;
+    int show = unp > cap ? (cap > 0 ? cap - 1 : 0) : unp, more = unp - show;
+    if (cap == 0) more = 0;                                   /* места нет совсем: «ещё» тоже не поместится */
+    char sig[SIDE_N * 17 + 16]; int sp = 0;
     for (int i = 0; i < dock.n; i++) { sp = scpy(sig, sp, dock.name[i], (int)sizeof sig); sig[sp++] = '|'; sig[sp] = 0; }
     sig[sp++] = '#'; sig[sp] = 0;
-    for (int i = 0; i < nrun; i++) if (dock_find(&dock, run[i]) < 0) { sp = scpy(sig, sp, run[i], (int)sizeof sig); sig[sp++] = '|'; sig[sp] = 0; }
+    int shown = 0;
+    for (int i = 0; i < nrun && shown < show; i++) if (dock_find(&dock, run[i]) < 0) { sp = scpy(sig, sp, run[i], (int)sizeof sig); sig[sp++] = '|'; sig[sp] = 0; shown++; }
+    if (more > 0) { sig[sp++] = '+'; sig[sp++] = (char)('A' + (more > 25 ? 25 : more)); sig[sp] = 0; }
     if (!force && streq(sig, side_sig)) return;
     scpy(side_sig, 0, sig, (int)sizeof side_sig);
     side_n = 0;
-    for (int i = 0; i < dock.n && side_n < SIDE_N - 1; i++) {
-        scpy(side_names[side_n], 0, dock.name[i], 16);
-        side[side_n] = (wm_side_item_t){ dock_title(dock.name[i]) ? dock_title(dock.name[i]) : side_names[side_n], side_names[side_n], dock_color(dock.name[i]), dock_icon(dock.name[i]), 0, 0,
-                                         "правая кнопка - открепить", 0 };
-        if (side[side_n].icon == ICON_TERMINAL && dock.name[i][0] >= 'a' && dock.name[i][0] <= 'z') side[side_n].badge = (char)(dock.name[i][0] - 32);
-        side_n++;
+    for (int i = 0; i < dock.n && side_n < SIDE_N - 1; i++) { side_fill(side_n, dock.name[i], SK_PINNED); side_n++; }
+    shown = 0;
+    const char* first_hidden = 0;
+    for (int i = 0; i < nrun && side_n < SIDE_N - 2; i++) {
+        if (dock_find(&dock, run[i]) >= 0) continue;
+        if (shown >= show) { if (!first_hidden) first_hidden = run[i]; continue; }
+        side_fill(side_n, run[i], SK_RUN); side_n++; shown++;
     }
-    for (int i = 0; i < nrun && side_n < SIDE_N - 1; i++) {
-        if (dock_find(&dock, run[i]) >= 0 || !dock_valid_name(run[i])) continue;
-        int dup = 0; for (int k = 0; k < side_n; k++) if (streq(side_names[k], run[i])) dup = 1;
-        if (dup) continue;
-        scpy(side_names[side_n], 0, run[i], 16);
-        side[side_n] = (wm_side_item_t){ dock_title(run[i]) ? dock_title(run[i]) : side_names[side_n], side_names[side_n], dock_color(run[i]), dock_icon(run[i]), 0, 1,
-                                         "правая кнопка - закрепить", 0 };
-        if (side[side_n].icon == ICON_TERMINAL && run[i][0] >= 'a' && run[i][0] <= 'z') side[side_n].badge = (char)(run[i][0] - 32);
-        side_n++;
+    if (more > 0 && first_hidden && side_n < SIDE_N - 1) {
+        int k = side_n++;
+        scpy(side_names[k], 0, first_hidden, 16);
+        int p = scpy(side_labels[k], 0, "Ещё программ: ", (int)sizeof side_labels[k]);
+        { char dg[12]; int q = 0, tn = 0, v = more; char t2[12]; do { t2[tn++] = (char)('0' + v % 10); v /= 10; } while (v); while (tn) dg[q++] = t2[--tn]; dg[q] = 0; scpy(side_labels[k], p, dg, (int)sizeof side_labels[k]); }
+        p = scpy(side_hints[k], 0, "щелчок - открыть: ", (int)sizeof side_hints[k]);
+        scpy(side_hints[k], p, app_label(first_hidden), (int)sizeof side_hints[k]);
+        side_kind[k] = SK_MORE;
+        side[k] = (wm_side_item_t){ side_labels[k], side_names[k], TH_TEXT_DIM, ICON_MORE, 0, 1, side_hints[k], 0, "Окон открыто больше, чем помещается в панели" };
     }
-    side[side_n++] = (wm_side_item_t){ "Добавить программу", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, "откроет /bin в Проводнике", 0 };
+    side_kind[side_n] = SK_ADD;
+    side[side_n++] = (wm_side_item_t){ "Добавить программу", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, "откроет /bin в Проводнике", 0, "" };
     wm_side_set(side, side_n);
 }
 
@@ -328,6 +380,7 @@ static void dock_save(void) {
 
 static void dock_toggle(const char* name) {
     if (dock_find(&dock, name) >= 0) dock_remove(&dock, name);
+    else if (!dock_valid_name(name)) { uart_print("[KIRA DISPLAY] quick-launch: this name cannot be pinned.\n"); return; }
     else if (dock_add(&dock, name) < 0) { uart_print("[KIRA DISPLAY] quick-launch panel is full (10 programs).\n"); return; }
     dock_save();
     side_rebuild(1);
@@ -354,7 +407,7 @@ static void on_launch(int index) {
 }
 
 static void on_side_alt(int index) {
-    if (index < 0 || index >= side_n || side[index].bottom) return;
+    if (index < 0 || index >= side_n || side[index].bottom || side_kind[index] == SK_MORE) return;
     char name[16]; scpy(name, 0, side_names[index], 16);
     dock_toggle(name);
 }

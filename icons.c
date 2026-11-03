@@ -125,6 +125,89 @@ static void shape(const pen_t* p, int kind) {
         }
         break;
     }
+    case ICON_EDIT: {                                    /* лист с текстом и карандаш */
+        static const int page[] = { 34, 58, 10, 58, 10, 6, 38, 6, 46, 14, 46, 26 };
+        poly(p, page, 6, 0);
+        ln(p, 18, 20, 36, 20); ln(p, 18, 30, 36, 30); ln(p, 18, 40, 28, 40);
+        static const int pen[] = { 54, 28, 60, 34, 40, 54, 30, 58, 34, 48 };
+        poly(p, pen, 5, 1);
+        break;
+    }
+    case ICON_EYE: {                                     /* глаз: веки и зрачок */
+        static const int up[] = { 4, 32, 14, 22, 32, 16, 50, 22, 60, 32 };
+        static const int lo[] = { 4, 32, 14, 42, 32, 48, 50, 42, 60, 32 };
+        poly(p, up, 5, 0); poly(p, lo, 5, 0);
+        circle(p, 32, 32, 9); dot(p, 32, 32, 4);
+        break;
+    }
+    case ICON_DOWNLOAD: {                                /* стрелка вниз в лоток */
+        ln(p, 32, 6, 32, 38); ln(p, 18, 26, 32, 40); ln(p, 46, 26, 32, 40);
+        static const int tray[] = { 8, 40, 8, 56, 56, 56, 56, 40 };
+        poly(p, tray, 4, 0);
+        break;
+    }
+    case ICON_SERVER: {                                  /* два блока с индикаторами */
+        static const int a[] = { 8, 10, 56, 10, 56, 28, 8, 28 };
+        static const int b[] = { 8, 36, 56, 36, 56, 54, 8, 54 };
+        poly(p, a, 4, 1); poly(p, b, 4, 1);
+        dot(p, 17, 19, 4); dot(p, 17, 45, 4);
+        ln(p, 28, 19, 46, 19); ln(p, 28, 45, 46, 45);
+        break;
+    }
+    case ICON_MIC: {                                     /* микрофон на стойке */
+        static const int cap[] = { 24, 14, 26, 8, 38, 8, 40, 14, 40, 30, 38, 36, 26, 36, 24, 30 };
+        poly(p, cap, 8, 1);
+        static const int u[] = { 14, 26, 14, 34, 20, 44, 32, 48, 44, 44, 50, 34, 50, 26 };
+        poly(p, u, 7, 0);
+        ln(p, 32, 48, 32, 58); ln(p, 22, 58, 42, 58);
+        break;
+    }
+    case ICON_NET: {                                     /* три узла сети */
+        ln(p, 32, 16, 14, 46); ln(p, 32, 16, 50, 46); ln(p, 18, 50, 46, 50);
+        circle(p, 32, 12, 6); circle(p, 12, 50, 6); circle(p, 52, 50, 6);
+        break;
+    }
+    case ICON_BRACES: {                                  /* { } - исходный текст на C */
+        static const int l[] = { 26, 8, 19, 10, 17, 17, 17, 26, 10, 32, 17, 38, 17, 47, 19, 54, 26, 56 };
+        static const int r[] = { 38, 8, 45, 10, 47, 17, 47, 26, 54, 32, 47, 38, 47, 47, 45, 54, 38, 56 };
+        poly(p, l, 9, 0); poly(p, r, 9, 0);
+        break;
+    }
+    case ICON_WASM: {                                    /* квадрат с буквой W */
+        static const int box[] = { 8, 8, 56, 8, 56, 56, 8, 56 };
+        poly(p, box, 4, 1);
+        static const int w[] = { 16, 20, 23, 46, 32, 28, 41, 46, 48, 20 };
+        poly(p, w, 5, 0);
+        break;
+    }
+    case ICON_DRVGET: {                                  /* микросхема и стрелка загрузки */
+        static const int body[] = { 16, 24, 48, 24, 48, 52, 16, 52 };
+        poly(p, body, 4, 1);
+        static const int core[] = { 27, 33, 37, 33, 37, 43, 27, 43 };
+        poly(p, core, 4, 1);
+        ln(p, 16, 32, 8, 32); ln(p, 16, 44, 8, 44); ln(p, 48, 32, 56, 32); ln(p, 48, 44, 56, 44);
+        ln(p, 24, 52, 24, 59); ln(p, 40, 52, 40, 59);
+        ln(p, 32, 3, 32, 18); ln(p, 25, 11, 32, 18); ln(p, 39, 11, 32, 18);
+        break;
+    }
+    case ICON_FLAME: {                                   /* пламя: нагрузка */
+        static const int o[] = { 32, 4, 42, 18, 50, 32, 48, 46, 38, 57, 26, 57, 16, 46, 14, 32, 22, 22, 26, 30 };
+        poly(p, o, 10, 1);
+        static const int in[] = { 32, 32, 38, 41, 36, 50, 28, 50, 26, 41 };
+        poly(p, in, 5, 1);
+        break;
+    }
+    case ICON_NOTE: {                                    /* нота */
+        circle(p, 20, 48, 8);
+        ln(p, 28, 48, 28, 10);
+        static const int fl[] = { 28, 10, 48, 16, 48, 28, 28, 22 };
+        poly(p, fl, 4, 0);
+        break;
+    }
+    case ICON_MORE: {                                    /* «ещё»: три точки */
+        dot(p, 14, 32, 6); dot(p, 32, 32, 6); dot(p, 50, 32, 6);
+        break;
+    }
     default: break;
     }
 }

@@ -64,25 +64,51 @@ unsigned dock_format(const dock_t* d, char* out, unsigned cap) {
 
 static int starts(const char* s, const char* p) { while (*p) if (*s++ != *p++) return 0; return 1; }
 
-int dock_icon(const char* n) {
-    if (same(n, "plasma")) return ICON_WAVE;
-    if (same(n, "paint")) return ICON_BRUSH;
-    if (same(n, "cube3d")) return ICON_CUBE;
-    if (same(n, "drvman")) return ICON_CHIP;
-    if (starts(n, "atk")) return ICON_AI;
-    return ICON_TERMINAL;                          /* остальные программы пишут в терминал */
-}
+/* Единая таблица. Порядок не важен; системное имя - ключ. Добавляя программу в /bin, добавляйте строку сюда. */
+static const app_info_t apps[] = {
+    { "plasma",  "Плазма",                        "Живая плазма на весь экран",                          ICON_WAVE,     TH_PINK   },
+    { "paint",   "Рисование",                     "Рисование мышью, холст сохраняется",          ICON_BRUSH,    TH_BLUE   },
+    { "cube3d",  "3D-куб",                        "Вращающийся 3D-куб, расчёт на процессоре",            ICON_CUBE,     TH_CYAN   },
+    { "wasm",    "Запуск WebAssembly",            "Исполняет модули .wasm (интерпретатор и JIT)",        ICON_WASM,     TH_PURPLE },
+    { "edit",    "Текстовый редактор",            "Правка текстовых файлов",                             ICON_EDIT,     TH_GREEN  },
+    { "view",    "Просмотр",                      "Картинки (PNG, JPEG, GIF, BMP, PPM) и текст",         ICON_EYE,      TH_CYAN   },
+    { "fetch",   "Загрузка из сети",              "Запрос HTTP или HTTPS (TLS 1.3), ответ в файл",                    ICON_DOWNLOAD, TH_BLUE   },
+    { "serve",   "Веб-сервер",                    "Маленький HTTP-сервер на сети ядра (порт 8080)",                  ICON_SERVER,   TH_AMBER  },
+    { "rec",     "Запись звука",                  "Запись со входа звуковой карты, файл WAV",                           ICON_MIC,      TH_RED    },
+    { "net6",    "Сеть IPv6",                     "Проверка IPv6: датаграмма UDP и запрос TCP",                 ICON_NET,      TH_GREEN  },
+    { "kcc",     "Компилятор C",                  "Собирает программы на C прямо на Кире",               ICON_BRACES,   TH_AMBER  },
+    { "drvget",  "Установка драйверов (консоль)", "Скачивает и ставит драйверы из исходников (консоль)", ICON_DRVGET,   TH_PURPLE },
+    { "drvman",  "Драйверы",                      "Окно драйверов: устройства PCI, установка, запуск",   ICON_CHIP,     TH_AMBER  },
+    { "melody",  "Мелодия",                       "Проверка звука: гамма до мажор",                      ICON_NOTE,     TH_PINK   },
+    { "burn",    "Нагрузка процессора",           "Три секунды счёта: проверка планировщика",            ICON_FLAME,    TH_RED    },
+    { "udpecho", "UDP-эхо",                       "Ответ на датаграммы UDP для проверки сети",                    ICON_NET,      TH_CYAN   },
+    { "mt",      "Проверка потоков",              "Потоки, мьютексы и futex на разных ядрах",            ICON_TERMINAL, TH_GREEN  },
+    { "ipc",     "Проверка обмена",               "Порты и общая память между процессами",               ICON_TERMINAL, TH_GREEN  },
+    { "fpu",     "Проверка FPU",                  "Состояние FPU и SSE между процессами",                ICON_TERMINAL, TH_GREEN  },
+};
+#define NAPPS ((int)(sizeof apps / sizeof apps[0]))
 
-const char* dock_title(const char* n) {
-    if (same(n, "drvman")) return "Драйверы";
+int app_info_count(void) { return NAPPS; }
+const app_info_t* app_info_at(int i) { return i >= 0 && i < NAPPS ? &apps[i] : 0; }
+const app_info_t* app_info(const char* name) {
+    for (int i = 0; i < NAPPS; i++) if (same(apps[i].sys, name)) return &apps[i];
     return 0;
 }
+const char* app_label(const char* name) { const app_info_t* a = app_info(name); return a ? a->title : name; }
+const char* app_desc(const char* name) { const app_info_t* a = app_info(name); return a ? a->desc : ""; }
+
+int dock_icon(const char* n) {
+    const app_info_t* a = app_info(n);
+    if (a) return a->icon;
+    if (starts(n, "atk")) return ICON_AI;
+    return ICON_TERMINAL;                          /* неизвестная программа: общий значок */
+}
+
+const char* dock_title(const char* n) { const app_info_t* a = app_info(n); return a ? a->title : 0; }
 
 uint32_t dock_color(const char* n) {
-    if (same(n, "plasma")) return TH_PINK;
-    if (same(n, "paint")) return TH_BLUE;
-    if (same(n, "cube3d")) return TH_CYAN;
-    if (same(n, "drvman")) return TH_AMBER;
+    const app_info_t* a = app_info(n);
+    if (a) return a->color;
     static const uint32_t pal[6] = { TH_GREEN, TH_PURPLE, TH_AMBER, TH_CYAN, TH_PINK, TH_BLUE };
     uint32_t h = 2166136261u;
     for (; *n; n++) h = (h ^ (uint8_t)*n) * 16777619u;
