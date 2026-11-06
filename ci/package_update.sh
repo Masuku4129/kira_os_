@@ -48,7 +48,7 @@ cat > "$R/INSTALL_TERMUX.md" <<'EOF_INSTALL'
 Архив содержит полный каталог исходников kira_os/ и не требует Git checkout.
 
 1. Сохранить старую папку проекта: mv ~/kira_os ~/kira_os_backup_$(date +%Y%m%d_%H%M%S)
-2. Распаковать: tar -xzf /storage/emulated/0/Download/kira_os_v43.tar.gz -C ~
+2. Распаковать: tar -xzf /storage/emulated/0/Download/KIRA_OS_Update.tar.gz -C ~
 3. Проверить архив и собрать образы: cd ~/kira_os && bash RELEASE/VERIFY.sh && ./build_clang.sh --android
 
 Свежие kira.iso и kira_disk.img появятся в Download. Старая папка автоматически не удаляется.
@@ -93,6 +93,6 @@ done
 printf '%s\n' "$BASE_SHA" > "$R/BASE_SHA"
 printf '%s\n' "$HEAD_SHA" > "$R/HEAD_SHA"
 (cd "$STAGE/kira_os" && find . -type f ! -path './RELEASE/SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > RELEASE/SHA256SUMS)
-tar -czf "$OUT_DIR/kira_os_v43.tar.gz" -C "$STAGE" kira_os
-(cd "$OUT_DIR" && sha256sum kira_os_v43.tar.gz > kira_os_v43.tar.gz.sha256)
-echo "package: created complete source archive $OUT_DIR/kira_os_v43.tar.gz"
+tar -czf "$OUT_DIR/KIRA_OS_Update.tar.gz" -C "$STAGE" kira_os
+(cd "$OUT_DIR" && sha256sum KIRA_OS_Update.tar.gz > KIRA_OS_Update.tar.gz.sha256)
+echo "package: created complete source archive $OUT_DIR/KIRA_OS_Update.tar.gz"
