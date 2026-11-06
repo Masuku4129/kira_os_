@@ -74,6 +74,11 @@ run "match ffff:ffff"
 grep -q "подходящий рецепт.*не найден" $T/out || note "match: неизвестный PCI ID не отвергнут"
 run "install $U/rl/drvget.rec"
 grep -q "SHA-256 рецепта совпал с системным каталогом" $T/out || note "install: recipe hash не сверён с каталогом"
+cp $T/ssl/drivers.index $T/ssl/drivers.index.good
+printf "broken catalogue\\n" > $T/ssl/drivers.index
+run "install $U/rl/drvget.rec"
+grep -q "системный каталог повреждён; установка заблокирована" $T/out || note "повреждённый системный каталог не заблокировал установку"
+mv $T/ssl/drivers.index.good $T/ssl/drivers.index
 grep -q "Установка НЕ выполнена" $T/out || note "install: нет отчёта: $(tail -c 300 $T/out)"
 grep -q "лицензия:   заявлена BSD-3-Clause" $T/out || note "install: нет лицензии"
 grep -q "if_rlreg.h" $T/out && grep -q "10ec:8139" $T/out || note "install: нет файлов или PCI-ID"
