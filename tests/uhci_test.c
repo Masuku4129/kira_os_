@@ -193,7 +193,7 @@ int main(void) {
     int writes_before = stick.writes;
     CHECK(vfs_read("/usb0/big.bin", 0, back, sizeof back) == (int64_t)sizeof back && !memcmp(big, back, sizeof big));
     CHECK(stick.writes == writes_before);
-    CHECK(vfs_read("/usb0/big.bin", 39990, back, 100) == 10);           /* короткое чтение в конце файла */
+    CHECK(vfs_read("/usb0/big.bin", 99990, back, 100) == 10);           /* короткое чтение в конце файла */
     /* устройство отдало меньше, чем обещало: короткий пакет посреди цепочки TD - остановка (SPD), CSW читается сразу */
     int br0 = stick.bot_resets; uint32_t t0 = now;
     stick.short_read_once = 1; memset(back, 0, sizeof back);
