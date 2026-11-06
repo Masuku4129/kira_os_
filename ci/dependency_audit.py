@@ -40,6 +40,9 @@ def main():
         "userland/wasm/build.sh", ".github/workflows/ci.yml",
     }
     build_text = "\n".join((ROOT / p).read_text(errors="replace") for p in files if p in build_paths)
+    test_paths = {p for p in files if (p.startswith("tests/") or p.startswith("ci/")) and Path(p).suffix in {".sh", ".py"}}
+    test_text = "\n".join((ROOT / p).read_text(errors="replace") for p in sorted(test_paths))
+    tool_text = build_text + "\n" + test_text
     include_hits, provenance = [], []
     search_roots = ["arch/x86_64", "arch/aarch64", "userland", "kcc/include", "userland/kccrt", "include", "tests"]
     for path in sources:
@@ -55,6 +58,8 @@ def main():
 
     link_lines = "\n".join(line for line in build_text.splitlines() if re.search(r"(clang|gcc|ld[.]lld|wasm-ld|[$]CC|[$]HOSTCC)", line))
     link_flags = sorted(set(re.findall(r"(?:^|[ \t])-l([A-Za-z0-9_+.-]+)", link_lines)))
+    test_link_lines = "\n".join(line for line in test_text.splitlines() if re.search(r"(clang|gcc|ld[.]lld|wasm-ld|[$]CC|[$]HOSTCC)", line))
+    test_link_flags = sorted(set(re.findall(r"(?:^|[ \t])-l([A-Za-z0-9_+.-]+)", test_link_lines)))
     lib_ext = {".so", ".dll", ".dylib", ".a", ".ko", ".sys", ".exe"}
     lib_files = [p for p in files if Path(p).suffix.lower() in lib_ext]
     vendor_dirs = sorted({part for p in files for part in Path(p).parts[:-1]
@@ -64,14 +69,14 @@ def main():
     ca_bundle = "/etc/ssl/roots.der" in build_text and "ca-certificates" in build_text
     no_libc_evidence = "-nostdlib" in build_text and not link_flags
     detected = [{"tool": name, "role": role} for name, role in TOOLS.items()
-                if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(name) + r"(?![A-Za-z0-9_-])", build_text, re.I)]
+                if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(name) + r"(?![A-Za-z0-9_-])", tool_text, re.I)]
     actions = sorted(set(re.findall(r"^[ \t]*-[ \t]*uses:[ \t]*([^ \t\r\n#]+)", build_text, re.M)))
-    if "-enable-kvm" in build_text and not any(x["tool"] == "KVM" for x in detected):
+    if ("-enable-kvm" in tool_text or "-accel kvm" in tool_text or "KVM" in tool_text) and not any(x["tool"] == "KVM" for x in detected):
         detected.append({"tool": "KVM", "role": "host acceleration for QEMU tests; not shipped in the OS image"})
     report = {
         "tracked_files": len(files), "source_files_scanned": len(sources),
         "git_submodules_present": (ROOT / ".gitmodules").exists(),
-        "vendor_directories": vendor_dirs, "external_link_flags": link_flags,
+        "vendor_directories": vendor_dirs, "external_link_flags": link_flags, "host_test_link_flags": test_link_flags,
         "library_file_candidates": lib_files, "include_references": include_hits,
         "source_provenance_markers": provenance, "build_test_tools": detected,
         "github_actions_references": actions, "x86_grub_multiboot2_in_iso": bool(grub),
@@ -85,7 +90,7 @@ def main():
         "# KIRA OS — аудит зависимостей", "",
         "Статический анализ исходников и build scripts. Он не заменяет бинарный анализ ISO/KiraFS и security review.", "",
         f"- Tracked files: {len(files)}; production C/ASM/header files scanned: {len(sources)}.",
-        f"- External linker -l flags: {len(link_flags)}; library-file candidates: {len(lib_files)}.",
+        f"- OS build linker -l flags: {len(link_flags)}; host-test-only linker flags: {len(test_link_flags)} ({", ".join(test_link_flags) if test_link_flags else "none"}); library-file candidates: {len(lib_files)}.",
         f"- Git submodules: {'yes' if report['git_submodules_present'] else 'no'}; vendor directories: {len(vendor_dirs)}.",
         f"- Freestanding/no-libc evidence in build flags: {'yes' if no_libc_evidence else 'not confirmed'}.", "",
         "## Components and tools", "",
@@ -106,11 +111,12 @@ def main():
         "- QEMU results do not validate physical x86/ARM hardware.", "",
         "## Scanner limits", "",
         "- Include resolution and linker flags are heuristic; generated headers and compiler-provided headers are classified separately.",
+        "- Host-test linker flags and tools are inventoried separately; they are not linked into the OS image.",
         "- The script does not unpack final ISO or KiraFS images. Run a binary-level audit on the produced artifacts before release.",
         "- Provenance markers require human review; they are not a license verdict.", "",
     ]
     (out / "DEPENDENCIES.md").write_text("\n".join(lines))
-    print(f"dependency audit: {len(files)} files; {len(link_flags)} external link flags; {len(lib_files)} library candidates")
+    print(f"dependency audit: {len(files)} files; {len(link_flags)} OS build link flags; {len(test_link_flags)} host-test link flags; {len(lib_files)} library candidates")
     return 0
 
 
