@@ -582,6 +582,7 @@ static int cmd_remove(const char *nm) {
 }
 
 
+#ifndef DRVGET_LIB
 static int parse_pci_id(const char *s, uint16_t *vendor, uint16_t *device) {
     if (!s || strlen(s) != 9 || s[4] != ':') return 0;
     char a[5], b[5]; u8 av[2], bv[2];
@@ -601,6 +602,7 @@ static int cmd_match(const char *arg) {
     sayf("drvget match %04x:%04x: %s\nрецепт: %s\n", vendor, device, name, url);
     return 0;
 }
+#endif /* !DRVGET_LIB: CLI-only match command */
 
 static int cmd_base(const char *arg) {
     char b[DG_URL_MAX];
