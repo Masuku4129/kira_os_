@@ -40,7 +40,7 @@ def main():
         "userland/wasm/build.sh", ".github/workflows/ci.yml",
     }
     build_text = "\n".join((ROOT / p).read_text(errors="replace") for p in files if p in build_paths)
-    test_paths = {p for p in files if (p.startswith("tests/") or p.startswith("ci/")) and Path(p).suffix in {".sh", ".py"}}
+    test_paths = {p for p in files if (p.startswith("tests/") or (p.startswith("ci/") and p != "ci/dependency_audit.py")) and Path(p).suffix in {".sh", ".py"}}
     test_text = "\n".join((ROOT / p).read_text(errors="replace") for p in sorted(test_paths))
     tool_text = build_text + "\n" + test_text
     include_hits, provenance = [], []
@@ -60,6 +60,7 @@ def main():
     link_flags = sorted(set(re.findall(r"(?:^|[ \t])-l([A-Za-z0-9_+.-]+)", link_lines)))
     test_link_lines = "\n".join(line for line in test_text.splitlines() if re.search(r"(clang|gcc|ld[.]lld|wasm-ld|[$]CC|[$]HOSTCC)", line))
     test_link_flags = sorted(set(re.findall(r"(?:^|[ \t])-l([A-Za-z0-9_+.-]+)", test_link_lines)))
+    test_flags_text = ", ".join(test_link_flags) if test_link_flags else "none"
     lib_ext = {".so", ".dll", ".dylib", ".a", ".ko", ".sys", ".exe"}
     lib_files = [p for p in files if Path(p).suffix.lower() in lib_ext]
     vendor_dirs = sorted({part for p in files for part in Path(p).parts[:-1]
@@ -71,7 +72,7 @@ def main():
     detected = [{"tool": name, "role": role} for name, role in TOOLS.items()
                 if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(name) + r"(?![A-Za-z0-9_-])", tool_text, re.I)]
     actions = sorted(set(re.findall(r"^[ \t]*-[ \t]*uses:[ \t]*([^ \t\r\n#]+)", build_text, re.M)))
-    if ("-enable-kvm" in tool_text or "-accel kvm" in tool_text or "KVM" in tool_text) and not any(x["tool"] == "KVM" for x in detected):
+    if ("-enable-kvm" in tool_text or "-accel kvm" in tool_text) and not any(x["tool"] == "KVM" for x in detected):
         detected.append({"tool": "KVM", "role": "host acceleration for QEMU tests; not shipped in the OS image"})
     report = {
         "tracked_files": len(files), "source_files_scanned": len(sources),
@@ -90,7 +91,7 @@ def main():
         "# KIRA OS — аудит зависимостей", "",
         "Статический анализ исходников и build scripts. Он не заменяет бинарный анализ ISO/KiraFS и security review.", "",
         f"- Tracked files: {len(files)}; production C/ASM/header files scanned: {len(sources)}.",
-        f"- OS build linker -l flags: {len(link_flags)}; host-test-only linker flags: {len(test_link_flags)} ({", ".join(test_link_flags) if test_link_flags else "none"}); library-file candidates: {len(lib_files)}.",
+        f"- OS build linker -l flags: {len(link_flags)}; host-test-only linker flags: {len(test_link_flags)} ({test_flags_text}); library-file candidates: {len(lib_files)}.",
         f"- Git submodules: {'yes' if report['git_submodules_present'] else 'no'}; vendor directories: {len(vendor_dirs)}.",
         f"- Freestanding/no-libc evidence in build flags: {'yes' if no_libc_evidence else 'not confirmed'}.", "",
         "## Components and tools", "",
