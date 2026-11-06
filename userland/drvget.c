@@ -241,6 +241,7 @@ static const char *cap_text(u32 c) {
 /* ---------- install ---------- */
 static int cmd_install(const char *arg) {
     stage_clear();
+    g_name[0] = 0;
     g_staged_hash[0] = 0;
     g_staged_url[0] = 0;
     char url[DG_URL_MAX];
