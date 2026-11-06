@@ -800,6 +800,13 @@ static void update_hover(void) {
     }
 }
 
+void wm_mouse_abs(uint16_t ax, uint16_t ay, unsigned buttons) {
+    if (!scr) return;
+    int tx = (int)((uint32_t)ax * (uint32_t)(scr->w - 1) / 32767u);
+    int ty = (int)((uint32_t)ay * (uint32_t)(scr->h - 1) / 32767u);
+    wm_mouse(tx - cx, ty - cy, buttons);
+}
+
 void wm_mouse(int ddx, int ddy, unsigned buttons) {
     damage_cursor();
     cx += ddx; cy += ddy;

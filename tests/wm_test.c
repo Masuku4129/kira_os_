@@ -302,6 +302,24 @@ int main(void) {
     CHECK(wm_compose(&x, &y, &w, &h));                     /* место окна перерисовано */
     CHECK(px(&scr, 650, 350) != 0x00123456);
 
+    /* Абсолютный указатель (virtio-планшет/сенсор): крайние координаты и одиночное касание. */
+    wm_mouse_abs(0, 0, 0);
+    { int px_, py_; wm_cursor(&px_, &py_); CHECK(px_ == 0 && py_ == 0); }
+    wm_mouse_abs(32767, 32767, 0);
+    { int px_, py_; wm_cursor(&px_, &py_); CHECK(px_ == 1023 && py_ == 767); }
+    int touch = wm_create("touch", 100, 100, 200, 120, WM_INPUT);
+    CHECK(touch >= 0);
+    int tax = (100 + WM_PAD + 50) * 32767 / 1023;
+    int tay = (100 + WM_HEAD + 40) * 32767 / 767;
+    wm_mouse_abs((uint16_t)tax, (uint16_t)tay, 0);
+    in_n = 0; wm_mouse_abs((uint16_t)tax, (uint16_t)tay, 1);
+    CHECK(in_n >= 1 && in_id == touch && in_type == 4 && in_b == 1);
+    CHECK(in_x >= 49 && in_x <= 50 && in_y >= 39 && in_y <= 40);
+    wm_mouse_abs((uint16_t)tax, (uint16_t)tay, 0);
+    wm_destroy(touch);
+    wm_mouse_abs(16384, 16384, 0);
+    { int px_, py_; wm_cursor(&px_, &py_); CHECK(px_ >= 511 && px_ <= 512 && py_ >= 383 && py_ <= 384); }
+
     /* окно ядра с WM_INPUT получает мышь, как приложение */
     int k = wm_create("kin", 500, 420, 120, 80, WM_INPUT);
     int kx, ky; wm_window_pos(k, &kx, &ky);

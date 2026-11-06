@@ -563,12 +563,8 @@ static void display_main(void* arg) {
         mouse_event_t me;
         while (input_pop_mouse(&me)) {
             st.mouse_events++;
-            if (me.abs) {                                  /* планшет: точка экрана, а не сдвиг */
-                surface_t* fs = fb_surface();
-                int cx, cy; wm_cursor(&cx, &cy);
-                int tx = (int)((uint32_t)me.ax * (uint32_t)(fs->w - 1) / 32767u), ty = (int)((uint32_t)me.ay * (uint32_t)(fs->h - 1) / 32767u);
-                wm_mouse(tx - cx, ty - cy, me.buttons);
-            } else wm_mouse(me.dx, me.dy, me.buttons);
+            if (me.abs) wm_mouse_abs(me.ax, me.ay, me.buttons); /* планшет/сенсор: абсолютная точка экрана */
+            else wm_mouse(me.dx, me.dy, me.buttons);
         }
 
         int y0 = 0, y1 = 0;
