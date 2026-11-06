@@ -537,7 +537,7 @@ def _drv_www():
     # Keep the fixture internally valid: the source hash must match the deliberately GPL-marked file,
     # otherwise drvget correctly rejects the stale SHA-256 before reaching its licence scanner.
     gpl_hash = hashlib.sha256(open(os.path.join(w, "gpl", "if_rlreg.h"), "rb").read()).hexdigest().encode()
-    edit("gpl", "drvget.rec", lambda b: re.sub(rb"(file if_rlreg\\.h if_rlreg\\.h sha256 )[0-9a-f]{64}", lambda m: m.group(1) + gpl_hash, b))
+    edit("gpl", "drvget.rec", lambda b: re.sub(rb"(file if_rlreg[.]h if_rlreg[.]h sha256 )[0-9a-f]{64}", lambda m: m.group(1) + gpl_hash, b))
     clone("bin"); edit("bin", "drvget.rec", lambda b: b.replace(b"\nname rl", b"\nname bin"))
     edit("bin", "if_rlreg.h", lambda b: b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00This program cannot be run in DOS mode.")
     clone("nolic"); edit("nolic", "drvget.rec", lambda b: b.replace(b"\nname rl", b"\nname nolic"))
