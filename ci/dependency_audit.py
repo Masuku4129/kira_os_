@@ -41,7 +41,7 @@ def main():
     }
     build_text = "\n".join((ROOT / p).read_text(errors="replace") for p in files if p in build_paths)
     include_hits, provenance = [], []
-    search_roots = ["arch/x86_64", "arch/aarch64", "userland", "kcc/include", "userland/kccrt", "include"]
+    search_roots = ["arch/x86_64", "arch/aarch64", "userland", "kcc/include", "userland/kccrt", "include", "tests"]
     for path in sources:
         content = path.read_text(errors="replace")
         rel = str(path.relative_to(ROOT))
@@ -53,7 +53,7 @@ def main():
             if re.search(r"FreeBSD|OpenBSD|Linux kernel|SPDX-License-Identifier:\\s*BSD", line, re.I):
                 provenance.append({"file": rel, "line": n, "text": line.strip()[:180]})
 
-    link_flags = sorted(set(re.findall(r"(?<!\\S)-l([A-Za-z0-9_+.-]+)", build_text)))
+    link_flags = sorted(set(re.findall(r"(?:^|\s)-l([A-Za-z0-9_+.-]+)", build_text)))
     lib_ext = {".so", ".dll", ".dylib", ".a", ".ko", ".sys", ".exe"}
     lib_files = [p for p in files if Path(p).suffix.lower() in lib_ext]
     vendor_dirs = sorted({part for p in files for part in Path(p).parts[:-1]
@@ -64,7 +64,7 @@ def main():
     no_libc_evidence = "-nostdlib" in build_text and not link_flags
     detected = [{"tool": name, "role": role} for name, role in TOOLS.items()
                 if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(name) + r"(?![A-Za-z0-9_-])", build_text, re.I)]
-    actions = sorted(set(re.findall(r"^\\s*uses:\\s*([^\\s#]+)", build_text, re.M)))
+    actions = sorted(set(re.findall(r"^\s*uses:\s*([^\s#]+)", build_text, re.M)))
     report = {
         "tracked_files": len(files), "source_files_scanned": len(sources),
         "git_submodules_present": (ROOT / ".gitmodules").exists(),
