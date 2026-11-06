@@ -65,5 +65,38 @@ int main(void) {
     CHECK(!mnet_trusted(&r));
 
     printf(fails ? "MINDNET TESTS FAILED\n" : "mindnet: sigmoid, online learning, calibration, explanation, trust gating passed\n");
+
+    // Chronological holdout: train on the earlier window, evaluate only on later samples.
+    // The prevalence-only baseline predicts 25%; the model must extract the predictive signal.
+    {
+        mnet_t temporal; mnet_init(&temporal);
+        uint32_t state = 0x51A7E123u;
+        for (int i = 0; i < 8000; i++) {
+            state = state * 1664525u + 1013904223u;
+            int y = (state >> 24) < 64;
+            int32_t x[MNET_F] = {0};
+            x[3] = y ? (9 * MNET_ONE) / 10 : MNET_ONE / 10;
+            mnet_train(&temporal, x, y);
+        }
+        double model_brier = 0.0, baseline_brier = 0.0;
+        for (int i = 0; i < 2000; i++) {
+            state = state * 1664525u + 1013904223u;
+            int y = (state >> 24) < 64;
+            int32_t x[MNET_F] = {0};
+            x[3] = y ? (9 * MNET_ONE) / 10 : MNET_ONE / 10;
+            double p = mnet_predict(&temporal, x) / (double)MNET_ONE;
+            double e = p - y;
+            model_brier += e * e;
+            e = 0.25 - y;
+            baseline_brier += e * e;
+        }
+        model_brier /= 2000.0;
+        baseline_brier /= 2000.0;
+        printf("temporal holdout: model Brier=%.4f, prevalence baseline=%.4f, trusted=%d\\n",
+               model_brier, baseline_brier, mnet_trusted(&temporal));
+        CHECK(model_brier < baseline_brier * 0.5);
+        CHECK(mnet_trusted(&temporal));
+    }
+
     return fails != 0;
 }
