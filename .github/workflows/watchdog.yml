@@ -1,0 +1,166 @@
+name: KIRA CI watchdog
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  issues: write
+
+concurrency:
+  group: kira-ci-watchdog
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect active v43 checks and report long-running steps
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET_BRANCH: v43/integration
+        run: |
+          python3 - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          branch = os.environ["TARGET_BRANCH"]
+          token = os.environ["GH_TOKEN"]
+          api = f"https://api.github.com/repos/{repo}"
+
+          def request(path, method="GET", payload=None):
+              data = None if payload is None else json.dumps(payload).encode()
+              req = urllib.request.Request(
+                  api + path, data=data, method=method,
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": "kira-ci-watchdog",
+                      **({"Content-Type": "application/json"} if data else {}),
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as response:
+                      raw = response.read()
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode(errors="replace")
+                  raise RuntimeError(f"GitHub API {method} {path}: {exc.code} {detail}") from exc
+
+          now = dt.datetime.now(dt.timezone.utc)
+
+          def age_minutes(timestamp):
+              if not timestamp:
+                  return 0.0
+              started = dt.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+              return max(0.0, (now - started).total_seconds() / 60.0)
+
+          def threshold(job_name, step_name):
+              name = job_name.lower()
+              step = (step_name or "").lower()
+              if name.startswith("vm ("):
+                  if step == "scenario":
+                      return 12
+                  if step == "qemu":
+                      return 12
+                  return 20
+              if name == "arm64":
+                  return 25
+              if name == "host-tests":
+                  return 25
+              if name == "build":
+                  return 20
+              if name == "audit":
+                  return 15
+              return 20
+
+          query = urllib.parse.urlencode({
+              "branch": branch, "status": "in_progress", "per_page": 100
+          })
+          runs = request("/actions/runs?" + query).get("workflow_runs", [])
+          stalled = []
+          active_count = 0
+
+          for run in runs:
+              jobs = request(f"/actions/runs/{run['id']}/jobs?per_page=100").get("jobs", [])
+              for job in jobs:
+                  if job.get("status") != "in_progress":
+                      continue
+                  active_count += 1
+                  active_step = next(
+                      (step for step in job.get("steps", []) if step.get("status") == "in_progress"),
+                      None,
+                  )
+                  step_name = active_step.get("name") if active_step else "(no active step)"
+                  step_started = active_step.get("started_at") if active_step else job.get("started_at")
+                  elapsed = age_minutes(step_started)
+                  limit = threshold(job.get("name", ""), step_name)
+                  if elapsed >= limit:
+                      stalled.append({
+                          "run_id": run["id"],
+                          "run_url": run["html_url"],
+                          "commit": run.get("head_sha", "")[:12],
+                          "job": job.get("name", "unknown"),
+                          "job_url": job.get("html_url", run["html_url"]),
+                          "step": step_name,
+                          "elapsed": round(elapsed, 1),
+                          "limit": limit,
+                      })
+
+          title = "[CI Watchdog] v43/integration: возможно зависшие проверки"
+          issues = request("/issues?state=open&per_page=100")
+          existing = next(
+              (issue for issue in issues if issue.get("title") == title and "pull_request" not in issue),
+              None,
+          )
+
+          if stalled:
+              lines = [
+                  "Автоматическая проверка KIRA CI обнаружила шаги, превысившие контрольный порог.",
+                  "",
+                  "**Это признак длительного выполнения, а не доказательство зависания.** Watchdog не отменяет задания автоматически.",
+                  "",
+                  "| Run | Job | Активный шаг | Время | Порог |",
+                  "|---|---|---|---:|---:|",
+              ]
+              for item in stalled:
+                  lines.append(
+                      f"| [#{item['run_id']}]({item['run_url']}) {item['commit']} "
+                      f"| [{item['job']}]({item['job_url']}) | {item['step']} "
+                      f"| {item['elapsed']} мин | {item['limit']} мин |"
+                  )
+              lines += ["", f"Проверено активных заданий: {active_count}.", ""]
+              body = "\n".join(lines)
+              if existing:
+                  if existing.get("body") != body:
+                      request(f"/issues/{existing['number']}", "PATCH", {"body": body})
+                  print(f"Updated watchdog issue #{existing['number']}")
+              else:
+                  created = request("/issues", "POST", {"title": title, "body": body})
+                  print(f"Opened watchdog issue #{created['number']}: {created['html_url']}")
+              summary = f"## KIRA CI watchdog\n\nWARNING: {len(stalled)} step(s) exceeded their time threshold. See the open watchdog issue.\n"
+          else:
+              if existing:
+                  request(
+                      f"/issues/{existing['number']}/comments",
+                      "POST",
+                      {"body": "Повторная проверка: активных шагов, превысивших пороги, больше нет. Закрываю сигнал watchdog."},
+                  )
+                  request(f"/issues/{existing['number']}", "PATCH", {"state": "closed"})
+                  print(f"Closed recovered watchdog issue #{existing['number']}")
+              print(f"No stalled steps. Active jobs: {active_count}.")
+              summary = f"## KIRA CI watchdog\n\nPASS: no active step exceeded its threshold. Active jobs: {active_count}.\n"
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(summary)
+          PY
