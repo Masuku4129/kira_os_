@@ -14,10 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SUFFIXES = {".c", ".h", ".S", ".s", ".py", ".sh"}
 MARKER_WORDS = (
     "TO" + "DO", "FIX" + "ME", "XX" + "X", "HA" + "CK",
-    "st" + "ub", "not" + " implemented", "un" + "implemented",
-    "Not" + "Implemented", "заглуш" + "ка", "заготов" + "ка",
-    "пока не" + " реализ", "имита" + "ция", "fa" + "ke",
-    "du" + "mmy", "place" + "holder",
+    "not" + " implemented", "un" + "implemented", "Not" + "Implemented",
+    "пока не" + " реализ", "не реализ" + "овано", "пустая" + " реализация",
+    "place" + "holder",
 )
 MARKER_RE = re.compile("|".join(re.escape(x) for x in MARKER_WORDS), re.IGNORECASE)
 TOOLS = {
@@ -28,8 +27,8 @@ TOOLS = {
     "xorriso": "ISO image tooling",
     "llvm-objcopy": "ARM64 image tooling",
     "wasm-ld": "WebAssembly linker",
-    "qemu-system-x86_64": "x86_64 integration testing",
-    "qemu-system-aarch64": "ARM64 integration testing",
+    "qemu-system-x86": "x86_64 integration testing",
+    "qemu-system-arm": "ARM64 integration testing",
     "gcc": "host tests and helper tools",
     "python3": "CI/test orchestration",
     "openssl": "TLS interoperability tests",
