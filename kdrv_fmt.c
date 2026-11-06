@@ -64,7 +64,7 @@ const char* kdrv_strerror(int e) {
     switch (e) {
     case KDRV_OK: return "ok";
     case KDRV_E_SHORT: return "файл короче заголовка";
-    case KDRV_E_MAGIC: return "нет подписи формата";
+    case KDRV_E_MAGIC: return "нет сигнатуры формата";
     case KDRV_E_FORMAT: return "неизвестная версия формата";
     case KDRV_E_NAME: return "недопустимое имя драйвера";
     case KDRV_E_CAPS: return "запрошены права, которых нет у драйверов";
