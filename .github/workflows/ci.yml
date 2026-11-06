@@ -21,6 +21,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: repository inventory, shell/Python syntax and architecture gaps
         run: python3 ci/audit_inventory.py --out ci-out/audit
+      - name: dependency, linker and source-provenance audit
+        run: python3 ci/dependency_audit.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
