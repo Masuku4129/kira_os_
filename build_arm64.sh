@@ -105,6 +105,7 @@ done
 ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
 [ -n "$ROOTS_N" ] && echo "[*] Корневые сертификаты: $ROOTS_N из $ROOTS_SRC" || echo "[!] Связки корневых сертификатов нет (пакет ca-certificates): fetch https откажется проверять сервер"
 [ -n "$ROOTS_N" ] && tools/kfstool kira-arm64.disk put /etc/ssl/roots.der tools/roots.der >/dev/null
+tools/kfstool kira-arm64.disk put /etc/ssl/drivers.index drivers/index.txt >/dev/null
 # Семя опыта Разума (см. build_clang.sh)
 [ -f data/mind_seed.bin ] && tools/kfstool kira-arm64.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
 if [ "$1" = "--run" ]; then
