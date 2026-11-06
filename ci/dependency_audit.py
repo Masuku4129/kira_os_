@@ -65,7 +65,9 @@ def main():
     no_libc_evidence = "-nostdlib" in build_text and not link_flags
     detected = [{"tool": name, "role": role} for name, role in TOOLS.items()
                 if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(name) + r"(?![A-Za-z0-9_-])", build_text, re.I)]
-    actions = sorted(set(re.findall(r"^[ \t]*-[ \t]*uses:[ \t]*([^ \t#]+)", build_text, re.M)))
+    actions = sorted(set(re.findall(r"^[ \t]*-[ \t]*uses:[ \t]*([^ \t\r\n#]+)", build_text, re.M)))
+    if "-enable-kvm" in build_text and not any(x["tool"] == "KVM" for x in detected):
+        detected.append({"tool": "KVM", "role": "host acceleration for QEMU tests; not shipped in the OS image"})
     report = {
         "tracked_files": len(files), "source_files_scanned": len(sources),
         "git_submodules_present": (ROOT / ".gitmodules").exists(),
