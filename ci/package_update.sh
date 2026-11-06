@@ -35,6 +35,7 @@ cat > "$R/CHANGELOG.md" <<EOF_CHANGELOG
 - pkg-DK: Russian application labels, per-app icons, dynamic dock entries, explorer/monitor updates.
 - pkg-STAB: adaptive compositor policy and frame-rate limits for background/minimized windows.
 - Static dependency/provenance audit and complete source packaging for phone-side installation.
+- PCI driver catalogue with recipe/source SHA-256 pinning and explicit F7 matching; installation still requires user confirmation.
 
 ## Release limits
 - x86 boot still bundles GRUB/Multiboot2; KIRA's own BIOS/UEFI loader is still absent.
@@ -48,7 +49,7 @@ cat > "$R/INSTALL_TERMUX.md" <<'EOF_INSTALL'
 
 1. Сохранить старую папку проекта: mv ~/kira_os ~/kira_os_backup_$(date +%Y%m%d_%H%M%S)
 2. Распаковать: tar -xzf /storage/emulated/0/Download/kira_os_v43.tar.gz -C ~
-3. Собрать образы: cd ~/kira_os && ./build_clang.sh --android
+3. Проверить архив и собрать образы: cd ~/kira_os && bash RELEASE/VERIFY.sh && ./build_clang.sh --android
 
 Свежие kira.iso и kira_disk.img появятся в Download. Старая папка автоматически не удаляется.
 EOF_INSTALL
@@ -57,7 +58,7 @@ cat > "$R/VERIFY.sh" <<'EOF_VERIFY'
 set -euo pipefail
 cd "$(dirname "$0")/.."
 sha256sum -c RELEASE/SHA256SUMS
-for f in build_clang.sh build_arm64.sh grub.cfg arch/x86_64/linker.ld arch/aarch64/linker.ld; do
+for f in build_clang.sh build_arm64.sh grub.cfg arch/x86_64/linker.ld arch/aarch64/linker.ld drivers/index.txt ci/dependency_audit.py docs/DEPENDENCIES.md; do
   test -f "$f" || { echo "missing required file: $f" >&2; exit 1; }
 done
 echo "KIRA OS v43 source archive: verified"
