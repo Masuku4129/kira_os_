@@ -197,12 +197,12 @@ static void stage_clear(void) {
     i64 n = k_file_list(lst, sizeof lst - 1);
     if (n <= 0) return;
     lst[n] = 0;
-    char pre[24];
-    snprintf(pre, sizeof pre, "s-%s-", g_name);
+    /* One staged candidate per sandbox. Clear across process restarts too:
+       g_name is not persistent between separate drvget CLI invocations. */
     for (char *p = lst; *p;) {
         char *e = strchr(p, '\n');
         if (e) *e = 0;
-        if (!strncmp(p, pre, strlen(pre))) k_file_remove(p);
+        if (!strncmp(p, "s-", 2)) k_file_remove(p);
         if (!e) break;
         p = e + 1;
     }
@@ -240,6 +240,9 @@ static const char *cap_text(u32 c) {
 
 /* ---------- install ---------- */
 static int cmd_install(const char *arg) {
+    stage_clear();
+    g_staged_hash[0] = 0;
+    g_staged_url[0] = 0;
     char url[DG_URL_MAX];
     const char *err = "";
     const dg_index_entry_t *pinned = 0;
@@ -283,9 +286,6 @@ static int cmd_install(const char *arg) {
     for (u32 i = 0; i < R.nfile; i++) if (!R.file[i].sha[0]) { sayf("drvget: отказ: исходный файл %s не закреплён SHA-256 в рецепте\n", R.file[i].name); return 1; }
     if (!strstr(arg, "://") && strcmp(arg, R.name)) { sayf("drvget: отказ: запрошен '%s', а рецепт называет драйвер '%s'\n", arg, R.name); return 1; }
     snprintf(g_name, sizeof g_name, "%s", R.name);
-    stage_clear();
-    g_staged_hash[0] = 0;
-    g_staged_url[0] = 0;
 
     dg_hash_t hs;
     dg_set_begin(&hs);
