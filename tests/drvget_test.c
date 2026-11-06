@@ -96,6 +96,30 @@ int main(void) {
     CHECK(dg_hex_prefix(pre, s1) && dg_hex_prefix(hx, s1) && !dg_hex_prefix(pre, s2));
     memcpy(pre, hx, 7); pre[7] = 0; CHECK(!dg_hex_prefix(pre, s1));                      /* короче 8 знаков не принимается */
     memcpy(pre, hx, 8); pre[8] = 0; pre[0] = pre[0] == 'a' ? 'b' : 'a'; CHECK(!dg_hex_prefix(pre, s1));
+
+    /* Strict system driver catalogue parser and exact PCI matching. */
+    const char *catalog =
+        "kira-driver-index 1\n"
+        "# pci VVVV:DDDD name url sha256\n"
+        "pci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
+    dg_index_entry_t ix[DG_INDEX_ENTRIES];
+    uint32_t ixn = 0;
+    CHECK(dg_parse_index(catalog, (uint32_t)strlen(catalog), ix, DG_INDEX_ENTRIES, &ixn, &err) == 0);
+    CHECK(ixn == 1 && ix[0].vendor == 0x10ec && ix[0].device == 0x8139);
+    CHECK(!strcmp(ix[0].name, "rl") && !strcmp(ix[0].url, "https://example.test/rl/drvget.rec") && strlen(ix[0].recipe_sha) == 64);
+    CHECK(dg_index_find_pci(ix, ixn, 0x10ec, 0x8139) == 0);
+    CHECK(dg_index_find_pci(ix, ixn, 0xffff, 0xffff) == -1);
+    CHECK(dg_index_find_name(ix, ixn, "rl") == 0 && dg_index_find_name(ix, ixn, "missing") == -1);
+    const char *bad_catalog[] = {
+        "kira-driver-index 2\npci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        "kira-driver-index 1\npci 10ec:8139 rl http://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        "kira-driver-index 1\npci 10ec:813 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        "kira-driver-index 1\npci 10ec:8139 rl https://example.test/rl/drvget.rec xyz\n",
+        "kira-driver-index 1\npci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\npci 1234:5678 rl https://example.test/other/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+    };
+    for (unsigned i = 0; i < sizeof bad_catalog / sizeof *bad_catalog; i++)
+        CHECK(dg_parse_index(bad_catalog[i], (uint32_t)strlen(bad_catalog[i]), ix, DG_INDEX_ENTRIES, &ixn, &err) != 0);
+
     printf("drvget: https-only URLs, recipe parsing and mutations, license/GPL/binary rejection, set hash, confirmation prefix passed\n");
     return 0;
 }
