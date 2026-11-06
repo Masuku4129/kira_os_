@@ -2,7 +2,7 @@ name: kira
 
 concurrency:
   group: kira-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -150,8 +150,48 @@ jobs:
             ci-out/${{ matrix.scenario }}
             !ci-out/${{ matrix.scenario }}/*.img
 
+  mind-quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Mind temporal holdout and policy regressions
+        run: |
+          set -euo pipefail
+          mkdir -p ci-out
+          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fsanitize=address,undefined -o /tmp/mindnet-quality tests/mindnet_test.c mindnet.c -lm
+          /tmp/mindnet-quality 2>&1 | tee ci-out/mind-quality.log
+          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fsanitize=address,undefined -o /tmp/mind-policy tests/mind_test.c mind.c mindnet.c
+          /tmp/mind-policy 2>&1 | tee -a ci-out/mind-quality.log
+          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fsanitize=address,undefined -o /tmp/mind-levers tests/mind_lever_test.c mind.c mindnet.c
+          /tmp/mind-levers 2>&1 | tee -a ci-out/mind-quality.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-mind-quality
+          path: ci-out/mind-quality.log
+
+  gui-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: GUI geometry, input, redraw and responsive layout regressions
+        run: |
+          set -euo pipefail
+          mkdir -p ci-out
+          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -o /tmp/kira-wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c
+          /tmp/kira-wm 2>&1 | tee ci-out/gui-regression.log
+          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fsanitize=address,undefined -o /tmp/kira-ui tests/ui_test.c gfxui.c gfx2d.c font8x16.c -lm
+          /tmp/kira-ui 2>&1 | tee -a ci-out/gui-regression.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-gui-regression
+          path: ci-out/gui-regression.log
+
   report:
-    needs: [audit, host-tests, build, vm, arm64]
+    needs: [audit, host-tests, build, vm, arm64, mind-quality, gui-regression]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -196,7 +236,7 @@ jobs:
           git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"
 
   package:
-    needs: [audit, host-tests, build, vm, arm64]
+    needs: [audit, host-tests, build, vm, arm64, mind-quality, gui-regression]
     if: success() && github.event_name != 'pull_request' && github.ref_name != 'main' && github.ref_name != 'stable'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
