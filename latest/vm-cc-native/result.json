@@ -1,0 +1,233 @@
+{
+ "name": "cc-native",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "step": "ls /etc/kcc/include",
+   "must": "kira\\.h",
+   "ok": true
+  },
+  {
+   "step": "ls /etc/kcc/include",
+   "must": "stdio\\.h",
+   "ok": true
+  },
+  {
+   "step": "ls /etc/kcc/include",
+   "must": "stdlib\\.h",
+   "ok": true
+  },
+  {
+   "step": "ls /etc/kcc/include",
+   "must": "string\\.h",
+   "ok": true
+  },
+  {
+   "step": "cc hello.c",
+   "must": "использование: cc исходник результат",
+   "ok": true
+  },
+  {
+   "log": "kcc: ok: hello\\.c -> hello, \\d+ байт",
+   "ok": true
+  },
+  {
+   "step": "ls /data/kcc",
+   "must": "hello\\.c",
+   "ok": true
+  },
+  {
+   "step": "ls /data/kcc",
+   "must": "\\d+\\s+hello\\s",
+   "ok": true
+  },
+  {
+   "log": "\\[LOCAL\\] /data/kcc/hello запускается по явной команде пользователя как 'local-hello' без прав",
+   "ok": true
+  },
+  {
+   "log": "native: hello from kcc on Kira",
+   "ok": true
+  },
+  {
+   "log": "native: total=240",
+   "ok": true
+  },
+  {
+   "log": "native: fib20=6765",
+   "ok": true
+  },
+  {
+   "log": "native: sorted gear bolt nut",
+   "ok": true
+  },
+  {
+   "log": "native: reversed=so-arik",
+   "ok": true
+  },
+  {
+   "log": "native: hex=c0ffee",
+   "ok": true
+  },
+  {
+   "log": "native: clock ok",
+   "ok": true
+  },
+  {
+   "log": "native: done",
+   "ok": true
+  },
+  {
+   "log": "bad\\.c:9: error: ",
+   "ok": true
+  },
+  {
+   "log": "\\[LOCAL\\] /data/kcc/bad: ",
+   "ok": true
+  },
+  {
+   "log": "kcc: ok: net\\.c -> net, \\d+ байт",
+   "ok": true
+  },
+  {
+   "log": "net: dns=-12 connect=-12 file=-100",
+   "ok": true
+  },
+  {
+   "log": "net: refused \\(PASS\\)",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CAPS\\] process 'local-net' .* denied, no right CAP_NET",
+   "ok": true
+  },
+  {
+   "log": "kcc: ok: lang\\.c -> lang, \\d+ байт",
+   "ok": true
+  },
+  {
+   "log": "atomic: counter=9 ok1=1 ok2=0 seen=100 xchg=100 sync=42",
+   "ok": true
+  },
+  {
+   "log": "struct: 526 42 -5",
+   "ok": true
+  },
+  {
+   "log": "varargs: 60 45",
+   "ok": true
+  },
+  {
+   "log": "case: zero digit two-digit big",
+   "ok": true
+  },
+  {
+   "log": "elvis: 11 6",
+   "ok": true
+  },
+  {
+   "log": "fmt: \\[   42\\]\\[ab   \\]\\[000ff\\]\\[k\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA CAPS\\] process 'kcc'",
+   "ok": true
+  },
+  {
+   "log_forbid": "NOT refused",
+   "ok": true
+  },
+  {
+   "log_forbid": "native: .*BAD",
+   "ok": true
+  },
+  {
+   "log_forbid": "native: malloc failed",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[IMMUNE\\] /data/kcc/.*отклонён",
+   "ok": true
+  },
+  {
+   "step": "runlocal ../bin/plasma",
+   "must": "\\[LOCAL\\] недопустимое имя файла",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.04,
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.4,
+ "seconds": 70.1,
+ "commands": [
+  {
+   "cmd": "ls /etc/kcc/include",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "cc hello.c",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "ls /data/kcc",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "runlocal ../bin/plasma",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.01
+  }
+ ]
+}
