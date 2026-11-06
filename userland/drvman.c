@@ -315,12 +315,32 @@ static char input[160];
 static int input_len;
 static char job_arg[200];
 
-static void act_find(const char *arg) {
-    if (!*arg) { lg("drvman: введите имя драйвера или адрес https://.../drvget.rec\n"); return; }
+static int act_find(const char *arg) {
+    if (!*arg) { lg("drvman: введите имя или HTTPS-адрес рецепта\n"); return 2; }
     lg("drvman: ищу драйвер «%s» (скачивание по HTTPS, проверка лицензии и хеша)...\n", arg);
     int rc = drvget_find(arg);
     if (rc == 0) lg("drvman: набор готов к установке (F2 или «Установить»: окно подтверждения)\n");
     else lg("drvman: поиск не удался (код %d), ничего не установлено\n", rc);
+    return rc;
+}
+static int parse_pci_arg(const char *s, uint16_t *vendor, uint16_t *device) {
+    if (!s || strlen(s) != 9 || s[4] != ':') return 0;
+    char a[5], b[5]; u8 av[2], bv[2];
+    memcpy(a, s, 4); a[4] = 0; memcpy(b, s + 5, 4); b[4] = 0;
+    if (!dg_hex_parse(a, av, 2) || !dg_hex_parse(b, bv, 2)) return 0;
+    *vendor = (uint16_t)(((uint16_t)av[0] << 8) | av[1]);
+    *device = (uint16_t)(((uint16_t)bv[0] << 8) | bv[1]);
+    return 1;
+}
+static int act_match(const char *arg) {
+    uint16_t vendor, device;
+    if (!parse_pci_arg(arg, &vendor, &device)) { lg("drvman: match требует PCI ID VVVV:DDDD\n"); return 2; }
+    char name[12], url[DG_URL_MAX];
+    int rc = drvget_match_pci(vendor, device, name, sizeof name, url, sizeof url);
+    if (rc < 0) { lg("drvman: системный каталог отсутствует или повреждён\n"); return 1; }
+    if (!rc) { lg("drvman: для PCI %04x:%04x подходящий драйвер не найден\n", vendor, device); return 1; }
+    lg("drvman: PCI %04x:%04x: найден кандидат %s в системном каталоге\n", vendor, device, name);
+    return act_find(url);
 }
 static void act_install(void) {
     const dg_recipe_t *r = drvget_staged();
@@ -371,13 +391,14 @@ static void act_stop(const char *name) {
     lg(w ? "drvman: драйвер %s ещё работает (ядро не завершило процесс за 6 с)\n" : "drvman: драйвер %s остановлен, устройство возвращено ядру\n", name);
 }
 
-enum { J_NONE = 0, J_FIND, J_INSTALL, J_REMOVE, J_START, J_STOP };
+enum { J_NONE = 0, J_FIND, J_MATCH, J_INSTALL, J_REMOVE, J_START, J_STOP };
 static volatile int busy, job_kind;
-static const char *const job_name[] = { "", "поиск и проверка", "сборка и установка", "удаление", "запуск", "остановка" };
+static const char *const job_name[] = { "", "поиск и проверка", "подбор по PCI", "сборка и установка", "удаление", "запуск", "остановка" };
 
 static void run_job(int kind, const char *arg) {
     switch (kind) {
     case J_FIND: act_find(arg); break;
+    case J_MATCH: act_match(arg); break;
     case J_INSTALL: act_install(); break;
     case J_REMOVE: act_remove(arg); break;
     case J_START: act_start(arg); break;
@@ -420,7 +441,7 @@ static void start_job(int kind, const char *arg) {
 #define LOG_Y 410
 #define LOG_ROWS ((H - LOG_Y - 4) / CH)
 typedef struct { int x, w; const char *label; int id; } btn_t;
-enum { B_FIND, B_INSTALL, B_REMOVE, B_START, B_STOP, B_REFRESH };
+enum { B_FIND, B_MATCH, B_INSTALL, B_REMOVE, B_START, B_STOP, B_REFRESH };
 static const btn_t btns[] = {
     { 8, 152, "Найти и показать", B_FIND }, { 168, 96, "Установить", B_INSTALL }, { 272, 72, "Удалить", B_REMOVE },
     { 352, 88, "Запустить", B_START }, { 448, 96, "Остановить", B_STOP }, { 552, 80, "Обновить", B_REFRESH },
@@ -437,6 +458,7 @@ static int btn_enabled(int id) {
     int sp = sel_pkg >= 0 && sel_pkg < npkg;
     switch (id) {
     case B_FIND: return input_len > 0;
+    case B_MATCH: return !busy && !pci_err && sel_dev >= 0 && sel_dev < npci;
     case B_INSTALL: return drvget_staged() != 0;
     case B_REMOVE: return sp && !running(pkg[sel_pkg].name);
     case B_START: return sp && pkg[sel_pkg].state == DGP_OK && !running(pkg[sel_pkg].name);
@@ -543,7 +565,7 @@ static int draw(void) {
     text(10, IN_Y + 3, input, FG, 76);
     if ((k_ticks() / 50) & 1) fill(10 + cols_of(input) * CW, IN_Y + 3, 2, CH - 2, ACCENT);
     for (unsigned i = 0; i < sizeof btns / sizeof *btns; i++) draw_btn(&btns[i], BTN_Y, btn_enabled(btns[i].id));
-    text(6, HINT_Y, "Enter - найти, F2 - установить, F3 - удалить, F4 - запустить, F6 - остановить, F5 - обновить", DIM, 78);
+    text(6, HINT_Y, "Enter - поиск; F7 - подбор PCI; F2 - установка; F3 - удаление; F4 - запуск", DIM, 78);
     /* журнал */
     fill(0, LOG_Y - 4, W, H - LOG_Y + 4, 0x000C1218u);
     k_mutex_lock(&lock);
@@ -586,6 +608,7 @@ static void press(int id) {
     if (!btn_enabled(id)) return;
     switch (id) {
     case B_FIND: start_job(J_FIND, input); break;
+    case B_MATCH: { char id[16] = { 0 }; k_mutex_lock(&lock); if (!pci_err && sel_dev >= 0 && sel_dev < npci) snprintf(id, sizeof id, "%04x:%04x", pci[sel_dev].vendor, pci[sel_dev].device); k_mutex_unlock(&lock); if (*id) start_job(J_MATCH, id); else lg("drvman: сначала выберите устройство PCI\n"); break; }
     case B_INSTALL: confirm_open(); break;
     case B_REMOVE: start_job(J_REMOVE, sel_name()); break;
     case B_START: start_job(J_START, sel_name()); break;
@@ -633,6 +656,7 @@ static void on_key(u32 k, u32 ch, u32 mod) {
     else if (k == KEY_F3) press(B_REMOVE);
     else if (k == KEY_F4) press(B_START);
     else if (k == KEY_F6) press(B_STOP);
+    else if (k == KEY_F7) press(B_MATCH);
     else if (k == KEY_F5) press(B_REFRESH);
     else if (ch >= 32 && ch < 127 && !(mod & MOD_CTRL) && input_len + 1 < (int)sizeof input) { input[input_len++] = (char)ch; input[input_len] = 0; }
 }
@@ -674,6 +698,7 @@ static int run_script(char *s) {
         else if (!strcmp(s, "verify")) { if (drvget_verify(arg)) fails++; }
         else if (!strcmp(s, "list")) drvget_list();
         else if (!strcmp(s, "find")) run_job(J_FIND, arg);
+        else if (!strcmp(s, "match")) { if (act_match(arg)) fails++; }
         else if (!strcmp(s, "install")) { run_job(J_INSTALL, ""); }
         else if (!strcmp(s, "remove")) run_job(J_REMOVE, arg);
         else if (!strcmp(s, "start")) run_job(J_START, arg);
