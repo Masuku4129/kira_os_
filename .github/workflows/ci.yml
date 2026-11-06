@@ -1,19 +1,39 @@
 name: kira
 
+concurrency:
+  group: kira-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 on:
   push:
-    paths-ignore: ['docs/**', '**.md']        # только документы - стенд не нужен
+    paths-ignore: ['docs/**', '**.md']
   pull_request:
   workflow_dispatch:
 
 jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: repository inventory, shell/Python syntax and architecture gaps
+        run: python3 ci/audit_inventory.py --out ci-out/audit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-audit
+          path: ci-out/audit/
+
   host-tests:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - name: lint (заглушки в новых строках)
-        if: github.ref_name != 'main' && github.ref_name != 'stable'
+      - name: lint (new lines)
         run: |
           git fetch -q origin stable main || true
           ci/lint.sh
@@ -32,6 +52,7 @@ jobs:
 
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: tools
@@ -54,12 +75,21 @@ jobs:
 
   arm64:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld llvm qemu-system-arm dosfstools mtools python3-pil python3-cryptography ca-certificates openssl
       - name: build ARM64 (clang, -Werror)
         run: ./build_arm64.sh && ci/make_flash.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-arm64-image
+          path: |
+            kira-arm64.img
+            kira-arm64.disk
+          if-no-files-found: ignore
       - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"
         run: |
           set -o pipefail
@@ -73,6 +103,7 @@ jobs:
   vm:
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -109,19 +140,28 @@ jobs:
             ci-out/${{ matrix.scenario }}
             !ci-out/${{ matrix.scenario }}/*.img
 
-  # Итоги - в ветку ci-results (одна свежая копия): журналы и снимки читаются через git, без хранилища артефактов.
   report:
-    needs: [host-tests, build, vm, arm64]
+    needs: [audit, host-tests, build, vm, arm64]
     if: always()
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
+        if: always()
+        continue-on-error: true
         with:
           pattern: vm-*
           path: results
+      - uses: actions/download-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: kira-audit
+          path: results/audit
       - name: publish to ci-results
+        if: github.event_name != 'pull_request'
         run: |
           set -e
           mkdir pub && cd pub
@@ -134,7 +174,7 @@ jobs:
           {
             echo "# Прогон ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
             echo
-            echo "host-tests: ${{ needs.host-tests.result }}, build: ${{ needs.build.result }}, vm: ${{ needs.vm.result }}, arm64: ${{ needs.arm64.result }}"
+            echo "audit: ${{ needs.audit.result }}, host-tests: ${{ needs.host-tests.result }}, build: ${{ needs.build.result }}, vm: ${{ needs.vm.result }}, arm64: ${{ needs.arm64.result }}"
             echo
             for r in latest/vm-*/result.json latest/vm-arm64/*/result.json; do
               python3 -c "import json,sys; r=json.load(open(sys.argv[1])); print(('OK  ' if r['ok'] else 'FAIL'), r['name'], r.get('seconds'), 'с', '' if r['ok'] else '- ' + (r.get('error') or '').splitlines()[0][:300])" "$r" || true
@@ -144,3 +184,37 @@ jobs:
           git add -A
           git commit -q -m "ci: ${GITHUB_SHA::7}"
           git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"
+
+  package:
+    needs: [audit, host-tests, build, vm, arm64]
+    if: success() && github.event_name != 'pull_request' && github.ref_name != 'main' && github.ref_name != 'stable'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vm-*
+          path: ci-out/results
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-audit
+          path: ci-out/audit
+      - name: create installable source update
+        env:
+          HOST_RESULT: ${{ needs.host-tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          VM_RESULT: ${{ needs.vm.result }}
+          ARM64_RESULT: ${{ needs.arm64.result }}
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash ci/package_update.sh origin/main ci-out/package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-os-update-${{ github.sha }}
+          path: |
+            ci-out/package/KIRA_OS_Update.tar.gz
+            ci-out/package/KIRA_OS_Update.tar.gz.sha256
