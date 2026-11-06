@@ -1,0 +1,143 @@
+{
+ "name": "mind-levers",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "13\\. вес окна в фокусе: 6 /4 \\(обычно 6\\)",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "18\\. период тактики: 25 мс \\(обычно 25\\)",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "26\\. опережение звука перед картой: 100 мс \\(обычно 100\\)",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "28\\. предел одного запроса к диску: 256 блоков",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "30\\. окно предела доли процессора: 50 тиков",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] рычаг 26 «опережение звука перед картой»: пробую \\d+ мс вместо 100 \\(причина: ",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] рычаг 26 «опережение звука перед картой»: (оставлено|откат на|срочный откат) ",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "26\\. опережение звука перед картой: \\d+ мс \\(обычно 100\\) - [^\\n]*проб [1-9]",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "смен значений за запуск [1-9]",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.04,
+   "ok": true
+  },
+  {
+   "step": "ai why",
+   "must": ".",
+   "ok": true
+  },
+  {
+   "step": "ai save",
+   "must": "опыт записан",
+   "ok": true
+  },
+  {
+   "step": "ls /var",
+   "must": "mind\\.dat",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.2,
+ "seconds": 168.0,
+ "commands": [
+  {
+   "cmd": "ai levers",
+   "seconds": 0.08
+  },
+  {
+   "cmd": "ai levers",
+   "seconds": 0.06
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "ai why",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "ai save",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "ls /var",
+   "seconds": 0.01
+  }
+ ]
+}
