@@ -87,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends clang lld llvm qemu-system-arm dosfstools mtools python3-pil python3-cryptography ca-certificates openssl
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends clang lld llvm qemu-system-arm ipxe-qemu dosfstools mtools python3-pil python3-cryptography ca-certificates openssl
       - name: build ARM64 (clang, -Werror)
         run: ./build_arm64.sh && ci/make_flash.sh
       - uses: actions/upload-artifact@v4
@@ -128,7 +128,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm || true
       - name: QEMU
-        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends qemu-system-x86 dosfstools mtools python3-pil python3-cryptography openssl
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends qemu-system-x86 ipxe-qemu dosfstools mtools python3-pil python3-cryptography openssl
       - name: kfstool (test files on the VM disk)
         run: gcc -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
       - name: mindseed (испытательное семя для сценария mind-seed - не результат обучения)
