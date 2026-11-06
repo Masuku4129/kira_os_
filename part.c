@@ -3,11 +3,11 @@
 static uint32_t rd32(const uint8_t* p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 static uint64_t rd64(const uint8_t* p) { return (uint64_t)rd32(p) | (uint64_t)rd32(p + 4) << 32; }
 
-static uint32_t crc32(const uint8_t* p, uint32_t n) {
-    uint32_t c = 0xFFFFFFFFu;
+static uint32_t crc32_update(uint32_t c, const uint8_t* p, uint32_t n) {
     while (n--) { c ^= *p++; for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); }
-    return ~c;
+    return c;
 }
+static uint32_t crc32(const uint8_t* p, uint32_t n) { return ~crc32_update(0xFFFFFFFFu, p, n); }
 
 /* Загрузочный сектор FAT с нулевого сектора (без таблицы разделов). */
 static int looks_fat(const uint8_t* b) {
@@ -23,31 +23,50 @@ static const uint8_t basic_data[16] = { 0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33
 
 static int scan_gpt(blk_dev_t* dev, part_t* out, int max) {
     static uint8_t h[512], e[512];
-    if (dev->read(dev, 1, 1, h) != 0) return 0;
+    if (!dev || !dev->read || dev->sectors < 2 || dev->read(dev, 1, 1, h) != 0) return 0;
     if (h[0] != 'E' || h[1] != 'F' || h[2] != 'I' || h[3] != ' ' || h[4] != 'P' || h[5] != 'A' || h[6] != 'R' || h[7] != 'T') return 0;
     uint32_t hsize = rd32(h + 12);
     if (hsize < 92 || hsize > 512) return 0;
     uint32_t want = rd32(h + 16); h[16] = h[17] = h[18] = h[19] = 0;
     if (crc32(h, hsize) != want) return 0;
-    uint64_t lba = rd64(h + 72); uint32_t n = rd32(h + 80), esz = rd32(h + 84);
-    if (esz < 128 || esz > 512 || (esz & (esz - 1)) || n > 1024) return 0;
+
+    uint64_t current = rd64(h + 24), backup = rd64(h + 32);
+    uint64_t first_usable = rd64(h + 40), last_usable = rd64(h + 48);
+    uint64_t lba = rd64(h + 72);
+    uint32_t n = rd32(h + 80), esz = rd32(h + 84), entries_crc = rd32(h + 88);
+    if (current != 1 || backup <= current || backup >= dev->sectors ||
+        first_usable < 2 || first_usable > last_usable || last_usable >= backup) return 0;
+    if (esz < 128 || esz > 512 || (esz & (esz - 1)) || !n || n > 1024) return 0;
+
+    uint64_t bytes = (uint64_t)n * esz;
+    uint64_t sectors = (bytes + 511) / 512;
+    if (lba < 2 || lba >= first_usable || sectors > first_usable - lba) return 0;
+
+    uint32_t crc = 0xFFFFFFFFu;
     int found = 0;
-    for (uint32_t i = 0; i < n && found < max; i++) {
+    for (uint32_t i = 0; i < n; i++) {
         uint64_t off = (uint64_t)i * esz;
-        if (off % 512 == 0 && dev->read(dev, lba + off / 512, 1, e) != 0) return found;
+        uint64_t sector = off / 512;
+        if ((off % 512) == 0) {
+            if (dev->read(dev, lba + sector, 1, e) != 0) return 0;
+            uint64_t remain = bytes - sector * 512;
+            uint32_t chunk = remain > 512 ? 512 : (uint32_t)remain;
+            crc = crc32_update(crc, e, chunk);
+        }
         const uint8_t* p = e + off % 512;
         int same = 1; for (int k = 0; k < 16; k++) if (p[k] != basic_data[k]) same = 0;
         uint64_t first = rd64(p + 32), last = rd64(p + 40);
-        if (!same || !first || last < first || last >= dev->sectors) continue;
-        out[found++] = (part_t){ first, last - first + 1, 0, 1 };
+        if (!same || first < first_usable || last < first || last > last_usable || last >= dev->sectors) continue;
+        if (found < max) out[found++] = (part_t){ first, last - first + 1, 0, 1 };
     }
+    if (~crc != entries_crc) return 0;
     return found;
 }
 
 int part_scan(blk_dev_t* dev, const uint8_t* b, part_t* out, int max) {
-    if (b[510] != 0x55 || b[511] != 0xAA) return 0;
+    if (!dev || !dev->read || !b || !out || max <= 0 || b[510] != 0x55 || b[511] != 0xAA) return 0;
     int found = 0, protective = 0, valid_table = 1, any = 0;
-    for (int i = 0; i < 4; i++) {                                      /* таблица правдоподобна? */
+    for (int i = 0; i < 4; i++) {
         const uint8_t* p = b + 446 + i * 16;
         if (p[0] != 0x00 && p[0] != 0x80) valid_table = 0;
         if (p[4]) any = 1;
@@ -63,6 +82,6 @@ int part_scan(blk_dev_t* dev, const uint8_t* b, part_t* out, int max) {
         }
         if (found) return found;
     }
-    if (looks_fat(b)) { out[0] = (part_t){ 0, dev->sectors, 0, 0 }; return 1; }   /* суперфлоппи */
+    if (looks_fat(b)) { out[0] = (part_t){ 0, dev->sectors, 0, 0 }; return 1; }
     return 0;
 }

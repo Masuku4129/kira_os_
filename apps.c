@@ -522,7 +522,7 @@ void app_files_draw(surface_t* s, const exp_view_t* e, const app_hit_t* hover, i
         char a[24], b[24]; app_fmt_kb(a, e->total_kb - e->free_kb); app_fmt_kb(b, e->total_kb);
         p = cat(t, 0, "KiraFS · занято "); p = cat(t, p, a); p = cat(t, p, " из "); p = cat(t, p, b);
         p = cat(t, p, " · объектов "); p = cat_u(t, p, e->files);
-        if (e->nvol) { p = cat(t, p, " · флешек "); cat_u(t, p, e->nvol); }
+        if (e->nvol) { p = cat(t, p, " · флешек "); p = cat_u(t, p, e->nvol); if (e->rovol) { p = cat(t, p, " · только чтение "); cat_u(t, p, e->rovol); } }
     } else cat(t, 0, "Диск с KiraFS не подключён: проводнику нечего показать");
     ui_text_fit(s, 42, 10, t, APP_FILES_W - 42 - 2 * BTN_W - 40, e->mounted ? TH_TEXT_DIM : TH_AMBER);
     int rx = APP_FILES_W - TH_GAP - BTN_W;

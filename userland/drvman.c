@@ -22,15 +22,15 @@ KIRA_ENTRY()
 #define H 560
 #define CW FONT_W
 #define CH FONT_H
-#define BG      0x00101820u
-#define PANEL   0x00182430u
-#define BAR_BG  0x00203040u
-#define FG      0x00E0E8F0u
-#define DIM     0x008899AAu
-#define ACCENT  0x0042A5F5u
-#define GREEN   0x0066BB6Au
-#define AMBER   0x00FFB300u
-#define RED     0x00FF5252u
+#define BG      0x00080F1Cu
+#define PANEL   0x00132135u
+#define BAR_BG  0x000D1727u
+#define FG      0x00F0F4FAu
+#define DIM     0x00AAB9CCu
+#define ACCENT  0x005EDCF5u
+#define GREEN   0x0054D6A5u
+#define AMBER   0x00F4C46Bu
+#define RED     0x00FF7C86u
 #define NOBG    0xFFFFFFFFu
 #define DEV_ROWS 7                                        /* строк списка устройств на экране */
 #define PKG_ROWS 2                                        /* пакетов на экране (по 4 строки) */
@@ -487,7 +487,7 @@ static void draw_confirm(void) {
     text(x, y, b, FG, 66); y += CH;
     snprintf(b, sizeof b, "файлов: %u, главный %s", (unsigned)r->nfile, r->main_file);
     text(x, y, b, FG, 66); y += CH;
-    snprintf(b, sizeof b, "SHA-256 набора:");
+    snprintf(b, sizeof b, "SHA-256 набора (не подпись издателя):");
     text(x, y, b, DIM, 66); y += CH;
     snprintf(hx, sizeof hx, "%s", drvget_staged_hash());
     text(x, y, hx, AMBER, 66); y += CH + 6;
@@ -601,6 +601,7 @@ static void confirm_open(void) {                           /* окно подт�
     lg("drvman: подтверждение: источник %s\n", drvget_staged_url());
     lg("drvman: подтверждение: лицензия %s, права: %s\n", r->license, cs);
     lg("drvman: подтверждение: SHA-256 набора %s\n", drvget_staged_hash());
+    lg("drvman: предупреждение: цифровой подписи издателя нет; SHA-256 сверяется только с локальной записью и не доказывает автора\n");
     if (r->caps & CAP_DMA) lg("drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память\n");
 }
 

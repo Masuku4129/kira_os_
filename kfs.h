@@ -22,7 +22,7 @@ enum { KFS_FILE = 1, KFS_DIR = 2 };
 enum {
     KFS_OK = 0, KFS_ERR_IO = -1, KFS_ERR_NOENT = -2, KFS_ERR_EXIST = -3, KFS_ERR_NOTDIR = -4, KFS_ERR_ISDIR = -5,
     KFS_ERR_NOSPC = -6, KFS_ERR_INVAL = -7, KFS_ERR_NOTEMPTY = -8, KFS_ERR_FBIG = -9, KFS_ERR_CORRUPT = -10,
-    KFS_ERR_NAMETOOLONG = -11, KFS_ERR_NOFS = -12
+    KFS_ERR_NAMETOOLONG = -11, KFS_ERR_NOFS = -12, KFS_ERR_RO = -13
 };
 
 typedef struct { uint32_t type; uint64_t size; uint32_t ino; } kfs_stat_t;

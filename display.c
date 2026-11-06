@@ -299,15 +299,26 @@ static int run_prev_n;
 
 /* Журнал появления и исчезновения значков: по нему стенд проверяет док без снимков. */
 static void dock_log_changes(char (*run)[16], int nrun) {
+    char line[160]; int p;
     for (int i = 0; i < nrun; i++) {
         int seen = 0; for (int k = 0; k < run_prev_n; k++) if (streq(run_prev[k], run[i])) seen = 1;
         if (seen) continue;
-        uart_print("[KIRA DOCK] открыта: "); uart_print(run[i]); uart_print(" «"); uart_print(app_label(run[i])); uart_print(dock_find(&dock, run[i]) >= 0 ? "» (закреплена)\n" : "» (временный значок)\n");
+        p = scpy(line, 0, "[KIRA DOCK] открыта: ", sizeof line);
+        p = scpy(line, p, run[i], sizeof line);
+        p = scpy(line, p, " «", sizeof line);
+        p = scpy(line, p, app_label(run[i]), sizeof line);
+        scpy(line, p, dock_find(&dock, run[i]) >= 0 ? "» (закреплена)\n" : "» (временный значок)\n", sizeof line);
+        uart_print(line); /* одна строка под uart_lock: пользовательский вывод не вклинивается */
     }
     for (int k = 0; k < run_prev_n; k++) {
         int seen = 0; for (int i = 0; i < nrun; i++) if (streq(run_prev[k], run[i])) seen = 1;
         if (seen) continue;
-        uart_print("[KIRA DOCK] закрыта: "); uart_print(run_prev[k]); uart_print(" «"); uart_print(app_label(run_prev[k])); uart_print(dock_find(&dock, run_prev[k]) >= 0 ? "» (значок остаётся: закреплена)\n" : "» (значок убран)\n");
+        p = scpy(line, 0, "[KIRA DOCK] закрыта: ", sizeof line);
+        p = scpy(line, p, run_prev[k], sizeof line);
+        p = scpy(line, p, " «", sizeof line);
+        p = scpy(line, p, app_label(run_prev[k]), sizeof line);
+        scpy(line, p, dock_find(&dock, run_prev[k]) >= 0 ? "» (значок остаётся: закреплена)\n" : "» (значок убран)\n", sizeof line);
+        uart_print(line);
     }
     run_prev_n = nrun;
     for (int i = 0; i < nrun; i++) scpy(run_prev[i], 0, run[i], 16);

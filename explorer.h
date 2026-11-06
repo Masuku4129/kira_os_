@@ -15,8 +15,8 @@ typedef struct {
     int32_t  mounted;                 /* 0 - диска с KiraFS нет */
     uint32_t total_kb, free_kb, files;
     /* подключённые тома (флешки): каталоги /usbN в корне */
-    uint32_t nvol;
-    struct { char name[8]; char label[20]; uint32_t total_kb; } vol[EXP_VOLS];
+    uint32_t nvol, rovol;
+    struct { char name[8]; char label[20]; uint32_t total_kb; uint8_t read_only; } vol[EXP_VOLS];
     /* быстрый доступ: содержимое /var/dock, прочитанное при запуске потока */
     uint8_t  dock_loaded;             /* 1 - чтение было (файла может не быть: dock_len = -1) */
     int32_t  dock_len;

@@ -999,6 +999,7 @@ const char* kfs_strerror(int e) {
     case KFS_ERR_CORRUPT: return "файловая система повреждена";
     case KFS_ERR_NAMETOOLONG: return "имя слишком длинное";
     case KFS_ERR_NOFS: return "на диске нет файловой системы Киры";
+    case KFS_ERR_RO: return "том подключён только для чтения";
     default: return "ошибка";
     }
 }

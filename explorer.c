@@ -87,11 +87,13 @@ static void rebuild_info(void) {
     W.mounted = vfs_any();
     static vfs_info_t mi[VFS_MAX];
     int nm = vfs_mounts(mi, VFS_MAX);
-    W.nvol = 0;
+    W.nvol = W.rovol = 0;
     for (int k = 0; k < nm && k < EXP_VOLS; k++) {
         scpy(W.vol[k].name, mi[k].name, sizeof W.vol[k].name);
         scpy(W.vol[k].label, mi[k].label[0] ? mi[k].label : mi[k].desc, sizeof W.vol[k].label);
         W.vol[k].total_kb = (uint32_t)(mi[k].total_kb > 0xFFFFFFFFu ? 0xFFFFFFFFu : mi[k].total_kb);
+        W.vol[k].read_only = (uint8_t)(mi[k].read_only != 0);
+        if (mi[k].read_only) W.rovol++;
         W.nvol++;
     }
     W.total_kb = W.free_kb = W.files = 0;

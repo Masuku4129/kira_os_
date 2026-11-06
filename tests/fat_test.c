@@ -184,20 +184,46 @@ static void one_fs(const char* tag, const char* mkfs_args, unsigned kb, int expe
     free(v); free(l); if (partitioned) free(disk); free(raw);
 }
 
+static uint32_t test_crc32(const uint8_t* p, uint32_t n) {
+    uint32_t c = 0xFFFFFFFFu;
+    while (n--) { c ^= *p++; for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); }
+    return ~c;
+}
+static void gpt_seal(uint8_t* h, const uint8_t* entries, uint32_t bytes) {
+    uint32_t ec = test_crc32(entries, bytes); memcpy(h + 88, &ec, 4);
+    memset(h + 16, 0, 4); uint32_t hc = test_crc32(h, 92); memcpy(h + 16, &hc, 4);
+}
 static void gpt_test(void) {
     static uint8_t d[512 * 200];
     memset(d, 0, sizeof d);
-    uint8_t* p = d + 446; p[4] = 0xEE; uint32_t one = 1, cnt = 199; memcpy(p + 8, &one, 4); memcpy(p + 12, &cnt, 4); d[510] = 0x55; d[511] = 0xAA;
-    uint8_t* h = d + 512; memcpy(h, "EFI PART", 8); uint32_t hs = 92; memcpy(h + 12, &hs, 4);
-    uint64_t ents = 2; memcpy(h + 72, &ents, 8); uint32_t n = 4, esz = 128; memcpy(h + 80, &n, 4); memcpy(h + 84, &esz, 4);
+    uint8_t* mbr = d + 446; mbr[4] = 0xEE; uint32_t one = 1, cnt = 199;
+    memcpy(mbr + 8, &one, 4); memcpy(mbr + 12, &cnt, 4); d[510] = 0x55; d[511] = 0xAA;
+    uint8_t* h = d + 512; memcpy(h, "EFI PART", 8);
+    uint32_t hs = 92, n = 4, esz = 128; memcpy(h + 12, &hs, 4);
+    uint64_t current = 1, backup = 199, first_usable = 34, last_usable = 180, ents = 2;
+    memcpy(h + 24, &current, 8); memcpy(h + 32, &backup, 8);
+    memcpy(h + 40, &first_usable, 8); memcpy(h + 48, &last_usable, 8);
+    memcpy(h + 72, &ents, 8); memcpy(h + 80, &n, 4); memcpy(h + 84, &esz, 4);
     static const uint8_t bd[16] = { 0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44, 0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7 };
-    uint8_t* e = d + 1024 + 128; memcpy(e, bd, 16); uint64_t f = 40, l = 150; memcpy(e + 32, &f, 8); memcpy(e + 40, &l, 8);
-    uint32_t c = 0xFFFFFFFFu; for (uint32_t i = 0; i < hs; i++) { c ^= h[i]; for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); } c = ~c; memcpy(h + 16, &c, 4);
-    memdev_t m = { d, 200, 0 }; blk_dev_t dev = mkdev(&m);
-    part_t pt[PART_MAX];
+    uint8_t* e = d + 1024 + 128; memcpy(e, bd, 16);
+    uint64_t f = 40, l = 150; memcpy(e + 32, &f, 8); memcpy(e + 40, &l, 8);
+    gpt_seal(h, d + 1024, 512);
+
+    memdev_t m = { d, 200, 0 }; blk_dev_t dev = mkdev(&m); part_t pt[PART_MAX];
     CHECK(part_scan(&dev, d, pt, PART_MAX) == 1 && pt[0].start == 40 && pt[0].count == 111 && pt[0].gpt);
-    h[20] ^= 1; CHECK(part_scan(&dev, d, pt, PART_MAX) == 0);                    /* CRC не сошлась */
-    printf("  partitions: GPT basic data with header CRC, broken GPT rejected\n");
+
+    e[32] ^= 1; CHECK(part_scan(&dev, d, pt, PART_MAX) == 0); e[32] ^= 1;
+    h[20] ^= 1; CHECK(part_scan(&dev, d, pt, PART_MAX) == 0); h[20] ^= 1;
+
+    f = 20; memcpy(e + 32, &f, 8); gpt_seal(h, d + 1024, 512);
+    CHECK(part_scan(&dev, d, pt, PART_MAX) == 0);
+    f = 40; memcpy(e + 32, &f, 8); gpt_seal(h, d + 1024, 512);
+
+    uint64_t bad_lba = UINT64_MAX - 1; memcpy(h + 72, &bad_lba, 8); gpt_seal(h, d + 1024, 512);
+    CHECK(part_scan(&dev, d, pt, PART_MAX) == 0);
+    memcpy(h + 72, &ents, 8); gpt_seal(h, d + 1024, 512);
+    CHECK(part_scan(&dev, d, pt, PART_MAX) == 1);
+    printf("  partitions: GPT header + entry CRC, usable-range and LBA bounds passed\n");
 }
 
 int main(void) {
@@ -236,10 +262,21 @@ int main(void) {
         CHECK(vfs_flush(0) == 0); vfs_unmount(0);
         CHECK(vfs_generation() != g && vfs_read("/usb0/Фото с телефона.txt", 0, b, 32) == KFS_ERR_NOFS);
         l->n = 0; CHECK(vfs_list("/", lcb, l) == 0 && !has(l, "usb0", KFS_DIR));
+
+        memset(fv, 0, sizeof *fv); CHECK(fat_mount(fv, &fd, 0, len / 512) == 0);
+        CHECK(vfs_mount_fat_ro(fv, "read-only test") == 0);
+        CHECK(vfs_mounts(mi, VFS_MAX) == 1 && mi[0].read_only);
+        uint8_t* before = malloc(len); CHECK(before); memcpy(before, raw, len);
+        CHECK(vfs_read("/usb0/Фото с телефона.txt", 0, b, 32) == 10 && !memcmp(b, "flash data", 10));
+        CHECK(vfs_write("/usb0/no-write.txt", "x", 1) == KFS_ERR_RO);
+        CHECK(vfs_mkdir("/usb0/no-dir") == KFS_ERR_RO);
+        CHECK(vfs_unlink("/usb0/Фото с телефона.txt") == KFS_ERR_RO);
+        CHECK(vfs_flush(0) == 0 && !memcmp(before, raw, len));
+        vfs_unmount(0); free(before);
         save(img, raw, len);
         snprintf(cmd2, sizeof cmd2, "%s -n %s >/dev/null 2>&1", fsck, img); CHECK(system(cmd2) == 0);
         free(l); free(fv); free(raw); free(km.m);
-        printf("  vfs: KiraFS root + /usb0 FAT volume, copy across, unmount, fsck clean\n");
+        printf("  vfs: KiraFS root, writable test volume, USB read-only policy, unmount, fsck clean\n");
     }
     char cmd[300]; snprintf(cmd, sizeof cmd, "rm -rf %s", dirt); system(cmd);
     printf("fat: FAT12/16/32 cross-checked with dosfstools and mtools passed\n");

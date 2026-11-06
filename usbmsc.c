@@ -189,7 +189,7 @@ static void mount(msc_t* m) {
         if (k) desc[k++] = ' ';
         for (const char* p = m->product; *p && k < 46; p++) desc[k++] = *p;
         desc[k] = 0;
-        m->vol = vfs_mount_fat(&m->fat, desc);
+        m->vol = vfs_mount_fat_ro(&m->fat, desc);
         if (m->vol < 0) { usb_log("[KIRA USB] storage: no free mount point (4 volumes max)\n"); return; }
         usb_log("[KIRA USB] storage: FAT"); usb_log_dec((uint64_t)m->fat.type);
         if (m->fat.label[0]) { usb_log(" '"); usb_log(m->fat.label); usb_log("'"); }
