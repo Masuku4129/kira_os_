@@ -29,6 +29,7 @@ typedef struct {
     gfx_event_t q[EVQ];
     volatile uint32_t qh, qt;         /* пишет поток дисплея, читает системный вызов */
     uint64_t last_present;            /* тик последнего кадра (темп фоновых окон) */
+    volatile int hidden;              /* окно свёрнуто/невидимо (публикует поток дисплея) */
 } app_t;
 
 static app_t apps[MAX_APPS];
@@ -100,6 +101,13 @@ int64_t gfx_sys_present(uint32_t pid) {
     app_t* a = find_pid(pid);
     if (!a) return -1;
     uint32_t per = __atomic_load_n(&bg_period, __ATOMIC_ACQUIRE);
+    /* Окно не в фокусе всегда ограничено (не только когда экран опаздывает): его кадры копирует и собирает экран, а видит их человек
+       мельком. Невидимое (свёрнутое) окно - ещё реже. Разум может установить предел и ниже. */
+    const uint32_t bg_floor = TIMER_HZ / 20, hid_floor = TIMER_HZ / 4;
+    if (gfx_focus_pid() != (int)pid) {
+        uint32_t fl = __atomic_load_n(&a->hidden, __ATOMIC_ACQUIRE) ? hid_floor : bg_floor;
+        if (per < fl) per = fl;
+    }
     if (per && gfx_focus_pid() != (int)pid) {
         uint64_t due = a->last_present + per, now = timer_get_ticks();
         if (now < due && !proc_dying()) sched_sleep_ticks((uint32_t)(due - now));
@@ -182,6 +190,7 @@ void gfx_server_run(void) {
                 wm_set_frame_seq(a->win, &a->seq); wm_raise(a->win);
             }
         }
+        if (a->win >= 0) __atomic_store_n(&a->hidden, !wm_visible(a->win), __ATOMIC_RELEASE);
         if (a->dirty && a->win >= 0) { a->dirty = 0; wm_invalidate(a->win); }
     }
     const app_t* top = find_win(wm_top());
