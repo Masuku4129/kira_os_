@@ -305,6 +305,7 @@ void ui_card(surface_t* s, int x, int y, int w, int h, const char* title, uint32
     if (title) {
         gfx_rect(s, x + 12, y + 11, 3, 12, accent);
         gfx_text(s, x + 21, y + 9, title, TH_TEXT_FAINT, -1);
+        if (h > 44 && w > 40) ui_vgrad(s, x + 12, y + 29, w - 24, 1, accent, TH_CARD_EDGE);
     }
 }
 

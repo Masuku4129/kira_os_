@@ -878,8 +878,9 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     uint32_t accent = accent_of(w);
     if (focused && !w->pinned) ui_glow(c, x, y, ow, oh, PANEL_R, WM_GLOW, accent, 150);
     ui_round_rect(c, x, y, ow, oh, PANEL_R, TH_PANEL1, 255);
-    ui_round_rect(c, x, y, ow, WM_HEAD, PANEL_R, TH_PANEL0, 255);              /* заголовок светлее */
-    gfx_rect(c, x + 1, y + PANEL_R, ow - 2, WM_HEAD - PANEL_R, TH_PANEL0);
+    ui_round_rect(c, x, y, ow, WM_HEAD, PANEL_R, TH_PANEL0, 255);
+    ui_vgrad(c, x + 1, y + PANEL_R, ow - 2, WM_HEAD - PANEL_R,
+             focused ? TH_PANEL0 : ui_mix(TH_PANEL0, TH_PANEL1, 48), TH_PANEL1); /* заголовок отделён мягким градиентом */
     for (int i = 0; i < ow - 2 * PANEL_R; i++) {                                 /* неоновая черта под заголовком: к краям гаснет */
         int e = i < (ow - 2 * PANEL_R) / 2 ? i : ow - 2 * PANEL_R - 1 - i;       /* расстояние до ближайшего края */
         unsigned fade = e >= 40 ? 256u : (unsigned)e * 256u / 40u;
@@ -948,6 +949,7 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         if (i == act) {
             ui_round_rect(c, tx, y + 7, tw, TAB_H, 7, TH_CYAN, 46);
             ui_round_frame(c, tx, y + 7, tw, TAB_H, 7, TH_CYAN, 120);
+            ui_round_rect(c, tx + 10, y + WM_TOP_H - 4, tw - 20, 2, 1, TH_CYAN, 230);
         } else if (i == tab_hover) ui_round_rect(c, tx, y + 7, tw, TAB_H, 7, TH_CYAN, 20);
         gfx_text(c, tx + 11, y + 12, tabs[i].label, i == act ? TH_CYAN : (i == tab_hover ? TH_TEXT : TH_TEXT_DIM), -1);
     }
