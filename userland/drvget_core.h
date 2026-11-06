@@ -43,4 +43,17 @@ void dg_set_end(dg_hash_t* h, uint8_t out[32]);
 void dg_hex(const uint8_t* d, int n, char* out);                 /* 2n знаков и нуль */
 int  dg_hex_prefix(const char* typed, const uint8_t sha[32]);    /* 1 - typed (>= 8 знаков hex) - начало хеша */
 int  dg_hex_parse(const char* s, uint8_t* out, int n);           /* 1 - ровно 2n знаков */
+
+#define DG_INDEX_MAX 4096u
+#define DG_INDEX_ENTRIES 32u
+typedef struct {
+    uint16_t vendor, device;
+    char name[12];
+    char url[DG_URL_MAX];
+    char recipe_sha[65];
+} dg_index_entry_t;
+int dg_parse_index(const char *text, uint32_t len, dg_index_entry_t *out, uint32_t cap, uint32_t *count, const char **err);
+int dg_index_find_pci(const dg_index_entry_t *entries, uint32_t count, uint16_t vendor, uint16_t device);
+int dg_index_find_name(const dg_index_entry_t *entries, uint32_t count, const char *name);
+
 #endif
