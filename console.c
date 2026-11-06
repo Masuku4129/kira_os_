@@ -506,6 +506,7 @@ static void cmd_ai(const char* arg) {
     while (*arg == ' ') arg++;
     if (!*arg) { mind_sys_print(""); return; }
     if (word_eq(arg, "why")) { mind_sys_print("why"); return; }
+    if (word_eq(arg, "forecast")) { mind_sys_print("forecast"); return; }
     if (word_eq(arg, "norms")) { mind_sys_print("norms"); return; }
     if (word_eq(arg, "procs")) { mind_sys_print("procs"); return; }
     if (word_eq(arg, "model")) { mind_sys_print("model"); return; }
@@ -631,7 +632,7 @@ static const cmd_t cmds[] = {
     { "exp",       'e', "опыт: выученная норма, запуски, поколение на диске", cmd_exp },
     { "save",      'v', "сохранить опыт на диск сейчас", cmd_save },
     { "life",      0,   "журнал организма из /var/life.log", cmd_life },
-    { "ai",        'm', "Разум: здоровье, решения (ai why), нормы (ai norms), программы (ai procs), режим", cmd_ai },
+    { "ai",        'm', "Разум: состояние, прогноз (ai forecast), решения, нормы, программы, режим", cmd_ai },
     { "usb",       0,   "USB: дерево устройств, флешки; usb allow - вернуть отключённые клавиатуры", cmd_usb },
     { "telemetry", 0,   "telemetry on|off: построчная телеметрия на экране (по умолчанию только serial)", cmd_telemetry },
     { "test",      't', "проверки системы: test - список, test имя - запуск", cmd_test },

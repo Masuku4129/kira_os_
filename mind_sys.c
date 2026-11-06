@@ -570,6 +570,18 @@ void mind_sys_print(const char* what) {
         uart_print("  смен значений за запуск "); uart_print_dec(v->lv_changes); uart_print(", общих откатов "); uart_print_dec(v->lv_general);
         if (v->lv_seed) uart_print("; стартовые подсказки взяты из семени опыта (получено в QEMU)");
         uart_print("\n\n");
+    } else if (what[0] == 'f') {                            /* forecast: качество и объяснение текущего прогноза */
+        uart_print("\n[MIND] прогноз на следующую секунду\n  риск опоздания экрана: ");
+        uart_print_dec(v->risk); uart_print("%\n  главная причина: ");
+        uart_print(v->risk_why >= 0 ? mind_feature_name(v->risk_why) : "пока не определена");
+        uart_print("\n  статус модели: "); uart_print(v->net_trusted ? "допущена к упреждению" : "недостаточно подтверждена - только наблюдение");
+        uart_print("\n  обучающих секунд: "); uart_print_dec(v->net_n);
+        uart_print("; положительных исходов: "); uart_print_dec(v->net_pos);
+        uart_print("\n  точность предупреждений: "); uart_print_dec(v->net_prec);
+        uart_print("%; полнота: "); uart_print_dec(v->net_rec);
+        uart_print("%; прогнозов с упреждением: "); uart_print_dec(v->forecasts);
+        uart_print("\n  средняя лог-потеря x1e4: "); uart_print_dec(v->net_loss_x1e4);
+        uart_print("\n  примечание: это статистический прогноз одного события, не языковой ИИ.\n\n");
     } else if (what[0] == 'm') {                            /* model: веса модели предвидения */
         uart_print("\n[MIND] модель предвидения (логистическая регрессия, учится каждую секунду; вес > 0 - признак ведёт к опозданию):\n");
         for (int i = 0; i < MNET_F; i++) {

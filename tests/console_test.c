@@ -208,6 +208,7 @@ int main(void) {
     flood = 1; console_poll(); CHECK(flood > 1 && flood < 2000); flood = 0;
     /* Разум */
     reset(); feed("ai why\n"); CHECK(!strcmp(mind_req, "print:why"));
+    reset(); feed("ai forecast\n"); CHECK(!strcmp(mind_req, "print:forecast"));
     reset(); feed("ai observe\n"); CHECK(!strcmp(mind_req, "mode:0"));
     reset(); feed("ai act\n"); CHECK(!strcmp(mind_req, "mode:1"));
     reset(); feed("ai fx auto\n"); CHECK(!strcmp(mind_req, "fx:4"));
