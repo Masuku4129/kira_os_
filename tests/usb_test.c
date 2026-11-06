@@ -198,16 +198,19 @@ int main(void) {
     CHECK(vfs_unlink("/usb0/hello.txt") == KFS_ERR_RO);
     static uint8_t big[100000], back[100000];
     for (unsigned i = 0; i < sizeof big; i++) big[i] = (uint8_t)(i * 13u + 5u);
-    /* STALL на первом чтении длинного файла: CLEAR_FEATURE, CSW «ошибка», REQUEST SENSE, повтор */
+    CHECK(vfs_read("/usb0/big.bin", 0, back, sizeof back) == (int64_t)sizeof back && !memcmp(big, back, sizeof big));
+    CHECK(vfs_read("/usb0/big.bin", 50000, back, 1000) == 1000 && !memcmp(big + 50000, back, 1000));
+    CHECK(stick.writes == w0);
+    /* STALL на чтении: CLEAR_FEATURE, CSW «ошибка», REQUEST SENSE, повтор */
     int ch0 = stick.clear_halts;
     stick.stall_data_once = 1;
-    CHECK(vfs_read("/usb0/big.bin", 0, back, sizeof back) == (int64_t)sizeof back && !memcmp(big, back, sizeof big));
+    memset(buf, 0, sizeof buf);
+    CHECK(vfs_read("/usb0/hello.txt", 0, buf, 12) == 12 && !strcmp(buf, "privet, kira"));
     CHECK(stick.stall_data_once == 0 && stick.clear_halts > ch0 && resets_bulk > 0);
-    CHECK(vfs_read("/usb0/big.bin", 50000, back, 1000) == 1000 && !memcmp(big + 50000, back, 1000));
     /* Ошибка фазы в CBW: Reset Recovery — сброс Bulk-Only и обеих точек */
     int br0 = stick.bot_resets;
     stick.halt_out = 1;
-    CHECK(vfs_read("/usb0/big.bin", 0, back, sizeof back) == (int64_t)sizeof back && !memcmp(big, back, sizeof big));
+    CHECK(vfs_read("/usb0/hello.txt", 0, buf, 12) == 12);
     CHECK(stick.bot_resets > br0 && stick.halt_out == 0 && stick.writes == w0);
     /* Независимое монтирование подтверждает, что FAT-образ не был изменён через USB. */
     {
