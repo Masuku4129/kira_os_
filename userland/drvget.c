@@ -280,6 +280,7 @@ static int cmd_install(const char *arg) {
     memcpy(recipe_txt, body, n);
     recipe_txt[n] = 0;
     if (dg_parse_recipe(recipe_txt, n, &R, &err)) { sayf("drvget: отказ: рецепт: %s\n", err); return 1; }
+    for (u32 i = 0; i < R.nfile; i++) if (!R.file[i].sha[0]) { sayf("drvget: отказ: исходный файл %s не закреплён SHA-256 в рецепте\n", R.file[i].name); return 1; }
     if (!strstr(arg, "://") && strcmp(arg, R.name)) { sayf("drvget: отказ: запрошен '%s', а рецепт называет драйвер '%s'\n", arg, R.name); return 1; }
     snprintf(g_name, sizeof g_name, "%s", R.name);
     stage_clear();
@@ -299,12 +300,12 @@ static int cmd_install(const char *arg) {
         sayf("drvget: скачиваю %s\n", fu);
         u32 len = 0;
         if ((err = http_get(&fu_p, &len))) { sayf("drvget: отказ: %s: %s\n", R.file[i].name, err); stage_clear(); return 1; }
-        if (R.file[i].sha[0]) {
+        {
             u8 want[32];
-            dg_hex_parse(R.file[i].sha, want, 32);
+            if (!dg_hex_parse(R.file[i].sha, want, 32)) { sayf("drvget: отказ: неверный SHA-256 файла %s в рецепте\n", R.file[i].name); stage_clear(); return 1; }
             sha256(body, len, fsha[i]);
             if (memcmp(want, fsha[i], 32)) { sayf("drvget: отказ: SHA-256 файла %s не совпал с рецептом (подмена или повреждение)\n", R.file[i].name); stage_clear(); return 1; }
-        } else sha256(body, len, fsha[i]);
+        }
         if (dg_scan_source(R.file[i].name, body, len, lic[i], &err)) { sayf("drvget: отказ: %s: %s\n", R.file[i].name, err); stage_clear(); return 1; }
         dg_set_add(&hs, R.file[i].name, body, len);
         flen[i] = len;
