@@ -188,9 +188,11 @@ int main(void) {
     char buf[32] = { 0 };
     CHECK(vfs_read("/usb0/hello.txt", 0, buf, sizeof buf) == 12 && !strcmp(buf, "privet, kira"));
     static uint8_t big[40000], back[40000];
-    for (unsigned i = 0; i < sizeof big; i++) big[i] = (uint8_t)(i * 13 + 5);
-    CHECK(vfs_write("/usb0/big.bin", big, sizeof big) == 0);
+    for (unsigned i = 0; i < sizeof big; i++) big[i] = (uint8_t)(i * 13u + 5u);
+    vfs_info_t vi[4]; CHECK(vfs_mounts(vi, 4) == 1 && vi[0].read_only);
+    int writes_before = stick.writes;
     CHECK(vfs_read("/usb0/big.bin", 0, back, sizeof back) == (int64_t)sizeof back && !memcmp(big, back, sizeof big));
+    CHECK(stick.writes == writes_before);
     CHECK(vfs_read("/usb0/big.bin", 39990, back, 100) == 10);           /* короткое чтение в конце файла */
     /* устройство отдало меньше, чем обещало: короткий пакет посреди цепочки TD - остановка (SPD), CSW читается сразу */
     int br0 = stick.bot_resets; uint32_t t0 = now;
@@ -209,6 +211,6 @@ int main(void) {
     for (int i = 0; i < 5; i++) { usb_sleep_ms(4); hub_poll(); msc_poll(); }
     CHECK(msc_count() == 0 && vfs_read("/usb0/hello.txt", 0, buf, 12) < 0 && strstr(logbuf, "storage removed"));
     printf("uhci: reset/run, port reset, low/full speed, addressing, descriptors, HID setup, reports, DATA0/1, unplug/replug, "
-           "FS hub, LS keyboard behind hub, flash stick bulk TD chains (%d TDs/frame) + short packet stop, /usb0 read/write, removal passed (%d frames)\n", max_tds_frame, frames_run);
+           "FS hub, LS keyboard behind hub, flash stick bulk TD chains (%d TDs/frame) + short packet stop, /usb0 read-only, removal passed (%d frames)\n", max_tds_frame, frames_run);
     return 0;
 }

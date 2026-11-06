@@ -375,9 +375,11 @@ int main(void) {
     char sb[32] = { 0 };
     CHECK(vfs_read("/usb0/hello.txt", 0, sb, sizeof sb) == 12 && !strcmp(sb, "privet, kira"));
     static uint8_t big[100000], back[100000];
-    for (unsigned i = 0; i < sizeof big; i++) big[i] = (uint8_t)(i * 31 + (i >> 11));
-    CHECK(vfs_write("/usb0/big.bin", big, sizeof big) == 0);
+    for (unsigned i = 0; i < sizeof big; i++) big[i] = (uint8_t)(i * 13u + 5u);
+    vfs_info_t vi[4]; CHECK(vfs_mounts(vi, 4) == 1 && vi[0].read_only);
+    int writes_before = stick.writes;
     CHECK(vfs_read("/usb0/big.bin", 0, back, sizeof back) == (int64_t)sizeof back && !memcmp(big, back, sizeof big));
+    CHECK(stick.writes == writes_before);
     CHECK(max_bulk_len == 16384 && bulk_trbs > 20);
     /* STALL на данных: Reset Endpoint, точка пересоздана (Configure Endpoint drop+add), повтор */
     int rst0 = cmds_seen[14], cfg0 = cmds_seen[12], dr0 = drops;
@@ -404,7 +406,7 @@ int main(void) {
     devm[2].connected = 0;
     usb_sleep_ms(1); hc.ports(&hc);
     CHECK(hub_count() == 0 && usb_hid_count() == 1 && cmds_seen[10] == dis0 + 4);
-    printf("xhci: hubs (route string, TT for LS/FS behind HS hub, hub slot context), flash stick (bulk 16 KB TRBs, STALL recovery, short data), /usb0 read/write, unplug from hub, whole tree removal passed\n");
+    printf("xhci: hubs (route string, TT for LS/FS behind HS hub, hub slot context), flash stick (bulk 16 KB TRBs, STALL recovery, short data), /usb0 read-only, unplug from hub, whole tree removal passed\n");
     printf("xhci: BIOS handoff, reset, DCBAA+scratchpad, command/event rings, Enable Slot, Address Device, Evaluate Context, Configure Endpoint, control (short, STALL), interrupt reports across ring wrap, unplug/Disable Slot passed (%d events)\n", events_written);
     return 0;
 }

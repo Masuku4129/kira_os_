@@ -196,6 +196,10 @@ int main(void) {
     CHECK(vfs_write("/usb0/Документы.bin", "x", 1) == KFS_ERR_RO);
     CHECK(vfs_mkdir("/usb0/папка") == KFS_ERR_RO);
     CHECK(vfs_unlink("/usb0/hello.txt") == KFS_ERR_RO);
+    static uint8_t big[100000], back[100000];
+    for (unsigned i = 0; i < sizeof big; i++) big[i] = (uint8_t)(i * 13u + 5u);
+    CHECK(vfs_read("/usb0/big.bin", 0, back, sizeof back) == (int64_t)sizeof back && !memcmp(big, back, sizeof big));
+    CHECK(vfs_read("/usb0/big.bin", 50000, back, 1000) == 1000 && !memcmp(big + 50000, back, 1000));
     CHECK(stick.writes == w0);
     /* STALL на чтении: CLEAR_FEATURE, CSW «ошибка», REQUEST SENSE, повтор */
     int ch0 = stick.clear_halts;
@@ -216,6 +220,7 @@ int main(void) {
         CHECK(fat_mount(&v2, &b, 2048, MSTICK_SECTORS - 2048) == 0);
         kfs_stat_t st;
         CHECK(fat_stat(&v2, "/hello.txt", &st) == 0 && st.size == 12);
+        CHECK(fat_stat(&v2, "/big.bin", &st) == 0 && st.size == 100000);
         char verify[16] = {0};
         CHECK(fat_read(&v2, "/hello.txt", 0, verify, sizeof verify) == 12 &&
               !strcmp(verify, "privet, kira"));

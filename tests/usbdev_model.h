@@ -292,14 +292,22 @@ static uint8_t* mstick_image(void) {
     bs[24] = 63; bs[26] = 255; put32le(bs + 28, start);
     bs[36] = 0x80; bs[38] = 0x29; put32le(bs + 39, 0x4B495241u); memcpy(bs + 43, "KIRASTICK  ", 11); memcpy(bs + 54, "FAT16   ", 8);
     bs[510] = 0x55; bs[511] = 0xAA;
+    const uint32_t big_size = 100000, big_clusters = (big_size + spc * 512 - 1) / (spc * 512);
     for (uint32_t f = 0; f < nfats; f++) {
         uint8_t* fat = bs + (rsvd + f * fatsz) * 512;
-        fat[0] = 0xF8; fat[1] = 0xFF; fat[2] = 0xFF; fat[3] = 0xFF; fat[4] = 0xFF; fat[5] = 0xFF;   /* кластер 2 - конец цепочки */
+        fat[0] = 0xF8; fat[1] = 0xFF; fat[2] = 0xFF; fat[3] = 0xFF; fat[4] = 0xFF; fat[5] = 0xFF;
+        for (uint32_t k = 0; k < big_clusters; k++) {
+            uint16_t next = k + 1 == big_clusters ? 0xFFFFu : (uint16_t)(3 + k + 1);
+            fat[(3 + k) * 2] = (uint8_t)next; fat[(3 + k) * 2 + 1] = (uint8_t)(next >> 8);
+        }
     }
     uint8_t* root = bs + (rsvd + nfats * fatsz) * 512;
     memcpy(root, "KIRASTICK  ", 11); root[11] = 0x08;
     memcpy(root + 32, "HELLO   TXT", 11); root[32 + 11] = 0x20; root[32 + 26] = 2; put32le(root + 32 + 28, 12);
+    memcpy(root + 64, "BIG     BIN", 11); root[64 + 11] = 0x20; root[64 + 26] = 3; put32le(root + 64 + 28, big_size);
     uint8_t* data = root + rootents * 32;
     memcpy(data, "privet, kira", 12);
+    uint8_t* big = data + spc * 512;
+    for (uint32_t i = 0; i < big_size; i++) big[i] = (uint8_t)(i * 13u + 5u);
     return img;
 }
