@@ -19,7 +19,7 @@
 #define WM_SIDE_W    76      /* место под боковую панель слева */
 #define WM_GLOW      4       /* свечение окна в фокусе (за пределами рамки) */
 #define WM_AUTO      (-100000) /* координата "разместить самому" */
-#define WM_SIDE_MAX  10
+#define WM_SIDE_MAX  24      /* закреплённые (до 10) + открытые + «ещё» + «+»; не помещаются - плитки сжимаются */
 #define WM_TAB_MAX   8
 #define WM_DOCK_MAX  WM_SIDE_MAX
 
@@ -32,7 +32,7 @@
 /* Значок боковой панели. bottom - прижат к низу; temp - не закреплён (идущая программа): рисуется после черты;
    hint - вторая строка подсказки (например «правая кнопка - открепить»); badge - буква в углу значка
    (у программ с одинаковым значком). */
-typedef struct { const char* label; const char* tag; uint32_t color; int icon; int bottom; int temp; const char* hint; char badge; } wm_side_item_t;
+typedef struct { const char* label; const char* tag; uint32_t color; int icon; int bottom; int temp; const char* hint; char badge; const char* desc; } wm_side_item_t;
 typedef wm_side_item_t wm_dock_item_t;
 typedef struct { const char* label; const char* tag; } wm_tab_t;
 
@@ -67,6 +67,8 @@ int  wm_find(const char* tag);
 void wm_side_set(const wm_side_item_t* items, int n);
 /* Метки окон программ Ring 3 (видимых и свёрнутых), не больше max; для списка «идущие» в боковой панели. */
 int  wm_user_tags(char (*out)[16], int max);
+int  wm_side_capacity(void);                       /* сколько плиток поместится в боковой панели при наименьшем размере */
+int  wm_side_tile(void);                           /* текущая сторона плитки (44, меньше - если плиток много) */
 #define wm_dock_set wm_side_set
 void wm_tabs_set(const wm_tab_t* tabs, int n);
 void wm_set_visible(int id, int visible);          /* 0 - свернуть "на фон" (приложение продолжает работать) */

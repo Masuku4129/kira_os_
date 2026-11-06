@@ -19,7 +19,7 @@ typedef struct {
     int zoom16;
     int cap_w, cap_h, min_w, min_h, step_w, step_h, norm_w, norm_h;
     int x, y;
-    char title[40];
+    char title[64];
     char sub[24];
     char tag[16];
     surface_t content;
@@ -132,32 +132,66 @@ static int fs_top(void) {
 
 static int side_panel_h(void) { return scr->h - WM_TOP_H - 20; }
 
+#define SIDE_AREA_W (WM_SIDE_W + 460)   /* панель и подпись к значку справа от неё */
 #define SEP_GAP 14                 /* черта между закреплёнными и идущими */
+#define TILE_MIN 26                /* наименьшая плитка, когда значков много */
+#define GAP_MIN 5
+static int side_ts = TILE, side_gap = TILE_GAP;     /* текущая плитка и промежуток: сжимаются, если значки не помещаются */
+
+static int side_has_sep(void) {
+    int pin = 0, tmp = 0;
+    for (int i = 0; i < side_n; i++) if (!side[i].bottom) { if (side[i].temp) tmp = 1; else pin = 1; }
+    return pin && tmp;
+}
+
+/* Подбор размера плитки: от 44 вниз до TILE_MIN, пока все значки не поместятся по высоте панели. */
+static void side_layout(void) {
+    int avail = side_panel_h() - 24 - (side_has_sep() ? SEP_GAP : 0);
+    side_ts = TILE; side_gap = TILE_GAP;
+    for (int ts = TILE; ts >= TILE_MIN; ts--) {
+        int gap = ts * TILE_GAP / TILE; if (gap < GAP_MIN) gap = GAP_MIN;
+        side_ts = ts; side_gap = gap;
+        if (side_n * ts + (side_n > 0 ? side_n - 1 : 0) * gap <= avail) break;
+    }
+}
+
+int wm_side_capacity(void) {
+    if (!scr) return 0;
+    int avail = side_panel_h() - 24 - SEP_GAP;
+    int n = (avail + GAP_MIN) / (TILE_MIN + GAP_MIN);
+    return n > WM_SIDE_MAX ? WM_SIDE_MAX : n;
+}
+int wm_side_tile(void) { return side_ts; }
+
 static int side_item_y(int i) {
     int top = WM_TOP_H + 10 + 12;
+    int pitch = side_ts + side_gap;
     if (!side[i].bottom) {
         int k = 0, sep = 0;
         for (int j = 0; j < i; j++) if (!side[j].bottom) k++;
         if (side[i].temp) for (int j = 0; j < i; j++) if (!side[j].bottom && !side[j].temp) { sep = 1; break; }
-        return top + k * (TILE + TILE_GAP) + sep * SEP_GAP;
+        return top + k * pitch + sep * SEP_GAP;
     }
     int k = 0; for (int j = i + 1; j < side_n; j++) if (side[j].bottom) k++;
-    return WM_TOP_H + 10 + side_panel_h() - 12 - TILE - k * (TILE + TILE_GAP);
+    return WM_TOP_H + 10 + side_panel_h() - 12 - side_ts - k * pitch;
 }
 
-static void damage_side(void) { damage(0, WM_TOP_H, WM_SIDE_W + 300, scr->h); }
+static void damage_side_full(void) { damage(0, WM_TOP_H, SIDE_AREA_W, scr->h); }
+static void damage_side(void) { damage(0, WM_TOP_H, side_hover >= 0 ? SIDE_AREA_W : WM_SIDE_W + 20, scr->h); }   /* подпись у значка - только при наведении */
+
+static int side_tx(void) { return SIDE_X + 6 + (TILE - side_ts) / 2; }   /* плитки выровнены по центру колонки */
 
 static int side_hit(int px, int py) {
     for (int i = 0; i < side_n; i++) {
-        int x = SIDE_X + 6, y = side_item_y(i);
-        if (px >= x && px < x + TILE && py >= y && py < y + TILE) return i;
+        int x = side_tx(), y = side_item_y(i);
+        if (px >= x && px < x + side_ts && py >= y && py < y + side_ts) return i;
     }
     return -1;
 }
 
 int wm_side_center(int i, int* x, int* y) {
     if (i < 0 || i >= side_n) return -1;
-    *x = SIDE_X + 6 + TILE / 2; *y = side_item_y(i) + TILE / 2;
+    *x = side_tx() + side_ts / 2; *y = side_item_y(i) + side_ts / 2;
     return 0;
 }
 
@@ -226,6 +260,10 @@ static void bg_render(void) {
 
 static void str_copy(char* d, const char* s, int cap) {
     int i = 0; while (s[i] && i + 1 < cap) { d[i] = s[i]; i++; } d[i] = 0;
+    if (s[i]) {                                       /* обрезано: не оставлять половину многобайтной буквы UTF-8 */
+        int k = i; while (k > 0 && ((uint8_t)s[k] & 0xC0) == 0x80) k--;
+        d[k] = 0;
+    }
 }
 
 void wm_init(surface_t* screen, const wm_ops_t* o) {
@@ -233,7 +271,7 @@ void wm_init(surface_t* screen, const wm_ops_t* o) {
     ops = *o;
     for (int i = 0; i < WM_MAX_WIN; i++) win[i].used = 0;
     zcount = 0; dragging = -1; resizing = -1; capture = -1; prev_buttons = 0;
-    side_n = 0; side_hover = -1; tab_n = 0; tab_hover = -1; light_hover = -1; last_tab = -2;
+    side_n = 0; side_ts = TILE; side_gap = TILE_GAP; side_hover = -1; tab_n = 0; tab_hover = -1; light_hover = -1; last_tab = -2;
     last_fs = -1; last_pill = 0; cascade = 0; clock_date[0] = 0; clock_hm[0] = 0; m_cores = 0; m_mem = -1; m_health = -1;
     cx = scr->w / 2; cy = scr->h / 2;
     dmg_valid = 0;
@@ -365,6 +403,8 @@ void wm_side_set(const wm_side_item_t* items, int n) {
     if (n > WM_SIDE_MAX) n = WM_SIDE_MAX;
     for (int i = 0; i < n; i++) side[i] = items[i];
     side_n = n;
+    side_layout();
+    if (side_hover >= n) { damage_side_full(); side_hover = -1; }      /* значка под курсором больше нет */
     damage_side();
 }
 
@@ -588,11 +628,33 @@ static void close_req(int id) {
     wm_minimize(id);                                   /* окна ядра закрываются «на фон»: их можно вернуть значком */
 }
 
+/* Сколько окон с такой меткой (одна программа может открыть несколько окон: у каждого процесса своё). */
+static int tag_count(const char* tag) {
+    int n = 0;
+    if (!tag || !*tag) return 0;
+    for (int i = 0; i < WM_MAX_WIN; i++) if (win[i].used && streq(win[i].tag, tag)) n++;
+    return n;
+}
+
+/* Щелчок по значку: нет окна - запуск; окно свёрнуто или не сверху - показать и вывести вперёд; окно сверху -
+   свернуть (если окон программы несколько - перейти к следующему). */
 static void side_click(int i) {
     if (i < 0 || i >= side_n) return;
     int id = wm_find(side[i].tag);
     if (id < 0) { if (ops.launch) ops.launch(i); return; }
-    if (win[id].visible && wm_top() == id) { wm_minimize(id); return; }
+    int top = wm_top();
+    if (top >= 0 && streq(win[top].tag, side[i].tag)) {
+        int next = -1;
+        for (int k = 1; k < WM_MAX_WIN && next < 0; k++) {
+            int j = (top + k) % WM_MAX_WIN;
+            if (win[j].used && streq(win[j].tag, side[i].tag)) next = j;
+        }
+        if (next < 0 || next == top) { wm_minimize(top); return; }
+        id = next;
+    } else {
+        for (int j = 0; j < WM_MAX_WIN; j++)             /* из нескольких окон - сначала уже показанное */
+            if (win[j].used && win[j].visible && streq(win[j].tag, side[i].tag)) { id = j; break; }
+    }
     int was = win[id].visible;
     wm_set_visible(id, 1);
     wm_raise(id);
@@ -683,7 +745,7 @@ static void click(int px, int py) {
 static void update_hover(void) {
     int fs = fs_top();
     int sh = fs >= 0 ? -1 : side_hit(cx, cy);
-    if (sh != side_hover) { side_hover = sh; damage_side(); }
+    if (sh != side_hover) { damage_side_full(); side_hover = sh; damage_side_full(); }
     int th = fs >= 0 ? -1 : tab_hit(cx, cy);
     if (th != tab_hover) { tab_hover = th; damage_top(); }
     int lh = -1;
@@ -951,46 +1013,81 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
     }
 }
 
+/* Состояние значка: 0 - окна нет, 1 - свёрнуто, 2 - открыто, 3 - в фокусе (окно сверху). id - окно или -1. */
+static int side_state(int i, int top, int* id_out) {
+    int id = wm_find(side[i].tag);
+    if (id < 0) { if (id_out) *id_out = -1; return 0; }
+    int st = 1;                                          /* есть окно с этой меткой: берём лучшее состояние */
+    for (int j = 0; j < WM_MAX_WIN; j++) {
+        if (!win[j].used || !streq(win[j].tag, side[i].tag)) continue;
+        if (win[j].visible && st < 2) { st = 2; id = j; }
+        if (j == top) { st = 3; id = j; }
+    }
+    if (id_out) *id_out = id;
+    return st;
+}
+
 static void draw_side(surface_t* c, int ox, int oy) {
     if (!side_n) return;
     int x = SIDE_X + ox, y = WM_TOP_H + 10 + oy, w = TILE + 12, h = side_panel_h();
+    int ts = side_ts, big = ts >= 36;
     ui_round_rect(c, x, y, w, h, 16, TH_BAR0, 255);
     ui_round_frame(c, x, y, w, h, 16, ui_mix(TH_BORDER, TH_CYAN, 60), 255);
     int top = wm_top();
     for (int i = 0; i < side_n; i++) if (side[i].temp && !side[i].bottom) {
         int pinned = 0; for (int j = 0; j < i; j++) if (!side[j].bottom && !side[j].temp) pinned = 1;
-        if (pinned) gfx_rect(c, SIDE_X + 12 + ox, side_item_y(i) - SEP_GAP / 2 - TILE_GAP / 2 + oy, TILE - 12, 1, ui_mix(TH_BORDER, TH_CYAN, 90));
+        if (pinned) gfx_rect(c, SIDE_X + 12 + ox, side_item_y(i) - SEP_GAP / 2 - side_gap / 2 + oy, TILE - 12, 1, ui_mix(TH_BORDER, TH_CYAN, 90));
         break;
     }
     for (int i = 0; i < side_n; i++) {
-        int id = wm_find(side[i].tag);
-        int running = id >= 0, shown = running && win[id].visible, focused = shown && id == top;
+        int st = side_state(i, top, 0);
+        int running = st > 0, shown = st >= 2, focused = st == 3;
         uint32_t col = side[i].color;
-        int tx = SIDE_X + 6 + ox, ty = side_item_y(i) + oy;
+        int tx = side_tx() + ox, ty = side_item_y(i) + oy;
         uint32_t fill = i == side_hover ? ui_mix(TH_TILE, col, 40) : TH_TILE;
-        if (focused) ui_glow(c, tx, ty, TILE, TILE, 12, 3, col, 140);
-        ui_round_rect(c, tx, ty, TILE, TILE, 12, fill, 255);
-        ui_round_frame(c, tx, ty, TILE, TILE, 12, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 160 : 70), 255);
-        icon_draw(c, tx + TILE / 2, ty + TILE / 2, 26, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
-        if (side[i].badge) {                                /* буква программы в углу: одинаковые значки различимы */
+        if (focused) ui_glow(c, tx, ty, ts, ts, 12, 3, col, 140);
+        ui_round_rect(c, tx, ty, ts, ts, big ? 12 : 8, fill, 255);
+        ui_round_frame(c, tx, ty, ts, ts, big ? 12 : 8, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 160 : 70), 255);
+        icon_draw(c, tx + ts / 2, ty + ts / 2, ts * 26 / TILE, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
+        if (side[i].badge && big) {                         /* буква программы в углу: одинаковые значки различимы */
             char b[2] = { side[i].badge, 0 };
-            ui_disc(c, tx + TILE - 9, ty + TILE - 9, 8, TH_BAR0, 255);
-            ui_ring(c, tx + TILE - 9, ty + TILE - 9, 7, 8, col, 255);
-            gfx_text(c, tx + TILE - 13, ty + TILE - 17, b, TH_TEXT, -1);
+            ui_disc(c, tx + ts - 9, ty + ts - 9, 8, TH_BAR0, 255);
+            ui_ring(c, tx + ts - 9, ty + ts - 9, 7, 8, col, 255);
+            gfx_text(c, tx + ts - 13, ty + ts - 17, b, TH_TEXT, -1);
         }
-        if (running) ui_round_rect(c, SIDE_X + 1 + ox, ty + TILE / 2 - (shown ? 8 : 3), 3, shown ? 16 : 6, 2, shown ? col : TH_TEXT_FAINT, 255);
+        int cnt = running ? tag_count(side[i].tag) : 0;
+        if (cnt > 1) {                                      /* несколько окон одной программы: число в верхнем углу */
+            char b[4] = { (char)(cnt > 9 ? '+' : '0' + cnt), 0, 0, 0 };
+            ui_disc(c, tx + ts - 7, ty + 7, 7, col, 255);
+            gfx_text(c, tx + ts - 11, ty - 1, b, TH_BAR0, -1);
+        }
+        /* индикатор у левого края: высокая яркая полоса - открыто, в фокусе (+ свечение плитки); короткая тусклая - свёрнуто */
+        if (running) ui_round_rect(c, SIDE_X + 1 + ox, ty + ts / 2 - (shown ? ts * 8 / TILE : 3), 3, shown ? ts * 16 / TILE : 6, 2, shown ? col : TH_TEXT_FAINT, 255);
+        if (focused) ui_round_rect(c, SIDE_X + w - 4 + ox, ty + ts / 2 - 3, 3, 6, 2, col, 255);   /* и справа: «в фокусе» заметнее */
     }
     if (side_hover >= 0) {                                   /* подпись к значку под курсором */
+        int hi; int st = side_state(side_hover, top, &hi);
         const char* hint = side[side_hover].hint;
-        int th = hint ? 44 : 26;
-        int ty = side_item_y(side_hover) + oy + TILE / 2 - th / 2;
-        int lw = gfx_text_width(side[side_hover].label) + 20;
-        if (hint && gfx_text_width(hint) + 20 > lw) lw = gfx_text_width(hint) + 20;
+        const char* desc = side[side_hover].desc;
+        const char* stl = st == 3 ? "в фокусе" : st == 2 ? "открыто" : st == 1 ? "свёрнуто - щелчок вернёт" : 0;
+        int lines = 1 + (desc && *desc) + (stl != 0) + (hint && *hint);
+        int th = 12 + lines * 18;
+        int ty = side_item_y(side_hover) + oy + ts / 2 - th / 2;
+        if (ty < WM_TOP_H + oy) ty = WM_TOP_H + oy;
+        if (ty + th > scr->h + oy - 4) ty = scr->h + oy - 4 - th;
+        int lw = gfx_text_width(side[side_hover].label);
+        if (desc && gfx_text_width(desc) > lw) lw = gfx_text_width(desc);
+        if (hint && gfx_text_width(hint) > lw) lw = gfx_text_width(hint);
+        lw += 20;
+        if (lw > 440) lw = 440;
         int lx = SIDE_X + TILE + 22 + ox;
         ui_round_rect(c, lx, ty, lw, th, 8, TH_BAR0, 245);
         ui_round_frame(c, lx, ty, lw, th, 8, side[side_hover].color, 200);
-        gfx_text(c, lx + 10, ty + 5, side[side_hover].label, TH_TEXT, -1);
-        if (hint) gfx_text(c, lx + 10, ty + 23, hint, TH_TEXT_FAINT, -1);
+        int ly = ty + 5;
+        ui_text_fit(c, lx + 10, ly, side[side_hover].label, lw - 20, TH_TEXT); ly += 18;
+        if (desc && *desc) { ui_text_fit(c, lx + 10, ly, desc, lw - 20, TH_TEXT_DIM); ly += 18; }
+        if (stl) { gfx_text(c, lx + 10, ly, stl, st >= 2 ? side[side_hover].color : TH_TEXT_FAINT, -1); ly += 18; }
+        if (hint && *hint) ui_text_fit(c, lx + 10, ly, hint, lw - 20, TH_TEXT_FAINT);
     }
 }
 
@@ -1069,7 +1166,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     }
     if (fs < 0) {
         if (y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
-        if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
+        if (x0 < SIDE_AREA_W) draw_side(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
     draw_cursor(&clip, ox, oy);
 }

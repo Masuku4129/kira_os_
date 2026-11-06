@@ -19,6 +19,16 @@ int      dock_add(dock_t* d, const char* name);                 /* 0 - доба�
 int      dock_remove(dock_t* d, const char* name);              /* 0 - убрано, -1 - не было */
 int      dock_icon(const char* name);                           /* ICON_* по имени */
 const char* dock_title(const char* name);                       /* понятное русское название программы или 0 (тогда показывается имя) */
+
+/* Единая таблица программ: системное имя -> русское название, описание, значок, цвет. Пользователь видит имена в доке
+   (подсказки), в заголовках окон, в списке /bin Проводника и в таблице программ Монитора - везде через эти функции.
+   Терминал и консоль остаются с системными именами. Неизвестная программа: общий значок (ICON_TERMINAL) и своё имя. */
+typedef struct { const char* sys; const char* title; const char* desc; int icon; uint32_t color; } app_info_t;
+const app_info_t* app_info(const char* name);                   /* строка таблицы или 0 */
+const char* app_label(const char* name);                        /* русское название; для неизвестной - само имя */
+const char* app_desc(const char* name);                         /* описание или "" */
+int      app_info_count(void);                                  /* строк в таблице (для проверок) */
+const app_info_t* app_info_at(int i);
 uint32_t dock_color(const char* name);                          /* неоновый цвет по имени */
 
 #endif

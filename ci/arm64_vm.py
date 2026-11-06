@@ -99,7 +99,10 @@ SC = [
                ("edit", []), ("@sleep 3", []), ("@type hello kira", []), ("@key f2", []), ("@sleep 2", []), ("@shot edit", []),
                ("cat /data/edit/note.txt", [r"hello kira"]),
                ("view /pic.png", [r"view: /pic\.png - PNG 97x61, .* sum %08x" % mkfiles_sums["/pic.png"]]), ("@sleep 2", []), ("@shot view", []),
-               ("@key q", []), ("view /pic.jpg", [r"view: /pic\.jpg - JPEG 97x61, YCbCr 2x2"]), ("@sleep 2", []), ("@shot view-jpeg", []),
+               ("@log \\[KIRA DOCK\\] открыта: plasma «Плазма» \\(закреплена\\)", []), ("@log \\[KIRA DOCK\\] открыта: cube3d «3D-куб» \\(закреплена\\)", []),
+               ("@log \\[KIRA DOCK\\] открыта: view «Просмотр» \\(временный значок\\)", []), ("@shot dock-view", []),
+               ("@key q", []), ("@sleep 2", []), ("@log \\[KIRA DOCK\\] закрыта: view «Просмотр» \\(значок убран\\)", []),
+               ("view /pic.jpg", [r"view: /pic\.jpg - JPEG 97x61, YCbCr 2x2"]), ("@sleep 2", []), ("@shot view-jpeg", []),
                ("ps", [r"core\s+RUNNING"])]),
     # Двухпанельный проводник на ARM64: те же клавиши, что на x86-64 (virtio-клавиатура), затем файлы проверяются командами
     dict(name="arm64-explorer2", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", gui=True,
