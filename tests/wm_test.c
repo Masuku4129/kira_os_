@@ -99,6 +99,38 @@ static void dock_states(void) {
     free(sc.px);
 }
 
+static void responsive_topbar(void) {
+    static const int dims[][2] = { {800, 600}, {1024, 768}, {1280, 720}, {1920, 1080} };
+    static const wm_tab_t many[] = {
+        { "ГЛАВНАЯ", "" }, { "РАЗУМ", "" }, { "ПРОВОДНИК", "" }, { "НАСТРОЙКИ", "" },
+        { "ДРАЙВЕРЫ", "" }, { "СЕТЬ", "" }, { "МОНИТОР", "" }, { "ПРИЛОЖЕНИЯ", "" }
+    };
+    uint8_t busy[16];
+    for (int i = 0; i < 16; i++) busy[i] = (uint8_t)(i * 7);
+    for (unsigned d = 0; d < sizeof dims / sizeof dims[0]; d++) {
+        int w = dims[d][0], h = dims[d][1];
+        surface_t sc = { calloc((size_t)w * h, 4), w, h, w };
+        CHECK(sc.px != 0);
+        wm_ops_t o = { al, nt, inp, lc, rz, tb };
+        wm_init(&sc, &o);
+        wm_tabs_set(many, (int)(sizeof many / sizeof many[0]));
+        wm_set_clock("ПЯТНИЦА, 30 ОКТЯБРЯ 2026", "13:05");
+        wm_set_meters(busy, 16, 37, 91);
+        frame();
+        int prev = 0;
+        for (int i = 0; i < (int)(sizeof many / sizeof many[0]); i++) {
+            int tx, ty;
+            CHECK(wm_tab_center(i, &tx, &ty) == 0);
+            CHECK(tx > prev && tx < w - 8 && ty >= 7 && ty < WM_TOP_H);
+            prev = tx;
+            tabs_hit = 0;
+            click(tx, ty);
+            CHECK(tabs_hit == 1 && last_tab == i);
+        }
+        free(sc.px);
+    }
+}
+
 int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
     wm_ops_t ops = { al, nt, inp, lc, rz, tb };
@@ -375,7 +407,8 @@ int main(void) {
         }
     }
     dock_states();
-    printf("wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, "
+    responsive_topbar();
+    printf("wm: shell top bar (responsive tabs at 800x600, 1024x768, 1280x720, 1920x1080; clock and meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw, dock states / cycling / compression passed\n");
     return 0;
 }

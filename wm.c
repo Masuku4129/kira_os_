@@ -197,15 +197,38 @@ int wm_side_center(int i, int* x, int* y) {
 
 /* --- верхняя панель --- */
 
-#define TAB_X0 168
+#define TAB_X0 154
 #define TAB_H 26
+#define TAB_GAP 6
 
+/* Панель разделов занимает только свободное место между логотипом и системными индикаторами.
+   На узких экранах ячейки равномерно сжимаются, а подписи обрезаются по UTF-8, не налезая на часы. */
+static int tab_right(void) {
+    int reserve = scr->w < 1024 ? 76 : scr->w < 1280 ? 350 : 500;
+    int right = scr->w - reserve;
+    return right < TAB_X0 ? TAB_X0 : right;
+}
+static int tab_natural_w(int i) { return gfx_text_width(tabs[i].label) + 22; }
+static int tab_compact(void) {
+    if (tab_n <= 0) return 0;
+    int avail = tab_right() - TAB_X0 - (tab_n - 1) * TAB_GAP;
+    int natural = 0;
+    for (int i = 0; i < tab_n; i++) natural += tab_natural_w(i);
+    return natural > avail;
+}
+static int tab_w(int i) {
+    int natural = tab_natural_w(i);
+    if (!tab_compact()) return natural;
+    int avail = tab_right() - TAB_X0 - (tab_n - 1) * TAB_GAP;
+    if (avail < 0) avail = 0;
+    int base = avail / tab_n, rem = avail % tab_n;
+    return base + (i < rem);
+}
 static int tab_x(int i) {
     int x = TAB_X0;
-    for (int k = 0; k < i; k++) x += gfx_text_width(tabs[k].label) + 26;
+    for (int k = 0; k < i; k++) x += tab_w(k) + TAB_GAP;
     return x;
 }
-static int tab_w(int i) { return gfx_text_width(tabs[i].label) + 22; }
 
 static int tab_hit(int px, int py) {
     if (py < 7 || py >= 7 + TAB_H) return -1;
@@ -951,11 +974,12 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
             ui_round_frame(c, tx, y + 7, tw, TAB_H, 7, TH_CYAN, 120);
             ui_round_rect(c, tx + 10, y + WM_TOP_H - 4, tw - 20, 2, 1, TH_CYAN, 230);
         } else if (i == tab_hover) ui_round_rect(c, tx, y + 7, tw, TAB_H, 7, TH_CYAN, 20);
-        gfx_text(c, tx + 11, y + 12, tabs[i].label, i == act ? TH_CYAN : (i == tab_hover ? TH_TEXT : TH_TEXT_DIM), -1);
+        if (tw > 20) ui_text_fit(c, tx + 10, y + 12, tabs[i].label, tw - 20,
+                                      i == act ? TH_CYAN : (i == tab_hover ? TH_TEXT : TH_TEXT_DIM));
     }
     /* справа налево: здоровье, память, ядра, время, дата */
     int rx = W - 14 + ox;
-    if (m_health >= 0) {
+    if (W >= 1024 && m_health >= 0) {
         char t[8]; int n = 0, v = m_health; char d[4]; int k = 0;
         do { d[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 3);
         while (k) t[n++] = d[--k];
@@ -968,7 +992,7 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         ui_disc(c, rx + 4, y + 20, 7, hc, 50);
         rx -= 16;
     }
-    if (m_mem >= 0) {                                  /* память: «батарейка» с заполнением */
+    if (W >= 1024 && m_mem >= 0) {                                  /* память: «батарейка» с заполнением */
         int bw = 26, bh = 12, bx = rx - bw, by = y + 14;
         uint32_t mc; meter_color((unsigned)m_mem, &mc);
         ui_round_frame(c, bx, by, bw, bh, 3, TH_TEXT_DIM, 200);
@@ -984,7 +1008,7 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         gfx_text(c, rx, y + 12, t, TH_TEXT_DIM, -1);
         rx -= 14;
     }
-    if (m_cores > 0) {                                 /* ядра: столбики, как уровень сигнала */
+    if (W >= 1024 && m_cores > 0) {                                 /* ядра: столбики, как уровень сигнала */
         int shown = m_cores > 16 ? 16 : m_cores, per = (m_cores + shown - 1) / shown;
         int bw = 4, gap = 2, bx = rx - shown * (bw + gap);
         for (int i = 0; i < shown; i++) {
@@ -1001,17 +1025,19 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
     if (clock_hm[0]) {
         rx -= gfx_text_width(clock_hm);
         ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT);
-        rx -= 20;
-        gfx_rect(c, rx + 9, y + 12, 1, 16, TH_BORDER);
-        const char* d = clock_date;
-        int left_limit = tab_n ? tab_x(tab_n - 1) + tab_w(tab_n - 1) + 16 + ox : 200 + ox;
-        while (*d && rx - gfx_text_width(d) < left_limit) {                /* не хватает места: без дня недели */
-            const char* comma = d; while (*comma && *comma != ',') comma++;
-            if (!*comma) { d = ""; break; }
-            d = comma + 2;
+        if (W >= 1280) {
+            rx -= 20;
+            gfx_rect(c, rx + 9, y + 12, 1, 16, TH_BORDER);
+            const char* d = clock_date;
+            int left_limit = tab_n ? tab_x(tab_n - 1) + tab_w(tab_n - 1) + 16 + ox : 200 + ox;
+            while (*d && rx - gfx_text_width(d) < left_limit) {
+                const char* comma = d; while (*comma && *comma != ',') comma++;
+                if (!*comma) { d = ""; break; }
+                d = comma + 2;
+            }
+            rx -= gfx_text_width(d);
+            if (*d) gfx_text(c, rx, y + 12, d, TH_TEXT_DIM, -1);
         }
-        rx -= gfx_text_width(d);
-        gfx_text(c, rx, y + 12, d, TH_TEXT_DIM, -1);
     }
 }
 
