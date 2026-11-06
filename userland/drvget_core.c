@@ -295,3 +295,81 @@ int dg_scan_source(const char* fname, const uint8_t* d, uint32_t len, char lic[2
     *err = "лицензия файла не найдена (нужны строка SPDX-License-Identifier из списка или текст BSD/MIT/ISC) - не берём";
     return -1;
 }
+
+
+/* Read-only PCI catalogue: SHA-256 pins the recipe; each recipe can pin its source files. */
+static int ix_space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
+static int ix_name_ok(const char *s, size_t n) {
+    if (!n || n > 11) return 0;
+    for (size_t i = 0; i < n; i++)
+        if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9') || s[i] == '-' || s[i] == '_')) return 0;
+    return 1;
+}
+int dg_parse_index(const char *text, uint32_t len, dg_index_entry_t *out, uint32_t cap, uint32_t *count, const char **err) {
+    if (!text || !out || !count || !cap || len > DG_INDEX_MAX) { if (err) *err = "invalid catalogue size or buffer"; return -1; }
+    *count = 0;
+    int header = 0;
+    uint32_t pos = 0;
+    while (pos < len) {
+        char line[400];
+        size_t ln = 0;
+        while (pos < len && text[pos] != '\n') {
+            if (ln + 1 >= sizeof line) { if (err) *err = "catalogue line too long"; return -1; }
+            line[ln++] = text[pos++];
+        }
+        if (pos < len) pos++;
+        while (ln && (line[ln - 1] == '\r' || line[ln - 1] == ' ' || line[ln - 1] == '\t')) ln--;
+        line[ln] = 0;
+        char *p = line;
+        while (ix_space(*p)) p++;
+        if (!*p || *p == '#') continue;
+        char *w[6];
+        uint32_t nw = 0;
+        while (*p) {
+            if (nw >= 6) { if (err) *err = "too many catalogue fields"; return -1; }
+            w[nw++] = p;
+            while (*p && !ix_space(*p)) p++;
+            if (*p) *p++ = 0;
+            while (ix_space(*p)) p++;
+        }
+        if (!header) {
+            if (nw != 2 || !eq(w[0], "kira-driver-index") || !eq(w[1], "1")) {
+                if (err) *err = "unsupported catalogue version"; return -1;
+            }
+            header = 1;
+            continue;
+        }
+        if (nw != 5 || !eq(w[0], "pci")) { if (err) *err = "expected pci VVVV:DDDD name url sha256"; return -1; }
+        if (sl(w[1]) != 9 || w[1][4] != ':') { if (err) *err = "invalid PCI ID"; return -1; }
+        uint32_t vendor = 0, device = 0;
+        if (!hexn(w[1], 4, &vendor) || !hexn(w[1] + 5, 4, &device)) { if (err) *err = "invalid hexadecimal PCI ID"; return -1; }
+        size_t name_len = sl(w[2]);
+        if (!ix_name_ok(w[2], name_len)) { if (err) *err = "invalid driver name"; return -1; }
+        if (sl(w[3]) >= DG_URL_MAX) { if (err) *err = "recipe URL too long"; return -1; }
+        dg_url_t parsed;
+        if (dg_url_parse(w[3], &parsed, err)) return -1;
+        uint8_t digest[32];
+        if (!dg_hex_parse(w[4], digest, 32)) { if (err) *err = "invalid recipe SHA-256"; return -1; }
+        if (*count >= cap || *count >= DG_INDEX_ENTRIES) { if (err) *err = "too many catalogue entries"; return -1; }
+        for (uint32_t i = 0; i < *count; i++)
+            if (eq(out[i].name, w[2])) { if (err) *err = "duplicate driver name"; return -1; }
+        dg_index_entry_t *e = &out[(*count)++];
+        e->vendor = (uint16_t)vendor;
+        e->device = (uint16_t)device;
+        memcpy(e->name, w[2], name_len); e->name[name_len] = 0;
+        memcpy(e->url, w[3], sl(w[3]) + 1);
+        memcpy(e->recipe_sha, w[4], 64); e->recipe_sha[64] = 0;
+    }
+    if (!header) { if (err) *err = "missing catalogue header"; return -1; }
+    return 0;
+}
+int dg_index_find_pci(const dg_index_entry_t *entries, uint32_t count, uint16_t vendor, uint16_t device) {
+    if (!entries) return -1;
+    for (uint32_t i = 0; i < count; i++) if (entries[i].vendor == vendor && entries[i].device == device) return (int)i;
+    return -1;
+}
+int dg_index_find_name(const dg_index_entry_t *entries, uint32_t count, const char *name) {
+    if (!entries || !name) return -1;
+    for (uint32_t i = 0; i < count; i++) if (eq(entries[i].name, name)) return (int)i;
+    return -1;
+}
