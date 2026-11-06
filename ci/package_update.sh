@@ -1,158 +1,97 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-BASE_REF="${1:-origin/main}"
-OUT_DIR="${2:-ci-out/package}"
-RESULTS_DIR="${RESULTS_DIR:-ci-out/results}"
-AUDIT_DIR="${AUDIT_DIR:-ci-out/audit}"
-
-git fetch -q origin main --depth=1
-BASE_SHA="$(git rev-parse "$BASE_REF")"
-HEAD_SHA="$(git rev-parse HEAD)"
+set -eo pipefail
+# Compatible with old call form: package_update.sh origin/main ci-out/package.
+OUT_DIR="$2"
+if [ -z "$OUT_DIR" ]; then OUT_DIR="$1"; fi
+if [ -z "$OUT_DIR" ]; then OUT_DIR=ci-out/package; fi
+RESULTS_DIR="$RESULTS_DIR"
+if [ -z "$RESULTS_DIR" ]; then RESULTS_DIR=ci-out/results; fi
+AUDIT_DIR="$AUDIT_DIR"
+if [ -z "$AUDIT_DIR" ]; then AUDIT_DIR=ci-out/audit; fi
 mkdir -p "$OUT_DIR"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
-
-git diff --binary "$BASE_SHA...$HEAD_SHA" > "$STAGE/update.patch"
-if [[ ! -s "$STAGE/update.patch" ]]; then
-  echo "package: no changes relative to $BASE_REF; nothing to package"
-  exit 0
+if git rev-parse --verify origin/main >/dev/null 2>&1; then
+  BASE_SHA="$(git merge-base HEAD origin/main)"
+else
+  BASE_SHA="$(git rev-parse HEAD)"
 fi
+HEAD_SHA="$(git rev-parse HEAD)"
+RUN_URL="$CI_RUN_URL"
+if [ -z "$RUN_URL" ]; then RUN_URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"; fi
 
-printf '%s\n' "$BASE_SHA" > "$STAGE/BASE_SHA"
-printf '%s\n' "$HEAD_SHA" > "$STAGE/HEAD_SHA"
+# Full source snapshot; the phone-side Debian install does not require a .git directory.
+git archive --format=tar --prefix=kira_os/ HEAD | tar -xf - -C "$STAGE"
+R="$STAGE/kira_os/RELEASE"
+mkdir -p "$R"
+cat > "$R/CHANGELOG.md" <<EOF_CHANGELOG
+# KIRA OS v43
 
-cat > "$STAGE/README.md" <<'EOF'
-# KIRA OS update package
+- Source commit: $HEAD_SHA
+- Base commit: $BASE_SHA
+- CI run: $RUN_URL
 
-This is a source patch for an existing KIRA OS Git checkout. It does not contain a prebuilt ISO.
+## Integrated
+- pkg-DK: Russian application labels, per-app icons, dynamic dock entries, explorer/monitor updates.
+- pkg-STAB: adaptive compositor policy and frame-rate limits for background/minimized windows.
+- Static dependency/provenance audit and complete source packaging for phone-side installation.
 
-1. Extract this archive.
-2. From Debian/Termux, run: bash install.sh /path/to/kira_os
-3. Rebuild locally from the project directory: ./build_clang.sh --android
-4. To reverse this patch before making further changes: bash rollback.sh /path/to/kira_os
+## Release limits
+- x86 boot still bundles GRUB/Multiboot2; KIRA's own BIOS/UEFI loader is still absent.
+- QEMU tests do not certify physical hardware.
+- Read DEPENDENCIES.md and TEST_REPORT.md before production use.
+EOF_CHANGELOG
+cat > "$R/INSTALL_TERMUX.md" <<'EOF_INSTALL'
+# Установка KIRA OS v43 на Android
 
-The installer checks the base commit, working-tree cleanliness, patch applicability and SHA-256 checksums before changing files. It does not run a build or overwrite the Limbo disk image.
-EOF
+Архив содержит полный каталог исходников kira_os/ и не требует Git checkout.
 
-cat > "$STAGE/install.sh" <<'EOF'
+1. Сохранить старую папку проекта: mv ~/kira_os ~/kira_os_backup_$(date +%Y%m%d_%H%M%S)
+2. Распаковать: tar -xzf /storage/emulated/0/Download/kira_os_v43.tar.gz -C ~
+3. Собрать образы: cd ~/kira_os && ./build_clang.sh --android
+
+Свежие kira.iso и kira_disk.img появятся в Download. Старая папка автоматически не удаляется.
+EOF_INSTALL
+cat > "$R/VERIFY.sh" <<'EOF_VERIFY'
 #!/usr/bin/env bash
 set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
-TARGET="${1:-$PWD}"
-TARGET="$(cd "$TARGET" && pwd)"
-if [[ ! -f "$TARGET/build_clang.sh" ]]; then
-  echo "install: target must be the KIRA OS project root (build_clang.sh not found)" >&2
-  exit 2
-fi
-if ! git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  echo "install: target must be a Git checkout; no files were changed" >&2
-  exit 2
-fi
-BASE_SHA="$(cat "$HERE/BASE_SHA")"
-if ! git -C "$TARGET" merge-base --is-ancestor "$BASE_SHA" HEAD; then
-  echo "install: this checkout does not contain package base $BASE_SHA; update/reconcile the project first" >&2
-  exit 2
-fi
-if ! git -C "$TARGET" diff --quiet || ! git -C "$TARGET" diff --cached --quiet; then
-  echo "install: working tree is not clean; commit or back up local changes first" >&2
-  exit 2
-fi
-(cd "$HERE" && sha256sum -c SHA256SUMS)
-git -C "$TARGET" apply --check "$HERE/update.patch"
-git -C "$TARGET" apply "$HERE/update.patch"
-git -C "$TARGET" diff --check
-echo "KIRA OS source patch applied."
-echo "Next: cd '$TARGET' && ./build_clang.sh --android"
-EOF
+cd "$(dirname "$0")/.."
+sha256sum -c RELEASE/SHA256SUMS
+for f in build_clang.sh build_arm64.sh grub.cfg kernel/linker.ld; do
+  test -f "$f" || { echo "missing required file: $f" >&2; exit 1; }
+done
+echo "KIRA OS v43 source archive: verified"
+EOF_VERIFY
+chmod +x "$R/VERIFY.sh"
 
-cat > "$STAGE/rollback.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
-TARGET="${1:-$PWD}"
-TARGET="$(cd "$TARGET" && pwd)"
-if ! git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  echo "rollback: target must be a Git checkout" >&2
-  exit 2
-fi
-git -C "$TARGET" apply --reverse --check "$HERE/update.patch"
-git -C "$TARGET" apply --reverse "$HERE/update.patch"
-git -C "$TARGET" diff --check
-echo "KIRA OS patch reversed."
-EOF
-chmod +x "$STAGE/install.sh" "$STAGE/rollback.sh"
-
-python3 - "$RESULTS_DIR" "$STAGE/TEST_REPORT.md" <<'PY'
-import json
-import os
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-dest = pathlib.Path(sys.argv[2])
-statuses = {
-    "host-tests": os.getenv("HOST_RESULT", "unknown"),
-    "x86_64 build": os.getenv("BUILD_RESULT", "unknown"),
-    "x86_64 QEMU matrix": os.getenv("VM_RESULT", "unknown"),
-    "ARM64 build/QEMU": os.getenv("ARM64_RESULT", "unknown"),
-    "static audit": os.getenv("AUDIT_RESULT", "unknown"),
-}
-lines = [
-    "# KIRA OS — CI test report",
-    "",
-    f"- Commit: {os.getenv('GITHUB_SHA', 'unknown')}",
-    f"- Branch: {os.getenv('GITHUB_REF_NAME', 'unknown')}",
-    f"- Workflow run: {os.getenv('CI_RUN_URL', 'not supplied')}",
-    "",
-    "## Job results",
-    "",
-    "| Job | Result |",
-    "|---|---|",
-]
-lines.extend(f"| {name} | {value} |" for name, value in statuses.items())
-lines += ["", "## QEMU scenario results", ""]
-results = []
+python3 - "$RESULTS_DIR" "$R/TEST_REPORT.md" <<'PY'
+import json, os, pathlib, sys
+root, dest = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+jobs = [("Host tests","HOST_RESULT"),("x86 build","BUILD_RESULT"),("x86 QEMU","VM_RESULT"),("ARM64 build/QEMU","ARM64_RESULT"),("Static audit","AUDIT_RESULT")]
+lines = ["# KIRA OS v43 — CI test report","", "Commit: "+os.getenv("GITHUB_SHA","unknown"), "Branch: "+os.getenv("GITHUB_REF_NAME","unknown"), "Run: "+os.getenv("CI_RUN_URL","unknown"), "", "| Job | Result |", "|---|---|"]
+lines += ["| "+name+" | "+os.getenv(key,"unknown")+" |" for name,key in jobs]
+rows = []
 for path in sorted(root.rglob("result.json")):
     try:
-        data = json.loads(path.read_text())
-        results.append((data.get("name", path.parent.name), bool(data.get("ok")), data.get("seconds"), data.get("error")))
+        data=json.loads(path.read_text())
+        rows.append((data.get("name",path.parent.name),bool(data.get("ok")),data.get("seconds"),data.get("error")))
     except Exception as exc:
-        results.append((path.parent.name, False, None, f"cannot parse result.json: {exc}"))
-if results:
-    lines += ["| Scenario | Result | Duration | Detail |", "|---|---|---:|---|"]
-    for name, ok, seconds, error in results:
-        detail = (str(error or "").splitlines()[0]).replace("|", "/")[:180]
-        lines.append(f"| {name} | {'PASS' if ok else 'FAIL'} | {seconds if seconds is not None else '—'} | {detail} |")
-else:
-    lines.append("No result.json files were downloaded; scenario-level status is unavailable.")
-host_logs = list(root.rglob("host-tests.log"))
-if host_logs:
-    log = host_logs[0].read_text(errors="replace")
-    lines += ["", "## Host test log", "", "- " + ("ALL HOST TESTS PASSED found." if "ALL HOST TESTS PASSED" in log else "Final host-test success marker not found; inspect the attached CI log.")]
-else:
-    lines += ["", "Host test log artifact was not available in this package job."]
-lines += [
-    "",
-    "QEMU validates virtual hardware only. This report does not claim physical-hardware validation.",
-    "",
-]
+        rows.append((path.parent.name,False,None,str(exc)))
+lines += ["", "## QEMU scenarios", "", "| Scenario | Result | Seconds | Detail |", "|---|---|---:|---|"]
+for name,ok,seconds,error in rows:
+    detail=((str(error or "—").splitlines() or ["—"])[0]).replace("|","/")[:160]
+    lines.append("| "+str(name)+" | "+("PASS" if ok else "FAIL")+" | "+str(seconds if seconds is not None else "—")+" | "+detail+" |")
+host=next(iter(root.rglob("host-tests.log")),None)
+lines += ["", "Host log: "+("ALL HOST TESTS PASSED found." if host and "ALL HOST TESTS PASSED" in host.read_text(errors="replace") else "success marker not confirmed in downloaded log."), "", "QEMU is virtual-hardware evidence only; no physical-hardware claim is made.", ""]
 dest.write_text("\n".join(lines))
 PY
 
-if [[ -f "$AUDIT_DIR/AUDIT.md" ]]; then
-  cp "$AUDIT_DIR/AUDIT.md" "$STAGE/AUDIT.md"
-else
-  printf '%s\n' '# KIRA OS audit' '' 'Audit artifact was not available; inspect the workflow run.' > "$STAGE/AUDIT.md"
-fi
-
-(
-  cd "$STAGE"
-  sha256sum README.md BASE_SHA HEAD_SHA update.patch install.sh rollback.sh TEST_REPORT.md AUDIT.md > SHA256SUMS
-)
-tar -czf "$OUT_DIR/KIRA_OS_Update.tar.gz" -C "$STAGE" .
-(
-  cd "$OUT_DIR"
-  sha256sum KIRA_OS_Update.tar.gz > KIRA_OS_Update.tar.gz.sha256
-)
-echo "package: created $OUT_DIR/KIRA_OS_Update.tar.gz"
+for f in AUDIT.md inventory.json DEPENDENCIES.md dependency_inventory.json; do
+  if [ -f "$AUDIT_DIR/$f" ]; then cp "$AUDIT_DIR/$f" "$R/$f"; fi
+done
+printf '%s\n' "$BASE_SHA" > "$R/BASE_SHA"
+printf '%s\n' "$HEAD_SHA" > "$R/HEAD_SHA"
+(cd "$STAGE/kira_os" && find . -type f ! -path './RELEASE/SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > RELEASE/SHA256SUMS)
+tar -czf "$OUT_DIR/kira_os_v43.tar.gz" -C "$STAGE" kira_os
+(cd "$OUT_DIR" && sha256sum kira_os_v43.tar.gz > kira_os_v43.tar.gz.sha256)
+echo "package: created complete source archive $OUT_DIR/kira_os_v43.tar.gz"
