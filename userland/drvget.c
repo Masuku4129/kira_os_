@@ -51,6 +51,10 @@ static void sayf(const char *fmt, ...) {
 static tls_t tls;
 static u8 roots[512 * 1024];
 static i64 roots_len = -1;
+static char index_text[DG_INDEX_MAX + 1];
+static dg_index_entry_t index_entries[DG_INDEX_ENTRIES];
+static u32 index_count;
+static int index_loaded, index_state;
 static u8 body[DG_SRC_MAX + 16 * 1024];
 static char recipe_txt[DG_RECIPE_MAX + 1];
 static dg_recipe_t R;
@@ -69,6 +73,49 @@ static int load_roots(void) {
     roots_len = sz;
     return 0;
 }
+
+static int load_index(void) {
+    if (index_loaded) return index_state;
+    index_loaded = 1;
+    index_state = 0;
+    i64 sz = k_sys_stat("drivers.index");
+    if (sz <= 0) return 0;
+    if ((u64)sz > DG_INDEX_MAX) { index_state = -1; return -1; }
+    i64 off = 0;
+    while (off < sz) {
+        i64 n = k_sys_read("drivers.index", index_text + off, (u64)(sz - off), (u64)off);
+        if (n <= 0) { index_state = -1; return -1; }
+        off += n;
+    }
+    index_text[sz] = 0;
+    const char *err = "";
+    if (dg_parse_index(index_text, (u32)sz, index_entries, DG_INDEX_ENTRIES, &index_count, &err)) {
+        sayf("drvget: системный каталог драйверов повреждён: %s\n", err);
+        index_state = -1;
+        return -1;
+    }
+    index_state = 1;
+    return 1;
+}
+static const dg_index_entry_t *index_by_url(const char *url) {
+    if (load_index() != 1) return 0;
+    for (u32 i = 0; i < index_count; i++) if (!strcmp(index_entries[i].url, url)) return &index_entries[i];
+    return 0;
+}
+int drvget_match_pci(uint16_t vendor, uint16_t device, char *name, size_t name_cap, char *url, size_t url_cap) {
+    int state = load_index();
+    if (state < 0) return -1;
+    if (state == 0) return 0;
+    int ix = dg_index_find_pci(index_entries, index_count, vendor, device);
+    if (ix < 0) return 0;
+    const dg_index_entry_t *e = &index_entries[ix];
+    size_t nl = strlen(e->name), ul = strlen(e->url);
+    if (!name || !url || name_cap <= nl || url_cap <= ul) return -1;
+    memcpy(name, e->name, nl + 1);
+    memcpy(url, e->url, ul + 1);
+    return 1;
+}
+
 
 static int ci_has(const char *h, size_t hl, const char *needle) {        /* заголовок ответа: есть ли строка (без учёта регистра) */
     size_t nl = strlen(needle);
@@ -195,13 +242,25 @@ static const char *cap_text(u32 c) {
 static int cmd_install(const char *arg) {
     char url[DG_URL_MAX];
     const char *err = "";
-    if (strstr(arg, "://")) snprintf(url, sizeof url, "%s", arg);
-    else {
-        if (!name_ok(arg)) { say("drvget: имя драйвера: a-z 0-9 - _ (до 11 знаков) или полный адрес https://.../drvget.rec\n"); return 2; }
+    const dg_index_entry_t *pinned = 0;
+    int index_status_now = load_index();
+    if (index_status_now < 0) { say("drvget: отказ: системный каталог повреждён; установка заблокирована\n"); return 1; }
+    if (strstr(arg, "://")) {
+        snprintf(url, sizeof url, "%s", arg);
+        if (index_status_now > 0) pinned = index_by_url(url);
+    } else {
+        if (!name_ok(arg)) { say("drvget: имя драйвера: a-z 0-9 - _ (до 11 знаков) или полный адрес https://...\n"); return 2; }
         char b[DG_URL_MAX];
         int own = base_url(b, sizeof b);
-        snprintf(url, sizeof url, "%s/%s/drvget.rec", b, arg);
-        sayf("drvget: каталог рецептов: %s%s\n", b, own ? "" : " (по умолчанию; свой: drvget base https://адрес)");
+        int ix = (!own && index_status_now > 0) ? dg_index_find_name(index_entries, index_count, arg) : -1;
+        if (ix >= 0) {
+            pinned = &index_entries[ix];
+            snprintf(url, sizeof url, "%s", pinned->url);
+            sayf("drvget: системный каталог выбрал %s для PCI %04x:%04x\n", pinned->name, pinned->vendor, pinned->device);
+        } else {
+            snprintf(url, sizeof url, "%s/%s/drvget.rec", b, arg);
+            sayf("drvget: каталог рецептов: %s%s\n", b, own ? " (пользовательский; не закреплён системным каталогом)" : " (по умолчанию)");
+        }
     }
     dg_url_t ru;
     if (dg_url_parse(url, &ru, &err)) { sayf("drvget: отказ: %s\n", err); return 1; }
@@ -209,6 +268,15 @@ static int cmd_install(const char *arg) {
     u32 n = 0;
     if ((err = http_get(&ru, &n))) { sayf("drvget: отказ: %s\n", err); return 1; }
     if (n > DG_RECIPE_MAX) { say("drvget: отказ: рецепт слишком велик\n"); return 1; }
+    if (pinned) {
+        u8 want[32], got[32];
+        if (!dg_hex_parse(pinned->recipe_sha, want, 32)) { say("drvget: отказ: неверный хеш системного каталога\n"); return 1; }
+        sha256(body, n, got);
+        if (memcmp(want, got, 32)) { say("drvget: отказ: SHA-256 рецепта не совпал с системным каталогом\n"); return 1; }
+        say("drvget: SHA-256 рецепта совпал с системным каталогом\n");
+    } else {
+        say("drvget: предупреждение: рецепт не закреплён системным каталогом; издатель не аутентифицирован, требуется ручная проверка и подтверждение\n");
+    }
     memcpy(recipe_txt, body, n);
     recipe_txt[n] = 0;
     if (dg_parse_recipe(recipe_txt, n, &R, &err)) { sayf("drvget: отказ: рецепт: %s\n", err); return 1; }
@@ -513,6 +581,27 @@ static int cmd_remove(const char *nm) {
     return 0;
 }
 
+
+static int parse_pci_id(const char *s, uint16_t *vendor, uint16_t *device) {
+    if (!s || strlen(s) != 9 || s[4] != ':') return 0;
+    char a[5], b[5]; u8 av[2], bv[2];
+    memcpy(a, s, 4); a[4] = 0; memcpy(b, s + 5, 4); b[4] = 0;
+    if (!dg_hex_parse(a, av, 2) || !dg_hex_parse(b, bv, 2)) return 0;
+    *vendor = (uint16_t)(((uint16_t)av[0] << 8) | av[1]);
+    *device = (uint16_t)(((uint16_t)bv[0] << 8) | bv[1]);
+    return 1;
+}
+static int cmd_match(const char *arg) {
+    uint16_t vendor, device;
+    if (!parse_pci_id(arg, &vendor, &device)) { say("использование: drvget match VVVV:DDDD (например 10ec:8139)\n"); return 2; }
+    char name[12], url[DG_URL_MAX];
+    int rc = drvget_match_pci(vendor, device, name, sizeof name, url, sizeof url);
+    if (rc < 0) { say("drvget: системный каталог отсутствует или повреждён\n"); return 1; }
+    if (!rc) { sayf("drvget: для PCI %04x:%04x подходящий рецепт в системном каталоге не найден\n", vendor, device); return 1; }
+    sayf("drvget match %04x:%04x: %s\nрецепт: %s\n", vendor, device, name, url);
+    return 0;
+}
+
 static int cmd_base(const char *arg) {
     char b[DG_URL_MAX];
     if (!*arg) { int own = base_url(b, sizeof b); sayf("drvget: каталог рецептов: %s%s\n", b, own ? "" : " (по умолчанию)"); return 0; }
@@ -601,12 +690,14 @@ int umain(void) {
     if (*p) *p++ = 0;
     while (*p == ' ') p++;
     if (!strcmp(verb, "install") && *p) return cmd_install(p);
+    if (!strcmp(verb, "match") && *p) return cmd_match(p);
     if (!strcmp(verb, "confirm") && *p) return cmd_confirm(p);
     if (!strcmp(verb, "list")) return cmd_list();
     if (!strcmp(verb, "verify") && *p) return cmd_verify(p);
     if (!strcmp(verb, "remove") && *p) return cmd_remove(p);
     if (!strcmp(verb, "base")) return cmd_base(p);
     say("использование:\n"
+        "  drvget match VVVV:DDDD                       подбор рецепта по PCI ID из системного каталога\n"
         "  drvget install ИМЯ|https://адрес/drvget.rec   скачать исходники, проверить лицензию, показать источник, SHA-256 и права (ничего не ставит)\n"
         "  drvget confirm ИМЯ ХЕШ                        собрать на устройстве и установить, если ХЕШ (8+ знаков) - SHA-256 набора из отчёта\n"
         "  drvget list | verify ИМЯ | remove ИМЯ         пакеты в /drv\n"
