@@ -47,7 +47,7 @@ cp drivers/rl/* $W/nolic/; sed -i 's/^name rl/name nolic/' $W/nolic/drvget.rec; 
 # бинарник, замаскированный под .c (Windows PE)
 cp drivers/rl/* $W/bin/; sed -i 's/^name rl/name bin/' $W/bin/drvget.rec; printf 'MZ\220\0\3\0\0\0\4\0\0\0\377\377\0\0This program cannot be run in DOS mode.' > $W/bin/if_rlreg.h; H=$(sha256sum $W/bin/if_rlreg.h | awk '{print $1}'); sed -i "s#^file if_rlreg.h if_rlreg.h sha256 .*#file if_rlreg.h if_rlreg.h sha256 $H#" $W/bin/drvget.rec
 # закреплённый хеш не совпадает
-cp drivers/rl/* $W/pin/; sed -i 's/^name rl/name pin/' $W/pin/drvget.rec; sed -i 's/^file rl.c rl.c/file rl.c rl.c sha256 0000000000000000000000000000000000000000000000000000000000000001/' $W/pin/drvget.rec
+cp drivers/rl/* $W/pin/; sed -i 's/^name rl/name pin/' $W/pin/drvget.rec; sed -i 's#^file rl.c rl.c sha256 .*#file rl.c rl.c sha256 0000000000000000000000000000000000000000000000000000000000000001#' $W/pin/drvget.rec
 # рецепт без SHA-256 исходников: установка обязана отказать
 cp drivers/rl/* $W/nohash/; sed -i 's/^name rl/name nohash/' $W/nohash/drvget.rec; sed -i 's/ sha256 [0-9a-f]\{64\}$//' $W/nohash/drvget.rec
 # рецепт просит файл .sys
