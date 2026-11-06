@@ -352,8 +352,13 @@ int dg_parse_index(const char *text, uint32_t len, dg_index_entry_t *out, uint32
         uint8_t digest[32];
         if (!dg_hex_parse(w[4], digest, 32)) { if (err) *err = "invalid recipe SHA-256"; return -1; }
         if (*count >= cap || *count >= DG_INDEX_ENTRIES) { if (err) *err = "too many catalogue entries"; return -1; }
-        for (uint32_t i = 0; i < *count; i++)
+        for (uint32_t i = 0; i < *count; i++) {
+            if (out[i].vendor == (uint16_t)vendor && out[i].device == (uint16_t)device) {
+                if (err) *err = "duplicate PCI ID";
+                return -1;
+            }
             if (eq(out[i].name, w[2])) { if (err) *err = "duplicate driver name"; return -1; }
+        }
         dg_index_entry_t *e = &out[(*count)++];
         e->vendor = (uint16_t)vendor;
         e->device = (uint16_t)device;

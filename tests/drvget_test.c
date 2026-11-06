@@ -115,7 +115,8 @@ int main(void) {
         "kira-driver-index 1\npci 10ec:8139 rl http://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
         "kira-driver-index 1\npci 10ec:813 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
         "kira-driver-index 1\npci 10ec:8139 rl https://example.test/rl/drvget.rec xyz\n",
-        "kira-driver-index 1\npci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\npci 1234:5678 rl https://example.test/other/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+        "kira-driver-index 1\npci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\npci 1234:5678 rl https://example.test/other/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        "kira-driver-index 1\npci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\npci 10ec:8139 rl-alt https://example.test/other/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
     };
     for (unsigned i = 0; i < sizeof bad_catalog / sizeof *bad_catalog; i++)
         CHECK(dg_parse_index(bad_catalog[i], (uint32_t)strlen(bad_catalog[i]), ix, DG_INDEX_ENTRIES, &ixn, &err) != 0);
