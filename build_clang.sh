@@ -136,6 +136,7 @@ done
 ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
 [ -n "$ROOTS_N" ] && echo "[*] Корневые сертификаты: $ROOTS_N из $ROOTS_SRC" || echo "[!] Связки корневых сертификатов нет (пакет ca-certificates): fetch https откажется проверять сервер"
 [ -n "$ROOTS_N" ] && tools/kfstool kira.disk put /etc/ssl/roots.der tools/roots.der
+tools/kfstool kira.disk put /etc/ssl/drivers.index drivers/index.txt
 # Семя опыта Разума (получено в QEMU workflow mind-train): стартовые веса предвидения и подсказки по рычагам, если своего опыта на диске нет
 [ -f data/mind_seed.bin ] && tools/kfstool kira.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
 
@@ -175,6 +176,7 @@ case "$1" in
             for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
             for h in kcc/include/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
             [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
+            tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/drivers.index drivers/index.txt >/dev/null
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."
         else
             cp kira.disk "$OUT/kira_disk.img"
