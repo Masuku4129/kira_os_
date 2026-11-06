@@ -542,6 +542,10 @@ def _drv_www():
     edit("bin", "if_rlreg.h", lambda b: b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00This program cannot be run in DOS mode.")
     clone("nolic"); edit("nolic", "drvget.rec", lambda b: b.replace(b"\nname rl", b"\nname nolic"))
     edit("nolic", "if_rlreg.h", lambda b: b"/* no licence information */\n" + b"\n".join(b.split(b"\n")[40:]))
+    # Keep the no-licence fixture internally valid too: exercise the licence scanner,
+    # not the earlier SHA-256 integrity gate.
+    nolic_hash = hashlib.sha256(open(os.path.join(w, "nolic", "if_rlreg.h"), "rb").read()).hexdigest().encode()
+    edit("nolic", "drvget.rec", lambda b: re.sub(rb"(file if_rlreg[.]h if_rlreg[.]h sha256 )[0-9a-f]{64}", lambda m: m.group(1) + nolic_hash, b))
     h = hashlib.sha256()
     for n in ("drvget.rec", "rl.c", "if_rlreg.h"):          # так же, как dg_set_add в userland/drvget_core.c
         d = open(os.path.join(w, "rl", n), "rb").read()
