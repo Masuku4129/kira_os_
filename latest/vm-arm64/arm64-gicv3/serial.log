@@ -1,0 +1,569 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA ARM64] RAM: 1024 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 1017 MB free pages; kernel heap and scheduler online (per-core ready queues, 72 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 98 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 4 of 4 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 4 of 4 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 3 function(s), 3 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 630336 bytes, prefix 4289ff6f...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 3 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 16 MB (PCI 0:1.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA DISK] vda: virtio-blk, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14612 KB free.
+[KIRA PROC] up to 16 programs at once (4 cores, 1024 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): ПЯТНИЦА, 6 НОЯБРЯ 2026 15:40
+[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA NET] e1000 (8086:100e): MAC 52:54:00:12:34:56, link up, no MSI on this card - polled every tick
+[KIRA NET] Network stack online: Ethernet, ARP, IPv4 (fragments), ICMP, UDP, DHCP client, DNS, TCP, IPv6 (ND, SLAAC, ICMPv6, UDP, TCP) (commands: net, ping, ping6, dns, http).
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+smp
+  core 0: MPIDR 0x0000000000000000, online, ticks 348
+  core 1: MPIDR 0x0000000000000001, online, ticks 2
+  core 2: MPIDR 0x0000000000000002, online, ticks 1
+  core 3: MPIDR 0x0000000000000003, online, ticks 1
+кира> [KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA TELEMETRY] t=1s health=100 load=12% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA NET] DHCP: address 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, lease 86400 s
+mem
+  RAM 0x0000000040000000 .. 0x0000000080000000 (1024 MB)
+  kernel 0x0000000040080000 .. 0x000000004057B000, early allocations up to 0x000000004810A000
+  pages: 1041256 KB free of 1048576 KB; kernel heap: 82944 bytes in 6 blocks
+кира> [KIRA TELEMETRY] t=2s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA NET] IPv6: fe80::5054:ff:fe12:3456 (link-local, DAD passed) ready
+test smp
+[KIRA SELFTEST] started: 5 pinned workers, 4 mutex threads, 1 sleeper
+[KIRA SMPTEST] started 4 worker threads on the other cores; result will be printed when they finish.
+кира> [KIRA NET] IPv6: router advertisement from fe80::2, default router
+[KIRA SELFTEST] workers finished:
+  worker 0: core 0, checksum ok, stayed on its core, preempted by tick
+  worker 1: core 1, checksum ok, stayed on its core
+  worker 2: core 2, checksum ok, stayed on its core
+  worker 3: core 3, checksum ok, stayed on its core
+  worker 4: core 0, checksum ok, stayed on its core
+  spin-lock counter 100000 of 100000 ok, atomic 100000 ok
+  kernel mutex (threads sleep while waiting): 8000 of 8000 ok
+  sleep 200 ms: late by 1 ms
+RESULT: PASS
+[KIRA TELEMETRY] t=3s health=100 load=8% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+ps
+
+  ID  PID NAME             STATE    PRIO      CPU(ms)  SWITCHES  CORE
+  1  -  core             RUNNING  critical  517  1707  0
+  2  -  idle             ready  idle  2886  1941  0
+  3  -  idle1            RUNNING  idle  3218  1084  1
+  4  -  idle2            RUNNING  idle  3255  529  2
+  5  -  idle3            RUNNING  idle  3287  60  3
+  6  -  mind-tact        sleep  critical  8  127  1
+  8  -  net              sleep  normal  39  1466  1
+  quantum: 40 ms, context switches: 14953, threads: 7 of 72
+
+кира> [KIRA TELEMETRY] t=4s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+disk
+  vda  16 МБ  virtio-blk  [системный]
+прерываний устройств (MSI): 246, из них разбудили ждущий поток: 239
+кира> [KIRA NET] IPv6: fec0::5054:ff:fe12:3456 (SLAAC /64, DAD passed) ready
+[KIRA TELEMETRY] t=5s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+df
+KiraFS: блоков 4094 по 4 КБ, свободно 3651 (14604 КБ); инодов 480, свободно 414
+кира> [KIRA TELEMETRY] t=6s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+write /hello.txt kira-arm64
+/hello.txt: записано 11 байт
+кира> [KIRA TELEMETRY] t=7s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+cat /hello.txt
+kira-arm64
+
+кира> [KIRA TELEMETRY] t=8s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+ls /
+  <dir>       bin
+  <dir>       etc
+  <dir>       drv
+  <dir>       wasm
+  <dir>       var
+           11  hello.txt
+кира> ai
+
+[MIND] здоровье 100 (просыпается): отзывчивость 100, запас памяти 100, баланс ядер 100, стабильность 100
+[MIND] режим: управление, квант 40 мс (проб 0, удачных 0), анимация 3 (авто)
+[MIND] за жизнь: 8 с, решений 0, необычностей 0, остановлено программ 0
+[MIND] предвидение: риск опоздания экрана в следующую секунду 0%; модель обучена на 90 с (опозданий 0), предупреждения сбываются 0%, замечено опозданий заранее 0%, пока без права действовать, упреждений 0
+[MIND] тактика: фон - не больше 50% ядер при нехватке; фоновые окна - без предела кадров
+[MIND] композитор: на одном ядре (цена 1000 точек: параллельно 0 нс, на одном ядре 0 нс; 0 - ещё не мерили)
+[MIND] замок планировщика: ядра ждут его 0,1% времени; взятий с ожиданием 9949 из 44418
+[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai levers (рычаги), ai act | ai observe, ai fx auto|0..3
+
+кира> [KIRA TELEMETRY] t=9s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+ai model
+
+[MIND] модель предвидения (логистическая регрессия, учится каждую секунду; вес > 0 - признак ведёт к опозданию):
+  загрузка ядер: -0.07
+  очередь потоков: -0.22
+  память: -0.00
+  фоновые программы: -0.01
+  программа в фокусе: -0.00
+  обмен сообщениями: 0.00
+  задержка диска: -0.08
+  переключения потоков: -0.66
+  число программ: -0.51
+  опоздания сейчас: 0.00
+  ожидание процессора: 0.00
+  анимация: -1.19
+  обучено на 90 с, средняя ошибка (лог-потеря) 0.0000
+
+кира> [KIRA TELEMETRY] t=10s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+ai levers
+
+[MIND] рычаги (что Разум меняет сам; режим управление):
+  1. квант планировщика: 40 мс (сам пробует соседние и оставляет лучший)
+  2. вес потоков: окно в фокусе x1,5, голодающий x2; проснувшийся более тяжёлый вытесняет лёгкий сразу (рефлекс в планировщике)
+  3. доля ядра фоновых программ: при нехватке процессора фон получает не больше 50% всех ядер и не больше свободного (ai cap N)
+  4. темп фоновых окон: без предела (ступени 30/15/8/4 по опозданию экрана)
+  5. сборка кадра: на одном ядре (по замеренной цене)
+  6. анимация фона: уровень 3 (решает Разум)
+  7. допуск запусков: копий одной программы и запусков в секунду - по ядрам и здоровью
+  8. память: возврат запасов ядра, осторожный рост куч, в крайнем случае остановка самой большой программы
+  9. поведение программ: необычная по своему профилю программа ограничивается до 50% ядра
+ 10. устройства ввода: печатающее быстрее человека (BadUSB) - отключается
+ 11. предвидение: при доверии модели фон ужимается до опоздания экрана (сейчас риск 0%)
+ 12. ядро фокуса: при опоздании экрана (3+ ядра) одно ядро - окну в фокусе, фон - на остальных: сейчас общее
+
+  Рычаги 13-30 (каждый проверяется по замеру: проба соседнего значения, сравнение с базой, подтверждение вторым окном, откат при ухудшении; не больше одной пробы за раз; 5 смен в минуту; общий откат, если экран стал опаздывать сильнее). Колонки: номер, имя, значение (обычное), состояние, проб/удач/откатов.
+ 13. вес окна в фокусе: 6 /4 (обычно 6) - обычное значение; проб 0, удач 0, откатов 0
+ 14. порог голодания потока: 2000 мс (обычно 2000) - обычное значение; проб 0, удач 0, откатов 0
+ 15. порог риска для упреждения: 60 % (обычно 60) - обычное значение; проб 0, удач 0, откатов 0
+ 16. срок удержания упреждения: 300 мс (обычно 300) - обычное значение; проб 0, удач 0, откатов 0
+ 17. спокойствие до снятия пределов фона: 400 мс (обычно 400) - обычное значение; проб 0, удач 0, откатов 0
+ 18. период тактики: 25 мс (обычно 25) - обычное значение; проб 0, удач 0, откатов 0
+ 19. допуск копий программ: 100 % (обычно 100) - обычное значение; проб 0, удач 0, откатов 0
+ 20. предел необычной программы: 50 % (обычно 50) - обычное значение; проб 0, удач 0, откатов 0
+ 21. опоздавших кадров для ядра фокуса: 1 шт. (обычно 1) - обычное значение; проб 0, удач 0, откатов 0
+ 22. спокойствие до роста темпа фона: 1000 мс (обычно 1000) - обычное значение; проб 0, удач 0, откатов 0
+ 23. интервал сужения темпа фона: 200 мс (обычно 200) - обычное значение; проб 0, удач 0, откатов 0
+ 24. спокойствие до роста анимации: 30 с (обычно 30) - обычное значение; проб 0, удач 0, откатов 0
+ 25. терпение до снижения анимации: 3 с (обычно 3) - обычное значение; проб 0, удач 0, откатов 0
+ 26. опережение звука перед картой: 100 мс (обычно 100) - обычное значение; проб 0, удач 0, откатов 0
+ 27. период микшера звука: 10 мс (обычно 10) - обычное значение; проб 0, удач 0, откатов 0
+ 28. предел одного запроса к диску: 256 блоков (обычно 256) - обычное значение; проб 0, удач 0, откатов 0
+ 29. порог взятия чужого потока ядром: 2 квантов (обычно 2) - обычное значение; проб 0, удач 0, откатов 0
+ 30. окно предела доли процессора: 50 тиков (обычно 50) - обычное значение; проб 0, удач 0, откатов 0
+  смен значений за запуск 0, общих откатов 0; стартовые подсказки взяты из семени опыта (получено в QEMU)
+
+кира> [KIRA TELEMETRY] t=11s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+ai save
+[MIND] опыт записан: /var/mind.dat
+кира> [KIRA TELEMETRY] t=12s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+ai cap 70
+предел загрузки ядер фоном: 70%
+кира> [KIRA TELEMETRY] t=13s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+ls /bin
+        13560  mt
+         9344  ipc
+         8928  burn
+         9296  plasma
+        18184  cube3d
+        13272  paint
+         9200  fpu
+        13120  demo
+         9000  atk-mem
+         8984  atk-priv
+         9000  atk-sys
+         9000  atk-jmp
+        13752  atk-cap
+        13152  serve
+        13240  melody
+        94944  wasm
+        13192  udpecho
+        13176  rec
+        97336  fetch
+        22456  net6
+       207600  kcc
+       326000  drvget
+       366584  drvman
+        27112  edit
+        53384  view
+кира> [KIRA TELEMETRY] t=14s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+mt
+[KIRA PROC] pid 1 'mt' started from ELF: Ring 3, own address space, 3 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] mt: 4 threads x 20000 locked increments
+[USER pid 1] mt: counter 80000 (expected 80000) in 15 ms, thread ids 20 21 22 23 - PASS
+[USER pid 1] mt: exiting with a spinning and a sleeping thread still alive (ps must show no 'mt' afterwards)
+[KIRA PROC] pid 1 'mt' finished, exit code 0, address space destroyed (44 pages returned to PMM).
+[KIRA TELEMETRY] t=15s health=100 load=5% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+ipc
+[KIRA PROC] pid 2 'ipc' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 2] ipc server: waiting on port kira.test
+ipc
+[KIRA PROC] pid 3 'ipc' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 3] ipc client: 200 round trips in 22 ms (114 us each) - PASS
+[USER pid 2] ipc server: 200 requests answered, client mark in shared memory seen - PASS
+[KIRA PROC] pid 3 'ipc' finished, exit code 0, address space destroyed (19 pages returned to PMM).
+[KIRA PROC] pid 2 'ipc' finished, exit code 0, address space destroyed (19 pages returned to PMM).
+[KIRA TELEMETRY] t=16s health=100 load=2% mem=1% run=2 frames=0 late=0 q=40ms fx=3
+ps
+
+  ID  PID NAME             STATE    PRIO      CPU(ms)  SWITCHES  CORE
+  1  -  core             RUNNING  critical  708  8462  0
+  2  -  idle             ready  idle  15830  8631  0
+  3  -  idle1            ready  idle  16441  3115  1
+  4  -  idle2            RUNNING  idle  16478  1014  2
+  5  -  idle3            RUNNING  idle  16567  79  3
+  6  -  mind-tact        sleep  critical  40  678  1
+  8  -  net              RUNNING  normal  171  7941  1
+  quantum: 40 ms, context switches: 38395, threads: 7 of 72
+
+кира> [KIRA TELEMETRY] t=17s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+help
+команды (выполняются по Enter):
+  help (h)    список команд
+  clear       очистить терминал (то же: Ctrl+L)
+  status (s)  время, память, куча, организм, иммунитет, APIC
+  ps (p)      таблица процессов и потоков
+  smp         ядра: состояние, APIC ID, переключения, занятость
+  hw          профиль железа: процессор, ядра, ОЗУ, пределы для программ
+  fb (f)      статистика экрана
+  burn (l)    процесс-нагрузка на 3 с (вытесняющее планирование)
+  burnall     по процессу-нагрузке на каждое ядро, 3 с (сравни итерации с burn)
+  3d (g)      окно 3D (программа cube3d из /bin)
+  plasma (a)  приложение Ring 3: плазма
+  files       Проводник: files [левый_каталог [правый_каталог]] - две панели, F5 копия, F6 перенос, F7 каталог, F8 удалить
+  edit        приложение Ring 3: текстовый редактор (F2 - сохранить, F3 - другой файл, F4 - новый)
+  record      запись со входа звука: record [мс] - уровень
+  volume      громкость звука: volume [0..100]
+  random      генератор случайных чисел: источники и проба
+  poweroff    выключить машину (опыт и диски сохраняются; ACPI S5 / PSCI)
+  reboot      перезагрузить машину (опыт и диски сохраняются)
+  wasm        wasm /путь.wasm: программа WebAssembly (один файл для x86-64 и ARM64; модули в /wasm)
+  view        view /путь: просмотр файла (текст, PNG, BMP, PPM, двоичный) - как двойной щелчок в Проводнике
+  paint (b)   приложение Ring 3: холст (мышь, клавиши 1-8, c - очистить)
+  run         запустить программу с диска: run имя (/bin/имя, проверка иммунитетом)
+  progs       программы в /bin и вердикт иммунитета
+  cc          компилятор C на Кире: cc исходник результат (файлы в /data/kcc)
+  drv         драйверы Ring 3 (/drv): drv - список; drv start ИМЯ [арг]; drv stop ИМЯ; drv rescan
+  runlocal    запустить собранное в /data/kcc как local-имя БЕЗ прав: runlocal файл
+  ls          список файлов: ls [путь]
+  cat         содержимое файла: cat путь
+  write       записать текст в файл: write путь текст
+  mkdir       создать каталог: mkdir путь
+  rm          удалить файл или пустой каталог: rm путь
+  df          место: системный диск и флешки
+  cp          копировать файл: cp откуда куда (флешка /usb0 <-> диск)
+  umount      отключить флешку перед извлечением: umount usb0
+  format      KiraFS на диске (стирает его): format ИМЯ yes; без слов - справка
+  disk        диски (NVMe, SATA, virtio, ATA) и какой из них системный
+  lspci       устройства на шине PCI
+  net         сеть: карта, канал, адрес (DHCP), шлюз, счётчики
+  ping        ping адрес [число]: эхо ICMP, время ответа
+  ping6       ping6 адрес [число]: эхо ICMPv6 (например ping6 fec0::2)
+  sound       звук: карта Intel HDA, кодек, путь к выходу
+  beep        beep [Гц] [мс]: тон через звуковую карту
+  dns         dns имя: адрес по DNS
+  http        http адрес[:порт] [путь]: запрос по TCP, начало ответа
+  exp (e)     опыт: выученная норма, запуски, поколение на диске
+  save (v)    сохранить опыт на диск сейчас
+  life        журнал организма из /var/life.log
+  ai (m)      Разум: здоровье, решения (ai why), нормы (ai norms), программы (ai procs), режим
+  usb         USB: дерево устройств, флешки; usb allow - вернуть отключённые клавиатуры
+  telemetry   telemetry on|off: построчная телеметрия на экране (по умолчанию только serial)
+  test (t)    проверки системы: test - список, test имя - запуск
+клавиши: Backspace, Ctrl+U стереть строку, Ctrl+C отмена, Ctrl+L очистить, стрелки вверх/вниз - история;
+         F11 - панель на весь экран, F10 - свернуть; размер панелей меняется уголком справа внизу.
+кира> [KIRA TELEMETRY] t=18s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+status
+
+[STATUS] uptime ticks: 9331, precise clock ms: 18252
+[STATUS] PMM free: 1016 MB of 1024 MB
+[STATUS] kernel heap: 7 blocks, 81 KB in use; pages: 7 small-block, 20 large-block
+[STATUS] mind: health 100 (просыпается), mode act, quantum 40 ms, decisions 0
+[STATUS] immune: kernel integrity OK, antibodies 3, quarantine 0
+[STATUS] interrupts: GICv3, generic timer (virtual), PSCI
+
+кира> [KIRA TELEMETRY] t=19s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+hw
+[KIRA HW] CPU MIDR 0x00000000410FD083 (implementer 0x0000000000000041, part 0x0000000000000D08), cores 4, RAM 1024 MB
+[KIRA HW] features: AES 2, SHA2 1, atomics 0, FP yes, SIMD yes, physical address bits code 4
+кира> [KIRA TELEMETRY] t=20s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+progs
+  mt  доверенная
+  ipc  доверенная
+  burn  доверенная
+  plasma  доверенная
+  cube3d  доверенная
+  paint  доверенная
+  fpu  доверенная
+  demo  доверенная
+  atk-mem  доверенная
+  atk-priv  доверенная
+  atk-sys  доверенная
+  atk-jmp  доверенная
+  atk-cap  доверенная
+  serve  доверенная
+  melody  доверенная
+  wasm  доверенная
+  udpecho  доверенная
+  rec  доверенная
+  fetch  доверенная
+  net6  доверенная
+  kcc  доверенная
+  drvget  доверенная
+  drvman  доверенная
+  edit  доверенная
+  view  доверенная
+кира> [KIRA TELEMETRY] t=21s health=100 load=2% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+net
+карта e1000, канал есть, TIME_WAIT: 0 (всего 0), приём опросом
+адрес 10.0.2.15, маска 255.255.255.0, шлюз 10.0.2.2, DNS 10.0.2.3 (DHCP, аренда 86400 с)
+кадров принято 3, отправлено 5, отброшено 0
+фрагменты IP: собрано 0, собирается 0, повторов 0, перекрытий 0, негодных 0, слишком больших 0, не нашлось места 0, по сроку 0
+IPv6: fe80::5054:ff:fe12:3456/64 (адрес канала)
+IPv6: fec0::5054:ff:fe12:3456/64 (SLAAC)
+IPv6: маршрутизатор fe80::2
+IPv6: соседей в кэше 1, MTU 1500, отброшено ND/IP 0
+кира> [KIRA TELEMETRY] t=22s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+ping 10.0.2.2 3
+ответ от 10.0.2.2: seq 1, время 1,7 мс
+ответ от 10.0.2.2: seq 2, время 2,0 мс
+ответ от 10.0.2.2: seq 3, время 0,0 мс
+отправлено 3, получено 3, среднее 1,2 мс
+кира> [KIRA TELEMETRY] t=23s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+http 10.0.2.100 /arm[KIRA TELEMETRY] t=24s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+
+HTTP/1.0 200 OK
+Content-Type: text/plain
+Content-Length: 3330
+
+kira-tcp-ok GET /arm HTTP/1.0
+0000-0123456789abcdef
+0001-0123456789abcdef
+0002-0123456789abcdef
+0003-0123456789abcdef
+0004-0123456789abcdef
+0005-0123456789abcdef
+0006-0123456789abcdef
+0007-0123456789abcdef
+0008-0123456789abcdef
+0009-0123456789abcdef
+0010-0123456789abcdef
+0011-0123456789abcdef
+0012-0123456789abcdef
+0013-0123456789abcdef
+0014-0123456789abcdef
+0015-0123456789abcdef
+0016-0123456789abcdef
+0017-0123456789abcdef
+0018-0123456789abcdef
+0019-0123456789abcdef
+0020-0123456789abcdef
+0021-0123456789abcdef
+0022-0123456789abcdef
+0023-0123456789abcdef
+0024-0123456789abcdef
+0025-0123456789abcdef
+0026-0123456789abcdef
+0027-0123456789abcdef
+0028-0123456789abcdef
+0029-0123456789abcdef
+0030-0123456789abcdef
+0031-0123456789abcdef
+0032-0123456789abcdef
+0033-0123456789abcdef
+0034-0123456789abcdef
+0035-0123456789abcdef
+0036-0123456789abcdef
+0037-0123456789abcdef
+0038-0123456789abcdef
+0039-0123456789abcdef
+0040-0123456789abcdef
+0041-0123456789abcdef
+0042-0123456789abcdef
+0043-0123456789abcdef
+0044-0123456789abcdef
+0045-0123456789abcdef
+0046-0123456789abcdef
+0047-0123456789abcdef
+0048-0123456789abcdef
+0049-0123456789abcdef
+005
+...
+получено 3397 байт от 10.0.2.100:80 за 37 мс (сервер закрыл соединение)
+кира> dns example.com
+example.com -> 172.66.147.243
+кира> [KIRA TELEMETRY] t=25s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+fetch 10.0.2.100 /pr[KIRA TELEMETRY] t=26s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+og
+[KIRA PROC] pid 4 'fetch' started from ELF: Ring 3, own address space, 206 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 4] fetch: 10.0.2.100/prog - HTTP/1.0 200 OK - 3398 bytes in 29 ms (server closed), saved to /data/fetch/last.txt
+[KIRA PROC] pid 4 'fetch' finished, exit code 0, address space destroyed (223 pages returned to PMM).
+cat /data/fetc[KIRA TELEMETRY] t=27s health=100 load=2% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+h/last.txt
+HTTP/1.0 200 OK.
+Content-Type: text/plain.
+Content-Length: 3331.
+.
+kira-tcp-ok GET /prog HTTP/1.0
+0000-0123456789abcdef
+0001-0123456789abcdef
+0002-0123456789abcdef
+0003-0123456789abcdef
+0004-0123456789abcdef
+0005-0123456789abcdef
+0006-0123456789abcdef
+0007-0123456789abcdef
+0008-0123456789abcdef
+0009-0123456789abcdef
+0010-0123456789abcdef
+0011-0123456789abcdef
+0012-0123456789abcdef
+0013-0123456789abcdef
+0014-0123456789abcdef
+0015-0123456789abcdef
+0016-0123456789abcdef
+0017-0123456789abcdef
+0018-0123456789abcdef
+0019-0123456789abcdef
+0020-0123456789abcdef
+0021-0123456789abcdef
+0022-0123456789abcdef
+0023-0123456789abcdef
+0024-0123456789abcdef
+0025-0123456789abcdef
+0026-0123456789abcdef
+0027-0123456789abcdef
+0028-0123456789abcdef
+0029-0123456789abcdef
+0030-0123456789abcdef
+0031-0123456789abcdef
+0032-0123456789abcdef
+0033-0123456789abcdef
+0034-0123456789abcdef
+0035-0123456789abcdef
+0036-0123456789abcdef
+0037-0123456789abcdef
+0038-0123456789abcdef
+0039-0123456789abcdef
+0040-0123456789abcdef
+0041-0123456789abcdef
+0042-0123456789abcdef
+0043-0123456789abcdef
+0044-0123456789abcdef
+0045-0123456789abcdef
+0046-0123456789abcdef
+0047-0123456789abcdef
+0048-0123456789abcdef
+0049-0123456789abcdef
+0050-0123456789abcdef
+0051-0123456789abcdef
+0052-0123456789abcdef
+0053-0123456789abcdef
+0054-0123456789abcdef
+0055-0123456789abcdef
+0056-0123456789abcdef
+0057-0123456789abcdef
+0058-0123456789abcdef
+0059-0123456789abcdef
+0060-0123456789abcdef
+0061-0123456789abcdef
+0062-0123456789abcdef
+0063-0123456789abcdef
+0064-0123456789abcdef
+0065-0123456789abcdef
+0066-0123456789abcdef
+0067-0123456789abcdef
+0068-0123456789abcdef
+0069-0123456789abcdef
+0070-0123456789abcdef
+0071-0123456789abcdef
+0072-0123456789abcdef
+0073-0123456789abcdef
+0074-0123456789abcdef
+0075-0123456789abcdef
+0076-0123456789abcdef
+0077-0123456789abcdef
+0078-0123456789abcdef
+0079-0123456789abcdef
+0080-0123456789abcdef
+0081-0123456789abcdef
+0082-0123456789abcdef
+0083-0123456789abcdef
+0084-0123456789abcdef
+0085-0123456789abcdef
+0086-0123456789abcdef
+0087-0123456789abcdef
+0088-0123456789abcdef
+0089-0123456789abcdef
+0090-0123456789abcdef
+0091-0123456789abcdef
+0092-0123456789abcdef
+0093-0123456789abcdef
+0094-0123456789abcdef
+0095-0123456789abcdef
+0096-0123456789abcdef
+0097-0123456789abcdef
+0098-0123456789abcdef
+0099-0123456789abcdef
+0100-0123456789abcdef
+0101-0123456789abcdef
+0102-0123456789abcdef
+0103-0123456789abcdef
+0104-0123456789abcdef
+0105-0123456789abcdef
+0106-0123456789abcdef
+0107-0123456789abcdef
+0108-0123456789abcdef
+0109-0123456789abcdef
+0110-0123456789abcdef
+0111-0123456789abcdef
+0112-0123456789abcdef
+0113-0123456789abcdef
+0114-0123456789abcdef
+0115-0123456789abcdef
+0116-0123456789abcdef
+0117-0123456789abcdef
+0118-0123456789abcdef
+0119-0123456789abcdef
+0120-0123456789abcdef
+0121-0123456789abcdef
+0122-0123456789abcdef
+0123-0123456789abcdef
+0124-0123456789abcdef
+0125-0123456789abcdef
+0126-0123456789abcdef
+0127-0123456789abcdef
+0128-0123456789abcdef
+0129-0123456789abcdef
+0130-0123456789abcdef
+0131-0123456789abcdef
+0132-0123456789abcdef
+0133-0123456789abcdef
+0134-0123456789abcdef
+0135-0123456789abcdef
+0136-0123456789abcdef
+0137-0123456789abcdef
+0138-0123456789abcdef
+0139-0123456789abcdef
+0140-0123456789abcdef
+0141-0123456789abcdef
+0142-0123456789abcdef
+0143-0123456789abcdef
+0144-0123456789abcdef
+0145-0123456789abcdef
+0146-0123456789abcdef
+0147-0123456789abcdef
+0148-0123456789abcdef
+0149-0123456789abcdef
+
+кира> 

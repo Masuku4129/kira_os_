@@ -1,0 +1,39 @@
+{
+ "name": "drv-edu",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] abad: SHA-256 не совпал с записью /drv/abad\\.rec - драйвер НЕ запущен",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] eduun: пакет отклонён \\(установка не подтверждена пользователем\\)",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \\(pid \\d+\\), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV, прерывание MSI включено",
+   "ok": false
+  }
+ ],
+ "error": "в журнале нет «\\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \\(pid \\d+\\), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV, прерывание MSI включено»",
+ "boot_seconds": 5.5,
+ "seconds": 13.3,
+ "commands": []
+}

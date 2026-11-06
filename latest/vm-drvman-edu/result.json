@@ -1,0 +1,240 @@
+{
+ "name": "drvman-edu",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово",
+   "ok": true
+  },
+  {
+   "log": "drvman: окно создано 640x560",
+   "ok": true
+  },
+  {
+   "log": "drvman: кадр: строк в списках [1-9]\\d*, устройств [1-9]\\d*, пакетов 4",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*драйвер Ring 3 drv-edu запущен",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+[0-9a-f]{4}:[0-9a-f]{4}\\s+[0-9a-f]{6}\\s+.*встроенный драйвер ядра",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+[0-9a-f]{4}:[0-9a-f]{4}\\s+060000\\s+.*мост или шина",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакетов в /drv: 4",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет edu \\| edu\\s+v\\d+\\s+лицензия: не записана\\s+ЗАПУЩЕН\\s+сверка: SHA-256 сходится",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет edu \\| права запрошены: MMIO IRQ DMA PCIDEV\\s+подтверждены: MMIO IRQ DMA PCIDEV",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет edu \\| sha256 образа [0-9a-f]{64}",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет edu \\| источник: tools/mkdrv\\.sh",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет abad \\| abad\\s+v\\d+\\s+лицензия: не записана\\s+не запущен\\s+сверка: НЕ СОВПАДАЕТ",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет eduun \\| eduun\\s+v\\d+\\s+лицензия: не записана\\s+не запущен\\s+сверка: не подтверждён",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет edunc \\| edunc\\s+v\\d+\\s+лицензия: не записана\\s+не запущен\\s+сверка: SHA-256 сходится",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово",
+   "ok": true
+  },
+  {
+   "log": "drvman: просьба остановить edu принята",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] останавливаю drv-edu",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] drv-edu \\(pid \\d+\\) завершён: устройство .* остановлено",
+   "ok": true
+  },
+  {
+   "log": "drvman: драйвер edu остановлен, устройство возвращено ядру",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*пакет edu установлен, не запущен",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "drv-edu pid",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово",
+   "ok": true
+  },
+  {
+   "log": "drvman: просьба запустить edu принята",
+   "ok": true
+  },
+  {
+   "log": "drvman: драйвер edu запущен на устройстве \\d\\d:\\d\\d\\.\\d \\(1234:11e8\\)",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "must": "drv-edu pid \\d+",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово",
+   "ok": true
+  },
+  {
+   "log": "drvman: драйвер edu уже запущен на устройстве",
+   "ok": true
+  },
+  {
+   "log": "drvman: драйвер edu сейчас работает: сначала «Остановить»",
+   "ok": true
+  },
+  {
+   "log": "drvman: драйвер edunc не запущен: нет свободного подходящего устройства PCI",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет edu удалён",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакетов в /drv: 3",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "\\n  edu: версия",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово с ошибками",
+   "ok": true
+  },
+  {
+   "log": "drvman: неизвестная команда «frobnicate»",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "log_forbid": "УТЕЧКА",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA CAPS\\] process 'drvman'",
+   "ok": true
+  },
+  {
+   "log_forbid": "drvman: .*\\(FAIL\\)",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.03,
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.2,
+ "seconds": 33.2,
+ "commands": [
+  {
+   "cmd": "drv",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "drv",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "drv",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.0
+  }
+ ]
+}
