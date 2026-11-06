@@ -57,7 +57,7 @@ cat > "$R/VERIFY.sh" <<'EOF_VERIFY'
 set -euo pipefail
 cd "$(dirname "$0")/.."
 sha256sum -c RELEASE/SHA256SUMS
-for f in build_clang.sh build_arm64.sh grub.cfg kernel/linker.ld; do
+for f in build_clang.sh build_arm64.sh grub.cfg arch/x86_64/linker.ld arch/aarch64/linker.ld; do
   test -f "$f" || { echo "missing required file: $f" >&2; exit 1; }
 done
 echo "KIRA OS v43 source archive: verified"
