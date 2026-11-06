@@ -53,7 +53,8 @@ def main():
             if re.search(r"FreeBSD|OpenBSD|Linux kernel|SPDX-License-Identifier:\\s*BSD", line, re.I):
                 provenance.append({"file": rel, "line": n, "text": line.strip()[:180]})
 
-    link_flags = sorted(set(re.findall(r"(?:^|\s)-l([A-Za-z0-9_+.-]+)", build_text)))
+    link_lines = "\n".join(line for line in build_text.splitlines() if re.search(r"(clang|gcc|ld\\.lld|wasm-ld|\\$CC|\\$HOSTCC)", line))
+    link_flags = sorted(set(re.findall(r"(?:^|\\s)-l([A-Za-z0-9_+.-]+)", link_lines)))
     lib_ext = {".so", ".dll", ".dylib", ".a", ".ko", ".sys", ".exe"}
     lib_files = [p for p in files if Path(p).suffix.lower() in lib_ext]
     vendor_dirs = sorted({part for p in files for part in Path(p).parts[:-1]
@@ -64,7 +65,7 @@ def main():
     no_libc_evidence = "-nostdlib" in build_text and not link_flags
     detected = [{"tool": name, "role": role} for name, role in TOOLS.items()
                 if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(name) + r"(?![A-Za-z0-9_-])", build_text, re.I)]
-    actions = sorted(set(re.findall(r"^\s*uses:\s*([^\s#]+)", build_text, re.M)))
+    actions = sorted(set(re.findall(r"^\\s*-\\s*uses:\\s*([^\\s#]+)", build_text, re.M)))
     report = {
         "tracked_files": len(files), "source_files_scanned": len(sources),
         "git_submodules_present": (ROOT / ".gitmodules").exists(),
