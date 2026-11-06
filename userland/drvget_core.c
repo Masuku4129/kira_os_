@@ -334,7 +334,8 @@ int dg_parse_index(const char *text, uint32_t len, dg_index_entry_t *out, uint32
         }
         if (!header) {
             if (nw != 2 || !eq(w[0], "kira-driver-index") || !eq(w[1], "1")) {
-                if (err) *err = "unsupported catalogue version"; return -1;
+                if (err) { *err = "unsupported catalogue version"; }
+                return -1;
             }
             header = 1;
             continue;
@@ -356,9 +357,13 @@ int dg_parse_index(const char *text, uint32_t len, dg_index_entry_t *out, uint32
         dg_index_entry_t *e = &out[(*count)++];
         e->vendor = (uint16_t)vendor;
         e->device = (uint16_t)device;
-        memcpy(e->name, w[2], name_len); e->name[name_len] = 0;
-        memcpy(e->url, w[3], sl(w[3]) + 1);
-        memcpy(e->recipe_sha, w[4], 64); e->recipe_sha[64] = 0;
+        for (size_t j = 0; j < name_len; j++) e->name[j] = w[2][j];
+        e->name[name_len] = 0;
+        size_t url_len = sl(w[3]);
+        for (size_t j = 0; j < url_len; j++) e->url[j] = w[3][j];
+        e->url[url_len] = 0;
+        for (size_t j = 0; j < 64; j++) e->recipe_sha[j] = w[4][j];
+        e->recipe_sha[64] = 0;
     }
     if (!header) { if (err) *err = "missing catalogue header"; return -1; }
     return 0;
