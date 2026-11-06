@@ -118,7 +118,7 @@ def main() -> int:
     gaps = [
         "x86_64 ISO creation currently depends on GRUB/Multiboot2; no independent KIRA BIOS/UEFI loader was found in the tracked tree.",
         "The current build still uses external Clang/LLD/NASM (and wasm-ld); kcc is a limited in-OS C compiler, not yet the kernel's complete self-hosting toolchain.",
-        "drvget accepts selected BSD-style source recipes and rejects Linux .ko and Windows .sys binaries; general Linux driver translation is not implemented.",
+        "drvget accepts selected BSD-style source recipes and rejects Linux .ko and Windows .sys binaries; general Linux driver translation remains future work.",
         "Driver package records use explicit user confirmation and SHA-256; project progress notes say package signatures are absent. A hash is integrity evidence, not publisher authentication.",
         "The driver UI warns that there is no IOMMU; DMA-capable device isolation is therefore incomplete.",
         "ARM64 and x86_64 have QEMU coverage, but physical boards and real PCI/USB/network hardware have not been validated by these CI runs.",
