@@ -38,7 +38,7 @@ gcc -O1 -DKIRA_HOST_TEST -I. -Iarch/x86_64 -o $T/dgcheck tests/drvget_check.c kd
 # сервер и цепочка
 python3 -I ci/mkchain.py $T/chain >/dev/null || exit 1
 mkdir -p $T/ssl && cp $T/chain/root.der $T/ssl/roots.der
-W=$T/www; rm -rf $W; mkdir -p $W/rl $W/gpl $W/bin $W/pin $W/nolic $W/winsys
+W=$T/www; rm -rf $W; mkdir -p $W/rl $W/gpl $W/bin $W/pin $W/nolic $W/winsys $W/nohash
 cp drivers/rl/drvget.rec drivers/rl/rl.c drivers/rl/if_rlreg.h $W/rl/
 # GPL: тот же драйвер, но в одном файле есть заголовок GPL
 cp drivers/rl/* $W/gpl/; sed -i 's/SPDX-License-Identifier: BSD-3-Clause/SPDX-License-Identifier: GPL-2.0-only/' $W/gpl/if_rlreg.h; sed -i 's/^name rl/name gpl/' $W/gpl/drvget.rec; H=$(sha256sum $W/gpl/if_rlreg.h | awk '{print $1}'); sed -i "s#^file if_rlreg.h if_rlreg.h sha256 .*#file if_rlreg.h if_rlreg.h sha256 $H#" $W/gpl/drvget.rec
@@ -48,6 +48,8 @@ cp drivers/rl/* $W/nolic/; sed -i 's/^name rl/name nolic/' $W/nolic/drvget.rec; 
 cp drivers/rl/* $W/bin/; sed -i 's/^name rl/name bin/' $W/bin/drvget.rec; printf 'MZ\220\0\3\0\0\0\4\0\0\0\377\377\0\0This program cannot be run in DOS mode.' > $W/bin/if_rlreg.h; H=$(sha256sum $W/bin/if_rlreg.h | awk '{print $1}'); sed -i "s#^file if_rlreg.h if_rlreg.h sha256 .*#file if_rlreg.h if_rlreg.h sha256 $H#" $W/bin/drvget.rec
 # закреплённый хеш не совпадает
 cp drivers/rl/* $W/pin/; sed -i 's/^name rl/name pin/' $W/pin/drvget.rec; sed -i 's/^file rl.c rl.c/file rl.c rl.c sha256 0000000000000000000000000000000000000000000000000000000000000001/' $W/pin/drvget.rec
+# рецепт без SHA-256 исходников: установка обязана отказать
+cp drivers/rl/* $W/nohash/; sed -i 's/^name rl/name nohash/' $W/nohash/drvget.rec; sed -i 's/ sha256 [0-9a-f]\{64\}$//' $W/nohash/drvget.rec
 # рецепт просит файл .sys
 cp drivers/rl/* $W/winsys/; sed -i 's/^name rl/name winsys/' $W/winsys/drvget.rec; echo 'file rtl8139.sys rtl8139.sys' >> $W/winsys/drvget.rec
 PORT=$((20000 + $$ % 20000))
@@ -142,12 +144,14 @@ expect_refuse gpl "GPL"
 expect_refuse nolic "лицензия файла не найдена"
 expect_refuse bin "бинарник"
 expect_refuse pin "SHA-256 файла rl.c не совпал с рецептом"
+expect_refuse nohash "не закреплён SHA-256"
 expect_refuse winsys "только исходник .c или .h"
 expect_refuse nosuch "HTTP 404"
 run "install http://127.0.0.1:$PORT/rl/drvget.rec"; grep -q "разрешён только https" $T/out || note "http не отвергнут: $(tail -c 200 $T/out)"
 rm -rf $T/sb $T/drv; mkdir -p $T/sb $T/drv
-run "install rl"   # имя без каталога рецептов: берётся каталог по умолчанию (github) - сети хоста нет в песочнице, но не должно быть записей
-[ -z "$(ls $T/drv)" ] || note "install по умолчанию записал в /drv"
+run "install rl"   # имя ищется во встроенном PCI-каталоге; только staging, без установки
+ grep -q "SHA-256 рецепта совпал с системным каталогом" $T/out || note "install по имени: рецепт не закреплён каталогом"
+[ -z "$(ls $T/drv)" ] || note "install по каталогу записал в /drv без confirm"
 # свой каталог рецептов
 run "base $U"; grep -q "каталог рецептов теперь $U" $T/out || note "base: $(tail -c 200 $T/out)"
 run "install rl"; grep -q "Установка НЕ выполнена" $T/out || note "install по имени через base: $(tail -c 300 $T/out)"
