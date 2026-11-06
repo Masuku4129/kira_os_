@@ -41,11 +41,11 @@ mkdir -p $T/ssl && cp $T/chain/root.der $T/ssl/roots.der
 W=$T/www; rm -rf $W; mkdir -p $W/rl $W/gpl $W/bin $W/pin $W/nolic $W/winsys
 cp drivers/rl/drvget.rec drivers/rl/rl.c drivers/rl/if_rlreg.h $W/rl/
 # GPL: тот же драйвер, но в одном файле есть заголовок GPL
-cp drivers/rl/* $W/gpl/; sed -i 's/SPDX-License-Identifier: BSD-3-Clause/SPDX-License-Identifier: GPL-2.0-only/' $W/gpl/if_rlreg.h; sed -i 's/^name rl/name gpl/' $W/gpl/drvget.rec
+cp drivers/rl/* $W/gpl/; sed -i 's/SPDX-License-Identifier: BSD-3-Clause/SPDX-License-Identifier: GPL-2.0-only/' $W/gpl/if_rlreg.h; sed -i 's/^name rl/name gpl/' $W/gpl/drvget.rec; H=$(sha256sum $W/gpl/if_rlreg.h | awk '{print $1}'); sed -i "s#^file if_rlreg.h if_rlreg.h sha256 .*#file if_rlreg.h if_rlreg.h sha256 $H#" $W/gpl/drvget.rec
 # двойная лицензия с GPL в комментарии
-cp drivers/rl/* $W/nolic/; sed -i 's/^name rl/name nolic/' $W/nolic/drvget.rec; sed -i '1,40d' $W/nolic/if_rlreg.h; sed -i '1i /* без сведений о лицензии */' $W/nolic/if_rlreg.h
+cp drivers/rl/* $W/nolic/; sed -i 's/^name rl/name nolic/' $W/nolic/drvget.rec; sed -i '1,40d' $W/nolic/if_rlreg.h; sed -i '1i /* без сведений о лицензии */' $W/nolic/if_rlreg.h; H=$(sha256sum $W/nolic/if_rlreg.h | awk '{print $1}'); sed -i "s#^file if_rlreg.h if_rlreg.h sha256 .*#file if_rlreg.h if_rlreg.h sha256 $H#" $W/nolic/drvget.rec
 # бинарник, замаскированный под .c (Windows PE)
-cp drivers/rl/* $W/bin/; sed -i 's/^name rl/name bin/' $W/bin/drvget.rec; printf 'MZ\220\0\3\0\0\0\4\0\0\0\377\377\0\0This program cannot be run in DOS mode.' > $W/bin/if_rlreg.h
+cp drivers/rl/* $W/bin/; sed -i 's/^name rl/name bin/' $W/bin/drvget.rec; printf 'MZ\220\0\3\0\0\0\4\0\0\0\377\377\0\0This program cannot be run in DOS mode.' > $W/bin/if_rlreg.h; H=$(sha256sum $W/bin/if_rlreg.h | awk '{print $1}'); sed -i "s#^file if_rlreg.h if_rlreg.h sha256 .*#file if_rlreg.h if_rlreg.h sha256 $H#" $W/bin/drvget.rec
 # закреплённый хеш не совпадает
 cp drivers/rl/* $W/pin/; sed -i 's/^name rl/name pin/' $W/pin/drvget.rec; sed -i 's/^file rl.c rl.c/file rl.c rl.c sha256 0000000000000000000000000000000000000000000000000000000000000001/' $W/pin/drvget.rec
 # рецепт просит файл .sys
@@ -57,14 +57,21 @@ trap 'kill $SRV 2>/dev/null' EXIT
 for i in $(seq 1 50); do grep -q ready $T/srv.log && break; sleep 0.1; done
 grep -q ready $T/srv.log || { echo "drvget e2e: сервер не стартовал"; cat $T/srv.log; exit 1; }
 U=https://127.0.0.1:$PORT
+REC_SHA=$(sha256sum $W/rl/drvget.rec | awk '{print $1}')
+printf 'kira-driver-index 1\npci 10ec:8139 rl %s/rl/drvget.rec %s\n' "$U" "$REC_SHA" > $T/ssl/drivers.index
 
 run() { # аргументы drvget -> $T/out
     rm -f $T/out; timeout 120 $T/kloader -s $T/sb -i kcc/include -y $T/ssl -d $T/drv -a "$1" $T/drvget.elf >$T/out 2>&1; rc=$?
 }
 rm -rf $T/sb $T/drv; mkdir -p $T/sb $T/drv
 
-# 1. install: скачивает, проверяет, показывает; ничего не ставит
+# 1. PCI-подбор и каталог: рецепт закреплён SHA-256; без confirm пакет не устанавливается
+run "match 10ec:8139"
+grep -q "drvget match 10ec:8139: rl" $T/out || note "match: $(tail -c 300 $T/out)"
+run "match ffff:ffff"
+grep -q "подходящий рецепт.*не найден" $T/out || note "match: неизвестный PCI ID не отвергнут"
 run "install $U/rl/drvget.rec"
+grep -q "SHA-256 рецепта совпал с системным каталогом" $T/out || note "install: recipe hash не сверён с каталогом"
 grep -q "Установка НЕ выполнена" $T/out || note "install: нет отчёта: $(tail -c 300 $T/out)"
 grep -q "лицензия:   заявлена BSD-3-Clause" $T/out || note "install: нет лицензии"
 grep -q "if_rlreg.h" $T/out && grep -q "10ec:8139" $T/out || note "install: нет файлов или PCI-ID"
@@ -160,6 +167,10 @@ grep -q "нет корневых сертификатов" $T/out || note "бе�
 # 5. drvman в режиме do: те же find/install, две установки подряд в одном процессе (арена kcc переиспользуется), отказы, метка лицензии в .rec, честная ошибка списка PCI
 rundm() { rm -f $T/out; timeout 240 $T/kloader -s $T/sb -i kcc/include -y $T/ssl -d $T/drv -a "$1" $T/drvman.elf >$T/out 2>&1; rc=$?; }
 rm -rf $T/sb $T/drv; mkdir -p $T/sb $T/drv
+rundm "do match 10ec:8139"
+grep -q "drvman: PCI 10ec:8139: найден кандидат rl" $T/out || note "drvman match: $(tail -c 400 $T/out)"
+grep -q "SHA-256 рецепта совпал с системным каталогом" $T/out || note "drvman match: рецепт не закреплён каталогом"
+[ -z "$(ls $T/drv)" ] || note "drvman match: пакет установлен без явного подтверждения"
 rundm "do base $U;pci;find rl;install;pkgs;verify rl"
 grep -q "drvman: набор готов к установке" $T/out || note "drvman find: $(tail -c 400 $T/out)"
 grep -q "собрано, образ ELF" $T/out && grep -q "drvman: драйвер rl установлен в /drv" $T/out || note "drvman install: $(tail -c 600 $T/out)"
