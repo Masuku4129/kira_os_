@@ -718,12 +718,14 @@ static char req_q[REQ_N][REQ_LEN];
 static unsigned req_head, req_tail;
 
 int console_request(const char* l) {
+    if (!l) return -1;
+    unsigned len = 0;
+    while (l[len] && len < REQ_LEN) len++;
+    if (len >= REQ_LEN) return -1; /* не принимать команду, которую пришлось бы молча обрезать */
     uint64_t f = spin_lock_irqsave(&req_lock);
     if (req_head - req_tail >= REQ_N) { spin_unlock_irqrestore(&req_lock, f); return -1; }
     char* d = req_q[req_head % REQ_N];
-    unsigned i = 0;
-    while (l[i] && i < REQ_LEN - 1) { d[i] = l[i]; i++; }
-    d[i] = 0;
+    for (unsigned i = 0; i <= len; i++) d[i] = l[i];
     req_head++;
     spin_unlock_irqrestore(&req_lock, f);
     return 0;
@@ -732,9 +734,13 @@ int console_request(const char* l) {
 /* Команды оболочки: недописанная строка пользователя убирается с экрана, команда печатается и выполняется,
    затем строка пользователя возвращается на место. */
 static void run_requests(void) {
-    while (req_tail != req_head) {
+    for (;;) {
         char cmd[REQ_LEN];
         uint64_t f = spin_lock_irqsave(&req_lock);
+        if (req_tail == req_head) {
+            spin_unlock_irqrestore(&req_lock, f);
+            break;
+        }
         unsigned i = 0; const char* q = req_q[req_tail % REQ_N];
         while (q[i]) { cmd[i] = q[i]; i++; }
         cmd[i] = 0;

@@ -222,6 +222,13 @@ int main(void) {
     for (int i = 0; i < 4; i++) CHECK(console_request("ai act") == 0);
     CHECK(console_request("ai act") == -1);                                  /* очередь из 4 */
     feed("\x15");
+    /* API очереди не должен принимать NULL или молча обрезать длинные команды. */
+    CHECK(console_request(0) == -1);
+    char oversized[80]; memset(oversized, 'a', sizeof oversized - 1); oversized[sizeof oversized - 1] = 0;
+    CHECK(console_request(oversized) == -1);
+    CHECK(console_request("ai why") == 0);
+    reset(); feed("");
+    CHECK(!strcmp(mind_req, "print:why"));
     /* Ctrl+C отменяет строку */
     spawned = -1; spawned_name = 0; reset(); feed("plasma\x03\n");
     CHECK(spawned == -1 && has("^C"));
