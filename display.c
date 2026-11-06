@@ -152,7 +152,9 @@ static int open_app(int app) {
     default: return -1;
     }
     if (*slot < 0) {
-        *slot = wm_create(title, WM_AUTO, WM_AUTO, w, h, WM_INPUT);
+        int flags = WM_INPUT;
+        if (app != APP_TERM) flags |= WM_ZOOMABLE; /* встроенные панели подстраиваются под маленький экран */
+        *slot = wm_create(title, WM_AUTO, WM_AUTO, w, h, flags);
         if (*slot < 0) { uart_print("[KIRA DISPLAY] not enough memory for a window.\n"); return -1; }
         wm_set_tag(*slot, app_tag[app]);
         if (app == APP_MIND) wm_set_subtitle(*slot, "ядро");

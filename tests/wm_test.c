@@ -100,7 +100,7 @@ static void dock_states(void) {
 }
 
 static void responsive_topbar(void) {
-    static const int dims[][2] = { {800, 600}, {1024, 768}, {1280, 720}, {1920, 1080} };
+    static const int dims[][2] = { {640, 480}, {800, 600}, {1024, 768}, {1280, 720}, {1920, 1080} };
     static const wm_tab_t many[] = {
         { "ГЛАВНАЯ", "" }, { "РАЗУМ", "" }, { "ПРОВОДНИК", "" }, { "НАСТРОЙКИ", "" },
         { "ДРАЙВЕРЫ", "" }, { "СЕТЬ", "" }, { "МОНИТОР", "" }, { "ПРИЛОЖЕНИЯ", "" }
@@ -114,6 +114,15 @@ static void responsive_topbar(void) {
         wm_ops_t o = { al, nt, inp, lc, rz, tb };
         wm_init(&sc, &o);
         wm_tabs_set(many, (int)(sizeof many / sizeof many[0]));
+        int app = wm_create("Проверка окна", WM_AUTO, WM_AUTO, 600, 564, WM_ZOOMABLE);
+        CHECK(app >= 0);
+        int wx, wy; wm_window_pos(app, &wx, &wy);
+        int pct = wm_zoom_percent(app);
+        int dw = 600 * pct / 100, dh = 564 * pct / 100;
+        CHECK(pct >= 50 && pct <= 100);
+        CHECK(wx >= 0 && wy >= WM_TOP_H && wx + dw + 2 * WM_PAD <= w + 4);
+        CHECK(wy + dh + WM_HEAD + WM_PAD <= h + 4);
+        wm_destroy(app);
         wm_set_clock("ПЯТНИЦА, 30 ОКТЯБРЯ 2026", "13:05");
         wm_set_meters(busy, 16, 37, 91);
         frame();
@@ -408,7 +417,7 @@ int main(void) {
     }
     dock_states();
     responsive_topbar();
-    printf("wm: shell top bar (responsive tabs at 800x600, 1024x768, 1280x720, 1920x1080; clock and meters), side launcher, traffic-light buttons, z-order, damage, drag, "
+    printf("wm: shell top bar (responsive tabs and fitted app windows at 640x480, 800x600, 1024x768, 1280x720, 1920x1080; clock and meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw, dock states / cycling / compression passed\n");
     return 0;
 }

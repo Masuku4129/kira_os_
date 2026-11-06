@@ -302,6 +302,23 @@ void wm_init(surface_t* screen, const wm_ops_t* o) {
     damage(0, 0, scr->w, scr->h);
 }
 
+static int fit_zoom16(int cw, int ch) {
+    /* Те же границы, что и auto_place: учитывать заголовок и рамку окна, а не только содержимое. */
+    int ax = scr->w >= 800 ? WM_SIDE_W + 8 : 8;
+    int aw = scr->w - ax - 12;
+    int ay = WM_TOP_H + 12;
+    int ah = scr->h - ay - 12;
+    int maxw = aw - 2 * WM_PAD;
+    int maxh = ah - WM_HEAD - WM_PAD;
+    if (maxw < 1) maxw = 1;
+    if (maxh < 1) maxh = 1;
+    int sx = maxw * 16 / cw, sy = maxh * 16 / ch;
+    int z = sx < sy ? sx : sy;
+    if (z > 16) z = 16;             /* не увеличивать интерфейс автоматически */
+    if (z < ZOOM_MIN) z = ZOOM_MIN; /* ниже половины шрифт и элементы уже плохо читаются */
+    return z;
+}
+
 static void auto_place(win_t* w) {
     int ow = outer_w(w), oh = outer_h(w);
     int ax = scr->w >= 800 ? WM_SIDE_W + 8 : 8, aw = scr->w - ax - 12;
@@ -336,7 +353,7 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
     w->sub[0] = 0;
     w->resizable = (flags & WM_RESIZABLE) != 0 && !user;
     w->zoomable = (flags & WM_ZOOMABLE) != 0 || user;
-    w->zoom16 = 16;
+    w->zoom16 = w->zoomable ? fit_zoom16(cw, ch) : 16;
     w->cap_w = capw; w->cap_h = caph;
     w->min_w = cw < 160 ? cw : 160; w->min_h = ch < 96 ? ch : 96; w->step_w = 2; w->step_h = 2;
     w->norm_w = cw; w->norm_h = ch;
