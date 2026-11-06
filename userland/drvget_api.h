@@ -33,4 +33,5 @@ typedef struct {
 } drvget_pkg_t;
 int drvget_pkgs(drvget_pkg_t *out, int max);                      /* установленные пакеты /drv; число или -1, если каталога нет */
 
+int drvget_match_pci(uint16_t vendor, uint16_t device, char *name, size_t name_cap, char *url, size_t url_cap);
 #endif
