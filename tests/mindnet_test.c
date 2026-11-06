@@ -92,7 +92,7 @@ int main(void) {
         }
         model_brier /= 2000.0;
         baseline_brier /= 2000.0;
-        printf("temporal holdout: model Brier=%.4f, prevalence baseline=%.4f, trusted=%d\\n",
+        printf("temporal holdout: model Brier=%.4f, prevalence baseline=%.4f, trusted=%d\n",
                model_brier, baseline_brier, mnet_trusted(&temporal));
         CHECK(model_brier < baseline_brier * 0.5);
         CHECK(mnet_trusted(&temporal));
