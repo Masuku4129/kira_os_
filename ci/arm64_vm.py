@@ -254,7 +254,11 @@ class Qmp:
         self.read(); self.cmd("qmp_capabilities")
 
     def read(self):
-        while b"\n" not in self.buf: self.buf += self.s.recv(65536)
+        while b"\n" not in self.buf:
+            chunk = self.s.recv(65536)
+            if not chunk:
+                raise ConnectionError("QMP connection closed before a complete response")
+            self.buf += chunk
         line, self.buf = self.buf.split(b"\n", 1)
         return json.loads(line)
 
@@ -322,6 +326,7 @@ def run(sc, out):
                  "-qmp", f"unix:{qmp_path},server=on,wait=off"]
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     log = b""; t0 = time.time(); err = None
+    print("[ARM64] scenario starting: " + sc["name"], flush=True)
 
     def pump(sec):
         nonlocal log
@@ -445,7 +450,7 @@ def run(sc, out):
             with open(dbg, "wb") as f: f.write(head)
     res = {"name": sc["name"], "ok": err is None, "error": err, "seconds": round(time.time() - t0, 1)}
     json.dump(res, open(os.path.join(d, "result.json"), "w"), ensure_ascii=False)
-    print(("OK  " if res["ok"] else "FAIL"), sc["name"], res["seconds"], "с", err or "")
+    print(("OK  " if res["ok"] else "FAIL"), sc["name"], res["seconds"], "с", err or "", flush=True)
     return res["ok"]
 
 

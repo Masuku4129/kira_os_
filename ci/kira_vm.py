@@ -232,7 +232,10 @@ class VM:
     def _qmp_read(self):
         buf = b""
         while not buf.endswith(b"\n"):
-            buf += self.qmp.recv(65536)
+            chunk = self.qmp.recv(65536)
+            if not chunk:
+                raise ConnectionError("QMP connection closed before a complete response")
+            buf += chunk
         return [json.loads(l) for l in buf.decode().splitlines() if l.strip()]
 
     def qmp_cmd(self, c):
