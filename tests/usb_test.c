@@ -189,35 +189,36 @@ int main(void) {
     char buf[64] = { 0 };
     CHECK(vfs_read("/usb0/hello.txt", 0, buf, sizeof buf) == 12 && !strcmp(buf, "privet, kira"));
     vfs_info_t vi[4];
-    CHECK(vfs_mounts(vi, 4) == 1 && !strcmp(vi[0].label, "KIRASTICK") && strstr(vi[0].desc, "Model Stick"));
-    /* большой файл: несколько команд READ/WRITE по 32 сектора */
-    static uint8_t big[100000], back[100000];
-    for (unsigned i = 0; i < sizeof big; i++) big[i] = (uint8_t)(i * 7 + (i >> 9));
+    CHECK(vfs_mounts(vi, 4) == 1 && !strcmp(vi[0].label, "KIRASTICK") &&
+          strstr(vi[0].desc, "Model Stick") && vi[0].read_only);
+    /* USB-носитель недоверенный: чтение разрешено, любые изменения запрещены по умолчанию. */
     int w0 = stick.writes;
-    CHECK(vfs_write("/usb0/Документы.bin", big, sizeof big) == 0);
-    CHECK(stick.writes - w0 >= 7 && stick.syncs >= 1);
-    CHECK(vfs_read("/usb0/Документы.bin", 0, back, sizeof back) == (int64_t)sizeof back && !memcmp(big, back, sizeof big));
-    /* устройство отказалось отдать данные (STALL): CLEAR_FEATURE, CSW «ошибка», REQUEST SENSE, повтор */
+    CHECK(vfs_write("/usb0/Документы.bin", "x", 1) == KFS_ERR_RO);
+    CHECK(vfs_mkdir("/usb0/папка") == KFS_ERR_RO);
+    CHECK(vfs_unlink("/usb0/hello.txt") == KFS_ERR_RO);
+    CHECK(stick.writes == w0);
+    /* STALL на чтении: CLEAR_FEATURE, CSW «ошибка», REQUEST SENSE, повтор */
     int ch0 = stick.clear_halts;
     stick.stall_data_once = 1;
-    memset(back, 0, sizeof back);
-    CHECK(vfs_mkdir("/usb0/папка") == 0);                                 /* каталог читается и пишется после сбоя */
+    memset(buf, 0, sizeof buf);
+    CHECK(vfs_read("/usb0/hello.txt", 0, buf, 12) == 12 && !strcmp(buf, "privet, kira"));
     CHECK(stick.stall_data_once == 0 && stick.clear_halts > ch0 && resets_bulk > 0);
-    CHECK(vfs_read("/usb0/Документы.bin", 50000, back, 1000) == 1000 && !memcmp(back, big + 50000, 1000));
-    /* испорченный обмен (ошибка фазы) - Reset Recovery: сброс Bulk-Only и обеих точек */
+    /* Ошибка фазы в CBW: Reset Recovery — сброс Bulk-Only и обеих точек */
     int br0 = stick.bot_resets;
-    stick.halt_out = 1;                                                  /* CBW получит STALL */
+    stick.halt_out = 1;
     CHECK(vfs_read("/usb0/hello.txt", 0, buf, 12) == 12);
-    CHECK(stick.bot_resets > br0 && stick.halt_out == 0);
-    /* образ - корректная FAT: независимое монтирование видит записанное */
+    CHECK(stick.bot_resets > br0 && stick.halt_out == 0 && stick.writes == w0);
+    /* Независимое монтирование подтверждает, что FAT-образ не был изменён через USB. */
     {
         blk_dev_t b; memset(&b, 0, sizeof b);
         b.sectors = MSTICK_SECTORS; b.priv = img; b.read = img_read;
         static fat_vol_t v2;
         CHECK(fat_mount(&v2, &b, 2048, MSTICK_SECTORS - 2048) == 0);
         kfs_stat_t st;
-        CHECK(fat_stat(&v2, "/Документы.bin", &st) == 0 && st.size == sizeof big);
-        CHECK(fat_stat(&v2, "/папка", &st) == 0 && st.type == KFS_DIR);
+        CHECK(fat_stat(&v2, "/hello.txt", &st) == 0 && st.size == 12);
+        char verify[16] = {0};
+        CHECK(fat_read(&v2, "/hello.txt", 0, verify, sizeof verify) == 12 &&
+              !strcmp(verify, "privet, kira"));
     }
 
     /* ---- извлечение: флешку вынули из хаба ---- */
@@ -240,7 +241,8 @@ int main(void) {
     spin(4);
     CHECK(msc_count() == 3 && strstr(logbuf, "no medium inserted"));
     CHECK(strstr(logbuf, "mounted at /usb1") && vfs_read("/usb1/hello.txt", 0, buf, 12) == 12);
-    CHECK(vfs_write("/usb1/x.txt", "x", 1) < 0 && ro.writes == 0);
+    CHECK(vfs_mounts(vi, 4) == 2 && vi[0].read_only && vi[1].read_only);
+    CHECK(vfs_write("/usb1/x.txt", "x", 1) == KFS_ERR_RO && ro.writes == 0);
     CHECK(ro.bad_toggle == 0 && empty.bad_toggle == 0);
 
     /* ---- весь хаб выдернули: всё дерево отключено ---- */
