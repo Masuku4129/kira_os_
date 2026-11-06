@@ -20,8 +20,8 @@ jobs:
     steps:
       - name: Inspect active v43 checks and report long-running steps
         env:
-          GH_TOKEN: \${{ github.token }}
-          REPOSITORY: \${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: v43/integration
         run: |
           python3 - <<'PY'
