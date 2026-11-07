@@ -108,7 +108,9 @@ jobs:
       - name: build (clang, -Werror)
         run: |
           ./build_clang.sh --no-run
-          mkdir -p sym && nm -n kira.bin > sym/kira.sym
+          mkdir -p sym ci-out && nm -n kira.bin > sym/kira.sym
+      - name: binary runtime dependency audit (ISO + KiraFS)
+        run: python3 ci/audit_image.py --iso kira.iso --disk kira.disk --kfstool tools/kfstool --out ci-out/image-audit.json
       - uses: actions/upload-artifact@v4
         with:
           name: vm-symbols
@@ -120,6 +122,7 @@ jobs:
             kira.iso
             kira.disk
             kira.bin
+            ci-out/image-audit.json
 
   arm64:
     runs-on: ubuntu-24.04
