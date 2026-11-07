@@ -3,7 +3,7 @@
 
 static uint32_t uefi_mem_type(uint32_t t) {
     switch (t) {
-    case 7: return KBI_MEM_USABLE;       /* EfiConventionalMemory */
+    case 3: case 4: case 7: return KBI_MEM_USABLE; /* BootServices after ExitBootServices; ConventionalMemory */
     case 9: return KBI_MEM_ACPI_RECLAIM;
     case 10: return KBI_MEM_ACPI_NVS;
     case 8: return KBI_MEM_BAD;          /* EfiUnusableMemory */
