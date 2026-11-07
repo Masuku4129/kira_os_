@@ -163,6 +163,17 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     if ((smmu->idr0 & 0x3u) == 0)
         return KIRA_SMMU_UNSUPPORTED;
 
+    /*
+     * STRTAB_BASE/CFG are only writable while SMMUEN and its acknowledgement
+     * are clear. Quiesce the controller before allocating/publishing tables.
+     */
+    smmu_write32(smmu->registers, SMMU_CR0, 0);
+    rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
+                        SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN |
+                        SMMU_CR0ACK_CMDQEN, 0, platform);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
+
     smmu->queue_entries = SMMU_QUEUE_ENTRIES;
     smmu->stream_table = 0;
     smmu->stream_table_physical = 0;
