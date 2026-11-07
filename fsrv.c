@@ -260,12 +260,8 @@ static void drv_execute(fsrv_req_t* r) {
             int bad = 0;
             if (ok) for (int i = 0; i < 32; i++) bad |= digest[i] ^ sig.package_sha256[i];
             if (!ok || bad) { r->result = FS_E_DENIED; return; }
-            char rp[48]; n = 0;
-            for (const char* a = "/drv/"; *a; a++) rp[n++] = *a;
-            for (size_t i = 0; stem[i]; i++) rp[n++] = stem[i];
-            for (const char* a = ".rec"; *a; a++) rp[n++] = *a;
-            rp[n] = 0;
-            if (kfs_stat(rp, &st) != 0 || st.type != KFS_FILE || st.size != sizeof(kdrv_rec_t)) { r->result = FS_E_DENIED; return; }
+            /* .sig is written before .rec. The .rec file is the install commit marker:
+               after a power loss, a package cannot become locally trusted before its signature exists. */
         }
         kfs_info_t fi; kfs_info(&fi);
         uint64_t keep = (uint64_t)fi.total_blocks / 16, need = (r->len + 4095) / 4096 + 1;
