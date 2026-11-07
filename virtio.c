@@ -211,6 +211,7 @@ int virtio_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes) {
     return 0;
 }
 
+/* Validation snapshot: virtio DMA lifecycle and cache ownership integration. */
 /* Exact-size release prevents accidental freeing with a mismatched allocation
    contract. Platform pools without a matching free hook remain allocated. */
 int virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
