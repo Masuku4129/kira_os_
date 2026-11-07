@@ -139,13 +139,17 @@ SC = [
          cmds=[("@sleep 6", []),
                ("@log \\[KIRA DRV\\] abad: SHA-256 не совпал с записью /drv/abad\\.rec - драйвер НЕ запущен", []),
                ("@log \\[KIRA DRV\\] eduun: пакет отклонён \\(установка не подтверждена пользователем\\)", []),
-               ("@log \\[KIRA DRV\\] edu: DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен", []),
-               # MMIO-only пакет может стартовать, но запрос DMA из Ring 3 обязан быть отклонён.
+               ("@log \\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu", []),
+               ("@log drvedu: DMA denied without IOMMU (fail-closed PASS)", []),
+               ("@log drvedu: IRQ/MSI unavailable without isolation (fail-closed PASS)", []),
+               ("@log drvedu: PASS", []),
+               ("drv stop edu", []), ("@sleep 2", []),
+               # MMIO-only пакет может стартовать; попытки DMA/MSI обязаны получить отказ.
                ("drv start edunc", [r"драйвер запущен как drv-edunc"]), ("@sleep 3", []),
                ("@log drvedu: dma rc=-12", []), ("@log \\[KIRA CAPS\\] process 'drv-edunc' .* denied, no right CAP_DMA", []),
                ("drv stop edunc", []), ("@sleep 2", []),
-               ("drv start edu", []),
-               ("@log \\[KIRA DRV\\] edu: DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен", []),
+               ("drv start edu", [r"драйвер запущен как drv-edu"]),
+               ("@log drvedu: PASS", []),
                ("status", [r"interrupts: GICv3"])]),
     # Окно «Драйверы» (drvman) на ARM64: список PCI читается вызовом ядра (CAP_PCILIST), пакеты /drv и итог сверки, остановка и запуск драйвера edu
     # через менеджер ядра; экран virtio-gpu, чтобы окно действительно создавалось. Строки drvman печатает тот же код, что рисует окно.
