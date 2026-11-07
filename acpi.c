@@ -304,7 +304,9 @@ int acpi_init(uint64_t mbi) {
 
 int acpi_init_rsdp(uint64_t rsdp_phys) {
     const uint64_t ONE_GB = 1ULL << 30;
-    int rc = acpi_parse(rsdp_phys, ONE_GB, &info);
+    if (!rsdp_phys) rsdp_phys = acpi_scan(0x80000, 0xA0000, "RSD PTR ", 8, 20);
+    if (!rsdp_phys) rsdp_phys = acpi_scan(0xE0000, 0x100000, "RSD PTR ", 8, 20);
+    int rc = rsdp_phys ? acpi_parse(rsdp_phys, ONE_GB, &info) : -2;
     if (rc == 0) {
         uart_print("[KIRA ACPI] Native UEFI RSDP validated; tables=");
         uart_print_dec(info.tables_seen); uart_print(", CPUs=");
