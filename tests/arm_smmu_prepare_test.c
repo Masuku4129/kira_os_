@@ -4,7 +4,7 @@
 
 #define PAGE 4096u
 #define CHECK(x) do { if (!(x)) { \
-    fprintf(stderr, "FAIL %s:%d: %s\\n", __FILE__, __LINE__, #x); return 1; \
+    fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); return 1; \
 } } while (0)
 
 static _Alignas(PAGE) uint8_t registers_page[PAGE];
