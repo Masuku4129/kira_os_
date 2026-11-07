@@ -50,7 +50,7 @@ int umain(void) {
         if (ev != KDRV_EV_IRQ || KDRV_R32(m, FACT) != 120) ok = 0;
         KDRV_R32(m, IRQ_ACK) = KDRV_R32(m, IRQ_RAISED);
         KDRV_R32(m, STATUS) = 0;
-    } else say("drvedu: IRQ/MSI unavailable without isolation (fail-closed PASS)\n");
+    } else say("drvedu: IRQ/MSI capability not granted (least-privilege PASS)\n");
     kdrv_dma_t d;
     i64 rc = kdrv_dma_alloc(4096, 30, &d);                   /* адреса edu - 30 бит */
     say("drvedu: dma rc="); put(rc); say("\n");
@@ -70,7 +70,7 @@ int umain(void) {
         say("drvedu: dma round trip "); say(same ? "equal\n" : "DIFFERENT (FAIL)\n");
         if (!same) ok = 0;
     } else if (rc == E_PERM) {
-        say("drvedu: DMA denied without IOMMU (fail-closed PASS)\n");
+        say("drvedu: DMA denied: CAP_DMA not granted (least-privilege PASS)\n");
     } else {
         say("drvedu: unexpected DMA result (FAIL)\n");
         ok = 0;
