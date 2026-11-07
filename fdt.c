@@ -101,8 +101,8 @@ static int step(const void* fdt, int off, uint32_t* tok) {
     return off;
 }
 
-int fdt_tree_valid(const void* fdt) {
-    if (!fdt_valid(fdt, 0)) return 0;
+int fdt_tree_valid(const void* fdt, uint32_t max_len) {
+    if (!fdt_valid(fdt, max_len)) return 0;
     const uint8_t* s = sblk(fdt);
     const char* strings = strs(fdt);
     uint32_t n = slen(fdt), strings_size = hdr(fdt, 8), off = 0;
