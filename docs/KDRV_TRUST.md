@@ -13,8 +13,11 @@ first publisher-signed driver:
 - `/drv/*.sig` — package signatures, checked against the resulting active key
   set and the package bytes.
 
-The transition and revocation statements are Ed25519-authenticated. A malformed
-or invalid journal fails closed for publisher-signed packages. Local packages
+The transition and revocation statements are Ed25519-authenticated. At boot,
+the kernel replays historical statements by signature and generation rather
+than rejecting a previously accepted transition merely because its issuance
+window has since expired. New package signatures still use current-time checks.
+A malformed or invalid journal fails closed for publisher-signed packages. Local packages
 without a publisher signature retain the existing local-authentication path.
 
 The kernel does not accept a CRC-only trust snapshot as an authority. This
