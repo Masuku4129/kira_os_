@@ -14,6 +14,8 @@
 #define KIRA_RL_TX_SLOTS      4u
 #define KIRA_RL_TX_MAX_FRAME  1792u
 #define KIRA_RL_TX_MIN_FRAME  60u
+#define KIRA_RL_RX_STATUS_ROK  (1u << 0)
+#define KIRA_RL_RX_STATUS_BAD  ((1u << 1) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5))
 
 typedef struct {
     uint32_t offset;
@@ -87,10 +89,8 @@ static inline int kira_rl_rx_decode(const uint8_t h[4], kira_rl_rx_record_t *r) 
 /* Status bits: ROK=bit 0, FAE=bit 1, CRC=bit 2, LONG=bit 3,
  * RUNT=bit 4, ISE=bit 5. Only a good packet is delivered. */
 static inline int kira_rl_rx_status_ok(uint16_t status) {
-    const uint16_t ROK = 1u << 0;
-    const uint16_t BAD = (1u << 1) | (1u << 2) | (1u << 3) |
-                         (1u << 4) | (1u << 5);
-    return (status & ROK) != 0 && (status & BAD) == 0;
+    return (status & KIRA_RL_RX_STATUS_ROK) != 0 &&
+           (status & KIRA_RL_RX_STATUS_BAD) == 0;
 }
 
 static inline int kira_rl_rx_account(kira_rl_rx_state_t *s,
@@ -113,6 +113,17 @@ static inline int kira_rl_rx_account(kira_rl_rx_state_t *s,
     }
     s->accepted++;
     return 1;
+}
+
+/* Reconcile a completed hardware descriptor without trusting caller indices. */
+static inline int kira_rl_tx_reap(kira_rl_tx_state_t *s, uint8_t slot,
+                                  uint32_t tx_status, uint32_t ok_bit,
+                                  uint32_t error_mask) {
+    if (!s || slot >= KIRA_RL_TX_SLOTS || !s->busy[slot]) return -1;
+    if (!(tx_status & (ok_bit | error_mask))) return 0; /* still owned by device */
+    return kira_rl_tx_complete(s, slot,
+                               (tx_status & ok_bit) != 0 &&
+                               (tx_status & error_mask) == 0);
 }
 
 static inline int kira_rl_tx_reserve(kira_rl_tx_state_t *s, uint8_t *slot) {
