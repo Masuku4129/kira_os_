@@ -182,7 +182,7 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/mindlv tests/mind_lever_test.c min
 $T/mindlv
 
 echo "== device tree (FDT) parser =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c bootinfo_fdt.c bootinfo.c
 $T/fdt
 $CC $FLAGS -fsanitize=address,undefined -o $T/crypto tests/crypto_test.c crypto.c sha256.c
 $T/crypto
