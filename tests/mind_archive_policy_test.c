@@ -12,8 +12,9 @@ int main(void) {
     /* Generation 6 is being written; generation 4 is the previous newest
        valid snapshot. Neither may be selected, even when its score is low. */
     CHECK(mind_archive_choose_victim(items, 6, 6, 4) == 2);
+    items[0].score = 90;
     items[2].score = 90;
-    CHECK(mind_archive_choose_victim(items, 6, 6, 4) == 0); /* tie -> oldest */
+    CHECK(mind_archive_choose_victim(items, 6, 6, 4) == 0); /* equal score -> oldest */
     items[0].valid = 0;
     items[1].valid = 0;
     items[2].valid = 0;
