@@ -67,11 +67,6 @@ static uint32_t smmu_read32(volatile uint8_t *base, uint32_t offset)
     return *(volatile uint32_t *)(base + offset);
 }
 
-static uint64_t smmu_read64(volatile uint8_t *base, uint32_t offset)
-{
-    return *(volatile uint64_t *)(base + offset);
-}
-
 static void smmu_write32(volatile uint8_t *base, uint32_t offset, uint32_t value)
 {
     *(volatile uint32_t *)(base + offset) = value;
