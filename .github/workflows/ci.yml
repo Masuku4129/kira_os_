@@ -364,7 +364,7 @@ jobs:
                   lines.append(f"- FAIL: {path}: invalid JSON ({exc})")
           lines += ["", f"QEMU result files: {count}; PASS: {passed}; FAIL: {failed}", ""]
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
-              out.write("\\n".join(lines))
+              out.write("\n".join(lines))
           PY
       - name: publish complete CI summary
         if: github.event_name != 'pull_request'
