@@ -31,7 +31,7 @@ enum { KFS_INC_READ = 11, KFS_INC_STAT = 12, KFS_DRV_STAT = 13, KFS_DRV_READ = 1
 #define PAGE 4096ul
 #define CHUNK_PAGES 256ul
 #ifndef DRVGET_DEFAULT_BASE
-#define DRVGET_DEFAULT_BASE "https://raw.githubusercontent.com/Masuku4129/kira_os_/main/drivers"
+#define DRVGET_DEFAULT_BASE "https://raw.githubusercontent.com/Masuku4129/kira_os_/integration/kira-2026-11-07/drivers"
 #endif
 
 /* Куда идёт текст отчёта: по умолчанию в журнал процесса (консоль); окно «Драйверы» (drvman) собирает его в свою панель. */
