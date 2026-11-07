@@ -134,12 +134,17 @@ static int pkg_load(const char* name, pkg_t* p) {
     if (rc == KDRV_OK) rc = kdrv_rec_check(&rec, sizeof rec, &p->r);
     /* Detached publisher signature is optional for legacy locally-confirmed packages.
        If a .sig file is present, it must be structurally valid and verify against the owner keyring. */
-    if (rc == KDRV_OK && kfs_stat(spath, &ss) == 0) {
-        kdrv_sig_t sig;
-        if (ss.type != KFS_FILE || ss.size != sizeof sig ||
-            kfs_read(spath, 0, &sig, sizeof sig) != (int64_t)sizeof sig ||
-            kdrv_sig_check(b, (uint32_t)st.size, &sig, sizeof sig) != KDRV_OK)
-            rc = KDRV_E_SIGNATURE;
+    if (rc == KDRV_OK) {
+        int sig_stat = kfs_stat(spath, &ss);
+        if (sig_stat == 0) {
+            kdrv_sig_t sig;
+            if (ss.type != KFS_FILE || ss.size != sizeof sig ||
+                kfs_read(spath, 0, &sig, sizeof sig) != (int64_t)sizeof sig ||
+                kdrv_sig_check(b, (uint32_t)st.size, &sig, sizeof sig) != KDRV_OK)
+                rc = KDRV_E_SIGNATURE;
+        } else if (sig_stat != KFS_ERR_NOENT) {
+            rc = KDRV_E_SIGNATURE; /* I/O or filesystem errors are not treated as an absent signature */
+        }
     }
     if (rc == KDRV_OK) {
         uint8_t d1[32], d2[32];
