@@ -93,6 +93,8 @@ int main(void) {
     CHECK(kbi_validate(b,sizeof b)==0);
     h->modules_count=1;
     h->total_size=h->modules_off+sizeof(kbi_module_t)+5;
+    mod->name_off=h->modules_off+sizeof(*mod);
+    memcpy(b+mod->name_off,"init",5);
 
     /* Module table cannot alias the memory map. */
     h->modules_off=h->mmap_off; CHECK(kbi_validate(b,sizeof b)==-13);
