@@ -42,6 +42,10 @@ int main(int argc, char** argv) {
     size_t pkg_len, raw_len;
     unsigned char* pkg = read_file(argv[1], &pkg_len);
     unsigned char* raw = read_file(argv[2], &raw_len);
+    if (pkg_len == 0 || pkg_len > UINT32_MAX) {
+        fprintf(stderr, "kdrvsig: package size is outside the supported range\\n");
+        return 1;
+    }
     if (raw_len != 64) {
         fprintf(stderr, "kdrvsig: Ed25519 signature must be exactly 64 bytes\n");
         return 1;
