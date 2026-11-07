@@ -111,7 +111,9 @@ int main(void)
     reset_test_platform();
     p = platform();
     memset(&smmu, 0, sizeof(smmu));
+    *(uint32_t *)(registers_page + 0x0020u) = 0x0du;
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_OK);
+    CHECK(*(uint32_t *)(registers_page + 0x0020u) == 0u);
     CHECK(alloc_calls == 3 && free_calls == 0);
     CHECK(smmu.stream_table == dma_pool + 3u * PAGE);
     CHECK(smmu.stream_table_physical == next_physical + 3u * PAGE);
@@ -143,6 +145,18 @@ int main(void)
     /* Reject hardware that cannot implement this fixed 256-entry CMDQ. */
     reset_test_platform();
     *(uint32_t *)(registers_page + 0x0004u) = (7u << 21) | (8u << 16) | 8u;
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
+    CHECK(alloc_calls == 0);
+
+    /* Preset hardware tables/queues are read-only and must not be overwritten. */
+    reset_test_platform();
+    *(uint32_t *)(registers_page + 0x0004u) |= (1u << 30);
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
+    CHECK(alloc_calls == 0);
+    reset_test_platform();
+    *(uint32_t *)(registers_page + 0x0004u) |= (1u << 29);
     memset(&smmu, 0, sizeof(smmu));
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
     CHECK(alloc_calls == 0);
