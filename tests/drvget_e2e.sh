@@ -182,9 +182,9 @@ grep -q "Ed25519 подтверждена" "$T/out" || note "installed publisher
 rm -f "$W/rl/drvget.sig"
 
 # A trusted catalogue entry can require publisher authentication: HTTP 404 must not downgrade to local trust.
-printf 'kira-driver-index 1\\npci 10ec:8139 rl %s/rl/drvget.rec %s publisher-required\\n' "$U" "$REC_SHA" > "$T/ssl/drivers.index"
+printf 'kira-driver-index 1\npci 10ec:8139 rl %s/rl/drvget.rec %s publisher-required\n' "$U" "$REC_SHA" > "$T/ssl/drivers.index"
 run "install $U/rl/drvget.rec"
-HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \\([0-9a-f]\\{64\\}\\)$/\\1/p' "$T/out")
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' "$T/out")
 [ ${#HASH} = 64 ] || note "required publisher policy test: не получен хеш staging-набора"
 run "confirm rl ${HASH:0:8}"
 grep -q "системный каталог требует издательскую подпись, но сервер вернул HTTP 404" "$T/out" || note "required publisher policy allowed unsigned fallback: $(tail -c 400 "$T/out")"
@@ -192,7 +192,7 @@ grep -q "системный каталог требует издательску
 [ -z "$(ls "$T/sb" | grep '^s-')" ] || note "required publisher refusal left staging files"
 
 # Without the required bit, a local 404 is still explicit, but cannot replace an existing signed package.
-printf 'kira-driver-index 1\\npci 10ec:8139 rl %s/rl/drvget.rec %s\\n' "$U" "$REC_SHA" > "$T/ssl/drivers.index"
+printf 'kira-driver-index 1\npci 10ec:8139 rl %s/rl/drvget.rec %s\n' "$U" "$REC_SHA" > "$T/ssl/drivers.index"
 run "install $U/rl/drvget.rec"
 HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' "$T/out")
 [ ${#HASH} = 64 ] || note "unsigned replacement test: не получен хеш staging-набора"
