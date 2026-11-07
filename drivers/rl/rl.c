@@ -47,9 +47,10 @@
 
 #define RTL_TSD_TOK         (1u << 15)
 #define RTL_TSD_TUN         (1u << 14)
+#define RTL_TSD_CRS         (1u << 16)
 #define RTL_TSD_TABT        (1u << 30)
 #define RTL_TSD_OWC         (1u << 31)
-#define RTL_TSD_ERRORS      (RTL_TSD_TUN | RTL_TSD_TABT | RTL_TSD_OWC)
+#define RTL_TSD_ERRORS      (RTL_TSD_TUN | RTL_TSD_CRS | RTL_TSD_TABT | RTL_TSD_OWC)
 
 #define RTL_RX_ALLOC_BYTES  (KIRA_RL_RX_RING_BYTES + KIRA_RL_RX_WRAP_BYTES)
 #define RTL_TX_ALLOC_BYTES  (KIRA_RL_TX_SLOTS * KIRA_RL_TX_BUF_BYTES)
