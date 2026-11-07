@@ -477,6 +477,47 @@ static int cmd_confirm(const char *arg) {
     for (u32 i = 0; i < R.nmatch; i++) h->match[i] = R.match[i];
     memcpy(pkg + sizeof *h, kr.elf, kr.elflen);
 
+    /* A detached signature is hosted beside drvget.rec as drvget.sig and covers
+       the exact locally built package. A 404 is an explicit local install;
+       a present but invalid signature always aborts installation. */
+    kdrv_sig_t publisher_sig;
+    int has_publisher_sig = 0;
+    if (url[0]) {
+        dg_url_t recipe_url, signature_url;
+        char signature_url_text[DG_URL_MAX];
+        u32 signature_len = 0;
+        const char *signature_error = 0;
+        if (dg_url_parse(url, &recipe_url, &signature_error) ||
+            dg_url_join(&recipe_url, "drvget.sig", signature_url_text, sizeof signature_url_text, &signature_error) ||
+            dg_url_parse(signature_url_text, &signature_url, &signature_error)) {
+            sayf("drvget: неверный адрес подписи издателя: %s\\n", signature_error ? signature_error : "ошибка URL");
+            return 1;
+        }
+        signature_error = http_get(&signature_url, &signature_len);
+        if (signature_error) {
+            if (!strstr(signature_error, "HTTP 404")) {
+                sayf("drvget: не удалось получить подпись издателя: %s\\n", signature_error);
+                return 1;
+            }
+            say("drvget: .sig отсутствует (HTTP 404); пакет будет только локально подтверждён\\n");
+        } else {
+            if (signature_len != sizeof publisher_sig) {
+                sayf("drvget: неверный размер .sig: %u, ожидалось %u; установка отменена\\n",
+                     (unsigned)signature_len, (unsigned)sizeof publisher_sig);
+                return 1;
+            }
+            memcpy(&publisher_sig, body, sizeof publisher_sig);
+            int signature_rc = kdrv_sig_verify(pkg, total, &publisher_sig, sizeof publisher_sig,
+                                               kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, k_time());
+            if (signature_rc != KDRV_SIG_OK) {
+                sayf("drvget: подпись издателя отвергнута: %s; установка отменена\\n", kdrv_sig_strerror(signature_rc));
+                return 1;
+            }
+            has_publisher_sig = 1;
+            say("drvget: подпись издателя Ed25519 подтверждена для собранного пакета\\n");
+        }
+    }
+
     kdrv_rec_t rec;
     memset(&rec, 0, sizeof rec);
     rec.magic = KREC_MAGIC; rec.format = KDRV_FORMAT; rec.rec_size = sizeof rec;
@@ -496,15 +537,25 @@ static int cmd_confirm(const char *arg) {
         if (ll > 0 && (size_t)ll < sizeof lt) memcpy(rec.source + ul + 1, lt, (size_t)ll);
     }
 
-    char f1[32], f2[32];
+    char f1[32], f2[32], f3[32];
     snprintf(f1, sizeof f1, "%s.kdrv", R.name);
     snprintf(f2, sizeof f2, "%s.rec", R.name);
+    snprintf(f3, sizeof f3, "%s.sig", R.name);
     i64 w = drv_op(KFS_DRV_WRITE, f1, pkg, total, 0);
-    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f1, (long long)w); return 1; }
+    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\\n", f1, (long long)w); return 1; }
     w = drv_op(KFS_DRV_WRITE, f2, &rec, sizeof rec, 0);
-    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f2, (long long)w); drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0); return 1; }
+    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\\n", f2, (long long)w); drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0); return 1; }
+    if (has_publisher_sig) {
+        w = drv_op(KFS_DRV_WRITE, f3, &publisher_sig, sizeof publisher_sig, 0);
+        if (w < 0) {
+            sayf("drvget: запись подписи /drv/%s отклонена (код %lld); пакет удалён\\n", f3, (long long)w);
+            drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0);
+            return 1;
+        }
+    }
     stage_clear();
-    sayf("drvget: установлено: /drv/%s и /drv/%s; драйвер подойдёт устройствам из списка выше, ядро просматривает /drv сразу (журнал: [KIRA DRV])\n", f1, f2);
+    sayf("drvget: установлено: /drv/%s и /drv/%s; издательская подпись: %s\\n",
+         f1, f2, has_publisher_sig ? "Ed25519 подтверждена" : "отсутствует, локальное подтверждение");
     return 0;
 }
 
