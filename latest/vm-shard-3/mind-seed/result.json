@@ -1,0 +1,92 @@
+{
+ "name": "mind-seed",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] нет своего опыта: взято семя \\(из QEMU, на железе лишь подсказка\\), веса на 90 с",
+   "ok": true
+  },
+  {
+   "step": "ai model",
+   "must": "фоновые программы: -?\\d\\.\\d\\d",
+   "ok": true
+  },
+  {
+   "step": "ai model",
+   "must": "обучено на (9\\d|1[0-4]\\d) с",
+   "ok": true
+  },
+  {
+   "step": "ai",
+   "must": "пока без права действовать",
+   "ok": true
+  },
+  {
+   "step": "ai levers",
+   "must": "стартовые подсказки взяты из семени опыта",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.2,
+ "seconds": 11.1,
+ "commands": [
+  {
+   "cmd": "ai model",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "ai",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "ai levers",
+   "seconds": 0.08
+  }
+ ]
+}
