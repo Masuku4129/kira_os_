@@ -595,7 +595,7 @@ ALL.append(sc("drvget-rl", "drvget: исходники драйвера по HTT
 # что делают кнопки, и печатает те же строки, что рисуются в окне (устройства, пакеты, кадр), поэтому стенд проверяет именно показанное.
 ALL.append(sc("drvman-edu", "окно «Драйверы»: список PCI из ядра (встроенный драйвер / Ring 3 запущен / драйвера нет), пакеты /drv и итог сверки (испорченный, неподтверждённый), остановка и запуск драйвера edu через менеджер ядра, отказ запуска без свободного устройства, удаление", [
     {"log": BOOT_LOG}, {"sleep": 6},
-    {"log": [r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu"]},
+    {"log": [r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu", r"drvedu: DMA denied without IOMMU \(fail-closed PASS\)", r"drvedu: IRQ/MSI unavailable without isolation \(fail-closed PASS\)", r"drvedu: PASS"]},
     *_dg("drvman do pci;pkgs", r"drvman: готово", 40),
     {"log": [r"drvman: окно создано 640x560",
              r"drvman: кадр: строк в списках [1-9]\d*, устройств [1-9]\d*, пакетов 4",
@@ -604,7 +604,7 @@ ALL.append(sc("drvman-edu", "окно «Драйверы»: список PCI и�
              r"drvman: pci \d\d:\d\d\.\d\s+[0-9a-f]{4}:[0-9a-f]{4}\s+060000\s+.*мост или шина",
              r"drvman: пакетов в /drv: 4",
              r"drvman: пакет edu \| edu\s+v\d+\s+лицензия: не записана\s+ЗАПУЩЕН\s+сверка: SHA-256 сходится",
-             r"drvman: пакет edu \| права запрошены: MMIO IRQ DMA PCIDEV\s+подтверждены: MMIO IRQ DMA PCIDEV",
+             r"drvman: пакет edu \| права запрошены: MMIO PCIDEV\s+подтверждены: MMIO PCIDEV",
              r"drvman: пакет edu \| sha256 образа [0-9a-f]{64}",
              r"drvman: пакет edu \| источник: tools/mkdrv\.sh",
              r"drvman: пакет abad \| abad\s+v\d+\s+лицензия: не записана\s+не запущен\s+сверка: НЕ СОВПАДАЕТ",
