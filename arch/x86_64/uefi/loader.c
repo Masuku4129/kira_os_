@@ -451,7 +451,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
         if (status == EFI_BUFFER_TOO_SMALL) {
             g_bs->FreePool((VOID *)(UINTN)bootinfo->memory_map);
             if (descriptor_size < sizeof(EFI_MEMORY_DESCRIPTOR) ||
-                descriptor_size > (UINTN_MAX - current_size) / 8)
+                descriptor_size > (((UINTN)~(UINTN)0 - current_size) / 8))
                 return EFI_BAD_BUFFER_SIZE;
             map_size = current_size + descriptor_size * 8;
             status = g_bs->AllocatePool(EfiLoaderData, map_size,
