@@ -136,6 +136,9 @@ int main(void) {
     memcpy(bad, blob, sizeof bad); be(bad + 12, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* strings alias structure */
     memcpy(bad, blob, sizeof bad); be(bad + 16, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* reserve map aliases structure */
     memcpy(bad, blob, sizeof bad); be(bad + 60, 1); be(bad + 68, 0x1000); CHECK(!fdt_valid(bad, sizeof bad)); /* missing reserve terminator */
+    memcpy(bad, blob, sizeof bad);
+    be(bad + fdt_u32(bad + 8) + fdt_u32(bad + 36) - 4, 4); /* replace FDT_END with NOP */
+    CHECK(fdt_valid(bad, sizeof bad) && !fdt_tree_valid(bad));
     memcpy(bad, blob, sizeof bad); be(bad + fdt_u32(bad + 8) + 12, 0x7FFFFFFF);  /* длина первого свойства за пределами */
     CHECK(fdt_valid(bad, sizeof bad) && !fdt_tree_valid(bad) && fdt_prop(bad, fdt_root(bad), "#address-cells", &len) == 0);
     /* обход с испорченными данными не уходит за блок */
