@@ -128,7 +128,7 @@ jobs = [
     ("Mind quality (ASan/UBSan)", "MIND_RESULT"), ("GUI regression", "GUI_RESULT"),
     ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"),\n    ("Binary ISO/KiraFS audit", "IMAGE_AUDIT_RESULT"),
 ]
-lines = ["# KIRA OS v45 — CI test report", "",
+lines = ["# KIRA OS v46 — CI test report", "",
          "Commit: " + os.getenv("GITHUB_SHA", "unknown"),
          "Branch: " + os.getenv("GITHUB_REF_NAME", "unknown"),
          "Run: " + os.getenv("CI_RUN_URL", "unknown"), "",
