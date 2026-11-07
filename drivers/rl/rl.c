@@ -187,7 +187,7 @@ static int rtl_hw_start(rtl8139_t *s) {
     rtl_write16(s, RTL_REG_IMR, 0); /* polling mode; no IRQ capability needed */
     bus_space_barrier();
     rtl_write8(s, RTL_REG_CR, RTL_CR_RX_ENABLE | RTL_CR_TX_ENABLE);
-    bus_space_barrier(s->io, 0, 0x100u);
+    bus_space_barrier();
     return 0;
 }
 
@@ -219,7 +219,7 @@ static void rtl_tx_start(rtl8139_t *s) {
         u32 wire_length = length < RTL_TX_MIN_FRAME ? RTL_TX_MIN_FRAME : length;
         if (wire_length > length) kd_memset(dst + length, 0, wire_length - length);
 
-        bus_space_barrier(s->io, 0, 0x100u);
+        bus_space_barrier();
         rtl_write32(s, RTL_REG_TSD0 + slot * 4u, wire_length);
         bus_space_barrier();
     }
@@ -324,7 +324,7 @@ int main(void) {
     if (rtl_dma_setup(&g_rtl) != 0) return 6;
     if (rtl_hw_start(&g_rtl) != 0) return 7;
 
-    if (for (u32 i = 0; i < 6; i++) g_rtl.net.if_lladdr[i] = g_rtl.mac[i];
+    for (u32 i = 0; i < 6; i++) g_rtl.net.if_lladdr[i] = g_rtl.mac[i];
     g_rtl.net.if_softc = &g_rtl;
     if_attach(&g_rtl.net) != 0) {
         kd_puts("rtl8139: network interface registration failed\n");
