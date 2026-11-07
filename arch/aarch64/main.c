@@ -348,6 +348,17 @@ static int dma_pool_selftest(void) {
     return ok ? 0 : -1;
 }
 
+/* ARM64 non-coherent buffers come from the Normal-NC pool; barriers make
+   CPU/device ownership transitions visible without cache-line maintenance. */
+void platform_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes) {
+    (void)cpu; (void)phys; (void)bytes;
+    dsb();
+}
+void platform_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes) {
+    (void)cpu; (void)phys; (void)bytes;
+    dsb();
+}
+
 void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
     if (!dma_lo || !cpu || !phys || !bytes ||
         (uint64_t)(uintptr_t)cpu != phys || phys < dma_lo ||
