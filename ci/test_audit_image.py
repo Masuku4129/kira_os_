@@ -34,8 +34,8 @@ class ElfAuditTests(unittest.TestCase):
         self.assertIn("PT_INTERP (dynamic loader)", elf_dependencies(data, "interp"))
 
     def test_shared_library_needed_tag_is_detected(self):
-        data = elf_header(3, phoff=64, phentsize=56, phnum=1, size=136)
-        struct.pack_into("<IIQQQQQQ", data, 64, 2, 4, 120, 0, 0, 16, 16, 8)
+        data = elf_header(3, phoff=64, phentsize=56, phnum=1, size=152)
+        struct.pack_into("<IIQQQQQQ", data, 64, 2, 4, 120, 0, 0, 32, 32, 8)
         struct.pack_into("<qQqQ", data, 120, 1, 0, 0, 0)
         self.assertIn("DT_NEEDED (shared library)", elf_dependencies(data, "needed"))
 
