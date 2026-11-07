@@ -141,6 +141,7 @@ for h in kcc/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h
 done
 tools/kfstool kira.disk put /etc/kcc/include/kira.h userland/kira.h
+tools/kfstool kira.disk put /etc/kcc/include/kira_rtl8139_core.h drivers/rtl8139/kira_rtl8139_core.h
 for h in userland/kccrt/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/kccrt/$(basename $h) $h
 done
