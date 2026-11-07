@@ -9,9 +9,14 @@ This file separates implemented mechanisms from the capabilities still required 
 ## 1. Boot chain — BLOCKED
 Current x86_64 image uses GRUB 2 / Multiboot2. GRUB is included in the ISO and is therefore a runtime boot-chain dependency.
 
+Implemented in the v46 working branch:
+- Added a fixed-layout, versioned KIRA BootInfo v1 contract (`bootinfo.h`) with physical-address semantics, memory-map records, framebuffer, ACPI/FDT pointers, modules, command line, architecture and boot mode.
+- Added strict bounds/overflow/shape validation (`bootinfo.c`), compiled into the kernel, plus host regression tests.
+- This is the common handoff contract only. The existing Multiboot2 entry has not yet been replaced by a KIRA-owned BIOS stage loader or UEFI application; no boot path is claimed independent yet.
+
 Required:
-- KIRA-owned BIOS boot path and UEFI application.
-- A versioned boot handoff ABI carrying memory map, framebuffer, ACPI RSDP, modules/initrd and boot mode.
+- KIRA-owned BIOS boot path and UEFI application that populate BootInfo v1 and transfer control to the architecture entry point.
+- BIOS + OVMF tests for low/high memory maps, framebuffer formats and malformed handoff data.
 - Bounds, overflow, relocation and page-table validation.
 - BIOS + OVMF tests for low/high memory maps, framebuffer formats and malformed handoff data.
 - Binary inspection proving GRUB binaries/modules are absent from the release ISO.
