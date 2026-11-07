@@ -1,7 +1,7 @@
 name: kira
 
 concurrency:
-  group: kira-${{ github.workflow }}-${{ github.ref }}
+  group: kira-${{ github.workflow }}
   cancel-in-progress: true
 
 permissions:
@@ -9,6 +9,7 @@ permissions:
 
 on:
   push:
+    branches: [main, stable, v45/overhaul]
     paths-ignore: ['docs/**', '**.md']
   pull_request:
   workflow_dispatch:
