@@ -18,6 +18,7 @@
 #define EFI_ALLOCATE_MAX_ADDRESS 1u
 #define EFI_FILE_MODE_READ 1ull
 #define EFI_PAGE_SIZE 4096u
+#define EFI_MEMORY_RP 0x0000000000002000ull
 #define EFI_MEMORY_XP 0x0000000000004000ull
 #define BOOTINFO_MAX (256u * 1024u)
 #define KERNEL_MAX (64u * 1024u * 1024u)
@@ -287,7 +288,8 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
         uint64_t memory_attributes=0;
         attr_status=attributes->get_memory_attributes(attributes,segment_base,
                               segment_end-segment_base,&memory_attributes);
-        if(EFI_ERROR(attr_status)) goto executable_attribute_error;
+        if(EFI_ERROR(attr_status)||(memory_attributes&EFI_MEMORY_RP))
+            goto executable_attribute_error;
         if(memory_attributes&EFI_MEMORY_XP) {
             attr_status=attributes->clear_memory_attributes(attributes,
                     segment_base,segment_end-segment_base,EFI_MEMORY_XP);
@@ -295,7 +297,8 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
             memory_attributes=0;
             attr_status=attributes->get_memory_attributes(attributes,segment_base,
                                   segment_end-segment_base,&memory_attributes);
-            if(EFI_ERROR(attr_status)||(memory_attributes&EFI_MEMORY_XP))
+            if(EFI_ERROR(attr_status)||
+               (memory_attributes&(EFI_MEMORY_RP|EFI_MEMORY_XP)))
                 goto executable_attribute_error;
         }
     }
