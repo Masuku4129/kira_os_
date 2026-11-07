@@ -26,6 +26,7 @@ def elf_dependencies(data, label):
     if cls not in (1, 2) or enc not in (1, 2):
         raise ValueError(f"{label}: unsupported ELF class/endianness")
     endian = "<" if enc == 1 else ">"
+    elf_type = struct.unpack_from(endian + "H", data, 16)[0]
     if cls == 2:
         if len(data) < 64:
             raise ValueError(f"{label}: truncated ELF64 header")
@@ -41,7 +42,7 @@ def elf_dependencies(data, label):
     need = struct.calcsize(phfmt)
     if phentsize < need or phoff + phentsize * phnum > len(data):
         raise ValueError(f"{label}: invalid program-header table")
-    found = []
+    found = ["ET_DYN (shared object or PIE image)"] if elf_type == 3 else []
     for i in range(phnum):
         off = phoff + i * phentsize
         h = struct.unpack_from(phfmt, data, off)
