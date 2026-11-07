@@ -252,7 +252,7 @@ static int kdrv_trust_prepare(void) {
             return rc;
         }
         spin_unlock_irqrestore(&trust_lock,flags);
-        k_sleep(1); /* another process is replaying the signed journal */
+        sched_sleep_ticks(1); /* another process is replaying the signed journal */
     }
 }
 
