@@ -115,17 +115,6 @@ static inline int kira_rl_rx_account(kira_rl_rx_state_t *s,
     return 1;
 }
 
-/* Reconcile a completed hardware descriptor without trusting caller indices. */
-static inline int kira_rl_tx_reap(kira_rl_tx_state_t *s, uint8_t slot,
-                                  uint32_t tx_status, uint32_t ok_bit,
-                                  uint32_t error_mask) {
-    if (!s || slot >= KIRA_RL_TX_SLOTS || !s->busy[slot]) return -1;
-    if (!(tx_status & (ok_bit | error_mask))) return 0; /* still owned by device */
-    return kira_rl_tx_complete(s, slot,
-                               (tx_status & ok_bit) != 0 &&
-                               (tx_status & error_mask) == 0);
-}
-
 static inline int kira_rl_tx_reserve(kira_rl_tx_state_t *s, uint8_t *slot) {
     if (!s || !slot || s->used >= KIRA_RL_TX_SLOTS) return -1;
     uint8_t n = s->producer;
@@ -145,6 +134,17 @@ static inline int kira_rl_tx_complete(kira_rl_tx_state_t *s, uint8_t slot,
     s->consumer = (uint8_t)((slot + 1u) % KIRA_RL_TX_SLOTS);
     return 0;
 }
+/* Reconcile a completed hardware descriptor without trusting caller indices. */
+static inline int kira_rl_tx_reap(kira_rl_tx_state_t *s, uint8_t slot,
+                                  uint32_t tx_status, uint32_t ok_bit,
+                                  uint32_t error_mask) {
+    if (!s || slot >= KIRA_RL_TX_SLOTS || !s->busy[slot]) return -1;
+    if (!(tx_status & (ok_bit | error_mask))) return 0; /* still owned by device */
+    return kira_rl_tx_complete(s, slot,
+                               (tx_status & ok_bit) != 0 &&
+                               (tx_status & error_mask) == 0);
+}
+
 static inline int kira_rl_tx_length(size_t requested, uint16_t *hardware_len) {
     if (!hardware_len || requested > KIRA_RL_TX_MAX_FRAME) return -1;
     if (requested < KIRA_RL_TX_MIN_FRAME) requested = KIRA_RL_TX_MIN_FRAME;
