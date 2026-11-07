@@ -21,7 +21,7 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(kdrv_transition_t) == 160, "KDRV transition ABI");
 
 /* Verifies a transition signed by an existing active publisher key.
- * The caller must persist generation atomically before trusting new_key. */
+ * The caller must retain the signed journal and replay it from the compiled root. */
 #define KDRV_TRANSITION_MAX_CHAIN 32u
 
 /* Apply a strictly increasing chain to a caller-owned trust snapshot.
