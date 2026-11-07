@@ -22,7 +22,8 @@ int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
         (rsdp_phys && (rsdp_phys & 15u))) return -1;
     uint32_t n = map_size / descriptor_size;
     if (n > KIRA_BOOTINFO_MAX_MMAP) return -2;
-    uint64_t max_entries = (uint64_t)n + 2u;\n    uint64_t need = sizeof(kbi_header_t) + max_entries * sizeof(kbi_mmap_entry_t);
+    uint64_t max_entries = (uint64_t)n + 2u;
+    uint64_t need = sizeof(kbi_header_t) + max_entries * sizeof(kbi_mmap_entry_t);
     if (need > capacity || need > KIRA_BOOTINFO_MAX_SIZE) return -3;
 
     uint8_t *blob = (uint8_t *)out;
@@ -108,7 +109,8 @@ int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
         }
         mm[merged++] = mm[i];
     }
-    if (!merged) return -7;\n    h->mmap_count = merged;
+    if (!merged) return -7;
+    h->mmap_count = merged;
     h->total_size = h->mmap_off + merged * (uint32_t)sizeof(kbi_mmap_entry_t);
     int rc = kbi_validate(blob, h->total_size);
     if (rc) return -10 + rc;
