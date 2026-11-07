@@ -490,19 +490,19 @@ static int cmd_confirm(const char *arg) {
         if (dg_url_parse(url, &recipe_url, &signature_error) ||
             dg_url_join(&recipe_url, "drvget.sig", signature_url_text, sizeof signature_url_text, &signature_error) ||
             dg_url_parse(signature_url_text, &signature_url, &signature_error)) {
-            sayf("drvget: неверный адрес подписи издателя: %s\\n", signature_error ? signature_error : "ошибка URL");
+            sayf("drvget: неверный адрес подписи издателя: %s\n", signature_error ? signature_error : "ошибка URL");
             return 1;
         }
         signature_error = http_get(&signature_url, &signature_len);
         if (signature_error) {
             if (!strstr(signature_error, "HTTP 404")) {
-                sayf("drvget: не удалось получить подпись издателя: %s\\n", signature_error);
+                sayf("drvget: не удалось получить подпись издателя: %s\n", signature_error);
                 return 1;
             }
-            say("drvget: .sig отсутствует (HTTP 404); пакет будет только локально подтверждён\\n");
+            say("drvget: .sig отсутствует (HTTP 404); пакет будет только локально подтверждён\n");
         } else {
             if (signature_len != sizeof publisher_sig) {
-                sayf("drvget: неверный размер .sig: %u, ожидалось %u; установка отменена\\n",
+                sayf("drvget: неверный размер .sig: %u, ожидалось %u; установка отменена\n",
                      (unsigned)signature_len, (unsigned)sizeof publisher_sig);
                 return 1;
             }
@@ -510,11 +510,11 @@ static int cmd_confirm(const char *arg) {
             int signature_rc = kdrv_sig_verify(pkg, total, &publisher_sig, sizeof publisher_sig,
                                                kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, k_time());
             if (signature_rc != KDRV_SIG_OK) {
-                sayf("drvget: подпись издателя отвергнута: %s; установка отменена\\n", kdrv_sig_strerror(signature_rc));
+                sayf("drvget: подпись издателя отвергнута: %s; установка отменена\n", kdrv_sig_strerror(signature_rc));
                 return 1;
             }
             has_publisher_sig = 1;
-            say("drvget: подпись издателя Ed25519 подтверждена для собранного пакета\\n");
+            say("drvget: подпись издателя Ed25519 подтверждена для собранного пакета\n");
         }
     }
 
@@ -542,19 +542,19 @@ static int cmd_confirm(const char *arg) {
     snprintf(f2, sizeof f2, "%s.rec", R.name);
     snprintf(f3, sizeof f3, "%s.sig", R.name);
     i64 w = drv_op(KFS_DRV_WRITE, f1, pkg, total, 0);
-    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\\n", f1, (long long)w); return 1; }
+    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f1, (long long)w); return 1; }
     w = drv_op(KFS_DRV_WRITE, f2, &rec, sizeof rec, 0);
-    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\\n", f2, (long long)w); drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0); return 1; }
+    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f2, (long long)w); drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0); return 1; }
     if (has_publisher_sig) {
         w = drv_op(KFS_DRV_WRITE, f3, &publisher_sig, sizeof publisher_sig, 0);
         if (w < 0) {
-            sayf("drvget: запись подписи /drv/%s отклонена (код %lld); пакет удалён\\n", f3, (long long)w);
+            sayf("drvget: запись подписи /drv/%s отклонена (код %lld); пакет удалён\n", f3, (long long)w);
             drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0);
             return 1;
         }
     }
     stage_clear();
-    sayf("drvget: установлено: /drv/%s и /drv/%s; издательская подпись: %s\\n",
+    sayf("drvget: установлено: /drv/%s и /drv/%s; издательская подпись: %s\n",
          f1, f2, has_publisher_sig ? "Ed25519 подтверждена" : "отсутствует, локальное подтверждение");
     return 0;
 }
