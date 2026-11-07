@@ -74,7 +74,7 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
     if(rc) return -20+rc;
 
     uint32_t mmap_tag=0, mmap_count=0, mmap_stride=0;
-    uint32_t modules_tag=0, modules_count=0;
+    uint32_t modules_count=0;
     uint32_t cmd_tag=0, cmd_len=0, fb_tag=0;
     for(uint32_t off=8;off<total;) {
         uint32_t type=rd32(b+off), size=rd32(b+off+4);
@@ -91,7 +91,7 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
             uint32_t start=rd32(b+off+8), end=rd32(b+off+12);
             if(end<=start || b[off+size-1]!=0) return -31;
             modules_count++;
-            if(!modules_tag) modules_tag=off;
+
         } else if(type==MB2_TAG_CMDLINE) {
             if(cmd_tag || size<9 || b[off+size-1]!=0) return -32;
             cmd_tag=off; cmd_len=size-8;
@@ -182,7 +182,7 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
     if(fb_tag) {
         const uint8_t* f=b+fb_tag;
         uint8_t kind=f[29];
-        if(kind==1 && rd32(f+16) && rd32(f+20) && rd32(f+24) && size>=38 && (f[28]==15 || f[28]==16 || f[28]==24 || f[28]==32)) {
+        if(kind==1 && rd32(f+16) && rd32(f+20) && rd32(f+24) && rd32(f+4)>=38 && (f[28]==15 || f[28]==16 || f[28]==24 || f[28]==32)) {
             /* RGB direct-colour framebuffer: Multiboot2 colour_info follows byte 32. */
             if(rd32(f+4) && rd32(f+8) && rd32(f+12) && rd32(f+4)<=UINT32_MAX) {
                 h->fb_phys=rd64(f+8-4); /* addr begins at tag offset 8 */
