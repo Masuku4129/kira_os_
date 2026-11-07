@@ -870,7 +870,13 @@ static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t 
     if (!rc) {
         uint8_t* z = (uint8_t*)(uintptr_t)pa;
         for (uint64_t i = 0; i < (uint64_t)pages * 4096; i++) z[i] = 0;
-        if (vtd_dma_map(b->dev, pa, (uint64_t)pages * 4096u) != 0) {
+        int map_rc = vtd_dma_map(b->dev, pa, (uint64_t)pages * 4096u);
+        if (map_rc == -3) {
+            /* A failed IOTLB flush can leave stale hardware translations.
+               Keep the physical allocation pinned and journal it for retry. */
+            iommu_mapped = 1;
+            rc = KE_PERM;
+        } else if (map_rc != 0) {
             (void)pmm_free_contiguous(pa, pages); pa = 0; rc = KE_PERM;
         } else iommu_mapped = 1;
     }
