@@ -45,12 +45,12 @@ static int aml_integer(const uint8_t **cursor, const uint8_t *end,
 }
 
 static int aml_namestring(const uint8_t **cursor, const uint8_t *end,
-                          char out[32], uint8_t *out_len) {
+                          char out[128], uint8_t *out_len) {
     const uint8_t *p = *cursor;
     size_t n = 0;
     if (p < end && *p == '\\') { out[n++] = *p++; }
     while (p < end && *p == '^') {
-        if (n + 1 >= 32) return -1;
+        if (n + 1 >= 128) return -1;
         out[n++] = *p++;
     }
     unsigned segments = 1;
@@ -60,14 +60,14 @@ static int aml_namestring(const uint8_t **cursor, const uint8_t *end,
         p++;
         if (p >= end) return -1;
         segments = *p++;
-        if (!segments || segments > 8) return -1;
+        if (!segments || segments > 24) return -1;
     }
     if (!segments) {
         if (!n) return -1;
         *cursor = p; *out_len = (uint8_t)n; return 0;
     }
     for (unsigned i = 0; i < segments; i++) {
-        if (p + 4 > end || n + 4 >= 32) return -1;
+        if (p + 4 > end || n + 4 >= 128) return -1;
         for (unsigned j = 0; j < 4; j++) {
             uint8_t ch = p[j];
             if (!((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_')) return -1;
@@ -112,6 +112,7 @@ static int parse_prt_package(const uint8_t *p, const uint8_t *end,
         }
         if (aml_integer(&body, eend, &source_index) || source_index > UINT32_MAX)
             return -1;
+        if (body != eend) return -1;
         row.source_index = (uint32_t)source_index;
         out[(*count)++] = row;
         body = eend;
