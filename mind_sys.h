@@ -27,6 +27,7 @@ typedef struct {
     uint32_t decisions, anomalies, kills, tune_trials, tune_wins;
     uint32_t activity;
     uint32_t nj;
+    uint32_t journal_seq;              /* монотонный номер записи: GUI замечает события даже в одну секунду */
     struct { uint32_t t; uint8_t kind, applied; char text[MIND_TEXT]; } j[MIND_VIEW_J];
     int32_t  tz_min;
     uint8_t  rtc_local;
