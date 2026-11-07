@@ -31,6 +31,9 @@ struct kira_smmu {
     uint64_t cmdq_physical;
     void *evtq;
     uint64_t evtq_physical;
+    void *evtq_allocation;
+    uint64_t evtq_allocation_physical;
+    size_t evtq_allocation_pages;
     uint32_t cmdq_producer;
     uint32_t evtq_consumer;
     /* Controller-owned linear stream table shared by every domain. */
