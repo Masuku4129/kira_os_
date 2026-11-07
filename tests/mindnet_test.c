@@ -66,35 +66,52 @@ int main(void) {
 
     printf(fails ? "MINDNET TESTS FAILED\n" : "mindnet: sigmoid, online learning, calibration, explanation, trust gating passed\n");
 
-    // Chronological holdout: train on the earlier window, evaluate only on later samples.
-    // The prevalence-only baseline predicts 25%; the model must extract the predictive signal.
+    // Chronological holdout: features are generated first; the label is sampled independently
+    // from a conditional probability. No feature contains or is copied from the target.
     {
         mnet_t temporal; mnet_init(&temporal);
         uint32_t state = 0x51A7E123u;
+        unsigned train_positive = 0;
         for (int i = 0; i < 8000; i++) {
-            state = state * 1664525u + 1013904223u;
-            int y = (state >> 24) < 64;
             int32_t x[MNET_F] = {0};
-            x[3] = y ? (9 * MNET_ONE) / 10 : MNET_ONE / 10;
+            state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+            x[3] = (int32_t)(state & 0xFFFFu);
+            state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+            x[9] = (int32_t)(state & 0xFFFFu);
+            double signal = 8.0 * (x[3] / (double)MNET_ONE - 0.5);
+            double probability = 1.0 / (1.0 + exp(-signal));
+            state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+            int y = (state / 4294967296.0) < probability;
+            train_positive += (unsigned)y;
             mnet_train(&temporal, x, y);
         }
+        double baseline_probability = train_positive / 8000.0;
         double model_brier = 0.0, baseline_brier = 0.0;
+        unsigned holdout_positive = 0;
         for (int i = 0; i < 2000; i++) {
-            state = state * 1664525u + 1013904223u;
-            int y = (state >> 24) < 64;
             int32_t x[MNET_F] = {0};
-            x[3] = y ? (9 * MNET_ONE) / 10 : MNET_ONE / 10;
+            state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+            x[3] = (int32_t)(state & 0xFFFFu);
+            state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+            x[9] = (int32_t)(state & 0xFFFFu);
+            double signal = 8.0 * (x[3] / (double)MNET_ONE - 0.5);
+            double probability = 1.0 / (1.0 + exp(-signal));
+            state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+            int y = (state / 4294967296.0) < probability;
+            holdout_positive += (unsigned)y;
             double p = mnet_predict(&temporal, x) / (double)MNET_ONE;
             double e = p - y;
             model_brier += e * e;
-            e = 0.25 - y;
+            e = baseline_probability - y;
             baseline_brier += e * e;
         }
         model_brier /= 2000.0;
         baseline_brier /= 2000.0;
-        printf("temporal holdout: model Brier=%.4f, prevalence baseline=%.4f, trusted=%d\n",
-               model_brier, baseline_brier, mnet_trusted(&temporal));
-        CHECK(model_brier < baseline_brier * 0.5);
+        printf("temporal holdout: model Brier=%.4f, train-prevalence baseline=%.4f, train-positive=%u/8000, holdout-positive=%u/2000, trusted=%d\n",
+               model_brier, baseline_brier, train_positive, holdout_positive, mnet_trusted(&temporal));
+        CHECK(train_positive > 500 && train_positive < 7500);
+        CHECK(holdout_positive > 100 && holdout_positive < 1900);
+        CHECK(model_brier < baseline_brier * 0.80);
         CHECK(mnet_trusted(&temporal));
     }
 

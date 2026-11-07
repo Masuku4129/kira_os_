@@ -4,46 +4,66 @@ OUT_DIR="${2:-${1:-ci-out/package}}"
 RESULTS_DIR="${RESULTS_DIR:-ci-out/results}"
 AUDIT_DIR="${AUDIT_DIR:-ci-out/audit}"
 KIRA_VERSION="${KIRA_VERSION:-v44}"
-BASE_REF="${KIRA_BASE_REF:-origin/v43/integration}"
+BASE_REF="${KIRA_BASE_REF:-edae4ab3367a055826f431e261af5d6dee790ddf}"
 mkdir -p "$OUT_DIR"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-if git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
-  BASE_SHA="$(git merge-base HEAD "$BASE_REF")"
-elif git rev-parse --verify origin/main >/dev/null 2>&1; then
-  BASE_SHA="$(git merge-base HEAD origin/main)"
-else
-  BASE_SHA="$(git rev-parse HEAD)"
+if ! git rev-parse --verify "${BASE_REF}^{commit}" >/dev/null 2>&1; then
+  echo "ERROR: required v43 base commit is unavailable: $BASE_REF" >&2
+  exit 1
+fi
+BASE_SHA="$(git merge-base HEAD "$BASE_REF")"
+if [ "$BASE_SHA" != "$BASE_REF" ]; then
+  echo "ERROR: HEAD is not based on the declared v43 base; merge-base=$BASE_SHA expected=$BASE_REF" >&2
+  exit 1
 fi
 HEAD_SHA="$(git rev-parse HEAD)"
 RUN_URL="${CI_RUN_URL:-https://github.com/${GITHUB_REPOSITORY:-Masuku4129/kira_os_}/actions/runs/${GITHUB_RUN_ID:-unknown}}"
 
-git archive --format=tar --prefix=kira_os/ HEAD | tar -xf - -C "$STAGE"
+for key in HOST_RESULT BUILD_RESULT VM_RESULT ARM64_RESULT AUDIT_RESULT MIND_RESULT GUI_RESULT; do
+  value="${!key:-}"
+  if [ "$value" != "success" ]; then
+    echo "ERROR: required CI job $key is not successful (value: ${value:-missing})" >&2
+    exit 1
+  fi
+done
+
+find_required_log() {
+  local name="$1" found
+  found="$(find "$RESULTS_DIR" -type f -name "$name" -print -quit 2>/dev/null || true)"
+  if [ -z "$found" ]; then
+    echo "ERROR: required CI evidence log is missing: $name" >&2
+    exit 1
+  fi
+  printf '%s\n' "$found"
+}
+HOST_LOG="$(find_required_log host-tests.log)"
+MIND_LOG="$(find_required_log mind-quality.log)"
+GUI_LOG="$(find_required_log gui-regression.log)"
+
+git archive --format=tar --prefix=kira_os/ "$HEAD_SHA" | tar -xf - -C "$STAGE"
 R="$STAGE/kira_os/RELEASE"
 mkdir -p "$R"
-cat > "$R/CHANGELOG.md" <<EOF_CHANGELOG
-# KIRA OS $KIRA_VERSION
 
-- Source commit: $HEAD_SHA
-- Base commit (v43/integration): $BASE_SHA
-- CI run: $RUN_URL
-
-## Реализовано в этом обновлении
-- Единая палитра KIRA Aurora для рабочего стола и системных приложений.
-- Исправлено перемешивание сообщений Dock на ARM64: каждая запись отправляется в UART атомарно.
-- USB Mass Storage по умолчанию монтируется только для чтения; запись, создание и удаление файлов на съёмном томе блокируются.
-- GPT: проверяются CRC заголовка и массива записей, допустимые диапазоны разделов и границы LBA.
-- Уточнены реальные гарантии проверки драйверов; менеджер драйверов предупреждает, что SHA-256 не является подписью издателя.
-- Расширены host-тесты VFS/GPT и выгрузка GUI preview в CI.
-
-## Ограничения, которые остаются
-- Криптографическая подпись KDRV-пакетов и управление ключами выпуска ещё не реализованы; текущая SHA-256-сверка не аутентифицирует автора.
-- IOMMU/DMA-изоляция зависит от платформы и не гарантируется на всех устройствах.
-- Загрузочная цепочка x86 пока использует GRUB/Multiboot2; собственного загрузчика KIRA ещё нет.
-- QEMU не заменяет физические испытания x86/ARM устройств.
-- Система остаётся независимой: Linux kernel/modules/runtime в образ не включаются.
-EOF_CHANGELOG
+{
+  echo "# KIRA OS $KIRA_VERSION"
+  echo
+  echo "- Source commit: $HEAD_SHA"
+  echo "- Base commit: $BASE_SHA"
+  echo "- CI run: $RUN_URL"
+  echo
+  echo "## Изменения относительно v43"
+  echo
+  git log --no-merges --reverse --format='- %s (%h)' "$BASE_SHA..$HEAD_SHA"
+  echo
+  echo "## Границы подтверждённого результата"
+  echo
+  echo "- Состав изменений выше сформирован из фактической истории Git, а не из заранее заданного списка."
+  echo "- Успешный QEMU не является подтверждением работы на физическом оборудовании."
+  echo "- SHA-256 контрольная сумма подтверждает целостность файла, но не подлинность издателя."
+  echo "- Linux kernel/modules/runtime в состав ОС не включаются."
+} > "$R/CHANGELOG.md"
 
 cat > "$R/INSTALL_TERMUX.md" <<'EOF_INSTALL'
 # Установка KIRA OS v44 на Android (Termux/Debian)
@@ -75,27 +95,51 @@ echo "KIRA OS v44 source archive: verified"
 EOF_VERIFY
 chmod +x "$R/VERIFY.sh"
 
-python3 - "$RESULTS_DIR" "$R/TEST_REPORT.md" <<'PY'
+python3 - "$RESULTS_DIR" "$R/TEST_REPORT.md" "$HOST_LOG" "$MIND_LOG" "$GUI_LOG" <<'PY'
 import json, os, pathlib, sys
 root, dest = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-jobs = [("Host tests","HOST_RESULT"),("x86 build","BUILD_RESULT"),("x86 QEMU","VM_RESULT"),("ARM64 build/QEMU","ARM64_RESULT"),("Static audit","AUDIT_RESULT")]
-lines = ["# KIRA OS v44 — CI test report","", "Commit: "+os.getenv("GITHUB_SHA","unknown"), "Branch: "+os.getenv("GITHUB_REF_NAME","unknown"), "Run: "+os.getenv("CI_RUN_URL","unknown"), "", "| Job | Result |", "|---|---|"]
-lines += ["| "+name+" | "+os.getenv(key,"unknown")+" |" for name,key in jobs]
-rows = []
+host_log, mind_log, gui_log = map(pathlib.Path, sys.argv[3:6])
+jobs = [
+    ("Host tests", "HOST_RESULT"), ("x86_64 build", "BUILD_RESULT"),
+    ("x86_64 QEMU matrix", "VM_RESULT"), ("ARM64 build and QEMU", "ARM64_RESULT"),
+    ("Static dependency/source audit", "AUDIT_RESULT"),
+    ("Mind quality (ASan/UBSan)", "MIND_RESULT"), ("GUI regression", "GUI_RESULT"),
+]
+lines = ["# KIRA OS v44 — CI test report", "",
+         "Commit: " + os.getenv("GITHUB_SHA", "unknown"),
+         "Branch: " + os.getenv("GITHUB_REF_NAME", "unknown"),
+         "Run: " + os.getenv("CI_RUN_URL", "unknown"), "",
+         "| Required job | Result |", "|---|---|"]
+lines += ["| " + name + " | " + os.getenv(key, "missing") + " |" for name, key in jobs]
+results = []
 for path in sorted(root.rglob("result.json")):
     try:
-        data=json.loads(path.read_text())
-        rows.append((data.get("name",path.parent.name),bool(data.get("ok")),data.get("seconds"),data.get("error")))
+        data = json.loads(path.read_text())
+        results.append((str(data.get("name", path.parent.name)), bool(data.get("ok")),
+                        data.get("seconds"), data.get("error"), str(path.relative_to(root))))
     except Exception as exc:
-        rows.append((path.parent.name,False,None,str(exc)))
-lines += ["", "## QEMU scenarios", "", "| Scenario | Result | Seconds | Detail |", "|---|---|---:|---|"]
-for name,ok,seconds,error in rows:
-    detail=((str(error or "—").splitlines() or ["—"])[0]).replace("|","/")[:160]
-    lines.append("| "+str(name)+" | "+("PASS" if ok else "FAIL") + " | "+str(seconds if seconds is not None else "—")+" | "+detail+" |")
-host=next(iter(root.rglob("host-tests.log")),None)
-lines += ["", "Host log: "+("ALL HOST TESTS PASSED found." if host and "ALL HOST TESTS PASSED" in host.read_text(errors="replace") else "success marker not confirmed in downloaded log."), "", "QEMU is virtual-hardware evidence only; no physical-hardware claim is made.", ""]
+        results.append((path.parent.name, False, None, str(exc), str(path.relative_to(root))))
+lines += ["", "## QEMU scenario evidence", "",
+          "| Scenario | Result | Seconds | Evidence | Detail |",
+          "|---|---|---:|---|---|"]
+for name, ok, seconds, error, evidence in results:
+    detail = ((str(error or "—").splitlines() or ["—"])[0]).replace("|", "/")[:160]
+    lines.append("| " + name.replace("|", "/") + " | " + ("PASS" if ok else "FAIL") +
+                 " | " + str(seconds if seconds is not None else "—") + " | " +
+                 evidence.replace("|", "/") + " | " + detail + " |")
+arm = sum(1 for _,_,_,_,path in results if "arm64" in path.lower())
+lines += ["", "Result JSON files: " + str(len(results)) + "; ARM64 result files: " + str(arm) + ".", "",
+          "## Captured logs", "",
+          "- Host tests: " + str(host_log.relative_to(root)),
+          "- Mind quality: " + str(mind_log.relative_to(root)),
+          "- GUI regression: " + str(gui_log.relative_to(root)), "",
+          "## Scope limits", "",
+          "- QEMU is virtual-hardware evidence only; physical x86_64/ARM64 hardware remains untested.",
+          "- A successful static audit is not proof of memory safety or complete dependency absence.",
+          "- SHA-256 checksums do not authenticate the publisher.", ""]
 dest.write_text("\n".join(lines))
 PY
+
 for f in AUDIT.md inventory.json DEPENDENCIES.md dependency_inventory.json; do
   if [ -f "$AUDIT_DIR/$f" ]; then cp "$AUDIT_DIR/$f" "$R/$f"; fi
 done
@@ -105,4 +149,4 @@ printf '%s\n' "$KIRA_VERSION" > "$R/VERSION"
 (cd "$STAGE/kira_os" && find . -type f ! -path './RELEASE/SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > RELEASE/SHA256SUMS)
 tar -czf "$OUT_DIR/KIRA_OS_Update.tar.gz" -C "$STAGE" kira_os
 (cd "$OUT_DIR" && sha256sum KIRA_OS_Update.tar.gz > KIRA_OS_Update.tar.gz.sha256)
-echo "package: created complete $KIRA_VERSION source archive $OUT_DIR/KIRA_OS_Update.tar.gz"
+echo "package: created verified $KIRA_VERSION source archive $OUT_DIR/KIRA_OS_Update.tar.gz"

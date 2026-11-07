@@ -210,10 +210,53 @@ jobs:
         with:
           name: kira-audit
           path: results/audit
-      - name: publish to ci-results
+      - uses: actions/download-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: kira-mind-quality
+          path: results/mind-quality
+      - uses: actions/download-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: kira-gui-regression
+          path: results/gui-regression
+      - name: publish complete CI summary
         if: github.event_name != 'pull_request'
+        env:
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          HOST_RESULT: ${{ needs.host-tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          VM_RESULT: ${{ needs.vm.result }}
+          ARM64_RESULT: ${{ needs.arm64.result }}
+          MIND_RESULT: ${{ needs.mind-quality.result }}
+          GUI_RESULT: ${{ needs.gui-regression.result }}
         run: |
-          set -e
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path("results")
+          lines = ["# Прогон " + os.environ["GITHUB_SHA"][:7] + " (" + os.environ["GITHUB_REF_NAME"] + ")", "",
+                   "| Проверка | Результат |", "|---|---|"]
+          jobs = [("audit","AUDIT_RESULT"),("host-tests","HOST_RESULT"),("x86_64 build","BUILD_RESULT"),
+                  ("x86_64 QEMU matrix","VM_RESULT"),("ARM64 build/QEMU","ARM64_RESULT"),
+                  ("Mind quality","MIND_RESULT"),("GUI regression","GUI_RESULT")]
+          lines += ["| " + name + " | " + os.getenv(key,"missing") + " |" for name,key in jobs]
+          lines += ["", "## QEMU result files", ""]
+          found = 0
+          for path in sorted(root.rglob("result.json")):
+              found += 1
+              try:
+                  item = json.loads(path.read_text())
+                  detail = "" if item.get("ok") else " — " + str(item.get("error") or "").splitlines()[0][:240]
+                  lines.append(("- " if item.get("ok") else "- FAIL ") + str(item.get("name",path.parent.name)) +
+                               ": " + ("PASS" if item.get("ok") else "FAIL") + detail)
+              except Exception as exc:
+                  lines.append("- FAIL " + str(path) + ": invalid JSON: " + str(exc))
+          lines += ["", "QEMU result files: " + str(found), ""]
+          pathlib.Path("results/SUMMARY.md").write_text("\n".join(lines))
+          PY
           mkdir pub && cd pub
           B=ci-results; case "$GITHUB_REF_NAME" in main|stable) ;; *) B="ci-results-$(echo "$GITHUB_REF_NAME" | tr '/' '-')";; esac
           git init -q -b "$B"
@@ -221,15 +264,6 @@ jobs:
           mkdir latest
           cp -r ../results/* latest/ 2>/dev/null || true
           find latest -name '*.ppm' -delete
-          {
-            echo "# Прогон ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
-            echo
-            echo "audit: ${{ needs.audit.result }}, host-tests: ${{ needs.host-tests.result }}, build: ${{ needs.build.result }}, vm: ${{ needs.vm.result }}, arm64: ${{ needs.arm64.result }}"
-            echo
-            for r in latest/vm-*/result.json latest/vm-arm64/*/result.json; do
-              python3 -c "import json,sys; r=json.load(open(sys.argv[1])); print(('OK  ' if r['ok'] else 'FAIL'), r['name'], r.get('seconds'), 'с', '' if r['ok'] else '- ' + (r.get('error') or '').splitlines()[0][:300])" "$r" || true
-            done
-          } > latest/SUMMARY.md
           echo "${GITHUB_SHA}" > latest/SHA
           git add -A
           git commit -q -m "ci: ${GITHUB_SHA::7}"
@@ -253,6 +287,14 @@ jobs:
         with:
           name: kira-audit
           path: ci-out/audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-mind-quality
+          path: ci-out/results/mind-quality
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-gui-regression
+          path: ci-out/results/gui-regression
       - name: create installable source update
         env:
           HOST_RESULT: ${{ needs.host-tests.result }}
@@ -260,6 +302,9 @@ jobs:
           VM_RESULT: ${{ needs.vm.result }}
           ARM64_RESULT: ${{ needs.arm64.result }}
           AUDIT_RESULT: ${{ needs.audit.result }}
+          MIND_RESULT: ${{ needs.mind-quality.result }}
+          GUI_RESULT: ${{ needs.gui-regression.result }}
+          KIRA_BASE_REF: edae4ab3367a055826f431e261af5d6dee790ddf
           CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash ci/package_update.sh origin/main ci-out/package
       - uses: actions/upload-artifact@v4
