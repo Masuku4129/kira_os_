@@ -57,6 +57,9 @@ int kdrv_revocation_apply(const kdrv_revocation_t *s,
             if (rv_eq(s->revoked_ids[i], s->revoked_ids[j], KDRV_SIG_KEY_ID_SIZE))
                 return KDRV_SIG_E_FORMAT;
     }
+    for (uint32_t i = s->revoked_count; i < KDRV_REVOCATION_MAX_IDS; i++)
+        if (!rv_zero(s->revoked_ids[i], KDRV_SIG_KEY_ID_SIZE))
+            return KDRV_SIG_E_FORMAT;
     if (ed25519_verify(issuer->public_key, (const uint8_t *)s,
                        offsetof(kdrv_revocation_t, signature), s->signature) != 0)
         return KDRV_SIG_E_SIGNATURE;
