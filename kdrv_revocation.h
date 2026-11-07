@@ -6,6 +6,7 @@
 #define KDRV_REVOCATION_MAGIC 0x3156524bu /* KRV1 */
 #define KDRV_REVOCATION_FORMAT 1u
 #define KDRV_REVOCATION_MAX_IDS 32u
+#define KDRV_REVOCATION_MAX_CHAIN 32u
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;
