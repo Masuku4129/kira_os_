@@ -6,6 +6,8 @@
 #define KDRV_SIG_MAGIC 0x31474953u /* "SIG1" */
 #define KDRV_SIG_FORMAT 1u
 #define KDRV_SIG_KEY_ID_SIZE 16u
+/* Internal sentinel: replay an already signed trust journal without expiring historical statements. */
+#define KDRV_SIG_TIME_REPLAY ((int64_t)(-0x7fffffffffffffffLL - 1))
 #define KDRV_SIG_MAX_KEYS 32u
 #define KDRV_SIG_KEY_REVOKED 1u
 
