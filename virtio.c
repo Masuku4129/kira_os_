@@ -48,6 +48,7 @@ static void barrier(void) { __sync_synchronize(); }
 
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) __attribute__((weak));
 void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes) __attribute__((weak));
+int platform_dma_noncoherent(void) __attribute__((weak));
 
 /* Track ownership explicitly: a CPU pointer may equal a bus address by chance,
    so pointer/address comparison cannot identify which allocator owns a buffer. */
@@ -140,6 +141,10 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
         }
     }
     if (!cpu) {
+        /* On a non-coherent platform, cacheable PMM pages are never a safe
+           substitute for the uncached DMA pool. Fail closed if that pool
+           cannot provide a valid block. */
+        if (platform_dma_noncoherent && platform_dma_noncoherent()) return 0;
         uint64_t pa = pmm_alloc_contiguous(pages);
         if (!pa) return 0;
         for (uint32_t i = 0; i < pages; i++) {
