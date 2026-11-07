@@ -5,10 +5,10 @@
 #include <stddef.h>
 #include "pci.h"
 
-/* virtio 1.0 поверх PCI (современный интерфейс: capabilities + MMIO BAR; старый интерфейс на портах не поддерживается).
-   Очереди split-ring; обмен синхронный (одна заявка в очереди, опрос used-кольца без прерываний), как и в остальных
-   драйверах ядра на этом этапе. Память для DMA выделяется физически непрерывно и лежит в identity-карте ядра,
-   поэтому физический адрес равен указателю. */
+/* virtio 1.0 over PCI (modern capabilities + MMIO BAR).
+   DMA allocations expose a CPU pointer separately from the device-visible address.
+   The generic fallback currently requires low-memory identity mapping; it is not
+   an IOMMU implementation. Platform DMA pools may provide a different address. */
 
 #define VIRTIO_VENDOR 0x1AF4
 #define VIRTIO_F_VERSION_1 (1ULL << 32)
@@ -32,7 +32,7 @@ typedef struct {
     uint16_t index, size, last_used, avail_idx;
     volatile uint8_t* notify_addr;
     uint8_t* mem;                    /* desc | avail | used */
-    uint64_t mem_phys;
+    uint64_t mem_phys;                /* device-visible DMA address; not necessarily equal to mem */
     uint32_t avail_off, used_off;
     struct irqwait* iw;              /* ожидание сном до прерывания очереди (0 - опрос) */
 } virtq_t;
@@ -54,7 +54,8 @@ void virtq_post(virtq_t* q, uint16_t id, uint64_t addr, uint32_t len, int device
 void virtq_kick(virtq_t* q);
 int  virtq_take(virtq_t* q, uint16_t* id, uint32_t* len);   /* 1 - взят */
 
-/* Непрерывная память для DMA (обнулена). Возвращает указатель; *phys - адрес для устройства. 0 - нет памяти. */
+/* DMA buffer (zeroed). CPU pointer and device-visible *phys are distinct values.
+   Generic fallback requires identity-mapped contiguous RAM; 0 means failure. */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
 
 /* Блочное устройство virtio-blk. NULL - такого устройства нет или оно не поднялось. */
