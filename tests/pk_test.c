@@ -89,7 +89,16 @@ int main(int argc, char** argv) {
         CHECK(ed25519_verify(identity_pk, &message, 1, identity_sig) == -1);
     }
     {
+        static const uint8_t valid_pk[32] = {
+            0xd7,0x5a,0x98,0x01,0x82,0xb1,0x0a,0xb7,
+            0xd5,0x4b,0xfe,0xd3,0xc9,0x64,0x07,0x3a,
+            0x0e,0xe1,0x72,0xf3,0xda,0xa6,0x23,0x25,
+            0xaf,0x02,0x1a,0x68,0xf7,0x07,0x51,0x1a
+        };
         uint8_t torsion_pk[32], noncanonical_pk[32], sig[64] = {1}, message = 0x42;
+        CHECK(ed25519_verify(0, &message, 1, sig) == -1);
+        CHECK(ed25519_verify(valid_pk, 0, 1, sig) == -1);
+        CHECK(ed25519_verify(valid_pk, &message, 1, 0) == -1);
         memset(torsion_pk, 0xff, sizeof torsion_pk);
         torsion_pk[0] = 0xec; torsion_pk[31] = 0x7f; /* order-2 point (0,-1) */
         memset(noncanonical_pk, 0xff, sizeof noncanonical_pk);
