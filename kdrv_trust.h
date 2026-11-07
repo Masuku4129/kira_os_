@@ -3,6 +3,10 @@
 /* Только открытые ключи. Закрытый ключ выпуска остаётся офлайн и вне Git/ISO/CI. */
 #include "kdrv_sig.h"
 
+#if defined(KDRV_TEST_TRUST) && !defined(KIRA_TEST_BUILD)
+#error "KDRV_TEST_TRUST is restricted to isolated test builds"
+#endif
+
 #ifdef KDRV_TEST_TRUST
 #define KDRV_TRUST_KEY_ID "TEST-ED25519-001"
 static const kdrv_sig_key_t kdrv_trust_keys[] = {
