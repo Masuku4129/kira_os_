@@ -134,10 +134,26 @@ static void parse_aml_table(const sdt_t *t, acpi_info_t *o, int is_dsdt) {
         acpi_find_s5(aml, (uint32_t)length, &o->slp_typa, &o->slp_typb) == 0)
         o->s5_valid = 1;
     if (o->prt_count >= ACPI_MAX_PRT) return;
-    size_t added = 0;
-    if (kira_acpi_prt_parse(aml, length, o->prt + o->prt_count,
-                            ACPI_MAX_PRT - o->prt_count, &added) == 0)
-        o->prt_count += (uint32_t)added;
+    kira_acpi_prt_entry_t parsed[ACPI_MAX_PRT];
+    size_t parsed_count = 0;
+    if (kira_acpi_prt_parse(aml, length, parsed, ACPI_MAX_PRT,
+                            &parsed_count) != 0) return;
+    for (size_t i = 0; i < parsed_count && o->prt_count < ACPI_MAX_PRT; i++) {
+        int duplicate = 0;
+        for (uint32_t j = 0; j < o->prt_count; j++) {
+            const kira_acpi_prt_entry_t *a = &o->prt[j], *b = &parsed[i];
+            if (a->address == b->address && a->pin == b->pin &&
+                a->direct_gsi == b->direct_gsi &&
+                a->source_index == b->source_index &&
+                a->source_name_len == b->source_name_len) {
+                uint8_t diff = 0;
+                for (uint8_t k = 0; k < a->source_name_len; k++)
+                    diff |= (uint8_t)(a->source_name[k] ^ b->source_name[k]);
+                if (!diff) { duplicate = 1; break; }
+            }
+        }
+        if (!duplicate) o->prt[o->prt_count++] = parsed[i];
+    }
 }
 
 static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
