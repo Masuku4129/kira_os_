@@ -126,7 +126,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.host == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -148,7 +148,14 @@ jobs:
         run: python3 -m unittest ci.test_qmp
       - name: binary image audit parser regression tests
         run: python3 -m unittest ci.test_audit_image
-      - name: host tests (models of devices, file systems, scheduler, mind)
+      - name: production image policy regression tests
+        run: python3 -m unittest ci.test_release_image
+      - name: host tests (unique models and core regressions; dedicated suites run separately)
+        env:
+          KIRA_SKIP_GUI: "1"
+          KIRA_SKIP_MIND: "1"
+          KIRA_SKIP_DRIVER_E2E: "1"
+          KIRA_SKIP_KCC: "1"
         run: |
           mkdir -p ci-out
           set -o pipefail
@@ -169,7 +176,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.kcc == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Prepare writable apt archive cache
@@ -195,7 +202,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.driver == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Prepare writable apt archive cache
@@ -221,7 +228,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Prepare writable apt archive cache
@@ -254,6 +261,31 @@ jobs:
         with:
           name: kira-image-audit
           path: ci-out/image-audit.json
+      - name: production upgrade image (preserve data, remove unsigned EDU fixtures)
+        run: |
+          set -euo pipefail
+          mkdir -p ci-out/release
+          printf 'KIRA-USER-DATA-PRESERVE\\n' > ci-out/release/preserve-before.txt
+          tools/kfstool kira.disk put /data/release-preserve.txt ci-out/release/preserve-before.txt
+          cp kira.disk ci-out/release/kira_disk.img
+          KIRA_OUT="$PWD/ci-out/release" ./build_clang.sh --android
+          tools/kfstool ci-out/release/kira_disk.img cat /data/release-preserve.txt > ci-out/release/preserve-after.txt
+          cmp ci-out/release/preserve-before.txt ci-out/release/preserve-after.txt
+          tools/kfstool ci-out/release/kira_disk.img rm /data/release-preserve.txt
+      - name: audit production ISO and KiraFS
+        run: |
+          python3 ci/audit_image.py --iso ci-out/release/kira.iso --disk ci-out/release/kira_disk.img --kfstool tools/kfstool --out ci-out/release/image-audit.json
+          python3 ci/release_image.py ci-out/release/image-audit.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-release-image
+          path: |
+            ci-out/release/kira.iso
+            ci-out/release/kira_disk.img
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-release-image-audit
+          path: ci-out/release/image-audit.json
 
   arm64:
     needs: detect-changes
@@ -261,7 +293,7 @@ jobs:
     outputs:
       qemu_result: ${{ steps.arm64-qemu.outcome }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Prepare writable apt archive cache
@@ -298,7 +330,7 @@ jobs:
     needs: [detect-changes, build]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -571,8 +603,8 @@ jobs:
           path: ci-out/audit
       - uses: actions/download-artifact@v4
         with:
-          name: kira-image-audit
-          path: ci-out/image-audit
+          name: kira-release-image-audit
+          path: ci-out/release-image-audit
       - uses: actions/download-artifact@v4
         with:
           name: kira-mind-quality
@@ -601,7 +633,7 @@ jobs:
           KCC_RESULT: ${{ needs.kcc-tests.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
           IMAGE_AUDIT_RESULT: ${{ needs.build.result }}
-          IMAGE_AUDIT_DIR: ci-out/image-audit
+          IMAGE_AUDIT_DIR: ci-out/release-image-audit
           KIRA_VERSION: v46
           KIRA_BASE_REF: edae4ab3367a055826f431e261af5d6dee790ddf
           CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

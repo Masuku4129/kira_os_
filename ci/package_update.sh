@@ -3,7 +3,7 @@ set -euo pipefail
 OUT_DIR="${2:-${1:-ci-out/package}}"
 RESULTS_DIR="${RESULTS_DIR:-ci-out/results}"
 AUDIT_DIR="${AUDIT_DIR:-ci-out/audit}"
-IMAGE_AUDIT_DIR="${IMAGE_AUDIT_DIR:-ci-out/image-audit}"
+IMAGE_AUDIT_DIR="${IMAGE_AUDIT_DIR:-ci-out/release-image-audit}"
 IMAGE_AUDIT="${IMAGE_AUDIT_DIR}/image-audit.json"
 KIRA_VERSION="${KIRA_VERSION:-v46}"
 BASE_REF="${KIRA_BASE_REF:-edae4ab3367a055826f431e261af5d6dee790ddf}"

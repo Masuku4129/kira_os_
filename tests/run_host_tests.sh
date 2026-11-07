@@ -169,17 +169,25 @@ echo "== console command line (Enter, backspace, history, clear, Ctrl keys) =="
 $CC $FLAGS -o $T/console tests/console_test.c console.c hwprofile.c uheap.c percpu.c net.c hda.c
 $T/console
 
-echo "== UI primitives (angles, arcs, anti-aliasing) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/ui tests/ui_test.c gfxui.c gfx2d.c font8x16.c -lm
-$T/ui
+if [ "${KIRA_SKIP_GUI:-0}" != 1 ]; then
+    echo "== UI primitives (angles, arcs, anti-aliasing) =="
+    $CC $FLAGS -fsanitize=address,undefined -o $T/ui tests/ui_test.c gfxui.c gfx2d.c font8x16.c -lm
+    $T/ui
+else
+    echo "UI primitives: covered by gui-regression job"
+fi
 
-echo "== mind (norms, anomalies, health, quantum self-tuning, memory, focus, starvation, behavior, persistence) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c mindnet.c
-$T/mind
+if [ "${KIRA_SKIP_MIND:-0}" != 1 ]; then
+    echo "== mind (norms, anomalies, health, quantum self-tuning, memory, focus, starvation, behavior, persistence) =="
+    $CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c mindnet.c
+    $T/mind
 
-echo "== mind levers 13-30 (A/B by measurement, rollback, useless marking, budget, general rollback, hints, seed) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/mindlv tests/mind_lever_test.c mind.c mindnet.c
-$T/mindlv
+    echo "== mind levers 13-30 (A/B by measurement, rollback, useless marking, budget, general rollback, hints, seed) =="
+    $CC $FLAGS -fsanitize=address,undefined -o $T/mindlv tests/mind_lever_test.c mind.c mindnet.c
+    $T/mindlv
+else
+    echo "Mind quality: covered by mind-quality job"
+fi
 
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c bootinfo_fdt.c bootinfo.c
@@ -225,9 +233,13 @@ echo "== quick-launch dock (/var/dock) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/dock tests/dock_test.c dock.c
 $T/dock
 
-echo "== shell (top bar, side launcher, traffic lights, fullscreen, drag, input, live background, culling) =="
-$CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c
-$T/wm
+if [ "${KIRA_SKIP_GUI:-0}" != 1 ]; then
+    echo "== shell (top bar, side launcher, traffic lights, fullscreen, drag, input, live background, culling) =="
+    $CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c
+    $T/wm
+else
+    echo "Window manager regressions: covered by gui-regression job"
+fi
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
@@ -355,10 +367,18 @@ for o in good deleg; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.d
 for o in revoked forged other; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
 for o in stale unknown; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
 ossl_run 18450 resume 3
-echo "== drvget целиком на хосте: TLS-сервер, install, confirm, сборка kcc, /drv =="
-bash tests/drvget_e2e.sh $T/e2e
+if [ "${KIRA_SKIP_DRIVER_E2E:-0}" != 1 ]; then
+    echo "== drvget целиком на хосте: TLS-сервер, install, confirm, сборка kcc, /drv =="
+    bash tests/drvget_e2e.sh $T/e2e
+else
+    echo "Driver installer E2E: covered by driver-e2e job"
+fi
 
-echo "== kcc (препроцессор, лексер, разбор, типы, IR; сверка с clang; fuzz; ASAN/UBSAN) =="
-bash tests/kcc/run.sh
+if [ "${KIRA_SKIP_KCC:-0}" != 1 ]; then
+    echo "== kcc (препроцессор, лексер, разбор, типы, IR; сверка с clang; fuzz; ASAN/UBSAN) =="
+    bash tests/kcc/run.sh
+else
+    echo "KCC compiler suite: covered by kcc-tests job"
+fi
 rm -rf $T
 echo "ALL HOST TESTS PASSED"
