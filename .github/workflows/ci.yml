@@ -9,9 +9,10 @@ permissions:
 
 on:
   push:
-    branches: [main, stable, v45/overhaul]
+    branches: [main, stable, v45/overhaul, 'v46/**']
     paths-ignore: ['docs/**', '**.md']
   pull_request:
+    paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
 
 jobs:
@@ -36,6 +37,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - name: Prepare writable apt archive cache
+        run: sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: lint (new lines)
         run: |
           git fetch -q origin stable main || true
@@ -70,6 +77,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: compiler tools (including target linker for the in-OS KCC build)
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm
       - name: compiler differential, diagnostics, execution and fuzz suite
@@ -88,6 +101,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: driver installer tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld openssl python3-cryptography
       - name: real TLS, recipe, KCC build and driver-manager end-to-end tests
@@ -106,6 +125,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools
       - name: build (clang, -Werror)
@@ -136,6 +161,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: tools
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends clang lld llvm qemu-system-arm ipxe-qemu dosfstools mtools python3-pil python3-cryptography ca-certificates openssl
       - name: build ARM64 (clang, -Werror)
@@ -168,6 +199,12 @@ jobs:
         scenario: [boot-virtio, boot-ata, boot-sata, boot-nvme, boot-1cpu, boot-8cpu, soak-8cpu, isolation, smp, usb-xhci, usb-uhci, stress-spam, stress-spam-2, stress-spam-4, stress-3d, limbo-spam, limbo-mttcg, net-e1000, sound-hda, apps-edit, apps-explorer2, apps-view, net-virtio, apps-wasm, wasm-speed, power-off, power-reboot, crash-isolation, net-e1000e, sound-ac97, net-ipv6, sound-sb16, mind-levers, mind-seed, cc-native, drv-edu, drvget-rl, drvman-edu, apps-drvman, drvman-quiet]
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - uses: actions/download-artifact@v4
         with:
           name: kira-image
