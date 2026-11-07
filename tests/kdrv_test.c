@@ -87,6 +87,9 @@ int main(void) {
     CHECK(kdrv_sig_verify_with_key(&message, 1, &sig, pub) == KDRV_E_SIGNATURE);
     sig.magic = 0;
     CHECK(kdrv_sig_verify_with_key(&message, 1, &sig, pub) == KDRV_E_SIGNATURE);
+    sig.magic = KDRV_SIG_MAGIC;
+    memset(sig.key_id, '0', sizeof sig.key_id);
+    CHECK(kdrv_sig_check(&message, 1, &sig, sizeof sig) == KDRV_E_SIGNATURE);
     printf(fails ? "kdrv_test: FAIL (%d)\n" : "kdrv_test: PASS\n", fails);
     return fails != 0;
 }
