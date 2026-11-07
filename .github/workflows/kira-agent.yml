@@ -31,14 +31,24 @@ jobs:
       pull-requests: write
       copilot-requests: write
     steps:
-      - name: Validate and check out the requested base
+      - name: Validate Copilot authentication
+        env:
+          COPILOT_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$COPILOT_TOKEN" ]; then
+            echo "::error::Add repository secret COPILOT_GITHUB_TOKEN with the Copilot Requests permission."
+            exit 1
+          fi
+
+      - name: Check out the requested base
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.base_branch }}
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
 
-      - name: Validate branch and create isolated work branch
+      - name: Validate base and create isolated work branch
         id: branch
         env:
           BASE_BRANCH: ${{ inputs.base_branch }}
@@ -53,9 +63,9 @@ jobs:
       - name: Install GitHub Copilot CLI
         run: npm install --global @github/copilot
 
-      - name: Run the coding agent (code-writing phase only)
+      - name: Run the coding agent — code-writing phase only
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           KIRA_TASK: ${{ inputs.task }}
         run: |
           set -euo pipefail
@@ -63,31 +73,19 @@ jobs:
           You are the autonomous implementation engineer for KIRA OS.
           Follow the repository's AGENTS.md rules exactly.
 
-          Work on the currently checked-out isolated branch. Implement the user's task below in real source code. First inspect the relevant code, interfaces, callers, architecture notes, and build integration. Make the smallest complete implementation that satisfies the task. Do not add stubs, mocks, placeholders, fake success paths, or unrelated changes.
+          Work on the currently checked-out isolated branch. Implement the user's task below in real source code. First inspect relevant code, interfaces, callers, architecture notes, and build integration. Make the smallest complete implementation that satisfies the task. Do not add stubs, mocks, placeholders, fake success paths, or unrelated changes.
 
-          IMPORTANT PHASE BOUNDARY: do not run tests, builds, lint, audits, emulators, QEMU, ISO packaging, or release workflows. The project owner explicitly wants the complete code-writing pass first and verification only after the agreed implementation scope is present. Do not claim any verification passed. You may inspect source files and git diffs.
+          PHASE BOUNDARY: do not run tests, builds, lint, audits, emulators, QEMU, ISO packaging, or release workflows. The owner explicitly wants the complete code-writing pass first and verification only after the agreed implementation scope is present. Do not claim verification passed. You may inspect source files and git diffs.
 
-          Do not modify GitHub workflow files, secrets, signing keys, release artifacts, or data/mind_seed.bin. Do not commit, push, merge, or create a PR. The surrounding workflow will publish your changes for review.
+          Do not modify GitHub workflow files, secrets, signing keys, release artifacts, or data/mind_seed.bin. Do not commit, push, merge, or create a PR. The surrounding workflow publishes changes for review.
 
-          If the task is too broad for one run, complete a coherent, production-quality subset and clearly enumerate what remains. Never fabricate completion percentages.
+          If the task is too broad for one run, complete a coherent production-quality subset and clearly enumerate what remains. Never fabricate completion percentages.
 
           TASK:
           PROMPT
           printf '%s\n' "$KIRA_TASK" >> "$RUNNER_TEMP/kira-agent-prompt.md"
-          copilot -p "$(cat "$RUNNER_TEMP/kira-agent-prompt.md")" -s \
-            --allow-tool='shell(git status:*)' \
-            --allow-tool='shell(git diff:*)' \
-            --allow-tool='shell(git log:*)' \
-            --allow-tool='shell(git grep:*)' \
-            --allow-tool='shell(git ls-files:*)' \
-            --allow-tool='shell(grep:*)' \
-            --allow-tool='shell(rg:*)' \
-            --allow-tool='shell(find:*)' \
-            --allow-tool='shell(sed:*)' \
-            --allow-tool='shell(cat:*)' \
-            --allow-tool='shell(head:*)' \
-            --allow-tool='shell(tail:*)' \
-            --allow-tool='shell(ls:*)' \
+          copilot -p "$(cat "$RUNNER_TEMP/kira-agent-prompt.md")" -s --no-ask-user \
+            --allow-tool='read, write, shell(git:*), shell(rg:*), shell(grep:*), shell(find:*), shell(sed:*), shell(cat:*), shell(head:*), shell(tail:*), shell(ls:*)' \
             | tee "$RUNNER_TEMP/kira-agent-output.txt"
 
       - name: Publish changes as a draft pull request
@@ -118,7 +116,7 @@ jobs:
           TITLE="$(printf '%s' "$TASK" | head -c 70)"
           gh pr create --draft --repo "$REPOSITORY" --base "$BASE_BRANCH" --head "$WORK_BRANCH" \
             --title "KIRA Agent: $TITLE" \
-            --body "$(printf '## Automated implementation\n\nTask:\n%s\n\nThis is a draft PR created by the KIRA OS Copilot CLI workflow. The agent was instructed not to run builds, tests, audits, emulators, or packaging during this code-writing phase. Review the diff, then run the repository verification pipeline after the agreed code scope is complete.\n' "$TASK")"
+            --body "$(printf '## Automated implementation\n\nTask:\n%s\n\nDraft PR created by the KIRA OS Copilot CLI workflow. Builds, tests, audits, emulators, QEMU, and packaging were intentionally not run during this code-writing phase. Review the diff, then run verification after the agreed code scope is complete.\n' "$TASK")"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Write run summary
