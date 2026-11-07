@@ -9,9 +9,9 @@ def fixture_text(root: Path, evidence: str = "tests/area_{i}.log") -> str:
     for i in range(1, 8):
         path = root / "tests" / f"area_{i}.log"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"verified evidence {i}\\n", encoding="utf-8")
-    return "\\n".join(
-        f"## {i}. Area {i}\\n\\n**Gate:** CLOSED\\n**Evidence:** {evidence.format(i=i)}"
+        path.write_text(f"verified evidence {i}\n", encoding="utf-8")
+    return "\n".join(
+        f"## {i}. Area {i}\n\n**Gate:** CLOSED\n**Evidence:** {evidence.format(i=i)}"
         for i in range(1, 8)
     )
 
@@ -57,7 +57,7 @@ class ReleaseGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = root / "gaps.md"
-            text = fixture_text(root) + "\\n\\n## 1. Duplicate"
+            text = fixture_text(root) + "\n\n## 1. Duplicate"
             path.write_text(text, encoding="utf-8")
             self.assertTrue(any("section 1 is duplicated" in error for error in check(path)))
 
