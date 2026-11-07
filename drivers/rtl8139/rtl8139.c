@@ -211,19 +211,18 @@ static void submit_transmits(void) {
         uint32_t head=__atomic_load_n(&dev.net->tx_head,__ATOMIC_ACQUIRE);
         uint32_t tail=__atomic_load_n(&dev.net->tx_tail,__ATOMIC_RELAXED);
         if(head==tail||dev.tx.used>=KIRA_RL_TX_SLOTS) break;
-        uint8_t hw_slot=0;
-        if(kira_rl_tx_reserve(&dev.tx,&hw_slot)!=0) break;
         kdrv_slot_t *slot=(kdrv_slot_t*)((uint8_t*)dev.net+KDRV_NET_TX_OFF)+
                           (tail%dev.net->slots);
         uint16_t hardware_length=0;
         uint32_t length=slot->len;
         if(length<14u||length>dev.net->max_frame||
            kira_rl_tx_length(length,&hardware_length)!=0) {
-            (void)kira_rl_tx_complete(&dev.tx,hw_slot,0);
             __atomic_store_n(&dev.net->tx_tail,tail+1u,__ATOMIC_RELEASE);
             dev.tx_dropped++;
             continue;
         }
+        uint8_t hw_slot=0;
+        if(kira_rl_tx_reserve(&dev.tx,&hw_slot)!=0) break;
         uint8_t *buffer=(uint8_t*)dev.tx_dma.va+(uint32_t)hw_slot*TX_SLOT_BYTES;
         for(uint32_t i=0;i<length;i++) buffer[i]=slot->data[i];
         for(uint32_t i=length;i<hardware_length;i++) buffer[i]=0;
