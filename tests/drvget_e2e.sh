@@ -140,7 +140,7 @@ grep -q "verify rl: OK" $T/out || note "verify: $(tail -c 300 $T/out)"
 # A stale signature beside a local record must not be carried over to a new unsigned package.
 printf 'x' > "$T/drv/rl.sig"
 run "install $U/rl/drvget.rec"
-HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \\([0-9a-f]\\{64\\}\\)$/\\1/p' "$T/out")
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' "$T/out")
 [ ${#HASH} = 64 ] || note "stale signature test: не получен хеш staging-набора"
 run "confirm rl ${HASH:0:8}"
 grep -q "замена пакета с издательской подписью или её маркером на unsigned/local запрещена" "$T/out" || note "unsigned replacement retained a stale .sig: $(tail -c 400 "$T/out")"
