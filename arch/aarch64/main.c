@@ -1066,14 +1066,19 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     int depth = 0;
     for (int n = fdt_root(fdt); n >= 0; n = fdt_next_node(fdt, n, &depth)) {
         uint32_t len; const char* t = (const char*)fdt_prop(fdt, n, "device_type", &len);
-        if (!t || len < 7 || __builtin_memcmp(t, "memory", 7)) continue;
+        if (!fdt_node_enabled(fdt, n) || !t || len < 7 || __builtin_memcmp(t, "memory", 7)) continue;
         uint64_t a, s;
         for (unsigned k = 0; nram < MAX_RAM && fdt_reg(fdt, n, k, &a, &s) == 0; k++) if (s) {
             ram[nram].base = a; ram[nram].size = s; nram++;
             if (a + s > top) top = a + s;
         }
     }
-    uint64_t total = 0; for (unsigned i = 0; i < nram; i++) total += ram[i].size;
+    if (!nram) kernel_panic("device tree has no enabled RAM regions");
+    uint64_t total = 0;
+    for (unsigned i = 0; i < nram; i++) {
+        if (ram[i].size > UINT64_MAX - total) kernel_panic("device tree RAM size sum overflows");
+        total += ram[i].size;
+    }
     bump = (uint64_t)(uintptr_t)__kernel_end;
     uint64_t fdt_end = (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt);
     if ((uint64_t)(uintptr_t)fdt >= bump && fdt_end > bump) bump = fdt_end;   /* дерево за ядром - не затирать */
