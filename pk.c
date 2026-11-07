@@ -381,6 +381,17 @@ int ed25519_verify(const uint8_t pub[32], const uint8_t* msg, size_t mlen, const
     le_to_bn(S, 8, sig + 32, 32); hexnum(L, 8, ED_L);
     if (bn_cmp(S, L, 8) >= 0) return -1;                          /* S < L обязательно (RFC 8032 §5.1.7) */
     if (ept_decode(&A, pub)) return -1;
+    /* Reject identity and all non-prime-subgroup public keys. Without this,
+       the identity key admits trivial S=0/R=identity forgeries. */
+    ept_t order_check;
+    fe_t order_diff;
+    ept_mul(&order_check, &A, L);
+    es(order_diff, order_check.y, order_check.z);
+    if (!bn_is_zero(order_check.x, 8) || !bn_is_zero(order_diff, 8))
+        return -1;                                                   /* [L]A must be identity */
+    es(order_diff, A.y, A.z);
+    if (bn_is_zero(A.x, 8) && bn_is_zero(order_diff, 8))
+        return -1;                                                   /* reject identity public key */
     if (ept_decode(&B, ED_BASE)) return -1;
     sha512_ctx_t c; uint8_t h[64];
     sha512_init(&c); sha512_update(&c, sig, 32); sha512_update(&c, pub, 32); sha512_update(&c, msg, mlen); sha512_final(&c, h);
