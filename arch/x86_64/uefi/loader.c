@@ -87,7 +87,7 @@ typedef struct __attribute__((packed)) {
 
 typedef struct {
     EFI_PHYSICAL_ADDRESS base;
-    UINT64 size;
+    UINTN pages;
 } kira_loaded_segment;
 
 static EFI_SYSTEM_TABLE *g_st;
@@ -272,6 +272,8 @@ static EFI_STATUS load_elf64(VOID *image,
         if (pages == 0 || (UINT64)pages > UINT64_MAX / KIRA_PAGE_SIZE)
             goto invalid_image;
         allocation_size = (UINT64)pages * KIRA_PAGE_SIZE;
+        if (allocation_size > (physical_limit + 1ull) - destination)
+            goto invalid_image;
 
         /* Reject overlapping page allocations, not just overlapping bytes. */
         for (j = 0; j < segment_count; ++j) {
@@ -301,7 +303,6 @@ static EFI_STATUS load_elf64(VOID *image,
                    (UINTN)(ph[i].memsz - ph[i].filesz), 0);
 
         segments[segment_count].base = destination;
-        segments[segment_count].size = ph[i].memsz;
         segments[segment_count].pages = pages;
         ++segment_count;
 
