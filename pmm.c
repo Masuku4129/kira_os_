@@ -168,7 +168,7 @@ int pmm_init(unsigned long magic, unsigned long addr) {
     uint64_t info_size = *(const uint32_t*)addr;
     if (info_size < 16 || (info_size & 7) || info_size > PMM_LOW - addr ||
         !mb2_validate(addr, info_size)) {
-        uart_print("[KIRA PMM ERROR] Corrupt Multiboot2 info block, tag sequence or memory map.\\n");
+        uart_print("[KIRA PMM ERROR] Corrupt Multiboot2 info block, tag sequence or memory map.\n");
         return -3;
     }
 
