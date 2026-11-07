@@ -80,6 +80,12 @@ int main(void) {
     kdrv_sig_key_t duplicate[2] = { test_key, test_key };
     CHECK(kdrv_sig_verify(package, sizeof package - 1, &s, sizeof s, duplicate, 2, 1800000000LL) == KDRV_SIG_E_TRUST_STORE);
     CHECK(kdrv_sig_verify(package, sizeof package - 1, &s, sizeof s, duplicate, KDRV_SIG_MAX_KEYS + 1, 1800000000LL) == KDRV_SIG_E_ARGUMENT);
+    CHECK(kdrv_sig_verify(0, sizeof package - 1, &s, sizeof s, &test_key, 1, 1800000000LL) == KDRV_SIG_E_ARGUMENT);
+    CHECK(kdrv_sig_verify(package, sizeof package - 1, &s, sizeof s, 0, 1, 1800000000LL) == KDRV_SIG_E_ARGUMENT);
+    CHECK(kdrv_sig_verify(package, sizeof package - 1, &s, sizeof s, &test_key, 0, 1800000000LL) == KDRV_SIG_E_ARGUMENT);
+    s = valid_signature;
+    memset(s.key_id, 0, sizeof s.key_id);
+    CHECK(kdrv_sig_header_check(&s, sizeof s) == KDRV_SIG_E_FORMAT);
 
     puts("kdrv_sig: Ed25519 package authentication, validity window, key lookup and revocation passed");
     return 0;
