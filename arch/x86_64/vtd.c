@@ -7,7 +7,7 @@
 
 #define VTD_MAX_UNITS 16u
 #define VTD_MAX_DOMAINS PCI_MAX_DEVS
-#define VTD_REG_BYTES 4096u
+#define VTD_REG_BYTES 0x5000u
 #define VTD_AGAW_48 2u
 #define VTD_CAP_SAGAW_SHIFT 8u
 #define VTD_CAP_SAGAW_48 (1ull << (VTD_CAP_SAGAW_SHIFT+VTD_AGAW_48))
@@ -148,13 +148,16 @@ static int vtd_select_unit(const pci_dev_t *device) {
         if(!u->valid||u->segment!=0) continue;
         if(u->root&&u->root_phys) {
             for(unsigned s=0;s<acpi->dmar_scope_count;s++) {
-                const typeof(acpi->dmar_scope[0]) *scope=&acpi->dmar_scope[s];
+                const acpi_dmar_scope_t *scope=&acpi->dmar_scope[s];
                 if(scope->owner_type==0&&scope->owner_index==i&&
                    (scope->type==1||scope->type==2)&&
                    vtd_scope_matches(acpi,s,device)) return (int)i;
             }
         }
-        if(acpi->dmar_unit[i].include_all) include_all=(int)i;
+        if(acpi->dmar_unit[i].include_all) {
+            if(include_all>=0) return -1; /* ambiguous include-all units: deny this requester */
+            include_all=(int)i;
+        }
     }
     return include_all;
 }
@@ -207,7 +210,7 @@ static int vtd_map_rmrr(vtd_unit_t *u,kira_vtd_pt_t *root,
     const acpi_info_t *acpi=acpi_get();
     if(!acpi||!root||!device) return -1;
     for(unsigned r=0;r<acpi->dmar_rmrr_count;r++) {
-        const typeof(acpi->dmar_rmrr[0]) *rmrr=&acpi->dmar_rmrr[r];
+        const acpi_dmar_rmrr_t *rmrr=&acpi->dmar_rmrr[r];
         if(rmrr->segment!=0) continue;
         if(rmrr->limit<rmrr->base||rmrr->limit>UINT64_MAX-0x1000u)
             return -2;
