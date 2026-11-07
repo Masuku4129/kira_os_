@@ -82,6 +82,12 @@ int main(int argc, char** argv) {
     CHECK(ecdsa_verify(256, bad, sizeof e1_pub, e1_hash, 32, e1_r, sizeof e1_r, e1_s, sizeof e1_s) == -1);
     CHECK(ecdsa_verify(256, e1_pub, sizeof e1_pub, e1_hash, 32, e1_s, sizeof e1_s, e1_r, sizeof e1_r) == -1);   /* r и s местами */
 
+    {
+        uint8_t identity_pk[32] = {1};
+        uint8_t identity_sig[64] = {1}; /* R=identity, S=0 */
+        uint8_t message = 0x42;
+        CHECK(ed25519_verify(identity_pk, &message, 1, identity_sig) == -1);
+    }
     if (!fails) printf("pk: RSA 2048/3072/4096 PKCS#1 v1.5 + PSS (SHA-256/384/512), ECDSA P-256/P-384 (+truncated hash), Ed25519 (RFC 8032 TEST 1-3), forgeries rejected - passed\n");
     else printf("PK TESTS FAILED\n");
     if (!fails && argc > 1) printf("pk: cross-check with python cryptography/OpenSSL: %d Ed25519 and %d RSA-PSS signatures (valid and corrupted; hash, MGF1 hash, salt length vary) - passed\n", ned, npss);
