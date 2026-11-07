@@ -208,8 +208,9 @@ static int vtd_map_rmrr(vtd_unit_t *u,kira_vtd_pt_t *root,
     if(!acpi||!root||!device) return -1;
     for(unsigned r=0;r<acpi->dmar_rmrr_count;r++) {
         const typeof(acpi->dmar_rmrr[0]) *rmrr=&acpi->dmar_rmrr[r];
-        if(rmrr->segment!=0||rmrr->limit<rmrr->base||
-           rmrr->limit>UINT64_MAX-0x1000u) return -2;
+        if(rmrr->segment!=0) continue;
+        if(rmrr->limit<rmrr->base||rmrr->limit>UINT64_MAX-0x1000u)
+            return -2;
         int matched=0;
         for(unsigned s=0;s<acpi->dmar_scope_count;s++) {
             const typeof(acpi->dmar_scope[0]) *scope=&acpi->dmar_scope[s];
