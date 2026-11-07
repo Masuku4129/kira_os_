@@ -24,6 +24,8 @@ struct kira_smmu {
     uint32_t idr1;
     uint32_t idr5;
     uint32_t queue_entries;
+    /* Number of StreamIDs addressable by the configured linear table. */
+    uint32_t stream_id_limit;
     uint8_t enabled;
     void *cmdq;
     uint64_t cmdq_physical;
