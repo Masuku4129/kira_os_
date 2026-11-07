@@ -155,6 +155,20 @@ OBJ="$OBJ interrupts.o context.o ap_tramp.o uaccess_s.o"
 echo "[*] Линковка..."
 ld.lld -T $ARCH/linker.ld -nostdlib -z max-page-size=0x1000 $OBJ -o kira.bin
 
+# Native UEFI path: separate ELF entry plus a PE/COFF EFI application.
+# The removable-media layout is uefi/EFI/BOOT/BOOTX64.EFI + uefi/KIRA.BIN.
+if command -v lld-link >/dev/null 2>&1; then
+    echo "[*] Native UEFI loader..."
+    ld.lld -T $ARCH/linker_uefi.ld -nostdlib -z max-page-size=0x1000 $OBJ -o kira-uefi.bin
+    mkdir -p uefi/EFI/BOOT
+    clang --target=x86_64-pc-windows-msvc -ffreestanding -fno-builtin -fno-stack-protector -mno-red-zone -Wall -Wextra -c arch/x86_64/uefi_loader.c -o uefi/uefi_loader.obj
+    lld-link /subsystem:efi_application /entry:efi_main /nodefaultlib /machine:x64 /out:uefi/EFI/BOOT/BOOTX64.EFI uefi/uefi_loader.obj
+    cp kira-uefi.bin uefi/KIRA.BIN
+    echo "[*] UEFI removable-media files written to ./uefi"
+else
+    echo "[!] lld-link not found: native UEFI loader not built (install LLVM lld-link)."
+fi
+
 echo "[*] ISO..."
 rm -rf isodir kira.iso
 mkdir -p isodir/boot/grub
