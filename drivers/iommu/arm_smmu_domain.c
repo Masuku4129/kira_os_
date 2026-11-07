@@ -276,8 +276,13 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     int rc = KIRA_SMMU_OK;
 
     if (!d || !s || !p || !s->enabled || !p->alloc_dma_pages ||
-        !p->free_dma_pages || !p->map_mmio || stream_id >= SMMU_STRTAB_ENTRIES)
+        !p->free_dma_pages || !p->map_mmio || !s->stream_id_limit ||
+        stream_id >= s->stream_id_limit)
         return KIRA_SMMU_INVALID;
+
+    /* This domain uses stage 1; do not program it on a stage-2-only SMMU. */
+    if (!(s->idr0 & (1u << 1)))
+        return KIRA_SMMU_UNSUPPORTED;
 
     ct = smmu_alloc(p, &ct_pa);
     root = smmu_alloc(p, &root_pa);
