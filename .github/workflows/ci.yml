@@ -597,7 +597,7 @@ jobs:
           git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"
 
   package:
-    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, release-gate-tests, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
     if: success() && github.event_name != 'pull_request' && github.ref_name != 'main' && github.ref_name != 'stable'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
