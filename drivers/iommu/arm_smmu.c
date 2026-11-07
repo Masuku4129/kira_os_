@@ -146,6 +146,7 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->stream_table = 0;
     smmu->stream_table_physical = 0;
     smmu->stream_table_lock = 0;
+    smmu->cmdq_lock = 0;
     for (uint32_t i = 0; i < 8; ++i)
         smmu->stream_ids[i] = 0;
     /* Start from an unallocated queue state; every failure path can unwind. */
