@@ -50,6 +50,8 @@ static uint32_t free_pages;
 static uint32_t search_hint;             // слово, с которого искать (next-fit)
 static pmm_range_t high[PMM_MAX_HIGH];
 static unsigned high_n;
+static pmm_range_t active_high[PMM_MAX_HIGH]; /* high pages mapped by ramext and admitted by pmm_add_high */
+static unsigned active_high_n;
 static pmm_range_t acpi_r[PMM_MAX_ACPI];
 static unsigned acpi_n;
 static spinlock_t pmm_lock = SPINLOCK_INIT;
@@ -138,6 +140,48 @@ static void defer_range(uint64_t base, uint64_t end) {
     high[high_n].start = s; high[high_n].end = e; high_n++;
 }
 
+static int high_page_active_locked(uint64_t paddr) {
+    if (paddr < PMM_LOW) return 1;
+    for (unsigned i = 0; i < active_high_n; i++)
+        if (paddr >= active_high[i].start && paddr < active_high[i].end) return 1;
+    return 0;
+}
+
+/* Add a mapped high-memory interval, keeping the active set sorted and coalesced. Caller holds pmm_lock. */
+static int active_high_add_locked(uint64_t start, uint64_t end) {
+    pmm_range_t tmp[PMM_MAX_HIGH + 1];
+    unsigned n = active_high_n;
+    for (unsigned i = 0; i < n; i++) tmp[i] = active_high[i];
+    if (n >= PMM_MAX_HIGH) {
+        int merged = 0;
+        for (unsigned i = 0; i < n; i++) {
+            if (end < tmp[i].start || start > tmp[i].end) continue;
+            if (start < tmp[i].start) tmp[i].start = start;
+            if (end > tmp[i].end) tmp[i].end = end;
+            merged = 1;
+            break;
+        }
+        if (!merged) return -1;
+    } else {
+        tmp[n++] = (pmm_range_t){ .start=start, .end=end };
+    }
+    for (unsigned i = 1; i < n; i++) {
+        pmm_range_t v = tmp[i]; unsigned j = i;
+        while (j && tmp[j - 1].start > v.start) { tmp[j] = tmp[j - 1]; j--; }
+        tmp[j] = v;
+    }
+    unsigned w = 0;
+    for (unsigned i = 0; i < n; i++) {
+        if (w && tmp[i].start <= tmp[w - 1].end) {
+            if (tmp[i].end > tmp[w - 1].end) tmp[w - 1].end = tmp[i].end;
+        } else tmp[w++] = tmp[i];
+    }
+    if (w > PMM_MAX_HIGH) return -1;
+    for (unsigned i = 0; i < w; i++) active_high[i] = tmp[i];
+    active_high_n = w;
+    return 0;
+}
+
 static void merge_high(void) {
     for (unsigned i = 1; i < high_n; i++) {                       // вставками: записей мало
         pmm_range_t k = high[i]; unsigned j = i;
@@ -220,7 +264,7 @@ static int pmm_init_map(const kbi_mmap_entry_t* map, uint32_t map_count,
     used_map=store;
     reserved_map=store+nwords;
     for(uint64_t i=0;i<nwords;i++){used_map[i]=0xFFFFFFFFu;reserved_map[i]=0xFFFFFFFFu;}
-    total_pages=0; high_n=0; acpi_n=0;
+    total_pages=0; high_n=0; active_high_n=0; acpi_n=0;
     uint64_t usable_bytes=0;
     for(uint32_t i=0;i<map_count;i++) {
         const kbi_mmap_entry_t* e=&map[i];
@@ -329,6 +373,10 @@ int64_t pmm_add_high(uint64_t start, uint64_t end) {
     for (unsigned i = 0; i < high_n; i++) if (start >= high[i].start && end <= high[i].end) inside = 1;
     if (!inside) return -1;
     uint64_t f = spin_lock_irqsave(&pmm_lock);
+    if (active_high_add_locked(start, end)) {
+        spin_unlock_irqrestore(&pmm_lock, f);
+        return -1;
+    }
     int64_t added = 0;
     for (uint64_t a = start; a < end; a += PMM_PAGE_SIZE) {
         uint64_t p = a / PMM_PAGE_SIZE;
@@ -386,21 +434,35 @@ uint64_t pmm_alloc_contiguous(uint32_t pages) {
 }
 
 int pmm_free_contiguous(uint64_t paddr, uint32_t pages) {
-    int rc = 0;
+    if (!pages || (paddr & (PMM_PAGE_SIZE - 1)) ||
+        paddr > UINT64_MAX - (uint64_t)pages * PMM_PAGE_SIZE ||
+        paddr + (uint64_t)pages * PMM_PAGE_SIZE > managed_top) return -1;
+    uint64_t first = paddr / PMM_PAGE_SIZE;
+    uint64_t f = spin_lock_irqsave(&pmm_lock);
     for (uint32_t i = 0; i < pages; i++) {
-        if (pmm_free_page(paddr + (uint64_t)i * PMM_PAGE_SIZE) != 0) rc = -1;
+        uint64_t page = first + i;
+        uint64_t addr = paddr + (uint64_t)i * PMM_PAGE_SIZE;
+        if (!high_page_active_locked(addr) || test_bit(reserved_map, page) || !test_bit(used_map, page)) {
+            spin_unlock_irqrestore(&pmm_lock, f);
+            return -1;
+        }
     }
-    return rc;
+    for (uint32_t i = 0; i < pages; i++) {
+        uint64_t page = first + i;
+        clear_bit(used_map, page);
+        free_pages++;
+        if ((uint32_t)(page >> 5) < search_hint) search_hint = (uint32_t)(page >> 5);
+    }
+    spin_unlock_irqrestore(&pmm_lock, f);
+    return 0;
 }
 
 int pmm_free_page(uint64_t paddr) {
-    if ((paddr & (PMM_PAGE_SIZE - 1)) != 0 || paddr >= managed_top) {
-        return -1;
-    }
+    if ((paddr & (PMM_PAGE_SIZE - 1)) != 0 || paddr >= managed_top) return -1;
     uint64_t page = paddr / PMM_PAGE_SIZE;
     uint64_t f = spin_lock_irqsave(&pmm_lock);
     int rc = 0;
-    if (test_bit(reserved_map, page) || !test_bit(used_map, page)) {
+    if (!high_page_active_locked(paddr) || test_bit(reserved_map, page) || !test_bit(used_map, page)) {
         rc = -1;
     } else {
         clear_bit(used_map, page);
