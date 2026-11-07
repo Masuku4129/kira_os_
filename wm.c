@@ -390,7 +390,10 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
     for (int i = 0; i < WM_MAX_WIN; i++) if (!win[i].used) { id = i; break; }
     if (id < 0) return -1;
     if (!mem) {
-        mem = (uint32_t*)ops.alloc((uint64_t)capw * caph * 4);
+        /* Окна ядра должны иметь парный alloc/release: иначе закрытие окна
+           навсегда теряло бы выделенные страницы. Память Ring 3 приходит извне. */
+        if (!ops.alloc || !ops.release) return -1;
+        mem = (uint32_t*)ops.alloc((uint64_t)capw * (uint64_t)caph * sizeof(uint32_t));
         if (!mem) return -1;
         user = 0;
     }
