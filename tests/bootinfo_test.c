@@ -105,13 +105,13 @@ int main(void) {
     CHECK(kbi_validate(b,sizeof b)==-13);
     h->cmdline_off=0; h->cmdline_len=0; h->flags=0;
 
-    puts("bootinfo: PASS");     /* Multiboot2 is an x86 handoff, never an ARM64 boot mode. */
-    {
-        uint8_t saved[sizeof(kbi_header_t)];
-        memcpy(saved,blob,sizeof saved);
-        ((kbi_header_t*)blob)->arch=KBI_ARCH_AARCH64;
-        CHECK(kbi_validate(blob,sizeof fixture)!=0);
-        memcpy(blob,saved,sizeof saved);
-    }
-return 0;
+    /* Multiboot2 is an x86 handoff, never an ARM64 boot mode. */
+    h->arch=KBI_ARCH_AARCH64; h->boot_mode=KBI_BOOT_MULTIBOOT2;
+    CHECK(kbi_validate(b,sizeof b)==-3);
+    h->arch=KBI_ARCH_X86_64; h->boot_mode=KBI_BOOT_MULTIBOOT2;
+    CHECK(kbi_validate(b,sizeof b)==0);
+    h->boot_mode=KBI_BOOT_UEFI;
+
+    puts("bootinfo: PASS");
+    return 0;
 }
