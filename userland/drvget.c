@@ -600,8 +600,8 @@ static int cmd_confirm(const char *arg) {
             stage_clear();
             return 1;
         }
-        if (!has_publisher_sig && kdrv_rec_publisher_required(&old_rec)) {
-            say("drvget: замена существующего подписанного пакета на unsigned/local запрещена; сначала выполните drvget remove\n");
+        if (!has_publisher_sig && (kdrv_rec_publisher_required(&old_rec) || old_sig_size >= 0)) {
+            say("drvget: замена пакета с издательской подписью или её маркером на unsigned/local запрещена; сначала выполните drvget remove\n");
             stage_clear();
             return 1;
         }
