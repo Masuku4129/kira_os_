@@ -263,7 +263,7 @@ int main(int argc, char** argv) {
     save_shot("terminal.ppm");
 
     /* левая панель: закреплённые по умолчанию (файла /var/dock нет) и «+» */
-    { int x, y; CHECK(wm_side_center(0, &x, &y) == 0 && wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) != 0); }
+    { int x, y; CHECK(wm_side_center(0, &x, &y) == 0 && wm_side_center(3, &x, &y) == 0 && wm_side_center(4, &x, &y) != 0); }
 
     /* разделы: Разум */
     click_tab(2);
@@ -376,15 +376,15 @@ int main(int argc, char** argv) {
     move_to(200, 600, 0); run(2);
     save_shot("files_run.ppm");
     writes = 0; click_in(w_files, 3 * 800 / 9 + 30, KY); run(2);              /* F4: закрепить burn */
-    CHECK(writes == 1 && !strcmp(written_path, "/var/dock") && !strcmp(written, "plasma\npaint\ncube3d\nedit\ndrvman\nburn\n"));
-    { int x, y; CHECK(wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) == 0 && wm_side_center(7, &x, &y) != 0); }
-    con_n = 0; click_side(5); CHECK(con_n == 1 && !strcmp(con_cmd, "burn"));
+    CHECK(writes == 1 && !strcmp(written_path, "/var/dock") && !strcmp(written, "cube3d\nedit\ndrvman\nburn\n"));
+    { int x, y; CHECK(wm_side_center(3, &x, &y) == 0 && wm_side_center(4, &x, &y) == 0 && wm_side_center(5, &x, &y) != 0); }
+    con_n = 0; click_side(3); CHECK(con_n == 1 && !strcmp(con_cmd, "burn"));
     run(1);
-    { int x, y; wm_side_center(0, &x, &y); move_to(x, y, 0); wm_mouse(0, 0, 2); wm_mouse(0, 0, 0); }   /* plasma - открепить */
+    { int x, y; wm_side_center(3, &x, &y); move_to(x, y, 0); wm_mouse(0, 0, 2); wm_mouse(0, 0, 0); }   /* burn - открепить, оставляя базовые приложения */
     run(1);
-    CHECK(writes == 2 && !strcmp(written, "paint\ncube3d\nedit\ndrvman\nburn\n"));
+    CHECK(writes == 2 && !strcmp(written, "cube3d\nedit\ndrvman\n"));
     /* «+» открывает Проводник с /bin */
-    click_side(5);
+    click_side(3);
     run(2);
     CHECK(wm_top() == w_files);
     explorer_view(&e); CHECK(!strcmp(e.fm.p[e.fm.active].path, "/bin"));
@@ -416,7 +416,7 @@ int main(int argc, char** argv) {
     save_shot("home.ppm");
 
     /* программы Ring 3: значок запускает (команда в терминал), окно приложения рядом с Разумом */
-    con_n = 0; click_side(1);
+    con_n = 0; click_side(0);
     CHECK(con_n == 1 && !strcmp(con_cmd, "cube3d"));
     static uint32_t pa[320 * 240];
     for (int j = 0; j < 240; j++) for (int i = 0; i < 320; i++) pa[j * 320 + i] = ((i * 160 / 320) << 16) | ((j * 120 / 240 + 40) << 8) | 0xA0;
@@ -430,9 +430,9 @@ int main(int argc, char** argv) {
     static uint32_t pm[200 * 120];
     int um = wm_create_user("mt", WM_AUTO, WM_AUTO, 200, 120, pm);
     run(2);
-    { int x, y; CHECK(wm_side_center(5, &x, &y) == 0); move_to(x, y, 0); wm_mouse(0, 0, 2); wm_mouse(0, 0, 0); }
+    { int x, y; CHECK(wm_side_center(3, &x, &y) == 0); move_to(x, y, 0); wm_mouse(0, 0, 2); wm_mouse(0, 0, 0); }
     run(1);
-    CHECK(!strcmp(written, "paint\ncube3d\nedit\ndrvman\nburn\nmt\n"));
+    CHECK(!strcmp(written, "cube3d\nedit\ndrvman\nmt\n"));
     wm_destroy(um);
     run(4);
     save_shot("apps.ppm");
@@ -455,9 +455,9 @@ int main(int argc, char** argv) {
         int uk = wm_create_user("zork", WM_AUTO, WM_AUTO, 160, 100, pw);
         run(2);
         int now = 0; { int x, y; while (wm_side_center(now, &x, &y) == 0) now++; }
-        CHECK(now == base + 2);                                      /* paint закреплена (значок уже был), wasm и zork - временные */
+        CHECK(now == base + 3);                                      /* paint, wasm и zork - временные: не входят в стандартный Dock */
         CHECK(strstr(ulog, "[KIRA DOCK] открыта: wasm «Запуск WebAssembly» (временный значок)"));
-        CHECK(strstr(ulog, "[KIRA DOCK] открыта: paint «Рисование» (закреплена)"));
+        CHECK(strstr(ulog, "[KIRA DOCK] открыта: paint «Рисование» (временный значок)"));
         CHECK(strstr(ulog, "[KIRA DOCK] открыта: zork «zork» (временный значок)"));
         { int x, y; wm_side_center(base - 1, &x, &y); move_to(x, y, 0); }       /* подсказка у значка wasm */
         run(2); save_shot("dock_open.ppm");
@@ -468,10 +468,10 @@ int main(int argc, char** argv) {
         wm_destroy(uw); wm_destroy(uk); run(3);
         CHECK(strstr(ulog, "[KIRA DOCK] закрыта: wasm «Запуск WebAssembly» (значок убран)"));
         CHECK(strstr(ulog, "[KIRA DOCK] закрыта: zork «zork» (значок убран)"));
-        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 == base); }   /* временные пропали */
+        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 == base + 1); }   /* wasm и zork закрыты; временный paint ещё открыт */
         wm_destroy(up); run(3);
-        CHECK(strstr(ulog, "[KIRA DOCK] закрыта: paint «Рисование» (значок остаётся: закреплена)"));
-        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 == base); }   /* закреплённая осталась */
+        CHECK(strstr(ulog, "[KIRA DOCK] закрыта: paint «Рисование» (значок убран)"));
+        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 == base); }   /* временный значок paint удалён при закрытии */
         /* много программ: плитки сжимаются, лишние сводятся в «Ещё программ: N» */
         static uint32_t pq[160 * 100]; int many[40], nm = 0;
         for (int i = 0; i < 40; i++) { char nm_[16]; snprintf(nm_, sizeof nm_, "app%d", i); many[nm++] = wm_create_user(nm_, WM_AUTO, WM_AUTO, 160, 100, pq); }

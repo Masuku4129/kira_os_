@@ -89,7 +89,7 @@ jobs:
         run: |
           mkdir -p ci-out
           set -o pipefail
-          tests/drvget_e2e.sh 2>&1 | tee ci-out/driver-e2e.log
+          bash tests/drvget_e2e.sh 2>&1 | tee ci-out/driver-e2e.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

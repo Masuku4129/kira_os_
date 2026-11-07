@@ -99,7 +99,7 @@ SC = [
                ("edit", []), ("@sleep 3", []), ("@type hello kira", []), ("@key f2", []), ("@sleep 2", []), ("@shot edit", []),
                ("cat /data/edit/note.txt", [r"hello kira"]),
                ("view /pic.png", [r"view: /pic\.png - PNG 97x61, .* sum %08x" % mkfiles_sums["/pic.png"]]), ("@sleep 2", []), ("@shot view", []),
-               ("@log \\[KIRA DOCK\\] открыта: plasma «Плазма» \\(закреплена\\)", []), ("@log \\[KIRA DOCK\\] открыта: cube3d «3D-куб» \\(закреплена\\)", []),
+               ("@log \\[KIRA DOCK\\] открыта: plasma «Плазма» \\(временный значок\\)", []), ("@log \\[KIRA DOCK\\] открыта: cube3d «3D-куб» \\(закреплена\\)", []),
                ("@log \\[KIRA DOCK\\] открыта: view «Просмотр» \\(временный значок\\)", []), ("@shot dock-view", []),
                ("@key q", []), ("@sleep 2", []), ("@log \\[KIRA DOCK\\] закрыта: view «Просмотр» \\(значок убран\\)", []),
                ("view /pic.jpg", [r"view: /pic\.jpg - JPEG 97x61, YCbCr 2x2"]), ("@sleep 2", []), ("@shot view-jpeg", []),

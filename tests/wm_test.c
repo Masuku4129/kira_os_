@@ -158,6 +158,12 @@ int main(void) {
     gfx_fill(wm_content(b), 0x0000BB00);
     CHECK(wm_compose(&x, &y, &w, &h) && x == 0 && y == 0 && w == 1024 && h == 768);   /* первый кадр - весь экран */
     CHECK(!wm_compose(&x, &y, &w, &h));                                               /* без изменений - ничего */
+    /* Контролы заголовка нейтральные, а не красно-жёлто-зелёные заливки. */
+    for (int bi = 1; bi <= 3; bi++) {
+        int bx, by; CHECK(wm_button_center(a, bi, &bx, &by) == 0);
+        uint32_t control = px(&scr, bx, by);
+        CHECK(control != TH_CLOSE && control != TH_MIN && control != TH_FULL);
+    }
     /* содержимое лежит со смещением (поля, заголовок); B выше A */
     CHECK(px(&scr, 400, 200) == 0x0000BB00);
     CHECK(px(&scr, 320, 140) == 0x00AA0000);

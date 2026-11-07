@@ -97,7 +97,7 @@ echo "KIRA OS v45 source archive: verified"
 EOF_VERIFY
 chmod +x "$R/VERIFY.sh"
 
-python3 - "$RESULTS_DIR" "$R/TEST_REPORT.md" "$HOST_LOG" "$MIND_LOG" "$GUI_LOG" <<'PY'
+python3 - "$RESULTS_DIR" "$R/TEST_REPORT.md" "$HOST_LOG" "$MIND_LOG" "$GUI_LOG" "$KCC_LOG" "$DRIVER_LOG" <<'PY'
 import json, os, pathlib, sys
 root, dest = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 host_log, mind_log, gui_log, kcc_log, driver_log = map(pathlib.Path, sys.argv[3:8])
@@ -108,7 +108,7 @@ jobs = [
     ("Mind quality (ASan/UBSan)", "MIND_RESULT"), ("GUI regression", "GUI_RESULT"),
     ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"),
 ]
-lines = ["# KIRA OS v44 — CI test report", "",
+lines = ["# KIRA OS v45 — CI test report", "",
          "Commit: " + os.getenv("GITHUB_SHA", "unknown"),
          "Branch: " + os.getenv("GITHUB_REF_NAME", "unknown"),
          "Run: " + os.getenv("CI_RUN_URL", "unknown"), "",
