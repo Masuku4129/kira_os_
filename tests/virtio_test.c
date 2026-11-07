@@ -312,6 +312,10 @@ int main(void) {
     for (unsigned i = 0; i < 70; i++) {
         model_init(o8, 0x1042); pci_init();
         CHECK(virtio_blk_probe() == 0);
+        if (i == 0) {
+            const pci_dev_t* failed = pci_find(0x1AF4, 0x1042);
+            CHECK(failed && !(pci_read16(failed, 4) & PCI_CMD_MASTER));
+        }
     }
 
     /* --- устройство молчит: таймаут, отключение, дальше ошибки без зависания --- */
