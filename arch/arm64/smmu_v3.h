@@ -68,7 +68,7 @@ typedef struct {
 } smmuv3_mmio_t;
 
 typedef struct {
-    uint64_t word[2];
+    uint64_t qw0, qw1;
 } smmuv3_cmd_t;
 
 typedef struct {
@@ -128,6 +128,12 @@ static inline int smmuv3_range_valid(const smmuv3_mmio_t *m, uint32_t off, size_
 static inline int smmuv3_read32(const smmuv3_mmio_t *m, uint32_t off, uint32_t *out) {
     if (!out || !smmuv3_range_valid(m, off, 4)) return -1;
     *out = *(volatile uint32_t *)(void *)(m->base + off);
+    return 0;
+}
+static inline int smmuv3_write64(const smmuv3_mmio_t *m, uint32_t off, uint64_t value) {
+    if (!smmuv3_range_valid(m, off, 8) || (off & 7u)) return -1;
+    *(volatile uint64_t *)(void *)(m->base + off) = value;
+    __asm__ volatile("dsb oshst" ::: "memory");
     return 0;
 }
 static inline int smmuv3_write32(const smmuv3_mmio_t *m, uint32_t off, uint32_t value) {
