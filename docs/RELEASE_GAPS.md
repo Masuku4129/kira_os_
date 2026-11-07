@@ -49,17 +49,23 @@ Required:
 - Fail-closed handling for invalid signatures, unknown/revoked keys, expiry, malformed manifests and interrupted installs.
 - UI must distinguish unsigned/hash-only from authenticated publisher packages.
 
-## 5. DMA isolation — BLOCKED
-Without a configured IOMMU domain, a DMA-capable device may access physical memory outside a process's address-space boundary.
+## 5. DMA isolation — PARTIAL (fail-closed fallback implemented)
+The current kernel still has no VT-d / AMD-Vi / ARM SMMU domain implementation. A DMA-capable device without an IOMMU domain can access physical memory outside a process's address-space boundary.
 
-Required:
-- Platform discovery and validation for x86 VT-d / AMD-Vi and ARM SMMU where supported.
+Implemented in the v46 working branch:
+- KDRV refuses Ring 3 driver packages requesting CAP_DMA or CAP_IRQ unless the policy is explicitly told that this exact device has an isolated IOMMU domain.
+- The current KDRV call site passes "not isolated"; therefore no untrusted Ring 3 driver can enable bus mastering or MSI.
+- PCI configuration writes from Ring 3 no longer permit setting PCI_COMMAND_MASTER.
+- Host policy tests cover MMIO-only acceptance and DMA/MSI rejection without isolation.
+
+Still required:
+- Platform discovery and validation for x86 VT-d / AMD-Vi and ARM SMMU.
 - Per-device domains, map/unmap, invalidation and fault reporting.
-- DMA masks and bounce-buffer fallback where appropriate.
-- If isolation is unavailable, disable bus mastering for untrusted drivers and refuse unsafe activation.
-- Negative tests proving a device cannot DMA outside its assigned pages.
+- DMA masks, cache maintenance and bounce-buffer fallback where appropriate.
+- Negative hardware-model tests proving a device cannot DMA outside its assigned pages.
+- Trusted in-kernel DMA drivers need a separate platform-level isolation and memory ownership review.
 
-QEMU modelling is not physical IOMMU validation.
+This fallback is intentionally restrictive: DMA-backed external drivers will not start until isolation is implemented. QEMU modelling is not physical IOMMU validation.
 
 ## 6. Platform completeness — OPEN
 - ACPI AML `_PRT` and legacy PCI INTx routing need completion or explicit unsupported-device reporting.
