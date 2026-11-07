@@ -4,6 +4,7 @@
 #   ./build_arm64.sh --run     собрать и запустить в QEMU virt (4 ядра, GICv3)
 set -e
 cd "$(dirname "$0")"
+python3 tools/kdrvtrust.py keys/kdrv-publishers.json --output kdrv_trust.h --check
 A=arch/aarch64
 CC="clang --target=aarch64-unknown-none-elf"
 CFLAGS="$KIRA_ARM64_EXTRA -ffreestanding -fno-builtin -nostdlib -mgeneral-regs-only -mstrict-align -fpie -fno-stack-protector -fno-omit-frame-pointer -fno-asynchronous-unwind-tables -O2 -Wall -Wextra -Werror -Ibuild-arm64 -I$A -I."
