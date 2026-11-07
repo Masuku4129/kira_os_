@@ -8,17 +8,12 @@
 
 #include "vtd_domain.h"
 
-#define VTD_ROOT_ENTRIES 256u
-#define VTD_TABLE_ENTRIES 512u
 #define VTD_ENTRY_PRESENT 1ull
 #define VTD_ENTRY_READ    (1ull << 0)
 #define VTD_ENTRY_WRITE   (1ull << 1)
 #define VTD_ENTRY_LARGE   (1ull << 7)
 #define VTD_ENTRY_ADDRESS 0x000ffffffffff000ull
 #define VTD_CCMD          0x028u
-#define VTD_CCMD_ICC      (1ull << 63)
-#define VTD_CCMD_GLOBAL   (1ull << 61)
-#define VTD_CCMD_DEVICE   (1ull << _DEVICE_INVALID)
 #define VTD_POLL_LIMIT    1000000u
 
 static uint64_t *vtd_page(void *p)
