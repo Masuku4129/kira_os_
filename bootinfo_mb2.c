@@ -68,7 +68,8 @@ static int reserve_range(kbi_mmap_entry_t* mm, uint32_t* count,
 static int mb2_bounds(const uint8_t* b, uint32_t available, uint32_t* total) {
     if(!b || available<16 || ((uintptr_t)b&7u)) return -1;
     uint32_t n=rd32(b);
-    if(n<16 || n>MB2_MAX_SIZE || n>available || (n&7u)) return -2;
+    if(n<16 || n>MB2_MAX_SIZE || n>available || (n&7u) ||
+       (uintptr_t)b >= (1ULL<<30) || n > (1ULL<<30)-(uintptr_t)b) return -2;
     uint32_t off=8;
     while(off<=n-8) {
         uint32_t type=rd32(b+off), size=rd32(b+off+4);
