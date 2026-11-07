@@ -29,3 +29,27 @@ available on disk.
 anti-rollback anchor, an attacker able to restore or remove the entire driver
 filesystem can restore an older valid signed journal. The kernel reports no
 stronger guarantee than the platform can provide.
+
+## Offline journal authoring
+
+Private publisher keys remain outside the repository and the OS image.
+
+- `tools/kdrvrotate.py` creates a signed transition record. Supply the current
+  publisher's PEM private key and matching raw public key, old/new 16-character
+  key IDs, the new raw public key, a generation, and a validity interval.
+- `tools/kdrvrevoke.py` creates a signed revocation statement. Supply an
+  active issuer key and one or more 16-character IDs to revoke.
+- Use `--append` to atomically append a record to an existing local journal.
+  The tools enforce each journal's fixed record size, maximum of 32 records,
+  and increasing generation within that file.
+- Generations are global across both journals. Choose each new generation
+  greater than the last generation in **both** `.rotate` and `.revoke`.
+  The kernel merges the two journals by generation and rejects duplicates or
+  non-increasing order.
+- Copy the resulting binary files to `/drv/.rotate` and `/drv/.revoke`.
+  Keep the complete journals; they are replayed from the compiled root key at
+  boot. Do not replace them with only the newest record.
+
+The tools verify that each PEM key matches the supplied public key. The kernel
+still verifies the issuer against its live trust state; a record signed by an
+unknown or revoked key is rejected.
