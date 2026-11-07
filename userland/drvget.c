@@ -651,7 +651,7 @@ static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sh
     sha256(body, (size_t)sz, d2);
     *sha_ok = !memcmp(d1, rec->elf_sha, 32) && !memcmp(d2, rec->pkg_sha, 32) && kdrv_rec_check(rec, sizeof *rec, rec) == KDRV_OK;
     i64 sig_size = drv_op(KFS_DRV_STAT, f3, 0, 0, 0);
-    if (sig_size == -2) *auth_state = rec->confirmed == KREC_CONFIRMED_PUBLISHER ? DGP_AUTH_INVALID : DGP_AUTH_LOCAL;
+    if (sig_size == -2) *auth_state = kdrv_rec_publisher_required(rec) ? DGP_AUTH_INVALID : DGP_AUTH_LOCAL;
     else if (sig_size < 0 || sig_size != (i64)sizeof(kdrv_sig_t)) *auth_state = DGP_AUTH_INVALID;
     else {
         kdrv_sig_t sig;
