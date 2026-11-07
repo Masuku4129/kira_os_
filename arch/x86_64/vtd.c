@@ -81,6 +81,15 @@ static int vtd_map_identity_range(vtd_unit_t *u,uint64_t start,uint64_t end) {
     start&=~(step-1u);
     if(end>UINT64_MAX-(step-1u)) return -1;
     end=(end+step-1u)&~(step-1u);
+    /* Physical page zero is deliberately left unmapped. If 2 MiB leaves are
+       supported, split the first 2 MiB into 4 KiB leaves to preserve NULL. */
+    if(start==0) {
+        uint64_t first_end=end<KIRA_VTD_2M_SIZE?end:KIRA_VTD_2M_SIZE;
+        for(uint64_t p=KIRA_VTD_PAGE_SIZE;p<first_end;p+=KIRA_VTD_PAGE_SIZE)
+            if(kira_vtd_map_4k_walk(u->identity_root,p,p,1,1,&pt_ops)!=0)
+                return -2;
+        start=KIRA_VTD_2M_SIZE;
+    }
     for(uint64_t p=start;p<end;p+=step) {
         int rc=u->supports_2m?
             kira_vtd_map_2m_walk(u->identity_root,p,p,1,1,&pt_ops):
