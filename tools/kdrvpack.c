@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--corrupt")) corrupt = 1;
         else { fprintf(stderr, "kdrvpack: непонятный аргумент %s\n", argv[i]); return 2; }
     }
-    if (publisher_required && !confirm) { fprintf(stderr, "kdrvpack: --publisher-required требует --confirm; неподтверждённый пакет не может получить состояние издательской подписи\\n"); return 2; }
+    if (publisher_required && !confirm) { fprintf(stderr, "kdrvpack: --publisher-required требует --confirm; неподтверждённый пакет не может получить состояние издательской подписи\n"); return 2; }
     size_t en; uint8_t* elf = slurp(argv[2], &en);
     h.elf_size = (uint32_t)en;
     uint8_t* pkg = malloc(sizeof h + en);
