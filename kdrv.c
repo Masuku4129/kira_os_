@@ -180,8 +180,7 @@ static int kdrv_trust_prepare_once(void) {
     if(!count||count>KDRV_SIG_MAX_KEYS) return live_trust_error=KDRV_SIG_E_TRUST_STORE;
     for(uint32_t i=0;i<count;i++) live_trust_keys[i]=kdrv_trust_keys[i];
 
-    rtc_time_t current;
-    int64_t now=rtc_now(0,&current)==0?rtc_to_epoch(&current):0;
+    const int64_t replay_time=KDRV_SIG_TIME_REPLAY;
     uint32_t rotate_bytes=0, revoke_bytes=0;
     if(trust_read_optional("/drv/.rotate",0,0,
        KDRV_TRANSITION_MAX_CHAIN*sizeof(kdrv_transition_t),&rotate_bytes)!=0)
@@ -215,11 +214,11 @@ static int kdrv_trust_prepare_once(void) {
         int rc;
         if(take_transition) {
             rc=trust_apply_transition(transition_journal,ti,live_trust_keys,
-                                      &count,&generation,now);
+                                      &count,&generation,replay_time);
             ti++;
         } else {
             rc=trust_apply_revocation(&revocation_journal[ri],live_trust_keys,
-                                      &count,&generation,now);
+                                      &count,&generation,replay_time);
             ri++;
         }
         if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
