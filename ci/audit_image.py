@@ -100,7 +100,7 @@ def main():
     ap.add_argument("--kfstool", required=True)
     ap.add_argument("--out", default="ci-out/image-audit.json")
     args = ap.parse_args()
-    iso, disk, tool = map(str, (Path(args.iso), Path(args.disk), Path(args.kfstool)))
+    iso, disk, tool = Path(args.iso), Path(args.disk), Path(args.kfstool)
     if not iso.is_file() or not disk.is_file() or not Path(tool).is_file():
         raise SystemExit("image audit: ISO, disk image or kfstool is missing")
 
