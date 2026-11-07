@@ -66,7 +66,7 @@ collect_e820:
     mov edx, 0x534D4150
     mov ecx, 24
     int 0x15
-    jc .bios_end
+    jc .failed
     cmp eax, 0x534D4150
     jne .failed
     cmp ecx, 20
@@ -90,11 +90,6 @@ collect_e820:
 .continue:
     test ebx, ebx
     jnz .next
-    cmp word [e820_count], 0
-    je .failed
-    clc
-    ret
-.bios_end:
     cmp word [e820_count], 0
     je .failed
     clc
