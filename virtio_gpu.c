@@ -75,7 +75,7 @@ static void gpu_flush(int x, int y, int w, int h) {
     uint64_t f = spin_lock_irqsave(&lk);
     if (virtio_dma_sync_for_device(fbm, fb_phys, fb_bytes) != 0) {
         up = 0;
-        uart_print("[KIRA GPU] framebuffer DMA synchronization failed; screen frozen.\\n");
+        uart_print("[KIRA GPU] framebuffer DMA synchronization failed; screen frozen.\n");
         spin_unlock_irqrestore(&lk, f);
         virtio_fail(&dev);
         (void)virtio_reset_device(&dev);
