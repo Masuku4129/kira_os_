@@ -565,7 +565,7 @@ static int cmd_confirm(const char *arg) {
     sha256(pkg, total, rec.pkg_sha);
     memcpy(rec.src_sha, set, 32);
     rec.caps_ok = R.caps;                        /* пользователь подтвердил именно эти права, введя хеш отчёта, где они перечислены */
-    rec.confirmed = KREC_CONFIRMED;
+    rec.confirmed = has_publisher_sig ? KREC_CONFIRMED_PUBLISHER : KREC_CONFIRMED;
     i64 now = k_time();
     rec.date = now > 0 ? (u64)now : 0;
     {   /* источник, затем после нуля метка лицензии «L:ИД» (читатели видят только адрес до нуля); адрес укорачивается, лицензия - нет */
@@ -651,7 +651,7 @@ static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sh
     sha256(body, (size_t)sz, d2);
     *sha_ok = !memcmp(d1, rec->elf_sha, 32) && !memcmp(d2, rec->pkg_sha, 32) && kdrv_rec_check(rec, sizeof *rec, rec) == KDRV_OK;
     i64 sig_size = drv_op(KFS_DRV_STAT, f3, 0, 0, 0);
-    if (sig_size == -2) *auth_state = DGP_AUTH_LOCAL;
+    if (sig_size == -2) *auth_state = rec->confirmed == KREC_CONFIRMED_PUBLISHER ? DGP_AUTH_INVALID : DGP_AUTH_LOCAL;
     else if (sig_size < 0 || sig_size != (i64)sizeof(kdrv_sig_t)) *auth_state = DGP_AUTH_INVALID;
     else {
         kdrv_sig_t sig;
