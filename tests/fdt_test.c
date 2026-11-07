@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "fdt.h"
+#include "bootinfo.h"
 
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
@@ -32,6 +33,10 @@ static unsigned build(void) {
       p1("#address-cells", 2); p1("#size-cells", 2); pstr("compatible", "linux,dummy-virt", 17);
       begin("memory@40000000"); pstr("device_type", "memory", 7);
         { uint32_t r[] = { 0, 0x40000000, 0, 0x40000000 }; pcells("reg", r, 4); } end();
+      begin("memory@70000000"); pstr("device_type", "memory", 7);
+        { uint32_t r[] = { 0, 0x70000000, 0, 0x20000000 }; pcells("reg", r, 4); } end();
+      begin("memory@a0000000"); pstr("device_type", "memory", 7); pstr("status", "disabled", 9);
+        { uint32_t r[] = { 0, 0xA0000000, 0, 0x10000000 }; pcells("reg", r, 4); } end();
       begin("cpus"); p1("#address-cells", 1); p1("#size-cells", 0);
         for (int i = 0; i < 4; i++) { char n[16]; sprintf(n, "cpu@%d", i); begin(n); pstr("device_type", "cpu", 4);
           pstr("compatible", "arm,cortex-a72", 15); p1("reg", (uint32_t)i); end(); }
@@ -48,7 +53,7 @@ static unsigned build(void) {
       begin("framebuffer@3c000000"); pstr("compatible", "simple-framebuffer", 19); pstr("status", "okay", 5);
         { uint32_t r[] = { 0, 0x3c000000, 0, 800 * 600 * 4 }; pcells("reg", r, 4); }
         p1("width", 800); p1("height", 600); p1("stride", 3200); pstr("format", "a8r8g8b8", 9); end();
-      begin("chosen"); pstr("stdout-path", "/pl011@9000000", 15); end();
+      begin("chosen"); pstr("stdout-path", "/pl011@9000000", 15); pstr("bootargs", "console=ttyAMA0", 16); end();
     end();
     w32(9);
     unsigned off_struct = 40 + 16, off_str = off_struct + sn, total = off_str + tn;
@@ -129,6 +134,28 @@ int main(void) {
     int depth = 0, n = fdt_root(bad), steps = 0;
     while (n >= 0 && steps < 1000) { n = fdt_next_node(bad, n, &depth); steps++; }
     CHECK(steps < 1000);
+
+    /* The ARM loader adapter coalesces overlapping RAM, skips disabled banks,
+       and publishes framebuffer plus bootargs through the common BootInfo ABI. */
+    {
+        uint8_t handoff[KIRA_BOOTINFO_MAX_SIZE < 4096 ? KIRA_BOOTINFO_MAX_SIZE : 4096];
+        uint32_t handoff_size = 0;
+        CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                           handoff, sizeof handoff, &handoff_size) == 0);
+        const kbi_header_t* h = (const kbi_header_t*)handoff;
+        CHECK(kbi_validate(handoff, handoff_size) == 0);
+        CHECK(h->arch == KBI_ARCH_AARCH64 && h->boot_mode == KBI_BOOT_DEVICE_TREE);
+        CHECK((h->flags & (KBI_F_FDT | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE)) ==
+              (KBI_F_FDT | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE));
+        CHECK(h->mmap_count == 1);
+        const kbi_mmap_entry_t* mm = kbi_mmap(handoff);
+        CHECK(mm[0].base == 0x40000000 && mm[0].length == 0x50000000);
+        CHECK(h->fb_phys == 0x3c000000 && h->fb_width == 800 && h->fb_height == 600);
+        CHECK(h->cmdline_len == 16 &&
+              !strcmp((const char*)handoff + h->cmdline_off, "console=ttyAMA0"));
+        CHECK(kbi_from_fdt(blob, total, 0x800001, 0x100000, 0x200000,
+                           handoff, sizeof handoff, &handoff_size) != 0);
+    }
 
     printf(fails ? "FDT TESTS FAILED\n" : "fdt: QEMU-virt-like tree, paths, reg cells, compatible lists, cpu count, corrupted blobs passed\n");
     return fails != 0;
