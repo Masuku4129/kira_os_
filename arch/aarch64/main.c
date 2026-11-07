@@ -324,6 +324,8 @@ void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) {
     return (void*)(uintptr_t)addr;
 }
 
+void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes);
+
 static int dma_pool_selftest(void) {
     if (!dma_lo) return 0;
     uint64_t a = 0, b = 0, again = 0;
