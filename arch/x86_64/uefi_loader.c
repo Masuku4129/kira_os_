@@ -11,6 +11,7 @@
 #define EFI_ERROR(s) (((int64_t)(s)) < 0)
 #define EFI_SUCCESS 0
 #define EFI_BUFFER_TOO_SMALL ((EFI_STATUS)0x8000000000000005ull)
+#define EFI_LOADER_CODE 1u
 #define EFI_LOADER_DATA 2u
 #define EFI_BOOT_SERVICES_DATA 4u
 #define EFI_ALLOCATE_ADDRESS 2u
@@ -212,20 +213,42 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
                ((ph[i].paddr-ph[i].offset)&(ph[i].align-1))) return -3;
         }
         if((ph[i].flags&1u)&&e->entry>=ph[i].paddr&&e->entry<ph[i].paddr+ph[i].memsz) executable_entry=1;
-        for(uint16_t j=0;j<i;j++) if(ph[j].type==1 &&
-            ph[i].paddr<ph[j].paddr+ph[j].memsz && ph[j].paddr<ph[i].paddr+ph[i].memsz) return -6;
+        uint64_t page_base=ph[i].paddr&~(uint64_t)(EFI_PAGE_SIZE-1u);
+        uint64_t page_end=align_up(ph[i].paddr+ph[i].memsz,EFI_PAGE_SIZE);
+        for(uint16_t j=0;j<i;j++) if(ph[j].type==1) {
+            uint64_t other_base=ph[j].paddr&~(uint64_t)(EFI_PAGE_SIZE-1u);
+            uint64_t other_end=align_up(ph[j].paddr+ph[j].memsz,EFI_PAGE_SIZE);
+            if(page_base<other_end&&other_base<page_end) return -6;
+        }
         if(ph[i].paddr<low) low=ph[i].paddr;
         if(ph[i].paddr+ph[i].memsz>high) high=ph[i].paddr+ph[i].memsz;
     }
     if(low==UINT64_MAX||high<=low||e->entry<low||e->entry>=high||!executable_entry) return -4;
     uint64_t base=low&~(uint64_t)(EFI_PAGE_SIZE-1);
     uint64_t end=align_up(high,EFI_PAGE_SIZE);
-    uint64_t pages=(end-base)/EFI_PAGE_SIZE, address=base;
-    EFI_STATUS st=bs->allocate_pages(EFI_ALLOCATE_ADDRESS,EFI_LOADER_DATA,pages,&address);
-    if(EFI_ERROR(st)||address!=base) return -5;
-    zero_mem((void*)(uintptr_t)base,(size_t)(end-base));
-    for(uint16_t i=0;i<e->phnum;i++) if(ph[i].type==1)
+    uint64_t allocated_base[32],allocated_pages[32];
+    uint16_t allocated_count=0;
+    for(uint16_t i=0;i<e->phnum;i++) if(ph[i].type==1) {
+        uint64_t segment_base=ph[i].paddr&~(uint64_t)(EFI_PAGE_SIZE-1);
+        uint64_t segment_end=align_up(ph[i].paddr+ph[i].memsz,EFI_PAGE_SIZE);
+        uint64_t pages=(segment_end-segment_base)/EFI_PAGE_SIZE;
+        uint64_t address=segment_base;
+        uint32_t memory_type=(ph[i].flags&1u)?EFI_LOADER_CODE:EFI_LOADER_DATA;
+        EFI_STATUS st=bs->allocate_pages(EFI_ALLOCATE_ADDRESS,memory_type,pages,&address);
+        if(EFI_ERROR(st)||address!=segment_base) {
+            while(allocated_count) {
+                allocated_count--;
+                (void)bs->free_pages(allocated_base[allocated_count],
+                                     allocated_pages[allocated_count]);
+            }
+            return -5;
+        }
+        allocated_base[allocated_count]=segment_base;
+        allocated_pages[allocated_count]=pages;
+        allocated_count++;
+        zero_mem((void*)(uintptr_t)segment_base,(size_t)(segment_end-segment_base));
         copy_mem((void*)(uintptr_t)ph[i].paddr,file+ph[i].offset,(size_t)ph[i].filesz);
+    }
     *entry_out=e->entry; *kernel_base=base; *kernel_end=end;
     return 0;
 }
