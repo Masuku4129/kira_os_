@@ -53,6 +53,32 @@ static pmm_range_t acpi_r[PMM_MAX_ACPI];
 static unsigned acpi_n;
 static spinlock_t pmm_lock = SPINLOCK_INIT;
 
+/* Validate the complete Multiboot2 block before any memory-map pass. */
+static int mb2_validate(uint64_t addr, uint64_t total) {
+    if (total < 16 || (total & 7) || addr >= PMM_LOW || total > PMM_LOW - addr)
+        return 0;
+    const uint8_t* p = (const uint8_t*)(uintptr_t)(addr + 8);
+    uint64_t remaining = total - 8;
+    while (remaining >= sizeof(struct mb2_tag)) {
+        const struct mb2_tag* tag = (const struct mb2_tag*)p;
+        if (tag->size < sizeof(struct mb2_tag) || tag->size > remaining) return 0;
+        if (tag->type == MB2_TAG_END)
+            return tag->size == 8 && remaining == 8;
+        uint64_t padded = ((uint64_t)tag->size + 7u) & ~7ULL;
+        if (padded > remaining) return 0;
+        if (tag->type == MB2_TAG_MMAP) {
+            if (tag->size < 16) return 0;
+            uint32_t entry_size = *(const uint32_t*)(p + 8);
+            uint32_t payload = tag->size - 16;
+            if (entry_size < sizeof(struct mb2_mmap_entry) || payload % entry_size)
+                return 0;
+        }
+        p += (size_t)padded;
+        remaining -= padded;
+    }
+    return 0;
+}
+
 static inline int test_bit(const uint32_t* map, uint64_t page) {
     return (map[page >> 5] >> (page & 31)) & 1;
 }
@@ -140,8 +166,9 @@ int pmm_init(unsigned long magic, unsigned long addr) {
     }
 
     uint64_t info_size = *(const uint32_t*)addr;
-    if (info_size < 16 || addr + info_size > PMM_LOW) {
-        uart_print("[KIRA PMM ERROR] Corrupt Multiboot2 info size.\n");
+    if (info_size < 16 || (info_size & 7) || info_size > PMM_LOW - addr ||
+        !mb2_validate(addr, info_size)) {
+        uart_print("[KIRA PMM ERROR] Corrupt Multiboot2 info block, tag sequence or memory map.\\n");
         return -3;
     }
 
