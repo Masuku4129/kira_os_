@@ -277,10 +277,13 @@ static uint8_t status_get(virtio_dev_t* v) { return MMIO_R8(v->common + R_STATUS
 static void status_set(virtio_dev_t* v, uint8_t s) { MMIO_W8(v->common + R_STATUS, s); }
 
 static int reset(virtio_dev_t* v) {
+    if (!v || !v->common) return -1;
     status_set(v, 0);
     for (uint32_t i = 0; i < SPIN_LIMIT; i++) { if (status_get(v) == 0) return 0; CPU_RELAX(); }
     return -1;
 }
+
+int virtio_reset_device(virtio_dev_t* v) { return reset(v); }
 
 void virtio_fail(virtio_dev_t* v) {
     status_set(v, status_get(v) | VIRTIO_ST_FAILED);
@@ -314,8 +317,9 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
     q->dev = v; q->index = index; q->size = n; q->last_used = 0; q->avail_idx = 0;
     q->avail_off = (uint32_t)n * 16;
     q->used_off = (q->avail_off + 6 + 2 * (uint32_t)n + 3) & ~3u;
-    q->mem = (uint8_t*)virtio_dma_alloc(q->used_off + 6 + 8 * (uint32_t)n, &q->mem_phys);
-    if (!q->mem) return -2;
+    q->mem_bytes = q->used_off + 6 + 8 * (uint32_t)n;
+    q->mem = (uint8_t*)virtio_dma_alloc(q->mem_bytes, &q->mem_phys);
+    if (!q->mem) { q->mem_bytes = 0; q->mem_phys = 0; return -2; }
     MMIO_W16(v->common + R_QSIZE, n);
     MMIO_W16(v->common + R_QMSIX, v->msix_vec);                  /* запись MSI-X очереди или 0xFFFF - без прерываний */
     q->iw = 0;
@@ -326,6 +330,18 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
     uint16_t noff = MMIO_R16(v->common + R_QNOFF);
     MMIO_W16(v->common + R_QEN, 1);
     q->notify_addr = v->notify + (uint64_t)noff * v->notify_mult;
+    return 0;
+}
+
+int virtio_queue_release(virtq_t* q) {
+    if (!q || !q->mem || !q->mem_phys || !q->mem_bytes || !q->dev)
+        return -1;
+    /* Queue memory is device-writable. Never return it to PMM while the
+       device may still own the queue or have outstanding DMA transactions. */
+    if (status_get(q->dev) != 0) return -2;
+    int rc = virtio_dma_free(q->mem, q->mem_phys, q->mem_bytes);
+    if (rc != 0) return rc;
+    *q = (virtq_t){0};
     return 0;
 }
 
