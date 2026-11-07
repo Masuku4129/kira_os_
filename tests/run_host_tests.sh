@@ -189,6 +189,15 @@ else
     echo "Mind quality: covered by mind-quality job"
 fi
 
+echo "== public-key signatures (RSA, ECDSA, Ed25519; valid and forged vectors) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/pk tests/pk_test.c pk.c crypto.c sha256.c
+$T/pk
+
+echo "== KDRV signed-package verification =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_sig tests/kdrv_sig_test.c kdrv_sig.c pk.c crypto.c sha256.c
+$T/kdrv_sig
+python3 -m unittest ci.test_kdrvsign
+
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c bootinfo_fdt.c bootinfo.c
 $T/fdt

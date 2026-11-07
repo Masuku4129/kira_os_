@@ -1,5 +1,5 @@
-/* drvget - установка драйверов Ring 3 из ИСХОДНИКОВ на самой Кире (docs/DRIVERS.md, пакет L). Без GitHub-сборки и без подписей:
-   доверие = явное подтверждение пользователя + SHA-256, который он видит и вводит сам.
+/* drvget - установка драйверов Ring 3 из исходников на самой Кире. Локальная сборка подтверждается пользователем и SHA-256;
+   detached .sig отдельно подтверждает издателя Ed25519. Отсутствие подписи явно показывается как локальное, не издательское доверие.
      drvget install ИМЯ|https://адрес/drvget.rec   скачать рецепт и исходники по HTTPS (TLS 1.3, корневые /etc/ssl/roots.der), проверить лицензию
                                                     (BSD-2/BSD-3/MIT/ISC; GPL и бинарники отвергаются), показать источник, лицензию, SHA-256, права;
                                                     ничего не ставит
@@ -14,7 +14,10 @@
 #include "kira.h"
 #include "tls.h"
 #include "drvget_core.h"
+#include "drvget_api.h"
 #include "../immune.h"
+#include "../kdrv_sig.h"
+#include "../kdrv_trust.h"
 #include "../kcc/kcc.h"
 
 #ifndef DRVGET_LIB
@@ -474,6 +477,47 @@ static int cmd_confirm(const char *arg) {
     for (u32 i = 0; i < R.nmatch; i++) h->match[i] = R.match[i];
     memcpy(pkg + sizeof *h, kr.elf, kr.elflen);
 
+    /* A detached signature is hosted beside drvget.rec as drvget.sig and covers
+       the exact locally built package. A 404 is an explicit local install;
+       a present but invalid signature always aborts installation. */
+    kdrv_sig_t publisher_sig;
+    int has_publisher_sig = 0;
+    if (url[0]) {
+        dg_url_t recipe_url, signature_url;
+        char signature_url_text[DG_URL_MAX];
+        u32 signature_len = 0;
+        const char *signature_error = 0;
+        if (dg_url_parse(url, &recipe_url, &signature_error) ||
+            dg_url_join(&recipe_url, "drvget.sig", signature_url_text, sizeof signature_url_text, &signature_error) ||
+            dg_url_parse(signature_url_text, &signature_url, &signature_error)) {
+            sayf("drvget: неверный адрес подписи издателя: %s\n", signature_error ? signature_error : "ошибка URL");
+            return 1;
+        }
+        signature_error = http_get(&signature_url, &signature_len);
+        if (signature_error) {
+            if (!strstr(signature_error, "HTTP 404")) {
+                sayf("drvget: не удалось получить подпись издателя: %s\n", signature_error);
+                return 1;
+            }
+            say("drvget: .sig отсутствует (HTTP 404); пакет будет только локально подтверждён\n");
+        } else {
+            if (signature_len != sizeof publisher_sig) {
+                sayf("drvget: неверный размер .sig: %u, ожидалось %u; установка отменена\n",
+                     (unsigned)signature_len, (unsigned)sizeof publisher_sig);
+                return 1;
+            }
+            memcpy(&publisher_sig, body, sizeof publisher_sig);
+            int signature_rc = kdrv_sig_verify(pkg, total, &publisher_sig, sizeof publisher_sig,
+                                               kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, k_time());
+            if (signature_rc != KDRV_SIG_OK) {
+                sayf("drvget: подпись издателя отвергнута: %s; установка отменена\n", kdrv_sig_strerror(signature_rc));
+                return 1;
+            }
+            has_publisher_sig = 1;
+            say("drvget: подпись издателя Ed25519 подтверждена для собранного пакета\n");
+        }
+    }
+
     kdrv_rec_t rec;
     memset(&rec, 0, sizeof rec);
     rec.magic = KREC_MAGIC; rec.format = KDRV_FORMAT; rec.rec_size = sizeof rec;
@@ -493,23 +537,64 @@ static int cmd_confirm(const char *arg) {
         if (ll > 0 && (size_t)ll < sizeof lt) memcpy(rec.source + ul + 1, lt, (size_t)ll);
     }
 
-    char f1[32], f2[32];
+    char f1[32], f2[32], f3[32];
     snprintf(f1, sizeof f1, "%s.kdrv", R.name);
     snprintf(f2, sizeof f2, "%s.rec", R.name);
+    snprintf(f3, sizeof f3, "%s.sig", R.name);
+    i64 old_pkg_size = drv_op(KFS_DRV_STAT, f1, 0, 0, 0);
+    i64 old_sig_size = drv_op(KFS_DRV_STAT, f3, 0, 0, 0);
+    if ((old_pkg_size < 0 && old_pkg_size != -2) || (old_sig_size < 0 && old_sig_size != -2)) {
+        say("drvget: не удалось проверить существующий пакет перед заменой; установка отменена\n");
+        stage_clear();
+        return 1;
+    }
+    if (!has_publisher_sig && old_pkg_size >= 0 && old_sig_size >= 0) {
+        say("drvget: замена существующего подписанного пакета на unsigned/local запрещена; сначала выполните drvget remove\n");
+        stage_clear();
+        return 1;
+    }
+    if (!has_publisher_sig && old_pkg_size == -2 && old_sig_size >= 0) {
+        /* Clean an orphaned signature/record before creating a new local-only package. */
+        i64 remove_orphan = drv_op(KFS_DRV_REMOVE, f3, 0, 0, 0);
+        if (remove_orphan < 0 && remove_orphan != -2) {
+            say("drvget: не удалось очистить осиротевшую подпись; установка отменена\n");
+            stage_clear();
+            return 1;
+        }
+    }
+
     i64 w = drv_op(KFS_DRV_WRITE, f1, pkg, total, 0);
     if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f1, (long long)w); return 1; }
+    /* Write publisher signature before the local-confirmation record. .rec is the
+       commit marker checked by the kernel: an interrupted signed install must never
+       fall back to an unsigned/local package. */
+    if (has_publisher_sig) {
+        w = drv_op(KFS_DRV_WRITE, f3, &publisher_sig, sizeof publisher_sig, 0);
+        if (w < 0) {
+            sayf("drvget: запись подписи /drv/%s отклонена (код %lld); пакет удалён\n", f3, (long long)w);
+            drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0);
+            return 1;
+        }
+    }
     w = drv_op(KFS_DRV_WRITE, f2, &rec, sizeof rec, 0);
-    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f2, (long long)w); drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0); return 1; }
+    if (w < 0) {
+        sayf("drvget: запись /drv/%s отклонена (код %lld); пакет удалён\n", f2, (long long)w);
+        drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0);
+        return 1;
+    }
     stage_clear();
-    sayf("drvget: установлено: /drv/%s и /drv/%s; драйвер подойдёт устройствам из списка выше, ядро просматривает /drv сразу (журнал: [KIRA DRV])\n", f1, f2);
+    sayf("drvget: установлено: /drv/%s и /drv/%s; издательская подпись: %s\n",
+         f1, f2, has_publisher_sig ? "Ed25519 подтверждена" : "отсутствует, локальное подтверждение");
     return 0;
 }
 
 /* ---------- list / verify / remove ---------- */
-static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sha_ok) {
-    char f1[32], f2[32];
+static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sha_ok, int *auth_state) {
+    char f1[32], f2[32], f3[32];
+    *auth_state = DGP_AUTH_UNKNOWN;
     snprintf(f1, sizeof f1, "%s.kdrv", name);
     snprintf(f2, sizeof f2, "%s.rec", name);
+    snprintf(f3, sizeof f3, "%s.sig", name);
     i64 sz = drv_op(KFS_DRV_STAT, f1, 0, 0, 0);
     if (sz < (i64)sizeof *h) return -1;
     if (sz > (i64)sizeof body) { *sha_ok = -1; sz = (i64)sizeof body; }
@@ -525,6 +610,19 @@ static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sh
     sha256(body + sizeof *h, h->elf_size, d1);
     sha256(body, (size_t)sz, d2);
     *sha_ok = !memcmp(d1, rec->elf_sha, 32) && !memcmp(d2, rec->pkg_sha, 32) && kdrv_rec_check(rec, sizeof *rec, rec) == KDRV_OK;
+    i64 sig_size = drv_op(KFS_DRV_STAT, f3, 0, 0, 0);
+    if (sig_size == -2) *auth_state = DGP_AUTH_LOCAL;
+    else if (sig_size < 0 || sig_size != (i64)sizeof(kdrv_sig_t)) *auth_state = DGP_AUTH_INVALID;
+    else {
+        kdrv_sig_t sig;
+        if (drv_op(KFS_DRV_READ, f3, &sig, sizeof sig, 0) != (i64)sizeof sig) *auth_state = DGP_AUTH_INVALID;
+        else {
+            i64 now = k_time();
+            int vr = kdrv_sig_verify(body, (size_t)sz, &sig, sizeof sig,
+                                     kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, now);
+            *auth_state = vr == KDRV_SIG_OK ? DGP_AUTH_PUBLISHER : DGP_AUTH_INVALID;
+        }
+    }
     return 0;
 }
 
@@ -546,13 +644,13 @@ static int cmd_list(void) {
         size_t l = strlen(p);
         if (l > 5 && !strcmp(p + l - 5, ".kdrv")) {
             char nm[16];
-            kdrv_header_t h; kdrv_rec_t rec; int ok = 0;
+            kdrv_header_t h; kdrv_rec_t rec; int ok = 0, auth = DGP_AUTH_UNKNOWN;
             snprintf(nm, sizeof nm, "%.*s", (int)(l - 5 > 11 ? 11 : l - 5), p);
             cnt++;
-            int rc = read_pkg(nm, &h, &rec, &ok);
+            int rc = read_pkg(nm, &h, &rec, &ok, &auth);
             if (rc == -1) sayf("  %s: пакет не читается\n", nm);
             else if (rc == -2) sayf("  %s: нет подтверждения (%s.rec) - не будет запущен\n", nm, nm);
-            else { sayf("  %s: версия %u, права:", nm, (unsigned)h.version); show_caps(h.caps); sayf(", SHA-256 %s, источник: %s\n", ok ? "сверен" : "НЕ СОВПАДАЕТ", rec.source); }
+            else { sayf("  %s: версия %u, права:", nm, (unsigned)h.version); show_caps(h.caps); sayf(", SHA-256 %s, издатель: %s, источник: %s\n", ok ? "сверен" : "НЕ СОВПАДАЕТ", auth == DGP_AUTH_PUBLISHER ? "Ed25519 подтверждён" : auth == DGP_AUTH_LOCAL ? "не подтверждён (локально)" : auth == DGP_AUTH_INVALID ? "ПОДПИСЬ ОТКЛОНЕНА" : "не проверена", rec.source); }
         }
         if (!e) break;
         p = e + 1;
@@ -562,15 +660,16 @@ static int cmd_list(void) {
 }
 
 static int cmd_verify(const char *nm) {
-    kdrv_header_t h; kdrv_rec_t rec; int ok = 0;
+    kdrv_header_t h; kdrv_rec_t rec; int ok = 0, auth = DGP_AUTH_UNKNOWN;
     if (!name_ok(nm)) { say("drvget: неверное имя\n"); return 2; }
-    int rc = read_pkg(nm, &h, &rec, &ok);
+    int rc = read_pkg(nm, &h, &rec, &ok, &auth);
     if (rc) { sayf("drvget: verify %s: пакета или подтверждения нет\n", nm); return 1; }
     char a[65], b[65], c[65];
     dg_hex(rec.elf_sha, 32, a); dg_hex(rec.pkg_sha, 32, b); dg_hex(rec.src_sha, 32, c);
     sayf("drvget: %s: SHA-256 образа %s, пакета %s, исходников %s\n", nm, a, b, c);
-    sayf("drvget: verify %s: %s\n", nm, ok == 1 ? "OK (хеши сходятся с записью, пользователь подтверждал установку)" : "ОШИБКА: хеши не сходятся или запись недействительна");
-    return ok == 1 ? 0 : 1;
+    sayf("drvget: подпись издателя: %s\n", auth == DGP_AUTH_PUBLISHER ? "Ed25519 подтверждена" : auth == DGP_AUTH_LOCAL ? "отсутствует; пакет только локально подтверждён" : auth == DGP_AUTH_INVALID ? "ОТКЛОНЕНА" : "не проверена");
+    sayf("drvget: verify %s: %s\n", nm, ok == 1 ? "OK (хеши сходятся с локальной записью подтверждения)" : "ОШИБКА: хеши не сходятся или запись недействительна");
+    return ok == 1 && auth != DGP_AUTH_INVALID && auth != DGP_AUTH_UNKNOWN ? 0 : 1;
 }
 
 static int cmd_remove(const char *nm) {
@@ -652,11 +751,12 @@ int drvget_pkgs(drvget_pkg_t *out, int max) {
         if (e) *e = 0;
         size_t l = strlen(p);
         if (l > 5 && l - 5 <= KDRV_NAME_MAX && !strcmp(p + l - 5, ".kdrv")) {
-            kdrv_header_t h; kdrv_rec_t rec; int ok = 0;
+            kdrv_header_t h; kdrv_rec_t rec; int ok = 0, auth = DGP_AUTH_UNKNOWN;
             drvget_pkg_t *o = &out[cnt++];
             memset(o, 0, sizeof *o);
             memcpy(o->name, p, l - 5);
-            int rc = read_pkg(o->name, &h, &rec, &ok);
+            int rc = read_pkg(o->name, &h, &rec, &ok, &auth);
+            o->auth_state = auth;
             o->state = rc == -1 ? DGP_UNREADABLE : rc == -2 ? DGP_NOREC : ok == 1 ? DGP_OK : ok == -1 ? DGP_TOOBIG : DGP_BAD;
             if (o->state == DGP_BAD && kdrv_rec_check(&rec, sizeof rec, 0) == KDRV_E_UNCONFIRMED) o->state = DGP_UNCONF;
             if (rc == 0 || rc == -2) {

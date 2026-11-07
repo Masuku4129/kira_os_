@@ -22,13 +22,13 @@ for src in kcc/*.c; do
 done
 $K $UCFLAGS -nostdlibinc -Iuserland -c userland/kccrt.c -o $O/kccrt.o || exit 1
 $K $UCFLAGS -c userland/libc_min.c -o $O/libc_min.o || exit 1
-$K $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -c userland/drvget.c -o $O/drvget.o || exit 1
+$K $UCFLAGS -DKIRA_TEST_BUILD -DKDRV_TEST_TRUST -nostdlibinc -I. -Iuserland -Iuserland/kccrt -c userland/drvget.c -o $O/drvget.o || exit 1
 $K $UCFLAGS -I. -c userland/drvget_core.c -o $O/dgcore.o || exit 1
 $K $UCFLAGS -I. -c kdrv_fmt.c -o $O/kfmt.o || exit 1
-for f in userland/tls.c userland/x509.c pk.c crypto.c sha256.c; do $K $UCFLAGS -I. -Iuserland -c $f -o $O/t_$(basename $f .c).o || exit 1; done
+for f in userland/tls.c userland/x509.c pk.c crypto.c sha256.c kdrv_sig.c; do $K $UCFLAGS -I. -Iuserland -c $f -o $O/t_$(basename $f .c).o || exit 1; done
 ld.lld -T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro -o $T/drvget.elf $O/drvget.o $O/dgcore.o $O/kfmt.o $objs $O/kccrt.o $O/t_*.o $O/libc_min.o || exit 1
 # drvman (окно «Драйверы»): та же логика (drvget.c с -DDRVGET_LIB) + окно; здесь проверяется режим do под загрузчиком (вызовов окна и списка PCI у загрузчика нет)
-$K $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -DDRVGET_LIB -c userland/drvget.c -o $O/drvget_lib.o || exit 1
+$K $UCFLAGS -DKIRA_TEST_BUILD -DKDRV_TEST_TRUST -nostdlibinc -I. -Iuserland -Iuserland/kccrt -DDRVGET_LIB -c userland/drvget.c -o $O/drvget_lib.o || exit 1
 $K $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -c userland/drvman.c -o $O/drvman.o || exit 1
 $K $UCFLAGS -I. -c font8x16.c -o $O/font.o || exit 1
 ld.lld -T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro -o $T/drvman.elf $O/drvman.o $O/drvget_lib.o $O/dgcore.o $O/kfmt.o $O/font.o $objs $O/kccrt.o $O/t_*.o $O/libc_min.o || exit 1
@@ -135,14 +135,74 @@ echo "$chk" | grep -q "source=$U/rl/drvget.rec" || note "в .rec нет исто
 run "list"
 grep -q "rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен" $T/out || note "list: $(tail -c 300 $T/out)"
 run "verify rl"
+grep -q "подпись издателя: отсутствует; пакет только локально подтверждён" $T/out || note "verify: локальный пакет не помечен как неподписанный"
 grep -q "verify rl: OK" $T/out || note "verify: $(tail -c 300 $T/out)"
 # испорченный образ: verify обязан заметить
 cp $T/drv/rl.kdrv $T/rl.keep; printf '\377' | dd of=$T/drv/rl.kdrv bs=1 seek=200 conv=notrunc 2>/dev/null
 run "verify rl"
 grep -q "ОШИБКА" $T/out || note "verify не заметил испорченный пакет"
 cp $T/rl.keep $T/drv/rl.kdrv
+cp "$T/drv/rl.kdrv" "$T/rl.package" || note "cannot preserve deterministic package for publisher-signature E2E"
 run "remove rl"
 grep -q "удалён" $T/out && [ ! -e $T/drv/rl.kdrv ] || note "remove: $(tail -c 200 $T/out)"
+# The host loader models file syscalls, not fsrv's companion cleanup policy.
+rm -f $T/drv/rl.rec $T/drv/rl.sig
+
+# 3a. Valid publisher signature over the exact package is fetched through TLS and installed.
+python3 -I - "$T" <<'PY'
+import sys
+from pathlib import Path
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
+root = Path(sys.argv[1])
+seed = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+key = Ed25519PrivateKey.from_private_bytes(seed)
+(root / "test-key.pem").write_bytes(key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()))
+pub = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+(root / "test-public.hex").write_text(pub.hex() + "\n", encoding="ascii")
+(root / "test-trust.h").write_text(
+    '#define KDRV_TRUST_KEY_ID "TEST-ED25519-001"\n'
+    + "static const unsigned char test_pub[] = {"
+    + ",".join(f"0x{x:02x}" for x in pub) + "};\n",
+    encoding="ascii")
+PY
+python3 -I tools/kdrvsign.py "$T/rl.package" --key "$T/test-key.pem" \
+    --public-key "$T/test-public.hex" --trust-header "$T/test-trust.h" \
+    --key-id TEST-ED25519-001 --not-before 1700000000 --not-after 4102444800 \
+    --output "$W/rl/drvget.sig" >"$T/sign.log" 2>&1 || note "test publisher signer failed: $(cat "$T/sign.log")"
+rm -rf "$T/sb" "$T/drv"; mkdir -p "$T/sb" "$T/drv"
+run "install $U/rl/drvget.rec"
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' "$T/out")
+[ ${#HASH} = 64 ] || note "valid signature test: не получен хеш staging-набора"
+run "confirm rl ${HASH:0:8}"
+grep -q "подпись издателя Ed25519 подтверждена" "$T/out" || note "valid publisher signature was not accepted: $(tail -c 400 "$T/out")"
+[ -s "$T/drv/rl.sig" ] || note "valid publisher signature was not installed beside package"
+run "verify rl"
+grep -q "Ed25519 подтверждена" "$T/out" || note "installed publisher signature did not verify: $(tail -c 400 "$T/out")"
+rm -f "$W/rl/drvget.sig"
+
+# A missing signature must not downgrade an already installed publisher-authenticated package.
+run "install $U/rl/drvget.rec"
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' "$T/out")
+[ ${#HASH} = 64 ] || note "unsigned replacement test: не получен хеш staging-набора"
+run "confirm rl ${HASH:0:8}"
+grep -q "замена существующего подписанного пакета на unsigned/local запрещена" "$T/out" || note "signed package was silently downgraded: $(tail -c 400 "$T/out")"
+[ -s "$T/drv/rl.sig" ] && [ -s "$T/drv/rl.kdrv" ] || note "refused downgrade damaged the existing signed package"
+[ -z "$(ls "$T/sb" | grep '^s-')" ] || note "refused downgrade left staging files"
+run "remove rl"
+[ ! -e "$T/drv/rl.kdrv" ] || note "remove did not delete signed package"
+rm -f "$T/drv/rl.rec" "$T/drv/rl.sig"
+
+# 3b. A malformed present signature must abort instead of silently falling back to local trust.
+rm -rf "$T/sb" "$T/drv"; mkdir -p "$T/sb" "$T/drv"
+run "install $U/rl/drvget.rec"
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' $T/out)
+[ ${#HASH} = 64 ] || note "signature test: не получен хеш staging-набора"
+printf 'x' > $W/rl/drvget.sig
+run "confirm rl ${HASH:0:8}"
+grep -q "неверный размер .sig" $T/out || note "malformed publisher signature was not rejected: $(tail -c 300 $T/out)"
+[ -z "$(ls -A $T/drv)" ] || note "malformed publisher signature left files in /drv: $(ls -la $T/drv)"
+rm -f $W/rl/drvget.sig
 
 # 4. честные отказы
 expect_refuse() { # ИМЯ подстрока-причины
@@ -195,7 +255,7 @@ rundm "do base $U;pci;find rl;install;pkgs;verify rl"
 grep -q "drvman: набор готов к установке" $T/out || note "drvman find: $(tail -c 400 $T/out)"
 grep -q "собрано, образ ELF" $T/out && grep -q "drvman: драйвер rl установлен в /drv" $T/out || note "drvman install: $(tail -c 600 $T/out)"
 grep -q "drvman: список PCI недоступен" $T/out || note "drvman: нет честного сообщения о недоступном списке PCI: $(grep -a 'drvman:' $T/out | head -5)"
-grep -qE "drvman: пакет rl \| rl +v1 +лицензия: BSD-3-Clause +не запущен +сверка: SHA-256 сходится" $T/out || note "drvman pkgs (лицензия из .rec): $(grep -a 'пакет' $T/out | head -5)"
+grep -qE "drvman: пакет rl \| rl +v1 +лицензия: BSD-3-Clause +не запущен +сверка: SHA-256 OK, локально" $T/out || note "drvman pkgs (лицензия из .rec): $(grep -a 'пакет' $T/out | head -5)"
 grep -qE "drvman: пакет rl \| права запрошены: MMIO DMA PCIDEV NETDEV +подтверждены: MMIO DMA PCIDEV NETDEV" $T/out || note "drvman pkgs: права"
 grep -q "drvman: пакет rl | источник: $U/rl/drvget.rec" $T/out || note "drvman pkgs: источник"
 grep -q "verify rl: OK" $T/out || note "drvman verify"

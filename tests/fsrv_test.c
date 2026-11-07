@@ -3,6 +3,7 @@
 #include "caps.h"
 #include "kfs.h"
 #include "kdrv_format.h"
+#include "kdrv_sig.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -114,10 +115,24 @@ int main(void) {
         CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.kdrv", pk, sizeof pk, 0) == 0);
         CHECK(call("drvget", FS_OP_DRV_STAT, "demo.kdrv", 0, 0, 0) == (int64_t)sizeof pk);
         CHECK(call("drvget", FS_OP_DRV_READ, "demo.kdrv", 0, sizeof pk, 0) == (int64_t)sizeof pk && !memcmp(R.data, pk, sizeof pk));
+        kdrv_sig_t sig; memset(&sig, 0, sizeof sig);
+        sig.magic = KDRV_SIG_MAGIC; sig.format = KDRV_SIG_FORMAT; sig.size = sizeof sig;
+        memcpy(sig.key_id, "TEST-ED25519-001", 16); memcpy(sig.package_sha256, rec.pkg_sha, 32);
+        sig.package_size = sizeof pk; sig.not_before = 1; sig.not_after = 4102444800ULL;
+        CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.sig", &sig, sizeof sig, 0) == 0); /* signature durable before local confirmation */
+        CHECK(call("drvget", FS_OP_DRV_STAT, "demo.rec", 0, 0, 0) == KFS_ERR_NOENT); /* no commit marker yet */
         kdrv_rec_t bad = rec; bad.elf_sha[0] ^= 1; CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &bad, sizeof bad, 0) == FS_E_DENIED);   /* хеш не тот */
         bad = rec; bad.pkg_sha[5] ^= 1; CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &bad, sizeof bad, 0) == FS_E_DENIED);
         bad = rec; bad.confirmed = 0; CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &bad, sizeof bad, 0) == FS_E_ARG);                    /* не подтверждено */
         bad = rec; bad.caps_ok = CAP_NETDEV; CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &bad, sizeof bad, 0) == FS_E_DENIED);          /* подтверждено больше, чем просит пакет */
+        CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &rec, sizeof rec, 0) == 0);
+        CHECK(call("drvget", FS_OP_DRV_STAT, "demo.sig", 0, 0, 0) == (int64_t)sizeof sig);
+        CHECK(call("drvget", FS_OP_DRV_READ, "demo.sig", 0, sizeof sig, 0) == (int64_t)sizeof sig && !memcmp(R.data, &sig, sizeof sig));
+        kdrv_sig_t badsig = sig; badsig.package_sha256[0] ^= 1;
+        CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.sig", &badsig, sizeof badsig, 0) == FS_E_DENIED);
+        CHECK(call("drvget", FS_OP_DRV_REMOVE, "demo.sig", 0, 0, 0) == 0);
+        CHECK(call("drvget", FS_OP_DRV_STAT, "demo.rec", 0, 0, 0) == KFS_ERR_NOENT); /* снять подпись нельзя, сохранив local-confirm */
+        CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.sig", &sig, sizeof sig, 0) == 0);
         CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &rec, sizeof rec, 0) == 0);
         int64_t ll = call("drvget", FS_OP_DRV_LIST, 0, 0, 0, 0);
         CHECK(ll > 0 && ll < 4096); R.data[ll] = 0;
@@ -135,10 +150,10 @@ int main(void) {
         CHECK(call("drvman", FS_OP_DRV_START, "demo.rec", 0, 0, 0) == FS_E_ARG && call("drvman", FS_OP_DRV_STOP, "../demo.kdrv", 0, 0, 0) == FS_E_DENIED);
         CHECK(call("drvman", FS_OP_DRV_WRITE, "demo2.kdrv", pk, sizeof pk, 0) == FS_E_ARG);          /* имя в заголовке demo, файл demo2 */
         CHECK(call("drvget", FS_OP_DRV_REMOVE, "demo.kdrv", 0, 0, 0) == 0);                          /* пакет уходит вместе с подтверждением */
-        CHECK(call("drvget", FS_OP_DRV_STAT, "demo.kdrv", 0, 0, 0) == KFS_ERR_NOENT && call("drvget", FS_OP_DRV_STAT, "demo.rec", 0, 0, 0) == KFS_ERR_NOENT);
+        CHECK(call("drvget", FS_OP_DRV_STAT, "demo.kdrv", 0, 0, 0) == KFS_ERR_NOENT && call("drvget", FS_OP_DRV_STAT, "demo.rec", 0, 0, 0) == KFS_ERR_NOENT && call("drvget", FS_OP_DRV_STAT, "demo.sig", 0, 0, 0) == KFS_ERR_NOENT);
         CHECK(call("drvget", FS_OP_STAT, "demo.kdrv", 0, 0, 0) == KFS_ERR_NOENT);                    /* обычная песочница drvget - отдельно от /drv */
-        char st[16]; int isrec;
-        CHECK(fsrv_drv_name("rl.kdrv", st, &isrec) && !isrec && !strcmp(st, "rl") && fsrv_drv_name("a-b_9.rec", st, &isrec) && isrec);
+        char st[16]; int kind;
+        CHECK(fsrv_drv_name("rl.kdrv", st, &kind) && kind == 0 && !strcmp(st, "rl") && fsrv_drv_name("a-b_9.rec", st, &kind) && kind == 1 && fsrv_drv_name("a-b_9.sig", st, &kind) && kind == 2);
         CHECK(caps_for_program("drvget") == (CAP_NET | CAP_FS | CAP_SYSFILES));
         /* право CAP_PCILIST (список PCI только для чтения) есть у одного drvman; нет ни у драйверов, ни у остальных программ */
         CHECK(caps_for_program("drvman") == (CAP_GFX | CAP_NET | CAP_FS | CAP_SYSFILES | CAP_THREAD | CAP_PCILIST));

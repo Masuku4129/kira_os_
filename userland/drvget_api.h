@@ -15,17 +15,19 @@ const char *drvget_staged_url(void);                              /* адрес 
 const char *drvget_staged_hash(void);                             /* SHA-256 подготовленного набора (64 знака) или пустая строка */
 int  drvget_install_staged(void);                                 /* = drvget confirm ИМЯ ПОЛНЫЙ_ХЕШ для набора, показанного последним find */
 int  drvget_remove(const char *name);                             /* удалить пакет из /drv вместе с подтверждением */
-int  drvget_verify(const char *name);                             /* = drvget verify ИМЯ: хеши образа и пакета против записи */
+int  drvget_verify(const char *name);                             /* = drvget verify ИМЯ: локальные хеши и издательская подпись */
 int  drvget_list(void);                                           /* = drvget list (текстом) */
 int  drvget_base(const char *url);                                /* каталог рецептов (пусто - показать текущий) */
 int  drvget_ctl(int start, const char *name);                     /* 1 - запустить, 0 - остановить: просьба менеджеру драйверов ядра (FS_OP_DRV_START/STOP); 0 - принято */
 
 enum { DGP_OK = 0, DGP_BAD = 1, DGP_NOREC = 2, DGP_UNREADABLE = 3, DGP_TOOBIG = 4,
        DGP_UNCONF = 5 };                /* запись есть, но пользователь установку не подтверждал: не запустится */
+enum { DGP_AUTH_UNKNOWN = 0, DGP_AUTH_LOCAL = 1, DGP_AUTH_PUBLISHER = 2, DGP_AUTH_INVALID = 3 };
 typedef struct {
     char name[16];
     uint32_t version, caps, caps_ok, nmatch;
-    int state;                          /* DGP_OK - хеши сходятся с записью; DGP_BAD - не сходятся; DGP_NOREC - нет подтверждения (не запустится) */
+    int state;                          /* состояние локальной записи и хешей */
+    int auth_state;                     /* DGP_AUTH_PUBLISHER - подпись издателя проверена; LOCAL - подписи нет; INVALID - отклонена */
     kdrv_match_t match[KDRV_MATCH_MAX];
     uint8_t elf_sha[32], src_sha[32];
     char source[96];
