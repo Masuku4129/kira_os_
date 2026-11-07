@@ -120,7 +120,9 @@ int kbi_validate(const void* blob, uint32_t available) {
         if (n[mods[i].name_len - 1] != 0) return -12;
         for (uint32_t j = 0; j < i; j++) {
             if (overlaps(mods[i].base, mods[i].length,
-                         mods[j].base, mods[j].length)) return -12;
+                         mods[j].base, mods[j].length) ||
+                overlaps(mods[i].name_off, mods[i].name_len,
+                         mods[j].name_off, mods[j].name_len)) return -12;
         }
     }
     return 0;
