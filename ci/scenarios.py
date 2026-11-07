@@ -558,7 +558,7 @@ def _dg(cmd, rx, t):     # программа запускается в фоне
 
 _DRV_WWW, _DRV_SET8 = _drv_www()
 _DRV_HTTP = "guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE
-ALL.append(sc("drvget-rl", "drvget: исходники драйвера по HTTPS, отчёт и подтверждение хешем, сборка kcc на устройстве, GPL/бинарник/без лицензии - отказ; затем сетевая карта RTL8139 под этим драйвером (DHCP, ping, http)", [
+ALL.append(sc("drvget-rl", "drvget: исходники RTL8139 по HTTPS, аудит лицензии и хешей, сборка KCC и установка; при отсутствии IOMMU ядро обязано отказать в запуске DMA-драйвера", [
     {"log": BOOT_LOG}, {"sleep": 6},
     *_dg("drvget base https://10.0.2.100", r"каталог рецептов теперь https://10\.0\.2\.100", 20),
     *_dg("drvget install gpl", r"drvget: отказ: .*GPL", 90),
@@ -575,14 +575,10 @@ ALL.append(sc("drvget-rl", "drvget: исходники драйвера по HTT
     *_dg("drvget verify rl", r"verify rl: OK", 20),
     {"log_forbid": NO_ERR},
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "rtl8139,netdev=n0"]},
-    {"sleep": 10},
-    {"log": [r"\[KIRA DRV\] rl: устройство .* 10ec:8139 -> драйвер запущен", r"rl: network interface registered, link up",
-             r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
-    {"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
-    {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 25},
-    {"cmd": "fetch 10.0.2.100 /kira"}, {"sleep": 4},
-    {"log": [r"fetch: 10\.0\.2\.100/kira - HTTP/1\.0 200 OK", r"rl: first frame received", r"rl: first frame transmitted"]},
-    {"cmd": "drv", "must": [r"drv-rl pid \d+"]},
+    {"sleep": 8},
+    {"log": [r"\\[KIRA DRV\\] rl: DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен"]},
+    {"log_forbid": [r"rl: network interface registered", r"rl: first frame received", r"rl: first frame transmitted"]},
+    {"cmd": "drv", "forbid": [r"drv-rl pid"]},
     {"log_forbid": NO_ERR + [r"УТЕЧКА"]},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", tls_chain=True,
