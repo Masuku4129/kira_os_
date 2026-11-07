@@ -60,6 +60,7 @@ static const char *rd(void *ud, const char *path, size_t *len) {
     const char *n = path;
     if (!strncmp(path, INC_DIR "/", sizeof INC_DIR)) n = path + sizeof INC_DIR;
     else if (!strncmp(path, "/data/kcc/", 10)) n = path + 10;
+    else if (!strncmp(path, "/data/kcc-selfhost/", 19)) n = path + 19;
     else return 0;
     if (!safe_relpath(n)) return 0;
     u64 nl = strlen(n);
