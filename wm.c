@@ -450,7 +450,11 @@ void wm_set_frame_seq(int id, const volatile uint32_t* seq) {
 void wm_destroy(int id) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
     damage_win(&win[id]);
-    win[id].used = 0; win[id].visible = 0;
+    win_t* w = &win[id];
+    uint32_t* owned = w->user ? 0 : w->content.px;
+    uint64_t owned_bytes = (uint64_t)(unsigned)w->cap_w * (uint64_t)(unsigned)w->cap_h * sizeof(uint32_t);
+    w->used = 0; w->visible = 0;
+    if (owned && ops.release) ops.release(owned, owned_bytes);
     int j = 0;
     for (int i = 0; i < zcount; i++) if (zorder[i] != id) zorder[j++] = zorder[i];
     zcount = j;
