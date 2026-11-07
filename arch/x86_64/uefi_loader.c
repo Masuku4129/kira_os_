@@ -202,11 +202,23 @@ static EFI_STATUS open_kernel(EFI_BOOT_SERVICES *bs, EFI_HANDLE image,
     uint64_t cap=KERNEL_MAX;
     st=bs->allocate_pool(EFI_BOOT_SERVICES_DATA,cap,data);
     if(EFI_ERROR(st)){file->close(file);return st;}
-    uint64_t got=cap;
-    st=file->read(file,&got,*data);
+    uint64_t total=0;
+    while(total<cap) {
+        uint64_t request=cap-total;
+        st=file->read(file,&request,(uint8_t*)(*data)+total);
+        if(EFI_ERROR(st)||!request) break;
+        if(request>cap-total) { st=EFI_BUFFER_TOO_SMALL; break; }
+        total+=request;
+    }
+    if(!EFI_ERROR(st)&&total==cap) {
+        uint8_t extra=0;
+        uint64_t request=1;
+        st=file->read(file,&request,&extra);
+        if(!EFI_ERROR(st)&&request) st=EFI_BUFFER_TOO_SMALL;
+    }
     file->close(file);
-    if(EFI_ERROR(st)||!got||got>cap){bs->free_pool(*data);*data=0;return EFI_BUFFER_TOO_SMALL;}
-    *length=got;
+    if(EFI_ERROR(st)||!total){bs->free_pool(*data);*data=0;return EFI_BUFFER_TOO_SMALL;}
+    *length=total;
     return EFI_SUCCESS;
 }
 
