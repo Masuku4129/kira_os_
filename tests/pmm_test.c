@@ -47,6 +47,26 @@ int main(void){
     CHECK(pmm_init(0x36D76289UL,0x21000000ULL)==-4);
     munmap(nm,4096);
 
+    // Повреждённая структура отвергается до проходов по памяти и размещения bitmap.
+    uint64_t bad_addr=0x22000000ULL;
+    uint8_t* bad=mk_mbi(bad_addr,1);
+    uint32_t bad_size=*(uint32_t*)bad;
+    *(uint32_t*)(bad+bad_size-8)=1;                                      // end tag отсутствует
+    CHECK(pmm_init(0x36D76289UL,bad_addr)==-3);
+    munmap(bad,4096);
+    bad=mk_mbi(bad_addr,1);
+    *(uint32_t*)(bad+32)=23;                                             // mmap entry меньше структуры
+    CHECK(pmm_init(0x36D76289UL,bad_addr)==-3);
+    munmap(bad,4096);
+    bad=mk_mbi(bad_addr,1);
+    *(uint32_t*)(bad+28)-=1;                                             // неполная последняя запись mmap
+    CHECK(pmm_init(0x36D76289UL,bad_addr)==-3);
+    munmap(bad,4096);
+    bad=mk_mbi(bad_addr,1);
+    *(uint32_t*)bad-=1;                                                  // общий размер не кратен 8
+    CHECK(pmm_init(0x36D76289UL,bad_addr)==-3);
+    munmap(bad,4096);
+
     uint8_t* m=mk_mbi(mbi_addr,1);
     uint32_t info_size=*(uint32_t*)m;
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==-5);                // нет места под карты
