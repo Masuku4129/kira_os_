@@ -46,46 +46,138 @@
 static void zero(void* p, size_t n) { volatile uint8_t* q = (volatile uint8_t*)p; while (n--) *q++ = 0; }
 static void barrier(void) { __sync_synchronize(); }
 
-void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) __attribute__((weak));   /* ARM64: пул без кэша для плат без согласованности */
+void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) __attribute__((weak));
+void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes) __attribute__((weak));
+
+/* Track ownership explicitly: a CPU pointer may equal a bus address by chance,
+   so pointer/address comparison cannot identify which allocator owns a buffer. */
+#define DMA_ALLOCATION_SLOTS 64
+enum { DMA_OWNER_HOST = 1, DMA_OWNER_PLATFORM = 2, DMA_OWNER_PMM = 3 };
+typedef struct {
+    void* cpu;
+    uint64_t phys;
+    uint32_t bytes;
+    uint32_t pages;
+    uint8_t owner;
+} dma_allocation_t;
+static dma_allocation_t dma_allocations[DMA_ALLOCATION_SLOTS];
+static volatile uint32_t dma_registry_lock;
+
+static void dma_lock(void) {
+    while (__sync_lock_test_and_set(&dma_registry_lock, 1)) CPU_RELAX();
+}
+static void dma_unlock(void) { __sync_lock_release(&dma_registry_lock); }
+
+static int dma_register(void* cpu, uint64_t phys, uint32_t bytes,
+                        uint32_t pages, uint8_t owner) {
+    int result = -1;
+    dma_lock();
+    for (unsigned i = 0; i < DMA_ALLOCATION_SLOTS; i++) {
+        if (!dma_allocations[i].cpu) {
+            dma_allocations[i] = (dma_allocation_t){ cpu, phys, bytes, pages, owner };
+            result = 0;
+            break;
+        }
+    }
+    dma_unlock();
+    return result;
+}
+
+static void dma_release_unregistered(void* cpu, uint64_t phys,
+                                     uint32_t pages, uint8_t owner) {
+    if (owner == DMA_OWNER_HOST) free(cpu);
+#ifndef KIRA_HOST_TEST
+    else if (owner == DMA_OWNER_PLATFORM) {
+        if (platform_dma_free) platform_dma_free(cpu, phys, pages * 4096u);
+    } else if (owner == DMA_OWNER_PMM) {
+        (void)pmm_free_contiguous(phys, pages);
+    }
+#else
+    (void)phys; (void)pages;
+#endif
+}
+
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
-    /* Never round an untrusted byte count before checking overflow. */
     if (!bytes || !phys || bytes > UINT32_MAX - 4095u) return 0;
     *phys = 0;
-#ifdef KIRA_HOST_TEST
-    size_t rounded = ((size_t)bytes + 4095u) & ~(size_t)4095u;
-    void* p = aligned_alloc(4096, rounded);
-    if (!p) return 0;
-    zero(p, rounded);
-    *phys = (uint64_t)(uintptr_t)p;
-    return p;
-#else
-    /* A platform pool must return a CPU pointer and a device-visible address.
-       It owns its cache-maintenance policy; callers must not assume phys == ptr. */
-    if (platform_dma_pool) {
-        uint64_t device_addr = 0;
-        void* q = platform_dma_pool(bytes, &device_addr, 0);
-        if (q && device_addr) {
-            zero(q, bytes);
-            *phys = device_addr;
-            return q;
-        }
-    }
     uint32_t pages = (bytes + 4095u) / 4096u;
-    uint64_t pa = pmm_alloc_contiguous(pages);
-    if (!pa) return 0;
-    /* The fallback is deliberately limited to the kernel's currently
-       identity-mapped low-memory DMA pool. It is NOT an IOMMU mapping. */
-    for (uint32_t i = 0; i < pages; i++) {
-        uint64_t va = pa + (uint64_t)i * 4096u, translated = 0;
-        if (vmm_translate(va, &translated) != 0 || translated != va) {
-            (void)pmm_free_contiguous(pa, pages);
-            return 0;
+#ifdef KIRA_HOST_TEST
+    size_t rounded = (size_t)pages * 4096u;
+    void* cpu = aligned_alloc(4096, rounded);
+    if (!cpu) return 0;
+    zero(cpu, rounded);
+    uint64_t device_addr = (uint64_t)(uintptr_t)cpu;
+    if (dma_register(cpu, device_addr, bytes, pages, DMA_OWNER_HOST) != 0) {
+        free(cpu);
+        return 0;
+    }
+#else
+    void* cpu = 0;
+    uint64_t device_addr = 0;
+    uint8_t owner = DMA_OWNER_PMM;
+    if (platform_dma_pool) {
+        cpu = platform_dma_pool(bytes, &device_addr, 0);
+        if (cpu && device_addr) {
+            owner = DMA_OWNER_PLATFORM;
+            zero(cpu, bytes);
+        } else {
+            cpu = 0;
+            device_addr = 0;
         }
     }
-    zero((void*)(uintptr_t)pa, (size_t)pages * 4096u);
-    *phys = pa;
-    return (void*)(uintptr_t)pa;
+    if (!cpu) {
+        uint64_t pa = pmm_alloc_contiguous(pages);
+        if (!pa) return 0;
+        for (uint32_t i = 0; i < pages; i++) {
+            uint64_t va = pa + (uint64_t)i * 4096u, translated = 0;
+            if (vmm_translate(va, &translated) != 0 || translated != va) {
+                (void)pmm_free_contiguous(pa, pages);
+                return 0;
+            }
+        }
+        cpu = (void*)(uintptr_t)pa;
+        device_addr = pa;
+        zero(cpu, (size_t)pages * 4096u);
+    }
+    if (dma_register(cpu, device_addr, bytes, pages, owner) != 0) {
+        dma_release_unregistered(cpu, device_addr, pages, owner);
+        return 0;
+    }
 #endif
+    *phys = device_addr;
+    return cpu;
+}
+
+/* Exact-size release prevents accidental freeing with a mismatched allocation
+   contract. Platform pools without a matching free hook remain allocated. */
+int virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
+    if (!cpu || !phys || !bytes) return -1;
+    int result = -1;
+    dma_lock();
+    for (unsigned i = 0; i < DMA_ALLOCATION_SLOTS; i++) {
+        dma_allocation_t* a = &dma_allocations[i];
+        if (a->cpu != cpu || a->phys != phys) continue;
+        if (a->bytes != bytes) { result = -1; break; }
+#ifndef KIRA_HOST_TEST
+        if (a->owner == DMA_OWNER_PLATFORM && !platform_dma_free) {
+            result = -2;
+            break;
+        }
+#endif
+        dma_allocation_t saved = *a;
+        *a = (dma_allocation_t){0};
+        dma_unlock();
+        if (saved.owner == DMA_OWNER_HOST) free(saved.cpu);
+#ifndef KIRA_HOST_TEST
+        else if (saved.owner == DMA_OWNER_PLATFORM)
+            platform_dma_free(saved.cpu, saved.phys, saved.pages * 4096u);
+        else if (saved.owner == DMA_OWNER_PMM)
+            result = pmm_free_contiguous(saved.phys, saved.pages);
+#endif
+        return result == -1 ? 0 : result;
+    }
+    dma_unlock();
+    return result;
 }
 
 /* ---- Транспорт PCI ---- */
