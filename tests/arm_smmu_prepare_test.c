@@ -11,7 +11,7 @@ static _Alignas(PAGE) uint8_t registers_page[PAGE];
 static _Alignas(PAGE) uint8_t dma_pool[8u * PAGE];
 static unsigned alloc_calls, free_calls, clean_calls, map_calls;
 static unsigned fail_alloc_at, misalign_alloc_at;
-static size_t freed_pages;
+static size_t freed_pages, pool_used;
 static uint64_t next_physical;
 
 static volatile void *fake_map(void *context, uint64_t physical, size_t length)
@@ -30,9 +30,10 @@ static void *fake_alloc(void *context, size_t pages, uint64_t *physical)
     ++alloc_calls;
     if (alloc_calls == fail_alloc_at)
         return 0;
-    offset = (size_t)(alloc_calls - 1u) * PAGE;
+    offset = pool_used;
     if (offset + pages * PAGE > sizeof(dma_pool))
         return 0;
+    pool_used += pages * PAGE;
     *physical = next_physical + offset;
     if (alloc_calls == misalign_alloc_at)
         ++*physical;
@@ -63,7 +64,7 @@ static void reset_fake(void)
     memset(dma_pool, 0xa5, sizeof(dma_pool));
     alloc_calls = free_calls = clean_calls = map_calls = 0;
     fail_alloc_at = misalign_alloc_at = 0;
-    freed_pages = 0;
+    freed_pages = pool_used = 0;
     next_physical = 0x200000u;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
 }
