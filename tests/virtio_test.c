@@ -200,6 +200,16 @@ static uint8_t buf[300 * 512], ref[300 * 512];
 static void rnd(uint8_t* p, size_t n, unsigned seed) { for (size_t i = 0; i < n; i++) { seed = seed * 1103515245u + 12345u; p[i] = (uint8_t)(seed >> 16); } }
 
 int main(void) {
+    /* DMA allocator contract: reject invalid sizes/outputs, page-align and zero host buffers. */
+    uint64_t dma_phys = 0;
+    CHECK(virtio_dma_alloc(0, &dma_phys) == 0);
+    CHECK(virtio_dma_alloc(4096, 0) == 0);
+    uint8_t* dma = (uint8_t*)virtio_dma_alloc(4097, &dma_phys);
+    CHECK(dma && dma_phys == (uint64_t)(uintptr_t)dma);
+    CHECK((((uintptr_t)dma) & 4095u) == 0);
+    for (unsigned i = 0; i < 4097; i++) CHECK(dma[i] == 0);
+    free(dma);
+
     vopt_t o0; memset(&o0, 0, sizeof o0);
     /* --- PCI --- */
     model_init(o0, 0x1042);
