@@ -326,7 +326,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
     void *mapbuf=alloc_low_pages(bs,1024u*1024u,EFI_LOADER_DATA);
     if(!mbi||!mapbuf) return (EFI_STATUS)0x8000000000002001ull;
     uint64_t mapkey=0; uint32_t bootinfo_size=0;
-    int br=build_bootinfo(bs,st,mbi,MB2_INFO_MAX,mapbuf,1024u*1024u,
+    int br=build_bootinfo(bs,st,mbi,BOOTINFO_MAX,mapbuf,1024u*1024u,
                           kernel_base,kernel_end,&mapkey,&bootinfo_size);
     if(br||!bootinfo_size) return (EFI_STATUS)(0x8000000000002000ull+(uint32_t)(br? -br : 0xFF));
 
@@ -334,7 +334,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
     if(EFI_ERROR(rc)) {
         /* Firmware may invalidate the key; rebuild from a fresh map without
            allocating or freeing anything, then retry exactly once. */
-        br=build_bootinfo(bs,st,mbi,MB2_INFO_MAX,mapbuf,1024u*1024u,
+        br=build_bootinfo(bs,st,mbi,BOOTINFO_MAX,mapbuf,1024u*1024u,
                           kernel_base,kernel_end,&mapkey,&bootinfo_size);
         if(br||!bootinfo_size) return (EFI_STATUS)0x8000000000002002ull;
         rc=bs->exit_boot_services(image,mapkey);
