@@ -217,7 +217,9 @@ int virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
 
     dma_lock();
     dma_allocation_t* current = &dma_allocations[slot];
-    if (current->cpu == saved.cpu && current->phys == saved.phys &&
+    /* Do not inspect the freed CPU pointer; the slot and device address
+       identify the allocation while its owner is RELEASING. */
+    if (current->phys == saved.phys &&
         current->owner == DMA_OWNER_RELEASING) {
         if (rc == 0) *current = (dma_allocation_t){0};
         else *current = saved;
