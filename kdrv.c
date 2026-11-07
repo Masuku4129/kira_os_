@@ -461,7 +461,11 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
        has been installed for this exact PCI requester ID. */
     int iommu_isolated = 0;
 #if defined(__x86_64__)
-    if (granted & (CAP_DMA | CAP_IRQ))
+    /* Second-level DMA isolation does not protect MSI writes. CAP_IRQ stays
+       denied until interrupt-remapping tables are actually enabled. */
+    if ((granted & CAP_IRQ) && vtd_interrupt_remapping_enabled())
+        iommu_isolated = vtd_device_enable(d) == 0 && vtd_device_isolated(d);
+    else if ((granted & CAP_DMA) && !(granted & CAP_IRQ))
         iommu_isolated = vtd_device_enable(d) == 0 && vtd_device_isolated(d);
 #endif
     if (!kdrv_dma_policy_allow(granted, iommu_isolated)) {
