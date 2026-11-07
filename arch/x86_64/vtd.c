@@ -22,7 +22,7 @@
 extern int kdrv_builtin_owned(const pci_dev_t *device);
 
 typedef struct {
-    int valid,enabled,supports_2m;
+    int valid,enabled,supports_2m,supports_snoop;
     uint16_t segment;
     uint32_t next_domain,domain_limit;
     uint64_t cap,ecap,low_mapped_end;
@@ -52,20 +52,27 @@ static unsigned unit_count,domain_count;
 static int initialized;
 
 static void *vtd_alloc_page(uint64_t *physical) {
-    uint64_t pa=pmm_alloc_contiguous(1);
+    uint64_t pa=pmm_alloc_contiguous(1), translated=0;
     if(!pa) return 0;
-    volatile void *va=vmm_map_mmio(pa,KIRA_VTD_PAGE_SIZE,VMM_MMIO_UC);
-    if(!va) { (void)pmm_free_contiguous(pa,1); return 0; }
-    volatile uint64_t *q=(volatile uint64_t*)va;
+    /* Page tables use the kernel's normal WB identity mapping. VT-d units are
+       accepted only with ECAP.C, so hardware page walks are cache coherent;
+       do not create conflicting WB/UC aliases for the same RAM page. */
+    if(vmm_translate(pa,&translated)!=0||translated!=pa) {
+        (void)pmm_free_contiguous(pa,1);
+        return 0;
+    }
+    volatile uint64_t *q=(volatile uint64_t*)(uintptr_t)pa;
     for(unsigned i=0;i<KIRA_VTD_ENTRIES;i++) q[i]=0;
     if(physical) *physical=pa;
-    return (void*)va;
+    return (void*)(uintptr_t)pa;
 }
 
 static kira_vtd_pt_t *vtd_resolve_pt(void *ctx,uint64_t physical) {
     (void)ctx;
-    if(!kira_vtd_phys_page_valid(physical)) return 0;
-    return (kira_vtd_pt_t*)vmm_map_mmio(physical,KIRA_VTD_PAGE_SIZE,VMM_MMIO_UC);
+    uint64_t translated=0;
+    if(!kira_vtd_phys_page_valid(physical)||
+       vmm_translate(physical,&translated)!=0||translated!=physical) return 0;
+    return (kira_vtd_pt_t*)(uintptr_t)physical;
 }
 
 static kira_vtd_pt_t *vtd_alloc_pt(void *ctx,uint64_t *physical) {
@@ -86,13 +93,13 @@ static int vtd_map_identity_range(vtd_unit_t *u,uint64_t start,uint64_t end) {
     if(start==0) {
         uint64_t first_end=end<KIRA_VTD_2M_SIZE?end:KIRA_VTD_2M_SIZE;
         for(uint64_t p=KIRA_VTD_PAGE_SIZE;p<first_end;p+=KIRA_VTD_PAGE_SIZE)
-            if(kira_vtd_map_4k_walk(u->identity_root,p,p,1,1,&pt_ops)!=0)
+            if(kira_vtd_map_4k_walk(u->identity_root,p,p,1,u->supports_snoop,&pt_ops)!=0)
                 return -2;
         start=KIRA_VTD_2M_SIZE;
     }
     for(uint64_t p=start;p<end;p+=step) {
         int rc=u->supports_2m?
-            kira_vtd_map_2m_walk(u->identity_root,p,p,1,1,&pt_ops):
+            kira_vtd_map_2m_walk(u->identity_root,p,p,1,u->supports_snoop,&pt_ops):
             kira_vtd_map_4k_walk(u->identity_root,p,p,1,1,&pt_ops);
         if(rc!=0) return -2;
     }
@@ -209,11 +216,11 @@ static int vtd_invalidate(vtd_unit_t *u) {
     return 0;
 }
 
-static int vtd_map_4k_range(kira_vtd_pt_t *root,uint64_t base,uint64_t length) {
+static int vtd_map_4k_range(kira_vtd_pt_t *root,uint64_t base,uint64_t length,int snoop) {
     if(!root||!length||(base&0xfffu)||(length&0xfffu)||
        base>UINT64_MAX-length||base+length>(1ull<<48)) return -1;
     for(uint64_t p=base;p<base+length;p+=KIRA_VTD_PAGE_SIZE)
-        if(kira_vtd_map_4k_walk(root,p,p,1,1,&pt_ops)!=0) return -2;
+        if(kira_vtd_map_4k_walk(root,p,p,1,snoop,&pt_ops)!=0) return -2;
     return 0;
 }
 
@@ -239,7 +246,7 @@ static int vtd_map_rmrr(vtd_unit_t *u,kira_vtd_pt_t *root,
         if(end<=base||end-base>(uint64_t)VTD_MAX_RMRR_PAGES*KIRA_VTD_PAGE_SIZE)
             return -2;
         if(identity_domain&&vtd_identity_mapped(u,base,end)) continue;
-        if(vtd_map_4k_range(root,base,end-base)!=0) return -3;
+        if(vtd_map_4k_range(root,base,end-base,u->supports_snoop)!=0) return -3;
     }
     return 0;
 }
@@ -297,6 +304,7 @@ static int vtd_unit_prepare(unsigned index,const acpi_info_t *acpi) {
        kira_vtd_read64(&u->mmio,VTD_ECAP,&u->ecap)!=0) return -3;
     if(vtd_disable_firmware_modes(u)!=0) return -3;
     if(!(u->cap&VTD_CAP_SAGAW_48)||
+       !(u->ecap&VTD_ECAP_C)||
        ((u->cap&VTD_CAP_MGAW_MASK)>>VTD_CAP_MGAW_SHIFT)<48u||
        !((u->ecap&VTD_ECAP_IRO_MASK)>>VTD_ECAP_IRO_SHIFT)) return -4;
     uint32_t nd=(uint32_t)(u->cap&VTD_CAP_ND_MASK);
@@ -305,6 +313,7 @@ static int vtd_unit_prepare(unsigned index,const acpi_info_t *acpi) {
     if(u->domain_limit<2u) return -5;
     u->next_domain=1;
     u->supports_2m=(u->cap&VTD_CAP_SLLPS_2M)!=0;
+    u->supports_snoop=(u->ecap&VTD_ECAP_SC)!=0;
 
     u->root=(kira_vtd_root_table_t*)vtd_alloc_page(&u->root_phys);
     u->identity_root=(kira_vtd_pt_t*)vtd_alloc_page(&u->identity_phys);
@@ -400,7 +409,7 @@ int vtd_dma_map(const pci_dev_t *device,uint64_t physical,uint64_t length) {
     uint64_t mapped=0;
     for(;mapped<length;mapped+=KIRA_VTD_PAGE_SIZE) {
         if(kira_vtd_map_4k_walk(d->root,physical+mapped,physical+mapped,
-                                1,1,&pt_ops)!=0) {
+                                1,units[d->unit].supports_snoop,&pt_ops)!=0) {
             /* Return -3 only when stale IOTLB entries may still reference the
                range. The caller must pin it and retry unmap before page reuse. */
             if(mapped&&vtd_dma_unmap(device,physical,mapped)!=0) return -3;
