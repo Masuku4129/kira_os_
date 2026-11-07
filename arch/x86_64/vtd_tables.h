@@ -19,7 +19,7 @@
 #define KIRA_VTD_CONTEXT_TT_MULTI 0u
 
 typedef struct __attribute__((aligned(4096))) {
-    uint64_t entry[ KIRA_VTD_ENTRIES ];
+    uint64_t entry[256][2];
 } kira_vtd_root_table_t;
 
 typedef struct __attribute__((aligned(4096))) {
@@ -28,7 +28,7 @@ typedef struct __attribute__((aligned(4096))) {
 } kira_vtd_root_entry_t;
 
 typedef struct __attribute__((aligned(4096))) {
-    uint64_t entry[KIRA_VTD_ENTRIES][2];
+    uint64_t entry[256][2];
 } kira_vtd_context_table_t;
 
 typedef struct __attribute__((aligned(4096))) {
@@ -43,7 +43,7 @@ static inline int kira_vtd_phys_page_valid(uint64_t p) {
 static inline int kira_vtd_root_set(kira_vtd_root_table_t *root,
                                      uint8_t bus, uint64_t context_phys) {
     if (!root || !kira_vtd_phys_page_valid(context_phys)) return -1;
-    root->entry[bus] = context_phys | KIRA_VTD_ROOT_PRESENT;
+    root->entry[bus][0] = context_phys | KIRA_VTD_ROOT_PRESENT;\n    root->entry[bus][1] = 0;
     return 0;
 }
 
@@ -66,6 +66,15 @@ static inline unsigned kira_vtd_pt_index(uint64_t iova, unsigned level) {
 
 /* Install a 4 KiB leaf in an already allocated level-1 page table.
  * Upper-level tables must be linked by the caller with R|W permissions. */
+static inline int kira_vtd_link_table(kira_vtd_pt_t *parent,
+                                       uint64_t iova, uint64_t child_phys) {
+    if (!parent || !kira_vtd_phys_page_valid(child_phys)) return -1;
+    uint64_t *slot = &parent->entry[kira_vtd_pt_index(iova, 1)];
+    if (*slot & (KIRA_VTD_R | KIRA_VTD_W)) return -2;
+    *slot = child_phys | KIRA_VTD_R | KIRA_VTD_W;
+    return 0;
+}
+
 static inline int kira_vtd_map_4k(kira_vtd_pt_t *pt, uint64_t iova,
                                   uint64_t phys, int writable, int snoop) {
     if (!pt || (iova & 0xfffu) || !kira_vtd_phys_page_valid(phys))
