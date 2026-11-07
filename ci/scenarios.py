@@ -575,7 +575,7 @@ ALL.append(sc("drvget-rl", "drvget: исходники RTL8139 по HTTPS, ау�
     *_dg("drvget confirm rl 00000000", r"хеш не совпал", 20),
     *_dg("drvget confirm rl " + _DRV_SET8, r"установлено: /drv/rl\.kdrv и /drv/rl\.rec", 240),
     {"log": [r"собрано, образ ELF \d+ байт"]},
-    *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен", 20),
+    *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, издатель: (Ed25519 подтверждён|не подтверждён \\(локально\\)), источник: https://10\\.0\\.2\\.100/rl/drvget\\.rec", 30),
     *_dg("drvget verify rl", r"verify rl: OK", 20),
     {"log_forbid": NO_ERR},
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "rtl8139,netdev=n0"]},
