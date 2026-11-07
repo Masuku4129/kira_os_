@@ -129,6 +129,10 @@ int main(void) {
         CHECK(call("drvget", FS_OP_DRV_READ, "demo.sig", 0, sizeof sig, 0) == (int64_t)sizeof sig && !memcmp(R.data, &sig, sizeof sig));
         kdrv_sig_t badsig = sig; badsig.package_sha256[0] ^= 1;
         CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.sig", &badsig, sizeof badsig, 0) == FS_E_DENIED);
+        CHECK(call("drvget", FS_OP_DRV_REMOVE, "demo.sig", 0, 0, 0) == 0);
+        CHECK(call("drvget", FS_OP_DRV_STAT, "demo.rec", 0, 0, 0) == KFS_ERR_NOENT); /* снять подпись нельзя, сохранив local-confirm */
+        CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &rec, sizeof rec, 0) == 0);
+        CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.sig", &sig, sizeof sig, 0) == 0);
         int64_t ll = call("drvget", FS_OP_DRV_LIST, 0, 0, 0, 0);
         CHECK(ll > 0 && ll < 4096); R.data[ll] = 0;
         CHECK(strstr((char*)R.data, "demo.kdrv") && strstr((char*)R.data, "demo.rec"));

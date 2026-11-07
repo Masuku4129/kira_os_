@@ -174,24 +174,37 @@ static void drv_execute(fsrv_req_t* r) {
         int e = kfs_stat(path, &st);
         if (e) { r->result = e; return; }
         if (st.type != KFS_FILE) { r->result = KFS_ERR_ISDIR; return; }
+        if (kind == 2) {
+            /* Сначала убрать подтверждение. Если это не удалось, подпись остаётся на месте:
+               удаление .sig при сохранённом .rec не должно превращать пакет в unsigned/local. */
+            char rp[48]; size_t n = 0;
+            for (const char* a = "/drv/"; *a; a++) rp[n++] = *a;
+            for (size_t i = 0; stem[i]; i++) rp[n++] = stem[i];
+            for (const char* a = ".rec"; *a; a++) rp[n++] = *a;
+            rp[n] = 0;
+            int re = kfs_stat(rp, &st);
+            if (re == 0) {
+                if (st.type != KFS_FILE) { r->result = KFS_ERR_ISDIR; return; }
+                re = kfs_unlink(rp);
+                if (re) { r->result = re; return; }
+            } else if (re != KFS_ERR_NOENT) { r->result = re; return; }
+            r->result = kfs_unlink(path);
+            return;
+        }
         r->result = kfs_unlink(path);
-        if (r->result != 0) return;
+        if (r->result != 0 || kind != 0) return;
         const char* suffix[2] = { ".rec", ".sig" };
-        unsigned first = kind == 0 ? 0u : kind == 2 ? 0u : 2u;
-        unsigned last = kind == 0 ? 2u : kind == 2 ? 1u : 0u;
-        for (unsigned q = first; q < last; q++) {
+        for (unsigned q = 0; q < 2; q++) {
             char companion[48]; size_t n = 0;
             for (const char* a = "/drv/"; *a; a++) companion[n++] = *a;
             for (size_t i = 0; stem[i]; i++) companion[n++] = stem[i];
-            const char* ext = kind == 2 ? suffix[0] : suffix[q];
-            for (const char* a = ext; *a; a++) companion[n++] = *a;
+            for (const char* a = suffix[q]; *a; a++) companion[n++] = *a;
             companion[n] = 0;
             if (kfs_stat(companion, &st) == 0 && st.type == KFS_FILE) {
                 int ce = kfs_unlink(companion);
                 if (ce && r->result == 0) r->result = ce;
             }
         }
-        /* Удаление .sig также снимает локальное подтверждение, чтобы не было downgrade. */
         return;
     }
     case FS_OP_DRV_WRITE: {
