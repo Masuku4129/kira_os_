@@ -501,8 +501,8 @@ ALL.append(sc("drv-edu", "MMIO-only Ring 3: хеш и подтверждение
              r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \(pid \d+\), SHA-256 сверен, права: CAP_MMIO CAP_PCIDEV",
              r"drvedu: device 0x1234:0x11e8, rights 0x4800, no MSI",
              r"drvedu: id=0x10000ed", r"drvedu: 10!=3628800",
-             r"drvedu: IRQ/MSI unavailable without isolation \(fail-closed PASS\)",
-             r"drvedu: dma rc=-12", r"drvedu: DMA denied without IOMMU \(fail-closed PASS\)",
+             r"drvedu: IRQ/MSI capability not granted \(least-privilege PASS\)",
+             r"drvedu: dma rc=-12", r"drvedu: DMA denied: CAP_DMA not granted \(least-privilege PASS\)",
              r"drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x",
              r"drvedu: PASS"]},
     {"cmd": "drv", "must": [r"drv-edu pid \d+", r"отображений 1", r"прерываний 0"]},
@@ -595,7 +595,7 @@ ALL.append(sc("drvget-rl", "drvget: исходники RTL8139 по HTTPS, ау�
 # что делают кнопки, и печатает те же строки, что рисуются в окне (устройства, пакеты, кадр), поэтому стенд проверяет именно показанное.
 ALL.append(sc("drvman-edu", "окно «Драйверы»: список PCI из ядра (встроенный драйвер / Ring 3 запущен / драйвера нет), пакеты /drv и итог сверки (испорченный, неподтверждённый), остановка и запуск драйвера edu через менеджер ядра, отказ запуска без свободного устройства, удаление", [
     {"log": BOOT_LOG}, {"sleep": 6},
-    {"log": [r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu", r"drvedu: DMA denied without IOMMU \(fail-closed PASS\)", r"drvedu: IRQ/MSI unavailable without isolation \(fail-closed PASS\)", r"drvedu: PASS"]},
+    {"log": [r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu", r"drvedu: DMA denied: CAP_DMA not granted \(least-privilege PASS\)", r"drvedu: IRQ/MSI capability not granted \(least-privilege PASS\)", r"drvedu: PASS"]},
     *_dg("drvman do pci;pkgs", r"drvman: готово", 40),
     {"log": [r"drvman: окно создано 640x560",
              r"drvman: кадр: строк в списках [1-9]\d*, устройств [1-9]\d*, пакетов 4",
