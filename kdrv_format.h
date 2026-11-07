@@ -13,7 +13,8 @@
 
 #define KDRV_MAGIC      0x5652444Bu        /* "KDRV" */
 #define KREC_MAGIC      0x4345524Bu        /* "KREC" */
-#define KREC_CONFIRMED  0x4B4F4B4Fu        /* поле confirmed: пользователь подтвердил установку */
+#define KREC_CONFIRMED  0x4B4F4B4Fu        /* локальное подтверждение пользователя */
+#define KREC_CONFIRMED_PUBLISHER 0x4B4F4B50u /* локальное подтверждение + обязательная издательская подпись */
 #define KDRV_FORMAT     1
 #define KDRV_NAME_MAX   11                 /* процесс называется drv-ИМЯ (имя процесса - до 15 знаков) */
 #define KDRV_MATCH_MAX  8
