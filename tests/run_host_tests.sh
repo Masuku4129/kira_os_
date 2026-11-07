@@ -56,6 +56,10 @@ echo "== input layer (PS/2 decoder, ring, overflow) =="
 $CC $FLAGS -o $T/input tests/input_test.c input.c
 $T/input
 
+echo "== authenticated KDRV catalogue (signature policy, canonical parser, tamper, revocation, expiry, rollback) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv-catalogue tests/kdrv_catalogue_test.c drivers/kdrv/kdrv_catalogue.c drivers/kdrv/kdrv_trust.c sha256.c
+$T/kdrv-catalogue
+
 echo "== driver package format (kdrv_format.h: header, record, matching, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c
 $T/kdrv
