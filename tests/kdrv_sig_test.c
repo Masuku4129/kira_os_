@@ -72,6 +72,15 @@ int main(void) {
     s = valid_signature; s.magic = 0;
     CHECK(kdrv_sig_header_check(&s, sizeof s) == KDRV_SIG_E_FORMAT);
 
+    kdrv_sig_key_t invalid_flags = test_key;
+    invalid_flags.flags = 2u;
+    s = valid_signature;
+    CHECK(kdrv_sig_verify(package, sizeof package - 1, &s, sizeof s, &invalid_flags, 1, 1800000000LL) == KDRV_SIG_E_TRUST_STORE);
+    kdrv_sig_key_t zero_public = test_key;
+    memset(zero_public.public_key, 0, sizeof zero_public.public_key);
+    CHECK(kdrv_sig_verify(package, sizeof package - 1, &s, sizeof s, &zero_public, 1, 1800000000LL) == KDRV_SIG_E_TRUST_STORE);
+    CHECK(kdrv_sig_verify(package, sizeof package - 1, &s, sizeof s, &test_key, 1, -1) == KDRV_SIG_E_TIME);
+
     kdrv_sig_key_t revoked = test_key;
     revoked.flags = KDRV_SIG_KEY_REVOKED;
     s = valid_signature;
