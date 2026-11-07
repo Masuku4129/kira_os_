@@ -336,6 +336,8 @@ void mind_sys_view(mind_view_t* out) {
 
 uint32_t mind_sys_version(void) { return __atomic_load_n(&version, __ATOMIC_ACQUIRE); }
 
+static int archive_restore(mind_model_t* out);
+
 /* ---------------- жизнь ---------------- */
 
 void mind_sys_init(void) {
