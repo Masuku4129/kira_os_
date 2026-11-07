@@ -48,8 +48,10 @@ static int aml_namestring(const uint8_t **cursor, const uint8_t *end,
                           char out[128], uint8_t *out_len) {
     const uint8_t *p = *cursor;
     size_t n = 0;
-    if (p < end && *p == '\\') { out[n++] = *p++; }
+    int rooted = 0;
+    if (p < end && *p == '\\') { rooted = 1; out[n++] = *p++; }
     while (p < end && *p == '^') {
+        if (rooted) return -1;
         if (n + 1 >= 128) return -1;
         out[n++] = *p++;
     }
@@ -62,15 +64,15 @@ static int aml_namestring(const uint8_t **cursor, const uint8_t *end,
         segments = *p++;
         if (!segments || segments > 24) return -1;
     }
-    if (!segments) {
-        if (!n) return -1;
-        *cursor = p; *out_len = (uint8_t)n; return 0;
-    }
+    if (!segments) return -1;
     for (unsigned i = 0; i < segments; i++) {
         if (p + 4 > end || n + 4 >= 128) return -1;
         for (unsigned j = 0; j < 4; j++) {
             uint8_t ch = p[j];
-            if (!((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_')) return -1;
+            int valid = j == 0 ? ((ch >= 'A' && ch <= 'Z') || ch == '_')
+                               : ((ch >= 'A' && ch <= 'Z') ||
+                                  (ch >= '0' && ch <= '9') || ch == '_');
+            if (!valid) return -1;
             out[n++] = (char)ch;
         }
         p += 4;
