@@ -132,8 +132,11 @@ static int name_valid(const char* n) {
  * monotonic anchor, which this platform does not currently expose.
  */
 static kdrv_sig_key_t live_trust_keys[KDRV_SIG_MAX_KEYS];
+static kdrv_transition_t transition_journal[KDRV_TRANSITION_MAX_CHAIN];
+static kdrv_revocation_t revocation_journal[KDRV_REVOCATION_MAX_CHAIN];
 static uint32_t live_trust_count;
 static int live_trust_ready, live_trust_error;
+static spinlock_t trust_lock = SPINLOCK_INIT;
 
 static int trust_read_optional(const char *path,void *out,uint32_t expected,
                                uint32_t maximum,uint32_t *actual) {
@@ -146,22 +149,32 @@ static int trust_read_optional(const char *path,void *out,uint32_t expected,
     *actual=(uint32_t)st.size;
     return 0;
 }
-static int trust_apply_transitions(const kdrv_transition_t *items,
-                                   uint32_t first,uint32_t last,
-                                   kdrv_sig_key_t *keys,uint32_t *key_count,
-                                   uint64_t *generation,int64_t now) {
-    if(first==last) return KDRV_SIG_OK;
+static int trust_apply_transition(const kdrv_transition_t *items,uint32_t index,
+                                  kdrv_sig_key_t *keys,uint32_t *key_count,
+                                  uint64_t *generation,int64_t now) {
     kdrv_sig_key_t updated[KDRV_SIG_MAX_KEYS];
     uint32_t updated_count=0; uint64_t updated_generation=0;
-    int rc=kdrv_transition_apply_chain(items+first,last-first,keys,*key_count,
+    int rc=kdrv_transition_apply_chain(items+index,1,keys,*key_count,
         now,*generation,updated,KDRV_SIG_MAX_KEYS,&updated_count,&updated_generation);
     if(rc!=KDRV_SIG_OK) return rc;
     *key_count=updated_count; *generation=updated_generation;
     for(uint32_t i=0;i<updated_count;i++) keys[i]=updated[i];
     return KDRV_SIG_OK;
 }
+static int trust_apply_revocation(const kdrv_revocation_t *statement,
+                                  kdrv_sig_key_t *keys,uint32_t *key_count,
+                                  uint64_t *generation,int64_t now) {
+    kdrv_sig_key_t updated[KDRV_SIG_MAX_KEYS];
+    uint32_t updated_count=0; uint64_t updated_generation=0;
+    int rc=kdrv_revocation_apply(statement,keys,*key_count,now,*generation,
+        updated,KDRV_SIG_MAX_KEYS,&updated_count,&updated_generation);
+    if(rc!=KDRV_SIG_OK) return rc;
+    *key_count=updated_count; *generation=updated_generation;
+    for(uint32_t i=0;i<updated_count;i++) keys[i]=updated[i];
+    return KDRV_SIG_OK;
+}
 
-static int kdrv_trust_prepare(void) {
+static int kdrv_trust_prepare_once(void) {
     if(live_trust_ready) return live_trust_error;
     live_trust_ready=1;
     uint32_t count=KDRV_TRUST_KEY_COUNT;
@@ -170,50 +183,57 @@ static int kdrv_trust_prepare(void) {
 
     rtc_time_t current;
     int64_t now=rtc_now(0,&current)==0?rtc_to_epoch(&current):0;
-    kdrv_transition_t transitions[KDRV_TRANSITION_MAX_CHAIN];
     uint32_t rotate_bytes=0, revoke_bytes=0;
     if(trust_read_optional("/drv/.rotate",0,0,
        KDRV_TRANSITION_MAX_CHAIN*sizeof(kdrv_transition_t),&rotate_bytes)!=0)
         return live_trust_error=KDRV_SIG_E_TRUST_STORE;
-    if(rotate_bytes%sizeof(kdrv_transition_t))
+    if(trust_read_optional("/drv/.revoke",0,0,
+       KDRV_REVOCATION_MAX_CHAIN*sizeof(kdrv_revocation_t),&revoke_bytes)!=0)
+        return live_trust_error=KDRV_SIG_E_TRUST_STORE;
+    if(rotate_bytes%sizeof(kdrv_transition_t) ||
+       revoke_bytes%sizeof(kdrv_revocation_t))
         return live_trust_error=KDRV_SIG_E_FORMAT;
-    uint32_t n=rotate_bytes/sizeof(kdrv_transition_t);
-    if(n&&trust_read_optional("/drv/.rotate",transitions,0,
+    uint32_t transition_count=rotate_bytes/sizeof(kdrv_transition_t);
+    uint32_t revocation_count=revoke_bytes/sizeof(kdrv_revocation_t);
+    if(transition_count&&trust_read_optional("/drv/.rotate",transition_journal,0,
        KDRV_TRANSITION_MAX_CHAIN*sizeof(kdrv_transition_t),&rotate_bytes)!=0)
         return live_trust_error=KDRV_SIG_E_IO;
+    if(revocation_count&&trust_read_optional("/drv/.revoke",revocation_journal,0,
+       KDRV_REVOCATION_MAX_CHAIN*sizeof(kdrv_revocation_t),&revoke_bytes)!=0)
+        return live_trust_error=KDRV_SIG_E_IO;
 
-    kdrv_revocation_t revocation;
-    if(trust_read_optional("/drv/.revoke",&revocation,sizeof revocation,
-                           sizeof revocation,&revoke_bytes)!=0)
-        return live_trust_error=KDRV_SIG_E_TRUST_STORE;
-
+    /* Replay both append-only journals in generation order. Applying only the
+     * newest revocation record would silently resurrect keys revoked earlier. */
     uint64_t generation=0;
-    if(revoke_bytes) {
-        /* Place the revocation at its signed generation in the ordered journal. */
-        uint32_t split=0;
-        while(split<n&&transitions[split].generation<revocation.generation) split++;
-        if(split<n&&transitions[split].generation==revocation.generation)
+    uint32_t ti=0,ri=0;
+    while(ti<transition_count || ri<revocation_count) {
+        int take_transition = ri>=revocation_count ||
+            (ti<transition_count &&
+             transition_journal[ti].generation < revocation_journal[ri].generation);
+        if(ti<transition_count && ri<revocation_count &&
+           transition_journal[ti].generation==revocation_journal[ri].generation)
             return live_trust_error=KDRV_SIG_E_FORMAT;
-        int rc=trust_apply_transitions(transitions,0,split,
-            live_trust_keys,&count,&generation,now);
-        if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
-        kdrv_sig_key_t updated[KDRV_SIG_MAX_KEYS];
-        uint32_t updated_count=0; uint64_t updated_generation=0;
-        rc=kdrv_revocation_apply(&revocation,live_trust_keys,count,now,
-            generation,updated,KDRV_SIG_MAX_KEYS,&updated_count,&updated_generation);
-        if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
-        count=updated_count; generation=updated_generation;
-        for(uint32_t i=0;i<count;i++) live_trust_keys[i]=updated[i];
-        rc=trust_apply_transitions(transitions,split,n,
-            live_trust_keys,&count,&generation,now);
-        if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
-    } else {
-        int rc=trust_apply_transitions(transitions,0,n,
-            live_trust_keys,&count,&generation,now);
+        int rc;
+        if(take_transition) {
+            rc=trust_apply_transition(transition_journal,ti,live_trust_keys,
+                                      &count,&generation,now);
+            ti++;
+        } else {
+            rc=trust_apply_revocation(&revocation_journal[ri],live_trust_keys,
+                                      &count,&generation,now);
+            ri++;
+        }
         if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
     }
     live_trust_count=count;
     return KDRV_SIG_OK;
+}
+
+static int kdrv_trust_prepare(void) {
+    uint64_t flags=spin_lock_irqsave(&trust_lock);
+    int rc=kdrv_trust_prepare_once();
+    spin_unlock_irqrestore(&trust_lock,flags);
+    return rc;
 }
 
 /* Читает пакет и ВСЕГДА сверяет хеши: образа ELF и всего файла .kdrv - с /drv/ИМЯ.rec. Ошибка - код KDRV_E_* или KFS-код (< -100 не бывает). */
