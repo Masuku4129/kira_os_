@@ -268,7 +268,7 @@ static void rl_start(struct rl_softc *sc)
 		u16 hardware_len;
 		u8 *dst;
 
-		if (!len || kira_rl_tx_length(len, &hardware_len) != 0) {
+		if (!len || len > sizeof tmp || kira_rl_tx_length(len, &hardware_len) != 0) {
 			ifp->if_oerrors++;
 			continue;
 		}
