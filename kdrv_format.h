@@ -60,6 +60,7 @@ enum { KDRV_OK = 0, KDRV_E_SHORT = -1, KDRV_E_MAGIC = -2, KDRV_E_FORMAT = -3, KD
 /* Чистые функции (kdrv_fmt.c; проверяются на хосте). */
 int kdrv_header_check(const void* file, uint32_t len, kdrv_header_t* out);      /* заголовок корректен и файл ровно hdr_size + elf_size */
 int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out);             /* запись корректна и подтверждена пользователем */
+int kdrv_rec_publisher_required(const kdrv_rec_t* rec);                        /* 1 - запись требует сохранённую и проверенную подпись издателя */
 int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uint32_t cls);   /* 1 - подходит */
 const char* kdrv_strerror(int err);
 /* Без подтверждённой изоляции IOMMU DMA и MSI запрещены для драйверов Ring 3. */
