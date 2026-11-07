@@ -69,7 +69,78 @@ static inline int kira_vtd_write64(const kira_vtd_mmio_t *m,uint32_t off,uint64_
     return 0;
 }
 static inline int kira_vtd_root_table_valid(uint64_t physical, uint64_t bytes) {
-    return physical && !(physical & 0xfffu) && bytes >= 4096u &&
+    return physical && !(physical & 0xfffu) &&
+           !(physical & ~0x000ffffffffff000ull) && bytes >= 4096u &&
            bytes <= (1ull << 32) && physical <= UINT64_MAX - bytes;
 }
+#define KIRA_VTD_POLL_LIMIT 1000000u
+
+static inline int kira_vtd_wait32(const kira_vtd_mmio_t *m,uint32_t off,
+                                  uint32_t mask,int want_set) {
+    for(uint32_t i=0;i<KIRA_VTD_POLL_LIMIT;i++) {
+        uint32_t value=0;
+        if(kira_vtd_read32(m,off,&value)!=0) return -1;
+        if(((value&mask)!=0)==(want_set!=0)) return 0;
+        __asm__ volatile("pause");
+    }
+    return -2;
+}
+
+static inline int kira_vtd_flush_write_buffer(const kira_vtd_mmio_t *m) {
+    uint32_t command=0;
+    if(kira_vtd_read32(m,VTD_GCMD,&command)!=0||
+       kira_vtd_write32(m,VTD_GCMD,command|VTD_GCMD_WBF)!=0) return -1;
+    return kira_vtd_wait32(m,VTD_GSTS,VTD_GSTS_WBFS,0);
+}
+
+static inline int kira_vtd_invalidate_context_global(const kira_vtd_mmio_t *m) {
+    if(kira_vtd_write64(m,VTD_CCMD,VTD_CCMD_ICC|VTD_CCMD_GLOBAL)!=0) return -1;
+    for(uint32_t i=0;i<KIRA_VTD_POLL_LIMIT;i++) {
+        uint64_t command=0;
+        if(kira_vtd_read64(m,VTD_CCMD,&command)!=0) return -1;
+        if(!(command&VTD_CCMD_ICC)) return 0;
+        __asm__ volatile("pause");
+    }
+    return -2;
+}
+
+/* Register-based global IOTLB invalidation (no queued-invalidation dependency). */
+static inline int kira_vtd_invalidate_iotlb_global(const kira_vtd_mmio_t *m,
+                                                    uint64_t ecap) {
+    uint32_t iro=(uint32_t)((ecap&VTD_ECAP_IRO_MASK)>>VTD_ECAP_IRO_SHIFT);
+    uint32_t base=iro*16u;
+    if(!iro||!kira_vtd_valid(m,base,16u)) return -1;
+    if(kira_vtd_write64(m,base,0)!=0||
+       kira_vtd_write64(m,base+8u,VTD_IOTLB_IVT|VTD_IOTLB_GLOBAL|
+                                  VTD_IOTLB_DW|VTD_IOTLB_DR)!=0) return -1;
+    for(uint32_t i=0;i<KIRA_VTD_POLL_LIMIT;i++) {
+        uint64_t request=0;
+        if(kira_vtd_read64(m,base+8u,&request)!=0) return -1;
+        if(!(request&VTD_IOTLB_IVT)) return 0;
+        __asm__ volatile("pause");
+    }
+    return -2;
+}
+
+/* Installs the root table and enables second-level DMA translation.
+ * The caller must have populated all contexts before invoking this helper. */
+static inline int kira_vtd_enable_translation(const kira_vtd_mmio_t *m,
+                                               uint64_t root_phys,
+                                               uint64_t ecap) {
+    if(!m||!kira_vtd_root_table_valid(root_phys,4096u)||
+       kira_vtd_write64(m,VTD_RTADDR,root_phys)!=0) return -1;
+    uint32_t command=0;
+    if(kira_vtd_read32(m,VTD_GCMD,&command)!=0||
+       kira_vtd_write32(m,VTD_GCMD,command|VTD_GCMD_SRTP)!=0||
+       kira_vtd_wait32(m,VTD_GSTS,VTD_GSTS_RTPS,1)!=0) return -2;
+    if(kira_vtd_flush_write_buffer(m)!=0||
+       kira_vtd_invalidate_context_global(m)!=0||
+       kira_vtd_invalidate_iotlb_global(m,ecap)!=0||
+       kira_vtd_flush_write_buffer(m)!=0) return -3;
+    if(kira_vtd_read32(m,VTD_GCMD,&command)!=0||
+       kira_vtd_write32(m,VTD_GCMD,command|VTD_GCMD_TE)!=0||
+       kira_vtd_wait32(m,VTD_GSTS,VTD_GSTS_TES,1)!=0) return -4;
+    return 0;
+}
+
 #endif
