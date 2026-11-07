@@ -340,7 +340,8 @@ int dg_parse_index(const char *text, uint32_t len, dg_index_entry_t *out, uint32
             header = 1;
             continue;
         }
-        if (nw != 5 || !eq(w[0], "pci")) { if (err) *err = "expected pci VVVV:DDDD name url sha256"; return -1; }
+        if ((nw != 5 && nw != 6) || !eq(w[0], "pci")) { if (err) *err = "expected pci VVVV:DDDD name url sha256 [publisher-required]"; return -1; }
+        if (nw == 6 && !eq(w[5], "publisher-required")) { if (err) *err = "unknown catalogue publisher policy"; return -1; }
         if (sl(w[1]) != 9 || w[1][4] != ':') { if (err) *err = "invalid PCI ID"; return -1; }
         uint32_t vendor = 0, device = 0;
         if (!hexn(w[1], 4, &vendor) || !hexn(w[1] + 5, 4, &device)) { if (err) *err = "invalid hexadecimal PCI ID"; return -1; }
@@ -369,6 +370,7 @@ int dg_parse_index(const char *text, uint32_t len, dg_index_entry_t *out, uint32
         e->url[url_len] = 0;
         for (size_t j = 0; j < 64; j++) e->recipe_sha[j] = w[4][j];
         e->recipe_sha[64] = 0;
+        e->publisher_required = (uint8_t)(nw == 6);
     }
     if (!header) { if (err) *err = "missing catalogue header"; return -1; }
     return 0;

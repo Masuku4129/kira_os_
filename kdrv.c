@@ -163,6 +163,8 @@ static int pkg_load(const char* name, pkg_t* p) {
                     else p->auth = KDRV_AUTH_PUBLISHER;
                 }
             }
+        } else if (se == KFS_ERR_NOENT && kdrv_rec_publisher_required(&p->r)) {
+            rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_MISSING;
         } else if (se != KFS_ERR_NOENT) {
             rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_IO;
         }

@@ -125,6 +125,7 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
     if (sig_is(t->sig, "APIC")) parse_madt(t, o);
     else if (sig_is(t->sig, "HPET")) o->has_hpet = 1;
     else if (sig_is(t->sig, "FACP")) parse_fadt(t, max_phys, o);
+    else if (sig_is(t->sig, "DMAR") && t->len >= 48) { o->dmar_phys = phys; o->dmar_len = t->len; }
     else if (sig_is(t->sig, "MCFG") && t->len >= 44 + 16) {
         const uint8_t* e = (const uint8_t*)t + 44;
         o->mcfg_base = rd64(e); o->mcfg_bus_start = e[10]; o->mcfg_bus_end = e[11];

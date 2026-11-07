@@ -332,6 +332,8 @@ static int cmd_install(const char *arg) {
 
     sayf("\n=== драйвер '%s' версия %u ===\n", R.name, (unsigned)R.version);
     sayf("источник:   %s\n", url);
+    if (pinned && pinned->publisher_required)
+        say("политика системного каталога: издательская Ed25519-подпись обязательна; отсутствие .sig будет отказом\n");
     sayf("лицензия:   заявлена %s; проверено по тексту каждого файла (SPDX/текст), GPL и бинарных файлов нет:\n", R.license);
     for (u32 i = 0; i < R.nfile; i++) {
         char fh[65];
@@ -444,6 +446,38 @@ static int cmd_confirm(const char *arg) {
     if (un < 0) un = 0;
     url[un] = 0;
 
+    /* Re-read the trusted system catalogue at confirmation time. The staged
+       URL alone is not authority: pin the recipe again and enforce publisher
+       policy from the current catalogue, not from mutable sandbox metadata. */
+    int publisher_required = 0;
+    int confirm_index_state = load_index();
+    if (confirm_index_state < 0) {
+        say("drvget: системный каталог повреждён; подтверждение заблокировано\n");
+        stage_clear();
+        return 1;
+    }
+    if (confirm_index_state > 0) {
+        const dg_index_entry_t *confirm_pin = index_by_url(url);
+        if (confirm_pin) {
+            u8 want_recipe[32], got_recipe[32];
+            if (strcmp(confirm_pin->name, R.name) ||
+                !dg_hex_parse(confirm_pin->recipe_sha, want_recipe, 32)) {
+                say("drvget: рецепт не соответствует записи системного каталога; подтверждение отменено\n");
+                stage_clear();
+                return 1;
+            }
+            sha256(recipe_txt, strlen(recipe_txt), got_recipe);
+            if (memcmp(want_recipe, got_recipe, 32)) {
+                say("drvget: SHA-256 рецепта изменился после подготовки; подтверждение отменено\n");
+                stage_clear();
+                return 1;
+            }
+            publisher_required = confirm_pin->publisher_required != 0;
+        }
+    }
+    if (publisher_required)
+        say("drvget: системный каталог требует издательскую Ed25519-подпись\n");
+
     if (!g_arena) {
         void *base = k_heap_grow(CHUNK_PAGES);
         if (!base) { say("drvget: нет памяти для компилятора\n"); return 1; }
@@ -497,6 +531,12 @@ static int cmd_confirm(const char *arg) {
         if (signature_error) {
             if (!strstr(signature_error, "HTTP 404")) {
                 sayf("drvget: не удалось получить подпись издателя: %s\n", signature_error);
+                stage_clear();
+                return 1;
+            }
+            if (publisher_required) {
+                say("drvget: отказ: системный каталог требует издательскую подпись, но сервер вернул HTTP 404 для .sig\n");
+                stage_clear();
                 return 1;
             }
             say("drvget: .sig отсутствует (HTTP 404); пакет будет только локально подтверждён\n");
@@ -525,7 +565,7 @@ static int cmd_confirm(const char *arg) {
     sha256(pkg, total, rec.pkg_sha);
     memcpy(rec.src_sha, set, 32);
     rec.caps_ok = R.caps;                        /* пользователь подтвердил именно эти права, введя хеш отчёта, где они перечислены */
-    rec.confirmed = KREC_CONFIRMED;
+    rec.confirmed = has_publisher_sig ? KREC_CONFIRMED_PUBLISHER : KREC_CONFIRMED;
     i64 now = k_time();
     rec.date = now > 0 ? (u64)now : 0;
     {   /* источник, затем после нуля метка лицензии «L:ИД» (читатели видят только адрес до нуля); адрес укорачивается, лицензия - нет */
@@ -542,16 +582,29 @@ static int cmd_confirm(const char *arg) {
     snprintf(f2, sizeof f2, "%s.rec", R.name);
     snprintf(f3, sizeof f3, "%s.sig", R.name);
     i64 old_pkg_size = drv_op(KFS_DRV_STAT, f1, 0, 0, 0);
+    i64 old_rec_size = drv_op(KFS_DRV_STAT, f2, 0, 0, 0);
     i64 old_sig_size = drv_op(KFS_DRV_STAT, f3, 0, 0, 0);
-    if ((old_pkg_size < 0 && old_pkg_size != -2) || (old_sig_size < 0 && old_sig_size != -2)) {
+    if ((old_pkg_size < 0 && old_pkg_size != -2) ||
+        (old_rec_size < 0 && old_rec_size != -2) ||
+        (old_sig_size < 0 && old_sig_size != -2)) {
         say("drvget: не удалось проверить существующий пакет перед заменой; установка отменена\n");
         stage_clear();
         return 1;
     }
-    if (!has_publisher_sig && old_pkg_size >= 0 && old_sig_size >= 0) {
-        say("drvget: замена существующего подписанного пакета на unsigned/local запрещена; сначала выполните drvget remove\n");
-        stage_clear();
-        return 1;
+    if (old_pkg_size >= 0) {
+        kdrv_rec_t old_rec;
+        if (old_rec_size != (i64)sizeof old_rec ||
+            drv_op(KFS_DRV_READ, f2, &old_rec, sizeof old_rec, 0) != (i64)sizeof old_rec ||
+            kdrv_rec_check(&old_rec, sizeof old_rec, &old_rec) != KDRV_OK) {
+            say("drvget: существующий пакет имеет отсутствующую или повреждённую запись подтверждения; сначала выполните drvget remove\n");
+            stage_clear();
+            return 1;
+        }
+        if (!has_publisher_sig && (kdrv_rec_publisher_required(&old_rec) || old_sig_size >= 0)) {
+            say("drvget: замена пакета с издательской подписью или её маркером на unsigned/local запрещена; сначала выполните drvget remove\n");
+            stage_clear();
+            return 1;
+        }
     }
     if (!has_publisher_sig && old_pkg_size == -2 && old_sig_size >= 0) {
         /* Clean an orphaned signature/record before creating a new local-only package. */
@@ -611,7 +664,7 @@ static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sh
     sha256(body, (size_t)sz, d2);
     *sha_ok = !memcmp(d1, rec->elf_sha, 32) && !memcmp(d2, rec->pkg_sha, 32) && kdrv_rec_check(rec, sizeof *rec, rec) == KDRV_OK;
     i64 sig_size = drv_op(KFS_DRV_STAT, f3, 0, 0, 0);
-    if (sig_size == -2) *auth_state = DGP_AUTH_LOCAL;
+    if (sig_size == -2) *auth_state = kdrv_rec_publisher_required(rec) ? DGP_AUTH_INVALID : DGP_AUTH_LOCAL;
     else if (sig_size < 0 || sig_size != (i64)sizeof(kdrv_sig_t)) *auth_state = DGP_AUTH_INVALID;
     else {
         kdrv_sig_t sig;

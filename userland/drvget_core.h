@@ -51,6 +51,7 @@ typedef struct {
     char name[12];
     char url[DG_URL_MAX];
     char recipe_sha[65];
+    uint8_t publisher_required;
 } dg_index_entry_t;
 int dg_parse_index(const char *text, uint32_t len, dg_index_entry_t *out, uint32_t cap, uint32_t *count, const char **err);
 int dg_index_find_pci(const dg_index_entry_t *entries, uint32_t count, uint16_t vendor, uint16_t device);
