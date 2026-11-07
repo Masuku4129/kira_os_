@@ -39,7 +39,10 @@ int kdrv_transition_verify(const kdrv_transition_t *t,
 
     const kdrv_sig_key_t *old = 0;
     for (uint32_t i = 0; i < count; i++) {
-        if (trusted[i].flags & ~KDRV_SIG_KEY_REVOKED) return KDRV_SIG_E_TRUST_STORE;
+        if (trusted[i].flags & ~KDRV_SIG_KEY_REVOKED ||
+            all_zero(trusted[i].id, sizeof trusted[i].id) ||
+            all_zero(trusted[i].public_key, sizeof trusted[i].public_key))
+            return KDRV_SIG_E_TRUST_STORE;
         for (uint32_t j = 0; j < i; j++)
             if (ct_equal(trusted[i].id, trusted[j].id, KDRV_SIG_KEY_ID_SIZE))
                 return KDRV_SIG_E_TRUST_STORE;
