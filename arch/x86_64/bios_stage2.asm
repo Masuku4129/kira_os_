@@ -72,7 +72,7 @@ collect_e820:
     jae .check_attr
     mov dword [es:di+20], 1
     jmp .accept
- .check_attr:
+.check_attr:
     test dword [es:di+20], 1
     jz .continue
     cmp dword [es:di+8], 0
