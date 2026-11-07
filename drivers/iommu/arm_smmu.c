@@ -12,6 +12,9 @@
 #define SMMU_PAGE_SIZE       4096u
 #define SMMU_QUEUE_ENTRIES   256u
 #define SMMU_QUEUE_BYTES     (SMMU_QUEUE_ENTRIES * 16u)
+#define SMMU_STRTAB_ENTRIES  256u
+#define SMMU_STRTAB_BYTES    (SMMU_STRTAB_ENTRIES * 64u)
+#define SMMU_STRTAB_PAGES    (SMMU_STRTAB_BYTES / SMMU_PAGE_SIZE)
 #define SMMU_POLL_LIMIT      1000000u
 
 #define SMMU_IDR0            0x0000u
@@ -140,14 +143,44 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         return KIRA_SMMU_UNSUPPORTED;
 
     smmu->queue_entries = SMMU_QUEUE_ENTRIES;
+    smmu->stream_table = 0;
+    smmu->stream_table_physical = 0;
+    smmu->stream_table_lock = 0;
+    for (uint32_t i = 0; i < 8; ++i)
+        smmu->stream_ids[i] = 0;
     smmu->cmdq_producer = 0;
     smmu->evtq_consumer = 0;
     smmu->enabled = 0;
 
+    smmu->stream_table = platform->alloc_dma_pages(platform->context,
+                            SMMU_STRTAB_PAGES,
+                            &smmu->stream_table_physical);
+    if (!smmu->stream_table || !smmu->stream_table_physical ||
+        (smmu->stream_table_physical & 0xfffu)) {
+        if (smmu->stream_table && platform->free_dma_pages)
+            platform->free_dma_pages(platform->context, smmu->stream_table,
+                                     smmu->stream_table_physical,
+                                     SMMU_STRTAB_PAGES);
+        smmu->stream_table = 0;
+        smmu->stream_table_physical = 0;
+        return KIRA_SMMU_MEMORY_FAILED;
+    }
+    smmu_zero_memory(smmu->stream_table, SMMU_STRTAB_BYTES);
+    if (platform->clean_cache)
+        platform->clean_cache(platform->context, smmu->stream_table,
+                              SMMU_STRTAB_BYTES);
+
     rc = smmu_alloc_queue(smmu, platform, &smmu->cmdq,
                           &smmu->cmdq_physical);
-    if (rc != KIRA_SMMU_OK)
+    if (rc != KIRA_SMMU_OK) {
+        if (platform->free_dma_pages)
+            platform->free_dma_pages(platform->context, smmu->stream_table,
+                                     smmu->stream_table_physical,
+                                     SMMU_STRTAB_PAGES);
+        smmu->stream_table = 0;
+        smmu->stream_table_physical = 0;
         return rc;
+    }
 
     rc = smmu_alloc_queue(smmu, platform, &smmu->evtq,
                           &smmu->evtq_physical);
@@ -157,8 +190,21 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
                                      smmu->cmdq_physical, 1);
         smmu->cmdq = 0;
         smmu->cmdq_physical = 0;
+        if (platform->free_dma_pages)
+            platform->free_dma_pages(platform->context, smmu->stream_table,
+                                     smmu->stream_table_physical,
+                                     SMMU_STRTAB_PAGES);
+        smmu->stream_table = 0;
+        smmu->stream_table_physical = 0;
         return rc;
     }
+
+    /* Configure the controller-global linear stream table before SMMUEN. */
+    smmu_write32(smmu->registers, SMMU_STRTAB_BASE_CFG, 8u);
+    smmu_write64(smmu->registers, SMMU_STRTAB_BASE,
+                 (smmu->stream_table_physical & ~0xfffull) | 1ull);
+    if (platform->write_barrier)
+        platform->write_barrier(platform->context);
 
     return KIRA_SMMU_OK;
 }
