@@ -10,7 +10,9 @@
 #include <stddef.h>
 #include "kdrv_trust.h"
 #include "pci.h"
+#if defined(__x86_64__)
 #include "arch/x86_64/vtd.h"
+#endif
 #include "msi.h"
 #include "proc.h"
 #include "kobj.h"
@@ -458,8 +460,10 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     /* DMA and MSI are granted only after a private VT-d second-level domain
        has been installed for this exact PCI requester ID. */
     int iommu_isolated = 0;
+#if defined(__x86_64__)
     if (granted & (CAP_DMA | CAP_IRQ))
         iommu_isolated = vtd_device_enable(d) == 0 && vtd_device_isolated(d);
+#endif
     if (!kdrv_dma_policy_allow(granted, iommu_isolated)) {
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
@@ -607,12 +611,17 @@ static void release(bind_t* b) {
         kblk_t *block = &b->dma[i];
         if (!block->pages) continue;
         if (block->iommu_mapped) {
+#if defined(__x86_64__)
             if (vtd_dma_unmap(b->dev, block->pa,
                               (uint64_t)block->pages * 4096u) != 0) {
                 pending = 1;
                 continue;
             }
             block->iommu_mapped = 0;
+#else
+            pending = 1; /* ARM64 DMA remains denied until SMMUv3 domains exist. */
+            continue;
+#endif
         }
         if (pmm_free_contiguous(block->pa, block->pages) == 0) {
             got += block->pages;
@@ -851,7 +860,11 @@ static int64_t sys_mmio_map(bind_t* b, uint64_t bar, uint64_t off, uint64_t len)
 
 static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t out) {
     if (!bytes || bytes > KDRV_MAX_DMA_BYTES || (bits && (bits < 20 || bits > 63))) return KE_ARG;
+#if defined(__x86_64__)
     if (!b->dev || !vtd_device_isolated(b->dev)) return KE_PERM;
+#else
+    return KE_PERM;
+#endif
     uint32_t pages = (uint32_t)((bytes + 4095) / 4096);
     proc_space_lock();
     int64_t rc = 0;
@@ -870,6 +883,7 @@ static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t 
     if (!rc) {
         uint8_t* z = (uint8_t*)(uintptr_t)pa;
         for (uint64_t i = 0; i < (uint64_t)pages * 4096; i++) z[i] = 0;
+#if defined(__x86_64__)
         int map_rc = vtd_dma_map(b->dev, pa, (uint64_t)pages * 4096u);
         if (map_rc == -3) {
             /* A failed IOTLB flush can leave stale hardware translations.
@@ -879,6 +893,9 @@ static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t 
         } else if (map_rc != 0) {
             (void)pmm_free_contiguous(pa, pages); pa = 0; rc = KE_PERM;
         } else iommu_mapped = 1;
+#else
+        (void)pmm_free_contiguous(pa, pages); pa = 0; rc = KE_PERM;
+#endif
     }
     if (!rc) {
         uint64_t va = b->dma_next;
