@@ -39,14 +39,15 @@ Required:
 
 Do not remove provenance notices without replacing the implementation and reviewing licensing.
 
-## 4. Driver package authenticity — BLOCKED
-KDRV currently has SHA-256 integrity checks and explicit user confirmation. SHA-256 does not prove who published a package. The current `crypto.h` API exposes ChaCha20/Poly1305, X25519, AES-GCM and hash primitives, but no Ed25519 API was found in this snapshot.
+## 4. Driver package authenticity — BLOCKED (signature primitive already exists)
+KDRV currently has SHA-256 integrity checks and explicit user confirmation. SHA-256 does not prove who published a package. Correction to the earlier inventory: the repository already contains a KIRA-owned Ed25519 verifier, `ed25519_verify()`, in `pk.c` / `pk.h`, with RFC 8032 vectors and malformed-signature tests in `tests/pk_test.c`. It is currently linked into selected userland TLS clients, but KDRV does not yet use it.
 
 Required:
-- Implement and test an Ed25519 verifier, or document a separately reviewed KIRA-owned verifier before integration.
-- Canonical signed manifest with key ID, target ABI/device IDs, package digest, version and validity interval.
-- Trust-key provisioning, rotation/revocation and persistent anti-rollback state.
-- Fail-closed handling for invalid signatures, unknown/revoked keys, expiry, malformed manifests and interrupted installs.
+- Integrate the existing Ed25519 verifier into the kernel KDRV validation path and run the signature vectors in the kernel-compatible build.
+- Define a canonical signed manifest covering key ID, target ABI/device IDs, package digest, version and validity interval.
+- Provision trusted public keys through a kernel-owned trust store, with explicit fingerprint confirmation, rotation and revocation.
+- Persist the highest accepted version per publisher/package and reject rollback.
+- Fail closed for invalid signatures, unknown/revoked keys, expiry, malformed manifests and interrupted installs.
 - UI must distinguish unsigned/hash-only from authenticated publisher packages.
 
 ## 5. DMA isolation — PARTIAL (fail-closed fallback implemented)
