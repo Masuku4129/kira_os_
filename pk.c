@@ -374,13 +374,29 @@ static void ept_encode(uint8_t out[32], const ept_t* p) {
     out[31] |= (uint8_t)((x[0] & 1) << 7);
 }
 
+/* Строгая проверка принадлежности подгруппе порядка L. Одной канонической распаковки
+   точки недостаточно: кривая Ed25519 содержит точки малого порядка и точки с torsion-компонентой. */
+static int ept_in_prime_subgroup(const ept_t* p, const uint32_t* order) {
+    static const uint8_t identity[32] = { 1 };
+    ept_t q;
+    uint8_t enc[32];
+    /* The identity is in the prime-order subgroup, but accepting it as A or R
+       permits the trivial forged equation S=0, A=identity, R=identity. */
+    ept_encode(enc, p);
+    if (crypto_eq(enc, identity, sizeof enc)) return 0;
+    ept_mul(&q, p, order);
+    ept_encode(enc, &q);
+    return crypto_eq(enc, identity, sizeof enc);
+}
+
 int ed25519_verify(const uint8_t pub[32], const uint8_t* msg, size_t mlen, const uint8_t sig[64]) {
     fe_t S, L, k, zero;
-    ept_t A, B, sB, kA, R;
-    if (ed_init()) return -1;
+    ept_t A, B, sB, kA, R, Rp;
+    if (!pub || (!msg && mlen) || !sig || ed_init()) return -1;
     le_to_bn(S, 8, sig + 32, 32); hexnum(L, 8, ED_L);
     if (bn_cmp(S, L, 8) >= 0) return -1;                          /* S < L обязательно (RFC 8032 §5.1.7) */
-    if (ept_decode(&A, pub)) return -1;
+    if (ept_decode(&A, pub) || ept_decode(&Rp, sig)) return -1;   /* R также должен быть канонической точкой */
+    if (!ept_in_prime_subgroup(&A, L) || !ept_in_prime_subgroup(&Rp, L)) return -1;
     if (ept_decode(&B, ED_BASE)) return -1;
     sha512_ctx_t c; uint8_t h[64];
     sha512_init(&c); sha512_update(&c, sig, 32); sha512_update(&c, pub, 32); sha512_update(&c, msg, mlen); sha512_final(&c, h);
