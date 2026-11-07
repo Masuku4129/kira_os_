@@ -135,7 +135,8 @@ static inline int smmuv3_range_valid(const smmuv3_mmio_t *m, uint32_t off, size_
     return m && m->base && width && off <= m->length && width <= m->length - off;
 }
 static inline int smmuv3_read32(const smmuv3_mmio_t *m, uint32_t off, uint32_t *out) {
-    if (!out || !smmuv3_range_valid(m, off, 4)) return -1;
+    if (!out || (off & 3u) || !smmuv3_range_valid(m, off, 4)) return -1;
+    __asm__ volatile("dsb oshld" ::: "memory");
     *out = *(volatile uint32_t *)(void *)(m->base + off);
     return 0;
 }
@@ -146,9 +147,9 @@ static inline int smmuv3_write64(const smmuv3_mmio_t *m, uint32_t off, uint64_t 
     return 0;
 }
 static inline int smmuv3_write32(const smmuv3_mmio_t *m, uint32_t off, uint32_t value) {
-    if (!smmuv3_range_valid(m, off, 4)) return -1;
+    if ((off & 3u) || !smmuv3_range_valid(m, off, 4)) return -1;
     *(volatile uint32_t *)(void *)(m->base + off) = value;
-    __asm__ volatile("" ::: "memory");
+    __asm__ volatile("dsb oshst" ::: "memory");
     return 0;
 }
 
