@@ -5,6 +5,8 @@ RESULTS_DIR="${RESULTS_DIR:-ci-out/results}"
 AUDIT_DIR="${AUDIT_DIR:-ci-out/audit}"
 IMAGE_AUDIT_DIR="${IMAGE_AUDIT_DIR:-ci-out/release-image-audit}"
 IMAGE_AUDIT="${IMAGE_AUDIT_DIR}/image-audit.json"
+RELEASE_IMAGE_DIR="${RELEASE_IMAGE_DIR:-ci-out/release-image}"
+ARM64_IMAGE_DIR="${ARM64_IMAGE_DIR:-ci-out/arm64-image}"
 KIRA_VERSION="${KIRA_VERSION:-v46}"
 BASE_REF="${KIRA_BASE_REF:-edae4ab3367a055826f431e261af5d6dee790ddf}"
 mkdir -p "$OUT_DIR"
@@ -61,6 +63,14 @@ print("package: binary image audit evidence verified")
 PY_AUDIT
 python3 ci/release_image.py "$IMAGE_AUDIT"
 
+# The release archive must carry the exact images produced and audited by this CI run.
+for image in "$RELEASE_IMAGE_DIR/kira.iso" "$RELEASE_IMAGE_DIR/kira_disk.img"; do
+  if [ ! -s "$image" ]; then
+    echo "ERROR: tested release image is missing or empty: $image" >&2
+    exit 1
+  fi
+done
+
 HOST_LOG="$(find_required_log host-tests.log)"
 MIND_LOG="$(find_required_log mind-quality.log)"
 GUI_LOG="$(find_required_log gui-regression.log)"
@@ -70,6 +80,10 @@ DRIVER_LOG="$(find_required_log driver-e2e.log)"
 git archive --format=tar --prefix=kira_os/ "$HEAD_SHA" | tar -xf - -C "$STAGE"
 R="$STAGE/kira_os/RELEASE"
 mkdir -p "$R"
+cp "$RELEASE_IMAGE_DIR/kira.iso" "$R/kira.iso"
+cp "$RELEASE_IMAGE_DIR/kira_disk.img" "$R/kira_disk.img"
+if [ -s "$ARM64_IMAGE_DIR/kira-arm64.img" ]; then cp "$ARM64_IMAGE_DIR/kira-arm64.img" "$R/kira-arm64.img"; fi
+if [ -s "$ARM64_IMAGE_DIR/kira-arm64.disk" ]; then cp "$ARM64_IMAGE_DIR/kira-arm64.disk" "$R/kira-arm64.disk"; fi
 
 {
   echo "# KIRA OS $KIRA_VERSION"
@@ -93,20 +107,25 @@ mkdir -p "$R"
 cat > "$R/INSTALL_TERMUX.md" <<'EOF_INSTALL'
 # Установка KIRA OS v46 на Android (Termux/Debian)
 
-Архив содержит полный каталог исходников `kira_os/`; это архив исходников, а не готовый ISO.
+Архив содержит исходники и **готовые образы, собранные и проверенные тем же CI run**:
+- `RELEASE/kira.iso` — готовый x86-64 ISO;
+- `RELEASE/kira_disk.img` — чистый системный диск для новой установки;
+- `RELEASE/kira-arm64.img` и `RELEASE/kira-arm64.disk` — ARM64 артефакты, если они были собраны.
 
-1. Сохранить предыдущий проект:
-   `mv ~/kira_os ~/kira_os_backup_$(date +%Y%m%d_%H%M%S)`
-2. Распаковать архив из Download:
-   `tar -xzf /storage/emulated/0/Download/KIRA_OS_Update.tar.gz -C ~`
-3. Перейти в проект и проверить контрольные суммы:
+1. Распаковать архив из Download:
+   `mkdir -p ~/kira_os && tar -xzf /storage/emulated/0/Download/KIRA_OS_Update.tar.gz -C ~`
+2. Перейти в проект и проверить контрольные суммы:
    `cd ~/kira_os && bash RELEASE/VERIFY.sh`
-4. Собрать и установить образы в Download:
-   `./build_clang.sh --android`
+3. Установить готовый ISO в Android Download:
+   `cp -f RELEASE/kira.iso /storage/emulated/0/Download/kira.iso`
+4. Если системного диска ещё нет, создать его из поставленного образа:
+   `test -e /storage/emulated/0/Download/kira_disk.img || cp RELEASE/kira_disk.img /storage/emulated/0/Download/kira_disk.img`
 
-Скрипт сборки перезаписывает `Download/kira.iso`. Если `Download/kira_disk.img` уже существует, он обновляет системные программы на нём и сохраняет пользовательские данные и опыт; если файла нет — создаёт новый. Для Limbo: CD-ROM = `kira.iso`, Hard Disk A = `kira_disk.img`, Boot from = CD-ROM.
+**Важно:** существующий `kira_disk.img` не перезаписывается этой инструкцией, чтобы не потерять пользовательские файлы и опыт Mind. Для обновления системных файлов на уже существующем диске после резервного копирования используйте из каталога проекта `./build_clang.sh --android`; этот путь собирает образ и обновляет существующий диск по логике build script.
 
-Не удаляйте резервную папку проекта, пока не проверите новую сборку в Limbo.
+Для Limbo: CD-ROM = `kira.iso`, Hard Disk A = `kira_disk.img`, Boot from = CD-ROM. Перед проверкой убедитесь, что Limbo использует именно скопированный ISO.
+
+SHA-256 архива проверяйте командой `sha256sum -c KIRA_OS_Update.tar.gz.sha256` из каталога Download.
 EOF_INSTALL
 cat > "$R/VERIFY.sh" <<'EOF_VERIFY'
 #!/usr/bin/env bash
@@ -179,4 +198,4 @@ printf '%s\n' "$KIRA_VERSION" > "$R/VERSION"
 (cd "$STAGE/kira_os" && find . -type f ! -path './RELEASE/SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > RELEASE/SHA256SUMS)
 tar -czf "$OUT_DIR/KIRA_OS_Update.tar.gz" -C "$STAGE" kira_os
 (cd "$OUT_DIR" && sha256sum KIRA_OS_Update.tar.gz > KIRA_OS_Update.tar.gz.sha256)
-echo "package: created verified $KIRA_VERSION source archive $OUT_DIR/KIRA_OS_Update.tar.gz"
+echo "package: created verified $KIRA_VERSION unified update (source + tested images) $OUT_DIR/KIRA_OS_Update.tar.gz"
