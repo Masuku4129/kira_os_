@@ -152,11 +152,26 @@ static void test_mbinfo(void) {
     *(uint32_t*)bad = 12;                                                          // общий размер слишком мал
     CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 1) == 0);
 
+    // Строгая структура: выравнивание, end tag обязателен и должен быть последним.
+    memcpy(bad, info, total);
+    *(uint32_t*)bad = total - 1;
+    CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 8) == 0);                  // total_size не кратен 8
+    memcpy(bad, info, total);
+    *(uint32_t*)(bad + total - 8) = 99;
+    CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 8) == 0);                  // отсутствует end tag
+    memcpy(bad, info, total);
+    *(uint32_t*)(bad + total - 4) = 16;
+    CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 8) == 0);                  // end tag имеет неверный размер
+    memcpy(bad, info, total);
+    *(uint32_t*)(bad + 12) = 0xFFFFFFF8u;
+    CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 8) == 0);                  // округление/размер тега не переполняют обход
+
     // relocate: неверный magic / адрес - без изменений и без обращений к окну
     bm_map_calls = 0; said[0] = 0; bm_init_rc = 0;
     CHECK(mbinfo_relocate(0x1234, 0x180000000UL) == 0x180000000UL);
     CHECK(mbinfo_relocate(0x36D76289UL, 0) == 0);
     CHECK(mbinfo_relocate(0x36D76289UL, 0x180000004UL) == 0x180000004UL);
+    CHECK(mbinfo_relocate(0x36D76289UL, UINTPTR_MAX - 7) == UINTPTR_MAX - 7);      // сложение физического адреса не переполняется
     CHECK(bm_map_calls == 0);
 
     // структура внутри identity-карты: возвращается тот же адрес, окно не трогается
