@@ -153,7 +153,8 @@ static void merge_high(void) {
 }
 
 static int pmm_init_map(const kbi_mmap_entry_t* map, uint32_t map_count,
-                         uint64_t reserve_addr, uint64_t reserve_size) {
+                         uint64_t reserve_addr, uint64_t reserve_size,
+                         const kbi_header_t* handoff) {
     if(!map || !map_count || map_count>KIRA_BOOTINFO_MAX_MMAP) return -4;
     uint64_t ram_top=0;
     for(uint32_t i=0;i<map_count;i++) {
@@ -226,6 +227,15 @@ static int pmm_init_map(const kbi_mmap_entry_t* map, uint32_t map_count,
     if(reserve_addr && reserve_size) reserve_range(reserve_addr,reserve_size);
     if(store_base) reserve_range(store_base,store_bytes);
 
+    /* Boot modules (initrd, firmware payloads) and the framebuffer may lie in
+       ranges marked usable by firmware. They must never enter the allocator. */
+    if(handoff) {
+        const kbi_module_t* mods=(const kbi_module_t*)((const uint8_t*)handoff+handoff->modules_off);
+        for(uint32_t i=0;i<handoff->modules_count;i++)
+            reserve_range(mods[i].base,mods[i].length);
+        if(handoff->fb_size) reserve_range(handoff->fb_phys,handoff->fb_size);
+    }
+
     free_pages=0;
     for(uint64_t pg=0;pg<nwords*32;pg++) if(!test_bit(used_map,pg)) free_pages++;
     search_hint=0;
@@ -252,7 +262,7 @@ int pmm_init_bootinfo(const void* blob, uint32_t blob_size,
     }
     const kbi_header_t* h=(const kbi_header_t*)blob;
     if(h->arch!=KBI_ARCH_X86_64) return -3;
-    return pmm_init_map(kbi_mmap(blob),h->mmap_count,reserve_addr,reserve_size);
+    return pmm_init_map(kbi_mmap(blob),h->mmap_count,reserve_addr,reserve_size,h);
 }
 
 int pmm_init(unsigned long magic, unsigned long addr) {
