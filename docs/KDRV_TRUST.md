@@ -7,9 +7,9 @@ first publisher-signed driver:
 - `/drv/.rotate` — concatenated fixed-size `kdrv_transition_t` records in
   strictly increasing generation order. The file contains the complete chain
   from a compiled root key to the currently active publishers.
-- `/drv/.revoke` — one `kdrv_revocation_t` cumulative revocation statement.
-  Its generation places it between rotation records; the statement must include
-  every publisher that remains revoked.
+- `/drv/.revoke` — concatenated fixed-size `kdrv_revocation_t` statements,
+  strictly increasing by generation. Every statement is replayed; revoked keys
+  remain revoked even when later statements add further revocations.
 - `/drv/*.sig` — package signatures, checked against the resulting active key
   set and the package bytes.
 
