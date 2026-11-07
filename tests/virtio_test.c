@@ -327,6 +327,6 @@ int main(void) {
     model_init(o9, 0x1042); pci_init();
     CHECK(virtio_blk_probe() == 0);
 
-    printf("virtio: PCI bus/bridge/BAR/capabilities, virtio 1.0 init order, rings, chunking, size_max, RO, flush, timeout, KiraFS over virtio passed\\n");
+    printf("virtio: PCI bus/bridge/BAR/capabilities, virtio 1.0 init order, rings, chunking, size_max, RO, flush, timeout, KiraFS over virtio passed\n");
     return 0;
 }
