@@ -46,8 +46,9 @@ $CC $UCFLAGS -I. -Iuserland -c userland/x509.c -o userland/u_x509.o
 $CC $UCFLAGS -I. -c pk.c -o userland/u_pk.o
 $CC $UCFLAGS -I. -c crypto.c -o userland/u_crypto.o
 $CC $UCFLAGS -I. -c sha256.c -o userland/u_sha256.o
+$CC $UCFLAGS -I. -c kdrv_sig.c -o userland/u_kdrv_sig.o
 $CC $UCFLAGS -c userland/libc_min.c -o userland/u_libc_min.o
-ld.lld $ULINK -o userland/fetch.elf userland/fetch.o userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_libc_min.o
+ld.lld $ULINK -o userland/fetch.elf userland/fetch.o userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_kdrv_sig.o userland/u_libc_min.o
 UELF="$UELF userland/fetch.elf"
 # net6: сокеты IPv6; разбор адреса - ip6.c (тот же файл, что у ядра)
 $CC $UCFLAGS -I. -Iuserland -c userland/net6.c -o userland/net6.o
