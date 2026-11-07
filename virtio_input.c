@@ -158,6 +158,7 @@ static void detach(vin_t* d) {
 }
 
 static int attach(vin_t* d, const pci_dev_t* p, int* has_irq) {
+    if (!d || d->dev.common || d->q.mem || d->ev) return -3;
     if (virtio_attach(&d->dev, p) || !d->dev.devcfg || virtio_begin(&d->dev, 0)) {
         detach(d);
         return -1;
