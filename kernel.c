@@ -25,7 +25,9 @@
 #include "hda.h"
 #include "acpi.h"
 #include "pci.h"
+#if defined(__x86_64__)
 #include "arch/x86_64/vtd.h"
+#endif
 #include "hwprofile.h"
 #include "ramext.h"
 #include "percpu.h"
@@ -178,6 +180,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
        DMA/MSI remains denied by the KDRV policy. */
     int pci_devices = pci_init();
     uart_print("[KIRA PCI] Enumerated devices: "); uart_print_dec((uint64_t)pci_devices); uart_print("\n");
+#if defined(__x86_64__)
     int iommu_units = vtd_init();
     if (iommu_units > 0) {
         uart_print("[KIRA IOMMU] Intel VT-d translation enabled on units: ");
@@ -185,6 +188,9 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     } else {
         uart_print("[KIRA IOMMU] No usable Intel VT-d units; Ring 3 DMA/MSI stays fail-closed.\n");
     }
+#else
+    uart_print("[KIRA IOMMU] ARM64 SMMUv3 domain backend is not yet enabled; Ring 3 DMA/MSI stays fail-closed.\n");
+#endif
     {
         const acpi_info_t* ai = acpi_get();
         hw_init(ai && ai->valid ? ai->cpu_count : 1, pmm_get_total_memory_kb());
