@@ -237,7 +237,9 @@ static void drv_execute(fsrv_req_t* r) {
             if (rec.caps_ok & ~h.caps) { r->result = FS_E_DENIED; return; }
         } else {
             kdrv_sig_t sig;
-            memcpy(&sig, r->data, sizeof sig);
+            const uint8_t* sig_src = (const uint8_t*)r->data;
+            uint8_t* sig_dst = (uint8_t*)&sig;
+            for (size_t i = 0; i < sizeof sig; i++) sig_dst[i] = sig_src[i];
             uint8_t key_nonzero = 0;
             for (unsigned i = 0; i < sizeof sig.key_id; i++) key_nonzero |= sig.key_id[i];
             if (sig.magic != KDRV_SIG_MAGIC || sig.format != KDRV_SIG_FORMAT || sig.size != sizeof sig ||
