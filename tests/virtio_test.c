@@ -46,7 +46,7 @@ static void cfg_write(uint8_t b, uint8_t d, uint8_t f, uint16_t off, uint32_t v)
 #define DISK_SECT 4096
 static uint8_t vdisk[DISK_SECT * 512];
 static uint8_t mmio[0x4000];
-typedef struct { int no_v1, reject_features, ro, size_max, drop, no_flush, legacy_only; } vopt_t;
+typedef struct { int no_v1, reject_features, ro, size_max, drop, no_flush, legacy_only, small_disk; } vopt_t;
 static vopt_t opt;
 static struct {
     uint32_t dfsel, gfsel; uint32_t gf[2]; uint8_t status; uint16_t qsel, qsize, qen; uint64_t desc, avail, used;
@@ -190,7 +190,7 @@ static void model_init(vopt_t o, uint16_t devid) {
         vcap(v, 0x78, 0, 4, 4, 0x3000, 0x20, 16);
     } else { v->cfg[0x40] = 9; v->cfg[0x41] = 0; v->cfg[0x43] = 5; }                      /* только PCI cfg access cap */
     (void)vblk_cfg_space;
-    uint64_t cap = DISK_SECT; memcpy(mmio + 0x3000, &cap, 8);
+    uint64_t cap = o.small_disk ? 8 : DISK_SECT; memcpy(mmio + 0x3000, &cap, 8);
     uint32_t smax = (uint32_t)o.size_max; memcpy(mmio + 0x3008, &smax, 4);
     static const pci_backend_t be = { cfg_read, cfg_write };
     pci_set_backend(&be);
@@ -301,6 +301,13 @@ int main(void) {
     CHECK(virtio_blk_probe() == 0 && dv.status == 0);
     vopt_t o6 = o0; o6.legacy_only = 1; model_init(o6, 0x1000); pci_init();
     CHECK(pci_find(0x1AF4, 0x1000) && virtio_blk_probe() == 0);
+
+    /* Repeated late probe failures must release both queue and bounce DMA allocations. */
+    vopt_t o8 = o0; o8.small_disk = 1;
+    for (unsigned i = 0; i < 70; i++) {
+        model_init(o8, 0x1042); pci_init();
+        CHECK(virtio_blk_probe() == 0);
+    }
 
     /* --- устройство молчит: таймаут, отключение, дальше ошибки без зависания --- */
     vopt_t o7 = o0; o7.drop = 1; model_init(o7, 0x1042); pci_init(); d = virtio_blk_probe();
