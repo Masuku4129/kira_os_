@@ -47,15 +47,17 @@ Required:
 
 Do not remove provenance notices without replacing the implementation and reviewing licensing.
 
-## 4. Driver package authenticity — BLOCKED (kernel Ed25519 verification implemented; release lifecycle incomplete)
-KDRV retains SHA-256 integrity checks and explicit user confirmation. A detached `.sig` format signs the complete `.kdrv` digest, size, publisher key ID and validity interval. The kernel verifies Ed25519 on every load using a kernel-owned public-key table; invalid, unknown, revoked and expired signatures fail closed. Unsigned local packages remain explicitly untrusted by publisher and require the existing local confirmation.
+## 4. Driver package authenticity — BLOCKED (kernel verification and installer import implemented)
 
-Required:
-- Add runtime import of `.sig` in the driver manager; current supported signing/install path is offline through `tools/kdrvsign.py` and `tools/kfstool`.
-- Complete trust-key rotation and revocation procedures, including recovery from a compromised owner key.
-- Add explicit publisher metadata fields for ABI compatibility and key lifecycle policy; the current signature already covers the complete package digest, including the existing KDRV version and device-match header.
-- Persist the highest accepted version per publisher/package and reject rollback; the current verifier does not yet prevent disk-image rollback.
-- Fail closed for invalid signatures, unknown/revoked keys, expiry, malformed manifests and interrupted installs.
+KDRV uses a detached Ed25519 signature over the complete .kdrv package digest, size, publisher key ID and validity interval. The kernel verifies it on every load against its trust-key table. Invalid, unknown, revoked and expired signatures fail closed. The installer now requests drvget.sig beside the recipe over HTTPS, verifies it against the exact locally built package before writing anything, and installs the signature with .kdrv and .rec. HTTP 404 is explicitly treated as a local-only install; any other fetch error or any present malformed/invalid signature aborts installation. The host driver E2E suite includes a malformed-signature rejection case.
+
+Still required:
+- Persistent anti-rollback tied to a storage/firmware trust anchor that cannot be reverted merely by restoring an old disk image. A normal KiraFS file alone is not sufficient evidence of anti-rollback.
+- A tested trust-key rotation and revocation lifecycle, including recovery after compromise of the current owner key; the current trust table is compiled into the kernel and has no authenticated update path.
+- Signed publisher metadata/catalogue policy that distinguishes packages requiring publisher authentication from packages explicitly accepted as local builds. The existing recipe SHA-256 catalogue pins integrity but is not an independent publisher signature.
+- Full end-to-end test with a valid signature fetched from HTTPS and then verified again by the kernel at driver load. Current unit tests validate valid/invalid signatures, while installer E2E currently verifies malformed signature rejection and unsigned local fallback.
+
+Unsigned local packages remain explicitly untrusted by publisher and require the existing local user confirmation. This is not publisher authentication.
 
 ## 5. DMA isolation — PARTIAL (fail-closed fallback implemented)
 The current kernel still has no VT-d / AMD-Vi / ARM SMMU domain implementation. A DMA-capable device without an IOMMU domain can access physical memory outside a process's address-space boundary.
