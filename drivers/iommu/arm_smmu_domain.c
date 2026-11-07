@@ -68,7 +68,7 @@ static int smmu_cmd_sync(struct kira_smmu *s,
     if (i == SMMU_POLL_LIMIT)
         return KIRA_SMMU_TIMEOUT;
 
-    queue[prod * 2u] = ((uint64_t)CMD_SYNC <<  opcode_shift);
+    queue[prod * 2u] = (uint64_t)CMD_SYNC;
     queue[prod * 2u + 1u] = 0;
     if (p->clean_cache)
         p->clean_cache(p->context, (const void *)&queue[prod * 2u], 16);
@@ -95,7 +95,7 @@ static int smmu_invalidate_stream(struct kira_smmu_domain *d,
     uint32_t prod = d->smmu->cmdq_producer;
     uint32_t next = (prod + 1u) % SMMU_CMDQ_ENTRIES;
 
-    queue[prod * 2u] = ((uint64_t)CMD_CFGI_STE << 32) | d->stream_id;
+    queue[prod * 2u] = (uint64_t)CMD_CFGI_STE | ((uint64_t)d->stream_id << 32);
     queue[prod * 2u + 1u] = 0;
     if (p->clean_cache)
         p->clean_cache(p->context, (const void *)&queue[prod * 2u], 16);
