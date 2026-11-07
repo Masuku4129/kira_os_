@@ -201,7 +201,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     steps:
       - uses: actions/checkout@v4
       - name: Prepare writable apt archive cache
@@ -247,7 +247,7 @@ jobs:
               "drvget-rl", "drvman-edu", "apps-drvman", "drvman-quiet",
           ]
           shard = int("${{ matrix.shard }}")
-          selected = [name for index, name in enumerate(scenarios) if index % 8 == shard]
+          selected = [name for index, name in enumerate(scenarios) if index % 10 == shard]
           print(f"QEMU shard {shard}: {', '.join(selected)}", flush=True)
           command = ["python3", "ci/kira_vm.py", "--out", "ci-out"]
           for name in selected:
