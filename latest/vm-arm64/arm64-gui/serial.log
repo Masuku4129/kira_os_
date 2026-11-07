@@ -1,0 +1,177 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA ARM64] RAM: 1024 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 1017 MB free pages; kernel heap and scheduler online (per-core ready queues, 72 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 98 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 4 of 4 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 4 of 4 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 6 function(s), 9 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 666112 bytes, prefix 104fdefa...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 6 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 16 MB (PCI 0:1.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA DISK] vda: virtio-blk, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14288 KB free.
+[KIRA PROC] up to 16 programs at once (4 cores, 1024 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): СУББОТА, 7 НОЯБРЯ 2026 04:59
+[KIRA GPU] virtio-gpu: 1280x800 2D scanout, frames are sent to the host after each composed frame.
+[KIRA PAR] parallel helpers: 3 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA INPUT] virtio-input: QEMU Virtio Keyboard, MSI-X interrupt
+[KIRA INPUT] virtio-input: QEMU Virtio Tablet (absolute pointer), MSI-X interrupt
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA NET] No supported network card: networking is off.
+[KIRA HDA] Sound: codec 0x0000000000001AF4:0x0000000000000022, output path pin 3 <- DAC 2, 48 kHz 16-bit stereo (commands: sound, beep).
+[KIRA HDA] Input: line in pin 5 -> ADC 4, recording ring running (command: record).
+[KIRA AUDIO] Mixer online: up to 4 programs + tone, 48 kHz 16-bit stereo, 100 ms ahead of the card.
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+smp
+  core 0: MPIDR 0x0000000000000000, online, ticks 2184
+  core 1: MPIDR 0x0000000000000001, online, ticks 46
+  core 2: MPIDR 0x0000000000000002, online, ticks 10
+  core 3: MPIDR 0x0000000000000003, online, ticks 10
+кира> [KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+plasma
+[KIRA PROC] pid 1 'plasma' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] plasma: running; close the window to exit
+[KIRA DOCK] открыта: plasma «Плазма» (временный значок)
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA MIND] фокус: plasma - вес 6/4 (квант больше обычного), пока окно впереди
+cube3d
+[KIRA PROC] pid 2 'cube3d' started from ELF: Ring 3, own address space, 4 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 2] cube3d: selftest PASS (trig, face winding, rasterizer, z-test)
+[USER pid 2] cube3d: software renderer running; close the window or press q to exit
+[KIRA DOCK] открыта: cube3d «3D-куб» (закреплена)
+[KIRA MIND] фокус: cube3d - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: пробую 2000 мс вместо 1000 (причина: темп фона снижался; о�
+ps
+
+  ID  PID NAME             STATE    PRIO      CPU(ms)  SWITCHES  CORE
+  1  -  core             RUNNING  critical  769  8439  0
+  2  -  idle             ready  idle  14410  8169  0
+  3  -  idle1            RUNNING  idle  15205  2132  1
+  4  -  idle2            RUNNING  idle  15535  1571  2
+  5  -  idle3            RUNNING  idle  16076  1270  3
+  6  -  mind-tact        sleep  critical  46  712  2
+  7  -  explorer         sleep  normal  13  39  3
+  8  -  par-0            sleep  critical  1902  927  0
+  9  -  par-1            sleep  critical  1662  831  2
+  10  -  par-2            sleep  critical  970  605  2
+  11  -  display          sleep  critical  2103  1656  0
+  12  -  vinput           sleep  critical  3  95  2
+  15  1  plasma           sleep  normal  191  522  1
+  14  -  audio            sleep  critical  55  1683  3
+  16  2  cube3d           sleep  normal  1141  2686  1
+  quantum: 40 ms, context switches: 31338, threads: 15 of 72
+
+кира> [KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] тактика: экран опаздывает - ядро отдано окну в фокусе (pid 2), фоновые программы - на остальных 3
+ai
+
+[MIND] здоровье 98 (просыпается): отзывчивость 97, запас памяти 100, баланс ядер 100, стабильность 100
+[MIND] режим: управление, квант 40 мс (проб 0, удачных 0), анимация 3 (авто)
+[MIND] за жизнь: 18 с, решений 9, необычностей 0, остановлено программ 0
+[MIND] предвидение: риск опоздания экрана в следующую секунду 0%; модель обучена на 107 с (опозданий 0), предупреждения сбываются 0%, замечено опозданий заранее 0%, пока без права действовать, упреждений 0
+[MIND] тактика: фон - не больше 50% ядер при нехватке; фоновые окна - не чаще 30 кадров/с
+[MIND] композитор: параллельно на всех ядрах (цена 1000 точек: параллельно 29031 нс, на одном ядре 41758 нс; 0 - ещё не мерили)
+[MIND] замок планировщика: ядра ждут его 0,2% времени; взятий с ожиданием 9033 из 54134
+[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai levers (рычаги), ai act | ai observe, ai fx auto|0..3
+
+кира> [KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 15 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: откат на 1000 мс - оценка -13 не лучше -6
+beep 440 300
+звук 440 Гц, 300 мс: DMA прошёл 57920 байт - карта играет
+кира> [KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 15 кадров/с (их копия и сборка - работа экрана)
+melody
+[KIRA PROC] pid 3 'melody' started from ELF: Ring 3, own address space, 4 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 8 кадров/с (их копия и сборка - работа экрана)
+[USER pid 3] melody: 8 notes, 76800 frames queued
+[KIRA PROC] pid 3 'melody' finished, exit code 0, address space destroyed (21 pages returned to PMM).
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+sound
+Intel HDA: кодек 0x000000001AF40022 (адрес 0), выход: вывод 3 <- ЦАП 2, 48 кГц, 16 бит, стерео
+микшер: работает, программ со звуком 0, карта забрала кадров 1108314, от программ смешано 76799, недоборов 0, громкость 100%
+вход: line in
+проверка: beep [Гц] [мс], record [мс]
+кира> [KIRA MIND] тактика: экран успевает - ядро фокуса снова общее
+melody 22050
+[KIRA PROC] pid 4 'melody' started from ELF: Ring 3, own address space, 4 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 4] melody: 8 notes, 35280 frames queued at 22050 Hz stereo
+[KIRA PROC] pid 4 'melody' finished, exit code 0, address space destroyed (21 pages returned to PMM).
+[KIRA MIND] рычаг 21 «опоздавших кадров для ядра фокуса»: пробую 2 шт. вместо 1 (причина: ядро фокуса отдавалос
+sound
+Intel HDA: кодек 0x000000001AF40022 (адрес 0), выход: вывод 3 <- ЦАП 2, 48 кГц, 16 бит, стерео
+микшер: работает, программ со звуком 0, карта забрала кадров 1386838, от программ смешано 153597, недоборов 0, громкость 100%
+вход: line in
+проверка: beep [Гц] [мс], record [мс]
+кира> record 200
+запись: line in, 9600 кадров за 202 мс, пик 0, RMS 0 (тишина на входе)
+кира> edit
+[KIRA PROC] pid 5 'edit' started from ELF: Ring 3, own address space, 14 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [KIRA DOCK] открыта: edit «Текстовый редактор» (закреплена)
+[KIRA MIND] фокус: edit - вес 6/4 (квант больше обычного), пока окно впереди
+[USER pid 5] edit: note.txt - сохранено: 10 байт
+[KIRA MIND] рычаг 21 «опоздавших кадров для ядра фокуса»: откат на 1 шт. - оценка 11 не лучше 3
+cat /data/edit/note.txt
+hello kira
+кира> view /pic.png
+кира> [KIRA PROC] pid 6 'view' started from ELF: Ring 3, own address space, 17 page(s) of segments, W^X enforced, stack RW-NX.
+[KIRA DOCK] открыта: view «Просмотр» (временный значок)
+[USER pid 6] view: /pic.png - PNG 97x61, цвет 2, 8 бит sum 83623c20
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] тактика: экран опаздывает - ядро отдано окну в фокусе (pid 5), фоновые программы - на остальных 3
+[KIRA MIND] фокус: view - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA PROC] pid 6 'view' finished, exit code 0, address space destroyed (48 pages returned to PMM).
+[KIRA DOCK] закрыта: view «Просмотр» (значок убран)
+[KIRA MIND] тактика: экран успевает - ядро фокуса снова общее
+[KIRA MIND] фокус: edit - вес 6/4 (квант больше обычного), пока окно впереди
+view /pic.jpg
+кира> [KIRA PROC] pid 7 'view' started from ELF: Ring 3, own address space, 17 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 7] view: /pic.jpg - JPEG 97x61, YCbCr 2x2 sum 8164b2cd
+[KIRA DOCK] открыта: view «Просмотр» (временный значок)
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] тактика: экран опаздывает - ядро отдано окну в фокусе (pid 5), фоновые программы - на остальных 3
+[KIRA MIND] фокус: view - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA MIND] рычаг 21 «опоздавших кадров для ядра фокуса»: пробую 2 шт. вместо 1 (причина: ядро фокуса отдавалос
+[KIRA MIND] тактика: экран успевает - ядро фокуса снова общее
+ps
+
+  ID  PID NAME             STATE    PRIO      CPU(ms)  SWITCHES  CORE
+  1  -  core             RUNNING  critical  1170  24331  0
+  2  -  idle             ready  idle  41831  23812  0
+  3  -  idle1            ready  idle  44088  6648  1
+  4  -  idle2            RUNNING  idle  45185  4820  2
+  5  -  idle3            RUNNING  idle  46444  3311  3
+  6  -  mind-tact        sleep  critical  185  2054  3
+  7  -  explorer         sleep  normal  13  39  3
+  8  -  par-0            sleep  critical  4801  2751  1
+  9  -  par-1            sleep  critical  3424  2122  3
+  10  -  par-2            sleep  critical  2189  1617  2
+  11  -  display          sleep  critical  6414  4433  0
+  12  -  vinput           sleep  critical  8  277  1
+  15  1  plasma           RUNNING  normal  678  1900  1
+  14  -  audio            sleep  critical  183  4881  3
+  16  2  cube3d           sleep  normal  3276  6798  3
+  19  5  edit             sleep  normal  78  1007  2
+  21  7  view             sleep  normal  23  188  1
+  quantum: 40 ms, context switches: 91233, threads: 17 of 72
+
+кира> 
