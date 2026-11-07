@@ -106,7 +106,9 @@ static int configure_chip(void) {
         return -1;
 
     dev.rx.offset=0;
-    dev.tx=(kira_rl_tx_state_t){0};
+    for(unsigned i=0;i<KIRA_RL_TX_SLOTS;i++) dev.tx.busy[i]=0;
+    dev.tx.producer=dev.tx.consumer=0;
+    dev.tx.used=dev.tx.completed=dev.tx.errors=0;
     w8(REG_CR,0);
     w16(REG_IMR,0);
     w16(REG_ISR,0xffff);
@@ -136,23 +138,24 @@ static int recover_device(void) {
 }
 
 static int link_status(void) {
-    uint16_t bmsr=(uint16_t)r16(REG_BMSR);
-    bmsr=(uint16_t)r16(REG_BMSR);    /* BMSR link bit is latch-low on this PHY. */
+    (void)r16(REG_BMSR);
+    uint16_t bmsr=(uint16_t)r16(REG_BMSR);    /* BMSR link bit is latch-low on this PHY. */
     return (bmsr&BMSR_LINK)!=0 || (r8(REG_MSR)&MSR_LINK_FAIL)==0;
 }
 
-static void deliver_frame(const uint8_t *frame,uint32_t length) {
+static int deliver_frame(const uint8_t *frame,uint32_t length) {
     uint32_t head=__atomic_load_n(&dev.net->rx_head,__ATOMIC_RELAXED);
     uint32_t tail=__atomic_load_n(&dev.net->rx_tail,__ATOMIC_ACQUIRE);
     if(length<14u||length>dev.net->max_frame||head-tail>=dev.net->slots) {
         dev.rx_dropped++;
-        return;
+        return 0;
     }
     kdrv_slot_t *slot=(kdrv_slot_t*)((uint8_t*)dev.net+KDRV_NET_RX_OFF)+
                       (head%dev.net->slots);
     for(uint32_t i=0;i<length;i++) slot->data[i]=frame[i];
     slot->len=length;
     __atomic_store_n(&dev.net->rx_head,head+1u,__ATOMIC_RELEASE);
+    return 1;
 }
 
 static int receive_poll(void) {
@@ -185,8 +188,7 @@ static int receive_poll(void) {
             if(payload<=sizeof frame&&
                kira_rl_ring_copy_out((const uint8_t*)dev.rx_dma.va,
                     KIRA_RL_RX_RING_BYTES,start,frame,payload)==0) {
-                deliver_frame(frame,payload);
-                delivered++;
+                delivered+=deliver_frame(frame,payload);
             } else dev.rx_dropped++;
         }
         io_barrier();
@@ -261,7 +263,8 @@ static int bind_device(void) {
         return -7;
     dev.net=kdrv_net_register(dev.mac);
     if(!dev.net||dev.net->slots!=KDRV_NET_SLOTS||
-       dev.net->slot_size!=KDRV_NET_SLOT||dev.net->max_frame>KDRV_NET_MAXFRAME)
+       dev.net->slot_size!=KDRV_NET_SLOT||dev.net->max_frame<1518u||
+       dev.net->max_frame>KDRV_NET_MAXFRAME)
         return -8;
     dev.link_up=link_status();
     __atomic_store_n(&dev.net->link,dev.link_up?1u:0u,__ATOMIC_RELEASE);
