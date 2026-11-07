@@ -49,6 +49,10 @@ int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out) {
     return KDRV_OK;
 }
 
+int kdrv_rec_publisher_required(const kdrv_rec_t* rec) {
+    return rec && rec->magic == KREC_MAGIC && rec->confirmed == KREC_CONFIRMED_PUBLISHER;
+}
+
 int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uint32_t cls) {
     for (uint32_t i = 0; i < h->nmatch && i < KDRV_MATCH_MAX; i++) {
         const kdrv_match_t* m = &h->match[i];
