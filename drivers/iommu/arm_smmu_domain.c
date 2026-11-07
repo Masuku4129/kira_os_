@@ -261,7 +261,7 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     }
 
     if (p->clean_cache) {
-        p->clean_cache(p->context, st, SMMU_PAGE_SIZE);
+        p->clean_cache(p->context, st, SMMU_STRTAB_BYTES);
         p->clean_cache(p->context, ct, SMMU_PAGE_SIZE);
         p->clean_cache(p->context, root, SMMU_PAGE_SIZE);
     }
@@ -360,7 +360,7 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     /* Invalidate the STE before freeing any translation structures. */
     smmu_words(d->stream_table)[d->stream_id * 8u] = 0;
     if (p->clean_cache)
-        p->clean_cache(p->context, d->stream_table, SMMU_PAGE_SIZE);
+        p->clean_cache(p->context, d->stream_table, SMMU_STRTAB_BYTES);
     if (p->write_barrier)
         p->write_barrier(p->context);
 
