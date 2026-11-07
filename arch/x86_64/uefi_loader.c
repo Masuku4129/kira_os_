@@ -245,6 +245,8 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
         uint32_t memory_type=(ph[i].flags&1u)?EFI_LOADER_CODE:EFI_LOADER_DATA;
         EFI_STATUS st=bs->allocate_pages(EFI_ALLOCATE_ADDRESS,memory_type,pages,&address);
         if(EFI_ERROR(st)||address!=segment_base) {
+            if(!EFI_ERROR(st)&&address!=segment_base)
+                (void)bs->free_pages(address,pages);
             while(allocated_count) {
                 allocated_count--;
                 (void)bs->free_pages(allocated_base[allocated_count],
