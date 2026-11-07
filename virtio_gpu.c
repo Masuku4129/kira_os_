@@ -45,6 +45,28 @@ static uint32_t send(uint32_t len, uint32_t rlen) {
     return ((hdr_t*)resp)->type;
 }
 
+static void gpu_abort(void) {
+    up = 0;
+    if (dev.common) {
+        virtio_fail(&dev);
+        if (virtio_reset_device(&dev) != 0) return; /* never free memory while GPU may still DMA */
+    }
+    if (fbm && virtio_dma_free(fbm, fb_phys, fb_bytes) == 0) {
+        fbm = 0; fb_phys = 0; fb_bytes = 0;
+    }
+    if (resp && virtio_dma_free(resp, resp_phys, 4096) == 0) {
+        resp = 0; resp_phys = 0;
+    }
+    if (cmd && virtio_dma_free(cmd, cmd_phys, 4096) == 0) {
+        cmd = 0; cmd_phys = 0;
+    }
+    if (ctrl.mem) (void)virtio_queue_release(&ctrl);
+    if (!fbm && !resp && !cmd && !ctrl.mem) {
+        dev = (virtio_dev_t){0};
+        ctrl = (virtq_t){0};
+    }
+}
+
 static void zero(void* p, unsigned n) { uint8_t* b = (uint8_t*)p; while (n--) *b++ = 0; }
 
 /* Изменённая область кадра - устройству: перенос из подложки и показ. Вызывается после сборки кадра. */
@@ -55,6 +77,8 @@ static void gpu_flush(int x, int y, int w, int h) {
         up = 0;
         uart_print("[KIRA GPU] framebuffer DMA synchronization failed; screen frozen.\\n");
         spin_unlock_irqrestore(&lk, f);
+        virtio_fail(&dev);
+        (void)virtio_reset_device(&dev);
         return;
     }
     transfer_t* t = (transfer_t*)cmd; zero(t, sizeof *t);
@@ -65,24 +89,31 @@ static void gpu_flush(int x, int y, int w, int h) {
     fl->h.type = CMD_RESOURCE_FLUSH; fl->r = (rect_t){ (uint32_t)x, (uint32_t)y, (uint32_t)w, (uint32_t)h }; fl->res = 1;
     if (r == RESP_OK_NODATA) r = send(sizeof *fl, sizeof(hdr_t));
     spin_unlock_irqrestore(&lk, f);
-    if (r != RESP_OK_NODATA) { up = 0; uart_print("[KIRA GPU] virtio-gpu stopped answering: the screen is frozen, the system keeps running.\n"); }
+    if (r != RESP_OK_NODATA) {
+        up = 0;
+        uart_print("[KIRA GPU] virtio-gpu stopped answering: the screen is frozen, the system keeps running.\n");
+        virtio_fail(&dev);
+        (void)virtio_reset_device(&dev); /* retain attached framebuffer memory */
+    }
 }
 
 int virtio_gpu_probe(void) {
     const pci_dev_t* p = pci_find(VIRTIO_VENDOR, VIRTIO_GPU_DEVICE);
     if (!p) return -1;
-    if (virtio_attach(&dev, p) || virtio_begin(&dev, 0) || virtio_queue_setup(&dev, &ctrl, 0, 64)) {
+    if (virtio_attach(&dev, p) || !dev.devcfg || virtio_begin(&dev, 0) ||
+        virtio_queue_setup(&dev, &ctrl, 0, 64)) {
+        gpu_abort();
         uart_print("[KIRA GPU] virtio-gpu found but did not start.\n");
         return -2;
     }
     virtio_driver_ok(&dev);
     cmd = (uint8_t*)virtio_dma_alloc(4096, &cmd_phys);
     resp = (uint8_t*)virtio_dma_alloc(4096, &resp_phys);
-    if (!cmd || !resp) { virtio_fail(&dev); return -3; }
+    if (!cmd || !resp) { gpu_abort(); return -3; }
 
     disp_info_t* di = (disp_info_t*)resp;
     zero(cmd, sizeof(hdr_t)); ((hdr_t*)cmd)->type = CMD_GET_DISPLAY_INFO;
-    if (send(sizeof(hdr_t), sizeof *di) != RESP_OK_DISPLAY_INFO) { virtio_fail(&dev); return -4; }
+    if (send(sizeof(hdr_t), sizeof *di) != RESP_OK_DISPLAY_INFO) { gpu_abort(); return -4; }
     W = di->mode[0].r.w; H = di->mode[0].r.h;
     if (!di->mode[0].enabled || W < 320 || H < 200) { W = 1024; H = 768; }   /* экран не задан хозяином - обычный */
     if (W > 4096) W = 4096;
@@ -91,7 +122,7 @@ int virtio_gpu_probe(void) {
 
     fb_bytes = W * H * 4;
     fbm = (uint8_t*)virtio_dma_alloc(fb_bytes, &fb_phys);   /* подложка: непрерывная, видна устройству */
-    if (!fbm) { virtio_fail(&dev); return -5; }
+    if (!fbm) { gpu_abort(); return -5; }
 
     create_t* c = (create_t*)cmd; zero(c, sizeof *c);
     c->h.type = CMD_RESOURCE_CREATE_2D; c->res = 1; c->format = FORMAT_B8G8R8X8; c->width = W; c->height = H;
@@ -107,9 +138,9 @@ int virtio_gpu_probe(void) {
         s->h.type = CMD_SET_SCANOUT; s->r = (rect_t){ 0, 0, W, H }; s->scanout = 0; s->res = 1;
         ok = send(sizeof *s, sizeof(hdr_t)) == RESP_OK_NODATA;
     }
-    if (!ok) { uart_print("[KIRA GPU] virtio-gpu refused the 2D resource.\n"); virtio_fail(&dev); return -6; }
+    if (!ok) { uart_print("[KIRA GPU] virtio-gpu refused the 2D resource.\n"); gpu_abort(); return -6; }
     up = 1;
-    if (fb_attach_linear(fb_phys, fbm, W, H, W * 4, gpu_flush) != 0) { up = 0; return -7; }
+    if (fb_attach_linear(fb_phys, fbm, W, H, W * 4, gpu_flush) != 0) { gpu_abort(); return -7; }
     uart_print("[KIRA GPU] virtio-gpu: "); uart_print_dec(W); uart_print("x"); uart_print_dec(H);
     uart_print(" 2D scanout, frames are sent to the host after each composed frame.\n");
     return 0;
