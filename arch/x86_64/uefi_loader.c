@@ -11,6 +11,7 @@
 #define EFI_SUCCESS 0
 #define EFI_BUFFER_TOO_SMALL ((EFI_STATUS)0x8000000000000005ull)
 #define EFI_LOADER_DATA 2u
+#define EFI_BOOT_SERVICES_DATA 4u
 #define EFI_ALLOCATE_ADDRESS 2u
 #define EFI_ALLOCATE_MAX_ADDRESS 1u
 #define EFI_FILE_MODE_READ 1ull
@@ -176,7 +177,7 @@ static EFI_STATUS open_kernel(EFI_BOOT_SERVICES *bs, EFI_HANDLE image,
     root->close(root);
     if(EFI_ERROR(st)||!file) return st;
     uint64_t cap=KERNEL_MAX;
-    st=bs->allocate_pool(EFI_LOADER_DATA,cap,data);
+    st=bs->allocate_pool(EFI_BOOT_SERVICES_DATA,cap,data);
     if(EFI_ERROR(st)){file->close(file);return st;}
     uint64_t got=cap;
     st=file->read(file,&got,*data);
@@ -222,10 +223,10 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
     return 0;
 }
 
-static void *alloc_low_pages(EFI_BOOT_SERVICES *bs,uint64_t bytes) {
+static void *alloc_low_pages(EFI_BOOT_SERVICES *bs,uint64_t bytes,uint32_t memory_type) {
     uint64_t pages=(bytes+EFI_PAGE_SIZE-1)/EFI_PAGE_SIZE;
     uint64_t address=ONE_GB-1;
-    EFI_STATUS st=bs->allocate_pages(EFI_ALLOCATE_MAX_ADDRESS,EFI_LOADER_DATA,pages,&address);
+    EFI_STATUS st=bs->allocate_pages(EFI_ALLOCATE_MAX_ADDRESS,memory_type,pages,&address);
     return EFI_ERROR(st)?0:(void*)(uintptr_t)address;
 }
 
@@ -259,7 +260,7 @@ static int build_mbi(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
         uint64_t len=d->pages*EFI_PAGE_SIZE;
         if(d->physical_start>UINT64_MAX-len) return -4;
         uint32_t type=2;
-        if(d->type==7) type=1;
+        if(d->type==3||d->type==4||d->type==7) type=1;
         else if(d->type==9) type=3;
         else if(d->type==10) type=4;
         else if(d->type==8) type=5;
@@ -336,8 +337,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
     bs->free_pool(file);
     if(er) return (EFI_STATUS)(0x8000000000001000ull+(uint32_t)(-er));
 
-    void *mbi=alloc_low_pages(bs,MB2_INFO_MAX);
-    void *mapbuf=alloc_low_pages(bs,1024u*1024u);
+    void *mbi=alloc_low_pages(bs,MB2_INFO_MAX,EFI_LOADER_DATA);
+    void *mapbuf=alloc_low_pages(bs,1024u*1024u,EFI_BOOT_SERVICES_DATA);
     if(!mbi||!mapbuf) return (EFI_STATUS)0x8000000000002001ull;
     uint64_t mapkey=0;
     int br=build_mbi(bs,st,mbi,MB2_INFO_MAX,mapbuf,1024u*1024u,&mapkey);
