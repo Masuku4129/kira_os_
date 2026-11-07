@@ -491,27 +491,31 @@ ALL.append(sc("cc-native", "kcc на Кире: cc собирает C-прогр�
                           "/data/kcc/net.c": os.path.join(_CC, "net.c"),
                           "/data/kcc/lang.c": os.path.join(_CC, "lang.c")}))
 
-# Драйверы Ring 3 (пакет K): устройство QEMU edu получает тестовый драйвер из /drv (пакеты кладёт сборка образа: tools/mkdrv.sh).
-ALL.append(sc("drv-edu", "драйвер Ring 3: найден по PCI-ID и запущен; испорченный хеш и неподтверждённая установка - отказ; MMIO, MSI, DMA работают; чужой BAR и защищённая конфигурация - отказ; нет права DMA - отказ; гибель драйвера освобождает всё", [
+# Драйверы Ring 3: пакет edu намеренно MMIO-only до появления проверенной IOMMU-изоляции.
+# Тест проверяет безопасный запуск, отказ DMA/MSI, запрет чужого BAR и восстановление устройства после остановки/сбоя.
+ALL.append(sc("drv-edu", "MMIO-only Ring 3: хеш и подтверждение пакета; безопасный запуск; DMA/MSI fail-closed; MMIO и PCI config guard; освобождение ресурсов после остановки и сбоя", [
     {"log": BOOT_LOG},
     {"sleep": 6},
     {"log": [r"\[KIRA DRV\] abad: SHA-256 не совпал с записью /drv/abad\.rec - драйвер НЕ запущен",
              r"\[KIRA DRV\] eduun: пакет отклонён \(установка не подтверждена пользователем\)",
-             r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \(pid \d+\), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV",
-             r"drvedu: device 0x1234:0x11e8, rights 0x7800, MSI",
-             r"drvedu: id=0x10000ed", r"drvedu: 10!=3628800", r"drvedu: irq wait=1 5!=120", r"drvedu: dma round trip equal",
+             r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \(pid \d+\), SHA-256 сверен, права: CAP_MMIO CAP_PCIDEV",
+             r"drvedu: device 0x1234:0x11e8, rights 0x4800, no MSI",
+             r"drvedu: id=0x10000ed", r"drvedu: 10!=3628800",
+             r"drvedu: IRQ/MSI capability not granted \(least-privilege PASS\)",
+             r"drvedu: dma rc=-12", r"drvedu: DMA denied: CAP_DMA not granted \(least-privilege PASS\)",
              r"drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x",
              r"drvedu: PASS"]},
-    {"cmd": "drv", "must": [r"drv-edu pid \d+", r"отображений 1", r"прерываний [1-9]"]},
+    {"cmd": "drv", "must": [r"drv-edu pid \d+", r"отображений 1", r"прерываний 0"]},
     {"cmd": "drv stop edu", "must": [r"останавливаю drv-edu"]}, {"sleep": 2},
-    {"log": [r"\[KIRA DRV\] drv-edu \(pid \d+\) завершён: устройство .* остановлено", r"\[KIRA DRV\] edu: возвращено памяти DMA и колец 1 из 1 стр\..*утечек нет"]},
+    {"log": [r"\[KIRA DRV\] drv-edu \(pid \d+\) завершён: устройство .* остановлено",
+             r"\[KIRA DRV\] edu: возвращено памяти DMA и колец 0 из 0 стр\..*утечек нет"]},
     {"cmd": "drv start edunc", "must": [r"драйвер запущен как drv-edunc"]}, {"sleep": 3},
     {"log": [r"drvedu: dma rc=-12", r"\[KIRA CAPS\] process 'drv-edunc' .* denied, no right CAP_DMA"]},
     {"cmd": "drv stop edunc"}, {"sleep": 2},
     {"cmd": "drv start edu crash", "must": [r"драйвер запущен как drv-edu"]}, {"sleep": 3},
     {"log": [r"drvedu: crashing on purpose", r"\[KIRA PROC\] pid \d+ killed by CPU exception #14", r"\[KIRA DRV\] drv-edu \(pid \d+\) завершён"]},
     {"sleep": 2},
-    {"cmd": "drv start edu", "must": [r"драйвер запущен как drv-edu"]}, {"sleep": 3},   # устройство снова отдаётся драйверу после возврата ресурсов
+    {"cmd": "drv start edu", "must": [r"драйвер запущен как drv-edu"]}, {"sleep": 3},
     {"log_forbid": [r"drvedu: .*\(FAIL\)", r"УТЕЧКА"] + NO_ERR},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", extra=["-device", "edu"]))
@@ -558,7 +562,7 @@ def _dg(cmd, rx, t):     # программа запускается в фоне
 
 _DRV_WWW, _DRV_SET8 = _drv_www()
 _DRV_HTTP = "guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE
-ALL.append(sc("drvget-rl", "drvget: исходники драйвера по HTTPS, отчёт и подтверждение хешем, сборка kcc на устройстве, GPL/бинарник/без лицензии - отказ; затем сетевая карта RTL8139 под этим драйвером (DHCP, ping, http)", [
+ALL.append(sc("drvget-rl", "drvget: исходники RTL8139 по HTTPS, аудит лицензии и хешей, сборка KCC и установка; при отсутствии IOMMU ядро обязано отказать в запуске DMA-драйвера", [
     {"log": BOOT_LOG}, {"sleep": 6},
     *_dg("drvget base https://10.0.2.100", r"каталог рецептов теперь https://10\.0\.2\.100", 20),
     *_dg("drvget install gpl", r"drvget: отказ: .*GPL", 90),
@@ -575,14 +579,10 @@ ALL.append(sc("drvget-rl", "drvget: исходники драйвера по HTT
     *_dg("drvget verify rl", r"verify rl: OK", 20),
     {"log_forbid": NO_ERR},
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "rtl8139,netdev=n0"]},
-    {"sleep": 10},
-    {"log": [r"\[KIRA DRV\] rl: устройство .* 10ec:8139 -> драйвер запущен", r"rl: network interface registered, link up",
-             r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
-    {"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
-    {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 25},
-    {"cmd": "fetch 10.0.2.100 /kira"}, {"sleep": 4},
-    {"log": [r"fetch: 10\.0\.2\.100/kira - HTTP/1\.0 200 OK", r"rl: first frame received", r"rl: first frame transmitted"]},
-    {"cmd": "drv", "must": [r"drv-rl pid \d+"]},
+    {"sleep": 8},
+    {"log": [r"\[KIRA DRV\] rl: DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен"]},
+    {"log_forbid": [r"rl: network interface registered", r"rl: first frame received", r"rl: first frame transmitted"]},
+    {"cmd": "drv", "forbid": [r"drv-rl pid"]},
     {"log_forbid": NO_ERR + [r"УТЕЧКА"]},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", tls_chain=True,
@@ -595,7 +595,7 @@ ALL.append(sc("drvget-rl", "drvget: исходники драйвера по HTT
 # что делают кнопки, и печатает те же строки, что рисуются в окне (устройства, пакеты, кадр), поэтому стенд проверяет именно показанное.
 ALL.append(sc("drvman-edu", "окно «Драйверы»: список PCI из ядра (встроенный драйвер / Ring 3 запущен / драйвера нет), пакеты /drv и итог сверки (испорченный, неподтверждённый), остановка и запуск драйвера edu через менеджер ядра, отказ запуска без свободного устройства, удаление", [
     {"log": BOOT_LOG}, {"sleep": 6},
-    {"log": [r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu"]},
+    {"log": [r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu", r"drvedu: DMA denied: CAP_DMA not granted \(least-privilege PASS\)", r"drvedu: IRQ/MSI capability not granted \(least-privilege PASS\)", r"drvedu: PASS"]},
     *_dg("drvman do pci;pkgs", r"drvman: готово", 40),
     {"log": [r"drvman: окно создано 640x560",
              r"drvman: кадр: строк в списках [1-9]\d*, устройств [1-9]\d*, пакетов 4",
@@ -604,7 +604,7 @@ ALL.append(sc("drvman-edu", "окно «Драйверы»: список PCI и�
              r"drvman: pci \d\d:\d\d\.\d\s+[0-9a-f]{4}:[0-9a-f]{4}\s+060000\s+.*мост или шина",
              r"drvman: пакетов в /drv: 4",
              r"drvman: пакет edu \| edu\s+v\d+\s+лицензия: не записана\s+ЗАПУЩЕН\s+сверка: SHA-256 сходится",
-             r"drvman: пакет edu \| права запрошены: MMIO IRQ DMA PCIDEV\s+подтверждены: MMIO IRQ DMA PCIDEV",
+             r"drvman: пакет edu \| права запрошены: MMIO PCIDEV\s+подтверждены: MMIO PCIDEV",
              r"drvman: пакет edu \| sha256 образа [0-9a-f]{64}",
              r"drvman: пакет edu \| источник: tools/mkdrv\.sh",
              r"drvman: пакет abad \| abad\s+v\d+\s+лицензия: не записана\s+не запущен\s+сверка: НЕ СОВПАДАЕТ",
@@ -652,7 +652,7 @@ ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиату�
     {"log": [r"drvman: подтверждение: установить rl v1\?", r"drvman: подтверждение: источник https://10\.0\.2\.100/rl/drvget\.rec",
              r"drvman: подтверждение: лицензия BSD-3-Clause, права: MMIO DMA PCIDEV NETDEV",
              r"drvman: подтверждение: SHA-256 набора " + _DRV_SET8 + r"[0-9a-f]{56}",
-             r"drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память"]},
+             r"drvman: подтверждение: DMA/MSI будут отклонены ядром: домен IOMMU для устройства не настроен"]},
     {"shot": "drvman-confirm"},
     {"keys": "", "then": ["esc"]}, {"sleep": 2},
     {"log": [r"drvman: установка отменена пользователем, ничего не записано"]},

@@ -6,29 +6,56 @@
 #include "pmm_arm.h"
 
 static uint64_t* bits;
+static uint64_t* reserved;
 static uint64_t base_pfn, npages, free_pages, total_pages, hint;
 static spinlock_t lk = SPINLOCK_INIT;
 
 static int used(uint64_t i) { return (bits[i >> 6] >> (i & 63)) & 1; }
 static void set_used(uint64_t i) { bits[i >> 6] |= 1ull << (i & 63); }
 static void set_free(uint64_t i) { bits[i >> 6] &= ~(1ull << (i & 63)); }
+static int is_reserved(uint64_t i) { return (reserved[i >> 6] >> (i & 63)) & 1; }
+static void set_reserved(uint64_t i) { reserved[i >> 6] |= 1ull << (i & 63); }
+static void clear_reserved(uint64_t i) { reserved[i >> 6] &= ~(1ull << (i & 63)); }
 
-uint64_t pmm_arm_map_bytes(uint64_t lo, uint64_t hi) { return (((hi - lo) / 4096 + 63) / 64) * 8; }
+uint64_t pmm_arm_map_bytes(uint64_t lo, uint64_t hi) {
+    if (hi <= lo) return 0;
+    uint64_t pages = (hi - lo) / 4096;
+    if (pages > UINT64_MAX - 63) return 0;
+    uint64_t words = (pages + 63) / 64;
+    return words > UINT64_MAX / 16 ? 0 : words * 16;
+}
 
 void pmm_arm_reserve(uint64_t res_lo, uint64_t res_hi) {
-    for (uint64_t p = res_lo / 4096; p < (res_hi + 4095) / 4096; p++)
-        if (p >= base_pfn && p < base_pfn + npages && !used(p - base_pfn)) { set_used(p - base_pfn); free_pages--; }
+    if (res_hi <= res_lo) return;
+    uint64_t first = res_lo / 4096, end = res_hi / 4096 + ((res_hi & 4095) != 0);
+    if (first < base_pfn) first = base_pfn;
+    if (end > base_pfn + npages) end = base_pfn + npages;
+    for (uint64_t p = first; p < end; p++) {
+        uint64_t i = p - base_pfn;
+        if (!used(i)) { set_used(i); free_pages--; }
+        set_reserved(i);
+    }
 }
 
 void pmm_arm_init(const pmm_arm_region_t* r, unsigned n, uint64_t lo, uint64_t hi, void* map,
                   uint64_t res_lo, uint64_t res_hi) {
+    if (!map || !r || !n || hi <= lo || lo > UINT64_MAX - 4095) { bits = reserved = 0; base_pfn = npages = free_pages = total_pages = hint = 0; return; }
     base_pfn = lo / 4096; npages = (hi - lo) / 4096;
     bits = (uint64_t*)map;
-    for (uint64_t i = 0; i < (npages + 63) / 64; i++) bits[i] = ~0ull;
-    free_pages = total_pages = 0;
+    uint64_t words = (npages + 63) / 64;
+    reserved = bits + words;
+    for (uint64_t i = 0; i < words; i++) { bits[i] = ~0ull; reserved[i] = ~0ull; }
+    free_pages = total_pages = 0; hint = 0;
     for (unsigned k = 0; k < n; k++) {
+        if (!r[k].size || r[k].base > UINT64_MAX - r[k].size || r[k].base > UINT64_MAX - 4095) continue;
         uint64_t a = (r[k].base + 4095) / 4096, b = (r[k].base + r[k].size) / 4096;
-        for (uint64_t p = a; p < b; p++) { set_free(p - base_pfn); free_pages++; total_pages++; }
+        if (a < base_pfn) a = base_pfn;
+        if (b > base_pfn + npages) b = base_pfn + npages;
+        for (uint64_t p = a; p < b; p++) {
+            uint64_t i = p - base_pfn;
+            if (used(i)) { set_free(i); free_pages++; total_pages++; }
+            clear_reserved(i);
+        }
     }
     pmm_arm_reserve(res_lo, res_hi);
 }
@@ -48,8 +75,9 @@ int pmm_free_page(uint64_t pa) {
     uint64_t p = pa / 4096;
     if ((pa & 4095) || p < base_pfn || p >= base_pfn + npages) return -1;
     uint64_t f = spin_lock_irqsave(&lk);
-    int ok = used(p - base_pfn);
-    if (ok) { set_free(p - base_pfn); free_pages++; }
+    uint64_t i = p - base_pfn;
+    int ok = used(i) && !is_reserved(i);
+    if (ok) { set_free(i); free_pages++; }
     spin_unlock_irqrestore(&lk, f);
     return ok ? 0 : -1;
 }
@@ -72,7 +100,17 @@ uint64_t pmm_alloc_contiguous(uint32_t pages) {
 }
 
 int pmm_free_contiguous(uint64_t pa, uint32_t pages) {
-    for (uint32_t i = 0; i < pages; i++) if (pmm_free_page(pa + (uint64_t)i * 4096)) return -1;
+    if (!pages || (pa & 4095) || pa > UINT64_MAX - (uint64_t)pages * 4096) return -1;
+    uint64_t first = pa / 4096;
+    if (first < base_pfn || first + pages > base_pfn + npages) return -1;
+    uint64_t f = spin_lock_irqsave(&lk);
+    for (uint32_t i = 0; i < pages; i++) {
+        uint64_t p = first + i - base_pfn;
+        if (!used(p) || is_reserved(p)) { spin_unlock_irqrestore(&lk, f); return -1; }
+    }
+    for (uint32_t i = 0; i < pages; i++) set_free(first + i - base_pfn);
+    free_pages += pages;
+    spin_unlock_irqrestore(&lk, f);
     return 0;
 }
 

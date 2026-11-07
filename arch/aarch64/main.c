@@ -6,6 +6,7 @@
    ядре, мьютексы ядра; межъядерные сигналы - SGI контроллера GIC. Файловые системы, Разум, программы - дальше. */
 #include <stdint.h>
 #include "fdt.h"
+#include "bootinfo.h"
 #include "fb_arm.h"
 #include "timer.h"
 #include "cpu.h"
@@ -52,7 +53,8 @@
 #include "platform.h"
 #include "msi.h"
 
-#define MAX_RAM 16
+#define MAX_RAM 64
+static uint8_t arm_bootinfo_blob[8192] __attribute__((aligned(16)));
 
 extern char __kernel_start[], __kernel_end[];
 extern void secondary_entry(void);
@@ -165,7 +167,20 @@ static int touches_ram(uint64_t a, uint64_t len) {
 /* Пул DMA для плат, где устройства не видят кэш процессора (в дереве нет dma-coherent): обычная память без кэша
    (MAIR 3 = 0x44, внешняя общая), без исполнения. Блоки по 2 МБ, поэтому гигабайт с пулом дробится. */
 #define PTE_DMA_NC  ((3ull << 2) | PTE_AF | (2ull << 8) | (1ull << 53) | (1ull << 54))
-static uint64_t dma_lo, dma_hi, dma_bump;                       /* границы пула и «указатель» выдачи; dma_lo == 0 - пула нет */
+static uint64_t dma_lo, dma_hi;
+static int dma_noncoherent_platform;
+#define DMA_POOL_MAX_PAGES 8192u                 /* пул ограничен 32 МиБ */
+#define DMA_POOL_BITMAP_WORDS (DMA_POOL_MAX_PAGES / 64u)
+#define DMA_POOL_MAX_ALLOCS 256u
+static uint64_t dma_pool_bitmap[DMA_POOL_BITMAP_WORDS];
+typedef struct {
+    uint32_t first_page, pages, bytes;
+    uint8_t active;
+} dma_pool_allocation_t;
+static dma_pool_allocation_t dma_pool_allocations[DMA_POOL_MAX_ALLOCS];
+static uint32_t dma_pool_pages;
+static volatile uint32_t dma_pool_lock;
+static volatile int dma_pool_enabled;
 static uint64_t* l0;
 
 static uint64_t* next_table(uint64_t* t, unsigned idx) {
@@ -247,25 +262,129 @@ static void dma_pool_choose(void) {
         if (sz > (32ull << 20)) sz = 32ull << 20;
         sz &= ~((2ull << 20) - 1);
         if (sz < (2ull << 20) || end < sz || end - sz < bump + (8ull << 20)) return;      /* места нет - пула нет */
-        dma_lo = end - sz; dma_hi = end; dma_bump = dma_lo;
+        uint64_t pool_pages = sz >> 12;
+        if (pool_pages > DMA_POOL_MAX_PAGES) return;
+        dma_lo = end - sz; dma_hi = end;
+        dma_pool_pages = (uint32_t)pool_pages;
+        dma_pool_enabled = 1;
+        __builtin_memset(dma_pool_bitmap, 0, sizeof dma_pool_bitmap);
+        __builtin_memset(dma_pool_allocations, 0, sizeof dma_pool_allocations);
         bump_end = dma_lo;                                       /* ранние выделения (таблицы MMU) не залезают в пул */
         return;
     }
 }
-int platform_dma_noncoherent(void) { return dma_lo != 0; }   /* драйверам Ring 3 DMA без согласованного кэша не отдаётся (kdrv.c) */
+int platform_dma_noncoherent(void) { return dma_noncoherent_platform; }   /* true даже если пул не удалось создать: DMA остаётся запрещённым */
+static int dma_pool_bit(uint32_t page) {
+    return (int)((dma_pool_bitmap[page >> 6] >> (page & 63u)) & 1u);
+}
+static void dma_pool_set(uint32_t page) {
+    dma_pool_bitmap[page >> 6] |= 1ull << (page & 63u);
+}
+static void dma_pool_clear(uint32_t page) {
+    dma_pool_bitmap[page >> 6] &= ~(1ull << (page & 63u));
+}
+
+/* Non-coherent ARM64 DMA pool: contiguous uncached pages with exact ownership.
+   The bitmap allows safe reuse after virtio queue/device teardown. */
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) {
-    if (!dma_lo) return 0;
-    uint64_t need = ((uint64_t)bytes + 4095) & ~4095ull, f = irq_save(), a = 0;
-    static volatile uint32_t lk;
-    while (__atomic_exchange_n(&lk, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
-    if (dma_bump + need <= dma_hi && (!below_4g || dma_bump + need <= 0x100000000ull)) { a = dma_bump; dma_bump += need; }
-    __atomic_store_n(&lk, 0, __ATOMIC_RELEASE);
-    irq_restore(f);
-    if (!a) return 0;
-    for (uint64_t i = 0; i < need; i += 8) *(volatile uint64_t*)(uintptr_t)(a + i) = 0;
+    if (!dma_lo || !dma_pool_enabled || !bytes || !phys ||
+        bytes > UINT32_MAX - 4095u) return 0;
+    uint32_t need = (bytes + 4095u) >> 12;
+    if (!need || need > dma_pool_pages) return 0;
+    uint64_t flags = irq_save();
+    while (__atomic_exchange_n(&dma_pool_lock, 1, __ATOMIC_ACQUIRE))
+        __asm__ volatile ("yield");
+    int slot = -1;
+    for (unsigned i = 0; i < DMA_POOL_MAX_ALLOCS; i++)
+        if (!dma_pool_allocations[i].active) { slot = (int)i; break; }
+    uint32_t first = dma_pool_pages;
+    if (slot >= 0) {
+        for (uint32_t i = 0; i <= dma_pool_pages - need; ) {
+            uint64_t addr = dma_lo + ((uint64_t)i << 12);
+            if (below_4g && addr + ((uint64_t)need << 12) > 0x100000000ull) break;
+            uint32_t j = 0;
+            while (j < need && !dma_pool_bit(i + j)) j++;
+            if (j == need) { first = i; break; }
+            i += j + 1;
+        }
+    }
+    uint64_t addr = 0;
+    if (first < dma_pool_pages) {
+        for (uint32_t i = 0; i < need; i++) dma_pool_set(first + i);
+        dma_pool_allocations[slot] = (dma_pool_allocation_t){ first, need, bytes, 1 };
+        addr = dma_lo + ((uint64_t)first << 12);
+    }
+    __atomic_store_n(&dma_pool_lock, 0, __ATOMIC_RELEASE);
+    irq_restore(flags);
+    if (!addr) return 0;
+    uint64_t rounded = (uint64_t)need << 12;
+    for (uint64_t i = 0; i < rounded; i += 8)
+        *(volatile uint64_t*)(uintptr_t)(addr + i) = 0;
     dsb();
-    *phys = a;
-    return (void*)(uintptr_t)a;
+    *phys = addr;
+    return (void*)(uintptr_t)addr;
+}
+
+void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes);
+
+static int dma_pool_selftest(void) {
+    if (!dma_lo) return 0;
+    uint64_t a = 0, b = 0, again = 0;
+    uint8_t* p = (uint8_t*)platform_dma_pool(4097, &a, 0);
+    uint8_t* q = (uint8_t*)platform_dma_pool(8192, &b, 0);
+    int ok = p && q && a && b && a != b &&
+             !((uintptr_t)p & 4095u) && !(a & 4095u) &&
+             !((uintptr_t)q & 4095u) && !(b & 4095u) &&
+             p[0] == 0 && p[4096] == 0 && q[0] == 0 && q[8191] == 0;
+    if (p) {
+        p[0] = 0x5A;
+        p[4096] = 0xA5;
+        platform_dma_free(p, a, 4097);
+        p = (uint8_t*)platform_dma_pool(4097, &again, 0);
+        ok = ok && p && again == a && p[0] == 0 && p[4096] == 0;
+        if (p) platform_dma_free(p, again, 4097);
+    } else if (a) {
+        platform_dma_free((void*)(uintptr_t)a, a, 4097);
+    }
+    if (q) platform_dma_free(q, b, 8192);
+    if (!ok) dma_pool_enabled = 0;       /* fail closed: no cacheable PMM fallback */
+    return ok ? 0 : -1;
+}
+
+/* ARM64 non-coherent buffers come from the Normal-NC pool; barriers make
+   CPU/device ownership transitions visible without cache-line maintenance. */
+void platform_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes) {
+    (void)cpu; (void)phys; (void)bytes;
+    dsb();
+}
+void platform_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes) {
+    (void)cpu; (void)phys; (void)bytes;
+    dsb();
+}
+
+void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
+    if (!dma_lo || !cpu || !phys || !bytes ||
+        (uint64_t)(uintptr_t)cpu != phys || phys < dma_lo ||
+        phys >= dma_hi || (phys & 4095u)) return;
+    uint64_t flags = irq_save();
+    while (__atomic_exchange_n(&dma_pool_lock, 1, __ATOMIC_ACQUIRE))
+        __asm__ volatile ("yield");
+    for (unsigned i = 0; i < DMA_POOL_MAX_ALLOCS; i++) {
+        dma_pool_allocation_t* a = &dma_pool_allocations[i];
+        uint64_t expected = dma_lo + ((uint64_t)a->first_page << 12);
+        if (!a->active || expected != phys || a->bytes != bytes) continue;
+        int valid = a->pages && a->first_page <= dma_pool_pages &&
+                    a->pages <= dma_pool_pages - a->first_page;
+        for (uint32_t j = 0; valid && j < a->pages; j++)
+            if (!dma_pool_bit(a->first_page + j)) valid = 0;
+        if (valid) {
+            for (uint32_t j = 0; j < a->pages; j++) dma_pool_clear(a->first_page + j);
+            *a = (dma_pool_allocation_t){0};
+        }
+        break;
+    }
+    __atomic_store_n(&dma_pool_lock, 0, __ATOMIC_RELEASE);
+    irq_restore(flags);
 }
 
 static int mmu_init(uint64_t top) {
@@ -1030,7 +1149,7 @@ static const void* find_fdt(uint64_t x0) {
     if (!x0 || (x0 & 7)) return 0;
     probing = 1; probe_failed = 0;
     int ok = *(volatile uint32_t*)(uintptr_t)x0 == 0xEDFE0DD0u;   /* FDT_MAGIC в памяти (большой порядок байт) */
-    if (ok && !probe_failed) ok = fdt_valid((const void*)(uintptr_t)x0, 0);
+    if (ok && !probe_failed) ok = fdt_tree_valid((const void*)(uintptr_t)x0, 4u * 1024u * 1024u);
     probing = 0;
     return ok && !probe_failed ? (const void*)(uintptr_t)x0 : 0;
 }
@@ -1061,19 +1180,33 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
             (uint64_t)(uintptr_t)fdt, (uint64_t)fdt_total_size(fdt), uart);
     kprintf("[KIRA ARM64] entered at EL%u, running at EL%u\n", entry_el & 3, (SYSREG_R(CurrentEL) >> 2) & 3);
 
-    /* ОЗУ: все узлы device_type = memory, все пары reg */
-    uint64_t top = 4ull << 30;
-    int depth = 0;
-    for (int n = fdt_root(fdt); n >= 0; n = fdt_next_node(fdt, n, &depth)) {
-        uint32_t len; const char* t = (const char*)fdt_prop(fdt, n, "device_type", &len);
-        if (!t || len < 7 || __builtin_memcmp(t, "memory", 7)) continue;
-        uint64_t a, s;
-        for (unsigned k = 0; nram < MAX_RAM && fdt_reg(fdt, n, k, &a, &s) == 0; k++) if (s) {
-            ram[nram].base = a; ram[nram].size = s; nram++;
-            if (a + s > top) top = a + s;
-        }
+    /* Normalize the ARM handoff once: memory banks, framebuffer and bootargs become
+       the same versioned BootInfo ABI consumed by the x86 path and the ARM PMM. */
+    uint32_t bootinfo_size = 0;
+    uint64_t kernel_base = (uint64_t)(uintptr_t)__kernel_start;
+    uint64_t kernel_size = (uint64_t)(uintptr_t)__kernel_end - kernel_base;
+    if (kbi_from_fdt(fdt, fdt_total_size(fdt), (uint64_t)(uintptr_t)fdt,
+                     kernel_base, kernel_size, arm_bootinfo_blob,
+                     sizeof arm_bootinfo_blob, &bootinfo_size))
+        kernel_panic("cannot normalize ARM device tree into BootInfo");
+    const kbi_header_t* bootinfo = (const kbi_header_t*)arm_bootinfo_blob;
+    const kbi_mmap_entry_t* boot_map = kbi_mmap(bootinfo);
+    uint64_t top = 4ull << 30, total = 0;
+    for (uint32_t i = 0; i < bootinfo->mmap_count; i++) {
+        if (boot_map[i].type != KBI_MEM_USABLE || nram >= MAX_RAM)
+            kernel_panic("invalid or excessive BootInfo RAM map");
+        ram[nram].base = boot_map[i].base;
+        ram[nram].size = boot_map[i].length;
+        nram++;
+        uint64_t end = boot_map[i].base + boot_map[i].length;   /* validated by kbi_validate */
+        if (end > top) top = end;
+        if (boot_map[i].length > UINT64_MAX - total)
+            kernel_panic("BootInfo RAM size sum overflows");
+        total += boot_map[i].length;
     }
-    uint64_t total = 0; for (unsigned i = 0; i < nram; i++) total += ram[i].size;
+    if (!nram) kernel_panic("BootInfo contains no usable RAM");
+    kprintf("[KIRA BOOT] BootInfo v%u: ARM64 Device Tree, %u normalized RAM range(s), %u bytes\n",
+            (uint64_t)bootinfo->version, (uint64_t)nram, (uint64_t)bootinfo_size);
     bump = (uint64_t)(uintptr_t)__kernel_end;
     uint64_t fdt_end = (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt);
     if ((uint64_t)(uintptr_t)fdt >= bump && fdt_end > bump) bump = fdt_end;   /* дерево за ядром - не затирать */
@@ -1081,7 +1214,8 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     for (unsigned i = 0; i < nram; i++) if (bump >= ram[i].base && bump < ram[i].base + ram[i].size) bump_end = ram[i].base + ram[i].size;
     kprintf("[KIRA ARM64] RAM: %u MB in %u region(s)\n", total >> 20, (uint64_t)nram);
 
-    if (dma_noncoherent(fdt)) dma_pool_choose();
+    dma_noncoherent_platform = dma_noncoherent(fdt);
+    if (dma_noncoherent_platform) dma_pool_choose();
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
     if (dma_lo) kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at %x without CPU cache for device buffers\n", (dma_hi - dma_lo) >> 20, dma_lo);
@@ -1158,7 +1292,22 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     pmm_arm_init((const pmm_arm_region_t*)ram, nram, lo, hi, map, (uint64_t)(uintptr_t)__kernel_start, (uint64_t)(uintptr_t)__kernel_end);
     pmm_arm_reserve((uint64_t)(uintptr_t)fdt, (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt));
     pmm_arm_reserve(bump_start, bump);
+    /* Firmware memreserve entries are separate from /reserved-memory nodes. */
+    for (unsigned i = 0; i < fdt_reserve_count(fdt, 4u * 1024u * 1024u); i++) {
+        uint64_t base = 0, size = 0;
+        if (fdt_reserve(fdt, 4u * 1024u * 1024u, i, &base, &size) || base > UINT64_MAX - size)
+            kernel_panic("invalid FDT memory reservation");
+        pmm_arm_reserve(base, base + size);
+    }
     if (dma_lo) pmm_arm_reserve(dma_lo, dma_hi);                 /* пул DMA - не для pmm */
+    if (dma_lo) {
+        if (dma_pool_selftest() == 0)
+            kprintf("[KIRA ARM64] noncoherent DMA pool: allocation, zeroing, exact free and reuse PASS\\n");
+        else
+            kprintf("[KIRA ARM64] WARNING: noncoherent DMA pool self-test FAILED; DMA disabled\\n");
+    } else if (dma_noncoherent_platform) {
+        kprintf("[KIRA ARM64] WARNING: non-coherent platform has no DMA pool; DMA disabled\\n");
+    }
     arm_fb_reserve(fdt, pmm_arm_reserve);                        /* кадр simple-framebuffer, /reserved-memory */
     arm_fb_init(fdt);
     bump_end = bump;                                             /* дальше страницы выдаёт только pmm */

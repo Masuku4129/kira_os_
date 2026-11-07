@@ -50,7 +50,7 @@ int umain(void) {
         if (ev != KDRV_EV_IRQ || KDRV_R32(m, FACT) != 120) ok = 0;
         KDRV_R32(m, IRQ_ACK) = KDRV_R32(m, IRQ_RAISED);
         KDRV_R32(m, STATUS) = 0;
-    } else say("drvedu: irq none (skipped)\n");
+    } else say("drvedu: IRQ/MSI capability not granted (least-privilege PASS)\n");
     kdrv_dma_t d;
     i64 rc = kdrv_dma_alloc(4096, 30, &d);                   /* адреса edu - 30 бит */
     say("drvedu: dma rc="); put(rc); say("\n");
@@ -69,7 +69,12 @@ int umain(void) {
         for (int i = 0; i < 256; i++) if (p[2048 + i] != p[i]) same = 0;
         say("drvedu: dma round trip "); say(same ? "equal\n" : "DIFFERENT (FAIL)\n");
         if (!same) ok = 0;
-    } else ok = 0;
+    } else if (rc == E_PERM) {
+        say("drvedu: DMA denied: CAP_DMA not granted (least-privilege PASS)\n");
+    } else {
+        say("drvedu: unexpected DMA result (FAIL)\n");
+        ok = 0;
+    }
     /* то, что ядро обязано отказать */
     i64 r1 = ksys(KDRV_SYS_MMIO_MAP, 1, 0, 4096);            /* BAR, которого у устройства нет */
     i64 r2 = ksys(KDRV_SYS_MMIO_MAP, 0, 0x100000, 4096);     /* за концом своего BAR */

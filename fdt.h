@@ -10,7 +10,11 @@
 #define FDT_MAGIC 0xD00DFEEDu
 
 int      fdt_valid(const void* fdt, uint32_t max_len);      /* 1 - заголовок и границы блоков разумны */
+int      fdt_tree_valid(const void* fdt, uint32_t max_len);                   /* 1 - весь токен-поток структуры корректен */
 uint32_t fdt_total_size(const void* fdt);
+/* Firmware memory-reservation map (64-bit address/size pairs); index order is preserved. */
+unsigned fdt_reserve_count(const void* fdt, uint32_t max_len);
+int fdt_reserve(const void* fdt, uint32_t max_len, unsigned index, uint64_t* base, uint64_t* size);
 /* Узлы задаются смещением в блоке структуры (>= 0); -1 - нет. */
 int      fdt_root(const void* fdt);
 int      fdt_next_node(const void* fdt, int node, int* depth);   /* обход всего дерева по порядку */

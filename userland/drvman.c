@@ -555,10 +555,10 @@ static void draw_confirm(void) {
     snprintf(b, sizeof b, "запрашиваемые права: %s", cs);
     text(x, y, b, FG, 66); y += CH;
     text(x, y, "права действуют только на устройство этого драйвера.", DIM, 66); y += CH + 6;
-    if (r->caps & CAP_DMA) {
-        text(x, y, "ВНИМАНИЕ: IOMMU нет. Устройство с DMA способно писать", RED, 66); y += CH;
-        text(x, y, "в любую память; программно это не отключить. Ставьте", RED, 66); y += CH;
-        text(x, y, "только драйверы, чьим исходникам вы доверяете.", RED, 66); y += CH;
+    if (r->caps & (CAP_DMA | CAP_IRQ)) {
+        text(x, y, "БЕЗОПАСНОСТЬ: изоляция IOMMU не настроена.", RED, 66); y += CH;
+        text(x, y, "Ядро отклонит DMA/MSI-права и не запустит", RED, 66); y += CH;
+        text(x, y, "этот драйвер до появления домена для устройства.", RED, 66); y += CH;
     }
     text(x, y + 6, "Сборка идёт на этом устройстве компилятором kcc.", DIM, 66);
     draw_btn(&yes_btn, CONF_BY, 1);
@@ -654,7 +654,7 @@ static void confirm_open(void) {                           /* окно подт�
     lg("drvman: подтверждение: лицензия %s, права: %s\n", r->license, cs);
     lg("drvman: подтверждение: SHA-256 набора %s\n", drvget_staged_hash());
     lg("drvman: предупреждение: цифровой подписи издателя нет; SHA-256 сверяется только с локальной записью и не доказывает автора\n");
-    if (r->caps & CAP_DMA) lg("drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память\n");
+    if (r->caps & (CAP_DMA | CAP_IRQ)) lg("drvman: подтверждение: DMA/MSI будут отклонены ядром: домен IOMMU для устройства не настроен\n");
 }
 
 static void press(int id) {

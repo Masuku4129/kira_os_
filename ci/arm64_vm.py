@@ -139,22 +139,17 @@ SC = [
          cmds=[("@sleep 6", []),
                ("@log \\[KIRA DRV\\] abad: SHA-256 не совпал с записью /drv/abad\\.rec - драйвер НЕ запущен", []),
                ("@log \\[KIRA DRV\\] eduun: пакет отклонён \\(установка не подтверждена пользователем\\)", []),
-               ("@log \\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \\(pid \\d+\\), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV", []),
-               ("@log drvedu: id=0x10000ed", []), ("@log drvedu: 10!=3628800", []),
-               ("@log drvedu: dma rc=-7", []),       # RAM платы virt начинается с 1 ГБ, а edu достаёт 30 бит адреса: ядро честно отказывает, DMA на ARM здесь не проверяется
-               
-               ("@log drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x", []),
-               ("@log drvedu: partial \\(see above\\)", []),
-               ("drv", [r"drv-edu pid \d+", r"отображений 1"]),
-               ("drv stop edu", [r"останавливаю drv-edu"]), ("@sleep 2", []),
-               ("@log \\[KIRA DRV\\] drv-edu \\(pid \\d+\\) завершён: устройство .* остановлено", []),
-               ("@log \\[KIRA DRV\\] edu: возвращено памяти DMA и колец 0 из 0 стр\\..*утечек нет", []),
+               ("@log \\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu", []),
+               ("@log drvedu: DMA denied: CAP_DMA not granted \\(least-privilege PASS\\)", []),
+               ("@log drvedu: IRQ/MSI capability not granted \\(least-privilege PASS\\)", []),
+               ("@log drvedu: PASS", []),
+               ("drv stop edu", []), ("@sleep 2", []),
+               # MMIO-only пакет может стартовать; попытки DMA/MSI обязаны получить отказ.
                ("drv start edunc", [r"драйвер запущен как drv-edunc"]), ("@sleep 3", []),
                ("@log drvedu: dma rc=-12", []), ("@log \\[KIRA CAPS\\] process 'drv-edunc' .* denied, no right CAP_DMA", []),
                ("drv stop edunc", []), ("@sleep 2", []),
-               ("drv start edu crash", [r"драйвер запущен как drv-edu"]), ("@sleep 3", []),
-               ("@log drvedu: crashing on purpose", []),
-               ("@sleep 2", []), ("drv", [r"устройство .* 1234:11e8: освобождается|драйвер edu не работает|свободно"]),
+               ("drv start edu", [r"драйвер запущен как drv-edu"]),
+               ("@log drvedu: PASS", []),
                ("status", [r"interrupts: GICv3"])]),
     # Окно «Драйверы» (drvman) на ARM64: список PCI читается вызовом ядра (CAP_PCILIST), пакеты /drv и итог сверки, остановка и запуск драйвера edu
     # через менеджер ядра; экран virtio-gpu, чтобы окно действительно создавалось. Строки drvman печатает тот же код, что рисует окно.

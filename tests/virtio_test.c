@@ -46,7 +46,7 @@ static void cfg_write(uint8_t b, uint8_t d, uint8_t f, uint16_t off, uint32_t v)
 #define DISK_SECT 4096
 static uint8_t vdisk[DISK_SECT * 512];
 static uint8_t mmio[0x4000];
-typedef struct { int no_v1, reject_features, ro, size_max, drop, no_flush, legacy_only; } vopt_t;
+typedef struct { int no_v1, reject_features, ro, size_max, drop, no_flush, legacy_only, small_disk; } vopt_t;
 static vopt_t opt;
 static struct {
     uint32_t dfsel, gfsel; uint32_t gf[2]; uint8_t status; uint16_t qsel, qsize, qen; uint64_t desc, avail, used;
@@ -173,6 +173,8 @@ static void vcap(fdev_t* d, int at, int next, int type, int bar, uint32_t off, u
 static uint8_t* vblk_cfg_space;
 
 static void model_init(vopt_t o, uint16_t devid) {
+    /* Previous probe must relinquish its device DMA before the model memory is reset. */
+    virtio_blk_shutdown();
     opt = o; memset(&dv, 0, sizeof dv); memset(bus_dev, 0, sizeof bus_dev); memset(mmio, 0, sizeof mmio); viol = 0;
     mkhdr(F(0, 0, 0), 0x8086, 0x1237, 6, 0, 0);                                         /* хост-мост */
     mkhdr(F(0, 1, 0), 0x8086, 0x1111, 6, 4, 1); F(0, 1, 0)->cfg[0x19] = 1;              /* мост на шину 1 */
@@ -190,7 +192,7 @@ static void model_init(vopt_t o, uint16_t devid) {
         vcap(v, 0x78, 0, 4, 4, 0x3000, 0x20, 16);
     } else { v->cfg[0x40] = 9; v->cfg[0x41] = 0; v->cfg[0x43] = 5; }                      /* только PCI cfg access cap */
     (void)vblk_cfg_space;
-    uint64_t cap = DISK_SECT; memcpy(mmio + 0x3000, &cap, 8);
+    uint64_t cap = o.small_disk ? 8 : DISK_SECT; memcpy(mmio + 0x3000, &cap, 8);
     uint32_t smax = (uint32_t)o.size_max; memcpy(mmio + 0x3008, &smax, 4);
     static const pci_backend_t be = { cfg_read, cfg_write };
     pci_set_backend(&be);
@@ -200,6 +202,39 @@ static uint8_t buf[300 * 512], ref[300 * 512];
 static void rnd(uint8_t* p, size_t n, unsigned seed) { for (size_t i = 0; i < n; i++) { seed = seed * 1103515245u + 12345u; p[i] = (uint8_t)(seed >> 16); } }
 
 int main(void) {
+    /* DMA allocator contract: reject invalid sizes/outputs, page-align and zero host buffers. */
+    uint64_t dma_phys = 0;
+    CHECK(virtio_dma_alloc(0, &dma_phys) == 0);
+    CHECK(virtio_dma_alloc(4096, 0) == 0);
+    uint8_t* dma = (uint8_t*)virtio_dma_alloc(4097, &dma_phys);
+    CHECK(dma && dma_phys == (uint64_t)(uintptr_t)dma);
+    CHECK((((uintptr_t)dma) & 4095u) == 0);
+    for (unsigned i = 0; i < 4097; i++) CHECK(dma[i] == 0);
+    CHECK(virtio_dma_free(0, dma_phys, 4097) == -1);
+    CHECK(virtio_dma_free(dma, dma_phys + 4096, 4097) == -1);
+    CHECK(virtio_dma_free(dma, dma_phys, 4096) == -1); /* размер должен совпадать */
+    CHECK(virtio_dma_sync_for_device(dma + 4096, dma_phys + 4096, 1) == 0);
+    CHECK(virtio_dma_sync_for_cpu(dma + 4096, dma_phys + 4096, 1) == 0);
+    CHECK(virtio_dma_sync_for_device(dma + 4096, dma_phys + 4096, 2) == -1);
+    CHECK(virtio_dma_free(dma, dma_phys, 4097) == 0);
+    CHECK(virtio_dma_free(dma, dma_phys, 4097) == -1); /* double free отвергается */
+
+    /* Registry capacity is bounded; freeing a slot makes it reusable. */
+    void* dma_slots[64];
+    uint64_t dma_addresses[64];
+    for (unsigned i = 0; i < 64; i++) {
+        dma_slots[i] = virtio_dma_alloc(1, &dma_addresses[i]);
+        CHECK(dma_slots[i] != 0 && dma_addresses[i] != 0);
+    }
+    uint64_t overflow_phys = 0;
+    CHECK(virtio_dma_alloc(1, &overflow_phys) == 0 && overflow_phys == 0);
+    for (unsigned i = 0; i < 64; i++)
+        CHECK(virtio_dma_free(dma_slots[i], dma_addresses[i], 1) == 0);
+    uint64_t reuse_phys = 0;
+    void* reuse = virtio_dma_alloc(1, &reuse_phys);
+    CHECK(reuse != 0 && reuse_phys != 0);
+    CHECK(virtio_dma_free(reuse, reuse_phys, 1) == 0);
+
     vopt_t o0; memset(&o0, 0, sizeof o0);
     /* --- PCI --- */
     model_init(o0, 0x1042);
@@ -272,6 +307,17 @@ int main(void) {
     vopt_t o6 = o0; o6.legacy_only = 1; model_init(o6, 0x1000); pci_init();
     CHECK(pci_find(0x1AF4, 0x1000) && virtio_blk_probe() == 0);
 
+    /* Repeated late probe failures must release both queue and bounce DMA allocations. */
+    vopt_t o8 = o0; o8.small_disk = 1;
+    for (unsigned i = 0; i < 70; i++) {
+        model_init(o8, 0x1042); pci_init();
+        CHECK(virtio_blk_probe() == 0);
+        if (i == 0) {
+            const pci_dev_t* failed = pci_find(0x1AF4, 0x1042);
+            CHECK(failed && !(pci_read16(failed, 4) & PCI_CMD_MASTER));
+        }
+    }
+
     /* --- устройство молчит: таймаут, отключение, дальше ошибки без зависания --- */
     vopt_t o7 = o0; o7.drop = 1; model_init(o7, 0x1042); pci_init(); d = virtio_blk_probe();
     CHECK(d);
@@ -279,6 +325,14 @@ int main(void) {
     CHECK(d->read(d, 0, 1, buf) == -5 && d->write(d, 0, 1, buf) == -5);
     CHECK(dv.status == 0);                                                    /* устройство сброшено: в нашу память больше не пишет */
     CHECK(viol == 0);
+
+    /* A timed-out device must release its DMA ownership after reset and permit a clean reprobe. */
+    model_init(o0, 0x1042); pci_init();
+    d = virtio_blk_probe();
+    CHECK(d && d->read(d, 0, 1, buf) == 0);
+    vopt_t o9 = o0; o9.small_disk = 1;
+    model_init(o9, 0x1042); pci_init();
+    CHECK(virtio_blk_probe() == 0);
 
     printf("virtio: PCI bus/bridge/BAR/capabilities, virtio 1.0 init order, rings, chunking, size_max, RO, flush, timeout, KiraFS over virtio passed\n");
     return 0;

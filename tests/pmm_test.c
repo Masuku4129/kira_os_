@@ -22,7 +22,17 @@ static uint8_t* mk_mbi(uint64_t at, int with_mmap){
     memset(m,0,4096);
     uint8_t* p=m+8;
     // tag type 1 (cmdline) "x"
-    *(uint32_t*)p=1; *(uint32_t*)(p+4)=9; p[8]='x'; p+=16;
+    *(uint32_t*)p=1; *(uint32_t*)(p+4)=10; p[8]='x'; p[9]=0; p+=16;
+    /* A boot module placed inside firmware-reported usable RAM must stay reserved. */
+    *(uint32_t*)p=3; *(uint32_t*)(p+4)=28;
+    *(uint32_t*)(p+8)=0x800000; *(uint32_t*)(p+12)=0x802000;
+    memcpy(p+16,"test-initrd",12); p+=32;
+    /* A framebuffer in deferred >1 GiB RAM must remain reserved after mapping. */
+    *(uint32_t*)p=8; *(uint32_t*)(p+4)=38;
+    *(uint64_t*)(p+8)=0x100100000ULL;
+    *(uint32_t*)(p+16)=16; *(uint32_t*)(p+20)=4; *(uint32_t*)(p+24)=1;
+    p[28]=32; p[29]=1; p[32]=16; p[33]=8; p[34]=8; p[35]=8; p[36]=0; p[37]=8;
+    p+=40;
     if(with_mmap){
         struct E{uint64_t a,l;uint32_t t,r;} ents[]={
             {0,0x9FC00,1,0},{0x9FC00,0x60400,2,0},{0x100000,0x1FF00000ULL,1,0},
@@ -47,14 +57,36 @@ int main(void){
     CHECK(pmm_init(0x36D76289UL,0x21000000ULL)==-4);
     munmap(nm,4096);
 
+    // Повреждённая структура отвергается до проходов по памяти и размещения bitmap.
+    uint64_t bad_addr=0x22000000ULL;
+    uint8_t* bad=mk_mbi(bad_addr,1);
+    uint32_t bad_size=*(uint32_t*)bad;
+    *(uint32_t*)(bad+bad_size-8)=1;                                      // end tag отсутствует
+    CHECK(pmm_init(0x36D76289UL,bad_addr)==-3);
+    munmap(bad,4096);
+    bad=mk_mbi(bad_addr,1);
+    *(uint32_t*)(bad+32)=23;                                             // mmap entry меньше структуры
+    CHECK(pmm_init(0x36D76289UL,bad_addr)==-3);
+    munmap(bad,4096);
+    bad=mk_mbi(bad_addr,1);
+    *(uint32_t*)(bad+28)-=1;                                             // неполная последняя запись mmap
+    CHECK(pmm_init(0x36D76289UL,bad_addr)==-3);
+    munmap(bad,4096);
+    bad=mk_mbi(bad_addr,1);
+    *(uint32_t*)bad-=1;                                                  // общий размер не кратен 8
+    CHECK(pmm_init(0x36D76289UL,bad_addr)==-3);
+    munmap(bad,4096);
+
     uint8_t* m=mk_mbi(mbi_addr,1);
     uint32_t info_size=*(uint32_t*)m;
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==-5);                // нет места под карты
     pmm_test_store=store_buf; pmm_test_store_bytes=sizeof store_buf;
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==0);
-    uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 1;
+    uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 2 - 1;
     printf("free kb = %u, expected %llu (info_size=%u)\n",pmm_get_free_memory_kb(),(unsigned long long)expect_pages*4,info_size);
     CHECK(pmm_get_free_memory_kb()==expect_pages*4);
+    CHECK(pmm_free_page(0x800000)==-1);
+    CHECK(pmm_free_page(0x801000)==-1);
 
     // непрерывные блоки
     {
@@ -81,6 +113,7 @@ int main(void){
         uint64_t p=pmm_alloc_page(); if(!p)break;
         CHECK(p%4096==0); CHECK(p>=0x320000); CHECK(p<(1ULL<<30));
         CHECK(!(p>=mbi_addr && p<mbi_addr+4096));
+        CHECK(!(p>=0x800000 && p<0x802000));
         CHECK(!seen[p>>12]); seen[p>>12]=1;
         if(!n) first=p;
         prev=p; n++;
@@ -93,6 +126,7 @@ int main(void){
     CHECK(pmm_free_page(first)==-1);          // double free
     CHECK(pmm_free_page(0x200000)==-1);       // kernel image
     CHECK(pmm_free_page(mbi_addr)==-1);       // mbi
+    CHECK(pmm_free_page(0x800000)==-1);     // boot module
     CHECK(pmm_free_page(0x1000)==-1);         // low memory
     CHECK(pmm_free_page(first+1)==-1);        // unaligned
     CHECK(pmm_free_page(1ULL<<30)==-1);       // out of range
@@ -106,16 +140,19 @@ int main(void){
         CHECK(k == 1 && r[0].start == 0x100000000ULL && r[0].end == 0x140000000ULL);
         CHECK(pmm_managed_top() == 0x140000000ULL);
         CHECK(pmm_free_page(0x100000000ULL) == -1);            // ещё не добавлена
-        CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 2048);
+        CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 2047);
         CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 0);   // повтор ничего не меняет
         CHECK(pmm_add_high(0x13FF00000ULL, 0x140100000ULL) == -1);               // выходит за диапазон
         CHECK(pmm_add_high(0x50000000ULL, 0x50200000ULL) == -1);                 // не ОЗУ выше 1 ГБ
         CHECK(pmm_add_high(0x100000001ULL, 0x100002000ULL) == -1);               // не выровнен
-        CHECK(pmm_get_free_memory_kb() == 2048 * 4);
+        CHECK(pmm_get_free_memory_kb() == 2047 * 4);
+        CHECK(pmm_free_page(0x100000000ULL) == -1);  // mapped, but never allocated: reject invalid free
+        CHECK(pmm_free_page(0x100100000ULL)==-1);
         uint64_t a = pmm_alloc_page();
         CHECK(a >= 0x100000000ULL && a < 0x100000000ULL + (8ULL<<20));
+        CHECK(a != 0x100100000ULL);
         uint64_t blk = pmm_alloc_contiguous(512);
-        CHECK(blk >= 0x100000000ULL && blk + 512*4096 <= 0x100000000ULL + (8ULL<<20));
+        CHECK(blk >= 0x100101000ULL && blk + 512*4096 <= 0x100000000ULL + (8ULL<<20));
         CHECK(pmm_free_contiguous(blk, 512) == 0);
         CHECK(pmm_free_page(a) == 0);
         CHECK(pmm_free_page(0x100000000ULL + (9ULL<<20)) == -1);                 // за добавленной частью

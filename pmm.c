@@ -1,4 +1,5 @@
 #include "pmm.h"
+#include "bootinfo.h"
 #include "uart.h"
 #include "cpu.h"
 #include "spinlock.h"
@@ -49,9 +50,37 @@ static uint32_t free_pages;
 static uint32_t search_hint;             // слово, с которого искать (next-fit)
 static pmm_range_t high[PMM_MAX_HIGH];
 static unsigned high_n;
+static pmm_range_t active_high[PMM_MAX_HIGH]; /* high pages mapped by ramext and admitted by pmm_add_high */
+static unsigned active_high_n;
 static pmm_range_t acpi_r[PMM_MAX_ACPI];
 static unsigned acpi_n;
 static spinlock_t pmm_lock = SPINLOCK_INIT;
+
+/* Validate the complete Multiboot2 block before any memory-map pass. */
+static int mb2_validate(uint64_t addr, uint64_t total) {
+    if (total < 16 || (total & 7) || addr >= PMM_LOW || total > PMM_LOW - addr)
+        return 0;
+    const uint8_t* p = (const uint8_t*)(uintptr_t)(addr + 8);
+    uint64_t remaining = total - 8;
+    while (remaining >= sizeof(struct mb2_tag)) {
+        const struct mb2_tag* tag = (const struct mb2_tag*)p;
+        if (tag->size < sizeof(struct mb2_tag) || tag->size > remaining) return 0;
+        if (tag->type == MB2_TAG_END)
+            return tag->size == 8 && remaining == 8;
+        uint64_t padded = ((uint64_t)tag->size + 7u) & ~7ULL;
+        if (padded > remaining) return 0;
+        if (tag->type == MB2_TAG_MMAP) {
+            if (tag->size < 16) return 0;
+            uint32_t entry_size = *(const uint32_t*)(p + 8);
+            uint32_t payload = tag->size - 16;
+            if (entry_size < sizeof(struct mb2_mmap_entry) || payload % entry_size)
+                return 0;
+        }
+        p += padded;
+        remaining -= padded;
+    }
+    return 0;
+}
 
 static inline int test_bit(const uint32_t* map, uint64_t page) {
     return (map[page >> 5] >> (page & 31)) & 1;
@@ -101,11 +130,56 @@ static void defer_range(uint64_t base, uint64_t end) {
     uint64_t e = end & ~(PMM_PAGE_SIZE - 1);
     if (e > managed_top) e = managed_top;
     if (e <= s) return;
+    /* Mark only firmware-usable high pages as eligible for later mapping.
+       Reserved modules/framebuffer are re-marked below during BootInfo setup. */
+    for(uint64_t a=s;a<e;a+=PMM_PAGE_SIZE) clear_bit(reserved_map,a/PMM_PAGE_SIZE);
     if (high_n == PMM_MAX_HIGH) {
         uart_print("[KIRA PMM] Too many separate RAM ranges above 1 GB: one is ignored.\n");
         return;
     }
     high[high_n].start = s; high[high_n].end = e; high_n++;
+}
+
+static int high_page_active_locked(uint64_t paddr) {
+    if (paddr < PMM_LOW) return 1;
+    for (unsigned i = 0; i < active_high_n; i++)
+        if (paddr >= active_high[i].start && paddr < active_high[i].end) return 1;
+    return 0;
+}
+
+/* Add a mapped high-memory interval, keeping the active set sorted and coalesced. Caller holds pmm_lock. */
+static int active_high_add_locked(uint64_t start, uint64_t end) {
+    pmm_range_t tmp[PMM_MAX_HIGH + 1];
+    unsigned n = active_high_n;
+    for (unsigned i = 0; i < n; i++) tmp[i] = active_high[i];
+    if (n >= PMM_MAX_HIGH) {
+        int merged = 0;
+        for (unsigned i = 0; i < n; i++) {
+            if (end < tmp[i].start || start > tmp[i].end) continue;
+            if (start < tmp[i].start) tmp[i].start = start;
+            if (end > tmp[i].end) tmp[i].end = end;
+            merged = 1;
+            break;
+        }
+        if (!merged) return -1;
+    } else {
+        tmp[n++] = (pmm_range_t){ .start=start, .end=end };
+    }
+    for (unsigned i = 1; i < n; i++) {
+        pmm_range_t v = tmp[i]; unsigned j = i;
+        while (j && tmp[j - 1].start > v.start) { tmp[j] = tmp[j - 1]; j--; }
+        tmp[j] = v;
+    }
+    unsigned w = 0;
+    for (unsigned i = 0; i < n; i++) {
+        if (w && tmp[i].start <= tmp[w - 1].end) {
+            if (tmp[i].end > tmp[w - 1].end) tmp[w - 1].end = tmp[i].end;
+        } else tmp[w++] = tmp[i];
+    }
+    if (w > PMM_MAX_HIGH) return -1;
+    for (unsigned i = 0; i < w; i++) active_high[i] = tmp[i];
+    active_high_n = w;
+    return 0;
 }
 
 static void merge_high(void) {
@@ -125,158 +199,158 @@ static void merge_high(void) {
     high_n = w;
 }
 
-int pmm_init(unsigned long magic, unsigned long addr) {
-    uart_print("[KIRA PMM] Parsing Multiboot2 memory map...\n");
-
-    if (magic != MB2_MAGIC) {
-        uart_print("[KIRA PMM ERROR] Bad Multiboot2 magic: ");
-        uart_print_hex(magic);
-        uart_print("\n");
-        return -1;
+static int pmm_init_map(const kbi_mmap_entry_t* map, uint32_t map_count,
+                         uint64_t reserve_addr, uint64_t reserve_size,
+                         const kbi_header_t* handoff) {
+    if(!map || !map_count || map_count>KIRA_BOOTINFO_MAX_MMAP) return -4;
+    uint64_t ram_top=0;
+    for(uint32_t i=0;i<map_count;i++) {
+        if(map[i].type!=KBI_MEM_USABLE || !map[i].length ||
+           map[i].base>UINT64_MAX-map[i].length) continue;
+        uint64_t t=map[i].base+map[i].length;
+        if(t>PMM_LIMIT) t=PMM_LIMIT;
+        if(t>ram_top) ram_top=t;
     }
-    if (addr == 0 || (addr & 7) != 0 || addr >= PMM_LOW) {
-        uart_print("[KIRA PMM ERROR] Multiboot2 info is outside the mapped region.\n");
-        return -2;
-    }
-
-    uint64_t info_size = *(const uint32_t*)addr;
-    if (info_size < 16 || addr + info_size > PMM_LOW) {
-        uart_print("[KIRA PMM ERROR] Corrupt Multiboot2 info size.\n");
-        return -3;
-    }
-
-    const uint8_t* end = (const uint8_t*)(addr + info_size);
-
-    // Проход 1: проверка карты и верхняя граница доступной ОЗУ (для размера карт).
-    int mmap_found = 0;
-    uint64_t ram_top = 0;
-    for (const uint8_t* p = (const uint8_t*)(addr + 8); p + sizeof(struct mb2_tag) <= end; ) {
-        const struct mb2_tag* tag = (const struct mb2_tag*)p;
-        if (tag->type == MB2_TAG_END) break;
-        if (tag->size < sizeof(struct mb2_tag) || p + tag->size > end) {
-            uart_print("[KIRA PMM ERROR] Corrupt Multiboot2 tag.\n");
-            return -3;
-        }
-        if (tag->type == MB2_TAG_MMAP && tag->size >= 16) {
-            uint32_t entry_size = *(const uint32_t*)(p + 8);
-            if (entry_size < sizeof(struct mb2_mmap_entry)) {
-                uart_print("[KIRA PMM ERROR] Bad memory map entry size.\n");
-                return -3;
-            }
-            mmap_found = 1;
-            for (const uint8_t* e = p + 16; e + sizeof(struct mb2_mmap_entry) <= p + tag->size; e += entry_size) {
-                const struct mb2_mmap_entry* ent = (const struct mb2_mmap_entry*)e;
-                if (ent->type != MB2_MEM_AVAILABLE || ent->addr + ent->len < ent->addr) continue;
-                uint64_t t = ent->addr + ent->len;
-                if (t > PMM_LIMIT) t = PMM_LIMIT;
-                if (t > ram_top) ram_top = t;
-            }
-        }
-        p += (tag->size + 7) & ~7u;
-    }
-    if (!mmap_found || ram_top == 0) {
-        uart_print("[KIRA PMM ERROR] Bootloader did not provide a memory map.\n");
+    if(!ram_top) {
+        uart_print("[KIRA PMM ERROR] BootInfo has no usable memory ranges.\n");
         return -4;
     }
 
-    const uint64_t group = 32 * PMM_PAGE_SIZE;                    // слово карты = 32 страницы
-    managed_top = (ram_top + group - 1) & ~(group - 1);
-    nwords = managed_top / PMM_PAGE_SIZE / 32;
-    uint64_t store_bytes = (2 * nwords * 4 + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
-
-    // Где лежат карты: в ОЗУ первого гигабайта, после образа ядра и Multiboot2-структуры.
-    uint64_t store_base = 0;
+    const uint64_t group=32*PMM_PAGE_SIZE;
+    managed_top=(ram_top+group-1)&~(group-1);
+    nwords=managed_top/PMM_PAGE_SIZE/32;
+    uint64_t store_bytes=(2*nwords*4+PMM_PAGE_SIZE-1)&~(PMM_PAGE_SIZE-1);
+    uint64_t store_base=0;
 #ifdef KIRA_HOST_TEST
-    if (!pmm_test_store || pmm_test_store_bytes < store_bytes) {
+    if(!pmm_test_store || pmm_test_store_bytes<store_bytes) {
         uart_print("[KIRA PMM ERROR] No room for the page bitmaps.\n");
         return -5;
     }
-    uint32_t* store = (uint32_t*)pmm_test_store;
+    uint32_t* store=(uint32_t*)pmm_test_store;
 #else
     {
-        uint64_t floor = (uint64_t)(uintptr_t)kernel_end;
-        if (addr + info_size > floor) floor = addr + info_size;
-        if (floor < 0x100000) floor = 0x100000;
-        floor = (floor + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
-        for (const uint8_t* p = (const uint8_t*)(addr + 8); p + sizeof(struct mb2_tag) <= end && !store_base; ) {
-            const struct mb2_tag* tag = (const struct mb2_tag*)p;
-            if (tag->type == MB2_TAG_END) break;
-            if (tag->type == MB2_TAG_MMAP && tag->size >= 16) {
-                uint32_t entry_size = *(const uint32_t*)(p + 8);
-                for (const uint8_t* e = p + 16; e + sizeof(struct mb2_mmap_entry) <= p + tag->size; e += entry_size) {
-                    const struct mb2_mmap_entry* ent = (const struct mb2_mmap_entry*)e;
-                    if (ent->type != MB2_MEM_AVAILABLE || ent->addr + ent->len < ent->addr) continue;
-                    uint64_t s = ent->addr > floor ? ent->addr : floor;
-                    s = (s + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
-                    uint64_t t = ent->addr + ent->len;
-                    if (t > PMM_LOW) t = PMM_LOW;
-                    if (t > s && t - s >= store_bytes) { store_base = s; break; }
+        uint64_t floor=(uint64_t)(uintptr_t)kernel_end;
+        if(reserve_addr && reserve_size && reserve_addr<=UINT64_MAX-reserve_size &&
+           reserve_addr+reserve_size>floor) floor=reserve_addr+reserve_size;
+        if(floor<0x100000) floor=0x100000;
+        floor=(floor+PMM_PAGE_SIZE-1)&~(PMM_PAGE_SIZE-1);
+        for(uint32_t i=0;i<map_count && !store_base;i++) {
+            if(map[i].type!=KBI_MEM_USABLE || map[i].base>UINT64_MAX-map[i].length) continue;
+            uint64_t s=map[i].base>floor?map[i].base:floor;
+            s=(s+PMM_PAGE_SIZE-1)&~(PMM_PAGE_SIZE-1);
+            uint64_t t=map[i].base+map[i].length;
+            if(t>PMM_LOW)t=PMM_LOW;
+            if(t<=s || t-s<store_bytes) continue;
+            uint64_t store_end=s+store_bytes;
+            int blocked=0;
+            if(handoff) {
+                const kbi_module_t* mods=(const kbi_module_t*)((const uint8_t*)handoff+handoff->modules_off);
+                for(uint32_t m=0;m<handoff->modules_count;m++) {
+                    uint64_t me=mods[m].base+mods[m].length;
+                    if(s<me && mods[m].base<store_end) { blocked=1; break; }
                 }
+                if(handoff->fb_size && s<handoff->fb_phys+handoff->fb_size &&
+                   handoff->fb_phys<store_end) blocked=1;
             }
-            p += (tag->size + 7) & ~7u;
+            if(!blocked) {store_base=s;break;}
         }
-        if (!store_base) {
+        if(!store_base) {
             uart_print("[KIRA PMM ERROR] No room for the page bitmaps below 1 GB.\n");
             return -5;
         }
     }
-    uint32_t* store = (uint32_t*)(uintptr_t)store_base;
+    uint32_t* store=(uint32_t*)(uintptr_t)store_base;
 #endif
-    used_map = store;
-    reserved_map = store + nwords;
-
-    // Старт: всё занято и зарезервировано; освобождаем то, что карта памяти называет доступным.
-    for (uint64_t i = 0; i < nwords; i++) { used_map[i] = 0xFFFFFFFFu; reserved_map[i] = 0xFFFFFFFFu; }
-    total_pages = 0;
-    high_n = 0; acpi_n = 0;
-
-    uint64_t usable_bytes = 0;
-    for (const uint8_t* p = (const uint8_t*)(addr + 8); p + sizeof(struct mb2_tag) <= end; ) {
-        const struct mb2_tag* tag = (const struct mb2_tag*)p;
-        if (tag->type == MB2_TAG_END) break;
-        if (tag->type == MB2_TAG_MMAP && tag->size >= 16) {
-            uint32_t entry_size = *(const uint32_t*)(p + 8);
-            for (const uint8_t* e = p + 16; e + sizeof(struct mb2_mmap_entry) <= p + tag->size; e += entry_size) {
-                const struct mb2_mmap_entry* ent = (const struct mb2_mmap_entry*)e;
-                if ((ent->type == MB2_MEM_ACPI || ent->type == MB2_MEM_NVS) && ent->addr + ent->len > ent->addr && acpi_n < PMM_MAX_ACPI) {
-                    acpi_r[acpi_n].start = ent->addr; acpi_r[acpi_n].end = ent->addr + ent->len; acpi_n++;
-                }
-                if (ent->type != MB2_MEM_AVAILABLE || ent->addr + ent->len < ent->addr) continue;
-                usable_bytes += ent->len;
-                uint64_t a = ent->addr, b = ent->addr + ent->len;
-                if (a < PMM_LOW) mark_range_free(a, (b < PMM_LOW ? b : PMM_LOW) - a);
-                if (b > PMM_LOW) defer_range(a > PMM_LOW ? a : PMM_LOW, b);
-            }
+    used_map=store;
+    reserved_map=store+nwords;
+    for(uint64_t i=0;i<nwords;i++){used_map[i]=0xFFFFFFFFu;reserved_map[i]=0xFFFFFFFFu;}
+    total_pages=0; high_n=0; active_high_n=0; acpi_n=0;
+    uint64_t usable_bytes=0;
+    for(uint32_t i=0;i<map_count;i++) {
+        const kbi_mmap_entry_t* e=&map[i];
+        if(!e->length || e->base>UINT64_MAX-e->length) continue;
+        uint64_t a=e->base,b=e->base+e->length;
+        if((e->type==KBI_MEM_ACPI_RECLAIM || e->type==KBI_MEM_ACPI_NVS) &&
+           acpi_n<PMM_MAX_ACPI) {
+            acpi_r[acpi_n].start=a; acpi_r[acpi_n].end=b; acpi_n++;
         }
-        p += (tag->size + 7) & ~7u;
+        if(e->type!=KBI_MEM_USABLE) continue;
+        usable_bytes+=e->length;
+        if(a<PMM_LOW) mark_range_free(a,(b<PMM_LOW?b:PMM_LOW)-a);
+        if(b>PMM_LOW) defer_range(a>PMM_LOW?a:PMM_LOW,b);
     }
     merge_high();
-
-    // Резервируем то, что занято НЕ по карте памяти:
-    reserve_range(0, 0x100000);                                  // всё ниже 1 МБ (BIOS, IVT, VGA, EBDA)
+    reserve_range(0,0x100000);
     reserve_range((uint64_t)(uintptr_t)kernel_start,
-                  (uint64_t)(uintptr_t)kernel_end - (uint64_t)(uintptr_t)kernel_start); // образ ядра, .bss, стек, таблицы страниц, куча
-    reserve_range(addr, info_size);                              // сама Multiboot2-структура
-    if (store_base) reserve_range(store_base, store_bytes);      // карты страниц
+                  (uint64_t)(uintptr_t)kernel_end-(uint64_t)(uintptr_t)kernel_start);
+    if(reserve_addr && reserve_size) reserve_range(reserve_addr,reserve_size);
+    if(store_base) reserve_range(store_base,store_bytes);
 
-    free_pages = 0;
-    for (uint64_t pg = 0; pg < nwords * 32; pg++) {
-        if (!test_bit(used_map, pg)) free_pages++;
+    /* Boot modules (initrd, firmware payloads) and the framebuffer may lie in
+       ranges marked usable by firmware. They must never enter the allocator. */
+    if(handoff) {
+        const kbi_module_t* mods=(const kbi_module_t*)((const uint8_t*)handoff+handoff->modules_off);
+        for(uint32_t i=0;i<handoff->modules_count;i++)
+            reserve_range(mods[i].base,mods[i].length);
+        if(handoff->fb_size) reserve_range(handoff->fb_phys,handoff->fb_size);
     }
-    search_hint = 0;
 
-    uint64_t high_bytes = 0;
-    for (unsigned i = 0; i < high_n; i++) high_bytes += high[i].end - high[i].start;
-    uart_print("[KIRA PMM] Usable RAM per memory map: ");
-    uart_print_dec(usable_bytes >> 20);
+    free_pages=0;
+    for(uint64_t pg=0;pg<nwords*32;pg++) if(!test_bit(used_map,pg)) free_pages++;
+    search_hint=0;
+    uint64_t high_bytes=0;
+    for(unsigned i=0;i<high_n;i++) high_bytes+=high[i].end-high[i].start;
+    uart_print("[KIRA PMM] Usable RAM per BootInfo map: ");
+    uart_print_dec(usable_bytes>>20);
     uart_print(" MB; allocatable now (below 1 GB, minus kernel and bitmaps): ");
-    uart_print_dec(pmm_get_free_memory_kb() >> 10);
+    uart_print_dec(pmm_get_free_memory_kb()>>10);
     uart_print(" MB; above 1 GB waiting to be mapped: ");
-    uart_print_dec(high_bytes >> 20);
+    uart_print_dec(high_bytes>>20);
     uart_print(" MB; bitmaps ");
-    uart_print_dec(store_bytes >> 10);
+    uart_print_dec(store_bytes>>10);
     uart_print(" KB.\n");
     return 0;
+}
+
+int pmm_init_bootinfo(const void* blob, uint32_t blob_size,
+                      uint64_t reserve_addr, uint64_t reserve_size) {
+    if(reserve_size && reserve_addr>UINT64_MAX-reserve_size) return -3;
+    if(kbi_validate(blob,blob_size)!=0) {
+        uart_print("[KIRA PMM ERROR] Invalid BootInfo handoff.\n");
+        return -3;
+    }
+    const kbi_header_t* h=(const kbi_header_t*)blob;
+    if(h->arch!=KBI_ARCH_X86_64) return -3;
+    return pmm_init_map(kbi_mmap(blob),h->mmap_count,reserve_addr,reserve_size,h);
+}
+
+int pmm_init(unsigned long magic, unsigned long addr) {
+    uart_print("[KIRA PMM] Parsing versioned BootInfo memory map...\n");
+    if(magic!=MB2_MAGIC) {
+        uart_print("[KIRA PMM ERROR] Bad Multiboot2 magic: "); uart_print_hex(magic); uart_print("\n");
+        return -1;
+    }
+    if(addr==0 || (addr&7)!=0 || addr>=PMM_LOW) {
+        uart_print("[KIRA PMM ERROR] Multiboot2 info is outside the mapped region.\n");
+        return -2;
+    }
+    uint64_t info_size=*(const uint32_t*)addr;
+    if(info_size<16 || (info_size&7) || info_size>PMM_LOW-addr ||
+       !mb2_validate(addr,info_size)) {
+        uart_print("[KIRA PMM ERROR] Corrupt Multiboot2 info block, tag sequence or memory map.\n");
+        return -3;
+    }
+    const void* blob=0; uint32_t blob_size=0;
+    int rc=kbi_from_multiboot2((const void*)(uintptr_t)addr,(uint32_t)info_size,
+        (uint64_t)(uintptr_t)kernel_start,
+        (uint64_t)(uintptr_t)kernel_end-(uint64_t)(uintptr_t)kernel_start,
+        &blob,&blob_size);
+    if(rc) {
+        uart_print("[KIRA PMM ERROR] Multiboot2 could not be normalized to BootInfo: ");
+        uart_print_dec((uint32_t)(-rc)); uart_print("\n");
+        return rc==-34?-4:-3;
+    }
+    return pmm_init_bootinfo(blob,blob_size,addr,info_size);
 }
 
 unsigned pmm_high_ranges(pmm_range_t* out, unsigned max) {
@@ -299,12 +373,17 @@ int64_t pmm_add_high(uint64_t start, uint64_t end) {
     for (unsigned i = 0; i < high_n; i++) if (start >= high[i].start && end <= high[i].end) inside = 1;
     if (!inside) return -1;
     uint64_t f = spin_lock_irqsave(&pmm_lock);
+    if (active_high_add_locked(start, end)) {
+        spin_unlock_irqrestore(&pmm_lock, f);
+        return -1;
+    }
     int64_t added = 0;
     for (uint64_t a = start; a < end; a += PMM_PAGE_SIZE) {
         uint64_t p = a / PMM_PAGE_SIZE;
-        if (!test_bit(used_map, p)) continue;                    // уже выдаётся
+        if (!test_bit(used_map, p) || test_bit(reserved_map, p)) continue;
+        /* A reserved boot module or device range remains unavailable even
+           when its containing firmware RAM range is explicitly mapped. */
         clear_bit(used_map, p);
-        clear_bit(reserved_map, p);
         total_pages++; free_pages++; added++;
     }
     spin_unlock_irqrestore(&pmm_lock, f);
@@ -355,21 +434,35 @@ uint64_t pmm_alloc_contiguous(uint32_t pages) {
 }
 
 int pmm_free_contiguous(uint64_t paddr, uint32_t pages) {
-    int rc = 0;
+    if (!pages || (paddr & (PMM_PAGE_SIZE - 1)) ||
+        paddr > UINT64_MAX - (uint64_t)pages * PMM_PAGE_SIZE ||
+        paddr + (uint64_t)pages * PMM_PAGE_SIZE > managed_top) return -1;
+    uint64_t first = paddr / PMM_PAGE_SIZE;
+    uint64_t f = spin_lock_irqsave(&pmm_lock);
     for (uint32_t i = 0; i < pages; i++) {
-        if (pmm_free_page(paddr + (uint64_t)i * PMM_PAGE_SIZE) != 0) rc = -1;
+        uint64_t page = first + i;
+        uint64_t addr = paddr + (uint64_t)i * PMM_PAGE_SIZE;
+        if (!high_page_active_locked(addr) || test_bit(reserved_map, page) || !test_bit(used_map, page)) {
+            spin_unlock_irqrestore(&pmm_lock, f);
+            return -1;
+        }
     }
-    return rc;
+    for (uint32_t i = 0; i < pages; i++) {
+        uint64_t page = first + i;
+        clear_bit(used_map, page);
+        free_pages++;
+        if ((uint32_t)(page >> 5) < search_hint) search_hint = (uint32_t)(page >> 5);
+    }
+    spin_unlock_irqrestore(&pmm_lock, f);
+    return 0;
 }
 
 int pmm_free_page(uint64_t paddr) {
-    if ((paddr & (PMM_PAGE_SIZE - 1)) != 0 || paddr >= managed_top) {
-        return -1;
-    }
+    if ((paddr & (PMM_PAGE_SIZE - 1)) != 0 || paddr >= managed_top) return -1;
     uint64_t page = paddr / PMM_PAGE_SIZE;
     uint64_t f = spin_lock_irqsave(&pmm_lock);
     int rc = 0;
-    if (test_bit(reserved_map, page) || !test_bit(used_map, page)) {
+    if (!high_page_active_locked(paddr) || test_bit(reserved_map, page) || !test_bit(used_map, page)) {
         rc = -1;
     } else {
         clear_bit(used_map, page);

@@ -17,7 +17,7 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
 
-C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c crypto.c rng.c virtio_rng.c scale.c kobj.c futex.c"
+C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c crypto.c rng.c virtio_rng.c scale.c kobj.c futex.c"
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
 ARCH=arch/x86_64
 ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c"
@@ -118,10 +118,13 @@ tools/kfstool kira.disk init
 for e in $UELF; do
     tools/kfstool kira.disk put /bin/$(basename $e .elf) $e
 done
-# Драйвер Ring 3 (тестовый, для QEMU -device edu) и его пакеты в /drv (kdrv_format.h, docs/DRIVERS.md)
-$CC $UCFLAGS -I. -Iuserland -c userland/drvedu.c -o userland/drvedu.o
-ld.lld $ULINK -o userland/drvedu.elf userland/drvedu.o
-tools/mkdrv.sh kira.disk userland/drvedu.elf "$HOSTCC"
+# Только для CI/QEMU: учебный драйвер edu не является production-драйвером.
+# В пользовательскую Android/release-сборку неподписанные тестовые пакеты не попадают.
+if [ "$RELEASE" != 1 ]; then
+    $CC $UCFLAGS -I. -Iuserland -c userland/drvedu.c -o userland/drvedu.o
+    ld.lld $ULINK -o userland/drvedu.elf userland/drvedu.o
+    tools/mkdrv.sh kira.disk userland/drvedu.elf "$HOSTCC"
+fi
 for h in kcc/include/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h     # заголовки libc-lite для kcc на Кире
 done
@@ -172,6 +175,11 @@ case "$1" in
         if [ -f "$OUT/kira_disk.img" ]; then
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
             for t in $TESTPROGS; do tools/kfstool "$OUT/kira_disk.img" rm /bin/$t >/dev/null 2>&1 || true; done   # убрать тестовые программы прежних версий
+            # Удалить учебные unsigned EDU-пакеты из ранее собранных образов; пользовательские драйверы не трогать.
+            for t in abad eduun edu edunc; do
+                tools/kfstool "$OUT/kira_disk.img" rm /drv/$t.kdrv >/dev/null 2>&1 || true
+                tools/kfstool "$OUT/kira_disk.img" rm /drv/$t.rec >/dev/null 2>&1 || true
+            done
             for e in $UELF; do tools/kfstool "$OUT/kira_disk.img" put /bin/$(basename $e .elf) $e >/dev/null; done
             for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
             for h in kcc/include/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done

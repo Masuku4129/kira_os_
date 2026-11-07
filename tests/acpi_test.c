@@ -34,6 +34,13 @@ int main(void){
     fix(rsdp,20,8); fix(rsdp,36,32);
     acpi_info_t i;
     CHECK(acpi_parse(base, base+(1<<16), &i)==0);
+    /* RSDP length and root entry array must stay within the supplied physical window. */
+    { uint32_t save; memcpy(&save, rsdp+20, 4); uint32_t huge=0xFFFFFFFFu; memcpy(rsdp+20, &huge, 4);
+      CHECK(acpi_parse(base, base+(1<<16), &i)==-4); memcpy(rsdp+20, &save, 4); }
+    CHECK(acpi_parse(UINT64_MAX-7, base+(1<<16), &i)==-1);
+    { uint32_t save; memcpy(&save, xsdt+4, 4); uint32_t bad=61; memcpy(xsdt+4, &bad, 4); fix(xsdt,bad,9);
+      CHECK(acpi_parse(base, base+(1<<16), &i)==-6); memcpy(xsdt+4, &save, 4); fix(xsdt,save,9); }
+    CHECK(acpi_parse(base, base+(1<<16), &i)==0);
     CHECK(i.cpu_count==2 && i.cpu_apic_id[0]==0 && i.cpu_apic_id[1]==300 && i.max_apic_id==300);
     CHECK(i.valid && i.revision==2 && i.ioapic_count==1 && i.ioapic[0].addr==0xFEC00000);
     CHECK(i.lapic_addr==0xFEE00000 && i.irq_override_count==1 && i.has_hpet && i.mcfg_base==ecam && i.mcfg_bus_end==255);

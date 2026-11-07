@@ -26,14 +26,15 @@
 - Тесты на хосте: `bash tests/run_host_tests.sh` (gcc, ASan/UBSan), в конце `ALL HOST TESTS PASSED`.
 
 ## 3. Стенд (CI)
-- `.github/workflows/ci.yml`: host-tests, build (x86), vm (13 сценариев x86 под KVM: `ci/kira_vm.py` +
-  `ci/scenarios.py`), arm64 (4 машины QEMU virt без KVM: `ci/arm64_vm.py`), report.
-- Итоги публикуются в ветку `ci-results`: `latest/SUMMARY.md`, журналы `latest/vm-*/serial.log`, снимки экрана,
-  символы ядра `latest/vm-symbols/kira.sym` (для расшифровки адресов в аварийных дампах).
-  Прочитать: `git fetch --depth 1 origin +refs/heads/ci-results:refs/remotes/origin/ci-results;
-  git show origin/ci-results:latest/SUMMARY.md`.
+- Актуальная матрица в `.github/workflows/ci.yml`: audit, host-tests, KCC compiler suite, driver installer E2E,
+  x86_64 build, 40 x86_64 QEMU scenarios, ARM64 build + 16 QEMU scenarios, Mind quality и GUI regression.
+- Дополнительные jobs могут появляться по мере закрытия release blockers; точный список всегда брать из workflow,
+  а не из этой памятки. Таймаут job не равен доказанному зависанию: смотреть шаги и журнал.
+- Итоги конкретного запуска и ветки публикуются в соответствующую `ci-results*` ветку. Артефакты текущего запуска
+  доступны на вкладке Actions и включают образы, символы и отчёты; не считать неполный набор артефактов успешным релизом.
 - Сценарий = список шагов (`cmd`/`must`/`forbid`, `send`, `sleep`, `shot`, `log`, `log_forbid`, `responsive`).
-  Запрещённые строки любого сценария x86: `NO_ERR` в ci/scenarios.py (сбой ядра, IRET, GS, переполнение стека...).
+  Для каждого изменения указывать точные сценарии и SHA проверенного коммита.
+- Актуальные незакрытые архитектурные ограничения и условия выпуска: `docs/RELEASE_GAPS.md`.
 
 ## 4. Карта исходников
 Общий код (корень):
@@ -66,7 +67,7 @@
 ASID), `uaccess_arch.c` (PAN, вход в программу), `selftest_arm.c` (команда test), `notyet.c` (подсистемы, которых
 на ARM64 ещё нет).
 
-## 5. Состояние на 31.10.2026
+## 5. Исторический снимок состояния на 31.10.2026 (не использовать как текущий статус)
 x86-64: всё прежнее (оболочка, программы, USB, диски, Разум) + этапы 1-2 плана; все 13 сценариев стенда - OK.
 ARM64 (проверено стендом на 4 машинах QEMU virt): загрузка, MMU, GICv2/v3, PSCI до 8 ядер, планировщик, куча,
 мьютексы, PCIe (ECAM), virtio-blk и NVMe, KiraFS (запись/чтение файлов), опыт, Разум (все уровни), сторож.
