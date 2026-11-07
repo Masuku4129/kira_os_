@@ -14,6 +14,6 @@ The build also wraps this raw image as `kira-bios.iso` using El Torito hard-disk
 
 ## Native UEFI removable media
 
-The build optionally creates `uefi-fat.img` and the `uefi/` directory when LLVM `lld-link`, `mkfs.vfat`, and mtools are installed. The FAT32 volume contains `EFI/BOOT/BOOTX64.EFI` and `KIRA.BIN`. The EFI application loads the ELF kernel, synthesizes the Multiboot2 handoff from UEFI memory-map, ACPI, and GOP data, exits boot services, and enters the native long-mode shim.
+The build optionally creates `uefi-fat.img` and the `uefi/` directory when LLVM `lld-link`, `mkfs.vfat`, and mtools are installed. The FAT32 volume contains `EFI/BOOT/BOOTX64.EFI` and `KIRA.BIN`. The EFI application loads the ELF kernel, builds and validates the versioned KIRA BootInfo blob from the UEFI memory map, ACPI RSDP, and GOP data, exits boot services, and enters the native long-mode shim.
 
 The native UEFI files are a removable-media path; they are not yet the El Torito EFI boot image embedded in `kira.iso`.
