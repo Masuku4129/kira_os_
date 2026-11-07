@@ -1,0 +1,85 @@
+
+==================================================
+[KIRA OS] Kernel core starting...
+==================================================
+[KIRA BOOT] BootInfo v1 validated: memory ranges=10, modules=0, bytes=377.
+[KIRA BOOT] Early console is on screen.
+[KIRA GDT] GDT loaded (Ring0/Ring3 segments), TSS loaded with 3 IST stacks (#DF, NMI, #MC).
+[KIRA IDT] Configuring 64-bit Interrupt Descriptor Table...
+[KIRA IDT] IDT loaded: 32 exceptions (#DF/NMI/#MC on IST) + 16 IRQs + LAPIC spurious, other vectors -> unhandled trap.
+[KIRA FPU] x87 + SSE/SSE2 enabled; per-thread FXSAVE state (512 B) saved on every context switch. AVX present but not enabled (needs XSAVE area).
+[KIRA PMM] Usable RAM per BootInfo map: 511 MB; allocatable now (below 1 GB, minus kernel and bitmaps): 506 MB; above 1 GB waiting to be mapped: 0 MB; bitmaps 32 KB.
+[KIRA VMM] Verifying paging state...
+[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.
+[KIRA VMM] NULL guard installed: first 2 MB split into 4 KB pages, page 0 unmapped.
+[KIRA VMM] SMEP enabled: kernel cannot execute user pages.
+[KIRA VMM] SMAP enabled: kernel touches user memory only through checked copies.
+[KIRA RAM] Mapped RAM above 1 GB: 0 MB (2 MB pages, no-execute); edges lost to alignment or failures: 0 KB.
+[KIRA ACPI] rev 0, tables ok 5 bad 0 unmapped 0, CPUs 2, IOAPICs 1, HPET yes, PCIe ECAM 0xB0000000
+[KIRA HW] CPU AuthenticAMD family 26 model 2 stepping 1, virtual machine
+[KIRA HW] cores (ACPI): 2, RAM 506 MB, address bits 48/48
+[KIRA HW] features: sse2 nx page1g xsave(2432B) avx avx2 avx512f pcid invpcid smep smap fsgsbase rdrand rdseed x2apic tsc-deadline
+[KIRA HW] TSC not measured yet
+[KIRA HW] limits for this machine: program heap up to 253 MB per program, kernel keeps 31 MB free
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 782497 bytes, prefix 400ef4d2...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+[KIRA PROC] up to 8 programs at once (2 cores, 506 MB RAM).
+[KIRA SYSCALL] SYSCALL/SYSRET enabled: write, exit, ticks, sleep, yield, getpid, gfx, fs (sandbox /data/<name>), heap (quota), threads, futex, ports, shared memory, clock; user pointers validated.
+[KIRA PCI] 7 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 8 MB (PCI 0:2.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA AHCI] controller 0x8086:0x2922, AHCI 1.0, ports 6, 64-bit DMA, completion by MSI interrupt
+[KIRA AHCI] port 2: optical drive (ATAPI) - not used yet
+[KIRA DISK] vda: virtio-blk, 8 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 6128 KB free.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA FB] Bootloader mode: 1024x768x32 type 1 addr 0xFD000000
+[KIRA FB] 1024x768x32 linear framebuffer at 0xFD000000, write-combining (PAT); back buffer 3072 KB in RAM.
+[KIRA PAR] parallel helpers: 1 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA KEYBOARD] PS/2 IRQ1 handler registered (decoded by the input layer).
+[KIRA MOUSE] PS/2 mouse enabled (IRQ12, 3-byte packets).
+[KIRA NET] e1000 (8086:10d3): MAC 52:54:00:12:34:56, link up, receive by MSI interrupt
+[KIRA NET] Network stack online: Ethernet, ARP, IPv4 (fragments), ICMP, UDP, DHCP client, DNS, TCP, IPv6 (ND, SLAAC, ICMPv6, UDP, TCP) (commands: net, ping, ping6, dns, http).
+[KIRA TIMER] PIT started, frequency 500 Hz, IRQ0 unmasked.
+[KIRA APIC] xAPIC mode: registers in the kernel MMIO window, base 0xFEE00000, id 0, version 0x14
+[KIRA OS] Core initialization complete. Enabling interrupts.
+[KIRA RTC] Real-time clock (CMOS, read as UTC): СУББОТА, 7 НОЯБРЯ 2026 13:11
+[KIRA CPU] TSC 2596447 kHz, measured by PIT channel 2, 3x50 ms median.
+[KIRA APIC] Timer calibrated against TSC: 62505 kcounts/s (bus clock ~1000 MHz).
+[KIRA IOAPIC] id 0 at 0xFEC00000, version 0x11, 24 pins, GSI base 0
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA IRQ] IOAPIC delivery verified end-to-end: RTC -> IOAPIC -> LAPIC, 51 interrupts in 50 ms.
+[KIRA IRQ] LAPIC timer verified: 100 ticks in 200 ms (expected 100).
+[KIRA IRQ] APIC mode: LAPIC timer 500 Hz is the tick source, 2 device lines routed through IOAPIC, legacy PIC and PIT disabled.
+[KIRA SMP] Processors online: 2 of 2 (MADT).
+[KIRA SMP] IPI ping answered by 1 of 1 started processors. Each core runs its own scheduler tick and its own ready queue; idle cores take waiting work from busy ones.
+[KIRA SMP] TSC skew between cores: max 6 ns (measurement precision +-35 ns): clocks agree.
+[KIRA OS] Ready. Type 'help' and press Enter.
+
+кира> [KIRA NET] DHCP: address 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, lease 86400 s
+[KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA NET] IPv6: fe80::5054:ff:fe12:3456 (link-local, DAD passed) ready
+[KIRA NET] IPv6: router advertisement from fe80::2, default router
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA NET] IPv6: fec0::5054:ff:fe12:3456 (SLAAC /64, DAD passed) ready
+fetch 10.0.2.100 /e1000e
+[KIRA PROC] pid 1 'fetch' started from ELF: Ring 3, own address space, 212 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] fetch: 10.0.2.100/e1000e - HTTP/1.0 200 OK - 3400 bytes in 20 ms (server closed), saved to /data/fetch/last.txt
+[KIRA PROC] pid 1 'fetch' finished, exit code 0, address space destroyed (229 pages returned to PMM).
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: пробую 2000 мс вместо 1000 (причина: темп фона снижался; о�
+net
+карта e1000, канал есть, TIME_WAIT: 0 (всего 0), прерываний приёма 10
+адрес 10.0.2.15, маска 255.255.255.0, шлюз 10.0.2.2, DNS 10.0.2.3 (DHCP, аренда 86400 с)
+кадров принято 11, отправлено 14, отброшено 0
+фрагменты IP: собрано 0, собирается 0, повторов 0, перекрытий 0, негодных 0, слишком больших 0, не нашлось места 0, по сроку 0
+IPv6: fe80::5054:ff:fe12:3456/64 (адрес канала)
+IPv6: fec0::5054:ff:fe12:3456/64 (SLAAC)
+IPv6: маршрутизатор fe80::2
+IPv6: соседей в кэше 1, MTU 1500, отброшено ND/IP 0
+кира> 
