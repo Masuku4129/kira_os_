@@ -67,7 +67,7 @@ def main() -> int:
     expected = bytes.fromhex("".join(pub_path.read_text(encoding="ascii").split()))
     if len(expected) != 32:
         raise ValueError("trusted public key file must contain exactly 32 bytes in hex")
-    public_pattern = r"\\s*,\\s*".join(rf"0x{byte:02x}" for byte in expected)
+    public_pattern = r"\s*,\s*".join(rf"0x{byte:02x}" for byte in expected)
     if not re.search(public_pattern, trust_text, re.IGNORECASE):
         raise ValueError("trusted public key bytes are not present in the selected trust header")
 

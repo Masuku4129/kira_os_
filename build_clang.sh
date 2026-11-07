@@ -48,7 +48,7 @@ $CC $UCFLAGS -I. -c crypto.c -o userland/u_crypto.o
 $CC $UCFLAGS -I. -c sha256.c -o userland/u_sha256.o
 $CC $UCFLAGS -I. -c kdrv_sig.c -o userland/u_kdrv_sig.o
 $CC $UCFLAGS -c userland/libc_min.c -o userland/u_libc_min.o
-ld.lld $ULINK -o userland/fetch.elf userland/fetch.o userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_kdrv_sig.o userland/u_libc_min.o
+ld.lld $ULINK -o userland/fetch.elf userland/fetch.o userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_libc_min.o
 UELF="$UELF userland/fetch.elf"
 # net6: сокеты IPv6; разбор адреса - ip6.c (тот же файл, что у ядра)
 $CC $UCFLAGS -I. -Iuserland -c userland/net6.c -o userland/net6.o
@@ -73,14 +73,14 @@ $CC $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -c userland/drvget.c -
 $CC $UCFLAGS -I. -c userland/drvget_core.c -o userland/u_drvget_core.o
 $CC $UCFLAGS -I. -c kdrv_fmt.c -o userland/u_kdrv_fmt.o
 ld.lld $ULINK -o userland/drvget.elf userland/drvget.o userland/u_drvget_core.o userland/u_kdrv_fmt.o $KCC_OBJ userland/u_kccrt.o \
-    userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_libc_min.o
+    userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_kdrv_sig.o userland/u_libc_min.o
 UELF="$UELF userland/drvget.elf"
 # drvman: окно «Драйверы» (/bin/drvman). Та же логика, что у drvget (userland/drvget.c с -DDRVGET_LIB), плюс окно и шрифт ядра
 $CC $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -DDRVGET_LIB -c userland/drvget.c -o userland/drvget_lib.o
 $CC $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -c userland/drvman.c -o userland/drvman.o
 $CC $UCFLAGS -I. -c font8x16.c -o userland/font_drvman.o
 ld.lld $ULINK -o userland/drvman.elf userland/drvman.o userland/drvget_lib.o userland/u_drvget_core.o userland/u_kdrv_fmt.o userland/font_drvman.o $KCC_OBJ userland/u_kccrt.o \
-    userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_libc_min.o
+    userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_kdrv_sig.o userland/u_libc_min.o
 UELF="$UELF userland/drvman.elf"
 # Программы с вещественной арифметикой (3D, тест FPU): SSE2 разрешён только им, ядро собирается без SSE.
 USSE_FLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -msse2 -mfpmath=sse -mno-mmx -fno-math-errno -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
