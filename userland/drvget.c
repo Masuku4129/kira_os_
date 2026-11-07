@@ -542,16 +542,23 @@ static int cmd_confirm(const char *arg) {
     snprintf(f2, sizeof f2, "%s.rec", R.name);
     snprintf(f3, sizeof f3, "%s.sig", R.name);
     i64 w = drv_op(KFS_DRV_WRITE, f1, pkg, total, 0);
-    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f1, (long long)w); return 1; }
-    w = drv_op(KFS_DRV_WRITE, f2, &rec, sizeof rec, 0);
-    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f2, (long long)w); drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0); return 1; }
+    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\\n", f1, (long long)w); return 1; }
+    /* Write publisher signature before the local-confirmation record. .rec is the
+       commit marker checked by the kernel: an interrupted signed install must never
+       fall back to an unsigned/local package. */
     if (has_publisher_sig) {
         w = drv_op(KFS_DRV_WRITE, f3, &publisher_sig, sizeof publisher_sig, 0);
         if (w < 0) {
-            sayf("drvget: запись подписи /drv/%s отклонена (код %lld); пакет удалён\n", f3, (long long)w);
+            sayf("drvget: запись подписи /drv/%s отклонена (код %lld); пакет удалён\\n", f3, (long long)w);
             drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0);
             return 1;
         }
+    }
+    w = drv_op(KFS_DRV_WRITE, f2, &rec, sizeof rec, 0);
+    if (w < 0) {
+        sayf("drvget: запись /drv/%s отклонена (код %lld); пакет удалён\\n", f2, (long long)w);
+        drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0);
+        return 1;
     }
     stage_clear();
     sayf("drvget: установлено: /drv/%s и /drv/%s; издательская подпись: %s\n",
