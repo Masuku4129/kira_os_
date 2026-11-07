@@ -22,6 +22,7 @@ stage2_start:
     call collect_e820
     jc stage2_error
     call enable_a20
+    call clear_kernel_memory
     call load_kernel
     jc stage2_error
     call build_multiboot_info
@@ -103,6 +104,17 @@ enable_a20:
     ret
 
 ; ---------------------------------------------------------------------------
+; Zero the full linked kernel memory span first; objcopy omits NOBITS .bss.
+; ---------------------------------------------------------------------------
+clear_kernel_memory:
+    call enter_unreal
+    mov edi, 0x00100000
+    mov ecx, KERNEL_MEM_BYTES
+    xor eax, eax
+    a32 rep stosb
+    ret
+
+; ---------------------------------------------------------------------------
 ; Load the flat image at 1 MiB using EDD reads to a low bounce buffer,
 ; then copy each chunk above 1 MiB in unreal mode.
 ; ---------------------------------------------------------------------------
@@ -132,6 +144,8 @@ load_kernel:
     mov ah, 0x42
     int 0x13
     jc .failed
+    xor ax, ax
+    mov ds, ax
 
     movzx eax, word [dap+2]
     shl eax, 9
@@ -145,8 +159,8 @@ load_kernel:
     mov ax, BOUNCE_SEG
     mov ds, ax
     xor esi, esi
-    mov edi, [destination]
-    mov ecx, [copy_bytes]
+    mov edi, [cs:destination]
+    mov ecx, [cs:copy_bytes]
     a32 rep movsb
     xor ax, ax
     mov ds, ax
@@ -244,6 +258,8 @@ build_multiboot_info:
 ; Failure path: visible BIOS text, then halt.
 ; ---------------------------------------------------------------------------
 stage2_error:
+    xor ax, ax
+    mov ds, ax
     mov si, error_text
 .print:
     lodsb
