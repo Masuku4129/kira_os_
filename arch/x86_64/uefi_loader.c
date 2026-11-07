@@ -187,21 +187,26 @@ static EFI_STATUS open_kernel(EFI_BOOT_SERVICES *bs, EFI_HANDLE image,
         return EFI_INVALID_PARAMETER;
     EFI_LOADED_IMAGE_PROTOCOL *loaded=0;
     EFI_STATUS st=bs->handle_protocol(image,&loaded_image_guid,(void**)&loaded);
-    if(EFI_ERROR(st)||!loaded) return st;
+    if(EFI_ERROR(st)) return st;
+    if(!loaded) return EFI_INVALID_PARAMETER;
     EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs=0;
     st=bs->handle_protocol(loaded->device_handle,&simple_fs_guid,(void**)&fs);
-    if(EFI_ERROR(st)||!fs||!fs->open_volume) return st;
+    if(EFI_ERROR(st)) return st;
+    if(!fs||!fs->open_volume) return EFI_INVALID_PARAMETER;
     EFI_FILE *root=0,*file=0;
     st=fs->open_volume(fs,&root);
-    if(EFI_ERROR(st)||!root) return st;
+    if(EFI_ERROR(st)) return st;
+    if(!root||!root->open||!root->close) return EFI_INVALID_PARAMETER;
     static CHAR16 path[]={'\\','K','I','R','A','.','B','I','N',0};
     st=root->open(root,&file,path,EFI_FILE_MODE_READ,0);
     if(EFI_ERROR(st)||!file) {
+        file=0;
         static CHAR16 fallback[]={'\\','E','F','I','\\','B','O','O','T','\\','K','I','R','A','.','B','I','N',0};
         st=root->open(root,&file,fallback,EFI_FILE_MODE_READ,0);
     }
     root->close(root);
-    if(EFI_ERROR(st)||!file||!file->read||!file->close) return st;
+    if(EFI_ERROR(st)) return st;
+    if(!file||!file->read||!file->close) return EFI_INVALID_PARAMETER;
     uint64_t cap=KERNEL_MAX;
     st=bs->allocate_pool(EFI_BOOT_SERVICES_DATA,cap,data);
     if(EFI_ERROR(st)){file->close(file);return st;}
