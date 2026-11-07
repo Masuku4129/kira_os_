@@ -107,6 +107,7 @@ class VM:
         if sc.get("limbo"): self.k = max(self.k, 8.0)       # эмуляция одним потоком в разы медленнее KVM
         self.log = bytearray()
         self.notes = []
+        self.prompt_ready = False
         os.makedirs(out, exist_ok=True)
         self.disk = os.path.join(out, "disk.img")
         shutil.copyfile(disk, self.disk)
@@ -297,11 +298,14 @@ class VM:
         while time.time() < end:
             m = rx.search(bytes(self.log[since:]))
             if m:
+                if rx.pattern == re.escape(PROMPT.decode()).encode():
+                    self.prompt_ready = True
                 return since + m.end()
             self.pump(0.2)
         raise Fail(f"не дождались «{pattern}» за {timeout * self.k:.0f} с")
 
     def send(self, text):
+        self.prompt_ready = False
         self.ser.setblocking(True)
         for ch in text.encode():
             self.ser.sendall(bytes([ch]))
@@ -310,9 +314,12 @@ class VM:
 
     def command(self, cmd, timeout=30):
         """Выполнить команду консоли; вернуть её вывод (до следующего приглашения)."""
-        # expect() может остановиться на байтах «кира>», пока остаток UART-пакета
-        # ещё лежит в сокете. Сначала дочитываем очередь, иначе следующий command()
-        # способен принять старое приглашение за ответ новой команды и вернуть пустой вывод.
+        # Фоновые команды (_dg) ждут свою строку, а не приглашение. Не отправляем
+        # следующую команду, пока предыдущий процесс не завершил вывод и shell не готов.
+        if not self.prompt_ready:
+            self.expect(re.escape(PROMPT.decode()), timeout, len(self.log))
+        # expect() может остановиться на байтах приглашения, пока хвост UART-пакета
+        # ещё лежит в сокете. Дочитываем его до отметки начала нового ответа.
         self.drain(0.05)
         start = len(self.log)
         self.send(cmd + "\r")
