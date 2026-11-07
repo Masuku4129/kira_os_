@@ -24,7 +24,7 @@ def without_locked_regions(text):
     return re.sub(r"kmutex_lock\(&mmx\);.*?kmutex_unlock\(&mmx\);", "", text, flags=re.S)
 
 for name, signature in (("mind_sys_tick", "void mind_sys_tick("),
-                        ("tact_main", "static void tact_main("),
+                        ("tact_main", "static void tact_main(void* arg) {"),
                         ("mind_sys_admit", "int mind_sys_admit(")):
     outside = without_locked_regions(body(signature))
     if re.search(r"\bM\s*(?:\.|->)|&M\b", outside):
@@ -41,8 +41,16 @@ for slot in ("req_mode", "req_fx", "req_tz", "req_rtc", "req_cap"):
     if f"mind_sync_store_int(&{slot}," not in source:
         raise SystemExit(f"Mind sync audit: {slot} is not atomically published")
 
-tact = body("static void tact_main(")
+tact = body("static void tact_main(void* arg) {")
 if "mind_lever_val(&M, ML_TACT_PERIOD)" not in tact or "kmutex_lock(&mmx)" not in tact:
     raise SystemExit("Mind sync audit: tactical model reads are not protected")
 
-print("Mind sync audit: shared-model paths and request mailboxes satisfy the locking contract")
+for name, signature in (("mind_sys_core_cap", "unsigned mind_sys_core_cap("),
+                        ("mind_sys_tz", "int32_t mind_sys_tz("),
+                        ("mind_sys_rtc_local", "int  mind_sys_rtc_local("),
+                        ("mind_sys_local_offset", "int32_t mind_sys_local_offset(")):
+    outside = without_locked_regions(body(signature))
+    if re.search(r"\\bM\\s*(?:\\.|->)|&M\\b", outside):
+        raise SystemExit(f"Mind sync audit: unguarded model accessor {name}")
+
+print("Mind sync audit: shared-model paths, accessors and request mailboxes satisfy the locking contract")
