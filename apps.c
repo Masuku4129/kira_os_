@@ -284,11 +284,14 @@ static void mind_draw_training(surface_t* s, const mind_view_t* v) {
 static void mind_draw_decisions(surface_t* s, const mind_view_t* v) {
     gfx_fill(s, TH_CONTENT);
     card(s, 10, 10, 580, 90, "СВОДКА РЕШЕНИЙ", TH_PURPLE);
-    char t[96]; int p = cat(t, 0, "решений: "); p = cat_u(t, p, v->decisions);
+    char t[128]; int p = cat(t, 0, "решений: "); p = cat_u(t, p, v->decisions);
     p = cat(t, p, " · отклонений: "); p = cat_u(t, p, v->anomalies);
     p = cat(t, p, " · остановок: "); p = cat_u(t, p, v->kills); gfx_text(s, 26, 48, t, TH_TEXT, -1);
+    uint32_t lever_backs = 0;
+    for (int i = 0; i < ML_N; i++) lever_backs += v->lv[i].backs;
     p = cat(t, 0, "изменений рычагов: "); p = cat_u(t, p, v->lv_changes);
-    p = cat(t, p, " · общих откатов: "); p = cat_u(t, p, v->lv_general); gfx_text(s, 26, 74, t, TH_TEXT_DIM, -1);
+    p = cat(t, p, " · их откатов: "); p = cat_u(t, p, lever_backs);
+    p = cat(t, p, " · общих: "); p = cat_u(t, p, v->lv_general); gfx_text(s, 26, 74, t, TH_TEXT_DIM, -1);
     card(s, 10, 110, 580, 415, "АДАПТИВНЫЕ ПАРАМЕТРЫ · 13–30", TH_CYAN);
     for (int i = 0; i < ML_N; i++) {
         int x = i / 9 ? 310 : 26, y = 142 + (i % 9) * 40;
