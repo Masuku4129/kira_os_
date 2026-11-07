@@ -5,6 +5,7 @@
  */
 #include <stdint.h>
 #include <stddef.h>
+#include "../../bootinfo.h"
 
 #define EFIAPI __attribute__((ms_abi))
 #define EFI_ERROR(s) (((int64_t)(s)) < 0)
@@ -16,7 +17,6 @@
 #define EFI_ALLOCATE_MAX_ADDRESS 1u
 #define EFI_FILE_MODE_READ 1ull
 #define EFI_PAGE_SIZE 4096u
-#define MB2_MAGIC 0x36D76289u
 #define MB2_INFO_MAX (256u * 1024u)
 #define KERNEL_MAX (64u * 1024u * 1024u)
 #define ONE_GB 0x40000000ull
@@ -245,10 +245,11 @@ static int mask_info(uint32_t mask,uint8_t *pos,uint8_t *bits) {
     *pos=(uint8_t)shift; *bits=(uint8_t)n; return 0;
 }
 
-static int build_mbi(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
-                     void *mbi,uint64_t mbi_capacity,void *mapbuf,uint64_t mapcap,
-                     uint64_t *mapkey_out) {
-    /* Resolve all firmware interfaces before GetMemoryMap captures its key. */
+static int build_bootinfo(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
+                          void *blob,uint64_t blob_capacity,
+                          void *mapbuf,uint64_t map_capacity,
+                          uint64_t kernel_base,uint64_t kernel_end,
+                          uint64_t *mapkey_out,uint32_t *blob_size_out) {
     void *rsdp=0;
     for(uint64_t i=0;i<st->number_of_table_entries;i++)
         if(bytes_eq((const uint8_t*)&st->configuration_table[i].guid,
@@ -264,46 +265,18 @@ static int build_mbi(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
     if(bs->locate_protocol)
         (void)bs->locate_protocol(&gop_guid,0,(void**)&gop);
 
-    uint64_t map_size=mapcap,mapkey=0,desc_size=0; uint32_t desc_ver=0;
+    uint64_t map_size=map_capacity,mapkey=0,desc_size=0; uint32_t desc_ver=0;
     EFI_STATUS rc=bs->get_memory_map(&map_size,mapbuf,&mapkey,&desc_size,&desc_ver);
     if(EFI_ERROR(rc)||desc_size<sizeof(EFI_MEMORY_DESCRIPTOR)||!desc_size||
-       map_size%desc_size) return -1;
-    uint64_t count=map_size/desc_size;
-    if(count>4096) return -2;
+       map_size%desc_size||map_size>UINT32_MAX||desc_size>UINT32_MAX) return -1;
 
-    zero_mem(mbi,(size_t)mbi_capacity);
-    uint8_t *base=(uint8_t*)mbi, *p=base+8;
-    uint32_t mm_size=(uint32_t)(16+count*24);
-    if((uint64_t)(p-base)+mm_size+8>mbi_capacity) return -3;
-    uint32_t *mm=(uint32_t*)p; mm[0]=6; mm[1]=mm_size;
-    mm[2]=24; mm[3]=0;
-    uint8_t *q=p+16;
-    for(uint64_t i=0;i<count;i++) {
-        EFI_MEMORY_DESCRIPTOR *d=(EFI_MEMORY_DESCRIPTOR*)((uint8_t*)mapbuf+i*desc_size);
-        if(d->pages>UINT64_MAX/EFI_PAGE_SIZE) return -4;
-        uint64_t len=d->pages*EFI_PAGE_SIZE;
-        if(d->physical_start>UINT64_MAX-len) return -4;
-        uint32_t type=2;
-        if(d->type==3||d->type==4||d->type==7) type=1;
-        else if(d->type==9) type=3;
-        else if(d->type==10) type=4;
-        else if(d->type==8) type=5;
-        uint64_t *pair=(uint64_t*)q; pair[0]=d->physical_start; pair[1]=len;
-        ((uint32_t*)q)[4]=type; ((uint32_t*)q)[5]=0; q+=24;
-    }
-    p=(uint8_t*)align_up((uintptr_t)(p+mm_size),8);
+    uint32_t blob_size=0;
+    int br=kbi_from_uefi_memory_map(mapbuf,(uint32_t)map_size,(uint32_t)desc_size,
+        (uint64_t)(uintptr_t)rsdp,kernel_base,kernel_end-kernel_base,
+        blob,(uint32_t)blob_capacity,&blob_size);
+    if(br) return -10+br;
 
-    if(rsdp) {
-        uint8_t rev=((uint8_t*)rsdp)[15];
-        uint32_t rsdp_size=rev>=2?*(uint32_t*)((uint8_t*)rsdp+20):20;
-        uint32_t tag_type=rev>=2?15:14;
-        if(rsdp_size<(rev>=2?36u:20u)||rsdp_size>4096||
-           (uint64_t)(p-base)+8+rsdp_size>mbi_capacity) return -5;
-        uint32_t *tag=(uint32_t*)p; tag[0]=tag_type; tag[1]=8+rsdp_size;
-        copy_mem(p+8,rsdp,rsdp_size);
-        p=(uint8_t*)align_up((uintptr_t)(p+8+rsdp_size),8);
-    }
-
+    kbi_header_t *h=(kbi_header_t*)blob;
     if(gop&&gop->mode&&gop->mode->info) {
         EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *gi=gop->mode->info;
         uint32_t red=0,green=0,blue=0;
@@ -311,31 +284,31 @@ static int build_mbi(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
         else if(gi->pixel_format==1){red=0x00ff0000;green=0x0000ff00;blue=0x000000ff;}
         else if(gi->pixel_format==2){red=gi->pixel_information.red_mask;green=gi->pixel_information.green_mask;blue=gi->pixel_information.blue_mask;}
         uint8_t rp=0,rs=0,gp=0,gs=0,bp=0,bsz=0;
+        uint64_t pitch=(uint64_t)gi->pixels_per_scanline*4u;
         if(gi->pixel_format<=2&&gop->mode->framebuffer_base&&
-           gop->mode->framebuffer_size&&
+           gop->mode->framebuffer_size&&gi->horizontal_resolution&&
+           gi->vertical_resolution&&gi->pixels_per_scanline>=gi->horizontal_resolution&&
+           pitch<=UINT32_MAX&&pitch*gi->vertical_resolution<=gop->mode->framebuffer_size&&
            mask_info(red,&rp,&rs)==0&&mask_info(green,&gp,&gs)==0&&
            mask_info(blue,&bp,&bsz)==0&&
            (uint16_t)rp+rs<=32&&(uint16_t)gp+gs<=32&&(uint16_t)bp+bsz<=32&&
            !(red&green)&&!(red&blue)&&!(green&blue)&&
-           (uint64_t)gi->pixels_per_scanline*4<=UINT32_MAX&&
-           (uint64_t)gi->pixels_per_scanline*4*gi->vertical_resolution<=gop->mode->framebuffer_size) {
-            if((uint64_t)(p-base)+38>mbi_capacity) return -6;
-            uint32_t *w=(uint32_t*)p; w[0]=8; w[1]=38;
-            *(uint64_t*)(p+8)=gop->mode->framebuffer_base;
-            *(uint32_t*)(p+16)=gi->pixels_per_scanline*4;
-            *(uint32_t*)(p+20)=gi->horizontal_resolution;
-            *(uint32_t*)(p+24)=gi->vertical_resolution;
-            p[28]=32; p[29]=1; p[30]=p[31]=0;
-            p[32]=rp; p[33]=rs; p[34]=gp; p[35]=gs; p[36]=bp; p[37]=bsz;
-            p=(uint8_t*)align_up((uintptr_t)(p+38),8);
+           gop->mode->framebuffer_size<=UINT64_MAX-gop->mode->framebuffer_base) {
+            h->flags|=KBI_F_FRAMEBUFFER;
+            h->fb_phys=gop->mode->framebuffer_base;
+            h->fb_size=gop->mode->framebuffer_size;
+            h->fb_pitch=(uint32_t)pitch;
+            h->fb_width=gi->horizontal_resolution;
+            h->fb_height=gi->vertical_resolution;
+            h->fb_bpp=32;
+            h->fb_red_pos=rp; h->fb_red_size=rs;
+            h->fb_green_pos=gp; h->fb_green_size=gs;
+            h->fb_blue_pos=bp; h->fb_blue_size=bsz;
         }
     }
-
-    if((uint64_t)(p-base)+8>mbi_capacity) return -7;
-    uint32_t *end=(uint32_t*)p; end[0]=0; end[1]=8; p+=8;
-    uint32_t total=(uint32_t)(p-base);
-    ((uint32_t*)mbi)[0]=total; ((uint32_t*)mbi)[1]=0;
+    if(kbi_validate(blob,blob_size)!=0) return -20;
     *mapkey_out=mapkey;
+    *blob_size_out=blob_size;
     return 0;
 }
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
@@ -352,19 +325,21 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
     void *mbi=alloc_low_pages(bs,MB2_INFO_MAX,EFI_LOADER_DATA);
     void *mapbuf=alloc_low_pages(bs,1024u*1024u,EFI_BOOT_SERVICES_DATA);
     if(!mbi||!mapbuf) return (EFI_STATUS)0x8000000000002001ull;
-    uint64_t mapkey=0;
-    int br=build_mbi(bs,st,mbi,MB2_INFO_MAX,mapbuf,1024u*1024u,&mapkey);
+    uint64_t mapkey=0; uint32_t bootinfo_size=0;
+    int br=build_bootinfo(bs,st,mbi,MB2_INFO_MAX,mapbuf,1024u*1024u,
+                          kernel_base,kernel_end,&mapkey,&bootinfo_size);
     if(br) return (EFI_STATUS)(0x8000000000002000ull+(uint32_t)(-br));
 
     rc=bs->exit_boot_services(image,mapkey);
     if(EFI_ERROR(rc)) {
         /* Firmware may invalidate the key; rebuild from a fresh map without
            allocating or freeing anything, then retry exactly once. */
-        br=build_mbi(bs,st,mbi,MB2_INFO_MAX,mapbuf,1024u*1024u,&mapkey);
+        br=build_bootinfo(bs,st,mbi,MB2_INFO_MAX,mapbuf,1024u*1024u,
+                          kernel_base,kernel_end,&mapkey,&bootinfo_size);
         if(br) return (EFI_STATUS)0x8000000000002002ull;
         rc=bs->exit_boot_services(image,mapkey);
         if(EFI_ERROR(rc)) return rc;
     }
-    ((kernel_entry_fn)(uintptr_t)entry)(MB2_MAGIC,(uint64_t)(uintptr_t)mbi);
+    ((kernel_entry_fn)(uintptr_t)entry)(KIRA_BOOTINFO_MAGIC,(uint64_t)(uintptr_t)mbi);
     for(;;) __asm__ volatile("cli; hlt");
 }
