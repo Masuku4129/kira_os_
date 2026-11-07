@@ -203,6 +203,17 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     }
     if (!kdrv_match_dev(&p.h, d->vendor, d->device, cls_of(d))) { kfree(p.buf); uart_print("[KIRA DRV] "); uart_print(name); uart_print(": не подходит этому устройству\n"); return -1; }
     uint32_t granted = p.h.caps & p.r.caps_ok;                                      /* запрошено в пакете И подтверждено пользователем */
+    /* Fail closed: сейчас ядро не создаёт VT-d/AMD-Vi/SMMU domain для этого BDF.
+       DMA и MSI требуют bus mastering и могут записывать в произвольную физическую память.
+       Не запускать такой Ring 3 драйвер, пока iommu_device_isolated() не будет реализован
+       и подтверждён тестом для конкретного устройства. */
+    if (!kdrv_dma_policy_allow(granted, 0)) {
+        kfree(p.buf);
+        uart_print("[KIRA DRV] "); uart_print(name);
+        uart_print(": DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен\\n");
+        life_note("drv-denied-dma", name, KDRV_E_DMA_UNSAFE);
+        return KDRV_E_DMA_UNSAFE;
+    }
     if ((granted & CAP_DMA) && platform_dma_noncoherent && platform_dma_noncoherent()) {
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name); uart_print(": плата без согласованности кэша (пул DMA без кэша) - DMA драйверам Ring 3 здесь не отдаётся, драйвер НЕ запущен\n");
@@ -220,8 +231,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     b->name[k] = 0;
     b->granted = granted; b->version = p.h.version;
     if (granted & CAP_MMIO) pci_enable(d, PCI_CMD_MEM);
-    if (granted & (CAP_DMA | CAP_IRQ)) pci_enable(d, PCI_CMD_MASTER);               /* и сообщение MSI - запись устройства в память */
-    if (granted & CAP_IRQ) irq_enable(b);
+    /* Bus mastering и MSI не включаются без выделенного IOMMU domain. */
     char pname[16] = "drv-";
     for (k = 0; b->name[k]; k++) pname[4 + k] = b->name[k];
     pname[4 + k] = 0;
@@ -653,7 +663,6 @@ int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         if (a1 == 0x04) {                                                              /* команда: только её разрешённые биты и только словом */
             uint32_t ok = PCI_CMD_INTX_OFF | 0x40 | 0x100;
             if (b->granted & CAP_MMIO) ok |= PCI_CMD_MEM;
-            if (b->granted & (CAP_DMA | CAP_IRQ)) ok |= PCI_CMD_MASTER;
             if (a2 != 2 || (a3 & ~(uint64_t)ok)) { deny_note(b, "запись в регистр команд PCI значения", a3); return KE_PERM; }
             uint16_t cur = pci_read16(b->dev, 0x04);
             pci_write16(b->dev, 0x04, (uint16_t)((cur & ~ok) | (uint16_t)a3));
