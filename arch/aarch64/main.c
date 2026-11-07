@@ -6,6 +6,7 @@
    ядре, мьютексы ядра; межъядерные сигналы - SGI контроллера GIC. Файловые системы, Разум, программы - дальше. */
 #include <stdint.h>
 #include "fdt.h"
+#include "bootinfo.h"
 #include "fb_arm.h"
 #include "timer.h"
 #include "cpu.h"
@@ -52,7 +53,8 @@
 #include "platform.h"
 #include "msi.h"
 
-#define MAX_RAM 16
+#define MAX_RAM 64
+static uint8_t arm_bootinfo_blob[8192] __attribute__((aligned(16)));
 
 extern char __kernel_start[], __kernel_end[];
 extern void secondary_entry(void);
@@ -1061,24 +1063,33 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
             (uint64_t)(uintptr_t)fdt, (uint64_t)fdt_total_size(fdt), uart);
     kprintf("[KIRA ARM64] entered at EL%u, running at EL%u\n", entry_el & 3, (SYSREG_R(CurrentEL) >> 2) & 3);
 
-    /* ОЗУ: все узлы device_type = memory, все пары reg */
-    uint64_t top = 4ull << 30;
-    int depth = 0;
-    for (int n = fdt_root(fdt); n >= 0; n = fdt_next_node(fdt, n, &depth)) {
-        uint32_t len; const char* t = (const char*)fdt_prop(fdt, n, "device_type", &len);
-        if (!fdt_node_enabled(fdt, n) || !t || len < 7 || __builtin_memcmp(t, "memory", 7)) continue;
-        uint64_t a, s;
-        for (unsigned k = 0; nram < MAX_RAM && fdt_reg(fdt, n, k, &a, &s) == 0; k++) if (s) {
-            ram[nram].base = a; ram[nram].size = s; nram++;
-            if (a + s > top) top = a + s;
-        }
+    /* Normalize the ARM handoff once: memory banks, framebuffer and bootargs become
+       the same versioned BootInfo ABI consumed by the x86 path and the ARM PMM. */
+    uint32_t bootinfo_size = 0;
+    uint64_t kernel_base = (uint64_t)(uintptr_t)__kernel_start;
+    uint64_t kernel_size = (uint64_t)(uintptr_t)__kernel_end - kernel_base;
+    if (kbi_from_fdt(fdt, fdt_total_size(fdt), (uint64_t)(uintptr_t)fdt,
+                     kernel_base, kernel_size, arm_bootinfo_blob,
+                     sizeof arm_bootinfo_blob, &bootinfo_size))
+        kernel_panic("cannot normalize ARM device tree into BootInfo");
+    const kbi_header_t* bootinfo = (const kbi_header_t*)arm_bootinfo_blob;
+    const kbi_mmap_entry_t* boot_map = kbi_mmap(bootinfo);
+    uint64_t top = 4ull << 30, total = 0;
+    for (uint32_t i = 0; i < bootinfo->mmap_count; i++) {
+        if (boot_map[i].type != KBI_MEM_USABLE || nram >= MAX_RAM)
+            kernel_panic("invalid or excessive BootInfo RAM map");
+        ram[nram].base = boot_map[i].base;
+        ram[nram].size = boot_map[i].length;
+        nram++;
+        uint64_t end = boot_map[i].base + boot_map[i].length;   /* validated by kbi_validate */
+        if (end > top) top = end;
+        if (boot_map[i].length > UINT64_MAX - total)
+            kernel_panic("BootInfo RAM size sum overflows");
+        total += boot_map[i].length;
     }
-    if (!nram) kernel_panic("device tree has no enabled RAM regions");
-    uint64_t total = 0;
-    for (unsigned i = 0; i < nram; i++) {
-        if (ram[i].size > UINT64_MAX - total) kernel_panic("device tree RAM size sum overflows");
-        total += ram[i].size;
-    }
+    if (!nram) kernel_panic("BootInfo contains no usable RAM");
+    kprintf("[KIRA BOOT] BootInfo v%u: ARM64 Device Tree, %u normalized RAM range(s), %u bytes\n",
+            (uint64_t)bootinfo->version, (uint64_t)nram, (uint64_t)bootinfo_size);
     bump = (uint64_t)(uintptr_t)__kernel_end;
     uint64_t fdt_end = (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt);
     if ((uint64_t)(uintptr_t)fdt >= bump && fdt_end > bump) bump = fdt_end;   /* дерево за ядром - не затирать */
