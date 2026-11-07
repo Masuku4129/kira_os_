@@ -71,7 +71,8 @@ Implemented in the v46 working branch:
 - virtio-blk failed-probe and request-timeout paths attempt to reset the device before releasing queue and bounce buffers. If reset cannot be confirmed, backing memory is deliberately retained to avoid device DMA into freed RAM.
 - The ARM64 non-coherent DMA pool now uses a page bitmap and exact allocation records instead of a monotonic bump pointer; released extents can be reused. A boot-time self-test checks page alignment, zeroing, exact release and reuse. If it fails, DMA remains disabled rather than falling back to cacheable PMM pages.
 - The platform DMA pool hook validates both CPU and device-visible page alignment and rejects address-range overflow.
-- Host regressions cover DMA registry exhaustion/reuse, repeated late virtio-blk probe failures, explicit shutdown before PCI model reset, and timeout cleanup/reprobe. CI run 686 exposed a segmentation fault in the virtio host test; the fixture and lifecycle are being corrected and the replacement run is pending.
+- A validated DMA synchronization API now checks allocation ownership and byte ranges, including interior subranges. Queue rings, block buffers, RNG buffers, GPU command/response/framebuffer buffers, network buffers and input event buffers explicitly transfer ownership with sync-for-device/sync-for-CPU calls. ARM64 uses system-scope barriers for the Normal-NC pool; x86 relies on coherent DMA plus memory barriers.
+- Host regressions cover DMA registry exhaustion/reuse, DMA sync range boundaries, repeated late virtio-blk probe failures, explicit shutdown before PCI model reset, and timeout cleanup/reprobe. CI run 686 exposed a segmentation fault in the virtio host test; the fixture and lifecycle were corrected in the subsequent validation snapshot, whose complete CI result is still pending.
 
 Still required:
 - Platform discovery and validation for x86 VT-d / AMD-Vi and ARM SMMU.
