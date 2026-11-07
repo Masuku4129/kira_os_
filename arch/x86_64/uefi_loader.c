@@ -169,6 +169,10 @@ static EFI_STATUS open_kernel(EFI_BOOT_SERVICES *bs, EFI_HANDLE image,
     if(EFI_ERROR(st)||!root) return st;
     static CHAR16 path[]={'\\','K','I','R','A','.','B','I','N',0};
     st=root->open(root,&file,path,EFI_FILE_MODE_READ,0);
+    if(EFI_ERROR(st)||!file) {
+        static CHAR16 fallback[]={'\\','E','F','I','\\','B','O','O','T','\\','K','I','R','A','.','B','I','N',0};
+        st=root->open(root,&file,fallback,EFI_FILE_MODE_READ,0);
+    }
     root->close(root);
     if(EFI_ERROR(st)||!file) return st;
     uint64_t cap=KERNEL_MAX;
@@ -188,20 +192,24 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
     const ELF64_EHDR *e=(const ELF64_EHDR*)file;
     static const uint8_t elf_magic[4]={0x7f,'E','L','F'};
     if(!bytes_eq(e->ident,elf_magic,4)||e->ident[4]!=2||e->ident[5]!=1||
-       e->machine!=62||e->version!=1||e->phentsize!=sizeof(ELF64_PHDR)||
+       e->type!=2||e->machine!=62||e->version!=1||e->ehsize!=sizeof(ELF64_EHDR)||
+       e->phentsize!=sizeof(ELF64_PHDR)||
        !e->phnum||e->phnum>32||e->phoff>size||
        (uint64_t)e->phnum*sizeof(ELF64_PHDR)>size-e->phoff) return -2;
     const ELF64_PHDR *ph=(const ELF64_PHDR*)(file+e->phoff);
-    uint64_t low=UINT64_MAX,high=0;
+    uint64_t low=UINT64_MAX,high=0; int executable_entry=0;
     for(uint16_t i=0;i<e->phnum;i++) if(ph[i].type==1) {
         if(!ph[i].memsz||ph[i].filesz>ph[i].memsz||ph[i].offset>size||
            ph[i].filesz>size-ph[i].offset||ph[i].vaddr!=ph[i].paddr||
            ph[i].paddr<0x100000||ph[i].paddr>=ONE_GB||
            ph[i].memsz>ONE_GB-ph[i].paddr) return -3;
+        if((ph[i].flags&1u)&&e->entry>=ph[i].paddr&&e->entry<ph[i].paddr+ph[i].memsz) executable_entry=1;
+        for(uint16_t j=0;j<i;j++) if(ph[j].type==1 &&
+            ph[i].paddr<ph[j].paddr+ph[j].memsz && ph[j].paddr<ph[i].paddr+ph[i].memsz) return -6;
         if(ph[i].paddr<low) low=ph[i].paddr;
         if(ph[i].paddr+ph[i].memsz>high) high=ph[i].paddr+ph[i].memsz;
     }
-    if(low==UINT64_MAX||high<=low||e->entry<low||e->entry>=high) return -4;
+    if(low==UINT64_MAX||high<=low||e->entry<low||e->entry>=high||!executable_entry) return -4;
     uint64_t base=low&~(uint64_t)(EFI_PAGE_SIZE-1);
     uint64_t end=align_up(high,EFI_PAGE_SIZE);
     uint64_t pages=(end-base)/EFI_PAGE_SIZE, address=base;
