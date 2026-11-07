@@ -22,7 +22,9 @@ int virtio_rng_read(void* out, uint32_t n) {
     if (st < 0) return -1;
     if (n > 64) n = 64;
     virtq_buf_t b = { buf_p, n, 1 };
-    if (virtq_run(&q, &b, 1) != 0) return -1;
+    if (virtio_dma_sync_for_device(buf, buf_p, n) != 0 ||
+        virtq_run(&q, &b, 1) != 0 ||
+        virtio_dma_sync_for_cpu(buf, buf_p, n) != 0) return -1;
     for (uint32_t i = 0; i < n; i++) ((uint8_t*)out)[i] = buf[i];
     for (uint32_t i = 0; i < n; i++) buf[i] = 0;
     return (int)n;
