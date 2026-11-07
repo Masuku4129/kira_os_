@@ -1,4 +1,5 @@
 #include "fb.h"
+#include "bootinfo.h"
 #include "pmm.h"
 #include "vmm.h"
 #include "uart.h"
@@ -31,6 +32,47 @@ static int dx0 = 1 << 30, dy0 = 1 << 30, dx1, dy1;   /* охват измене�
 int fb_available(void) { return ready; }
 const fb_info_t* fb_get_info(void) { return &info; }
 surface_t* fb_surface(void) { return ready ? &back : 0; }
+
+int fb_init_bootinfo(const kbi_header_t *bi) {
+    if (!bi || bi->total_size < sizeof(*bi) ||
+        bi->total_size > KIRA_BOOTINFO_MAX_SIZE ||
+        kbi_validate(bi, bi->total_size) != 0 ||
+        !(bi->flags & KBI_F_FRAMEBUFFER)) return -1;
+    fmt = (fbpix_fmt_t){ (uint8_t)((bi->fb_bpp + 7) / 8),
+        bi->fb_red_pos, bi->fb_red_size,
+        bi->fb_green_pos, bi->fb_green_size,
+        bi->fb_blue_pos, bi->fb_blue_size };
+    if (fbpix_valid(&fmt, bi->fb_bpp) != 0) return -3;
+    uint32_t w=bi->fb_width,h=bi->fb_height,pitch=bi->fb_pitch;
+    if(w<320||h<200||w>4096||h>4096||(w&1)||
+       pitch<(uint64_t)w*fmt.bytes) return -3;
+    uint64_t bytes=(uint64_t)pitch*h;
+    if(bytes>bi->fb_size||bi->fb_phys>UINT64_MAX-bytes) return -3;
+    native=fbpix_is_native(&fmt);
+    int wc=(vmm_enable_write_combining()==0);
+    front=(uint8_t*)(uintptr_t)vmm_map_mmio(bi->fb_phys,bytes,VMM_MMIO_WC);
+    if(!front) return -4;
+    uint64_t back_bytes64=(uint64_t)w*h*4u;
+    if(back_bytes64>UINT32_MAX) return -5;
+    uint32_t back_bytes=(uint32_t)back_bytes64;
+    uint32_t pages=(back_bytes+4095u)/4096u;
+    uint64_t bb=pmm_alloc_contiguous(pages);
+    if(!bb) return -5;
+    info.phys=bi->fb_phys; info.width=w; info.height=h;
+    info.pitch_bytes=pitch; info.bpp=bi->fb_bpp;
+    info.write_combining=wc; info.back_phys=bb; info.back_bytes=back_bytes;
+    back.px=(uint32_t*)(uintptr_t)bb; back.w=(int)w; back.h=(int)h; back.pitch=(int)w;
+    gfx_fill(&back,0x000000);
+    ready=1;
+    uart_print("[KIRA FB] UEFI BootInfo framebuffer: ");
+    uart_print_dec(w); uart_print("x"); uart_print_dec(h);
+    uart_print("x"); uart_print_dec(bi->fb_bpp);
+    uart_print(" at "); uart_print_hex(bi->fb_phys);
+    uart_print(wc?", write-combining (PAT)":" , uncached (no PAT)");
+    uart_print("; back buffer "); uart_print_dec(back_bytes>>10);
+    uart_print(" KB in RAM.\n");
+    return 0;
+}
 
 int fb_init(unsigned long mbi) {
     if (mbi == 0 || (mbi & 7) || mbi >= ONE_GB) return -1;
