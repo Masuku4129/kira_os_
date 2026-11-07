@@ -333,3 +333,52 @@ int fdt_simplefb(const void* fdt, fdt_fb_t* fb) {
     if (!streq(fb->format, "x8r8g8b8") && !streq(fb->format, "a8r8g8b8")) return -3;
     return 0;
 }
+
+/* Discover ARM System MMUs from their standard DT compatible strings. This is
+   deliberately discovery-only: callers must not grant DMA until a translation
+   domain has been installed and invalidation has completed. */
+static int fdt_smmu_compat(const void* fdt, int node, uint32_t* version) {
+    static const struct { const char* name; uint32_t version; } ids[] = {
+        { "arm,smmu-v3", 3 }, { "arm,smmu-v2", 2 },
+        { "arm,mmu-500", 2 }, { "qcom,smmu-v2", 2 }
+    };
+    for (unsigned i = 0; i < sizeof(ids) / sizeof(ids[0]); i++)
+        if (fdt_compatible(fdt, node, ids[i].name)) {
+            *version = ids[i].version;
+            return 1;
+        }
+    return 0;
+}
+
+unsigned fdt_smmu_count(const void* fdt) {
+    if (!fdt_tree_valid(fdt, 0)) return 0;
+    unsigned count = 0;
+    int depth = 0;
+    for (int node = fdt_root(fdt); node >= 0; node = fdt_next_node(fdt, node, &depth)) {
+        uint32_t version;
+        if (fdt_node_enabled(fdt, node) && fdt_smmu_compat(fdt, node, &version)) count++;
+    }
+    return count;
+}
+
+int fdt_smmu_get(const void* fdt, unsigned index, fdt_smmu_t* out) {
+    if (!out || !fdt_tree_valid(fdt, 0)) return -1;
+    unsigned found = 0;
+    int depth = 0;
+    for (int node = fdt_root(fdt); node >= 0; node = fdt_next_node(fdt, node, &depth)) {
+        uint32_t version, cells;
+        if (!fdt_node_enabled(fdt, node) || !fdt_smmu_compat(fdt, node, &version)) continue;
+        if (found++ != index) continue;
+        uint64_t base, size;
+        if (fdt_reg(fdt, node, 0, &base, &size) != 0 || !size ||
+            base > UINT64_MAX - size || fdt_prop_u32(fdt, node, "#iommu-cells", &cells) != 0 ||
+            cells > 8) return -2;
+        out->base = base;
+        out->size = size;
+        out->version = version;
+        out->iommu_cells = cells;
+        out->enabled = 1;
+        return 0;
+    }
+    return -3;
+}
