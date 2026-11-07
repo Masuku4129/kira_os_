@@ -32,6 +32,13 @@ int main(int argc, char** argv) {
         fprintf(stderr, "kdrvsig: key id must contain exactly 16 hex characters\n");
         return 2;
     }
+    for (unsigned i = 0; i < 16; i++) {
+        char ch = key_id[i];
+        if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) {
+            fprintf(stderr, "kdrvsig: key id must be lowercase hexadecimal\n");
+            return 2;
+        }
+    }
     size_t pkg_len, raw_len;
     unsigned char* pkg = read_file(argv[1], &pkg_len);
     unsigned char* raw = read_file(argv[2], &raw_len);
