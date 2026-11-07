@@ -211,6 +211,7 @@ int virtio_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes) {
     return 0;
 }
 
+/* Final CI snapshot: virtio DMA lifecycle, ownership sync and device quiesce. */
 /* Exact-size release prevents accidental freeing with a mismatched allocation
    contract. Platform pools without a matching free hook remain allocated. */
 int virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
@@ -339,16 +340,44 @@ int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
 static uint8_t status_get(virtio_dev_t* v) { return MMIO_R8(v->common + R_STATUS); }
 static void status_set(virtio_dev_t* v, uint8_t s) { MMIO_W8(v->common + R_STATUS, s); }
 
+static void virtio_pci_quiesce(virtio_dev_t* v) {
+    if (!v || !v->pci) return;
+    uint8_t id;
+    uint16_t cap = 0;
+    for (unsigned n = 0; n < 48 && (cap = pci_next_cap(v->pci, cap, &id)) != 0; n++) {
+        if (id == 0x05) {                                      /* MSI */
+            uint16_t ctl = pci_read16(v->pci, (uint16_t)(cap + 2));
+            if (ctl & 1u) pci_write16(v->pci, (uint16_t)(cap + 2), (uint16_t)(ctl & ~1u));
+        } else if (id == 0x11) {                               /* MSI-X: mask function, then disable */
+            uint16_t ctl = pci_read16(v->pci, (uint16_t)(cap + 2));
+            ctl = (uint16_t)((ctl | 0x4000u) & ~0x8000u);
+            pci_write16(v->pci, (uint16_t)(cap + 2), ctl);
+        }
+    }
+    uint16_t command = pci_read16(v->pci, 0x04);
+    if (command & PCI_CMD_MASTER)
+        pci_write16(v->pci, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+}
+
 static int reset(virtio_dev_t* v) {
     if (!v || !v->common) return -1;
     status_set(v, 0);
-    for (uint32_t i = 0; i < SPIN_LIMIT; i++) { if (status_get(v) == 0) return 0; CPU_RELAX(); }
+    for (uint32_t i = 0; i < SPIN_LIMIT; i++) {
+        if (status_get(v) == 0) { barrier(); return 0; }
+        CPU_RELAX();
+    }
     return -1;
 }
 
-int virtio_reset_device(virtio_dev_t* v) { return reset(v); }
+int virtio_reset_device(virtio_dev_t* v) {
+    if (!v || !v->common) return -1;
+    virtio_pci_quiesce(v);
+    return reset(v);
+}
 
 void virtio_fail(virtio_dev_t* v) {
+    if (!v || !v->common) return;
+    virtio_pci_quiesce(v);
     status_set(v, status_get(v) | VIRTIO_ST_FAILED);
     (void)reset(v);
 }

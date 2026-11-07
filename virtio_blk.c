@@ -37,6 +37,7 @@ static void blk_release_after_reset(void) {
         hdr = 0; hdr_phys = 0; status_byte = 0; status_phys = 0; bounce = 0; bounce_phys = 0;
     }
     if (vq.mem) (void)virtio_queue_release(&vq);
+    if (!blk_dma && !vq.mem) vdev = (virtio_dev_t){0};
 }
 
 static void blk_abort(const char* message) {
@@ -75,6 +76,7 @@ static int request(uint32_t type, uint64_t sector, uint32_t sectors) {
 }
 
 static int vblk_read(blk_dev_t* d, uint64_t lba, uint32_t count, void* buf) {
+    if (dead || !present || !bounce) return -5;
     if (lba + count > d->sectors || lba + count < lba) return -1;
     uint8_t* p = (uint8_t*)buf;
     while (count) {
@@ -88,6 +90,7 @@ static int vblk_read(blk_dev_t* d, uint64_t lba, uint32_t count, void* buf) {
 }
 
 static int vblk_write(blk_dev_t* d, uint64_t lba, uint32_t count, const void* buf) {
+    if (dead || !present || !bounce) return -5;
     if (lba + count > d->sectors || lba + count < lba) return -1;
     if (vdev.features & BLK_F_RO) return -6;
     const uint8_t* p = (const uint8_t*)buf;
@@ -103,6 +106,7 @@ static int vblk_write(blk_dev_t* d, uint64_t lba, uint32_t count, const void* bu
 
 static int vblk_flush(blk_dev_t* d) {
     (void)d;
+    if (dead || !present || !bounce) return -5;
     if (!(vdev.features & BLK_F_FLUSH)) return 0;          /* устройство без кэша записи: запись уже долговечна */
     return request(T_FLUSH, 0, 0);
 }
@@ -128,7 +132,7 @@ void virtio_blk_shutdown(void) {
 
 blk_dev_t* virtio_blk_probe(void) {
     if (present) return &disk;
-    if (vq.mem || blk_dma) return 0; /* a previous probe retained live DMA ownership */
+    if (vdev.common || vq.mem || blk_dma) return 0; /* reset or DMA ownership was not fully released */
     present = 0; dead = 0;
     const pci_dev_t* pd = pci_find(VIRTIO_VENDOR, 0x1042);     /* virtio-blk, современный */
     if (!pd) pd = pci_find(VIRTIO_VENDOR, 0x1001);              /* «переходный»: тот же прибор, но с capabilities 1.0 */
