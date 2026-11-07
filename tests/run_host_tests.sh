@@ -25,6 +25,9 @@ $T/mem
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c bootinfo_mb2.c bootinfo.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
 $T/pmm | head -4
+echo "== ARM64 PMM (permanent reservations, high-range bitmap, atomic contiguous free) =="
+$CC $FLAGS -o $T/pmm-arm tests/pmm_arm_test.c arch/aarch64/pmm_arm.c
+$T/pmm-arm
 
 echo "== ramext (mapping RAM above 1 GB) =="
 $CC $FLAGS -o $T/ramext tests/ramext_test.c ramext.c
