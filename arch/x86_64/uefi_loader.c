@@ -1,6 +1,6 @@
 /* KIRA native UEFI loader.
- * Loads the identity-linked x86-64 ELF kernel, synthesizes a Multiboot2
- * information block from UEFI services, exits boot services, then transfers
+ * Loads the identity-linked x86-64 ELF kernel, synthesizes the versioned KIRA
+ * BootInfo handoff from UEFI services, exits boot services, then transfers
  * control to the kernel's UEFI long-mode entry shim.
  */
 #include <stdint.h>
