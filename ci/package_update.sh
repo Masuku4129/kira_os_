@@ -8,6 +8,8 @@ IMAGE_AUDIT="${IMAGE_AUDIT_DIR}/image-audit.json"
 KIRA_VERSION="${KIRA_VERSION:-v46}"
 BASE_REF="${KIRA_BASE_REF:-edae4ab3367a055826f431e261af5d6dee790ddf}"
 mkdir -p "$OUT_DIR"
+# Never publish a combined update while architecture blockers remain open.
+python3 ci/release_gate.py docs/RELEASE_GAPS.md
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
