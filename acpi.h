@@ -23,6 +23,15 @@ typedef struct {
     int      has_hpet;
     uint64_t mcfg_base;            /* база PCIe ECAM (0 = нет) */
     uint8_t  mcfg_bus_start, mcfg_bus_end;
+    /* Intel VT-d DMAR: checked remapping units, RMRR ranges and device scopes. */
+    int dmar_valid;
+    uint8_t dmar_host_width, dmar_flags;
+    uint32_t dmar_unit_count, dmar_rmrr_count, dmar_scope_count;
+    struct { uint8_t owner_type, owner_index, type, enumeration_id, start_bus, path_count;
+             uint8_t devfn[16]; } dmar_scope[128];
+    struct { uint16_t segment; uint8_t include_all, flags; uint64_t reg_base; } dmar_unit[16];
+    struct { uint16_t segment; uint64_t base, limit; } dmar_rmrr[32];
+
     uint32_t tables_seen, tables_bad, tables_skipped_high;
     uint8_t  source;               /* 0 - ACPI (MADT), 1 - таблицы Intel MP (ACPI нет или в нём нет процессоров) */
     /* питание (FADT и \_S5 из DSDT) */
