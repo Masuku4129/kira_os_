@@ -117,7 +117,7 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
             uint32_t len=size-16;
             if(len>KIRA_BOOTINFO_MAX_SIZE-cursor) return -35;
             modules_names[mi]=cursor; name_lengths[mi]=len;
-            cursor+=len; cursor=align8(cursor); mi++;
+            cursor+=len; cursor=align8(cursor); if(cursor>KIRA_BOOTINFO_MAX_SIZE) return -35; mi++;
         }
         off+=align8(size);
     }
