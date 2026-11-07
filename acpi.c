@@ -74,24 +74,86 @@ static int aml_int(const uint8_t* p, const uint8_t* e, uint32_t* v, const uint8_
     return -1;
 }
 
+static int aml_pkg_end(const uint8_t* p, const uint8_t* end,
+                       const uint8_t** body, const uint8_t** package_end) {
+    if (p >= end) return -1;
+    uint8_t lead = *p;
+    unsigned follow = lead >> 6;
+    if ((size_t)(end - p) < 1u + follow) return -1;
+    uint32_t length;
+    if (!follow) {
+        length = lead & 0x3Fu;
+    } else {
+        length = lead & 0x0Fu;
+        for (unsigned i = 0; i < follow; i++)
+            length |= (uint32_t)p[1 + i] << (4 + 8 * i);
+    }
+    if (length < 1u + follow || (uint64_t)length > (uint64_t)(end - p))
+        return -1;
+    *body = p + 1 + follow;
+    *package_end = p + length;
+    if (*body > *package_end) return -1;
+    return 0;
+}
+
 int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b) {
-    for (uint32_t i = 1; i + 8 < len; i++) {
-        if (aml[i] != '_' || aml[i + 1] != 'S' || aml[i + 2] != '5' || aml[i + 3] != '_') continue;
-        /* имя объявлено: NameOp (0x08) перед именем, возможно с корнем '\\' */
-        if (!(aml[i - 1] == 0x08 || (aml[i - 1] == '\\' && i >= 2 && aml[i - 2] == 0x08))) continue;
-        const uint8_t* p = aml + i + 4; const uint8_t* e = aml + len;
-        if (*p++ != 0x12) continue;                              /* PackageOp */
-        uint32_t follow = (uint32_t)(*p >> 6);                   /* PkgLength: 0-3 дополнительных байта */
-        p += 1 + follow;
-        if (p >= e) continue;
-        p++;                                                     /* NumElements */
+    if (!aml || !a || !b) return -1;
+    const uint8_t* end = aml + len;
+    for (uint32_t i = 1; i + 5 < len; i++) {
+        if (aml[i] != '_' || aml[i + 1] != 'S' || aml[i + 2] != '5' || aml[i + 3] != '_')
+            continue;
+        /* NameOp перед именем; поддерживаем абсолютный корневой путь. */
+        if (!(aml[i - 1] == 0x08 ||
+              (i >= 2 && aml[i - 1] == 0x5C && aml[i - 2] == 0x08)))
+            continue;
+        const uint8_t* p = aml + i + 4;
+        if (p >= end || *p++ != 0x12) continue; /* PackageOp */
+        const uint8_t* body;
+        const uint8_t* package_end;
+        if (aml_pkg_end(p, end, &body, &package_end) != 0) continue;
+        if (body >= package_end) continue;
+        uint8_t elements = *body++;
+        if (elements < 2) continue;
         uint32_t va, vb;
-        if (aml_int(p, e, &va, &p) != 0) continue;
-        if (aml_int(p, e, &vb, &p) != 0) vb = 0;
-        *a = (uint8_t)va; *b = (uint8_t)vb;
+        if (aml_int(body, package_end, &va, &body) != 0 ||
+            aml_int(body, package_end, &vb, &body) != 0)
+            continue;
+        if (va > 7 || vb > 7) continue; /* допустимые значения SLP_TYP: 0..7 */
+        *a = (uint8_t)va;
+        *b = (uint8_t)vb;
         return 0;
     }
     return -1;
+}
+
+static void parse_aml_table(const sdt_t *t, acpi_info_t *o, int is_dsdt) {
+    if (!t || t->len < sizeof(sdt_t)) return;
+    const uint8_t *aml = (const uint8_t *)t + sizeof(sdt_t);
+    size_t length = t->len - sizeof(sdt_t);
+    if (is_dsdt && !o->s5_valid &&
+        acpi_find_s5(aml, (uint32_t)length, &o->slp_typa, &o->slp_typb) == 0)
+        o->s5_valid = 1;
+    if (o->prt_count >= ACPI_MAX_PRT) return;
+    kira_acpi_prt_entry_t parsed[ACPI_MAX_PRT];
+    size_t parsed_count = 0;
+    if (kira_acpi_prt_parse(aml, length, parsed, ACPI_MAX_PRT,
+                            &parsed_count) != 0) return;
+    for (size_t i = 0; i < parsed_count && o->prt_count < ACPI_MAX_PRT; i++) {
+        int duplicate = 0;
+        for (uint32_t j = 0; j < o->prt_count; j++) {
+            const kira_acpi_prt_entry_t *a = &o->prt[j], *b = &parsed[i];
+            if (a->address == b->address && a->pin == b->pin &&
+                a->direct_gsi == b->direct_gsi &&
+                a->source_index == b->source_index &&
+                a->source_name_len == b->source_name_len) {
+                uint8_t diff = 0;
+                for (uint8_t k = 0; k < a->source_name_len; k++)
+                    diff |= (uint8_t)(a->source_name[k] ^ b->source_name[k]);
+                if (!diff) { duplicate = 1; break; }
+            }
+        }
+        if (!duplicate) o->prt[o->prt_count++] = parsed[i];
+    }
 }
 
 static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
@@ -112,7 +174,7 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     if (!d || !sig_is(d->sig, "DSDT") || d->len < sizeof(sdt_t)) return;
     uint32_t dl = d->len;
     if (!(d = (const sdt_t*)reach(dsdt, dl, max_phys))) return;
-    if (acpi_find_s5((const uint8_t*)d + sizeof(sdt_t), dl - (uint32_t)sizeof(sdt_t), &o->slp_typa, &o->slp_typb) == 0) o->s5_valid = 1;
+    parse_aml_table(d, o, 1);
 }
 
 static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
@@ -125,6 +187,7 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
     if (sig_is(t->sig, "APIC")) parse_madt(t, o);
     else if (sig_is(t->sig, "HPET")) o->has_hpet = 1;
     else if (sig_is(t->sig, "FACP")) parse_fadt(t, max_phys, o);
+    else if (sig_is(t->sig, "SSDT")) parse_aml_table(t, o, 0);
     else if (sig_is(t->sig, "MCFG") && t->len >= 44 + 16) {
         const uint8_t* e = (const uint8_t*)t + 44;
         o->mcfg_base = rd64(e); o->mcfg_bus_start = e[10]; o->mcfg_bus_end = e[11];
@@ -308,14 +371,18 @@ int acpi_init_rsdp(uint64_t rsdp_phys) {
     if (!rsdp_phys) rsdp_phys = acpi_scan(0xE0000, 0x100000, "RSD PTR ", 8, 20);
     int rc = rsdp_phys ? acpi_parse(rsdp_phys, ONE_GB, &info) : -2;
     if (rc == 0) {
-        uart_print("[KIRA ACPI] Native UEFI RSDP validated; tables=");
-        uart_print_dec(info.tables_seen); uart_print(", CPUs=");
-        uart_print_dec(info.cpu_count); uart_print(", IOAPICs=");
-        uart_print_dec(info.ioapic_count); uart_print(".\n");
+        uart_print("[KIRA ACPI] UEFI RSDP validated, tables ok ");
+        uart_print_dec(info.tables_seen);
+        uart_print(" bad "); uart_print_dec(info.tables_bad);
+        uart_print(" unmapped "); uart_print_dec(info.tables_skipped_high);
+        uart_print(", CPUs "); uart_print_dec(info.cpu_count);
+        uart_print(", IOAPICs "); uart_print_dec(info.ioapic_count);
+        uart_print("\\n");
         return info.cpu_count ? 0 : -2;
     }
-    uart_print("[KIRA ACPI] UEFI RSDP validation failed: ");
-    uart_print_dec((uint64_t)(-rc)); uart_print(".\n");
+    uart_print("[KIRA ACPI] UEFI RSDP/root table validation failed, code ");
+    uart_print_dec((uint64_t)(-rc)); uart_print("\\n");
     return rc;
 }
+
 const acpi_info_t* acpi_get(void) { return info.valid ? &info : 0; }
