@@ -79,7 +79,7 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
         cmd = (const char*)fdt_prop(fdt, chosen, "bootargs", &n);
         if (cmd && n) {
             while (cmd_len < n && cmd[cmd_len]) cmd_len++;
-            if (cmd_len == n) return -6;          /* bootargs must be NUL-terminated inside the DTB */
+            if (cmd_len == n || cmd_len + 1 != n) return -6; /* exactly one terminated bootargs string */
             cmd_len++;
         } else cmd = 0;
     }
