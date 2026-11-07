@@ -1175,9 +1175,9 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     pmm_arm_reserve((uint64_t)(uintptr_t)fdt, (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt));
     pmm_arm_reserve(bump_start, bump);
     /* Firmware memreserve entries are separate from /reserved-memory nodes. */
-    for (unsigned i = 0; i < fdt_reserve_count(fdt); i++) {
+    for (unsigned i = 0; i < fdt_reserve_count(fdt, 4u * 1024u * 1024u); i++) {
         uint64_t base = 0, size = 0;
-        if (fdt_reserve(fdt, i, &base, &size) || base > UINT64_MAX - size)
+        if (fdt_reserve(fdt, 4u * 1024u * 1024u, i, &base, &size) || base > UINT64_MAX - size)
             kernel_panic("invalid FDT memory reservation");
         pmm_arm_reserve(base, base + size);
     }
