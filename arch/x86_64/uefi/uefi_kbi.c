@@ -52,15 +52,13 @@ static int mul_overflow_u64(uint64_t a, uint64_t b, uint64_t *result)
 }
 
 static void copy_descriptor(EFI_MEMORY_DESCRIPTOR *destination,
-                            const uint8_t *source,
-                            UINTN size)
+                            const uint8_t *source)
 {
     uint8_t *out = (uint8_t *)destination;
     UINTN i;
 
     for (i = 0; i < sizeof(*destination); ++i)
         out[i] = source[i];
-    (void)size;
 }
 
 static int framebuffer_valid(const kira_uefi_kbi_info *info)
@@ -73,7 +71,7 @@ static int framebuffer_valid(const kira_uefi_kbi_info *info)
 
     if (!info->framebuffer_base || !info->framebuffer_size ||
         !info->width || !info->height || info->pitch < info->width ||
-        (info->format != 1 && info->format != 2) ||
+        info->format > 2 ||
         add_overflow_u64(info->framebuffer_base, info->framebuffer_size) ||
         mul_overflow_u64((uint64_t)info->pitch,
                          (uint64_t)info->height, &required) ||
@@ -149,7 +147,8 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     if (info->rsdp)
         header->flags |= KBI_F_ACPI;
 
-    if (info->framebuffer_base) {
+    /* Unknown GOP pixel formats are valid boot states without a usable FB. */
+    if (info->framebuffer_base && info->format != 0) {
         header->fb_phys = info->framebuffer_base;
         header->fb_size = info->framebuffer_size;
         header->fb_width = info->width;
@@ -180,7 +179,7 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
         const uint8_t *record = source + i * descriptor_size;
         uint64_t length;
 
-        copy_descriptor(&descriptor, record, descriptor_size);
+        copy_descriptor(&descriptor, record);
         if (descriptor.NumberOfPages == 0 ||
             mul_overflow_u64(descriptor.NumberOfPages,
                              KBI_EFI_PAGE_SIZE, &length) ||
