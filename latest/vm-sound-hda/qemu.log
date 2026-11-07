@@ -1,0 +1,2 @@
+intel-hda: write to r/o reg CORBSIZE
+intel-hda: write to r/o reg RIRBSIZE
