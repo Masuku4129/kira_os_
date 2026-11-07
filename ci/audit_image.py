@@ -20,7 +20,7 @@ def command(args, *, binary=False):
 
 
 def elf_dependencies(data, label):
-    if len(data) < 16 or data[:4] != b"\x7fELF":
+    if len(data) < 18 or data[:4] != b"\x7fELF":
         return []
     cls, enc = data[4], data[5]
     if cls not in (1, 2) or enc not in (1, 2):
