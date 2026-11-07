@@ -149,33 +149,32 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
    contract. Platform pools without a matching free hook remain allocated. */
 int virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
     if (!cpu || !phys || !bytes) return -1;
-    int result = -1;
     dma_lock();
     for (unsigned i = 0; i < DMA_ALLOCATION_SLOTS; i++) {
         dma_allocation_t* a = &dma_allocations[i];
         if (a->cpu != cpu || a->phys != phys) continue;
-        if (a->bytes != bytes) { result = -1; break; }
-#ifndef KIRA_HOST_TEST
-        if (a->owner == DMA_OWNER_PLATFORM && !platform_dma_free) {
-            result = -2;
-            break;
+        if (a->bytes != bytes) { dma_unlock(); return -1; }
+#ifdef KIRA_HOST_TEST
+        if (a->owner != DMA_OWNER_HOST) { dma_unlock(); return -1; }
+        free(a->cpu);
+#else
+        if (a->owner == DMA_OWNER_PLATFORM) {
+            if (!platform_dma_free) { dma_unlock(); return -2; }
+            platform_dma_free(a->cpu, a->phys, a->pages * 4096u);
+        } else if (a->owner == DMA_OWNER_PMM) {
+            int r = pmm_free_contiguous(a->phys, a->pages);
+            if (r != 0) { dma_unlock(); return r; }
+        } else {
+            dma_unlock();
+            return -1;
         }
 #endif
-        dma_allocation_t saved = *a;
         *a = (dma_allocation_t){0};
         dma_unlock();
-#ifdef KIRA_HOST_TEST
-        if (saved.owner == DMA_OWNER_HOST) free(saved.cpu);
-#else
-        if (saved.owner == DMA_OWNER_PLATFORM)
-            platform_dma_free(saved.cpu, saved.phys, saved.pages * 4096u);
-        else if (saved.owner == DMA_OWNER_PMM)
-            result = pmm_free_contiguous(saved.phys, saved.pages);
-#endif
-        return result == -1 ? 0 : result;
+        return 0;
     }
     dma_unlock();
-    return result;
+    return -1;
 }
 
 /* ---- Транспорт PCI ---- */
