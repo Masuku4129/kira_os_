@@ -582,16 +582,29 @@ static int cmd_confirm(const char *arg) {
     snprintf(f2, sizeof f2, "%s.rec", R.name);
     snprintf(f3, sizeof f3, "%s.sig", R.name);
     i64 old_pkg_size = drv_op(KFS_DRV_STAT, f1, 0, 0, 0);
+    i64 old_rec_size = drv_op(KFS_DRV_STAT, f2, 0, 0, 0);
     i64 old_sig_size = drv_op(KFS_DRV_STAT, f3, 0, 0, 0);
-    if ((old_pkg_size < 0 && old_pkg_size != -2) || (old_sig_size < 0 && old_sig_size != -2)) {
+    if ((old_pkg_size < 0 && old_pkg_size != -2) ||
+        (old_rec_size < 0 && old_rec_size != -2) ||
+        (old_sig_size < 0 && old_sig_size != -2)) {
         say("drvget: не удалось проверить существующий пакет перед заменой; установка отменена\n");
         stage_clear();
         return 1;
     }
-    if (!has_publisher_sig && old_pkg_size >= 0 && old_sig_size >= 0) {
-        say("drvget: замена существующего подписанного пакета на unsigned/local запрещена; сначала выполните drvget remove\n");
-        stage_clear();
-        return 1;
+    if (old_pkg_size >= 0) {
+        kdrv_rec_t old_rec;
+        if (old_rec_size != (i64)sizeof old_rec ||
+            drv_op(KFS_DRV_READ, f2, &old_rec, sizeof old_rec, 0) != (i64)sizeof old_rec ||
+            kdrv_rec_check(&old_rec, sizeof old_rec, &old_rec) != KDRV_OK) {
+            say("drvget: существующий пакет имеет отсутствующую или повреждённую запись подтверждения; сначала выполните drvget remove\n");
+            stage_clear();
+            return 1;
+        }
+        if (!has_publisher_sig && kdrv_rec_publisher_required(&old_rec)) {
+            say("drvget: замена существующего подписанного пакета на unsigned/local запрещена; сначала выполните drvget remove\n");
+            stage_clear();
+            return 1;
+        }
     }
     if (!has_publisher_sig && old_pkg_size == -2 && old_sig_size >= 0) {
         /* Clean an orphaned signature/record before creating a new local-only package. */
