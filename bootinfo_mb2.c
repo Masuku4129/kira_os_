@@ -177,8 +177,8 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
         uint8_t kind=f[29];
         if(kind==1 && rd32(f+16) && rd32(f+20) && rd32(f+24) && rd32(f+4)>=38 && (f[28]==15 || f[28]==16 || f[28]==24 || f[28]==32)) {
             /* RGB direct-colour framebuffer: Multiboot2 colour_info follows byte 32. */
-            if(rd32(f+4) && rd32(f+8) && rd32(f+12) && rd32(f+4)<=UINT32_MAX) {
-                h->fb_phys=rd64(f+8-4); /* addr begins at tag offset 8 */
+            if(rd64(f+8)) {
+                h->fb_phys=rd64(f+8);
                 h->fb_pitch=rd32(f+16); h->fb_width=rd32(f+20); h->fb_height=rd32(f+24);
                 h->fb_bpp=f[28]; h->fb_red_pos=f[32]; h->fb_red_size=f[33];
                 h->fb_green_pos=f[34]; h->fb_green_size=f[35];
