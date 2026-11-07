@@ -213,7 +213,7 @@ static int rb_load(kdrv_rb_db_t* db) {
         db->magic = KDRV_RB_MAGIC; db->format = KDRV_RB_FORMAT;
         return KDRV_OK;
     }
-    if (rc != 0 || st.type != KFS_FILE || st.size != sizeof *db) return KDRV_E_UNCONFIRMED;
+    if (rc != 0 || st.type != KFS_FILE || st.size != sizeof *db) return KDRV_E_ROLLBACK;
     if (kfs_read("/drv/.rollback", 0, db, sizeof *db) != (int64_t)sizeof *db) return KDRV_E_SHORT;
     if (db->magic != KDRV_RB_MAGIC || db->format != KDRV_RB_FORMAT || db->count > KDRV_RB_MAX ||
         db->crc != rb_crc32(db->entries, sizeof db->entries)) return KDRV_E_ROLLBACK;
@@ -328,14 +328,6 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
         life_note("drv-denied-dma", name, KDRV_E_DMA_UNSAFE);
         return KDRV_E_DMA_UNSAFE;
     }
-    rc = rb_accept(&p);
-    if (rc != KDRV_OK) {
-        kfree(p.buf);
-        uart_print("[KIRA DRV] "); uart_print(name);
-        uart_print(": пакет отклонён защитой от отката версии или повреждённым журналом доверия - драйвер НЕ запущен\\n");
-        life_note("drv-denied-rollback", name, rc);
-        return rc;
-    }
     if ((granted & CAP_DMA) && platform_dma_noncoherent && platform_dma_noncoherent()) {
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name); uart_print(": плата без согласованности кэша (пул DMA без кэша) - DMA драйверам Ring 3 здесь не отдаётся, драйвер НЕ запущен\n");
@@ -349,6 +341,15 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     spin_unlock_irqrestore(&klock, f);
     if (st != B_FREE) { kfree(p.buf); uart_print("[KIRA DRV] устройство занято драйвером или ещё освобождается\n"); return -1; }
     bind_reset(b);
+    rc = rb_accept(&p);
+    if (rc != KDRV_OK) {
+        kfree(p.buf);
+        b->state = B_FREE;
+        uart_print("[KIRA DRV] "); uart_print(name);
+        uart_print(": пакет отклонён защитой от отката версии или повреждённым журналом доверия - драйвер НЕ запущен\\n");
+        life_note("drv-denied-rollback", name, rc);
+        return rc;
+    }
     unsigned k = 0; while (p.h.name[k] && k < sizeof b->name - 1) { b->name[k] = p.h.name[k]; k++; }
     b->name[k] = 0;
     b->granted = granted; b->version = p.h.version;
