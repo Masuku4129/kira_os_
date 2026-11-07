@@ -240,6 +240,7 @@ static void rtl_rx_poll(rtl8139_t *s) {
                                   KIRA_RL_RX_RING_BYTES,
                                   start, header, sizeof header) != 0) {
             s->rx.offset = cbr;
+            rtl_write16(s, RTL_REG_CAPR, (u16)(s->rx.offset - 16u));
             break;
         }
 
@@ -247,6 +248,7 @@ static void rtl_rx_poll(rtl8139_t *s) {
         if (kira_rl_rx_decode(header, sizeof header, &info) != 0) {
             /* A malformed descriptor is not trusted; discard to the HW cursor. */
             s->rx.offset = cbr;
+            rtl_write16(s, RTL_REG_CAPR, (u16)(s->rx.offset - 16u));
             break;
         }
 
