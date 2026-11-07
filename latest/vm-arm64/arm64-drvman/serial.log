@@ -1,0 +1,97 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA BOOT] BootInfo v1: ARM64 Device Tree, 1 normalized RAM range(s), 160 bytes
+[KIRA ARM64] RAM: 512 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 505 MB free pages; kernel heap and scheduler online (per-core ready queues, 48 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 99 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 2 of 2 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 2 of 2 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 7 function(s), 10 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 703960 bytes, prefix 8e0cf52f...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 7 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 16 MB (PCI 0:1.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA DISK] vda: virtio-blk, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14456 KB free.
+[KIRA PROC] up to 8 programs at once (2 cores, 512 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): СУББОТА, 7 НОЯБРЯ 2026 09:40
+[KIRA GPU] virtio-gpu: 1280x800 2D scanout, frames are sent to the host after each composed frame.
+[KIRA PAR] parallel helpers: 1 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA INPUT] virtio-input: QEMU Virtio Keyboard, MSI-X interrupt
+[KIRA INPUT] virtio-input: QEMU Virtio Tablet (absolute pointer), MSI-X interrupt
+[KIRA NET] No supported network card: networking is off.
+[KIRA HDA] Sound: codec 0x0000000000001AF4:0x0000000000000022, output path pin 3 <- DAC 2, 48 kHz 16-bit stereo (commands: sound, beep).
+[KIRA HDA] Input: line in pin 5 -> ADC 4, recording ring running (command: record).
+[KIRA AUDIO] Mixer online: up to 4 programs + tone, 48 kHz 16-bit stereo, 100 ms ahead of the card.
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA DRV] abad: SHA-256 не совпал с записью /drv/abad.rec - драйвер НЕ запущен
+[KIRA DRV] eduun: пакет отклонён (установка не подтверждена пользователем) - драйвер НЕ запущен
+[KIRA PROC] pid 1 'drv-edu' started from ELF: Ring 3, own address space, 3 page(s) of segments, W^X enforced, stack RW-NX.
+[KIRA DRV] edu: устройство 00:02.0 1234:11e8 -> драйвер запущен как drv-edu (pid 1), SHA-256 сверен, права: CAP_MMIO CAP_PCIDEV, издатель не подтверждён (локально)
+[KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 1
+[USER pid 1] drvedu: device 0x1234:0x11e8, rights 0x4800, no MSI
+[USER pid 1] drvedu: id=0x10000ed
+[USER pid 1] drvedu: 10!=3628800
+[USER pid 1] drvedu: IRQ/MSI capability not granted (least-privilege PASS)
+[KIRA CAPS] process 'drv-edu' (pid 1): system call 52 denied, no right CAP_DMA.
+[USER pid 1] drvedu: dma rc=-12
+[USER pid 1] drvedu: DMA denied: CAP_DMA not granted (least-privilege PASS)
+[KIRA DRV] drv-edu: запись в защищённую область конфигурации, смещение 0x0000000000000010 отклонено ядром
+[USER pid 1] drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x11e81234
+[USER pid 1] drvedu: PASS
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+drvman do pci;pkgs
+[KIRA PROC] pid 2 'drvman' started from ELF: Ring 3, own address space, 380 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 2] drvman: окно создано 640x560
+[KIRA DOCK] открыта: drvman «Драйверы» (закреплена)
+[USER pid 2] drvman: кадр: строк в списках 15, устройств 7, пакетов 4
+[USER pid 2] drvman: устройств PCI: 7
+[USER pid 2] drvman: pci 00:00.0 1b36:0008 060000 мост мост или шина, драйвер не нужен
+[USER pid 2] drvman: pci 00:01.0 1af4:1001 010000 накопитель встроенный драйвер ядра
+[USER pid 2] drvman: pci 00:02.0 1234:11e8 00ff00 старое драйвер Ring 3 drv-edu запущен
+[USER pid 2] drvman: pci 00:03.0 8086:2668 040300 мультимедиа встроенный драйвер ядра
+[USER pid 2] drvman: pci 00:04.0 1af4:1050 038000 видео встроенный драйвер ядра
+[USER pid 2] drvman: pci 00:05.0 1af4:1052 090000 ввод встроенный драйвер ядра
+[USER pid 2] drvman: pci 00:06.0 1af4:1052 098000 ввод встроенный драйвер ядра
+[USER pid 2] drvman: пакетов в /drv: 4
+[USER pid 2] drvman: пакет abad | abad v1 лицензия: не записана не запущен сверка: НЕ СОВПАДАЕТ
+[USER pid 2] drvman: пакет abad | права запрошены: MMIO PCIDEV подтверждены: MMIO PCIDEV
+[USER pid 2] drvman: пакет abad | sha256 образа 2dcdcbe0e84a3da6883dca93bcc71b7fad538937100eba39fd18f7e128f4de61
+[USER pid 2] drvman: пакет abad | источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 2] drvman: пакет eduun | eduun v1 лицензия: не записана не запущен сверка: не подтверждён
+[USER pid 2] drvman: пакет eduun | права запрошены: MMIO PCIDEV подтверждены: нет
+[USER pid 2] drvman: пакет eduun | sha256 образа 77cdcbe0e84a3da6883dca93bcc71b7fad538937100eba39fd18f7e128f4de61
+[USER pid 2] drvman: пакет eduun | источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 2] drvman: пакет edu | edu v1 лицензия: не записана ЗАПУЩЕН сверка: SHA-256 OK, локально
+[USER pid 2] drvman: пакет edu | права запрошены: MMIO PCIDEV подтверждены: MMIO PCIDEV
+[USER pid 2] drvman: пакет edu | sha256 образа 77cdcbe0e84a3da6883dca93bcc71b7fad538937100eba39fd18f7e128f4de61
+[USER pid 2] drvman: пакет edu | источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 2] drvman: пакет edunc | edunc v1 лицензия: не записана не запущен сверка: SHA-256 OK, локально
+[USER pid 2] drvman: пакет edunc | права запрошены: MMIO PCIDEV подтверждены: MMIO PCIDEV
+[USER pid 2] drvman: пакет edunc | sha256 образа 77cdcbe0e84a3da6883dca93bcc71b7fad538937100eba39fd18f7e128f4de61
+[USER pid 2] drvman: пакет edunc | источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 2] drvman: кадр: строк в списках 15, устройств 7, пакетов 4
+[USER pid 2] drvman: готово
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] фокус: drvman - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: пробую 2000 мс вместо 1000 (причина: темп фона снижался; о�
+[KIRA PROC] pid 2 'drvman' finished, exit code 0, address space destroyed (397 pages returned to PMM).
+[KIRA DOCK] закрыта: drvman «Драйверы» (значок остаётся: закреплена)
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: откат на 1000 мс - оценка 0 не лучше -16

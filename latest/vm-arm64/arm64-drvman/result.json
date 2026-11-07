@@ -1,0 +1,1 @@
+{"name": "arm64-drvman", "ok": false, "error": "@log drvman: пакет edu \\| edu\\s+v\\d+\\s+лицензия: не записана\\s+ЗАПУЩЕН\\s+сверка: SHA-256 сходится: нет в журнале", "seconds": 20.2}
