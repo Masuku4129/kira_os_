@@ -68,7 +68,7 @@ int fb_init_bootinfo(const kbi_header_t *bi) {
     uart_print_dec(w); uart_print("x"); uart_print_dec(h);
     uart_print("x"); uart_print_dec(bi->fb_bpp);
     uart_print(" at "); uart_print_hex(bi->fb_phys);
-    uart_print(wc?", write-combining (PAT)":" , uncached (no PAT)");
+    uart_print(wc?", write-combining (PAT)":", uncached (no PAT)");
     uart_print("; back buffer "); uart_print_dec(back_bytes>>10);
     uart_print(" KB in RAM.\n");
     return 0;
