@@ -55,7 +55,7 @@ Still required:
 - Persistent anti-rollback tied to a storage/firmware trust anchor that cannot be reverted merely by restoring an old disk image. A normal KiraFS file alone is not sufficient evidence of anti-rollback.
 - A tested trust-key rotation and revocation lifecycle, including recovery after compromise of the current owner key; the current trust table is compiled into the kernel and has no authenticated update path.
 - Signed publisher metadata/catalogue policy that distinguishes packages requiring publisher authentication from packages explicitly accepted as local builds. The existing recipe SHA-256 catalogue pins integrity but is not an independent publisher signature.
-- Full end-to-end test with a valid signature fetched from HTTPS and then verified again by the kernel at driver load. Current unit tests validate valid/invalid signatures, while installer E2E currently verifies malformed signature rejection and unsigned local fallback.
+- Full QEMU end-to-end test with a valid publisher signature fetched over HTTPS, installed by drvget and then verified again by the kernel at driver load. The host installer E2E now includes a deterministic test-only trust anchor and a valid signed-package path (fetch -> verify -> install -> drvget verify), alongside malformed-signature rejection and unsigned local fallback; the new path still requires a fresh green CI run.
 
 Unsigned local packages remain explicitly untrusted by publisher and require the existing local user confirmation. This is not publisher authentication.
 
