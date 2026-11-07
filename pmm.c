@@ -251,6 +251,7 @@ int pmm_init_bootinfo(const void* blob, uint32_t blob_size,
         return -3;
     }
     const kbi_header_t* h=(const kbi_header_t*)blob;
+    if(h->arch!=KBI_ARCH_X86_64) return -3;
     return pmm_init_map(kbi_mmap(blob),h->mmap_count,reserve_addr,reserve_size);
 }
 
