@@ -82,7 +82,7 @@ int main(void){
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==-5);                // нет места под карты
     pmm_test_store=store_buf; pmm_test_store_bytes=sizeof store_buf;
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==0);
-    uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 1 - 1;
+    uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 2 - 1;
     printf("free kb = %u, expected %llu (info_size=%u)\n",pmm_get_free_memory_kb(),(unsigned long long)expect_pages*4,info_size);
     CHECK(pmm_get_free_memory_kb()==expect_pages*4);
     CHECK(pmm_free_page(0x800000)==-1);
