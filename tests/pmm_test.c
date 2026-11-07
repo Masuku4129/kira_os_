@@ -23,6 +23,10 @@ static uint8_t* mk_mbi(uint64_t at, int with_mmap){
     uint8_t* p=m+8;
     // tag type 1 (cmdline) "x"
     *(uint32_t*)p=1; *(uint32_t*)(p+4)=10; p[8]='x'; p[9]=0; p+=16;
+    /* A boot module placed inside firmware-reported usable RAM must stay reserved. */
+    *(uint32_t*)p=3; *(uint32_t*)(p+4)=28;
+    *(uint32_t*)(p+8)=0x800000; *(uint32_t*)(p+12)=0x802000;
+    memcpy(p+16,"test-initrd",12); p+=32;
     if(with_mmap){
         struct E{uint64_t a,l;uint32_t t,r;} ents[]={
             {0,0x9FC00,1,0},{0x9FC00,0x60400,2,0},{0x100000,0x1FF00000ULL,1,0},
@@ -72,9 +76,9 @@ int main(void){
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==-5);                // нет места под карты
     pmm_test_store=store_buf; pmm_test_store_bytes=sizeof store_buf;
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==0);
-    uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 1;
+    uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 2 - 1;
     printf("free kb = %u, expected %llu (info_size=%u)\n",pmm_get_free_memory_kb(),(unsigned long long)expect_pages*4,info_size);
-    CHECK(pmm_get_free_memory_kb()==expect_pages*4);
+    CHECK(pmm_get_free_memory_kb()==expect_pages*4);\n    CHECK(pmm_free_page(0x800000)==-1);\n    CHECK(pmm_free_page(0x801000)==-1);
 
     // непрерывные блоки
     {
@@ -100,7 +104,7 @@ int main(void){
     for(;;){
         uint64_t p=pmm_alloc_page(); if(!p)break;
         CHECK(p%4096==0); CHECK(p>=0x320000); CHECK(p<(1ULL<<30));
-        CHECK(!(p>=mbi_addr && p<mbi_addr+4096));
+        CHECK(!(p>=mbi_addr && p<mbi_addr+4096));\n        CHECK(!(p>=0x800000 && p<0x802000));
         CHECK(!seen[p>>12]); seen[p>>12]=1;
         if(!n) first=p;
         prev=p; n++;
@@ -112,7 +116,7 @@ int main(void){
     CHECK(pmm_free_page(first)==0);
     CHECK(pmm_free_page(first)==-1);          // double free
     CHECK(pmm_free_page(0x200000)==-1);       // kernel image
-    CHECK(pmm_free_page(mbi_addr)==-1);       // mbi
+    CHECK(pmm_free_page(mbi_addr)==-1);       // mbi\n    CHECK(pmm_free_page(0x800000)==-1);     // boot module
     CHECK(pmm_free_page(0x1000)==-1);         // low memory
     CHECK(pmm_free_page(first+1)==-1);        // unaligned
     CHECK(pmm_free_page(1ULL<<30)==-1);       // out of range
