@@ -18,13 +18,6 @@ static uint32_t rd32(const uint8_t* p) {
 static uint64_t rd64(const uint8_t* p) {
     return (uint64_t)rd32(p) | ((uint64_t)rd32(p + 4) << 32);
 }
-static void wr32(uint8_t* p, uint32_t v) {
-    p[0]=(uint8_t)v; p[1]=(uint8_t)(v>>8);
-    p[2]=(uint8_t)(v>>16); p[3]=(uint8_t)(v>>24);
-}
-static void wr64(uint8_t* p, uint64_t v) {
-    wr32(p,(uint32_t)v); wr32(p+4,(uint32_t)(v>>32));
-}
 static void copy_bytes(uint8_t* d, const uint8_t* s, uint32_t n) {
     for(uint32_t i=0;i<n;i++) d[i]=s[i];
 }
