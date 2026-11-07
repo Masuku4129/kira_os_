@@ -22,6 +22,19 @@ static int bit_ranges_overlap(uint8_t ap, uint8_t an, uint8_t bp, uint8_t bn) {
            (uint16_t)bp < (uint16_t)ap + an;
 }
 
+static int map_covers_type(const kbi_mmap_entry_t* mm,uint32_t count,
+                           uint64_t base,uint64_t length,uint32_t type) {
+    if(!length||base>UINT64_MAX-length) return 0;
+    uint64_t end=base+length,covered=base;
+    for(uint32_t i=0;i<count&&covered<end;i++) {
+        uint64_t entry_end=mm[i].base+mm[i].length;
+        if(entry_end<=covered) continue;
+        if(mm[i].base>covered||mm[i].type!=type) return 0;
+        covered=entry_end<end?entry_end:end;
+    }
+    return covered==end;
+}
+
 int kbi_validate(const void* blob, uint32_t available) {
     if (!blob || available < sizeof(kbi_header_t)) return -1;
     const kbi_header_t* h = (const kbi_header_t*)blob;
@@ -102,6 +115,8 @@ int kbi_validate(const void* blob, uint32_t available) {
         if (i && mm[i].base < previous_end) return -11;
         previous_end = mm[i].base + mm[i].length;
     }
+    if(!map_covers_type(mm,h->mmap_count,h->kernel_phys_base,
+                        h->kernel_size,KBI_MEM_KERNEL)) return -14;
 
     const kbi_module_t* mods =
         (const kbi_module_t*)((const uint8_t*)blob + h->modules_off);
@@ -118,7 +133,9 @@ int kbi_validate(const void* blob, uint32_t available) {
             overlaps(mods[i].name_off, mods[i].name_len, h->cmdline_off, h->cmdline_len))
             return -12;
         const char* n = (const char*)blob + mods[i].name_off;
-        if (n[mods[i].name_len - 1] != 0) return -12;
+        if (n[mods[i].name_len - 1] != 0 ||
+            !map_covers_type(mm,h->mmap_count,mods[i].base,
+                             mods[i].length,KBI_MEM_MODULE)) return -12;
         for (uint32_t j = 0; j < i; j++) {
             if (overlaps(mods[i].base, mods[i].length,
                          mods[j].base, mods[j].length) ||
