@@ -69,6 +69,8 @@ def main() -> int:
     if len(prefix) != PREFIX_SIZE: raise AssertionError("revocation ABI mismatch")
     record = prefix + key.sign(prefix)
     if len(record) != SIZE: raise AssertionError("revocation record size mismatch")
+    if a.output.resolve() in (a.issuer_key.resolve(), a.issuer_public.resolve()):
+        raise ValueError("output must not overwrite private or public key material")
     existing = a.output.read_bytes() if a.append and a.output.exists() else b""
     if len(existing) % SIZE or len(existing) // SIZE >= MAX_RECORDS:
         raise ValueError("existing revocation journal is malformed or full")
