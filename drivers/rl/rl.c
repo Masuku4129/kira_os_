@@ -192,11 +192,16 @@ static void rl_rxeof(struct rl_softc *sc)
 
 	while (budget-- > 0 && !(CSR_READ_1(sc, RL_COMMAND) & RL_CMD_EMPTY_RXBUF)) {
 		kira_rl_rx_record_t record;
+		u8 header[4];
 		u32 total_len, len, pos;
 
 		if (le32toh(*(volatile u32 *)(rx + cur_rx)) >> 16 == RL_RXSTAT_UNFINISHED)
 			break; /* чип ещё копирует кадр в ОЗУ */
-		if (kira_rl_rx_decode(rx + cur_rx, &record) != 0 ||
+		header[0] = ((volatile u8 *)rx)[cur_rx + 0];
+		header[1] = ((volatile u8 *)rx)[cur_rx + 1];
+		header[2] = ((volatile u8 *)rx)[cur_rx + 2];
+		header[3] = ((volatile u8 *)rx)[cur_rx + 3];
+		if (kira_rl_rx_decode(header, &record) != 0 ||
 		    !kira_rl_rx_status_ok(record.status)) {
 			ifp->if_ierrors++;
 			rl_init(sc);			/* как rl(4): неверная голова кадра - перезапуск */
