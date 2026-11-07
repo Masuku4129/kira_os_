@@ -50,7 +50,7 @@ for name, signature in (("mind_sys_core_cap", "unsigned mind_sys_core_cap("),
                         ("mind_sys_rtc_local", "int  mind_sys_rtc_local("),
                         ("mind_sys_local_offset", "int32_t mind_sys_local_offset(")):
     outside = without_locked_regions(body(signature))
-    if re.search(r"\\bM\\s*(?:\\.|->)|&M\\b", outside):
+    if re.search(r"\bM\s*(?:\.|->)|&M\b", outside):
         raise SystemExit(f"Mind sync audit: unguarded model accessor {name}")
 
 print("Mind sync audit: shared-model paths, accessors and request mailboxes satisfy the locking contract")

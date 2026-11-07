@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
-#include <pthread.h>
 #include <sched.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include "../mind_sync.h"
