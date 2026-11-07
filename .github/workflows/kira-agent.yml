@@ -116,7 +116,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BASE_BRANCH: ${{ inputs.base_branch || 'v46/kdrv-catalogue-signature-policy' }}
           WORK_BRANCH: ${{ steps.branch.outputs.name }}
-          TASK: ${{ inputs.task }}
+          TASK: ${{ inputs.task || 'Continue KIRA OS code implementation from existing architecture and TODO/roadmap documents; implement real source only and do not run verification.' }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -144,7 +144,7 @@ jobs:
       - name: Write run summary
         if: always()
         env:
-          BASE_BRANCH: ${{ inputs.base_branch }}
+          BASE_BRANCH: ${{ inputs.base_branch || 'v46/kdrv-catalogue-signature-policy' }}
           WORK_BRANCH: ${{ steps.branch.outputs.name }}
           CHANGED: ${{ steps.publish.outputs.changed }}
         run: |
