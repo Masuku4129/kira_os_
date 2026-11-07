@@ -19,10 +19,12 @@ int kbi_validate(const void* blob, uint32_t available) {
         (h->boot_mode < KBI_BOOT_BIOS || h->boot_mode > KBI_BOOT_DEVICE_TREE)) return -3;
     if (h->reserved0 || h->reserved1 || h->fb_reserved) return -4;
     if (h->mmap_count > KIRA_BOOTINFO_MAX_MMAP ||
-        h->mmap_entry_size != sizeof(kbi_mmap_entry_t) ||
+        (h->mmap_count && h->mmap_entry_size != sizeof(kbi_mmap_entry_t)) ||
+        (!h->mmap_count && h->mmap_entry_size != 0 && h->mmap_entry_size != sizeof(kbi_mmap_entry_t)) ||
         !range_ok(h->mmap_off, h->mmap_count, h->mmap_entry_size, h->total_size, 8)) return -5;
     if (h->modules_count > KIRA_BOOTINFO_MAX_MODULES ||
-        h->module_entry_size != sizeof(kbi_module_t) ||
+        (h->modules_count && h->module_entry_size != sizeof(kbi_module_t)) ||
+        (!h->modules_count && h->module_entry_size != 0 && h->module_entry_size != sizeof(kbi_module_t)) ||
         !range_ok(h->modules_off, h->modules_count, h->module_entry_size, h->total_size, 8)) return -6;
     if (h->cmdline_len) {
         if (!h->cmdline_off || h->cmdline_off < sizeof(*h) ||
