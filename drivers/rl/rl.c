@@ -261,18 +261,19 @@ static void rl_start(struct rl_softc *sc)
 
 	while (sc->inflight < RL_TX_LIST_CNT && if_tx_pending(ifp)) {
 		u32 len = if_dequeue(ifp, tmp, sizeof tmp);
+		u32 payload_len = len;
+		u16 hardware_len;
 		u8 *dst;
 
-		if (!len) {
+		if (!len || kira_rl_tx_length(len, &hardware_len) != 0) {
 			ifp->if_oerrors++;
 			continue;
 		}
+		len = hardware_len;
 		dst = sc->txbuf.va + sc->cur_tx * 2048;
-		kd_memcpy(dst, tmp, len);
-		if (len < RL_MIN_FRAMELEN) {		/* короткий кадр дополняется нулями до минимума */
-			kd_memset(dst + len, 0, RL_MIN_FRAMELEN - len);
-			len = RL_MIN_FRAMELEN;
-		}
+		kd_memcpy(dst, tmp, payload_len);
+		if (len > payload_len)
+			kd_memset(dst + payload_len, 0, len - payload_len);
 		bus_space_barrier();
 		CSR_WRITE_4(sc, RL_TXADDR0 + sc->cur_tx * 4, (u32)(sc->txbuf.pa + (u64)sc->cur_tx * 2048));
 		CSR_WRITE_4(sc, RL_TXSTAT0 + sc->cur_tx * 4, (sc->txthresh << 16) | (len & RL_TXSTAT_LENMASK));
