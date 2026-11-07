@@ -576,7 +576,7 @@ ALL.append(sc("drvget-rl", "drvget: исходники RTL8139 по HTTPS, ау�
     {"log_forbid": NO_ERR},
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "rtl8139,netdev=n0"]},
     {"sleep": 8},
-    {"log": [r"\\[KIRA DRV\\] rl: DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен"]},
+    {"log": [r"\[KIRA DRV\] rl: DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен"]},
     {"log_forbid": [r"rl: network interface registered", r"rl: first frame received", r"rl: first frame transmitted"]},
     {"cmd": "drv", "forbid": [r"drv-rl pid"]},
     {"log_forbid": NO_ERR + [r"УТЕЧКА"]},
