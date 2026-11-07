@@ -174,6 +174,9 @@ echo "[*] Линковка..."
 ld.lld -T $ARCH/linker.ld -nostdlib -z max-page-size=0x1000 $OBJ -o kira.bin
 
 # Native UEFI path: separate ELF entry plus a PE/COFF EFI application.
+# Remove previous outputs first so a missing tool cannot leave stale boot images.
+rm -rf uefi
+rm -f uefi-fat.img kira-uefi.bin
 # The removable-media layout is uefi/EFI/BOOT/BOOTX64.EFI + uefi/KIRA.BIN.
 if command -v lld-link >/dev/null 2>&1; then
     echo "[*] Native UEFI loader..."
@@ -202,6 +205,7 @@ fi
 
 # Native BIOS/EDD path: a raw hard-disk image with a 16-bit MBR and a
 # Multiboot2-compatible E820 stage2. GRUB remains available for the ISO path.
+rm -f kira-flat.bin kira-bios.img kira-bios.iso bios_mbr.bin bios_stage2.bin bios_layout.inc
 OBJCOPY="${OBJCOPY:-llvm-objcopy}"
 NM="${NM:-llvm-nm}"
 command -v "$OBJCOPY" >/dev/null 2>&1 || OBJCOPY=objcopy
@@ -214,7 +218,12 @@ if command -v "$OBJCOPY" >/dev/null 2>&1 && command -v "$NM" >/dev/null 2>&1; th
     KERNEL_START=$( "$NM" -n kira.bin | awk '$3=="kernel_start" { print $1; exit }' )
     KERNEL_END=$( "$NM" -n kira.bin | awk '$3=="kernel_end" { print $1; exit }' )
     [ -n "$KERNEL_ENTRY" ] && [ -n "$KERNEL_START" ] && [ -n "$KERNEL_END" ] || { echo "[!] Kernel linker symbols missing for BIOS image"; exit 1; }
+    [ "$KERNEL_BYTES" -gt 0 ] || { echo "[!] Empty flat kernel image"; exit 1; }
+    [ $((16#$KERNEL_START)) -eq $((0x00100000)) ] || { echo "[!] BIOS linker base must be exactly 1 MiB"; exit 1; }
+    [ $((16#$KERNEL_END)) -gt $((16#$KERNEL_START)) ] || { echo "[!] Invalid BIOS kernel memory span"; exit 1; }
+    [ $((16#$KERNEL_END)) -le $((0x40000000)) ] || { echo "[!] BIOS kernel exceeds the 1 GiB bootstrap identity map"; exit 1; }
     KERNEL_MEM_BYTES=$(printf '0x%x' $((16#$KERNEL_END - 16#$KERNEL_START)))
+    [ "$KERNEL_BYTES" -le $((KERNEL_MEM_BYTES)) ] || { echo "[!] Flat kernel exceeds its linked memory span"; exit 1; }
     STAGE2_SECTORS=32
     KERNEL_LBA=$((1 + STAGE2_SECTORS))
     cat > bios_layout.inc <<EOF
@@ -226,6 +235,8 @@ if command -v "$OBJCOPY" >/dev/null 2>&1 && command -v "$NM" >/dev/null 2>&1; th
 EOF
     nasm -f bin -I./ arch/x86_64/bios_mbr.asm -o bios_mbr.bin
     nasm -f bin -I./ arch/x86_64/bios_stage2.asm -o bios_stage2.bin
+    [ "$(wc -c < bios_mbr.bin | tr -d ' ')" -eq 512 ] || { echo "[!] BIOS MBR must be exactly 512 bytes"; exit 1; }
+    [ "$(wc -c < bios_stage2.bin | tr -d ' ')" -eq $((STAGE2_SECTORS * 512)) ] || { echo "[!] BIOS stage2 sector image has an invalid size"; exit 1; }
     KERNEL_SECTORS=$(((KERNEL_BYTES + 511) / 512))
     TOTAL_SECTORS=$((1 + STAGE2_SECTORS + KERNEL_SECTORS))
     dd if=/dev/zero of=kira-bios.img bs=512 count=$TOTAL_SECTORS 2>/dev/null
