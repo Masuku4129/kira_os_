@@ -134,6 +134,8 @@ static int configure_chip(void) {
     return 0;
 }
 
+static int link_status(void);
+
 static int recover_device(void) {
     if(reset_chip()!=0||configure_chip()!=0) return -1;
     if(dev.net) {
