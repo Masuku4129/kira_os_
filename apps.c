@@ -367,6 +367,19 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
     } else gfx_text(s, 26, 412, "резервирование ядра: выключено", TH_TEXT_FAINT, -1);
     p = cat(t, 0, "композитор, нс/1000 точек: "); p = cat_u(t, p, v->comp_ns_kpx_par);
     p = cat(t, p, " / "); cat_u(t, p, v->comp_ns_kpx_ser); gfx_text(s, 26, 438, t, TH_TEXT_FAINT, -1);
+    p = cat(t, 0, "ошибки устройств: "); p = cat_u(t, p, v->dev_errors);
+    if (v->dev_errors && v->dev_name[0]) { p = cat(t, p, " · "); cat(t, p, v->dev_name); }
+    gfx_text(s, 26, 464, t, v->dev_errors ? TH_AMBER : TH_TEXT_DIM, -1);
+    p = cat(t, 0, "подозрительный ввод: ");
+    if (v->hid_suspect) {
+        p = cat_u(t, p, v->hid_suspect); p = cat(t, p, " · ");
+        p = cat(t, p, v->hid_name[0] ? v->hid_name : "устройство"); p = cat(t, p, " · ");
+        p = cat_u(t, p, v->hid_rate); cat(t, p, " нажатий/с");
+    } else cat(t, p, "не обнаружен");
+    gfx_text(s, 26, 486, t, v->hid_suspect ? TH_AMBER : TH_TEXT_DIM, -1);
+    p = cat(t, 0, "отклонено запусков: "); p = cat_u(t, p, v->denied);
+    if (v->denied && v->denied_name[0]) { p = cat(t, p, " · "); cat(t, p, v->denied_name); }
+    gfx_text(s, 26, 508, t, v->denied ? TH_AMBER : TH_TEXT_DIM, -1);
     mind_page_status(s, v, "оборудование · показатели, опубликованные ядром");
 }
 void app_mind_draw(surface_t* s, const mind_view_t* v, unsigned page) {

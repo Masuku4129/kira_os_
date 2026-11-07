@@ -142,6 +142,9 @@ static void fill_mind(void) {
     v->lv_changes = 37; v->lv_general = 2; v->lv_seed = 1;
     v->bg_fps = 30; v->core_cap = 60; v->core_res_pid = 7; v->core_res = 2;
     v->comp_par = 1; v->comp_ns_kpx_par = 840; v->comp_ns_kpx_ser = 1190;
+    v->dev_errors = 2; snprintf(v->dev_name, sizeof v->dev_name, "virtio-blk");
+    v->hid_suspect = 1; v->hid_rate = 240; snprintf(v->hid_name, sizeof v->hid_name, "USB-HID");
+    v->denied = 1; snprintf(v->denied_name, sizeof v->denied_name, "unknown");
     v->tz_min = 180;
     static const struct { uint32_t pid, th, heap, cpu, sysc, w, lim; const char* n; uint8_t fl, fo; } P[] = {
         { 7, 1, 2048, 612, 18300, 6, 100, "cube3d", 0, 1 }, { 5, 1, 512, 488, 120, 4, 50, "burn", 0, 0 },

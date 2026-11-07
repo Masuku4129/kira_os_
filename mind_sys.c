@@ -310,6 +310,9 @@ static void publish(const mind_t* model) {
     v.bg_fps = mind_bg_fps(model); v.core_cap = mind_core_cap(model);
     v.core_res_pid = mind_core_reserved_pid(model); v.core_res = sched_reserved_core();
     display_compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
+    v.dev_errors=S.dev_errors; scopy(v.dev_name,S.dev_name,sizeof v.dev_name);
+    v.hid_suspect=S.hid_suspect; v.hid_rate=S.hid_rate; scopy(v.hid_name,S.hid_name,sizeof v.hid_name);
+    v.denied=S.denied; scopy(v.denied_name,S.denied_name,sizeof v.denied_name);
     for (int L = 0; L < ML_N; L++) {
         v.lv[L].val = mind_lever_val(model, L); v.lv[L].def = mind_lever_default(L);
         unsigned tr, wi, ba; mind_lever_stats(model, L, &tr, &wi, &ba);
