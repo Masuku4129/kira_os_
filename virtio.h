@@ -71,6 +71,8 @@ int   virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes);
 /* Блочное устройство virtio-blk. NULL - такого устройства нет или оно не поднялось. */
 struct blk_dev;
 struct blk_dev* virtio_blk_probe(void);
+/* Stop the device and release DMA only after reset has been confirmed. */
+void virtio_blk_shutdown(void);
 
 #ifdef KIRA_HOST_TEST
 uint64_t host_mmio_read(const volatile void* a, int size);
