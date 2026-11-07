@@ -20,6 +20,12 @@ int main(void) {
     kdrv_header_t h, o;
     mk(&h, f, 100);
     CHECK(kdrv_header_check(f, sizeof f, &o) == KDRV_OK && !strcmp(o.name, "edu"));
+    CHECK(kdrv_dma_policy_allow(0, 0) == 1);                    /* MMIO/опрос безопасны без DMA */
+    CHECK(kdrv_dma_policy_allow(CAP_MMIO, 0) == 1);
+    CHECK(kdrv_dma_policy_allow(CAP_DMA, 0) == 0);               /* bus mastering без IOMMU запрещён */
+    CHECK(kdrv_dma_policy_allow(CAP_IRQ, 0) == 0);               /* MSI тоже является записью устройства в память */
+    CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 0) == 0);
+    CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 1) == 1);     /* допускается только после изоляции устройства */
     CHECK(kdrv_header_check(f, sizeof f - 1, &o) == KDRV_E_SIZE);
     CHECK(kdrv_header_check(f, 10, &o) == KDRV_E_SHORT);
     h.magic ^= 1; PUT(); CHECK(kdrv_header_check(f, sizeof f, &o) == KDRV_E_MAGIC); h.magic ^= 1;
