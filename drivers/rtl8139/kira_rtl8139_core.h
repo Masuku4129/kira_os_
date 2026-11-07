@@ -38,6 +38,21 @@ static inline int kira_rl_dma32_valid(uint64_t physical, uint64_t length) {
            length - 1u <= 0xffffffffull - physical;
 }
 
+/* Copy a byte range from a power-of-two circular RX buffer. */
+static inline int kira_rl_ring_copy_out(const uint8_t *ring, uint32_t ring_size,
+                                        uint32_t offset, void *destination,
+                                        uint32_t length) {
+    if (!ring || !destination || !ring_size ||
+        (ring_size & (ring_size - 1u)) || offset >= ring_size ||
+        length > ring_size) return -1;
+    uint32_t first = ring_size - offset;
+    if (first > length) first = length;
+    uint8_t *dst = (uint8_t *)destination;
+    for (uint32_t i = 0; i < first; i++) dst[i] = ring[offset + i];
+    for (uint32_t i = first; i < length; i++) dst[i] = ring[i - first];
+    return 0;
+}
+
 static inline uint32_t kira_rl_ring_advance(uint32_t offset, uint32_t amount) {
     return (offset + amount) & (KIRA_RL_RX_RING_BYTES - 1u);
 }
