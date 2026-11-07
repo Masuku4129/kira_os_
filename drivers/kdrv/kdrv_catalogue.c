@@ -257,7 +257,14 @@ int kdrv_catalogue_load(struct kdrv_trust_store *trust,
         }
     }
 
-    return header_seen ? KDRV_CATALOGUE_OK : KDRV_CATALOGUE_INVALID;
+    if (!header_seen)
+        return KDRV_CATALOGUE_INVALID;
+
+    /* Persist the monotonic floor only after the entire signed catalogue parses. */
+    if (kdrv_trust_advance_floor(trust_ops, catalogue->version) != KDRV_TRUST_OK)
+        return KDRV_CATALOGUE_UNTRUSTED;
+
+    return KDRV_CATALOGUE_OK;
 }
 
 const struct kdrv_catalogue_entry *
