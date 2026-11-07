@@ -1,5 +1,7 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
+
+#include "bootinfo.h"
 #include <stdint.h>
 
 // Поток дисплея: единственный, кто выводит кадры на экран. Забирает журнал ядра в
@@ -7,7 +9,8 @@
 // только изменившимися областями и держит темп кадров по наносекундным часам.
 // Основа для будущего композитора (окна, курсор, GUI): все клиенты рисуют в поверхности,
 // показывает их один поток.
-int  display_init(unsigned long mbi_addr);   // 0 - экран есть; <0 - работаем без него
+int  display_init(unsigned long mbi_addr);
+int  display_init_bootinfo(const kbi_header_t *bootinfo);   // 0 - экран есть; <0 - работаем без него
 void display_print_info(void);
 /* Команда «files»: открыть Проводник; левая и правая панель - на этих каталогах ("" - не менять). Из любого потока. */
 void display_request_files(const char* left, const char* right);
