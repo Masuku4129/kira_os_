@@ -3,7 +3,6 @@
 #include "icons.h"
 #include "brainfx.h"
 #include "theme.h"
-#include <string.h>
 
 #define CUR_W 12
 #define CUR_H 19
@@ -323,7 +322,7 @@ void wm_notify(const char* title, const char* message, unsigned level) {
     if (notice_count >= slots) notice_count = slots - 1;
     for (int i = notice_count; i > 0; i--) notices[i] = notices[i - 1];
     wm_notice_t* n = &notices[0];
-    memset(n, 0, sizeof *n);
+    __builtin_memset(n, 0, sizeof *n);
     str_copy(n->title, title, sizeof n->title);
     str_copy(n->text, message, sizeof n->text);
     n->level = (uint8_t)(level > WM_NOTIFY_ERROR ? WM_NOTIFY_ERROR : level);
@@ -335,7 +334,7 @@ void wm_notify(const char* title, const char* message, unsigned level) {
 void wm_notify_clear(void) {
     if (!scr || !notice_count) return;
     notice_count = 0;
-    memset(notices, 0, sizeof notices);
+    __builtin_memset(notices, 0, sizeof notices);
     notice_damage();
 }
 
@@ -346,7 +345,7 @@ void wm_init(surface_t* screen, const wm_ops_t* o) {
     zcount = 0; dragging = -1; resizing = -1; capture = -1; prev_buttons = 0;
     side_n = 0; side_ts = TILE; side_gap = TILE_GAP; side_hover = -1; tab_n = 0; tab_hover = -1; light_hover = -1; last_tab = -2;
     last_fs = -1; last_pill = 0; cascade = 0; clock_date[0] = 0; clock_hm[0] = 0; m_cores = 0; m_mem = -1; m_health = -1;
-    memset(notices, 0, sizeof notices); notice_count = 0;
+    __builtin_memset(notices, 0, sizeof notices); notice_count = 0;
     cx = scr->w / 2; cy = scr->h / 2;
     dmg_valid = 0;
     bg_render();
@@ -650,7 +649,7 @@ static void notices_expire(uint32_t now_ms) {
         }
     }
     if (out == old) return;
-    for (int i = out; i < old; i++) memset(&notices[i], 0, sizeof notices[i]);
+    for (int i = out; i < old; i++) __builtin_memset(&notices[i], 0, sizeof notices[i]);
     notice_count = out;
     notice_damage();
 }
