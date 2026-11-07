@@ -22,7 +22,7 @@ static uint8_t* mk_mbi(uint64_t at, int with_mmap){
     memset(m,0,4096);
     uint8_t* p=m+8;
     // tag type 1 (cmdline) "x"
-    *(uint32_t*)p=1; *(uint32_t*)(p+4)=9; p[8]='x'; p+=16;
+    *(uint32_t*)p=1; *(uint32_t*)(p+4)=10; p[8]='x'; p[9]=0; p+=16;
     if(with_mmap){
         struct E{uint64_t a,l;uint32_t t,r;} ents[]={
             {0,0x9FC00,1,0},{0x9FC00,0x60400,2,0},{0x100000,0x1FF00000ULL,1,0},
