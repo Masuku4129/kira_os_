@@ -79,6 +79,17 @@ int main(void) {
     mod->base=0x200000; CHECK(kbi_validate(b,sizeof b)==-12); mod->base=0x400000;
     mod->name_off=h->modules_off; CHECK(kbi_validate(b,sizeof b)==-12);
     mod->name_off=h->modules_off+sizeof(*mod);
+    /* Two module names must not alias even when both are individually in-bounds. */
+    h->modules_count=2;
+    h->total_size=h->modules_off+2*sizeof(kbi_module_t)+5;
+    kbi_module_t* mod2=mod+1; *mod2=*mod;
+    mod2->base=0x500000;
+    CHECK(kbi_validate(b,sizeof b)==-12);
+    mod2->name_off=h->modules_off+2*sizeof(*mod);
+    memcpy(b+mod2->name_off,"init",5);
+    CHECK(kbi_validate(b,sizeof b)==0);
+    h->modules_count=1;
+    h->total_size=h->modules_off+sizeof(kbi_module_t)+5;
 
     /* Module table cannot alias the memory map. */
     h->modules_off=h->mmap_off; CHECK(kbi_validate(b,sizeof b)==-13);
