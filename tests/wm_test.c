@@ -362,7 +362,7 @@ int main(void) {
 
     /* Уведомления: отображение поверх окон, ограничение очереди и автоматическое исчезновение. */
     {
-        uint32_t before = px(&scr, 1000, WM_TOP_H + 18);
+        uint32_t before = px(&scr, 800, WM_TOP_H + 40);
         wm_notify("Система", "Проверка уведомлений", WM_NOTIFY_SUCCESS);
         CHECK(wm_compose(&x, &y, &w, &h));
         uint32_t shown = px(&scr, 1000, WM_TOP_H + 18);
