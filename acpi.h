@@ -6,6 +6,8 @@
 #define ACPI_MAX_CPU    256
 #define ACPI_MAX_DMAR_UNITS 16
 #define ACPI_MAX_RMRR 32
+#define ACPI_MAX_DMAR_SCOPES 128
+#define ACPI_MAX_DMAR_PATH 16
 
 typedef struct {
     int      valid;            /* RSDP и корневая таблица прошли проверку контрольных сумм */
@@ -26,7 +28,10 @@ typedef struct {
     /* Intel VT-d DMAR: проверенные регистровые базы remapping units и зарезервированные DMA-области. */
     int dmar_valid;
     uint8_t dmar_host_width, dmar_flags;
-    uint32_t dmar_unit_count, dmar_rmrr_count;
+    uint32_t dmar_unit_count, dmar_rmrr_count, dmar_scope_count;
+    /* Device scopes are retained as PCI routing paths, not flattened into guessed BDFs. */
+    struct { uint8_t owner_type, owner_index, type, enumeration_id, start_bus, path_count;
+             uint8_t devfn[ACPI_MAX_DMAR_PATH]; } dmar_scope[ACPI_MAX_DMAR_SCOPES];
     struct { uint16_t segment; uint8_t include_all, flags; uint64_t reg_base; } dmar_unit[ACPI_MAX_DMAR_UNITS];
     struct { uint16_t segment; uint64_t base, limit; } dmar_rmrr[ACPI_MAX_RMRR];
     uint32_t tables_seen, tables_bad, tables_skipped_high;
