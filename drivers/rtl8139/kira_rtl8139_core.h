@@ -32,6 +32,12 @@ typedef struct {
     uint16_t payload_length;
 } kira_rl_rx_record_t;
 
+/* RTL8139 RBSTART/TSAD registers are 32-bit DMA addresses. */
+static inline int kira_rl_dma32_valid(uint64_t physical, uint64_t length) {
+    return length != 0 && physical <= 0xffffffffull &&
+           length - 1u <= 0xffffffffull - physical;
+}
+
 static inline uint32_t kira_rl_ring_advance(uint32_t offset, uint32_t amount) {
     return (offset + amount) & (KIRA_RL_RX_RING_BYTES - 1u);
 }
