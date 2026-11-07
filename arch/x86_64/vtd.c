@@ -111,8 +111,8 @@ static int vtd_build_identity_map(vtd_unit_t *u) {
     if(!top||top>(1ull<<48)) return -1;
     uint64_t low_end=top<(1ull<<30)?top:(1ull<<30);
     if(vtd_map_identity_range(u,0,low_end)!=0) return -2;
-    u->low_mapped_end=(low_end+KIRA_VTD_PAGE_SIZE-1u)&
-                      ~(uint64_t)(KIRA_VTD_PAGE_SIZE-1u);
+    uint64_t identity_step=u->supports_2m?KIRA_VTD_2M_SIZE:KIRA_VTD_PAGE_SIZE;
+    u->low_mapped_end=(low_end+identity_step-1u)&~(identity_step-1u);
     u->high_count=pmm_high_ranges(u->high_ranges,PMM_MAX_HIGH);
     for(unsigned i=0;i<u->high_count;i++)
         if(vtd_map_identity_range(u,u->high_ranges[i].start,
