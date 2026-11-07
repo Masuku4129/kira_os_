@@ -133,6 +133,8 @@ $T/ulog
 echo "== versioned loader-neutral BootInfo ABI (bounds, overflow, optional data) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/bootinfo tests/bootinfo_test.c bootinfo.c
 $T/bootinfo
+$CC $FLAGS -fsanitize=address,undefined -o $T/bootinfo-mb2 tests/bootinfo_mb2_test.c bootinfo_mb2.c bootinfo.c
+$T/bootinfo-mb2
 
 echo "== early window (bootmap page tables) =="
 $CC $FLAGS -fsanitize=undefined -o $T/bootmap tests/bootmap_test.c bootmap.c
