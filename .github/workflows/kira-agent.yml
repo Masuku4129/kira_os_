@@ -1,6 +1,9 @@
 name: KIRA OS autonomous coding agent
 
 on:
+  push:
+    branches:
+      - v46/kira-agent-bootstrap
   workflow_dispatch:
     inputs:
       task:
@@ -31,27 +34,32 @@ jobs:
       pull-requests: write
       copilot-requests: write
     steps:
-      - name: Validate Copilot authentication
+      - name: Check Copilot authentication
+        id: auth
         env:
           COPILOT_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "$COPILOT_TOKEN" ]; then
-            echo "::error::Add repository secret COPILOT_GITHUB_TOKEN with the Copilot Requests permission."
-            exit 1
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Add repository secret COPILOT_GITHUB_TOKEN; agent execution will be skipped."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check out the requested base
+        if: steps.auth.outputs.ready == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.base_branch }}
+          ref: ${{ inputs.base_branch || 'v46/kdrv-catalogue-signature-policy' }}
           fetch-depth: 0
           persist-credentials: true
 
       - name: Validate base and create isolated work branch
+        if: steps.auth.outputs.ready == 'true'
         id: branch
         env:
-          BASE_BRANCH: ${{ inputs.base_branch }}
+          BASE_BRANCH: ${{ inputs.base_branch || 'v46/kdrv-catalogue-signature-policy' }}
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -61,12 +69,14 @@ jobs:
           echo "name=ai/kira-${RUN_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Install GitHub Copilot CLI
+        if: steps.auth.outputs.ready == 'true'
         run: npm install --global @github/copilot
 
       - name: Run the coding agent — code-writing phase only
+        if: steps.auth.outputs.ready == 'true'
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
-          KIRA_TASK: ${{ inputs.task }}
+          KIRA_TASK: ${{ inputs.task || 'Continue KIRA OS code implementation from the existing architecture and TODO/roadmap documents. Identify the next unimplemented production module, implement real code only, and stop before all builds, tests, audits, emulators, QEMU, or ISO packaging. Do not invent a scope; report exactly what remains.' }}
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/kira-agent-prompt.md" <<'PROMPT'
@@ -100,10 +110,11 @@ jobs:
             | tee "$RUNNER_TEMP/kira-agent-output.txt"
 
       - name: Publish changes as a draft pull request
+        if: steps.auth.outputs.ready == 'true'
         id: publish
         env:
           GH_TOKEN: ${{ github.token }}
-          BASE_BRANCH: ${{ inputs.base_branch }}
+          BASE_BRANCH: ${{ inputs.base_branch || 'v46/kdrv-catalogue-signature-policy' }}
           WORK_BRANCH: ${{ steps.branch.outputs.name }}
           TASK: ${{ inputs.task }}
           REPOSITORY: ${{ github.repository }}
