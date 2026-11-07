@@ -99,6 +99,10 @@ TS=tests/s""tub   # каталог подмен заголовков для те
 $CC $FLAGS -fsanitize=undefined -I$TS -o $T/paint tests/paint_test.c fsrv.c kfs.c store.c kdrv_fmt.c sha256.c caps.c
 $T/paint
 
+echo "== Mind request mailboxes (atomic exchange/store under concurrent producer/consumer; ThreadSanitizer) =="
+$CC $FLAGS -fsanitize=thread -o $T/mind-sync tests/mind_sync_test.c -pthread
+$T/mind-sync
+
 echo "== spinlock (ticket lock: real threads, mutual exclusion, FIFO, panic bust; ThreadSanitizer) =="
 $CC ${FLAGS//-I./-iquote .} -O2 -fsanitize=thread -o $T/spin tests/spinlock_test.c -lpthread
 $T/spin

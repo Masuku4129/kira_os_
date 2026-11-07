@@ -641,7 +641,7 @@ os.makedirs(os.path.dirname(_DM_BASE), exist_ok=True)
 open(_DM_BASE, "w").write("https://10.0.2.100")
 ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиатуры: поиск драйвера rl по HTTPS (отчёт: источник, лицензия, хеш, права, IOMMU), подтверждение и отмена, установка со сборкой kcc, пакет виден drvget, запуск без устройства - отказ, удаление", [
     {"log": BOOT_LOG}, {"sleep": 6},
-    {"cmd": "run drvman"}, {"sleep": 4}, {"shot": "drvman-list"},
+    {"cmd": "run drvman trace"}, {"sleep": 4}, {"shot": "drvman-list"},
     {"log": [r"drvman: окно создано 640x560", r"drvman: кадр: строк в списках [1-9]\d*, устройств [1-9]\d*, пакетов 4"]},
     {"send": ""}, {"keys": "rl", "then": ["ret"]},
     {"expect": r"drvman: набор готов к установке", "timeout": 200},
@@ -678,3 +678,14 @@ ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиату�
 ], smp=2, mem="1G", tls_chain=True, put={"/data/drvman/base": _DM_BASE},
     extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + " --serve " + _DRV_WWW,
            "-device", "virtio-net-pci,netdev=n0"]))
+
+
+# Обычный графический запуск не должен копировать журнал окна в пользовательскую консоль.
+# Живой процесс подтверждает успешное создание окна: без окна drvman завершается сразу.
+ALL.append(sc("drvman-quiet", "тихий запуск графического менеджера: окно живо, терминал не загрязняется журналом приложения", [
+    {"log": BOOT_LOG}, {"sleep": 5},
+    {"cmd": "run drvman"}, {"sleep": 3}, {"shot": "drvman-quiet"},
+    {"cmd": "ps", "must": [r"drvman"]},
+    {"log_forbid": [r"drvman: окно создано", r"drvman: кадр:", r"drvman: ищу драйвер"] + NO_ERR},
+    {"responsive": "status", "within": 5},
+], smp=2, mem="1G"))

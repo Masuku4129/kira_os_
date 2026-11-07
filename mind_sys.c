@@ -18,6 +18,7 @@
 #include "devhealth.h"
 #include "usb.h"
 #include "kmutex.h"
+#include "mind_sync.h"
 #include "audio.h"
 #include "kfs.h"
 
@@ -28,6 +29,7 @@
 #define PROF_MAGIC   0x464F5250U   /* "PROF" */
 
 static mind_t M;
+static mind_t published_model;
 static mind_sample_t S;
 static mind_view_t V;
 static spinlock_t view_lock = SPINLOCK_INIT;
@@ -42,11 +44,11 @@ static unsigned tcap;
 static uint64_t prev_idle[256], prev_total[256], prev_loops, prev_late, prev_blk_n, prev_blk_t, prev_msgs, prev_sw;
 static uint32_t prev_faults;
 static uint64_t prev_a_mixed, prev_a_under, prev_bytes, prev_tact_cyc, prev_aud_cyc;
-static volatile int req_mode = -1, req_fx = -1, req_rtc = -1, req_cap = -1;
+static int req_mode = -1, req_fx = -1, req_rtc = -1, req_cap = -1;
 static kmutex_t mmx = KMUTEX_INIT;
 static thread_info_t* tt_info; static unsigned tt_cap;
 static void tact_main(void* arg);          /* секундный шаг и тактика меняют одни и те же записи Разума */
-static volatile int32_t req_tz = 0x7FFFFFFF;
+static int32_t req_tz = 0x7FFFFFFF;
 
 /* ---------------- исполнители ---------------- */
 
@@ -142,7 +144,9 @@ static int same_name16(const char* a, const char* b) { for (int i = 0; i < 16; i
 
 int mind_sys_admit(const char* name, unsigned same, char* why, unsigned cap) {
     mind_launch_t L;
+    kmutex_lock(&mmx);
     mind_launch_limits(&M, percpu_count(), &L);
+    kmutex_unlock(&mmx);
     uint64_t now = clock_ms();
     unsigned k = 0; if (cap) why[0] = 0;
     uint64_t f = spin_lock_irqsave(&adm_lock);
@@ -268,56 +272,56 @@ static void gather(uint64_t seconds) {
 
 static void scopy(char* d, const char* s, unsigned cap) { unsigned i = 0; while (s[i] && i + 1 < cap) { d[i] = s[i]; i++; } d[i] = 0; }
 
-static void publish(void) {
+static void publish(const mind_t* model) {
     static mind_view_t v;
-    v.t = S.t; v.lifetime_s = M.m.lifetime_s;
-    v.health = M.health; v.c_resp = M.c_resp; v.c_room = M.c_room; v.c_bal = M.c_bal; v.c_stab = M.c_stab;
-    scopy(v.mood, M.mood ? M.mood : "", sizeof v.mood);
-    v.mode = M.m.mode; v.fx = (uint8_t)M.fx; v.fx_user = M.m.fx_user;
-    v.quantum_ms = mind_quantum_ms(&M);
+    v.t = S.t; v.lifetime_s = model->m.lifetime_s;
+    v.health = model->health; v.c_resp = model->c_resp; v.c_room = model->c_room; v.c_bal = model->c_bal; v.c_stab = model->c_stab;
+    scopy(v.mood, model->mood ? model->mood : "", sizeof v.mood);
+    v.mode = model->m.mode; v.fx = (uint8_t)model->fx; v.fx_user = model->m.fx_user;
+    v.quantum_ms = mind_quantum_ms(model);
     v.cores = S.cores; v.load = S.load; v.mem_used = S.mem_used; v.runnable = S.runnable;
     for (unsigned i = 0; i < 64; i++) v.busy[i] = S.busy[i];
     v.frames_per_s = S.loops; v.late_per_s = S.late;
     for (int k = 0; k < MIND_SIG_N; k++) {
-        v.cur_x100[k] = M.cur_x100[k]; v.mean_x100[k] = (int32_t)M.m.norm[k].mean_x100; v.z_x10[k] = M.z_x10[k];
-        v.learned[k] = M.m.norm[k].n;
-        for (int i = 0; i < MIND_HIST; i++) v.hist[k][i] = M.hist[k][i];
+        v.cur_x100[k] = model->cur_x100[k]; v.mean_x100[k] = (int32_t)model->m.norm[k].mean_x100; v.z_x10[k] = model->z_x10[k];
+        v.learned[k] = model->m.norm[k].n;
+        for (int i = 0; i < MIND_HIST; i++) v.hist[k][i] = model->hist[k][i];
     }
-    for (int i = 0; i < MIND_HIST; i++) v.health_hist[i] = M.health_hist[i];
-    v.hpos = M.hpos;
-    v.decisions = M.m.decisions; v.anomalies = M.m.anomalies; v.kills = M.m.kills;
-    v.tune_trials = M.m.tune_trials; v.tune_wins = M.m.tune_wins;
-    v.activity = M.activity;
+    for (int i = 0; i < MIND_HIST; i++) v.health_hist[i] = model->health_hist[i];
+    v.hpos = model->hpos;
+    v.decisions = model->m.decisions; v.anomalies = model->m.anomalies; v.kills = model->m.kills;
+    v.tune_trials = model->m.tune_trials; v.tune_wins = model->m.tune_wins;
+    v.activity = model->activity;
     v.nj = 0;
     for (unsigned i = 0; i < MIND_VIEW_J; i++) {
-        const mind_event_t* e = mind_journal(&M, i);
+        const mind_event_t* e = mind_journal(model, i);
         if (!e) break;
         v.j[i].t = e->t; v.j[i].kind = e->kind; v.j[i].applied = e->applied;
         scopy(v.j[i].text, e->text, MIND_TEXT);
         v.nj++;
     }
-    v.tz_min = M.m.tz_min; v.rtc_local = M.m.rtc_local;
-    v.risk = M.risk_q16 * 100 / MNET_ONE; v.risk_why = M.risk_why;
-    v.net_n = M.m.net.n; v.net_pos = M.m.net.pos; v.net_prec = mnet_precision(&M.m.net); v.net_rec = mnet_recall(&M.m.net);
-    v.net_trusted = (uint8_t)mnet_trusted(&M.m.net); v.forecasts = M.m.forecasts; v.net_loss_x1e4 = M.m.net.loss_x1e4;
-    for (int i = 0; i < MNET_F; i++) v.net_w[i] = M.m.net.w[i];
-    v.bg_fps = mind_bg_fps(&M); v.core_cap = mind_core_cap(&M);
-    v.core_res_pid = mind_core_reserved_pid(&M); v.core_res = sched_reserved_core();
+    v.tz_min = model->m.tz_min; v.rtc_local = model->m.rtc_local;
+    v.risk = model->risk_q16 * 100 / MNET_ONE; v.risk_why = model->risk_why;
+    v.net_n = model->m.net.n; v.net_pos = model->m.net.pos; v.net_prec = mnet_precision(&model->m.net); v.net_rec = mnet_recall(&model->m.net);
+    v.net_trusted = (uint8_t)mnet_trusted(&model->m.net); v.forecasts = model->m.forecasts; v.net_loss_x1e4 = model->m.net.loss_x1e4;
+    for (int i = 0; i < MNET_F; i++) v.net_w[i] = model->m.net.w[i];
+    v.bg_fps = mind_bg_fps(model); v.core_cap = mind_core_cap(model);
+    v.core_res_pid = mind_core_reserved_pid(model); v.core_res = sched_reserved_core();
     display_compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
     for (int L = 0; L < ML_N; L++) {
-        v.lv[L].val = mind_lever_val(&M, L); v.lv[L].def = mind_lever_default(L);
-        unsigned tr, wi, ba; mind_lever_stats(&M, L, &tr, &wi, &ba);
+        v.lv[L].val = mind_lever_val(model, L); v.lv[L].def = mind_lever_default(L);
+        unsigned tr, wi, ba; mind_lever_stats(model, L, &tr, &wi, &ba);
         v.lv[L].trials = (uint16_t)tr; v.lv[L].wins = (uint16_t)wi; v.lv[L].backs = (uint16_t)ba;
-        v.lv[L].state = (uint8_t)mind_lever_state(&M, L);
+        v.lv[L].state = (uint8_t)mind_lever_state(model, L);
     }
-    v.lv_changes = M.lv.total_changes; v.lv_general = M.lv.general_rollbacks; v.lv_seed = (M.m.mflags & MF_SEED) != 0;
+    v.lv_changes = model->lv.total_changes; v.lv_general = model->lv.general_rollbacks; v.lv_seed = (model->m.mflags & MF_SEED) != 0;
     v.nproc = 0;
     for (int i = 0; i < MIND_PROC_MAX && v.nproc < 16; i++) {
-        const mind_track_t* t = &M.tr[i];
+        const mind_track_t* t = &model->tr[i];
         if (!t->alive) continue;
         __typeof__(v.p[0])* o = &v.p[v.nproc++];
         o->pid = t->pid; o->cpu_x10 = t->cpu_x10; o->sysc = t->sysc_rate; o->weight = t->weight; o->limit = t->limit;
-        o->flagged = t->flagged == 1; o->focus = t->pid == M.focus_pid;
+        o->flagged = t->flagged == 1; o->focus = t->pid == model->focus_pid;
         o->threads = 0; o->heap_kb = 0;
         for (unsigned k = 0; k < S.nproc; k++) if (S.proc[k].pid == t->pid) { o->threads = S.proc[k].threads; o->heap_kb = S.proc[k].heap_kb; }
         scopy(o->name, t->name, sizeof o->name);
@@ -362,11 +366,14 @@ void mind_sys_init(void) {
     ready = 1;
     if (tt_info && !sched_create("mind-tact", tact_main, 0, PRIO_CRITICAL))
         uart_print("[KIRA MIND] cannot start the fast (tactical) loop.\n");
-    publish();
+    kmutex_lock(&mmx);
+    published_model = M;
+    kmutex_unlock(&mmx);
+    publish(&published_model);
     uart_print("[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), ");
     uart_print("tunes the scheduler quantum by measurement, limits background programs when the screen is late, ");
     uart_print("watches program behaviour against saved profiles, manages memory pressure. Mode: ");
-    uart_print(M.m.mode == MIND_ACT ? "act" : "observe");
+    uart_print(published_model.m.mode == MIND_ACT ? "act" : "observe");
     uart_print(have ? ", experience restored from " MODEL_PATH ".\n" : ", first life (no saved model).\n");
 }
 
@@ -492,42 +499,52 @@ static void put_u(char* b, unsigned* n, uint64_t v) {
 
 void mind_sys_tick(uint64_t seconds) {
     if (!ready) return;
-    if (req_mode >= 0) { mind_set_mode(&M, req_mode, &act); req_mode = -1; mind_sys_save(); }
-    if (req_fx >= 0) { mind_set_fx_user(&M, req_fx, &act); req_fx = -1; mind_sys_save(); }
-    if (req_tz != 0x7FFFFFFF) { M.m.tz_min = req_tz; req_tz = 0x7FFFFFFF; mind_sys_save(); }
-    if (req_rtc >= 0) { M.m.rtc_local = (uint8_t)req_rtc; req_rtc = -1; mind_sys_save(); }
-    if (req_cap >= 0) { M.m.core_cap = (uint8_t)req_cap; req_cap = -1; mind_sys_save(); }
+    int mode = mind_sync_take_int(&req_mode, -1);
+    int fx = mind_sync_take_int(&req_fx, -1);
+    int tz = mind_sync_take_int(&req_tz, 0x7FFFFFFF);
+    int rtc = mind_sync_take_int(&req_rtc, -1);
+    int cap = mind_sync_take_int(&req_cap, -1);
+    int changed = 0;
+    kmutex_lock(&mmx);
+    if (mode >= 0) { mind_set_mode(&M, mode, &act); changed = 1; }
+    if (fx >= 0) { mind_set_fx_user(&M, fx, &act); changed = 1; }
+    if (tz != 0x7FFFFFFF) { M.m.tz_min = tz; changed = 1; }
+    if (rtc >= 0) { M.m.rtc_local = (uint8_t)rtc; changed = 1; }
+    if (cap >= 0) { M.m.core_cap = (uint8_t)cap; changed = 1; }
+    kmutex_unlock(&mmx);
+    if (changed) mind_sys_save();
     gather(seconds);
     kmutex_lock(&mmx);
     mind_step(&M, &S, &act);
+    published_model = M;
     kmutex_unlock(&mmx);
     /* Новые записи журнала - только в последовательный порт (стенд, отладка). На экране их показывает окно Разума
        и команда ai; в терминал они не копируются, иначе вывод Разума дублировался бы там. */
-    uint32_t fresh = M.jn - printed;
+    uint32_t fresh = published_model.jn - printed;
     if (fresh > MIND_JOURNAL) fresh = MIND_JOURNAL;
     for (uint32_t i = fresh; i > 0; i--) {
-        const mind_event_t* e = mind_journal(&M, i - 1);
+        const mind_event_t* e = mind_journal(&published_model, i - 1);
         if (!e) continue;
         char jl[256]; unsigned jn = 0;
         put_s(jl, &jn, "[KIRA MIND] "); put_s(jl, &jn, e->text); put_s(jl, &jn, "\n");
         uart_print_serial(jl);
     }
-    printed = M.jn;
-    publish();
+    printed = published_model.jn;
+    publish(&published_model);
     char line[256]; unsigned n = 0;
     put_s(line, &n, "[KIRA TELEMETRY] t="); put_u(line, &n, seconds);
-    put_s(line, &n, "s health="); put_u(line, &n, M.health);
+    put_s(line, &n, "s health="); put_u(line, &n, published_model.health);
     put_s(line, &n, " load="); put_u(line, &n, S.load);
     put_s(line, &n, "% mem="); put_u(line, &n, S.mem_used);
     put_s(line, &n, "% run="); put_u(line, &n, S.runnable);
     put_s(line, &n, " frames="); put_u(line, &n, S.loops);
     put_s(line, &n, " late="); put_u(line, &n, S.late);
-    put_s(line, &n, " q="); put_u(line, &n, mind_quantum_ms(&M));
-    put_s(line, &n, "ms fx="); put_u(line, &n, (uint64_t)M.fx);
+    put_s(line, &n, " q="); put_u(line, &n, mind_quantum_ms(&published_model));
+    put_s(line, &n, "ms fx="); put_u(line, &n, (uint64_t)published_model.fx);
     put_s(line, &n, "\n");
     /* Телеметрия никогда не попадает в пользовательскую консоль. Включённый режим означает
        диагностический поток только на serial; обычные метрики доступны через mind_sys_view(). */
-    if (telemetry) uart_print_serial(line);
+    if (__atomic_load_n(&telemetry, __ATOMIC_ACQUIRE)) uart_print_serial(line);
     if (seconds - last_save >= SAVE_PERIOD) { last_save = seconds; mind_sys_save(); }
 }
 
@@ -541,7 +558,10 @@ static void tact_main(void* arg) {
     (void)arg;
     uint64_t last = clock_ms();
     for (;;) {
-        uint32_t period = (uint32_t)((uint64_t)TIMER_HZ * (uint32_t)mind_lever_val(&M, ML_TACT_PERIOD) / 1000);   /* рычаг 18: 25 мс по умолчанию */
+        kmutex_lock(&mmx);
+        int32_t period_ms = mind_lever_val(&M, ML_TACT_PERIOD);
+        kmutex_unlock(&mmx);
+        uint32_t period = (uint32_t)((uint64_t)TIMER_HZ * (uint32_t)period_ms / 1000);   /* рычаг 18: 25 мс по умолчанию */
         sched_sleep_ticks(period ? period : 1);
         uint64_t now = clock_ms(), khz = clock_tsc_khz();
         uint32_t win = (uint32_t)(now - last);
@@ -597,19 +617,31 @@ static void tact_main(void* arg) {
     }
 }
 
-void mind_sys_request_cap(int pct) { if (pct >= 10 && pct <= 100) req_cap = pct; }
-unsigned mind_sys_core_cap(void) { return mind_core_cap(&M); }
+void mind_sys_request_cap(int pct) { if (pct >= 10 && pct <= 100) mind_sync_store_int(&req_cap, pct); }
+unsigned mind_sys_core_cap(void) {
+    kmutex_lock(&mmx); unsigned cap = mind_core_cap(&M); kmutex_unlock(&mmx);
+    return cap;
+}
 
-void mind_sys_request_mode(int mode) { req_mode = mode ? MIND_ACT : MIND_OBSERVE; }
-void mind_sys_request_fx(int fx) { if (fx >= 0 && fx <= MIND_FX_AUTO) req_fx = fx; }
-void mind_sys_request_tz(int32_t minutes) { if (minutes >= -720 && minutes <= 840) req_tz = minutes; }
-void mind_sys_set_telemetry(int on) { telemetry = on != 0; }
-int  mind_sys_telemetry(void) { return telemetry; }
-int32_t mind_sys_tz(void) { return M.m.tz_min; }
+void mind_sys_request_mode(int mode) { mind_sync_store_int(&req_mode, mode ? MIND_ACT : MIND_OBSERVE); }
+void mind_sys_request_fx(int fx) { if (fx >= 0 && fx <= MIND_FX_AUTO) mind_sync_store_int(&req_fx, fx); }
+void mind_sys_request_tz(int32_t minutes) { if (minutes >= -720 && minutes <= 840) mind_sync_store_int(&req_tz, minutes); }
+void mind_sys_set_telemetry(int on) { __atomic_store_n(&telemetry, on != 0, __ATOMIC_RELEASE); }
+int  mind_sys_telemetry(void) { return __atomic_load_n(&telemetry, __ATOMIC_ACQUIRE); }
+int32_t mind_sys_tz(void) {
+    kmutex_lock(&mmx); int32_t tz = M.m.tz_min; kmutex_unlock(&mmx);
+    return tz;
+}
 
-void mind_sys_request_rtc_local(int on) { req_rtc = on ? 1 : 0; }
-int  mind_sys_rtc_local(void) { return M.m.rtc_local != 0; }
-int32_t mind_sys_local_offset(void) { return M.m.rtc_local ? 0 : M.m.tz_min; }
+void mind_sys_request_rtc_local(int on) { mind_sync_store_int(&req_rtc, on ? 1 : 0); }
+int  mind_sys_rtc_local(void) {
+    kmutex_lock(&mmx); int local = M.m.rtc_local != 0; kmutex_unlock(&mmx);
+    return local;
+}
+int32_t mind_sys_local_offset(void) {
+    kmutex_lock(&mmx); int32_t offset = M.m.rtc_local ? 0 : M.m.tz_min; kmutex_unlock(&mmx);
+    return offset;
+}
 
 /* ---------------- консоль ---------------- */
 

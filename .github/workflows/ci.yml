@@ -41,6 +41,8 @@ jobs:
           ci/lint.sh
       - name: tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm dosfstools mtools python3-cryptography python3-pil ca-certificates openssl
+      - name: Mind synchronization source invariants
+        run: python3 ci/check_mind_sync.py
       - name: QMP disconnect regression tests
         run: python3 -m unittest ci.test_qmp
       - name: host tests (models of devices, file systems, scheduler, mind)
