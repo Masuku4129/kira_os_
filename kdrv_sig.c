@@ -52,7 +52,10 @@ int kdrv_sig_verify(const void* package, size_t package_len,
 
     const kdrv_sig_key_t* found = 0;
     for (uint32_t i = 0; i < key_count; i++) {
-        if (keys[i].flags & ~KDRV_SIG_KEY_REVOKED) return KDRV_SIG_E_TRUST_STORE;
+        if (keys[i].flags & ~KDRV_SIG_KEY_REVOKED ||
+            all_zero(keys[i].id, sizeof keys[i].id) ||
+            all_zero(keys[i].public_key, sizeof keys[i].public_key))
+            return KDRV_SIG_E_TRUST_STORE;
         for (uint32_t j = 0; j < i; j++)
             if (equal_bytes(keys[i].id, keys[j].id, KDRV_SIG_KEY_ID_SIZE))
                 return KDRV_SIG_E_TRUST_STORE;
