@@ -204,7 +204,6 @@ static void rl_rxeof(struct rl_softc *sc)
 		}
 		len = total_len - ETHER_CRC_LEN;	/* чип присылает CRC с каждым кадром */
 		pos = (cur_rx + RL_RX_HDR) % RL_RXBUFLEN;
-		wrap = RL_RXBUFLEN - pos;
 		if (kira_rl_ring_copy_out(rx, RL_RXBUFLEN, pos, frame, len) != 0) {
 			ifp->if_ierrors++;
 			rl_init(sc);
