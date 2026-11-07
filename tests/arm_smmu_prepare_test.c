@@ -7,8 +7,8 @@
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); return 1; \
 } } while (0)
 
-static _Alignas(PAGE) uint8_t registers_page[PAGE];
-static _Alignas(PAGE) uint8_t dma_pool[10u * PAGE];
+static _Alignas(PAGE) uint8_t registers_page[2u * PAGE];
+static _Alignas(PAGE) uint8_t dma_pool[12u * PAGE];
 static unsigned alloc_calls, free_calls, clean_calls, map_calls;
 static unsigned fail_alloc_at, misalign_alloc_at;
 static size_t freed_pages, pool_used;
@@ -18,7 +18,7 @@ static volatile void *test_map_mmio(void *context, uint64_t physical, size_t len
 {
     (void)context;
     ++map_calls;
-    if (physical != 0x100000u || length != PAGE)
+    if (physical != 0x100000u || length != 2u * PAGE)
         return 0;
     return registers_page;
 }
@@ -118,7 +118,9 @@ int main(void)
     CHECK(smmu.stream_table == dma_pool + 3u * PAGE);
     CHECK(smmu.stream_table_physical == next_physical + 3u * PAGE);
     CHECK(smmu.cmdq == dma_pool + 7u * PAGE);
-    CHECK(smmu.evtq == dma_pool + 8u * PAGE);
+    CHECK(smmu.evtq == dma_pool + 9u * PAGE);
+    CHECK(smmu.evtq_physical == next_physical + 9u * PAGE);
+    CHECK(smmu.evtq_allocation_pages == 3u);
     CHECK(smmu.queue_entries == 256u && smmu.enabled == 0);
     CHECK(smmu.stream_id_limit == 256u);
     CHECK(*(uint32_t *)(registers_page + 0x0088u) == 8u);
@@ -133,6 +135,8 @@ int main(void)
           ((smmu.cmdq_physical & 0x000fffffffffffe0ull) | 8ull));
     CHECK(*(uint64_t *)(registers_page + 0x00a0u) ==
           ((smmu.evtq_physical & 0x000fffffffffffe0ull) | 8ull));
+    CHECK(*(uint32_t *)(registers_page + 0x10a8u) == 0u);
+    CHECK(*(uint32_t *)(registers_page + 0x10acu) == 0u);
 
     /* Hardware with a narrower SID field must not expose unreachable STEs. */
     reset_test_platform();
