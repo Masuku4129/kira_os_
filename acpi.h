@@ -8,6 +8,20 @@
 #define ACPI_MAX_PRT    KIRA_ACPI_PRT_MAX
 
 typedef struct {
+    uint8_t owner_type, owner_index, type, enumeration_id, start_bus, path_count;
+    uint8_t devfn[16];
+} acpi_dmar_scope_t;
+typedef struct {
+    uint16_t segment;
+    uint8_t include_all, flags;
+    uint64_t reg_base;
+} acpi_dmar_unit_t;
+typedef struct {
+    uint16_t segment;
+    uint64_t base, limit;
+} acpi_dmar_rmrr_t;
+
+typedef struct {
     int      valid;            /* RSDP и корневая таблица прошли проверку контрольных сумм */
     uint8_t  revision;         /* ревизия ACPI (0 = 1.0, >=2 = XSDT) */
     uint32_t cpu_count;        /* включённые процессоры из MADT */
@@ -27,10 +41,9 @@ typedef struct {
     int dmar_valid;
     uint8_t dmar_host_width, dmar_flags;
     uint32_t dmar_unit_count, dmar_rmrr_count, dmar_scope_count;
-    struct { uint8_t owner_type, owner_index, type, enumeration_id, start_bus, path_count;
-             uint8_t devfn[16]; } dmar_scope[128];
-    struct { uint16_t segment; uint8_t include_all, flags; uint64_t reg_base; } dmar_unit[16];
-    struct { uint16_t segment; uint64_t base, limit; } dmar_rmrr[32];
+    acpi_dmar_scope_t dmar_scope[128];
+    acpi_dmar_unit_t dmar_unit[16];
+    acpi_dmar_rmrr_t dmar_rmrr[32];
 
     uint32_t tables_seen, tables_bad, tables_skipped_high;
     uint8_t  source;               /* 0 - ACPI (MADT), 1 - таблицы Intel MP (ACPI нет или в нём нет процессоров) */
