@@ -292,6 +292,7 @@ static void publish(const mind_t* model) {
     v.decisions = model->m.decisions; v.anomalies = model->m.anomalies; v.kills = model->m.kills;
     v.tune_trials = model->m.tune_trials; v.tune_wins = model->m.tune_wins;
     v.activity = model->activity;
+    v.journal_seq = model->jn;
     v.nj = 0;
     for (unsigned i = 0; i < MIND_VIEW_J; i++) {
         const mind_event_t* e = mind_journal(model, i);
