@@ -50,17 +50,43 @@ static void *smmu_alloc(const struct kira_smmu_platform *p, uint64_t *pa)
     return v;
 }
 
-static int smmu_cmd_sync(struct kira_smmu *s,
-                         const struct kira_smmu_platform *p)
+/*
+ * CMDQ pointers contain an 8-bit index and a wrap bit at bit 8 for
+ * this 256-entry queue. Comparing only the index makes full and empty
+ * indistinguishable after the producer wraps.
+ */
+#define SMMU_CMDQ_INDEX_MASK 0xffu
+#define SMMU_CMDQ_WRAP       0x100u
+#define SMMU_CMDQ_PTR_MASK   0x1ffu
+
+static uint32_t smmu_cmdq_next(uint32_t pointer)
+{
+    uint32_t index = pointer & SMMU_CMDQ_INDEX_MASK;
+    uint32_t next = (pointer & SMMU_CMDQ_WRAP) |
+                    ((index + 1u) & SMMU_CMDQ_INDEX_MASK);
+
+    if (index == SMMU_CMDQ_INDEX_MASK)
+        next ^= SMMU_CMDQ_WRAP;
+    return next;
+}
+
+static int smmu_cmd_submit(struct kira_smmu *s,
+                           const struct kira_smmu_platform *p,
+                           uint64_t word0, uint64_t word1,
+                           uint32_t *submitted_pointer)
 {
     volatile uint64_t *queue = (volatile uint64_t *)s->cmdq;
-    uint32_t prod = s->cmdq_producer;
-    uint32_t next = (prod + 1u) % SMMU_CMDQ_ENTRIES;
+    uint32_t producer = s->cmdq_producer & SMMU_CMDQ_PTR_MASK;
+    uint32_t consumer;
+    uint32_t next;
     uint32_t i;
 
     for (i = 0; i < SMMU_POLL_LIMIT; ++i) {
-        uint32_t cons = *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS);
-        if (((cons >> 0) & 0x3ffu) != next)
+        consumer = *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS) &
+                   SMMU_CMDQ_PTR_MASK;
+        if (!((producer & SMMU_CMDQ_INDEX_MASK) ==
+              (consumer & SMMU_CMDQ_INDEX_MASK) &&
+              ((producer ^ consumer) & SMMU_CMDQ_WRAP) != 0))
             break;
         if (p->delay)
             p->delay(p->context);
@@ -68,19 +94,43 @@ static int smmu_cmd_sync(struct kira_smmu *s,
     if (i == SMMU_POLL_LIMIT)
         return KIRA_SMMU_TIMEOUT;
 
-    queue[prod * 2u] = (uint64_t)CMD_SYNC;
-    queue[prod * 2u + 1u] = 0;
+    queue[(producer & SMMU_CMDQ_INDEX_MASK) * 2u] = word0;
+    queue[(producer & SMMU_CMDQ_INDEX_MASK) * 2u + 1u] = word1;
     if (p->clean_cache)
-        p->clean_cache(p->context, (const void *)&queue[prod * 2u], 16);
+        p->clean_cache(p->context,
+                       (const void *)&queue[(producer & SMMU_CMDQ_INDEX_MASK) * 2u],
+                       16);
     if (p->write_barrier)
         p->write_barrier(p->context);
 
+    next = smmu_cmdq_next(producer);
     s->cmdq_producer = next;
     *(volatile uint32_t *)(s->registers + SMMU_CMDQ_PROD) = next;
+    if (submitted_pointer)
+        *submitted_pointer = next;
+    return KIRA_SMMU_OK;
+}
 
+static int smmu_cmd_sync(struct kira_smmu *s,
+                         const struct kira_smmu_platform *p)
+{
+    uint32_t completion_pointer = 0;
+    uint32_t i;
+    int rc = smmu_cmd_submit(s, p, (uint64_t)CMD_SYNC, 0,
+                             &completion_pointer);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
+
+    /*
+     * Completion of CMD_SYNC, not merely consumption of the preceding
+     * invalidation command, is the synchronization point required before
+     * software enables device DMA or frees/reuses translation structures.
+     */
     for (i = 0; i < SMMU_POLL_LIMIT; ++i) {
-        uint32_t cons = *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS);
-        if ((cons & 0x3ffu) == next)
+        uint32_t consumer =
+            *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS) &
+            SMMU_CMDQ_PTR_MASK;
+        if (consumer == completion_pointer)
             return KIRA_SMMU_OK;
         if (p->delay)
             p->delay(p->context);
@@ -91,18 +141,11 @@ static int smmu_cmd_sync(struct kira_smmu *s,
 static int smmu_invalidate_stream(struct kira_smmu_domain *d,
                                   const struct kira_smmu_platform *p)
 {
-    volatile uint64_t *queue = (volatile uint64_t *)d->smmu->cmdq;
-    uint32_t prod = d->smmu->cmdq_producer;
-    uint32_t next = (prod + 1u) % SMMU_CMDQ_ENTRIES;
-
-    queue[prod * 2u] = (uint64_t)CMD_CFGI_STE | ((uint64_t)d->stream_id << 32);
-    queue[prod * 2u + 1u] = 0;
-    if (p->clean_cache)
-        p->clean_cache(p->context, (const void *)&queue[prod * 2u], 16);
-    if (p->write_barrier)
-        p->write_barrier(p->context);
-    d->smmu->cmdq_producer = next;
-    *(volatile uint32_t *)(d->smmu->registers + SMMU_CMDQ_PROD) = next;
+    uint64_t command = (uint64_t)CMD_CFGI_STE |
+                       ((uint64_t)d->stream_id << 32);
+    int rc = smmu_cmd_submit(d->smmu, p, command, 0, 0);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
     return smmu_cmd_sync(d->smmu, p);
 }
 
