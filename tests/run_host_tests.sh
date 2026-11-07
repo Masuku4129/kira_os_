@@ -96,10 +96,10 @@ $T/prog
 rm -f tests/manifest_test.h
 
 echo "== program file service (sandbox /data/<name>) =="
-$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c caps.c kfs.c store.c kdrv_fmt.c sha256.c
+$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c caps.c kfs.c store.c kdrv_fmt.c pk.c crypto.c sha256.c
 $T/fsrv
 TS=tests/s""tub   # каталог подмен заголовков для теста окон (имя каталога, не признак недоделки)
-$CC $FLAGS -fsanitize=undefined -I$TS -o $T/paint tests/paint_test.c fsrv.c kfs.c store.c kdrv_fmt.c sha256.c caps.c
+$CC $FLAGS -fsanitize=undefined -I$TS -o $T/paint tests/paint_test.c fsrv.c kfs.c store.c kdrv_fmt.c pk.c crypto.c sha256.c caps.c
 $T/paint
 
 echo "== Mind request mailboxes (atomic exchange/store under concurrent producer/consumer; ThreadSanitizer) =="
