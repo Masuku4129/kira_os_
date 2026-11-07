@@ -342,7 +342,7 @@ int main(void) {
 
     for (u32 i = 0; i < 6; i++) g_rtl.net.if_lladdr[i] = g_rtl.mac[i];
     g_rtl.net.if_softc = &g_rtl;
-    if_attach(&g_rtl.net) != 0) {
+    if (if_attach(&g_rtl.net) != 0) {
         kd_puts("rtl8139: network interface registration failed\n");
         rtl_write8(&g_rtl, RTL_REG_CR, 0);
         return 8;
