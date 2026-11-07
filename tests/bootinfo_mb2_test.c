@@ -33,8 +33,35 @@ int main(void){
     CHECK(m && m[0].base==0x400000 && m[0].length==0x1000);
     CHECK(!strcmp((const char*)((const uint8_t*)out+m[0].name_off),"init"));
 
-    CHECK(kbi_from_multiboot2(b,135,0x100000,0x200000,&out,&out_size)!=0);
-    w32(b+12,23); /* malformed mmap tag size/stride */
+    uint8_t valid[136]; memcpy(valid,b,sizeof valid);
+
+    /* A module may not overlap the loaded kernel image. */
+    memcpy(b,valid,sizeof valid);
+    w32(b+56,0x100000); w32(b+60,0x101000);
+    CHECK(kbi_from_multiboot2(b,136,0x100000,0x200000,&out,&out_size)!=0);
+
+    /* RGB component bit ranges must be disjoint. */
+    memcpy(b,valid,sizeof valid);
+    b[122]=16;
+    CHECK(kbi_from_multiboot2(b,136,0x100000,0x200000,&out,&out_size)!=0);
+
+    /* Duplicate framebuffer tags are ambiguous and must fail closed. */
+    memcpy(b,valid,sizeof valid);
+    memcpy(b+128,b+88,40); w32(b+168,0); w32(b+172,8); w32(b,176);
+    CHECK(kbi_from_multiboot2(b,176,0x100000,0x200000,&out,&out_size)!=0);
+
+    /* The end tag is mandatory and must terminate the declared block. */
+    memcpy(b,valid,sizeof valid);
+    w32(b+128,9);
+    CHECK(kbi_from_multiboot2(b,136,0x100000,0x200000,&out,&out_size)!=0);
+
+    /* Misaligned and undersized caller buffers are rejected before parsing. */
+    CHECK(kbi_from_multiboot2(b+1,135,0x100000,0x200000,&out,&out_size)!=0);
+    CHECK(kbi_from_multiboot2(valid,135,0x100000,0x200000,&out,&out_size)!=0);
+
+    /* Corrupt memory-map tag stride/size is rejected. */
+    memcpy(b,valid,sizeof valid);
+    w32(b+12,23);
     CHECK(kbi_from_multiboot2(b,136,0x100000,0x200000,&out,&out_size)!=0);
     puts("bootinfo_mb2: PASS"); return 0;
 }
