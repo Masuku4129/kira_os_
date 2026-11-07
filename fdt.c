@@ -101,6 +101,45 @@ static int step(const void* fdt, int off, uint32_t* tok) {
     return off;
 }
 
+int fdt_tree_valid(const void* fdt) {
+    if (!fdt_valid(fdt, 0)) return 0;
+    const uint8_t* s = sblk(fdt);
+    const char* strings = strs(fdt);
+    uint32_t n = slen(fdt), strings_size = hdr(fdt, 8), off = 0;
+    unsigned depth = 0;
+    int root_seen = 0, root_closed = 0, finished = 0;
+    while (off < n) {
+        uint32_t tok;
+        int next = step(fdt, (int)off, &tok);
+        if (next < 0 || (uint32_t)next <= off) return 0;
+        if (tok == T_BEGIN) {
+            if (finished || root_closed) return 0;
+            unsigned name_len = slen0((const char*)s + off + 4, n - off - 4);
+            if (!root_seen) {
+                if (depth || name_len) return 0;
+                root_seen = 1;
+            } else if (!depth || !name_len) return 0;
+            depth++;
+        } else if (tok == T_PROP) {
+            if (!root_seen || !depth || root_closed) return 0;
+            uint32_t name_off = fdt_u32(s + off + 8);
+            if (name_off >= strings_size ||
+                slen0(strings + name_off, strings_size - name_off) == strings_size - name_off)
+                return 0;
+        } else if (tok == T_END) {
+            if (!root_seen || !depth || root_closed) return 0;
+            depth--;
+            if (!depth) root_closed = 1;
+        } else if (tok == T_FINISH) {
+            if (!root_seen || !root_closed || depth || (uint32_t)next != n) return 0;
+            finished = 1;
+        } else if (tok != T_NOP) return 0;
+        if (finished && (uint32_t)next != n) return 0;
+        off = (uint32_t)next;
+    }
+    return finished && root_seen && root_closed && depth == 0;
+}
+
 int fdt_root(const void* fdt) {
     uint32_t tok; int off = 0;
     while (off >= 0) {
