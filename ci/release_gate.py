@@ -12,9 +12,9 @@ import sys
 from pathlib import Path
 
 REQUIRED = set(range(1, 8))
-HEADING = re.compile(r"^##\\s+(\\d+)\\.\\s+(.+)$")
-CLOSED = re.compile(r"^\\*\\*Gate:\\*\\* CLOSED\\s*$", re.MULTILINE)
-EVIDENCE = re.compile(r"^\\*\\*Evidence:\\*\\*\\s*(.+)$", re.MULTILINE)
+HEADING = re.compile(r"^##\s+(\d+)\.\s+(.+)$")
+CLOSED = re.compile(r"^\*\*Gate:\*\* CLOSED\s*$", re.MULTILINE)
+EVIDENCE = re.compile(r"^\*\*Evidence:\*\*\s*(.+)$", re.MULTILINE)
 
 
 def _repo_root(document: Path) -> Path:
@@ -72,7 +72,7 @@ def check(path: Path) -> list[str]:
     root = _repo_root(path)
     for number in sorted(REQUIRED & sections.keys()):
         title, body_lines = sections[number]
-        body = "\\n".join(body_lines)
+        body = "\n".join(body_lines)
         if not CLOSED.search(body):
             errors.append(f"section {number} ({title}) has no **Gate:** CLOSED marker")
             continue
