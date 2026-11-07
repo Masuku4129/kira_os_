@@ -167,7 +167,18 @@ static int touches_ram(uint64_t a, uint64_t len) {
 /* Пул DMA для плат, где устройства не видят кэш процессора (в дереве нет dma-coherent): обычная память без кэша
    (MAIR 3 = 0x44, внешняя общая), без исполнения. Блоки по 2 МБ, поэтому гигабайт с пулом дробится. */
 #define PTE_DMA_NC  ((3ull << 2) | PTE_AF | (2ull << 8) | (1ull << 53) | (1ull << 54))
-static uint64_t dma_lo, dma_hi, dma_bump;                       /* границы пула и «указатель» выдачи; dma_lo == 0 - пула нет */
+static uint64_t dma_lo, dma_hi;
+#define DMA_POOL_MAX_PAGES 8192u                 /* пул ограничен 32 МиБ */
+#define DMA_POOL_BITMAP_WORDS (DMA_POOL_MAX_PAGES / 64u)
+#define DMA_POOL_MAX_ALLOCS 256u
+static uint64_t dma_pool_bitmap[DMA_POOL_BITMAP_WORDS];
+typedef struct {
+    uint32_t first_page, pages, bytes;
+    uint8_t active;
+} dma_pool_allocation_t;
+static dma_pool_allocation_t dma_pool_allocations[DMA_POOL_MAX_ALLOCS];
+static uint32_t dma_pool_pages;
+static volatile uint32_t dma_pool_lock;
 static uint64_t* l0;
 
 static uint64_t* next_table(uint64_t* t, unsigned idx) {
@@ -249,25 +260,90 @@ static void dma_pool_choose(void) {
         if (sz > (32ull << 20)) sz = 32ull << 20;
         sz &= ~((2ull << 20) - 1);
         if (sz < (2ull << 20) || end < sz || end - sz < bump + (8ull << 20)) return;      /* места нет - пула нет */
-        dma_lo = end - sz; dma_hi = end; dma_bump = dma_lo;
+        uint64_t pool_pages = sz >> 12;
+        if (pool_pages > DMA_POOL_MAX_PAGES) return;
+        dma_lo = end - sz; dma_hi = end;
+        dma_pool_pages = (uint32_t)pool_pages;
+        __builtin_memset(dma_pool_bitmap, 0, sizeof dma_pool_bitmap);
+        __builtin_memset(dma_pool_allocations, 0, sizeof dma_pool_allocations);
         bump_end = dma_lo;                                       /* ранние выделения (таблицы MMU) не залезают в пул */
         return;
     }
 }
 int platform_dma_noncoherent(void) { return dma_lo != 0; }   /* драйверам Ring 3 DMA без согласованного кэша не отдаётся (kdrv.c) */
+static int dma_pool_bit(uint32_t page) {
+    return (int)((dma_pool_bitmap[page >> 6] >> (page & 63u)) & 1u);
+}
+static void dma_pool_set(uint32_t page) {
+    dma_pool_bitmap[page >> 6] |= 1ull << (page & 63u);
+}
+static void dma_pool_clear(uint32_t page) {
+    dma_pool_bitmap[page >> 6] &= ~(1ull << (page & 63u));
+}
+
+/* Non-coherent ARM64 DMA pool: contiguous uncached pages with exact ownership.
+   The bitmap allows safe reuse after virtio queue/device teardown. */
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) {
-    if (!dma_lo) return 0;
-    uint64_t need = ((uint64_t)bytes + 4095) & ~4095ull, f = irq_save(), a = 0;
-    static volatile uint32_t lk;
-    while (__atomic_exchange_n(&lk, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
-    if (dma_bump + need <= dma_hi && (!below_4g || dma_bump + need <= 0x100000000ull)) { a = dma_bump; dma_bump += need; }
-    __atomic_store_n(&lk, 0, __ATOMIC_RELEASE);
-    irq_restore(f);
-    if (!a) return 0;
-    for (uint64_t i = 0; i < need; i += 8) *(volatile uint64_t*)(uintptr_t)(a + i) = 0;
+    if (!dma_lo || !bytes || !phys || bytes > UINT32_MAX - 4095u) return 0;
+    uint32_t need = (bytes + 4095u) >> 12;
+    if (!need || need > dma_pool_pages) return 0;
+    uint64_t flags = irq_save();
+    while (__atomic_exchange_n(&dma_pool_lock, 1, __ATOMIC_ACQUIRE))
+        __asm__ volatile ("yield");
+    int slot = -1;
+    for (unsigned i = 0; i < DMA_POOL_MAX_ALLOCS; i++)
+        if (!dma_pool_allocations[i].active) { slot = (int)i; break; }
+    uint32_t first = dma_pool_pages;
+    if (slot >= 0) {
+        for (uint32_t i = 0; i <= dma_pool_pages - need; ) {
+            uint64_t addr = dma_lo + ((uint64_t)i << 12);
+            if (below_4g && addr + ((uint64_t)need << 12) > 0x100000000ull) break;
+            uint32_t j = 0;
+            while (j < need && !dma_pool_bit(i + j)) j++;
+            if (j == need) { first = i; break; }
+            i += j + 1;
+        }
+    }
+    uint64_t addr = 0;
+    if (first < dma_pool_pages) {
+        for (uint32_t i = 0; i < need; i++) dma_pool_set(first + i);
+        dma_pool_allocations[slot] = (dma_pool_allocation_t){ first, need, bytes, 1 };
+        addr = dma_lo + ((uint64_t)first << 12);
+    }
+    __atomic_store_n(&dma_pool_lock, 0, __ATOMIC_RELEASE);
+    irq_restore(flags);
+    if (!addr) return 0;
+    uint64_t rounded = (uint64_t)need << 12;
+    for (uint64_t i = 0; i < rounded; i += 8)
+        *(volatile uint64_t*)(uintptr_t)(addr + i) = 0;
     dsb();
-    *phys = a;
-    return (void*)(uintptr_t)a;
+    *phys = addr;
+    return (void*)(uintptr_t)addr;
+}
+
+void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
+    if (!dma_lo || !cpu || !phys || !bytes ||
+        (uint64_t)(uintptr_t)cpu != phys || phys < dma_lo ||
+        phys >= dma_hi || (phys & 4095u)) return;
+    uint64_t flags = irq_save();
+    while (__atomic_exchange_n(&dma_pool_lock, 1, __ATOMIC_ACQUIRE))
+        __asm__ volatile ("yield");
+    for (unsigned i = 0; i < DMA_POOL_MAX_ALLOCS; i++) {
+        dma_pool_allocation_t* a = &dma_pool_allocations[i];
+        uint64_t expected = dma_lo + ((uint64_t)a->first_page << 12);
+        if (!a->active || expected != phys || a->bytes != bytes) continue;
+        int valid = a->pages && a->first_page <= dma_pool_pages &&
+                    a->pages <= dma_pool_pages - a->first_page;
+        for (uint32_t j = 0; valid && j < a->pages; j++)
+            if (!dma_pool_bit(a->first_page + j)) valid = 0;
+        if (valid) {
+            for (uint32_t j = 0; j < a->pages; j++) dma_pool_clear(a->first_page + j);
+            *a = (dma_pool_allocation_t){0};
+        }
+        break;
+    }
+    __atomic_store_n(&dma_pool_lock, 0, __ATOMIC_RELEASE);
+    irq_restore(flags);
 }
 
 static int mmu_init(uint64_t top) {
