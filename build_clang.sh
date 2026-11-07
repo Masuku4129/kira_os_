@@ -161,8 +161,10 @@ if command -v lld-link >/dev/null 2>&1; then
     echo "[*] Native UEFI loader..."
     ld.lld -T $ARCH/linker_uefi.ld -nostdlib -z max-page-size=0x1000 $OBJ -o kira-uefi.bin
     mkdir -p uefi/EFI/BOOT
-    clang --target=x86_64-pc-windows-msvc -ffreestanding -fno-builtin -fno-stack-protector -mno-red-zone -Wall -Wextra -c arch/x86_64/uefi_loader.c -o uefi/uefi_loader.obj
-    lld-link /subsystem:efi_application /entry:efi_main /nodefaultlib /machine:x64 /out:uefi/EFI/BOOT/BOOTX64.EFI uefi/uefi_loader.obj
+    clang --target=x86_64-pc-windows-msvc -ffreestanding -fno-builtin -fno-stack-protector -mno-red-zone -Wall -Wextra -I. -c arch/x86_64/uefi_loader.c -o uefi/uefi_loader.obj
+    clang --target=x86_64-pc-windows-msvc -ffreestanding -fno-builtin -fno-stack-protector -mno-red-zone -Wall -Wextra -I. -c bootinfo.c -o uefi/bootinfo.obj
+    clang --target=x86_64-pc-windows-msvc -ffreestanding -fno-builtin -fno-stack-protector -mno-red-zone -Wall -Wextra -I. -c bootinfo_uefi.c -o uefi/bootinfo_uefi.obj
+    lld-link /subsystem:efi_application /entry:efi_main /nodefaultlib /machine:x64 /out:uefi/EFI/BOOT/BOOTX64.EFI uefi/uefi_loader.obj uefi/bootinfo.obj uefi/bootinfo_uefi.obj
     cp kira-uefi.bin uefi/KIRA.BIN
     cp kira-uefi.bin uefi/EFI/BOOT/KIRA.BIN
     if command -v mkfs.vfat >/dev/null 2>&1 && command -v mcopy >/dev/null 2>&1 && command -v mmd >/dev/null 2>&1; then
