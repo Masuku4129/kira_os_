@@ -8,6 +8,7 @@
 #include "kdrv_transition.h"
 #include "kdrv_revocation.h"
 #include <stddef.h>
+#include <string.h>
 #include "kdrv_trust.h"
 #include "pci.h"
 #include "msi.h"
@@ -139,7 +140,6 @@ typedef struct __attribute__((packed)) {
 
 static kdrv_sig_key_t live_trust_keys[KDRV_SIG_MAX_KEYS];
 static uint32_t live_trust_count;
-static uint64_t live_trust_generation;
 static int live_trust_ready, live_trust_error;
 
 static uint32_t trust_crc32(const void *data,size_t length) {
@@ -178,7 +178,7 @@ static int trust_read_optional(const char *path,void *out,uint32_t expected,
     if(rc==KFS_ERR_NOENT) { *actual=0; return 0; }
     if(rc||st.type!=KFS_FILE||st.size>maximum||
        (expected&&st.size!=expected)) return -1;
-    if(kfs_read(path,0,out,(size_t)st.size)!=(int64_t)st.size) return -1;
+    if(out&&kfs_read(path,0,out,(size_t)st.size)!=(int64_t)st.size) return -1;
     *actual=(uint32_t)st.size;
     return 0;
 }
@@ -215,7 +215,7 @@ static int kdrv_trust_prepare(void) {
     int64_t now=rtc_now(0,&current)==0?rtc_to_epoch(&current):0;
     kdrv_transition_t transitions[KDRV_TRANSITION_MAX_CHAIN];
     uint32_t bytes=0;
-    rc=trust_read_optional("/drv/.rotate",0,0,0,&bytes);
+    rc=trust_read_optional("/drv/.rotate",0,0,KDRV_TRANSITION_MAX_CHAIN*sizeof(kdrv_transition_t),&bytes);
     if(rc) return live_trust_error=KDRV_SIG_E_TRUST_STORE;
     if(bytes) {
         if(bytes%sizeof(kdrv_transition_t)||
@@ -257,7 +257,6 @@ static int kdrv_trust_prepare(void) {
     if(changed&&trust_persist(live_trust_keys,count,generation)!=0)
         return live_trust_error=KDRV_SIG_E_IO;
     live_trust_count=count;
-    live_trust_generation=generation;
     return KDRV_SIG_OK;
 }
 
