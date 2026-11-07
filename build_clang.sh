@@ -143,6 +143,7 @@ for h in userland/kccrt/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/kccrt/$(basename $h) $h
 done
 tools/kfstool kira.disk put /data/kcc/kcc_selfhost.c userland/kcc_selfhost.c
+tools/kfstool kira.disk put /data/kcc-selfhost/kcc_selfhost.c userland/kcc_selfhost.c
 userland/wasm/build.sh                                   # модули WebAssembly - в /wasm (те же файлы, что у ARM64)
 for w in build-wasm/*.wasm; do tools/kfstool kira.disk put /wasm/$(basename $w) $w; done
 # Корневые сертификаты для HTTPS: системная связка хозяина (PEM) -> /etc/ssl/roots.der на диске Киры
@@ -201,6 +202,7 @@ case "$1" in
             for h in kcc/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
             for h in userland/kccrt/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/kccrt/$(basename $h) $h >/dev/null; done
             tools/kfstool "$OUT/kira_disk.img" put /data/kcc/kcc_selfhost.c userland/kcc_selfhost.c >/dev/null
+            tools/kfstool "$OUT/kira_disk.img" put /data/kcc-selfhost/kcc_selfhost.c userland/kcc_selfhost.c >/dev/null
             [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
             tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/drivers.index drivers/index.txt >/dev/null
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."
