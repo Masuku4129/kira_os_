@@ -62,4 +62,16 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
 const kbi_mmap_entry_t* kbi_mmap(const void* blob);
 const kbi_module_t* kbi_modules(const void* blob);
 
+/* UEFI memory descriptor prefix (EFI_MEMORY_DESCRIPTOR, x86-64 ABI).
+ * descriptor_size may exceed this prefix for newer firmware revisions. */
+typedef struct __attribute__((packed)) {
+    uint32_t type, pad;
+    uint64_t physical_start, virtual_start, number_of_pages, attribute;
+} kbi_uefi_memory_desc_t;
+
+int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
+                            uint32_t descriptor_size, uint64_t rsdp_phys,
+                            uint64_t kernel_base, uint64_t kernel_size,
+                            void* out, uint32_t capacity, uint32_t* out_size);
+
 #endif
