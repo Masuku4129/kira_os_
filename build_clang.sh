@@ -1,6 +1,6 @@
 #!/bin/bash
 # Сборка Kira OS через clang + ld.lld.
-# Ничего, кроме clang, ld.lld, nasm и grub-mkrescue, не требуется.
+# Базовая сборка: clang, ld.lld, nasm, grub-mkrescue. objcopy/nm и lld-link добавляют нативные BIOS/UEFI образы.
 #   ./build_clang.sh            собрать и запустить (только UART)
 #   ./build_clang.sh --vnc      собрать и запустить с экраном по VNC (127.0.0.1:5900)
 #   ./build_clang.sh --vnc --ata  то же, но диск как ATA (по умолчанию virtio-blk)
@@ -235,6 +235,8 @@ case "$1" in
         OUT="${KIRA_OUT:-/storage/emulated/0/Download}"
         [ -d "$OUT" ] || { echo "[!] Нет папки $OUT (в Termux: termux-setup-storage; в proot - проверьте, что /storage примонтирован)"; exit 1; }
         cp kira.iso "$OUT/kira.iso"
+        [ ! -f kira-bios.img ] || cp kira-bios.img "$OUT/kira-bios.img"
+        [ ! -f uefi-fat.img ] || cp uefi-fat.img "$OUT/uefi-fat.img"
         if [ -f "$OUT/kira_disk.img" ]; then
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
             for t in $TESTPROGS; do tools/kfstool "$OUT/kira_disk.img" rm /bin/$t >/dev/null 2>&1 || true; done   # убрать тестовые программы прежних версий
@@ -253,7 +255,9 @@ case "$1" in
             cp kira.disk "$OUT/kira_disk.img"
             echo "[*] Диск: $OUT/kira_disk.img (новый)."
         fi
-        echo "[*] Образ: $OUT/kira.iso ($(( $(stat -c %s kira.iso) / 1024 )) КБ)"
+        echo "[*] ISO: $OUT/kira.iso ($(( $(stat -c %s kira.iso) / 1024 )) КБ)"
+        [ ! -f "$OUT/kira-bios.img" ] || echo "[*] Native BIOS disk: $OUT/kira-bios.img"
+        [ ! -f "$OUT/uefi-fat.img" ] || echo "[*] Native UEFI FAT32: $OUT/uefi-fat.img"
         echo "[*] Limbo x86: CD-ROM = kira.iso, Hard Disk A = kira_disk.img, Boot from = CD-ROM, VGA = std. Подробно - LIMBO.md"
         exit 0 ;;
     --vnc|--ata|--sata|--nvme|--usb|--xhci|--hub|--flash*|--uefi) exec ./run_qemu.sh "$@" ;;
