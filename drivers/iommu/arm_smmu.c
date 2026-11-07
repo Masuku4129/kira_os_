@@ -124,8 +124,8 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     int rc;
 
     if (!smmu || !platform || !platform->map_mmio ||
-        !platform->alloc_dma_pages || !physical_base ||
-        (physical_base & 0xfffu))
+        !platform->alloc_dma_pages || !platform->free_dma_pages ||
+        !physical_base || (physical_base & 0xfffu))
         return KIRA_SMMU_INVALID;
 
     smmu->registers = (volatile uint8_t *)
@@ -148,6 +148,11 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->stream_table_lock = 0;
     for (uint32_t i = 0; i < 8; ++i)
         smmu->stream_ids[i] = 0;
+    /* Start from an unallocated queue state; every failure path can unwind. */
+    smmu->cmdq = 0;
+    smmu->cmdq_physical = 0;
+    smmu->evtq = 0;
+    smmu->evtq_physical = 0;
     smmu->cmdq_producer = 0;
     smmu->evtq_consumer = 0;
     smmu->enabled = 0;
