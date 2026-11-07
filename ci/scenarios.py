@@ -662,7 +662,7 @@ ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиату�
     {"expect": r"drvman: драйвер rl установлен в /drv", "timeout": 400},
     {"log": [r"drvman: подтверждено пользователем, собираю и ставлю", r"drvget: собрано, образ ELF \d+ байт"]},
     {"shot": "drvman-installed"},
-    *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, издатель: (Ed25519 подтверждён|не подтверждён \(локально\)), источник: https://10\.0\.2\.100/rl/drvget\.rec", 30),
+    *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, издатель: (Ed25519 подтверждён|не подтверждён \(локально\)), источни(?:\r?\n\[USER pid \d+\] )?к: https://10\.0\.2\.100/rl/drvget\.rec", 30),
     *_dg("drvget verify rl", r"verify rl: OK", 30),
     {"cmd": "drv", "must": [r"rl: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV"]},
     {"send": ""}, {"keys": "", "then": ["f4"]},
