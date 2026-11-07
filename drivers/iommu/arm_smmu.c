@@ -255,11 +255,15 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         smmu->cmdq = 0;
         smmu->cmdq_physical = 0;
         if (platform->free_dma_pages)
-            platform->free_dma_pages(platform->context, smmu->stream_table,
-                                     smmu->stream_table_physical,
-                                     SMMU_STRTAB_PAGES);
+            platform->free_dma_pages(platform->context,
+                                     smmu->stream_table_allocation,
+                                     smmu->stream_table_allocation_physical,
+                                     smmu->stream_table_allocation_pages);
         smmu->stream_table = 0;
         smmu->stream_table_physical = 0;
+        smmu->stream_table_allocation = 0;
+        smmu->stream_table_allocation_physical = 0;
+        smmu->stream_table_allocation_pages = 0;
         return rc;
     }
 
