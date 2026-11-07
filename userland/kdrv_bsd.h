@@ -109,7 +109,7 @@ static inline i64 kd_wait(u64 ticks10ms) {
     i64 r = kdrv_irq_wait(ticks10ms);
     if (r == KE_PERM) {
         i64 sr = ksys(K_SLEEP, ticks10ms ? ticks10ms : 1u, 0, 0);
-        return sr == KE_INTR ? KE_INTR : KE_TIMEOUT;
+        return sr < 0 ? sr : KE_TIMEOUT;
     }
     return r;
 }
