@@ -180,6 +180,43 @@ else
     echo "[!] lld-link not found: native UEFI loader not built (install LLVM lld-link)."
 fi
 
+# Native BIOS/EDD path: a raw hard-disk image with a 16-bit MBR and a
+# Multiboot2-compatible E820 stage2. GRUB remains available for the ISO path.
+OBJCOPY="${OBJCOPY:-llvm-objcopy}"
+NM="${NM:-llvm-nm}"
+command -v "$OBJCOPY" >/dev/null 2>&1 || OBJCOPY=objcopy
+command -v "$NM" >/dev/null 2>&1 || NM=nm
+if command -v "$OBJCOPY" >/dev/null 2>&1 && command -v "$NM" >/dev/null 2>&1; then
+    echo "[*] Native BIOS loader..."
+    "$OBJCOPY" -O binary kira.bin kira-flat.bin
+    KERNEL_BYTES=$(wc -c < kira-flat.bin | tr -d ' ')
+    KERNEL_ENTRY=$( "$NM" -n kira.bin | awk '$3=="start" { print "0x"$1; exit }' )
+    KERNEL_START=$( "$NM" -n kira.bin | awk '$3=="kernel_start" { print $1; exit }' )
+    KERNEL_END=$( "$NM" -n kira.bin | awk '$3=="kernel_end" { print $1; exit }' )
+    [ -n "$KERNEL_ENTRY" ] && [ -n "$KERNEL_START" ] && [ -n "$KERNEL_END" ] || { echo "[!] Kernel linker symbols missing for BIOS image"; exit 1; }
+    KERNEL_MEM_BYTES=$(printf '0x%x' $((16#$KERNEL_END - 16#$KERNEL_START)))
+    STAGE2_SECTORS=32
+    KERNEL_LBA=$((1 + STAGE2_SECTORS))
+    cat > bios_layout.inc <<EOF
+%define STAGE2_SECTORS $STAGE2_SECTORS
+%define KERNEL_LBA $KERNEL_LBA
+%define KERNEL_BYTES $KERNEL_BYTES
+%define KERNEL_MEM_BYTES $KERNEL_MEM_BYTES
+%define KERNEL_ENTRY $KERNEL_ENTRY
+EOF
+    nasm -f bin -I./ arch/x86_64/bios_mbr.asm -o bios_mbr.bin
+    nasm -f bin -I./ arch/x86_64/bios_stage2.asm -o bios_stage2.bin
+    KERNEL_SECTORS=$(((KERNEL_BYTES + 511) / 512))
+    TOTAL_SECTORS=$((1 + STAGE2_SECTORS + KERNEL_SECTORS))
+    dd if=/dev/zero of=kira-bios.img bs=512 count=$TOTAL_SECTORS 2>/dev/null
+    dd if=bios_mbr.bin of=kira-bios.img conv=notrunc 2>/dev/null
+    dd if=bios_stage2.bin of=kira-bios.img bs=512 seek=1 conv=notrunc 2>/dev/null
+    dd if=kira-flat.bin of=kira-bios.img bs=512 seek=$KERNEL_LBA conv=notrunc 2>/dev/null
+    echo "[*] Native BIOS disk image written: ./kira-bios.img"
+else
+    echo "[!] objcopy/nm not found: native BIOS image not generated."
+fi
+
 echo "[*] ISO..."
 rm -rf isodir kira.iso
 mkdir -p isodir/boot/grub
