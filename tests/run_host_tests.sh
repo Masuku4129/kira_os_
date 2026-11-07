@@ -100,7 +100,8 @@ $CC $FLAGS -fsanitize=undefined -I$TS -o $T/paint tests/paint_test.c fsrv.c kfs.
 $T/paint
 
 echo "== Mind request mailboxes (atomic exchange/store under concurrent producer/consumer; ThreadSanitizer) =="
-$CC $FLAGS -fsanitize=thread -o $T/mind-sync tests/mind_sync_test.c -pthread
+# Do not pass -I.: it shadows the host POSIX sched.h with KIRA\x27s kernel header.
+$CC -O1 -g -Wall -Werror -no-pie -fsanitize=thread -pthread -o $T/mind-sync tests/mind_sync_test.c
 $T/mind-sync
 
 echo "== spinlock (ticket lock: real threads, mutual exclusion, FIFO, panic bust; ThreadSanitizer) =="
