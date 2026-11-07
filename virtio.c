@@ -48,23 +48,41 @@ static void barrier(void) { __sync_synchronize(); }
 
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) __attribute__((weak));   /* ARM64: пул без кэша для плат без согласованности */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
+    /* Never round an untrusted byte count before checking overflow. */
+    if (!bytes || !phys || bytes > UINT32_MAX - 4095u) return 0;
+    *phys = 0;
 #ifdef KIRA_HOST_TEST
-    void* p = aligned_alloc(4096, (bytes + 4095) & ~4095u);
+    size_t rounded = ((size_t)bytes + 4095u) & ~(size_t)4095u;
+    void* p = aligned_alloc(4096, rounded);
     if (!p) return 0;
-    memset(p, 0xA5, bytes);                                  /* не нули: драйвер обязан обнулять сам */
-    zero(p, bytes);
+    zero(p, rounded);
     *phys = (uint64_t)(uintptr_t)p;
     return p;
 #else
-    if (platform_dma_pool) { void* q = platform_dma_pool(bytes, phys, 0); if (q) return q; }
-    uint32_t pages = (bytes + 4095) / 4096;
+    /* A platform pool must return a CPU pointer and a device-visible address.
+       It owns its cache-maintenance policy; callers must not assume phys == ptr. */
+    if (platform_dma_pool) {
+        uint64_t device_addr = 0;
+        void* q = platform_dma_pool(bytes, &device_addr, 0);
+        if (q && device_addr) {
+            zero(q, bytes);
+            *phys = device_addr;
+            return q;
+        }
+    }
+    uint32_t pages = (bytes + 4095u) / 4096u;
     uint64_t pa = pmm_alloc_contiguous(pages);
     if (!pa) return 0;
-    for (uint32_t i = 0; i < pages; i++) {                   /* устройство и процессор должны видеть один и тот же адрес */
-        uint64_t t;
-        if (vmm_translate(pa + (uint64_t)i * 4096, &t) != 0 || t != pa + (uint64_t)i * 4096) { pmm_free_contiguous(pa, pages); return 0; }
+    /* The fallback is deliberately limited to the kernel's currently
+       identity-mapped low-memory DMA pool. It is NOT an IOMMU mapping. */
+    for (uint32_t i = 0; i < pages; i++) {
+        uint64_t va = pa + (uint64_t)i * 4096u, translated = 0;
+        if (vmm_translate(va, &translated) != 0 || translated != va) {
+            (void)pmm_free_contiguous(pa, pages);
+            return 0;
+        }
     }
-    zero((void*)(uintptr_t)pa, (size_t)pages * 4096);
+    zero((void*)(uintptr_t)pa, (size_t)pages * 4096u);
     *phys = pa;
     return (void*)(uintptr_t)pa;
 #endif
