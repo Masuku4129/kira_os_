@@ -3,6 +3,21 @@
 /* Только открытые ключи. Закрытый ключ выпуска остаётся офлайн и вне Git/ISO/CI. */
 #include "kdrv_sig.h"
 
+#ifdef KDRV_TEST_TRUST
+#define KDRV_TRUST_KEY_ID "TEST-ED25519-001"
+static const kdrv_sig_key_t kdrv_trust_keys[] = {
+    {
+        KDRV_TRUST_KEY_ID,
+        {
+            0xd7,0x5a,0x98,0x01,0x82,0xb1,0x0a,0xb7,
+            0xd5,0x4b,0xfe,0xd3,0xc9,0x64,0x07,0x3a,
+            0x0e,0xe1,0x72,0xf3,0xda,0xa6,0x23,0x25,
+            0xaf,0x02,0x1a,0x68,0xf7,0x07,0x51,0x1a
+        },
+        0
+    }
+};
+#else
 #define KDRV_TRUST_KEY_ID "aa85df60c87d3666"
 static const kdrv_sig_key_t kdrv_trust_keys[] = {
     {
@@ -16,6 +31,8 @@ static const kdrv_sig_key_t kdrv_trust_keys[] = {
         0
     }
 };
+#endif /* KDRV_TEST_TRUST */
+
 #define KDRV_TRUST_KEY_COUNT ((uint32_t)(sizeof kdrv_trust_keys / sizeof kdrv_trust_keys[0]))
 
 #endif
