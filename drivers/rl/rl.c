@@ -195,14 +195,16 @@ static void rl_rxeof(struct rl_softc *sc)
 		u32 total_len = rxstat >> 16;		/* вместе с CRC */
 		u32 len, pos;
 
-		if (total_len == RL_RXSTAT_UNFINISHED)	/* чип ещё копирует кадр в ОЗУ */
-			break;
-		if (!(rxstat & RL_RXSTAT_RXOK) || total_len < ETHER_MIN_LEN || total_len > ETHER_MAX_LEN + 4) {
+		if (le32toh(*(volatile u32 *)(rx + cur_rx)) >> 16 == RL_RXSTAT_UNFINISHED)
+			break; /* чип ещё копирует кадр в ОЗУ */
+		if (kira_rl_rx_decode(rx + cur_rx, &record) != 0 ||
+		    !kira_rl_rx_status_ok(record.status)) {
 			ifp->if_ierrors++;
 			rl_init(sc);			/* как rl(4): неверная голова кадра - перезапуск */
 			return;
 		}
-		len = total_len - ETHER_CRC_LEN;	/* чип присылает CRC с каждым кадром */
+		total_len = record.wire_length;
+		len = record.payload_length;	/* чип присылает CRC с каждым кадром */
 		pos = (cur_rx + RL_RX_HDR) % RL_RXBUFLEN;
 		if (kira_rl_ring_copy_out(rx, RL_RXBUFLEN, pos, frame, len) != 0) {
 			ifp->if_ierrors++;
