@@ -52,7 +52,8 @@ void pmm_arm_init(const pmm_arm_region_t* r, unsigned n, uint64_t lo, uint64_t h
         if (b > base_pfn + npages) b = base_pfn + npages;
         for (uint64_t p = a; p < b; p++) {
             uint64_t i = p - base_pfn;
-            set_free(i); clear_reserved(i); free_pages++; total_pages++;
+            if (used(i)) { set_free(i); free_pages++; total_pages++; }
+            clear_reserved(i);
         }
     }
     pmm_arm_reserve(res_lo, res_hi);
