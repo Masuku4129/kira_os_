@@ -192,7 +192,7 @@ int fdt_parent(const void* fdt, int node) {
 int fdt_prop_u32(const void* fdt, int node, const char* name, uint32_t* out) {
     uint32_t len;
     const void* p = fdt_prop(fdt, node, name, &len);
-    if (!p || len < 4) return -1;
+    if (!p || len != 4) return -1;
     *out = fdt_u32(p);
     return 0;
 }
@@ -224,7 +224,8 @@ unsigned fdt_count_type(const void* fdt, int parent, const char* type) {
         if (depth == 1) {
             uint32_t len;
             const char* t = (const char*)fdt_prop(fdt, c, "device_type", &len);
-            if (t && len && streq(t, type)) n++;
+            unsigned want = slen0(type, 256);
+            if (t && len == want + 1 && !__builtin_memcmp(t, type, want) && t[want] == 0) n++;
         }
         c = fdt_next_node(fdt, c, &depth);
     }
@@ -235,8 +236,10 @@ unsigned fdt_count_type(const void* fdt, int parent, const char* type) {
 int fdt_node_enabled(const void* fdt, int node) {
     uint32_t len;
     const char* s = (const char*)fdt_prop(fdt, node, "status", &len);
-    if (!s || !len) return 1;
-    return streq(s, "okay") || streq(s, "ok");
+    if (!s) return 1;
+    if (len == 5 && !__builtin_memcmp(s, "okay", 4) && s[4] == 0) return 1;
+    if (len == 3 && s[0] == 'o' && s[1] == 'k' && s[2] == 0) return 1;
+    return 0;
 }
 
 int fdt_simplefb(const void* fdt, fdt_fb_t* fb) {
