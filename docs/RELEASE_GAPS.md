@@ -53,10 +53,9 @@ KDRV retains SHA-256 integrity checks and explicit user confirmation. A detached
 Required:
 - Add UI verification/status for signed versus unsigned local packages and a supported import path for `.sig`.
 - Complete trust-key rotation and revocation procedures, including recovery from a compromised owner key.
-- Bind the signed metadata to target ABI/device IDs and package version in a canonical publisher manifest.
+- Add explicit publisher metadata fields for ABI compatibility and key lifecycle policy; the current signature already covers the complete package digest, including the existing KDRV version and device-match header.
 - Persist the highest accepted version per publisher/package and reject rollback; the current verifier does not yet prevent disk-image rollback.
 - Fail closed for invalid signatures, unknown/revoked keys, expiry, malformed manifests and interrupted installs.
-- UI must distinguish unsigned/hash-only from authenticated publisher packages.
 
 ## 5. DMA isolation — PARTIAL (fail-closed fallback implemented)
 The current kernel still has no VT-d / AMD-Vi / ARM SMMU domain implementation. A DMA-capable device without an IOMMU domain can access physical memory outside a process's address-space boundary.

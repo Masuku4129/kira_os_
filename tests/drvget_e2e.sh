@@ -25,7 +25,7 @@ $K $UCFLAGS -c userland/libc_min.c -o $O/libc_min.o || exit 1
 $K $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -c userland/drvget.c -o $O/drvget.o || exit 1
 $K $UCFLAGS -I. -c userland/drvget_core.c -o $O/dgcore.o || exit 1
 $K $UCFLAGS -I. -c kdrv_fmt.c -o $O/kfmt.o || exit 1
-for f in userland/tls.c userland/x509.c pk.c crypto.c sha256.c kdrv_sig.c; do $K $UCFLAGS -I. -Iuserland -c $f -o $O/t_$(basename $f .c).o || exit 1; done
+for f in userland/tls.c userland/x509.c pk.c crypto.c sha256.c; do $K $UCFLAGS -I. -Iuserland -c $f -o $O/t_$(basename $f .c).o || exit 1; done
 ld.lld -T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro -o $T/drvget.elf $O/drvget.o $O/dgcore.o $O/kfmt.o $objs $O/kccrt.o $O/t_*.o $O/libc_min.o || exit 1
 # drvman (окно «Драйверы»): та же логика (drvget.c с -DDRVGET_LIB) + окно; здесь проверяется режим do под загрузчиком (вызовов окна и списка PCI у загрузчика нет)
 $K $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -DDRVGET_LIB -c userland/drvget.c -o $O/drvget_lib.o || exit 1

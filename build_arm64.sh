@@ -19,7 +19,7 @@ for app in mt ipc burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk
     UELF="$UELF build-arm64/$app.elf"
 done
 # fetch: HTTP и HTTPS (TLS 1.3 и криптография внутри программы)
-for f in userland/fetch.c userland/tls.c userland/x509.c pk.c crypto.c sha256.c kdrv_sig.c userland/libc_min.c; do
+for f in userland/fetch.c userland/tls.c userland/x509.c pk.c crypto.c sha256.c userland/libc_min.c; do
     $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/uf_$(basename $f .c).o
 done
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/fetch.elf build-arm64/uf_*.o

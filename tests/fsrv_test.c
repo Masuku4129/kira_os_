@@ -3,6 +3,7 @@
 #include "caps.h"
 #include "kfs.h"
 #include "kdrv_format.h"
+#include "kdrv_sig.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

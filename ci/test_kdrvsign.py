@@ -25,7 +25,12 @@ class KdrvSignerTests(unittest.TestCase):
         self.public = self.private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
         self.public_path.write_text(self.public.hex() + "\n", encoding="ascii")
         self.trust_path = self.root / "trust.h"
-        self.trust_path.write_text('#define KDRV_TRUST_KEY_ID "TEST-ED25519-001"\n', encoding="ascii")
+        self.trust_path.write_text(
+            '#define KDRV_TRUST_KEY_ID "TEST-ED25519-001"\n'
+            + "static const unsigned char pub[] = {"
+            + ",".join(f"0x{x:02x}" for x in self.public) + "};\n",
+            encoding="ascii"
+        )
         self.package_path = self.root / "demo.kdrv"
         self.package = b"KIRA signer test package"
         self.package_path.write_bytes(self.package)
@@ -64,7 +69,7 @@ class KdrvSignerTests(unittest.TestCase):
         self.public_path.write_text(("00" * 32) + "\n", encoding="ascii")
         result = self.run_signer()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("does not match", result.stderr)
+        self.assertIn("not present", result.stderr)
         self.assertFalse(self.output_path.exists())
 
     def test_refuses_invalid_validity_window(self):
