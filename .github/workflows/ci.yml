@@ -16,7 +16,98 @@ on:
   workflow_dispatch:
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      audit: ${{ steps.classify.outputs.audit }}
+      host: ${{ steps.classify.outputs.host }}
+      kcc: ${{ steps.classify.outputs.kcc }}
+      driver: ${{ steps.classify.outputs.driver }}
+      build: ${{ steps.classify.outputs.build }}
+      arm64: ${{ steps.classify.outputs.arm64 }}
+      gui: ${{ steps.classify.outputs.gui }}
+      mind: ${{ steps.classify.outputs.mind }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify changed components
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          event = os.environ["EVENT_NAME"]
+          if event != "pull_request":
+              changed = []
+              full = True
+          else:
+              base = os.environ.get("PR_BASE_SHA", "")
+              head = os.environ["HEAD_SHA"]
+              if not base:
+                  raise SystemExit("pull_request base SHA is missing; refusing to skip checks")
+              changed = subprocess.check_output(
+                  ["git", "diff", "--name-only", base, head], text=True
+              ).splitlines()
+              full = not changed
+          infra = full or any(
+              p.startswith(".github/workflows/") or p.startswith("ci/")
+              for p in changed
+          )
+          code_ext = (".c", ".h", ".S", ".s", ".asm", ".ld", ".py", ".sh")
+          code = infra or any(
+              pathlib.PurePosixPath(p).suffix in code_ext
+              or p in {"Makefile", "build_clang.sh", "build_arm64.sh", "linker.ld"}
+              for p in changed
+          )
+          groups = {
+              "audit": infra or code,
+              "host": infra or code or any(p.startswith("tests/") for p in changed),
+              "kcc": infra or any(
+                  p.startswith(("kcc/", "tests/kcc/"))
+                  or p in {"tests/kcc/run.sh", "tests/run_host_tests.sh"}
+                  for p in changed
+              ),
+              "driver": infra or any(
+                  p.startswith(("drivers/", "userland/drv"))
+                  or p in {"kdrv.c", "kdrv.h", "kdrv_fmt.c", "kdrv_format.h",
+                           "kdrv_trust.h", "tools/mkdrv.sh", "tools/kdrvpack.c",
+                           "tests/drvget_e2e.sh"}
+                  for p in changed
+              ),
+              "build": code,
+              "arm64": code,
+              "gui": infra or any(
+                  p in {"wm.c", "gfxui.c", "gfx2d.c", "font8x16.c", "icons.c",
+                        "brainfx.c", "apps.c", "dock.c"}
+                  or p.startswith(("tests/wm", "tests/ui"))
+                  for p in changed
+              ),
+              "mind": infra or any(
+                  p.startswith(("mind", "tests/mind"))
+                  or p in {"experience.c", "mind_sync.h", "mind_sys.c", "mind_sys.h"}
+                  for p in changed
+              ),
+          }
+          # For a docs-only PR, all component jobs may be skipped safely.
+          # Workflow/CI edits always exercise every job so infrastructure changes
+          # cannot silently bypass the pipeline.
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              for name, enabled in groups.items():
+                  out.write(f"{name}={'true' if enabled else 'false'}\n")
+          print("Changed files:")
+          print("\n".join(changed) if changed else "(full run / no diff)")
+          print("Selected jobs:", ", ".join(k for k,v in groups.items() if v))
+          PY
+
   audit:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.audit == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -32,6 +123,8 @@ jobs:
           path: ci-out/audit/
 
   host-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.host == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -73,6 +166,8 @@ jobs:
           if-no-files-found: warn
 
   kcc-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.kcc == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -97,12 +192,14 @@ jobs:
           path: ci-out/kcc-tests.log
 
   driver-e2e:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.driver == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Prepare writable apt archive cache
-        run: sudo chmod 1777 /var/cache/apt/archives
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
       - uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives/*.deb
@@ -121,12 +218,14 @@ jobs:
           path: ci-out/driver-e2e.log
 
   build:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Prepare writable apt archive cache
-        run: sudo chmod 1777 /var/cache/apt/archives
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
       - uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives/*.deb
@@ -157,6 +256,8 @@ jobs:
           path: ci-out/image-audit.json
 
   arm64:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.arm64 == 'true'
     outputs:
       qemu_result: ${{ steps.arm64-qemu.outcome }}
     runs-on: ubuntu-24.04
@@ -164,7 +265,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Prepare writable apt archive cache
-        run: sudo chmod 1777 /var/cache/apt/archives
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
       - uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives/*.deb
@@ -194,7 +295,7 @@ jobs:
           path: ci-out/arm64
 
   vm:
-    needs: build
+    needs: [detect-changes, build]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -205,7 +306,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Prepare writable apt archive cache
-        run: sudo chmod 1777 /var/cache/apt/archives
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
       - uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives/*.deb
@@ -263,6 +364,8 @@ jobs:
             !ci-out/*/*.img
 
   mind-quality:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.mind == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -284,6 +387,8 @@ jobs:
           path: ci-out/mind-quality.log
 
   gui-regression:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.gui == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -303,7 +408,7 @@ jobs:
           path: ci-out/gui-regression.log
 
   report:
-    needs: [audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -447,7 +552,7 @@ jobs:
           git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"
 
   package:
-    needs: [audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
     if: success() && github.event_name != 'pull_request' && github.ref_name != 'main' && github.ref_name != 'stable'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
