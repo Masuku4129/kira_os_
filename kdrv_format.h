@@ -5,6 +5,7 @@
 
    /drv/ИМЯ.kdrv = kdrv_header_t + образ ELF драйвера (elf_size байт, дальше ничего).
    /drv/ИМЯ.rec  = kdrv_rec_t: что было подтверждено пользователем при установке и хеши.
+   /drv/ИМЯ.sig  = необязательная detached Ed25519-подпись точных байтов .kdrv; если присутствует, всегда проверяется.
    Формат v1 не содержит подписи издателя: SHA-256 в .rec проверяет только целостность относительно локальной записи подтверждения и не аутентифицирует автора пакета
    (хеш образа ELF и хеш всего файла .kdrv, чтобы заголовок с правами и списком устройств тоже нельзя было подменить).
    Права процесса = запрошенные в заголовке И подтверждённые в .rec. Все числа - порядок байт процессора (x86-64, ARM64: little). */
@@ -19,6 +20,8 @@
 #define KDRV_MATCH_MAX  8
 #define KDRV_ELF_MAX    (8u << 20)
 #define KDRV_ANY        0xFFFFu            /* vendor / device: любое значение */
+#define KDRV_SIG_MAGIC  0x4749534Bu          /* "KSIG" */
+#define KDRV_SIG_FORMAT 1u
 
 /* Устройство подходит, если vendor и device совпали (или KDRV_ANY) И (класс & cls_mask) == (cls & cls_mask).
    cls = класс << 16 | подкласс << 8 | prog_if. Запись без vendor, без device и без маски класса (подходит всё) недопустима. */
@@ -36,6 +39,16 @@ typedef struct {
     kdrv_match_t match[KDRV_MATCH_MAX];
 } kdrv_header_t;
 
+/* Detached Ed25519 signature over the exact bytes of the .kdrv package.
+   key_id is the first 16 ASCII hex characters of the trusted key fingerprint. */
+typedef struct {
+    uint32_t magic;
+    uint16_t format;
+    uint16_t sig_size;
+    char key_id[16];
+    uint8_t signature[64];
+} kdrv_sig_t;
+
 typedef struct {
     uint32_t magic;                        /* KREC_MAGIC */
     uint16_t format;
@@ -52,13 +65,17 @@ typedef struct {
 _Static_assert(sizeof(kdrv_match_t) == 12, "kdrv_match_t");
 _Static_assert(sizeof(kdrv_header_t) == 136, "kdrv_header_t");
 _Static_assert(sizeof(kdrv_rec_t) == 216, "kdrv_rec_t");
+_Static_assert(sizeof(kdrv_sig_t) == 88, "kdrv_sig_t");
 
 enum { KDRV_OK = 0, KDRV_E_SHORT = -1, KDRV_E_MAGIC = -2, KDRV_E_FORMAT = -3, KDRV_E_NAME = -4, KDRV_E_CAPS = -5,
-       KDRV_E_MATCH = -6, KDRV_E_SIZE = -7, KDRV_E_UNCONFIRMED = -8, KDRV_E_HASH = -9, KDRV_E_DMA_UNSAFE = -10 };
+       KDRV_E_MATCH = -6, KDRV_E_SIZE = -7, KDRV_E_UNCONFIRMED = -8, KDRV_E_HASH = -9, KDRV_E_DMA_UNSAFE = -10, KDRV_E_SIGNATURE = -11 };
 
 /* Чистые функции (kdrv_fmt.c; проверяются на хосте). */
 int kdrv_header_check(const void* file, uint32_t len, kdrv_header_t* out);      /* заголовок корректен и файл ровно hdr_size + elf_size */
 int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out);             /* запись корректна и подтверждена пользователем */
+int kdrv_sig_verify_with_key(const void* pkg, uint32_t pkg_len, const kdrv_sig_t* sig,
+                             const uint8_t public_key[32]);
+int kdrv_sig_check(const void* pkg, uint32_t pkg_len, const void* sig, uint32_t sig_len);
 int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uint32_t cls);   /* 1 - подходит */
 const char* kdrv_strerror(int err);
 /* Без подтверждённой изоляции IOMMU DMA и MSI запрещены для драйверов Ring 3. */

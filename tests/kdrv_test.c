@@ -16,6 +16,15 @@ static void mk(kdrv_header_t* h, uint8_t* file, uint32_t elf) {
 static uint8_t f[sizeof(kdrv_header_t) + 100];
 #define PUT() memcpy(f, &h, sizeof h)
 
+static int hexbyte(const char* s) {
+    unsigned a = s[0] <= '9' ? (unsigned)(s[0] - '0') : (unsigned)(s[0] - 'a' + 10);
+    unsigned b = s[1] <= '9' ? (unsigned)(s[1] - '0') : (unsigned)(s[1] - 'a' + 10);
+    return (int)((a << 4) | b);
+}
+static void unhex(uint8_t* out, const char* in, unsigned n) {
+    for (unsigned i = 0; i < n; i++) out[i] = (uint8_t)hexbyte(in + i * 2);
+}
+
 int main(void) {
     kdrv_header_t h, o;
     mk(&h, f, 100);
@@ -63,6 +72,24 @@ int main(void) {
         for (int k = 0; k < 1 + rand() % 6; k++) f[rand() % sizeof(kdrv_header_t)] ^= (uint8_t)(1 + rand() % 255);
         if (kdrv_header_check(f, sizeof f, &o) == KDRV_OK) CHECK(!(o.caps & ~(uint32_t)CAP_DRIVER_) && o.nmatch >= 1 && o.nmatch <= KDRV_MATCH_MAX);
     }
+    /* RFC 8032 test vector 2: message 0x72, checked through the KDRV signature envelope. */
+    static const char pub_hex[] = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
+    static const char sig_hex[] =
+        "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da"
+        "085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00";
+    uint8_t pub[32], message = 0x72;
+    kdrv_sig_t sig; memset(&sig, 0, sizeof sig);
+    unhex(pub, pub_hex, sizeof pub);
+    unhex(sig.signature, sig_hex, sizeof sig.signature);
+    sig.magic = KDRV_SIG_MAGIC; sig.format = KDRV_SIG_FORMAT; sig.sig_size = sizeof sig.signature;
+    CHECK(kdrv_sig_verify_with_key(&message, 1, &sig, pub) == KDRV_OK);
+    message ^= 1;
+    CHECK(kdrv_sig_verify_with_key(&message, 1, &sig, pub) == KDRV_E_SIGNATURE);
+    sig.magic = 0;
+    CHECK(kdrv_sig_verify_with_key(&message, 1, &sig, pub) == KDRV_E_SIGNATURE);
+    sig.magic = KDRV_SIG_MAGIC;
+    memset(sig.key_id, '0', sizeof sig.key_id);
+    CHECK(kdrv_sig_check(&message, 1, &sig, sizeof sig) == KDRV_E_SIGNATURE);
     printf(fails ? "kdrv_test: FAIL (%d)\n" : "kdrv_test: PASS\n", fails);
     return fails != 0;
 }

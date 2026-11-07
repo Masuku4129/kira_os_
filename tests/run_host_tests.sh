@@ -57,7 +57,7 @@ $CC $FLAGS -o $T/input tests/input_test.c input.c
 $T/input
 
 echo "== driver package format (kdrv_format.h: header, record, matching, hostile input) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c pk.c crypto.c sha256.c
 $T/kdrv
 
 echo "== drvget: https-only, рецепт, лицензии (GPL/бинарники отвергаются), хеш набора =="
