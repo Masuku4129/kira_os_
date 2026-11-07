@@ -62,7 +62,7 @@ $T/kdrv
 
 echo "== kdrvpack: mandatory publisher state requires explicit confirmation =="
 $CC $FLAGS -o $T/kdrvpack tools/kdrvpack.c kdrv_fmt.c sha256.c
-printf '\\177ELF\\002\\001\\001\\000' > $T/dummy.elf
+printf '\177ELF\002\001\001\000' > $T/dummy.elf
 if $T/kdrvpack rl $T/dummy.elf $T/pkg.kdrv $T/pkg.rec --pci 10ec:8139 --caps mmio --publisher-required >/dev/null 2>&1; then
     echo "FAIL: kdrvpack accepted --publisher-required without --confirm"; exit 1
 fi
