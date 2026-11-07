@@ -69,7 +69,7 @@ int kdrv_sig_check(const void* pkg, uint32_t pkg_len, const void* raw, uint32_t 
     for (unsigned i = 0; i < KDRV_TRUST_KEY_COUNT; i++) {
         unsigned diff = 0;
         for (unsigned j = 0; j < sizeof sig.key_id; j++)
-            diff |= (uint8_t)sig.key_id[j] ^ (uint8_t)KDRV_TRUST_KEY_ID[j];
+            diff |= (uint8_t)sig.key_id[j] ^ (uint8_t)kdrv_trust_key_ids[i][j];
         if (diff == 0)
             return kdrv_sig_verify_with_key(pkg, pkg_len, &sig, kdrv_trust_ed25519_keys[i]);
     }
