@@ -15,6 +15,8 @@
 #define SMMU_STRTAB_ENTRIES  256u
 #define SMMU_STRTAB_BYTES    (SMMU_STRTAB_ENTRIES * 64u)
 #define SMMU_STRTAB_PAGES    (SMMU_STRTAB_BYTES / SMMU_PAGE_SIZE)
+#define SMMU_STRTAB_ALIGN    SMMU_STRTAB_BYTES
+#define SMMU_STRTAB_ALLOC_PAGES (SMMU_STRTAB_PAGES + (SMMU_STRTAB_ALIGN / SMMU_PAGE_SIZE) - 1u)
 #define SMMU_POLL_LIMIT      1000000u
 
 #define SMMU_IDR0            0x0000u
@@ -48,8 +50,13 @@
 #define SMMU_CR0ACK_CMDQEN   (1u << 3)
 
 #define SMMU_QUEUE_LOG2      8u
-#define SMMU_QUEUE_BASE_VALID 1ull
-#define SMMU_QUEUE_BASE_LOG2_SHIFT  q
+#define SMMU_QUEUE_BASE_ADDR_MASK 0x000fffffffffffe0ull
+#define SMMU_STRTAB_BASE_ADDR_MASK 0x000fffffffffffc0ull
+#define SMMU_IDR1_CMDQS_SHIFT 21u
+#define SMMU_IDR1_EVENTQS_SHIFT 16u
+#define SMMU_IDR1_QUEUE_SIZE_MASK 0x1fu
+#define SMMU_IDR1_TABLES_PRESET (1u << 30)
+#define SMMU_IDR1_QUEUES_PRESET (1u << 29)
 
 static uint32_t smmu_read32(volatile uint8_t *base, uint32_t offset)
 {
@@ -140,8 +147,16 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->idr5 = smmu_read32(smmu->registers, SMMU_IDR5);
     {
         uint32_t sid_bits = smmu->idr1 & SMMU_IDR1_SIDSIZE_MASK;
+        uint32_t cmdq_bits = (smmu->idr1 >> SMMU_IDR1_CMDQS_SHIFT) &
+                             SMMU_IDR1_QUEUE_SIZE_MASK;
+        uint32_t evtq_bits = (smmu->idr1 >> SMMU_IDR1_EVENTQS_SHIFT) &
+                             SMMU_IDR1_QUEUE_SIZE_MASK;
         smmu->stream_id_limit = sid_bits >= 8u ? SMMU_STRTAB_ENTRIES :
                                 (1u << sid_bits);
+        /* This implementation uses 256-entry queues and programs their bases. */
+        if ((smmu->idr1 & (SMMU_IDR1_TABLES_PRESET | SMMU_IDR1_QUEUES_PRESET)) ||
+            cmdq_bits < SMMU_QUEUE_LOG2 || evtq_bits < SMMU_QUEUE_LOG2)
+            return KIRA_SMMU_UNSUPPORTED;
     }
 
     /* SMMUv3 identifies itself through the architecture ID registers. */
@@ -151,6 +166,9 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->queue_entries = SMMU_QUEUE_ENTRIES;
     smmu->stream_table = 0;
     smmu->stream_table_physical = 0;
+    smmu->stream_table_allocation = 0;
+    smmu->stream_table_allocation_physical = 0;
+    smmu->stream_table_allocation_pages = 0;
     smmu->stream_table_lock = 0;
     smmu->cmdq_lock = 0;
     for (uint32_t i = 0; i < 8; ++i)
@@ -164,18 +182,49 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->evtq_consumer = 0;
     smmu->enabled = 0;
 
-    smmu->stream_table = platform->alloc_dma_pages(platform->context,
-                            SMMU_STRTAB_PAGES,
-                            &smmu->stream_table_physical);
-    if (!smmu->stream_table || !smmu->stream_table_physical ||
-        (smmu->stream_table_physical & 0xfffu)) {
-        if (smmu->stream_table && platform->free_dma_pages)
-            platform->free_dma_pages(platform->context, smmu->stream_table,
-                                     smmu->stream_table_physical,
-                                     SMMU_STRTAB_PAGES);
-        smmu->stream_table = 0;
-        smmu->stream_table_physical = 0;
+    /*
+     * A linear table with LOG2SIZE=8 must be 16 KiB aligned. The DMA page
+     * allocator guarantees only page alignment, so over-allocate and retain
+     * the original allocation for the matching free operation.
+     */
+    smmu->stream_table_allocation =
+        platform->alloc_dma_pages(platform->context, SMMU_STRTAB_ALLOC_PAGES,
+                                  &smmu->stream_table_allocation_physical);
+    smmu->stream_table_allocation_pages = SMMU_STRTAB_ALLOC_PAGES;
+    if (!smmu->stream_table_allocation ||
+        !smmu->stream_table_allocation_physical ||
+        (smmu->stream_table_allocation_physical & (SMMU_PAGE_SIZE - 1u)) ||
+        smmu->stream_table_allocation_physical >
+            UINT64_MAX - (SMMU_STRTAB_ALLOC_PAGES * SMMU_PAGE_SIZE)) {
+        if (smmu->stream_table_allocation)
+            platform->free_dma_pages(platform->context,
+                                     smmu->stream_table_allocation,
+                                     smmu->stream_table_allocation_physical,
+                                     SMMU_STRTAB_ALLOC_PAGES);
+        smmu->stream_table_allocation = 0;
+        smmu->stream_table_allocation_physical = 0;
+        smmu->stream_table_allocation_pages = 0;
         return KIRA_SMMU_MEMORY_FAILED;
+    }
+    {
+        uint64_t aligned_physical =
+            (smmu->stream_table_allocation_physical + SMMU_STRTAB_ALIGN - 1u) &
+            ~((uint64_t)SMMU_STRTAB_ALIGN - 1u);
+        size_t offset = (size_t)(aligned_physical -
+                                 smmu->stream_table_allocation_physical);
+        if (offset + SMMU_STRTAB_BYTES >
+            SMMU_STRTAB_ALLOC_PAGES * SMMU_PAGE_SIZE) {
+            platform->free_dma_pages(platform->context,
+                                     smmu->stream_table_allocation,
+                                     smmu->stream_table_allocation_physical,
+                                     SMMU_STRTAB_ALLOC_PAGES);
+            smmu->stream_table_allocation = 0;
+            smmu->stream_table_allocation_physical = 0;
+            smmu->stream_table_allocation_pages = 0;
+            return KIRA_SMMU_MEMORY_FAILED;
+        }
+        smmu->stream_table = (uint8_t *)smmu->stream_table_allocation + offset;
+        smmu->stream_table_physical = aligned_physical;
     }
     smmu_zero_memory(smmu->stream_table, SMMU_STRTAB_BYTES);
     if (platform->clean_cache)
@@ -186,11 +235,14 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
                           &smmu->cmdq_physical);
     if (rc != KIRA_SMMU_OK) {
         if (platform->free_dma_pages)
-            platform->free_dma_pages(platform->context, smmu->stream_table,
-                                     smmu->stream_table_physical,
-                                     SMMU_STRTAB_PAGES);
+            platform->free_dma_pages(platform->context, smmu->stream_table_allocation,
+                                     smmu->stream_table_allocation_physical,
+                                     smmu->stream_table_allocation_pages);
         smmu->stream_table = 0;
         smmu->stream_table_physical = 0;
+        smmu->stream_table_allocation = 0;
+        smmu->stream_table_allocation_physical = 0;
+        smmu->stream_table_allocation_pages = 0;
         return rc;
     }
 
@@ -216,7 +268,7 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
                  (smmu->idr1 & SMMU_IDR1_SIDSIZE_MASK) < 8u ?
                  (smmu->idr1 & SMMU_IDR1_SIDSIZE_MASK) : 8u);
     smmu_write64(smmu->registers, SMMU_STRTAB_BASE,
-                 (smmu->stream_table_physical & ~0xfffull) | 1ull);
+                 (smmu->stream_table_physical & SMMU_STRTAB_BASE_ADDR_MASK));
     if (platform->write_barrier)
         platform->write_barrier(platform->context);
 
@@ -245,14 +297,14 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
     if (rc != KIRA_SMMU_OK)
         return rc;
 
-    queue_base = (smmu->cmdq_physical & ~0xfffull) |
-                 SMMU_QUEUE_BASE_VALID;
+    queue_base = (smmu->cmdq_physical & SMMU_QUEUE_BASE_ADDR_MASK) |
+                 SMMU_QUEUE_LOG2;
     smmu_write64(smmu->registers, SMMU_CMDQ_BASE, queue_base);
     smmu_write32(smmu->registers, SMMU_CMDQ_PROD, 0);
     smmu_write32(smmu->registers, SMMU_CMDQ_CONS, 0);
 
-    queue_base = (smmu->evtq_physical & ~0xfffull) |
-                 SMMU_QUEUE_BASE_VALID;
+    queue_base = (smmu->evtq_physical & SMMU_QUEUE_BASE_ADDR_MASK) |
+                 SMMU_QUEUE_LOG2;
     smmu_write64(smmu->registers, SMMU_EVTQ_BASE, queue_base);
     smmu_write32(smmu->registers, SMMU_EVTQ_PROD, 0);
     smmu_write32(smmu->registers, SMMU_EVTQ_CONS, 0);
