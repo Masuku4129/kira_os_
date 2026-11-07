@@ -910,15 +910,16 @@ static void blit_content(surface_t* c, int dx, int dy, int dw, int dh, const win
 }
 
 static void draw_lights(surface_t* c, int x, int y, int hover) {
-    static const uint32_t col[3] = { TH_CLOSE, TH_MIN, TH_FULL };
+    /* Нейтральные монохромные контролы: действие различается пиктограммой, а не тревожным цветом. */
     for (int k = 0; k < 3; k++) {
         int lx = x + 18 + k * 20, ly = y + WM_HEAD / 2;
-        ui_disc(c, lx, ly, LIGHT_R, col[k], 255);
-        if (!hover) continue;
-        uint32_t g = 0x003A1010;
-        if (k == 0) { gfx_line(c, lx - 2, ly - 2, lx + 2, ly + 2, g); gfx_line(c, lx + 2, ly - 2, lx - 2, ly + 2, g); }
-        else if (k == 1) gfx_hline(c, lx - 3, ly, 7, g);
-        else { gfx_line(c, lx - 3, ly + 3, lx + 1, ly - 1, g); gfx_line(c, lx - 1, ly - 3, lx + 3, ly + 1, g); }
+        uint32_t edge = hover ? TH_TEXT_DIM : TH_BORDER;
+        uint32_t glyph = hover ? TH_TEXT : TH_TEXT_DIM;
+        ui_disc(c, lx, ly, LIGHT_R, TH_TRACK, 255);
+        ui_ring(c, lx, ly, LIGHT_R - 1, LIGHT_R, edge, 220);
+        if (k == 0) { gfx_line(c, lx - 2, ly - 2, lx + 2, ly + 2, glyph); gfx_line(c, lx + 2, ly - 2, lx - 2, ly + 2, glyph); }
+        else if (k == 1) gfx_hline(c, lx - 3, ly, 7, glyph);
+        else { gfx_line(c, lx - 3, ly - 3, lx + 3, ly - 3, glyph); gfx_line(c, lx - 3, ly + 3, lx + 3, ly + 3, glyph); gfx_vline(c, lx - 3, ly - 3, 7, glyph); gfx_vline(c, lx + 3, ly - 3, 7, glyph); }
     }
 }
 
@@ -982,8 +983,14 @@ static void draw_pill(surface_t* c, int ox, int oy, int fs, int show) {
     x += ox; y += oy;
     ui_round_rect(c, x, y, pw, ph, 18, TH_BAR0, 240);
     ui_round_frame(c, x, y, pw, ph, 18, ui_mix(TH_BORDER, TH_CYAN, 120), 255);
-    static const uint32_t col[3] = { TH_CLOSE, TH_MIN, TH_FULL };
-    for (int k = 0; k < n; k++) ui_disc(c, x + 12 + k * 36 + 18, y + 18, 8, col[k], 255);
+    for (int k = 0; k < n; k++) {
+        int bx = x + 12 + k * 36 + 18, by = y + 18;
+        ui_disc(c, bx, by, 8, TH_TRACK, 255);
+        ui_ring(c, bx, by, 7, 8, TH_BORDER, 230);
+        if (k == 0) { gfx_line(c, bx - 2, by - 2, bx + 2, by + 2, TH_TEXT_DIM); gfx_line(c, bx + 2, by - 2, bx - 2, by + 2, TH_TEXT_DIM); }
+        else if (k == 1) gfx_hline(c, bx - 3, by, 7, TH_TEXT_DIM);
+        else { gfx_line(c, bx - 3, by - 3, bx + 3, by - 3, TH_TEXT_DIM); gfx_line(c, bx - 3, by + 3, bx + 3, by + 3, TH_TEXT_DIM); gfx_vline(c, bx - 3, by - 3, 7, TH_TEXT_DIM); gfx_vline(c, bx + 3, by - 3, 7, TH_TEXT_DIM); }
+    }
 }
 
 static void meter_color(unsigned pct, uint32_t* c) { *c = pct < 60 ? TH_GREEN : pct < 85 ? TH_AMBER : TH_RED; }

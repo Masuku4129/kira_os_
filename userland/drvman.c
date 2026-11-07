@@ -342,6 +342,33 @@ static int act_match(const char *arg) {
     lg("drvman: PCI %04x:%04x: найден кандидат %s в системном каталоге\n", vendor, device, name);
     return act_find(url);
 }
+
+/* Автопоиск: перечитываем PCI, пропускаем обслуживаемые устройства и уже установленные пакеты,
+   затем ищем первый подходящий закреплённый рецепт. Скачивание только готовит пакет к проверке;
+   установка остаётся отдельным действием с явным подтверждением пользователя. */
+static int act_scan(void) {
+    refresh_pci();
+    if (pci_err) { lg("drvman: автопоиск невозможен: список PCI недоступен (%d)\n", pci_err); return 1; }
+    kdrv_pcient_t devices[MAXPCI];
+    int count;
+    k_mutex_lock(&lock);
+    count = npci;
+    if (count > MAXPCI) count = MAXPCI;
+    memcpy(devices, pci, sizeof(kdrv_pcient_t) * (size_t)count);
+    k_mutex_unlock(&lock);
+    for (int i = 0; i < count; i++) {
+        const kdrv_pcient_t *e = &devices[i];
+        if (e->owner != KDRV_OWN_NONE || pkg_for_dev(e) >= 0) continue;
+        char name[12], url[DG_URL_MAX];
+        int rc = drvget_match_pci(e->vendor, e->device, name, sizeof name, url, sizeof url);
+        if (rc < 0) { lg("drvman: системный каталог драйверов повреждён; автопоиск остановлен\n"); return 1; }
+        if (!rc) continue;
+        lg("drvman: автопоиск: PCI %04x:%04x (%02x:%02x.%x) -> кандидат %s\n", e->vendor, e->device, e->bus, e->dev, e->fn & 7, name);
+        return act_find(url);
+    }
+    lg("drvman: автопоиск завершён: новых кандидатов в системном каталоге нет\n");
+    return 0;
+}
 static void act_install(void) {
     const dg_recipe_t *r = drvget_staged();
     if (!r) { lg("drvman: нечего устанавливать: сначала «Найти и показать»\n"); return; }
@@ -391,9 +418,9 @@ static void act_stop(const char *name) {
     lg(w ? "drvman: драйвер %s ещё работает (ядро не завершило процесс за 6 с)\n" : "drvman: драйвер %s остановлен, устройство возвращено ядру\n", name);
 }
 
-enum { J_NONE = 0, J_FIND, J_MATCH, J_INSTALL, J_REMOVE, J_START, J_STOP };
+enum { J_NONE = 0, J_FIND, J_MATCH, J_INSTALL, J_REMOVE, J_START, J_STOP, J_SCAN };
 static volatile int busy, job_kind;
-static const char *const job_name[] = { "", "поиск и проверка", "подбор по PCI", "сборка и установка", "удаление", "запуск", "остановка" };
+static const char *const job_name[] = { "", "поиск и проверка", "подбор по PCI", "сборка и установка", "удаление", "запуск", "остановка", "автопоиск" };
 
 static void run_job(int kind, const char *arg) {
     switch (kind) {
@@ -403,6 +430,7 @@ static void run_job(int kind, const char *arg) {
     case J_REMOVE: act_remove(arg); break;
     case J_START: act_start(arg); break;
     case J_STOP: act_stop(arg); break;
+    case J_SCAN: act_scan(); break;
     default: break;
     }
 }
@@ -441,10 +469,11 @@ static void start_job(int kind, const char *arg) {
 #define LOG_Y 410
 #define LOG_ROWS ((H - LOG_Y - 4) / CH)
 typedef struct { int x, w; const char *label; int id; } btn_t;
-enum { B_FIND, B_MATCH, B_INSTALL, B_REMOVE, B_START, B_STOP, B_REFRESH };
+enum { B_FIND, B_MATCH, B_INSTALL, B_REMOVE, B_START, B_STOP, B_REFRESH, B_SCAN };
 static const btn_t btns[] = {
-    { 8, 152, "Найти и показать", B_FIND }, { 168, 96, "Установить", B_INSTALL }, { 272, 72, "Удалить", B_REMOVE },
-    { 352, 88, "Запустить", B_START }, { 448, 96, "Остановить", B_STOP }, { 552, 80, "Обновить", B_REFRESH },
+    { 8, 100, "Автопоиск", B_SCAN }, { 112, 88, "По адресу", B_FIND }, { 204, 94, "Установить", B_INSTALL },
+    { 302, 64, "Удалить", B_REMOVE }, { 370, 76, "Запустить", B_START }, { 450, 82, "Остановить", B_STOP },
+    { 538, 94, "Обновить", B_REFRESH },
 };
 static int confirming;                                    /* окно подтверждения установки открыто */
 static const btn_t yes_btn = { 120, 208, "Собрать и установить", 100 }, no_btn = { 344, 96, "Отмена", 101 };
@@ -457,6 +486,7 @@ static const btn_t yes_btn = { 120, 208, "Собрать и установить
 static int btn_enabled(int id) {
     int sp = sel_pkg >= 0 && sel_pkg < npkg;
     switch (id) {
+    case B_SCAN: return !busy && !pci_err;
     case B_FIND: return input_len > 0;
     case B_MATCH: return !busy && !pci_err && sel_dev >= 0 && sel_dev < npci;
     case B_INSTALL: return drvget_staged() != 0;
@@ -565,7 +595,7 @@ static int draw(void) {
     text(10, IN_Y + 3, input, FG, 76);
     if ((k_ticks() / 50) & 1) fill(10 + cols_of(input) * CW, IN_Y + 3, 2, CH - 2, ACCENT);
     for (unsigned i = 0; i < sizeof btns / sizeof *btns; i++) draw_btn(&btns[i], BTN_Y, btn_enabled(btns[i].id));
-    text(6, HINT_Y, "Enter - поиск; F7 - подбор PCI; F2 - установка; F3 - удаление; F4 - запуск", DIM, 78);
+    text(6, HINT_Y, "Автопоиск: кнопка/F8; Enter - адрес; F7 - выбранное PCI; F2 - установка", DIM, 78);
     /* журнал */
     fill(0, LOG_Y - 4, W, H - LOG_Y + 4, 0x000C1218u);
     k_mutex_lock(&lock);
@@ -608,6 +638,7 @@ static void confirm_open(void) {                           /* окно подт�
 static void press(int id) {
     if (!btn_enabled(id)) return;
     switch (id) {
+    case B_SCAN: start_job(J_SCAN, ""); break;
     case B_FIND: start_job(J_FIND, input); break;
     case B_MATCH: { char id[16] = { 0 }; k_mutex_lock(&lock); if (!pci_err && sel_dev >= 0 && sel_dev < npci) snprintf(id, sizeof id, "%04x:%04x", pci[sel_dev].vendor, pci[sel_dev].device); k_mutex_unlock(&lock); if (*id) start_job(J_MATCH, id); else lg("drvman: сначала выберите устройство PCI\n"); break; }
     case B_INSTALL: confirm_open(); break;
@@ -658,6 +689,7 @@ static void on_key(u32 k, u32 ch, u32 mod) {
     else if (k == KEY_F4) press(B_START);
     else if (k == KEY_F6) press(B_STOP);
     else if (k == KEY_F7) press(B_MATCH);
+    else if (k == KEY_F8) press(B_SCAN);
     else if (k == KEY_F5) press(B_REFRESH);
     else if (ch >= 32 && ch < 127 && !(mod & MOD_CTRL) && input_len + 1 < (int)sizeof input) { input[input_len++] = (char)ch; input[input_len] = 0; }
 }
@@ -700,6 +732,7 @@ static int run_script(char *s) {
         else if (!strcmp(s, "list")) drvget_list();
         else if (!strcmp(s, "find")) run_job(J_FIND, arg);
         else if (!strcmp(s, "match")) { if (act_match(arg)) fails++; }
+        else if (!strcmp(s, "scan")) { if (act_scan()) fails++; }
         else if (!strcmp(s, "install")) { run_job(J_INSTALL, ""); }
         else if (!strcmp(s, "remove")) run_job(J_REMOVE, arg);
         else if (!strcmp(s, "start")) run_job(J_START, arg);
@@ -741,6 +774,7 @@ int umain(void) {
     if (!have_window) return 1;
     stacks[0] = k_heap_grow(STACK_BYTES / 4096);              /* стеки рабочих потоков - до арены kcc: арена растёт непрерывно от своего начала */
     stacks[1] = k_heap_grow(STACK_BYTES / 4096);
+    start_job(J_SCAN, "");                                    /* при открытии окна автоматически ищем кандидатов для неизвестных PCI */
     u64 last = k_clock_ns();
     for (;;) {
         kevent_t ev;

@@ -525,7 +525,9 @@ void mind_sys_tick(uint64_t seconds) {
     put_s(line, &n, " q="); put_u(line, &n, mind_quantum_ms(&M));
     put_s(line, &n, "ms fx="); put_u(line, &n, (uint64_t)M.fx);
     put_s(line, &n, "\n");
-    if (telemetry) uart_print(line); else uart_print_serial(line);
+    /* Телеметрия никогда не попадает в пользовательскую консоль. Включённый режим означает
+       диагностический поток только на serial; обычные метрики доступны через mind_sys_view(). */
+    if (telemetry) uart_print_serial(line);
     if (seconds - last_save >= SAVE_PERIOD) { last_save = seconds; mind_sys_save(); }
 }
 

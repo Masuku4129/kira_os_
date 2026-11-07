@@ -8,7 +8,8 @@
 int main(void) {
     dock_t d; char out[256];
     dock_default(&d);
-    CHECK(d.n == 5 && !strcmp(d.name[0], "plasma") && dock_find(&d, "cube3d") == 2 && dock_find(&d, "edit") == 3 && dock_find(&d, "drvman") == 4);
+    CHECK(d.n == 3 && !strcmp(d.name[0], "cube3d") && dock_find(&d, "edit") == 1 && dock_find(&d, "drvman") == 2);
+    CHECK(dock_find(&d, "plasma") < 0 && dock_find(&d, "paint") < 0);
     CHECK(dock_icon("drvman") == ICON_CHIP && dock_title("drvman") && !strcmp(dock_title("drvman"), "Драйверы") && !strcmp(dock_title("paint"), "Рисование") && !dock_title("zork"));
     /* единая таблица программ: названия по заданию, у каждой программы свой значок, неизвестная - общий значок и своё имя */
     static const struct { const char* sys; const char* title; } want[] = {
