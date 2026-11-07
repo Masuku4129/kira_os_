@@ -60,6 +60,11 @@ int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uin
     return 0;
 }
 
+int kdrv_dma_policy_allow(uint32_t caps, int isolated) {
+    if (caps & (CAP_DMA | CAP_IRQ)) return isolated != 0;
+    return 1;
+}
+
 const char* kdrv_strerror(int e) {
     switch (e) {
     case KDRV_OK: return "ok";
@@ -72,6 +77,7 @@ const char* kdrv_strerror(int e) {
     case KDRV_E_SIZE: return "размер образа не совпал с заголовком";
     case KDRV_E_UNCONFIRMED: return "установка не подтверждена пользователем";
     case KDRV_E_HASH: return "SHA-256 не совпал с записью .rec";
+    case KDRV_E_DMA_UNSAFE: return "DMA/MSI запрещены: для устройства нет подтверждённой изоляции IOMMU";
     default: return "?";
     }
 }
