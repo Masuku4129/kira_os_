@@ -177,15 +177,36 @@ static int smmu_cmd_sync(struct kira_smmu *s,
     return KIRA_SMMU_TIMEOUT;
 }
 
+static void smmu_cmdq_lock(struct kira_smmu *s)
+{
+    while (__atomic_exchange_n(&s->cmdq_lock, 1u, __ATOMIC_ACQUIRE)) {
+        /* Keep command publication and its completion fence indivisible. */
+    }
+}
+
+static void smmu_cmdq_unlock(struct kira_smmu *s)
+{
+    __atomic_store_n(&s->cmdq_lock, 0u, __ATOMIC_RELEASE);
+}
+
 static int smmu_invalidate_stream(struct kira_smmu_domain *d,
                                   const struct kira_smmu_platform *p)
 {
     uint64_t command = (uint64_t)CMD_CFGI_STE |
                        ((uint64_t)d->stream_id << 32);
-    int rc = smmu_cmd_submit(d->smmu, p, command, 0, 0);
-    if (rc != KIRA_SMMU_OK)
-        return rc;
-    return smmu_cmd_sync(d->smmu, p);
+    int rc;
+
+    /*
+     * CFGI_STE and its CMD_SYNC form one ordered transaction. Without a
+     * controller-wide lock, another producer could enqueue commands between
+     * them and make the consumer pointer an invalid completion test.
+     */
+    smmu_cmdq_lock(d->smmu);
+    rc = smmu_cmd_submit(d->smmu, p, command, 0, 0);
+    if (rc == KIRA_SMMU_OK)
+        rc = smmu_cmd_sync(d->smmu, p);
+    smmu_cmdq_unlock(d->smmu);
+    return rc;
 }
 
 static void *smmu_table_from_entry(const struct kira_smmu_platform *p,
