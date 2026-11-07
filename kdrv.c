@@ -4,11 +4,14 @@
    на привязку ТЕКУЩЕГО процесса: другого устройства драйвер не видит, потому что вызовы его не называют. */
 #include "kdrv.h"
 #include "kdrv_format.h"
+#include "kdrv_sig.h"
+#include "kdrv_trust.h"
 #include "pci.h"
 #include "msi.h"
 #include "proc.h"
 #include "kobj.h"
 #include "kfs.h"
+#include "rtc.h"
 #include "immune.h"
 #include "uart.h"
 #include "heap.h"
@@ -100,7 +103,7 @@ static bind_t* find_slot(const pci_dev_t* d, int create) {
 }
 
 /* ---- пакеты в /drv ---- */
-typedef struct { uint8_t* buf; uint32_t len; kdrv_header_t h; kdrv_rec_t r; } pkg_t;
+typedef struct { uint8_t* buf; uint32_t len; kdrv_header_t h; kdrv_rec_t r; int auth; int sig_error; } pkg_t;
 
 static void path_of(char* out, const char* name, const char* ext) {
     unsigned n = 0;
@@ -118,19 +121,20 @@ static int name_valid(const char* n) {
 
 /* Читает пакет и ВСЕГДА сверяет хеши: образа ELF и всего файла .kdrv - с /drv/ИМЯ.rec. Ошибка - код KDRV_E_* или KFS-код (< -100 не бывает). */
 static int pkg_load(const char* name, pkg_t* p) {
-    p->buf = 0; p->len = 0;
-    char path[48], rpath[48];
-    path_of(path, name, ".kdrv"); path_of(rpath, name, ".rec");
-    kfs_stat_t st, rs;
+    p->buf = 0; p->len = 0; p->auth = KDRV_AUTH_LOCAL; p->sig_error = KDRV_SIG_OK;
+    char path[48], rpath[48], spath[48];
+    path_of(path, name, ".kdrv"); path_of(rpath, name, ".rec"); path_of(spath, name, ".sig");
+    kfs_stat_t st, rs, ss;
     if (kfs_stat(path, &st) != 0 || st.type != KFS_FILE) return KDRV_E_SHORT;
     if (st.size < sizeof(kdrv_header_t) || st.size > sizeof(kdrv_header_t) + KDRV_ELF_MAX) return KDRV_E_SIZE;
-    if (kfs_stat(rpath, &rs) != 0 || rs.type != KFS_FILE || rs.size != sizeof(kdrv_rec_t)) return KDRV_E_UNCONFIRMED;   /* нет подтверждения установки */
+    if (kfs_stat(rpath, &rs) != 0 || rs.type != KFS_FILE || rs.size != sizeof(kdrv_rec_t)) return KDRV_E_UNCONFIRMED;
     uint8_t* b = (uint8_t*)kmalloc((size_t)st.size);
     if (!b) return KDRV_E_SIZE;
     kdrv_rec_t rec;
-    if (kfs_read(path, 0, b, (size_t)st.size) != (int64_t)st.size || kfs_read(rpath, 0, &rec, sizeof rec) != (int64_t)sizeof rec) { kfree(b); return KDRV_E_SHORT; }
+    if (kfs_read(path, 0, b, (size_t)st.size) != (int64_t)st.size ||
+        kfs_read(rpath, 0, &rec, sizeof rec) != (int64_t)sizeof rec) { kfree(b); return KDRV_E_SHORT; }
     int rc = kdrv_header_check(b, (uint32_t)st.size, &p->h);
-    if (rc == KDRV_OK && !streq(p->h.name, name)) rc = KDRV_E_NAME;            /* имя в заголовке = имя файла: переименованный пакет не годится */
+    if (rc == KDRV_OK && !streq(p->h.name, name)) rc = KDRV_E_NAME;
     if (rc == KDRV_OK) rc = kdrv_rec_check(&rec, sizeof rec, &p->r);
     if (rc == KDRV_OK) {
         uint8_t d1[32], d2[32];
@@ -140,6 +144,28 @@ static int pkg_load(const char* name, pkg_t* p) {
         for (int i = 0; i < 32; i++) bad |= d1[i] ^ p->r.elf_sha[i];
         for (int i = 0; i < 32; i++) bad |= d2[i] ^ p->r.pkg_sha[i];
         if (bad) rc = KDRV_E_HASH;
+    }
+    if (rc == KDRV_OK) {
+        int se = kfs_stat(spath, &ss);
+        if (se == 0) {
+            if (ss.type != KFS_FILE || ss.size != sizeof(kdrv_sig_t)) {
+                rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_SIZE;
+            } else {
+                kdrv_sig_t sig;
+                if (kfs_read(spath, 0, &sig, sizeof sig) != (int64_t)sizeof sig) {
+                    rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_IO;
+                } else {
+                    rtc_time_t current;
+                    int64_t now = rtc_now(0, &current) == 0 ? rtc_to_epoch(&current) : 0;
+                    p->sig_error = kdrv_sig_verify(b, (size_t)st.size, &sig, sizeof sig,
+                        kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, now);
+                    if (p->sig_error != KDRV_SIG_OK) rc = KDRV_E_SIGNATURE;
+                    else p->auth = KDRV_AUTH_PUBLISHER;
+                }
+            }
+        } else if (se != KFS_ERR_NOENT) {
+            rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_IO;
+        }
     }
     if (rc != KDRV_OK) { kfree(b); return rc; }
     p->buf = b; p->len = (uint32_t)st.size;
@@ -196,6 +222,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     if (rc != KDRV_OK) {
         uart_print("[KIRA DRV] "); uart_print(name);
         if (rc == KDRV_E_HASH) { uart_print(": SHA-256 не совпал с записью /drv/"); uart_print(name); uart_print(".rec"); }
+        else if (rc == KDRV_E_SIGNATURE) { uart_print(": подпись издателя отклонена ("); uart_print(kdrv_sig_strerror(p.sig_error)); uart_print(")"); }
         else { uart_print(": пакет отклонён ("); uart_print(kdrv_strerror(rc)); uart_print(")"); }
         uart_print(" - драйвер НЕ запущен\n");
         life_note("drv-denied", name, rc);
@@ -259,6 +286,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     LN_ADD(" -> драйвер запущен как "); LN_ADD(pname); LN_ADD(" (pid "); LN_ADD(pidtxt); LN_ADD("), SHA-256 сверен, права:");
     for (uint32_t bit = 1; bit; bit <<= 1) if ((granted & bit) && (bit & CAP_DRIVER_)) { LN_ADD(" "); LN_ADD(caps_bit_name(bit)); }
     if (!(granted & CAP_DRIVER_)) LN_ADD(" -");
+    LN_ADD(p.auth == KDRV_AUTH_PUBLISHER ? ", подпись издателя Ed25519 подтверждена" : ", издатель не подтверждён (локально)");
     LN_ADD(b->irq_on ? ", прерывание MSI включено" : (granted & CAP_IRQ) ? ", прерывания у устройства нет" : ""); LN_ADD("\n");
     #undef LN_ADD
     ln[n] = 0; uart_print(ln);
