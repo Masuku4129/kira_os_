@@ -27,6 +27,12 @@ def elf_dependencies(data, label):
         raise ValueError(f"{label}: unsupported ELF class/endianness")
     endian = "<" if enc == 1 else ">"
     elf_type = struct.unpack_from(endian + "H", data, 16)[0]
+    # GRUB modules and other link-time objects are ET_REL: they have section headers,
+    # but no program-header table and cannot carry PT_INTERP/DT_NEEDED runtime imports.
+    if elf_type == 1:  # ET_REL
+        return []
+    if elf_type not in (2, 3):  # ET_EXEC / ET_DYN only
+        return []
     if cls == 2:
         if len(data) < 64:
             raise ValueError(f"{label}: truncated ELF64 header")
