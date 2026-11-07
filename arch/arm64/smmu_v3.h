@@ -51,6 +51,17 @@
 #define SMMU_IDR1_CMDQS_SHIFT 21u
 #define SMMU_IDR1_CMDQS_MASK (31u << SMMU_IDR1_CMDQS_SHIFT)
 
+/* Validate queue geometry before allocating or programming any queue. */
+static inline int smmuv3_queue_geometry(uint32_t log2_entries, uint32_t entry_size,
+                                         uint32_t *entries, size_t *bytes) {
+    if (!entries || !bytes || log2_entries < 1 ||
+        log2_entries > SMMU_CMDQ_MAX_LOG2 || entry_size != SMMU_CMDQ_ENT_SIZE)
+        return -1;
+    *entries = 1u << log2_entries;
+    *bytes = (size_t)(*entries) * entry_size;
+    return 0;
+}
+
 typedef struct {
     volatile uint8_t *base;
     size_t length;
@@ -123,17 +134,6 @@ static inline int smmuv3_write32(const smmuv3_mmio_t *m, uint32_t off, uint32_t 
     if (!smmuv3_range_valid(m, off, 4)) return -1;
     *(volatile uint32_t *)(void *)(m->base + off) = value;
     __asm__ volatile("" ::: "memory");
-    return 0;
-}
-
-/* Validate queue geometry before allocating or programming any queue. */
-static inline int smmuv3_queue_geometry(uint32_t log2_entries, uint32_t entry_size,
-                                         uint32_t *entries, size_t *bytes) {
-    if (!entries || !bytes || log2_entries < 1 ||
-        log2_entries > SMMU_CMDQ_MAX_LOG2 || entry_size != SMMU_CMDQ_ENT_SIZE)
-        return -1;
-    *entries = 1u << log2_entries;
-    *bytes = (size_t)(*entries) * entry_size;
     return 0;
 }
 
