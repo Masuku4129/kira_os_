@@ -100,7 +100,7 @@ static int vtd_map_identity_range(vtd_unit_t *u,uint64_t start,uint64_t end) {
     for(uint64_t p=start;p<end;p+=step) {
         int rc=u->supports_2m?
             kira_vtd_map_2m_walk(u->identity_root,p,p,1,u->supports_snoop,&pt_ops):
-            kira_vtd_map_4k_walk(u->identity_root,p,p,1,1,&pt_ops);
+            kira_vtd_map_4k_walk(u->identity_root,p,p,1,u->supports_snoop,&pt_ops);
         if(rc!=0) return -2;
     }
     return 0;
