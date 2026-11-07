@@ -433,7 +433,8 @@ static int archive_scan(void) {
         char path[64];archive_path(path,archive_items[i].name);
         mind_archive_header_t h;
         if(kfs_read(path,0,&h,sizeof h)!=(int64_t)sizeof h)continue;
-        if(h.magic!=MIND_ARCHIVE_MAGIC||h.version!=MIND_ARCHIVE_VERSION||h.model_size!=sizeof(mind_model_t)||
+        if(h.magic!=MIND_ARCHIVE_MAGIC||h.version!=MIND_ARCHIVE_VERSION||
+           h.generation!=archive_items[i].generation||h.model_size!=sizeof(mind_model_t)||
            archive_items[i].size!=sizeof(h)+sizeof(mind_model_t))continue;
         if(kfs_read(path,sizeof h,raw,sizeof raw)!=(int64_t)sizeof raw||archive_crc(raw,sizeof raw)!=h.crc)continue;
         mind_model_t m;if(!mind_model_load(&m,raw,sizeof raw))continue;
@@ -493,6 +494,8 @@ static int archive_restore(mind_model_t* out) {
         if(best<0)return 0;
         char path[64];archive_path(path,archive_items[best].name);mind_archive_header_t h;
         if(kfs_read(path,0,&h,sizeof h)==(int64_t)sizeof h&&
+           h.magic==MIND_ARCHIVE_MAGIC&&h.version==MIND_ARCHIVE_VERSION&&
+           h.generation==archive_items[best].generation&&h.model_size==sizeof(mind_model_t)&&
            kfs_read(path,sizeof h,raw,sizeof raw)==(int64_t)sizeof raw&&
            archive_crc(raw,sizeof raw)==h.crc&&mind_model_load(out,raw,sizeof raw))return 1;
         archive_items[best].valid=0;
