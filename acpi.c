@@ -145,6 +145,11 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     uint32_t dl = d->len;
     if (!(d = (const sdt_t*)reach(dsdt, dl, max_phys))) return;
     if (acpi_find_s5((const uint8_t*)d + sizeof(sdt_t), dl - (uint32_t)sizeof(sdt_t), &o->slp_typa, &o->slp_typb) == 0) o->s5_valid = 1;
+    size_t prt_count = 0;
+    if (kira_acpi_prt_parse((const uint8_t*)d + sizeof(sdt_t),
+                            dl - (uint32_t)sizeof(sdt_t),
+                            o->prt, ACPI_MAX_PRT, &prt_count) == 0)
+        o->prt_count = (uint32_t)prt_count;
 }
 
 static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
