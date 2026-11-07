@@ -142,7 +142,7 @@ static int vtd_scope_matches(const acpi_info_t *acpi,unsigned scope_index,
 static int vtd_select_unit(const pci_dev_t *device) {
     const acpi_info_t *acpi=acpi_get();
     if(!acpi||!device) return -1;
-    int include_all=-1;
+    int include_all=-1, scoped=-1;
     for(unsigned i=0;i<unit_count;i++) {
         vtd_unit_t *u=&units[i];
         if(!u->valid||u->segment!=0) continue;
@@ -151,15 +151,18 @@ static int vtd_select_unit(const pci_dev_t *device) {
                 const acpi_dmar_scope_t *scope=&acpi->dmar_scope[s];
                 if(scope->owner_type==0&&scope->owner_index==i&&
                    (scope->type==1||scope->type==2)&&
-                   vtd_scope_matches(acpi,s,device)) return (int)i;
+                   vtd_scope_matches(acpi,s,device)) {
+                    if(scoped>=0&&scoped!=(int)i) return -1;
+                    scoped=(int)i;
+                }
             }
         }
         if(acpi->dmar_unit[i].include_all) {
-            if(include_all>=0) return -1; /* ambiguous include-all units: deny this requester */
+            if(include_all>=0) return -1;
             include_all=(int)i;
         }
     }
-    return include_all;
+    return scoped>=0?scoped:include_all;
 }
 
 static int vtd_alloc_domain_id(vtd_unit_t *u,uint16_t *out) {
@@ -252,6 +255,26 @@ static int vtd_add_domain(const pci_dev_t *d,unsigned unit,uint16_t did,
     return 0;
 }
 
+static int vtd_disable_firmware_modes(vtd_unit_t *u) {
+    uint32_t command=0;
+    if(kira_vtd_read32(&u->mmio,VTD_GCMD,&command)!=0) return -1;
+    if(command&VTD_GCMD_TE) {
+        if(kira_vtd_write32(&u->mmio,VTD_GCMD,command&~VTD_GCMD_TE)!=0||
+           kira_vtd_wait32(&u->mmio,VTD_GSTS,VTD_GSTS_TES,0)!=0) return -2;
+        if(kira_vtd_read32(&u->mmio,VTD_GCMD,&command)!=0) return -1;
+    }
+    if(command&VTD_GCMD_QIE) {
+        if(kira_vtd_write32(&u->mmio,VTD_GCMD,command&~VTD_GCMD_QIE)!=0||
+           kira_vtd_wait32(&u->mmio,VTD_GSTS,VTD_GSTS_QIES,0)!=0) return -3;
+        if(kira_vtd_read32(&u->mmio,VTD_GCMD,&command)!=0) return -1;
+    }
+    if(command&VTD_GCMD_IRE) {
+        if(kira_vtd_write32(&u->mmio,VTD_GCMD,command&~VTD_GCMD_IRE)!=0||
+           kira_vtd_wait32(&u->mmio,VTD_GSTS,VTD_GSTS_IRES,0)!=0) return -4;
+    }
+    return 0;
+}
+
 static int vtd_unit_prepare(unsigned index,const acpi_info_t *acpi) {
     if(index>=acpi->dmar_unit_count||index>=VTD_MAX_UNITS) return -1;
     vtd_unit_t *u=&units[index];
@@ -263,6 +286,7 @@ static int vtd_unit_prepare(unsigned index,const acpi_info_t *acpi) {
     u->mmio.length=VTD_REG_BYTES;
     if(!u->mmio.base||kira_vtd_read64(&u->mmio,VTD_CAP,&u->cap)!=0||
        kira_vtd_read64(&u->mmio,VTD_ECAP,&u->ecap)!=0) return -3;
+    if(vtd_disable_firmware_modes(u)!=0) return -3;
     if(!(u->cap&VTD_CAP_SAGAW_48)||
        ((u->cap&VTD_CAP_MGAW_MASK)>>VTD_CAP_MGAW_SHIFT)<48u||
        !((u->ecap&VTD_ECAP_IRO_MASK)>>VTD_ECAP_IRO_SHIFT)) return -4;
