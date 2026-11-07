@@ -196,7 +196,19 @@ static int pmm_init_map(const kbi_mmap_entry_t* map, uint32_t map_count,
             s=(s+PMM_PAGE_SIZE-1)&~(PMM_PAGE_SIZE-1);
             uint64_t t=map[i].base+map[i].length;
             if(t>PMM_LOW)t=PMM_LOW;
-            if(t>s && t-s>=store_bytes){store_base=s;break;}
+            if(t<=s || t-s<store_bytes) continue;
+            uint64_t store_end=s+store_bytes;
+            int blocked=0;
+            if(handoff) {
+                const kbi_module_t* mods=(const kbi_module_t*)((const uint8_t*)handoff+handoff->modules_off);
+                for(uint32_t m=0;m<handoff->modules_count;m++) {
+                    uint64_t me=mods[m].base+mods[m].length;
+                    if(s<me && mods[m].base<store_end) { blocked=1; break; }
+                }
+                if(handoff->fb_size && s<handoff->fb_phys+handoff->fb_size &&
+                   handoff->fb_phys<store_end) blocked=1;
+            }
+            if(!blocked) {store_base=s;break;}
         }
         if(!store_base) {
             uart_print("[KIRA PMM ERROR] No room for the page bitmaps below 1 GB.\n");
