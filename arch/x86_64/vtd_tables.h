@@ -84,7 +84,8 @@ static inline int kira_vtd_link_table(kira_vtd_pt_t *parent,
                                        uint64_t iova, unsigned level,
                                        uint64_t child_phys) {
     if (!parent || ((uintptr_t)parent & (KIRA_VTD_PAGE_SIZE - 1u)) ||
-        level == 0 || level > 3 || !kira_vtd_phys_page_valid(child_phys)) return -1;
+        iova >= (1ull << 48) || level == 0 || level > 3 ||
+        !kira_vtd_phys_page_valid(child_phys)) return -1;
     uint64_t *slot = &parent->entry[kira_vtd_pt_index(iova, level)];
     if (*slot & (KIRA_VTD_R | KIRA_VTD_W)) return -2;
     __asm__ volatile("" ::: "memory");
@@ -115,6 +116,7 @@ static inline int kira_vtd_map_4k_walk(kira_vtd_pt_t *root,
             kira_vtd_pt_t *child = ops->alloc(ops->ctx, &child_phys);
             if (!child || !kira_vtd_phys_page_valid(child_phys)) return -5;
             for (unsigned i = 0; i < KIRA_VTD_ENTRIES; i++) child->entry[i] = 0;
+            __asm__ volatile("" ::: "memory");
             *slot = child_phys | KIRA_VTD_R | KIRA_VTD_W;
             table = child;
         }
@@ -125,7 +127,8 @@ static inline int kira_vtd_map_4k_walk(kira_vtd_pt_t *root,
 static inline int kira_vtd_map_4k(kira_vtd_pt_t *pt, uint64_t iova,
                                   uint64_t phys, int writable, int snoop) {
     if (!pt || ((uintptr_t)pt & (KIRA_VTD_PAGE_SIZE - 1u)) ||
-        (iova & 0xfffu) || !kira_vtd_phys_page_valid(phys))
+        iova >= (1ull << 48) || (iova & 0xfffu) ||
+        !kira_vtd_phys_page_valid(phys))
         return -1;
     uint64_t flags = KIRA_VTD_R | (writable ? KIRA_VTD_W : 0) |
                      (snoop ? KIRA_VTD_SNOOP : 0);
@@ -137,7 +140,8 @@ static inline int kira_vtd_map_4k(kira_vtd_pt_t *pt, uint64_t iova,
 }
 
 static inline int kira_vtd_unmap_4k(kira_vtd_pt_t *pt, uint64_t iova) {
-    if (!pt || (iova & 0xfffu)) return -1;
+    if (!pt || ((uintptr_t)pt & (KIRA_VTD_PAGE_SIZE - 1u)) ||
+        iova >= (1ull << 48) || (iova & 0xfffu)) return -1;
     uint64_t *slot = &pt->entry[kira_vtd_pt_index(iova, 0)];
     if (!(*slot & (KIRA_VTD_R | KIRA_VTD_W))) return -2;
     *slot = 0;
