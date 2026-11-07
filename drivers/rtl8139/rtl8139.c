@@ -51,6 +51,7 @@ typedef struct {
     kira_rl_tx_state_t tx;
     uint64_t rx_bad, rx_dropped, tx_dropped;
     uint32_t link_ticks;
+    uint64_t tx_started[KIRA_RL_TX_SLOTS];
     int link_up;
 } rtl8139_t;
 
@@ -109,6 +110,7 @@ static int configure_chip(void) {
     for(unsigned i=0;i<KIRA_RL_TX_SLOTS;i++) dev.tx.busy[i]=0;
     dev.tx.producer=dev.tx.consumer=0;
     dev.tx.used=dev.tx.completed=dev.tx.errors=0;
+    for(unsigned i=0;i<KIRA_RL_TX_SLOTS;i++) dev.tx_started[i]=0;
     w8(REG_CR,0);
     w16(REG_IMR,0);
     w16(REG_ISR,0xffff);
@@ -133,8 +135,12 @@ static int configure_chip(void) {
 }
 
 static int recover_device(void) {
-    if(reset_chip()!=0) return -1;
-    return configure_chip();
+    if(reset_chip()!=0||configure_chip()!=0) return -1;
+    if(dev.net) {
+        dev.link_up=link_status();
+        __atomic_store_n(&dev.net->link,dev.link_up?1u:0u,__ATOMIC_RELEASE);
+    }
+    return 0;
 }
 
 static int link_status(void) {
@@ -198,14 +204,18 @@ static int receive_poll(void) {
     return delivered;
 }
 
-static void reap_transmits(void) {
+static int reap_transmits(void) {
     while(dev.tx.used) {
         uint8_t slot=dev.tx.consumer;
         if(!dev.tx.busy[slot]) break;
         uint32_t status=r32(REG_TSD0+4u*slot);
         int done=kira_rl_tx_reap(&dev.tx,slot,status,TSD_TOK,TSD_TUN|TSD_TABT);
-        if(done<=0) break;
+        if(done>0) { dev.tx_started[slot]=0; continue; }
+        if(dev.tx_started[slot]&&k_clock_ns()-dev.tx_started[slot]>5000000000ull)
+            return recover_device()==0?1:-1;
+        break;
     }
+    return 0;
 }
 
 static void submit_transmits(void) {
@@ -231,6 +241,7 @@ static void submit_transmits(void) {
         io_barrier();
         w32(REG_TSAD0+4u*hw_slot,
             (uint32_t)(dev.tx_dma.phys+(uint64_t)hw_slot*TX_SLOT_BYTES));
+        dev.tx_started[hw_slot]=k_clock_ns();
         w32(REG_TSD0+4u*hw_slot,
             (TX_EARLY_THRESHOLD<<16)|(uint32_t)hardware_length);
         io_barrier();
@@ -298,8 +309,13 @@ int main(void) {
         i64 event=kdrv_irq_wait(1); /* bounded 10 ms poll; kernel TX events wake this wait early */
         if(event==KE_INTR) break;
         if(event<0&&event!=KE_TIMEOUT) k_sleep(1);
-        reap_transmits();
+        if(reap_transmits()<0) {
+            k_puts("rtl8139: transmit recovery failed; stopping\n");
+            break;
+        }
         submit_transmits();
+        uint16_t irq_status=r16(REG_ISR);
+        if(irq_status) w16(REG_ISR,irq_status);
         if(receive_poll()<0) {
             k_puts("rtl8139: receive recovery failed; stopping\n");
             break;
