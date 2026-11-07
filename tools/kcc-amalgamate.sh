@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
-OUT="\${1:-userland/kcc_selfhost.c}"
+OUT="${1:-userland/kcc_selfhost.c}"
 mkdir -p "$(dirname "$OUT")"
-TMP="\${OUT}.tmp"
+TMP="${OUT}.tmp"
 : > "$TMP"
 
 emit() {
@@ -12,7 +12,7 @@ emit() {
     for spec in "$@"; do printf '#define %s\n' "$spec" >> "$TMP"; done
     cat "$file" >> "$TMP"
     printf '\n' >> "$TMP"
-    for spec in "$@"; do name="\${spec%% *}"; printf '#undef %s\n' "$name" >> "$TMP"; done
+    for spec in "$@"; do name="${spec%% *}"; printf '#undef %s\n' "$name" >> "$TMP"; done
     printf '\n' >> "$TMP"
 }
 
