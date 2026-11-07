@@ -262,8 +262,9 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
        firmware. Require the standard Memory Attribute Protocol and verify
        that every executable PT_LOAD range has XP cleared before handoff. */
     EFI_MEMORY_ATTRIBUTE_PROTOCOL *attributes=0;
-    EFI_STATUS attr_status=bs->locate_protocol(&memory_attribute_guid,0,
-                                                (void**)&attributes);
+    EFI_STATUS attr_status=bs->locate_protocol
+        ? bs->locate_protocol(&memory_attribute_guid,0,(void**)&attributes)
+        : (EFI_STATUS)0x8000000000000003ull;
     if(EFI_ERROR(attr_status)||!attributes||!attributes->get_memory_attributes||
        !attributes->clear_memory_attributes) {
         while(allocated_count) {
