@@ -67,6 +67,16 @@ int main(void) {
     CHECK(kdrv_sig_verify(package, sizeof package - 2, &s, sizeof s, &test_key, 1, 1800000000LL) == KDRV_SIG_E_PACKAGE_SIZE);
     CHECK(kdrv_sig_verify(package, sizeof package - 1, &s, sizeof s - 1, &test_key, 1, 1800000000LL) == KDRV_SIG_E_SIZE);
 
+    CHECK(kdrv_sig_verify(package, sizeof package - 1, &valid_signature, sizeof valid_signature,
+                          &test_key, 1, 1700000000LL) == KDRV_SIG_OK); /* not_before is inclusive */
+    CHECK(kdrv_sig_verify(package, sizeof package - 1, &valid_signature, sizeof valid_signature,
+                          &test_key, 1, 4102444799LL) == KDRV_SIG_OK); /* not_after is exclusive */
+    s = valid_signature; s.package_size = 0;
+    CHECK(kdrv_sig_header_check(&s, sizeof s) == KDRV_SIG_E_FORMAT);
+    s = valid_signature; s.not_before = 0;
+    CHECK(kdrv_sig_header_check(&s, sizeof s) == KDRV_SIG_E_TIME);
+    s = valid_signature; s.not_after = 0x8000000000000000ULL;
+    CHECK(kdrv_sig_header_check(&s, sizeof s) == KDRV_SIG_E_TIME);
     s = valid_signature; s.not_after = s.not_before;
     CHECK(kdrv_sig_header_check(&s, sizeof s) == KDRV_SIG_E_TIME);
     s = valid_signature; s.magic = 0;
