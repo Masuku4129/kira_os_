@@ -394,7 +394,7 @@ int vtd_dma_map(const pci_dev_t *device,uint64_t physical,uint64_t length) {
                                 1,1,&pt_ops)!=0) {
             /* Return -3 only when stale IOTLB entries may still reference the
                range. The caller must pin it and retry unmap before page reuse. */
-            if(vtd_dma_unmap(device,physical,mapped)!=0) return -3;
+            if(mapped&&vtd_dma_unmap(device,physical,mapped)!=0) return -3;
             return -2;
         }
     }
