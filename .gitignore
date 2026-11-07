@@ -19,6 +19,7 @@ tools/roots.der
 .claude/
 __pycache__/
 tools/kdrvpack
+tools/kdrvsig
 
 # Never commit owner signing secrets
 KIRA_OWNER_ED25519_PRIVATE.pem
