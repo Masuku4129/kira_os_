@@ -24,7 +24,10 @@ int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
     uint32_t n = map_size / descriptor_size;
     if (n > KIRA_BOOTINFO_MAX_MMAP) return -2;
     uint64_t max_entries = (uint64_t)n + 2u;
-    uint64_t need = sizeof(kbi_header_t) + max_entries * sizeof(kbi_mmap_entry_t);
+    /* Reserve a temporary copy after the maximum output map. This permits
+       splitting a kernel image span across multiple UEFI descriptors. */
+    uint64_t need = sizeof(kbi_header_t) +
+                    (max_entries + n) * sizeof(kbi_mmap_entry_t);
     if (need > capacity || need > KIRA_BOOTINFO_MAX_SIZE) return -3;
 
     uint8_t *blob = (uint8_t *)out;
@@ -64,39 +67,49 @@ int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
         while (j && mm[j - 1].base > v.base) { mm[j] = mm[j - 1]; j--; }
         mm[j] = v;
     }
-    /* Reserve the kernel's physical range explicitly. UEFI loader pages
-       must never re-enter the allocator as ordinary conventional memory. */
+    /* Reserve the full kernel image span. PT_LOAD segments may have been
+       allocated separately as EFI_LOADER_CODE and EFI_LOADER_DATA; the
+       intervening holes stay reserved too and are never returned to PMM. */
     uint64_t kernel_end = kernel_base + kernel_size;
-    uint32_t owner = count;
+    if (count + 2u > KIRA_BOOTINFO_MAX_MMAP) return -6;
+    kbi_mmap_entry_t *source = mm + max_entries;
+    for (uint32_t i = 0; i < count; i++) source[i] = mm[i];
+    uint32_t out_count = 0;
+    uint64_t covered = kernel_base;
     for (uint32_t i = 0; i < count; i++) {
-        uint64_t end = mm[i].base + mm[i].length;
-        if (kernel_base >= mm[i].base && kernel_end <= end) { owner = i; break; }
-    }
-    if (owner == count || count + 2u > KIRA_BOOTINFO_MAX_MMAP) return -6;
-    {
-        kbi_mmap_entry_t original = mm[owner];
+        kbi_mmap_entry_t original = source[i];
         uint64_t original_end = original.base + original.length;
-        uint32_t extra = (kernel_base > original.base ? 1u : 0u) +
-                         (kernel_end < original_end ? 1u : 0u);
-        for (uint32_t i = count; i > owner + 1u; i--) mm[i + extra - 1u] = mm[i - 1u];
-        uint32_t at = owner;
-        if (kernel_base > original.base) {
-            mm[at] = original;
-            mm[at].length = kernel_base - original.base;
-            at++;
+        if (original_end <= kernel_base || original.base >= kernel_end) {
+            if (out_count >= max_entries) return -6;
+            mm[out_count++] = original;
+            continue;
         }
-        mm[at].base = kernel_base;
-        mm[at].length = kernel_size;
-        mm[at].type = KBI_MEM_KERNEL;
-        mm[at].attributes = 0;
-        at++;
-        if (kernel_end < original_end) {
-            mm[at] = original;
-            mm[at].base = kernel_end;
-            mm[at].length = original_end - kernel_end;
+        uint64_t overlap_start = original.base > kernel_base ? original.base : kernel_base;
+        uint64_t overlap_end = original_end < kernel_end ? original_end : kernel_end;
+        if (overlap_start != covered || overlap_end <= overlap_start) return -6;
+        if (original.base < kernel_base) {
+            if (out_count >= max_entries) return -6;
+            mm[out_count] = original;
+            mm[out_count].length = kernel_base - original.base;
+            out_count++;
         }
-        count += extra;
+        if (out_count >= max_entries) return -6;
+        mm[out_count].base = overlap_start;
+        mm[out_count].length = overlap_end - overlap_start;
+        mm[out_count].type = KBI_MEM_KERNEL;
+        mm[out_count].attributes = 0;
+        out_count++;
+        if (original_end > kernel_end) {
+            if (out_count >= max_entries) return -6;
+            mm[out_count] = original;
+            mm[out_count].base = kernel_end;
+            mm[out_count].length = original_end - kernel_end;
+            out_count++;
+        }
+        covered = overlap_end;
     }
+    if (covered != kernel_end || !out_count) return -6;
+    count = out_count;
     uint32_t merged = 0;
     for (uint32_t i = 0; i < count; i++) {
         if (merged) {
