@@ -652,7 +652,8 @@ static int display_init_finish(int rc) {
     uart_print("[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, "
                "apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, "
                "fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.\n");
-    return 0;}
+    return 0;
+}
 
 int display_init(unsigned long mbi) {
     return display_init_finish(mbi ? fb_init(mbi) : -1);
