@@ -1064,12 +1064,12 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("[KIRA ARM64] entered at EL%u, running at EL%u\n", entry_el & 3, (SYSREG_R(CurrentEL) >> 2) & 3);
     {
         unsigned count = fdt_smmu_count(fdt);
-        kprintf("[KIRA SMMU] device-tree controllers discovered: %u; DMA isolation remains denied until domains are initialized.\\n",
+        kprintf("[KIRA SMMU] device-tree controllers discovered: %u; DMA isolation remains denied until domains are initialized.\n",
                 (uint64_t)count);
         for (unsigned i = 0; i < count; i++) {
             fdt_smmu_t sm;
             if (fdt_smmu_get(fdt, i, &sm) == 0)
-                kprintf("[KIRA SMMU] v%u regs=%x size=%x iommu-cells=%u (discovered, not enabled)\\n",
+                kprintf("[KIRA SMMU] v%u regs=%x size=%x iommu-cells=%u (discovered, not enabled)\n",
                         (uint64_t)sm.version, sm.base, sm.size, (uint64_t)sm.iommu_cells);
         }
     }
