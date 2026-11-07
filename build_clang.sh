@@ -164,6 +164,7 @@ if command -v lld-link >/dev/null 2>&1; then
     clang --target=x86_64-pc-windows-msvc -ffreestanding -fno-builtin -fno-stack-protector -mno-red-zone -Wall -Wextra -c arch/x86_64/uefi_loader.c -o uefi/uefi_loader.obj
     lld-link /subsystem:efi_application /entry:efi_main /nodefaultlib /machine:x64 /out:uefi/EFI/BOOT/BOOTX64.EFI uefi/uefi_loader.obj
     cp kira-uefi.bin uefi/KIRA.BIN
+    cp kira-uefi.bin uefi/EFI/BOOT/KIRA.BIN
     echo "[*] UEFI removable-media files written to ./uefi"
 else
     echo "[!] lld-link not found: native UEFI loader not built (install LLVM lld-link)."
