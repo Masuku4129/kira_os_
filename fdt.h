@@ -10,7 +10,7 @@
 #define FDT_MAGIC 0xD00DFEEDu
 
 int      fdt_valid(const void* fdt, uint32_t max_len);      /* 1 - заголовок и границы блоков разумны */
-int      fdt_tree_valid(const void* fdt);                   /* 1 - весь токен-поток структуры корректен */
+int      fdt_tree_valid(const void* fdt, uint32_t max_len);                   /* 1 - весь токен-поток структуры корректен */
 uint32_t fdt_total_size(const void* fdt);
 /* Firmware memory-reservation map (64-bit address/size pairs); index order is preserved. */
 unsigned fdt_reserve_count(const void* fdt);
