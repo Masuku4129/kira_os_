@@ -138,6 +138,16 @@ int main(void)
                                  &ops, &catalogue) == KDRV_CATALOGUE_INVALID);
     }
 
+    /* A cryptographic verifier rejection must never fall through to parsing. */
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1));
+    ctx.reject_signature = 1;
+    CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
+                             &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1));
+    record.key_id[0] ^= 0x80;
+    CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
+                             &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
+
     /* A revoked publisher, expired metadata and stale catalogue are fail-closed. */
     CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1));
     CHECK(kdrv_trust_revoke_key(&store, record.key_id) == KDRV_TRUST_OK);
