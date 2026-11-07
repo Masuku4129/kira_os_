@@ -10,6 +10,7 @@ struct test_context {
     uint64_t floor;
     uint64_t now;
     int reject_signature;
+    int reject_floor_write;
 };
 
 static int test_sha(void *ctx, const void *data, size_t length, uint8_t digest[32])
@@ -43,7 +44,9 @@ static int read_floor(void *opaque, uint64_t *version)
 
 static int write_floor(void *opaque, uint64_t version)
 {
-    ((struct test_context *)opaque)->floor = version;
+    struct test_context *ctx = (struct test_context *)opaque;
+    if (ctx->reject_floor_write) return -1;
+    ctx->floor = version;
     return 0;
 }
 
@@ -107,6 +110,7 @@ int main(void)
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
                              &ops, &catalogue) == KDRV_CATALOGUE_OK);
     CHECK(catalogue.version == 7 && catalogue.count == 1);
+    CHECK(ctx.floor == 7); /* accepted catalogue version is persisted */
     entry = kdrv_catalogue_find(&catalogue, "rtl8139", "x86_64");
     CHECK(entry != NULL);
     CHECK(entry->flags == KDRV_CATALOGUE_FLAG_PUBLISHER_REQUIRED);
@@ -137,6 +141,22 @@ int main(void)
         CHECK(kdrv_catalogue_load(&store, &record, bad_policy, sizeof(bad_policy) - 1,
                                  &ops, &catalogue) == KDRV_CATALOGUE_INVALID);
     }
+
+    /* A malformed but correctly signed catalogue must not advance the floor. */
+    {
+        static const char malformed[] = "KIRA-KDRV-CATALOGUE\t1\t7\ninvalid\n";
+        CHECK(make_trust(&store, &record, &ops, &ctx, malformed, sizeof(malformed) - 1));
+        CHECK(kdrv_catalogue_load(&store, &record, malformed, sizeof(malformed) - 1,
+                                 &ops, &catalogue) == KDRV_CATALOGUE_INVALID);
+        CHECK(ctx.floor == 6);
+    }
+
+    /* If durable floor storage fails, a valid catalogue is not accepted. */
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1));
+    ctx.reject_floor_write = 1;
+    CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
+                             &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
+    CHECK(ctx.floor == 6);
 
     /* A cryptographic verifier rejection must never fall through to parsing. */
     CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1));
