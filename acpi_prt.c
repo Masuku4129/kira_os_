@@ -124,17 +124,36 @@ int kira_acpi_prt_parse(const uint8_t *aml, size_t length,
                         size_t *entry_count) {
     if (!aml || !entries || !capacity || !entry_count) return -1;
     *entry_count = 0;
+    if (length > UINT32_MAX || (uintptr_t)aml > UINTPTR_MAX - length) return -1;
     const uint8_t *end = aml + length;
+    int found = 0;
     for (size_t i = 1; i + 5 < length; i++) {
         if (aml[i] != '_' || aml[i+1] != 'P' || aml[i+2] != 'R' || aml[i+3] != 'T')
             continue;
-        if (aml[i-1] != 0x08 && !(aml[i-1] == '\\' && i >= 2 && aml[i-2] == 0x08))
+        /* NameOp followed by an optional root prefix and the _PRT NameSeg. */
+        if (aml[i-1] != 0x08 &&
+            !(aml[i-1] == '\\' && i >= 2 && aml[i-2] == 0x08))
             continue;
         const uint8_t *p = aml + i + 4;
         if (p >= end || *p++ != 0x12) continue;
-        if (parse_prt_package(p, end, entries, capacity, entry_count) == 0)
-            return 0;
-        *entry_count = 0;
+
+        const uint8_t *body, *package_end;
+        if (aml_pkg_end(p, end, &body, &package_end) != 0) continue;
+
+        /* Parse into a temporary array so malformed packages cannot leave
+         * partially appended entries in the caller's result. */
+        kira_acpi_prt_entry_t temporary[KIRA_ACPI_PRT_MAX];
+        size_t temporary_count = 0;
+        if (parse_prt_package(p, end, temporary, KIRA_ACPI_PRT_MAX,
+                              &temporary_count) == 0) {
+            if (temporary_count > capacity - *entry_count) return -1;
+            for (size_t n = 0; n < temporary_count; n++)
+                entries[(*entry_count)++] = temporary[n];
+            found = 1;
+        }
+        /* A Package's nested bytes are data, not AML opcodes. Do not mistake
+         * strings or integer payloads inside it for another Name(_PRT). */
+        i = (size_t)(package_end - aml) - 1u;
     }
-    return -2;
+    return found ? 0 : -2;
 }
