@@ -37,6 +37,7 @@
  */
 #include "kdrv_bsd.h"
 #include "if_rlreg.h"
+#include "../rtl8139/kira_rtl8139_core.h"
 
 struct rl_softc {
 	struct ifnet ifnet;
@@ -190,25 +191,33 @@ static void rl_rxeof(struct rl_softc *sc)
 	int budget = 64;
 
 	while (budget-- > 0 && !(CSR_READ_1(sc, RL_COMMAND) & RL_CMD_EMPTY_RXBUF)) {
-		u32 rxstat = le32toh(*(volatile u32 *)(rx + cur_rx));
-		u32 total_len = rxstat >> 16;		/* вместе с CRC */
-		u32 len, pos, wrap;
+		kira_rl_rx_record_t record;
+		u8 header[4];
+		u32 total_len, len, pos;
 
-		if (total_len == RL_RXSTAT_UNFINISHED)	/* чип ещё копирует кадр в ОЗУ */
-			break;
-		if (!(rxstat & RL_RXSTAT_RXOK) || total_len < ETHER_MIN_LEN || total_len > ETHER_MAX_LEN + 4) {
+		if (le32toh(*(volatile u32 *)(rx + cur_rx)) >> 16 == RL_RXSTAT_UNFINISHED)
+			break; /* чип ещё копирует кадр в ОЗУ */
+		header[0] = ((volatile u8 *)rx)[cur_rx + 0];
+		header[1] = ((volatile u8 *)rx)[cur_rx + 1];
+		header[2] = ((volatile u8 *)rx)[cur_rx + 2];
+		header[3] = ((volatile u8 *)rx)[cur_rx + 3];
+		if (kira_rl_rx_decode(header, &record) != 0 ||
+		    record.wire_length < ETHER_MIN_LEN ||
+		    record.wire_length > ETHER_MAX_LEN + ETHER_CRC_LEN ||
+		    record.payload_length > sizeof frame ||
+		    !kira_rl_rx_status_ok(record.status)) {
 			ifp->if_ierrors++;
 			rl_init(sc);			/* как rl(4): неверная голова кадра - перезапуск */
 			return;
 		}
-		len = total_len - ETHER_CRC_LEN;	/* чип присылает CRC с каждым кадром */
+		total_len = record.wire_length;
+		len = record.payload_length;	/* чип присылает CRC с каждым кадром */
 		pos = (cur_rx + RL_RX_HDR) % RL_RXBUFLEN;
-		wrap = RL_RXBUFLEN - pos;
-		if (len > wrap) {			/* кадр переходит через конец кольца */
-			kd_memcpy(frame, rx + pos, wrap);
-			kd_memcpy(frame + wrap, rx, len - wrap);
-		} else
-			kd_memcpy(frame, rx + pos, len);
+		if (kira_rl_ring_copy_out(rx, RL_RXBUFLEN, pos, frame, len) != 0) {
+			ifp->if_ierrors++;
+			rl_init(sc);
+			return;
+		}
 		if (!sc->saw_rx) {
 			sc->saw_rx = 1;
 			kd_puts("rl: first frame received, "); kd_putu(len); kd_puts(" bytes\n");
@@ -255,18 +264,19 @@ static void rl_start(struct rl_softc *sc)
 
 	while (sc->inflight < RL_TX_LIST_CNT && if_tx_pending(ifp)) {
 		u32 len = if_dequeue(ifp, tmp, sizeof tmp);
+		u32 payload_len = len;
+		u16 hardware_len;
 		u8 *dst;
 
-		if (!len) {
+		if (!len || len > sizeof tmp || kira_rl_tx_length(len, &hardware_len) != 0) {
 			ifp->if_oerrors++;
 			continue;
 		}
+		len = hardware_len;
 		dst = sc->txbuf.va + sc->cur_tx * 2048;
-		kd_memcpy(dst, tmp, len);
-		if (len < RL_MIN_FRAMELEN) {		/* короткий кадр дополняется нулями до минимума */
-			kd_memset(dst + len, 0, RL_MIN_FRAMELEN - len);
-			len = RL_MIN_FRAMELEN;
-		}
+		kd_memcpy(dst, tmp, payload_len);
+		if (len > payload_len)
+			kd_memset(dst + payload_len, 0, len - payload_len);
 		bus_space_barrier();
 		CSR_WRITE_4(sc, RL_TXADDR0 + sc->cur_tx * 4, (u32)(sc->txbuf.pa + (u64)sc->cur_tx * 2048));
 		CSR_WRITE_4(sc, RL_TXSTAT0 + sc->cur_tx * 4, (sc->txthresh << 16) | (len & RL_TXSTAT_LENMASK));
@@ -296,6 +306,10 @@ int main(void)
 			break;
 	if (bar == 6) {
 		kd_puts("rl: no memory BAR\n");
+		return 1;
+	}
+	if (in.bar[bar].size < 0x100) {
+		kd_puts("rl: MMIO BAR is smaller than the RTL8139 register window\\n");
 		return 1;
 	}
 	sc->bsh = bus_space_map(bar, in.bar[bar].size, &err);
