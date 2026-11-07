@@ -8,7 +8,6 @@
 #include "kdrv_transition.h"
 #include "kdrv_revocation.h"
 #include <stddef.h>
-#include <string.h>
 #include "kdrv_trust.h"
 #include "pci.h"
 #include "msi.h"
