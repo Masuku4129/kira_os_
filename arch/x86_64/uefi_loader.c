@@ -323,12 +323,12 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
     if(er) return (EFI_STATUS)(0x8000000000001000ull+(uint32_t)(-er));
 
     void *mbi=alloc_low_pages(bs,MB2_INFO_MAX,EFI_LOADER_DATA);
-    void *mapbuf=alloc_low_pages(bs,1024u*1024u,EFI_BOOT_SERVICES_DATA);
+    void *mapbuf=alloc_low_pages(bs,1024u*1024u,EFI_LOADER_DATA);
     if(!mbi||!mapbuf) return (EFI_STATUS)0x8000000000002001ull;
     uint64_t mapkey=0; uint32_t bootinfo_size=0;
     int br=build_bootinfo(bs,st,mbi,MB2_INFO_MAX,mapbuf,1024u*1024u,
                           kernel_base,kernel_end,&mapkey,&bootinfo_size);
-    if(br) return (EFI_STATUS)(0x8000000000002000ull+(uint32_t)(-br));
+    if(br||!bootinfo_size) return (EFI_STATUS)(0x8000000000002000ull+(uint32_t)(br? -br : 0xFF));
 
     rc=bs->exit_boot_services(image,mapkey);
     if(EFI_ERROR(rc)) {
@@ -336,7 +336,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
            allocating or freeing anything, then retry exactly once. */
         br=build_bootinfo(bs,st,mbi,MB2_INFO_MAX,mapbuf,1024u*1024u,
                           kernel_base,kernel_end,&mapkey,&bootinfo_size);
-        if(br) return (EFI_STATUS)0x8000000000002002ull;
+        if(br||!bootinfo_size) return (EFI_STATUS)0x8000000000002002ull;
         rc=bs->exit_boot_services(image,mapkey);
         if(EFI_ERROR(rc)) return rc;
     }
