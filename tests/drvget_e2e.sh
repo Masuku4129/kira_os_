@@ -133,7 +133,8 @@ PY
 echo "$chk" | grep -q "^OK rl v1" || note "пакет в /drv неверен: $chk"
 echo "$chk" | grep -q "source=$U/rl/drvget.rec" || note "в .rec нет источника"
 run "list"
-grep -q "rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен" $T/out || note "list: $(tail -c 300 $T/out)"
+grep -Eq "rl: v1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, подпись: локально, источник: https://127\\.0\\.0\\.1:[0-9]+/rl/drvget\\.rec" $T/out || note "list: $(tail -c 300 $T/out)"
+if grep -Eq "rl:.*подпись: Ed25519 OK" $T/out; then note "list: unsigned local package was misreported as publisher-authenticated"; fi
 run "verify rl"
 grep -q "подпись издателя: отсутствует; пакет только локально подтверждён" $T/out || note "verify: локальный пакет не помечен как неподписанный"
 grep -q "verify rl: OK" $T/out || note "verify: $(tail -c 300 $T/out)"
