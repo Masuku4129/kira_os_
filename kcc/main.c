@@ -11,11 +11,12 @@ static const char *read_file(void *ud, const char *path, size_t *len) {
     if (!f) return NULL;
     if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
     long sz = ftell(f);
-    if (sz < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
+    if (sz < 0 || (uintmax_t)sz >= (uintmax_t)SIZE_MAX || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
     char *buf = ka_new((size_t)sz + 1);          /* буфер живёт в арене компилятора */
     size_t n = fread(buf, 1, (size_t)sz, f);
+    int ioerr = ferror(f);
     fclose(f);
-    if (ferror(f) || n != (size_t)sz) { free(buf); return NULL; }
+    if (ioerr || n != (size_t)sz) return NULL;
     buf[n] = 0;
     *len = n;
     return buf;
@@ -57,6 +58,11 @@ int main(int argc, char **argv) {
         else { fprintf(stderr, "kcc: only one input file is supported at this stage\n"); return 2; }
     }
     if (!in) { fprintf(stderr, "usage: kcc [-I dir] [-D n[=v]] [-S-ir] -o out file.c\n"); return 2; }
+    if (strcmp(target, "x86_64") && strcmp(target, "aarch64")) {
+        fprintf(stderr, "kcc: unsupported target '%s' (supported: x86_64, aarch64)\n", target);
+        return 2;
+    }
+    if (ir && !outp) { fprintf(stderr, "kcc: -S-ir requires an explicit -o output path\n"); return 2; }
     if (!ir && !outp) { fprintf(stderr, "kcc: no output: use -o file (ELF) or -S-ir\n"); return 2; }
     size_t memsz = (size_t)512 << 20;
     void *mem = malloc(memsz);
