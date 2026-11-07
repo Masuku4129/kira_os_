@@ -7,5 +7,5 @@ license BSD-2-Clause
 pci 10ec:8139
 caps mmio dma pcidev netdev
 main rl.c
-file rl.c rl.c sha256 c0601b0b1448fa47f6c22f43645b641e27f3376e0e3dfa7337c8e0d2f618f733
+file rl.c rl.c sha256 ebb4ca41921e0f1fc786afe10227a08a7fdd4cc156dd3be27a388ec09c514b80
 file kira_rtl8139_core.h kira_rtl8139_core.h sha256 f02594798ebccff02627c7a9c357df09237f8b7980896489ff30ca8caed7151d
