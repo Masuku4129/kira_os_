@@ -125,8 +125,8 @@ int main(void) {
         "kira-driver-index 1\npci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\npci 10ec:8139 rl-alt https://example.test/other/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
     };
     const char *bad_policy =
-        "kira-driver-index 1\\n"
-        "pci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef unknown-policy\\n";
+        "kira-driver-index 1\n"
+        "pci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef unknown-policy\n";
     CHECK(dg_parse_index(bad_policy, (uint32_t)strlen(bad_policy), ix, DG_INDEX_ENTRIES, &ixn, &err) != 0);
     for (unsigned i = 0; i < sizeof bad_catalog / sizeof *bad_catalog; i++)
         CHECK(dg_parse_index(bad_catalog[i], (uint32_t)strlen(bad_catalog[i]), ix, DG_INDEX_ENTRIES, &ixn, &err) != 0);
