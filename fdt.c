@@ -370,8 +370,8 @@ int fdt_smmu_get(const void* fdt, unsigned index, fdt_smmu_t* out) {
         if (!fdt_node_enabled(fdt, node) || !fdt_smmu_compat(fdt, node, &version)) continue;
         if (found++ != index) continue;
         uint64_t base, size;
-        if (fdt_reg(fdt, node, 0, &base, &size) != 0 || !size ||
-            base > UINT64_MAX - size || fdt_prop_u32(fdt, node, "#iommu-cells", &cells) != 0 ||
+        if (fdt_reg(fdt, node, 0, &base, &size) != 0 || size < 0x1000 ||
+            (base & 0xFFF) || base > UINT64_MAX - size || fdt_prop_u32(fdt, node, "#iommu-cells", &cells) != 0 ||
             cells > 8) return -2;
         out->base = base;
         out->size = size;
