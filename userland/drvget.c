@@ -541,6 +541,28 @@ static int cmd_confirm(const char *arg) {
     snprintf(f1, sizeof f1, "%s.kdrv", R.name);
     snprintf(f2, sizeof f2, "%s.rec", R.name);
     snprintf(f3, sizeof f3, "%s.sig", R.name);
+    i64 old_pkg_size = drv_op(KFS_DRV_STAT, f1, 0, 0, 0);
+    i64 old_sig_size = drv_op(KFS_DRV_STAT, f3, 0, 0, 0);
+    if ((old_pkg_size < 0 && old_pkg_size != -2) || (old_sig_size < 0 && old_sig_size != -2)) {
+        say("drvget: не удалось проверить существующий пакет перед заменой; установка отменена\\n");
+        stage_clear();
+        return 1;
+    }
+    if (!has_publisher_sig && old_pkg_size >= 0 && old_sig_size >= 0) {
+        say("drvget: замена существующего подписанного пакета на unsigned/local запрещена; сначала выполните drvget remove\\n");
+        stage_clear();
+        return 1;
+    }
+    if (!has_publisher_sig && old_pkg_size == -2 && old_sig_size >= 0) {
+        /* Clean an orphaned signature/record before creating a new local-only package. */
+        i64 remove_orphan = drv_op(KFS_DRV_REMOVE, f3, 0, 0, 0);
+        if (remove_orphan < 0 && remove_orphan != -2) {
+            say("drvget: не удалось очистить осиротевшую подпись; установка отменена\\n");
+            stage_clear();
+            return 1;
+        }
+    }
+
     i64 w = drv_op(KFS_DRV_WRITE, f1, pkg, total, 0);
     if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\\n", f1, (long long)w); return 1; }
     /* Write publisher signature before the local-confirmation record. .rec is the
