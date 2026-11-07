@@ -241,6 +241,7 @@ static int mask_info(uint32_t mask,uint8_t *pos,uint8_t *bits) {
 static int build_mbi(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
                      void *mbi,uint64_t mbi_capacity,void *mapbuf,uint64_t mapcap,
                      uint64_t *mapkey_out) {
+    /* Resolve all firmware interfaces before GetMemoryMap captures its key. */
     void *rsdp=0;
     for(uint64_t i=0;i<st->number_of_table_entries;i++)
         if(bytes_eq((const uint8_t*)&st->configuration_table[i].guid,
@@ -252,6 +253,50 @@ static int build_mbi(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
                     (const uint8_t*)&acpi1_guid,sizeof(EFI_GUID))) {
             rsdp=st->configuration_table[i].table; break;
         }
+    EFI_GRAPHICS_OUTPUT_PROTOCOL *gop=0;
+    if(bs->locate_protocol)
+        (void)bs->locate_protocol(&gop_guid,0,(void**)&gop);
+
+    uint64_t map_size=mapcap,mapkey=0,desc_size=0; uint32_t desc_ver=0;
+    EFI_STATUS rc=bs->get_memory_map(&map_size,mapbuf,&mapkey,&desc_size,&desc_ver);
+    if(EFI_ERROR(rc)||desc_size<sizeof(EFI_MEMORY_DESCRIPTOR)||!desc_size||
+       map_size%desc_size) return -1;
+    uint64_t count=map_size/desc_size;
+    if(count>4096) return -2;
+
+    zero_mem(mbi,(size_t)mbi_capacity);
+    uint8_t *base=(uint8_t*)mbi, *p=base+8;
+    uint32_t mm_size=(uint32_t)(16+count*24);
+    if((uint64_t)(p-base)+mm_size+8>mbi_capacity) return -3;
+    uint32_t *mm=(uint32_t*)p; mm[0]=6; mm[1]=mm_size;
+    mm[2]=24; mm[3]=0;
+    uint8_t *q=p+16;
+    for(uint64_t i=0;i<count;i++) {
+        EFI_MEMORY_DESCRIPTOR *d=(EFI_MEMORY_DESCRIPTOR*)((uint8_t*)mapbuf+i*desc_size);
+        if(d->pages>UINT64_MAX/EFI_PAGE_SIZE) return -4;
+        uint64_t len=d->pages*EFI_PAGE_SIZE;
+        if(d->physical_start>UINT64_MAX-len) return -4;
+        uint32_t type=2;
+        if(d->type==3||d->type==4||d->type==7) type=1;
+        else if(d->type==9) type=3;
+        else if(d->type==10) type=4;
+        else if(d->type==8) type=5;
+        uint64_t *pair=(uint64_t*)q; pair[0]=d->physical_start; pair[1]=len;
+        ((uint32_t*)q)[4]=type; ((uint32_t*)q)[5]=0; q+=24;
+    }
+    p=(uint8_t*)align_up((uintptr_t)(p+mm_size),8);
+
+    if(rsdp) {
+        uint8_t rev=((uint8_t*)rsdp)[15];
+        uint32_t rsdp_size=rev>=2?*(uint32_t*)((uint8_t*)rsdp+20):20;
+        uint32_t tag_type=rev>=2?15:14;
+        if(rsdp_size<(rev>=2?36u:20u)||rsdp_size>4096||
+           (uint64_t)(p-base)+8+rsdp_size>mbi_capacity) return -5;
+        uint32_t *tag=(uint32_t*)p; tag[0]=tag_type; tag[1]=8+rsdp_size;
+        copy_mem(p+8,rsdp,rsdp_size);
+        p=(uint8_t*)align_up((uintptr_t)(p+8+rsdp_size),8);
+    }
+
     if(gop&&gop->mode&&gop->mode->info) {
         EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *gi=gop->mode->info;
         uint32_t red=0,green=0,blue=0;
@@ -278,6 +323,7 @@ static int build_mbi(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
             p=(uint8_t*)align_up((uintptr_t)(p+38),8);
         }
     }
+
     if((uint64_t)(p-base)+8>mbi_capacity) return -7;
     uint32_t *end=(uint32_t*)p; end[0]=0; end[1]=8; p+=8;
     uint32_t total=(uint32_t)(p-base);
