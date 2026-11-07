@@ -9,7 +9,7 @@
 
 #define KIRA_RL_RX_RING_BYTES 65536u
 #define KIRA_RL_RX_WRAP_BYTES 16u
-#define KIRA_RL_RX_MIN_FRAME  4u
+#define KIRA_RL_RX_MIN_FRAME  64u
 #define KIRA_RL_RX_MAX_FRAME  2048u
 #define KIRA_RL_TX_SLOTS      4u
 #define KIRA_RL_TX_MAX_FRAME  1792u
