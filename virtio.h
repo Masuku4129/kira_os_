@@ -33,6 +33,7 @@ typedef struct {
     volatile uint8_t* notify_addr;
     uint8_t* mem;                    /* desc | avail | used */
     uint64_t mem_phys;                /* device-visible DMA address; not necessarily equal to mem */
+    uint32_t mem_bytes;               /* exact allocation size passed to virtio_dma_alloc */
     uint32_t avail_off, used_off;
     struct irqwait* iw;              /* ожидание сном до прерывания очереди (0 - опрос) */
 } virtq_t;
@@ -44,6 +45,9 @@ int  virtio_attach(virtio_dev_t* v, const pci_dev_t* pci);
 /* Сброс, ACK, DRIVER, согласование признаков (нужен VERSION_1; из want берутся только предложенные), FEATURES_OK. */
 int  virtio_begin(virtio_dev_t* v, uint64_t want);
 int  virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size);
+/* Release queue memory only after a successful device reset. */
+int  virtio_queue_release(virtq_t* q);
+int  virtio_reset_device(virtio_dev_t* v);               /* 0 only after status reaches zero */
 void virtio_driver_ok(virtio_dev_t* v);
 void virtio_fail(virtio_dev_t* v);                      /* FAILED + сброс: устройство больше не пишет в нашу память */
 /* Отправляет цепочку буферов (до 8) и ждёт завершения. 0 - готово, -1 - таймаут. */
