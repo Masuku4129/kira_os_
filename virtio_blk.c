@@ -108,6 +108,18 @@ static void vblk_irq(void* ctx) { (void)ctx; irqwait_fire(&vblk_iw); }
 uint64_t virtio_blk_irq_wakeups(void) { return vblk_iw.wakeups; }
 #endif
 
+void virtio_blk_shutdown(void) {
+    if (!vdev.common) {
+        present = 0;
+        dead = 1;
+        return;
+    }
+    virtio_fail(&vdev);
+    blk_release_after_reset();
+    present = 0;
+    dead = 1;
+}
+
 blk_dev_t* virtio_blk_probe(void) {
     if (present) return &disk;
     if (vq.mem || blk_dma) return 0; /* a previous probe retained live DMA ownership */
