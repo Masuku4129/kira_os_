@@ -233,6 +233,14 @@ int main(void) {
     CHECK(tabs_hit == 1 && last_tab == 2);
     wm_minimize_all();
     CHECK(!wm_visible(a) && !wm_visible(b) && wm_top() == -1);
+    /* Домашняя карточка появляется на большом экране и получает живые системные показатели. */
+    {
+        uint8_t home_busy[4] = { 72, 38, 21, 33 };
+        wm_set_clock("ПЯТНИЦА, 30 ОКТЯБРЯ 2026", "13:05");
+        wm_set_meters(home_busy, 4, 37, 91);
+        frame();
+        CHECK(px(&scr, 800, 620) == TH_BAR0);
+    }
     wm_set_visible(b, 1); wm_set_visible(a, 1);
     CHECK(wm_top() == a);
 

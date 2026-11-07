@@ -53,6 +53,8 @@ static int fx_level = 3;
 static uint32_t anim_ms;
 static int brain_cx, brain_cy;
 
+static void damage_home(void);
+
 static const char* const cursor_art[CUR_H] = {
     "#           ", "##          ", "#.#         ", "#..#        ", "#...#       ", "#....#      ",
     "#.....#     ", "#......#    ", "#.......#   ", "#........#  ", "#.....##### ", "#..#..#     ",
@@ -572,6 +574,7 @@ void wm_set_clock(const char* date, const char* hm) {
     str_copy(clock_date, date, sizeof clock_date);
     str_copy(clock_hm, hm, sizeof clock_hm);
     damage_top();
+    damage_home();
 }
 
 void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
@@ -582,6 +585,7 @@ void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
     for (int i = 0; i < ncores; i++) m_busy[i] = busy[i];
     m_cores = ncores; m_mem = mem_pct; m_health = health;
     damage_top();
+    damage_home();
 }
 
 void wm_set_fx(int level) { fx_level = level < 0 ? 0 : level > 3 ? 3 : level; }
@@ -984,6 +988,60 @@ static void draw_pill(surface_t* c, int ox, int oy, int fs, int show) {
 
 static void meter_color(unsigned pct, uint32_t* c) { *c = pct < 60 ? TH_GREEN : pct < 85 ? TH_AMBER : TH_RED; }
 
+/* Домашняя карточка использует только опубликованные значения; -1 означает «нет данных», а не 0%. */
+static void home_metric(surface_t* c, int x, int y, int w, int ox, int oy,
+                        const char* label, int value, uint32_t color) {
+    gfx_text(c, x + ox, y + oy, label, TH_TEXT_DIM, -1);
+    char t[16];
+    if (value < 0) {
+        gfx_text(c, x + w - 16 - gfx_text_width("нет данных") + ox, y + oy, "нет данных", TH_TEXT_FAINT, -1);
+    } else {
+        unsigned v = value > 100 ? 100u : (unsigned)value;
+        int n = 0;
+        if (v >= 100) { t[n++] = '1'; t[n++] = '0'; t[n++] = '0'; }
+        else if (v >= 10) { t[n++] = (char)('0' + v / 10); t[n++] = (char)('0' + v % 10); }
+        else t[n++] = (char)('0' + v);
+        t[n++] = '%'; t[n] = 0;
+        gfx_text(c, x + w - 16 - gfx_text_width(t) + ox, y + oy, t, color, -1);
+    }
+    ui_round_rect(c, x + ox, y + 17 + oy, w, 5, 3, TH_TRACK, 255);
+    if (value > 0) {
+        unsigned v = value > 100 ? 100u : (unsigned)value;
+        int fill = (int)((unsigned)w * v / 100u);
+        if (fill > 0) ui_round_rect(c, x + ox, y + 17 + oy, fill, 5, 3, color, 255);
+    }
+}
+
+static void damage_home(void) {
+    if (!scr || scr->w < 900 || scr->h < 620) return;
+    damage(scr->w - 318, scr->h - 176, scr->w - 18, scr->h - 18);
+}
+
+/* Живая карточка рабочего стола: агрегаты CPU, память и здоровье Mind. */
+static void draw_home(surface_t* c, int ox, int oy) {
+    if (scr->w < 900 || scr->h < 620) return;
+    const int w = 300, h = 158;
+    int x = scr->w - 318, y = scr->h - 176;
+    ui_round_rect(c, x + ox, y + oy, w, h, 14, TH_BAR0, 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, 14, TH_BORDER, 255);
+    ui_text_bold(c, x + 16 + ox, y + 11 + oy, "ОБЗОР СИСТЕМЫ", TH_TEXT);
+    if (clock_hm[0]) ui_text_bold(c, x + w - 16 - gfx_text_width(clock_hm) + ox, y + 11 + oy, clock_hm, TH_CYAN);
+
+    int cpu = -1;
+    if (m_cores > 0) {
+        unsigned sum = 0;
+        for (int i = 0; i < m_cores; i++) sum += m_busy[i] > 100 ? 100u : m_busy[i];
+        cpu = (int)(sum / (unsigned)m_cores);
+    }
+    uint32_t cc = TH_TEXT_FAINT, mc = TH_TEXT_FAINT, hc = TH_TEXT_FAINT;
+    if (cpu >= 0) meter_color((unsigned)cpu, &cc);
+    if (m_mem >= 0) meter_color((unsigned)m_mem, &mc);
+    if (m_health >= 0) meter_color((unsigned)m_health, &hc);
+    home_metric(c, x + 16, y + 39, w - 32, ox, oy, "ПРОЦЕССОР", cpu, cc);
+    home_metric(c, x + 16, y + 77, w - 32, ox, oy, "ПАМЯТЬ", m_mem, mc);
+    home_metric(c, x + 16, y + 115, w - 32, ox, oy, "ЗДОРОВЬЕ MIND", m_health, hc);
+}
+
 static void draw_topbar(surface_t* c, int ox, int oy) {
     int y = oy, W = scr->w;
     ui_vgrad(c, ox, y, W, WM_TOP_H, TH_BAR0, TH_BAR1);
@@ -1207,7 +1265,10 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         if (start < 0) {
             if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
             else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
-            if (fs < 0) brainfx_draw(&clip, ox, oy, anim_ms);
+            if (fs < 0) {
+                brainfx_draw(&clip, ox, oy, anim_ms);
+                draw_home(&clip, ox, oy);
+            }
             start = 0;
         }
         for (int k = start; k < ns; k++) {

@@ -83,7 +83,8 @@ void wm_invalidate(int id);
 void wm_invalidate_rows(int id, int y0, int y1);
 void wm_invalidate_all(void);
 void wm_set_culling(int on);
-/* Верхняя панель: дата («ПЯТНИЦА, 30 ОКТЯБРЯ 2026») и время; ядра (занятость, %), память (%), здоровье Разума. */
+/* Верхняя панель и домашняя карточка: дата/время, загрузка CPU, память и здоровье Mind.
+   Отсутствующие значения отображаются как «нет данных», не как фиктивный ноль. */
 void wm_set_clock(const char* date, const char* hm);
 void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health);
 /* Фон: уровень анимации 0..3 и шаг анимации (каждый цикл дисплея). */
