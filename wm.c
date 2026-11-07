@@ -51,6 +51,17 @@ static uint8_t m_busy[64];
 static int m_cores, m_mem = -1, m_health = -1;
 static int fx_level = 3;
 static uint32_t anim_ms;
+#define WM_NOTIFY_MAX 3
+#define WM_NOTIFY_TITLE 40
+#define WM_NOTIFY_TEXT 112
+typedef struct {
+    char title[WM_NOTIFY_TITLE];
+    char text[WM_NOTIFY_TEXT];
+    uint32_t expires_ms;
+    uint8_t level;
+} wm_notice_t;
+static wm_notice_t notices[WM_NOTIFY_MAX];
+static int notice_count;
 static int brain_cx, brain_cy;
 
 static void damage_home(void);
@@ -291,6 +302,42 @@ static void str_copy(char* d, const char* s, int cap) {
     }
 }
 
+static int notice_slots(void) {
+    int n = (scr->h - WM_TOP_H - 20 + 9) / 74;
+    if (n < 1) n = 1;
+    return n > WM_NOTIFY_MAX ? WM_NOTIFY_MAX : n;
+}
+
+static void notice_damage(void) {
+    if (!scr) return;
+    int bottom = WM_TOP_H + 10 + notice_slots() * 74;
+    if (bottom > scr->h) bottom = scr->h;
+    damage(0, WM_TOP_H, scr->w, bottom);
+}
+
+/* Вызывается из потока дисплея: фиксированная очередь не выделяет память и не блокирует другие потоки. */
+void wm_notify(const char* title, const char* message, unsigned level) {
+    if (!scr || !title || !message) return;
+    int slots = notice_slots();
+    if (notice_count >= slots) notice_count = slots - 1;
+    for (int i = notice_count; i > 0; i--) notices[i] = notices[i - 1];
+    wm_notice_t* n = &notices[0];
+    memset(n, 0, sizeof *n);
+    str_copy(n->title, title, sizeof n->title);
+    str_copy(n->text, message, sizeof n->text);
+    n->level = (uint8_t)(level > WM_NOTIFY_ERROR ? WM_NOTIFY_ERROR : level);
+    n->expires_ms = anim_ms + 5000;
+    if (notice_count < slots) notice_count++;
+    notice_damage();
+}
+
+void wm_notify_clear(void) {
+    if (!scr || !notice_count) return;
+    notice_count = 0;
+    memset(notices, 0, sizeof notices);
+    notice_damage();
+}
+
 void wm_init(surface_t* screen, const wm_ops_t* o) {
     scr = screen;
     ops = *o;
@@ -298,6 +345,7 @@ void wm_init(surface_t* screen, const wm_ops_t* o) {
     zcount = 0; dragging = -1; resizing = -1; capture = -1; prev_buttons = 0;
     side_n = 0; side_ts = TILE; side_gap = TILE_GAP; side_hover = -1; tab_n = 0; tab_hover = -1; light_hover = -1; last_tab = -2;
     last_fs = -1; last_pill = 0; cascade = 0; clock_date[0] = 0; clock_hm[0] = 0; m_cores = 0; m_mem = -1; m_health = -1;
+    memset(notices, 0, sizeof notices); notice_count = 0;
     cx = scr->w / 2; cy = scr->h / 2;
     dmg_valid = 0;
     bg_render();
@@ -592,8 +640,23 @@ void wm_set_fx(int level) { fx_level = level < 0 ? 0 : level > 3 ? 3 : level; }
 
 static void anim_damage(int x0, int y0, int x1, int y1) { damage(x0, y0, x1, y1); }
 
+static void notices_expire(uint32_t now_ms) {
+    int old = notice_count, out = 0;
+    for (int i = 0; i < notice_count; i++) {
+        if ((int32_t)(now_ms - notices[i].expires_ms) < 0) {
+            if (out != i) notices[out] = notices[i];
+            out++;
+        }
+    }
+    if (out == old) return;
+    for (int i = out; i < old; i++) memset(&notices[i], 0, sizeof notices[i]);
+    notice_count = out;
+    notice_damage();
+}
+
 void wm_anim(uint32_t now_ms, unsigned activity) {
     anim_ms = now_ms;
+    notices_expire(now_ms);
     if (fs_top() >= 0) return;                        /* во весь экран фон не виден */
     brainfx_anim(now_ms, fx_level, activity, anim_damage);
 }
@@ -1208,6 +1271,26 @@ static void draw_side(surface_t* c, int ox, int oy) {
     }
 }
 
+static void draw_notifications(surface_t* c, int ox, int oy) {
+    static const uint32_t accents[] = { TH_CYAN, TH_GREEN, TH_AMBER, TH_RED };
+    int width = scr->w - 32;
+    if (width > 360) width = 360;
+    if (width < 180) width = scr->w - 16;
+    if (width < 80) width = scr->w;
+    int x = scr->w - width - 12;
+    if (x < 4) x = 4;
+    for (int i = 0; i < notice_count; i++) {
+        int y = WM_TOP_H + 10 + i * 74, h = 64;
+        if (y + h > scr->h - 4) break;
+        uint32_t accent = accents[notices[i].level];
+        ui_round_rect(c, x + ox, y + oy, width, h, 10, TH_BAR0, 248);
+        ui_round_frame(c, x + ox, y + oy, width, h, 10, ui_mix(TH_BORDER, accent, 150), 255);
+        ui_round_rect(c, x + 7 + ox, y + 9 + oy, 3, h - 18, 2, accent, 255);
+        ui_text_fit(c, x + 18 + ox, y + 9 + oy, notices[i].title, width - 30, accent);
+        ui_text_fit(c, x + 18 + ox, y + 34 + oy, notices[i].text, width - 30, TH_TEXT_DIM);
+    }
+}
+
 static void draw_cursor(surface_t* c, int ox, int oy) {
     for (int j = 0; j < CUR_H; j++)
         for (int i = 0; i < CUR_W; i++) {
@@ -1287,6 +1370,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     if (fs < 0) {
         if (y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
         if (x0 < SIDE_AREA_W) draw_side(&clip, ox, oy);
+        if (notice_count) draw_notifications(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
     draw_cursor(&clip, ox, oy);
 }
