@@ -19,6 +19,8 @@ typedef struct __attribute__((packed)) {
     uint8_t signature[64];
 } kdrv_revocation_t;
 
+_Static_assert(sizeof(kdrv_revocation_t) == 628, "KDRV revocation ABI");
+
 /* Verifies a signed revocation statement and returns a modified in-memory trust snapshot.
  * Keep the signed journal as the persistent authority and replay it at boot. */
 int kdrv_revocation_apply(const kdrv_revocation_t *statement,
