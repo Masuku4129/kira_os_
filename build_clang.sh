@@ -68,6 +68,13 @@ $CC $UCFLAGS -nostdlibinc -Iuserland/kccrt -Iuserland -c userland/kcc.c -o userl
 $CC $UCFLAGS -nostdlibinc -Iuserland -c userland/kccrt.c -o userland/u_kccrt.o
 ld.lld $ULINK -o userland/kcc.elf userland/kcc.o $KCC_OBJ userland/u_kccrt.o userland/u_libc_min.o
 UELF="$UELF userland/kcc.elf"
+
+# Build an amalgamated KCC executable and keep its full source on the KFS disk
+# so the compiler can rebuild itself inside KIRA.
+bash tools/kcc-amalgamate.sh userland/kcc_selfhost.c
+$CC $UCFLAGS -nostdlibinc -Iuserland/kccrt -Iuserland -Ikcc -Ikcc/include -c userland/kcc_selfhost.c -o userland/kcc_selfhost.o
+ld.lld $ULINK -o userland/kcc-selfhost.elf userland/kcc_selfhost.o
+UELF="$UELF userland/kcc-selfhost.elf"
 # drvget: установка драйверов из исходников на устройстве (TLS-клиент + kcc встроены в программу; запись в /drv - FS_OP_DRV_*, только drvget)
 $CC $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -c userland/drvget.c -o userland/drvget.o
 $CC $UCFLAGS -I. -c userland/drvget_core.c -o userland/u_drvget_core.o
@@ -129,6 +136,14 @@ fi
 for h in kcc/include/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h     # заголовки libc-lite для kcc на Кире
 done
+for h in kcc/*.h; do
+    tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h
+done
+for h in userland/kccrt/*.h; do
+    tools/kfstool kira.disk put /etc/kcc/include/kccrt/$(basename $h) $h
+done
+tools/kfstool kira.disk put /data/kcc/kcc_selfhost.c userland/kcc_selfhost.c
+tools/kfstool kira.disk put /data/kcc-selfhost/kcc_selfhost.c userland/kcc_selfhost.c
 userland/wasm/build.sh                                   # модули WebAssembly - в /wasm (те же файлы, что у ARM64)
 for w in build-wasm/*.wasm; do tools/kfstool kira.disk put /wasm/$(basename $w) $w; done
 # Корневые сертификаты для HTTPS: системная связка хозяина (PEM) -> /etc/ssl/roots.der на диске Киры
@@ -256,6 +271,10 @@ case "$1" in
             for e in $UELF; do tools/kfstool "$OUT/kira_disk.img" put /bin/$(basename $e .elf) $e >/dev/null; done
             for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
             for h in kcc/include/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
+            for h in kcc/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
+            for h in userland/kccrt/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/kccrt/$(basename $h) $h >/dev/null; done
+            tools/kfstool "$OUT/kira_disk.img" put /data/kcc/kcc_selfhost.c userland/kcc_selfhost.c >/dev/null
+            tools/kfstool "$OUT/kira_disk.img" put /data/kcc-selfhost/kcc_selfhost.c userland/kcc_selfhost.c >/dev/null
             [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
             tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/drivers.index drivers/index.txt >/dev/null
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."
