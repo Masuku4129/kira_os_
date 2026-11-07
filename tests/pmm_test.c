@@ -83,7 +83,9 @@ int main(void){
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==0);
     uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 2 - 1;
     printf("free kb = %u, expected %llu (info_size=%u)\n",pmm_get_free_memory_kb(),(unsigned long long)expect_pages*4,info_size);
-    CHECK(pmm_get_free_memory_kb()==expect_pages*4);\n    CHECK(pmm_free_page(0x800000)==-1);\n    CHECK(pmm_free_page(0x801000)==-1);
+    CHECK(pmm_get_free_memory_kb()==expect_pages*4);
+    CHECK(pmm_free_page(0x800000)==-1);
+    CHECK(pmm_free_page(0x801000)==-1);
 
     // непрерывные блоки
     {
@@ -121,7 +123,8 @@ int main(void){
     CHECK(pmm_free_page(first)==0);
     CHECK(pmm_free_page(first)==-1);          // double free
     CHECK(pmm_free_page(0x200000)==-1);       // kernel image
-    CHECK(pmm_free_page(mbi_addr)==-1);       // mbi\n    CHECK(pmm_free_page(0x800000)==-1);     // boot module
+    CHECK(pmm_free_page(mbi_addr)==-1);       // mbi
+    CHECK(pmm_free_page(0x800000)==-1);     // boot module
     CHECK(pmm_free_page(0x1000)==-1);         // low memory
     CHECK(pmm_free_page(first+1)==-1);        // unaligned
     CHECK(pmm_free_page(1ULL<<30)==-1);       // out of range
