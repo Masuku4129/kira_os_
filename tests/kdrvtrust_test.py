@@ -32,7 +32,7 @@ class TrustManifestTests(unittest.TestCase):
     def test_generates_public_keys_and_revocation_flags(self):
         self.write([
             {"id": "owner-key-000001", "public_key": "11" * 32},
-            {"id": "old-key-0000001", "public_key": "22" * 32, "revoked": True},
+            {"id": "old-key-00000001", "public_key": "22" * 32, "revoked": True},
         ])
         result = self.run_tool()
         self.assertEqual(result.returncode, 0, result.stderr)
