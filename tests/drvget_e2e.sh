@@ -179,6 +179,14 @@ grep -q "подпись издателя Ed25519 подтверждена" "$T/o
 [ -s "$T/drv/rl.sig" ] || note "valid publisher signature was not installed beside package"
 run "verify rl"
 grep -q "Ed25519 подтверждена" "$T/out" || note "installed publisher signature did not verify: $(tail -c 400 "$T/out")"
+# The record marks this package as publisher-authenticated; deleting .sig must not downgrade it to local.
+cp "$T/drv/rl.sig" "$T/rl.sig.keep"
+rm -f "$T/drv/rl.sig"
+run "verify rl"
+grep -q "подпись издателя: ОТКЛОНЕНА" "$T/out" && grep -q "verify rl: ОШИБКА" "$T/out" || note "missing mandatory signature was accepted as local: $(tail -c 400 "$T/out")"
+cp "$T/rl.sig.keep" "$T/drv/rl.sig"
+run "verify rl"
+grep -q "verify rl: OK" "$T/out" || note "restored publisher signature did not verify: $(tail -c 300 "$T/out")"
 rm -f "$W/rl/drvget.sig"
 
 # A trusted catalogue entry can require publisher authentication: HTTP 404 must not downgrade to local trust.
