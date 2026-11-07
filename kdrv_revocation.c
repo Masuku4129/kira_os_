@@ -36,7 +36,10 @@ int kdrv_revocation_apply(const kdrv_revocation_t *s,
 
     const kdrv_sig_key_t *issuer = 0;
     for (uint32_t i = 0; i < count; i++) {
-        if (trusted[i].flags & ~KDRV_SIG_KEY_REVOKED) return KDRV_SIG_E_TRUST_STORE;
+        if (trusted[i].flags & ~KDRV_SIG_KEY_REVOKED ||
+            rv_zero(trusted[i].id, KDRV_SIG_KEY_ID_SIZE) ||
+            rv_zero(trusted[i].public_key, sizeof trusted[i].public_key))
+            return KDRV_SIG_E_TRUST_STORE;
         for (uint32_t j = 0; j < i; j++)
             if (rv_eq(trusted[i].id, trusted[j].id, KDRV_SIG_KEY_ID_SIZE))
                 return KDRV_SIG_E_TRUST_STORE;
