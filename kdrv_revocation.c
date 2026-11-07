@@ -56,17 +56,19 @@ int kdrv_revocation_apply(const kdrv_revocation_t *s,
                        offsetof(kdrv_revocation_t, signature), s->signature) != 0)
         return KDRV_SIG_E_SIGNATURE;
 
-    for (uint32_t i = 0; i < count; i++) out[i] = trusted[i];
+    kdrv_sig_key_t candidate[KDRV_SIG_MAX_KEYS];
+    for (uint32_t i = 0; i < count; i++) candidate[i] = trusted[i];
     for (uint32_t i = 0; i < s->revoked_count; i++) {
         uint32_t found = count;
         for (uint32_t j = 0; j < count; j++)
-            if (rv_eq(out[j].id, s->revoked_ids[i], KDRV_SIG_KEY_ID_SIZE)) {
+            if (rv_eq(candidate[j].id, s->revoked_ids[i], KDRV_SIG_KEY_ID_SIZE)) {
                 found = j;
                 break;
             }
         if (found == count) return KDRV_SIG_E_UNKNOWN_KEY;
-        out[found].flags |= KDRV_SIG_KEY_REVOKED;
+        candidate[found].flags |= KDRV_SIG_KEY_REVOKED;
     }
+    for (uint32_t i = 0; i < count; i++) out[i] = candidate[i];
     *out_count = count;
     *out_generation = s->generation;
     return KDRV_SIG_OK;
