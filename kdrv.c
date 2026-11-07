@@ -471,7 +471,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     if (!kdrv_dma_policy_allow(granted, iommu_isolated)) {
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
-        uart_print(": DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен\n");
+        uart_print(": DMA/MSI запрещены — нет подтверждённого DMA-домена или interrupt remapping; драйвер НЕ запущен\n");
         life_note("drv-denied-dma", name, KDRV_E_DMA_UNSAFE);
         return KDRV_E_DMA_UNSAFE;
     }
