@@ -47,7 +47,7 @@ int  virtio_begin(virtio_dev_t* v, uint64_t want);
 int  virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size);
 /* Release queue memory only after a successful device reset. */
 int  virtio_queue_release(virtq_t* q);
-int  virtio_reset_device(virtio_dev_t* v);               /* 0 only after status reaches zero */
+int  virtio_reset_device(virtio_dev_t* v);               /* masks MSI/MSI-X, disables PCI bus mastering, then waits for status zero */
 void virtio_driver_ok(virtio_dev_t* v);
 void virtio_fail(virtio_dev_t* v);                      /* FAILED + сброс: устройство больше не пишет в нашу память */
 /* Отправляет цепочку буферов (до 8) и ждёт завершения. 0 - готово, -1 - таймаут. */
