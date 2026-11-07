@@ -197,7 +197,7 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {
     uint8_t* z = (uint8_t*)o; for (uint32_t i = 0; i < sizeof(*o); i++) z[i] = 0;
     if (rsdp_phys == 0 || rsdp_phys > UINT64_MAX - sizeof(rsdp_t)) return -1;
-    const rsdp_t* r = (const rsdp_t*)reach(rsdp_phys, sizeof(rsdp_t), max_phys);
+    const rsdp_t* r = (const rsdp_t*)reach(rsdp_phys, 20, max_phys);
     if (!r) return -1;
     const char magic[8] = {'R','S','D',' ','P','T','R',' '};
     for (int i = 0; i < 8; i++) if (r->sig[i] != magic[i]) return -2;
@@ -205,7 +205,8 @@ int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {
     o->revision = r->rev;
     int use_x = 0;
     if (r->rev >= 2) {
-        if (r->len < sizeof(rsdp_t) || rsdp_phys > UINT64_MAX - r->len) return -4;
+        r = (const rsdp_t*)reach(rsdp_phys, sizeof(rsdp_t), max_phys);
+        if (!r || r->len < sizeof(rsdp_t) || rsdp_phys > UINT64_MAX - r->len) return -4;
         r = (const rsdp_t*)reach(rsdp_phys, r->len, max_phys);
         if (!r || !sum_ok(r, r->len)) return -4;
         use_x = r->xsdt != 0;
