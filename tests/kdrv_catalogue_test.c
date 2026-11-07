@@ -103,7 +103,7 @@ int main(void)
     struct test_context ctx;
     const struct kdrv_catalogue_entry *entry;
 
-    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1));
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
                              &ops, &catalogue) == KDRV_CATALOGUE_OK);
     CHECK(catalogue.version == 7 && catalogue.count == 1);
@@ -119,10 +119,10 @@ int main(void)
                              &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
 
     /* The canonical parser rejects missing final LF, embedded NUL and unknown policy. */
-    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 2);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 2));
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 2,
                              &ops, &catalogue) == KDRV_CATALOGUE_INVALID);
-    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1));
     memcpy(mutable_payload, valid, sizeof(valid));
     mutable_payload[4] = '\0';
     sha256(mutable_payload, sizeof(valid) - 1, record.payload_digest);
@@ -133,21 +133,21 @@ int main(void)
         static const char bad_policy[] =
             "KIRA-KDRV-CATALOGUE\t1\t7\n"
             "rtl8139\t1.0\tx86_64\thttps://example.invalid/rtl.kdrv\thttps://example.invalid/rtl.sig\tmaybe\t128\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
-        CHECK(make_trust(&store, &record, &ops, &ctx, bad_policy, sizeof(bad_policy) - 1);
+        CHECK(make_trust(&store, &record, &ops, &ctx, bad_policy, sizeof(bad_policy) - 1));
         CHECK(kdrv_catalogue_load(&store, &record, bad_policy, sizeof(bad_policy) - 1,
                                  &ops, &catalogue) == KDRV_CATALOGUE_INVALID);
     }
 
     /* A revoked publisher, expired metadata and stale catalogue are fail-closed. */
-    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1));
     CHECK(kdrv_trust_revoke_key(&store, record.key_id) == KDRV_TRUST_OK);
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
                              &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
-    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1));
     ctx.now = 901;
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
                              &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
-    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1));
     ctx.floor = 8;
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
                              &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
