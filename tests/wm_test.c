@@ -9,7 +9,9 @@
 static int notes, last_id, last_vis, launches, last_launch, tabs_hit, last_tab;
 static int in_n, in_id, in_type, in_x, in_y, in_b;
 static void inp(int id, int type, int x, int y, unsigned b) { in_n++; in_id = id; in_type = type; in_x = x; in_y = y; in_b = (int)b; }
-static void* al(uint64_t n) { return calloc(1, n); }
+static uint64_t released_bytes;
+static void* al(uint64_t n) { return calloc(1, (size_t)n); }
+static void rel(void* p, uint64_t n) { if (p) { released_bytes += n; free(p); } }
 static void nt(int id, int v) { notes++; last_id = id; last_vis = v; }
 static void lc(int i) { launches++; last_launch = i; }
 static void tb(int i) { tabs_hit++; last_tab = i; }
