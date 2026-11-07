@@ -48,7 +48,7 @@ typedef struct __attribute__((packed)) {
 
 _Static_assert(sizeof(kbi_mmap_entry_t)==24, "KBI mmap ABI");
 _Static_assert(sizeof(kbi_module_t)==32, "KBI module ABI");
-_Static_assert(sizeof(kbi_header_t)==112, "KBI header ABI");
+_Static_assert(sizeof(kbi_header_t)==136, "KBI header ABI");
 
 /* Returns 0 only for a structurally valid v1 handoff. Does not dereference
    physical addresses: only validates offsets and ranges inside blob. */
