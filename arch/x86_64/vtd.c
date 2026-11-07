@@ -159,18 +159,17 @@ static int vtd_select_unit(const pci_dev_t *device) {
     const acpi_info_t *acpi=acpi_get();
     if(!acpi||!device) return -1;
     int include_all=-1, scoped=-1;
+    /* Resolve ownership from the firmware DMAR table even when a unit failed
+       initialization. Never silently reroute its devices through another unit. */
     for(unsigned i=0;i<unit_count;i++) {
-        vtd_unit_t *u=&units[i];
-        if(!u->valid||u->segment!=0) continue;
-        if(u->root&&u->root_phys) {
-            for(unsigned s=0;s<acpi->dmar_scope_count;s++) {
-                const acpi_dmar_scope_t *scope=&acpi->dmar_scope[s];
-                if(scope->owner_type==0&&scope->owner_index==i&&
-                   (scope->type==1||scope->type==2)&&
-                   vtd_scope_matches(acpi,s,device)) {
-                    if(scoped>=0&&scoped!=(int)i) return -1;
-                    scoped=(int)i;
-                }
+        if(acpi->dmar_unit[i].segment!=0) continue;
+        for(unsigned s=0;s<acpi->dmar_scope_count;s++) {
+            const acpi_dmar_scope_t *scope=&acpi->dmar_scope[s];
+            if(scope->owner_type==0&&scope->owner_index==i&&
+               (scope->type==1||scope->type==2)&&
+               vtd_scope_matches(acpi,s,device)) {
+                if(scoped>=0&&scoped!=(int)i) return -1;
+                scoped=(int)i;
             }
         }
         if(acpi->dmar_unit[i].include_all) {
