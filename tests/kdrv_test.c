@@ -51,8 +51,8 @@ int main(void) {
     kdrv_rec_t r; memset(&r, 0, sizeof r);
     r.magic = KREC_MAGIC; r.format = KDRV_FORMAT; r.rec_size = sizeof r; r.confirmed = KREC_CONFIRMED; r.caps_ok = CAP_MMIO; strcpy(r.source, "x");
     kdrv_rec_t ro;
-    CHECK(kdrv_rec_check(&r, sizeof r, &ro) == KDRV_OK);
-    r.confirmed = KREC_CONFIRMED_PUBLISHER; CHECK(kdrv_rec_check(&r, sizeof r, &ro) == KDRV_OK && ro.confirmed == KREC_CONFIRMED_PUBLISHER);
+    CHECK(kdrv_rec_check(&r, sizeof r, &ro) == KDRV_OK && !kdrv_rec_publisher_required(&ro));
+    r.confirmed = KREC_CONFIRMED_PUBLISHER; CHECK(kdrv_rec_check(&r, sizeof r, &ro) == KDRV_OK && kdrv_rec_publisher_required(&ro));
     r.confirmed = 0; CHECK(kdrv_rec_check(&r, sizeof r, &ro) == KDRV_E_UNCONFIRMED); r.confirmed = KREC_CONFIRMED;
     r.caps_ok = CAP_GFX; CHECK(kdrv_rec_check(&r, sizeof r, &ro) == KDRV_E_CAPS); r.caps_ok = CAP_MMIO;
     memset(r.source, 'a', sizeof r.source); CHECK(kdrv_rec_check(&r, sizeof r, &ro) == KDRV_E_FORMAT); r.source[0] = 0;
