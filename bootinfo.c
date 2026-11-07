@@ -29,7 +29,7 @@ int kbi_validate(const void* blob, uint32_t available) {
         h->header_size != sizeof(*h) || h->total_size < sizeof(*h) ||
         h->total_size > KIRA_BOOTINFO_MAX_SIZE || h->total_size > available) return -2;
     if ((h->arch != KBI_ARCH_X86_64 && h->arch != KBI_ARCH_AARCH64) ||
-        (h->boot_mode < KBI_BOOT_BIOS || h->boot_mode > KBI_BOOT_DEVICE_TREE) ||
+        (h->boot_mode < KBI_BOOT_BIOS || h->boot_mode > KBI_BOOT_MULTIBOOT2) ||
         (h->boot_mode == KBI_BOOT_BIOS && h->arch != KBI_ARCH_X86_64) ||
         (h->boot_mode == KBI_BOOT_DEVICE_TREE && h->arch != KBI_ARCH_AARCH64)) return -3;
     if (h->reserved0 || h->reserved1 || h->fb_reserved ||
