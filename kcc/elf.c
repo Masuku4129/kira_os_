@@ -7,7 +7,7 @@
 
 #define BASE_X86 0x8000000000ULL
 #define BASE_A64 0x808000000000ULL
-#define PAGE 4096ULL
+#define KCC_ELF_PAGE 4096ULL
 
 static uint64_t alup(uint64_t v, uint64_t a) { return (v + a - 1) / a * a; }
 static void w16(unsigned char *p, uint16_t v) { p[0] = (unsigned char)v; p[1] = (unsigned char)(v >> 8); }
@@ -15,7 +15,7 @@ static void w32(unsigned char *p, uint32_t v) { for (int i = 0; i < 4; i++) p[i]
 static void w64(unsigned char *p, uint64_t v) { w32(p, (uint32_t)v); w32(p + 4, (uint32_t)(v >> 32)); }
 
 static void phdr(unsigned char *p, uint32_t flags, uint64_t off, uint64_t va, uint64_t fsz, uint64_t msz) {
-    w32(p, 1); w32(p + 4, flags); w64(p + 8, off); w64(p + 16, va); w64(p + 24, va); w64(p + 32, fsz); w64(p + 40, msz); w64(p + 48, PAGE);
+    w32(p, 1); w32(p + 4, flags); w64(p + 8, off); w64(p + 16, va); w64(p + 24, va); w64(p + 32, fsz); w64(p + 40, msz); w64(p + 48, KCC_ELF_PAGE);
 }
 
 uint64_t elf_base(int arch) { return arch == ELF_ARCH_A64 ? BASE_A64 : BASE_X86; }
@@ -34,7 +34,7 @@ void elf_emit(Obj *globals, const unsigned char *code, size_t codelen, int arch,
             if (kind != pass) continue;
             int al = g->align > g->ty->align ? g->align : g->ty->align;
             if (al < 1) al = 1;
-            if (al > (int)PAGE) kerr(src, g->line, "unsupported alignment %d of '%s'", al, g->name);
+            if (al > (int)KCC_ELF_PAGE) kerr(src, g->line, "unsupported alignment %d of '%s'", al, g->name);
             uint64_t *len = pass == 0 ? &rolen : pass == 1 ? &dlen : &blen;
             uint64_t sz = g->ty->size > 0 ? (uint64_t)g->ty->size : 0;
             if (sz > (1ULL << 30) || *len > (1ULL << 30)) kerr(src, g->line, "data of '%s' is too large", g->name);
@@ -44,10 +44,10 @@ void elf_emit(Obj *globals, const unsigned char *code, size_t codelen, int arch,
         }
     }
     uint64_t textlen = codelen;
-    uint64_t ro_va = alup(BASE + textlen, PAGE);
-    uint64_t data_va = alup(ro_va + rolen, PAGE);
+    uint64_t ro_va = alup(BASE + textlen, KCC_ELF_PAGE);
+    uint64_t data_va = alup(ro_va + rolen, KCC_ELF_PAGE);
     uint64_t data_msz = blen;
-    uint64_t text_foff = PAGE, ro_foff = text_foff + alup(textlen, PAGE), data_foff = ro_foff + alup(rolen, PAGE);
+    uint64_t text_foff = KCC_ELF_PAGE, ro_foff = text_foff + alup(textlen, KCC_ELF_PAGE), data_foff = ro_foff + alup(rolen, KCC_ELF_PAGE);
     uint64_t total = data_foff + dlen;
     if (total > (1ULL << 30)) kerr(src, 1, "output image is too large");
     unsigned char *img = ka_new((size_t)total + 1);
