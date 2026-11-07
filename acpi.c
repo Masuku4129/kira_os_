@@ -126,6 +126,20 @@ int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b) {
     return -1;
 }
 
+static void parse_aml_table(const sdt_t *t, acpi_info_t *o, int is_dsdt) {
+    if (!t || t->len < sizeof(sdt_t)) return;
+    const uint8_t *aml = (const uint8_t *)t + sizeof(sdt_t);
+    size_t length = t->len - sizeof(sdt_t);
+    if (is_dsdt && !o->s5_valid &&
+        acpi_find_s5(aml, (uint32_t)length, &o->slp_typa, &o->slp_typb) == 0)
+        o->s5_valid = 1;
+    if (o->prt_count >= ACPI_MAX_PRT) return;
+    size_t added = 0;
+    if (kira_acpi_prt_parse(aml, length, o->prt + o->prt_count,
+                            ACPI_MAX_PRT - o->prt_count, &added) == 0)
+        o->prt_count += (uint32_t)added;
+}
+
 static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     const uint8_t* f = (const uint8_t*)t;
     uint32_t len = t->len;
@@ -144,12 +158,7 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     if (!d || !sig_is(d->sig, "DSDT") || d->len < sizeof(sdt_t)) return;
     uint32_t dl = d->len;
     if (!(d = (const sdt_t*)reach(dsdt, dl, max_phys))) return;
-    if (acpi_find_s5((const uint8_t*)d + sizeof(sdt_t), dl - (uint32_t)sizeof(sdt_t), &o->slp_typa, &o->slp_typb) == 0) o->s5_valid = 1;
-    size_t prt_count = 0;
-    if (kira_acpi_prt_parse((const uint8_t*)d + sizeof(sdt_t),
-                            dl - (uint32_t)sizeof(sdt_t),
-                            o->prt, ACPI_MAX_PRT, &prt_count) == 0)
-        o->prt_count = (uint32_t)prt_count;
+    parse_aml_table(d, o, 1);
 }
 
 static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
@@ -162,6 +171,7 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
     if (sig_is(t->sig, "APIC")) parse_madt(t, o);
     else if (sig_is(t->sig, "HPET")) o->has_hpet = 1;
     else if (sig_is(t->sig, "FACP")) parse_fadt(t, max_phys, o);
+    else if (sig_is(t->sig, "SSDT")) parse_aml_table(t, o, 0);
     else if (sig_is(t->sig, "MCFG") && t->len >= 44 + 16) {
         const uint8_t* e = (const uint8_t*)t + 44;
         o->mcfg_base = rd64(e); o->mcfg_bus_start = e[10]; o->mcfg_bus_end = e[11];
