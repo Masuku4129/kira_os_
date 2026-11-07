@@ -126,7 +126,8 @@ jobs = [
     ("x86_64 QEMU matrix", "VM_RESULT"), ("ARM64 build and QEMU", "ARM64_RESULT"),
     ("Static dependency/source audit", "AUDIT_RESULT"),
     ("Mind quality (ASan/UBSan)", "MIND_RESULT"), ("GUI regression", "GUI_RESULT"),
-    ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"),\n    ("Binary ISO/KiraFS audit", "IMAGE_AUDIT_RESULT"),
+    ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"),
+    ("Binary ISO/KiraFS audit", "IMAGE_AUDIT_RESULT"),
 ]
 lines = ["# KIRA OS v46 — CI test report", "",
          "Commit: " + os.getenv("GITHUB_SHA", "unknown"),
