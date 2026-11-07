@@ -73,7 +73,7 @@ static int mb2_validate(uint64_t addr, uint64_t total) {
             if (entry_size < sizeof(struct mb2_mmap_entry) || payload % entry_size)
                 return 0;
         }
-        p += (size_t)padded;
+        p += padded;
         remaining -= padded;
     }
     return 0;
