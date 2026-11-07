@@ -43,18 +43,21 @@ jobs:
           python3 - <<'PY'
           import os, pathlib, subprocess
           event = os.environ["EVENT_NAME"]
-          if event != "pull_request":
+          head = os.environ["HEAD_SHA"]
+          if event == "workflow_dispatch":
               changed = []
               full = True
           else:
-              base = os.environ.get("PR_BASE_SHA", "")
-              head = os.environ["HEAD_SHA"]
-              if not base:
-                  raise SystemExit("pull_request base SHA is missing; refusing to skip checks")
-              changed = subprocess.check_output(
-                  ["git", "diff", "--name-only", base, head], text=True
-              ).splitlines()
-              full = not changed
+              base = (os.environ.get("PR_BASE_SHA", "") if event == "pull_request"
+                      else os.environ.get("PUSH_BASE_SHA", ""))
+              if not base or set(base) == {"0"}:
+                  changed = []
+                  full = True
+              else:
+                  changed = subprocess.check_output(
+                      ["git", "diff", "--name-only", base, head], text=True
+                  ).splitlines()
+                  full = not changed
           infra = full or any(
               p.startswith(".github/workflows/") or p.startswith("ci/")
               for p in changed
@@ -122,6 +125,16 @@ jobs:
           name: kira-audit
           path: ci-out/audit/
 
+  release-gate-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.audit == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run the release-gate checks once
+        run: python3 -m unittest ci.test_release_gate
+
   host-tests:
     needs: detect-changes
     if: needs.detect-changes.outputs.host == 'true'
@@ -150,8 +163,6 @@ jobs:
         run: python3 -m unittest ci.test_audit_image
       - name: production image policy regression tests
         run: python3 -m unittest ci.test_release_image
-      - name: architecture release gate regression tests
-        run: python3 -m unittest ci.test_release_gate
       - name: host tests (unique models and core regressions; dedicated suites run separately)
         env:
           KIRA_SKIP_GUI: "1"
@@ -442,7 +453,7 @@ jobs:
           path: ci-out/gui-regression.log
 
   report:
-    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, release-gate-tests, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
