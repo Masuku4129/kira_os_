@@ -317,9 +317,10 @@ int64_t pmm_add_high(uint64_t start, uint64_t end) {
     int64_t added = 0;
     for (uint64_t a = start; a < end; a += PMM_PAGE_SIZE) {
         uint64_t p = a / PMM_PAGE_SIZE;
-        if (!test_bit(used_map, p)) continue;                    // уже выдаётся
+        if (!test_bit(used_map, p) || test_bit(reserved_map, p)) continue;
+        /* A reserved boot module or device range remains unavailable even
+           when its containing firmware RAM range is explicitly mapped. */
         clear_bit(used_map, p);
-        clear_bit(reserved_map, p);
         total_pages++; free_pages++; added++;
     }
     spin_unlock_irqrestore(&pmm_lock, f);
