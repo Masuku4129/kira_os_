@@ -609,6 +609,14 @@ jobs:
           path: ci-out/release-image-audit
       - uses: actions/download-artifact@v4
         with:
+          name: kira-release-image
+          path: ci-out/release-image
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-arm64-image
+          path: ci-out/arm64-image
+      - uses: actions/download-artifact@v4
+        with:
           name: kira-mind-quality
           path: ci-out/results/mind-quality
       - uses: actions/download-artifact@v4
@@ -623,7 +631,7 @@ jobs:
         with:
           name: kira-driver-e2e
           path: ci-out/results/driver-e2e
-      - name: create installable source update
+      - name: create installable unified update
         env:
           HOST_RESULT: ${{ needs.host-tests.result }}
           BUILD_RESULT: ${{ needs.build.result }}
@@ -636,6 +644,8 @@ jobs:
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
           IMAGE_AUDIT_RESULT: ${{ needs.build.result }}
           IMAGE_AUDIT_DIR: ci-out/release-image-audit
+          RELEASE_IMAGE_DIR: ci-out/release-image
+          ARM64_IMAGE_DIR: ci-out/arm64-image
           KIRA_VERSION: v46
           KIRA_BASE_REF: edae4ab3367a055826f431e261af5d6dee790ddf
           CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
