@@ -72,7 +72,10 @@ Implemented in the v46 working branch:
 - The ARM64 non-coherent DMA pool now uses a page bitmap and exact allocation records instead of a monotonic bump pointer; released extents can be reused. A boot-time self-test checks page alignment, zeroing, exact release and reuse. If it fails, DMA remains disabled rather than falling back to cacheable PMM pages.
 - The platform DMA pool hook validates both CPU and device-visible page alignment and rejects address-range overflow.
 - A validated DMA synchronization API now checks allocation ownership and byte ranges, including interior subranges. Queue rings, block buffers, RNG buffers, GPU command/response/framebuffer buffers, network buffers and input event buffers explicitly transfer ownership with sync-for-device/sync-for-CPU calls. ARM64 uses system-scope barriers for the Normal-NC pool; x86 relies on coherent DMA plus memory barriers.
-- Host regressions cover DMA registry exhaustion/reuse, DMA sync range boundaries, repeated late virtio-blk probe failures, explicit shutdown before PCI model reset, and timeout cleanup/reprobe. CI run 686 exposed a segmentation fault in the virtio host test; the fixture and lifecycle were corrected in the subsequent validation snapshot, whose complete CI result is still pending.
+- Host regressions cover DMA registry exhaustion/reuse, DMA sync range boundaries, repeated late virtio-blk probe failures, explicit shutdown before PCI model reset, and timeout cleanup/reprobe.
+- virtio-rng, virtio-gpu, virtio-net and virtio-input now release partially allocated queues and DMA buffers on failed startup, but only after a confirmed device reset. Drivers retain ownership and refuse reprobe when reset cannot be confirmed.
+- virtio-blk now clears device state only after all queue and bounce-buffer allocations have been returned; an unconfirmed reset prevents reuse of that device slot.
+- CI run 718 verified x86-64 build, GUI, Mind, KCC and driver E2E; host tests failed at virtio-blk line 96 because the test reset the PCI model without shutting down the prior device, and ARM64 build failed because the new self-test needed a forward declaration for the pool free hook. Both causes have been addressed in the next validation snapshot; its complete CI result is pending.
 
 Still required:
 - Platform discovery and validation for x86 VT-d / AMD-Vi and ARM SMMU.
