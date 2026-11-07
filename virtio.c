@@ -48,6 +48,8 @@ static void barrier(void) { __sync_synchronize(); }
 
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) __attribute__((weak));
 void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes) __attribute__((weak));
+void platform_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes) __attribute__((weak));
+void platform_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes) __attribute__((weak));
 int platform_dma_noncoherent(void) __attribute__((weak));
 
 /* Track ownership explicitly: a CPU pointer may equal a bus address by chance,
@@ -165,6 +167,43 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
 #endif
     *phys = device_addr;
     return cpu;
+}
+
+static int dma_validate_range(void* cpu, uint64_t phys, uint32_t bytes) {
+    if (!cpu || !phys || !bytes) return 0;
+    int valid = 0;
+    dma_lock();
+    for (unsigned i = 0; i < DMA_ALLOCATION_SLOTS; i++) {
+        dma_allocation_t* a = &dma_allocations[i];
+        if (a->cpu == cpu && a->phys == phys &&
+            a->owner != DMA_OWNER_RELEASING && bytes <= a->bytes) {
+            valid = 1;
+            break;
+        }
+    }
+    dma_unlock();
+    return valid;
+}
+
+int virtio_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes) {
+    if (!dma_validate_range(cpu, phys, bytes)) return -1;
+#ifndef KIRA_HOST_TEST
+    if (platform_dma_sync_for_device)
+        platform_dma_sync_for_device(cpu, phys, bytes);
+#endif
+    barrier();
+    return 0;
+}
+
+int virtio_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes) {
+    if (!dma_validate_range(cpu, phys, bytes)) return -1;
+    barrier();
+#ifndef KIRA_HOST_TEST
+    if (platform_dma_sync_for_cpu)
+        platform_dma_sync_for_cpu(cpu, phys, bytes);
+#endif
+    barrier();
+    return 0;
 }
 
 /* Exact-size release prevents accidental freeing with a mismatched allocation
@@ -355,6 +394,11 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
     MMIO_W32(v->common + R_QDESC, (uint32_t)q->mem_phys);              MMIO_W32(v->common + R_QDESC + 4, (uint32_t)(q->mem_phys >> 32));
     MMIO_W32(v->common + R_QAVAIL, (uint32_t)(q->mem_phys + q->avail_off)); MMIO_W32(v->common + R_QAVAIL + 4, (uint32_t)((q->mem_phys + q->avail_off) >> 32));
     MMIO_W32(v->common + R_QUSED, (uint32_t)(q->mem_phys + q->used_off));   MMIO_W32(v->common + R_QUSED + 4, (uint32_t)((q->mem_phys + q->used_off) >> 32));
+    if (virtio_dma_sync_for_device(q->mem, q->mem_phys, q->mem_bytes) != 0) {
+        (void)virtio_dma_free(q->mem, q->mem_phys, q->mem_bytes);
+        *q = (virtq_t){0};
+        return -4;
+    }
     uint16_t noff = MMIO_R16(v->common + R_QNOFF);
     MMIO_W16(v->common + R_QEN, 1);
     q->notify_addr = v->notify + (uint64_t)noff * v->notify_mult;
@@ -390,8 +434,14 @@ void virtq_post(virtq_t* q, uint16_t id, uint64_t addr, uint32_t len, int device
     avail[1] = q->avail_idx;
     barrier();
 }
-void virtq_kick(virtq_t* q) { MMIO_W16(q->notify_addr, q->index); }
+void virtq_kick(virtq_t* q) {
+    if (!q || !q->mem) return;
+    (void)virtio_dma_sync_for_device(q->mem, q->mem_phys, q->mem_bytes);
+    MMIO_W16(q->notify_addr, q->index);
+}
 int virtq_take(virtq_t* q, uint16_t* id, uint32_t* len) {
+    if (!q || !q->mem || !id || !len) return 0;
+    if (virtio_dma_sync_for_cpu(q->mem, q->mem_phys, q->mem_bytes) != 0) return 0;
     volatile uint16_t* used = (volatile uint16_t*)(q->mem + q->used_off);
     barrier();
     if (used[1] == q->last_used) return 0;
@@ -417,11 +467,13 @@ int virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n) {
     barrier();
     q->avail_idx++;
     avail[1] = q->avail_idx;
+    if (virtio_dma_sync_for_device(q->mem, q->mem_phys, q->mem_bytes) != 0) return -3;
     barrier();
     IW_MARK();
     MMIO_W16(q->notify_addr, q->index);
     uint64_t start = WAIT_NOW(), t0 = WAIT_T0();
     for (uint32_t i = 0; ; i++) {
+        if (virtio_dma_sync_for_cpu(q->mem, q->mem_phys, q->mem_bytes) != 0) return -4;
         barrier();
         if (used[1] != q->last_used) { q->last_used++; barrier(); return 0; }
         if (IW_READY(t0)) {                                      /* прерывание очереди есть: спать до него */
