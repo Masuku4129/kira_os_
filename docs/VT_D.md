@@ -11,7 +11,9 @@ device driver. The backend consumes the checked DMAR inventory produced by
 - Firmware translation, queued-invalidation and interrupt-remapping modes are
   disabled with bounded status polling before KIRA replaces the root table.
 - A unit is accepted only when it exposes 48-bit second-level translation,
-  a 48-bit MGAW, a usable IOTLB register window and a supported register path.
+  a 48-bit MGAW, coherent page walks (ECAP.C), a usable IOTLB register
+  window and a supported register path. Leaf snoop bits are set only when
+  ECAP.SC advertises support.
 - The root/context tables and four-level second-level page tables are allocated
   from physical memory and mapped uncached for CPU access.
 - Trusted in-kernel devices receive identity mappings for managed RAM and
