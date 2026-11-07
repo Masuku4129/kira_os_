@@ -1,0 +1,264 @@
+
+==================================================
+[KIRA OS] Kernel core starting...
+==================================================
+[KIRA BOOT] BootInfo v1 validated: memory ranges=7, modules=0, bytes=305.
+[KIRA BOOT] Early console is on screen.
+[KIRA GDT] GDT loaded (Ring0/Ring3 segments), TSS loaded with 3 IST stacks (#DF, NMI, #MC).
+[KIRA IDT] Configuring 64-bit Interrupt Descriptor Table...
+[KIRA IDT] IDT loaded: 32 exceptions (#DF/NMI/#MC on IST) + 16 IRQs + LAPIC spurious, other vectors -> unhandled trap.
+[KIRA FPU] x87 + SSE/SSE2 enabled; per-thread FXSAVE state (512 B) saved on every context switch. AVX present but not enabled (needs XSAVE area).
+[KIRA PMM] Usable RAM per BootInfo map: 1023 MB; allocatable now (below 1 GB, minus kernel and bitmaps): 1018 MB; above 1 GB waiting to be mapped: 0 MB; bitmaps 64 KB.
+[KIRA VMM] Verifying paging state...
+[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.
+[KIRA VMM] NULL guard installed: first 2 MB split into 4 KB pages, page 0 unmapped.
+[KIRA VMM] SMEP enabled: kernel cannot execute user pages.
+[KIRA VMM] SMAP enabled: kernel touches user memory only through checked copies.
+[KIRA RAM] Mapped RAM above 1 GB: 0 MB (2 MB pages, no-execute); edges lost to alignment or failures: 0 KB.
+[KIRA ACPI] rev 0, tables ok 4 bad 0 unmapped 0, CPUs 2, IOAPICs 1, HPET yes, PCIe ECAM none
+[KIRA HW] CPU GenuineIntel family 6 model 106 stepping 6, virtual machine
+[KIRA HW] cores (ACPI): 2, RAM 1018 MB, address bits 46/57
+[KIRA HW] features: sse2 nx page1g xsave(2688B) avx avx2 avx512f pcid invpcid smep smap fsgsbase rdrand rdseed x2apic tsc-deadline
+[KIRA HW] TSC not measured yet
+[KIRA HW] limits for this machine: program heap up to 509 MB per program, kernel keeps 63 MB free
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 815697 bytes, prefix 7d87790a...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+[KIRA PROC] up to 8 programs at once (2 cores, 1018 MB RAM).
+[KIRA SYSCALL] SYSCALL/SYSRET enabled: write, exit, ticks, sleep, yield, getpid, gfx, fs (sandbox /data/<name>), heap (quota), threads, futex, ports, shared memory, clock; user pointers validated.
+[KIRA PCI] 7 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 8 MB (PCI 0:3.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA ATA] No disk on the primary IDE channel (floating bus): persistence disabled.
+[KIRA DISK] vda: virtio-blk, 8 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 6252 KB free.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA FB] Bootloader mode: 1024x768x32 type 1 addr 0xFD000000
+[KIRA FB] 1024x768x32 linear framebuffer at 0xFD000000, write-combining (PAT); back buffer 3072 KB in RAM.
+[KIRA PAR] parallel helpers: 1 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA KEYBOARD] PS/2 IRQ1 handler registered (decoded by the input layer).
+[KIRA MOUSE] PS/2 mouse enabled (IRQ12, 3-byte packets).
+[KIRA NET] virtio-net: MAC 52:54:00:12:34:56, receive wakes the network thread by MSI-X
+[KIRA NET] Network stack online: Ethernet, ARP, IPv4 (fragments), ICMP, UDP, DHCP client, DNS, TCP, IPv6 (ND, SLAAC, ICMPv6, UDP, TCP) (commands: net, ping, ping6, dns, http).
+[KIRA TIMER] PIT started, frequency 500 Hz, IRQ0 unmasked.
+[KIRA APIC] xAPIC mode: registers in the kernel MMIO window, base 0xFEE00000, id 0, version 0x14
+[KIRA OS] Core initialization complete. Enabling interrupts.
+[KIRA RTC] Real-time clock (CMOS, read as UTC): СУББОТА, 7 НОЯБРЯ 2026 13:26
+[KIRA CPU] TSC 2793963 kHz, measured by PIT channel 2, 3x50 ms median.
+[KIRA APIC] Timer calibrated against TSC: 62512 kcounts/s (bus clock ~1000 MHz).
+[KIRA IOAPIC] id 0 at 0xFEC00000, version 0x11, 24 pins, GSI base 0
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA IRQ] IOAPIC delivery verified end-to-end: RTC -> IOAPIC -> LAPIC, 50 interrupts in 50 ms.
+[KIRA IRQ] LAPIC timer verified: 100 ticks in 200 ms (expected 100).
+[KIRA IRQ] APIC mode: LAPIC timer 500 Hz is the tick source, 2 device lines routed through IOAPIC, legacy PIC and PIT disabled.
+[KIRA SMP] Processors online: 2 of 2 (MADT).
+[KIRA SMP] IPI ping answered by 1 of 1 started processors. Each core runs its own scheduler tick and its own ready queue; idle cores take waiting work from busy ones.
+[KIRA SMP] TSC skew between cores: max 50 ns (measurement precision +-14 ns): clocks agree.
+[KIRA OS] Ready. Type 'help' and press Enter.
+
+кира> [KIRA NET] DHCP: address 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, lease 86400 s
+[KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA NET] IPv6: fe80::5054:ff:fe12:3456 (link-local, DAD passed) ready
+[KIRA NET] IPv6: router advertisement from fe80::2, default router
+[KIRA NET] IPv6: fec0::5054:ff:fe12:3456 (SLAAC /64, DAD passed) ready
+drvget base https://10.0.2.100
+[KIRA PROC] pid 1 'drvget' started from ELF: Ring 3, own address space, 370 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] drvget: каталог рецептов теперь https://10.0.2.100 (рецепт ИМЯ ищется как https://10.0.2.100/ИМЯ/drvget.rec)
+[KIRA PROC] pid 1 'drvget' finished, exit code 0, address space destroyed (387 pages returned to PMM).
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: пробую 2000 мс вместо 1000 (причина: темп фона снижался; о�
+drvget install gpl
+[KIRA PROC] pid 2 'drvget' started from ELF: Ring 3, own address space, 370 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 2] drvget: каталог рецептов: https://10.0.2.100 (пользовательский; не закреплён системным каталогом)
+[USER pid 2] drvget: скачиваю рецепт https://10.0.2.100/gpl/drvget.rec
+[USER pid 2] drvget: предупреждение: рецепт не закреплён системным каталогом; издатель не аутентифицир
+[USER pid 2] ован, требуется ручная проверка и подтверждение
+[USER pid 2] drvget: скачиваю https://10.0.2.100/gpl/rl.c
+[USER pid 2] drvget: скачиваю https://10.0.2.100/gpl/if_rlreg.h
+[USER pid 2] drvget: отказ: if_rlreg.h: в тексте есть GPL: код под GPL в образ не берётся (решение проекта) - отверг
+[USER pid 2] нут
+[KIRA PROC] pid 2 'drvget' finished, exit code 0, address space destroyed (387 pages returned to PMM).
+drvget install bin
+[KIRA PROC] pid 3 'drvget' started from ELF: Ring 3, own address space, 370 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 3] drvget: каталог рецептов: https://10.0.2.100 (пользовательский; не закреплён системным каталогом)
+[USER pid 3] drvget: скачиваю рецепт https://10.0.2.100/bin/drvget.rec
+[USER pid 3] drvget: предупреждение: рецепт не закреплён системным каталогом; издатель не аутентифицир
+[USER pid 3] ован, требуется ручная проверка и подтверждение
+[USER pid 3] drvget: скачиваю https://10.0.2.100/bin/rl.c
+[USER pid 3] drvget: скачиваю https://10.0.2.100/bin/if_rlreg.h
+[USER pid 3] drvget: отказ: SHA-256 файла if_rlreg.h не совпал с рецептом (подмена или повреждение)
+[KIRA PROC] pid 3 'drvget' finished, exit code 0, address space destroyed (387 pages returned to PMM).
+drvget install nolic
+[KIRA PROC] pid 4 'drvget' started from ELF: Ring 3, own address space, 370 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 4] drvget: каталог рецептов: https://10.0.2.100 (пользовательский; не закреплён системным каталогом)
+[USER pid 4] drvget: скачиваю рецепт https://10.0.2.100/nolic/drvget.rec
+[USER pid 4] drvget: предупреждение: рецепт не закреплён системным каталогом; издатель не аутентифицир
+[USER pid 4] ован, требуется ручная проверка и подтверждение
+[USER pid 4] drvget: скачиваю https://10.0.2.100/nolic/rl.c
+[USER pid 4] drvget: скачиваю https://10.0.2.100/nolic/if_rlreg.h
+[USER pid 4] drvget: отказ: if_rlreg.h: лицензия файла не найдена (нужны строка SPDX-License-Identifier из списка или тек
+[USER pid 4] ст BSD/MIT/ISC) - не берём
+[KIRA PROC] pid 4 'drvget' finished, exit code 0, address space destroyed (387 pages returned to PMM).
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: откат на 1000 мс - оценка 0 не лучше 0
+drvget install http://10.0.2.100/rl/drvget.rec
+[KIRA PROC] pid 5 'drvget' started from ELF: Ring 3, own address space, 370 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 5] drvget: отказ: разрешён только https:// (без шифрования и проверки сервера исходники не берутс�
+[USER pid 5] �)
+[KIRA PROC] pid 5 'drvget' finished, exit code 0, address space destroyed (387 pages returned to PMM).
+drv
+пакеты в /drv: 4
+  abad: ОТКЛОНЁН (SHA-256 не совпал с записью .rec)
+  eduun: ОТКЛОНЁН (установка не подтверждена пользователем)
+  edu: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  edunc: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  драйверам Ring 3 устройства пока не отданы
+кира> drvget install rl
+[KIRA PROC] pid 6 'drvget' started from ELF: Ring 3, own address space, 370 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 6] drvget: каталог рецептов: https://10.0.2.100 (пользовательский; не закреплён системным каталогом)
+[USER pid 6] drvget: скачиваю рецепт https://10.0.2.100/rl/drvget.rec
+[USER pid 6] drvget: предупреждение: рецепт не закреплён системным каталогом; издатель не аутентифицир
+[USER pid 6] ован, требуется ручная проверка и подтверждение
+[USER pid 6] drvget: скачиваю https://10.0.2.100/rl/rl.c
+[USER pid 6] drvget: скачиваю https://10.0.2.100/rl/if_rlreg.h
+[USER pid 6] 
+[USER pid 6] === драйвер 'rl' версия 1 ===
+[USER pid 6] источник:   https://10.0.2.100/rl/drvget.rec
+[USER pid 6] лицензия:   заявлена BSD-3-Clause; проверено по тексту каждого файла (SPDX/текст), GPL и бинарных ф�
+[USER pid 6] �йлов нет:
+[USER pid 6]   rl.c                      14059 байт  BSD-3-Clause  sha256 5b5f4bcbed4f22df2d8f6dd31c1ff87467e83b5bcc18a0ba8be91717ff7f89d2
+[USER pid 6]   if_rlreg.h                 6151 байт  BSD-3-Clause  sha256 059dbe9f1f829d07bebfbea8b60d9de6834f5bca15b000b27076464600b99035
+[USER pid 6] SHA-256 набора исходников (рецепт + файлы): b66321a982e8f935b8c13ca27f2a5bf4933df7d97b9e2a52e96a83ef8591b714
+[USER pid 6] устройства PCI: 10ec:8139
+[USER pid 6] запрашиваемые права:
+[USER pid 6]   CAP_MMIO - отображать регистры (BAR) СВОЕГО устройства
+[USER pid 6]   CAP_DMA - получать непрерывную память для обмена устройства с ОЗУ
+[USER pid 6]   CAP_PCIDEV - читать и (частично) писать конфигурацию PCI СВОЕГО устройства
+[USER pid 6]   CAP_NETDEV - отдать ядру сетевую карту (кольца кадров)
+[USER pid 6] ограничения: права действуют только на устройство драйвера. Сейчас ядро не настраивает
+[USER pid 6]  IOMMU-домены,
+[USER pid 6] поэтому драйверы с CAP_DMA или CAP_IRQ будут отклонены и не смогут включить bus mastering/MSI.
+[USER pid 6] 
+[USER pid 6] Установка НЕ выполнена. Прочитайте источник и права выше. Чтобы собрать и установить ро
+[USER pid 6] вно этот набор, введите:
+[USER pid 6]   drvget confirm rl b66321a9
+[KIRA PROC] pid 6 'drvget' finished, exit code 0, address space destroyed (387 pages returned to PMM).
+drvget confirm rl 00000000
+[KIRA PROC] pid 7 'drvget' started from ELF: Ring 3, own address space, 370 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 7] drvget: введённый хеш не совпал с SHA-256 подготовленного набора - установка отменена (повтори
+[USER pid 7] те install и сверьте хеш)
+[KIRA PROC] pid 7 'drvget' finished, exit code 0, address space destroyed (387 pages returned to PMM).
+drvget confirm rl b66321a9
+[KIRA PROC] pid 8 'drvget' started from ELF: Ring 3, own address space, 370 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 8] drvget: собираю rl.c встроенным kcc (x86_64)...
+[USER pid 8] drvget: собрано, образ ELF 36864 байт
+[KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[USER pid 8] drvget: установлено: /drv/rl.kdrv и /drv/rl.rec; драйвер подойдёт устройствам из списка выше, ядро про�
+[USER pid 8] �матривает /drv сразу (журнал: [KIRA DRV])
+[KIRA PROC] pid 8 'drvget' finished, exit code 0, address space destroyed (1411 pages returned to PMM).
+drvget list
+[KIRA PROC] pid 9 'drvget' started from ELF: Ring 3, own address space, 370 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 9]   abad: версия 1, права: MMIO PCIDEV, SHA-256 НЕ СОВПАДАЕТ, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 9]   eduun: версия 1, права: MMIO PCIDEV, SHA-256 НЕ СОВПАДАЕТ, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 9]   edu: версия 1, права: MMIO PCIDEV, SHA-256 сверен, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 9]   edunc: версия 1, права: MMIO PCIDEV, SHA-256 сверен, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 9]   rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, источник: https://10.0.2.100/rl/drvget.rec
+[USER pid 9] drvget: пакетов в /drv: 5 (работающие драйверы: команда drv)
+[KIRA PROC] pid 9 'drvget' finished, exit code 0, address space destroyed (387 pages returned to PMM).
+[KIRA MIND] рычаг 23 «интервал сужения темпа фона»: пробую 400 мс вместо 200 (причина: темп фона снижался; оценка
+drvget verify rl
+[KIRA PROC] pid 10 'drvget' started from ELF: Ring 3, own address space, 370 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 10] drvget: rl: SHA-256 образа 10ef6cb21a412ec6351c935fc5fa3a7a9a075b4dd1fa1e5772456529849a2415, пакета d2662faf425ffc69e9482444bca0d8a6f6e50230d6064a65
+[USER pid 10] 387cc3e993a06c0a, исходников b66321a982e8f935b8c13ca27f2a5bf4933df7d97b9e2a52e96a83ef8591b714
+[USER pid 10] drvget: verify rl: OK (хеши сходятся с записью, пользователь подтверждал установку)
+[KIRA PROC] pid 10 'drvget' finished, exit code 0, address space destroyed (387 pages returned to PMM).
+poweroff
+сохраняю опыт и данные дисков...
+[KIRA ACPI] powering off (S5)
+
+==================================================
+[KIRA OS] Kernel core starting...
+==================================================
+[KIRA BOOT] BootInfo v1 validated: memory ranges=7, modules=0, bytes=305.
+[KIRA BOOT] Early console is on screen.
+[KIRA GDT] GDT loaded (Ring0/Ring3 segments), TSS loaded with 3 IST stacks (#DF, NMI, #MC).
+[KIRA IDT] Configuring 64-bit Interrupt Descriptor Table...
+[KIRA IDT] IDT loaded: 32 exceptions (#DF/NMI/#MC on IST) + 16 IRQs + LAPIC spurious, other vectors -> unhandled trap.
+[KIRA FPU] x87 + SSE/SSE2 enabled; per-thread FXSAVE state (512 B) saved on every context switch. AVX present but not enabled (needs XSAVE area).
+[KIRA PMM] Usable RAM per BootInfo map: 1023 MB; allocatable now (below 1 GB, minus kernel and bitmaps): 1018 MB; above 1 GB waiting to be mapped: 0 MB; bitmaps 64 KB.
+[KIRA VMM] Verifying paging state...
+[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.
+[KIRA VMM] NULL guard installed: first 2 MB split into 4 KB pages, page 0 unmapped.
+[KIRA VMM] SMEP enabled: kernel cannot execute user pages.
+[KIRA VMM] SMAP enabled: kernel touches user memory only through checked copies.
+[KIRA RAM] Mapped RAM above 1 GB: 0 MB (2 MB pages, no-execute); edges lost to alignment or failures: 0 KB.
+[KIRA ACPI] rev 0, tables ok 4 bad 0 unmapped 0, CPUs 2, IOAPICs 1, HPET yes, PCIe ECAM none
+[KIRA HW] CPU GenuineIntel family 6 model 106 stepping 6, virtual machine
+[KIRA HW] cores (ACPI): 2, RAM 1018 MB, address bits 46/57
+[KIRA HW] features: sse2 nx page1g xsave(2688B) avx avx2 avx512f pcid invpcid smep smap fsgsbase rdrand rdseed x2apic tsc-deadline
+[KIRA HW] TSC not measured yet
+[KIRA HW] limits for this machine: program heap up to 509 MB per program, kernel keeps 63 MB free
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 815697 bytes, prefix 7d87790a...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+[KIRA PROC] up to 8 programs at once (2 cores, 1018 MB RAM).
+[KIRA SYSCALL] SYSCALL/SYSRET enabled: write, exit, ticks, sleep, yield, getpid, gfx, fs (sandbox /data/<name>), heap (quota), threads, futex, ports, shared memory, clock; user pointers validated.
+[KIRA PCI] 7 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 8 MB (PCI 0:3.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA ATA] No disk on the primary IDE channel (floating bus): persistence disabled.
+[KIRA DISK] vda: virtio-blk, 8 MB - system disk
+[KIRA EXPERIENCE] Restored from disk (generation 3): previous boots 1, lived 30 s in total, last session 30 s, quarantine entries 0.
+[KIRA FS] KiraFS mounted: 6180 KB free.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA FB] Bootloader mode: 1024x768x32 type 1 addr 0xFD000000
+[KIRA FB] 1024x768x32 linear framebuffer at 0xFD000000, write-combining (PAT); back buffer 3072 KB in RAM.
+[KIRA PAR] parallel helpers: 1 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA KEYBOARD] PS/2 IRQ1 handler registered (decoded by the input layer).
+[KIRA MOUSE] PS/2 mouse enabled (IRQ12, 3-byte packets).
+[KIRA NET] No supported network card: networking is off.
+[KIRA TIMER] PIT started, frequency 500 Hz, IRQ0 unmasked.
+[KIRA APIC] xAPIC mode: registers in the kernel MMIO window, base 0xFEE00000, id 0, version 0x14
+[KIRA OS] Core initialization complete. Enabling interrupts.
+[KIRA RTC] Real-time clock (CMOS, read as UTC): СУББОТА, 7 НОЯБРЯ 2026 13:26
+[KIRA CPU] TSC 2793993 kHz, measured by PIT channel 2, 3x50 ms median.
+[KIRA APIC] Timer calibrated against TSC: 62514 kcounts/s (bus clock ~1000 MHz).
+[KIRA IOAPIC] id 0 at 0xFEC00000, version 0x11, 24 pins, GSI base 0
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA IRQ] IOAPIC delivery verified end-to-end: RTC -> IOAPIC -> LAPIC, 51 interrupts in 50 ms.
+[KIRA IRQ] LAPIC timer verified: 99 ticks in 200 ms (expected 100).
+[KIRA IRQ] APIC mode: LAPIC timer 500 Hz is the tick source, 2 device lines routed through IOAPIC, legacy PIC and PIT disabled.
+[KIRA SMP] Processors online: 2 of 2 (MADT).
+[KIRA SMP] IPI ping answered by 1 of 1 started processors. Each core runs its own scheduler tick and its own ready queue; idle cores take waiting work from busy ones.
+[KIRA SMP] TSC skew between cores: max 87 ns (measurement precision +-58 ns): clocks agree.
+[KIRA OS] Ready. Type 'help' and press Enter.
+
+кира> [KIRA DRV] rl: DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен
+[KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+drv
+пакеты в /drv: 5
+  abad: ОТКЛОНЁН (SHA-256 не совпал с записью .rec)
+  eduun: ОТКЛОНЁН (установка не подтверждена пользователем)
+  edu: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  edunc: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  rl: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: https://10.0.2.100/rl/drvget.rec
+  драйверам Ring 3 устройства пока не отданы
+кира> status
+
+[STATUS] uptime ticks: 4744, precise clock ms: 9485
+[STATUS] PMM free: 1008 MB of 1018 MB
+[STATUS] kernel heap: 8 blocks, 136 KB in use; pages: 3 small-block, 34 large-block
+[STATUS] mind: health 100 (просыпается), mode act, quantum 40 ms, decisions 2
+[STATUS] immune: kernel integrity OK, antibodies 3, quarantine 0
+[STATUS] LAPIC: enabled, id 0, timer 62514 kcounts/s (div 16); interrupts: IOAPIC
+
+кира> 
