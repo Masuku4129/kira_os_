@@ -3,7 +3,9 @@ set -euo pipefail
 OUT_DIR="${2:-${1:-ci-out/package}}"
 RESULTS_DIR="${RESULTS_DIR:-ci-out/results}"
 AUDIT_DIR="${AUDIT_DIR:-ci-out/audit}"
-KIRA_VERSION="${KIRA_VERSION:-v45}"
+IMAGE_AUDIT_DIR="${IMAGE_AUDIT_DIR:-ci-out/image-audit}"
+IMAGE_AUDIT="${IMAGE_AUDIT_DIR}/image-audit.json"
+KIRA_VERSION="${KIRA_VERSION:-v46}"
 BASE_REF="${KIRA_BASE_REF:-edae4ab3367a055826f431e261af5d6dee790ddf}"
 mkdir -p "$OUT_DIR"
 STAGE="$(mktemp -d)"
@@ -21,7 +23,7 @@ fi
 HEAD_SHA="$(git rev-parse HEAD)"
 RUN_URL="${CI_RUN_URL:-https://github.com/${GITHUB_REPOSITORY:-Masuku4129/kira_os_}/actions/runs/${GITHUB_RUN_ID:-unknown}}"
 
-for key in HOST_RESULT BUILD_RESULT VM_RESULT ARM64_RESULT AUDIT_RESULT MIND_RESULT GUI_RESULT KCC_RESULT DRIVER_RESULT; do
+for key in HOST_RESULT BUILD_RESULT VM_RESULT ARM64_RESULT AUDIT_RESULT MIND_RESULT GUI_RESULT KCC_RESULT DRIVER_RESULT IMAGE_AUDIT_RESULT; do
   value="${!key:-}"
   if [ "$value" != "success" ]; then
     echo "ERROR: required CI job $key is not successful (value: ${value:-missing})" >&2
@@ -38,6 +40,24 @@ find_required_log() {
   fi
   printf '%s\n' "$found"
 }
+if [ ! -s "$IMAGE_AUDIT" ]; then
+  echo "ERROR: required binary ISO/KiraFS audit report is missing: $IMAGE_AUDIT" >&2
+  exit 1
+fi
+python3 - "$IMAGE_AUDIT" <<'PY_AUDIT'
+import json, pathlib, sys
+report = json.loads(pathlib.Path(sys.argv[1]).read_text())
+required = ("iso_files", "kfs_files", "runtime_library_candidates", "dynamic_dependency_count")
+missing = [key for key in required if key not in report]
+if missing:
+    raise SystemExit("image audit report missing fields: " + ", ".join(missing))
+if not report["iso_files"] or not report["kfs_files"]:
+    raise SystemExit("image audit report has empty ISO or KiraFS inventory")
+if report["runtime_library_candidates"] != 0 or report["dynamic_dependency_count"] != 0:
+    raise SystemExit("image audit detected runtime library or ELF dynamic dependency candidates")
+print("package: binary image audit evidence verified")
+PY_AUDIT
+
 HOST_LOG="$(find_required_log host-tests.log)"
 MIND_LOG="$(find_required_log mind-quality.log)"
 GUI_LOG="$(find_required_log gui-regression.log)"
@@ -68,7 +88,7 @@ mkdir -p "$R"
 } > "$R/CHANGELOG.md"
 
 cat > "$R/INSTALL_TERMUX.md" <<'EOF_INSTALL'
-# Установка KIRA OS v45 на Android (Termux/Debian)
+# Установка KIRA OS v46 на Android (Termux/Debian)
 
 Архив содержит полный каталог исходников `kira_os/`; это архив исходников, а не готовый ISO.
 
@@ -93,7 +113,7 @@ sha256sum -c RELEASE/SHA256SUMS
 for f in build_clang.sh build_arm64.sh grub.cfg arch/x86_64/linker.ld arch/aarch64/linker.ld drivers/index.txt ci/dependency_audit.py docs/DEPENDENCIES.md docs/DRIVERS.md docs/KCC.md docs/V44_UPGRADE_PLAN.md docs/V44_SECURITY_MODEL.md; do
   test -f "$f" || { echo "missing required file: $f" >&2; exit 1; }
 done
-echo "KIRA OS v45 source archive: verified"
+echo "KIRA OS v46 source archive: verified"
 EOF_VERIFY
 chmod +x "$R/VERIFY.sh"
 
@@ -106,7 +126,7 @@ jobs = [
     ("x86_64 QEMU matrix", "VM_RESULT"), ("ARM64 build and QEMU", "ARM64_RESULT"),
     ("Static dependency/source audit", "AUDIT_RESULT"),
     ("Mind quality (ASan/UBSan)", "MIND_RESULT"), ("GUI regression", "GUI_RESULT"),
-    ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"),
+    ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"),\n    ("Binary ISO/KiraFS audit", "IMAGE_AUDIT_RESULT"),
 ]
 lines = ["# KIRA OS v45 — CI test report", "",
          "Commit: " + os.getenv("GITHUB_SHA", "unknown"),
@@ -145,6 +165,7 @@ lines += ["", "Result JSON files: " + str(len(results)) + "; ARM64 result files:
 dest.write_text("\n".join(lines))
 PY
 
+cp "$IMAGE_AUDIT" "$R/IMAGE_AUDIT.json"
 for f in AUDIT.md inventory.json DEPENDENCIES.md dependency_inventory.json; do
   if [ -f "$AUDIT_DIR/$f" ]; then cp "$AUDIT_DIR/$f" "$R/$f"; fi
 done
