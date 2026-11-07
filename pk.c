@@ -375,6 +375,8 @@ static void ept_encode(uint8_t out[32], const ept_t* p) {
 }
 
 int ed25519_verify(const uint8_t pub[32], const uint8_t* msg, size_t mlen, const uint8_t sig[64]) {
+    /* All three buffers are mandatory, including for an empty message. */
+    if (!pub || !msg || !sig) return -1;
     fe_t S, L, k, zero;
     ept_t A, B, sB, kA, R;
     if (ed_init()) return -1;
