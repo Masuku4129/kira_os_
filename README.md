@@ -8,3 +8,6 @@ KiraFS и FAT, USB (UHCI/xHCI, хабы, флешки), диски virtio/ATA/AH
 - Тесты на хосте: `bash tests/run_host_tests.sh` (модели устройств, файловые системы, планировщик, Разум).
 - Стенд: `python3 ci/kira_vm.py --all` - QEMU (KVM, если есть), сценарии из `ci/scenarios.py`; на каждый push - GitHub Actions.
 - Устройство системы - `ARCHITECTURE.md`, запуск на телефоне в Limbo - `LIMBO.md`.
+
+
+- Автоматический сборочный цех и email-уведомления: [docs/BUILD_FACTORY.md](docs/BUILD_FACTORY.md).

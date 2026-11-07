@@ -9,7 +9,7 @@ permissions:
 
 on:
   push:
-    branches: [main, stable, v45/overhaul, 'v46/**']
+    branches: [main, stable, v45/overhaul, 'v46/**', 'work/**', 'factory/**']
     paths-ignore: ['docs/**', '**.md']
   pull_request:
     paths-ignore: ['docs/**', '**.md']
@@ -39,12 +39,14 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BASE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           python3 - <<'PY'
           import os, pathlib, subprocess
           event = os.environ["EVENT_NAME"]
           head = os.environ["HEAD_SHA"]
-          if event == "workflow_dispatch":
+          ref_name = os.environ.get("REF_NAME", "")
+          if event == "workflow_dispatch" or ref_name.startswith(("work/", "factory/")):
               changed = []
               full = True
           else:
@@ -346,6 +348,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       fail-fast: false
+      max-parallel: 10
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     steps:
@@ -657,3 +660,132 @@ jobs:
           path: |
             ci-out/package/KIRA_OS_Update.tar.gz
             ci-out/package/KIRA_OS_Update.tar.gz.sha256
+
+  factory-notify:
+    needs: [detect-changes, audit, release-gate-tests, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression, report, package]
+    if: always() && github.event_name != 'pull_request' && (startsWith(github.ref_name, 'work/') || startsWith(github.ref_name, 'factory/') || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Send build completion email
+        env:
+          SMTP_HOST: ${{ secrets.KIRA_SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.KIRA_SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.KIRA_SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.KIRA_SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.KIRA_SMTP_FROM }}
+          MAIL_TO: ${{ secrets.KIRA_NOTIFY_EMAIL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          RESULT_DETECT: ${{ needs.detect-changes.result }}
+          RESULT_AUDIT: ${{ needs.audit.result }}
+          RESULT_RELEASE_GATE: ${{ needs.release-gate-tests.result }}
+          RESULT_HOST: ${{ needs.host-tests.result }}
+          RESULT_KCC: ${{ needs.kcc-tests.result }}
+          RESULT_DRIVER: ${{ needs.driver-e2e.result }}
+          RESULT_BUILD: ${{ needs.build.result }}
+          RESULT_VM: ${{ needs.vm.result }}
+          RESULT_ARM64: ${{ needs.arm64.result }}
+          RESULT_MIND: ${{ needs.mind-quality.result }}
+          RESULT_GUI: ${{ needs.gui-regression.result }}
+          RESULT_REPORT: ${{ needs.report.result }}
+          RESULT_PACKAGE: ${{ needs.package.result }}
+        run: |
+          python3 - <<'PY'
+          import os, smtplib, ssl, sys
+          from email.message import EmailMessage
+
+          names = [
+              ("Change detection", "RESULT_DETECT"),
+              ("Repository and dependency audit", "RESULT_AUDIT"),
+              ("Release gate", "RESULT_RELEASE_GATE"),
+              ("Host tests", "RESULT_HOST"),
+              ("KCC compiler tests", "RESULT_KCC"),
+              ("Driver end-to-end", "RESULT_DRIVER"),
+              ("x86_64 build and image audit", "RESULT_BUILD"),
+              ("x86_64 QEMU matrix (10 shards)", "RESULT_VM"),
+              ("ARM64 build and QEMU", "RESULT_ARM64"),
+              ("Mind quality", "RESULT_MIND"),
+              ("GUI regression", "RESULT_GUI"),
+              ("Consolidated report", "RESULT_REPORT"),
+              ("Installable update archive", "RESULT_PACKAGE"),
+          ]
+          results = [(label, os.getenv(key, "missing")) for label, key in names]
+          failed = [(label, value) for label, value in results if value in ("failure", "cancelled", "timed_out")]
+          branch = os.environ["BRANCH"]
+          if failed:
+              outcome = "FAILED"
+          elif os.getenv("RESULT_PACKAGE") == "success":
+              outcome = "SUCCESS — update archive created"
+          else:
+              outcome = "FINISHED — no update archive (see job results)"
+
+          lines = [
+              "KIRA OS build factory finished.",
+              "",
+              "Result: " + outcome,
+              "Repository: " + os.environ["REPOSITORY"],
+              "Branch: " + branch,
+              "Commit: " + os.environ["COMMIT_SHA"],
+              "Run: " + os.environ["RUN_URL"],
+              "",
+              "Stages:",
+          ]
+          lines.extend(" - " + label + ": " + value for label, value in results)
+          lines += [
+              "",
+              "The update archive is produced only when all required jobs pass.",
+              "Open the run link to inspect logs, summaries and downloadable artifacts.",
+          ]
+          body = "\n".join(lines)
+
+          required = ("SMTP_HOST", "MAIL_TO")
+          missing = [key for key in required if not os.getenv(key)]
+          username = os.getenv("SMTP_USERNAME", "")
+          password = os.getenv("SMTP_PASSWORD", "")
+          if bool(username) != bool(password):
+              missing.append("SMTP_USERNAME and SMTP_PASSWORD must be configured together")
+          if missing:
+              message = "Email not sent; configure GitHub Actions secrets: " + ", ".join(missing)
+              print(message)
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                  summary.write("\n\n## Email notification\n\n" + message + "\n")
+              sys.exit(0)
+
+          port = int(os.getenv("SMTP_PORT") or "587")
+          sender = os.getenv("SMTP_FROM") or username
+          if not sender:
+              print("Email not sent: configure KIRA_SMTP_FROM or KIRA_SMTP_USERNAME")
+              sys.exit(0)
+
+          msg = EmailMessage()
+          msg["Subject"] = "[KIRA OS] " + outcome + " — " + branch
+          msg["From"] = sender
+          msg["To"] = os.environ["MAIL_TO"]
+          msg.set_content(body)
+
+          if port == 465:
+              with smtplib.SMTP_SSL(os.environ["SMTP_HOST"], port, timeout=20,
+                                    context=ssl.create_default_context()) as server:
+                  if username:
+                      server.login(username, password)
+                  server.send_message(msg)
+          else:
+              with smtplib.SMTP(os.environ["SMTP_HOST"], port, timeout=20) as server:
+                  server.ehlo()
+                  server.starttls(context=ssl.create_default_context())
+                  server.ehlo()
+                  if username:
+                      server.login(username, password)
+                  server.send_message(msg)
+
+          print("Completion email sent to the configured recipient.")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("\n\n## Email notification\n\nCompletion email sent.\n")
+          PY
