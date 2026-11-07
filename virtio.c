@@ -440,8 +440,9 @@ void virtq_post(virtq_t* q, uint16_t id, uint64_t addr, uint32_t len, int device
     barrier();
 }
 void virtq_kick(virtq_t* q) {
-    if (!q || !q->mem) return;
-    (void)virtio_dma_sync_for_device(q->mem, q->mem_phys, q->mem_bytes);
+    if (!q || !q->mem ||
+        virtio_dma_sync_for_device(q->mem, q->mem_phys, q->mem_bytes) != 0)
+        return;
     MMIO_W16(q->notify_addr, q->index);
 }
 int virtq_take(virtq_t* q, uint16_t* id, uint32_t* len) {
