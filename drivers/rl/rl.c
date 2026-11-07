@@ -37,6 +37,7 @@
  */
 #include "kdrv_bsd.h"
 #include "if_rlreg.h"
+#include "../rtl8139/kira_rtl8139_core.h"
 
 struct rl_softc {
 	struct ifnet ifnet;
@@ -296,6 +297,10 @@ int main(void)
 			break;
 	if (bar == 6) {
 		kd_puts("rl: no memory BAR\n");
+		return 1;
+	}
+	if (in.bar[bar].size < 0x100) {
+		kd_puts("rl: MMIO BAR is smaller than the RTL8139 register window\\n");
 		return 1;
 	}
 	sc->bsh = bus_space_map(bar, in.bar[bar].size, &err);
