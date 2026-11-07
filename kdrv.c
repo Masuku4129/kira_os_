@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include "kdrv_trust.h"
 #include "pci.h"
+#include "arch/x86_64/vtd.h"
 #include "msi.h"
 #include "proc.h"
 #include "kobj.h"
@@ -37,7 +38,7 @@ int platform_dma_noncoherent(void) __attribute__((weak));   /* ARM64: плата
 
 enum { B_FREE = 0, B_RUN = 1, B_DEAD = 2 };
 typedef struct { uint64_t va; uint32_t pages; } kmap_t;
-typedef struct { uint64_t pa; uint32_t pages; } kblk_t;
+typedef struct { uint64_t pa; uint32_t pages; uint8_t iommu_mapped; } kblk_t;
 
 typedef struct {
     const pci_dev_t* dev;            /* слот закреплён за устройством навсегда (0 - свободен) */
@@ -454,11 +455,12 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     }
     if (!kdrv_match_dev(&p.h, d->vendor, d->device, cls_of(d))) { kfree(p.buf); uart_print("[KIRA DRV] "); uart_print(name); uart_print(": не подходит этому устройству\n"); return -1; }
     uint32_t granted = p.h.caps & p.r.caps_ok;                                      /* запрошено в пакете И подтверждено пользователем */
-    /* Fail closed: сейчас ядро не создаёт VT-d/AMD-Vi/SMMU domain для этого BDF.
-       DMA и MSI требуют bus mastering и могут записывать в произвольную физическую память.
-       Не запускать такой Ring 3 драйвер, пока iommu_device_isolated() не будет реализован
-       и подтверждён тестом для конкретного устройства. */
-    if (!kdrv_dma_policy_allow(granted, 0)) {
+    /* DMA and MSI are granted only after a private VT-d second-level domain
+       has been installed for this exact PCI requester ID. */
+    int iommu_isolated = 0;
+    if (granted & (CAP_DMA | CAP_IRQ))
+        iommu_isolated = vtd_device_enable(d) == 0 && vtd_device_isolated(d);
+    if (!kdrv_dma_policy_allow(granted, iommu_isolated)) {
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
         uart_print(": DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен\n");
@@ -597,14 +599,44 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
 
 static void release(bind_t* b) {
     uint32_t got = 0, want = b->dma_pages + b->net_pages;
-    for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
-    if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
+    int pending = 0;
+    /* Revoke device access before returning any page to the allocator. A failed
+       IOTLB invalidation deliberately pins the affected page and keeps the slot
+       DEAD so a later poll can retry without exposing reused memory to DMA. */
+    for (uint32_t i = 0; i < b->ndma; i++) {
+        kblk_t *block = &b->dma[i];
+        if (!block->pages) continue;
+        if (block->iommu_mapped) {
+            if (vtd_dma_unmap(b->dev, block->pa,
+                              (uint64_t)block->pages * 4096u) != 0) {
+                pending = 1;
+                continue;
+            }
+            block->iommu_mapped = 0;
+        }
+        if (pmm_free_contiguous(block->pa, block->pages) == 0) {
+            got += block->pages;
+            b->dma_pages -= block->pages;
+            block->pages = 0;
+        } else pending = 1;
+    }
+    if (b->net_pages) {
+        if (pmm_free_contiguous(b->net_pa, b->net_pages) == 0) {
+            got += b->net_pages;
+            b->net_pages = 0;
+        } else pending = 1;
+    }
+    if (pending || b->dma_pages || b->net_pages) {
+        uart_print("[KIRA DRV] "); uart_print(b->name);
+        uart_print(": DMA pages remain pinned; retrying IOMMU revoke/free on next poll\n");
+        return;
+    }
     uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": возвращено памяти DMA и колец "); uart_print_dec(got); uart_print(" из ");
     uart_print_dec(want); uart_print(" стр., отображений устройства и DMA снято "); uart_print_dec(b->nmap + b->ndma);
-    uart_print(got == want ? ", утечек нет\n" : ", УТЕЧКА\n");
-    b->ndma = 0; b->dma_pages = 0; b->net_pages = 0; b->nmap = 0; b->ctl = 0;
+    uart_print(", утечек нет\n");
+    b->ndma = 0; b->nmap = 0; b->ctl = 0;
     uint64_t f = spin_lock_irqsave(&klock);
-    b->state = B_FREE;                              /* устройство снова можно отдать драйверу */
+    b->state = B_FREE;
     spin_unlock_irqrestore(&klock, f);
     __atomic_sub_fetch(&ndead, 1, __ATOMIC_ACQ_REL);
 }
@@ -819,30 +851,58 @@ static int64_t sys_mmio_map(bind_t* b, uint64_t bar, uint64_t off, uint64_t len)
 
 static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t out) {
     if (!bytes || bytes > KDRV_MAX_DMA_BYTES || (bits && (bits < 20 || bits > 63))) return KE_ARG;
+    if (!b->dev || !vtd_device_isolated(b->dev)) return KE_PERM;
     uint32_t pages = (uint32_t)((bytes + 4095) / 4096);
     proc_space_lock();
     int64_t rc = 0;
     uint64_t pa = 0;
+    int iommu_mapped = 0;
     if (b->ndma >= KDRV_MAX_DMA || ((uint64_t)b->dma_pages + pages) * 4096 > KDRV_MAX_DMA_TOTAL) rc = KE_LIMIT;
     else if (!(pa = pmm_alloc_contiguous(pages))) rc = KE_NOMEM;
     if (!rc) {
         uint64_t t;
-        if (vmm_translate(pa, &t) != 0 || t != pa || vmm_translate(pa + (uint64_t)(pages - 1) * 4096, &t) != 0 || t != pa + (uint64_t)(pages - 1) * 4096) rc = KE_NOMEM;   /* устройству нужен тот же адрес, что виден процессору */
-        else if (bits && pa + (uint64_t)pages * 4096 > (1ull << bits)) rc = KE_NOMEM;     /* устройство не достанет: предел его шины */
-        if (rc) { pmm_free_contiguous(pa, pages); pa = 0; }
+        if (vmm_translate(pa, &t) != 0 || t != pa ||
+            vmm_translate(pa + (uint64_t)(pages - 1) * 4096, &t) != 0 ||
+            t != pa + (uint64_t)(pages - 1) * 4096) rc = KE_NOMEM;
+        else if (bits && pa + (uint64_t)pages * 4096 > (1ull << bits)) rc = KE_NOMEM;
+        if (rc) { (void)pmm_free_contiguous(pa, pages); pa = 0; }
     }
     if (!rc) {
         uint8_t* z = (uint8_t*)(uintptr_t)pa;
-        for (uint64_t i = 0; i < (uint64_t)pages * 4096; i++) z[i] = 0;                 /* чужих данных драйвер не получит */
+        for (uint64_t i = 0; i < (uint64_t)pages * 4096; i++) z[i] = 0;
+        if (vtd_dma_map(b->dev, pa, (uint64_t)pages * 4096u) != 0) {
+            (void)pmm_free_contiguous(pa, pages); pa = 0; rc = KE_PERM;
+        } else iommu_mapped = 1;
+    }
+    if (!rc) {
         uint64_t va = b->dma_next;
-        if (proc_map_phys(va, pa, pages, VMM_WRITE | VMM_NOEXEC) != 0) { pmm_free_contiguous(pa, pages); rc = KE_NOMEM; }
+        if (proc_map_phys(va, pa, pages, VMM_WRITE | VMM_NOEXEC) != 0) rc = KE_NOMEM;
         else {
             kdrv_dma_t r = { va, pa, (uint64_t)pages * 4096 };
-            if (copy_to_user(out, &r, sizeof r) != 0) { proc_unmap_pages(va, pages); pmm_free_contiguous(pa, pages); rc = KE_ARG; }
-            else {
-                b->dma[b->ndma].pa = pa; b->dma[b->ndma].pages = pages; b->ndma++; b->dma_pages += pages;
+            if (copy_to_user(out, &r, sizeof r) != 0) {
+                (void)proc_unmap_pages(va, pages);
+                rc = KE_ARG;
+            } else {
+                b->dma[b->ndma].pa = pa;
+                b->dma[b->ndma].pages = pages;
+                b->dma[b->ndma].iommu_mapped = (uint8_t)iommu_mapped;
+                b->ndma++; b->dma_pages += pages;
                 b->dma_next += ((uint64_t)pages + 1) * 4096;
+                pa = 0; /* ownership transferred to the binding's release journal */
+                iommu_mapped = 0;
             }
+        }
+    }
+    if (rc && pa) {
+        if (!iommu_mapped || vtd_dma_unmap(b->dev, pa, (uint64_t)pages * 4096u) == 0) {
+            (void)pmm_free_contiguous(pa, pages);
+        } else {
+            /* Keep an unreachable allocation pinned if hardware still has a
+               translation; it is tracked for the binding's delayed release. */
+            b->dma[b->ndma].pa = pa;
+            b->dma[b->ndma].pages = pages;
+            b->dma[b->ndma].iommu_mapped = 1;
+            b->ndma++; b->dma_pages += pages;
         }
     }
     proc_space_unlock();
