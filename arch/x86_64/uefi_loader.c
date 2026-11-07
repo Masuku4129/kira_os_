@@ -310,9 +310,9 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
         uint64_t memory_attributes=0;
         attr_status=attributes->get_memory_attributes(attributes,segment_base,
                               segment_length,&memory_attributes);
-        if(EFI_ERROR(attr_status)||(memory_attributes&EFI_MEMORY_RP))
-            goto executable_attribute_error;
+        if(EFI_ERROR(attr_status)) goto executable_attribute_error;
         if(ph[i].flags&1u) {
+            if(memory_attributes&EFI_MEMORY_RP) goto executable_attribute_error;
             if(memory_attributes&EFI_MEMORY_XP) {
                 attr_status=attributes->clear_memory_attributes(attributes,
                         segment_base,segment_length,EFI_MEMORY_XP);
@@ -325,9 +325,10 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
                (memory_attributes&(EFI_MEMORY_RP|EFI_MEMORY_XP)))
                 goto executable_attribute_error;
         } else if(ph[i].flags&2u) {
-            if(memory_attributes&EFI_MEMORY_RO) {
+            uint64_t clear_mask=memory_attributes&(EFI_MEMORY_RP|EFI_MEMORY_RO);
+            if(clear_mask) {
                 attr_status=attributes->clear_memory_attributes(attributes,
-                        segment_base,segment_length,EFI_MEMORY_RO);
+                        segment_base,segment_length,clear_mask);
                 if(EFI_ERROR(attr_status)) goto executable_attribute_error;
             }
             memory_attributes=0;
@@ -336,6 +337,8 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
             if(EFI_ERROR(attr_status)||
                (memory_attributes&(EFI_MEMORY_RP|EFI_MEMORY_RO)))
                 goto executable_attribute_error;
+        } else if(memory_attributes&EFI_MEMORY_RP) {
+            goto executable_attribute_error;
         }
     }
     *entry_out=e->entry; *kernel_base=base; *kernel_end=end;
