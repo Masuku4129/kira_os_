@@ -10,6 +10,9 @@
 #include "uefi_kbi.h"
 #include "../../../bootinfo.h"
 
+#define KBI_EFI_PAGE_SIZE 4096ull
+#define KBI_PIXEL_BYTES   4ull
+
 static uint32_t kbi_mem_type(UINT32 type)
 {
     switch (type) {
@@ -40,6 +43,46 @@ static int add_overflow_u64(uint64_t a, uint64_t b)
     return b > UINT64_MAX - a;
 }
 
+static int mul_overflow_u64(uint64_t a, uint64_t b, uint64_t *result)
+{
+    if (a != 0 && b > UINT64_MAX / a)
+        return 1;
+    *result = a * b;
+    return 0;
+}
+
+static void copy_descriptor(EFI_MEMORY_DESCRIPTOR *destination,
+                            const uint8_t *source,
+                            UINTN size)
+{
+    uint8_t *out = (uint8_t *)destination;
+    UINTN i;
+
+    for (i = 0; i < sizeof(*destination); ++i)
+        out[i] = source[i];
+    (void)size;
+}
+
+static int framebuffer_valid(const kira_uefi_kbi_info *info)
+{
+    uint64_t required;
+
+    if (!info->framebuffer_base && !info->framebuffer_size &&
+        !info->width && !info->height && !info->pitch)
+        return 1;
+
+    if (!info->framebuffer_base || !info->framebuffer_size ||
+        !info->width || !info->height || info->pitch < info->width ||
+        (info->format != 1 && info->format != 2) ||
+        add_overflow_u64(info->framebuffer_base, info->framebuffer_size) ||
+        mul_overflow_u64((uint64_t)info->pitch,
+                         (uint64_t)info->height, &required) ||
+        mul_overflow_u64(required, KBI_PIXEL_BYTES, &required))
+        return 0;
+
+    return required <= info->framebuffer_size;
+}
+
 EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
                                UINTN map_size,
                                UINTN descriptor_size,
@@ -58,6 +101,9 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
 
     (void)descriptor_version;
 
+    if (output_size)
+        *output_size = 0;
+
     if (!efi_map || !info || !output || !output_size ||
         descriptor_size < sizeof(EFI_MEMORY_DESCRIPTOR) ||
         map_size == 0 || map_size % descriptor_size != 0)
@@ -66,6 +112,12 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     count = map_size / descriptor_size;
     if (count > KIRA_BOOTINFO_MAX_MMAP)
         return EFI_OUT_OF_RESOURCES;
+
+    if ((info->kernel_base == 0) != (info->kernel_size == 0) ||
+        (info->kernel_size &&
+         add_overflow_u64(info->kernel_base, info->kernel_size)) ||
+        !framebuffer_valid(info))
+        return EFI_LOAD_ERROR;
 
     mmap_offset = (UINT32)sizeof(kbi_header_t);
     if (count > (UINT32_MAX - mmap_offset) / sizeof(kbi_mmap_entry_t))
@@ -97,14 +149,14 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     if (info->rsdp)
         header->flags |= KBI_F_ACPI;
 
-    if (info->framebuffer_base && info->framebuffer_size &&
-        info->width && info->height && info->pitch) {
+    if (info->framebuffer_base) {
         header->fb_phys = info->framebuffer_base;
         header->fb_size = info->framebuffer_size;
         header->fb_width = info->width;
         header->fb_height = info->height;
         header->fb_pitch = info->pitch;
         header->fb_bpp = 32;
+
         if (info->format == 1) {
             header->fb_red_pos = 0;
             header->fb_red_size = 8;
@@ -112,35 +164,34 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
             header->fb_green_size = 8;
             header->fb_blue_pos = 16;
             header->fb_blue_size = 8;
-        } else if (info->format == 2) {
+        } else {
             header->fb_red_pos = 16;
             header->fb_red_size = 8;
             header->fb_green_pos = 8;
             header->fb_green_size = 8;
             header->fb_blue_pos = 0;
             header->fb_blue_size = 8;
-        } else {
-            header->fb_bpp = 0;
         }
-        if (header->fb_bpp)
-            header->flags |= KBI_F_FRAMEBUFFER;
+        header->flags |= KBI_F_FRAMEBUFFER;
     }
 
     for (i = 0; i < count; ++i) {
         EFI_MEMORY_DESCRIPTOR descriptor;
-        const EFI_MEMORY_DESCRIPTOR *d =
-            (const EFI_MEMORY_DESCRIPTOR *)(source + i * descriptor_size);
+        const uint8_t *record = source + i * descriptor_size;
+        uint64_t length;
 
-        descriptor = *d;
+        copy_descriptor(&descriptor, record, descriptor_size);
         if (descriptor.NumberOfPages == 0 ||
-            add_overflow_u64(descriptor.PhysicalStart,
-                             descriptor.NumberOfPages * 4096ull))
+            mul_overflow_u64(descriptor.NumberOfPages,
+                             KBI_EFI_PAGE_SIZE, &length) ||
+            add_overflow_u64(descriptor.PhysicalStart, length))
             return EFI_LOAD_ERROR;
 
         entries[i].base = descriptor.PhysicalStart;
-        entries[i].length = descriptor.NumberOfPages * 4096ull;
+        entries[i].length = length;
         entries[i].type = kbi_mem_type(descriptor.Type);
-        entries[i].attributes = (uint32_t)(descriptor.Attribute & 0xffffffffu);
+        entries[i].attributes =
+            (uint32_t)(descriptor.Attribute & 0xffffffffu);
     }
 
     *output_size = total_size;
