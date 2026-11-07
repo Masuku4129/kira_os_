@@ -18,6 +18,7 @@
 #define EFI_ALLOCATE_MAX_ADDRESS 1u
 #define EFI_FILE_MODE_READ 1ull
 #define EFI_PAGE_SIZE 4096u
+#define EFI_MEMORY_XP 0x0000000000004000ull
 #define BOOTINFO_MAX (256u * 1024u)
 #define KERNEL_MAX (64u * 1024u * 1024u)
 #define ONE_GB 0x40000000ull
@@ -30,6 +31,13 @@ typedef struct { uint64_t signature; uint32_t revision, header_size, crc32, rese
 typedef struct EFI_SYSTEM_TABLE EFI_SYSTEM_TABLE;
 typedef struct EFI_BOOT_SERVICES EFI_BOOT_SERVICES;
 typedef struct EFI_FILE EFI_FILE;
+typedef struct EFI_MEMORY_ATTRIBUTE_PROTOCOL EFI_MEMORY_ATTRIBUTE_PROTOCOL;
+
+struct EFI_MEMORY_ATTRIBUTE_PROTOCOL {
+    EFI_STATUS (EFIAPI *get_memory_attributes)(EFI_MEMORY_ATTRIBUTE_PROTOCOL *,uint64_t,uint64_t,uint64_t *);
+    EFI_STATUS (EFIAPI *set_memory_attributes)(EFI_MEMORY_ATTRIBUTE_PROTOCOL *,uint64_t,uint64_t,uint64_t);
+    EFI_STATUS (EFIAPI *clear_memory_attributes)(EFI_MEMORY_ATTRIBUTE_PROTOCOL *,uint64_t,uint64_t,uint64_t);
+};
 
 typedef struct {
     uint32_t type, pad;
@@ -145,6 +153,7 @@ static EFI_GUID simple_fs_guid = {0x964E5B22,0x6459,0x11D2,{0x8E,0x39,0x00,0xA0,
 static EFI_GUID gop_guid = {0x9042A9DE,0x23DC,0x4A38,{0x96,0xFB,0x7A,0xDE,0xD0,0x80,0x51,0x6A}};
 static EFI_GUID acpi2_guid = {0x8868E871,0xE4F1,0x11D3,{0xBC,0x22,0x00,0x80,0xC7,0x3C,0x88,0x81}};
 static EFI_GUID acpi1_guid = {0xEB9D2D30,0x2D88,0x11D3,{0x9A,0x16,0x00,0x90,0x27,0x3F,0xC1,0x4D}};
+static EFI_GUID memory_attribute_guid = {0xF4560CF6,0x40EC,0x4B4A,{0xA1,0x92,0xBF,0x1D,0x57,0xD0,0xB1,0x89}};
 
 static void *zero_mem(void *p, size_t n) {
     uint8_t *d=(uint8_t*)p; for(size_t i=0;i<n;i++) d[i]=0; return p;
@@ -249,8 +258,49 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
         zero_mem((void*)(uintptr_t)segment_base,(size_t)(segment_end-segment_base));
         copy_mem((void*)(uintptr_t)ph[i].paddr,file+ph[i].offset,(size_t)ph[i].filesz);
     }
+    /* EFI_LOADER_CODE is not an executable guarantee on protected
+       firmware. Require the standard Memory Attribute Protocol and verify
+       that every executable PT_LOAD range has XP cleared before handoff. */
+    EFI_MEMORY_ATTRIBUTE_PROTOCOL *attributes=0;
+    EFI_STATUS attr_status=bs->locate_protocol(&memory_attribute_guid,0,
+                                                (void**)&attributes);
+    if(EFI_ERROR(attr_status)||!attributes||!attributes->get_memory_attributes||
+       !attributes->clear_memory_attributes) {
+        while(allocated_count) {
+            allocated_count--;
+            (void)bs->free_pages(allocated_base[allocated_count],
+                                 allocated_pages[allocated_count]);
+        }
+        return -7;
+    }
+    for(uint16_t i=0;i<e->phnum;i++) if(ph[i].type==1&&(ph[i].flags&1u)) {
+        uint64_t segment_base=ph[i].paddr&~(uint64_t)(EFI_PAGE_SIZE-1);
+        uint64_t segment_end=align_up(ph[i].paddr+ph[i].memsz,EFI_PAGE_SIZE);
+        uint64_t memory_attributes=0;
+        attr_status=attributes->get_memory_attributes(attributes,segment_base,
+                              segment_end-segment_base,&memory_attributes);
+        if(EFI_ERROR(attr_status)) goto executable_attribute_error;
+        if(memory_attributes&EFI_MEMORY_XP) {
+            attr_status=attributes->clear_memory_attributes(attributes,
+                    segment_base,segment_end-segment_base,EFI_MEMORY_XP);
+            if(EFI_ERROR(attr_status)) goto executable_attribute_error;
+            memory_attributes=0;
+            attr_status=attributes->get_memory_attributes(attributes,segment_base,
+                                  segment_end-segment_base,&memory_attributes);
+            if(EFI_ERROR(attr_status)||(memory_attributes&EFI_MEMORY_XP))
+                goto executable_attribute_error;
+        }
+    }
     *entry_out=e->entry; *kernel_base=base; *kernel_end=end;
     return 0;
+
+executable_attribute_error:
+    while(allocated_count) {
+        allocated_count--;
+        (void)bs->free_pages(allocated_base[allocated_count],
+                             allocated_pages[allocated_count]);
+    }
+    return -7;
 }
 
 static void *alloc_low_pages(EFI_BOOT_SERVICES *bs,uint64_t bytes,uint32_t memory_type) {
