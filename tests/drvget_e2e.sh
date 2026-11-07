@@ -33,7 +33,7 @@ $K $UCFLAGS -nostdlibinc -I. -Iuserland -Iuserland/kccrt -c userland/drvman.c -o
 $K $UCFLAGS -I. -c font8x16.c -o $O/font.o || exit 1
 ld.lld -T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro -o $T/drvman.elf $O/drvman.o $O/drvget_lib.o $O/dgcore.o $O/kfmt.o $O/font.o $objs $O/kccrt.o $O/t_*.o $O/libc_min.o || exit 1
 gcc -std=gnu99 -O1 -DKIRA_HOST_TEST -o $T/kloader tests/kcc/kloader.c elf.c || exit 1
-gcc -O1 -DKIRA_HOST_TEST -I. -Iarch/x86_64 -o $T/dgcheck tests/drvget_check.c kdrv_fmt.c sha256.c elf.c || exit 1
+gcc -O1 -DKIRA_HOST_TEST -I. -Iarch/x86_64 -o $T/dgcheck tests/drvget_check.c kdrv_fmt.c pk.c crypto.c sha256.c elf.c || exit 1
 
 # сервер и цепочка
 python3 -I ci/mkchain.py $T/chain >/dev/null || exit 1
