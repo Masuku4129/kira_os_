@@ -216,7 +216,7 @@ static int rb_load(kdrv_rb_db_t* db) {
     if (rc != 0 || st.type != KFS_FILE || st.size != sizeof *db) return KDRV_E_UNCONFIRMED;
     if (kfs_read("/drv/.rollback", 0, db, sizeof *db) != (int64_t)sizeof *db) return KDRV_E_SHORT;
     if (db->magic != KDRV_RB_MAGIC || db->format != KDRV_RB_FORMAT || db->count > KDRV_RB_MAX ||
-        db->crc != rb_crc32(db->entries, sizeof db->entries)) return KDRV_E_UNCONFIRMED;
+        db->crc != rb_crc32(db->entries, sizeof db->entries)) return KDRV_E_ROLLBACK;
     return KDRV_OK;
 }
 
@@ -241,11 +241,11 @@ static int rb_accept(const pkg_t* p) {
     }
     if (slot < db.count) {
         kdrv_rb_entry_t* e = &db.entries[slot];
-        if (p->h.version < e->version) return KDRV_E_UNCONFIRMED;
+        if (p->h.version < e->version) return KDRV_E_ROLLBACK;
         if (p->h.version == e->version) {
             unsigned diff = 0;
             for (unsigned j = 0; j < sizeof e->package_sha; j++) diff |= e->package_sha[j] ^ p->package_sha[j];
-            return diff ? KDRV_E_UNCONFIRMED : KDRV_OK;
+            return diff ? KDRV_E_ROLLBACK : KDRV_OK;
         }
     } else if (db.count == KDRV_RB_MAX) return KDRV_E_SIZE;
 
