@@ -28,9 +28,11 @@ int kdrv_revocation_apply(const kdrv_revocation_t *s,
         s->revoked_count == 0 || s->revoked_count > KDRV_REVOCATION_MAX_IDS ||
         s->reserved != 0 || rv_zero(s->issuer_key_id, KDRV_SIG_KEY_ID_SIZE))
         return KDRV_SIG_E_FORMAT;
-    if (now <= 0) return KDRV_SIG_E_TIME;
-    if ((uint64_t)now < s->not_before) return KDRV_SIG_E_NOT_YET;
-    if ((uint64_t)now >= s->not_after) return KDRV_SIG_E_EXPIRED;
+    if (now != KDRV_SIG_TIME_REPLAY) {
+        if (now <= 0) return KDRV_SIG_E_TIME;
+        if ((uint64_t)now < s->not_before) return KDRV_SIG_E_NOT_YET;
+        if ((uint64_t)now >= s->not_after) return KDRV_SIG_E_EXPIRED;
+    }
 
     const kdrv_sig_key_t *issuer = 0;
     for (uint32_t i = 0; i < count; i++) {
