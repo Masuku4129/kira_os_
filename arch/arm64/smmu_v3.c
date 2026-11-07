@@ -43,11 +43,11 @@ static int smmuv3_submit(smmuv3_queue_t *q, uint64_t w0, uint64_t w1) {
     __asm__ volatile("dsb oshst" ::: "memory");
     q->queue[q->producer].qw0 = w0;
     __asm__ volatile("dsb oshst" ::: "memory");
-    q->producer = next;
-    q->producer_wrap = next_wrap;
     if (smmuv3_write32(&q->regs, SMMU_CMDQ_PROD,
                        next | (next_wrap ? SMMU_Q_PTR_WRAP : 0u)))
         return -1;
+    q->producer = next;
+    q->producer_wrap = next_wrap;
     return 0;
 }
 
@@ -87,10 +87,29 @@ int smmuv3_queue_init(smmuv3_queue_t *q, volatile void *mmio, size_t mmio_len,
     return 0;
 }
 
+/* Enable the command queue while translation remains disabled. */
+int smmuv3_queue_enable(smmuv3_queue_t *q) {
+    if (!q || !q->queue) return -1;
+    uint32_t cr0, ack;
+    if (smmuv3_read32(&q->regs, SMMU_CR0, &cr0)) return -1;
+    if (cr0 & SMMU_CR0_SMMUEN) return -2;
+    if (!(cr0 & SMMU_CR0_CMDQEN)) {
+        if (smmuv3_write32(&q->regs, SMMU_CR0, cr0 | SMMU_CR0_CMDQEN)) return -1;
+    }
+    for (uint32_t n = 0; n < SMMU_CMDQ_TIMEOUT; n++) {
+        if (smmuv3_read32(&q->regs, SMMU_CR0ACK, &ack)) return -1;
+        if (ack & SMMU_CR0_CMDQEN) return 0;
+    }
+    return -3;
+}
+
 /* Global invalidation is used during bring-up before per-ASID/VMID domains
  * exist. A SYNC command makes completion observable before returning. */
 int smmuv3_global_invalidate(smmuv3_queue_t *q) {
     if (!q) return -1;
+    uint32_t cr0;
+    if (smmuv3_read32(&q->regs, SMMU_CR0, &cr0) ||
+        !(cr0 & SMMU_CR0_CMDQEN)) return -2;
     if (smmuv3_submit(q, SMMU_CMD_CFGI_ALL, 0)) return -1;
     if (smmuv3_submit(q, SMMU_CMD_TLBI_NH_ALL, 0)) return -1;
     if (smmuv3_submit(q, SMMU_CMD_SYNC, 0)) return -1;
