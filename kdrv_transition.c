@@ -26,9 +26,11 @@ int kdrv_transition_verify(const kdrv_transition_t *t,
         t->generation <= highest || t->not_before == 0 ||
         t->not_after <= t->not_before || t->not_after > 0x7fffffffffffffffULL)
         return KDRV_SIG_E_FORMAT;
-    if (now <= 0) return KDRV_SIG_E_TIME;
-    if ((uint64_t)now < t->not_before) return KDRV_SIG_E_NOT_YET;
-    if ((uint64_t)now >= t->not_after) return KDRV_SIG_E_EXPIRED;
+    if (now != KDRV_SIG_TIME_REPLAY) {
+        if (now <= 0) return KDRV_SIG_E_TIME;
+        if ((uint64_t)now < t->not_before) return KDRV_SIG_E_NOT_YET;
+        if ((uint64_t)now >= t->not_after) return KDRV_SIG_E_EXPIRED;
+    }
     if (all_zero(t->old_key_id, sizeof t->old_key_id) ||
         all_zero(t->new_key_id, sizeof t->new_key_id) ||
         all_zero(t->new_public_key, sizeof t->new_public_key) ||
