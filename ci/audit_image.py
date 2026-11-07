@@ -58,6 +58,8 @@ def elf_dependencies(data, label):
         else:
             p_offset, p_filesz = h[1], h[4]
         if p_type == 3:  # PT_INTERP
+            if p_offset + p_filesz > len(data):
+                raise ValueError(f"{label}: PT_INTERP outside file")
             found.append("PT_INTERP (dynamic loader)")
         elif p_type == 2:  # PT_DYNAMIC
             if p_offset + p_filesz > len(data):
