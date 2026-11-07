@@ -491,28 +491,32 @@ ALL.append(sc("cc-native", "kcc на Кире: cc собирает C-прогр�
                           "/data/kcc/net.c": os.path.join(_CC, "net.c"),
                           "/data/kcc/lang.c": os.path.join(_CC, "lang.c")}))
 
-# Драйверы Ring 3 (пакет K): устройство QEMU edu получает тестовый драйвер из /drv (пакеты кладёт сборка образа: tools/mkdrv.sh).
-ALL.append(sc("drv-edu", "драйвер Ring 3: найден по PCI-ID и запущен; испорченный хеш и неподтверждённая установка - отказ; MMIO, MSI, DMA работают; чужой BAR и защищённая конфигурация - отказ; нет права DMA - отказ; гибель драйвера освобождает всё", [
+# Драйверы Ring 3: пакет edu намеренно MMIO-only до появления проверенной IOMMU-изоляции.
+# Тест проверяет безопасный запуск, отказ DMA/MSI, запрет чужого BAR и восстановление устройства после остановки/сбоя.
+ALL.append(sc("drv-edu", "MMIO-only Ring 3: хеш и подтверждение пакета; безопасный запуск; DMA/MSI fail-closed; MMIO и PCI config guard; освобождение ресурсов после остановки и сбоя", [
     {"log": BOOT_LOG},
     {"sleep": 6},
-    {"log": [r"\[KIRA DRV\] abad: SHA-256 не совпал с записью /drv/abad\.rec - драйвер НЕ запущен",
-             r"\[KIRA DRV\] eduun: пакет отклонён \(установка не подтверждена пользователем\)",
-             r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \(pid \d+\), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV",
-             r"drvedu: device 0x1234:0x11e8, rights 0x7800, MSI",
-             r"drvedu: id=0x10000ed", r"drvedu: 10!=3628800", r"drvedu: irq wait=1 5!=120", r"drvedu: dma round trip equal",
+    {"log": [r"\\[KIRA DRV\\] abad: SHA-256 не совпал с записью /drv/abad\\.rec - драйвер НЕ запущен",
+             r"\\[KIRA DRV\\] eduun: пакет отклонён \\(установка не подтверждена пользователем\\)",
+             r"\\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \\(pid \\d+\\), SHA-256 сверен, права: CAP_MMIO CAP_PCIDEV",
+             r"drvedu: device 0x1234:0x11e8, rights 0x4800, no MSI",
+             r"drvedu: id=0x10000ed", r"drvedu: 10!=3628800",
+             r"drvedu: IRQ/MSI unavailable without isolation \\(fail-closed PASS\\)",
+             r"drvedu: dma rc=-12", r"drvedu: DMA denied without IOMMU \\(fail-closed PASS\\)",
              r"drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x",
              r"drvedu: PASS"]},
-    {"cmd": "drv", "must": [r"drv-edu pid \d+", r"отображений 1", r"прерываний [1-9]"]},
+    {"cmd": "drv", "must": [r"drv-edu pid \\d+", r"отображений 1", r"прерываний 0"]},
     {"cmd": "drv stop edu", "must": [r"останавливаю drv-edu"]}, {"sleep": 2},
-    {"log": [r"\[KIRA DRV\] drv-edu \(pid \d+\) завершён: устройство .* остановлено", r"\[KIRA DRV\] edu: возвращено памяти DMA и колец 1 из 1 стр\..*утечек нет"]},
+    {"log": [r"\\[KIRA DRV\\] drv-edu \\(pid \\d+\\) завершён: устройство .* остановлено",
+             r"\\[KIRA DRV\\] edu: возвращено памяти DMA и колец 0 из 0 стр\\..*утечек нет"]},
     {"cmd": "drv start edunc", "must": [r"драйвер запущен как drv-edunc"]}, {"sleep": 3},
-    {"log": [r"drvedu: dma rc=-12", r"\[KIRA CAPS\] process 'drv-edunc' .* denied, no right CAP_DMA"]},
+    {"log": [r"drvedu: dma rc=-12", r"\\[KIRA CAPS\\] process 'drv-edunc' .* denied, no right CAP_DMA"]},
     {"cmd": "drv stop edunc"}, {"sleep": 2},
     {"cmd": "drv start edu crash", "must": [r"драйвер запущен как drv-edu"]}, {"sleep": 3},
-    {"log": [r"drvedu: crashing on purpose", r"\[KIRA PROC\] pid \d+ killed by CPU exception #14", r"\[KIRA DRV\] drv-edu \(pid \d+\) завершён"]},
+    {"log": [r"drvedu: crashing on purpose", r"\\[KIRA PROC\\] pid \\d+ killed by CPU exception #14", r"\\[KIRA DRV\\] drv-edu \\(pid \\d+\\) завершён"]},
     {"sleep": 2},
-    {"cmd": "drv start edu", "must": [r"драйвер запущен как drv-edu"]}, {"sleep": 3},   # устройство снова отдаётся драйверу после возврата ресурсов
-    {"log_forbid": [r"drvedu: .*\(FAIL\)", r"УТЕЧКА"] + NO_ERR},
+    {"cmd": "drv start edu", "must": [r"драйвер запущен как drv-edu"]}, {"sleep": 3},
+    {"log_forbid": [r"drvedu: .*\\(FAIL\\)", r"УТЕЧКА"] + NO_ERR},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", extra=["-device", "edu"]))
 
