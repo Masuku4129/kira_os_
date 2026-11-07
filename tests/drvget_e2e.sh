@@ -181,6 +181,18 @@ run "verify rl"
 grep -q "Ed25519 подтверждена" "$T/out" || note "installed publisher signature did not verify: $(tail -c 400 "$T/out")"
 rm -f "$W/rl/drvget.sig"
 
+# A missing signature must not downgrade an already installed publisher-authenticated package.
+run "install $U/rl/drvget.rec"
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \\([0-9a-f]\\{64\\}\\)$/\\1/p' "$T/out")
+[ ${#HASH} = 64 ] || note "unsigned replacement test: не получен хеш staging-набора"
+run "confirm rl ${HASH:0:8}"
+grep -q "замена существующего подписанного пакета на unsigned/local запрещена" "$T/out" || note "signed package was silently downgraded: $(tail -c 400 "$T/out")"
+[ -s "$T/drv/rl.sig" ] && [ -s "$T/drv/rl.kdrv" ] || note "refused downgrade damaged the existing signed package"
+[ -z "$(ls "$T/sb" | grep '^s-')" ] || note "refused downgrade left staging files"
+run "remove rl"
+[ ! -e "$T/drv/rl.kdrv" ] || note "remove did not delete signed package"
+rm -f "$T/drv/rl.rec" "$T/drv/rl.sig"
+
 # 3b. A malformed present signature must abort instead of silently falling back to local trust.
 rm -rf "$T/sb" "$T/drv"; mkdir -p "$T/sb" "$T/drv"
 run "install $U/rl/drvget.rec"
