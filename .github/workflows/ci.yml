@@ -78,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Prepare writable apt archive cache
-        run: sudo chmod 1777 /var/cache/apt/archives
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
       - uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives/*.deb
@@ -157,6 +157,8 @@ jobs:
           path: ci-out/image-audit.json
 
   arm64:
+    outputs:
+      qemu_result: ${{ steps.arm64-qemu.outcome }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -180,6 +182,8 @@ jobs:
             kira-arm64.disk
           if-no-files-found: ignore
       - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"
+        id: arm64-qemu
+        if: github.event_name != 'pull_request'
         run: |
           set -o pipefail
           python3 ci/arm64_vm.py ci-out/arm64 2>&1 | tee arm64.txt
@@ -191,6 +195,7 @@ jobs:
 
   vm:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -327,6 +332,7 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           VM_RESULT: ${{ needs.vm.result }}
           ARM64_RESULT: ${{ needs.arm64.result }}
+          ARM64_QEMU_RESULT: ${{ needs.arm64.outputs.qemu_result || 'not-run' }}
           MIND_RESULT: ${{ needs.mind-quality.result }}
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
@@ -339,7 +345,8 @@ jobs:
               ("Host/regression tests", "HOST_RESULT"),
               ("x86_64 build + ISO", "BUILD_RESULT"),
               ("QEMU x86 matrix", "VM_RESULT"),
-              ("ARM64 build + QEMU", "ARM64_RESULT"),
+              ("ARM64 build", "ARM64_RESULT"),
+              ("ARM64 QEMU (full suite only)", "ARM64_QEMU_RESULT"),
               ("Mind quality", "MIND_RESULT"),
               ("GUI regression", "GUI_RESULT"),
               ("KCC compiler suite", "KCC_RESULT"),
@@ -386,7 +393,8 @@ jobs:
           lines = ["# Прогон " + os.environ["GITHUB_SHA"][:7] + " (" + os.environ["GITHUB_REF_NAME"] + ")", "",
                    "| Проверка | Результат |", "|---|---|"]
           jobs = [("audit","AUDIT_RESULT"),("host-tests","HOST_RESULT"),("x86_64 build","BUILD_RESULT"),
-                  ("x86_64 QEMU matrix","VM_RESULT"),("ARM64 build/QEMU","ARM64_RESULT"),
+                  ("x86_64 QEMU matrix","VM_RESULT"),("ARM64 build","ARM64_RESULT"),
+                   ("ARM64 QEMU (full suite only)","ARM64_QEMU_RESULT"),
                   ("Mind quality","MIND_RESULT"),("GUI regression","GUI_RESULT"),("KCC compiler suite","KCC_RESULT"),
                   ("Driver installer end-to-end","DRIVER_RESULT")]
           lines += ["| " + name + " | " + os.getenv(key,"missing") + " |" for name,key in jobs]
@@ -418,7 +426,7 @@ jobs:
 
   package:
     needs: [audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
-    if: success() && github.ref_name != 'main' && github.ref_name != 'stable'
+    if: success() && github.event_name != 'pull_request' && github.ref_name != 'main' && github.ref_name != 'stable'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
