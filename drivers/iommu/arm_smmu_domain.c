@@ -9,6 +9,10 @@
 #include "arm_smmu_domain.h"
 
 #define SMMU_PAGE_SIZE 4096u
+#define SMMU_STRTAB_ENTRIES 256u
+#define SMMU_STRTAB_ENTRY_BYTES 64u
+#define SMMU_STRTAB_BYTES (SMMU_STRTAB_ENTRIES * SMMU_STRTAB_ENTRY_BYTES)
+#define SMMU_STRTAB_PAGES (SMMU_STRTAB_BYTES / SMMU_PAGE_SIZE)
 #define SMMU_ENTRIES 512u
 #define SMMU_STRTAB_BASE 0x0080u
 #define SMMU_STRTAB_BASE_CFG 0x0088u
@@ -35,19 +39,26 @@ static void smmu_zero(void *p, size_t bytes)
         b[i] = 0;
 }
 
-static void *smmu_alloc(const struct kira_smmu_platform *p, uint64_t *pa)
+static void *smmu_alloc_pages(const struct kira_smmu_platform *p,
+                              size_t pages, uint64_t *pa)
 {
-    void *v = p->alloc_dma_pages(p->context, 1, pa);
+    void *v = p->alloc_dma_pages(p->context, pages, pa);
+    size_t bytes = pages * SMMU_PAGE_SIZE;
     if (!v || !*pa || (*pa & 0xfffu)) {
         if (v && p->free_dma_pages)
-            p->free_dma_pages(p->context, v, *pa, 1);
+            p->free_dma_pages(p->context, v, *pa, pages);
         *pa = 0;
         return 0;
     }
-    smmu_zero(v, SMMU_PAGE_SIZE);
+    smmu_zero(v, bytes);
     if (p->clean_cache)
-        p->clean_cache(p->context, v, SMMU_PAGE_SIZE);
+        p->clean_cache(p->context, v, bytes);
     return v;
+}
+
+static void *smmu_alloc(const struct kira_smmu_platform *p, uint64_t *pa)
+{
+    return smmu_alloc_pages(p, 1, pa);
 }
 
 /*
@@ -218,12 +229,13 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
         !p->map_mmio || stream_id >= 256u)
         return KIRA_SMMU_INVALID;
 
-    st = smmu_alloc(p, &st_pa);
+    /* 256 linear STEs occupy 256 * 64 = 16 KiB, not one page. */
+    st = smmu_alloc_pages(p, SMMU_STRTAB_PAGES, &st_pa);
     ct = smmu_alloc(p, &ct_pa);
     root = smmu_alloc(p, &root_pa);
     if (!st || !ct || !root) {
         if (p->free_dma_pages) {
-            if (st) p->free_dma_pages(p->context, st, st_pa, 1);
+            if (st) p->free_dma_pages(p->context, st, st_pa, SMMU_STRTAB_PAGES);
             if (ct) p->free_dma_pages(p->context, ct, ct_pa, 1);
             if (root) p->free_dma_pages(p->context, root, root_pa, 1);
         }
@@ -362,7 +374,7 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
         p->free_dma_pages(p->context, d->context_table,
                           d->context_table_physical, 1);
         p->free_dma_pages(p->context, d->stream_table,
-                          d->stream_table_physical, 1);
+                          d->stream_table_physical, SMMU_STRTAB_PAGES);
     }
 
     d->active = 0;
