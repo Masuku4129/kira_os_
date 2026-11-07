@@ -36,9 +36,9 @@
 
 #define SMMU_CR0_SMMUEN (1u << 0)
 #define SMMU_CR0_EVTQEN (1u << 2)
-#define SMMU_CR0_CMDQEN (1u << 3)
-#define SMMU_CR0_PRIQEN (1u << 4)
-#define SMMU_CR0_ABORT   (1u << 4)
+#define SMMU_CR0_CMDQEN (1u << 1)
+#define SMMU_CR0_PRIQEN (1u << 3)
+#define SMMU_CR0_ATSCHK (1u << 4)
 #define SMMU_GBPA_ABORT  (1u << 20)
 #define SMMU_GBPA_UPDATE (1u << 31)
 
@@ -55,6 +55,61 @@ typedef struct {
     volatile uint8_t *base;
     size_t length;
 } smmuv3_mmio_t;
+
+typedef struct {
+    uint64_t word[2];
+} smmuv3_cmd_t;
+
+typedef struct {
+    smmuv3_cmd_t *entries;
+    uint32_t count;
+    uint32_t producer;
+    uint32_t consumer;
+} smmuv3_sw_queue_t;
+
+/* Bind only memory already allocated by the platform DMA allocator. The
+ * caller remains responsible for DMA addressability and cache maintenance. */
+static inline int smmuv3_swq_bind(smmuv3_sw_queue_t *q, void *memory,
+                                   size_t bytes, uint32_t log2_entries) {
+    uint32_t count;
+    size_t required;
+    if (!q || !memory ||
+        smmuv3_queue_geometry(log2_entries, SMMU_CMDQ_ENT_SIZE,
+                              &count, &required) != 0 ||
+        bytes < required || ((uintptr_t)memory & 31u))
+        return -1;
+    q->entries = (smmuv3_cmd_t *)memory;
+    q->count = count;
+    q->producer = 0;
+    q->consumer = 0;
+    for (size_t i = 0; i < required; i++)
+        ((volatile uint8_t *)memory)[i] = 0;
+    return 0;
+}
+
+/* Software staging queue. It intentionally does not write CMDQ_PROD:
+ * hardware publication must additionally perform platform DMA sync and
+ * use the SMMU's observed CONS pointer. */
+static inline int smmuv3_swq_push(smmuv3_sw_queue_t *q,
+                                  const smmuv3_cmd_t *cmd) {
+    if (!q || !q->entries || !cmd || !q->count) return -1;
+    uint32_t next = (q->producer + 1u) & (q->count - 1u);
+    if (next == q->consumer) return -2;
+    q->entries[q->producer] = *cmd;
+    __asm__ volatile("" ::: "memory");
+    q->producer = next;
+    return 0;
+}
+
+static inline int smmuv3_swq_pop(smmuv3_sw_queue_t *q,
+                                 smmuv3_cmd_t *cmd) {
+    if (!q || !q->entries || !cmd || !q->count) return -1;
+    if (q->consumer == q->producer) return -2;
+    __asm__ volatile("" ::: "memory");
+    *cmd = q->entries[q->consumer];
+    q->consumer = (q->consumer + 1u) & (q->count - 1u);
+    return 0;
+}
 
 static inline int smmuv3_range_valid(const smmuv3_mmio_t *m, uint32_t off, size_t width) {
     return m && m->base && width && off <= m->length && width <= m->length - off;
