@@ -264,6 +264,7 @@ static void rtl_rx_poll(rtl8139_t *s) {
                                            info.wire_length, accepted);
         if (accounted < 0) {
             s->rx.offset = cbr;
+            rtl_write16(s, RTL_REG_CAPR, (u16)(s->rx.offset - 16u));
             break;
         }
         if (accepted) {
