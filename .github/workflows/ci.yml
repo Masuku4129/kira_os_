@@ -45,6 +45,8 @@ jobs:
         run: python3 ci/check_mind_sync.py
       - name: QMP disconnect regression tests
         run: python3 -m unittest ci.test_qmp
+      - name: binary image audit parser regression tests
+        run: python3 -m unittest ci.test_audit_image
       - name: host tests (models of devices, file systems, scheduler, mind)
         run: |
           mkdir -p ci-out
