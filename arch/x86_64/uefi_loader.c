@@ -17,7 +17,7 @@
 #define EFI_ALLOCATE_MAX_ADDRESS 1u
 #define EFI_FILE_MODE_READ 1ull
 #define EFI_PAGE_SIZE 4096u
-#define MB2_INFO_MAX (256u * 1024u)
+#define BOOTINFO_MAX (256u * 1024u)
 #define KERNEL_MAX (64u * 1024u * 1024u)
 #define ONE_GB 0x40000000ull
 
