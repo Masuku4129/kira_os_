@@ -115,24 +115,25 @@ int main(void) {
         CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.kdrv", pk, sizeof pk, 0) == 0);
         CHECK(call("drvget", FS_OP_DRV_STAT, "demo.kdrv", 0, 0, 0) == (int64_t)sizeof pk);
         CHECK(call("drvget", FS_OP_DRV_READ, "demo.kdrv", 0, sizeof pk, 0) == (int64_t)sizeof pk && !memcmp(R.data, pk, sizeof pk));
+        kdrv_sig_t sig; memset(&sig, 0, sizeof sig);
+        sig.magic = KDRV_SIG_MAGIC; sig.format = KDRV_SIG_FORMAT; sig.size = sizeof sig;
+        memcpy(sig.key_id, "TEST-ED25519-001", 16); memcpy(sig.package_sha256, rec.pkg_sha, 32);
+        sig.package_size = sizeof pk; sig.not_before = 1; sig.not_after = 4102444800ULL;
+        CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.sig", &sig, sizeof sig, 0) == 0); /* signature durable before local confirmation */
+        CHECK(call("drvget", FS_OP_DRV_STAT, "demo.rec", 0, 0, 0) == KFS_ERR_NOENT); /* no commit marker yet */
         kdrv_rec_t bad = rec; bad.elf_sha[0] ^= 1; CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &bad, sizeof bad, 0) == FS_E_DENIED);   /* хеш не тот */
         bad = rec; bad.pkg_sha[5] ^= 1; CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &bad, sizeof bad, 0) == FS_E_DENIED);
         bad = rec; bad.confirmed = 0; CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &bad, sizeof bad, 0) == FS_E_ARG);                    /* не подтверждено */
         bad = rec; bad.caps_ok = CAP_NETDEV; CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &bad, sizeof bad, 0) == FS_E_DENIED);          /* подтверждено больше, чем просит пакет */
         CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &rec, sizeof rec, 0) == 0);
-        kdrv_sig_t sig; memset(&sig, 0, sizeof sig);
-        sig.magic = KDRV_SIG_MAGIC; sig.format = KDRV_SIG_FORMAT; sig.size = sizeof sig;
-        memcpy(sig.key_id, "TEST-ED25519-001", 16); memcpy(sig.package_sha256, rec.pkg_sha, 32);
-        sig.package_size = sizeof pk; sig.not_before = 1; sig.not_after = 4102444800ULL;
-        CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.sig", &sig, sizeof sig, 0) == 0); /* формат/хеш привязаны; Ed25519 проверяет ядро */
         CHECK(call("drvget", FS_OP_DRV_STAT, "demo.sig", 0, 0, 0) == (int64_t)sizeof sig);
         CHECK(call("drvget", FS_OP_DRV_READ, "demo.sig", 0, sizeof sig, 0) == (int64_t)sizeof sig && !memcmp(R.data, &sig, sizeof sig));
         kdrv_sig_t badsig = sig; badsig.package_sha256[0] ^= 1;
         CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.sig", &badsig, sizeof badsig, 0) == FS_E_DENIED);
         CHECK(call("drvget", FS_OP_DRV_REMOVE, "demo.sig", 0, 0, 0) == 0);
         CHECK(call("drvget", FS_OP_DRV_STAT, "demo.rec", 0, 0, 0) == KFS_ERR_NOENT); /* снять подпись нельзя, сохранив local-confirm */
-        CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &rec, sizeof rec, 0) == 0);
         CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.sig", &sig, sizeof sig, 0) == 0);
+        CHECK(call("drvget", FS_OP_DRV_WRITE, "demo.rec", &rec, sizeof rec, 0) == 0);
         int64_t ll = call("drvget", FS_OP_DRV_LIST, 0, 0, 0, 0);
         CHECK(ll > 0 && ll < 4096); R.data[ll] = 0;
         CHECK(strstr((char*)R.data, "demo.kdrv") && strstr((char*)R.data, "demo.rec"));
