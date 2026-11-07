@@ -42,6 +42,11 @@ static int send(netdev_t* d, const void* frame, uint32_t len) {
     for (unsigned i = 0; i < HDR; i++) b[i] = 0;
     const uint8_t* s = (const uint8_t*)frame;
     for (uint32_t i = 0; i < len; i++) b[HDR + i] = s[i];
+    if (virtio_dma_sync_for_device(v.txb + id * BUF, v.txb_p + id * BUF,
+                                    HDR + len) != 0) {
+        spin_unlock_irqrestore(&v.lk, f);
+        return -1;
+    }
     v.tx_busy[id] = 1;
     v.tx_next = (id + 1) % NTX;
     virtq_post(&v.tx, (uint16_t)id, v.txb_p + id * BUF, HDR + len, 0);
@@ -54,13 +59,19 @@ static int recv(netdev_t* d, void* buf, uint32_t max) {
     (void)d;
     uint16_t id; uint32_t len;
     if (!virtq_take(&v.rx, &id, &len)) return 0;
+    if (id >= NRX || virtio_dma_sync_for_cpu(v.rxb + id * BUF,
+                                              v.rxb_p + id * BUF, BUF) != 0)
+        return 0;
     int n = 0;
-    if (id < NRX && len > HDR && len - HDR <= max) {
+    if (len > HDR && len - HDR <= max) {
         const uint8_t* s = v.rxb + id * BUF + HDR; uint8_t* o = (uint8_t*)buf;
         n = (int)(len - HDR);
         for (int i = 0; i < n; i++) o[i] = s[i];
     }
-    if (id < NRX) { virtq_post(&v.rx, id, v.rxb_p + id * BUF, BUF, 1); virtq_kick(&v.rx); }
+    if (virtio_dma_sync_for_device(v.rxb + id * BUF, v.rxb_p + id * BUF, BUF) == 0) {
+        virtq_post(&v.rx, id, v.rxb_p + id * BUF, BUF, 1);
+        virtq_kick(&v.rx);
+    }
     return n;
 }
 
