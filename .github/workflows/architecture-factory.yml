@@ -1,0 +1,89 @@
+name: kira-architecture-factory
+
+on:
+  push:
+    branches: ['factory/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kira-architecture-factory-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    name: "${{ matrix.lane }} baseline validation"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 7
+      matrix:
+        lane:
+          - boot-chain
+          - kcc
+          - rtl8139
+          - kdrv
+          - iommu-x86
+          - smmu-arm64
+          - platform
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validation tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang lld nasm llvm qemu-system-x86 qemu-system-arm \
+            grub-pc-bin grub-efi-amd64-bin grub-common xorriso dosfstools mtools \
+            python3-cryptography python3-pil openssl
+      - name: Run lane baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "ci-out/factory/${{ matrix.lane }}"
+          exec > >(tee "ci-out/factory/${{ matrix.lane }}/run.log") 2>&1
+          echo "LANE=${{ matrix.lane }}"
+          echo "COMMIT=$GITHUB_SHA"
+          case "${{ matrix.lane }}" in
+            boot-chain)
+              ./build_clang.sh --no-run
+              python3 -m unittest ci.test_release_gate
+              ;;
+            kcc)
+              tests/kcc/run.sh
+              ;;
+            rtl8139)
+              python3 ci/dependency_audit.py
+              ./build_clang.sh --no-run
+              ;;
+            kdrv)
+              python3 -m unittest ci.test_kdrvsign
+              bash tests/drvget_e2e.sh
+              ;;
+            iommu-x86)
+              ./build_clang.sh --no-run
+              bash tests/run_host_tests.sh
+              ;;
+            smmu-arm64)
+              ./build_arm64.sh
+              ci/make_flash.sh
+              python3 ci/arm64_vm.py "ci-out/factory/${{ matrix.lane }}/arm64"
+              ;;
+            platform)
+              python3 ci/audit_inventory.py --out "ci-out/factory/${{ matrix.lane }}/audit"
+              python3 ci/dependency_audit.py
+              ;;
+            *)
+              echo "Unknown lane" >&2
+              exit 2
+              ;;
+          esac
+          echo "LANE_RESULT=PASS"
+      - name: Upload lane evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-factory-${{ matrix.lane }}
+          path: ci-out/factory/${{ matrix.lane }}/
+          if-no-files-found: warn
