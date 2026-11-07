@@ -22,7 +22,7 @@ int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
         (rsdp_phys && (rsdp_phys & 15u))) return -1;
     uint32_t n = map_size / descriptor_size;
     if (n > KIRA_BOOTINFO_MAX_MMAP) return -2;
-    uint64_t need = sizeof(kbi_header_t) + (uint64_t)n * sizeof(kbi_mmap_entry_t);
+    uint64_t max_entries = (uint64_t)n + 2u;\n    uint64_t need = sizeof(kbi_header_t) + max_entries * sizeof(kbi_mmap_entry_t);
     if (need > capacity || need > KIRA_BOOTINFO_MAX_SIZE) return -3;
 
     uint8_t *blob = (uint8_t *)out;
@@ -62,6 +62,39 @@ int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
         while (j && mm[j - 1].base > v.base) { mm[j] = mm[j - 1]; j--; }
         mm[j] = v;
     }
+    /* Reserve the kernel's physical range explicitly. UEFI loader pages
+       must never re-enter the allocator as ordinary conventional memory. */
+    uint64_t kernel_end = kernel_base + kernel_size;
+    uint32_t owner = count;
+    for (uint32_t i = 0; i < count; i++) {
+        uint64_t end = mm[i].base + mm[i].length;
+        if (kernel_base >= mm[i].base && kernel_end <= end) { owner = i; break; }
+    }
+    if (owner == count || count + 2u > KIRA_BOOTINFO_MAX_MMAP) return -6;
+    {
+        kbi_mmap_entry_t original = mm[owner];
+        uint64_t original_end = original.base + original.length;
+        uint32_t extra = (kernel_base > original.base ? 1u : 0u) +
+                         (kernel_end < original_end ? 1u : 0u);
+        for (uint32_t i = count; i > owner + 1u; i--) mm[i + extra - 1u] = mm[i - 1u];
+        uint32_t at = owner;
+        if (kernel_base > original.base) {
+            mm[at] = original;
+            mm[at].length = kernel_base - original.base;
+            at++;
+        }
+        mm[at].base = kernel_base;
+        mm[at].length = kernel_size;
+        mm[at].type = KBI_MEM_KERNEL;
+        mm[at].attributes = 0;
+        at++;
+        if (kernel_end < original_end) {
+            mm[at] = original;
+            mm[at].base = kernel_end;
+            mm[at].length = original_end - kernel_end;
+        }
+        count += extra;
+    }
     uint32_t merged = 0;
     for (uint32_t i = 0; i < count; i++) {
         if (merged) {
@@ -75,7 +108,7 @@ int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
         }
         mm[merged++] = mm[i];
     }
-    h->mmap_count = merged;
+    if (!merged) return -7;\n    h->mmap_count = merged;
     h->total_size = h->mmap_off + merged * (uint32_t)sizeof(kbi_mmap_entry_t);
     int rc = kbi_validate(blob, h->total_size);
     if (rc) return -10 + rc;
