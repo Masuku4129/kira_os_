@@ -371,7 +371,7 @@ int main(void) {
         wm_notify("Драйверы", "Устройство готово", WM_NOTIFY_INFO);
         wm_notify("Сеть", "Подключение восстановлено", WM_NOTIFY_SUCCESS);
         CHECK(wm_compose(&x, &y, &w, &h));
-        wm_anim(anim_ms + 6000, 0);
+        wm_anim(6000, 0);
         CHECK(wm_compose(&x, &y, &w, &h));
         CHECK(px(&scr, 1000, WM_TOP_H + 18) != shown);
         wm_notify("Система", "Очистка очереди", WM_NOTIFY_INFO);
