@@ -28,8 +28,9 @@ uint64_t pmm_arm_map_bytes(uint64_t lo, uint64_t hi) {
 void pmm_arm_reserve(uint64_t res_lo, uint64_t res_hi) {
     if (res_hi <= res_lo) return;
     uint64_t first = res_lo / 4096, end = res_hi / 4096 + ((res_hi & 4095) != 0);
+    if (first < base_pfn) first = base_pfn;
+    if (end > base_pfn + npages) end = base_pfn + npages;
     for (uint64_t p = first; p < end; p++) {
-        if (p < base_pfn || p >= base_pfn + npages) continue;
         uint64_t i = p - base_pfn;
         if (!used(i)) { set_used(i); free_pages--; }
         set_reserved(i);
