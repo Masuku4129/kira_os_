@@ -84,19 +84,21 @@ int kdrv_transition_apply_chain(const kdrv_transition_t *transitions,
         trusted_count > out_capacity ||
         transition_count > out_capacity - trusted_count)
         return KDRV_SIG_E_ARGUMENT;
+    kdrv_sig_key_t candidate[KDRV_SIG_MAX_KEYS];
     uint32_t n = trusted_count;
-    for (uint32_t i = 0; i < n; i++) out_keys[i] = trusted[i];
+    for (uint32_t i = 0; i < n; i++) candidate[i] = trusted[i];
     uint64_t generation = highest_generation;
     for (uint32_t i = 0; i < transition_count; i++) {
         kdrv_sig_key_t added;
-        int rc = kdrv_transition_verify(&transitions[i], out_keys, n,
+        int rc = kdrv_transition_verify(&transitions[i], candidate, n,
                                         now_utc, generation, &added);
         if (rc != KDRV_SIG_OK) return rc;
         if (n >= out_capacity || n >= KDRV_SIG_MAX_KEYS)
             return KDRV_SIG_E_TRUST_STORE;
-        out_keys[n++] = added;
+        candidate[n++] = added;
         generation = transitions[i].generation;
     }
+    for (uint32_t i = 0; i < n; i++) out_keys[i] = candidate[i];
     *out_count = n;
     *out_generation = generation;
     return KDRV_SIG_OK;
