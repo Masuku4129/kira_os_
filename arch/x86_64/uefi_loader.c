@@ -228,6 +228,7 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
         if(!ph[i].memsz||ph[i].filesz>ph[i].memsz||ph[i].offset>size||
            ph[i].filesz>size-ph[i].offset||ph[i].vaddr!=ph[i].paddr||
            ph[i].paddr<0x100000||ph[i].paddr>=ONE_GB||
+           (ph[i].paddr&(EFI_PAGE_SIZE-1u))||
            ph[i].memsz>ONE_GB-ph[i].paddr||(ph[i].flags&~7u)||
            ((ph[i].flags&3u)==3u)) return -3;
         if(ph[i].align>1) {
