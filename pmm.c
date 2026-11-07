@@ -128,6 +128,9 @@ static void defer_range(uint64_t base, uint64_t end) {
     uint64_t e = end & ~(PMM_PAGE_SIZE - 1);
     if (e > managed_top) e = managed_top;
     if (e <= s) return;
+    /* Mark only firmware-usable high pages as eligible for later mapping.
+       Reserved modules/framebuffer are re-marked below during BootInfo setup. */
+    for(uint64_t a=s;a<e;a+=PMM_PAGE_SIZE) clear_bit(reserved_map,a/PMM_PAGE_SIZE);
     if (high_n == PMM_MAX_HIGH) {
         uart_print("[KIRA PMM] Too many separate RAM ranges above 1 GB: one is ignored.\n");
         return;
