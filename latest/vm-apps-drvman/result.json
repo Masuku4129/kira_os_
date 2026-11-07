@@ -1,0 +1,208 @@
+{
+ "name": "apps-drvman",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "drvman: окно создано 640x560",
+   "ok": true
+  },
+  {
+   "log": "drvman: кадр: строк в списках [1-9]\\d*, устройств [1-9]\\d*, пакетов 4",
+   "ok": true
+  },
+  {
+   "expect": "drvman: набор готов к установке",
+   "ok": true
+  },
+  {
+   "log": "drvman: ищу драйвер «rl»",
+   "ok": true
+  },
+  {
+   "log": "лицензия:   заявлена BSD-3-Clause",
+   "ok": true
+  },
+  {
+   "log": "SHA-256 набора исходников \\(рецепт \\+ файлы\\): b66321a9",
+   "ok": true
+  },
+  {
+   "log": "10ec:8139",
+   "ok": true
+  },
+  {
+   "log": "CAP_DMA",
+   "ok": true
+  },
+  {
+   "log": "IOMMU",
+   "ok": true
+  },
+  {
+   "log": "Установка НЕ выполнена",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: установить rl v1\\?",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: источник https://10\\.0\\.2\\.100/rl/drvget\\.rec",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: лицензия BSD-3-Clause, права: MMIO DMA PCIDEV NETDEV",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: SHA-256 набора b66321a9[0-9a-f]{56}",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память",
+   "ok": true
+  },
+  {
+   "log": "drvman: установка отменена пользователем, ничего не записано",
+   "ok": true
+  },
+  {
+   "expect": "drvget: пакетов в /drv: 4 ",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "\\n  rl: версия",
+   "ok": true
+  },
+  {
+   "expect": "drvman: драйвер rl установлен в /drv",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждено пользователем, собираю и ставлю",
+   "ok": true
+  },
+  {
+   "log": "drvget: собрано, образ ELF \\d+ байт",
+   "ok": true
+  },
+  {
+   "expect": "rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, источник: https://10\\.0\\.2\\.100/rl/drvget\\.rec",
+   "ok": true
+  },
+  {
+   "expect": "verify rl: OK",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "must": "rl: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV",
+   "ok": true
+  },
+  {
+   "expect": "drvman: драйвер rl не запущен: нет свободного подходящего устройства PCI",
+   "ok": true
+  },
+  {
+   "expect": "drvman: пакет rl удалён",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "\\n  rl: версия",
+   "ok": true
+  },
+  {
+   "expect": "drvget: пакетов в /drv: 4 ",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA CAPS\\] process 'drvman'",
+   "ok": true
+  },
+  {
+   "log_forbid": "drvman: .*\\(FAIL\\)",
+   "ok": true
+  },
+  {
+   "log_forbid": "drvman: не удалось создать рабочий поток",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.05,
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.4,
+ "seconds": 41.6,
+ "commands": [
+  {
+   "cmd": "run drvman",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "drv",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "drv",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "drv",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.02
+  }
+ ]
+}
