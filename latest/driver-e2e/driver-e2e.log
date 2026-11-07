@@ -1,0 +1,3 @@
+/usr/bin/ld: /tmp/ccn2PtVx.o: in function `kdrv_sig_verify_with_key':
+kdrv_fmt.c:(.text+0x42d): undefined reference to `ed25519_verify'
+collect2: error: ld returned 1 exit status

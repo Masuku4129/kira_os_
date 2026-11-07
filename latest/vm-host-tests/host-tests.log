@@ -1,0 +1,59 @@
+== logic (sha256, immune) ==
+sha256 boundary vectors checked: 12
+ALL LOGIC TESTS PASSED
+== kernel heap (size classes, large page runs, ownership table, bad frees, random load, OOM) ==
+heap: classes, alignment, large blocks, ownership table growth, bad frees, 200k random ops, OOM recovery passed
+== kernel string functions (rep movsb/stosb, overlap both ways) ==
+mem: memcpy/memmove (both directions)/memset/memcmp passed
+== pmm (synthetic Multiboot2 memory map, contiguous blocks) ==
+free kb = 521076, expected 521076 (info_size=240)
+contiguous 3 MB block at 0x320000
+allocated 130269 pages, first=0x320000 last=0x1FFFF000
+ALL PMM TESTS PASSED
+== ARM64 PMM (permanent reservations, high-range bitmap, atomic contiguous free) ==
+pmm_arm: reserved pages, range rounding and atomic contiguous free PASS
+== ramext (mapping RAM above 1 GB) ==
+ALL RAMEXT TESTS PASSED
+== scheduler policy (incl. regression: pulsing critical thread) ==
+fair share: A=400 B=400 idle=0 switches=200
+fair share with a pulsing critical thread: A=1000 B=1000 pulses=2000
+quantum 8: switches=100
+core wake: due 3610, got 3610
+periodic runs=20 max wake latency=0 ticks
+extra threads created: 32
+ALL SCHEDULER TESTS PASSED
+== REAL context switch + FXSAVE/FXRSTOR (arch/x86_64/context.s, 3 threads, xmm live across switches) ==
+real FPU save/restore: context switches=102965, workers=3, rounds each=40, mismatches=0
+PASS
+no-FPU-save control: context switches=102965, workers=3, rounds each=40, mismatches=120
+CONTROL OK: corruption detected without FPU save
+== input layer (PS/2 decoder, ring, overflow) ==
+input: all decoder checks passed (incl. Cyrillic layout)
+== driver package format (kdrv_format.h: header, record, matching, hostile input) ==
+kdrv_test: PASS
+== drvget: https-only, рецепт, лицензии (GPL/бинарники отвергаются), хеш набора ==
+drvget: https-only URLs, recipe parsing and mutations, license/GPL/binary rejection, set hash, confirmation prefix passed
+== драйвер rl(4) (RTL8139) против модели чипа ==
+rl_test mode 0 passed: MAC from EEPROM, rings, padding, wrap-around, link, restart on bad header (14 tx, 300 rx, 2 chip resets)
+rl_test mode 1 passed: MAC from EEPROM, rings, padding, wrap-around, link, restart on bad header (0 tx, 1 rx, 3 chip resets)
+rl_test mode 2 (empty EEPROM -> MAC from IDR) passed
+rl.c: kcc x86-64 36864 байт, kcc AArch64 36864 байт - собирается
+== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) ==
+acpi: all parser checks passed (incl. Intel MP tables, BIOS scan)
+== IOAPIC (ISO resolution, redirection encoding) ==
+ioapic: ISO resolution and redirection-entry encoding passed
+== persistent store (CRC32, A/B generations, torn write, corruption) ==
+store: CRC vector, A/B generations, torn write, corruption fallback passed
+== KiraFS (files, dirs, crash at every write, corruption fuzz) ==
+crash cases: 191
+fuzz: mounted 334, rejected 66
+kfs v2: 1500-entry directory, inode table growth, volume growth with the disk, 5 MB files, v1 upgrade passed
+kfs ok
+== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS over virtio) ==
+virtio: PCI bus/bridge/BAR/capabilities, virtio 1.0 init order, rings, chunking, size_max, RO, flush, timeout, KiraFS over virtio passed
+== programs: ELF validation, trust manifest, life log in KiraFS ==
+programs: ELF validation (0 real binaries, 20000 corruptions), trust manifest, life log and profiles in KiraFS passed
+== program file service (sandbox /data/<name>) ==
+/usr/bin/ld: /tmp/ccQPHzlU.o: in function `kdrv_sig_verify_with_key':
+/home/runner/work/kira_os_/kira_os_/kdrv_fmt.c:59:(.text+0x909): undefined reference to `ed25519_verify'
+collect2: error: ld returned 1 exit status
