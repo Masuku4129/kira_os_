@@ -654,7 +654,7 @@ static void confirm_open(void) {                           /* окно подт�
     lg("drvman: подтверждение: лицензия %s, права: %s\n", r->license, cs);
     lg("drvman: подтверждение: SHA-256 набора %s\n", drvget_staged_hash());
     lg("drvman: предупреждение: цифровой подписи издателя нет; SHA-256 сверяется только с локальной записью и не доказывает автора\n");
-    if (r->caps & (CAP_DMA | CAP_IRQ)) lg("drvman: подтверждение: DMA/MSI будут отклонены ядром: домен IOMMU для устройства не настроен\\n");
+    if (r->caps & (CAP_DMA | CAP_IRQ)) lg("drvman: подтверждение: DMA/MSI будут отклонены ядром: домен IOMMU для устройства не настроен\n");
 }
 
 static void press(int id) {
