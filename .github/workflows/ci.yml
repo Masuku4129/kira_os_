@@ -123,6 +123,10 @@ jobs:
             kira.disk
             kira.bin
             ci-out/image-audit.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-image-audit
+          path: ci-out/image-audit.json
 
   arm64:
     runs-on: ubuntu-24.04
@@ -345,6 +349,10 @@ jobs:
           path: ci-out/audit
       - uses: actions/download-artifact@v4
         with:
+          name: kira-image-audit
+          path: ci-out/image-audit
+      - uses: actions/download-artifact@v4
+        with:
           name: kira-mind-quality
           path: ci-out/results/mind-quality
       - uses: actions/download-artifact@v4
@@ -370,6 +378,9 @@ jobs:
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+          IMAGE_AUDIT_RESULT: ${{ needs.build.result }}
+          IMAGE_AUDIT_DIR: ci-out/image-audit
+          KIRA_VERSION: v46
           KIRA_BASE_REF: edae4ab3367a055826f431e261af5d6dee790ddf
           CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash ci/package_update.sh origin/main ci-out/package
