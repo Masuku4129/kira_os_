@@ -64,7 +64,8 @@ PY_AUDIT
 python3 ci/release_image.py "$IMAGE_AUDIT"
 
 # The release archive must carry the exact images produced and audited by this CI run.
-for image in "$RELEASE_IMAGE_DIR/kira.iso" "$RELEASE_IMAGE_DIR/kira_disk.img"; do
+for image in "$RELEASE_IMAGE_DIR/kira.iso" "$RELEASE_IMAGE_DIR/kira_disk.img" \
+             "$ARM64_IMAGE_DIR/kira-arm64.img" "$ARM64_IMAGE_DIR/kira-arm64.disk"; do
   if [ ! -s "$image" ]; then
     echo "ERROR: tested release image is missing or empty: $image" >&2
     exit 1
@@ -82,8 +83,8 @@ R="$STAGE/kira_os/RELEASE"
 mkdir -p "$R"
 cp "$RELEASE_IMAGE_DIR/kira.iso" "$R/kira.iso"
 cp "$RELEASE_IMAGE_DIR/kira_disk.img" "$R/kira_disk.img"
-if [ -s "$ARM64_IMAGE_DIR/kira-arm64.img" ]; then cp "$ARM64_IMAGE_DIR/kira-arm64.img" "$R/kira-arm64.img"; fi
-if [ -s "$ARM64_IMAGE_DIR/kira-arm64.disk" ]; then cp "$ARM64_IMAGE_DIR/kira-arm64.disk" "$R/kira-arm64.disk"; fi
+cp "$ARM64_IMAGE_DIR/kira-arm64.img" "$R/kira-arm64.img"
+cp "$ARM64_IMAGE_DIR/kira-arm64.disk" "$R/kira-arm64.disk"
 
 {
   echo "# KIRA OS $KIRA_VERSION"
@@ -109,7 +110,7 @@ cat > "$R/INSTALL_TERMUX.md" <<'EOF_INSTALL'
 
 Архив содержит исходники и **готовые образы, собранные и проверенные тем же CI run**:
 - `RELEASE/kira.iso` — готовый x86-64 ISO;
-- `RELEASE/kira_disk.img` — чистый системный диск для новой установки;
+- `RELEASE/kira_disk.img` — системный диск, собранный тем же CI run;
 - `RELEASE/kira-arm64.img` и `RELEASE/kira-arm64.disk` — ARM64 артефакты, если они были собраны.
 
 1. Распаковать архив из Download:
