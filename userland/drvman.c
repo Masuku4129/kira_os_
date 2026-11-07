@@ -258,7 +258,11 @@ static void caps_str(u32 c, char *b, int cap) {
 }
 static const char *pkg_status(const drvget_pkg_t *k) {
     switch (k->state) {
-    case DGP_OK: return "SHA-256 сходится";
+    case DGP_OK:
+        if (k->auth_state == DGP_AUTH_PUBLISHER) return "SHA-256 + Ed25519 OK";
+        if (k->auth_state == DGP_AUTH_INVALID) return "ПОДПИСЬ ОТКЛОНЕНА";
+        if (k->auth_state == DGP_AUTH_UNKNOWN) return "подпись не проверена";
+        return "SHA-256 OK, локально";
     case DGP_BAD: return "НЕ СОВПАДАЕТ";
     case DGP_NOREC: return "нет файла .rec";
     case DGP_UNCONF: return "не подтверждён";
