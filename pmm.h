@@ -8,7 +8,9 @@
 
 // Разбирает карту памяти Multiboot2. magic/addr - аргументы, полученные от
 // загрузчика. Возвращает 0 при успехе, отрицательное значение при ошибке.
-int pmm_init(unsigned long magic, unsigned long addr);\nint pmm_init_bootinfo(const void* blob, uint32_t blob_size,\n                      uint64_t reserve_addr, uint64_t reserve_size);
+int pmm_init(unsigned long magic, unsigned long addr);
+int pmm_init_bootinfo(const void* blob, uint32_t blob_size,
+                      uint64_t reserve_addr, uint64_t reserve_size);
 
 // Возвращает физический адрес свободной страницы или 0, если памяти нет.
 // (Страница 0 всегда зарезервирована, поэтому 0 - однозначный признак ошибки.)
