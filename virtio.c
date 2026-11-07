@@ -164,9 +164,10 @@ int virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
         dma_allocation_t saved = *a;
         *a = (dma_allocation_t){0};
         dma_unlock();
+#ifdef KIRA_HOST_TEST
         if (saved.owner == DMA_OWNER_HOST) free(saved.cpu);
-#ifndef KIRA_HOST_TEST
-        else if (saved.owner == DMA_OWNER_PLATFORM)
+#else
+        if (saved.owner == DMA_OWNER_PLATFORM)
             platform_dma_free(saved.cpu, saved.phys, saved.pages * 4096u);
         else if (saved.owner == DMA_OWNER_PMM)
             result = pmm_free_contiguous(saved.phys, saved.pages);
