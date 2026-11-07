@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: BSD-2-Clause */
 /* KIRA RTL8139 datapath primitives.
  * Register-independent receive/transmit ring logic implemented from the
  * RTL8139 programming specification. No BSD-derived source is used here.
