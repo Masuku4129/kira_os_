@@ -56,6 +56,9 @@ int kbi_validate(const void* blob, uint32_t available);
 int kbi_from_multiboot2(const void* info, uint32_t available,
                         uint64_t kernel_base, uint64_t kernel_size,
                         const void** result, uint32_t* result_size);
+int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
+                 uint64_t kernel_base, uint64_t kernel_size,
+                 void* out, uint32_t capacity, uint32_t* out_size);
 const kbi_mmap_entry_t* kbi_mmap(const void* blob);
 const kbi_module_t* kbi_modules(const void* blob);
 
