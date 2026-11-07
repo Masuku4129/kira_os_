@@ -99,13 +99,13 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // Загрузчик (UEFI) мог положить Multiboot2-структуру выше 1 ГБ: переносим её в ядро
     // и сразу включаем раннюю консоль на экране, чтобы любой сбой дальше был виден.
     addr = mbinfo_relocate(magic, addr);
-    if (magic == 0x36D76289UL && addr && (addr & 7) == 0) {
+    if (magic == 0x36D76289UL && addr && addr < (1UL << 30) && (addr & 7) == 0) {
         const void* bootinfo = 0;
         uint32_t bootinfo_size = 0;
         uint32_t mb2_size = *(const uint32_t*)(uintptr_t)addr;
         int bi_rc = kbi_from_multiboot2((const void*)(uintptr_t)addr, mb2_size,
             (uint64_t)(uintptr_t)kernel_start,
-            (uint64_t)(uintptr_t)(kernel_end - kernel_start),
+            ((uint64_t)(uintptr_t)kernel_end - (uint64_t)(uintptr_t)kernel_start),
             &bootinfo, &bootinfo_size);
         if (bi_rc != 0) {
             uart_print("[KIRA BOOT] Multiboot2 to BootInfo conversion rejected: ");
