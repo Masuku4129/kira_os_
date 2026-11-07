@@ -113,7 +113,7 @@ static void responsive_topbar(void) {
         int w = dims[d][0], h = dims[d][1];
         surface_t sc = { calloc((size_t)w * h, 4), w, h, w };
         CHECK(sc.px != 0);
-        wm_ops_t o = { al, nt, inp, lc, rz, tb };
+        wm_ops_t o = { al, nt, inp, lc, rz, tb, 0, rel };
         wm_init(&sc, &o);
         wm_tabs_set(many, (int)(sizeof many / sizeof many[0]));
         int app = wm_create("Проверка окна", WM_AUTO, WM_AUTO, 600, 564, WM_ZOOMABLE);
