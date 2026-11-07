@@ -81,7 +81,22 @@ jobs:
           PROMPT
           printf '%s\n' "$KIRA_TASK" >> "$RUNNER_TEMP/kira-agent-prompt.md"
           copilot -p "$(cat "$RUNNER_TEMP/kira-agent-prompt.md")" -s --no-ask-user \
-            --allow-tool='read, write, shell(git status), shell(git diff), shell(git log), shell(git grep), shell(git ls-files), shell(git show), shell(rg:*), shell(grep:*), shell(find:*), shell(sed:*), shell(cat:*), shell(head:*), shell(tail:*), shell(ls:*)' \
+            --allow-tool=read \
+            --allow-tool=write \
+            --allow-tool='shell(git status:*)' \
+            --allow-tool='shell(git diff:*)' \
+            --allow-tool='shell(git log:*)' \
+            --allow-tool='shell(git show:*)' \
+            --allow-tool='shell(git grep:*)' \
+            --allow-tool='shell(git ls-files:*)' \
+            --allow-tool='shell(rg:*)' \
+            --allow-tool='shell(grep:*)' \
+            --allow-tool='shell(find:*)' \
+            --allow-tool='shell(sed:*)' \
+            --allow-tool='shell(cat:*)' \
+            --allow-tool='shell(head:*)' \
+            --allow-tool='shell(tail:*)' \
+            --allow-tool='shell(ls:*)' \
             | tee "$RUNNER_TEMP/kira-agent-output.txt"
 
       - name: Publish changes as a draft pull request
