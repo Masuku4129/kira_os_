@@ -196,16 +196,18 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
 
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {
     uint8_t* z = (uint8_t*)o; for (uint32_t i = 0; i < sizeof(*o); i++) z[i] = 0;
-    if (rsdp_phys == 0 || rsdp_phys > max_phys || max_phys - rsdp_phys < 20) return -1;
-    const rsdp_t* r = (const rsdp_t*)(uintptr_t)rsdp_phys;
+    if (rsdp_phys == 0 || rsdp_phys > UINT64_MAX - sizeof(rsdp_t)) return -1;
+    const rsdp_t* r = (const rsdp_t*)reach(rsdp_phys, sizeof(rsdp_t), max_phys);
+    if (!r) return -1;
     const char magic[8] = {'R','S','D',' ','P','T','R',' '};
     for (int i = 0; i < 8; i++) if (r->sig[i] != magic[i]) return -2;
     if (!sum_ok(r, 20)) return -3;
     o->revision = r->rev;
     int use_x = 0;
     if (r->rev >= 2) {
-        if (max_phys - rsdp_phys < sizeof(rsdp_t) || r->len < sizeof(rsdp_t) ||
-            r->len > max_phys - rsdp_phys || !sum_ok(r, r->len)) return -4;
+        if (r->len < sizeof(rsdp_t) || rsdp_phys > UINT64_MAX - r->len) return -4;
+        r = (const rsdp_t*)reach(rsdp_phys, r->len, max_phys);
+        if (!r || !sum_ok(r, r->len)) return -4;
         use_x = r->xsdt != 0;
     }
     uint64_t root = use_x ? r->xsdt : r->rsdt;
@@ -360,6 +362,24 @@ int acpi_init(uint64_t mbi) {
     info = keep;
     if (!info.valid) { uart_print("[KIRA ACPI] No MP tables either: one processor, PIC.\n"); return -2; }
     return 0;
+}
+
+int acpi_init_rsdp(uint64_t rsdp_phys) {
+    const uint64_t ONE_GB = 1ULL << 30;
+    int rc = acpi_parse(rsdp_phys, ONE_GB, &info);
+    if (rc == 0) {
+        uart_print("[KIRA ACPI] UEFI RSDP validated, tables ok ");
+        uart_print_dec(info.tables_seen);
+        uart_print(" bad "); uart_print_dec(info.tables_bad);
+        uart_print(" unmapped "); uart_print_dec(info.tables_skipped_high);
+        uart_print(", CPUs "); uart_print_dec(info.cpu_count);
+        uart_print(", IOAPICs "); uart_print_dec(info.ioapic_count);
+        uart_print("\\n");
+        return info.cpu_count ? 0 : -2;
+    }
+    uart_print("[KIRA ACPI] UEFI RSDP/root table validation failed, code ");
+    uart_print_dec((uint64_t)(-rc)); uart_print("\\n");
+    return rc;
 }
 
 const acpi_info_t* acpi_get(void) { return info.valid ? &info : 0; }
