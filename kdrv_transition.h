@@ -22,6 +22,18 @@ _Static_assert(sizeof(kdrv_transition_t) == 160, "KDRV transition ABI");
 
 /* Verifies a transition signed by an existing active publisher key.
  * The caller must persist generation atomically before trusting new_key. */
+#define KDRV_TRANSITION_MAX_CHAIN 32u
+
+/* Apply a strictly increasing chain to a caller-owned trust snapshot.
+ * Caller must atomically persist the returned snapshot and generation. */
+int kdrv_transition_apply_chain(const kdrv_transition_t *transitions,
+                               uint32_t transition_count,
+                               const kdrv_sig_key_t *trusted,
+                               uint32_t trusted_count, int64_t now_utc,
+                               uint64_t highest_generation,
+                               kdrv_sig_key_t *out_keys, uint32_t out_capacity,
+                               uint32_t *out_count, uint64_t *out_generation);
+
 int kdrv_transition_verify(const kdrv_transition_t *transition,
                            const kdrv_sig_key_t *trusted, uint32_t trusted_count,
                            int64_t now_utc, uint64_t highest_generation,
