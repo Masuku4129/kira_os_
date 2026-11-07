@@ -27,11 +27,12 @@ static uint8_t* mk_mbi(uint64_t at, int with_mmap){
     *(uint32_t*)p=3; *(uint32_t*)(p+4)=28;
     *(uint32_t*)(p+8)=0x800000; *(uint32_t*)(p+12)=0x802000;
     memcpy(p+16,"test-initrd",12); p+=32;
-    /* Also cover the deferred >1 GiB path: this range must stay reserved
-       after pmm_add_high maps the containing RAM interval. */
-    *(uint32_t*)p=3; *(uint32_t*)(p+4)=28;
-    *(uint32_t*)(p+8)=0x100100000ULL; *(uint32_t*)(p+12)=0x100102000ULL;
-    memcpy(p+16,"high-initrd",12); p+=32;
+    /* A framebuffer in deferred >1 GiB RAM must remain reserved after mapping. */
+    *(uint32_t*)p=8; *(uint32_t*)(p+4)=38;
+    *(uint64_t*)(p+8)=0x100100000ULL;
+    *(uint32_t*)(p+16)=16; *(uint32_t*)(p+20)=4; *(uint32_t*)(p+24)=1;
+    p[28]=32; p[29]=1; p[32]=16; p[33]=8; p[34]=8; p[35]=8; p[36]=0; p[37]=8;
+    p+=40;
     if(with_mmap){
         struct E{uint64_t a,l;uint32_t t,r;} ents[]={
             {0,0x9FC00,1,0},{0x9FC00,0x60400,2,0},{0x100000,0x1FF00000ULL,1,0},
@@ -81,7 +82,7 @@ int main(void){
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==-5);                // нет места под карты
     pmm_test_store=store_buf; pmm_test_store_bytes=sizeof store_buf;
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==0);
-    uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 2 - 1;
+    uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 1 - 1;
     printf("free kb = %u, expected %llu (info_size=%u)\n",pmm_get_free_memory_kb(),(unsigned long long)expect_pages*4,info_size);
     CHECK(pmm_get_free_memory_kb()==expect_pages*4);
     CHECK(pmm_free_page(0x800000)==-1);
@@ -139,7 +140,7 @@ int main(void){
         CHECK(k == 1 && r[0].start == 0x100000000ULL && r[0].end == 0x140000000ULL);
         CHECK(pmm_managed_top() == 0x140000000ULL);
         CHECK(pmm_free_page(0x100000000ULL) == -1);            // ещё не добавлена
-        CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 2046);
+        CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 2047);
         CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 0);   // повтор ничего не меняет
         CHECK(pmm_add_high(0x13FF00000ULL, 0x140100000ULL) == -1);               // выходит за диапазон
         CHECK(pmm_add_high(0x50000000ULL, 0x50200000ULL) == -1);                 // не ОЗУ выше 1 ГБ
@@ -147,7 +148,7 @@ int main(void){
         CHECK(pmm_get_free_memory_kb() == 2046 * 4);\n        CHECK(pmm_free_page(0x100100000ULL)==-1);\n        CHECK(pmm_free_page(0x100101000ULL)==-1);
         uint64_t a = pmm_alloc_page();
         CHECK(a >= 0x100000000ULL && a < 0x100000000ULL + (8ULL<<20));
-        CHECK(!(a>=0x100100000ULL && a<0x100102000ULL));
+        CHECK(a != 0x100100000ULL);
         uint64_t blk = pmm_alloc_contiguous(512);
         CHECK(blk >= 0x100000000ULL && blk + 512*4096 <= 0x100000000ULL + (8ULL<<20));
         CHECK(pmm_free_contiguous(blk, 512) == 0);
