@@ -23,7 +23,7 @@ $CC -O1 -Wall -o $T/mem tests/mem_test.c $T/kmem.o
 $T/mem
 
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
-$CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
+$CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c bootinfo_mb2.c bootinfo.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
 $T/pmm | head -4
 
 echo "== ramext (mapping RAM above 1 GB) =="
