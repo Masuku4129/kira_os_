@@ -103,6 +103,24 @@ int main(int argc, char** argv) {
         uint8_t message = 0x42;
         CHECK(ed25519_verify(identity_pk, &message, 1, identity_sig) == -1);
     }
+    {
+        uint8_t torsion_pk[32], noncanonical_pk[32], sig[64] = {1}, message = 0x42;
+        memset(torsion_pk, 0xff, sizeof torsion_pk);
+        torsion_pk[0] = 0xec; torsion_pk[31] = 0x7f; /* order-2 point (0,-1) */
+        memset(noncanonical_pk, 0xff, sizeof noncanonical_pk);
+        noncanonical_pk[0] = 0xed; noncanonical_pk[31] = 0x7f; /* y = p, not canonical */
+        CHECK(ed25519_verify(torsion_pk, &message, 1, sig) == -1);
+        CHECK(ed25519_verify(noncanonical_pk, &message, 1, sig) == -1);
+        /* S must be strictly smaller than the Ed25519 subgroup order L. */
+        static const uint8_t order_l[32] = {
+            0xed,0xd3,0xf5,0x5c,0x1a,0x63,0x12,0x58,
+            0xd6,0x9c,0xf7,0xa2,0xde,0xf9,0xde,0x14,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x10
+        };
+        memcpy(sig + 32, order_l, sizeof order_l);
+        CHECK(ed25519_verify(valid_pk, &message, 1, sig) == -1);
+    }
     if (!fails) printf("pk: RSA 2048/3072/4096 PKCS#1 v1.5 + PSS (SHA-256/384/512), ECDSA P-256/P-384 (+truncated hash), Ed25519 (RFC 8032 TEST 1-3), forgeries rejected - passed\n");
     else printf("PK TESTS FAILED\n");
     if (!fails && argc > 1) printf("pk: cross-check with python cryptography/OpenSSL: %d Ed25519 and %d RSA-PSS signatures (valid and corrupted; hash, MGF1 hash, salt length vary) - passed\n", ned, npss);
