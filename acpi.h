@@ -1,9 +1,11 @@
 #ifndef ACPI_H
 #define ACPI_H
 #include <stdint.h>
+#include "acpi_prt.h"
 
 #define ACPI_MAX_IOAPIC 64
 #define ACPI_MAX_CPU    256
+#define ACPI_MAX_PRT    KIRA_ACPI_PRT_MAX
 
 typedef struct {
     int      valid;            /* RSDP и корневая таблица прошли проверку контрольных сумм */
@@ -32,6 +34,8 @@ typedef struct {
     uint8_t  reset_space;          /* 0 - память, 1 - порт */
     uint64_t reset_addr;
     uint8_t  reset_value;
+    uint32_t prt_count;          /* bounded _PRT entries extracted from DSDT; link-device resolution is separate */
+    kira_acpi_prt_entry_t prt[ACPI_MAX_PRT];
     int      legacy_isa;           /* платформа сообщает, что устаревшие устройства ISA есть: бит 0 IAPC_BOOT_ARCH в FADT (ACPI 2.0+) или шина ISA в таблицах MP */
 } acpi_info_t;
 
