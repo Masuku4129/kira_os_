@@ -221,10 +221,6 @@ static void *alloc_low_pages(EFI_BOOT_SERVICES *bs,uint64_t bytes) {
     return EFI_ERROR(st)?0:(void*)(uintptr_t)address;
 }
 
-static uint8_t *put_tag(uint8_t *p,uint32_t type,uint32_t size) {
-    uint32_t *h=(uint32_t*)p; h[0]=type; h[1]=size;
-    return (uint8_t*)align_up((uintptr_t)p+size,8);
-}
 
 static int mask_info(uint32_t mask,uint8_t *pos,uint8_t *bits) {
     if(!mask) return -1;
