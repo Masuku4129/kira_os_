@@ -10,8 +10,8 @@
 
 struct kira_smmu_domain {
     struct kira_smmu *smmu;
+    /* Alias of the controller-owned table; never freed by a domain. */
     void *stream_table;
-    uint64_t stream_table_physical;
     void *context_table;
     uint64_t context_table_physical;
     void *stage1_root;
