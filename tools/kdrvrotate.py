@@ -67,6 +67,8 @@ def main() -> int:
                          a.old_id.encode("ascii"), a.new_id.encode("ascii"), new_pub,
                          a.generation, a.not_before, a.not_after, key.sign(message))
     if len(record) != SIZE: raise AssertionError("transition ABI mismatch")
+    if a.output.resolve() in (a.old_key.resolve(), a.old_public.resolve(), a.new_public.resolve()):
+        raise ValueError("output must not overwrite private or public key material")
     existing = a.output.read_bytes() if a.append and a.output.exists() else b""
     if len(existing) % SIZE or len(existing) // SIZE >= MAX_RECORDS:
         raise ValueError("existing transition journal is malformed or full")
