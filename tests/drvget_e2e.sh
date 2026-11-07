@@ -159,16 +159,16 @@ seed = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031c
 key = Ed25519PrivateKey.from_private_bytes(seed)
 (root / "test-key.pem").write_bytes(key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()))
 pub = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-(root / "test-public.hex").write_text(pub.hex() + "\\n", encoding="ascii")
+(root / "test-public.hex").write_text(pub.hex() + "\n", encoding="ascii")
 (root / "test-trust.h").write_text(
     '#define KDRV_TRUST_KEY_ID "TEST-ED25519-001"\\n'
     + "static const unsigned char test_pub[] = {"
-    + ",".join(f"0x{x:02x}" for x in pub) + "};\\n",
+    + ",".join(f"0x{x:02x}" for x in pub) + "};\n",
     encoding="ascii")
 PY
-python3 -I tools/kdrvsign.py "$T/rl.package" --key "$T/test-key.pem" \\
-    --public-key "$T/test-public.hex" --trust-header "$T/test-trust.h" \\
-    --key-id TEST-ED25519-001 --not-before 1700000000 --not-after 4102444800 \\
+python3 -I tools/kdrvsign.py "$T/rl.package" --key "$T/test-key.pem" \
+    --public-key "$T/test-public.hex" --trust-header "$T/test-trust.h" \
+    --key-id TEST-ED25519-001 --not-before 1700000000 --not-after 4102444800 \
     --output "$W/rl/drvget.sig" >"$T/sign.log" 2>&1 || note "test publisher signer failed: $(cat "$T/sign.log")"
 rm -rf "$T/sb" "$T/drv"; mkdir -p "$T/sb" "$T/drv"
 run "install $U/rl/drvget.rec"
