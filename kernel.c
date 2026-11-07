@@ -96,13 +96,29 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     if (!uart_present()) uart_print("[KIRA UART] No COM1 serial port: the log goes to the screen only, commands - from the keyboard.\n");
     uart_print("==================================================\n");
 
-    // Загрузчик (UEFI) мог положить Multiboot2-структуру выше 1 ГБ: переносим её в ядро
-    // и сразу включаем раннюю консоль на экране, чтобы любой сбой дальше был виден.
-    addr = mbinfo_relocate(magic, addr);
+    /* Native UEFI passes a validated BootInfo blob; Multiboot2 remains the BIOS path. */
     const void* bootinfo = 0;
     uint32_t bootinfo_size = 0;
     uint32_t mb2_size = 0;
-    if (magic == 0x36D76289UL && addr && addr < (1UL << 30) && (addr & 7) == 0) {
+    int uefi_boot = 0;
+    if (magic == KIRA_BOOTINFO_MAGIC) {
+        if (!addr || addr >= (1UL << 30) || (addr & 7))
+            kernel_panic("UEFI BootInfo pointer is outside the early identity map");
+        const kbi_header_t* bi = (const kbi_header_t*)(uintptr_t)addr;
+        if (bi->total_size < sizeof(*bi) || bi->total_size > KIRA_BOOTINFO_MAX_SIZE ||
+            kbi_validate(bi, bi->total_size) != 0 || bi->boot_mode != KBI_BOOT_UEFI ||
+            bi->arch != KBI_ARCH_X86_64)
+            kernel_panic("UEFI BootInfo validation failed");
+        bootinfo = bi;
+        bootinfo_size = bi->total_size;
+        uefi_boot = 1;
+        uart_print("[KIRA BOOT] Native UEFI BootInfo validated: memory ranges=");
+        uart_print_dec(bi->mmap_count); uart_print(", bytes=");
+        uart_print_dec(bootinfo_size); uart_print(".\n");
+    } else {
+        addr = mbinfo_relocate(magic, addr);
+    }
+    if (!uefi_boot && magic == 0x36D76289UL && addr && addr < (1UL << 30) && (addr & 7) == 0) {
         mb2_size = *(const uint32_t*)(uintptr_t)addr;
         int bi_rc = kbi_from_multiboot2((const void*)(uintptr_t)addr, mb2_size,
             (uint64_t)(uintptr_t)kernel_start,
@@ -119,7 +135,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
         uart_print(", modules="); uart_print_dec(bi->modules_count);
         uart_print(", bytes="); uart_print_dec(bootinfo_size); uart_print(".\n");
     }
-    if (earlycon_init(addr) == 0) uart_print("[KIRA BOOT] Early console is on screen.\n");
+    if (!uefi_boot && earlycon_init(addr) == 0) uart_print("[KIRA BOOT] Early console is on screen.\n");
 
     // Каждый модуль печатает "online" только после реальной проверки;
     // при отказе ядро останавливается с диагностикой, а не идёт дальше.
@@ -131,7 +147,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     if (fpu_init() != 0)            kernel_panic("FPU/SSE initialization failed");
 
     if (bootinfo) {
-        if (pmm_init_bootinfo(bootinfo, bootinfo_size, addr, mb2_size) != 0)
+        if (pmm_init_bootinfo(bootinfo, bootinfo_size, uefi_boot ? 0 : addr, uefi_boot ? 0 : mb2_size) != 0)
             kernel_panic("PMM initialization from BootInfo failed");
     } else if (pmm_init(magic, addr) != 0) kernel_panic("PMM initialization failed");
     if (vmm_init() != 0)            kernel_panic("VMM initialization failed");
@@ -153,7 +169,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     }
     ramext_init();
     acpi_set_map_hook(acpi_map);
-    acpi_init(addr);
+    if (uefi_boot) acpi_init_rsdp(((const kbi_header_t*)bootinfo)->rsdp_phys);
+    else acpi_init(addr);
     {
         const acpi_info_t* ai = acpi_get();
         hw_init(ai && ai->valid ? ai->cpu_count : 1, pmm_get_total_memory_kb());
@@ -176,8 +193,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // отобразит видеопамять; если драйвер не смог (формат пикселей, память), ранняя
     // консоль возвращается и показывает весь журнал, а не оставляет чёрный экран.
     earlycon_stop();
-    if (display_init(addr) != 0) {
-        int ec_rc = earlycon_init(addr);
+    if (display_init(uefi_boot ? 0 : addr) != 0) {
+        int ec_rc = uefi_boot ? -1 : earlycon_init(addr);
         uart_print("[KIRA DISPLAY] Running without the graphical shell (");
         uart_print(ec_rc == 0 ? "text console on screen" : "serial console only");
         uart_print(").\n");
@@ -204,7 +221,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     int have_apic;
     {
         const acpi_info_t* ai = acpi_get();
-        have_apic = (apic_init(mbinfo_cmdline_has(addr, "x2apic"), ai && ai->valid ? ai->max_apic_id : 0) == 0);
+        have_apic = (apic_init(!uefi_boot && mbinfo_cmdline_has(addr, "x2apic"), ai && ai->valid ? ai->max_apic_id : 0) == 0);
     }
     if (have_apic) percpu_table[0].apic_id = apic_get_id();   /* настоящий ID загрузочного ядра (не обязательно 0) */
     else uart_print("[KIRA APIC] Continuing without Local APIC (PIT only).\n");
