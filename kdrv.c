@@ -119,9 +119,9 @@ static int name_valid(const char* n) {
 /* Читает пакет и ВСЕГДА сверяет хеши: образа ELF и всего файла .kdrv - с /drv/ИМЯ.rec. Ошибка - код KDRV_E_* или KFS-код (< -100 не бывает). */
 static int pkg_load(const char* name, pkg_t* p) {
     p->buf = 0; p->len = 0;
-    char path[48], rpath[48];
-    path_of(path, name, ".kdrv"); path_of(rpath, name, ".rec");
-    kfs_stat_t st, rs;
+    char path[48], rpath[48], spath[48];
+    path_of(path, name, ".kdrv"); path_of(rpath, name, ".rec"); path_of(spath, name, ".sig");
+    kfs_stat_t st, rs, ss;
     if (kfs_stat(path, &st) != 0 || st.type != KFS_FILE) return KDRV_E_SHORT;
     if (st.size < sizeof(kdrv_header_t) || st.size > sizeof(kdrv_header_t) + KDRV_ELF_MAX) return KDRV_E_SIZE;
     if (kfs_stat(rpath, &rs) != 0 || rs.type != KFS_FILE || rs.size != sizeof(kdrv_rec_t)) return KDRV_E_UNCONFIRMED;   /* нет подтверждения установки */
@@ -132,6 +132,15 @@ static int pkg_load(const char* name, pkg_t* p) {
     int rc = kdrv_header_check(b, (uint32_t)st.size, &p->h);
     if (rc == KDRV_OK && !streq(p->h.name, name)) rc = KDRV_E_NAME;            /* имя в заголовке = имя файла: переименованный пакет не годится */
     if (rc == KDRV_OK) rc = kdrv_rec_check(&rec, sizeof rec, &p->r);
+    /* Detached publisher signature is optional for legacy locally-confirmed packages.
+       If a .sig file is present, it must be structurally valid and verify against the owner keyring. */
+    if (rc == KDRV_OK && kfs_stat(spath, &ss) == 0) {
+        kdrv_sig_t sig;
+        if (ss.type != KFS_FILE || ss.size != sizeof sig ||
+            kfs_read(spath, 0, &sig, sizeof sig) != (int64_t)sizeof sig ||
+            kdrv_sig_check(b, (uint32_t)st.size, &sig, sizeof sig) != KDRV_OK)
+            rc = KDRV_E_SIGNATURE;
+    }
     if (rc == KDRV_OK) {
         uint8_t d1[32], d2[32];
         sha256(b + sizeof(kdrv_header_t), p->h.elf_size, d1);
