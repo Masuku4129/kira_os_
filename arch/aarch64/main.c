@@ -179,6 +179,7 @@ typedef struct {
 static dma_pool_allocation_t dma_pool_allocations[DMA_POOL_MAX_ALLOCS];
 static uint32_t dma_pool_pages;
 static volatile uint32_t dma_pool_lock;
+static volatile int dma_pool_enabled;
 static uint64_t* l0;
 
 static uint64_t* next_table(uint64_t* t, unsigned idx) {
@@ -264,6 +265,7 @@ static void dma_pool_choose(void) {
         if (pool_pages > DMA_POOL_MAX_PAGES) return;
         dma_lo = end - sz; dma_hi = end;
         dma_pool_pages = (uint32_t)pool_pages;
+        dma_pool_enabled = 1;
         __builtin_memset(dma_pool_bitmap, 0, sizeof dma_pool_bitmap);
         __builtin_memset(dma_pool_allocations, 0, sizeof dma_pool_allocations);
         bump_end = dma_lo;                                       /* ранние выделения (таблицы MMU) не залезают в пул */
@@ -284,7 +286,8 @@ static void dma_pool_clear(uint32_t page) {
 /* Non-coherent ARM64 DMA pool: contiguous uncached pages with exact ownership.
    The bitmap allows safe reuse after virtio queue/device teardown. */
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) {
-    if (!dma_lo || !bytes || !phys || bytes > UINT32_MAX - 4095u) return 0;
+    if (!dma_lo || !dma_pool_enabled || !bytes || !phys ||
+        bytes > UINT32_MAX - 4095u) return 0;
     uint32_t need = (bytes + 4095u) >> 12;
     if (!need || need > dma_pool_pages) return 0;
     uint64_t flags = irq_save();
@@ -319,6 +322,30 @@ void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) {
     dsb();
     *phys = addr;
     return (void*)(uintptr_t)addr;
+}
+
+static int dma_pool_selftest(void) {
+    if (!dma_lo) return 0;
+    uint64_t a = 0, b = 0, again = 0;
+    uint8_t* p = (uint8_t*)platform_dma_pool(4097, &a, 0);
+    uint8_t* q = (uint8_t*)platform_dma_pool(8192, &b, 0);
+    int ok = p && q && a && b && a != b &&
+             !((uintptr_t)p & 4095u) && !(a & 4095u) &&
+             !((uintptr_t)q & 4095u) && !(b & 4095u) &&
+             p[0] == 0 && p[4096] == 0 && q[0] == 0 && q[8191] == 0;
+    if (p) {
+        p[0] = 0x5A;
+        p[4096] = 0xA5;
+        platform_dma_free(p, a, 4097);
+        p = (uint8_t*)platform_dma_pool(4097, &again, 0);
+        ok = ok && p && again == a && p[0] == 0 && p[4096] == 0;
+        if (p) platform_dma_free(p, again, 4097);
+    } else if (a) {
+        platform_dma_free((void*)(uintptr_t)a, a, 4097);
+    }
+    if (q) platform_dma_free(q, b, 8192);
+    if (!ok) dma_pool_enabled = 0;       /* fail closed: no cacheable PMM fallback */
+    return ok ? 0 : -1;
 }
 
 void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
@@ -1258,6 +1285,12 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
         pmm_arm_reserve(base, base + size);
     }
     if (dma_lo) pmm_arm_reserve(dma_lo, dma_hi);                 /* пул DMA - не для pmm */
+    if (dma_lo) {
+        if (dma_pool_selftest() == 0)
+            kprintf("[KIRA ARM64] noncoherent DMA pool: allocation, zeroing, exact free and reuse PASS\\n");
+        else
+            kprintf("[KIRA ARM64] WARNING: noncoherent DMA pool self-test FAILED; DMA disabled\\n");
+    }
     arm_fb_reserve(fdt, pmm_arm_reserve);                        /* кадр simple-framebuffer, /reserved-memory */
     arm_fb_init(fdt);
     bump_end = bump;                                             /* дальше страницы выдаёт только pmm */
