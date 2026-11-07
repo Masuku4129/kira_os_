@@ -360,25 +360,6 @@ int main(void) {
     wm_set_subtitle(a, "ядро");
     CHECK(wm_compose(&x, &y, &w, &h));
 
-    /* Уведомления: отображение поверх окон, ограничение очереди и автоматическое исчезновение. */
-    {
-        uint32_t before = px(&scr, 800, WM_TOP_H + 40);
-        wm_notify("Система", "Проверка уведомлений", WM_NOTIFY_SUCCESS);
-        CHECK(wm_compose(&x, &y, &w, &h));
-        uint32_t shown = px(&scr, 1000, WM_TOP_H + 18);
-        CHECK(shown != before);
-        wm_notify("Mind", "Обнаружено событие", WM_NOTIFY_WARNING);
-        wm_notify("Драйверы", "Устройство готово", WM_NOTIFY_INFO);
-        wm_notify("Сеть", "Подключение восстановлено", WM_NOTIFY_SUCCESS);
-        CHECK(wm_compose(&x, &y, &w, &h));
-        wm_anim(6000, 0);
-        CHECK(wm_compose(&x, &y, &w, &h));
-        CHECK(px(&scr, 1000, WM_TOP_H + 18) != shown);
-        wm_notify("Система", "Очистка очереди", WM_NOTIFY_INFO);
-        wm_notify_clear();
-        CHECK(wm_compose(&x, &y, &w, &h));
-    }
-
     /* окно, созданное с WM_AUTO, помещается на экран правее боковой панели */
     int au = wm_create("auto", WM_AUTO, WM_AUTO, 680, 432, 0);
     int axx, ayy; wm_window_pos(au, &axx, &ayy);
@@ -466,6 +447,26 @@ int main(void) {
             same_as_full(&scr, "pulses");
         }
     }
+    /* Уведомления проверяются после фоновой анимации, чтобы часы теста не шли назад. */
+    {
+        wm_set_fx(0);
+        uint32_t before = px(&scr, 800, WM_TOP_H + 40);
+        wm_notify("Система", "Проверка уведомлений", WM_NOTIFY_SUCCESS);
+        CHECK(wm_compose(&x, &y, &w, &h));
+        uint32_t shown = px(&scr, 800, WM_TOP_H + 40);
+        CHECK(shown != before);
+        wm_notify("Mind", "Обнаружено событие", WM_NOTIFY_WARNING);
+        wm_notify("Драйверы", "Устройство готово", WM_NOTIFY_INFO);
+        wm_notify("Сеть", "Подключение восстановлено", WM_NOTIFY_SUCCESS);
+        CHECK(wm_compose(&x, &y, &w, &h));
+        wm_anim(14000, 0);
+        CHECK(wm_compose(&x, &y, &w, &h));
+        CHECK(px(&scr, 800, WM_TOP_H + 40) != shown);
+        wm_notify("Система", "Очистка очереди", WM_NOTIFY_INFO);
+        wm_notify_clear();
+        CHECK(wm_compose(&x, &y, &w, &h));
+    }
+
     dock_states();
     responsive_topbar();
     printf("wm: shell top bar (responsive tabs and fitted app windows at 640x480, 800x600, 1024x768, 1280x720, 1920x1080; clock and meters), side launcher, traffic-light buttons, z-order, damage, drag, "
