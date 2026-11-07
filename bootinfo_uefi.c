@@ -15,6 +15,7 @@ int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
                             uint32_t descriptor_size, uint64_t rsdp_phys,
                             uint64_t kernel_base, uint64_t kernel_size,
                             void* out, uint32_t capacity, uint32_t* out_size) {
+    if (out_size) *out_size = 0;
     if (!descriptors || !out || !out_size ||
         descriptor_size < sizeof(kbi_uefi_memory_desc_t) ||
         map_size == 0 || map_size % descriptor_size ||
