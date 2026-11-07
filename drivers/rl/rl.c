@@ -202,6 +202,9 @@ static void rl_rxeof(struct rl_softc *sc)
 		header[2] = ((volatile u8 *)rx)[cur_rx + 2];
 		header[3] = ((volatile u8 *)rx)[cur_rx + 3];
 		if (kira_rl_rx_decode(header, &record) != 0 ||
+		    record.wire_length < ETHER_MIN_LEN ||
+		    record.wire_length > ETHER_MAX_LEN + ETHER_CRC_LEN ||
+		    record.payload_length > sizeof frame ||
 		    !kira_rl_rx_status_ok(record.status)) {
 			ifp->if_ierrors++;
 			rl_init(sc);			/* как rl(4): неверная голова кадра - перезапуск */
