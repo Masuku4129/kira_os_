@@ -1,0 +1,92 @@
+{
+ "name": "apps-drvman",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "drvman: окно создано 640x560",
+   "ok": true
+  },
+  {
+   "log": "drvman: кадр: строк в списках [1-9]\\d*, устройств [1-9]\\d*, пакетов 4",
+   "ok": true
+  },
+  {
+   "expect": "drvman: набор готов к установке",
+   "ok": true
+  },
+  {
+   "log": "drvman: ищу драйвер «rl»",
+   "ok": true
+  },
+  {
+   "log": "лицензия:   заявлена BSD-3-Clause",
+   "ok": true
+  },
+  {
+   "log": "SHA-256 набора исходников \\(рецепт \\+ файлы\\): b66321a9",
+   "ok": true
+  },
+  {
+   "log": "10ec:8139",
+   "ok": true
+  },
+  {
+   "log": "CAP_DMA",
+   "ok": true
+  },
+  {
+   "log": "IOMMU",
+   "ok": true
+  },
+  {
+   "log": "Установка НЕ выполнена",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: установить rl v1\\?",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: источник https://10\\.0\\.2\\.100/rl/drvget\\.rec",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: лицензия BSD-3-Clause, права: MMIO DMA PCIDEV NETDEV",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: SHA-256 набора b66321a9[0-9a-f]{56}",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память",
+   "ok": false
+  }
+ ],
+ "error": "в журнале нет «drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память»",
+ "boot_seconds": 5.2,
+ "seconds": 20.5,
+ "commands": [
+  {
+   "cmd": "run drvman trace",
+   "seconds": 0.01
+  }
+ ]
+}

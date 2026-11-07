@@ -1,0 +1,207 @@
+{
+ "name": "drvget-rl",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "expect": "каталог рецептов теперь https://10\\.0\\.2\\.100",
+   "ok": true
+  },
+  {
+   "expect": "drvget: отказ: .*GPL",
+   "ok": true
+  },
+  {
+   "expect": "drvget: отказ: SHA-256 файла if_rlreg[.]h",
+   "ok": true
+  },
+  {
+   "expect": "drvget: отказ: if_rlreg[.]h: лицензия файла не найдена",
+   "ok": true
+  },
+  {
+   "expect": "разрешён только https",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "drv-rl",
+   "ok": true
+  },
+  {
+   "expect": "drvget confirm rl b66321a9",
+   "ok": true
+  },
+  {
+   "log": "лицензия:   заявлена BSD-3-Clause",
+   "ok": true
+  },
+  {
+   "log": "if_rlreg\\.h",
+   "ok": true
+  },
+  {
+   "log": "10ec:8139",
+   "ok": true
+  },
+  {
+   "log": "CAP_DMA",
+   "ok": true
+  },
+  {
+   "log": "CAP_NETDEV",
+   "ok": true
+  },
+  {
+   "log": "IOMMU",
+   "ok": true
+  },
+  {
+   "log": "Установка НЕ выполнена",
+   "ok": true
+  },
+  {
+   "expect": "хеш не совпал",
+   "ok": true
+  },
+  {
+   "expect": "установлено: /drv/rl\\.kdrv и /drv/rl\\.rec",
+   "ok": true
+  },
+  {
+   "log": "собрано, образ ELF \\d+ байт",
+   "ok": true
+  },
+  {
+   "expect": "rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен",
+   "ok": true
+  },
+  {
+   "expect": "verify rl: OK",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "relaunch": true,
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] rl: DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен",
+   "ok": true
+  },
+  {
+   "log_forbid": "rl: network interface registered",
+   "ok": true
+  },
+  {
+   "log_forbid": "rl: first frame received",
+   "ok": true
+  },
+  {
+   "log_forbid": "rl: first frame transmitted",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "drv-rl pid",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "log_forbid": "УТЕЧКА",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.04,
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.1,
+ "seconds": 50.3,
+ "commands": [
+  {
+   "cmd": "drv",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "drv",
+   "seconds": 0.03
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.01
+  }
+ ]
+}
