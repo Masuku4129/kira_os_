@@ -9,7 +9,7 @@ permissions:
 
 on:
   push:
-    branches: [main, stable, v45/overhaul, 'v46/**']
+    branches: [main, stable, v45/overhaul, 'v46/**', 'work/**', 'factory/**']
     paths-ignore: ['docs/**', '**.md']
   pull_request:
     paths-ignore: ['docs/**', '**.md']
@@ -39,12 +39,14 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BASE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           python3 - <<'PY'
           import os, pathlib, subprocess
           event = os.environ["EVENT_NAME"]
           head = os.environ["HEAD_SHA"]
-          if event == "workflow_dispatch":
+          ref_name = os.environ.get("REF_NAME", "")
+          if event == "workflow_dispatch" or ref_name.startswith(("work/", "factory/")):
               changed = []
               full = True
           else:
@@ -661,7 +663,7 @@ jobs:
 
   factory-notify:
     needs: [detect-changes, audit, release-gate-tests, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression, report, package]
-    if: always() && github.event_name != 'pull_request'
+    if: always() && github.event_name != 'pull_request' && (startsWith(github.ref_name, 'work/') || startsWith(github.ref_name, 'factory/') || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
