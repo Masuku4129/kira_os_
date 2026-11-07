@@ -249,8 +249,8 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
                             uint32_t stream_id,
                             const struct kira_smmu_platform *p)
 {
-    uint64_t ct_pa = 0, root_pa = 0, st_pa = 0;
-    void *ct = 0, *root = 0, *new_st = 0;
+    uint64_t ct_pa = 0, root_pa = 0;
+    void *ct = 0, *root = 0;
     uint64_t *ste;
     int rc = KIRA_SMMU_OK;
 
@@ -273,24 +273,12 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     }
 
     /*
-     * STRTAB_BASE is controller-global. Allocate/program it exactly once;
-     * individual domains only own their CD and stage-1 page-table pages.
+     * The controller-global linear stream table is allocated and programmed
+     * by kira_smmu_v3_prepare() before SMMUEN. Domains may only claim entries.
      */
-    if (!s->stream_table) {
-        new_st = smmu_alloc_pages(p, SMMU_STRTAB_PAGES, &st_pa);
-        if (!new_st) {
-            rc = KIRA_SMMU_MEMORY_FAILED;
-            goto fail_locked;
-        }
-        *(volatile uint32_t *)(s->registers + SMMU_STRTAB_BASE_CFG) =
-            8u; /* linear table with 2^8 entries */
-        if (p->write_barrier) p->write_barrier(p->context);
-        *(volatile uint64_t *)(s->registers + SMMU_STRTAB_BASE) =
-            (st_pa & ~0xfffull) | 1ull;
-        if (p->write_barrier) p->write_barrier(p->context);
-        s->stream_table = new_st;
-        s->stream_table_physical = st_pa;
-        new_st = 0; /* ownership transferred to controller */
+    if (!s->stream_table || !s->stream_table_physical) {
+        rc = KIRA_SMMU_INVALID;
+        goto fail_locked;
     }
 
     ste = smmu_words(s->stream_table) + stream_id * 8u;
@@ -338,8 +326,6 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     return rc;
 
 fail_locked:
-    if (new_st)
-        p->free_dma_pages(p->context, new_st, st_pa, SMMU_STRTAB_PAGES);
     smmu_unlock(s);
     p->free_dma_pages(p->context, root, root_pa, 1);
     p->free_dma_pages(p->context, ct, ct_pa, 1);
