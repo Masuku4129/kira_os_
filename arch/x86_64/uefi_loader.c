@@ -99,7 +99,9 @@ struct EFI_BOOT_SERVICES {
     void *reserved, *register_protocol_notify, *locate_handle, *locate_device_path;
     void *install_configuration_table, *load_image, *start_image, *exit, *unload_image;
     EFI_STATUS (EFIAPI *exit_boot_services)(EFI_HANDLE, uint64_t);
-    void *get_next_monotonic_count, *stall, *set_watchdog_timer, *connect_controller;
+    void *get_next_monotonic_count, *stall;
+    EFI_STATUS (EFIAPI *set_watchdog_timer)(uint64_t,uint64_t,uint64_t,CHAR16 *);
+    void *connect_controller;
     void *disconnect_controller, *open_protocol, *close_protocol, *open_protocol_information;
     void *protocols_per_handle, *locate_handle_buffer;
     EFI_STATUS (EFIAPI *locate_protocol)(EFI_GUID *, void *, void **);
@@ -333,6 +335,7 @@ static int build_mbi(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
 }
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
     EFI_BOOT_SERVICES *bs=st->boot_services;
+    if(bs->set_watchdog_timer) (void)bs->set_watchdog_timer(0,0,0,0);
     void *file=0; uint64_t file_size=0;
     EFI_STATUS rc=open_kernel(bs,image,&file,&file_size);
     if(EFI_ERROR(rc)||!file) return rc;
