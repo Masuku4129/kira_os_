@@ -115,6 +115,58 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     if (acpi_find_s5((const uint8_t*)d + sizeof(sdt_t), dl - (uint32_t)sizeof(sdt_t), &o->slp_typa, &o->slp_typb) == 0) o->s5_valid = 1;
 }
 
+
+/* Intel DMAR (ACPI 6.x): фиксированные поля начинаются после стандартного SDT header
+   (36 байт), структуры DRHD/RMRR имеют собственные длины. Сохраняем только проверенные
+   физические диапазоны; никаких MMIO-регистров не читаем на этапе разбора таблицы. */
+static int parse_dmar(const sdt_t* t, acpi_info_t* o) {
+    const uint8_t* b = (const uint8_t*)t;
+    if (t->len < 48) return -1;
+    uint8_t haw = b[36];
+    if (haw > 63) return -1;
+    for (unsigned i = 38; i < 48; i++) if (b[i]) return -1;
+    uint32_t off = 48, units = 0, rmrrs = 0;
+    while (off < t->len) {
+        if (t->len - off < 4) return -1;
+        uint16_t type = (uint16_t)(b[off] | ((uint16_t)b[off + 1] << 8));
+        uint16_t len = (uint16_t)(b[off + 2] | ((uint16_t)b[off + 3] << 8));
+        if (len < 4 || len > t->len - off) return -1;
+        if (type == 0) { /* DRHD */
+            if (len < 16 || units >= ACPI_MAX_DMAR_UNITS) return -1;
+            uint8_t flags = b[off + 4];
+            uint16_t segment = (uint16_t)(b[off + 6] | ((uint16_t)b[off + 7] << 8));
+            uint64_t reg = rd64(b + off + 8);
+            if ((flags & ~1u) || !reg || (reg & 0xFFF) || reg > UINT64_MAX - 0x1000) return -1;
+            o->dmar_unit[units].segment = segment;
+            o->dmar_unit[units].include_all = flags & 1;
+            o->dmar_unit[units].flags = flags;
+            o->dmar_unit[units].reg_base = reg;
+            units++;
+        } else if (type == 1) { /* RMRR: limit is inclusive per ACPI */
+            if (len < 24 || rmrrs >= ACPI_MAX_RMRR) return -1;
+            uint16_t segment = (uint16_t)(b[off + 6] | ((uint16_t)b[off + 7] << 8));
+            uint64_t base = rd64(b + off + 8), limit = rd64(b + off + 16);
+            if (!base || (base & 0xFFF) || limit < base || (limit & 0xFFF) != 0xFFF)
+                return -1;
+            o->dmar_rmrr[rmrrs].segment = segment;
+            o->dmar_rmrr[rmrrs].base = base;
+            o->dmar_rmrr[rmrrs].limit = limit;
+            rmrrs++;
+        } else {
+            /* ATSR/RHSA/ANDD/прочие структуры не используются этим драйвером.
+               Их длина всё равно проверена, поэтому безопасно пропускаем. */
+        }
+        off += len;
+    }
+    if (!units) return -1;
+    o->dmar_host_width = haw;
+    o->dmar_flags = b[37];
+    o->dmar_unit_count = units;
+    o->dmar_rmrr_count = rmrrs;
+    o->dmar_valid = 1;
+    return 0;
+}
+
 static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
     const sdt_t* t = phys ? (const sdt_t*)reach(phys, sizeof(sdt_t), max_phys) : 0;
     if (!t) { o->tables_skipped_high++; return; }
@@ -125,6 +177,7 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
     if (sig_is(t->sig, "APIC")) parse_madt(t, o);
     else if (sig_is(t->sig, "HPET")) o->has_hpet = 1;
     else if (sig_is(t->sig, "FACP")) parse_fadt(t, max_phys, o);
+    else if (sig_is(t->sig, "DMAR")) { if (parse_dmar(t, o) != 0) o->tables_bad++; }
     else if (sig_is(t->sig, "MCFG") && t->len >= 44 + 16) {
         const uint8_t* e = (const uint8_t*)t + 44;
         o->mcfg_base = rd64(e); o->mcfg_bus_start = e[10]; o->mcfg_bus_end = e[11];
