@@ -114,6 +114,8 @@ bits 64
 global uefi_entry
 uefi_entry:
     cli
+    mov r8, rcx                 ; preserve Multiboot2 magic across the table loop
+    mov r9, rdx                 ; preserve the MBI physical pointer
     ; UEFI page tables are firmware-owned. Install KIRA's 1 GiB identity map
     ; before switching to the kernel stack or touching physical boot data.
     mov rax, pdpt_table
@@ -138,8 +140,8 @@ uefi_entry:
     mov cr3, rax
     mov rsp, stack_top
     and rsp, -16
-    mov rdi, rcx
-    mov rsi, rdx
+    mov rdi, r8
+    mov rsi, r9
     call kernel_main
 .uefi_hang:
     cli
