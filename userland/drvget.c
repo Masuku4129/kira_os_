@@ -1,5 +1,5 @@
-/* drvget - установка драйверов Ring 3 из ИСХОДНИКОВ на самой Кире (docs/DRIVERS.md, пакет L). Без GitHub-сборки и без подписей:
-   доверие = явное подтверждение пользователя + SHA-256, который он видит и вводит сам.
+/* drvget - установка драйверов Ring 3 из исходников на самой Кире. Локальная сборка подтверждается пользователем и SHA-256;
+   detached .sig отдельно подтверждает издателя Ed25519. Отсутствие подписи явно показывается как локальное, не издательское доверие.
      drvget install ИМЯ|https://адрес/drvget.rec   скачать рецепт и исходники по HTTPS (TLS 1.3, корневые /etc/ssl/roots.der), проверить лицензию
                                                     (BSD-2/BSD-3/MIT/ISC; GPL и бинарники отвергаются), показать источник, лицензию, SHA-256, права;
                                                     ничего не ставит
@@ -14,7 +14,10 @@
 #include "kira.h"
 #include "tls.h"
 #include "drvget_core.h"
+#include "drvget_api.h"
 #include "../immune.h"
+#include "../kdrv_sig.h"
+#include "../kdrv_trust.h"
 #include "../kcc/kcc.h"
 
 #ifndef DRVGET_LIB
@@ -506,10 +509,12 @@ static int cmd_confirm(const char *arg) {
 }
 
 /* ---------- list / verify / remove ---------- */
-static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sha_ok) {
-    char f1[32], f2[32];
+static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sha_ok, int *auth_state) {
+    char f1[32], f2[32], f3[32];
+    *auth_state = DGP_AUTH_UNKNOWN;
     snprintf(f1, sizeof f1, "%s.kdrv", name);
     snprintf(f2, sizeof f2, "%s.rec", name);
+    snprintf(f3, sizeof f3, "%s.sig", name);
     i64 sz = drv_op(KFS_DRV_STAT, f1, 0, 0, 0);
     if (sz < (i64)sizeof *h) return -1;
     if (sz > (i64)sizeof body) { *sha_ok = -1; sz = (i64)sizeof body; }
@@ -525,6 +530,19 @@ static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sh
     sha256(body + sizeof *h, h->elf_size, d1);
     sha256(body, (size_t)sz, d2);
     *sha_ok = !memcmp(d1, rec->elf_sha, 32) && !memcmp(d2, rec->pkg_sha, 32) && kdrv_rec_check(rec, sizeof *rec, rec) == KDRV_OK;
+    i64 sig_size = drv_op(KFS_DRV_STAT, f3, 0, 0, 0);
+    if (sig_size == -2) *auth_state = DGP_AUTH_LOCAL;
+    else if (sig_size < 0 || sig_size != (i64)sizeof(kdrv_sig_t)) *auth_state = DGP_AUTH_INVALID;
+    else {
+        kdrv_sig_t sig;
+        if (drv_op(KFS_DRV_READ, f3, &sig, sizeof sig, 0) != (i64)sizeof sig) *auth_state = DGP_AUTH_INVALID;
+        else {
+            i64 now = k_time();
+            int vr = kdrv_sig_verify(body, (size_t)sz, &sig, sizeof sig,
+                                     kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, now);
+            *auth_state = vr == KDRV_SIG_OK ? DGP_AUTH_PUBLISHER : DGP_AUTH_INVALID;
+        }
+    }
     return 0;
 }
 
@@ -546,13 +564,13 @@ static int cmd_list(void) {
         size_t l = strlen(p);
         if (l > 5 && !strcmp(p + l - 5, ".kdrv")) {
             char nm[16];
-            kdrv_header_t h; kdrv_rec_t rec; int ok = 0;
+            kdrv_header_t h; kdrv_rec_t rec; int ok = 0, auth = DGP_AUTH_UNKNOWN;
             snprintf(nm, sizeof nm, "%.*s", (int)(l - 5 > 11 ? 11 : l - 5), p);
             cnt++;
-            int rc = read_pkg(nm, &h, &rec, &ok);
+            int rc = read_pkg(nm, &h, &rec, &ok, &auth);
             if (rc == -1) sayf("  %s: пакет не читается\n", nm);
             else if (rc == -2) sayf("  %s: нет подтверждения (%s.rec) - не будет запущен\n", nm, nm);
-            else { sayf("  %s: версия %u, права:", nm, (unsigned)h.version); show_caps(h.caps); sayf(", SHA-256 %s, источник: %s\n", ok ? "сверен" : "НЕ СОВПАДАЕТ", rec.source); }
+            else { sayf("  %s: версия %u, права:", nm, (unsigned)h.version); show_caps(h.caps); sayf(", SHA-256 %s, издатель: %s, источник: %s\n", ok ? "сверен" : "НЕ СОВПАДАЕТ", auth == DGP_AUTH_PUBLISHER ? "Ed25519 подтверждён" : auth == DGP_AUTH_LOCAL ? "не подтверждён (локально)" : auth == DGP_AUTH_INVALID ? "ПОДПИСЬ ОТКЛОНЕНА" : "не проверена", rec.source); }
         }
         if (!e) break;
         p = e + 1;
@@ -562,15 +580,16 @@ static int cmd_list(void) {
 }
 
 static int cmd_verify(const char *nm) {
-    kdrv_header_t h; kdrv_rec_t rec; int ok = 0;
+    kdrv_header_t h; kdrv_rec_t rec; int ok = 0, auth = DGP_AUTH_UNKNOWN;
     if (!name_ok(nm)) { say("drvget: неверное имя\n"); return 2; }
-    int rc = read_pkg(nm, &h, &rec, &ok);
+    int rc = read_pkg(nm, &h, &rec, &ok, &auth);
     if (rc) { sayf("drvget: verify %s: пакета или подтверждения нет\n", nm); return 1; }
     char a[65], b[65], c[65];
     dg_hex(rec.elf_sha, 32, a); dg_hex(rec.pkg_sha, 32, b); dg_hex(rec.src_sha, 32, c);
     sayf("drvget: %s: SHA-256 образа %s, пакета %s, исходников %s\n", nm, a, b, c);
-    sayf("drvget: verify %s: %s\n", nm, ok == 1 ? "OK (хеши сходятся с записью, пользователь подтверждал установку)" : "ОШИБКА: хеши не сходятся или запись недействительна");
-    return ok == 1 ? 0 : 1;
+    sayf("drvget: подпись издателя: %s\n", auth == DGP_AUTH_PUBLISHER ? "Ed25519 подтверждена" : auth == DGP_AUTH_LOCAL ? "отсутствует; пакет только локально подтверждён" : auth == DGP_AUTH_INVALID ? "ОТКЛОНЕНА" : "не проверена");
+    sayf("drvget: verify %s: %s\n", nm, ok == 1 ? "OK (хеши сходятся с локальной записью подтверждения)" : "ОШИБКА: хеши не сходятся или запись недействительна");
+    return ok == 1 && auth != DGP_AUTH_INVALID && auth != DGP_AUTH_UNKNOWN ? 0 : 1;
 }
 
 static int cmd_remove(const char *nm) {
@@ -652,11 +671,12 @@ int drvget_pkgs(drvget_pkg_t *out, int max) {
         if (e) *e = 0;
         size_t l = strlen(p);
         if (l > 5 && l - 5 <= KDRV_NAME_MAX && !strcmp(p + l - 5, ".kdrv")) {
-            kdrv_header_t h; kdrv_rec_t rec; int ok = 0;
+            kdrv_header_t h; kdrv_rec_t rec; int ok = 0, auth = DGP_AUTH_UNKNOWN;
             drvget_pkg_t *o = &out[cnt++];
             memset(o, 0, sizeof *o);
             memcpy(o->name, p, l - 5);
-            int rc = read_pkg(o->name, &h, &rec, &ok);
+            int rc = read_pkg(o->name, &h, &rec, &ok, &auth);
+            o->auth_state = auth;
             o->state = rc == -1 ? DGP_UNREADABLE : rc == -2 ? DGP_NOREC : ok == 1 ? DGP_OK : ok == -1 ? DGP_TOOBIG : DGP_BAD;
             if (o->state == DGP_BAD && kdrv_rec_check(&rec, sizeof rec, 0) == KDRV_E_UNCONFIRMED) o->state = DGP_UNCONF;
             if (rc == 0 || rc == -2) {

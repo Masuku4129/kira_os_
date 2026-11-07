@@ -3,6 +3,7 @@
 #include "vfs.h"
 #include "kfs.h"
 #include "kdrv_format.h"
+#include "kdrv_sig.h"
 
 static size_t slen(const char* s) { size_t n = 0; while (s[n]) n++; return n; }
 
@@ -107,10 +108,12 @@ extern void sha256(const void* data, size_t len, uint8_t out[32]);
 #define kdrv_ctl_post(op, stem) kdrv_ctl_request((op) == FS_OP_DRV_START ? KDRV_CTL_START : KDRV_CTL_STOP, (stem))
 #endif
 
-int fsrv_drv_name(const char* file, char stem[16], int* is_rec) {
+int fsrv_drv_name(const char* file, char stem[16], int* kind) {
     size_t n = slen(file), ext;
-    if (n > 5 && file[n - 5] == '.' && file[n - 4] == 'k' && file[n - 3] == 'd' && file[n - 2] == 'r' && file[n - 1] == 'v') { ext = 5; *is_rec = 0; }
-    else if (n > 4 && file[n - 4] == '.' && file[n - 3] == 'r' && file[n - 2] == 'e' && file[n - 1] == 'c') { ext = 4; *is_rec = 1; }
+    if (!kind) return 0;
+    if (n > 5 && file[n - 5] == '.' && file[n - 4] == 'k' && file[n - 3] == 'd' && file[n - 2] == 'r' && file[n - 1] == 'v') { ext = 5; *kind = 0; }
+    else if (n > 4 && file[n - 4] == '.' && file[n - 3] == 'r' && file[n - 2] == 'e' && file[n - 1] == 'c') { ext = 4; *kind = 1; }
+    else if (n > 4 && file[n - 4] == '.' && file[n - 3] == 's' && file[n - 2] == 'i' && file[n - 1] == 'g') { ext = 4; *kind = 2; }
     else return 0;
     size_t k = n - ext;
     if (k < 1 || k > KDRV_NAME_MAX) return 0;
@@ -144,13 +147,13 @@ static void drv_execute(fsrv_req_t* r) {
         r->result = e ? e : (int64_t)s.used;
         return;
     }
-    char stem[16]; int is_rec;
-    if (!fsrv_drv_name(r->name, stem, &is_rec)) { r->result = FS_E_DENIED; return; }
+    char stem[16]; int kind;
+    if (!fsrv_drv_name(r->name, stem, &kind)) { r->result = FS_E_DENIED; return; }
     { size_t n = 0; for (const char* a = "/drv/"; *a; a++) path[n++] = *a; for (size_t i = 0; r->name[i]; i++) path[n++] = r->name[i]; path[n] = 0; }
     kfs_stat_t st;
     switch (r->op) {
     case FS_OP_DRV_START: case FS_OP_DRV_STOP: {
-        if (is_rec) { r->result = FS_E_ARG; return; }
+        if (kind != 0) { r->result = FS_E_ARG; return; }
         if (r->op == FS_OP_DRV_START) {                                   /* запускать можно только установленный пакет */
             int e = kfs_stat(path, &st);
             if (e || st.type != KFS_FILE) { r->result = e ? e : KFS_ERR_ISDIR; return; }
@@ -171,25 +174,49 @@ static void drv_execute(fsrv_req_t* r) {
         int e = kfs_stat(path, &st);
         if (e) { r->result = e; return; }
         if (st.type != KFS_FILE) { r->result = KFS_ERR_ISDIR; return; }
-        if (!is_rec) {                                                    /* без пакета подтверждение бессмысленно: убираем и его */
+        if (kind == 2) {
+            /* Сначала убрать подтверждение. Если это не удалось, подпись остаётся на месте:
+               удаление .sig при сохранённом .rec не должно превращать пакет в unsigned/local. */
             char rp[48]; size_t n = 0;
             for (const char* a = "/drv/"; *a; a++) rp[n++] = *a;
             for (size_t i = 0; stem[i]; i++) rp[n++] = stem[i];
             for (const char* a = ".rec"; *a; a++) rp[n++] = *a;
             rp[n] = 0;
-            if (kfs_stat(rp, &st) == 0 && st.type == KFS_FILE) kfs_unlink(rp);
+            int re = kfs_stat(rp, &st);
+            if (re == 0) {
+                if (st.type != KFS_FILE) { r->result = KFS_ERR_ISDIR; return; }
+                re = kfs_unlink(rp);
+                if (re) { r->result = re; return; }
+            } else if (re != KFS_ERR_NOENT) { r->result = re; return; }
+            r->result = kfs_unlink(path);
+            return;
         }
         r->result = kfs_unlink(path);
+        if (r->result != 0 || kind != 0) return;
+        const char* suffix[2] = { ".rec", ".sig" };
+        for (unsigned q = 0; q < 2; q++) {
+            char companion[48]; size_t n = 0;
+            for (const char* a = "/drv/"; *a; a++) companion[n++] = *a;
+            for (size_t i = 0; stem[i]; i++) companion[n++] = stem[i];
+            for (const char* a = suffix[q]; *a; a++) companion[n++] = *a;
+            companion[n] = 0;
+            if (kfs_stat(companion, &st) == 0 && st.type == KFS_FILE) {
+                int ce = kfs_unlink(companion);
+                if (ce && r->result == 0) r->result = ce;
+            }
+        }
         return;
     }
     case FS_OP_DRV_WRITE: {
-        if (r->off != 0 || r->len == 0 || r->len > sizeof(kdrv_header_t) + KDRV_ELF_MAX || r->len > fsrv_max_data()) { r->result = FS_E_ARG; return; }
+        uint64_t max_len = kind == 0 ? sizeof(kdrv_header_t) + KDRV_ELF_MAX : kind == 1 ? sizeof(kdrv_rec_t) : sizeof(kdrv_sig_t);
+        if (r->off != 0 || r->len == 0 || r->len > max_len || r->len > fsrv_max_data() ||
+            (kind == 1 && r->len != sizeof(kdrv_rec_t)) || (kind == 2 && r->len != sizeof(kdrv_sig_t))) { r->result = FS_E_ARG; return; }
         if (drv_dir() != 0) { r->result = KFS_ERR_IO; return; }
-        if (!is_rec) {
+        if (kind == 0) {
             kdrv_header_t h;
             int rc = kdrv_header_check(r->data, (uint32_t)r->len, &h);
             if (rc != KDRV_OK || !streq16(h.name, stem)) { r->result = FS_E_ARG; return; }
-        } else {
+        } else if (kind == 1) {
             kdrv_rec_t rec;
             if (kdrv_rec_check(r->data, (uint32_t)r->len, &rec) != KDRV_OK) { r->result = FS_E_ARG; return; }
             char kp[48]; size_t n = 0;
@@ -207,7 +234,38 @@ static void drv_execute(fsrv_req_t* r) {
             kdrv_tmp_free(b);
             if (!ok) { r->result = FS_E_DENIED; return; }
             for (int i = 0; i < 32; i++) if (d1[i] != rec.elf_sha[i] || d2[i] != rec.pkg_sha[i]) { r->result = FS_E_DENIED; return; }
-            if (rec.caps_ok & ~h.caps) { r->result = FS_E_DENIED; return; }       /* подтвердить можно только то, что пакет просит */
+            if (rec.caps_ok & ~h.caps) { r->result = FS_E_DENIED; return; }
+        } else {
+            kdrv_sig_t sig;
+            const uint8_t* sig_src = (const uint8_t*)r->data;
+            uint8_t* sig_dst = (uint8_t*)&sig;
+            for (size_t i = 0; i < sizeof sig; i++) sig_dst[i] = sig_src[i];
+            uint8_t key_nonzero = 0;
+            for (unsigned i = 0; i < sizeof sig.key_id; i++) key_nonzero |= sig.key_id[i];
+            if (sig.magic != KDRV_SIG_MAGIC || sig.format != KDRV_SIG_FORMAT || sig.size != sizeof sig ||
+                !key_nonzero || !sig.package_size || !sig.not_before || sig.not_after <= sig.not_before ||
+                sig.not_after > 0x7FFFFFFFFFFFFFFFULL) { r->result = FS_E_ARG; return; }
+            char kp[48]; size_t n = 0;
+            for (const char* a = "/drv/"; *a; a++) kp[n++] = *a;
+            for (size_t i = 0; stem[i]; i++) kp[n++] = stem[i];
+            for (const char* a = ".kdrv"; *a; a++) kp[n++] = *a;
+            kp[n] = 0;
+            if (kfs_stat(kp, &st) != 0 || st.type != KFS_FILE || st.size != sig.package_size ||
+                st.size > sizeof(kdrv_header_t) + KDRV_ELF_MAX) { r->result = FS_E_DENIED; return; }
+            uint8_t* b = (uint8_t*)kdrv_tmp_alloc((size_t)st.size);
+            if (!b) { r->result = KFS_ERR_NOSPC; return; }
+            uint8_t digest[32]; int ok = kfs_read(kp, 0, b, (size_t)st.size) == (int64_t)st.size;
+            if (ok) sha256(b, (size_t)st.size, digest);
+            kdrv_tmp_free(b);
+            int bad = 0;
+            if (ok) for (int i = 0; i < 32; i++) bad |= digest[i] ^ sig.package_sha256[i];
+            if (!ok || bad) { r->result = FS_E_DENIED; return; }
+            char rp[48]; n = 0;
+            for (const char* a = "/drv/"; *a; a++) rp[n++] = *a;
+            for (size_t i = 0; stem[i]; i++) rp[n++] = stem[i];
+            for (const char* a = ".rec"; *a; a++) rp[n++] = *a;
+            rp[n] = 0;
+            if (kfs_stat(rp, &st) != 0 || st.type != KFS_FILE || st.size != sizeof(kdrv_rec_t)) { r->result = FS_E_DENIED; return; }
         }
         kfs_info_t fi; kfs_info(&fi);
         uint64_t keep = (uint64_t)fi.total_blocks / 16, need = (r->len + 4095) / 4096 + 1;
@@ -215,7 +273,19 @@ static void drv_execute(fsrv_req_t* r) {
         uint64_t had = exists ? (st.size + 4095) / 4096 : 0;
         if (need > had && (uint64_t)fi.free_blocks < keep + (need - had)) { r->result = FS_E_QUOTA; return; }
         r->result = kfs_write(path, r->data, (size_t)r->len);
-        if (r->result == 0 && is_rec) kdrv_installed(stem);
+        if (r->result == 0 && kind == 0) {
+            const char* suffix[2] = { ".rec", ".sig" };
+            for (unsigned q = 0; q < 2; q++) {
+                char companion[48]; size_t n = 0;
+                for (const char* a = "/drv/"; *a; a++) companion[n++] = *a;
+                for (size_t i = 0; stem[i]; i++) companion[n++] = stem[i];
+                for (const char* a = suffix[q]; *a; a++) companion[n++] = *a;
+                companion[n] = 0;
+                int ce = kfs_unlink(companion);
+                if (ce != 0 && ce != KFS_ERR_NOENT) { r->result = ce; return; }
+            }
+        }
+        if (r->result == 0 && kind != 0) kdrv_installed(stem);
         return;
     }
     default: r->result = FS_E_ARG; return;

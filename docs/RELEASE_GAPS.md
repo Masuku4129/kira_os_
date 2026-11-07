@@ -47,16 +47,15 @@ Required:
 
 Do not remove provenance notices without replacing the implementation and reviewing licensing.
 
-## 4. Driver package authenticity — BLOCKED (signature primitive already exists)
-KDRV currently has SHA-256 integrity checks and explicit user confirmation. SHA-256 does not prove who published a package. Correction to the earlier inventory: the repository already contains a KIRA-owned Ed25519 verifier, `ed25519_verify()`, in `pk.c` / `pk.h`, with RFC 8032 vectors and malformed-signature tests in `tests/pk_test.c`. It is currently linked into selected userland TLS clients, but KDRV does not yet use it.
+## 4. Driver package authenticity — BLOCKED (kernel Ed25519 verification implemented; release lifecycle incomplete)
+KDRV retains SHA-256 integrity checks and explicit user confirmation. A detached `.sig` format signs the complete `.kdrv` digest, size, publisher key ID and validity interval. The kernel verifies Ed25519 on every load using a kernel-owned public-key table; invalid, unknown, revoked and expired signatures fail closed. Unsigned local packages remain explicitly untrusted by publisher and require the existing local confirmation.
 
 Required:
-- Integrate the existing Ed25519 verifier into the kernel KDRV validation path and run the signature vectors in the kernel-compatible build.
-- Define a canonical signed manifest covering key ID, target ABI/device IDs, package digest, version and validity interval.
-- Provision trusted public keys through a kernel-owned trust store, with explicit fingerprint confirmation, rotation and revocation.
-- Persist the highest accepted version per publisher/package and reject rollback.
+- Add runtime import of `.sig` in the driver manager; current supported signing/install path is offline through `tools/kdrvsign.py` and `tools/kfstool`.
+- Complete trust-key rotation and revocation procedures, including recovery from a compromised owner key.
+- Add explicit publisher metadata fields for ABI compatibility and key lifecycle policy; the current signature already covers the complete package digest, including the existing KDRV version and device-match header.
+- Persist the highest accepted version per publisher/package and reject rollback; the current verifier does not yet prevent disk-image rollback.
 - Fail closed for invalid signatures, unknown/revoked keys, expiry, malformed manifests and interrupted installs.
-- UI must distinguish unsigned/hash-only from authenticated publisher packages.
 
 ## 5. DMA isolation — PARTIAL (fail-closed fallback implemented)
 The current kernel still has no VT-d / AMD-Vi / ARM SMMU domain implementation. A DMA-capable device without an IOMMU domain can access physical memory outside a process's address-space boundary.
