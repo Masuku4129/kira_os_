@@ -13,6 +13,10 @@ first publisher-signed driver:
 - `/drv/*.sig` — package signatures, checked against the resulting active key
   set and the package bytes.
 
+The trust snapshot is loaded once and cached for the current boot. Install the
+complete updated journals before rebooting; the kernel does not hot-reload
+publisher trust while drivers are running.
+
 The transition and revocation statements are Ed25519-authenticated. At boot,
 the kernel replays historical statements by signature and generation rather
 than rejecting a previously accepted transition merely because its issuance
@@ -53,3 +57,10 @@ Private publisher keys remain outside the repository and the OS image.
 The tools verify that each PEM key matches the supplied public key. The kernel
 still verifies the issuer against its live trust state; a record signed by an
 unknown or revoked key is rejected.
+
+To sign a package with the compiled root key, pass `--trust-header` to
+`tools/kdrvsign.py`. To sign with a key introduced by a verified rotation,
+omit `--trust-header` and pass that key's matching `--public-key`,
+`--key-id`, and offline PEM private key. The kernel, not the host signing
+utility, is authoritative about whether the rotated key is currently trusted
+or revoked.
