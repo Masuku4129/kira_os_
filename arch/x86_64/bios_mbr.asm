@@ -32,6 +32,8 @@ start:
     jmp 0x0000:0x8000
 
 boot_error:
+    xor ax, ax
+    mov ds, ax
     mov si, error_text
 .print:
     lodsb
