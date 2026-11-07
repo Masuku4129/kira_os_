@@ -390,6 +390,7 @@ typedef struct { char name[16]; uint32_t generation,score; uint64_t size; int va
 static mind_archive_item_t archive_items[32];
 static unsigned archive_count;
 static uint32_t archive_generation;
+static int archive_overflow;
 static uint32_t archive_crc(const void* data,unsigned len) {
     const uint8_t* p=(const uint8_t*)data;uint32_t c=0xFFFFFFFFu;
     for(unsigned i=0;i<len;i++){c^=p[i];for(unsigned b=0;b<8;b++)c=(c>>1)^(0xEDB88320u&(uint32_t)-(int32_t)(c&1));}
@@ -411,7 +412,8 @@ static int archive_name(const char* n,uint32_t* gen) {
 }
 static int archive_collect(void* ctx,const char* name,const kfs_stat_t* st) {
     (void)ctx;uint32_t gen;
-    if(!archive_name(name,&gen)||archive_count>=32)return 0;
+    if(!archive_name(name,&gen))return 0;
+    if(archive_count>=32){archive_overflow=1;return 0;}
     mind_archive_item_t* it=&archive_items[archive_count++];
     for(unsigned i=0;i<sizeof it->name;i++)it->name[i]=0;
     for(unsigned i=0;name[i]&&i+1<sizeof it->name;i++)it->name[i]=name[i];
@@ -424,7 +426,8 @@ static void archive_path(char* out,const char* name) {
     while(*p)out[n++]=*p++;while(*name)out[n++]=*name++;out[n]=0;
 }
 static void archive_scan(void) {
-    archive_count=0;archive_generation=0;(void)kfs_list(MIND_ARCHIVE_DIR,archive_collect,0);
+    archive_count=0;archive_generation=0;archive_overflow=0;
+    (void)kfs_list(MIND_ARCHIVE_DIR,archive_collect,0);
     static uint8_t raw[sizeof(mind_model_t)];
     for(unsigned i=0;i<archive_count;i++){
         char path[64];archive_path(path,archive_items[i].name);
@@ -443,6 +446,8 @@ static int archive_write(const mind_model_t* model) {
     if(kfs_stat("/var/mind",&st)!=0&&kfs_mkdir("/var/mind")!=0)return -1;
     if(kfs_stat(MIND_ARCHIVE_DIR,&st)!=0&&kfs_mkdir(MIND_ARCHIVE_DIR)!=0)return -1;
     archive_scan();
+    /* Never make quota/generation decisions from a truncated directory scan. */
+    if(archive_overflow)return -1;
     /* The previous newest valid snapshot is the recovery point if the new
        primary model is later damaged. Never evict it while making room. */
     uint32_t protected_generation=0;
