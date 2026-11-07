@@ -95,11 +95,34 @@ int main(void) {
     CHECK(fdt_simplefb(blob, &fb) == 0 && fb.base == 0x3c000000 && fb.width == 800 && fb.height == 600 &&
           fb.stride == 3200 && !strcmp(fb.format, "a8r8g8b8"));          /* выключенный узел пропущен */
 
+    /* reg ranges with wrapped 64-bit physical ends are rejected. */
+    {
+        uint8_t* reg = (uint8_t*)fdt_prop(blob, mem, "reg", &len);
+        CHECK(reg && len == 16);
+        be(reg, 0xFFFFFFFFu); be(reg + 4, 0xFFFFF000u);
+        be(reg + 8, 0); be(reg + 12, 0x2000);
+        CHECK(fdt_reg(blob, mem, 0, &a, &s) != 0);
+        total = build();
+        mem = fdt_find_path(blob, "/memory");
+    }
+
+    /* Property-name offsets must terminate inside the strings block. */
+    {
+        uint32_t so = fdt_u32(blob + 8), sto = fdt_u32(blob + 12), ts = fdt_u32(blob + 32);
+        be(blob + so + 16, ts - 1); blob[sto + ts - 1] = 'X';
+        CHECK(fdt_valid(blob, sizeof blob));
+        CHECK(fdt_prop(blob, fdt_root(blob), "#address-cells", &len) == 0);
+        total = build();
+    }
+
     /* испорченные блобы */
     uint8_t bad[8192];
     memcpy(bad, blob, sizeof bad); be(bad, 0x12345678); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 4, 100000); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 36, total); CHECK(!fdt_valid(bad, sizeof bad));
+    memcpy(bad, blob, sizeof bad); be(bad + 12, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* strings alias structure */
+    memcpy(bad, blob, sizeof bad); be(bad + 16, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* reserve map aliases structure */
+    memcpy(bad, blob, sizeof bad); be(bad + 40, 1); be(bad + 48, 0x1000); CHECK(!fdt_valid(bad, sizeof bad)); /* missing reserve terminator */
     memcpy(bad, blob, sizeof bad); be(bad + 56 + 4 + 0, 0x7FFFFFFF);  /* длина первого свойства за пределами */
     CHECK(fdt_valid(bad, sizeof bad) && fdt_prop(bad, fdt_root(bad), "#address-cells", &len) == 0);
     /* обход с испорченными данными не уходит за блок */
