@@ -8,7 +8,7 @@
 } } while (0)
 
 static _Alignas(PAGE) uint8_t registers_page[PAGE];
-static _Alignas(PAGE) uint8_t dma_pool[8u * PAGE];
+static _Alignas(PAGE) uint8_t dma_pool[10u * PAGE];
 static unsigned alloc_calls, free_calls, clean_calls, map_calls;
 static unsigned fail_alloc_at, misalign_alloc_at;
 static size_t freed_pages, pool_used;
@@ -65,7 +65,7 @@ static void reset_test_platform(void)
     alloc_calls = free_calls = clean_calls = map_calls = 0;
     fail_alloc_at = misalign_alloc_at = 0;
     freed_pages = pool_used = 0;
-    next_physical = 0x200000u;
+    next_physical = 0x201000u;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
     *(uint32_t *)(registers_page + 0x0004u) = (8u << 21) | (8u << 16) | 8u;
 }
@@ -113,10 +113,10 @@ int main(void)
     memset(&smmu, 0, sizeof(smmu));
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_OK);
     CHECK(alloc_calls == 3 && free_calls == 0);
-    CHECK(smmu.stream_table == dma_pool);
-    CHECK(smmu.stream_table_physical == next_physical);
-    CHECK(smmu.cmdq == dma_pool + 4u * PAGE);
-    CHECK(smmu.evtq == dma_pool + 5u * PAGE);
+    CHECK(smmu.stream_table == dma_pool + 3u * PAGE);
+    CHECK(smmu.stream_table_physical == next_physical + 3u * PAGE);
+    CHECK(smmu.cmdq == dma_pool + 7u * PAGE);
+    CHECK(smmu.evtq == dma_pool + 8u * PAGE);
     CHECK(smmu.queue_entries == 256u && smmu.enabled == 0);
     CHECK(smmu.stream_id_limit == 256u);
     CHECK(*(uint32_t *)(registers_page + 0x0088u) == 8u);
@@ -153,7 +153,7 @@ int main(void)
     fail_alloc_at = 2;
     memset(&smmu, 0, sizeof(smmu));
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
-    CHECK(alloc_calls == 2 && free_calls == 1 && freed_pages == 4u);
+    CHECK(alloc_calls == 2 && free_calls == 1 && freed_pages == 7u);
     CHECK(smmu.stream_table == 0 && smmu.stream_table_physical == 0);
 
     /* Failure allocating EVTQ must release CMDQ and the stream table. */
@@ -162,7 +162,7 @@ int main(void)
     fail_alloc_at = 3;
     memset(&smmu, 0, sizeof(smmu));
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
-    CHECK(alloc_calls == 3 && free_calls == 2 && freed_pages == 5u);
+    CHECK(alloc_calls == 3 && free_calls == 2 && freed_pages == 8u);
     CHECK(smmu.cmdq == 0 && smmu.stream_table == 0);
 
     /* An unaligned DMA address is rejected and the allocation is returned. */
@@ -171,7 +171,7 @@ int main(void)
     misalign_alloc_at = 1;
     memset(&smmu, 0, sizeof(smmu));
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
-    CHECK(alloc_calls == 1 && free_calls == 1 && freed_pages == 4u);
+    CHECK(alloc_calls == 1 && free_calls == 1 && freed_pages == 7u);
     CHECK(smmu.stream_table == 0);
 
     puts("ARM SMMUv3 prepare: validation, stream table setup and allocation unwind passed");
