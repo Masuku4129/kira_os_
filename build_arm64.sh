@@ -42,6 +42,12 @@ $CC $KCFLAGS -Iuserland -c userland/kccrt.c -o build-arm64/ukccrt.o
 $CC $UCFLAGS -c userland/libc_min.c -o build-arm64/ukcc_libc_min.o
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/kcc.elf build-arm64/kcc_main.o $KCC_OBJ build-arm64/ukccrt.o build-arm64/ukcc_libc_min.o
 UELF="$UELF build-arm64/kcc.elf"
+
+# Same complete KCC amalgam as x86-64, compiled for the native ARM64 guest.
+bash tools/kcc-amalgamate.sh userland/kcc_selfhost.c
+$CC $KCFLAGS -Iuserland/kccrt -Iuserland -Ikcc -Ikcc/include -c userland/kcc_selfhost.c -o build-arm64/kcc_selfhost.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/kcc-selfhost.elf build-arm64/kcc_selfhost.o
+UELF="$UELF build-arm64/kcc-selfhost.elf"
 # drvget (см. build_clang.sh): TLS-клиент, kcc и запись пакетов в /drv в одной программе EL0
 $CC $KCFLAGS -I. -Iuserland -Iuserland/kccrt -c userland/drvget.c -o build-arm64/dg_main.o
 $CC $UCFLAGS -I. -c userland/drvget_core.c -o build-arm64/dg_core.o
@@ -74,10 +80,10 @@ done
 # Общее ядро (те же файлы, что и на x86-64) и платформа ARM64
 for f in fdt.c bootinfo.c bootinfo_fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
          experience.c fscmd.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
-         immune.c kobj.c futex.c corefault.c crypto.c pk.c kdrv_sig.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
+         immune.c kobj.c futex.c corefault.c crypto.c pk.c kdrv_sig.c kdrv_transition.c kdrv_revocation.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
          virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
          icons.c brainfx.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
-         $A/main.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c; do
+         $A/main.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c arch/arm64/smmu_v3.c; do
     o=build-arm64/$(basename $f .c).o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
 done
 ld.lld -T $A/linker.ld -nostdlib -pie --no-dynamic-linker -z text -z norelro -z max-page-size=4096 $OBJ -o kira-arm64.elf
@@ -90,6 +96,10 @@ for e in $UELF; do tools/kfstool kira-arm64.disk put /bin/$(basename $e .elf) $e
 for h in kcc/include/*.h; do                              # заголовки libc-lite для kcc на Кире (те же файлы, что у x86-64)
     tools/kfstool kira-arm64.disk put /etc/kcc/include/$(basename $h) $h >/dev/null
 done
+for h in kcc/*.h; do tools/kfstool kira-arm64.disk put /etc/kcc/include/$(basename $h) $h >/dev/null; done
+for h in userland/kccrt/*.h; do tools/kfstool kira-arm64.disk put /etc/kcc/include/kccrt/$(basename $h) $h >/dev/null; done
+tools/kfstool kira-arm64.disk put /data/kcc/kcc_selfhost.c userland/kcc_selfhost.c >/dev/null
+tools/kfstool kira-arm64.disk put /data/kcc-selfhost/kcc_selfhost.c userland/kcc_selfhost.c >/dev/null
 # Драйвер Ring 3 (тестовый, для QEMU -device edu) и его пакеты в /drv
 $CC $UCFLAGS -I. -Iuserland -c userland/drvedu.c -o build-arm64/drvedu.o
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/drvedu.elf build-arm64/drvedu.o
