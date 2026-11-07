@@ -5,15 +5,19 @@ SECTIONS
     . = 1M;
     kernel_start = .;
     ro_start = .;
+    . = ALIGN(4096);
     .rodata : {
         KEEP(*(.multiboot_header))
         *(.rodata*)
     }
     ro_end = .;
     text_start = .;
+    . = ALIGN(4096);
     .text : { *(.text*) }
     text_end = .;
+    . = ALIGN(4096);
     .data : { *(.data*) }
+    . = ALIGN(4096);
     .bss : {
         *(COMMON)
         *(.bss*)
