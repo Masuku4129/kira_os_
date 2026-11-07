@@ -332,6 +332,8 @@ static int cmd_install(const char *arg) {
 
     sayf("\n=== драйвер '%s' версия %u ===\n", R.name, (unsigned)R.version);
     sayf("источник:   %s\n", url);
+    if (pinned && pinned->publisher_required)
+        say("политика системного каталога: издательская Ed25519-подпись обязательна; отсутствие .sig будет отказом\n");
     sayf("лицензия:   заявлена %s; проверено по тексту каждого файла (SPDX/текст), GPL и бинарных файлов нет:\n", R.license);
     for (u32 i = 0; i < R.nfile; i++) {
         char fh[65];
@@ -444,6 +446,38 @@ static int cmd_confirm(const char *arg) {
     if (un < 0) un = 0;
     url[un] = 0;
 
+    /* Re-read the trusted system catalogue at confirmation time. The staged
+       URL alone is not authority: pin the recipe again and enforce publisher
+       policy from the current catalogue, not from mutable sandbox metadata. */
+    int publisher_required = 0;
+    int confirm_index_state = load_index();
+    if (confirm_index_state < 0) {
+        say("drvget: системный каталог повреждён; подтверждение заблокировано\n");
+        stage_clear();
+        return 1;
+    }
+    if (confirm_index_state > 0) {
+        const dg_index_entry_t *confirm_pin = index_by_url(url);
+        if (confirm_pin) {
+            u8 want_recipe[32], got_recipe[32];
+            if (strcmp(confirm_pin->name, R.name) ||
+                !dg_hex_parse(confirm_pin->recipe_sha, want_recipe, 32)) {
+                say("drvget: рецепт не соответствует записи системного каталога; подтверждение отменено\n");
+                stage_clear();
+                return 1;
+            }
+            sha256(recipe_txt, strlen(recipe_txt), got_recipe);
+            if (memcmp(want_recipe, got_recipe, 32)) {
+                say("drvget: SHA-256 рецепта изменился после подготовки; подтверждение отменено\n");
+                stage_clear();
+                return 1;
+            }
+            publisher_required = confirm_pin->publisher_required != 0;
+        }
+    }
+    if (publisher_required)
+        say("drvget: системный каталог требует издательскую Ed25519-подпись\n");
+
     if (!g_arena) {
         void *base = k_heap_grow(CHUNK_PAGES);
         if (!base) { say("drvget: нет памяти для компилятора\n"); return 1; }
@@ -497,6 +531,12 @@ static int cmd_confirm(const char *arg) {
         if (signature_error) {
             if (!strstr(signature_error, "HTTP 404")) {
                 sayf("drvget: не удалось получить подпись издателя: %s\n", signature_error);
+                stage_clear();
+                return 1;
+            }
+            if (publisher_required) {
+                say("drvget: отказ: системный каталог требует издательскую подпись, но сервер вернул HTTP 404 для .sig\n");
+                stage_clear();
                 return 1;
             }
             say("drvget: .sig отсутствует (HTTP 404); пакет будет только локально подтверждён\n");
