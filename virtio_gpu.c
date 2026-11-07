@@ -30,6 +30,7 @@ static virtio_dev_t dev;
 static virtq_t ctrl;
 static uint8_t* cmd;  static uint64_t cmd_phys;    /* одна страница: команда */
 static uint8_t* resp; static uint64_t resp_phys;   /* и ответ (сведения об экранах - 408 байт) */
+static uint8_t* fbm; static uint64_t fb_phys; static uint32_t fb_bytes;
 static uint32_t W, H;
 static spinlock_t lk = SPINLOCK_INIT;
 static int up;
@@ -37,7 +38,10 @@ static int up;
 static uint32_t send(uint32_t len, uint32_t rlen) {
     virtq_buf_t b[2] = { { cmd_phys, len, 0 }, { resp_phys, rlen, 1 } };
     ((hdr_t*)resp)->type = 0;
-    if (virtq_run(&ctrl, b, 2) != 0) return 0;
+    if (virtio_dma_sync_for_device(cmd, cmd_phys, len) != 0 ||
+        virtio_dma_sync_for_device(resp, resp_phys, rlen) != 0 ||
+        virtq_run(&ctrl, b, 2) != 0 ||
+        virtio_dma_sync_for_cpu(resp, resp_phys, rlen) != 0) return 0;
     return ((hdr_t*)resp)->type;
 }
 
@@ -47,6 +51,12 @@ static void zero(void* p, unsigned n) { uint8_t* b = (uint8_t*)p; while (n--) *b
 static void gpu_flush(int x, int y, int w, int h) {
     if (!up || w <= 0 || h <= 0) return;
     uint64_t f = spin_lock_irqsave(&lk);
+    if (virtio_dma_sync_for_device(fbm, fb_phys, fb_bytes) != 0) {
+        up = 0;
+        uart_print("[KIRA GPU] framebuffer DMA synchronization failed; screen frozen.\\n");
+        spin_unlock_irqrestore(&lk, f);
+        return;
+    }
     transfer_t* t = (transfer_t*)cmd; zero(t, sizeof *t);
     t->h.type = CMD_TRANSFER_TO_HOST_2D; t->r = (rect_t){ (uint32_t)x, (uint32_t)y, (uint32_t)w, (uint32_t)h };
     t->off = ((uint64_t)y * W + (uint64_t)x) * 4; t->res = 1;
@@ -79,8 +89,8 @@ int virtio_gpu_probe(void) {
     if (H > 4096) H = 4096;
     W &= ~1u;
 
-    uint64_t fb_phys;
-    uint8_t* fbm = (uint8_t*)virtio_dma_alloc(W * H * 4, &fb_phys);   /* подложка: непрерывная, видна устройству */
+    fb_bytes = W * H * 4;
+    fbm = (uint8_t*)virtio_dma_alloc(fb_bytes, &fb_phys);   /* подложка: непрерывная, видна устройству */
     if (!fbm) { virtio_fail(&dev); return -5; }
 
     create_t* c = (create_t*)cmd; zero(c, sizeof *c);
