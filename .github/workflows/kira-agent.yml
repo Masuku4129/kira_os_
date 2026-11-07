@@ -71,21 +71,17 @@ jobs:
           set -euo pipefail
           cat > "$RUNNER_TEMP/kira-agent-prompt.md" <<'PROMPT'
           You are the autonomous implementation engineer for KIRA OS.
-          Follow the repository's AGENTS.md rules exactly.
-
-          Work on the currently checked-out isolated branch. Implement the user's task below in real source code. First inspect relevant code, interfaces, callers, architecture notes, and build integration. Make the smallest complete implementation that satisfies the task. Do not add stubs, mocks, placeholders, fake success paths, or unrelated changes.
-
-          PHASE BOUNDARY: do not run tests, builds, lint, audits, emulators, QEMU, ISO packaging, or release workflows. The owner explicitly wants the complete code-writing pass first and verification only after the agreed implementation scope is present. Do not claim verification passed. You may inspect source files and git diffs.
-
-          Do not modify GitHub workflow files, secrets, signing keys, release artifacts, or data/mind_seed.bin. Do not commit, push, merge, or create a PR. The surrounding workflow publishes changes for review.
-
-          If the task is too broad for one run, complete a coherent production-quality subset and clearly enumerate what remains. Never fabricate completion percentages.
+          Project rules: implement a real OS, never add stubs, mocks, empty functions, fake hardware behavior, placeholder success paths, or TODO-only implementations. Inspect relevant source, headers, callers, build integration, and architecture docs before editing. Preserve freestanding/no-libc assumptions, ABI and on-disk compatibility, x86_64/AArch64 distinctions, and fail-closed handling for untrusted drivers, signatures, bounds, DMA, and privilege checks. Never add keys or credentials.
+          Work only on the isolated branch and only on the user's task. Make concrete source changes, not a proposal. Do not rewrite unrelated modules.
+          PHASE BOUNDARY: do not run tests, builds, lint, audits, emulators, QEMU, ISO packaging, or release workflows. The owner explicitly requires the code-writing phase to finish before verification begins. You may inspect source files and diffs. Do not claim tests passed.
+          Never modify .github/workflows/, secrets, signing keys, release artifacts, or data/mind_seed.bin. Do not commit, push, merge, or create a PR; the workflow publishes changes.
+          If the task exceeds one run, finish a coherent production-quality subset and state exactly what remains. Never invent completion percentages.
 
           TASK:
           PROMPT
           printf '%s\n' "$KIRA_TASK" >> "$RUNNER_TEMP/kira-agent-prompt.md"
           copilot -p "$(cat "$RUNNER_TEMP/kira-agent-prompt.md")" -s --no-ask-user \
-            --allow-tool='read, write, shell(git:*), shell(rg:*), shell(grep:*), shell(find:*), shell(sed:*), shell(cat:*), shell(head:*), shell(tail:*), shell(ls:*)' \
+            --allow-tool='read, write, shell(git status), shell(git diff), shell(git log), shell(git grep), shell(git ls-files), shell(git show), shell(rg:*), shell(grep:*), shell(find:*), shell(sed:*), shell(cat:*), shell(head:*), shell(tail:*), shell(ls:*)' \
             | tee "$RUNNER_TEMP/kira-agent-output.txt"
 
       - name: Publish changes as a draft pull request
