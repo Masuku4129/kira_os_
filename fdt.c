@@ -50,6 +50,36 @@ int fdt_valid(const void* fdt, uint32_t max_len) {
 
 uint32_t fdt_total_size(const void* fdt) { return hdr(fdt, 1); }
 
+unsigned fdt_reserve_count(const void* fdt) {
+    if (!fdt_valid(fdt, 0)) return 0;
+    uint32_t total = hdr(fdt, 1), off = hdr(fdt, 4);
+    const uint8_t* b = (const uint8_t*)fdt;
+    unsigned count = 0;
+    for (uint32_t p = off; p <= total - 16; p += 16) {
+        uint64_t a = fdt_u64(b + p), n = fdt_u64(b + p + 8);
+        if (!a && !n) return count;
+        count++;
+    }
+    return 0;
+}
+
+int fdt_reserve(const void* fdt, unsigned index, uint64_t* base, uint64_t* size) {
+    if (!fdt_valid(fdt, 0)) return -1;
+    uint32_t total = hdr(fdt, 1), off = hdr(fdt, 4);
+    const uint8_t* b = (const uint8_t*)fdt;
+    unsigned current = 0;
+    for (uint32_t p = off; p <= total - 16; p += 16) {
+        uint64_t a = fdt_u64(b + p), n = fdt_u64(b + p + 8);
+        if (!a && !n) return -1;
+        if (current++ == index) {
+            if (base) *base = a;
+            if (size) *size = n;
+            return 0;
+        }
+    }
+    return -1;
+}
+
 /* Смещение следующего токена после токена в off; токен в *tok. -1 - выход за блок. */
 static int step(const void* fdt, int off, uint32_t* tok) {
     uint32_t n = slen(fdt);
