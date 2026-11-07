@@ -107,6 +107,7 @@ int fdt_tree_valid(const void* fdt) {
     const char* strings = strs(fdt);
     uint32_t n = slen(fdt), strings_size = hdr(fdt, 8), off = 0;
     unsigned depth = 0;
+    uint8_t child_seen[64] = {0};
     int root_seen = 0, root_closed = 0, finished = 0;
     while (off < n) {
         uint32_t tok;
@@ -119,13 +120,16 @@ int fdt_tree_valid(const void* fdt) {
                 if (depth || name_len) return 0;
                 root_seen = 1;
             } else if (!depth || !name_len) return 0;
+            if (depth >= 64) return 0;
+            if (depth) child_seen[depth - 1] = 1;
+            child_seen[depth] = 0;
             depth++;
         } else if (tok == T_PROP) {
-            if (!root_seen || !depth || root_closed) return 0;
+            if (!root_seen || !depth || root_closed || child_seen[depth - 1]) return 0;
             uint32_t name_off = fdt_u32(s + off + 8);
-            if (name_off >= strings_size ||
-                slen0(strings + name_off, strings_size - name_off) == strings_size - name_off)
-                return 0;
+            if (name_off >= strings_size) return 0;
+            unsigned name_len = slen0(strings + name_off, strings_size - name_off);
+            if (!name_len || name_len == strings_size - name_off) return 0;
         } else if (tok == T_END) {
             if (!root_seen || !depth || root_closed) return 0;
             depth--;
