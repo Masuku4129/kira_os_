@@ -161,7 +161,7 @@ key = Ed25519PrivateKey.from_private_bytes(seed)
 pub = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
 (root / "test-public.hex").write_text(pub.hex() + "\n", encoding="ascii")
 (root / "test-trust.h").write_text(
-    '#define KDRV_TRUST_KEY_ID "TEST-ED25519-001"\\n'
+    '#define KDRV_TRUST_KEY_ID "TEST-ED25519-001"\n'
     + "static const unsigned char test_pub[] = {"
     + ",".join(f"0x{x:02x}" for x in pub) + "};\n",
     encoding="ascii")
@@ -172,7 +172,7 @@ python3 -I tools/kdrvsign.py "$T/rl.package" --key "$T/test-key.pem" \
     --output "$W/rl/drvget.sig" >"$T/sign.log" 2>&1 || note "test publisher signer failed: $(cat "$T/sign.log")"
 rm -rf "$T/sb" "$T/drv"; mkdir -p "$T/sb" "$T/drv"
 run "install $U/rl/drvget.rec"
-HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \\([0-9a-f]\\{64\\}\\)$/\\1/p' "$T/out")
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' "$T/out")
 [ ${#HASH} = 64 ] || note "valid signature test: не получен хеш staging-набора"
 run "confirm rl ${HASH:0:8}"
 grep -q "подпись издателя Ed25519 подтверждена" "$T/out" || note "valid publisher signature was not accepted: $(tail -c 400 "$T/out")"
