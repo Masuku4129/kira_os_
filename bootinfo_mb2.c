@@ -105,6 +105,7 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
     if(!result || !result_size || !kernel_base || !kernel_size ||
        kernel_base > UINT64_MAX-kernel_size ||
        (uintptr_t)info > UINTPTR_MAX-available) return -10;
+    *result=0; *result_size=0;
     const uint8_t* b=(const uint8_t*)info;
     uint32_t total=0;
     int rc=mb2_bounds(b,available,&total);
