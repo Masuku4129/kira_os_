@@ -173,6 +173,8 @@ static void vcap(fdev_t* d, int at, int next, int type, int bar, uint32_t off, u
 static uint8_t* vblk_cfg_space;
 
 static void model_init(vopt_t o, uint16_t devid) {
+    /* Previous probe must relinquish its device DMA before the model memory is reset. */
+    virtio_blk_shutdown();
     opt = o; memset(&dv, 0, sizeof dv); memset(bus_dev, 0, sizeof bus_dev); memset(mmio, 0, sizeof mmio); viol = 0;
     mkhdr(F(0, 0, 0), 0x8086, 0x1237, 6, 0, 0);                                         /* хост-мост */
     mkhdr(F(0, 1, 0), 0x8086, 0x1111, 6, 4, 1); F(0, 1, 0)->cfg[0x19] = 1;              /* мост на шину 1 */
