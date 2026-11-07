@@ -314,6 +314,11 @@ static void *alloc_low_pages(EFI_BOOT_SERVICES *bs,uint64_t bytes,uint32_t memor
 }
 
 
+static void free_low_pages(EFI_BOOT_SERVICES *bs,void *memory,uint64_t bytes) {
+    if(memory) (void)bs->free_pages((uint64_t)(uintptr_t)memory,
+                                    (bytes+EFI_PAGE_SIZE-1u)/EFI_PAGE_SIZE);
+}
+
 static int mask_info(uint32_t mask,uint8_t *pos,uint8_t *bits) {
     if(!mask) return -1;
     uint32_t shift=ctz32(mask), value=mask>>shift, n=popcount32(mask);
@@ -443,16 +448,26 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
 
     void *mbi=alloc_low_pages(bs,BOOTINFO_MAX,EFI_LOADER_DATA);
     void *mapbuf=alloc_low_pages(bs,1024u*1024u,EFI_LOADER_DATA);
-    if(!mbi||!mapbuf) return (EFI_STATUS)0x8000000000002001ull;
+    if(!mbi||!mapbuf) {
+        free_low_pages(bs,mbi,BOOTINFO_MAX);
+        free_low_pages(bs,mapbuf,1024u*1024u);
+        release_loaded_kernel(bs);
+        return (EFI_STATUS)0x8000000000002001ull;
+    }
     uint64_t mapkey=0; uint32_t bootinfo_size=0;
     int br=build_bootinfo(bs,st,mbi,BOOTINFO_MAX,mapbuf,1024u*1024u,
                           kernel_base,kernel_end,&mapkey,&bootinfo_size);
-    if(br||!bootinfo_size) return (EFI_STATUS)(0x8000000000002000ull+(uint32_t)(br? -br : 0xFF));
+    if(br||!bootinfo_size) {
+        free_low_pages(bs,mbi,BOOTINFO_MAX);
+        free_low_pages(bs,mapbuf,1024u*1024u);
+        release_loaded_kernel(bs);
+        return (EFI_STATUS)(0x8000000000002000ull+(uint32_t)(br? -br : 0xFF));
+    }
 
     rc=bs->exit_boot_services(image,mapkey);
     if(EFI_ERROR(rc)) {
-        /* Firmware may invalidate the key; rebuild from a fresh map without
-           allocating or freeing anything, then retry exactly once. */
+        /* After a failed ExitBootServices, only refresh the map and retry.
+           Do not free or allocate pages once firmware may be partially shut down. */
         br=refresh_bootinfo_after_exit_failure(bs,mbi,BOOTINFO_MAX,
                           mapbuf,1024u*1024u,kernel_base,kernel_end,
                           &mapkey,&bootinfo_size);
@@ -460,6 +475,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
         rc=bs->exit_boot_services(image,mapkey);
         if(EFI_ERROR(rc)) return rc;
     }
+    loaded_kernel_count=0; /* ownership passes to the running kernel */
     ((kernel_entry_fn)(uintptr_t)entry)(KIRA_BOOTINFO_MAGIC,(uint64_t)(uintptr_t)mbi);
     for(;;) __asm__ volatile("cli; hlt");
 }
