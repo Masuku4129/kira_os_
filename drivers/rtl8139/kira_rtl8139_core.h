@@ -125,9 +125,10 @@ static inline int kira_rl_tx_reap(kira_rl_tx_state_t *s, uint8_t slot,
                                   uint32_t error_mask) {
     if (!s || slot >= KIRA_RL_TX_SLOTS || !s->busy[slot]) return -1;
     if (!(tx_status & (ok_bit | error_mask))) return 0; /* still owned by device */
-    return kira_rl_tx_complete(s, slot,
-                               (tx_status & ok_bit) != 0 &&
-                               (tx_status & error_mask) == 0);
+    int rc = kira_rl_tx_complete(s, slot,
+                                 (tx_status & ok_bit) != 0 &&
+                                 (tx_status & error_mask) == 0);
+    return rc ? rc : 1; /* completed */
 }
 
 static inline int kira_rl_tx_length(size_t requested, uint16_t *hardware_len) {
