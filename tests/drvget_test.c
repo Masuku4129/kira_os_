@@ -109,8 +109,8 @@ int main(void) {
     CHECK(!strcmp(ix[0].name, "rl") && !strcmp(ix[0].url, "https://example.test/rl/drvget.rec") && strlen(ix[0].recipe_sha) == 64);
     CHECK(ix[0].publisher_required == 0);
     const char *signed_catalog =
-        "kira-driver-index 1\\n"
-        "pci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef publisher-required\\n";
+        "kira-driver-index 1\n"
+        "pci 10ec:8139 rl https://example.test/rl/drvget.rec 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef publisher-required\n";
     CHECK(dg_parse_index(signed_catalog, (uint32_t)strlen(signed_catalog), ix, DG_INDEX_ENTRIES, &ixn, &err) == 0);
     CHECK(ixn == 1 && ix[0].publisher_required == 1);
     CHECK(dg_index_find_pci(ix, ixn, 0x10ec, 0x8139) == 0);
