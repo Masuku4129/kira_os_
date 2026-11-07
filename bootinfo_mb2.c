@@ -29,7 +29,8 @@ static int reserve_range(kbi_mmap_entry_t* mm, uint32_t* count,
     if (!length || base > UINT64_MAX - length) return -1;
     uint64_t end = base + length, covered = base;
     for (uint32_t i = 0; i < *count; i++) {
-        uint64_t old_base = mm[i].base, old_end = old_base + mm[i].length;
+        kbi_mmap_entry_t original = mm[i];
+        uint64_t old_base = original.base, old_end = old_base + original.length;
         if (old_end <= base || old_base >= end) continue;
         uint64_t lo = old_base > base ? old_base : base;
         uint64_t hi = old_end < end ? old_end : end;
@@ -37,12 +38,12 @@ static int reserve_range(kbi_mmap_entry_t* mm, uint32_t* count,
         if (hi <= covered) continue;
         uint32_t extra = (lo > old_base ? 1u : 0u) +
                          (hi < old_end ? 1u : 0u);
-        if (*count > capacity - extra) return -1;
+        if (extra > capacity - *count) return -1;
         for (uint32_t j = *count; j > i + 1u; j--)
             mm[j + extra - 1u] = mm[j - 1u];
         uint32_t at = i;
         if (lo > old_base) {
-            mm[at] = mm[i];
+            mm[at] = original;
             mm[at].length = lo - old_base;
             at++;
         }
@@ -52,7 +53,7 @@ static int reserve_range(kbi_mmap_entry_t* mm, uint32_t* count,
         mm[at].attributes = 0;
         at++;
         if (hi < old_end) {
-            mm[at] = mm[i];
+            mm[at] = original;
             mm[at].base = hi;
             mm[at].length = old_end - hi;
         }
