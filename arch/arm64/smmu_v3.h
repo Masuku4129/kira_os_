@@ -36,8 +36,8 @@
 
 #define SMMU_CR0_SMMUEN (1u << 0)
 #define SMMU_CR0_EVTQEN (1u << 2)
-#define SMMU_CR0_PRIQEN (1u << 3)
-#define SMMU_CR0_CMDQEN (1u << 3) /* CR0 bit assignment is implementation/version sensitive; use named helper below. */
+#define SMMU_CR0_CMDQEN (1u << 3)
+#define SMMU_CR0_PRIQEN (1u << 4)
 #define SMMU_CR0_ABORT   (1u << 4)
 #define SMMU_GBPA_ABORT  (1u << 20)
 #define SMMU_GBPA_UPDATE (1u << 31)
@@ -50,7 +50,6 @@
 #define SMMU_IDR0_S2P (1u << 0)
 #define SMMU_IDR1_CMDQS_SHIFT 21u
 #define SMMU_IDR1_CMDQS_MASK (31u << SMMU_IDR1_CMDQS_SHIFT)
-#define SMMU_IDR1_EVENTQS_SHIFT _evtq 0
 
 typedef struct {
     volatile uint8_t *base;
