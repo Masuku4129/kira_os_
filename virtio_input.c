@@ -190,7 +190,11 @@ int virtio_input_init(void) {
         if (p->vendor != VIRTIO_VENDOR || p->device != VIRTIO_INPUT_DEVICE) continue;
         vin_t* d = &devs[ndev];
         int hi = 0;
-        if (attach(d, p, &hi) != 0) { uart_print("[KIRA INPUT] virtio-input device did not start.\n"); continue; }
+        if (attach(d, p, &hi) != 0) {
+            uart_print("[KIRA INPUT] virtio-input device did not start.\n");
+            if (d->dev.common || d->q.mem || d->ev) break; /* reset unconfirmed: retain and never reuse this slot */
+            continue;
+        }
         uart_print("[KIRA INPUT] virtio-input: "); uart_print(d->name[0] ? d->name : "(no name)");
         uart_print(d->has_abs ? " (absolute pointer)" : "");
         uart_print(hi ? ", MSI-X interrupt\n" : ", polled\n");
