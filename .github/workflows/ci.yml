@@ -74,10 +74,11 @@ jobs:
                   for p in changed
               ),
               "driver": infra or any(
-                  p.startswith(("drivers/", "userland/drv"))
+                  p.startswith(("drivers/", "userland/drv", "tests/kdrv", "tools/kdrv"))
                   or p in {"kdrv.c", "kdrv.h", "kdrv_fmt.c", "kdrv_format.h",
-                           "kdrv_trust.h", "tools/mkdrv.sh", "tools/kdrvpack.c",
-                           "tests/drvget_e2e.sh"}
+                           "kdrv_trust.h", "kdrv_sig.c", "kdrv_sig.h",
+                           "pk.c", "pk.h", "tools/mkdrv.sh",
+                           "tests/drvget_e2e.sh", "tests/pk_test.c"}
                   for p in changed
               ),
               "build": code,
