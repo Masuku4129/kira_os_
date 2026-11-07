@@ -1,0 +1,155 @@
+
+==================================================
+[KIRA OS] Kernel core starting...
+==================================================
+[KIRA BOOT] BootInfo v1 validated: memory ranges=8, modules=0, bytes=329.
+[KIRA BOOT] Early console is on screen.
+[KIRA GDT] GDT loaded (Ring0/Ring3 segments), TSS loaded with 3 IST stacks (#DF, NMI, #MC).
+[KIRA IDT] Configuring 64-bit Interrupt Descriptor Table...
+[KIRA IDT] IDT loaded: 32 exceptions (#DF/NMI/#MC on IST) + 16 IRQs + LAPIC spurious, other vectors -> unhandled trap.
+[KIRA FPU] x87 + SSE/SSE2 enabled; per-thread FXSAVE state (512 B) saved on every context switch. AVX present but not enabled (needs XSAVE area).
+[KIRA PMM] Usable RAM per BootInfo map: 1023 MB; allocatable now (below 1 GB, minus kernel and bitmaps): 1018 MB; above 1 GB waiting to be mapped: 0 MB; bitmaps 64 KB.
+[KIRA VMM] Verifying paging state...
+[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.
+[KIRA VMM] NULL guard installed: first 2 MB split into 4 KB pages, page 0 unmapped.
+[KIRA VMM] SMEP enabled: kernel cannot execute user pages.
+[KIRA VMM] SMAP enabled: kernel touches user memory only through checked copies.
+[KIRA RAM] Mapped RAM above 1 GB: 0 MB (2 MB pages, no-execute); edges lost to alignment or failures: 0 KB.
+[KIRA ACPI] rev 0, tables ok 4 bad 0 unmapped 0, CPUs 2, IOAPICs 1, HPET yes, PCIe ECAM none
+[KIRA HW] CPU AuthenticAMD family 25 model 1 stepping 1, virtual machine
+[KIRA HW] cores (ACPI): 2, RAM 1018 MB, address bits 48/48
+[KIRA HW] features: sse2 nx page1g xsave(832B) avx avx2 pcid invpcid smep smap fsgsbase rdrand rdseed x2apic tsc-deadline
+[KIRA HW] TSC not measured yet
+[KIRA HW] limits for this machine: program heap up to 509 MB per program, kernel keeps 63 MB free
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 775281 bytes, prefix e3fdc84b...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+[KIRA PROC] up to 8 programs at once (2 cores, 1018 MB RAM).
+[KIRA SYSCALL] SYSCALL/SYSRET enabled: write, exit, ticks, sleep, yield, getpid, gfx, fs (sandbox /data/<name>), heap (quota), threads, futex, ports, shared memory, clock; user pointers validated.
+[KIRA PCI] 7 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 8 MB (PCI 0:4.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA ATA] No disk on the primary IDE channel (floating bus): persistence disabled.
+[KIRA DISK] vda: virtio-blk, 8 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 6104 KB free.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA FB] Bootloader mode: 1024x768x32 type 1 addr 0xFD000000
+[KIRA FB] 1024x768x32 linear framebuffer at 0xFD000000, write-combining (PAT); back buffer 3072 KB in RAM.
+[KIRA PAR] parallel helpers: 1 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA KEYBOARD] PS/2 IRQ1 handler registered (decoded by the input layer).
+[KIRA MOUSE] PS/2 mouse enabled (IRQ12, 3-byte packets).
+[KIRA NET] e1000 (8086:100e): MAC 52:54:00:12:34:56, link up, no MSI on this card - polled every tick
+[KIRA NET] Network stack online: Ethernet, ARP, IPv4 (fragments), ICMP, UDP, DHCP client, DNS, TCP, IPv6 (ND, SLAAC, ICMPv6, UDP, TCP) (commands: net, ping, ping6, dns, http).
+[KIRA TIMER] PIT started, frequency 500 Hz, IRQ0 unmasked.
+[KIRA APIC] xAPIC mode: registers in the kernel MMIO window, base 0xFEE00000, id 0, version 0x14
+[KIRA OS] Core initialization complete. Enabling interrupts.
+[KIRA RTC] Real-time clock (CMOS, read as UTC): СУББОТА, 7 НОЯБРЯ 2026 06:49
+[KIRA CPU] TSC 2445664 kHz, measured by PIT channel 2, 3x50 ms median.
+[KIRA APIC] Timer calibrated against TSC: 62507 kcounts/s (bus clock ~1000 MHz).
+[KIRA IOAPIC] id 0 at 0xFEC00000, version 0x11, 24 pins, GSI base 0
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA IRQ] IOAPIC delivery verified end-to-end: RTC -> IOAPIC -> LAPIC, 51 interrupts in 50 ms.
+[KIRA IRQ] LAPIC timer verified: 99 ticks in 200 ms (expected 100).
+[KIRA IRQ] APIC mode: LAPIC timer 500 Hz is the tick source, 2 device lines routed through IOAPIC, legacy PIC and PIT disabled.
+[KIRA SMP] Processors online: 2 of 2 (MADT).
+[KIRA SMP] IPI ping answered by 1 of 1 started processors. Each core runs its own scheduler tick and its own ready queue; idle cores take waiting work from busy ones.
+[KIRA SMP] TSC skew between cores: max 6 ns (measurement precision +-40 ns): clocks agree.
+[KIRA OS] Ready. Type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA NET] DHCP: address 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, lease 86400 s
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA NET] IPv6: fe80::5054:ff:fe12:3456 (link-local, DAD passed) ready
+ls /etc/kcc/include
+         4176  caps.h
+          699  ctype.h
+         2426  kdrv.h
+         6955  kdrv_bsd.h
+        11431  kdrv_format.h
+        18303  kira.h
+          636  limits.h
+          461  stdarg.h
+          172  stdbool.h
+          227  stddef.h
+          930  stdint.h
+         5821  stdio.h
+         4861  stdlib.h
+         2407  string.h
+кира> cc hello.c
+использование: cc исходник результат   (файлы в /data/kcc, например: cc hello.c hello; запуск: runlocal hello)
+кира> cc hello.c[KIRA NET] IPv6: router advertisement from fe80::2, default router
+ hello
+[KIRA PROC] pid 1 'kcc' started from ELF: Ring 3, own address space, 53 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] kcc: ok: hello.c -> hello, 24624 байт (память компилятора 3501 КБ)
+[KIRA PROC] pid 1 'kcc' finished, exit code 0, address space destroyed (1094 pages returned to PMM).
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA NET] IPv6: fec0::5054:ff:fe12:3456 (SLAAC /64, DAD passed) ready
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: пробую 2000 мс вместо 1000 (причина: темп фона снижался; о�
+ls /data/kcc
+         1741  hello.c
+          148  bad.c
+          607  net.c
+         2575  lang.c
+        24624  hello
+кира> runlocal hello
+[LOCAL] /data/kcc/hello запускается по явной команде пользователя как 'local-hello' без прав, иммунитет: неопознанная (не из манифеста сборки)
+[KIRA PROC] pid 2 'local-hello' started from ELF: Ring 3, own address space, 6 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 2] native: hello from kcc on Kira
+[USER pid 2] native: total=240
+[USER pid 2] native: fib20=6765
+[USER pid 2] native: sorted gear bolt nut
+[USER pid 2] native: reversed=so-arik
+[USER pid 2] native: hex=c0ffee
+кира> [USER pid 2] native: clock ok
+[USER pid 2] native: done
+[KIRA PROC] pid 2 'local-hello' finished, exit code 0, address space destroyed (39 pages returned to PMM).
+cc bad.c bad
+[KIRA PROC] pid 3 'kcc' started from ELF: Ring 3, own address space, 53 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 3] bad.c:9: error: expected ',' before 'k_puts'
+[KIRA PROC] pid 3 'kcc' finished, exit code 1, address space destroyed (326 pages returned to PMM).
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: откат на 1000 мс - оценка 0 не лучше 0
+runlocal bad
+[LOCAL] /data/kcc/bad: нет такого файла или каталога (собрать: cc исходник.c bad)
+кира> [KIRA MIND] рычаг 23 «интервал сужения темпа фона»: пробую 400 мс вместо 200 (причина: темп фона снижался; оценка
+cc net.c net
+[KIRA PROC] pid 4 'kcc' started from ELF: Ring 3, own address space, 53 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 4] kcc: ok: net.c -> net, 12288 байт (память компилятора 2207 КБ)
+[KIRA PROC] pid 4 'kcc' finished, exit code 0, address space destroyed (838 pages returned to PMM).
+[KIRA MIND] рычаг 23 «интервал сужения темпа фона»: откат на 200 мс - оценка 0 не лучше 0
+runlocal net
+[LOCAL] /data/kcc/net запускается по явной команде пользователя как 'local-net' без прав, иммунитет: неопознанная (не из манифеста сборки)
+[KIRA PROC] pid 5 'local-net' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+[KIRA CAPS] process 'local-net' (pid 5): system call 25 denied, no right CAP_NET.
+[USER pid 5] net: dns=-12 connect=-12 file=-100
+[USER pid 5] net: refused (PASS)
+[KIRA PROC] pid 5 'local-net' finished, exit code 0, address space destroyed (19 pages returned to PMM).
+кира> cc lang.c lang
+[KIRA PROC] pid 6 'kcc' started from ELF: Ring 3, own address space, 53 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 6] kcc: ok: lang.c -> lang, 32768 байт (память компилятора 2193 КБ)
+[KIRA PROC] pid 6 'kcc' finished, exit code 0, address space destroyed (838 pages returned to PMM).
+runlocal lang
+[LOCAL] /data/kcc/lang запускается по явной команде пользователя как 'local-lang' без прав, иммунитет: неопознанная (не из манифеста сборки)
+[KIRA PROC] pid 7 'local-lang' started from ELF: Ring 3, own address space, 7 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 7] atomic: counter=9 ok1=1 ok2=0 seen=100 xchg=100 sync=42
+[USER pid 7] struct: 526 42 -5
+[USER pid 7] varargs: 60 45
+[USER pid 7] case: zero digit two-digit big
+[USER pid 7] elvis: 11 6
+[USER pid 7] fmt: [   42][ab   ][000ff][k]
+[KIRA PROC] pid 7 'local-lang' finished, exit code 0, address space destroyed (24 pages returned to PMM).
+кира> runlocal ../bin/plasma
+[LOCAL] недопустимое имя файла: до первой точки строчные латинские буквы, цифры, - и _, не больше 9 знаков
+кира> status
+
+[STATUS] uptime ticks: 31999, precise clock ms: 63996
+[STATUS] PMM free: 1008 MB of 1018 MB
+[STATUS] kernel heap: 8 blocks, 136 KB in use; pages: 7 small-block, 34 large-block
+[STATUS] mind: health 100 (спокойна), mode act, quantum 40 ms, decisions 6
+[STATUS] immune: kernel integrity OK, antibodies 3, quarantine 3
+[STATUS] LAPIC: enabled, id 0, timer 62507 kcounts/s (div 16); interrupts: IOAPIC
+
+кира> 
