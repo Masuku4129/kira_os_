@@ -1,11 +1,11 @@
-# Рецепт drvget для драйвера RTL8139 (порт rl(4)): drvget install rl
-# Файлы - относительно адреса этого рецепта. Лицензия BSD-3-Clause (Bill Paul); текст лицензии и SPDX - в каждом файле.
+# KIRA clean-room RTL8139 driver recipe: drvget install rl
+# Rewritten from the public RTL8139 register/DMA programming model; no BSD driver source.
 drvget-recipe 1
 name rl
-version 1
-license BSD-3-Clause
+version 2
+license BSD-2-Clause
 pci 10ec:8139
 caps mmio dma pcidev netdev
 main rl.c
-file rl.c rl.c sha256 5b5f4bcbed4f22df2d8f6dd31c1ff87467e83b5bcc18a0ba8be91717ff7f89d2
-file if_rlreg.h if_rlreg.h sha256 059dbe9f1f829d07bebfbea8b60d9de6834f5bca15b000b27076464600b99035
+file rl.c rl.c sha256 c0601b0b1448fa47f6c22f43645b641e27f3376e0e3dfa7337c8e0d2f618f733
+file kira_rtl8139_core.h kira_rtl8139_core.h sha256 f02594798ebccff02627c7a9c357df09237f8b7980896489ff30ca8caed7151d
