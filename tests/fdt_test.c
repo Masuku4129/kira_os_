@@ -103,10 +103,10 @@ int main(void) {
     CHECK(fdt_simplefb(blob, &fb) == 0 && fb.base == 0x3c000000 && fb.width == 800 && fb.height == 600 &&
           fb.stride == 3200 && !strcmp(fb.format, "a8r8g8b8"));          /* выключенный узел пропущен */
     uint64_t reserve_base = 0, reserve_size = 0;
-    CHECK(fdt_reserve_count(blob) == 1);
-    CHECK(fdt_reserve(blob, 0, &reserve_base, &reserve_size) == 0 &&
+    CHECK(fdt_reserve_count(blob, sizeof blob) == 1);
+    CHECK(fdt_reserve(blob, sizeof blob, 0, &reserve_base, &reserve_size) == 0 &&
           reserve_base == 0x1000 && reserve_size == 0x2000);
-    CHECK(fdt_reserve(blob, 1, &reserve_base, &reserve_size) != 0);
+    CHECK(fdt_reserve(blob, sizeof blob, 1, &reserve_base, &reserve_size) != 0);
 
     /* reg ranges with wrapped 64-bit physical ends are rejected. */
     {
