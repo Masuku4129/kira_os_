@@ -216,7 +216,7 @@ static int vtd_map_rmrr(vtd_unit_t *u,kira_vtd_pt_t *root,
             return -2;
         int matched=0;
         for(unsigned s=0;s<acpi->dmar_scope_count;s++) {
-            const typeof(acpi->dmar_scope[0]) *scope=&acpi->dmar_scope[s];
+            const acpi_dmar_scope_t *scope=&acpi->dmar_scope[s];
             if(scope->owner_type==1&&scope->owner_index==r&&
                (scope->type==1||scope->type==2)&&
                vtd_scope_matches(acpi,s,device)) { matched=1; break; }
