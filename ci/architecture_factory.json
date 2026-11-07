@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "purpose": "Parallel baseline validation for KIRA OS architecture workstreams. This does not claim the architecture blocks are implemented.",
+  "parallel_lanes": [
+    {
+      "id": "boot-chain",
+      "tracks": ["BIOS loader", "UEFI application", "BootInfo v1 handoff"],
+      "baseline": ["build_clang.sh --no-run", "python3 -m unittest ci.test_release_gate"],
+      "acceptance": "KIRA-owned BIOS and UEFI paths populate validated BootInfo; BIOS and OVMF tests pass; release ISO contains no GRUB binaries/modules."
+    },
+    {
+      "id": "kcc",
+      "tracks": ["Stage-1 bootstrap", "Stage-2 bootstrap", "deterministic self-hosting"],
+      "baseline": ["tests/kcc/run.sh"],
+      "acceptance": "KCC builds KCC and required system translation units for x86_64 and AArch64 with deterministic output and documented ABI/object/link strategy."
+    },
+    {
+      "id": "rtl8139",
+      "tracks": ["clean-room RTL8139 implementation", "DMA ring and interrupt lifecycle"],
+      "baseline": ["python3 ci/dependency_audit.py", "build_clang.sh --no-run"],
+      "acceptance": "Implementation is independently derived from public hardware specifications, preserves required PCI/RX/TX/error handling, has provenance review, fault injection and QEMU integration tests."
+    },
+    {
+      "id": "kdrv",
+      "tracks": ["signature lifecycle", "trust rotation/revocation", "anti-rollback"],
+      "baseline": ["python3 -m unittest ci.test_kdrvsign", "tests/drvget_e2e.sh"],
+      "acceptance": "Signed manifest validation fails closed; key rotation/revocation and persistent highest-version enforcement are tested, including interrupted updates and recovery."
+    },
+    {
+      "id": "iommu-x86",
+      "tracks": ["Intel VT-d", "AMD-Vi", "per-device DMA domains"],
+      "baseline": ["build_clang.sh --no-run", "tests/run_host_tests.sh"],
+      "acceptance": "Per-device domains implement map/unmap, invalidation, DMA masks and fault reporting; negative tests prove out-of-domain DMA is blocked."
+    },
+    {
+      "id": "smmu-arm64",
+      "tracks": ["ARM SMMU discovery and domains", "non-coherent DMA cache maintenance"],
+      "baseline": ["build_arm64.sh", "ci/make_flash.sh", "ci/arm64_vm.py"],
+      "acceptance": "Per-device SMMU domains and cache/bounce-buffer policy are tested under QEMU/model tests; physical-board evidence remains separately required."
+    },
+    {
+      "id": "platform",
+      "tracks": ["ACPI _PRT", "PCI INTx routing", "GUI/Mind long-run validation", "release evidence"],
+      "baseline": ["ci/audit_inventory.py", "ci/dependency_audit.py"],
+      "acceptance": "ACPI routing behavior is complete or explicitly reports unsupported routes; long-run GUI/Mind suites and release image provenance checks have retained evidence."
+    }
+  ],
+  "execution_policy": {
+    "parallelism": 7,
+    "fail_fast": false,
+    "each_lane_uploads_artifact": true,
+    "retry": "Only after collecting lane logs, classifying failures, and committing a correction. Never retry unchanged failures blindly.",
+    "release_rule": "No ISO or update archive is declared final until all mandatory architecture acceptance criteria and the existing release gate pass."
+  }
+}
