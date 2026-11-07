@@ -14,6 +14,8 @@
 #define KIRA_VTD_R  (1ull << 0)
 #define KIRA_VTD_W  (1ull << 1)
 #define KIRA_VTD_SNOOP (1ull << 11)
+#define KIRA_VTD_PS (1ull << 7)
+#define KIRA_VTD_2M_SIZE (1ull << 21)
 #define KIRA_VTD_ROOT_PRESENT 1ull
 #define KIRA_VTD_CONTEXT_PRESENT 1ull
 #define KIRA_VTD_CONTEXT_TT_MULTI 0u
@@ -118,6 +120,48 @@ static inline int kira_vtd_map_4k_walk(kira_vtd_pt_t *root,
         }
     }
     return kira_vtd_map_4k(table, iova, phys, writable, snoop);
+}
+
+/* Map a 2 MiB second-level leaf in a level-1 page-directory table. */
+static inline int kira_vtd_map_2m(kira_vtd_pt_t *pd,uint64_t iova,
+                                  uint64_t phys,int writable,int snoop) {
+    if(!pd||(iova&(KIRA_VTD_2M_SIZE-1u))||
+       (phys&(KIRA_VTD_2M_SIZE-1u))||
+       (phys&~(KIRA_VTD_ADDR_MASK&~(KIRA_VTD_2M_SIZE-1u)))) return -1;
+    uint64_t flags=KIRA_VTD_R|(writable?KIRA_VTD_W:0)|
+                   (snoop?KIRA_VTD_SNOOP:0)|KIRA_VTD_PS;
+    uint64_t *slot=&pd->entry[kira_vtd_pt_index(iova,1)];
+    if(*slot&(KIRA_VTD_R|KIRA_VTD_W)) return -2;
+    *slot=phys|flags;
+    return 0;
+}
+
+/* Build a four-level path ending in a 2 MiB leaf. */
+static inline int kira_vtd_map_2m_walk(kira_vtd_pt_t *root,
+                                       uint64_t iova,uint64_t phys,
+                                       int writable,int snoop,
+                                       const kira_vtd_pt_ops_t *ops) {
+    if(!root||!ops||!ops->resolve||!ops->alloc||
+       iova>=(1ull<<48)||(iova&(KIRA_VTD_2M_SIZE-1u))||
+       (phys&(KIRA_VTD_2M_SIZE-1u))||
+       (phys&~(KIRA_VTD_ADDR_MASK&~(KIRA_VTD_2M_SIZE-1u)))) return -1;
+    kira_vtd_pt_t *table=root;
+    for(unsigned level=3;level>1;level--) {
+        uint64_t *slot=&table->entry[kira_vtd_pt_index(iova,level)];
+        if(*slot&(KIRA_VTD_R|KIRA_VTD_W)) {
+            if(*slot&KIRA_VTD_PS) return -3;
+            table=ops->resolve(ops->ctx,*slot&KIRA_VTD_ADDR_MASK);
+            if(!table) return -4;
+        } else {
+            uint64_t child_phys=0;
+            kira_vtd_pt_t *child=ops->alloc(ops->ctx,&child_phys);
+            if(!child||!kira_vtd_phys_page_valid(child_phys)) return -5;
+            for(unsigned i=0;i<KIRA_VTD_ENTRIES;i++) child->entry[i]=0;
+            *slot=child_phys|KIRA_VTD_R|KIRA_VTD_W;
+            table=child;
+        }
+    }
+    return kira_vtd_map_2m(table,iova,phys,writable,snoop);
 }
 
 static inline int kira_vtd_map_4k(kira_vtd_pt_t *pt, uint64_t iova,
