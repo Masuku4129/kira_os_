@@ -213,6 +213,13 @@ EOF
     dd if=bios_stage2.bin of=kira-bios.img bs=512 seek=1 conv=notrunc 2>/dev/null
     dd if=kira-flat.bin of=kira-bios.img bs=512 seek=$KERNEL_LBA conv=notrunc 2>/dev/null
     echo "[*] Native BIOS disk image written: ./kira-bios.img"
+    if command -v xorriso >/dev/null 2>&1; then
+        rm -rf biosiso
+        mkdir -p biosiso/boot
+        cp kira-bios.img biosiso/boot/bios.img
+        xorriso -as mkisofs -o kira-bios.iso -b boot/bios.img -hard-disk-boot -R -J -V KIRA_BIOS biosiso >/dev/null 2>&1
+        echo "[*] Native BIOS El Torito ISO written: ./kira-bios.iso"
+    fi
 else
     echo "[!] objcopy/nm not found: native BIOS image not generated."
 fi
@@ -236,6 +243,7 @@ case "$1" in
         [ -d "$OUT" ] || { echo "[!] Нет папки $OUT (в Termux: termux-setup-storage; в proot - проверьте, что /storage примонтирован)"; exit 1; }
         cp kira.iso "$OUT/kira.iso"
         [ ! -f kira-bios.img ] || cp kira-bios.img "$OUT/kira-bios.img"
+        [ ! -f kira-bios.iso ] || cp kira-bios.iso "$OUT/kira-bios.iso"
         [ ! -f uefi-fat.img ] || cp uefi-fat.img "$OUT/uefi-fat.img"
         if [ -f "$OUT/kira_disk.img" ]; then
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
@@ -257,6 +265,7 @@ case "$1" in
         fi
         echo "[*] ISO: $OUT/kira.iso ($(( $(stat -c %s kira.iso) / 1024 )) КБ)"
         [ ! -f "$OUT/kira-bios.img" ] || echo "[*] Native BIOS disk: $OUT/kira-bios.img"
+        [ ! -f "$OUT/kira-bios.iso" ] || echo "[*] Native BIOS ISO: $OUT/kira-bios.iso"
         [ ! -f "$OUT/uefi-fat.img" ] || echo "[*] Native UEFI FAT32: $OUT/uefi-fat.img"
         echo "[*] Limbo x86: CD-ROM = kira.iso, Hard Disk A = kira_disk.img, Boot from = CD-ROM, VGA = std. Подробно - LIMBO.md"
         exit 0 ;;
