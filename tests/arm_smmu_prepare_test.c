@@ -67,6 +67,7 @@ static void reset_test_platform(void)
     freed_pages = pool_used = 0;
     next_physical = 0x200000u;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
+    *(uint32_t *)(registers_page + 0x0004u) = 8u;
 }
 
 static struct kira_smmu_platform platform(void)
@@ -117,10 +118,19 @@ int main(void)
     CHECK(smmu.cmdq == dma_pool + 4u * PAGE);
     CHECK(smmu.evtq == dma_pool + 5u * PAGE);
     CHECK(smmu.queue_entries == 256u && smmu.enabled == 0);
+    CHECK(smmu.stream_id_limit == 256u);
     CHECK(*(uint32_t *)(registers_page + 0x0088u) == 8u);
     CHECK(*(uint64_t *)(registers_page + 0x0080u) ==
           (smmu.stream_table_physical | 1ull));
     CHECK(clean_calls == 3);
+
+    /* Hardware with a narrower SID field must not expose unreachable STEs. */
+    reset_test_platform();
+    *(uint32_t *)(registers_page + 0x0004u) = 4u;
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_OK);
+    CHECK(smmu.stream_id_limit == 16u);
+    CHECK(*(uint32_t *)(registers_page + 0x0088u) == 4u);
 
     /* Failure allocating CMDQ must release the already allocated stream table. */
     reset_test_platform();
