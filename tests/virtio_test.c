@@ -213,6 +213,9 @@ int main(void) {
     CHECK(virtio_dma_free(0, dma_phys, 4097) == -1);
     CHECK(virtio_dma_free(dma, dma_phys + 4096, 4097) == -1);
     CHECK(virtio_dma_free(dma, dma_phys, 4096) == -1); /* размер должен совпадать */
+    CHECK(virtio_dma_sync_for_device(dma + 4096, dma_phys + 4096, 1) == 0);
+    CHECK(virtio_dma_sync_for_cpu(dma + 4096, dma_phys + 4096, 1) == 0);
+    CHECK(virtio_dma_sync_for_device(dma + 4096, dma_phys + 4096, 2) == -1);
     CHECK(virtio_dma_free(dma, dma_phys, 4097) == 0);
     CHECK(virtio_dma_free(dma, dma_phys, 4097) == -1); /* double free отвергается */
 
