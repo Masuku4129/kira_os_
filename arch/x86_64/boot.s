@@ -110,7 +110,7 @@ start:
 
 bits 64
 ; Native UEFI enters the already-long-mode kernel using the Microsoft x64 ABI:
-; RCX = Multiboot2 magic, RDX = physical pointer to the synthesized MBI.
+; RCX = KIRA_BOOTINFO_MAGIC, RDX = physical pointer to the validated KBI blob.
 global uefi_entry
 uefi_entry:
     cli
