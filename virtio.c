@@ -119,12 +119,24 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
     uint8_t owner = DMA_OWNER_PMM;
     if (platform_dma_pool) {
         cpu = platform_dma_pool(bytes, &device_addr, 0);
-        if (cpu && device_addr) {
-            owner = DMA_OWNER_PLATFORM;
-            zero(cpu, bytes);
-        } else {
-            cpu = 0;
-            device_addr = 0;
+        if (cpu) {
+            uint64_t rounded = (uint64_t)pages * 4096u;
+            int aligned = (((uintptr_t)cpu & 4095u) == 0) &&
+                          ((device_addr & 4095u) == 0);
+            int in_range = device_addr != 0 &&
+                           device_addr <= UINT64_MAX - rounded;
+            if (aligned && in_range) {
+                owner = DMA_OWNER_PLATFORM;
+                zero(cpu, bytes);
+            } else {
+                /* Reject malformed pool results; return them when the pool
+                   provides a release hook. Without one, the pool owns the
+                   rejected block and must reclaim it internally. */
+                if (platform_dma_free)
+                    platform_dma_free(cpu, device_addr, bytes);
+                cpu = 0;
+                device_addr = 0;
+            }
         }
     }
     if (!cpu) {
@@ -306,6 +318,9 @@ int virtio_begin(virtio_dev_t* v, uint64_t want) {
 }
 
 int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size) {
+    if (!v || !q || !v->common || !max_size ||
+        q->mem || q->mem_phys || q->mem_bytes) return -1;
+    *q = (virtq_t){0};
     MMIO_W16(v->common + R_QSEL, index);
     uint16_t dev_max = MMIO_R16(v->common + R_QSIZE);
     if (dev_max == 0) return -1;                                  /* очереди нет */
@@ -319,7 +334,13 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
     q->used_off = (q->avail_off + 6 + 2 * (uint32_t)n + 3) & ~3u;
     q->mem_bytes = q->used_off + 6 + 8 * (uint32_t)n;
     q->mem = (uint8_t*)virtio_dma_alloc(q->mem_bytes, &q->mem_phys);
-    if (!q->mem) { q->mem_bytes = 0; q->mem_phys = 0; return -2; }
+    if (!q->mem) { q->mem_bytes = 0; q->mem_phys = 0; q->dev = 0; return -2; }
+    if (((uintptr_t)q->mem & 4095u) || (q->mem_phys & 4095u) ||
+        q->mem_phys > UINT64_MAX - q->mem_bytes) {
+        (void)virtio_dma_free(q->mem, q->mem_phys, q->mem_bytes);
+        *q = (virtq_t){0};
+        return -3;
+    }
     MMIO_W16(v->common + R_QSIZE, n);
     MMIO_W16(v->common + R_QMSIX, v->msix_vec);                  /* запись MSI-X очереди или 0xFFFF - без прерываний */
     q->iw = 0;
