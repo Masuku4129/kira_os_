@@ -52,7 +52,7 @@ static uint64_t trusted_time(void *opaque)
     return ((struct test_context *)opaque)->now;
 }
 
-static void make_trust(struct kdrv_trust_store *store,
+static int make_trust(struct kdrv_trust_store *store,
                        struct kdrv_trust_record *record,
                        struct kdrv_trust_ops *ops,
                        struct test_context *ctx,
@@ -70,7 +70,7 @@ static void make_trust(struct kdrv_trust_store *store,
         key.public_key[i] = (uint8_t)(i + 1);
     key.not_before = 100;
     key.not_after = 1000;
-    CHECK(kdrv_trust_add_key(store, &key) == KDRV_TRUST_OK);
+    if (kdrv_trust_add_key(store, &key) != KDRV_TRUST_OK) return 0;
     record->format_version = KDRV_TRUST_FORMAT_VERSION;
     memcpy(record->key_id, key.id, sizeof(key.id));
     record->catalogue_version = 7;
@@ -87,6 +87,7 @@ static void make_trust(struct kdrv_trust_store *store,
     ops->read_version_floor = read_floor;
     ops->write_version_floor = write_floor;
     ops->trusted_time = trusted_time;
+    return 1;
 }
 
 int main(void)
@@ -102,7 +103,7 @@ int main(void)
     struct test_context ctx;
     const struct kdrv_catalogue_entry *entry;
 
-    make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
                              &ops, &catalogue) == KDRV_CATALOGUE_OK);
     CHECK(catalogue.version == 7 && catalogue.count == 1);
@@ -118,10 +119,10 @@ int main(void)
                              &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
 
     /* The canonical parser rejects missing final LF, embedded NUL and unknown policy. */
-    make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 2);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 2);
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 2,
                              &ops, &catalogue) == KDRV_CATALOGUE_INVALID);
-    make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
     memcpy(mutable_payload, valid, sizeof(valid));
     mutable_payload[4] = '\0';
     sha256(mutable_payload, sizeof(valid) - 1, record.payload_digest);
@@ -132,21 +133,21 @@ int main(void)
         static const char bad_policy[] =
             "KIRA-KDRV-CATALOGUE\t1\t7\n"
             "rtl8139\t1.0\tx86_64\thttps://example.invalid/rtl.kdrv\thttps://example.invalid/rtl.sig\tmaybe\t128\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
-        make_trust(&store, &record, &ops, &ctx, bad_policy, sizeof(bad_policy) - 1);
+        CHECK(make_trust(&store, &record, &ops, &ctx, bad_policy, sizeof(bad_policy) - 1);
         CHECK(kdrv_catalogue_load(&store, &record, bad_policy, sizeof(bad_policy) - 1,
                                  &ops, &catalogue) == KDRV_CATALOGUE_INVALID);
     }
 
     /* A revoked publisher, expired metadata and stale catalogue are fail-closed. */
-    make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
     CHECK(kdrv_trust_revoke_key(&store, record.key_id) == KDRV_TRUST_OK);
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
                              &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
-    make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
     ctx.now = 901;
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
                              &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
-    make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
+    CHECK(make_trust(&store, &record, &ops, &ctx, valid, sizeof(valid) - 1);
     ctx.floor = 8;
     CHECK(kdrv_catalogue_load(&store, &record, valid, sizeof(valid) - 1,
                              &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
