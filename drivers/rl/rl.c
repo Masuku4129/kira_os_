@@ -198,6 +198,10 @@ static void rtl_tx_reap(rtl8139_t *s) {
         if (!(status & (RTL_TSD_TOK | RTL_TSD_ERRORS))) break;
         if (kira_rl_tx_reap(&s->tx, slot, status,
                             RTL_TSD_TOK, RTL_TSD_ERRORS) != 1) break;
+        if ((status & RTL_TSD_TOK) && !(status & RTL_TSD_ERRORS))
+            s->net.if_opackets++;
+        else
+            s->net.if_oerrors++;
     }
 }
 
@@ -258,16 +262,19 @@ static void rtl_rx_poll(rtl8139_t *s) {
                                   start + 4u, frame, info.payload_length) != 0)
             accepted = 0;
 
+        if (accepted) {
+            if (if_input(&s->net, frame, info.payload_length) == 0)
+                delivered = 1;
+            else
+                accepted = 0;
+        }
+
         int accounted = kira_rl_rx_account(&s->rx, info.status,
                                            info.wire_length, accepted);
         if (accounted < 0) {
             s->rx.offset = cbr;
             rtl_write16(s, RTL_REG_CAPR, (u16)(s->rx.offset - 16u));
             break;
-        }
-        if (accepted) {
-            if_input(&s->net, frame, info.payload_length);
-            delivered = 1;
         }
 
         rtl_write16(s, RTL_REG_CAPR, (u16)(s->rx.offset - 16u));
