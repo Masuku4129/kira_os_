@@ -22,7 +22,6 @@ Required:
 - KIRA-owned BIOS boot path and UEFI application that populate BootInfo v1 and transfer control to the architecture entry point.
 - BIOS + OVMF tests for low/high memory maps, framebuffer formats and malformed handoff data.
 - Bounds, overflow, relocation and page-table validation.
-- BIOS + OVMF tests for low/high memory maps, framebuffer formats and malformed handoff data.
 - Binary inspection proving GRUB binaries/modules are absent from the release ISO.
 
 GRUB fallback may remain during development, but it must not be silently described as removed.
