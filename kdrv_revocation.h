@@ -19,8 +19,8 @@ typedef struct __attribute__((packed)) {
     uint8_t signature[64];
 } kdrv_revocation_t;
 
-/* Verifies a signed revocation statement and returns a modified trust snapshot.
- * Persist the returned keys and generation atomically before accepting packages. */
+/* Verifies a signed revocation statement and returns a modified in-memory trust snapshot.
+ * Keep the signed journal as the persistent authority and replay it at boot. */
 int kdrv_revocation_apply(const kdrv_revocation_t *statement,
                           const kdrv_sig_key_t *trusted, uint32_t trusted_count,
                           int64_t now_utc, uint64_t highest_generation,
