@@ -94,7 +94,7 @@ const void* mbinfo_find_tag(unsigned long mbi, uint32_t type) {
         if (padded > remaining) return 0;
         if (tag_type == type && !found) found = p;
 
-        p += (size_t)padded;
+        p += padded;
         remaining -= (uint32_t)padded;
     }
     return 0; /* Нет корректного обязательного end tag. */
