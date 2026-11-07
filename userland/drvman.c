@@ -114,7 +114,13 @@ static void log_put(const char *s, size_t n) {
 }
 static void sink(const char *s, size_t n) {
     log_put(s, n);
-    while (n) { size_t k = n > 2000 ? 2000 : n; k_write(s, k); s += k; n -= k; }       /* и в журнал процесса: стенд читает его */
+    /* В графическом окне вывод остаётся в его журнале. Дублирование в shell/serial
+       засоряет терминал и делает его непригодным для ввода команд. Без окна сохраняем
+       поток вывода: так работают CLI и автоматические стенды. */
+    if (!have_window) while (n) {
+        size_t k = n > 2000 ? 2000 : n;
+        k_write(s, k); s += k; n -= k;
+    }
 }
 static void lg(const char *fmt, ...) {
     char b[600];
@@ -350,7 +356,9 @@ static int act_scan(void) {
     refresh_pci();
     if (pci_err) { lg("drvman: автопоиск невозможен: список PCI недоступен (%d)\n", pci_err); return 1; }
     kdrv_pcient_t devices[MAXPCI];
-    int count;
+    int count, owned = 0, installed = 0, unsupported = 0, candidates = 0;
+    char first_name[12] = {0}, first_url[DG_URL_MAX] = {0};
+    uint16_t first_vendor = 0, first_device = 0;
     k_mutex_lock(&lock);
     count = npci;
     if (count > MAXPCI) count = MAXPCI;
@@ -358,16 +366,28 @@ static int act_scan(void) {
     k_mutex_unlock(&lock);
     for (int i = 0; i < count; i++) {
         const kdrv_pcient_t *e = &devices[i];
-        if (e->owner != KDRV_OWN_NONE || pkg_for_dev(e) >= 0) continue;
+        if (e->owner != KDRV_OWN_NONE) { owned++; continue; }
+        if (pkg_for_dev(e) >= 0) { installed++; continue; }
         char name[12], url[DG_URL_MAX];
         int rc = drvget_match_pci(e->vendor, e->device, name, sizeof name, url, sizeof url);
         if (rc < 0) { lg("drvman: системный каталог драйверов повреждён; автопоиск остановлен\n"); return 1; }
-        if (!rc) continue;
-        lg("drvman: автопоиск: PCI %04x:%04x (%02x:%02x.%x) -> кандидат %s\n", e->vendor, e->device, e->bus, e->dev, e->fn & 7, name);
-        return act_find(url);
+        if (!rc) { unsupported++; continue; }
+        candidates++;
+        if (candidates == 1) {
+            snprintf(first_name, sizeof first_name, "%s", name);
+            snprintf(first_url, sizeof first_url, "%s", url);
+            first_vendor = e->vendor; first_device = e->device;
+        }
     }
-    lg("drvman: автопоиск завершён: новых кандидатов в системном каталоге нет\n");
-    return 0;
+    lg("drvman: PCI-обзор: устройств %d, уже обслуживаются %d, пакеты установлены %d, нет записи в каталоге %d, кандидатов %d\n",
+       count, owned, installed, unsupported, candidates);
+    if (!candidates) {
+        lg("drvman: автопоиск завершён: совместимых рецептов в локальном каталоге нет; новые устройства не изменены\n");
+        return 0;
+    }
+    lg("drvman: первый кандидат PCI %04x:%04x -> %s; остальные кандидаты оставлены для следующего сканирования\n",
+       first_vendor, first_device, first_name);
+    return act_find(first_url);
 }
 static void act_install(void) {
     const dg_recipe_t *r = drvget_staged();
