@@ -1,0 +1,204 @@
+{
+ "name": "drv-edu",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] abad: SHA-256 не совпал с записью /drv/abad\\.rec - драйвер НЕ запущен",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] eduun: пакет отклонён \\(установка не подтверждена пользователем\\)",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \\(pid \\d+\\), SHA-256 сверен, права: CAP_MMIO CAP_PCIDEV",
+   "ok": true
+  },
+  {
+   "log": "drvedu: device 0x1234:0x11e8, rights 0x4800, no MSI",
+   "ok": true
+  },
+  {
+   "log": "drvedu: id=0x10000ed",
+   "ok": true
+  },
+  {
+   "log": "drvedu: 10!=3628800",
+   "ok": true
+  },
+  {
+   "log": "drvedu: IRQ/MSI capability not granted \\(least-privilege PASS\\)",
+   "ok": true
+  },
+  {
+   "log": "drvedu: dma rc=-12",
+   "ok": true
+  },
+  {
+   "log": "drvedu: DMA denied: CAP_DMA not granted \\(least-privilege PASS\\)",
+   "ok": true
+  },
+  {
+   "log": "drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x",
+   "ok": true
+  },
+  {
+   "log": "drvedu: PASS",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "must": "drv-edu pid \\d+",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "must": "отображений 1",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "must": "прерываний 0",
+   "ok": true
+  },
+  {
+   "step": "drv stop edu",
+   "must": "останавливаю drv-edu",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] drv-edu \\(pid \\d+\\) завершён: устройство .* остановлено",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] edu: возвращено памяти DMA и колец 0 из 0 стр\\..*утечек нет",
+   "ok": true
+  },
+  {
+   "step": "drv start edunc",
+   "must": "драйвер запущен как drv-edunc",
+   "ok": true
+  },
+  {
+   "log": "drvedu: dma rc=-12",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CAPS\\] process 'drv-edunc' .* denied, no right CAP_DMA",
+   "ok": true
+  },
+  {
+   "step": "drv start edu crash",
+   "must": "драйвер запущен как drv-edu",
+   "ok": true
+  },
+  {
+   "log": "drvedu: crashing on purpose",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA PROC\\] pid \\d+ killed by CPU exception #14",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] drv-edu \\(pid \\d+\\) завершён",
+   "ok": true
+  },
+  {
+   "step": "drv start edu",
+   "must": "драйвер запущен как drv-edu",
+   "ok": true
+  },
+  {
+   "log_forbid": "drvedu: .*\\(FAIL\\)",
+   "ok": true
+  },
+  {
+   "log_forbid": "УТЕЧКА",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.04,
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.4,
+ "seconds": 29.2,
+ "commands": [
+  {
+   "cmd": "drv",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "drv stop edu",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "drv start edunc",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "drv stop edunc",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "drv start edu crash",
+   "seconds": 0.03
+  },
+  {
+   "cmd": "drv start edu",
+   "seconds": 0.03
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.01
+  }
+ ]
+}

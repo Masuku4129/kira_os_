@@ -1,0 +1,141 @@
+{
+  "files": 914,
+  "c_files": 629,
+  "h_files": 193,
+  "test_files": 445,
+  "workflow_files": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/mind-train.yml"
+  ],
+  "suffix_counts": {
+    ".S": 7,
+    ".bin": 1,
+    ".c": 629,
+    ".cfg": 1,
+    ".h": 193,
+    ".hex": 1,
+    ".inc": 1,
+    ".ld": 4,
+    ".md": 21,
+    ".out": 2,
+    ".py": 23,
+    ".rec": 1,
+    ".s": 10,
+    ".sh": 14,
+    ".txt": 3,
+    ".yml": 2,
+    "[no extension]": 1
+  },
+  "x86_qemu_scenarios_in_workflow": [],
+  "arm64_qemu_scenarios_in_runner": [
+    "arm64-cc",
+    "arm64-crash",
+    "arm64-dma-nc",
+    "arm64-drv",
+    "arm64-drvman",
+    "arm64-el2-8cpu",
+    "arm64-explorer2",
+    "arm64-fault",
+    "arm64-gicv2",
+    "arm64-gicv3",
+    "arm64-gui",
+    "arm64-isolation",
+    "arm64-overflow",
+    "arm64-power",
+    "arm64-ramfb",
+    "arm64-usb"
+  ],
+  "external_tools_detected_in_build_and_ci": [
+    {
+      "tool": "clang",
+      "role": "host/kernel and userland compiler"
+    },
+    {
+      "tool": "ld.lld",
+      "role": "linker"
+    },
+    {
+      "tool": "nasm",
+      "role": "x86 assembler"
+    },
+    {
+      "tool": "grub-mkrescue",
+      "role": "x86 ISO bootloader/image creation"
+    },
+    {
+      "tool": "xorriso",
+      "role": "ISO image tooling"
+    },
+    {
+      "tool": "llvm-objcopy",
+      "role": "ARM64 image tooling"
+    },
+    {
+      "tool": "wasm-ld",
+      "role": "WebAssembly linker"
+    },
+    {
+      "tool": "qemu-system-x86",
+      "role": "x86_64 integration testing"
+    },
+    {
+      "tool": "qemu-system-arm",
+      "role": "ARM64 integration testing"
+    },
+    {
+      "tool": "gcc",
+      "role": "host tests and helper tools"
+    },
+    {
+      "tool": "python3",
+      "role": "CI/test orchestration"
+    },
+    {
+      "tool": "openssl",
+      "role": "TLS interoperability tests"
+    },
+    {
+      "tool": "dosfstools",
+      "role": "FAT test images and validation"
+    },
+    {
+      "tool": "mtools",
+      "role": "FAT test images and validation"
+    },
+    {
+      "tool": "python3-cryptography",
+      "role": "certificate/crypto test oracle"
+    },
+    {
+      "tool": "python3-pil",
+      "role": "image fixture and screenshot tests"
+    },
+    {
+      "tool": "KVM",
+      "role": "accelerated x86_64 QEMU tests"
+    }
+  ],
+  "github_actions_refs": [
+    "actions/cache@v4",
+    "actions/checkout@v4",
+    "actions/download-artifact@v4",
+    "actions/upload-artifact@v4"
+  ],
+  "gitmodules_present": false,
+  "git_submodule_entries": 0,
+  "shell_syntax_errors": [],
+  "python_syntax_errors": [],
+  "source_marker_hits": [],
+  "known_architecture_gaps": [
+    "x86_64 ISO creation currently depends on GRUB/Multiboot2; no independent KIRA BIOS/UEFI loader was found in the tracked tree.",
+    "The current build still uses external Clang/LLD/NASM (and wasm-ld); kcc is a limited in-OS C compiler, not yet the kernel's complete self-hosting toolchain.",
+    "drvget accepts selected BSD-style source recipes and rejects Linux .ko and Windows .sys binaries; general Linux driver translation remains future work.",
+    "Driver package records use explicit user confirmation and SHA-256; project progress notes say package signatures are absent. A hash is integrity evidence, not publisher authentication.",
+    "The driver UI warns that there is no IOMMU; DMA-capable device isolation is therefore incomplete.",
+    "ARM64 and x86_64 have QEMU coverage, but physical boards and real PCI/USB/network hardware have not been validated by these CI runs.",
+    "The ARM64 non-coherent-DMA scenario is a QEMU model; the physical non-coherent hardware path remains unverified.",
+    "ACPI AML _PRT routing is listed as unfinished; some legacy INTx routing remains incomplete.",
+    "docs/HANDOFF.md is stale relative to the current CI matrix and docs/PROGRESS.md.",
+    "ARCHITECTURE.md contains historical status text that contradicts the current QEMU CI coverage; docs need one authoritative current status."
+  ]
+}
