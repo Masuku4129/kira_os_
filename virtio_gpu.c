@@ -98,6 +98,7 @@ static void gpu_flush(int x, int y, int w, int h) {
 }
 
 int virtio_gpu_probe(void) {
+    if (dev.common || ctrl.mem || cmd || resp || fbm) return -8; /* previous device may still own DMA memory */
     const pci_dev_t* p = pci_find(VIRTIO_VENDOR, VIRTIO_GPU_DEVICE);
     if (!p) return -1;
     if (virtio_attach(&dev, p) || !dev.devcfg || virtio_begin(&dev, 0) ||
