@@ -216,10 +216,12 @@ static void rtl_tx_start(rtl8139_t *s) {
         u32 length = if_dequeue(&s->net, dst, KDRV_NET_MAXFRAME);
         if (!length) {
             (void)kira_rl_tx_complete(&s->tx, slot, 0);
+            s->net.if_oerrors++;
             break;
         }
         if (kira_rl_tx_length(length) != 0) {
             (void)kira_rl_tx_complete(&s->tx, slot, 0);
+            s->net.if_oerrors++;
             continue;
         }
         u32 wire_length = length < RTL_TX_MIN_FRAME ? RTL_TX_MIN_FRAME : length;
@@ -243,6 +245,8 @@ static void rtl_rx_poll(rtl8139_t *s) {
         if (kira_rl_ring_copy_out((const u8 *)s->rx_dma.va,
                                   KIRA_RL_RX_RING_BYTES,
                                   start, header, sizeof header) != 0) {
+            s->rx.dropped++;
+            s->net.if_ierrors++;
             s->rx.offset = cbr;
             rtl_write16(s, RTL_REG_CAPR, (u16)(s->rx.offset - 16u));
             break;
@@ -251,11 +255,14 @@ static void rtl_rx_poll(rtl8139_t *s) {
         kira_rl_rx_info_t info;
         if (kira_rl_rx_decode(header, sizeof header, &info) != 0) {
             /* A malformed descriptor is not trusted; discard to the HW cursor. */
+            s->rx.dropped++;
+            s->net.if_ierrors++;
             s->rx.offset = cbr;
             rtl_write16(s, RTL_REG_CAPR, (u16)(s->rx.offset - 16u));
             break;
         }
 
+        if (!info.accepted) s->net.if_ierrors++;
         int accepted = info.accepted && info.payload_length >= 14u &&
                        info.payload_length <= KDRV_NET_MAXFRAME;
         if (accepted &&
@@ -274,6 +281,8 @@ static void rtl_rx_poll(rtl8139_t *s) {
         int accounted = kira_rl_rx_account(&s->rx, info.status,
                                            info.wire_length, accepted);
         if (accounted < 0) {
+            s->rx.dropped++;
+            s->net.if_ierrors++;
             s->rx.offset = cbr;
             rtl_write16(s, RTL_REG_CAPR, (u16)(s->rx.offset - 16u));
             break;
