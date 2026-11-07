@@ -11,7 +11,7 @@
 #include "theme.h"
 /* Размеры содержимого окон. Внизу каждого окна - полоса состояния TH_BAR_H (у Проводника ещё и подсказка клавиш). */
 #define APP_MIND_W 600
-#define APP_MIND_H (540 + TH_BAR_H)
+#define APP_MIND_H (600 + TH_BAR_H)
 #define APP_MON_W  600
 #define APP_MON_H  (470 + TH_BAR_H)
 #define APP_FILES_W 800
@@ -19,7 +19,8 @@
 #define APP_SET_W  520
 #define APP_SET_H  (410 + TH_BAR_H)
 
-void app_mind_draw(surface_t* s, const mind_view_t* v);
+void app_mind_draw(surface_t* s, const mind_view_t* v, unsigned page);
+int  app_mind_hit(int x, int y);
 void app_monitor_draw(surface_t* s, const mind_view_t* v, uint32_t threads);
 
 /* Проводник: две панели. Что под мышью: строка панели, пустое место панели, полоса прокрутки (row -1/0/1 - выше/на/ниже

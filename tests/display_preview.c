@@ -131,6 +131,17 @@ static void fill_mind(void) {
     };
     v->nj = 8;
     for (unsigned i = 0; i < 8; i++) { v->j[i].t = J[i].t; v->j[i].kind = J[i].kind; v->j[i].applied = J[i].applied; snprintf(v->j[i].text, MIND_TEXT, "%s", J[i].text); }
+    v->risk = 64; v->risk_why = 3; v->net_n = 14000; v->net_pos = 1300;
+    v->net_prec = 76; v->net_rec = 68; v->net_trusted = 1; v->forecasts = 120; v->net_loss_x1e4 = 2240;
+    for (int i = 0; i < MNET_F; i++) v->net_w[i] = (i % 3 - 1) * (12000 + i * 1800);
+    for (int i = 0; i < ML_N; i++) {
+        v->lv[i].val = (int32_t)(i * 3) - 12; v->lv[i].def = 0;
+        v->lv[i].trials = (uint16_t)(i + 2); v->lv[i].wins = (uint16_t)(i + 1);
+        v->lv[i].backs = (uint16_t)(i % 3); v->lv[i].state = (uint8_t)(i % 4);
+    }
+    v->lv_changes = 37; v->lv_general = 2; v->lv_seed = 1;
+    v->bg_fps = 30; v->core_cap = 60; v->core_res_pid = 7; v->core_res = 2;
+    v->comp_par = 1; v->comp_ns_kpx_par = 840; v->comp_ns_kpx_ser = 1190;
     v->tz_min = 180;
     static const struct { uint32_t pid, th, heap, cpu, sysc, w, lim; const char* n; uint8_t fl, fo; } P[] = {
         { 7, 1, 2048, 612, 18300, 6, 100, "cube3d", 0, 1 }, { 5, 1, 512, 488, 120, 4, 50, "burn", 0, 0 },
@@ -260,6 +271,17 @@ int main(int argc, char** argv) {
     int w_mind = wm_find("Mind");
     CHECK(w_mind >= 0 && wm_top() == w_mind);
     save_shot("mind.ppm");
+    static const char* const mind_shots[6] = {
+        "mind_state.ppm", "mind_forecast.ppm", "mind_training.ppm",
+        "mind_decisions.ppm", "mind_processes.ppm", "mind_hardware.ppm"
+    };
+    for (int page = 0; page < 6; page++) {
+        CHECK(app_mind_hit(10 + page * 96 + 45, 566) == page);
+        click_in(w_mind, 10 + page * 96 + 45, 566);
+        run(3);
+        save_shot(mind_shots[page]);
+    }
+    CHECK(app_mind_hit(5, 566) == -1 && app_mind_hit(20, 540) == -1);
 
     /* Монитор - разделом */
     click_tab(4);
@@ -453,6 +475,6 @@ int main(int argc, char** argv) {
     }
     display_print_info();
     printf("spawn %s, explorer clicks %d\n", spawned, clicks);
-    printf("%s\n", fails ? "DISPLAY PREVIEW FAILED" : "display preview: terminal, mind, monitor, files, settings, home, apps, resize passed");
+    printf("%s\n", fails ? "DISPLAY PREVIEW FAILED" : "display preview: terminal, six Mind views, monitor, files, settings, home, apps, resize passed");
     return fails != 0;
 }

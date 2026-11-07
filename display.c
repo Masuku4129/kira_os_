@@ -70,6 +70,7 @@ static exp_view_t ev;
 static uint32_t mv_ver = ~0u, ev_ver = ~0u;
 static app_hit_t files_hover;
 static int set_hover = -1, files_drop = -1;
+static unsigned mind_page, mind_btn;
 static unsigned files_btn, set_btn;
 static char files_status[96];
 static uint64_t files_click_ns; static int files_click_panel = -1, files_click_row = -1;
@@ -101,7 +102,7 @@ static char side_names[SIDE_N][16];
 static int side_n;
 static char side_sig[SIDE_N * 17];                         /* что показано сейчас: пересобирать только при изменении */
 
-static void draw_mind(void) { if (wm_visible(w_mind)) { app_mind_draw(wm_content(w_mind), &mv); wm_invalidate(w_mind); } }
+static void draw_mind(void) { if (wm_visible(w_mind)) { app_mind_draw(wm_content(w_mind), &mv, mind_page); wm_invalidate(w_mind); } }
 
 static void draw_monitor(void) {
     if (!wm_visible(w_mon)) return;
@@ -259,6 +260,13 @@ static void on_input(int id, int type, int x, int y, unsigned buttons) {
         if (h.kind != files_hover.kind || h.panel != files_hover.panel || h.row != files_hover.row || press || release || files_drop != old_drop) {
             files_hover = h; draw_files();
         }
+        return;
+    }
+    if (id == w_mind) {
+        int h = app_mind_hit(x, y);
+        int press = type == 4 && (buttons & 1) && !(mind_btn & 1);
+        if (type == 4) mind_btn = buttons;
+        if (press && h >= 0 && (unsigned)h != mind_page) { mind_page = (unsigned)h; draw_mind(); }
         return;
     }
     if (id == w_set) {
