@@ -116,6 +116,18 @@ uefi_entry:
     cli
     mov r8, rcx                 ; preserve Multiboot2 magic across the table loop
     mov r9, rdx                 ; preserve the MBI physical pointer
+    ; Do not rely on firmware selectors/GDT after ExitBootServices. Load
+    ; KIRA's own descriptors and reload CS before entering kernel C code.
+    lgdt [rel gdt64.pointer]
+    push qword 0x08
+    lea rax, [rel .uefi_cs_ready]
+    push rax
+    retfq
+.uefi_cs_ready:
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
     ; UEFI page tables are firmware-owned. Install KIRA's 1 GiB identity map
     ; before switching to the kernel stack or touching physical boot data.
     mov rax, pdpt_table
