@@ -144,6 +144,8 @@ grep -q "ОШИБКА" $T/out || note "verify не заметил испорче
 cp $T/rl.keep $T/drv/rl.kdrv
 run "remove rl"
 grep -q "удалён" $T/out && [ ! -e $T/drv/rl.kdrv ] || note "remove: $(tail -c 200 $T/out)"
+# The host loader models file syscalls, not fsrv's companion cleanup policy.
+rm -f $T/drv/rl.rec $T/drv/rl.sig
 
 # 3a. Если сервер публикует .sig, drvget обязан проверить её до записи пакета.
 # Повреждённая/неполная подпись не должна превращаться в локальную установку.
