@@ -18,7 +18,7 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
     if (out_size) *out_size = 0;
     if (!fdt || !out || !out_size || !fdt_phys || (fdt_phys & 7) ||
         !kernel_base || !kernel_size || kernel_base > UINT64_MAX - kernel_size ||
-        (!fdt_valid(fdt, available) || !fdt_tree_valid(fdt))) return -1;
+        !fdt_tree_valid(fdt, available)) return -1;
 
     kbi_mmap_entry_t regions[KBI_FDT_MAX_REGIONS];
     uint32_t count = 0;
