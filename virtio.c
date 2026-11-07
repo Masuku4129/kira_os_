@@ -85,9 +85,9 @@ static int dma_register(void* cpu, uint64_t phys, uint32_t bytes,
 
 #ifndef KIRA_HOST_TEST
 static void dma_release_unregistered(void* cpu, uint64_t phys,
-                                     uint32_t pages, uint8_t owner) {
+                                     uint32_t bytes, uint32_t pages, uint8_t owner) {
     if (owner == DMA_OWNER_PLATFORM) {
-        if (platform_dma_free) platform_dma_free(cpu, phys, pages * 4096u);
+        if (platform_dma_free) platform_dma_free(cpu, phys, bytes);
     } else if (owner == DMA_OWNER_PMM) {
         (void)pmm_free_contiguous(phys, pages);
     }
@@ -137,7 +137,7 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
         zero(cpu, (size_t)pages * 4096u);
     }
     if (dma_register(cpu, device_addr, bytes, pages, owner) != 0) {
-        dma_release_unregistered(cpu, device_addr, pages, owner);
+        dma_release_unregistered(cpu, device_addr, bytes, pages, owner);
         return 0;
     }
 #endif
@@ -160,7 +160,7 @@ int virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
 #else
         if (a->owner == DMA_OWNER_PLATFORM) {
             if (!platform_dma_free) { dma_unlock(); return -2; }
-            platform_dma_free(a->cpu, a->phys, a->pages * 4096u);
+            platform_dma_free(a->cpu, a->phys, a->bytes);
         } else if (a->owner == DMA_OWNER_PMM) {
             int r = pmm_free_contiguous(a->phys, a->pages);
             if (r != 0) { dma_unlock(); return r; }
