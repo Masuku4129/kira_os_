@@ -1,0 +1,70 @@
+#include "bootinfo.h"
+#include <stddef.h>
+
+static int range_ok(uint32_t off, uint64_t count, uint64_t stride, uint32_t total, uint32_t align) {
+    if (!count) return off == 0;
+    if (!off || (off & (align - 1)) || off < sizeof(kbi_header_t)) return 0;
+    if (stride && count > UINT64_MAX / stride) return 0;
+    uint64_t bytes = count * stride;
+    return bytes <= total && off <= total - bytes;
+}
+
+int kbi_validate(const void* blob, uint32_t available) {
+    if (!blob || available < sizeof(kbi_header_t)) return -1;
+    const kbi_header_t* h = (const kbi_header_t*)blob;
+    if (h->magic != KIRA_BOOTINFO_MAGIC || h->version != KIRA_BOOTINFO_VERSION ||
+        h->header_size != sizeof(*h) || h->total_size < sizeof(*h) ||
+        h->total_size > KIRA_BOOTINFO_MAX_SIZE || h->total_size > available) return -2;
+    if ((h->arch != KBI_ARCH_X86_64 && h->arch != KBI_ARCH_AARCH64) ||
+        (h->boot_mode < KBI_BOOT_BIOS || h->boot_mode > KBI_BOOT_DEVICE_TREE)) return -3;
+    if (h->reserved0 || h->reserved1 || h->fb_reserved) return -4;
+    if (h->mmap_count > KIRA_BOOTINFO_MAX_MMAP ||
+        h->mmap_entry_size != sizeof(kbi_mmap_entry_t) ||
+        !range_ok(h->mmap_off, h->mmap_count, h->mmap_entry_size, h->total_size, 8)) return -5;
+    if (h->modules_count > KIRA_BOOTINFO_MAX_MODULES ||
+        h->module_entry_size != sizeof(kbi_module_t) ||
+        !range_ok(h->modules_off, h->modules_count, h->module_entry_size, h->total_size, 8)) return -6;
+    if (h->cmdline_len) {
+        if (!h->cmdline_off || h->cmdline_off < sizeof(*h) ||
+            h->cmdline_off > h->total_size || h->cmdline_len > h->total_size-h->cmdline_off) return -7;
+        const char* s=(const char*)blob+h->cmdline_off;
+        if (s[h->cmdline_len-1] != 0) return -7;
+    } else if (h->cmdline_off) return -7;
+    if (!!(h->flags & KBI_F_FRAMEBUFFER) != !!h->fb_size) return -8;
+    if (h->fb_size) {
+        if (!h->fb_phys || !h->fb_width || !h->fb_height || !h->fb_pitch ||
+            (h->fb_bpp != 15 && h->fb_bpp != 16 && h->fb_bpp != 24 && h->fb_bpp != 32) ||
+            (uint64_t)h->fb_pitch * h->fb_height > h->fb_size) return -8;
+        if ((uint64_t)h->fb_red_pos+h->fb_red_size > h->fb_bpp ||
+            (uint64_t)h->fb_green_pos+h->fb_green_size > h->fb_bpp ||
+            (uint64_t)h->fb_blue_pos+h->fb_blue_size > h->fb_bpp) return -8;
+    }
+    if (!!(h->flags & KBI_F_ACPI) != !!h->rsdp_phys ||
+        !!(h->flags & KBI_F_FDT) != !!h->fdt_phys ||
+        !!(h->flags & KBI_F_CMDLINE) != !!h->cmdline_len) return -9;
+    if (!h->kernel_phys_base || !h->kernel_size ||
+        h->kernel_size > UINT64_MAX-h->kernel_phys_base) return -10;
+    const kbi_mmap_entry_t* mm=(const kbi_mmap_entry_t*)((const uint8_t*)blob+h->mmap_off);
+    for (uint32_t i=0;i<h->mmap_count;i++) {
+        if (!mm[i].length || mm[i].base > UINT64_MAX-mm[i].length ||
+            mm[i].type < KBI_MEM_USABLE || mm[i].type > KBI_MEM_FRAMEBUFFER) return -11;
+    }
+    const kbi_module_t* mods=(const kbi_module_t*)((const uint8_t*)blob+h->modules_off);
+    for (uint32_t i=0;i<h->modules_count;i++) {
+        if (!mods[i].length || mods[i].base > UINT64_MAX-mods[i].length ||
+            !mods[i].name_len || mods[i].name_off < sizeof(*h) ||
+            mods[i].name_off > h->total_size ||
+            mods[i].name_len > h->total_size-mods[i].name_off) return -12;
+        const char* n=(const char*)blob+mods[i].name_off;
+        if (n[mods[i].name_len-1] != 0) return -12;
+    }
+    return 0;
+}
+const kbi_mmap_entry_t* kbi_mmap(const void* blob) {
+    const kbi_header_t* h=(const kbi_header_t*)blob;
+    return h && h->mmap_count ? (const kbi_mmap_entry_t*)((const uint8_t*)blob+h->mmap_off) : 0;
+}
+const kbi_module_t* kbi_modules(const void* blob) {
+    const kbi_header_t* h=(const kbi_header_t*)blob;
+    return h && h->modules_count ? (const kbi_module_t*)((const uint8_t*)blob+h->modules_off) : 0;
+}
