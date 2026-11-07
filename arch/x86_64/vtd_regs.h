@@ -38,24 +38,31 @@ static inline int kira_vtd_valid(const kira_vtd_mmio_t *m, uint32_t off, size_t 
     return m && m->base && n && off <= m->length && n <= m->length - off;
 }
 static inline int kira_vtd_read32(const kira_vtd_mmio_t *m,uint32_t off,uint32_t *v) {
-    if (!v || !kira_vtd_valid(m,off,4)) return -1;
+    if (!v || (off & 3u) || !kira_vtd_valid(m,off,4)) return -1;
+    __asm__ volatile("lfence" ::: "memory");
     *v=*(volatile uint32_t *)(void *)(m->base+off);
     return 0;
 }
 static inline int kira_vtd_write32(const kira_vtd_mmio_t *m,uint32_t off,uint32_t v) {
-    if (!kira_vtd_valid(m,off,4)) return -1;
+    if ((off & 3u) || !kira_vtd_valid(m,off,4)) return -1;
     *(volatile uint32_t *)(void *)(m->base+off)=v;
-    __asm__ volatile("" ::: "memory");
+    __asm__ volatile("mfence" ::: "memory");
+    return 0;
+}
+static inline int kira_vtd_read64(const kira_vtd_mmio_t *m,uint32_t off,uint64_t *v) {
+    if (!v || !kira_vtd_valid(m,off,8) || (off & 7u)) return -1;
+    __asm__ volatile("lfence" ::: "memory");
+    *v=*(volatile uint64_t *)(void *)(m->base+off);
     return 0;
 }
 static inline int kira_vtd_write64(const kira_vtd_mmio_t *m,uint32_t off,uint64_t v) {
     if (!kira_vtd_valid(m,off,8) || (off & 7u)) return -1;
     *(volatile uint64_t *)(void *)(m->base+off)=v;
-    __asm__ volatile("" ::: "memory");
+    __asm__ volatile("mfence" ::: "memory");
     return 0;
 }
 static inline int kira_vtd_root_table_valid(uint64_t physical, uint64_t bytes) {
     return physical && !(physical & 0xfffu) && bytes >= 4096u &&
-           bytes <= (1ull << 32) && physical <= UINT64_MAX - bytes;
+           bytes <= (1ull << 32) && physical <= 0x000fffffffffffffull - (bytes - 1u);
 }
 #endif
