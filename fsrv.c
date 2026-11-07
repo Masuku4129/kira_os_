@@ -448,9 +448,13 @@ int64_t fsrv_syscall(uint64_t up) {
     if (u.op == FS_OP_SYS_READ || u.op == FS_OP_SYS_STAT) { if (!(caps & CAP_SYSFILES)) return proc_cap_denied(CAP_SYSFILES, 10), FS_E_DENIED; return sys_op(&u, "/etc/ssl/", 0); }
     if (u.op == FS_OP_INC_READ || u.op == FS_OP_INC_STAT) {       /* заголовки для компилятора: только kcc (имя известно ядру по манифесту) и только при CAP_FS */
         const char* who = proc_current_name();
-        int is_kcc = who && ((!who[3] && who[0] == 'k' && who[1] == 'c' && who[2] == 'c') || !strcmp(who, "kcc-selfhost"));
+        int is_kcc = who && who[0] == 'k' && who[1] == 'c' && who[2] == 'c' && !who[3];
+        int is_kcc_selfhost = who && who[0] == 'k' && who[1] == 'c' && who[2] == 'c' &&
+            who[3] == '-' && who[4] == 's' && who[5] == 'e' && who[6] == 'l' &&
+            who[7] == 'f' && who[8] == 'h' && who[9] == 'o' && who[10] == 's' &&
+            who[11] == 't' && !who[12];
         int is_drvget = drv_tool(who);   /* drvget и drvman собирают драйвер тем же компилятором, встроенным в них */
-        if (!(caps & CAP_FS) || !(is_kcc || is_drvget)) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
+        if (!(caps & CAP_FS) || !(is_kcc || is_kcc_selfhost || is_drvget)) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
         return sys_op(&u, "/etc/kcc/include/", 1);
     }
     if (u.op >= FS_OP_DRV_STAT && u.op <= FS_OP_DRV_LAST) {      /* пакеты драйверов в /drv: только drvget и drvman (имя известно ядру по манифесту) и только при CAP_FS */
