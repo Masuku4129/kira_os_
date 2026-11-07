@@ -9,10 +9,10 @@ static int fails;
 
 int main(void) {
     static uint64_t map[64];
-    const pmm_arm_region_t ram[] = { { 0x100000, 0x100000 } };
+    const pmm_arm_region_t ram[] = { { 0x100000, 0x100000 }, { 0x180000, 0x80000 } };
     CHECK(pmm_arm_map_bytes(0x100000, 0x200000) == 64);
     CHECK(pmm_arm_map_bytes(0x200000, 0x100000) == 0);
-    pmm_arm_init(ram, 1, 0x100000, 0x200000, map, 0x100000, 0x110000);
+    pmm_arm_init(ram, 2, 0x100000, 0x200000, map, 0x100000, 0x110000);
     CHECK(pmm_get_total_memory_kb() == 1024);
     CHECK(pmm_get_free_memory_kb() == 960);
     CHECK(pmm_free_page(0x100000) == -1);                 /* kernel reservation is permanent */
