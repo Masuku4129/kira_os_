@@ -14,7 +14,7 @@ int main(void) {
     m->base=0; m->length=0x9f000; m->type=KBI_MEM_USABLE;
     CHECK(kbi_validate(b,sizeof b)==0);
     CHECK(kbi_mmap(b)==m);
-    h->total_size--;
+    h->total_size=sizeof(*h)+sizeof(*m)-1;
     CHECK(kbi_validate(b,sizeof b)==-5);
     h->total_size=sizeof(*h)+sizeof(*m);
     h->mmap_off=0xfffffff8u;
