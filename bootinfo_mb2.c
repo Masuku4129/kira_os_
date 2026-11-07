@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 #define MB2_MAGIC 0x36D76289u
-#define MB2_MAX_SIZE 65536u
+#define MB2_MAX_SIZE KIRA_BOOTINFO_MAX_SIZE
 #define MB2_TAG_END 0u
 #define MB2_TAG_CMDLINE 1u
 #define MB2_TAG_MODULE 3u
@@ -154,6 +154,34 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
         kbi_mmap_entry_t v=out[i]; uint32_t j=i;
         while(j && out[j-1].base>v.base) { out[j]=out[j-1]; j--; }
         out[j]=v;
+    }
+
+    /* The loader's kernel image must never be returned as allocatable RAM. */
+    uint64_t kernel_end=kernel_base+kernel_size;
+    uint32_t owner=n;
+    for(uint32_t i=0;i<n;i++) {
+        uint64_t end=out[i].base+out[i].length;
+        if(out[i].type==KBI_MEM_USABLE && kernel_base>=out[i].base &&
+           kernel_end<=end) { owner=i; break; }
+    }
+    if(owner==n || n+2u>KIRA_BOOTINFO_MAX_MMAP) return -36;
+    {
+        kbi_mmap_entry_t original=out[owner];
+        uint64_t original_end=original.base+original.length;
+        uint32_t extra=(kernel_base>original.base?1u:0u)+
+                       (kernel_end<original_end?1u:0u);
+        for(uint32_t i=n;i>owner+1u;i--) out[i+extra-1u]=out[i-1u];
+        uint32_t at=owner;
+        if(kernel_base>original.base) {
+            out[at]=original; out[at].length=kernel_base-original.base; at++;
+        }
+        out[at].base=kernel_base; out[at].length=kernel_size;
+        out[at].type=KBI_MEM_KERNEL; out[at].attributes=0; at++;
+        if(kernel_end<original_end) {
+            out[at]=original; out[at].base=kernel_end;
+            out[at].length=original_end-kernel_end;
+        }
+        n+=extra;
     }
 
     kbi_module_t* mods=modules_count?(kbi_module_t*)(handoff+modules_off):0;
