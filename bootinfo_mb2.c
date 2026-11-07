@@ -102,7 +102,8 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
                         uint64_t kernel_base, uint64_t kernel_size,
                         const void** result, uint32_t* result_size) {
     if(!result || !result_size || !kernel_base || !kernel_size ||
-       kernel_base > UINT64_MAX-kernel_size) return -10;
+       kernel_base > UINT64_MAX-kernel_size ||
+       (uintptr_t)info > UINTPTR_MAX-available) return -10;
     const uint8_t* b=(const uint8_t*)info;
     uint32_t total=0;
     int rc=mb2_bounds(b,available,&total);
@@ -190,7 +191,9 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
     kbi_mmap_entry_t* out=(kbi_mmap_entry_t*)(handoff+mmap_off);
     uint32_t n=0;
     for(uint32_t p=16;p<rd32(mt+4);p+=mmap_stride) {
-        out[n].base=rd64(mt+p); out[n].length=rd64(mt+p+8);
+        uint64_t base=rd64(mt+p), length=rd64(mt+p+8);
+        if(!length || base>UINT64_MAX-length) return -35;
+        out[n].base=base; out[n].length=length;
         out[n].type=mb2_type(rd32(mt+p+16)); out[n].attributes=0; n++;
     }
     /* Firmware maps are normally ordered; normalize them before validation. */
@@ -199,6 +202,8 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
         while(j && out[j-1].base>v.base) { out[j]=out[j-1]; j--; }
         out[j]=v;
     }
+    for(uint32_t i=1;i<n;i++)
+        if(out[i-1].base+out[i-1].length>out[i].base) return -35;
 
     /* Reserve all physical objects that remain live after the loader exits. */
     if (reserve_range(out,&n,mmap_capacity,kernel_base,kernel_size,
