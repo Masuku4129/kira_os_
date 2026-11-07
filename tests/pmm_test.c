@@ -111,7 +111,8 @@ int main(void){
     for(;;){
         uint64_t p=pmm_alloc_page(); if(!p)break;
         CHECK(p%4096==0); CHECK(p>=0x320000); CHECK(p<(1ULL<<30));
-        CHECK(!(p>=mbi_addr && p<mbi_addr+4096));\n        CHECK(!(p>=0x800000 && p<0x802000));
+        CHECK(!(p>=mbi_addr && p<mbi_addr+4096));
+        CHECK(!(p>=0x800000 && p<0x802000));
         CHECK(!seen[p>>12]); seen[p>>12]=1;
         if(!n) first=p;
         prev=p; n++;
@@ -145,7 +146,8 @@ int main(void){
         CHECK(pmm_add_high(0x100000001ULL, 0x100002000ULL) == -1);               // не выровнен
         CHECK(pmm_get_free_memory_kb() == 2046 * 4);\n        CHECK(pmm_free_page(0x100100000ULL)==-1);\n        CHECK(pmm_free_page(0x100101000ULL)==-1);
         uint64_t a = pmm_alloc_page();
-        CHECK(a >= 0x100000000ULL && a < 0x100000000ULL + (8ULL<<20));\n        CHECK(!(a>=0x100100000ULL && a<0x100102000ULL));
+        CHECK(a >= 0x100000000ULL && a < 0x100000000ULL + (8ULL<<20));
+        CHECK(!(a>=0x100100000ULL && a<0x100102000ULL));
         uint64_t blk = pmm_alloc_contiguous(512);
         CHECK(blk >= 0x100000000ULL && blk + 512*4096 <= 0x100000000ULL + (8ULL<<20));
         CHECK(pmm_free_contiguous(blk, 512) == 0);
