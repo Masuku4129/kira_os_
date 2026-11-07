@@ -317,6 +317,14 @@ int main(void) {
     CHECK(dv.status == 0);                                                    /* устройство сброшено: в нашу память больше не пишет */
     CHECK(viol == 0);
 
-    printf("virtio: PCI bus/bridge/BAR/capabilities, virtio 1.0 init order, rings, chunking, size_max, RO, flush, timeout, KiraFS over virtio passed\n");
+    /* A timed-out device must release its DMA ownership after reset and permit a clean reprobe. */
+    model_init(o0, 0x1042); pci_init();
+    d = virtio_blk_probe();
+    CHECK(d && d->read(d, 0, 1, buf) == 0);
+    vopt_t o9 = o0; o9.small_disk = 1;
+    model_init(o9, 0x1042); pci_init();
+    CHECK(virtio_blk_probe() == 0);
+
+    printf("virtio: PCI bus/bridge/BAR/capabilities, virtio 1.0 init order, rings, chunking, size_max, RO, flush, timeout, KiraFS over virtio passed\\n");
     return 0;
 }
