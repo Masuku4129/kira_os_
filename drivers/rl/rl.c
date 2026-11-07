@@ -230,7 +230,6 @@ static void rtl_rx_poll(rtl8139_t *s) {
     u8 frame[KDRV_NET_MAXFRAME];
     int delivered = 0;
     u16 cbr = rtl_read16(s, RTL_REG_CBR);
-    if (cbr >= KIRA_RL_RX_RING_BYTES) return;
     cbr = (u16)(cbr & ~3u);
 
     for (u32 n = 0; n < RTL_POLL_LIMIT && s->rx.offset != cbr; n++) {
@@ -273,7 +272,6 @@ static void rtl_rx_poll(rtl8139_t *s) {
 
         rtl_write16(s, RTL_REG_CAPR, (u16)(s->rx.offset - 16u));
         cbr = rtl_read16(s, RTL_REG_CBR);
-        if (cbr >= KIRA_RL_RX_RING_BYTES) break;
         cbr = (u16)(cbr & ~3u);
     }
     if (delivered) kdrv_net_kick();
