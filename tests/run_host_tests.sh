@@ -200,12 +200,12 @@ else
     echo "UI primitives: covered by gui-regression job"
 fi
 
-if [ "${KIRA_SKIP_MIND:-0}" != 1 ]; then
-    echo "== Mind archive policy (preserve current and last-good snapshots, score eviction, fail closed) =="
+echo "== Mind archive policy (preserve current and last-good snapshots, score eviction, fail closed) =="
 $CC $FLAGS -Werror -o $T/mind-archive-policy tests/mind_archive_policy_test.c
 $T/mind-archive-policy
 
-echo "== mind (norms, anomalies, health, quantum self-tuning, memory, focus, starvation, behavior, persistence) =="
+if [ "${KIRA_SKIP_MIND:-0}" != 1 ]; then
+    echo "== mind (norms, anomalies, health, quantum self-tuning, memory, focus, starvation, behavior, persistence) =="
     $CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c mindnet.c
     $T/mind
 
