@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - name: Prepare writable apt archive cache
-        run: sudo chmod 1777 /var/cache/apt/archives
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
       - uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives/*.deb
