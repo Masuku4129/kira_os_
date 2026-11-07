@@ -60,6 +60,17 @@ echo "== driver package format (kdrv_format.h: header, record, matching, hostile
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c
 $T/kdrv
 
+echo "== kdrvpack: mandatory publisher state requires explicit confirmation =="
+$CC $FLAGS -o $T/kdrvpack tools/kdrvpack.c kdrv_fmt.c sha256.c
+printf '\\177ELF\\002\\001\\001\\000' > $T/dummy.elf
+if $T/kdrvpack rl $T/dummy.elf $T/pkg.kdrv $T/pkg.rec --pci 10ec:8139 --caps mmio --publisher-required >/dev/null 2>&1; then
+    echo "FAIL: kdrvpack accepted --publisher-required without --confirm"; exit 1
+fi
+$T/kdrvpack rl $T/dummy.elf $T/pkg.kdrv $T/pkg.rec --pci 10ec:8139 --caps mmio --confirm --publisher-required >/dev/null
+PUB_STATE=$(od -An -tx4 -j108 -N4 $T/pkg.rec | tr -d ' ')
+[ "$PUB_STATE" = "4b4f4b50" ] || { echo "FAIL: kdrvpack did not persist KREC_CONFIRMED_PUBLISHER ($PUB_STATE)"; exit 1; }
+echo "kdrvpack: publisher-required record and explicit confirmation passed"
+
 echo "== drvget: https-only, рецепт, лицензии (GPL/бинарники отвергаются), хеш набора =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/drvget tests/drvget_test.c userland/drvget_core.c sha256.c
 $T/drvget
