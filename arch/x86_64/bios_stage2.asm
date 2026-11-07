@@ -68,8 +68,11 @@ collect_e820:
     jne .failed
     cmp ecx, 20
     jb .failed
+    je .legacy_entry
     cmp ecx, 24
-    jae .check_attr
+    jb .failed
+    jmp .check_attr
+.legacy_entry:
     mov dword [es:di+20], 1
     jmp .accept
 .check_attr:
