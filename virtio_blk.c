@@ -37,6 +37,7 @@ static void blk_release_after_reset(void) {
         hdr = 0; hdr_phys = 0; status_byte = 0; status_phys = 0; bounce = 0; bounce_phys = 0;
     }
     if (vq.mem) (void)virtio_queue_release(&vq);
+    if (!blk_dma && !vq.mem) vdev = (virtio_dev_t){0};
 }
 
 static void blk_abort(const char* message) {
@@ -128,7 +129,7 @@ void virtio_blk_shutdown(void) {
 
 blk_dev_t* virtio_blk_probe(void) {
     if (present) return &disk;
-    if (vq.mem || blk_dma) return 0; /* a previous probe retained live DMA ownership */
+    if (vdev.common || vq.mem || blk_dma) return 0; /* reset or DMA ownership was not fully released */
     present = 0; dead = 0;
     const pci_dev_t* pd = pci_find(VIRTIO_VENDOR, 0x1042);     /* virtio-blk, современный */
     if (!pd) pd = pci_find(VIRTIO_VENDOR, 0x1001);              /* «переходный»: тот же прибор, но с capabilities 1.0 */
