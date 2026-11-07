@@ -24,8 +24,8 @@ _Static_assert(sizeof(kdrv_transition_t) == 160, "KDRV transition ABI");
  * The caller must retain the signed journal and replay it from the compiled root. */
 #define KDRV_TRANSITION_MAX_CHAIN 32u
 
-/* Apply a strictly increasing chain to a caller-owned trust snapshot.
- * Caller must atomically persist the returned snapshot and generation. */
+/* Apply a strictly increasing chain to a caller-owned in-memory trust snapshot.
+ * The signed journal remains the persistent authority and is replayed at boot. */
 int kdrv_transition_apply_chain(const kdrv_transition_t *transitions,
                                uint32_t transition_count,
                                const kdrv_sig_key_t *trusted,
