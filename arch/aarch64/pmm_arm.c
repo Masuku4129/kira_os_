@@ -26,8 +26,8 @@ uint64_t pmm_arm_map_bytes(uint64_t lo, uint64_t hi) {
 }
 
 void pmm_arm_reserve(uint64_t res_lo, uint64_t res_hi) {
-    if (res_hi <= res_lo || res_hi > UINT64_MAX - 4095) return;
-    uint64_t first = res_lo / 4096, end = (res_hi + 4095) / 4096;
+    if (res_hi <= res_lo) return;
+    uint64_t first = res_lo / 4096, end = res_hi / 4096 + ((res_hi & 4095) != 0);
     for (uint64_t p = first; p < end; p++) {
         if (p < base_pfn || p >= base_pfn + npages) continue;
         uint64_t i = p - base_pfn;
@@ -38,7 +38,7 @@ void pmm_arm_reserve(uint64_t res_lo, uint64_t res_hi) {
 
 void pmm_arm_init(const pmm_arm_region_t* r, unsigned n, uint64_t lo, uint64_t hi, void* map,
                   uint64_t res_lo, uint64_t res_hi) {
-    if (!map || !r || !n || hi <= lo || lo > UINT64_MAX - 4095) { bits = reserved = 0; return; }
+    if (!map || !r || !n || hi <= lo || lo > UINT64_MAX - 4095) { bits = reserved = 0; base_pfn = npages = free_pages = total_pages = hint = 0; return; }
     base_pfn = lo / 4096; npages = (hi - lo) / 4096;
     bits = (uint64_t*)map;
     uint64_t words = (npages + 63) / 64;
