@@ -81,11 +81,14 @@ int main(void) {
     mod->name_off=h->modules_off+sizeof(*mod);
     /* Two module names must not alias even when both are individually in-bounds. */
     h->modules_count=2;
-    h->total_size=h->modules_off+2*sizeof(kbi_module_t)+5;
+    h->total_size=h->modules_off+2*sizeof(kbi_module_t)+10;
     kbi_module_t* mod2=mod+1; *mod2=*mod;
     mod2->base=0x500000;
+    mod->name_off=h->modules_off+2*sizeof(*mod);
+    mod2->name_off=mod->name_off;
     CHECK(kbi_validate(b,sizeof b)==-12);
-    mod2->name_off=h->modules_off+2*sizeof(*mod);
+    mod2->name_off=mod->name_off+5;
+    memcpy(b+mod->name_off,"init",5);
     memcpy(b+mod2->name_off,"init",5);
     CHECK(kbi_validate(b,sizeof b)==0);
     h->modules_count=1;
