@@ -1,6 +1,8 @@
 /* Разбор и проверка пакета драйвера (kdrv_format.h). Чистые функции без обращений к ядру: их используют ядро (kdrv.c),
    хост-инструмент tools/kdrvpack и хост-тест. Входу не доверяют: каждое поле проверяется, имя - символы и длина. */
 #include "kdrv_format.h"
+#include "pk.h"
+#include "kdrv_trust.h"
 
 static void cpy(void* d, const void* s, uint32_t n) { uint8_t* a = (uint8_t*)d; const uint8_t* b = (const uint8_t*)s; while (n--) *a++ = *b++; }
 
@@ -49,6 +51,31 @@ int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out) {
     return KDRV_OK;
 }
 
+int kdrv_sig_verify_with_key(const void* pkg, uint32_t pkg_len, const kdrv_sig_t* sig,
+                             const uint8_t public_key[32]) {
+    if (!pkg || !pkg_len || !sig || !public_key ||
+        sig->magic != KDRV_SIG_MAGIC || sig->format != KDRV_SIG_FORMAT ||
+        sig->sig_size != sizeof sig->signature) return KDRV_E_SIGNATURE;
+    return ed25519_verify(public_key, (const uint8_t*)pkg, pkg_len, sig->signature) == 0
+           ? KDRV_OK : KDRV_E_SIGNATURE;
+}
+
+int kdrv_sig_check(const void* pkg, uint32_t pkg_len, const void* raw, uint32_t sig_len) {
+    if (!raw || sig_len != sizeof(kdrv_sig_t)) return KDRV_E_SIGNATURE;
+    kdrv_sig_t sig;
+    cpy(&sig, raw, sizeof sig);
+    if (sig.magic != KDRV_SIG_MAGIC || sig.format != KDRV_SIG_FORMAT ||
+        sig.sig_size != sizeof sig.signature) return KDRV_E_SIGNATURE;
+    for (unsigned i = 0; i < KDRV_TRUST_KEY_COUNT; i++) {
+        unsigned diff = 0;
+        for (unsigned j = 0; j < sizeof sig.key_id; j++)
+            diff |= (uint8_t)sig.key_id[j] ^ (uint8_t)KDRV_TRUST_KEY_ID[j];
+        if (diff == 0)
+            return kdrv_sig_verify_with_key(pkg, pkg_len, &sig, kdrv_trust_ed25519_keys[i]);
+    }
+    return KDRV_E_SIGNATURE;
+}
+
 int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uint32_t cls) {
     for (uint32_t i = 0; i < h->nmatch && i < KDRV_MATCH_MAX; i++) {
         const kdrv_match_t* m = &h->match[i];
@@ -78,6 +105,7 @@ const char* kdrv_strerror(int e) {
     case KDRV_E_UNCONFIRMED: return "установка не подтверждена пользователем";
     case KDRV_E_HASH: return "SHA-256 не совпал с записью .rec";
     case KDRV_E_DMA_UNSAFE: return "DMA/MSI запрещены: для устройства нет подтверждённой изоляции IOMMU";
+    case KDRV_E_SIGNATURE: return "подпись Ed25519 отсутствует, недействительна или ключ не доверен";
     default: return "?";
     }
 }
