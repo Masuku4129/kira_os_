@@ -19,6 +19,7 @@
 
 #define SMMU_IDR0            0x0000u
 #define SMMU_IDR1            0x0004u
+#define SMMU_IDR1_SIDSIZE_MASK 0x3fu
 #define SMMU_IDR5            0x0014u
 #define SMMU_CR0             0x0020u
 #define SMMU_CR0ACK          0x0024u
@@ -137,6 +138,11 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->idr0 = smmu_read32(smmu->registers, SMMU_IDR0);
     smmu->idr1 = smmu_read32(smmu->registers, SMMU_IDR1);
     smmu->idr5 = smmu_read32(smmu->registers, SMMU_IDR5);
+    {
+        uint32_t sid_bits = smmu->idr1 & SMMU_IDR1_SIDSIZE_MASK;
+        smmu->stream_id_limit = sid_bits >= 8u ? SMMU_STRTAB_ENTRIES :
+                                (1u << sid_bits);
+    }
 
     /* SMMUv3 identifies itself through the architecture ID registers. */
     if ((smmu->idr0 & 0x3u) == 0)
@@ -206,7 +212,9 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     }
 
     /* Configure the controller-global linear stream table before SMMUEN. */
-    smmu_write32(smmu->registers, SMMU_STRTAB_BASE_CFG, 8u);
+    smmu_write32(smmu->registers, SMMU_STRTAB_BASE_CFG,
+                 (smmu->idr1 & SMMU_IDR1_SIDSIZE_MASK) < 8u ?
+                 (smmu->idr1 & SMMU_IDR1_SIDSIZE_MASK) : 8u);
     smmu_write64(smmu->registers, SMMU_STRTAB_BASE,
                  (smmu->stream_table_physical & ~0xfffull) | 1ull);
     if (platform->write_barrier)
