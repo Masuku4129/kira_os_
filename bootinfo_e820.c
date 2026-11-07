@@ -14,6 +14,7 @@ static uint32_t e820_type(uint32_t type) {
 int kbi_from_e820_map(const kbi_e820_entry_t *entries, uint32_t n,
                       uint64_t kernel_base, uint64_t kernel_size,
                       void *out, uint32_t capacity, uint32_t *out_size) {
+    if (out_size) *out_size = 0;
     if (!entries || !n || n > KIRA_BOOTINFO_MAX_MMAP || !out || !out_size ||
         !kernel_base || !kernel_size || kernel_base > UINT64_MAX - kernel_size)
         return -1;
