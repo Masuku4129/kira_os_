@@ -1,0 +1,175 @@
+{
+  "tracked_files": 919,
+  "source_files_scanned": 406,
+  "git_submodules_present": false,
+  "vendor_directories": [],
+  "external_link_flags": [
+    "m"
+  ],
+  "host_test_link_flags": [
+    "m",
+    "pthread"
+  ],
+  "library_file_candidates": [],
+  "include_references": [
+    {
+      "file": "arch/aarch64/uefi/loader.c",
+      "header": "efi.h",
+      "kind": "compiler-header"
+    },
+    {
+      "file": "arch/aarch64/uefi/loader.c",
+      "header": "efilib.h",
+      "kind": "compiler-header"
+    },
+    {
+      "file": "arch/x86_64/uefi/loader.c",
+      "header": "efi.h",
+      "kind": "compiler-header"
+    },
+    {
+      "file": "arch/x86_64/uefi/loader.c",
+      "header": "efilib.h",
+      "kind": "compiler-header"
+    },
+    {
+      "file": "arch/x86_64/uefi/uefi_kbi.h",
+      "header": "efi.h",
+      "kind": "compiler-header"
+    },
+    {
+      "file": "drivers/iommu/iommu_discovery.c",
+      "header": "dmar.h",
+      "kind": "local-unresolved"
+    },
+    {
+      "file": "tools/kdrvpack.c",
+      "header": "time.h",
+      "kind": "compiler-header"
+    },
+    {
+      "file": "tools/kfstool.c",
+      "header": "fcntl.h",
+      "kind": "compiler-header"
+    },
+    {
+      "file": "tools/kfstool.c",
+      "header": "sys/stat.h",
+      "kind": "compiler-header"
+    },
+    {
+      "file": "tools/kfstool.c",
+      "header": "unistd.h",
+      "kind": "compiler-header"
+    }
+  ],
+  "source_provenance_markers": [
+    {
+      "file": "drivers/rl/if_rlreg.h",
+      "line": 4,
+      "text": "* Основано на FreeBSD sys/dev/rl/if_rlreg.h (rl(4)): имена регистров и битов оставлены прежними, чтобы порт читался рядом с оригиналом."
+    },
+    {
+      "file": "drivers/rl/rl.c",
+      "line": 3,
+      "text": "* Драйвер RealTek RTL8139 (10ec:8139) для Киры, Ring 3 / EL0: порт rl(4) из FreeBSD (sys/dev/rl/if_rl.c) на слой kdrv_bsd.h."
+    },
+    {
+      "file": "kcc/include/kdrv_bsd.h",
+      "line": 4,
+      "text": "/* Слой совместимости для портов BSD-драйверов (FreeBSD, OpenBSD, NetBSD) в драйвер Ring 3 Киры. Не вся ядерная часть BSD, а ровно то,"
+    },
+    {
+      "file": "userland/kdrv_bsd.h",
+      "line": 4,
+      "text": "/* Слой совместимости для портов BSD-драйверов (FreeBSD, OpenBSD, NetBSD) в драйвер Ring 3 Киры. Не вся ядерная часть BSD, а ровно то,"
+    }
+  ],
+  "build_test_tools": [
+    {
+      "tool": "clang",
+      "role": "build-time compiler"
+    },
+    {
+      "tool": "ld.lld",
+      "role": "build-time linker"
+    },
+    {
+      "tool": "nasm",
+      "role": "build-time x86 assembler"
+    },
+    {
+      "tool": "wasm-ld",
+      "role": "build-time WebAssembly linker"
+    },
+    {
+      "tool": "llvm-objcopy",
+      "role": "build-time ARM image converter"
+    },
+    {
+      "tool": "grub-mkrescue",
+      "role": "build-time ISO tool; GRUB itself is included in the ISO"
+    },
+    {
+      "tool": "xorriso",
+      "role": "build-time ISO authoring tool"
+    },
+    {
+      "tool": "qemu-system-x86_64",
+      "role": "test-only virtual x86 machine"
+    },
+    {
+      "tool": "qemu-system-aarch64",
+      "role": "test-only virtual ARM machine"
+    },
+    {
+      "tool": "qemu-system-arm",
+      "role": "test-only virtual ARM machine"
+    },
+    {
+      "tool": "gcc",
+      "role": "host-side build/test compiler"
+    },
+    {
+      "tool": "python3",
+      "role": "CI/test orchestration"
+    },
+    {
+      "tool": "openssl",
+      "role": "test oracle, not an OS library"
+    },
+    {
+      "tool": "python3-cryptography",
+      "role": "test oracle, not an OS library"
+    },
+    {
+      "tool": "python3-pil",
+      "role": "test image helper, not an OS library"
+    },
+    {
+      "tool": "dosfstools",
+      "role": "host-side FAT test utility"
+    },
+    {
+      "tool": "mtools",
+      "role": "host-side FAT image utility"
+    },
+    {
+      "tool": "ca-certificates",
+      "role": "trust-root data copied to the system disk"
+    },
+    {
+      "tool": "KVM",
+      "role": "host acceleration for QEMU tests; not shipped in the OS image"
+    }
+  ],
+  "github_actions_references": [
+    "actions/cache@v4",
+    "actions/checkout@v4",
+    "actions/download-artifact@v4",
+    "actions/upload-artifact@v4"
+  ],
+  "x86_grub_multiboot2_in_iso": true,
+  "host_ca_bundle_copied_to_disk": true,
+  "freestanding_no_libc_link_evidence": false
+}

@@ -1,0 +1,66 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA BOOT] BootInfo v1: ARM64 Device Tree, 1 normalized RAM range(s), 160 bytes
+[KIRA ARM64] RAM: 512 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 505 MB free pages; kernel heap and scheduler online (per-core ready queues, 48 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 98 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 2 of 2 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 2 of 2 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 3 function(s), 3 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 709388 bytes, prefix dcea5180...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 3 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 16 MB (PCI 0:1.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA DISK] vda: virtio-blk, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14448 KB free.
+[KIRA PROC] up to 8 programs at once (2 cores, 512 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): СУББОТА, 7 НОЯБРЯ 2026 18:43
+[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.
+[KIRA NET] No supported network card: networking is off.
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA USB] xHCI 0x0000000000001B36:0x000000000000000D, 8 ports, 64 slots, context 32 B, polled event ring
+[KIRA USB] xHCI port 3: device 0x00000000000046F4:0x0000000000000001 super-speed, class 0
+[KIRA USB] storage: QEMU QEMU HARDDISK, 64 MB
+[KIRA USB] storage: FAT32 'KIRACI' mounted at /usb0
+[KIRA USB] xHCI port 5: device 0x0000000000000409:0x00000000000055AA full-speed, class 9
+[KIRA USB] hub with 8 ports ready
+[KIRA USB] xHCI port 6: device 0x0000000000000627:0x0000000000000001 high-speed, class 0
+[KIRA USB] pointer (absolute: tablet/touch) ready
+[KIRA USB] xHCI port 5.2: device 0x0000000000000627:0x0000000000000001 full-speed, class 0
+[KIRA USB] keyboard ready
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+usb
+контроллер xHCI (PCI 0:2)
+  порт 3: 0x00000000000046F4:0x0000000000000001, адрес 1
+  порт 5: 0x0000000000000409:0x00000000000055AA, адрес 2, хаб на 8 портов
+  порт 6: 0x0000000000000627:0x0000000000000001, адрес 3, планшет (отчётов 0)
+    разбор: абсолютные X бит 8+16, Y бит 24+16, кнопок 3
+  порт 5.2: 0x0000000000000627:0x0000000000000001, адрес 4, клавиатура (отчётов 0)
+  накопитель: QEMU QEMU HARDDISK -> /usb0
+кира> df
+/usb0: FAT32 «KIRACI», QEMU QEMU HARDDISK, всего 62 МБ, свободно 62 МБ
+KiraFS: блоков 4094 по 4 КБ, свободно 3610 (14440 КБ); инодов 480, свободно 413
+кира> cat /usb0/hello.txt
+kira-ci: флешка стенда
+
+кира> cp /bin/plasma /usb0/plasma.bin
+/usb0/plasma.bin: том подключён только для чтения
+кира> ls /usb0
+           35  hello.txt
+       100000  big.bin
+кира> umount usb0
+/usb0: записано и отключено - можно вынимать
+кира> 
