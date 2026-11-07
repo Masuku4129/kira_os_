@@ -380,6 +380,10 @@ static int ept_in_prime_subgroup(const ept_t* p, const uint32_t* order) {
     static const uint8_t identity[32] = { 1 };
     ept_t q;
     uint8_t enc[32];
+    /* The identity is in the prime-order subgroup, but accepting it as A or R
+       permits the trivial forged equation S=0, A=identity, R=identity. */
+    ept_encode(enc, p);
+    if (crypto_eq(enc, identity, sizeof enc)) return 0;
     ept_mul(&q, p, order);
     ept_encode(enc, &q);
     return crypto_eq(enc, identity, sizeof enc);
