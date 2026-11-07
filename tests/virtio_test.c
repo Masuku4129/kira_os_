@@ -214,6 +214,22 @@ int main(void) {
     CHECK(virtio_dma_free(dma, dma_phys, 4097) == 0);
     CHECK(virtio_dma_free(dma, dma_phys, 4097) == -1); /* double free отвергается */
 
+    /* Registry capacity is bounded; freeing a slot makes it reusable. */
+    void* dma_slots[64];
+    uint64_t dma_addresses[64];
+    for (unsigned i = 0; i < 64; i++) {
+        dma_slots[i] = virtio_dma_alloc(1, &dma_addresses[i]);
+        CHECK(dma_slots[i] != 0 && dma_addresses[i] != 0);
+    }
+    uint64_t overflow_phys = 0;
+    CHECK(virtio_dma_alloc(1, &overflow_phys) == 0 && overflow_phys == 0);
+    for (unsigned i = 0; i < 64; i++)
+        CHECK(virtio_dma_free(dma_slots[i], dma_addresses[i], 1) == 0);
+    uint64_t reuse_phys = 0;
+    void* reuse = virtio_dma_alloc(1, &reuse_phys);
+    CHECK(reuse != 0 && reuse_phys != 0);
+    CHECK(virtio_dma_free(reuse, reuse_phys, 1) == 0);
+
     vopt_t o0; memset(&o0, 0, sizeof o0);
     /* --- PCI --- */
     model_init(o0, 0x1042);
