@@ -54,7 +54,9 @@ jobs:
               changed = subprocess.check_output(
                   ["git", "diff", "--name-only", base, head], text=True
               ).splitlines()
-              full = not changed
+              # Pull requests run the complete verification matrix. Component
+              # filtering is reserved for branch pushes to save runner minutes.
+              full = True
           infra = full or any(
               p.startswith(".github/workflows/") or p.startswith("ci/")
               for p in changed
@@ -318,7 +320,6 @@ jobs:
           if-no-files-found: ignore
       - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"
         id: arm64-qemu
-        if: github.event_name != 'pull_request'
         run: |
           set -o pipefail
           python3 ci/arm64_vm.py ci-out/arm64 2>&1 | tee arm64.txt
@@ -330,7 +331,6 @@ jobs:
 
   vm:
     needs: [detect-changes, build]
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:

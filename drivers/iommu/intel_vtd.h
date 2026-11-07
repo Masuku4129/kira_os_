@@ -12,6 +12,7 @@ struct kira_vtd_platform {
     void (*write_barrier)(void *context);
     void (*read_barrier)(void *context);
     void (*log)(void *context, const char *message, uint64_t value);
+    void (*clean_cache)(void *context, const void *address, size_t length);
 };
 
 struct kira_vtd_unit {

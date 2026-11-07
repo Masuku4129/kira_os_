@@ -2,7 +2,7 @@
    fw_cfg DMA) и simple-framebuffer из дерева устройств (кадровый буфер, поднятый прошивкой/U-Boot на настоящих
    платах). Всё берётся из дерева устройств: адрес fw_cfg, адрес/размер/шаг/формат кадра. */
 #include <stdint.h>
-#include "fdt.h"
+#include "../../fdt.h"
 #include "fb.h"
 #include "virtio.h"          /* virtio_dma_alloc, MMIO_* */
 #include "vmm.h"
