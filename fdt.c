@@ -50,8 +50,8 @@ int fdt_valid(const void* fdt, uint32_t max_len) {
 
 uint32_t fdt_total_size(const void* fdt) { return hdr(fdt, 1); }
 
-unsigned fdt_reserve_count(const void* fdt) {
-    if (!fdt_valid(fdt, 0)) return 0;
+unsigned fdt_reserve_count(const void* fdt, uint32_t max_len) {
+    if (!fdt_valid(fdt, max_len)) return 0;
     uint32_t total = hdr(fdt, 1), off = hdr(fdt, 4);
     const uint8_t* b = (const uint8_t*)fdt;
     unsigned count = 0;
@@ -63,8 +63,8 @@ unsigned fdt_reserve_count(const void* fdt) {
     return 0;
 }
 
-int fdt_reserve(const void* fdt, unsigned index, uint64_t* base, uint64_t* size) {
-    if (!fdt_valid(fdt, 0)) return -1;
+int fdt_reserve(const void* fdt, uint32_t max_len, unsigned index, uint64_t* base, uint64_t* size) {
+    if (!fdt_valid(fdt, max_len)) return -1;
     uint32_t total = hdr(fdt, 1), off = hdr(fdt, 4);
     const uint8_t* b = (const uint8_t*)fdt;
     unsigned current = 0;
