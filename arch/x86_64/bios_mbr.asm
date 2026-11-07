@@ -23,6 +23,8 @@ start:
     test cx, 1
     jz boot_error
 
+    xor ax, ax
+    mov ds, ax
     mov si, dap
     mov ah, 0x42
     mov dl, [boot_drive]
