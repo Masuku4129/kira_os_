@@ -1,0 +1,75 @@
+{
+ "name": "drvman-edu",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu",
+   "ok": true
+  },
+  {
+   "log": "drvedu: DMA denied: CAP_DMA not granted \\(least-privilege PASS\\)",
+   "ok": true
+  },
+  {
+   "log": "drvedu: IRQ/MSI capability not granted \\(least-privilege PASS\\)",
+   "ok": true
+  },
+  {
+   "log": "drvedu: PASS",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово",
+   "ok": true
+  },
+  {
+   "log": "drvman: окно создано 640x560",
+   "ok": true
+  },
+  {
+   "log": "drvman: кадр: строк в списках [1-9]\\d*, устройств [1-9]\\d*, пакетов 4",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*драйвер Ring 3 drv-edu запущен",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+[0-9a-f]{4}:[0-9a-f]{4}\\s+[0-9a-f]{6}\\s+.*встроенный драйвер ядра",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+[0-9a-f]{4}:[0-9a-f]{4}\\s+060000\\s+.*мост или шина",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакетов в /drv: 4",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет edu \\| edu\\s+v\\d+\\s+лицензия: не записана\\s+ЗАПУЩЕН\\s+сверка: SHA-256 сходится",
+   "ok": false
+  }
+ ],
+ "error": "в журнале нет «drvman: пакет edu \\| edu\\s+v\\d+\\s+лицензия: не записана\\s+ЗАПУЩЕН\\s+сверка: SHA-256 сходится»",
+ "boot_seconds": 5.2,
+ "seconds": 15.3,
+ "commands": []
+}
