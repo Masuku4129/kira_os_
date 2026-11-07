@@ -68,6 +68,7 @@ static struct {
 static mind_view_t mv;
 static exp_view_t ev;
 static uint32_t mv_ver = ~0u, ev_ver = ~0u;
+static uint32_t mind_notice_seq = ~0u;
 static app_hit_t files_hover;
 static int set_hover = -1, files_drop = -1;
 static unsigned mind_page, mind_btn;
@@ -455,11 +456,36 @@ static void update_clock(void) {
     wm_set_clock(date, hm);
 }
 
+static void mind_notify_latest(void) {
+    /* Первую запись при загрузке не показываем: это восстановление контекста, а не новое событие. */
+    if (mind_notice_seq == ~0u) { mind_notice_seq = mv.journal_seq; return; }
+    if (mind_notice_seq == mv.journal_seq) return;
+    mind_notice_seq = mv.journal_seq;
+    if (!mv.nj) return;
+    const typeof(mv.j[0])* e = &mv.j[0]; /* журнал в снимке идёт от новых записей к старым */
+    const char* title = 0;
+    unsigned level = WM_NOTIFY_INFO;
+    switch (e->kind) {
+    case MJ_ANOMALY: title = "Разум: аномалия"; level = WM_NOTIFY_WARNING; break;
+    case MJ_KILL: title = "Разум: процесс остановлен"; level = WM_NOTIFY_ERROR; break;
+    case MJ_STARVE: title = "Разум: нехватка ресурсов"; level = WM_NOTIFY_WARNING; break;
+    case MJ_BEHAVIOR: title = "Разум: поведение процесса"; level = WM_NOTIFY_WARNING; break;
+    case MJ_MEMORY: title = "Разум: память"; level = WM_NOTIFY_WARNING; break;
+    case MJ_RESTORE: title = "Разум: восстановление"; level = WM_NOTIFY_SUCCESS; break;
+    case MJ_TUNE_BACK: title = "Разум: откат настройки"; level = WM_NOTIFY_WARNING; break;
+    case MJ_TUNE_KEEP: title = "Разум: настройка принята"; level = WM_NOTIFY_SUCCESS; break;
+    case MJ_LIMIT: title = "Разум: ограничение процесса"; level = WM_NOTIFY_WARNING; break;
+    default: break; /* обучение, фокус и пробные замеры остаются в журнале Mind без всплывающего шума */
+    }
+    if (title && e->text[0]) wm_notify(title, e->text, level);
+}
+
 static void update_mind(void) {
     uint32_t v = mind_sys_version();
     if (v == mv_ver) return;
     mv_ver = v;
     mind_sys_view(&mv);
+    mind_notify_latest();
     if (mv.t) wm_set_meters(mv.busy, (int)(mv.cores > 64 ? 64 : mv.cores), (int)mv.mem_used, mv.health);
     draw_mind();
     draw_monitor();
