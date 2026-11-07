@@ -24,6 +24,8 @@
 #include "net.h"
 #include "hda.h"
 #include "acpi.h"
+#include "pci.h"
+#include "arch/x86_64/vtd.h"
 #include "hwprofile.h"
 #include "ramext.h"
 #include "percpu.h"
@@ -171,6 +173,18 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     acpi_set_map_hook(acpi_map);
     if (uefi_boot) acpi_init_rsdp(((const kbi_header_t*)bootinfo)->rsdp_phys);
     else acpi_init(addr);
+    /* Enumerate PCI and establish DMA isolation before any device driver can
+       enable bus mastering. If firmware exposes no usable DMAR unit, Ring 3
+       DMA/MSI remains denied by the KDRV policy. */
+    int pci_devices = pci_init();
+    uart_print("[KIRA PCI] Enumerated devices: "); uart_print_dec((uint64_t)pci_devices); uart_print("\n");
+    int iommu_units = vtd_init();
+    if (iommu_units > 0) {
+        uart_print("[KIRA IOMMU] Intel VT-d translation enabled on units: ");
+        uart_print_dec((uint64_t)iommu_units); uart_print("\n");
+    } else {
+        uart_print("[KIRA IOMMU] No usable Intel VT-d units; Ring 3 DMA/MSI stays fail-closed.\n");
+    }
     {
         const acpi_info_t* ai = acpi_get();
         hw_init(ai && ai->valid ? ai->cpu_count : 1, pmm_get_total_memory_kb());
