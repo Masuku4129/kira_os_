@@ -1,0 +1,146 @@
+{
+ "name": "boot-sata",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "step": "test mem",
+   "must": "heap: PASS",
+   "ok": true
+  },
+  {
+   "step": "test mem",
+   "must": "PMM: PASS",
+   "ok": true
+  },
+  {
+   "step": "test mem",
+   "must": "VMM: PASS",
+   "ok": true
+  },
+  {
+   "step": "disk",
+   "must": "\\[системный\\]",
+   "ok": true
+  },
+  {
+   "step": "df",
+   "must": "KiraFS",
+   "ok": true
+  },
+  {
+   "step": "status",
+   "must": ".",
+   "ok": true
+  },
+  {
+   "step": "ls /bin",
+   "must": "plasma",
+   "ok": true
+  },
+  {
+   "step": "ls /bin",
+   "must": "cube3d",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA AHCI\\] sata0",
+   "ok": true
+  },
+  {
+   "log": "completion by MSI interrupt",
+   "ok": true
+  },
+  {
+   "step": "cat /irqtest.txt",
+   "must": "kira-irq",
+   "ok": true
+  },
+  {
+   "step": "disk",
+   "must": "прерываний устройств \\(MSI\\): [1-9]",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.5,
+ "seconds": 7.7,
+ "commands": [
+  {
+   "cmd": "test mem",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "disk",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "df",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "ls /bin",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "write /irqtest.txt kira-irq",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "cat /irqtest.txt",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "disk",
+   "seconds": 0.0
+  }
+ ]
+}
