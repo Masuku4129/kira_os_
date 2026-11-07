@@ -21,6 +21,7 @@
 #include "mind_sync.h"
 #include "audio.h"
 #include "kfs.h"
+#include "mind_archive_policy.h"
 
 #define MODEL_PATH   "/var/mind.dat"
 #define SEED_PATH    "/etc/mind_seed.bin"
@@ -441,7 +442,16 @@ static int archive_write(const mind_model_t* model) {
     if(kfs_stat("/var",&st)!=0&&kfs_mkdir("/var")!=0)return -1;
     if(kfs_stat("/var/mind",&st)!=0&&kfs_mkdir("/var/mind")!=0)return -1;
     if(kfs_stat(MIND_ARCHIVE_DIR,&st)!=0&&kfs_mkdir(MIND_ARCHIVE_DIR)!=0)return -1;
-    archive_scan();uint32_t gen=archive_generation+1;if(!gen)gen=1;
+    archive_scan();
+    /* The previous newest valid snapshot is the recovery point if the new
+       primary model is later damaged. Never evict it while making room. */
+    uint32_t protected_generation=0;
+    for(unsigned i=0;i<archive_count;i++)
+        if(archive_items[i].valid&&archive_items[i].generation>protected_generation)
+            protected_generation=archive_items[i].generation;
+    /* Filenames carry exactly eight decimal digits; refuse wrap/collision. */
+    if(archive_generation>=99999999u)return -1;
+    uint32_t gen=archive_generation+1u;
     char name[16]="m00000000.dat";uint32_t n=gen;
     for(int i=8;i>=1;i--){name[i]=(char)('0'+n%10);n/=10;}
     mind_archive_header_t h={MIND_ARCHIVE_MAGIC,MIND_ARCHIVE_VERSION,gen,sizeof(mind_model_t),archive_score(model),archive_crc(model,sizeof *model)};
@@ -452,15 +462,18 @@ static int archive_write(const mind_model_t* model) {
     archive_scan();unsigned count=0;uint64_t bytes=0;
     for(unsigned i=0;i<archive_count;i++)if(archive_items[i].valid){count++;bytes+=archive_items[i].size;}
     while(count>MIND_ARCHIVE_MAX_FILES||bytes>MIND_ARCHIVE_MAX_BYTES){
-        int victim=-1;
-        for(unsigned i=0;i<archive_count;i++){mind_archive_item_t* it=&archive_items[i];
-            if(!it->valid||it->generation==gen)continue;
-            if(victim<0||it->score<archive_items[victim].score||
-              (it->score==archive_items[victim].score&&it->generation<archive_items[victim].generation))victim=(int)i;
+        mind_archive_policy_item_t policy[32];
+        for(unsigned i=0;i<archive_count;i++){
+            policy[i].generation=archive_items[i].generation;
+            policy[i].score=archive_items[i].score;
+            policy[i].valid=(uint8_t)archive_items[i].valid;
         }
-        if(victim<0)break;
+        int victim=mind_archive_choose_victim(policy,archive_count,gen,protected_generation);
+        /* If the quota cannot be met without deleting a protected snapshot,
+           keep the data and report failure instead of silently exceeding it. */
+        if(victim<0)return -1;
         char old[64];archive_path(old,archive_items[victim].name);
-        if(kfs_unlink(old)!=0)break;
+        if(kfs_unlink(old)!=0)return -1;
         bytes-=archive_items[victim].size;count--;archive_items[victim].valid=0;
     }
     return 0;
