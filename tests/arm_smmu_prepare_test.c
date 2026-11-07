@@ -14,7 +14,7 @@ static unsigned fail_alloc_at, misalign_alloc_at;
 static size_t freed_pages, pool_used;
 static uint64_t next_physical;
 
-static volatile void *fake_map(void *context, uint64_t physical, size_t length)
+static volatile void *test_map_mmio(void *context, uint64_t physical, size_t length)
 {
     (void)context;
     ++map_calls;
@@ -23,7 +23,7 @@ static volatile void *fake_map(void *context, uint64_t physical, size_t length)
     return registers_page;
 }
 
-static void *fake_alloc(void *context, size_t pages, uint64_t *physical)
+static void *test_alloc_dma_pages(void *context, size_t pages, uint64_t *physical)
 {
     size_t offset;
     (void)context;
@@ -40,7 +40,7 @@ static void *fake_alloc(void *context, size_t pages, uint64_t *physical)
     return dma_pool + offset;
 }
 
-static void fake_free(void *context, void *virtual_address,
+static void test_free_dma_pages(void *context, void *virtual_address,
                       uint64_t physical, size_t pages)
 {
     (void)context;
@@ -50,7 +50,7 @@ static void fake_free(void *context, void *virtual_address,
     freed_pages += pages;
 }
 
-static void fake_clean(void *context, const void *address, size_t length)
+static void test_clean_cache(void *context, const void *address, size_t length)
 {
     (void)context;
     (void)address;
@@ -58,7 +58,7 @@ static void fake_clean(void *context, const void *address, size_t length)
     ++clean_calls;
 }
 
-static void reset_fake(void)
+static void reset_test_platform(void)
 {
     memset(registers_page, 0, sizeof(registers_page));
     memset(dma_pool, 0xa5, sizeof(dma_pool));
@@ -73,10 +73,10 @@ static struct kira_smmu_platform platform(void)
 {
     struct kira_smmu_platform p;
     memset(&p, 0, sizeof(p));
-    p.map_mmio = fake_map;
-    p.alloc_dma_pages = fake_alloc;
-    p.free_dma_pages = fake_free;
-    p.clean_cache = fake_clean;
+    p.map_mmio = test_map_mmio;
+    p.alloc_dma_pages = test_alloc_dma_pages;
+    p.free_dma_pages = test_free_dma_pages;
+    p.clean_cache = test_clean_cache;
     return p;
 }
 
@@ -86,7 +86,7 @@ int main(void)
     struct kira_smmu_platform p;
 
     /* Mandatory cleanup callback is validated before MMIO mapping. */
-    reset_fake();
+    reset_test_platform();
     p = platform();
     p.free_dma_pages = 0;
     memset(&smmu, 0, sizeof(smmu));
@@ -94,20 +94,20 @@ int main(void)
     CHECK(map_calls == 0 && alloc_calls == 0);
 
     /* Physical register base must be page aligned. */
-    reset_fake();
+    reset_test_platform();
     p = platform();
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100001u, &p) == KIRA_SMMU_INVALID);
     CHECK(map_calls == 0);
 
     /* Unsupported identification is rejected before allocating DMA memory. */
-    reset_fake();
+    reset_test_platform();
     *(uint32_t *)(registers_page + 0x0000u) = 0;
     p = platform();
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
     CHECK(map_calls == 1 && alloc_calls == 0);
 
     /* Successful prepare allocates one 16 KiB stream table and two queues. */
-    reset_fake();
+    reset_test_platform();
     p = platform();
     memset(&smmu, 0, sizeof(smmu));
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_OK);
@@ -123,7 +123,7 @@ int main(void)
     CHECK(clean_calls == 3);
 
     /* Failure allocating CMDQ must release the already allocated stream table. */
-    reset_fake();
+    reset_test_platform();
     p = platform();
     fail_alloc_at = 2;
     memset(&smmu, 0, sizeof(smmu));
@@ -132,7 +132,7 @@ int main(void)
     CHECK(smmu.stream_table == 0 && smmu.stream_table_physical == 0);
 
     /* Failure allocating EVTQ must release CMDQ and the stream table. */
-    reset_fake();
+    reset_test_platform();
     p = platform();
     fail_alloc_at = 3;
     memset(&smmu, 0, sizeof(smmu));
@@ -141,7 +141,7 @@ int main(void)
     CHECK(smmu.cmdq == 0 && smmu.stream_table == 0);
 
     /* An unaligned DMA address is rejected and the allocation is returned. */
-    reset_fake();
+    reset_test_platform();
     p = platform();
     misalign_alloc_at = 1;
     memset(&smmu, 0, sizeof(smmu));
