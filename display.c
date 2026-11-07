@@ -615,11 +615,9 @@ static void display_main(void* arg) {
 
 static void* wm_alloc(uint64_t bytes) { return gfx_alloc_pages(bytes); }
 
-int display_init(unsigned long mbi) {
-    /* кадровый буфер от загрузчика (multiboot), иначе - virtio-gpu по PCI (QEMU virt на ARM64, машины без VBE) */
-    int rc = mbi ? fb_init(mbi) : -1;
+static int display_init_finish(int rc) {
     if (rc != 0 && virtio_gpu_probe() == 0) rc = 0;
-    if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
+    if (rc != 0 && platform_fb_probe() == 0) rc = 0;
     if (rc != 0) return rc;
     wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt };
     wm_init(fb_surface(), &ops);
@@ -654,7 +652,14 @@ int display_init(unsigned long mbi) {
     uart_print("[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, "
                "apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, "
                "fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.\n");
-    return 0;
+    return 0;}
+
+int display_init(unsigned long mbi) {
+    return display_init_finish(mbi ? fb_init(mbi) : -1);
+}
+
+int display_init_bootinfo(const kbi_header_t *bootinfo) {
+    return display_init_finish(bootinfo ? fb_init_bootinfo(bootinfo) : -1);
 }
 
 void display_set_fx(int level) { fx_req = level < 0 ? 0 : level > 3 ? 3 : level; }
