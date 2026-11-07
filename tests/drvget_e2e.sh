@@ -135,6 +135,7 @@ echo "$chk" | grep -q "source=$U/rl/drvget.rec" || note "в .rec нет исто
 run "list"
 grep -q "rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен" $T/out || note "list: $(tail -c 300 $T/out)"
 run "verify rl"
+grep -q "подпись издателя: отсутствует; пакет только локально подтверждён" $T/out || note "verify: локальный пакет не помечен как неподписанный"
 grep -q "verify rl: OK" $T/out || note "verify: $(tail -c 300 $T/out)"
 # испорченный образ: verify обязан заметить
 cp $T/drv/rl.kdrv $T/rl.keep; printf '\377' | dd of=$T/drv/rl.kdrv bs=1 seek=200 conv=notrunc 2>/dev/null
@@ -195,7 +196,7 @@ rundm "do base $U;pci;find rl;install;pkgs;verify rl"
 grep -q "drvman: набор готов к установке" $T/out || note "drvman find: $(tail -c 400 $T/out)"
 grep -q "собрано, образ ELF" $T/out && grep -q "drvman: драйвер rl установлен в /drv" $T/out || note "drvman install: $(tail -c 600 $T/out)"
 grep -q "drvman: список PCI недоступен" $T/out || note "drvman: нет честного сообщения о недоступном списке PCI: $(grep -a 'drvman:' $T/out | head -5)"
-grep -qE "drvman: пакет rl \| rl +v1 +лицензия: BSD-3-Clause +не запущен +сверка: SHA-256 сходится" $T/out || note "drvman pkgs (лицензия из .rec): $(grep -a 'пакет' $T/out | head -5)"
+grep -qE "drvman: пакет rl \| rl +v1 +лицензия: BSD-3-Clause +не запущен +сверка: SHA-256 OK, локально" $T/out || note "drvman pkgs (лицензия из .rec): $(grep -a 'пакет' $T/out | head -5)"
 grep -qE "drvman: пакет rl \| права запрошены: MMIO DMA PCIDEV NETDEV +подтверждены: MMIO DMA PCIDEV NETDEV" $T/out || note "drvman pkgs: права"
 grep -q "drvman: пакет rl | источник: $U/rl/drvget.rec" $T/out || note "drvman pkgs: источник"
 grep -q "verify rl: OK" $T/out || note "drvman verify"

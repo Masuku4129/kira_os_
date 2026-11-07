@@ -51,7 +51,7 @@ Do not remove provenance notices without replacing the implementation and review
 KDRV retains SHA-256 integrity checks and explicit user confirmation. A detached `.sig` format signs the complete `.kdrv` digest, size, publisher key ID and validity interval. The kernel verifies Ed25519 on every load using a kernel-owned public-key table; invalid, unknown, revoked and expired signatures fail closed. Unsigned local packages remain explicitly untrusted by publisher and require the existing local confirmation.
 
 Required:
-- Add UI verification/status for signed versus unsigned local packages and a supported import path for `.sig`.
+- Add runtime import of `.sig` in the driver manager; current supported signing/install path is offline through `tools/kdrvsign.py` and `tools/kfstool`.
 - Complete trust-key rotation and revocation procedures, including recovery from a compromised owner key.
 - Add explicit publisher metadata fields for ABI compatibility and key lifecycle policy; the current signature already covers the complete package digest, including the existing KDRV version and device-match header.
 - Persist the highest accepted version per publisher/package and reject rollback; the current verifier does not yet prevent disk-image rollback.
