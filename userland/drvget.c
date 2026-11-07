@@ -544,12 +544,12 @@ static int cmd_confirm(const char *arg) {
     i64 old_pkg_size = drv_op(KFS_DRV_STAT, f1, 0, 0, 0);
     i64 old_sig_size = drv_op(KFS_DRV_STAT, f3, 0, 0, 0);
     if ((old_pkg_size < 0 && old_pkg_size != -2) || (old_sig_size < 0 && old_sig_size != -2)) {
-        say("drvget: не удалось проверить существующий пакет перед заменой; установка отменена\\n");
+        say("drvget: не удалось проверить существующий пакет перед заменой; установка отменена\n");
         stage_clear();
         return 1;
     }
     if (!has_publisher_sig && old_pkg_size >= 0 && old_sig_size >= 0) {
-        say("drvget: замена существующего подписанного пакета на unsigned/local запрещена; сначала выполните drvget remove\\n");
+        say("drvget: замена существующего подписанного пакета на unsigned/local запрещена; сначала выполните drvget remove\n");
         stage_clear();
         return 1;
     }
@@ -557,28 +557,28 @@ static int cmd_confirm(const char *arg) {
         /* Clean an orphaned signature/record before creating a new local-only package. */
         i64 remove_orphan = drv_op(KFS_DRV_REMOVE, f3, 0, 0, 0);
         if (remove_orphan < 0 && remove_orphan != -2) {
-            say("drvget: не удалось очистить осиротевшую подпись; установка отменена\\n");
+            say("drvget: не удалось очистить осиротевшую подпись; установка отменена\n");
             stage_clear();
             return 1;
         }
     }
 
     i64 w = drv_op(KFS_DRV_WRITE, f1, pkg, total, 0);
-    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\\n", f1, (long long)w); return 1; }
+    if (w < 0) { sayf("drvget: запись /drv/%s отклонена (код %lld)\n", f1, (long long)w); return 1; }
     /* Write publisher signature before the local-confirmation record. .rec is the
        commit marker checked by the kernel: an interrupted signed install must never
        fall back to an unsigned/local package. */
     if (has_publisher_sig) {
         w = drv_op(KFS_DRV_WRITE, f3, &publisher_sig, sizeof publisher_sig, 0);
         if (w < 0) {
-            sayf("drvget: запись подписи /drv/%s отклонена (код %lld); пакет удалён\\n", f3, (long long)w);
+            sayf("drvget: запись подписи /drv/%s отклонена (код %lld); пакет удалён\n", f3, (long long)w);
             drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0);
             return 1;
         }
     }
     w = drv_op(KFS_DRV_WRITE, f2, &rec, sizeof rec, 0);
     if (w < 0) {
-        sayf("drvget: запись /drv/%s отклонена (код %lld); пакет удалён\\n", f2, (long long)w);
+        sayf("drvget: запись /drv/%s отклонена (код %lld); пакет удалён\n", f2, (long long)w);
         drv_op(KFS_DRV_REMOVE, f1, 0, 0, 0);
         return 1;
     }
