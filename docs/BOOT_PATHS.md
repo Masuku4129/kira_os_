@@ -10,7 +10,7 @@ The build also produces `kira-bios.img`, a raw hard-disk image:
 2. Stage two gathers the BIOS E820 memory map, enables A20, reads the flat kernel image through EDD into a low bounce buffer, and copies it above 1 MiB using unreal mode.
 3. It clears the linked kernel memory span first so the NOBITS `.bss` region is zeroed, builds a bounded Multiboot2 memory-map handoff, enters 32-bit protected mode, and jumps to the linked `start` symbol.
 
-Attach `kira-bios.img` as the boot hard disk in Limbo/QEMU. The image has no filesystem; attach a separate data disk if the guest needs persistent storage.
+The build also wraps this raw image as `kira-bios.iso` using El Torito hard-disk emulation. In Limbo, use `kira-bios.iso` as the CD-ROM and keep `kira_disk.img` as Hard Disk A; this preserves the normal primary-master KiraFS data disk. The raw `kira-bios.img` can also be attached directly as a boot hard disk for loader-only experiments.
 
 ## Native UEFI removable media
 
