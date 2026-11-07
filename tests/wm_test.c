@@ -46,7 +46,7 @@ static uint32_t ind(surface_t* sc, int i) { int sx, sy; wm_side_center(i, &sx, &
 static void dock_states(void) {
     static char tags[24][8], labels[24][8];
     surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
-    wm_ops_t ops = { al, nt, inp, lc, rz, tb };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, rel };
     wm_init(&sc, &ops);
     wm_side_item_t it[24];
     for (int i = 0; i < 24; i++) { snprintf(tags[i], 8, "p%d", i); snprintf(labels[i], 8, "P%d", i); it[i] = (wm_side_item_t){ labels[i], tags[i], TH_PINK, ICON_NET, 0, 0, 0, 0, 0 }; }
