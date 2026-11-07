@@ -37,6 +37,8 @@
 #define VTD_IOTLB_GLOBAL (1ull << 60)
 #define VTD_IOTLB_DW (1ull << 49)
 #define VTD_IOTLB_DR (1ull << 48)
+#define VTD_ECAP_C (1ull << 0)
+#define VTD_ECAP_SC (1ull << 7)
 #define VTD_ECAP_IRO_SHIFT 8u
 #define VTD_ECAP_IRO_MASK (0x3ffull << VTD_ECAP_IRO_SHIFT)
 
