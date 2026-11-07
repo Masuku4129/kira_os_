@@ -280,7 +280,8 @@ int fdt_simplefb(const void* fdt, fdt_fb_t* fb) {
     const char* f = (const char*)fdt_prop(fdt, n, "format", &len);
     if (fdt_reg(fdt, n, 0, &fb->base, &fb->size) || fdt_prop_u32(fdt, n, "width", &fb->width) ||
         fdt_prop_u32(fdt, n, "height", &fb->height) || fdt_prop_u32(fdt, n, "stride", &fb->stride) || !f || !len) return -2;
-    unsigned k = slen0(f, len < sizeof fb->format - 1 ? len : sizeof fb->format - 1);
+    unsigned k = slen0(f, len);
+    if (k >= sizeof fb->format || k + 1 != len) return -2;
     for (unsigned i = 0; i < k; i++) fb->format[i] = f[i];
     fb->format[k] = 0;
     uint64_t min_stride = (uint64_t)fb->width * 4;
