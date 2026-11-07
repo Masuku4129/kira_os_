@@ -168,6 +168,7 @@ static int touches_ram(uint64_t a, uint64_t len) {
    (MAIR 3 = 0x44, внешняя общая), без исполнения. Блоки по 2 МБ, поэтому гигабайт с пулом дробится. */
 #define PTE_DMA_NC  ((3ull << 2) | PTE_AF | (2ull << 8) | (1ull << 53) | (1ull << 54))
 static uint64_t dma_lo, dma_hi;
+static int dma_noncoherent_platform;
 #define DMA_POOL_MAX_PAGES 8192u                 /* пул ограничен 32 МиБ */
 #define DMA_POOL_BITMAP_WORDS (DMA_POOL_MAX_PAGES / 64u)
 #define DMA_POOL_MAX_ALLOCS 256u
@@ -272,7 +273,7 @@ static void dma_pool_choose(void) {
         return;
     }
 }
-int platform_dma_noncoherent(void) { return dma_lo != 0; }   /* драйверам Ring 3 DMA без согласованного кэша не отдаётся (kdrv.c) */
+int platform_dma_noncoherent(void) { return dma_noncoherent_platform; }   /* true даже если пул не удалось создать: DMA остаётся запрещённым */
 static int dma_pool_bit(uint32_t page) {
     return (int)((dma_pool_bitmap[page >> 6] >> (page & 63u)) & 1u);
 }
@@ -1213,7 +1214,8 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     for (unsigned i = 0; i < nram; i++) if (bump >= ram[i].base && bump < ram[i].base + ram[i].size) bump_end = ram[i].base + ram[i].size;
     kprintf("[KIRA ARM64] RAM: %u MB in %u region(s)\n", total >> 20, (uint64_t)nram);
 
-    if (dma_noncoherent(fdt)) dma_pool_choose();
+    dma_noncoherent_platform = dma_noncoherent(fdt);
+    if (dma_noncoherent_platform) dma_pool_choose();
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
     if (dma_lo) kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at %x without CPU cache for device buffers\n", (dma_hi - dma_lo) >> 20, dma_lo);
@@ -1303,6 +1305,8 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
             kprintf("[KIRA ARM64] noncoherent DMA pool: allocation, zeroing, exact free and reuse PASS\\n");
         else
             kprintf("[KIRA ARM64] WARNING: noncoherent DMA pool self-test FAILED; DMA disabled\\n");
+    } else if (dma_noncoherent_platform) {
+        kprintf("[KIRA ARM64] WARNING: non-coherent platform has no DMA pool; DMA disabled\\n");
     }
     arm_fb_reserve(fdt, pmm_arm_reserve);                        /* кадр simple-framebuffer, /reserved-memory */
     arm_fb_init(fdt);
