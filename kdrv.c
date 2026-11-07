@@ -84,7 +84,7 @@ static uint32_t cls_of(const pci_dev_t* d) { return (uint32_t)d->class_code << 1
 static int streq(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 
 /* ---- какие устройства уже принадлежат встроенным драйверам ядра (то, что они ищут по идентификатору и классу) ---- */
-static int builtin_owned(const pci_dev_t* d) {
+int kdrv_builtin_owned(const pci_dev_t* d) {
     static const uint16_t e1000[] = { 0x100E, 0x100F, 0x1004, 0x1009, 0x100C, 0x100D, 0x1010, 0x1011, 0x1015, 0x1026, 0x1076, 0x1079, 0x107C, 0x10D3 };
     if (d->class_code == 0x06) return 1;                                              /* мосты: драйверу не отдаются никогда */
     if ((d->header_type & 0x7F) != 0) return 1;                                       /* только обычные устройства */
@@ -561,7 +561,7 @@ static void scan(void) {
     if (list_pkgs(l) == 0 && l->n) {
         for (int i = 0; i < pci_count(); i++) {
             const pci_dev_t* d = pci_get(i);
-            if (builtin_owned(d)) continue;
+            if (kdrv_builtin_owned(d)) continue;
             bind_t* b = find_slot(d, 0);
             if (b && b->state != B_FREE) continue;
             for (unsigned k = 0; k < l->n; k++) {
@@ -883,7 +883,7 @@ static int64_t sys_pcilist(uint64_t buf, uint64_t max, uint64_t first) {
         uint8_t* z = (uint8_t*)e; for (unsigned k = 0; k < sizeof *e; k++) z[k] = 0;
         e->vendor = d->vendor; e->device = d->device; e->cls = cls_of(d);
         e->bus = d->bus; e->dev = d->dev; e->fn = d->fn;
-        e->owner = d->class_code == 0x06 ? KDRV_OWN_BRIDGE : builtin_owned(d) ? KDRV_OWN_KERNEL : KDRV_OWN_NONE;
+        e->owner = d->class_code == 0x06 ? KDRV_OWN_BRIDGE : kdrv_builtin_owned(d) ? KDRV_OWN_KERNEL : KDRV_OWN_NONE;
         bind_t* b = e->owner == KDRV_OWN_NONE ? find_slot(d, 0) : 0;
         if (b && b->state == B_RUN) {
             e->owner = KDRV_OWN_RING3;
@@ -1016,7 +1016,7 @@ void kdrv_cmd(const char* arg) {
     }
     for (int i = 0; i < pci_count(); i++) {
         const pci_dev_t* d = pci_get(i);
-        if (builtin_owned(d) || !pkg_wants(name, d)) continue;
+        if (kdrv_builtin_owned(d) || !pkg_wants(name, d)) continue;
         bind_t* b = find_slot(d, 0);
         if (b && b->state != B_FREE) continue;
         (void)start(name, d, rest);
