@@ -13,7 +13,8 @@
 #define SMMU_CMDQ_TIMEOUT        1000000u
 #define SMMU_CMD_SYNC             0x46u
 #define SMMU_CMD_CFGI_ALL         0x04u
-#define SMMU_CMD_TLBI_NH_ALL      0x10u\n#define SMMU_CMD_TLBI_S12_VMALL   0x28u
+#define SMMU_CMD_TLBI_NH_ALL      0x10u
+#define SMMU_CMD_TLBI_S12_VMALL   0x28u
 
 static int smmuv3_wait_consumer(smmuv3_queue_t *q, uint32_t target) {
     for (uint32_t n = 0; n < SMMU_CMDQ_TIMEOUT; ++n) {
