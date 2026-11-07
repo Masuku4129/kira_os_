@@ -57,6 +57,7 @@ if report["runtime_library_candidates"] != 0 or report["dynamic_dependency_count
     raise SystemExit("image audit detected runtime library or ELF dynamic dependency candidates")
 print("package: binary image audit evidence verified")
 PY_AUDIT
+python3 ci/release_image.py "$IMAGE_AUDIT"
 
 HOST_LOG="$(find_required_log host-tests.log)"
 MIND_LOG="$(find_required_log mind-quality.log)"
