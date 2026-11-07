@@ -125,12 +125,11 @@ static int dmar_scopes(const uint8_t* p, uint32_t len, uint8_t owner_type,
     while (off < len) {
         if (len - off < 6 || o->dmar_scope_count >= ACPI_MAX_DMAR_SCOPES) return -1;
         uint8_t slen = p[off + 1];
-        if (slen < 8 || slen > len - off || ((slen - 6) & 1)) return -1;
+        if (slen < 8 || slen > len - off || p[off + 2] || p[off + 3] || ((slen - 6) & 1)) return -1;
         uint8_t type = p[off], enum_id = p[off + 4], bus = p[off + 5];
         if (type < 1 || type > 5) return -1;
         unsigned npath = (slen - 6) / 2;
         if (!npath || npath > ACPI_MAX_DMAR_PATH) return -1;
-        uint8_t* dst = (uint8_t*)&o->dmar_scope[o->dmar_scope_count];
         /* Заполняем поля явно, чтобы не зависеть от выравнивания вложенной структуры. */
         o->dmar_scope[o->dmar_scope_count].owner_type = owner_type;
         o->dmar_scope[o->dmar_scope_count].owner_index = owner_index;
@@ -143,7 +142,6 @@ static int dmar_scopes(const uint8_t* p, uint32_t len, uint8_t owner_type,
             if (dev > 31 || fn > 7) return -1;
             o->dmar_scope[o->dmar_scope_count].devfn[k] = (uint8_t)((dev << 3) | fn);
         }
-        (void)dst;
         o->dmar_scope_count++;
         off += slen;
     }
@@ -163,7 +161,7 @@ static int parse_dmar(const sdt_t* t, acpi_info_t* o) {
         uint16_t len = (uint16_t)(b[off + 2] | ((uint16_t)b[off + 3] << 8));
         if (len < 4 || len > t->len - off) return -1;
         if (type == 0) {
-            if (len < 16 || units >= ACPI_MAX_DMAR_UNITS || (b[off + 5] & ~1u)) return -1;
+            if (len < 16 || units >= ACPI_MAX_DMAR_UNITS || b[off + 5]) return -1;
             uint8_t flags = b[off + 4];
             uint16_t segment = (uint16_t)(b[off + 6] | ((uint16_t)b[off + 7] << 8));
             uint64_t reg = rd64(b + off + 8);
