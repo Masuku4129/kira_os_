@@ -3,6 +3,7 @@
 #include "icons.h"
 #include "brainfx.h"
 #include "theme.h"
+#include <string.h>
 
 #define CUR_W 12
 #define CUR_H 19
