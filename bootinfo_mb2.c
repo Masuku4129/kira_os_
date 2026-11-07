@@ -23,6 +23,47 @@ static void copy_bytes(uint8_t* d, const uint8_t* s, uint32_t n) {
 }
 static uint32_t align8(uint32_t n) { return (n + 7u) & ~7u; }
 
+static int reserve_range(kbi_mmap_entry_t* mm, uint32_t* count,
+                          uint32_t capacity, uint64_t base, uint64_t length,
+                          uint32_t type) {
+    if (!length || base > UINT64_MAX - length) return -1;
+    uint64_t end = base + length, covered = base;
+    for (uint32_t i = 0; i < *count; i++) {
+        uint64_t old_base = mm[i].base, old_end = old_base + mm[i].length;
+        if (old_end <= base || old_base >= end) continue;
+        uint64_t lo = old_base > base ? old_base : base;
+        uint64_t hi = old_end < end ? old_end : end;
+        if (lo > covered) return -1;
+        if (hi <= covered) continue;
+        uint32_t extra = (lo > old_base ? 1u : 0u) +
+                         (hi < old_end ? 1u : 0u);
+        if (*count > capacity - extra) return -1;
+        for (uint32_t j = *count; j > i + 1u; j--)
+            mm[j + extra - 1u] = mm[j - 1u];
+        uint32_t at = i;
+        if (lo > old_base) {
+            mm[at] = mm[i];
+            mm[at].length = lo - old_base;
+            at++;
+        }
+        mm[at].base = lo;
+        mm[at].length = hi - lo;
+        mm[at].type = type;
+        mm[at].attributes = 0;
+        at++;
+        if (hi < old_end) {
+            mm[at] = mm[i];
+            mm[at].base = hi;
+            mm[at].length = old_end - hi;
+        }
+        *count += extra;
+        i += extra;
+        covered = hi;
+        if (covered == end) return 0;
+    }
+    return -1;
+}
+
 static int mb2_bounds(const uint8_t* b, uint32_t available, uint32_t* total) {
     if(!b || available<16 || ((uintptr_t)b&7u)) return -1;
     uint32_t n=rd32(b);
@@ -96,10 +137,12 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
     }
     if(!mmap_tag) return -34;
 
+    uint32_t mmap_capacity = mmap_count + 2u * (modules_count + 2u);
+    if (mmap_capacity > KIRA_BOOTINFO_MAX_MMAP) return -36;
     uint32_t cursor=sizeof(kbi_header_t);
     cursor=align8(cursor);
     uint32_t mmap_off=cursor;
-    uint64_t bytes=(uint64_t)mmap_count*sizeof(kbi_mmap_entry_t);
+    uint64_t bytes=(uint64_t)mmap_capacity*sizeof(kbi_mmap_entry_t);
     if(bytes>KIRA_BOOTINFO_MAX_SIZE-cursor) return -35;
     cursor+=(uint32_t)bytes;
     cursor=align8(cursor);
@@ -156,33 +199,21 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
         out[j]=v;
     }
 
-    /* The loader's kernel image must never be returned as allocatable RAM. */
-    uint64_t kernel_end=kernel_base+kernel_size;
-    uint32_t owner=n;
-    for(uint32_t i=0;i<n;i++) {
-        uint64_t end=out[i].base+out[i].length;
-        if(out[i].type==KBI_MEM_USABLE && kernel_base>=out[i].base &&
-           kernel_end<=end) { owner=i; break; }
-    }
-    if(owner==n || n+2u>KIRA_BOOTINFO_MAX_MMAP) return -36;
-    {
-        kbi_mmap_entry_t original=out[owner];
-        uint64_t original_end=original.base+original.length;
-        uint32_t extra=(kernel_base>original.base?1u:0u)+
-                       (kernel_end<original_end?1u:0u);
-        for(uint32_t i=n;i>owner+1u;i--) out[i+extra-1u]=out[i-1u];
-        uint32_t at=owner;
-        if(kernel_base>original.base) {
-            out[at]=original; out[at].length=kernel_base-original.base; at++;
+    /* Reserve all physical objects that remain live after the loader exits. */
+    if (reserve_range(out,&n,mmap_capacity,kernel_base,kernel_size,
+                      KBI_MEM_KERNEL) != 0 ||
+        reserve_range(out,&n,mmap_capacity,(uint64_t)(uintptr_t)info,total,
+                      KBI_MEM_BOOTLOADER) != 0) return -36;
+    for(uint32_t off=8;off<total;) {
+        uint32_t type=rd32(b+off), size=rd32(b+off+4);
+        if(type==MB2_TAG_MODULE) {
+            uint64_t start=rd32(b+off+8), finish=rd32(b+off+12);
+            if(reserve_range(out,&n,mmap_capacity,start,finish-start,
+                             KBI_MEM_MODULE)!=0) return -36;
         }
-        out[at].base=kernel_base; out[at].length=kernel_size;
-        out[at].type=KBI_MEM_KERNEL; out[at].attributes=0; at++;
-        if(kernel_end<original_end) {
-            out[at]=original; out[at].base=kernel_end;
-            out[at].length=original_end-kernel_end;
-        }
-        n+=extra;
+        off+=align8(size);
     }
+    h->mmap_count=n;
 
     kbi_module_t* mods=modules_count?(kbi_module_t*)(handoff+modules_off):0;
     mi=0;
