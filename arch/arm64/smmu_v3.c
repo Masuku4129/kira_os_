@@ -13,7 +13,7 @@
 #define SMMU_CMDQ_TIMEOUT        1000000u
 #define SMMU_CMD_SYNC             0x46u
 #define SMMU_CMD_CFGI_ALL         0x04u
-#define SMMU_CMD_TLBI_NH_ALL      0x10u
+#define SMMU_CMD_TLBI_NH_ALL      0x10u\n#define SMMU_CMD_TLBI_S12_VMALL   0x28u
 
 static int smmuv3_wait_consumer(smmuv3_queue_t *q, uint32_t target) {
     for (uint32_t n = 0; n < SMMU_CMDQ_TIMEOUT; ++n) {
@@ -114,4 +114,18 @@ int smmuv3_global_invalidate(smmuv3_queue_t *q) {
     if (smmuv3_submit(q, SMMU_CMD_TLBI_NH_ALL, 0)) return -1;
     if (smmuv3_submit(q, SMMU_CMD_SYNC, 0)) return -1;
     return smmuv3_wait_consumer(q, q->producer | (q->producer_wrap ? SMMU_Q_PTR_WRAP : 0u));
+}
+
+/* Flush cached stage-1+stage-2 translations after changing an STE or
+ * second-stage table. The command completes only after the following SYNC. */
+int smmuv3_stage2_invalidate(smmuv3_queue_t *q) {
+    if (!q) return -1;
+    uint32_t cr0;
+    if (smmuv3_read32(&q->regs, SMMU_CR0, &cr0) ||
+        !(cr0 & SMMU_CR0_CMDQEN)) return -2;
+    if (smmuv3_submit(q, SMMU_CMD_CFGI_ALL, 0)) return -1;
+    if (smmuv3_submit(q, SMMU_CMD_TLBI_S12_VMALL, 0)) return -1;
+    if (smmuv3_submit(q, SMMU_CMD_SYNC, 0)) return -1;
+    return smmuv3_wait_consumer(q, q->producer |
+        (q->producer_wrap ? SMMU_Q_PTR_WRAP : 0u));
 }
