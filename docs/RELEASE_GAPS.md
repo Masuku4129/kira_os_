@@ -68,8 +68,10 @@ Implemented in the v46 working branch:
 - Host policy tests cover MMIO-only acceptance and DMA/MSI rejection without isolation.
 - The generic virtio DMA allocator records CPU pointer, device-visible address, exact byte size, page count and allocator owner; it rejects invalid, mismatched and duplicate releases.
 - DMA backing memory is released outside the allocator registry spinlock. Virtqueue memory can be released only after the device status has reached zero following reset.
-- virtio-blk failed-probe paths now attempt to reset the device before releasing queue and bounce buffers. If reset cannot be confirmed, backing memory is deliberately retained to avoid device DMA into freed RAM.
-- Host regressions now cover DMA registry exhaustion/reuse and repeated late virtio-blk probe failures. These new tests are added but remain unverified until the next CI run completes.
+- virtio-blk failed-probe and request-timeout paths attempt to reset the device before releasing queue and bounce buffers. If reset cannot be confirmed, backing memory is deliberately retained to avoid device DMA into freed RAM.
+- The ARM64 non-coherent DMA pool now uses a page bitmap and exact allocation records instead of a monotonic bump pointer; released extents can be reused. A boot-time self-test checks page alignment, zeroing, exact release and reuse. If it fails, DMA remains disabled rather than falling back to cacheable PMM pages.
+- The platform DMA pool hook validates both CPU and device-visible page alignment and rejects address-range overflow.
+- Host regressions cover DMA registry exhaustion/reuse, repeated late virtio-blk probe failures, explicit shutdown before PCI model reset, and timeout cleanup/reprobe. CI run 686 exposed a segmentation fault in the virtio host test; the fixture and lifecycle are being corrected and the replacement run is pending.
 
 Still required:
 - Platform discovery and validation for x86 VT-d / AMD-Vi and ARM SMMU.
