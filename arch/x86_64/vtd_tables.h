@@ -139,4 +139,29 @@ static inline int kira_vtd_unmap_4k(kira_vtd_pt_t *pt, uint64_t iova) {
     return 0;
 }
 
+/* Remove a 4 KiB mapping. The caller MUST invalidate the IOTLB and wait
+ * for completion before reusing the physical page or its page-table pages. */
+static inline int kira_vtd_unmap_4k_walk(kira_vtd_pt_t *root,
+                                          uint64_t iova,
+                                          kira_vtd_resolve_fn resolve,
+                                          void *ctx,
+                                          uint64_t *old_phys) {
+    if (!root || !resolve || iova >= (1ull << 48) || (iova & 0xfffu))
+        return -1;
+    kira_vtd_pt_t *table = root;
+    for (unsigned level = 3; level > 0; level--) {
+        uint64_t entry = table->entry[kira_vtd_pt_index(iova, level)];
+        if (!(entry & (KIRA_VTD_R | KIRA_VTD_W))) return -2;
+        if (entry & (1ull << 7)) return -3;
+        table = resolve(ctx, entry & KIRA_VTD_ADDR_MASK);
+        if (!table) return -4;
+    }
+    uint64_t *slot = &table->entry[kira_vtd_pt_index(iova, 0)];
+    if (!(*slot & (KIRA_VTD_R | KIRA_VTD_W))) return -2;
+    if (old_phys) *old_phys = *slot & KIRA_VTD_ADDR_MASK;
+    *slot = 0;
+    __asm__ volatile("" ::: "memory");
+    return 0;
+}
+
 #endif
