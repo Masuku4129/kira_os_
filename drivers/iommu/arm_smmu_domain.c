@@ -325,18 +325,16 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     /* Invalidate the newly published STE before returning the domain. */
     rc = smmu_invalidate_stream(d, p);
     if (rc != KIRA_SMMU_OK) {
-        ste[0] = 0;
-        if (p->clean_cache)
-            p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
-        if (p->write_barrier) p->write_barrier(p->context);
-        smmu_stream_id_clear(s, stream_id);
-        d->active = 0;
+        /*
+         * Hardware completion is unknown after a timeout/error. Keep the
+         * STE, StreamID claim and translation pages pinned: freeing them
+         * could leave the SMMU DMA-walking reclaimed memory. The caller may
+         * retry kira_smmu_domain_destroy() to establish invalidation before
+         * resources are released.
+         */
+        d->active = 1;
     }
     smmu_unlock(s);
-    if (rc != KIRA_SMMU_OK) {
-        p->free_dma_pages(p->context, root, root_pa, 1);
-        p->free_dma_pages(p->context, ct, ct_pa, 1);
-    }
     return rc;
 
 fail_locked:
