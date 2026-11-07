@@ -10,7 +10,7 @@ typedef struct {
     uint8_t pin;             /* 0..3 = INTA..INTD */
     uint8_t direct_gsi;      /* Source == Zero */
     uint8_t source_name_len;
-    char source_name[32];    /* bounded AML NameString spelling, empty for direct GSI */
+    char source_name[128];    /* bounded AML NameString spelling, empty for direct GSI */
 } kira_acpi_prt_entry_t;
 
 /* Extract direct-GSI and link-device routes from a raw AML byte range.
