@@ -349,7 +349,7 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
         }
     }
     card(s, 10, 165, 280, 145, "ПАМЯТЬ", TH_PURPLE);
-    char t[64]; int p = cat(t, 0, "занято "); p = cat_u(t, p, v->mem_used); cat(t, p, "%");
+    char t[128]; int p = cat(t, 0, "занято "); p = cat_u(t, p, v->mem_used); cat(t, p, "%");
     ui_text_bold(s, 26, 208, t, v->mem_used >= 85 ? TH_RED : TH_TEXT);
     ui_round_rect(s, 26, 236, 248, 14, 6, TRACK, 255);
     if (v->mem_used) ui_round_rect(s, 26, 236, (int)(248 * (v->mem_used > 100 ? 100 : v->mem_used) / 100), 14, 6, v->mem_used >= 85 ? TH_RED : TH_PURPLE, 255);
