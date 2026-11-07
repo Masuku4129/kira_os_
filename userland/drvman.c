@@ -42,6 +42,7 @@ enum { KEY_ESC = 0x100, KEY_BACKSPACE, KEY_TAB, KEY_ENTER, KEY_LSHIFT, KEY_RSHIF
 
 static u32 *px;
 static int have_window;
+static int cli_mode;
 
 /* ---------- рисование ---------- */
 static void fill(int x, int y, int w, int h, u32 c) {
@@ -117,7 +118,7 @@ static void sink(const char *s, size_t n) {
     /* В графическом окне вывод остаётся в его журнале. Дублирование в shell/serial
        засоряет терминал и делает его непригодным для ввода команд. Без окна сохраняем
        поток вывода: так работают CLI и автоматические стенды. */
-    if (!have_window) while (n) {
+    if (!have_window || cli_mode) while (n) {
         size_t k = n > 2000 ? 2000 : n;
         k_write(s, k); s += k; n -= k;
     }
@@ -769,6 +770,9 @@ int umain(void) {
     i64 al = k_args(args, sizeof args - 1);
     if (al < 0) al = 0;
     args[al] = 0;
+    char *argp = args;
+    while (*argp == ' ') argp++;
+    cli_mode = !strncmp(argp, "do ", 3) || !strcmp(argp, "do");
     drvget_set_sink(sink);
     px = k_gfx_create(W, H);
     have_window = px != 0;
