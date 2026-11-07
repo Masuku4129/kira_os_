@@ -1,0 +1,90 @@
+{
+ "name": "drvman-quiet",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "step": "ps",
+   "must": "drvman",
+   "ok": true
+  },
+  {
+   "log_forbid": "drvman: окно создано",
+   "ok": true
+  },
+  {
+   "log_forbid": "drvman: кадр:",
+   "ok": true
+  },
+  {
+   "log_forbid": "drvman: ищу драйвер",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.05,
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.4,
+ "seconds": 15.7,
+ "commands": [
+  {
+   "cmd": "run drvman",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "ps",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.02
+  }
+ ]
+}

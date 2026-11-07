@@ -1,0 +1,311 @@
+
+==================================================
+[KIRA OS] Kernel core starting...
+==================================================
+[KIRA BOOT] BootInfo v1 validated: memory ranges=8, modules=0, bytes=329.
+[KIRA BOOT] Early console is on screen.
+[KIRA GDT] GDT loaded (Ring0/Ring3 segments), TSS loaded with 3 IST stacks (#DF, NMI, #MC).
+[KIRA IDT] Configuring 64-bit Interrupt Descriptor Table...
+[KIRA IDT] IDT loaded: 32 exceptions (#DF/NMI/#MC on IST) + 16 IRQs + LAPIC spurious, other vectors -> unhandled trap.
+[KIRA FPU] x87 + SSE/SSE2 enabled; per-thread FXSAVE state (512 B) saved on every context switch. AVX present but not enabled (needs XSAVE area).
+[KIRA PMM] Usable RAM per BootInfo map: 511 MB; allocatable now (below 1 GB, minus kernel and bitmaps): 506 MB; above 1 GB waiting to be mapped: 0 MB; bitmaps 32 KB.
+[KIRA VMM] Verifying paging state...
+[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.
+[KIRA VMM] NULL guard installed: first 2 MB split into 4 KB pages, page 0 unmapped.
+[KIRA VMM] SMEP enabled: kernel cannot execute user pages.
+[KIRA VMM] SMAP enabled: kernel touches user memory only through checked copies.
+[KIRA RAM] Mapped RAM above 1 GB: 0 MB (2 MB pages, no-execute); edges lost to alignment or failures: 0 KB.
+[KIRA ACPI] rev 0, tables ok 4 bad 0 unmapped 0, CPUs 2, IOAPICs 1, HPET yes, PCIe ECAM none
+[KIRA HW] CPU AuthenticAMD family 25 model 1 stepping 1, virtual machine
+[KIRA HW] cores (ACPI): 2, RAM 506 MB, address bits 48/48
+[KIRA HW] features: sse2 nx page1g xsave(832B) avx avx2 pcid invpcid smep smap fsgsbase rdrand rdseed x2apic tsc-deadline
+[KIRA HW] TSC not measured yet
+[KIRA HW] limits for this machine: program heap up to 253 MB per program, kernel keeps 31 MB free
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 776737 bytes, prefix 31f47736...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+[KIRA PROC] up to 8 programs at once (2 cores, 506 MB RAM).
+[KIRA SYSCALL] SYSCALL/SYSRET enabled: write, exit, ticks, sleep, yield, getpid, gfx, fs (sandbox /data/<name>), heap (quota), threads, futex, ports, shared memory, clock; user pointers validated.
+[KIRA PCI] 7 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 8 MB (PCI 0:3.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA ATA] No disk on the primary IDE channel (floating bus): persistence disabled.
+[KIRA DISK] vda: virtio-blk, 8 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 6128 KB free.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA FB] Bootloader mode: 1024x768x32 type 1 addr 0xFD000000
+[KIRA FB] 1024x768x32 linear framebuffer at 0xFD000000, write-combining (PAT); back buffer 3072 KB in RAM.
+[KIRA PAR] parallel helpers: 1 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA KEYBOARD] PS/2 IRQ1 handler registered (decoded by the input layer).
+[KIRA MOUSE] PS/2 mouse enabled (IRQ12, 3-byte packets).
+[KIRA NET] e1000 (8086:100e): MAC 52:54:00:12:34:56, link up, no MSI on this card - polled every tick
+[KIRA NET] Network stack online: Ethernet, ARP, IPv4 (fragments), ICMP, UDP, DHCP client, DNS, TCP, IPv6 (ND, SLAAC, ICMPv6, UDP, TCP) (commands: net, ping, ping6, dns, http).
+[KIRA TIMER] PIT started, frequency 500 Hz, IRQ0 unmasked.
+[KIRA APIC] xAPIC mode: registers in the kernel MMIO window, base 0xFEE00000, id 0, version 0x14
+[KIRA OS] Core initialization complete. Enabling interrupts.
+[KIRA RTC] Real-time clock (CMOS, read as UTC): СУББОТА, 7 НОЯБРЯ 2026 08:37
+[KIRA CPU] TSC 2445592 kHz, measured by PIT channel 2, 3x50 ms median.
+[KIRA APIC] Timer calibrated against TSC: 62505 kcounts/s (bus clock ~1000 MHz).
+[KIRA IOAPIC] id 0 at 0xFEC00000, version 0x11, 24 pins, GSI base 0
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA IRQ] IOAPIC delivery verified end-to-end: RTC -> IOAPIC -> LAPIC, 51 interrupts in 50 ms.
+[KIRA IRQ] LAPIC timer verified: 99 ticks in 200 ms (expected 100).
+[KIRA IRQ] APIC mode: LAPIC timer 500 Hz is the tick source, 2 device lines routed through IOAPIC, legacy PIC and PIT disabled.
+[KIRA SMP] Processors online: 2 of 2 (MADT).
+[KIRA SMP] IPI ping answered by 1 of 1 started processors. Each core runs its own scheduler tick and its own ready queue; idle cores take waiting work from busy ones.
+[KIRA SMP] TSC skew between cores: max 17 ns (measurement precision +-34 ns): clocks agree.
+[KIRA OS] Ready. Type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA NET] DHCP: address 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, lease 86400 s
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA NET] IPv6: fe80::5054:ff:fe12:3456 (link-local, DAD passed) ready
+[KIRA NET] IPv6: router advertisement from fe80::2, default router
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA NET] IPv6: fec0::5054:ff:fe12:3456 (SLAAC /64, DAD passed) ready
+net
+карта e1000, канал есть, TIME_WAIT: 0 (всего 0), приём опросом
+адрес 10.0.2.15, маска 255.255.255.0, шлюз 10.0.2.2, DNS 10.0.2.3 (DHCP, аренда 86400 с)
+кадров принято 3, отправлено 5, отброшено 0
+фрагменты IP: собрано 0, собирается 0, повторов 0, перекрытий 0, негодных 0, слишком больших 0, не нашлось места 0, по сроку 0
+IPv6: fe80::5054:ff:fe12:3456/64 (адрес канала)
+IPv6: fec0::5054:ff:fe12:3456/64 (SLAAC)
+IPv6: маршрутизатор fe80::2
+IPv6: соседей в кэше 1, MTU 1500, отброшено ND/IP 0
+кира> ping 10.0.2.2 3
+ответ от 10.0.2.2: seq 1, время 1,9 мс
+ответ от 10.0.2.2: seq 2, время 0,0 мс
+ответ от 10.0.2.2: seq 3, время 0,0 мс
+отправлено 3, получено 3, среднее 0,6 мс
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: пробую 2000 мс вместо 1000 (причина: темп фона снижался; о�
+кира> http 10.0.2.100 /kira
+HTTP/1.0 200 OK
+Content-Type: text/plain
+Content-Length: 3331
+
+kira-tcp-ok GET /kira HTTP/1.0
+0000-0123456789abcdef
+0001-0123456789abcdef
+0002-0123456789abcdef
+0003-0123456789abcdef
+0004-0123456789abcdef
+0005-0123456789abcdef
+0006-0123456789abcdef
+0007-0123456789abcdef
+0008-0123456789abcdef
+0009-0123456789abcdef
+0010-0123456789abcdef
+0011-0123456789abcdef
+0012-0123456789abcdef
+0013-0123456789abcdef
+0014-0123456789abcdef
+0015-0123456789abcdef
+0016-0123456789abcdef
+0017-0123456789abcdef
+0018-0123456789abcdef
+0019-0123456789abcdef
+0020-0123456789abcdef
+0021-0123456789abcdef
+0022-0123456789abcdef
+0023-0123456789abcdef
+0024-0123456789abcdef
+0025-0123456789abcdef
+0026-0123456789abcdef
+0027-0123456789abcdef
+0028-0123456789abcdef
+0029-0123456789abcdef
+0030-0123456789abcdef
+0031-0123456789abcdef
+0032-0123456789abcdef
+0033-0123456789abcdef
+0034-0123456789abcdef
+0035-0123456789abcdef
+0036-0123456789abcdef
+0037-0123456789abcdef
+0038-0123456789abcdef
+0039-0123456789abcdef
+0040-0123456789abcdef
+0041-0123456789abcdef
+0042-0123456789abcdef
+0043-0123456789abcdef
+0044-0123456789abcdef
+0045-0123456789abcdef
+0046-0123456789abcdef
+0047-0123456789abcdef
+0048-0123456789abcdef
+0049-0123456789abcdef
+00
+...
+получено 3398 байт от 10.0.2.100:80 за 47 мс (сервер закрыл соединение)
+кира> dns example.com
+example.com -> 104.20.23.154
+кира> fetch 10.0.2.100 /prog
+[KIRA PROC] pid 1 'fetch' started from ELF: Ring 3, own address space, 212 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] fetch: 10.0.2.100/prog - HTTP/1.0 200 OK - 3398 bytes in 32 ms (server closed), saved to /data/fetch/last.txt
+[KIRA PROC] pid 1 'fetch' finished, exit code 0, address space destroyed (229 pages returned to PMM).
+cat /data/fetch/last.txt
+HTTP/1.0 200 OK.
+Content-Type: text/plain.
+Content-Length: 3331.
+.
+kira-tcp-ok GET /prog HTTP/1.0
+0000-0123456789abcdef
+0001-0123456789abcdef
+0002-0123456789abcdef
+0003-0123456789abcdef
+0004-0123456789abcdef
+0005-0123456789abcdef
+0006-0123456789abcdef
+0007-0123456789abcdef
+0008-0123456789abcdef
+0009-0123456789abcdef
+0010-0123456789abcdef
+0011-0123456789abcdef
+0012-0123456789abcdef
+0013-0123456789abcdef
+0014-0123456789abcdef
+0015-0123456789abcdef
+0016-0123456789abcdef
+0017-0123456789abcdef
+0018-0123456789abcdef
+0019-0123456789abcdef
+0020-0123456789abcdef
+0021-0123456789abcdef
+0022-0123456789abcdef
+0023-0123456789abcdef
+0024-0123456789abcdef
+0025-0123456789abcdef
+0026-0123456789abcdef
+0027-0123456789abcdef
+0028-0123456789abcdef
+0029-0123456789abcdef
+0030-0123456789abcdef
+0031-0123456789abcdef
+0032-0123456789abcdef
+0033-0123456789abcdef
+0034-0123456789abcdef
+0035-0123456789abcdef
+0036-0123456789abcdef
+0037-0123456789abcdef
+0038-0123456789abcdef
+0039-0123456789abcdef
+0040-0123456789abcdef
+0041-0123456789abcdef
+0042-0123456789abcdef
+0043-0123456789abcdef
+0044-0123456789abcdef
+0045-0123456789abcdef
+0046-0123456789abcdef
+0047-0123456789abcdef
+0048-0123456789abcdef
+0049-0123456789abcdef
+0050-0123456789abcdef
+0051-0123456789abcdef
+0052-0123456789abcdef
+0053-0123456789abcdef
+0054-0123456789abcdef
+0055-0123456789abcdef
+0056-0123456789abcdef
+0057-0123456789abcdef
+0058-0123456789abcdef
+0059-0123456789abcdef
+0060-0123456789abcdef
+0061-0123456789abcdef
+0062-0123456789abcdef
+0063-0123456789abcdef
+0064-0123456789abcdef
+0065-0123456789abcdef
+0066-0123456789abcdef
+0067-0123456789abcdef
+0068-0123456789abcdef
+0069-0123456789abcdef
+0070-0123456789abcdef
+0071-0123456789abcdef
+0072-0123456789abcdef
+0073-0123456789abcdef
+0074-0123456789abcdef
+0075-0123456789abcdef
+0076-0123456789abcdef
+0077-0123456789abcdef
+0078-0123456789abcdef
+0079-0123456789abcdef
+0080-0123456789abcdef
+0081-0123456789abcdef
+0082-0123456789abcdef
+0083-0123456789abcdef
+0084-0123456789abcdef
+0085-0123456789abcdef
+0086-0123456789abcdef
+0087-0123456789abcdef
+0088-0123456789abcdef
+0089-0123456789abcdef
+0090-0123456789abcdef
+0091-0123456789abcdef
+0092-0123456789abcdef
+0093-0123456789abcdef
+0094-0123456789abcdef
+0095-0123456789abcdef
+0096-0123456789abcdef
+0097-0123456789abcdef
+0098-0123456789abcdef
+0099-0123456789abcdef
+0100-0123456789abcdef
+0101-0123456789abcdef
+0102-0123456789abcdef
+0103-0123456789abcdef
+0104-0123456789abcdef
+0105-0123456789abcdef
+0106-0123456789abcdef
+0107-0123456789abcdef
+0108-0123456789abcdef
+0109-0123456789abcdef
+0110-0123456789abcdef
+0111-0123456789abcdef
+0112-0123456789abcdef
+0113-0123456789abcdef
+0114-0123456789abcdef
+0115-0123456789abcdef
+0116-0123456789abcdef
+0117-0123456789abcdef
+0118-0123456789abcdef
+0119-0123456789abcdef
+0120-0123456789abcdef
+0121-0123456789abcdef
+0122-0123456789abcdef
+0123-0123456789abcdef
+0124-0123456789abcdef
+0125-0123456789abcdef
+0126-0123456789abcdef
+0127-0123456789abcdef
+0128-0123456789abcdef
+0129-0123456789abcdef
+0130-0123456789abcdef
+0131-0123456789abcdef
+0132-0123456789abcdef
+0133-0123456789abcdef
+0134-0123456789abcdef
+0135-0123456789abcdef
+0136-0123456789abcdef
+0137-0123456789abcdef
+0138-0123456789abcdef
+0139-0123456789abcdef
+0140-0123456789abcdef
+0141-0123456789abcdef
+0142-0123456789abcdef
+0143-0123456789abcdef
+0144-0123456789abcdef
+0145-0123456789abcdef
+0146-0123456789abcdef
+0147-0123456789abcdef
+0148-0123456789abcdef
+0149-0123456789abcdef
+
+кира> ping6 fec0::2 2
+ответ от fec0::2: seq 1, время 0,0 мс
+ответ от fec0::2: seq 2, время 0,0 мс
+отправлено 2, получено 2, среднее 0,0 мс
+кира> 
