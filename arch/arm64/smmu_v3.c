@@ -15,14 +15,6 @@
 #define SMMU_CMD_CFGI_ALL         0x04u
 #define SMMU_CMD_TLBI_NH_ALL      0x10u
 
-typedef struct {
-    smmuv3_mmio_t regs;
-    volatile smmuv3_cmd_t *queue;
-    uint64_t queue_phys;
-    uint32_t entries;
-    uint32_t producer;
-} smmuv3_queue_t;
-
 static int smmuv3_wait_consumer(smmuv3_queue_t *q, uint32_t target) {
     for (uint32_t n = 0; n < SMMU_CMDQ_TIMEOUT; ++n) {
         uint32_t cons;
@@ -84,7 +76,7 @@ int smmuv3_queue_init(smmuv3_queue_t *q, volatile void *mmio, size_t mmio_len,
         q->queue[i].qw1 = 0;
     }
     __asm__ volatile("dsb oshst" ::: "memory");
-    /* CMDQ_BASE: address[51:6], log2size[4:0]. */
+    /* CMDQ_BASE: address[51:6], queue-size logarithm in bits [5:0]. */
     if (queue_phys & ~0x000fffffffffffc0ull) return -1;
     uint64_t base = (queue_phys & SMMU_CMDQ_BASE_ADDR_MASK) |
                     (uint64_t)(log2_entries & 0x3fu);
