@@ -18,11 +18,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Inspect active v43 checks and report long-running steps
+      - name: Inspect active v45 checks and report long-running steps
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          TARGET_BRANCH: v43/integration
+          TARGET_BRANCH: v45/overhaul
         run: |
           python3 - <<'PY'
           import datetime as dt
@@ -117,7 +117,7 @@ jobs:
                           "limit": limit,
                       })
 
-          title = "[CI Watchdog] v43/integration: возможно зависшие проверки"
+          title = "[CI Watchdog] v45/overhaul: возможно зависшие проверки"
           issues = request("/issues?state=open&per_page=100")
           existing = next(
               (issue for issue in issues if issue.get("title") == title and "pull_request" not in issue),
