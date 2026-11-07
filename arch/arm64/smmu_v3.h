@@ -48,7 +48,7 @@
 #define SMMU_IDR0_TTF_MASK (3u << SMMU_IDR0_TTF_SHIFT)
 #define SMMU_IDR0_S1P (1u << 1)
 #define SMMU_IDR0_S2P (1u << 0)
-#define SMMU_IDR1_CMDQS_SHIFT 21u
+#define SMMU_IDR1_CMDQS_SHIFT 16u
 #define SMMU_IDR1_CMDQS_MASK (31u << SMMU_IDR1_CMDQS_SHIFT)
 
 /* Validate queue geometry before allocating or programming any queue. */
@@ -96,7 +96,7 @@ static inline int smmuv3_swq_bind(smmuv3_sw_queue_t *q, void *memory,
     if (!q || !memory ||
         smmuv3_queue_geometry(log2_entries, SMMU_CMDQ_ENT_SIZE,
                               &count, &required) != 0 ||
-        bytes < required || ((uintptr_t)memory & 31u))
+        bytes < required || ((uintptr_t)memory & 63u))
         return -1;
     q->entries = (smmuv3_cmd_t *)memory;
     q->count = count;
