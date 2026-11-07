@@ -3,7 +3,7 @@ set -euo pipefail
 OUT_DIR="${2:-${1:-ci-out/package}}"
 RESULTS_DIR="${RESULTS_DIR:-ci-out/results}"
 AUDIT_DIR="${AUDIT_DIR:-ci-out/audit}"
-KIRA_VERSION="${KIRA_VERSION:-v44}"
+KIRA_VERSION="${KIRA_VERSION:-v45}"
 BASE_REF="${KIRA_BASE_REF:-edae4ab3367a055826f431e261af5d6dee790ddf}"
 mkdir -p "$OUT_DIR"
 STAGE="$(mktemp -d)"
@@ -21,7 +21,7 @@ fi
 HEAD_SHA="$(git rev-parse HEAD)"
 RUN_URL="${CI_RUN_URL:-https://github.com/${GITHUB_REPOSITORY:-Masuku4129/kira_os_}/actions/runs/${GITHUB_RUN_ID:-unknown}}"
 
-for key in HOST_RESULT BUILD_RESULT VM_RESULT ARM64_RESULT AUDIT_RESULT MIND_RESULT GUI_RESULT; do
+for key in HOST_RESULT BUILD_RESULT VM_RESULT ARM64_RESULT AUDIT_RESULT MIND_RESULT GUI_RESULT KCC_RESULT DRIVER_RESULT; do
   value="${!key:-}"
   if [ "$value" != "success" ]; then
     echo "ERROR: required CI job $key is not successful (value: ${value:-missing})" >&2
@@ -41,6 +41,8 @@ find_required_log() {
 HOST_LOG="$(find_required_log host-tests.log)"
 MIND_LOG="$(find_required_log mind-quality.log)"
 GUI_LOG="$(find_required_log gui-regression.log)"
+KCC_LOG="$(find_required_log kcc-tests.log)"
+DRIVER_LOG="$(find_required_log driver-e2e.log)"
 
 git archive --format=tar --prefix=kira_os/ "$HEAD_SHA" | tar -xf - -C "$STAGE"
 R="$STAGE/kira_os/RELEASE"
@@ -66,7 +68,7 @@ mkdir -p "$R"
 } > "$R/CHANGELOG.md"
 
 cat > "$R/INSTALL_TERMUX.md" <<'EOF_INSTALL'
-# Установка KIRA OS v44 на Android (Termux/Debian)
+# Установка KIRA OS v45 на Android (Termux/Debian)
 
 Архив содержит полный каталог исходников `kira_os/`; это архив исходников, а не готовый ISO.
 
@@ -91,19 +93,20 @@ sha256sum -c RELEASE/SHA256SUMS
 for f in build_clang.sh build_arm64.sh grub.cfg arch/x86_64/linker.ld arch/aarch64/linker.ld drivers/index.txt ci/dependency_audit.py docs/DEPENDENCIES.md docs/V44_UPGRADE_PLAN.md docs/V44_SECURITY_MODEL.md; do
   test -f "$f" || { echo "missing required file: $f" >&2; exit 1; }
 done
-echo "KIRA OS v44 source archive: verified"
+echo "KIRA OS v45 source archive: verified"
 EOF_VERIFY
 chmod +x "$R/VERIFY.sh"
 
 python3 - "$RESULTS_DIR" "$R/TEST_REPORT.md" "$HOST_LOG" "$MIND_LOG" "$GUI_LOG" <<'PY'
 import json, os, pathlib, sys
 root, dest = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-host_log, mind_log, gui_log = map(pathlib.Path, sys.argv[3:6])
+host_log, mind_log, gui_log, kcc_log, driver_log = map(pathlib.Path, sys.argv[3:8])
 jobs = [
     ("Host tests", "HOST_RESULT"), ("x86_64 build", "BUILD_RESULT"),
     ("x86_64 QEMU matrix", "VM_RESULT"), ("ARM64 build and QEMU", "ARM64_RESULT"),
     ("Static dependency/source audit", "AUDIT_RESULT"),
     ("Mind quality (ASan/UBSan)", "MIND_RESULT"), ("GUI regression", "GUI_RESULT"),
+    ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"),
 ]
 lines = ["# KIRA OS v44 — CI test report", "",
          "Commit: " + os.getenv("GITHUB_SHA", "unknown"),
@@ -132,7 +135,9 @@ lines += ["", "Result JSON files: " + str(len(results)) + "; ARM64 result files:
           "## Captured logs", "",
           "- Host tests: " + str(host_log.relative_to(root)),
           "- Mind quality: " + str(mind_log.relative_to(root)),
-          "- GUI regression: " + str(gui_log.relative_to(root)), "",
+          "- GUI regression: " + str(gui_log.relative_to(root)),
+          "- KCC compiler suite: " + str(kcc_log.relative_to(root)),
+          "- Driver installer E2E: " + str(driver_log.relative_to(root)), "",
           "## Scope limits", "",
           "- QEMU is virtual-hardware evidence only; physical x86_64/ARM64 hardware remains untested.",
           "- A successful static audit is not proof of memory safety or complete dependency absence.",

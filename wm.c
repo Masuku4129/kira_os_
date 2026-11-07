@@ -919,7 +919,7 @@ static void draw_lights(surface_t* c, int x, int y, int hover) {
         ui_ring(c, lx, ly, LIGHT_R - 1, LIGHT_R, edge, 220);
         if (k == 0) { gfx_line(c, lx - 2, ly - 2, lx + 2, ly + 2, glyph); gfx_line(c, lx + 2, ly - 2, lx - 2, ly + 2, glyph); }
         else if (k == 1) gfx_hline(c, lx - 3, ly, 7, glyph);
-        else { gfx_line(c, lx - 3, ly - 3, lx + 3, ly - 3, glyph); gfx_line(c, lx - 3, ly + 3, lx + 3, ly + 3, glyph); gfx_vline(c, lx - 3, ly - 3, 7, glyph); gfx_vline(c, lx + 3, ly - 3, 7, glyph); }
+        else { gfx_line(c, lx - 3, ly - 3, lx + 3, ly - 3, glyph); gfx_line(c, lx - 3, ly + 3, lx + 3, ly + 3, glyph); gfx_line(c, lx - 3, ly - 3, lx - 3, ly + 3, glyph); gfx_line(c, lx + 3, ly - 3, lx + 3, ly + 3, glyph); }
     }
 }
 
@@ -989,7 +989,7 @@ static void draw_pill(surface_t* c, int ox, int oy, int fs, int show) {
         ui_ring(c, bx, by, 7, 8, TH_BORDER, 230);
         if (k == 0) { gfx_line(c, bx - 2, by - 2, bx + 2, by + 2, TH_TEXT_DIM); gfx_line(c, bx + 2, by - 2, bx - 2, by + 2, TH_TEXT_DIM); }
         else if (k == 1) gfx_hline(c, bx - 3, by, 7, TH_TEXT_DIM);
-        else { gfx_line(c, bx - 3, by - 3, bx + 3, by - 3, TH_TEXT_DIM); gfx_line(c, bx - 3, by + 3, bx + 3, by + 3, TH_TEXT_DIM); gfx_vline(c, bx - 3, by - 3, 7, TH_TEXT_DIM); gfx_vline(c, bx + 3, by - 3, 7, TH_TEXT_DIM); }
+        else { gfx_line(c, bx - 3, by - 3, bx + 3, by - 3, TH_TEXT_DIM); gfx_line(c, bx - 3, by + 3, bx + 3, by + 3, TH_TEXT_DIM); gfx_line(c, bx - 3, by - 3, bx - 3, by + 3, TH_TEXT_DIM); gfx_line(c, bx + 3, by - 3, bx + 3, by + 3, TH_TEXT_DIM); }
     }
 }
 

@@ -184,6 +184,9 @@ grep -q "нет корневых сертификатов" $T/out || note "бе�
 # 5. drvman в режиме do: те же find/install, две установки подряд в одном процессе (арена kcc переиспользуется), отказы, метка лицензии в .rec, честная ошибка списка PCI
 rundm() { rm -f $T/out; timeout 240 $T/kloader -s $T/sb -i kcc/include -y $T/ssl -d $T/drv -a "$1" $T/drvman.elf >$T/out 2>&1; rc=$?; }
 rm -rf $T/sb $T/drv; mkdir -p $T/sb $T/drv
+rundm "do scan"
+grep -q "drvman: автопоиск невозможен: список PCI недоступен" $T/out || note "drvman scan: честный отказ при недоступном PCI API отсутствует: $(tail -c 400 $T/out)"
+[ -z "$(ls $T/drv)" ] || note "drvman scan записал пакет без PCI-инвентаризации"
 rundm "do match 10ec:8139"
 grep -q "drvman: PCI 10ec:8139: найден кандидат rl" $T/out || note "drvman match: $(tail -c 400 $T/out)"
 grep -q "SHA-256 рецепта совпал с системным каталогом" $T/out || note "drvman match: рецепт не закреплён каталогом"
