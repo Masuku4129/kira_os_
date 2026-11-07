@@ -69,7 +69,7 @@ static unsigned build(void) {
 
 int main(void) {
     unsigned total = build();
-    CHECK(fdt_valid(blob, sizeof blob) && fdt_total_size(blob) == total);
+    CHECK(fdt_valid(blob, sizeof blob) && fdt_tree_valid(blob) && fdt_total_size(blob) == total);
     int root = fdt_root(blob);
     CHECK(root >= 0 && fdt_compatible(blob, root, "linux,dummy-virt"));
 
@@ -137,7 +137,7 @@ int main(void) {
     memcpy(bad, blob, sizeof bad); be(bad + 16, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* reserve map aliases structure */
     memcpy(bad, blob, sizeof bad); be(bad + 60, 1); be(bad + 68, 0x1000); CHECK(!fdt_valid(bad, sizeof bad)); /* missing reserve terminator */
     memcpy(bad, blob, sizeof bad); be(bad + fdt_u32(bad + 8) + 12, 0x7FFFFFFF);  /* длина первого свойства за пределами */
-    CHECK(fdt_valid(bad, sizeof bad) && fdt_prop(bad, fdt_root(bad), "#address-cells", &len) == 0);
+    CHECK(fdt_valid(bad, sizeof bad) && !fdt_tree_valid(bad) && fdt_prop(bad, fdt_root(bad), "#address-cells", &len) == 0);
     /* обход с испорченными данными не уходит за блок */
     int depth = 0, n = fdt_root(bad), steps = 0;
     while (n >= 0 && steps < 1000) { n = fdt_next_node(bad, n, &depth); steps++; }
