@@ -35,15 +35,36 @@ static size_t grow(void *ud, size_t cap, size_t need) {
     return cap + want * PAGE;
 }
 
-/* Чтение файла для препроцессора: заголовки из /etc/kcc/include, остальное - песочница /data/kcc. */
+/* Разрешены вложенные include-каталоги, но запрещены абсолютные пути,
+   пустые компоненты и обход песочницы через "."/"..". */
+static int safe_relpath(const char *s) {
+    if (!s || !*s || *s == '/' || *s == '\\\\') return 0;
+    const char *part = s;
+    for (const char *p = s;; p++) {
+        char c = *p;
+        if (c == '/' || !c) {
+            size_t n = (size_t)(p - part);
+            if (!n || (n == 1 && part[0] == '.') ||
+                (n == 2 && part[0] == '.' && part[1] == '.')) return 0;
+            if (!c) return 1;
+            part = p + 1;
+        } else if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                     (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.'))
+            return 0;
+    }
+}
+
+/* Чтение файла для препроцессора: заголовки из /etc/kcc/include, исходники из /data/kcc. */
 static const char *rd(void *ud, const char *path, size_t *len) {
     (void)ud;
-    int inc = 0;
     const char *n = path;
-    if (!strncmp(path, INC_DIR "/", sizeof INC_DIR)) { n = path + sizeof INC_DIR; inc = 1; }
+    if (!strncmp(path, INC_DIR "/", sizeof INC_DIR)) n = path + sizeof INC_DIR;
     else if (!strncmp(path, "/data/kcc/", 10)) n = path + 10;
-    if (!*n || strchr(n, '/')) return 0;
+    else if (!strncmp(path, "/data/kcc-selfhost/", 19)) n = path + 19;
+    else return 0;
+    if (!safe_relpath(n)) return 0;
     u64 nl = strlen(n);
+    int inc = !strncmp(path, INC_DIR "/", sizeof INC_DIR);
     i64 sz = inc ? k_fs(KFS_INC_STAT, n, nl, 0, 0, 0) : k_file_size(n);
     if (sz < 0) return 0;
     char *buf = ka_new((size_t)sz + 1);
@@ -78,11 +99,11 @@ int umain(void) {
     void *base = k_heap_grow(CHUNK_PAGES);
     if (!base) { say("kcc: нет памяти для арены компилятора\n"); k_exit(2); }
     arena = base; arena_cap = CHUNK_PAGES * PAGE;
-    static const char *incs[1] = { INC_DIR };
+    static const char *incs[2] = { INC_DIR "/kccrt", INC_DIR };
     #if defined(__aarch64__)
-    KCfg cfg = { rd, 0, incs, 1, 0, 0, "aarch64", grow };      /* программы собираются для той же архитектуры, на которой работает компилятор */
+    KCfg cfg = { rd, 0, incs, 2, 0, 0, "aarch64", grow };      /* программы собираются для той же архитектуры, на которой работает компилятор */
 #else
-    KCfg cfg = { rd, 0, incs, 1, 0, 0, "x86_64", grow };
+    KCfg cfg = { rd, 0, incs, 2, 0, 0, "x86_64", grow };
 #endif
     KResult r;
     int rc = kcc_compile(&cfg, arena, arena_cap, src, 2, &r);
