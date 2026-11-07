@@ -28,10 +28,10 @@ int main(void){
     CHECK(h->flags==(KBI_F_FRAMEBUFFER|KBI_F_CMDLINE));
     CHECK(h->fb_phys==0xE0000000 && h->fb_size==2560u*480u);
     CHECK(h->fb_width==640 && h->fb_height==480 && h->fb_bpp==32);
-    CHECK(h->cmdline_len==6 && !strcmp((const char*)out+h->cmdline_off,"quiet"));
+    CHECK(h->cmdline_len==6 && !strcmp((const char*)((const uint8_t*)out+h->cmdline_off),"quiet"));
     const kbi_module_t* m=kbi_modules(out);
     CHECK(m && m[0].base==0x400000 && m[0].length==0x1000);
-    CHECK(!strcmp((const char*)out+m[0].name_off,"init"));
+    CHECK(!strcmp((const char*)((const uint8_t*)out+m[0].name_off),"init"));
 
     CHECK(kbi_from_multiboot2(b,135,0x100000,0x200000,&out,&out_size)!=0);
     w32(b+12,23); /* malformed mmap tag size/stride */
