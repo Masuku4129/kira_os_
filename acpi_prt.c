@@ -62,7 +62,10 @@ static int aml_namestring(const uint8_t **cursor, const uint8_t *end,
         segments = *p++;
         if (!segments || segments > 8) return -1;
     }
-    if (!segments) { *cursor = p; *out_len = (uint8_t)n; return 0; }
+    if (!segments) {
+        if (!n) return -1;
+        *cursor = p; *out_len = (uint8_t)n; return 0;
+    }
     for (unsigned i = 0; i < segments; i++) {
         if (p + 4 > end || n + 4 >= 32) return -1;
         for (unsigned j = 0; j < 4; j++) {
