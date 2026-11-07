@@ -183,7 +183,7 @@ rm -f "$W/rl/drvget.sig"
 
 # A missing signature must not downgrade an already installed publisher-authenticated package.
 run "install $U/rl/drvget.rec"
-HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \\([0-9a-f]\\{64\\}\\)$/\\1/p' "$T/out")
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' "$T/out")
 [ ${#HASH} = 64 ] || note "unsigned replacement test: не получен хеш staging-набора"
 run "confirm rl ${HASH:0:8}"
 grep -q "замена существующего подписанного пакета на unsigned/local запрещена" "$T/out" || note "signed package was silently downgraded: $(tail -c 400 "$T/out")"
