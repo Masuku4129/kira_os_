@@ -15,6 +15,8 @@ static const char *read_file(void *ud, const char *path, size_t *len) {
     char *buf = ka_new((size_t)sz + 1);          /* буфер живёт в арене компилятора */
     size_t n = fread(buf, 1, (size_t)sz, f);
     fclose(f);
+    if (ferror(f) || n != (size_t)sz) { free(buf); return NULL; }
+    buf[n] = 0;
     *len = n;
     return buf;
 }
@@ -24,12 +26,31 @@ int main(int argc, char **argv) {
     int ni = 0, nd = 0, ir = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
-        if (!strcmp(a, "-S-ir")) ir = 1;
-        else if (!strcmp(a, "-o") && i + 1 < argc) outp = argv[++i];
-        else if (!strncmp(a, "-I", 2) && a[2]) { if (ni < 64) incs[ni++] = a + 2; }
-        else if (!strcmp(a, "-I") && i + 1 < argc) { if (ni < 64) incs[ni++] = argv[++i]; }
-        else if (!strncmp(a, "-D", 2) && a[2]) { if (nd < 64) defs[nd++] = a + 2; }
-        else if (!strcmp(a, "-D") && i + 1 < argc) { if (nd < 64) defs[nd++] = argv[++i]; }
+        if (!strcmp(a, "-S-ir")) {
+            if (ir) { fprintf(stderr, "kcc: duplicate -S-ir option\\n"); return 2; }
+            ir = 1;
+        }
+        else if (!strcmp(a, "-o") && i + 1 < argc) {
+            if (outp) { fprintf(stderr, "kcc: duplicate -o option\\n"); return 2; }
+            outp = argv[++i];
+            if (!outp[0]) { fprintf(stderr, "kcc: empty output path\\n"); return 2; }
+        }
+        else if (!strncmp(a, "-I", 2) && a[2]) {
+            if (ni == 64) { fprintf(stderr, "kcc: too many include directories (maximum 64)\\n"); return 2; }
+            incs[ni++] = a + 2;
+        }
+        else if (!strcmp(a, "-I") && i + 1 < argc) {
+            if (ni == 64) { fprintf(stderr, "kcc: too many include directories (maximum 64)\\n"); return 2; }
+            incs[ni++] = argv[++i];
+        }
+        else if (!strncmp(a, "-D", 2) && a[2]) {
+            if (nd == 64) { fprintf(stderr, "kcc: too many definitions (maximum 64)\\n"); return 2; }
+            defs[nd++] = a + 2;
+        }
+        else if (!strcmp(a, "-D") && i + 1 < argc) {
+            if (nd == 64) { fprintf(stderr, "kcc: too many definitions (maximum 64)\\n"); return 2; }
+            defs[nd++] = argv[++i];
+        }
         else if (!strcmp(a, "-target") && i + 1 < argc) target = argv[++i];
         else if (a[0] == '-') { fprintf(stderr, "kcc: unknown option '%s'\n", a); return 2; }
         else if (!in) in = a;
