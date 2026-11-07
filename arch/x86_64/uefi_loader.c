@@ -154,6 +154,16 @@ static EFI_GUID gop_guid = {0x9042A9DE,0x23DC,0x4A38,{0x96,0xFB,0x7A,0xDE,0xD0,0
 static EFI_GUID acpi2_guid = {0x8868E871,0xE4F1,0x11D3,{0xBC,0x22,0x00,0x80,0xC7,0x3C,0x88,0x81}};
 static EFI_GUID acpi1_guid = {0xEB9D2D30,0x2D88,0x11D3,{0x9A,0x16,0x00,0x90,0x27,0x3F,0xC1,0x4D}};
 static EFI_GUID memory_attribute_guid = {0xF4560CF6,0x40EC,0x4B4A,{0xA1,0x92,0xBF,0x1D,0x57,0xD0,0xB1,0x89}};
+static uint64_t loaded_kernel_base[32],loaded_kernel_pages[32];
+static uint16_t loaded_kernel_count;
+
+static void release_loaded_kernel(EFI_BOOT_SERVICES *bs) {
+    while(loaded_kernel_count) {
+        loaded_kernel_count--;
+        (void)bs->free_pages(loaded_kernel_base[loaded_kernel_count],
+                             loaded_kernel_pages[loaded_kernel_count]);
+    }
+}
 
 static void *zero_mem(void *p, size_t n) {
     uint8_t *d=(uint8_t*)p; for(size_t i=0;i<n;i++) d[i]=0; return p;
@@ -205,13 +215,16 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
     const ELF64_EHDR *e=(const ELF64_EHDR*)file;
     static const uint8_t elf_magic[4]={0x7f,'E','L','F'};
     if(!bytes_eq(e->ident,elf_magic,4)||e->ident[4]!=2||e->ident[5]!=1||
+       e->ident[6]!=1||e->ident[7]!=0||
        e->type!=2||e->machine!=62||e->version!=1||e->ehsize!=sizeof(ELF64_EHDR)||
-       e->phentsize!=sizeof(ELF64_PHDR)||
+       e->phentsize!=sizeof(ELF64_PHDR)||(e->phoff&7u)||
        !e->phnum||e->phnum>32||e->phoff>size||
        (uint64_t)e->phnum*sizeof(ELF64_PHDR)>size-e->phoff) return -2;
     const ELF64_PHDR *ph=(const ELF64_PHDR*)(file+e->phoff);
     uint64_t low=UINT64_MAX,high=0; int executable_entry=0;
-    for(uint16_t i=0;i<e->phnum;i++) if(ph[i].type==1) {
+    for(uint16_t i=0;i<e->phnum;i++) {
+        if(ph[i].type==2||ph[i].type==3||ph[i].type==7) return -2; /* no dynamic/interpreter/TLS */
+        if(ph[i].type!=1) continue;
         if(!ph[i].memsz||ph[i].filesz>ph[i].memsz||ph[i].offset>size||
            ph[i].filesz>size-ph[i].offset||ph[i].vaddr!=ph[i].paddr||
            ph[i].paddr<0x100000||ph[i].paddr>=ONE_GB||
@@ -235,8 +248,7 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
     if(low==UINT64_MAX||high<=low||e->entry<low||e->entry>=high||!executable_entry) return -4;
     uint64_t base=low&~(uint64_t)(EFI_PAGE_SIZE-1);
     uint64_t end=align_up(high,EFI_PAGE_SIZE);
-    uint64_t allocated_base[32],allocated_pages[32];
-    uint16_t allocated_count=0;
+    loaded_kernel_count=0;
     for(uint16_t i=0;i<e->phnum;i++) if(ph[i].type==1) {
         uint64_t segment_base=ph[i].paddr&~(uint64_t)(EFI_PAGE_SIZE-1);
         uint64_t segment_end=align_up(ph[i].paddr+ph[i].memsz,EFI_PAGE_SIZE);
@@ -247,16 +259,12 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
         if(EFI_ERROR(st)||address!=segment_base) {
             if(!EFI_ERROR(st)&&address!=segment_base)
                 (void)bs->free_pages(address,pages);
-            while(allocated_count) {
-                allocated_count--;
-                (void)bs->free_pages(allocated_base[allocated_count],
-                                     allocated_pages[allocated_count]);
-            }
+            release_loaded_kernel(bs);
             return -5;
         }
-        allocated_base[allocated_count]=segment_base;
-        allocated_pages[allocated_count]=pages;
-        allocated_count++;
+        loaded_kernel_base[loaded_kernel_count]=segment_base;
+        loaded_kernel_pages[loaded_kernel_count]=pages;
+        loaded_kernel_count++;
         zero_mem((void*)(uintptr_t)segment_base,(size_t)(segment_end-segment_base));
         copy_mem((void*)(uintptr_t)ph[i].paddr,file+ph[i].offset,(size_t)ph[i].filesz);
     }
@@ -269,11 +277,7 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
         : (EFI_STATUS)0x8000000000000003ull;
     if(EFI_ERROR(attr_status)||!attributes||!attributes->get_memory_attributes||
        !attributes->clear_memory_attributes) {
-        while(allocated_count) {
-            allocated_count--;
-            (void)bs->free_pages(allocated_base[allocated_count],
-                                 allocated_pages[allocated_count]);
-        }
+        release_loaded_kernel(bs);
         return -7;
     }
     for(uint16_t i=0;i<e->phnum;i++) if(ph[i].type==1&&(ph[i].flags&1u)) {
@@ -298,11 +302,7 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
     return 0;
 
 executable_attribute_error:
-    while(allocated_count) {
-        allocated_count--;
-        (void)bs->free_pages(allocated_base[allocated_count],
-                             allocated_pages[allocated_count]);
-    }
+    release_loaded_kernel(bs);
     return -7;
 }
 
