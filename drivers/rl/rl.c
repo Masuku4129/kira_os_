@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * RTL8139 clean-room driver for KIRA.
  *
