@@ -191,9 +191,8 @@ static void rl_rxeof(struct rl_softc *sc)
 	int budget = 64;
 
 	while (budget-- > 0 && !(CSR_READ_1(sc, RL_COMMAND) & RL_CMD_EMPTY_RXBUF)) {
-		u32 rxstat = le32toh(*(volatile u32 *)(rx + cur_rx));
-		u32 total_len = rxstat >> 16;		/* вместе с CRC */
-		u32 len, pos;
+		kira_rl_rx_record_t record;
+		u32 total_len, len, pos;
 
 		if (le32toh(*(volatile u32 *)(rx + cur_rx)) >> 16 == RL_RXSTAT_UNFINISHED)
 			break; /* чип ещё копирует кадр в ОЗУ */
