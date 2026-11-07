@@ -82,6 +82,45 @@ int main(int argc, char** argv) {
     CHECK(ecdsa_verify(256, bad, sizeof e1_pub, e1_hash, 32, e1_r, sizeof e1_r, e1_s, sizeof e1_s) == -1);
     CHECK(ecdsa_verify(256, e1_pub, sizeof e1_pub, e1_hash, 32, e1_s, sizeof e1_s, e1_r, sizeof e1_r) == -1);   /* r и s местами */
 
+    {
+        uint8_t valid_pk[32] = {0xd7,0x5a,0x98,0x01,0x82,0xb1,0x0a,0xb7,
+            0xd5,0x4b,0xfe,0xd3,0xc9,0x64,0x07,0x3a,0x0e,0xe1,0x72,0xf3,
+            0xda,0xa6,0x23,0x25,0xaf,0x02,0x1a,0x68,0xf7,0x07,0x51,0x1a};
+        uint8_t valid_sig[64] = {0xe5,0x56,0x43,0x00,0xc3,0x60,0xac,0x72,
+            0x90,0x86,0xe2,0xcc,0x80,0x6e,0x82,0x8a,0x84,0x87,0x7f,0x1e,
+            0xb8,0xe5,0xd9,0x74,0xd8,0x73,0xe0,0x65,0x22,0x49,0x01,0x55,
+            0x5f,0xb8,0x82,0x15,0x90,0xa3,0x3b,0xac,0xc6,0x1e,0x39,0x70,
+            0x1c,0xf9,0xb4,0x6b,0xd2,0x5b,0xf5,0xf0,0x59,0x5b,0xbe,0x24,
+            0x65,0x51,0x41,0x43,0x8e,0x7a,0x10,0x0b};
+        uint8_t message = 0;
+        CHECK(ed25519_verify(0, &message, 1, valid_sig) == -1);
+        CHECK(ed25519_verify(valid_pk, 0, 1, valid_sig) == -1);
+        CHECK(ed25519_verify(valid_pk, &message, 1, 0) == -1);
+    }
+    {
+        uint8_t identity_pk[32] = {1};
+        uint8_t identity_sig[64] = {1}; /* R=identity, S=0 */
+        uint8_t message = 0x42;
+        CHECK(ed25519_verify(identity_pk, &message, 1, identity_sig) == -1);
+    }
+    {
+        uint8_t torsion_pk[32], noncanonical_pk[32], sig[64] = {1}, message = 0x42;
+        memset(torsion_pk, 0xff, sizeof torsion_pk);
+        torsion_pk[0] = 0xec; torsion_pk[31] = 0x7f; /* order-2 point (0,-1) */
+        memset(noncanonical_pk, 0xff, sizeof noncanonical_pk);
+        noncanonical_pk[0] = 0xed; noncanonical_pk[31] = 0x7f; /* y = p, not canonical */
+        CHECK(ed25519_verify(torsion_pk, &message, 1, sig) == -1);
+        CHECK(ed25519_verify(noncanonical_pk, &message, 1, sig) == -1);
+        /* S must be strictly smaller than the Ed25519 subgroup order L. */
+        static const uint8_t order_l[32] = {
+            0xed,0xd3,0xf5,0x5c,0x1a,0x63,0x12,0x58,
+            0xd6,0x9c,0xf7,0xa2,0xde,0xf9,0xde,0x14,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x10
+        };
+        memcpy(sig + 32, order_l, sizeof order_l);
+        CHECK(ed25519_verify(valid_pk, &message, 1, sig) == -1);
+    }
     if (!fails) printf("pk: RSA 2048/3072/4096 PKCS#1 v1.5 + PSS (SHA-256/384/512), ECDSA P-256/P-384 (+truncated hash), Ed25519 (RFC 8032 TEST 1-3), forgeries rejected - passed\n");
     else printf("PK TESTS FAILED\n");
     if (!fails && argc > 1) printf("pk: cross-check with python cryptography/OpenSSL: %d Ed25519 and %d RSA-PSS signatures (valid and corrupted; hash, MGF1 hash, salt length vary) - passed\n", ned, npss);
