@@ -21,6 +21,8 @@ stage2_start:
 
     call collect_e820
     jc stage2_error
+    call validate_kernel_range
+    jc stage2_error
     call enable_a20
     jc stage2_error
     call clear_kernel_memory
@@ -95,6 +97,97 @@ collect_e820:
 .bios_end:
     cmp word [e820_count], 0
     je .failed
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+; ---------------------------------------------------------------------------
+; Ensure the complete linked kernel span is covered by usable E820 memory and
+; does not overlap any reserved/non-usable descriptor. The image must stay
+; below 1 GiB because the bootstrap identity map covers that range only.
+; ---------------------------------------------------------------------------
+validate_kernel_range:
+    mov eax, KERNEL_MEM_BYTES
+    test eax, eax
+    jz .failed
+    cmp eax, 0x3FF00000
+    ja .failed
+    add eax, 0x00100000
+    jc .failed
+    cmp eax, 0x40000000
+    ja .failed
+    mov [kernel_limit], eax
+
+    ; Any non-usable E820 range intersecting the kernel span is a hard error.
+    mov cx, [e820_count]
+    mov si, E820_BUFFER
+.reserved_scan:
+    cmp dword [si+4], 0
+    jne .reserved_next
+    mov eax, [si]
+    cmp eax, [kernel_limit]
+    jae .reserved_next
+    mov edx, [si+12]
+    test edx, edx
+    jnz .reserved_clamp
+    mov edx, [si+8]
+    add edx, eax
+    jc .reserved_clamp
+    cmp edx, [kernel_limit]
+    jbe .reserved_end
+.reserved_clamp:
+    mov edx, [kernel_limit]
+.reserved_end:
+    cmp edx, 0x00100000
+    jbe .reserved_next
+    cmp dword [si+16], 1
+    jne .failed
+.reserved_next:
+    add si, 24
+    loop .reserved_scan
+
+    ; Prove continuous usable coverage; E820 entries need not be sorted.
+    mov dword [kernel_covered], 0x00100000
+.coverage_loop:
+    mov eax, [kernel_covered]
+    cmp eax, [kernel_limit]
+    jae .valid
+    mov [kernel_best], eax
+    mov cx, [e820_count]
+    mov si, E820_BUFFER
+.coverage_scan:
+    cmp dword [si+16], 1
+    jne .coverage_next
+    cmp dword [si+4], 0
+    jne .coverage_next
+    mov edx, [si]
+    cmp edx, [kernel_covered]
+    ja .coverage_next
+    mov ebx, [si+12]
+    test ebx, ebx
+    jnz .coverage_clamp
+    mov ebx, [si+8]
+    add ebx, edx
+    jc .coverage_clamp
+    cmp ebx, [kernel_limit]
+    jbe .coverage_end
+.coverage_clamp:
+    mov ebx, [kernel_limit]
+.coverage_end:
+    cmp ebx, [kernel_best]
+    jbe .coverage_next
+    mov [kernel_best], ebx
+.coverage_next:
+    add si, 24
+    loop .coverage_scan
+    mov eax, [kernel_best]
+    cmp eax, [kernel_covered]
+    jbe .failed
+    mov [kernel_covered], eax
+    jmp .coverage_loop
+.valid:
     clc
     ret
 .failed:
@@ -400,7 +493,10 @@ disk_lba dd 0
 destination dd 0
 remaining dd 0
 copy_bytes dd 0
-error_text db "KIRA BIOS: A20, E820 or kernel load failed",0
+kernel_limit dd 0
+kernel_covered dd 0
+kernel_best dd 0
+error_text db "KIRA BIOS: E820/kernel range, A20 or load failed",0
 
 align 4
 dap:
