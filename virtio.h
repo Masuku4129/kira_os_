@@ -45,7 +45,7 @@ int  virtio_attach(virtio_dev_t* v, const pci_dev_t* pci);
 /* Сброс, ACK, DRIVER, согласование признаков (нужен VERSION_1; из want берутся только предложенные), FEATURES_OK. */
 int  virtio_begin(virtio_dev_t* v, uint64_t want);
 int  virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size);
-/* Release queue memory only after a successful device reset. */
+/* Release queue memory only after status zero, MSI/MSI-X disabled and PCI bus mastering off. */
 int  virtio_queue_release(virtq_t* q);
 int  virtio_reset_device(virtio_dev_t* v);               /* masks MSI/MSI-X, disables PCI bus mastering, then waits for status zero */
 void virtio_driver_ok(virtio_dev_t* v);
