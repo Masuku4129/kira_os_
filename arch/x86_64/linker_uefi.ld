@@ -11,8 +11,8 @@ SECTIONS
         *(.rodata*)
     }
     ro_end = .;
-    text_start = .;
     . = ALIGN(4096);
+    text_start = .;
     .text : { *(.text*) }
     text_end = .;
     . = ALIGN(4096);
