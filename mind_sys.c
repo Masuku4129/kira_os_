@@ -425,9 +425,9 @@ static void archive_path(char* out,const char* name) {
     unsigned n=0;const char* p=MIND_ARCHIVE_DIR "/";
     while(*p)out[n++]=*p++;while(*name)out[n++]=*name++;out[n]=0;
 }
-static void archive_scan(void) {
+static int archive_scan(void) {
     archive_count=0;archive_generation=0;archive_overflow=0;
-    (void)kfs_list(MIND_ARCHIVE_DIR,archive_collect,0);
+    if(kfs_list(MIND_ARCHIVE_DIR,archive_collect,0)!=0||archive_overflow)return -1;
     static uint8_t raw[sizeof(mind_model_t)];
     for(unsigned i=0;i<archive_count;i++){
         char path[64];archive_path(path,archive_items[i].name);
@@ -439,15 +439,14 @@ static void archive_scan(void) {
         mind_model_t m;if(!mind_model_load(&m,raw,sizeof raw))continue;
         archive_items[i].valid=1;archive_items[i].score=archive_score(&m);
     }
+    return 0;
 }
 static int archive_write(const mind_model_t* model) {
     kfs_stat_t st;
     if(kfs_stat("/var",&st)!=0&&kfs_mkdir("/var")!=0)return -1;
     if(kfs_stat("/var/mind",&st)!=0&&kfs_mkdir("/var/mind")!=0)return -1;
     if(kfs_stat(MIND_ARCHIVE_DIR,&st)!=0&&kfs_mkdir(MIND_ARCHIVE_DIR)!=0)return -1;
-    archive_scan();
-    /* Never make quota/generation decisions from a truncated directory scan. */
-    if(archive_overflow)return -1;
+    if(archive_scan()!=0)return -1;
     /* The previous newest valid snapshot is the recovery point if the new
        primary model is later damaged. Never evict it while making room. */
     uint32_t protected_generation=0;
@@ -464,7 +463,8 @@ static int archive_write(const mind_model_t* model) {
     __builtin_memcpy(record,&h,sizeof h);__builtin_memcpy(record+sizeof h,model,sizeof *model);
     char path[64];archive_path(path,name);
     if(kfs_write(path,record,sizeof record)!=0)return -1;
-    archive_scan();unsigned count=0;uint64_t bytes=0;
+    if(archive_scan()!=0)return -1;
+    unsigned count=0;uint64_t bytes=0;
     for(unsigned i=0;i<archive_count;i++)if(archive_items[i].valid){count++;bytes+=archive_items[i].size;}
     while(count>MIND_ARCHIVE_MAX_FILES||bytes>MIND_ARCHIVE_MAX_BYTES){
         mind_archive_policy_item_t policy[32];
@@ -484,7 +484,8 @@ static int archive_write(const mind_model_t* model) {
     return 0;
 }
 static int archive_restore(mind_model_t* out) {
-    archive_scan();static uint8_t raw[sizeof(mind_model_t)];
+    if(archive_scan()!=0)return 0;
+    static uint8_t raw[sizeof(mind_model_t)];
     for(unsigned pass=0;pass<archive_count;pass++){
         int best=-1;
         for(unsigned i=0;i<archive_count;i++)if(archive_items[i].valid&&
