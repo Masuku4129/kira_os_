@@ -322,7 +322,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
     bs->free_pool(file);
     if(er) return (EFI_STATUS)(0x8000000000001000ull+(uint32_t)(-er));
 
-    void *mbi=alloc_low_pages(bs,MB2_INFO_MAX,EFI_LOADER_DATA);
+    void *mbi=alloc_low_pages(bs,BOOTINFO_MAX,EFI_LOADER_DATA);
     void *mapbuf=alloc_low_pages(bs,1024u*1024u,EFI_LOADER_DATA);
     if(!mbi||!mapbuf) return (EFI_STATUS)0x8000000000002001ull;
     uint64_t mapkey=0; uint32_t bootinfo_size=0;
