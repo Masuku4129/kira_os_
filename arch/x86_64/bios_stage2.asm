@@ -22,6 +22,7 @@ stage2_start:
     call collect_e820
     jc stage2_error
     call enable_a20
+    jc stage2_error
     call clear_kernel_memory
     call load_kernel
     jc stage2_error
@@ -108,6 +109,48 @@ enable_a20:
     or al, 2
     and al, 0xFE
     out 0x92, al
+    call test_a20
+    ret
+
+; Verify the A20 gate by comparing physical 0x00000500 with 0x00100500.
+; Both bytes are saved and restored, including the alias case when A20 is off.
+test_a20:
+    pushf
+    cli
+    push bx
+    push ds
+    push es
+    push si
+    push di
+    xor ax, ax
+    mov ds, ax
+    mov ax, 0xFFFF
+    mov es, ax
+    mov si, 0x0500
+    mov di, 0x0510
+    mov al, [ds:si]
+    mov ah, [es:di]
+    push ax
+    mov byte [ds:si], 0x00
+    mov byte [es:di], 0xFF
+    cmp byte [ds:si], 0xFF
+    pushf
+    pop dx
+    pop ax
+    mov [es:di], ah
+    mov [ds:si], al
+    pop di
+    pop si
+    pop es
+    pop ds
+    pop bx
+    popf
+    test dx, 0x0040
+    jnz .disabled
+    clc
+    ret
+.disabled:
+    stc
     ret
 
 ; ---------------------------------------------------------------------------
