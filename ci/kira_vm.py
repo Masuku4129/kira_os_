@@ -311,6 +311,9 @@ class VM:
         self.drain(0.05)
         if not self.prompt_ready and PROMPT in bytes(self.log[self.prompt_search_from:]):
             self.prompt_ready = True
+        if not self.prompt_ready:
+            self.expect(re.escape(PROMPT.decode()), 90, self.prompt_search_from)
+        self.drain(0.05)
         self.prompt_search_from = len(self.log)
         self.prompt_ready = False
         self.ser.setblocking(True)
