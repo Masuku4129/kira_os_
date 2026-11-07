@@ -139,22 +139,13 @@ SC = [
          cmds=[("@sleep 6", []),
                ("@log \\[KIRA DRV\\] abad: SHA-256 не совпал с записью /drv/abad\\.rec - драйвер НЕ запущен", []),
                ("@log \\[KIRA DRV\\] eduun: пакет отклонён \\(установка не подтверждена пользователем\\)", []),
-               ("@log \\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \\(pid \\d+\\), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV", []),
-               ("@log drvedu: id=0x10000ed", []), ("@log drvedu: 10!=3628800", []),
-               ("@log drvedu: dma rc=-7", []),       # RAM платы virt начинается с 1 ГБ, а edu достаёт 30 бит адреса: ядро честно отказывает, DMA на ARM здесь не проверяется
-               
-               ("@log drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x", []),
-               ("@log drvedu: partial \\(see above\\)", []),
-               ("drv", [r"drv-edu pid \d+", r"отображений 1"]),
-               ("drv stop edu", [r"останавливаю drv-edu"]), ("@sleep 2", []),
-               ("@log \\[KIRA DRV\\] drv-edu \\(pid \\d+\\) завершён: устройство .* остановлено", []),
-               ("@log \\[KIRA DRV\\] edu: возвращено памяти DMA и колец 0 из 0 стр\\..*утечек нет", []),
+               ("@log \\[KIRA DRV\\] edu: DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен", []),
+               # MMIO-only пакет может стартовать, но запрос DMA из Ring 3 обязан быть отклонён.
                ("drv start edunc", [r"драйвер запущен как drv-edunc"]), ("@sleep 3", []),
                ("@log drvedu: dma rc=-12", []), ("@log \\[KIRA CAPS\\] process 'drv-edunc' .* denied, no right CAP_DMA", []),
                ("drv stop edunc", []), ("@sleep 2", []),
-               ("drv start edu crash", [r"драйвер запущен как drv-edu"]), ("@sleep 3", []),
-               ("@log drvedu: crashing on purpose", []),
-               ("@sleep 2", []), ("drv", [r"устройство .* 1234:11e8: освобождается|драйвер edu не работает|свободно"]),
+               ("drv start edu", []),
+               ("@log \\[KIRA DRV\\] edu: DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен", []),
                ("status", [r"interrupts: GICv3"])]),
     # Окно «Драйверы» (drvman) на ARM64: список PCI читается вызовом ядра (CAP_PCILIST), пакеты /drv и итог сверки, остановка и запуск драйвера edu
     # через менеджер ядра; экран virtio-gpu, чтобы окно действительно создавалось. Строки drvman печатает тот же код, что рисует окно.
@@ -166,9 +157,9 @@ SC = [
                ("drvman do pci;pkgs", []), ("@sleep 10", []), ("@shot drvman", []),
                ("@log drvman: окно создано 640x560", []),
                ("@log drvman: кадр: строк в списках [1-9]\\d*, устройств [1-9]\\d*, пакетов 4", []),
-               ("@log drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*драйвер Ring 3 drv-edu запущен", []),
+               ("@log drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*пакет edu установлен, не запущен", []),
                ("@log drvman: pci \\d\\d:\\d\\d\\.\\d\\s+[0-9a-f]{4}:[0-9a-f]{4}\\s+[0-9a-f]{6}\\s+.*встроенный драйвер ядра", []),
-               ("@log drvman: пакет edu \\| edu\\s+v\\d+\\s+лицензия: не записана\\s+ЗАПУЩЕН\\s+сверка: SHA-256 сходится", []),
+               ("@log drvman: пакет edu \\| edu\\s+v\\d+\\s+лицензия: не записана\\s+не запущен\\s+сверка: SHA-256 сходится", []),
                ("@log drvman: пакет abad \\| abad\\s+v\\d+\\s+лицензия: не записана\\s+не запущен\\s+сверка: НЕ СОВПАДАЕТ", []),
                ("@log drvman: пакет eduun \\| eduun\\s+v\\d+\\s+лицензия: не записана\\s+не запущен\\s+сверка: не подтверждён", []),
                ("@log drvman: готово", []),
