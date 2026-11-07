@@ -109,6 +109,21 @@ start:
     jmp 0x08:long_mode_start
 
 bits 64
+; Native UEFI enters the already-long-mode kernel using the Microsoft x64 ABI:
+; RCX = Multiboot2 magic, RDX = physical pointer to the synthesized MBI.
+global uefi_entry
+uefi_entry:
+    cli
+    mov rsp, stack_top
+    and rsp, -16
+    mov rdi, rcx
+    mov rsi, rdx
+    call kernel_main
+.uefi_hang:
+    cli
+    hlt
+    jmp .uefi_hang
+
 long_mode_start:
     ; Инициализация сегментов данных
     mov ax, 0x10
