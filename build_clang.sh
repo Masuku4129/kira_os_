@@ -71,7 +71,7 @@ UELF="$UELF userland/kcc.elf"
 
 # A single-translation-unit KCC build is the source for the in-guest
 # stage2 -> stage3 self-hosting cycle. It contains both architecture backends.
-tools/kcc-amalgamate.sh userland/kcc_selfhost.c
+bash tools/kcc-amalgamate.sh userland/kcc_selfhost.c
 $CC $UCFLAGS -nostdlibinc -Iuserland/kccrt -Iuserland -Ikcc -Ikcc/include -c userland/kcc_selfhost.c -o userland/kcc_selfhost.o
 ld.lld $ULINK -o userland/kcc-selfhost.elf userland/kcc_selfhost.o
 UELF="$UELF userland/kcc-selfhost.elf"
