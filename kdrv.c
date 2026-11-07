@@ -125,52 +125,17 @@ static int name_valid(const char* n) {
 }
 
 /* Signed publisher trust lifecycle.
- * /drv/.trust is a CRC-protected snapshot; updates arrive as concatenated
- * kdrv_transition_t records in /drv/.rotate and one kdrv_revocation_t in
- * /drv/.revoke. Signatures authenticate updates; CRC only detects torn writes.
- * A whole-disk rollback still requires a hardware monotonic anchor to prevent.
+ * The signed journal is replayed from the compiled root key on each boot:
+ * /drv/.rotate is a complete ordered chain of kdrv_transition_t records;
+ * /drv/.revoke is the latest cumulative signed revocation statement.
+ * We deliberately do not trust a CRC-only key snapshot as an authority.
+ * Whole-disk rollback/removal of the signed journal still needs a hardware
+ * monotonic anchor, which this platform does not currently expose.
  */
-#define KDRV_TRUST_DB_MAGIC 0x3152544Bu /* KTR1 */
-#define KDRV_TRUST_DB_FORMAT 1u
-typedef struct __attribute__((packed)) {
-    uint32_t magic, format, count, crc;
-    uint64_t generation;
-    kdrv_sig_key_t keys[KDRV_SIG_MAX_KEYS];
-} kdrv_trust_db_t;
-
 static kdrv_sig_key_t live_trust_keys[KDRV_SIG_MAX_KEYS];
 static uint32_t live_trust_count;
 static int live_trust_ready, live_trust_error;
 
-static uint32_t trust_crc32(const void *data,size_t length) {
-    const uint8_t *p=(const uint8_t*)data;
-    uint32_t crc=0xFFFFFFFFu;
-    for(size_t i=0;i<length;i++) {
-        crc^=p[i];
-        for(unsigned b=0;b<8;b++)
-            crc=(crc>>1)^(0xEDB88320u&(0u-(crc&1u)));
-    }
-    return ~crc;
-}
-static int trust_key_valid(const kdrv_sig_key_t *key) {
-    uint8_t id=0,pub=0;
-    for(unsigned i=0;i<KDRV_SIG_KEY_ID_SIZE;i++) id|=key->id[i];
-    for(unsigned i=0;i<sizeof key->public_key;i++) pub|=key->public_key[i];
-    return id && pub && !(key->flags&~KDRV_SIG_KEY_REVOKED);
-}
-static int trust_snapshot_valid(const kdrv_trust_db_t *db) {
-    if(db->magic!=KDRV_TRUST_DB_MAGIC||db->format!=KDRV_TRUST_DB_FORMAT||
-       !db->count||db->count>KDRV_SIG_MAX_KEYS||
-       db->crc!=trust_crc32((const uint8_t*)db+offsetof(kdrv_trust_db_t,generation),
-                            sizeof(*db)-offsetof(kdrv_trust_db_t,generation)))
-        return 0;
-    for(uint32_t i=0;i<db->count;i++) {
-        if(!trust_key_valid(&db->keys[i])) return 0;
-        for(uint32_t j=0;j<i;j++)
-            if(!memcmp(db->keys[i].id,db->keys[j].id,KDRV_SIG_KEY_ID_SIZE)) return 0;
-    }
-    return 1;
-}
 static int trust_read_optional(const char *path,void *out,uint32_t expected,
                                uint32_t maximum,uint32_t *actual) {
     kfs_stat_t st;
@@ -182,15 +147,19 @@ static int trust_read_optional(const char *path,void *out,uint32_t expected,
     *actual=(uint32_t)st.size;
     return 0;
 }
-static int trust_persist(const kdrv_sig_key_t *keys,uint32_t count,uint64_t generation) {
-    kdrv_trust_db_t db;
-    for(size_t i=0;i<sizeof db;i++) ((uint8_t*)&db)[i]=0;
-    db.magic=KDRV_TRUST_DB_MAGIC; db.format=KDRV_TRUST_DB_FORMAT;
-    db.count=count; db.generation=generation;
-    for(uint32_t i=0;i<count;i++) db.keys[i]=keys[i];
-    db.crc=trust_crc32((const uint8_t*)&db+offsetof(kdrv_trust_db_t,generation),
-                       sizeof(db)-offsetof(kdrv_trust_db_t,generation));
-    return kfs_write("/drv/.trust",&db,sizeof db)==0?0:-1;
+static int trust_apply_transitions(const kdrv_transition_t *items,uint32_t n,
+                                   uint32_t first,uint32_t last,
+                                   kdrv_sig_key_t *keys,uint32_t *key_count,
+                                   uint64_t *generation,int64_t now) {
+    if(first==last) return KDRV_SIG_OK;
+    kdrv_sig_key_t updated[KDRV_SIG_MAX_KEYS];
+    uint32_t updated_count=0; uint64_t updated_generation=0;
+    int rc=kdrv_transition_apply_chain(items+first,last-first,keys,*key_count,
+        now,*generation,updated,KDRV_SIG_MAX_KEYS,&updated_count,&updated_generation);
+    if(rc!=KDRV_SIG_OK) return rc;
+    *key_count=updated_count; *generation=updated_generation;
+    for(uint32_t i=0;i<updated_count;i++) keys[i]=updated[i];
+    return KDRV_SIG_OK;
 }
 
 static int kdrv_trust_prepare(void) {
@@ -199,63 +168,51 @@ static int kdrv_trust_prepare(void) {
     uint32_t count=KDRV_TRUST_KEY_COUNT;
     if(!count||count>KDRV_SIG_MAX_KEYS) return live_trust_error=KDRV_SIG_E_TRUST_STORE;
     for(uint32_t i=0;i<count;i++) live_trust_keys[i]=kdrv_trust_keys[i];
-    uint64_t generation=0;
-    int changed=0;
-    kdrv_trust_db_t db;
-    uint32_t got=0;
-    int rc=trust_read_optional("/drv/.trust",&db,sizeof db,sizeof db,&got);
-    if(rc) return live_trust_error=KDRV_SIG_E_TRUST_STORE;
-    if(got) {
-        if(!trust_snapshot_valid(&db)) return live_trust_error=KDRV_SIG_E_TRUST_STORE;
-        count=db.count; generation=db.generation;
-        for(uint32_t i=0;i<count;i++) live_trust_keys[i]=db.keys[i];
-    } else changed=1;
 
     rtc_time_t current;
     int64_t now=rtc_now(0,&current)==0?rtc_to_epoch(&current):0;
     kdrv_transition_t transitions[KDRV_TRANSITION_MAX_CHAIN];
-    uint32_t bytes=0;
-    rc=trust_read_optional("/drv/.rotate",0,0,KDRV_TRANSITION_MAX_CHAIN*sizeof(kdrv_transition_t),&bytes);
-    if(rc) return live_trust_error=KDRV_SIG_E_TRUST_STORE;
-    if(bytes) {
-        if(bytes%sizeof(kdrv_transition_t)||
-           bytes/sizeof(kdrv_transition_t)>KDRV_TRANSITION_MAX_CHAIN)
-            return live_trust_error=KDRV_SIG_E_FORMAT;
-        if(trust_read_optional("/drv/.rotate",transitions,0,
-             KDRV_TRANSITION_MAX_CHAIN*sizeof(kdrv_transition_t),&bytes)!=0)
-            return live_trust_error=KDRV_SIG_E_IO;
-        uint32_t n=bytes/sizeof(kdrv_transition_t),first=0;
-        while(first<n&&transitions[first].generation<=generation) first++;
-        if(first<n) {
-            kdrv_sig_key_t updated[KDRV_SIG_MAX_KEYS];
-            uint32_t updated_count=0; uint64_t updated_generation=0;
-            int vr=kdrv_transition_apply_chain(transitions+first,n-first,
-                live_trust_keys,count,now,generation,updated,KDRV_SIG_MAX_KEYS,
-                &updated_count,&updated_generation);
-            if(vr!=KDRV_SIG_OK) return live_trust_error=vr;
-            count=updated_count; generation=updated_generation;
-            for(uint32_t i=0;i<count;i++) live_trust_keys[i]=updated[i];
-            changed=1;
-        }
-    }
+    uint32_t rotate_bytes=0, revoke_bytes=0;
+    if(trust_read_optional("/drv/.rotate",0,0,
+       KDRV_TRANSITION_MAX_CHAIN*sizeof(kdrv_transition_t),&rotate_bytes)!=0)
+        return live_trust_error=KDRV_SIG_E_TRUST_STORE;
+    if(rotate_bytes%sizeof(kdrv_transition_t))
+        return live_trust_error=KDRV_SIG_E_FORMAT;
+    uint32_t n=rotate_bytes/sizeof(kdrv_transition_t);
+    if(n&&trust_read_optional("/drv/.rotate",transitions,0,
+       KDRV_TRANSITION_MAX_CHAIN*sizeof(kdrv_transition_t),&rotate_bytes)!=0)
+        return live_trust_error=KDRV_SIG_E_IO;
 
     kdrv_revocation_t revocation;
-    bytes=0;
-    rc=trust_read_optional("/drv/.revoke",&revocation,sizeof revocation,
-                           sizeof revocation,&bytes);
-    if(rc) return live_trust_error=KDRV_SIG_E_TRUST_STORE;
-    if(bytes&&revocation.generation>generation) {
+    if(trust_read_optional("/drv/.revoke",&revocation,sizeof revocation,
+                           sizeof revocation,&revoke_bytes)!=0)
+        return live_trust_error=KDRV_SIG_E_TRUST_STORE;
+
+    uint64_t generation=0;
+    if(revoke_bytes) {
+        /* Place the revocation at its signed generation in the ordered journal. */
+        uint32_t split=0;
+        while(split<n&&transitions[split].generation<revocation.generation) split++;
+        if(split<n&&transitions[split].generation==revocation.generation)
+            return live_trust_error=KDRV_SIG_E_FORMAT;
+        int rc=trust_apply_transitions(transitions,n,0,split,
+            live_trust_keys,&count,&generation,now);
+        if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
         kdrv_sig_key_t updated[KDRV_SIG_MAX_KEYS];
         uint32_t updated_count=0; uint64_t updated_generation=0;
-        int vr=kdrv_revocation_apply(&revocation,live_trust_keys,count,now,
+        rc=kdrv_revocation_apply(&revocation,live_trust_keys,count,now,
             generation,updated,KDRV_SIG_MAX_KEYS,&updated_count,&updated_generation);
-        if(vr!=KDRV_SIG_OK) return live_trust_error=vr;
+        if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
         count=updated_count; generation=updated_generation;
         for(uint32_t i=0;i<count;i++) live_trust_keys[i]=updated[i];
-        changed=1;
+        rc=trust_apply_transitions(transitions,n,split,n,
+            live_trust_keys,&count,&generation,now);
+        if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
+    } else {
+        int rc=trust_apply_transitions(transitions,n,0,n,
+            live_trust_keys,&count,&generation,now);
+        if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
     }
-    if(changed&&trust_persist(live_trust_keys,count,generation)!=0)
-        return live_trust_error=KDRV_SIG_E_IO;
     live_trust_count=count;
     return KDRV_SIG_OK;
 }
