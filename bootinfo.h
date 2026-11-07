@@ -52,7 +52,10 @@ _Static_assert(sizeof(kbi_header_t)==136, "KBI header ABI");
 
 /* Returns 0 only for a structurally valid v1 handoff. Does not dereference
    physical addresses: only validates offsets and ranges inside blob. */
-int kbi_validate(const void* blob, uint32_t available);\nint kbi_from_multiboot2(const void* info, uint32_t available,\n                        uint64_t kernel_base, uint64_t kernel_size,\n                        const void** result, uint32_t* result_size);
+int kbi_validate(const void* blob, uint32_t available);
+int kbi_from_multiboot2(const void* info, uint32_t available,
+                        uint64_t kernel_base, uint64_t kernel_size,
+                        const void** result, uint32_t* result_size);
 const kbi_mmap_entry_t* kbi_mmap(const void* blob);
 const kbi_module_t* kbi_modules(const void* blob);
 
