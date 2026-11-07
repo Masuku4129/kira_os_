@@ -36,6 +36,10 @@ int fdt_node_enabled(const void* fdt, int node);
 /* Кадровый буфер от загрузчика/прошивки (compatible = «simple-framebuffer», включённый): 0 - найден и формат
    32 бита x8r8g8b8/a8r8g8b8 (как у ядра); -1 - нет узла; -2 - неполный узел; -3 - другой формат (в format). */
 typedef struct { uint64_t base, size; uint32_t width, height, stride; char format[16]; } fdt_fb_t;
+/* System MMU discovered from DT. Discovery does not imply DMA isolation is enabled. */
+typedef struct { uint64_t base, size; uint32_t version, iommu_cells; int enabled; } fdt_smmu_t;
+unsigned fdt_smmu_count(const void* fdt);
+int fdt_smmu_get(const void* fdt, unsigned index, fdt_smmu_t* out);
 int fdt_simplefb(const void* fdt, fdt_fb_t* fb);
 
 #endif
