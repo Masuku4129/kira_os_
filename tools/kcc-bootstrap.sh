@@ -28,13 +28,18 @@ for f in $SOURCES; do
 done
 $HOST_CC -o "$OUT/stage1/kcc" "$OUT/stage1/"*.o
 
-# Stage 1 compiles the compiler translation units. The project compiler emits
-# Kira ELF, so use the same target ABI and include paths as ordinary KCC builds.
+# Stage 1 first compiles individual compiler modules for inspection, then
+# compiles the complete self-hosting amalgam into one runnable Kira ELF.
 for f in kcc/*.c; do
+    [ "$f" = kcc/main.c ] && continue
     b=$(basename "$f" .c)
     "$OUT/stage1/kcc" -target "$TARGET" -I kcc -I kcc/include -o "$OUT/stage2/$b.elf" "$f"
 done
+bash tools/kcc-amalgamate.sh "$OUT/stage2/kcc_selfhost.c"
+"$OUT/stage1/kcc" -target "$TARGET" \
+    -I userland/kccrt -I kcc -I kcc/include -I userland \
+    -o "$OUT/stage2/kcc-selfhost.elf" "$OUT/stage2/kcc_selfhost.c"
 
 printf '%s\n' "KCC stage 1 built: $OUT/stage1/kcc"
-printf '%s\n' "KCC stage 2 objects emitted for $TARGET: $OUT/stage2"
-printf '%s\n' "NOTE: stage-2 execution and byte-for-byte stage-3 reproducibility require the Kira ELF loader."
+printf '%s\n' "KCC stage 2 self-hosted ELF emitted for $TARGET: $OUT/stage2/kcc-selfhost.elf"
+printf '%s\n' "Run stage 2 on KIRA to compile /data/kcc/kcc_selfhost.c into stage 3."
