@@ -52,7 +52,12 @@ void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes) __attribute__((
 /* Track ownership explicitly: a CPU pointer may equal a bus address by chance,
    so pointer/address comparison cannot identify which allocator owns a buffer. */
 #define DMA_ALLOCATION_SLOTS 64
-enum { DMA_OWNER_HOST = 1, DMA_OWNER_PLATFORM = 2, DMA_OWNER_PMM = 3 };
+enum {
+    DMA_OWNER_HOST = 1,
+    DMA_OWNER_PLATFORM = 2,
+    DMA_OWNER_PMM = 3,
+    DMA_OWNER_RELEASING = 0xFF
+};
 typedef struct {
     void* cpu;
     uint64_t phys;
@@ -149,32 +154,63 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
    contract. Platform pools without a matching free hook remain allocated. */
 int virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
     if (!cpu || !phys || !bytes) return -1;
+
+    dma_allocation_t saved = {0};
+    unsigned slot = DMA_ALLOCATION_SLOTS;
     dma_lock();
     for (unsigned i = 0; i < DMA_ALLOCATION_SLOTS; i++) {
         dma_allocation_t* a = &dma_allocations[i];
         if (a->cpu != cpu || a->phys != phys) continue;
-        if (a->bytes != bytes) { dma_unlock(); return -1; }
+        if (a->owner == DMA_OWNER_RELEASING || a->bytes != bytes) {
+            dma_unlock();
+            return -1;
+        }
 #ifdef KIRA_HOST_TEST
-        if (a->owner != DMA_OWNER_HOST) { dma_unlock(); return -1; }
-        free(a->cpu);
+        if (a->owner != DMA_OWNER_HOST) {
+            dma_unlock();
+            return -1;
+        }
 #else
-        if (a->owner == DMA_OWNER_PLATFORM) {
-            if (!platform_dma_free) { dma_unlock(); return -2; }
-            platform_dma_free(a->cpu, a->phys, a->bytes);
-        } else if (a->owner == DMA_OWNER_PMM) {
-            int r = pmm_free_contiguous(a->phys, a->pages);
-            if (r != 0) { dma_unlock(); return r; }
-        } else {
+        if (a->owner == DMA_OWNER_PLATFORM && !platform_dma_free) {
+            dma_unlock();
+            return -2;
+        }
+        if (a->owner != DMA_OWNER_PLATFORM && a->owner != DMA_OWNER_PMM) {
             dma_unlock();
             return -1;
         }
 #endif
-        *a = (dma_allocation_t){0};
-        dma_unlock();
-        return 0;
+        saved = *a;
+        a->owner = DMA_OWNER_RELEASING;
+        slot = i;
+        break;
     }
     dma_unlock();
-    return -1;
+    if (slot == DMA_ALLOCATION_SLOTS) return -1;
+
+    int rc = 0;
+#ifdef KIRA_HOST_TEST
+    free(saved.cpu);
+#else
+    if (saved.owner == DMA_OWNER_PLATFORM)
+        platform_dma_free(saved.cpu, saved.phys, saved.bytes);
+    else
+        rc = pmm_free_contiguous(saved.phys, saved.pages);
+#endif
+
+    dma_lock();
+    dma_allocation_t* current = &dma_allocations[slot];
+    if (current->cpu == saved.cpu && current->phys == saved.phys &&
+        current->owner == DMA_OWNER_RELEASING) {
+        if (rc == 0) *current = (dma_allocation_t){0};
+        else *current = saved;
+    } else if (rc == 0) {
+        /* Registry corruption must not turn a successful physical release
+           into a reusable live entry. Keep the slot unavailable for diagnosis. */
+        rc = -3;
+    }
+    dma_unlock();
+    return rc;
 }
 
 /* ---- Транспорт PCI ---- */
