@@ -245,6 +245,7 @@ static int pmm_init_map(const kbi_mmap_entry_t* map, uint32_t map_count,
 
 int pmm_init_bootinfo(const void* blob, uint32_t blob_size,
                       uint64_t reserve_addr, uint64_t reserve_size) {
+    if(reserve_size && reserve_addr>UINT64_MAX-reserve_size) return -3;
     if(kbi_validate(blob,blob_size)!=0) {
         uart_print("[KIRA PMM ERROR] Invalid BootInfo handoff.\n");
         return -3;
