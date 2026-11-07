@@ -152,6 +152,8 @@ int kira_vtd_domain_create(struct kira_vtd_domain *domain,
     if (!domain || !unit || !platform || !platform->alloc_dma_page ||
         !platform->map_mmio || !unit->translation_enabled ||
         !unit->root_table || !unit->root_table_physical ||
+        unit->host_address_width < 48 ||
+        !(unit->capabilities & (1ull << 10)) ||
         device > 31 || function > 7 || segment != 0)
         return KIRA_VTD_INVALID;
 
@@ -245,6 +247,7 @@ int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
 
     if (!domain || !domain->active || !platform ||
         (iova & 0xfffu) || (physical & 0xfffu) ||
+        iova > 0x0000ffffffffffffull ||
         (physical & ~VTD_ENTRY_ADDRESS) != 0)
         return KIRA_VTD_INVALID;
 
@@ -265,7 +268,7 @@ int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
     unsigned int level;
 
     if (!domain || !domain->active || !platform ||
-        (iova & 0xfffu))
+        (iova & 0xfffu) || iova > 0x0000ffffffffffffull)
         return KIRA_VTD_INVALID;
 
     table = vtd_page(domain->second_level);
