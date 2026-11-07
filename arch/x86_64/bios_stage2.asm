@@ -350,9 +350,12 @@ build_multiboot_info:
     cmp dword [di], 1
     jb .reserved
     cmp dword [di], 5
-    jbe .next
+    jbe .clear_reserved
 .reserved:
     mov dword [di], 2
+.clear_reserved:
+    ; Multiboot2 mmap reserved field is zero, not the E820 extended attribute.
+    mov dword [di+4], 0
 .next:
     add di, 24
     dec cx
