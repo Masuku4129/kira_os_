@@ -345,6 +345,7 @@ void mind_sys_init(void) {
         static uint8_t raw[sizeof(mind_model_t) + 16];
         int64_t got = kfs_read(MODEL_PATH, 0, raw, sizeof raw);
         if (got > 0 && mind_model_load(&saved, raw, (unsigned)got)) have = 1;
+        if (!have) have = archive_restore(&saved);          /* fallback при повреждении основного файла */
         if (!have) {                                        /* опыта этой машины нет: семя (data/mind_seed.bin -> /etc/mind_seed.bin) */
             got = kfs_read(SEED_PATH, 0, raw, sizeof raw);
             if (got > 0 && mind_model_seed(&saved, raw, (unsigned)got)) have = 1;
@@ -367,13 +368,116 @@ void mind_sys_init(void) {
     uart_print(have ? ", experience restored from " MODEL_PATH ".\n" : ", first life (no saved model).\n");
 }
 
-void mind_sys_save(void) {
-    if (!ready || !kfs_mounted()) return;
+/* Ограниченный архив проверенных состояний Mind. Удаление разрешено только внутри versions/. */
+#define MIND_ARCHIVE_DIR "/var/mind/versions"
+#define MIND_ARCHIVE_MAGIC 0x564D4944u
+#define MIND_ARCHIVE_VERSION 1u
+#define MIND_ARCHIVE_MAX_FILES 8u
+#define MIND_ARCHIVE_MAX_BYTES (256u * 1024u)
+typedef struct __attribute__((packed)) { uint32_t magic,version,generation,model_size,score,crc; } mind_archive_header_t;
+typedef struct { char name[16]; uint32_t generation,score; uint64_t size; int valid; } mind_archive_item_t;
+static mind_archive_item_t archive_items[32];
+static unsigned archive_count;
+static uint32_t archive_generation;
+static uint32_t archive_crc(const void* data,unsigned len) {
+    const uint8_t* p=(const uint8_t*)data;uint32_t c=0xFFFFFFFFu;
+    for(unsigned i=0;i<len;i++){c^=p[i];for(unsigned b=0;b<8;b++)c=(c>>1)^(0xEDB88320u&(uint32_t)-(int32_t)(c&1));}
+    return ~c;
+}
+static uint32_t archive_score(const mind_model_t* m) {
+    uint64_t v=mnet_trusted(&m->net)?1000000000ULL:0;
+    v+=(uint64_t)(m->net.n>1000000u?1000000u:m->net.n)*100u;
+    v+=(uint64_t)(m->decisions>1000000u?1000000u:m->decisions)*10u;
+    v+=(uint64_t)(m->tune_wins>100000u?100000u:m->tune_wins)*100u;
+    v+=m->lifetime_s>1000000u?1000000u:m->lifetime_s;
+    return v>0xFFFFFFFFu?0xFFFFFFFFu:(uint32_t)v;
+}
+static int archive_name(const char* n,uint32_t* gen) {
+    if(!n||n[0]!='m')return 0;uint32_t v=0;
+    for(unsigned i=1;i<=8;i++){if(n[i]<'0'||n[i]>'9')return 0;v=v*10u+(uint32_t)(n[i]-'0');}
+    if(n[9]!='.'||n[10]!='d'||n[11]!='a'||n[12]!='t'||n[13])return 0;
+    *gen=v;return 1;
+}
+static int archive_collect(void* ctx,const char* name,const kfs_stat_t* st) {
+    (void)ctx;uint32_t gen;
+    if(!archive_name(name,&gen)||archive_count>=32)return 0;
+    mind_archive_item_t* it=&archive_items[archive_count++];
+    for(unsigned i=0;i<sizeof it->name;i++)it->name[i]=0;
+    for(unsigned i=0;name[i]&&i+1<sizeof it->name;i++)it->name[i]=name[i];
+    it->generation=gen;it->size=st->size;it->score=0;it->valid=0;
+    if(gen>archive_generation)archive_generation=gen;
+    return 0;
+}
+static void archive_path(char* out,const char* name) {
+    unsigned n=0;const char* p=MIND_ARCHIVE_DIR "/";
+    while(*p)out[n++]=*p++;while(*name)out[n++]=*name++;out[n]=0;
+}
+static void archive_scan(void) {
+    archive_count=0;archive_generation=0;(void)kfs_list(MIND_ARCHIVE_DIR,archive_collect,0);
+    static uint8_t raw[sizeof(mind_model_t)];
+    for(unsigned i=0;i<archive_count;i++){
+        char path[64];archive_path(path,archive_items[i].name);
+        mind_archive_header_t h;
+        if(kfs_read(path,0,&h,sizeof h)!=(int64_t)sizeof h)continue;
+        if(h.magic!=MIND_ARCHIVE_MAGIC||h.version!=MIND_ARCHIVE_VERSION||h.model_size!=sizeof(mind_model_t)||
+           archive_items[i].size!=sizeof(h)+sizeof(mind_model_t))continue;
+        if(kfs_read(path,sizeof h,raw,sizeof raw)!=(int64_t)sizeof raw||archive_crc(raw,sizeof raw)!=h.crc)continue;
+        mind_model_t m;if(!mind_model_load(&m,raw,sizeof raw))continue;
+        archive_items[i].valid=1;archive_items[i].score=archive_score(&m);
+    }
+}
+static int archive_write(const mind_model_t* model) {
     kfs_stat_t st;
-    if (kfs_stat("/var", &st) != 0 && kfs_mkdir("/var") != 0) return;
-    mind_model_t m = M.m;
+    if(kfs_stat("/var",&st)!=0&&kfs_mkdir("/var")!=0)return -1;
+    if(kfs_stat("/var/mind",&st)!=0&&kfs_mkdir("/var/mind")!=0)return -1;
+    if(kfs_stat(MIND_ARCHIVE_DIR,&st)!=0&&kfs_mkdir(MIND_ARCHIVE_DIR)!=0)return -1;
+    archive_scan();uint32_t gen=archive_generation+1;if(!gen)gen=1;
+    char name[16]="m00000000.dat";uint32_t n=gen;
+    for(int i=8;i>=1;i--){name[i]=(char)('0'+n%10);n/=10;}
+    mind_archive_header_t h={MIND_ARCHIVE_MAGIC,MIND_ARCHIVE_VERSION,gen,sizeof(mind_model_t),archive_score(model),archive_crc(model,sizeof *model)};
+    static uint8_t record[sizeof(mind_archive_header_t)+sizeof(mind_model_t)];
+    __builtin_memcpy(record,&h,sizeof h);__builtin_memcpy(record+sizeof h,model,sizeof *model);
+    char path[64];archive_path(path,name);
+    if(kfs_write(path,record,sizeof record)!=0)return -1;
+    archive_scan();unsigned count=0;uint64_t bytes=0;
+    for(unsigned i=0;i<archive_count;i++)if(archive_items[i].valid){count++;bytes+=archive_items[i].size;}
+    while(count>MIND_ARCHIVE_MAX_FILES||bytes>MIND_ARCHIVE_MAX_BYTES){
+        int victim=-1;
+        for(unsigned i=0;i<archive_count;i++){mind_archive_item_t* it=&archive_items[i];
+            if(!it->valid||it->generation==gen)continue;
+            if(victim<0||it->score<archive_items[victim].score||
+              (it->score==archive_items[victim].score&&it->generation<archive_items[victim].generation))victim=(int)i;
+        }
+        if(victim<0)break;
+        char old[64];archive_path(old,archive_items[victim].name);
+        if(kfs_unlink(old)!=0)break;
+        bytes-=archive_items[victim].size;count--;archive_items[victim].valid=0;
+    }
+    return 0;
+}
+static int archive_restore(mind_model_t* out) {
+    archive_scan();static uint8_t raw[sizeof(mind_model_t)];
+    for(unsigned pass=0;pass<archive_count;pass++){
+        int best=-1;
+        for(unsigned i=0;i<archive_count;i++)if(archive_items[i].valid&&
+           (best<0||archive_items[i].generation>archive_items[best].generation))best=(int)i;
+        if(best<0)return 0;
+        char path[64];archive_path(path,archive_items[best].name);mind_archive_header_t h;
+        if(kfs_read(path,0,&h,sizeof h)==(int64_t)sizeof h&&
+           kfs_read(path,sizeof h,raw,sizeof raw)==(int64_t)sizeof raw&&
+           archive_crc(raw,sizeof raw)==h.crc&&mind_model_load(out,raw,sizeof raw))return 1;
+        archive_items[best].valid=0;
+    }
+    return 0;
+}
+
+void mind_sys_save(void) {
+    if(!ready||!kfs_mounted())return;
+    kfs_stat_t st;if(kfs_stat("/var",&st)!=0&&kfs_mkdir("/var")!=0)return;
+    mind_model_t m;kmutex_lock(&mmx);m=M.m;kmutex_unlock(&mmx);
     mind_model_seal(&m);
-    if (kfs_write(MODEL_PATH, &m, sizeof m) != 0) uart_print("[KIRA MIND] cannot save the model to disk.\n");
+    if(kfs_write(MODEL_PATH,&m,sizeof m)!=0){uart_print("[KIRA MIND] cannot save the model to disk.\n");return;}
+    if(archive_write(&m)!=0)uart_print("[KIRA MIND] archive snapshot failed; primary model remains intact.\n");
 }
 
 static void put_s(char* b, unsigned* n, const char* s) { while (*s && *n < 250) b[(*n)++] = *s++; b[*n] = 0; }
