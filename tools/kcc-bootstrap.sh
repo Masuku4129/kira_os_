@@ -28,13 +28,7 @@ for f in $SOURCES; do
 done
 $HOST_CC -o "$OUT/stage1/kcc" "$OUT/stage1/"*.o
 
-# Stage 1 first compiles individual compiler modules for inspection, then
-# compiles the complete self-hosting amalgam into one runnable Kira ELF.
-for f in kcc/*.c; do
-    [ "$f" = kcc/main.c ] && continue
-    b=$(basename "$f" .c)
-    "$OUT/stage1/kcc" -target "$TARGET" -I kcc -I kcc/include -o "$OUT/stage2/$b.elf" "$f"
-done
+# Stage 1 compiles the complete compiler/runtime amalgam into a single Kira ELF.
 bash tools/kcc-amalgamate.sh "$OUT/stage2/kcc_selfhost.c"
 "$OUT/stage1/kcc" -target "$TARGET" \
     -I userland/kccrt -I kcc -I kcc/include -I userland \
