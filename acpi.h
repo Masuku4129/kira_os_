@@ -4,6 +4,8 @@
 
 #define ACPI_MAX_IOAPIC 64
 #define ACPI_MAX_CPU    256
+#define ACPI_MAX_DMAR_UNITS 16
+#define ACPI_MAX_RMRR 32
 
 typedef struct {
     int      valid;            /* RSDP и корневая таблица прошли проверку контрольных сумм */
@@ -21,6 +23,12 @@ typedef struct {
     int      has_hpet;
     uint64_t mcfg_base;            /* база PCIe ECAM (0 = нет) */
     uint8_t  mcfg_bus_start, mcfg_bus_end;
+    /* Intel VT-d DMAR: проверенные регистровые базы remapping units и зарезервированные DMA-области. */
+    int dmar_valid;
+    uint8_t dmar_host_width, dmar_flags;
+    uint32_t dmar_unit_count, dmar_rmrr_count;
+    struct { uint16_t segment; uint8_t include_all, flags; uint64_t reg_base; } dmar_unit[ACPI_MAX_DMAR_UNITS];
+    struct { uint16_t segment; uint64_t base, limit; } dmar_rmrr[ACPI_MAX_RMRR];
     uint32_t tables_seen, tables_bad, tables_skipped_high;
     uint8_t  source;               /* 0 - ACPI (MADT), 1 - таблицы Intel MP (ACPI нет или в нём нет процессоров) */
     /* питание (FADT и \_S5 из DSDT) */
