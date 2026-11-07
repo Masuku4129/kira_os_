@@ -140,7 +140,7 @@ int main(void) {
     be(bad + fdt_u32(bad + 8) + fdt_u32(bad + 36) - 4, 4); /* replace FDT_END with NOP */
     CHECK(fdt_valid(bad, sizeof bad) && !fdt_tree_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + fdt_u32(bad + 8) + 12, 0x7FFFFFFF);  /* длина первого свойства за пределами */
-    CHECK(fdt_valid(bad, sizeof bad) && !fdt_tree_valid(bad) && fdt_prop(bad, fdt_root(bad), "#address-cells", &len) == 0);
+    CHECK(fdt_valid(bad, sizeof bad) && !fdt_tree_valid(bad, sizeof bad) && fdt_prop(bad, fdt_root(bad), "#address-cells", &len) == 0);
     /* обход с испорченными данными не уходит за блок */
     int depth = 0, n = fdt_root(bad), steps = 0;
     while (n >= 0 && steps < 1000) { n = fdt_next_node(bad, n, &depth); steps++; }
