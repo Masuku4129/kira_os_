@@ -104,7 +104,7 @@ int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b) {
             continue;
         /* NameOp перед именем; поддерживаем абсолютный корневой путь. */
         if (!(aml[i - 1] == 0x08 ||
-              (i >= 2 && aml[i - 1] == '\\\\' && aml[i - 2] == 0x08)))
+              (i >= 2 && aml[i - 1] == 0x5C && aml[i - 2] == 0x08)))
             continue;
         const uint8_t* p = aml + i + 4;
         if (p >= end || *p++ != 0x12) continue; /* PackageOp */
