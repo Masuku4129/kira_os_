@@ -57,9 +57,9 @@
 
 typedef struct {
     bus_space_handle_t io;
-    kdrv_dma_t rx_dma;
-    kdrv_dma_t tx_dma;
-    kdrv_netctl_t net;
+    struct kd_dmabuf rx_dma;
+    struct kd_dmabuf tx_dma;
+    struct ifnet net;
     kira_rl_rx_state_t rx;
     kira_rl_tx_state_t tx;
     u8 mac[6];
@@ -101,8 +101,7 @@ static int rtl_mac_valid(const u8 mac[6]) {
 static int rtl_find_memory_bar(const kdrv_info_t *info, u32 *bar_out) {
     if (!info || !bar_out) return -1;
     for (u32 i = 0; i < 6; i++) {
-        if ((info->bar[i].flags & KDRV_BAR_MEM) &&
-            !(info->bar[i].flags & KDRV_BAR_IO) &&
+        if (!(info->bar[i].flags & KDRV_BAR_IO) &&
             info->bar[i].size >= 0x100u) {
             *bar_out = i;
             return 0;
@@ -124,12 +123,12 @@ static int rtl_reset(rtl8139_t *s) {
 }
 
 static int rtl_dma_setup(rtl8139_t *s) {
-    int rc = kdrv_dma_alloc(RTL_RX_ALLOC_BYTES, 32, &s->rx_dma);
+    i64 rc = kd_dma_alloc(&s->rx_dma, RTL_RX_ALLOC_BYTES, 32);
     if (rc) {
         kd_puts("rtl8139: isolated RX DMA allocation denied\n");
         return -1;
     }
-    rc = kdrv_dma_alloc(RTL_TX_ALLOC_BYTES, 32, &s->tx_dma);
+    rc = kd_dma_alloc(&s->tx_dma, RTL_TX_ALLOC_BYTES, 32);
     if (rc) {
         kd_puts("rtl8139: isolated TX DMA allocation denied\n");
         return -2;
@@ -186,7 +185,7 @@ static int rtl_hw_start(rtl8139_t *s) {
     rtl_write16(s, RTL_REG_CAPR, 0xfff0u);
     rtl_write16(s, RTL_REG_ISR, 0xffffu);
     rtl_write16(s, RTL_REG_IMR, 0); /* polling mode; no IRQ capability needed */
-    bus_space_barrier(s->io, 0, 0x100u);
+    bus_space_barrier();
     rtl_write8(s, RTL_REG_CR, RTL_CR_RX_ENABLE | RTL_CR_TX_ENABLE);
     bus_space_barrier(s->io, 0, 0x100u);
     return 0;
@@ -222,7 +221,7 @@ static void rtl_tx_start(rtl8139_t *s) {
 
         bus_space_barrier(s->io, 0, 0x100u);
         rtl_write32(s, RTL_REG_TSD0 + slot * 4u, wire_length);
-        bus_space_barrier(s->io, RTL_REG_TSD0 + slot * 4u, 4u);
+        bus_space_barrier();
     }
 }
 
@@ -291,11 +290,11 @@ static void rtl_link_poll(rtl8139_t *s) {
 int main(void) {
     kdrv_info_t info;
     u32 bar = 0;
-    int err = 0;
+    i64 err = 0;
 
     kd_puts("rtl8139: clean-room KIRA driver starting\n");
-    if (kdrv_info(&info) != 0 || info.vendor_id != RTL_VENDOR_ID ||
-        info.device_id != RTL_DEVICE_ID) {
+    if (kdrv_info(&info) != 0 || info.vendor != RTL_VENDOR_ID ||
+        info.device != RTL_DEVICE_ID) {
         kd_puts("rtl8139: device identity mismatch\n");
         return 1;
     }
@@ -318,14 +317,16 @@ int main(void) {
     }
 
     g_rtl.io = bus_space_map(bar, 0x100u, &err);
-    if (err || !g_rtl.io.base || g_rtl.io.size < 0x100u) {
+    if (err || !g_rtl.io) {
         kd_puts("rtl8139: BAR mapping failed\n");
         return 5;
     }
     if (rtl_dma_setup(&g_rtl) != 0) return 6;
     if (rtl_hw_start(&g_rtl) != 0) return 7;
 
-    if (if_attach(&g_rtl.net, g_rtl.mac, 1500u) != 0) {
+    if (for (u32 i = 0; i < 6; i++) g_rtl.net.if_lladdr[i] = g_rtl.mac[i];
+    g_rtl.net.if_softc = &g_rtl;
+    if_attach(&g_rtl.net) != 0) {
         kd_puts("rtl8139: network interface registration failed\n");
         rtl_write8(&g_rtl, RTL_REG_CR, 0);
         return 8;
@@ -333,7 +334,7 @@ int main(void) {
 
     rtl_link_poll(&g_rtl);
     for (;;) {
-        i64 event = kd_wait(10u);
+        i64 event = kd_wait(1u);
         if (event == KE_INTR) break;
         rtl_tx_reap(&g_rtl);
         rtl_rx_poll(&g_rtl);
