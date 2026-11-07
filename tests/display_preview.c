@@ -283,6 +283,31 @@ int main(int argc, char** argv) {
     }
     CHECK(app_mind_hit(5, 566) == -1 && app_mind_hit(20, 540) == -1);
 
+    /* Отсутствующая телеметрия ядер не должна рисоваться как одно ядро с нулевой нагрузкой. */
+    {
+        surface_t* ms = wm_content(w_mind);
+        unsigned bars = 0;
+        app_mind_draw(ms, &MV, 5);
+        for (int y = 48; y < 126; y++) for (int x = 30; x < 570; x++) {
+            uint32_t p = ms->px[y * ms->pitch + x];
+            if (p == TH_CYAN || p == TH_AMBER || p == TH_RED) bars++;
+        }
+        CHECK(bars > 0);
+        MV.cores = 0;
+        app_mind_draw(ms, &MV, 5);
+        bars = 0;
+        for (int y = 48; y < 126; y++) for (int x = 30; x < 570; x++) {
+            uint32_t p = ms->px[y * ms->pitch + x];
+            if (p == TH_CYAN || p == TH_AMBER || p == TH_RED) bars++;
+        }
+        CHECK(bars == 0);
+        MV.cores = 4;
+        mver++;
+        wm_invalidate(w_mind);
+        run(3);
+        save_shot("mind_hardware_no_missing_data.ppm");
+    }
+
     /* Монитор - разделом */
     click_tab(4);
     run(4);

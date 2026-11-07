@@ -332,15 +332,21 @@ static void mind_draw_processes(surface_t* s, const mind_view_t* v) {
 static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
     gfx_fill(s, TH_CONTENT);
     card(s, 10, 10, 580, 145, "ПРОЦЕССОР · ЗАГРУЗКА ЯДЕР", TH_CYAN);
-    unsigned n = v->cores ? v->cores : 1; if (n > 64) n = 64;
-    int slot = 540 / (int)n, bw = slot - 4; if (bw > 48) bw = 48; if (bw < 2) bw = 2;
-    int x0 = 30 + (540 - slot * (int)n) / 2 + (slot - bw) / 2;
-    for (unsigned i = 0; i < n; i++) {
-        int x = x0 + (int)i * slot; unsigned b = v->busy[i] > 100 ? 100 : v->busy[i];
-        ui_round_rect(s, x, 48, bw, 78, bw >= 8 ? 4 : 0, TRACK, 255);
-        int hh = (int)(b * 78 / 100); if (hh < 2) hh = 2;
-        ui_round_rect(s, x, 126 - hh, bw, hh, bw >= 8 ? 4 : 0, b >= 85 ? TH_RED : b >= 60 ? TH_AMBER : TH_CYAN, 255);
-        if (slot >= 22) { char t[12]; app_fmt_u(t, i); gfx_text(s, x + bw / 2 - gfx_text_width(t) / 2, 132, t, TH_TEXT_FAINT, -1); }
+    unsigned n = v->cores > 64 ? 64 : v->cores;
+    if (!n) {
+        /* Не подменять отсутствующий снимок одним фиктивным ядром с нулевой загрузкой. */
+        gfx_text(s, 30, 72, "нет данных о числе доступных ядер", TH_TEXT_FAINT, -1);
+        gfx_text(s, 30, 96, "загрузка процессора пока не измерена", TH_TEXT_FAINT, -1);
+    } else {
+        int slot = 540 / (int)n, bw = slot - 4; if (bw > 48) bw = 48; if (bw < 2) bw = 2;
+        int x0 = 30 + (540 - slot * (int)n) / 2 + (slot - bw) / 2;
+        for (unsigned i = 0; i < n; i++) {
+            int x = x0 + (int)i * slot; unsigned b = v->busy[i] > 100 ? 100 : v->busy[i];
+            ui_round_rect(s, x, 48, bw, 78, bw >= 8 ? 4 : 0, TRACK, 255);
+            int hh = (int)(b * 78 / 100); if (hh < 2) hh = 2;
+            ui_round_rect(s, x, 126 - hh, bw, hh, bw >= 8 ? 4 : 0, b >= 85 ? TH_RED : b >= 60 ? TH_AMBER : TH_CYAN, 255);
+            if (slot >= 22) { char t[12]; app_fmt_u(t, i); gfx_text(s, x + bw / 2 - gfx_text_width(t) / 2, 132, t, TH_TEXT_FAINT, -1); }
+        }
     }
     card(s, 10, 165, 280, 145, "ПАМЯТЬ", TH_PURPLE);
     char t[64]; int p = cat(t, 0, "занято "); p = cat_u(t, p, v->mem_used); cat(t, p, "%");
