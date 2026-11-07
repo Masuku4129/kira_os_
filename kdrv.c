@@ -135,7 +135,8 @@ static kdrv_sig_key_t live_trust_keys[KDRV_SIG_MAX_KEYS];
 static kdrv_transition_t transition_journal[KDRV_TRANSITION_MAX_CHAIN];
 static kdrv_revocation_t revocation_journal[KDRV_REVOCATION_MAX_CHAIN];
 static uint32_t live_trust_count;
-static int live_trust_ready, live_trust_error;
+static int live_trust_error;
+static volatile uint32_t trust_state; /* 0 uninitialized, 1 building, 2 ready, 3 failed */
 static spinlock_t trust_lock = SPINLOCK_INIT;
 
 static int trust_read_optional(const char *path,void *out,uint32_t expected,
@@ -175,8 +176,6 @@ static int trust_apply_revocation(const kdrv_revocation_t *statement,
 }
 
 static int kdrv_trust_prepare_once(void) {
-    if(live_trust_ready) return live_trust_error;
-    live_trust_ready=1;
     uint32_t count=KDRV_TRUST_KEY_COUNT;
     if(!count||count>KDRV_SIG_MAX_KEYS) return live_trust_error=KDRV_SIG_E_TRUST_STORE;
     for(uint32_t i=0;i<count;i++) live_trust_keys[i]=kdrv_trust_keys[i];
@@ -230,10 +229,31 @@ static int kdrv_trust_prepare_once(void) {
 }
 
 static int kdrv_trust_prepare(void) {
-    uint64_t flags=spin_lock_irqsave(&trust_lock);
-    int rc=kdrv_trust_prepare_once();
-    spin_unlock_irqrestore(&trust_lock,flags);
-    return rc;
+    for(;;) {
+        uint64_t flags=spin_lock_irqsave(&trust_lock);
+        uint32_t state=trust_state;
+        if(state==2u) {
+            spin_unlock_irqrestore(&trust_lock,flags);
+            return KDRV_SIG_OK;
+        }
+        if(state==3u) {
+            int error=live_trust_error;
+            spin_unlock_irqrestore(&trust_lock,flags);
+            return error;
+        }
+        if(state==0u) {
+            trust_state=1u;
+            spin_unlock_irqrestore(&trust_lock,flags);
+            int rc=kdrv_trust_prepare_once();
+            flags=spin_lock_irqsave(&trust_lock);
+            live_trust_error=rc;
+            trust_state=rc==KDRV_SIG_OK?2u:3u;
+            spin_unlock_irqrestore(&trust_lock,flags);
+            return rc;
+        }
+        spin_unlock_irqrestore(&trust_lock,flags);
+        k_sleep(1); /* another process is replaying the signed journal */
+    }
 }
 
 /* Читает пакет и ВСЕГДА сверяет хеши: образа ELF и всего файла .kdrv - с /drv/ИМЯ.rec. Ошибка - код KDRV_E_* или KFS-код (< -100 не бывает). */
