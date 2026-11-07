@@ -193,7 +193,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // отобразит видеопамять; если драйвер не смог (формат пикселей, память), ранняя
     // консоль возвращается и показывает весь журнал, а не оставляет чёрный экран.
     earlycon_stop();
-    if (display_init(uefi_boot ? 0 : addr) != 0) {
+    if ((uefi_boot ? display_init_bootinfo((const kbi_header_t*)bootinfo) : display_init(addr)) != 0) {
         int ec_rc = uefi_boot ? -1 : earlycon_init(addr);
         uart_print("[KIRA DISPLAY] Running without the graphical shell (");
         uart_print(ec_rc == 0 ? "text console on screen" : "serial console only");
