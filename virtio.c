@@ -167,6 +167,7 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
     return cpu;
 }
 
+/* Validation snapshot: lifecycle and allocator fixes are under CI. */
 /* Exact-size release prevents accidental freeing with a mismatched allocation
    contract. Platform pools without a matching free hook remain allocated. */
 int virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
