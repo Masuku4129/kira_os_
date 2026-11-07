@@ -208,7 +208,9 @@ int main(void) {
     CHECK(dma && dma_phys == (uint64_t)(uintptr_t)dma);
     CHECK((((uintptr_t)dma) & 4095u) == 0);
     for (unsigned i = 0; i < 4097; i++) CHECK(dma[i] == 0);
-    free(dma);
+    CHECK(virtio_dma_free(dma, dma_phys, 4096) == -1); /* размер должен совпадать */
+    CHECK(virtio_dma_free(dma, dma_phys, 4097) == 0);
+    CHECK(virtio_dma_free(dma, dma_phys, 4097) == -1); /* double free отвергается */
 
     vopt_t o0; memset(&o0, 0, sizeof o0);
     /* --- PCI --- */
