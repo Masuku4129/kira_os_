@@ -30,8 +30,15 @@
 #define VTD_GSTS_RTPS (1u << 30)
 #define VTD_GSTS_QIES (1u << 26)
 #define VTD_GSTS_IRES (1u << 25)
+#define VTD_GSTS_WBFS (1u << 27)
 #define VTD_CCMD_ICC  (1ull << 63)
-#define VTD_CCMD_GLOBAL (1ull << 61)
+#define VTD_CCMD_GLOBAL (1ull << 60)
+#define VTD_IOTLB_IVT (1ull << 63)
+#define VTD_IOTLB_GLOBAL (1ull << 60)
+#define VTD_IOTLB_DW (1ull << 49)
+#define VTD_IOTLB_DR (1ull << 48)
+#define VTD_ECAP_IRO_SHIFT 8u
+#define VTD_ECAP_IRO_MASK (0x3ffull << VTD_ECAP_IRO_SHIFT)
 
 typedef struct { volatile uint8_t *base; size_t length; } kira_vtd_mmio_t;
 static inline int kira_vtd_valid(const kira_vtd_mmio_t *m, uint32_t off, size_t n) {
@@ -42,6 +49,13 @@ static inline int kira_vtd_read32(const kira_vtd_mmio_t *m,uint32_t off,uint32_t
     *v=*(volatile uint32_t *)(void *)(m->base+off);
     return 0;
 }
+
+static inline int kira_vtd_read64(const kira_vtd_mmio_t *m,uint32_t off,uint64_t *v) {
+    if (!v || !kira_vtd_valid(m,off,8) || (off & 7u)) return -1;
+    *v=*(volatile uint64_t *)(void *)(m->base+off);
+    return 0;
+}
+
 static inline int kira_vtd_write32(const kira_vtd_mmio_t *m,uint32_t off,uint32_t v) {
     if (!kira_vtd_valid(m,off,4)) return -1;
     *(volatile uint32_t *)(void *)(m->base+off)=v;
