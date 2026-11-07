@@ -35,6 +35,8 @@ The DMA interface currently uses identity IOVAs and grants read/write access
 to the requested allocation. It does not yet implement per-buffer DMA
 direction, queued invalidation, interrupt remapping, ATS/PASID, scalable mode,
 or non-identity IOVA allocation. Those features are not advertised as enabled.
+Because interrupt remapping is not enabled, KDRV rejects `CAP_IRQ` packages;
+second-level DMA isolation alone is not treated as MSI isolation.
 
 ## Platform boundaries
 
