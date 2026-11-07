@@ -90,7 +90,6 @@ int kbi_validate(const void* blob, uint32_t available) {
 
     if (!h->kernel_phys_base || !h->kernel_size ||
         h->kernel_size > UINT64_MAX - h->kernel_phys_base) return -10;
-    uint64_t kernel_end = h->kernel_phys_base + h->kernel_size;
 
     const kbi_mmap_entry_t* mm =
         (const kbi_mmap_entry_t*)((const uint8_t*)blob + h->mmap_off);
