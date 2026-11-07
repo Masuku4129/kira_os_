@@ -148,7 +148,7 @@ grep -q "удалён" $T/out && [ ! -e $T/drv/rl.kdrv ] || note "remove: $(tail
 # 3a. Если сервер публикует .sig, drvget обязан проверить её до записи пакета.
 # Повреждённая/неполная подпись не должна превращаться в локальную установку.
 run "install $U/rl/drvget.rec"
-HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \\([0-9a-f]\\{64\\}\\)$/\\1/p' $T/out)
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' $T/out)
 [ ${#HASH} = 64 ] || note "signature test: не получен хеш staging-набора"
 printf 'x' > $W/rl/drvget.sig
 run "confirm rl ${HASH:0:8}"
