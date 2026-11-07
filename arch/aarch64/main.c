@@ -1032,7 +1032,7 @@ static const void* find_fdt(uint64_t x0) {
     if (!x0 || (x0 & 7)) return 0;
     probing = 1; probe_failed = 0;
     int ok = *(volatile uint32_t*)(uintptr_t)x0 == 0xEDFE0DD0u;   /* FDT_MAGIC в памяти (большой порядок байт) */
-    if (ok && !probe_failed) ok = fdt_valid((const void*)(uintptr_t)x0, 0);
+    if (ok && !probe_failed) ok = fdt_valid((const void*)(uintptr_t)x0, 4u * 1024u * 1024u);
     probing = 0;
     return ok && !probe_failed ? (const void*)(uintptr_t)x0 : 0;
 }
