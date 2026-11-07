@@ -141,12 +141,31 @@ static uint32_t cfg_u32(vin_t* d, unsigned off) {
     return v;
 }
 
+static void detach(vin_t* d) {
+    if (!d) return;
+    if (d->dev.common) {
+        virtio_fail(&d->dev);
+        if (virtio_reset_device(&d->dev) != 0) return;
+    }
+    if (d->ev && virtio_dma_free(d->ev, d->ev_phys, NBUF * sizeof(vev_t)) == 0) {
+        d->ev = 0; d->ev_phys = 0;
+    }
+    if (d->q.mem) (void)virtio_queue_release(&d->q);
+    if (!d->ev && !d->q.mem) {
+        d->dev = (virtio_dev_t){0};
+        d->q = (virtq_t){0};
+    }
+}
+
 static int attach(vin_t* d, const pci_dev_t* p, int* has_irq) {
-    if (virtio_attach(&d->dev, p) || !d->dev.devcfg || virtio_begin(&d->dev, 0)) return -1;
+    if (virtio_attach(&d->dev, p) || !d->dev.devcfg || virtio_begin(&d->dev, 0)) {
+        detach(d);
+        return -1;
+    }
     uint64_t ma; uint32_t md;
     *has_irq = msi_alloc(p, irq, 0, &ma, &md) == 0 && pci_msix_setup(p, 0, ma, md) == 0;
     if (*has_irq) d->dev.msix_vec = 0;
-    if (virtio_queue_setup(&d->dev, &d->q, 0, NBUF)) return -1;
+    if (virtio_queue_setup(&d->dev, &d->q, 0, NBUF)) { detach(d); return -1; }
     unsigned n = cfg_query(d, CFG_ID_NAME, 0);
     if (n > sizeof d->name - 1) n = sizeof d->name - 1;
     for (unsigned i = 0; i < n; i++) d->name[i] = (char)MMIO_R8(d->dev.devcfg + CFG_DATA + i);
@@ -157,7 +176,7 @@ static int attach(vin_t* d, const pci_dev_t* p, int* has_irq) {
         else { d->amin[a] = 0; d->amax[a] = 32767; }
     }
     d->ev = (vev_t*)virtio_dma_alloc(NBUF * sizeof(vev_t), &d->ev_phys);
-    if (!d->ev) { virtio_fail(&d->dev); return -2; }
+    if (!d->ev) { detach(d); return -2; }
     uint16_t nb = d->q.size < NBUF ? d->q.size : NBUF;
     for (uint16_t i = 0; i < nb; i++) virtq_post(&d->q, i, d->ev_phys + i * sizeof(vev_t), sizeof(vev_t), 1);
     virtio_driver_ok(&d->dev);
@@ -180,6 +199,8 @@ int virtio_input_init(void) {
     if (!ndev) return 0;
     if (!sched_create("vinput", poll_main, 0, PRIO_CRITICAL)) {
         uart_print("[KIRA INPUT] cannot create virtio-input thread: input from these devices is off.\n");
+        for (int i = 0; i < ndev; i++) detach(&devs[i]);
+        ndev = 0; nirq = 0;
         return 0;
     }
     return ndev;
