@@ -139,7 +139,7 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
     kbi_header_t* h=(kbi_header_t*)handoff;
     h->magic=KIRA_BOOTINFO_MAGIC; h->version=KIRA_BOOTINFO_VERSION;
     h->header_size=sizeof(*h); h->total_size=cursor;
-    h->arch=KBI_ARCH_X86_64; h->boot_mode=KBI_BOOT_UEFI;
+    h->arch=KBI_ARCH_X86_64; h->boot_mode=KBI_BOOT_MULTIBOOT2;
     h->mmap_off=mmap_off; h->mmap_count=mmap_count;
     h->mmap_entry_size=sizeof(kbi_mmap_entry_t);
     h->modules_off=modules_off; h->modules_count=modules_count;
@@ -182,7 +182,7 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
     if(fb_tag) {
         const uint8_t* f=b+fb_tag;
         uint8_t kind=f[29];
-        if(kind==1 && rd32(f+4) && rd32(f+8) && rd32(f+12) && (f[28]==15 || f[28]==16 || f[28]==24 || f[28]==32) && size_t(0)==0) {
+        if(kind==1 && rd32(f+16) && rd32(f+20) && rd32(f+24) && size>=38 && (f[28]==15 || f[28]==16 || f[28]==24 || f[28]==32)) {
             /* RGB direct-colour framebuffer: Multiboot2 colour_info follows byte 32. */
             if(rd32(f+4) && rd32(f+8) && rd32(f+12) && rd32(f+4)<=UINT32_MAX) {
                 h->fb_phys=rd64(f+8-4); /* addr begins at tag offset 8 */
