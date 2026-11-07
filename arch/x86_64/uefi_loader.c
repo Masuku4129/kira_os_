@@ -205,7 +205,12 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
         if(!ph[i].memsz||ph[i].filesz>ph[i].memsz||ph[i].offset>size||
            ph[i].filesz>size-ph[i].offset||ph[i].vaddr!=ph[i].paddr||
            ph[i].paddr<0x100000||ph[i].paddr>=ONE_GB||
-           ph[i].memsz>ONE_GB-ph[i].paddr) return -3;
+           ph[i].memsz>ONE_GB-ph[i].paddr||(ph[i].flags&~7u)||
+           ((ph[i].flags&3u)==3u)) return -3;
+        if(ph[i].align>1) {
+            if((ph[i].align&(ph[i].align-1))||
+               ((ph[i].paddr-ph[i].offset)&(ph[i].align-1))) return -3;
+        }
         if((ph[i].flags&1u)&&e->entry>=ph[i].paddr&&e->entry<ph[i].paddr+ph[i].memsz) executable_entry=1;
         for(uint16_t j=0;j<i;j++) if(ph[j].type==1 &&
             ph[i].paddr<ph[j].paddr+ph[j].memsz && ph[j].paddr<ph[i].paddr+ph[i].memsz) return -6;
