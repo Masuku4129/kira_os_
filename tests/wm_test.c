@@ -144,7 +144,7 @@ static void responsive_topbar(void) {
 
 int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
-    wm_ops_t ops = { al, nt, inp, lc, rz, tb };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, rel };
     wm_init(&scr, &ops);
     int x, y, w, h;
     wm_side_item_t side[3] = { { "A", "A", TH_CYAN, ICON_TERMINAL, 0 }, { "Z", "zzz", TH_PURPLE, ICON_AI, 0 }, { "S", "set", TH_TEXT_DIM, ICON_GEAR, 1 } };
