@@ -165,6 +165,16 @@ if command -v lld-link >/dev/null 2>&1; then
     lld-link /subsystem:efi_application /entry:efi_main /nodefaultlib /machine:x64 /out:uefi/EFI/BOOT/BOOTX64.EFI uefi/uefi_loader.obj
     cp kira-uefi.bin uefi/KIRA.BIN
     cp kira-uefi.bin uefi/EFI/BOOT/KIRA.BIN
+    if command -v mkfs.vfat >/dev/null 2>&1 && command -v mcopy >/dev/null 2>&1 && command -v mmd >/dev/null 2>&1; then
+        dd if=/dev/zero of=uefi-fat.img bs=1M count=64 2>/dev/null
+        mkfs.vfat -F 32 uefi-fat.img >/dev/null
+        mmd -i uefi-fat.img ::/EFI
+        mmd -i uefi-fat.img ::/EFI/BOOT
+        mcopy -i uefi-fat.img uefi/EFI/BOOT/BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI
+        mcopy -i uefi-fat.img uefi/KIRA.BIN ::/KIRA.BIN
+        mcopy -i uefi-fat.img uefi/KIRA.BIN ::/EFI/BOOT/KIRA.BIN
+        echo "[*] UEFI FAT32 image written: ./uefi-fat.img"
+    fi
     echo "[*] UEFI removable-media files written to ./uefi"
 else
     echo "[!] lld-link not found: native UEFI loader not built (install LLVM lld-link)."
