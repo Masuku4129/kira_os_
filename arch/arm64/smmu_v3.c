@@ -69,21 +69,25 @@ int smmuv3_queue_init(smmuv3_queue_t *q, volatile void *mmio, size_t mmio_len,
     q->queue_phys = queue_phys;
     q->entries = entries;
     q->producer = 0;
-    uint32_t cr0;
-    if (smmuv3_read32(&q->regs, SMMU_CR0, &cr0)) return -1;
-    if (cr0 & SMMU_CR0_SMMUEN) return -2; /* require disabled device */
+    q->producer_wrap = 0;
+    uint32_t cr0, idr1;
+    if (smmuv3_read32(&q->regs, SMMU_CR0, &cr0) ||
+        smmuv3_read32(&q->regs, SMMU_IDR1, &idr1)) return -1;
+    if (cr0 & (SMMU_CR0_SMMUEN | SMMU_CR0_CMDQEN)) return -2; /* queue and translation must be disabled */
+    uint32_t max_log2 = (idr1 & SMMU_IDR1_CMDQS_MASK) >> SMMU_IDR1_CMDQS_SHIFT;
+    if (log2_entries > max_log2) return -3;
     for (uint32_t i = 0; i < entries; ++i) {
         q->queue[i].qw0 = 0;
         q->queue[i].qw1 = 0;
     }
     __asm__ volatile("dsb oshst" ::: "memory");
     /* CMDQ_BASE: address[51:6], queue-size logarithm in bits [5:0]. */
-    if (queue_phys & ~0x000fffffffffffc0ull) return -1;
+    if (queue_phys & ~0x000fffffffffffc0ull ||
+        queue_phys > 0x000fffffffffffffull - (uint64_t)(bytes - 1u)) return -1;
     uint64_t base = (queue_phys & SMMU_CMDQ_BASE_ADDR_MASK) |
                     (uint64_t)(log2_entries & 0x3fu);
     if (smmuv3_write64(&q->regs, SMMU_CMDQ_BASE, base) ||
-        smmuv3_write32(&q->regs, SMMU_CMDQ_PROD, 0) ||
-        smmuv3_write32(&q->regs, SMMU_CMDQ_CONS, 0))
+        smmuv3_write32(&q->regs, SMMU_CMDQ_PROD, 0))
         return -1;
     return 0;
 }
