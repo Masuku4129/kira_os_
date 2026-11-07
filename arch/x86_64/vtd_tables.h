@@ -66,13 +66,54 @@ static inline unsigned kira_vtd_pt_index(uint64_t iova, unsigned level) {
 
 /* Install a 4 KiB leaf in an already allocated level-1 page table.
  * Upper-level tables must be linked by the caller with R|W permissions. */
+typedef kira_vtd_pt_t *(*kira_vtd_resolve_fn)(void *ctx, uint64_t physical);
+typedef kira_vtd_pt_t *(*kira_vtd_alloc_fn)(void *ctx, uint64_t *physical);
+
+typedef struct {
+    void *ctx;
+    kira_vtd_resolve_fn resolve;
+    kira_vtd_alloc_fn alloc;
+} kira_vtd_pt_ops_t;
+
 static inline int kira_vtd_link_table(kira_vtd_pt_t *parent,
-                                       uint64_t iova, uint64_t child_phys) {
-    if (!parent || !kira_vtd_phys_page_valid(child_phys)) return -1;
-    uint64_t *slot = &parent->entry[kira_vtd_pt_index(iova, 1)];
+                                       uint64_t iova, unsigned level,
+                                       uint64_t child_phys) {
+    if (!parent || level == 0 || level > 3 ||
+        !kira_vtd_phys_page_valid(child_phys)) return -1;
+    uint64_t *slot = &parent->entry[kira_vtd_pt_index(iova, level)];
     if (*slot & (KIRA_VTD_R | KIRA_VTD_W)) return -2;
     *slot = child_phys | KIRA_VTD_R | KIRA_VTD_W;
     return 0;
+}
+
+/* Walk or allocate a complete four-level second-level page-table path.
+ * The allocator must return a zeroable, identity-resolvable page and its
+ * physical address. The resolver must map previously installed table pages. */
+static inline int kira_vtd_map_4k_walk(kira_vtd_pt_t *root,
+                                       uint64_t iova, uint64_t phys,
+                                       int writable, int snoop,
+                                       const kira_vtd_pt_ops_t *ops) {
+    if (!root || !ops || !ops->resolve || !ops->alloc ||
+        iova >= (1ull << 48) || (iova & 0xfffu) ||
+        !kira_vtd_phys_page_valid(phys)) return -1;
+    kira_vtd_pt_t *table = root;
+    for (unsigned level = 3; level > 0; level--) {
+        uint64_t *slot = &table->entry[kira_vtd_pt_index(iova, level)];
+        if (*slot & (KIRA_VTD_R | KIRA_VTD_W)) {
+            if (*slot & (1ull << 7)) return -3; /* large-page entry: never reinterpret */
+            uint64_t child_phys = *slot & KIRA_VTD_ADDR_MASK;
+            table = ops->resolve(ops->ctx, child_phys);
+            if (!table) return -4;
+        } else {
+            uint64_t child_phys = 0;
+            kira_vtd_pt_t *child = ops->alloc(ops->ctx, &child_phys);
+            if (!child || !kira_vtd_phys_page_valid(child_phys)) return -5;
+            for (unsigned i = 0; i < KIRA_VTD_ENTRIES; i++) child->entry[i] = 0;
+            *slot = child_phys | KIRA_VTD_R | KIRA_VTD_W;
+            table = child;
+        }
+    }
+    return kira_vtd_map_4k(table, iova, phys, writable, snoop);
 }
 
 static inline int kira_vtd_map_4k(kira_vtd_pt_t *pt, uint64_t iova,
