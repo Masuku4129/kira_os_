@@ -67,6 +67,8 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
    -2: platform DMA pool has no release hook; buffer remains owned by that pool.
    -3: internal registry state changed unexpectedly during release. */
 int   virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes);
+int   virtio_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes);
+int   virtio_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes);
 
 /* Блочное устройство virtio-blk. NULL - такого устройства нет или оно не поднялось. */
 struct blk_dev;
