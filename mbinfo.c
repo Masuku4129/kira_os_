@@ -77,6 +77,7 @@ const void* mbinfo_find_tag(unsigned long mbi, uint32_t type) {
     if (total < 16 || (total & 7) || base > UINTPTR_MAX - total) return 0;
 
     const uint8_t* p = (const uint8_t*)(base + 8);
+    const void* found = 0;
     uint32_t remaining = total - 8;
     while (remaining >= 8) {
         const uint32_t* h = (const uint32_t*)p;
@@ -86,12 +87,12 @@ const void* mbinfo_find_tag(unsigned long mbi, uint32_t type) {
 
         if (tag_type == 0) {
             if (tag_size != 8 || remaining != 8) return 0;
-            return 0; /* End tag — целевой тег не найден. */
+            return found; /* Весь блок проверен; end tag корректен и стоит последним. */
         }
 
         const uint64_t padded = ((uint64_t)tag_size + 7u) & ~7ULL;
         if (padded > remaining) return 0;
-        if (tag_type == type) return p;
+        if (tag_type == type && !found) found = p;
 
         p += (size_t)padded;
         remaining -= (uint32_t)padded;
