@@ -343,7 +343,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
     if(EFI_ERROR(rc)) {
         /* Firmware may invalidate the key; rebuild from a fresh map without
            allocating or freeing anything, then retry exactly once. */
-        br=build_mbi(bs,st,image,mbi,MB2_INFO_MAX,mapbuf,MB2_INFO_MAX,&mapkey);
+        br=build_mbi(bs,st,mbi,MB2_INFO_MAX,mapbuf,1024u*1024u,&mapkey);
         if(br) return (EFI_STATUS)0x8000000000002002ull;
         rc=bs->exit_boot_services(image,mapkey);
         if(EFI_ERROR(rc)) return rc;
