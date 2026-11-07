@@ -439,12 +439,27 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
     return 0;
 }
 
+static int virtio_pci_is_quiesced(virtio_dev_t* v) {
+    if (!v || !v->pci) return 0;
+    if (pci_read16(v->pci, 0x04) & PCI_CMD_MASTER) return 0;
+    uint8_t id;
+    uint16_t cap = 0;
+    for (unsigned n = 0; n < 48 && (cap = pci_next_cap(v->pci, cap, &id)) != 0; n++) {
+        if (id == 0x05 && (pci_read16(v->pci, (uint16_t)(cap + 2)) & 1u))
+            return 0;
+        if (id == 0x11 && (pci_read16(v->pci, (uint16_t)(cap + 2)) & 0x8000u))
+            return 0;
+    }
+    return 1;
+}
+
 int virtio_queue_release(virtq_t* q) {
     if (!q || !q->mem || !q->mem_phys || !q->mem_bytes || !q->dev)
         return -1;
     /* Queue memory is device-writable. Never return it to PMM while the
        device may still own the queue or have outstanding DMA transactions. */
     if (status_get(q->dev) != 0) return -2;
+    if (!virtio_pci_is_quiesced(q->dev)) return -3;
     int rc = virtio_dma_free(q->mem, q->mem_phys, q->mem_bytes);
     if (rc != 0) return rc;
     *q = (virtq_t){0};
