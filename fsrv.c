@@ -27,6 +27,26 @@ int fsrv_name_ok(const char* n) {
     return 1;
 }
 
+/* Include files may be nested, but every path component is checked so the
+   compiler cannot escape /etc/kcc/include through traversal syntax. */
+static int fsrv_include_name_ok(const char *n) {
+    size_t len=slen(n);
+    if(!len||len>FSRV_NAME_MAX||n[0]=='/'||n[0]=='\\\\') return 0;
+    size_t part=0;
+    for(size_t i=0;i<=len;i++) {
+        char c=n[i];
+        if(c=='/'||c==0) {
+            size_t width=i-part;
+            if(!width||(width==1&&n[part]=='.')||
+               (width==2&&n[part]=='.'&&n[part+1]=='.')) return 0;
+            if(c==0) return 1;
+            part=i+1;
+        } else if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||
+                    (c>='0'&&c<='9')||c=='_'||c=='-'||c=='.')) return 0;
+    }
+    return 0;
+}
+
 int fsrv_local_name(const char* file, char out[16]) {
     if (!fsrv_name_ok(file)) return 0;
     unsigned n = 0;
@@ -398,11 +418,11 @@ static int64_t grant_op(const fsrv_user_req_t* u) {
 
 /* Общие файлы системы для всех программ - только чтение и только из /etc/ssl (хранилище корневых сертификатов).
    Имя - одно имя файла по правилам песочницы (без «/» и «..»), путь собирает ядро. */
-static int64_t sys_op(const fsrv_user_req_t* u, const char* pre) {
+static int64_t sys_op(const fsrv_user_req_t* u, const char* pre, int allow_nested) {
     char name[FSRV_NAME_MAX + 1], path[24 + FSRV_NAME_MAX];
     if (u->name_len == 0 || u->name_len > FSRV_NAME_MAX || copy_from_user(name, u->name_ptr, u->name_len) != 0) return FS_E_ARG;
     name[u->name_len] = 0;
-    if (!fsrv_name_ok(name)) return FS_E_DENIED;
+    if (!(allow_nested ? fsrv_include_name_ok(name) : fsrv_name_ok(name))) return FS_E_DENIED;
     unsigned n = 0;
     while (pre[n]) { path[n] = pre[n]; n++; }
     for (unsigned i = 0; name[i]; i++) path[n++] = name[i];
@@ -425,13 +445,17 @@ int64_t fsrv_syscall(uint64_t up) {
     fsrv_user_req_t u;                                                           /* своя копия: программа не изменит её во время проверки */
     if (copy_from_user(&u, up, sizeof u) != 0) return FS_E_ARG;
     uint32_t caps = proc_current_caps();
-    if (u.op == FS_OP_SYS_READ || u.op == FS_OP_SYS_STAT) { if (!(caps & CAP_SYSFILES)) return proc_cap_denied(CAP_SYSFILES, 10), FS_E_DENIED; return sys_op(&u, "/etc/ssl/"); }
+    if (u.op == FS_OP_SYS_READ || u.op == FS_OP_SYS_STAT) { if (!(caps & CAP_SYSFILES)) return proc_cap_denied(CAP_SYSFILES, 10), FS_E_DENIED; return sys_op(&u, "/etc/ssl/", 0); }
     if (u.op == FS_OP_INC_READ || u.op == FS_OP_INC_STAT) {       /* заголовки для компилятора: только kcc (имя известно ядру по манифесту) и только при CAP_FS */
         const char* who = proc_current_name();
         int is_kcc = who && who[0] == 'k' && who[1] == 'c' && who[2] == 'c' && !who[3];
+        int is_kcc_selfhost = who && who[0] == 'k' && who[1] == 'c' && who[2] == 'c' &&
+            who[3] == '-' && who[4] == 's' && who[5] == 'e' && who[6] == 'l' &&
+            who[7] == 'f' && who[8] == 'h' && who[9] == 'o' && who[10] == 's' &&
+            who[11] == 't' && !who[12];
         int is_drvget = drv_tool(who);   /* drvget и drvman собирают драйвер тем же компилятором, встроенным в них */
-        if (!(caps & CAP_FS) || !(is_kcc || is_drvget)) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
-        return sys_op(&u, "/etc/kcc/include/");
+        if (!(caps & CAP_FS) || !(is_kcc || is_kcc_selfhost || is_drvget)) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
+        return sys_op(&u, "/etc/kcc/include/", 1);
     }
     if (u.op >= FS_OP_DRV_STAT && u.op <= FS_OP_DRV_LAST) {      /* пакеты драйверов в /drv: только drvget и drvman (имя известно ядру по манифесту) и только при CAP_FS */
         if (!(caps & CAP_FS) || !drv_tool(proc_current_name())) return proc_cap_denied(CAP_FS, 10), FS_E_DENIED;
