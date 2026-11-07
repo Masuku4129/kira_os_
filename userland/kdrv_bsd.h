@@ -105,5 +105,12 @@ static inline u32 if_dequeue(struct ifnet* ifp, u8* buf, u32 max) {
 }
 static inline int if_tx_pending(struct ifnet* ifp) { return __atomic_load_n(&ifp->ctl->tx_head, __ATOMIC_ACQUIRE) != ifp->ctl->tx_tail; }
 /* ждать: звонок передачи от ядра (KDRV_EV_TX), прерывание или срок (в 10 мс); результат - события, KE_TIMEOUT или KE_INTR (драйвер завершают) */
-static inline i64 kd_wait(u64 ticks10ms) { return kdrv_irq_wait(ticks10ms); }
+static inline i64 kd_wait(u64 ticks10ms) {
+    i64 r = kdrv_irq_wait(ticks10ms);
+    if (r == KE_PERM) {
+        i64 sr = ksys(K_SLEEP, ticks10ms ? ticks10ms : 1u, 0, 0);
+        return sr == KE_INTR ? KE_INTR : KE_TIMEOUT;
+    }
+    return r;
+}
 #endif
