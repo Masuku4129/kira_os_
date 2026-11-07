@@ -36,6 +36,10 @@ struct kira_smmu {
     /* Controller-owned linear stream table shared by every domain. */
     void *stream_table;
     uint64_t stream_table_physical;
+    /* Raw over-allocation retained so the aligned table can be freed safely. */
+    void *stream_table_allocation;
+    uint64_t stream_table_allocation_physical;
+    size_t stream_table_allocation_pages;
     uint32_t stream_table_lock;
     /* Serializes CMDQ publication through matching CMD_SYNC completion. */
     uint32_t cmdq_lock;
