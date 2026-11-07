@@ -145,7 +145,9 @@ int main(void){
         CHECK(pmm_add_high(0x13FF00000ULL, 0x140100000ULL) == -1);               // выходит за диапазон
         CHECK(pmm_add_high(0x50000000ULL, 0x50200000ULL) == -1);                 // не ОЗУ выше 1 ГБ
         CHECK(pmm_add_high(0x100000001ULL, 0x100002000ULL) == -1);               // не выровнен
-        CHECK(pmm_get_free_memory_kb() == 2046 * 4);\n        CHECK(pmm_free_page(0x100100000ULL)==-1);\n        CHECK(pmm_free_page(0x100101000ULL)==-1);
+        CHECK(pmm_get_free_memory_kb() == 2047 * 4);
+        CHECK(pmm_free_page(0x100100000ULL)==-1);
+        CHECK(pmm_free_page(0x100101000ULL)==-1);
         uint64_t a = pmm_alloc_page();
         CHECK(a >= 0x100000000ULL && a < 0x100000000ULL + (8ULL<<20));
         CHECK(a != 0x100100000ULL);
