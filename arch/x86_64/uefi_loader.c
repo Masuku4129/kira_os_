@@ -311,6 +311,49 @@ static int build_bootinfo(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
     *blob_size_out=blob_size;
     return 0;
 }
+/* After a failed ExitBootServices call, firmware may have shut down
+   services other than GetMemoryMap/ExitBootServices. Refresh only the map;
+   never locate protocols, allocate, free, or touch files on this retry path. */
+static int refresh_bootinfo_after_exit_failure(EFI_BOOT_SERVICES *bs,
+                          void *blob,uint64_t blob_capacity,
+                          void *mapbuf,uint64_t map_capacity,
+                          uint64_t kernel_base,uint64_t kernel_end,
+                          uint64_t *mapkey_out,uint32_t *blob_size_out) {
+    kbi_header_t saved;
+    copy_mem(&saved,blob,sizeof(saved));
+    uint64_t map_size=map_capacity,mapkey=0,desc_size=0;
+    uint32_t desc_ver=0;
+    EFI_STATUS rc=bs->get_memory_map(&map_size,mapbuf,&mapkey,&desc_size,&desc_ver);
+    if(EFI_ERROR(rc)||desc_size<sizeof(EFI_MEMORY_DESCRIPTOR)||!desc_size||
+       map_size%desc_size||map_size>UINT32_MAX||desc_size>UINT32_MAX) return -1;
+    uint32_t blob_size=0;
+    int br=kbi_from_uefi_memory_map(mapbuf,(uint32_t)map_size,(uint32_t)desc_size,
+        saved.rsdp_phys,kernel_base,kernel_end-kernel_base,
+        blob,(uint32_t)blob_capacity,&blob_size);
+    if(br||!blob_size) return -2;
+    kbi_header_t *h=(kbi_header_t*)blob;
+    if(saved.flags&KBI_F_FRAMEBUFFER) {
+        h->flags|=KBI_F_FRAMEBUFFER;
+        h->fb_phys=saved.fb_phys;
+        h->fb_size=saved.fb_size;
+        h->fb_width=saved.fb_width;
+        h->fb_height=saved.fb_height;
+        h->fb_pitch=saved.fb_pitch;
+        h->fb_bpp=saved.fb_bpp;
+        h->fb_red_pos=saved.fb_red_pos;
+        h->fb_red_size=saved.fb_red_size;
+        h->fb_green_pos=saved.fb_green_pos;
+        h->fb_green_size=saved.fb_green_size;
+        h->fb_blue_pos=saved.fb_blue_pos;
+        h->fb_blue_size=saved.fb_blue_size;
+        h->fb_reserved=saved.fb_reserved;
+    }
+    if(kbi_validate(blob,blob_size)!=0) return -3;
+    *mapkey_out=mapkey;
+    *blob_size_out=blob_size;
+    return 0;
+}
+
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
     EFI_BOOT_SERVICES *bs=st->boot_services;
     if(bs->set_watchdog_timer) (void)bs->set_watchdog_timer(0,0,0,0);
@@ -334,8 +377,9 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
     if(EFI_ERROR(rc)) {
         /* Firmware may invalidate the key; rebuild from a fresh map without
            allocating or freeing anything, then retry exactly once. */
-        br=build_bootinfo(bs,st,mbi,BOOTINFO_MAX,mapbuf,1024u*1024u,
-                          kernel_base,kernel_end,&mapkey,&bootinfo_size);
+        br=refresh_bootinfo_after_exit_failure(bs,mbi,BOOTINFO_MAX,
+                          mapbuf,1024u*1024u,kernel_base,kernel_end,
+                          &mapkey,&bootinfo_size);
         if(br||!bootinfo_size) return (EFI_STATUS)0x8000000000002002ull;
         rc=bs->exit_boot_services(image,mapkey);
         if(EFI_ERROR(rc)) return rc;
