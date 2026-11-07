@@ -69,6 +69,15 @@ typedef struct __attribute__((packed)) {
     uint64_t physical_start, virtual_start, number_of_pages, attribute;
 } kbi_uefi_memory_desc_t;
 
+typedef struct __attribute__((packed)) {
+    uint64_t base, length;
+    uint32_t type, attributes;
+} kbi_e820_entry_t;
+
+int kbi_from_e820_map(const kbi_e820_entry_t *entries, uint32_t entry_count,
+                      uint64_t kernel_base, uint64_t kernel_size,
+                      void *out, uint32_t capacity, uint32_t *out_size);
+
 int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
                             uint32_t descriptor_size, uint64_t rsdp_phys,
                             uint64_t kernel_base, uint64_t kernel_size,
