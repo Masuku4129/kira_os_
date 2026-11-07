@@ -56,10 +56,13 @@ static unsigned build(void) {
       begin("chosen"); pstr("stdout-path", "/pl011@9000000", 15); pstr("bootargs", "console=ttyAMA0", 16); end();
     end();
     w32(9);
-    unsigned off_struct = 40 + 16, off_str = off_struct + sn, total = off_str + tn;
+    unsigned off_struct = 40 + 32, off_str = off_struct + sn, total = off_str + tn;
     memset(blob, 0, sizeof blob);
     be(blob, FDT_MAGIC); be(blob + 4, total); be(blob + 8, off_struct); be(blob + 12, off_str); be(blob + 16, 40);
     be(blob + 20, 17); be(blob + 24, 16); be(blob + 28, 0); be(blob + 32, tn); be(blob + 36, sn);
+    /* One firmware-reserved physical range, followed by the mandatory (0,0) terminator. */
+    be(blob + 40, 0); be(blob + 44, 0x1000); be(blob + 48, 0); be(blob + 52, 0x2000);
+    be(blob + 56, 0); be(blob + 60, 0); be(blob + 64, 0); be(blob + 68, 0);
     memcpy(blob + off_struct, sb, sn); memcpy(blob + off_str, st, tn);
     return total;
 }
@@ -99,6 +102,11 @@ int main(void) {
     fdt_fb_t fb;
     CHECK(fdt_simplefb(blob, &fb) == 0 && fb.base == 0x3c000000 && fb.width == 800 && fb.height == 600 &&
           fb.stride == 3200 && !strcmp(fb.format, "a8r8g8b8"));          /* выключенный узел пропущен */
+    uint64_t reserve_base = 0, reserve_size = 0;
+    CHECK(fdt_reserve_count(blob) == 1);
+    CHECK(fdt_reserve(blob, 0, &reserve_base, &reserve_size) == 0 &&
+          reserve_base == 0x1000 && reserve_size == 0x2000);
+    CHECK(fdt_reserve(blob, 1, &reserve_base, &reserve_size) != 0);
 
     /* reg ranges with wrapped 64-bit physical ends are rejected. */
     {
@@ -127,8 +135,8 @@ int main(void) {
     memcpy(bad, blob, sizeof bad); be(bad + 36, total); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 12, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* strings alias structure */
     memcpy(bad, blob, sizeof bad); be(bad + 16, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* reserve map aliases structure */
-    memcpy(bad, blob, sizeof bad); be(bad + 40, 1); be(bad + 48, 0x1000); CHECK(!fdt_valid(bad, sizeof bad)); /* missing reserve terminator */
-    memcpy(bad, blob, sizeof bad); be(bad + 56 + 4 + 0, 0x7FFFFFFF);  /* длина первого свойства за пределами */
+    memcpy(bad, blob, sizeof bad); be(bad + 60, 1); be(bad + 68, 0x1000); CHECK(!fdt_valid(bad, sizeof bad)); /* missing reserve terminator */
+    memcpy(bad, blob, sizeof bad); be(bad + fdt_u32(bad + 8) + 12, 0x7FFFFFFF);  /* длина первого свойства за пределами */
     CHECK(fdt_valid(bad, sizeof bad) && fdt_prop(bad, fdt_root(bad), "#address-cells", &len) == 0);
     /* обход с испорченными данными не уходит за блок */
     int depth = 0, n = fdt_root(bad), steps = 0;
