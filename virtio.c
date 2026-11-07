@@ -83,19 +83,16 @@ static int dma_register(void* cpu, uint64_t phys, uint32_t bytes,
     return result;
 }
 
+#ifndef KIRA_HOST_TEST
 static void dma_release_unregistered(void* cpu, uint64_t phys,
                                      uint32_t pages, uint8_t owner) {
-    if (owner == DMA_OWNER_HOST) free(cpu);
-#ifndef KIRA_HOST_TEST
-    else if (owner == DMA_OWNER_PLATFORM) {
+    if (owner == DMA_OWNER_PLATFORM) {
         if (platform_dma_free) platform_dma_free(cpu, phys, pages * 4096u);
     } else if (owner == DMA_OWNER_PMM) {
         (void)pmm_free_contiguous(phys, pages);
     }
-#else
-    (void)phys; (void)pages;
-#endif
 }
+#endif
 
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
     if (!bytes || !phys || bytes > UINT32_MAX - 4095u) return 0;
