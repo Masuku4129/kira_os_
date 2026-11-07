@@ -10,6 +10,7 @@
 #                               диск в Download обновляется на месте - /bin новый, опыт (/var) и файлы программ (/data) сохраняются.
 #                               Папку можно задать: KIRA_OUT=/путь ./build_clang.sh --android
 set -e
+python3 tools/kdrvtrust.py keys/kdrv-publishers.json --output kdrv_trust.h --check
 
 CC="clang --target=x86_64-unknown-none-elf"
 COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -O2 -Wall -Wextra -Werror"
