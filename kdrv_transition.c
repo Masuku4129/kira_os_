@@ -6,6 +6,11 @@ static int ct_equal(const uint8_t *a, const uint8_t *b, size_t n) {
     for (size_t i = 0; i < n; i++) d |= (uint8_t)(a[i] ^ b[i]);
     return d == 0;
 }
+static int all_zero(const uint8_t *p, size_t n) {
+    uint8_t v = 0;
+    for (size_t i = 0; i < n; i++) v |= p[i];
+    return v == 0;
+}
 static void le64(uint8_t *p, uint64_t v) {
     for (unsigned i = 0; i < 8; i++) p[i] = (uint8_t)(v >> (i * 8));
 }
@@ -24,9 +29,10 @@ int kdrv_transition_verify(const kdrv_transition_t *t,
     if (now <= 0) return KDRV_SIG_E_TIME;
     if ((uint64_t)now < t->not_before) return KDRV_SIG_E_NOT_YET;
     if ((uint64_t)now >= t->not_after) return KDRV_SIG_E_EXPIRED;
-    if (ct_equal(t->old_key_id, t->new_key_id, KDRV_SIG_KEY_ID_SIZE) ||
-        !ct_equal(t->new_public_key, t->new_public_key, sizeof t->new_public_key) ||
-        !t->new_public_key[0] && !t->new_public_key[1] && !t->new_public_key[2])
+    if (all_zero(t->old_key_id, sizeof t->old_key_id) ||
+        all_zero(t->new_key_id, sizeof t->new_key_id) ||
+        all_zero(t->new_public_key, sizeof t->new_public_key) ||
+        ct_equal(t->old_key_id, t->new_key_id, KDRV_SIG_KEY_ID_SIZE))
         return KDRV_SIG_E_FORMAT;
 
     const kdrv_sig_key_t *old = 0;
