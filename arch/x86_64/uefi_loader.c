@@ -21,6 +21,7 @@
 #define EFI_PAGE_SIZE 4096u
 #define EFI_MEMORY_RP 0x0000000000002000ull
 #define EFI_MEMORY_XP 0x0000000000004000ull
+#define EFI_MEMORY_RO 0x0000000000020000ull
 #define BOOTINFO_MAX (256u * 1024u)
 #define KERNEL_MAX (64u * 1024u * 1024u)
 #define ONE_GB 0x40000000ull
@@ -302,23 +303,38 @@ static int load_elf(EFI_BOOT_SERVICES *bs,const uint8_t *file,uint64_t size,
         release_loaded_kernel(bs);
         return -7;
     }
-    for(uint16_t i=0;i<e->phnum;i++) if(ph[i].type==1&&(ph[i].flags&1u)) {
+    for(uint16_t i=0;i<e->phnum;i++) if(ph[i].type==1) {
         uint64_t segment_base=ph[i].paddr&~(uint64_t)(EFI_PAGE_SIZE-1);
         uint64_t segment_end=align_up(ph[i].paddr+ph[i].memsz,EFI_PAGE_SIZE);
+        uint64_t segment_length=segment_end-segment_base;
         uint64_t memory_attributes=0;
         attr_status=attributes->get_memory_attributes(attributes,segment_base,
-                              segment_end-segment_base,&memory_attributes);
+                              segment_length,&memory_attributes);
         if(EFI_ERROR(attr_status)||(memory_attributes&EFI_MEMORY_RP))
             goto executable_attribute_error;
-        if(memory_attributes&EFI_MEMORY_XP) {
-            attr_status=attributes->clear_memory_attributes(attributes,
-                    segment_base,segment_end-segment_base,EFI_MEMORY_XP);
-            if(EFI_ERROR(attr_status)) goto executable_attribute_error;
+        if(ph[i].flags&1u) {
+            if(memory_attributes&EFI_MEMORY_XP) {
+                attr_status=attributes->clear_memory_attributes(attributes,
+                        segment_base,segment_length,EFI_MEMORY_XP);
+                if(EFI_ERROR(attr_status)) goto executable_attribute_error;
+            }
             memory_attributes=0;
             attr_status=attributes->get_memory_attributes(attributes,segment_base,
-                                  segment_end-segment_base,&memory_attributes);
+                                  segment_length,&memory_attributes);
             if(EFI_ERROR(attr_status)||
                (memory_attributes&(EFI_MEMORY_RP|EFI_MEMORY_XP)))
+                goto executable_attribute_error;
+        } else if(ph[i].flags&2u) {
+            if(memory_attributes&EFI_MEMORY_RO) {
+                attr_status=attributes->clear_memory_attributes(attributes,
+                        segment_base,segment_length,EFI_MEMORY_RO);
+                if(EFI_ERROR(attr_status)) goto executable_attribute_error;
+            }
+            memory_attributes=0;
+            attr_status=attributes->get_memory_attributes(attributes,segment_base,
+                                  segment_length,&memory_attributes);
+            if(EFI_ERROR(attr_status)||
+               (memory_attributes&(EFI_MEMORY_RP|EFI_MEMORY_RO)))
                 goto executable_attribute_error;
         }
     }
