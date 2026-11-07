@@ -1174,6 +1174,13 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     pmm_arm_init((const pmm_arm_region_t*)ram, nram, lo, hi, map, (uint64_t)(uintptr_t)__kernel_start, (uint64_t)(uintptr_t)__kernel_end);
     pmm_arm_reserve((uint64_t)(uintptr_t)fdt, (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt));
     pmm_arm_reserve(bump_start, bump);
+    /* Firmware memreserve entries are separate from /reserved-memory nodes. */
+    for (unsigned i = 0; i < fdt_reserve_count(fdt); i++) {
+        uint64_t base = 0, size = 0;
+        if (fdt_reserve(fdt, i, &base, &size) || base > UINT64_MAX - size)
+            kernel_panic("invalid FDT memory reservation");
+        pmm_arm_reserve(base, base + size);
+    }
     if (dma_lo) pmm_arm_reserve(dma_lo, dma_hi);                 /* пул DMA - не для pmm */
     arm_fb_reserve(fdt, pmm_arm_reserve);                        /* кадр simple-framebuffer, /reserved-memory */
     arm_fb_init(fdt);
