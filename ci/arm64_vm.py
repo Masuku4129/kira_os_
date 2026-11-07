@@ -140,8 +140,8 @@ SC = [
                ("@log \\[KIRA DRV\\] abad: SHA-256 не совпал с записью /drv/abad\\.rec - драйвер НЕ запущен", []),
                ("@log \\[KIRA DRV\\] eduun: пакет отклонён \\(установка не подтверждена пользователем\\)", []),
                ("@log \\[KIRA DRV\\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu", []),
-               ("@log drvedu: DMA denied without IOMMU (fail-closed PASS)", []),
-               ("@log drvedu: IRQ/MSI unavailable without isolation (fail-closed PASS)", []),
+               ("@log drvedu: DMA denied: CAP_DMA not granted \\(least-privilege PASS\\)", []),
+               ("@log drvedu: IRQ/MSI capability not granted \\(least-privilege PASS\\)", []),
                ("@log drvedu: PASS", []),
                ("drv stop edu", []), ("@sleep 2", []),
                # MMIO-only пакет может стартовать; попытки DMA/MSI обязаны получить отказ.
