@@ -17,11 +17,13 @@ static uint32_t kbi_mem_type(UINT32 type)
 {
     switch (type) {
     case EfiConventionalMemory:
+        return KBI_MEM_USABLE;
     case EfiLoaderCode:
     case EfiLoaderData:
     case EfiBootServicesCode:
     case EfiBootServicesData:
-        return KBI_MEM_USABLE;
+        /* Keep loader-owned pages reserved until the kernel copies the handoff. */
+        return KBI_MEM_BOOTLOADER;
     case EfiACPIReclaimMemory:
         return KBI_MEM_ACPI_RECLAIM;
     case EfiACPIMemoryNVS:
