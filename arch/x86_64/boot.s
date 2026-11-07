@@ -114,6 +114,28 @@ bits 64
 global uefi_entry
 uefi_entry:
     cli
+    ; UEFI page tables are firmware-owned. Install KIRA's 1 GiB identity map
+    ; before switching to the kernel stack or touching physical boot data.
+    mov rax, pdpt_table
+    or rax, 3
+    mov [pml4_table], rax
+    mov rax, pd_table
+    or rax, 3
+    mov [pdpt_table], rax
+    xor ecx, ecx
+.uefi_map_pages:
+    mov eax, ecx
+    shl eax, 21
+    or eax, 0x83
+    mov [pd_table + rcx * 8], rax
+    inc ecx
+    cmp ecx, 512
+    jl .uefi_map_pages
+    mov rax, cr4
+    or rax, 32
+    mov cr4, rax
+    mov rax, pml4_table
+    mov cr3, rax
     mov rsp, stack_top
     and rsp, -16
     mov rdi, rcx
