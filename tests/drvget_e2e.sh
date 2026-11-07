@@ -153,7 +153,7 @@ HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + фа
 printf 'x' > $W/rl/drvget.sig
 run "confirm rl ${HASH:0:8}"
 grep -q "неверный размер .sig" $T/out || note "malformed publisher signature was not rejected: $(tail -c 300 $T/out)"
-[ -z "$(ls $T/drv)" ] || note "malformed publisher signature installed a package"
+[ -z "$(ls -A $T/drv)" ] || note "malformed publisher signature left files in /drv: $(ls -la $T/drv)"
 rm -f $W/rl/drvget.sig
 
 # 4. честные отказы
