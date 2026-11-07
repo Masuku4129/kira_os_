@@ -355,31 +355,33 @@ int vtd_dma_map(const pci_dev_t *device,uint64_t physical,uint64_t length) {
     for(;mapped<length;mapped+=KIRA_VTD_PAGE_SIZE) {
         if(kira_vtd_map_4k_walk(d->root,physical+mapped,physical+mapped,
                                 1,1,&pt_ops)!=0) {
-            while(mapped) {
-                mapped-=KIRA_VTD_PAGE_SIZE;
-                (void)kira_vtd_unmap_4k_walk(d->root,physical+mapped,
-                                             vtd_resolve_pt,0,0);
-            }
-            (void)vtd_invalidate(&units[d->unit]);
+            /* Return -3 only when stale IOTLB entries may still reference the
+               range. The caller must pin it and retry unmap before page reuse. */
+            if(vtd_dma_unmap(device,physical,mapped)!=0) return -3;
             return -2;
         }
     }
     if(vtd_invalidate(&units[d->unit])!=0) {
-        (void)vtd_dma_unmap(device,physical,length);
-        return -3;
+        if(vtd_dma_unmap(device,physical,length)!=0) return -3;
+        return -2;
     }
     return 0;
 }
 
 int vtd_dma_unmap(const pci_dev_t *device,uint64_t physical,uint64_t length) {
     vtd_domain_t *d=vtd_find_domain(device);
-    if(!d||!d->isolated||!length||(physical&0xfffu)||(length&0xfffu)||
-       physical>UINT64_MAX-length) return -1;
+    if(!d||!d->isolated||!units[d->unit].enabled||!length||
+       (physical&0xfffu)||(length&0xfffu)||physical>UINT64_MAX-length)
+        return -1;
     int rc=0;
-    for(uint64_t off=0;off<length;off+=KIRA_VTD_PAGE_SIZE)
-        if(kira_vtd_unmap_4k_walk(d->root,physical+off,
-                                  vtd_resolve_pt,0,0)!=0) rc=-2;
-    if(vtd_invalidate(&units[d->unit])!=0) rc=-3;
+    for(uint64_t off=0;off<length;off+=KIRA_VTD_PAGE_SIZE) {
+        int urc=kira_vtd_unmap_4k_walk(d->root,physical+off,
+                                       vtd_resolve_pt,0,0);
+        /* -2 means a previous attempt already cleared the PTE; still flush
+           the IOTLB because the hardware may retain the old translation. */
+        if(urc!=0&&urc!=-2) rc=-2;
+    }
+    if(vtd_invalidate(&units[d->unit])!=0) return -3;
     return rc;
 }
 
