@@ -33,7 +33,7 @@ static uint32_t caps_of(const char* s) {
 }
 
 int main(int argc, char** argv) {
-    if (argc < 5) { fprintf(stderr, "использование: kdrvpack ИМЯ драйвер.elf выход.kdrv выход.rec --pci VVVV:DDDD --caps mmio,irq,dma,pcidev,netdev [--confirm]\n"); return 2; }
+    if (argc < 5) { fprintf(stderr, "использование: kdrvpack ИМЯ драйвер.elf выход.kdrv выход.rec --pci VVVV:DDDD --caps mmio,irq,dma,pcidev,netdev [--confirm] [--publisher-required]\n"); return 2; }
     kdrv_header_t h; memset(&h, 0, sizeof h);
     kdrv_rec_t r; memset(&r, 0, sizeof r);
     h.magic = KDRV_MAGIC; h.format = KDRV_FORMAT; h.hdr_size = sizeof h; h.version = 1;
