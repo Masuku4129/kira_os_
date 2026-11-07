@@ -175,11 +175,16 @@ static int dma_validate_range(void* cpu, uint64_t phys, uint32_t bytes) {
     dma_lock();
     for (unsigned i = 0; i < DMA_ALLOCATION_SLOTS; i++) {
         dma_allocation_t* a = &dma_allocations[i];
-        if (a->cpu == cpu && a->phys == phys &&
-            a->owner != DMA_OWNER_RELEASING && bytes <= a->bytes) {
-            valid = 1;
-            break;
-        }
+        uintptr_t base = (uintptr_t)a->cpu;
+        uintptr_t current = (uintptr_t)cpu;
+        if (!a->cpu || current < base || a->owner == DMA_OWNER_RELEASING)
+            continue;
+        uint64_t offset = (uint64_t)(current - base);
+        if (offset > a->bytes || bytes > a->bytes - offset ||
+            a->phys > UINT64_MAX - offset || a->phys + offset != phys)
+            continue;
+        valid = 1;
+        break;
     }
     dma_unlock();
     return valid;
