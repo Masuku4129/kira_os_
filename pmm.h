@@ -6,10 +6,10 @@
 
 #define PMM_PAGE_SIZE 4096UL
 
-// Разбирает карту памяти Multiboot2. magic/addr - аргументы, полученные от
-// загрузчика. Возвращает 0 при успехе, отрицательное значение при ошибке.
+// Совместимый вход Multiboot2; структура сначала нормализуется в BootInfo v1.
+// Возвращает 0 при успехе, отрицательное значение при ошибке.
 int pmm_init(unsigned long magic, unsigned long addr);
-int pmm_init_bootinfo(const void* blob, uint32_t blob_size,
+// Основной вход: PMM работает только с проверенной картой памяти BootInfo v1.\nint pmm_init_bootinfo(const void* blob, uint32_t blob_size,
                       uint64_t reserve_addr, uint64_t reserve_size);
 
 // Возвращает физический адрес свободной страницы или 0, если памяти нет.
