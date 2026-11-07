@@ -469,6 +469,26 @@ int main(void) {
         CHECK(wm_compose(&x, &y, &w, &h));
     }
 
+    /* Поверхность обычного окна освобождается ровно по выделенному cap,
+       а память окна Ring 3 остаётся собственностью вызывающей стороны. */
+    {
+        uint64_t before = released_bytes;
+        int owned = wm_create_ex("release probe", 200, 200, 32, 16, WM_RESIZABLE, 64, 32);
+        CHECK(owned >= 0);
+        if (owned >= 0) {
+            wm_destroy(owned);
+            CHECK(released_bytes - before == 64u * 32u * sizeof(uint32_t));
+        }
+        uint32_t* external = calloc(32u * 16u, sizeof(uint32_t));
+        CHECK(external != 0);
+        before = released_bytes;
+        int borrowed = external ? wm_create_user("borrowed probe", 300, 200, 32, 16, external) : -1;
+        CHECK(borrowed >= 0);
+        if (borrowed >= 0) wm_destroy(borrowed);
+        CHECK(released_bytes == before);
+        free(external);
+    }
+
     dock_states();
     responsive_topbar();
     printf("wm: shell top bar (responsive tabs and fitted app windows at 640x480, 800x600, 1024x768, 1280x720, 1920x1080; clock and meters), side launcher, traffic-light buttons, z-order, damage, drag, "
