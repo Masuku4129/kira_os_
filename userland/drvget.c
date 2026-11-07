@@ -570,7 +570,7 @@ static int cmd_list(void) {
             int rc = read_pkg(nm, &h, &rec, &ok, &auth);
             if (rc == -1) sayf("  %s: пакет не читается\n", nm);
             else if (rc == -2) sayf("  %s: нет подтверждения (%s.rec) - не будет запущен\n", nm, nm);
-            else { sayf("  %s: версия %u, права:", nm, (unsigned)h.version); show_caps(h.caps); sayf(", SHA-256 %s, издатель: %s, источник: %s\n", ok ? "сверен" : "НЕ СОВПАДАЕТ", auth == DGP_AUTH_PUBLISHER ? "Ed25519 подтверждён" : auth == DGP_AUTH_LOCAL ? "не подтверждён (локально)" : auth == DGP_AUTH_INVALID ? "ПОДПИСЬ ОТКЛОНЕНА" : "не проверена", rec.source); }
+            else { sayf("  %s: v%u, права:", nm, (unsigned)h.version); show_caps(h.caps); sayf(", SHA-256 %s, подпись: %s, источник: %s\n", ok ? "сверен" : "НЕ СОВПАДАЕТ", auth == DGP_AUTH_PUBLISHER ? "Ed25519 OK" : auth == DGP_AUTH_LOCAL ? "локально" : auth == DGP_AUTH_INVALID ? "отклонена" : "не проверена", rec.source); }
         }
         if (!e) break;
         p = e + 1;
