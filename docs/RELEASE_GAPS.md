@@ -1,7 +1,7 @@
 # KIRA OS — release blockers and acceptance criteria
 
 **Snapshot:** 2026-11-07  
-**Working base:** `v45/overhaul`  
+**Working branch:** `v46/unified-release-integration`  
 **Status:** engineering work in progress; this document is not a release declaration.
 
 This file separates implemented mechanisms from the capabilities still required before the next combined update. Passing CI does not close a blocker unless the corresponding acceptance criteria are met.
@@ -50,6 +50,8 @@ Do not remove provenance notices without replacing the implementation and review
 ## 4. Driver package authenticity — BLOCKED (kernel verification and installer import implemented)
 
 KDRV uses a detached Ed25519 signature over the complete .kdrv package digest, size, publisher key ID and validity interval. The kernel verifies it on every load against its trust-key table. Invalid, unknown, revoked and expired signatures fail closed. The installer now requests drvget.sig beside the recipe over HTTPS, verifies it against the exact locally built package before writing anything, and installs the signature with .kdrv and .rec. HTTP 404 is explicitly treated as a local-only install; any other fetch error or any present malformed/invalid signature aborts installation. The host driver E2E suite includes a malformed-signature rejection case.
+
+Important distinction: kernel-side verification of an individual `.kdrv` package is implemented and tested separately from authentication of the catalogue that describes available drivers. The recent catalogue parser and Ed25519 regression additions do not yet make `drivers/index.txt` an authenticated source of authority, and they do not replace the kernel's per-package signature check. The real-Ed25519 catalogue test is awaiting a fresh complete CI result.
 
 Still required:
 - Persistent anti-rollback tied to a storage/firmware trust anchor that cannot be reverted merely by restoring an old disk image. A normal KiraFS file alone is not sufficient evidence of anti-rollback.
