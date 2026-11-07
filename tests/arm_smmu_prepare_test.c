@@ -67,7 +67,7 @@ static void reset_test_platform(void)
     freed_pages = pool_used = 0;
     next_physical = 0x200000u;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
-    *(uint32_t *)(registers_page + 0x0004u) = 8u;
+    *(uint32_t *)(registers_page + 0x0004u) = (8u << 21) | (8u << 16) | 8u;
 }
 
 static struct kira_smmu_platform platform(void)
@@ -120,17 +120,32 @@ int main(void)
     CHECK(smmu.queue_entries == 256u && smmu.enabled == 0);
     CHECK(smmu.stream_id_limit == 256u);
     CHECK(*(uint32_t *)(registers_page + 0x0088u) == 8u);
+    CHECK((smmu.stream_table_physical & 0x3fffu) == 0);
     CHECK(*(uint64_t *)(registers_page + 0x0080u) ==
-          (smmu.stream_table_physical | 1ull));
+          smmu.stream_table_physical);
     CHECK(clean_calls == 3);
+
+    /* The hardware queue base registers encode LOG2SIZE=8, not a valid bit. */
+    CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_TIMEOUT);
+    CHECK(*(uint64_t *)(registers_page + 0x0090u) ==
+          ((smmu.cmdq_physical & 0x000fffffffffffe0ull) | 8ull));
+    CHECK(*(uint64_t *)(registers_page + 0x00a0u) ==
+          ((smmu.evtq_physical & 0x000fffffffffffe0ull) | 8ull));
 
     /* Hardware with a narrower SID field must not expose unreachable STEs. */
     reset_test_platform();
-    *(uint32_t *)(registers_page + 0x0004u) = 4u;
+    *(uint32_t *)(registers_page + 0x0004u) = (8u << 21) | (8u << 16) | 4u;
     memset(&smmu, 0, sizeof(smmu));
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_OK);
     CHECK(smmu.stream_id_limit == 16u);
     CHECK(*(uint32_t *)(registers_page + 0x0088u) == 4u);
+
+    /* Reject hardware that cannot implement this fixed 256-entry CMDQ. */
+    reset_test_platform();
+    *(uint32_t *)(registers_page + 0x0004u) = (7u << 21) | (8u << 16) | 8u;
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
+    CHECK(alloc_calls == 0);
 
     /* Failure allocating CMDQ must release the already allocated stream table. */
     reset_test_platform();
