@@ -119,9 +119,40 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
 /* Intel DMAR (ACPI 6.x): фиксированные поля начинаются после стандартного SDT header
    (36 байт), структуры DRHD/RMRR имеют собственные длины. Сохраняем только проверенные
    физические диапазоны; никаких MMIO-регистров не читаем на этапе разбора таблицы. */
+static int dmar_scopes(const uint8_t* p, uint32_t len, uint8_t owner_type,
+                       uint8_t owner_index, acpi_info_t* o) {
+    uint32_t off = 0;
+    while (off < len) {
+        if (len - off < 6 || o->dmar_scope_count >= ACPI_MAX_DMAR_SCOPES) return -1;
+        uint8_t slen = p[off + 1];
+        if (slen < 8 || slen > len - off || ((slen - 6) & 1)) return -1;
+        uint8_t type = p[off], enum_id = p[off + 4], bus = p[off + 5];
+        if (type < 1 || type > 5) return -1;
+        unsigned npath = (slen - 6) / 2;
+        if (!npath || npath > ACPI_MAX_DMAR_PATH) return -1;
+        uint8_t* dst = (uint8_t*)&o->dmar_scope[o->dmar_scope_count];
+        /* Заполняем поля явно, чтобы не зависеть от выравнивания вложенной структуры. */
+        o->dmar_scope[o->dmar_scope_count].owner_type = owner_type;
+        o->dmar_scope[o->dmar_scope_count].owner_index = owner_index;
+        o->dmar_scope[o->dmar_scope_count].type = type;
+        o->dmar_scope[o->dmar_scope_count].enumeration_id = enum_id;
+        o->dmar_scope[o->dmar_scope_count].start_bus = bus;
+        o->dmar_scope[o->dmar_scope_count].path_count = (uint8_t)npath;
+        for (unsigned k = 0; k < npath; k++) {
+            uint8_t dev = p[off + 6 + k * 2], fn = p[off + 7 + k * 2];
+            if (dev > 31 || fn > 7) return -1;
+            o->dmar_scope[o->dmar_scope_count].devfn[k] = (uint8_t)((dev << 3) | fn);
+        }
+        (void)dst;
+        o->dmar_scope_count++;
+        off += slen;
+    }
+    return 0;
+}
+
 static int parse_dmar(const sdt_t* t, acpi_info_t* o) {
     const uint8_t* b = (const uint8_t*)t;
-    if (t->len < 48) return -1;
+    if (t->len < 48 || (b[37] & ~1u)) return -1;
     uint8_t haw = b[36];
     if (haw > 63) return -1;
     for (unsigned i = 38; i < 48; i++) if (b[i]) return -1;
@@ -131,8 +162,8 @@ static int parse_dmar(const sdt_t* t, acpi_info_t* o) {
         uint16_t type = (uint16_t)(b[off] | ((uint16_t)b[off + 1] << 8));
         uint16_t len = (uint16_t)(b[off + 2] | ((uint16_t)b[off + 3] << 8));
         if (len < 4 || len > t->len - off) return -1;
-        if (type == 0) { /* DRHD */
-            if (len < 16 || units >= ACPI_MAX_DMAR_UNITS) return -1;
+        if (type == 0) {
+            if (len < 16 || units >= ACPI_MAX_DMAR_UNITS || (b[off + 5] & ~1u)) return -1;
             uint8_t flags = b[off + 4];
             uint16_t segment = (uint16_t)(b[off + 6] | ((uint16_t)b[off + 7] << 8));
             uint64_t reg = rd64(b + off + 8);
@@ -141,9 +172,10 @@ static int parse_dmar(const sdt_t* t, acpi_info_t* o) {
             o->dmar_unit[units].include_all = flags & 1;
             o->dmar_unit[units].flags = flags;
             o->dmar_unit[units].reg_base = reg;
+            if (dmar_scopes(b + off + 16, len - 16, 0, (uint8_t)units, o) != 0) return -1;
             units++;
-        } else if (type == 1) { /* RMRR: limit is inclusive per ACPI */
-            if (len < 24 || rmrrs >= ACPI_MAX_RMRR) return -1;
+        } else if (type == 1) {
+            if (len < 24 || rmrrs >= ACPI_MAX_RMRR || b[off + 4] || b[off + 5]) return -1;
             uint16_t segment = (uint16_t)(b[off + 6] | ((uint16_t)b[off + 7] << 8));
             uint64_t base = rd64(b + off + 8), limit = rd64(b + off + 16);
             if (!base || (base & 0xFFF) || limit < base || (limit & 0xFFF) != 0xFFF)
@@ -151,10 +183,10 @@ static int parse_dmar(const sdt_t* t, acpi_info_t* o) {
             o->dmar_rmrr[rmrrs].segment = segment;
             o->dmar_rmrr[rmrrs].base = base;
             o->dmar_rmrr[rmrrs].limit = limit;
+            if (dmar_scopes(b + off + 24, len - 24, 1, (uint8_t)rmrrs, o) != 0) return -1;
             rmrrs++;
         } else {
-            /* ATSR/RHSA/ANDD/прочие структуры не используются этим драйвером.
-               Их длина всё равно проверена, поэтому безопасно пропускаем. */
+            /* Неиспользуемые типы сохраняются как неизвестные, но длина уже проверена. */
         }
         off += len;
     }
