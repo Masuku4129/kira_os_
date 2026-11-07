@@ -99,10 +99,11 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // Загрузчик (UEFI) мог положить Multiboot2-структуру выше 1 ГБ: переносим её в ядро
     // и сразу включаем раннюю консоль на экране, чтобы любой сбой дальше был виден.
     addr = mbinfo_relocate(magic, addr);
+    const void* bootinfo = 0;
+    uint32_t bootinfo_size = 0;
+    uint32_t mb2_size = 0;
     if (magic == 0x36D76289UL && addr && addr < (1UL << 30) && (addr & 7) == 0) {
-        const void* bootinfo = 0;
-        uint32_t bootinfo_size = 0;
-        uint32_t mb2_size = *(const uint32_t*)(uintptr_t)addr;
+        mb2_size = *(const uint32_t*)(uintptr_t)addr;
         int bi_rc = kbi_from_multiboot2((const void*)(uintptr_t)addr, mb2_size,
             (uint64_t)(uintptr_t)kernel_start,
             ((uint64_t)(uintptr_t)kernel_end - (uint64_t)(uintptr_t)kernel_start),
@@ -129,7 +130,10 @@ void kernel_main(unsigned long magic, unsigned long addr) {
 
     if (fpu_init() != 0)            kernel_panic("FPU/SSE initialization failed");
 
-    if (pmm_init(magic, addr) != 0) kernel_panic("PMM initialization failed");
+    if (bootinfo) {
+        if (pmm_init_bootinfo(bootinfo, bootinfo_size, addr, mb2_size) != 0)
+            kernel_panic("PMM initialization from BootInfo failed");
+    } else if (pmm_init(magic, addr) != 0) kernel_panic("PMM initialization failed");
     if (vmm_init() != 0)            kernel_panic("VMM initialization failed");
 
     if (vmm_guard_null_page() != 0) kernel_panic("Cannot install NULL guard page");
