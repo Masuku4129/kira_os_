@@ -75,6 +75,7 @@ Implemented in the v46 working branch:
 - Host regressions cover DMA registry exhaustion/reuse, DMA sync range boundaries, repeated late virtio-blk probe failures, explicit shutdown before PCI model reset, and timeout cleanup/reprobe.
 - virtio-rng, virtio-gpu, virtio-net and virtio-input now release partially allocated queues and DMA buffers on failed startup, but only after a confirmed device reset. Drivers retain ownership and refuse reprobe when reset cannot be confirmed.
 - virtio-blk now clears device state only after all queue and bounce-buffer allocations have been returned; an unconfirmed reset prevents reuse of that device slot.
+- Before a virtio reset, the common PCI teardown masks MSI and MSI-X and clears PCI bus mastering. The device status must then reach zero before any DMA allocation is returned to its allocator.
 - CI run 718 verified x86-64 build, GUI, Mind, KCC and driver E2E; host tests failed at virtio-blk line 96 because the test reset the PCI model without shutting down the prior device, and ARM64 build failed because the new self-test needed a forward declaration for the pool free hook. Both causes have been addressed in the next validation snapshot; its complete CI result is pending.
 
 Still required:
