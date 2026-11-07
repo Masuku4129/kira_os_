@@ -66,6 +66,9 @@ static inline unsigned kira_vtd_pt_index(uint64_t iova, unsigned level) {
 
 /* Install a 4 KiB leaf in an already allocated level-1 page table.
  * Upper-level tables must be linked by the caller with R|W permissions. */
+static inline int kira_vtd_map_4k(kira_vtd_pt_t *pt, uint64_t iova,
+                                  uint64_t phys, int writable, int snoop);
+
 typedef kira_vtd_pt_t *(*kira_vtd_resolve_fn)(void *ctx, uint64_t physical);
 typedef kira_vtd_pt_t *(*kira_vtd_alloc_fn)(void *ctx, uint64_t *physical);
 
