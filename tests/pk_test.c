@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
     }
     { uint8_t pk[32], m[1], sg[64]; unhex(ED[1].pk, pk); unhex(ED[1].msg, m); unhex(ED[1].sig, sg);
       pk[31] = 0xff; memset(pk, 0xff, 31); CHECK(ed25519_verify(pk, m, 1, sg) == -1); }                        /* y >= p */
-    { /* Forged trivial equation: identity public key, identity R, S=0. Must fail subgroup checks. */
+    { /* Forged trivial equation: identity public key, identity R, S=0. Identity is not a valid signing key or nonce point. */
       uint8_t pk[32] = { 1 }, sg[64] = { 1 }, empty = 0;
       CHECK(ed25519_verify(pk, &empty, 0, sg) == -1);
     }
