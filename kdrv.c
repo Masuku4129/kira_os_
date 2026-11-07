@@ -147,7 +147,7 @@ static int trust_read_optional(const char *path,void *out,uint32_t expected,
     *actual=(uint32_t)st.size;
     return 0;
 }
-static int trust_apply_transitions(const kdrv_transition_t *items,uint32_t n,
+static int trust_apply_transitions(const kdrv_transition_t *items,
                                    uint32_t first,uint32_t last,
                                    kdrv_sig_key_t *keys,uint32_t *key_count,
                                    uint64_t *generation,int64_t now) {
@@ -195,7 +195,7 @@ static int kdrv_trust_prepare(void) {
         while(split<n&&transitions[split].generation<revocation.generation) split++;
         if(split<n&&transitions[split].generation==revocation.generation)
             return live_trust_error=KDRV_SIG_E_FORMAT;
-        int rc=trust_apply_transitions(transitions,n,0,split,
+        int rc=trust_apply_transitions(transitions,0,split,
             live_trust_keys,&count,&generation,now);
         if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
         kdrv_sig_key_t updated[KDRV_SIG_MAX_KEYS];
@@ -205,11 +205,11 @@ static int kdrv_trust_prepare(void) {
         if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
         count=updated_count; generation=updated_generation;
         for(uint32_t i=0;i<count;i++) live_trust_keys[i]=updated[i];
-        rc=trust_apply_transitions(transitions,n,split,n,
+        rc=trust_apply_transitions(transitions,split,n,
             live_trust_keys,&count,&generation,now);
         if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
     } else {
-        int rc=trust_apply_transitions(transitions,n,0,n,
+        int rc=trust_apply_transitions(transitions,0,n,
             live_trust_keys,&count,&generation,now);
         if(rc!=KDRV_SIG_OK) return live_trust_error=rc;
     }
