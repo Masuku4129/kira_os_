@@ -110,6 +110,73 @@ enable_a20:
     and al, 0xFE
     out 0x92, al
     call test_a20
+    jnc .enabled
+    call a20_kbc_enable
+    jc .failed
+    call test_a20
+    ret
+.enabled:
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+; Bounded 8042 fallback: read the output port, set A20, preserve reset bit 0.
+a20_kbc_enable:
+    push bx
+    push cx
+    call kbc_wait_input
+    jc .fail
+    mov al, 0xD0
+    out 0x64, al
+    call kbc_wait_output
+    jc .fail
+    in al, 0x60
+    or al, 2
+    and al, 0xFE
+    mov bl, al
+    call kbc_wait_input
+    jc .fail
+    mov al, 0xD1
+    out 0x64, al
+    call kbc_wait_input
+    jc .fail
+    mov al, bl
+    out 0x60, al
+    clc
+    jmp .done
+.fail:
+    stc
+.done:
+    pop cx
+    pop bx
+    ret
+
+kbc_wait_input:
+    mov cx, 0xFFFF
+.wait:
+    in al, 0x64
+    test al, 2
+    jz .ready
+    loop .wait
+    stc
+    ret
+.ready:
+    clc
+    ret
+
+kbc_wait_output:
+    mov cx, 0xFFFF
+.wait:
+    in al, 0x64
+    test al, 1
+    jnz .ready
+    loop .wait
+    stc
+    ret
+.ready:
+    clc
     ret
 
 ; Verify the A20 gate by comparing physical 0x00000500 with 0x00100500.
@@ -330,7 +397,7 @@ disk_lba dd 0
 destination dd 0
 remaining dd 0
 copy_bytes dd 0
-error_text db "KIRA BIOS: E820 or kernel load failed",0
+error_text db "KIRA BIOS: A20, E820 or kernel load failed",0
 
 align 4
 dap:
