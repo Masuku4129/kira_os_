@@ -103,7 +103,8 @@ static bind_t* find_slot(const pci_dev_t* d, int create) {
 }
 
 /* ---- пакеты в /drv ---- */
-typedef struct { uint8_t* buf; uint32_t len; kdrv_header_t h; kdrv_rec_t r; int auth; int sig_error; } pkg_t;
+typedef struct { uint8_t* buf; uint32_t len; kdrv_header_t h; kdrv_rec_t r; int auth; int sig_error;
+    uint8_t publisher_key[16], package_sha[32]; } pkg_t;
 
 static void path_of(char* out, const char* name, const char* ext) {
     unsigned n = 0;
@@ -160,7 +161,11 @@ static int pkg_load(const char* name, pkg_t* p) {
                     p->sig_error = kdrv_sig_verify(b, (size_t)st.size, &sig, sizeof sig,
                         kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, now);
                     if (p->sig_error != KDRV_SIG_OK) rc = KDRV_E_SIGNATURE;
-                    else p->auth = KDRV_AUTH_PUBLISHER;
+                    else {
+                        p->auth = KDRV_AUTH_PUBLISHER;
+                        for (unsigned i = 0; i < sizeof p->publisher_key; i++) p->publisher_key[i] = sig.key_id[i];
+                        for (unsigned i = 0; i < sizeof p->package_sha; i++) p->package_sha[i] = sig.package_sha256[i];
+                    }
                 }
             }
         } else if (se != KFS_ERR_NOENT) {
@@ -170,6 +175,88 @@ static int pkg_load(const char* name, pkg_t* p) {
     if (rc != KDRV_OK) { kfree(b); return rc; }
     p->buf = b; p->len = (uint32_t)st.size;
     return KDRV_OK;
+}
+
+/* ---- persistent publisher anti-rollback ----
+   KFS atomic replace makes the ledger update all-or-old across power loss. This protects
+   against accidental downgrade and stale package replacement; it is NOT tamper-proof
+   against an attacker who can rewrite the whole filesystem or restore an old disk image. */
+#define KDRV_RB_MAGIC 0x3142524Bu /* "KRB1" */
+#define KDRV_RB_FORMAT 1u
+#define KDRV_RB_MAX 64u
+typedef struct __attribute__((packed)) {
+    char name[16];
+    uint8_t key_id[16];
+    uint32_t version;
+    uint8_t package_sha[32];
+} kdrv_rb_entry_t;
+typedef struct __attribute__((packed)) {
+    uint32_t magic, format, count, crc;
+    kdrv_rb_entry_t entries[KDRV_RB_MAX];
+} kdrv_rb_db_t;
+
+static uint32_t rb_crc32(const void* data, size_t len) {
+    const uint8_t* p = (const uint8_t*)data;
+    uint32_t c = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; i++) {
+        c ^= p[i];
+        for (unsigned b = 0; b < 8; b++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+    }
+    return ~c;
+}
+
+static int rb_load(kdrv_rb_db_t* db) {
+    kfs_stat_t st;
+    int rc = kfs_stat("/drv/.rollback", &st);
+    if (rc == KFS_ERR_NOENT) {
+        for (size_t i = 0; i < sizeof *db; i++) ((uint8_t*)db)[i] = 0;
+        db->magic = KDRV_RB_MAGIC; db->format = KDRV_RB_FORMAT;
+        return KDRV_OK;
+    }
+    if (rc != 0 || st.type != KFS_FILE || st.size != sizeof *db) return KDRV_E_UNCONFIRMED;
+    if (kfs_read("/drv/.rollback", 0, db, sizeof *db) != (int64_t)sizeof *db) return KDRV_E_SHORT;
+    if (db->magic != KDRV_RB_MAGIC || db->format != KDRV_RB_FORMAT || db->count > KDRV_RB_MAX ||
+        db->crc != rb_crc32(db->entries, sizeof db->entries)) return KDRV_E_UNCONFIRMED;
+    return KDRV_OK;
+}
+
+/* Only publisher-authenticated packages participate. A publisher cannot replace different
+   bytes under an already accepted version number. The ledger is committed before execution. */
+static int rb_accept(const pkg_t* p) {
+    if (p->auth != KDRV_AUTH_PUBLISHER) return KDRV_OK; /* explicitly local/untrusted install */
+    if (!p->h.version) return KDRV_E_FORMAT;
+    kdrv_rb_db_t db;
+    int rc = rb_load(&db);
+    if (rc != KDRV_OK) return rc;
+    unsigned slot = db.count;
+    for (unsigned i = 0; i < db.count; i++) {
+        kdrv_rb_entry_t* e = &db.entries[i];
+        unsigned j = 0;
+        while (j < sizeof e->name && e->name[j] == p->h.name[j] && e->name[j]) j++;
+        if (j == sizeof e->name || (!e->name[j] && !p->h.name[j])) {
+            unsigned diff = 0;
+            for (j = 0; j < sizeof e->key_id; j++) diff |= e->key_id[j] ^ p->publisher_key[j];
+            if (!diff) { slot = i; break; }
+        }
+    }
+    if (slot < db.count) {
+        kdrv_rb_entry_t* e = &db.entries[slot];
+        if (p->h.version < e->version) return KDRV_E_UNCONFIRMED;
+        if (p->h.version == e->version) {
+            unsigned diff = 0;
+            for (unsigned j = 0; j < sizeof e->package_sha; j++) diff |= e->package_sha[j] ^ p->package_sha[j];
+            return diff ? KDRV_E_UNCONFIRMED : KDRV_OK;
+        }
+    } else if (db.count == KDRV_RB_MAX) return KDRV_E_SIZE;
+
+    kdrv_rb_entry_t* e = &db.entries[slot];
+    for (unsigned i = 0; i < sizeof e->name; i++) e->name[i] = p->h.name[i];
+    for (unsigned i = 0; i < sizeof e->key_id; i++) e->key_id[i] = p->publisher_key[i];
+    for (unsigned i = 0; i < sizeof e->package_sha; i++) e->package_sha[i] = p->package_sha[i];
+    e->version = p->h.version;
+    if (slot == db.count) db.count++;
+    db.crc = rb_crc32(db.entries, sizeof db.entries);
+    return kfs_write("/drv/.rollback", &db, sizeof db) == 0 ? KDRV_OK : KDRV_E_SHORT;
 }
 
 /* ---- прерывание устройства ---- */
@@ -240,6 +327,14 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
         uart_print(": DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен\n");
         life_note("drv-denied-dma", name, KDRV_E_DMA_UNSAFE);
         return KDRV_E_DMA_UNSAFE;
+    }
+    rc = rb_accept(&p);
+    if (rc != KDRV_OK) {
+        kfree(p.buf);
+        uart_print("[KIRA DRV] "); uart_print(name);
+        uart_print(": пакет отклонён защитой от отката версии или повреждённым журналом доверия - драйвер НЕ запущен\\n");
+        life_note("drv-denied-rollback", name, rc);
+        return rc;
     }
     if ((granted & CAP_DMA) && platform_dma_noncoherent && platform_dma_noncoherent()) {
         kfree(p.buf);
