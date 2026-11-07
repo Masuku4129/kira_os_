@@ -19,7 +19,9 @@ int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
     if (!descriptors || !out || !out_size ||
         descriptor_size < sizeof(kbi_uefi_memory_desc_t) ||
         map_size == 0 || map_size % descriptor_size ||
-        !kernel_base || !kernel_size || kernel_base > UINT64_MAX - kernel_size ||
+        !kernel_base || !kernel_size ||
+        (kernel_base & 4095u) || (kernel_size & 4095u) ||
+        kernel_base > UINT64_MAX - kernel_size ||
         (rsdp_phys && (rsdp_phys & 15u))) return -1;
     uint32_t n = map_size / descriptor_size;
     if (n > KIRA_BOOTINFO_MAX_MMAP) return -2;
@@ -52,6 +54,7 @@ int kbi_from_uefi_memory_map(const void* descriptors, uint32_t map_size,
             (const kbi_uefi_memory_desc_t *)((const uint8_t *)descriptors +
                                                (size_t)i * descriptor_size);
         if (!d->number_of_pages) continue;
+        if (d->physical_start & 4095u) return -4;
         if (d->number_of_pages > UINT64_MAX / 4096u ||
             d->physical_start > UINT64_MAX - d->number_of_pages * 4096u)
             return -4;
