@@ -66,6 +66,10 @@ Implemented in the v46 working branch:
 - The current KDRV call site passes "not isolated"; therefore no untrusted Ring 3 driver can enable bus mastering or MSI.
 - PCI configuration writes from Ring 3 no longer permit setting PCI_COMMAND_MASTER.
 - Host policy tests cover MMIO-only acceptance and DMA/MSI rejection without isolation.
+- The generic virtio DMA allocator records CPU pointer, device-visible address, exact byte size, page count and allocator owner; it rejects invalid, mismatched and duplicate releases.
+- DMA backing memory is released outside the allocator registry spinlock. Virtqueue memory can be released only after the device status has reached zero following reset.
+- virtio-blk failed-probe paths now attempt to reset the device before releasing queue and bounce buffers. If reset cannot be confirmed, backing memory is deliberately retained to avoid device DMA into freed RAM.
+- Host regressions now cover DMA registry exhaustion/reuse and repeated late virtio-blk probe failures. These new tests are added but remain unverified until the next CI run completes.
 
 Still required:
 - Platform discovery and validation for x86 VT-d / AMD-Vi and ARM SMMU.
