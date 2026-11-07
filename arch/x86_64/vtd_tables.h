@@ -50,13 +50,15 @@ static inline int kira_vtd_root_set(kira_vtd_root_table_t *root,
 static inline int kira_vtd_context_set(kira_vtd_context_table_t *table,
                                         uint8_t devfn, uint64_t slpt_phys,
                                         uint16_t domain_id, uint8_t agaw) {
-    if (!table || !kira_vtd_phys_page_valid(slpt_phys) ||
-        domain_id == 0 || agaw > 2) return -1;
+    if (!table || ((uintptr_t)table & (KIRA_VTD_PAGE_SIZE - 1u)) ||
+        !kira_vtd_phys_page_valid(slpt_phys) || domain_id == 0 || agaw != 2) return -1;
     uint64_t lo = slpt_phys | KIRA_VTD_CONTEXT_PRESENT |
                   (uint64_t)KIRA_VTD_CONTEXT_TT_MULTI << 2;
-    uint64_t hi = (uint64_t)agaw | ((uint64_t)domain_id << 8);
-    table->entry[devfn][0] = lo;
+    uint64_t hi = (uint64_t)domain_id | ((uint64_t)agaw << 8);
+    if (table->entry[devfn][0] & KIRA_VTD_CONTEXT_PRESENT) return -2;
     table->entry[devfn][1] = hi;
+    __asm__ volatile("" ::: "memory");
+    table->entry[devfn][0] = lo;
     return 0;
 }
 
@@ -81,10 +83,11 @@ typedef struct {
 static inline int kira_vtd_link_table(kira_vtd_pt_t *parent,
                                        uint64_t iova, unsigned level,
                                        uint64_t child_phys) {
-    if (!parent || level == 0 || level > 3 ||
-        !kira_vtd_phys_page_valid(child_phys)) return -1;
+    if (!parent || ((uintptr_t)parent & (KIRA_VTD_PAGE_SIZE - 1u)) ||
+        level == 0 || level > 3 || !kira_vtd_phys_page_valid(child_phys)) return -1;
     uint64_t *slot = &parent->entry[kira_vtd_pt_index(iova, level)];
     if (*slot & (KIRA_VTD_R | KIRA_VTD_W)) return -2;
+    __asm__ volatile("" ::: "memory");
     *slot = child_phys | KIRA_VTD_R | KIRA_VTD_W;
     return 0;
 }
@@ -96,8 +99,8 @@ static inline int kira_vtd_map_4k_walk(kira_vtd_pt_t *root,
                                        uint64_t iova, uint64_t phys,
                                        int writable, int snoop,
                                        const kira_vtd_pt_ops_t *ops) {
-    if (!root || !ops || !ops->resolve || !ops->alloc ||
-        iova >= (1ull << 48) || (iova & 0xfffu) ||
+    if (!root || ((uintptr_t)root & (KIRA_VTD_PAGE_SIZE - 1u)) ||
+        !ops || !ops->resolve || !ops->alloc || iova >= (1ull << 48) || (iova & 0xfffu) ||
         !kira_vtd_phys_page_valid(phys)) return -1;
     kira_vtd_pt_t *table = root;
     for (unsigned level = 3; level > 0; level--) {
@@ -121,13 +124,15 @@ static inline int kira_vtd_map_4k_walk(kira_vtd_pt_t *root,
 
 static inline int kira_vtd_map_4k(kira_vtd_pt_t *pt, uint64_t iova,
                                   uint64_t phys, int writable, int snoop) {
-    if (!pt || (iova & 0xfffu) || !kira_vtd_phys_page_valid(phys))
+    if (!pt || ((uintptr_t)pt & (KIRA_VTD_PAGE_SIZE - 1u)) ||
+        (iova & 0xfffu) || !kira_vtd_phys_page_valid(phys))
         return -1;
     uint64_t flags = KIRA_VTD_R | (writable ? KIRA_VTD_W : 0) |
                      (snoop ? KIRA_VTD_SNOOP : 0);
     uint64_t *slot = &pt->entry[kira_vtd_pt_index(iova, 0)];
     if (*slot & (KIRA_VTD_R | KIRA_VTD_W)) return -2;
     *slot = phys | flags;
+    __asm__ volatile("" ::: "memory");
     return 0;
 }
 
@@ -146,7 +151,8 @@ static inline int kira_vtd_unmap_4k_walk(kira_vtd_pt_t *root,
                                           kira_vtd_resolve_fn resolve,
                                           void *ctx,
                                           uint64_t *old_phys) {
-    if (!root || !resolve || iova >= (1ull << 48) || (iova & 0xfffu))
+    if (!root || ((uintptr_t)root & (KIRA_VTD_PAGE_SIZE - 1u)) ||
+        !resolve || iova >= (1ull << 48) || (iova & 0xfffu))
         return -1;
     kira_vtd_pt_t *table = root;
     for (unsigned level = 3; level > 0; level--) {
