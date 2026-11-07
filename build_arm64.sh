@@ -72,7 +72,7 @@ for f in $A/boot.S $A/mem.S $A/context.S $A/fpu.S $A/uaccess.S; do
     o=build-arm64/$(basename $f .S)_s.o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
 done
 # Общее ядро (те же файлы, что и на x86-64) и платформа ARM64
-for f in fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
+for f in fdt.c bootinfo.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
          experience.c fscmd.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
          immune.c kobj.c futex.c corefault.c crypto.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
          virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
