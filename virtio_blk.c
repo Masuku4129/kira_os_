@@ -57,6 +57,9 @@ static int request(uint32_t type, uint64_t sector, uint32_t sectors) {
     b[n++] = (virtq_buf_t){ hdr_phys, sizeof(req_hdr_t), 0 };
     if (type != T_FLUSH) b[n++] = (virtq_buf_t){ bounce_phys, sectors * BLK_SECTOR, type == T_IN };
     b[n++] = (virtq_buf_t){ status_phys, 1, 1 };
+    if (virtio_dma_sync_for_device(blk_dma, blk_dma_phys, blk_dma_bytes) != 0) {
+        dead = 1; virtio_fail(&vdev); blk_release_after_reset(); present = 0; return -6;
+    }
     if (virtq_run(&vq, b, n) != 0) {
         dead = 1;
         virtio_fail(&vdev);
@@ -64,6 +67,9 @@ static int request(uint32_t type, uint64_t sector, uint32_t sectors) {
         present = 0;
         uart_print("[KIRA VIRTIO] blk request timeout: device disabled.\n");
         return -4;
+    }
+    if (virtio_dma_sync_for_cpu(blk_dma, blk_dma_phys, blk_dma_bytes) != 0) {
+        dead = 1; virtio_fail(&vdev); blk_release_after_reset(); present = 0; return -6;
     }
     return *status_byte == 0 ? 0 : -3;
 }
