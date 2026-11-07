@@ -57,6 +57,9 @@ int  virtq_take(virtq_t* q, uint16_t* id, uint32_t* len);   /* 1 - взят */
 /* DMA buffer (zeroed). CPU pointer and device-visible *phys are distinct values.
    Generic fallback requires identity-mapped contiguous RAM; 0 means failure. */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
+/* Frees only an allocation returned by virtio_dma_alloc with the exact size.
+   -2: platform DMA pool has no release hook; buffer remains owned by that pool. */
+int   virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes);
 
 /* Блочное устройство virtio-blk. NULL - такого устройства нет или оно не поднялось. */
 struct blk_dev;
