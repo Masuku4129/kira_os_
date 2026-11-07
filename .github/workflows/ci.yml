@@ -319,6 +319,53 @@ jobs:
         with:
           name: kira-driver-e2e
           path: results/driver-e2e
+      - name: Write CI summary to Actions UI
+        if: always()
+        env:
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          HOST_RESULT: ${{ needs.host-tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          VM_RESULT: ${{ needs.vm.result }}
+          ARM64_RESULT: ${{ needs.arm64.result }}
+          MIND_RESULT: ${{ needs.mind-quality.result }}
+          GUI_RESULT: ${{ needs.gui-regression.result }}
+          KCC_RESULT: ${{ needs.kcc-tests.result }}
+          DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          jobs = [
+              ("Аудит репозитория", "AUDIT_RESULT"),
+              ("Host/regression tests", "HOST_RESULT"),
+              ("x86_64 build + ISO", "BUILD_RESULT"),
+              ("QEMU x86 matrix", "VM_RESULT"),
+              ("ARM64 build + QEMU", "ARM64_RESULT"),
+              ("Mind quality", "MIND_RESULT"),
+              ("GUI regression", "GUI_RESULT"),
+              ("KCC compiler suite", "KCC_RESULT"),
+              ("Driver installer E2E", "DRIVER_RESULT"),
+          ]
+          lines = ["# KIRA OS — CI result", "", "| Stage | Result |", "|---|---|"]
+          lines += [f"| {name} | **{os.getenv(key, 'missing')}** |" for name, key in jobs]
+          lines += ["", "## QEMU scenario results", ""]
+          count = passed = failed = 0
+          for path in sorted(pathlib.Path("results").rglob("result.json")):
+              count += 1
+              try:
+                  item = json.loads(path.read_text())
+                  ok = bool(item.get("ok"))
+                  passed += int(ok)
+                  failed += int(not ok)
+                  name = str(item.get("name", path.parent.name))
+                  detail = "" if ok else " — " + str(item.get("error") or "failure").splitlines()[0][:200]
+                  lines.append(f"- {'PASS' if ok else 'FAIL'}: {name}{detail}")
+              except Exception as exc:
+                  failed += 1
+                  lines.append(f"- FAIL: {path}: invalid JSON ({exc})")
+          lines += ["", f"QEMU result files: {count}; PASS: {passed}; FAIL: {failed}", ""]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write("\\n".join(lines))
+          PY
       - name: publish complete CI summary
         if: github.event_name != 'pull_request'
         env:
