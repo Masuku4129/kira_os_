@@ -10,6 +10,7 @@
 #define EFIAPI __attribute__((ms_abi))
 #define EFI_ERROR(s) (((int64_t)(s)) < 0)
 #define EFI_SUCCESS 0
+#define EFI_INVALID_PARAMETER ((EFI_STATUS)0x8000000000000002ull)
 #define EFI_BUFFER_TOO_SMALL ((EFI_STATUS)0x8000000000000005ull)
 #define EFI_LOADER_CODE 1u
 #define EFI_LOADER_DATA 2u
@@ -182,12 +183,14 @@ static uint32_t ctz32(uint32_t x) { uint32_t n=0; if(!x)return 0; while(!(x&1)){
 
 static EFI_STATUS open_kernel(EFI_BOOT_SERVICES *bs, EFI_HANDLE image,
                               void **data, uint64_t *length) {
+    if(!bs||!bs->handle_protocol||!bs->allocate_pool||!bs->free_pool||!data||!length)
+        return EFI_INVALID_PARAMETER;
     EFI_LOADED_IMAGE_PROTOCOL *loaded=0;
     EFI_STATUS st=bs->handle_protocol(image,&loaded_image_guid,(void**)&loaded);
     if(EFI_ERROR(st)||!loaded) return st;
     EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs=0;
     st=bs->handle_protocol(loaded->device_handle,&simple_fs_guid,(void**)&fs);
-    if(EFI_ERROR(st)||!fs) return st;
+    if(EFI_ERROR(st)||!fs||!fs->open_volume) return st;
     EFI_FILE *root=0,*file=0;
     st=fs->open_volume(fs,&root);
     if(EFI_ERROR(st)||!root) return st;
@@ -198,7 +201,7 @@ static EFI_STATUS open_kernel(EFI_BOOT_SERVICES *bs, EFI_HANDLE image,
         st=root->open(root,&file,fallback,EFI_FILE_MODE_READ,0);
     }
     root->close(root);
-    if(EFI_ERROR(st)||!file) return st;
+    if(EFI_ERROR(st)||!file||!file->read||!file->close) return st;
     uint64_t cap=KERNEL_MAX;
     st=bs->allocate_pool(EFI_BOOT_SERVICES_DATA,cap,data);
     if(EFI_ERROR(st)){file->close(file);return st;}
@@ -348,12 +351,14 @@ static int build_bootinfo(EFI_BOOT_SERVICES *bs,EFI_SYSTEM_TABLE *st,
                           uint64_t kernel_base,uint64_t kernel_end,
                           uint64_t *mapkey_out,uint32_t *blob_size_out) {
     void *rsdp=0;
-    for(uint64_t i=0;i<st->number_of_table_entries;i++)
+    uint64_t table_count=st->configuration_table&&st->number_of_table_entries<=4096u
+                         ?st->number_of_table_entries:0;
+    for(uint64_t i=0;i<table_count;i++)
         if(bytes_eq((const uint8_t*)&st->configuration_table[i].guid,
                     (const uint8_t*)&acpi2_guid,sizeof(EFI_GUID))) {
             rsdp=st->configuration_table[i].table; break;
         }
-    if(!rsdp) for(uint64_t i=0;i<st->number_of_table_entries;i++)
+    if(!rsdp) for(uint64_t i=0;i<table_count;i++)
         if(bytes_eq((const uint8_t*)&st->configuration_table[i].guid,
                     (const uint8_t*)&acpi1_guid,sizeof(EFI_GUID))) {
             rsdp=st->configuration_table[i].table; break;
@@ -452,7 +457,11 @@ static int refresh_bootinfo_after_exit_failure(EFI_BOOT_SERVICES *bs,
 }
 
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image,EFI_SYSTEM_TABLE *st) {
+    if(!st||!st->boot_services) return EFI_INVALID_PARAMETER;
     EFI_BOOT_SERVICES *bs=st->boot_services;
+    if(!bs->allocate_pages||!bs->free_pages||!bs->get_memory_map||
+       !bs->exit_boot_services||!bs->handle_protocol||
+       !bs->allocate_pool||!bs->free_pool) return EFI_INVALID_PARAMETER;
     if(bs->set_watchdog_timer) (void)bs->set_watchdog_timer(0,0,0,0);
     void *file=0; uint64_t file_size=0;
     EFI_STATUS rc=open_kernel(bs,image,&file,&file_size);
