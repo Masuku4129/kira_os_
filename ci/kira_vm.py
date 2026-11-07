@@ -108,6 +108,7 @@ class VM:
         self.log = bytearray()
         self.notes = []
         self.prompt_ready = False
+        self.prompt_search_from = 0
         os.makedirs(out, exist_ok=True)
         self.disk = os.path.join(out, "disk.img")
         shutil.copyfile(disk, self.disk)
@@ -305,6 +306,12 @@ class VM:
         raise Fail(f"не дождались «{pattern}» за {timeout * self.k:.0f} с")
 
     def send(self, text):
+        # Сначала забираем хвост предыдущего ответа. Он может содержать prompt,
+        # если предыдущий сценарный шаг ждал только строку приложения, а не shell.
+        self.drain(0.05)
+        if not self.prompt_ready and PROMPT in bytes(self.log[self.prompt_search_from:]):
+            self.prompt_ready = True
+        self.prompt_search_from = len(self.log)
         self.prompt_ready = False
         self.ser.setblocking(True)
         for ch in text.encode():
@@ -317,7 +324,7 @@ class VM:
         # Фоновые команды (_dg) ждут свою строку, а не приглашение. Не отправляем
         # следующую команду, пока предыдущий процесс не завершил вывод и shell не готов.
         if not self.prompt_ready:
-            self.expect(re.escape(PROMPT.decode()), timeout, len(self.log))
+            self.expect(re.escape(PROMPT.decode()), timeout, self.prompt_search_from)
         # expect() может остановиться на байтах приглашения, пока хвост UART-пакета
         # ещё лежит в сокете. Дочитываем его до отметки начала нового ответа.
         self.drain(0.05)
