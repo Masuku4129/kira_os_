@@ -113,9 +113,13 @@ static void poll_main(void* arg) {
             vin_t* d = &devs[i];
             uint16_t id; uint32_t len; int got = 0;
             while (virtq_take(&d->q, &id, &len)) {
-                if (id < NBUF) {
+                if (id < NBUF &&
+                    virtio_dma_sync_for_cpu(d->ev + id, d->ev_phys + id * sizeof(vev_t),
+                                            sizeof(vev_t)) == 0) {
                     if (len >= sizeof(vev_t)) event(d, &d->ev[id]);
-                    virtq_post(&d->q, id, d->ev_phys + id * sizeof(vev_t), sizeof(vev_t), 1);
+                    if (virtio_dma_sync_for_device(d->ev + id,
+                            d->ev_phys + id * sizeof(vev_t), sizeof(vev_t)) == 0)
+                        virtq_post(&d->q, id, d->ev_phys + id * sizeof(vev_t), sizeof(vev_t), 1);
                 }
                 got = 1;
             }
