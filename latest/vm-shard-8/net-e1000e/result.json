@@ -1,0 +1,86 @@
+{
+ "name": "net-e1000e",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA NET\\] e1000 \\(8086:10d3\\).*receive by MSI interrupt",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA NET\\] DHCP: address 10\\.0\\.2\\.15/24",
+   "ok": true
+  },
+  {
+   "log": "fetch: 10\\.0\\.2\\.100/e1000e - HTTP/1\\.0 200 OK - 3\\d\\d\\d bytes .*server closed",
+   "ok": true
+  },
+  {
+   "step": "net",
+   "must": "канал есть",
+   "ok": true
+  },
+  {
+   "step": "net",
+   "must": "прерываний приёма [1-9]\\d*",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.2,
+ "seconds": 18.4,
+ "commands": [
+  {
+   "cmd": "fetch 10.0.2.100 /e1000e",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "net",
+   "seconds": 0.02
+  }
+ ]
+}
