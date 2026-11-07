@@ -12,7 +12,9 @@
 #define VTD_CAP_SAGAW_SHIFT 8u
 #define VTD_CAP_SAGAW_48 (1ull << (VTD_CAP_SAGAW_SHIFT+VTD_AGAW_48))
 #define VTD_CAP_SLLPS_2M (1ull << 34)
-#define VTD_CAP_ND_MASK 0x0full
+#define VTD_CAP_ND_MASK 0x07ull
+#define VTD_CAP_MGAW_SHIFT 16u
+#define VTD_CAP_MGAW_MASK (0x3full << VTD_CAP_MGAW_SHIFT)
 #define VTD_MAX_RMRR_PAGES 16384u
 
 /* Implemented by the KDRV manager; trusted in-kernel drivers receive identity
@@ -112,21 +114,26 @@ static int vtd_build_identity_map(vtd_unit_t *u) {
 static int vtd_scope_matches(const acpi_info_t *acpi,unsigned scope_index,
                              const pci_dev_t *device) {
     if(!acpi||!device||scope_index>=acpi->dmar_scope_count) return 0;
-    const typeof(acpi->dmar_scope[0]) *scope=&acpi->dmar_scope[scope_index];
-    if(!scope->path_count||scope->path_count>16) return 0;
+    const acpi_dmar_scope_t *scope=&acpi->dmar_scope[scope_index];
+    if((scope->type!=1&&scope->type!=2)||!scope->path_count||
+       scope->path_count>16) return 0;
     uint8_t bus=scope->start_bus;
     for(uint8_t i=0;i<scope->path_count;i++) {
         uint8_t devfn=scope->devfn[i];
-        if(bus==device->bus&&devfn==(uint8_t)((device->dev<<3)|device->fn))
-            return 1;
-        if(scope->type!=2) return 0; /* endpoint scopes match only their exact BDF */
+        int last=(i+1u==scope->path_count);
+        if(last&&scope->type==1)
+            return bus==device->bus&&
+                   devfn==(uint8_t)((device->dev<<3)|device->fn);
         pci_dev_t bridge={0};
-        bridge.bus=bus; bridge.dev=(uint8_t)(devfn>>3); bridge.fn=(uint8_t)(devfn&7u);
+        bridge.bus=bus; bridge.dev=(uint8_t)(devfn>>3);
+        bridge.fn=(uint8_t)(devfn&7u);
+        if(pci_read8(&bridge,0x0B)!=0x06||
+           pci_read8(&bridge,0x0A)!=0x04) return 0;
         uint8_t secondary=pci_read8(&bridge,0x19);
-        uint8_t subordinate=pci_read8(&bridge,0x1a);
+        uint8_t subordinate=pci_read8(&bridge,0x1A);
         if(!secondary||secondary>subordinate) return 0;
-        if(i+1u==scope->path_count)
-            return device->bus>=secondary&&device->bus<=subordinate;
+        if(last) return scope->type==2&&device->bus>=secondary&&
+                        device->bus<=subordinate;
         bus=secondary;
     }
     return 0;
@@ -202,7 +209,7 @@ static int vtd_map_rmrr(vtd_unit_t *u,kira_vtd_pt_t *root,
     for(unsigned r=0;r<acpi->dmar_rmrr_count;r++) {
         const typeof(acpi->dmar_rmrr[0]) *rmrr=&acpi->dmar_rmrr[r];
         if(rmrr->segment!=0||rmrr->limit<rmrr->base||
-           rmrr->limit==UINT64_MAX) continue;
+           rmrr->limit>UINT64_MAX-0x1000u) return -2;
         int matched=0;
         for(unsigned s=0;s<acpi->dmar_scope_count;s++) {
             const typeof(acpi->dmar_scope[0]) *scope=&acpi->dmar_scope[s];
@@ -253,6 +260,7 @@ static int vtd_unit_prepare(unsigned index,const acpi_info_t *acpi) {
     if(!u->mmio.base||kira_vtd_read64(&u->mmio,VTD_CAP,&u->cap)!=0||
        kira_vtd_read64(&u->mmio,VTD_ECAP,&u->ecap)!=0) return -3;
     if(!(u->cap&VTD_CAP_SAGAW_48)||
+       ((u->cap&VTD_CAP_MGAW_MASK)>>VTD_CAP_MGAW_SHIFT)<48u||
        !((u->ecap&VTD_ECAP_IRO_MASK)>>VTD_ECAP_IRO_SHIFT)) return -4;
     uint32_t nd=(uint32_t)(u->cap&VTD_CAP_ND_MASK);
     uint32_t bits=4u+nd;
@@ -294,12 +302,13 @@ int vtd_init(void) {
      * devices have no context entry and therefore cannot DMA after TE. */
     for(int i=0;i<pci_count();i++) {
         const pci_dev_t *d=pci_get(i);
-        if(!d||!kdrv_builtin_owned(d)) continue;
+        if(!d||d->class_code==0x06||!kdrv_builtin_owned(d)) continue;
         int ui=vtd_select_unit(d);
         if(ui<0||!units[ui].valid) continue;
         vtd_unit_t *u=&units[ui];
         uint16_t did=0;
-        if(vtd_alloc_domain_id(u,&did)!=0||
+        if(vtd_map_rmrr(u,u->identity_root,d,1)!=0||
+           vtd_alloc_domain_id(u,&did)!=0||
            vtd_install_context(u,d,u->identity_phys,did)!=0||
            vtd_add_domain(d,(unsigned)ui,did,u->identity_root,
                           u->identity_phys,0)!=0) continue;
