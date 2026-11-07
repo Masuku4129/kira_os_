@@ -72,6 +72,15 @@ typedef struct {
 } smmuv3_cmd_t;
 
 typedef struct {
+    smmuv3_mmio_t regs;
+    volatile smmuv3_cmd_t *queue;
+    uint64_t queue_phys;
+    uint32_t entries;
+    uint32_t producer;
+    uint32_t producer_wrap;
+} smmuv3_queue_t;
+
+typedef struct {
     smmuv3_cmd_t *entries;
     uint32_t count;
     uint32_t producer;
