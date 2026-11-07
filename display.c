@@ -640,6 +640,11 @@ static void display_main(void* arg) {
 }
 
 static void* wm_alloc(uint64_t bytes) { return gfx_alloc_pages(bytes); }
+static void wm_release(void* ptr, uint64_t bytes) {
+    uint64_t pages = (bytes + 4095u) / 4096u;
+    if (ptr && pages && pages <= UINT32_MAX)
+        (void)pmm_free_contiguous((uint64_t)(uintptr_t)ptr, (uint32_t)pages);
+}
 
 int display_init(unsigned long mbi) {
     /* кадровый буфер от загрузчика (multiboot), иначе - virtio-gpu по PCI (QEMU virt на ARM64, машины без VBE) */
