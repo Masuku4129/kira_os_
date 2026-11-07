@@ -231,7 +231,9 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     b->name[k] = 0;
     b->granted = granted; b->version = p.h.version;
     if (granted & CAP_MMIO) pci_enable(d, PCI_CMD_MEM);
-    /* Bus mastering и MSI не включаются без выделенного IOMMU domain. */
+    /* Эти действия достижимы только после успешной проверки IOMMU policy выше. */
+    if (granted & (CAP_DMA | CAP_IRQ)) pci_enable(d, PCI_CMD_MASTER);
+    if (granted & CAP_IRQ) irq_enable(b);
     char pname[16] = "drv-";
     for (k = 0; b->name[k]; k++) pname[4 + k] = b->name[k];
     pname[4 + k] = 0;
