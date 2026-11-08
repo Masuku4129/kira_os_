@@ -198,16 +198,22 @@ static int map_huge_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) 
 }
 
 volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
-    if (len == 0 || pa + len < pa) return 0;
+    if (len == 0 || (cache != VMM_MMIO_UC && cache != VMM_MMIO_WC)) return 0;
+    /* MMIO PTEs carry only the physical-address bits in PTE_ADDR. Reject
+       out-of-range spans instead of silently aliasing a truncated address.
+       phys_end is exclusive and is safe for the page-rounding below. */
+    const uint64_t phys_limit = PTE_ADDR + PAGE_SIZE;
+    if (pa >= phys_limit || len > phys_limit - pa) return 0;
+    uint64_t phys_end = pa + len;
     uint64_t f = spin_lock_irqsave(&mmio_lock);
     for (unsigned i = 0; i < mmio_n; i++) {                       // уже отображено (другая часть того же BAR, LAPIC)
-        if (pa >= mmio[i].pa && pa + len <= mmio[i].pa + mmio[i].len && mmio[i].cache == (uint64_t)cache) {
+        if (pa >= mmio[i].pa && phys_end <= mmio[i].pa + mmio[i].len && mmio[i].cache == (uint64_t)cache) {
             volatile void* v = (volatile void*)(uintptr_t)(mmio[i].va + (pa - mmio[i].pa));
             spin_unlock_irqrestore(&mmio_lock, f);
             return v;
         }
     }
-    uint64_t first = pa & ~(PAGE_SIZE - 1), last = (pa + len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t first = pa & ~(PAGE_SIZE - 1), last = ((phys_end - 1) & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
     uint64_t size = last - first;
     const uint64_t BIG = 2ULL << 20;
     uint64_t va = (mmio_next + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
