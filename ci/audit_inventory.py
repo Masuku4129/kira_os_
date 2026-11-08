@@ -53,7 +53,7 @@ def scenario_counts(files: list[str]) -> tuple[list[str], list[str]]:
     # The x86 VM job owns its scenario list in an inline Python block in ci.yml.
     workflow = ROOT / ".github/workflows/ci.yml"
     workflow_text = workflow.read_text(errors="replace")
-    match = re.search(r"scenarios\\s*=\\s*(\\[[\\s\\S]*?\\])", workflow_text)
+    match = re.search(r"scenarios\s*=\s*(\[[\s\S]*?\])", workflow_text)
     if not match:
         raise RuntimeError("x86 QEMU scenario list not found in CI workflow")
     try:
