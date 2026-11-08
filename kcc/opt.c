@@ -327,6 +327,15 @@ static int op_licm_loop(Ins **a, int n, int nlab, int lab, OpLicm *L, Ins **tmp,
         }
         if (!ch) break;
     }
+    if (e - l <= 80) {                                        /* короткий цикл: адреса (до двух) тоже выносятся, чтобы не вычисляться на каждой итерации */
+        int nb = 0;
+        for (int k = l + 1; k <= e && nb < 2; k++) {
+            const Ins *g = a[k];
+            if (hk[k] || (g->op != IR_GADDR && g->op != IR_LADDR) || g->dst <= 0 || g->dst > L->nv) continue;
+            if (L->c->ndef[g->dst] != 1 || L->md[g->dst] || L->dcnt[g->dst] != 1) continue;
+            hk[k] = 1; L->dcnt[g->dst] = 0; nb++; moved++;
+        }
+    }
     if (moved) {
         /* определения констант и адресов, нужные вынесенным операциям, выносятся вместе с ними */
         for (int k = l + 1; k <= e; k++) {

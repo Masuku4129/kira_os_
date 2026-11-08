@@ -471,14 +471,17 @@ static void gen_ins(const Ins *i, int homebase_h) {
     case IR_GADDR: {
         Obj *t = gen_lookup(i->sym);
         if (!t) kerr(A->file, A->line, "undefined reference to '%s'", i->sym);
-        xa_ins(A, X_LEA, R64(R_AX), xs(8, t, 0));
-        stv(i->dst, R_AX);
+        int gd = i->dst > 0 && rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+        xa_ins(A, X_LEA, R64(gd), xs(8, t, 0));
+        if (gd == R_AX) stv(i->dst, R_AX);
         break;
     }
     case IR_LADDR:
-        xa_ins(A, X_LEA, R64(R_AX), xm(8, R_BP, -(int64_t)slotoff[i->imm]));
-        stv(i->dst, R_AX);
+    {   int ld = i->dst > 0 && rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+        xa_ins(A, X_LEA, R64(ld), xm(8, R_BP, -(int64_t)slotoff[i->imm]));
+        if (ld == R_AX) stv(i->dst, R_AX);
         break;
+    }
     case IR_PARAM: {
         const ALoc *l = &ploc[i->imm];
         if (!i->sub) {
