@@ -51,11 +51,11 @@ mkdir -p "$OUT/EFI/BOOT" "$OUT/EFI/KIRA"
     "$tmp/loader.so" "$OUT/EFI/BOOT/BOOTX64.EFI"
 cp "$ROOT/kira.bin" "$OUT/EFI/KIRA/KIRA.ELF"
 
-"$OBJCOPY" --info | grep -q 'efi-app-x86-64' || {
+"$OBJCOPY" --info | grep -q 'efi-app-x86_64' || {
     echo "UEFI build: objcopy lacks the efi-app-x86-64 target" >&2
     exit 1
 }
-"$OBJCOPY" -f "$OUT/EFI/BOOT/BOOTX64.EFI" | grep -q 'pei-x86-64' || {
+objdump -f "$OUT/EFI/BOOT/BOOTX64.EFI" | grep -q 'pei-x86-64' || {
     echo "UEFI build: BOOTX64.EFI is not a PE32+ x86-64 image" >&2
     exit 1
 }
