@@ -1,0 +1,183 @@
+
+==================================================
+[KIRA OS] Kernel core starting...
+==================================================
+[KIRA BOOT] Early console is on screen.
+[KIRA GDT] GDT loaded (Ring0/Ring3 segments), TSS loaded with 3 IST stacks (#DF, NMI, #MC).
+[KIRA IDT] Configuring 64-bit Interrupt Descriptor Table...
+[KIRA IDT] IDT loaded: 32 exceptions (#DF/NMI/#MC on IST) + 16 IRQs + LAPIC spurious, other vectors -> unhandled trap.
+[KIRA FPU] x87 + SSE/SSE2 enabled; per-thread FXSAVE state (512 B) saved on every context switch. AVX present but not enabled (needs XSAVE area).
+[KIRA PMM] Parsing Multiboot2 memory map...
+[KIRA PMM] Usable RAM per memory map: 2047 MB; allocatable now (below 1 GB, minus kernel and bitmaps): 1019 MB; above 1 GB waiting to be mapped: 1023 MB; bitmaps 128 KB.
+[KIRA VMM] Verifying paging state...
+[KIRA VMM] Kernel-stack double-free self-test passed.
+[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.
+[KIRA VMM] NULL guard installed: first 2 MB split into 4 KB pages, page 0 unmapped.
+[KIRA VMM] SMEP enabled: kernel cannot execute user pages.
+[KIRA VMM] SMAP enabled: kernel touches user memory only through checked copies.
+[KIRA RAM] Mapped RAM above 1 GB: 1022 MB (2 MB pages, no-execute); edges lost to alignment or failures: 1908 KB.
+[KIRA ACPI] rev 0, tables ok 4 bad 0 unmapped 0, CPUs 2, IOAPICs 1, HPET yes, PCIe ECAM none
+[KIRA HW] CPU AuthenticAMD family 25 model 1 stepping 1, virtual machine
+[KIRA HW] cores (ACPI): 2, RAM 2041 MB, address bits 48/48
+[KIRA HW] features: sse2 nx page1g xsave(832B) avx avx2 pcid invpcid smep smap fsgsbase rdrand rdseed x2apic tsc-deadline
+[KIRA HW] TSC not measured yet
+[KIRA HW] limits for this machine: program heap up to 1020 MB per program, kernel keeps 127 MB free
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 723297 bytes, prefix f8748893...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+[KIRA PROC] up to 8 programs at once (2 cores, 2041 MB RAM).
+[KIRA SYSCALL] SYSCALL/SYSRET enabled: write, exit, ticks, sleep, yield, getpid, gfx, fs (sandbox /data/<name>), heap (quota), threads, futex, ports, shared memory, clock; user pointers validated.
+[KIRA PCI] 7 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 8 MB (PCI 0:4.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA ATA] No disk on the primary IDE channel (floating bus): persistence disabled.
+[KIRA DISK] vda: virtio-blk, 8 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 6160 KB free.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA FB] Bootloader mode: 1024x768x32 type 1 addr 0xFD000000
+[KIRA FB] 1024x768x32 linear framebuffer at 0xFD000000, write-combining (PAT); back buffer 3072 KB in RAM.
+[KIRA PAR] parallel helpers: 1 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA KEYBOARD] PS/2 IRQ1 handler registered (decoded by the input layer).
+[KIRA MOUSE] PS/2 mouse enabled (IRQ12, 3-byte packets).
+[KIRA NET] e1000 (8086:100e): MAC 52:54:00:12:34:56, link up, no MSI on this card - polled every tick
+[KIRA NET] Network stack online: Ethernet, ARP, IPv4 (fragments), ICMP, UDP, DHCP client, DNS, TCP, IPv6 (ND, SLAAC, ICMPv6, UDP, TCP) (commands: net, ping, ping6, dns, http).
+[KIRA TIMER] PIT started, frequency 500 Hz, IRQ0 unmasked.
+[KIRA APIC] xAPIC mode: registers in the kernel MMIO window, base 0xFEE00000, id 0, version 0x14
+[KIRA OS] Core initialization complete. Enabling interrupts.
+[KIRA RTC] Real-time clock (CMOS, read as UTC): ВОСКРЕСЕНЬЕ, 8 НОЯБРЯ 2026 23:13
+[KIRA CPU] TSC 2445761 kHz, measured by PIT channel 2, 3x50 ms median.
+[KIRA APIC] Timer calibrated against TSC: 62508 kcounts/s (bus clock ~1000 MHz).
+[KIRA IOAPIC] id 0 at 0xFEC00000, version 0x11, 24 pins, GSI base 0
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA IRQ] IOAPIC delivery verified end-to-end: RTC -> IOAPIC -> LAPIC, 51 interrupts in 50 ms.
+[KIRA IRQ] LAPIC timer verified: 100 ticks in 200 ms (expected 100).
+[KIRA IRQ] APIC mode: LAPIC timer 500 Hz is the tick source, 2 device lines routed through IOAPIC, legacy PIC and PIT disabled.
+[KIRA SMP] Processors online: 2 of 2 (MADT).
+[KIRA SMP] IPI ping answered by 1 of 1 started processors. Each core runs its own scheduler tick and its own ready queue; idle cores take waiting work from busy ones.
+[KIRA SMP] TSC skew between cores: max 11 ns (measurement precision +-50 ns): clocks agree.
+[KIRA OS] Ready. Type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA NET] DHCP: address 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, lease 86400 s
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA TELEMETRY] t=1s health=87 load=24% mem=1% run=1 frames=47 late=6 q=40ms fx=3
+[KIRA NET] IPv6: fe80::5054:ff:fe12:3456 (link-local, DAD passed) ready
+plasma
+[KIRA PROC] pid 1 'plasma' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 1] plasma: running; close the window to exit
+кира> plasma
+[KIRA PROC] pid 2 'plasma' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 2] plasma: running; close the window to exit
+plasma
+[KIRA PROC] pid 3 'plasma' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 3] plasma: running; close the window to exit
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plas[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA MIND] фокус: plasma - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA MIND] не допущено запусков: 8 (последний: plasma) - больше, чем выдержит система
+[KIRA TELEMETRY] t=2s health=100 load=4% mem=1% run=2 frames=57 late=0 q=40ms fx=3
+ma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> pl[KIRA NET] IPv6: router advertisement from fe80::2, default router
+asma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> plasma
+[KIRA MIND] запуск plasma не допущен: больше 3 запусков в секунду
+кира> [KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] не допущено запусков: 9 (последний: plasma) - больше, чем выдержит система
+[KIRA TELEMETRY] t=3s health=94 load=8% mem=1% run=3 frames=59 late=2 q=40ms fx=3
+[KIRA NET] IPv6: fec0::5054:ff:fe12:3456 (SLAAC /64, DAD passed) ready
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA TELEMETRY] t=4s health=100 load=7% mem=1% run=2 frames=61 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=5s health=100 load=7% mem=1% run=2 frames=61 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=6s health=97 load=6% mem=1% run=3 frames=59 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=7s health=100 load=5% mem=1% run=2 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=8s health=100 load=5% mem=1% run=2 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=9s health=100 load=5% mem=1% run=2 frames=56 late=0 q=40ms fx=3
+[KIRA MIND] рычаг 19 «допуск копий программ»: пробую 150 % вместо 100 (причина: запуски отклонялись; оценка сейча
+[KIRA TELEMETRY] t=10s health=95 load=5% mem=1% run=4 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=11s health=95 load=7% mem=1% run=4 frames=61 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=12s health=97 load=7% mem=1% run=3 frames=61 late=0 q=40ms fx=3
+status
+
+[STATUS] uptime ticks: 6392, precise clock ms: 12782
+[STATUS] PMM free: 2030 MB of 2041 MB
+[STATUS] kernel heap: 8 blocks, 136 KB in use; pages: 3 small-block, 34 large-block
+[STATUS] mind: health 97 (просыпается), mode act, quantum 40 ms, decisions 8
+[STATUS] immune: kernel integrity OK, antibodies 3, quarantine 0
+[STATUS] LAPIC: enabled, id 0, timer 62508 kcounts/s (div 16); interrupts: IOAPIC
+
+кира> ps
+
+  ID  PID NAME             STATE    PRIO      CPU(ms)  SWITCHES  CORE
+  1  -  core             RUNNING  critical  685  1554  0
+  2  -  idle             ready  idle  11738  6524  0
+  3  -  mind-tact        sleep  critical  10  527  0
+  4  -  explorer         sleep  normal  2  65  0
+  5  -  par-0            sleep  critical  343  689  0
+  6  -  display          sleep  critical  468  1013  1
+  10  1  plasma           sleep  normal  81  588  1
+  8  -  net              sleep  normal  231  6496  1
+  9  -  idle1            RUNNING  idle  11890  2581  1
+  11  2  plasma           sleep  normal  59  570  1
+  12  3  plasma           sleep  normal  70  578  1
+  quantum: 40 ms, context switches: 21205, threads: 11 of 48
+
+кира> smp
+
+  CPU  APIC  STATE     IPI  SWITCHES  BUSY
+    0     0  online     0     14669   11%
+    1     1  online     1      6574    6%
+
+кира> ai
+
+[MIND] здоровье 97 (просыпается): отзывчивость 100, запас памяти 100, баланс ядер 84, стабильность 100
+[MIND] режим: управление, квант 40 мс (проб 0, удачных 0), анимация 3 (авто)
+[MIND] за жизнь: 12 с, решений 8, необычностей 0, остановлено программ 0
+[MIND] предвидение: риск опоздания экрана в следующую секунду 0%; модель обучена на 101 с (опозданий 0), предупреждения сбываются 0%, замечено опозданий заранее 0%, пока без права действовать, упреждений 0
+[MIND] тактика: фон - не больше 50% ядер при нехватке; фоновые окна - без предела кадров
+[MIND] композитор: параллельно на всех ядрах (цена 1000 точек: параллельно 6368 нс, на одном ядре 9159 нс; 0 - ещё не мерили)
+[MIND] замок планировщика: ядра ждут его 0,1% времени; взятий с ожиданием 3053 из 32657
+[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai levers (рычаги), ai act | ai observe, ai fx auto|0..3
+
+кира> status
+
+[STATUS] uptime ticks: 6461, precise clock ms: 12920
+[STATUS] PMM free: 2030 MB of 2041 MB
+[STATUS] kernel heap: 8 blocks, 136 KB in use; pages: 3 small-block, 34 large-block
+[STATUS] mind: health 97 (просыпается), mode act, quantum 40 ms, decisions 8
+[STATUS] immune: kernel integrity OK, antibodies 3, quarantine 0
+[STATUS] LAPIC: enabled, id 0, timer 62508 kcounts/s (div 16); interrupts: IOAPIC
+
+кира> 
