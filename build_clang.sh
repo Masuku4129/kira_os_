@@ -146,10 +146,20 @@ tools/kfstool kira.disk put /etc/ssl/drivers.index drivers/index.txt
 
 echo "[*] Компиляция C..."
 OBJ="boot.o"
+if [ "${KIRA_CC:-clang}" = kcc ]; then
+    # Ядро собирает собственный компилятор KCC (kcc -c -> ET_REL); линковка и ассемблер прежние (ld.lld, nasm)
+    echo "[*] C-часть ядра собирает KCC"
+    ${HOSTCC:-gcc} -std=c99 -O2 -o tools/kcc_host kcc/*.c
+    for src in $C_SOURCES $ARCH_SOURCES; do
+        tools/kcc_host -c -I. -Iarch/x86_64 -Ikcc/include -o ${src%.c}.o $src
+        OBJ="$OBJ ${src%.c}.o"
+    done
+else
 for src in $C_SOURCES $ARCH_SOURCES; do
     $CC $CFLAGS -c $src -o ${src%.c}.o
     OBJ="$OBJ ${src%.c}.o"
 done
+fi
 OBJ="$OBJ interrupts.o context.o ap_tramp.o uaccess_s.o"
 
 echo "[*] Линковка..."
