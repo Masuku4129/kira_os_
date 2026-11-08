@@ -93,7 +93,7 @@ for f in tests/kcc/run/*.c; do
     if [ $rc != 0 ]; then note "$f: kcc отвергает: $(head -c 200 $T/err)"; continue; fi
     if ! $T/irrun $T/out.ir >$T/got 2>$T/err; then note "$f: интерпретатор IR упал: $(head -c 200 $T/err)"; continue; fi
     { cat $f; echo '#undef main'; echo '#include <stdio.h>'; echo 'int main(void) { printf("%d\n", kmain()); return 0; }'; } >$T/ref.c
-    if ! $REF -std=gnu99 -w -O0 -Dmain=kmain -o $T/ref $T/ref.c -lm 2>$T/rerr; then note "$f: clang не собрал: $(head -1 $T/rerr)"; continue; fi
+    if ! $REF -std=gnu11 -w -O0 -Dmain=kmain -o $T/ref $T/ref.c -lm 2>$T/rerr; then note "$f: clang не собрал: $(head -1 $T/rerr)"; continue; fi
     $T/ref >$T/want
     cmp -s $T/want $T/got || note "$f: результат IR $(cat $T/got) != clang $(cat $T/want)"
 done
@@ -109,7 +109,7 @@ else $T/x86sse >$T/x86sse.txt; diff tests/kcc/x86_sse_ref.txt $T/x86sse.txt >$T/
 $CC -std=gnu99 -O1 -g -Wall -Wextra -Werror -DKIRA_HOST_TEST -o $T/kloader tests/kcc/kloader.c elf.c || exit 1
 refbuild() { # исходник -> $T/want (stdout эталона + код возврата main)
     { cat $1; echo '#undef main'; echo '#include <stdio.h>'; echo 'int main(void) { printf("%d\n", kmain()); return 0; }'; } >$T/ref.c
-    $REF -std=gnu99 -w -O0 -fwrapv -I $INC -Dmain=kmain -o $T/ref $T/ref.c -lm 2>$T/rerr || return 1
+    $REF -std=gnu11 -w -O0 -fwrapv -I $INC -Dmain=kmain -o $T/ref $T/ref.c -lm 2>$T/rerr || return 1
     $T/ref >$T/want
 }
 for f in tests/kcc/run/*.c tests/kcc/exec/*.c; do

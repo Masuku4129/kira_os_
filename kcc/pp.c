@@ -355,7 +355,6 @@ static V ev_unary(int skip) {
     ev_t = t->next;
     if (t->k == TK_NUM) { Type *ty; parse_intlit(t, &r.v, &ty); r.u = ty->is_unsigned; return r; }
     if (t->k == TK_CHR) {
-        if (t->mark) kerr_tok(t, "wide character constants are not supported");
         conv_char(t); r.v = t->ival; return r;
     }
     if (t->k == TK_ID) {

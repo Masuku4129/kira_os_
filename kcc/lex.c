@@ -115,7 +115,8 @@ Token *lex_buf(const char *file, const char *src, size_t len) {
 }
 
 /* ---------- escape-последовательности, числа, ключевые слова ---------- */
-int decode_escape(const Token *t, const char **pp) {
+/* bits - ширина символа назначения (8 для char, 16/32 для широких): \x и восьмеричные обрезаются до неё */
+static int decode_escape_n(const Token *t, const char **pp, int bits) {
     const char *p = *pp;
     int c = (unsigned char)*p++;
     int v;
@@ -130,17 +131,17 @@ int decode_escape(const Token *t, const char **pp) {
     case 'e': v = 27; break;
     case '\\': case '\'': case '"': case '?': v = c; break;
     case 'x': {
-        int n = 0; v = 0;
+        int n = 0; uint32_t xv = 0;
         for (;;) {
             int d = *p;
             if (d >= '0' && d <= '9') d -= '0';
             else if (d >= 'a' && d <= 'f') d = d - 'a' + 10;
             else if (d >= 'A' && d <= 'F') d = d - 'A' + 10;
             else break;
-            v = (v * 16 + d) & 0xffff; p++; n++;
+            xv = xv * 16 + (uint32_t)d; p++; n++;
         }
         if (!n) kerr_tok(t, "\\x used with no following hex digits");
-        v &= 0xff;
+        v = (int)(bits < 32 ? xv & ((1u << bits) - 1) : xv);
         break;
     }
     case 'u': case 'U': kerr_tok(t, "universal character names are not supported");
@@ -148,11 +149,67 @@ int decode_escape(const Token *t, const char **pp) {
         if (c >= '0' && c <= '7') {
             v = c - '0';
             for (int i = 0; i < 2 && *p >= '0' && *p <= '7'; i++) v = v * 8 + (*p++ - '0');
-            v &= 0xff;
+            if (bits < 9) v &= 0xff;
         } else kerr_tok(t, "unknown escape sequence '\\%c'", c);
     }
     *pp = p;
     return v;
+}
+
+int decode_escape(const Token *t, const char **pp) { return decode_escape_n(t, pp, 8); }
+
+/* \uXXXX / \UXXXXXXXX: *pp указывает на 'u' или 'U'; результат - кодовая точка */
+static uint32_t decode_ucn(const Token *t, const char **pp) {
+    const char *p = *pp;
+    int n = *p++ == 'u' ? 4 : 8;
+    uint32_t v = 0;
+    for (int i = 0; i < n; i++, p++) {
+        int d = *p;
+        if (d >= '0' && d <= '9') d -= '0';
+        else if (d >= 'a' && d <= 'f') d = d - 'a' + 10;
+        else if (d >= 'A' && d <= 'F') d = d - 'A' + 10;
+        else kerr_tok(t, "incomplete universal character name");
+        v = v * 16 + (uint32_t)d;
+    }
+    if (v > 0x10ffff || (v >= 0xd800 && v <= 0xdfff) || (v < 0xa0 && v != 0x24 && v != 0x40 && v != 0x60))
+        kerr_tok(t, "invalid universal character name");
+    *pp = p;
+    return v;
+}
+
+/* UTF-8 -> кодовая точка из исходного текста широкого литерала */
+static uint32_t utf8_dec(const Token *t, const char **pp, const char *e) {
+    const unsigned char *p = (const unsigned char *)*pp;
+    uint32_t c = *p++;
+    int n = 0;
+    if (c >= 0xf0 && c < 0xf8) { c &= 7; n = 3; }
+    else if (c >= 0xe0) { c &= 15; n = 2; }
+    else if (c >= 0xc0) { c &= 31; n = 1; }
+    else if (c >= 0x80) kerr_tok(t, "invalid UTF-8 in wide literal");
+    for (; n > 0; n--) {
+        if ((const char *)p >= e || (*p & 0xc0) != 0x80) kerr_tok(t, "invalid UTF-8 in wide literal");
+        c = c << 6 | (*p++ & 0x3f);
+    }
+    *pp = (const char *)p;
+    return c;
+}
+
+static void put_utf8(char *buf, size_t *n, uint32_t c) {
+    if (c < 0x80) buf[(*n)++] = (char)c;
+    else if (c < 0x800) { buf[(*n)++] = (char)(0xc0 | c >> 6); buf[(*n)++] = (char)(0x80 | (c & 0x3f)); }
+    else if (c < 0x10000) { buf[(*n)++] = (char)(0xe0 | c >> 12); buf[(*n)++] = (char)(0x80 | (c >> 6 & 0x3f)); buf[(*n)++] = (char)(0x80 | (c & 0x3f)); }
+    else { buf[(*n)++] = (char)(0xf0 | c >> 18); buf[(*n)++] = (char)(0x80 | (c >> 12 & 0x3f)); buf[(*n)++] = (char)(0x80 | (c >> 6 & 0x3f)); buf[(*n)++] = (char)(0x80 | (c & 0x3f)); }
+}
+
+/* элемент широкого литерала шириной w байт (2 или 4), little-endian; символы вне BMP в char16_t - суррогатная пара */
+static void put_unit(char *buf, size_t *n, int w, uint32_t c) {
+    if (w == 2 && c >= 0x10000) {
+        c -= 0x10000;
+        put_unit(buf, n, 2, 0xd800 + (c >> 10));
+        put_unit(buf, n, 2, 0xdc00 + (c & 0x3ff));
+        return;
+    }
+    for (int i = 0; i < w; i++) buf[(*n)++] = (char)(c >> (8 * i));
 }
 
 void parse_intlit(const Token *t, int64_t *val, Type **ty) {
@@ -222,12 +279,41 @@ static const char *kw_lookup(const Token *t) {
     return NULL;
 }
 
+/* L'x', u'x', U'x': тип wchar_t (int), char16_t (unsigned short), char32_t (unsigned int) */
+static void conv_wchar(Token *t) {
+    char pf = t->s[0];
+    if (t->s[1] != '\'') kerr_tok(t, "unsupported: u8 character constant");
+    const char *p = t->s + 2, *e = t->s + t->len - 1;
+    uint32_t v = 0; int n = 0;
+    int bits = pf == 'u' ? 16 : 32;
+    while (p < e) {
+        if (*p == '\\') {
+            p++;
+            v = (*p == 'u' || *p == 'U') ? decode_ucn(t, &p) : (uint32_t)decode_escape_n(t, &p, bits);
+        } else v = utf8_dec(t, &p, e);
+        n++;
+    }
+    if (n == 0) kerr_tok(t, "empty character constant");
+    if (n > 1) kerr_tok(t, "multi-character wide character constant is not supported");
+    if (bits == 16 && v > 0xffff) kerr_tok(t, "character too large for enclosing character literal type");
+    t->ty = pf == 'L' ? &ty_int : pf == 'u' ? &ty_ushort : &ty_uint;
+    t->ival = pf == 'L' ? (int64_t)(int32_t)v : (int64_t)v;
+}
+
 void conv_char(Token *t) {
+    if (t->mark) { conv_wchar(t); return; }
     const char *p = t->s + 1;
     int64_t v = 0; int n = 0;
     while (*p != '\'') {
         int c;
-        if (*p == '\\') { p++; c = decode_escape(t, &p); }
+        if (*p == '\\') {
+            p++;
+            if (*p == 'u' || *p == 'U') {
+                uint32_t u = decode_ucn(t, &p);
+                if (u > 0x7f) kerr_tok(t, "character too large for enclosing character literal type");
+                c = (int)u;
+            } else c = decode_escape(t, &p);
+        }
         else c = (unsigned char)*p++;
         v = (int32_t)((uint32_t)v << 8 | (uint32_t)(c & 0xff));
         n++;
@@ -261,25 +347,39 @@ void convert_tokens(Token *t) {
                 t->ival = (int64_t)sf_parse(t, &sz); t->ty = sz == 4 ? &ty_float : &ty_double;
             } else parse_intlit(t, &t->ival, &t->ty);
         } else if (t->k == TK_CHR) {
-            if (t->mark) kerr_tok(t, "wide and Unicode character constants are not supported");
             conv_char(t);
         } else if (t->k == TK_STR) {
-            if (t->mark) kerr_tok(t, "wide and Unicode string literals are not supported");
             if (t->hdr) kerr_tok(t, "unexpected header name");
             size_t cap = 0;
-            for (Token *q = t; q->k == TK_STR; q = q->next) cap += (size_t)q->len;
-            char *buf = ka_new(cap + 1);
+            char wp = 0;                                    /* префикс широких литералов в конкатенации: L, u или U */
+            for (Token *q = t; q->k == TK_STR; q = q->next) {
+                cap += (size_t)q->len;
+                if (!q->mark) continue;
+                if (wp && wp != q->s[0]) kerr_tok(q, "unsupported non-standard concatenation of string literals");
+                wp = q->s[0];
+            }
+            int w = wp == 0 ? 1 : wp == 'u' ? 2 : 4;
+            char *buf = ka_new(cap * 4 + 8);
             size_t n = 0;
             Token *last = t;
             for (Token *q = t; q->k == TK_STR; q = q->next) {
-                if (q->mark) kerr_tok(q, "wide and Unicode string literals are not supported");
-                const char *p = q->s + 1, *e = q->s + q->len - 1;
+                const char *p = q->s + 1 + (q->mark ? 1 : 0), *e = q->s + q->len - 1;
                 while (p < e) {
-                    if (*p == '\\') { p++; buf[n++] = (char)decode_escape(q, &p); }
-                    else buf[n++] = *p++;
+                    uint32_t c;
+                    if (*p == '\\') {
+                        p++;
+                        if (*p == 'u' || *p == 'U') {
+                            c = decode_ucn(q, &p);
+                            if (w == 1) { put_utf8(buf, &n, c); continue; }
+                        } else c = (uint32_t)decode_escape_n(q, &p, w == 1 ? 8 : w * 8);
+                    } else if (w == 1) c = (unsigned char)*p++;
+                    else c = utf8_dec(q, &p, e);
+                    if (w == 1) buf[n++] = (char)c;
+                    else put_unit(buf, &n, w, c);
                 }
                 last = q;
             }
+            t->ty = wp == 0 ? NULL : wp == 'L' ? &ty_int : wp == 'u' ? &ty_ushort : &ty_uint;
             t->str = buf; t->slen = (int)n;
             t->next = last->next;
         }

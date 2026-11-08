@@ -1086,12 +1086,13 @@ static Obj *add_global(Obj *o) {
     return o;
 }
 
-static Obj *new_str_obj(const char *s, int len, const Token *t) {
+/* len - длина в байтах без завершающего нуля; et - тип элемента (char, int, unsigned short, unsigned) */
+static Obj *new_str_obj(const char *s, int len, Type *et, const Token *t) {
     Obj *o = ka_new(sizeof *o);
     o->name = kfmt(".Lstr.%d", str_count++);
-    o->ty = ty_array(&ty_char, len + 1);
-    o->is_str = 1; o->is_ro = 1; o->is_def = 1; o->is_static = 1; o->align = 1; o->line = t->line;
-    o->init = ka_new((size_t)len + 1);
+    o->ty = ty_array(et, len / et->size + 1);
+    o->is_str = 1; o->is_ro = 1; o->is_def = 1; o->is_static = 1; o->align = et->align; o->line = t->line;
+    o->init = ka_new((size_t)len + (size_t)et->size);
     memcpy(o->init, s, (size_t)len);
     add_global(o);
     return o;
@@ -1592,7 +1593,7 @@ static Node *primary(void) {
     }
     if (tok->k == TK_STR) {
         tok = tok->next;
-        return var_node(new_str_obj(t->str, t->slen, t), t);
+        return var_node(new_str_obj(t->str, t->slen, t->ty ? t->ty : &ty_char, t), t);
     }
     if (tok->k == TK_ID) {
         if (t->len >= 10 && !memcmp(t->s, "__builtin_", 10)) {
@@ -1654,7 +1655,7 @@ static Node *primary(void) {
         if ((t->len == 8 && !memcmp(t->s, "__func__", 8)) || (t->len == 12 && !memcmp(t->s, "__FUNCTION__", 12))) {
             if (!cur_fn) kerr_tok(t, "'__func__' used outside of a function");
             tok = tok->next;
-            return var_node(new_str_obj(cur_fn->name, (int)strlen(cur_fn->name), t), t);
+            return var_node(new_str_obj(cur_fn->name, (int)strlen(cur_fn->name), &ty_char, t), t);
         }
         VS *v = find_vs(tok);
         if (!v) {
@@ -1981,7 +1982,9 @@ static int desig(Init *in) {
 
 static void init_string(Init *in) {
     const Token *t = tok;
-    int n = t->slen;
+    Type *et = t->ty ? t->ty : &ty_char;
+    int ew = et->size;
+    int n = t->slen / ew;
     tok = tok->next;
     if (in->ty->alen < 0) {
         in->ty = ty_array(in->ty->base, n + 1);
@@ -1991,7 +1994,9 @@ static void init_string(Init *in) {
     if (n > in->nch) kerr_tok(t, "initializer-string for char array is too long");
     for (int i = 0; i < n; i++) {
         Init *c = child(in, i);
-        c->expr = new_num((int8_t)t->str[i], &ty_int, t);
+        int64_t cv = 0;
+        for (int b = ew - 1; b >= 0; b--) cv = cv << 8 | (unsigned char)t->str[i * ew + b];
+        c->expr = new_num(ew == 1 ? (int8_t)cv : ew == 4 && !et->is_unsigned ? (int64_t)(int32_t)cv : cv, ew == 1 ? &ty_int : et, t);
         c->expr = conv_assign(c->expr, in->ty->base, t, "initializing");
     }
 }
@@ -2095,7 +2100,7 @@ static void st_unbraced(Init *in) {
 
 static void init2_(Init *in) {
     Type *ty = in->ty;
-    if (ty->k == TY_ARRAY && tok->k == TK_STR && ty->base->size == 1 && ty_is_int(ty->base)) { init_string(in); return; }
+    if (ty->k == TY_ARRAY && tok->k == TK_STR && ty->base->size == (tok->ty ? tok->ty->size : 1) && ty_is_int(ty->base)) { init_string(in); return; }
     if (ty->k == TY_ARRAY) {
         if (eat("{")) { arr_braced(in); return; }
         if (in->flex || ty->alen < 0) kerr_tok(tok, "array initializer must be an initializer list");
