@@ -34,9 +34,6 @@
 #define VTD_GSTS_QIES    (1u << 26)
 #define VTD_GSTS_IRES    (1u << 25)
 
-#define VTD_CAP_NFR       0x000000000000001fu
-#define VTD_CAP_SAGAW     0x00000000000000e0ull
-#define VTD_CAP_MGAW      0x000000000000ff00ull
 #define VTD_CAP_CM        (1ull << 7)
 #define VTD_CAP_PSI       (1ull << 39)
 #define VTD_ECAP_QI       (1ull << 1)

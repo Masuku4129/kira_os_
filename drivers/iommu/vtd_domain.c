@@ -14,6 +14,14 @@
 #define VTD_ENTRY_LARGE   (1ull << 7)
 #define VTD_ENTRY_ADDRESS 0x000ffffffffff000ull
 #define VTD_CCMD          0x028u
+#define VTD_ECAP_IRO(e)   ((unsigned int)(((e) >> 8) & 0x3ffu) * 16u)
+#define VTD_CAP_DWD       (1ull << 54)   /* write draining supported */
+#define VTD_CAP_DRD       (1ull << 55)   /* read draining supported */
+#define VTD_IOTLB_IVT     (1ull << 63)
+#define VTD_IOTLB_GLOBAL  (1ull << 60)   /* IIRG = 01: global invalidation */
+#define VTD_IOTLB_DR      (1ull << 49)
+#define VTD_IOTLB_DW      (1ull << 48)
+#define VTD_IOTLB_IAIG(v) (((v) >> 57) & 3u)
 #define VTD_POLL_LIMIT    1000000u
 
 static uint64_t *vtd_page(void *p)
@@ -65,6 +73,53 @@ static int vtd_invalidate_context(struct kira_vtd_unit *unit,
             p->read_barrier(p->context);
         if ((*ccmd & (1ull << 63)) == 0)
             return KIRA_VTD_OK;
+    }
+    return KIRA_VTD_TIMEOUT;
+}
+
+/*
+ * IOTLB invalidation (VT-d spec 6.5.2): the context-cache command above does not
+ * touch cached translations. After a second-level PTE is changed or removed the
+ * IOTLB must be invalidated, and only then may the page be reused, otherwise a
+ * device keeps DMAing through a stale translation to memory it no longer owns.
+ * Register-based invalidation is valid because queued invalidation is never
+ * enabled by this driver (GCMD.QIE stays clear).
+ */
+static int vtd_invalidate_iotlb(struct kira_vtd_unit *unit,
+                                const struct kira_vtd_platform *p)
+{
+    volatile uint64_t *iotlb;
+    unsigned int offset;
+    uint64_t value;
+    unsigned int i;
+
+    if (!unit || !unit->registers || !p)
+        return KIRA_VTD_INVALID;
+
+    offset = VTD_ECAP_IRO(unit->extended_capabilities);
+    /* IRO is the offset of the IOTLB register block; the IOTLB command register
+       is the second qword. It must lie inside the mapped register page. */
+    if (offset < 0x100u || offset + 16u > unit->register_size)
+        return KIRA_VTD_HARDWARE_ERROR;
+
+    iotlb = (volatile uint64_t *)(unit->registers + offset + 8u);
+    value = VTD_IOTLB_IVT | VTD_IOTLB_GLOBAL;
+    if (unit->capabilities & VTD_CAP_DRD)
+        value |= VTD_IOTLB_DR;
+    if (unit->capabilities & VTD_CAP_DWD)
+        value |= VTD_IOTLB_DW;
+    *iotlb = value;
+    vtd_barrier(p);
+
+    for (i = 0; i < VTD_POLL_LIMIT; ++i) {
+        uint64_t done;
+        if (p->read_barrier)
+            p->read_barrier(p->context);
+        done = *iotlb;
+        if ((done & VTD_IOTLB_IVT) == 0) {
+            /* IAIG == 0 means the hardware rejected the request. */
+            return VTD_IOTLB_IAIG(done) ? KIRA_VTD_OK : KIRA_VTD_HARDWARE_ERROR;
+        }
     }
     return KIRA_VTD_TIMEOUT;
 }
@@ -231,7 +286,9 @@ int kira_vtd_domain_create(struct kira_vtd_domain *domain,
      * publishing the new entry.
      */
     rc = vtd_invalidate_context(unit, platform);
-    return rc;
+    if (rc != KIRA_VTD_OK)
+        return rc;
+    return vtd_invalidate_iotlb(unit, platform);
 }
 int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
                            uint64_t iova, uint64_t physical,
@@ -251,7 +308,7 @@ int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
         return rc;
 
     vtd_barrier(platform);
-    return vtd_invalidate_context(domain->unit, platform);
+    return vtd_invalidate_iotlb(domain->unit, platform);
 }
 
 int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
@@ -289,5 +346,5 @@ int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
     }
 
     vtd_barrier(platform);
-    return vtd_invalidate_context(domain->unit, platform);
+    return vtd_invalidate_iotlb(domain->unit, platform);
 }

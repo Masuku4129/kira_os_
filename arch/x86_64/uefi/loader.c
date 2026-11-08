@@ -66,13 +66,6 @@ typedef struct {
 static EFI_SYSTEM_TABLE *g_st;
 static EFI_BOOT_SERVICES *g_bs;
 
-static void debug_marker(CHAR16 *message)
-{
-    if (g_st && g_st->ConOut && g_st->ConOut->OutputString)
-        (VOID)uefi_call_wrapper(g_st->ConOut->OutputString, 2,
-                                g_st->ConOut, message);
-}
-
 /* Keep GUID values local: GNU-EFI releases differ in which ACPI aliases
    they export, while these UEFI protocol identifiers are stable. */
 static EFI_GUID kira_file_info_guid = {
@@ -245,7 +238,6 @@ static EFI_STATUS load_elf64(VOID *image,
     Print(L"KIRA UEFI: ELF program-header table accepted\r\n");
     ph = (kira_elf64_program_header *)((UINT8 *)image + eh->phoff);
     Print(L"KIRA UEFI: ELF program-header pointer=%lx\r\n", (UINT64)(UINTN)ph);
-    debug_marker(L"[KIRA UEFI DEBUG] Print returned after PH pointer\r\n");
 
     /*
      * ELF PT_LOAD addresses need only be congruent with file offsets modulo
@@ -253,7 +245,6 @@ static EFI_STATUS load_elf64(VOID *image,
      * first, then allocate one page-aligned span so adjacent segments that
      * share a physical page are not allocated twice.
      */
-    debug_marker(L"[KIRA UEFI DEBUG] entering PT_LOAD validation\r\n");
     for (i = 0; i < eh->phnum; ++i) {
         EFI_PHYSICAL_ADDRESS destination;
         UINT64 segment_end;
@@ -316,7 +307,6 @@ static EFI_STATUS load_elf64(VOID *image,
             max_address = segment_end;
     }
 
-    debug_marker(L"[KIRA UEFI DEBUG] PT_LOAD validation complete\r\n");
     if (load_count == 0) {
         Print(L"KIRA UEFI: ELF has no PT_LOAD segments\r\n");
         goto fail;
@@ -343,7 +333,6 @@ static EFI_STATUS load_elf64(VOID *image,
     allocation_pages = (UINTN)((allocation_end - allocation_base) /
                                KIRA_PAGE_SIZE);
     allocation = allocation_base;
-    debug_marker(L"[KIRA UEFI DEBUG] allocating kernel span\r\n");
     status = uefi_call_wrapper(g_bs->AllocatePages, 4, AllocateAddress,
                                EfiLoaderData, allocation_pages, &allocation);
     if (EFI_ERROR(status)) {
@@ -351,7 +340,6 @@ static EFI_STATUS load_elf64(VOID *image,
         goto fail;
     }
 
-    debug_marker(L"[KIRA UEFI DEBUG] kernel span allocated\r\n");
     allocation_segment.base = allocation_base;
     allocation_segment.size = allocation_end - allocation_base;
     load_segments[0] = allocation_segment;
@@ -360,7 +348,6 @@ static EFI_STATUS load_elf64(VOID *image,
     /* Clear gaps and BSS, then copy each validated file-backed segment. */
     SetMem((VOID *)(UINTN)allocation_base,
            (UINTN)(allocation_end - allocation_base), 0);
-    debug_marker(L"[KIRA UEFI DEBUG] kernel span cleared; copying segments\r\n");
     for (i = 0; i < eh->phnum; ++i) {
         EFI_PHYSICAL_ADDRESS destination;
         if (ph[i].type != KIRA_PT_LOAD)
@@ -372,7 +359,6 @@ static EFI_STATUS load_elf64(VOID *image,
                     (UINTN)ph[i].filesz);
     }
 
-    debug_marker(L"[KIRA UEFI DEBUG] segment copies complete\r\n");
     *entry_out = eh->entry;
     *base_out = min_address;
     *size_out = max_address - min_address;
@@ -479,17 +465,14 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
         return status;
     }
 
-    debug_marker(L"[KIRA UEFI DEBUG] starting ELF loader\r\n");
     status = load_elf64(kernel_image, kernel_image_size,
                         &kernel_entry, &kernel_base, &kernel_size);
-    debug_marker(L"[KIRA UEFI DEBUG] ELF loader returned\r\n");
     uefi_call_wrapper(g_bs->FreePool, 1, kernel_image);
     if (EFI_ERROR(status)) {
         print_error(L"invalid or unloadable ELF64 kernel", status);
         return status;
     }
 
-    debug_marker(L"[KIRA UEFI DEBUG] ELF loaded; allocating BootInfo\r\n");
     /* Keep the handoff blob below the kernel's initial 1-GiB identity map. */
     status = uefi_call_wrapper(g_bs->AllocatePages, 4, AllocateMaxAddress, EfiLoaderData,
                                  KIRA_BOOTINFO_PAGES, &bootinfo_physical);
@@ -498,9 +481,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
 
     kbi_info.kernel_base = kernel_base;
     kbi_info.kernel_size = kernel_size;
-    debug_marker(L"[KIRA UEFI DEBUG] BootInfo pages allocated\r\n");
     (VOID)collect_gop(&kbi_info);
-    debug_marker(L"[KIRA UEFI DEBUG] GOP collection complete\r\n");
     (VOID)find_rsdp(&kbi_info.rsdp);
 
     /*
@@ -512,12 +493,11 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
     if (EFI_ERROR(status))
         return status;
 
-    debug_marker(L"[KIRA UEFI DEBUG] memory map buffer allocated\r\n");
     /* Console output is a Boot Services call that can allocate and so change the
        memory map. Print here, before GetMemoryMap: any output between GetMemoryMap
        and ExitBootServices makes the map key stale and ExitBootServices fails with
        EFI_INVALID_PARAMETER on every attempt. */
-    debug_marker(L"[KIRA UEFI DEBUG] building BootInfo and exiting boot services\r\n");
+    Print(L"KIRA UEFI: handing off to kernel (BootInfo, ExitBootServices)\r\n");
     for (attempt = 0; attempt < 8; ++attempt) {
         UINTN current_size = map_size;
 

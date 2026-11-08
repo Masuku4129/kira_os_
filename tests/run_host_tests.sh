@@ -108,6 +108,10 @@ echo "== ARM SMMUv3 prepare (platform validation, stream table and allocation un
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-smmu tests/arm_smmu_prepare_test.c drivers/iommu/arm_smmu.c
 $T/iommu-smmu
 
+echo "== VT-d domain (hardware model: IOTLB invalidation after map/unmap, stale translations) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/vtd-domain tests/vtd_domain_test.c drivers/iommu/vtd_domain.c
+$T/vtd-domain
+
 echo "== IOAPIC (ISO resolution, redirection encoding) =="
 $CC $FLAGS -o $T/ioapic tests/ioapic_test.c arch/x86_64/ioapic.c
 $T/ioapic
