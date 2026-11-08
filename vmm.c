@@ -1,4 +1,5 @@
 #include "vmm.h"
+#include "vmm_policy.h"
 #include "uaccess.h"
 #include "pmm.h"
 #include "uart.h"
@@ -164,11 +165,13 @@ void vmm_kstack_free(void* base) {
     uint64_t va = (uint64_t)(uintptr_t)base;
     if (va < KSTACK_BASE || va >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE) return;
     uint64_t f = spin_lock_irqsave(&ks_lock);
-    uint64_t rel = va - KSTACK_BASE;
-    uint32_t slot = (uint32_t)(rel / KSTACK_STRIDE);
-    uint64_t expected = KSTACK_BASE + (uint64_t)(slot + 1) * KSTACK_STRIDE - ks_size;
-    if (ks_size == 0 || va != expected || slot >= ks_used_hi ||
-        !ks_allocated[slot] || ks_nfree >= KSTACK_SLOTS) {
+    uint32_t slot = 0;
+    if (!kira_vmm_kstack_slot_valid(KSTACK_BASE, KSTACK_STRIDE, KSTACK_SLOTS,
+                                    ks_size, va, ks_used_hi,
+                                    (va >= KSTACK_BASE &&
+                                     va < KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE)
+                                        ? ks_allocated[(va - KSTACK_BASE) / KSTACK_STRIDE] : 0,
+                                    &slot) || ks_nfree >= KSTACK_SLOTS) {
         spin_unlock_irqrestore(&ks_lock, f);
         return;
     }
@@ -199,11 +202,9 @@ static int map_huge_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) 
 
 volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
     if (len == 0 || (cache != VMM_MMIO_UC && cache != VMM_MMIO_WC)) return 0;
-    /* MMIO PTEs carry only the physical-address bits in PTE_ADDR. Reject
-       out-of-range spans instead of silently aliasing a truncated address.
-       phys_end is exclusive and is safe for the page-rounding below. */
-    const uint64_t phys_limit = PTE_ADDR + PAGE_SIZE;
-    if (pa >= phys_limit || len > phys_limit - pa) return 0;
+    /* MMIO PTEs carry only physical-address bits; validate before rounding. */
+    uint64_t first, last;
+    if (!kira_vmm_mmio_span(pa, len, PTE_ADDR, PAGE_SIZE, &first, &last)) return 0;
     uint64_t phys_end = pa + len;
     uint64_t f = spin_lock_irqsave(&mmio_lock);
     for (unsigned i = 0; i < mmio_n; i++) {                       // уже отображено (другая часть того же BAR, LAPIC)
@@ -213,7 +214,6 @@ volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
             return v;
         }
     }
-    uint64_t first = pa & ~(PAGE_SIZE - 1), last = ((phys_end - 1) & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
     uint64_t size = last - first;
     const uint64_t BIG = 2ULL << 20;
     uint64_t va = (mmio_next + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
@@ -318,9 +318,7 @@ int vmm_user_range_ok(uint64_t va, uint64_t len, int write) {
         for (int lvl = 0; lvl < 3; lvl++) {
             unsigned idx = (unsigned)((p >> (30 - 9 * lvl)) & 0x1FF);
             e = t[idx];
-            if ((e & (PTE_PRESENT | PTE_USER)) != (PTE_PRESENT | PTE_USER)) return 0;
-            /* x86 checks R/W at every paging level, not only in the leaf PTE. */
-            if (write && !(e & PTE_WRITE)) return 0;
+            if (!kira_vmm_x86_entry_allows_user(e, write)) return 0;
             if (lvl < 2 && (e & PTE_HUGE)) return 0;
             if (lvl < 2) t = (const uint64_t*)(uintptr_t)(e & PTE_ADDR);
         }
