@@ -50,25 +50,20 @@ def tracked_files() -> list[str]:
     return sorted(str(p.relative_to(ROOT)) for p in ROOT.rglob("*") if p.is_file() and ".git" not in p.parts)
 
 def scenario_counts(files: list[str]) -> tuple[list[str], list[str]]:
-    # x86 scenarios live in ci/scenarios.py; CI shards this list at runtime.
-    scenario_path = ROOT / "ci/scenarios.py"
-    if not scenario_path.exists():
-        raise RuntimeError("ci/scenarios.py is missing; cannot audit x86 QEMU coverage")
-    module = ast.parse(scenario_path.read_text(errors="replace"), filename="ci/scenarios.py")
-    all_value = None
-    for node in module.body:
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "ALL" for t in node.targets):
-            all_value = node.value
-            break
-    if not isinstance(all_value, ast.List):
-        raise RuntimeError("ci/scenarios.py must define ALL as a literal list")
-    x86 = []
-    for item in all_value.elts:
-        if not (isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == "sc" and item.args and isinstance(item.args[0], ast.Constant) and isinstance(item.args[0].value, str)):
-            raise RuntimeError("unrecognized entry in ci/scenarios.py ALL list")
-        x86.append(item.args[0].value)
-    if not x86:
-        raise RuntimeError("x86 QEMU scenario inventory is unexpectedly empty")
+    # The x86 VM job owns its scenario list in an inline Python block in ci.yml.
+    workflow = ROOT / ".github/workflows/ci.yml"
+    workflow_text = workflow.read_text(errors="replace")
+    match = re.search(r"scenarios\\s*=\\s*(\\[[\\s\\S]*?\\])", workflow_text)
+    if not match:
+        raise RuntimeError("x86 QEMU scenario list not found in CI workflow")
+    try:
+        x86 = ast.literal_eval(match.group(1))
+    except (SyntaxError, ValueError) as exc:
+        raise RuntimeError(f"invalid x86 QEMU scenario list in CI workflow: {exc}") from exc
+    if not isinstance(x86, list) or not x86 or any(not isinstance(item, str) for item in x86):
+        raise RuntimeError("x86 QEMU scenario inventory must be a non-empty list of strings")
+    if len(x86) != len(set(x86)):
+        raise RuntimeError("x86 QEMU scenario inventory contains duplicate names")
     arm_path = ROOT / "ci/arm64_vm.py"
     arm_text = arm_path.read_text(errors="replace") if arm_path.exists() else ""
     arm = sorted(set(re.findall(r"['\"](arm64-[a-z0-9-]+)['\"]", arm_text)))
