@@ -14,6 +14,7 @@ static uint32_t kbi_mem_type(UINT32 type)
 {
     switch (type) {
     case EfiConventionalMemory:
+        return KBI_MEM_USABLE;
     case EfiLoaderCode:
     case EfiLoaderData:
     case EfiBootServicesCode:
