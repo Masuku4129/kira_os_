@@ -24,11 +24,14 @@ jobs:
           mkdir -p ci-out
           set -o pipefail
           bash tests/run_host_tests.sh 2>&1 | tee ci-out/host-tests.log
+          python3 -m unittest discover -s tests -p 'test_source_intake.py' -v 2>&1 | tee ci-out/source-intake-tests.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: vm-host-tests
-          path: ci-out/host-tests.log
+          path: |
+            ci-out/host-tests.log
+            ci-out/source-intake-tests.log
 
   data-lab:
     runs-on: ubuntu-24.04
@@ -121,6 +124,28 @@ jobs:
           path: |
             ci-out/${{ matrix.scenario }}
             !ci-out/${{ matrix.scenario }}/*.img
+
+
+  global-gate:
+    if: always()
+    needs: [host-tests, data-lab, build, arm64, vm]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce whole-system CI gates
+        env:
+          HOST: ${{ needs.host-tests.result }}
+          DATA: ${{ needs.data-lab.result }}
+          BUILD: ${{ needs.build.result }}
+          ARM64: ${{ needs.arm64.result }}
+          VM: ${{ needs.vm.result }}
+        run: |
+          printf 'Host tests: %s\\nData lab: %s\\nBuild: %s\\nARM64: %s\\nQEMU matrix: %s\\n' "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM"
+          failed=0
+          for result in "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM"; do
+            [ "$result" = success ] || failed=1
+          done
+          [ "$failed" -eq 0 ] || { echo "GLOBAL GATE: FAIL"; exit 1; }
+          echo "GLOBAL GATE: PASS (all required CI jobs succeeded)"
 
   # Итоги - в ветку ci-results (одна свежая копия): журналы и снимки читаются через git, без хранилища артефактов.
   report:
