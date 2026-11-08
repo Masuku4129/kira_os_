@@ -44,7 +44,7 @@
 | KiraFS/VFS | KFS, VFS, FAT, block/storage и тесты | проверить целостность, восстановление после сбоев, обновление без потери пользовательских данных, аудит образа |
 | Сеть | IPv4/IPv6/UDP/TCP, virtio-net и сетевые приложения | проверка ошибок, таймаутов, MTU/фрагментации, реальных устройств; не считать наличие протокола полной совместимостью |
 | Безопасность | capabilities, crypto, KDRV signatures/trust policy | закрыть issue #9: доверенный каталог, ротация/отзыв ключей, anti-rollback с устойчивым anchor, прерывание установки и recovery |
-| Загрузчик | BootInfo v1, Multiboot2/GRUB, ARM FDT handoff | закрыть issue #6: собственный BIOS stage loader и UEFI app, QEMU BIOS/OVMF, доказать отсутствие GRUB runtime в финальном ISO |
+| Загрузчик | BootInfo v1, ARM FDT handoff; native x86-64 UEFI app now compiles to PE32+ and is published as a CI artifact | закончить BIOS stage chain; boot-test UEFI under OVMF; integrate independent BIOS/UEFI boot into the ISO; prove GRUB runtime is absent from the final ISO |
 | KCC | собственный C compiler subset и тесты | закрыть issue #7: описать subset, диагностика, stage-1/stage-2 self-hosting и воспроизводимость; не заявлять полной замены внешнего toolchain до факта |
 | RTL8139 | существующий BSD-derived порт и тестовая инфраструктура | закрыть issue #8: clean-room реализация по публичной спецификации, собственная provenance, RX/TX/DMA/IRQ/timeouts/fault injection |
 | ACPI/ARM DMA | ACPI parsing, PCI routing, ARM cache maintenance | завершить _PRT/INTx либо точные unsupported cases; review non-coherent DMA и аппаратная валидация |
