@@ -72,7 +72,7 @@ class SourceIntakeTests(unittest.TestCase):
 
     def test_permissive_license_is_preferred_but_not_auto_approved(self):
         with tempfile.TemporaryDirectory() as td:
-            src = self.make_zip(td, {"drv.c": b"// SPDX-License-Identifier: MIT\\nint x;\\n"})
+            src = self.make_zip(td, {"drv.c": b"// SPDX-License-Identifier: MIT\nint x;\n"})
             m = build_package(src, os.path.join(td, "mit.ksrc"), "https://official.example/repo")
             self.assertEqual(m["license"]["status"], "PREFERRED_PERMISSIVE_REVIEW_REQUIRED")
             self.assertEqual(m["provenance"]["source_origin_status"], "UNVERIFIED_SOURCE_ORIGIN")
@@ -80,14 +80,14 @@ class SourceIntakeTests(unittest.TestCase):
 
     def test_gpl_is_preserved_but_requires_copyleft_review(self):
         with tempfile.TemporaryDirectory() as td:
-            src = self.make_zip(td, {"drv.c": b"// SPDX-License-Identifier: GPL-2.0-only\\n"})
+            src = self.make_zip(td, {"drv.c": b"// SPDX-License-Identifier: GPL-2.0-only\n"})
             m = build_package(src, os.path.join(td, "gpl.ksrc"))
             self.assertEqual(m["license"]["status"], "COPYLEFT_COMPATIBILITY_REVIEW_REQUIRED")
             self.assertFalse(m["runtime"]["installable"])
 
     def test_unknown_license_is_blocked_for_distribution(self):
         with tempfile.TemporaryDirectory() as td:
-            src = self.make_zip(td, {"drv.c": b"int x;\\n"})
+            src = self.make_zip(td, {"drv.c": b"int x;\n"})
             m = build_package(src, os.path.join(td, "unknown.ksrc"))
             self.assertEqual(m["license"]["status"], "UNKNOWN_BLOCKED_FOR_DISTRIBUTION")
 
