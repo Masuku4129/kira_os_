@@ -16,7 +16,7 @@ static void descriptor(EFI_MEMORY_DESCRIPTOR *d, UINT32 type,
 }
 
 int main(void) {
-    EFI_MEMORY_DESCRIPTOR map[3];
+    EFI_MEMORY_DESCRIPTOR map[5];
     kira_uefi_kbi_info info;
     unsigned char blob[KIRA_BOOTINFO_MAX_SIZE];
     uint32_t size = 0xdeadbeefu;
@@ -53,11 +53,13 @@ int main(void) {
 
     descriptor(&map[0], EfiConventionalMemory, 0x100000, 0x100);
     descriptor(&map[1], EfiACPIReclaimMemory, 0x900000, 4);
-    descriptor(&map[2], EfiMemoryMappedIO, 0xe0000000, 0x400);
+    descriptor(&map[2], EfiLoaderData, 0xa00000, 1);
+    descriptor(&map[3], EfiBootServicesData, 0xa01000, 1);
+    descriptor(&map[4], EfiMemoryMappedIO, 0xe0000000, 0x400);
 
     CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
                               &info, blob, sizeof(blob), &size) == EFI_SUCCESS);
-    CHECK(size == sizeof(kbi_header_t) + 3 * sizeof(kbi_mmap_entry_t));
+    CHECK(size == sizeof(kbi_header_t) + 5 * sizeof(kbi_mmap_entry_t));
     CHECK(kbi_validate(blob, size) == 0);
     h = (const kbi_header_t *)blob;
     entries = kbi_mmap(blob);
@@ -67,7 +69,9 @@ int main(void) {
     CHECK(h->rsdp_phys == info.rsdp && h->kernel_phys_base == info.kernel_base);
     CHECK(entries[0].type == KBI_MEM_USABLE && entries[0].length == 0x100000);
     CHECK(entries[1].type == KBI_MEM_ACPI_RECLAIM && entries[1].length == 0x4000);
-    CHECK(entries[2].type == KBI_MEM_RESERVED);
+    CHECK(entries[2].type == KBI_MEM_BOOTLOADER);
+    CHECK(entries[3].type == KBI_MEM_BOOTLOADER);
+    CHECK(entries[4].type == KBI_MEM_RESERVED);
 
     /* Unsupported GOP pixel formats must produce a valid headless handoff. */
     info.format = 0;
