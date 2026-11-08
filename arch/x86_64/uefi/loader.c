@@ -65,6 +65,12 @@ typedef struct {
 static EFI_SYSTEM_TABLE *g_st;
 static EFI_BOOT_SERVICES *g_bs;
 
+/* ACPI 2.0 configuration-table GUID (not exported by every GNU-EFI build). */
+static EFI_GUID kira_acpi20_table_guid = {
+    0x8868e871, 0xe4f1, 0x11d3,
+    { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 }
+};
+
 /* Keep GUID values local: GNU-EFI releases differ in which ACPI aliases
    they export, while these UEFI protocol identifiers are stable. */
 static EFI_GUID kira_file_info_guid = {
@@ -346,7 +352,7 @@ static EFI_STATUS find_rsdp(UINT64 *address)
         if (CompareGuid(&entry->VendorGuid, &kira_acpi20_table_guid) ||
             CompareGuid(&entry->VendorGuid, &kira_acpi_table_guid)) {
             *address = (UINT64)(UINTN)entry->VendorTable;
-            if (CompareGuid(&entry->VendorGuid, &Acpi20TableGuid))
+            if (CompareGuid(&entry->VendorGuid, &kira_acpi20_table_guid))
                 return EFI_SUCCESS;
         }
     }
