@@ -155,7 +155,10 @@ bits 64
     or eax, 0x80000001
     mov cr0, eax
     lgdt [gdt64.pointer]
-    jmp 0x08:long_mode_start
+    push qword 0x08
+    lea rax, [rel long_mode_start]
+    push rax
+    retfq
 
 long_mode_start:
     ; Инициализация сегментов данных
