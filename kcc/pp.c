@@ -434,6 +434,25 @@ static V ev_cond(int skip) {
     return r;
 }
 
+static const char *path_dir(const char *p);
+static const char *eval_path = "";
+/* __has_include("x") / __has_include(<x>): ищет файл теми же путями, что и #include, не читая его содержимое в препроцессор. */
+static int has_include(Token *name_tok, int angle, const char *nm) {
+    const KCfg *c = K.cfg;
+    size_t dl = 0;
+    (void)name_tok;
+    if (!angle || nm[0] == '/') {
+        const char *p = nm[0] == '/' ? nm : kfmt("%s%s", path_dir(eval_path), nm);
+        if (c->read(c->ud, p, &dl)) return 1;
+    }
+    for (int i = 0; i < c->nincdirs; i++) {
+        const char *d = c->incdirs[i];
+        const char *p = d[0] && d[strlen(d) - 1] != '/' ? kfmt("%s/%s", d, nm) : kfmt("%s%s", d, nm);
+        if (c->read(c->ud, p, &dl)) return 1;
+    }
+    return 0;
+}
+
 static int eval_if(Token *line, const Token *where) {
     TL L; tl_init(&L);
     for (Token *t = line; t->k != TK_EOF;) {
@@ -446,6 +465,27 @@ static int eval_if(Token *line, const Token *where) {
             n = n->next;
             if (par) { if (!is_p(n, ")")) kerr_tok(t, "missing ')' after 'defined'"); n = n->next; }
             tl_push(&L, pp_lex_one(t, find_macro(id) ? "1" : "0"));
+            t = n;
+            continue;
+        }
+        if (is_id(t, "__has_include")) {
+            Token *n = t->next;
+            if (!is_p(n, "(")) kerr_tok(t, "missing '(' after '__has_include'");
+            n = n->next;
+            int angle = 0;
+            const char *nm;
+            if (n->k == TK_STR) { nm = ka_strdup(n->s + 1, (size_t)n->len - 2); n = n->next; }
+            else if (is_p(n, "<")) {
+                SB sb = {0};
+                n = n->next;
+                for (; n->k != TK_EOF && !is_p(n, ">"); n = n->next) { if (n->sp && sb.len) sb_add(&sb, " ", 1); sb_add(&sb, n->s, (size_t)n->len); }
+                if (n->k == TK_EOF) kerr_tok(t, "expected '>' in __has_include");
+                n = n->next;
+                angle = 1; nm = sb.p ? ka_strdup(sb.p, sb.len) : "";
+            } else kerr_tok(t, "expected \"FILENAME\" or <FILENAME> in __has_include");
+            if (!is_p(n, ")")) kerr_tok(t, "missing ')' after '__has_include'");
+            n = n->next;
+            tl_push(&L, pp_lex_one(t, has_include(t, angle, nm) ? "1" : "0"));
             t = n;
             continue;
         }
@@ -605,7 +645,7 @@ static void pp_tokens(Token *tok, const char *path, int depth) {
             if (is_id(dn, "if") || is_id(dn, "ifdef") || is_id(dn, "ifndef")) {
                 int v = 0;
                 if (act) {
-                    if (is_id(dn, "if")) { Token *rest; Token *line = copy_line(&rest, tok); tok = rest; v = eval_if(line, dn); }
+                    if (is_id(dn, "if")) { Token *rest; Token *line = copy_line(&rest, tok); tok = rest; eval_path = path; v = eval_if(line, dn); }
                     else {
                         if (tok->k != TK_ID || tok->bol) kerr_tok(dn, "macro name missing in #%.*s", dn->len, dn->s);
                         v = find_macro(tok) != NULL;
@@ -622,7 +662,7 @@ static void pp_tokens(Token *tok, const char *path, int depth) {
                 if (!cs) kerr_tok(dn, "#elif without #if");
                 if (cs->seen_else) kerr_tok(dn, "#elif after #else");
                 if (!cs->parent || cs->taken) { cs->active = 0; tok = skip_line(tok); }
-                else { Token *rest; Token *line = copy_line(&rest, tok); tok = rest; int v = eval_if(line, dn); cs->active = v; cs->taken = v; }
+                else { Token *rest; Token *line = copy_line(&rest, tok); tok = rest; eval_path = path; int v = eval_if(line, dn); cs->active = v; cs->taken = v; }
                 continue;
             }
             if (is_id(dn, "else")) {

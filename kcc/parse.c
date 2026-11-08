@@ -291,7 +291,18 @@ static Type *declspec_(Attr *a) {
             if (KW("__extension__")) { tok = tok->next; continue; }
             if (KW("__attribute__")) { attrs(a); continue; }
             if (KW("_Atomic")) unsupported(tok, "_Atomic");
-            if (KW("_Alignas")) unsupported(tok, "_Alignas (use __attribute__((aligned(N))))");
+            if (KW("_Alignas")) {
+                const Token *at = tok;
+                tok = tok->next;
+                expect("(");
+                int64_t v;
+                if (is_typename(tok)) v = TAL(typename());
+                else v = const_expr();
+                expect(")");
+                if (v < 0 || (v & (v - 1)) || v > (1 << 20)) kerr_tok(at, "requested alignment is not a power of 2");
+                if (v > a->align) a->align = (int)v;
+                continue;
+            }
             if (KW("_Complex")) unsupported(tok, "_Complex");
             if (KW("float") || KW("double")) unsupported(tok, "float and double (floating point is not supported)");
         }
@@ -1339,6 +1350,48 @@ static Node *atomic_builtin(const Token *t) {
     return n;
 }
 
+/* _Generic: совпадение типа по правилам совместимости C11, с учётом квалификаторов указуемых типов. */
+static int generic_same(const Type *a, const Type *b) {
+    if (!ty_compat(a, b)) return 0;
+    while (a->k == TY_PTR && b->k == TY_PTR) {
+        a = a->base; b = b->base;
+        if (a->is_const != b->is_const || a->is_volatile != b->is_volatile) return 0;
+    }
+    return 1;
+}
+static Node *generic_select(void) {
+    const Token *t = tok;
+    tok = tok->next;
+    expect("(");
+    Node *ctl = assign();
+    Type *ct = ctl->ty;
+    if (ct->k == TY_ARRAY) ct = ty_ptr(ct->base);
+    else if (ct->k == TY_FUNC) ct = ty_ptr(ct);
+    ct = ty_unqual(ct);
+    Node *pick = 0, *dflt = 0;
+    int ndef = 0;
+    while (eat(",")) {
+        if (KW("default")) {
+            tok = tok->next;
+            expect(":");
+            if (ndef++) kerr_tok(tok, "duplicate default generic association");
+            dflt = assign();
+            continue;
+        }
+        Type *ty = typename();
+        expect(":");
+        Node *e = assign();
+        if (generic_same(ct, ty)) {
+            if (pick) kerr_tok(t, "multiple generic associations match the controlling type");
+            pick = e;
+        }
+    }
+    expect(")");
+    if (!pick) pick = dflt;
+    if (!pick) kerr_tok(t, "controlling expression type '%s' not compatible with any generic association type", ty_name(ct));
+    return pick;
+}
+
 static Node *primary(void) {
     const Token *t = tok;
     if (P("(")) {
@@ -1419,7 +1472,7 @@ static Node *primary(void) {
         if (v->ety) return new_num(v->eval, &ty_int, t);
         kerr_tok(t, "unexpected type name '%.*s': expected expression", t->len, t->s);
     }
-    if (tok->k == TK_KW && tok_is(tok, "_Generic")) unsupported(tok, "_Generic");
+    if (tok->k == TK_KW && tok_is(tok, "_Generic")) return generic_select();
     kerr_tok(tok, "expected expression before %s", tokdesc(tok));
 }
 
