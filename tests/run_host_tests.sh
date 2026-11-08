@@ -26,6 +26,12 @@ echo "== UEFI BootInfo to kernel-compatible Multiboot2 bridge =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/bootinfo-uefi tests/bootinfo_uefi_test.c bootinfo_uefi.c bootinfo.c
 $T/bootinfo-uefi
 
+echo "== UEFI loader and KBI adapter compile (GNU-EFI ABI) =="
+EFI_CFLAGS="-O2 -Wall -Wextra -Werror -fpic -fshort-wchar -mno-red-zone -fno-stack-protector -fno-stack-check -fno-strict-aliasing -DEFI_FUNCTION_WRAPPER -isystem /usr/include/efi -isystem /usr/include/efi/x86_64"
+$CC $EFI_CFLAGS -c arch/x86_64/uefi/loader.c -o $T/uefi-loader.o
+$CC $EFI_CFLAGS -I. -Iarch/x86_64/uefi -c arch/x86_64/uefi/uefi_kbi.c -o $T/uefi-kbi.o
+echo "UEFI loader sources: compile passed"
+
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c bootinfo_mb2.c bootinfo.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
 $T/pmm | head -4
