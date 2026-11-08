@@ -249,7 +249,7 @@ jobs:
           ./build_clang.sh --no-run
           mkdir -p sym ci-out && nm -n kira.bin > sym/kira.sym
       - name: build native UEFI loader (PE32+)
-        run: ./build_uefi.sh ci-out/uefi
+        run: bash ./build_uefi.sh ci-out/uefi
       - uses: actions/upload-artifact@v4
         with:
           name: kira-uefi-boot-files
