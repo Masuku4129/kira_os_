@@ -88,6 +88,29 @@ static const void* acpi_map(uint64_t phys, uint64_t len) {
 extern char kernel_start[];
 extern char kernel_end[];
 
+static uint8_t uefi_compat_mbi[65536] __attribute__((aligned(8)));
+static uint64_t uefi_rsdp_override;
+
+void kernel_uefi_entry(const void *blob, uint32_t blob_size) {
+    uint32_t mbi_size = 0;
+    const kbi_header_t *h = (const kbi_header_t *)blob;
+
+    uart_init();
+    if (kbi_validate(blob, blob_size) != 0 ||
+        h->arch != KBI_ARCH_X86_64 || h->boot_mode != KBI_BOOT_UEFI) {
+        uart_print("[KIRA UEFI] Invalid loader-neutral BootInfo; refusing to start.\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    uefi_rsdp_override = h->rsdp_phys;
+    if (kbi_to_multiboot2(blob, blob_size, uefi_compat_mbi,
+                          sizeof(uefi_compat_mbi), &mbi_size) != 0) {
+        uart_print("[KIRA UEFI] Cannot translate BootInfo into the kernel's current boot-tag view.\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    uart_print("[KIRA UEFI] Common BootInfo accepted; entering shared kernel initialization.\n");
+    kernel_main(0x36D76289UL, (unsigned long)(uintptr_t)uefi_compat_mbi);
+}
+
 void kernel_main(unsigned long magic, unsigned long addr) {
     percpu_install(&percpu_table[0]);   /* учёт замков и вывод обращаются к данным ядра с первой строки */
     uart_init();
