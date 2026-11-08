@@ -1,7 +1,7 @@
 name: kira
 
 concurrency:
-  group: kira-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: kira-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -260,6 +260,8 @@ jobs:
         run: |
           ./build_clang.sh --no-run
           mkdir -p sym ci-out && nm -n kira.bin > sym/kira.sym
+      - name: inspect kernel ELF program headers
+        run: readelf -h -l kira.bin
       - name: build native UEFI loader (PE32+)
         run: bash ./build_uefi.sh ci-out/uefi
       - uses: actions/upload-artifact@v4
