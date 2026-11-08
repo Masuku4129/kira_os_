@@ -105,6 +105,17 @@ int main(void) {
 
     CHECK(kira_uefi_build_kbi(map, sizeof(map[0]) - 1, sizeof(map[0]), 1,
                               &info, blob, sizeof(blob), &size) == EFI_INVALID_PARAMETER);
+    /* The loader reports why a handoff was refused instead of a bare Load Error. */
+    descriptor(&map[0], EfiConventionalMemory, 0x100000, 0x100);
+    CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
+                              &info, blob, sizeof(blob), &size) == EFI_SUCCESS);
+    CHECK(kira_uefi_kbi_reject_reason() == 0);
+    info.rsdp = 0xf0014; /* not 16-byte aligned */
+    CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
+                              &info, blob, sizeof(blob), &size) == EFI_LOAD_ERROR);
+    CHECK(kira_uefi_kbi_reject_reason() == -9);
+    info.rsdp = 0xf0000;
+
     puts("uefi_kbi: PASS");
     return 0;
 }

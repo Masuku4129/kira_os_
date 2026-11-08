@@ -66,6 +66,15 @@ static int add_overflow_u64(uint64_t a, uint64_t b)
     return b > UINT64_MAX - a;
 }
 
+/* Reason for the last rejected handoff: 0 = none, 1..N = loader-side check,
+   negative = kbi_validate() code. Read by the loader to explain Load Error. */
+static int g_kbi_reject_reason;
+
+int kira_uefi_kbi_reject_reason(void)
+{
+    return g_kbi_reject_reason;
+}
+
 EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
                                UINTN map_size,
                                UINTN descriptor_size,
@@ -83,6 +92,7 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     UINT32 mmap_offset, total_size;
 
     (void)descriptor_version;
+    g_kbi_reject_reason = 0;
 
     if (!efi_map || !info || !output || !output_size ||
         descriptor_size < sizeof(EFI_MEMORY_DESCRIPTOR) ||
@@ -163,11 +173,15 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
            corrupt descriptor must not wrap NumberOfPages * PAGE_SIZE to a
            small range and make reserved physical memory look usable. */
         if (descriptor.NumberOfPages == 0 ||
-            descriptor.NumberOfPages > UINT64_MAX / 4096ull)
+            descriptor.NumberOfPages > UINT64_MAX / 4096ull) {
+            g_kbi_reject_reason = 1;
             return EFI_LOAD_ERROR;
+        }
         if (add_overflow_u64(descriptor.PhysicalStart,
-                             descriptor.NumberOfPages * 4096ull))
+                             descriptor.NumberOfPages * 4096ull)) {
+            g_kbi_reject_reason = 2;
             return EFI_LOAD_ERROR;
+        }
 
         entries[i].base = descriptor.PhysicalStart;
         entries[i].length = descriptor.NumberOfPages * 4096ull;
@@ -178,8 +192,13 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     /* Validate the complete handoff before exposing it to the kernel.
        This also rejects overlapping/out-of-order firmware descriptors and
        malformed framebuffer geometry at the loader boundary. */
-    if (kbi_validate(blob, total_size) != 0)
-        return EFI_LOAD_ERROR;
+    {
+        int verdict = kbi_validate(blob, total_size);
+        if (verdict != 0) {
+            g_kbi_reject_reason = verdict;
+            return EFI_LOAD_ERROR;
+        }
+    }
 
     *output_size = total_size;
     return EFI_SUCCESS;
