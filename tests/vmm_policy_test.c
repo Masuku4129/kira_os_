@@ -30,7 +30,7 @@ int main(void) {
     CHECK(!kira_vmm_mmio_span(0, 0, mask, 4096, &first, &last));
     CHECK(first == 0xAA && last == 0xBB);
     CHECK(!kira_vmm_mmio_span(mask + 4096, 1, mask, 4096, &first, &last));
-    CHECK(!kira_vmm_mmio_span(mask, 2, mask, 4096, &first, &last));
+    CHECK(!kira_vmm_mmio_span(mask + 4095, 2, mask, 4096, &first, &last));
     CHECK(!kira_vmm_mmio_span(UINT64_MAX - 2, 8, UINT64_MAX - 4095, 4096, &first, &last));
 
     puts("VMM policy: exact kernel-stack slot validation");
