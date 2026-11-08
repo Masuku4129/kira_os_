@@ -31,7 +31,7 @@ int main(void) {
     info.framebuffer_size = 0x400000;
     info.width = 1024;
     info.height = 768;
-    info.pitch = 1024;
+    info.pitch = 4096;
     info.format = 1;
 
     descriptor(&map[0], EfiConventionalMemory, 0x100000, 0x100);
