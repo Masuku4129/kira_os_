@@ -40,9 +40,14 @@ EFI_CFLAGS=(
     -o "$tmp/loader.o"
 "$CC" "${EFI_CFLAGS[@]}" -I"$ROOT" -I"$ROOT/arch/x86_64/uefi" \
     -c "$ROOT/arch/x86_64/uefi/uefi_kbi.c" -o "$tmp/uefi-kbi.o"
+# The UEFI adapter validates the handoff with the same canonical validator
+# used by the BIOS/Multiboot paths. Link it into the EFI image explicitly;
+# otherwise a shared-object link can silently leave kbi_validate unresolved.
+"$CC" "${EFI_CFLAGS[@]}" -I"$ROOT" -c "$ROOT/bootinfo.c" \
+    -o "$tmp/bootinfo.o"
 
-"$LD" -nostdlib -znocombreloc -T "$LDS" -shared -Bsymbolic \
-    "$CRT" "$tmp/loader.o" "$tmp/uefi-kbi.o" \
+"$LD" -nostdlib -z defs -znocombreloc -T "$LDS" -shared -Bsymbolic \
+    "$CRT" "$tmp/loader.o" "$tmp/uefi-kbi.o" "$tmp/bootinfo.o" \
     -L"$EFI_LIB" -lefi -lgnuefi -o "$tmp/loader.so"
 
 mkdir -p "$OUT/EFI/BOOT" "$OUT/EFI/KIRA"
