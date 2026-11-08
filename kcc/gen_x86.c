@@ -5,6 +5,7 @@
  * неиспользуемые функции отбрасываются (как --gc-sections). Неопределённый символ - ошибка. */
 #include "x86.h"
 #include "target.h"
+#include "passes.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,11 +14,21 @@ static XA xa;
 #define A (&xa)
 
 /* ---------- состояние функции ---------- */
-/* Пул vreg: пять callee-saved (сохраняются в прологе) и три caller-saved (r8-r10: бесплатны, но только для значений,
+/* Пул vreg (rdx - последний): пять callee-saved (сохраняются в прологе) и три caller-saved (r8-r10: бесплатны, но только для значений,
    живущих не через вызов, atomic, asm, копирование памяти и подобные инструкции, которые их используют). */
 #define NCS 5
-#define NPOOL 8
-static const int pool[NPOOL] = { R_BX, R_12, R_13, R_14, R_15, R_8, R_9, R_10 };
+#define NPOOL 12
+#define NPOOL_OLD 8
+static const int pool[NPOOL] = { R_BX, R_12, R_13, R_14, R_15, R_8, R_9, R_10, R_SI, R_DI, R_11, R_DX };   /* rsi, rdi, r11: тоже только вне вызовов и подобных инструкций; rdx - ещё и вне деления */
+static int npool;                              /* 11, либо 8 при -fno-regs */
+/* Свёртка смещения: t = base + K (K - imm32), который читают только как адрес LOAD/STORE, не вычисляется: каждое обращение
+   идёт по [base + K]. fbase[t] - база, fdisp[t] - K; fold[t] - свёрнутый vreg. */
+static unsigned char *fold;
+static int *fbase;
+static int64_t *fdisp;
+static unsigned char pdirect[6];                 /* 2: скалярный параметр берётся прямо из регистра аргумента, домашняя область не нужна */
+static int g_retlast;                          /* текущая инструкция - последняя: переход к эпилогу не нужен */
+static int g_frameless;                        /* листовая функция без кадра: нет push rbp, нет кадра, ret прямо в месте return */
 static const int argreg[6] = { R_DI, R_SI, R_DX, R_CX, R_8, R_9 };
 /* Вещественные значения (SSE2). Пул xmm8-xmm12 для vreg, чей живой интервал не содержит вызова (xmm - все caller-saved: значение через вызов живёт в стековом
    слоте); xmm13-xmm15 - рабочие регистры кодогенератора; xmm0-xmm7 - только аргументы, результат вызова и входные параметры (читаются до любого их
@@ -224,8 +235,9 @@ static void gen_bin(const Ins *i) {
         if (!bimm) ldv(R_CX, b);                      /* счётчик в CL до загрузки значения: d может совпадать с регистром b */
         ldv(d, a);
         int op = sub == ND_SHL ? X_SHL : i->sgn ? X_SAR : X_SHR;
-        if (bimm) { if (imm & (sz4 ? 31 : 63)) xa_ins(A, op, RS(d), xi(imm & (sz4 ? 31 : 63))); }
-        else xa_ins(A, op, RS(d), xr(1, R_CX));
+        int s4 = sz4 || (i->w == 4 && !kcc_nonnshift);        /* 32-битный сдвиг: operand может быть неточным (верх не читается) */
+        if (bimm) { if (imm & (s4 ? 31 : 63)) xa_ins(A, op, xr(s4 ? 4 : 8, d), xi(imm & (s4 ? 31 : 63))); }
+        else xa_ins(A, op, xr(s4 ? 4 : 8, d), xr(1, R_CX));
     } else {
         int bm = bimm ? -1 : rg[b];
         if (!bimm && bm >= 0 && bm == d && a != b) {
@@ -253,6 +265,11 @@ static void gen_bin(const Ins *i) {
 /* Загрузка/запись в память. base < 0: адрес берётся из vreg i->a (в rax, если вытеснен); иначе адрес задан регистрами [base + ix*2^sc + disp] (слитый расчёт адреса) */
 static void gen_ldst(const Ins *i, int base, int ix, int sc, int64_t disp) {
     if (i->w != 1 && i->w != 2 && i->w != 4 && i->w != 8) kerr(A->file, A->line, "x86-64 backend: unsupported %s width %d", i->op == IR_LOAD ? "load" : "store", i->w);
+    if (base < 0 && i->a > 0 && fold[i->a]) {
+        int fb = fbase[i->a];
+        base = rg[fb] >= 0 ? rg[fb] : (ldv(R_AX, fb), R_AX);
+        disp = fdisp[i->a];
+    }
     if (base < 0) base = rg[i->a] >= 0 ? rg[i->a] : (ldv(R_AX, i->a), R_AX);
     #define MEM(w) (ix < 0 ? xm((w), base, disp) : xmi((w), base, ix, sc, disp))
     if (i->op == IR_LOAD && fcls && xg[i->dst] >= 0 && fcls[i->dst] == i->w) {          /* вещественная загрузка прямо в xmm */
@@ -704,6 +721,7 @@ static void gen_ins(const Ins *i, int homebase_h) {
             }
             break;
         }
+        if (!i->sub && l->kind == AL_REG && l->idx < 6 && pdirect[l->idx] == 2) { if (i->dst > 0 && ve[i->dst] >= 0) stv(i->dst, argreg[l->idx]); break; }   /* прямо из регистра аргумента */
         if (!i->sub) {
             int pd = i->dst > 0 && rg[i->dst] >= 0 ? rg[i->dst] : R_AX;       /* сразу в регистр приёмника: без промежуточного rax */
             if (l->kind == AL_REG) xa_ins(A, X_MOV, R64(pd), xm(8, R_BP, -(int64_t)homebase_h + 8 * l->idx));
@@ -770,7 +788,8 @@ static void gen_ins(const Ins *i, int homebase_h) {
             }
         } else if (i->a > 0 && i->fp) ldx(0, i->a, i->fp);
         else if (i->a > 0) ldv(R_AX, i->a);
-        xa_jmp(A, CC_NONE, epi);
+        if (g_frameless) xa_op0(A, X0_RET);
+        else if (!g_retlast) xa_jmp(A, CC_NONE, epi);
         break;
     case IR_COPY:
         ldv(R_DI, i->a); ldv(R_SI, i->b);
@@ -789,6 +808,22 @@ static void gen_ins(const Ins *i, int homebase_h) {
 }
 
 static void pad16(void) { while (A->len & 15) xa_op0(A, X0_NOP); }
+/* выравнивание заголовка цикла на 16 байт многобайтовыми nop (не больше 10 байт; как у clang) */
+static void pad_loop(void) {
+    static const unsigned char nop[10][10] = { {0}, {0x90}, {0x66, 0x90}, {0x0F, 0x1F, 0x00}, {0x0F, 0x1F, 0x40, 0x00}, {0x0F, 0x1F, 0x44, 0x00, 0x00},
+        {0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00}, {0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00}, {0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00} };
+    int d = (int)((16 - (A->len & 15)) & 15);
+    if (d > 0 && d <= 9) xa_raw(A, nop[d], d);
+    else if (d == 10) { xa_raw(A, nop[9], 9); xa_raw(A, nop[1], 1); }
+}
+
+typedef struct { int v, hit; } FoldDef;
+static void fold_badvisit(Ins *i, int *r, int kind, void *c) {
+    unsigned char *bad = c;
+    if (kind == 0 && *r > 0 && !((i->op == IR_LOAD || i->op == IR_STORE) && r == &i->a)) bad[*r] = 1;
+}
+static void fold_defvisit(Ins *i, int *r, int kind, void *c) { FoldDef *f = c; (void)i; if (kind != 0 && *r == f->v) f->hit = 1; }
 
 static void gen_func(IrFn *fi) {
     Obj *f = fi->f;
@@ -865,6 +900,30 @@ static void gen_func(IrFn *fi) {
                 fusecmp[k] = 1;
         }
     }
+    fold = ka_new((size_t)nv + 2); fbase = ka_new(sizeof(int) * (size_t)(nv + 2)); fdisp = ka_new(sizeof(int64_t) * (size_t)(nv + 2));
+    if (!kcc_nodisp && !kcc_noopt) {
+        unsigned char *bad = ka_new((size_t)nv + 2);
+        int *dpos = ka_new(sizeof(int) * (size_t)(nv + 2));
+        for (int k = 0; k < n; k++) {
+            const Ins *d = ins[k];
+            int64_t imm;
+            if (d->op == IR_BIN && d->sub == ND_ADD && d->w == 8 && d->dst > 0 && g_nd[d->dst] == 1 && !(g_mdef && g_mdef[d->dst]) && !isc[d->dst] &&
+                d->a > 0 && !isc[d->a] && d->a != d->dst && imm32_of(d->b, &imm)) { fold[d->dst] = 1; fbase[d->dst] = d->a; fdisp[d->dst] = imm; dpos[d->dst] = k; }
+        }
+        for (int k = 0; k < n; k++) ir_walk(ins[k], fold_badvisit, bad);       /* чтение t не как адреса LOAD/STORE отменяет свёртку */
+        for (int k = 0; k < n; k++) {                         /* база должна оставаться той же от определения t до каждого обращения */
+            const Ins *u = ins[k];
+            if ((u->op != IR_LOAD && u->op != IR_STORE) || u->a <= 0 || !fold[u->a]) continue;
+            int t = u->a, x = fbase[t], ok = k > dpos[t];
+            if (ok && (g_nd[x] > 1 || (g_mdef && g_mdef[x])))
+                for (int j = dpos[t] + 1; j < k && ok; j++) {
+                    if (ins[j]->op == IR_LABEL) ok = 0;
+                    else { FoldDef fd = { x, 0 }; ir_walk((Ins *)ins[j], fold_defvisit, &fd); if (fd.hit) ok = 0; }
+                }
+            if (!ok) bad[t] = 1;
+        }
+        for (int v = 1; v <= nv; v++) if (fold[v] && bad[v]) fold[v] = 0;
+    }
     int *labpos = ka_new(sizeof(int) * (size_t)(fi->nlab + 2));
     for (int l = 0; l <= fi->nlab + 1; l++) labpos[l] = -1;
     int maxout = 0, natom = 0, nfp = 0;
@@ -883,6 +942,7 @@ static void gen_func(IrFn *fi) {
         if (ins[k]->op == IR_FCMP) nfp += 2;
         if (ins[k]->op == IR_FCVT) nfp += 2;
     }
+    for (int v = 1; v <= nv; v++) if (fold[v]) { if (ve[v] >= 0 && ve[fbase[v]] < ve[v]) ve[fbase[v]] = ve[v]; vs[v] = INT_MAX; ve[v] = -1; }
     for (int v = 1; v <= nv; v++) if (isc[v]) { vs[v] = INT_MAX; ve[v] = -1; }
     for (int k = 0; k < n; k++) if (fusecmp[k]) { int d = ins[k]->dst; vs[d] = INT_MAX; ve[d] = -1; }
     /* обратные переходы: всё, что живёт в начале цикла, живёт до конца цикла */
@@ -911,8 +971,9 @@ static void gen_func(IrFn *fi) {
     for (int v = 1; v <= nv; v++) if (ve[v] >= 0) order[no++] = v;
     qsort(order, (size_t)no, sizeof(int), cmp_start);
     /* барьеры: инструкции, портящие caller-saved регистры; значение, чей интервал их содержит, живёт только в callee-saved */
-    int *bc = ka_new(sizeof(int) * (size_t)(n + 2));
+    int *bc = ka_new(sizeof(int) * (size_t)(n + 2)), *bd = ka_new(sizeof(int) * (size_t)(n + 2));
     for (int k = 0; k < n; k++) {
+        bd[k + 1] = bd[k] + (ins[k]->op == IR_BIN && (ins[k]->sub == ND_DIV || ins[k]->sub == ND_MOD));
         const Ins *b = ins[k];
         int bar = b->op == IR_CALL || b->op == IR_ATOMIC || b->op == IR_ASM || b->op == IR_COPY || b->op == IR_ZERO ||
                   (b->op == IR_PARAM && b->sub) || (b->op == IR_RET && b->sub);
@@ -927,13 +988,14 @@ static void gen_func(IrFn *fi) {
     }
     /* вес vreg: число обращений с учётом глубины циклов (вытесняется самый «дешёвый», а не самый длинный) */
     long *wt = ka_new(sizeof(long) * (size_t)(nv + 2));
+    unsigned char *lhead = ka_new((size_t)fi->nlab + 2);     /* метка - цель обратного перехода (заголовок цикла) */
     {
         int *dd = ka_new(sizeof(int) * (size_t)(n + 2));
         for (int k = 0; k < n; k++) {
             const Ins *j = ins[k];
             if ((j->op != IR_JMP && j->op != IR_BRZ && j->op != IR_BRNZ) || j->imm < 0 || j->imm > fi->nlab || labpos[j->imm] < 0) continue;
             int l = labpos[j->imm];
-            if (l <= k) { dd[l]++; dd[k + 1]--; }
+            if (l <= k) { dd[l]++; dd[k + 1]--; lhead[j->imm] = 1; }
         }
         int depth = 0;
         for (int k = 0; k < n; k++) {
@@ -944,18 +1006,22 @@ static void gen_func(IrFn *fi) {
         }
     }
     int act[NPOOL] = { 0 }, used[NPOOL] = { 0 };
+    npool = kcc_noregs ? NPOOL_OLD : NPOOL;
+    /* при выборе жертвы сравнивается плотность (вес на длину интервала): короткие временные значения важнее долгоживущих переменных */
+    #define DENS_LESS(a, b) (kcc_noregs ? wt[a] < wt[b] : wt[a] * (long)(ve[b] - vs[b] + 1) < wt[b] * (long)(ve[a] - vs[a] + 1))
     for (int q = 0; q < no; q++) {
         int v = order[q], best = -1;
         if (fcls && fcls[v] && !isc[v]) continue;                    /* вещественные vreg - в xmm либо в слоте, ниже */
         int cross = bc[ve[v] + 1] - bc[vs[v]] > 0;
-        int lim = cross ? NCS : NPOOL;
-        for (int k = 0; k < NPOOL; k++) if (act[k] && ve[act[k]] <= vs[v]) act[k] = 0;
-        if (!cross) for (int k = NCS; k < NPOOL; k++) if (!act[k]) { best = k; break; }
+        int divx = bd[ve[v] + 1] - bd[vs[v]] > 0;                 /* в интервале есть деление: rdx занят */
+        int lim = cross ? NCS : npool;
+        for (int k = 0; k < npool; k++) if (act[k] && ve[act[k]] <= vs[v]) act[k] = 0;
+        if (!cross) for (int k = NCS; k < npool; k++) if (!act[k] && !(divx && pool[k] == R_DX)) { best = k; break; }
         if (best < 0) for (int k = 0; k < NCS; k++) if (!act[k]) { best = k; break; }
         if (best < 0) {
             int far = -1;
-            for (int k = 0; k < lim; k++) if (far < 0 || wt[act[k]] < wt[act[far]]) far = k;
-            if (far >= 0 && wt[act[far]] < wt[v]) { rg[act[far]] = -1; best = far; }
+            for (int k = 0; k < lim; k++) if (!(divx && pool[k] == R_DX) && (far < 0 || DENS_LESS(act[k], act[far]))) far = k;
+            if (far >= 0 && DENS_LESS(act[far], v)) { rg[act[far]] = -1; best = far; }
         }
         if (best >= 0) { act[best] = v; rg[v] = pool[best]; used[best] = 1; }
     }
@@ -1004,7 +1070,28 @@ static void gen_func(IrFn *fi) {
         ploc = pl;
     }
     int vsse = f->ty->variadic && !kcc_nosse;                      /* вариадическая функция сохраняет и xmm0-7 (область регистров: 6 * 8 + 8 * 16 = 176 байт) */
-    int nh = f->ty->variadic ? 6 : (p_hidden && p_ngrn < 1 ? 1 : p_ngrn);   /* домашняя область - только для приходящих регистров */
+    int nhin = f->ty->variadic ? 6 : (p_hidden && p_ngrn < 1 ? 1 : p_ngrn);   /* домашняя область - только для приходящих регистров */
+    unsigned char homed[6] = { 0 };               /* какие приходящие регистры надо сохранить в домашней области */
+    for (int k = 0; k < 6; k++) pdirect[k] = 0;
+    for (int k = 0; k < nhin && k < 6; k++) homed[k] = 1;
+    if (!kcc_noregs) {
+        /* скалярные параметры в начале функции берутся прямо из регистров аргументов, если очередная запись в регистр приёмника
+           не портит ещё не прочитанный аргумент; агрегаты в начале (копирование через rcx) отключают это целиком */
+        int lead = 0, subp = 0;
+        while (lead < n && ins[lead]->op == IR_PARAM) { if (ins[lead]->sub) subp = 1; lead++; }
+        for (int m = 0; m < lead && !subp; m++) {
+            const ALoc *lm = &ploc[ins[m]->imm];
+            if (lm->kind != AL_REG || lm->idx >= 6) continue;
+            int ok = 1;
+            for (int j = 0; j < m && ok; j++) {
+                int dj = ins[j]->dst > 0 && ve[ins[j]->dst] >= 0 ? rg[ins[j]->dst] : -1;
+                if (dj == argreg[lm->idx]) ok = 0;
+            }
+            if (ok) { pdirect[lm->idx] = 2; homed[lm->idx] = 0; }
+        }
+    }
+    int nh = 0;
+    for (int k = 0; k < 6; k++) if (homed[k]) nh = k + 1;
     cur += vsse ? 176 : 8 * nh;
     if (vsse) nfp++;
     int homeh = (int)cur;
@@ -1013,7 +1100,10 @@ static void gen_func(IrFn *fi) {
     int maxslot = -1;
     for (Obj *l = f->locals; l; l = l->next) if (l->slot > maxslot) maxslot = l->slot;
     slotoff = ka_new(sizeof(int) * (size_t)(maxslot + 2));
+    unsigned char *slotref = ka_new((size_t)maxslot + 2);       /* слоты, чей адрес ещё берётся (продвинутые в vreg места в кадре не занимают) */
+    for (int k = 0; k < n; k++) if (ins[k]->op == IR_LADDR && ins[k]->imm >= 0 && ins[k]->imm <= maxslot) slotref[ins[k]->imm] = 1;
     for (Obj *l = f->locals; l; l = l->next) {
+        if (!kcc_noregs && (l->slot < 0 || l->slot > maxslot || !slotref[l->slot])) continue;
         int64_t sz = l->ty->size > 0 ? l->ty->size : 1;
         int al = l->align > l->ty->align ? l->align : l->ty->align;
         if (al < 1) al = 1;
@@ -1023,14 +1113,23 @@ static void gen_func(IrFn *fi) {
         slotoff[l->slot] = (int)cur;
     }
     int64_t frame = (cur + (int64_t)maxout + 15) & ~(int64_t)15;
+    {   /* листовая функция без кадра: ни стека, ни callee-saved, ни вызовов; rbp не нужен */
+        int nused = 0, leaf = 1;
+        for (int k = 0; k < NCS; k++) nused += used[k];
+        for (int k = 0; k < n; k++) if (ins[k]->op == IR_CALL || ins[k]->op == IR_ASM || ins[k]->op == IR_VAINFO || ins[k]->op == IR_COPY || ins[k]->op == IR_ZERO) leaf = 0;
+        g_frameless = !kcc_noregs && leaf && frame == 0 && !nused && nh == 0 && p_stk == 0;
+        for (int k = 0; g_frameless && k < n; k++) if (ins[k]->op == IR_PARAM && (ins[k]->sub || ploc[ins[k]->imm].kind != AL_REG)) g_frameless = 0;
+    }
     epi = fi->nlab + 1;
     tmplab = epi + 1;
     xa_labels_begin(A, epi + 1 + natom + nfp);
-    xa_op0(A, X0_PUSH_RBP);
-    xa_ins(A, X_MOV, R64(R_BP), R64(R_SP));
-    if (frame) xa_ins(A, X_SUB, R64(R_SP), xi(frame));
+    if (!g_frameless) {
+        xa_op0(A, X0_PUSH_RBP);
+        xa_ins(A, X_MOV, R64(R_BP), R64(R_SP));
+        if (frame) xa_ins(A, X_SUB, R64(R_SP), xi(frame));
+    }
     for (int k = 0; k < NCS; k++) if (used[k]) xa_ins(A, X_MOV, xm(8, R_BP, -saveoff[k]), R64(pool[k]));
-    for (int k = 0; k < nh; k++) xa_ins(A, X_MOV, xm(8, R_BP, -(int64_t)homeh + 8 * k), R64(argreg[k]));
+    for (int k = 0; k < nh; k++) if (homed[k]) xa_ins(A, X_MOV, xm(8, R_BP, -(int64_t)homeh + 8 * k), R64(argreg[k]));
     if (vsse) {                                                    /* al == 0: вещественных аргументов нет, xmm не сохраняем (как gcc) */
         int skip = tmplab++;
         xa_ins(A, X_TEST, xr(1, R_AX), xr(1, R_AX));
@@ -1039,15 +1138,20 @@ static void gen_func(IrFn *fi) {
         xa_label(A, skip);
     }
     for (int k = 0; k < n; k++) {
+        g_retlast = k == n - 1 && !kcc_noregs;
+        if (ins[k]->op == IR_LABEL && lhead[ins[k]->imm] && !kcc_noalign) pad_loop();
         if (fusecmp[k]) { if (ins[k]->op == IR_FCMP) gen_fcmpbr(ins[k], ins[k + 1]); else gen_cmpbr(ins[k], ins[k + 1]); k++; continue; }
+        if (ins[k]->op == IR_BIN && ins[k]->dst > 0 && fold[ins[k]->dst]) continue;        /* смещение свёрнуто в обращения к памяти */
         { int fz = kcc_noopt ? 0 : try_addr_fuse(ins, k, n); if (fz) { k += fz - 1; continue; } }
         gen_ins(ins[k], homeh);
     }
+    g_retlast = 0;
     A->file = K.srcpath; A->line = f->line;
     xa_label(A, epi);
     for (int k = 0; k < NCS; k++) if (used[k]) xa_ins(A, X_MOV, R64(pool[k]), xm(8, R_BP, -saveoff[k]));
-    xa_op0(A, X0_LEAVE);
+    if (!g_frameless) xa_op0(A, X0_LEAVE);
     xa_op0(A, X0_RET);
+    g_frameless = 0;
     xa_labels_end(A);
 }
 

@@ -9,6 +9,7 @@
  *   4. Удаление мёртвого кода (чистые операции без читателей).
  * Функции с setjmp не трогаем: после longjmp значения неизменяемых в регистрах переменных нельзя гарантировать. */
 #include "kcc.h"
+#include "passes.h"
 #include <string.h>
 
 
@@ -315,7 +316,39 @@ static int op_licm_loop(Ins **a, int n, int nlab, int lab, OpLicm *L, Ins **tmp,
     int moved = 0;
     memset(hk, 0, (size_t)n);
     for (int pass = 0; pass < 8; pass++) {
-        int ch = 0;
+        int ch = 0, rch = 0;
+        /* Перестановка слагаемых адреса: (x + y) + z, где x и z неизменны в цикле, а y меняется, становится (x + z) + y - неизменная часть
+           выносится из цикла, и в теле остаётся одно сложение (на обращениях a[i][k] и b[k][j] это на две команды в теле короче). */
+        for (int k = l + 1; k <= e && !kcc_noreassoc; k++) {
+            Ins *pq = a[k];
+            if (pq->op != IR_BIN || pq->sub != ND_ADD || pq->w != 8 || pq->dst <= 0 || pq->dst > L->nv) continue;
+            for (int side = 0; side < 2; side++) {
+                int t1 = side ? pq->b : pq->a, z = side ? pq->a : pq->b;
+                if (t1 <= 0 || t1 > L->nv || z <= 0 || z > L->nv || t1 == z) continue;
+                Ins *r = L->c->defins[t1];
+                if (!r || r->op != IR_BIN || r->sub != ND_ADD || r->w != 8 || r->dst != t1 || L->c->ndef[t1] != 1 || L->md[t1] || L->c->nuse[t1] != 1 || L->dcnt[t1] != 1) continue;
+                int rin = -1;
+                for (int q = l + 1; q < k; q++) if (a[q] == r) rin = q;
+                if (rin < 0) continue;
+                int zinv = L->dcnt[z] == 0;                      /* определён вне цикла (или будет вынесен): к моменту r он уже есть */
+                int xinv = r->a > 0 && r->a <= L->nv && (L->dcnt[r->a] == 0 || op_licm_cheap(L, r->a));
+                int yinv = r->b > 0 && r->b <= L->nv && (L->dcnt[r->b] == 0 || op_licm_cheap(L, r->b));
+                if (!zinv) continue;
+                int x, y;
+                if (xinv && !yinv) { x = r->a; y = r->b; } else if (yinv && !xinv) { x = r->b; y = r->a; } else continue;
+                if (y <= 0 || x == z) continue;
+                /* Сумма x + z ставится на место p (после определения z, которое могло идти позже r), а r с оставшимся слагаемым y уходит сразу за ней. */
+                int t2 = pq->dst;
+                Ins *ro = a[rin];
+                for (int q = rin; q < k; q++) { a[q] = a[q + 1]; hk[q] = hk[q + 1]; }
+                a[k] = ro; hk[k] = 0;
+                pq->a = x; pq->b = z; pq->dst = t1;
+                ro->a = t1; ro->b = y; ro->dst = t2;
+                L->c->defins[t1] = pq; L->c->defins[t2] = ro;
+                rch = 1;
+                break;
+            }
+        }
         for (int k = l + 1; k <= e; k++) {
             Ins *i = a[k];
             if (hk[k]) continue;
@@ -328,7 +361,7 @@ static int op_licm_loop(Ins **a, int n, int nlab, int lab, OpLicm *L, Ins **tmp,
             if (L->bad) continue;
             hk[k] = 1; L->dcnt[d] = 0; ch = 1; moved++;
         }
-        if (!ch) break;
+        if (!ch && !rch) break;
     }
     if (e - l <= 80) {                                        /* короткий цикл: адреса (до двух) тоже выносятся, чтобы не вычисляться на каждой итерации */
         int nb = 0;
@@ -558,7 +591,7 @@ static void op_nn_use(Ins *i, int *r, int kind, void *x) {
         int sub = i->sub;
         if (sub == ND_ADD || sub == ND_SUB || sub == ND_MUL || sub == ND_AND || sub == ND_OR || sub == ND_XOR) ok = (r == &i->a || r == &i->b);
         else if (sub == ND_SHL) ok = (r == &i->a || r == &i->b);
-        else if (sub == ND_SHR && !i->sgn) ok = (r == &i->a || r == &i->b);
+        else if (sub == ND_SHR) ok = (r == &i->a || r == &i->b) && (!i->sgn || !kcc_nonnshift);   /* sar r32 тоже читает только младшие 32 бита */
     } else if (i->op == IR_STORE && i->w == 4) ok = (r == &i->b);
     else if (i->op == IR_MOV) ok = 1;                       /* уточняется ниже по цепочке копий */
     if (!ok) low[*r] = 0;
@@ -582,7 +615,7 @@ static void op_nonorm(Ins **a, int n, int nv, const unsigned char *mdef) {
         int d = i->dst;
         if (d <= 0 || d > nv || i->w != 4 || !low[d]) continue;
         if ((i->op == IR_BIN && i->sgn && (i->sub == ND_ADD || i->sub == ND_SUB || i->sub == ND_MUL || i->sub == ND_AND || i->sub == ND_OR ||
-                                           i->sub == ND_XOR || i->sub == ND_SHL)) || i->op == IR_NEG || i->op == IR_NOT) { i->nn = 1; dirty[d] = 1; }
+                                           i->sub == ND_XOR || i->sub == ND_SHL || (i->sub == ND_SHR && !kcc_nonnshift))) || i->op == IR_NEG || i->op == IR_NOT) { i->nn = 1; dirty[d] = 1; }
     }
     for (int ch = 1; ch; ) {            /* значение, полученное копией неточного, тоже неточное */
         ch = 0;
@@ -687,6 +720,17 @@ static int op_lvn(Ins **a, int n, int nv, int *cnt_out) {
 
 /* Распознавание циклического сдвига: d = (x >> c1) | (x << c2), c1 + c2 равно ширине (4 или 8 байт), оба сдвига без знака, x и
  * промежуточные значения - vreg с одним определением. Результат: d = rol x, c2. Только для x86-64 (у AArch64 свой ror). */
+typedef struct { int v, hit; } OpDefHit;
+static void op_defhit(Ins *i, int *r, int kind, void *x) { (void)i; OpDefHit *h = x; if (kind != 0 && *r == h->v) h->hit = 1; }
+/* Переменная v (несколько определений) не переопределяется на отрезке a[from..to) и на нём нет меток и переходов (прямая линия). */
+static int op_stable(Ins **a, int from, int to, int v) {
+    OpDefHit h = { v, 0 };
+    for (int j = from; j < to; j++) {
+        if (a[j]->op == IR_LABEL || a[j]->op == IR_JMP || a[j]->op == IR_BRZ || a[j]->op == IR_BRNZ || a[j]->op == IR_RET) return 0;
+        op_walk(a[j], op_defhit, &h);
+    }
+    return !h.hit;
+}
 static void op_rotates(Ins **a, int n, const OpCnt *c, const unsigned char *md) {
 #define SINGLE(v) ((v) > 0 && (v) <= c->nv && c->ndef[v] == 1 && !md[v] && c->defins[v])
     if (K.cfg && K.cfg->target && !strcmp(K.cfg->target, "aarch64")) return;
@@ -697,7 +741,16 @@ static void op_rotates(Ins **a, int n, const OpCnt *c, const unsigned char *md) 
         Ins *p = c->defins[o->a], *q = c->defins[o->b];
         if (p->op != IR_BIN || q->op != IR_BIN || p->w != o->w || q->w != o->w || p->sgn || q->sgn) continue;
         if (p->sub == ND_SHL && q->sub == ND_SHR) { Ins *t = p; p = q; q = t; }       /* p - сдвиг вправо, q - влево */
-        if (p->sub != ND_SHR || q->sub != ND_SHL || p->a != q->a || !SINGLE(p->a)) continue;
+        if (p->sub != ND_SHR || q->sub != ND_SHL || p->a != q->a) continue;
+        if (!SINGLE(p->a)) {                       /* переменная с несколькими определениями: оба сдвига и OR читают одно и то же значение */
+            if (kcc_nomrot || p->a <= 0 || p->a > c->nv) continue;
+            int ip = -1, iq = -1;
+            for (int j = k - 1; j >= 0 && j >= k - 64 && (ip < 0 || iq < 0); j--) {
+                if (a[j] == p) ip = j;
+                if (a[j] == q) iq = j;
+            }
+            if (ip < 0 || iq < 0 || !op_stable(a, ip < iq ? ip : iq, k, p->a)) continue;
+        }
         if (!SINGLE(p->b) || !SINGLE(q->b)) continue;
         const Ins *d1 = c->defins[p->b], *d2 = c->defins[q->b];
         if (d1->op != IR_CONST || d2->op != IR_CONST) continue;
@@ -719,8 +772,98 @@ static void op_hdrcnt(Ins *i, int *r, int kind, void *x) { (void)i; OpHdrCnt *h 
 typedef struct { const int *map; int nv; } OpHdrMap;
 static void op_hdrmap(Ins *i, int *r, int kind, void *x) { (void)i; OpHdrMap *h = x; if (kind == 0 && *r > 0 && *r <= h->nv && h->map[*r]) *r = h->map[*r]; }
 #define OP_HDR_MAX 12
-static Ins *op_pool; static size_t op_pool_left;   /* узлы инверсии живут дольше временной арены ir_optimize: выделяются заранее */
+static Ins *op_pool, *op_pool0; static size_t op_pool_left, op_pool_total;   /* узлы инверсии живут дольше временной арены ir_optimize: выделяются заранее */
 static Ins *op_newins(void) { if (!op_pool_left) return NULL; op_pool_left--; return op_pool++; }
+/* Распознавание popcount: цикл while (x) { x &= x - 1; c++; } заменяется последовательностью битовых сложений (SWAR, без popcnt:
+ * набор команд машины не предполагается): c += popcount(x); x = 0. Точно и при x == 0. Форма до инверсии циклов:
+ *   Lt: brz x, Lx; [const]; t = sub x, 1; x = and x, t; c = add c, 1 (в любом порядке, add независим); jmp Lt; Lx:
+ * x - беззнаковое 4 или 8 байт, t читается только в and. Возвращает число замен. */
+#define OP_POP_INS 22                          /* узлов и vreg на одну замену */
+static Ins *op_pk(int op, int dst, int a, int b, int w, int sub, int64_t imm) {
+    Ins *i = op_newins();
+    if (!i) return NULL;
+    i->op = op; i->dst = dst; i->a = a; i->b = b; i->w = w; i->sub = sub; i->imm = imm;
+    return i;
+}
+static int op_popcount(IrFn *fi, Ins ***pa, int *pn, int *pnv, unsigned char *mdef, int vcap, const OpCnt *c) {
+    Ins **a = *pa;
+    int n = *pn, nv = *pnv, done = 0;
+    for (int l = 0; l + 3 < n; l++) {
+        if (a[l]->op != IR_LABEL || a[l + 1]->op != IR_BRZ) continue;
+        int x = a[l + 1]->a, lt = (int)a[l]->imm, lx = (int)a[l + 1]->imm;
+        if (x <= 0 || x > c->nv || !mdef[x]) continue;
+        int e = -1;
+        for (int q = l + 2; q < n && q <= l + 10; q++) {
+            if (a[q]->op == IR_JMP && a[q]->imm == lt) { e = q; break; }
+            if (a[q]->op == IR_LABEL || a[q]->op == IR_BRZ || a[q]->op == IR_BRNZ || a[q]->op == IR_JMP || a[q]->op == IR_RET) break;
+        }
+        if (e < 0 || e + 1 >= n || a[e + 1]->op != IR_LABEL || a[e + 1]->imm != lx) continue;
+        Ins *bin[3], *mv = NULL; int nb = 0, bad = 0;
+        for (int q = l + 2; q < e; q++) {
+            if (a[q]->op == IR_CONST) continue;
+            if (a[q]->op == IR_MOV && !mv) { mv = a[q]; continue; }         /* c = add c, 1 до слияния: t = add c, 1; c = mov t */
+            if (a[q]->op != IR_BIN || nb == 3) { bad = 1; break; }
+            bin[nb++] = a[q];
+        }
+        if (bad || nb != 3) continue;
+        Ins *sb = NULL, *an = NULL, *ad = NULL;
+        for (int q = 0; q < 3; q++) {
+            if (bin[q]->sub == ND_SUB) sb = bin[q];
+            else if (bin[q]->sub == ND_AND) an = bin[q];
+            else if (bin[q]->sub == ND_ADD) ad = bin[q];
+        }
+        if (!sb || !an || !ad) continue;
+        int w = sb->w, t = sb->dst;
+        if ((w != 4 && w != 8) || sb->sgn || an->sgn || an->w != w || sb->a != x || an->dst != x) continue;
+        if (t <= 0 || t > c->nv || mdef[t] || c->ndef[t] != 1 || c->nuse[t] != 1 || !((an->a == x && an->b == t) || (an->a == t && an->b == x))) continue;
+        int sbi = -1, ani = -1;
+        for (int q = l + 2; q < e; q++) { if (a[q] == sb) sbi = q; if (a[q] == an) ani = q; }
+        if (sbi < 0 || ani < sbi) continue;
+        int cv = mv ? mv->dst : ad->dst;
+        if (mv && (mv->a != ad->dst || ad->dst <= 0 || ad->dst > c->nv || mdef[ad->dst] || c->ndef[ad->dst] != 1 || c->nuse[ad->dst] != 1)) continue;
+        if (cv <= 0 || cv > c->nv || !mdef[cv] || cv == x || ad->a != cv || (ad->w != 4 && ad->w != 8)) continue;
+        const Ins *d1 = sb->b > 0 && sb->b <= c->nv ? c->defins[sb->b] : NULL, *d2 = ad->b > 0 && ad->b <= c->nv ? c->defins[ad->b] : NULL;
+        if (!d1 || !d2 || d1->op != IR_CONST || d2->op != IR_CONST || d1->imm != 1 || d2->imm != 1 || c->ndef[sb->b] != 1 || c->ndef[ad->b] != 1 || mdef[sb->b] || mdef[ad->b]) continue;
+        /* x после цикла равен 0, другие значения тела наружу не уходят (t - только внутри; константы - единственные определения) */
+        if (nv + OP_POP_INS + 2 > vcap || op_pool_left < OP_POP_INS + 2) continue;
+        uint64_t m1 = w == 8 ? 0x5555555555555555ull : 0x55555555ull, m2 = w == 8 ? 0x3333333333333333ull : 0x33333333ull;
+        uint64_t m4 = w == 8 ? 0x0f0f0f0f0f0f0f0full : 0x0f0f0f0full, mh = w == 8 ? 0x0101010101010101ull : 0x01010101ull;
+        int v[OP_POP_INS + 2], nvv = 0;
+        Ins *seq[OP_POP_INS + 2]; int ns = 0, ok = 1;
+        #define NV() (v[nvv++] = ++nv)
+        #define EMIT(i_) do { Ins *e_ = (i_); if (!e_) ok = 0; else seq[ns++] = e_; } while (0)
+        int k1 = NV(), k2 = NV(), k4 = NV(), kh = NV(), s1 = NV(), s2 = NV(), s4 = NV(), sl = NV();
+        EMIT(op_pk(IR_CONST, k1, 0, 0, 8, 0, (int64_t)m1)); EMIT(op_pk(IR_CONST, k2, 0, 0, 8, 0, (int64_t)m2));
+        EMIT(op_pk(IR_CONST, k4, 0, 0, 8, 0, (int64_t)m4)); EMIT(op_pk(IR_CONST, kh, 0, 0, 8, 0, (int64_t)mh));
+        EMIT(op_pk(IR_CONST, s1, 0, 0, 8, 0, 1)); EMIT(op_pk(IR_CONST, s2, 0, 0, 8, 0, 2));
+        EMIT(op_pk(IR_CONST, s4, 0, 0, 8, 0, 4)); EMIT(op_pk(IR_CONST, sl, 0, 0, 8, 0, w == 8 ? 56 : 24));
+        int t1 = NV(), t2 = NV(), t3 = NV(), t4 = NV(), t5 = NV(), t6 = NV(), t7 = NV(), t8 = NV(), t9 = NV(), t10 = NV(), t11 = NV(), pp = NV();
+        EMIT(op_pk(IR_BIN, t1, x, s1, w, ND_SHR, 0)); EMIT(op_pk(IR_BIN, t2, t1, k1, w, ND_AND, 0)); EMIT(op_pk(IR_BIN, t3, x, t2, w, ND_SUB, 0));
+        EMIT(op_pk(IR_BIN, t4, t3, k2, w, ND_AND, 0)); EMIT(op_pk(IR_BIN, t5, t3, s2, w, ND_SHR, 0)); EMIT(op_pk(IR_BIN, t6, t5, k2, w, ND_AND, 0));
+        EMIT(op_pk(IR_BIN, t7, t4, t6, w, ND_ADD, 0)); EMIT(op_pk(IR_BIN, t8, t7, s4, w, ND_SHR, 0)); EMIT(op_pk(IR_BIN, t9, t7, t8, w, ND_ADD, 0));
+        EMIT(op_pk(IR_BIN, t10, t9, k4, w, ND_AND, 0)); EMIT(op_pk(IR_BIN, t11, t10, kh, w, ND_MUL, 0)); EMIT(op_pk(IR_BIN, pp, t11, sl, w, ND_SHR, 0));
+        Ins *addc = op_pk(IR_BIN, cv, cv, pp, ad->w, ND_ADD, 0), *zero = op_pk(IR_CONST, x, 0, 0, 8, 0, 0);
+        if (!addc || !zero) ok = 0;
+        #undef NV
+        #undef EMIT
+        if (!ok) { nv -= nvv; continue; }
+        addc->sgn = ad->sgn;
+        for (int q = 0; q < ns; q++) if (seq[q]->op == IR_BIN) seq[q]->sgn = 0;
+        for (int q = 0; q < nvv; q++) mdef[v[q]] = 0;
+        /* a[l+1 .. e] (brz, тело, jmp) заменяется последовательностью; метки Lt и Lx остаются (без переходов их уберёт проход недостижимого кода) */
+        int m = l + 1, tot = ns + 2;
+        Ins **b = ka_new(sizeof(Ins *) * (size_t)(n + tot + 1));
+        for (int q = 0; q <= l; q++) b[q] = a[q];
+        for (int q = 0; q < ns; q++) b[m++] = seq[q];
+        b[m++] = addc; b[m++] = zero;
+        for (int q = e + 1; q < n; q++) b[m++] = a[q];
+        a = b; n = m; done++;
+        (void)fi;
+    }
+    *pa = a; *pn = n; *pnv = nv;
+    return done;
+}
+
 static Ins **op_invert(IrFn *fi, Ins **a, int *pn, int *pnv, unsigned char *mdef, int vcap, const OpCnt *c) {
     int n = *pn, nv = *pnv, cand = 0;
     for (int k = 0; k < n; k++) if (a[k]->op == IR_JMP) cand++;
@@ -797,6 +940,64 @@ static Ins **op_invert(IrFn *fi, Ins **a, int *pn, int *pnv, unsigned char *mdef
     return a;
 }
 
+/* Свёртка ветвлений по константе и удаление недостижимого кода (-fno-dce отключает):
+ * BRZ/BRNZ по vreg с единственным определением IR_CONST становится JMP или исчезает; всё между JMP/RET/UNREACH и следующей
+ * достижимой меткой удаляется; метки без переходов удаляются; JMP на метку, идущую следом (через другие метки), исчезает.
+ * Возвращает 1, если что-то изменилось (массив уплотнён). */
+static int op_cfg(Ins **a, int *pn, int nlab, const OpCnt *c, const unsigned char *md) {
+    int n = *pn, ch = 0;
+    for (int k = 0; k < n; k++) {
+        Ins *i = a[k];
+        if ((i->op != IR_BRZ && i->op != IR_BRNZ) || i->a <= 0 || i->a > c->nv) continue;
+        const Ins *d = c->defins[i->a];
+        if (c->ndef[i->a] != 1 || md[i->a] || !d || d->op != IR_CONST) continue;
+        int taken = (d->imm == 0) == (i->op == IR_BRZ);
+        if (taken) i->op = IR_JMP;
+        else a[k] = NULL;
+        i->a = 0;
+        ch = 1;
+    }
+    for (int round = 0; round < 8; round++) {
+        int *ref = ka_new(sizeof(int) * (size_t)(nlab + 2));
+        for (int k = 0; k < n; k++)
+            if (a[k] && (a[k]->op == IR_JMP || a[k]->op == IR_BRZ || a[k]->op == IR_BRNZ) && a[k]->imm >= 0 && a[k]->imm <= nlab) ref[a[k]->imm]++;
+        int dead = 0, rc = 0;
+        for (int k = 0; k < n; k++) {
+            Ins *i = a[k];
+            if (!i) continue;
+            if (i->op == IR_LABEL) {
+                if (i->imm < 0 || i->imm > nlab) continue;
+                if (ref[i->imm] > 0) dead = 0;
+                else { a[k] = NULL; rc = 1; }               /* метка без переходов: её просто нет */
+                continue;
+            }
+            if (dead) { a[k] = NULL; rc = 1; continue; }
+            if (i->op == IR_JMP || i->op == IR_RET || i->op == IR_UNREACH) dead = 1;
+        }
+        for (int k = 0; k < n; k++) {                         /* JMP на ближайшую следующую метку (между ними только метки) */
+            if (!a[k] || a[k]->op != IR_JMP) continue;
+            for (int q = k + 1; q < n; q++) {
+                if (!a[q]) continue;
+                if (a[q]->op != IR_LABEL) break;
+                if (a[q]->imm == a[k]->imm) { a[k] = NULL; rc = 1; break; }
+            }
+        }
+        int m = 0;
+        for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k];
+        if (m != n) ch = 1;
+        n = m;
+        if (!rc) break;
+        ch = 1;
+    }
+    {
+        int m = 0;
+        for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k];
+        n = m;
+    }
+    *pn = n;
+    return ch;
+}
+
 void ir_optimize(IrFn *fi) {
     int nv = fi->nreg, n = 0;
     for (Ins *i = fi->head; i; i = i->next) n++;
@@ -817,9 +1018,11 @@ void ir_optimize(IrFn *fi) {
         size_t nmul = 0;
         int loops_possible = loops > 0;
         for (Ins *i = fi->head; i; i = i->next) if (loops_possible && i->op == IR_BIN && i->sub == ND_MUL && i->w == 8) nmul++;
-        op_pool_left = loops * (OP_HDR_MAX + 3) + nmul * 4;
-        vslack = loops * (OP_HDR_MAX + 2) + nmul * 3 + 8;
+        op_pool_left = loops * (OP_HDR_MAX + 3 + (kcc_nopop ? 0 : OP_POP_INS)) + nmul * 4;
+        vslack = loops * (OP_HDR_MAX + 2 + (kcc_nopop ? 0 : OP_POP_INS)) + nmul * 3 + 8;
+        op_pool_total = op_pool_left;
         op_pool = op_pool_left ? ka_new(sizeof(Ins) * op_pool_left) : NULL;
+        op_pool0 = op_pool;
     }
     size_t mk = ka_mark();                      /* всё ниже, кроме mdef, временное: освобождается в конце */
     Ins **a = ka_new(sizeof(Ins *) * (size_t)(n + 1));
@@ -921,7 +1124,7 @@ void ir_optimize(IrFn *fi) {
                 int x = i->a;
                 if (p->dst == x && c2.ndef[x] == 1 && c2.nuse[x] == 1 &&
                     (p->op == IR_BIN || p->op == IR_NEG || p->op == IR_NOT || p->op == IR_CMP || p->op == IR_LOAD || p->op == IR_EXT || p->op == IR_CONST ||
-                     p->op == IR_FBIN || p->op == IR_FUN || p->op == IR_FCVT)) {
+                     p->op == IR_FBIN || p->op == IR_FUN || p->op == IR_FCVT || (p->op == IR_PARAM && !p->sub && !p->fp && !kcc_noregs))) {
                     p->dst = i->dst;
                     a[k] = NULL;
                     continue;
@@ -944,6 +1147,13 @@ void ir_optimize(IrFn *fi) {
         op_ssa_refine(a, n, nvt, mdef, c2.ndef, fi->nlab);
         for (int k = 0; k < n; k++) if (op_fold(a[k], &c2, mdef)) ch = 1;
         if (ch) op_recount(&c2, a, n);
+        if (!kcc_nodce && op_cfg(a, &n, fi->nlab, &c2, mdef)) { ch = 1; op_recount(&c2, a, n); }
+        for (int k = 0; k < n && !kcc_noextld; k++) {              /* ext(загрузка той же ширины, другой знаковости) - загрузка с нужной знаковостью */
+            Ins *i = a[k];
+            if (i->op != IR_EXT || i->w >= 8 || i->a <= 0 || i->a > nvt || c2.ndef[i->a] != 1 || mdef[i->a] || c2.nuse[i->a] != 1) continue;
+            Ins *d = c2.defins[i->a];
+            if (d && d->op == IR_LOAD && d->w == i->w && d->sgn != i->sgn) { d->sgn = i->sgn; i->op = IR_MOV; ch = 1; }
+        }
         for (int k = 0; k < n; k++) {
             Ins *i = a[k];
             if (i->op == IR_EXT && i->a > 0 && i->a <= nvt && c2.ndef[i->a] == 1 && !mdef[i->a] &&
@@ -971,6 +1181,7 @@ void ir_optimize(IrFn *fi) {
         }
     }
 
+    { int m = 0; for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k]; n = m; }      /* последний круг мог оставить удалённые */
     op_recount(&c2, a, n);
     op_rotates(a, n, &c2, mdef);
 
@@ -996,6 +1207,7 @@ void ir_optimize(IrFn *fi) {
     op_recount(&c2, a, n);
     if (!has_setjmp && !kcc_noopt) {
         op_licm(a, n, fi->nlab, &c2, mdef, nvt);
+        if (!kcc_nopop && op_popcount(fi, &a, &n, &nvt, mdef, mdef_cap, &c2)) { c2.nv = nvt; op_recount(&c2, a, n); }
         a = op_invert(fi, a, &n, &nvt, mdef, mdef_cap, &c2);
         c2.nv = nvt;
         op_recount(&c2, a, n);
@@ -1005,7 +1217,7 @@ void ir_optimize(IrFn *fi) {
         Ins *p = a[k], *q = a[k + 1];
         if (!p || !q || q->op != IR_MOV || p->dst <= 0 || p->dst > nvt || q->a != p->dst || q->dst == p->dst) continue;
         if (p->op != IR_BIN && p->op != IR_CMP && p->op != IR_EXT && p->op != IR_NEG && p->op != IR_NOT && p->op != IR_FBIN && p->op != IR_FUN &&
-            p->op != IR_FCVT) continue;
+            p->op != IR_FCVT && !(p->op == IR_PARAM && !p->sub && !p->fp && !kcc_noregs)) continue;
         if (c2.ndef[p->dst] != 1 || c2.nuse[p->dst] != 1) continue;
         p->dst = q->dst;
         a[k + 1] = NULL;
@@ -1028,6 +1240,10 @@ void ir_optimize(IrFn *fi) {
     fi->nreg = nvt;
     fi->mdef = mdef;
     ka_release(mk);
+    if (op_pool0 && !kcc_nopooltrim) {            /* неиспользованный хвост пула узлов возвращается арене (на hello.c это ~3% памяти) */
+        ka_release((size_t)((char *)op_pool0 - K.abase) + (op_pool_total - op_pool_left) * sizeof(Ins));
+        op_pool0 = NULL;
+    }
 }
 
 /* Числа определений/чтений каждого vreg и (для одиночного определения) инструкция-определение. Массивы размера fi->nreg + 1. */
@@ -1049,15 +1265,66 @@ static void op_shift(Ins *i, int *r, int kind, void *c) {
     if (*r > 0) *r += *(int *)c;
 }
 
-static int inl_ok(const Obj *callee, const Obj *caller, const Ins *call) {
-    if (!callee || callee == caller || !callee->is_func || !callee->body || !callee->ir) return 0;
+/* Число вызовов функций программы по имени и признак "адрес взят" (GADDR, указатели в данных): для встраивания единственного вызова.
+ * Таблица по указателю Obj (открытая адресация), заполняется ir_inline_prepare до встраивания. */
+typedef struct { const Obj *o; int calls, taken; } InlCnt;
+static InlCnt *inl_tab; static unsigned inl_cap;
+static InlCnt *inl_slot(const Obj *o, int create) {
+    if (!inl_cap) return NULL;
+    unsigned h = (unsigned)(((uintptr_t)o >> 4) * 2654435761u) & (inl_cap - 1);
+    for (;; h = (h + 1) & (inl_cap - 1)) {
+        if (inl_tab[h].o == o) return &inl_tab[h];
+        if (!inl_tab[h].o) { if (!create) return NULL; inl_tab[h].o = o; return &inl_tab[h]; }
+    }
+}
+void ir_inline_prepare(Obj *globals) {
+    int nf = 0;
+    for (Obj *g = globals; g; g = g->next) nf++;
+    inl_cap = 16;
+    while (inl_cap < (unsigned)nf * 2 + 16) inl_cap <<= 1;
+    inl_tab = ka_new(sizeof(InlCnt) * inl_cap);
+    for (Obj *g = globals; g; g = g->next) {
+        if (g->is_func && g->body && g->ir) {
+            for (const Ins *i = ((IrFn *)g->ir)->head; i; i = i->next) {
+                if ((i->op != IR_CALL && i->op != IR_GADDR) || !i->sym) continue;
+                Obj *t = gen_lookup(i->sym);
+                InlCnt *e = t ? inl_slot(t, 1) : NULL;
+                if (e) { if (i->op == IR_CALL) e->calls++; else e->taken++; }
+            }
+        } else if (!g->is_func) {
+            for (const Reloc *r = g->relocs; r; r = r->next) {
+                Obj *t = gen_lookup(r->sym);
+                InlCnt *e = t ? inl_slot(t, 1) : NULL;
+                if (e) e->taken++;
+            }
+        }
+    }
+}
+/* Предельный размер тела: 100 (обычный), 400 (статическая функция с единственным вызовом, адрес не взят: тело исчезает из образа),
+ * 40 - для разворачивания рекурсии на один уровень (callee == caller). */
+#define INL_ONCE_MAX 400
+#define INL_REC_MAX 40
+static int inl_once(const Obj *callee) {              /* статическая функция с единственным вызовом, адрес не взят: после встраивания её тело не нужно */
+    if (kcc_noonce || !callee->is_static || callee->is_weak) return 0;
+    const InlCnt *e = inl_slot(callee, 0);
+    return e && e->calls == 1 && e->taken == 0;
+}
+static int inl_limit(const Obj *callee, const Obj *caller) {
+    if (callee == caller) return kcc_norec ? 0 : INL_REC_MAX;
+    return inl_once(callee) ? INL_ONCE_MAX : INL_MAX;
+}
+
+static int inl_ok(const Obj *callee, const Obj *caller, const Ins *call, const IrFn *ci0) {
+    if (!callee || !callee->is_func || !callee->body || !callee->ir) return 0;
+    int limit = inl_limit(callee, caller);
+    if (!limit) return 0;
     if (callee->ty->variadic || callee->ty->noproto || callee->nparams > 6 || callee->nparams != call->nargs) return 0;
     if (!strcmp(callee->name, "main") || ty_is_agg(callee->ty->base)) return 0;
     for (const Obj *p = callee->params; p; p = p->next) if (ty_is_agg(p->ty)) return 0;
-    const IrFn *ci = callee->ir;
+    const IrFn *ci = ci0 ? ci0 : callee->ir;
     int n = 0;
     for (const Ins *i = ci->head; i; i = i->next) {
-        if (++n > INL_MAX) return 0;
+        if (++n > limit) return 0;
         switch (i->op) {
         case IR_ASM: case IR_VAINFO: case IR_ATOMIC: return 0;
         case IR_PARAM: case IR_RET: if (i->sub) return 0; break;
@@ -1071,18 +1338,43 @@ static int inl_ok(const Obj *callee, const Obj *caller, const Ins *call) {
     return 1;
 }
 
+/* Копия IR функции: рекурсивная функция встраивает в себя свой исходный вид, а не тот, что растёт на ходу. */
+static IrFn *inl_clone(const IrFn *fi) {
+    IrFn *c = ka_new(sizeof(IrFn));
+    *c = *fi;
+    c->head = NULL;
+    Ins *tl = NULL;
+    for (const Ins *i = fi->head; i; i = i->next) {
+        Ins *n = ka_new(sizeof(Ins));
+        *n = *i;
+        if (n->op == IR_CALL && n->nargs) { n->args = ka_new(sizeof(int) * (size_t)n->nargs); memcpy(n->args, i->args, sizeof(int) * (size_t)n->nargs); }
+        n->next = NULL;
+        if (tl) tl->next = n; else c->head = n;
+        tl = n;
+    }
+    return c;
+}
+
 void ir_inline(Obj *caller) {
     IrFn *fi = caller->ir;
     int total = 0;
     for (Ins *i = fi->head; i; i = i->next) total++;
+    IrFn *snap = NULL;                          /* исходный вид самой функции для разворачивания рекурсии на один уровень */
+    Obj *snap_last = NULL;
+    if (!kcc_norec && total <= INL_REC_MAX) {
+        int selfcall = 0;
+        for (const Ins *i = fi->head; i; i = i->next) if (i->op == IR_CALL && i->sym && gen_lookup(i->sym) == caller) selfcall = 1;
+        if (selfcall) { snap = inl_clone(fi); for (Obj *l = caller->locals; l; l = l->next) snap_last = l; }
+    }
     Ins *prev = NULL;
     for (Ins *c = fi->head; c;) {
         Ins *nextc = c->next;
         int site_ok = c->op == IR_CALL && c->sym && !c->rsz;
         for (int k = 0; site_ok && c->asz && k < c->nargs; k++) if (c->asz[k]) site_ok = 0;   /* агрегаты по значению - не встраиваем */
         Obj *callee = site_ok ? gen_lookup(c->sym) : NULL;
-        if (!callee || total >= INL_CALLER_MAX || !inl_ok(callee, caller, c)) { prev = c; c = nextc; continue; }
-        const IrFn *ci = callee->ir;
+        const IrFn *own = callee == caller ? snap : NULL;
+        if (!callee || total >= INL_CALLER_MAX || (callee == caller && !snap) || !inl_ok(callee, caller, c, own)) { prev = c; c = nextc; continue; }
+        const IrFn *ci = own ? own : callee->ir;
         int vbase = fi->nreg, lbase = fi->nlab + 1, lend = lbase + ci->nlab + 1;
         int cmax = -1;
         Obj *tail = NULL;
@@ -1093,21 +1385,29 @@ void ir_inline(Obj *caller) {
             *nl = *l; nl->slot = l->slot + sbase; nl->next = NULL;
             if (tail) tail->next = nl; else caller->locals = nl;
             tail = nl;
+            if (callee == caller && l == snap_last) break;     /* дальше - уже добавленные копии */
         }
         Ins *head = NULL, *tl = NULL;
         const Ins *last = NULL;
+        int steal = !own && callee != caller && inl_once(callee);       /* единственный вызов: узлы callee переходят в caller без копирования (экономит арену) */
         for (const Ins *i = ci->head; i; i = i->next) last = i;
 #define INL_PUSH(x) do { Ins *q_ = (x); q_->next = NULL; if (tl) tl->next = q_; else head = q_; tl = q_; } while (0)
-        for (const Ins *i = ci->head; i; i = i->next) {
-            Ins *n = ka_new(sizeof(Ins));
-            *n = *i;
+        for (const Ins *i = ci->head, *inx; i; i = inx) {
+            inx = i->next;
+            Ins *n = steal ? (Ins *)i : ka_new(sizeof(Ins));
+            if (!steal) *n = *i;
             if (i->op == IR_PARAM) {
                 n->op = IR_MOV; n->a = c->args[i->imm]; n->b = 0; n->sub = 0; n->imm = 0; n->fp = 0;
                 n->dst = i->dst > 0 ? i->dst + vbase : 0;
                 INL_PUSH(n);
                 continue;
             }
-            if (i->op == IR_CALL && i->nargs) {
+            if (!steal && (i->op == IR_CALL || i->op == IR_GADDR) && i->sym) {      /* копия тела: вызовов и взятий адреса в программе стало больше */
+                Obj *tg = gen_lookup(i->sym);
+                InlCnt *te = tg ? inl_slot(tg, 1) : NULL;
+                if (te) { if (i->op == IR_CALL) te->calls++; else te->taken++; }
+            }
+            if (i->op == IR_CALL && i->nargs && !steal) {
                 n->args = ka_new(sizeof(int) * (size_t)i->nargs);
                 memcpy(n->args, i->args, sizeof(int) * (size_t)i->nargs);
             }
@@ -1133,6 +1433,8 @@ void ir_inline(Obj *caller) {
         le->op = IR_LABEL; le->imm = lend;
         INL_PUSH(le);
 #undef INL_PUSH
+        if (steal) ((IrFn *)callee->ir)->head = NULL;
+        { InlCnt *ce = inl_slot(callee, 0); if (ce && ce->calls > 0) ce->calls--; }            /* этот вызов исчез */
         if (prev) prev->next = head; else fi->head = head;
         tl->next = nextc;
         for (const Ins *i = head; i != nextc; i = i->next) total++;
@@ -1144,3 +1446,24 @@ void ir_inline(Obj *caller) {
 }
 
 void ir_walk(Ins *i, OpVisit fn, void *ctx) { op_walk(i, fn, ctx); }
+
+/* ---------- флаги отключения проходов (kcc/passes.h) ---------- */
+int kcc_noregs;
+int kcc_nodce;
+int kcc_noalign;
+int kcc_noreassoc;
+int kcc_nopop;
+int kcc_nopooltrim;
+int kcc_norec;
+int kcc_noonce;
+int kcc_noextld;
+int kcc_nodisp;
+int kcc_nomrot;
+int kcc_nonnshift;
+int kcc_flag(const char *arg) {
+    static const struct { const char *name; int *flag; } tab[] = {
+        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-reassoc", &kcc_noreassoc }, { "-fno-popcount", &kcc_nopop }, { "-fno-pooltrim", &kcc_nopooltrim }, { "-fno-rec-inline", &kcc_norec }, { "-fno-once-inline", &kcc_noonce }, { "-fno-extld", &kcc_noextld }, { "-fno-disp", &kcc_nodisp }, { "-fno-mrot", &kcc_nomrot }, { "-fno-nnshift", &kcc_nonnshift },
+        { 0, 0 } };
+    for (int k = 0; tab[k].name; k++) if (!strcmp(arg, tab[k].name)) { *tab[k].flag = 1; return 1; }
+    return 0;
+}

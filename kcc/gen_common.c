@@ -65,6 +65,7 @@ Obj *gen_prepare(Obj *globals) {
     for (Obj *g = globals; g; g = g->next)
         if (g->is_func && g->body) g->ir = ir_lower(g);
     if (!kcc_noopt) {
+        ir_inline_prepare(globals);
         for (Obj *g = globals; g; g = g->next) if (g->is_func && g->body) ir_inline(g);
         for (Obj *g = globals; g; g = g->next) if (g->is_func && g->body) ir_optimize((IrFn *)g->ir);
     }
