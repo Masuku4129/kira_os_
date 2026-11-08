@@ -149,15 +149,21 @@ static void gen_bin(const Ins *i) {
     int a = i->a, b = i->b;
     int comm = sub == ND_ADD || sub == ND_MUL || sub == ND_AND || sub == ND_OR || sub == ND_XOR;
     int64_t imm = 0;
+    int sz4 = i->w == 4 && !i->sgn;                  /* беззнаковые 32 бита: 32-битные команды сами обнуляют верх, normr не нужен */
+    #define RS(r) xr(sz4 ? 4 : 8, (r))
     int bimm = imm32_of(b, &imm);
-    if (!bimm && comm && imm32_of(a, &imm)) { int t = a; a = b; b = t; bimm = 1; }
+    if (sz4 && !bimm && b > 0 && isc[b] && cv[b] >= 0 && cv[b] <= (int64_t)UINT32_MAX) { imm = (int32_t)(uint32_t)cv[b]; bimm = 1; }
+    if (!bimm && comm) {
+        if (imm32_of(a, &imm)) { int t = a; a = b; b = t; bimm = 1; }
+        else if (sz4 && a > 0 && isc[a] && cv[a] >= 0 && cv[a] <= (int64_t)UINT32_MAX) { imm = (int32_t)(uint32_t)cv[a]; int t = a; a = b; b = t; bimm = 1; }
+    }
     int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
     if (sub == ND_SHL || sub == ND_SHR) {
         if (!bimm) ldv(R_CX, b);                      /* счётчик в CL до загрузки значения: d может совпадать с регистром b */
         ldv(d, a);
         int op = sub == ND_SHL ? X_SHL : i->sgn ? X_SAR : X_SHR;
-        if (bimm) { if (imm & 63) xa_ins(A, op, R64(d), xi(imm & 63)); }
-        else xa_ins(A, op, R64(d), xr(1, R_CX));
+        if (bimm) { if (imm & (sz4 ? 31 : 63)) xa_ins(A, op, RS(d), xi(imm & (sz4 ? 31 : 63))); }
+        else xa_ins(A, op, RS(d), xr(1, R_CX));
     } else {
         int bm = bimm ? -1 : rg[b];
         if (!bimm && bm >= 0 && bm == d && a != b) {
@@ -171,13 +177,14 @@ static void gen_bin(const Ins *i) {
         if (sub == ND_MUL && bimm) {
             int k = log2_exact(imm);
             if (k == 0) { }
-            else if (k > 0) xa_ins(A, X_SHL, R64(d), xi(k));
-            else { mov_imm_r(R_CX, imm); xa_ins(A, X_IMUL, R64(d), R64(R_CX)); }
-        } else if (bimm) xa_ins(A, op, R64(d), xi(imm));
-        else if (bm >= 0) xa_ins(A, op, R64(d), R64(bm));
-        else { ldv(R_CX, b); xa_ins(A, op, R64(d), R64(R_CX)); }
+            else if (k > 0) xa_ins(A, X_SHL, RS(d), xi(k));
+            else { mov_imm_r(R_CX, imm); xa_ins(A, X_IMUL, RS(d), RS(R_CX)); }
+        } else if (bimm) xa_ins(A, op, RS(d), xi(imm));
+        else if (bm >= 0) xa_ins(A, op, RS(d), RS(bm));
+        else { ldv(R_CX, b); xa_ins(A, op, RS(d), RS(R_CX)); }
     }
-    normr(d, i->w, i->sgn);
+    if (!sz4) normr(d, i->w, i->sgn);
+    #undef RS
     if (rg[i->dst] != d) stv(i->dst, d);
 }
 
@@ -382,16 +389,22 @@ static void gen_ins(const Ins *i, int homebase_h) {
         }
         break;
     }
-    case IR_MOV: ldv(R_AX, i->a); stv(i->dst, R_AX); break;
+    case IR_MOV: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); if (rg[i->dst] < 0) stv(i->dst, d); break; }
     case IR_BIN: gen_bin(i); break;
-    case IR_NEG: ldv(R_AX, i->a); xa_ins(A, X_NEG, R64(R_AX), NOOPD); norm(i->w, i->sgn); stv(i->dst, R_AX); break;
-    case IR_NOT: ldv(R_AX, i->a); xa_ins(A, X_NOT, R64(R_AX), NOOPD); norm(i->w, i->sgn); stv(i->dst, R_AX); break;
+    case IR_NEG: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); xa_ins(A, X_NEG, R64(d), NOOPD); normr(d, i->w, i->sgn); if (rg[i->dst] < 0) stv(i->dst, d); break; }
+    case IR_NOT: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); xa_ins(A, X_NOT, R64(d), NOOPD); normr(d, i->w, i->sgn); if (rg[i->dst] < 0) stv(i->dst, d); break; }
     case IR_CMP: gen_cmp(i); break;
-    case IR_EXT: ldv(R_AX, i->a); norm(i->w, i->sgn); stv(i->dst, R_AX); break;
+    case IR_EXT: {
+        int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+        if (rg[i->a] >= 0 && !isc[i->a] && i->w == 4 && !i->sgn) xa_ins(A, X_MOV, xr(4, d), xr(4, rg[i->a]));
+        else { ldv(d, i->a); normr(d, i->w, i->sgn); }
+        if (rg[i->dst] < 0) stv(i->dst, d);
+        break;
+    }
     case IR_JMP: xa_jmp(A, CC_NONE, (int)i->imm); break;
     case IR_BRZ: case IR_BRNZ:
-        ldv(R_AX, i->a);
-        xa_ins(A, X_TEST, R64(R_AX), R64(R_AX));
+        { int ra = rg[i->a] >= 0 && !isc[i->a] ? rg[i->a] : (ldv(R_AX, i->a), R_AX);
+        xa_ins(A, X_TEST, R64(ra), R64(ra)); }
         xa_jmp(A, i->op == IR_BRZ ? CC_E : CC_NE, (int)i->imm);
         break;
     case IR_CALL: gen_call(i); break;

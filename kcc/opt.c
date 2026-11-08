@@ -439,6 +439,18 @@ void ir_optimize(IrFn *fi) {
         for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k];
         n = m;
     }
+    /* слияние "t = op ...; v = t" в "v = op ...", если t живёт ровно между ними */
+    op_recount(&c2, a, n);
+    for (int k = 0; k + 1 < n; k++) {
+        Ins *p = a[k], *q = a[k + 1];
+        if (!p || !q || q->op != IR_MOV || p->dst <= 0 || p->dst > nvt || q->a != p->dst || q->dst == p->dst) continue;
+        if (p->op != IR_BIN && p->op != IR_CMP && p->op != IR_EXT && p->op != IR_NEG && p->op != IR_NOT) continue;
+        if (c2.ndef[p->dst] != 1 || c2.nuse[p->dst] != 1) continue;
+        p->dst = q->dst;
+        a[k + 1] = NULL;
+        k++;
+    }
+    { int m2 = 0; for (int k = 0; k < n; k++) if (a[k]) a[m2++] = a[k]; n = m2; }
     for (int k = 0; k + 1 < n; k++)
         if (a[k]->op == IR_JMP && a[k + 1]->op == IR_LABEL && a[k]->imm == a[k + 1]->imm) a[k] = NULL;
     { int m = 0; for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k]; n = m; }
