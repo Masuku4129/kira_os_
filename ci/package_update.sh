@@ -190,7 +190,6 @@ lines += ["", "Result JSON files: " + str(len(results)) + "; ARM64 result files:
           "- Mind quality: " + str(mind_log.relative_to(root)),
           "- GUI regression: " + str(gui_log.relative_to(root)),
           "- KCC compiler suite: " + str(kcc_log.relative_to(root)),
-          "- Driver installer E2E: " + str(driver_log.relative_to(root)),\n          "- UEFI OVMF serial: " + str(pathlib.Path(os.getenv("UEFI_LOG_DIR", "ci-out/uefi-ovmf")) / "serial.log"), "",
           "- UEFI OVMF serial: " + str(uefi_log.relative_to(root)), "",
           "## Scope limits", "",
           "- QEMU is virtual-hardware evidence only; physical x86_64/ARM64 hardware remains untested.",
