@@ -13,7 +13,8 @@ void *memcpy(void *d, const void *s, size_t n) { char *a = d; const char *b = s;
 void *memset(void *d, int c, size_t n) { char *a = d; while (n--) *a++ = (char)c; return d; }
 int memcmp(const void *x, const void *y, size_t n) { const unsigned char *a = x, *b = y; while (n--) { if (*a != *b) return *a - *b; a++; b++; } return 0; }
 size_t strlen(const char *s) { size_t n = 0; while (s[n]) n++; return n; }
-void _start(void) { int r = main(); __asm__ volatile("syscall" :: "a"(60), "D"(r & 255)); for (;;) ; }
+void cstart(void) { int r = main(); __asm__ volatile("syscall" :: "a"(60), "D"(r & 255)); for (;;) ; }
+__asm__(".globl _start\n_start:\n and $-16, %rsp\n call cstart\n");   /* стек 16-байтовый, как у настоящего старта: clang -O0 кладёт xmm через movaps */
 EOS
 clang -O1 -ffreestanding -fno-builtin -fno-pic -fno-stack-protector -c $T/start.c -o $T/start.o || exit 1
 total=0; fail=0; skip=0

@@ -54,6 +54,22 @@ for f in tests/kcc/unsup/*.c; do
     $REF -std=gnu99 -fsyntax-only -w -I $INC $f 2>/dev/null || note "$f: сам тест неверен, clang отвергает"
 done
 
+# float/double: сборка без SSE (-mno-sse, так собирается ядро Киры) отвергает любые вещественные конструкции с номером строки
+for f in tests/kcc/ok/float_*.c; do
+    total=$((total+1))
+    $T/kcc -mno-sse -I $INC -I kcc/include -S-ir -o $T/out.ir $f 2>$T/err; rc=$?
+    if [ $rc != 1 ]; then note "$f: -mno-sse должен отвергнуть (rc=$rc): $(head -c 200 $T/err)"; continue; fi
+    lineinfo || note "$f: -mno-sse: ошибка без номера строки: $(head -c 200 $T/err)"
+    grep -Eqi 'unsupported' $T/err || note "$f: -mno-sse: сообщение без unsupported: $(head -c 200 $T/err)"
+done
+# целочисленный код с -mno-sse и без него даёт один и тот же образ (ядро собирается kcc -c -mno-sse, его объекты не должны меняться)
+for f in tests/kcc/run/r_loops.c tests/kcc/run/r_funcptr.c tests/kcc/run/r_matrix.c tests/kcc/exec/x_structs.c; do
+    total=$((total+1))
+    $T/kcc -c -I $INC -I kcc/include -o $T/s1.o $f 2>$T/err && $T/kcc -c -mno-sse -I $INC -I kcc/include -o $T/s2.o $f 2>>$T/err
+    if [ $? != 0 ]; then note "$f: -c не собран: $(head -c 200 $T/err)"; continue; fi
+    cmp -s $T/s1.o $T/s2.o || note "$f: объект с -mno-sse отличается от обычного"
+done
+
 for f in tests/kcc/const/*.c; do
     total=$((total+1))
     kc $f
@@ -70,23 +86,30 @@ for f in tests/kcc/const/*.c; do
     if ! diff $T/want $T/got >$T/d; then note "$f: значения расходятся с clang: $(head -4 $T/d | tr '\n' ' ')"; fi
 done
 
-$CC -std=gnu99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter $SAN -o $T/irrun tests/kcc/irrun.c || exit 1
+$CC -std=gnu99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter $SAN -o $T/irrun tests/kcc/irrun.c -lm || exit 1
 for f in tests/kcc/run/*.c; do
     total=$((total+1))
     kc $f
     if [ $rc != 0 ]; then note "$f: kcc отвергает: $(head -c 200 $T/err)"; continue; fi
     if ! $T/irrun $T/out.ir >$T/got 2>$T/err; then note "$f: интерпретатор IR упал: $(head -c 200 $T/err)"; continue; fi
     { cat $f; echo '#undef main'; echo '#include <stdio.h>'; echo 'int main(void) { printf("%d\n", kmain()); return 0; }'; } >$T/ref.c
-    if ! $REF -std=gnu99 -w -O0 -Dmain=kmain -o $T/ref $T/ref.c 2>$T/rerr; then note "$f: clang не собрал: $(head -1 $T/rerr)"; continue; fi
+    if ! $REF -std=gnu99 -w -O0 -Dmain=kmain -o $T/ref $T/ref.c -lm 2>$T/rerr; then note "$f: clang не собрал: $(head -1 $T/rerr)"; continue; fi
     $T/ref >$T/want
     cmp -s $T/want $T/got || note "$f: результат IR $(cat $T/got) != clang $(cat $T/want)"
 done
 
 # M2: ELF Киры (x86-64) -> хост-загрузчик (elf_parse ядра + seccomp-таблица k_*); вывод и код возврата как у clang -O0
+# мягкая арифметика kcc/softfp.c против аппаратной; SSE-кодировки x86 против эталона llvm-mc
+total=$((total+1))
+if ! $CC -std=gnu99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -o $T/softfp_test tests/kcc/softfp_test.c $(ls kcc/*.c | grep -v main.c) -lm; then note "softfp_test не собран"
+else $T/softfp_test >$T/got 2>&1 || note "softfp: расхождение с аппаратной арифметикой: $(head -c 200 $T/got)"; fi
+total=$((total+1))
+if ! $CC -std=gnu99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -o $T/x86sse tests/kcc/x86_sse_enc.c kcc/asm_x86.c; then note "x86_sse_enc не собран"
+else $T/x86sse >$T/x86sse.txt; diff tests/kcc/x86_sse_ref.txt $T/x86sse.txt >$T/d || note "кодировки SSE расходятся с эталоном llvm-mc: $(head -4 $T/d | tr '\n' ' ')"; fi
 $CC -std=gnu99 -O1 -g -Wall -Wextra -Werror -DKIRA_HOST_TEST -o $T/kloader tests/kcc/kloader.c elf.c || exit 1
 refbuild() { # исходник -> $T/want (stdout эталона + код возврата main)
     { cat $1; echo '#undef main'; echo '#include <stdio.h>'; echo 'int main(void) { printf("%d\n", kmain()); return 0; }'; } >$T/ref.c
-    $REF -std=gnu99 -w -O0 -fwrapv -I $INC -Dmain=kmain -o $T/ref $T/ref.c 2>$T/rerr || return 1
+    $REF -std=gnu99 -w -O0 -fwrapv -I $INC -Dmain=kmain -o $T/ref $T/ref.c -lm 2>$T/rerr || return 1
     $T/ref >$T/want
 }
 for f in tests/kcc/run/*.c tests/kcc/exec/*.c; do
@@ -162,7 +185,7 @@ else
     $T/a64enc >$T/a64.txt
     diff tests/kcc/a64_ref.txt $T/a64.txt >$T/d || note "кодировки A64 расходятся с эталоном llvm-mc: $(head -4 $T/d | tr '\n' ' ')"
 fi
-$CC -std=gnu99 -O2 -g -Wall -Wextra -Werror -DKIRA_HOST_TEST -DKIRA_HOST_ARM64 -o $T/a64emu tests/kcc/a64emu.c elf.c || exit 1
+$CC -std=gnu99 -O2 -g -Wall -Wextra -Werror -DKIRA_HOST_TEST -DKIRA_HOST_ARM64 -o $T/a64emu tests/kcc/a64emu.c elf.c -lm || exit 1
 for f in tests/kcc/run/*.c tests/kcc/exec/*.c; do
     total=$((total+1))
     if ! $T/kcc -target aarch64 -I $INC -I kcc/include -o $T/p64.elf $f 2>$T/err; then note "$f: ELF AArch64 не собран: $(head -c 200 $T/err)"; continue; fi
