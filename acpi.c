@@ -151,7 +151,8 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
 
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {
     uint8_t* z = (uint8_t*)o; for (uint32_t i = 0; i < sizeof(*o); i++) z[i] = 0;
-    if (rsdp_phys == 0 || rsdp_phys > max_phys || max_phys - rsdp_phys < 20) return -1;
+    if (rsdp_phys == 0 || rsdp_phys > UINT64_MAX - 20 ||
+        (rsdp_phys <= max_phys && max_phys - rsdp_phys < 20)) return -1;
     const rsdp_t* r = (const rsdp_t*)reach(rsdp_phys, 20, max_phys);
     if (!r) return -1;
     const char magic[8] = {'R','S','D',' ','P','T','R',' '};
