@@ -46,17 +46,19 @@ EFI_CFLAGS=(
     -L"$EFI_LIB" -lefi -lgnuefi -o "$tmp/loader.so"
 
 mkdir -p "$OUT/EFI/BOOT" "$OUT/EFI/KIRA"
+# Use --output-target explicitly: newer GNU binutils interpret --target
+# as both input and output format, which breaks auto-detection of loader.so.
 "$OBJCOPY" -j .text -j .sdata -j .data -j .dynamic -j .dynsym \
-    -j .rel -j .rela -j .reloc --target=efi-app-x86_64 \
+    -j .rel -j .rela -j .reloc --output-target=efi-app-x86_64 \
     "$tmp/loader.so" "$OUT/EFI/BOOT/BOOTX64.EFI"
 cp "$ROOT/kira.bin" "$OUT/EFI/KIRA/KIRA.ELF"
 
-"$OBJCOPY" --info | grep 'efi-app-x86_64' >/dev/null || {
-    echo "UEFI build: objcopy lacks the efi-app-x86_64 target" >&2
-    exit 1
-}
 objdump -f "$OUT/EFI/BOOT/BOOTX64.EFI" | grep 'pei-x86-64' >/dev/null || {
     echo "UEFI build: BOOTX64.EFI is not a PE32+ x86-64 image" >&2
+    exit 1
+}
+objdump -p "$OUT/EFI/BOOT/BOOTX64.EFI" | grep -E 'Subsystem[[:space:]]+0000000a' >/dev/null || {
+    echo "UEFI build: BOOTX64.EFI is not marked as an EFI application (subsystem 10)" >&2
     exit 1
 }
 readelf -h "$OUT/EFI/KIRA/KIRA.ELF" | grep 'ELF64' >/dev/null || {
