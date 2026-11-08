@@ -115,3 +115,7 @@ The next combined user update is eligible only when:
 - #9 KDRV signatures and anti-rollback
 - #10 IOMMU and DMA safety
 - #11 ACPI, ARM DMA, GUI/Mind and release audit
+
+## v46 preview: фактическое состояние (честно)
+Сделано и проверено: KCC-оптимизатор (mem2reg, inlining, свёртка, dominators, regalloc), 458 тестов KCC, selfhost, сборки x86_64/ARM64 с -Werror, загрузка ISO в QEMU.
+НЕ сделано: собственный BIOS stage2, драйвер RTL8139, подписи драйверов/anti-rollback, DMA-изоляция (VT-d/SMMU), ACPI _PRT. Релизный гейт остаётся открытым; сборка - PREVIEW.
