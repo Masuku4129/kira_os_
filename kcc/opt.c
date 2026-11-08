@@ -556,7 +556,7 @@ static void op_nn_use(Ins *i, int *r, int kind, void *x) {
         int sub = i->sub;
         if (sub == ND_ADD || sub == ND_SUB || sub == ND_MUL || sub == ND_AND || sub == ND_OR || sub == ND_XOR) ok = (r == &i->a || r == &i->b);
         else if (sub == ND_SHL) ok = (r == &i->a || r == &i->b);
-        else if (sub == ND_SHR && !i->sgn) ok = (r == &i->a || r == &i->b);
+        else if (sub == ND_SHR) ok = (r == &i->a || r == &i->b) && (!i->sgn || !kcc_nonnshift);   /* sar r32 тоже читает только младшие 32 бита */
     } else if (i->op == IR_STORE && i->w == 4) ok = (r == &i->b);
     else if (i->op == IR_MOV) ok = 1;                       /* уточняется ниже по цепочке копий */
     if (!ok) low[*r] = 0;
@@ -580,7 +580,7 @@ static void op_nonorm(Ins **a, int n, int nv, const unsigned char *mdef) {
         int d = i->dst;
         if (d <= 0 || d > nv || i->w != 4 || !low[d]) continue;
         if ((i->op == IR_BIN && i->sgn && (i->sub == ND_ADD || i->sub == ND_SUB || i->sub == ND_MUL || i->sub == ND_AND || i->sub == ND_OR ||
-                                           i->sub == ND_XOR || i->sub == ND_SHL)) || i->op == IR_NEG || i->op == IR_NOT) { i->nn = 1; dirty[d] = 1; }
+                                           i->sub == ND_XOR || i->sub == ND_SHL || (i->sub == ND_SHR && !kcc_nonnshift))) || i->op == IR_NEG || i->op == IR_NOT) { i->nn = 1; dirty[d] = 1; }
     }
     for (int ch = 1; ch; ) {            /* значение, полученное копией неточного, тоже неточное */
         ch = 0;
@@ -1205,9 +1205,10 @@ void ir_walk(Ins *i, OpVisit fn, void *ctx) { op_walk(i, fn, ctx); }
 int kcc_noregs;
 int kcc_nodce;
 int kcc_noalign;
+int kcc_nonnshift;
 int kcc_flag(const char *arg) {
     static const struct { const char *name; int *flag; } tab[] = {
-        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign },
+        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-nnshift", &kcc_nonnshift },
         { 0, 0 } };
     for (int k = 0; tab[k].name; k++) if (!strcmp(arg, tab[k].name)) { *tab[k].flag = 1; return 1; }
     return 0;

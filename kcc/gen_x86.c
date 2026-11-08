@@ -173,8 +173,9 @@ static void gen_bin(const Ins *i) {
         if (!bimm) ldv(R_CX, b);                      /* счётчик в CL до загрузки значения: d может совпадать с регистром b */
         ldv(d, a);
         int op = sub == ND_SHL ? X_SHL : i->sgn ? X_SAR : X_SHR;
-        if (bimm) { if (imm & (sz4 ? 31 : 63)) xa_ins(A, op, RS(d), xi(imm & (sz4 ? 31 : 63))); }
-        else xa_ins(A, op, RS(d), xr(1, R_CX));
+        int s4 = sz4 || (i->w == 4 && !kcc_nonnshift);        /* 32-битный сдвиг: operand может быть неточным (верх не читается) */
+        if (bimm) { if (imm & (s4 ? 31 : 63)) xa_ins(A, op, xr(s4 ? 4 : 8, d), xi(imm & (s4 ? 31 : 63))); }
+        else xa_ins(A, op, xr(s4 ? 4 : 8, d), xr(1, R_CX));
     } else {
         int bm = bimm ? -1 : rg[b];
         if (!bimm && bm >= 0 && bm == d && a != b) {

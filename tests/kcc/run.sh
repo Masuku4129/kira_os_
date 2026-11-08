@@ -98,7 +98,7 @@ for f in tests/kcc/run/*.c tests/kcc/exec/*.c; do
 done
 # Каждый проход оптимизации отключается флагом -fno-xxx; результат с любым отключённым проходом обязан совпадать с clang
 # (так ошибка отдельного прохода отделяется от ошибки остального кода).
-PASSFLAGS="-fno-regs -fno-dce -fno-align"
+PASSFLAGS="-fno-regs -fno-dce -fno-align -fno-nnshift"
 for f in tests/kcc/run/*.c; do
     refbuild $f || continue
     for fl in $PASSFLAGS; do
