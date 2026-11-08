@@ -117,6 +117,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: repository inventory, shell/Python syntax and architecture gaps
         run: python3 ci/audit_inventory.py --out ci-out/audit
+      - name: validate embedded Python in packaging script
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          source = pathlib.Path("ci/package_update.sh").read_text()
+          blocks = re.findall(r"<<'((?:PY)[A-Z0-9_]*)'\\s*\\n(.*?)\\n\\1(?=\\s|$)", source, re.S)
+          if not blocks:
+              raise SystemExit("no embedded Python blocks found in ci/package_update.sh")
+          for name, body in blocks:
+              compile(body, f"ci/package_update.sh:{name}", "exec")
+          print(f"validated {len(blocks)} embedded Python blocks in package_update.sh")
+          PY
       - name: dependency, linker and source-provenance audit
         run: python3 ci/dependency_audit.py
       - uses: actions/upload-artifact@v4
