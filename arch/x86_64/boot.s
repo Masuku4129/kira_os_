@@ -47,6 +47,8 @@ uefi_info:
     resd 1
 uefi_size:
     resd 1
+uefi_mode:
+    resd 1
 
 section .text
 global start
@@ -121,14 +123,39 @@ start:
 
 bits 64
 .uefi_entry:
-    ; UEFI уже включил long mode. Перейти на собственный стек и вызвать
-    ; KBI bridge по System V ABI, не пытаясь повторно включать paging.
+    ; UEFI уже включил long mode. Пересобираем минимальную identity-карту
+    ; ядра и переходим в общий long_mode_start, как BIOS/Multiboot2.
+    mov dword [rel uefi_mode], 1
     mov esp, stack_top
-    and rsp, -16
-    mov edi, [rel uefi_info]
-    mov esi, [rel uefi_size]
-    call kernel_uefi_entry
-    jmp hang
+    mov eax, pdpt_table
+    or eax, 3
+    mov [pml4_table], eax
+    mov eax, pd_table
+    or eax, 3
+    mov [pdpt_table], eax
+    mov ecx, 0
+.uefi_map_pages:
+    mov eax, ecx
+    shl eax, 21
+    or eax, 0x83
+    mov [pd_table + ecx * 8], eax
+    inc ecx
+    cmp ecx, 512
+    jl .uefi_map_pages
+    mov eax, cr4
+    or eax, 32
+    mov cr4, eax
+    mov eax, pml4_table
+    mov cr3, eax
+    mov ecx, 0xC0000080
+    rdmsr
+    or eax, 256
+    wrmsr
+    mov eax, cr0
+    or eax, 0x80000001
+    mov cr0, eax
+    lgdt [gdt64.pointer]
+    jmp 0x08:long_mode_start
 
 long_mode_start:
     ; Инициализация сегментов данных
@@ -139,15 +166,22 @@ long_mode_start:
     mov gs, ax
     mov ss, ax
 
-    ; Восстанавливаем аргументы Multiboot в регистры ABI (rdi, rsi)
-    mov edi, [rel mb_magic]     ; запись в 32-битный регистр обнуляет старшую половину rdi
-    mov rsi, [rel mb_info]
-
     ; Выравнивание стека по 16 байт
+    mov esp, stack_top
     and rsp, -16
-
-    ; Вызов точки входа ядра на C
+    cmp dword [rel uefi_mode], 0
+    jne .call_uefi
+    ; Multiboot2: System V ABI (RDI=magic, RSI=info pointer).
+    mov edi, [rel mb_magic]
+    mov rsi, [rel mb_info]
     call kernel_main
+    jmp hang
+
+.call_uefi:
+    ; UEFI KBI pointer and size were saved from RCX/RDX before RDMSR.
+    mov edi, [rel uefi_info]
+    mov esi, [rel uefi_size]
+    call kernel_uefi_entry
 
 hang:
     cli
