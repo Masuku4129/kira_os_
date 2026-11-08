@@ -25,3 +25,6 @@ KIRA_OWNER_ED25519_PRIVATE.pem
 keys/*PRIVATE*.pem
 *.private.pem
 *.priv
+bios-stage1.bin
+bios-stage2.bin
+kira-bios.img
