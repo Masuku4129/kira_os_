@@ -142,20 +142,24 @@ bits 64
     inc ecx
     cmp ecx, 512
     jl .uefi_map_pages
-    ; Control registers are accessed through their architecturally valid
-    ; 32-bit GPR form here; all bootstrap paging structures are below 4 GiB.
-    mov eax, cr4
-    or eax, 32
-    mov cr4, eax
+    ; NASM's long-mode parser rejects MOV CRx in this build configuration.
+    ; Emit the architecturally defined 0F 20/22 encodings explicitly.
+    ; MOV RAX, CR4; OR RAX, PAE; MOV CR4, RAX.
+    db 0x0f, 0x20, 0xe0
+    or rax, 32
+    db 0x0f, 0x22, 0xe0
     mov eax, pml4_table
-    mov cr3, eax
+    ; MOV CR3, RAX (zero-extended low physical address).
+    db 0x0f, 0x22, 0xd8
     mov ecx, 0xC0000080
     rdmsr
     or eax, 256
     wrmsr
-    mov eax, cr0
-    or eax, 0x80000001
-    mov cr0, eax
+    ; MOV RAX, CR0; enable paging and protected mode; MOV CR0, RAX.
+    db 0x0f, 0x20, 0xc0
+    mov edx, 0x80000001
+    or rax, rdx
+    db 0x0f, 0x22, 0xc0
     lgdt [gdt64.pointer]
     push qword 0x08
     lea rax, [rel long_mode_start]
