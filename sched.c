@@ -288,12 +288,18 @@ static int has_work(unsigned cpu, unsigned minp, const thread_t* self) {
 
 /* Стек потока: в ядре - ячейка с пустотой ниже (vmm), в хост-тесте - обычная память. */
 #ifdef KIRA_HOST_TEST
-static uint8_t* kstack_new(void) { return (uint8_t*)kmalloc(SCHED_STACK_SIZE); }
+static uint8_t* kstack_new(void) {
+    uint8_t* s = (uint8_t*)kmalloc(SCHED_STACK_SIZE);
+    if (s) __builtin_memset(s, 0, SCHED_STACK_SIZE);
+    return s;
+}
 static void kstack_del(uint8_t* s) { kfree(s); }
 #else
 static uint8_t* kstack_new(void) {
     uint8_t* s = (uint8_t*)vmm_kstack_alloc(SCHED_STACK_SIZE);
-    return s ? s : (uint8_t*)kmalloc(SCHED_STACK_SIZE);           /* окно исчерпано: стек из кучи, с меткой на дне */
+    if (!s) s = (uint8_t*)kmalloc(SCHED_STACK_SIZE);             /* окно исчерпано: стек из кучи */
+    if (s) __builtin_memset(s, 0, SCHED_STACK_SIZE);              /* не передавать новому потоку старые данные стека */
+    return s;
 }
 static void kstack_del(uint8_t* s) { if (vmm_is_kstack((uint64_t)(uintptr_t)s)) vmm_kstack_free(s); else kfree(s); }
 #endif
