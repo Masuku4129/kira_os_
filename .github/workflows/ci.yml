@@ -298,6 +298,28 @@ jobs:
           name: kira-release-image-audit
           path: ci-out/release/image-audit.json
 
+
+  uefi-ovmf:
+    needs: [detect-changes, build]
+    if: needs.detect-changes.outputs.build == 'true' && needs.build.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-uefi-boot-files
+          path: ci-out/uefi/EFI
+      - name: OVMF and FAT tooling
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends qemu-system-x86 ovmf dosfstools mtools
+      - name: boot KIRA through OVMF
+        run: bash ci/test_uefi_ovmf.sh ci-out/uefi ci-out/uefi-ovmf
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-uefi-ovmf
+          path: ci-out/uefi-ovmf/
+
   arm64:
     needs: detect-changes
     if: needs.detect-changes.outputs.arm64 == 'true'
