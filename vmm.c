@@ -172,8 +172,7 @@ volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
     if (cache != VMM_MMIO_UC && cache != VMM_MMIO_WC) return 0;
     /* WC requests fall back to UC until PAT is configured. Track the actual
        effective type so a later WC request cannot reuse a UC mapping. */
-    const uint64_t effective_cache =
-        (cache == VMM_MMIO_WC && wc_enabled) ? VMM_MMIO_WC : VMM_MMIO_UC;
+    uint64_t effective_cache;
     /* Page-table entries carry at most 52 physical-address bits. Validate the
        unrounded range first; rounding an otherwise valid end must not wrap. */
     const uint64_t phys_limit = 1ULL << 52;
@@ -186,6 +185,7 @@ volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
     uint64_t size = last - first;
 
     uint64_t f = spin_lock_irqsave(&mmio_lock);
+    effective_cache = (cache == VMM_MMIO_WC && wc_enabled) ? VMM_MMIO_WC : VMM_MMIO_UC;
     for (unsigned i = 0; i < mmio_n; i++) {
         uint64_t existing_end = mmio[i].pa + mmio[i].len;
         /* Aliasing a physical page with different cache types is unsafe on
@@ -335,9 +335,11 @@ int vmm_enable_write_combining(void) {
     uint32_t a, b, c, d;
     __asm__ volatile ("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(1), "c"(0));
     if (!((d >> 16) & 1)) return -1; // нет PAT
+    uint64_t f = spin_lock_irqsave(&mmio_lock);
     wrmsr(MSR_PAT, PAT_VALUE);
     wc_enabled = 1;
     write_cr3(read_cr3());           // сброс TLB: старые трансляции не должны жить с прежним типом памяти
+    spin_unlock_irqrestore(&mmio_lock, f);
     return 0;
 }
 
