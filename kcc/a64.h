@@ -6,7 +6,7 @@
 /* Регистры x0..x30; номер 31 - sp либо xzr (по форме инструкции, см. комментарии у функций). */
 enum { A6_SP = 31, A6_ZR = 31, A6_FP = 29, A6_LR = 30 };
 /* Условия */
-enum { CC_EQ = 0, CC_NE = 1, CC_HS = 2, CC_LO = 3, CC_HI = 8, CC_LS = 9, CC_GE = 10, CC_LT = 11, CC_GT = 12, CC_LE = 13 };
+enum { CC_EQ = 0, CC_NE = 1, CC_HS = 2, CC_LO = 3, CC_MI = 4, CC_HI = 8, CC_LS = 9, CC_GE = 10, CC_LT = 11, CC_GT = 12, CC_LE = 13 };
 /* Арифметика со сдвигом регистра / логика */
 enum { A6_ADD, A6_SUB, A6_ADDS, A6_SUBS };
 enum { A6_AND, A6_ORR, A6_EOR, A6_ANDS, A6_ORN };
@@ -52,6 +52,15 @@ void a6_op0(A6 *a, int op);
 void a6_bar(A6 *a, int dsb, int crm);
 void a6_mrs(A6 *a, int rt, int sr);
 void a6_blr(A6 *a, int rn);
+/* Скалярный FP: sz = 4 (s) или 8 (d) */
+enum { FA_ADD, FA_SUB, FA_MUL, FA_DIV, FA_NEG, FA_ABS, FA_SQRT };
+enum { FV_SCVTF, FV_UCVTF, FV_FCVTZS, FV_FCVTZU, FV_F2D, FV_D2F };
+void a6_fmov_to(A6 *a, int sz, int fd, int rn);
+void a6_fmov_from(A6 *a, int sz, int rd, int fn);
+void a6_fop(A6 *a, int op, int sz, int fd, int fn, int fm);
+void a6_fcmp(A6 *a, int sz, int fn, int fm);
+void a6_fcvt(A6 *a, int kind, int sz, int rd, int rn);
+void a6_strq(A6 *a, int fn, int rn, int off);
 
 void a6_labels_begin(A6 *a, int nlab);
 void a6_label(A6 *a, int lab);

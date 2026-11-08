@@ -127,7 +127,7 @@ void a6_ls(A6 *a, int load, int size, int sgnext, int rt, int rn, int64_t off) {
 
 void a6_cset(A6 *a, int rd, int cc) {
     chk(a, rd, "cset");
-    if (cc < 0 || cc > 13 || cc == 4 || cc == 5 || cc == 6 || cc == 7) fail(a, "condition");
+    if (cc < 0 || cc > 13 || cc == 5 || cc == 6 || cc == 7) fail(a, "condition");
     a6_w(a, 0x1A9F07E0u | ((uint32_t)cc ^ 1u) << 12 | (uint32_t)rd);
 }
 
@@ -231,4 +231,62 @@ void a6_labels_end(A6 *a) {
         wr32(a->p + off, w);
     }
     a->njf = 0;
+}
+
+/* ---------- скалярные вещественные инструкции: sz = 4 (s-регистры) либо 8 (d-регистры); fN - номер v-регистра ---------- */
+static uint32_t ftype(A6 *a, int sz) {
+    if (sz != 4 && sz != 8) fail(a, "floating-point width");
+    return sz == 8 ? 1u << 22 : 0;
+}
+
+void a6_fmov_to(A6 *a, int sz, int fd, int rn) {                     /* fmov dD, xN / fmov sD, wN */
+    chk(a, fd, "fmov"); chk(a, rn, "fmov");
+    a6_w(a, (sz == 8 ? 0x9E670000u : 0x1E270000u) | (uint32_t)rn << 5 | (uint32_t)fd);
+}
+
+void a6_fmov_from(A6 *a, int sz, int rd, int fn) {                   /* fmov xD, dN / fmov wD, sN */
+    chk(a, rd, "fmov"); chk(a, fn, "fmov");
+    a6_w(a, (sz == 8 ? 0x9E660000u : 0x1E260000u) | (uint32_t)fn << 5 | (uint32_t)rd);
+}
+
+void a6_fop(A6 *a, int op, int sz, int fd, int fn, int fm) {
+    chk(a, fd, "fp op"); chk(a, fn, "fp op"); chk(a, fm, "fp op");
+    uint32_t t = ftype(a, sz);
+    switch (op) {
+    case FA_ADD: a6_w(a, 0x1E202800u | t | (uint32_t)fm << 16 | (uint32_t)fn << 5 | (uint32_t)fd); break;
+    case FA_SUB: a6_w(a, 0x1E203800u | t | (uint32_t)fm << 16 | (uint32_t)fn << 5 | (uint32_t)fd); break;
+    case FA_MUL: a6_w(a, 0x1E200800u | t | (uint32_t)fm << 16 | (uint32_t)fn << 5 | (uint32_t)fd); break;
+    case FA_DIV: a6_w(a, 0x1E201800u | t | (uint32_t)fm << 16 | (uint32_t)fn << 5 | (uint32_t)fd); break;
+    case FA_NEG: a6_w(a, 0x1E214000u | t | (uint32_t)fn << 5 | (uint32_t)fd); break;
+    case FA_ABS: a6_w(a, 0x1E20C000u | t | (uint32_t)fn << 5 | (uint32_t)fd); break;
+    case FA_SQRT: a6_w(a, 0x1E21C000u | t | (uint32_t)fn << 5 | (uint32_t)fd); break;
+    default: fail(a, "fp op kind");
+    }
+}
+
+void a6_fcmp(A6 *a, int sz, int fn, int fm) {
+    chk(a, fn, "fcmp"); chk(a, fm, "fcmp");
+    a6_w(a, 0x1E202000u | ftype(a, sz) | (uint32_t)fm << 16 | (uint32_t)fn << 5);
+}
+
+/* kind: FV_SCVTF/FV_UCVTF - xN -> fD (sz - ширина результата); FV_FCVTZS/FV_FCVTZU - fN (sz - ширина источника) -> xD;
+   FV_F2D - float -> double, FV_D2F - double -> float (sz не используется) */
+void a6_fcvt(A6 *a, int kind, int sz, int rd, int rn) {
+    chk(a, rd, "fcvt"); chk(a, rn, "fcvt");
+    uint32_t rr = (uint32_t)rn << 5 | (uint32_t)rd;
+    switch (kind) {
+    case FV_SCVTF: a6_w(a, 0x9E220000u | ftype(a, sz) | rr); break;
+    case FV_UCVTF: a6_w(a, 0x9E230000u | ftype(a, sz) | rr); break;
+    case FV_FCVTZS: a6_w(a, 0x9E380000u | ftype(a, sz) | rr); break;
+    case FV_FCVTZU: a6_w(a, 0x9E390000u | ftype(a, sz) | rr); break;
+    case FV_F2D: a6_w(a, 0x1E22C000u | rr); break;
+    case FV_D2F: a6_w(a, 0x1E624000u | rr); break;
+    default: fail(a, "fcvt kind");
+    }
+}
+
+void a6_strq(A6 *a, int fn, int rn, int off) {                       /* str qN, [xM, #off]; off кратно 16, 0..65520 */
+    chk(a, fn, "str q"); chk(a, rn, "str q");
+    if (off < 0 || off > 65520 || (off & 15)) fail(a, "str q offset");
+    a6_w(a, 0x3D800000u | (uint32_t)(off >> 4) << 10 | (uint32_t)rn << 5 | (uint32_t)fn);
 }

@@ -6,6 +6,7 @@
 #include "pp.c"
 #include "parse.c"
 #include "type.c"
+#include "softfp.c"
 #include "ir.c"
 #include "opt.c"
 #include "gen_common.c"

@@ -8,6 +8,7 @@ int kcc_dumpopt;
 int kcc_nosr;
 int kcc_wrapv;
 int kcc_nolvn;
+int kcc_nosse;
 int kcc_noopt;                                  /* 1 - не запускать ir_optimize (-O0, для сверки и отладки) */
 
 static Obj **htab;
@@ -93,7 +94,8 @@ void gen_live(const Ins *i, int idx, int nv, int *vs, int *ve) {
     case IR_ATOMIC: touch(vs, ve, i->a, idx, nv); touch(vs, ve, i->b, idx, nv); touch(vs, ve, i->c, idx, nv); touch(vs, ve, i->dst, idx, nv); break;
     case IR_LOAD: case IR_MOV: case IR_NEG: case IR_NOT: case IR_EXT: touch(vs, ve, i->a, idx, nv); touch(vs, ve, i->dst, idx, nv); break;
     case IR_STORE: case IR_COPY: touch(vs, ve, i->a, idx, nv); touch(vs, ve, i->b, idx, nv); break;
-    case IR_BIN: case IR_CMP: touch(vs, ve, i->a, idx, nv); touch(vs, ve, i->b, idx, nv); touch(vs, ve, i->dst, idx, nv); break;
+    case IR_BIN: case IR_CMP: case IR_FBIN: case IR_FCMP: touch(vs, ve, i->a, idx, nv); touch(vs, ve, i->b, idx, nv); touch(vs, ve, i->dst, idx, nv); break;
+    case IR_FUN: case IR_FCVT: touch(vs, ve, i->a, idx, nv); touch(vs, ve, i->dst, idx, nv); break;
     case IR_BRZ: case IR_BRNZ: case IR_ZERO: touch(vs, ve, i->a, idx, nv); break;
     case IR_RET: touch(vs, ve, i->a, idx, nv); break;
     case IR_CALL:

@@ -17,14 +17,17 @@ enum { S0 = 9, S1 = 10, S2 = 11, S3 = 12, S4 = 13, S5 = 14, S6 = 15 };   /* ра
 static const int pool[NPOOL] = { 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
 
 /* ---------- AAPCS64: размещение аргументов ---------- */
-enum { AL_REG, AL_STK, AL_AREG, AL_ASTK };
-typedef struct { int kind, idx, off; } ALoc;        /* REG: номер x; AREG: первый из регистров; STK/ASTK: смещение в области аргументов */
+enum { AL_REG, AL_STK, AL_AREG, AL_ASTK, AL_VREG };
+typedef struct { int kind, idx, off; } ALoc;        /* REG: номер x (VREG - номер v); AREG: первый из регистров; STK/ASTK: смещение в области аргументов */
 /* hidden не занимает регистров (указатель результата - в x8). Агрегат больше 16 байт приходит указателем (копию делает вызывающий в ir.c). */
-static int plan_args(int n, const int *asz, ALoc *loc, int *ngrn) {
-    int g = 0, sp = 0;
+static int plan_args(int n, const int *asz, const unsigned char *afp, ALoc *loc, int *ngrn, int *nvrn) {
+    int g = 0, v = 0, sp = 0;
     for (int k = 0; k < n; k++) {
         int z = asz ? asz[k] : 0;
-        if (!z || z > 16) {
+        if (afp && afp[k]) {                         /* float/double: v0-v7, затем 8 байт в стеке; x-регистры не расходуются */
+            if (v < 8) { loc[k].kind = AL_VREG; loc[k].idx = v++; }
+            else { loc[k].kind = AL_STK; loc[k].off = sp; sp += 8; }
+        } else if (!z || z > 16) {
             if (g < 8) { loc[k].kind = AL_REG; loc[k].idx = g++; }
             else { loc[k].kind = AL_STK; loc[k].off = sp; sp += 8; }
         } else {
@@ -34,15 +37,16 @@ static int plan_args(int n, const int *asz, ALoc *loc, int *ngrn) {
         }
     }
     *ngrn = g;
+    if (nvrn) *nvrn = v;
     return sp;
 }
 
 /* ---------- состояние функции ---------- */
 static ALoc *ploc;
-static int p_ngrn, p_stk, p_hidden;
+static int p_ngrn, p_nvrn, p_stk, p_hidden;
 static int *vs, *ve, *rg, *so;
 static int *slotoff;
-static int64_t spillbase, homeoff, hidoff, frame;
+static int64_t spillbase, homeoff, qoff, hidoff, frame;
 static int epi, tmplab;
 
 static int cmp_start(const void *a, const void *b) {
@@ -128,7 +132,7 @@ static void gen_bin(const Ins *i) {
 static void gen_call(const Ins *i) {
     ALoc *loc = ka_new(sizeof(ALoc) * (size_t)(i->nargs + 1));
     int ng;
-    plan_args(i->nargs, i->asz, loc, &ng);
+    plan_args(i->nargs, i->asz, i->afp, loc, &ng, NULL);
     if (!i->sym) ldv(S6, i->a);
     for (int k = 0; k < i->nargs; k++) {
         if (loc[k].kind == AL_STK) { ldv(S0, i->args[k]); a6_ls(A, 0, 8, 0, S0, A6_SP, loc[k].off); }
@@ -136,6 +140,7 @@ static void gen_call(const Ins *i) {
     }
     for (int k = 0; k < i->nargs; k++) {
         if (loc[k].kind == AL_REG) ldv(loc[k].idx, i->args[k]);
+        else if (loc[k].kind == AL_VREG) { ldv(S0, i->args[k]); a6_fmov_to(A, i->afp[k], loc[k].idx, S0); }
         else if (loc[k].kind == AL_AREG) {
             int z = i->asz[k];
             ldv(S5, i->args[k]);
@@ -154,7 +159,57 @@ static void gen_call(const Ins *i) {
         a6_ls(A, 0, 8, 0, 0, S0, 0);
         if (i->rsz > 8) a6_ls(A, 0, 8, 0, 1, S0, 8);
     }
-    if (i->dst > 0) { norm(0, i->w, i->sgn); stv(i->dst, 0); }
+    if (i->dst > 0 && i->fp) { a6_fmov_from(A, i->fp, 0, 0); stv(i->dst, 0); }
+    else if (i->dst > 0) { norm(0, i->w, i->sgn); stv(i->dst, 0); }
+}
+
+/* ---------- вещественные операции: значение лежит в x-регистре/слоте как битовый образ, считаем в v16-v18 ---------- */
+static void gen_fp(const Ins *i) {
+    int w = i->w, d = dstreg(i->dst, S0);
+    ldv(S0, i->a);
+    if (i->op == IR_FBIN) {
+        static const int fa[] = { [ND_ADD] = FA_ADD, [ND_SUB] = FA_SUB, [ND_MUL] = FA_MUL, [ND_DIV] = FA_DIV };
+        if (i->sub != ND_ADD && i->sub != ND_SUB && i->sub != ND_MUL && i->sub != ND_DIV) kerr(A->file, A->line, "internal: bad float operator %d", i->sub);
+        ldv(S1, i->b);
+        a6_fmov_to(A, w, 16, S0); a6_fmov_to(A, w, 17, S1);
+        a6_fop(A, fa[i->sub], w, 16, 16, 17);
+        a6_fmov_from(A, w, d, 16);
+    } else if (i->op == IR_FUN) {
+        int op = i->sub == FN_NEG ? FA_NEG : i->sub == FN_SQRT ? FA_SQRT : FA_ABS;
+        a6_fmov_to(A, w, 16, S0);
+        a6_fop(A, op, w, 16, 16, 0);
+        a6_fmov_from(A, w, d, 16);
+    } else if (i->op == IR_FCMP) {
+        int cc;
+        switch (i->sub) {                            /* NZCV после fcmp: равно ZC, меньше N, больше C, неупорядочено CV */
+        case ND_EQ: cc = CC_EQ; break;
+        case ND_NE: cc = CC_NE; break;
+        case ND_LT: cc = CC_MI; break;
+        case ND_LE: cc = CC_LS; break;
+        default: kerr(A->file, A->line, "internal: bad float comparison %d", i->sub); cc = 0;
+        }
+        ldv(S1, i->b);
+        a6_fmov_to(A, w, 16, S0); a6_fmov_to(A, w, 17, S1);
+        a6_fcmp(A, w, 16, 17);
+        a6_cset(A, d, cc);
+    } else switch (i->sub) {
+        case FC_I2F:
+            a6_fcvt(A, i->sgn ? FV_SCVTF : FV_UCVTF, w, 16, S0);
+            a6_fmov_from(A, w, d, 16);
+            break;
+        case FC_F2I:
+            a6_fmov_to(A, w, 16, S0);
+            a6_fcvt(A, i->sgn ? FV_FCVTZS : FV_FCVTZU, w, d, 16);
+            break;
+        case FC_F2D:
+            a6_fmov_to(A, 4, 16, S0); a6_fcvt(A, FV_F2D, 0, 17, 16); a6_fmov_from(A, 8, d, 17);
+            break;
+        case FC_D2F:
+            a6_fmov_to(A, 8, 16, S0); a6_fcvt(A, FV_D2F, 0, 17, 16); a6_fmov_from(A, 4, d, 17);
+            break;
+        default: kerr(A->file, A->line, "internal: bad float conversion %d", i->sub);
+    }
+    if (d == S0) stv(i->dst, S0);
 }
 
 /* ---------- атомарные операции (seq_cst) ---------- */
@@ -249,7 +304,11 @@ static void gen_ins(const Ins *i) {
     case IR_LADDR: { int d = dstreg(i->dst, S0); a6_addi(A, 0, d, A6_SP, (uint32_t)slotoff[i->imm]); if (d == S0) stv(i->dst, S0); break; }
     case IR_PARAM: {
         const ALoc *l = &ploc[i->imm];
-        if (!i->sub) {
+        if (i->fp && !i->sub) {
+            if (l->kind == AL_VREG) a6_ls(A, 1, i->fp, 0, S0, A6_SP, qoff + 16 * l->idx);
+            else a6_ls(A, 1, i->fp, 0, S0, A6_SP, frame + l->off);
+            stv(i->dst, S0);
+        } else if (!i->sub) {
             if (l->kind == AL_REG) a6_ls(A, 1, 8, 0, S0, A6_SP, homeoff + 8 * l->idx);
             else a6_ls(A, 1, 8, 0, S0, A6_SP, frame + l->off);
             stv(i->dst, S0);
@@ -269,6 +328,7 @@ static void gen_ins(const Ins *i) {
     case IR_VAINFO:
         if (i->sub == 0) a6_addi(A, 0, S0, A6_SP, (uint32_t)homeoff);
         else if (i->sub == 1) a6_addi(A, 0, S0, A6_SP, (uint32_t)(frame + p_stk));
+        else if (i->sub == 4) a6_movi(A, S0, p_nvrn);
         else a6_movi(A, S0, p_ngrn);
         stv(i->dst, S0);
         break;
@@ -309,7 +369,8 @@ static void gen_ins(const Ins *i) {
                 copy_bytes(S1, 0, S5, 0, i->w);
                 a6_mov(A, 0, S1);
             }
-        } else if (i->a > 0) ldv(0, i->a);
+        } else if (i->a > 0 && i->fp) { ldv(S0, i->a); a6_fmov_to(A, i->fp, 0, S0); }
+        else if (i->a > 0) ldv(0, i->a);
         a6_b(A, epi);
         break;
     case IR_COPY: case IR_ZERO: {
@@ -338,6 +399,7 @@ static void gen_ins(const Ins *i) {
         }
         break;
     }
+    case IR_FBIN: case IR_FUN: case IR_FCMP: case IR_FCVT: gen_fp(i); break;
     case IR_ASM: gen_asm(i); break;
     case IR_UNREACH: a6_op0(A, Z_BRK0); break;
     }
@@ -368,7 +430,7 @@ static void gen_func(IrFn *fi) {
         }
         if (ins[k]->op == IR_CALL) {
             ALoc *cl = ka_new(sizeof(ALoc) * (size_t)(ins[k]->nargs + 1));
-            int ng, sp = plan_args(ins[k]->nargs, ins[k]->asz, cl, &ng);
+            int ng, sp = plan_args(ins[k]->nargs, ins[k]->asz, ins[k]->afp, cl, &ng, NULL);
             if (sp > maxout) maxout = sp;
         }
         if (ins[k]->op == IR_ATOMIC) nlab_extra += 3;
@@ -425,11 +487,16 @@ static void gen_func(IrFn *fi) {
         int np = f->nparams;
         ALoc *pl = ka_new(sizeof(ALoc) * (size_t)(np + 1));
         int *pa = ka_new(sizeof(int) * (size_t)(np + 1)), q = 0;
-        for (Obj *p = f->params; p && q < np; p = p->next, q++) pa[q] = ty_is_agg(p->ty) ? ty_unqual(p->ty)->size : 0;
-        p_stk = plan_args(np, pa, pl, &p_ngrn);
+        unsigned char *pf = ka_new((size_t)np + 1);
+        for (Obj *p = f->params; p && q < np; p = p->next, q++) {
+            pa[q] = ty_is_agg(p->ty) ? ty_unqual(p->ty)->size : 0;
+            pf[q] = ty_is_float(p->ty) ? (unsigned char)ty_unqual(p->ty)->size : 0;
+        }
+        p_stk = plan_args(np, pa, pf, pl, &p_ngrn, &p_nvrn);
         ploc = pl;
     }
     int nhome = f->ty->variadic ? 8 : p_ngrn;
+    int nq = f->ty->variadic && !kcc_nosse ? 8 : p_nvrn;     /* сохраняемые v-регистры: все восемь для va_arg, иначе занятые параметрами */
     /* кадр: [исходящие аргументы][локальные][слоты спила][регистры параметров][x8][callee-saved][x29, x30] */
     int64_t cur = (maxout + 15) & ~(int64_t)15;
     int maxslot = -1;
@@ -449,7 +516,9 @@ static void gen_func(IrFn *fi) {
     spillbase = cur;
     cur += 8 * (int64_t)nsl;
     homeoff = cur;
-    if (nhome) cur += 64;
+    if (nhome || nq) cur += 64;
+    qoff = cur;
+    cur += 16 * (int64_t)nq;
     hidoff = cur;
     if (p_hidden) cur += 8;
     int saveoff[NPOOL];
@@ -468,6 +537,10 @@ static void gen_func(IrFn *fi) {
     for (int k = 0; k < NPOOL; k++) if (used[k]) a6_ls(A, 0, 8, 0, pool[k], A6_SP, saveoff[k]);
     for (int k = 0; k < nhome; k++) a6_ls(A, 0, 8, 0, k, A6_SP, homeoff + 8 * k);
     if (p_hidden) a6_ls(A, 0, 8, 0, 8, A6_SP, hidoff);
+    if (nq) {
+        a6_addi(A, 0, S0, A6_SP, (uint32_t)qoff);
+        for (int k = 0; k < nq; k++) a6_strq(A, k, S0, 16 * k);
+    }
     for (int k = 0; k < n; k++) gen_ins(ins[k]);
     A->file = K.srcpath; A->line = f->line;
     a6_label(A, epi);

@@ -100,6 +100,38 @@ dsb st|d5033e9f
 mrs x3, cntvct_el0|d53be043
 mrs x3, cntfrq_el0|d53be003
 blr x15|d63f01e0
+fmov d1, x2|9e670041
+fmov s1, w2|1e270041
+fmov x3, d17|9e660223
+fmov w3, s17|1e260223
+fadd d16, d17, d18|1e722a30
+fsub d16, d17, d18|1e723a30
+fmul d16, d17, d18|1e720a30
+fdiv d16, d17, d18|1e721a30
+fadd s16, s17, s18|1e322a30
+fsub s16, s17, s18|1e323a30
+fmul s16, s17, s18|1e320a30
+fdiv s16, s17, s18|1e321a30
+fneg d16, d17|1e614230
+fneg s16, s17|1e214230
+fabs d16, d17|1e60c230
+fabs s16, s17|1e20c230
+fsqrt d16, d17|1e61c230
+fsqrt s16, s17|1e21c230
+fcmp d16, d17|1e712200
+fcmp s16, s17|1e312200
+scvtf d16, x3|9e620070
+scvtf s16, x3|9e220070
+ucvtf d16, x3|9e630070
+ucvtf s16, x3|9e230070
+fcvtzs x3, d16|9e780203
+fcvtzs x3, s16|9e380203
+fcvtzu x3, d16|9e790203
+fcvtzu x3, s16|9e390203
+fcvt d16, s17|1e22c230
+fcvt s16, d17|1e624230
+str q3, [x9, #112]|3d801d23
+cset w0, mi|1a9f57e0
 b .+28|14000007
 b.ne .+24|540000c1
 cbz x5, .+20|b40000a5

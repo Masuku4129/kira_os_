@@ -1,14 +1,15 @@
 /* Интерпретатор текстового IR kcc (kcc -S-ir): выполняет main() и печатает результат.
  * Нужен для проверки ПРАВИЛЬНОСТИ lowering: результат программы = результат той же программы, собранной clang. */
 #include <ctype.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 enum { O_LABEL, O_CONST, O_GADDR, O_LADDR, O_PARAM, O_LOAD, O_STORE, O_MOV, O_BIN, O_NEG, O_NOT, O_CMP, O_EXT, O_JMP, O_BRZ, O_BRNZ,
-       O_CALL, O_RET, O_COPY, O_ZERO, O_NOP, O_UNREACH };
-typedef struct { int op, sub, dst, a, b, w, sgn, nargs; int64_t imm; char *sym; int args[16]; } In;
+       O_CALL, O_RET, O_COPY, O_ZERO, O_NOP, O_UNREACH, O_FBIN, O_FUN, O_FCMP, O_I2F, O_F2I, O_F2D, O_D2F };
+typedef struct { int op, sub, dst, a, b, w, sgn, nargs; int64_t imm; char *sym; int args[32]; } In;
 typedef struct { char name[96]; int nparams, nslots, nregs; int slotsz[256], slotal[256]; In *ins; int nin; int *lab; int nlab; } Fn;
 typedef struct { char name[96]; int64_t addr; int size; } Gv;
 
@@ -144,13 +145,31 @@ static void load_ir(FILE *f) {
             for (int k = 0; cmpops[k].name; k++) if (!strcmp(cmpops[k].name, suff)) in->sub = cmpops[k].sub;
             in->a = reg(tk[i + 1]); in->b = reg(tk[i + 2]);
         }
+        else if (!strcmp(base, "fadd") || !strcmp(base, "fsub") || !strcmp(base, "fmul") || !strcmp(base, "fdiv")) {
+            in->op = O_FBIN; in->sub = base[1] == 'a' ? 0 : base[1] == 's' ? 1 : base[2] == 'u' ? 2 : 3;
+            in->w = atoi(suff); in->a = reg(tk[i + 1]); in->b = reg(tk[i + 2]);
+        }
+        else if (!strcmp(base, "fneg") || !strcmp(base, "fsqrt") || !strcmp(base, "fabs")) {
+            in->op = O_FUN; in->sub = base[1] == 'n' ? 0 : base[1] == 's' ? 1 : 2; in->w = atoi(suff); in->a = reg(tk[i + 1]);
+        }
+        else if (!strcmp(base, "fcmp")) {
+            in->op = O_FCMP;
+            char *d2 = strchr(suff, '.');
+            *d2 = 0; in->w = atoi(d2 + 1);
+            for (int k = 0; cmpops[k].name; k++) if (!strcmp(cmpops[k].name, suff)) in->sub = cmpops[k].sub;
+            in->a = reg(tk[i + 1]); in->b = reg(tk[i + 2]);
+        }
+        else if (!strcmp(base, "i2f") || !strcmp(base, "f2i")) {
+            in->op = base[0] == 'i' ? O_I2F : O_F2I; in->w = atoi(suff); in->sgn = suff[strlen(suff) - 1] == 's'; in->a = reg(tk[i + 1]);
+        }
+        else if (!strcmp(base, "f2d") || !strcmp(base, "d2f")) { in->op = base[0] == 'f' ? O_F2D : O_D2F; in->a = reg(tk[i + 1]); }
         else if (!strcmp(base, "jmp")) { in->op = O_JMP; in->imm = atoi(tk[i + 1] + 2); }
         else if (!strcmp(base, "brz") || !strcmp(base, "brnz")) { in->op = base[2] == 'z' ? O_BRZ : O_BRNZ; in->a = reg(tk[i + 1]); in->imm = atoi(tk[i + 2] + 2); }
         else if (!strcmp(base, "call")) {
             in->op = O_CALL;
             int k = i + 1;
             if (tk[k][0] == '*') in->a = reg(tk[k] + 1); else in->sym = strdup(tk[k]);
-            for (k++; k < n && tk[k][0] == '%'; k++) in->args[in->nargs++] = reg(tk[k]);
+            for (k++; k < n && tk[k][0] == '%'; k++) { if (in->nargs >= 32) die("too many call arguments", raw); in->args[in->nargs++] = reg(tk[k]); }
         }
         else if (!strcmp(base, "ret")) { in->op = O_RET; in->a = n > i + 1 ? reg(tk[i + 1]) : -1; }
         else if (!strcmp(base, "copy")) { in->op = O_COPY; in->a = reg(tk[i + 1]); in->b = reg(tk[i + 2]); in->imm = atoi(tk[i + 3]); }
@@ -171,6 +190,10 @@ static void load_ir(FILE *f) {
         wr(rls[i].addr + rls[i].off, 8, v + rls[i].add);
     }
 }
+static double bd(int64_t v) { double d; memcpy(&d, &v, 8); return d; }
+static float bf(int64_t v) { uint32_t u = (uint32_t)v; float f; memcpy(&f, &u, 4); return f; }
+static int64_t pd(double d) { int64_t v; memcpy(&v, &d, 8); return v; }
+static int64_t pf(float f) { uint32_t u; memcpy(&u, &f, 4); return (int64_t)u; }
 static int64_t run(int fi, int64_t *args, int nargs, int depth);
 
 static int64_t builtin(const char *n, int64_t *a, int na, int *ok) {
@@ -248,6 +271,37 @@ static int64_t run(int fi, int64_t *args, int nargs, int depth) {
             r[in->dst] = v;
             break;
         }
+        case O_FBIN:
+            if (in->w == 8) {
+                double x = bd(r[in->a]), y = bd(r[in->b]);
+                r[in->dst] = pd(in->sub == 0 ? x + y : in->sub == 1 ? x - y : in->sub == 2 ? x * y : x / y);
+            } else {
+                float x = bf(r[in->a]), y = bf(r[in->b]);
+                r[in->dst] = pf(in->sub == 0 ? x + y : in->sub == 1 ? x - y : in->sub == 2 ? x * y : x / y);
+            }
+            break;
+        case O_FUN:
+            if (in->w == 8) { double x = bd(r[in->a]); r[in->dst] = pd(in->sub == 0 ? -x : in->sub == 1 ? sqrt(x) : fabs(x)); }
+            else { float x = bf(r[in->a]); r[in->dst] = pf(in->sub == 0 ? -x : in->sub == 1 ? sqrtf(x) : fabsf(x)); }
+            break;
+        case O_FCMP: {
+            int v;
+            if (in->w == 8) { double x = bd(r[in->a]), y = bd(r[in->b]); v = in->sub == 0 ? x == y : in->sub == 1 ? x != y : in->sub == 2 ? x < y : x <= y; }
+            else { float x = bf(r[in->a]), y = bf(r[in->b]); v = in->sub == 0 ? x == y : in->sub == 1 ? x != y : in->sub == 2 ? x < y : x <= y; }
+            r[in->dst] = v;
+            break;
+        }
+        case O_I2F:
+            if (in->w == 8) r[in->dst] = pd(in->sgn ? (double)r[in->a] : (double)(uint64_t)r[in->a]);
+            else r[in->dst] = pf(in->sgn ? (float)r[in->a] : (float)(uint64_t)r[in->a]);
+            break;
+        case O_F2I: {
+            double x = in->w == 8 ? bd(r[in->a]) : (double)bf(r[in->a]);
+            r[in->dst] = in->sgn ? (int64_t)x : (int64_t)(uint64_t)x;
+            break;
+        }
+        case O_F2D: r[in->dst] = pd((double)bf(r[in->a])); break;
+        case O_D2F: r[in->dst] = pf((float)bd(r[in->a])); break;
         case O_JMP: case O_BRZ: case O_BRNZ: {
             if (in->op == O_BRZ && r[in->a] != 0) break;
             if (in->op == O_BRNZ && r[in->a] == 0) break;
@@ -258,7 +312,7 @@ static int64_t run(int fi, int64_t *args, int nargs, int depth) {
             break;
         }
         case O_CALL: {
-            int64_t av[16];
+            int64_t av[32];
             for (int k = 0; k < in->nargs; k++) av[k] = r[in->args[k]];
             int ti;
             const char *nm = in->sym;
