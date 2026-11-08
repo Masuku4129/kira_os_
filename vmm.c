@@ -4,6 +4,7 @@
 #include "pmm.h"
 #include "uart.h"
 #include "spinlock.h"
+#include "sched.h"
 
 #define PAGE_SIZE   4096UL
 #define PTE_PRESENT (1ULL << 0)
@@ -496,6 +497,27 @@ int vmm_init(void) {
             return -5;
         }
     }
+
+    /* Exercise the real stack allocator before the scheduler starts. A duplicate
+       free must not put the same slot into the free-list twice. */
+    void* stack_a = vmm_kstack_alloc(SCHED_STACK_SIZE);
+    if (!stack_a) {
+        uart_print("[KIRA VMM ERROR] Kernel-stack self-test allocation A failed.\n");
+        return -6;
+    }
+    vmm_kstack_free(stack_a);
+    vmm_kstack_free(stack_a); /* deliberate double-free: must be ignored */
+    void* stack_b = vmm_kstack_alloc(SCHED_STACK_SIZE);
+    void* stack_c = vmm_kstack_alloc(SCHED_STACK_SIZE);
+    if (!stack_b || !stack_c || stack_b != stack_a || stack_c == stack_b) {
+        if (stack_b) vmm_kstack_free(stack_b);
+        if (stack_c && stack_c != stack_b) vmm_kstack_free(stack_c);
+        uart_print("[KIRA VMM ERROR] Kernel-stack double-free self-test failed.\n");
+        return -6;
+    }
+    vmm_kstack_free(stack_b);
+    vmm_kstack_free(stack_c);
+    uart_print("[KIRA VMM] Kernel-stack double-free self-test passed.\n");
 
     uart_print("[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.\n");
     return 0;
