@@ -35,6 +35,30 @@ static uint32_t kbi_mem_type(UINT32 type)
     }
 }
 
+int kira_uefi_gop_geometry_valid(uint64_t base, uint64_t size,
+                                uint32_t width, uint32_t height,
+                                uint32_t pixels_per_scanline,
+                                uint32_t format, uint32_t *pitch_out)
+{
+    uint64_t pitch, required;
+
+    if (!pitch_out || !base || !size || !width || !height ||
+        width > 16384u || height > 16384u ||
+        pixels_per_scanline < width || (format != 1u && format != 2u) ||
+        size > UINT64_MAX - base)
+        return 0;
+
+    pitch = (uint64_t)pixels_per_scanline * 4u;
+    if (pitch > UINT32_MAX || height > UINT64_MAX / pitch)
+        return 0;
+    required = pitch * height;
+    if (required > size)
+        return 0;
+
+    *pitch_out = (uint32_t)pitch;
+    return 1;
+}
+
 static int add_overflow_u64(uint64_t a, uint64_t b)
 {
     return b > UINT64_MAX - a;
