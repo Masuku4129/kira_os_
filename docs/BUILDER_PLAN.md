@@ -68,7 +68,7 @@ DMA-изоляция (VT-d/SMMU) — что реально есть и чего 
 
 ## Этап G. Широта языка C (чтобы писать серьёзные программы)
 Сейчас kcc честно отвергает (tests/kcc/unsup): float/double, VLA, `_Generic`, `_Alignas`, `_Thread_local`, широкие строки и универсальные имена символов, вычисляемый goto, `_Complex`, часть атрибутов и `__has_include`.
-- G1. float/double (SSE2 / AArch64 FP; ядро без SSE остаётся без FP) — в работе, помощник, клон `kcc-float`.
+- G1. float/double (SSE2 / AArch64 FP; ядро без SSE остаётся без FP) — сделано (см. docs/KCC.md), long double и float в asm не поддержаны.
 - G2. `_Generic`, `_Alignas`/`alignof`, `__has_include` — только фронтенд, небольшие.
 - G3. VLA (массивы переменной длины в блоках и параметрах).
 - G4. `_Thread_local` (требует TLS в ядре и компоновщике), широкие строки/UCN, `long double` (как double с честной пометкой либо x87).
