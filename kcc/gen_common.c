@@ -3,6 +3,8 @@
 #include "target.h"
 #include <string.h>
 
+int kcc_noopt;                                  /* 1 - не запускать ir_optimize (-O0, для сверки и отладки) */
+
 static Obj **htab;
 static unsigned hcap;
 static unsigned hash(const char *s) { unsigned h = 2166136261u; while (*s) h = (h ^ (unsigned char)*s++) * 16777619u; return h; }
@@ -55,7 +57,7 @@ Obj *gen_prepare(Obj *globals) {
     htab = ka_new(sizeof(Obj *) * hcap);
     for (Obj *g = globals; g; g = g->next) hput(g);
     for (Obj *g = globals; g; g = g->next)
-        if (g->is_func && g->body) g->ir = ir_lower(g);
+        if (g->is_func && g->body) { g->ir = ir_lower(g); if (!kcc_noopt) ir_optimize((IrFn *)g->ir); }
     work = ka_new(sizeof(Obj *) * (size_t)(ng + 1));
     nwork = 0;
     Obj *mainf = gen_lookup("main");

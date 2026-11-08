@@ -382,8 +382,16 @@ static void gen_func(IrFn *fi) {
             if (j->imm < 0 || j->imm > fi->nlab || labpos[j->imm] < 0) kerr(A->file, A->line, "internal: jump to undefined label %d", (int)j->imm);
             int l = labpos[j->imm];
             if (l > k) continue;
-            for (int v = 1; v <= nv; v++)
-                if (ve[v] >= l && vs[v] < l && ve[v] < k) { ve[v] = k; changed = 1; }
+            for (int v = 1; v <= nv; v++) {
+                if (fi->mdef && fi->mdef[v] && ve[v] >= 0) {
+                    /* переменная с несколькими определениями: значение может идти по обратному переходу, поэтому весь цикл */
+                    if (vs[v] <= k && ve[v] >= l && (vs[v] > l || ve[v] < k)) {
+                        if (vs[v] > l) vs[v] = l;
+                        if (ve[v] < k) ve[v] = k;
+                        changed = 1;
+                    }
+                } else if (ve[v] >= l && vs[v] < l && ve[v] < k) { ve[v] = k; changed = 1; }
+            }
         }
     }
     int *order = ka_new(sizeof(int) * (size_t)(nv + 1)), no = 0;

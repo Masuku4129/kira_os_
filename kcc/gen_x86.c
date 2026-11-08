@@ -40,6 +40,10 @@ static int p_ngrn, p_stk, p_hidden;            /* регистров занят�
 static int *vs, *ve, *rg, *so;               /* интервал, регистр (-1 нет), номер слота спила */
 static int *slotoff;                          /* смещение локального слота относительно rbp (вниз) */
 static int spillbase, epi;
+/* Оптимизации бэкенда: константный vreg (одно определение IR_CONST) не занимает регистр и подставляется непосредственно;
+   сравнение, единственный читатель результата которого - следующий IR_BRZ/IR_BRNZ, сливается с переходом. */
+static int64_t *cv;
+static unsigned char *isc, *fusecmp;
 
 static int cmp_start(const void *a, const void *b) {
     int x = *(const int *)a, y = *(const int *)b;
@@ -51,8 +55,10 @@ static int cmp_start(const void *a, const void *b) {
 static Opd R64(int r) { return xr(8, r); }
 static Opd spill(int v) { return xm(8, R_BP, -(int64_t)(spillbase + 8 * (so[v] + 1))); }
 
+static void mov_imm_r(int r, int64_t v);
 static void ldv(int r, int v) {
     if (v <= 0) kerr(A->file, A->line, "internal: use of an undefined vreg");
+    if (isc[v]) { mov_imm_r(r, cv[v]); return; }
     if (rg[v] >= 0) { if (rg[v] != r) xa_ins(A, X_MOV, R64(r), R64(rg[v])); }
     else xa_ins(A, X_MOV, R64(r), spill(v));
 }
@@ -90,54 +96,109 @@ static void ld_reg_bytes(int reg, int base, int64_t off, int n) {
 }
 
 /* приводит rax к каноническому виду целого шириной w байт */
+static void normr(int r, int w, int sgn) {
+    if (w == 4) { if (sgn) xa_ins(A, X_MOVSX, R64(r), xr(4, r)); else xa_ins(A, X_MOV, xr(4, r), xr(4, r)); }
+    else if (w == 2 || w == 1) xa_ins(A, sgn ? X_MOVSX : X_MOVZX, R64(r), xr(w, r));
+}
+static int imm32_of(int v, int64_t *out) {
+    if (v > 0 && isc[v] && cv[v] >= INT32_MIN && cv[v] <= INT32_MAX) { *out = cv[v]; return 1; }
+    return 0;
+}
+static int log2_exact(int64_t v) {
+    if (v <= 0 || (v & (v - 1))) return -1;
+    int k = 0;
+    while (!(v & 1)) { v >>= 1; k++; }
+    return k;
+}
 static void norm(int w, int sgn) {
     if (w == 4) { if (sgn) xa_ins(A, X_MOVSX, R64(R_AX), xr(4, R_AX)); else xa_ins(A, X_MOV, xr(4, R_AX), xr(4, R_AX)); }
     else if (w == 2 || w == 1) xa_ins(A, sgn ? X_MOVSX : X_MOVZX, R64(R_AX), xr(w, R_AX));
 }
 
+static void mov_imm_r(int r, int64_t v) {
+    if (v >= 0 && v <= (int64_t)UINT32_MAX) xa_ins(A, X_MOV, xr(4, r), xi(v));
+    else xa_ins(A, X_MOV, R64(r), xi(v));
+}
 static void mov_imm(int r, int64_t v) {
     if (v >= 0 && v <= (int64_t)UINT32_MAX) xa_ins(A, X_MOV, xr(4, r), xi(v));
     else xa_ins(A, X_MOV, R64(r), xi(v));
 }
 
 static void gen_bin(const Ins *i) {
-    ldv(R_AX, i->a);
-    ldv(R_CX, i->b);
-    switch (i->sub) {
-    case ND_ADD: xa_ins(A, X_ADD, R64(R_AX), R64(R_CX)); break;
-    case ND_SUB: xa_ins(A, X_SUB, R64(R_AX), R64(R_CX)); break;
-    case ND_MUL: xa_ins(A, X_IMUL, R64(R_AX), R64(R_CX)); break;
-    case ND_AND: xa_ins(A, X_AND, R64(R_AX), R64(R_CX)); break;
-    case ND_OR: xa_ins(A, X_OR, R64(R_AX), R64(R_CX)); break;
-    case ND_XOR: xa_ins(A, X_XOR, R64(R_AX), R64(R_CX)); break;
-    case ND_SHL: xa_ins(A, X_SHL, R64(R_AX), xr(1, R_CX)); break;
-    case ND_SHR: xa_ins(A, i->sgn ? X_SAR : X_SHR, R64(R_AX), xr(1, R_CX)); break;
-    case ND_DIV: case ND_MOD:
+    int sub = i->sub;
+    if (sub == ND_DIV || sub == ND_MOD) {
+        ldv(R_AX, i->a);
+        ldv(R_CX, i->b);
         if (i->sgn) { xa_op0(A, X0_CQO); xa_ins(A, X_IDIV, R64(R_CX), NOOPD); }
         else { xa_ins(A, X_XOR, xr(4, R_DX), xr(4, R_DX)); xa_ins(A, X_DIV, R64(R_CX), NOOPD); }
-        if (i->sub == ND_MOD) xa_ins(A, X_MOV, R64(R_AX), R64(R_DX));
-        break;
-    default: kerr(A->file, A->line, "internal: bad binary operator %d", i->sub);
+        if (sub == ND_MOD) xa_ins(A, X_MOV, R64(R_AX), R64(R_DX));
+        norm(i->w, i->sgn);
+        stv(i->dst, R_AX);
+        return;
     }
-    norm(i->w, i->sgn);
-    stv(i->dst, R_AX);
+    int a = i->a, b = i->b;
+    int comm = sub == ND_ADD || sub == ND_MUL || sub == ND_AND || sub == ND_OR || sub == ND_XOR;
+    int64_t imm = 0;
+    int bimm = imm32_of(b, &imm);
+    if (!bimm && comm && imm32_of(a, &imm)) { int t = a; a = b; b = t; bimm = 1; }
+    int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+    if (sub == ND_SHL || sub == ND_SHR) {
+        if (!bimm) ldv(R_CX, b);                      /* счётчик в CL до загрузки значения: d может совпадать с регистром b */
+        ldv(d, a);
+        int op = sub == ND_SHL ? X_SHL : i->sgn ? X_SAR : X_SHR;
+        if (bimm) { if (imm & 63) xa_ins(A, op, R64(d), xi(imm & 63)); }
+        else xa_ins(A, op, R64(d), xr(1, R_CX));
+    } else {
+        int bm = bimm ? -1 : rg[b];
+        if (!bimm && bm >= 0 && bm == d && a != b) {
+            if (comm) { int t = a; a = b; b = t; bm = rg[b]; }
+            else { d = R_AX; }
+        }
+        int op = sub == ND_ADD ? X_ADD : sub == ND_SUB ? X_SUB : sub == ND_MUL ? X_IMUL : sub == ND_AND ? X_AND : sub == ND_OR ? X_OR : X_XOR;
+        if (sub != ND_ADD && sub != ND_SUB && sub != ND_MUL && sub != ND_AND && sub != ND_OR && sub != ND_XOR)
+            kerr(A->file, A->line, "internal: bad binary operator %d", sub);
+        ldv(d, a);
+        if (sub == ND_MUL && bimm) {
+            int k = log2_exact(imm);
+            if (k == 0) { }
+            else if (k > 0) xa_ins(A, X_SHL, R64(d), xi(k));
+            else { mov_imm_r(R_CX, imm); xa_ins(A, X_IMUL, R64(d), R64(R_CX)); }
+        } else if (bimm) xa_ins(A, op, R64(d), xi(imm));
+        else if (bm >= 0) xa_ins(A, op, R64(d), R64(bm));
+        else { ldv(R_CX, b); xa_ins(A, op, R64(d), R64(R_CX)); }
+    }
+    normr(d, i->w, i->sgn);
+    if (rg[i->dst] != d) stv(i->dst, d);
 }
 
-static void gen_cmp(const Ins *i) {
-    ldv(R_AX, i->a);
-    ldv(R_CX, i->b);
-    xa_ins(A, X_CMP, R64(R_AX), R64(R_CX));
-    int cc;
+/* Сравнение: a в регистр (свой или rax), b непосредственно, в своём регистре или через rcx. Возвращает код условия. */
+static int cmp_cc(const Ins *i) {
+    int a = i->a, b = i->b;
+    int ra;
+    if (rg[a] >= 0) ra = rg[a]; else { ldv(R_AX, a); ra = R_AX; }
+    int64_t imm;
+    if (imm32_of(b, &imm)) xa_ins(A, X_CMP, R64(ra), xi(imm));
+    else if (rg[b] >= 0) xa_ins(A, X_CMP, R64(ra), R64(rg[b]));
+    else { ldv(R_CX, b); xa_ins(A, X_CMP, R64(ra), R64(R_CX)); }
     switch (i->sub) {
-    case ND_EQ: cc = CC_E; break;
-    case ND_NE: cc = CC_NE; break;
-    case ND_LT: cc = i->sgn ? CC_L : CC_B; break;
-    case ND_LE: cc = i->sgn ? CC_LE : CC_BE; break;
-    default: kerr(A->file, A->line, "internal: bad comparison %d", i->sub); return;
+    case ND_EQ: return CC_E;
+    case ND_NE: return CC_NE;
+    case ND_LT: return i->sgn ? CC_L : CC_B;
+    case ND_LE: return i->sgn ? CC_LE : CC_BE;
+    default: kerr(A->file, A->line, "internal: bad comparison %d", i->sub); return CC_E;
     }
-    xa_setcc(A, cc, xr(1, R_AX));
-    xa_ins(A, X_MOVZX, xr(4, R_AX), xr(1, R_AX));
-    stv(i->dst, R_AX);
+}
+static void gen_cmp(const Ins *i) {
+    int cc = cmp_cc(i);
+    int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+    xa_setcc(A, cc, xr(1, d));
+    xa_ins(A, X_MOVZX, xr(4, d), xr(1, d));
+    if (rg[i->dst] != d) stv(i->dst, d);
+}
+/* cmp + brz/brnz: условный переход напрямую по флагам. Код x86 с младшим битом 1 - обратное условие. */
+static void gen_cmpbr(const Ins *c, const Ins *br) {
+    int cc = cmp_cc(c);
+    xa_jmp(A, br->op == IR_BRZ ? (cc ^ 1) : cc, (int)br->imm);
 }
 
 static void gen_call(const Ins *i) {
@@ -254,6 +315,7 @@ static void gen_ins(const Ins *i, int homebase_h) {
     switch (i->op) {
     case IR_LABEL: xa_label(A, (int)i->imm); break;
     case IR_CONST:
+        if (isc[i->dst]) break;
         if (rg[i->dst] >= 0) mov_imm(rg[i->dst], i->imm);
         else if (i->imm >= INT32_MIN && i->imm <= INT32_MAX) xa_ins(A, X_MOV, spill(i->dst), xi(i->imm));
         else { mov_imm(R_AX, i->imm); stv(i->dst, R_AX); }
@@ -289,20 +351,27 @@ static void gen_ins(const Ins *i, int homebase_h) {
         else xa_ins(A, X_MOV, xr(4, R_AX), xi(p_ngrn));
         stv(i->dst, R_AX);
         break;
-    case IR_LOAD:
-        ldv(R_AX, i->a);
-        if (i->w == 8) xa_ins(A, X_MOV, R64(R_AX), xm(8, R_AX, 0));
-        else if (i->w == 4) { if (i->sgn) xa_ins(A, X_MOVSX, R64(R_AX), xm(4, R_AX, 0)); else xa_ins(A, X_MOV, xr(4, R_AX), xm(4, R_AX, 0)); }
-        else if (i->w == 2 || i->w == 1) xa_ins(A, i->sgn ? X_MOVSX : X_MOVZX, R64(R_AX), xm(i->w, R_AX, 0));
-        else kerr(A->file, A->line, "x86-64 backend: unsupported load width %d", i->w);
-        stv(i->dst, R_AX);
+    case IR_LOAD: {
+        if (i->w != 1 && i->w != 2 && i->w != 4 && i->w != 8) kerr(A->file, A->line, "x86-64 backend: unsupported load width %d", i->w);
+        int base = rg[i->a] >= 0 ? rg[i->a] : (ldv(R_AX, i->a), R_AX);
+        int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+        if (i->w == 8) xa_ins(A, X_MOV, R64(d), xm(8, base, 0));
+        else if (i->w == 4) { if (i->sgn) xa_ins(A, X_MOVSX, R64(d), xm(4, base, 0)); else xa_ins(A, X_MOV, xr(4, d), xm(4, base, 0)); }
+        else xa_ins(A, i->sgn ? X_MOVSX : X_MOVZX, R64(d), xm(i->w, base, 0));
+        if (rg[i->dst] != d) stv(i->dst, d);
         break;
-    case IR_STORE:
+    }
+    case IR_STORE: {
         if (i->w != 1 && i->w != 2 && i->w != 4 && i->w != 8) kerr(A->file, A->line, "x86-64 backend: unsupported store width %d", i->w);
-        ldv(R_AX, i->a);
-        ldv(R_CX, i->b);
-        xa_ins(A, X_MOV, xm(i->w, R_AX, 0), xr(i->w, R_CX));
+        int base = rg[i->a] >= 0 ? rg[i->a] : (ldv(R_AX, i->a), R_AX);
+        int64_t imm;
+        if (imm32_of(i->b, &imm)) xa_ins(A, X_MOV, xm(i->w, base, 0), xi(imm));
+        else {
+            int src = rg[i->b] >= 0 ? rg[i->b] : (ldv(R_CX, i->b), R_CX);
+            xa_ins(A, X_MOV, xm(i->w, base, 0), xr(i->w, src));
+        }
         break;
+    }
     case IR_MOV: ldv(R_AX, i->a); stv(i->dst, R_AX); break;
     case IR_BIN: gen_bin(i); break;
     case IR_NEG: ldv(R_AX, i->a); xa_ins(A, X_NEG, R64(R_AX), NOOPD); norm(i->w, i->sgn); stv(i->dst, R_AX); break;
@@ -362,6 +431,22 @@ static void gen_func(IrFn *fi) {
     vs = ka_new(sizeof(int) * (size_t)(nv + 1)); ve = ka_new(sizeof(int) * (size_t)(nv + 1));
     rg = ka_new(sizeof(int) * (size_t)(nv + 1)); so = ka_new(sizeof(int) * (size_t)(nv + 1));
     for (int v = 0; v <= nv; v++) { vs[v] = INT_MAX; ve[v] = -1; rg[v] = -1; }
+    {
+        int *nd = ka_new(sizeof(int) * (size_t)(nv + 2)), *nu = ka_new(sizeof(int) * (size_t)(nv + 2));
+        Ins **di = ka_new(sizeof(Ins *) * (size_t)(nv + 2));
+        ir_usecount(fi, nd, nu, di);
+        cv = ka_new(sizeof(int64_t) * (size_t)(nv + 2));
+        isc = ka_new((size_t)nv + 2);
+        fusecmp = ka_new((size_t)n + 2);
+        for (int v = 1; v <= nv; v++)
+            if (nd[v] == 1 && di[v] && di[v]->op == IR_CONST && !(fi->mdef && fi->mdef[v])) { isc[v] = 1; cv[v] = di[v]->imm; }
+        for (int k = 0; k + 1 < n; k++) {
+            const Ins *c = ins[k], *b = ins[k + 1];
+            if (c->op == IR_CMP && (b->op == IR_BRZ || b->op == IR_BRNZ) && b->a == c->dst && c->dst > 0 && nd[c->dst] == 1 && nu[c->dst] == 1 &&
+                !(fi->mdef && fi->mdef[c->dst]))
+                fusecmp[k] = 1;
+        }
+    }
     int *labpos = ka_new(sizeof(int) * (size_t)(fi->nlab + 2));
     for (int l = 0; l <= fi->nlab + 1; l++) labpos[l] = -1;
     int maxout = 0, natom = 0;
@@ -378,6 +463,8 @@ static void gen_func(IrFn *fi) {
         }
         if (ins[k]->op == IR_ATOMIC) natom++;
     }
+    for (int v = 1; v <= nv; v++) if (isc[v]) { vs[v] = INT_MAX; ve[v] = -1; }
+    for (int k = 0; k < n; k++) if (fusecmp[k]) { int d = ins[k]->dst; vs[d] = INT_MAX; ve[d] = -1; }
     /* обратные переходы: всё, что живёт в начале цикла, живёт до конца цикла */
     for (int changed = 1; changed;) {
         changed = 0;
@@ -387,8 +474,16 @@ static void gen_func(IrFn *fi) {
             if (j->imm < 0 || j->imm > fi->nlab || labpos[j->imm] < 0) kerr(A->file, A->line, "internal: jump to undefined label %d", (int)j->imm);
             int l = labpos[j->imm];
             if (l > k) continue;
-            for (int v = 1; v <= nv; v++)
-                if (ve[v] >= l && vs[v] < l && ve[v] < k) { ve[v] = k; changed = 1; }
+            for (int v = 1; v <= nv; v++) {
+                if (fi->mdef && fi->mdef[v] && ve[v] >= 0) {
+                    /* переменная с несколькими определениями: значение может идти по обратному переходу, поэтому весь цикл */
+                    if (vs[v] <= k && ve[v] >= l && (vs[v] > l || ve[v] < k)) {
+                        if (vs[v] > l) vs[v] = l;
+                        if (ve[v] < k) ve[v] = k;
+                        changed = 1;
+                    }
+                } else if (ve[v] >= l && vs[v] < l && ve[v] < k) { ve[v] = k; changed = 1; }
+            }
         }
     }
     /* линейный проход */
@@ -431,7 +526,7 @@ static void gen_func(IrFn *fi) {
         p_stk = plan_args(np, pa, p_hidden, pl, &p_ngrn);
         ploc = pl;
     }
-    int nh = (f->nparams > 0 || f->ty->variadic || p_hidden) ? 6 : 0;
+    int nh = f->ty->variadic ? 6 : (p_hidden && p_ngrn < 1 ? 1 : p_ngrn);   /* домашняя область - только для приходящих регистров */
     cur += 8 * nh;
     int homeh = (int)cur;
     spillbase = (int)cur;
@@ -457,7 +552,10 @@ static void gen_func(IrFn *fi) {
     if (frame) xa_ins(A, X_SUB, R64(R_SP), xi(frame));
     for (int k = 0; k < 5; k++) if (used[k]) xa_ins(A, X_MOV, xm(8, R_BP, -saveoff[k]), R64(pool[k]));
     for (int k = 0; k < nh; k++) xa_ins(A, X_MOV, xm(8, R_BP, -(int64_t)homeh + 8 * k), R64(argreg[k]));
-    for (int k = 0; k < n; k++) gen_ins(ins[k], homeh);
+    for (int k = 0; k < n; k++) {
+        if (fusecmp[k]) { gen_cmpbr(ins[k], ins[k + 1]); k++; continue; }
+        gen_ins(ins[k], homeh);
+    }
     A->file = K.srcpath; A->line = f->line;
     xa_label(A, epi);
     for (int k = 0; k < 5; k++) if (used[k]) xa_ins(A, X_MOV, R64(pool[k]), xm(8, R_BP, -saveoff[k]));

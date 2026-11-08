@@ -7,6 +7,7 @@
 #include "parse.c"
 #include "type.c"
 #include "ir.c"
+#include "opt.c"
 #include "gen_common.c"
 #include "gen_x86.c"
 #include "asm_x86.c"

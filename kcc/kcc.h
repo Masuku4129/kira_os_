@@ -157,7 +157,10 @@ struct Ins {
     int64_t imm; const char *sym; int *args; Ins *next;
     int line; const char *file;              /* только IR_ASM: место в исходнике */
 };
-typedef struct { Obj *f; Ins *head; int nreg, nlab; } IrFn;
+typedef struct { Obj *f; Ins *head; int nreg, nlab; unsigned char *mdef; } IrFn;   /* mdef[v]: vreg переменной с несколькими определениями (ir_optimize) */
+extern int kcc_noopt;                        /* gen_common.c */
+void ir_usecount(IrFn *fi, int *ndef, int *nuse, Ins **defins);
+void ir_optimize(IrFn *fi);                  /* opt.c: продвижение локальных в vreg, копии, слияние, мёртвый код */
 IrFn *ir_lower(Obj *f);                      /* линейный IR одной функции с телом */
 void ir_dump(Obj *globals, SB *out);
 
