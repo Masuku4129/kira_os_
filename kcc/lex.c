@@ -205,7 +205,7 @@ static const char *const kwtab[] = {
     "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum", "extern",
     "float", "for", "goto", "if", "inline", "int", "long", "register", "restrict", "return", "short", "signed",
     "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned", "void", "volatile", "while",
-    "_Bool", "_Complex", "_Generic", "_Static_assert", "_Noreturn", "_Thread_local", "_Alignas", "_Atomic",
+    "_Bool", "_Complex", "_Generic", "_Static_assert", "_Noreturn", "_Thread_local", "__thread", "_Alignas", "_Atomic",
     "typeof", "asm", "__attribute__", "__extension__", "__alignof__", "__builtin_va_list", "__label__", 0 };
 static const char *const kwsyn[][2] = {
     { "__const", "const" }, { "__const__", "const" }, { "__volatile", "volatile" }, { "__volatile__", "volatile" },

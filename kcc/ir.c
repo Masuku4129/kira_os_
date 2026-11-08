@@ -316,7 +316,7 @@ static int gen_expr(Node *n) {
         int a = gen_addr(l);
         int bf = l->k == ND_MEMBER && l->mem->bw >= 0;
         int cur = bf ? bf_get(E_load(a, l->mem->ty->size, 0, l->mem->ty->is_volatile), l->mem, bf_signed(l->mem)) : load_scalar(a, l->ty);
-        int step = n->rhs ? E_const(n->rhs->val) : 0;
+        int step = n->rhs ? (n->rhs->k == ND_NUM ? E_const(n->rhs->val) : gen_expr(n->rhs)) : 0;
         int nv = gen_incdec_value(cur, l->ty, n, step, (int)n->val);
         int old = cur;
         if (n->op) { int keep = newreg(); E_mov(keep, cur); old = keep; }
@@ -383,6 +383,14 @@ static int gen_expr(Node *n) {
         }
         return r;
     }
+    case ND_ALLOCA: {
+        int sz = gen_expr(n->lhs);
+        Ins *i = emit(IR_ALLOCA);
+        i->a = sz; i->dst = newreg();
+        return i->dst;
+    }
+    case ND_SPSAVE: { Ins *i = emit(IR_SPSAVE); i->dst = newreg(); return i->dst; }
+    case ND_SPREST: { int v = gen_expr(n->lhs); Ins *i = emit(IR_SPREST); i->a = v; return -1; }
     case ND_ZERO: {
         int a = gen_addr(n->lhs);
         Ins *i = emit(IR_ZERO);
@@ -607,7 +615,10 @@ static void gen_stmt(Node *n) {
         break;
     }
     case ND_CASE: E_label(n->lbl); gen_stmt(n->lhs); break;
-    case ND_BREAK: case ND_CONTINUE: case ND_GOTO: E_jmp(n->lbl); break;
+    case ND_BREAK: case ND_CONTINUE: case ND_GOTO:
+        if (n->lhs) gen_expr(n->lhs);                         /* выход из областей VLA: sp назад */
+        E_jmp(n->lbl);
+        break;
     case ND_LABEL: E_label(n->lbl); gen_stmt(n->lhs); break;
     case ND_RETURN: {
         int v = -1, w = 0;
@@ -693,6 +704,9 @@ static void print_ins(const Ins *i) {
         break;
     }
     case IR_VAINFO: sb_printf(out, "  %%%d = vainfo %d\n", i->dst, i->sub); break;
+    case IR_ALLOCA: sb_printf(out, "  %%%d = alloca %%%d\n", i->dst, i->a); break;
+    case IR_SPSAVE: sb_printf(out, "  %%%d = spsave\n", i->dst); break;
+    case IR_SPREST: sb_printf(out, "  sprest %%%d\n", i->a); break;
     case IR_FBIN: sb_printf(out, "  %%%d = f%s.%d %%%d, %%%d\n", i->dst, opname(i->sub), i->w, i->a, i->b); break;
     case IR_FUN: sb_printf(out, "  %%%d = f%s.%d %%%d\n", i->dst, i->sub == FN_NEG ? "neg" : i->sub == FN_SQRT ? "sqrt" : "abs", i->w, i->a); break;
     case IR_FCMP: sb_printf(out, "  %%%d = fcmp.%s.%d %%%d, %%%d\n", i->dst, opname(i->sub), i->w, i->a, i->b); break;
@@ -745,7 +759,7 @@ IrFn *ir_lower(Obj *f) {
 
 static void lower_func(Obj *f) {
     IrFn *fi = ir_lower(f);
-    if (kcc_dumpopt && !kcc_noopt) ir_optimize(fi);
+    if (kcc_dumpopt && !kcc_noopt && !ir_uses_sp(fi)) ir_optimize(fi);
     sb_printf(out, "func %s%s params=%d\n", f->name, f->is_static ? " static" : "", f->nparams);
     for (Obj *l = f->locals; l; l = l->next)
         sb_printf(out, "  slot%d: size=%d align=%d %s%s\n", l->slot, l->ty->size, l->align ? l->align : 1, l->name, l->is_param ? " (param)" : "");
@@ -771,6 +785,11 @@ static void dump_data(Obj *o) {
         }
         for (Reloc *r = o->relocs; r; r = r->next) sb_printf(out, "  reloc +%d -> %s%+lld\n", r->off, r->sym, (long long)r->addend);
     }
+}
+
+int ir_uses_sp(const IrFn *fi) {
+    for (const Ins *i = fi->head; i; i = i->next) if (i->op == IR_ALLOCA || i->op == IR_SPSAVE || i->op == IR_SPREST) return 1;
+    return 0;
 }
 
 void ir_dump(Obj *globals, SB *o) {

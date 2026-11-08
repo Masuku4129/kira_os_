@@ -8,7 +8,7 @@
 #include <string.h>
 
 enum { O_LABEL, O_CONST, O_GADDR, O_LADDR, O_PARAM, O_LOAD, O_STORE, O_MOV, O_BIN, O_NEG, O_NOT, O_CMP, O_EXT, O_JMP, O_BRZ, O_BRNZ,
-       O_CALL, O_RET, O_COPY, O_ZERO, O_NOP, O_UNREACH, O_FBIN, O_FUN, O_FCMP, O_I2F, O_F2I, O_F2D, O_D2F };
+       O_CALL, O_RET, O_COPY, O_ZERO, O_NOP, O_UNREACH, O_FBIN, O_FUN, O_FCMP, O_I2F, O_F2I, O_F2D, O_D2F, O_ALLOCA, O_SPSAVE, O_SPREST };
 typedef struct { int op, sub, dst, a, b, w, sgn, nargs; int64_t imm; char *sym; int args[32]; } In;
 typedef struct { char name[96]; int nparams, nslots, nregs; int slotsz[256], slotal[256]; In *ins; int nin; int *lab; int nlab; } Fn;
 typedef struct { char name[96]; int64_t addr; int size; } Gv;
@@ -128,6 +128,9 @@ static void load_ir(FILE *f) {
         else if (!strcmp(base, "gaddr")) { in->op = O_GADDR; in->sym = strdup(tk[i + 1]); }
         else if (!strcmp(base, "laddr")) { in->op = O_LADDR; in->imm = atoi(tk[i + 1] + 4); }
         else if (!strcmp(base, "param")) { in->op = O_PARAM; in->imm = atoi(tk[i + 1]); }
+        else if (!strcmp(base, "alloca")) { in->op = O_ALLOCA; in->a = reg(tk[i + 1]); }
+        else if (!strcmp(base, "spsave")) in->op = O_SPSAVE;
+        else if (!strcmp(base, "sprest")) { in->op = O_SPREST; in->a = reg(tk[i + 1]); }
         else if (!strcmp(base, "mov")) { in->op = O_MOV; in->a = reg(tk[i + 1]); }
         else if (!strcmp(base, "load") || !strcmp(base, "store")) {
             char *s = suff; if (s[0] == 'v' && s[1] == '.') s += 2;
@@ -236,6 +239,17 @@ static int64_t run(int fi, int64_t *args, int nargs, int depth) {
         }
         case O_LADDR: r[in->dst] = slot[in->imm]; break;
         case O_PARAM: r[in->dst] = args[in->imm]; break;
+        case O_ALLOCA: {
+            int64_t sz = (r[in->a] + 15) & ~(int64_t)15;
+            if (sz < 0 || sz > MEMSZ / 2) die("alloca: too large a block in", f->name);
+            stack_top = (stack_top - sz) & ~(int64_t)15;
+            memset(at(stack_top, (int)(sz ? sz : 1)), 0xA5, (size_t)(sz ? sz : 1));
+            r[in->dst] = stack_top;
+            stack_top -= 16;
+            break;
+        }
+        case O_SPSAVE: r[in->dst] = stack_top; break;
+        case O_SPREST: stack_top = r[in->a]; break;
         case O_LOAD: r[in->dst] = rd(r[in->a], in->w, in->sgn); break;
         case O_STORE: wr(r[in->a], in->w, r[in->b]); break;
         case O_MOV: r[in->dst] = r[in->a]; break;

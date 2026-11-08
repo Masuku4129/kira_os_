@@ -681,6 +681,7 @@ static void gen_asm(const Ins *i) {
     else if (!gen_asm_tab(i)) kerr(A->file, A->line, "inline asm template '%s' is not supported on x86_64", t);
 }
 
+static int g_maxout;                                      /* размер области исходящих аргументов текущей функции (для IR_ALLOCA) */
 static void gen_ins(const Ins *i, int homebase_h) {
     switch (i->op) {
     case IR_LABEL: xa_label(A, (int)i->imm); break;
@@ -743,6 +744,16 @@ static void gen_ins(const Ins *i, int homebase_h) {
         else xa_ins(A, X_MOV, xr(4, R_AX), xi(p_ngrn));
         stv(i->dst, R_AX);
         break;
+    case IR_ALLOCA:                                          /* rsp -= размер (кратно 16); блок лежит над областью исходящих аргументов */
+        ldv(R_AX, i->a);
+        xa_ins(A, X_ADD, R64(R_AX), xi(15));
+        xa_ins(A, X_AND, R64(R_AX), xi(-16));
+        xa_ins(A, X_SUB, R64(R_SP), R64(R_AX));
+        xa_ins(A, X_LEA, R64(R_AX), xm(8, R_SP, g_maxout));
+        stv(i->dst, R_AX);
+        break;
+    case IR_SPSAVE: xa_ins(A, X_MOV, R64(R_AX), R64(R_SP)); stv(i->dst, R_AX); break;
+    case IR_SPREST: ldv(R_AX, i->a); xa_ins(A, X_MOV, R64(R_SP), R64(R_AX)); break;
     case IR_LOAD: case IR_STORE: gen_ldst(i, -1, -1, 0, 0); break;
     case IR_MOV:
         if (fcls && (fcls[i->dst] || fcls[i->a]) && (xg[i->dst] >= 0 || (!isc[i->a] && xg[i->a] >= 0))) {   /* пересылка между xmm и чем угодно */
@@ -1113,10 +1124,11 @@ static void gen_func(IrFn *fi) {
         slotoff[l->slot] = (int)cur;
     }
     int64_t frame = (cur + (int64_t)maxout + 15) & ~(int64_t)15;
+    g_maxout = maxout;
     {   /* листовая функция без кадра: ни стека, ни callee-saved, ни вызовов; rbp не нужен */
         int nused = 0, leaf = 1;
         for (int k = 0; k < NCS; k++) nused += used[k];
-        for (int k = 0; k < n; k++) if (ins[k]->op == IR_CALL || ins[k]->op == IR_ASM || ins[k]->op == IR_VAINFO || ins[k]->op == IR_COPY || ins[k]->op == IR_ZERO) leaf = 0;
+        for (int k = 0; k < n; k++) if (ins[k]->op == IR_CALL || ins[k]->op == IR_ASM || ins[k]->op == IR_VAINFO || ins[k]->op == IR_COPY || ins[k]->op == IR_ZERO || ins[k]->op == IR_ALLOCA || ins[k]->op == IR_SPSAVE || ins[k]->op == IR_SPREST) leaf = 0;
         g_frameless = !kcc_noregs && leaf && frame == 0 && !nused && nh == 0 && p_stk == 0;
         for (int k = 0; g_frameless && k < n; k++) if (ins[k]->op == IR_PARAM && (ins[k]->sub || ploc[ins[k]->imm].kind != AL_REG)) g_frameless = 0;
     }

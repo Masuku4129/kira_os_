@@ -84,11 +84,16 @@ struct Param { Param *next; Type *ty; const char *name; };
 struct Member { Member *next; const char *name; Type *ty; int off, bw, bo, idx, align; const Token *tok; };
 struct Type {
     TyKind k; int size, align;
-    unsigned is_unsigned : 1, is_const : 1, is_volatile : 1, complete : 1, variadic : 1, noproto : 1, packed : 1, noret : 1;
+    unsigned is_unsigned : 1, is_const : 1, is_volatile : 1, complete : 1, variadic : 1, noproto : 1, packed : 1, noret : 1, vm : 1;   /* vm - тип с динамическим размером (VLA) */
     Type *base; int64_t alen;                /* PTR/ARRAY/FUNC(возврат); alen<0 - неполный массив */
-    Member *mem; int nmem;                   /* STRUCT/UNION */
+    union { Member *mem;                     /* STRUCT/UNION */
+            Obj *vlen;                       /* VLA: скрытая локальная с числом элементов; alen == -2 */
+            Node *vinit; };                  /* FUNC (определение): присваивания длин VLA параметров, выполняются при входе */
+    int nmem;
     Param *params;                           /* FUNC */
-    const char *tag; int id;
+    union { const char *tag;                 /* STRUCT/UNION/ENUM */
+            Obj *vobjs; };                   /* FUNC (определение): скрытые локальные длин VLA параметров (по next) */
+    int id;
     Type *orig;                              /* исходный тип без квалификаторов */
 };
 extern Type ty_float, ty_double;
@@ -128,6 +133,9 @@ typedef enum {
     ND_BLOCK, ND_IF, ND_FOR, ND_DO, ND_SWITCH, ND_CASE, ND_BREAK, ND_CONTINUE, ND_GOTO, ND_LABEL, ND_RETURN, ND_EXPR,
     ND_FP1,                                  /* __builtin_sqrt[f], __builtin_fabs[f]: op - FN_SQRT/FN_ABS, lhs - аргумент того же типа */
     ND_FNUM,                                 /* вещественная константа: val - битовый образ (binary32 - в младших 32 битах), ty - float или double */
+    ND_ALLOCA,                               /* lhs - размер в байтах (ulong); значение - указатель на новый блок стека (VLA, __builtin_alloca) */
+    ND_SPSAVE,                               /* значение (long) - текущий указатель стека до выделения VLA */
+    ND_SPREST,                               /* lhs (long) - значение ND_SPSAVE: освободить VLA блока */
     ND_ROL                                   /* только в IR (opt.c): циклический сдвиг влево на константу; создаётся распознаванием (x>>c1)|(x<<c2), c1+c2 = ширина */
 } NKind;
 struct Node {
@@ -161,7 +169,10 @@ int64_t eval_const(Node *n);
 typedef enum { IR_LABEL, IR_CONST, IR_GADDR, IR_LADDR, IR_PARAM, IR_LOAD, IR_STORE, IR_MOV, IR_BIN, IR_NEG, IR_NOT,
                IR_CMP, IR_EXT, IR_JMP, IR_BRZ, IR_BRNZ, IR_CALL, IR_RET, IR_COPY, IR_ZERO, IR_ASM, IR_UNREACH,
                IR_ATOMIC, IR_VAINFO,
-               IR_FBIN, IR_FUN, IR_FCMP, IR_FCVT } IrOp;
+               IR_FBIN, IR_FUN, IR_FCMP, IR_FCVT,
+               IR_ALLOCA, IR_SPSAVE, IR_SPREST } IrOp;
+/* IR_ALLOCA: sp -= размер a, выровненный до 16; dst = адрес блока (над областью исходящих аргументов). IR_SPSAVE: dst = sp. IR_SPREST: sp = a.
+   Функции с этими операциями не оптимизируются (ir_uses_sp) и не встраиваются; бэкенды адресуют кадр от rbp (x86-64) / x29 (AArch64). */
 /* Вещественные операции (float/double, SSE2 на x86-64, скалярный FP на AArch64). Значение вещественного типа лежит в vreg как битовый образ
    (binary32 - в младших 32 битах), поэтому MOV, LOAD, STORE и все проходы opt.c работают с ним как с 64-битным числом; сами вещественные
    операции для opt.c непрозрачны (не сворачиваются, не переставляются, не нумеруются). Ширина w - 4 (float) или 8 (double).
@@ -204,6 +215,7 @@ typedef void (*OpVisit)(Ins *i, int *r, int kind, void *ctx);   /* kind: 0 - ч�
 void ir_walk(Ins *i, OpVisit fn, void *ctx);   /* opt.c: обход всех vreg-операндов инструкции */
 void ir_inline_prepare(Obj *globals);         /* opt.c: перед ir_inline: числа вызовов и признаки "адрес взят" */
 void ir_inline(Obj *caller);                 /* opt.c: встраивание малых функций (до ir_optimize) */
+int ir_uses_sp(const IrFn *fi);                 /* есть IR_ALLOCA/SPSAVE/SPREST: оптимизатор и встраивание такую функцию не трогают */
 void ir_optimize(IrFn *fi);                  /* opt.c: продвижение локальных в vreg, копии, слияние, мёртвый код */
 IrFn *ir_lower(Obj *f);                      /* линейный IR одной функции с телом */
 void ir_dump(Obj *globals, SB *out);

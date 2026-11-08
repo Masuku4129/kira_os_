@@ -67,7 +67,7 @@ Obj *gen_prepare(Obj *globals) {
     if (!kcc_noopt) {
         ir_inline_prepare(globals);
         for (Obj *g = globals; g; g = g->next) if (g->is_func && g->body) ir_inline(g);
-        for (Obj *g = globals; g; g = g->next) if (g->is_func && g->body) ir_optimize((IrFn *)g->ir);
+        for (Obj *g = globals; g; g = g->next) if (g->is_func && g->body) if (!ir_uses_sp((IrFn *)g->ir)) ir_optimize((IrFn *)g->ir);
     }
     work = ka_new(sizeof(Obj *) * (size_t)(ng + 1));
     nwork = 0;
@@ -90,7 +90,9 @@ static void touch(int *vs, int *ve, int v, int idx, int nv) {
 /* Продлевает живой интервал vreg, которые читает или пишет инструкция idx. */
 void gen_live(const Ins *i, int idx, int nv, int *vs, int *ve) {
     switch (i->op) {
-    case IR_CONST: case IR_GADDR: case IR_LADDR: case IR_VAINFO: touch(vs, ve, i->dst, idx, nv); break;
+    case IR_CONST: case IR_GADDR: case IR_LADDR: case IR_VAINFO: case IR_SPSAVE: touch(vs, ve, i->dst, idx, nv); break;
+    case IR_ALLOCA: touch(vs, ve, i->a, idx, nv); touch(vs, ve, i->dst, idx, nv); break;
+    case IR_SPREST: touch(vs, ve, i->a, idx, nv); break;
     case IR_PARAM: touch(vs, ve, i->dst, idx, nv); touch(vs, ve, i->a, idx, nv); break;
     case IR_ATOMIC: touch(vs, ve, i->a, idx, nv); touch(vs, ve, i->b, idx, nv); touch(vs, ve, i->c, idx, nv); touch(vs, ve, i->dst, idx, nv); break;
     case IR_LOAD: case IR_MOV: case IR_NEG: case IR_NOT: case IR_EXT: touch(vs, ve, i->a, idx, nv); touch(vs, ve, i->dst, idx, nv); break;

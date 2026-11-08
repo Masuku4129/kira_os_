@@ -1326,7 +1326,7 @@ static int inl_ok(const Obj *callee, const Obj *caller, const Ins *call, const I
     for (const Ins *i = ci->head; i; i = i->next) {
         if (++n > limit) return 0;
         switch (i->op) {
-        case IR_ASM: case IR_VAINFO: case IR_ATOMIC: return 0;
+        case IR_ASM: case IR_VAINFO: case IR_ATOMIC: case IR_ALLOCA: case IR_SPSAVE: case IR_SPREST: return 0;
         case IR_PARAM: case IR_RET: if (i->sub) return 0; break;
         case IR_CALL:
             if (i->rsz || (i->sym && strstr(i->sym, "setjmp"))) return 0;

@@ -3,7 +3,7 @@
 #include <string.h>
 
 typedef struct VS VS;
-struct VS { VS *next; const char *name; int nlen; Obj *var; Type *tdef; Type *ety; int64_t eval; };
+struct VS { VS *next; const char *name; int nlen, vla; Obj *var; Type *tdef; Type *ety; int64_t eval; };   /* vla: var - указатель на блок стека, сам объект - *var */
 typedef struct TS TS;
 struct TS { TS *next; const char *name; int nlen; Type *ty; };
 typedef struct Scope Scope;
@@ -25,6 +25,16 @@ static int str_count, static_count, type_count;
 static Node *cur_switch;
 static int brk_lbl, cont_lbl;
 static Node *fn_gotos, *fn_labels;
+
+/* ---------- VLA: состояние разбора ----------
+   Длина каждого VLA вычисляется один раз в скрытую локальную Type.vlen; присваивания копятся в vla_head и выпускаются там, где объявление встречено.
+   Объект VLA - блок стека, его адрес лежит в скрытом указателе (VS.vla); первое VLA блока сохраняет sp в скрытой локальной, конец блока,
+   break/continue/goto, выходящие из блока, восстанавливают sp (ND_SPREST). */
+static Node *vla_head, *vla_tail;
+static int in_params;
+static Obj *vla_objs;
+static Obj *vla_stack[64];
+static int vla_depth, blk_vla_base, blk_is_se, stmtexpr_next, brk_vd, cont_vd;
 
 /* ---------- вспомогательное ---------- */
 static int P(const char *s) { return tok->k == TK_PUNCT && tok_is(tok, s); }
@@ -125,6 +135,10 @@ static Node *conv_assign(Node *e, Type *to, const Token *t, const char *what);
 static Node *rv(Node *n);
 static int64_t const_expr(void);
 static Obj *new_gvar(const Token *nm, Type *ty);
+static Obj *vla_make_len(Node *e, const Token *t);
+static Node *vla_take(void);
+static Node *vla_chain(Node *p, Node *e, const Token *t);
+static Node *size_node(Type *ty, const Token *t);
 
 #define ENTER() do { if (++K.depth > 600) kerr_tok(tok, "nesting is too deep"); } while (0)
 #define TSZ(t) (ty_unqual(t)->size)
@@ -244,7 +258,7 @@ static int is_typename(const Token *t) {
     if (t->k == TK_KW) {
         static const char *const k[] = { "void", "char", "short", "int", "long", "signed", "unsigned", "_Bool", "struct", "union", "enum",
             "typeof", "const", "volatile", "restrict", "typedef", "static", "extern", "inline", "register", "auto", "_Noreturn",
-            "__attribute__", "__extension__", "float", "double", "_Complex", "_Thread_local", "_Atomic", "_Alignas", "__builtin_va_list", 0 };
+            "__attribute__", "__extension__", "float", "double", "_Complex", "_Thread_local", "__thread", "_Atomic", "_Alignas", "__builtin_va_list", 0 };
         for (int i = 0; k[i]; i++) if (tok_is(t, k[i])) return 1;
         return 0;
     }
@@ -274,8 +288,8 @@ static Type *declspec_(Attr *a) {
     const Token *first = tok;
     while (is_typename(tok)) {
         if (tok->k == TK_KW) {
-            if (KW("typedef") || KW("static") || KW("extern") || KW("inline") || KW("register") || KW("auto") || KW("_Noreturn") || KW("_Thread_local")) {
-                if (KW("_Thread_local")) unsupported(tok, "_Thread_local");
+            if (KW("typedef") || KW("static") || KW("extern") || KW("inline") || KW("register") || KW("auto") || KW("_Noreturn") || KW("_Thread_local") || KW("__thread")) {
+                if (KW("_Thread_local") || KW("__thread")) unsupported(tok, "_Thread_local/__thread (no TLS in kernel and klink, see docs/KCC.md G4)");
                 if (KW("typedef")) a->is_typedef = 1;
                 else if (KW("static")) a->is_static = 1;
                 else if (KW("extern")) a->is_extern = 1;
@@ -484,6 +498,7 @@ static Type *struct_decl_(int is_union) {
             Token *nm = NULL;
             Type *mt = base;
             if (!P(":")) mt = declarator(base, &nm);
+            if (mt->vm) kerr_tok(nm ? nm : tok, "fields must have a constant size: variable length array in a struct or union");
             attrs(&ma);
             Member *m = ka_new(sizeof *m);
             m->ty = mt; m->name = nm ? tname(nm) : NULL; m->tok = nm ? nm : tok; m->bw = -1; m->bo = 0; m->align = ma.align;
@@ -552,8 +567,15 @@ static Type *enum_decl(void) {
 /* ---------- описатели ---------- */
 static Type *type_suffix(Type *ty);
 
-static Param *func_params(int *variadic, int *noproto) {
+static Param *func_params_(int *variadic, int *noproto) {
     Param head = {0}, *cur = &head;
+    int has_br = 0, dep = 0;                                /* объекты параметров нужны только если в списке есть '[' (возможный VLA) */
+    for (Token *q = tok; q->k != TK_EOF; q = q->next) {
+        if (q->k != TK_PUNCT) continue;
+        if (tok_is(q, "(")) dep++;
+        else if (tok_is(q, ")")) { if (dep-- == 0) break; }
+        else if (tok_is(q, "[") && q->next->k != TK_NUM && !tok_is(q->next, "]")) has_br = 1;
+    }
     *variadic = 0; *noproto = 0;
     if (P(")")) { *noproto = 1; return NULL; }
     if (KW("void") && tok->next->k == TK_PUNCT && tok_is(tok->next, ")")) { tok = tok->next; return NULL; }
@@ -575,38 +597,77 @@ static Param *func_params(int *variadic, int *noproto) {
         Param *p = ka_new(sizeof *p);
         p->ty = ty; p->name = nm ? tname(nm) : NULL;
         if (nm) for (Param *o = head.next; o; o = o->next) if (o->name && !strcmp(o->name, p->name)) kerr_tok(nm, "redefinition of parameter '%s'", p->name);
+        if (nm && has_br) {                                 /* объект параметра существует уже сейчас: на него ссылаются размеры VLA следующих параметров */
+            Obj *po = ka_new(sizeof *po);
+            po->name = p->name; po->ty = ty; po->is_local = 1; po->slot = -1; po->align = ty->align; po->line = nm->line;
+            po->is_param = 1; po->next = vla_objs; vla_objs = po;   /* в список vobjs: func_def найдёт по имени */
+            VS *v = add_vs(nm);
+            v->var = po;
+        }
         cur->next = p; cur = p;
         if (!eat(",")) break;
     }
     return head.next;
 }
 
+static Param *func_params(int *variadic, int *noproto, Node **vinit, Obj **vobjs) {
+    Node *sh = vla_head, *st = vla_tail; Obj *so = vla_objs;
+    vla_head = vla_tail = NULL; vla_objs = NULL;
+    in_params++;
+    new_scope(0);
+    Param *r = func_params_(variadic, noproto);
+    leave_scope();
+    in_params--;
+    *vinit = vla_head; *vobjs = vla_objs;
+    vla_head = sh; vla_tail = st; vla_objs = so;
+    return r;
+}
+
 static Type *type_suffix_(Type *ty) {
     if (eat("(")) {
         int var, nop;
-        Param *ps = func_params(&var, &nop);
+        Node *vi; Obj *vo;
+        Param *ps = func_params(&var, &nop, &vi, &vo);
         expect(")");
         if (ty->k == TY_FUNC) kerr_tok(tok, "function cannot return function type");
         if (ty->k == TY_ARRAY) kerr_tok(tok, "function cannot return array type");
-        return ty_func(ty, ps, var, nop);
+        Type *ft = ty_func(ty, ps, var, nop);
+        ft->vinit = vi; ft->vobjs = vo;
+        return ft;
     }
     if (eat("[")) {
         while (KW("static") || KW("const") || KW("volatile") || KW("restrict")) tok = tok->next;
         int64_t len = -1;
+        Obj *vlen = NULL;
         if (!P("]")) {
-            if (P("*")) unsupported(tok, "variable length arrays");
-            Node *e = cond_expr();
-            if (e->k != ND_NUM || !ty_is_int(e->ty)) unsupported(tok, "variable length arrays");
-            len = e->val;
-            if (len < 0) kerr_tok(tok, "array size is negative");
+            const Token *et = tok;
+            Node *e = NULL;
+            if (P("*") && tok->next->k == TK_PUNCT && tok_is(tok->next, "]")) {      /* [*] только в прототипе: размер не нужен, массив станет указателем */
+                if (!in_params) kerr_tok(tok, "star modifier used outside of function prototype");
+                tok = tok->next;
+            } else {
+                e = cond_expr();
+                if (!ty_is_int(e->ty)) kerr_tok(et, "size of array has non-integer type '%s'", ty_name(e->ty));
+            }
+            if (!e) len = -1;
+            else if (e->k == ND_NUM) {
+                len = e->val;
+                if (len < 0) kerr_tok(tok, "array size is negative");
+            } else {
+                vlen = vla_make_len(e, et);                     /* массив переменной длины: длина вычисляется здесь один раз */
+                len = -2;
+            }
         }
         expect("]");
         Type *inner = type_suffix(ty);
         if (inner->k == TY_FUNC) kerr_tok(tok, "array of functions is invalid");
         if (inner->k == TY_VOID) kerr_tok(tok, "array of void is invalid");
-        if (!ty_unqual(inner)->complete && !(inner->k == TY_ARRAY && 0)) kerr_tok(tok, "array has incomplete element type '%s'", ty_name(inner));
-        if (inner->k == TY_ARRAY && inner->alen < 0) kerr_tok(tok, "array has incomplete element type '%s'", ty_name(inner));
-        return ty_array(inner, len);
+        if (!ty_unqual(inner)->complete) kerr_tok(tok, "array has incomplete element type '%s'", ty_name(inner));
+        if (inner->k == TY_ARRAY && inner->alen == -1) kerr_tok(tok, "array has incomplete element type '%s'", ty_name(inner));
+        Type *arr = ty_array(inner, len == -2 ? -1 : len);
+        if (len == -2) { arr->alen = -2; arr->complete = 1; arr->vlen = vlen; }
+        if (len == -2 || inner->vm) arr->vm = 1;
+        return arr;
     }
     return ty;
 }
@@ -823,19 +884,20 @@ static Node *arith(NKind k, Node *l, Node *r, const Token *t) {
     return new_bin(k, l, r, ct, t);
 }
 
-static int64_t elem_size(Type *pt, const Token *t) {
+/* размер элемента, на который указывает pt: константа либо (для указателя на VLA) выражение времени выполнения */
+static Node *elem_size(Type *pt, const Token *t) {
     Type *b = pt->base;
-    if (b->k == TY_FUNC) return 1;
-    if (b->k == TY_VOID) return 1;
+    if (b->k == TY_FUNC || b->k == TY_VOID) return NULL;   /* NULL - размер 1 */
+    if (b->vm) return new_cast(size_node(b, t), &ty_long, t);
     if (!ty_unqual(b)->complete && b->k != TY_ARRAY) kerr_tok(t, "arithmetic on a pointer to an incomplete type '%s'", ty_name(b));
     if (b->k == TY_ARRAY && b->alen < 0) kerr_tok(t, "arithmetic on a pointer to an incomplete type '%s'", ty_name(b));
-    return TSZ(b);
+    return TSZ(b) == 1 ? NULL : new_num(TSZ(b), &ty_long, t);
 }
 
-static Node *scaled(Node *idx, int64_t sz, const Token *t) {
+static Node *scaled(Node *idx, Node *sz, const Token *t) {
     idx = new_cast(idx, &ty_long, t);
-    if (sz == 1) return idx;
-    return arith(ND_MUL, idx, new_num(sz, &ty_long, t), t);
+    if (!sz) return idx;
+    return arith(ND_MUL, idx, sz, t);
 }
 
 static Node *new_add(Node *l, Node *r, const Token *t) {
@@ -858,9 +920,9 @@ static Node *new_sub(Node *l, Node *r, const Token *t) {
     }
     if (l->ty->k == TY_PTR && r->ty->k == TY_PTR) {
         if (!ty_compat(l->ty->base, r->ty->base)) kerr_tok(t, "'%s' and '%s' are not pointers to compatible types", ty_name(l->ty), ty_name(r->ty));
-        int64_t sz = elem_size(l->ty, t);
+        Node *sz = elem_size(l->ty, t);
         Node *d = new_bin(ND_SUB, new_cast(l, &ty_long, t), new_cast(r, &ty_long, t), &ty_long, t);
-        return sz == 1 ? d : arith(ND_DIV, d, new_num(sz, &ty_long, t), t);
+        return !sz ? d : arith(ND_DIV, d, sz, t);
     }
     kerr_tok(t, "invalid operands to binary expression ('%s' and '%s')", ty_name(l->ty), ty_name(r->ty));
 }
@@ -1009,7 +1071,11 @@ static Node *new_incdec(Node *e, int delta, int post, const Token *t) {
     }
     Node *n = new_node(ND_INCDEC, t);
     n->lhs = e; n->ty = e->ty; n->val = delta; n->op = post;
-    if (e->ty->k == TY_PTR) n->oty = (Type *)(intptr_t)0, n->mem = NULL, n->rhs = new_num(elem_size(e->ty, t), &ty_long, t);
+    if (e->ty->k == TY_PTR) {
+        Node *es = elem_size(e->ty, t);
+        n->oty = (Type *)(intptr_t)0; n->mem = NULL;
+        n->rhs = es ? es : new_num(1, &ty_long, t);
+    }
     return n;
 }
 
@@ -1051,6 +1117,66 @@ static Obj *new_lvar(const Token *nm, Type *ty) {
         v->var = o;
     }
     return o;
+}
+
+
+/* ---------- VLA ---------- */
+static Obj *hidden_lvar(Type *ty) {
+    if (!in_params) return new_lvar(NULL, ty);
+    Obj *o = ka_new(sizeof *o);                      /* список параметров разбирается до начала функции: объект привяжется к ней в func_def */
+    o->name = ".vla"; o->ty = ty; o->is_local = 1; o->slot = -1; o->align = ty->align;
+    o->next = vla_objs; vla_objs = o;
+    return o;
+}
+
+static Obj *vla_make_len(Node *e, const Token *t) {
+    if (!in_params && !cur_fn) kerr_tok(t, "variable length array declaration is not allowed at file scope");
+    Obj *o = hidden_lvar(&ty_long);
+    Node *as = new_bin(ND_ASSIGN, var_node(o, t), new_cast(rv(e), &ty_long, t), &ty_long, t);
+    if (vla_tail) vla_tail->next = as; else vla_head = as;
+    vla_tail = as;
+    return o;
+}
+
+static Node *vla_take(void) {
+    Node *h = vla_head;
+    vla_head = vla_tail = NULL;
+    return h;
+}
+
+/* (p1, (p2, ... e)): присваивания длин, затем значение e */
+static Node *vla_chain(Node *p, Node *e, const Token *t) {
+    if (!p) return e;
+    Node *nx = p->next;
+    p->next = NULL;
+    return new_bin(ND_COMMA, p, vla_chain(nx, e, t), e->ty, t);
+}
+
+/* размер типа в байтах (ulong): константа либо произведение скрытых длин и размера элемента */
+static Node *size_node(Type *ty, const Token *t) {
+    if (!ty->vm) return new_num(TSZ(ty), &ty_ulong, t);
+    Node *n = ty->vlen ? new_cast(var_node(ty->vlen, t), &ty_ulong, t) : new_num(ty->alen, &ty_ulong, t);
+    return new_bin(ND_MUL, n, size_node(ty->base, t), &ty_ulong, t);
+}
+
+static Node *new_expr_stmt(Node *e, const Token *t);
+static Node *sp_restore(Obj *sv, const Token *t) {
+    Node *n = new_node(ND_SPREST, t);
+    n->lhs = var_node(sv, t); n->ty = &ty_void;
+    return n;
+}
+static Node *vla_snapshot(const Token *t) {
+    Node *h = NULL, *tl = NULL;
+    for (int i = 0; i < vla_depth; i++) {
+        Node *v = var_node(vla_stack[i], t);
+        if (tl) tl->next = v; else h = v;
+        tl = v;
+    }
+    return h;
+}
+/* выход из областей VLA до глубины d (break/continue): sp возвращается к значению, сохранённому при входе в первую из них */
+static Node *vla_leave(int d, const Token *t) {
+    return vla_depth > d ? sp_restore(vla_stack[d], t) : NULL;
 }
 
 /* ---------- константные выражения ---------- */
@@ -1117,6 +1243,7 @@ static Node *funcall(Node *fn, const Token *t) {
 
 static Node *stmt_expr(const Token *t) {
     if (!cur_fn) kerr_tok(t, "statement expression not allowed at file scope");
+    stmtexpr_next = 1;
     Node *blk = compound(1);
     Node *last = NULL;
     for (Node *s = blk->body; s; s = s->next) last = s;
@@ -1477,6 +1604,15 @@ static Node *primary(void) {
                 return new_cast(a, &ty_long, t);
             }
             if (l == 8 && !memcmp(nm, "offsetof", 8)) return offsetof_expr(t);
+            if (l == 6 && !memcmp(nm, "alloca", 6)) {                    /* блок живёт до выхода из функции */
+                if (!cur_fn) kerr_tok(t, "'__builtin_alloca' used outside of a function");
+                expect("(");
+                Node *a = new_cast(rv(assign()), &ty_ulong, t);
+                expect(")");
+                Node *n = new_node(ND_ALLOCA, t);
+                n->lhs = a; n->ty = ty_ptr(&ty_void);
+                return n;
+            }
             if ((l == 4 || (l == 5 && nm[4] == 'f')) && (!memcmp(nm, "sqrt", 4) || !memcmp(nm, "fabs", 4))) {
                 if (kcc_nosse) unsupported(t, "__builtin_sqrt/__builtin_fabs (-mno-sse build)");
                 int isf = l == 5;
@@ -1527,6 +1663,7 @@ static Node *primary(void) {
             kerr_tok(t, "use of undeclared identifier '%.*s'", t->len, t->s);
         }
         tok = tok->next;
+        if (v->var && v->vla) return new_deref(var_node(v->var, t), t);      /* VLA: объект лежит по адресу из скрытого указателя */
         if (v->var) return var_node(v->var, t);
         if (v->ety) return new_num(v->eval, &ty_int, t);
         kerr_tok(t, "unexpected type name '%.*s': expected expression", t->len, t->s);
@@ -1607,19 +1744,22 @@ static Node *unary_(void) {
         int is_sz = KW("sizeof");
         tok = tok->next;
         Type *ty;
+        Node *pend = NULL;
         if (P("(") && is_typename(tok->next)) {
             tok = tok->next;
             ty = typename();
             expect(")");
+            pend = vla_take();
         } else {
             Node *e = unary();
             if (e->k == ND_MEMBER && e->mem->bw >= 0) kerr_tok(t, "invalid application of 'sizeof' to bit-field");
             ty = e->ty;
         }
-        if (ty->k == TY_FUNC || ty->k == TY_VOID) return new_num(1, &ty_ulong, t);
+        if (ty->k == TY_FUNC || ty->k == TY_VOID) return vla_chain(pend, new_num(1, &ty_ulong, t), t);
+        if (ty->vm) return vla_chain(pend, is_sz ? size_node(ty, t) : new_num(TAL(ty), &ty_ulong, t), t);
         if (!ty_unqual(ty)->complete || (ty->k == TY_ARRAY && ty->alen < 0))
             kerr_tok(t, "invalid application of '%s' to an incomplete type '%s'", is_sz ? "sizeof" : "alignof", ty_name(ty));
-        return new_num(is_sz ? TSZ(ty) : TAL(ty), &ty_ulong, t);
+        return vla_chain(pend, new_num(is_sz ? TSZ(ty) : TAL(ty), &ty_ulong, t), t);
     }
     return postfix();
 }
@@ -1632,7 +1772,8 @@ static Node *cast_expr(void) {
         Type *ty = typename();
         expect(")");
         if (P("{")) { tok = save; return unary(); }
-        return new_cast(cast_expr(), ty, t);
+        Node *pend = vla_take();
+        return vla_chain(pend, new_cast(cast_expr(), ty, t), t);
     }
     return unary();
 }
@@ -2358,6 +2499,11 @@ static Node *local_decl(void) {
         Type *ty = declarator(base, &nm);
         attrs(&a);
         if (!nm) kerr_tok(tok, "expected identifier or '(' before %s", tokdesc(tok));
+        for (Node *pn = vla_take(), *nx; pn; pn = nx) {      /* длины VLA из этого объявления вычисляются здесь, до самого объекта */
+            nx = pn->next; pn->next = NULL;
+            Node *es = new_expr_stmt(pn, nm);
+            tail->next = es; tail = es;
+        }
         if (a.is_typedef) {
             if (find_in(scope, nm->s, nm->len)) kerr_tok(nm, "redefinition of '%.*s'", nm->len, nm->s);
             VS *v = add_vs(nm);
@@ -2370,6 +2516,7 @@ static Node *local_decl(void) {
             if (P("{")) kerr_tok(tok, "function definition is not allowed here");
             continue;
         }
+        if (ty->vm && (a.is_extern || a.is_static)) kerr_tok(nm, "variable length array declaration cannot have static or external storage duration");
         if (a.is_extern) {
             Obj *o = declare_global(nm, ty, &a, 0);
             if (!find_in(scope, nm->s, nm->len)) { VS *v = add_vs(nm); v->var = o; }
@@ -2392,6 +2539,27 @@ static Node *local_decl(void) {
                 write_data(in, nt, o->init, 0, o, nm);
             } else check_object_type(ty, nm, 0);
             add_global(o);
+            continue;
+        }
+        if (ty->k == TY_ARRAY && ty->vm) {                   /* объект-VLA: блок стека, адрес в скрытом указателе */
+            if (P("=")) kerr_tok(tok, "variable-sized object may not be initialized");
+            if (blk_is_se) unsupported(nm, "variable length array directly in a statement expression");
+            if (a.align) unsupported(nm, "alignment attribute on a variable length array");
+            Obj *po = new_lvar(nm, ty_ptr(ty));
+            find_in(scope, nm->s, nm->len)->vla = 1;
+            if (vla_depth == blk_vla_base) {                 /* первое VLA блока: запомнить sp, конец блока освободит все */
+                if (vla_depth >= 64) kerr_tok(nm, "too many nested scopes with variable length arrays");
+                Obj *sv = hidden_lvar(&ty_long);
+                Node *sn = new_node(ND_SPSAVE, nm);
+                sn->ty = &ty_long;
+                Node *es = new_expr_stmt(new_bin(ND_ASSIGN, var_node(sv, nm), sn, &ty_long, nm), nm);
+                tail->next = es; tail = es;
+                vla_stack[vla_depth++] = sv;
+            }
+            Node *an = new_node(ND_ALLOCA, nm);
+            an->lhs = size_node(ty, nm); an->ty = po->ty;
+            Node *es = new_expr_stmt(new_bin(ND_ASSIGN, var_node(po, nm), an, po->ty, nm), nm);
+            tail->next = es; tail = es;
             continue;
         }
         check_object_type(ty, nm, 1);
@@ -2427,6 +2595,8 @@ static Node *compound(int new_sc) {
     expect("{");
     Node *blk = new_node(ND_BLOCK, t);
     Node head = {0}, *cur = &head;
+    int vbase = blk_vla_base, vse = blk_is_se;
+    blk_vla_base = vla_depth; blk_is_se = stmtexpr_next; stmtexpr_next = 0;
     if (new_sc) new_scope(0);
     while (!P("}")) {
         if (tok->k == TK_EOF) kerr_tok(t, "expected '}' at end of input");
@@ -2434,11 +2604,18 @@ static Node *compound(int new_sc) {
         if (KW("_Static_assert")) { do_static_assert(); continue; }
         if (is_typename(tok) && !(tok->k == TK_ID && tok->next->k == TK_PUNCT && tok_is(tok->next, ":"))) s = local_decl();
         else s = stmt();
+        if (vla_head) unsupported(t, "variably modified type in this context");
         if (!s) continue;
         cur->next = s;
         while (cur->next) cur = cur->next;
     }
+    const Token *et = tok;
     expect("}");
+    if (vla_depth > blk_vla_base) {                          /* конец блока с VLA: стек возвращается к состоянию до первого из них */
+        if (new_sc) cur->next = new_expr_stmt(sp_restore(vla_stack[blk_vla_base], et), et);
+        vla_depth = blk_vla_base;
+    }
+    blk_vla_base = vbase; blk_is_se = vse;
     if (new_sc) leave_scope();
     blk->body = head.next;
     return blk;
@@ -2486,10 +2663,10 @@ static Node *stmt_(void) {
         if (!ty_is_int(c->ty)) kerr_tok(t, "statement requires expression of integer type ('%s' invalid)", ty_name(c->ty));
         n->c = new_cast(c, ty_promote(c->ty), t);
         expect(")");
-        Node *sv = cur_switch; int sb = brk_lbl;
-        cur_switch = n; n->lbl = brk_lbl = new_lbl();
+        Node *sv = cur_switch; int sb = brk_lbl, sbv = brk_vd;
+        cur_switch = n; n->lbl = brk_lbl = new_lbl(); brk_vd = vla_depth;
         n->body = stmt();
-        cur_switch = sv; brk_lbl = sb;
+        cur_switch = sv; brk_lbl = sb; brk_vd = sbv;
         return n;
     }
     if (KW("case")) {
@@ -2536,10 +2713,11 @@ static Node *stmt_(void) {
         expect(";");
         if (!P(")")) n->inc = new_expr_stmt(expr(), t);
         expect(")");
-        int sb = brk_lbl, sc = cont_lbl;
+        int sb = brk_lbl, sc = cont_lbl, sbv = brk_vd, scv = cont_vd;
+        brk_vd = cont_vd = vla_depth;
         n->lbl = brk_lbl = new_lbl(); n->lbl2 = cont_lbl = new_lbl();
         n->body = stmt();
-        brk_lbl = sb; cont_lbl = sc;
+        brk_lbl = sb; cont_lbl = sc; brk_vd = sbv; cont_vd = scv;
         leave_scope();
         return n;
     }
@@ -2549,19 +2727,21 @@ static Node *stmt_(void) {
         Node *n = new_node(ND_FOR, t);
         n->c = to_cond(expr(), t);
         expect(")");
-        int sb = brk_lbl, sc = cont_lbl;
+        int sb = brk_lbl, sc = cont_lbl, sbv = brk_vd, scv = cont_vd;
+        brk_vd = cont_vd = vla_depth;
         n->lbl = brk_lbl = new_lbl(); n->lbl2 = cont_lbl = new_lbl();
         n->body = stmt();
-        brk_lbl = sb; cont_lbl = sc;
+        brk_lbl = sb; cont_lbl = sc; brk_vd = sbv; cont_vd = scv;
         return n;
     }
     if (KW("do")) {
         tok = tok->next;
         Node *n = new_node(ND_DO, t);
-        int sb = brk_lbl, sc = cont_lbl;
+        int sb = brk_lbl, sc = cont_lbl, sbv = brk_vd, scv = cont_vd;
+        brk_vd = cont_vd = vla_depth;
         n->lbl = brk_lbl = new_lbl(); n->lbl2 = cont_lbl = new_lbl();
         n->body = stmt();
-        brk_lbl = sb; cont_lbl = sc;
+        brk_lbl = sb; cont_lbl = sc; brk_vd = sbv; cont_vd = scv;
         if (!eat_kw("while")) kerr_tok(tok, "expected 'while' in do/while statement");
         expect("(");
         n->c = to_cond(expr(), t);
@@ -2573,6 +2753,7 @@ static Node *stmt_(void) {
         if (!brk_lbl) kerr_tok(t, "'break' statement not in loop or switch statement");
         Node *n = new_node(ND_BREAK, t);
         n->lbl = brk_lbl;
+        n->lhs = vla_leave(brk_vd, t);
         return n;
     }
     if (KW("continue")) {
@@ -2580,6 +2761,7 @@ static Node *stmt_(void) {
         if (!cont_lbl) kerr_tok(t, "'continue' statement not in loop statement");
         Node *n = new_node(ND_CONTINUE, t);
         n->lbl = cont_lbl;
+        n->lhs = vla_leave(cont_vd, t);
         return n;
     }
     if (KW("goto")) {
@@ -2589,6 +2771,7 @@ static Node *stmt_(void) {
         expect(";");
         Node *n = new_node(ND_GOTO, t);
         n->name = tname(nm);
+        n->val = vla_depth; n->args = vla_snapshot(t);        /* какие области VLA активны: при переходе из них sp восстанавливается (func_def) */
         n->gnext = fn_gotos; fn_gotos = n;
         return n;
     }
@@ -2598,6 +2781,7 @@ static Node *stmt_(void) {
         for (Node *l = fn_labels; l; l = l->gnext) if (!strcmp(l->name, tname(nm))) kerr_tok(nm, "redefinition of label '%.*s'", nm->len, nm->s);
         Node *n = new_node(ND_LABEL, t);
         n->name = tname(nm); n->lbl = new_lbl();
+        n->val = vla_depth; n->args = vla_snapshot(t);
         n->gnext = fn_labels; fn_labels = n;
         if (P("}")) { n->lhs = new_node(ND_BLOCK, t); return n; }     /* метка перед '}' (расширение C2x, как в clang) */
         n->lhs = stmt();
@@ -2621,17 +2805,54 @@ static void func_def(Token *nm, Type *ty, Attr *a) {
         if (!p->name) kerr_tok(nm, "parameter name omitted");
         Token pt = *nm;
         pt.s = p->name; pt.len = (int)strlen(p->name);
-        Obj *o = new_lvar(&pt, p->ty);
+        Obj *o;
+        Obj **pp = &ty->vobjs;
+        while (*pp && !((*pp)->is_param && (*pp)->name == p->name)) pp = &(*pp)->next;
+        if (*pp) {                                           /* объект создан при разборе списка параметров (см. func_params_) */
+            o = *pp; *pp = o->next; o->next = NULL;
+            o->slot = nlocals++;
+            if (fn_locals_tail) fn_locals_tail->next = o; else cur_fn->locals = o;
+            fn_locals_tail = o;
+            VS *v = add_vs(&pt);
+            v->var = o;
+        } else o = new_lvar(&pt, p->ty);
         o->is_param = 1;
         fn->params = fn->params ? fn->params : o;
         fn->nparams++;
     }
+    for (Obj *o = ty->vobjs, *nx; o; o = nx) {              /* скрытые длины VLA из типов параметров */
+        nx = o->next;
+        o->next = NULL; o->slot = nlocals++;
+        if (fn_locals_tail) fn_locals_tail->next = o; else cur_fn->locals = o;
+        fn_locals_tail = o;
+    }
+    vla_depth = 0; blk_vla_base = 0; blk_is_se = 0; vla_head = vla_tail = NULL;
     fn->body = compound(0);
+    if (ty->vinit) {                                         /* длины VLA параметров вычисляются при входе, до тела */
+        Node *vh = NULL, *vt = NULL;
+        for (Node *pn = ty->vinit, *nx; pn; pn = nx) {
+            nx = pn->next; pn->next = NULL;
+            Node *es = new_expr_stmt(pn, pn->tok);
+            if (vt) vt->next = es; else vh = es;
+            vt = es;
+        }
+        vt->next = fn->body->body;
+        fn->body->body = vh;
+    }
     for (Node *g = fn_gotos; g; g = g->gnext) {
         Node *l = fn_labels;
         while (l && strcmp(l->name, g->name)) l = l->gnext;
         if (!l) kerr_tok(g->tok, "use of undeclared label '%s'", g->name);
         g->lbl = l->lbl;
+        if (l->val > g->val) kerr_tok(g->tok, "cannot jump to label '%s': it is in the scope of a variable length array", g->name);
+        Node *gv = g->args, *lv = l->args;
+        for (int i = 0; i < l->val; i++, gv = gv->next, lv = lv->next)
+            if (gv->var != lv->var) kerr_tok(g->tok, "cannot jump to label '%s': it is in the scope of a variable length array", g->name);
+        if (g->val > l->val) {                              /* выход из областей VLA: освободить их */
+            Node *f = g->args;
+            for (int i = 0; i < l->val; i++) f = f->next;
+            g->lhs = sp_restore(f->var, g->tok);
+        }
     }
     leave_scope();
     cur_fn = NULL;

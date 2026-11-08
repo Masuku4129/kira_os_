@@ -48,6 +48,9 @@ static int *vs, *ve, *rg, *so;
 static int *slotoff;
 static int64_t spillbase, homeoff, qoff, hidoff, frame;
 static int epi, tmplab;
+static int hasvla;                                          /* в функции есть IR_ALLOCA/SPSAVE/SPREST: sp плавает, кадр адресуется от x29 (= нижняя граница кадра) */
+static int64_t maxout_cur;                                  /* размер области исходящих аргументов (под sp) */
+#define FB (hasvla ? A6_FP : A6_SP)
 
 static int cmp_start(const void *a, const void *b) {
     int x = *(const int *)a, y = *(const int *)b;
@@ -61,12 +64,12 @@ static int64_t spill(int v) { return spillbase + 8 * (int64_t)so[v]; }
 static void ldv(int r, int v) {
     if (v <= 0) kerr(A->file, A->line, "internal: use of an undefined vreg");
     if (rg[v] >= 0) a6_mov(A, r, rg[v]);
-    else a6_ls(A, 1, 8, 0, r, A6_SP, spill(v));
+    else a6_ls(A, 1, 8, 0, r, FB, spill(v));
 }
 static void stv(int v, int r) {
     if (v <= 0) return;
     if (rg[v] >= 0) a6_mov(A, rg[v], r);
-    else a6_ls(A, 0, 8, 0, r, A6_SP, spill(v));
+    else a6_ls(A, 0, 8, 0, r, FB, spill(v));
 }
 static int dstreg(int v, int dflt) { return v > 0 && rg[v] >= 0 ? rg[v] : dflt; }   /* куда считать результат: сразу в регистр vreg */
 
@@ -301,33 +304,46 @@ static void gen_ins(const Ins *i) {
         stv(i->dst, S0);
         break;
     }
-    case IR_LADDR: { int d = dstreg(i->dst, S0); a6_addi(A, 0, d, A6_SP, (uint32_t)slotoff[i->imm]); if (d == S0) stv(i->dst, S0); break; }
+    case IR_LADDR: { int d = dstreg(i->dst, S0); a6_addi(A, 0, d, FB, (uint32_t)slotoff[i->imm]); if (d == S0) stv(i->dst, S0); break; }
     case IR_PARAM: {
         const ALoc *l = &ploc[i->imm];
         if (i->fp && !i->sub) {
-            if (l->kind == AL_VREG) a6_ls(A, 1, i->fp, 0, S0, A6_SP, qoff + 16 * l->idx);
-            else a6_ls(A, 1, i->fp, 0, S0, A6_SP, frame + l->off);
+            if (l->kind == AL_VREG) a6_ls(A, 1, i->fp, 0, S0, FB, qoff + 16 * l->idx);
+            else a6_ls(A, 1, i->fp, 0, S0, FB, frame + l->off);
             stv(i->dst, S0);
         } else if (!i->sub) {
-            if (l->kind == AL_REG) a6_ls(A, 1, 8, 0, S0, A6_SP, homeoff + 8 * l->idx);
-            else a6_ls(A, 1, 8, 0, S0, A6_SP, frame + l->off);
+            if (l->kind == AL_REG) a6_ls(A, 1, 8, 0, S0, FB, homeoff + 8 * l->idx);
+            else a6_ls(A, 1, 8, 0, S0, FB, frame + l->off);
             stv(i->dst, S0);
         } else {
             ldv(S1, i->a);
-            if (l->kind == AL_AREG) copy_bytes(S1, 0, A6_SP, homeoff + 8 * l->idx, i->w);
-            else if (l->kind == AL_ASTK) copy_bytes(S1, 0, A6_SP, frame + l->off, i->w);
+            if (l->kind == AL_AREG) copy_bytes(S1, 0, FB, homeoff + 8 * l->idx, i->w);
+            else if (l->kind == AL_ASTK) copy_bytes(S1, 0, FB, frame + l->off, i->w);
             else {                                           /* больше 16 байт: пришёл указатель на копию вызывающего */
-                if (l->kind == AL_REG) a6_ls(A, 1, 8, 0, S2, A6_SP, homeoff + 8 * l->idx);
-                else a6_ls(A, 1, 8, 0, S2, A6_SP, frame + l->off);
+                if (l->kind == AL_REG) a6_ls(A, 1, 8, 0, S2, FB, homeoff + 8 * l->idx);
+                else a6_ls(A, 1, 8, 0, S2, FB, frame + l->off);
                 copy_bytes(S1, 0, S2, 0, i->w);
             }
         }
         break;
     }
+    case IR_ALLOCA:                                          /* sp -= размер (кратно 16); блок лежит над областью исходящих аргументов */
+        ldv(S0, i->a);
+        a6_addi(A, 0, S0, S0, 15);
+        a6_movi(A, S1, -16);
+        a6_logic(A, A6_AND, S0, S0, S1);
+        a6_mov(A, S1, A6_SP);
+        a6_arith(A, A6_SUB, S1, S1, S0);
+        a6_mov(A, A6_SP, S1);
+        a6_addi(A, 0, S0, A6_SP, (uint32_t)maxout_cur);
+        stv(i->dst, S0);
+        break;
+    case IR_SPSAVE: a6_mov(A, S0, A6_SP); stv(i->dst, S0); break;
+    case IR_SPREST: ldv(S0, i->a); a6_mov(A, A6_SP, S0); break;
     case IR_ATOMIC: gen_atomic(i); break;
     case IR_VAINFO:
-        if (i->sub == 0) a6_addi(A, 0, S0, A6_SP, (uint32_t)homeoff);
-        else if (i->sub == 1) a6_addi(A, 0, S0, A6_SP, (uint32_t)(frame + p_stk));
+        if (i->sub == 0) a6_addi(A, 0, S0, FB, (uint32_t)homeoff);
+        else if (i->sub == 1) a6_addi(A, 0, S0, FB, (uint32_t)(frame + p_stk));
         else if (i->sub == 4) a6_movi(A, S0, p_nvrn);
         else a6_movi(A, S0, p_ngrn);
         stv(i->dst, S0);
@@ -365,7 +381,7 @@ static void gen_ins(const Ins *i) {
                 ld_reg_bytes(0, S5, 0, i->w > 8 ? 8 : i->w);
                 if (i->w > 8) ld_reg_bytes(1, S5, 8, i->w - 8);
             } else {
-                a6_ls(A, 1, 8, 0, S1, A6_SP, hidoff);
+                a6_ls(A, 1, 8, 0, S1, FB, hidoff);
                 copy_bytes(S1, 0, S5, 0, i->w);
                 a6_mov(A, 0, S1);
             }
@@ -421,6 +437,7 @@ static void gen_func(IrFn *fi) {
     int *labpos = ka_new(sizeof(int) * (size_t)(fi->nlab + 2));
     for (int l = 0; l <= fi->nlab + 1; l++) labpos[l] = -1;
     int64_t maxout = 0;
+    hasvla = ir_uses_sp(fi);
     int nlab_extra = 0;
     for (int k = 0; k < n; k++) {
         gen_live(ins[k], k, nv, vs, ve);
@@ -498,7 +515,8 @@ static void gen_func(IrFn *fi) {
     int nhome = f->ty->variadic ? 8 : p_ngrn;
     int nq = f->ty->variadic && !kcc_nosse ? 8 : p_nvrn;     /* сохраняемые v-регистры: все восемь для va_arg, иначе занятые параметрами */
     /* кадр: [исходящие аргументы][локальные][слоты спила][регистры параметров][x8][callee-saved][x29, x30] */
-    int64_t cur = (maxout + 15) & ~(int64_t)15;
+    maxout_cur = (maxout + 15) & ~(int64_t)15;
+    int64_t cur = maxout_cur;
     int maxslot = -1;
     for (Obj *l = f->locals; l; l = l->next) if (l->slot > maxslot) maxslot = l->slot;
     slotoff = ka_new(sizeof(int) * (size_t)(maxslot + 2));
@@ -533,7 +551,7 @@ static void gen_func(IrFn *fi) {
     a6_addi(A, 1, A6_SP, A6_SP, (uint32_t)frame);
     a6_ls(A, 0, 8, 0, A6_FP, A6_SP, fpoff);
     a6_ls(A, 0, 8, 0, A6_LR, A6_SP, fpoff + 8);
-    a6_addi(A, 0, A6_FP, A6_SP, (uint32_t)fpoff);
+    a6_addi(A, 0, A6_FP, A6_SP, hasvla ? 0u : (uint32_t)fpoff);
     for (int k = 0; k < NPOOL; k++) if (used[k]) a6_ls(A, 0, 8, 0, pool[k], A6_SP, saveoff[k]);
     for (int k = 0; k < nhome; k++) a6_ls(A, 0, 8, 0, k, A6_SP, homeoff + 8 * k);
     if (p_hidden) a6_ls(A, 0, 8, 0, 8, A6_SP, hidoff);
@@ -544,6 +562,7 @@ static void gen_func(IrFn *fi) {
     for (int k = 0; k < n; k++) gen_ins(ins[k]);
     A->file = K.srcpath; A->line = f->line;
     a6_label(A, epi);
+    if (hasvla) a6_mov(A, A6_SP, A6_FP);                    /* sp после VLA возвращается к нижней границе кадра */
     for (int k = 0; k < NPOOL; k++) if (used[k]) a6_ls(A, 1, 8, 0, pool[k], A6_SP, saveoff[k]);
     a6_ls(A, 1, 8, 0, A6_FP, A6_SP, fpoff);
     a6_ls(A, 1, 8, 0, A6_LR, A6_SP, fpoff + 8);
