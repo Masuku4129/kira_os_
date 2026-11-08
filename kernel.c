@@ -95,6 +95,7 @@ void kernel_uefi_entry(const void *blob, uint32_t blob_size) {
     uint32_t mbi_size = 0;
     const kbi_header_t *h = (const kbi_header_t *)blob;
 
+    percpu_install(&percpu_table[0]);
     uart_init();
     if (kbi_validate(blob, blob_size) != 0 ||
         h->arch != KBI_ARCH_X86_64 || h->boot_mode != KBI_BOOT_UEFI) {
