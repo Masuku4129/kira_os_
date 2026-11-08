@@ -27,9 +27,14 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/bootinfo-uefi tests/bootinfo_uefi_
 $T/bootinfo-uefi
 
 echo "== UEFI loader and KBI adapter compile (GNU-EFI ABI) =="
-EFI_CFLAGS="-O2 -Wall -Wextra -Werror -fpic -fshort-wchar -mno-red-zone -fno-stack-protector -fno-stack-check -fno-strict-aliasing -DEFI_FUNCTION_WRAPPER -isystem /usr/include/efi -isystem /usr/include/efi/x86_64"
+EFI_INC=${EFI_INCLUDE:-/usr/include/efi}
+if [ -s "$EFI_INC/efi.h" ]; then
+EFI_CFLAGS="-O2 -Wall -Wextra -Werror -fpic -fshort-wchar -mno-red-zone -fno-stack-protector -fno-stack-check -fno-strict-aliasing -DEFI_FUNCTION_WRAPPER -isystem $EFI_INC -isystem $EFI_INC/x86_64"
 $CC $EFI_CFLAGS -c arch/x86_64/uefi/loader.c -o $T/uefi-loader.o
 $CC $EFI_CFLAGS -I. -Iarch/x86_64/uefi -c arch/x86_64/uefi/uefi_kbi.c -o $T/uefi-kbi.o
+else
+echo "gnu-efi не найден ($EFI_INC/efi.h): сборка загрузчика пропущена (в CI он есть)"
+fi
 echo "UEFI loader sources: compile passed"
 echo "== UEFI: наш загрузчик + GPT/ESP под OVMF (без GRUB) =="
 tests/uefi_boot_test.sh
