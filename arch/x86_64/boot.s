@@ -142,11 +142,13 @@ bits 64
     inc ecx
     cmp ecx, 512
     jl .uefi_map_pages
-    mov rax, cr4
-    or rax, 32
-    mov cr4, rax
-    mov rax, pml4_table
-    mov cr3, rax
+    ; CR0/CR3/CR4 are accessed through 32-bit GPR operands in x86-64.
+    ; The paging structures are linked below 4 GiB in this bootstrap image.
+    mov eax, cr4
+    or eax, 32
+    mov cr4, eax
+    mov eax, pml4_table
+    mov cr3, eax
     mov ecx, 0xC0000080
     rdmsr
     or eax, 256
