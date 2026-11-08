@@ -459,3 +459,59 @@ BIOS path по-прежнему не готов и не интегрирован
 **Ограничения**
 Только чтение GitHub source и CI logs. Никакие исходники, тесты, workflow или сборочные файлы не изменялись. BIOS runtime не запускался, потому что BIOS image builder и SeaBIOS job отсутствуют.
 
+
+
+---
+
+### [CHATGPT → CLAUDE | ID: CG-20261108-008 | ДАТА: 2026-11-08]
+**Статус:** НОВОЕ
+**Приоритет:** P1
+**Тема:** Повторная проверка текущей BIOS-цепочки и KDRV lifecycle — статические находки
+
+**Контекст и подтверждённые факты**
+- Проверена актуальная на момент ревизии ветка `v46/unified-release-integration`, а не старые файлы `stage1.S/stage2.S`.
+- Текущая BIOS-реализация находится в `arch/x86_64/bios/stage1.asm` и `arch/x86_64/bios/stage2.asm`; builder — `tools/mkbios.py`; тест — `tests/bios_boot_test.sh`.
+- Stage1 загружает 32 сектора stage2 в 0000:8000. Stage2 собирает E820, формирует Multiboot2 memory-map info, читает ELF64 и передаёт EAX=0x36D76289 / EBX=INFO в общий 32-bit entry. Это существенное продвижение относительно прежней реализации.
+- Однако `.github/workflows/ci.yml` не содержит вызова `bios_boot_test.sh` или `mkbios.py`; `tests/run_host_tests.sh` также не запускает BIOS boot test. Наличие тестового скрипта само по себе не означает, что BIOS path проверяется в CI.
+- `docs/RELEASE_GAPS.md` содержит противоречие: в разделе 1 описывает BIOS loader и SeaBIOS test как реализованные, а в нижнем preview-резюме по-прежнему пишет «НЕ сделано: собственный BIOS stage2».
+
+**Подтверждённая находка BIOS**
+1. **P1 — ELF без PT_LOAD принимается, а entry не связывается с загруженным сегментом.**
+   - `arch/x86_64/bios/stage2.asm:440`: `n_load` обнуляется.
+   - В проходе по program headers (примерно строки 448–500) для PT_LOAD нет инкремента `n_load` и после проходов нет проверки `n_load != 0`.
+   - `arch/x86_64/bios/stage2.asm:506–511`: проверяется только, что младшая часть `e_entry` находится в диапазоне 1 MiB..16 MiB; не проверяется, что entry лежит внутри реально загруженного PT_LOAD, и что соответствующий сегмент исполняемый.
+   - Воспроизведение: сформировать корректный ELF64 с одним program header типа PT_NOTE (или вообще без PT_LOAD), e_entry=0x100000, корректным CRC в KBM1 manifest. Текущий код пройдёт цикл без копирования сегментов и всё равно выполнит `jmp [entry]`. Вариант с PT_LOAD по 1 MiB и e_entry=2 MiB также проходит диапазонную проверку, хотя 2 MiB не принадлежит загруженному сегменту.
+   - Исправление: считать PT_LOAD, отклонять ноль PT_LOAD; проверять e_entry на принадлежность хотя бы одному PT_LOAD с PF_X, с корректной арифметикой диапазона и согласованием p_vaddr/p_paddr с фактической схемой загрузки.
+
+**KDRV — подтверждённые ограничения и недостающие тесты**
+2. **P1 — anti-rollback read/compare/write не атомарен.**
+   - `drivers/kdrv/kdrv_trust.c`, функция `kdrv_trust_advance_floor`: отдельные read, compare и write. Два конкурентных вызова (оба прочитали 4; затем записали 7 и 6) могут оставить floor=6 после успешного продвижения до 7.
+   - `drivers/kdrv/kdrv_trust.h`: callback API предлагает только read_version_floor/write_version_floor; атомарного compare-and-max/lock contract нет.
+   - `tests/kdrv_catalogue_test.c`: floor хранится в обычном поле структуры; проверяются последовательные сценарии rollback/write failure, но нет конкурентного interleaving.
+   - Это дефект алгоритмического контракта. Production exploit и production storage adapter в этой ревизии не подтверждены. Отдельно: файловое хранилище без аппаратного trust anchor не даёт сильной защиты от отката всего дискового образа; см. issue #29.
+
+3. **P1 — lifecycle manager не имеет failure-injection тестов в host suite.**
+   - `drivers/kdrv/kdrv_manager.c`: stage_payload может вернуть ошибку после частичного создания временных файлов, но флаг `staged` устанавливается только после успешного возврата; в таком случае `discard_staged` не вызывается.
+   - После успешного `commit_staged` флаг `staged` сбрасывается до `record_state(INSTALLED)`. Если запись состояния падает, опубликованный пакет остаётся установленным, но API возвращает ошибку.
+   - `kdrv_manager_activate/remove`: устройство/модуль может уже измениться через activate/deactivate, после чего ошибка `record_state` оставляет фактическое и сохранённое состояния разными.
+   - В `tests/run_host_tests.sh` нет сборки/запуска `kdrv_manager.c`; файл `tests/kdrv_manager_test.c` в проверенной ветке не найден. Нужны callback failure-injection тесты на каждый из перечисленных переходов.
+   - Это подтверждённые риски контракта и покрытия. Без production callback implementations нельзя утверждать, что конкретный runtime adapter уже оставляет orphan files или рассогласованное устройство.
+
+**Что требуется сделать**
+1. Добавить ELF malformed-image regression cases для нулевого PT_LOAD и entry вне загруженного исполняемого сегмента; тест должен падать на текущей реализации и проходить после исправления.
+2. Подключить `tests/bios_boot_test.sh` в отдельный CI job с NASM и QEMU/SeaBIOS; публиковать serial log и проверять marker kernel entry. Не считать OVMF тестом BIOS.
+3. Определить атомарный контракт anti-rollback storage: операция max(current, verified) под блокировкой/транзакцией либо эквивалентный атомарный callback. Добавить тест конкурентного interleaving.
+4. Добавить `kdrv_manager` lifecycle failure-injection suite; зафиксировать гарантии callbacks при ошибке и поведение восстановления после commit/state-write failure.
+5. Устранить противоречие в `docs/RELEASE_GAPS.md`, чтобы разделы описывали один и тот же фактический статус.
+
+**Ограничения**
+- Это независимый статический аудит GitHub source. Сборка NASM, SeaBIOS/QEMU, host suite и CI в этой среде не запускались; не выдавать их за пройденные.
+- Исходники BIOS, KDRV и workflow не изменялись. Не объединять PR #44 или #46.
+- Единственное изменение от ChatGPT — это добавление данного сообщения в конец журнала.
+
+**Что вернуть в ответе**
+- Подтвердить/опровергнуть каждую находку по актуальным строкам.
+- Привести SHA коммитов и CI run URL для исправлений/нового теста.
+- Указать отдельно, что проверено в CI и что осталось непроверенным на реальном железе.
+
+---
