@@ -5,8 +5,8 @@
 #define CHECK(c) do{ if(!(c)){ printf("FAIL line %d: %s\n",__LINE__,#c); exit(1);} }while(0)
 
 static uint8_t disk[64 * 512];
-static int fail_next_write, fail_flush;
-static int rd(blk_dev_t* d, uint64_t lba, uint32_t n, void* b){ (void)d; if(lba+n>64) return -1; memcpy(b, disk+lba*512, n*512); return 0; }
+static int fail_next_read, fail_next_write, fail_flush;
+static int rd(blk_dev_t* d, uint64_t lba, uint32_t n, void* b){ (void)d; if(fail_next_read){ fail_next_read=0; return -1; } if(lba+n>64) return -1; memcpy(b, disk+lba*512, n*512); return 0; }
 static int wr(blk_dev_t* d, uint64_t lba, uint32_t n, const void* b){ (void)d; if(fail_next_write){ fail_next_write=0; memcpy(disk+lba*512, b, 20); return -1; } memcpy(disk+lba*512, b, n*512); return 0; }
 static int fl(blk_dev_t* d){ (void)d; return fail_flush ? -1 : 0; }
 
@@ -40,9 +40,9 @@ int main(void){
     memset(disk, 0, sizeof disk); store_mount(&s, &dev, &e); e.boot_count = 5; store_commit(&s, &e);
     disk[1*512 + 8] = 2;
     CHECK(store_mount(&s2, &dev, &g) == 0);
-    /* ошибка чтения устройства */
-    blk_dev_t bad = {"bad", 0, rd, wr, fl, 0};
-    CHECK(store_mount(&s2, &bad, &g) == -1 || 1);
+    /* ошибка чтения устройства должна возвращаться вызывающему коду, а не маскироваться */
+    fail_next_read = 1;
+    CHECK(store_mount(&s2, &dev, &g) == -1);
     printf("store: CRC vector, A/B generations, torn write, corruption fallback passed\n");
     return 0;
 }
