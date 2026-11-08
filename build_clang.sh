@@ -171,6 +171,15 @@ if command -v nasm >/dev/null 2>&1; then
         && python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios.img || { echo "[!] kira-bios.img не собран"; exit 1; }
 fi
 
+# Собственный UEFI-загрузчик (GNU-EFI нужен только для сборки загрузчика) и диск GPT + ESP: kira-uefi.img. Без gnu-efi/mtools шаг пропускается.
+if command -v mcopy >/dev/null 2>&1 && [ -s /usr/include/efi/efi.h -o -n "${EFI_INCLUDE:-}" ]; then
+    echo "[*] Собственный UEFI-загрузчик (без GRUB): kira-uefi.img"
+    _u=$(mktemp -d)
+    if bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err" && python3 tools/mkuefi.py "$_u/EFI/BOOT/BOOTX64.EFI" "$_u/EFI/KIRA/KIRA.ELF" kira-uefi.img; then :; else
+        echo "[!] kira-uefi.img не собран:"; tail -3 "$_u/err"; fi
+    rm -rf "$_u"
+fi
+
 echo "[*] ISO..."
 rm -rf isodir kira.iso
 mkdir -p isodir/boot/grub

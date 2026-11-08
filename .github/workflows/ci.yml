@@ -336,11 +336,17 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends qemu-system-x86 ovmf dosfstools mtools
       - name: boot KIRA through OVMF
         run: bash ci/test_uefi_ovmf.sh ci-out/uefi ci-out/uefi-ovmf
+      - name: boot the GPT + ESP disk image (layout of a real PC, no GRUB)
+        run: |
+          python3 tools/mkuefi.py ci-out/uefi/EFI/BOOT/BOOTX64.EFI ci-out/uefi/EFI/KIRA/KIRA.ELF ci-out/kira-uefi.img
+          KIRA_UEFI_DISK=ci-out/kira-uefi.img bash ci/test_uefi_ovmf.sh ci-out/uefi ci-out/uefi-ovmf-gpt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: kira-uefi-ovmf
-          path: ci-out/uefi-ovmf/
+          path: |
+            ci-out/uefi-ovmf/
+            ci-out/uefi-ovmf-gpt/
 
   arm64:
     needs: detect-changes

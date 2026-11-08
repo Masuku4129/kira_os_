@@ -31,6 +31,8 @@ EFI_CFLAGS="-O2 -Wall -Wextra -Werror -fpic -fshort-wchar -mno-red-zone -fno-sta
 $CC $EFI_CFLAGS -c arch/x86_64/uefi/loader.c -o $T/uefi-loader.o
 $CC $EFI_CFLAGS -I. -Iarch/x86_64/uefi -c arch/x86_64/uefi/uefi_kbi.c -o $T/uefi-kbi.o
 echo "UEFI loader sources: compile passed"
+echo "== UEFI: наш загрузчик + GPT/ESP под OVMF (без GRUB) =="
+tests/uefi_boot_test.sh
 
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c bootinfo_mb2.c bootinfo.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000

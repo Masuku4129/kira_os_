@@ -32,11 +32,16 @@ ESP="$OUT/esp.img"
 VARS="$OUT/OVMF_VARS.fd"
 SERIAL="$OUT/serial.log"
 QEMU_LOG="$OUT/qemu.log"
-truncate -s 64M "$ESP"
-mkfs.vfat "$ESP" >/dev/null
-mmd -i "$ESP" ::/EFI ::/EFI/BOOT ::/EFI/KIRA
-mcopy -i "$ESP" "$LOADER" ::/EFI/BOOT/BOOTX64.EFI
-mcopy -i "$ESP" "$KERNEL" ::/EFI/KIRA/KIRA.ELF
+if [[ -n "${KIRA_UEFI_DISK:-}" ]]; then
+    # готовый диск с GPT и разделом ESP (tools/mkuefi.py): так же устроен носитель для реального ПК
+    cp "$KIRA_UEFI_DISK" "$ESP"
+else
+    truncate -s 64M "$ESP"
+    mkfs.vfat "$ESP" >/dev/null
+    mmd -i "$ESP" ::/EFI ::/EFI/BOOT ::/EFI/KIRA
+    mcopy -i "$ESP" "$LOADER" ::/EFI/BOOT/BOOTX64.EFI
+    mcopy -i "$ESP" "$KERNEL" ::/EFI/KIRA/KIRA.ELF
+fi
 cp "$VARS_TEMPLATE" "$VARS"
 : > "$SERIAL"
 

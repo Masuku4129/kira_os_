@@ -28,3 +28,5 @@ keys/*PRIVATE*.pem
 bios-stage1.bin
 bios-stage2.bin
 kira-bios.img
+BOOTX64.EFI
+kira-uefi.img

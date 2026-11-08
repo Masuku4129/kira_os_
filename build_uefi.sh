@@ -62,8 +62,9 @@ fi
 mkdir -p "$OUT/EFI/BOOT" "$OUT/EFI/KIRA"
 # Use --output-target explicitly: newer GNU binutils interpret --target
 # as both input and output format, which breaks auto-detection of loader.so.
-"$OBJCOPY" -j .text -j .sdata -j .data -j .dynamic -j .dynsym \
-    -j .rel -j .rela -j .reloc --output-target=efi-app-x86_64 \
+# .rodata нужен новым линкер-скриптам gnu-efi (старые сливают его в .data): без него строки L"..." теряются, а Print печатает мусор.
+"$OBJCOPY" -j .text -j .sdata -j .data -j .rodata -j .dynamic -j .dynsym \
+    -j .rel -j .rela -j '.rel.*' -j '.rela.*' -j .reloc --output-target=efi-app-x86_64 \
     "$tmp/loader.so" "$OUT/EFI/BOOT/BOOTX64.EFI"
 cp "$ROOT/kira.bin" "$OUT/EFI/KIRA/KIRA.ELF"
 
