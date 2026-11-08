@@ -15,7 +15,7 @@ These are source-level incompatibilities; no successful BIOS boot has been demon
 
 ## Required handoff contract
 
-1. Stage 1 remains a 512-byte MBR-compatible sector with signature 0xAA55 and EDD-only disk reads.
+1. Stage 1 remains a 512-byte MBR-compatible sector with signature 0xAA55 and EDD-only disk reads. Its current fixed 32-sector transfer loads 16 KiB at physical 0x8000, so the current manifest address 0x9000 overlaps the loaded stage-2 extent unless the layout/loader count is redesigned. The builder must calculate the actual stage-2 sector count and place the manifest outside all loaded code/data; do not retain a fixed address that overlaps.
 2. Stage 2 loads the actual x86-64 ELF kernel, not an ELF32 compatibility image. Validate:
    - ELF magic, ELFCLASS64, little-endian, ET_EXEC, EM_X86_64;
    - exact ELF header/program-header sizes and bounded program-header count;
@@ -26,7 +26,7 @@ These are source-level incompatibilities; no successful BIOS boot has been demon
 3. Copy PT_LOAD file bytes to the validated physical destination and zero exactly p_memsz - p_filesz bytes. The ELF entry must be within an executable loaded segment.
 4. Collect E820 entries using INT 15h E820 with SMAP signature checks, bounded count, and carry/continuation handling. Do not fabricate usable memory.
 5. Build a valid Multiboot2 information block containing at minimum a memory-map tag (type 6, entry_size 24) and end tag, with 8-byte tag alignment and a correct total_size.
-6. Enter 32-bit protected mode with paging/PAE/long-mode transition requirements satisfied by the common kernel entry. Pass EAX=0x36D76289 and EBX=physical address of the Multiboot2 info block. The existing dual-mode prologue in `arch/x86_64/boot.s` must be reused; do not call the 64-bit kernel entry as a 32-bit C function.
+6. Transfer control to the ELF entry in 32-bit protected mode with EAX=0x36D76289 and EBX=physical address of the Multiboot2 info block. The existing `arch/x86_64/boot.s` entry is specifically a dual-mode entry: its 32-bit path saves EAX/EBX, builds the initial identity map, enables PAE/paging/long mode, and only then calls `kernel_main` using the System V x86-64 ABI (RDI=magic, RSI=info pointer). Stage 2 must NOT build a second long-mode transition and must NOT call `kernel_main` directly. Preserve the kernel entry's expected 32-bit protected-mode state and low-memory constraints.
 7. Stage 2, manifest, E820 buffer, stack, kernel staging buffer, and Multiboot2 info block must occupy explicitly reserved, non-overlapping physical ranges. The image builder must calculate and validate disk LBAs/sectors rather than relying on an undocumented fixed manifest address.
 
 ## Required build and runtime proof
@@ -40,3 +40,8 @@ These are source-level incompatibilities; no successful BIOS boot has been demon
 ## Scope and compatibility
 
 The current UEFI and GRUB/Multiboot2 paths must remain unchanged. Do not add GRUB as a hidden dependency for the standalone BIOS disk path. Do not claim physical-hardware validation from QEMU results.
+
+
+## Entry-contract correction (2026-11-08)
+
+The first draft overstated the work required from stage 2. Inspection of `arch/x86_64/boot.s` confirms that the kernel ELF entry itself accepts 32-bit protected-mode Multiboot2 registers, saves EAX/EBX, constructs its initial 1 GiB identity map, enables PAE/paging/long mode, and calls `kernel_main` with RDI/RSI. Therefore stage 2 must hand off to the ELF entry in 32-bit protected mode; it must not perform the long-mode transition itself. The current stage-1 DAP also loads 32 sectors (16 KiB) at 0x8000 while stage 2 hardcodes its manifest at 0x9000, which lies inside that load range and is an additional layout defect to remove.
