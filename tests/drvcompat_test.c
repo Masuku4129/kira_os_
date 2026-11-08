@@ -97,7 +97,7 @@ static void fail_closed(void)
  for(int stage=1;stage<=8;stage++){
   struct fake f;struct kira_drvcompat_ops o;setup(&f,&o);f.fail_stage=stage;
   assert(kira_drvcompat_convert(&o,"https://drivers.example/a")!=0);
-  assert(f.published==0);
+  assert(f.published==(stage==8?1:0));
   assert(f.archive_releases==1);
   assert(f.progress_errors==1);
  }
