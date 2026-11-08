@@ -166,12 +166,11 @@ void vmm_kstack_free(void* base) {
     if (va < KSTACK_BASE || va >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE) return;
     uint64_t f = spin_lock_irqsave(&ks_lock);
     uint32_t slot = 0;
+    uint32_t candidate = (uint32_t)((va - KSTACK_BASE) / KSTACK_STRIDE);
     if (!kira_vmm_kstack_slot_valid(KSTACK_BASE, KSTACK_STRIDE, KSTACK_SLOTS,
                                     ks_size, va, ks_used_hi,
-                                    (va >= KSTACK_BASE &&
-                                     va < KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE)
-                                        ? ks_allocated[(va - KSTACK_BASE) / KSTACK_STRIDE] : 0,
-                                    &slot) || ks_nfree >= KSTACK_SLOTS) {
+                                    ks_allocated[candidate], &slot) ||
+        ks_nfree >= KSTACK_SLOTS) {
         spin_unlock_irqrestore(&ks_lock, f);
         return;
     }
