@@ -50,14 +50,29 @@ def tracked_files() -> list[str]:
     return sorted(str(p.relative_to(ROOT)) for p in ROOT.rglob("*") if p.is_file() and ".git" not in p.parts)
 
 def scenario_counts(files: list[str]) -> tuple[list[str], list[str]]:
-    ci = (ROOT / ".github/workflows/ci.yml").read_text(errors="replace") if (ROOT / ".github/workflows/ci.yml").exists() else ""
-    match = re.search(r"scenario:\s*\[([^\]]+)\]", ci)
-    x86 = [x.strip() for x in match.group(1).split(",") if x.strip()] if match else []
+    # x86 scenarios live in ci/scenarios.py; CI shards this list at runtime.
+    scenario_path = ROOT / "ci/scenarios.py"
+    if not scenario_path.exists():
+        raise RuntimeError("ci/scenarios.py is missing; cannot audit x86 QEMU coverage")
+    module = ast.parse(scenario_path.read_text(errors="replace"), filename="ci/scenarios.py")
+    all_value = None
+    for node in module.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "ALL" for t in node.targets):
+            all_value = node.value
+            break
+    if not isinstance(all_value, ast.List):
+        raise RuntimeError("ci/scenarios.py must define ALL as a literal list")
+    x86 = []
+    for item in all_value.elts:
+        if not (isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == "sc" and item.args and isinstance(item.args[0], ast.Constant) and isinstance(item.args[0].value, str)):
+            raise RuntimeError("unrecognized entry in ci/scenarios.py ALL list")
+        x86.append(item.args[0].value)
+    if not x86:
+        raise RuntimeError("x86 QEMU scenario inventory is unexpectedly empty")
     arm_path = ROOT / "ci/arm64_vm.py"
     arm_text = arm_path.read_text(errors="replace") if arm_path.exists() else ""
     arm = sorted(set(re.findall(r"['\"](arm64-[a-z0-9-]+)['\"]", arm_text)))
     return x86, arm
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="ci-out/audit")
@@ -115,7 +130,7 @@ def main() -> int:
     arch = (ROOT / "ARCHITECTURE.md").read_text(errors="replace") if (ROOT / "ARCHITECTURE.md").exists() else ""
     handoff = (ROOT / "docs/HANDOFF.md").read_text(errors="replace") if (ROOT / "docs/HANDOFF.md").exists() else ""
     gaps = [
-        "x86_64 ISO creation currently depends on GRUB/Multiboot2; no independent KIRA BIOS/UEFI loader was found in the tracked tree.",
+        "The x86_64 ISO still boots through GRUB/Multiboot2. A native KIRA UEFI application now builds as a separate EFI artifact, but it is not yet proven by an OVMF end-to-end boot or integrated as the ISO boot path; a KIRA-owned BIOS chain is also still required.",
         "The current build still uses external Clang/LLD/NASM (and wasm-ld); kcc is a limited in-OS C compiler, not yet the kernel's complete self-hosting toolchain.",
         "drvget accepts selected BSD-style source recipes and rejects Linux .ko and Windows .sys binaries; general Linux driver translation remains future work.",
         "Driver package records use explicit user confirmation and SHA-256; project progress notes say package signatures are absent. A hash is integrity evidence, not publisher authentication.",
