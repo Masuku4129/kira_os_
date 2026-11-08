@@ -49,6 +49,16 @@ int main(void){
     madt[50]^=0xFF;                       /* порча MADT: должна быть отвергнута, остальное разобрано */
     CHECK(acpi_parse(base, base+(1<<16), &i)==0 && i.tables_bad==1 && i.cpu_count==0 && i.has_hpet);
     madt[50]^=0xFF;
+    /* Структурно повреждённые записи с корректной checksum отклоняются целиком. */
+    {
+        uint8_t saved = madt[45];
+        madt[45] = 0; fix(madt, mlen, 9);
+        CHECK(acpi_parse(base, base+(1<<16), &i)==0 && i.tables_bad==1 && i.cpu_count==0 && i.ioapic_count==0);
+        madt[45] = 255; fix(madt, mlen, 9);
+        CHECK(acpi_parse(base, base+(1<<16), &i)==0 && i.tables_bad==1 && i.cpu_count==0 && i.ioapic_count==0);
+        madt[45] = saved; fix(madt, mlen, 9);
+        CHECK(acpi_parse(base, base+(1<<16), &i)==0 && i.tables_bad==0 && i.cpu_count==2 && i.ioapic_count==1);
+    }
     rsdp[3]='X'; CHECK(acpi_parse(base, base+(1<<16), &i)==-2); rsdp[3]=' ';
     rsdp[10]^=1; CHECK(acpi_parse(base, base+(1<<16), &i)==-3); rsdp[10]^=1;
     CHECK(acpi_parse(base, base+0x120, &i)==-5);   /* корень вне доступной памяти */
