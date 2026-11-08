@@ -86,7 +86,6 @@ int kbi_validate(const void* blob, uint32_t available) {
     if (!!(h->flags & KBI_F_ACPI) != !!h->rsdp_phys ||
         !!(h->flags & KBI_F_FDT) != !!h->fdt_phys ||
         !!(h->flags & KBI_F_CMDLINE) != !!h->cmdline_len ||
-        (h->rsdp_phys && (h->rsdp_phys & 15)) ||
         (h->fdt_phys && (h->fdt_phys & 7))) return -9;
 
     if (!h->kernel_phys_base || !h->kernel_size ||

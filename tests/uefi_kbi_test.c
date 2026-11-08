@@ -105,16 +105,22 @@ int main(void) {
 
     CHECK(kira_uefi_build_kbi(map, sizeof(map[0]) - 1, sizeof(map[0]), 1,
                               &info, blob, sizeof(blob), &size) == EFI_INVALID_PARAMETER);
-    /* The loader reports why a handoff was refused instead of a bare Load Error. */
+    /* OVMF/QEMU place the RSDP on an 8-byte boundary (seen: 0x3F4EBF98). The
+       16-byte rule is for the legacy BIOS scan and must not reject UEFI. */
     descriptor(&map[0], EfiConventionalMemory, 0x100000, 0x100);
+    info.rsdp = 0x3F4EBF98ull;
     CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
                               &info, blob, sizeof(blob), &size) == EFI_SUCCESS);
     CHECK(kira_uefi_kbi_reject_reason() == 0);
-    info.rsdp = 0xf0014; /* not 16-byte aligned */
+    CHECK(((const kbi_header_t *)blob)->rsdp_phys == 0x3F4EBF98ull);
+    info.rsdp = 0xf0000;
+
+    /* The loader reports why a handoff was refused instead of a bare Load Error. */
+    descriptor(&map[1], EfiACPIReclaimMemory, 0x180000, 4); /* overlaps map[0] */
     CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
                               &info, blob, sizeof(blob), &size) == EFI_LOAD_ERROR);
-    CHECK(kira_uefi_kbi_reject_reason() == -9);
-    info.rsdp = 0xf0000;
+    CHECK(kira_uefi_kbi_reject_reason() == -11);
+    descriptor(&map[1], EfiACPIReclaimMemory, 0x900000, 4);
 
     puts("uefi_kbi: PASS");
     return 0;
