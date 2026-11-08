@@ -67,7 +67,7 @@ for marker in "${required[@]}"; do
     fi
 done
 
-if grep -Eiq '\\[KIRA (UEFI|BOOT|VMM)\\].*(Invalid|Cannot|failed|rejected|panic)' "$SERIAL"; then
+if grep -Eiq '\[KIRA (UEFI|BOOT|VMM)\].*(Invalid|Cannot|failed|rejected|panic)' "$SERIAL"; then
     echo "OVMF test: boot log contains a fatal boot-path diagnostic" >&2
     cat "$SERIAL" >&2
     exit 1
