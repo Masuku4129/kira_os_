@@ -79,7 +79,7 @@ Token *pp_lex_one(Token *tmpl, const char *text);
 
 /* ---------- type.c ---------- */
 typedef enum { TY_VOID, TY_BOOL, TY_CHAR, TY_SHORT, TY_INT, TY_LONG, TY_LLONG, TY_ENUM,
-               TY_PTR, TY_ARRAY, TY_FUNC, TY_STRUCT, TY_UNION } TyKind;
+               TY_PTR, TY_ARRAY, TY_FUNC, TY_STRUCT, TY_UNION, TY_FLOAT, TY_DOUBLE } TyKind;
 struct Param { Param *next; Type *ty; const char *name; };
 struct Member { Member *next; const char *name; Type *ty; int off, bw, bo, idx, align; const Token *tok; };
 struct Type {
@@ -91,6 +91,7 @@ struct Type {
     const char *tag; int id;
     Type *orig;                              /* исходный тип без квалификаторов */
 };
+extern Type ty_float, ty_double;
 extern Type ty_void, ty_bool, ty_char, ty_uchar, ty_short, ty_ushort, ty_int, ty_uint, ty_long, ty_ulong, ty_llong, ty_ullong;
 Type *ty_new(TyKind k, int size, int align);
 Type *ty_ptr(Type *base);
@@ -99,13 +100,24 @@ Type *ty_func(Type *ret, Param *params, int variadic, int noproto);
 Type *ty_qual(Type *t, int is_const, int is_volatile);
 Type *ty_unqual(Type *t);
 int ty_is_int(const Type *t);                /* целые, bool, enum */
-int ty_is_scalar(const Type *t);
+int ty_is_float(const Type *t);              /* float, double */
+int ty_is_arith(const Type *t);              /* целые и вещественные */
+int ty_is_scalar(const Type *t);             /* арифметические типы и указатели */
 int ty_is_agg(const Type *t);
 int ty_compat(const Type *a, const Type *b);
 Type *ty_promote(Type *t);
 Type *ty_common(Type *a, Type *b);
 const char *ty_name(const Type *t);
 int ty_bits(const Type *t);
+
+/* ---------- softfp.c: IEEE 754 на целых числах (binary32 - в младших 32 битах; sz = 4 или 8) ---------- */
+uint64_t sf_parse(const Token *t, int *sz);   /* вещественная константа: десятичная или hex; суффикс f даёт *sz = 4 */
+uint64_t sf_binop(int op, uint64_t a, uint64_t b, int sz);   /* op: '+', '-', '*', '/' */
+uint64_t sf_neg(uint64_t a, int sz);
+int sf_cmp(uint64_t a, uint64_t b, int sz);   /* -1, 0, 1; 2 - не упорядочены */
+uint64_t sf_from_int(int64_t v, int is_unsigned, int sz);
+int64_t sf_to_int(uint64_t a, int sz, int is_unsigned, int *ok);
+uint64_t sf_conv(uint64_t a, int from, int to);
 
 /* ---------- parse.c ---------- */
 typedef enum {
@@ -114,6 +126,8 @@ typedef enum {
     ND_ASSIGN, ND_OPASSIGN, ND_COMMA, ND_COND, ND_ADDR, ND_DEREF, ND_MEMBER, ND_CAST, ND_CALL, ND_INCDEC,
     ND_STMTEXPR, ND_ZERO, ND_ASM, ND_UNREACH, ND_VASTART, ND_VAARG, ND_ATOMIC, ND_RETADDR,
     ND_BLOCK, ND_IF, ND_FOR, ND_DO, ND_SWITCH, ND_CASE, ND_BREAK, ND_CONTINUE, ND_GOTO, ND_LABEL, ND_RETURN, ND_EXPR,
+    ND_FP1,                                  /* __builtin_sqrt[f], __builtin_fabs[f]: op - FN_SQRT/FN_ABS, lhs - аргумент того же типа */
+    ND_FNUM,                                 /* вещественная константа: val - битовый образ (binary32 - в младших 32 битах), ty - float или double */
     ND_ROL                                   /* только в IR (opt.c): циклический сдвиг влево на константу; создаётся распознаванием (x>>c1)|(x<<c2), c1+c2 = ширина */
 } NKind;
 struct Node {
@@ -146,7 +160,18 @@ int64_t eval_const(Node *n);
 /* ---------- ir.c ---------- */
 typedef enum { IR_LABEL, IR_CONST, IR_GADDR, IR_LADDR, IR_PARAM, IR_LOAD, IR_STORE, IR_MOV, IR_BIN, IR_NEG, IR_NOT,
                IR_CMP, IR_EXT, IR_JMP, IR_BRZ, IR_BRNZ, IR_CALL, IR_RET, IR_COPY, IR_ZERO, IR_ASM, IR_UNREACH,
-               IR_ATOMIC, IR_VAINFO } IrOp;
+               IR_ATOMIC, IR_VAINFO,
+               IR_FBIN, IR_FUN, IR_FCMP, IR_FCVT } IrOp;
+/* Вещественные операции (float/double, SSE2 на x86-64, скалярный FP на AArch64). Значение вещественного типа лежит в vreg как битовый образ
+   (binary32 - в младших 32 битах), поэтому MOV, LOAD, STORE и все проходы opt.c работают с ним как с 64-битным числом; сами вещественные
+   операции для opt.c непрозрачны (не сворачиваются, не переставляются, не нумеруются). Ширина w - 4 (float) или 8 (double).
+   IR_FBIN: dst = a (sub = ND_ADD/ND_SUB/ND_MUL/ND_DIV) b.   IR_FUN: dst = f(a), sub = FN_*.
+   IR_FCMP: dst = 0/1; sub = ND_EQ/ND_LT/ND_LE - упорядоченное сравнение (с NaN ложно), ND_NE - истина и для NaN.
+   IR_FCVT: sub = FC_I2F (w - размер результата, sgn=0 - источник беззнаковый 64-битный, иначе знаковый 64-битный: узкие беззнаковые уже расширены нулями),
+            FC_F2I (w - размер источника; результат - целое со знаком 64 бита усечением к нулю, а при sgn=0 - беззнаковое 64 бита),
+            FC_F2D (float -> double), FC_D2F (double -> float). */
+enum { FN_NEG = 0, FN_SQRT, FN_ABS };
+enum { FC_I2F = 1, FC_F2I, FC_F2D, FC_D2F };
 /* IR_ATOMIC.sub: операции над целым/указателем шириной w (1,2,4,8) с порядком seq_cst; a - адрес, b - значение (для CAS - ожидаемое),
    c - новое значение CAS; dst - прежнее значение в каноническом виде (LOAD - загруженное; STORE, FENCE - без dst) */
 enum { AT_LOAD = 1, AT_STORE, AT_XCHG, AT_CAS, AT_ADD, AT_SUB, AT_AND, AT_OR, AT_XOR, AT_NAND, AT_FENCE };
@@ -159,7 +184,12 @@ struct Ins {
     int rsz, rt;                             /* CALL: размер возвращаемого агрегата (0 - нет) и vreg с адресом буфера результата; RET: sub=1 - агрегат размера w */
     int *asz;                                /* CALL: по аргументу размер агрегата (0 - скаляр; тогда args[k] - адрес агрегата) */
     int64_t imm; const char *sym; int *args; Ins *next;
-    int line; const char *file;              /* только IR_ASM: место в исходнике */
+    int line;                                /* только IR_ASM: место в исходнике (file - вместе с afp, они не нужны одной инструкции) */
+    int fp;                                  /* PARAM, CALL (результат), RET: размер вещественного значения (4, 8) либо 0 */
+    union {
+        const char *file;                    /* IR_ASM */
+        unsigned char *afp;                  /* IR_CALL: по аргументу размер вещественного значения (0 - не вещественный); NULL - нет вещественных */
+    };
 };
 typedef struct { Obj *f; Ins *head; int nreg, nlab; unsigned char *mdef; } IrFn;   /* mdef[v]: vreg переменной с несколькими определениями (ir_optimize) */
 extern int kcc_nolvn;                         /* -fno-lvn: без локальной нумерации значений (для сверки) */
@@ -167,6 +197,7 @@ extern int kcc_wrapv;                         /* -fwrapv: счётчики ци�
 extern int kcc_nosr;                          /* -fno-sr: без понижения силы умножения (для сверки) */
 extern int kcc_dumpopt;                      /* ir.c: -S-oir, дамп IR после ir_optimize */
 extern int kcc_noopt;                        /* gen_common.c */
+extern int kcc_nosse;                        /* -mno-sse: float/double - ошибка компиляции, бэкенд не выдаёт ни одной команды SSE (ядро Киры собирается без SSE) */
 void ir_usecount(IrFn *fi, int *ndef, int *nuse, Ins **defins);
 Obj *gen_lookup(const char *name);           /* gen_common.c */
 typedef void (*OpVisit)(Ins *i, int *r, int kind, void *ctx);   /* kind: 0 - чтение vreg, 1 - запись, 2 - выход asm */

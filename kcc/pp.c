@@ -745,6 +745,7 @@ Token *preprocess(const char *path) {
     SB pre = {0};
     for (int i = 0; predef[i]; i++) sb_printf(&pre, "#define %s\n", predef[i]);
     sb_printf(&pre, "#define %s 1\n", c->target && !strcmp(c->target, "aarch64") ? "__aarch64__" : "__x86_64__");
+    if (kcc_nosse) sb_printf(&pre, "#define __KCC_NOSSE__ 1\n");     /* сборка без SSE: float/double недоступны (libc-lite не печатает вещественные) */
     if (!c->target || !strcmp(c->target, "x86_64")) {            /* builtin-ы счёта нулей: bsf/bsr (результат при x == 0 не определён, как у GCC) */
         sb_printf(&pre, "static inline int __kcc_ctz(unsigned x) { unsigned r; __asm__(\"bsfl %%1, %%0\" : \"=a\"(r) : \"a\"(x)); return (int)r; }\n");
         sb_printf(&pre, "static inline int __kcc_ctzll(unsigned long long x) { unsigned long long r; __asm__(\"bsfq %%1, %%0\" : \"=a\"(r) : \"a\"(x)); return (int)r; }\n");

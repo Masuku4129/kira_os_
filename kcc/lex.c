@@ -163,7 +163,7 @@ void parse_intlit(const Token *t, int64_t *val, Type **ty) {
     else if (t->len > 1 && p[0] == '0') base = 8;
     for (const char *q = p; q < e; q++) {
         if (*q == '.' || (base != 16 && (*q == 'e' || *q == 'E')) || (base == 16 && (*q == 'p' || *q == 'P')))
-            kerr_tok(t, "floating-point constants are not supported by kcc");
+            kerr_tok(t, "floating constant where an integer constant is required ('%.*s')", t->len, t->s);
     }
     uint64_t v = 0; int nd = 0;
     for (; p < e; p++, nd++) {
@@ -238,13 +238,28 @@ void conv_char(Token *t) {
     t->ival = (int32_t)v; t->ty = &ty_int;
 }
 
+/* pp-число с точкой, десятичным порядком (e) или двоичным порядком шестнадцатеричной записи (p) - вещественная константа */
+static int is_floatlit(const Token *t) {
+    int hex = t->len > 2 && t->s[0] == '0' && (t->s[1] == 'x' || t->s[1] == 'X');
+    if (!hex && t->len > 2 && t->s[0] == '0' && (t->s[1] == 'b' || t->s[1] == 'B')) return 0;
+    for (int i = 0; i < t->len; i++) {
+        char c = t->s[i];
+        if (c == '.' || (hex ? (c == 'p' || c == 'P') : (c == 'e' || c == 'E'))) return 1;
+    }
+    return 0;
+}
+
 void convert_tokens(Token *t) {
     for (; t->k != TK_EOF; t = t->next) {
         if (t->k == TK_ID) {
             const char *kw = kw_lookup(t);
             if (kw) { t->k = TK_KW; t->s = kw; t->len = (int)strlen(kw); }
         } else if (t->k == TK_NUM) {
-            parse_intlit(t, &t->ival, &t->ty);
+            if (is_floatlit(t)) {
+                if (kcc_nosse) kerr_tok(t, "unsupported: floating-point constant '%.*s' (-mno-sse build)", t->len, t->s);
+                int sz;
+                t->ival = (int64_t)sf_parse(t, &sz); t->ty = sz == 4 ? &ty_float : &ty_double;
+            } else parse_intlit(t, &t->ival, &t->ty);
         } else if (t->k == TK_CHR) {
             if (t->mark) kerr_tok(t, "wide and Unicode character constants are not supported");
             conv_char(t);

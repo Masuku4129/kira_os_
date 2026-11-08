@@ -17,7 +17,7 @@ typedef struct {
     const char *file; int line;               /* для сообщений об отсутствующем шаблоне */
 } XA;
 
-enum { OP_NONE, OP_REG, OP_MEM, OP_IMM };
+enum { OP_NONE, OP_REG, OP_MEM, OP_IMM, OP_XMM };   /* XMM: r - номер xmm0..xmm15, sz - 4 (float) или 8 (double) */
 typedef struct { int k, sz, r; int64_t v; Obj *sym; int ix, sc; } Opd;   /* MEM: [r + v] либо [rip + sym + v]; ix - регистр индекса + 1 (0 - нет), sc - log2 масштаба: [r + ix*2^sc + v] */
 #define NOOPD ((Opd){ OP_NONE, 0, 0, 0, NULL, 0, 0 })
 Opd xr(int sz, int r);
@@ -26,14 +26,21 @@ Opd xmi(int sz, int base, int idx, int sc, int64_t disp);   /* [base + idx*2^sc 
 Opd xs(int sz, Obj *sym, int64_t add);
 void xa_imul3(XA *a, Opd d, Opd s, int64_t imm);   /* imul d, s, imm32 (размеры 4 и 8) */
 Opd xi(int64_t v);
+Opd xx(int sz, int n);                        /* регистр xmm */
 
 /* ALU-коды совпадают с x86 (базовый опкод = код * 8) */
 enum { X_ADD = 0, X_OR = 1, X_AND = 4, X_SUB = 5, X_XOR = 6, X_CMP = 7,
        X_MOV = 16, X_MOVZX, X_MOVSX, X_LEA, X_TEST, X_IMUL, X_NEG, X_NOT, X_DIV, X_IDIV, X_SHL, X_SHR, X_SAR, X_CALLR,
        X_XCHG, X_LXADD, X_LCMPXCHG, X_JMPR, X_ROL };   /* xchg [m], r; lock xadd [m], r; lock cmpxchg [m], r (размеры 1, 2, 4, 8) */
+/* SSE/SSE2 (только скалярные и пересылки). Размер вещественного операнда (4 - ss, 8 - sd) берётся из операнда xmm.
+   MOVS: movss/movsd (xmm<-xmm|mem, mem<-xmm); MOVAPS/MOVUPS: пересылка 128 бит; ADDS..SQRTS: xmm <- xmm|mem; UCOMIS: сравнение, флаги ZF/PF/CF;
+   CVTSI2S: xmm <- r32|r64|mem (по размеру источника); CVTTS2SI: r32|r64 <- xmm|mem (усечение); CVTS2S: ss<->sd (по размерам операндов);
+   MOVGX: movd/movq xmm <- r|mem; MOVXG: movd/movq r|mem <- xmm (по размеру регистра); XORPS, ANDNPS: логика над 128 битами. */
+enum { X_MOVS = 64, X_MOVAPS, X_MOVUPS, X_ADDS, X_SUBS, X_MULS, X_DIVS, X_SQRTS, X_UCOMIS, X_CVTSI2S, X_CVTTS2SI, X_CVTS2S, X_MOVGX, X_MOVXG,
+       X_XORPS, X_ANDNPS };
 enum { X0_RET = 1, X0_CQO, X0_SYSCALL, X0_RDTSC, X0_MFENCE, X0_LFENCE, X0_SFENCE, X0_PAUSE, X0_HLT, X0_CLI, X0_STI, X0_NOP,
        X0_UD2, X0_REP_MOVSB, X0_REP_STOSB, X0_LEAVE, X0_PUSH_RBP, X0_IN8, X0_IN16, X0_IN32, X0_OUT8, X0_OUT16, X0_OUT32 };
-enum { CC_E = 4, CC_NE = 5, CC_B = 2, CC_BE = 6, CC_L = 12, CC_LE = 14, CC_NONE = -1 };
+enum { CC_E = 4, CC_NE = 5, CC_B = 2, CC_BE = 6, CC_S = 8, CC_NS = 9, CC_A = 7, CC_AE = 3, CC_P = 10, CC_NP = 11, CC_L = 12, CC_LE = 14, CC_NONE = -1 };
 
 void xa_ins(XA *a, int op, Opd d, Opd s);     /* нет шаблона для сочетания - ошибка компиляции */
 void xa_op0(XA *a, int op);

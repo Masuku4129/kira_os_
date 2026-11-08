@@ -8,6 +8,7 @@
 #define _GNU_SOURCE
 #include "../../elf.h"
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +30,7 @@ static unsigned long heap_pages;
 static const char *sandbox_dir, *inc_dir, *prog_args = "";
 static uint64_t X[32], SP, PC;
 static int fN, fZ, fC, fV;
+static uint64_t V[32][2];                                                 /* v0-v31: младшие и старшие 64 бит */
 static unsigned long long icount;
 
 static Reg *find(uint64_t va, uint64_t n) {
@@ -144,6 +146,70 @@ static void flags_add(uint64_t a, uint64_t b, uint64_t res) {
 }
 static int64_t sx(uint32_t v, int bits) { return (int64_t)((uint64_t)v << (64 - bits)) >> (64 - bits); }
 
+
+/* ---------- скалярный FP (хост-арифметика binary32/binary64, округление к ближайшему чётному) ---------- */
+static double fd_get(int r, int dbl) {
+    if (dbl) { double d; memcpy(&d, &V[r][0], 8); return d; }
+    float f; uint32_t b = (uint32_t)V[r][0]; memcpy(&f, &b, 4); return (double)f;
+}
+static void fd_put(int r, int dbl, double v, float fv) {
+    V[r][1] = 0;
+    if (dbl) memcpy(&V[r][0], &v, 8);
+    else { uint32_t b; memcpy(&b, &fv, 4); V[r][0] = b; }
+}
+/* fcvtzs/fcvtzu: усечение с насыщением, NaN -> 0 (как на железе) */
+static uint64_t fcvt_int(double v, int sg) {
+    if (v != v) return 0;
+    if (sg) {
+        if (v >= 9223372036854775808.0) return (uint64_t)INT64_MAX;
+        if (v < -9223372036854775808.0) return (uint64_t)INT64_MIN;
+        return (uint64_t)(int64_t)v;
+    }
+    if (v <= 0) return 0;
+    if (v >= 18446744073709551616.0) return UINT64_MAX;
+    return (uint64_t)v;
+}
+static int step_fp(uint32_t w) {
+    int rd = w & 31, rn = (w >> 5) & 31, rm = (w >> 16) & 31, dbl = (w >> 22) & 1;
+    if ((w & 0xFFFFFC00) == 0x9E670000) { V[rd][0] = rx(rn); V[rd][1] = 0; }
+    else if ((w & 0xFFFFFC00) == 0x1E270000) { V[rd][0] = (uint32_t)rx(rn); V[rd][1] = 0; }
+    else if ((w & 0xFFFFFC00) == 0x9E660000) wx(rd, V[rn][0]);
+    else if ((w & 0xFFFFFC00) == 0x1E260000) wx(rd, (uint32_t)V[rn][0]);
+    else if ((w & 0xFF200C00) == 0x1E200800 && ((w >> 12) & 15) < 4) {
+        int op = (w >> 12) & 15;
+        if (dbl) {
+            double a = fd_get(rn, 1), b = fd_get(rm, 1);
+            fd_put(rd, 1, op == 0 ? a * b : op == 1 ? a / b : op == 2 ? a + b : a - b, 0);
+        } else {
+            float a = (float)fd_get(rn, 0), b = (float)fd_get(rm, 0);
+            float r = op == 0 ? a * b : op == 1 ? a / b : op == 2 ? a + b : a - b;
+            fd_put(rd, 0, 0, r);
+        }
+    }
+    else if ((w & 0xFFBFFC00) == 0x1E214000) { if (dbl) fd_put(rd, 1, -fd_get(rn, 1), 0); else fd_put(rd, 0, 0, -(float)fd_get(rn, 0)); }
+    else if ((w & 0xFFBFFC00) == 0x1E20C000) { if (dbl) fd_put(rd, 1, fabs(fd_get(rn, 1)), 0); else fd_put(rd, 0, 0, fabsf((float)fd_get(rn, 0))); }
+    else if ((w & 0xFFBFFC00) == 0x1E21C000) { if (dbl) fd_put(rd, 1, sqrt(fd_get(rn, 1)), 0); else fd_put(rd, 0, 0, sqrtf((float)fd_get(rn, 0))); }
+    else if ((w & 0xFFFFFC00) == 0x1E22C000) fd_put(rd, 1, fd_get(rn, 0), 0);                                        /* fcvt d, s */
+    else if ((w & 0xFFFFFC00) == 0x1E624000) fd_put(rd, 0, 0, (float)fd_get(rn, 1));                                 /* fcvt s, d */
+    else if ((w & 0xFF20FC1F) == 0x1E202000) {                                                                       /* fcmp */
+        double a = fd_get(rn, dbl), b = fd_get(rm, dbl);
+        if (a != a || b != b) { fN = 0; fZ = 0; fC = 1; fV = 1; }
+        else if (a == b) { fN = 0; fZ = 1; fC = 1; fV = 0; }
+        else if (a < b) { fN = 1; fZ = 0; fC = 0; fV = 0; }
+        else { fN = 0; fZ = 0; fC = 1; fV = 0; }
+    }
+    else if ((w & 0xFFBFFC00) == 0x9E220000) { int64_t v = (int64_t)rx(rn); if (dbl) fd_put(rd, 1, (double)v, 0); else fd_put(rd, 0, 0, (float)v); }
+    else if ((w & 0xFFBFFC00) == 0x9E230000) { uint64_t v = rx(rn); if (dbl) fd_put(rd, 1, (double)v, 0); else fd_put(rd, 0, 0, (float)v); }
+    else if ((w & 0xFFBFFC00) == 0x9E380000) wx(rd, fcvt_int(fd_get(rn, dbl), 1));
+    else if ((w & 0xFFBFFC00) == 0x9E390000) wx(rd, fcvt_int(fd_get(rn, dbl), 0));
+    else if ((w & 0xFFC00000) == 0x3D800000) {                                                                       /* str q, [xn, #imm] */
+        uint64_t addr = rs(rn) + ((uint64_t)((w >> 10) & 0xfff) << 4);
+        st(addr, 8, V[rd][0]); st(addr + 8, 8, V[rd][1]);
+    }
+    else return 0;
+    return 1;
+}
+
 static void step(void) {
     uint32_t w = (uint32_t)ld(PC, 4);
     if (!find(PC, 4)->x) die(96, "execute from non-executable memory", PC);
@@ -209,7 +275,7 @@ static void step(void) {
     } else if ((w & 0xFFE00C00) == 0x1A800400) {                                                                      /* csinc w (cset) */
         int c = (w >> 12) & 15;
         wx(rd, cond(c) ? (uint32_t)rx(rn) : (uint32_t)rx(rm) + 1);
-    } else if ((w & 0x3B000000) == 0x39000000 || ((w & 0x3B200C00) == 0x38000000)) {                                 /* ldr/str imm, ldur/stur */
+    } else if (!(w & 0x04000000) && ((w & 0x3B000000) == 0x39000000 || ((w & 0x3B200C00) == 0x38000000))) {                                 /* ldr/str imm, ldur/stur */
         int sz = w >> 30, opc = (w >> 22) & 3, n = 1 << sz;
         uint64_t addr;
         if ((w & 0x3B000000) == 0x39000000) addr = rs(rn) + ((uint64_t)((w >> 10) & 0xfff) << sz);
@@ -245,7 +311,7 @@ static void step(void) {
     else if ((w & 0xFFFFF0FF) == 0xD50330BF || (w & 0xFFFFF0FF) == 0xD503309F || w == 0xD5033FDF || w == 0xD5033F5F) {}   /* dmb, dsb, isb, clrex */
     else if ((w & 0xFFFFFFE0) == 0xD53BE040) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); wx(rd, (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec); }
     else if ((w & 0xFFFFFFE0) == 0xD53BE000) wx(rd, 1000000000ULL);
-    else die(97, "instruction not in the subset emitted by kcc", PC);
+    else if (!step_fp(w)) die(97, "instruction not in the subset emitted by kcc", PC);
     PC = npc;
 }
 

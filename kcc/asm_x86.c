@@ -7,6 +7,7 @@ Opd xr(int sz, int r) { Opd o = { OP_REG, sz, r, 0, NULL, 0, 0 }; return o; }
 Opd xm(int sz, int base, int64_t disp) { Opd o = { OP_MEM, sz, base, disp, NULL, 0, 0 }; return o; }
 Opd xmi(int sz, int base, int idx, int sc, int64_t disp) { Opd o = { OP_MEM, sz, base, disp, NULL, idx + 1, sc }; return o; }
 Opd xs(int sz, Obj *sym, int64_t add) { Opd o = { OP_MEM, sz, 0, add, sym, 0, 0 }; return o; }
+Opd xx(int sz, int n) { Opd o = { OP_XMM, sz, n, 0, NULL, 0, 0 }; return o; }
 Opd xi(int64_t v) { Opd o = { OP_IMM, 0, 0, v, NULL, 0, 0 }; return o; }
 
 static void fail(XA *a, const char *what, int op, const Opd *d, const Opd *s) {
@@ -40,12 +41,12 @@ static XFix *add_fix(XA *a, Obj *t, int64_t add) {
 static XFix *enc(XA *a, int w, int p66, const unsigned char *opc, int nopc, int reg, const Opd *rm, int force_rex) {
     int rex = 0x40 | (w ? 8 : 0) | ((reg >> 3 & 1) << 2);
     int base = rm->r;
-    if (rm->k == OP_REG || (rm->k == OP_MEM && !rm->sym)) rex |= base >> 3 & 1;
+    if (rm->k == OP_REG || rm->k == OP_XMM || (rm->k == OP_MEM && !rm->sym)) rex |= base >> 3 & 1;
     if (rm->k == OP_MEM && !rm->sym && rm->ix) rex |= ((rm->ix - 1) >> 3 & 1) << 1;
-    if (p66) put(a, 0x66);
+    if (p66) put(a, p66 == 1 ? 0x66 : p66 == 2 ? 0xF3 : 0xF2);       /* обязательный префикс SSE (2 - F3, 3 - F2) стоит перед REX */
     if (rex != 0x40 || force_rex) put(a, rex);
     for (int i = 0; i < nopc; i++) put(a, opc[i]);
-    if (rm->k == OP_REG) { put(a, 0xC0 | (reg & 7) << 3 | (base & 7)); return NULL; }
+    if (rm->k == OP_REG || rm->k == OP_XMM) { put(a, 0xC0 | (reg & 7) << 3 | (base & 7)); return NULL; }
     if (rm->sym) {
         put(a, (reg & 7) << 3 | 5);
         XFix *f = add_fix(a, rm->sym, rm->v);
@@ -78,8 +79,59 @@ static void imm_tail(XA *a, XFix *fx, int64_t v, int nbytes) {
     if (fx) fx->add -= nbytes;
 }
 
+static int is_x(const Opd *o) { return o->k == OP_XMM && (o->sz == 4 || o->sz == 8); }
+static int is_xm(const Opd *o) { return is_x(o) || o->k == OP_MEM; }
+static int is_g(const Opd *o) { return o->k == OP_REG && (o->sz == 4 || o->sz == 8); }
+
+static void sse_ins(XA *a, int op, Opd d, Opd s) {
+    unsigned char o[2];
+    o[0] = 0x0F;
+    int pf = (d.k == OP_XMM ? d.sz : s.sz) == 4 ? 2 : 3;            /* F3 для float, F2 для double */
+    switch (op) {
+    case X_MOVS:
+        if (is_x(&d) && is_xm(&s)) { o[1] = 0x10; enc(a, 0, pf, o, 2, d.r, &s, 0); return; }
+        if (d.k == OP_MEM && is_x(&s)) { o[1] = 0x11; enc(a, 0, pf, o, 2, s.r, &d, 0); return; }
+        break;
+    case X_MOVAPS: case X_MOVUPS:
+        if (d.k == OP_XMM && is_xm(&s)) { o[1] = op == X_MOVAPS ? 0x28 : 0x10; enc(a, 0, 0, o, 2, d.r, &s, 0); return; }
+        if (d.k == OP_MEM && s.k == OP_XMM) { o[1] = op == X_MOVAPS ? 0x29 : 0x11; enc(a, 0, 0, o, 2, s.r, &d, 0); return; }
+        break;
+    case X_ADDS: case X_SUBS: case X_MULS: case X_DIVS: case X_SQRTS:
+        if (is_x(&d) && is_xm(&s) && (s.k == OP_MEM || s.sz == d.sz)) {
+            o[1] = (unsigned char)(op == X_ADDS ? 0x58 : op == X_MULS ? 0x59 : op == X_SUBS ? 0x5C : op == X_DIVS ? 0x5E : 0x51);
+            enc(a, 0, pf, o, 2, d.r, &s, 0); return;
+        }
+        break;
+    case X_UCOMIS:
+        if (is_x(&d) && is_xm(&s) && (s.k == OP_MEM || s.sz == d.sz)) { o[1] = 0x2E; enc(a, 0, d.sz == 8 ? 1 : 0, o, 2, d.r, &s, 0); return; }
+        break;
+    case X_CVTSI2S:
+        if (is_x(&d) && (is_g(&s) || (s.k == OP_MEM && (s.sz == 4 || s.sz == 8)))) { o[1] = 0x2A; enc(a, s.sz == 8, pf, o, 2, d.r, &s, 0); return; }
+        break;
+    case X_CVTTS2SI:
+        if (is_g(&d) && is_xm(&s)) { o[1] = 0x2C; enc(a, d.sz == 8, s.k == OP_XMM ? (s.sz == 4 ? 2 : 3) : (s.sz == 4 ? 2 : 3), o, 2, d.r, &s, 0); return; }
+        break;
+    case X_CVTS2S:
+        if (is_x(&d) && is_x(&s) && d.sz != s.sz) { o[1] = 0x5A; enc(a, 0, s.sz == 4 ? 2 : 3, o, 2, d.r, &s, 0); return; }
+        if (is_x(&d) && s.k == OP_MEM && (s.sz == 4 || s.sz == 8) && d.sz != s.sz) { o[1] = 0x5A; enc(a, 0, s.sz == 4 ? 2 : 3, o, 2, d.r, &s, 0); return; }
+        break;
+    case X_MOVGX:
+        if (d.k == OP_XMM && (is_g(&s) || (s.k == OP_MEM && (s.sz == 4 || s.sz == 8)))) { o[1] = 0x6E; enc(a, s.sz == 8, 1, o, 2, d.r, &s, 0); return; }
+        break;
+    case X_MOVXG:
+        if (s.k == OP_XMM && (is_g(&d) || (d.k == OP_MEM && (d.sz == 4 || d.sz == 8)))) { o[1] = 0x7E; enc(a, d.sz == 8, 1, o, 2, s.r, &d, 0); return; }
+        break;
+    case X_XORPS: case X_ANDNPS:
+        if (d.k == OP_XMM && (s.k == OP_XMM || s.k == OP_MEM)) { o[1] = op == X_XORPS ? 0x57 : 0x55; enc(a, 0, 0, o, 2, d.r, &s, 0); return; }
+        break;
+    default: break;
+    }
+    fail(a, "SSE", op, &d, &s);
+}
+
 void xa_ins(XA *a, int op, Opd d, Opd s) {
     unsigned char o[3];
+    if (op >= X_MOVS) { sse_ins(a, op, d, s); return; }
     switch (op) {
     case X_ADD: case X_OR: case X_AND: case X_SUB: case X_XOR: case X_CMP: {
         int sz = d.sz ? d.sz : s.sz;

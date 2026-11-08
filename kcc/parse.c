@@ -304,7 +304,14 @@ static Type *declspec_(Attr *a) {
                 continue;
             }
             if (KW("_Complex")) unsupported(tok, "_Complex");
-            if (KW("float") || KW("double")) unsupported(tok, "float and double (floating point is not supported)");
+            if (KW("float") || KW("double")) {
+                if (counter == C_LONG && KW("double")) unsupported(tok, "long double (kcc has no 80-bit x87 type; use double)");
+                if (counter || ty) kerr_tok(tok, "invalid combination of type specifiers");
+                if (kcc_nosse) unsupported(tok, "float and double (-mno-sse build: no SSE registers)");
+                ty = KW("float") ? &ty_float : &ty_double;
+                tok = tok->next; counter += C_OTHER;
+                continue;
+            }
         }
         if (KW("__builtin_va_list")) {
             if (counter || ty) break;
@@ -700,6 +707,11 @@ static Node *rv(Node *n) {
     }
     return n;
 }
+static Node *new_fnum(uint64_t bits, Type *ty, const Token *t) {
+    Node *n = new_node(ND_FNUM, t);
+    n->val = (int64_t)bits; n->ty = ty;
+    return n;
+}
 static Node *new_cast(Node *e, Type *ty, const Token *t) {
     e = rv(e);
     Type *from = e->ty;
@@ -714,6 +726,20 @@ static Node *new_cast(Node *e, Type *ty, const Token *t) {
     }
     if (!ty_is_scalar(ty)) kerr_tok(t, "cannot cast to type '%s'", ty_name(ty));
     if (!ty_is_scalar(from)) kerr_tok(t, "operand of type '%s' where arithmetic or pointer type is required", ty_name(from));
+    if (ty_is_float(ty) || ty_is_float(from)) {
+        if (ty->k == TY_PTR || from->k == TY_PTR) kerr_tok(t, "cannot convert between '%s' and '%s'", ty_name(from), ty_name(ty));
+        if (e->k == ND_FNUM || e->k == ND_NUM) {                /* свёртка константы программной арифметикой softfp.c */
+            if (ty_is_float(ty)) {
+                uint64_t b = e->k == ND_FNUM ? sf_conv((uint64_t)e->val, from->size, ty->size)
+                                             : sf_from_int(e->val, from->is_unsigned && from->k != TY_BOOL, ty->size);
+                return new_fnum(b, ty, t);
+            }
+            int ok;
+            if (ty->k == TY_BOOL) return new_num(sf_cmp((uint64_t)e->val, 0, from->size) != 0, ty, t);
+            int64_t v = sf_to_int((uint64_t)e->val, from->size, ty->is_unsigned && ty->size == 8, &ok);
+            return new_num(trunc_ty(v, ty), ty, t);
+        }
+    }
     if (e->k == ND_NUM) return new_num(trunc_ty(e->val, ty), ty, t);
     Node *n = new_node(ND_CAST, t);
     n->lhs = e; n->ty = ty;
@@ -730,7 +756,7 @@ static Node *conv_assign(Node *e, Type *to, const Token *t, const char *what) {
         if (ty_is_agg(from) && ty_unqual(from) == ty_unqual(to)) return e;
         kerr_tok(t, "%s '%s' from incompatible type '%s'", what, ty_name(to), ty_name(from));
     }
-    if (ty_is_int(to) && ty_is_int(from)) return new_cast(e, to, t);
+    if (ty_is_arith(to) && ty_is_arith(from)) return new_cast(e, to, t);
     if (to->k == TY_PTR && from->k == TY_PTR) return e->ty == to ? e : new_cast(e, to, t);
     if (to->k == TY_PTR && ty_is_int(from)) {
         if (e->k == ND_NUM && e->val == 0) return new_cast(e, to, t);
@@ -780,9 +806,17 @@ static Node *new_bin(NKind k, Node *l, Node *r, Type *ty, const Token *t) {
 
 static Node *arith(NKind k, Node *l, Node *r, const Token *t) {
     l = rv(l); r = rv(r);
-    if (!ty_is_int(l->ty) || !ty_is_int(r->ty))
+    if (!ty_is_arith(l->ty) || !ty_is_arith(r->ty))
         kerr_tok(t, "invalid operands to binary expression ('%s' and '%s')", ty_name(l->ty), ty_name(r->ty));
     Type *ct = ty_common(l->ty, r->ty);
+    if (ty_is_float(ct)) {
+        if (k != ND_ADD && k != ND_SUB && k != ND_MUL && k != ND_DIV)
+            kerr_tok(t, "invalid operands to binary expression ('%s' and '%s')", ty_name(l->ty), ty_name(r->ty));
+        l = new_cast(l, ct, t); r = new_cast(r, ct, t);
+        if (l->k == ND_FNUM && r->k == ND_FNUM)
+            return new_fnum(sf_binop(k == ND_ADD ? '+' : k == ND_SUB ? '-' : k == ND_MUL ? '*' : '/', (uint64_t)l->val, (uint64_t)r->val, ct->size), ct, t);
+        return new_bin(k, l, r, ct, t);
+    }
     l = new_cast(l, ct, t); r = new_cast(r, ct, t);
     int64_t v;
     if (l->k == ND_NUM && r->k == ND_NUM && fold_bin(k, l->val, r->val, ct, &v)) return new_num(v, ct, t);
@@ -806,7 +840,7 @@ static Node *scaled(Node *idx, int64_t sz, const Token *t) {
 
 static Node *new_add(Node *l, Node *r, const Token *t) {
     l = rv(l); r = rv(r);
-    if (ty_is_int(l->ty) && ty_is_int(r->ty)) return arith(ND_ADD, l, r, t);
+    if (ty_is_arith(l->ty) && ty_is_arith(r->ty)) return arith(ND_ADD, l, r, t);
     if (l->ty->k != TY_PTR && r->ty->k == TY_PTR) { Node *x = l; l = r; r = x; }
     if (l->ty->k == TY_PTR && ty_is_int(r->ty)) {
         Node *s = scaled(r, elem_size(l->ty, t), t);
@@ -817,7 +851,7 @@ static Node *new_add(Node *l, Node *r, const Token *t) {
 
 static Node *new_sub(Node *l, Node *r, const Token *t) {
     l = rv(l); r = rv(r);
-    if (ty_is_int(l->ty) && ty_is_int(r->ty)) return arith(ND_SUB, l, r, t);
+    if (ty_is_arith(l->ty) && ty_is_arith(r->ty)) return arith(ND_SUB, l, r, t);
     if (l->ty->k == TY_PTR && ty_is_int(r->ty)) {
         Node *s = scaled(r, elem_size(l->ty, t), t);
         return new_bin(ND_SUB, l, s, l->ty, t);
@@ -834,9 +868,13 @@ static Node *new_sub(Node *l, Node *r, const Token *t) {
 static Node *new_cmp(NKind k, Node *l, Node *r, const Token *t) {
     l = rv(l); r = rv(r);
     Type *ct;
-    if (ty_is_int(l->ty) && ty_is_int(r->ty)) {
+    if (ty_is_arith(l->ty) && ty_is_arith(r->ty)) {
         ct = ty_common(l->ty, r->ty);
         l = new_cast(l, ct, t); r = new_cast(r, ct, t);
+        if (l->k == ND_FNUM && r->k == ND_FNUM) {               /* NaN: любое сравнение, кроме !=, ложно */
+            int c = sf_cmp((uint64_t)l->val, (uint64_t)r->val, ct->size);
+            return new_num(k == ND_EQ ? c == 0 : k == ND_NE ? c != 0 : k == ND_LT ? c == -1 : (c == -1 || c == 0), &ty_int, t);
+        }
     } else if ((l->ty->k == TY_PTR || ty_is_int(l->ty)) && (r->ty->k == TY_PTR || ty_is_int(r->ty))) {
         ct = &ty_ulong;
         l = new_cast(l, ct, t); r = new_cast(r, ct, t);
@@ -864,6 +902,7 @@ static Node *new_shift(NKind k, Node *l, Node *r, const Token *t) {
 static Node *to_cond(Node *e, const Token *t) {
     e = rv(e);
     if (!ty_is_scalar(e->ty)) kerr_tok(t, "statement requires expression of scalar type ('%s' invalid)", ty_name(e->ty));
+    if (ty_is_float(e->ty)) return new_cmp(ND_NE, e, new_fnum(0, e->ty, t), t);       /* x != 0.0: для NaN истина, как у clang */
     return e;
 }
 
@@ -950,6 +989,10 @@ static Node *new_opassign(NKind k, Node *l, Node *r, const Token *t) {
         if ((k != ND_ADD && k != ND_SUB) || !ty_is_int(r->ty)) kerr_tok(t, "invalid operands to binary expression ('%s' and '%s')", ty_name(l->ty), ty_name(r->ty));
         oty = l->ty;
         r = scaled(r, elem_size(l->ty, t), t);
+    } else if (ty_is_arith(l->ty) && ty_is_arith(r->ty) && (ty_is_float(l->ty) || ty_is_float(r->ty))) {
+        if (k != ND_ADD && k != ND_SUB && k != ND_MUL && k != ND_DIV)
+            kerr_tok(t, "invalid operands to binary expression ('%s' and '%s')", ty_name(l->ty), ty_name(r->ty));
+        oty = ty_common(l->ty, r->ty); r = new_cast(r, oty, t);
     } else if (ty_is_int(l->ty) && ty_is_int(r->ty)) {
         if (k == ND_SHL || k == ND_SHR) { oty = ty_promote(l->ty); r = new_cast(r, ty_promote(r->ty), t); }
         else { oty = ty_common(l->ty, r->ty); r = new_cast(r, oty, t); }
@@ -1059,6 +1102,7 @@ static Node *funcall(Node *fn, const Token *t) {
         } else if (ft->noproto || ft->variadic) {
             if (ty_is_agg(a->ty) && !ty_unqual(a->ty)->complete) kerr_tok(at, "passing incomplete type");
             if (ty_is_int(a->ty)) a = new_cast(a, ty_promote(a->ty), at);
+            else if (a->ty->k == TY_FLOAT) a = new_cast(a, &ty_double, at);       /* аргумент без прототипа/вариадический: float -> double */
         } else kerr_tok(at, "too many arguments to function call, expected %d, have more", n);
         cur->next = a; cur = a;
         n++;
@@ -1192,6 +1236,7 @@ static Node *va_builtin(const Token *t, const char *nm, int l) {
         Type *ty = typename();
         expect(")");
         if (!ty_is_scalar(ty)) unsupported(t, "va_arg of a struct/union type");
+        if (ty->k == TY_FLOAT) kerr_tok(t, "second argument to 'va_arg' is of promotable type 'float'; use 'double'");
         Node *n = new_node(ND_VAARG, t);
         n->lhs = va_ptr(ap, t); n->ty = ty_unqual(ty);
         return n;
@@ -1415,6 +1460,7 @@ static Node *primary(void) {
     }
     if (tok->k == TK_NUM || tok->k == TK_CHR) {
         tok = tok->next;
+        if (ty_is_float(t->ty)) return new_fnum((uint64_t)t->ival, t->ty, t);
         return new_num(t->ival, t->ty, t);
     }
     if (tok->k == TK_STR) {
@@ -1431,6 +1477,19 @@ static Node *primary(void) {
                 return new_cast(a, &ty_long, t);
             }
             if (l == 8 && !memcmp(nm, "offsetof", 8)) return offsetof_expr(t);
+            if ((l == 4 || (l == 5 && nm[4] == 'f')) && (!memcmp(nm, "sqrt", 4) || !memcmp(nm, "fabs", 4))) {
+                if (kcc_nosse) unsupported(t, "__builtin_sqrt/__builtin_fabs (-mno-sse build)");
+                int isf = l == 5;
+                expect("(");
+                Node *a = rv(assign());
+                expect(")");
+                if (!ty_is_arith(a->ty)) kerr_tok(t, "invalid argument type '%s' to '%.*s'", ty_name(a->ty), t->len, t->s);
+                Type *ft = isf ? &ty_float : &ty_double;
+                Node *n = new_node(ND_FP1, t);
+                n->lhs = new_cast(a, ft, t); n->op = nm[0] == 's' ? FN_SQRT : FN_ABS; n->ty = ft;
+                if (n->op == FN_ABS && n->lhs->k == ND_FNUM) return new_fnum((uint64_t)n->lhs->val & ~(1ULL << (ft->size * 8 - 1)), ft, t);
+                return n;
+            }
             if (l == 14 && !memcmp(nm, "return_address", 14)) {
                 expect("(");
                 Node *a0 = rv(assign()); expect(")");
@@ -1500,12 +1559,18 @@ static Node *unary_(void) {
     const Token *t = tok;
     if (eat("+")) {
         Node *e = rv(cast_expr());
-        if (!ty_is_int(e->ty)) kerr_tok(t, "invalid argument type '%s' to unary expression", ty_name(e->ty));
+        if (!ty_is_arith(e->ty)) kerr_tok(t, "invalid argument type '%s' to unary expression", ty_name(e->ty));
         return new_cast(e, ty_promote(e->ty), t);
     }
     if (eat("-")) {
         Node *e = rv(cast_expr());
-        if (!ty_is_int(e->ty)) kerr_tok(t, "invalid argument type '%s' to unary expression", ty_name(e->ty));
+        if (!ty_is_arith(e->ty)) kerr_tok(t, "invalid argument type '%s' to unary expression", ty_name(e->ty));
+        if (ty_is_float(e->ty)) {
+            if (e->k == ND_FNUM) return new_fnum(sf_neg((uint64_t)e->val, e->ty->size), e->ty, t);
+            Node *n = new_node(ND_NEG, t);
+            n->lhs = e; n->ty = e->ty;
+            return n;
+        }
         Type *pt = ty_promote(e->ty);
         e = new_cast(e, pt, t);
         if (e->k == ND_NUM) return new_num(trunc_ty((int64_t)(0 - (uint64_t)e->val), pt), pt, t);
@@ -1624,7 +1689,7 @@ static Node *make_cond(Node *c, Node *a, Node *b, const Token *t) {
     c = to_cond(c, t); a = rv(a); b = rv(b);
     Type *ct;
     if (a->ty->k == TY_VOID && b->ty->k == TY_VOID) ct = &ty_void;
-    else if (ty_is_int(a->ty) && ty_is_int(b->ty)) {
+    else if (ty_is_arith(a->ty) && ty_is_arith(b->ty)) {
         ct = ty_common(a->ty, b->ty);
         a = new_cast(a, ct, t); b = new_cast(b, ct, t);
     } else if (a->ty->k == TY_PTR && b->ty->k == TY_PTR) {
@@ -1652,13 +1717,14 @@ static Node *cond_expr_(void) {
         Node *b = cond_expr();
         c = rv(c); b = rv(b);
         Type *ct;
-        if (ty_is_int(c->ty) && ty_is_int(b->ty)) ct = ty_common(c->ty, b->ty);
+        if (ty_is_arith(c->ty) && ty_is_arith(b->ty)) ct = ty_common(c->ty, b->ty);
         else if (c->ty->k == TY_PTR && b->ty->k == TY_PTR) ct = c->ty->base->k == TY_VOID ? b->ty : c->ty;
         else if (c->ty->k == TY_PTR && ty_is_int(b->ty) && b->k == ND_NUM && b->val == 0) ct = c->ty;
         else if (b->ty->k == TY_PTR && ty_is_int(c->ty) && c->k == ND_NUM && c->val == 0) ct = b->ty;
         else kerr_tok(t, "incompatible operand types ('%s' and '%s') in '?:'", ty_name(c->ty), ty_name(b->ty));
         c = new_cast(c, ct, t); b = new_cast(b, ct, t);
         if (c->k == ND_NUM) return c->val ? c : b;
+        if (c->k == ND_FNUM) return sf_cmp((uint64_t)c->val, 0, c->ty->size) != 0 ? c : b;
         Node *n = new_node(ND_COND, t);
         n->c = c; n->e = b; n->ty = ct;             /* t == NULL: значением служит само условие */
         return n;
@@ -2051,6 +2117,11 @@ static void write_data(Init *in, Type *ty, unsigned char *buf, int off, Obj *o, 
     }
     if (!in->expr) return;
     Node *e = conv_assign(in->expr, ty, t, "initializing");
+    if (ty_is_float(ty)) {
+        if (e->k != ND_FNUM) kerr_tok(t, "initializer element is not a compile-time constant");
+        put_le(buf + off, e->val, ty->size);
+        return;
+    }
     const char *sym;
     int64_t v = eval_addr(e, &sym, t);
     if (sym) {
@@ -2186,7 +2257,7 @@ static Node *asm_stmt(void) {
                 if (!ok) kerr_tok(ct, "asm %s constraint '%.*s' does not fit template '%s'", sect == 1 ? "output" : "input", ct->slen, ct->str, tmpl);
                 if (sect == 1) {
                     if (!is_lval(e)) kerr_tok(ct, "asm output operand must be an lvalue");
-                    if (!ty_is_scalar(e->ty)) kerr_tok(ct, "asm output operand must be scalar");
+                    if (!ty_is_scalar(e->ty) || ty_is_float(e->ty)) kerr_tok(ct, "asm output operand must be an integer or pointer");
                     Node *cp = ka_new(sizeof *cp);
                     *cp = *e;
                     cp->next = NULL;
@@ -2195,7 +2266,7 @@ static Node *asm_stmt(void) {
                 } else {
                     if (str_is(ct, "m")) e = new_addr(e, ct);
                     e = rv(e);
-                    if (!ty_is_scalar(e->ty)) kerr_tok(ct, "asm input operand must be scalar");
+                    if (!ty_is_scalar(e->ty) || ty_is_float(e->ty)) kerr_tok(ct, "asm input operand must be an integer or pointer");
                     ic->next = e; ic = e; n->nai++;
                 }
             }

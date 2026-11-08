@@ -38,6 +38,26 @@ static int E_ext(int a, int w, int sgn) {
     i->a = a; i->w = w; i->sgn = sgn; i->dst = newreg();
     return i->dst;
 }
+static int E_fbin(int sub, int a, int b, int w) {
+    Ins *i = emit(IR_FBIN);
+    i->sub = sub; i->a = a; i->b = b; i->w = w; i->dst = newreg();
+    return i->dst;
+}
+static int E_fun(int sub, int a, int w) {
+    Ins *i = emit(IR_FUN);
+    i->sub = sub; i->a = a; i->w = w; i->dst = newreg();
+    return i->dst;
+}
+static int E_fcmp(int sub, int a, int b, int w) {
+    Ins *i = emit(IR_FCMP);
+    i->sub = sub; i->a = a; i->b = b; i->w = w; i->dst = newreg();
+    return i->dst;
+}
+static int E_fcvt(int sub, int a, int w, int sgn) {
+    Ins *i = emit(IR_FCVT);
+    i->sub = sub; i->a = a; i->w = w; i->sgn = sgn; i->dst = newreg();
+    return i->dst;
+}
 static void E_br(IrOp op, int reg, int lab) { Ins *i = emit(op); i->a = reg; i->imm = lab; }
 static void E_mov(int dst, int src) { Ins *i = emit(IR_MOV); i->dst = dst; i->a = src; }
 static int E_load(int addr, int w, int sgn, int vol) {
@@ -87,8 +107,22 @@ static void agg_ok(const Type *t, const Token *tok) {
 static int is_agg_like(const Type *t) { return t->k == TY_ARRAY || t->k == TY_STRUCT || t->k == TY_UNION || t->k == TY_FUNC; }
 
 /* преобразование целого/указателя из типа from в тип to */
+static int convert(int v, Type *from, Type *to);
+/* логическое значение v типа t: 0/1 (для вещественных - x != 0.0, у NaN истина) */
+static int truth(int v, Type *t) {
+    if (ty_is_float(t)) return E_fcmp(ND_NE, v, E_const(0), t->size);
+    return v;
+}
 static int convert(int v, Type *from, Type *to) {
     if (to->k == TY_VOID) return v;
+    if (ty_is_float(from) || ty_is_float(to)) {
+        if (to->k == TY_BOOL) return E_fcmp(ND_NE, v, E_const(0), from->size);       /* (_Bool)NaN == 1 */
+        if (ty_is_float(from) && ty_is_float(to))
+            return from->size == to->size ? v : E_fcvt(from->size == 4 ? FC_F2D : FC_D2F, v, to->size, 1);
+        if (ty_is_float(to)) return E_fcvt(FC_I2F, v, to->size, from->is_unsigned && from->size == 8 ? 0 : 1);
+        int r = E_fcvt(FC_F2I, v, from->size, to->is_unsigned && to->size == 8 ? 0 : 1);
+        return convert(r, to->is_unsigned && to->size == 8 ? &ty_ulong : &ty_long, to);
+    }
     if (to->k == TY_BOOL) {
         if (from->k == TY_BOOL) return v;
         return E_cmp(ND_NE, v, E_const(0), 1);
@@ -102,7 +136,7 @@ static int convert(int v, Type *from, Type *to) {
 }
 
 static int load_scalar(int addr, Type *t) {
-    int sg = !t->is_unsigned && t->k != TY_PTR && t->k != TY_BOOL;
+    int sg = !t->is_unsigned && t->k != TY_PTR && t->k != TY_BOOL && !ty_is_float(t);
     return E_load(addr, t->size, sg, t->is_volatile);
 }
 
@@ -166,6 +200,7 @@ static int gen_incdec_value(int cur, Type *t, Node *n, int delta_reg, int dir) {
     (void)n;
     int sub = dir > 0 ? ND_ADD : ND_SUB;
     if (t->k == TY_PTR) return E_bin(sub, cur, delta_reg, 8, 0);
+    if (ty_is_float(t)) return E_fbin(sub, cur, E_const((int64_t)sf_from_int(1, 0, t->size)), t->size);
     Type *pt = ty_promote(t);
     int r = E_bin(sub, cur, E_const(1), pt->size, !pt->is_unsigned);
     return convert(r, pt, t);
@@ -174,7 +209,7 @@ static int gen_incdec_value(int cur, Type *t, Node *n, int delta_reg, int dir) {
 static int gen_expr(Node *n) {
     Type *t = n->ty;
     switch (n->k) {
-    case ND_NUM: return E_const(n->val);
+    case ND_NUM: case ND_FNUM: return E_const(n->val);
     case ND_VAR:
         if (is_agg_like(t)) return gen_addr(n);
         return load_scalar(gen_addr(n), t);
@@ -195,14 +230,17 @@ static int gen_expr(Node *n) {
     }
     case ND_ADD: case ND_SUB: case ND_MUL: case ND_DIV: case ND_MOD: case ND_AND: case ND_OR: case ND_XOR: case ND_SHL: case ND_SHR: {
         int a = gen_expr(n->lhs), b = gen_expr(n->rhs);
+        if (ty_is_float(t)) return E_fbin(n->k, a, b, t->size);
         int w = t->k == TY_PTR ? 8 : t->size;
         return E_bin(n->k, a, b, w, !t->is_unsigned && t->k != TY_PTR);
     }
     case ND_EQ: case ND_NE: case ND_LT: case ND_LE: {
         int a = gen_expr(n->lhs), b = gen_expr(n->rhs);
+        if (ty_is_float(n->lhs->ty)) return E_fcmp(n->k, a, b, n->lhs->ty->size);
         return E_cmp(n->k, a, b, !n->lhs->ty->is_unsigned && n->lhs->ty->k != TY_PTR);
     }
-    case ND_NEG: { int a = gen_expr(n->lhs); Ins *i = emit(IR_NEG); i->a = a; i->w = t->size; i->sgn = !t->is_unsigned; i->dst = newreg(); return i->dst; }
+    case ND_FP1: { int a = gen_expr(n->lhs); return E_fun(n->op, a, t->size); }
+    case ND_NEG: { int a = gen_expr(n->lhs); if (ty_is_float(t)) return E_fun(FN_NEG, a, t->size); Ins *i = emit(IR_NEG); i->a = a; i->w = t->size; i->sgn = !t->is_unsigned; i->dst = newreg(); return i->dst; }
     case ND_BITNOT: { int a = gen_expr(n->lhs); Ins *i = emit(IR_NOT); i->a = a; i->w = t->size; i->sgn = !t->is_unsigned; i->dst = newreg(); return i->dst; }
     case ND_NOT: { int a = gen_expr(n->lhs); int z = E_const(0); return E_cmp(ND_EQ, a, z, 1); }
     case ND_LOGAND: case ND_LOGOR: {
@@ -223,7 +261,7 @@ static int gen_expr(Node *n) {
         int c = gen_expr(n->c);
         if (!n->t) {                                /* a ?: b */
             E_mov(r, c);
-            E_br(IR_BRNZ, c, l_end);
+            E_br(IR_BRNZ, truth(c, n->c->ty), l_end);
             E_mov(r, gen_expr(n->e));
             E_label(l_end);
             return r;
@@ -266,7 +304,7 @@ static int gen_expr(Node *n) {
         if (l->ty->k == TY_PTR) res = E_bin(n->op, cur, b, 8, 0);
         else {
             int c2 = convert(cur, l->ty, oty);
-            int r2 = E_bin(n->op, c2, b, oty->size, !oty->is_unsigned);
+            int r2 = ty_is_float(oty) ? E_fbin(n->op, c2, b, oty->size) : E_bin(n->op, c2, b, oty->size, !oty->is_unsigned);
             res = convert(r2, oty, l->ty);
         }
         if (bf) return bf_put(a, l->mem, res);
@@ -291,9 +329,14 @@ static int gen_expr(Node *n) {
         int nargs = 0;
         for (Node *x = n->args; x; x = x->next) nargs++;
         int *regs = ka_new(sizeof(int) * (size_t)(nargs + 1)), *asz = ka_new(sizeof(int) * (size_t)(nargs + 1));
+        unsigned char *afp = NULL;
         int k = 0;
         for (Node *x = n->args; x; x = x->next) {
             regs[k] = gen_expr(x);
+            if (ty_is_float(x->ty)) {
+                if (!afp) afp = ka_new((size_t)nargs + 1);
+                afp[k] = (unsigned char)x->ty->size;
+            }
             if (ty_is_agg(x->ty)) {
                 agg_ok(x->ty, x->tok);
                 int sz = ty_unqual(x->ty)->size;
@@ -315,7 +358,7 @@ static int gen_expr(Node *n) {
         if (ty_is_agg(t)) rt = new_temp(ty_unqual(t));
         Ins *i = emit(IR_CALL);
         if (direct) i->sym = f->lhs->var->name; else i->a = fr;
-        i->args = regs; i->nargs = nargs; i->asz = asz;
+        i->args = regs; i->nargs = nargs; i->asz = asz; i->afp = afp;
         i->nout = (int)(ft->variadic || ft->noproto);
         if (ty_is_agg(t)) {
             agg_ok(t, n->tok);
@@ -325,7 +368,8 @@ static int gen_expr(Node *n) {
             return rt;
         }
         i->w = t->k == TY_VOID ? 0 : t->size;
-        i->sgn = !t->is_unsigned && t->k != TY_PTR;
+        i->sgn = !t->is_unsigned && t->k != TY_PTR && !ty_is_float(t);
+        i->fp = ty_is_float(t) ? t->size : 0;
         i->dst = t->k == TY_VOID ? -1 : newreg();
         return i->dst;
     }
@@ -383,7 +427,12 @@ static void gen_vastart(int ap) {
     int ngrn = vainfo(2);
     if (!is_a64()) {                                /* x86-64: gp_offset, fp_offset, overflow_arg_area, reg_save_area */
         st_at(ap, 0, E_bin(ND_MUL, ngrn, E_const(8), 8, 0), 4);
-        st_at(ap, 4, E_const(176), 4);
+        if (kcc_nosse) st_at(ap, 4, E_const(176), 4);              /* без SSE xmm не сохраняются: fp_offset сразу за областью */
+        else {                                                      /* fp_offset = 48 + 16 * (xmm, занятых именованными параметрами) */
+            int nx = vainfo(4);
+            int nx16 = E_bin(ND_MUL, nx, E_const(16), 8, 0);
+            st_at(ap, 4, E_bin(ND_ADD, nx16, E_const(48), 8, 0), 4);
+        }
         st_at(ap, 8, vainfo(1), 8);
         st_at(ap, 16, vainfo(0), 8);
     } else {                                        /* AAPCS64: stack, gr_top, vr_top, gr_offs, vr_offs */
@@ -391,19 +440,47 @@ static void gen_vastart(int ap) {
         int vi = vainfo(0);
         int c64 = E_const(64);
         st_at(ap, 8, E_bin(ND_ADD, vi, c64, 8, 0), 8);
-        st_at(ap, 16, E_const(0), 8);
+        if (kcc_nosse) st_at(ap, 16, E_const(0), 8);
+        else {                                                      /* области: x0-x7 (64 байта), затем q0-q7 (128 байт); vr_top - за концом q7 */
+            int vi2 = vainfo(0);
+            int c192 = E_const(192);
+            st_at(ap, 16, E_bin(ND_ADD, vi2, c192, 8, 0), 8);
+        }
         int c8 = E_const(8);
         int goff = E_bin(ND_MUL, ngrn, c8, 8, 0);
         int c64b = E_const(64);
         st_at(ap, 24, E_bin(ND_SUB, goff, c64b, 8, 1), 4);
-        st_at(ap, 28, E_const(0), 4);
+        if (kcc_nosse) st_at(ap, 28, E_const(0), 4);
+        else {                                                      /* vr_offs = -(128 - 16 * именованные векторные регистры) */
+            int nv = vainfo(4);
+            int nv16 = E_bin(ND_MUL, nv, E_const(16), 8, 0);
+            st_at(ap, 28, E_bin(ND_SUB, nv16, E_const(128), 8, 1), 4);
+        }
     }
 }
 
 static int gen_vaarg(int ap, Type *t) {
     int r = newreg(), l_stk = newlab(), l_end = newlab();
     int stk_off = is_a64() ? 0 : 8;
-    if (!is_a64()) {
+    if (ty_is_float(t)) {                                           /* double: регистровая область xmm (x86-64) либо q-регистров (AArch64), затем стек */
+        if (!is_a64()) {
+            int fo = E_load(add_const(ap, 4), 4, 0, 0);
+            int lim = E_const(176);
+            E_br(IR_BRZ, E_cmp(ND_LT, fo, lim, 0), l_stk);
+            int base = E_load(add_const(ap, 16), 8, 0, 0);
+            E_mov(r, E_bin(ND_ADD, base, fo, 8, 0));
+            int c16 = E_const(16);
+            st_at(ap, 4, E_bin(ND_ADD, fo, c16, 4, 0), 4);
+        } else {
+            int off = E_load(add_const(ap, 28), 4, 1, 0);
+            int z = E_const(0);
+            E_br(IR_BRZ, E_cmp(ND_LT, off, z, 1), l_stk);
+            int top = E_load(add_const(ap, 16), 8, 0, 0);
+            E_mov(r, E_bin(ND_ADD, top, off, 8, 1));
+            int c16 = E_const(16);
+            st_at(ap, 28, E_bin(ND_ADD, off, c16, 4, 1), 4);
+        }
+    } else if (!is_a64()) {
         int gp = E_load(ap, 4, 0, 0);
         E_br(IR_BRZ, E_cmp(ND_LT, gp, E_const(48), 0), l_stk);
         int base = E_load(add_const(ap, 16), 8, 0, 0);
@@ -541,6 +618,7 @@ static void gen_stmt(Node *n) {
         Ins *i = emit(IR_RET);
         i->a = v; i->w = w;
         if (v > 0 && ty_is_agg(n->lhs->ty)) i->sub = 1;
+        if (v > 0 && ty_is_float(n->lhs->ty)) i->fp = n->lhs->ty->size;
         break;
     }
     default:
@@ -567,7 +645,7 @@ static void print_ins(const Ins *i) {
     case IR_LADDR: sb_printf(out, "  %%%d = laddr slot%lld\n", i->dst, (long long)i->imm); break;
     case IR_PARAM:
         if (i->sub) sb_printf(out, "  param.agg %lld size=%d into [%%%d]\n", (long long)i->imm, i->w, i->a);
-        else sb_printf(out, "  %%%d = param %lld\n", i->dst, (long long)i->imm);
+        else sb_printf(out, "  %%%d = param %lld%s\n", i->dst, (long long)i->imm, i->fp ? (i->fp == 4 ? " float" : " double") : "");
         break;
     case IR_LOAD: sb_printf(out, "  %%%d = load%s.%d%s [%%%d]\n", i->dst, i->vol ? ".v" : "", i->w, sg, i->a); break;
     case IR_STORE: sb_printf(out, "  store%s.%d [%%%d], %%%d\n", i->vol ? ".v" : "", i->w, i->a, i->b); break;
@@ -588,6 +666,8 @@ static void print_ins(const Ins *i) {
         sb_printf(out, ")%s ret=%d%s", i->nout ? " varargs" : "", i->w, i->w ? sg : "");
         if (i->rsz) sb_printf(out, " retagg=%d into [%%%d]", i->rsz, i->rt);
         for (int k = 0; k < i->nargs; k++) if (i->asz && i->asz[k]) sb_printf(out, " arg%d=agg%d", k, i->asz[k]);
+        if (i->fp) sb_printf(out, " fret=%d", i->fp);
+        for (int k = 0; k < i->nargs; k++) if (i->afp && i->afp[k]) sb_printf(out, " farg%d=%d", k, i->afp[k]);
         sb_printf(out, "\n");
         break;
     case IR_RET:
@@ -613,6 +693,14 @@ static void print_ins(const Ins *i) {
         break;
     }
     case IR_VAINFO: sb_printf(out, "  %%%d = vainfo %d\n", i->dst, i->sub); break;
+    case IR_FBIN: sb_printf(out, "  %%%d = f%s.%d %%%d, %%%d\n", i->dst, opname(i->sub), i->w, i->a, i->b); break;
+    case IR_FUN: sb_printf(out, "  %%%d = f%s.%d %%%d\n", i->dst, i->sub == FN_NEG ? "neg" : i->sub == FN_SQRT ? "sqrt" : "abs", i->w, i->a); break;
+    case IR_FCMP: sb_printf(out, "  %%%d = fcmp.%s.%d %%%d, %%%d\n", i->dst, opname(i->sub), i->w, i->a, i->b); break;
+    case IR_FCVT:
+        if (i->sub == FC_I2F) sb_printf(out, "  %%%d = i2f.%d%s %%%d\n", i->dst, i->w, i->sgn ? "s" : "u", i->a);
+        else if (i->sub == FC_F2I) sb_printf(out, "  %%%d = f2i.%d%s %%%d\n", i->dst, i->w, i->sgn ? "s" : "u", i->a);
+        else sb_printf(out, "  %%%d = %s %%%d\n", i->dst, i->sub == FC_F2D ? "f2d" : "d2f", i->a);
+        break;
     }
 }
 
@@ -634,6 +722,7 @@ IrFn *ir_lower(Obj *f) {
         }
         Ins *i = emit(IR_PARAM);
         i->dst = newreg(); i->imm = idx;
+        if (ty_is_float(p->ty)) i->fp = p->ty->size;
         Ins *a = emit(IR_LADDR);
         a->dst = newreg(); a->imm = p->slot;
         E_store(a->dst, i->dst, p->ty->size, 0);

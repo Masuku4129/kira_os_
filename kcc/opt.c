@@ -19,7 +19,8 @@ static void op_walk(Ins *i, OpVisit fn, void *ctx) {
     case IR_ATOMIC: fn(i, &i->a, 0, ctx); fn(i, &i->b, 0, ctx); fn(i, &i->c, 0, ctx); fn(i, &i->dst, 1, ctx); break;
     case IR_LOAD: case IR_MOV: case IR_NEG: case IR_NOT: case IR_EXT: fn(i, &i->a, 0, ctx); fn(i, &i->dst, 1, ctx); break;
     case IR_STORE: case IR_COPY: fn(i, &i->a, 0, ctx); fn(i, &i->b, 0, ctx); break;
-    case IR_BIN: case IR_CMP: fn(i, &i->a, 0, ctx); fn(i, &i->b, 0, ctx); fn(i, &i->dst, 1, ctx); break;
+    case IR_BIN: case IR_CMP: case IR_FBIN: case IR_FCMP: fn(i, &i->a, 0, ctx); fn(i, &i->b, 0, ctx); fn(i, &i->dst, 1, ctx); break;
+    case IR_FUN: case IR_FCVT: fn(i, &i->a, 0, ctx); fn(i, &i->dst, 1, ctx); break;
     case IR_BRZ: case IR_BRNZ: case IR_ZERO: case IR_RET: fn(i, &i->a, 0, ctx); break;
     case IR_CALL:
         if (!i->sym) fn(i, &i->a, 0, ctx);
@@ -73,8 +74,10 @@ static void op_slotuse(Ins *i, int *r, int kind, void *c) {
 static int op_norm_ok(const Ins *d, int w, int sgn) {
     if (!d) return 0;
     switch (d->op) {
-    case IR_CMP: return 1;
+    case IR_CMP: case IR_FCMP: return 1;
     case IR_BIN: case IR_NEG: case IR_NOT: case IR_LOAD: case IR_EXT: return d->w == w && d->sgn == sgn;
+    case IR_FBIN: case IR_FUN: return d->w == w && !sgn;                    /* результат вещественной операции: ровно w байт, верх нулевой при переносе в целый регистр */
+    case IR_FCVT: return d->sub != FC_F2I && d->w == w && !sgn;
     case IR_CONST: {
         int64_t v = d->imm;
         int b = w * 8;
@@ -739,7 +742,8 @@ static Ins **op_invert(IrFn *fi, Ins **a, int *pn, int *pnv, unsigned char *mdef
                 const Ins *x = a[q];
                 if (x->op == IR_BRZ || x->op == IR_BRNZ) { h = q; break; }
                 if (!(x->op == IR_CONST || x->op == IR_GADDR || x->op == IR_LADDR || x->op == IR_MOV || x->op == IR_BIN || x->op == IR_NEG ||
-                      x->op == IR_NOT || x->op == IR_EXT || x->op == IR_CMP || (x->op == IR_LOAD && !x->vol))) { ok = 0; break; }
+                      x->op == IR_NOT || x->op == IR_EXT || x->op == IR_CMP || x->op == IR_FCMP || x->op == IR_FBIN || x->op == IR_FUN ||
+                      x->op == IR_FCVT || (x->op == IR_LOAD && !x->vol))) { ok = 0; break; }
             }
             if (!ok || h < 0 || h + 1 >= ek || a[h]->imm < 0 || a[h]->imm > fi->nlab) continue;
             int tp = -1;
@@ -843,9 +847,9 @@ void ir_optimize(IrFn *fi) {
             if (l->slot < 0 || l->slot >= ns || !l->ty) continue;
             const Type *t = ty_unqual(l->ty);
             int scalar = t->k == TY_BOOL || t->k == TY_CHAR || t->k == TY_SHORT || t->k == TY_INT || t->k == TY_LONG ||
-                         t->k == TY_LLONG || t->k == TY_ENUM || t->k == TY_PTR;
+                         t->k == TY_LLONG || t->k == TY_ENUM || t->k == TY_PTR || t->k == TY_FLOAT || t->k == TY_DOUBLE;
             sz[l->slot] = t->size;
-            expsgn[l->slot] = (unsigned char)!(t->is_unsigned || t->k == TY_BOOL);
+            expsgn[l->slot] = (unsigned char)!(t->is_unsigned || t->k == TY_BOOL || t->k == TY_FLOAT || t->k == TY_DOUBLE);   /* вещественные грузятся без знака */
             ok[l->slot] = (unsigned char)(scalar && !l->ty->is_volatile && !t->is_volatile && (t->size == 1 || t->size == 2 || t->size == 4 || t->size == 8));
         }
         /* LADDR с несколькими определениями или чужими использованиями делает слот непродвигаемым */
@@ -916,7 +920,8 @@ void ir_optimize(IrFn *fi) {
                 Ins *p = a[prev];
                 int x = i->a;
                 if (p->dst == x && c2.ndef[x] == 1 && c2.nuse[x] == 1 &&
-                    (p->op == IR_BIN || p->op == IR_NEG || p->op == IR_NOT || p->op == IR_CMP || p->op == IR_LOAD || p->op == IR_EXT || p->op == IR_CONST)) {
+                    (p->op == IR_BIN || p->op == IR_NEG || p->op == IR_NOT || p->op == IR_CMP || p->op == IR_LOAD || p->op == IR_EXT || p->op == IR_CONST ||
+                     p->op == IR_FBIN || p->op == IR_FUN || p->op == IR_FCVT)) {
                     p->dst = i->dst;
                     a[k] = NULL;
                     continue;
@@ -999,7 +1004,8 @@ void ir_optimize(IrFn *fi) {
     for (int k = 0; k + 1 < n; k++) {
         Ins *p = a[k], *q = a[k + 1];
         if (!p || !q || q->op != IR_MOV || p->dst <= 0 || p->dst > nvt || q->a != p->dst || q->dst == p->dst) continue;
-        if (p->op != IR_BIN && p->op != IR_CMP && p->op != IR_EXT && p->op != IR_NEG && p->op != IR_NOT) continue;
+        if (p->op != IR_BIN && p->op != IR_CMP && p->op != IR_EXT && p->op != IR_NEG && p->op != IR_NOT && p->op != IR_FBIN && p->op != IR_FUN &&
+            p->op != IR_FCVT) continue;
         if (c2.ndef[p->dst] != 1 || c2.nuse[p->dst] != 1) continue;
         p->dst = q->dst;
         a[k + 1] = NULL;
@@ -1096,7 +1102,7 @@ void ir_inline(Obj *caller) {
             Ins *n = ka_new(sizeof(Ins));
             *n = *i;
             if (i->op == IR_PARAM) {
-                n->op = IR_MOV; n->a = c->args[i->imm]; n->b = 0; n->sub = 0; n->imm = 0;
+                n->op = IR_MOV; n->a = c->args[i->imm]; n->b = 0; n->sub = 0; n->imm = 0; n->fp = 0;
                 n->dst = i->dst > 0 ? i->dst + vbase : 0;
                 INL_PUSH(n);
                 continue;

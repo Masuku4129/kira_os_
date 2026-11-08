@@ -15,6 +15,9 @@ Type ty_ulong = { .k = TY_LONG, .size = 8, .align = 8, .is_unsigned = 1, .comple
 Type ty_llong = { .k = TY_LLONG, .size = 8, .align = 8, .complete = 1 };
 Type ty_ullong = { .k = TY_LLONG, .size = 8, .align = 8, .is_unsigned = 1, .complete = 1 };
 
+Type ty_float = { .k = TY_FLOAT, .size = 4, .align = 4, .complete = 1 };
+Type ty_double = { .k = TY_DOUBLE, .size = 8, .align = 8, .complete = 1 };
+
 Type *ty_new(TyKind k, int size, int align) {
     Type *t = ka_new(sizeof *t);
     t->k = k; t->size = size; t->align = align;
@@ -60,7 +63,9 @@ int ty_is_int(const Type *t) {
     default: return 0;
     }
 }
-int ty_is_scalar(const Type *t) { return ty_is_int(t) || t->k == TY_PTR; }
+int ty_is_float(const Type *t) { return t->k == TY_FLOAT || t->k == TY_DOUBLE; }
+int ty_is_arith(const Type *t) { return ty_is_int(t) || ty_is_float(t); }
+int ty_is_scalar(const Type *t) { return ty_is_arith(t) || t->k == TY_PTR; }
 int ty_is_agg(const Type *t) { return t->k == TY_STRUCT || t->k == TY_UNION; }
 int ty_bits(const Type *t) { return t->size * 8; }
 
@@ -86,6 +91,7 @@ Type *ty_promote(Type *t) {
 static int rank(const Type *t) { return t->k == TY_LLONG ? 3 : t->k == TY_LONG ? 2 : 1; }
 
 Type *ty_common(Type *a, Type *b) {
+    if (ty_is_float(a) || ty_is_float(b)) return a->k == TY_DOUBLE || b->k == TY_DOUBLE ? &ty_double : &ty_float;   /* C99 6.3.1.8: long double нет */
     a = ty_promote(a); b = ty_promote(b);
     if (a->size != b->size) return a->size > b->size ? a : b;
     if (a->is_unsigned == b->is_unsigned) return rank(a) >= rank(b) ? a : b;
@@ -130,6 +136,8 @@ const char *ty_name(const Type *t) {
     case TY_INT: return kfmt("%s%sint", q, t->is_unsigned ? "unsigned " : "");
     case TY_LONG: return kfmt("%s%slong", q, t->is_unsigned ? "unsigned " : "");
     case TY_LLONG: return kfmt("%s%slong long", q, t->is_unsigned ? "unsigned " : "");
+    case TY_FLOAT: return kfmt("%sfloat", q);
+    case TY_DOUBLE: return kfmt("%sdouble", q);
     case TY_ENUM: return kfmt("%senum %s", q, ty_unqual((Type *)t)->tag ? ty_unqual((Type *)t)->tag : "<anonymous>");
     case TY_PTR: return kfmt("%s *", ty_name(t->base));
     case TY_ARRAY: return t->alen >= 0 ? kfmt("%s[%lld]", ty_name(t->base), (long long)t->alen) : kfmt("%s[]", ty_name(t->base));

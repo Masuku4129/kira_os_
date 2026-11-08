@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "-fno-lvn")) kcc_nolvn = 1;
         else if (!strcmp(a, "-S-oir")) { ir = 1; kcc_dumpopt = 1; }
         else if (!strcmp(a, "-c")) kcc_obj = 1;
+        else if (!strcmp(a, "-mno-sse")) kcc_nosse = 1;
         else if (!strcmp(a, "-O0")) kcc_noopt = 1;
         else if (!strcmp(a, "-O1")) kcc_noopt = 0;
         else if (!strcmp(a, "-o") && i + 1 < argc) outp = argv[++i];
@@ -43,7 +44,7 @@ int main(int argc, char **argv) {
         else if (!in) in = a;
         else { fprintf(stderr, "kcc: only one input file is supported at this stage\n"); return 2; }
     }
-    if (!in) { fprintf(stderr, "usage: kcc [-I dir] [-D n[=v]] [-S-ir] -o out file.c\n"); return 2; }
+    if (!in) { fprintf(stderr, "usage: kcc [-I dir] [-D n[=v]] [-mno-sse] [-S-ir] -o out file.c\n"); return 2; }
     if (!ir && !outp) { fprintf(stderr, "kcc: no output: use -o file (ELF) or -S-ir\n"); return 2; }
     size_t memsz = (size_t)512 << 20;
     void *mem = malloc(memsz);
