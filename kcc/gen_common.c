@@ -57,7 +57,11 @@ Obj *gen_prepare(Obj *globals) {
     htab = ka_new(sizeof(Obj *) * hcap);
     for (Obj *g = globals; g; g = g->next) hput(g);
     for (Obj *g = globals; g; g = g->next)
-        if (g->is_func && g->body) { g->ir = ir_lower(g); if (!kcc_noopt) ir_optimize((IrFn *)g->ir); }
+        if (g->is_func && g->body) g->ir = ir_lower(g);
+    if (!kcc_noopt) {
+        for (Obj *g = globals; g; g = g->next) if (g->is_func && g->body) ir_inline(g);
+        for (Obj *g = globals; g; g = g->next) if (g->is_func && g->body) ir_optimize((IrFn *)g->ir);
+    }
     work = ka_new(sizeof(Obj *) * (size_t)(ng + 1));
     nwork = 0;
     Obj *mainf = gen_lookup("main");

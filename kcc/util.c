@@ -6,6 +6,9 @@
 
 KCtx K;
 
+size_t ka_mark(void) { return K.aused; }
+/* Сброс арены к метке: всё выделенное после ka_mark освобождается (ka_new обнуляет при выдаче, поэтому повторное использование безопасно). */
+void ka_release(size_t mark) { if (mark <= K.aused) K.aused = mark; }
 void *ka_new(size_t n) {
     if (n > ((size_t)1 << 40)) n = (size_t)1 << 40;            /* заведомо больше любой арены: уйдёт в отказ ниже */
     n = (n + 7) & ~(size_t)7;

@@ -44,6 +44,8 @@ typedef struct {
 } KCtx;
 extern KCtx K;
 
+size_t ka_mark(void);                         /* метка арены для ka_release */
+void ka_release(size_t mark);                 /* освободить всё выделенное после метки (только временные данные!) */
 void *ka_new(size_t n);                      /* обнулённая память арены, выравнивание 8 */
 char *ka_strdup(const char *s, size_t n);
 void kerr(const char *file, int line, const char *fmt, ...) __attribute__((noreturn, format(printf, 3, 4)));
@@ -160,6 +162,10 @@ struct Ins {
 typedef struct { Obj *f; Ins *head; int nreg, nlab; unsigned char *mdef; } IrFn;   /* mdef[v]: vreg переменной с несколькими определениями (ir_optimize) */
 extern int kcc_noopt;                        /* gen_common.c */
 void ir_usecount(IrFn *fi, int *ndef, int *nuse, Ins **defins);
+Obj *gen_lookup(const char *name);           /* gen_common.c */
+typedef void (*OpVisit)(Ins *i, int *r, int kind, void *ctx);   /* kind: 0 - чтение vreg, 1 - запись, 2 - выход asm */
+void ir_walk(Ins *i, OpVisit fn, void *ctx);   /* opt.c: обход всех vreg-операндов инструкции */
+void ir_inline(Obj *caller);                 /* opt.c: встраивание малых функций (до ir_optimize) */
 void ir_optimize(IrFn *fi);                  /* opt.c: продвижение локальных в vreg, копии, слияние, мёртвый код */
 IrFn *ir_lower(Obj *f);                      /* линейный IR одной функции с телом */
 void ir_dump(Obj *globals, SB *out);

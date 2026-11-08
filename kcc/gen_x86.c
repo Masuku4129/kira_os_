@@ -13,7 +13,11 @@ static XA xa;
 #define A (&xa)
 
 /* ---------- состояние функции ---------- */
-static const int pool[5] = { R_BX, R_12, R_13, R_14, R_15 };
+/* Пул vreg: пять callee-saved (сохраняются в прологе) и три caller-saved (r8-r10: бесплатны, но только для значений,
+   живущих не через вызов, atomic, asm, копирование памяти и подобные инструкции, которые их используют). */
+#define NCS 5
+#define NPOOL 8
+static const int pool[NPOOL] = { R_BX, R_12, R_13, R_14, R_15, R_8, R_9, R_10 };
 static const int argreg[6] = { R_DI, R_SI, R_DX, R_CX, R_8, R_9 };
 /* ---------- ABI System V: размещение аргументов ---------- */
 enum { AL_REG, AL_STK, AL_AREG, AL_ASTK };
@@ -45,6 +49,12 @@ static int spillbase, epi;
 static int64_t *cv;
 static unsigned char *isc, *fusecmp;
 
+typedef struct { long *wt; long w; int nv; } WtCtx;
+static void wt_visit(Ins *i, int *r, int kind, void *c) {
+    WtCtx *o = c;
+    (void)i; (void)kind;
+    if (*r > 0 && *r <= o->nv) o->wt[*r] += o->w;
+}
 static int cmp_start(const void *a, const void *b) {
     int x = *(const int *)a, y = *(const int *)b;
     if (vs[x] != vs[y]) return vs[x] < vs[y] ? -1 : 1;
@@ -490,15 +500,44 @@ static void gen_func(IrFn *fi) {
     int *order = ka_new(sizeof(int) * (size_t)(nv + 1)), no = 0;
     for (int v = 1; v <= nv; v++) if (ve[v] >= 0) order[no++] = v;
     qsort(order, (size_t)no, sizeof(int), cmp_start);
-    int act[5] = { 0, 0, 0, 0, 0 }, used[5] = { 0, 0, 0, 0, 0 };
+    /* барьеры: инструкции, портящие caller-saved регистры; значение, чей интервал их содержит, живёт только в callee-saved */
+    int *bc = ka_new(sizeof(int) * (size_t)(n + 2));
+    for (int k = 0; k < n; k++) {
+        const Ins *b = ins[k];
+        int bar = b->op == IR_CALL || b->op == IR_ATOMIC || b->op == IR_ASM || b->op == IR_COPY || b->op == IR_ZERO ||
+                  (b->op == IR_PARAM && b->sub) || (b->op == IR_RET && b->sub);
+        bc[k + 1] = bc[k] + bar;
+    }
+    /* вес vreg: число обращений с учётом глубины циклов (вытесняется самый «дешёвый», а не самый длинный) */
+    long *wt = ka_new(sizeof(long) * (size_t)(nv + 2));
+    {
+        int *dd = ka_new(sizeof(int) * (size_t)(n + 2));
+        for (int k = 0; k < n; k++) {
+            const Ins *j = ins[k];
+            if ((j->op != IR_JMP && j->op != IR_BRZ && j->op != IR_BRNZ) || j->imm < 0 || j->imm > fi->nlab || labpos[j->imm] < 0) continue;
+            int l = labpos[j->imm];
+            if (l <= k) { dd[l]++; dd[k + 1]--; }
+        }
+        int depth = 0;
+        for (int k = 0; k < n; k++) {
+            depth += dd[k];
+            long w = 1L << (3 * (depth > 5 ? 5 : depth));
+            WtCtx wc = { wt, w, nv };
+            ir_walk(ins[k], wt_visit, &wc);
+        }
+    }
+    int act[NPOOL] = { 0 }, used[NPOOL] = { 0 };
     for (int q = 0; q < no; q++) {
         int v = order[q], best = -1;
-        for (int k = 0; k < 5; k++) if (act[k] && ve[act[k]] <= vs[v]) act[k] = 0;
-        for (int k = 0; k < 5; k++) if (!act[k]) { best = k; break; }
+        int cross = bc[ve[v] + 1] - bc[vs[v]] > 0;
+        int lim = cross ? NCS : NPOOL;
+        for (int k = 0; k < NPOOL; k++) if (act[k] && ve[act[k]] <= vs[v]) act[k] = 0;
+        if (!cross) for (int k = NCS; k < NPOOL; k++) if (!act[k]) { best = k; break; }
+        if (best < 0) for (int k = 0; k < NCS; k++) if (!act[k]) { best = k; break; }
         if (best < 0) {
-            int far = 0;
-            for (int k = 1; k < 5; k++) if (ve[act[k]] > ve[act[far]]) far = k;
-            if (ve[act[far]] > ve[v]) { rg[act[far]] = -1; best = far; }
+            int far = -1;
+            for (int k = 0; k < lim; k++) if (far < 0 || wt[act[k]] < wt[act[far]]) far = k;
+            if (far >= 0 && wt[act[far]] < wt[v]) { rg[act[far]] = -1; best = far; }
         }
         if (best >= 0) { act[best] = v; rg[v] = pool[best]; used[best] = 1; }
     }
@@ -515,8 +554,8 @@ static void gen_func(IrFn *fi) {
     }
     /* кадр */
     int64_t cur = 0;
-    int saveoff[5];
-    for (int k = 0; k < 5; k++) if (used[k]) { cur += 8; saveoff[k] = (int)cur; }
+    int saveoff[NCS];
+    for (int k = 0; k < NCS; k++) if (used[k]) { cur += 8; saveoff[k] = (int)cur; }
     p_hidden = ty_is_agg(f->ty->base) && ty_unqual(f->ty->base)->size > 16;
     {
         int np = f->nparams;
@@ -550,7 +589,7 @@ static void gen_func(IrFn *fi) {
     xa_op0(A, X0_PUSH_RBP);
     xa_ins(A, X_MOV, R64(R_BP), R64(R_SP));
     if (frame) xa_ins(A, X_SUB, R64(R_SP), xi(frame));
-    for (int k = 0; k < 5; k++) if (used[k]) xa_ins(A, X_MOV, xm(8, R_BP, -saveoff[k]), R64(pool[k]));
+    for (int k = 0; k < NCS; k++) if (used[k]) xa_ins(A, X_MOV, xm(8, R_BP, -saveoff[k]), R64(pool[k]));
     for (int k = 0; k < nh; k++) xa_ins(A, X_MOV, xm(8, R_BP, -(int64_t)homeh + 8 * k), R64(argreg[k]));
     for (int k = 0; k < n; k++) {
         if (fusecmp[k]) { gen_cmpbr(ins[k], ins[k + 1]); k++; continue; }
@@ -558,7 +597,7 @@ static void gen_func(IrFn *fi) {
     }
     A->file = K.srcpath; A->line = f->line;
     xa_label(A, epi);
-    for (int k = 0; k < 5; k++) if (used[k]) xa_ins(A, X_MOV, R64(pool[k]), xm(8, R_BP, -saveoff[k]));
+    for (int k = 0; k < NCS; k++) if (used[k]) xa_ins(A, X_MOV, R64(pool[k]), xm(8, R_BP, -saveoff[k]));
     xa_op0(A, X0_LEAVE);
     xa_op0(A, X0_RET);
     xa_labels_end(A);
