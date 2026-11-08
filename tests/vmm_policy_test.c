@@ -39,7 +39,7 @@ int main(void) {
     const uint64_t stack0 = base + stride - size;
     CHECK(kira_vmm_kstack_slot_valid(base, stride, 8, size, stack0, 1, 1, &slot));
     CHECK(slot == 0);
-    CHECK(kira_vmm_kstack_slot_valid(base, stride, 8, size, stack0 + stride, 2, 1, &slot) == 0);
+    CHECK(kira_vmm_kstack_slot_valid(base, stride, 8, size, stack0 + stride, 2, 1, &slot));\n    CHECK(slot == 1);\n    CHECK(!kira_vmm_kstack_slot_valid(base, stride, 8, size, stack0 + 2 * stride, 2, 1, &slot));
     CHECK(!kira_vmm_kstack_slot_valid(base, stride, 8, size, stack0 + 8, 1, 1, &slot));
     CHECK(!kira_vmm_kstack_slot_valid(base, stride, 8, size, stack0, 1, 0, &slot)); /* double free */
     CHECK(!kira_vmm_kstack_slot_valid(base, stride, 8, size, base + 8 * stride, 8, 1, &slot));
