@@ -609,7 +609,7 @@ static const cmd_t cmds[] = {
     { "run",       0,   "запустить программу с диска: run имя (/bin/имя, проверка иммунитетом)", cmd_run },
     { "progs",     0,   "программы в /bin и вердикт иммунитета", cmd_progs },
     { "cc",        0,   "компилятор C на Кире: cc исходник результат (файлы в /data/kcc)", cmd_cc },
-    { "drv",       0,   "драйверы Ring 3 (/drv): drv - список; drv start ИМЯ [арг]; drv stop ИМЯ; drv rescan", cmd_drv },
+    { "drv",       0,   "драйверы Ring 3 (/drv): drv - список; drv start ИМЯ [арг]; drv stop ИМЯ; drv rescan; drv state|floor ИМЯ N|revoke ИД|time-reset|state-reset (защита от отката)", cmd_drv },
     { "runlocal",  0,   "запустить собранное в /data/kcc как local-имя БЕЗ прав: runlocal файл", cmd_runlocal },
     { "ls",        0,   "список файлов: ls [путь]", fscmd_ls },
     { "cat",       0,   "содержимое файла: cat путь", fscmd_cat },

@@ -83,6 +83,8 @@ const char* kdrv_strerror(int e) {
     case KDRV_E_HASH: return "SHA-256 не совпал с записью .rec";
     case KDRV_E_DMA_UNSAFE: return "DMA/MSI запрещены: для устройства нет подтверждённой изоляции IOMMU";
     case KDRV_E_SIGNATURE: return "подпись издателя недействительна";
+    case KDRV_E_ROLLBACK: return "версия ниже сохранённого пола: откат запрещён";
+    case KDRV_E_STATE: return "файл состояния /var/kdrv_state повреждён или нечитаем: драйверы не запускаются (drv state-reset после проверки диска)";
     default: return "?";
     }
 }

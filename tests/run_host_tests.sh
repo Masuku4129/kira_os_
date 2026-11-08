@@ -265,6 +265,11 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_sig tests/kdrv_sig_test.c kdr
 $T/kdrv_sig
 python3 -m unittest ci.test_kdrvsign
 
+echo "== KDRV anti-rollback (version floor, corrupt state, revoked key, clock rollback, key rotation) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_state tests/kdrv_state_test.c kdrv_state.c kdrv_sig.c kdrv_fmt.c pk.c crypto.c sha256.c
+$T/kdrv_state
+python3 ci/gen_kdrv_state_vectors.py | cmp - tests/kdrv_state_vectors.h
+
 echo "== Mind build job (templates, quotas, kcc, ELF validation, human/signature gate, run only after grant under kloader) =="
 bash tests/mind_build_test.sh
 
