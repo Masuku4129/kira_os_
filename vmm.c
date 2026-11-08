@@ -132,7 +132,22 @@ void* vmm_kstack_alloc(uint32_t bytes) {
             uint64_t pa = pmm_alloc_page();
             if (!pa || map_in(kernel_root, va, pa, PTE_WRITE | VMM_NOEXEC) != 0) {
                 if (pa) pmm_free_page(pa);
-                /* частично отображённая ячейка не выдаётся (ks_used_hi не растёт), её страницы остаются ей */
+                /* Откатываем только страницы, успешно отображённые этим вызовом. */
+                for (uint64_t undo = slot_top - bytes; undo < va; undo += PAGE_SIZE) {
+                    uint64_t* pml4 = (uint64_t*)(uintptr_t)(kernel_root & PTE_ADDR);
+                    uint64_t* pdpt = next_level(pml4, (undo >> 39) & 0x1FF, 0, 0);
+                    uint64_t* pd = pdpt ? next_level(pdpt, (undo >> 30) & 0x1FF, 0, 0) : 0;
+                    uint64_t* pt = pd ? next_level(pd, (undo >> 21) & 0x1FF, 0, 0) : 0;
+                    if (pt) {
+                        unsigned idx = (unsigned)((undo >> 12) & 0x1FF);
+                        uint64_t entry = pt[idx];
+                        if (entry & PTE_PRESENT) {
+                            pt[idx] = 0;
+                            pmm_free_page(entry & PTE_ADDR);
+                            invlpg(undo);
+                        }
+                    }
+                }
                 spin_unlock_irqrestore(&ks_lock, f);
                 return 0;
             }
