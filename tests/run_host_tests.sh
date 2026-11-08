@@ -166,6 +166,10 @@ $T/bootinfo
 $CC $FLAGS -fsanitize=address,undefined -o $T/bootinfo-mb2 tests/bootinfo_mb2_test.c bootinfo_mb2.c bootinfo.c
 $T/bootinfo-mb2
 
+echo "== UEFI memory map to loader-neutral BootInfo (descriptor bounds and overflow) =="
+$CC $FLAGS -Itests/uefi -fsanitize=address,undefined -o $T/uefi-kbi tests/uefi_kbi_test.c arch/x86_64/uefi/uefi_kbi.c bootinfo.c
+$T/uefi-kbi
+
 echo "== early window (bootmap page tables) =="
 $CC $FLAGS -fsanitize=undefined -o $T/bootmap tests/bootmap_test.c bootmap.c
 $T/bootmap
