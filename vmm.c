@@ -167,6 +167,13 @@ static int map_huge_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) 
 }
 
 volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
+    /* Accept only the public cache policies. Unknown values must not silently
+       become UC while being tracked as a distinct cache type. */
+    if (cache != VMM_MMIO_UC && cache != VMM_MMIO_WC) return 0;
+    /* WC requests fall back to UC until PAT is configured. Track the actual
+       effective type so a later WC request cannot reuse a UC mapping. */
+    const uint64_t effective_cache =
+        (cache == VMM_MMIO_WC && wc_enabled) ? VMM_MMIO_WC : VMM_MMIO_UC;
     /* Page-table entries carry at most 52 physical-address bits. Validate the
        unrounded range first; rounding an otherwise valid end must not wrap. */
     const uint64_t phys_limit = 1ULL << 52;
@@ -184,12 +191,12 @@ volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
         /* Aliasing a physical page with different cache types is unsafe on
            x86: reject the new mapping instead of silently creating an alias. */
         if (first < existing_end && mmio[i].pa < last &&
-            mmio[i].cache != (uint64_t)cache) {
+            mmio[i].cache != effective_cache) {
             spin_unlock_irqrestore(&mmio_lock, f);
             return 0;
         }
         if (pa >= mmio[i].pa && end <= existing_end &&
-            mmio[i].cache == (uint64_t)cache) {
+            mmio[i].cache == effective_cache) {
             volatile void* v = (volatile void*)(uintptr_t)(mmio[i].va + (pa - mmio[i].pa));
             spin_unlock_irqrestore(&mmio_lock, f);
             return v;
@@ -201,7 +208,7 @@ volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
         uint64_t want = first & (BIG - 1);
         va = ((va + BIG - 1) & ~(BIG - 1)) + want;
     }
-    uint64_t flags = PTE_WRITE | VMM_NOEXEC | (cache == VMM_MMIO_WC && wc_enabled ? VMM_WC : VMM_NOCACHE);
+    uint64_t flags = PTE_WRITE | VMM_NOEXEC | (effective_cache == VMM_MMIO_WC ? VMM_WC : VMM_NOCACHE);
     volatile void* res = 0;
     if (mmio_n < MMIO_MAX && va + size <= MMIO_TOP && va + size > va) {
         uint64_t off = 0;
@@ -217,7 +224,7 @@ volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
             }
         }
         if (ok) {
-            mmio[mmio_n].pa = first; mmio[mmio_n].len = size; mmio[mmio_n].va = va; mmio[mmio_n].cache = (uint64_t)cache;
+            mmio[mmio_n].pa = first; mmio[mmio_n].len = size; mmio[mmio_n].va = va; mmio[mmio_n].cache = effective_cache;
             mmio_n++;
             mmio_next = va + size;
             res = (volatile void*)(uintptr_t)(va + (pa - first));
