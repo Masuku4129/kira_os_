@@ -28,7 +28,7 @@ enum { RK_GPR, RK_SEG, RK_CR };
 enum { R_64 = 1, R_PC32 = 2, R_32 = 10, R_32S = 11, R_PLT32 = 4 };
 
 typedef struct { int64_t v; int k, ref, unk, wplt, rsz; int r[2], rs[2]; } Val;
-typedef struct { const char *name; int kind, sec, glob, seq, defpass, line; int64_t val; } Sym;
+typedef struct { const char *name; int kind, sec, glob, seq, defpass, line, used; int64_t val; } Sym;
 typedef struct {
     char name[48]; uint32_t type, flags; uint64_t align; int64_t off, size; uint8_t *data;
     size_t cap; int nobits, nrel;
@@ -518,7 +518,7 @@ static Val eval_unary(Ctx *c, const char **pp, int mem) {
     }
     v = vabs(y->val);
     if (y->kind == K_LABEL) { v.k = V_SEC; v.ref = y->sec; }
-    else if (y->kind == K_EXT) { v.k = V_EXT; v.ref = (int)(y - c->sy); v.v = 0; }
+    else if (y->kind == K_EXT) { v.k = V_EXT; v.ref = (int)(y - c->sy); v.v = 0; y->used = 1; }
     return v;
 }
 
@@ -744,6 +744,7 @@ static void enc_mem(Ctx *c, Enc *e, const Opd *m, int regf) {
     e->hasm = 1;
     e->dv = v->v;
     if (base < 0 && idx < 0) {
+        if (e->p67) fail(c, "не поддержано: префикс a32 при адресе без регистров");
         if (isrel) { e->dr.on = 1; e->dr.v = *v; }
         if (c->bits == 64) {
             if (m->rel) { e->modrm = rf | 5; e->dsz = 4; e->dr.on = 1; e->dr.v = *v; e->dr.pcrel = 1; return; }
@@ -754,7 +755,10 @@ static void enc_mem(Ctx *c, Enc *e, const Opd *m, int regf) {
     }
     if (c->bits == 16) fail(c, "не поддержано: 16-битная адресация с регистрами");
     if (v->rsz == 4) { if (c->bits == 64) e->p67 = 1; }
-    else if (v->rsz == 8) { if (c->bits != 64) fail(c, "64-битные регистры в адресе только в режиме bits 64"); }
+    else if (v->rsz == 8) {
+        if (c->bits != 64) fail(c, "64-битные регистры в адресе только в режиме bits 64");
+        if (e->p67) fail(c, "префикс a32 несовместим с 64-битными регистрами в адресе");
+    }
     else fail(c, "в адресе допустимы только 32- и 64-битные регистры");
     if (idx == 4) fail(c, "rsp/esp нельзя использовать индексом");
     if (sc != 1 && sc != 2 && sc != 4 && sc != 8) fail(c, "масштаб должен быть 1, 2, 4 или 8");
@@ -1067,7 +1071,8 @@ static void do_insn(Ctx *c, const char *w, int kind, int ta, int tb, const char 
             if (is_const(&a->v) && a->v.v >= -128 && a->v.v <= 127) { op1(&e, 0x6A); set_imm(&e, 1, &a->v, 0); }
             else { chk_imm(c, sz == 8 ? 8 : sz, &a->v); op1(&e, 0x68); set_imm(&e, sz == 2 ? 2 : 4, &a->v, c->bits == 64); }
         } else if (a->t == O_MEM) {
-            int sz = a->szkw ? a->szkw : dsz;
+            int sz = a->szkw;
+            if (!sz) fail(c, "'%s': не задан размер операнда (word/dword/qword)", w);
             if (!stack_sz_ok(c, sz)) fail(c, "'%s': размер операнда %d недопустим", w, sz);
             if (sz != dsz) osz(c, &e, sz);
             op1(&e, push ? 0xFF : 0x8F); rm_gen(c, &e, push ? 6 : 0, a);
@@ -1514,6 +1519,7 @@ static void elf_write(Ctx *c, const uint8_t **out, size_t *outlen) {
             if (y->glob) { c->line = y->line; fail(c, "global-символ '%s' не определён", y->name); }
             continue;
         }
+        if (y->kind == K_EXT && !y->used && !y->glob) continue;   /* как nasm: неиспользованный extern в таблицу не попадает */
         if (y->kind == K_EXT || y->glob) glo[ng++] = y;
         else loc[nl++] = y;
     }
