@@ -79,6 +79,10 @@ echo "== drvget: https-only, рецепт, лицензии (GPL/бинарни�
 $CC $FLAGS -fsanitize=address,undefined -o $T/drvget tests/drvget_test.c userland/drvget_core.c sha256.c
 $T/drvget
 
+echo "== driver compatibility pipeline (HTTPS, bounds, path safety, fail-closed stages) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/drvcompat tests/drvcompat_test.c userland/drvcompat.c
+$T/drvcompat
+
 echo "== драйвер rl(4) (RTL8139) против модели чипа =="
 tests/rl_build.sh $T/rl
 
