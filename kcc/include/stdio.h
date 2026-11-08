@@ -1,5 +1,8 @@
 /* kcc libc-lite: stdio.h поверх k_write. printf-семейство: %d %i %u %x %X %o %c %s %p %% с флагами '-' и '0', шириной (число или *),
-   точностью (для строк и целых), длинами hh h l ll z. Вещественных чисел нет (kcc их не поддерживает). Одна печать printf - до 511 байт
+   точностью (для строк и целых), длинами hh h l ll z, вещественные %f %F %e %E %g %G (точные: десятичные цифры значения считаются большим числом,
+   округление до чётного как у glibc; точность свыше 1000 обрезается). Включаются только по запросу: `#define KCC_PRINTF_FLOAT`
+   до `#include <stdio.h>` (иначе %f печатается буквально): файл форматирования kfmt.h стоит несколько десятков КБ арены компилятора, а арена kcc внутри Киры - 4 МБ
+   и hello.c занимает почти всю; с -mno-sse вещественные недоступны вовсе. Одна печать printf - до 511 байт
    (длиннее обрезается, возвращается полная длина); строка выходит в журнал ядра по знаку конца строки ("[USER pid N] ..."). */
 #ifndef KCC_STDIO_H
 #define KCC_STDIO_H
@@ -23,6 +26,12 @@ static void put_hex(unsigned long v) {
     do { b[--i] = "0123456789abcdef"[v & 15]; v >>= 4; } while (v);
     k_write(b + i, (u64)(20 - i));
 }
+
+#ifdef KCC_PRINTF_FLOAT
+#include <kfmt.h>
+#else
+#define KCC_FLT_CASE
+#endif
 
 static int vsnprintf(char *buf, size_t n, const char *fmt, va_list ap) {
     size_t k = 0;
@@ -88,7 +97,7 @@ static int vsnprintf(char *buf, size_t n, const char *fmt, va_list ap) {
             for (int i = 0; i < nz; i++) tmp[len++] = '0';
             while (nr) tmp[len++] = rev[--nr];
             if (prec >= 0) zero = 0;
-        } else { KCC_OUT('%'); KCC_OUT(c); continue; }
+        } KCC_FLT_CASE else { KCC_OUT('%'); KCC_OUT(c); continue; }
         int plen = (int)k_strlen(pre) + (sg != 0);
         int pad = width > len + plen ? width - len - plen : 0;
         if (!left && !zero) for (int i = 0; i < pad; i++) KCC_OUT(' ');
