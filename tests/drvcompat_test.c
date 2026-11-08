@@ -85,7 +85,7 @@ static void rejected_inputs(void)
  assert(kira_drvcompat_convert(&o,"https://drivers.example/a")==-1);
  assert(f.inspected==0);
  setup(&f,&o);f.source.file_count=3;
- for(unsigned i=0;i<3;i++){f.source.files[i].size=KIRA_DRVCOMPAT_MAX_FILE_SIZE;f.source.files[i].data=f.source_data;}
+ for(unsigned i=0;i<3;i++){snprintf(f.source.files[i].path,sizeof(f.source.files[i].path),"src/file%u.c",i);f.source.files[i].size=KIRA_DRVCOMPAT_MAX_FILE_SIZE;f.source.files[i].data=f.source_data;}
  assert(kira_drvcompat_convert(&o,"https://drivers.example/a")==-1);
  assert(f.inspected==0);
  setup(&f,&o);f.archive_size=KIRA_DRVCOMPAT_MAX_ARCHIVE_SIZE+1u;
