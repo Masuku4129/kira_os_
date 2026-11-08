@@ -482,9 +482,10 @@ static void gen_ins(const Ins *i, int homebase_h) {
     case IR_PARAM: {
         const ALoc *l = &ploc[i->imm];
         if (!i->sub) {
-            if (l->kind == AL_REG) xa_ins(A, X_MOV, R64(R_AX), xm(8, R_BP, -(int64_t)homebase_h + 8 * l->idx));
-            else xa_ins(A, X_MOV, R64(R_AX), xm(8, R_BP, 16 + l->off));
-            stv(i->dst, R_AX);
+            int pd = i->dst > 0 && rg[i->dst] >= 0 ? rg[i->dst] : R_AX;       /* сразу в регистр приёмника: без промежуточного rax */
+            if (l->kind == AL_REG) xa_ins(A, X_MOV, R64(pd), xm(8, R_BP, -(int64_t)homebase_h + 8 * l->idx));
+            else xa_ins(A, X_MOV, R64(pd), xm(8, R_BP, 16 + l->off));
+            if (pd == R_AX) stv(i->dst, R_AX);
         } else {
             ldv(R_CX, i->a);
             if (l->kind == AL_AREG) copy_bytes(R_CX, 0, R_BP, -(int64_t)homebase_h + 8 * l->idx, i->w);

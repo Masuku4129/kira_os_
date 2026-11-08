@@ -563,22 +563,28 @@ static void op_nonorm(Ins **a, int n, int nv, const unsigned char *mdef) {
             if (!low[i->dst] && low[i->a]) { low[i->a] = 0; ch = 1; }
         }
     }
-    for (int k = 0; k < n; k++) {
+    unsigned char *cflag = ka_new((size_t)nv + 2), *dirty = ka_new((size_t)nv + 2);
+    for (int k = 0; k < n; k++) if (a[k]->op == IR_CONST && a[k]->dst > 0 && a[k]->dst <= nv && a[k]->imm >= -(1 << 20) && a[k]->imm <= (1 << 20)) cflag[a[k]->dst] = 1;
+    for (int k = 0; k < n; k++) {                              /* пункт 1: результат читают только младшие 32 бита */
         Ins *i = a[k];
         int d = i->dst;
-        if (d <= 0 || d > nv || i->w != 4) continue;
-        if (i->op == IR_BIN && i->sgn && (i->sub == ND_ADD || i->sub == ND_SUB || i->sub == ND_MUL || i->sub == ND_AND || i->sub == ND_OR ||
-                                          i->sub == ND_XOR || i->sub == ND_SHL)) {
-            if (low[d]) i->nn = 1;
-            else if (!kcc_wrapv && mdef[d] && d == i->a && (i->sub == ND_ADD || i->sub == ND_SUB)) {
-                int cb = 0;
-                for (int q = 0; q < n && !cb; q++) {      /* второй операнд - константа небольшой величины */
-                    const Ins *c = a[q];
-                    if (c->op == IR_CONST && c->dst == i->b && c->imm >= -(1 << 20) && c->imm <= (1 << 20)) cb = 1;
-                }
-                if (cb) i->nn = 1;
-            }
-        } else if ((i->op == IR_NEG || i->op == IR_NOT) && low[d]) i->nn = 1;
+        if (d <= 0 || d > nv || i->w != 4 || !low[d]) continue;
+        if ((i->op == IR_BIN && i->sgn && (i->sub == ND_ADD || i->sub == ND_SUB || i->sub == ND_MUL || i->sub == ND_AND || i->sub == ND_OR ||
+                                           i->sub == ND_XOR || i->sub == ND_SHL)) || i->op == IR_NEG || i->op == IR_NOT) { i->nn = 1; dirty[d] = 1; }
+    }
+    for (int ch = 1, it = 0; ch && it < 64; it++) {            /* значение, полученное копией неточного, тоже неточное */
+        ch = 0;
+        for (int k = 0; k < n; k++) {
+            const Ins *i = a[k];
+            if (i->op == IR_MOV && i->dst > 0 && i->a > 0 && i->dst <= nv && i->a <= nv && dirty[i->a] && !dirty[i->dst]) { dirty[i->dst] = 1; ch = 1; }
+        }
+    }
+    if (kcc_wrapv) return;
+    for (int k = 0; k < n; k++) {                              /* пункт 2: сложение с небольшой константой точного значения без переполнения */
+        Ins *i = a[k];
+        int d = i->dst;
+        if (i->nn || d <= 0 || d > nv || i->w != 4 || i->op != IR_BIN || !i->sgn || (i->sub != ND_ADD && i->sub != ND_SUB)) continue;
+        if (i->b > 0 && i->b <= nv && cflag[i->b] && !mdef[i->b] && i->a > 0 && i->a <= nv && !dirty[i->a]) i->nn = 1;
     }
 }
 
