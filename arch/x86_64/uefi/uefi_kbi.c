@@ -97,8 +97,12 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     if (info->rsdp)
         header->flags |= KBI_F_ACPI;
 
+    /* GOP PixelBitMask and PixelBltOnly need their own conversion path.
+       Do not publish a half-filled framebuffer record for an unsupported mode:
+       the kernel must still boot headless instead of rejecting all BootInfo. */
     if (info->framebuffer_base && info->framebuffer_size &&
-        info->width && info->height && info->pitch) {
+        info->width && info->height && info->pitch &&
+        (info->format == 1 || info->format == 2)) {
         header->fb_phys = info->framebuffer_base;
         header->fb_size = info->framebuffer_size;
         header->fb_width = info->width;
@@ -119,11 +123,8 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
             header->fb_green_size = 8;
             header->fb_blue_pos = 0;
             header->fb_blue_size = 8;
-        } else {
-            header->fb_bpp = 0;
         }
-        if (header->fb_bpp)
-            header->flags |= KBI_F_FRAMEBUFFER;
+        header->flags |= KBI_F_FRAMEBUFFER;
     }
 
     for (i = 0; i < count; ++i) {
@@ -147,6 +148,12 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
         entries[i].type = kbi_mem_type(descriptor.Type);
         entries[i].attributes = (uint32_t)(descriptor.Attribute & 0xffffffffu);
     }
+
+    /* Validate the complete handoff before exposing it to the kernel.
+       This also rejects overlapping/out-of-order firmware descriptors and
+       malformed framebuffer geometry at the loader boundary. */
+    if (kbi_validate(blob, total_size) != 0)
+        return EFI_LOAD_ERROR;
 
     *output_size = total_size;
     return EFI_SUCCESS;
