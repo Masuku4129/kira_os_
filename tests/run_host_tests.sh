@@ -93,8 +93,9 @@ echo "== driver compatibility pipeline (HTTPS, bounds, path safety, fail-closed 
 $CC $FLAGS -fsanitize=address,undefined -o $T/drvcompat tests/drvcompat_test.c userland/drvcompat.c
 $T/drvcompat
 
-echo "== драйвер rl(4) (RTL8139) против модели чипа =="
-tests/rl_build.sh $T/rl
+echo "== драйвер RTL8139 (чистая реализация) против модели чипа =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/rtl8139 tests/rtl8139_test.c drivers/net/rtl8139.c
+$T/rtl8139
 
 echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
 $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c

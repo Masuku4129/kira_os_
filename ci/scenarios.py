@@ -544,28 +544,28 @@ def _drv_www():
     src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "drivers", "rl")
     def clone(name):
         os.makedirs(os.path.join(w, name))
-        for f in ("drvget.rec", "rl.c", "if_rlreg.h"):
+        for f in ("drvget.rec", "rtl8139_kdrv.c", "rtl8139.c", "rtl8139.h"):
             shutil.copy(os.path.join(src, f), os.path.join(w, name, f))
     def edit(name, f, fn):
         pth = os.path.join(w, name, f)
         b = open(pth, "rb").read(); open(pth, "wb").write(fn(b))
     clone("rl")
     clone("gpl"); edit("gpl", "drvget.rec", lambda b: b.replace(b"\nname rl", b"\nname gpl"))
-    edit("gpl", "if_rlreg.h", lambda b: b.replace(b"SPDX-License-Identifier: BSD-3-Clause", b"SPDX-License-Identifier: GPL-2.0-only"))
+    edit("gpl", "rtl8139.h", lambda b: b.replace(b"SPDX-License-Identifier: BSD-3-Clause", b"SPDX-License-Identifier: GPL-2.0-only"))
     # Keep the fixture internally valid: the source hash must match the deliberately GPL-marked file,
     # otherwise drvget correctly rejects the stale SHA-256 before reaching its licence scanner.
-    gpl_hash = hashlib.sha256(open(os.path.join(w, "gpl", "if_rlreg.h"), "rb").read()).hexdigest().encode()
-    edit("gpl", "drvget.rec", lambda b: re.sub(rb"(file if_rlreg[.]h if_rlreg[.]h sha256 )[0-9a-f]{64}", lambda m: m.group(1) + gpl_hash, b))
+    gpl_hash = hashlib.sha256(open(os.path.join(w, "gpl", "rtl8139.h"), "rb").read()).hexdigest().encode()
+    edit("gpl", "drvget.rec", lambda b: re.sub(rb"(file rtl8139[.]h rtl8139[.]h sha256 )[0-9a-f]{64}", lambda m: m.group(1) + gpl_hash, b))
     clone("bin"); edit("bin", "drvget.rec", lambda b: b.replace(b"\nname rl", b"\nname bin"))
-    edit("bin", "if_rlreg.h", lambda b: b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00This program cannot be run in DOS mode.")
+    edit("bin", "rtl8139.h", lambda b: b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00This program cannot be run in DOS mode.")
     clone("nolic"); edit("nolic", "drvget.rec", lambda b: b.replace(b"\nname rl", b"\nname nolic"))
-    edit("nolic", "if_rlreg.h", lambda b: b"/* no licence information */\n" + b"\n".join(b.split(b"\n")[40:]))
+    edit("nolic", "rtl8139.h", lambda b: b"/* no licence information */\n" + b"\n".join(b.split(b"\n")[40:]))
     # Keep the no-licence fixture internally valid too: exercise the licence scanner,
     # not the earlier SHA-256 integrity gate.
-    nolic_hash = hashlib.sha256(open(os.path.join(w, "nolic", "if_rlreg.h"), "rb").read()).hexdigest().encode()
-    edit("nolic", "drvget.rec", lambda b: re.sub(rb"(file if_rlreg[.]h if_rlreg[.]h sha256 )[0-9a-f]{64}", lambda m: m.group(1) + nolic_hash, b))
+    nolic_hash = hashlib.sha256(open(os.path.join(w, "nolic", "rtl8139.h"), "rb").read()).hexdigest().encode()
+    edit("nolic", "drvget.rec", lambda b: re.sub(rb"(file rtl8139[.]h rtl8139[.]h sha256 )[0-9a-f]{64}", lambda m: m.group(1) + nolic_hash, b))
     h = hashlib.sha256()
-    for n in ("drvget.rec", "rl.c", "if_rlreg.h"):          # так же, как dg_set_add в userland/drvget_core.c
+    for n in ("drvget.rec", "rtl8139_kdrv.c", "rtl8139.c", "rtl8139.h"):          # так же, как dg_set_add в userland/drvget_core.c
         d = open(os.path.join(w, "rl", n), "rb").read()
         h.update(n.encode() + b"\0" + struct.pack("<Q", len(d)) + d)
     return w, h.hexdigest()[:8]
@@ -579,8 +579,8 @@ ALL.append(sc("drvget-rl", "drvget: исходники RTL8139 по HTTPS, ау�
     {"log": BOOT_LOG}, {"sleep": 6},
     *_dg("drvget base https://10.0.2.100", r"каталог рецептов теперь https://10\.0\.2\.100", 20),
     *_dg("drvget install gpl", r"drvget: отказ: .*GPL", 90),
-    *_dg("drvget install bin", r"drvget: отказ: SHA-256 файла if_rlreg[.]h", 90),
-    *_dg("drvget install nolic", r"drvget: отказ: if_rlreg[.]h: лицензия файла не найдена", 90),
+    *_dg("drvget install bin", r"drvget: отказ: SHA-256 файла rtl8139[.]h", 90),
+    *_dg("drvget install nolic", r"drvget: отказ: rtl8139[.]h: лицензия файла не найдена", 90),
     *_dg("drvget install http://10.0.2.100/rl/drvget.rec", r"разрешён только https", 20),
     {"cmd": "drv", "forbid": [r"drv-rl"]},
     *_dg("drvget install rl", r"drvget confirm rl " + _DRV_SET8, 120),
@@ -588,7 +588,7 @@ ALL.append(sc("drvget-rl", "drvget: исходники RTL8139 по HTTPS, ау�
     *_dg("drvget confirm rl 00000000", r"хеш не совпал", 20),
     *_dg("drvget confirm rl " + _DRV_SET8, r"установлено: /drv/rl\.kdrv и /drv/rl\.rec", 240),
     {"log": [r"собрано, образ ELF \d+ байт"]},
-    *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен", 20),
+    *_dg("drvget list", r"rl: версия 2, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен", 20),
     *_dg("drvget verify rl", r"verify rl: OK", 20),
     {"log_forbid": NO_ERR},
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "rtl8139,netdev=n0"]},
@@ -675,7 +675,7 @@ ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиату�
     {"expect": r"drvman: драйвер rl установлен в /drv", "timeout": 400},
     {"log": [r"drvman: подтверждено пользователем, собираю и ставлю", r"drvget: собрано, образ ELF \d+ байт"]},
     {"shot": "drvman-installed"},
-    *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, издатель: (Ed25519 подтверждён|не подтверждён \(локально\)), источни(?:\r?\n\[USER pid \d+\] )?к: https://10\.0\.2\.100/rl/drvget\.rec", 30),
+    *_dg("drvget list", r"rl: версия 2, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, издатель: (Ed25519 подтверждён|не подтверждён \(локально\)), источни(?:\r?\n\[USER pid \d+\] )?к: https://10\.0\.2\.100/rl/drvget\.rec", 30),
     *_dg("drvget verify rl", r"verify rl: OK", 30),
     {"cmd": "drv", "must": [r"rl: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV"]},
     {"send": ""}, {"keys": "", "then": ["f4"]},

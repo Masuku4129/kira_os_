@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: BSD-3-Clause
+ * Copyright (c) Kira OS authors. Original implementation from the public Realtek RTL8139 programming specification. */
 /*
  * RTL8139 PCI Ethernet controller driver.
  *
@@ -21,6 +23,8 @@
 #define REG_TCR        0x40u
 #define REG_RCR        0x44u
 #define REG_CONFIG1    0x52u
+#define REG_MSR        0x58u
+#define MSR_LINKB      0x04u        /* 1 - канала нет */
 
 #define CMD_RESET      0x10u
 #define CMD_RX_ENABLE  0x08u
@@ -48,7 +52,6 @@
 #define RCR_APM        (1u << 1)
 #define RCR_AM         (1u << 2)
 #define RCR_AB         (1u << 3)
-#define RCR_WRAP       (1u << 7)
 #define RCR_MXDMA_1024 (6u << 8)
 #define RCR_RBLEN_8K   (0u << 11)
 #define RCR_RXFTH_NONE (7u << 13)
@@ -87,7 +90,7 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
     unsigned int i;
     uint32_t tcr;
 
-    if (!d || !p || !io_base || !p->in8 || !p->in16 || !p->in32 ||
+    if (!d || !p || !p->in8 || !p->in16 || !p->in32 ||
         !p->out8 || !p->out16 || !p->out32 || !p->dma_alloc ||
         !p->dma_free || !p->receive)
         return -1;
@@ -95,7 +98,11 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
     d->platform = *p;
     d->io_base = io_base;
     d->rx_offset = 0;
+    d->tx_next = 0;
     d->initialized = 0;
+    d->rx_buffer = 0;
+    for (i = 0; i < KIRA_RTL8139_TX_SLOTS; ++i)
+        d->tx_buffer[i] = 0;
 
     /* Bring the controller out of power-down and request a software reset. */
     d->platform.out8(d->platform.context, port(d, REG_CONFIG1), 0x00);
@@ -118,8 +125,8 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
         KIRA_RTL8139_RX_RING_SIZE + KIRA_RTL8139_RX_WRAP_SIZE,
         256, &d->rx_physical);
     if (!d->rx_buffer || !d->rx_physical ||
-        (d->rx_physical & 0xffu))
-        return -3;
+        (d->rx_physical & 0xffu) || (d->rx_physical >> 32))
+        return -3;      /* RBSTART - 32 бита */
 
     if (d->platform.cache_clean)
         d->platform.cache_clean(d->platform.context, d->rx_buffer,
@@ -129,8 +136,8 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
         d->tx_buffer[i] = d->platform.dma_alloc(d->platform.context,
             KIRA_RTL8139_TX_BUFFER_SIZE, 256, &d->tx_physical[i]);
         if (!d->tx_buffer[i] || !d->tx_physical[i] ||
-            (d->tx_physical[i] & 0xffu))
-            return -4;
+            (d->tx_physical[i] & 0x3u) || (d->tx_physical[i] >> 32))
+            return -4;      /* TSAD - 32 бита, выравнивание по двойному слову */
         d->tx_busy[i] = 0;
         d->platform.out32(d->platform.context,
             port(d, (uint16_t)(REG_TSAD0 + i * 4)),
@@ -141,9 +148,10 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
                       (uint32_t)d->rx_physical);
     d->platform.out16(d->platform.context, port(d, REG_CAPR), 0xfff0u);
 
-    /* Enable broadcast, physical-match and multicast reception. */
+    /* Enable broadcast, physical-match and multicast reception. WRAP не включается: пакет на конце кольца
+       переходит в его начало, а программа читает кольцо по модулю 8 КиБ. */
     d->platform.out32(d->platform.context, port(d, REG_RCR),
-        RCR_APM | RCR_AM | RCR_AB | RCR_WRAP | RCR_MXDMA_1024 |
+        RCR_APM | RCR_AM | RCR_AB | RCR_MXDMA_1024 |
         RCR_RBLEN_8K | RCR_RXFTH_NONE);
 
     tcr = TCR_IFG_NORMAL | TCR_DMA_1024;
@@ -160,11 +168,28 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
     return 0;
 }
 
+static void rtl_rx_restart(struct kira_rtl8139 *d)
+{
+    unsigned int i;
+
+    d->platform.out8(d->platform.context, port(d, REG_COMMAND), CMD_TX_ENABLE);
+    for (i = 0; i < 1000u; ++i) {
+        if (!(d->platform.in8(d->platform.context, port(d, REG_COMMAND)) & CMD_RX_ENABLE))
+            break;
+        rtl_delay(d, 1);
+    }
+    d->rx_offset = 0;
+    d->platform.out32(d->platform.context, port(d, REG_RBSTART), (uint32_t)d->rx_physical);
+    d->platform.out16(d->platform.context, port(d, REG_CAPR), 0xfff0u);
+    d->platform.out32(d->platform.context, port(d, REG_RCR),
+        RCR_APM | RCR_AM | RCR_AB | RCR_MXDMA_1024 | RCR_RBLEN_8K | RCR_RXFTH_NONE);
+    d->platform.out8(d->platform.context, port(d, REG_COMMAND), CMD_RX_ENABLE | CMD_TX_ENABLE);
+}
+
 static int rtl_receive_one(struct kira_rtl8139 *d)
 {
     uint8_t *ring = (uint8_t *)d->rx_buffer;
-    uint16_t command = d->platform.in8(d->platform.context,
-                                       port(d, REG_COMMAND));
+    uint8_t command = d->platform.in8(d->platform.context, port(d, REG_COMMAND));
     uint16_t status;
     uint16_t length;
     uint16_t offset;
@@ -175,35 +200,29 @@ static int rtl_receive_one(struct kira_rtl8139 *d)
         return 0;
 
     offset = d->rx_offset;
-    if (d->platform.cache_invalidate)
-        d->platform.cache_invalidate(d->platform.context,
-            ring + offset, 4);
-
     status = (uint16_t)ring[offset] |
-             ((uint16_t)ring[(offset + 1u) & 0x1fffu] << 8);
-    length = (uint16_t)ring[(offset + 2u) & 0x1fffu] |
-             ((uint16_t)ring[(offset + 3u) & 0x1fffu] << 8);
+             ((uint16_t)ring[(offset + 1u) & (KIRA_RTL8139_RX_RING_SIZE - 1u)] << 8);
+    length = (uint16_t)ring[(offset + 2u) & (KIRA_RTL8139_RX_RING_SIZE - 1u)] |
+             ((uint16_t)ring[(offset + 3u) & (KIRA_RTL8139_RX_RING_SIZE - 1u)] << 8);
 
-    if (!(status & RX_STATUS_ROK) || (status & (RX_STATUS_CRC |
-        RX_STATUS_LONG | RX_STATUS_RUNT | RX_STATUS_ISE)) ||
-        length < 4 || length > KIRA_RTL8139_MAX_FRAME + 4) {
-        d->rx_offset = (uint16_t)((offset + 4u + length + 3u) & ~3u);
-        d->rx_offset &= (KIRA_RTL8139_RX_RING_SIZE - 1u);
-        d->platform.out16(d->platform.context, port(d, REG_CAPR),
-                          (uint16_t)(d->rx_offset - 16u));
+    /* Заголовок не в порядке (нет ROK или длина вне границ): положение в кольце потеряно, приём перезапускается. */
+    if (!(status & RX_STATUS_ROK) || length < 4 || length > KIRA_RTL8139_MAX_FRAME + 4) {
+        rtl_rx_restart(d);
+        return 0;
+    }
+    if (status & (RX_STATUS_CRC | RX_STATUS_LONG | RX_STATUS_RUNT | RX_STATUS_ISE | RX_STATUS_FAE)) {
+        d->rx_offset = (uint16_t)((offset + 4u + length + 3u) & ~3u) & (KIRA_RTL8139_RX_RING_SIZE - 1u);
+        d->platform.out16(d->platform.context, port(d, REG_CAPR), (uint16_t)(d->rx_offset - 16u));
         return 1;
     }
 
     /* Length includes the four-byte FCS, which is not delivered to the stack. */
     length = (uint16_t)(length - 4u);
     for (i = 0; i < length; ++i)
-        frame[i] = ring[(offset + 4u + i) &
-                        (KIRA_RTL8139_RX_RING_SIZE - 1u)];
+        frame[i] = ring[(offset + 4u + i) & (KIRA_RTL8139_RX_RING_SIZE - 1u)];
 
-    d->rx_offset = (uint16_t)((offset + 4u + length + 4u + 3u) & ~3u);
-    d->rx_offset &= (KIRA_RTL8139_RX_RING_SIZE - 1u);
-    d->platform.out16(d->platform.context, port(d, REG_CAPR),
-                      (uint16_t)(d->rx_offset - 16u));
+    d->rx_offset = (uint16_t)((offset + 4u + length + 4u + 3u) & ~3u) & (KIRA_RTL8139_RX_RING_SIZE - 1u);
+    d->platform.out16(d->platform.context, port(d, REG_CAPR), (uint16_t)(d->rx_offset - 16u));
 
     d->platform.receive(d->platform.context, frame, length);
     return 1;
@@ -241,14 +260,13 @@ int kira_rtl8139_poll(struct kira_rtl8139 *d)
     status = d->platform.in16(d->platform.context, port(d, REG_ISR));
     if (status) {
         rtl_ack_interrupts(d, status);
-        if (status & (ISR_RXOVW | ISR_FOVW)) {
-            /* Reset receive pointer after overrun to recover ring ownership. */
-            d->rx_offset = 0;
-            d->platform.out16(d->platform.context, port(d, REG_CAPR), 0xfff0u);
-        }
+        if (status & (ISR_RXOVW | ISR_FOVW))
+            rtl_rx_restart(d);          /* переполнение кольца: пакеты потеряны, приём начинается заново */
     }
 
     rtl_reap_tx(d);
+    if (d->platform.cache_invalidate)
+        d->platform.cache_invalidate(d->platform.context, d->rx_buffer, KIRA_RTL8139_RX_RING_SIZE);
 
     while (budget-- && rtl_receive_one(d) > 0)
         ++work;
@@ -268,11 +286,10 @@ int kira_rtl8139_send(struct kira_rtl8139 *d,
 
     rtl_reap_tx(d);
 
-    for (slot = 0; slot < KIRA_RTL8139_TX_SLOTS; ++slot)
-        if (!d->tx_busy[slot])
-            break;
-    if (slot == KIRA_RTL8139_TX_SLOTS)
+    slot = d->tx_next;              /* чип берёт дескрипторы по кругу, поэтому и программа - строго по порядку */
+    if (d->tx_busy[slot])
         return -2;
+    d->tx_next = (uint8_t)((slot + 1u) % KIRA_RTL8139_TX_SLOTS);
 
     for (i = 0; i < length; ++i)
         ((uint8_t *)d->tx_buffer[slot])[i] = ((const uint8_t *)frame)[i];
@@ -293,6 +310,13 @@ int kira_rtl8139_send(struct kira_rtl8139 *d,
         TSD_ERTXTH | (uint32_t)length);
 
     return (int)slot;
+}
+
+int kira_rtl8139_link_up(struct kira_rtl8139 *d)
+{
+    if (!d || !d->initialized)
+        return 0;
+    return !(d->platform.in8(d->platform.context, port(d, REG_MSR)) & MSR_LINKB);
 }
 
 void kira_rtl8139_shutdown(struct kira_rtl8139 *d)

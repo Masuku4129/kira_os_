@@ -40,15 +40,9 @@ Do not call KCC a self-hosting system compiler until the bootstrap chain actuall
 
 Status (evidence: `tests/kcc/selfhost.sh`, CI job kcc-tests): the x86-64 compiler itself bootstraps - stage1 (built by host-built stage0), stage2 and stage3 are byte-identical and stage2 reproduces stage0 output byte for byte on 51 corpus programs. Run under the host Kira loader only (not in QEMU/Kira, not on hardware). Still open: building the kernel/userland/boot code with KCC, assembler for .s files, multi-object linking, AArch64 self-hosting. The gate stays open.
 
-## 3. RTL8139 driver provenance — BLOCKED
-`drivers/rl/rl.c` and `drivers/rl/if_rlreg.h` identify the current implementation as a port derived from FreeBSD `rl(4)`.
-
-Required:
-- Specification-based clean-room implementation with documented source provenance.
-- PCI discovery, reset, DMA ring lifecycle, RX/TX, interrupts, link status, timeouts and malformed-frame handling.
-- Fault-injection and QEMU integration tests; physical NIC testing reported separately.
-
-Do not remove provenance notices without replacing the implementation and reviewing licensing.
+## 3. RTL8139 driver provenance - CODE DONE, hardware evidence open
+The FreeBSD-derived `drivers/rl` port is removed. `drivers/net/rtl8139.c|h` is a clean-room implementation written from the public Realtek programming specification (BSD-3-Clause, SPDX headers), with a Ring-3 wrapper `rtl8139_kdrv.c` and recipe `drivers/net/drvget.rec` (installed by drvget as `rl`).
+Evidence: `tests/rtl8139_test.c` (chip model, ASan/UBSan, overrun/bad-header/TX round-robin/link cases) in `run_host_tests.sh`; `tests/drvget_e2e.sh` (on-device KCC build + install). Still open: QEMU `-device rtl8139` traffic test in CI and physical NIC testing (reported separately).
 
 ## 4. Driver package authenticity — BLOCKED (kernel verification and installer import implemented)
 
