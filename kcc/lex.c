@@ -158,7 +158,7 @@ static int decode_escape_n(const Token *t, const char **pp, int bits) {
 
 int decode_escape(const Token *t, const char **pp) { return decode_escape_n(t, pp, 8); }
 
-/* \uXXXX / \UXXXXXXXX: *pp указывает на 'u' или 'U'; результат - кодовая точка */
+/* \uhhhh / \Uhhhhhhhh: *pp указывает на 'u' или 'U'; результат - кодовая точка */
 static uint32_t decode_ucn(const Token *t, const char **pp) {
     const char *p = *pp;
     int n = *p++ == 'u' ? 4 : 8;
