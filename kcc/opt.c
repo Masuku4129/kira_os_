@@ -1095,6 +1095,9 @@ void ir_optimize(IrFn *fi) {
     }
     op_recount(&c2, a, n);
 
+    /* jmp на соседнюю метку и метки без переходов (следы встроенных тел) до распространения копий: иначе они рвут базовые блоки */
+    if (!kcc_nodce && !kcc_nocfgfirst) { op_cfg(a, &n, fi->nlab, &c2, mdef); op_recount(&c2, a, n); }
+
     /* распространение копий и слияние в пределах базового блока */
     {
         OpCopy oc = { ka_new(sizeof(int) * (size_t)(nvt + 2)), ka_new(sizeof(int) * (size_t)(nvt + 2)), ka_new(sizeof(int) * (size_t)(nvt + 2)),
@@ -1452,6 +1455,7 @@ int kcc_noregs;
 int kcc_nodce;
 int kcc_noalign;
 int kcc_noreassoc;
+int kcc_nocfgfirst;
 int kcc_nopop;
 int kcc_nopooltrim;
 int kcc_norec;
@@ -1462,7 +1466,7 @@ int kcc_nomrot;
 int kcc_nonnshift;
 int kcc_flag(const char *arg) {
     static const struct { const char *name; int *flag; } tab[] = {
-        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-reassoc", &kcc_noreassoc }, { "-fno-popcount", &kcc_nopop }, { "-fno-pooltrim", &kcc_nopooltrim }, { "-fno-rec-inline", &kcc_norec }, { "-fno-once-inline", &kcc_noonce }, { "-fno-extld", &kcc_noextld }, { "-fno-disp", &kcc_nodisp }, { "-fno-mrot", &kcc_nomrot }, { "-fno-nnshift", &kcc_nonnshift },
+        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-reassoc", &kcc_noreassoc }, { "-fno-cfgfirst", &kcc_nocfgfirst }, { "-fno-popcount", &kcc_nopop }, { "-fno-pooltrim", &kcc_nopooltrim }, { "-fno-rec-inline", &kcc_norec }, { "-fno-once-inline", &kcc_noonce }, { "-fno-extld", &kcc_noextld }, { "-fno-disp", &kcc_nodisp }, { "-fno-mrot", &kcc_nomrot }, { "-fno-nnshift", &kcc_nonnshift },
         { 0, 0 } };
     for (int k = 0; tab[k].name; k++) if (!strcmp(arg, tab[k].name)) { *tab[k].flag = 1; return 1; }
     return 0;
