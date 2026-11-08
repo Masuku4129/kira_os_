@@ -155,12 +155,14 @@ enum { AT_LOAD = 1, AT_STORE, AT_XCHG, AT_CAS, AT_ADD, AT_SUB, AT_AND, AT_OR, AT
 typedef struct Ins Ins;
 struct Ins {
     IrOp op; int sub, dst, a, b, c, w, sgn, vol, nargs, nout;
+    int nn;                                  /* x86-64: результат 32-битной операции можно не нормализовать (ir_optimize, op_nonorm) */
     int rsz, rt;                             /* CALL: размер возвращаемого агрегата (0 - нет) и vreg с адресом буфера результата; RET: sub=1 - агрегат размера w */
     int *asz;                                /* CALL: по аргументу размер агрегата (0 - скаляр; тогда args[k] - адрес агрегата) */
     int64_t imm; const char *sym; int *args; Ins *next;
     int line; const char *file;              /* только IR_ASM: место в исходнике */
 };
 typedef struct { Obj *f; Ins *head; int nreg, nlab; unsigned char *mdef; } IrFn;   /* mdef[v]: vreg переменной с несколькими определениями (ir_optimize) */
+extern int kcc_wrapv;                         /* -fwrapv: счётчики циклов тоже нормализуются после каждого шага */
 extern int kcc_nosr;                          /* -fno-sr: без понижения силы умножения (для сверки) */
 extern int kcc_dumpopt;                      /* ir.c: -S-oir, дамп IR после ir_optimize */
 extern int kcc_noopt;                        /* gen_common.c */

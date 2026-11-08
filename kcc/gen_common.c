@@ -6,6 +6,7 @@
 int kcc_obj;                                    /* 1 - вывод объектного файла (ET_REL), main не нужен, внешние символы разрешены */
 int kcc_dumpopt;
 int kcc_nosr;
+int kcc_wrapv;
 int kcc_noopt;                                  /* 1 - не запускать ir_optimize (-O0, для сверки и отладки) */
 
 static Obj **htab;

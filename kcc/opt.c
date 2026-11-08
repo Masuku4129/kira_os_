@@ -532,6 +532,56 @@ static void op_sr(Ins **a, int *pn, int nlab, OpCnt *c, unsigned char *mdef, int
     }
 }
 
+
+/* ---------- пропуск нормализации 32-битных результатов (только x86-64; a64 игнорирует Ins.nn) ----------
+ * (1) Результат 32-битной операции читают только те, кому нужны младшие 32 бита (операнды сложения/вычитания/умножения/логики/сдвига влево,
+ *     значение store.4, копия в такой же vreg): верхняя половина регистра не нужна, movsxd/mov r32 не выдаётся. Это точно, без допущений.
+ * (2) Счётчик цикла v = v +/- K (K мал, знаковый int): шаг не нормализуется, значение остаётся точным; переполнение знакового int не определено
+ *     (clang тоже его исключает). -fwrapv отключает пункт 2. */
+static void op_nn_use(Ins *i, int *r, int kind, void *x) {
+    unsigned char *low = x;
+    if (kind != 0 || *r <= 0) return;
+    int ok = 0;
+    if (i->op == IR_BIN && i->w == 4) {
+        int sub = i->sub;
+        if (sub == ND_ADD || sub == ND_SUB || sub == ND_MUL || sub == ND_AND || sub == ND_OR || sub == ND_XOR) ok = (r == &i->a || r == &i->b);
+        else if (sub == ND_SHL) ok = (r == &i->a || r == &i->b);
+        else if (sub == ND_SHR && !i->sgn) ok = (r == &i->a || r == &i->b);
+    } else if (i->op == IR_STORE && i->w == 4) ok = (r == &i->b);
+    else if (i->op == IR_MOV) ok = 1;                       /* уточняется ниже по цепочке копий */
+    if (!ok) low[*r] = 0;
+}
+static void op_nonorm(Ins **a, int n, int nv, const unsigned char *mdef) {
+    unsigned char *low = ka_new((size_t)nv + 2);
+    memset(low, 1, (size_t)nv + 2);
+    for (int k = 0; k < n; k++) op_walk(a[k], op_nn_use, low);
+    for (int ch = 1, it = 0; ch && it < 64; it++) {          /* v = mov w: v читает младшие 32 бита только если их читает w */
+        ch = 0;
+        for (int k = 0; k < n; k++) {
+            const Ins *i = a[k];
+            if (i->op != IR_MOV || i->dst <= 0 || i->a <= 0 || i->dst > nv || i->a > nv) continue;
+            if (!low[i->dst] && low[i->a]) { low[i->a] = 0; ch = 1; }
+        }
+    }
+    for (int k = 0; k < n; k++) {
+        Ins *i = a[k];
+        int d = i->dst;
+        if (d <= 0 || d > nv || i->w != 4) continue;
+        if (i->op == IR_BIN && i->sgn && (i->sub == ND_ADD || i->sub == ND_SUB || i->sub == ND_MUL || i->sub == ND_AND || i->sub == ND_OR ||
+                                          i->sub == ND_XOR || i->sub == ND_SHL)) {
+            if (low[d]) i->nn = 1;
+            else if (!kcc_wrapv && mdef[d] && d == i->a && (i->sub == ND_ADD || i->sub == ND_SUB)) {
+                int cb = 0;
+                for (int q = 0; q < n && !cb; q++) {      /* второй операнд - константа небольшой величины */
+                    const Ins *c = a[q];
+                    if (c->op == IR_CONST && c->dst == i->b && c->imm >= -(1 << 20) && c->imm <= (1 << 20)) cb = 1;
+                }
+                if (cb) i->nn = 1;
+            }
+        } else if ((i->op == IR_NEG || i->op == IR_NOT) && low[d]) i->nn = 1;
+    }
+}
+
 /* Распознавание циклического сдвига: d = (x >> c1) | (x << c2), c1 + c2 равно ширине (4 или 8 байт), оба сдвига без знака, x и
  * промежуточные значения - vreg с одним определением. Результат: d = rol x, c2. Только для x86-64 (у AArch64 свой ror). */
 static void op_rotates(Ins **a, int n, const OpCnt *c, const unsigned char *md) {
@@ -865,6 +915,7 @@ void ir_optimize(IrFn *fi) {
             if (a[k]->op == IR_CONST && a[k + 1]->op == IR_CONST && a[k]->dst == a[k + 1]->dst && a[k]->imm == a[k + 1]->imm) a[k] = NULL;
         { int m = 0; for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k]; n = m; }
     }
+    if (!kcc_noopt) op_nonorm(a, n, nvt, mdef);
     for (int k = 0; k < n; k++) a[k]->next = k + 1 < n ? a[k + 1] : NULL;
     fi->head = n ? a[0] : NULL;
     fi->nreg = nvt;

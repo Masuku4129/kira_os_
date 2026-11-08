@@ -187,7 +187,7 @@ static void gen_bin(const Ins *i) {
         else if (bm >= 0) xa_ins(A, op, RS(d), RS(bm));
         else { ldv(R_CX, b); xa_ins(A, op, RS(d), RS(R_CX)); }
     }
-    if (!sz4) normr(d, i->w, i->sgn);
+    if (!sz4 && !i->nn) normr(d, i->w, i->sgn);
     #undef RS
     if (rg[i->dst] != d) stv(i->dst, d);
 }
@@ -503,8 +503,8 @@ static void gen_ins(const Ins *i, int homebase_h) {
     case IR_LOAD: case IR_STORE: gen_ldst(i, -1, -1, 0, 0); break;
     case IR_MOV: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); if (rg[i->dst] < 0) stv(i->dst, d); break; }
     case IR_BIN: gen_bin(i); break;
-    case IR_NEG: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); xa_ins(A, X_NEG, R64(d), NOOPD); normr(d, i->w, i->sgn); if (rg[i->dst] < 0) stv(i->dst, d); break; }
-    case IR_NOT: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); xa_ins(A, X_NOT, R64(d), NOOPD); normr(d, i->w, i->sgn); if (rg[i->dst] < 0) stv(i->dst, d); break; }
+    case IR_NEG: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); xa_ins(A, X_NEG, R64(d), NOOPD); if (!i->nn) normr(d, i->w, i->sgn); if (rg[i->dst] < 0) stv(i->dst, d); break; }
+    case IR_NOT: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); xa_ins(A, X_NOT, R64(d), NOOPD); if (!i->nn) normr(d, i->w, i->sgn); if (rg[i->dst] < 0) stv(i->dst, d); break; }
     case IR_CMP: gen_cmp(i); break;
     case IR_EXT: {
         int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
