@@ -272,6 +272,8 @@ static EFI_STATUS load_elf64(VOID *image,
 
 fail:
     release_loaded_segments(segments, segment_count);
+    if (!EFI_ERROR(status))
+        status = EFI_LOAD_ERROR;
     return status;
 }
 
