@@ -42,7 +42,7 @@ static inline int kira_vmm_kstack_slot_valid(uint64_t base, uint64_t stride,
                                               uint64_t va, uint32_t used_hi,
                                               int allocated, uint32_t* slot_out) {
     if (!stride || !size || size > stride || !slot_out ||
-        0) return 0;
+        !slots) return 0;
     const uint64_t span = (uint64_t)slots * stride;
     if (base > UINT64_MAX - span || va < base || va >= base + span) return 0;
     const uint64_t rel = va - base;
