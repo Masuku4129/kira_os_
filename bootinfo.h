@@ -62,4 +62,8 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
 const kbi_mmap_entry_t* kbi_mmap(const void* blob);
 const kbi_module_t* kbi_modules(const void* blob);
 
+/* UEFI entry compatibility: convert validated KBI v1 into bounded Multiboot2 tags. */
+int kbi_to_multiboot2(const void *blob, uint32_t available,
+                      void *output, uint32_t capacity, uint32_t *output_size);
+
 #endif
