@@ -3,6 +3,7 @@
 #include "target.h"
 #include <string.h>
 
+int kcc_obj;                                    /* 1 - вывод объектного файла (ET_REL), main не нужен, внешние символы разрешены */
 int kcc_noopt;                                  /* 1 - не запускать ir_optimize (-O0, для сверки и отладки) */
 
 static Obj **htab;
@@ -31,7 +32,7 @@ static Obj **work; static int nwork;
 
 static void mark_ref(const Obj *from, const char *name) {
     Obj *o = gen_lookup(name);
-    if (!o || (!gen_is_defined(o) && !(o->is_func && gen_is_helper_name(o->name))))
+    if (!o || (!kcc_obj && !gen_is_defined(o) && !(o->is_func && gen_is_helper_name(o->name))))
         kerr(K.srcpath, from ? from->line : 1, "undefined reference to '%s'", name);
     if (o->emit) return;
     o->emit = 1;
@@ -65,8 +66,9 @@ Obj *gen_prepare(Obj *globals) {
     work = ka_new(sizeof(Obj *) * (size_t)(ng + 1));
     nwork = 0;
     Obj *mainf = gen_lookup("main");
-    if (!mainf || !mainf->is_func || !mainf->body) kerr(K.srcpath, 1, "undefined reference to 'main'");
-    mark_ref(NULL, "main");
+    if (kcc_obj) mainf = NULL;
+    else if (!mainf || !mainf->is_func || !mainf->body) kerr(K.srcpath, 1, "undefined reference to 'main'");
+    if (!kcc_obj) mark_ref(NULL, "main");
     for (Obj *g = globals; g; g = g->next)
         if (!g->is_static && gen_is_defined(g) && !g->emit && gen_lookup(g->name) == g) mark_ref(g, g->name);
     while (nwork) scan_refs(work[--nwork]);

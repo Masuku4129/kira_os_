@@ -677,6 +677,23 @@ static void x86_reloc(unsigned char *text, void *ctx) {
     }
 }
 
+void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen) {
+    memset(&xa, 0, sizeof xa);
+    gen_prepare(globals);
+    A->file = K.srcpath; A->line = 1;
+    for (Obj *g = globals; g; g = g->next)
+        if (g->is_func && g->body && g->emit) gen_func((IrFn *)g->ir);
+    size_t nr = 0;
+    for (XFix *f = xa.fix; f; f = f->next) nr++;
+    ObjRel *rel = ka_new(sizeof(ObjRel) * (nr + 1));
+    nr = 0;
+    for (XFix *f = xa.fix; f; f = f->next) {
+        rel[nr].off = (uint64_t)f->off; rel[nr].t = f->target; rel[nr].add = f->add - 4; rel[nr].type = f->target->is_func ? 4 : 2;
+        nr++;
+    }
+    elf_emit_obj(globals, A->p, A->len, ELF_ARCH_X86, rel, nr, out, outlen);
+}
+
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
     memset(&xa, 0, sizeof xa);
     Obj *mainf = gen_prepare(globals);
