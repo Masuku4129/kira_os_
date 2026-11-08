@@ -1,0 +1,96 @@
+/* Находки аудита CG-20261108-012: атомики не пересекаются LVN, 64-битные коэффициенты в SR, длинные цепочки копий в nonorm. */
+static int g;
+static long long out[8];
+static int chain(int x, int y) {
+    int v0 = x * y + 1;
+    int v1 = v0;
+    int v2 = v1;
+    int v3 = v2;
+    int v4 = v3;
+    int v5 = v4;
+    int v6 = v5;
+    int v7 = v6;
+    int v8 = v7;
+    int v9 = v8;
+    int v10 = v9;
+    int v11 = v10;
+    int v12 = v11;
+    int v13 = v12;
+    int v14 = v13;
+    int v15 = v14;
+    int v16 = v15;
+    int v17 = v16;
+    int v18 = v17;
+    int v19 = v18;
+    int v20 = v19;
+    int v21 = v20;
+    int v22 = v21;
+    int v23 = v22;
+    int v24 = v23;
+    int v25 = v24;
+    int v26 = v25;
+    int v27 = v26;
+    int v28 = v27;
+    int v29 = v28;
+    int v30 = v29;
+    int v31 = v30;
+    int v32 = v31;
+    int v33 = v32;
+    int v34 = v33;
+    int v35 = v34;
+    int v36 = v35;
+    int v37 = v36;
+    int v38 = v37;
+    int v39 = v38;
+    int v40 = v39;
+    int v41 = v40;
+    int v42 = v41;
+    int v43 = v42;
+    int v44 = v43;
+    int v45 = v44;
+    int v46 = v45;
+    int v47 = v46;
+    int v48 = v47;
+    int v49 = v48;
+    int v50 = v49;
+    int v51 = v50;
+    int v52 = v51;
+    int v53 = v52;
+    int v54 = v53;
+    int v55 = v54;
+    int v56 = v55;
+    int v57 = v56;
+    int v58 = v57;
+    int v59 = v58;
+    int v60 = v59;
+    int v61 = v60;
+    int v62 = v61;
+    int v63 = v62;
+    int v64 = v63;
+    int v65 = v64;
+    int v66 = v65;
+    int v67 = v66;
+    int v68 = v67;
+    int v69 = v68;
+    int v70 = v69;
+    int v71 = v70;
+    int v72 = v71;
+    int v73 = v72;
+    int v74 = v73;
+    int v75 = v74;
+    int v76 = v75;
+    int v77 = v76;
+    int v78 = v77;
+    int v79 = v78;
+    int v80 = v79;
+    return (int)(((long long)v80) >> 0) + (v80 < 0);
+}
+static long long wide(int x) { int a = x * 65537; int b = a; return (long long)b; }
+int main(void) {
+    long long acc = 0;
+    for (int i = 0; i < 40; i++) { out[0] += (long long)i * 4294967297LL; out[1] += (long long)i * 8589934593LL; out[2] += (long long)(i - 20) * -4294967297LL; }
+    for (int i = 0; i < 20; i++) { acc += (long long)i * 4294967297LL ^ (long long)i * 8589934593LL; }
+    acc += out[0] ^ out[1] ^ out[2];
+    for (int i = 1; i < 9; i++) acc += chain(i * 40000, i * 50000) + wide(i * 70000);
+    return (int)(acc & 0xffffff);
+}

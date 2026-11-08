@@ -448,7 +448,7 @@ static int op_sr_loop(Ins **a, int *pn, Ins **b, int lab, int nlab, OpCnt *c, un
     int made = 0;
     int pre_n = 0, post_n = 0;
     Ins *pre[24], *post[12]; int post_at[12];
-    int tv[12], tc[12], tp[12], nt = 0;
+    int tv[12], tp[12]; int64_t tc[12], nt = 0;
     OpCnt *cc = c;
     for (int pu = l + 1; pu < e && made < 3; pu++) {
         Ins *u = a[pu];
@@ -477,7 +477,7 @@ static int op_sr_loop(Ins **a, int *pn, Ins **b, int lab, int nlab, OpCnt *c, un
             for (int k = 0; k < n; k++) { if (!a[k] || a[k] == m) continue; us.pos = k; op_walk(a[k], op_sr_use, &us); }
             if (us.bad || us.cnt == 0) continue;
             int p = 0;
-            for (int q = 0; q < nt; q++) if (tv[q] == v && tc[q] == (int)C) p = tp[q];
+            for (int q = 0; q < nt; q++) if (tv[q] == v && tc[q] == C) p = tp[q];
             if (!p) {
                 if (nt >= 12 || pre_n + 2 > 24 || post_n >= 12 || *pnv + 3 > vcap) continue;
                 Ins *i1 = op_newins(), *i2 = op_newins(), *i3 = op_newins(), *i4 = op_newins();
@@ -490,7 +490,7 @@ static int op_sr_loop(Ins **a, int *pn, Ins **b, int lab, int nlab, OpCnt *c, un
                 memset(i4, 0, sizeof *i4); i4->op = IR_BIN; i4->sub = ND_ADD; i4->dst = pv; i4->a = pv; i4->b = sv; i4->w = 8;
                 pre[pre_n++] = i1; pre[pre_n++] = i2; pre[pre_n++] = i3;
                 post[post_n] = i4; post_at[post_n++] = pu;
-                p = pv; tv[nt] = v; tc[nt] = (int)C; tp[nt++] = pv;
+                p = pv; tv[nt] = v; tc[nt] = C; tp[nt++] = pv;
             }
             OpSrRen rn = { md, p };
             for (int k = 0; k < n; k++) if (a[k] && a[k] != m) op_walk(a[k], op_sr_ren, &rn);
@@ -564,7 +564,7 @@ static void op_nonorm(Ins **a, int n, int nv, const unsigned char *mdef) {
     unsigned char *low = ka_new((size_t)nv + 2);
     memset(low, 1, (size_t)nv + 2);
     for (int k = 0; k < n; k++) op_walk(a[k], op_nn_use, low);
-    for (int ch = 1, it = 0; ch && it < 64; it++) {          /* v = mov w: v читает младшие 32 бита только если их читает w */
+    for (int ch = 1; ch; ) {          /* v = mov w: v читает младшие 32 бита только если их читает w */
         ch = 0;
         for (int k = 0; k < n; k++) {
             const Ins *i = a[k];
@@ -581,7 +581,7 @@ static void op_nonorm(Ins **a, int n, int nv, const unsigned char *mdef) {
         if ((i->op == IR_BIN && i->sgn && (i->sub == ND_ADD || i->sub == ND_SUB || i->sub == ND_MUL || i->sub == ND_AND || i->sub == ND_OR ||
                                            i->sub == ND_XOR || i->sub == ND_SHL)) || i->op == IR_NEG || i->op == IR_NOT) { i->nn = 1; dirty[d] = 1; }
     }
-    for (int ch = 1, it = 0; ch && it < 64; it++) {            /* значение, полученное копией неточного, тоже неточное */
+    for (int ch = 1; ch; ) {            /* значение, полученное копией неточного, тоже неточное */
         ch = 0;
         for (int k = 0; k < n; k++) {
             const Ins *i = a[k];
@@ -633,7 +633,7 @@ static int op_lvn(Ins **a, int n, int nv, int *cnt_out) {
         default: break;
         }
         int kill = 0, endblk = 0;
-        if (i->op == IR_STORE || i->op == IR_CALL || i->op == IR_ASM || i->op == IR_COPY || i->op == IR_ZERO) kill = 1;
+        if (i->op == IR_STORE || i->op == IR_CALL || i->op == IR_ASM || i->op == IR_COPY || i->op == IR_ZERO || i->op == IR_ATOMIC) kill = 1;
         if (i->op == IR_JMP || i->op == IR_BRZ || i->op == IR_BRNZ || i->op == IR_RET) endblk = 1;
         int newvn = -1;
         if (i->op == IR_MOV && i->dst > 0 && i->a > 0) newvn = op_lvn_get(&L, i->a);
