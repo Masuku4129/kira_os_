@@ -5,6 +5,7 @@
  * неиспользуемые функции отбрасываются (как --gc-sections). Неопределённый символ - ошибка. */
 #include "x86.h"
 #include "target.h"
+#include "passes.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,8 +17,13 @@ static XA xa;
 /* Пул vreg: пять callee-saved (сохраняются в прологе) и три caller-saved (r8-r10: бесплатны, но только для значений,
    живущих не через вызов, atomic, asm, копирование памяти и подобные инструкции, которые их используют). */
 #define NCS 5
-#define NPOOL 8
-static const int pool[NPOOL] = { R_BX, R_12, R_13, R_14, R_15, R_8, R_9, R_10 };
+#define NPOOL 11
+#define NPOOL_OLD 8
+static const int pool[NPOOL] = { R_BX, R_12, R_13, R_14, R_15, R_8, R_9, R_10, R_SI, R_DI, R_11 };   /* rsi, rdi, r11: тоже только вне вызовов и подобных инструкций */
+static int npool;                              /* 11, либо 8 при -fno-regs */
+static unsigned char pdirect[6];                 /* 2: скалярный параметр берётся прямо из регистра аргумента, домашняя область не нужна */
+static int g_retlast;                          /* текущая инструкция - последняя: переход к эпилогу не нужен */
+static int g_frameless;                        /* листовая функция без кадра: нет push rbp, нет кадра, ret прямо в месте return */
 static const int argreg[6] = { R_DI, R_SI, R_DX, R_CX, R_8, R_9 };
 /* ---------- ABI System V: размещение аргументов ---------- */
 enum { AL_REG, AL_STK, AL_AREG, AL_ASTK };
@@ -485,6 +491,7 @@ static void gen_ins(const Ins *i, int homebase_h) {
     }
     case IR_PARAM: {
         const ALoc *l = &ploc[i->imm];
+        if (!i->sub && l->kind == AL_REG && l->idx < 6 && pdirect[l->idx] == 2) { if (i->dst > 0 && ve[i->dst] >= 0) stv(i->dst, argreg[l->idx]); break; }   /* прямо из регистра аргумента */
         if (!i->sub) {
             int pd = i->dst > 0 && rg[i->dst] >= 0 ? rg[i->dst] : R_AX;       /* сразу в регистр приёмника: без промежуточного rax */
             if (l->kind == AL_REG) xa_ins(A, X_MOV, R64(pd), xm(8, R_BP, -(int64_t)homebase_h + 8 * l->idx));
@@ -537,7 +544,8 @@ static void gen_ins(const Ins *i, int homebase_h) {
                 xa_ins(A, X_MOV, R64(R_AX), R64(R_CX));
             }
         } else if (i->a > 0) ldv(R_AX, i->a);
-        xa_jmp(A, CC_NONE, epi);
+        if (g_frameless) xa_op0(A, X0_RET);
+        else if (!g_retlast) xa_jmp(A, CC_NONE, epi);
         break;
     case IR_COPY:
         ldv(R_DI, i->a); ldv(R_SI, i->b);
@@ -556,6 +564,15 @@ static void gen_ins(const Ins *i, int homebase_h) {
 }
 
 static void pad16(void) { while (A->len & 15) xa_op0(A, X0_NOP); }
+/* выравнивание заголовка цикла на 16 байт многобайтовыми nop (не больше 10 байт; как у clang) */
+static void pad_loop(void) {
+    static const unsigned char nop[10][10] = { {0}, {0x90}, {0x66, 0x90}, {0x0F, 0x1F, 0x00}, {0x0F, 0x1F, 0x40, 0x00}, {0x0F, 0x1F, 0x44, 0x00, 0x00},
+        {0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00}, {0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00}, {0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00} };
+    int d = (int)((16 - (A->len & 15)) & 15);
+    if (d > 0 && d <= 9) xa_raw(A, nop[d], d);
+    else if (d == 10) { xa_raw(A, nop[9], 9); xa_raw(A, nop[1], 1); }
+}
 
 static void gen_func(IrFn *fi) {
     Obj *f = fi->f;
@@ -641,13 +658,14 @@ static void gen_func(IrFn *fi) {
     }
     /* вес vreg: число обращений с учётом глубины циклов (вытесняется самый «дешёвый», а не самый длинный) */
     long *wt = ka_new(sizeof(long) * (size_t)(nv + 2));
+    unsigned char *lhead = ka_new((size_t)fi->nlab + 2);     /* метка - цель обратного перехода (заголовок цикла) */
     {
         int *dd = ka_new(sizeof(int) * (size_t)(n + 2));
         for (int k = 0; k < n; k++) {
             const Ins *j = ins[k];
             if ((j->op != IR_JMP && j->op != IR_BRZ && j->op != IR_BRNZ) || j->imm < 0 || j->imm > fi->nlab || labpos[j->imm] < 0) continue;
             int l = labpos[j->imm];
-            if (l <= k) { dd[l]++; dd[k + 1]--; }
+            if (l <= k) { dd[l]++; dd[k + 1]--; lhead[j->imm] = 1; }
         }
         int depth = 0;
         for (int k = 0; k < n; k++) {
@@ -658,17 +676,20 @@ static void gen_func(IrFn *fi) {
         }
     }
     int act[NPOOL] = { 0 }, used[NPOOL] = { 0 };
+    npool = kcc_noregs ? NPOOL_OLD : NPOOL;
+    /* при выборе жертвы сравнивается плотность (вес на длину интервала): короткие временные значения важнее долгоживущих переменных */
+    #define DENS_LESS(a, b) (kcc_noregs ? wt[a] < wt[b] : wt[a] * (long)(ve[b] - vs[b] + 1) < wt[b] * (long)(ve[a] - vs[a] + 1))
     for (int q = 0; q < no; q++) {
         int v = order[q], best = -1;
         int cross = bc[ve[v] + 1] - bc[vs[v]] > 0;
-        int lim = cross ? NCS : NPOOL;
-        for (int k = 0; k < NPOOL; k++) if (act[k] && ve[act[k]] <= vs[v]) act[k] = 0;
-        if (!cross) for (int k = NCS; k < NPOOL; k++) if (!act[k]) { best = k; break; }
+        int lim = cross ? NCS : npool;
+        for (int k = 0; k < npool; k++) if (act[k] && ve[act[k]] <= vs[v]) act[k] = 0;
+        if (!cross) for (int k = NCS; k < npool; k++) if (!act[k]) { best = k; break; }
         if (best < 0) for (int k = 0; k < NCS; k++) if (!act[k]) { best = k; break; }
         if (best < 0) {
             int far = -1;
-            for (int k = 0; k < lim; k++) if (far < 0 || wt[act[k]] < wt[act[far]]) far = k;
-            if (far >= 0 && wt[act[far]] < wt[v]) { rg[act[far]] = -1; best = far; }
+            for (int k = 0; k < lim; k++) if (far < 0 || DENS_LESS(act[k], act[far])) far = k;
+            if (far >= 0 && DENS_LESS(act[far], v)) { rg[act[far]] = -1; best = far; }
         }
         if (best >= 0) { act[best] = v; rg[v] = pool[best]; used[best] = 1; }
     }
@@ -696,7 +717,27 @@ static void gen_func(IrFn *fi) {
         p_stk = plan_args(np, pa, p_hidden, pl, &p_ngrn);
         ploc = pl;
     }
-    int nh = f->ty->variadic ? 6 : (p_hidden && p_ngrn < 1 ? 1 : p_ngrn);   /* домашняя область - только для приходящих регистров */
+    unsigned char homed[6] = { 0 };               /* какие приходящие регистры надо сохранить в домашней области */
+    for (int k = 0; k < 6; k++) pdirect[k] = 0;
+    for (int k = 0; k < (f->ty->variadic ? 6 : p_ngrn) && k < 6; k++) homed[k] = 1;
+    if (!kcc_noregs) {
+        /* скалярные параметры в начале функции берутся прямо из регистров аргументов, если очередная запись в регистр приёмника
+           не портит ещё не прочитанный аргумент; агрегаты в начале (копирование через rcx) отключают это целиком */
+        int lead = 0, subp = 0;
+        while (lead < n && ins[lead]->op == IR_PARAM) { if (ins[lead]->sub) subp = 1; lead++; }
+        for (int m = 0; m < lead && !subp; m++) {
+            const ALoc *lm = &ploc[ins[m]->imm];
+            if (lm->kind != AL_REG || lm->idx >= 6) continue;
+            int ok = 1;
+            for (int j = 0; j < m && ok; j++) {
+                int dj = ins[j]->dst > 0 && ve[ins[j]->dst] >= 0 ? rg[ins[j]->dst] : -1;
+                if (dj == argreg[lm->idx]) ok = 0;
+            }
+            if (ok) { pdirect[lm->idx] = 2; homed[lm->idx] = 0; }
+        }
+    }
+    int nh = 0;
+    for (int k = 0; k < 6; k++) if (homed[k]) nh = k + 1;
     cur += 8 * nh;
     int homeh = (int)cur;
     spillbase = (int)cur;
@@ -704,7 +745,10 @@ static void gen_func(IrFn *fi) {
     int maxslot = -1;
     for (Obj *l = f->locals; l; l = l->next) if (l->slot > maxslot) maxslot = l->slot;
     slotoff = ka_new(sizeof(int) * (size_t)(maxslot + 2));
+    unsigned char *slotref = ka_new((size_t)maxslot + 2);       /* слоты, чей адрес ещё берётся (продвинутые в vreg места в кадре не занимают) */
+    for (int k = 0; k < n; k++) if (ins[k]->op == IR_LADDR && ins[k]->imm >= 0 && ins[k]->imm <= maxslot) slotref[ins[k]->imm] = 1;
     for (Obj *l = f->locals; l; l = l->next) {
+        if (!kcc_noregs && (l->slot < 0 || l->slot > maxslot || !slotref[l->slot])) continue;
         int64_t sz = l->ty->size > 0 ? l->ty->size : 1;
         int al = l->align > l->ty->align ? l->align : l->ty->align;
         if (al < 1) al = 1;
@@ -714,24 +758,37 @@ static void gen_func(IrFn *fi) {
         slotoff[l->slot] = (int)cur;
     }
     int64_t frame = (cur + (int64_t)maxout + 15) & ~(int64_t)15;
+    {   /* листовая функция без кадра: ни стека, ни callee-saved, ни вызовов; rbp не нужен */
+        int nused = 0, leaf = 1;
+        for (int k = 0; k < NCS; k++) nused += used[k];
+        for (int k = 0; k < n; k++) if (ins[k]->op == IR_CALL || ins[k]->op == IR_ASM || ins[k]->op == IR_VAINFO || ins[k]->op == IR_COPY || ins[k]->op == IR_ZERO) leaf = 0;
+        g_frameless = !kcc_noregs && leaf && frame == 0 && !nused && nh == 0 && p_stk == 0;
+        for (int k = 0; g_frameless && k < n; k++) if (ins[k]->op == IR_PARAM && (ins[k]->sub || ploc[ins[k]->imm].kind != AL_REG)) g_frameless = 0;
+    }
     epi = fi->nlab + 1;
     tmplab = epi + 1;
     xa_labels_begin(A, epi + 1 + natom);
-    xa_op0(A, X0_PUSH_RBP);
-    xa_ins(A, X_MOV, R64(R_BP), R64(R_SP));
-    if (frame) xa_ins(A, X_SUB, R64(R_SP), xi(frame));
+    if (!g_frameless) {
+        xa_op0(A, X0_PUSH_RBP);
+        xa_ins(A, X_MOV, R64(R_BP), R64(R_SP));
+        if (frame) xa_ins(A, X_SUB, R64(R_SP), xi(frame));
+    }
     for (int k = 0; k < NCS; k++) if (used[k]) xa_ins(A, X_MOV, xm(8, R_BP, -saveoff[k]), R64(pool[k]));
-    for (int k = 0; k < nh; k++) xa_ins(A, X_MOV, xm(8, R_BP, -(int64_t)homeh + 8 * k), R64(argreg[k]));
+    for (int k = 0; k < nh; k++) if (homed[k]) xa_ins(A, X_MOV, xm(8, R_BP, -(int64_t)homeh + 8 * k), R64(argreg[k]));
     for (int k = 0; k < n; k++) {
+        g_retlast = k == n - 1 && !kcc_noregs;
+        if (ins[k]->op == IR_LABEL && lhead[ins[k]->imm] && !kcc_noalign) pad_loop();
         if (fusecmp[k]) { gen_cmpbr(ins[k], ins[k + 1]); k++; continue; }
         { int fz = kcc_noopt ? 0 : try_addr_fuse(ins, k, n); if (fz) { k += fz - 1; continue; } }
         gen_ins(ins[k], homeh);
     }
+    g_retlast = 0;
     A->file = K.srcpath; A->line = f->line;
     xa_label(A, epi);
     for (int k = 0; k < NCS; k++) if (used[k]) xa_ins(A, X_MOV, R64(pool[k]), xm(8, R_BP, -saveoff[k]));
-    xa_op0(A, X0_LEAVE);
+    if (!g_frameless) xa_op0(A, X0_LEAVE);
     xa_op0(A, X0_RET);
+    g_frameless = 0;
     xa_labels_end(A);
 }
 

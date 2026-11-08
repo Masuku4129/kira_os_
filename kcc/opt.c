@@ -9,6 +9,7 @@
  *   4. Удаление мёртвого кода (чистые операции без читателей).
  * Функции с setjmp не трогаем: после longjmp значения неизменяемых в регистрах переменных нельзя гарантировать. */
 #include "kcc.h"
+#include "passes.h"
 #include <string.h>
 
 
@@ -793,6 +794,64 @@ static Ins **op_invert(IrFn *fi, Ins **a, int *pn, int *pnv, unsigned char *mdef
     return a;
 }
 
+/* Свёртка ветвлений по константе и удаление недостижимого кода (-fno-dce отключает):
+ * BRZ/BRNZ по vreg с единственным определением IR_CONST становится JMP или исчезает; всё между JMP/RET/UNREACH и следующей
+ * достижимой меткой удаляется; метки без переходов удаляются; JMP на метку, идущую следом (через другие метки), исчезает.
+ * Возвращает 1, если что-то изменилось (массив уплотнён). */
+static int op_cfg(Ins **a, int *pn, int nlab, const OpCnt *c, const unsigned char *md) {
+    int n = *pn, ch = 0;
+    for (int k = 0; k < n; k++) {
+        Ins *i = a[k];
+        if ((i->op != IR_BRZ && i->op != IR_BRNZ) || i->a <= 0 || i->a > c->nv) continue;
+        const Ins *d = c->defins[i->a];
+        if (c->ndef[i->a] != 1 || md[i->a] || !d || d->op != IR_CONST) continue;
+        int taken = (d->imm == 0) == (i->op == IR_BRZ);
+        if (taken) i->op = IR_JMP;
+        else a[k] = NULL;
+        i->a = 0;
+        ch = 1;
+    }
+    for (int round = 0; round < 8; round++) {
+        int *ref = ka_new(sizeof(int) * (size_t)(nlab + 2));
+        for (int k = 0; k < n; k++)
+            if (a[k] && (a[k]->op == IR_JMP || a[k]->op == IR_BRZ || a[k]->op == IR_BRNZ) && a[k]->imm >= 0 && a[k]->imm <= nlab) ref[a[k]->imm]++;
+        int dead = 0, rc = 0;
+        for (int k = 0; k < n; k++) {
+            Ins *i = a[k];
+            if (!i) continue;
+            if (i->op == IR_LABEL) {
+                if (i->imm < 0 || i->imm > nlab) continue;
+                if (ref[i->imm] > 0) dead = 0;
+                else { a[k] = NULL; rc = 1; }               /* метка без переходов: её просто нет */
+                continue;
+            }
+            if (dead) { a[k] = NULL; rc = 1; continue; }
+            if (i->op == IR_JMP || i->op == IR_RET || i->op == IR_UNREACH) dead = 1;
+        }
+        for (int k = 0; k < n; k++) {                         /* JMP на ближайшую следующую метку (между ними только метки) */
+            if (!a[k] || a[k]->op != IR_JMP) continue;
+            for (int q = k + 1; q < n; q++) {
+                if (!a[q]) continue;
+                if (a[q]->op != IR_LABEL) break;
+                if (a[q]->imm == a[k]->imm) { a[k] = NULL; rc = 1; break; }
+            }
+        }
+        int m = 0;
+        for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k];
+        if (m != n) ch = 1;
+        n = m;
+        if (!rc) break;
+        ch = 1;
+    }
+    {
+        int m = 0;
+        for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k];
+        n = m;
+    }
+    *pn = n;
+    return ch;
+}
+
 void ir_optimize(IrFn *fi) {
     int nv = fi->nreg, n = 0;
     for (Ins *i = fi->head; i; i = i->next) n++;
@@ -916,7 +975,8 @@ void ir_optimize(IrFn *fi) {
                 Ins *p = a[prev];
                 int x = i->a;
                 if (p->dst == x && c2.ndef[x] == 1 && c2.nuse[x] == 1 &&
-                    (p->op == IR_BIN || p->op == IR_NEG || p->op == IR_NOT || p->op == IR_CMP || p->op == IR_LOAD || p->op == IR_EXT || p->op == IR_CONST)) {
+                    (p->op == IR_BIN || p->op == IR_NEG || p->op == IR_NOT || p->op == IR_CMP || p->op == IR_LOAD || p->op == IR_EXT || p->op == IR_CONST ||
+                     (p->op == IR_PARAM && !p->sub && !kcc_noregs))) {
                     p->dst = i->dst;
                     a[k] = NULL;
                     continue;
@@ -939,6 +999,7 @@ void ir_optimize(IrFn *fi) {
         op_ssa_refine(a, n, nvt, mdef, c2.ndef, fi->nlab);
         for (int k = 0; k < n; k++) if (op_fold(a[k], &c2, mdef)) ch = 1;
         if (ch) op_recount(&c2, a, n);
+        if (!kcc_nodce && op_cfg(a, &n, fi->nlab, &c2, mdef)) { ch = 1; op_recount(&c2, a, n); }
         for (int k = 0; k < n; k++) {
             Ins *i = a[k];
             if (i->op == IR_EXT && i->a > 0 && i->a <= nvt && c2.ndef[i->a] == 1 && !mdef[i->a] &&
@@ -966,6 +1027,7 @@ void ir_optimize(IrFn *fi) {
         }
     }
 
+    { int m = 0; for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k]; n = m; }      /* последний круг мог оставить удалённые */
     op_recount(&c2, a, n);
     op_rotates(a, n, &c2, mdef);
 
@@ -999,7 +1061,7 @@ void ir_optimize(IrFn *fi) {
     for (int k = 0; k + 1 < n; k++) {
         Ins *p = a[k], *q = a[k + 1];
         if (!p || !q || q->op != IR_MOV || p->dst <= 0 || p->dst > nvt || q->a != p->dst || q->dst == p->dst) continue;
-        if (p->op != IR_BIN && p->op != IR_CMP && p->op != IR_EXT && p->op != IR_NEG && p->op != IR_NOT) continue;
+        if (p->op != IR_BIN && p->op != IR_CMP && p->op != IR_EXT && p->op != IR_NEG && p->op != IR_NOT && !(p->op == IR_PARAM && !p->sub && !kcc_noregs)) continue;
         if (c2.ndef[p->dst] != 1 || c2.nuse[p->dst] != 1) continue;
         p->dst = q->dst;
         a[k + 1] = NULL;
@@ -1138,3 +1200,15 @@ void ir_inline(Obj *caller) {
 }
 
 void ir_walk(Ins *i, OpVisit fn, void *ctx) { op_walk(i, fn, ctx); }
+
+/* ---------- флаги отключения проходов (kcc/passes.h) ---------- */
+int kcc_noregs;
+int kcc_nodce;
+int kcc_noalign;
+int kcc_flag(const char *arg) {
+    static const struct { const char *name; int *flag; } tab[] = {
+        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign },
+        { 0, 0 } };
+    for (int k = 0; tab[k].name; k++) if (!strcmp(arg, tab[k].name)) { *tab[k].flag = 1; return 1; }
+    return 0;
+}

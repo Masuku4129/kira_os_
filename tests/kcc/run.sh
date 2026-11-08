@@ -96,6 +96,18 @@ for f in tests/kcc/run/*.c tests/kcc/exec/*.c; do
     $T/kloader $T/p.elf >$T/got 2>&1
     cmp -s $T/want $T/got || note "$f: вывод ELF расходится с clang: $(head -c 120 $T/got | tr '\n' ' ') != $(head -c 120 $T/want | tr '\n' ' ')"
 done
+# Каждый проход оптимизации отключается флагом -fno-xxx; результат с любым отключённым проходом обязан совпадать с clang
+# (так ошибка отдельного прохода отделяется от ошибки остального кода).
+PASSFLAGS="-fno-regs -fno-dce -fno-align"
+for f in tests/kcc/run/*.c; do
+    refbuild $f || continue
+    for fl in $PASSFLAGS; do
+        total=$((total+1))
+        if ! $T/kcc -I $INC -I kcc/include $fl -o $T/p.elf $f 2>$T/err; then note "$f ($fl): ELF не собран: $(head -c 200 $T/err)"; continue; fi
+        $T/kloader $T/p.elf >$T/got 2>&1
+        cmp -s $T/want $T/got || note "$f ($fl): вывод расходится с clang: $(head -c 120 $T/got | tr '\n' ' ') != $(head -c 120 $T/want | tr '\n' ' ')"
+    done
+done
 for f in tests/kcc/elfbad/*.c; do
     total=$((total+1))
     $T/kcc -I $INC -I kcc/include -o $T/p.elf $f 2>$T/err; rc=$?
