@@ -23,6 +23,23 @@ int main(void) {
     const kbi_header_t *h;
     const kbi_mmap_entry_t *entries;
 
+    {
+        uint32_t pitch = 0xdeadbeefu;
+        CHECK(kira_uefi_gop_geometry_valid(0xe0000000, 0x400000,
+                                           1024, 768, 1024, 1, &pitch));
+        CHECK(pitch == 4096);
+        CHECK(!kira_uefi_gop_geometry_valid(0xe0000000, 0x1000,
+                                            1024, 768, 1024, 1, &pitch));
+        CHECK(!kira_uefi_gop_geometry_valid(0xe0000000, 0x400000,
+                                            1024, 768, 1000, 1, &pitch));
+        CHECK(!kira_uefi_gop_geometry_valid(UINT64_MAX - 0xfffu, 0x2000,
+                                            640, 480, 640, 1, &pitch));
+        CHECK(!kira_uefi_gop_geometry_valid(0xe0000000, 0x400000,
+                                            640, 480, 640, 0, &pitch));
+        CHECK(!kira_uefi_gop_geometry_valid(0xe0000000, 0x400000,
+                                            16385, 480, 16385, 1, &pitch));
+    }
+
     memset(&info, 0, sizeof(info));
     info.kernel_base = 0x200000;
     info.kernel_size = 0x180000;
