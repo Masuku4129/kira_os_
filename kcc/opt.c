@@ -1331,3 +1331,9 @@ int kcc_flag(const char *arg) {
     for (int k = 0; tab[k].name; k++) if (!strcmp(arg, tab[k].name)) { *tab[k].flag = 1; return 1; }
     return 0;
 }
+            if (!steal && (i->op == IR_CALL || i->op == IR_GADDR) && i->sym) {      /* копия тела: вызовов и взятий адреса в программе стало больше */
+                Obj *tg = gen_lookup(i->sym);
+                InlCnt *te = tg ? inl_slot(tg, 1) : NULL;
+                if (te) { if (i->op == IR_CALL) te->calls++; else te->taken++; }
+            }
+        { InlCnt *ce = inl_slot(callee, 0); if (ce && ce->calls > 0) ce->calls--; }            /* этот вызов исчез */
