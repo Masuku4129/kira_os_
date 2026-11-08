@@ -248,6 +248,10 @@ if [ "${KIRA_SKIP_MIND:-0}" != 1 ]; then
     echo "== mind levers 13-30 (A/B by measurement, rollback, useless marking, budget, general rollback, hints, seed) =="
     $CC $FLAGS -fsanitize=address,undefined -o $T/mindlv tests/mind_lever_test.c mind.c mindnet.c
     $T/mindlv
+
+    echo "== mind efficiency stand (closed-loop scenario: late frames, reaction, release, churn, false actions, bg cost; observe vs act) =="
+    $CC $FLAGS -fsanitize=address,undefined -o $T/mind-eff tests/mind_eff_test.c mind.c mindnet.c
+    $T/mind-eff
 else
     echo "Mind quality: covered by mind-quality job"
 fi
@@ -260,6 +264,9 @@ echo "== KDRV signed-package verification =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_sig tests/kdrv_sig_test.c kdrv_sig.c pk.c crypto.c sha256.c
 $T/kdrv_sig
 python3 -m unittest ci.test_kdrvsign
+
+echo "== Mind build job (templates, quotas, kcc, ELF validation, human/signature gate, run only after grant under kloader) =="
+bash tests/mind_build_test.sh
 
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c bootinfo_fdt.c bootinfo.c

@@ -28,6 +28,7 @@
 #define MIND_JOURNAL  24
 #define MIND_TEXT     176
 #define MIND_NQ       6
+#define MIND_REL_BACKOFF_MAX 2   /* выдержка перед снятием предела фона растёт не более чем в 4 раза */
 
 enum { MS_LOAD, MS_QUEUE, MS_MEM, MS_LATE, MS_DISK, MS_IPC, MS_FAULT, MS_SYSC };
 enum { MIND_OBSERVE = 0, MIND_ACT = 1 };
@@ -233,6 +234,8 @@ typedef struct {
     /* тактика (десятки мс) */
     uint32_t tact_on, tact_calm_ms, tact_last_ms, tact_logged_ms, tact_steps, tact_actions;
     uint32_t tact_budget_x10;                 /* сколько процессора отдано фону при последнем ограничении */
+    uint32_t tact_rel_ms, tact_back_ms;       /* время последнего шага снятия пределов; время последнего удлинения выдержки */
+    uint8_t  tact_backoff;                    /* 0..MIND_REL_BACKOFF_MAX: выдержка перед снятием удлиняется вдвое за каждый возврат давления сразу после снятия */
     uint32_t bg_fps_level, bg_fps_ms, bg_calm_ms;
     uint32_t core_res_pid, core_calm_ms;                  /* ядро отдано программе в фокусе (0 - нет) и время спокойствия */         /* темп фоновых окон: ступень (0 - без предела) и время смены */
     /* предвидение (стратегия): признаки прошлой секунды ждут своего исхода */
