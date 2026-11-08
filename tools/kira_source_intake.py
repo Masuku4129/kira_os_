@@ -24,6 +24,8 @@ MAX_TOTAL_BYTES = 256 * 1024 * 1024
 SOURCE_SUFFIXES = {".c", ".h", ".S", ".s", ".rs", ".zig", ".cpp", ".hpp", ".inc"}
 SPDX_RE = re.compile(rb"SPDX-License-Identifier:\s*([^\r\n*]+)")
 LICENSE_NAMES = {"LICENSE", "LICENSE.txt", "COPYING", "COPYING.LESSER", "NOTICE"}
+PERMISSIVE_SPDX = {"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "0BSD"}
+COPYLEFT_PREFIXES = ("GPL-", "LGPL-", "AGPL-", "MPL-", "EPL-", "CDDL-", "OSL-")
 
 
 class IntakeError(ValueError):
@@ -105,6 +107,17 @@ def inspect(items: dict[str, bytes], source_url: str) -> dict:
             value = match.decode("utf-8", "replace").strip().rstrip("*/ ")
             if value:
                 spdx.add(value)
+    ids = sorted(spdx)
+    if ids and all(x in PERMISSIVE_SPDX for x in ids):
+        license_class = "PREFERRED_PERMISSIVE_REVIEW_REQUIRED"
+    elif any(x.startswith(COPYLEFT_PREFIXES) for x in ids):
+        license_class = "COPYLEFT_COMPATIBILITY_REVIEW_REQUIRED"
+    elif ids:
+        license_class = "NON_ALLOWLISTED_LICENSE_REVIEW_REQUIRED"
+    elif license_files:
+        license_class = "LICENSE_TEXT_FOUND_MANUAL_REVIEW_REQUIRED"
+    else:
+        license_class = "UNKNOWN_BLOCKED_FOR_DISTRIBUTION"
     return {
         "schema": "kira-source-package-v1",
         "source_url": source_url or "UNSPECIFIED",
@@ -116,11 +129,22 @@ def inspect(items: dict[str, bytes], source_url: str) -> dict:
             name.encode() + b"\0" + hashlib.sha256(data).digest()
             for name, data in sorted(items.items())
         )).hexdigest(),
+        "provenance": {
+            "source_origin_status": "UNVERIFIED_SOURCE_ORIGIN",
+            "policy": "Use official vendor/project repositories or explicitly authorized mirrors; verify publisher and pinned commit before production use"
+        },
         "license": {
-            "spdx_identifiers_found": sorted(spdx),
+            "spdx_identifiers_found": ids,
             "license_text_files": license_files,
-            "status": "IDENTIFIED" if spdx or license_files else "UNKNOWN_REQUIRES_REVIEW",
-            "policy": "PRESERVE_AND_REVIEW; this intake tool does not grant redistribution rights"
+            "status": license_class,
+            "preferred_spdx_allowlist": sorted(PERMISSIVE_SPDX),
+            "policy": "PRESERVE_FOR_ANALYSIS; distribution, modification and derivative-work rights require separate review"
+        },
+        "vendor_policy": {
+            "official_source_or_permission_verified": False,
+            "closed_sdk_or_leaked_source": "REJECT",
+            "unauthorized_access_or_bypass": "REJECT",
+            "reverse_engineering": "ONLY_WHERE_LAWFUL_AND_AUTHORIZED"
         },
         "compatibility": {
             "target": "KIRA",
@@ -152,6 +176,7 @@ def make_report(m: dict) -> str:
 - Размер исходников/пакета: {m['total_bytes']} байт
 - SHA-256 набора: `{m['source_sha256']}`
 - Лицензия: {lic} ({m['license']['status']})
+- Происхождение источника: {m['provenance']['source_origin_status']}
 - Совместимость с KIRA: НЕ ПРОВЕРЯЛАСЬ
 - Сборка: НЕ ЗАПУСКАЛАСЬ
 - Запуск в ОС: ЗАПРЕЩЁН ДО ПРОВЕРОК
