@@ -6,17 +6,17 @@
  * partition, validates ELF64 PT_LOAD segments, captures GOP and memory-map
  * information, exits boot services, and transfers control to the kernel.
  *
- * The kernel entry ABI is:
- *   RDI = pointer to kira_uefi_boot_info
- *   RSI = byte size of kira_uefi_boot_info
+ * The kernel entry is called with the Microsoft x64 ABI:
+ *   RCX = pointer to the loader-neutral KIRA BootInfo v1 blob
+ *   RDX = byte size of that blob
  */
 
 #include <efi.h>
 #include <efilib.h>
 #include <stdint.h>
 #include <stddef.h>
+#include "uefi_kbi.h"
 
-#define KIRA_EFI_MAGIC       0x314942454152494bull
 #define KIRA_ELF_MAGIC       0x464c457f
 #define KIRA_ELFCLASS64      2
 #define KIRA_ELFDATA2LSB     1
@@ -26,36 +26,7 @@
 #define KIRA_MAX_SEGMENTS    32
 #define KIRA_PAGE_SIZE       4096
 #define KIRA_KERNEL_PATH     L"\\EFI\\KIRA\\KIRA.ELF"
-#define KIRA_BOOTINFO_PAGES  4
-
-typedef struct {
-    UINT32 type;
-    UINT32 pad;
-    EFI_PHYSICAL_ADDRESS physical_start;
-    EFI_VIRTUAL_ADDRESS virtual_start;
-    UINT64 pages;
-    UINT64 attributes;
-} kira_efi_memory_descriptor;
-
-typedef struct {
-    UINT64 magic;
-    UINT32 version;
-    UINT32 size;
-    UINT64 memory_map;
-    UINT64 memory_map_size;
-    UINT64 descriptor_size;
-    UINT32 descriptor_version;
-    UINT32 reserved;
-    UINT64 framebuffer_base;
-    UINT64 framebuffer_size;
-    UINT32 framebuffer_width;
-    UINT32 framebuffer_height;
-    UINT32 framebuffer_stride;
-    UINT32 framebuffer_format;
-    UINT64 rsdp;
-    UINT64 kernel_physical_base;
-    UINT64 kernel_size;
-} kira_uefi_boot_info;
+#define KIRA_BOOTINFO_PAGES  32 /* enough for the bounded 4096-entry KBI memory map */
 
 typedef struct __attribute__((packed)) {
     UINT8 ident[16];
@@ -269,7 +240,7 @@ static EFI_STATUS load_elf64(VOID *image,
     return EFI_SUCCESS;
 }
 
-static EFI_STATUS collect_gop(kira_uefi_boot_info *info)
+static EFI_STATUS collect_gop(kira_uefi_kbi_info *info)
 {
     EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
     EFI_STATUS status;
@@ -280,19 +251,19 @@ static EFI_STATUS collect_gop(kira_uefi_boot_info *info)
 
     info->framebuffer_base = gop->Mode->FrameBufferBase;
     info->framebuffer_size = gop->Mode->FrameBufferSize;
-    info->framebuffer_width = gop->Mode->Info->HorizontalResolution;
-    info->framebuffer_height = gop->Mode->Info->VerticalResolution;
-    info->framebuffer_stride = gop->Mode->Info->PixelsPerScanLine;
+    info->width = gop->Mode->Info->HorizontalResolution;
+    info->height = gop->Mode->Info->VerticalResolution;
+    info->pitch = gop->Mode->Info->PixelsPerScanLine * 4u;
 
     switch (gop->Mode->Info->PixelFormat) {
     case PixelRedGreenBlueReserved8BitPerColor:
-        info->framebuffer_format = 1;
+        info->format = 1;
         break;
     case PixelBlueGreenRedReserved8BitPerColor:
-        info->framebuffer_format = 2;
+        info->format = 2;
         break;
     default:
-        info->framebuffer_format = 0;
+        info->format = 0;
         break;
     }
 
@@ -322,24 +293,26 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
 {
     EFI_STATUS status;
     VOID *kernel_image = NULL;
+    VOID *memory_map = NULL;
     UINTN kernel_image_size = 0;
     EFI_PHYSICAL_ADDRESS kernel_entry = 0;
     EFI_PHYSICAL_ADDRESS kernel_base = 0;
     UINT64 kernel_size = 0;
-    EFI_PHYSICAL_ADDRESS bootinfo_physical = 0;
-    kira_uefi_boot_info *bootinfo = NULL;
+    EFI_PHYSICAL_ADDRESS bootinfo_physical = (1ULL << 30) - 1;
+    kira_uefi_kbi_info kbi_info;
+    UINT32 bootinfo_size = 0;
     UINTN map_size = 0;
     UINTN map_key = 0;
     UINTN descriptor_size = 0;
     UINT32 descriptor_version = 0;
-    UINTN map_pages;
     UINTN attempt;
 
+    SetMem(&kbi_info, sizeof(kbi_info), 0);
     InitializeLib(image, system_table);
     g_st = system_table;
     g_bs = system_table->BootServices;
 
-    Print(L"KIRA OS UEFI loader\r\n");
+    Print(L"KIRA OS UEFI loader\\r\\n");
 
     status = read_kernel_image(image, &kernel_image, &kernel_image_size);
     if (EFI_ERROR(status)) {
@@ -355,29 +328,23 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
         return status;
     }
 
-    status = g_bs->AllocatePages(AllocateAnyPages, EfiLoaderData,
+    /* Keep the handoff blob below the kernel's initial 1-GiB identity map. */
+    status = g_bs->AllocatePages(AllocateMaxAddress, EfiLoaderData,
                                  KIRA_BOOTINFO_PAGES, &bootinfo_physical);
     if (EFI_ERROR(status))
         return status;
 
-    bootinfo = (kira_uefi_boot_info *)(UINTN)bootinfo_physical;
-    SetMem(bootinfo, KIRA_BOOTINFO_PAGES * KIRA_PAGE_SIZE, 0);
-    bootinfo->magic = KIRA_EFI_MAGIC;
-    bootinfo->version = 1;
-    bootinfo->size = sizeof(*bootinfo);
-    bootinfo->kernel_physical_base = kernel_base;
-    bootinfo->kernel_size = kernel_size;
-
-    (VOID)collect_gop(bootinfo);
-    (VOID)find_rsdp(&bootinfo->rsdp);
+    kbi_info.kernel_base = kernel_base;
+    kbi_info.kernel_size = kernel_size;
+    (VOID)collect_gop(&kbi_info);
+    (VOID)find_rsdp(&kbi_info.rsdp);
 
     /*
      * Allocate a generously sized memory-map buffer. If firmware reports
      * EFI_BUFFER_TOO_SMALL, grow it and retry before ExitBootServices.
      */
     map_size = 64 * 1024;
-    status = g_bs->AllocatePool(EfiLoaderData, map_size,
-                                (VOID **)&bootinfo->memory_map);
+    status = g_bs->AllocatePool(EfiLoaderData, map_size, &memory_map);
     if (EFI_ERROR(status))
         return status;
 
@@ -385,14 +352,13 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
         UINTN current_size = map_size;
 
         status = g_bs->GetMemoryMap(&current_size,
-                                    (EFI_MEMORY_DESCRIPTOR *)(UINTN)bootinfo->memory_map,
+                                    (EFI_MEMORY_DESCRIPTOR *)memory_map,
                                     &map_key, &descriptor_size,
                                     &descriptor_version);
         if (status == EFI_BUFFER_TOO_SMALL) {
-            g_bs->FreePool((VOID *)(UINTN)bootinfo->memory_map);
+            g_bs->FreePool(memory_map);
             map_size = current_size + descriptor_size * 8;
-            status = g_bs->AllocatePool(EfiLoaderData, map_size,
-                                        (VOID **)&bootinfo->memory_map);
+            status = g_bs->AllocatePool(EfiLoaderData, map_size, &memory_map);
             if (EFI_ERROR(status))
                 return status;
             continue;
@@ -400,9 +366,15 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
         if (EFI_ERROR(status))
             return status;
 
-        bootinfo->memory_map_size = current_size;
-        bootinfo->descriptor_size = descriptor_size;
-        bootinfo->descriptor_version = descriptor_version;
+        /* Pure memory conversion only: do not call Boot Services between this
+           GetMemoryMap and ExitBootServices, or the map key becomes stale. */
+        status = kira_uefi_build_kbi(memory_map, current_size, descriptor_size,
+                                     descriptor_version, &kbi_info,
+                                     (VOID *)(UINTN)bootinfo_physical,
+                                     KIRA_BOOTINFO_PAGES * KIRA_PAGE_SIZE,
+                                     &bootinfo_size);
+        if (EFI_ERROR(status))
+            return status;
 
         status = g_bs->ExitBootServices(image, map_key);
         if (!EFI_ERROR(status))
@@ -416,14 +388,14 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
 
     /*
      * No firmware boot-service calls are permitted beyond this point.
-     * Kernel must establish its own page tables and runtime environment.
+     * start detects the UEFI long-mode entry and forwards KBI to the kernel
+     * bridge using the native System V kernel ABI.
      */
 #if defined(__x86_64__)
     {
-        typedef void (__attribute__((ms_abi)) *kernel_entry_fn)(
-            kira_uefi_boot_info *, UINTN);
+        typedef void (__attribute__((ms_abi)) *kernel_entry_fn)(void *, UINTN);
         kernel_entry_fn entry = (kernel_entry_fn)(UINTN)kernel_entry;
-        entry(bootinfo, sizeof(*bootinfo));
+        entry((VOID *)(UINTN)bootinfo_physical, bootinfo_size);
     }
 #else
 #error "This UEFI loader must be built for x86_64"
