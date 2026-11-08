@@ -104,7 +104,7 @@ def inspect(items: dict[str, bytes], source_url: str) -> dict:
         if PurePosixPath(name).suffix in SOURCE_SUFFIXES:
             source_files.append(name)
         for match in SPDX_RE.findall(data[:8192]):
-            value = match.decode("utf-8", "replace").strip().rstrip("*/ ")
+            value = match.decode("utf-8", "replace").strip().rstrip("*/ ").split()[0]
             if value:
                 spdx.add(value)
     ids = sorted(spdx)
@@ -138,7 +138,7 @@ def inspect(items: dict[str, bytes], source_url: str) -> dict:
             "license_text_files": license_files,
             "status": license_class,
             "preferred_spdx_allowlist": sorted(PERMISSIVE_SPDX),
-            "policy": "PRESERVE_FOR_ANALYSIS; distribution, modification and derivative-work rights require separate review"
+            "policy": "PRESERVE_FOR_ANALYSIS; this intake tool does not grant redistribution rights; distribution, modification and derivative-work rights require separate review"
         },
         "vendor_policy": {
             "official_source_or_permission_verified": False,
