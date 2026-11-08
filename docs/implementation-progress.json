@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "branch": "v46/kdrv-catalogue-signature-policy",
+  "inventory": {
+    "commit_before_this_run": "796a5a0d66f4ca60637af81c092738aebdd415e7",
+    "tree_sha": "4fb07499a930ece40139b458f33f695714aa28cc",
+    "tracked_paths": 958,
+    "tree_truncated": false,
+    "scope_note": "Фактическое дерево ветки получено через Git Trees API. Количество путей — инвентарная метрика, не процент готовности."
+  },
+  "latest_source_commit": "fc1b524ffcf0b8fe7d6b6461008c10cb0ab4dea5",
+  "updated_at_utc": "2026-11-08T17:54:00Z",
+  "execution_policy": {
+    "tests_run": false,
+    "audits_run": false,
+    "builds_run": false,
+    "ci_dispatch_requested": false,
+    "commit_messages_use_skip_ci": true,
+    "pull_requests_merged": [],
+    "other_branches_modified": []
+  },
+  "completed_this_run": [
+    {
+      "id": "x86-pci-enumeration-startup",
+      "status": "source_integrated",
+      "files": [
+        "kernel.c"
+      ],
+      "commit": "fc1b524ffcf0b8fe7d6b6461008c10cb0ab4dea5",
+      "details": "Добавлен вызов pci_init() после ACPI discovery и до fs_init()/сетевых probe. До изменения x86 kernel_main не вызывал pci_init(), хотя virtio storage и e1000/virtio-net используют pci_find(). ARM64 уже выполняет pci_init() после настройки ECAM из FDT.",
+      "validation": "Не запускалась по требованию. Сборка, runtime и Limbo не подтверждены."
+    }
+  ],
+  "modules": [
+    {
+      "id": "x86-bios-uefi-boot",
+      "state": "blocked_not_integrated",
+      "existing_files": [
+        "arch/x86_64/bios/stage1.S",
+        "arch/x86_64/bios/stage2.S",
+        "arch/x86_64/bios/bootinfo.c",
+        "arch/x86_64/uefi/loader.c",
+        "arch/x86_64/uefi/memory_map.c",
+        "arch/x86_64/uefi/uefi_kbi.c",
+        "bootinfo.c",
+        "bootinfo.h"
+      ],
+      "remaining": [
+        "Подключить собственные BIOS stage1/stage2 к реальному образу и передаче BootInfo v1.",
+        "Собрать и включить EFI application в ISO/образ, определить и зафиксировать EFI ABI и передачу управления.",
+        "Убрать обязательную зависимость production ISO от GRUB/Multiboot2 только после готового собственного пути."
+      ],
+      "dependencies": [
+        "BootInfo v1 ABI",
+        "x86_64 entry point",
+        "build_clang.sh",
+        "ISO packaging"
+      ],
+      "evidence": "docs/RELEASE_GAPS.md: boot chain BLOCKED; build_clang.sh сейчас собирает kira.bin и помещает его в GRUB ISO."
+    },
+    {
+      "id": "arm64-uefi-fdt-boot",
+      "state": "partial_not_hardware_validated",
+      "existing_files": [
+        "arch/aarch64/uefi/loader.c",
+        "arch/aarch64/boot.S",
+        "arch/aarch64/fdt.c",
+        "arch/aarch64/fdt_boot.c",
+        "bootinfo_fdt.c",
+        "include/kira/bootinfo.h"
+      ],
+      "remaining": [
+        "Связать UEFI loader с ARM64 сборкой и единым BootInfo handoff.",
+        "Сверить FDT/UEFI memory ownership, reserved ranges, framebuffer и cache attributes на реальной платформе.",
+        "Отдельно проверить на физической ARM64 плате; Limbo/QEMU не считается аппаратной проверкой."
+      ],
+      "dependencies": [
+        "BootInfo v1",
+        "AArch64 entry ABI",
+        "build_arm64.sh",
+        "FDT memory map"
+      ]
+    },
+    {
+      "id": "kcc-bootstrap-self-hosting",
+      "state": "partial_not_self_hosting",
+      "existing_files": [
+        "kcc/",
+        "userland/kcc.c",
+        "userland/kccrt.c",
+        "docs/KCC.md"
+      ],
+      "remaining": [
+        "Зафиксировать поддерживаемое подмножество C и ABI/relocation contract.",
+        "Реализовать stage-1/stage-2 bootstrap и детерминированное сравнение результата.",
+        "Доказать сборку KCC самим KCC для требуемых системных translation units на x86_64 и AArch64."
+      ],
+      "dependencies": [
+        "KCC parser/type system",
+        "x86_64 and AArch64 backends",
+        "ELF/linker contract"
+      ],
+      "evidence": "docs/RELEASE_GAPS.md: KCC toolchain BLOCKED; external Clang/LLD/NASM/wasm-ld still build the OS."
+    },
+    {
+      "id": "pci-acpi-prt-routing",
+      "state": "partial_parser_files_not_integrated",
+      "existing_files": [
+        "pci.c",
+        "pci.h",
+        "acpi.c",
+        "acpi.h",
+        "arch/x86_64/ioapic.c",
+        "arch/x86_64/irqmode.c",
+        "drivers/acpi/prt.c",
+        "drivers/acpi/prt.h",
+        "drivers/bus/acpi_prt.c",
+        "drivers/bus/acpi_prt.h",
+        "drivers/bus/pci_routing.c",
+        "drivers/bus/pci_routing.h"
+      ],
+      "completed": [
+        "x86 kernel startup now calls pci_init() before PCI consumers."
+      ],
+      "remaining": [
+        "Expose a checksum-validated DSDT/AML view from ACPI core.",
+        "Choose and implement the supported AML namespace/evaluation boundary; current parser variants are not a full AML interpreter.",
+        "Resolve static and dynamic link-device resources (_CRS/_PRS) or report each unsupported route explicitly.",
+        "Connect _PRT entries to PCI segment/bus/device/function and IOAPIC GSI polarity/trigger, then provide an IRQ registration/delivery path.",
+        "Add parser and route sources to the appropriate build source lists only after their ABI and dependencies are fixed."
+      ],
+      "dependencies": [
+        "ACPI DSDT lifetime/mapping",
+        "AML namespace and link-device resource resolution",
+        "MADT IOAPIC ranges",
+        "PCI topology"
+      ],
+      "evidence": "acpi.c currently extracts _S5 from DSDT; the two PRT parser layers and pci_routing.c exist but are absent from build_clang.sh source lists and kernel startup integration. docs/RELEASE_GAPS.md marks AML _PRT/legacy PCI INTx routing open."
+    },
+    {
+      "id": "rtl8139-clean_room",
+      "state": "blocked_provenance_rewrite_required",
+      "existing_files": [
+        "drivers/net/rtl8139.c",
+        "drivers/net/rtl8139.h",
+        "drivers/rl/rl.c",
+        "drivers/rl/if_rlreg.h"
+      ],
+      "remaining": [
+        "Implement RTL8139 from the device specification rather than adapting the existing FreeBSD rl(4) source.",
+        "Preserve existing provenance/license notices until replacement is complete and reviewed.",
+        "Implement and connect reset, DMA rings, RX/TX, interrupt/link handling, timeouts and malformed-frame rejection."
+      ],
+      "dependencies": [
+        "RTL8139 register/DMA specification",
+        "PCI enumeration",
+        "DMA ownership API"
+      ],
+      "evidence": "docs/RELEASE_GAPS.md marks RTL8139 provenance BLOCKED."
+    },
+    {
+      "id": "kdrv-trust-auth-anti_rollback",
+      "state": "partial_authentication_and_install_present",
+      "existing_files": [
+        "kdrv.c",
+        "kdrv_fmt.c",
+        "kdrv_format.h",
+        "kdrv_sig.c",
+        "kdrv_sig.h",
+        "kdrv_trust.h",
+        "drivers/kdrv/",
+        "userland/drvget.c",
+        "userland/drvget_core.c",
+        "tools/kdrvsign.py",
+        "drivers/index.txt"
+      ],
+      "remaining": [
+        "Define a persistent anti-rollback anchor that cannot be reverted by restoring an old disk image.",
+        "Implement authenticated trust-key rotation/revocation and compromise recovery.",
+        "Authenticate the catalogue itself and publish/verify the production publisher key.",
+        "Complete end-to-end package fetch, signature verification, installation and kernel load verification evidence."
+      ],
+      "dependencies": [
+        "Persistent storage/firmware trust anchor",
+        "key lifecycle format and recovery policy",
+        "signed catalogue format"
+      ],
+      "evidence": "docs/RELEASE_GAPS.md marks anti-rollback, key rotation, signed catalogue and full QEMU signed install/load path open."
+    },
+    {
+      "id": "iommu_dma_domains",
+      "state": "partial_hardware_code_not_integrated_or_complete",
+      "existing_files": [
+        "iommu_vtd.c",
+        "iommu_vtd.h",
+        "iommu_vtd_hw.c",
+        "iommu_vtd_hw.h",
+        "drivers/iommu/intel_vtd.c",
+        "drivers/iommu/intel_vtd_dmar.c",
+        "drivers/iommu/vtd_domain.c",
+        "drivers/iommu/amd_vi.c",
+        "drivers/iommu/arm_smmu.c",
+        "drivers/iommu/arm_smmu_domain.c",
+        "drivers/iommu/iommu_discovery.c"
+      ],
+      "remaining": [
+        "Unify platform discovery and the active DMA API for Intel VT-d, AMD-Vi and ARM SMMUv3.",
+        "Complete per-device domain lifecycle, page mapping/unmapping, invalidation, fault reporting and teardown.",
+        "Integrate DMA masks, cache maintenance and bounce buffers where needed.",
+        "Connect domain state to KDRV CAP_DMA authorization and trusted in-kernel drivers."
+      ],
+      "dependencies": [
+        "ACPI DMAR/IVRS and ARM IORT/FDT discovery",
+        "PMM page ownership",
+        "device lifecycle",
+        "KDRV capability policy"
+      ],
+      "evidence": "docs/RELEASE_GAPS.md marks DMA isolation PARTIAL and says current KDRV call site denies untrusted DMA without an isolated domain."
+    },
+    {
+      "id": "driver_compatibility_lifecycle",
+      "state": "partial_implementation_present",
+      "existing_files": [
+        "userland/drvcompat.c",
+        "userland/drvcompat.h",
+        "userland/drvget.c",
+        "userland/drvget_core.c",
+        "userland/drvman.c",
+        "userland/kdrv_bsd.h",
+        "drivers/kdrv/kdrv_manager.c",
+        "drivers/kdrv/kdrv_catalogue.c"
+      ],
+      "remaining": [
+        "Trace and complete the source acquisition -> provenance/license policy -> compatibility transform -> KCC compile -> package/signature -> install -> trust check -> load/unload lifecycle.",
+        "Make unsupported ABI, kernel API and hardware operations fail explicitly; do not silently accept partially adapted drivers.",
+        "Connect the driver GUI to the same authoritative manager/catalogue state."
+      ],
+      "dependencies": [
+        "KCC supported ABI",
+        "KDRV package/trust lifecycle",
+        "device capability and DMA policy"
+      ],
+      "evidence": "Files exist in the tree; their existence alone does not establish that the entire lifecycle is connected or safe."
+    },
+    {
+      "id": "build_and_module_integration",
+      "state": "partial",
+      "existing_files": [
+        "build_clang.sh",
+        "build_arm64.sh",
+        ".github/workflows/ci.yml"
+      ],
+      "remaining": [
+        "Integrate each production module only after its public ABI and dependencies are settled.",
+        "Resolve duplicate/unconnected ACPI PRT parser paths.",
+        "Connect BIOS/UEFI entrypoints and IOMMU platform modules to the correct architecture build.",
+        "Keep production/test-only source and package manifests separate."
+      ],
+      "dependencies": [
+        "Module implementation",
+        "architecture ABI",
+        "BootInfo",
+        "DMA API"
+      ]
+    }
+  ],
+  "unresolved_specification": [
+    "Full AML interpreter scope: namespace lookup, method execution, synchronization, OperationRegion and resource-template evaluation; current project contains bounded parsers, not a complete AML VM.",
+    "Persistent anti-rollback trust anchor and owner-key compromise recovery policy.",
+    "Cross-architecture DMA ownership/cache-coherency contract and supported IOMMU feature baseline.",
+    "Final common boot ABI and exact production image layout for BIOS, UEFI x86_64 and UEFI ARM64."
+  ],
+  "next_module": {
+    "id": "acpi-dsdt-and-prt-integration",
+    "intended_scope": "Expose validated DSDT bytes and wire a bounded _PRT path into x86 PCI routing, while making unsupported AML/link-device cases explicit. Do not claim full AML support.",
+    "prerequisites_to_read": [
+      "acpi.c",
+      "acpi.h",
+      "drivers/acpi/prt.c",
+      "drivers/bus/acpi_prt.c",
+      "drivers/bus/pci_routing.c",
+      "arch/x86_64/ioapic.c",
+      "arch/x86_64/irqmode.c",
+      "build_clang.sh"
+    ]
+  }
+}
