@@ -10,6 +10,7 @@ run() { timeout 10 qemu-system-x86_64 -drive file=$1,format=raw -m ${2:-256} -di
 fail=0
 expect() { if echo "$OUT" | grep -q "$2"; then echo "ok:   $1"; else echo "FAIL: $1 (нет '$2')"; fail=1; fi; }
 OUT=$(run $T/ok.img);                      expect "загрузка ядра" "Kernel core starting"
+expect "W^X ядра (нет страниц W+X)" "W^X kernel: ok"
 echo "$OUT" | grep -q "GRUB" && { echo "FAIL: GRUB в выводе"; fail=1; }
 cp $T/ok.img $T/crc.img; printf '\xff' | dd of=$T/crc.img bs=1 seek=$((64*512+5000)) conv=notrunc 2>/dev/null
 OUT=$(run $T/crc.img);                     expect "повреждённый образ (CRC)" "CRC mismatch"

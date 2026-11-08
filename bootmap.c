@@ -93,6 +93,13 @@ void bootmap_release_all(void) {
     tlb_flush();
 }
 
+// Окно строится до включения EFER.NXE (до vmm_init) и тогда без NX: после включения NXE ставим NX на всё, что отображено.
+void bootmap_harden(void) {
+    if (!ready || !nxe_on()) return;
+    for (unsigned i = 0; i < BOOTMAP_SLOTS; i++) if (slot_used[i]) pd[i] |= P_NX;
+    tlb_flush();
+}
+
 unsigned bootmap_used_slots(void) {
     unsigned c = 0;
     for (unsigned i = 0; i < BOOTMAP_SLOTS; i++) c += slot_used[i];

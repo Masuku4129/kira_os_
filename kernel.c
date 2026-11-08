@@ -26,6 +26,7 @@
 #include "acpi.h"
 #include "hwprofile.h"
 #include "ramext.h"
+#include "bootmap.h"
 #include "percpu.h"
 #include "smp.h"
 #include "proc.h"
@@ -177,6 +178,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
                         : "[KIRA VMM] SMAP not offered by this CPU (user copies are still checked and fault-safe).\n");
     }
     ramext_init();
+    bootmap_harden();               /* окно раннего отображения строилось до NXE: без NX */
+    if (vmm_enforce_wx() != 0)      kernel_panic("W^X for kernel memory could not be enforced");
     acpi_set_map_hook(acpi_map);
     if (uefi_rsdp_override) acpi_init_rsdp(uefi_rsdp_override);
     else acpi_init(addr);
@@ -290,6 +293,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     {
         const acpi_info_t* ai = acpi_get();
         smp_start(ai);                       // остальные ядра: каждое входит в планировщик со своим тиком LAPIC
+        if (vmm_verify_wx(0) != 0) kernel_panic("W^X violated after start-up of the other cores");
     }
 
     uart_print("[KIRA OS] Ready. Type 'help' and press Enter.\n");

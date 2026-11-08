@@ -13,7 +13,7 @@ ld.lld -T arch/x86_64/linker.ld -nostdlib -z max-page-size=0x1000 $T/boot.o $OBJ
 nasm -f bin arch/x86_64/bios/stage1.asm -o $T/s1.bin && nasm -f bin arch/x86_64/bios/stage2.asm -o $T/s2.bin && python3 tools/mkbios.py $T/s1.bin $T/s2.bin $T/kira.bin $T/k.img >/dev/null || exit 1
 OUT=$(timeout 30 qemu-system-x86_64 -drive file=$T/k.img,format=raw -m 256 -display none -serial stdio -no-reboot 2>&1 | tr -d '\r' | head -c 20000)
 fail=0
-for pat in "Kernel core starting" "4-level paging verified" "Preemptive scheduler online" "Command line ready" "Mind online"; do
+for pat in "Kernel core starting" "4-level paging verified" "Preemptive scheduler online" "W^X kernel: ok" "Command line ready" "Mind online"; do
     echo "$OUT" | grep -q "$pat" && echo "ok:   $pat" || { echo "FAIL: нет '$pat'"; fail=1; }
 done
 echo "$OUT" | grep -qi "kernel panic" && { echo "FAIL: kernel panic"; fail=1; }

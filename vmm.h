@@ -66,6 +66,13 @@ void     vmm_tlb_shootdown(uint64_t root, uint64_t va, uint32_t pages);
 int      vmm_user_range_ok(uint64_t va, uint64_t len, int write);
 // Стеки потоков ядра с пустотой ниже (переполнение - #PF/#DF, а не порча памяти). bytes кратно 4 КБ, одинаково для всех.
 #include "kstack.h"
+// W^X ядра (см. wx.h): vmm_enforce_wx - после vmm_init и vmm_guard_null_page, до запуска остальных ядер; печатает
+// "[KIRA VMM] W^X kernel: ok (...)". vmm_verify_wx - повторный обход таблиц (announce - печатать итог). 0 - нарушений нет.
+int      vmm_enforce_wx(void);
+int      vmm_verify_wx(int announce);
+// Записываемое окно на страницу, исполняемую по физическому адресу (трамплин AP); 0 - нет места.
+void*    vmm_code_window_open(uint64_t pa);
+void     vmm_code_window_close(void* window);
 int      vmm_enable_smep(void);
 void     vmm_cpu_init_ap(void);                        // CR0.WP, SMEP, PAT на не загрузочном процессоре                        // 1 - включён, 0 - процессор не умеет
 

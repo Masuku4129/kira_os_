@@ -29,7 +29,7 @@ for i in $(seq 1 80); do
 done
 kill $Q 2>/dev/null || true; wait $Q 2>/dev/null || true
 LOG=$(tr -d '\033' < $T/serial.log)
-for want in "KIRA OS UEFI loader" "Common BootInfo accepted" "BootInfo v1 validated" "Native RSDP accepted" "Command line ready"; do
+for want in "KIRA OS UEFI loader" "Common BootInfo accepted" "BootInfo v1 validated" "Native RSDP accepted" "W^X kernel: ok" "Command line ready"; do
     echo "$LOG" | grep -aqF "$want" || { echo "uefi boot: FAIL - нет строки '$want'"; echo "$LOG" | tail -15; exit 1; }
 done
 echo "$LOG" | grep -aq "Exception Type" && { echo "uefi boot: FAIL - исключение"; exit 1; }

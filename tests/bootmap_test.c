@@ -71,6 +71,14 @@ int main(void) {
     uint8_t* ram_uc = bootmap_map(0x180000000ULL, 0x100, 1);
     CHECK(ram_uc && (uint8_t*)ram_uc != ram - 0x40);
 
+    // bootmap_harden: отображения, сделанные до включения NXE (без NX), получают NX; свободные слоты не трогаются.
+    CHECK(!(pd[0] & P_NX));
+    unsigned fl = bootmap_test_flushes;
+    bootmap_harden();
+    CHECK((pd[0] & P_NX) && (pd[1] & P_NX) && (pd[2] & P_NX) && (pd[used_after_fb] & P_NX));
+    CHECK(pd[BOOTMAP_SLOTS - 1] == 0 && bootmap_test_flushes == fl + 1);
+    CHECK((pd[0] & (P_PRESENT | P_WRITE | P_HUGE | P_PCD)) == (P_PRESENT | P_WRITE | P_HUGE | P_PCD));   // прочие биты целы
+
     // Граничные случаи.
     CHECK(bootmap_map(0xFD000000ULL, 0, 1) == 0);
     CHECK(bootmap_map(~0ULL - 10, 100, 1) == 0);                          // переполнение

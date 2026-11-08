@@ -21,6 +21,7 @@ int  bootmap_init(void);                       // 0 - окно установл�
 // Возвращает виртуальный адрес, соответствующий phys, или 0 (нет места, переполнение, окно не установлено).
 void* bootmap_map(uint64_t phys, uint64_t len, int uncached);
 void  bootmap_release_all(void);               // снять все отображения окна (перед тем, как драйвер экрана отобразит видеопамять сам)
+void  bootmap_harden(void);                    // после включения EFER.NXE: NX на отображения, сделанные до него (W^X)
 unsigned bootmap_used_slots(void);
 
 #endif

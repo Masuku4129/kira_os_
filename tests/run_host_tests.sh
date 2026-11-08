@@ -50,6 +50,14 @@ echo "== ramext (mapping RAM above 1 GB) =="
 $CC $FLAGS -o $T/ramext tests/ramext_test.c ramext.c
 $T/ramext
 
+echo "== W^X ядра (дробление страниц, права секций, обход таблиц, поиск W+X) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/wx tests/wx_test.c wx.c
+ASAN_OPTIONS=detect_leaks=0 $T/wx
+
+echo "== W^X ядра ARM64 (дробление блоков, права секций, обход таблиц, поиск W+X) =="
+$CC $FLAGS -fsanitize=address,undefined -Iarch/aarch64 -o $T/wx_arm tests/wx_arm_test.c arch/aarch64/wx_arm.c
+ASAN_OPTIONS=detect_leaks=0 $T/wx_arm
+
 echo "== scheduler policy (incl. regression: pulsing critical thread) =="
 $CC $FLAGS -o $T/sched tests/sched_test.c sched.c scale.c percpu.c
 $T/sched

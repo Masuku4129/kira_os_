@@ -244,14 +244,14 @@ unsigned smp_online(void) {
     return n;
 }
 
-static int start_one(percpu_t* p) {
+static int start_one(percpu_t* p, uint8_t* window) {
     uint8_t* raw = (uint8_t*)kmalloc(SMP_AP_STACK);          /* блоки кучи выровнены не меньше чем по 16 байт */
     if (!raw) return -1;
     uint64_t top = (uint64_t)(uintptr_t)raw + SMP_AP_STACK;
-    uint8_t* dst = (uint8_t*)(uintptr_t)SMP_TRAMP_BASE;
+    uint8_t* dst = window;                                   /* запись - через окно RW+NX: сама страница 0x8000 остаётся RX (W^X) */
     uint64_t len = (uint64_t)(ap_tramp_end - ap_tramp_start);
     for (uint64_t i = 0; i < len; i++) dst[i] = (uint8_t)ap_tramp_start[i];
-    ap_params_t* par = (ap_params_t*)(uintptr_t)(SMP_TRAMP_BASE + (uint64_t)(uintptr_t)ap_tramp_params_off);
+    ap_params_t* par = (ap_params_t*)(window + (uint64_t)(uintptr_t)ap_tramp_params_off);
     par->cr3 = vmm_kernel_root();
     par->stack_top = top;
     par->entry = (uint64_t)(uintptr_t)smp_ap_main;
@@ -291,10 +291,15 @@ unsigned smp_start(const acpi_info_t* acpi) {
     unsigned n = acpi->cpu_count < ACPI_MAX_CPU ? acpi->cpu_count : ACPI_MAX_CPU;
     unsigned cnt = smp_plan(acpi->cpu_apic_id, n, apic_get_id(), ap, PERCPU_MAX_CPUS - 1);
     unsigned ok = 0;
+    uint8_t* window = cnt ? (uint8_t*)vmm_code_window_open(SMP_TRAMP_BASE) : 0;
+    if (cnt && !window) {
+        uart_print("[KIRA SMP] No writable window for the start-up trampoline: other cores are not started.\n");
+        cnt = 0;
+    }
     for (unsigned i = 0; i < cnt; i++) {
         percpu_t* p = percpu_alloc(ap[i]);
         if (!p) break;
-        int rc = start_one(p);
+        int rc = start_one(p, window);
         if (rc == 0) {
             ok++;
         } else {
@@ -302,6 +307,7 @@ unsigned smp_start(const acpi_info_t* acpi) {
             uart_print(rc == -1 ? " not started: no memory for its stack.\n" : rc == -3 ? " started but could not enter the scheduler.\n" : " did not answer INIT-SIPI within 0.5 s.\n");
         }
     }
+    vmm_code_window_close(window);
     uart_print("[KIRA SMP] Processors online: "); uart_print_dec(1 + ok);
     uart_print(" of "); uart_print_dec(acpi->cpu_count); uart_print(acpi->source ? " (Intel MP tables).\n" : " (MADT).\n");
     if (acpi->cpu_count > PERCPU_MAX_CPUS)
