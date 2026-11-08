@@ -122,7 +122,7 @@ jobs:
           python3 - <<'PY'
           import pathlib, re
           source = pathlib.Path("ci/package_update.sh").read_text()
-          blocks = re.findall(r"<<'((?:PY)[A-Z0-9_]*)'\\s*\\n(.*?)\\n\\1(?=\\s|$)", source, re.S)
+          blocks = re.findall(r"<<'((?:PY)[A-Z0-9_]*)'\s*\n(.*?)\n\\1(?=\s|$)", source, re.S)
           if not blocks:
               raise SystemExit("no embedded Python blocks found in ci/package_update.sh")
           for name, body in blocks:
@@ -289,7 +289,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ci-out/release
-          printf 'KIRA-USER-DATA-PRESERVE\\n' > ci-out/release/preserve-before.txt
+          printf 'KIRA-USER-DATA-PRESERVE\n' > ci-out/release/preserve-before.txt
           tools/kfstool kira.disk put /data/release-preserve.txt ci-out/release/preserve-before.txt
           cp kira.disk ci-out/release/kira_disk.img
           KIRA_OUT="$PWD/ci-out/release" ./build_clang.sh --android
