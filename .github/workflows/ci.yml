@@ -30,6 +30,19 @@ jobs:
           name: vm-host-tests
           path: ci-out/host-tests.log
 
+  data-lab:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: data format round-trip and benchmark
+        run: |
+          python3 benchmarks/data_formats.py --rows 50000 --repeat 3 --out ci-out/data-format-lab
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: data-format-lab-results
+          path: ci-out/data-format-lab
+
   build:
     runs-on: ubuntu-24.04
     steps:
