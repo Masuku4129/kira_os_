@@ -685,6 +685,17 @@ static int op_lvn(Ins **a, int n, int nv, int *cnt_out) {
 
 /* Распознавание циклического сдвига: d = (x >> c1) | (x << c2), c1 + c2 равно ширине (4 или 8 байт), оба сдвига без знака, x и
  * промежуточные значения - vreg с одним определением. Результат: d = rol x, c2. Только для x86-64 (у AArch64 свой ror). */
+typedef struct { int v, hit; } OpDefHit;
+static void op_defhit(Ins *i, int *r, int kind, void *x) { (void)i; OpDefHit *h = x; if (kind != 0 && *r == h->v) h->hit = 1; }
+/* Переменная v (несколько определений) не переопределяется на отрезке a[from..to) и на нём нет меток и переходов (прямая линия). */
+static int op_stable(Ins **a, int from, int to, int v) {
+    OpDefHit h = { v, 0 };
+    for (int j = from; j < to; j++) {
+        if (a[j]->op == IR_LABEL || a[j]->op == IR_JMP || a[j]->op == IR_BRZ || a[j]->op == IR_BRNZ || a[j]->op == IR_RET) return 0;
+        op_walk(a[j], op_defhit, &h);
+    }
+    return !h.hit;
+}
 static void op_rotates(Ins **a, int n, const OpCnt *c, const unsigned char *md) {
 #define SINGLE(v) ((v) > 0 && (v) <= c->nv && c->ndef[v] == 1 && !md[v] && c->defins[v])
     if (K.cfg && K.cfg->target && !strcmp(K.cfg->target, "aarch64")) return;
@@ -695,7 +706,16 @@ static void op_rotates(Ins **a, int n, const OpCnt *c, const unsigned char *md) 
         Ins *p = c->defins[o->a], *q = c->defins[o->b];
         if (p->op != IR_BIN || q->op != IR_BIN || p->w != o->w || q->w != o->w || p->sgn || q->sgn) continue;
         if (p->sub == ND_SHL && q->sub == ND_SHR) { Ins *t = p; p = q; q = t; }       /* p - сдвиг вправо, q - влево */
-        if (p->sub != ND_SHR || q->sub != ND_SHL || p->a != q->a || !SINGLE(p->a)) continue;
+        if (p->sub != ND_SHR || q->sub != ND_SHL || p->a != q->a) continue;
+        if (!SINGLE(p->a)) {                       /* переменная с несколькими определениями: оба сдвига и OR читают одно и то же значение */
+            if (kcc_nomrot || p->a <= 0 || p->a > c->nv) continue;
+            int ip = -1, iq = -1;
+            for (int j = k - 1; j >= 0 && j >= k - 64 && (ip < 0 || iq < 0); j--) {
+                if (a[j] == p) ip = j;
+                if (a[j] == q) iq = j;
+            }
+            if (ip < 0 || iq < 0 || !op_stable(a, ip < iq ? ip : iq, k, p->a)) continue;
+        }
         if (!SINGLE(p->b) || !SINGLE(q->b)) continue;
         const Ins *d1 = c->defins[p->b], *d2 = c->defins[q->b];
         if (d1->op != IR_CONST || d2->op != IR_CONST) continue;
@@ -1205,10 +1225,11 @@ void ir_walk(Ins *i, OpVisit fn, void *ctx) { op_walk(i, fn, ctx); }
 int kcc_noregs;
 int kcc_nodce;
 int kcc_noalign;
+int kcc_nomrot;
 int kcc_nonnshift;
 int kcc_flag(const char *arg) {
     static const struct { const char *name; int *flag; } tab[] = {
-        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-nnshift", &kcc_nonnshift },
+        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-mrot", &kcc_nomrot }, { "-fno-nnshift", &kcc_nonnshift },
         { 0, 0 } };
     for (int k = 0; tab[k].name; k++) if (!strcmp(arg, tab[k].name)) { *tab[k].flag = 1; return 1; }
     return 0;
