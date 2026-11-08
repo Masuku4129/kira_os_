@@ -1,0 +1,27 @@
+{
+ "name": "stress-spam",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  }
+ ],
+ "error": "авария ядра:\n[KIRA KERNEL PANIC] Fatal: Watchdog timeout: System thread hang detected!\n[KIRA WATCHDOG] last feed at tick 914. State at the moment of the hang:\n[KIRA WATCHDOG] tick_lock next 1 owner 1\n[KIRA SCHED] ticks 3415, next wake 3413, ready epoch 2344, sched_lock next 6088 owner 6081, reported by core 3\n[KIRA SCHED] core 0: running 'plasma' prio 1, quantum left 19, irq depth 0, locks 0\n[KIRA SCHED]     now at 0x000000000011c04c calls 0x000000000011abf0 0x00000000001b0501\n[KIRA SCHED]     last irq entered at 0x000000000011c0fd calls 0x000000000014f715 0x000000000011abf0 0x00000000001b0501\n[KIRA SCHED] core 1: running 'plasma' prio 1, quantum left 5, irq depth 0, locks 0\n[KIRA SCHED]     now at 0x000000000011c04c calls 0x000000000014f68b 0x000000000011a9be 0x00000000001b0501\n[KIRA SCHED]     last irq entered at 0x000000000011c0fd calls 0x000000000011a9be 0x00000000001b0501\n[KIRA SCHED] core 2: running 'net' prio 1, quantum left 2, irq depth 0, locks 0\n[KIRA SCHED]     now at 0x000000000011c046 calls 0x0000000000189b05 0x000000000011f961 0x0000000000000000\n[KIRA SCHED]     last irq entered at 0x000000000011c0fd calls 0x0000000000189b05 0x000000000011f961 0x0000000000000000\n[KIRA SCHED] core 3: running 'plasma' prio 1, quantum left 1, irq depth 1, locks 0\n[KIRA SCHED]     (this core reports)\n[KIRA SCHED]     last irq entered at 0x000000000011c0fd calls 0x000000000014f68b 0x000000000011a9be 0x00000000001b0501\n[KIRA SCHED] core 4: running 'mind-tact' prio 2, quantum left 15, irq depth 0, locks 0\n[KIRA SCHED]     now at 0x000000000011d076 calls 0x000000000012f5fd 0x000000000011f961 0x0000000000000000\n[KIRA SCHED]     last irq entered at 0x000000000011d14b calls 0x000000000012f5fd 0x000000000011f961 0x0000000000000000\n[KIRA SCHED] core 5: running 'core' prio 2, quantum left 19, irq depth 0, locks 0\n[KIRA SCHED]     now at 0x000000000011c3ad\n[KIRA SCHED]     last irq entered at 0x0000000000135c12\n[KIRA SCHED] core 6: running 'idle6' prio 0, quantum left 20, irq depth 1, locks 0\n[KIRA SCHED]     now at 0x000000000011c62d\n[KIRA SCHED]     last irq entered at 0x00000000001ad802\n[KIRA SCHED] core 7: running 'idle7' prio 0, quantum left 20, irq depth 0, locks 0\n[KIRA SCHED]     now at 0x000000000011cabc\n[KIRA SCHED]     last irq entered at 0x00000000001ad802\n[KIRA SCHED] thread 'core': RUNNING, wake at 3245, on cpu flag 1, last core 5, mutexes 0\n[KIRA WATCHDOG] Halting execution immediately.\n",
+ "boot_seconds": 5.1,
+ "seconds": 16.1,
+ "commands": []
+}
