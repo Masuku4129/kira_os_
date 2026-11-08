@@ -163,6 +163,7 @@ int main(void) {
     unsigned before = sched_snapshot(info, sched_thread_capacity());
     thread_t* x = sched_create("x", dummy, 0, PRIO_NORMAL);
     CHECK(x != 0);
+    if (x) x->stack_base[256] = 0xA5;                       // метка старых данных для проверки очистки при повторном использовании
     while (sched_current() != x) tick();
     if (setjmp(escape) == 0) sched_exit();                  // host_halt вернёт сюда
     CHECK(x->state == THREAD_ZOMBIE);
@@ -172,6 +173,7 @@ int main(void) {
     CHECK(sched_snapshot(info, sched_thread_capacity()) == before);
     thread_t* y = sched_create("y", dummy, 0, PRIO_NORMAL);
     CHECK(y == x);                                          // слот переиспользован
+    CHECK(y && y->stack_base[256] == 0);                    // прежние данные стека не перешли новому потоку
     y->state = THREAD_UNUSED; free(y->stack_base); y->stack_base = 0;
 
     // ---- 7. таблица потоков ограничена ----
