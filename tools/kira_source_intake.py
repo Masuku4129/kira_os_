@@ -104,9 +104,11 @@ def inspect(items: dict[str, bytes], source_url: str) -> dict:
         if PurePosixPath(name).suffix in SOURCE_SUFFIXES:
             source_files.append(name)
         for match in SPDX_RE.findall(data[:8192]):
-            value = match.decode("utf-8", "replace").strip().rstrip("*/ ").split()[0]
-            if value:
-                spdx.add(value)
+            expression = match.decode("utf-8", "replace").strip().rstrip("*/ ")
+            # Keep every identifier in compound expressions; do not hide copyleft alternatives.
+            for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9.+-]*", expression):
+                if token.upper() not in {"AND", "OR", "WITH"}:
+                    spdx.add(token)
     ids = sorted(spdx)
     if ids and all(x in PERMISSIVE_SPDX for x in ids):
         license_class = "PREFERRED_PERMISSIVE_REVIEW_REQUIRED"
