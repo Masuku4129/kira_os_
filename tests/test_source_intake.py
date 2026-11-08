@@ -85,6 +85,15 @@ class SourceIntakeTests(unittest.TestCase):
             self.assertEqual(m["license"]["status"], "COPYLEFT_COMPATIBILITY_REVIEW_REQUIRED")
             self.assertFalse(m["runtime"]["installable"])
 
+    def test_compound_spdx_expression_cannot_hide_copyleft(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = self.make_zip(td, {"drv.c": b"// SPDX-License-Identifier: MIT OR GPL-2.0-only\n"})
+            m = build_package(src, os.path.join(td, "compound.ksrc"))
+            self.assertIn("MIT", m["license"]["spdx_identifiers_found"])
+            self.assertIn("GPL-2.0-only", m["license"]["spdx_identifiers_found"])
+            self.assertEqual(m["license"]["status"], "COPYLEFT_COMPATIBILITY_REVIEW_REQUIRED")
+            self.assertFalse(m["runtime"]["installable"])
+
     def test_unknown_license_is_blocked_for_distribution(self):
         with tempfile.TemporaryDirectory() as td:
             src = self.make_zip(td, {"drv.c": b"int x;\n"})
