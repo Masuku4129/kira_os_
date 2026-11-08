@@ -132,8 +132,13 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
             (const EFI_MEMORY_DESCRIPTOR *)(source + i * descriptor_size);
 
         descriptor = *d;
+        /* Check multiplication before computing the byte length. A hostile or
+           corrupt descriptor must not wrap NumberOfPages * PAGE_SIZE to a
+           small range and make reserved physical memory look usable. */
         if (descriptor.NumberOfPages == 0 ||
-            add_overflow_u64(descriptor.PhysicalStart,
+            descriptor.NumberOfPages > UINT64_MAX / 4096ull)
+            return EFI_LOAD_ERROR;
+        if (add_overflow_u64(descriptor.PhysicalStart,
                              descriptor.NumberOfPages * 4096ull))
             return EFI_LOAD_ERROR;
 
