@@ -68,7 +68,8 @@ int vtd_dmar_parse(const void *table, uint32_t available, vtd_dmar_info_t *out) 
             vtd_unit_t *u = &out->units[out->unit_count];
             u->flags = s[4]; u->include_all = (uint8_t)(s[4] & 1);
             u->segment = rd16(s + 6); u->register_base = rd64(s + 8);
-            if (!u->register_base || (u->register_base & 0xFFF)) return -9;
+            if (!u->register_base || (u->register_base & 0xFFF) || (s[5] & 0xF) > 6) return -9;
+            u->register_bytes = 4096u << (s[5] & 0xF);
             int rc = parse_scopes(s + 16, len - 16, u->segment, out, &u->first_scope, &u->scope_count);
             if (rc) return -10 + rc;
             ++out->unit_count;
@@ -95,5 +96,64 @@ int vtd_dmar_parse(const void *table, uint32_t available, vtd_dmar_info_t *out) 
         /* Unknown future structures are skipped by their validated length. */
         off += len;
     }
+    /* At most one INCLUDE_PCI_ALL unit per segment (spec 8.3.1). */
+    for (uint32_t i = 0; i < out->unit_count; ++i)
+        for (uint32_t j = i + 1; j < out->unit_count; ++j)
+            if (out->units[i].include_all && out->units[j].include_all &&
+                out->units[i].segment == out->units[j].segment) return -24;
     return 0;
+}
+
+/* Resolve a scope path to the function it names: every element but the last is
+   a bridge whose secondary bus continues the walk. */
+static int scope_target(const vtd_scope_t *sc, vtd_bridge_fn bridge, void *ctx,
+                        uint8_t *bus, uint8_t *dev, uint8_t *fn) {
+    uint8_t cur = sc->start_bus;
+    for (uint8_t i = 0; i + 1 < sc->path_count; ++i) {
+        uint8_t sec, sub;
+        if (!bridge || bridge(ctx, cur, sc->path[i].device, sc->path[i].function, &sec, &sub) || !sec) return -1;
+        cur = sec;
+    }
+    *bus = cur; *dev = sc->path[sc->path_count - 1].device; *fn = sc->path[sc->path_count - 1].function;
+    return 0;
+}
+
+int vtd_scope_covers(const vtd_scope_t *sc, uint8_t bus, uint8_t dev, uint8_t fn,
+                     vtd_bridge_fn bridge, void *ctx) {
+    uint8_t b, d, f;
+    if (!sc || !sc->path_count) return 0;
+    if (sc->type != VTD_SCOPE_ENDPOINT && sc->type != VTD_SCOPE_BRIDGE) return 0;
+    if (scope_target(sc, bridge, ctx, &b, &d, &f)) return 0;
+    if (b == bus && d == dev && f == fn) return 1;
+    if (sc->type == VTD_SCOPE_BRIDGE && bridge) {
+        uint8_t sec, sub;
+        if (!bridge(ctx, b, d, f, &sec, &sub) && sec && bus >= sec && bus <= sub) return 1;
+    }
+    return 0;
+}
+
+int vtd_dmar_unit_of(const vtd_dmar_info_t *info, uint16_t segment, uint8_t bus, uint8_t dev, uint8_t fn,
+                     vtd_bridge_fn bridge, void *ctx) {
+    int all = -1;
+    if (!info) return -1;
+    for (uint32_t i = 0; i < info->unit_count; ++i) {
+        const vtd_unit_t *u = &info->units[i];
+        if (u->segment != segment) continue;
+        if (u->include_all) all = (int)i;
+        for (uint32_t k = 0; k < u->scope_count; ++k)
+            if (vtd_scope_covers(&info->scopes[u->first_scope + k], bus, dev, fn, bridge, ctx)) return (int)i;
+    }
+    return all;
+}
+
+int vtd_dmar_rmrr_of(const vtd_dmar_info_t *info, uint16_t segment, uint8_t bus, uint8_t dev, uint8_t fn,
+                     vtd_bridge_fn bridge, void *ctx) {
+    if (!info) return -1;
+    for (uint32_t i = 0; i < info->rmrr_count; ++i) {
+        const vtd_rmrr_t *r = &info->rmrr[i];
+        if (r->segment != segment) continue;
+        for (uint32_t k = 0; k < r->scope_count; ++k)
+            if (vtd_scope_covers(&info->scopes[r->first_scope + k], bus, dev, fn, bridge, ctx)) return (int)i;
+    }
+    return -1;
 }

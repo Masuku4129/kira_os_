@@ -15,6 +15,7 @@ struct kira_vtd_domain {
     uint64_t root_context_physical;
     void *second_level;
     uint64_t second_level_physical;
+    uint32_t id;                    /* domain identifier in the context entry */
     uint16_t segment;
     uint8_t bus;
     uint8_t device;
@@ -22,11 +23,25 @@ struct kira_vtd_domain {
     uint8_t active;
 };
 
+/* Context entry with translation type 'pass-through': the device keeps seeing
+   physical addresses. Needs ECAP.PT. Never replaces a translated context. */
+int kira_vtd_context_passthrough(struct kira_vtd_unit *unit,
+                                 uint16_t segment, uint8_t bus,
+                                 uint8_t device, uint8_t function,
+                                 const struct kira_vtd_platform *platform);
+
+/* A translated domain with an empty 4-level table: every DMA of the device
+   faults until kira_vtd_domain_map_4k() grants a page. An existing pass-through
+   context of the same device is replaced; an existing domain is an error. */
 int kira_vtd_domain_create(struct kira_vtd_domain *domain,
                            struct kira_vtd_unit *unit,
                            uint16_t segment, uint8_t bus,
                            uint8_t device, uint8_t function,
                            const struct kira_vtd_platform *platform);
+/* Return the device to a pass-through context and free the domain's tables.
+   The hardware caches are invalidated before any table page is released. */
+int kira_vtd_domain_release(struct kira_vtd_domain *domain,
+                            const struct kira_vtd_platform *platform);
 int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
                            uint64_t iova, uint64_t physical,
                            uint32_t permissions,

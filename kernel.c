@@ -48,6 +48,7 @@
 #include "sb16.h"
 #include "uaccess.h"
 #include "fat.h"
+#include "iommu.h"
 
 #define SELF_CHECK_PERIOD_S 5
 
@@ -303,6 +304,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
         console_poll();
         prog_poll();         // запуск, заказанный дисплеем (иконки дока)
         kdrv_poll();         // драйверы Ring 3: первое сканирование /drv, возврат памяти погибших
+        (void)iommu_fault_poll();   // нарушения DMA, записанные VT-d: строка в журнал, без остановки ядра
         life_tick();         // журнал организма: запись накопленных событий
 
         uint64_t now = timer_get_ticks();

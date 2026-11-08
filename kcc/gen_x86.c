@@ -371,6 +371,7 @@ static const struct { const char *t, *in, *out, *hex; } xasm_tab[] = {
     { "mov %%cr3, %0; mov %0, %%cr3", "", "r", "0F 20 D8 0F 22 D8" },
     { "ltr %0", "r", "", "0F 00 D8" },
     { "invlpg (%0)", "r", "", "0F 01 38" },
+    { "clflush (%0)", "r", "", "0F AE 38" },
     { "clts", "", "", "0F 06" },
     { "fninit", "", "", "DB E3" },
     { "ud2", "", "", "0F 0B" },

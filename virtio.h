@@ -12,6 +12,7 @@
 
 #define VIRTIO_VENDOR 0x1AF4
 #define VIRTIO_F_VERSION_1 (1ULL << 32)
+#define VIRTIO_F_ACCESS_PLATFORM (1ULL << 33)   /* the device's DMA goes through the platform IOMMU */
 
 enum { VIRTIO_ST_ACK = 1, VIRTIO_ST_DRIVER = 2, VIRTIO_ST_DRIVER_OK = 4, VIRTIO_ST_FEATURES_OK = 8,
        VIRTIO_ST_NEEDS_RESET = 0x40, VIRTIO_ST_FAILED = 0x80 };
@@ -53,6 +54,15 @@ int  virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n);
 void virtq_post(virtq_t* q, uint16_t id, uint64_t addr, uint32_t len, int device_writes);
 void virtq_kick(virtq_t* q);
 int  virtq_take(virtq_t* q, uint16_t* id, uint32_t* len);   /* 1 - взят */
+
+/* IOMMU (VT-d). Устройство, которому iommu_isolate_device() выдал свой домен, видит только выданное: адрес
+   устройства равен физическому адресу, но лишь для страниц, отданных вызовом ниже (очереди отдаёт
+   virtio_queue_setup сам). Для устройства без домена - ничего не делает и возвращает 0; <0 - отображение не удалось. */
+int  virtio_dma_grant(virtio_dev_t* v, uint64_t phys, uint32_t bytes);
+/* Проверка принуждения: очередь, память которой устройству НЕ выдавали, и пуск. 1 - IOMMU остановила обращение
+   (записана ошибка DMA), 0 - ошибки не было (изоляция не подтверждена), -1 - устройство не согласует
+   VIRTIO_F_ACCESS_PLATFORM, его DMA идёт мимо IOMMU. Устройство после проверки сброшено. */
+int  virtio_iommu_check(virtio_dev_t* v);
 
 /* Непрерывная память для DMA (обнулена). Возвращает указатель; *phys - адрес для устройства. 0 - нет памяти. */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);

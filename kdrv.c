@@ -9,6 +9,7 @@
 #include "kdrv_state.h"
 #include "kmutex.h"
 #include "pci.h"
+#include "iommu.h"
 #include "msi.h"
 #include "proc.h"
 #include "kobj.h"
@@ -269,11 +270,11 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     }
     if (!kdrv_match_dev(&p.h, d->vendor, d->device, cls_of(d))) { kfree(p.buf); uart_print("[KIRA DRV] "); uart_print(name); uart_print(": не подходит этому устройству\n"); return -1; }
     uint32_t granted = p.h.caps & p.r.caps_ok;                                      /* запрошено в пакете И подтверждено пользователем */
-    /* Fail closed: сейчас ядро не создаёт VT-d/AMD-Vi/SMMU domain для этого BDF.
-       DMA и MSI требуют bus mastering и могут записывать в произвольную физическую память.
-       Не запускать такой Ring 3 драйвер, пока iommu_device_isolated() не будет реализован
-       и подтверждён тестом для конкретного устройства. */
-    if (!kdrv_dma_policy_allow(granted, 0)) {
+    /* Fail closed: DMA и MSI требуют bus mastering и без IOMMU могут записывать в произвольную физическую память.
+       Ring 3 драйвер с DMA/IRQ запускается только когда iommu_device_isolated() истинно для ЭТОГО устройства
+       (VT-d: свой домен, устройство видит лишь страницы, выданные через sys_dma_alloc и кольца сети). */
+    if (granted & (CAP_DMA | CAP_IRQ)) (void)iommu_isolate_device(d);      /* свой домен VT-d без отображений; отказ - устройство остаётся неизолированным */
+    if (!kdrv_dma_policy_allow(granted, iommu_device_isolated(d))) {
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
         uart_print(": DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен\n");
@@ -411,6 +412,7 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
 
 static void release(bind_t* b) {
     uint32_t got = 0, want = b->dma_pages + b->net_pages;
+    iommu_unmap_all(b->dev);                       /* сначала закрыть доступ устройства, потом отдавать страницы */
     for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
     if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
     uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": возвращено памяти DMA и колец "); uart_print_dec(got); uart_print(" из ");
@@ -668,10 +670,20 @@ static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t 
         uint8_t* z = (uint8_t*)(uintptr_t)pa;
         for (uint64_t i = 0; i < (uint64_t)pages * 4096; i++) z[i] = 0;                 /* чужих данных драйвер не получит */
         uint64_t va = b->dma_next;
-        if (proc_map_phys(va, pa, pages, VMM_WRITE | VMM_NOEXEC) != 0) { pmm_free_contiguous(pa, pages); rc = KE_NOMEM; }
+        /* Устройство в своём домене VT-d видит только то, что выдано здесь: адрес устройства равен физическому. */
+        int iommu = iommu_device_isolated(b->dev);
+        if (iommu && iommu_map(b->dev, pa, pa, (uint64_t)pages * 4096, IOMMU_R | IOMMU_W) != 0) { pmm_free_contiguous(pa, pages); rc = KE_NOMEM; }
+        else if (proc_map_phys(va, pa, pages, VMM_WRITE | VMM_NOEXEC) != 0) {
+            if (iommu) iommu_unmap(b->dev, pa, (uint64_t)pages * 4096);
+            pmm_free_contiguous(pa, pages); rc = KE_NOMEM;
+        }
         else {
             kdrv_dma_t r = { va, pa, (uint64_t)pages * 4096 };
-            if (copy_to_user(out, &r, sizeof r) != 0) { proc_unmap_pages(va, pages); pmm_free_contiguous(pa, pages); rc = KE_ARG; }
+            if (copy_to_user(out, &r, sizeof r) != 0) {
+                proc_unmap_pages(va, pages);
+                if (iommu) iommu_unmap(b->dev, pa, (uint64_t)pages * 4096);
+                pmm_free_contiguous(pa, pages); rc = KE_ARG;
+            }
             else {
                 b->dma[b->ndma].pa = pa; b->dma[b->ndma].pages = pages; b->ndma++; b->dma_pages += pages;
                 b->dma_next += ((uint64_t)pages + 1) * 4096;

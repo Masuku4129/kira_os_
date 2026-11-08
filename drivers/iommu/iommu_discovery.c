@@ -81,7 +81,7 @@ int kira_iommu_prepare_intel_units(
         }
 
         rc = kira_vtd_unit_prepare(&units[prepared],
-                                   source->register_base,
+                                   source->register_base, 4096u,
                                    dmar->host_address_width, platform);
         iommu_report(ops, "VT-d unit prepare", rc, source->register_base);
         if (rc != KIRA_VTD_OK)

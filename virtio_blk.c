@@ -1,6 +1,9 @@
 #include "virtio.h"
 #include "blk.h"
 #include "uart.h"
+#ifndef KIRA_HOST_TEST
+#include "iommu.h"
+#endif
 
 /* virtio-blk (спецификация virtio 1.0, раздел 5.2). Данные идут через собственный DMA-буфер: драйвер не делает
    предположений о том, где лежит память вызывающего. */
@@ -85,9 +88,27 @@ blk_dev_t* virtio_blk_probe(void) {
     const pci_dev_t* pd = pci_find(VIRTIO_VENDOR, 0x1042);     /* virtio-blk, современный */
     if (!pd) pd = pci_find(VIRTIO_VENDOR, 0x1001);              /* «переходный»: тот же прибор, но с capabilities 1.0 */
     if (!pd) return 0;
+    int isolated = 0;
+#ifndef KIRA_HOST_TEST
+    /* До включения bus mastering (virtio_attach): устройство получает свой домен VT-d без единого отображения. */
+    isolated = iommu_isolate_device(pd) == 0;
+#endif
     if (virtio_attach(&vdev, pd) != 0) { uart_print("[KIRA VIRTIO] blk: no virtio 1.0 capabilities (legacy-only device unsupported).\n"); return 0; }
     if (!vdev.devcfg) { uart_print("[KIRA VIRTIO] blk: no device config.\n"); return 0; }
-    if (virtio_begin(&vdev, BLK_F_SIZE_MAX | BLK_F_SEG_MAX | BLK_F_RO | BLK_F_FLUSH) != 0) { uart_print("[KIRA VIRTIO] blk: feature negotiation failed.\n"); return 0; }
+#ifndef KIRA_HOST_TEST
+    if (isolated) {
+        /* Изоляцию не объявляем, пока IOMMU не остановила обращение устройства к невыданной памяти на этой машине. */
+        int chk = virtio_iommu_check(&vdev);
+        if (chk == 1) uart_print("[KIRA IOMMU] virtio-blk: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        else {
+            uart_print(chk < 0 ? "[KIRA IOMMU] virtio-blk: device does not negotiate ACCESS_PLATFORM (its DMA bypasses the IOMMU): NOT isolated.\n"
+                               : "[KIRA IOMMU] virtio-blk: no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n");
+            iommu_release_device(pd);
+            isolated = 0;
+        }
+    }
+#endif
+    if (virtio_begin(&vdev, VIRTIO_F_ACCESS_PLATFORM | BLK_F_SIZE_MAX | BLK_F_SEG_MAX | BLK_F_RO | BLK_F_FLUSH) != 0) { uart_print("[KIRA VIRTIO] blk: feature negotiation failed.\n"); return 0; }
     int irq = 0;
 #ifndef KIRA_HOST_TEST
     {   /* прерывание очереди сообщением MSI-X: поток спит до ответа диска, а не проверяет его каждый тик */
@@ -103,6 +124,7 @@ blk_dev_t* virtio_blk_probe(void) {
     uint64_t dma_phys;
     uint8_t* dma = (uint8_t*)virtio_dma_alloc(4096 + BOUNCE_SECTORS * BLK_SECTOR, &dma_phys);
     if (!dma) { virtio_fail(&vdev); uart_print("[KIRA VIRTIO] blk: no DMA memory.\n"); return 0; }
+    if (virtio_dma_grant(&vdev, dma_phys, 4096 + BOUNCE_SECTORS * BLK_SECTOR) != 0) { virtio_fail(&vdev); uart_print("[KIRA VIRTIO] blk: IOMMU mapping of the request buffers failed.\n"); return 0; }
     hdr = (req_hdr_t*)dma; hdr_phys = dma_phys;
     status_byte = dma + 64; status_phys = dma_phys + 64;
     bounce = dma + 4096; bounce_phys = dma_phys + 4096;
@@ -126,6 +148,7 @@ blk_dev_t* virtio_blk_probe(void) {
     uart_print("[KIRA VIRTIO] Disk virtio-blk, "); uart_print_dec(cap / 2048); uart_print(" MB (PCI ");
     uart_print_dec(pd->bus); uart_print(":"); uart_print_dec(pd->dev); uart_print(".");  uart_print_dec(pd->fn);
     uart_print(irq ? ", virtio 1.0, completion by MSI-X interrupt" : ", virtio 1.0, polling");
+    uart_print(isolated ? ", DMA isolated by VT-d (only its own queue and buffers are mapped)" : ", DMA not isolated");
     if (vdev.features & BLK_F_RO) uart_print(", READ-ONLY");
     uart_print(").\n");
     return &disk;

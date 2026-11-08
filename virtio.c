@@ -13,6 +13,7 @@
    который как раз обрабатывает запрос устройства; при всех ядрах в нагрузке кручение растягивало запрос на секунды).
    Срок - по времени, а не по числу проверок. До запуска планировщика и с выключенными прерываниями - только кручение. */
 #include "msi.h"
+#include "iommu.h"
 /* С прерыванием: короткое ожидание на месте (ответ часто приходит за микросекунды), затем сон до прерывания
    очереди; срок сна - тик, так что потерянное сообщение стоит не больше прежнего опроса. */
 #define IW_MARK()       uint32_t iw_mark = q->iw ? irqwait_mark(q->iw) : 0
@@ -159,7 +160,18 @@ int virtio_begin(virtio_dev_t* v, uint64_t want) {
     return 0;
 }
 
-int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size) {
+int virtio_dma_grant(virtio_dev_t* v, uint64_t phys, uint32_t bytes) {
+#ifdef KIRA_HOST_TEST
+    (void)v; (void)phys; (void)bytes;
+    return 0;
+#else
+    if (!iommu_device_isolated(v->pci)) return 0;
+    return iommu_map(v->pci, phys, phys, bytes, IOMMU_R | IOMMU_W);
+#endif
+}
+
+/* granted == 0 только для проверки принуждения (virtio_iommu_check): память очереди остаётся невыданной. */
+static int queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size, int granted) {
     MMIO_W16(v->common + R_QSEL, index);
     uint16_t dev_max = MMIO_R16(v->common + R_QSIZE);
     if (dev_max == 0) return -1;                                  /* очереди нет */
@@ -173,6 +185,7 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
     q->used_off = (q->avail_off + 6 + 2 * (uint32_t)n + 3) & ~3u;
     q->mem = (uint8_t*)virtio_dma_alloc(q->used_off + 6 + 8 * (uint32_t)n, &q->mem_phys);
     if (!q->mem) return -2;
+    if (granted && virtio_dma_grant(v, q->mem_phys, q->used_off + 6 + 8 * (uint32_t)n) != 0) return -3;
     MMIO_W16(v->common + R_QSIZE, n);
     MMIO_W16(v->common + R_QMSIX, v->msix_vec);                  /* запись MSI-X очереди или 0xFFFF - без прерываний */
     q->iw = 0;
@@ -184,6 +197,10 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
     MMIO_W16(v->common + R_QEN, 1);
     q->notify_addr = v->notify + (uint64_t)noff * v->notify_mult;
     return 0;
+}
+
+int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size) {
+    return queue_setup(v, q, index, max_size, 1);
 }
 
 void virtio_driver_ok(virtio_dev_t* v) {
@@ -248,4 +265,29 @@ int virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n) {
             CPU_RELAX();
         }
     }
+}
+
+int virtio_iommu_check(virtio_dev_t* v) {
+#ifdef KIRA_HOST_TEST
+    (void)v;
+    return 0;
+#else
+    if (virtio_begin(v, VIRTIO_F_ACCESS_PLATFORM) != 0) return 0;
+    if (!(v->features & VIRTIO_F_ACCESS_PLATFORM)) { virtio_fail(v); return -1; }
+    uint32_t before = iommu_fault_count(v->pci);
+    virtq_t q;
+    if (queue_setup(v, &q, 0, 16, 0) != 0) { virtio_fail(v); return 0; }
+    virtio_driver_ok(v);
+    virtq_post(&q, 0, q.mem_phys, 16, 1);
+    virtq_kick(&q);
+    int seen = 0;
+    for (uint32_t i = 0; i < 200000 && !seen; i++) {
+        (void)iommu_fault_poll();
+        seen = iommu_fault_count(v->pci) > before;
+        if (!seen) CPU_RELAX();
+    }
+    virtio_fail(v);                                              /* сброс: устройство больше не обращается к памяти */
+    pmm_free_contiguous(q.mem_phys, (q.used_off + 6 + 8 * (uint32_t)q.size + 4095) / 4096);
+    return seen;
+#endif
 }
