@@ -172,6 +172,8 @@ void xa_ins(XA *a, int op, Opd d, Opd s) {
     }
 }
 
+void xa_raw(XA *a, const unsigned char *b, int n) { for (int k = 0; k < n; k++) put(a, b[k]); }
+
 void xa_op0(XA *a, int op) {
     switch (op) {
     case X0_RET: put(a, 0xC3); return;

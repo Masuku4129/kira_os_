@@ -146,6 +146,7 @@ static int gen_addr(Node *n) {
         return i->dst;
     }
     case ND_DEREF: return gen_expr(n->lhs);
+    case ND_COND: return gen_expr(n);                 /* агрегат: значение - адрес выбранного объекта */
     case ND_MEMBER: return add_const(gen_addr(n->lhs), n->mem->off);
     case ND_COMMA:
         gen_expr(n->lhs);
@@ -363,6 +364,7 @@ static int gen_expr(Node *n) {
         return -1;
     }
     case ND_UNREACH: emit(IR_UNREACH); return -1;
+    case ND_RETADDR: { Ins *ri = emit(IR_VAINFO); ri->sub = 3; ri->dst = newreg(); return ri->dst; }
     case ND_VASTART: gen_vastart(gen_expr(n->lhs)); return -1;
     case ND_VAARG: return gen_vaarg(gen_expr(n->lhs), t);
     case ND_ATOMIC: return ir_gen_atomic(n);

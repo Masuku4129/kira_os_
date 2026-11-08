@@ -296,6 +296,78 @@ static void gen_atomic(const Ins *i) {
     norm(w, i->sgn); stv(i->dst, R_AX);
 }
 
+static const struct { const char *t, *in, *out, *hex; } xasm_tab[] = {
+    { "cli; hlt", "", "", "FA F4" },
+    { "sti; hlt", "", "", "FB F4" },
+    { "wrmsr", "cad", "", "0F 30" },
+    { "rdmsr", "c", "ad", "0F 32" },
+    { "cpuid", "ac", "abcd", "0F A2" },
+    { "mov %0, %%cr0", "r", "", "0F 22 C0" },
+    { "mov %0, %%cr3", "r", "", "0F 22 D8" },
+    { "mov %0, %%cr4", "r", "", "0F 22 E0" },
+    { "mov %%cr0, %0", "", "r", "0F 20 C0" },
+    { "mov %%cr2, %0", "", "r", "0F 20 D0" },
+    { "mov %%cr3, %0", "", "r", "0F 20 D8" },
+    { "mov %%cr4, %0", "", "r", "0F 20 E0" },
+    { "mov %%cr3, %0; mov %0, %%cr3", "", "r", "0F 20 D8 0F 22 D8" },
+    { "ltr %0", "r", "", "0F 00 D8" },
+    { "invlpg (%0)", "r", "", "0F 01 38" },
+    { "clts", "", "", "0F 06" },
+    { "fninit", "", "", "DB E3" },
+    { "ud2", "", "", "0F 0B" },
+    { "rep movsb", "DSc", "DSc", "F3 A4" },
+    { "rep movsq", "DSc", "DSc", "F3 48 A5" },
+    { "std rep movsb cld", "DSc", "DSc", "FD F3 A4 FC" },
+    { "rep stosb", "Dca", "Dc", "F3 AA" },
+    { "rep stosq", "Dca", "Dc", "F3 48 AB" },
+    { "rep insw", "Dcd", "Dc", "66 F3 6D" },
+    { "rep outsw", "Scd", "Sc", "66 F3 6F" },
+    { "mov %%gs:0, %0", "", "r", "65 48 8B 04 25 00 00 00 00" },
+    { "xor %%rsp, %%rsp ud2", "", "", "48 31 E4 0F 0B" },
+    { "fxsave (%0)", "r", "", "0F AE 00" },
+    { "fxrstor (%0)", "r", "", "0F AE 08" },
+    { "pushfq cli popq %0", "", "r", "9C FA 58" },
+    { "pushfq; pop %0", "", "r", "9C 58" },
+    { "outb %%al, $0x80", "a", "", "E6 80" },
+    { "ldmxcsr %0", "r", "", "0F AE 10" },
+    { "lidt %0 int3", "r", "", "0F 01 18 CC" },
+    { "rdrand %0; setc %1", "", "rc", "48 0F C7 F0 0F 92 C1 0F B6 C9" },
+    { "rdseed %0; setc %1", "", "rc", "48 0F C7 F8 0F 92 C1 0F B6 C9" },
+    { "lgdt %0 pushq $0x08 leaq 1f(%%rip), %%rax pushq %%rax lretq 1: mov $0x10, %%ax mov %%ax, %%ds mov %%ax, %%es mov %%ax, %%fs mov %%ax, %%gs mov %%ax, %%ss", "r", "", "0F 01 10 6A 08 48 8D 05 03 00 00 00 50 48 CB 66 B8 10 00 8E D8 8E C0 8E E0 8E E8 8E D0" },
+    { "int $18", "", "", "CD 12" },
+    { "bsfl %1, %0", "a", "a", "0F BC C0" },
+    { "bsfq %1, %0", "a", "a", "48 0F BC C0" },
+    { "bsrl %1, %0", "a", "a", "0F BD C0" },
+    { 0, 0, 0, 0 } };
+
+static int hexv(char c) { return c >= 'a' ? c - 'a' + 10 : c >= 'A' ? c - 'A' + 10 : c - '0'; }
+static int xreg_of(char c) {
+    switch (c) { case 'a': case 'r': return R_AX; case 'b': return R_BX; case 'c': return R_CX; case 'd': return R_DX; case 'S': return R_SI; default: return R_DI; }
+}
+/* шаблоны привилегированных/строковых команд: входы грузятся в закреплённые регистры, команда выдаётся готовыми байтами, выходы забираются из регистров */
+static int gen_asm_tab(const Ins *i) {
+    const char *t = i->sym;
+    const int *o = (const int *)(intptr_t)i->imm;
+    for (int e = 0; xasm_tab[e].t; e++) {
+        if (strcmp(t, xasm_tab[e].t)) continue;
+        const char *in = xasm_tab[e].in, *out = xasm_tab[e].out;
+        for (int k = 0; in[k]; k++) ldv(xreg_of(in[k]), i->args[k]);
+        int hasb = strchr(out, 'b') != NULL;
+        if (hasb) xa_ins(A, X_MOV, R64(R_11), R64(R_BX));
+        unsigned char buf[48]; int nb = 0;
+        for (const char *h = xasm_tab[e].hex; *h;) {
+            if (*h == ' ') { h++; continue; }
+            buf[nb++] = (unsigned char)(hexv(h[0]) * 16 + hexv(h[1]));
+            h += 2;
+        }
+        xa_raw(A, buf, nb);
+        if (hasb) { static const unsigned char x[3] = { 0x4C, 0x87, 0xDB }; xa_raw(A, x, 3); }   /* xchg rbx, r11: rbx восстановлен, r11 = результат */
+        for (int k = 0; out[k]; k++) stv(o[k], out[k] == 'b' ? R_11 : xreg_of(out[k]));
+        return 1;
+    }
+    return 0;
+}
+
 static void gen_asm(const Ins *i) {
     const char *t = i->sym;
     const int *o = (const int *)(intptr_t)i->imm;
@@ -325,7 +397,7 @@ static void gen_asm(const Ins *i) {
         xa_op0(A, X0_SYSCALL);
         stv(o[0], R_AX); stv(o[1], R_DI); stv(o[2], R_SI); stv(o[3], R_DX);
     }
-    else kerr(A->file, A->line, "inline asm template '%s' is not supported on x86_64", t);
+    else if (!gen_asm_tab(i)) kerr(A->file, A->line, "inline asm template '%s' is not supported on x86_64", t);
 }
 
 static void gen_ins(const Ins *i, int homebase_h) {
@@ -365,6 +437,7 @@ static void gen_ins(const Ins *i, int homebase_h) {
     case IR_VAINFO:
         if (i->sub == 0) xa_ins(A, X_LEA, R64(R_AX), xm(8, R_BP, -(int64_t)homebase_h));
         else if (i->sub == 1) xa_ins(A, X_LEA, R64(R_AX), xm(8, R_BP, 16 + p_stk));
+        else if (i->sub == 3) xa_ins(A, X_MOV, R64(R_AX), xm(8, R_BP, 8));
         else xa_ins(A, X_MOV, xr(4, R_AX), xi(p_ngrn));
         stv(i->dst, R_AX);
         break;

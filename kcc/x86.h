@@ -35,6 +35,7 @@ enum { CC_E = 4, CC_NE = 5, CC_B = 2, CC_BE = 6, CC_L = 12, CC_LE = 14, CC_NONE 
 
 void xa_ins(XA *a, int op, Opd d, Opd s);     /* нет шаблона для сочетания - ошибка компиляции */
 void xa_op0(XA *a, int op);
+void xa_raw(XA *a, const unsigned char *b, int n);   /* готовые байты команды */
 void xa_setcc(XA *a, int cc, Opd d);
 void xa_jmp(XA *a, int cc, int lab);          /* cc = CC_NONE: безусловный */
 void xa_call(XA *a, Obj *target);

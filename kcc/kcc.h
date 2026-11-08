@@ -81,7 +81,7 @@ Token *pp_lex_one(Token *tmpl, const char *text);
 typedef enum { TY_VOID, TY_BOOL, TY_CHAR, TY_SHORT, TY_INT, TY_LONG, TY_LLONG, TY_ENUM,
                TY_PTR, TY_ARRAY, TY_FUNC, TY_STRUCT, TY_UNION } TyKind;
 struct Param { Param *next; Type *ty; const char *name; };
-struct Member { Member *next; const char *name; Type *ty; int off, bw, bo, idx; const Token *tok; };
+struct Member { Member *next; const char *name; Type *ty; int off, bw, bo, idx, align; const Token *tok; };
 struct Type {
     TyKind k; int size, align;
     unsigned is_unsigned : 1, is_const : 1, is_volatile : 1, complete : 1, variadic : 1, noproto : 1, packed : 1, noret : 1;
@@ -112,7 +112,7 @@ typedef enum {
     ND_NUM, ND_STR, ND_VAR, ND_ADD, ND_SUB, ND_MUL, ND_DIV, ND_MOD, ND_AND, ND_OR, ND_XOR, ND_SHL, ND_SHR,
     ND_EQ, ND_NE, ND_LT, ND_LE, ND_LOGAND, ND_LOGOR, ND_NOT, ND_BITNOT, ND_NEG,
     ND_ASSIGN, ND_OPASSIGN, ND_COMMA, ND_COND, ND_ADDR, ND_DEREF, ND_MEMBER, ND_CAST, ND_CALL, ND_INCDEC,
-    ND_STMTEXPR, ND_ZERO, ND_ASM, ND_UNREACH, ND_VASTART, ND_VAARG, ND_ATOMIC,
+    ND_STMTEXPR, ND_ZERO, ND_ASM, ND_UNREACH, ND_VASTART, ND_VAARG, ND_ATOMIC, ND_RETADDR,
     ND_BLOCK, ND_IF, ND_FOR, ND_DO, ND_SWITCH, ND_CASE, ND_BREAK, ND_CONTINUE, ND_GOTO, ND_LABEL, ND_RETURN, ND_EXPR
 } NKind;
 struct Node {
@@ -130,7 +130,7 @@ struct Reloc { Reloc *next; int off; const char *sym; int64_t addend; };
 struct Obj {
     Obj *next; const char *name; Type *ty;
     unsigned is_local : 1, is_func : 1, is_static : 1, is_extern : 1, is_def : 1, is_inline : 1,
-             is_str : 1, is_param : 1, is_ro : 1, used : 1, tentative : 1, noret : 1, emit : 1;
+             is_str : 1, is_param : 1, is_ro : 1, used : 1, tentative : 1, noret : 1, emit : 1, is_weak : 1;
     void *ir;                                /* бэкенд: IrFn функции */
     uint64_t addr;                           /* бэкенд: функция - смещение в .text, данные - адрес в образе */
     int slot, align, line, nparams;

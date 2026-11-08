@@ -161,7 +161,7 @@ void elf_emit_obj(Obj *globals, const unsigned char *code, size_t codelen, int a
             int kind = g->is_func ? 0 : (g->init ? (g->is_ro ? 0 : 1) : 2);
             int shndx = !def ? 0 : g->is_func ? S_TEXT : kind == 0 ? S_RO : kind == 1 ? S_DATA : S_BSS;
             int type = g->is_func ? 2 : 1;
-            int info = ((local ? 0 : 1) << 4) | (def ? type : 0);
+            int info = ((local ? 0 : g->is_weak ? 2 : 1) << 4) | (def ? type : 0);
             uint64_t sz = def ? (g->is_func ? 0 : (g->ty->size > 0 ? (uint64_t)g->ty->size : 0)) : 0;
             size_t nm = ob_str(&strtab, g->name);
             Sym sy = mksym((uint32_t)nm, info, shndx, def ? g->addr : 0, sz);

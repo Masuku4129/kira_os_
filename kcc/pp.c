@@ -705,6 +705,12 @@ Token *preprocess(const char *path) {
     SB pre = {0};
     for (int i = 0; predef[i]; i++) sb_printf(&pre, "#define %s\n", predef[i]);
     sb_printf(&pre, "#define %s 1\n", c->target && !strcmp(c->target, "aarch64") ? "__aarch64__" : "__x86_64__");
+    if (!c->target || !strcmp(c->target, "x86_64")) {            /* builtin-ы счёта нулей: bsf/bsr (результат при x == 0 не определён, как у GCC) */
+        sb_printf(&pre, "static inline int __kcc_ctz(unsigned x) { unsigned r; __asm__(\"bsfl %%1, %%0\" : \"=a\"(r) : \"a\"(x)); return (int)r; }\n");
+        sb_printf(&pre, "static inline int __kcc_ctzll(unsigned long long x) { unsigned long long r; __asm__(\"bsfq %%1, %%0\" : \"=a\"(r) : \"a\"(x)); return (int)r; }\n");
+        sb_printf(&pre, "static inline int __kcc_clz(unsigned x) { unsigned r; __asm__(\"bsrl %%1, %%0\" : \"=a\"(r) : \"a\"(x)); return 31 - (int)r; }\n");
+        sb_printf(&pre, "#define __builtin_ctz __kcc_ctz\n#define __builtin_ctzl __kcc_ctzll\n#define __builtin_ctzll __kcc_ctzll\n#define __builtin_clz __kcc_clz\n");
+    }
     for (int i = 0; i < c->ndefs; i++) {
         const char *d = c->defs[i], *eq = strchr(d, '=');
         if (eq) sb_printf(&pre, "#define %.*s %s\n", (int)(eq - d), d, eq + 1);
