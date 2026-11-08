@@ -281,8 +281,7 @@ static EFI_STATUS collect_gop(kira_uefi_kbi_info *info)
 {
     EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
     EFI_STATUS status;
-    UINT64 pitch;
-    UINT64 required;
+    UINT32 pitch;
     UINT32 width, height, scanline;
     UINT64 base, size;
     UINT32 format;
@@ -307,23 +306,16 @@ static EFI_STATUS collect_gop(kira_uefi_kbi_info *info)
     scanline = gop->Mode->Info->PixelsPerScanLine;
     base = gop->Mode->FrameBufferBase;
     size = gop->Mode->FrameBufferSize;
-    pitch = (UINT64)scanline * 4u;
-
     /* Invalid firmware geometry must degrade to headless boot, not poison KBI. */
-    if (!base || !size || !width || !height ||
-        width > 16384u || height > 16384u || scanline < width ||
-        pitch > UINT32_MAX || base > UINT64_MAX - size)
-        return EFI_NOT_FOUND;
-
-    required = pitch * height;
-    if (required > size)
+    if (!kira_uefi_gop_geometry_valid(base, size, width, height,
+                                     scanline, format, &pitch))
         return EFI_NOT_FOUND;
 
     info->framebuffer_base = base;
     info->framebuffer_size = size;
     info->width = width;
     info->height = height;
-    info->pitch = (UINT32)pitch;
+    info->pitch = pitch;
     info->format = format;
     return EFI_SUCCESS;
 }
