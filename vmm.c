@@ -313,10 +313,11 @@ int vmm_user_range_ok(uint64_t va, uint64_t len, int write) {
             unsigned idx = (unsigned)((p >> (30 - 9 * lvl)) & 0x1FF);
             e = t[idx];
             if ((e & (PTE_PRESENT | PTE_USER)) != (PTE_PRESENT | PTE_USER)) return 0;
+            /* x86 checks R/W at every paging level, not only in the leaf PTE. */
+            if (write && !(e & PTE_WRITE)) return 0;
             if (lvl < 2 && (e & PTE_HUGE)) return 0;
             if (lvl < 2) t = (const uint64_t*)(uintptr_t)(e & PTE_ADDR);
         }
-        if (write && !(e & PTE_WRITE)) return 0;
     }
     return 1;
 }
