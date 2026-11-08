@@ -65,6 +65,21 @@ typedef struct {
 static EFI_SYSTEM_TABLE *g_st;
 static EFI_BOOT_SERVICES *g_bs;
 
+/* Keep GUID values local: GNU-EFI releases differ in which ACPI aliases
+   they export, while these UEFI protocol identifiers are stable. */
+static EFI_GUID kira_file_info_guid = {
+    0x09576e92, 0x6d3f, 0x11d2,
+    {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}
+};
+static EFI_GUID kira_acpi20_table_guid = {
+    0x8868e871, 0xe4f1, 0x11d3,
+    {0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81}
+};
+static EFI_GUID kira_acpi_table_guid = {
+    0xeb9d2d30, 0x2d88, 0x11d3,
+    {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}
+};
+
 static void print_error(CHAR16 *message, EFI_STATUS status)
 {
     Print(L"KIRA UEFI: %s (status=%lx)\r\n", message, status);
@@ -107,11 +122,11 @@ static EFI_STATUS read_kernel_image(EFI_HANDLE image,
         return status;
     }
 
-    status = file->GetInfo(file, &FileInfo, &info_size, NULL);
+    status = file->GetInfo(file, &kira_file_info_guid, &info_size, NULL);
     if (status == EFI_BUFFER_TOO_SMALL) {
         status = g_bs->AllocatePool(EfiLoaderData, info_size, (VOID **)&info);
         if (!EFI_ERROR(status))
-            status = file->GetInfo(file, &FileInfo, &info_size, info);
+            status = file->GetInfo(file, &kira_file_info_guid, &info_size, info);
     }
     if (EFI_ERROR(status)) {
         if (info)
@@ -325,11 +340,11 @@ static EFI_STATUS find_rsdp(UINT64 *address)
     UINTN i;
 
     *address = 0;
-    for (i = 0; i < g_st->NumberOfConfigurationTableEntries; ++i) {
+    for (i = 0; i < g_st->NumberOfTableEntries; ++i) {
         EFI_CONFIGURATION_TABLE *entry = &g_st->ConfigurationTable[i];
 
-        if (CompareGuid(&entry->VendorGuid, &Acpi20TableGuid) ||
-            CompareGuid(&entry->VendorGuid, &AcpiTableGuid)) {
+        if (CompareGuid(&entry->VendorGuid, &kira_acpi20_table_guid) ||
+            CompareGuid(&entry->VendorGuid, &kira_acpi_table_guid)) {
             *address = (UINT64)(UINTN)entry->VendorTable;
             if (CompareGuid(&entry->VendorGuid, &Acpi20TableGuid))
                 return EFI_SUCCESS;
