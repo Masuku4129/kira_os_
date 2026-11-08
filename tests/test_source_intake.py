@@ -38,7 +38,7 @@ class SourceIntakeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             src = self.make_zip(td, {"x.c": b"int x;\n"})
             m = build_package(src, os.path.join(td, "x.ksrc"))
-            self.assertEqual(m["license"]["status"], "UNKNOWN_REQUIRES_REVIEW")
+            self.assertEqual(m["license"]["status"], "UNKNOWN_BLOCKED_FOR_DISTRIBUTION")
             self.assertEqual(m["file_count"], 1)
 
     def test_rejects_path_traversal(self):
