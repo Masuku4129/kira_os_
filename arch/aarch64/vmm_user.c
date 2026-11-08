@@ -209,8 +209,8 @@ unsigned vmm_space_destroy(uint64_t root) {
 
 /* Диапазон отображён в текущем пространстве, доступен программе (и для записи, если write). */
 int vmm_user_range_ok(uint64_t va, uint64_t len, int write) {
-    if (len == 0) return 1;
-    if (va < VMM_USER_BASE || va + len < va || va + len > VMM_USER_TOP) return 0;
+    /* Match x86-64: an empty range is not accepted as a user buffer. */
+    if (len == 0 || va < VMM_USER_BASE || va + len < va || va + len > VMM_USER_TOP) return 0;
     uint64_t root = this_cpu()->active_cr3;
     if (!root || root == vmm_kernel_root()) return 0;
     for (uint64_t p = va & ~4095ull; p < va + len; p += 4096) {
