@@ -243,20 +243,13 @@ jobs:
           path: /var/cache/apt/archives/*.deb
           key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools gnu-efi qemu-system-x86 ovmf dosfstools
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools gnu-efi
       - name: build (clang, -Werror)
         run: |
           ./build_clang.sh --no-run
           mkdir -p sym ci-out && nm -n kira.bin > sym/kira.sym
       - name: build native UEFI loader (PE32+)
         run: bash ./build_uefi.sh ci-out/uefi
-      - name: boot native UEFI loader under OVMF
-        run: python3 ci/uefi_vm.py --loader ci-out/uefi/EFI/BOOT/BOOTX64.EFI --kernel ci-out/uefi/EFI/KIRA/KIRA.ELF --out ci-out/uefi-vm
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: kira-uefi-ovmf-log
-          path: ci-out/uefi-vm/
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -473,7 +466,7 @@ jobs:
           if-no-files-found: warn
 
   report:
-    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, uefi-ovmf, vm, arm64, mind-quality, gui-regression]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -529,6 +522,7 @@ jobs:
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+          UEFI_RESULT: ${{ needs.uefi-ovmf.result }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib
@@ -543,6 +537,7 @@ jobs:
               ("GUI regression", "GUI_RESULT"),
               ("KCC compiler suite", "KCC_RESULT"),
               ("Driver installer E2E", "DRIVER_RESULT"),
+              ("UEFI OVMF boot", "UEFI_RESULT"),
           ]
           lines = ["# KIRA OS — CI result", "", "| Stage | Result |", "|---|---|"]
           lines += [f"| {name} | **{os.getenv(key, 'missing')}** |" for name, key in jobs]
@@ -577,6 +572,7 @@ jobs:
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+          UEFI_RESULT: ${{ needs.uefi-ovmf.result }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -617,7 +613,7 @@ jobs:
           git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"
 
   package:
-    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, uefi-ovmf, vm, arm64, mind-quality, gui-regression]
     if: success() && github.event_name != 'pull_request' && github.ref_name != 'main' && github.ref_name != 'stable'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -648,6 +644,14 @@ jobs:
           path: ci-out/arm64-image
       - uses: actions/download-artifact@v4
         with:
+          name: kira-uefi-boot-files
+          path: ci-out/uefi/EFI
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-uefi-ovmf
+          path: ci-out/uefi-ovmf
+      - uses: actions/download-artifact@v4
+        with:
           name: kira-mind-quality
           path: ci-out/results/mind-quality
       - uses: actions/download-artifact@v4
@@ -673,6 +677,7 @@ jobs:
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+          UEFI_RESULT: ${{ needs.uefi-ovmf.result }}
           IMAGE_AUDIT_RESULT: ${{ needs.build.result }}
           IMAGE_AUDIT_DIR: ci-out/release-image-audit
           RELEASE_IMAGE_DIR: ci-out/release-image
