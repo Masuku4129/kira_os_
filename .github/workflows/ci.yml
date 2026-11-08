@@ -344,9 +344,12 @@ jobs:
         if: always()
         with:
           name: kira-uefi-ovmf
-          path: |
-            ci-out/uefi-ovmf/
-            ci-out/uefi-ovmf-gpt/
+          path: ci-out/uefi-ovmf/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-uefi-ovmf-gpt
+          path: ci-out/uefi-ovmf-gpt/
 
   arm64:
     needs: detect-changes
