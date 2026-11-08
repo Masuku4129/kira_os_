@@ -7,6 +7,8 @@ IMAGE_AUDIT_DIR="${IMAGE_AUDIT_DIR:-ci-out/release-image-audit}"
 IMAGE_AUDIT="${IMAGE_AUDIT_DIR}/image-audit.json"
 RELEASE_IMAGE_DIR="${RELEASE_IMAGE_DIR:-ci-out/release-image}"
 ARM64_IMAGE_DIR="${ARM64_IMAGE_DIR:-ci-out/arm64-image}"
+UEFI_IMAGE_DIR="${UEFI_IMAGE_DIR:-ci-out/uefi/EFI}"
+UEFI_LOG_DIR="${UEFI_LOG_DIR:-ci-out/uefi-ovmf}"
 KIRA_VERSION="${KIRA_VERSION:-v46}"
 BASE_REF="${KIRA_BASE_REF:-edae4ab3367a055826f431e261af5d6dee790ddf}"
 mkdir -p "$OUT_DIR"
@@ -27,7 +29,7 @@ fi
 HEAD_SHA="$(git rev-parse HEAD)"
 RUN_URL="${CI_RUN_URL:-https://github.com/${GITHUB_REPOSITORY:-Masuku4129/kira_os_}/actions/runs/${GITHUB_RUN_ID:-unknown}}"
 
-for key in HOST_RESULT BUILD_RESULT VM_RESULT ARM64_RESULT AUDIT_RESULT MIND_RESULT GUI_RESULT KCC_RESULT DRIVER_RESULT IMAGE_AUDIT_RESULT; do
+for key in HOST_RESULT BUILD_RESULT VM_RESULT ARM64_RESULT AUDIT_RESULT MIND_RESULT GUI_RESULT KCC_RESULT DRIVER_RESULT UEFI_RESULT IMAGE_AUDIT_RESULT; do
   value="${!key:-}"
   if [ "$value" != "success" ]; then
     echo "ERROR: required CI job $key is not successful (value: ${value:-missing})" >&2
@@ -65,7 +67,8 @@ python3 ci/release_image.py "$IMAGE_AUDIT"
 
 # The release archive must carry the exact images produced and audited by this CI run.
 for image in "$RELEASE_IMAGE_DIR/kira.iso" "$RELEASE_IMAGE_DIR/kira_disk.img" \
-             "$ARM64_IMAGE_DIR/kira-arm64.img" "$ARM64_IMAGE_DIR/kira-arm64.disk"; do
+             "$ARM64_IMAGE_DIR/kira-arm64.img" "$ARM64_IMAGE_DIR/kira-arm64.disk" \
+             "$UEFI_IMAGE_DIR/BOOT/BOOTX64.EFI" "$UEFI_IMAGE_DIR/KIRA/KIRA.ELF"; do
   if [ ! -s "$image" ]; then
     echo "ERROR: tested release image is missing or empty: $image" >&2
     exit 1
@@ -77,6 +80,8 @@ MIND_LOG="$(find_required_log mind-quality.log)"
 GUI_LOG="$(find_required_log gui-regression.log)"
 KCC_LOG="$(find_required_log kcc-tests.log)"
 DRIVER_LOG="$(find_required_log driver-e2e.log)"
+UEFI_LOG="$UEFI_LOG_DIR/serial.log"
+if [ ! -s "$UEFI_LOG" ]; then echo "ERROR: successful OVMF boot serial evidence is missing: $UEFI_LOG" >&2; exit 1; fi
 
 git archive --format=tar --prefix=kira_os/ "$HEAD_SHA" | tar -xf - -C "$STAGE"
 R="$STAGE/kira_os/RELEASE"
@@ -85,6 +90,10 @@ cp "$RELEASE_IMAGE_DIR/kira.iso" "$R/kira.iso"
 cp "$RELEASE_IMAGE_DIR/kira_disk.img" "$R/kira_disk.img"
 cp "$ARM64_IMAGE_DIR/kira-arm64.img" "$R/kira-arm64.img"
 cp "$ARM64_IMAGE_DIR/kira-arm64.disk" "$R/kira-arm64.disk"
+mkdir -p "$R/uefi/EFI"
+cp -R "$UEFI_IMAGE_DIR/BOOT" "$R/uefi/EFI/"
+cp -R "$UEFI_IMAGE_DIR/KIRA" "$R/uefi/EFI/"
+cp "$UEFI_LOG" "$R/uefi/ovmf-serial.log"
 
 {
   echo "# KIRA OS $KIRA_VERSION"
@@ -181,7 +190,7 @@ lines += ["", "Result JSON files: " + str(len(results)) + "; ARM64 result files:
           "- Mind quality: " + str(mind_log.relative_to(root)),
           "- GUI regression: " + str(gui_log.relative_to(root)),
           "- KCC compiler suite: " + str(kcc_log.relative_to(root)),
-          "- Driver installer E2E: " + str(driver_log.relative_to(root)), "",
+          "- Driver installer E2E: " + str(driver_log.relative_to(root)),\n          "- UEFI OVMF serial: " + str(pathlib.Path(os.getenv("UEFI_LOG_DIR", "ci-out/uefi-ovmf")) / "serial.log"), "",
           "## Scope limits", "",
           "- QEMU is virtual-hardware evidence only; physical x86_64/ARM64 hardware remains untested.",
           "- A successful static audit is not proof of memory safety or complete dependency absence.",
