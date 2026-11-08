@@ -245,6 +245,7 @@ static EFI_STATUS load_elf64(VOID *image,
     Print(L"KIRA UEFI: ELF program-header table accepted\\r\\n");
     ph = (kira_elf64_program_header *)((UINT8 *)image + eh->phoff);
     Print(L"KIRA UEFI: ELF program-header pointer=%lx\\r\\n", (UINT64)(UINTN)ph);
+    debug_marker(L"[KIRA UEFI DEBUG] Print returned after PH pointer\\r\\n");
 
     /*
      * ELF PT_LOAD addresses need only be congruent with file offsets modulo
