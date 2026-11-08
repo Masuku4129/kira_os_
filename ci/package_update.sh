@@ -149,16 +149,16 @@ echo "KIRA OS v46 source archive: verified"
 EOF_VERIFY
 chmod +x "$R/VERIFY.sh"
 
-python3 - "$RESULTS_DIR" "$R/TEST_REPORT.md" "$HOST_LOG" "$MIND_LOG" "$GUI_LOG" "$KCC_LOG" "$DRIVER_LOG" <<'PY'
+python3 - "$RESULTS_DIR" "$R/TEST_REPORT.md" "$HOST_LOG" "$MIND_LOG" "$GUI_LOG" "$KCC_LOG" "$DRIVER_LOG" "$UEFI_LOG" <<'PY'
 import json, os, pathlib, sys
 root, dest = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-host_log, mind_log, gui_log, kcc_log, driver_log = map(pathlib.Path, sys.argv[3:8])
+host_log, mind_log, gui_log, kcc_log, driver_log, uefi_log = map(pathlib.Path, sys.argv[3:9])
 jobs = [
     ("Host tests", "HOST_RESULT"), ("x86_64 build", "BUILD_RESULT"),
     ("x86_64 QEMU matrix", "VM_RESULT"), ("ARM64 build and QEMU", "ARM64_RESULT"),
     ("Static dependency/source audit", "AUDIT_RESULT"),
     ("Mind quality (ASan/UBSan)", "MIND_RESULT"), ("GUI regression", "GUI_RESULT"),
-    ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"),
+    ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"), ("UEFI OVMF boot", "UEFI_RESULT"),
     ("Binary ISO/KiraFS audit", "IMAGE_AUDIT_RESULT"),
 ]
 lines = ["# KIRA OS v46 — CI test report", "",
@@ -191,6 +191,7 @@ lines += ["", "Result JSON files: " + str(len(results)) + "; ARM64 result files:
           "- GUI regression: " + str(gui_log.relative_to(root)),
           "- KCC compiler suite: " + str(kcc_log.relative_to(root)),
           "- Driver installer E2E: " + str(driver_log.relative_to(root)),\n          "- UEFI OVMF serial: " + str(pathlib.Path(os.getenv("UEFI_LOG_DIR", "ci-out/uefi-ovmf")) / "serial.log"), "",
+          "- UEFI OVMF serial: " + str(uefi_log.relative_to(root)), "",
           "## Scope limits", "",
           "- QEMU is virtual-hardware evidence only; physical x86_64/ARM64 hardware remains untested.",
           "- A successful static audit is not proof of memory safety or complete dependency absence.",
