@@ -26,6 +26,7 @@
 #define KIRA_MAX_SEGMENTS    32
 #define KIRA_PAGE_SIZE       4096
 #define KIRA_BOOTSTRAP_LIMIT (1ull << 30)
+#define KIRA_MAX_KERNEL_SPAN (128ull * 1024ull * 1024ull)
 #define KIRA_KERNEL_PATH     L"\\EFI\\KIRA\\KIRA.ELF"
 #define KIRA_BOOTINFO_PAGES  32 /* enough for the bounded 4096-entry KBI memory map */
 
@@ -280,13 +281,14 @@ static EFI_STATUS load_elf64(VOID *image,
 
     if (load_count == 0 || !entry_executable ||
         max_address <= min_address ||
-        max_address > KIRA_BOOTSTRAP_LIMIT - (KIRA_PAGE_SIZE - 1))
+        max_address > KIRA_BOOTSTRAP_LIMIT)
         goto fail;
 
     allocation_base = min_address & ~((EFI_PHYSICAL_ADDRESS)KIRA_PAGE_SIZE - 1);
     allocation_end = (max_address + KIRA_PAGE_SIZE - 1) &
                      ~((EFI_PHYSICAL_ADDRESS)KIRA_PAGE_SIZE - 1);
-    if (allocation_end <= allocation_base)
+    if (allocation_end <= allocation_base ||
+        allocation_end - allocation_base > KIRA_MAX_KERNEL_SPAN)
         goto fail;
 
     allocation_pages = (UINTN)((allocation_end - allocation_base) /
