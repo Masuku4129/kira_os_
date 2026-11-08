@@ -4,7 +4,7 @@
 #include <string.h>
 #include "../userland/drvcompat.h"
 
-struct fake {
+struct test_ctx {
  unsigned char archive[8],source_data[8],native_data[8],binary[8],package[8];
  size_t archive_size;
  int fail_stage,fetches,verified,unpacked,inspected,translated,built,signed_n,published;
@@ -18,9 +18,9 @@ static int hash_data(void *v,const void *data,size_t n,uint8_t out[32])
  for(i=0;i<32;i++){h^=h>>13;h*=0x5bd1e995u;out[i]=(uint8_t)(h>>(i%4)*8);}
  return 0;
 }
-static void digest_file(struct fake *f,struct kira_drvcompat_file *file)
+static void digest_file(struct test_ctx *f,struct kira_drvcompat_file *file)
 {hash_data(f,file->data,file->size,file->digest);}
-static void make_manifest(struct fake *f,struct kira_drvcompat_manifest *m,
+static void make_manifest(struct test_ctx *f,struct kira_drvcompat_manifest *m,
                           const char *name,const char *os,const char *arch,
                           const char *path,const uint8_t *data,size_t size)
 {
@@ -31,28 +31,28 @@ static void make_manifest(struct fake *f,struct kira_drvcompat_manifest *m,
  m->files[0].data=data;m->files[0].size=size;digest_file(f,&m->files[0]);
 }
 static int fetch(void *v,const char *uri,void **a,size_t *n)
-{struct fake *f=v;(void)uri;f->fetches++;*a=f->archive;*n=f->archive_size;return f->fail_stage==1?-1:0;}
+{struct test_ctx *f=v;(void)uri;f->fetches++;*a=f->archive;*n=f->archive_size;return f->fail_stage==1?-1:0;}
 static void release_archive(void *v,void *a,size_t n)
-{struct fake *f=v;(void)a;(void)n;f->archive_releases++;}
+{struct test_ctx *f=v;(void)a;(void)n;f->archive_releases++;}
 static int verify(void *v,const void *a,size_t n)
-{struct fake *f=v;(void)a;(void)n;f->verified++;return f->fail_stage==2?-1:0;}
+{struct test_ctx *f=v;(void)a;(void)n;f->verified++;return f->fail_stage==2?-1:0;}
 static int unpack(void *v,const void *a,size_t n,struct kira_drvcompat_manifest *m)
-{struct fake *f=v;(void)a;(void)n;f->unpacked++;*m=f->source;return f->fail_stage==3?-1:0;}
+{struct test_ctx *f=v;(void)a;(void)n;f->unpacked++;*m=f->source;return f->fail_stage==3?-1:0;}
 static int inspect(void *v,const struct kira_drvcompat_manifest *m)
-{struct fake *f=v;(void)m;f->inspected++;return f->fail_stage==4?-1:0;}
+{struct test_ctx *f=v;(void)m;f->inspected++;return f->fail_stage==4?-1:0;}
 static int translate(void *v,const struct kira_drvcompat_manifest *s,struct kira_drvcompat_manifest *m)
-{struct fake *f=v;(void)s;f->translated++;*m=f->native;return f->fail_stage==5?-1:0;}
+{struct test_ctx *f=v;(void)s;f->translated++;*m=f->native;return f->fail_stage==5?-1:0;}
 static int build(void *v,const struct kira_drvcompat_manifest *m,void **b,size_t *n)
-{struct fake *f=v;(void)m;f->built++;*b=f->binary;*n=4;return f->fail_stage==6?-1:0;}
+{struct test_ctx *f=v;(void)m;f->built++;*b=f->binary;*n=4;return f->fail_stage==6?-1:0;}
 static int sign_pkg(void *v,const char *name,const void *b,size_t n,void **p,size_t *pn)
-{struct fake *f=v;(void)name;(void)b;(void)n;f->signed_n++;*p=f->package;*pn=4;return f->fail_stage==7?-1:0;}
+{struct test_ctx *f=v;(void)name;(void)b;(void)n;f->signed_n++;*p=f->package;*pn=4;return f->fail_stage==7?-1:0;}
 static int publish(void *v,const char *name,const void *p,size_t n)
-{struct fake *f=v;(void)name;(void)p;(void)n;f->published++;return f->fail_stage==8?-1:0;}
+{struct test_ctx *f=v;(void)name;(void)p;(void)n;f->published++;return f->fail_stage==8?-1:0;}
 static void release_buffer(void *v,void *p,size_t n)
-{struct fake *f=v;(void)p;(void)n;f->buffer_releases++;}
+{struct test_ctx *f=v;(void)p;(void)n;f->buffer_releases++;}
 static void progress(void *v,enum kira_drvcompat_stage s,int rc)
-{struct fake *f=v;(void)s;if(rc)f->progress_errors++;}
-static void setup(struct fake *f,struct kira_drvcompat_ops *o)
+{struct test_ctx *f=v;(void)s;if(rc)f->progress_errors++;}
+static void setup(struct test_ctx *f,struct kira_drvcompat_ops *o)
 {
  memset(f,0,sizeof(*f));f->archive_size=sizeof(f->archive);
  make_manifest(f,&f->source,"rtl8139","linux","x86_64","src/rtl8139.c",f->source_data,4);
@@ -64,7 +64,7 @@ static void setup(struct fake *f,struct kira_drvcompat_ops *o)
 }
 static void success_path(void)
 {
- struct fake f;struct kira_drvcompat_ops o;setup(&f,&o);
+ struct test_ctx f;struct kira_drvcompat_ops o;setup(&f,&o);
  assert(kira_drvcompat_convert(&o,"https://drivers.example/rtl8139.kira-src")==0);
  assert(f.fetches==1&&f.verified==1&&f.unpacked==1&&f.inspected==1);
  assert(f.translated==1&&f.built==1&&f.signed_n==1&&f.published==1);
@@ -72,7 +72,7 @@ static void success_path(void)
 }
 static void rejected_inputs(void)
 {
- struct fake f;struct kira_drvcompat_ops o;setup(&f,&o);
+ struct test_ctx f;struct kira_drvcompat_ops o;setup(&f,&o);
  assert(kira_drvcompat_convert(&o,"http://drivers.example/a")==-1);
  assert(f.fetches==0);
  setup(&f,&o);snprintf(f.source.files[0].path,sizeof(f.source.files[0].path),"../escape.c");
@@ -95,7 +95,7 @@ static void rejected_inputs(void)
 static void fail_closed(void)
 {
  for(int stage=1;stage<=8;stage++){
-  struct fake f;struct kira_drvcompat_ops o;setup(&f,&o);f.fail_stage=stage;
+  struct test_ctx f;struct kira_drvcompat_ops o;setup(&f,&o);f.fail_stage=stage;
   assert(kira_drvcompat_convert(&o,"https://drivers.example/a")!=0);
   assert(f.published==(stage==8?1:0));
   assert(f.archive_releases==1);
