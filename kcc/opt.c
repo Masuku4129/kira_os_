@@ -400,6 +400,94 @@ static void op_rotates(Ins **a, int n, const OpCnt *c, const unsigned char *md) 
 #undef SINGLE
 }
 
+
+/* ---------- инверсия циклов ----------
+ * L: H (условие, BRZ/BRNZ на выход); тело; JMP L   =>   L: H; Lb: тело; H'; обратный условный переход на Lb; JMP выход.
+ * H' пишет во вновь созданные vreg для временных значений, нужных только заголовку; значение, которое читает и тело, остаётся одним
+ * vreg с пометкой "несколько определений". Переходы на L из тела (continue) остаются. Константы и адреса не копируются: их
+ * определение в H выполняется при входе в цикл и дальше неизменно. */
+typedef struct { int *rd; int nv; } OpHdrCnt;
+static void op_hdrcnt(Ins *i, int *r, int kind, void *x) { (void)i; OpHdrCnt *h = x; if (kind == 0 && *r > 0 && *r <= h->nv) h->rd[*r]++; }
+typedef struct { const int *map; int nv; } OpHdrMap;
+static void op_hdrmap(Ins *i, int *r, int kind, void *x) { (void)i; OpHdrMap *h = x; if (kind == 0 && *r > 0 && *r <= h->nv && h->map[*r]) *r = h->map[*r]; }
+#define OP_HDR_MAX 12
+static Ins *op_pool; static size_t op_pool_left;   /* узлы инверсии живут дольше временной арены ir_optimize: выделяются заранее */
+static Ins *op_newins(void) { if (!op_pool_left) return NULL; op_pool_left--; return op_pool++; }
+static Ins **op_invert(IrFn *fi, Ins **a, int *pn, int *pnv, unsigned char *mdef, int vcap, const OpCnt *c) {
+    int n = *pn, nv = *pnv, cand = 0;
+    for (int k = 0; k < n; k++) if (a[k]->op == IR_JMP) cand++;
+    if (!cand) return a;
+    size_t cap = (size_t)n + (size_t)cand * (OP_HDR_MAX + 3) + 4;
+    Ins **b = ka_new(sizeof(Ins *) * cap);
+    int *map = ka_new(sizeof(int) * (size_t)(c->nv + 2));
+    int *rd = ka_new(sizeof(int) * (size_t)(c->nv + 2));
+    for (int again = 1; again;) {
+        again = 0;
+        for (int ek = 0; ek < n && !again; ek++) {
+            Ins *j = a[ek];
+            if (j->op != IR_JMP || j->imm < 0 || j->imm > fi->nlab) continue;
+            int l = -1;
+            for (int q = 0; q < ek; q++) if (a[q]->op == IR_LABEL && a[q]->imm == j->imm) { l = q; break; }
+            if (l < 0) continue;
+            int h = -1, ok = 1;
+            for (int q = l + 1; q < ek && q <= l + OP_HDR_MAX; q++) {
+                const Ins *x = a[q];
+                if (x->op == IR_BRZ || x->op == IR_BRNZ) { h = q; break; }
+                if (!(x->op == IR_CONST || x->op == IR_GADDR || x->op == IR_LADDR || x->op == IR_MOV || x->op == IR_BIN || x->op == IR_NEG ||
+                      x->op == IR_NOT || x->op == IR_EXT || x->op == IR_CMP || (x->op == IR_LOAD && !x->vol))) { ok = 0; break; }
+            }
+            if (!ok || h < 0 || h + 1 >= ek || a[h]->imm < 0 || a[h]->imm > fi->nlab) continue;
+            int tp = -1;
+            for (int q = ek + 1; q < n; q++) if (a[q]->op == IR_LABEL && a[q]->imm == a[h]->imm) { tp = q; break; }
+            if (tp < 0) continue;                         /* выход должен быть строго после цикла */
+            for (int q = l + 1; q < h; q++) if (a[q]->op == IR_LABEL) ok = 0;
+            if (!ok || nv + (h - l) + 2 > vcap) continue;
+            memset(map, 0, sizeof(int) * (size_t)(c->nv + 2));
+            memset(rd, 0, sizeof(int) * (size_t)(c->nv + 2));
+            OpHdrCnt hc = { rd, c->nv };
+            for (int q = l + 1; q <= h; q++) op_walk(a[q], op_hdrcnt, &hc);
+            Ins **cp = ka_new(sizeof(Ins *) * (size_t)(OP_HDR_MAX + 2)); int ncp = 0;
+            for (int q = l + 1; q < h; q++) {
+                const Ins *x = a[q];
+                if (x->op == IR_CONST || x->op == IR_GADDR || x->op == IR_LADDR) continue;
+                Ins *y = op_newins();
+                if (!y) { ok = 0; break; }
+                *y = *x; y->next = NULL;
+                OpHdrMap hm = { map, c->nv };
+                op_walk(y, op_hdrmap, &hm);
+                int d = x->dst;
+                if (d > 0 && d <= c->nv && !mdef[d]) {
+                    if (c->nuse[d] == rd[d] && c->ndef[d] == 1) { map[d] = ++nv; y->dst = nv; mdef[nv] = 0; }
+                    else mdef[d] = 1;                      /* значение нужно и телу: теперь два определения */
+                }
+                cp[ncp++] = y;
+            }
+            if (!ok || op_pool_left < 3) continue;
+            Ins *br = op_newins();
+            *br = *a[h]; br->next = NULL;
+            { OpHdrMap hm = { map, c->nv }; op_walk(br, op_hdrmap, &hm); }
+            int newlab = ++fi->nlab;
+            br->op = a[h]->op == IR_BRZ ? IR_BRNZ : IR_BRZ;
+            br->imm = newlab;
+            Ins *lb = op_newins(); lb->op = IR_LABEL; lb->imm = newlab; lb->line = a[h]->line; lb->file = a[h]->file;
+            Ins *jx = op_newins(); *jx = *j; jx->imm = a[h]->imm; jx->next = NULL;
+            int tot = 0;
+            for (int q = 0; q <= h; q++) b[tot++] = a[q];
+            b[tot++] = lb;
+            for (int q = h + 1; q < ek; q++) b[tot++] = a[q];
+            for (int q = 0; q < ncp; q++) b[tot++] = cp[q];
+            b[tot++] = br;
+            b[tot++] = jx;
+            for (int q = ek + 1; q < n; q++) b[tot++] = a[q];
+            Ins **t = a; a = b; b = t;
+            n = tot;
+            again = 1;
+        }
+    }
+    *pn = n; *pnv = nv;
+    return a;
+}
+
 void ir_optimize(IrFn *fi) {
     int nv = fi->nreg, n = 0;
     for (Ins *i = fi->head; i; i = i->next) n++;
@@ -407,7 +495,18 @@ void ir_optimize(IrFn *fi) {
     int maxslot0 = -1;
     for (Obj *l = fi->f->locals; l; l = l->next) if (l->slot > maxslot0) maxslot0 = l->slot;
     /* mdef живёт дольше прохода (читают бэкенды): размер с запасом под новые vreg переменных (не больше числа слотов) */
-    unsigned char *mdef = ka_new((size_t)nv + (size_t)(maxslot0 + 1) + 2);
+    int mdef_cap = nv + maxslot0 + 1 + 2 + n;
+    unsigned char *mdef = ka_new((size_t)mdef_cap + 1);
+    {   /* пул узлов для инверсии циклов: число обратных безусловных переходов (переход на уже встреченную метку) */
+        unsigned char *seen = ka_new((size_t)fi->nlab + 2);
+        size_t loops = 0;
+        for (Ins *i = fi->head; i; i = i->next) {
+            if (i->op == IR_LABEL && i->imm >= 0 && i->imm <= fi->nlab) seen[i->imm] = 1;
+            else if (i->op == IR_JMP && i->imm >= 0 && i->imm <= fi->nlab && seen[i->imm]) loops++;
+        }
+        op_pool_left = loops * (OP_HDR_MAX + 3);
+        op_pool = op_pool_left ? ka_new(sizeof(Ins) * op_pool_left) : NULL;
+    }
     size_t mk = ka_mark();                      /* всё ниже, кроме mdef, временное: освобождается в конце */
     Ins **a = ka_new(sizeof(Ins *) * (size_t)(n + 1));
     n = 0;
@@ -579,7 +678,10 @@ void ir_optimize(IrFn *fi) {
         n = m;
     }
     op_recount(&c2, a, n);
-    if (!has_setjmp && !kcc_noopt) op_licm(a, n, fi->nlab, &c2, mdef, nvt);
+    if (!has_setjmp && !kcc_noopt) {
+        op_licm(a, n, fi->nlab, &c2, mdef, nvt);
+        a = op_invert(fi, a, &n, &nvt, mdef, mdef_cap, &c2);
+    }
     /* слияние "t = op ...; v = t" в "v = op ...", если t живёт ровно между ними */
     for (int k = 0; k + 1 < n; k++) {
         Ins *p = a[k], *q = a[k + 1];
