@@ -213,12 +213,14 @@ static EFI_STATUS load_elf64(VOID *image,
     Print(L"KIRA UEFI: ELF header type=%u machine=%u ver=%u eh=%u phent=%u phnum=%u phoff=%lx entry=%lx size=%lu\r\n",
           eh->type, eh->machine, eh->version, eh->ehsize, eh->phentsize,
           eh->phnum, eh->phoff, eh->entry, (UINT64)image_size);
+    Print(L"KIRA UEFI: ELF identity check begin\\r\\n");
     if (*(UINT32 *)eh->ident != KIRA_ELF_MAGIC ||
         eh->ident[4] != KIRA_ELFCLASS64 ||
         eh->ident[5] != KIRA_ELFDATA2LSB || eh->ident[6] != 1) {
         Print(L"KIRA UEFI: ELF identity rejected\r\n");
         return EFI_LOAD_ERROR;
     }
+    Print(L"KIRA UEFI: ELF identity accepted\\r\\n");
     if (eh->type != KIRA_ELF_ET_EXEC || eh->machine != KIRA_ELF_EM_X86_64 ||
         eh->version != 1 || eh->ehsize != sizeof(*eh) ||
         eh->phentsize != sizeof(kira_elf64_program_header) ||
@@ -233,7 +235,9 @@ static EFI_STATUS load_elf64(VOID *image,
         return EFI_LOAD_ERROR;
     }
 
+    Print(L"KIRA UEFI: ELF program-header table accepted\\r\\n");
     ph = (kira_elf64_program_header *)((UINT8 *)image + eh->phoff);
+    Print(L"KIRA UEFI: ELF program-header pointer=%lx\\r\\n", (UINT64)(UINTN)ph);
 
     /*
      * ELF PT_LOAD addresses need only be congruent with file offsets modulo
