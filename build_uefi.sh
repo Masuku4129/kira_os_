@@ -50,6 +50,15 @@ EFI_CFLAGS=(
     "$CRT" "$tmp/loader.o" "$tmp/uefi-kbi.o" "$tmp/bootinfo.o" \
     -L"$EFI_LIB" -lefi -lgnuefi -o "$tmp/loader.so"
 
+# GNU-EFI's startup relocator handles R_X86_64_RELATIVE entries, not lazy
+# PLT resolution. A remaining JUMP_SLOT would call through an unresolved GOT
+# entry at runtime, so reject such images at build time.
+if readelf -r "$tmp/loader.so" | grep -q 'JUMP_SLOT'; then
+    echo "UEFI build: unresolved PLT relocation remains in loader.so" >&2
+    readelf -r "$tmp/loader.so" >&2
+    exit 1
+fi
+
 mkdir -p "$OUT/EFI/BOOT" "$OUT/EFI/KIRA"
 # Use --output-target explicitly: newer GNU binutils interpret --target
 # as both input and output format, which breaks auto-detection of loader.so.
