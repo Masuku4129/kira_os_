@@ -889,6 +889,7 @@ int32_t mind_lever_val(const mind_t* s, int L) {
     return LD[L].v[i < LD[L].n ? i : LD[L].def];
 }
 int mind_lever_state(const mind_t* s, int L) {
+    if (L < 0 || L >= ML_N) return 0;
     const ml_one_t* o = &s->lv.one[L];
     if (s->lv.state && s->lv.lever == L) return 2;
     if (o->useless) return 3;
@@ -896,6 +897,7 @@ int mind_lever_state(const mind_t* s, int L) {
     return 0;
 }
 void mind_lever_stats(const mind_t* s, int L, unsigned* trials, unsigned* wins, unsigned* backs) {
+    if (L < 0 || L >= ML_N) { *trials = 0; *wins = 0; *backs = 0; return; }
     const ml_one_t* o = &s->lv.one[L];
     *trials = o->trials; *wins = o->wins; *backs = o->backs;
 }

@@ -656,6 +656,7 @@ IrFn *ir_lower(Obj *f) {
 
 static void lower_func(Obj *f) {
     IrFn *fi = ir_lower(f);
+    if (kcc_dumpopt && !kcc_noopt) ir_optimize(fi);
     sb_printf(out, "func %s%s params=%d\n", f->name, f->is_static ? " static" : "", f->nparams);
     for (Obj *l = f->locals; l; l = l->next)
         sb_printf(out, "  slot%d: size=%d align=%d %s%s\n", l->slot, l->ty->size, l->align ? l->align : 1, l->name, l->is_param ? " (param)" : "");

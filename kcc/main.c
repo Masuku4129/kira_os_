@@ -26,6 +26,8 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         if (!strcmp(a, "-S-ir")) ir = 1;
+        else if (!strcmp(a, "-fno-sr")) kcc_nosr = 1;
+        else if (!strcmp(a, "-S-oir")) { ir = 1; kcc_dumpopt = 1; }
         else if (!strcmp(a, "-c")) kcc_obj = 1;
         else if (!strcmp(a, "-O0")) kcc_noopt = 1;
         else if (!strcmp(a, "-O1")) kcc_noopt = 0;

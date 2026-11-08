@@ -376,6 +376,162 @@ static void op_licm(Ins **a, int n, int nlab, const OpCnt *c, const unsigned cha
 }
 
 
+
+/* ---------- понижение силы умножения по индукционной переменной ----------
+ * Цикл - как в op_licm_loop. Индукционная переменная v: единственное определение внутри цикла "v = v +/- K" (K - константа; ширина 8, либо
+ * ширина 4 со знаком - переполнение знакового int не определено, как и у других компиляторов), определение стоит вне вложенных циклов.
+ * Произведение m = v * C (ширина 8, C - константа, не 0/1/2/4/8: степени двойки кодируются масштабом адреса), стоящее до обновления v
+ * и все использования которого лежат между ним и обновлением, заменяется накопителем p: перед циклом p = v * C, сразу после v = v + K
+ * добавляется p = p + K*C. Инвариант p == v*C держится везде, кроме промежутка между двумя соседними командами. Для ширины 8 это
+ * равенство по модулю 2^64 - точное. Циклы с лишними обратными переходами (кроме вложенных циклов целиком) не трогаются. */
+static Ins *op_newins(void);
+typedef struct { int v, cnt; } OpSrDef;
+static void op_sr_defcnt(Ins *i, int *r, int kind, void *x) { (void)i; OpSrDef *d = x; if (kind != 0 && *r == d->v) d->cnt++; }
+typedef struct { int m, p; } OpSrRen;
+static void op_sr_ren(Ins *i, int *r, int kind, void *x) { (void)i; OpSrRen *d = x; if (kind == 0 && *r == d->m) *r = d->p; }
+typedef struct { int m, cnt, lo, hi, bad; const unsigned char *cov; int pos; } OpSrUse;
+static void op_sr_use(Ins *i, int *r, int kind, void *x) {
+    (void)i;
+    OpSrUse *d = x;
+    if (*r != d->m) return;
+    if (kind != 0) { d->bad = 1; return; }
+    d->cnt++;
+    if (d->pos <= d->lo || d->pos >= d->hi || d->cov[d->pos]) d->bad = 1;
+}
+static int op_sr_isconst(const OpCnt *c, const unsigned char *md, int v, int64_t *out) {
+    if (v <= 0 || v > c->nv || c->ndef[v] != 1 || md[v] || !c->defins[v] || c->defins[v]->op != IR_CONST) return 0;
+    *out = c->defins[v]->imm;
+    return 1;
+}
+static int op_sr_loop(Ins **a, int *pn, Ins **b, int lab, int nlab, OpCnt *c, unsigned char *mdef, int *pnv, int vcap) {
+    int n = *pn, l = -1, e = -1;
+    for (int k = 0; k < n; k++) {
+        if (a[k]->op == IR_LABEL && a[k]->imm == lab) l = k;
+        else if ((a[k]->op == IR_JMP || a[k]->op == IR_BRZ || a[k]->op == IR_BRNZ) && a[k]->imm == lab) e = k;
+    }
+    if (l < 0 || e <= l) return 0;
+    int *lp = ka_new(sizeof(int) * (size_t)(nlab + 2));
+    for (int k = 0; k < n; k++) if (a[k]->op == IR_LABEL && a[k]->imm >= 0 && a[k]->imm <= nlab) lp[a[k]->imm] = k + 1;
+    for (int k = 0; k < n; k++) {                            /* вход только сверху */
+        const Ins *j = a[k];
+        if (k >= l && k <= e) { if (j->op == IR_ASM) return 0; continue; }
+        if (j->op != IR_JMP && j->op != IR_BRZ && j->op != IR_BRNZ) continue;
+        if (j->imm < 0 || j->imm > nlab) return 0;
+        if (lp[j->imm] && lp[j->imm] - 1 >= l && lp[j->imm] - 1 <= e) return 0;
+    }
+    unsigned char *cov = ka_new((size_t)n + 1);
+    for (int k = l + 1; k < e; k++) {
+        const Ins *j = a[k];
+        if (j->op != IR_JMP && j->op != IR_BRZ && j->op != IR_BRNZ) continue;
+        if (j->imm < 0 || j->imm > nlab || !lp[j->imm]) return 0;
+        int t = lp[j->imm] - 1;
+        if (t > k) continue;                                  /* вперёд, в том числе выход из цикла */
+        if (t <= l) return 0;                                 /* второй обратный переход на заголовок или за него */
+        for (int q = t; q <= k; q++) cov[q] = 1;              /* вложенный цикл */
+    }
+    for (int k = l + 1; k < e; k++) {                         /* переход вперёд не должен вести внутрь вложенного цикла снаружи него */
+        const Ins *j = a[k];
+        if ((j->op != IR_JMP && j->op != IR_BRZ && j->op != IR_BRNZ) || cov[k]) continue;
+        int t = lp[j->imm] - 1;
+        if (t > k && t < e && cov[t] && t > 0 && !cov[t - 1]) return 0;
+        if (t > k && t < e && cov[t] && !(a[t]->op == IR_LABEL)) return 0;
+    }
+    int made = 0;
+    int pre_n = 0, post_n = 0;
+    Ins *pre[24], *post[12]; int post_at[12];
+    int tv[12], tc[12], tp[12], nt = 0;
+    OpCnt *cc = c;
+    for (int pu = l + 1; pu < e && made < 3; pu++) {
+        Ins *u = a[pu];
+        if (!u || cov[pu] || u->op != IR_BIN || (u->sub != ND_ADD && u->sub != ND_SUB) || u->dst <= 0 || u->dst != u->a) continue;
+        int v = u->dst, bad = 0;
+        if (v > cc->nv || !mdef[v]) continue;
+        if (!((u->w == 8) || (u->w == 4 && u->sgn))) continue;
+        int64_t k1;
+        if (!op_sr_isconst(cc, mdef, u->b, &k1)) continue;
+        if (k1 > (1 << 20) || k1 < -(1 << 20)) continue;
+        int64_t step = u->sub == ND_ADD ? k1 : -k1;
+        OpSrDef dd = { v, 0 };
+        for (int k = l; k <= e; k++) if (a[k]) op_walk(a[k], op_sr_defcnt, &dd);
+        if (dd.cnt != 1) continue;
+        (void)bad;
+        for (int pm = l + 1; pm < pu; pm++) {
+            Ins *m = a[pm];
+            if (cov[pm] || !m || m->op != IR_BIN || m->sub != ND_MUL || m->w != 8) continue;
+            int o = m->a == v ? m->b : m->b == v ? m->a : 0;
+            int64_t C;
+            if (!o || m->a == m->b || !op_sr_isconst(cc, mdef, o, &C)) continue;
+            if (C == 0 || C == 1 || C == 2 || C == 4 || C == 8) continue;
+            int md = m->dst;
+            if (md <= 0 || md > cc->nv || cc->ndef[md] != 1 || mdef[md]) continue;
+            OpSrUse us = { md, 0, pm, pu, 0, cov, 0 };
+            for (int k = 0; k < n; k++) { if (!a[k] || a[k] == m) continue; us.pos = k; op_walk(a[k], op_sr_use, &us); }
+            if (us.bad || us.cnt == 0) continue;
+            int p = 0;
+            for (int q = 0; q < nt; q++) if (tv[q] == v && tc[q] == (int)C) p = tp[q];
+            if (!p) {
+                if (nt >= 12 || pre_n + 2 > 24 || post_n >= 12 || *pnv + 3 > vcap) continue;
+                Ins *i1 = op_newins(), *i2 = op_newins(), *i3 = op_newins(), *i4 = op_newins();
+                if (!i1 || !i2 || !i3 || !i4) continue;
+                int cv = ++*pnv, pv = ++*pnv, sv = ++*pnv;
+                mdef[cv] = 0; mdef[sv] = 0; mdef[pv] = 1;
+                memset(i1, 0, sizeof *i1); i1->op = IR_CONST; i1->dst = cv; i1->imm = C; i1->w = 8;
+                memset(i2, 0, sizeof *i2); i2->op = IR_BIN; i2->sub = ND_MUL; i2->dst = pv; i2->a = v; i2->b = cv; i2->w = 8; i2->sgn = 1;
+                memset(i3, 0, sizeof *i3); i3->op = IR_CONST; i3->dst = sv; i3->imm = (int64_t)((uint64_t)step * (uint64_t)C); i3->w = 8;
+                memset(i4, 0, sizeof *i4); i4->op = IR_BIN; i4->sub = ND_ADD; i4->dst = pv; i4->a = pv; i4->b = sv; i4->w = 8;
+                pre[pre_n++] = i1; pre[pre_n++] = i2; pre[pre_n++] = i3;
+                post[post_n] = i4; post_at[post_n++] = pu;
+                p = pv; tv[nt] = v; tc[nt] = (int)C; tp[nt++] = pv;
+            }
+            OpSrRen rn = { md, p };
+            for (int k = 0; k < n; k++) if (a[k] && a[k] != m) op_walk(a[k], op_sr_ren, &rn);
+            a[pm] = NULL;
+            made++;
+        }
+    }
+    if (!made) return 0;
+    int t = 0;
+    for (int k = 0; k < n; k++) {
+        if (k == l) for (int q = 0; q < pre_n; q++) b[t++] = pre[q];
+        if (a[k]) b[t++] = a[k];
+        for (int q = 0; q < post_n; q++) if (post_at[q] == k) b[t++] = post[q];
+    }
+    memcpy(a, b, sizeof(Ins *) * (size_t)t);
+    *pn = t;
+    op_recount(c, a, t);
+    return made;
+}
+static void op_sr(Ins **a, int *pn, int nlab, OpCnt *c, unsigned char *mdef, int *pnv, int vcap) {
+    int n = *pn;
+    if (n < 6) return;
+    Ins **b = ka_new(sizeof(Ins *) * (size_t)(n + 64));
+    int *labs = ka_new(sizeof(int) * (size_t)(n + 1)), *len = ka_new(sizeof(int) * (size_t)(n + 1)), nl = 0;
+    int *lp = ka_new(sizeof(int) * (size_t)(nlab + 2));
+    for (int k = 0; k < n; k++) if (a[k]->op == IR_LABEL && a[k]->imm >= 0 && a[k]->imm <= nlab) lp[a[k]->imm] = k + 1;
+    for (int k = 0; k < n; k++) {
+        const Ins *j = a[k];
+        if ((j->op != IR_JMP && j->op != IR_BRZ && j->op != IR_BRNZ) || j->imm < 0 || j->imm > nlab || !lp[j->imm] || lp[j->imm] - 1 > k) continue;
+        int found = -1;
+        for (int q = 0; q < nl; q++) if (labs[q] == (int)j->imm) found = q;
+        int span = k - (lp[j->imm] - 1);
+        if (found < 0) { labs[nl] = (int)j->imm; len[nl++] = span; }
+        else if (span > len[found]) len[found] = span;
+    }
+    for (int x = 1; x < nl; x++) {
+        int tl = labs[x], tn = len[x], y = x - 1;
+        while (y >= 0 && len[y] > tn) { labs[y + 1] = labs[y]; len[y + 1] = len[y]; y--; }
+        labs[y + 1] = tl; len[y + 1] = tn;
+    }
+    op_recount(c, a, n);
+    for (int q = 0; q < nl; q++) {
+        size_t mk2 = ka_mark();
+        op_sr_loop(a, pn, b, labs[q], nlab, c, mdef, pnv, vcap);
+        ka_release(mk2);
+        n = *pn;
+        c->nv = *pnv;
+    }
+}
+
 /* Распознавание циклического сдвига: d = (x >> c1) | (x << c2), c1 + c2 равно ширине (4 или 8 байт), оба сдвига без знака, x и
  * промежуточные значения - vreg с одним определением. Результат: d = rol x, c2. Только для x86-64 (у AArch64 свой ror). */
 static void op_rotates(Ins **a, int n, const OpCnt *c, const unsigned char *md) {
@@ -496,6 +652,7 @@ void ir_optimize(IrFn *fi) {
     /* mdef живёт дольше прохода (читают бэкенды): размер с запасом под новые vreg переменных (не больше числа слотов) */
     int mdef_cap = nv + maxslot0 + 1 + 2 + n;
     unsigned char *mdef = ka_new((size_t)mdef_cap + 1);
+    size_t vslack = 0;
     {   /* пул узлов для инверсии циклов: число обратных безусловных переходов (переход на уже встреченную метку) */
         unsigned char *seen = ka_new((size_t)fi->nlab + 2);
         size_t loops = 0;
@@ -503,7 +660,11 @@ void ir_optimize(IrFn *fi) {
             if (i->op == IR_LABEL && i->imm >= 0 && i->imm <= fi->nlab) seen[i->imm] = 1;
             else if (i->op == IR_JMP && i->imm >= 0 && i->imm <= fi->nlab && seen[i->imm]) loops++;
         }
-        op_pool_left = loops * (OP_HDR_MAX + 3);
+        size_t nmul = 0;
+        int loops_possible = loops > 0;
+        for (Ins *i = fi->head; i; i = i->next) if (loops_possible && i->op == IR_BIN && i->sub == ND_MUL && i->w == 8) nmul++;
+        op_pool_left = loops * (OP_HDR_MAX + 3) + nmul * 4;
+        vslack = loops * (OP_HDR_MAX + 2) + nmul * 3 + 8;
         op_pool = op_pool_left ? ka_new(sizeof(Ins) * op_pool_left) : NULL;
     }
     size_t mk = ka_mark();                      /* всё ниже, кроме mdef, временное: освобождается в конце */
@@ -568,7 +729,7 @@ void ir_optimize(IrFn *fi) {
         }
     }
     int nvt = nv2;
-    OpCnt c2 = { nvt, ka_new(sizeof(int) * (size_t)(nvt + 2)), ka_new(sizeof(int) * (size_t)(nvt + 2)), ka_new(sizeof(Ins *) * (size_t)(nvt + 2)) };
+    OpCnt c2 = { nvt, ka_new(sizeof(int) * (size_t)(nvt + 2 + (int)vslack)), ka_new(sizeof(int) * (size_t)(nvt + 2 + (int)vslack)), ka_new(sizeof(Ins *) * (size_t)(nvt + 2 + (int)vslack)) };
     /* сжатие массива: удалённые LADDR */
     {
         int m = 0;
@@ -680,6 +841,8 @@ void ir_optimize(IrFn *fi) {
     if (!has_setjmp && !kcc_noopt) {
         op_licm(a, n, fi->nlab, &c2, mdef, nvt);
         a = op_invert(fi, a, &n, &nvt, mdef, mdef_cap, &c2);
+        c2.nv = nvt;
+        op_recount(&c2, a, n);
     }
     /* слияние "t = op ...; v = t" в "v = op ...", если t живёт ровно между ними */
     for (int k = 0; k + 1 < n; k++) {
@@ -695,6 +858,13 @@ void ir_optimize(IrFn *fi) {
     for (int k = 0; k + 1 < n; k++)
         if (a[k]->op == IR_JMP && a[k + 1]->op == IR_LABEL && a[k]->imm == a[k + 1]->imm) a[k] = NULL;
     { int m = 0; for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k]; n = m; }
+    if (!has_setjmp && !kcc_noopt && !kcc_nosr) {
+        c2.nv = nvt;
+        op_sr(a, &n, fi->nlab, &c2, mdef, &nvt, mdef_cap);
+        for (int k = 0; k + 1 < n; k++)                       /* повтор подряд идущего одинакового определения константы */
+            if (a[k]->op == IR_CONST && a[k + 1]->op == IR_CONST && a[k]->dst == a[k + 1]->dst && a[k]->imm == a[k + 1]->imm) a[k] = NULL;
+        { int m = 0; for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k]; n = m; }
+    }
     for (int k = 0; k < n; k++) a[k]->next = k + 1 < n ? a[k + 1] : NULL;
     fi->head = n ? a[0] : NULL;
     fi->nreg = nvt;
