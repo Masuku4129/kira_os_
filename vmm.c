@@ -167,17 +167,34 @@ static int map_huge_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) 
 }
 
 volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
-    if (len == 0 || pa + len < pa) return 0;
+    /* Page-table entries carry at most 52 physical-address bits. Validate the
+       unrounded range first; rounding an otherwise valid end must not wrap. */
+    const uint64_t phys_limit = 1ULL << 52;
+    if (len == 0 || pa >= phys_limit || len > phys_limit - pa) return 0;
+    uint64_t end = pa + len;
+    if (end > UINT64_MAX - (PAGE_SIZE - 1)) return 0;
+    uint64_t first = pa & ~(PAGE_SIZE - 1);
+    uint64_t last = (end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    if (last <= first) return 0;
+    uint64_t size = last - first;
+
     uint64_t f = spin_lock_irqsave(&mmio_lock);
-    for (unsigned i = 0; i < mmio_n; i++) {                       // уже отображено (другая часть того же BAR, LAPIC)
-        if (pa >= mmio[i].pa && pa + len <= mmio[i].pa + mmio[i].len && mmio[i].cache == (uint64_t)cache) {
+    for (unsigned i = 0; i < mmio_n; i++) {
+        uint64_t existing_end = mmio[i].pa + mmio[i].len;
+        /* Aliasing a physical page with different cache types is unsafe on
+           x86: reject the new mapping instead of silently creating an alias. */
+        if (first < existing_end && mmio[i].pa < last &&
+            mmio[i].cache != (uint64_t)cache) {
+            spin_unlock_irqrestore(&mmio_lock, f);
+            return 0;
+        }
+        if (pa >= mmio[i].pa && end <= existing_end &&
+            mmio[i].cache == (uint64_t)cache) {
             volatile void* v = (volatile void*)(uintptr_t)(mmio[i].va + (pa - mmio[i].pa));
             spin_unlock_irqrestore(&mmio_lock, f);
             return v;
         }
     }
-    uint64_t first = pa & ~(PAGE_SIZE - 1), last = (pa + len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    uint64_t size = last - first;
     const uint64_t BIG = 2ULL << 20;
     uint64_t va = (mmio_next + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     if (size >= BIG) {                                             // сдвиг va так, чтобы va = pa (mod 2 МБ): тогда возможны 2-МБ страницы
