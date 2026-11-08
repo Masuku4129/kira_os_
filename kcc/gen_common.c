@@ -7,7 +7,8 @@ static Obj **htab;
 static unsigned hcap;
 static unsigned hash(const char *s) { unsigned h = 2166136261u; while (*s) h = (h ^ (unsigned char)*s++) * 16777619u; return h; }
 int gen_is_defined(const Obj *o) { return o->is_func ? o->body != NULL : o->is_def; }
-int gen_is_helper_name(const char *n) { return !strcmp(n, "memcpy") || !strcmp(n, "memset") || !strcmp(n, "memcmp") || !strcmp(n, "strlen"); }
+int gen_is_helper_name(const char *n) { return !strcmp(n, "memcpy") || !strcmp(n, "memset") || !strcmp(n, "memcmp") || !strcmp(n, "strlen") ||
+                                                      !strcmp(n, "setjmp") || !strcmp(n, "longjmp"); }
 
 static void hput(Obj *o) {
     for (unsigned i = hash(o->name) & (hcap - 1);; i = (i + 1) & (hcap - 1)) {

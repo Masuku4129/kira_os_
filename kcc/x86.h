@@ -28,7 +28,7 @@ Opd xi(int64_t v);
 /* ALU-коды совпадают с x86 (базовый опкод = код * 8) */
 enum { X_ADD = 0, X_OR = 1, X_AND = 4, X_SUB = 5, X_XOR = 6, X_CMP = 7,
        X_MOV = 16, X_MOVZX, X_MOVSX, X_LEA, X_TEST, X_IMUL, X_NEG, X_NOT, X_DIV, X_IDIV, X_SHL, X_SHR, X_SAR, X_CALLR,
-       X_XCHG, X_LXADD, X_LCMPXCHG };   /* xchg [m], r; lock xadd [m], r; lock cmpxchg [m], r (размеры 1, 2, 4, 8) */
+       X_XCHG, X_LXADD, X_LCMPXCHG, X_JMPR };   /* xchg [m], r; lock xadd [m], r; lock cmpxchg [m], r (размеры 1, 2, 4, 8) */
 enum { X0_RET = 1, X0_CQO, X0_SYSCALL, X0_RDTSC, X0_MFENCE, X0_LFENCE, X0_SFENCE, X0_PAUSE, X0_HLT, X0_CLI, X0_STI, X0_NOP,
        X0_UD2, X0_REP_MOVSB, X0_REP_STOSB, X0_LEAVE, X0_PUSH_RBP, X0_IN8, X0_IN16, X0_IN32, X0_OUT8, X0_OUT16, X0_OUT32 };
 enum { CC_E = 4, CC_NE = 5, CC_B = 2, CC_BE = 6, CC_L = 12, CC_LE = 14, CC_NONE = -1 };

@@ -219,7 +219,7 @@ static void attrs(Attr *a) {
             } else if (!strcmp(name, "unused") || !strcmp(name, "always_inline") || !strcmp(name, "noinline") || !strcmp(name, "used") ||
                        !strcmp(name, "deprecated") || !strcmp(name, "format") || !strcmp(name, "warn_unused_result") ||
                        !strcmp(name, "nonnull") || !strcmp(name, "const") || !strcmp(name, "pure") || !strcmp(name, "cold") ||
-                       !strcmp(name, "hot") || !strcmp(name, "gnu_inline")) {
+                       !strcmp(name, "hot") || !strcmp(name, "gnu_inline") || !strcmp(name, "returns_twice")) {
                 if (eat("(")) {
                     int d = 1;
                     while (d) {

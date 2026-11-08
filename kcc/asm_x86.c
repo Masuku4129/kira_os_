@@ -165,6 +165,9 @@ void xa_ins(XA *a, int op, Opd d, Opd s) {
     case X_CALLR:
         if (d.k == OP_REG && d.sz == 8) { o[0] = 0xFF; enc(a, 0, 0, o, 1, 2, &d, 0); return; }
         fail(a, "CALL", op, &d, &s); return;
+    case X_JMPR:
+        if (d.k == OP_REG && d.sz == 8) { o[0] = 0xFF; enc(a, 0, 0, o, 1, 4, &d, 0); return; }
+        fail(a, "JMP", op, &d, &s); return;
     default: fail(a, "unknown op", op, &d, &s);
     }
 }

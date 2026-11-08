@@ -35,7 +35,8 @@
 #define USER_LO 0x8000000000ULL
 #define USER_HI 0x800000000000ULL
 #define HEAP_BASE 0x8800000000ULL
-#define HEAP_MAX_PAGES 1024
+#define HEAP_MAX_PAGES_DEFAULT 1024      /* 4 МБ; -m МиБ поднимает предел (самосборка kcc) */
+static unsigned long heap_max_pages = HEAP_MAX_PAGES_DEFAULT;
 
 enum { K_WRITE = 1, K_EXIT = 2, K_TICKS = 3, K_SLEEP = 4, K_YIELD = 5, K_GETPID = 6, K_FS = 10, K_HEAP = 11, K_CLOCK_NS = 24, K_NET_DNS = 25, K_NET_CONNECT = 26,
        K_NET_SEND = 27, K_NET_RECV = 28, K_NET_CLOSE = 29, K_ARGS = 30, K_RANDOM = 36, K_TIME = 37 };
@@ -150,7 +151,7 @@ static void on_sys(int sig, siginfo_t *si, void *ucv) {
     case 7: r = -1; break;                    /* K_GFX_CREATE: у загрузчика нет экрана - окно не создаётся (drvman честно работает без окна) */
     case 55: r = -12; break;                  /* KDRV_SYS_PCILIST: ядра нет - список PCI недоступен (отказ, как без права CAP_PCILIST) */
     case K_HEAP: {
-        if (a == 0 || heap_pages + a > HEAP_MAX_PAGES) { r = -1; break; }
+        if (a == 0 || heap_pages + a > heap_max_pages) { r = -1; break; }
         void *p = mmap((void *)(HEAP_BASE + heap_pages * 4096), a * 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
         if (p == MAP_FAILED) { r = -1; break; }
         r = (long)p; heap_pages += a;
@@ -185,6 +186,7 @@ int main(int argc, char **argv) {
         else if (argv[1][1] == 'y') sys_dir = argv[2];
         else if (argv[1][1] == 'd') drv_dir = argv[2];
         else if (argv[1][1] == 'a') prog_args = argv[2];
+        else if (argv[1][1] == 'm') { long mb = atol(argv[2]); if (mb < 4 || mb > 1024) { fprintf(stderr, "kloader: -m 4..1024 MiB\n"); return 2; } heap_max_pages = (unsigned long)mb * 256; }
         else break;
         argv += 2; argc -= 2;
     }

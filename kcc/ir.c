@@ -68,7 +68,7 @@ static int gen_expr(Node *n);
 static int gen_addr(Node *n);
 static void gen_vastart(int ap);
 static int gen_vaarg(int ap, Type *t);
-static int gen_atomic(Node *n);
+static int ir_gen_atomic(Node *n);
 static void gen_stmt(Node *n);
 
 static int add_const(int a, int64_t off) {
@@ -123,7 +123,11 @@ static int bf_put(int addr, Member *m, int val) {   /* возвращает за
     uint64_t mask = (bw >= 64 ? ~0ULL : (1ULL << bw) - 1);
     int unit = E_load(addr, sz, 0, m->ty->is_volatile);
     int keep = E_bin(ND_AND, unit, E_const((int64_t)~(mask << bo)), 8, 0);
-    int ins = E_bin(ND_SHL, E_bin(ND_AND, val, E_const((int64_t)mask), 8, 0), E_const(bo), 8, 0);
+    /* порядок вычисления аргументов в C не задан: каждое выражение, порождающее IR, - отдельным оператором (одинаковый IR при любом компиляторе kcc) */
+    int mk = E_const((int64_t)mask);
+    int msk = E_bin(ND_AND, val, mk, 8, 0);
+    int sh = E_const(bo);
+    int ins = E_bin(ND_SHL, msk, sh, 8, 0);
     E_store(addr, E_bin(ND_OR, keep, ins, 8, 0), sz, m->ty->is_volatile);
     int x = E_bin(ND_AND, val, E_const((int64_t)mask), 8, 0);
     if (bf_signed(m)) {
@@ -199,7 +203,7 @@ static int gen_expr(Node *n) {
     }
     case ND_NEG: { int a = gen_expr(n->lhs); Ins *i = emit(IR_NEG); i->a = a; i->w = t->size; i->sgn = !t->is_unsigned; i->dst = newreg(); return i->dst; }
     case ND_BITNOT: { int a = gen_expr(n->lhs); Ins *i = emit(IR_NOT); i->a = a; i->w = t->size; i->sgn = !t->is_unsigned; i->dst = newreg(); return i->dst; }
-    case ND_NOT: return E_cmp(ND_EQ, gen_expr(n->lhs), E_const(0), 1);
+    case ND_NOT: { int a = gen_expr(n->lhs); int z = E_const(0); return E_cmp(ND_EQ, a, z, 1); }
     case ND_LOGAND: case ND_LOGOR: {
         int r = newreg(), l_end = newlab(), l_sc = newlab();
         int a = gen_expr(n->lhs);
@@ -361,7 +365,7 @@ static int gen_expr(Node *n) {
     case ND_UNREACH: emit(IR_UNREACH); return -1;
     case ND_VASTART: gen_vastart(gen_expr(n->lhs)); return -1;
     case ND_VAARG: return gen_vaarg(gen_expr(n->lhs), t);
-    case ND_ATOMIC: return gen_atomic(n);
+    case ND_ATOMIC: return ir_gen_atomic(n);
     default:
         kerr_tok(n->tok, "internal: unsupported expression kind %d in lowering", (int)n->k);
     }
@@ -382,9 +386,14 @@ static void gen_vastart(int ap) {
         st_at(ap, 16, vainfo(0), 8);
     } else {                                        /* AAPCS64: stack, gr_top, vr_top, gr_offs, vr_offs */
         st_at(ap, 0, vainfo(1), 8);
-        st_at(ap, 8, E_bin(ND_ADD, vainfo(0), E_const(64), 8, 0), 8);
+        int vi = vainfo(0);
+        int c64 = E_const(64);
+        st_at(ap, 8, E_bin(ND_ADD, vi, c64, 8, 0), 8);
         st_at(ap, 16, E_const(0), 8);
-        st_at(ap, 24, E_bin(ND_SUB, E_bin(ND_MUL, ngrn, E_const(8), 8, 0), E_const(64), 8, 1), 4);
+        int c8 = E_const(8);
+        int goff = E_bin(ND_MUL, ngrn, c8, 8, 0);
+        int c64b = E_const(64);
+        st_at(ap, 24, E_bin(ND_SUB, goff, c64b, 8, 1), 4);
         st_at(ap, 28, E_const(0), 4);
     }
 }
@@ -422,7 +431,7 @@ static int atomic_ins(int sub, int a, int b, int c, int w, int sgn, int want) {
     return i->dst;
 }
 
-static int gen_atomic(Node *n) {
+static int ir_gen_atomic(Node *n) {
     if (n->op == AT_FENCE) { atomic_ins(AT_FENCE, 0, 0, 0, 8, 0, 0); return -1; }
     Type *T = ty_unqual(n->lhs->ty->base);
     int w = T->size, sgn = !T->is_unsigned && T->k != TY_PTR && T->k != TY_BOOL;

@@ -38,6 +38,8 @@ Required:
 
 Do not call KCC a self-hosting system compiler until the bootstrap chain actually builds the required system components.
 
+Status (evidence: `tests/kcc/selfhost.sh`, CI job kcc-tests): the x86-64 compiler itself bootstraps - stage1 (built by host-built stage0), stage2 and stage3 are byte-identical and stage2 reproduces stage0 output byte for byte on 51 corpus programs. Run under the host Kira loader only (not in QEMU/Kira, not on hardware). Still open: building the kernel/userland/boot code with KCC, assembler for .s files, multi-object linking, AArch64 self-hosting. The gate stays open.
+
 ## 3. RTL8139 driver provenance — BLOCKED
 `drivers/rl/rl.c` and `drivers/rl/if_rlreg.h` identify the current implementation as a port derived from FreeBSD `rl(4)`.
 

@@ -488,6 +488,24 @@ static void gen_helper(Obj *o) {
         xa_jmp(A, CC_NONE, 1);
         xa_label(A, 3); xa_ins(A, X_XOR, xr(4, R_AX), xr(4, R_AX));
         xa_label(A, 2); xa_ins(A, X_MOVSX, R64(R_AX), xr(4, R_AX)); xa_op0(A, X0_RET);
+    } else if (!strcmp(o->name, "setjmp")) {
+        /* jmp_buf (13 слов): rbx, rbp, r12-r15, rsp после возврата, адрес возврата. Возвращает 0. */
+        static const int regs[6] = { R_BX, R_BP, R_12, R_13, R_14, R_15 };
+        for (int k = 0; k < 6; k++) xa_ins(A, X_MOV, xm(8, R_DI, 8 * k), R64(regs[k]));
+        xa_ins(A, X_LEA, R64(R_DX), xm(8, R_SP, 8)); xa_ins(A, X_MOV, xm(8, R_DI, 48), R64(R_DX));
+        xa_ins(A, X_MOV, R64(R_DX), xm(8, R_SP, 0)); xa_ins(A, X_MOV, xm(8, R_DI, 56), R64(R_DX));
+        xa_ins(A, X_XOR, xr(4, R_AX), xr(4, R_AX)); xa_op0(A, X0_RET);
+    } else if (!strcmp(o->name, "longjmp")) {
+        /* longjmp(env, v): возвращает v (0 -> 1) из места setjmp */
+        static const int regs[6] = { R_BX, R_BP, R_12, R_13, R_14, R_15 };
+        xa_ins(A, X_MOV, xr(4, R_AX), xr(4, R_SI));
+        xa_ins(A, X_TEST, xr(4, R_AX), xr(4, R_AX)); xa_jmp(A, CC_NE, 1);
+        xa_ins(A, X_ADD, xr(4, R_AX), xi(1));
+        xa_label(A, 1);
+        for (int k = 0; k < 6; k++) xa_ins(A, X_MOV, R64(regs[k]), xm(8, R_DI, 8 * k));
+        xa_ins(A, X_MOV, R64(R_DX), xm(8, R_DI, 56));
+        xa_ins(A, X_MOV, R64(R_SP), xm(8, R_DI, 48));
+        xa_ins(A, X_JMPR, R64(R_DX), NOOPD);
     } else {
         xa_ins(A, X_MOV, R64(R_AX), R64(R_DI));
         xa_label(A, 1);

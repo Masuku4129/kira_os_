@@ -428,7 +428,8 @@ static V ev_cond(int skip) {
     if (!is_p(ev_t, ":")) kerr_tok(ev_t, "expected ':' in preprocessor expression");
     ev_t = ev_t->next;
     V b = ev_cond(skip || c.v);
-    V r = c.v ? a : b;
+    V r;
+    if (c.v) r = a; else r = b;   /* kcc: условный оператор над структурами не поддерживается */
     r.u = a.u || b.u;
     return r;
 }
