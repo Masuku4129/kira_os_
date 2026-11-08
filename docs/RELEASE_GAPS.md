@@ -16,10 +16,11 @@ Implemented in the v46 working branch:
 - ARM64 PMM now maintains a distinct reserved-page bitmap, avoids double-counting overlapping FDT RAM ranges, clamps reserve operations to managed memory, and validates contiguous frees atomically. A host regression test covers reserved-page freeing and overlapping regions.
 - ARM64 FDT handoff is normalized into BootInfo v1; the ARM PMM consumes the normalized RAM map. The adapter carries framebuffer and bootargs, while firmware memreserve entries and /reserved-memory ranges are explicitly reserved before normal allocation.
 - FDT parsing now validates the reservation-map terminator and block overlap, validates the complete structure-token stream and property names, bounds string comparisons, and rejects overflowing `reg` ranges.
-- This is the common handoff contract only. The existing Multiboot2 entry has not yet been replaced by a KIRA-owned BIOS stage loader or UEFI application; no boot path is claimed independent yet.
+- A native x86_64 UEFI application and adapter now exist and compile into PE32+ EFI/BOOT/BOOTX64.EFI; the kernel ELF is emitted beside it. This is build evidence only: OVMF end-to-end boot has not yet been demonstrated, and the loader is not yet the ISO's independent default boot path.
+- The ISO still uses GRUB 2 / Multiboot2. A KIRA-owned BIOS stage chain is not yet integrated. No independent BIOS/UEFI release boot path is claimed complete.
 
 Required:
-- KIRA-owned BIOS boot path and UEFI application that populate BootInfo v1 and transfer control to the architecture entry point.
+- Finish and integrate both KIRA-owned BIOS and UEFI boot paths so they populate BootInfo v1 and transfer control to the architecture entry point; the current UEFI binary still needs OVMF boot validation.
 - BIOS + OVMF tests for low/high memory maps, framebuffer formats and malformed handoff data.
 - Bounds, overflow, relocation and page-table validation.
 - Binary inspection proving GRUB binaries/modules are absent from the release ISO.
