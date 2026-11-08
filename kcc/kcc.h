@@ -162,6 +162,7 @@ struct Ins {
     int line; const char *file;              /* только IR_ASM: место в исходнике */
 };
 typedef struct { Obj *f; Ins *head; int nreg, nlab; unsigned char *mdef; } IrFn;   /* mdef[v]: vreg переменной с несколькими определениями (ir_optimize) */
+extern int kcc_nolvn;                         /* -fno-lvn: без локальной нумерации значений (для сверки) */
 extern int kcc_wrapv;                         /* -fwrapv: счётчики циклов тоже нормализуются после каждого шага */
 extern int kcc_nosr;                          /* -fno-sr: без понижения силы умножения (для сверки) */
 extern int kcc_dumpopt;                      /* ir.c: -S-oir, дамп IR после ir_optimize */

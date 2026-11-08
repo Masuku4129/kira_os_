@@ -28,6 +28,7 @@ int main(int argc, char **argv) {
         if (!strcmp(a, "-S-ir")) ir = 1;
         else if (!strcmp(a, "-fno-sr")) kcc_nosr = 1;
         else if (!strcmp(a, "-fwrapv")) kcc_wrapv = 1;
+        else if (!strcmp(a, "-fno-lvn")) kcc_nolvn = 1;
         else if (!strcmp(a, "-S-oir")) { ir = 1; kcc_dumpopt = 1; }
         else if (!strcmp(a, "-c")) kcc_obj = 1;
         else if (!strcmp(a, "-O0")) kcc_noopt = 1;

@@ -582,6 +582,91 @@ static void op_nonorm(Ins **a, int n, int nv, const unsigned char *mdef) {
     }
 }
 
+
+/* ---------- локальная нумерация значений (внутри базового блока) ----------
+ * Одинаковые чистые вычисления (константы, адреса, арифметика, сравнения, расширения) и загрузки по одному адресу заменяются копией первого результата,
+ * пока ни один операнд и (для загрузок) память не менялись. Любая запись в память, вызов, asm и копирование блока выбрасывают все загрузки из таблицы;
+ * volatile не участвует. Номера значений: у vreg на входе в блок номер равен самому vreg, каждое определение даёт новый номер. */
+typedef struct { int op, sub, w, sgn, va, vb, vn, holder, load; int64_t imm; const char *sym; } OpLvnE;
+#define OP_LVN_MAX 256
+typedef struct { int *vn, *ep; int cur, next, nv; } OpLvn;
+static int op_lvn_get(OpLvn *L, int v) {
+    if (v <= 0 || v > L->nv) return v;
+    if (L->ep[v] != L->cur) { L->ep[v] = L->cur; L->vn[v] = v; }
+    return L->vn[v];
+}
+static void op_lvn_def(Ins *i, int *r, int kind, void *x) {
+    (void)i;
+    OpLvn *L = x;
+    if (kind == 0 || *r <= 0 || *r > L->nv) return;
+    L->ep[*r] = L->cur;
+    L->vn[*r] = L->next++;
+}
+static int op_lvn(Ins **a, int n, int nv, int *cnt_out) {
+    OpLvn L = { ka_new(sizeof(int) * (size_t)(nv + 2)), ka_new(sizeof(int) * (size_t)(nv + 2)), 1, nv + 2, nv };
+    OpLvnE *tab = ka_new(sizeof(OpLvnE) * OP_LVN_MAX);
+    int nent = 0, changed = 0;
+    for (int k = 0; k < n; k++) {
+        Ins *i = a[k];
+        if (!i) continue;
+        if (i->op == IR_LABEL) { L.cur++; nent = 0; continue; }
+        int pure = 0, isload = 0;
+        switch (i->op) {
+        case IR_CONST: case IR_GADDR: case IR_LADDR: case IR_NEG: case IR_NOT: case IR_EXT: case IR_CMP: pure = 1; break;
+        case IR_BIN: pure = i->sub != ND_DIV && i->sub != ND_MOD; break;
+        case IR_LOAD: if (!i->vol) { pure = 1; isload = 1; } break;
+        default: break;
+        }
+        int kill = 0, endblk = 0;
+        if (i->op == IR_STORE || i->op == IR_CALL || i->op == IR_ASM || i->op == IR_COPY || i->op == IR_ZERO) kill = 1;
+        if (i->op == IR_JMP || i->op == IR_BRZ || i->op == IR_BRNZ || i->op == IR_RET) endblk = 1;
+        int newvn = -1;
+        if (i->op == IR_MOV && i->dst > 0 && i->a > 0) newvn = op_lvn_get(&L, i->a);
+        int hit = 0, key_found = -1;
+        OpLvnE key;
+        if (pure && i->dst > 0 && i->dst <= nv) {
+            memset(&key, 0, sizeof key);
+            key.op = i->op; key.sub = i->sub; key.w = i->w; key.sgn = i->sgn; key.imm = i->imm; key.sym = i->sym; key.load = isload;
+            if (i->op == IR_LOAD || i->op == IR_NEG || i->op == IR_NOT || i->op == IR_EXT) key.va = op_lvn_get(&L, i->a);
+            else if (i->op == IR_BIN || i->op == IR_CMP) {
+                key.va = op_lvn_get(&L, i->a); key.vb = op_lvn_get(&L, i->b);
+                int comm = i->op == IR_BIN && (i->sub == ND_ADD || i->sub == ND_MUL || i->sub == ND_AND || i->sub == ND_OR || i->sub == ND_XOR);
+                if (comm && key.va > key.vb) { int t = key.va; key.va = key.vb; key.vb = t; }
+            }
+            if (i->op == IR_LADDR || i->op == IR_CONST || i->op == IR_GADDR) { key.va = 0; key.vb = 0; }
+            for (int q = 0; q < nent; q++) {
+                const OpLvnE *e = &tab[q];
+                if (e->op != key.op || e->sub != key.sub || e->w != key.w || e->sgn != key.sgn || e->va != key.va || e->vb != key.vb || e->imm != key.imm ||
+                    e->load != key.load) continue;
+                if ((e->sym != key.sym) && (!e->sym || !key.sym || strcmp(e->sym, key.sym))) continue;
+                if (op_lvn_get(&L, e->holder) != e->vn) continue;
+                key_found = q;
+                break;
+            }
+            if (key_found >= 0 && tab[key_found].holder != i->dst) hit = 1;
+        }
+        if (hit) {
+            int h = tab[key_found].holder, v = tab[key_found].vn;
+            i->op = IR_MOV; i->a = h; i->b = 0; i->sub = 0; i->imm = 0; i->sym = NULL; i->nn = 0;
+            op_walk(i, op_lvn_def, &L);
+            L.vn[i->dst] = v;
+            changed++;
+        } else {
+            if (kill) { int m = 0; for (int q = 0; q < nent; q++) if (!tab[q].load) tab[m++] = tab[q]; nent = m; }
+            op_walk(i, op_lvn_def, &L);
+            if (newvn >= 0 && i->dst > 0 && i->dst <= nv) L.vn[i->dst] = newvn;
+            else if (pure && i->dst > 0 && i->dst <= nv && key_found < 0) {
+                key.vn = L.vn[i->dst]; key.holder = i->dst;
+                if (nent == OP_LVN_MAX) { for (int q = 1; q < nent; q++) tab[q - 1] = tab[q]; nent--; }
+                tab[nent++] = key;
+            }
+        }
+        if (endblk) { L.cur++; nent = 0; }
+    }
+    if (cnt_out) *cnt_out = changed;
+    return changed;
+}
+
 /* Распознавание циклического сдвига: d = (x >> c1) | (x << c2), c1 + c2 равно ширине (4 или 8 байт), оба сдвига без знака, x и
  * промежуточные значения - vreg с одним определением. Результат: d = rol x, c2. Только для x86-64 (у AArch64 свой ror). */
 static void op_rotates(Ins **a, int n, const OpCnt *c, const unsigned char *md) {
@@ -833,9 +918,10 @@ void ir_optimize(IrFn *fi) {
             for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k];
             n = m;
         }
+        int ch = 0;
+        if (!has_setjmp && !kcc_nolvn) { int lc = 0; size_t lm = ka_mark(); op_lvn(a, n, nvt, &lc); ka_release(lm); if (lc) ch = 1; }
         op_recount(&c2, a, n);
         op_ssa_refine(a, n, nvt, mdef, c2.ndef, fi->nlab);
-        int ch = 0;
         for (int k = 0; k < n; k++) if (op_fold(a[k], &c2, mdef)) ch = 1;
         if (ch) op_recount(&c2, a, n);
         for (int k = 0; k < n; k++) {
