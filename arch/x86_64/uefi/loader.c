@@ -103,63 +103,63 @@ static EFI_STATUS read_kernel_image(EFI_HANDLE image,
     UINTN info_size = 0;
     UINTN size;
 
-    status = g_bs->HandleProtocol(image, &LoadedImageProtocol, (VOID **)&loaded);
+    status = uefi_call_wrapper(g_bs->HandleProtocol, 3, image, &LoadedImageProtocol, (VOID **)&loaded);
     if (EFI_ERROR(status))
         return status;
 
-    status = g_bs->HandleProtocol(loaded->DeviceHandle,
+    status = uefi_call_wrapper(g_bs->HandleProtocol, 3, loaded->DeviceHandle,
                                   &FileSystemProtocol, (VOID **)&fs);
     if (EFI_ERROR(status))
         return status;
 
-    status = fs->OpenVolume(fs, &root);
+    status = uefi_call_wrapper(fs->OpenVolume, 2, fs, &root);
     if (EFI_ERROR(status))
         return status;
 
-    status = root->Open(root, &file, KIRA_KERNEL_PATH, EFI_FILE_MODE_READ, 0);
+    status = uefi_call_wrapper(root->Open, 5, root, &file, KIRA_KERNEL_PATH, EFI_FILE_MODE_READ, 0);
     if (EFI_ERROR(status)) {
-        root->Close(root);
+        uefi_call_wrapper(root->Close, 1, root);
         return status;
     }
 
-    status = file->GetInfo(file, &kira_file_info_guid, &info_size, NULL);
+    status = uefi_call_wrapper(file->GetInfo, 4, file, &kira_file_info_guid, &info_size, NULL);
     if (status == EFI_BUFFER_TOO_SMALL) {
-        status = g_bs->AllocatePool(EfiLoaderData, info_size, (VOID **)&info);
+        status = uefi_call_wrapper(g_bs->AllocatePool, 3, EfiLoaderData, info_size, (VOID **)&info);
         if (!EFI_ERROR(status))
-            status = file->GetInfo(file, &kira_file_info_guid, &info_size, info);
+            status = uefi_call_wrapper(file->GetInfo, 4, file, &kira_file_info_guid, &info_size, info);
     }
     if (EFI_ERROR(status)) {
         if (info)
-            g_bs->FreePool(info);
-        file->Close(file);
-        root->Close(root);
+            uefi_call_wrapper(g_bs->FreePool, 1, info);
+        uefi_call_wrapper(file->Close, 1, file);
+        uefi_call_wrapper(root->Close, 1, root);
         return status;
     }
 
     if (info->FileSize == 0 || info->FileSize > 128ull * 1024ull * 1024ull) {
-        g_bs->FreePool(info);
-        file->Close(file);
-        root->Close(root);
+        uefi_call_wrapper(g_bs->FreePool, 1, info);
+        uefi_call_wrapper(file->Close, 1, file);
+        uefi_call_wrapper(root->Close, 1, root);
         return EFI_BAD_BUFFER_SIZE;
     }
 
     size = (UINTN)info->FileSize;
-    g_bs->FreePool(info);
+    uefi_call_wrapper(g_bs->FreePool, 1, info);
 
-    status = g_bs->AllocatePool(EfiLoaderData, size, buffer);
+    status = uefi_call_wrapper(g_bs->AllocatePool, 3, EfiLoaderData, size, buffer);
     if (EFI_ERROR(status)) {
-        file->Close(file);
-        root->Close(root);
+        uefi_call_wrapper(file->Close, 1, file);
+        uefi_call_wrapper(root->Close, 1, root);
         return status;
     }
 
     *buffer_size = size;
-    status = file->Read(file, buffer_size, *buffer);
-    file->Close(file);
-    root->Close(root);
+    status = uefi_call_wrapper(file->Read, 3, file, buffer_size, *buffer);
+    uefi_call_wrapper(file->Close, 1, file);
+    uefi_call_wrapper(root->Close, 1, root);
 
     if (EFI_ERROR(status) || *buffer_size != size) {
-        g_bs->FreePool(*buffer);
+        uefi_call_wrapper(g_bs->FreePool, 1, *buffer);
         *buffer = NULL;
         return EFI_ERROR(status) ? status : EFI_END_OF_FILE;
     }
@@ -175,7 +175,7 @@ static void release_loaded_segments(kira_loaded_segment *segments,
         UINTN pages = (UINTN)((segment->size + KIRA_PAGE_SIZE - 1) /
                               KIRA_PAGE_SIZE);
         if (pages)
-            (VOID)g_bs->FreePages(segment->base, pages);
+            (VOID)uefi_call_wrapper(g_bs->FreePages, 2, segment->base, pages);
     }
 }
 
@@ -254,7 +254,7 @@ static EFI_STATUS load_elf64(VOID *image,
         pages = (UINTN)((ph[i].memsz + KIRA_PAGE_SIZE - 1) /
                         KIRA_PAGE_SIZE);
         allocation = destination;
-        status = g_bs->AllocatePages(AllocateAddress, EfiLoaderData,
+        status = uefi_call_wrapper(g_bs->AllocatePages, 4, AllocateAddress, EfiLoaderData,
                                      pages, &allocation);
         if (EFI_ERROR(status))
             goto fail;
@@ -301,7 +301,7 @@ static EFI_STATUS collect_gop(kira_uefi_kbi_info *info)
     UINT64 base, size;
     UINT32 format;
 
-    status = g_bs->LocateProtocol(&GraphicsOutputProtocol, NULL, (VOID **)&gop);
+    status = uefi_call_wrapper(g_bs->LocateProtocol, 3, &GraphicsOutputProtocol, NULL, (VOID **)&gop);
     if (EFI_ERROR(status) || !gop || !gop->Mode || !gop->Mode->Info)
         return EFI_NOT_FOUND;
 
@@ -387,14 +387,14 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
 
     status = load_elf64(kernel_image, kernel_image_size,
                         &kernel_entry, &kernel_base, &kernel_size);
-    g_bs->FreePool(kernel_image);
+    uefi_call_wrapper(g_bs->FreePool, 1, kernel_image);
     if (EFI_ERROR(status)) {
         print_error(L"invalid or unloadable ELF64 kernel", status);
         return status;
     }
 
     /* Keep the handoff blob below the kernel's initial 1-GiB identity map. */
-    status = g_bs->AllocatePages(AllocateMaxAddress, EfiLoaderData,
+    status = uefi_call_wrapper(g_bs->AllocatePages, 4, AllocateMaxAddress, EfiLoaderData,
                                  KIRA_BOOTINFO_PAGES, &bootinfo_physical);
     if (EFI_ERROR(status))
         return status;
@@ -409,21 +409,21 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
      * EFI_BUFFER_TOO_SMALL, grow it and retry before ExitBootServices.
      */
     map_size = 64 * 1024;
-    status = g_bs->AllocatePool(EfiLoaderData, map_size, &memory_map);
+    status = uefi_call_wrapper(g_bs->AllocatePool, 3, EfiLoaderData, map_size, &memory_map);
     if (EFI_ERROR(status))
         return status;
 
     for (attempt = 0; attempt < 8; ++attempt) {
         UINTN current_size = map_size;
 
-        status = g_bs->GetMemoryMap(&current_size,
+        status = uefi_call_wrapper(g_bs->GetMemoryMap, 5, &current_size,
                                     (EFI_MEMORY_DESCRIPTOR *)memory_map,
                                     &map_key, &descriptor_size,
                                     &descriptor_version);
         if (status == EFI_BUFFER_TOO_SMALL) {
-            g_bs->FreePool(memory_map);
+            uefi_call_wrapper(g_bs->FreePool, 1, memory_map);
             map_size = current_size + descriptor_size * 8;
-            status = g_bs->AllocatePool(EfiLoaderData, map_size, &memory_map);
+            status = uefi_call_wrapper(g_bs->AllocatePool, 3, EfiLoaderData, map_size, &memory_map);
             if (EFI_ERROR(status))
                 return status;
             continue;
@@ -441,7 +441,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
         if (EFI_ERROR(status))
             return status;
 
-        status = g_bs->ExitBootServices(image, map_key);
+        status = uefi_call_wrapper(g_bs->ExitBootServices, 2, image, map_key);
         if (!EFI_ERROR(status))
             break;
 
