@@ -43,21 +43,32 @@ mb_magic:
     resq 1
 mb_info:
     resq 1
+uefi_info:
+    resd 1
+uefi_size:
+    resd 1
 
 section .text
 global start
 global stack_bottom
 global stack_top
 extern kernel_main
+extern kernel_uefi_entry
 
 start:
     cli
-    mov esp, stack_top
-
-    ; Сохраняем Multiboot magic (eax) и pointer (ebx) в память.
-    ; (bss обнулён загрузчиком, старшие 32 бита qword остаются нулевыми)
+    ; Сохранить оба ABI до RDMSR: UEFI вызывает ELF entry по Microsoft x64 ABI
+    ; (RCX=KBI, RDX=size), Multiboot2 входит в 32-bit protected mode (EAX/EBX).
     mov [mb_magic], eax
     mov [mb_info], ebx
+    mov [uefi_info], ecx
+    mov [uefi_size], edx
+    mov ecx, 0xC0000080
+    rdmsr
+    test eax, 0x400              ; EFER.LMA: 1 = уже в 64-bit long mode (UEFI)
+    jnz .uefi_entry
+
+    mov esp, stack_top
 
     ; Настройка пейджинга для Long Mode (identity map первого 1 ГБ)
     mov eax, pdpt_table
@@ -109,6 +120,16 @@ start:
     jmp 0x08:long_mode_start
 
 bits 64
+.uefi_entry:
+    ; UEFI уже включил long mode. Перейти на собственный стек и вызвать
+    ; KBI bridge по System V ABI, не пытаясь повторно включать paging.
+    mov esp, stack_top
+    and rsp, -16
+    mov edi, [rel uefi_info]
+    mov esi, [rel uefi_size]
+    call kernel_uefi_entry
+    jmp hang
+
 long_mode_start:
     ; Инициализация сегментов данных
     mov ax, 0x10
@@ -119,8 +140,8 @@ long_mode_start:
     mov ss, ax
 
     ; Восстанавливаем аргументы Multiboot в регистры ABI (rdi, rsi)
-    mov edi, [mb_magic]         ; запись в 32-битный регистр обнуляет старшую половину rdi
-    mov esi, [mb_info]
+    mov edi, [rel mb_magic]     ; запись в 32-битный регистр обнуляет старшую половину rdi
+    mov rsi, [rel mb_info]
 
     ; Выравнивание стека по 16 байт
     and rsp, -16
