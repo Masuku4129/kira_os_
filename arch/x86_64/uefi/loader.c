@@ -187,12 +187,18 @@ static EFI_STATUS load_elf64(VOID *image,
 {
     kira_elf64_header *eh = (kira_elf64_header *)image;
     kira_elf64_program_header *ph;
-    kira_loaded_segment segments[KIRA_MAX_SEGMENTS];
-    UINTN segment_count = 0;
+    kira_loaded_segment load_segments[KIRA_MAX_SEGMENTS];
+    kira_loaded_segment allocation_segment;
+    UINTN load_count = 0;
+    UINTN allocation_count = 0;
     UINTN i;
     EFI_STATUS status = EFI_LOAD_ERROR;
     EFI_PHYSICAL_ADDRESS min_address = ~(EFI_PHYSICAL_ADDRESS)0;
     EFI_PHYSICAL_ADDRESS max_address = 0;
+    EFI_PHYSICAL_ADDRESS allocation_base;
+    EFI_PHYSICAL_ADDRESS allocation_end;
+    EFI_PHYSICAL_ADDRESS allocation;
+    UINTN allocation_pages;
     BOOLEAN entry_executable = FALSE;
 
     if (!image || !entry_out || !base_out || !size_out ||
@@ -216,12 +222,17 @@ static EFI_STATUS load_elf64(VOID *image,
 
     ph = (kira_elf64_program_header *)((UINT8 *)image + eh->phoff);
 
+    /*
+     * ELF PT_LOAD addresses need only be congruent with file offsets modulo
+     * p_align. They are not required to be page-aligned. Validate all ranges
+     * first, then allocate one page-aligned span so adjacent segments that
+     * share a physical page are not allocated twice.
+     */
     for (i = 0; i < eh->phnum; ++i) {
         EFI_PHYSICAL_ADDRESS destination;
-        EFI_PHYSICAL_ADDRESS allocation;
         UINT64 segment_end;
         UINT64 align = ph[i].align;
-        UINTN pages;
+        UINTN j;
 
         if (ph[i].type != KIRA_PT_LOAD)
             continue;
@@ -234,7 +245,6 @@ static EFI_STATUS load_elf64(VOID *image,
         destination = ph[i].paddr ? ph[i].paddr : ph[i].vaddr;
         if (destination != ph[i].vaddr ||
             destination < 0x100000 ||
-            (destination & (KIRA_PAGE_SIZE - 1)) != 0 ||
             destination >= KIRA_BOOTSTRAP_LIMIT ||
             ph[i].memsz > KIRA_BOOTSTRAP_LIMIT - destination)
             goto fail;
@@ -246,30 +256,21 @@ static EFI_STATUS load_elf64(VOID *image,
              (destination & (align - 1))))
             goto fail;
 
-        if (ph[i].flags & 1u) {
-            if (eh->entry >= destination && eh->entry < segment_end)
-                entry_executable = TRUE;
+        for (j = 0; j < load_count; ++j) {
+            UINT64 previous_end = load_segments[j].base +
+                                  load_segments[j].size;
+            if (destination < previous_end &&
+                load_segments[j].base < segment_end)
+                goto fail;
         }
 
-        pages = (UINTN)((ph[i].memsz + KIRA_PAGE_SIZE - 1) /
-                        KIRA_PAGE_SIZE);
-        allocation = destination;
-        status = uefi_call_wrapper(g_bs->AllocatePages, 4, AllocateAddress, EfiLoaderData,
-                                     pages, &allocation);
-        if (EFI_ERROR(status))
-            goto fail;
+        load_segments[load_count].base = destination;
+        load_segments[load_count].size = ph[i].memsz;
+        ++load_count;
 
-        segments[segment_count].base = destination;
-        segments[segment_count].size = ph[i].memsz;
-        ++segment_count;
-
-        if (ph[i].filesz)
-            CopyMem((VOID *)(UINTN)destination,
-                    (UINT8 *)image + ph[i].offset,
-                    (UINTN)ph[i].filesz);
-        if (ph[i].memsz > ph[i].filesz)
-            SetMem((UINT8 *)(UINTN)destination + ph[i].filesz,
-                   (UINTN)(ph[i].memsz - ph[i].filesz), 0);
+        if ((ph[i].flags & 1u) &&
+            eh->entry >= destination && eh->entry < segment_end)
+            entry_executable = TRUE;
 
         if (destination < min_address)
             min_address = destination;
@@ -277,8 +278,43 @@ static EFI_STATUS load_elf64(VOID *image,
             max_address = segment_end;
     }
 
-    if (segment_count == 0 || !entry_executable)
+    if (load_count == 0 || !entry_executable ||
+        max_address <= min_address ||
+        max_address > KIRA_BOOTSTRAP_LIMIT - (KIRA_PAGE_SIZE - 1))
         goto fail;
+
+    allocation_base = min_address & ~((EFI_PHYSICAL_ADDRESS)KIRA_PAGE_SIZE - 1);
+    allocation_end = (max_address + KIRA_PAGE_SIZE - 1) &
+                     ~((EFI_PHYSICAL_ADDRESS)KIRA_PAGE_SIZE - 1);
+    if (allocation_end <= allocation_base)
+        goto fail;
+
+    allocation_pages = (UINTN)((allocation_end - allocation_base) /
+                               KIRA_PAGE_SIZE);
+    allocation = allocation_base;
+    status = uefi_call_wrapper(g_bs->AllocatePages, 4, AllocateAddress,
+                               EfiLoaderData, allocation_pages, &allocation);
+    if (EFI_ERROR(status))
+        goto fail;
+
+    allocation_segment.base = allocation_base;
+    allocation_segment.size = allocation_end - allocation_base;
+    load_segments[0] = allocation_segment;
+    allocation_count = 1;
+
+    /* Clear gaps and BSS, then copy each validated file-backed segment. */
+    SetMem((VOID *)(UINTN)allocation_base,
+           (UINTN)(allocation_end - allocation_base), 0);
+    for (i = 0; i < eh->phnum; ++i) {
+        EFI_PHYSICAL_ADDRESS destination;
+        if (ph[i].type != KIRA_PT_LOAD)
+            continue;
+        destination = ph[i].paddr ? ph[i].paddr : ph[i].vaddr;
+        if (ph[i].filesz)
+            CopyMem((VOID *)(UINTN)destination,
+                    (UINT8 *)image + ph[i].offset,
+                    (UINTN)ph[i].filesz);
+    }
 
     *entry_out = eh->entry;
     *base_out = min_address;
@@ -286,7 +322,8 @@ static EFI_STATUS load_elf64(VOID *image,
     return EFI_SUCCESS;
 
 fail:
-    release_loaded_segments(segments, segment_count);
+    if (allocation_count)
+        release_loaded_segments(load_segments, allocation_count);
     if (!EFI_ERROR(status))
         status = EFI_LOAD_ERROR;
     return status;
