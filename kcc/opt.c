@@ -313,7 +313,39 @@ static int op_licm_loop(Ins **a, int n, int nlab, int lab, OpLicm *L, Ins **tmp,
     int moved = 0;
     memset(hk, 0, (size_t)n);
     for (int pass = 0; pass < 8; pass++) {
-        int ch = 0;
+        int ch = 0, rch = 0;
+        /* Перестановка слагаемых адреса: (x + y) + z, где x и z неизменны в цикле, а y меняется, становится (x + z) + y - неизменная часть
+           выносится из цикла, и в теле остаётся одно сложение (на обращениях a[i][k] и b[k][j] это на две команды в теле короче). */
+        for (int k = l + 1; k <= e && !kcc_noreassoc; k++) {
+            Ins *pq = a[k];
+            if (pq->op != IR_BIN || pq->sub != ND_ADD || pq->w != 8 || pq->dst <= 0 || pq->dst > L->nv) continue;
+            for (int side = 0; side < 2; side++) {
+                int t1 = side ? pq->b : pq->a, z = side ? pq->a : pq->b;
+                if (t1 <= 0 || t1 > L->nv || z <= 0 || z > L->nv || t1 == z) continue;
+                Ins *r = L->c->defins[t1];
+                if (!r || r->op != IR_BIN || r->sub != ND_ADD || r->w != 8 || r->dst != t1 || L->c->ndef[t1] != 1 || L->md[t1] || L->c->nuse[t1] != 1 || L->dcnt[t1] != 1) continue;
+                int rin = -1;
+                for (int q = l + 1; q < k; q++) if (a[q] == r) rin = q;
+                if (rin < 0) continue;
+                int zinv = L->dcnt[z] == 0;                      /* определён вне цикла (или будет вынесен): к моменту r он уже есть */
+                int xinv = r->a > 0 && r->a <= L->nv && (L->dcnt[r->a] == 0 || op_licm_cheap(L, r->a));
+                int yinv = r->b > 0 && r->b <= L->nv && (L->dcnt[r->b] == 0 || op_licm_cheap(L, r->b));
+                if (!zinv) continue;
+                int x, y;
+                if (xinv && !yinv) { x = r->a; y = r->b; } else if (yinv && !xinv) { x = r->b; y = r->a; } else continue;
+                if (y <= 0 || x == z) continue;
+                /* Сумма x + z ставится на место p (после определения z, которое могло идти позже r), а r с оставшимся слагаемым y уходит сразу за ней. */
+                int t2 = pq->dst;
+                Ins *ro = a[rin];
+                for (int q = rin; q < k; q++) { a[q] = a[q + 1]; hk[q] = hk[q + 1]; }
+                a[k] = ro; hk[k] = 0;
+                pq->a = x; pq->b = z; pq->dst = t1;
+                ro->a = t1; ro->b = y; ro->dst = t2;
+                L->c->defins[t1] = pq; L->c->defins[t2] = ro;
+                rch = 1;
+                break;
+            }
+        }
         for (int k = l + 1; k <= e; k++) {
             Ins *i = a[k];
             if (hk[k]) continue;
@@ -326,7 +358,7 @@ static int op_licm_loop(Ins **a, int n, int nlab, int lab, OpLicm *L, Ins **tmp,
             if (L->bad) continue;
             hk[k] = 1; L->dcnt[d] = 0; ch = 1; moved++;
         }
-        if (!ch) break;
+        if (!ch && !rch) break;
     }
     if (e - l <= 80) {                                        /* короткий цикл: адреса (до двух) тоже выносятся, чтобы не вычисляться на каждой итерации */
         int nb = 0;
@@ -1414,6 +1446,7 @@ void ir_walk(Ins *i, OpVisit fn, void *ctx) { op_walk(i, fn, ctx); }
 int kcc_noregs;
 int kcc_nodce;
 int kcc_noalign;
+int kcc_noreassoc;
 int kcc_nopop;
 int kcc_nopooltrim;
 int kcc_norec;
@@ -1424,7 +1457,7 @@ int kcc_nomrot;
 int kcc_nonnshift;
 int kcc_flag(const char *arg) {
     static const struct { const char *name; int *flag; } tab[] = {
-        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-popcount", &kcc_nopop }, { "-fno-pooltrim", &kcc_nopooltrim }, { "-fno-rec-inline", &kcc_norec }, { "-fno-once-inline", &kcc_noonce }, { "-fno-extld", &kcc_noextld }, { "-fno-disp", &kcc_nodisp }, { "-fno-mrot", &kcc_nomrot }, { "-fno-nnshift", &kcc_nonnshift },
+        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-reassoc", &kcc_noreassoc }, { "-fno-popcount", &kcc_nopop }, { "-fno-pooltrim", &kcc_nopooltrim }, { "-fno-rec-inline", &kcc_norec }, { "-fno-once-inline", &kcc_noonce }, { "-fno-extld", &kcc_noextld }, { "-fno-disp", &kcc_nodisp }, { "-fno-mrot", &kcc_nomrot }, { "-fno-nnshift", &kcc_nonnshift },
         { 0, 0 } };
     for (int k = 0; tab[k].name; k++) if (!strcmp(arg, tab[k].name)) { *tab[k].flag = 1; return 1; }
     return 0;
