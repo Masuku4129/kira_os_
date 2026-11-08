@@ -180,6 +180,9 @@ echo "== UEFI memory map to loader-neutral BootInfo (descriptor bounds and overf
 $CC $FLAGS -Itests/uefi -fsanitize=address,undefined -o $T/uefi-kbi tests/uefi_kbi_test.c arch/x86_64/uefi/uefi_kbi.c bootinfo.c
 $T/uefi-kbi
 
+echo "== kernel entry decodes safely in both 32-bit (GRUB/BIOS) and 64-bit (UEFI) mode =="
+bash tests/boot_entry_test.sh
+
 echo "== early window (bootmap page tables) =="
 $CC $FLAGS -fsanitize=undefined -o $T/bootmap tests/bootmap_test.c bootmap.c
 $T/bootmap
