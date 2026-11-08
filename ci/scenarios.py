@@ -541,7 +541,7 @@ def _drv_www():
     import hashlib, shutil, struct, re
     w = os.path.abspath("ci-out/drvwww")
     shutil.rmtree(w, ignore_errors=True)
-    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "drivers", "rl")
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "drivers", "net")
     def clone(name):
         os.makedirs(os.path.join(w, name))
         for f in ("drvget.rec", "rtl8139_kdrv.c", "rtl8139.c", "rtl8139.h"):

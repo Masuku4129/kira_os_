@@ -181,9 +181,8 @@ static void gen_bin(const Ins *i) {
         ldv(d, a);
         if (sub == ND_MUL && bimm) {
             int k = log2_exact(imm);
-            if (k == 0) { }
-            else if (k > 0) xa_ins(A, X_SHL, RS(d), xi(k));
-            else xa_imul3(A, RS(d), RS(d), imm);
+            if (k > 0) xa_ins(A, X_SHL, RS(d), xi(k));
+            else if (k < 0) xa_imul3(A, RS(d), RS(d), imm);           /* k == 0: умножение на 1, ничего не делаем */
         } else if (bimm) xa_ins(A, op, RS(d), xi(imm));
         else if (bm >= 0) xa_ins(A, op, RS(d), RS(bm));
         else { ldv(R_CX, b); xa_ins(A, op, RS(d), RS(R_CX)); }

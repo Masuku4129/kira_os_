@@ -205,8 +205,7 @@ static void op_ssa_refine(Ins **a, int n, int nv, unsigned char *mdef, const int
         int tgt = (l->imm >= 0 && l->imm <= nlab + 2) ? labblk[l->imm] : -1;
         if (l->op == IR_JMP) s0 = tgt;
         else if (l->op == IR_BRZ || l->op == IR_BRNZ) { s0 = tgt; s1 = b + 1 < nb ? b + 1 : -1; }
-        else if (l->op == IR_RET || l->op == IR_UNREACH) { }
-        else s0 = b + 1 < nb ? b + 1 : -1;
+        else if (l->op != IR_RET && l->op != IR_UNREACH) s0 = b + 1 < nb ? b + 1 : -1;     /* RET/UNREACH: преемников нет */
         su[2 * b] = s0; su[2 * b + 1] = s1;
         if (s0 >= 0) npred[s0]++;
         if (s1 >= 0) npred[s1]++;
