@@ -60,7 +60,7 @@ int main(void) {
         if (type == 6) {
             CHECK(size == 16 + 3 * 24);
             CHECK(*(const uint32_t *)(p + off) == 24);
-            CHECK(*(const uint32_t *)(p + off + 32) == 1);
+            CHECK(*(const uint32_t *)(p + off + 24) == 1);
             CHECK(*(const uint32_t *)(p + off + 16 + 24 + 16) == 3);
             saw_map = 1;
         } else if (type == 8) {
