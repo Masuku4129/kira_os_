@@ -202,24 +202,36 @@ static EFI_STATUS load_elf64(VOID *image,
     UINTN allocation_pages;
     BOOLEAN entry_executable = FALSE;
 
-    if (!image || !entry_out || !base_out || !size_out ||
-        image_size < sizeof(*eh) ||
-        *(UINT32 *)eh->ident != KIRA_ELF_MAGIC ||
-        eh->ident[4] != KIRA_ELFCLASS64 ||
-        eh->ident[5] != KIRA_ELFDATA2LSB ||
-        eh->ident[6] != 1 ||
-        eh->type != KIRA_ELF_ET_EXEC ||
-        eh->machine != KIRA_ELF_EM_X86_64 ||
-        eh->version != 1 ||
-        eh->ehsize != sizeof(*eh) ||
-        eh->phentsize != sizeof(kira_elf64_program_header) ||
-        eh->phnum == 0 || eh->phnum > KIRA_MAX_SEGMENTS)
+    if (!image || !entry_out || !base_out || !size_out) {
+        Print(L"KIRA UEFI: ELF loader arguments invalid\\r\\n");
         return EFI_LOAD_ERROR;
-
+    }
+    if (image_size < sizeof(*eh)) {
+        Print(L"KIRA UEFI: ELF file too short: %lu\\r\\n", (UINT64)image_size);
+        return EFI_LOAD_ERROR;
+    }
+    Print(L"KIRA UEFI: ELF header type=%u machine=%u ver=%u eh=%u phent=%u phnum=%u phoff=%lx entry=%lx size=%lu\\r\\n",
+          eh->type, eh->machine, eh->version, eh->ehsize, eh->phentsize,
+          eh->phnum, eh->phoff, eh->entry, (UINT64)image_size);
+    if (*(UINT32 *)eh->ident != KIRA_ELF_MAGIC ||
+        eh->ident[4] != KIRA_ELFCLASS64 ||
+        eh->ident[5] != KIRA_ELFDATA2LSB || eh->ident[6] != 1) {
+        Print(L"KIRA UEFI: ELF identity rejected\\r\\n");
+        return EFI_LOAD_ERROR;
+    }
+    if (eh->type != KIRA_ELF_ET_EXEC || eh->machine != KIRA_ELF_EM_X86_64 ||
+        eh->version != 1 || eh->ehsize != sizeof(*eh) ||
+        eh->phentsize != sizeof(kira_elf64_program_header) ||
+        eh->phnum == 0 || eh->phnum > KIRA_MAX_SEGMENTS) {
+        Print(L"KIRA UEFI: ELF header fields rejected\\r\\n");
+        return EFI_LOAD_ERROR;
+    }
     if (!range_valid(eh->phoff,
                      (UINT64)eh->phnum * eh->phentsize,
-                     image_size))
+                     image_size)) {
+        Print(L"KIRA UEFI: ELF program header table outside file\\r\\n");
         return EFI_LOAD_ERROR;
+    }
 
     ph = (kira_elf64_program_header *)((UINT8 *)image + eh->phoff);
 
@@ -240,29 +252,41 @@ static EFI_STATUS load_elf64(VOID *image,
 
         if (ph[i].memsz < ph[i].filesz ||
             !range_valid(ph[i].offset, ph[i].filesz, image_size) ||
-            ph[i].memsz == 0)
+            ph[i].memsz == 0) {
+            Print(L"KIRA UEFI: PT_LOAD %u size/range rejected off=%lx filesz=%lx memsz=%lx\\r\\n",
+                  (UINT32)i, ph[i].offset, ph[i].filesz, ph[i].memsz);
             goto fail;
+        }
 
         destination = ph[i].paddr ? ph[i].paddr : ph[i].vaddr;
         if (destination != ph[i].vaddr ||
             destination < 0x100000 ||
             destination >= KIRA_BOOTSTRAP_LIMIT ||
-            ph[i].memsz > KIRA_BOOTSTRAP_LIMIT - destination)
+            ph[i].memsz > KIRA_BOOTSTRAP_LIMIT - destination) {
+            Print(L"KIRA UEFI: PT_LOAD %u address rejected v=%lx p=%lx memsz=%lx\\r\\n",
+                  (UINT32)i, ph[i].vaddr, ph[i].paddr, ph[i].memsz);
             goto fail;
+        }
 
         segment_end = destination + ph[i].memsz;
         if (align > 1 &&
             ((align & (align - 1)) != 0 ||
              (ph[i].offset & (align - 1)) !=
-             (destination & (align - 1))))
+             (destination & (align - 1)))) {
+            Print(L"KIRA UEFI: PT_LOAD %u alignment rejected off=%lx v=%lx align=%lx\\r\\n",
+                  (UINT32)i, ph[i].offset, destination, align);
             goto fail;
+        }
 
         for (j = 0; j < load_count; ++j) {
             UINT64 previous_end = load_segments[j].base +
                                   load_segments[j].size;
             if (destination < previous_end &&
-                load_segments[j].base < segment_end)
+                load_segments[j].base < segment_end) {
+                Print(L"KIRA UEFI: PT_LOAD %u overlaps segment %u\\r\\n",
+                      (UINT32)i, (UINT32)j);
                 goto fail;
+            }
         }
 
         load_segments[load_count].base = destination;
@@ -279,25 +303,38 @@ static EFI_STATUS load_elf64(VOID *image,
             max_address = segment_end;
     }
 
-    if (load_count == 0 || !entry_executable ||
-        max_address <= min_address ||
-        max_address > KIRA_BOOTSTRAP_LIMIT)
+    if (load_count == 0) {
+        Print(L"KIRA UEFI: ELF has no PT_LOAD segments\\r\\n");
         goto fail;
+    }
+    if (!entry_executable) {
+        Print(L"KIRA UEFI: ELF entry %lx is not executable\\r\\n", eh->entry);
+        goto fail;
+    }
+    if (max_address <= min_address || max_address > KIRA_BOOTSTRAP_LIMIT) {
+        Print(L"KIRA UEFI: ELF span invalid min=%lx max=%lx\\r\\n", min_address, max_address);
+        goto fail;
+    }
 
     allocation_base = min_address & ~((EFI_PHYSICAL_ADDRESS)KIRA_PAGE_SIZE - 1);
     allocation_end = (max_address + KIRA_PAGE_SIZE - 1) &
                      ~((EFI_PHYSICAL_ADDRESS)KIRA_PAGE_SIZE - 1);
     if (allocation_end <= allocation_base ||
-        allocation_end - allocation_base > KIRA_MAX_KERNEL_SPAN)
+        allocation_end - allocation_base > KIRA_MAX_KERNEL_SPAN) {
+        Print(L"KIRA UEFI: ELF allocation span invalid base=%lx end=%lx\\r\\n",
+              allocation_base, allocation_end);
         goto fail;
+    }
 
     allocation_pages = (UINTN)((allocation_end - allocation_base) /
                                KIRA_PAGE_SIZE);
     allocation = allocation_base;
     status = uefi_call_wrapper(g_bs->AllocatePages, 4, AllocateAddress,
                                EfiLoaderData, allocation_pages, &allocation);
-    if (EFI_ERROR(status))
+    if (EFI_ERROR(status)) {
+        print_error(L"cannot allocate kernel span", status);
         goto fail;
+    }
 
     allocation_segment.base = allocation_base;
     allocation_segment.size = allocation_end - allocation_base;
