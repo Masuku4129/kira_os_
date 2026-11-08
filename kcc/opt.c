@@ -737,7 +737,7 @@ static void op_hdrcnt(Ins *i, int *r, int kind, void *x) { (void)i; OpHdrCnt *h 
 typedef struct { const int *map; int nv; } OpHdrMap;
 static void op_hdrmap(Ins *i, int *r, int kind, void *x) { (void)i; OpHdrMap *h = x; if (kind == 0 && *r > 0 && *r <= h->nv && h->map[*r]) *r = h->map[*r]; }
 #define OP_HDR_MAX 12
-static Ins *op_pool; static size_t op_pool_left;   /* узлы инверсии живут дольше временной арены ir_optimize: выделяются заранее */
+static Ins *op_pool, *op_pool0; static size_t op_pool_left, op_pool_total;   /* узлы инверсии живут дольше временной арены ir_optimize: выделяются заранее */
 static Ins *op_newins(void) { if (!op_pool_left) return NULL; op_pool_left--; return op_pool++; }
 static Ins **op_invert(IrFn *fi, Ins **a, int *pn, int *pnv, unsigned char *mdef, int vcap, const OpCnt *c) {
     int n = *pn, nv = *pnv, cand = 0;
@@ -894,7 +894,9 @@ void ir_optimize(IrFn *fi) {
         for (Ins *i = fi->head; i; i = i->next) if (loops_possible && i->op == IR_BIN && i->sub == ND_MUL && i->w == 8) nmul++;
         op_pool_left = loops * (OP_HDR_MAX + 3) + nmul * 4;
         vslack = loops * (OP_HDR_MAX + 2) + nmul * 3 + 8;
+        op_pool_total = op_pool_left;
         op_pool = op_pool_left ? ka_new(sizeof(Ins) * op_pool_left) : NULL;
+        op_pool0 = op_pool;
     }
     size_t mk = ka_mark();                      /* всё ниже, кроме mdef, временное: освобождается в конце */
     Ins **a = ka_new(sizeof(Ins *) * (size_t)(n + 1));
@@ -1020,6 +1022,12 @@ void ir_optimize(IrFn *fi) {
         for (int k = 0; k < n; k++) if (op_fold(a[k], &c2, mdef)) ch = 1;
         if (ch) op_recount(&c2, a, n);
         if (!kcc_nodce && op_cfg(a, &n, fi->nlab, &c2, mdef)) { ch = 1; op_recount(&c2, a, n); }
+        for (int k = 0; k < n && !kcc_noextld; k++) {              /* ext(загрузка той же ширины, другой знаковости) - загрузка с нужной знаковостью */
+            Ins *i = a[k];
+            if (i->op != IR_EXT || i->w >= 8 || i->a <= 0 || i->a > nvt || c2.ndef[i->a] != 1 || mdef[i->a] || c2.nuse[i->a] != 1) continue;
+            Ins *d = c2.defins[i->a];
+            if (d && d->op == IR_LOAD && d->w == i->w && d->sgn != i->sgn) { d->sgn = i->sgn; i->op = IR_MOV; ch = 1; }
+        }
         for (int k = 0; k < n; k++) {
             Ins *i = a[k];
             if (i->op == IR_EXT && i->a > 0 && i->a <= nvt && c2.ndef[i->a] == 1 && !mdef[i->a] &&
@@ -1104,6 +1112,10 @@ void ir_optimize(IrFn *fi) {
     fi->nreg = nvt;
     fi->mdef = mdef;
     ka_release(mk);
+    if (op_pool0 && !kcc_nopooltrim) {            /* неиспользованный хвост пула узлов возвращается арене (на hello.c это ~3% памяти) */
+        ka_release((size_t)((char *)op_pool0 - K.abase) + (op_pool_total - op_pool_left) * sizeof(Ins));
+        op_pool0 = NULL;
+    }
 }
 
 /* Числа определений/чтений каждого vreg и (для одиночного определения) инструкция-определение. Массивы размера fi->nreg + 1. */
@@ -1125,15 +1137,66 @@ static void op_shift(Ins *i, int *r, int kind, void *c) {
     if (*r > 0) *r += *(int *)c;
 }
 
-static int inl_ok(const Obj *callee, const Obj *caller, const Ins *call) {
-    if (!callee || callee == caller || !callee->is_func || !callee->body || !callee->ir) return 0;
+/* Число вызовов функций программы по имени и признак "адрес взят" (GADDR, указатели в данных): для встраивания единственного вызова.
+ * Таблица по указателю Obj (открытая адресация), заполняется ir_inline_prepare до встраивания. */
+typedef struct { const Obj *o; int calls, taken; } InlCnt;
+static InlCnt *inl_tab; static unsigned inl_cap;
+static InlCnt *inl_slot(const Obj *o, int create) {
+    if (!inl_cap) return NULL;
+    unsigned h = (unsigned)(((uintptr_t)o >> 4) * 2654435761u) & (inl_cap - 1);
+    for (;; h = (h + 1) & (inl_cap - 1)) {
+        if (inl_tab[h].o == o) return &inl_tab[h];
+        if (!inl_tab[h].o) { if (!create) return NULL; inl_tab[h].o = o; return &inl_tab[h]; }
+    }
+}
+void ir_inline_prepare(Obj *globals) {
+    int nf = 0;
+    for (Obj *g = globals; g; g = g->next) nf++;
+    inl_cap = 16;
+    while (inl_cap < (unsigned)nf * 2 + 16) inl_cap <<= 1;
+    inl_tab = ka_new(sizeof(InlCnt) * inl_cap);
+    for (Obj *g = globals; g; g = g->next) {
+        if (g->is_func && g->body && g->ir) {
+            for (const Ins *i = ((IrFn *)g->ir)->head; i; i = i->next) {
+                if ((i->op != IR_CALL && i->op != IR_GADDR) || !i->sym) continue;
+                Obj *t = gen_lookup(i->sym);
+                InlCnt *e = t ? inl_slot(t, 1) : NULL;
+                if (e) { if (i->op == IR_CALL) e->calls++; else e->taken++; }
+            }
+        } else if (!g->is_func) {
+            for (const Reloc *r = g->relocs; r; r = r->next) {
+                Obj *t = gen_lookup(r->sym);
+                InlCnt *e = t ? inl_slot(t, 1) : NULL;
+                if (e) e->taken++;
+            }
+        }
+    }
+}
+/* Предельный размер тела: 100 (обычный), 400 (статическая функция с единственным вызовом, адрес не взят: тело исчезает из образа),
+ * 40 - для разворачивания рекурсии на один уровень (callee == caller). */
+#define INL_ONCE_MAX 400
+#define INL_REC_MAX 40
+static int inl_once(const Obj *callee) {              /* статическая функция с единственным вызовом, адрес не взят: после встраивания её тело не нужно */
+    if (kcc_noonce || !callee->is_static || callee->is_weak) return 0;
+    const InlCnt *e = inl_slot(callee, 0);
+    return e && e->calls == 1 && e->taken == 0;
+}
+static int inl_limit(const Obj *callee, const Obj *caller) {
+    if (callee == caller) return kcc_norec ? 0 : INL_REC_MAX;
+    return inl_once(callee) ? INL_ONCE_MAX : INL_MAX;
+}
+
+static int inl_ok(const Obj *callee, const Obj *caller, const Ins *call, const IrFn *ci0) {
+    if (!callee || !callee->is_func || !callee->body || !callee->ir) return 0;
+    int limit = inl_limit(callee, caller);
+    if (!limit) return 0;
     if (callee->ty->variadic || callee->ty->noproto || callee->nparams > 6 || callee->nparams != call->nargs) return 0;
     if (!strcmp(callee->name, "main") || ty_is_agg(callee->ty->base)) return 0;
     for (const Obj *p = callee->params; p; p = p->next) if (ty_is_agg(p->ty)) return 0;
-    const IrFn *ci = callee->ir;
+    const IrFn *ci = ci0 ? ci0 : callee->ir;
     int n = 0;
     for (const Ins *i = ci->head; i; i = i->next) {
-        if (++n > INL_MAX) return 0;
+        if (++n > limit) return 0;
         switch (i->op) {
         case IR_ASM: case IR_VAINFO: case IR_ATOMIC: return 0;
         case IR_PARAM: case IR_RET: if (i->sub) return 0; break;
@@ -1147,18 +1210,43 @@ static int inl_ok(const Obj *callee, const Obj *caller, const Ins *call) {
     return 1;
 }
 
+/* Копия IR функции: рекурсивная функция встраивает в себя свой исходный вид, а не тот, что растёт на ходу. */
+static IrFn *inl_clone(const IrFn *fi) {
+    IrFn *c = ka_new(sizeof(IrFn));
+    *c = *fi;
+    c->head = NULL;
+    Ins *tl = NULL;
+    for (const Ins *i = fi->head; i; i = i->next) {
+        Ins *n = ka_new(sizeof(Ins));
+        *n = *i;
+        if (n->op == IR_CALL && n->nargs) { n->args = ka_new(sizeof(int) * (size_t)n->nargs); memcpy(n->args, i->args, sizeof(int) * (size_t)n->nargs); }
+        n->next = NULL;
+        if (tl) tl->next = n; else c->head = n;
+        tl = n;
+    }
+    return c;
+}
+
 void ir_inline(Obj *caller) {
     IrFn *fi = caller->ir;
     int total = 0;
     for (Ins *i = fi->head; i; i = i->next) total++;
+    IrFn *snap = NULL;                          /* исходный вид самой функции для разворачивания рекурсии на один уровень */
+    Obj *snap_last = NULL;
+    if (!kcc_norec && total <= INL_REC_MAX) {
+        int selfcall = 0;
+        for (const Ins *i = fi->head; i; i = i->next) if (i->op == IR_CALL && i->sym && gen_lookup(i->sym) == caller) selfcall = 1;
+        if (selfcall) { snap = inl_clone(fi); for (Obj *l = caller->locals; l; l = l->next) snap_last = l; }
+    }
     Ins *prev = NULL;
     for (Ins *c = fi->head; c;) {
         Ins *nextc = c->next;
         int site_ok = c->op == IR_CALL && c->sym && !c->rsz;
         for (int k = 0; site_ok && c->asz && k < c->nargs; k++) if (c->asz[k]) site_ok = 0;   /* агрегаты по значению - не встраиваем */
         Obj *callee = site_ok ? gen_lookup(c->sym) : NULL;
-        if (!callee || total >= INL_CALLER_MAX || !inl_ok(callee, caller, c)) { prev = c; c = nextc; continue; }
-        const IrFn *ci = callee->ir;
+        const IrFn *own = callee == caller ? snap : NULL;
+        if (!callee || total >= INL_CALLER_MAX || (callee == caller && !snap) || !inl_ok(callee, caller, c, own)) { prev = c; c = nextc; continue; }
+        const IrFn *ci = own ? own : callee->ir;
         int vbase = fi->nreg, lbase = fi->nlab + 1, lend = lbase + ci->nlab + 1;
         int cmax = -1;
         Obj *tail = NULL;
@@ -1169,21 +1257,24 @@ void ir_inline(Obj *caller) {
             *nl = *l; nl->slot = l->slot + sbase; nl->next = NULL;
             if (tail) tail->next = nl; else caller->locals = nl;
             tail = nl;
+            if (callee == caller && l == snap_last) break;     /* дальше - уже добавленные копии */
         }
         Ins *head = NULL, *tl = NULL;
         const Ins *last = NULL;
+        int steal = !own && callee != caller && inl_once(callee);       /* единственный вызов: узлы callee переходят в caller без копирования (экономит арену) */
         for (const Ins *i = ci->head; i; i = i->next) last = i;
 #define INL_PUSH(x) do { Ins *q_ = (x); q_->next = NULL; if (tl) tl->next = q_; else head = q_; tl = q_; } while (0)
-        for (const Ins *i = ci->head; i; i = i->next) {
-            Ins *n = ka_new(sizeof(Ins));
-            *n = *i;
+        for (const Ins *i = ci->head, *inx; i; i = inx) {
+            inx = i->next;
+            Ins *n = steal ? (Ins *)i : ka_new(sizeof(Ins));
+            if (!steal) *n = *i;
             if (i->op == IR_PARAM) {
                 n->op = IR_MOV; n->a = c->args[i->imm]; n->b = 0; n->sub = 0; n->imm = 0;
                 n->dst = i->dst > 0 ? i->dst + vbase : 0;
                 INL_PUSH(n);
                 continue;
             }
-            if (i->op == IR_CALL && i->nargs) {
+            if (i->op == IR_CALL && i->nargs && !steal) {
                 n->args = ka_new(sizeof(int) * (size_t)i->nargs);
                 memcpy(n->args, i->args, sizeof(int) * (size_t)i->nargs);
             }
@@ -1209,6 +1300,7 @@ void ir_inline(Obj *caller) {
         le->op = IR_LABEL; le->imm = lend;
         INL_PUSH(le);
 #undef INL_PUSH
+        if (steal) ((IrFn *)callee->ir)->head = NULL;
         if (prev) prev->next = head; else fi->head = head;
         tl->next = nextc;
         for (const Ins *i = head; i != nextc; i = i->next) total++;
@@ -1225,11 +1317,16 @@ void ir_walk(Ins *i, OpVisit fn, void *ctx) { op_walk(i, fn, ctx); }
 int kcc_noregs;
 int kcc_nodce;
 int kcc_noalign;
+int kcc_nopooltrim;
+int kcc_norec;
+int kcc_noonce;
+int kcc_noextld;
+int kcc_nodisp;
 int kcc_nomrot;
 int kcc_nonnshift;
 int kcc_flag(const char *arg) {
     static const struct { const char *name; int *flag; } tab[] = {
-        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-mrot", &kcc_nomrot }, { "-fno-nnshift", &kcc_nonnshift },
+        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-pooltrim", &kcc_nopooltrim }, { "-fno-rec-inline", &kcc_norec }, { "-fno-once-inline", &kcc_noonce }, { "-fno-extld", &kcc_noextld }, { "-fno-disp", &kcc_nodisp }, { "-fno-mrot", &kcc_nomrot }, { "-fno-nnshift", &kcc_nonnshift },
         { 0, 0 } };
     for (int k = 0; tab[k].name; k++) if (!strcmp(arg, tab[k].name)) { *tab[k].flag = 1; return 1; }
     return 0;

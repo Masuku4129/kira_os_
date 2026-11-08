@@ -171,6 +171,7 @@ void ir_usecount(IrFn *fi, int *ndef, int *nuse, Ins **defins);
 Obj *gen_lookup(const char *name);           /* gen_common.c */
 typedef void (*OpVisit)(Ins *i, int *r, int kind, void *ctx);   /* kind: 0 - чтение vreg, 1 - запись, 2 - выход asm */
 void ir_walk(Ins *i, OpVisit fn, void *ctx);   /* opt.c: обход всех vreg-операндов инструкции */
+void ir_inline_prepare(Obj *globals);         /* opt.c: перед ir_inline: числа вызовов и признаки "адрес взят" */
 void ir_inline(Obj *caller);                 /* opt.c: встраивание малых функций (до ir_optimize) */
 void ir_optimize(IrFn *fi);                  /* opt.c: продвижение локальных в vreg, копии, слияние, мёртвый код */
 IrFn *ir_lower(Obj *f);                      /* линейный IR одной функции с телом */
