@@ -264,6 +264,142 @@ static void op_ssa_refine(Ins **a, int n, int nv, unsigned char *mdef, const int
     for (int v = 1; v <= nv; v++) if (mdef[v] && ndef[v] == 1 && ok[v] && defpos[v] >= 0) mdef[v] = 0;
 }
 
+
+/* ---------- вынос инвариантов из циклов ----------
+ * Цикл - диапазон [l, e] линейного IR: метка L на позиции l и самый поздний переход на L (позиция e >= l). Вход в цикл - только
+ * проходом сверху через L (переходов на метки диапазона снаружи нет). Выносятся чистые операции без ловушек (не DIV/MOD, не CMP:
+ * сравнения остаются рядом с переходом ради слияния), у которых единственное определение, а операнды не меняются в цикле.
+ * Загрузки не выносятся: анализа псевдонимов нет. Выполнение вне цикла лишь спекулятивно, побочных эффектов у таких операций нет. */
+typedef struct { int *dcnt; const OpCnt *c; const unsigned char *md; int bad; int nv; } OpLicm;
+static void op_licm_def(Ins *i, int *r, int kind, void *x) {
+    (void)i;
+    OpLicm *L = x;
+    if (kind != 0 && *r > 0 && *r <= L->nv) L->dcnt[*r]++;
+}
+static int op_licm_cheap(const OpLicm *L, int v) {
+    const Ins *d = L->c->defins[v];
+    return L->c->ndef[v] == 1 && !L->md[v] && d && (d->op == IR_CONST || d->op == IR_GADDR || d->op == IR_LADDR);
+}
+static void op_licm_use(Ins *i, int *r, int kind, void *x) {
+    (void)i;
+    OpLicm *L = x;
+    int v = *r;
+    if (kind != 0 || v <= 0) return;
+    if (v > L->nv) { L->bad = 1; return; }
+    if (L->dcnt[v] == 0 || op_licm_cheap(L, v)) return;
+    L->bad = 1;
+}
+static void op_licm_unreg(Ins *i, int *r, int kind, void *x) {
+    (void)i;
+    OpLicm *L = x;
+    if (kind != 0 && *r > 0 && *r <= L->nv) L->dcnt[*r] = 0;
+}
+static int op_licm_loop(Ins **a, int n, int nlab, int lab, OpLicm *L, Ins **tmp, unsigned char *hk) {
+    int l = -1, e = -1;
+    for (int k = 0; k < n; k++) {
+        if (a[k]->op == IR_LABEL && a[k]->imm == lab) l = k;
+        else if ((a[k]->op == IR_JMP || a[k]->op == IR_BRZ || a[k]->op == IR_BRNZ) && a[k]->imm == lab) e = k;
+    }
+    if (l < 0 || e < l) return 0;
+    /* вход только сверху: на метки диапазона не ведёт ни один переход снаружи; внутри - ни asm, ни вызовов setjmp */
+    for (int k = 0; k < n; k++) {
+        const Ins *j = a[k];
+        if (k >= l && k <= e) { if (j->op == IR_ASM) return 0; continue; }
+        if (j->op != IR_JMP && j->op != IR_BRZ && j->op != IR_BRNZ) continue;
+        if (j->imm < 0 || j->imm > nlab) return 0;
+        for (int q = l; q <= e; q++) if (a[q]->op == IR_LABEL && a[q]->imm == j->imm) return 0;
+    }
+    for (int k = l; k <= e; k++) op_walk(a[k], op_licm_def, L);
+    int moved = 0;
+    memset(hk, 0, (size_t)n);
+    for (int pass = 0; pass < 8; pass++) {
+        int ch = 0;
+        for (int k = l + 1; k <= e; k++) {
+            Ins *i = a[k];
+            if (hk[k]) continue;
+            if (i->op != IR_BIN && i->op != IR_NEG && i->op != IR_NOT && i->op != IR_EXT && i->op != IR_MOV) continue;
+            if (i->op == IR_BIN && (i->sub == ND_DIV || i->sub == ND_MOD)) continue;
+            int d = i->dst;
+            if (d <= 0 || d > L->nv || L->c->ndef[d] != 1 || L->md[d] || L->dcnt[d] != 1) continue;
+            L->bad = 0;
+            op_walk(i, op_licm_use, L);
+            if (L->bad) continue;
+            hk[k] = 1; L->dcnt[d] = 0; ch = 1; moved++;
+        }
+        if (!ch) break;
+    }
+    if (moved) {
+        /* определения констант и адресов, нужные вынесенным операциям, выносятся вместе с ними */
+        for (int k = l + 1; k <= e; k++) {
+            if (!hk[k]) continue;
+            for (int q = l + 1; q <= e; q++) {
+                const Ins *c = a[q];
+                if (hk[q] || (c->op != IR_CONST && c->op != IR_GADDR && c->op != IR_LADDR)) continue;
+                int dv = c->dst, used = 0;
+                if (dv > 0 && (a[k]->a == dv || a[k]->b == dv)) used = 1;
+                if (used && L->c->ndef[dv] == 1 && !L->md[dv]) hk[q] = 1;
+            }
+        }
+        int m = 0;
+        for (int k = 0; k < l; k++) tmp[m++] = a[k];
+        for (int k = l + 1; k <= e; k++) if (hk[k]) tmp[m++] = a[k];
+        for (int k = l; k <= e; k++) if (!hk[k]) tmp[m++] = a[k];
+        for (int k = e + 1; k < n; k++) tmp[m++] = a[k];
+        memcpy(a, tmp, sizeof(Ins *) * (size_t)n);
+    }
+    for (int k = 0; k < n; k++) op_walk(a[k], op_licm_unreg, L);
+    return moved;
+}
+static void op_licm(Ins **a, int n, int nlab, const OpCnt *c, const unsigned char *md, int nv) {
+    if (n < 4) return;
+    Ins **tmp = ka_new(sizeof(Ins *) * (size_t)(n + 1));
+    unsigned char *hk = ka_new((size_t)n + 1);
+    int *dcnt = ka_new(sizeof(int) * (size_t)(nv + 2));
+    OpLicm L = { dcnt, c, md, 0, nv };
+    int *labs = ka_new(sizeof(int) * (size_t)(n + 1)), *len = ka_new(sizeof(int) * (size_t)(n + 1)), nl = 0;
+    int *lp = ka_new(sizeof(int) * (size_t)(nlab + 2));
+    for (int k = 0; k < n; k++) if (a[k]->op == IR_LABEL && a[k]->imm >= 0 && a[k]->imm <= nlab) lp[a[k]->imm] = k + 1;
+    for (int k = 0; k < n; k++) {
+        const Ins *j = a[k];
+        if ((j->op != IR_JMP && j->op != IR_BRZ && j->op != IR_BRNZ) || j->imm < 0 || j->imm > nlab || !lp[j->imm] || lp[j->imm] - 1 > k) continue;
+        int found = -1;
+        for (int q = 0; q < nl; q++) if (labs[q] == (int)j->imm) found = q;
+        int span = k - (lp[j->imm] - 1);
+        if (found < 0) { labs[nl] = (int)j->imm; len[nl++] = span; }
+        else if (span > len[found]) len[found] = span;
+    }
+    for (int x = 1; x < nl; x++) {                        /* внутренние циклы первыми */
+        int tl = labs[x], tn = len[x], y = x - 1;
+        while (y >= 0 && len[y] > tn) { labs[y + 1] = labs[y]; len[y + 1] = len[y]; y--; }
+        labs[y + 1] = tl; len[y + 1] = tn;
+    }
+    for (int q = 0; q < nl; q++) op_licm_loop(a, n, nlab, labs[q], &L, tmp, hk);
+}
+
+
+/* Распознавание циклического сдвига: d = (x >> c1) | (x << c2), c1 + c2 равно ширине (4 или 8 байт), оба сдвига без знака, x и
+ * промежуточные значения - vreg с одним определением. Результат: d = rol x, c2. Только для x86-64 (у AArch64 свой ror). */
+static void op_rotates(Ins **a, int n, const OpCnt *c, const unsigned char *md) {
+#define SINGLE(v) ((v) > 0 && (v) <= c->nv && c->ndef[v] == 1 && !md[v] && c->defins[v])
+    if (K.cfg && K.cfg->target && !strcmp(K.cfg->target, "aarch64")) return;
+    for (int k = 0; k < n; k++) {
+        Ins *o = a[k];
+        if (o->op != IR_BIN || o->sub != ND_OR || o->sgn || (o->w != 4 && o->w != 8)) continue;
+        if (!SINGLE(o->a) || !SINGLE(o->b) || c->nuse[o->a] != 1 || c->nuse[o->b] != 1 || o->a == o->b) continue;
+        Ins *p = c->defins[o->a], *q = c->defins[o->b];
+        if (p->op != IR_BIN || q->op != IR_BIN || p->w != o->w || q->w != o->w || p->sgn || q->sgn) continue;
+        if (p->sub == ND_SHL && q->sub == ND_SHR) { Ins *t = p; p = q; q = t; }       /* p - сдвиг вправо, q - влево */
+        if (p->sub != ND_SHR || q->sub != ND_SHL || p->a != q->a || !SINGLE(p->a)) continue;
+        if (!SINGLE(p->b) || !SINGLE(q->b)) continue;
+        const Ins *d1 = c->defins[p->b], *d2 = c->defins[q->b];
+        if (d1->op != IR_CONST || d2->op != IR_CONST) continue;
+        int64_t c1 = d1->imm, c2 = d2->imm;
+        if (c1 <= 0 || c2 <= 0 || c1 + c2 != 8 * o->w) continue;
+        o->sub = ND_ROL; o->a = p->a; o->b = q->b;
+    }
+#undef SINGLE
+}
+
 void ir_optimize(IrFn *fi) {
     int nv = fi->nreg, n = 0;
     for (Ins *i = fi->head; i; i = i->next) n++;
@@ -420,6 +556,9 @@ void ir_optimize(IrFn *fi) {
         }
     }
 
+    op_recount(&c2, a, n);
+    op_rotates(a, n, &c2, mdef);
+
     /* удаление мёртвого кода */
     for (int changed = 1; changed;) {
         changed = 0;
@@ -439,8 +578,9 @@ void ir_optimize(IrFn *fi) {
         for (int k = 0; k < n; k++) if (a[k]) a[m++] = a[k];
         n = m;
     }
-    /* слияние "t = op ...; v = t" в "v = op ...", если t живёт ровно между ними */
     op_recount(&c2, a, n);
+    if (!has_setjmp && !kcc_noopt) op_licm(a, n, fi->nlab, &c2, mdef, nvt);
+    /* слияние "t = op ...; v = t" в "v = op ...", если t живёт ровно между ними */
     for (int k = 0; k + 1 < n; k++) {
         Ins *p = a[k], *q = a[k + 1];
         if (!p || !q || q->op != IR_MOV || p->dst <= 0 || p->dst > nvt || q->a != p->dst || q->dst == p->dst) continue;

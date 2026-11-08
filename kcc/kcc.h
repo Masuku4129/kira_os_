@@ -113,7 +113,8 @@ typedef enum {
     ND_EQ, ND_NE, ND_LT, ND_LE, ND_LOGAND, ND_LOGOR, ND_NOT, ND_BITNOT, ND_NEG,
     ND_ASSIGN, ND_OPASSIGN, ND_COMMA, ND_COND, ND_ADDR, ND_DEREF, ND_MEMBER, ND_CAST, ND_CALL, ND_INCDEC,
     ND_STMTEXPR, ND_ZERO, ND_ASM, ND_UNREACH, ND_VASTART, ND_VAARG, ND_ATOMIC, ND_RETADDR,
-    ND_BLOCK, ND_IF, ND_FOR, ND_DO, ND_SWITCH, ND_CASE, ND_BREAK, ND_CONTINUE, ND_GOTO, ND_LABEL, ND_RETURN, ND_EXPR
+    ND_BLOCK, ND_IF, ND_FOR, ND_DO, ND_SWITCH, ND_CASE, ND_BREAK, ND_CONTINUE, ND_GOTO, ND_LABEL, ND_RETURN, ND_EXPR,
+    ND_ROL                                   /* только в IR (opt.c): циклический сдвиг влево на константу; создаётся распознаванием (x>>c1)|(x<<c2), c1+c2 = ширина */
 } NKind;
 struct Node {
     NKind k; Type *ty; const Token *tok;

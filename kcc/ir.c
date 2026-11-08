@@ -553,7 +553,7 @@ static const char *opname(int k) {
     switch (k) {
     case ND_ADD: return "add"; case ND_SUB: return "sub"; case ND_MUL: return "mul"; case ND_DIV: return "div";
     case ND_MOD: return "mod"; case ND_AND: return "and"; case ND_OR: return "or"; case ND_XOR: return "xor";
-    case ND_SHL: return "shl"; case ND_SHR: return "shr"; case ND_EQ: return "eq"; case ND_NE: return "ne";
+    case ND_ROL: return "rol"; case ND_SHL: return "shl"; case ND_SHR: return "shr"; case ND_EQ: return "eq"; case ND_NE: return "ne";
     case ND_LT: return "lt"; case ND_LE: return "le"; default: return "?";
     }
 }

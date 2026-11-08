@@ -158,7 +158,12 @@ static void gen_bin(const Ins *i) {
         else if (sz4 && a > 0 && isc[a] && cv[a] >= 0 && cv[a] <= (int64_t)UINT32_MAX) { imm = (int32_t)(uint32_t)cv[a]; int t = a; a = b; b = t; bimm = 1; }
     }
     int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
-    if (sub == ND_SHL || sub == ND_SHR) {
+    if (sub == ND_ROL) {                              /* константный сдвиг: ширина 4 беззнаковая либо 8 (opt.c других не создаёт) */
+        ldv(d, a);
+        int bits = sz4 ? 32 : 64;
+        if (bimm && (imm & (bits - 1))) xa_ins(A, X_ROL, RS(d), xi(imm & (bits - 1)));
+        else if (!bimm) kerr(A->file, A->line, "internal: rol by a non-constant");
+    } else if (sub == ND_SHL || sub == ND_SHR) {
         if (!bimm) ldv(R_CX, b);                      /* счётчик в CL до загрузки значения: d может совпадать с регистром b */
         ldv(d, a);
         int op = sub == ND_SHL ? X_SHL : i->sgn ? X_SAR : X_SHR;
@@ -178,7 +183,7 @@ static void gen_bin(const Ins *i) {
             int k = log2_exact(imm);
             if (k == 0) { }
             else if (k > 0) xa_ins(A, X_SHL, RS(d), xi(k));
-            else { mov_imm_r(R_CX, imm); xa_ins(A, X_IMUL, RS(d), RS(R_CX)); }
+            else xa_imul3(A, RS(d), RS(d), imm);
         } else if (bimm) xa_ins(A, op, RS(d), xi(imm));
         else if (bm >= 0) xa_ins(A, op, RS(d), RS(bm));
         else { ldv(R_CX, b); xa_ins(A, op, RS(d), RS(R_CX)); }
@@ -186,6 +191,61 @@ static void gen_bin(const Ins *i) {
     if (!sz4) normr(d, i->w, i->sgn);
     #undef RS
     if (rg[i->dst] != d) stv(i->dst, d);
+}
+
+
+/* Загрузка/запись в память. base < 0: адрес берётся из vreg i->a (в rax, если вытеснен); иначе адрес задан регистрами [base + ix*2^sc + disp] (слитый расчёт адреса) */
+static void gen_ldst(const Ins *i, int base, int ix, int sc, int64_t disp) {
+    if (i->w != 1 && i->w != 2 && i->w != 4 && i->w != 8) kerr(A->file, A->line, "x86-64 backend: unsupported %s width %d", i->op == IR_LOAD ? "load" : "store", i->w);
+    if (base < 0) base = rg[i->a] >= 0 ? rg[i->a] : (ldv(R_AX, i->a), R_AX);
+    #define MEM(w) (ix < 0 ? xm((w), base, disp) : xmi((w), base, ix, sc, disp))
+    if (i->op == IR_LOAD) {
+        int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+        if (i->w == 8) xa_ins(A, X_MOV, R64(d), MEM(8));
+        else if (i->w == 4) { if (i->sgn) xa_ins(A, X_MOVSX, R64(d), MEM(4)); else xa_ins(A, X_MOV, xr(4, d), MEM(4)); }
+        else xa_ins(A, i->sgn ? X_MOVSX : X_MOVZX, R64(d), MEM(i->w));
+        if (rg[i->dst] != d) stv(i->dst, d);
+    } else {
+        int64_t imm;
+        if (imm32_of(i->b, &imm)) xa_ins(A, X_MOV, MEM(i->w), xi(imm));
+        else {
+            int src = rg[i->b] >= 0 ? rg[i->b] : (ldv(R_CX, i->b), R_CX);
+            xa_ins(A, X_MOV, MEM(i->w), xr(i->w, src));
+        }
+    }
+    #undef MEM
+}
+
+static int *g_nd, *g_nu;                       /* числа определений/чтений vreg текущей функции */
+static const unsigned char *g_mdef;
+static int fuse_tmp(int v) { return v > 0 && g_nd[v] == 1 && g_nu[v] == 1 && !(g_mdef && g_mdef[v]) && !isc[v]; }
+/* Слияние расчёта адреса с обращением к памяти: [SHL/MUL(z, 2^s)]; ADD x, y; LOAD/STORE. Возвращает число поглощённых инструкций (0 - не подошло). */
+static int try_addr_fuse(Ins **ins, int k, int n) {
+    const Ins *p = ins[k];
+    if (k + 1 < n && p->op == IR_BIN && p->sub == ND_ADD && p->w == 8 && fuse_tmp(p->dst)) {
+        const Ins *m = ins[k + 1];
+        if ((m->op == IR_LOAD || m->op == IR_STORE) && m->a == p->dst && !(m->op == IR_STORE && m->b == p->dst)) {
+            int64_t imm;
+            if (rg[p->a] >= 0 && !isc[p->a] && imm32_of(p->b, &imm)) { gen_ldst(m, rg[p->a], -1, 0, imm); return 2; }
+            if (rg[p->a] >= 0 && rg[p->b] >= 0 && !isc[p->a] && !isc[p->b] && rg[p->b] != R_SP) { gen_ldst(m, rg[p->a], rg[p->b], 0, 0); return 2; }
+        }
+    }
+    if (k + 2 < n && p->op == IR_BIN && p->w == 8 && fuse_tmp(p->dst) && (p->sub == ND_SHL || p->sub == ND_MUL)) {
+        const Ins *q = ins[k + 1], *m = ins[k + 2];
+        int64_t c;
+        if (!imm32_of(p->b, &c) || p->a <= 0 || isc[p->a] || rg[p->a] < 0) return 0;
+        int sc = -1;
+        if (p->sub == ND_SHL && c >= 1 && c <= 3) sc = (int)c;
+        else if (p->sub == ND_MUL) sc = c == 2 ? 1 : c == 4 ? 2 : c == 8 ? 3 : -1;
+        if (sc < 0) return 0;
+        if (q->op != IR_BIN || q->sub != ND_ADD || q->w != 8 || !fuse_tmp(q->dst)) return 0;
+        if (!(m->op == IR_LOAD || m->op == IR_STORE) || m->a != q->dst || (m->op == IR_STORE && m->b == q->dst)) return 0;
+        int x = q->a == p->dst ? q->b : q->b == p->dst ? q->a : 0;
+        if (x <= 0 || x == p->dst || isc[x] || rg[x] < 0) return 0;
+        gen_ldst(m, rg[x], rg[p->a], sc, 0);
+        return 3;
+    }
+    return 0;
 }
 
 /* Сравнение: a в регистр (свой или rax), b непосредственно, в своём регистре или через rcx. Возвращает код условия. */
@@ -441,27 +501,7 @@ static void gen_ins(const Ins *i, int homebase_h) {
         else xa_ins(A, X_MOV, xr(4, R_AX), xi(p_ngrn));
         stv(i->dst, R_AX);
         break;
-    case IR_LOAD: {
-        if (i->w != 1 && i->w != 2 && i->w != 4 && i->w != 8) kerr(A->file, A->line, "x86-64 backend: unsupported load width %d", i->w);
-        int base = rg[i->a] >= 0 ? rg[i->a] : (ldv(R_AX, i->a), R_AX);
-        int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
-        if (i->w == 8) xa_ins(A, X_MOV, R64(d), xm(8, base, 0));
-        else if (i->w == 4) { if (i->sgn) xa_ins(A, X_MOVSX, R64(d), xm(4, base, 0)); else xa_ins(A, X_MOV, xr(4, d), xm(4, base, 0)); }
-        else xa_ins(A, i->sgn ? X_MOVSX : X_MOVZX, R64(d), xm(i->w, base, 0));
-        if (rg[i->dst] != d) stv(i->dst, d);
-        break;
-    }
-    case IR_STORE: {
-        if (i->w != 1 && i->w != 2 && i->w != 4 && i->w != 8) kerr(A->file, A->line, "x86-64 backend: unsupported store width %d", i->w);
-        int base = rg[i->a] >= 0 ? rg[i->a] : (ldv(R_AX, i->a), R_AX);
-        int64_t imm;
-        if (imm32_of(i->b, &imm)) xa_ins(A, X_MOV, xm(i->w, base, 0), xi(imm));
-        else {
-            int src = rg[i->b] >= 0 ? rg[i->b] : (ldv(R_CX, i->b), R_CX);
-            xa_ins(A, X_MOV, xm(i->w, base, 0), xr(i->w, src));
-        }
-        break;
-    }
+    case IR_LOAD: case IR_STORE: gen_ldst(i, -1, -1, 0, 0); break;
     case IR_MOV: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); if (rg[i->dst] < 0) stv(i->dst, d); break; }
     case IR_BIN: gen_bin(i); break;
     case IR_NEG: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); xa_ins(A, X_NEG, R64(d), NOOPD); normr(d, i->w, i->sgn); if (rg[i->dst] < 0) stv(i->dst, d); break; }
@@ -531,6 +571,7 @@ static void gen_func(IrFn *fi) {
         int *nd = ka_new(sizeof(int) * (size_t)(nv + 2)), *nu = ka_new(sizeof(int) * (size_t)(nv + 2));
         Ins **di = ka_new(sizeof(Ins *) * (size_t)(nv + 2));
         ir_usecount(fi, nd, nu, di);
+        g_nd = nd; g_nu = nu; g_mdef = fi->mdef;
         cv = ka_new(sizeof(int64_t) * (size_t)(nv + 2));
         isc = ka_new((size_t)nv + 2);
         fusecmp = ka_new((size_t)n + 2);
@@ -679,6 +720,7 @@ static void gen_func(IrFn *fi) {
     for (int k = 0; k < nh; k++) xa_ins(A, X_MOV, xm(8, R_BP, -(int64_t)homeh + 8 * k), R64(argreg[k]));
     for (int k = 0; k < n; k++) {
         if (fusecmp[k]) { gen_cmpbr(ins[k], ins[k + 1]); k++; continue; }
+        { int fz = kcc_noopt ? 0 : try_addr_fuse(ins, k, n); if (fz) { k += fz - 1; continue; } }
         gen_ins(ins[k], homeh);
     }
     A->file = K.srcpath; A->line = f->line;
