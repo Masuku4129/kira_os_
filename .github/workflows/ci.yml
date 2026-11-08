@@ -243,14 +243,22 @@ jobs:
           path: /var/cache/apt/archives/*.deb
           key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools gnu-efi
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools gnu-efi qemu-system-x86 ovmf dosfstools
       - name: build (clang, -Werror)
         run: |
           ./build_clang.sh --no-run
           mkdir -p sym ci-out && nm -n kira.bin > sym/kira.sym
       - name: build native UEFI loader (PE32+)
         run: bash ./build_uefi.sh ci-out/uefi
+      - name: boot native UEFI loader under OVMF
+        run: python3 ci/uefi_vm.py --loader ci-out/uefi/EFI/BOOT/BOOTX64.EFI --kernel ci-out/uefi/EFI/KIRA/KIRA.ELF --out ci-out/uefi-vm
       - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-uefi-ovmf-log
+          path: ci-out/uefi-vm/
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: kira-uefi-boot-files
           path: ci-out/uefi/EFI/
