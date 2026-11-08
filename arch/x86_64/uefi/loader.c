@@ -513,6 +513,11 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
         return status;
 
     debug_marker(L"[KIRA UEFI DEBUG] memory map buffer allocated\r\n");
+    /* Console output is a Boot Services call that can allocate and so change the
+       memory map. Print here, before GetMemoryMap: any output between GetMemoryMap
+       and ExitBootServices makes the map key stale and ExitBootServices fails with
+       EFI_INVALID_PARAMETER on every attempt. */
+    debug_marker(L"[KIRA UEFI DEBUG] building BootInfo and exiting boot services\r\n");
     for (attempt = 0; attempt < 8; ++attempt) {
         UINTN current_size = map_size;
 
@@ -545,7 +550,6 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
             return status;
         }
 
-        debug_marker(L"[KIRA UEFI DEBUG] BootInfo built; exiting boot services\r\n");
         status = uefi_call_wrapper(g_bs->ExitBootServices, 2, image, map_key);
         if (!EFI_ERROR(status))
             break;

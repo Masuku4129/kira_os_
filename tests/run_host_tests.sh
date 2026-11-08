@@ -183,6 +183,9 @@ $T/uefi-kbi
 echo "== kernel entry decodes safely in both 32-bit (GRUB/BIOS) and 64-bit (UEFI) mode =="
 bash tests/boot_entry_test.sh
 
+echo "== UEFI loader: no boot-services calls between GetMemoryMap and ExitBootServices =="
+bash tests/uefi_exit_order_test.sh
+
 echo "== early window (bootmap page tables) =="
 $CC $FLAGS -fsanitize=undefined -o $T/bootmap tests/bootmap_test.c bootmap.c
 $T/bootmap
