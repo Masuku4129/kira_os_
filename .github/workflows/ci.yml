@@ -509,6 +509,12 @@ jobs:
         with:
           name: kira-driver-e2e
           path: results/driver-e2e
+      - uses: actions/download-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: kira-uefi-ovmf
+          path: results/uefi-ovmf
       - name: Write CI summary to Actions UI
         if: always()
         env:
@@ -584,7 +590,7 @@ jobs:
                   ("x86_64 QEMU matrix","VM_RESULT"),("ARM64 build","ARM64_RESULT"),
                    ("ARM64 QEMU (full suite only)","ARM64_QEMU_RESULT"),
                   ("Mind quality","MIND_RESULT"),("GUI regression","GUI_RESULT"),("KCC compiler suite","KCC_RESULT"),
-                  ("Driver installer end-to-end","DRIVER_RESULT")]
+                  ("Driver installer end-to-end","DRIVER_RESULT"),("UEFI OVMF boot","UEFI_RESULT")]
           lines += ["| " + name + " | " + os.getenv(key,"missing") + " |" for name,key in jobs]
           lines += ["", "## QEMU result files", ""]
           found = 0
