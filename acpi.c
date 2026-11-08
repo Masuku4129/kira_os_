@@ -44,6 +44,7 @@ static int parse_madt(const sdt_t* t, acpi_info_t* o) {
         off += len;
     }
 
+    if (o->cpu_count + cpu_entries > ACPI_MAX_CPU || o->ioapic_count + ioapic_entries > ACPI_MAX_IOAPIC) return -1;   /* несколько MADT не должны переполнять массивы вместе */
     o->lapic_addr = rd32(b + 36);
     off = 44;
     while (off < t->len) {

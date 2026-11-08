@@ -259,6 +259,13 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     unsigned k = 0; while (p.h.name[k] && k < sizeof b->name - 1) { b->name[k] = p.h.name[k]; k++; }
     b->name[k] = 0;
     b->granted = granted; b->version = p.h.version;
+    if (!(granted & (CAP_DMA | CAP_IRQ))) {      /* прошивка могла оставить bus mastering и MSI включёнными: драйвер без DMA/IRQ их не получает */
+        uint16_t mc = find_cap(d, 0x05);
+        if (mc) pci_write16(d, (uint16_t)(mc + 2), (uint16_t)(pci_read16(d, (uint16_t)(mc + 2)) & ~1u));
+        mc = find_cap(d, 0x11);
+        if (mc) pci_write16(d, (uint16_t)(mc + 2), (uint16_t)((pci_read16(d, (uint16_t)(mc + 2)) & ~0x8000u) | 0x4000u));
+        pci_write16(d, 0x04, (uint16_t)(pci_read16(d, 0x04) & ~PCI_CMD_MASTER));
+    }
     if (granted & CAP_MMIO) pci_enable(d, PCI_CMD_MEM);
     /* Эти действия достижимы только после успешной проверки IOMMU policy выше. */
     if (granted & (CAP_DMA | CAP_IRQ)) pci_enable(d, PCI_CMD_MASTER);
