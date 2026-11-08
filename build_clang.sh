@@ -155,6 +155,12 @@ OBJ="$OBJ interrupts.o context.o ap_tramp.o uaccess_s.o"
 echo "[*] Линковка..."
 ld.lld -T $ARCH/linker.ld -nostdlib -z max-page-size=0x1000 $OBJ -o kira.bin
 
+if command -v nasm >/dev/null 2>&1; then
+    echo "[*] Собственный BIOS-загрузчик (без GRUB): kira-bios.img"
+    nasm -f bin arch/x86_64/bios/stage1.asm -o bios-stage1.bin && nasm -f bin -w+all arch/x86_64/bios/stage2.asm -o bios-stage2.bin \
+        && python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios.img || { echo "[!] kira-bios.img не собран"; exit 1; }
+fi
+
 echo "[*] ISO..."
 rm -rf isodir kira.iso
 mkdir -p isodir/boot/grub
