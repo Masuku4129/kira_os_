@@ -6,7 +6,10 @@
 #include "kdrv_format.h"
 #include "kdrv_sig.h"
 #include "kdrv_trust.h"
+#include "kdrv_state.h"
+#include "kmutex.h"
 #include "pci.h"
+#include "iommu.h"
 #include "msi.h"
 #include "proc.h"
 #include "kobj.h"
@@ -28,6 +31,7 @@
 #define MMIO_VA USER_VA(0x0000200000000000ULL)      /* окна драйвера в его адресном пространстве (SHM - ниже, до 0x2000_0000_0000) */
 #define DMA_VA  USER_VA(0x0000280000000000ULL)
 #define NET_VA  USER_VA(0x0000300000000000ULL)
+#define KDRV_STABLE_TICKS (5 * TIMER_HZ)           /* драйвер новой версии считается успешно запущенным, если проработал столько */
 #define RELEASE_DELAY_TICKS (TIMER_HZ / 10 + 1)     /* 100 мс: запросы устройства, уже ушедшие в шину, успевают закончиться */
 
 int platform_dma_noncoherent(void) __attribute__((weak));   /* ARM64: плата без согласованности кэша - пул без кэша, драйверам его не отдаём */
@@ -56,6 +60,7 @@ typedef struct {
     irqwait_t net_iw;
     uint64_t net_tx, net_rx, net_bad;
     uint64_t dead_at;
+    int floor_pending; uint64_t started_at;   /* пол версий поднимается, когда драйвер проработал KDRV_STABLE_TICKS */
 } bind_t;
 
 static bind_t binds[KDRV_SLOTS];
@@ -119,6 +124,37 @@ static int name_valid(const char* n) {
     return i > 0;
 }
 
+/* ---- постоянное состояние защиты от отката (kdrv_state.h): пол версий, максимум времени, отозванные ключи ---- */
+static kmutex_t state_mx = KMUTEX_INIT;
+static kdrv_state_t gst;
+static int gst_loaded;
+
+/* Вызывать под state_mx. Повреждённый файл НЕ сбрасывается: status CORRUPT остаётся, драйверы отклоняются с сообщением (KDRV_E_STATE),
+   сбросить можно только явной командой drv state-reset. Ошибка чтения не кэшируется - следующая загрузка попробует снова. */
+static void state_load_locked(void) {
+    if (gst_loaded) return;
+    kfs_stat_t st;
+    int r = kfs_stat(KDRV_STATE_PATH, &st);
+    if (r == KFS_ERR_NOENT) { kdrv_state_init(&gst); gst_loaded = 1; return; }       /* первый запуск: файла ещё нет */
+    if (r != 0) { kdrv_state_mark_io_error(&gst); return; }
+    uint8_t buf[KDRV_STATE_FILE_SIZE];
+    if (st.type != KFS_FILE || st.size != KDRV_STATE_FILE_SIZE) { (void)kdrv_state_decode(&gst, buf, (size_t)st.size); gst_loaded = 1; return; }
+    if (kfs_read(KDRV_STATE_PATH, 0, buf, sizeof buf) != (int64_t)sizeof buf) { kdrv_state_mark_io_error(&gst); return; }
+    (void)kdrv_state_decode(&gst, buf, sizeof buf);
+    gst_loaded = 1;
+}
+
+static int state_save_locked(void) {
+    if (!gst.dirty || gst.status != KDRV_STATE_OK) return 0;
+    uint8_t buf[KDRV_STATE_FILE_SIZE];
+    kdrv_state_encode(&gst, buf);
+    kfs_stat_t st;
+    if (kfs_stat("/var", &st) != 0 && kfs_mkdir("/var") != 0) { uart_print("[KIRA DRV] не удалось создать /var: состояние защиты от отката НЕ сохранено\n"); return -1; }
+    if (kfs_write(KDRV_STATE_PATH, buf, sizeof buf) != 0) { uart_print("[KIRA DRV] не удалось записать " KDRV_STATE_PATH ": состояние защиты от отката НЕ сохранено\n"); return -1; }
+    gst.dirty = 0; gst.persisted_time = gst.max_time;
+    return 0;
+}
+
 /* Читает пакет и ВСЕГДА сверяет хеши: образа ELF и всего файла .kdrv - с /drv/ИМЯ.rec. Ошибка - код KDRV_E_* или KFS-код (< -100 не бывает). */
 static int pkg_load(const char* name, pkg_t* p) {
     p->buf = 0; p->len = 0; p->auth = KDRV_AUTH_LOCAL; p->sig_error = KDRV_SIG_OK;
@@ -146,27 +182,24 @@ static int pkg_load(const char* name, pkg_t* p) {
         if (bad) rc = KDRV_E_HASH;
     }
     if (rc == KDRV_OK) {
+        kdrv_sig_t sig;
+        const kdrv_sig_t* sp = 0;
         int se = kfs_stat(spath, &ss);
         if (se == 0) {
-            if (ss.type != KFS_FILE || ss.size != sizeof(kdrv_sig_t)) {
-                rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_SIZE;
-            } else {
-                kdrv_sig_t sig;
-                if (kfs_read(spath, 0, &sig, sizeof sig) != (int64_t)sizeof sig) {
-                    rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_IO;
-                } else {
-                    rtc_time_t current;
-                    int64_t now = rtc_now(0, &current) == 0 ? rtc_to_epoch(&current) : 0;
-                    p->sig_error = kdrv_sig_verify(b, (size_t)st.size, &sig, sizeof sig,
-                        kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, now);
-                    if (p->sig_error != KDRV_SIG_OK) rc = KDRV_E_SIGNATURE;
-                    else p->auth = KDRV_AUTH_PUBLISHER;
-                }
-            }
-        } else if (se == KFS_ERR_NOENT && kdrv_rec_publisher_required(&p->r)) {
-            rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_MISSING;
-        } else if (se != KFS_ERR_NOENT) {
-            rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_IO;
+            if (ss.type != KFS_FILE || ss.size != sizeof(kdrv_sig_t)) { rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_SIZE; }
+            else if (kfs_read(spath, 0, &sig, sizeof sig) != (int64_t)sizeof sig) { rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_IO; }
+            else sp = &sig;
+        } else if (se != KFS_ERR_NOENT) { rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_IO; }
+        if (rc == KDRV_OK) {
+            /* Допуск: состояние читаемо -> часы не ушли назад -> ключ не отозван и не заменён -> подпись -> версия не ниже пола. */
+            rtc_time_t current;
+            int64_t now = rtc_now(0, &current) == 0 ? rtc_to_epoch(&current) : 0;
+            kmutex_lock(&state_mx);
+            state_load_locked();
+            rc = kdrv_admit(&gst, b, (size_t)st.size, sp, sp ? sizeof sig : 0, kdrv_rec_publisher_required(&p->r),
+                            kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, now, &p->h, &p->auth, &p->sig_error);
+            (void)state_save_locked();
+            kmutex_unlock(&state_mx);
         }
     }
     if (rc != KDRV_OK) { kfree(b); return rc; }
@@ -216,6 +249,7 @@ static void bind_reset(bind_t* b) {
     b->nmap = 0; b->mmio_next = MMIO_VA; b->ndma = 0; b->dma_pages = 0; b->dma_next = DMA_VA;
     b->net_alive = 0; b->ctl = 0; b->net_pa = 0; b->net_pages = 0; b->tx_head = b->rx_tail = 0;
     b->net_tx = b->net_rx = b->net_bad = 0;
+    b->floor_pending = 0; b->started_at = 0;
 }
 
 static int start(const char* name, const pci_dev_t* d, const char* args) {
@@ -224,6 +258,10 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     if (rc != KDRV_OK) {
         uart_print("[KIRA DRV] "); uart_print(name);
         if (rc == KDRV_E_HASH) { uart_print(": SHA-256 не совпал с записью /drv/"); uart_print(name); uart_print(".rec"); }
+        else if (rc == KDRV_E_ROLLBACK) {
+            uart_print(": откат запрещён - версия "); uart_print_dec(p.h.version); uart_print(" ниже пола "); uart_print_dec(kdrv_state_floor_of(&gst, name));
+            uart_print(" (/var/kdrv_state; поднять пол: drv floor ИМЯ N)");
+        }
         else if (rc == KDRV_E_SIGNATURE) { uart_print(": подпись издателя отклонена ("); uart_print(kdrv_sig_strerror(p.sig_error)); uart_print(")"); }
         else { uart_print(": пакет отклонён ("); uart_print(kdrv_strerror(rc)); uart_print(")"); }
         uart_print(" - драйвер НЕ запущен\n");
@@ -232,11 +270,11 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     }
     if (!kdrv_match_dev(&p.h, d->vendor, d->device, cls_of(d))) { kfree(p.buf); uart_print("[KIRA DRV] "); uart_print(name); uart_print(": не подходит этому устройству\n"); return -1; }
     uint32_t granted = p.h.caps & p.r.caps_ok;                                      /* запрошено в пакете И подтверждено пользователем */
-    /* Fail closed: сейчас ядро не создаёт VT-d/AMD-Vi/SMMU domain для этого BDF.
-       DMA и MSI требуют bus mastering и могут записывать в произвольную физическую память.
-       Не запускать такой Ring 3 драйвер, пока iommu_device_isolated() не будет реализован
-       и подтверждён тестом для конкретного устройства. */
-    if (!kdrv_dma_policy_allow(granted, 0)) {
+    /* Fail closed: DMA и MSI требуют bus mastering и без IOMMU могут записывать в произвольную физическую память.
+       Ring 3 драйвер с DMA/IRQ запускается только когда iommu_device_isolated() истинно для ЭТОГО устройства
+       (VT-d: свой домен, устройство видит лишь страницы, выданные через sys_dma_alloc и кольца сети). */
+    if (granted & (CAP_DMA | CAP_IRQ)) (void)iommu_isolate_device(d);      /* свой домен VT-d без отображений; отказ - устройство остаётся неизолированным */
+    if (!kdrv_dma_policy_allow(granted, iommu_device_isolated(d))) {
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
         uart_print(": DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен\n");
@@ -259,6 +297,13 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     unsigned k = 0; while (p.h.name[k] && k < sizeof b->name - 1) { b->name[k] = p.h.name[k]; k++; }
     b->name[k] = 0;
     b->granted = granted; b->version = p.h.version;
+    if (!(granted & (CAP_DMA | CAP_IRQ))) {      /* прошивка могла оставить bus mastering и MSI включёнными: драйвер без DMA/IRQ их не получает */
+        uint16_t mc = find_cap(d, 0x05);
+        if (mc) pci_write16(d, (uint16_t)(mc + 2), (uint16_t)(pci_read16(d, (uint16_t)(mc + 2)) & ~1u));
+        mc = find_cap(d, 0x11);
+        if (mc) pci_write16(d, (uint16_t)(mc + 2), (uint16_t)((pci_read16(d, (uint16_t)(mc + 2)) & ~0x8000u) | 0x4000u));
+        pci_write16(d, 0x04, (uint16_t)(pci_read16(d, 0x04) & ~PCI_CMD_MASTER));
+    }
     if (granted & CAP_MMIO) pci_enable(d, PCI_CMD_MEM);
     /* Эти действия достижимы только после успешной проверки IOMMU policy выше. */
     if (granted & (CAP_DMA | CAP_IRQ)) pci_enable(d, PCI_CMD_MASTER);
@@ -275,6 +320,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
         return -1;
     }
     b->pid = (uint32_t)pid;
+    b->started_at = timer_get_ticks(); b->floor_pending = 1;
     /* строка собирается целиком и печатается одним вызовом: драйвер уже работает и пишет в тот же порт */
     char ln[320]; unsigned n = 0;
     #define LN_ADD(str) do { const char* _s = (str); while (*_s && n < sizeof ln - 1) ln[n++] = *_s++; } while (0)
@@ -366,6 +412,7 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
 
 static void release(bind_t* b) {
     uint32_t got = 0, want = b->dma_pages + b->net_pages;
+    iommu_unmap_all(b->dev);                       /* сначала закрыть доступ устройства, потом отдавать страницы */
     for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
     if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
     uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": возвращено памяти DMA и колец "); uart_print_dec(got); uart_print(" из ");
@@ -423,11 +470,30 @@ static void ctl_run(void) {
     }
 }
 
+/* Пол версий растёт только после УСПЕШНОГО запуска: драйвер проработал KDRV_STABLE_TICKS и не умер. Упавший сразу пол не поднимает. */
+static void floor_commit_due(void) {
+    for (unsigned i = 0; i < KDRV_SLOTS; i++) {
+        bind_t* b = &binds[i];
+        if (!b->floor_pending) continue;
+        if (b->state != B_RUN) { b->floor_pending = 0; continue; }
+        if (timer_get_ticks() - b->started_at < KDRV_STABLE_TICKS) continue;
+        b->floor_pending = 0;
+        kmutex_lock(&state_mx);
+        state_load_locked();
+        int r = gst.status == KDRV_STATE_OK ? kdrv_state_raise_floor(&gst, b->name, b->version) : KDRV_STATE_E_CORRUPT;
+        if (r > 0) { uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": пол версий поднят до "); uart_print_dec(b->version); uart_print(" (драйвер работает стабильно)\n"); }
+        else if (r < 0) { uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": пол версий НЕ поднят (таблица полов полна или состояние недоступно)\n"); }
+        (void)state_save_locked();
+        kmutex_unlock(&state_mx);
+    }
+}
+
 void kdrv_poll(void) {
     static int scanned;
     if (!scanned) { scanned = 1; scan(); }
     else if (__atomic_exchange_n(&rescan_req, 0, __ATOMIC_ACQ_REL)) scan();               /* drvget установил пакет */
     ctl_run();                                                                             /* окно «Драйверы»: запуск и остановка по просьбе */
+    floor_commit_due();
     if (!__atomic_load_n(&ndead, __ATOMIC_ACQUIRE)) return;
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         bind_t* b = &binds[i];
@@ -604,10 +670,20 @@ static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t 
         uint8_t* z = (uint8_t*)(uintptr_t)pa;
         for (uint64_t i = 0; i < (uint64_t)pages * 4096; i++) z[i] = 0;                 /* чужих данных драйвер не получит */
         uint64_t va = b->dma_next;
-        if (proc_map_phys(va, pa, pages, VMM_WRITE | VMM_NOEXEC) != 0) { pmm_free_contiguous(pa, pages); rc = KE_NOMEM; }
+        /* Устройство в своём домене VT-d видит только то, что выдано здесь: адрес устройства равен физическому. */
+        int iommu = iommu_device_isolated(b->dev);
+        if (iommu && iommu_map(b->dev, pa, pa, (uint64_t)pages * 4096, IOMMU_R | IOMMU_W) != 0) { pmm_free_contiguous(pa, pages); rc = KE_NOMEM; }
+        else if (proc_map_phys(va, pa, pages, VMM_WRITE | VMM_NOEXEC) != 0) {
+            if (iommu) iommu_unmap(b->dev, pa, (uint64_t)pages * 4096);
+            pmm_free_contiguous(pa, pages); rc = KE_NOMEM;
+        }
         else {
             kdrv_dma_t r = { va, pa, (uint64_t)pages * 4096 };
-            if (copy_to_user(out, &r, sizeof r) != 0) { proc_unmap_pages(va, pages); pmm_free_contiguous(pa, pages); rc = KE_ARG; }
+            if (copy_to_user(out, &r, sizeof r) != 0) {
+                proc_unmap_pages(va, pages);
+                if (iommu) iommu_unmap(b->dev, pa, (uint64_t)pages * 4096);
+                pmm_free_contiguous(pa, pages); rc = KE_ARG;
+            }
             else {
                 b->dma[b->ndma].pa = pa; b->dma[b->ndma].pages = pages; b->ndma++; b->dma_pages += pages;
                 b->dma_next += ((uint64_t)pages + 1) * 4096;
@@ -749,6 +825,83 @@ static void show(void) {
     if (!used) uart_print("  драйверам Ring 3 устройства пока не отданы\n");
 }
 
+/* ---- консоль: состояние защиты от отката ---- */
+static int parse_u32(const char* t, uint32_t* out) {
+    uint64_t v = 0; unsigned n = 0;
+    for (; t[n] >= '0' && t[n] <= '9'; n++) { v = v * 10 + (uint64_t)(t[n] - '0'); if (v > 0xFFFFFFFFu) return -1; }
+    if (n == 0 || (t[n] && t[n] != ' ')) return -1;
+    *out = (uint32_t)v;
+    return 0;
+}
+
+static void state_show(void) {
+    kmutex_lock(&state_mx);
+    state_load_locked();
+    if (gst.status != KDRV_STATE_OK) {
+        uart_print(gst.status == KDRV_STATE_CORRUPT ? "[KIRA DRV] " KDRV_STATE_PATH " ПОВРЕЖДЁН: драйверы отклоняются; после проверки диска - drv state-reset\n"
+                                                     : "[KIRA DRV] " KDRV_STATE_PATH " не удалось прочитать: драйверы отклоняются, повторите позже\n");
+        kmutex_unlock(&state_mx);
+        return;
+    }
+    uart_print("защита от отката: максимум времени "); uart_print_dec(gst.max_time); uart_print(", полов "); uart_print_dec(gst.nfloor);
+    uart_print(", отозванных ключей "); uart_print_dec(gst.nrevoked); uart_print(gst.dirty ? " (есть несохранённое)\n" : "\n");
+    for (uint32_t i = 0; i < gst.nfloor; i++) { uart_print("  пол "); uart_print(gst.floor[i].name); uart_print(": "); uart_print_dec(gst.floor[i].floor); uart_print("\n"); }
+    for (uint32_t i = 0; i < gst.nrevoked; i++) {
+        char id[KDRV_SIG_KEY_ID_SIZE + 1];
+        for (unsigned k = 0; k < KDRV_SIG_KEY_ID_SIZE; k++) id[k] = gst.revoked[i][k] >= 0x20 && gst.revoked[i][k] < 0x7F ? (char)gst.revoked[i][k] : '?';
+        id[KDRV_SIG_KEY_ID_SIZE] = 0;
+        uart_print("  отозван ключ "); uart_print(id); uart_print("\n");
+    }
+    kmutex_unlock(&state_mx);
+}
+
+/* Команды, меняющие состояние: floor ИМЯ N (только вверх), revoke ИДКЛЮЧА(16 знаков), time-reset, state-reset. Возвращают 1, если команда была ими. */
+static int state_cmd(const char* verb, const char* arg) {
+    if (streq(verb, "state")) { state_show(); return 1; }
+    if (!streq(verb, "floor") && !streq(verb, "revoke") && !streq(verb, "time-reset") && !streq(verb, "state-reset")) return 0;
+    if (!kfs_mounted()) { uart_print("[KIRA DRV] нет файловой системы\n"); return 1; }
+    kmutex_lock(&state_mx);
+    state_load_locked();
+    if (streq(verb, "state-reset")) {
+        kdrv_state_init(&gst); gst_loaded = 1; gst.dirty = 1;
+        if (state_save_locked() == 0) uart_print("[KIRA DRV] состояние защиты от отката СБРОШЕНО явной командой: полы версий, максимум времени и отзывы из файла очищены (ключи, отозванные в самом ядре, остаются отозванными)\n");
+        kmutex_unlock(&state_mx);
+        return 1;
+    }
+    if (gst.status != KDRV_STATE_OK) { uart_print("[KIRA DRV] состояние недоступно или повреждено - сначала drv state-reset\n"); kmutex_unlock(&state_mx); return 1; }
+    if (streq(verb, "time-reset")) {
+        rtc_time_t t;
+        if (rtc_now(0, &t) != 0) uart_print("[KIRA DRV] часов нет: максимум времени не меняю\n");
+        else {
+            kdrv_state_reset_time(&gst, (uint64_t)rtc_to_epoch(&t));
+            if (state_save_locked() == 0) { uart_print("[KIRA DRV] максимум времени := текущие часы (явная команда); убедитесь, что часы верны\n"); }
+        }
+    } else if (streq(verb, "revoke")) {
+        unsigned n = 0; while (arg[n] && arg[n] != ' ') n++;
+        if (n != KDRV_SIG_KEY_ID_SIZE) uart_print("использование: drv revoke ИДКЛЮЧА (ровно 16 знаков, как в kdrv_trust.h)\n");
+        else {
+            int r = kdrv_state_revoke_key(&gst, (const uint8_t*)arg);
+            if (r < 0) uart_print("[KIRA DRV] список отзывов полон\n");
+            else { uart_print(r ? "[KIRA DRV] ключ отозван; пакеты с его подписью больше не принимаются\n" : "[KIRA DRV] ключ уже был отозван\n"); (void)state_save_locked(); }
+        }
+    } else {
+        char name[16]; unsigned n = 0;
+        while (arg[n] && arg[n] != ' ' && n < sizeof name - 1) { name[n] = arg[n]; n++; }
+        name[n] = 0;
+        const char* num = arg + n; while (*num == ' ') num++;
+        uint32_t v;
+        if (!name_valid(name) || parse_u32(num, &v) != 0) uart_print("использование: drv floor ИМЯ ВЕРСИЯ (пол можно только поднять)\n");
+        else {
+            int r = kdrv_state_raise_floor(&gst, name, v);
+            if (r < 0) uart_print("[KIRA DRV] таблица полов полна\n");
+            else if (r == 0) { uart_print("[KIRA DRV] пол не изменён: он уже не ниже "); uart_print_dec(v); uart_print(" (понизить можно только drv state-reset)\n"); }
+            else { uart_print("[KIRA DRV] пол версий "); uart_print(name); uart_print(" := "); uart_print_dec(v); uart_print("\n"); (void)state_save_locked(); }
+        }
+    }
+    kmutex_unlock(&state_mx);
+    return 1;
+}
+
 void kdrv_cmd(const char* arg) {
     while (*arg == ' ') arg++;
     char verb[12]; unsigned n = 0;
@@ -757,11 +910,12 @@ void kdrv_cmd(const char* arg) {
     arg += n; while (*arg == ' ') arg++;
     if (!verb[0] || streq(verb, "list")) { show(); return; }
     if (streq(verb, "rescan")) { scan(); return; }
+    if (state_cmd(verb, arg)) return;
     char name[16]; n = 0;
     while (arg[n] && arg[n] != ' ' && n < sizeof name - 1) { name[n] = arg[n]; n++; }
     name[n] = 0;
     const char* rest = arg + n; while (*rest == ' ') rest++;
-    if (!name_valid(name)) { uart_print("использование: drv | drv start ИМЯ [аргументы] | drv stop ИМЯ | drv rescan\n"); return; }
+    if (!name_valid(name)) { uart_print("использование: drv | drv start ИМЯ [аргументы] | drv stop ИМЯ | drv rescan | drv state | drv floor ИМЯ N | drv revoke ИДКЛЮЧА | drv time-reset | drv state-reset\n"); return; }
     if (streq(verb, "stop")) {
         for (unsigned i = 0; i < KDRV_SLOTS; i++) {
             bind_t* b = &binds[i];
@@ -770,7 +924,7 @@ void kdrv_cmd(const char* arg) {
         uart_print("драйвер "); uart_print(name); uart_print(" не работает\n");
         return;
     }
-    if (!streq(verb, "start")) { uart_print("использование: drv | drv start ИМЯ [аргументы] | drv stop ИМЯ | drv rescan\n"); return; }
+    if (!streq(verb, "start")) { uart_print("использование: drv | drv start ИМЯ [аргументы] | drv stop ИМЯ | drv rescan | drv state | drv floor ИМЯ N | drv revoke ИДКЛЮЧА | drv time-reset | drv state-reset\n"); return; }
     if (!kfs_mounted()) { uart_print("[KIRA DRV] нет файловой системы\n"); return; }
     for (int tries = 0; tries < 20; tries++) {                                         /* только что остановленный драйвер: ждём возврата памяти (до ~0.4 с) */
         int busy = 0;

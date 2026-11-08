@@ -26,6 +26,7 @@
 #include "acpi.h"
 #include "hwprofile.h"
 #include "ramext.h"
+#include "bootmap.h"
 #include "percpu.h"
 #include "smp.h"
 #include "proc.h"
@@ -48,6 +49,7 @@
 #include "sb16.h"
 #include "uaccess.h"
 #include "fat.h"
+#include "iommu.h"
 
 #define SELF_CHECK_PERIOD_S 5
 
@@ -87,6 +89,30 @@ static const void* acpi_map(uint64_t phys, uint64_t len) {
 
 extern char kernel_start[];
 extern char kernel_end[];
+
+static uint8_t uefi_compat_mbi[65536] __attribute__((aligned(8)));
+static uint64_t uefi_rsdp_override;
+
+void kernel_uefi_entry(const void *blob, uint32_t blob_size) {
+    uint32_t mbi_size = 0;
+    const kbi_header_t *h = (const kbi_header_t *)blob;
+
+    percpu_install(&percpu_table[0]);
+    uart_init();
+    if (kbi_validate(blob, blob_size) != 0 ||
+        h->arch != KBI_ARCH_X86_64 || h->boot_mode != KBI_BOOT_UEFI) {
+        uart_print("[KIRA UEFI] Invalid loader-neutral BootInfo; refusing to start.\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    uefi_rsdp_override = h->rsdp_phys;
+    if (kbi_to_multiboot2(blob, blob_size, uefi_compat_mbi,
+                          sizeof(uefi_compat_mbi), &mbi_size) != 0) {
+        uart_print("[KIRA UEFI] Cannot translate BootInfo into the kernel's current boot-tag view.\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    uart_print("[KIRA UEFI] Common BootInfo accepted; entering shared kernel initialization.\n");
+    kernel_main(0x36D76289UL, (unsigned long)(uintptr_t)uefi_compat_mbi);
+}
 
 void kernel_main(unsigned long magic, unsigned long addr) {
     percpu_install(&percpu_table[0]);   /* учёт замков и вывод обращаются к данным ядра с первой строки */
@@ -152,8 +178,11 @@ void kernel_main(unsigned long magic, unsigned long addr) {
                         : "[KIRA VMM] SMAP not offered by this CPU (user copies are still checked and fault-safe).\n");
     }
     ramext_init();
+    bootmap_harden();               /* окно раннего отображения строилось до NXE: без NX */
+    if (vmm_enforce_wx() != 0)      kernel_panic("W^X for kernel memory could not be enforced");
     acpi_set_map_hook(acpi_map);
-    acpi_init(addr);
+    if (uefi_rsdp_override) acpi_init_rsdp(uefi_rsdp_override);
+    else acpi_init(addr);
     {
         const acpi_info_t* ai = acpi_get();
         hw_init(ai && ai->valid ? ai->cpu_count : 1, pmm_get_total_memory_kb());
@@ -264,6 +293,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     {
         const acpi_info_t* ai = acpi_get();
         smp_start(ai);                       // остальные ядра: каждое входит в планировщик со своим тиком LAPIC
+        if (vmm_verify_wx(0) != 0) kernel_panic("W^X violated after start-up of the other cores");
     }
 
     uart_print("[KIRA OS] Ready. Type 'help' and press Enter.\n");
@@ -278,6 +308,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
         console_poll();
         prog_poll();         // запуск, заказанный дисплеем (иконки дока)
         kdrv_poll();         // драйверы Ring 3: первое сканирование /drv, возврат памяти погибших
+        (void)iommu_fault_poll();   // нарушения DMA, записанные VT-d: строка в журнал, без остановки ядра
         life_tick();         // журнал организма: запись накопленных событий
 
         uint64_t now = timer_get_ticks();

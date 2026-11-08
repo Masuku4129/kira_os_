@@ -1,7 +1,7 @@
 name: kira
 
 concurrency:
-  group: kira-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: kira-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -54,7 +54,9 @@ jobs:
               changed = subprocess.check_output(
                   ["git", "diff", "--name-only", base, head], text=True
               ).splitlines()
-              full = not changed
+              # Pull requests run the complete verification matrix. Component
+              # filtering is reserved for branch pushes to save runner minutes.
+              full = True
           infra = full or any(
               p.startswith(".github/workflows/") or p.startswith("ci/")
               for p in changed
@@ -84,8 +86,9 @@ jobs:
               "arm64": code,
               "gui": infra or any(
                   p in {"wm.c", "gfxui.c", "gfx2d.c", "font8x16.c", "icons.c",
-                        "brainfx.c", "apps.c", "dock.c"}
-                  or p.startswith(("tests/wm", "tests/ui"))
+                        "brainfx.c", "apps.c", "dock.c", "display.c", "apps.h",
+                        "mind_sys.h", "explorer.c", "fm.c", "mind_view.c"}
+                  or p.startswith(("tests/wm", "tests/ui", "tests/display_preview"))
                   for p in changed
               ),
               "mind": infra or any(
@@ -114,6 +117,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: repository inventory, shell/Python syntax and architecture gaps
         run: python3 ci/audit_inventory.py --out ci-out/audit
+      - name: validate embedded Python in packaging script
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          source = pathlib.Path("ci/package_update.sh").read_text()
+          blocks = re.findall(r"<<'((?:PY)[A-Z0-9_]*)'\s*\n(.*?)\n\1(?=\s|$)", source, re.S)
+          if not blocks:
+              raise SystemExit("no embedded Python blocks found in ci/package_update.sh")
+          for name, body in blocks:
+              compile(body, f"ci/package_update.sh:{name}", "exec")
+          print(f"validated {len(blocks)} embedded Python blocks in package_update.sh")
+          PY
       - name: dependency, linker and source-provenance audit
         run: python3 ci/dependency_audit.py
       - uses: actions/upload-artifact@v4
@@ -141,7 +156,7 @@ jobs:
           git fetch -q origin stable main || true
           ci/lint.sh
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm dosfstools mtools python3-cryptography python3-pil ca-certificates openssl
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm dosfstools mtools gnu-efi python3-cryptography python3-pil ca-certificates openssl
       - name: Mind synchronization source invariants
         run: python3 ci/check_mind_sync.py
       - name: QMP disconnect regression tests
@@ -194,11 +209,17 @@ jobs:
           mkdir -p ci-out
           set -o pipefail
           tests/kcc/run.sh 2>&1 | tee ci-out/kcc-tests.log
+      - name: KCC self-hosting (stage1 == stage2 == stage3, corpus compared byte for byte)
+        run: |
+          set -o pipefail
+          tests/kcc/selfhost.sh 2>&1 | tee ci-out/kcc-selfhost.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: kira-kcc-tests
-          path: ci-out/kcc-tests.log
+          path: |
+            ci-out/kcc-tests.log
+            ci-out/kcc-selfhost.log
 
   driver-e2e:
     needs: detect-changes
@@ -240,11 +261,20 @@ jobs:
           path: /var/cache/apt/archives/*.deb
           key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools gnu-efi
       - name: build (clang, -Werror)
         run: |
           ./build_clang.sh --no-run
           mkdir -p sym ci-out && nm -n kira.bin > sym/kira.sym
+      - name: inspect kernel ELF program headers
+        run: readelf -h -l kira.bin
+      - name: build native UEFI loader (PE32+)
+        run: bash ./build_uefi.sh ci-out/uefi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-uefi-boot-files
+          path: ci-out/uefi/EFI/
       - name: binary runtime dependency audit (ISO + KiraFS)
         run: python3 ci/audit_image.py --iso kira.iso --disk kira.disk --kfstool tools/kfstool --out ci-out/image-audit.json
       - uses: actions/upload-artifact@v4
@@ -267,7 +297,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ci-out/release
-          printf 'KIRA-USER-DATA-PRESERVE\\n' > ci-out/release/preserve-before.txt
+          printf 'KIRA-USER-DATA-PRESERVE\n' > ci-out/release/preserve-before.txt
           tools/kfstool kira.disk put /data/release-preserve.txt ci-out/release/preserve-before.txt
           cp kira.disk ci-out/release/kira_disk.img
           KIRA_OUT="$PWD/ci-out/release" ./build_clang.sh --android
@@ -288,6 +318,38 @@ jobs:
         with:
           name: kira-release-image-audit
           path: ci-out/release/image-audit.json
+
+
+
+  uefi-ovmf:
+    needs: [detect-changes, build]
+    if: needs.detect-changes.outputs.build == 'true' && needs.build.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-uefi-boot-files
+          path: ci-out/uefi/EFI
+      - name: OVMF and FAT tooling
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends qemu-system-x86 ovmf dosfstools mtools
+      - name: boot KIRA through OVMF
+        run: bash ci/test_uefi_ovmf.sh ci-out/uefi ci-out/uefi-ovmf
+      - name: boot the GPT + ESP disk image (layout of a real PC, no GRUB)
+        run: |
+          python3 tools/mkuefi.py ci-out/uefi/EFI/BOOT/BOOTX64.EFI ci-out/uefi/EFI/KIRA/KIRA.ELF ci-out/kira-uefi.img
+          KIRA_UEFI_DISK=ci-out/kira-uefi.img bash ci/test_uefi_ovmf.sh ci-out/uefi ci-out/uefi-ovmf-gpt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-uefi-ovmf
+          path: ci-out/uefi-ovmf/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-uefi-ovmf-gpt
+          path: ci-out/uefi-ovmf-gpt/
 
   arm64:
     needs: detect-changes
@@ -318,7 +380,6 @@ jobs:
           if-no-files-found: ignore
       - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"
         id: arm64-qemu
-        if: github.event_name != 'pull_request'
         run: |
           set -o pipefail
           python3 ci/arm64_vm.py ci-out/arm64 2>&1 | tee arm64.txt
@@ -330,7 +391,6 @@ jobs:
 
   vm:
     needs: [detect-changes, build]
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -414,6 +474,8 @@ jobs:
           /tmp/mind-policy 2>&1 | tee -a ci-out/mind-quality.log
           gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fsanitize=address,undefined -o /tmp/mind-levers tests/mind_lever_test.c mind.c mindnet.c
           /tmp/mind-levers 2>&1 | tee -a ci-out/mind-quality.log
+          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fsanitize=address,undefined -o /tmp/mind-eff tests/mind_eff_test.c mind.c mindnet.c
+          /tmp/mind-eff 2>&1 | tee -a ci-out/mind-quality.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -435,14 +497,29 @@ jobs:
           /tmp/kira-wm 2>&1 | tee ci-out/gui-regression.log
           gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fsanitize=address,undefined -o /tmp/kira-ui tests/ui_test.c gfxui.c gfx2d.c font8x16.c -lm
           /tmp/kira-ui 2>&1 | tee -a ci-out/gui-regression.log
+      - name: Shell end-to-end preview (Mind, Explorer, Monitor, Settings, Dock, input)
+        run: |
+          set -euo pipefail
+          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -fsanitize=address,undefined -o /tmp/kira-display-preview tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+          for resolution in "1024 768" "1280 720" "1920 1080"; do
+            read -r width height <<< "$resolution"
+            echo "Display preview: ${width}x${height}" | tee -a ci-out/gui-regression.log
+            ASAN_OPTIONS=detect_leaks=0 /tmp/kira-display-preview "$width" "$height" 2>&1 | tee -a ci-out/gui-regression.log
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: kira-gui-regression
           path: ci-out/gui-regression.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-gui-preview
+          path: /tmp/kira_gfx/**/*.ppm
+          if-no-files-found: warn
 
   report:
-    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, uefi-ovmf, vm, arm64, mind-quality, gui-regression]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -485,6 +562,12 @@ jobs:
         with:
           name: kira-driver-e2e
           path: results/driver-e2e
+      - uses: actions/download-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: kira-uefi-ovmf
+          path: results/uefi-ovmf
       - name: Write CI summary to Actions UI
         if: always()
         env:
@@ -498,6 +581,7 @@ jobs:
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+          UEFI_RESULT: ${{ needs.uefi-ovmf.result }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib
@@ -512,6 +596,7 @@ jobs:
               ("GUI regression", "GUI_RESULT"),
               ("KCC compiler suite", "KCC_RESULT"),
               ("Driver installer E2E", "DRIVER_RESULT"),
+              ("UEFI OVMF boot", "UEFI_RESULT"),
           ]
           lines = ["# KIRA OS — CI result", "", "| Stage | Result |", "|---|---|"]
           lines += [f"| {name} | **{os.getenv(key, 'missing')}** |" for name, key in jobs]
@@ -546,6 +631,7 @@ jobs:
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+          UEFI_RESULT: ${{ needs.uefi-ovmf.result }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -557,7 +643,7 @@ jobs:
                   ("x86_64 QEMU matrix","VM_RESULT"),("ARM64 build","ARM64_RESULT"),
                    ("ARM64 QEMU (full suite only)","ARM64_QEMU_RESULT"),
                   ("Mind quality","MIND_RESULT"),("GUI regression","GUI_RESULT"),("KCC compiler suite","KCC_RESULT"),
-                  ("Driver installer end-to-end","DRIVER_RESULT")]
+                  ("Driver installer end-to-end","DRIVER_RESULT"),("UEFI OVMF boot","UEFI_RESULT")]
           lines += ["| " + name + " | " + os.getenv(key,"missing") + " |" for name,key in jobs]
           lines += ["", "## QEMU result files", ""]
           found = 0
@@ -586,7 +672,7 @@ jobs:
           git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"
 
   package:
-    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, uefi-ovmf, vm, arm64, mind-quality, gui-regression]
     if: success() && github.event_name != 'pull_request' && github.ref_name != 'main' && github.ref_name != 'stable'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -609,6 +695,22 @@ jobs:
           path: ci-out/release-image-audit
       - uses: actions/download-artifact@v4
         with:
+          name: kira-release-image
+          path: ci-out/release-image
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-arm64-image
+          path: ci-out/arm64-image
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-uefi-boot-files
+          path: ci-out/uefi/EFI
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-uefi-ovmf
+          path: ci-out/uefi-ovmf
+      - uses: actions/download-artifact@v4
+        with:
           name: kira-mind-quality
           path: ci-out/results/mind-quality
       - uses: actions/download-artifact@v4
@@ -623,7 +725,7 @@ jobs:
         with:
           name: kira-driver-e2e
           path: ci-out/results/driver-e2e
-      - name: create installable source update
+      - name: create installable unified update
         env:
           HOST_RESULT: ${{ needs.host-tests.result }}
           BUILD_RESULT: ${{ needs.build.result }}
@@ -634,8 +736,11 @@ jobs:
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+          UEFI_RESULT: ${{ needs.uefi-ovmf.result }}
           IMAGE_AUDIT_RESULT: ${{ needs.build.result }}
           IMAGE_AUDIT_DIR: ci-out/release-image-audit
+          RELEASE_IMAGE_DIR: ci-out/release-image
+          ARM64_IMAGE_DIR: ci-out/arm64-image
           KIRA_VERSION: v46
           KIRA_BASE_REF: edae4ab3367a055826f431e261af5d6dee790ddf
           CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -646,3 +751,95 @@ jobs:
           path: |
             ci-out/package/KIRA_OS_Update.tar.gz
             ci-out/package/KIRA_OS_Update.tar.gz.sha256
+
+  preview-package:
+    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, uefi-ovmf, vm, arm64, mind-quality, gui-regression]
+    if: success() && github.event_name != 'pull_request' && github.ref_name != 'main' && github.ref_name != 'stable'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vm-*
+          path: ci-out/results
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-audit
+          path: ci-out/audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-release-image-audit
+          path: ci-out/release-image-audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-release-image
+          path: ci-out/release-image
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-arm64-image
+          path: ci-out/arm64-image
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-uefi-boot-files
+          path: ci-out/uefi/EFI
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-uefi-ovmf
+          path: ci-out/uefi-ovmf
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-mind-quality
+          path: ci-out/results/mind-quality
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-gui-regression
+          path: ci-out/results/gui-regression
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-kcc-tests
+          path: ci-out/results/kcc-tests
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-driver-e2e
+          path: ci-out/results/driver-e2e
+      - name: create installable unified update
+        env:
+          HOST_RESULT: ${{ needs.host-tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          VM_RESULT: ${{ needs.vm.result }}
+          ARM64_RESULT: ${{ needs.arm64.result }}
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          MIND_RESULT: ${{ needs.mind-quality.result }}
+          GUI_RESULT: ${{ needs.gui-regression.result }}
+          KCC_RESULT: ${{ needs.kcc-tests.result }}
+          DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+          UEFI_RESULT: ${{ needs.uefi-ovmf.result }}
+          IMAGE_AUDIT_RESULT: ${{ needs.build.result }}
+          IMAGE_AUDIT_DIR: ci-out/release-image-audit
+          RELEASE_IMAGE_DIR: ci-out/release-image
+          ARM64_IMAGE_DIR: ci-out/arm64-image
+          KIRA_VERSION: v46
+          KIRA_BASE_REF: edae4ab3367a055826f431e261af5d6dee790ddf
+          CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: KIRA_PREVIEW=1 KIRA_ARCHIVE=KIRA_OS_PREVIEW.tar.gz bash ci/package_update.sh origin/main ci-out/package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-os-preview-${{ github.sha }}
+          path: |
+            ci-out/package/KIRA_OS_PREVIEW.tar.gz
+            ci-out/package/KIRA_OS_PREVIEW.tar.gz.sha256
+      - name: publish preview archive to a branch
+        run: |
+          B="ci-preview-$(echo "$GITHUB_REF_NAME" | tr '/' '-')"
+          mkdir pub && cd pub
+          git init -q -b "$B"
+          git config user.name "kira-ci"; git config user.email "ci@kira.invalid"
+          cp ../ci-out/package/KIRA_OS_PREVIEW.tar.gz* .
+          echo "${GITHUB_SHA}" > SHA
+          git add -A
+          git commit -q -m "preview archive ${GITHUB_SHA::7}"
+          git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"

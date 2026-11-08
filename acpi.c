@@ -26,30 +26,45 @@ static int sig_is(const char* s, const char* want) { return s[0]==want[0] && s[1
 static uint32_t rd32(const uint8_t* p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 static uint64_t rd64(const uint8_t* p) { return (uint64_t)rd32(p) | (uint64_t)rd32(p + 4) << 32; }
 
-static void parse_madt(const sdt_t* t, acpi_info_t* o) {
+static int parse_madt(const sdt_t* t, acpi_info_t* o) {
     const uint8_t* b = (const uint8_t*)t;
-    o->lapic_addr = rd32(b + 36);
-    uint32_t off = 44;
-    while (off + 2 <= t->len) {
+    if (t->len < 44) return -1;
+
+    /* Сначала проверяем всю цепочку записей. Нельзя частично применить MADT,
+       если повреждена последняя запись: таблица должна приниматься целиком. */
+    uint32_t off = 44, cpu_entries = 0, ioapic_entries = 0;
+    while (off < t->len) {
+        if (t->len - off < 2) return -1;
         uint8_t type = b[off], len = b[off + 1];
-        if (len < 2 || off + len > t->len) break;
-        if ((type == 0 && len >= 8 && (rd32(b + off + 4) & 1)) || (type == 9 && len >= 16 && (rd32(b + off + 8) & 1))) {
+        if (len < 2 || len > t->len - off) return -1;
+        if ((type == 0 && len < 8) || (type == 1 && len < 12) ||
+            (type == 2 && len < 10) || (type == 9 && len < 16)) return -1;
+        if ((type == 0 || type == 9) && ++cpu_entries > ACPI_MAX_CPU) return -1;
+        if (type == 1 && ++ioapic_entries > ACPI_MAX_IOAPIC) return -1;
+        off += len;
+    }
+
+    if (o->cpu_count + cpu_entries > ACPI_MAX_CPU || o->ioapic_count + ioapic_entries > ACPI_MAX_IOAPIC) return -1;   /* несколько MADT не должны переполнять массивы вместе */
+    o->lapic_addr = rd32(b + 36);
+    off = 44;
+    while (off < t->len) {
+        uint8_t type = b[off], len = b[off + 1];
+        if (((type == 0 && (rd32(b + off + 4) & 1)) ||
+             (type == 9 && (rd32(b + off + 8) & 1)))) {
             uint32_t id = type == 0 ? b[off + 3] : rd32(b + off + 4);
             int dup = 0;                                   /* прошивка может описать один процессор обоими типами */
             for (uint32_t k = 0; k < o->cpu_count && k < ACPI_MAX_CPU; k++) if (o->cpu_apic_id[k] == id) dup = 1;
             if (!dup) {
-                if (o->cpu_count < ACPI_MAX_CPU) o->cpu_apic_id[o->cpu_count] = id;
+                o->cpu_apic_id[o->cpu_count] = id;
                 if (id > o->max_apic_id) o->max_apic_id = id;
                 o->cpu_count++;
             }
-        } else if (type == 1 && len >= 12) {
-            if (o->ioapic_count < ACPI_MAX_IOAPIC) {
-                o->ioapic[o->ioapic_count].id = b[off + 2];
-                o->ioapic[o->ioapic_count].addr = rd32(b + off + 4);
-                o->ioapic[o->ioapic_count].gsi_base = rd32(b + off + 8);
-            }
+        } else if (type == 1) {
+            o->ioapic[o->ioapic_count].id = b[off + 2];
+            o->ioapic[o->ioapic_count].addr = rd32(b + off + 4);
+            o->ioapic[o->ioapic_count].gsi_base = rd32(b + off + 8);
             o->ioapic_count++;
-        } else if (type == 2 && len >= 10) {
+        } else if (type == 2) {
             o->irq_override_count++;
             uint8_t src = b[off + 3];
             if (b[off + 2] == 0 && src < 16) {          /* шина 0 = ISA */
@@ -57,9 +72,10 @@ static void parse_madt(const sdt_t* t, acpi_info_t* o) {
                 o->iso_gsi[src] = rd32(b + off + 4);
                 o->iso_flags[src] = (uint16_t)(b[off + 8] | (b[off + 9] << 8));
             }
-        } else if (type == 2) o->irq_override_count++;
+        }
         off += len;
     }
+    return 0;
 }
 
 /* Число AML в пакете: BytePrefix/WordPrefix/DWordPrefix, Zero, One, Ones. -1 - не число. */
@@ -121,9 +137,11 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
     uint32_t tl = t->len;
     if (tl < sizeof(sdt_t) || !(t = (const sdt_t*)reach(phys, tl, max_phys))) { o->tables_skipped_high++; return; }
     if (!sum_ok(t, t->len)) { o->tables_bad++; return; }
+    if (sig_is(t->sig, "APIC")) {
+        if (parse_madt(t, o) != 0) { o->tables_bad++; return; }
+    }
     o->tables_seen++;
-    if (sig_is(t->sig, "APIC")) parse_madt(t, o);
-    else if (sig_is(t->sig, "HPET")) o->has_hpet = 1;
+    if (sig_is(t->sig, "HPET")) o->has_hpet = 1;
     else if (sig_is(t->sig, "FACP")) parse_fadt(t, max_phys, o);
     else if (sig_is(t->sig, "DMAR") && t->len >= 48) { o->dmar_phys = phys; o->dmar_len = t->len; }
     else if (sig_is(t->sig, "MCFG") && t->len >= 44 + 16) {
@@ -134,16 +152,19 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
 
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {
     uint8_t* z = (uint8_t*)o; for (uint32_t i = 0; i < sizeof(*o); i++) z[i] = 0;
-    if (rsdp_phys == 0 || rsdp_phys > max_phys || max_phys - rsdp_phys < 20) return -1;
-    const rsdp_t* r = (const rsdp_t*)(uintptr_t)rsdp_phys;
+    if (rsdp_phys == 0 || rsdp_phys > UINT64_MAX - 20 ||
+        (rsdp_phys <= max_phys && max_phys - rsdp_phys < 20)) return -1;
+    const rsdp_t* r = (const rsdp_t*)reach(rsdp_phys, 20, max_phys);
+    if (!r) return -1;
     const char magic[8] = {'R','S','D',' ','P','T','R',' '};
     for (int i = 0; i < 8; i++) if (r->sig[i] != magic[i]) return -2;
     if (!sum_ok(r, 20)) return -3;
     o->revision = r->rev;
     int use_x = 0;
     if (r->rev >= 2) {
-        if (max_phys - rsdp_phys < sizeof(rsdp_t) || r->len < sizeof(rsdp_t) ||
-            r->len > max_phys - rsdp_phys || !sum_ok(r, r->len)) return -4;
+        if (r->len < sizeof(rsdp_t) || r->len > 4096) return -4;
+        r = (const rsdp_t*)reach(rsdp_phys, r->len, max_phys);
+        if (!r || !sum_ok(r, r->len)) return -4;
         use_x = r->xsdt != 0;
     }
     uint64_t root = use_x ? r->xsdt : r->rsdt;
@@ -248,6 +269,29 @@ int mp_parse(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
     if (!o->cpu_count) return -5;
     o->valid = 1; o->source = 1;
     return 0;
+}
+
+int acpi_init_rsdp(uint64_t rsdp_phys) {
+    const uint64_t ONE_GB = 1ULL << 30;
+    int rc;
+    if (!rsdp_phys) return -1;
+    rc = acpi_parse(rsdp_phys, ONE_GB, &info);
+    if (rc != 0) {
+        uart_print("[KIRA ACPI] Native RSDP validation failed, code ");
+        uart_print_dec((uint64_t)(-rc));
+        uart_print("\\n");
+        return rc;
+    }
+    uart_print("[KIRA ACPI] Native RSDP accepted: tables ok ");
+    uart_print_dec(info.tables_seen);
+    uart_print(", bad ");
+    uart_print_dec(info.tables_bad);
+    uart_print(", CPUs ");
+    uart_print_dec(info.cpu_count);
+    uart_print(", IOAPICs ");
+    uart_print_dec(info.ioapic_count);
+    uart_print("\\n");
+    return info.cpu_count ? 0 : -5;
 }
 
 int acpi_init(uint64_t mbi) {

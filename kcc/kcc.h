@@ -44,6 +44,8 @@ typedef struct {
 } KCtx;
 extern KCtx K;
 
+size_t ka_mark(void);                         /* метка арены для ka_release */
+void ka_release(size_t mark);                 /* освободить всё выделенное после метки (только временные данные!) */
 void *ka_new(size_t n);                      /* обнулённая память арены, выравнивание 8 */
 char *ka_strdup(const char *s, size_t n);
 void kerr(const char *file, int line, const char *fmt, ...) __attribute__((noreturn, format(printf, 3, 4)));
@@ -79,7 +81,7 @@ Token *pp_lex_one(Token *tmpl, const char *text);
 typedef enum { TY_VOID, TY_BOOL, TY_CHAR, TY_SHORT, TY_INT, TY_LONG, TY_LLONG, TY_ENUM,
                TY_PTR, TY_ARRAY, TY_FUNC, TY_STRUCT, TY_UNION } TyKind;
 struct Param { Param *next; Type *ty; const char *name; };
-struct Member { Member *next; const char *name; Type *ty; int off, bw, bo, idx; const Token *tok; };
+struct Member { Member *next; const char *name; Type *ty; int off, bw, bo, idx, align; const Token *tok; };
 struct Type {
     TyKind k; int size, align;
     unsigned is_unsigned : 1, is_const : 1, is_volatile : 1, complete : 1, variadic : 1, noproto : 1, packed : 1, noret : 1;
@@ -110,8 +112,9 @@ typedef enum {
     ND_NUM, ND_STR, ND_VAR, ND_ADD, ND_SUB, ND_MUL, ND_DIV, ND_MOD, ND_AND, ND_OR, ND_XOR, ND_SHL, ND_SHR,
     ND_EQ, ND_NE, ND_LT, ND_LE, ND_LOGAND, ND_LOGOR, ND_NOT, ND_BITNOT, ND_NEG,
     ND_ASSIGN, ND_OPASSIGN, ND_COMMA, ND_COND, ND_ADDR, ND_DEREF, ND_MEMBER, ND_CAST, ND_CALL, ND_INCDEC,
-    ND_STMTEXPR, ND_ZERO, ND_ASM, ND_UNREACH, ND_VASTART, ND_VAARG, ND_ATOMIC,
-    ND_BLOCK, ND_IF, ND_FOR, ND_DO, ND_SWITCH, ND_CASE, ND_BREAK, ND_CONTINUE, ND_GOTO, ND_LABEL, ND_RETURN, ND_EXPR
+    ND_STMTEXPR, ND_ZERO, ND_ASM, ND_UNREACH, ND_VASTART, ND_VAARG, ND_ATOMIC, ND_RETADDR,
+    ND_BLOCK, ND_IF, ND_FOR, ND_DO, ND_SWITCH, ND_CASE, ND_BREAK, ND_CONTINUE, ND_GOTO, ND_LABEL, ND_RETURN, ND_EXPR,
+    ND_ROL                                   /* только в IR (opt.c): циклический сдвиг влево на константу; создаётся распознаванием (x>>c1)|(x<<c2), c1+c2 = ширина */
 } NKind;
 struct Node {
     NKind k; Type *ty; const Token *tok;
@@ -128,7 +131,7 @@ struct Reloc { Reloc *next; int off; const char *sym; int64_t addend; };
 struct Obj {
     Obj *next; const char *name; Type *ty;
     unsigned is_local : 1, is_func : 1, is_static : 1, is_extern : 1, is_def : 1, is_inline : 1,
-             is_str : 1, is_param : 1, is_ro : 1, used : 1, tentative : 1, noret : 1, emit : 1;
+             is_str : 1, is_param : 1, is_ro : 1, used : 1, tentative : 1, noret : 1, emit : 1, is_weak : 1;
     void *ir;                                /* бэкенд: IrFn функции */
     uint64_t addr;                           /* бэкенд: функция - смещение в .text, данные - адрес в образе */
     int slot, align, line, nparams;
@@ -152,18 +155,32 @@ enum { AT_LOAD = 1, AT_STORE, AT_XCHG, AT_CAS, AT_ADD, AT_SUB, AT_AND, AT_OR, AT
 typedef struct Ins Ins;
 struct Ins {
     IrOp op; int sub, dst, a, b, c, w, sgn, vol, nargs, nout;
+    int nn;                                  /* x86-64: результат 32-битной операции можно не нормализовать (ir_optimize, op_nonorm) */
     int rsz, rt;                             /* CALL: размер возвращаемого агрегата (0 - нет) и vreg с адресом буфера результата; RET: sub=1 - агрегат размера w */
     int *asz;                                /* CALL: по аргументу размер агрегата (0 - скаляр; тогда args[k] - адрес агрегата) */
     int64_t imm; const char *sym; int *args; Ins *next;
     int line; const char *file;              /* только IR_ASM: место в исходнике */
 };
-typedef struct { Obj *f; Ins *head; int nreg, nlab; } IrFn;
+typedef struct { Obj *f; Ins *head; int nreg, nlab; unsigned char *mdef; } IrFn;   /* mdef[v]: vreg переменной с несколькими определениями (ir_optimize) */
+extern int kcc_nolvn;                         /* -fno-lvn: без локальной нумерации значений (для сверки) */
+extern int kcc_wrapv;                         /* -fwrapv: счётчики циклов тоже нормализуются после каждого шага */
+extern int kcc_nosr;                          /* -fno-sr: без понижения силы умножения (для сверки) */
+extern int kcc_dumpopt;                      /* ir.c: -S-oir, дамп IR после ir_optimize */
+extern int kcc_noopt;                        /* gen_common.c */
+void ir_usecount(IrFn *fi, int *ndef, int *nuse, Ins **defins);
+Obj *gen_lookup(const char *name);           /* gen_common.c */
+typedef void (*OpVisit)(Ins *i, int *r, int kind, void *ctx);   /* kind: 0 - чтение vreg, 1 - запись, 2 - выход asm */
+void ir_walk(Ins *i, OpVisit fn, void *ctx);   /* opt.c: обход всех vreg-операндов инструкции */
+void ir_inline(Obj *caller);                 /* opt.c: встраивание малых функций (до ir_optimize) */
+void ir_optimize(IrFn *fi);                  /* opt.c: продвижение локальных в vreg, копии, слияние, мёртвый код */
 IrFn *ir_lower(Obj *f);                      /* линейный IR одной функции с телом */
 void ir_dump(Obj *globals, SB *out);
 
 /* ---------- gen_x86.c / asm_x86.c / elf.c (этап M2) ---------- */
 /* Компиляция программы в исполняемый ELF Киры (x86-64). Результат - в арене. Ошибки - через kerr. */
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
+void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen);
+extern int kcc_obj;
 /* gen_a64.c / asm_a64.c (этап M4): то же для AArch64 (EL0 Киры ARM64). */
 void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
 

@@ -50,14 +50,24 @@ def tracked_files() -> list[str]:
     return sorted(str(p.relative_to(ROOT)) for p in ROOT.rglob("*") if p.is_file() and ".git" not in p.parts)
 
 def scenario_counts(files: list[str]) -> tuple[list[str], list[str]]:
-    ci = (ROOT / ".github/workflows/ci.yml").read_text(errors="replace") if (ROOT / ".github/workflows/ci.yml").exists() else ""
-    match = re.search(r"scenario:\s*\[([^\]]+)\]", ci)
-    x86 = [x.strip() for x in match.group(1).split(",") if x.strip()] if match else []
+    # The x86 VM job owns its scenario list in an inline Python block in ci.yml.
+    workflow = ROOT / ".github/workflows/ci.yml"
+    workflow_text = workflow.read_text(errors="replace")
+    match = re.search(r"scenarios\s*=\s*(\[[\s\S]*?\])", workflow_text)
+    if not match:
+        raise RuntimeError("x86 QEMU scenario list not found in CI workflow")
+    try:
+        x86 = ast.literal_eval(match.group(1))
+    except (SyntaxError, ValueError) as exc:
+        raise RuntimeError(f"invalid x86 QEMU scenario list in CI workflow: {exc}") from exc
+    if not isinstance(x86, list) or not x86 or any(not isinstance(item, str) for item in x86):
+        raise RuntimeError("x86 QEMU scenario inventory must be a non-empty list of strings")
+    if len(x86) != len(set(x86)):
+        raise RuntimeError("x86 QEMU scenario inventory contains duplicate names")
     arm_path = ROOT / "ci/arm64_vm.py"
     arm_text = arm_path.read_text(errors="replace") if arm_path.exists() else ""
     arm = sorted(set(re.findall(r"['\"](arm64-[a-z0-9-]+)['\"]", arm_text)))
     return x86, arm
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="ci-out/audit")
@@ -115,7 +125,7 @@ def main() -> int:
     arch = (ROOT / "ARCHITECTURE.md").read_text(errors="replace") if (ROOT / "ARCHITECTURE.md").exists() else ""
     handoff = (ROOT / "docs/HANDOFF.md").read_text(errors="replace") if (ROOT / "docs/HANDOFF.md").exists() else ""
     gaps = [
-        "x86_64 ISO creation currently depends on GRUB/Multiboot2; no independent KIRA BIOS/UEFI loader was found in the tracked tree.",
+        "The x86_64 ISO still boots through GRUB/Multiboot2. A native KIRA UEFI application now builds as a separate EFI artifact, but it is not yet proven by an OVMF end-to-end boot or integrated as the ISO boot path; a KIRA-owned BIOS chain is also still required.",
         "The current build still uses external Clang/LLD/NASM (and wasm-ld); kcc is a limited in-OS C compiler, not yet the kernel's complete self-hosting toolchain.",
         "drvget accepts selected BSD-style source recipes and rejects Linux .ko and Windows .sys binaries; general Linux driver translation remains future work.",
         "Driver package records use explicit user confirmation and SHA-256; project progress notes say package signatures are absent. A hash is integrity evidence, not publisher authentication.",

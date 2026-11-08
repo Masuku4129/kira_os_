@@ -72,6 +72,27 @@ class KdrvSignerTests(unittest.TestCase):
         self.assertIn("not present", result.stderr)
         self.assertFalse(self.output_path.exists())
 
+    def test_signs_with_rotated_key_listed_as_next(self):
+        self.trust_path.write_text(
+            '#define KDRV_TRUST_KEY_ID "OLD-ED25519-0001"\n'
+            + '#define KDRV_TRUST_KEY_ID_NEXT "TEST-ED25519-001"\n'
+            + "static const unsigned char pub[] = {"
+            + ",".join(f"0x{x:02x}" for x in self.public) + "};\n",
+            encoding="ascii"
+        )
+        self.assertEqual(self.run_signer().returncode, 0)
+        self.trust_path.write_text(
+            '#define KDRV_TRUST_KEY_ID "OLD-ED25519-0001"\n'
+            + "static const unsigned char pub[] = {"
+            + ",".join(f"0x{x:02x}" for x in self.public) + "};\n",
+            encoding="ascii"
+        )
+        self.output_path.unlink()
+        result = self.run_signer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match", result.stderr)
+        self.assertFalse(self.output_path.exists())
+
     def test_refuses_invalid_validity_window(self):
         result = self.run_signer("--not-after", "1600000000")
         self.assertNotEqual(result.returncode, 0)

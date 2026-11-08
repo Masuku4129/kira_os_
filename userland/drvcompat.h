@@ -4,8 +4,11 @@
 #include <stdint.h>
 #define KIRA_DRVCOMPAT_NAME_MAX 64u
 #define KIRA_DRVCOMPAT_HASH_SIZE 32u
-#define KIRA_DRVCOMPAT_MAX_FILES 128u
+#define KIRA_DRVCOMPAT_MAX_FILES 32u
 #define KIRA_DRVCOMPAT_MAX_FILE_SIZE (8u*1024u*1024u)
+#define KIRA_DRVCOMPAT_MAX_TOTAL_SIZE (16u*1024u*1024u)
+#define KIRA_DRVCOMPAT_MAX_ARCHIVE_SIZE (16u*1024u*1024u)
+#define KIRA_DRVCOMPAT_MAX_OUTPUT_SIZE (8u*1024u*1024u)
 enum kira_drvcompat_stage {
  KIRA_DRV_FETCHED=1,KIRA_DRV_AUTHENTICATED,KIRA_DRV_INSPECTED,
  KIRA_DRV_TRANSLATED,KIRA_DRV_BUILT,KIRA_DRV_SIGNED,KIRA_DRV_PUBLISHED
@@ -16,6 +19,16 @@ struct kira_drvcompat_manifest {
  uint32_t source_abi,target_abi; size_t file_count;
  struct kira_drvcompat_file files[KIRA_DRVCOMPAT_MAX_FILES];
 };
+/*
+ * Ownership contract:
+ * - fetch_archive returns one buffer released by release_archive.
+ * - unpack_safe and translate_driver must keep manifest file data alive until
+ *   kira_drvcompat_convert returns (normally backed by archive or adapter-owned
+ *   scratch storage).
+ * - build_native/sign_native return buffers released by release_buffer.
+ * - publish_package must finish copying/committing the package before returning.
+ * All fetch adapters must enforce their own streaming size limit as well.
+ */
 struct kira_drvcompat_ops {
  void *context;
  int (*fetch_archive)(void *,const char *uri,void **archive,size_t *size);

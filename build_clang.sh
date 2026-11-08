@@ -17,7 +17,7 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
 
-C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c crypto.c pk.c kdrv_sig.c rng.c virtio_rng.c scale.c kobj.c futex.c"
+C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c futex.c wx.c"
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
 ARCH=arch/x86_64
 ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c"
@@ -146,14 +146,39 @@ tools/kfstool kira.disk put /etc/ssl/drivers.index drivers/index.txt
 
 echo "[*] Компиляция C..."
 OBJ="boot.o"
+if [ "${KIRA_CC:-clang}" = kcc ]; then
+    # Ядро собирает собственный компилятор KCC (kcc -c -> ET_REL); линковка и ассемблер прежние (ld.lld, nasm)
+    echo "[*] C-часть ядра собирает KCC"
+    ${HOSTCC:-gcc} -std=c99 -O2 -o tools/kcc_host kcc/*.c
+    for src in $C_SOURCES $ARCH_SOURCES; do
+        tools/kcc_host -c -I. -Iarch/x86_64 -Ikcc/include -o ${src%.c}.o $src
+        OBJ="$OBJ ${src%.c}.o"
+    done
+else
 for src in $C_SOURCES $ARCH_SOURCES; do
     $CC $CFLAGS -c $src -o ${src%.c}.o
     OBJ="$OBJ ${src%.c}.o"
 done
+fi
 OBJ="$OBJ interrupts.o context.o ap_tramp.o uaccess_s.o"
 
 echo "[*] Линковка..."
 ld.lld -T $ARCH/linker.ld -nostdlib -z max-page-size=0x1000 $OBJ -o kira.bin
+
+if command -v nasm >/dev/null 2>&1; then
+    echo "[*] Собственный BIOS-загрузчик (без GRUB): kira-bios.img"
+    nasm -f bin arch/x86_64/bios/stage1.asm -o bios-stage1.bin && nasm -f bin -w+all arch/x86_64/bios/stage2.asm -o bios-stage2.bin \
+        && python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios.img || { echo "[!] kira-bios.img не собран"; exit 1; }
+fi
+
+# Собственный UEFI-загрузчик (GNU-EFI нужен только для сборки загрузчика) и диск GPT + ESP: kira-uefi.img. Без gnu-efi/mtools шаг пропускается.
+if command -v mcopy >/dev/null 2>&1 && [ -s /usr/include/efi/efi.h -o -n "${EFI_INCLUDE:-}" ]; then
+    echo "[*] Собственный UEFI-загрузчик (без GRUB): kira-uefi.img"
+    _u=$(mktemp -d)
+    if bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err" && python3 tools/mkuefi.py "$_u/EFI/BOOT/BOOTX64.EFI" "$_u/EFI/KIRA/KIRA.ELF" kira-uefi.img; then :; else
+        echo "[!] kira-uefi.img не собран:"; tail -3 "$_u/err"; fi
+    rm -rf "$_u"
+fi
 
 echo "[*] ISO..."
 rm -rf isodir kira.iso

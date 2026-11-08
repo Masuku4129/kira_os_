@@ -185,7 +185,12 @@ static inline i64 k_udp_recvfrom(i64 s, void* buf, u32 cap, u32 timeout_ms) { re
 static inline i64 k_args(char* buf, u64 cap) { return ksys(K_ARGS, (u64)buf, cap, 0); }
 
 /* Точка входа: выравнивает стек, вызывает umain, затем exit. */
-#if defined(__aarch64__)
+#if defined(__KIRA__) && defined(__x86_64__)
+/* kcc: стартовый код _start даёт сам компилятор (вызывает main, затем выход) */
+#define KIRA_ENTRY() \
+    int umain(void); \
+    int main(void) { return umain(); }
+#elif defined(__aarch64__)
 #define KIRA_ENTRY() \
     int umain(void); \
     __asm__(".section .text.start\n.global _start\n_start:\n mov x9, sp\n and x9, x9, #-16\n mov sp, x9\n mov x29, #0\n bl umain\n mov x0, #0\n mov x8, #2\n svc #0\n1: b 1b\n.text\n");

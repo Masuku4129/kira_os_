@@ -15,7 +15,6 @@
 | xorriso, grub-mkrescue | Создание ISO | Build-time; сам GRUB при этом включается в ISO. |
 | QEMU, KVM, GCC, Python, OpenSSL, Pillow, python-cryptography, dosfstools, mtools | CI и тесты | Только тестовая/host-инфраструктура. |
 | ca-certificates | Корневые сертификаты копируются в /etc/ssl/roots.der | Данные доверия, не исполняемая библиотека; зафиксировать источник и версию. |
-| FreeBSD rl(4) | drivers/rl/rl.c и if_rlreg.h — RTL8139-порт с BSD-3-Clause attribution | Производный исходный код, не библиотека. Для строгой политики полностью собственного кода переписать по спецификации RTL8139, сохранив атрибуцию до замены. |
 
 ## Блокеры независимости и безопасности
 1. Собственный x86 BIOS/UEFI загрузчик отсутствует; сейчас ISO зависит от GRUB/Multiboot2.

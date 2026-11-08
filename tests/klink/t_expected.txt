@@ -1,0 +1,15 @@
+add3=7
+alpha,beta,gamma
+sq=81
+neg=-9
+ops2=12
+pick=2
+bump=1
+bump=2
+asm_twice=42
+asm_fn=10
+cm=5
+cm=12
+got=41
+got_ok=1
+weak=77

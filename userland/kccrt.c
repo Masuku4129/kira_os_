@@ -63,13 +63,13 @@ void qsort(void *vb, size_t n, size_t size, int (*cmp)(const void *, const void 
 /* vsnprintf: флаги - + пробел 0 #, ширина и точность (в том числе *), длины hh h l ll z j t, преобразования d i u x X o c s p %.
    Возвращает длину полного результата; в буфер пишет не больше cap-1 знаков и завершающий 0. */
 typedef struct { char *b; size_t cap, n; } outbuf;
-static void put(outbuf *o, char c) { if (o->n + 1 < o->cap) o->b[o->n] = c; o->n++; }
-static void pad(outbuf *o, char c, long n) { while (n-- > 0) put(o, c); }
+static void rt_put(outbuf *o, char c) { if (o->n + 1 < o->cap) o->b[o->n] = c; o->n++; }
+static void pad(outbuf *o, char c, long n) { while (n-- > 0) rt_put(o, c); }
 
 int vsnprintf(char *buf, size_t cap, const char *fmt, va_list ap) {
     outbuf o = { buf, cap, 0 };
     for (; *fmt; fmt++) {
-        if (*fmt != '%') { put(&o, *fmt); continue; }
+        if (*fmt != '%') { rt_put(&o, *fmt); continue; }
         fmt++;
         int left = 0, plus = 0, space = 0, zero = 0, alt = 0;
         for (;; fmt++) {
@@ -93,7 +93,7 @@ int vsnprintf(char *buf, size_t cap, const char *fmt, va_list ap) {
         }
         char c = *fmt;
         if (!c) break;
-        if (c == '%') { put(&o, '%'); continue; }
+        if (c == '%') { rt_put(&o, '%'); continue; }
         char tmp[72]; const char *s = tmp; long len = 0; const char *prefix = ""; int numeric = 0;
         if (c == 'c') { tmp[0] = (char)va_arg(ap, int); len = 1; }
         else if (c == 's') {
@@ -124,7 +124,7 @@ int vsnprintf(char *buf, size_t cap, const char *fmt, va_list ap) {
             while (k) tmp[len++] = r[--k];
             if (alt && nonzero && c != 'u') prefix = c == 'X' ? "0X" : c == 'x' ? "0x" : "0";
             numeric = 1;
-        } else { put(&o, '%'); put(&o, c); continue; }   /* неизвестное преобразование выводится как есть */
+        } else { rt_put(&o, '%'); rt_put(&o, c); continue; }   /* неизвестное преобразование выводится как есть */
         long zeros = 0, plen = (long)strlen(prefix);
         if (numeric) {
             if (prec >= 0) { zero = 0; if (prec > len) zeros = prec - len; if (prec == 0 && len == 1 && tmp[0] == '0') len = 0; }
@@ -132,9 +132,9 @@ int vsnprintf(char *buf, size_t cap, const char *fmt, va_list ap) {
         }
         long total = len + zeros + plen;
         if (!left) pad(&o, ' ', width - total);
-        for (const char *p = prefix; *p; p++) put(&o, *p);
+        for (const char *p = prefix; *p; p++) rt_put(&o, *p);
         pad(&o, '0', zeros);
-        for (long i = 0; i < len; i++) put(&o, s[i]);
+        for (long i = 0; i < len; i++) rt_put(&o, s[i]);
         if (left) pad(&o, ' ', width - total);
     }
     if (cap) o.b[o.n < cap ? o.n : cap - 1] = 0;
@@ -150,7 +150,9 @@ int snprintf(char *buf, size_t cap, const char *fmt, ...) {
 }
 
 /* setjmp/longjmp: сохраняются callee-saved регистры, стек и адрес возврата. setjmp возвращает 0, longjmp(env, v) - v (0 -> 1). */
-#if defined(__aarch64__)
+#if defined(__KIRA__) && defined(__x86_64__)
+/* kcc (самосборка): setjmp/longjmp - встроенные функции компилятора (kcc/gen_x86.c), текст ассемблера не нужен. */
+#elif defined(__aarch64__)
 /* x19-x30 и sp (callee-saved целочисленные; вещественных регистров код kcc не использует: сборка с -mgeneral-regs-only) */
 __asm__(".text\n.global setjmp\nsetjmp:\n"
         " stp x19, x20, [x0, #0]\n stp x21, x22, [x0, #16]\n stp x23, x24, [x0, #32]\n stp x25, x26, [x0, #48]\n stp x27, x28, [x0, #64]\n"

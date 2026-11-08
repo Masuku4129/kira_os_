@@ -21,6 +21,7 @@
 #include "mind_sync.h"
 #include "audio.h"
 #include "kfs.h"
+#include "mind_archive_policy.h"
 
 #define MODEL_PATH   "/var/mind.dat"
 #define SEED_PATH    "/etc/mind_seed.bin"
@@ -292,6 +293,7 @@ static void publish(const mind_t* model) {
     v.decisions = model->m.decisions; v.anomalies = model->m.anomalies; v.kills = model->m.kills;
     v.tune_trials = model->m.tune_trials; v.tune_wins = model->m.tune_wins;
     v.activity = model->activity;
+    v.journal_seq = model->jn;
     v.nj = 0;
     for (unsigned i = 0; i < MIND_VIEW_J; i++) {
         const mind_event_t* e = mind_journal(model, i);
@@ -308,6 +310,9 @@ static void publish(const mind_t* model) {
     v.bg_fps = mind_bg_fps(model); v.core_cap = mind_core_cap(model);
     v.core_res_pid = mind_core_reserved_pid(model); v.core_res = sched_reserved_core();
     display_compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
+    v.dev_errors=S.dev_errors; scopy(v.dev_name,S.dev_name,sizeof v.dev_name);
+    v.hid_suspect=S.hid_suspect; v.hid_rate=S.hid_rate; scopy(v.hid_name,S.hid_name,sizeof v.hid_name);
+    v.denied=S.denied; scopy(v.denied_name,S.denied_name,sizeof v.denied_name);
     for (int L = 0; L < ML_N; L++) {
         v.lv[L].val = mind_lever_val(model, L); v.lv[L].def = mind_lever_default(L);
         unsigned tr, wi, ba; mind_lever_stats(model, L, &tr, &wi, &ba);
@@ -388,6 +393,7 @@ typedef struct { char name[16]; uint32_t generation,score; uint64_t size; int va
 static mind_archive_item_t archive_items[32];
 static unsigned archive_count;
 static uint32_t archive_generation;
+static int archive_overflow;
 static uint32_t archive_crc(const void* data,unsigned len) {
     const uint8_t* p=(const uint8_t*)data;uint32_t c=0xFFFFFFFFu;
     for(unsigned i=0;i<len;i++){c^=p[i];for(unsigned b=0;b<8;b++)c=(c>>1)^(0xEDB88320u&(uint32_t)-(int32_t)(c&1));}
@@ -409,7 +415,8 @@ static int archive_name(const char* n,uint32_t* gen) {
 }
 static int archive_collect(void* ctx,const char* name,const kfs_stat_t* st) {
     (void)ctx;uint32_t gen;
-    if(!archive_name(name,&gen)||archive_count>=32)return 0;
+    if(!archive_name(name,&gen))return 0;
+    if(archive_count>=32){archive_overflow=1;return 0;}
     mind_archive_item_t* it=&archive_items[archive_count++];
     for(unsigned i=0;i<sizeof it->name;i++)it->name[i]=0;
     for(unsigned i=0;name[i]&&i+1<sizeof it->name;i++)it->name[i]=name[i];
@@ -421,26 +428,38 @@ static void archive_path(char* out,const char* name) {
     unsigned n=0;const char* p=MIND_ARCHIVE_DIR "/";
     while(*p)out[n++]=*p++;while(*name)out[n++]=*name++;out[n]=0;
 }
-static void archive_scan(void) {
-    archive_count=0;archive_generation=0;(void)kfs_list(MIND_ARCHIVE_DIR,archive_collect,0);
+static int archive_scan(void) {
+    archive_count=0;archive_generation=0;archive_overflow=0;
+    if(kfs_list(MIND_ARCHIVE_DIR,archive_collect,0)!=0||archive_overflow)return -1;
     static uint8_t raw[sizeof(mind_model_t)];
     for(unsigned i=0;i<archive_count;i++){
         char path[64];archive_path(path,archive_items[i].name);
         mind_archive_header_t h;
         if(kfs_read(path,0,&h,sizeof h)!=(int64_t)sizeof h)continue;
-        if(h.magic!=MIND_ARCHIVE_MAGIC||h.version!=MIND_ARCHIVE_VERSION||h.model_size!=sizeof(mind_model_t)||
+        if(h.magic!=MIND_ARCHIVE_MAGIC||h.version!=MIND_ARCHIVE_VERSION||
+           h.generation!=archive_items[i].generation||h.model_size!=sizeof(mind_model_t)||
            archive_items[i].size!=sizeof(h)+sizeof(mind_model_t))continue;
         if(kfs_read(path,sizeof h,raw,sizeof raw)!=(int64_t)sizeof raw||archive_crc(raw,sizeof raw)!=h.crc)continue;
         mind_model_t m;if(!mind_model_load(&m,raw,sizeof raw))continue;
         archive_items[i].valid=1;archive_items[i].score=archive_score(&m);
     }
+    return 0;
 }
 static int archive_write(const mind_model_t* model) {
     kfs_stat_t st;
     if(kfs_stat("/var",&st)!=0&&kfs_mkdir("/var")!=0)return -1;
     if(kfs_stat("/var/mind",&st)!=0&&kfs_mkdir("/var/mind")!=0)return -1;
     if(kfs_stat(MIND_ARCHIVE_DIR,&st)!=0&&kfs_mkdir(MIND_ARCHIVE_DIR)!=0)return -1;
-    archive_scan();uint32_t gen=archive_generation+1;if(!gen)gen=1;
+    if(archive_scan()!=0)return -1;
+    /* The previous newest valid snapshot is the recovery point if the new
+       primary model is later damaged. Never evict it while making room. */
+    uint32_t protected_generation=0;
+    for(unsigned i=0;i<archive_count;i++)
+        if(archive_items[i].valid&&archive_items[i].generation>protected_generation)
+            protected_generation=archive_items[i].generation;
+    /* Filenames carry exactly eight decimal digits; refuse wrap/collision. */
+    if(archive_generation>=99999999u)return -1;
+    uint32_t gen=archive_generation+1u;
     char name[16]="m00000000.dat";uint32_t n=gen;
     for(int i=8;i>=1;i--){name[i]=(char)('0'+n%10);n/=10;}
     mind_archive_header_t h={MIND_ARCHIVE_MAGIC,MIND_ARCHIVE_VERSION,gen,sizeof(mind_model_t),archive_score(model),archive_crc(model,sizeof *model)};
@@ -448,24 +467,29 @@ static int archive_write(const mind_model_t* model) {
     __builtin_memcpy(record,&h,sizeof h);__builtin_memcpy(record+sizeof h,model,sizeof *model);
     char path[64];archive_path(path,name);
     if(kfs_write(path,record,sizeof record)!=0)return -1;
-    archive_scan();unsigned count=0;uint64_t bytes=0;
+    if(archive_scan()!=0)return -1;
+    unsigned count=0;uint64_t bytes=0;
     for(unsigned i=0;i<archive_count;i++)if(archive_items[i].valid){count++;bytes+=archive_items[i].size;}
     while(count>MIND_ARCHIVE_MAX_FILES||bytes>MIND_ARCHIVE_MAX_BYTES){
-        int victim=-1;
-        for(unsigned i=0;i<archive_count;i++){mind_archive_item_t* it=&archive_items[i];
-            if(!it->valid||it->generation==gen)continue;
-            if(victim<0||it->score<archive_items[victim].score||
-              (it->score==archive_items[victim].score&&it->generation<archive_items[victim].generation))victim=(int)i;
+        mind_archive_policy_item_t policy[32];
+        for(unsigned i=0;i<archive_count;i++){
+            policy[i].generation=archive_items[i].generation;
+            policy[i].score=archive_items[i].score;
+            policy[i].valid=(uint8_t)archive_items[i].valid;
         }
-        if(victim<0)break;
+        int victim=mind_archive_choose_victim(policy,archive_count,gen,protected_generation);
+        /* If the quota cannot be met without deleting a protected snapshot,
+           keep the data and report failure instead of silently exceeding it. */
+        if(victim<0)return -1;
         char old[64];archive_path(old,archive_items[victim].name);
-        if(kfs_unlink(old)!=0)break;
+        if(kfs_unlink(old)!=0)return -1;
         bytes-=archive_items[victim].size;count--;archive_items[victim].valid=0;
     }
     return 0;
 }
 static int archive_restore(mind_model_t* out) {
-    archive_scan();static uint8_t raw[sizeof(mind_model_t)];
+    if(archive_scan()!=0)return 0;
+    static uint8_t raw[sizeof(mind_model_t)];
     for(unsigned pass=0;pass<archive_count;pass++){
         int best=-1;
         for(unsigned i=0;i<archive_count;i++)if(archive_items[i].valid&&
@@ -473,6 +497,8 @@ static int archive_restore(mind_model_t* out) {
         if(best<0)return 0;
         char path[64];archive_path(path,archive_items[best].name);mind_archive_header_t h;
         if(kfs_read(path,0,&h,sizeof h)==(int64_t)sizeof h&&
+           h.magic==MIND_ARCHIVE_MAGIC&&h.version==MIND_ARCHIVE_VERSION&&
+           h.generation==archive_items[best].generation&&h.model_size==sizeof(mind_model_t)&&
            kfs_read(path,sizeof h,raw,sizeof raw)==(int64_t)sizeof raw&&
            archive_crc(raw,sizeof raw)==h.crc&&mind_model_load(out,raw,sizeof raw))return 1;
         archive_items[best].valid=0;

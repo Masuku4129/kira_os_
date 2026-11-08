@@ -11,7 +11,9 @@
 static unsigned char* slurp(const char* p, size_t* n) {
     FILE* f = fopen(p, "rb");
     if (!f) { perror(p); exit(2); }
-    fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
+    long len = -1;
+    if (fseek(f, 0, SEEK_END) == 0) len = ftell(f);
+    if (len < 0 || fseek(f, 0, SEEK_SET) != 0) { fprintf(stderr, "%s: размер не определён\n", p); exit(2); }
     unsigned char* b = malloc((size_t)len + 1);
     if (!b || fread(b, 1, (size_t)len, f) != (size_t)len) { fprintf(stderr, "%s: не прочитан\n", p); exit(2); }
     fclose(f); *n = (size_t)len; return b;
@@ -30,7 +32,7 @@ static int fixture(const char* out) {
     if (!mind_model_seed(&seed, &src, sizeof src)) return 1;
     FILE* f = fopen(out, "wb");
     if (!f || fwrite(&seed, 1, sizeof seed, f) != sizeof seed) { perror(out); return 1; }
-    fclose(f);
+    if (fclose(f) != 0) { perror(out); return 1; }
     printf("испытательное семя для стенда записано в %s (не результат обучения)\n", out);
     return 0;
 }
@@ -54,7 +56,7 @@ int main(int argc, char** argv) {
     printf("в семени: веса предвидения (наблюдений %u из %u), подсказок по рычагам %u\n", seed.net.n, src.net.n, hints);
     FILE* f = fopen(argv[2], "wb");
     if (!f || fwrite(&seed, 1, sizeof seed, f) != sizeof seed) { perror(argv[2]); return 1; }
-    fclose(f);
+    if (fclose(f) != 0) { perror(argv[2]); return 1; }
     printf("записано %s (%zu байт)\n", argv[2], sizeof seed);
     return 0;
 }

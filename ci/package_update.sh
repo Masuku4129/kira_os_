@@ -5,11 +5,21 @@ RESULTS_DIR="${RESULTS_DIR:-ci-out/results}"
 AUDIT_DIR="${AUDIT_DIR:-ci-out/audit}"
 IMAGE_AUDIT_DIR="${IMAGE_AUDIT_DIR:-ci-out/release-image-audit}"
 IMAGE_AUDIT="${IMAGE_AUDIT_DIR}/image-audit.json"
+RELEASE_IMAGE_DIR="${RELEASE_IMAGE_DIR:-ci-out/release-image}"
+ARM64_IMAGE_DIR="${ARM64_IMAGE_DIR:-ci-out/arm64-image}"
+UEFI_IMAGE_DIR="${UEFI_IMAGE_DIR:-ci-out/uefi/EFI}"
+UEFI_LOG_DIR="${UEFI_LOG_DIR:-ci-out/uefi-ovmf}"
 KIRA_VERSION="${KIRA_VERSION:-v46}"
 BASE_REF="${KIRA_BASE_REF:-edae4ab3367a055826f431e261af5d6dee790ddf}"
 mkdir -p "$OUT_DIR"
 # Never publish a combined update while architecture blockers remain open.
-python3 ci/release_gate.py docs/RELEASE_GAPS.md
+# KIRA_PREVIEW=1 builds a clearly labelled test archive and never replaces the release.
+if [ "${KIRA_PREVIEW:-0}" = "1" ]; then
+  echo "package: PREVIEW mode - release gate NOT satisfied, archive is a test build"
+  python3 ci/release_gate.py docs/RELEASE_GAPS.md || true
+else
+  python3 ci/release_gate.py docs/RELEASE_GAPS.md
+fi
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
@@ -25,7 +35,7 @@ fi
 HEAD_SHA="$(git rev-parse HEAD)"
 RUN_URL="${CI_RUN_URL:-https://github.com/${GITHUB_REPOSITORY:-Masuku4129/kira_os_}/actions/runs/${GITHUB_RUN_ID:-unknown}}"
 
-for key in HOST_RESULT BUILD_RESULT VM_RESULT ARM64_RESULT AUDIT_RESULT MIND_RESULT GUI_RESULT KCC_RESULT DRIVER_RESULT IMAGE_AUDIT_RESULT; do
+for key in HOST_RESULT BUILD_RESULT VM_RESULT ARM64_RESULT AUDIT_RESULT MIND_RESULT GUI_RESULT KCC_RESULT DRIVER_RESULT UEFI_RESULT IMAGE_AUDIT_RESULT; do
   value="${!key:-}"
   if [ "$value" != "success" ]; then
     echo "ERROR: required CI job $key is not successful (value: ${value:-missing})" >&2
@@ -61,15 +71,35 @@ print("package: binary image audit evidence verified")
 PY_AUDIT
 python3 ci/release_image.py "$IMAGE_AUDIT"
 
+# The release archive must carry the exact images produced and audited by this CI run.
+for image in "$RELEASE_IMAGE_DIR/kira.iso" "$RELEASE_IMAGE_DIR/kira_disk.img" \
+             "$ARM64_IMAGE_DIR/kira-arm64.img" "$ARM64_IMAGE_DIR/kira-arm64.disk" \
+             "$UEFI_IMAGE_DIR/BOOT/BOOTX64.EFI" "$UEFI_IMAGE_DIR/KIRA/KIRA.ELF"; do
+  if [ ! -s "$image" ]; then
+    echo "ERROR: tested release image is missing or empty: $image" >&2
+    exit 1
+  fi
+done
+
 HOST_LOG="$(find_required_log host-tests.log)"
 MIND_LOG="$(find_required_log mind-quality.log)"
 GUI_LOG="$(find_required_log gui-regression.log)"
 KCC_LOG="$(find_required_log kcc-tests.log)"
 DRIVER_LOG="$(find_required_log driver-e2e.log)"
+UEFI_LOG="$UEFI_LOG_DIR/serial.log"
+if [ ! -s "$UEFI_LOG" ]; then echo "ERROR: successful OVMF boot serial evidence is missing: $UEFI_LOG" >&2; exit 1; fi
 
 git archive --format=tar --prefix=kira_os/ "$HEAD_SHA" | tar -xf - -C "$STAGE"
 R="$STAGE/kira_os/RELEASE"
 mkdir -p "$R"
+cp "$RELEASE_IMAGE_DIR/kira.iso" "$R/kira.iso"
+cp "$RELEASE_IMAGE_DIR/kira_disk.img" "$R/kira_disk.img"
+cp "$ARM64_IMAGE_DIR/kira-arm64.img" "$R/kira-arm64.img"
+cp "$ARM64_IMAGE_DIR/kira-arm64.disk" "$R/kira-arm64.disk"
+mkdir -p "$R/uefi/EFI"
+cp -R "$UEFI_IMAGE_DIR/BOOT" "$R/uefi/EFI/"
+cp -R "$UEFI_IMAGE_DIR/KIRA" "$R/uefi/EFI/"
+cp "$UEFI_LOG" "$R/uefi/ovmf-serial.log"
 
 {
   echo "# KIRA OS $KIRA_VERSION"
@@ -93,21 +123,31 @@ mkdir -p "$R"
 cat > "$R/INSTALL_TERMUX.md" <<'EOF_INSTALL'
 # Установка KIRA OS v46 на Android (Termux/Debian)
 
-Архив содержит полный каталог исходников `kira_os/`; это архив исходников, а не готовый ISO.
+Архив содержит исходники и **готовые образы, собранные и проверенные тем же CI run**:
+- `RELEASE/kira.iso` — готовый x86-64 ISO;
+- `RELEASE/kira_disk.img` — системный диск, собранный тем же CI run;
+- `RELEASE/kira-arm64.img` и `RELEASE/kira-arm64.disk` — ARM64 артефакты, если они были собраны.
 
-1. Сохранить предыдущий проект:
-   `mv ~/kira_os ~/kira_os_backup_$(date +%Y%m%d_%H%M%S)`
-2. Распаковать архив из Download:
-   `tar -xzf /storage/emulated/0/Download/KIRA_OS_Update.tar.gz -C ~`
-3. Перейти в проект и проверить контрольные суммы:
+1. Распаковать архив из Download:
+   `mkdir -p ~/kira_os && tar -xzf /storage/emulated/0/Download/KIRA_OS_Update.tar.gz -C ~`
+2. Перейти в проект и проверить контрольные суммы:
    `cd ~/kira_os && bash RELEASE/VERIFY.sh`
-4. Собрать и установить образы в Download:
-   `./build_clang.sh --android`
+3. Установить готовый ISO в Android Download:
+   `cp -f RELEASE/kira.iso /storage/emulated/0/Download/kira.iso`
+4. Если системного диска ещё нет, создать его из поставленного образа:
+   `test -e /storage/emulated/0/Download/kira_disk.img || cp RELEASE/kira_disk.img /storage/emulated/0/Download/kira_disk.img`
 
-Скрипт сборки перезаписывает `Download/kira.iso`. Если `Download/kira_disk.img` уже существует, он обновляет системные программы на нём и сохраняет пользовательские данные и опыт; если файла нет — создаёт новый. Для Limbo: CD-ROM = `kira.iso`, Hard Disk A = `kira_disk.img`, Boot from = CD-ROM.
+**Важно:** существующий `kira_disk.img` не перезаписывается этой инструкцией, чтобы не потерять пользовательские файлы и опыт Mind. Для обновления системных файлов на уже существующем диске после резервного копирования используйте из каталога проекта `./build_clang.sh --android`; этот путь собирает образ и обновляет существующий диск по логике build script.
 
-Не удаляйте резервную папку проекта, пока не проверите новую сборку в Limbo.
+Для Limbo: CD-ROM = `kira.iso`, Hard Disk A = `kira_disk.img`, Boot from = CD-ROM. Перед проверкой убедитесь, что Limbo использует именно скопированный ISO.
+
+SHA-256 архива проверяйте командой `sha256sum -c KIRA_OS_Update.tar.gz.sha256` из каталога Download.
 EOF_INSTALL
+if [ "${KIRA_PREVIEW:-0}" = "1" ]; then
+  sed -i 's/KIRA_OS_Update\.tar\.gz/KIRA_OS_PREVIEW.tar.gz/g; 1a\
+\
+**ТЕСТОВАЯ СБОРКА, не релиз** (см. PREVIEW_NOT_RELEASE.txt).' "$R/INSTALL_TERMUX.md"
+fi
 cat > "$R/VERIFY.sh" <<'EOF_VERIFY'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -120,16 +160,16 @@ echo "KIRA OS v46 source archive: verified"
 EOF_VERIFY
 chmod +x "$R/VERIFY.sh"
 
-python3 - "$RESULTS_DIR" "$R/TEST_REPORT.md" "$HOST_LOG" "$MIND_LOG" "$GUI_LOG" "$KCC_LOG" "$DRIVER_LOG" <<'PY'
+python3 - "$RESULTS_DIR" "$R/TEST_REPORT.md" "$HOST_LOG" "$MIND_LOG" "$GUI_LOG" "$KCC_LOG" "$DRIVER_LOG" "$UEFI_LOG" <<'PY'
 import json, os, pathlib, sys
 root, dest = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-host_log, mind_log, gui_log, kcc_log, driver_log = map(pathlib.Path, sys.argv[3:8])
+host_log, mind_log, gui_log, kcc_log, driver_log, uefi_log = map(pathlib.Path, sys.argv[3:9])
 jobs = [
     ("Host tests", "HOST_RESULT"), ("x86_64 build", "BUILD_RESULT"),
     ("x86_64 QEMU matrix", "VM_RESULT"), ("ARM64 build and QEMU", "ARM64_RESULT"),
     ("Static dependency/source audit", "AUDIT_RESULT"),
     ("Mind quality (ASan/UBSan)", "MIND_RESULT"), ("GUI regression", "GUI_RESULT"),
-    ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"),
+    ("KCC compiler suite", "KCC_RESULT"), ("Driver installer E2E", "DRIVER_RESULT"), ("UEFI OVMF boot", "UEFI_RESULT"),
     ("Binary ISO/KiraFS audit", "IMAGE_AUDIT_RESULT"),
 ]
 lines = ["# KIRA OS v46 — CI test report", "",
@@ -157,11 +197,12 @@ for name, ok, seconds, error, evidence in results:
 arm = sum(1 for _,_,_,_,path in results if "arm64" in path.lower())
 lines += ["", "Result JSON files: " + str(len(results)) + "; ARM64 result files: " + str(arm) + ".", "",
           "## Captured logs", "",
-          "- Host tests: " + str(host_log.relative_to(root)),
-          "- Mind quality: " + str(mind_log.relative_to(root)),
-          "- GUI regression: " + str(gui_log.relative_to(root)),
-          "- KCC compiler suite: " + str(kcc_log.relative_to(root)),
-          "- Driver installer E2E: " + str(driver_log.relative_to(root)), "",
+          "- Host tests: " + os.path.relpath(host_log, root),
+          "- Mind quality: " + os.path.relpath(mind_log, root),
+          "- GUI regression: " + os.path.relpath(gui_log, root),
+          "- KCC compiler suite: " + os.path.relpath(kcc_log, root),
+          "- Driver installer E2E: " + os.path.relpath(driver_log, root),
+          "- UEFI OVMF serial: " + os.path.relpath(uefi_log, root), "",
           "## Scope limits", "",
           "- QEMU is virtual-hardware evidence only; physical x86_64/ARM64 hardware remains untested.",
           "- A successful static audit is not proof of memory safety or complete dependency absence.",
@@ -173,10 +214,21 @@ cp "$IMAGE_AUDIT" "$R/IMAGE_AUDIT.json"
 for f in AUDIT.md inventory.json DEPENDENCIES.md dependency_inventory.json; do
   if [ -f "$AUDIT_DIR/$f" ]; then cp "$AUDIT_DIR/$f" "$R/$f"; fi
 done
+if [ "${KIRA_PREVIEW:-0}" = "1" ]; then
+  cat > "$R/PREVIEW_NOT_RELEASE.txt" <<'EOF_PREVIEW'
+ТЕСТОВАЯ СБОРКА, НЕ РЕЛИЗ.
+Все CI-проверки зелёные (host, build, QEMU-матрица, UEFI/OVMF, ARM64, KCC, GUI, Mind, driver E2E),
+но релизный шлюз docs/RELEASE_GAPS.md не закрыт: BIOS-загрузка, самосборка KCC, RTL8139 clean-room,
+подписи драйверов, DMA, платформа, GUI/Mind остаются открытыми. Проверено только в QEMU/OVMF,
+на физическом железе не проверялось.
+EOF_PREVIEW
+  KIRA_ARCHIVE=KIRA_OS_PREVIEW.tar.gz
+fi
 printf '%s\n' "$BASE_SHA" > "$R/BASE_SHA"
 printf '%s\n' "$HEAD_SHA" > "$R/HEAD_SHA"
 printf '%s\n' "$KIRA_VERSION" > "$R/VERSION"
 (cd "$STAGE/kira_os" && find . -type f ! -path './RELEASE/SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > RELEASE/SHA256SUMS)
-tar -czf "$OUT_DIR/KIRA_OS_Update.tar.gz" -C "$STAGE" kira_os
-(cd "$OUT_DIR" && sha256sum KIRA_OS_Update.tar.gz > KIRA_OS_Update.tar.gz.sha256)
-echo "package: created verified $KIRA_VERSION source archive $OUT_DIR/KIRA_OS_Update.tar.gz"
+ARCHIVE="${KIRA_ARCHIVE:-KIRA_OS_Update.tar.gz}"
+tar -czf "$OUT_DIR/$ARCHIVE" -C "$STAGE" kira_os
+(cd "$OUT_DIR" && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
+echo "package: created $KIRA_VERSION archive (source + tested images) $OUT_DIR/$ARCHIVE"

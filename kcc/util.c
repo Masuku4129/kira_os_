@@ -6,6 +6,9 @@
 
 KCtx K;
 
+size_t ka_mark(void) { return K.aused; }
+/* Сброс арены к метке: всё выделенное после ka_mark освобождается (ka_new обнуляет при выдаче, поэтому повторное использование безопасно). */
+void ka_release(size_t mark) { if (mark <= K.aused) K.aused = mark; }
 void *ka_new(size_t n) {
     if (n > ((size_t)1 << 40)) n = (size_t)1 << 40;            /* заведомо больше любой арены: уйдёт в отказ ниже */
     n = (n + 7) & ~(size_t)7;
@@ -116,7 +119,7 @@ int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int 
     } else if (emit_ir == 2) {
         unsigned char *elf; size_t n;
         if (cfg->target && !strcmp(cfg->target, "aarch64")) a64_build_elf(prog, &elf, &n);
-        else if (!cfg->target || !strcmp(cfg->target, "x86_64")) x86_build_elf(prog, &elf, &n);
+        else if (!cfg->target || !strcmp(cfg->target, "x86_64")) { if (kcc_obj) x86_build_obj(prog, &elf, &n); else x86_build_elf(prog, &elf, &n); }
         else kerr(path, 1, "unknown target '%s' (x86_64 or aarch64)", cfg->target);
         res->elf = elf; res->elflen = n;
     }

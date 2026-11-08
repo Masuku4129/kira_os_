@@ -43,21 +43,45 @@ mb_magic:
     resq 1
 mb_info:
     resq 1
+uefi_info:
+    resd 1
+uefi_size:
+    resd 1
+uefi_mode:
+    resd 1
 
 section .text
 global start
 global stack_bottom
 global stack_top
 extern kernel_main
+extern kernel_uefi_entry
 
 start:
     cli
-    mov esp, stack_top
-
-    ; Сохраняем Multiboot magic (eax) и pointer (ebx) в память.
-    ; (bss обнулён загрузчиком, старшие 32 бита qword остаются нулевыми)
+    ; ELF entry точка одна, а входят в неё в разных режимах: GRUB и BIOS stage2 - в 32-bit
+    ; protected mode, UEFI-загрузчик - уже в 64-bit long mode (Microsoft x64 ABI). Код ниже
+    ; собран как 32-битный, поэтому в 64-битном режиме те же байты декодируются иначе: например
+    ; "mov [mem], eax" превращается в movabs по 8-байтному адресу или в запись относительно RIP.
+    ; Поэтому первые 16 байт безопасны в обоих режимах и разводят пути сами:
+    ;   32-bit: dec ecx; mov esi, imm32; jmp short .protected_entry
+    ;   64-bit: movabs r14, imm64 (REX.W+REX.B 0x49); jmp .uefi_entry
+    ; ecx и esi не несут данных ни при входе из Multiboot2, ни из BIOS stage2; RCX/RDX
+    ; (аргументы UEFI) не затрагиваются.
+.dual_mode_prologue:
+    db 0x49, 0xBE                ; 32-bit: dec ecx; mov esi, imm32 / 64-bit: movabs r14, imm64
+    db 0x90, 0x90, 0x90, 0x90    ; imm32 / младшая половина imm64
+    db 0xEB, 0x07                ; 32-bit: jmp short .protected_entry (старшая половина imm64)
+    db 0x90, 0x90
+    jmp near .uefi_entry         ; исполняется только в 64-bit режиме
+%if ($ - .dual_mode_prologue) != 15
+%error "dual-mode entry prologue changed size; fix the short jump above"
+%endif
+.protected_entry:
     mov [mb_magic], eax
     mov [mb_info], ebx
+
+    mov esp, stack_top
 
     ; Настройка пейджинга для Long Mode (identity map первого 1 ГБ)
     mov eax, pdpt_table
@@ -71,7 +95,9 @@ start:
     or eax, 3
     mov [pdpt_table], eax
 
-    ; Заполняем 512 огромных страниц по 2 МБ (итого 1 ГБ identity map)
+    ; Заполняем 512 огромных страниц по 2 МБ (итого 1 ГБ identity map). Эта карта RW без NX - только на время
+    ; ранней загрузки: после включения NXE и WP vmm_enforce_wx (vmm.c) дробит образ ядра на 4-КБ страницы и ставит
+    ; права по секциям (текст RX, rodata R+NX, остальное RW+NX), а всё прочее отображение получает NX.
     mov ecx, 0
 .map_pages:
     mov eax, ecx
@@ -109,6 +135,53 @@ start:
     jmp 0x08:long_mode_start
 
 bits 64
+.uefi_entry:
+    ; UEFI уже включил long mode. Аргументы по Microsoft x64 ABI: RCX=KBI, RDX=size
+    ; (сохраняем до RDMSR, который их затирает). Пересобираем минимальную identity-карту
+    ; ядра и переходим в общий long_mode_start, как BIOS/Multiboot2.
+    mov dword [rel uefi_info], ecx
+    mov dword [rel uefi_size], edx
+    mov dword [rel uefi_mode], 1
+    mov esp, stack_top
+    mov eax, pdpt_table
+    or eax, 3
+    mov [pml4_table], eax
+    mov eax, pd_table
+    or eax, 3
+    mov [pdpt_table], eax
+    mov ecx, 0
+.uefi_map_pages:
+    mov eax, ecx
+    shl eax, 21
+    or eax, 0x83
+    mov [pd_table + ecx * 8], eax
+    inc ecx
+    cmp ecx, 512
+    jl .uefi_map_pages
+    ; NASM's long-mode parser rejects MOV CRx in this build configuration.
+    ; Emit the architecturally defined 0F 20/22 encodings explicitly.
+    ; MOV RAX, CR4; OR RAX, PAE; MOV CR4, RAX.
+    db 0x0f, 0x20, 0xe0
+    or rax, 32
+    db 0x0f, 0x22, 0xe0
+    mov eax, pml4_table
+    ; MOV CR3, RAX (zero-extended low physical address).
+    db 0x0f, 0x22, 0xd8
+    mov ecx, 0xC0000080
+    rdmsr
+    or eax, 256
+    wrmsr
+    ; MOV RAX, CR0; enable paging and protected mode; MOV CR0, RAX.
+    db 0x0f, 0x20, 0xc0
+    mov edx, 0x80000001
+    or rax, rdx
+    db 0x0f, 0x22, 0xc0
+    lgdt [gdt64.pointer]
+    push qword 0x08
+    lea rax, [rel long_mode_start]
+    push rax
+    retfq
+
 long_mode_start:
     ; Инициализация сегментов данных
     mov ax, 0x10
@@ -118,15 +191,22 @@ long_mode_start:
     mov gs, ax
     mov ss, ax
 
-    ; Восстанавливаем аргументы Multiboot в регистры ABI (rdi, rsi)
-    mov edi, [mb_magic]         ; запись в 32-битный регистр обнуляет старшую половину rdi
-    mov esi, [mb_info]
-
     ; Выравнивание стека по 16 байт
+    mov esp, stack_top
     and rsp, -16
-
-    ; Вызов точки входа ядра на C
+    cmp dword [rel uefi_mode], 0
+    jne .call_uefi
+    ; Multiboot2: System V ABI (RDI=magic, RSI=info pointer).
+    mov edi, [rel mb_magic]
+    mov rsi, [rel mb_info]
     call kernel_main
+    jmp hang
+
+.call_uefi:
+    ; UEFI KBI pointer and size were saved from RCX/RDX before RDMSR.
+    mov edi, [rel uefi_info]
+    mov esi, [rel uefi_size]
+    call kernel_uefi_entry
 
 hang:
     cli

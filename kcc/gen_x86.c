@@ -13,7 +13,11 @@ static XA xa;
 #define A (&xa)
 
 /* ---------- состояние функции ---------- */
-static const int pool[5] = { R_BX, R_12, R_13, R_14, R_15 };
+/* Пул vreg: пять callee-saved (сохраняются в прологе) и три caller-saved (r8-r10: бесплатны, но только для значений,
+   живущих не через вызов, atomic, asm, копирование памяти и подобные инструкции, которые их используют). */
+#define NCS 5
+#define NPOOL 8
+static const int pool[NPOOL] = { R_BX, R_12, R_13, R_14, R_15, R_8, R_9, R_10 };
 static const int argreg[6] = { R_DI, R_SI, R_DX, R_CX, R_8, R_9 };
 /* ---------- ABI System V: размещение аргументов ---------- */
 enum { AL_REG, AL_STK, AL_AREG, AL_ASTK };
@@ -40,7 +44,17 @@ static int p_ngrn, p_stk, p_hidden;            /* регистров занят�
 static int *vs, *ve, *rg, *so;               /* интервал, регистр (-1 нет), номер слота спила */
 static int *slotoff;                          /* смещение локального слота относительно rbp (вниз) */
 static int spillbase, epi;
+/* Оптимизации бэкенда: константный vreg (одно определение IR_CONST) не занимает регистр и подставляется непосредственно;
+   сравнение, единственный читатель результата которого - следующий IR_BRZ/IR_BRNZ, сливается с переходом. */
+static int64_t *cv;
+static unsigned char *isc, *fusecmp;
 
+typedef struct { long *wt; long w; int nv; } WtCtx;
+static void wt_visit(Ins *i, int *r, int kind, void *c) {
+    WtCtx *o = c;
+    (void)i; (void)kind;
+    if (*r > 0 && *r <= o->nv) o->wt[*r] += o->w;
+}
 static int cmp_start(const void *a, const void *b) {
     int x = *(const int *)a, y = *(const int *)b;
     if (vs[x] != vs[y]) return vs[x] < vs[y] ? -1 : 1;
@@ -51,8 +65,10 @@ static int cmp_start(const void *a, const void *b) {
 static Opd R64(int r) { return xr(8, r); }
 static Opd spill(int v) { return xm(8, R_BP, -(int64_t)(spillbase + 8 * (so[v] + 1))); }
 
+static void mov_imm_r(int r, int64_t v);
 static void ldv(int r, int v) {
     if (v <= 0) kerr(A->file, A->line, "internal: use of an undefined vreg");
+    if (isc[v]) { mov_imm_r(r, cv[v]); return; }
     if (rg[v] >= 0) { if (rg[v] != r) xa_ins(A, X_MOV, R64(r), R64(rg[v])); }
     else xa_ins(A, X_MOV, R64(r), spill(v));
 }
@@ -90,54 +106,175 @@ static void ld_reg_bytes(int reg, int base, int64_t off, int n) {
 }
 
 /* приводит rax к каноническому виду целого шириной w байт */
+static void normr(int r, int w, int sgn) {
+    if (w == 4) { if (sgn) xa_ins(A, X_MOVSX, R64(r), xr(4, r)); else xa_ins(A, X_MOV, xr(4, r), xr(4, r)); }
+    else if (w == 2 || w == 1) xa_ins(A, sgn ? X_MOVSX : X_MOVZX, R64(r), xr(w, r));
+}
+static int imm32_of(int v, int64_t *out) {
+    if (v > 0 && isc[v] && cv[v] >= INT32_MIN && cv[v] <= INT32_MAX) { *out = cv[v]; return 1; }
+    return 0;
+}
+static int log2_exact(int64_t v) {
+    if (v <= 0 || (v & (v - 1))) return -1;
+    int k = 0;
+    while (!(v & 1)) { v >>= 1; k++; }
+    return k;
+}
 static void norm(int w, int sgn) {
     if (w == 4) { if (sgn) xa_ins(A, X_MOVSX, R64(R_AX), xr(4, R_AX)); else xa_ins(A, X_MOV, xr(4, R_AX), xr(4, R_AX)); }
     else if (w == 2 || w == 1) xa_ins(A, sgn ? X_MOVSX : X_MOVZX, R64(R_AX), xr(w, R_AX));
 }
 
+static void mov_imm_r(int r, int64_t v) {
+    if (v >= 0 && v <= (int64_t)UINT32_MAX) xa_ins(A, X_MOV, xr(4, r), xi(v));
+    else xa_ins(A, X_MOV, R64(r), xi(v));
+}
 static void mov_imm(int r, int64_t v) {
     if (v >= 0 && v <= (int64_t)UINT32_MAX) xa_ins(A, X_MOV, xr(4, r), xi(v));
     else xa_ins(A, X_MOV, R64(r), xi(v));
 }
 
 static void gen_bin(const Ins *i) {
-    ldv(R_AX, i->a);
-    ldv(R_CX, i->b);
-    switch (i->sub) {
-    case ND_ADD: xa_ins(A, X_ADD, R64(R_AX), R64(R_CX)); break;
-    case ND_SUB: xa_ins(A, X_SUB, R64(R_AX), R64(R_CX)); break;
-    case ND_MUL: xa_ins(A, X_IMUL, R64(R_AX), R64(R_CX)); break;
-    case ND_AND: xa_ins(A, X_AND, R64(R_AX), R64(R_CX)); break;
-    case ND_OR: xa_ins(A, X_OR, R64(R_AX), R64(R_CX)); break;
-    case ND_XOR: xa_ins(A, X_XOR, R64(R_AX), R64(R_CX)); break;
-    case ND_SHL: xa_ins(A, X_SHL, R64(R_AX), xr(1, R_CX)); break;
-    case ND_SHR: xa_ins(A, i->sgn ? X_SAR : X_SHR, R64(R_AX), xr(1, R_CX)); break;
-    case ND_DIV: case ND_MOD:
+    int sub = i->sub;
+    if (sub == ND_DIV || sub == ND_MOD) {
+        ldv(R_AX, i->a);
+        ldv(R_CX, i->b);
         if (i->sgn) { xa_op0(A, X0_CQO); xa_ins(A, X_IDIV, R64(R_CX), NOOPD); }
         else { xa_ins(A, X_XOR, xr(4, R_DX), xr(4, R_DX)); xa_ins(A, X_DIV, R64(R_CX), NOOPD); }
-        if (i->sub == ND_MOD) xa_ins(A, X_MOV, R64(R_AX), R64(R_DX));
-        break;
-    default: kerr(A->file, A->line, "internal: bad binary operator %d", i->sub);
+        if (sub == ND_MOD) xa_ins(A, X_MOV, R64(R_AX), R64(R_DX));
+        norm(i->w, i->sgn);
+        stv(i->dst, R_AX);
+        return;
     }
-    norm(i->w, i->sgn);
-    stv(i->dst, R_AX);
+    int a = i->a, b = i->b;
+    int comm = sub == ND_ADD || sub == ND_MUL || sub == ND_AND || sub == ND_OR || sub == ND_XOR;
+    int64_t imm = 0;
+    int sz4 = i->w == 4 && !i->sgn;                  /* беззнаковые 32 бита: 32-битные команды сами обнуляют верх, normr не нужен */
+    #define RS(r) xr(sz4 ? 4 : 8, (r))
+    int bimm = imm32_of(b, &imm);
+    if (sz4 && !bimm && b > 0 && isc[b] && cv[b] >= 0 && cv[b] <= (int64_t)UINT32_MAX) { imm = (int32_t)(uint32_t)cv[b]; bimm = 1; }
+    if (!bimm && comm) {
+        if (imm32_of(a, &imm)) { int t = a; a = b; b = t; bimm = 1; }
+        else if (sz4 && a > 0 && isc[a] && cv[a] >= 0 && cv[a] <= (int64_t)UINT32_MAX) { imm = (int32_t)(uint32_t)cv[a]; int t = a; a = b; b = t; bimm = 1; }
+    }
+    int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+    if (sub == ND_ROL) {                              /* константный сдвиг: ширина 4 беззнаковая либо 8 (opt.c других не создаёт) */
+        ldv(d, a);
+        int bits = sz4 ? 32 : 64;
+        if (bimm && (imm & (bits - 1))) xa_ins(A, X_ROL, RS(d), xi(imm & (bits - 1)));
+        else if (!bimm) kerr(A->file, A->line, "internal: rol by a non-constant");
+    } else if (sub == ND_SHL || sub == ND_SHR) {
+        if (!bimm) ldv(R_CX, b);                      /* счётчик в CL до загрузки значения: d может совпадать с регистром b */
+        ldv(d, a);
+        int op = sub == ND_SHL ? X_SHL : i->sgn ? X_SAR : X_SHR;
+        if (bimm) { if (imm & (sz4 ? 31 : 63)) xa_ins(A, op, RS(d), xi(imm & (sz4 ? 31 : 63))); }
+        else xa_ins(A, op, RS(d), xr(1, R_CX));
+    } else {
+        int bm = bimm ? -1 : rg[b];
+        if (!bimm && bm >= 0 && bm == d && a != b) {
+            if (comm) { int t = a; a = b; b = t; bm = rg[b]; }
+            else { d = R_AX; }
+        }
+        int op = sub == ND_ADD ? X_ADD : sub == ND_SUB ? X_SUB : sub == ND_MUL ? X_IMUL : sub == ND_AND ? X_AND : sub == ND_OR ? X_OR : X_XOR;
+        if (sub != ND_ADD && sub != ND_SUB && sub != ND_MUL && sub != ND_AND && sub != ND_OR && sub != ND_XOR)
+            kerr(A->file, A->line, "internal: bad binary operator %d", sub);
+        ldv(d, a);
+        if (sub == ND_MUL && bimm) {
+            int k = log2_exact(imm);
+            if (k > 0) xa_ins(A, X_SHL, RS(d), xi(k));
+            else if (k < 0) xa_imul3(A, RS(d), RS(d), imm);           /* k == 0: умножение на 1, ничего не делаем */
+        } else if (bimm) xa_ins(A, op, RS(d), xi(imm));
+        else if (bm >= 0) xa_ins(A, op, RS(d), RS(bm));
+        else { ldv(R_CX, b); xa_ins(A, op, RS(d), RS(R_CX)); }
+    }
+    if (!sz4 && !i->nn) normr(d, i->w, i->sgn);
+    #undef RS
+    if (rg[i->dst] != d) stv(i->dst, d);
 }
 
-static void gen_cmp(const Ins *i) {
-    ldv(R_AX, i->a);
-    ldv(R_CX, i->b);
-    xa_ins(A, X_CMP, R64(R_AX), R64(R_CX));
-    int cc;
-    switch (i->sub) {
-    case ND_EQ: cc = CC_E; break;
-    case ND_NE: cc = CC_NE; break;
-    case ND_LT: cc = i->sgn ? CC_L : CC_B; break;
-    case ND_LE: cc = i->sgn ? CC_LE : CC_BE; break;
-    default: kerr(A->file, A->line, "internal: bad comparison %d", i->sub); return;
+
+/* Загрузка/запись в память. base < 0: адрес берётся из vreg i->a (в rax, если вытеснен); иначе адрес задан регистрами [base + ix*2^sc + disp] (слитый расчёт адреса) */
+static void gen_ldst(const Ins *i, int base, int ix, int sc, int64_t disp) {
+    if (i->w != 1 && i->w != 2 && i->w != 4 && i->w != 8) kerr(A->file, A->line, "x86-64 backend: unsupported %s width %d", i->op == IR_LOAD ? "load" : "store", i->w);
+    if (base < 0) base = rg[i->a] >= 0 ? rg[i->a] : (ldv(R_AX, i->a), R_AX);
+    #define MEM(w) (ix < 0 ? xm((w), base, disp) : xmi((w), base, ix, sc, disp))
+    if (i->op == IR_LOAD) {
+        int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+        if (i->w == 8) xa_ins(A, X_MOV, R64(d), MEM(8));
+        else if (i->w == 4) { if (i->sgn) xa_ins(A, X_MOVSX, R64(d), MEM(4)); else xa_ins(A, X_MOV, xr(4, d), MEM(4)); }
+        else xa_ins(A, i->sgn ? X_MOVSX : X_MOVZX, R64(d), MEM(i->w));
+        if (rg[i->dst] != d) stv(i->dst, d);
+    } else {
+        int64_t imm;
+        if (imm32_of(i->b, &imm)) xa_ins(A, X_MOV, MEM(i->w), xi(imm));
+        else {
+            int src = rg[i->b] >= 0 ? rg[i->b] : (ldv(R_CX, i->b), R_CX);
+            xa_ins(A, X_MOV, MEM(i->w), xr(i->w, src));
+        }
     }
-    xa_setcc(A, cc, xr(1, R_AX));
-    xa_ins(A, X_MOVZX, xr(4, R_AX), xr(1, R_AX));
-    stv(i->dst, R_AX);
+    #undef MEM
+}
+
+static int *g_nd, *g_nu;                       /* числа определений/чтений vreg текущей функции */
+static const unsigned char *g_mdef;
+static int fuse_tmp(int v) { return v > 0 && g_nd[v] == 1 && g_nu[v] == 1 && !(g_mdef && g_mdef[v]) && !isc[v]; }
+/* Слияние расчёта адреса с обращением к памяти: [SHL/MUL(z, 2^s)]; ADD x, y; LOAD/STORE. Возвращает число поглощённых инструкций (0 - не подошло). */
+static int try_addr_fuse(Ins **ins, int k, int n) {
+    const Ins *p = ins[k];
+    if (k + 1 < n && p->op == IR_BIN && p->sub == ND_ADD && p->w == 8 && fuse_tmp(p->dst)) {
+        const Ins *m = ins[k + 1];
+        if ((m->op == IR_LOAD || m->op == IR_STORE) && m->a == p->dst && !(m->op == IR_STORE && m->b == p->dst)) {
+            int64_t imm;
+            if (rg[p->a] >= 0 && !isc[p->a] && imm32_of(p->b, &imm)) { gen_ldst(m, rg[p->a], -1, 0, imm); return 2; }
+            if (rg[p->a] >= 0 && rg[p->b] >= 0 && !isc[p->a] && !isc[p->b] && rg[p->b] != R_SP) { gen_ldst(m, rg[p->a], rg[p->b], 0, 0); return 2; }
+        }
+    }
+    if (k + 2 < n && p->op == IR_BIN && p->w == 8 && fuse_tmp(p->dst) && (p->sub == ND_SHL || p->sub == ND_MUL)) {
+        const Ins *q = ins[k + 1], *m = ins[k + 2];
+        int64_t c;
+        if (!imm32_of(p->b, &c) || p->a <= 0 || isc[p->a] || rg[p->a] < 0) return 0;
+        int sc = -1;
+        if (p->sub == ND_SHL && c >= 1 && c <= 3) sc = (int)c;
+        else if (p->sub == ND_MUL) sc = c == 2 ? 1 : c == 4 ? 2 : c == 8 ? 3 : -1;
+        if (sc < 0) return 0;
+        if (q->op != IR_BIN || q->sub != ND_ADD || q->w != 8 || !fuse_tmp(q->dst)) return 0;
+        if (!(m->op == IR_LOAD || m->op == IR_STORE) || m->a != q->dst || (m->op == IR_STORE && m->b == q->dst)) return 0;
+        int x = q->a == p->dst ? q->b : q->b == p->dst ? q->a : 0;
+        if (x <= 0 || x == p->dst || isc[x] || rg[x] < 0) return 0;
+        gen_ldst(m, rg[x], rg[p->a], sc, 0);
+        return 3;
+    }
+    return 0;
+}
+
+/* Сравнение: a в регистр (свой или rax), b непосредственно, в своём регистре или через rcx. Возвращает код условия. */
+static int cmp_cc(const Ins *i) {
+    int a = i->a, b = i->b;
+    int ra;
+    if (rg[a] >= 0) ra = rg[a]; else { ldv(R_AX, a); ra = R_AX; }
+    int64_t imm;
+    if (imm32_of(b, &imm)) xa_ins(A, X_CMP, R64(ra), xi(imm));
+    else if (rg[b] >= 0) xa_ins(A, X_CMP, R64(ra), R64(rg[b]));
+    else { ldv(R_CX, b); xa_ins(A, X_CMP, R64(ra), R64(R_CX)); }
+    switch (i->sub) {
+    case ND_EQ: return CC_E;
+    case ND_NE: return CC_NE;
+    case ND_LT: return i->sgn ? CC_L : CC_B;
+    case ND_LE: return i->sgn ? CC_LE : CC_BE;
+    default: kerr(A->file, A->line, "internal: bad comparison %d", i->sub); return CC_E;
+    }
+}
+static void gen_cmp(const Ins *i) {
+    int cc = cmp_cc(i);
+    int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+    xa_setcc(A, cc, xr(1, d));
+    xa_ins(A, X_MOVZX, xr(4, d), xr(1, d));
+    if (rg[i->dst] != d) stv(i->dst, d);
+}
+/* cmp + brz/brnz: условный переход напрямую по флагам. Код x86 с младшим битом 1 - обратное условие. */
+static void gen_cmpbr(const Ins *c, const Ins *br) {
+    int cc = cmp_cc(c);
+    xa_jmp(A, br->op == IR_BRZ ? (cc ^ 1) : cc, (int)br->imm);
 }
 
 static void gen_call(const Ins *i) {
@@ -218,6 +355,79 @@ static void gen_atomic(const Ins *i) {
     norm(w, i->sgn); stv(i->dst, R_AX);
 }
 
+static const struct { const char *t, *in, *out, *hex; } xasm_tab[] = {
+    { "cli; hlt", "", "", "FA F4" },
+    { "sti; hlt", "", "", "FB F4" },
+    { "wrmsr", "cad", "", "0F 30" },
+    { "rdmsr", "c", "ad", "0F 32" },
+    { "cpuid", "ac", "abcd", "0F A2" },
+    { "mov %0, %%cr0", "r", "", "0F 22 C0" },
+    { "mov %0, %%cr3", "r", "", "0F 22 D8" },
+    { "mov %0, %%cr4", "r", "", "0F 22 E0" },
+    { "mov %%cr0, %0", "", "r", "0F 20 C0" },
+    { "mov %%cr2, %0", "", "r", "0F 20 D0" },
+    { "mov %%cr3, %0", "", "r", "0F 20 D8" },
+    { "mov %%cr4, %0", "", "r", "0F 20 E0" },
+    { "mov %%cr3, %0; mov %0, %%cr3", "", "r", "0F 20 D8 0F 22 D8" },
+    { "ltr %0", "r", "", "0F 00 D8" },
+    { "invlpg (%0)", "r", "", "0F 01 38" },
+    { "clflush (%0)", "r", "", "0F AE 38" },
+    { "clts", "", "", "0F 06" },
+    { "fninit", "", "", "DB E3" },
+    { "ud2", "", "", "0F 0B" },
+    { "rep movsb", "DSc", "DSc", "F3 A4" },
+    { "rep movsq", "DSc", "DSc", "F3 48 A5" },
+    { "std rep movsb cld", "DSc", "DSc", "FD F3 A4 FC" },
+    { "rep stosb", "Dca", "Dc", "F3 AA" },
+    { "rep stosq", "Dca", "Dc", "F3 48 AB" },
+    { "rep insw", "Dcd", "Dc", "66 F3 6D" },
+    { "rep outsw", "Scd", "Sc", "66 F3 6F" },
+    { "mov %%gs:0, %0", "", "r", "65 48 8B 04 25 00 00 00 00" },
+    { "xor %%rsp, %%rsp ud2", "", "", "48 31 E4 0F 0B" },
+    { "fxsave (%0)", "r", "", "0F AE 00" },
+    { "fxrstor (%0)", "r", "", "0F AE 08" },
+    { "pushfq cli popq %0", "", "r", "9C FA 58" },
+    { "pushfq; pop %0", "", "r", "9C 58" },
+    { "outb %%al, $0x80", "a", "", "E6 80" },
+    { "ldmxcsr %0", "r", "", "0F AE 10" },
+    { "lidt %0 int3", "r", "", "0F 01 18 CC" },
+    { "rdrand %0; setc %1", "", "rc", "48 0F C7 F0 0F 92 C1 0F B6 C9" },
+    { "rdseed %0; setc %1", "", "rc", "48 0F C7 F8 0F 92 C1 0F B6 C9" },
+    { "lgdt %0 pushq $0x08 leaq 1f(%%rip), %%rax pushq %%rax lretq 1: mov $0x10, %%ax mov %%ax, %%ds mov %%ax, %%es mov %%ax, %%fs mov %%ax, %%gs mov %%ax, %%ss", "r", "", "0F 01 10 6A 08 48 8D 05 03 00 00 00 50 48 CB 66 B8 10 00 8E D8 8E C0 8E E0 8E E8 8E D0" },
+    { "int $18", "", "", "CD 12" },
+    { "bsfl %1, %0", "a", "a", "0F BC C0" },
+    { "bsfq %1, %0", "a", "a", "48 0F BC C0" },
+    { "bsrl %1, %0", "a", "a", "0F BD C0" },
+    { 0, 0, 0, 0 } };
+
+static int hexv(char c) { return c >= 'a' ? c - 'a' + 10 : c >= 'A' ? c - 'A' + 10 : c - '0'; }
+static int xreg_of(char c) {
+    switch (c) { case 'a': case 'r': return R_AX; case 'b': return R_BX; case 'c': return R_CX; case 'd': return R_DX; case 'S': return R_SI; default: return R_DI; }
+}
+/* шаблоны привилегированных/строковых команд: входы грузятся в закреплённые регистры, команда выдаётся готовыми байтами, выходы забираются из регистров */
+static int gen_asm_tab(const Ins *i) {
+    const char *t = i->sym;
+    const int *o = (const int *)(intptr_t)i->imm;
+    for (int e = 0; xasm_tab[e].t; e++) {
+        if (strcmp(t, xasm_tab[e].t)) continue;
+        const char *in = xasm_tab[e].in, *out = xasm_tab[e].out;
+        for (int k = 0; in[k]; k++) ldv(xreg_of(in[k]), i->args[k]);
+        int hasb = strchr(out, 'b') != NULL;
+        if (hasb) xa_ins(A, X_MOV, R64(R_11), R64(R_BX));
+        unsigned char buf[48]; int nb = 0;
+        for (const char *h = xasm_tab[e].hex; *h;) {
+            if (*h == ' ') { h++; continue; }
+            buf[nb++] = (unsigned char)(hexv(h[0]) * 16 + hexv(h[1]));
+            h += 2;
+        }
+        xa_raw(A, buf, nb);
+        if (hasb) { static const unsigned char x[3] = { 0x4C, 0x87, 0xDB }; xa_raw(A, x, 3); }   /* xchg rbx, r11: rbx восстановлен, r11 = результат */
+        for (int k = 0; out[k]; k++) stv(o[k], out[k] == 'b' ? R_11 : xreg_of(out[k]));
+        return 1;
+    }
+    return 0;
+}
+
 static void gen_asm(const Ins *i) {
     const char *t = i->sym;
     const int *o = (const int *)(intptr_t)i->imm;
@@ -247,13 +457,14 @@ static void gen_asm(const Ins *i) {
         xa_op0(A, X0_SYSCALL);
         stv(o[0], R_AX); stv(o[1], R_DI); stv(o[2], R_SI); stv(o[3], R_DX);
     }
-    else kerr(A->file, A->line, "inline asm template '%s' is not supported on x86_64", t);
+    else if (!gen_asm_tab(i)) kerr(A->file, A->line, "inline asm template '%s' is not supported on x86_64", t);
 }
 
 static void gen_ins(const Ins *i, int homebase_h) {
     switch (i->op) {
     case IR_LABEL: xa_label(A, (int)i->imm); break;
     case IR_CONST:
+        if (isc[i->dst]) break;
         if (rg[i->dst] >= 0) mov_imm(rg[i->dst], i->imm);
         else if (i->imm >= INT32_MIN && i->imm <= INT32_MAX) xa_ins(A, X_MOV, spill(i->dst), xi(i->imm));
         else { mov_imm(R_AX, i->imm); stv(i->dst, R_AX); }
@@ -261,20 +472,24 @@ static void gen_ins(const Ins *i, int homebase_h) {
     case IR_GADDR: {
         Obj *t = gen_lookup(i->sym);
         if (!t) kerr(A->file, A->line, "undefined reference to '%s'", i->sym);
-        xa_ins(A, X_LEA, R64(R_AX), xs(8, t, 0));
-        stv(i->dst, R_AX);
+        int gd = i->dst > 0 && rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+        xa_ins(A, X_LEA, R64(gd), xs(8, t, 0));
+        if (gd == R_AX) stv(i->dst, R_AX);
         break;
     }
     case IR_LADDR:
-        xa_ins(A, X_LEA, R64(R_AX), xm(8, R_BP, -(int64_t)slotoff[i->imm]));
-        stv(i->dst, R_AX);
+    {   int ld = i->dst > 0 && rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+        xa_ins(A, X_LEA, R64(ld), xm(8, R_BP, -(int64_t)slotoff[i->imm]));
+        if (ld == R_AX) stv(i->dst, R_AX);
         break;
+    }
     case IR_PARAM: {
         const ALoc *l = &ploc[i->imm];
         if (!i->sub) {
-            if (l->kind == AL_REG) xa_ins(A, X_MOV, R64(R_AX), xm(8, R_BP, -(int64_t)homebase_h + 8 * l->idx));
-            else xa_ins(A, X_MOV, R64(R_AX), xm(8, R_BP, 16 + l->off));
-            stv(i->dst, R_AX);
+            int pd = i->dst > 0 && rg[i->dst] >= 0 ? rg[i->dst] : R_AX;       /* сразу в регистр приёмника: без промежуточного rax */
+            if (l->kind == AL_REG) xa_ins(A, X_MOV, R64(pd), xm(8, R_BP, -(int64_t)homebase_h + 8 * l->idx));
+            else xa_ins(A, X_MOV, R64(pd), xm(8, R_BP, 16 + l->off));
+            if (pd == R_AX) stv(i->dst, R_AX);
         } else {
             ldv(R_CX, i->a);
             if (l->kind == AL_AREG) copy_bytes(R_CX, 0, R_BP, -(int64_t)homebase_h + 8 * l->idx, i->w);
@@ -286,33 +501,27 @@ static void gen_ins(const Ins *i, int homebase_h) {
     case IR_VAINFO:
         if (i->sub == 0) xa_ins(A, X_LEA, R64(R_AX), xm(8, R_BP, -(int64_t)homebase_h));
         else if (i->sub == 1) xa_ins(A, X_LEA, R64(R_AX), xm(8, R_BP, 16 + p_stk));
+        else if (i->sub == 3) xa_ins(A, X_MOV, R64(R_AX), xm(8, R_BP, 8));
         else xa_ins(A, X_MOV, xr(4, R_AX), xi(p_ngrn));
         stv(i->dst, R_AX);
         break;
-    case IR_LOAD:
-        ldv(R_AX, i->a);
-        if (i->w == 8) xa_ins(A, X_MOV, R64(R_AX), xm(8, R_AX, 0));
-        else if (i->w == 4) { if (i->sgn) xa_ins(A, X_MOVSX, R64(R_AX), xm(4, R_AX, 0)); else xa_ins(A, X_MOV, xr(4, R_AX), xm(4, R_AX, 0)); }
-        else if (i->w == 2 || i->w == 1) xa_ins(A, i->sgn ? X_MOVSX : X_MOVZX, R64(R_AX), xm(i->w, R_AX, 0));
-        else kerr(A->file, A->line, "x86-64 backend: unsupported load width %d", i->w);
-        stv(i->dst, R_AX);
-        break;
-    case IR_STORE:
-        if (i->w != 1 && i->w != 2 && i->w != 4 && i->w != 8) kerr(A->file, A->line, "x86-64 backend: unsupported store width %d", i->w);
-        ldv(R_AX, i->a);
-        ldv(R_CX, i->b);
-        xa_ins(A, X_MOV, xm(i->w, R_AX, 0), xr(i->w, R_CX));
-        break;
-    case IR_MOV: ldv(R_AX, i->a); stv(i->dst, R_AX); break;
+    case IR_LOAD: case IR_STORE: gen_ldst(i, -1, -1, 0, 0); break;
+    case IR_MOV: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); if (rg[i->dst] < 0) stv(i->dst, d); break; }
     case IR_BIN: gen_bin(i); break;
-    case IR_NEG: ldv(R_AX, i->a); xa_ins(A, X_NEG, R64(R_AX), NOOPD); norm(i->w, i->sgn); stv(i->dst, R_AX); break;
-    case IR_NOT: ldv(R_AX, i->a); xa_ins(A, X_NOT, R64(R_AX), NOOPD); norm(i->w, i->sgn); stv(i->dst, R_AX); break;
+    case IR_NEG: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); xa_ins(A, X_NEG, R64(d), NOOPD); if (!i->nn) normr(d, i->w, i->sgn); if (rg[i->dst] < 0) stv(i->dst, d); break; }
+    case IR_NOT: { int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX; ldv(d, i->a); xa_ins(A, X_NOT, R64(d), NOOPD); if (!i->nn) normr(d, i->w, i->sgn); if (rg[i->dst] < 0) stv(i->dst, d); break; }
     case IR_CMP: gen_cmp(i); break;
-    case IR_EXT: ldv(R_AX, i->a); norm(i->w, i->sgn); stv(i->dst, R_AX); break;
+    case IR_EXT: {
+        int d = rg[i->dst] >= 0 ? rg[i->dst] : R_AX;
+        if (rg[i->a] >= 0 && !isc[i->a] && i->w == 4 && !i->sgn) xa_ins(A, X_MOV, xr(4, d), xr(4, rg[i->a]));
+        else { ldv(d, i->a); normr(d, i->w, i->sgn); }
+        if (rg[i->dst] < 0) stv(i->dst, d);
+        break;
+    }
     case IR_JMP: xa_jmp(A, CC_NONE, (int)i->imm); break;
     case IR_BRZ: case IR_BRNZ:
-        ldv(R_AX, i->a);
-        xa_ins(A, X_TEST, R64(R_AX), R64(R_AX));
+        { int ra = rg[i->a] >= 0 && !isc[i->a] ? rg[i->a] : (ldv(R_AX, i->a), R_AX);
+        xa_ins(A, X_TEST, R64(ra), R64(ra)); }
         xa_jmp(A, i->op == IR_BRZ ? CC_E : CC_NE, (int)i->imm);
         break;
     case IR_CALL: gen_call(i); break;
@@ -362,6 +571,23 @@ static void gen_func(IrFn *fi) {
     vs = ka_new(sizeof(int) * (size_t)(nv + 1)); ve = ka_new(sizeof(int) * (size_t)(nv + 1));
     rg = ka_new(sizeof(int) * (size_t)(nv + 1)); so = ka_new(sizeof(int) * (size_t)(nv + 1));
     for (int v = 0; v <= nv; v++) { vs[v] = INT_MAX; ve[v] = -1; rg[v] = -1; }
+    {
+        int *nd = ka_new(sizeof(int) * (size_t)(nv + 2)), *nu = ka_new(sizeof(int) * (size_t)(nv + 2));
+        Ins **di = ka_new(sizeof(Ins *) * (size_t)(nv + 2));
+        ir_usecount(fi, nd, nu, di);
+        g_nd = nd; g_nu = nu; g_mdef = fi->mdef;
+        cv = ka_new(sizeof(int64_t) * (size_t)(nv + 2));
+        isc = ka_new((size_t)nv + 2);
+        fusecmp = ka_new((size_t)n + 2);
+        for (int v = 1; v <= nv; v++)
+            if (nd[v] == 1 && di[v] && di[v]->op == IR_CONST && !(fi->mdef && fi->mdef[v])) { isc[v] = 1; cv[v] = di[v]->imm; }
+        for (int k = 0; k + 1 < n; k++) {
+            const Ins *c = ins[k], *b = ins[k + 1];
+            if (c->op == IR_CMP && (b->op == IR_BRZ || b->op == IR_BRNZ) && b->a == c->dst && c->dst > 0 && nd[c->dst] == 1 && nu[c->dst] == 1 &&
+                !(fi->mdef && fi->mdef[c->dst]))
+                fusecmp[k] = 1;
+        }
+    }
     int *labpos = ka_new(sizeof(int) * (size_t)(fi->nlab + 2));
     for (int l = 0; l <= fi->nlab + 1; l++) labpos[l] = -1;
     int maxout = 0, natom = 0;
@@ -378,6 +604,8 @@ static void gen_func(IrFn *fi) {
         }
         if (ins[k]->op == IR_ATOMIC) natom++;
     }
+    for (int v = 1; v <= nv; v++) if (isc[v]) { vs[v] = INT_MAX; ve[v] = -1; }
+    for (int k = 0; k < n; k++) if (fusecmp[k]) { int d = ins[k]->dst; vs[d] = INT_MAX; ve[d] = -1; }
     /* обратные переходы: всё, что живёт в начале цикла, живёт до конца цикла */
     for (int changed = 1; changed;) {
         changed = 0;
@@ -387,23 +615,60 @@ static void gen_func(IrFn *fi) {
             if (j->imm < 0 || j->imm > fi->nlab || labpos[j->imm] < 0) kerr(A->file, A->line, "internal: jump to undefined label %d", (int)j->imm);
             int l = labpos[j->imm];
             if (l > k) continue;
-            for (int v = 1; v <= nv; v++)
-                if (ve[v] >= l && vs[v] < l && ve[v] < k) { ve[v] = k; changed = 1; }
+            for (int v = 1; v <= nv; v++) {
+                if (fi->mdef && fi->mdef[v] && ve[v] >= 0) {
+                    /* переменная с несколькими определениями: значение может идти по обратному переходу, поэтому весь цикл */
+                    if (vs[v] <= k && ve[v] >= l && (vs[v] > l || ve[v] < k)) {
+                        if (vs[v] > l) vs[v] = l;
+                        if (ve[v] < k) ve[v] = k;
+                        changed = 1;
+                    }
+                } else if (ve[v] >= l && vs[v] < l && ve[v] < k) { ve[v] = k; changed = 1; }
+            }
         }
     }
     /* линейный проход */
     int *order = ka_new(sizeof(int) * (size_t)(nv + 1)), no = 0;
     for (int v = 1; v <= nv; v++) if (ve[v] >= 0) order[no++] = v;
     qsort(order, (size_t)no, sizeof(int), cmp_start);
-    int act[5] = { 0, 0, 0, 0, 0 }, used[5] = { 0, 0, 0, 0, 0 };
+    /* барьеры: инструкции, портящие caller-saved регистры; значение, чей интервал их содержит, живёт только в callee-saved */
+    int *bc = ka_new(sizeof(int) * (size_t)(n + 2));
+    for (int k = 0; k < n; k++) {
+        const Ins *b = ins[k];
+        int bar = b->op == IR_CALL || b->op == IR_ATOMIC || b->op == IR_ASM || b->op == IR_COPY || b->op == IR_ZERO ||
+                  (b->op == IR_PARAM && b->sub) || (b->op == IR_RET && b->sub);
+        bc[k + 1] = bc[k] + bar;
+    }
+    /* вес vreg: число обращений с учётом глубины циклов (вытесняется самый «дешёвый», а не самый длинный) */
+    long *wt = ka_new(sizeof(long) * (size_t)(nv + 2));
+    {
+        int *dd = ka_new(sizeof(int) * (size_t)(n + 2));
+        for (int k = 0; k < n; k++) {
+            const Ins *j = ins[k];
+            if ((j->op != IR_JMP && j->op != IR_BRZ && j->op != IR_BRNZ) || j->imm < 0 || j->imm > fi->nlab || labpos[j->imm] < 0) continue;
+            int l = labpos[j->imm];
+            if (l <= k) { dd[l]++; dd[k + 1]--; }
+        }
+        int depth = 0;
+        for (int k = 0; k < n; k++) {
+            depth += dd[k];
+            long w = 1L << (3 * (depth > 5 ? 5 : depth));
+            WtCtx wc = { wt, w, nv };
+            ir_walk(ins[k], wt_visit, &wc);
+        }
+    }
+    int act[NPOOL] = { 0 }, used[NPOOL] = { 0 };
     for (int q = 0; q < no; q++) {
         int v = order[q], best = -1;
-        for (int k = 0; k < 5; k++) if (act[k] && ve[act[k]] <= vs[v]) act[k] = 0;
-        for (int k = 0; k < 5; k++) if (!act[k]) { best = k; break; }
+        int cross = bc[ve[v] + 1] - bc[vs[v]] > 0;
+        int lim = cross ? NCS : NPOOL;
+        for (int k = 0; k < NPOOL; k++) if (act[k] && ve[act[k]] <= vs[v]) act[k] = 0;
+        if (!cross) for (int k = NCS; k < NPOOL; k++) if (!act[k]) { best = k; break; }
+        if (best < 0) for (int k = 0; k < NCS; k++) if (!act[k]) { best = k; break; }
         if (best < 0) {
-            int far = 0;
-            for (int k = 1; k < 5; k++) if (ve[act[k]] > ve[act[far]]) far = k;
-            if (ve[act[far]] > ve[v]) { rg[act[far]] = -1; best = far; }
+            int far = -1;
+            for (int k = 0; k < lim; k++) if (far < 0 || wt[act[k]] < wt[act[far]]) far = k;
+            if (far >= 0 && wt[act[far]] < wt[v]) { rg[act[far]] = -1; best = far; }
         }
         if (best >= 0) { act[best] = v; rg[v] = pool[best]; used[best] = 1; }
     }
@@ -420,8 +685,8 @@ static void gen_func(IrFn *fi) {
     }
     /* кадр */
     int64_t cur = 0;
-    int saveoff[5];
-    for (int k = 0; k < 5; k++) if (used[k]) { cur += 8; saveoff[k] = (int)cur; }
+    int saveoff[NCS];
+    for (int k = 0; k < NCS; k++) if (used[k]) { cur += 8; saveoff[k] = (int)cur; }
     p_hidden = ty_is_agg(f->ty->base) && ty_unqual(f->ty->base)->size > 16;
     {
         int np = f->nparams;
@@ -431,7 +696,7 @@ static void gen_func(IrFn *fi) {
         p_stk = plan_args(np, pa, p_hidden, pl, &p_ngrn);
         ploc = pl;
     }
-    int nh = (f->nparams > 0 || f->ty->variadic || p_hidden) ? 6 : 0;
+    int nh = f->ty->variadic ? 6 : (p_hidden && p_ngrn < 1 ? 1 : p_ngrn);   /* домашняя область - только для приходящих регистров */
     cur += 8 * nh;
     int homeh = (int)cur;
     spillbase = (int)cur;
@@ -455,12 +720,16 @@ static void gen_func(IrFn *fi) {
     xa_op0(A, X0_PUSH_RBP);
     xa_ins(A, X_MOV, R64(R_BP), R64(R_SP));
     if (frame) xa_ins(A, X_SUB, R64(R_SP), xi(frame));
-    for (int k = 0; k < 5; k++) if (used[k]) xa_ins(A, X_MOV, xm(8, R_BP, -saveoff[k]), R64(pool[k]));
+    for (int k = 0; k < NCS; k++) if (used[k]) xa_ins(A, X_MOV, xm(8, R_BP, -saveoff[k]), R64(pool[k]));
     for (int k = 0; k < nh; k++) xa_ins(A, X_MOV, xm(8, R_BP, -(int64_t)homeh + 8 * k), R64(argreg[k]));
-    for (int k = 0; k < n; k++) gen_ins(ins[k], homeh);
+    for (int k = 0; k < n; k++) {
+        if (fusecmp[k]) { gen_cmpbr(ins[k], ins[k + 1]); k++; continue; }
+        { int fz = kcc_noopt ? 0 : try_addr_fuse(ins, k, n); if (fz) { k += fz - 1; continue; } }
+        gen_ins(ins[k], homeh);
+    }
     A->file = K.srcpath; A->line = f->line;
     xa_label(A, epi);
-    for (int k = 0; k < 5; k++) if (used[k]) xa_ins(A, X_MOV, R64(pool[k]), xm(8, R_BP, -saveoff[k]));
+    for (int k = 0; k < NCS; k++) if (used[k]) xa_ins(A, X_MOV, R64(pool[k]), xm(8, R_BP, -saveoff[k]));
     xa_op0(A, X0_LEAVE);
     xa_op0(A, X0_RET);
     xa_labels_end(A);
@@ -488,6 +757,24 @@ static void gen_helper(Obj *o) {
         xa_jmp(A, CC_NONE, 1);
         xa_label(A, 3); xa_ins(A, X_XOR, xr(4, R_AX), xr(4, R_AX));
         xa_label(A, 2); xa_ins(A, X_MOVSX, R64(R_AX), xr(4, R_AX)); xa_op0(A, X0_RET);
+    } else if (!strcmp(o->name, "setjmp")) {
+        /* jmp_buf (13 слов): rbx, rbp, r12-r15, rsp после возврата, адрес возврата. Возвращает 0. */
+        static const int regs[6] = { R_BX, R_BP, R_12, R_13, R_14, R_15 };
+        for (int k = 0; k < 6; k++) xa_ins(A, X_MOV, xm(8, R_DI, 8 * k), R64(regs[k]));
+        xa_ins(A, X_LEA, R64(R_DX), xm(8, R_SP, 8)); xa_ins(A, X_MOV, xm(8, R_DI, 48), R64(R_DX));
+        xa_ins(A, X_MOV, R64(R_DX), xm(8, R_SP, 0)); xa_ins(A, X_MOV, xm(8, R_DI, 56), R64(R_DX));
+        xa_ins(A, X_XOR, xr(4, R_AX), xr(4, R_AX)); xa_op0(A, X0_RET);
+    } else if (!strcmp(o->name, "longjmp")) {
+        /* longjmp(env, v): возвращает v (0 -> 1) из места setjmp */
+        static const int regs[6] = { R_BX, R_BP, R_12, R_13, R_14, R_15 };
+        xa_ins(A, X_MOV, xr(4, R_AX), xr(4, R_SI));
+        xa_ins(A, X_TEST, xr(4, R_AX), xr(4, R_AX)); xa_jmp(A, CC_NE, 1);
+        xa_ins(A, X_ADD, xr(4, R_AX), xi(1));
+        xa_label(A, 1);
+        for (int k = 0; k < 6; k++) xa_ins(A, X_MOV, R64(regs[k]), xm(8, R_DI, 8 * k));
+        xa_ins(A, X_MOV, R64(R_DX), xm(8, R_DI, 56));
+        xa_ins(A, X_MOV, R64(R_SP), xm(8, R_DI, 48));
+        xa_ins(A, X_JMPR, R64(R_DX), NOOPD);
     } else {
         xa_ins(A, X_MOV, R64(R_AX), R64(R_DI));
         xa_label(A, 1);
@@ -507,6 +794,23 @@ static void x86_reloc(unsigned char *text, void *ctx) {
         if (v < INT32_MIN || v > INT32_MAX) kerr(K.srcpath, f->line, "relocation to '%s' is out of range", t->name);
         for (int k = 0; k < 4; k++) text[f->off + k] = (unsigned char)((uint32_t)v >> (8 * k));
     }
+}
+
+void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen) {
+    memset(&xa, 0, sizeof xa);
+    gen_prepare(globals);
+    A->file = K.srcpath; A->line = 1;
+    for (Obj *g = globals; g; g = g->next)
+        if (g->is_func && g->body && g->emit) gen_func((IrFn *)g->ir);
+    size_t nr = 0;
+    for (XFix *f = xa.fix; f; f = f->next) nr++;
+    ObjRel *rel = ka_new(sizeof(ObjRel) * (nr + 1));
+    nr = 0;
+    for (XFix *f = xa.fix; f; f = f->next) {
+        rel[nr].off = (uint64_t)f->off; rel[nr].t = f->target; rel[nr].add = f->add - 4; rel[nr].type = f->target->is_func ? 4 : 2;
+        nr++;
+    }
+    elf_emit_obj(globals, A->p, A->len, ELF_ARCH_X86, rel, nr, out, outlen);
 }
 
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {

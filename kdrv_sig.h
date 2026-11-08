@@ -27,6 +27,7 @@ typedef struct {
     uint8_t id[KDRV_SIG_KEY_ID_SIZE];
     uint8_t public_key[32];
     uint32_t flags;
+    uint64_t not_after;    /* ротация: ключ не принимается при now >= not_after (Unix UTC, 0 - без срока); сверяется с защищённым от отката временем */
 } kdrv_sig_key_t;
 
 enum {
@@ -44,7 +45,9 @@ enum {
     KDRV_SIG_E_TRUST_STORE = -11,
     KDRV_SIG_E_SIGNATURE = -12,
     KDRV_SIG_E_IO = -13,
-    KDRV_SIG_E_MISSING = -14
+    KDRV_SIG_E_MISSING = -14,
+    KDRV_SIG_E_KEY_EXPIRED = -15,  /* срок самого ключа (ротация) вышел */
+    KDRV_SIG_E_CLOCK = -16         /* часы ушли назад дальше допуска относительно максимально виденного времени */
 };
 
 enum { KDRV_AUTH_LOCAL = 0, KDRV_AUTH_PUBLISHER = 1 };

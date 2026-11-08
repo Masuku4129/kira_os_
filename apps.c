@@ -284,11 +284,14 @@ static void mind_draw_training(surface_t* s, const mind_view_t* v) {
 static void mind_draw_decisions(surface_t* s, const mind_view_t* v) {
     gfx_fill(s, TH_CONTENT);
     card(s, 10, 10, 580, 90, "СВОДКА РЕШЕНИЙ", TH_PURPLE);
-    char t[96]; int p = cat(t, 0, "решений: "); p = cat_u(t, p, v->decisions);
+    char t[128]; int p = cat(t, 0, "решений: "); p = cat_u(t, p, v->decisions);
     p = cat(t, p, " · отклонений: "); p = cat_u(t, p, v->anomalies);
     p = cat(t, p, " · остановок: "); p = cat_u(t, p, v->kills); gfx_text(s, 26, 48, t, TH_TEXT, -1);
+    uint32_t lever_backs = 0;
+    for (int i = 0; i < ML_N; i++) lever_backs += v->lv[i].backs;
     p = cat(t, 0, "изменений рычагов: "); p = cat_u(t, p, v->lv_changes);
-    p = cat(t, p, " · общих откатов: "); p = cat_u(t, p, v->lv_general); gfx_text(s, 26, 74, t, TH_TEXT_DIM, -1);
+    p = cat(t, p, " · их откатов: "); p = cat_u(t, p, lever_backs);
+    p = cat(t, p, " · общих: "); p = cat_u(t, p, v->lv_general); gfx_text(s, 26, 74, t, TH_TEXT_DIM, -1);
     card(s, 10, 110, 580, 415, "АДАПТИВНЫЕ ПАРАМЕТРЫ · 13–30", TH_CYAN);
     for (int i = 0; i < ML_N; i++) {
         int x = i / 9 ? 310 : 26, y = 142 + (i % 9) * 40;
@@ -349,7 +352,7 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
         }
     }
     card(s, 10, 165, 280, 145, "ПАМЯТЬ", TH_PURPLE);
-    char t[64]; int p = cat(t, 0, "занято "); p = cat_u(t, p, v->mem_used); cat(t, p, "%");
+    char t[128]; int p = cat(t, 0, "занято "); p = cat_u(t, p, v->mem_used); cat(t, p, "%");
     ui_text_bold(s, 26, 208, t, v->mem_used >= 85 ? TH_RED : TH_TEXT);
     ui_round_rect(s, 26, 236, 248, 14, 6, TRACK, 255);
     if (v->mem_used) ui_round_rect(s, 26, 236, (int)(248 * (v->mem_used > 100 ? 100 : v->mem_used) / 100), 14, 6, v->mem_used >= 85 ? TH_RED : TH_PURPLE, 255);
@@ -367,6 +370,19 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
     } else gfx_text(s, 26, 412, "резервирование ядра: выключено", TH_TEXT_FAINT, -1);
     p = cat(t, 0, "композитор, нс/1000 точек: "); p = cat_u(t, p, v->comp_ns_kpx_par);
     p = cat(t, p, " / "); cat_u(t, p, v->comp_ns_kpx_ser); gfx_text(s, 26, 438, t, TH_TEXT_FAINT, -1);
+    p = cat(t, 0, "ошибки устройств: "); p = cat_u(t, p, v->dev_errors);
+    if (v->dev_errors && v->dev_name[0]) { p = cat(t, p, " · "); cat(t, p, v->dev_name); }
+    gfx_text(s, 26, 464, t, v->dev_errors ? TH_AMBER : TH_TEXT_DIM, -1);
+    p = cat(t, 0, "подозрительный ввод: ");
+    if (v->hid_suspect) {
+        p = cat_u(t, p, v->hid_suspect); p = cat(t, p, " · ");
+        p = cat(t, p, v->hid_name[0] ? v->hid_name : "устройство"); p = cat(t, p, " · ");
+        p = cat_u(t, p, v->hid_rate); cat(t, p, " нажатий/с");
+    } else cat(t, p, "не обнаружен");
+    gfx_text(s, 26, 486, t, v->hid_suspect ? TH_AMBER : TH_TEXT_DIM, -1);
+    p = cat(t, 0, "отклонено запусков: "); p = cat_u(t, p, v->denied);
+    if (v->denied && v->denied_name[0]) { p = cat(t, p, " · "); cat(t, p, v->denied_name); }
+    gfx_text(s, 26, 508, t, v->denied ? TH_AMBER : TH_TEXT_DIM, -1);
     mind_page_status(s, v, "оборудование · показатели, опубликованные ядром");
 }
 void app_mind_draw(surface_t* s, const mind_view_t* v, unsigned page) {

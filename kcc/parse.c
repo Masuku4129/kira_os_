@@ -10,7 +10,7 @@ typedef struct Scope Scope;
 struct Scope { Scope *parent; VS *vars; TS *tags; VS **hv; TS **ht; };
 #define GH 1024
 
-typedef struct { int is_typedef, is_static, is_extern, is_inline, noret, packed, align; } Attr;
+typedef struct { int is_typedef, is_static, is_extern, is_inline, noret, packed, align, weak; } Attr;
 
 typedef struct Init Init;
 struct Init { Type *ty; Init **ch; int nch; Node *expr; Member *mem; int flex; };
@@ -211,6 +211,7 @@ static void attrs(Attr *a) {
             tok = tok->next;
             if (!strcmp(name, "packed")) a->packed = 1;
             else if (!strcmp(name, "noreturn")) a->noret = 1;
+            else if (!strcmp(name, "weak")) a->weak = 1;
             else if (!strcmp(name, "aligned")) {
                 int64_t v = 16;
                 if (eat("(")) { v = const_expr(); expect(")"); }
@@ -219,7 +220,7 @@ static void attrs(Attr *a) {
             } else if (!strcmp(name, "unused") || !strcmp(name, "always_inline") || !strcmp(name, "noinline") || !strcmp(name, "used") ||
                        !strcmp(name, "deprecated") || !strcmp(name, "format") || !strcmp(name, "warn_unused_result") ||
                        !strcmp(name, "nonnull") || !strcmp(name, "const") || !strcmp(name, "pure") || !strcmp(name, "cold") ||
-                       !strcmp(name, "hot") || !strcmp(name, "gnu_inline")) {
+                       !strcmp(name, "hot") || !strcmp(name, "gnu_inline") || !strcmp(name, "returns_twice")) {
                 if (eat("(")) {
                     int d = 1;
                     while (d) {
@@ -290,7 +291,18 @@ static Type *declspec_(Attr *a) {
             if (KW("__extension__")) { tok = tok->next; continue; }
             if (KW("__attribute__")) { attrs(a); continue; }
             if (KW("_Atomic")) unsupported(tok, "_Atomic");
-            if (KW("_Alignas")) unsupported(tok, "_Alignas (use __attribute__((aligned(N))))");
+            if (KW("_Alignas")) {
+                const Token *at = tok;
+                tok = tok->next;
+                expect("(");
+                int64_t v;
+                if (is_typename(tok)) v = TAL(typename());
+                else v = const_expr();
+                expect(")");
+                if (v < 0 || (v & (v - 1)) || v > (1 << 20)) kerr_tok(at, "requested alignment is not a power of 2");
+                if (v > a->align) a->align = (int)v;
+                continue;
+            }
             if (KW("_Complex")) unsupported(tok, "_Complex");
             if (KW("float") || KW("double")) unsupported(tok, "float and double (floating point is not supported)");
         }
@@ -359,6 +371,7 @@ static void layout_struct(Type *ty, int is_union, int packed, int align_attr) {
         m->idx = idx++;
         Type *mt = m->ty;
         int al = packed ? 1 : TAL(mt);
+        if (m->align > al) al = m->align;
         if (mt->k == TY_ARRAY && mt->alen < 0) {
             if (m->next) kerr_tok(m->tok, "flexible array member must be last");
             al = packed ? 1 : TAL(mt->base);
@@ -466,7 +479,7 @@ static Type *struct_decl_(int is_union) {
             if (!P(":")) mt = declarator(base, &nm);
             attrs(&ma);
             Member *m = ka_new(sizeof *m);
-            m->ty = mt; m->name = nm ? tname(nm) : NULL; m->tok = nm ? nm : tok; m->bw = -1; m->bo = 0;
+            m->ty = mt; m->name = nm ? tname(nm) : NULL; m->tok = nm ? nm : tok; m->bw = -1; m->bo = 0; m->align = ma.align;
             if (eat(":")) {
                 int64_t w = const_expr();
                 if (!is_inttype_ok(mt) || mt->k == TY_ENUM) {
@@ -1337,6 +1350,48 @@ static Node *atomic_builtin(const Token *t) {
     return n;
 }
 
+/* _Generic: совпадение типа по правилам совместимости C11, с учётом квалификаторов указуемых типов. */
+static int generic_same(const Type *a, const Type *b) {
+    if (!ty_compat(a, b)) return 0;
+    while (a->k == TY_PTR && b->k == TY_PTR) {
+        a = a->base; b = b->base;
+        if (a->is_const != b->is_const || a->is_volatile != b->is_volatile) return 0;
+    }
+    return 1;
+}
+static Node *generic_select(void) {
+    const Token *t = tok;
+    tok = tok->next;
+    expect("(");
+    Node *ctl = assign();
+    Type *ct = ctl->ty;
+    if (ct->k == TY_ARRAY) ct = ty_ptr(ct->base);
+    else if (ct->k == TY_FUNC) ct = ty_ptr(ct);
+    ct = ty_unqual(ct);
+    Node *pick = 0, *dflt = 0;
+    int ndef = 0;
+    while (eat(",")) {
+        if (KW("default")) {
+            tok = tok->next;
+            expect(":");
+            if (ndef++) kerr_tok(tok, "duplicate default generic association");
+            dflt = assign();
+            continue;
+        }
+        Type *ty = typename();
+        expect(":");
+        Node *e = assign();
+        if (generic_same(ct, ty)) {
+            if (pick) kerr_tok(t, "multiple generic associations match the controlling type");
+            pick = e;
+        }
+    }
+    expect(")");
+    if (!pick) pick = dflt;
+    if (!pick) kerr_tok(t, "controlling expression type '%s' not compatible with any generic association type", ty_name(ct));
+    return pick;
+}
+
 static Node *primary(void) {
     const Token *t = tok;
     if (P("(")) {
@@ -1376,6 +1431,14 @@ static Node *primary(void) {
                 return new_cast(a, &ty_long, t);
             }
             if (l == 8 && !memcmp(nm, "offsetof", 8)) return offsetof_expr(t);
+            if (l == 14 && !memcmp(nm, "return_address", 14)) {
+                expect("(");
+                Node *a0 = rv(assign()); expect(")");
+                if (a0->k != ND_NUM || a0->val != 0) kerr_tok(t, "__builtin_return_address supports only argument 0");
+                Node *n = new_node(ND_RETADDR, t);
+                n->ty = ty_ptr(&ty_void);
+                return n;
+            }
             if (l == 11 && !memcmp(nm, "unreachable", 11)) {
                 expect("("); expect(")");
                 Node *n = new_node(ND_UNREACH, t);
@@ -1409,7 +1472,7 @@ static Node *primary(void) {
         if (v->ety) return new_num(v->eval, &ty_int, t);
         kerr_tok(t, "unexpected type name '%.*s': expected expression", t->len, t->s);
     }
-    if (tok->k == TK_KW && tok_is(tok, "_Generic")) unsupported(tok, "_Generic");
+    if (tok->k == TK_KW && tok_is(tok, "_Generic")) return generic_select();
     kerr_tok(tok, "expected expression before %s", tokdesc(tok));
 }
 
@@ -1571,7 +1634,8 @@ static Node *make_cond(Node *c, Node *a, Node *b, const Token *t) {
         a = new_cast(a, ct, t); b = new_cast(b, ct, t);
     } else if (a->ty->k == TY_PTR && ty_is_int(b->ty) && b->k == ND_NUM && b->val == 0) { ct = a->ty; b = new_cast(b, ct, t); }
     else if (b->ty->k == TY_PTR && ty_is_int(a->ty) && a->k == ND_NUM && a->val == 0) { ct = b->ty; a = new_cast(a, ct, t); }
-    else if (ty_is_agg(a->ty) || ty_is_agg(b->ty)) unsupported(t, "conditional operator on struct/union operands");
+    else if (ty_is_agg(a->ty) && ty_is_agg(b->ty) && ty_compat(a->ty, b->ty)) ct = a->ty;     /* значение - адрес выбранного объекта */
+    else if (ty_is_agg(a->ty) || ty_is_agg(b->ty)) kerr_tok(t, "incompatible operand types in conditional expression");
     else kerr_tok(t, "incompatible operand types ('%s' and '%s')", ty_name(a->ty), ty_name(b->ty));
     if (c->k == ND_NUM) return c->val ? a : b;
     Node *n = new_node(ND_COND, t);
@@ -2000,7 +2064,7 @@ static void write_data(Init *in, Type *ty, unsigned char *buf, int off, Obj *o, 
 }
 
 /* ---------- встроенный ассемблер (минимальный набор шаблонов) ---------- */
-typedef struct { const char *t; int nout, nin; const char *outs[4], *ins[2]; const char *clob; } AsmT;
+typedef struct { const char *t; int nout, nin; const char *outs[4], *ins[4]; const char *clob; } AsmT;
 static const AsmT asm_tab[] = {
     { "", 0, 0, {0}, {0}, "" }, { "mfence", 0, 0, {0}, {0}, "" }, { "lfence", 0, 0, {0}, {0}, "" }, { "sfence", 0, 0, {0}, {0}, "" },
     { "pause", 0, 0, {0}, {0}, "" }, { "hlt", 0, 0, {0}, {0}, "" }, { "cli", 0, 0, {0}, {0}, "" }, { "sti", 0, 0, {0}, {0}, "" },
@@ -2013,7 +2077,50 @@ static const AsmT asm_tab[] = {
     { "dsb sy", 0, 0, {0}, {0}, "" }, { "sev", 0, 0, {0}, {0}, "" },
     { "mrs %0, cntvct_el0", 1, 0, { "=r" }, {0}, "" }, { "mrs %0, cntfrq_el0", 1, 0, { "=r" }, {0}, "" },
     { "svc #0", 3, 1, { "+x0", "+x1", "+x2" }, { "x8" }, "" }, { "isb", 0, 0, {0}, {0}, "" }, { "wfi", 0, 0, {0}, {0}, "" },
-    { "wfe", 0, 0, {0}, {0}, "" }, { "yield", 0, 0, {0}, {0}, "" }, { 0, 0, 0, {0}, {0}, 0 } };
+    { "wfe", 0, 0, {0}, {0}, "" }, { "yield", 0, 0, {0}, {0}, "" },
+    { "cli; hlt", 0, 0, {0}, {0}, "" },
+    { "sti; hlt", 0, 0, {0}, {0}, "" },
+    { "wrmsr", 0, 3, {0}, { "c", "a", "d" }, "" },
+    { "rdmsr", 2, 1, { "=a", "=d" }, { "c" }, "" },
+    { "cpuid", 4, 2, { "=a", "=b", "=c", "=d" }, { "a", "c" }, "" },
+    { "mov %0, %%cr0", 0, 1, {0}, { "r" }, "" },
+    { "mov %0, %%cr3", 0, 1, {0}, { "r" }, "" },
+    { "mov %0, %%cr4", 0, 1, {0}, { "r" }, "" },
+    { "mov %%cr0, %0", 1, 0, { "=r" }, {0}, "" },
+    { "mov %%cr2, %0", 1, 0, { "=r" }, {0}, "" },
+    { "mov %%cr3, %0", 1, 0, { "=r" }, {0}, "" },
+    { "mov %%cr4, %0", 1, 0, { "=r" }, {0}, "" },
+    { "mov %%cr3, %0; mov %0, %%cr3", 1, 0, { "=r" }, {0}, "" },
+    { "ltr %0", 0, 1, {0}, { "r" }, "" },
+    { "invlpg (%0)", 0, 1, {0}, { "r" }, "" },
+    { "clflush (%0)", 0, 1, {0}, { "r" }, "" },
+    { "clts", 0, 0, {0}, {0}, "" },
+    { "fninit", 0, 0, {0}, {0}, "" },
+    { "ud2", 0, 0, {0}, {0}, "" },
+    { "rep movsb", 3, 0, { "+D", "+S", "+c" }, {0}, "" },
+    { "rep movsq", 3, 0, { "+D", "+S", "+c" }, {0}, "" },
+    { "std rep movsb cld", 3, 0, { "+D", "+S", "+c" }, {0}, "" },
+    { "rep stosb", 2, 1, { "+D", "+c" }, { "a" }, "" },
+    { "rep stosq", 2, 1, { "+D", "+c" }, { "a" }, "" },
+    { "rep insw", 2, 1, { "+D", "+c" }, { "d" }, "" },
+    { "rep outsw", 2, 1, { "+S", "+c" }, { "d" }, "" },
+    { "mov %%gs:0, %0", 1, 0, { "=r" }, {0}, "" },
+    { "xor %%rsp, %%rsp ud2", 0, 0, {0}, {0}, "" },
+    { "fxsave (%0)", 0, 1, {0}, { "r" }, "" },
+    { "fxrstor (%0)", 0, 1, {0}, { "r" }, "" },
+    { "pushfq cli popq %0", 1, 0, { "=r" }, {0}, "" },
+    { "pushfq; pop %0", 1, 0, { "=r" }, {0}, "" },
+    { "outb %%al, $0x80", 0, 1, {0}, { "a" }, "" },
+    { "ldmxcsr %0", 0, 1, {0}, { "m" }, "" },
+    { "lidt %0 int3", 0, 1, {0}, { "m" }, "" },
+    { "rdrand %0; setc %1", 2, 0, { "=r", "=qm" }, {0}, "" },
+    { "rdseed %0; setc %1", 2, 0, { "=r", "=qm" }, {0}, "" },
+    { "lgdt %0 pushq $0x08 leaq 1f(%%rip), %%rax pushq %%rax lretq 1: mov $0x10, %%ax mov %%ax, %%ds mov %%ax, %%es mov %%ax, %%fs mov %%ax, %%gs mov %%ax, %%ss", 0, 1, {0}, { "m" }, ",rax," },
+    { "int $18", 0, 0, {0}, {0}, "" },
+    { "bsfl %1, %0", 1, 1, { "=a" }, { "a" }, "" },
+    { "bsfq %1, %0", 1, 1, { "=a" }, { "a" }, "" },
+    { "bsrl %1, %0", 1, 1, { "=a" }, { "a" }, "" },
+    { 0, 0, 0, {0}, {0}, 0 } };
 
 static char *asm_norm(const char *s, int n) {
     char *o = ka_new((size_t)n + 1);
@@ -2086,6 +2193,7 @@ static Node *asm_stmt(void) {
                     oc->next = e; oc = e; n->nao++;
                     if (ct->str[0] == '+') { Node *rd = rv(cp); Node *w = ka_new(sizeof *w); *w = *rd; w->next = NULL; xc->next = w; xc = w; n->nai++; }
                 } else {
+                    if (str_is(ct, "m")) e = new_addr(e, ct);
                     e = rv(e);
                     if (!ty_is_scalar(e->ty)) kerr_tok(ct, "asm input operand must be scalar");
                     ic->next = e; ic = e; n->nai++;
@@ -2140,6 +2248,7 @@ static Obj *declare_global(Token *nm, Type *ty, const Attr *a, int has_init) {
     }
     if (a->is_inline) o->is_inline = 1;
     if (a->noret) o->noret = 1;
+    if (a->weak) o->is_weak = 1;
     if (a->align) o->align = a->align;
     if (!is_fn) {
         if (has_init) { o->is_def = 1; o->tentative = 0; }

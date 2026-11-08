@@ -260,6 +260,7 @@ int shm_open(const char* name, uint32_t pages, int flags, kobj_t** out) {
         set_name(&s->hdr, KOBJ_SHM, name);
         s->frames = (uint64_t*)kmalloc(sizeof(uint64_t) * pages);
         if (!s->frames) { kfree(s); return KE_NOMEM; }
+        __builtin_memset(s->frames, 0, sizeof(uint64_t) * pages);   // kmalloc не обнуляет: destroy читает frames[] до конца при неполной выдаче
         s->pages = pages;
         for (uint32_t i = 0; i < pages; i++) {
             uint64_t pa = pmm_alloc_page();

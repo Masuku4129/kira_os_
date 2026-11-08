@@ -4,8 +4,9 @@
    остальное - устройства без исполнения), каждое ядро получает свой тик и проверяется.
    Второй этап: поверх платформы работает общее ядро - менеджер страниц, куча, планировщик с очередями на каждом
    ядре, мьютексы ядра; межъядерные сигналы - SGI контроллера GIC. Файловые системы, Разум, программы - дальше. */
+#include "wx_arm.h"
 #include <stdint.h>
-#include "fdt.h"
+#include "../../fdt.h"
 #include "bootinfo.h"
 #include "fb_arm.h"
 #include "timer.h"
@@ -207,7 +208,7 @@ static void mmu_enable_this_cpu(void) {
     dsb(); isb();
     __asm__ volatile ("tlbi vmalle1\n dsb ish\n isb" ::: "memory");
     uint64_t sctlr = SYSREG_R(sctlr_el1);
-    sctlr |= (1ull << 0) | (1ull << 2) | (1ull << 12);         /* M, C, I */
+    sctlr |= (1ull << 0) | (1ull << 2) | (1ull << 12) | (1ull << 19);   /* M, C, I, WXN: записываемое не исполняется */
     sctlr &= ~(1ull << 1);                                       /* без проверки выравнивания */
     SYSREG_W(sctlr_el1, sctlr);
     isb();
@@ -270,6 +271,49 @@ void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) {
     return (void*)(uintptr_t)a;
 }
 
+/* ---------------- W^X: права образа ядра ----------------
+   Границы секций - из linker.ld (кратны 4 КБ): текст RX, данные только для чтения (после перемещений boot.S их не
+   пишут) RO+PXN, данные и bss RW+PXN; вся остальная карта получает PXN/UXN. Таблицы правятся до включения MMU,
+   поэтому переходного состояния с записываемым исполняемым текстом нет. SCTLR.WXN (mmu_enable_this_cpu) дополнительно
+   запрещает исполнять любую записываемую страницу, даже если запись в таблицу когда-нибудь ошибётся. */
+void kernel_panic(const char* reason) __attribute__((noreturn));
+extern char wx_text_start[], wx_text_end[], wx_ro_start[], wx_ro_end[], wx_data_start[], wx_data_end[];
+static uint64_t* wx_ptr(uint64_t phys) { return (uint64_t*)(uintptr_t)phys; }
+static uint64_t wx_alloc(void) { return (uint64_t)(uintptr_t)palloc(4096, 4096); }
+static const wx_env_t wx_env = { wx_ptr, wx_alloc };
+static wx_layout_t wx_layout(void) {
+    wx_layout_t l;
+    l.text_lo = (uint64_t)(uintptr_t)wx_text_start; l.text_hi = (uint64_t)(uintptr_t)wx_text_end;
+    l.ro_lo = (uint64_t)(uintptr_t)wx_ro_start;     l.ro_hi = (uint64_t)(uintptr_t)wx_ro_end;
+    l.data_lo = (uint64_t)(uintptr_t)wx_data_start; l.data_hi = (uint64_t)(uintptr_t)wx_data_end;
+    l.exec_lo = l.exec_hi = 0;
+    return l;
+}
+static int wx_apply(void) {
+    wx_layout_t l = wx_layout();
+    if (((l.text_lo | l.text_hi | l.ro_lo | l.ro_hi | l.data_lo | l.data_hi) & 4095) || l.text_lo >= l.text_hi ||
+        l.text_hi > l.ro_lo || l.ro_hi > l.data_lo) {
+        kprintf("[KIRA VMM] ERROR: kernel image is not loaded at a 4 KB boundary or its sections are out of order: W^X impossible\n");
+        return -1;
+    }
+    if (wxa_enforce(&wx_env, l0, &l) != 0) {
+        kprintf("[KIRA VMM] ERROR: W^X: cannot split the kernel mapping (no memory or image outside normal memory)\n");
+        return -1;
+    }
+    return 0;
+}
+static void wx_verify(int announce) {
+    wx_layout_t l = wx_layout();
+    wx_stats_t st;
+    if (wxa_scan(&wx_env, l0, &l, &st) != 0) {
+        mmu_on = 0;
+        if (st.bad_count) kprintf("[KIRA VMM] ERROR: W^X violated: %u mapping(s) writable and executable, first at %x\n", st.bad_count, st.bad_va);
+        if (!st.layout_ok) kprintf("[KIRA VMM] ERROR: kernel image page has wrong rights at %x\n", st.layout_bad_va);
+        kernel_panic("W^X for kernel memory violated");
+    }
+    if (announce) kprintf("[KIRA VMM] W^X kernel: ok (text=%u KB ro=%u KB rw=%u KB)\n", st.exec_kb, st.ro_kb, st.rw_kb);
+}
+
 static int mmu_init(uint64_t top) {
     l0 = (uint64_t*)palloc(4096, 4096);
     if (!l0) return -1;
@@ -279,6 +323,7 @@ static int mmu_init(uint64_t top) {
     if (bits > 48) { bits = 48; parange = 5; }
     if (top > (1ull << bits)) top = 1ull << bits;
     for (uint64_t gb = 0; gb < top; gb += 1ull << 30) if (map_gb(gb)) return -1;
+    if (wx_apply() != 0) return -1;
     tcr_val = 16ull | (1ull << 8) | (1ull << 10) | (3ull << 12) | (1ull << 23) | (parange << 32);
     if (((SYSREG_R(id_aa64mmfr0_el1) >> 4) & 0xF) == 2) tcr_val |= 1ull << 36;   /* TCR.AS: ASID 16 бит */
     mmu_enable_this_cpu();
@@ -1103,6 +1148,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     if (dma_lo) kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at %x without CPU cache for device buffers\n", (dma_hi - dma_lo) >> 20, dma_lo);
     else kprintf("[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)\n");
     kprintf("[KIRA ARM64] MMU on: identity map up to %x, %u-bit physical addresses, RAM cached, devices non-executable\n", top, (uint64_t)bits);
+    wx_verify(1);
 
     /* контроллер прерываний */
     int g = fdt_find_compatible(fdt, -1, "arm,gic-v3");

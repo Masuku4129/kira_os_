@@ -9,6 +9,7 @@
 #include "clock.h"
 #include "sched.h"
 #include "msi.h"
+#include "iommu.h"
 
 /* Диски системы. Порядок опроса: virtio-blk (виртуальные машины), NVMe, AHCI (SATA), и только если на шине есть
    IDE-контроллер (или PCI нет вообще) - ATA PIO по старым портам: в режиме AHCI те же диски через порты не видны,
@@ -134,6 +135,7 @@ void blk_probe(void) {
     nslots = 0; primary = 0;
     int n = pci_init();
     uart_print("[KIRA PCI] "); uart_print_dec((uint64_t)n); uart_print(" device(s) found.\n");
+    (void)iommu_init();      /* VT-d: до первого драйвера с DMA; без IOMMU поведение прежнее */
     blk_dev_t* v = virtio_blk_probe();
     if (v) blk_register(v, "vda", "virtio-blk");
     nvme_probe();

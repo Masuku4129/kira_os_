@@ -9,7 +9,9 @@
 static int notes, last_id, last_vis, launches, last_launch, tabs_hit, last_tab;
 static int in_n, in_id, in_type, in_x, in_y, in_b;
 static void inp(int id, int type, int x, int y, unsigned b) { in_n++; in_id = id; in_type = type; in_x = x; in_y = y; in_b = (int)b; }
-static void* al(uint64_t n) { return calloc(1, n); }
+static uint64_t released_bytes;
+static void* al(uint64_t n) { return calloc(1, (size_t)n); }
+static void rel(void* p, uint64_t n) { if (p) { released_bytes += n; free(p); } }
 static void nt(int id, int v) { notes++; last_id = id; last_vis = v; }
 static void lc(int i) { launches++; last_launch = i; }
 static void tb(int i) { tabs_hit++; last_tab = i; }
@@ -44,7 +46,7 @@ static uint32_t ind(surface_t* sc, int i) { int sx, sy; wm_side_center(i, &sx, &
 static void dock_states(void) {
     static char tags[24][8], labels[24][8];
     surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
-    wm_ops_t ops = { al, nt, inp, lc, rz, tb };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, rel };
     wm_init(&sc, &ops);
     wm_side_item_t it[24];
     for (int i = 0; i < 24; i++) { snprintf(tags[i], 8, "p%d", i); snprintf(labels[i], 8, "P%d", i); it[i] = (wm_side_item_t){ labels[i], tags[i], TH_PINK, ICON_NET, 0, 0, 0, 0, 0 }; }
@@ -111,7 +113,7 @@ static void responsive_topbar(void) {
         int w = dims[d][0], h = dims[d][1];
         surface_t sc = { calloc((size_t)w * h, 4), w, h, w };
         CHECK(sc.px != 0);
-        wm_ops_t o = { al, nt, inp, lc, rz, tb };
+        wm_ops_t o = { al, nt, inp, lc, rz, tb, 0, rel };
         wm_init(&sc, &o);
         wm_tabs_set(many, (int)(sizeof many / sizeof many[0]));
         int app = wm_create("Проверка окна", WM_AUTO, WM_AUTO, 600, 564, WM_ZOOMABLE);
@@ -142,7 +144,7 @@ static void responsive_topbar(void) {
 
 int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
-    wm_ops_t ops = { al, nt, inp, lc, rz, tb };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, rel };
     wm_init(&scr, &ops);
     int x, y, w, h;
     wm_side_item_t side[3] = { { "A", "A", TH_CYAN, ICON_TERMINAL, 0 }, { "Z", "zzz", TH_PURPLE, ICON_AI, 0 }, { "S", "set", TH_TEXT_DIM, ICON_GEAR, 1 } };
@@ -447,6 +449,46 @@ int main(void) {
             same_as_full(&scr, "pulses");
         }
     }
+    /* Уведомления проверяются после фоновой анимации, чтобы часы теста не шли назад. */
+    {
+        wm_set_fx(0);
+        uint32_t before = px(&scr, 800, WM_TOP_H + 40);
+        wm_notify("Система", "Проверка уведомлений", WM_NOTIFY_SUCCESS);
+        CHECK(wm_compose(&x, &y, &w, &h));
+        uint32_t shown = px(&scr, 800, WM_TOP_H + 40);
+        CHECK(shown != before);
+        wm_notify("Mind", "Обнаружено событие", WM_NOTIFY_WARNING);
+        wm_notify("Драйверы", "Устройство готово", WM_NOTIFY_INFO);
+        wm_notify("Сеть", "Подключение восстановлено", WM_NOTIFY_SUCCESS);
+        CHECK(wm_compose(&x, &y, &w, &h));
+        wm_anim(14000, 0);
+        CHECK(wm_compose(&x, &y, &w, &h));
+        CHECK(px(&scr, 800, WM_TOP_H + 40) != shown);
+        wm_notify("Система", "Очистка очереди", WM_NOTIFY_INFO);
+        wm_notify_clear();
+        CHECK(wm_compose(&x, &y, &w, &h));
+    }
+
+    /* Поверхность обычного окна освобождается ровно по выделенному cap,
+       а память окна Ring 3 остаётся собственностью вызывающей стороны. */
+    {
+        uint64_t before = released_bytes;
+        int owned = wm_create_ex("release probe", 200, 200, 32, 16, WM_RESIZABLE, 64, 32);
+        CHECK(owned >= 0);
+        if (owned >= 0) {
+            wm_destroy(owned);
+            CHECK(released_bytes - before == 64u * 32u * sizeof(uint32_t));
+        }
+        uint32_t* external = calloc(32u * 16u, sizeof(uint32_t));
+        CHECK(external != 0);
+        before = released_bytes;
+        int borrowed = external ? wm_create_user("borrowed probe", 300, 200, 32, 16, external) : -1;
+        CHECK(borrowed >= 0);
+        if (borrowed >= 0) wm_destroy(borrowed);
+        CHECK(released_bytes == before);
+        free(external);
+    }
+
     dock_states();
     responsive_topbar();
     printf("wm: shell top bar (responsive tabs and fitted app windows at 640x480, 800x600, 1024x768, 1280x720, 1920x1080; clock and meters), side launcher, traffic-light buttons, z-order, damage, drag, "

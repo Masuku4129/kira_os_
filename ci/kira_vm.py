@@ -107,6 +107,8 @@ class VM:
         if sc.get("limbo"): self.k = max(self.k, 8.0)       # эмуляция одним потоком в разы медленнее KVM
         self.log = bytearray()
         self.notes = []
+        self.prompt_ready = False
+        self.prompt_search_from = 0
         os.makedirs(out, exist_ok=True)
         self.disk = os.path.join(out, "disk.img")
         shutil.copyfile(disk, self.disk)
@@ -297,11 +299,23 @@ class VM:
         while time.time() < end:
             m = rx.search(bytes(self.log[since:]))
             if m:
+                if rx.pattern == re.escape(PROMPT.decode()).encode():
+                    self.prompt_ready = True
                 return since + m.end()
             self.pump(0.2)
         raise Fail(f"не дождались «{pattern}» за {timeout * self.k:.0f} с")
 
     def send(self, text):
+        # Сначала забираем хвост предыдущего ответа. Он может содержать prompt,
+        # если предыдущий сценарный шаг ждал только строку приложения, а не shell.
+        self.drain(0.05)
+        if not self.prompt_ready and PROMPT in bytes(self.log[self.prompt_search_from:]):
+            self.prompt_ready = True
+        if not self.prompt_ready:
+            self.expect(re.escape(PROMPT.decode()), 90, self.prompt_search_from)
+        self.drain(0.05)
+        self.prompt_search_from = len(self.log)
+        self.prompt_ready = False
         self.ser.setblocking(True)
         for ch in text.encode():
             self.ser.sendall(bytes([ch]))
@@ -310,6 +324,13 @@ class VM:
 
     def command(self, cmd, timeout=30):
         """Выполнить команду консоли; вернуть её вывод (до следующего приглашения)."""
+        # Фоновые команды (_dg) ждут свою строку, а не приглашение. Не отправляем
+        # следующую команду, пока предыдущий процесс не завершил вывод и shell не готов.
+        if not self.prompt_ready:
+            self.expect(re.escape(PROMPT.decode()), timeout, self.prompt_search_from)
+        # expect() может остановиться на байтах приглашения, пока хвост UART-пакета
+        # ещё лежит в сокете. Дочитываем его до отметки начала нового ответа.
+        self.drain(0.05)
         start = len(self.log)
         self.send(cmd + "\r")
         t = time.time()

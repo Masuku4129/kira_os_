@@ -14,11 +14,13 @@ static uint32_t kbi_mem_type(UINT32 type)
 {
     switch (type) {
     case EfiConventionalMemory:
+        return KBI_MEM_USABLE;
     case EfiLoaderCode:
     case EfiLoaderData:
     case EfiBootServicesCode:
     case EfiBootServicesData:
-        return KBI_MEM_USABLE;
+        /* Keep loader-owned pages reserved until the kernel explicitly reclaims them. */
+        return KBI_MEM_BOOTLOADER;
     case EfiACPIReclaimMemory:
         return KBI_MEM_ACPI_RECLAIM;
     case EfiACPIMemoryNVS:
@@ -35,9 +37,42 @@ static uint32_t kbi_mem_type(UINT32 type)
     }
 }
 
+int kira_uefi_gop_geometry_valid(uint64_t base, uint64_t size,
+                                uint32_t width, uint32_t height,
+                                uint32_t pixels_per_scanline,
+                                uint32_t format, uint32_t *pitch_out)
+{
+    uint64_t pitch, required;
+
+    if (!pitch_out || !base || !size || !width || !height ||
+        width > 16384u || height > 16384u ||
+        pixels_per_scanline < width || (format != 1u && format != 2u) ||
+        size > UINT64_MAX - base)
+        return 0;
+
+    pitch = (uint64_t)pixels_per_scanline * 4u;
+    if (pitch > UINT32_MAX || height > UINT64_MAX / pitch)
+        return 0;
+    required = pitch * height;
+    if (required > size)
+        return 0;
+
+    *pitch_out = (uint32_t)pitch;
+    return 1;
+}
+
 static int add_overflow_u64(uint64_t a, uint64_t b)
 {
     return b > UINT64_MAX - a;
+}
+
+/* Reason for the last rejected handoff: 0 = none, 1..N = loader-side check,
+   negative = kbi_validate() code. Read by the loader to explain Load Error. */
+static int g_kbi_reject_reason;
+
+int kira_uefi_kbi_reject_reason(void)
+{
+    return g_kbi_reject_reason;
 }
 
 EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
@@ -57,6 +92,7 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     UINT32 mmap_offset, total_size;
 
     (void)descriptor_version;
+    g_kbi_reject_reason = 0;
 
     if (!efi_map || !info || !output || !output_size ||
         descriptor_size < sizeof(EFI_MEMORY_DESCRIPTOR) ||
@@ -97,8 +133,12 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     if (info->rsdp)
         header->flags |= KBI_F_ACPI;
 
+    /* GOP PixelBitMask and PixelBltOnly need their own conversion path.
+       Do not publish a half-filled framebuffer record for an unsupported mode:
+       the kernel must still boot headless instead of rejecting all BootInfo. */
     if (info->framebuffer_base && info->framebuffer_size &&
-        info->width && info->height && info->pitch) {
+        info->width && info->height && info->pitch &&
+        (info->format == 1 || info->format == 2)) {
         header->fb_phys = info->framebuffer_base;
         header->fb_size = info->framebuffer_size;
         header->fb_width = info->width;
@@ -119,11 +159,8 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
             header->fb_green_size = 8;
             header->fb_blue_pos = 0;
             header->fb_blue_size = 8;
-        } else {
-            header->fb_bpp = 0;
         }
-        if (header->fb_bpp)
-            header->flags |= KBI_F_FRAMEBUFFER;
+        header->flags |= KBI_F_FRAMEBUFFER;
     }
 
     for (i = 0; i < count; ++i) {
@@ -132,15 +169,35 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
             (const EFI_MEMORY_DESCRIPTOR *)(source + i * descriptor_size);
 
         descriptor = *d;
+        /* Check multiplication before computing the byte length. A hostile or
+           corrupt descriptor must not wrap NumberOfPages * PAGE_SIZE to a
+           small range and make reserved physical memory look usable. */
         if (descriptor.NumberOfPages == 0 ||
-            add_overflow_u64(descriptor.PhysicalStart,
-                             descriptor.NumberOfPages * 4096ull))
+            descriptor.NumberOfPages > UINT64_MAX / 4096ull) {
+            g_kbi_reject_reason = 1;
             return EFI_LOAD_ERROR;
+        }
+        if (add_overflow_u64(descriptor.PhysicalStart,
+                             descriptor.NumberOfPages * 4096ull)) {
+            g_kbi_reject_reason = 2;
+            return EFI_LOAD_ERROR;
+        }
 
         entries[i].base = descriptor.PhysicalStart;
         entries[i].length = descriptor.NumberOfPages * 4096ull;
         entries[i].type = kbi_mem_type(descriptor.Type);
         entries[i].attributes = (uint32_t)(descriptor.Attribute & 0xffffffffu);
+    }
+
+    /* Validate the complete handoff before exposing it to the kernel.
+       This also rejects overlapping/out-of-order firmware descriptors and
+       malformed framebuffer geometry at the loader boundary. */
+    {
+        int verdict = kbi_validate(blob, total_size);
+        if (verdict != 0) {
+            g_kbi_reject_reason = verdict;
+            return EFI_LOAD_ERROR;
+        }
     }
 
     *output_size = total_size;

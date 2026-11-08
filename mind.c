@@ -687,6 +687,13 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
        фон бесполезно, работает темп фоновых окон (их кадры - работа экрана). */
     int cpu_short = in->busy_x10 + 1000 > total;
     if (pressure && cpu_short && nbg && bg > budget) {
+        /* Давление вернулось вскоре после шага снятия предела: предел был снят зря. Выдержка перед следующим снятием
+           удлиняется (не больше чем в 4 раза), иначе предел качается вверх-вниз каждые 1-2 с, и каждый подъём даёт опоздавшие кадры. */
+        if (s->tact_on && s->tact_rel_ms && in->t_ms - s->tact_rel_ms <= 3000 && s->tact_backoff < MIND_REL_BACKOFF_MAX) {
+            s->tact_backoff++;
+            s->tact_back_ms = in->t_ms;
+        }
+        s->tact_rel_ms = 0;
         s->tact_calm_ms = 0;
         s->tact_budget_x10 = budget;
         for (int i = 0; i < MIND_PROC_MAX; i++) {
@@ -711,8 +718,10 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
         s->tact_on = 1;
     } else if (s->tact_on) {
         s->tact_calm_ms += in->window_ms;
-        if (!pressure && s->tact_calm_ms >= (uint32_t)ML(s, ML_RELEASE)) {                         /* спокойно: отпускать по четверти */
+        if (!pressure && s->tact_calm_ms >= (uint32_t)ML(s, ML_RELEASE) << s->tact_backoff) {      /* спокойно: отпускать по четверти */
             int any = 0;
+            if (s->tact_backoff && in->t_ms - s->tact_back_ms >= 10000) { s->tact_backoff--; s->tact_back_ms = in->t_ms; }   /* 10 с без возврата давления: выдержка короче */
+            s->tact_rel_ms = in->t_ms;
             for (int i = 0; i < MIND_PROC_MAX; i++) {
                 mind_track_t* t = &s->tr[i];
                 if (!t->alive || !t->tact_limit) continue;
@@ -722,7 +731,7 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
                 any |= t->tact_limit != 0;
             }
             s->tact_calm_ms = 200;                                         /* следующий шаг - через ~0,2 с */
-            if (!any) { s->tact_on = 0; jlog(s, in->t_ms / 1000, MJ_RESTORE, acting, 0, "тактика: давления нет - фон снова без пределов"); }
+            if (!any) { s->tact_on = 0; s->tact_backoff = 0; s->tact_rel_ms = 0; jlog(s, in->t_ms / 1000, MJ_RESTORE, acting, 0, "тактика: давления нет - фон снова без пределов"); }
         }
     }
     bg_fps_step(s, in, act, pressure, acting);
@@ -889,6 +898,7 @@ int32_t mind_lever_val(const mind_t* s, int L) {
     return LD[L].v[i < LD[L].n ? i : LD[L].def];
 }
 int mind_lever_state(const mind_t* s, int L) {
+    if (L < 0 || L >= ML_N) return 0;
     const ml_one_t* o = &s->lv.one[L];
     if (s->lv.state && s->lv.lever == L) return 2;
     if (o->useless) return 3;
@@ -896,6 +906,7 @@ int mind_lever_state(const mind_t* s, int L) {
     return 0;
 }
 void mind_lever_stats(const mind_t* s, int L, unsigned* trials, unsigned* wins, unsigned* backs) {
+    if (L < 0 || L >= ML_N) { *trials = 0; *wins = 0; *backs = 0; return; }
     const ml_one_t* o = &s->lv.one[L];
     *trials = o->trials; *wins = o->wins; *backs = o->backs;
 }

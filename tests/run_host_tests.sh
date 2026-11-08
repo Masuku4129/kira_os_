@@ -22,6 +22,23 @@ $CC -O1 -Wall -fno-builtin -Dmemcpy=k_memcpy -Dmemmove=k_memmove -Dmemset=k_mems
 $CC -O1 -Wall -o $T/mem tests/mem_test.c $T/kmem.o
 $T/mem
 
+echo "== UEFI BootInfo to kernel-compatible Multiboot2 bridge =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/bootinfo-uefi tests/bootinfo_uefi_test.c bootinfo_uefi.c bootinfo.c
+$T/bootinfo-uefi
+
+echo "== UEFI loader and KBI adapter compile (GNU-EFI ABI) =="
+EFI_INC=${EFI_INCLUDE:-/usr/include/efi}
+if [ -s "$EFI_INC/efi.h" ]; then
+EFI_CFLAGS="-O2 -Wall -Wextra -Werror -fpic -fshort-wchar -mno-red-zone -fno-stack-protector -fno-stack-check -fno-strict-aliasing -DEFI_FUNCTION_WRAPPER -isystem $EFI_INC -isystem $EFI_INC/x86_64"
+$CC $EFI_CFLAGS -c arch/x86_64/uefi/loader.c -o $T/uefi-loader.o
+$CC $EFI_CFLAGS -I. -Iarch/x86_64/uefi -c arch/x86_64/uefi/uefi_kbi.c -o $T/uefi-kbi.o
+else
+echo "gnu-efi не найден ($EFI_INC/efi.h): сборка загрузчика пропущена (в CI он есть)"
+fi
+echo "UEFI loader sources: compile passed"
+echo "== UEFI: наш загрузчик + GPT/ESP под OVMF (без GRUB) =="
+tests/uefi_boot_test.sh
+
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c bootinfo_mb2.c bootinfo.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
 $T/pmm | head -4
@@ -32,6 +49,14 @@ $T/pmm-arm
 echo "== ramext (mapping RAM above 1 GB) =="
 $CC $FLAGS -o $T/ramext tests/ramext_test.c ramext.c
 $T/ramext
+
+echo "== W^X ядра (дробление страниц, права секций, обход таблиц, поиск W+X) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/wx tests/wx_test.c wx.c
+ASAN_OPTIONS=detect_leaks=0 $T/wx
+
+echo "== W^X ядра ARM64 (дробление блоков, права секций, обход таблиц, поиск W+X) =="
+$CC $FLAGS -fsanitize=address,undefined -Iarch/aarch64 -o $T/wx_arm tests/wx_arm_test.c arch/aarch64/wx_arm.c
+ASAN_OPTIONS=detect_leaks=0 $T/wx_arm
 
 echo "== scheduler policy (incl. regression: pulsing critical thread) =="
 $CC $FLAGS -o $T/sched tests/sched_test.c sched.c scale.c percpu.c
@@ -56,6 +81,10 @@ echo "== input layer (PS/2 decoder, ring, overflow) =="
 $CC $FLAGS -o $T/input tests/input_test.c input.c
 $T/input
 
+echo "== authenticated KDRV catalogue (signature policy, canonical parser, tamper, revocation, expiry, rollback) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv-catalogue tests/kdrv_catalogue_test.c drivers/kdrv/kdrv_catalogue.c drivers/kdrv/kdrv_trust.c pk.c crypto.c sha256.c
+$T/kdrv-catalogue
+
 echo "== driver package format (kdrv_format.h: header, record, matching, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c
 $T/kdrv
@@ -75,8 +104,13 @@ echo "== drvget: https-only, рецепт, лицензии (GPL/бинарни�
 $CC $FLAGS -fsanitize=address,undefined -o $T/drvget tests/drvget_test.c userland/drvget_core.c sha256.c
 $T/drvget
 
-echo "== драйвер rl(4) (RTL8139) против модели чипа =="
-tests/rl_build.sh $T/rl
+echo "== driver compatibility pipeline (HTTPS, bounds, path safety, fail-closed stages) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/drvcompat tests/drvcompat_test.c userland/drvcompat.c
+$T/drvcompat
+
+echo "== драйвер RTL8139 (чистая реализация) против модели чипа =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/rtl8139 tests/rtl8139_test.c drivers/net/rtl8139.c
+$T/rtl8139
 
 echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
 $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
@@ -85,6 +119,18 @@ $T/acpi
 echo "== Intel VT-d DMAR topology parser (DRHD, RMRR, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-vtd tests/iommu_vtd_test.c iommu_vtd.c
 $T/iommu-vtd
+
+echo "== VT-d end to end (iommu.c against a hardware model: DMAR -> contexts -> TE -> domains -> maps -> faults; scenarios A-E) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/iommu tests/iommu_test.c iommu.c iommu_vtd.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c
+for s in A B C D E; do $T/iommu $s; done
+
+echo "== ARM SMMUv3 prepare (platform validation, stream table and allocation unwind) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/iommu-smmu tests/arm_smmu_prepare_test.c drivers/iommu/arm_smmu.c
+$T/iommu-smmu
+
+echo "== VT-d domain (hardware model: IOTLB invalidation after map/unmap, stale translations) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/vtd-domain tests/vtd_domain_test.c drivers/iommu/vtd_domain.c drivers/iommu/intel_vtd.c
+$T/vtd-domain
 
 echo "== IOAPIC (ISO resolution, redirection encoding) =="
 $CC $FLAGS -o $T/ioapic tests/ioapic_test.c arch/x86_64/ioapic.c
@@ -154,6 +200,16 @@ $T/bootinfo
 $CC $FLAGS -fsanitize=address,undefined -o $T/bootinfo-mb2 tests/bootinfo_mb2_test.c bootinfo_mb2.c bootinfo.c
 $T/bootinfo-mb2
 
+echo "== UEFI memory map to loader-neutral BootInfo (descriptor bounds and overflow) =="
+$CC $FLAGS -Itests/uefi -fsanitize=address,undefined -o $T/uefi-kbi tests/uefi_kbi_test.c arch/x86_64/uefi/uefi_kbi.c bootinfo.c
+$T/uefi-kbi
+
+echo "== kernel entry decodes safely in both 32-bit (GRUB/BIOS) and 64-bit (UEFI) mode =="
+bash tests/boot_entry_test.sh
+
+echo "== UEFI loader: no boot-services calls between GetMemoryMap and ExitBootServices =="
+bash tests/uefi_exit_order_test.sh
+
 echo "== early window (bootmap page tables) =="
 $CC $FLAGS -fsanitize=undefined -o $T/bootmap tests/bootmap_test.c bootmap.c
 $T/bootmap
@@ -192,6 +248,10 @@ else
     echo "UI primitives: covered by gui-regression job"
 fi
 
+echo "== Mind archive policy (preserve current and last-good snapshots, score eviction, fail closed) =="
+$CC $FLAGS -Werror -o $T/mind-archive-policy tests/mind_archive_policy_test.c
+$T/mind-archive-policy
+
 if [ "${KIRA_SKIP_MIND:-0}" != 1 ]; then
     echo "== mind (norms, anomalies, health, quantum self-tuning, memory, focus, starvation, behavior, persistence) =="
     $CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c mindnet.c
@@ -200,6 +260,10 @@ if [ "${KIRA_SKIP_MIND:-0}" != 1 ]; then
     echo "== mind levers 13-30 (A/B by measurement, rollback, useless marking, budget, general rollback, hints, seed) =="
     $CC $FLAGS -fsanitize=address,undefined -o $T/mindlv tests/mind_lever_test.c mind.c mindnet.c
     $T/mindlv
+
+    echo "== mind efficiency stand (closed-loop scenario: late frames, reaction, release, churn, false actions, bg cost; observe vs act) =="
+    $CC $FLAGS -fsanitize=address,undefined -o $T/mind-eff tests/mind_eff_test.c mind.c mindnet.c
+    $T/mind-eff
 else
     echo "Mind quality: covered by mind-quality job"
 fi
@@ -212,6 +276,14 @@ echo "== KDRV signed-package verification =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_sig tests/kdrv_sig_test.c kdrv_sig.c pk.c crypto.c sha256.c
 $T/kdrv_sig
 python3 -m unittest ci.test_kdrvsign
+
+echo "== KDRV anti-rollback (version floor, corrupt state, revoked key, clock rollback, key rotation) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_state tests/kdrv_state_test.c kdrv_state.c kdrv_sig.c kdrv_fmt.c pk.c crypto.c sha256.c
+$T/kdrv_state
+python3 ci/gen_kdrv_state_vectors.py | cmp - tests/kdrv_state_vectors.h
+
+echo "== Mind build job (templates, quotas, kcc, ELF validation, human/signature gate, run only after grant under kloader) =="
+bash tests/mind_build_test.sh
 
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c bootinfo_fdt.c bootinfo.c

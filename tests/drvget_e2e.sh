@@ -39,19 +39,19 @@ gcc -O1 -DKIRA_HOST_TEST -I. -Iarch/x86_64 -o $T/dgcheck tests/drvget_check.c kd
 python3 -I ci/mkchain.py $T/chain >/dev/null || exit 1
 mkdir -p $T/ssl && cp $T/chain/root.der $T/ssl/roots.der
 W=$T/www; rm -rf $W; mkdir -p $W/rl $W/gpl $W/bin $W/pin $W/nolic $W/winsys $W/nohash
-cp drivers/rl/drvget.rec drivers/rl/rl.c drivers/rl/if_rlreg.h $W/rl/
+cp drivers/net/drvget.rec drivers/net/rtl8139_kdrv.c drivers/net/rtl8139.c drivers/net/rtl8139.h $W/rl/
 # GPL: тот же драйвер, но в одном файле есть заголовок GPL
-cp drivers/rl/* $W/gpl/; sed -i 's/SPDX-License-Identifier: BSD-3-Clause/SPDX-License-Identifier: GPL-2.0-only/' $W/gpl/if_rlreg.h; sed -i 's/^name rl/name gpl/' $W/gpl/drvget.rec; H=$(sha256sum $W/gpl/if_rlreg.h | awk '{print $1}'); sed -i "s#^file if_rlreg.h if_rlreg.h sha256 .*#file if_rlreg.h if_rlreg.h sha256 $H#" $W/gpl/drvget.rec
+cp drivers/net/* $W/gpl/; sed -i 's/SPDX-License-Identifier: BSD-3-Clause/SPDX-License-Identifier: GPL-2.0-only/' $W/gpl/rtl8139.h; sed -i 's/^name rl/name gpl/' $W/gpl/drvget.rec; H=$(sha256sum $W/gpl/rtl8139.h | awk '{print $1}'); sed -i "s#^file rtl8139.h rtl8139.h sha256 .*#file rtl8139.h rtl8139.h sha256 $H#" $W/gpl/drvget.rec
 # двойная лицензия с GPL в комментарии
-cp drivers/rl/* $W/nolic/; sed -i 's/^name rl/name nolic/' $W/nolic/drvget.rec; sed -i '1,40d' $W/nolic/if_rlreg.h; sed -i '1i /* без сведений о лицензии */' $W/nolic/if_rlreg.h; H=$(sha256sum $W/nolic/if_rlreg.h | awk '{print $1}'); sed -i "s#^file if_rlreg.h if_rlreg.h sha256 .*#file if_rlreg.h if_rlreg.h sha256 $H#" $W/nolic/drvget.rec
+cp drivers/net/* $W/nolic/; sed -i 's/^name rl/name nolic/' $W/nolic/drvget.rec; sed -i '1,40d' $W/nolic/rtl8139.h; sed -i '1i /* без сведений о лицензии */' $W/nolic/rtl8139.h; H=$(sha256sum $W/nolic/rtl8139.h | awk '{print $1}'); sed -i "s#^file rtl8139.h rtl8139.h sha256 .*#file rtl8139.h rtl8139.h sha256 $H#" $W/nolic/drvget.rec
 # бинарник, замаскированный под .c (Windows PE)
-cp drivers/rl/* $W/bin/; sed -i 's/^name rl/name bin/' $W/bin/drvget.rec; printf 'MZ\220\0\3\0\0\0\4\0\0\0\377\377\0\0This program cannot be run in DOS mode.' > $W/bin/if_rlreg.h; H=$(sha256sum $W/bin/if_rlreg.h | awk '{print $1}'); sed -i "s#^file if_rlreg.h if_rlreg.h sha256 .*#file if_rlreg.h if_rlreg.h sha256 $H#" $W/bin/drvget.rec
+cp drivers/net/* $W/bin/; sed -i 's/^name rl/name bin/' $W/bin/drvget.rec; printf 'MZ\220\0\3\0\0\0\4\0\0\0\377\377\0\0This program cannot be run in DOS mode.' > $W/bin/rtl8139.h; H=$(sha256sum $W/bin/rtl8139.h | awk '{print $1}'); sed -i "s#^file rtl8139.h rtl8139.h sha256 .*#file rtl8139.h rtl8139.h sha256 $H#" $W/bin/drvget.rec
 # закреплённый хеш не совпадает
-cp drivers/rl/* $W/pin/; sed -i 's/^name rl/name pin/' $W/pin/drvget.rec; sed -i 's#^file rl.c rl.c sha256 .*#file rl.c rl.c sha256 0000000000000000000000000000000000000000000000000000000000000001#' $W/pin/drvget.rec
+cp drivers/net/* $W/pin/; sed -i 's/^name rl/name pin/' $W/pin/drvget.rec; sed -i 's#^file rtl8139_kdrv.c rtl8139_kdrv.c sha256 .*#file rtl8139_kdrv.c rtl8139_kdrv.c sha256 0000000000000000000000000000000000000000000000000000000000000001#' $W/pin/drvget.rec
 # рецепт без SHA-256 исходников: установка обязана отказать
-cp drivers/rl/* $W/nohash/; sed -i 's/^name rl/name nohash/' $W/nohash/drvget.rec; sed -i 's/ sha256 [0-9a-f]\{64\}$//' $W/nohash/drvget.rec
+cp drivers/net/* $W/nohash/; sed -i 's/^name rl/name nohash/' $W/nohash/drvget.rec; sed -i 's/ sha256 [0-9a-f]\{64\}$//' $W/nohash/drvget.rec
 # рецепт просит файл .sys
-cp drivers/rl/* $W/winsys/; sed -i 's/^name rl/name winsys/' $W/winsys/drvget.rec; echo 'file rtl8139.sys rtl8139.sys' >> $W/winsys/drvget.rec
+cp drivers/net/* $W/winsys/; sed -i 's/^name rl/name winsys/' $W/winsys/drvget.rec; echo 'file rtl8139.sys rtl8139.sys' >> $W/winsys/drvget.rec
 PORT=$((20000 + $$ % 20000))
 python3 -I ci/https_once.py --port $PORT --loop --chain $T/chain --serve $W >$T/srv.log 2>&1 &
 SRV=$!
@@ -63,7 +63,7 @@ REC_SHA=$(sha256sum $W/rl/drvget.rec | awk '{print $1}')
 printf 'kira-driver-index 1\npci 10ec:8139 rl %s/rl/drvget.rec %s\n' "$U" "$REC_SHA" > $T/ssl/drivers.index
 
 run() { # аргументы drvget -> $T/out
-    rm -f $T/out; timeout 120 $T/kloader -s $T/sb -i kcc/include -y $T/ssl -d $T/drv -a "$1" $T/drvget.elf >$T/out 2>&1; rc=$?
+    rm -f $T/out; timeout 120 $T/kloader -m 64 -s $T/sb -i kcc/include -y $T/ssl -d $T/drv -a "$1" $T/drvget.elf >$T/out 2>&1; rc=$?
 }
 rm -rf $T/sb $T/drv; mkdir -p $T/sb $T/drv
 
@@ -89,7 +89,7 @@ run "install $U/rl/drvget.rec"
 grep -q "SHA-256 рецепта совпал с системным каталогом" $T/out || note "повторная установка после отказа не прошла"
 grep -q "Установка НЕ выполнена" $T/out || note "install: нет отчёта: $(tail -c 300 $T/out)"
 grep -q "лицензия:   заявлена BSD-3-Clause" $T/out || note "install: нет лицензии"
-grep -q "if_rlreg.h" $T/out && grep -q "10ec:8139" $T/out || note "install: нет файлов или PCI-ID"
+grep -q "rtl8139.h" $T/out && grep -q "10ec:8139" $T/out || note "install: нет файлов или PCI-ID"
 grep -q "CAP_DMA" $T/out && grep -q "CAP_NETDEV" $T/out && grep -q "IOMMU" $T/out || note "install: нет списка прав или предупреждения про DMA"
 grep -q "источник:   $U/rl/drvget.rec" $T/out || note "install: нет источника"
 [ -z "$(ls $T/drv)" ] || note "install: что-то записано в /drv до подтверждения: $(ls $T/drv)"
@@ -102,7 +102,7 @@ d = sys.argv[1]
 h = hashlib.sha256()
 def add(n, b): h.update(n.encode() + b"\0" + struct.pack("<Q", len(b)) + b)
 add("drvget.rec", open(d + "/drvget.rec", "rb").read())
-for n in ("rl.c", "if_rlreg.h"): add(n, open(d + "/" + n, "rb").read())
+for n in ("rtl8139_kdrv.c", "rtl8139.c", "rtl8139.h"): add(n, open(d + "/" + n, "rb").read())
 print(h.hexdigest())
 PY
 )
@@ -130,10 +130,10 @@ for m in re.finditer(r'(CAP_[A-Z_]+)\s*=\s*(1u?\s*<<\s*(\d+)|0x[0-9a-fA-F]+)', s
 print('%x' % (v['CAP_MMIO'] | v['CAP_DMA'] | v['CAP_PCIDEV'] | v['CAP_NETDEV']))
 PY
 ) 2>&1)
-echo "$chk" | grep -q "^OK rl v1" || note "пакет в /drv неверен: $chk"
+echo "$chk" | grep -q "^OK rl v2" || note "пакет в /drv неверен: $chk"
 echo "$chk" | grep -q "source=$U/rl/drvget.rec" || note "в .rec нет источника"
 run "list"
-grep -q "rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен" $T/out || note "list: $(tail -c 300 $T/out)"
+grep -q "rl: версия 2, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен" $T/out || note "list: $(tail -c 300 $T/out)"
 run "verify rl"
 grep -q "подпись издателя: отсутствует; пакет только локально подтверждён" $T/out || note "verify: локальный пакет не помечен как неподписанный"
 grep -q "verify rl: OK" $T/out || note "verify: $(tail -c 300 $T/out)"
@@ -244,7 +244,7 @@ expect_refuse() { # ИМЯ подстрока-причины
 expect_refuse gpl "GPL"
 expect_refuse nolic "лицензия файла не найдена"
 expect_refuse bin "бинарник"
-expect_refuse pin "SHA-256 файла rl.c не совпал с рецептом"
+expect_refuse pin "SHA-256 файла rtl8139_kdrv.c не совпал с рецептом"
 expect_refuse nohash "не закреплён SHA-256"
 expect_refuse winsys "только исходник .c или .h"
 expect_refuse nosuch "HTTP 404"
@@ -257,20 +257,20 @@ run "install rl"   # имя ищется во встроенном PCI-ката�
 run "base $U"; grep -q "каталог рецептов теперь $U" $T/out || note "base: $(tail -c 200 $T/out)"
 run "install rl"; grep -q "Установка НЕ выполнена" $T/out || note "install по имени через base: $(tail -c 300 $T/out)"
 # запрошено имя, а в рецепте другое
-mkdir -p $W/wrongname && cp drivers/rl/* $W/wrongname/
+mkdir -p $W/wrongname && cp drivers/net/* $W/wrongname/
 run "install wrongname"; grep -q "а рецепт называет драйвер 'rl'" $T/out || note "несовпадение имени не отвергнуто: $(tail -c 200 $T/out)"
 # сервер с неизвестной цепочкой: TLS должен отказать
 mkdir -p $T/ssl2 && python3 -I - $T/chain $T/ssl2/roots.der <<'PY'
 import sys, shutil
 shutil.copy(sys.argv[1] + "/expired.der", sys.argv[2])   # корневые - не те, что подписали сервер
 PY
-rm -f $T/out; timeout 120 $T/kloader -s $T/sb -i kcc/include -y $T/ssl2 -d $T/drv -a "install $U/rl/drvget.rec" $T/drvget.elf >$T/out 2>&1
+rm -f $T/out; timeout 120 $T/kloader -m 64 -s $T/sb -i kcc/include -y $T/ssl2 -d $T/drv -a "install $U/rl/drvget.rec" $T/drvget.elf >$T/out 2>&1
 grep -q "TLS" $T/out && ! grep -q "Установка НЕ выполнена" $T/out || note "TLS с чужими корневыми не отклонён: $(tail -c 300 $T/out)"
-rm -f $T/ssl2/roots.der; rm -f $T/out; timeout 120 $T/kloader -s $T/sb -i kcc/include -y $T/ssl2 -d $T/drv -a "install $U/rl/drvget.rec" $T/drvget.elf >$T/out 2>&1
+rm -f $T/ssl2/roots.der; rm -f $T/out; timeout 120 $T/kloader -m 64 -s $T/sb -i kcc/include -y $T/ssl2 -d $T/drv -a "install $U/rl/drvget.rec" $T/drvget.elf >$T/out 2>&1
 grep -q "нет корневых сертификатов" $T/out || note "без корневых соединение не отклонено: $(tail -c 200 $T/out)"
 
 # 5. drvman в режиме do: те же find/install, две установки подряд в одном процессе (арена kcc переиспользуется), отказы, метка лицензии в .rec, честная ошибка списка PCI
-rundm() { rm -f $T/out; timeout 240 $T/kloader -s $T/sb -i kcc/include -y $T/ssl -d $T/drv -a "$1" $T/drvman.elf >$T/out 2>&1; rc=$?; }
+rundm() { rm -f $T/out; timeout 240 $T/kloader -m 64 -s $T/sb -i kcc/include -y $T/ssl -d $T/drv -a "$1" $T/drvman.elf >$T/out 2>&1; rc=$?; }
 rm -rf $T/sb $T/drv; mkdir -p $T/sb $T/drv
 rundm "do scan"
 grep -q "drvman: автопоиск невозможен: список PCI недоступен" $T/out || note "drvman scan: честный отказ при недоступном PCI API отсутствует: $(tail -c 400 $T/out)"
@@ -283,7 +283,7 @@ rundm "do base $U;pci;find rl;install;pkgs;verify rl"
 grep -q "drvman: набор готов к установке" $T/out || note "drvman find: $(tail -c 400 $T/out)"
 grep -q "собрано, образ ELF" $T/out && grep -q "drvman: драйвер rl установлен в /drv" $T/out || note "drvman install: $(tail -c 600 $T/out)"
 grep -q "drvman: список PCI недоступен" $T/out || note "drvman: нет честного сообщения о недоступном списке PCI: $(grep -a 'drvman:' $T/out | head -5)"
-grep -qE "drvman: пакет rl \| rl +v1 +лицензия: BSD-3-Clause +не запущен +сверка: SHA-256 OK, локально" $T/out || note "drvman pkgs (лицензия из .rec): $(grep -a 'пакет' $T/out | head -5)"
+grep -qE "drvman: пакет rl \| rl +v2 +лицензия: BSD-3-Clause +не запущен +сверка: SHA-256 OK, локально" $T/out || note "drvman pkgs (лицензия из .rec): $(grep -a 'пакет' $T/out | head -5)"
 grep -qE "drvman: пакет rl \| права запрошены: MMIO DMA PCIDEV NETDEV +подтверждены: MMIO DMA PCIDEV NETDEV" $T/out || note "drvman pkgs: права"
 grep -q "drvman: пакет rl | источник: $U/rl/drvget.rec" $T/out || note "drvman pkgs: источник"
 grep -q "verify rl: OK" $T/out || note "drvman verify"
@@ -296,7 +296,7 @@ for m in re.finditer(r'(CAP_[A-Z_]+)\s*=\s*(1u?\s*<<\s*(\d+)|0x[0-9a-fA-F]+)', s
 print('%x' % (v['CAP_MMIO'] | v['CAP_DMA'] | v['CAP_PCIDEV'] | v['CAP_NETDEV']))
 PY
 ) 2>&1)
-echo "$chk" | grep -q "^OK rl v1" || note "drvman: пакет в /drv неверен: $chk"
+echo "$chk" | grep -q "^OK rl v2" || note "drvman: пакет в /drv неверен: $chk"
 rundm "do find rl;install;find rl;install;remove rl;pkgs"
 [ "$(grep -ac 'drvman: драйвер rl установлен в /drv' $T/out)" = 2 ] || note "drvman: две установки подряд: $(grep -a 'drvman:' $T/out | tail -6)"
 grep -q "drvman: пакет rl удалён" $T/out && [ ! -e $T/drv/rl.kdrv ] || note "drvman remove"

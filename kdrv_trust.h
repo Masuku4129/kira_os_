@@ -1,6 +1,10 @@
 #ifndef KIRA_KDRV_TRUST_H
 #define KIRA_KDRV_TRUST_H
-/* Только открытые ключи. Закрытый ключ выпуска остаётся офлайн и вне Git/ISO/CI. */
+/* Только открытые ключи. Закрытый ключ выпуска остаётся офлайн и вне Git/ISO/CI.
+   Ротация: новый ключ добавляется второй записью массива (и строкой #define KDRV_TRUST_KEY_ID_NEXT "...", чтобы tools/kdrvsign.py
+   мог его выбрать), у старого заполняется not_after - дата, с которой старый ключ больше не принимается (проверяется по времени,
+   защищённому от отката, kdrv_state.h). Компрометация ключа - не ротация: ключ отзывают (flags или drv revoke), а не ждут not_after.
+   Сейчас в доверии ровно один рабочий ключ: второго не создавали, чтобы не хранить его закрытую часть без процедуры выпуска. */
 #include "kdrv_sig.h"
 
 #if defined(KDRV_TEST_TRUST) && !defined(KIRA_TEST_BUILD)
@@ -18,7 +22,8 @@ static const kdrv_sig_key_t kdrv_trust_keys[] = {
             0x0e,0xe1,0x72,0xf3,0xda,0xa6,0x23,0x25,
             0xaf,0x02,0x1a,0x68,0xf7,0x07,0x51,0x1a
         },
-        0
+        0,  /* flags: KDRV_SIG_KEY_REVOKED выставляется здесь только обновлением ядра; отзыв без обновления - drv revoke */
+        0   /* not_after: 0 - без срока; при ротации старому ключу ставят дату замены (Unix UTC) */
     }
 };
 #else
@@ -32,7 +37,8 @@ static const kdrv_sig_key_t kdrv_trust_keys[] = {
             0x21,0x9c,0x44,0xb8,0x4b,0xb4,0x4c,0xb8,
             0x05,0x83,0x0b,0x47,0xcf,0xf5,0x54,0xe8
         },
-        0
+        0,  /* flags: KDRV_SIG_KEY_REVOKED выставляется здесь только обновлением ядра; отзыв без обновления - drv revoke */
+        0   /* not_after: 0 - без срока; при ротации старому ключу ставят дату замены (Unix UTC) */
     }
 };
 #endif /* KDRV_TEST_TRUST */

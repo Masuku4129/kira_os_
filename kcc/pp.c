@@ -428,9 +428,29 @@ static V ev_cond(int skip) {
     if (!is_p(ev_t, ":")) kerr_tok(ev_t, "expected ':' in preprocessor expression");
     ev_t = ev_t->next;
     V b = ev_cond(skip || c.v);
-    V r = c.v ? a : b;
+    V r;
+    if (c.v) r = a; else r = b;   /* kcc: условный оператор над структурами не поддерживается */
     r.u = a.u || b.u;
     return r;
+}
+
+static const char *path_dir(const char *p);
+static const char *eval_path = "";
+/* __has_include("x") / __has_include(<x>): ищет файл теми же путями, что и #include, не читая его содержимое в препроцессор. */
+static int has_include(Token *name_tok, int angle, const char *nm) {
+    const KCfg *c = K.cfg;
+    size_t dl = 0;
+    (void)name_tok;
+    if (!angle || nm[0] == '/') {
+        const char *p = nm[0] == '/' ? nm : kfmt("%s%s", path_dir(eval_path), nm);
+        if (c->read(c->ud, p, &dl)) return 1;
+    }
+    for (int i = 0; i < c->nincdirs; i++) {
+        const char *d = c->incdirs[i];
+        const char *p = d[0] && d[strlen(d) - 1] != '/' ? kfmt("%s/%s", d, nm) : kfmt("%s%s", d, nm);
+        if (c->read(c->ud, p, &dl)) return 1;
+    }
+    return 0;
 }
 
 static int eval_if(Token *line, const Token *where) {
@@ -445,6 +465,27 @@ static int eval_if(Token *line, const Token *where) {
             n = n->next;
             if (par) { if (!is_p(n, ")")) kerr_tok(t, "missing ')' after 'defined'"); n = n->next; }
             tl_push(&L, pp_lex_one(t, find_macro(id) ? "1" : "0"));
+            t = n;
+            continue;
+        }
+        if (is_id(t, "__has_include")) {
+            Token *n = t->next;
+            if (!is_p(n, "(")) kerr_tok(t, "missing '(' after '__has_include'");
+            n = n->next;
+            int angle = 0;
+            const char *nm;
+            if (n->k == TK_STR) { nm = ka_strdup(n->s + 1, (size_t)n->len - 2); n = n->next; }
+            else if (is_p(n, "<")) {
+                SB sb = {0};
+                n = n->next;
+                for (; n->k != TK_EOF && !is_p(n, ">"); n = n->next) { if (n->sp && sb.len) sb_add(&sb, " ", 1); sb_add(&sb, n->s, (size_t)n->len); }
+                if (n->k == TK_EOF) kerr_tok(t, "expected '>' in __has_include");
+                n = n->next;
+                angle = 1; nm = sb.p ? ka_strdup(sb.p, sb.len) : "";
+            } else kerr_tok(t, "expected \"FILENAME\" or <FILENAME> in __has_include");
+            if (!is_p(n, ")")) kerr_tok(t, "missing ')' after '__has_include'");
+            n = n->next;
+            tl_push(&L, pp_lex_one(t, has_include(t, angle, nm) ? "1" : "0"));
             t = n;
             continue;
         }
@@ -604,7 +645,7 @@ static void pp_tokens(Token *tok, const char *path, int depth) {
             if (is_id(dn, "if") || is_id(dn, "ifdef") || is_id(dn, "ifndef")) {
                 int v = 0;
                 if (act) {
-                    if (is_id(dn, "if")) { Token *rest; Token *line = copy_line(&rest, tok); tok = rest; v = eval_if(line, dn); }
+                    if (is_id(dn, "if")) { Token *rest; Token *line = copy_line(&rest, tok); tok = rest; eval_path = path; v = eval_if(line, dn); }
                     else {
                         if (tok->k != TK_ID || tok->bol) kerr_tok(dn, "macro name missing in #%.*s", dn->len, dn->s);
                         v = find_macro(tok) != NULL;
@@ -621,7 +662,7 @@ static void pp_tokens(Token *tok, const char *path, int depth) {
                 if (!cs) kerr_tok(dn, "#elif without #if");
                 if (cs->seen_else) kerr_tok(dn, "#elif after #else");
                 if (!cs->parent || cs->taken) { cs->active = 0; tok = skip_line(tok); }
-                else { Token *rest; Token *line = copy_line(&rest, tok); tok = rest; int v = eval_if(line, dn); cs->active = v; cs->taken = v; }
+                else { Token *rest; Token *line = copy_line(&rest, tok); tok = rest; eval_path = path; int v = eval_if(line, dn); cs->active = v; cs->taken = v; }
                 continue;
             }
             if (is_id(dn, "else")) {
@@ -704,6 +745,12 @@ Token *preprocess(const char *path) {
     SB pre = {0};
     for (int i = 0; predef[i]; i++) sb_printf(&pre, "#define %s\n", predef[i]);
     sb_printf(&pre, "#define %s 1\n", c->target && !strcmp(c->target, "aarch64") ? "__aarch64__" : "__x86_64__");
+    if (!c->target || !strcmp(c->target, "x86_64")) {            /* builtin-ы счёта нулей: bsf/bsr (результат при x == 0 не определён, как у GCC) */
+        sb_printf(&pre, "static inline int __kcc_ctz(unsigned x) { unsigned r; __asm__(\"bsfl %%1, %%0\" : \"=a\"(r) : \"a\"(x)); return (int)r; }\n");
+        sb_printf(&pre, "static inline int __kcc_ctzll(unsigned long long x) { unsigned long long r; __asm__(\"bsfq %%1, %%0\" : \"=a\"(r) : \"a\"(x)); return (int)r; }\n");
+        sb_printf(&pre, "static inline int __kcc_clz(unsigned x) { unsigned r; __asm__(\"bsrl %%1, %%0\" : \"=a\"(r) : \"a\"(x)); return 31 - (int)r; }\n");
+        sb_printf(&pre, "#define __builtin_ctz __kcc_ctz\n#define __builtin_ctzl __kcc_ctzll\n#define __builtin_ctzll __kcc_ctzll\n#define __builtin_clz __kcc_clz\n");
+    }
     for (int i = 0; i < c->ndefs; i++) {
         const char *d = c->defs[i], *eq = strchr(d, '=');
         if (eq) sb_printf(&pre, "#define %.*s %s\n", (int)(eq - d), d, eq + 1);

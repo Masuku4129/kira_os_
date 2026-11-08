@@ -24,13 +24,29 @@ struct kira_smmu {
     uint32_t idr1;
     uint32_t idr5;
     uint32_t queue_entries;
+    /* Number of StreamIDs addressable by the configured linear table. */
+    uint32_t stream_id_limit;
     uint8_t enabled;
     void *cmdq;
     uint64_t cmdq_physical;
     void *evtq;
     uint64_t evtq_physical;
+    void *evtq_allocation;
+    uint64_t evtq_allocation_physical;
+    size_t evtq_allocation_pages;
     uint32_t cmdq_producer;
     uint32_t evtq_consumer;
+    /* Controller-owned linear stream table shared by every domain. */
+    void *stream_table;
+    uint64_t stream_table_physical;
+    /* Raw over-allocation retained so the aligned table can be freed safely. */
+    void *stream_table_allocation;
+    uint64_t stream_table_allocation_physical;
+    size_t stream_table_allocation_pages;
+    uint32_t stream_table_lock;
+    /* Serializes CMDQ publication through matching CMD_SYNC completion. */
+    uint32_t cmdq_lock;
+    uint32_t stream_ids[8];
 };
 
 enum kira_smmu_result {

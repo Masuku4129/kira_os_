@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: BSD-3-Clause
+ * Copyright (c) Kira OS authors. Original implementation from the public Realtek RTL8139 programming specification. */
 #ifndef KIRA_RTL8139_H
 #define KIRA_RTL8139_H
 
@@ -9,6 +11,7 @@
 #define KIRA_RTL8139_TX_SLOTS 4u
 #define KIRA_RTL8139_TX_BUFFER_SIZE 2048u
 #define KIRA_RTL8139_MAX_FRAME 1518u
+/* Регистры доступны либо по портам (BAR0), либо по памяти (BAR1) - смещения одни; функции in и out платформы получают io_base + смещение. */
 
 struct kira_rtl8139_platform {
     void *context;
@@ -38,6 +41,7 @@ struct kira_rtl8139 {
     void *tx_buffer[KIRA_RTL8139_TX_SLOTS];
     uint64_t tx_physical[KIRA_RTL8139_TX_SLOTS];
     uint16_t rx_offset;
+    uint8_t tx_next;                     /* следующий дескриптор передачи: чип обслуживает их строго по кругу */
     uint8_t tx_busy[KIRA_RTL8139_TX_SLOTS];
     uint8_t initialized;
 };
@@ -47,6 +51,7 @@ int kira_rtl8139_init(struct kira_rtl8139 *device, uint16_t io_base,
 int kira_rtl8139_poll(struct kira_rtl8139 *device);
 int kira_rtl8139_send(struct kira_rtl8139 *device,
                       const void *frame, size_t length);
+int kira_rtl8139_link_up(struct kira_rtl8139 *device);   /* 1 - канал есть */
 void kira_rtl8139_shutdown(struct kira_rtl8139 *device);
 
 #endif

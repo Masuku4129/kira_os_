@@ -3,10 +3,11 @@
 #include "x86.h"
 #include <string.h>
 
-Opd xr(int sz, int r) { Opd o = { OP_REG, sz, r, 0, NULL }; return o; }
-Opd xm(int sz, int base, int64_t disp) { Opd o = { OP_MEM, sz, base, disp, NULL }; return o; }
-Opd xs(int sz, Obj *sym, int64_t add) { Opd o = { OP_MEM, sz, 0, add, sym }; return o; }
-Opd xi(int64_t v) { Opd o = { OP_IMM, 0, 0, v, NULL }; return o; }
+Opd xr(int sz, int r) { Opd o = { OP_REG, sz, r, 0, NULL, 0, 0 }; return o; }
+Opd xm(int sz, int base, int64_t disp) { Opd o = { OP_MEM, sz, base, disp, NULL, 0, 0 }; return o; }
+Opd xmi(int sz, int base, int idx, int sc, int64_t disp) { Opd o = { OP_MEM, sz, base, disp, NULL, idx + 1, sc }; return o; }
+Opd xs(int sz, Obj *sym, int64_t add) { Opd o = { OP_MEM, sz, 0, add, sym, 0, 0 }; return o; }
+Opd xi(int64_t v) { Opd o = { OP_IMM, 0, 0, v, NULL, 0, 0 }; return o; }
 
 static void fail(XA *a, const char *what, int op, const Opd *d, const Opd *s) {
     kerr(a->file, a->line, "x86-64 backend has no encoding template for %s (op %d, operands %d/%d size %d/%d)", what, op,
@@ -40,6 +41,7 @@ static XFix *enc(XA *a, int w, int p66, const unsigned char *opc, int nopc, int 
     int rex = 0x40 | (w ? 8 : 0) | ((reg >> 3 & 1) << 2);
     int base = rm->r;
     if (rm->k == OP_REG || (rm->k == OP_MEM && !rm->sym)) rex |= base >> 3 & 1;
+    if (rm->k == OP_MEM && !rm->sym && rm->ix) rex |= ((rm->ix - 1) >> 3 & 1) << 1;
     if (p66) put(a, 0x66);
     if (rex != 0x40 || force_rex) put(a, rex);
     for (int i = 0; i < nopc; i++) put(a, opc[i]);
@@ -53,8 +55,15 @@ static XFix *enc(XA *a, int w, int p66, const unsigned char *opc, int nopc, int 
     if (!fits32(rm->v)) kerr(a->file, a->line, "x86-64 backend: displacement out of range");
     int need = rm->v != 0 || (base & 7) == 5;
     int mod = !need ? 0 : fits8(rm->v) ? 1 : 2;
-    put(a, mod << 6 | (reg & 7) << 3 | ((base & 7) == 4 ? 4 : (base & 7)));
-    if ((base & 7) == 4) put(a, 0x24);
+    if (rm->ix) {
+        int ix = rm->ix - 1;
+        if (ix == R_SP) kerr(a->file, a->line, "x86-64 backend: rsp cannot be an index register");
+        put(a, mod << 6 | (reg & 7) << 3 | 4);
+        put(a, rm->sc << 6 | (ix & 7) << 3 | (base & 7));
+    } else {
+        put(a, mod << 6 | (reg & 7) << 3 | ((base & 7) == 4 ? 4 : (base & 7)));
+        if ((base & 7) == 4) put(a, 0x24);
+    }
     if (mod == 1) put(a, (int)(rm->v & 255));
     else if (mod == 2) put32(a, (uint32_t)rm->v);
     return NULL;
@@ -145,8 +154,8 @@ void xa_ins(XA *a, int op, Opd d, Opd s) {
         if (is_rm(&d) && s.k == OP_NONE && (d.sz == 4 || d.sz == 8)) { o[0] = 0xF7; enc(a, d.sz == 8, 0, o, 1, dig, &d, 0); return; }
         fail(a, "unary", op, &d, &s); return;
     }
-    case X_SHL: case X_SHR: case X_SAR: {
-        int dig = op == X_SHL ? 4 : op == X_SHR ? 5 : 7;
+    case X_SHL: case X_SHR: case X_SAR: case X_ROL: {
+        int dig = op == X_ROL ? 0 : op == X_SHL ? 4 : op == X_SHR ? 5 : 7;
         if (is_rm(&d) && (d.sz == 4 || d.sz == 8) && s.k == OP_REG && s.sz == 1 && s.r == R_CX) { o[0] = 0xD3; enc(a, d.sz == 8, 0, o, 1, dig, &d, 0); return; }
         if (is_rm(&d) && (d.sz == 4 || d.sz == 8) && s.k == OP_IMM && s.v >= 0 && s.v < (d.sz == 8 ? 64 : 32)) {
             o[0] = 0xC1; XFix *f = enc(a, d.sz == 8, 0, o, 1, dig, &d, 0); imm_tail(a, f, s.v, 1); return;
@@ -165,9 +174,21 @@ void xa_ins(XA *a, int op, Opd d, Opd s) {
     case X_CALLR:
         if (d.k == OP_REG && d.sz == 8) { o[0] = 0xFF; enc(a, 0, 0, o, 1, 2, &d, 0); return; }
         fail(a, "CALL", op, &d, &s); return;
+    case X_JMPR:
+        if (d.k == OP_REG && d.sz == 8) { o[0] = 0xFF; enc(a, 0, 0, o, 1, 4, &d, 0); return; }
+        fail(a, "JMP", op, &d, &s); return;
     default: fail(a, "unknown op", op, &d, &s);
     }
 }
+
+void xa_imul3(XA *a, Opd d, Opd s, int64_t imm) {
+    unsigned char o[1];
+    if (d.k != OP_REG || (d.sz != 4 && d.sz != 8) || !is_rm(&s) || s.sz != d.sz || !fits32(imm)) fail(a, "IMUL imm", X_IMUL, &d, &s);
+    if (fits8(imm)) { o[0] = 0x6B; XFix *f = enc(a, d.sz == 8, 0, o, 1, d.r, &s, 0); imm_tail(a, f, imm, 1); }
+    else { o[0] = 0x69; XFix *f = enc(a, d.sz == 8, 0, o, 1, d.r, &s, 0); imm_tail(a, f, imm, 4); }
+}
+
+void xa_raw(XA *a, const unsigned char *b, int n) { for (int k = 0; k < n; k++) put(a, b[k]); }
 
 void xa_op0(XA *a, int op) {
     switch (op) {

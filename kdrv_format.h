@@ -55,7 +55,8 @@ _Static_assert(sizeof(kdrv_header_t) == 136, "kdrv_header_t");
 _Static_assert(sizeof(kdrv_rec_t) == 216, "kdrv_rec_t");
 
 enum { KDRV_OK = 0, KDRV_E_SHORT = -1, KDRV_E_MAGIC = -2, KDRV_E_FORMAT = -3, KDRV_E_NAME = -4, KDRV_E_CAPS = -5,
-       KDRV_E_MATCH = -6, KDRV_E_SIZE = -7, KDRV_E_UNCONFIRMED = -8, KDRV_E_HASH = -9, KDRV_E_DMA_UNSAFE = -10, KDRV_E_SIGNATURE = -11 };
+       KDRV_E_MATCH = -6, KDRV_E_SIZE = -7, KDRV_E_UNCONFIRMED = -8, KDRV_E_HASH = -9, KDRV_E_DMA_UNSAFE = -10, KDRV_E_SIGNATURE = -11,
+       KDRV_E_ROLLBACK = -12, KDRV_E_STATE = -13 };   /* ROLLBACK: версия ниже пола; STATE: файл состояния /var/kdrv_state повреждён или нечитаем */
 
 /* Чистые функции (kdrv_fmt.c; проверяются на хосте). */
 int kdrv_header_check(const void* file, uint32_t len, kdrv_header_t* out);      /* заголовок корректен и файл ровно hdr_size + elf_size */

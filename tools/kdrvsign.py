@@ -38,7 +38,7 @@ def main() -> int:
     parser.add_argument("package", type=Path, help="input .kdrv package")
     parser.add_argument("--key", required=True, type=Path, help="offline PKCS#8 PEM private key")
     parser.add_argument("--public-key", required=True, type=Path, help="trusted raw public key, 32 bytes in hex")
-    parser.add_argument("--trust-header", required=True, type=Path, help="header containing KDRV_TRUST_KEY_ID")
+    parser.add_argument("--trust-header", required=True, type=Path, help="header containing KDRV_TRUST_KEY_ID[_suffix] for the signing key")
     parser.add_argument("--key-id", required=True, help="16-byte ASCII key ID from the trust header")
     parser.add_argument("--not-before", required=True, type=int, help="signature start, Unix UTC seconds")
     parser.add_argument("--not-after", required=True, type=int, help="exclusive expiry, Unix UTC seconds")
@@ -48,8 +48,9 @@ def main() -> int:
     if len(args.key_id.encode("ascii", "strict")) != 16:
         raise ValueError("--key-id must be exactly 16 ASCII bytes")
     trust_text = args.trust_header.read_text(encoding="utf-8")
-    match = re.search(r'^#define KDRV_TRUST_KEY_ID "([^"]{16})"', trust_text, re.MULTILINE)
-    if not match or match.group(1) != args.key_id:
+    # Rotation: the header may list several trusted keys as KDRV_TRUST_KEY_ID, KDRV_TRUST_KEY_ID_NEXT, ...
+    listed = re.findall(r'^#define KDRV_TRUST_KEY_ID\w* "([^"]{16})"', trust_text, re.MULTILINE)
+    if args.key_id not in listed:
         raise ValueError("--key-id does not match the selected trust header")
     if args.not_before <= 0 or args.not_after <= args.not_before or args.not_after > 0x7FFFFFFFFFFFFFFF:
         raise ValueError("invalid signature validity interval")

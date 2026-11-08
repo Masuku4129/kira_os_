@@ -60,6 +60,7 @@ int kdrv_sig_verify(const void* package, size_t package_len,
     }
     if (!found) return KDRV_SIG_E_UNKNOWN_KEY;
     if (found->flags & KDRV_SIG_KEY_REVOKED) return KDRV_SIG_E_REVOKED;
+    if (found->not_after && (uint64_t)now_utc >= found->not_after) return KDRV_SIG_E_KEY_EXPIRED;
     if (all_zero(found->public_key, sizeof found->public_key)) return KDRV_SIG_E_TRUST_STORE;
 
     static const uint8_t domain[16] = {
@@ -94,6 +95,8 @@ const char* kdrv_sig_strerror(int e) {
     case KDRV_SIG_E_SIGNATURE: return "Ed25519 подпись недействительна";
     case KDRV_SIG_E_IO: return "ошибка чтения подписи";
     case KDRV_SIG_E_MISSING: return "обязательная издательская подпись отсутствует";
+    case KDRV_SIG_E_KEY_EXPIRED: return "срок действия издательского ключа истёк (ключ заменён)";
+    case KDRV_SIG_E_CLOCK: return "часы ушли назад больше допуска: срок подписи проверить нельзя";
     default: return "неизвестная ошибка подписи";
     }
 }

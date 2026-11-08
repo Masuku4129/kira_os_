@@ -44,6 +44,7 @@ typedef struct {
     void  (*resize)(int id, int w, int h);        /* у окна с WM_RESIZABLE изменился размер содержимого */
     void  (*tab)(int tab_index);                  /* нажат раздел в верхней панели */
     void  (*side_alt)(int side_index);            /* правая кнопка на значке боковой панели */
+    void  (*release)(void* ptr, uint64_t bytes);   /* освобождение поверхности, выделенной alloc */
 } wm_ops_t;
 
 void wm_init(surface_t* screen, const wm_ops_t* ops);
@@ -89,6 +90,10 @@ void wm_set_clock(const char* date, const char* hm);
 void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health);
 /* Фон: уровень анимации 0..3 и шаг анимации (каждый цикл дисплея). */
 void wm_set_fx(int level);
+enum { WM_NOTIFY_INFO, WM_NOTIFY_SUCCESS, WM_NOTIFY_WARNING, WM_NOTIFY_ERROR };
+/* Toast notification, fixed queue; call only from the display thread. Visible for 5 seconds. */
+void wm_notify(const char* title, const char* message, unsigned level);
+void wm_notify_clear(void);
 void wm_anim(uint32_t now_ms, unsigned activity);
 void wm_mouse(int dx, int dy, unsigned buttons);
 void wm_mouse_abs(uint16_t ax, uint16_t ay, unsigned buttons); /* планшет/сенсор: абсолютные координаты 0..32767 */   /* относительное движение, бит0 = левая кнопка */

@@ -1,0 +1,582 @@
+; KIRA BIOS stage 2 (загружается stage1 в 0000:8000, размер ровно 16 КиБ).
+; Делает: A20 -> карта памяти E820 (в виде Multiboot2 info) -> чтение ядра ELF64 по LBA из манифеста в
+; промежуточную область 16 МиБ (через буфер 0x10000 и unreal mode) -> protected mode -> CRC32 файла ->
+; строгая проверка ELF64 и E820 -> копирование PT_LOAD по p_paddr, обнуление bss -> вход в ядро
+; (EAX=0x36D76289, EBX=адрес MB2 info) - тот же контракт, что у GRUB, поэтому boot.s не меняется.
+; Манифест (последние 32 байта образа stage 2) заполняет tools/mkbios.py.
+bits 16
+org 0x8000
+
+INFO        equ 0x1000          ; MB2 info: 0x1000..0x1FFF
+BOUNCE_SEG  equ 0x1000          ; буфер чтения 0x10000..0x13FFF (32 сектора)
+STAGE_BASE  equ 0x1000000       ; промежуточное место файла ядра
+MAXE        equ 96              ; число записей E820, помещающихся в INFO
+CHUNK       equ 32
+S2_BYTES    equ 16384
+MAX_KERNEL  equ 0x3000000       ; 48 МиБ
+
+%macro SPUT 0                   ; AL -> COM1 (с ожиданием)
+  push edx
+  push eax
+  mov dx, 0x3FD
+%%w: in al, dx
+  test al, 0x20
+  jz %%w
+  pop eax
+  mov dx, 0x3F8
+  out dx, al
+  pop edx
+%endmacro
+
+%macro CONTAINED 0              ; EAX = начало, EBX = конец (искл.): CF=0, если целиком в одной записи type 1
+  push esi
+  push ecx
+  push edx
+  mov ecx, [e_count]
+  mov esi, INFO + 24
+%%l:
+  test ecx, ecx
+  jz %%no
+  cmp dword [esi + 16], 1
+  jne %%n
+  cmp dword [esi + 4], 0
+  jne %%n
+  mov edx, [esi]
+  cmp edx, eax
+  ja %%n
+  cmp dword [esi + 12], 0
+  jne %%yes
+  add edx, [esi + 8]
+  jc %%yes
+  cmp edx, ebx
+  jae %%yes
+%%n:
+  add esi, 24
+  dec ecx
+  jmp %%l
+%%yes:
+  clc
+  jmp %%o
+%%no:
+  stc
+%%o:
+  pop edx
+  pop ecx
+  pop esi
+%endmacro
+
+; ---------------------------------------------------------------- 16 бит
+start16:
+  cli
+  xor ax, ax
+  mov ds, ax
+  mov es, ax
+  mov ss, ax
+  mov sp, 0x7C00
+  cld
+  mov [drive], dl
+  call serial_init
+  mov si, m_banner
+  call print16
+  cmp dword [man_magic], 'KBM1'
+  jne near fail_manifest
+  mov eax, [man_size]
+  cmp eax, 64
+  jb near fail_manifest
+  cmp eax, MAX_KERNEL
+  ja near fail_manifest
+  sti
+  call a20_enable
+  jc near fail_a20
+  call e820_collect
+  jc near fail_e820
+  ; область промежуточного файла должна быть обычной памятью
+  mov eax, STAGE_BASE
+  mov ebx, [man_size]
+  add ebx, 511
+  and ebx, ~511
+  add ebx, eax
+  CONTAINED
+  jc near fail_stage
+  call load_kernel
+  jc near fail_disk
+  mov si, m_loaded
+  call print16
+  cli
+  lgdt [gdtr]
+  mov eax, cr0
+  or al, 1
+  mov cr0, eax
+  jmp 0x10:pm_entry
+
+serial_init:
+  mov dx, 0x3F9
+  xor al, al
+  out dx, al
+  mov dx, 0x3FB
+  mov al, 0x80
+  out dx, al
+  mov dx, 0x3F8
+  mov al, 1
+  out dx, al
+  inc dx
+  xor al, al
+  out dx, al
+  mov dx, 0x3FB
+  mov al, 3
+  out dx, al
+  mov dx, 0x3FA
+  mov al, 0xC7
+  out dx, al
+  mov dx, 0x3FC
+  mov al, 0x0B
+  out dx, al
+  ret
+
+print16:                        ; DS:SI -> serial + экран BIOS
+  lodsb
+  test al, al
+  jz .r
+  SPUT
+  mov ah, 0x0E
+  mov bx, 7
+  int 0x10
+  jmp print16
+.r: ret
+
+a20_enable:
+  call a20_test
+  jnc .ok
+  mov ax, 0x2401
+  int 0x15
+  call a20_test
+  jnc .ok
+  in al, 0x92
+  test al, 2
+  jnz .t
+  or al, 2
+  and al, 0xFE
+  out 0x92, al
+.t:
+  mov cx, 0x4000
+.w:
+  call a20_test
+  jnc .ok
+  loop .w
+  stc
+  ret
+.ok: clc
+  ret
+
+a20_test:                       ; CF=0, если A20 включена (нет заворота адреса)
+  push ds
+  push es
+  push si
+  push di
+  xor ax, ax
+  mov ds, ax
+  dec ax
+  mov es, ax
+  mov si, 0x0600
+  mov di, 0x0610
+  mov al, [ds:si]
+  mov ah, [es:di]
+  push ax
+  mov byte [ds:si], 0x00
+  mov byte [es:di], 0xFF
+  cmp byte [ds:si], 0xFF
+  pop ax
+  mov [ds:si], al
+  mov [es:di], ah
+  pop di
+  pop si
+  pop es
+  pop ds
+  je .off
+  clc
+  ret
+.off: stc
+  ret
+
+; Заполняет MB2 info: тег типа 6 (карта памяти) и конечный тег. CF=1 - ошибка/пустая карта.
+e820_collect:
+  xor ebx, ebx
+  mov dword [e_count], 0
+  mov di, INFO + 24
+.next:
+  push di
+  mov di, e820buf
+  mov dword [e820buf + 20], 1
+  mov eax, 0xE820
+  mov edx, 0x534D4150
+  mov ecx, 24
+  int 0x15
+  pop di
+  jc .end
+  cmp eax, 0x534D4150
+  jne .bad
+  cmp ecx, 20
+  jb .skip
+  test dword [e820buf + 20], 1
+  jz .skip
+  mov eax, [e820buf + 8]
+  or eax, [e820buf + 12]
+  jz .skip
+  cmp dword [e_count], MAXE
+  jae .end
+  mov eax, [e820buf]
+  mov [di], eax
+  mov eax, [e820buf + 4]
+  mov [di + 4], eax
+  mov eax, [e820buf + 8]
+  mov [di + 8], eax
+  mov eax, [e820buf + 12]
+  mov [di + 12], eax
+  mov eax, [e820buf + 16]
+  cmp eax, 1
+  jb .res
+  cmp eax, 5
+  jbe .tk
+.res: mov eax, 2
+.tk: mov [di + 16], eax
+  mov dword [di + 20], 0
+  add di, 24
+  inc dword [e_count]
+.skip:
+  test ebx, ebx
+  jnz .next
+.end:
+  cmp dword [e_count], 0
+  je .bad
+  mov eax, [e_count]
+  imul eax, 24
+  add eax, 16
+  mov dword [INFO + 8], 6
+  mov [INFO + 12], eax
+  mov dword [INFO + 16], 24
+  mov dword [INFO + 20], 0
+  add eax, 8
+  mov edx, eax
+  add eax, 8                      ; + конечный тег
+  mov [INFO], eax
+  mov dword [INFO + 4], 0
+  mov dword [INFO + edx], 0
+  mov dword [INFO + edx + 4], 8
+  clc
+  ret
+.bad: stc
+  ret
+
+disk_read:                      ; читает [dap] с повторами. CF=1 при ошибке
+  mov cx, 3
+.r:
+  mov si, dap
+  mov dl, [drive]
+  mov ah, 0x42
+  int 0x13
+  jnc .ok
+  xor ax, ax
+  mov dl, [drive]
+  int 0x13
+  loop .r
+  stc
+  ret
+.ok: clc
+  ret
+
+copy_high:                      ; ECX дворд из BOUNCE в линейный EDI (unreal mode)
+  cli
+  lgdt [gdtr]
+  mov eax, cr0
+  or al, 1
+  mov cr0, eax
+  jmp short $ + 2
+  mov ax, 8
+  mov es, ax
+  mov eax, cr0
+  and al, 0xFE
+  mov cr0, eax
+  mov ax, BOUNCE_SEG
+  mov ds, ax
+  xor esi, esi
+  a32 rep movsd
+  xor ax, ax
+  mov ds, ax
+  mov es, ax
+  sti
+  ret
+
+load_kernel:
+  mov eax, [man_lba]
+  mov [cur_lba], eax
+  mov eax, [man_size]
+  mov [rem], eax
+  mov dword [dest], STAGE_BASE
+.loop:
+  mov eax, [rem]
+  test eax, eax
+  jz .done
+  add eax, 511
+  shr eax, 9
+  cmp eax, CHUNK
+  jbe .c
+  mov eax, CHUNK
+.c:
+  mov [chunk], ax
+  mov [dap_n], ax
+  mov eax, [cur_lba]
+  mov [dap_lba], eax
+  call disk_read
+  jc .err
+  movzx ecx, word [chunk]
+  shl ecx, 7
+  mov edi, [dest]
+  call copy_high
+  movzx eax, word [chunk]
+  add [cur_lba], eax
+  shl eax, 9
+  add [dest], eax
+  mov ecx, [rem]
+  cmp ecx, eax
+  jbe .z
+  sub ecx, eax
+  jmp .s
+.z: xor ecx, ecx
+.s: mov [rem], ecx
+  jmp .loop
+.done: clc
+  ret
+.err: stc
+  ret
+
+fail_manifest: mov si, m_manifest
+  jmp fail16
+fail_a20: mov si, m_a20
+  jmp fail16
+fail_e820: mov si, m_e820
+  jmp fail16
+fail_stage: mov si, m_stage
+  jmp fail16
+fail_disk: mov si, m_disk
+fail16:
+  call print16
+  cli
+.h: hlt
+  jmp .h
+
+; ---------------------------------------------------------------- 32 бита
+bits 32
+pm_entry:
+  mov ax, 8
+  mov ds, ax
+  mov es, ax
+  mov fs, ax
+  mov gs, ax
+  mov ss, ax
+  mov esp, 0x7C00
+  cld
+  ; CRC32 файла ядра
+  mov esi, STAGE_BASE
+  mov ecx, [man_size]
+  mov edx, 0xFFFFFFFF
+.cb:
+  test ecx, ecx
+  jz .cd
+  movzx eax, byte [esi]
+  xor dl, al
+  mov ebx, 8
+.cbit:
+  shr edx, 1
+  jnc .nc
+  xor edx, 0xEDB88320
+.nc:
+  dec ebx
+  jnz .cbit
+  inc esi
+  dec ecx
+  jmp .cb
+.cd:
+  not edx
+  cmp edx, [man_crc]
+  mov esi, m_crc
+  jne near fail32
+  ; ELF64
+  mov ebp, STAGE_BASE
+  mov edi, [man_size]
+  mov esi, m_elf
+  cmp dword [ebp], 0x464C457F
+  jne near fail32
+  cmp byte [ebp + 4], 2
+  jne near fail32
+  cmp byte [ebp + 5], 1
+  jne near fail32
+  cmp word [ebp + 16], 2
+  jne near fail32
+  cmp word [ebp + 18], 62
+  jne near fail32
+  cmp word [ebp + 54], 56
+  jne near fail32
+  movzx ecx, word [ebp + 56]
+  test ecx, ecx
+  jz near fail32
+  cmp ecx, 16
+  ja near fail32
+  cmp dword [ebp + 36], 0
+  jne near fail32
+  cmp dword [ebp + 28], 0
+  jne near fail32
+  mov eax, [ebp + 32]             ; e_phoff
+  cmp eax, edi
+  ja near fail32
+  imul ebx, ecx, 56
+  add ebx, eax
+  jc near fail32
+  cmp ebx, edi
+  ja near fail32
+  mov esi, m_seg
+  lea ebx, [ebp + eax]            ; первый phdr
+  mov [ph_cur], ebx
+  mov [ph_cnt], ecx
+  mov dword [n_load], 0
+  ; проход 1: проверка всех PT_LOAD, затем проход 2: копирование
+  mov edx, 0
+.pass:
+  mov ebx, [ph_cur]
+  mov ecx, [ph_cnt]
+.ph:
+  test ecx, ecx
+  jz .pdone
+  cmp dword [ebx], 1
+  jne .pn
+  cmp dword [ebx + 12], 0         ; offset hi
+  jne near fail32_seg
+  cmp dword [ebx + 28], 0         ; paddr hi
+  jne near fail32_seg
+  cmp dword [ebx + 36], 0
+  jne near fail32_seg
+  cmp dword [ebx + 44], 0
+  jne near fail32_seg
+  mov eax, [ebx + 32]             ; filesz
+  cmp eax, [ebx + 40]
+  ja near fail32_seg
+  mov edi, [man_size]
+  mov esi, [ebx + 8]              ; offset
+  cmp esi, edi
+  ja near fail32_seg
+  sub edi, esi
+  cmp eax, edi
+  ja near fail32_seg
+  mov eax, [ebx + 24]             ; paddr
+  cmp eax, 0x100000
+  jb near fail32_seg
+  mov edi, eax
+  add edi, [ebx + 40]
+  jc near fail32_seg
+  cmp edi, STAGE_BASE
+  ja near fail32_seg
+  push ebx
+  mov ebx, edi
+  CONTAINED
+  pop ebx
+  jc near fail32_seg
+  test edx, edx
+  jz .pn
+  ; копирование
+  push ecx
+  mov esi, [ebx + 8]
+  add esi, STAGE_BASE
+  mov edi, [ebx + 24]
+  mov ecx, [ebx + 32]
+  rep movsb
+  mov ecx, [ebx + 40]
+  sub ecx, [ebx + 32]
+  xor eax, eax
+  rep stosb
+  pop ecx
+.pn:
+  add ebx, 56
+  dec ecx
+  jmp .ph
+.pdone:
+  test edx, edx
+  jnz .go
+  inc edx
+  jmp .pass
+.go:
+  mov eax, [ebp + 24]              ; точка входа в загруженном сегменте
+  cmp eax, 0x100000
+  jb near fail32_entry
+  cmp eax, STAGE_BASE
+  jae near fail32_entry
+  mov [entry], eax
+  mov esi, m_go
+  call print32
+  mov ebx, INFO
+  mov eax, 0x36D76289
+  jmp dword [entry]
+
+fail32_seg: mov esi, m_seg
+  jmp fail32
+fail32_entry: mov esi, m_entry
+fail32:
+  call print32
+  cli
+.h: hlt
+  jmp .h
+
+print32:
+  lodsb
+  test al, al
+  jz .r
+  SPUT
+  jmp print32
+.r: ret
+
+; ---------------------------------------------------------------- данные
+align 8
+gdt:
+  dq 0
+  dq 0x00CF92000000FFFF          ; 0x08 data, 4 ГиБ
+  dq 0x00CF9A000000FFFF          ; 0x10 code32
+gdtr:
+  dw gdtr - gdt - 1
+  dd gdt
+
+drive:   db 0
+align 4
+e_count: dd 0
+cur_lba: dd 0
+rem:     dd 0
+dest:    dd 0
+chunk:   dw 0
+ph_cur:  dd 0
+ph_cnt:  dd 0
+n_load:  dd 0
+entry:   dd 0
+e820buf: times 24 db 0
+align 4
+dap:
+  db 0x10, 0
+dap_n: dw 0
+  dw 0x0000, BOUNCE_SEG
+dap_lba: dq 0
+
+m_banner:  db "KIRA BIOS stage2", 13, 10, 0
+m_loaded:  db "KIRA: kernel image read", 13, 10, 0
+m_go:      db "KIRA: entering kernel", 13, 10, 0
+m_manifest: db "KIRA: bad manifest", 13, 10, 0
+m_a20:     db "KIRA: A20 unavailable", 13, 10, 0
+m_e820:    db "KIRA: E820 failed", 13, 10, 0
+m_stage:   db "KIRA: no RAM at 16MiB for kernel image", 13, 10, 0
+m_disk:    db "KIRA: kernel read error", 13, 10, 0
+m_crc:     db "KIRA: kernel CRC mismatch", 13, 10, 0
+m_elf:     db "KIRA: bad ELF64 kernel", 13, 10, 0
+m_seg:     db "KIRA: ELF segment outside usable RAM or malformed", 13, 10, 0
+m_entry:   db "KIRA: bad kernel entry", 13, 10, 0
+
+times (S2_BYTES - 32) - ($ - $$) db 0
+man_magic: dd 0               ; 'KBM1'
+man_lba:   dd 0
+man_size:  dd 0
+man_crc:   dd 0
+           times 16 db 0

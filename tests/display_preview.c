@@ -142,6 +142,9 @@ static void fill_mind(void) {
     v->lv_changes = 37; v->lv_general = 2; v->lv_seed = 1;
     v->bg_fps = 30; v->core_cap = 60; v->core_res_pid = 7; v->core_res = 2;
     v->comp_par = 1; v->comp_ns_kpx_par = 840; v->comp_ns_kpx_ser = 1190;
+    v->dev_errors = 2; snprintf(v->dev_name, sizeof v->dev_name, "virtio-blk");
+    v->hid_suspect = 1; v->hid_rate = 240; snprintf(v->hid_name, sizeof v->hid_name, "USB-HID");
+    v->denied = 1; snprintf(v->denied_name, sizeof v->denied_name, "unknown");
     v->tz_min = 180;
     static const struct { uint32_t pid, th, heap, cpu, sysc, w, lim; const char* n; uint8_t fl, fo; } P[] = {
         { 7, 1, 2048, 612, 18300, 6, 100, "cube3d", 0, 1 }, { 5, 1, 512, 488, 120, 4, 50, "burn", 0, 0 },
@@ -282,6 +285,35 @@ int main(int argc, char** argv) {
         save_shot(mind_shots[page]);
     }
     CHECK(app_mind_hit(5, 566) == -1 && app_mind_hit(20, 540) == -1);
+
+    /* Настоящее управление окнами: перетаскивание заголовка и изменение размера за уголок.
+       Проверяем ограничения владельца: шаг 8x16 и верхнюю границу выделенного буфера. */
+    {
+        int tw = wm_create_ex("WM regression", 220, 180, 240, 160, WM_RESIZABLE, 400, 300);
+        CHECK(tw >= 0);
+        if (tw >= 0) {
+            wm_set_resize_limits(tw, 200, 120, 8, 16);
+            int x0, y0, x1, y1, cw0, ch0, cw1, ch1;
+            CHECK(wm_window_pos(tw, &x0, &y0) == 0);
+            move_to(x0 + 100, y0 + 18, 0);
+            wm_mouse(0, 0, 1);
+            move_to(x0 + 130, y0 + 43, 1);
+            wm_mouse(0, 0, 0);
+            CHECK(wm_window_pos(tw, &x1, &y1) == 0);
+            CHECK(x1 == x0 + 30 && y1 == y0 + 25);
+            wm_content_size(tw, &cw0, &ch0);
+            move_to(x1 + 255, y1 + 201, 0);
+            wm_mouse(0, 0, 1);
+            move_to(x1 + 335, y1 + 241, 1);
+            wm_mouse(0, 0, 0);
+            wm_content_size(tw, &cw1, &ch1);
+            CHECK(cw1 > cw0 && ch1 > ch0);
+            CHECK(cw1 <= 400 && ch1 <= 300);
+            CHECK(cw1 % 8 == 0 && ch1 % 16 == 0);
+            wm_destroy(tw);
+            run(2);
+        }
+    }
 
     /* Отсутствующая телеметрия ядер не должна рисоваться как одно ядро с нулевой нагрузкой. */
     {

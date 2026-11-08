@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+extern int kcc_obj;
 
 static const char *read_file(void *ud, const char *path, size_t *len) {
     (void)ud;
@@ -25,6 +26,13 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         if (!strcmp(a, "-S-ir")) ir = 1;
+        else if (!strcmp(a, "-fno-sr")) kcc_nosr = 1;
+        else if (!strcmp(a, "-fwrapv")) kcc_wrapv = 1;
+        else if (!strcmp(a, "-fno-lvn")) kcc_nolvn = 1;
+        else if (!strcmp(a, "-S-oir")) { ir = 1; kcc_dumpopt = 1; }
+        else if (!strcmp(a, "-c")) kcc_obj = 1;
+        else if (!strcmp(a, "-O0")) kcc_noopt = 1;
+        else if (!strcmp(a, "-O1")) kcc_noopt = 0;
         else if (!strcmp(a, "-o") && i + 1 < argc) outp = argv[++i];
         else if (!strncmp(a, "-I", 2) && a[2]) { if (ni < 64) incs[ni++] = a + 2; }
         else if (!strcmp(a, "-I") && i + 1 < argc) { if (ni < 64) incs[ni++] = argv[++i]; }

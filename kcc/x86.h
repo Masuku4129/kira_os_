@@ -18,23 +18,26 @@ typedef struct {
 } XA;
 
 enum { OP_NONE, OP_REG, OP_MEM, OP_IMM };
-typedef struct { int k, sz, r; int64_t v; Obj *sym; } Opd;   /* MEM: [r + v] либо [rip + sym + v] */
-#define NOOPD ((Opd){ OP_NONE, 0, 0, 0, NULL })
+typedef struct { int k, sz, r; int64_t v; Obj *sym; int ix, sc; } Opd;   /* MEM: [r + v] либо [rip + sym + v]; ix - регистр индекса + 1 (0 - нет), sc - log2 масштаба: [r + ix*2^sc + v] */
+#define NOOPD ((Opd){ OP_NONE, 0, 0, 0, NULL, 0, 0 })
 Opd xr(int sz, int r);
 Opd xm(int sz, int base, int64_t disp);
+Opd xmi(int sz, int base, int idx, int sc, int64_t disp);   /* [base + idx*2^sc + disp], idx != rsp */
 Opd xs(int sz, Obj *sym, int64_t add);
+void xa_imul3(XA *a, Opd d, Opd s, int64_t imm);   /* imul d, s, imm32 (размеры 4 и 8) */
 Opd xi(int64_t v);
 
 /* ALU-коды совпадают с x86 (базовый опкод = код * 8) */
 enum { X_ADD = 0, X_OR = 1, X_AND = 4, X_SUB = 5, X_XOR = 6, X_CMP = 7,
        X_MOV = 16, X_MOVZX, X_MOVSX, X_LEA, X_TEST, X_IMUL, X_NEG, X_NOT, X_DIV, X_IDIV, X_SHL, X_SHR, X_SAR, X_CALLR,
-       X_XCHG, X_LXADD, X_LCMPXCHG };   /* xchg [m], r; lock xadd [m], r; lock cmpxchg [m], r (размеры 1, 2, 4, 8) */
+       X_XCHG, X_LXADD, X_LCMPXCHG, X_JMPR, X_ROL };   /* xchg [m], r; lock xadd [m], r; lock cmpxchg [m], r (размеры 1, 2, 4, 8) */
 enum { X0_RET = 1, X0_CQO, X0_SYSCALL, X0_RDTSC, X0_MFENCE, X0_LFENCE, X0_SFENCE, X0_PAUSE, X0_HLT, X0_CLI, X0_STI, X0_NOP,
        X0_UD2, X0_REP_MOVSB, X0_REP_STOSB, X0_LEAVE, X0_PUSH_RBP, X0_IN8, X0_IN16, X0_IN32, X0_OUT8, X0_OUT16, X0_OUT32 };
 enum { CC_E = 4, CC_NE = 5, CC_B = 2, CC_BE = 6, CC_L = 12, CC_LE = 14, CC_NONE = -1 };
 
 void xa_ins(XA *a, int op, Opd d, Opd s);     /* нет шаблона для сочетания - ошибка компиляции */
 void xa_op0(XA *a, int op);
+void xa_raw(XA *a, const unsigned char *b, int n);   /* готовые байты команды */
 void xa_setcc(XA *a, int cc, Opd d);
 void xa_jmp(XA *a, int cc, int lab);          /* cc = CC_NONE: безусловный */
 void xa_call(XA *a, Obj *target);

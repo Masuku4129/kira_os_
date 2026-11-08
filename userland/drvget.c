@@ -503,6 +503,12 @@ static int cmd_confirm(const char *arg) {
     sayf("drvget: собрано, образ ELF %lu байт\n", (unsigned long)kr.elflen);
 
     size_t total = sizeof(kdrv_header_t) + kr.elflen;
+    if (total + 16 > K.acap - K.aused) {                      /* вне kcc_compile longjmp-а нет: место добираем сами, а не через ka_new */
+        size_t nc = grow(0, K.acap, K.aused + total + 16);
+        if (!nc) { say("drvget: нет памяти для пакета, ничего не установлено\n"); return 1; }
+        K.acap = nc;
+        if (nc > g_arena_cap) g_arena_cap = nc;
+    }
     u8 *pkg = ka_new(total);
     kdrv_header_t *h = (kdrv_header_t *)pkg;
     h->magic = KDRV_MAGIC; h->format = KDRV_FORMAT; h->hdr_size = sizeof *h;
