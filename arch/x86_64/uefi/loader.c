@@ -25,6 +25,7 @@
 #define KIRA_PT_LOAD         1
 #define KIRA_MAX_SEGMENTS    32
 #define KIRA_PAGE_SIZE       4096
+#define KIRA_BOOTSTRAP_LIMIT (1ull << 30)
 #define KIRA_KERNEL_PATH     L"\\EFI\\KIRA\\KIRA.ELF"
 #define KIRA_BOOTINFO_PAGES  32 /* enough for the bounded 4096-entry KBI memory map */
 
@@ -151,6 +152,18 @@ static EFI_STATUS read_kernel_image(EFI_HANDLE image,
     return EFI_SUCCESS;
 }
 
+static void release_loaded_segments(kira_loaded_segment *segments,
+                                     UINTN segment_count)
+{
+    while (segment_count) {
+        kira_loaded_segment *segment = &segments[--segment_count];
+        UINTN pages = (UINTN)((segment->size + KIRA_PAGE_SIZE - 1) /
+                              KIRA_PAGE_SIZE);
+        if (pages)
+            (VOID)g_bs->FreePages(segment->base, pages);
+    }
+}
+
 static EFI_STATUS load_elf64(VOID *image,
                              UINTN image_size,
                              EFI_PHYSICAL_ADDRESS *entry_out,
@@ -162,13 +175,17 @@ static EFI_STATUS load_elf64(VOID *image,
     kira_loaded_segment segments[KIRA_MAX_SEGMENTS];
     UINTN segment_count = 0;
     UINTN i;
+    EFI_STATUS status = EFI_LOAD_ERROR;
     EFI_PHYSICAL_ADDRESS min_address = ~(EFI_PHYSICAL_ADDRESS)0;
     EFI_PHYSICAL_ADDRESS max_address = 0;
+    BOOLEAN entry_executable = FALSE;
 
-    if (image_size < sizeof(*eh) ||
+    if (!image || !entry_out || !base_out || !size_out ||
+        image_size < sizeof(*eh) ||
         *(UINT32 *)eh->ident != KIRA_ELF_MAGIC ||
         eh->ident[4] != KIRA_ELFCLASS64 ||
         eh->ident[5] != KIRA_ELFDATA2LSB ||
+        eh->ident[6] != 1 ||
         eh->type != KIRA_ELF_ET_EXEC ||
         eh->machine != KIRA_ELF_EM_X86_64 ||
         eh->version != 1 ||
@@ -187,31 +204,49 @@ static EFI_STATUS load_elf64(VOID *image,
     for (i = 0; i < eh->phnum; ++i) {
         EFI_PHYSICAL_ADDRESS destination;
         EFI_PHYSICAL_ADDRESS allocation;
+        UINT64 segment_end;
+        UINT64 align = ph[i].align;
         UINTN pages;
-        EFI_STATUS status;
 
         if (ph[i].type != KIRA_PT_LOAD)
             continue;
 
         if (ph[i].memsz < ph[i].filesz ||
             !range_valid(ph[i].offset, ph[i].filesz, image_size) ||
-            ph[i].memsz == 0 ||
-            ph[i].paddr > 0x000fffffffffffull ||
-            ph[i].memsz > 0x000fffffffffffull - ph[i].paddr)
-            return EFI_LOAD_ERROR;
+            ph[i].memsz == 0)
+            goto fail;
 
         destination = ph[i].paddr ? ph[i].paddr : ph[i].vaddr;
-        if (destination < 0x100000 ||
-            destination > 0x000fffffffffffull ||
-            ph[i].memsz > 0x000fffffffffffull - destination)
-            return EFI_LOAD_ERROR;
+        if (destination != ph[i].vaddr ||
+            destination < 0x100000 ||
+            (destination & (KIRA_PAGE_SIZE - 1)) != 0 ||
+            destination >= KIRA_BOOTSTRAP_LIMIT ||
+            ph[i].memsz > KIRA_BOOTSTRAP_LIMIT - destination)
+            goto fail;
 
-        pages = (UINTN)((ph[i].memsz + KIRA_PAGE_SIZE - 1) / KIRA_PAGE_SIZE);
+        segment_end = destination + ph[i].memsz;
+        if (align > 1 &&
+            ((align & (align - 1)) != 0 ||
+             (ph[i].offset & (align - 1)) !=
+             (destination & (align - 1))))
+            goto fail;
+
+        if (ph[i].flags & 1u) {
+            if (eh->entry >= destination && eh->entry < segment_end)
+                entry_executable = TRUE;
+        }
+
+        pages = (UINTN)((ph[i].memsz + KIRA_PAGE_SIZE - 1) /
+                        KIRA_PAGE_SIZE);
         allocation = destination;
         status = g_bs->AllocatePages(AllocateAddress, EfiLoaderData,
                                      pages, &allocation);
         if (EFI_ERROR(status))
-            return status;
+            goto fail;
+
+        segments[segment_count].base = destination;
+        segments[segment_count].size = ph[i].memsz;
+        ++segment_count;
 
         if (ph[i].filesz)
             CopyMem((VOID *)(UINTN)destination,
@@ -221,23 +256,23 @@ static EFI_STATUS load_elf64(VOID *image,
             SetMem((UINT8 *)(UINTN)destination + ph[i].filesz,
                    (UINTN)(ph[i].memsz - ph[i].filesz), 0);
 
-        segments[segment_count].base = destination;
-        segments[segment_count].size = ph[i].memsz;
-        ++segment_count;
-
         if (destination < min_address)
             min_address = destination;
-        if (destination + ph[i].memsz > max_address)
-            max_address = destination + ph[i].memsz;
+        if (segment_end > max_address)
+            max_address = segment_end;
     }
 
-    if (segment_count == 0 || eh->entry < min_address || eh->entry >= max_address)
-        return EFI_LOAD_ERROR;
+    if (segment_count == 0 || !entry_executable)
+        goto fail;
 
     *entry_out = eh->entry;
     *base_out = min_address;
     *size_out = max_address - min_address;
     return EFI_SUCCESS;
+
+fail:
+    release_loaded_segments(segments, segment_count);
+    return status;
 }
 
 static EFI_STATUS collect_gop(kira_uefi_kbi_info *info)
