@@ -734,3 +734,95 @@ jobs:
           path: |
             ci-out/package/KIRA_OS_Update.tar.gz
             ci-out/package/KIRA_OS_Update.tar.gz.sha256
+
+  preview-package:
+    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, uefi-ovmf, vm, arm64, mind-quality, gui-regression]
+    if: success() && github.event_name != 'pull_request' && github.ref_name != 'main' && github.ref_name != 'stable'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vm-*
+          path: ci-out/results
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-audit
+          path: ci-out/audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-release-image-audit
+          path: ci-out/release-image-audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-release-image
+          path: ci-out/release-image
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-arm64-image
+          path: ci-out/arm64-image
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-uefi-boot-files
+          path: ci-out/uefi/EFI
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-uefi-ovmf
+          path: ci-out/uefi-ovmf
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-mind-quality
+          path: ci-out/results/mind-quality
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-gui-regression
+          path: ci-out/results/gui-regression
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-kcc-tests
+          path: ci-out/results/kcc-tests
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-driver-e2e
+          path: ci-out/results/driver-e2e
+      - name: create installable unified update
+        env:
+          HOST_RESULT: ${{ needs.host-tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          VM_RESULT: ${{ needs.vm.result }}
+          ARM64_RESULT: ${{ needs.arm64.result }}
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          MIND_RESULT: ${{ needs.mind-quality.result }}
+          GUI_RESULT: ${{ needs.gui-regression.result }}
+          KCC_RESULT: ${{ needs.kcc-tests.result }}
+          DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+          UEFI_RESULT: ${{ needs.uefi-ovmf.result }}
+          IMAGE_AUDIT_RESULT: ${{ needs.build.result }}
+          IMAGE_AUDIT_DIR: ci-out/release-image-audit
+          RELEASE_IMAGE_DIR: ci-out/release-image
+          ARM64_IMAGE_DIR: ci-out/arm64-image
+          KIRA_VERSION: v46
+          KIRA_BASE_REF: edae4ab3367a055826f431e261af5d6dee790ddf
+          CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: KIRA_PREVIEW=1 KIRA_ARCHIVE=KIRA_OS_PREVIEW.tar.gz bash ci/package_update.sh origin/main ci-out/package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-os-preview-${{ github.sha }}
+          path: |
+            ci-out/package/KIRA_OS_PREVIEW.tar.gz
+            ci-out/package/KIRA_OS_PREVIEW.tar.gz.sha256
+      - name: publish preview archive to a branch
+        run: |
+          B="ci-preview-$(echo "$GITHUB_REF_NAME" | tr '/' '-')"
+          mkdir pub && cd pub
+          git init -q -b "$B"
+          git config user.name "kira-ci"; git config user.email "ci@kira.invalid"
+          cp ../ci-out/package/KIRA_OS_PREVIEW.tar.gz* .
+          echo "${GITHUB_SHA}" > SHA
+          git add -A
+          git commit -q -m "preview archive ${GITHUB_SHA::7}"
+          git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"

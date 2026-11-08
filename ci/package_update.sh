@@ -13,7 +13,13 @@ KIRA_VERSION="${KIRA_VERSION:-v46}"
 BASE_REF="${KIRA_BASE_REF:-edae4ab3367a055826f431e261af5d6dee790ddf}"
 mkdir -p "$OUT_DIR"
 # Never publish a combined update while architecture blockers remain open.
-python3 ci/release_gate.py docs/RELEASE_GAPS.md
+# KIRA_PREVIEW=1 builds a clearly labelled test archive and never replaces the release.
+if [ "${KIRA_PREVIEW:-0}" = "1" ]; then
+  echo "package: PREVIEW mode - release gate NOT satisfied, archive is a test build"
+  python3 ci/release_gate.py docs/RELEASE_GAPS.md || true
+else
+  python3 ci/release_gate.py docs/RELEASE_GAPS.md
+fi
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
@@ -137,6 +143,11 @@ cat > "$R/INSTALL_TERMUX.md" <<'EOF_INSTALL'
 
 SHA-256 архива проверяйте командой `sha256sum -c KIRA_OS_Update.tar.gz.sha256` из каталога Download.
 EOF_INSTALL
+if [ "${KIRA_PREVIEW:-0}" = "1" ]; then
+  sed -i 's/KIRA_OS_Update\.tar\.gz/KIRA_OS_PREVIEW.tar.gz/g; 1a\
+\
+**ТЕСТОВАЯ СБОРКА, не релиз** (см. PREVIEW_NOT_RELEASE.txt).' "$R/INSTALL_TERMUX.md"
+fi
 cat > "$R/VERIFY.sh" <<'EOF_VERIFY'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -203,10 +214,21 @@ cp "$IMAGE_AUDIT" "$R/IMAGE_AUDIT.json"
 for f in AUDIT.md inventory.json DEPENDENCIES.md dependency_inventory.json; do
   if [ -f "$AUDIT_DIR/$f" ]; then cp "$AUDIT_DIR/$f" "$R/$f"; fi
 done
+if [ "${KIRA_PREVIEW:-0}" = "1" ]; then
+  cat > "$R/PREVIEW_NOT_RELEASE.txt" <<'EOF_PREVIEW'
+ТЕСТОВАЯ СБОРКА, НЕ РЕЛИЗ.
+Все CI-проверки зелёные (host, build, QEMU-матрица, UEFI/OVMF, ARM64, KCC, GUI, Mind, driver E2E),
+но релизный шлюз docs/RELEASE_GAPS.md не закрыт: BIOS-загрузка, самосборка KCC, RTL8139 clean-room,
+подписи драйверов, DMA, платформа, GUI/Mind остаются открытыми. Проверено только в QEMU/OVMF,
+на физическом железе не проверялось.
+EOF_PREVIEW
+  KIRA_ARCHIVE=KIRA_OS_PREVIEW.tar.gz
+fi
 printf '%s\n' "$BASE_SHA" > "$R/BASE_SHA"
 printf '%s\n' "$HEAD_SHA" > "$R/HEAD_SHA"
 printf '%s\n' "$KIRA_VERSION" > "$R/VERSION"
 (cd "$STAGE/kira_os" && find . -type f ! -path './RELEASE/SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > RELEASE/SHA256SUMS)
-tar -czf "$OUT_DIR/KIRA_OS_Update.tar.gz" -C "$STAGE" kira_os
-(cd "$OUT_DIR" && sha256sum KIRA_OS_Update.tar.gz > KIRA_OS_Update.tar.gz.sha256)
-echo "package: created verified $KIRA_VERSION unified update (source + tested images) $OUT_DIR/KIRA_OS_Update.tar.gz"
+ARCHIVE="${KIRA_ARCHIVE:-KIRA_OS_Update.tar.gz}"
+tar -czf "$OUT_DIR/$ARCHIVE" -C "$STAGE" kira_os
+(cd "$OUT_DIR" && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
+echo "package: created $KIRA_VERSION archive (source + tested images) $OUT_DIR/$ARCHIVE"
