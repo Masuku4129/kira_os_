@@ -52,6 +52,26 @@ int main(void) {
     CHECK(entries[1].type == KBI_MEM_ACPI_RECLAIM && entries[1].length == 0x4000);
     CHECK(entries[2].type == KBI_MEM_RESERVED);
 
+    /* Unsupported GOP pixel formats must produce a valid headless handoff. */
+    info.format = 0;
+    CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
+                              &info, blob, sizeof(blob), &size) == EFI_SUCCESS);
+    h = (const kbi_header_t *)blob;
+    CHECK(!(h->flags & KBI_F_FRAMEBUFFER) && h->fb_size == 0);
+    info.format = 1;
+
+    /* Invalid GOP pitch and overlapping firmware ranges must fail closed. */
+    info.pitch = 1;
+    size = 0xdeadbeefu;
+    CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
+                              &info, blob, sizeof(blob), &size) == EFI_LOAD_ERROR);
+    CHECK(size == 0xdeadbeefu);
+    info.pitch = 4096;
+    descriptor(&map[1], EfiACPIReclaimMemory, 0x180000, 4);
+    CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
+                              &info, blob, sizeof(blob), &size) == EFI_LOAD_ERROR);
+    descriptor(&map[1], EfiACPIReclaimMemory, 0x900000, 4);
+
     descriptor(&map[0], EfiConventionalMemory, 0x100000, UINT64_MAX / 4096u + 1u);
     size = 0xdeadbeefu;
     CHECK(kira_uefi_build_kbi(map, sizeof(map[0]), sizeof(map[0]), 1,
