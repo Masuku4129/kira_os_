@@ -45,3 +45,14 @@ The current UEFI and GRUB/Multiboot2 paths must remain unchanged. Do not add GRU
 ## Entry-contract correction (2026-11-08)
 
 The first draft overstated the work required from stage 2. Inspection of `arch/x86_64/boot.s` confirms that the kernel ELF entry itself accepts 32-bit protected-mode Multiboot2 registers, saves EAX/EBX, constructs its initial 1 GiB identity map, enables PAE/paging/long mode, and calls `kernel_main` with RDI/RSI. Therefore stage 2 must hand off to the ELF entry in 32-bit protected mode; it must not perform the long-mode transition itself. The current stage-1 DAP also loads 32 sectors (16 KiB) at 0x8000 while stage 2 hardcodes its manifest at 0x9000, which lies inside that load range and is an additional layout defect to remove.
+
+
+## Additional Stage-2 memory/DAP findings (2026-11-08)
+
+Static inspection of the current `arch/x86_64/bios/stage2.S` found two further blockers that the implementation must address:
+
+1. **Kernel DAP destination is truncated.** The source sets `KERNEL_BUFFER = 0x10000`, then executes `movw $KERNEL_BUFFER, %ax` followed by `movw %ax, dap_offset` and sets `dap_segment = 0`. A 16-bit offset cannot represent 0x10000; it becomes zero. The first BIOS read therefore targets physical 0x00000, not 0x10000, overwriting the IVT/BDA/low memory. For the intended 0x10000 physical destination, encode a valid segment:offset pair (for example 0x1000:0x0000), and test the computed linear address. Keep subsequent chunk advancement correct across 64-KiB boundaries.
+
+2. **Kernel staging read has no bounded destination capacity.** `kernel_sectors` is accepted from the manifest and repeatedly read in chunks of up to 32 sectors. `remaining_bytes` is initialized but never used to enforce a limit. A large or malicious sector count can make the BIOS read overwrite arbitrary physical memory before ELF validation. Define a maximum staging extent based on an explicit reserved-memory map, reject zero/oversized counts and arithmetic overflow before the first disk read, and ensure the entire destination remains below the chosen ceiling and does not overlap Stage2, stack, E820 storage, BootInfo or the kernel's eventual PT_LOAD destinations.
+
+Required regression checks: assert the DAP's initial segment:offset resolves exactly to 0x10000; test chunk transitions around 64-KiB boundaries; reject a manifest whose sector count exceeds the reserved staging capacity before issuing INT 13h; and verify no read destination overlaps reserved regions.
