@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   native:
-    name: Native Linux \${{ matrix.arch }}
+    name: Native Linux ${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
@@ -23,7 +23,7 @@ jobs:
             runner: ubuntu-24.04
           - arch: aarch64
             runner: ubuntu-24.04-arm
-    runs-on: \${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -43,12 +43,12 @@ jobs:
         run: |
           set +e
           timeout 10s ./out/robust_futex_diag | tee out/result.txt
-          rc=\${PIPESTATUS[0]}
+          rc=${PIPESTATUS[0]}
           set -e
           echo "exit_code=$rc"
           test "$rc" -eq 0
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: robust-futex-\${{ matrix.arch }}
+          name: robust-futex-${{ matrix.arch }}
           path: out/
