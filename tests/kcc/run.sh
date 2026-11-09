@@ -131,6 +131,10 @@ for f in tests/kcc/run/*.c; do
         cmp -s $T/want $T/got || note "$f ($fl): вывод расходится с clang: $(head -c 120 $T/got | tr '\n' ' ') != $(head -c 120 $T/want | tr '\n' ' ')"
     done
 done
+# -c для aarch64 не реализован: должен быть чистый отказ (rc=1, сообщение), а не падение
+total=$((total+1))
+$T/kcc -c -target aarch64 -I $INC -I kcc/include -o $T/p.o tests/kcc/ok/has_include.c 2>$T/err; rc=$?
+if [ $rc != 1 ] || ! grep -q "not supported for aarch64" $T/err; then note "kcc -c -target aarch64: ожидался чистый отказ (rc=$rc): $(head -c 200 $T/err)"; fi
 for f in tests/kcc/elfbad/*.c; do
     total=$((total+1))
     $T/kcc -I $INC -I kcc/include -o $T/p.elf $f 2>$T/err; rc=$?
