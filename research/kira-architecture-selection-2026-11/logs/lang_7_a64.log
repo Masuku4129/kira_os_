@@ -1,0 +1,13 @@
+research/kira-architecture-selection-2026-11/scripts/lang_7_a64.sh: line 13: 28673 Segmentation fault      $KCC -c -target aarch64 -o $D/t.o $BENCH/sieve.c 2> $D/err
+done sieve
+done matmul
+done hash
+done sort
+done sha256
+done list
+done strscan
+done bits
+done calls
+done mlp
+done fmatmul
+L7 done

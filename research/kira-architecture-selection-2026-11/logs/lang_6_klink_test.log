@@ -1,0 +1,80 @@
+== сборка klink ==
+ok:   klink собран (gcc -std=c99 -Wall -Wextra -Werror)
+ok:   ядро klink собирается флагами программ Киры (-ffreestanding -nostdlibinc -Iuserland/kccrt): зависит только от mem*/str*/vsnprintf/setjmp
+ok:   klink.c собирается собственным kcc (kcc -c)
+== userland: программы build_clang.sh, klink против ld.lld -O0 ==
+FAIL: ld.lld не собрал kcc
+FAIL: klink не собрал drvget: klink: error: /tmp/tmp.VdIav8QUaS/u/kcc_lex.o:(.text+0x1565): R_X86_64_GOTPCREL against 'ty_int' needs a GOT, which is not supported (only `mov sym@GOTPCREL(%rip), reg` of a defined symbol is relaxed)
+FAIL: klink не собрал drvman: klink: error: /tmp/tmp.VdIav8QUaS/u/kcc_lex.o:(.text+0x1565): R_X86_64_GOTPCREL against 'ty_int' needs a GOT, which is not supported (only `mov sym@GOTPCREL(%rip), reg` of a defined symbol is relaxed)
+FAIL: kcc: вывод под kloader отличается (числа заменены на N)
+FAIL: drvget: вывод под kloader отличается (числа заменены на N)
+FAIL: drvman: вывод под kloader отличается (числа заменены на N)
+FAIL: kcc.elf (klink) компилирует иначе, чем kcc.elf (ld.lld)
+FAIL: самосборка kcc.elf (klink) не совпала
+== тестовая программа tests/klink/t_*: несколько объектов ==
+ok:   t_g.o содержит R_X86_64_[REX_]GOTPCRELX (путь релаксации проверяется)
+ok:   t_*: образ совпал с ld.lld -O0
+ok:   t_*: вывод под kloader равен ожидаемому (слабый pick=2, общий cm=5/12, GOT, указатели в .data, nasm)
+ok:   слабый символ не перекрывает сильный при любом порядке объектов
+ok:   объекты kcc -c: образ совпал с ld.lld -O0
+ok:   объекты kcc -c: программа дала ожидаемый вывод
+== --gc-sections ==
+ok:   t_* с -ffunction-sections: --gc-sections совпал с ld.lld (33 allocatable input sections, 11 removed by --gc-sections); без gc образ 13984, с gc 13872 байт
+ok:   недостижимые unused_b/unused_b_data удалены, достижимые остались
+ok:   после gc программа выводит то же
+FAIL: gc kcc: klink: klink: error: /tmp/tmp.VdIav8QUaS/ugc/kcc.o:(.text.build_mode+0x44a): undefined reference to 'mbj_build'
+FAIL: gc drvget: klink: klink: error: /tmp/tmp.VdIav8QUaS/ugc/kcc_lex.o:(.text.conv_char+0x425): R_X86_64_GOTPCREL against 'ty_int' needs a GOT, which is not supported (only `mov sym@GOTPCREL(%rip), reg` of a defined symbol 
+FAIL: gc drvman: klink: klink: error: /tmp/tmp.VdIav8QUaS/ugc/kcc_lex.o:(.text.conv_char+0x425): R_X86_64_GOTPCREL against 'ty_int' needs a GOT, which is not supported (only `mov sym@GOTPCREL(%rip), reg` of a defined symbol 
+== другие скрипты и размеры страницы ==
+ok:   tests/klink/custom.ld (PROVIDE, ALIGN у секции, KEEP, 1M/4K, три PHDRS): совпало с ld.lld -O0, включая символы-границы
+ok:   custom.ld: программа выводит ожидаемое
+ok:   user.ld с -z max-page-size=0x10000: совпало с ld.lld
+ok:   user.ld с -z max-page-size=0x200000: совпало с ld.lld
+ok:   -e umain меняет точку входа
+== ядро: те же объекты, ld.lld и klink ==
+FAIL: ядро не собралось clang: progs.c:11:10: fatal error: 'manifest.h' file not found
+   11 | #include "manifest.h"      /* создаётся сборкой (kfstool manifest) */
+      |          ^~~~~~~~~~~~
+1 error generated.
+FAIL: kcc не собрал ядро: progs.c:11: error: 'manifest.h' file not found
+SKIP: ядро с --gc-sections (KLINK_QUICK=1)
+== негативные тесты ==
+ok:   отказ: неопределённый символ -> klink: error: /tmp/tmp.VdIav8QUaS/n/undef.o:(.text+0x6): undefined reference to 'nothere'
+ok:   отказ: дубликат символа -> klink: error: duplicate symbol 'dup': defined in /tmp/tmp.VdIav8QUaS/n/dup1.o and in /tmp/tmp.VdIav8QUaS/n/dup
+ok:   отказ: TLS -> klink: error: /tmp/tmp.VdIav8QUaS/n/tls.o: section '.tbss': thread-local storage is not supported
+ok:   отказ: R_X86_64_GOTPCREL без релаксации (нужна GOT) -> klink: error: /tmp/tmp.VdIav8QUaS/n/gotreloc.o:(.text+0x3): R_X86_64_GOTPCREL against 'ext_sym' needs a GOT, w
+ok:   отказ: неподдержанное перемещение R_X86_64_GOTTPOFF -> klink: error: /tmp/tmp.VdIav8QUaS/n/gotpc.o:(.text+0x3): unsupported relocation type 22 (R_X86_64_GOTTPOFF) ag
+ok:   отказ: переполнение R_X86_64_32 (адрес 0x8000000000) -> klink: error: /tmp/tmp.VdIav8QUaS/n/abs32.o:(.text+0x1): relocation R_X86_64_32 overflows against 'ext_sym' (v
+ok:   отказ: переполнение R_X86_64_PC32 (секции дальше 2 ГиБ) -> klink: error: /tmp/tmp.VdIav8QUaS/n/pc32.o:(.text+0x2): relocation R_X86_64_PC32 overflows against 'ext_sym' (
+ok:   отказ: секция не покрыта скриптом -> klink: error: /tmp/tmp.VdIav8QUaS/n/orphan.o: allocatable section '.weirdalloc' is not placed by the linker sc
+ok:   отказ: ссылка в отброшенную секцию -> klink: error: /tmp/tmp.VdIav8QUaS/n/disc.o:(.text+0x3): relocation R_X86_64_PC32 against '.rodata' in discarde
+ok:   отказ: нет символа входа -> klink: error: entry symbol 'nosuch' is not defined
+ok:   отказ: скрипт: MEMORY { r : ORIGIN = 0, LENGTH = 1M } -> klink: error: script:1: unsupported command 'MEMORY'
+ok:   отказ: скрипт: SECTIONS { . = 0x1000; .text : { *(SORT( -> klink: error: script:1: unsupported pattern modifier 'SORT'
+ok:   отказ: скрипт: SECTIONS { . = SIZEOF(.x); } -> klink: error: script:1: unsupported function 'SIZEOF'
+ok:   отказ: скрипт: SECTIONS { /*  -> klink: error: script:1: unterminated comment
+ok:   отказ: скрипт: SECTIONS { .text : { *(.text*) } } -> klink: error: /tmp/tmp.VdIav8QUaS/n/disc.o: allocatable section '.rodata' is not placed by the linker script (
+ok:   отказ: скрипт: OUTPUT_FORMAT(elf64-x86-64) -> klink: error: script:1: unsupported command 'OUTPUT_FORMAT'
+ok:   отказ: скрипт: SECTIONS { . = 0x1000; .text : AT(0x2000 -> klink: error: script:1: unsupported output section attribute 'AT'
+ok:   отказ: скрипт: SECTIONS { . = 0x1000; .text : { *(.text -> klink: error: script:1: unsupported program header type (only PT_LOAD)
+ok:   отказ: скрипт: SECTIONS { . = ((((((((((((((((((((((((( -> klink: error: script:1: expression is nested too deeply
+ok:   отказ: обрезанный .o -> klink: error: /tmp/tmp.VdIav8QUaS/n/trunc.o: section header table is outside the file
+ok:   отказ: не ELF -> klink: error: /tmp/tmp.VdIav8QUaS/n/text.o: not an ELF file
+ok:   отказ: e_machine не x86-64 -> klink: error: /tmp/tmp.VdIav8QUaS/n/aarch64.o: not an x86-64 object (e_machine=183)
+ok:   отказ: ET_EXEC на входе -> klink: error: /tmp/tmp.VdIav8QUaS/n/etexec.o: not a relocatable object (e_type=2)
+ok:   отказ: ELF32 -> klink: error: /tmp/tmp.VdIav8QUaS/n/elf32.o: not a little-endian ELF64 file
+ok:   отказ: e_shnum огромен -> klink: error: /tmp/tmp.VdIav8QUaS/n/shnum.o: unsupported section count 65535
+ok:   отказ: смещения секций за файлом -> klink: error: /tmp/tmp.VdIav8QUaS/n/secoff.o: bad section name table
+ok:   отказ: архив .a -> klink: error: /tmp/tmp.VdIav8QUaS/n/ar.a: archives (.a) are not supported; pass object files
+ok:   отказ: нет входных файлов -> usage: klink -T script.ld [-z max-page-size=N] [-nostdlib] [--gc-sections] [-e sym] -o out obj...
+ok:   отказ: неизвестная опция -> klink: unsupported option --relax
+ok:   отказ: неподдержанный -z -> klink: unsupported option -z execstack
+ok:   отказ: нет файла -> klink: cannot read /tmp/tmp.VdIav8QUaS/n/nonexistent.o
+== фаззинг (ASan+UBSan) ==
+ok:   fuzz seed 1: fuzz: 6000 runs, 554 linked, 5446 rejected, no crashes
+ok:   fuzz seed 2: fuzz: 6000 runs, 502 linked, 5498 rejected, no crashes
+ok:   fuzz seed 3: fuzz: 6000 runs, 543 linked, 5457 rejected, no crashes
+ok:   fuzz на объектах kcc -c: fuzz: 6000 runs, 522 linked, 5478 rejected, no crashes
+ok:   fuzz на nasm-объектах ядра: fuzz: 6000 runs, 0 linked, 6000 rejected, no crashes
+итого: 53 ok, 13 FAIL, 1 SKIP
+klink: FAIL
