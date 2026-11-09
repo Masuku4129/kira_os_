@@ -1,0 +1,26 @@
+name: KIRA process-shared IPC lab
+on:
+  push:
+    branches: [research/ipc-process-lab-2026-11]
+  workflow_dispatch:
+jobs:
+  ipc-process-lab:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile strict C11
+        run: gcc -O2 -std=c11 -Wall -Wextra -Wpedantic -Werror -o ipc-lab research/ipc_lab/ipc_process_lab.c
+      - name: Run correctness and benchmark
+        run: |
+          mkdir -p ci-out
+          timeout 120 ./ipc-lab 200000 7 | tee ci-out/ipc-process-result.json
+      - name: Upload raw result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipc-process-${{ matrix.os }}
+          path: ci-out/ipc-process-result.json
