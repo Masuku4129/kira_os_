@@ -622,6 +622,7 @@ static const cmd_t cmds[] = {
     { "df",        0,   "место: системный диск и флешки", fscmd_df },
     { "cp",        0,   "копировать файл: cp откуда куда (флешка /usb0 <-> диск)", fscmd_cp },
     { "umount",    0,   "отключить флешку перед извлечением: umount usb0", fscmd_umount },
+    { "remount",   0,   "запись на флешку: remount usb0 rw / ro (по умолчанию только чтение)", fscmd_remount },
     { "format",    0,   "KiraFS на диске (стирает его): format ИМЯ yes; без слов - справка", fscmd_format },
     { "disk",      0,   "диски (NVMe, SATA, virtio, ATA) и какой из них системный", cmd_disk },
     { "lspci",     0,   "устройства на шине PCI", cmd_lspci },

@@ -272,6 +272,12 @@ int main(void) {
         CHECK(vfs_mkdir("/usb0/no-dir") == KFS_ERR_RO);
         CHECK(vfs_unlink("/usb0/Фото с телефона.txt") == KFS_ERR_RO);
         CHECK(vfs_flush(0) == 0 && !memcmp(before, raw, len));
+        /* запись разрешает только явный вызов (команда remount); обратно в «только чтение» - с дозаписью */
+        CHECK(vfs_set_read_only(0, 0) == 0 && vfs_mounts(mi, VFS_MAX) == 1 && !mi[0].read_only);
+        CHECK(vfs_mkdir("/usb0/after-rw") == 0);
+        CHECK(vfs_set_read_only(0, 1) == 0 && vfs_mounts(mi, VFS_MAX) == 1 && mi[0].read_only);
+        CHECK(vfs_mkdir("/usb0/after-ro") == KFS_ERR_RO);
+        CHECK(vfs_set_read_only(5, 0) == KFS_ERR_NOFS && vfs_set_read_only(-1, 0) == KFS_ERR_INVAL && vfs_set_read_only(VFS_MAX, 0) == KFS_ERR_INVAL);
         vfs_unmount(0); free(before);
         save(img, raw, len);
         snprintf(cmd2, sizeof cmd2, "%s -n %s >/dev/null 2>&1", fsck, img); CHECK(system(cmd2) == 0);

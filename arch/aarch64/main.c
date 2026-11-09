@@ -187,8 +187,12 @@ static int map_gb(uint64_t gb) {
     unsigned i1 = (unsigned)(gb >> 30) & 511;
     if (l1[i1] & PTE_VALID) return 0;
     int has_pool = dma_lo && dma_lo < gb + (1ull << 30) && dma_hi > gb;
-    if (in_ram(gb, 1ull << 30) && !has_pool) { l1[i1] = gb | PTE_NORMAL | PTE_BLOCK; return 0; }
-    if (!touches_ram(gb, 1ull << 30)) { l1[i1] = gb | PTE_DEVICE | PTE_BLOCK; return 0; }
+    /* Ловушка NULL: первая страница физического адреса 0 не отображается, чтение или запись по нулевому указателю в ядре
+       даёт ошибку, а не молча читает флеш/ПЗУ платы (QEMU virt) или портит память по адресу 0. Для этого гигабайт 0
+       дробится до 4-КБ страниц. Если ядро само лежит в первых 2 МБ (платы с ОЗУ с нуля), ловушки нет. */
+    int guard = gb == 0 && (uint64_t)(uintptr_t)__kernel_start >= (2ull << 20);
+    if (!guard && in_ram(gb, 1ull << 30) && !has_pool) { l1[i1] = gb | PTE_NORMAL | PTE_BLOCK; return 0; }
+    if (!guard && !touches_ram(gb, 1ull << 30)) { l1[i1] = gb | PTE_DEVICE | PTE_BLOCK; return 0; }
     uint64_t* l2 = next_table(l1, i1);
     if (!l2) return -1;
     for (unsigned i = 0; i < 512; i++) {
@@ -196,6 +200,18 @@ static int map_gb(uint64_t gb) {
         uint64_t attr = in_ram(a, 1ull << 21) ? PTE_NORMAL : PTE_DEVICE;
         if (dma_lo && a >= dma_lo && a + (1ull << 21) <= dma_hi) attr = PTE_DMA_NC;
         l2[i] = a | attr | PTE_BLOCK;
+    }
+    if (guard) {
+        uint64_t* l3 = (uint64_t*)palloc(4096, 4096);
+        if (!l3) return -1;
+        for (unsigned i = 0; i < 512; i++) {
+            uint64_t a = (uint64_t)i << 12;
+            if (i == 0) { l3[0] = 0; continue; }                       /* страница 0 не отображена */
+            uint64_t attr = in_ram(a, 4096) ? PTE_NORMAL : PTE_DEVICE;
+            if (dma_lo && a >= dma_lo && a + 4096 <= dma_hi) attr = PTE_DMA_NC;
+            l3[i] = a | attr | 3ull;                                  /* дескриптор страницы уровня 3 */
+        }
+        l2[0] = (uint64_t)(uintptr_t)l3 | PTE_TABLE;
     }
     return 0;
 }
@@ -1099,6 +1115,10 @@ static const void* find_fdt(uint64_t x0) {
 }
 
 void arm_main(uint64_t dtb, uint64_t entry_el) {
+    /* До разбора дерева устройств данные ядер ещё не выделены, а замки журнала уже считают себя в this_cpu() (TPIDR_EL1).
+       Нулевой указатель раньше молча писал в адрес 0x78 (флеш QEMU; на платах с ОЗУ с нуля - в живую память), ловушка NULL
+       это показала. Временно ставим данные нулевого ядра; настоящие устанавливаются ниже, когда известен номер ядра. */
+    percpu_install(&percpu_table[0]);
 #ifdef KIRA_EARLY_UART
     kprintf("[early] arm_main x0=%x EL%u\n", dtb, (SYSREG_R(CurrentEL) >> 2) & 3);
 #endif
@@ -1235,6 +1255,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     /* занято: ядро, дерево устройств, ранние выделения (таблицы MMU, сама карта) */
     pmm_arm_init((const pmm_arm_region_t*)ram, nram, lo, hi, map, (uint64_t)(uintptr_t)__kernel_start, (uint64_t)(uintptr_t)__kernel_end);
     pmm_arm_reserve((uint64_t)(uintptr_t)fdt, (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt));
+    pmm_arm_reserve(0, 4096);                                    /* страница 0 не отображена (ловушка NULL) - pmm её не выдаёт */
     pmm_arm_reserve(bump_start, bump);
     /* Firmware memreserve entries are separate from /reserved-memory nodes. */
     for (unsigned i = 0; i < fdt_reserve_count(fdt, 4u * 1024u * 1024u); i++) {

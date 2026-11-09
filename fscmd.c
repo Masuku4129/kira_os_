@@ -218,6 +218,22 @@ void fscmd_cp(const char* arg) {
     uart_print(src); uart_print(" -> "); uart_print(dp); uart_print(": "); uart_print_dec(st.size); uart_print(" байт\n");
 }
 
+/* remount usbN rw|ro: флешки подключаются только для чтения; запись разрешает человек этой командой. */
+void fscmd_remount(const char* arg) {
+    arg = skip_sp(arg);
+    if (arg[0] == '/') arg++;
+    int ok = arg[0] == 'u' && arg[1] == 's' && arg[2] == 'b' && arg[3] >= '0' && arg[3] <= '3' && arg[4] == ' ';
+    const char* m = ok ? skip_sp(arg + 4) : 0;
+    int rw = m && m[0] == 'r' && m[1] == 'w' && !m[2];
+    int ro = m && m[0] == 'r' && m[1] == 'o' && !m[2];
+    if (!ok || (!rw && !ro)) { uart_print("использование: remount usb0 rw (разрешить запись) или remount usb0 ro (только чтение)\n"); return; }
+    int n = arg[3] - '0';
+    int r = vfs_set_read_only(n, ro);
+    if (r) { fail(arg, r); return; }
+    uart_print("/usb"); uart_putchar((char)('0' + n));
+    uart_print(rw ? ": запись разрешена (перед извлечением: umount usb0)\n" : ": только чтение\n");
+}
+
 /* umount usbN: дописать всё и отключить том - флешку можно вынимать. */
 void fscmd_umount(const char* arg) {
     arg = skip_sp(arg);

@@ -11,4 +11,5 @@ void fscmd_df(const char* arg);
 void fscmd_format(const char* arg);     /* только "yes" */
 void fscmd_cp(const char* arg);         /* "откуда куда" */
 void fscmd_umount(const char* arg);     /* "usbN" */
+void fscmd_remount(const char* arg);    /* "usbN rw|ro": разрешить или запретить запись на флешку */
 #endif

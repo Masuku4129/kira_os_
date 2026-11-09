@@ -54,6 +54,21 @@ int vfs_unmount_try(int n) {
     return 0;
 }
 
+/* Запись на подключённый том разрешает только человек (команда remount). Возврат в «только чтение» сначала дописывает всё. */
+int vfs_set_read_only(int n, int ro) {
+    if (n < 0 || n >= VFS_MAX) return KFS_ERR_INVAL;
+    vl_lock(&lk[n]);
+    int r = KFS_OK;
+    if (!mnt[n].used) r = KFS_ERR_NOFS;
+    else {
+        if (ro && !mnt[n].read_only) r = fat_flush(mnt[n].vol);
+        if (r == KFS_OK) mnt[n].read_only = ro ? 1 : 0;
+    }
+    vl_unlock(&lk[n]);
+    if (r == KFS_OK) __atomic_add_fetch(&gen, 1, __ATOMIC_RELEASE);
+    return r;
+}
+
 int vfs_flush(int n) {
     if (n < 0 || n >= VFS_MAX) return KFS_ERR_INVAL;
     vl_lock(&lk[n]);

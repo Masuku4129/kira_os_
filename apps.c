@@ -759,6 +759,7 @@ static const seg_t segs[] = {
     { 1, "авто", 24 }, { 1, "0", 20 }, { 1, "1", 21 }, { 1, "2", 22 }, { 1, "3", 23 },
     { 2, "UTC", 32 }, { 2, "местн", 33 }, { 2, "-", 30 }, { 2, 0, -1 }, { 2, "+", 31 },
     { 3, "выкл", 40 }, { 3, "вкл", 41 },
+    { 4, "выкл", 50 }, { 4, "важные", 51 }, { 4, "все", 52 },
 };
 #define NSEG ((int)(sizeof segs / sizeof segs[0]))
 #define SET_ROW_Y(r) (12 + (r) * 64)
@@ -790,16 +791,18 @@ static int seg_on(const app_settings_t* st, int code) {
     if (code >= 20 && code <= 24) return st->fx_user == code - 20;
     if (code == 40 || code == 41) return st->telemetry == code - 40;
     if (code == 32 || code == 33) return st->rtc_local == code - 32;
+    if (code >= 50 && code <= 52) return st->notify == code - 50;
     return 0;
 }
 
 void app_settings_draw(surface_t* s, const app_settings_t* st, int hover) {
     gfx_fill(s, TH_CONTENT);
-    static const char* const title[4] = { "Разум", "Анимация фона", "Часовой пояс", "Телеметрия" };
-    static const char* const hint[4] = { "наблюдать или управлять системой", "авто - решает Разум",
-                                         "часы ПК: UTC / местное", "замеры Разума в журнал раз в секунду" };
-    static const uint32_t acc[4] = { TH_PURPLE, TH_CYAN, TH_GREEN, TH_AMBER };
-    for (int r = 0; r < 4; r++) {
+    static const char* const title[5] = { "Разум", "Анимация фона", "Часовой пояс", "Телеметрия", "Уведомления Разума" };
+    static const char* const hint[5] = { "наблюдать или управлять системой", "авто - решает Разум",
+                                         "часы ПК: UTC / местное", "замеры Разума в журнал раз в секунду",
+                                         "важные - угрозы и остановки; всё остаётся в журнале" };
+    static const uint32_t acc[5] = { TH_PURPLE, TH_CYAN, TH_GREEN, TH_AMBER, TH_BLUE };
+    for (int r = 0; r < 5; r++) {
         int y = SET_ROW_Y(r);
         card(s, 10, y, 500, 58, 0, 0);
         gfx_rect(s, 22, y + 14, 3, 30, acc[r]);
@@ -823,7 +826,7 @@ void app_settings_draw(surface_t* s, const app_settings_t* st, int hover) {
         gfx_text(s, x + w / 2 - gfx_text_width(segs[i].label) / 2, y + 7, segs[i].label, on ? TH_TEXT : TH_TEXT_DIM, -1);
     }
     /* о системе */
-    int y = SET_ROW_Y(4);
+    int y = SET_ROW_Y(5);
     card(s, 10, y, 500, 132, "СИСТЕМА", TH_BLUE);
     char t[96], a[24]; int p;
     p = cat(t, 0, "ядер "); p = cat_u(t, p, (uint64_t)st->cores); p = cat(t, p, " · память "); app_fmt_kb(a, (uint64_t)st->ram_mb * 1024); cat(t, p, a);

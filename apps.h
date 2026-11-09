@@ -17,7 +17,7 @@
 #define APP_FILES_W 800
 #define APP_FILES_H 520
 #define APP_SET_W  520
-#define APP_SET_H  (410 + TH_BAR_H)
+#define APP_SET_H  (474 + TH_BAR_H)
 
 void app_mind_draw(surface_t* s, const mind_view_t* v, unsigned page);
 int  app_mind_hit(int x, int y);
@@ -33,9 +33,9 @@ void app_files_draw(surface_t* s, const exp_view_t* e, const app_hit_t* hover, i
 int  app_files_hit(const exp_view_t* e, int x, int y, app_hit_t* h);   /* возвращает h->kind */
 
 /* Настройки. Коды элементов: 10+режим (0 наблюдает, 1 действует), 20+анимация (0..3, 4 - авто),
-   30 - пояс минус, 31 - пояс плюс, 40+телеметрия (0/1). */
+   30 - пояс минус, 31 - пояс плюс, 40+телеметрия (0/1), 50+уведомления Разума (0 выкл, 1 важные, 2 все). */
 typedef struct {
-    int mode, fx_user, fx, tz_min, telemetry, experience, cores, rtc_local;
+    int mode, fx_user, fx, tz_min, telemetry, experience, cores, rtc_local, notify;
     const char* irqc;     /* контроллер прерываний (platform_irq_name) */
     uint32_t ram_mb;
     int scr_w, scr_h;

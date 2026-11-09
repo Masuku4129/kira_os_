@@ -16,6 +16,7 @@ int      vfs_mount_fat(fat_vol_t* vol, const char* desc);    /* подключи
 int      vfs_mount_fat_ro(fat_vol_t* vol, const char* desc); /* подключить только для чтения (USB по умолчанию) */
 void     vfs_unmount(int n);                                 /* том отключён (устройство вынули) */
 int      vfs_unmount_try(int n);                             /* то же без ожидания: -1 - том сейчас занят */
+int      vfs_set_read_only(int n, int ro);                   /* 0 - готово; ro=0 разрешает запись на том, ro=1 дописывает и запрещает */
 int      vfs_flush(int n);                                   /* дописать отложенное перед извлечением */
 uint32_t vfs_generation(void);                               /* растёт при подключении/отключении томов */
 int      vfs_mounts(vfs_info_t* out, int max);               /* подключённые тома */

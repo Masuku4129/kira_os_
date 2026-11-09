@@ -69,6 +69,9 @@ static mind_view_t mv;
 static exp_view_t ev;
 static uint32_t mv_ver = ~0u, ev_ver = ~0u;
 static uint32_t mind_notice_seq = ~0u;
+static int notify_mode = 1;                          /* уведомления Разума: 0 выкл, 1 важные, 2 все (журнал Mind ведётся всегда) */
+static uint64_t notify_last_ms[16];                  /* когда последний раз показано уведомление такого рода */
+#define NOTIFY_COOLDOWN_MS 30000ull                  /* однотипные не чаще раза в 30 с: иначе «экран опаздывает» сыплется каждый такт */
 static app_hit_t files_hover;
 static int set_hover = -1, files_drop = -1;
 static unsigned mind_page, mind_btn;
@@ -126,7 +129,7 @@ static void settings_state(app_settings_t* s) {
     s->mode = mv.mode; s->fx_user = mv.fx_user; s->fx = mv.fx; s->tz_min = mv.t ? mv.tz_min : mind_sys_tz(); s->rtc_local = mind_sys_rtc_local();
     s->telemetry = mind_sys_telemetry(); s->experience = experience_enabled(); s->irqc = platform_irq_name();
     s->cores = (int)sched_cpu_count(); s->ram_mb = (uint32_t)(pmm_get_total_memory_kb() / 1024);
-    s->scr_w = scr->w; s->scr_h = scr->h;
+    s->scr_w = scr->w; s->scr_h = scr->h; s->notify = notify_mode;
 }
 
 static void draw_settings(void) {
@@ -282,6 +285,7 @@ static void on_input(int id, int type, int x, int y, unsigned buttons) {
                 if (tz >= -720 && tz <= 840) { mind_sys_request_tz(tz); mv.tz_min = tz; }
             } else if (h == 32 || h == 33) mind_sys_request_rtc_local(h - 32);
             else if (h == 40 || h == 41) mind_sys_set_telemetry(h - 40);
+            else if (h >= 50 && h <= 52) notify_mode = h - 50;
         }
         if (h != set_hover || press) { set_hover = h; draw_settings(); }
         return;
@@ -467,17 +471,27 @@ static void mind_notify_latest(void) {
     unsigned level = WM_NOTIFY_INFO;
     switch (e->kind) {
     case MJ_ANOMALY: title = "Разум: аномалия"; level = WM_NOTIFY_WARNING; break;
-    case MJ_KILL: title = "Разум: процесс остановлен"; level = WM_NOTIFY_ERROR; break;
-    case MJ_STARVE: title = "Разум: нехватка ресурсов"; level = WM_NOTIFY_WARNING; break;
-    case MJ_BEHAVIOR: title = "Разум: поведение процесса"; level = WM_NOTIFY_WARNING; break;
+    case MJ_KILL: title = "Разум: остановка"; level = WM_NOTIFY_ERROR; break;
+    case MJ_STARVE: title = "Разум: нехватка"; level = WM_NOTIFY_WARNING; break;
+    case MJ_BEHAVIOR: title = "Разум: поведение"; level = WM_NOTIFY_WARNING; break;
     case MJ_MEMORY: title = "Разум: память"; level = WM_NOTIFY_WARNING; break;
-    case MJ_RESTORE: title = "Разум: восстановление"; level = WM_NOTIFY_SUCCESS; break;
-    case MJ_TUNE_BACK: title = "Разум: откат настройки"; level = WM_NOTIFY_WARNING; break;
-    case MJ_TUNE_KEEP: title = "Разум: настройка принята"; level = WM_NOTIFY_SUCCESS; break;
-    case MJ_LIMIT: title = "Разум: ограничение процесса"; level = WM_NOTIFY_WARNING; break;
+    case MJ_RESTORE: title = "Разум: восстановлено"; level = WM_NOTIFY_SUCCESS; break;
+    case MJ_TUNE_BACK: title = "Разум: откат"; level = WM_NOTIFY_WARNING; break;
+    case MJ_TUNE_KEEP: title = "Разум: настройка"; level = WM_NOTIFY_SUCCESS; break;
+    case MJ_LIMIT: title = "Разум: ограничение"; level = WM_NOTIFY_WARNING; break;
     default: break; /* обучение, фокус и пробные замеры остаются в журнале Mind без всплывающего шума */
     }
-    if (title && e->text[0]) wm_notify(title, e->text, level);
+    if (!title || !e->text[0] || notify_mode == 0) return;
+    /* «Важные»: то, что требует внимания человека. Ограничения фона, нехватка, откаты и приём настроек - рутина Разума, она
+       видна в панели «Разум» и в журнале. */
+    int important = e->kind == MJ_KILL || e->kind == MJ_ANOMALY || e->kind == MJ_BEHAVIOR || e->kind == MJ_MEMORY;
+    if (notify_mode == 1 && !important) return;
+    if (e->kind < 16 && e->kind != MJ_KILL && e->kind != MJ_RESTORE) {        /* остановка процесса и восстановление - всегда */
+        uint64_t now = clock_ms();
+        if (notify_last_ms[e->kind] && now - notify_last_ms[e->kind] < NOTIFY_COOLDOWN_MS) return;
+        notify_last_ms[e->kind] = now ? now : 1;
+    }
+    wm_notify(title, e->text, level);
 }
 
 static void update_mind(void) {
