@@ -54,4 +54,12 @@ int acpi_init(uint64_t mbi_phys);
 void acpi_set_map_hook(const void* (*hook)(uint64_t phys, uint64_t len));   /* адрес для чтения таблицы или 0 */
 const acpi_info_t* acpi_get(void);
 
+/*
+ * Return the checksum-validated DSDT AML payload and its byte length.
+ * The returned pointer remains valid while the ACPI map-hook mappings remain
+ * installed. phys may be NULL; all other output pointers are required.
+ * Returns 0 on success, -1 for invalid arguments, -2 if no valid DSDT exists.
+ */
+int acpi_get_dsdt(const uint8_t** aml, uint32_t* aml_size, uint64_t* phys);
+
 #endif
