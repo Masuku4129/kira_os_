@@ -105,3 +105,31 @@ The corresponding CI run is [42558948592](https://github.com/Masuku4129/kira_os_
 - Keep x86-64 and ARM64 separate. Keep host prototypes, QEMU kernel evidence and physical hardware evidence separate.
 - Status vocabulary: CONFIRMED (only for the tested scope), CONDITIONAL, INEFFECTIVE, UNPROVEN, REJECTED.
 - No architecture winner is selected until isolated candidates and CC combinations are tested with comparable workloads.
+
+
+## Source audit: actual IPC and capability implementation
+
+Files inspected: `caps.h`, `kobj.h`, `kobj.c`, `syscall.c`, `proc.h`, `proc.c`, `kdrv.h`, `kdrv.c`, `tests/kobj_test.c`.
+
+- KIRA already has separate Ring 3 process address spaces, per-process handle tables, process-level capability bits, named kernel ports, shared-memory objects and explicit map/unmap calls.
+- `CAP_IPC` is one broad process right for named ports and shared memory. It is not yet a fine-grained per-object capability with delegated rights, revocation and ownership transfer.
+- Port IPC is copy-based. `SYS_PORT_SEND` copies user data into a temporary kernel buffer; `port_send` allocates and copies it again into the queue. Receive copies from the queue to a kernel buffer, then to user memory. Therefore the current port path is not zero-copy.
+- Shared memory exists as a separate object: physical pages are mapped into the process address space with WRITE, NOEXEC and SHARED flags. This can support zero-copy data exchange, but the current port API does not itself provide a ring-buffer ownership protocol.
+- Named objects are in a global registry. The current test suite validates handles and object lifetimes, but it does not establish fine-grained authorization between individual processes for each named object.
+- Driver processes run in Ring 3/EL0 with device-specific bindings and rights. The driver manager restricts BAR/config/IRQ/DMA calls to the current process's bound device. The code comments explicitly acknowledge that without IOMMU, a bus-mastering device can still DMA into arbitrary memory.
+- Consequence for the original first-priority combination: KIRA has useful building blocks (process isolation, process rights, handles, shared memory), but the full Capability Microkernel + Shared Memory + Ring Buffer + Zero-Copy design is NOT YET IMPLEMENTED as a unified IPC architecture. The current kernel is a modular C/ASM kernel with isolated user processes and services, not proof of a completed capability microkernel.
+
+### First-priority status
+
+| Component | Current status | Evidence / gap |
+|---|---|---|
+| Process isolation | CONFIRMED in tested QEMU scope | Separate address spaces and attack-process termination |
+| Process-level capability bits | CONFIRMED in tested QEMU scope | CAP_GFX denial test; broad CAP_IPC remains coarse |
+| Handle-based objects | CONFIRMED in host tests | Per-process descriptor table |
+| Shared memory | CONFIRMED in host tests and KIRA mapping code | Shared pages mapped RW-NX |
+| Ring buffer IPC | UNPROVEN as an end-to-end KIRA IPC primitive | Port queue is fixed message queue; no shared ring protocol |
+| Zero-copy IPC | NOT IMPLEMENTED in current port path | Explicit user/kernel/queue copies in syscall.c and kobj.c |
+| Per-object capability delegation/revocation | UNPROVEN / not present in inspected API | Broad CAP_IPC plus globally named objects |
+| IOMMU/SMMU DMA isolation | UNPROVEN | Driver docs state no-IOMMU limitation |
+
+The round-2 Linux process benchmark is only a comparative host prototype. It cannot promote any of these kernel-level statuses. Its current run is queued; no performance figures are available yet.
