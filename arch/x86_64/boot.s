@@ -56,6 +56,7 @@ global stack_bottom
 global stack_top
 extern kernel_main
 extern kernel_uefi_entry
+extern kernel_end                ; конец образа ядра (linker.ld): выше него страницы раннего отображения получают NX
 
 start:
     cli
@@ -95,15 +96,25 @@ start:
     or eax, 3
     mov [pdpt_table], eax
 
-    ; Заполняем 512 огромных страниц по 2 МБ (итого 1 ГБ identity map). Эта карта RW без NX - только на время
-    ; ранней загрузки: после включения NXE и WP vmm_enforce_wx (vmm.c) дробит образ ядра на 4-КБ страницы и ставит
-    ; права по секциям (текст RX, rodata R+NX, остальное RW+NX), а всё прочее отображение получает NX.
+    ; Заполняем 512 огромных страниц по 2 МБ (итого 1 ГБ identity map). Страницы целиком выше образа ядра
+    ; (kernel_end из linker.ld, округлено вверх до 2 МБ) получают NX уже здесь, до первой строки C-кода: исполняемыми
+    ; остаются только страницы, где лежит образ (2-МБ страницу под ним на этом этапе не раздробить). Бит NX требует
+    ; EFER.NXE - он включается ниже вместе с LME. Образ дробит на 4-КБ страницы и ставит права по секциям
+    ; vmm_enforce_wx (vmm.c: текст RX, rodata R+NX, остальное RW+NX).
+    mov edx, kernel_end
+    add edx, 0x1FFFFF
+    shr edx, 21                 ; первая 2-МБ страница, целиком лежащая выше образа
     mov ecx, 0
 .map_pages:
     mov eax, ecx
     shl eax, 21                 ; Умножаем на 2 МБ (1 << 21)
     or eax, 0x83                ; Present + Writable + Huge (2MB)
     mov [pd_table + ecx * 8], eax
+    mov dword [pd_table + ecx * 8 + 4], 0
+    cmp ecx, edx
+    jb .map_keep_x
+    mov dword [pd_table + ecx * 8 + 4], 0x80000000   ; бит 63 - NX
+.map_keep_x:
     inc ecx
     cmp ecx, 512
     jl .map_pages
@@ -120,7 +131,7 @@ start:
     ; Включаем Long Mode в MSR EFER
     mov ecx, 0xC0000080
     rdmsr
-    or eax, 256                 ; 1 << 8
+    or eax, 0x900               ; LME (1 << 8) | NXE (1 << 11): страницы выше образа уже помечены NX
     wrmsr
 
     ; Включаем пейджинг и защищенный режим в CR0
@@ -149,12 +160,20 @@ bits 64
     mov eax, pd_table
     or eax, 3
     mov [pdpt_table], eax
+    mov edx, kernel_end         ; как в BIOS-пути: выше образа ядра - NX
+    add edx, 0x1FFFFF
+    shr edx, 21
     mov ecx, 0
 .uefi_map_pages:
     mov eax, ecx
     shl eax, 21
     or eax, 0x83
     mov [pd_table + ecx * 8], eax
+    mov dword [pd_table + ecx * 8 + 4], 0
+    cmp ecx, edx
+    jb .uefi_keep_x
+    mov dword [pd_table + ecx * 8 + 4], 0x80000000
+.uefi_keep_x:
     inc ecx
     cmp ecx, 512
     jl .uefi_map_pages
@@ -169,7 +188,7 @@ bits 64
     db 0x0f, 0x22, 0xd8
     mov ecx, 0xC0000080
     rdmsr
-    or eax, 256
+    or eax, 0x900               ; LME | NXE
     wrmsr
     ; MOV RAX, CR0; enable paging and protected mode; MOV CR0, RAX.
     db 0x0f, 0x20, 0xc0

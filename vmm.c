@@ -111,6 +111,8 @@ static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) {
 static spinlock_t ks_lock = SPINLOCK_INIT;
 static uint32_t ks_used_hi;                       /* ячеек, когда-либо отображённых */
 static uint16_t ks_free[KSTACK_SLOTS]; static uint32_t ks_nfree;
+static uint8_t ks_busy[KSTACK_SLOTS / 8];          /* ячейка выдана и не возвращена: защита от двойного освобождения */
+static uint32_t ks_bad;                            /* отклонённых освобождений (для журнала и тестов) */
 static uint32_t ks_size;
 
 static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags);
@@ -121,10 +123,12 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     if (ks_size && ks_size != bytes) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
     ks_size = bytes;
     uint64_t slot_top;
-    if (ks_nfree) slot_top = KSTACK_BASE + (uint64_t)(ks_free[--ks_nfree] + 1) * KSTACK_STRIDE;
+    uint32_t slot;
+    if (ks_nfree) { slot = ks_free[--ks_nfree]; slot_top = KSTACK_BASE + (uint64_t)(slot + 1) * KSTACK_STRIDE; }
     else {
         if (ks_used_hi >= KSTACK_SLOTS) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
-        slot_top = KSTACK_BASE + (uint64_t)(ks_used_hi + 1) * KSTACK_STRIDE;
+        slot = ks_used_hi;
+        slot_top = KSTACK_BASE + (uint64_t)(slot + 1) * KSTACK_STRIDE;
         for (uint64_t va = slot_top - bytes; va < slot_top; va += PAGE_SIZE) {
             uint64_t pa = pmm_alloc_page();
             if (!pa || map_in(kernel_root, va, pa, PTE_WRITE | VMM_NOEXEC) != 0) {
@@ -136,6 +140,7 @@ void* vmm_kstack_alloc(uint32_t bytes) {
         }
         ks_used_hi++;
     }
+    ks_busy[slot / 8] |= (uint8_t)(1u << (slot % 8));
     spin_unlock_irqrestore(&ks_lock, f);
     return (void*)(uintptr_t)(slot_top - bytes);
 }
@@ -144,9 +149,22 @@ void vmm_kstack_free(void* base) {
     uint64_t va = (uint64_t)(uintptr_t)base;
     if (va < KSTACK_BASE || va >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE) return;
     uint64_t f = spin_lock_irqsave(&ks_lock);
-    ks_free[ks_nfree++] = (uint16_t)((va - KSTACK_BASE) / KSTACK_STRIDE);
+    uint64_t off = va - KSTACK_BASE;
+    uint32_t slot = (uint32_t)(off / KSTACK_STRIDE);
+    /* Освобождается только то, что было выдано: адрес - ровно начало стека своей ячейки и ячейка занята. Иначе (двойное
+       освобождение, чужой или сдвинутый адрес) список свободных получил бы дубль и два потока получили бы один стек. */
+    if (!ks_size || off % KSTACK_STRIDE != KSTACK_STRIDE - ks_size || !(ks_busy[slot / 8] & (1u << (slot % 8)))) {
+        ks_bad++;
+        spin_unlock_irqrestore(&ks_lock, f);
+        uart_print("[KIRA VMM] отклонено освобождение стека потока: ячейка не выдана (двойное освобождение или чужой адрес)\n");
+        return;
+    }
+    ks_busy[slot / 8] &= (uint8_t)~(1u << (slot % 8));
+    ks_free[ks_nfree++] = (uint16_t)slot;
     spin_unlock_irqrestore(&ks_lock, f);
 }
+
+uint32_t vmm_kstack_bad_frees(void) { return ks_bad; }
 
 int vmm_kstack_guard_hit(uint64_t addr) {
     if (addr < KSTACK_BASE || addr >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE || !ks_size) return 0;

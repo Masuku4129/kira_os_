@@ -341,6 +341,8 @@ static int mmu_init(uint64_t top) {
 #define PTE_PAGE      3ull
 #define PTE_KDATA     ((2ull << 2) | PTE_AF | PTE_SH_IN | (1ull << 53) | (1ull << 54))
 static uint64_t ks_next, ks_free = ~0ull, ks_size;
+static uint8_t ks_busy[KSTACK_SLOTS / 8];          /* ячейка выдана и не возвращена: защита от двойного освобождения */
+static uint32_t ks_bad;
 static volatile uint32_t ks_lock;
 
 void vmm_user_kernel_l0_changed(unsigned idx, uint64_t entry);
@@ -376,6 +378,7 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     uint64_t va = 0;
     if (ks_size == bytes && ks_free != ~0ull) {
         va = KSTACK_VA + ks_free * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
+        ks_busy[ks_free / 8] |= (uint8_t)(1u << (ks_free % 8));
         ks_free = *(volatile uint64_t*)(uintptr_t)va;
     } else if (ks_next < KSTACK_SLOTS && (!ks_size || ks_size == bytes)) {
         uint64_t slot = ks_next, base = KSTACK_VA + slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
@@ -384,7 +387,7 @@ void* vmm_kstack_alloc(uint32_t bytes) {
             uint64_t pa = pmm_alloc_page();
             ok = pa && map_kpage(base + o, pa) == 0;
         }
-        if (ok) { ks_next++; ks_size = bytes; va = base; }
+        if (ok) { ks_busy[slot / 8] |= (uint8_t)(1u << (slot % 8)); ks_next++; ks_size = bytes; va = base; }
     }
     __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
     irq_restore(f);
@@ -396,11 +399,24 @@ void vmm_kstack_free(void* base) {
     if (!vmm_is_kstack(va)) return;
     uint64_t f = irq_save();
     while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
+    uint64_t off = va - KSTACK_VA, slot = off / KSTACK_STRIDE;
+    /* Список свободных хранится в самих стеках: дубль в нём замкнул бы цикл и выдал один стек двум потокам.
+       Освобождается только выданная ячейка и только по адресу начала её стека. */
+    if (!ks_size || off % KSTACK_STRIDE != KSTACK_STRIDE - ks_size || !(ks_busy[slot / 8] & (1u << (slot % 8)))) {
+        ks_bad++;
+        __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
+        irq_restore(f);
+        kprintf("[KIRA VMM] rejected kernel stack free: slot not allocated (double free or foreign address)\n");
+        return;
+    }
+    ks_busy[slot / 8] &= (uint8_t)~(1u << (slot % 8));
     *(volatile uint64_t*)(uintptr_t)va = ks_free;
-    ks_free = (va - KSTACK_VA) / KSTACK_STRIDE;
+    ks_free = slot;
     __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
     irq_restore(f);
 }
+
+uint32_t vmm_kstack_bad_frees(void) { return ks_bad; }
 
 /* Write-combining x86 (PAT) нужен кадровому буферу от загрузчика (fb_init, multiboot) - на ARM64 его нет: экран
    идёт через virtio-gpu, изображение лежит в обычной кэшируемой памяти, устройство забирает его командой переноса. */
