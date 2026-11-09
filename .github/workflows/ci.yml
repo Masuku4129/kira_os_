@@ -33,31 +33,66 @@ jobs:
             ci-out/host-tests.log
             ci-out/source-intake-tests.log
 
-  data-lab:
+  data-formats:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: data format, cross-domain pipeline and KCC benchmark
+      - name: data format benchmark
         run: |
           set -euo pipefail
           mkdir -p ci-out
-          python3 benchmarks/data_formats.py --rows 50000 --repeat 3 --out ci-out/data-format-lab
-          python3 research/combined_lab/round2_pipeline_lab.py --rows 20000 --versions 8 --repeat 7 --out ci-out/round2-pipeline
-          KIRA_BENCH_RUNS=5 bash tests/kcc/bench/bench.sh 2>&1 | tee ci-out/kcc-bench.txt
-          gcc -O2 -std=c11 -Wall -Wextra -Werror -o ci-out/ipc-process-lab research/combined_lab/ipc_process_shared.c
-          ci-out/ipc-process-lab 2>&1 | tee ci-out/ipc-process-lab.txt
-          gcc -O2 -std=c11 -Wall -Wextra -Werror -o ci-out/ipc-matrix research/combined_lab/ipc_process_shared.c
-          ci-out/ipc-matrix 2>&1 | tee ci-out/ipc-matrix.txt
+          python3 benchmarks/data_formats.py --rows 50000 --repeat 5 --out ci-out/data-format-lab
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: data-format-lab-results
-          path: |
-            ci-out/data-format-lab
-            ci-out/round2-pipeline
-            ci-out/kcc-bench.txt
-            ci-out/ipc-process-lab.txt
-            ci-out/ipc-matrix.txt
+          name: research-data-formats
+          path: ci-out/data-format-lab
+
+  storage-pipeline:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: combined storage and update pipeline
+        run: |
+          set -euo pipefail
+          mkdir -p ci-out
+          python3 research/combined_lab/round2_pipeline_lab.py --rows 20000 --versions 8 --repeat 7 --out ci-out/round2-pipeline
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: research-storage-pipeline
+          path: ci-out/round2-pipeline
+
+  compiler-bench:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: KCC versus Clang benchmark
+        run: |
+          set -euo pipefail
+          mkdir -p ci-out
+          KIRA_BENCH_RUNS=20 bash tests/kcc/bench/bench.sh 2>&1 | tee ci-out/kcc-bench.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: research-compiler
+          path: ci-out/kcc-bench.txt
+
+  ipc-lab:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: process-shared IPC benchmark and integrity checks
+        run: |
+          set -euo pipefail
+          mkdir -p ci-out
+          gcc -O2 -std=c11 -Wall -Wextra -Werror -o ci-out/ipc-process-lab research/combined_lab/ipc_process_shared.c
+          ci-out/ipc-process-lab 2>&1 | tee ci-out/ipc-process-lab.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: research-ipc
+          path: ci-out/ipc-process-lab.txt
 
   build:
     runs-on: ubuntu-24.04
@@ -141,7 +176,7 @@ jobs:
 
   artifact-audit:
     if: always()
-    needs: [host-tests, data-lab, build, arm64, vm]
+    needs: [host-tests, data-formats, storage-pipeline, compiler-bench, ipc-lab, build, arm64, vm]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -178,21 +213,24 @@ jobs:
 
   global-gate:
     if: always()
-    needs: [host-tests, data-lab, build, arm64, vm, artifact-audit]
+    needs: [host-tests, data-formats, storage-pipeline, compiler-bench, ipc-lab, build, arm64, vm, artifact-audit]
     runs-on: ubuntu-24.04
     steps:
       - name: Enforce whole-system CI gates
         env:
           HOST: ${{ needs.host-tests.result }}
-          DATA: ${{ needs.data-lab.result }}
+          DATA_FORMATS: ${{ needs.data-formats.result }}
+          STORAGE: ${{ needs.storage-pipeline.result }}
+          COMPILER: ${{ needs.compiler-bench.result }}
+          IPC: ${{ needs.ipc-lab.result }}
           BUILD: ${{ needs.build.result }}
           ARM64: ${{ needs.arm64.result }}
           VM: ${{ needs.vm.result }}
           AUDIT: ${{ needs.artifact-audit.result }}
         run: |
-          printf 'Host tests: %s\nData lab: %s\nBuild: %s\nARM64: %s\nQEMU matrix: %s\nArtifact audit: %s\n' "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM" "$AUDIT"
+          printf 'Host tests: %s\nData formats: %s\nStorage pipeline: %s\nCompiler: %s\nIPC: %s\nBuild: %s\nARM64: %s\nQEMU matrix: %s\nArtifact audit: %s\n' "$HOST" "$DATA_FORMATS" "$STORAGE" "$COMPILER" "$IPC" "$BUILD" "$ARM64" "$VM" "$AUDIT"
           failed=0
-          for result in "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM" "$AUDIT"; do
+          for result in "$HOST" "$DATA_FORMATS" "$STORAGE" "$COMPILER" "$IPC" "$BUILD" "$ARM64" "$VM" "$AUDIT"; do
             [ "$result" = success ] || failed=1
           done
           [ "$failed" -eq 0 ] || { echo "GLOBAL GATE: FAIL"; exit 1; }
@@ -200,7 +238,7 @@ jobs:
 
   # Итоги - в ветку ci-results (одна свежая копия): журналы и снимки читаются через git, без хранилища артефактов.
   report:
-    needs: [host-tests, data-lab, build, vm, arm64, global-gate]
+    needs: [host-tests, data-formats, build, vm, arm64, global-gate]
     if: always()
     runs-on: ubuntu-24.04
     permissions:
@@ -224,7 +262,10 @@ jobs:
             echo "# Прогон ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
             echo
             echo "host-tests: ${{ needs.host-tests.result }}"
-            echo "data-lab: ${{ needs.data-lab.result }}"
+            echo "data-formats: ${{ needs.data-formats.result }}"
+            echo "storage-pipeline: ${{ needs.storage-pipeline.result }}"
+            echo "compiler-bench: ${{ needs.compiler-bench.result }}"
+            echo "ipc-lab: ${{ needs.ipc-lab.result }}"
             echo "build: ${{ needs.build.result }}"
             echo "vm matrix: ${{ needs.vm.result }}"
             echo "arm64: ${{ needs.arm64.result }}"
