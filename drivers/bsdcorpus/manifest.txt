@@ -1,0 +1,15 @@
+# Корпус OpenBSD (sys/): BSD-лицензия. Хеши сверяет tools/bsd_corpus.py fetch.
+commit 4ce71f2817f675745b0596aaf04de4a122b1cc52
+set ne2k NE2000 (RTL8029, QEMU ne2k_pci): PCI-обвязка + dp8390 + ne2000; без DMA, регистры через порты
+file ne2k dev/pci/if_ne_pci.c 0887c9eea78ea896e7811ab2c032a30f3d79d83697498b1a2423c9f4940676c0
+file ne2k dev/ic/ne2000.c 70bfd13ca8e80a96095c490d45cd5db10e8aa8f4501f723416bcc6738ed754fd
+file ne2k dev/ic/ne2000var.h 40009a35ea0c5393597a9d448cd3252bb0aa36ae84086b29f04ca99057fd4a1c
+file ne2k dev/ic/ne2000reg.h b8b30c0059f037b89928bfa453185269469c64d787cd57240e48499d79cd9f52
+file ne2k dev/ic/dp8390.c e875d92a080d669cecc69dd66a0238fd6822b815294f5368ae98e8d68028b236
+file ne2k dev/ic/dp8390reg.h 35397fd9391de3a3cc3305c4eb6694ad829e5ed73871c22f16848eb551f9d35a
+file ne2k dev/ic/dp8390var.h a2a8cf893b1c7985a7154636fa9cc489804ef0e2c28426b4e9a30d547d9b2405
+file ne2k dev/ic/rtl80x9.c ed363f57cfcf24eec4f2a4864ca7823debd729953c9fbb74dc80979f3d942ee5
+file ne2k dev/ic/rtl80x9var.h 90776de40f533806c58c13f9c38bd408e2cc9023d4a3443b4a014ff860be8346
+file ne2k dev/ic/rtl80x9reg.h 33065ddc3c7e0c0cabe27f2b6ef564a8bf21f6b7ebcd1200b20612bd9ae4df1a
+file ne2k dev/ic/ax88190reg.h fb6d879b1bc9a5155fc7ff2b8bb73dc5ae121e1535df825bf5e3860e4cfaadf3
+file ne2k dev/ic/ax88190var.h 8ef0e0c1f92db6d3299a9b070897545da2d3821f47b27306484ef5f93ed1b031

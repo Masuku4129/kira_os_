@@ -30,3 +30,4 @@ bios-stage2.bin
 kira-bios.img
 BOOTX64.EFI
 kira-uefi.img
+build-bsd/
