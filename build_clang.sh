@@ -131,7 +131,11 @@ if [ "$RELEASE" != 1 ]; then
     tools/mkdrv.sh kira.disk userland/drvedu.elf "$HOSTCC"
     $CC $UCFLAGS -I. -Iuserland -c userland/drvne2kio.c -o userland/drvne2kio.o
     ld.lld $ULINK -o userland/drvne2kio.elf userland/drvne2kio.o
-    tools/mkdrv_io.sh kira.disk userland/drvne2kio.elf "$HOSTCC"
+    tools/mkdrv_pkg.sh kira.disk ne2kio userland/drvne2kio.elf 10ec:8029 mmio,pcidev "$HOSTCC"
+    # Драйвер BSD из корпуса OpenBSD через слой совместимости (docs/BSD_COMPAT.md): NE2000/RTL8029 - карта ne2k_pci QEMU
+    if tools/bsd_build.sh ne2k ne ne_pci_ca build-bsd/ne2k.elf dev/ic/dp8390.c dev/ic/ne2000.c dev/ic/rtl80x9.c dev/pci/if_ne_pci.c; then
+        tools/mkdrv_pkg.sh kira.disk bsdne build-bsd/ne2k.elf 10ec:8029 mmio,pcidev,netdev "$HOSTCC"
+    else echo "ВНИМАНИЕ: драйвер BSD ne2k не собран (корпус недоступен или ошибка компиляции)"; fi
 fi
 for h in kcc/include/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h     # заголовки libc-lite для kcc на Кире

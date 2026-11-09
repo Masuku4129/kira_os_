@@ -547,6 +547,22 @@ ALL.append(sc("drv-io", "Ring 3: порты I/O BAR своей карты (ne2k_
 ], smp=2, mem="1G", extra=["-device", "ne2k_pci,mac=52:54:00:12:34:99"]))
 
 
+# Драйвер OpenBSD (if_ne_pci + dp8390 + ne2000 + rtl80x9 из закреплённого корпуса) в Ring 3 через слой совместимости BSD: карта ne2k_pci,
+# ядро получает сетевую карту драйвера, DHCP QEMU выдаёт адрес через неё. Карту сначала держит тестовый ne2kio: его останавливают, затем запускают bsdne.
+ALL.append(sc("drv-bsd-ne2k", "драйвер OpenBSD ne(4) в Ring 3 через слой совместимости: карта ne2k_pci, регистрация интерфейса, DHCP и ping через неё", [
+    {"log": BOOT_LOG},
+    {"sleep": 6},
+    {"log": [r"drvne2kio: PASS"]},                                           # первым карту берёт тестовый драйвер портов (пакет ne2kio)
+    {"cmd": "drv stop ne2kio", "must": [r"останавливаю drv-ne2kio"]}, {"sleep": 2},
+    {"cmd": "drv start bsdne", "must": [r"драйвер запущен как drv-bsdne"]}, {"sleep": 8},
+    {"log": [r"ne0 at pci 10ec:8029", r"bsdrt: ne0 up, mac 52:54:00:12:34:56",
+             r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+    {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
+    {"log_forbid": [r"bsdrt: .*FAIL", r"bsd panic", r"bsd: порты отказали"] + NO_ERR},
+    {"responsive": "status", "within": 5},
+], smp=2, mem="1G", extra=["-netdev", "user,id=n0", "-device", "ne2k_pci,netdev=n0"]))
+
+
 # drvget + драйвер RTL8139 (пакет L, N). Фаза 1: сеть virtio; drvget по настоящему TLS 1.3 скачивает исходники драйвера rl с хозяина,
 # показывает источник/лицензию/SHA-256/права, ставит только после подтверждения хешем, собирает kcc на устройстве и пишет /drv.
 # Фаза 2 (relaunch на том же диске): вместо virtio-net - rtl8139; драйвер из /drv находит карту по PCI-ID и регистрирует сетевой интерфейс.
