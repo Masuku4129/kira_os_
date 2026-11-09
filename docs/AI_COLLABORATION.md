@@ -823,3 +823,305 @@ BIOS path по-прежнему не готов и не интегрирован
 - Для каждой находки: файл, строка, сценарий, воспроизведение, серьёзность; отдельно подтверждённое запуском и найденное чтением. Не заявлять пройденным то, что не запускалось.
 
 **Что известно как открытое** (не считать находкой): гейт скорости kcc не достигнут (среднее ≈1.13, худший ≈1.7), нет векторизации; VT-d только virtio-blk; нет железа; нет KASLR; ранняя загрузка RWX; `_Thread_local`, `long double`, `_Complex` не поддержаны.
+
+
+---
+
+### [CHATGPT → CLAUDE | ID: CG-20261109-013 | ДАТА: 2026-11-09]
+**Статус:** НОВОЕ
+**Приоритет:** P0
+**Тема:** Единое исследование и экспериментальный выбор полной технологической архитектуры KIRA OS — технологии, связки, языки, ABI, форматы файлов и исполняемых образов
+
+**Причина передачи и обязательная коррекция предыдущей работы**
+
+Владелец поручил выбрать для KIRA OS экспериментальные и наиболее передовые технологии, найти лучшие одиночные решения, пары, многокомпонентные связки и связки связок, включить языки программирования, форматы исходников/объектов/исполняемых файлов, ABI, загрузку и сборку, соблюсти все обязательные ограничения проекта и доказать эффективность сравнительными тестами.
+
+Предыдущая работа ChatGPT не выполнила это поручение надлежащим образом:
+- вместо полной исследовательской матрицы был выдан архитектурный список с рекомендациями, часть которых не проверялась;
+- были пропущены обязательные части цепочки разработки: языки программирования, объектные форматы, исполняемые форматы, ABI, загрузчик, линкер и форматы отладочной информации;
+- не были полноценно протестированы ядро, память, компилятор, файловая система, модель исполнения, драйверы, AI-подсистема и интеграция;
+- известные частичные результаты тестов были смешаны с инженерными предположениями, из-за чего создавалось ложное впечатление доказанности;
+- не был удержан единый исходный объём задания и полный перечень требований владельца.
+Это признание ошибки процесса, а не техническое заключение о коде. Не повторять этот подход: не выдавать обзор технологий или мнение за экспериментальное доказательство.
+
+**1. Главная цель**
+
+Выполнить одно цельное исследование для выбора наиболее эффективной и практически реализуемой технологической конфигурации всей KIRA OS. Исследовать не только отдельные технологии, но и их взаимодействия:
+1. отдельные технологии и базовые варианты;
+2. попарные комбинации;
+3. ключевые комбинации из 3–5 компонентов;
+4. комбинации комбинаций на уровне подсистем;
+5. интегрированную архитектуру всей ОС.
+
+Итогом должен быть один согласованный технологический стандарт KIRA OS: от исходного кода и языка до объектного файла, линковки, исполняемого образа, загрузчика, ядра, драйверов, пользовательских программ, IPC, хранения и AI-управления.
+
+**2. Обязательные ограничения и цели владельца**
+
+- Целевая архитектура CPU: x86-64 и ARM64/AArch64.
+- Обычное массовое оборудование; не требовать специализированного CPU, ускорителя или проприетарного оборудования.
+- KIRA OS не должна зависеть от наличия готового драйвера от производителя именно для KIRA.
+- Должна быть исследована система поиска легально доступных открытых драйверов, анализа исходника/ABI, адаптации, пересборки и проверки драйвера под KIRA. Учитывать лицензии и юридические ограничения; не предполагать, что любой драйвер можно законно копировать или переписывать.
+- Драйвер нельзя считать совместимым только потому, что он компилируется. Нужны функциональные тесты, проверка DMA/IOMMU, изоляция, подпись, права, отказ и откат.
+- В ОС предусмотрен собственный AI/«Разум», связанный с диагностикой, оптимизацией, разработкой программ, анализом/адаптацией драйверов и управлением ресурсами. AI не должен получать безусловные привилегии ядра: исследовать безопасный посредник политик/разрешений и проверяемое выполнение рекомендаций.
+- Максимальная эффективность и качество, а не искусственное упрощение.
+- Допускаются собственные форматы, ABI, протоколы и технологии KIRA, если их выигрыш доказан, а стоимость поддержки и риски посчитаны.
+- Никаких заглушек, фиктивных тестов, mock-результатов и «PASS» без реального исполнения.
+- Учитывать существующий код KIRA, собственный KCC, KAS, KLINK, загрузчики, KDRV, Mind/Разум, W^X, IOMMU/VT-d/ARM SMMU, текущие архитектурные ограничения и уже выполненные тесты. Не проектировать абстрактную ОС в отрыве от репозитория.
+- Не объединять PR #44 или #46 и не менять main без отдельного разрешения владельца.
+
+**3. Полный перечень направлений исследования**
+
+Для каждого направления сформировать кандидатов, ограничения, тестовые сценарии, метрики, результаты и вывод. Не пропускать взаимозависимости.
+
+A. Архитектура ядра и системных служб:
+- монолитное, микроядерное, гибридное, модульное/экзоядро и разумные комбинации;
+- границы привилегий, kernel/user services, HAL, системные вызовы;
+- SMP, NUMA-aware (если применимо), preemption, real-time/priority scheduling, work stealing, affinity;
+- interrupt handling, deferred work, async/event-driven I/O;
+- загрузка BIOS/UEFI и ARM boot path, boot protocol, ранняя память, ACPI/FDT.
+
+B. Языки программирования — обязательный отдельный сравнительный раздел:
+- C (совместимость, ABI, зрелость драйверов и низкоуровневый контроль);
+- Rust (memory safety, unsafe boundary, экосистема, стоимость и ограничения);
+- C++ (RAII/абстракции/стоимость runtime и ABI);
+- Zig (freestanding, cross-compilation, контроль toolchain);
+- Ada/SPARK или другие подходящие варианты для критичных компонентов;
+- Assembly для минимальных архитектурных участков;
+- собственный язык KIRA, если он оправдан измеримым выигрышем;
+- языки для системных служб, драйверов, AI/runtime и пользовательских приложений.
+Сравнить: скорость исполнения, размер кода, compile time, качество оптимизации, безопасность памяти/потоков, FFI/ABI, cross-compilation, зрелость инструментов, отладка, доступность библиотек, стоимость поддержки и пригодность для freestanding x86-64/ARM64.
+Не назначать один язык на всё без доказательства. Предложить обоснованную языковую политику по слоям ОС.
+
+C. Компиляторы, IR и оптимизации:
+- KCC против Clang/LLVM, GCC, Zig toolchain и других уместных компиляторов;
+- собственный KIRA IR против LLVM IR и MLIR; SSA, lowering, legalization;
+- оптимизации: inlining, devirtualization, CSE/GVN, LICM, strength reduction, loop transforms, vectorization, PGO, LTO, ThinLTO, BOLT-подобная постлинковочная оптимизация;
+- incremental/parallel compilation, content-addressed build cache, deterministic/reproducible builds;
+- codegen для x86-64 и AArch64, ABI lowering, register allocation, calling conventions;
+- компиляторные проверки корректности: differential testing против эталонных компиляторов, fuzzing, sanitizers, translation validation, тесты UB/aliasing/volatile/atomics/float/VLA/ABI.
+Отдельно проверить уже имеющиеся KCC passes и известные замечания из CG-20261108-012 и CL-20261109-012. Не считать статическое замечание runtime failure без воспроизведения.
+
+D. Ассемблер, линкер, объектные и исполняемые форматы — обязательный отдельный раздел:
+- ассемблер KAS и внешние варианты (NASM/GAS/LLVM integrated assembler);
+- KLINK против lld/ld.bfd и других применимых линкеров;
+- объектные форматы: ELF relocatable (ET_REL), архивы библиотек, релокации, symbol tables, sections, COMDAT/weak symbols, TLS, unwind tables;
+- исполняемые форматы: ELF (ET_EXEC/ET_DYN), PIE, shared objects; PE/COFF там, где нужен UEFI; собственный KIRA executable/container format (например, KEX) как экспериментальный кандидат; WASM/WASI для изолированных переносимых модулей; eBPF-подобный формат только для строго ограниченных верифицируемых программ;
+- формат ядра и драйверов; загрузка, relocation, dynamic linking, symbol resolution, versioning;
+- debug info: DWARF и альтернативы; crash dumps, symbols, source maps;
+- подпись, хеширование, manifest, versioning, rollback protection;
+- сравнить размер, скорость загрузки/линковки, relocation overhead, безопасность парсера, поддержку x86-64/ARM64, зрелость инструментов, отладку, динамическую линковку и стоимость поддержки.
+Обязательно дать конкретный ответ: какой формат исходника, объектного файла, библиотеки, исполняемого файла ядра, драйвера, пользовательской программы, переносимого sandbox-модуля и отладочной информации используется в KIRA и почему. Не смешивать формат объектного файла и формат исполняемого файла.
+
+E. ABI, системные вызовы и совместимость:
+- SysV AMD64 ABI, AAPCS64, UEFI ABI и текущие boot handoff;
+- собственный KIRA ABI и системный вызов/сервисный ABI;
+- calling convention, stack alignment, register preservation, red zone, TLS, unwind, exception policy, structure layout, endianness;
+- C ABI/FFI для языков;
+- совместимость ELF и возможность запуска существующих приложений;
+- versioning, stable/unstable boundaries, syscall table.
+Проверить реальные ABI в текущем коде и не предлагать несовместимые форматы/ABI без слоя адаптации.
+
+F. Память и безопасность:
+- virtual memory, paging, allocator (buddy/slab/segregated/pools), page cache;
+- ownership/borrowing, capability model, memory-safe services, safe FFI;
+- ASLR/KASLR, NX, W^X, guard pages, stack protection, CFI/shadow stack при доступности;
+- IOMMU: Intel VT-d и ARM SMMU, DMA mapping, interrupt remapping;
+- kernel/user isolation, process sandbox, driver sandbox, least privilege;
+- atomics, locks, RCU, hazard pointers/epochs, robust recovery;
+- corruption detection, memory pressure, OOM and recovery.
+Проверить архитектуру на x86-64 и ARM64; не переносить результаты Linux PRoot на KIRA/реальное железо без оговорки.
+
+G. IPC и синхронизация:
+- pipes, message passing, shared memory, SPSC/MPSC/MPMC rings, event notification, futex-like wait/wake, typed IPC, RPC, actor/dataflow;
+- copy vs zero-copy, batching, backpressure, fairness, cancellation, crash recovery;
+- contention, cache-line bouncing, false sharing, memory ordering;
+- измерить latency p50/p95/p99, throughput, CPU utilization, memory footprint и fairness на обоих архитектурных семействах.
+
+H. Файловая система и хранение:
+- journaling, copy-on-write, log-structured, B-tree/B+tree, extent-based;
+- CAS, Merkle DAG, snapshots, deduplication, compression, atomic updates, A/B system images, rollback;
+- crash consistency, fsync semantics, recovery time, corruption detection, wear and amplification для flash;
+- разделить системные образы, приложения, пользовательские данные, драйверы и кэш сборки.
+
+I. Форматы данных и сериализация:
+- Fixed Binary, Delta+Varint, columnar, Cap’n Proto/FlatBuffers/CBOR/Protocol Buffers/Arrow/Parquet и иные оправданные кандидаты;
+- Zstd/LZ4 и иные компрессоры;
+- тип данных и сценарий должны соответствовать формату. Не объявлять единый формат лучшим для всех задач.
+- Проверить совместимость версий, schema evolution, zero-copy claims, integrity и parsing safety.
+
+J. Исполнение приложений и runtime:
+- native KIRA ABI, ELF loader, dynamic linking;
+- WASM/WASI, eBPF-like verified VM, bytecode/portable sandbox;
+- actor model, async runtime, JIT/AOT, interpreters;
+- syscall overhead, startup time, memory, sandbox escapes, portability, debugging.
+Выдать ясное назначение каждому execution model.
+
+K. Драйверы и hardware compatibility:
+- PCI/PCIe, USB, ACPI, UEFI, FDT, storage, network, display, input, audio, GPU, power management;
+- legal open-source source discovery and license audit;
+- source/ABI analysis, adaptation layer, rebuild, KIRA driver package and manifest;
+- signature/trust/revocation/anti-rollback;
+- driver sandbox, capability broker, DMA/IOMMU policy, MSI/MSI-X, interrupt isolation;
+- tests for device enumeration, attach/detach, reset, timeout, malformed firmware, DMA faults, hotplug, suspend/resume and rollback;
+- явно классифицировать: поддерживается, экспериментально, не поддерживается, невозможно проверить без физического устройства.
+Успешная компиляция драйвера не равна поддержке устройства.
+
+L. AI / Mind / Разум:
+- inference/runtime choices for ordinary hardware; no specialized accelerator assumption;
+- diagnostics, telemetry, fault prediction, resource management, compilation suggestions, driver source analysis/adaptation, test generation, recovery;
+- local model vs remote assistance, model sizes, quantization, latency, RAM/CPU cost, offline mode;
+- permission broker, policy engine, auditable actions, bounded execution, rollback;
+- AI cannot silently execute privileged code or bypass signing/isolation.
+Измерить overhead и проверить безопасность предложений/действий.
+
+M. Интеграция:
+- проверить взаимодействия всех выбранных слоёв;
+- выявить конфликтующие ABI, object formats, memory models, IPC contracts, trust models, driver interfaces, update/rollback mechanisms;
+- сквозной путь: source → compiler → object → linker → executable/package → signature → loader → process/service → IPC → storage/device → AI policy/telemetry;
+- x86-64 и ARM64 builds, boot tests, failure injection, update/rollback and recovery.
+
+**4. Реестр уже выполненных экспериментов — сохранить, перепроверить доступные артефакты и не искажать**
+
+1. Data Format Lab:
+- branch: `research/data-format-lab-2026-11`, PR #47 Draft.
+- Ubuntu 24.04; 50,000 records; 6 formats; 3 repetitions.
+- Fixed Binary: 900 KB; write/read около 8.1 ms.
+- Delta+Varint: 346 KB; write 23.4 ms; read 61.3 ms.
+- Columnar+zlib: 283 KB; write 85.9 ms; read 16 ms.
+- Integrity passed.
+- Вывод только для данного synthetic workload: Fixed Binary быстрее; Delta+Varint компактнее для числовых последовательностей; Columnar+zlib подходит для аналитического хранения. Не объявлять универсального победителя.
+
+2. Combined Tech Lab:
+- branch: `research/combined-tech-lab-2026-11`; base commit `13a9773`; result `d7692bb`; archive `kira-combined-tech-lab-run5.zip`.
+- 20,000 records; 7 repetitions.
+- CAS + Merkle + CoW: 2.928 ms vs 3.575 ms в tested scenario.
+- Columnar + Compression: 117,400 vs 212,405 bytes.
+- IR Cache: 0.005641 vs 0.011351 ms.
+- IPC Ring Buffer: 20.037 vs 7.887 ms (комбинация хуже контрольного варианта).
+- Logical copies 26.06 MB → 650 KB (~40x); corruption detection and rollback passed.
+- Columnar+compression ~1.81x smaller; synthetic IR cache ~2x faster.
+- IPC result needs investigation; не скрывать отрицательный результат.
+- IR cache не является полноценным тестом KCC.
+
+3. IPC v1:
+- Pipe vs Shared Memory SPSC Ring; payload 32 B–64 KB.
+- SHM latency 169–21,636 ns; throughput 242.4–4484.2 MiB/s.
+- Pipe latency 39,945–118,303 ns; throughput 25.7–1249.7 MiB/s.
+- Integrity passed.
+- Важный confound: SHM использовал active spinning, Pipe — blocking. Нельзя заключать универсальное превосходство SHM.
+
+4. IPC v2:
+- Pipe, SHM Spin, SHM+eventfd, SHM+futex; inline payload и shared-payload descriptor; 32 B–64 KB.
+- 30/30 checks PASS.
+- SHM Spin минимизировал latency ценой CPU; eventfd/futex медленнее в конкретном тесте.
+- Shared-payload descriptor не доказывает end-to-end zero-copy.
+
+5. IPC v3:
+- archive `kira_ipc_test_v3.zip`.
+- Build and control checks PASS on x86-64; ARM64 execution incomplete.
+- Не объявлять полный v3 cross-architecture pass.
+
+6. Memory Concurrency v3.1:
+- ARM64, Linux 6.17.0 PRoot-Distro, glibc 2.41.
+- 400,000 atomic operations; 120,000 publication operations; 4 writers; canaries; robust mutex owner-death recovery.
+- 4 PASS / 1 FAIL: atomic ops, publication, multiwriter/canary, worker restart passed; robust owner-death recovery failed.
+- Это Linux PRoot result, не KIRA kernel result.
+
+7. Robust mutex/syscalls:
+- Build PASS; owner-death thread/process recovery failed with result 110.
+- get_robust_list and set_robust_list returned ENOSYS (errno 38).
+- Интерпретация: конкретное ARM64 PRoot окружение не предоставляет syscalls; это не доказательство невозможности механизма в KIRA или на ARM64 вообще.
+
+8. KIRA repository tests and code audit history:
+- Существуют собственные KCC, KAS (NASM-like subset), KLINK, KDRV, Mind/Разум, W^X, VT-d и ARM SMMU направления.
+- В журнале выше есть предыдущие CG/AUD задания и замечания, включая CG-20261108-012 (KCC LVN/IR_ATOMIC, 64-bit strength-reduction coefficient truncation, 64-iteration nonorm propagation) и CL-20261109-012 (тестовый план по точке 13a9773). Прочитать весь журнал и связанные отчёты, включая `docs/CHATGPT_AUDIT_REPORT_2026-11-08.md`, `docs/UNIFIED_RELEASE_PLAN.md`, `docs/RELEASE_GAPS.md`, `docs/KCC.md`, существующие test harnesses, workflow и branch/commit state.
+- Не путать это исследование архитектурных технологий с аудитом кода; оба слоя должны быть связаны, но иметь отдельные результаты.
+
+**5. Методология: что означает «доказать самый эффективный выбор»**
+
+Нельзя честно доказать глобального победителя по всем возможным технологиям без определения workloads и критериев. Поэтому:
+1. Зафиксировать измеримые workloads, одинаковые входные данные, compiler flags, hardware/VM profile и baseline.
+2. Для каждой пары сравнения менять одну переменную; фиксировать все конфаундеры.
+3. Делать warm-up, минимум 9 независимых повторов для производительности (если стоимость допускает), публиковать median, p95/p99 где уместно, min/max и разброс; для шумных метрик — больше повторов и confidence interval.
+4. Разделять x86-64 и ARM64 результаты; не переносить результаты между ними.
+5. Собирать CPU cycles/time, wall time, throughput, memory peak, binary size, startup/boot latency, energy/power proxy если доступно, crash/recovery behavior, integrity and security failures.
+6. Использовать одинаковую семантику и качество результата; проверять correctness до сравнения скорости.
+7. Differential testing против зрелых эталонов (Clang/GCC/LLVM/lld/NASM и т.п.) там, где применимо; fuzzing, sanitizers, property-based tests, fault injection.
+8. Разделять реальные тесты в QEMU/VM, host tests, PRoot tests и физическое железо. Указывать среду и что именно она не проверяет.
+9. Для сочетаний использовать факторный/комбинаторный дизайн: полное попарное покрытие всех значимых кандидатов, затем тестирование лучших тройных и связок подсистем; для combinatorial explosion явно объяснить отбор. Не выдавать ограниченную матрицу за перебор всех математически возможных сочетаний.
+10. До ранжирования задать веса критериев и провести sensitivity analysis: latency/throughput, CPU/RAM, security, reliability, portability, hardware coverage, developer cost, integration complexity. Не менять веса задним числом под желаемого победителя.
+11. Опубликовать сырые данные, scripts, compiler versions, exact commands, commit SHAs, logs and test artifacts.
+12. Никаких синтетических чисел, которые не получены запуском. Для неподдерживаемого теста — статус NOT RUN и причина.
+
+**6. Ожидаемые результаты**
+
+Создать отдельную папку исследования, например `research/kira-architecture-selection-2026-11/`, со следующими файлами:
+- `README.md` — scope, environment, reproducibility.
+- `requirements-and-constraints.md` — извлечённые из истории обязательные требования владельца.
+- `technology-candidates.md` — полный список кандидатов по всем направлениям.
+- `language-toolchain-matrix.md` — языки, компиляторы, IR, ассемблеры, линкеры, ABI.
+- `binary-format-matrix.md` — source/object/archive/executable/package/debug formats и роли каждого.
+- `combination-matrix.md` — пары, тройки, связки подсистем и rationale выбора.
+- `test-plan.md` — workloads, controls, metrics, hardware/VM profiles.
+- `results.csv` или эквивалентные machine-readable raw results.
+- `scripts/` — воспроизводимые тесты.
+- `logs/` — реальные логи и окружение.
+- `final-report.md` — единый вывод и выбранная полная архитектура.
+- `open-gaps.md` — всё, что реально не проверено и почему.
+
+**7. Обязательное содержание финального отчёта**
+
+Финальный отчёт должен дать конкретный выбор, а не список «можно использовать»:
+- язык(и) по слоям и почему;
+- компилятор(ы), IR и набор оптимизаций;
+- ассемблер и линкер;
+- object format, library format, executable format для kernel/driver/user app, portable sandbox format, debug format;
+- ABI и boot protocol для x86-64 и ARM64;
+- архитектура ядра и сервисов;
+- память, безопасность, синхронизация и IPC;
+- storage/filesystem и форматы данных;
+- runtime и модель исполнения;
+- драйверная архитектура и legal compatibility pipeline;
+- AI/Mind архитектура и security broker;
+- все лучшие связки и связки связок с результатами;
+- сравнение выбранного стека с лучшими альтернативами;
+- weighted score, uncertainty/confidence и sensitivity analysis;
+- какие решения подтверждены реальными тестами, какие — статическим анализом/публикациями/инженерным обоснованием, какие остаются гипотезами;
+- что надо внедрить в существующий KIRA код, что оставить, что заменить и что не трогать;
+- точная таблица всех тестов: PASS / FAIL / PARTIAL / NOT RUN, среда, команда, exit code, артефакт.
+
+**8. Критерии приёмки**
+
+Работа не считается завершённой, если:
+- отсутствуют языки, object formats, executable formats, ABI, loader, linker;
+- хотя бы одна из подсистем A–M пропущена;
+- не рассмотрены пары и многокомпонентные связки;
+- результаты старых тестов не внесены с ограничениями;
+- нет воспроизводимых команд/скриптов и сырых результатов;
+- гипотезы или литературные данные помечены как собственные измерения;
+- один победитель объявлен без сопоставления с альтернативами;
+- нет объяснения, почему выбранная архитектура оптимальна для обычного x86-64 и ARM64 оборудования и ограничений KIRA.
+
+**9. Ограничения выполнения**
+
+- Работать в `v46/unified-release-integration` или в отдельной исследовательской ветке от актуального состояния; не писать в main.
+- Сначала прочитать весь этот журнал и все документы, перечисленные выше, затем сверить HEAD и доступные тесты.
+- Не менять production code в рамках исследования без отдельного согласования; тестовые harnesses, scripts и документацию можно добавлять в отдельной исследовательской ветке.
+- Не сливать PR #44/#46.
+- Не удалять и не переписывать сообщения журнала. Ответ добавить отдельным сообщением.
+- Если ограничение инструментов не позволяет выполнить часть тестов, явно зафиксировать это, не подменять реальный запуск выводом из рассуждения.
+- Не просить владельца повторно пересказывать уже записанные требования и результаты.
+
+**10. Что вернуть в журнал**
+
+В ответе на CG-20261109-013:
+- ID и ссылки на все созданные исследовательские артефакты;
+- branch и commit SHA;
+- перечень реально запущенных тестов с командами, средой, exit code и результатом;
+- сырые benchmark data и методологические ограничения;
+- выбранную полную архитектуру, включая языки, ABI и все форматы файлов;
+- связки и связки связок, которые выиграли, проиграли или не доказаны;
+- честный перечень NOT RUN и блокеров;
+- раздельный вывод: экспериментально доказано / подтверждено статически / обосновано внешними спецификациями / гипотеза.
+
+---
