@@ -94,7 +94,9 @@ static int run_pipe(uint64_t rows, double *elapsed) {
 static int run_ring(uint64_t rows, double *elapsed) {
     shared_ring_t *s = mmap(NULL, sizeof *s, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if (s == MAP_FAILED) return -1;
-    memset(s, 0, sizeof *s);
+    memset(s->slots, 0, sizeof s->slots);
+    atomic_init(&s->head, 0);
+    atomic_init(&s->tail, 0);
     if (!atomic_is_lock_free(&s->head) || !atomic_is_lock_free(&s->tail)) { munmap(s, sizeof *s); return -2; }
     pid_t child = fork();
     if (child < 0) { munmap(s, sizeof *s); return -1; }
@@ -130,7 +132,7 @@ static double median(double *v, unsigned n) {
     }
     return n % 2 ? v[n/2] : (v[n/2-1] + v[n/2]) / 2.0;
 }
-static int capability_gate_test(void) {
+static int capability_token_model_test(void) {
     static const char *required = "KIRA_IPC_SEND:demo-service";
     const char *granted = "KIRA_IPC_SEND:demo-service";
     const char *wrong = "KIRA_IPC_SEND:other-service";
@@ -152,7 +154,7 @@ int main(int argc, char **argv) {
     printf("{\"rows\":%" PRIu64 ",\"repeat\":%u,\"record_bytes\":%zu,"
            "\"pipe_median_ms\":%.3f,\"shared_ring_median_ms\":%.3f,"
            "\"pipe_mops\":%.3f,\"shared_ring_mops\":%.3f,"
-           "\"ring_over_pipe_speedup\":%.3f,\"capability_gate\":\"PASS\","
+           "\"ring_over_pipe_speedup\":%.3f,\"capability_token_model\":\"PASS\","
            "\"ordering_and_payload_integrity\":\"PASS\",\"shared_atomics_lock_free\":\"PASS\"}\n",
            rows, repeat, sizeof(record_t), p*1000.0, r*1000.0,
            rows/p/1e6, rows/r/1e6, p/r);
