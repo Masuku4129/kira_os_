@@ -7,6 +7,12 @@ typedef struct { char sig[4]; uint32_t len; uint8_t rev; uint8_t csum; char oem[
 static acpi_info_t info;
 static const void* (*map_hook)(uint64_t phys, uint64_t len);
 
+/* Validated DSDT AML view. The map hook's mapping must remain alive while consumers use it. */
+#define ACPI_MAX_DSDT_SIZE (16u * 1024u * 1024u)
+static const uint8_t* dsdt_aml;
+static uint32_t dsdt_aml_size;
+static uint64_t dsdt_phys;
+
 void acpi_set_map_hook(const void* (*hook)(uint64_t phys, uint64_t len)) { map_hook = hook; }
 
 /* Адрес, по которому таблицу можно читать: ниже max_phys - тот же (тождественная карта), выше - что дал хук ядра
@@ -109,10 +115,17 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     uint64_t dsdt = rd32(f + 40);
     if (len >= 148 && rd64(f + 140)) dsdt = rd64(f + 140);       /* X_DSDT */
     const sdt_t* d = dsdt ? (const sdt_t*)reach(dsdt, sizeof(sdt_t), max_phys) : 0;
-    if (!d || !sig_is(d->sig, "DSDT") || d->len < sizeof(sdt_t)) return;
+    if (!d || !sig_is(d->sig, "DSDT") || d->len <= sizeof(sdt_t) ||
+        d->len > ACPI_MAX_DSDT_SIZE) return;
     uint32_t dl = d->len;
     if (!(d = (const sdt_t*)reach(dsdt, dl, max_phys))) return;
-    if (acpi_find_s5((const uint8_t*)d + sizeof(sdt_t), dl - (uint32_t)sizeof(sdt_t), &o->slp_typa, &o->slp_typb) == 0) o->s5_valid = 1;
+    /* FADT's checksum does not cover DSDT. Never expose or parse AML until
+       the complete referenced table has independently passed its checksum. */
+    if (!sum_ok(d, dl)) { o->tables_bad++; return; }
+    dsdt_phys = dsdt;
+    dsdt_aml = (const uint8_t*)d + sizeof(sdt_t);
+    dsdt_aml_size = dl - (uint32_t)sizeof(sdt_t);
+    if (acpi_find_s5(dsdt_aml, dsdt_aml_size, &o->slp_typa, &o->slp_typb) == 0) o->s5_valid = 1;
 }
 
 static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
@@ -133,6 +146,9 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
 }
 
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {
+    dsdt_aml = 0;
+    dsdt_aml_size = 0;
+    dsdt_phys = 0;
     uint8_t* z = (uint8_t*)o; for (uint32_t i = 0; i < sizeof(*o); i++) z[i] = 0;
     if (rsdp_phys == 0 || rsdp_phys > max_phys || max_phys - rsdp_phys < 20) return -1;
     const rsdp_t* r = (const rsdp_t*)(uintptr_t)rsdp_phys;
@@ -301,3 +317,17 @@ int acpi_init(uint64_t mbi) {
 }
 
 const acpi_info_t* acpi_get(void) { return info.valid ? &info : 0; }
+
+/*
+ * Return the AML payload (the DSDT bytes after its 36-byte ACPI header).
+ * The complete DSDT signature, declared length and checksum are validated
+ * before this view is published. The physical address is optional.
+ */
+int acpi_get_dsdt(const uint8_t** aml, uint32_t* aml_size, uint64_t* phys) {
+    if (!aml || !aml_size) return -1;
+    if (!dsdt_aml || dsdt_aml_size == 0 || dsdt_phys == 0) return -2;
+    *aml = dsdt_aml;
+    *aml_size = dsdt_aml_size;
+    if (phys) *phys = dsdt_phys;
+    return 0;
+}
