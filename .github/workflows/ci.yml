@@ -440,7 +440,7 @@ jobs:
               "net-e1000e", "sound-ac97", "net-ipv6", "sound-sb16",
               "mind-levers", "mind-seed", "cc-native", "drv-edu",
               "drvget-rl", "drvman-edu", "apps-drvman", "drvman-quiet",
-              "drv-io", "drv-bsd-ne2k", "drv-bsd-pcn", "drv-bsd-fxp", "drvget-bsd",
+              "drv-io", "drv-bsd-ne2k", "drv-bsd-pcn", "drv-bsd-fxp", "drvget-bsd", "drvget-bsd-fxp",
           ]
           shard = int("${{ matrix.shard }}")
           selected = [name for index, name in enumerate(scenarios) if index % 10 == shard]

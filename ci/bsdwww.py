@@ -4,11 +4,11 @@ import hashlib, os, shutil, struct, subprocess, sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-def build(name="ne_pci", cset="ne2k", mirror="https://10.0.2.100/bsd"):
+def build(name="ne_pci", cset="ne2k", mirror="https://10.0.2.100/bsd", out="ci-out/bsdwww"):
     if subprocess.run([sys.executable, os.path.join(ROOT, "tools/bsd_corpus.py"), "fetch"], capture_output=True).returncode: return None
     commit = [l.split()[1] for l in open(os.path.join(ROOT, "drivers/bsdcorpus/manifest.txt")) if l.startswith("commit ")][0]
     sysd = os.path.join(ROOT, "build-bsd/corpus", cset, "sys")
-    w = os.path.abspath("ci-out/bsdwww"); shutil.rmtree(w, ignore_errors=True); os.makedirs(w)
+    w = os.path.abspath(out); shutil.rmtree(w, ignore_errors=True); os.makedirs(w)
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools/bsd_recipe.py"), sysd, os.path.join(ROOT, "drivers/bsdcorpus/index.txt"),
                         os.path.join(ROOT, "build-bsd/corpus/pcidevs/sys/dev/pci/pcidevs"), name, commit, w, "--corpus-base", mirror], capture_output=True, text=True)
     if r.returncode: sys.stderr.write(r.stderr); return None

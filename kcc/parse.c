@@ -1292,6 +1292,7 @@ static Node *offsetof_expr(const Token *t) {
     expect(",");
     if (!ty_is_agg(ty)) kerr_tok(t, "offsetof requires struct or union type");
     int64_t off = 0;
+    Node *dyn = NULL;
     Type *cur = ty;
     int first = 1;
     for (;;) {
@@ -1309,14 +1310,20 @@ static Node *offsetof_expr(const Token *t) {
             cur = m->ty;
             first = 0;
         } else if (eat("[")) {
-            int64_t i = const_expr();
+            const Token *it = tok;
+            Node *ie = cond_expr();
             expect("]");
             if (cur->k != TY_ARRAY) kerr_tok(t, "offsetof subscript on non-array");
-            off += i * TSZ(cur->base);
+            if (ie->k == ND_NUM && ty_is_int(ie->ty)) off += ie->val * TSZ(cur->base);
+            else {                                   /* индекс не константа (расширение GNU: offsetof(T, a[i])): смещение считается во время выполнения */
+                Node *term = scaled(ie, new_num(TSZ(cur->base), &ty_long, it), it);
+                dyn = dyn ? arith(ND_ADD, dyn, term, it) : term;
+            }
             cur = cur->base;
         } else break;
     }
     expect(")");
+    if (dyn) return new_cast(arith(ND_ADD, new_num(off, &ty_long, t), dyn, t), &ty_ulong, t);
     return new_num(off, &ty_ulong, t);
 }
 

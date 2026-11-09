@@ -698,6 +698,41 @@ if _BSD:
                "-device", "virtio-net-pci,netdev=n0"]))
 
 
+# То же для драйвера с DMA: Intel fxp(4) собирается kcc на устройстве (в нём offsetof с неконстантным индексом), ставится после подтверждения, при загрузке
+# находит карту i82559er на q35 под VT-d и даёт ядру DHCP и ping. Тестовый пакет bsdfxp из образа (тот же PCI-ID) останавливается, запускается установленный.
+def _bsdf_ok():
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import bsdwww
+        return bsdwww.build("fxp_pci", "fxp", out="ci-out/bsdwww-fxp")
+    except Exception as e:
+        print("drvget-bsd-fxp: набор недоступен:", e, file=sys.stderr)
+        return None
+
+_BSDF = _bsdf_ok()
+if _BSDF:
+    _BSDF_WWW, _BSDF_NAME, _BSDF_SET8 = _BSDF
+    ALL.append(sc("drvget-bsd-fxp", "drvget: драйвер OpenBSD fxp(4) (bus_dma, MII) по TLS, сборка kcc на устройстве, установка, работа на q35 под VT-d: DHCP и ping", [
+        {"log": BOOT_LOG}, {"sleep": 6},
+        *_dg("drvget base https://10.0.2.100", r"каталог рецептов теперь https://10\.0\.2\.100", 20),
+        *_dg("drvget install " + _BSDF_NAME, r"drvget confirm " + _BSDF_NAME + " " + _BSDF_SET8, 400),
+        {"log": [r"лицензия:   заявлена BSD-3-Clause", r"fxp\.c", r"if_fxp_pci\.c", r"8086:1209", r"CAP_DMA", r"Установка НЕ выполнена"]},
+        *_dg("drvget confirm " + _BSDF_NAME + " " + _BSDF_SET8, r"установлено: /drv/" + _BSDF_NAME + r"\.kdrv и /drv/" + _BSDF_NAME + r"\.rec", 600),
+        {"log": [r"собрано, образ ELF \d+ байт"]},
+        *_dg("drvget verify " + _BSDF_NAME, r"verify " + _BSDF_NAME + ": OK", 20),
+        {"log_forbid": NO_ERR},
+        {"relaunch": ["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "i82559er,netdev=n0,romfile="]},
+        {"sleep": 8},
+        {"cmd": "drv stop bsdfxp", "must": [r"останавливаю drv-bsdfxp"]}, {"sleep": 2},
+        {"cmd": "drv start " + _BSDF_NAME, "must": [r"драйвер запущен как drv-" + _BSDF_NAME]}, {"sleep": 8},
+        {"log": [r"\[KIRA IOMMU\] 00:03\.0 isolated: own translation domain", r"fxp0 at pci 8086:1209", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"ответ от 10\.0\.2\.2", r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"log_forbid": NO_ERR + [r"bsd panic", r"bsdrt: .*FAIL", r"\[KIRA IOMMU\] DMA fault"]},
+    ], smp=2, mem="1G", machine="q35", tls_chain=True,
+        extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + " --serve " + _BSDF_WWW,
+               "-device", "virtio-net-pci,netdev=n0"]))
+
+
 # Окно «Драйверы» (/bin/drvman, пакет DM). Ядро чистое: окно - программа Ring 3; список PCI читается одним вызовом ядра под правом CAP_PCILIST,
 # установка - тот же код, что у drvget (userland/drvget.c с -DDRVGET_LIB). Режим «drvman do КОМАНДА;...» выполняет теми же функциями то,
 # что делают кнопки, и печатает те же строки, что рисуются в окне (устройства, пакеты, кадр), поэтому стенд проверяет именно показанное.
