@@ -75,7 +75,16 @@ def main():
     ap.add_argument("--out",default="ci-out/round2-pipeline")
     a=ap.parse_args()
     if min(a.rows,a.versions,a.repeat)<1: ap.error("all numeric arguments must be positive")
-    versions=[records(a.rows,v) for v in range(a.versions)]
+    base=records(a.rows,0)
+    versions=[base]
+    # Each snapshot changes only one chunk, leaving most chunks reusable.
+    for v in range(1,a.versions):
+        nxt=list(versions[-1]); start=((v-1)*256)%a.rows
+        end=min(a.rows,start+min(256,a.rows-start))
+        for i in range(start,end):
+            row=nxt[i]
+            nxt[i]=(row[0],row[1],row[2]+v,row[3],row[4])
+        versions.append(nxt)
     # Capability gate: missing authority must reject before data is accepted.
     accepted=CAP==b"KIRA_TELEMETRY_APPEND:mind"
     denied=CAP!=b"KIRA_TELEMETRY_APPEND:other"
@@ -83,6 +92,7 @@ def main():
     t0=time.perf_counter()
     baseline=[json.dumps(v,separators=(",",":")).encode() for v in versions]
     baseline_bytes=sum(len(zlib.compress(x,6)) for x in baseline)
+    assert all(json.loads(x)==[list(row) for row in rows] for x,rows in zip(baseline,versions))
     base_ms=(time.perf_counter()-t0)*1000
     samples=[]; retained=0; unique={}
     for _ in range(a.repeat):
