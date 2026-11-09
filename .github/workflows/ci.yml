@@ -41,12 +41,14 @@ jobs:
         run: |
           python3 benchmarks/data_formats.py --rows 50000 --repeat 3 --out ci-out/data-format-lab
           python3 research/combined_lab/round2_pipeline_lab.py --rows 20000 --versions 8 --repeat 7 --out ci-out/round2-pipeline
+          KIRA_BENCH_RUNS=5 bash tests/kcc/bench/bench.sh 2>&1 | tee ci-out/kcc-bench.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: data-format-lab-results
           path: ci-out/data-format-lab
             ci-out/round2-pipeline
+            ci-out/kcc-bench.txt
 
   build:
     runs-on: ubuntu-24.04
