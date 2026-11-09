@@ -22,6 +22,7 @@
 #include "audio.h"
 #include "kfs.h"
 #include "mind_archive_policy.h"
+#include "buildcmd.h"
 
 #define MODEL_PATH   "/var/mind.dat"
 #define SEED_PATH    "/etc/mind_seed.bin"
@@ -557,6 +558,7 @@ void mind_sys_tick(uint64_t seconds) {
     }
     printed = published_model.jn;
     publish(&published_model);
+    build_mind_tick(&published_model, &S, (uint32_t)seconds);      /* только предложение строкой в serial; сборки и разрешений здесь нет */
     char line[256]; unsigned n = 0;
     put_s(line, &n, "[KIRA TELEMETRY] t="); put_u(line, &n, seconds);
     put_s(line, &n, "s health="); put_u(line, &n, published_model.health);

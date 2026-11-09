@@ -8,6 +8,7 @@
 
 void proc_init(unsigned cpus, uint64_t ram_kb);   /* лимит одновременных программ зависит от ядер и ОЗУ */
 unsigned proc_limit(void);
+void proc_user_window(uint64_t* lo, uint64_t* hi, uint32_t* max_pages);   /* окно сегментов программы и предел страниц - те же числа, что проверяет spawn (elf_parse) */
 /* Запускает программу из образа ELF (проверяется elf_parse). Решение «доверять ли» принимает progs.c до вызова. pid или -1. */
 int  proc_spawn_elf(const char* name, const void* image, size_t len);
 /* То же с правом читать один файл grant (путь VFS): его получает программа просмотра из Проводника. */

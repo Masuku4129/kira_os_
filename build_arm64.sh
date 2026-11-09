@@ -40,7 +40,11 @@ done
 $CC $KCFLAGS -Iuserland/kccrt -Iuserland -c userland/kcc.c -o build-arm64/kcc_main.o
 $CC $KCFLAGS -Iuserland -c userland/kccrt.c -o build-arm64/ukccrt.o
 $CC $UCFLAGS -c userland/libc_min.c -o build-arm64/ukcc_libc_min.o
-ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/kcc.elf build-arm64/kcc_main.o $KCC_OBJ build-arm64/ukccrt.o build-arm64/ukcc_libc_min.o
+$CC $KCFLAGS -I. -Iuserland/kccrt -c mind_build.c -o build-arm64/kcc_mbj_build.o      # режим @build: сторона сборки задания (см. build_clang.sh)
+$CC $KCFLAGS -I. -Iuserland/kccrt -c mind_build_core.c -o build-arm64/kcc_mbj_core.o
+$CC $UCFLAGS -I. -c elf.c -o build-arm64/kcc_elf.o
+$CC $UCFLAGS -I. -c sha256.c -o build-arm64/kcc_sha256.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/kcc.elf build-arm64/kcc_main.o build-arm64/kcc_mbj_build.o build-arm64/kcc_mbj_core.o build-arm64/kcc_elf.o build-arm64/kcc_sha256.o $KCC_OBJ build-arm64/ukccrt.o build-arm64/ukcc_libc_min.o
 UELF="$UELF build-arm64/kcc.elf"
 # drvget (см. build_clang.sh): TLS-клиент, kcc и запись пакетов в /drv в одной программе EL0
 $CC $KCFLAGS -I. -Iuserland -Iuserland/kccrt -c userland/drvget.c -o build-arm64/dg_main.o
@@ -73,7 +77,7 @@ for f in $A/boot.S $A/mem.S $A/context.S $A/fpu.S $A/uaccess.S; do
 done
 # Общее ядро (те же файлы, что и на x86-64) и платформа ARM64
 for f in fdt.c bootinfo.c bootinfo_fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
-         experience.c fscmd.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
+         experience.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
          immune.c kobj.c futex.c corefault.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
          virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
          icons.c brainfx.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \

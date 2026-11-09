@@ -103,6 +103,27 @@ static int prog_run_ex(const char* name, const char* grant, const char* args) {
     return pid;
 }
 
+/* Общая часть runlocal и запуска проверенного образа: иммунная проверка, запись в журнал, процесс без прав. Образ принадлежит вызывающему;
+   после запуска его копия в буфере не нужна, и она стирается (immune_phagocytose). */
+static int local_launch(const char* path, const char* name, uint8_t* image, size_t size) {
+    immune_verdict_t v = immune_classify(image, size);
+    if (v == IMMUNE_HOSTILE) {
+        uart_print("[IMMUNE] "); uart_print(path); uart_print(": сработало антитело, запуск отклонён\n");
+        immune_phagocytose(image, size);
+        life_note("local-denied", name, (int)v);
+        return -2;
+    }
+    uart_print("[LOCAL] "); uart_print(path); uart_print(" запускается по явной команде пользователя как '"); uart_print(name);
+    uart_print("' без прав, иммунитет: "); uart_print(v == IMMUNE_SELF ? "своя" : "неопознанная (не из манифеста сборки)"); uart_print("\n");
+    life_note("local-trust", name, (int)v);                                 /* доверие дано командой пользователя, не манифестом */
+    (void)fsrv_sandbox(name);
+    int pid = proc_spawn_elf_ex(name, image, size, 0, 0);
+    immune_phagocytose(image, size);
+    if (pid < 0) { uart_print("[LOCAL] файл не принят как программа (см. сообщение выше)\n"); return -3; }
+    life_note("start", name, 0);
+    return pid;
+}
+
 /* runlocal: запуск собранного пользователем ELF из /data/kcc/<файл> как программы local-<имя> БЕЗ прав (caps_for_program даёт 0 для
    всех имён с этой приставкой) и со своей песочницей /data/local-<имя>. Манифест сборки здесь не используется и не обходится:
    /bin по-прежнему запускается только по манифесту (prog_run_ex). Доверие даёт явная команда пользователя; она записывается в журнал.
@@ -128,24 +149,25 @@ int prog_run_local(const char* file) {
     uint8_t* image = (uint8_t*)kmalloc((size_t)st.size);
     if (!image) { uart_print("[LOCAL] нет памяти под образ программы\n"); return -1; }
     if (kfs_read(path, 0, image, (size_t)st.size) != (int64_t)st.size) { kfree(image); uart_print("[LOCAL] ошибка чтения "); uart_print(path); uart_print("\n"); return -1; }
-    immune_verdict_t v = immune_classify(image, (size_t)st.size);
-    if (v == IMMUNE_HOSTILE) {
-        uart_print("[IMMUNE] "); uart_print(path); uart_print(": сработало антитело, запуск отклонён\n");
-        immune_phagocytose(image, (size_t)st.size);
-        kfree(image);
-        life_note("local-denied", name, (int)v);
-        return -2;
-    }
-    uart_print("[LOCAL] "); uart_print(path); uart_print(" запускается по явной команде пользователя как '"); uart_print(name);
-    uart_print("' без прав, иммунитет: "); uart_print(v == IMMUNE_SELF ? "своя" : "неопознанная (не из манифеста сборки)"); uart_print("\n");
-    life_note("local-trust", name, (int)v);                                 /* доверие дано командой пользователя, не манифестом */
-    (void)fsrv_sandbox(name);
-    int pid = proc_spawn_elf_ex(name, image, (size_t)st.size, 0, 0);
-    immune_phagocytose(image, (size_t)st.size);
+    int pid = local_launch(path, name, image, (size_t)st.size);
     kfree(image);
-    if (pid < 0) { uart_print("[LOCAL] файл не принят как программа (см. сообщение выше)\n"); return -3; }
-    life_note("start", name, 0);
     return pid;
+}
+
+/* Запуск образа, который уже проверен вызывающим и лежит в его памяти (build run: mbj_check_grant вернул именно эти байты).
+   Файл заново не читается, поэтому между проверкой и запуском образ подменить нельзя. Права и песочница те же, что у runlocal. */
+int prog_run_local_image(const char* file, uint8_t* image, size_t size) {
+    char name[16];
+    if (!image || !size || !fsrv_local_name(file, name)) {
+        uart_print("[LOCAL] недопустимое имя файла: до первой точки строчные латинские буквы, цифры, - и _, не больше 9 знаков\n");
+        return -1;
+    }
+    if (!admit(name)) return -4;
+    char path[KFS_NAME_MAX + 16]; unsigned n = 0;
+    for (const char* p = "/data/kcc/"; *p && n < sizeof path - 1; p++) path[n++] = *p;
+    for (const char* p = file; *p && n < sizeof path - 1; p++) path[n++] = *p;
+    path[n] = 0;
+    return local_launch(path, name, image, size);
 }
 
 void prog_request_file(const char* name, const char* file) {

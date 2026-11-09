@@ -23,6 +23,7 @@
 #include "display.h"
 #define FM_PATH_MAX 128
 #include "fscmd.h"
+#include "buildcmd.h"
 #include "pci.h"
 #include "blk.h"
 #include "vfs.h"
@@ -479,6 +480,7 @@ static void cmd_runlocal(const char* arg) {
     if (!n || arg[n]) { uart_print("использование: runlocal файл   (файл в /data/kcc, собранный командой cc; программа запускается без прав)\n"); return; }
     (void)prog_run_local(name);
 }
+static void cmd_build(const char* arg) { build_cmd(arg); }
 static void cmd_life(const char* a) { (void)a; life_print(); }
 static void cmd_telemetry(const char* arg) {
     if (arg[0] == 'o' && arg[1] == 'n' && !arg[2]) mind_sys_set_telemetry(1);
@@ -611,6 +613,7 @@ static const cmd_t cmds[] = {
     { "cc",        0,   "компилятор C на Кире: cc исходник результат (файлы в /data/kcc)", cmd_cc },
     { "drv",       0,   "драйверы Ring 3 (/drv): drv - список; drv start ИМЯ [арг]; drv stop ИМЯ; drv rescan; drv state|floor ИМЯ N|revoke ИД|time-reset|state-reset (защита от отката)", cmd_drv },
     { "runlocal",  0,   "запустить собранное в /data/kcc как local-имя БЕЗ прав: runlocal файл", cmd_runlocal },
+    { "build",     0,   "задание на сборку (kcc без прав): build probe|table ..., list, allow ИМЯ ХЕШ, run ИМЯ, drop ИМЯ; без слов - справка", cmd_build },
     { "ls",        0,   "список файлов: ls [путь]", fscmd_ls },
     { "cat",       0,   "содержимое файла: cat путь", fscmd_cat },
     { "write",     0,   "записать текст в файл: write путь текст", fscmd_write },

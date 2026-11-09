@@ -119,6 +119,10 @@ static uint32_t max_proc_pages(void) {
     return (uint32_t)(by_ram < win ? by_ram : win);
 }
 
+void proc_user_window(uint64_t* lo, uint64_t* hi, uint32_t* max_pages) {
+    *lo = USER_CODE_VA; *hi = USER_CODE_END; *max_pages = max_proc_pages();
+}
+
 int proc_spawn_elf(const char* name, const void* image, size_t len) { return proc_spawn_elf_ex(name, image, len, 0, 0); }
 int proc_spawn_elf_grant(const char* name, const void* image, size_t len, const char* grant) { return proc_spawn_elf_ex(name, image, len, grant, 0); }
 
