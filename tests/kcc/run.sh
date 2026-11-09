@@ -165,7 +165,10 @@ if command -v ld.lld >/dev/null && clang --target=x86_64-unknown-none-elf -ffree
         objs="$objs $T/ku_$(basename $src .c).o"
     done
     $KC -Iuserland/kccrt -Iuserland -c userland/kcc.c -o $T/ku_main.o 2>>$T/err && $KC -Iuserland -c userland/kccrt.c -o $T/ku_rt.o 2>>$T/err &&
-        $KC -c userland/libc_min.c -o $T/ku_lm.o 2>>$T/err && ld.lld -T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro -o $T/kcc_kira.elf $T/ku_main.o $objs $T/ku_rt.o $T/ku_lm.o 2>>$T/err || built=0
+        $KC -c userland/libc_min.c -o $T/ku_lm.o 2>>$T/err &&
+        $KC -I. -Iuserland/kccrt -c mind_build.c -o $T/ku_mb.o 2>>$T/err && $KC -I. -Iuserland/kccrt -c mind_build_core.c -o $T/ku_mbc.o 2>>$T/err &&
+        $KC -I. -c elf.c -o $T/ku_kelf.o 2>>$T/err && $KC -I. -c sha256.c -o $T/ku_sha.o 2>>$T/err &&
+        ld.lld -T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro -o $T/kcc_kira.elf $T/ku_main.o $T/ku_mb.o $T/ku_mbc.o $T/ku_kelf.o $T/ku_sha.o $objs $T/ku_rt.o $T/ku_lm.o 2>>$T/err || built=0
     total=$((total+1))
     if [ $built != 1 ]; then note "kcc как программа Киры не собрана: $(head -c 300 $T/err)"
     else
@@ -175,6 +178,16 @@ if command -v ld.lld >/dev/null && clang --target=x86_64-unknown-none-elf -ffree
         total=$((total+1))
         $T/kloader $T/sb/hello >$T/got 2>&1
         cmp -s tests/kcc/native/hello.out $T/got || note "kcc-на-Кире: собранная программа печатает другое: $(head -c 160 $T/got | tr '\n' ' ')"
+        total=$((total+1))
+        # режим @build (задание на сборку) того же kcc-на-Кире: отчёт с хешем, образ и запись в песочнице, образ запускается и даёт эталон
+        $T/kloader -s $T/sb -i kcc/include -a "@build probe 50000 7" $T/kcc_kira.elf >$T/got 2>&1
+        grep -q '^\[BUILD\] mb1[0-9a-f]\{6\} sha256 [0-9a-f]\{64\}' $T/got && ls $T/sb/mb1*.mbj >/dev/null 2>&1 || note "kcc-на-Кире: @build не собрал образ: $(head -c 200 $T/got)"
+        total=$((total+1))
+        img=$(ls $T/sb/mb1* 2>/dev/null | grep -v '\.mbj$' | head -1)
+        [ -n "$img" ] && [ "$($T/kloader "$img" 2>&1 | head -1)" = 1153170643 ] || note "kcc-на-Кире: образ @build дал не 1153170643"
+        total=$((total+1))
+        $T/kloader -s $T/sb -i kcc/include -a "@build probe 0 1" $T/kcc_kira.elf >$T/got 2>&1
+        grep -q 'отказ' $T/got || note "kcc-на-Кире: @build принял probe 0: $(head -c 200 $T/got)"
         total=$((total+1))
         $T/kloader -s $T/sb -i kcc/include -a "bad.c bad" $T/kcc_kira.elf >$T/got 2>&1
         grep -q '^bad.c:9: error: ' $T/got || note "kcc-на-Кире: ошибка без номера строки: $(head -c 200 $T/got)"
