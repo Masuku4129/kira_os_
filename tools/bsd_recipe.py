@@ -10,8 +10,8 @@ import bsd_pcidevs as P
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHIM = os.path.join(ROOT, 'kcc/include/bsd')
 
-# драйверы с DMA, проверенные на слое (сценарии drv-bsd-*): права. fxp - без irq (с INTx приём застревает, docs/BSD_COMPAT.md)
-DMA_OK = {'fxp_pci': 'mmio pcidev netdev dma', 'pcn': 'mmio pcidev netdev irq dma'}
+# драйверы с DMA, проверенные на слое (сценарии drv-bsd-*): права. 
+DMA_OK = {'fxp_pci': 'mmio pcidev netdev irq dma', 'pcn': 'mmio pcidev netdev irq dma'}
 
 # Формат пакета драйвера (kdrv_header_t) вмещает KDRV_MATCH_MAX = 8 идентификаторов. Если у драйвера их больше, заявляются первые 8 (проверенные идут вперёд),
 # в каталог тоже попадают только они: остальные устройства драйвер не получит, пока формат не расширен (docs/BSD_COMPAT.md).

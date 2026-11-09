@@ -588,8 +588,7 @@ def _bsd_dma_sc(name, about, pci, ifname, qdev, irq=True):
 
 
 ALL.append(_bsd_dma_sc("drv-bsd-pcn", "драйвер OpenBSD pcn(4) в Ring 3 с DMA под VT-d: карта pcnet на q35, DHCP и ping через неё, прерывания INTx", "1022:2000", "pcn0", "pcnet"))
-# fxp: пока в режиме опроса (пакет без права irq). С INTx приём застревает после нескольких кадров (причина не найдена, см. docs/BSD_COMPAT.md).
-ALL.append(_bsd_dma_sc("drv-bsd-fxp", "драйвер OpenBSD fxp(4) в Ring 3 с DMA под VT-d: Intel 82559 (i82559er) на q35, DHCP и ping через неё, режим опроса", "8086:1209", "fxp0", "i82559er", irq=False))
+ALL.append(_bsd_dma_sc("drv-bsd-fxp", "драйвер OpenBSD fxp(4) в Ring 3 с DMA под VT-d: Intel 82559 (i82559er) на q35, DHCP и ping через неё, прерывания INTx", "8086:1209", "fxp0", "i82559er"))
 
 
 # drvget + драйвер RTL8139 (пакет L, N). Фаза 1: сеть virtio; drvget по настоящему TLS 1.3 скачивает исходники драйвера rl с хозяина,

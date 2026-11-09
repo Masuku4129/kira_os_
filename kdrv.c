@@ -229,20 +229,24 @@ static uint16_t find_cap(const pci_dev_t* d, uint8_t want) {
    пока драйвер не вызовет KDRV_SYS_IRQ_WAIT снова (то есть снял причину). Линию делят несколько драйверов; линия, занятая ядром, не отдаётся. ---- */
 #if defined(__x86_64__)
 #define XL_MAX 8
-static struct { bind_t* volatile b[XL_MAX]; volatile int active; int reg; } xl[16];
+static struct { bind_t* volatile b[XL_MAX]; volatile int active; int reg; volatile uint32_t unclaimed; } xl[16];
+#define XL_STORM 2000u   /* столько срабатываний подряд без владельца - уже шторм чужого устройства: линия гасится */
 static void intx_dispatch(unsigned irq) {
     __atomic_add_fetch(&xl[irq].active, 1, __ATOMIC_ACQ_REL);
     int fired = 0;
     for (int i = 0; i < XL_MAX; i++) {
         bind_t* b = __atomic_load_n(&xl[irq].b[i], __ATOMIC_ACQUIRE);
         if (!b || !(pci_read16(b->dev, 0x06) & 0x08)) continue;                    /* бит «Interrupt Status»: именно это устройство держит линию */
-        if (__atomic_exchange_n(&b->intx_masked, 1, __ATOMIC_ACQ_REL)) continue;
+        fired = 1;                                                                  /* линия принадлежит нашему устройству, даже если оно уже заглушено: линию не гасим */
+        if (__atomic_exchange_n(&b->intx_masked, 1, __ATOMIC_ACQ_REL)) continue;    /* повторное срабатывание до того, как драйвер вернулся к ожиданию: событие уже записано */
         pci_write16(b->dev, 0x04, (uint16_t)(pci_read16(b->dev, 0x04) | PCI_CMD_INTX_OFF));
         __atomic_add_fetch(&b->irq_count, 1, __ATOMIC_RELAXED);
         irqwait_fire(&b->iw);
-        fired = 1;
     }
-    if (!fired) (void)irqmode_pci_line(irq, 0);                                   /* никто из наших не держит линию: гасим, чтобы не зациклиться */
+    /* Никто из наших не держит линию. Одно такое срабатывание - обычное дело (драйвер на другом ядре уже снял причину раньше, чем мы прочитали статус): линия
+       уровневая, без источника она больше не сработает. Гасить её нужно только при шторме - подряд много срабатываний без владельца (чужое устройство на общей линии). */
+    if (fired) __atomic_store_n(&xl[irq].unclaimed, 0, __ATOMIC_RELAXED);
+    else if (__atomic_add_fetch(&xl[irq].unclaimed, 1, __ATOMIC_RELAXED) >= XL_STORM) (void)irqmode_pci_line(irq, 0);
     __atomic_sub_fetch(&xl[irq].active, 1, __ATOMIC_ACQ_REL);
 }
 #define XH(n) static void intx_h##n(void) { intx_dispatch(n); }
