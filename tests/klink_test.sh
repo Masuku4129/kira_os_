@@ -3,8 +3,9 @@
 # Эталон - ld.lld с теми же опциями, что в build_clang.sh. ld.lld -O0 не сливает строки (SHF_MERGE), поэтому образ должен совпасть с klink
 # по точке входа, программным заголовкам, секциям, байтам сегментов и таблице символов; ld.lld по умолчанию (-O1) сливает одинаковые строки -
 # klink этого не делает (ограничение), отличие размеров печатается числами.
-# Не поддерживается klink (проверяется негативными тестами): .a-архивы, SHT_REL, COMDAT-группы, TLS, GOT (кроме релаксации
-# `mov sym@GOTPCREL(%rip)` в lea для определённых символов), слияние строк, оставшиеся команды скриптов (MEMORY, AT, SORT, ...).
+# GOT: для нерелаксируемых R_X86_64_GOTPCREL[X] klink заводит ячейку в синтезированной .got (RW, в одном PT_LOAD с .data, как у ld.lld);
+# `mov sym@GOTPCRELX(%rip), reg` определённого символа по-прежнему релаксируется в lea.
+# Не поддерживается klink (проверяется негативными тестами): .a-архивы, SHT_REL, COMDAT-группы, TLS, R_X86_64_GOT32, PLT/динамическая компоновка, слияние строк, оставшиеся команды скриптов (MEMORY, AT, SORT, ...).
 # Пропуски помечаются строкой SKIP с причиной. Загрузка ядра в QEMU: Kernel core starting ... Mind online (как tests/kernel_kcc_boot_test.sh).
 set -u
 cd "$(dirname "$0")/.."
@@ -77,7 +78,11 @@ ubuild() {   # ubuild каталог доп.флаги
     done
     J $UC -nostdlibinc -Iuserland/kccrt -Iuserland -c userland/kcc.c -o $D/kcc.o
     J $UC -nostdlibinc -Iuserland -c userland/kccrt.c -o $D/u_kccrt.o
-    P kcc "$D/kcc.o $KO $D/u_kccrt.o $D/u_libc_min.o"
+    # режим @build (задание на сборку): те же объекты и порядок, что в build_clang.sh
+    J $UC -nostdlibinc -I. -Iuserland/kccrt -c mind_build.c -o $D/u_mbj_build.o
+    J $UC -nostdlibinc -I. -Iuserland/kccrt -c mind_build_core.c -o $D/u_mbj_core.o
+    J $UC -I. -c elf.c -o $D/u_elf.o
+    P kcc "$D/kcc.o $D/u_mbj_build.o $D/u_mbj_core.o $D/u_elf.o $D/u_sha256.o $KO $D/u_kccrt.o $D/u_libc_min.o"
     J $UC -nostdlibinc -I. -Iuserland -Iuserland/kccrt -c userland/drvget.c -o $D/drvget.o
     J $UC -I. -c userland/drvget_core.c -o $D/u_drvget_core.o
     J $UC -I. -c kdrv_fmt.c -o $D/u_kdrv_fmt.o
@@ -127,7 +132,9 @@ if ubuild $T/u "" 2>$T/err; then
             SH=$T/sh; mkdir -p $SH/sb $SH/inc
             for f in kcc/*.c kcc/*.h; do [ "$f" = kcc/main.c ] || cp $f $SH/sb/; done
             cp kcc/selfhost/* $SH/sb/; cp userland/kccrt.c userland/kira.h $SH/sb/
-            sed 's|"../kcc/kcc.h"|"kcc.h"|' userland/kcc.c > $SH/sb/kcc_main.c
+            cp mind_build.h mind_build.c mind_build_core.c elf.h immune.h sha256.c $SH/sb/; cp elf.c $SH/sb/rootelf.c      # режим @build (см. kcc/selfhost/unity.c)
+            sed 's|"../kcc/kcc.h"|"kcc.h"|; s|"../mind_build.h"|"mind_build.h"|' userland/kcc.c > $SH/sb/kcc_main.c
+            sed -i 's|"kcc/kcc.h"|"kcc.h"|' $SH/sb/mind_build.c
             sed -i 's|"kccrt/\([a-z]*\.h\)"|<\1>|' $SH/sb/kccrt.c
             cp kcc/include/* $SH/inc/; cp userland/kccrt/* $SH/inc/
             for p in lld kl; do $T/kloader -m 512 -s $SH/sb -i $SH/inc -a "unity.c st_$p.elf" $T/u/kcc.$p >$SH/log.$p 2>&1; done
@@ -152,8 +159,9 @@ build_t() {   # build_t каталог флаги: объекты clang
     $CLANG -ffreestanding -fPIE -mno-red-zone -mno-sse -O2 $F -c tests/klink/t_g.c -o $D/t_g.o || return 1
     $CLANG -ffreestanding -fno-pic -fno-pie -mno-red-zone -mno-sse -O2 $F -c tests/klink/t_w.c -o $D/t_w.o || return 1
     nasm -f elf64 tests/klink/t_n.asm -o $D/t_n.o
+    nasm -f elf64 tests/klink/t_got.asm -o $D/t_got.o
 }
-TOBJ="t_main t_a t_b t_c t_d t_g t_w t_n"
+TOBJ="t_main t_a t_b t_c t_d t_g t_w t_n t_got"
 objs_of() { local D=$1; shift; for f in "$@"; do echo -n "$D/$f.o "; done; }
 if build_t $T/t ""; then
     readelf -r $T/t/t_g.o | grep -q GOTP && ok "t_g.o содержит R_X86_64_[REX_]GOTPCRELX (путь релаксации проверяется)" || bad "t_g.o без GOTPCRELX: тест GOT ничего не проверяет"
@@ -161,10 +169,15 @@ if build_t $T/t ""; then
     ld.lld $ULINK -O0 -o $T/t/p.lld $O && $KL $ULINK -o $T/t/p.kl $O && $CMP $T/t/p.lld $T/t/p.kl --syms && ok "t_*: образ совпал с ld.lld -O0" || bad "t_*: образ klink отличается от ld.lld"
     if [ $HAVE_LOADER = 1 ]; then
         $T/kloader $T/t/p.kl 2>&1 | head -n -1 > $T/t/out.kl
-        diff -q $T/t/out.kl tests/klink/t_expected.txt >/dev/null && ok "t_*: вывод под kloader равен ожидаемому (слабый pick=2, общий cm=5/12, GOT, указатели в .data, nasm)" || bad "t_*: неверный вывод: $(diff $T/t/out.kl tests/klink/t_expected.txt | head -3)"
+        diff -q $T/t/out.kl tests/klink/t_expected.txt >/dev/null && ok "t_*: вывод под kloader равен ожидаемому (слабый pick=2, общий cm=5/12, GOT: релаксация и ячейки, указатели в .data, nasm)" || bad "t_*: неверный вывод: $(diff $T/t/out.kl tests/klink/t_expected.txt | head -3)"
     fi
+    # .got: по одной ячейке на символ (data_val - общая для двух функций, asm_twice, unused_b_data), в одном RW PT_LOAD с .data, перед .bss; результат детерминирован
+    gsz=$(readelf -SW $T/t/p.kl | sed 's/\[ *\([0-9]*\)\]/\1/' | awk '$2==".got"{print $6}')
+    $KL $ULINK -o $T/t/p_again.kl $O && cmp -s $T/t/p.kl $T/t/p_again.kl && [ "$gsz" = 000018 ] \
+        && readelf -lW $T/t/p.kl | grep -Eq '^ +[0-9]+ +\.data \.got \.bss' \
+        && ok "t_*: .got на 3 ячейки (24 байта) в сегменте данных до .bss, повторная линковка даёт тот же образ" || bad "t_*: .got неверен (размер '$gsz') или образ недетерминирован"
     # порядок объектов: сильное определение pick выигрывает у слабого и до него
-    O2=$(objs_of $T/t t_main t_a t_c t_b t_d t_g t_w t_n)
+    O2=$(objs_of $T/t t_main t_a t_c t_b t_d t_g t_w t_n t_got)
     $KL $ULINK -o $T/t/p2.kl $O2 && [ $HAVE_LOADER = 1 ] && [ "$($T/kloader $T/t/p2.kl 2>&1 | grep '^pick=')" = "pick=2" ] && ok "слабый символ не перекрывает сильный при любом порядке объектов" || bad "порядок объектов меняет разрешение слабого символа"
 else
     bad "не собрались объекты tests/klink/t_*"
@@ -173,10 +186,10 @@ if [ -x $T/kcc0 ]; then   # те же исходники, скомпилиров
     mkdir -p $T/tk; fail_k=0
     for f in t_main t_a t_b t_c t_g; do $T/kcc0 -c -Iuserland -Ikcc/include -o $T/tk/$f.o tests/klink/$f.c 2>$T/err || fail_k=1; done
     $T/kcc0 -c -DKL_EXTERN_CM -Iuserland -Ikcc/include -o $T/tk/t_d.o tests/klink/t_d.c 2>$T/err || fail_k=1
-    cp $T/t/t_w.o $T/tk/t_w.o; cp $T/t/t_n.o $T/tk/t_n.o
+    cp $T/t/t_w.o $T/tk/t_w.o; cp $T/t/t_n.o $T/tk/t_n.o; cp $T/t/t_got.o $T/tk/t_got.o
     nasm -f elf64 tests/klink/t_start.asm -o $T/tk/t_start.o
     if [ $fail_k = 0 ]; then
-        O=$(objs_of $T/tk t_start t_main t_a t_b t_c t_d t_g t_w t_n)
+        O=$(objs_of $T/tk t_start t_main t_a t_b t_c t_d t_g t_w t_n t_got)
         ld.lld $ULINK -O0 -o $T/tk/p.lld $O && $KL $ULINK -o $T/tk/p.kl $O && $CMP $T/tk/p.lld $T/tk/p.kl --syms && ok "объекты kcc -c: образ совпал с ld.lld -O0" || bad "объекты kcc -c: образ отличается от ld.lld"
         [ $HAVE_LOADER = 1 ] && { $T/kloader $T/tk/p.kl 2>&1 | head -n -1 | diff -q - tests/klink/t_expected.txt >/dev/null && ok "объекты kcc -c: программа дала ожидаемый вывод" || bad "объекты kcc -c: вывод неверен"; }
     else
@@ -219,6 +232,24 @@ fi
 
 # --- 4. ядро ---
 echo "== ядро: те же объекты, ld.lld и klink =="
+# progs.c включает manifest.h: его создаёт build_clang.sh (`kfstool manifest` по собранным программам) и git его игнорирует. Нет файла в корне - создаём
+# тем же инструментом в $T/mf (корень не трогаем) по программам userland, которые только что собрал ld.lld; не получилось - SKIP с причиной, не молчаливый FAIL.
+MFI=""; MF_OK=1
+if [ ! -f manifest.h ]; then
+    mkdir -p $T/mf/bin
+    if [ ! -s $T/u/progs.txt ]; then
+        MF_OK=0; sk "ядро: сборка и сравнение с ld.lld" "нет manifest.h и нет собранных программ userland для kfstool manifest"
+    elif ! $HOSTCC -O1 -DKFS_NO_THREADS -I. -Iarch/x86_64 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c 2>$T/err; then
+        MF_OK=0; sk "ядро: сборка и сравнение с ld.lld" "нет manifest.h, kfstool не собрался: $(head -c 150 $T/err)"
+    else
+        while IFS='|' read name objs; do [ -f $T/u/$name.lld ] && cp $T/u/$name.lld $T/mf/bin/$name.elf; done < $T/u/progs.txt
+        if $T/kfstool manifest $T/mf/bin/*.elf > $T/mf/manifest.h 2>$T/err; then
+            MFI="-I$T/mf"; ok "manifest.h отсутствует в корне: создан kfstool manifest ($(ls $T/mf/bin | wc -l) программ userland) во временном каталоге"
+        else
+            MF_OK=0; sk "ядро: сборка и сравнение с ld.lld" "нет manifest.h, kfstool manifest не сработал: $(head -c 150 $T/err)"
+        fi
+    fi
+fi
 SRCS=$(sed -n '/^C_SOURCES=/p;/^ARCH_SOURCES=/p' build_clang.sh | sed 's/^[A-Z_]*="//;s/"$//' | tr ' ' '\n' | grep -v '^$' | sed 's|\$ARCH|arch/x86_64|')
 oname() { echo $1 | tr / _ | sed 's/\.c$/.o/'; }
 kobjs() {   # kobjs каталог -> порядок объектов как в build_clang.sh
@@ -229,7 +260,7 @@ kobjs() {   # kobjs каталог -> порядок объектов как в 
 build_kernel() {   # build_kernel каталог доп.флаги
     local D=$1 F=$2
     mkdir -p $D
-    local CF="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -O2 -Wall -Wextra -Werror -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64 $F"
+    local CF="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -O2 -Wall -Wextra -Werror -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64 $MFI $F"
     for a in boot interrupts context ap_tramp; do nasm -f elf64 arch/x86_64/$a.s -o $D/$a.o || return 1; done
     nasm -f elf64 arch/x86_64/uaccess.s -o $D/uaccess_s.o || return 1
     for s in $SRCS; do echo "$CLANG $CF -c $s -o $D/$(oname $s)"; done | xargs -P $NPROC -I{} sh -c '{}'
@@ -252,7 +283,7 @@ have qemu-system-x86_64 || { HAVE_QEMU=0; sk "загрузка ядра в QEMU"
 if [ $HAVE_QEMU = 1 ]; then
     nasm -f bin arch/x86_64/bios/stage1.asm -o $T/s1.bin && nasm -f bin arch/x86_64/bios/stage2.asm -o $T/s2.bin || { HAVE_QEMU=0; sk "QEMU" "stage1/stage2 не собрались"; }
 fi
-if build_kernel $T/k "" 2>$T/err; then
+if [ $MF_OK = 1 ] && build_kernel $T/k "" 2>$T/err; then
     KO=$(kobjs $T/k)
     ld.lld $KLD $KO -o $T/kira.lld1 && ld.lld -O0 $KLD $KO -o $T/kira.lld0 && $KL $KLD $KO -o $T/kira.kl 2>$T/err || bad "сборка ядра: $(head -c 200 $T/err)"
     if [ -s $T/kira.kl ]; then
@@ -266,18 +297,20 @@ if build_kernel $T/k "" 2>$T/err; then
         if [ $HAVE_QEMU = 1 ]; then
             boot_check $T/kira.lld1 lld && ok "QEMU: ядро ld.lld загрузилось (Kernel core starting ... Mind online)" || bad "QEMU: ядро ld.lld не загрузилось"
             boot_check $T/kira.kl klink && ok "QEMU: ядро klink загрузилось (Kernel core starting ... Mind online)" || bad "QEMU: ядро klink не загрузилось"
-            diff <(sed 's/[0-9]\+/N/g' $T/boot_lld.clean | grep -v 'Self baseline') <(sed 's/[0-9]\+/N/g' $T/boot_klink.clean | grep -v 'Self baseline') >/dev/null \
-                && ok "журналы загрузки ld.lld и klink совпали построчно (числа и хеш образа нормализованы)" || bad "журналы загрузки отличаются: $(diff <(sed 's/[0-9]\+/N/g' $T/boot_lld.clean) <(sed 's/[0-9]\+/N/g' $T/boot_klink.clean) | head -4)"
+            # boot_check обрывает QEMU сразу после "Mind online": хвост журнала зависит от скорости хоста, поэтому сравниваются строки до этого маркера включительно
+            bootlog() { sed '/Mind online/q' $1 | sed 's/[0-9]\+/N/g' | grep -v 'Self baseline'; }
+            diff <(bootlog $T/boot_lld.clean) <(bootlog $T/boot_klink.clean) >/dev/null \
+                && ok "журналы загрузки ld.lld и klink совпали построчно до Mind online (числа и хеш образа нормализованы)" || bad "журналы загрузки отличаются: $(diff <(bootlog $T/boot_lld.clean) <(bootlog $T/boot_klink.clean) | head -4)"
             tests/bios_boot_test.sh $T/kira.kl >$T/bios.log 2>&1 && ok "tests/bios_boot_test.sh с ядром klink: загрузка, отказ на CRC, на p_paddr, на малой памяти" || bad "tests/bios_boot_test.sh с ядром klink: $(grep FAIL $T/bios.log | head -3)"
         fi
     fi
-else
+elif [ $MF_OK = 1 ]; then
     bad "ядро не собралось clang: $(head -c 300 $T/err)"
 fi
 # ядро, собранное kcc (KIRA_CC=kcc)
-if [ -x $T/kcc0 ]; then
+if [ -x $T/kcc0 ] && [ $MF_OK = 1 ]; then
     mkdir -p $T/kk; kfail=0
-    for s in $SRCS; do echo "$T/kcc0 -c -I. -Iarch/x86_64 -Ikcc/include -o $T/kk/$(oname $s) $s"; done | xargs -P $NPROC -I{} sh -c '{}' 2>$T/err || kfail=1
+    for s in $SRCS; do echo "$T/kcc0 -c -I. -Iarch/x86_64 $MFI -Ikcc/include -o $T/kk/$(oname $s) $s"; done | xargs -P $NPROC -I{} sh -c '{}' 2>$T/err || kfail=1
     for a in boot interrupts context ap_tramp; do cp $T/k/$a.o $T/kk/; done; cp $T/k/uaccess_s.o $T/kk/
     if [ $kfail = 0 ]; then
         KO=$(kobjs $T/kk)
@@ -289,12 +322,12 @@ if [ -x $T/kcc0 ]; then
 fi
 # ядро с -ffunction-sections и --gc-sections
 if [ "${KLINK_QUICK:-0}" != 1 ]; then
-    if build_kernel $T/kg "-ffunction-sections -fdata-sections" 2>$T/err; then
+    if [ $MF_OK = 1 ] && build_kernel $T/kg "-ffunction-sections -fdata-sections" 2>$T/err; then
         KO=$(kobjs $T/kg)
         ld.lld -O0 --gc-sections $KLD $KO -o $T/kg.lld && KLINK_STATS=1 $KL --gc-sections $KLD $KO -o $T/kg.kl 2>$T/kg.st && $CMP $T/kg.lld $T/kg.kl --syms \
             && ok "ядро -ffunction-sections --gc-sections: совпало с ld.lld ($(sed 's/klink: //' $T/kg.st | cut -d, -f1,2), $(stat -c%s $T/kg.kl) байт)" || bad "ядро с gc отличается от ld.lld"
         if [ $HAVE_QEMU = 1 ] && [ -s $T/kg.kl ]; then boot_check $T/kg.kl kgc && ok "QEMU: ядро (--gc-sections, klink) загрузилось до Mind online" || bad "QEMU: ядро с gc не загрузилось"; fi
-    else
+    elif [ $MF_OK = 1 ]; then
         bad "ядро с -ffunction-sections не собралось"
     fi
 else
@@ -326,7 +359,26 @@ K="$KL $ULINK -o $N/out"
 neg "неопределённый символ" "undefined reference to 'nothere'" $K $N/undef.o
 neg "дубликат символа" "duplicate symbol 'dup'" $K $N/dup1.o $N/dup2.o
 neg "TLS" "thread-local" $K $N/tls.o
-neg "R_X86_64_GOTPCREL без релаксации (нужна GOT)" "needs a GOT" $K $N/gotreloc.o $N/ext.o
+# GOT: нерелаксируемая ссылка (nasm: R_X86_64_GOTPCREL) получает ячейку в .got с абсолютным адресом символа; образ совпадает с ld.lld
+printf 'default rel\nglobal _start\nextern other_fn\nsection .text\n_start:\n  mov rax, [rel other_fn wrt ..got]\n  ret\n' > $N/gotself.asm; nasm -f elf64 -o $N/gotself.o $N/gotself.asm
+printf 'global other_fn\nsection .text\nother_fn: ret\n' > $N/gotfn.asm; nasm -f elf64 -o $N/gotfn.o $N/gotfn.asm
+printf 'global _start\nextern ext_sym\nsection .text\n_start:\n  mov rax, [ext_sym wrt ..got]\n  ret\n' > $N/got32.asm; nasm -f elf64 -o $N/got32.o $N/got32.asm
+if $KL $ULINK -o $N/gl.kl $N/gotreloc.o $N/ext.o 2>$N/e.txt && ld.lld $ULINK -O0 -o $N/gl.lld $N/gotreloc.o $N/ext.o && $CMP $N/gl.lld $N/gl.kl --syms >$N/e.txt 2>&1 \
+    && objcopy -O binary --only-section=.got $N/gl.kl $N/gl.got \
+    && [ "$(od -An -tx8 -v $N/gl.got | tr -d ' \n')" = "$(nm $N/gl.kl | awk '$3=="ext_sym"{print $1}')" ]; then
+    ok "GOT: R_X86_64_GOTPCREL без релаксации -> ячейка .got с адресом ext_sym, образ совпал с ld.lld"
+else
+    bad "GOT: нерелаксируемый GOTPCREL: $(head -c 200 $N/e.txt)"
+fi
+neg "R_X86_64_GOT32 (индекс в GOT, нет поддержки)" "unsupported relocation type 3 (R_X86_64_GOT32)" $K $N/got32.o $N/ext.o
+printf 'ENTRY(_start)\nPHDRS { t PT_LOAD FLAGS(5); }\nSECTIONS { . = 0x1000; .text : { *(.text*) } :t }\n' > $N/gotnw.ld
+neg "GOT нужна, а в скрипте нет записываемой секции с данными" "no writable output section" $KL -T $N/gotnw.ld -o $N/out $N/gotself.o $N/gotfn.o
+printf 'ENTRY(_start)\nSECTIONS { . = 0x1000; .text : { *(.text*) } }\n' > $N/gotauto.ld
+if $KL -T $N/gotauto.ld -z max-page-size=4096 -o $N/ga.kl $N/gotself.o $N/gotfn.o 2>$N/e.txt && [ "$(readelf -lW $N/ga.kl | grep -c LOAD)" = 2 ] && [ "$(readelf -SW $N/ga.kl | sed 's/\[ *\([0-9]*\)\]/\1/' | awk '$2==".got"{print $4}')" = 0000000000002000 ]; then
+    ok "GOT без PHDRS и без секции данных: .got в отдельном RW PT_LOAD на своей странице"
+else
+    bad "GOT без PHDRS: $(head -c 200 $N/e.txt)"
+fi
 neg "неподдержанное перемещение R_X86_64_GOTTPOFF" "unsupported relocation type 22 (R_X86_64_GOTTPOFF) against 'ext_sym'" $K $N/gotpc.o $N/ext.o
 neg "переполнение R_X86_64_32 (адрес 0x8000000000)" "R_X86_64_32 overflows against 'ext_sym'" $K $N/abs32.o $N/ext.o
 printf 'ENTRY(_start)\nSECTIONS { . = 0x1000; .text : { *(.text*) } . = 0x20000000000; .data : { *(.data*) } }\n' > $N/far.ld
@@ -381,7 +433,7 @@ if [ $HAVE_TOOLCHAIN = 1 ]; then
         for seed in 1 2 3; do
             if $T/fuzz $ITER $seed userland/user.ld $FO >$T/fz.txt 2>&1; then ok "fuzz seed $seed: $(cat $T/fz.txt)"; else bad "fuzz seed $seed: $(tail -5 $T/fz.txt)"; fi
         done
-        FK=$(objs_of $T/tk t_start t_main t_a t_b t_c t_d t_g t_w t_n)
+        FK=$(objs_of $T/tk t_start t_main t_a t_b t_c t_d t_g t_w t_n t_got)
         if $T/fuzz $ITER 4 userland/user.ld $FK >$T/fz.txt 2>&1; then ok "fuzz на объектах kcc -c: $(cat $T/fz.txt)"; else bad "fuzz (kcc): $(tail -5 $T/fz.txt)"; fi
         # скрипты ядра и userland, настоящий объект ядра
         if $T/fuzz $ITER 5 arch/x86_64/linker.ld $T/k/boot.o $T/k/interrupts.o $T/k/context.o $T/k/ap_tramp.o $T/k/uaccess_s.o >$T/fz.txt 2>&1; then ok "fuzz на nasm-объектах ядра: $(cat $T/fz.txt)"; else bad "fuzz (nasm): $(tail -5 $T/fz.txt)"; fi
