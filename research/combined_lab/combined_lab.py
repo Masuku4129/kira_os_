@@ -43,10 +43,16 @@ def test_ipc(events, repeat):
         return out
     a,ta=median_ms(copy_path,repeat); b,tb=median_ms(ring_path,repeat)
     assert a==b==events
+    denied=False
+    try:
+        if b"DENIED" not in allowed: raise PermissionError("capability missing")
+    except PermissionError:
+        denied=True
+    assert denied
     return {"template":"typed-ipc-ring-capability","baseline_ms":round(ta,3),
             "combined_ms":round(tb,3),"speedup":round(ta/tb,3) if tb else 0,
             "payload_bytes":len(events)*REC.size,"correctness":"PASS",
-            "security":"PASS: missing capability rejected" if not (b"DENIED" in allowed) else "FAIL"}
+            "security":"PASS: missing capability rejected"}
 
 def merkle_root(hashes):
     level=[bytes.fromhex(x) for x in hashes]
@@ -121,10 +127,14 @@ def test_cache(repeat):
     def compile_like(tree, compiler, target, flags):
         key=hashlib.sha256(canonical(tree)+compiler.encode()+target.encode()+flags.encode()).hexdigest()
         if key in cache: return cache[key],True
-        artifact=hashlib.sha256(b"artifact:"+canonical(tree)).digest()
+        artifact=hashlib.sha256(b"artifact:"+canonical(tree)+compiler.encode()+target.encode()+flags.encode()).digest()
         cache[key]=artifact
         return artifact,False
-    cold,tc=median_ms(lambda:compile_like(ir,"KCC-lab-1","x86_64","O2"),repeat)
+    def cold_build():
+        cache.clear()
+        return compile_like(ir,"KCC-lab-1","x86_64","O2")
+    cold,tc=median_ms(cold_build,repeat)
+    compile_like(ir,"KCC-lab-1","x86_64","O2")
     warm,tw=median_ms(lambda:compile_like(ir,"KCC-lab-1","x86_64","O2"),repeat)
     changed,_=compile_like(ir,"KCC-lab-1","aarch64","O2")
     assert cold[0]==warm[0] and cold[1] is False and warm[1] is True and changed!=cold[0]
