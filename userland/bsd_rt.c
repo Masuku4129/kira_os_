@@ -90,11 +90,12 @@ struct mbuf* m_gethdr(int how, int type) {
     m->m_data = m->m_buf; m->m_type = (short)type; m->m_flags = M_PKTHDR; return m;
 }
 struct mbuf* m_get(int how, int type) { struct mbuf* m = m_gethdr(how, type); if (m) m->m_flags = 0; return m; }
+void* kd_cl_get(void); void kd_cl_put(void* c);   /* кластеры: из памяти DMA ядра, когда драйвер пользуется bus_dma (см. ниже) */
 struct mbuf* m_clget(struct mbuf* m, int how, unsigned len) {
-    (void)how; (void)len; char* c = (char*)malloc(MCLBYTES, 0, 0); if (!c) return m;
+    (void)how; (void)len; char* c = (char*)kd_cl_get(); if (!c) return m;
     m->m_ext.ext_buf = c; m->m_ext.ext_size = MCLBYTES; m->m_data = c; m->m_flags |= M_EXT; return m;
 }
-struct mbuf* m_free(struct mbuf* m) { struct mbuf* n = m->m_next; if (m->m_flags & M_EXT) free(m->m_ext.ext_buf, 0, 0); free(m, 0, 0); return n; }
+struct mbuf* m_free(struct mbuf* m) { struct mbuf* n = m->m_next; if (m->m_flags & M_EXT) kd_cl_put(m->m_ext.ext_buf); free(m, 0, 0); return n; }
 void m_freem(struct mbuf* m) { while (m) m = m_free(m); }
 void ml_enqueue(struct mbuf_list* ml, struct mbuf* m) { m->m_nextpkt = NULL; if (ml->ml_tail) ml->ml_tail->m_nextpkt = m; else ml->ml_head = m; ml->ml_tail = m; ml->ml_len++; }
 struct mbuf* ml_dequeue(struct mbuf_list* ml) { struct mbuf* m = ml->ml_head; if (!m) return NULL; ml->ml_head = m->m_nextpkt; if (!ml->ml_head) ml->ml_tail = NULL; m->m_nextpkt = NULL; ml->ml_len--; return m; }
@@ -152,8 +153,18 @@ static void* kd_arena_get(bus_dma_tag_t t, u64 bytes, u64* phys) {
     void* p = (void*)(unsigned long)kd_arena_va; *phys = kd_arena_phys;
     kd_arena_va += bytes; kd_arena_phys += bytes; kd_arena_left -= bytes; return p;
 }
+/* Кластеры mbuf, отданные устройству, должны лежать в памяти DMA: тогда bus_dmamap_load отдаёт их как есть, без копий. Копирование через промежуточный
+   буфер не годится, если устройство и драйвер пишут в один буфер одновременно (fxp держит дескриптор приёма внутри кластера). Освобождённые кластеры
+   возвращаются в свой список, а не в malloc. */
+static int kd_dma_on; static void* kd_cl_list;
+void* kd_cl_get(void) {
+    if (kd_cl_list) { void* c = kd_cl_list; kd_cl_list = *(void**)c; return c; }
+    if (kd_dma_on) { u64 ph; void* c = kd_arena_get(&kd_dmat0, MCLBYTES, &ph); if (c) return c; }
+    return malloc(MCLBYTES, 0, 0);
+}
+void kd_cl_put(void* c) { u64 ph; if (kd_blk_find(c, &ph)) { *(void**)c = kd_cl_list; kd_cl_list = c; } else free(c, 0, 0); }
 int bus_dmamap_create(bus_dma_tag_t t, bus_size_t size, int nsegs, bus_size_t maxsegsz, bus_size_t boundary, int flags, bus_dmamap_t* mp) {
-    (void)t; (void)maxsegsz; (void)boundary; (void)flags;
+    (void)t; kd_dma_on = 1; (void)maxsegsz; (void)boundary; (void)flags;
     struct kd_dmamap* m = malloc(sizeof *m, 0, 0); if (!m) return ENOMEM;
     bzero(m, sizeof *m); m->_max = size; m->_maxsegs = nsegs > KD_DMA_MAXSEG ? KD_DMA_MAXSEG : nsegs; *mp = m; return 0;
 }
@@ -191,7 +202,8 @@ void bus_dmamap_sync(bus_dma_tag_t t, bus_dmamap_t m, bus_addr_t off, bus_size_t
     (void)t; __sync_synchronize();
     if (m->_direct || !m->_bva || !m->dm_nsegs) return;
     if (off > m->dm_mapsize) return; if (len > m->dm_mapsize - off) len = m->dm_mapsize - off;
-    if (ops & BUS_DMASYNC_PREWRITE) { if (m->_um) kd_mb_copy(m->_um, off, len, m->_bva, 0); else if (m->_uva) memcpy((char*)m->_bva + off, (char*)m->_uva + off, len); }
+    if (ops & BUS_DMASYNC_PREWRITE) {
+        if (m->_um) kd_mb_copy(m->_um, off, len, m->_bva, 0); else if (m->_uva) memcpy((char*)m->_bva + off, (char*)m->_uva + off, len); }
     if (ops & BUS_DMASYNC_POSTREAD) { if (m->_um) kd_mb_copy(m->_um, off, len, m->_bva, 1); else if (m->_uva) memcpy((char*)m->_uva + off, (char*)m->_bva + off, len); }
     __sync_synchronize();
 }
@@ -219,7 +231,7 @@ void mii_attach(struct device* self, struct mii_data* mii, int capmask, int phyl
         if (bmsr == 0 || bmsr == 0xffff || (id1 == 0xffff && id2 == 0xffff) || (id1 == 0 && id2 == 0)) continue;
         struct mii_softc* sc = malloc(sizeof *sc, 0, 0); if (!sc) return;
         bzero(sc, sizeof *sc); sc->mii_phy = ph; sc->mii_pdata = mii; sc->mii_capabilities = bmsr & capmask & 0xffff;
-        LIST_INSERT_HEAD(&mii->mii_phys, sc, mii_list);
+        LIST_INSERT_HEAD(&mii->mii_phys, sc, mii_list); mii->mii_instance++;
         mii->mii_writereg(self, ph, MII_BMCR, BMCR_RESET);
         for (int i = 0; i < 500 && (mii->mii_readreg(self, ph, MII_BMCR) & BMCR_RESET); i++) delay(1000);
         int c = sc->mii_capabilities;
@@ -261,6 +273,21 @@ void mii_pollstat(struct mii_data* mii) {
 }
 void mii_tick(struct mii_data* mii) { mii_pollstat(mii); }
 void mii_down(struct mii_data* mii) { (void)mii; }
+void mii_phy_reset(struct mii_softc* sc) {
+    struct mii_data* m = sc->mii_pdata; m->mii_writereg(m->mii_dev, sc->mii_phy, MII_BMCR, BMCR_RESET);
+    for (int i = 0; i < 500 && (m->mii_readreg(m->mii_dev, sc->mii_phy, MII_BMCR) & BMCR_RESET); i++) delay(1000);
+}
+void mii_detach(struct mii_data* mii, int phyloc, int offloc) {
+    (void)phyloc; (void)offloc; struct mii_softc* sc;
+    while ((sc = LIST_FIRST(&mii->mii_phys)) != NULL) { LIST_REMOVE(sc, mii_list); free(sc, 0, 0); }
+    mii->mii_instance = 0; ifmedia_delete_instance(&mii->mii_media, IFM_INST_ANY);
+}
+struct ifmedia_entry* ifmedia_match(struct ifmedia* m, int target, int mask) {
+    for (int i = 0; i < m->ifm_n; i++) if ((m->ifm_ent[i].ifm_media & ~mask) == (target & ~mask)) return &m->ifm_ent[i];
+    return NULL;
+}
+/* Хранилища микропрограмм (firmware) в системе пока нет: драйвер, которому микрокод необязателен (fxp), работает без него. */
+int loadfirmware(const char* name, u_char** buf, size_t* len) { (void)name; (void)buf; (void)len; return ENOENT; }
 
 /* ---- ether ---- */
 char* ether_sprintf(u_int8_t* a) { static char b[18]; snprintf(b, sizeof b, "%02x:%02x:%02x:%02x:%02x:%02x", a[0], a[1], a[2], a[3], a[4], a[5]); return b; }
@@ -295,10 +322,10 @@ int m_defrag(struct mbuf* m, int how) {
     if (!m->m_next) return 0;
     int len = 0; for (struct mbuf* p = m; p; p = p->m_next) len += p->m_len;
     if (len > MCLBYTES) return ENOBUFS;
-    char* c = malloc(MCLBYTES, 0, 0); if (!c) return ENOBUFS; (void)how;
+    char* c = kd_cl_get(); if (!c) return ENOBUFS; (void)how;
     int o = 0; for (struct mbuf* p = m; p; p = p->m_next) { memcpy(c + o, p->m_data, (size_t)p->m_len); o += p->m_len; }
     if (m->m_next) { m_freem(m->m_next); m->m_next = NULL; }
-    if (m->m_flags & M_EXT) free(m->m_ext.ext_buf, 0, 0);
+    if (m->m_flags & M_EXT) kd_cl_put(m->m_ext.ext_buf);
     m->m_ext.ext_buf = c; m->m_ext.ext_size = MCLBYTES; m->m_flags |= M_EXT; m->m_data = c; m->m_len = len;
     if (m->m_pkthdr.len < len) m->m_pkthdr.len = len;
     return 0;
@@ -412,7 +439,7 @@ KIRA_ENTRY()
 int umain(void) {
     if (kdrv_info(&g_info) != 0) { printf("bsdrt: info refused\n"); return 1; }
     struct pci_attach_args pa; bzero(&pa, sizeof pa);
-    pa.pa_dmat = kd_dmat(); pa.pa_id = (u32)g_info.vendor | ((u32)g_info.device << 16); pa.pa_class = g_info.cls << 8;
+    pa.pa_dmat = kd_dmat(); pa.pa_id = (u32)g_info.vendor | ((u32)g_info.device << 16); { i64 cr = kdrv_cfg_read(PCI_CLASS_REG, 4); pa.pa_class = cr >= 0 ? (u32)cr : (u32)(g_info.cls << 8); }   /* класс и РЕВИЗИЯ: драйверы выбирают возможности по ревизии */
     struct device* dev = (struct device*)malloc(kd_ca->ca_devsize, M_DEVBUF, M_ZERO);
     if (!dev) { printf("bsdrt: no memory for softc\n"); return 1; }
     snprintf(dev->dv_xname, sizeof dev->dv_xname, "%s0", kd_devname);

@@ -140,6 +140,10 @@ if [ "$RELEASE" != 1 ]; then
     if tools/bsd_build.sh pcn pcn pcn_ca build-bsd/pcn.elf dev/pci/if_pcn.c; then
         tools/mkdrv_pkg.sh kira.disk bsdpcn build-bsd/pcn.elf 1022:2000 mmio,pcidev,netdev,irq,dma "$HOSTCC"
     else echo "ВНИМАНИЕ: драйвер BSD pcn не собран (корпус недоступен или ошибка компиляции)"; fi
+    # Intel PRO/100 (QEMU -device i82559er): bus_dma, MII, микрокод необязателен (хранилища firmware пока нет). Без права irq: с INTx приём застревает (открыто)
+    if tools/bsd_build.sh fxp fxp fxp_pci_ca build-bsd/fxp.elf dev/ic/fxp.c dev/pci/if_fxp_pci.c; then
+        tools/mkdrv_pkg.sh kira.disk bsdfxp build-bsd/fxp.elf 8086:1209 mmio,pcidev,netdev,dma "$HOSTCC"
+    else echo "ВНИМАНИЕ: драйвер BSD fxp не собран (корпус недоступен или ошибка компиляции)"; fi
 fi
 for h in kcc/include/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h     # заголовки libc-lite для kcc на Кире

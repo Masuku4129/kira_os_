@@ -566,20 +566,30 @@ ALL.append(sc("drv-bsd-ne2k", "драйвер OpenBSD ne(4) в Ring 3 через
 ], smp=2, mem="1G", extra=["-netdev", "user,id=n0", "-device", "ne2k_pci,netdev=n0"]))
 
 
-# Драйвер OpenBSD pcn(4) (AMD PCnet) с настоящим DMA: плата q35 с VT-d (intel-iommu), устройство видит только блоки, выданные ядром (bus_dma через слой
-# совместимости). Кольца дескрипторов - память bus_dmamem, буферы кадров копируются через промежуточные блоки; DHCP и ping через эту карту.
-ALL.append(sc("drv-bsd-pcn", "драйвер OpenBSD pcn(4) в Ring 3 с DMA под VT-d: карта pcnet на q35, DHCP и ping через неё, прерывания INTx", [
-    {"log": BOOT_LOG},
-    {"log": [r"\[KIRA IOMMU\] VT-d translation enabled on [1-9]"]},
-    {"sleep": 8},                                                              # пакет bsdpcn стартует сам при загрузке: карта найдена по PCI-ID
-    {"log": [r"\[KIRA IOMMU\] 00:03\.0 isolated: own translation domain", r"pcn0 at pci 1022:2000", r"bsdrt: pcn0 up, mac 52:54:00:12:34:56", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
-    {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
-    {"cmd": "ping 10.0.2.2 3", "must": [r"ответ от 10\.0\.2\.2", r"отправлено 3, получено [1-3]"], "timeout": 20},
-    {"sleep": 6},
-    {"log": [r"bsdrt: прерывания: INTx по событию", r"bsdrt: pcn0: tx [1-9][0-9]* rx [1-9][0-9]* .* irq [1-9][0-9]*"]},
-    {"log_forbid": [r"bsdrt: .*FAIL", r"bsd panic", r"irq [0-9]{5,}", r"\[KIRA IOMMU\] DMA fault", r"00:03\.0 .*NOT isolated: (named|no active|domain setup)", r"00:03\.0 back to passthrough"] + NO_ERR},
-    {"responsive": "status", "within": 5},
-], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "pcnet,netdev=n0,romfile="]))
+# Драйверы OpenBSD с настоящим DMA (bus_dma через слой совместимости): плата q35 с VT-d (intel-iommu), устройство видит только блоки, выданные ядром.
+# Кольца дескрипторов - память bus_dmamem, буферы кадров копируются через промежуточные блоки; DHCP и ping через эту карту, прерывания INTx.
+# Пакет драйвера стартует сам при загрузке: карта находится по PCI-ID.
+def _bsd_dma_sc(name, about, pci, ifname, qdev, irq=True):
+    return sc(name, about, [
+        {"log": BOOT_LOG},
+        {"log": [r"\[KIRA IOMMU\] VT-d translation enabled on [1-9]"]},
+        {"sleep": 8},
+        {"log": [r"\[KIRA IOMMU\] 00:03\.0 isolated: own translation domain", r"%s at pci %s" % (ifname, pci), r"bsdrt: %s up, mac 52:54:00:12:34:56" % ifname,
+                 r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+        {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"ответ от 10\.0\.2\.2", r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"sleep": 6},
+        {"log": [r"bsdrt: прерывания: INTx по событию", r"bsdrt: %s: tx [1-9][0-9]* rx [1-9][0-9]* .* irq [1-9][0-9]*" % ifname]} if irq else
+        {"log": [r"bsdrt: прерывания: опрос раз в 10 мс", r"bsdrt: %s: tx [1-9][0-9]* rx [1-9][0-9]* " % ifname]},
+        {"log_forbid": [r"bsdrt: .*FAIL", r"bsd panic", r"irq [0-9]{5,}", r"\[KIRA IOMMU\] DMA fault", r"00:03\.0 .*NOT isolated: (named|no active|domain setup)",
+                        r"00:03\.0 back to passthrough"] + NO_ERR},
+        {"responsive": "status", "within": 5},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", qdev + ",netdev=n0,romfile="])
+
+
+ALL.append(_bsd_dma_sc("drv-bsd-pcn", "драйвер OpenBSD pcn(4) в Ring 3 с DMA под VT-d: карта pcnet на q35, DHCP и ping через неё, прерывания INTx", "1022:2000", "pcn0", "pcnet"))
+# fxp: пока в режиме опроса (пакет без права irq). С INTx приём застревает после нескольких кадров (причина не найдена, см. docs/BSD_COMPAT.md).
+ALL.append(_bsd_dma_sc("drv-bsd-fxp", "драйвер OpenBSD fxp(4) в Ring 3 с DMA под VT-d: Intel 82559 (i82559er) на q35, DHCP и ping через неё, режим опроса", "8086:1209", "fxp0", "i82559er", irq=False))
 
 
 # drvget + драйвер RTL8139 (пакет L, N). Фаза 1: сеть virtio; drvget по настоящему TLS 1.3 скачивает исходники драйвера rl с хозяина,

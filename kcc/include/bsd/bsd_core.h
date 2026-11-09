@@ -205,6 +205,7 @@ struct ifmedia {
 #define LIST_FOREACH(v, h, f) for ((v) = LIST_FIRST(h); (v); (v) = LIST_NEXT(v, f))
 
 /* ---- MII: общий PHY по IEEE 802.3 (bsd_mii.c): поиск по адресам, автосогласование, состояние связи ---- */
+#define MIIF_NOISOLATE 0x0002
 #define MII_PHY_ANY (-1)
 #define MII_OFFSET_ANY (-1)
 #define MII_BMCR 0x00
@@ -237,13 +238,16 @@ struct mii_softc { LIST_ENTRY(mii_softc) mii_list; struct mii_data* mii_pdata; i
 struct mii_data {
     struct ifmedia mii_media; struct ifnet* mii_ifp; int mii_media_active, mii_media_status;
     int (*mii_readreg)(struct device*, int, int); void (*mii_writereg)(struct device*, int, int, int); void (*mii_statchg)(struct device*);
-    LIST_HEAD(mii_listhead, mii_softc) mii_phys; struct device* mii_dev; int mii_flags;
+    LIST_HEAD(mii_listhead, mii_softc) mii_phys; struct device* mii_dev; int mii_flags; int mii_instance;
 };
 void mii_attach(struct device*, struct mii_data*, int capmask, int phyloc, int offloc, int flags);
 int mii_mediachg(struct mii_data*);
 void mii_tick(struct mii_data*);
 void mii_pollstat(struct mii_data*);
 void mii_down(struct mii_data*);
+void mii_detach(struct mii_data*, int phyloc, int offloc);
+void mii_phy_reset(struct mii_softc*);
+struct ifmedia_entry* ifmedia_match(struct ifmedia*, int target, int mask);
 void ifmedia_init(struct ifmedia*, int, int (*)(struct ifnet*), void (*)(struct ifnet*, struct ifmediareq*));
 void ifmedia_add(struct ifmedia*, int, int, void*);
 void ifmedia_set(struct ifmedia*, int);
@@ -284,7 +288,7 @@ struct ifnet {
 };
 struct ether_header { u_int8_t ether_dhost[6]; u_int8_t ether_shost[6]; u_int16_t ether_type; };
 struct ether_multi { u_int8_t enm_addrlo[6]; u_int8_t enm_addrhi[6]; struct ether_multi* enm_next; };
-struct arpcom { struct ifnet ac_if; u_int8_t ac_enaddr[ETHER_ADDR_LEN]; int ac_multirangecnt; struct ether_multi* ac_multi; };
+struct arpcom { struct ifnet ac_if; u_int8_t ac_enaddr[ETHER_ADDR_LEN]; int ac_multirangecnt; int ac_multicnt; struct ether_multi* ac_multi; };
 struct ether_multistep { struct ether_multi* e_enm; };
 #define ETHER_FIRST_MULTI(step, ac, enm) do { (step).e_enm = (ac)->ac_multi; (enm) = (step).e_enm; } while (0)
 #define ETHER_NEXT_MULTI(step, enm) do { if ((step).e_enm) (step).e_enm = (step).e_enm->enm_next; (enm) = (step).e_enm; } while (0)
@@ -294,6 +298,9 @@ struct ifreq { char ifr_name[IFNAMSIZ]; struct ifmediareq ifr_media; };
 #define ifq_is_oactive(q) ((q)->ifq_oactive)
 struct mbuf* ifq_dequeue(struct ifqueue* q);
 #define ifq_init_maxlen(q, n) ((q)->ifq_maxlen = (n))
+#define ifq_empty(q) ((q)->ifq_len == 0)
+#define splassert(x) ((void)0)
+int loadfirmware(const char* name, u_char** buf, size_t* len);
 #define ifq_restart(q) ((q)->ifq_oactive = 0)
 int m_defrag(struct mbuf*, int how);
 u_int32_t ether_crc32_le(const u_int8_t*, size_t);
@@ -346,6 +353,9 @@ typedef u_int16_t pci_vendor_id_t; typedef u_int16_t pci_product_id_t;
 typedef int pci_intr_handle_t;
 #define PCI_VENDOR(id) ((id) & 0xffff)
 #define PCI_PRODUCT(id) (((id) >> 16) & 0xffff)
+#define PCI_BHLC_REG 0x0c
+#define PCI_CACHELINE(r) ((r) & 0xff)
+#define PCI_REVISION(r) ((r) & 0xff)
 #define PCI_CLASS(r) (((r) >> 24) & 0xff)
 #define PCI_SUBCLASS(r) (((r) >> 16) & 0xff)
 #define PCI_ID_REG 0x00
@@ -358,6 +368,7 @@ typedef int pci_intr_handle_t;
 #define PCI_COMMAND_IO_ENABLE 0x1
 #define PCI_COMMAND_MEM_ENABLE 0x2
 #define PCI_COMMAND_MASTER_ENABLE 0x4
+#define PCI_COMMAND_INVALIDATE_ENABLE 0x10
 
 /* ---- bus_dma: ядро даёт драйверу Ring 3 только физически непрерывные блоки (kdrv_dma_alloc), поэтому буферы mbuf (и любые чужие) копируются
    через промежуточный блок («bounce») при bus_dmamap_sync: PREWRITE - в устройство, POSTREAD - из устройства. Память, выделенная bus_dmamem_alloc,
