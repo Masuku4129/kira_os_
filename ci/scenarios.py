@@ -49,6 +49,10 @@ RESUME_DAEMON = ["openssl", "s_server", "-quiet", "-accept", "18449", "-cert", "
                  "-cert_chain", "{chain}/inter.pem", "-tls1_3", "-www"]
 
 ALL = [
+    sc("boot-bios", "загрузка нашим BIOS-загрузчиком без GRUB: VBE-режим, карта памяти, диск, базовые проверки", BASIC + [
+        {"log": [r"\[KIRA FB\] Bootloader mode: 1280x720x32", r"Processors online: 4"]},
+        *DISK_IRQ,
+    ], boot="bios"),
     sc("boot-virtio", "загрузка: virtio-blk, 4 ядра, базовые проверки", BASIC + [
         {"log": [r"Processors online: 4", r"parallel helpers: 3", r"virtio-blk, .*completion by MSI-X interrupt"]},
         *DISK_IRQ,

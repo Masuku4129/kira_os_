@@ -137,11 +137,20 @@ class VM:
                 os.unlink(p)
 
     # ---------- запуск ----------
+    def boot_args(self):
+        sc_boot_bios = lambda c: c.get("boot") == "bios"
+        # По умолчанию - kira.iso (GRUB). KIRA_BOOT=bios: собственный BIOS-загрузчик без GRUB (kira-bios.img на вторичной шине IDE, первая в порядке загрузки).
+        if os.environ.get("KIRA_BOOT") == "bios" or sc_boot_bios(self.sc):
+            img = os.environ.get("KIRA_BIOS_IMG", "kira-bios.img")
+            return ["-drive", f"file={img},format=raw,if=none,id=bootd,snapshot=on",
+                    "-device", "ide-hd,drive=bootd,bus=ide.1,unit=0,bootindex=0"]
+        return ["-boot", "order=d", "-cdrom", self.iso]
+
     def args(self):
         sc = self.sc
         a = ["qemu-system-x86_64", "-machine", sc.get("machine", "pc"), "-m", str(sc.get("mem", "1G")),
              "-smp", str(sc.get("smp", 4)), "-vga", "std", "-display", "none",
-             "-boot", "order=d", "-cdrom", self.iso,
+             *self.boot_args(),
              "-chardev", f"socket,id=ser0,path={self.ser_path},server=on,wait=on", "-serial", "chardev:ser0",
              "-qmp", f"unix:{self.qmp_path},server=on,wait=off",
              "-audiodev", "none,id=a0", "-d", "guest_errors", "-D", os.path.join(self.out, "qemu.log")]

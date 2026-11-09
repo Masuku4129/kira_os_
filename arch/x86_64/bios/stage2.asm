@@ -14,6 +14,7 @@ MAXE        equ 96              ; число записей E820, помещаю
 CHUNK       equ 32
 S2_BYTES    equ 16384
 MAX_KERNEL  equ 0x3000000       ; 48 МиБ
+VBE_CTRL    equ 0x3000          ; ответ 4F00 (512 байт)
 
 %macro SPUT 0                   ; AL -> COM1 (с ожиданием)
   push edx
@@ -88,6 +89,7 @@ start16:
   sti
   call a20_enable
   jc near fail_a20
+  call vbe_set                    ; режим экрана (не критично: без него ядро идёт в текстовом режиме/по серийному порту)
   call e820_collect
   jc near fail_e820
   ; область промежуточного файла должна быть обычной памятью
@@ -198,6 +200,85 @@ a20_test:                       ; CF=0, если A20 включена (нет з
 .off: stc
   ret
 
+; VBE: ищет линейный режим 32/24 бита из списка предпочтений и включает его. CF не влияет, при неудаче vbe_ok=0.
+; Предпочтения: 1280x720, 1024x768, 800x600 (32 бита, затем 24). Режимы берутся из списка видеоадаптера.
+vbe_set:
+  pusha
+  push fs
+  mov byte [vbe_ok], 0
+  mov dword [VBE_CTRL], 'VBE2'
+  mov di, VBE_CTRL
+  mov ax, 0x4F00
+  int 0x10
+  cmp ax, 0x004F
+  jne .done
+  cmp dword [VBE_CTRL], 'VESA'
+  jne .done
+  mov si, 0                       ; индекс предпочтения
+.pref:
+  cmp si, NPREF
+  jae .done
+  mov bx, [VBE_CTRL + 16]         ; VideoModePtr: смещение, сегмент
+  mov ax, [VBE_CTRL + 18]
+  mov fs, ax
+  mov bp, bx
+.mode:
+  mov cx, [fs:bp]
+  cmp cx, 0xFFFF
+  je .nextpref
+  add bp, 2
+  push si
+  push bp
+  push fs
+  mov ax, 0x4F01
+  mov di, vbe_mi
+  int 0x10
+  pop fs
+  pop bp
+  pop si
+  cmp ax, 0x004F
+  jne .mode
+  mov ax, [vbe_mi]
+  and ax, 0x0091                  ; поддерживается, графика, линейный буфер
+  cmp ax, 0x0091
+  jne .mode
+  mov ax, si
+  shl ax, 2
+  mov di, ax
+  mov ax, [pref + di]
+  cmp ax, [vbe_mi + 0x12]
+  jne .mode
+  mov ax, [pref + di + 2]
+  cmp ax, [vbe_mi + 0x14]
+  jne .mode
+  cmp byte [vbe_mi + 0x19], 32
+  jne .mode
+  cmp byte [vbe_mi + 0x1B], 6     ; memory model: Direct Color
+  jne .mode
+  mov bx, cx
+  or bx, 0x4000                   ; линейный буфер
+  mov ax, 0x4F02
+  int 0x10
+  cmp ax, 0x004F
+  jne .mode
+  mov ax, [vbe_mi + 0x32]         ; LinBytesPerScanLine (VBE 3)
+  test ax, ax
+  jnz .p
+  mov ax, [vbe_mi + 0x10]
+.p:
+  mov [vbe_pitch], ax
+  cmp dword [vbe_mi + 0x28], 0
+  je .nextpref
+  mov byte [vbe_ok], 1
+  jmp .done
+.nextpref:
+  inc si
+  jmp .pref
+.done:
+  pop fs
+  popa
+  ret
+
 ; Заполняет MB2 info: тег типа 6 (карта памяти) и конечный тег. CF=1 - ошибка/пустая карта.
 e820_collect:
   xor ebx, ebx
@@ -257,7 +338,39 @@ e820_collect:
   mov dword [INFO + 20], 0
   add eax, 8
   mov edx, eax
-  add eax, 8                      ; + конечный тег
+  cmp byte [vbe_ok], 0
+  je .nofb
+  mov dword [INFO + edx], 8       ; тег framebuffer (тип 8), 38 байт данных -> 40 с выравниванием
+  mov dword [INFO + edx + 4], 38
+  mov eax, [vbe_mi + 0x28]
+  mov [INFO + edx + 8], eax
+  mov dword [INFO + edx + 12], 0
+  movzx eax, word [vbe_pitch]
+  mov [INFO + edx + 16], eax
+  movzx eax, word [vbe_mi + 0x12]
+  mov [INFO + edx + 20], eax
+  movzx eax, word [vbe_mi + 0x14]
+  mov [INFO + edx + 24], eax
+  mov al, [vbe_mi + 0x19]
+  mov [INFO + edx + 28], al
+  mov byte [INFO + edx + 29], 1   ; прямые цвета RGB
+  mov word [INFO + edx + 30], 0
+  mov al, [vbe_mi + 0x20]
+  mov [INFO + edx + 32], al
+  mov al, [vbe_mi + 0x1F]
+  mov [INFO + edx + 33], al
+  mov al, [vbe_mi + 0x22]
+  mov [INFO + edx + 34], al
+  mov al, [vbe_mi + 0x21]
+  mov [INFO + edx + 35], al
+  mov al, [vbe_mi + 0x24]
+  mov [INFO + edx + 36], al
+  mov al, [vbe_mi + 0x23]
+  mov [INFO + edx + 37], al
+  mov dword [INFO + edx + 38], 0  ; выравнивание тега
+  add edx, 40
+.nofb:
+  lea eax, [edx + 8]              ; + конечный тег
   mov [INFO], eax
   mov dword [INFO + 4], 0
   mov dword [INFO + edx], 0
@@ -554,6 +667,12 @@ ph_cnt:  dd 0
 n_load:  dd 0
 entry:   dd 0
 e820buf: times 24 db 0
+vbe_ok:  db 0
+align 4
+vbe_pitch: dw 0
+pref:    dw 1280, 720, 1024, 768, 800, 600, 640, 480
+NPREF    equ 4
+vbe_mi:  times 256 db 0
 align 4
 dap:
   db 0x10, 0

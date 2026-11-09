@@ -218,6 +218,7 @@ case "$1" in
         OUT="${KIRA_OUT:-/storage/emulated/0/Download}"
         [ -d "$OUT" ] || { echo "[!] Нет папки $OUT (в Termux: termux-setup-storage; в proot - проверьте, что /storage примонтирован)"; exit 1; }
         cp kira.iso "$OUT/kira.iso"
+        [ -f kira-bios.img ] && cp kira-bios.img "$OUT/kira-bios.img"   # загрузка без GRUB: Hard Disk B или Boot from: HDD (см. LIMBO.md)
         if [ -f "$OUT/kira_disk.img" ]; then
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
             for t in $TESTPROGS; do tools/kfstool "$OUT/kira_disk.img" rm /bin/$t >/dev/null 2>&1 || true; done   # убрать тестовые программы прежних версий
