@@ -558,6 +558,7 @@ ALL.append(sc("drv-bsd-ne2k", "драйвер OpenBSD ne(4) в Ring 3 через
     {"log": [r"ne0 at pci 10ec:8029", r"bsdrt: ne0 up, mac 52:54:00:12:34:56",
              r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
     {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
+    {"cmd": "ping 10.0.2.2 3", "must": [r"ответ от 10\.0\.2\.2", r"отправлено 3, получено [1-3]"], "timeout": 20},
     {"log_forbid": [r"bsdrt: .*FAIL", r"bsd panic", r"bsd: порты отказали"] + NO_ERR},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", extra=["-netdev", "user,id=n0", "-device", "ne2k_pci,netdev=n0"]))

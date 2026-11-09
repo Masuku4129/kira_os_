@@ -35,6 +35,11 @@ static inline unsigned max(unsigned a, unsigned b) { return a > b ? a : b; }
 #define M_WAITOK 2
 #define M_ZERO 8
 
+/* порядок байт: без этих определений `#if BYTE_ORDER == BIG_ENDIAN` истинно (оба имени = 0) и драйвер молча переставляет байты */
+#define LITTLE_ENDIAN 1234
+#define BIG_ENDIAN 4321
+#define BYTE_ORDER LITTLE_ENDIAN
+
 /* ---- errno ---- */
 #define EPERM 1
 #define ENOENT 2

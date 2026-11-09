@@ -151,7 +151,7 @@ void if_input(struct ifnet* ifp, struct mbuf_list* ml) {
     while ((m = ml_dequeue(ml)) != NULL) {
         u32 len = 0; for (struct mbuf* p = m; p; p = p->m_next) len += (u32)p->m_len;
         u32 head = c ? c->rx_head : 0, tail = c ? __atomic_load_n(&c->rx_tail, __ATOMIC_ACQUIRE) : 0;
-        if (!c || len < ETHER_HDR_LEN || len > c->max_frame || head - tail >= c->slots) { ifp->if_iqdrops++; m_freem(m); continue; }
+        if (!c || len < ETHER_HDR_LEN || len > c->max_frame || head - tail >= c->slots) { ifp->if_iqdrops++; printf("bsdrt: rx drop len %u pkthdr %d slots %d\n", len, m->m_pkthdr.len, c ? (int)(head - tail) : -1); m_freem(m); continue; }
         kdrv_slot_t* s = (kdrv_slot_t*)((u8*)c + KDRV_NET_RX_OFF) + (head % c->slots);
         u32 off = 0; for (struct mbuf* p = m; p; p = p->m_next) { memcpy(s->data + off, p->m_data, (size_t)p->m_len); off += (u32)p->m_len; }
         s->len = len; __atomic_store_n(&c->rx_head, head + 1, __ATOMIC_RELEASE);
@@ -251,7 +251,12 @@ int umain(void) {
         for (int i = 0; i < nih; i++) if (ihs[i].fn) ihs[i].fn(ihs[i].arg);
         u64 now = now_ms();
         for (int i = 0; i < NTO; i++) if (tos[i] && tos[i]->to_set && (long)((unsigned long)now - tos[i]->to_due) >= 0) { tos[i]->to_set = 0; tos[i]->to_fn(tos[i]->to_arg); }
-        if (now >= next_sec) { next_sec += 1000; if (ifp->if_timer && --ifp->if_timer == 0 && ifp->if_watchdog) ifp->if_watchdog(ifp); }
+        if (now >= next_sec) { next_sec += 1000;
+            static unsigned lo, li, le, lt; static int tick;
+            if (++tick >= 5 && (ifp->if_opackets != lo || ifp->if_ipackets != li || ifp->if_ierrors != le || ifp->if_oerrors != lt)) {   /* сводка раз в 5 с, только при изменении */
+                tick = 0; lo = ifp->if_opackets; li = ifp->if_ipackets; le = ifp->if_ierrors; lt = ifp->if_oerrors;
+                printf("bsdrt: %s: tx %u rx %u rx-err %u tx-err %u rx-drop %u\n", ifp->if_xname, lo, li, le, lt, ifp->if_iqdrops);
+            } if (ifp->if_timer && --ifp->if_timer == 0 && ifp->if_watchdog) ifp->if_watchdog(ifp); }
         kdrv_netctl_t* c = ifp->if_ctl;                                          /* кадры от ядра -> очередь передачи карты */
         while (ifp->if_snd.ifq_len < ifp->if_snd.ifq_maxlen) {
             u32 head = __atomic_load_n(&c->tx_head, __ATOMIC_ACQUIRE), tail = c->tx_tail;
@@ -261,7 +266,7 @@ int umain(void) {
             if (len >= ETHER_HDR_LEN && len <= c->max_frame) {
                 struct mbuf* m = m_gethdr(M_DONTWAIT, MT_DATA);
                 if (m) { m_clget(m, M_DONTWAIT, MCLBYTES); }
-                if (m && (m->m_flags & M_EXT)) { memcpy(m->m_data, s->data, len); m->m_len = m->m_pkthdr.len = (int)len; ifq_enqueue(&ifp->if_snd, m); }
+                if (m && (m->m_flags & M_EXT)) { memcpy(m->m_data, s->data, len); m->m_len = m->m_pkthdr.len = (int)len; ifq_enqueue(&ifp->if_snd, m); ifp->if_opackets++; }
                 else { if (m) m_freem(m); ifp->if_oerrors++; }
             } else ifp->if_oerrors++;
             __atomic_store_n(&c->tx_tail, tail + 1, __ATOMIC_RELEASE);
