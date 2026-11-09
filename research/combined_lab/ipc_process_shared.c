@@ -96,6 +96,7 @@ static int descriptor_authority_test(void) {
     int shared = map[0] == 0x5a;
     pid_t denied = fork();
     if (denied == 0) {
+        munmap(map, 4096);
         close(fd);
         errno = 0;
         void *p = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
