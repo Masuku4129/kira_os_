@@ -79,8 +79,8 @@ static int pipe_test(uint64_t *elapsed) {
         if (write_full(fds[1], batch, n * sizeof(record_t))) { close(fds[1]); return -1; }
     }
     close(fds[1]);
-    uint64_t end = now_ns();
     int rc = wait_child(pid);
+    uint64_t end = now_ns();
     *elapsed = end - start;
     return rc;
 }
