@@ -24,7 +24,7 @@ static uint64_t fdt_u64(const uint8_t* p) {
 }
 
 int fdt_valid(const void* fdt, uint32_t max_len) {
-    if (!fdt || hdr(fdt, 0) != FDT_MAGIC) return 0;
+    if (!fdt || (max_len && max_len < 40) || hdr(fdt, 0) != FDT_MAGIC) return 0;   /* заголовок читается целиком: 40 байт */
     uint32_t total = hdr(fdt, 1), so = hdr(fdt, 2), sto = hdr(fdt, 3);
     uint32_t rso = hdr(fdt, 4), ver = hdr(fdt, 5);
     uint32_t strings_size = hdr(fdt, 8), struct_size = hdr(fdt, 9);
