@@ -76,6 +76,8 @@ int main(void) {
     CHECK(scan("/* Redistribution and use in source and binary forms. All advertising materials mentioning features. THIS SOFTWARE IS PROVIDED */\n", lic, &err) != 0);
     CHECK(scan("/* Permission is hereby granted, free of charge, to any person. THE SOFTWARE IS PROVIDED \"AS IS\" */\n", lic, &err) == 0 && strstr(lic, "MIT"));
     CHECK(scan("/* Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted */\n", lic, &err) == 0 && strstr(lic, "ISC"));
+    CHECK(scan("/* Copyright (C) 1993, David Greenman. This software may be used, modified, copied, distributed, and sold, in both source and binary form provided that the above copyright and these terms are retained. Under no circumstances is the author responsible for the proper functioning of this software, nor does the author assume any responsibility */\n", lic, &err) == 0 && strstr(lic, "Greenman"));
+    CHECK(scan("/* This software may be used, modified, copied, distributed, and sold, in both source and binary form provided that the above copyright and these terms are retained. */\n", lic, &err) != 0);   /* только обе фразы вместе */
     uint8_t mz[200]; memset(mz, 0, sizeof mz); mz[0] = 'M'; mz[1] = 'Z';
     CHECK(dg_scan_source("net.c", mz, sizeof mz, lic, &err) != 0 && strstr(err, "бинарник"));
     uint8_t elf[64] = { 0x7f, 'E', 'L', 'F' }; CHECK(dg_scan_source("a.c", elf, sizeof elf, lic, &err) != 0);

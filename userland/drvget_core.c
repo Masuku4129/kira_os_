@@ -246,6 +246,19 @@ static const char* find_ci(const uint8_t* d, uint32_t len, const char* pat) {   
     return 0;
 }
 
+/* Поиск фразы без учёта регистра, где пробел шаблона = любая серия пробелов, переводов строки и украшений комментария (* /): текст лицензии в исходниках перенесён по строкам. */
+static int sepc(uint8_t c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '*' || c == '/'; }
+static int find_wrapped(const uint8_t* d, uint32_t len, const char* pat) {
+    for (uint32_t i = 0; i < len; i++) {
+        uint32_t k = i; const char* q = pat; int ok = 1;
+        while (*q) {
+            if (*q == ' ') { if (k >= len || !sepc(d[k])) { ok = 0; break; } while (k < len && sepc(d[k])) k++; q++; }
+            else { if (k >= len || low((char)d[k]) != low(*q)) { ok = 0; break; } k++; q++; }
+        }
+        if (ok) return 1;
+    }
+    return 0;
+}
 int dg_scan_source(const char* fname, const uint8_t* d, uint32_t len, char lic[24], const char** err) {
     (void)fname;
     lic[0] = 0;
@@ -290,6 +303,13 @@ int dg_scan_source(const char* fname, const uint8_t* d, uint32_t len, char lic[2
     }
     if (find_ci(d, len, "Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted")) {
         const char* t = "ISC (по тексту)"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
+        return 0;
+    }
+    /* Короткая разрешительная лицензия Дэвида Гринмана (dp8390, ne2000 в OpenBSD/NetBSD): использование, изменение, копирование, распространение и продажа
+       разрешены при сохранении уведомления. Принимается только точный текст обеих фраз (не «похожее»). Решение проекта: list допустимых лицензий расширен этим случаем. */
+    if (find_wrapped(d, len, "may be used, modified, copied, distributed, and sold, in both source and binary form provided that the above copyright and these terms are retained") &&
+        find_wrapped(d, len, "Under no circumstances is the author responsible for the proper functioning of this software")) {
+        const char* t = "permissive (Greenman)"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
         return 0;
     }
     *err = "лицензия файла не найдена (нужны строка SPDX-License-Identifier из списка или текст BSD/MIT/ISC) - не берём";
