@@ -658,8 +658,11 @@ if _BSD:
         *_dg("drvget verify " + _BSD_NAME, r"verify " + _BSD_NAME + ": OK", 20),
         {"log_forbid": NO_ERR},
         {"relaunch": ["-netdev", "user,id=n0", "-device", "ne2k_pci,netdev=n0"]},
-        {"sleep": 10},
-        {"log": [r"\[KIRA DRV\] " + _BSD_NAME + r": устройство .* 10ec:8029 -> драйвер запущен", r"ne0 at pci 10ec:8029", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+        {"sleep": 8},
+        {"log": [r"drvne2kio: PASS"]},                                           # первым карту берёт тестовый драйвер портов (пакет ne2kio из образа сборки)
+        {"cmd": "drv stop ne2kio", "must": [r"останавливаю drv-ne2kio"]}, {"sleep": 2},
+        {"cmd": "drv start " + _BSD_NAME, "must": [r"драйвер запущен как drv-" + _BSD_NAME]}, {"sleep": 8},
+        {"log": [r"ne0 at pci 10ec:8029", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
         {"cmd": "ping 10.0.2.2 3", "must": [r"ответ от 10\.0\.2\.2", r"отправлено 3, получено [1-3]"], "timeout": 20},
         {"log_forbid": NO_ERR + [r"bsd panic", r"bsdrt: .*FAIL"]},
     ], smp=2, mem="1G", tls_chain=True,
