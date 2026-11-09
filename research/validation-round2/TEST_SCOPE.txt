@@ -1,0 +1,11 @@
+KIRA architecture validation round 2
+Base: research/driver-adaptation-lab-2026-11-09
+Purpose: repeat the existing complete CI against this exact source point before architecture comparisons.
+Scope inherited from .github/workflows/ci.yml:
+- host tests and source intake tests
+- data-format benchmark
+- x86-64 build
+- ARM64 build and QEMU scenarios
+- full x86-64 QEMU scenario matrix
+- global gate
+No experimental implementation is merged into main. This file is a run manifest, not a test result.
