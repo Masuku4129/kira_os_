@@ -137,7 +137,7 @@ def test_cache(repeat):
     compile_like(ir,"KCC-lab-1","x86_64","O2")
     warm,tw=median_ms(lambda:compile_like(ir,"KCC-lab-1","x86_64","O2"),repeat)
     changed,_=compile_like(ir,"KCC-lab-1","aarch64","O2")
-    assert cold[0]==warm[0] and cold[1] is False and warm[1] is True and changed!=cold[0]
+    assert cold[0]==warm[0] and cold[1] is False and warm[1] is True and changed[0]!=cold[0]
     return {"template":"canonical-ir-content-cache","cold_ms":round(tc,6),"warm_ms":round(tw,6),
             "warm_hit":warm[1],"target_invalidation":"PASS","correctness":"PASS",
             "scope":"cache-key prototype; not a KCC compilation benchmark"}
