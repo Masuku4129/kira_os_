@@ -1,0 +1,116 @@
+{
+ "name": "apps-wasm",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "wasm: /wasm/wtest\\.wasm - \\d+ functions",
+   "ok": true
+  },
+  {
+   "log": "wtest:\\ fib\\(24\\)=46368\\ primes<20000=2262\\ sort=ad642057dcc4b702\\ switch=4148393079\\ ops=ba422c8d525a9aea\\ sext=269715",
+   "ok": true
+  },
+  {
+   "log": "wasm: finished with code 0",
+   "ok": true
+  },
+  {
+   "log": "ftest: mandel inside=662 iters=146978 pi=400921f61616ca3a f32sum=000000004004dfe3 hash=225e25f3d90cf161",
+   "ok": true
+  },
+  {
+   "log": "wasm: /wasm/wmix\\.wasm - \\d+ functions",
+   "ok": true
+  },
+  {
+   "log": "wasm: /wasm/wmix0\\.wasm - \\d+ functions",
+   "ok": true
+  },
+  {
+   "log": "wmix: rec=d5041c4ef1eb0478 ind=0bdc8491374efd99 i64=df263e1ee75e2d7f sw=607fb6e15329d3f1 loop=7ba9ad70769b882d mem=bed6ff5566642000 f64=ea044c2d18dea474",
+   "ok": true
+  },
+  {
+   "log": "wgfx: frame0=0000000054f339aa frame30=000000000943d884",
+   "ok": true
+  },
+  {
+   "log": "wgfx: 31 frames shown, ticks \\d+",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "log_forbid": "wasm: stopped",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.4,
+ "seconds": 46.0,
+ "commands": [
+  {
+   "cmd": "wasm /wasm/wtest.wasm",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "wasm /wasm/ftest.wasm",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "wasm /wasm/wmix.wasm",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "wasm /wasm/wmix0.wasm",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "wasm /wasm/wgfx.wasm",
+   "seconds": 0.0
+  }
+ ]
+}

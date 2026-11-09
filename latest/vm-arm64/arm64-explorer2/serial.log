@@ -1,0 +1,103 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA ARM64] RAM: 1024 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 1017 MB free pages; kernel heap and scheduler online (per-core ready queues, 72 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 99 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 4 of 4 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 4 of 4 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 6 function(s), 9 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 630336 bytes, prefix 4289ff6f...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 6 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 16 MB (PCI 0:1.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA DISK] vda: virtio-blk, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14484 KB free.
+[KIRA PROC] up to 16 programs at once (4 cores, 1024 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): ПОНЕДЕЛЬНИК, 9 НОЯБРЯ 2026 03:38
+[KIRA GPU] virtio-gpu: 1280x800 2D scanout, frames are sent to the host after each composed frame.
+[KIRA PAR] parallel helpers: 3 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA INPUT] virtio-input: QEMU Virtio Keyboard, MSI-X interrupt
+[KIRA INPUT] virtio-input: QEMU Virtio Tablet (absolute pointer), MSI-X interrupt
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA NET] No supported network card: networking is off.
+[KIRA HDA] Sound: codec 0x0000000000001AF4:0x0000000000000022, output path pin 3 <- DAC 2, 48 kHz 16-bit stereo (commands: sound, beep).
+[KIRA HDA] Input: line in pin 5 -> ADC 4, recording ring running (command: record).
+[KIRA AUDIO] Mixer online: up to 4 programs + tone, 48 kHz 16-bit stereo, 100 ms ahead of the card.
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA TELEMETRY] t=1s health=93 load=16% mem=3% run=1 frames=16 late=1 q=40ms fx=3
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA TELEMETRY] t=2s health=100 load=2% mem=3% run=3 frames=54 late=0 q=40ms fx=3
+mkdir /fm-[KIRA TELEMETRY] t=3s health=100 load=2% mem=3% run=1 frames=55 late=0 q=40ms fx=3
+a
+кира> mkdir /fm-b
+кира> [KIRA TELEMETRY] t=4s health=100 load=3% mem=3% run=1 frames=55 late=0 q=40ms fx=3
+write /fm-a/one.txt kira-one
+/fm-a/one.txt: записано 9 байт
+кира> w[KIRA TELEMETRY] t=5s health=100 load=3% mem=3% run=2 frames=55 late=0 q=40ms fx=3
+rite /fm-a/two.txt kira-two
+/fm-a/two.txt: записано 9 байт
+кира> files /fm-a /fm-b
+[KIRA FILES] explorer: /fm-a | /fm-b
+кира> [KIRA TELEMETRY] t=6s health=100 load=4% mem=3% run=3 frames=54 late=0 q=40ms fx=3
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA TELEMETRY] t=7s health=98 load=2% mem=3% run=1 frames=55 late=1 q=40ms fx=3
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA TELEMETRY] t=8s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=9s health=100 load=2% mem=3% run=3 frames=54 late=0 q=40ms fx=3
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: пробую 2000 мс вместо 1000 (причина: темп фона снижался; о�
+[KIRA TELEMETRY] t=10s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA FILES] copy /fm-a/one.txt -> /fm-b/one.txt: 9 байт
+[KIRA TELEMETRY] t=11s health=100 load=3% mem=3% run=1 frames=55 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=12s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=13s health=100 load=2% mem=3% run=1 frames=55 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=14s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+cat /fm-b/one.txt
+kira-one
+
+кира> [KIRA TELEMETRY] t=15s health=100 load=2% mem=3% run=2 frames=55 late=0 q=40ms fx=3
+[KIRA FILES] move /fm-a/two.txt -> /fm-b/two.txt: 9 байт
+[KIRA TELEMETRY] t=16s health=100 load=4% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=17s health=100 load=2% mem=3% run=2 frames=55 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=18s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+cat /fm-b/two.txt
+kira-two
+
+кира> [KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: откат на 1000 мс - оценка 0 не лучше -8
+[KIRA TELEMETRY] t=19s health=100 load=2% mem=3% run=2 frames=54 late=0 q=40ms fx=3
+ls /fm-a
+            9  one.txt
+кира> [KIRA TELEMETRY] t=20s health=100 load=3% mem=3% run=1 frames=57 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=21s health=100 load=3% mem=3% run=1 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=22s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=23s health=100 load=3% mem=3% run=2 frames=54 late=0 q=40ms fx=3
+[KIRA FILES] mkdir /fm-b/sub
+[KIRA TELEMETRY] t=24s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=25s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=26s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=27s health=100 load=3% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=28s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA FILES] delete /fm-b/one.txt
+[KIRA MIND] рычаг 23 «интервал сужения темпа фона»: пробую 400 мс вместо 200 (причина: темп фона снижался; оценка
+[KIRA TELEMETRY] t=29s health=100 load=2% mem=3% run=2 frames=55 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=30s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=31s health=100 load=3% mem=3% run=1 frames=55 late=0 q=40ms fx=3
+ls /fm-b
+            9  two.txt
+  <dir>       sub
+кира> [KIRA TELEMETRY] t=32s health=100 load=2% mem=3% run=1 frames=55 late=0 q=40ms fx=3
