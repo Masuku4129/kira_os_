@@ -2,14 +2,14 @@
   "schema_version": 1,
   "branch": "v46/kdrv-catalogue-signature-policy",
   "inventory": {
-    "commit_before_this_run": "796a5a0d66f4ca60637af81c092738aebdd415e7",
-    "tree_sha": "4fb07499a930ece40139b458f33f695714aa28cc",
-    "tracked_paths": 958,
+    "commit_before_this_run": "bbac87fe6fce3349d1097ce4bc7a660858b9a4a1",
+    "tree_sha": "056690ce86b4ae5da4067eb3ba0ada2fcdcb750f",
+    "tracked_paths": 959,
     "tree_truncated": false,
-    "scope_note": "Фактическое дерево ветки получено через Git Trees API. Количество путей — инвентарная метрика, не процент готовности."
+    "scope_note": "Фактическое дерево ветки получено через Git Trees API перед изменениями этого запуска. Количество путей — инвентарная метрика, не процент готовности."
   },
-  "latest_source_commit": "fc1b524ffcf0b8fe7d6b6461008c10cb0ab4dea5",
-  "updated_at_utc": "2026-11-08T17:54:00Z",
+  "latest_source_commit": "448639f1b59d063316e36b80b2e741f887256ff5",
+  "updated_at_utc": "2026-11-09T17:55:00Z",
   "execution_policy": {
     "tests_run": false,
     "audits_run": false,
@@ -29,6 +29,20 @@
       "commit": "fc1b524ffcf0b8fe7d6b6461008c10cb0ab4dea5",
       "details": "Добавлен вызов pci_init() после ACPI discovery и до fs_init()/сетевых probe. До изменения x86 kernel_main не вызывал pci_init(), хотя virtio storage и e1000/virtio-net используют pci_find(). ARM64 уже выполняет pci_init() после настройки ECAM из FDT.",
       "validation": "Не запускалась по требованию. Сборка, runtime и Limbo не подтверждены."
+    },
+    {
+      "id": "acpi-dsdt-validated-view",
+      "status": "source_integrated",
+      "files": [
+        "acpi.c",
+        "acpi.h"
+      ],
+      "commits": [
+        "ab949d865481b2bce5b222103fc1ffe0b2798176",
+        "448639f1b59d063316e36b80b2e741f887256ff5"
+      ],
+      "details": "ACPI core now rejects empty/oversized DSDT tables, maps the full table, independently validates its checksum, and exposes only the AML payload plus optional physical address through acpi_get_dsdt().",
+      "validation": "Not run by explicit instruction. No build, audit, runtime, or Limbo claim is made."
     }
   ],
   "modules": [
@@ -120,10 +134,11 @@
         "drivers/bus/pci_routing.h"
       ],
       "completed": [
-        "x86 kernel startup now calls pci_init() before PCI consumers."
+        "x86 kernel startup now calls pci_init() before PCI consumers.",
+        "ACPI core now exposes the DSDT AML payload only after independent DSDT length/signature/checksum validation; mapping address and payload length are available through acpi_get_dsdt()."
       ],
       "remaining": [
-        "Expose a checksum-validated DSDT/AML view from ACPI core.",
+        "Implement a bounded AML namespace/object lookup that locates _PRT in its correct PCI-root scope; the raw static parser is not a namespace-aware AML interpreter.",
         "Choose and implement the supported AML namespace/evaluation boundary; current parser variants are not a full AML interpreter.",
         "Resolve static and dynamic link-device resources (_CRS/_PRS) or report each unsupported route explicitly.",
         "Connect _PRT entries to PCI segment/bus/device/function and IOAPIC GSI polarity/trigger, then provide an IRQ registration/delivery path.",
@@ -135,7 +150,7 @@
         "MADT IOAPIC ranges",
         "PCI topology"
       ],
-      "evidence": "acpi.c currently extracts _S5 from DSDT; the two PRT parser layers and pci_routing.c exist but are absent from build_clang.sh source lists and kernel startup integration. docs/RELEASE_GAPS.md marks AML _PRT/legacy PCI INTx routing open."
+      "evidence": "acpi.c validates the DSDT checksum separately from the FADT checksum and publishes the AML payload through acpi_get_dsdt(); parser sources remain unintegrated and build_clang.sh does not yet compile them. docs/RELEASE_GAPS.md marks AML _PRT/legacy PCI INTx routing open."
     },
     {
       "id": "rtl8139-clean_room",
