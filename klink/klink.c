@@ -44,6 +44,7 @@ typedef struct {
     uint32_t shndx;
     uint64_t value, size;
     GSym *g;
+    uint32_t got;                    /* локальный символ: номер ячейки GOT + 1 (0 - ячейки нет) */
 } KSym;
 
 struct KSec {
@@ -81,6 +82,7 @@ struct GSym {
     KSec *sec;
     uint64_t value, size, calign;
     KOut *owner;
+    uint32_t got;                    /* номер ячейки GOT + 1 (0 - ячейки нет) */
 };
 
 struct KOut {
@@ -114,6 +116,9 @@ struct SStmt {
 typedef struct { const char *name; int has_flags; uint32_t flags; } PhDef;
 typedef struct { uint32_t flags; KOut *first, *last; uint64_t va, filesz, memsz, off; } Seg;
 
+/* Ячейка GOT: адрес символа; первая ссылка нужна для сообщения об ошибке при вычислении значения */
+typedef struct { KObj *o; KSec *from; uint64_t roff; uint32_t si, type; } GotCell;
+
 typedef struct {
     KLink *k;
     jmp_buf jb;
@@ -134,6 +139,9 @@ typedef struct {
     int nph;
     int have_phdrs;
     KOut *outs, *outs_tail;
+    KOut *got;                       /* синтезированная выходная секция .got */
+    GotCell *gcell;
+    uint32_t ngot;
     unsigned nsec_in, nsec_gc;
     KSec *comment_first;
     uint64_t pagesz;
@@ -950,6 +958,102 @@ static void mark_gc(void) {
         }
 }
 
+/* ---------- GOT ---------- */
+static int is_got_rel(uint32_t t) { return t == R_GOTPCREL || t == R_GOTPCRELX || t == R_REX_GOTPCRELX; }
+
+/* Релаксация `mov sym@GOTPCREL(%rip), reg` -> `lea sym(%rip), reg` возможна для X-вариантов и определённого символа. Решение берётся по байтам
+ * входной секции (не выходного образа), чтобы просмотр ссылок и применение перемещений всегда решали одинаково. */
+static int got_relaxable(const KSec *s, uint64_t off, uint32_t type, int defined) {
+    return type != R_GOTPCREL && defined && s->data && off >= 2 && off <= s->size && s->data[off - 2] == 0x8b && (s->data[off - 1] & 0xc7) == 0x05;
+}
+
+/* Просмотр перемещений живых секций (после --gc-sections): ячейка заводится на каждый символ, к которому есть нерелаксируемая GOTPCREL-ссылка.
+ * Порядок ячеек определяется таблицей символов, а не хэшами или адресами: образ детерминирован. */
+static void got_scan(void) {
+    uint64_t maxn = 0;
+    for (unsigned oi = 0; oi < C.nobjs; oi++)
+        for (unsigned i = 1; i < C.objs[oi].nsec; i++) {
+            const KSec *s = &C.objs[oi].sec[i];
+            if (s->live) maxn += s->nrela;
+        }
+    if (maxn == 0) return;
+    C.gcell = anew(sizeof(GotCell) * (size_t)maxn);
+    for (unsigned oi = 0; oi < C.nobjs; oi++) {
+        KObj *o = &C.objs[oi];
+        for (unsigned i = 1; i < o->nsec; i++) {
+            KSec *s = &o->sec[i];
+            if (!s->live) continue;
+            for (uint32_t k = 0; k < s->nrela; k++) {
+                const uint8_t *r = s->rela + (uint64_t)k * 24;
+                uint64_t info = r64(r + 8);
+                uint32_t type = (uint32_t)info, si = (uint32_t)(info >> 32);
+                if (!is_got_rel(type)) continue;
+                KSym *y = &o->sym[si];
+                int defined = !(y->g && y->g->state == GS_UNDEF);
+                if (got_relaxable(s, r64(r), type, defined)) continue;
+                uint32_t *slot = y->g ? &y->g->got : &y->got;
+                if (*slot) continue;
+                GotCell *c = &C.gcell[C.ngot++];
+                c->o = o; c->from = s; c->roff = r64(r); c->si = si; c->type = type;
+                *slot = C.ngot;
+            }
+        }
+    }
+    /* Окончательный порядок, как у ld.lld: глобальные символы в порядке таблицы символов, затем локальные по объектам и индексам символов */
+    GotCell *ord = anew(sizeof(GotCell) * (size_t)(C.ngot + 1));
+    uint32_t n = 0;
+    for (GSym *g = C.gfirst; g; g = g->lnext)
+        if (g->got) { ord[n++] = C.gcell[g->got - 1]; g->got = n; }
+    for (unsigned oi = 0; oi < C.nobjs; oi++)
+        for (uint32_t i = 1; i < C.objs[oi].nsym; i++) {
+            KSym *y = &C.objs[oi].sym[i];
+            if (!y->g && y->got) { ord[n++] = C.gcell[y->got - 1]; y->got = n; }
+        }
+    C.gcell = ord;
+}
+
+/* Размещение .got сразу за последней записываемой выходной секцией с данными (как у ld.lld: .got входит в тот же RW PT_LOAD, перед .bss).
+ * Ячейки заполняются абсолютными адресами при линковке: образ грузится без перемещений, динамического загрузчика нет. */
+static void lay_got(uint64_t *dot, KOut **last) {
+    SStmt *st = anew(sizeof *st);
+    st->kind = S_OUT;
+    st->name = ".got";
+    st->addr_tok = -1;
+    st->align_tok = -1;
+    KOut *o = anew(sizeof *o);
+    o->name = ".got";
+    o->st = st;
+    o->seg = -1;
+    o->align = 8;
+    o->flags = SHF_ALLOC | SHF_WRITE;
+    *dot = alup(*dot, 8);
+    o->va = *dot;
+    o->size = 8ULL * C.ngot;
+    *dot += o->size;
+    if (*dot > MAX_ADDR) fail("the GOT does not fit into the address space (address 0x%llx)", (unsigned long long)*dot);
+    o->nonempty = 1;
+    if (C.outs_tail) C.outs_tail->next = o; else C.outs = o;
+    C.outs_tail = o;
+    C.got = o;
+    *last = o;
+}
+
+/* Выходная секция скрипта с записываемыми данными в файле (не код, не только NOBITS) */
+static int holds_rw_data(const SStmt *it) {
+    int nmem = 0, nb = 0, w = 0, x = 0;
+    for (const SStmt *st = it->body; st; st = st->next) {
+        if (st->kind != S_INPUT) continue;
+        for (const KSec *s = st->head; s; s = s->snext) {
+            if (!s->live) continue;
+            nmem++;
+            if (s->type == SHT_NOBITS) nb++;
+            if (s->flags & SHF_WRITE) w = 1;
+            if (s->flags & SHF_EXEC) x = 1;
+        }
+    }
+    return nmem > nb && w && !x;
+}
+
 /* ---------- раскладка ---------- */
 static GSym *define_script_sym(SStmt *s, uint64_t v, KOut *owner, int inside) {
     GSym *g = gfind(s->name);
@@ -991,6 +1095,12 @@ static void layout(void) {
     uint64_t dot = 0;
     int dot_set = 0;
     KOut *last = NULL;
+    const SStmt *got_after = NULL;
+    if (C.ngot)
+        for (const SStmt *it = C.items; it; it = it->next)
+            if (it->kind == S_OUT && !it->discard && holds_rw_data(it)) got_after = it;
+    if (C.ngot && !got_after && C.have_phdrs)
+        fail("the linker script has no writable output section with data to hold the GOT (%u cells needed)", (unsigned)C.ngot);
     for (SStmt *it = C.items; it; it = it->next) {
         if (it->kind == S_ASSIGN) {
             lay_assign(it, &dot, last, NULL, 0, &dot_set);
@@ -1053,6 +1163,11 @@ static void layout(void) {
         if (C.outs_tail) C.outs_tail->next = o; else C.outs = o;
         C.outs_tail = o;
         last = o;
+        if (it == got_after) lay_got(&dot, &last);
+    }
+    if (C.ngot && !got_after) {      /* без PHDRS: отдельный RW-сегмент в конце, со своей страницей */
+        dot = alup(dot, C.pagesz);
+        lay_got(&dot, &last);
     }
 }
 
@@ -1191,15 +1306,18 @@ static void reloc_section(KSec *s, uint8_t *img) {
         if (s->size - off < (uint64_t)width) fail("%s:(%s+0x%llx): relocation does not fit into the section", o->name, s->name, (unsigned long long)off);
         int defined;
         uint64_t S = sym_value(o, s, off, si, type, &defined);
-        if (type == R_GOTPCREL || type == R_GOTPCRELX || type == R_REX_GOTPCRELX) {
-            /* GOT нет: допустима только релаксация `mov sym@GOTPCREL(%rip), reg` в `lea sym(%rip), reg` для определённого символа */
-            if (type == R_GOTPCREL || !defined || off < 2 || dst[off - 2] != 0x8b || (dst[off - 1] & 0xc7) != 0x05)
-                fail("%s:(%s+0x%llx): %s against '%s' needs a GOT, which is not supported (only `mov sym@GOTPCREL(%%rip), reg` of a defined symbol is relaxed)", o->name,
-                     s->name, (unsigned long long)off, typename_rel(type), sym_label(o, si));
-            dst[off - 2] = 0x8d;
+        uint64_t v = S + (uint64_t)add;
+        if (is_got_rel(type)) {
+            if (got_relaxable(s, off, type, defined)) {
+                dst[off - 2] = 0x8d;                                         /* mov -> lea: адрес символа вместо загрузки из GOT */
+            } else {
+                KSym *y = &o->sym[si];
+                uint32_t idx = y->g ? y->g->got : y->got;
+                if (idx == 0 || !C.got) fail("internal: no GOT cell for '%s'", sym_label(o, si));
+                v = C.got->va + 8ULL * (idx - 1) + (uint64_t)add;           /* G + A - P */
+            }
             type = R_PC32;
         }
-        uint64_t v = S + (uint64_t)add;
         switch (type) {
         case R_64:
             w64(dst + off, v);
@@ -1410,6 +1528,11 @@ static void produce(void) {
             for (KSec *s = st->kind == S_INPUT ? st->head : NULL; s; s = s->snext)
                 if (s->out && s->nrela) reloc_section(s, img);
     }
+    for (uint32_t i = 0; i < C.ngot; i++) {
+        const GotCell *c = &C.gcell[i];
+        int defined;
+        w64(img + C.got->off + 8ULL * i, sym_value(c->o, c->from, c->roff, c->si, c->type, &defined));
+    }
     if (cm_len) {
         uint64_t at = cm_off;
         for (unsigned oi = 0; oi < C.nobjs; oi++)
@@ -1465,6 +1588,7 @@ static void run(KLink *k) {
         for (unsigned oi = 0; oi < C.nobjs; oi++)
             for (unsigned i = 1; i < C.objs[oi].nsec; i++) C.objs[oi].sec[i].live = C.objs[oi].sec[i].cand && C.objs[oi].sec[i].stmt && !C.objs[oi].sec[i].discard;
     if (C.commonsec) C.commonsec->live = C.commonsec->stmt && !C.commonsec->discard && (!k->gc_sections || C.commonsec->live);
+    got_scan();
     layout();
     produce();
     k->sections_in = C.nsec_in;

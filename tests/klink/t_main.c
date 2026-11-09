@@ -11,6 +11,10 @@ extern int pick(void);
 extern int bump(void);
 extern int asm_twice(int);
 extern int (*asm_fn)(int);
+extern int *got_addr(void), *got_addr2(void);
+extern int got_twice(int);
+extern int got_is(int *);
+extern int data_val;
 extern int cm_user(void), cm_user2(void);
 extern int got_probe(void), got_lazy_ok(void);
 extern int weak_probe(void);
@@ -43,6 +47,9 @@ int umain(void) {
     num("cm", cm_user2());
     num("got", got_probe());
     num("got_ok", got_lazy_ok());
+    num("got_addr", *got_addr());
+    num("got_same", got_is(&data_val) && got_addr2() == got_addr());
+    num("got_twice", got_twice(21));
     num("weak", weak_probe());
     return 0;
 }

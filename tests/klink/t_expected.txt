@@ -12,4 +12,7 @@ cm=5
 cm=12
 got=41
 got_ok=1
+got_addr=41
+got_same=1
+got_twice=42
 weak=77
