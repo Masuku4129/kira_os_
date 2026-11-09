@@ -149,8 +149,8 @@ jobs:
           errors = []
           if len(x86) != 39:
               errors.append(f"x86-64: expected 39 result files, found {len(x86)}")
-          if not arm64:
-              errors.append("ARM64: no result.json files found")
+          if len(arm64) != 16:
+              errors.append(f"ARM64: expected 16 result files, found {len(arm64)}")
           for path in x86 + arm64:
               try:
                   result = json.loads(path.read_text())
@@ -161,7 +161,7 @@ jobs:
                   errors.append(f"{path}: FAIL {result.get('name')}: {result.get('error')}")
           if errors:
               print("ARTIFACT AUDIT: FAIL")
-              print("\\n".join(errors))
+              print("\n".join(errors))
               sys.exit(1)
           print(f"ARTIFACT AUDIT: PASS — {len(x86)} x86-64 and {len(arm64)} ARM64 result files")
           PY
@@ -181,7 +181,7 @@ jobs:
           VM: ${{ needs.vm.result }}
           AUDIT: ${{ needs.artifact-audit.result }}
         run: |
-          printf 'Host tests: %s\\nData lab: %s\\nBuild: %s\\nARM64: %s\\nQEMU matrix: %s\\nArtifact audit: %s\\n' "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM" "$AUDIT"
+          printf 'Host tests: %s\nData lab: %s\nBuild: %s\nARM64: %s\nQEMU matrix: %s\nArtifact audit: %s\n' "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM" "$AUDIT"
           failed=0
           for result in "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM" "$AUDIT"; do
             [ "$result" = success ] || failed=1
