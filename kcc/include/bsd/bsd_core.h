@@ -48,6 +48,7 @@ static inline unsigned max(unsigned a, unsigned b) { return a > b ? a : b; }
 #define ENOMEM 12
 #define EFBIG 27
 #define ENOBUFS 55
+#define EAGAIN 35
 #define EBUSY 16
 #define ENODEV 19
 #define EINVAL 22
@@ -177,6 +178,8 @@ struct mbuf* ml_dequeue(struct mbuf_list* ml);
 #define IFM_10_2 4
 #define IFM_10_5 5
 #define IFM_100_TX 6
+#define IFM_HPNA_1 7
+#define IFM_GMASK 0x00ff0000
 #define IFM_FDX 0x100000
 #define IFM_HDX 0x200000
 #define IFM_SUBTYPE(w) ((w) & 0x1f)
@@ -206,6 +209,9 @@ struct ifmedia {
 
 /* ---- MII: общий PHY по IEEE 802.3 (bsd_mii.c): поиск по адресам, автосогласование, состояние связи ---- */
 #define MIIF_NOISOLATE 0x0002
+#define MII_NPHY 32
+#define MII_ANER 0x06
+#define BMSR_MEDIAMASK (BMSR_100T4 | BMSR_100TXFDX | BMSR_100TXHDX | BMSR_10TFDX | BMSR_10THDX)
 #define MII_PHY_ANY (-1)
 #define MII_OFFSET_ANY (-1)
 #define MII_BMCR 0x00
@@ -244,6 +250,7 @@ void mii_attach(struct device*, struct mii_data*, int capmask, int phyloc, int o
 int mii_mediachg(struct mii_data*);
 void mii_tick(struct mii_data*);
 void mii_pollstat(struct mii_data*);
+typedef struct mii_data mii_data_t;
 void mii_down(struct mii_data*);
 void mii_detach(struct mii_data*, int phyloc, int offloc);
 void mii_phy_reset(struct mii_softc*);
@@ -303,6 +310,15 @@ struct mbuf* ifq_dequeue(struct ifqueue* q);
 int loadfirmware(const char* name, u_char** buf, size_t* len);
 #define ifq_restart(q) ((q)->ifq_oactive = 0)
 int m_defrag(struct mbuf*, int how);
+void m_adj(struct mbuf*, int len);
+struct mbuf* m_devget(char* buf, int totlen, int off);
+#define ETHER_ALIGN 2
+#define ifq_len(q) ((q)->ifq_len)
+struct mbuf* ifq_deq_begin(struct ifqueue*);
+void ifq_deq_commit(struct ifqueue*, struct mbuf*);
+void ifq_deq_rollback(struct ifqueue*, struct mbuf*);
+extern const u_int8_t etherbroadcastaddr[6];
+#define ETHER_MAX_DIX_LEN 1536
 u_int32_t ether_crc32_le(const u_int8_t*, size_t);
 static inline int ffs(int x) { int n = 1; if (!x) return 0; while (!(x & 1)) { x >>= 1; n++; } return n; }
 void if_attach(struct ifnet*);
@@ -354,6 +370,7 @@ typedef int pci_intr_handle_t;
 #define PCI_VENDOR(id) ((id) & 0xffff)
 #define PCI_PRODUCT(id) (((id) >> 16) & 0xffff)
 #define PCI_BHLC_REG 0x0c
+#define PCI_SUBSYS_ID_REG 0x2c
 #define PCI_CACHELINE(r) ((r) & 0xff)
 #define PCI_REVISION(r) ((r) & 0xff)
 #define PCI_CLASS(r) (((r) >> 24) & 0xff)

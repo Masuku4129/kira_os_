@@ -184,8 +184,21 @@ int bus_dmamap_load(bus_dma_tag_t t, bus_dmamap_t m, void* buf, bus_size_t len, 
     return kd_load_common(t, m, len);
 }
 int bus_dmamap_load_mbuf(bus_dma_tag_t t, bus_dmamap_t m, struct mbuf* mb, int flags) {
-    (void)flags; bus_size_t len = 0; for (struct mbuf* p = mb; p; p = p->m_next) len += (bus_size_t)p->m_len;
-    m->_um = mb; m->_uva = NULL; return kd_load_common(t, m, len);
+    (void)flags; bus_size_t len = 0; int n = 0, direct = 1;
+    for (struct mbuf* p = mb; p; p = p->m_next) { len += (bus_size_t)p->m_len; if (p->m_len > 0) n++; }
+    m->_um = mb; m->_uva = NULL;
+    /* Все куски цепочки в памяти DMA (кластеры) и их не больше, чем сегментов в карте: каждый кусок - сегмент, без копий. */
+    if (n > 0 && n <= m->_maxsegs && len <= m->_max) {
+        int k = 0;
+        for (struct mbuf* p = mb; p && direct; p = p->m_next) {
+            if (p->m_len <= 0) continue;
+            u64 ph, pe;
+            if (!kd_blk_find(p->m_data, &ph) || !kd_blk_find(p->m_data + p->m_len - 1, &pe) || pe - ph != (u64)(p->m_len - 1)) { direct = 0; break; }
+            m->dm_segs[k].ds_addr = (unsigned long)ph; m->dm_segs[k].ds_len = (bus_size_t)p->m_len; m->dm_segs[k]._ds_va = p->m_data; k++;
+        }
+        if (direct) { m->dm_mapsize = len; m->dm_nsegs = k; m->_direct = 1; return 0; }
+    }
+    return kd_load_common(t, m, len);
 }
 void bus_dmamap_unload(bus_dma_tag_t t, bus_dmamap_t m) { (void)t; m->dm_mapsize = 0; m->dm_nsegs = 0; m->_um = NULL; m->_uva = NULL; m->_direct = 0; }
 static void kd_mb_copy(struct mbuf* mb, bus_size_t off, bus_size_t len, void* bounce, int to_mbuf) {     /* цепочка mbuf <-> непрерывный буфер, диапазон [off, off+len) */
@@ -317,6 +330,30 @@ int pci_set_powerstate(pci_chipset_tag_t pc, pcitag_t tag, int state) {
         ptr = (h >> 8) & 0xfc;
     }
     return 0;
+}
+const u_int8_t etherbroadcastaddr[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+struct mbuf* m_devget(char* buf, int totlen, int off) {          /* кадр из линейного буфера в mbuf; off - свободное место в начале (выравнивание) */
+    if (totlen < 0 || off < 0 || totlen + off > MCLBYTES) return NULL;
+    struct mbuf* m = m_gethdr(0, 1); if (!m) return NULL;
+    m_clget(m, 0, MCLBYTES); if (!(m->m_flags & M_EXT)) { m_free(m); return NULL; }
+    m->m_data = m->m_ext.ext_buf + off; memcpy(m->m_data, buf, (size_t)totlen); m->m_len = m->m_pkthdr.len = totlen; return m;
+}
+struct mbuf* ifq_deq_begin(struct ifqueue* q) { return q->ifq_head; }
+void ifq_deq_commit(struct ifqueue* q, struct mbuf* m) { (void)m; (void)ifq_dequeue(q); }
+void ifq_deq_rollback(struct ifqueue* q, struct mbuf* m) { (void)q; (void)m; }
+void m_adj(struct mbuf* m, int len) {                           /* len > 0 - срезать с начала цепочки, len < 0 - с конца */
+    if (!m) return;
+    if (len >= 0) {
+        int t = len; struct mbuf* p = m;
+        while (p && t > 0) { if (p->m_len <= t) { t -= p->m_len; p->m_len = 0; } else { p->m_len -= t; p->m_data += t; t = 0; } p = p->m_next; }
+        if (m->m_flags & M_PKTHDR) m->m_pkthdr.len -= len - t;
+    } else {
+        int t = -len, total = 0; for (struct mbuf* p = m; p; p = p->m_next) total += p->m_len;
+        if (t > total) t = total;
+        int keep = total - t; struct mbuf* p = m;
+        for (; p; p = p->m_next) { if (p->m_len >= keep) { p->m_len = keep; keep = 0; for (struct mbuf* q = p->m_next; q; q = q->m_next) q->m_len = 0; break; } keep -= p->m_len; }
+        if (m->m_flags & M_PKTHDR) m->m_pkthdr.len = total - t;
+    }
 }
 int m_defrag(struct mbuf* m, int how) {
     if (!m->m_next) return 0;
