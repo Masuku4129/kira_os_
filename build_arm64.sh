@@ -42,9 +42,9 @@ $CC $KCFLAGS -Iuserland -c userland/kccrt.c -o build-arm64/ukccrt.o
 $CC $UCFLAGS -c userland/libc_min.c -o build-arm64/ukcc_libc_min.o
 $CC $KCFLAGS -I. -Iuserland/kccrt -c mind_build.c -o build-arm64/kcc_mbj_build.o      # режим @build: сторона сборки задания (см. build_clang.sh)
 $CC $KCFLAGS -I. -Iuserland/kccrt -c mind_build_core.c -o build-arm64/kcc_mbj_core.o
-$CC $UCFLAGS -I. -c elf.c -o build-arm64/kcc_elf.o
-$CC $UCFLAGS -I. -c sha256.c -o build-arm64/kcc_sha256.o
-ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/kcc.elf build-arm64/kcc_main.o build-arm64/kcc_mbj_build.o build-arm64/kcc_mbj_core.o build-arm64/kcc_elf.o build-arm64/kcc_sha256.o $KCC_OBJ build-arm64/ukccrt.o build-arm64/ukcc_libc_min.o
+$CC $UCFLAGS -I. -c elf.c -o build-arm64/kcc_kelf.o
+$CC $UCFLAGS -I. -c sha256.c -o build-arm64/kcc_ksha256.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/kcc.elf build-arm64/kcc_main.o build-arm64/kcc_mbj_build.o build-arm64/kcc_mbj_core.o build-arm64/kcc_kelf.o build-arm64/kcc_ksha256.o $KCC_OBJ build-arm64/ukccrt.o build-arm64/ukcc_libc_min.o
 UELF="$UELF build-arm64/kcc.elf"
 # drvget (см. build_clang.sh): TLS-клиент, kcc и запись пакетов в /drv в одной программе EL0
 $CC $KCFLAGS -I. -Iuserland -Iuserland/kccrt -c userland/drvget.c -o build-arm64/dg_main.o
