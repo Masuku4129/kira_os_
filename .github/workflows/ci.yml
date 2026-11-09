@@ -46,6 +46,8 @@ jobs:
           KIRA_BENCH_RUNS=5 bash tests/kcc/bench/bench.sh 2>&1 | tee ci-out/kcc-bench.txt
           gcc -O2 -std=c11 -Wall -Wextra -Werror -o ci-out/ipc-process-lab research/combined_lab/ipc_process_shared.c
           ci-out/ipc-process-lab 2>&1 | tee ci-out/ipc-process-lab.txt
+          gcc -O2 -std=c11 -Wall -Wextra -Werror -o ci-out/ipc-matrix research/combined_lab/ipc_process_shared.c
+          ci-out/ipc-matrix 2>&1 | tee ci-out/ipc-matrix.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -55,6 +57,7 @@ jobs:
             ci-out/round2-pipeline
             ci-out/kcc-bench.txt
             ci-out/ipc-process-lab.txt
+            ci-out/ipc-matrix.txt
 
   build:
     runs-on: ubuntu-24.04
