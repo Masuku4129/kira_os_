@@ -487,7 +487,7 @@ static void mind_notify_latest(void) {
     int important = e->kind == MJ_KILL || e->kind == MJ_ANOMALY || e->kind == MJ_BEHAVIOR || e->kind == MJ_MEMORY;
     if (notify_mode == 1 && !important) return;
     if (e->kind < 16 && e->kind != MJ_KILL && e->kind != MJ_RESTORE) {        /* остановка процесса и восстановление - всегда */
-        uint64_t now = clock_ms();
+        uint64_t now = clock_ns() / 1000000ull;
         if (notify_last_ms[e->kind] && now - notify_last_ms[e->kind] < NOTIFY_COOLDOWN_MS) return;
         notify_last_ms[e->kind] = now ? now : 1;
     }
