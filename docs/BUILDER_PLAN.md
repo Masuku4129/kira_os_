@@ -70,7 +70,7 @@ DMA-изоляция (VT-d/SMMU) — что реально есть и чего 
 Сейчас kcc честно отвергает (tests/kcc/unsup): float/double, VLA, `_Generic`, `_Alignas`, `_Thread_local`, широкие строки и универсальные имена символов, вычисляемый goto, `_Complex`, часть атрибутов и `__has_include`.
 - G1. float/double (SSE2 / AArch64 FP; ядро без SSE остаётся без FP) — сделано (см. docs/KCC.md), long double и float в asm не поддержаны.
 - G2. `_Generic`, `_Alignas`/`alignof`, `__has_include` — только фронтенд, небольшие.
-- G3. VLA (массивы переменной длины в блоках и параметрах).
-- G4. `_Thread_local` (требует TLS в ядре и компоновщике), широкие строки/UCN, `long double` (как double с честной пометкой либо x87).
+- G3. VLA — сделано (см. docs/KCC.md).
+- G4. Широкие строки и UCN сделаны; `_Thread_local` ждёт TLS в ядре и klink (PT_TLS, TPOFF); `long double` не поддержан.
 - G5. Вычисляемый goto и `_Complex` — по необходимости, не раньше.
 Каждый пункт: принятие/отклонение и значения сверяются с clang в tests/kcc, перенос файла из unsup/ в ok/ или run/.
