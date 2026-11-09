@@ -12,7 +12,7 @@ for s in $SETS; do
     python3 tools/bsd_pcidevs.py gen build-bsd/corpus/pcidevs/sys/dev/pci/pcidevs $G/kd_pcidevs.h $srcs || { echo "FAIL $s: pcidevs"; total=$((total+1)); continue; }
     for f in $files; do
         total=$((total+1))
-        if clang -fsyntax-only -D_KERNEL -ffreestanding -Wno-everything -I$G -Ikcc/include/bsd -I$S -Ikcc/include -Iuserland -I. $S/$f 2>/tmp/meter.err; then okn=$((okn+1)); echo "ok   $s/$f"
+        if clang -fsyntax-only -D_KERNEL -ffreestanding -Wno-everything -Werror=implicit-function-declaration -I$G -Ikcc/include/bsd -I$S -Ikcc/include -Iuserland -I. $S/$f 2>/tmp/meter.err; then okn=$((okn+1)); echo "ok   $s/$f"
         else echo "FAIL $s/$f: $(grep -m1 error /tmp/meter.err)"; fi
     done
 done

@@ -136,6 +136,10 @@ if [ "$RELEASE" != 1 ]; then
     if tools/bsd_build.sh ne2k ne ne_pci_ca build-bsd/ne2k.elf dev/ic/dp8390.c dev/ic/ne2000.c dev/ic/rtl80x9.c dev/pci/if_ne_pci.c; then
         tools/mkdrv_pkg.sh kira.disk bsdne build-bsd/ne2k.elf 10ec:8029 mmio,pcidev,netdev,irq "$HOSTCC"
     else echo "ВНИМАНИЕ: драйвер BSD ne2k не собран (корпус недоступен или ошибка компиляции)"; fi
+    # AMD PCnet (QEMU -device pcnet): DMA через bus_dma (промежуточные блоки ядра), общий PHY IEEE 802.3
+    if tools/bsd_build.sh pcn pcn pcn_ca build-bsd/pcn.elf dev/pci/if_pcn.c; then
+        tools/mkdrv_pkg.sh kira.disk bsdpcn build-bsd/pcn.elf 1022:2000 mmio,pcidev,netdev,irq,dma "$HOSTCC"
+    else echo "ВНИМАНИЕ: драйвер BSD pcn не собран (корпус недоступен или ошибка компиляции)"; fi
 fi
 for h in kcc/include/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h     # заголовки libc-lite для kcc на Кире

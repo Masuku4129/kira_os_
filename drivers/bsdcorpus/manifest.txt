@@ -2,6 +2,7 @@
 commit 4ce71f2817f675745b0596aaf04de4a122b1cc52
 set pcidevs Таблица PCI-идентификаторов OpenBSD (dev/pci/pcidevs): источник pcidevs.h и поиска драйвера по ID
 set ne2k NE2000 (RTL8029, QEMU ne2k_pci): PCI-обвязка + dp8390 + ne2000; без DMA, регистры через порты
+set pcn AMD PCnet (QEMU -device pcnet, 1022:2000): один файл dev/pci/if_pcn.c, DMA через bus_dma, MII
 file ne2k dev/pci/if_ne_pci.c 0887c9eea78ea896e7811ab2c032a30f3d79d83697498b1a2423c9f4940676c0
 file ne2k dev/ic/ne2000.c 70bfd13ca8e80a96095c490d45cd5db10e8aa8f4501f723416bcc6738ed754fd
 file ne2k dev/ic/ne2000var.h 40009a35ea0c5393597a9d448cd3252bb0aa36ae84086b29f04ca99057fd4a1c
@@ -15,3 +16,6 @@ file ne2k dev/ic/rtl80x9reg.h 33065ddc3c7e0c0cabe27f2b6ef564a8bf21f6b7ebcd1200b2
 file ne2k dev/ic/ax88190reg.h fb6d879b1bc9a5155fc7ff2b8bb73dc5ae121e1535df825bf5e3860e4cfaadf3
 file ne2k dev/ic/ax88190var.h 8ef0e0c1f92db6d3299a9b070897545da2d3821f47b27306484ef5f93ed1b031
 file pcidevs dev/pci/pcidevs 85433c1f94963b332f31817e6b790b2d1b43b19c0e336ed7ef5856b7650879fb
+file pcn dev/pci/if_pcn.c 210ca6c23a0fdc88e55f1911e56ad5ed754cc577dedb5020bf64d8a60e27257b
+file pcn dev/ic/am79900reg.h 101a1aa4437916092b17c9d0a60a025470af58896b4582926f1808a6db415e4c
+file pcn dev/ic/lancereg.h 209781c7ef908c17fe5ce5e2c07414eebfc7a4722d583188e2a3a0191cd1d22a
