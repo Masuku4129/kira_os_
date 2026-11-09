@@ -1,0 +1,23 @@
+name: KIRA combined technology lab
+on:
+  push:
+    branches: [research/combined-tech-lab-2026-11]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/combined_lab/**'
+      - '.github/workflows/combined-tech-lab.yml'
+  workflow_dispatch:
+jobs:
+  combined-lab:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run combined prototypes and correctness gates
+        run: python3 research/combined_lab/combined_lab.py --rows 20000 --repeat 7 --out ci-out/combined-tech-lab
+      - name: Upload raw measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kira-combined-tech-lab
+          path: ci-out/combined-tech-lab
