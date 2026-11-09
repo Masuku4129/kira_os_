@@ -434,6 +434,13 @@ void bus_space_unmap(bus_space_tag_t t, bus_space_handle_t h, bus_size_t size) {
 
 /* ---- PCI ---- */
 static struct kd_bst bst_pool[6]; static int bst_n;
+static bus_space_tag_t kd_reg_t; static bus_space_handle_t kd_reg_h;
+/* DEC 21143 (tulip): чип сам опрашивает кольца дескрипторов (TAP в CSR0), а модель tulip в QEMU - нет, ждёт запись в CSR1/CSR2. Поэтому после каждого
+   цикла подаётся запрос опроса (CSR1 - передача, CSR2 - приём); на настоящем чипе это безвредно: если владеемых дескрипторов нет, он ничего не делает. */
+static int kd_tulip_poll;
+/* tx - в кольце есть ожидающие передачи (у dc это if_timer != 0); rx - только после обработки прерывания (кольцо приёма пополнено). Запрос при пустом кольце давал бы
+   прерывание «нет буфера» и бесконечный цикл. */
+static void kd_poll_demand(int tx, int rx) { if (!kd_tulip_poll || !kd_reg_t) return; if (tx) kd_bs_write(kd_reg_t, kd_reg_h, 0x08, 4, 1); if (rx) kd_bs_write(kd_reg_t, kd_reg_h, 0x10, 4, 1); }
 int pci_mapreg_map(struct pci_attach_args* pa, int reg, pcireg_t type, int flags, bus_space_tag_t* tp, bus_space_handle_t* hp, bus_addr_t* basep, bus_size_t* sizep, bus_size_t maxsize) {
     (void)pa; (void)flags; (void)maxsize;
     if (reg < PCI_MAPREG_START || reg > PCI_MAPREG_START + 20 || (reg & 3)) return EINVAL;
@@ -444,7 +451,7 @@ int pci_mapreg_map(struct pci_attach_args* pa, int reg, pcireg_t type, int flags
     struct kd_bst* t = &bst_pool[bst_n++]; t->bar = bar; t->io = io;
     if (io) *hp = 0;
     else { i64 err = 0; volatile void* m = kdrv_mmio_map((u32)bar, 0, size, &err); if (!m) return ENOMEM; *hp = (bus_space_handle_t)m; }
-    *tp = t; if (basep) *basep = 0; if (sizep) *sizep = size; return 0;
+    *tp = t; if (basep) *basep = 0; if (sizep) *sizep = size; kd_reg_t = t; kd_reg_h = *hp; return 0;
 }
 pcireg_t pci_conf_read(pci_chipset_tag_t pc, pcitag_t tag, int reg) { (void)pc; (void)tag; i64 r = kdrv_cfg_read((u32)reg, 4); return r < 0 ? 0xffffffffu : (u32)r; }
 void pci_conf_write(pci_chipset_tag_t pc, pcitag_t tag, int reg, pcireg_t v) { (void)pc; (void)tag; kdrv_cfg_write((u32)reg, 4, v); }
@@ -490,6 +497,7 @@ int umain(void) {
     __atomic_store_n(&ifp->if_ctl->link, 1u, __ATOMIC_RELEASE);
     printf("bsdrt: %s up, mac %s\n", ifp->if_xname, ether_sprintf(((struct arpcom*)ifp)->ac_enaddr));
     int use_irq = (g_info.flags & (KDRV_INFO_INTX | KDRV_INFO_MSI)) != 0;
+    kd_tulip_poll = g_info.vendor == 0x1011 && (g_info.device == 0x0019 || g_info.device == 0x0009 || g_info.device == 0x0014 || g_info.device == 0x0002);
     printf("bsdrt: прерывания: %s\n", use_irq ? ((g_info.flags & KDRV_INFO_INTX) ? "INTx по событию" : "MSI по событию") : "опрос раз в 10 мс");
     unsigned irqs = 0; i64 ev = 0;
     u64 next_sec = now_ms() + 1000;
@@ -518,6 +526,7 @@ int umain(void) {
             __atomic_store_n(&c->tx_tail, tail + 1, __ATOMIC_RELEASE);
         }
         if (ifp->if_snd.ifq_len && ifp->if_start) ifp->if_start(ifp);
+        kd_poll_demand(ifp->if_timer != 0, !use_irq || (ev & KDRV_EV_IRQ));
         ev = kdrv_irq_wait(use_irq ? 10 : 1);
         if (ev == KE_INTR) return 0;
         if (ev < 0) ev = 0;

@@ -144,6 +144,10 @@ if [ "$RELEASE" != 1 ]; then
     if tools/bsd_build.sh fxp fxp fxp_pci_ca build-bsd/fxp.elf dev/ic/fxp.c dev/pci/if_fxp_pci.c; then
         tools/mkdrv_pkg.sh kira.disk bsdfxp build-bsd/fxp.elf 8086:1209 mmio,pcidev,netdev,irq,dma "$HOSTCC"
     else echo "ВНИМАНИЕ: драйвер BSD fxp не собран (корпус недоступен или ошибка компиляции)"; fi
+    # DEC 21143 «Tulip» (QEMU -device tulip): bus_dma, MII; оболочка подаёт запросы опроса колец (QEMU не умеет автоопрос).
+    if tools/bsd_build.sh dc dc dc_pci_ca build-bsd/dc.elf dev/ic/dc.c dev/pci/if_dc_pci.c; then
+        tools/mkdrv_pkg.sh kira.disk bsddc build-bsd/dc.elf 1011:0019 mmio,pcidev,netdev,irq,dma "$HOSTCC"
+    else echo "ВНИМАНИЕ: драйвер BSD dc не собран (корпус недоступен или ошибка компиляции)"; fi
 fi
 for h in kcc/include/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h     # заголовки libc-lite для kcc на Кире
