@@ -1,0 +1,432 @@
+=== stack | C-kcc | args=[] | rc=139
+
+=== stack | C-clang-O0 | args=[] | rc=139
+
+=== stack | C-clang-O2 | args=[] | rc=139
+
+=== stack | C-gcc-O0 | args=[] | rc=134
+*** stack smashing detected ***: terminated
+=== stack | C-gcc-O2 | args=[] | rc=134
+*** stack smashing detected ***: terminated
+=== stack | C-gcc-san-address+undefined | args=[] | rc=1
+/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_stack.c:7:39: runtime error: index 8 out of bounds for type 'int [8]'
+/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_stack.c:7:43: runtime error: store to address 0x7fc9bb600060 with insufficient space for an object of type 'int'
+0x7fc9bb600060: note: pointer points here
+ 61 1e 00 00  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  00 c0 4f bb
+              ^ 
+=================================================================
+==19963==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7fc9bb600060 at pc 0x555f6e33158a bp 0x7ffd744bed00 sp 0x7ffd744becf0
+WRITE of size 4 at 0x7fc9bb600060 thread T0
+    #0 0x555f6e331589 in main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_stack.c:7
+    #1 0x7fc9bda2a1c9 in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58
+    #2 0x7fc9bda2a28a in __libc_start_main_impl ../csu/libc-start.c:360
+    #3 0x555f6e331204 in _start (/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/work/l3/stack.gcc.san+0x2204) (BuildId: 478b3266a497d0bc91c180a85df29118eeea4a46)
+=== stack | Cpp-clang++-O0 | args=[] | rc=139
+
+=== stack | Cpp-clang++-O0-at | args=[at] | rc=134
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  array::at: __n (which is 8) >= _Nm (which is 8)
+=== stack | Cpp-clang++-O2 | args=[] | rc=139
+
+=== stack | Cpp-clang++-O2-at | args=[at] | rc=134
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  array::at: __n (which is 8) >= _Nm (which is 8)
+=== stack | Cpp-g++-O0 | args=[] | rc=134
+*** stack smashing detected ***: terminated
+=== stack | Cpp-g++-O0-at | args=[at] | rc=134
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  array::at: __n (which is 8) >= _Nm (which is 8)
+=== stack | Cpp-g++-O2 | args=[] | rc=134
+*** stack smashing detected ***: terminated
+=== stack | Cpp-g++-O2-at | args=[at] | rc=134
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  array::at: __n (which is 8) >= _Nm (which is 8)
+=== stack | Cpp-g++-san-address+undefined | args=[] | rc=1
+/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_stack.cpp:6:76: runtime error: store to address 0x7f0bcc200060 with insufficient space for an object of type 'int'
+0x7f0bcc200060: note: pointer points here
+ 61 1e 00 00  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  00 c0 0f cc
+              ^ 
+=================================================================
+==20135==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7f0bcc200060 at pc 0x55f13919b658 bp 0x7ffc7cf74250 sp 0x7ffc7cf74240
+WRITE of size 4 at 0x7f0bcc200060 thread T0
+    #0 0x55f13919b657 in main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_stack.cpp:6
+    #1 0x7f0bce22a1c9 in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58
+    #2 0x7f0bce22a28a in __libc_start_main_impl ../csu/libc-start.c:360
+    #3 0x55f13919b224 in _start (/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/work/l3/stack.g++.san+0x2224) (BuildId: e66f8cc5cb7e2d17a5b006df7ae094956671488d)
+=== heap | C-kcc | args=[] | rc=134
+double free or corruption (out)
+=== heap | C-clang-O0 | args=[] | rc=134
+double free or corruption (out)
+=== heap | C-clang-O2 | args=[] | rc=0
+b0=100 b1=101
+=== heap | C-gcc-O0 | args=[] | rc=134
+double free or corruption (out)
+=== heap | C-gcc-O2 | args=[] | rc=134
+double free or corruption (out)
+=== heap | C-gcc-san-address+undefined | args=[] | rc=1
+/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_heap.c:7:43: runtime error: store to address 0x503000000060 with insufficient space for an object of type 'int'
+0x503000000060: note: pointer points here
+ 61 1e 00 00  02 11 00 00 20 00 00 00  06 00 00 00 00 00 00 00  64 00 00 00 65 00 00 00  66 00 00 00
+              ^ 
+=================================================================
+==20263==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x503000000060 at pc 0x55a71e70d63a bp 0x7fff6d545730 sp 0x7fff6d545720
+WRITE of size 4 at 0x503000000060 thread T0
+    #0 0x55a71e70d639 in main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_heap.c:7
+    #1 0x7f2faa82a1c9 in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58
+    #2 0x7f2faa82a28a in __libc_start_main_impl ../csu/libc-start.c:360
+    #3 0x55a71e70d204 in _start (/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/work/l3/heap.gcc.san+0x2204) (BuildId: 3c750e30c106d32706e061e870d0de21eb35272b)
+=== heap | Cpp-clang++-O0 | args=[] | rc=134
+double free or corruption (out)
+=== heap | Cpp-clang++-O0-at | args=[at] | rc=134
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  vector::_M_range_check: __n (which is 8) >= this->size() (which is 8)
+=== heap | Cpp-clang++-O2 | args=[] | rc=0
+b0=100 b1=100
+=== heap | Cpp-clang++-O2-at | args=[at] | rc=134
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  vector::_M_range_check: __n (which is 8) >= this->size() (which is 8)
+=== heap | Cpp-g++-O0 | args=[] | rc=134
+double free or corruption (out)
+=== heap | Cpp-g++-O0-at | args=[at] | rc=134
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  vector::_M_range_check: __n (which is 8) >= this->size() (which is 8)
+=== heap | Cpp-g++-O2 | args=[] | rc=134
+double free or corruption (out)
+=== heap | Cpp-g++-O2-at | args=[at] | rc=134
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  vector::_M_range_check: __n (which is 8) >= this->size() (which is 8)
+=== heap | Cpp-g++-san-address+undefined | args=[] | rc=1
+=================================================================
+==20452==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x503000000060 at pc 0x5643406be88e bp 0x7fff82c8dfe0 sp 0x7fff82c8dfd0
+WRITE of size 4 at 0x503000000060 thread T0
+    #0 0x5643406be88d in main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_heap.cpp:6
+    #1 0x7fbedc42a1c9 in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58
+    #2 0x7fbedc42a28a in __libc_start_main_impl ../csu/libc-start.c:360
+    #3 0x5643406be344 in _start (/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/work/l3/heap.g++.san+0x4344) (BuildId: 97a4df384d2741e2e54c9eb51a8c89cfce43baa5)
+
+0x503000000060 is located 0 bytes after 32-byte region [0x503000000040,0x503000000060)
+allocated by thread T0 here:
+    #0 0x7fbedd4fe548 in operator new(unsigned long) ../../../../src/libsanitizer/asan/asan_new_delete.cpp:95
+    #1 0x5643406beeab in std::__new_allocator<int>::allocate(unsigned long, void const*) /usr/include/c++/13/bits/new_allocator.h:151
+=== uaf | C-kcc | args=[] | rc=0
+p[0]=5678 (после free) q[0]=5678 same=1
+=== uaf | C-clang-O0 | args=[] | rc=0
+p[0]=5678 (после free) q[0]=5678 same=1
+=== uaf | C-clang-O2 | args=[] | rc=0
+p[0]=1461778914 (после free) q[0]=5678 same=0
+=== uaf | C-gcc-O0 | args=[] | rc=0
+p[0]=5678 (после free) q[0]=5678 same=1
+=== uaf | C-gcc-O2 | args=[] | rc=0
+p[0]=1631850291 (после free) q[0]=5678 same=1
+=== uaf | C-gcc-san-address+undefined | args=[] | rc=1
+=================================================================
+==20580==ERROR: AddressSanitizer: heap-use-after-free on address 0x506000000020 at pc 0x56327a0a8392 bp 0x7ffc66c5d080 sp 0x7ffc66c5d070
+READ of size 4 at 0x506000000020 thread T0
+    #0 0x56327a0a8391 in main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_uaf.c:6
+    #1 0x7f120c22a1c9 in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58
+    #2 0x7f120c22a28a in __libc_start_main_impl ../csu/libc-start.c:360
+    #3 0x56327a0a81a4 in _start (/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/work/l3/uaf.gcc.san+0x11a4) (BuildId: 5dab2f549c6e13590b766267fd3c6888f48429e7)
+
+0x506000000020 is located 0 bytes inside of 64-byte region [0x506000000020,0x506000000060)
+freed by thread T0 here:
+    #0 0x7f120cefc4d8 in free ../../../../src/libsanitizer/asan/asan_malloc_linux.cpp:52
+    #1 0x56327a0a828e in main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_uaf.c:4
+=== uaf | Cpp-clang++-O0 | args=[] | rc=0
+r=5678 p[0]=5678 q[0]=5678
+=== uaf | Cpp-clang++-O2 | args=[] | rc=0
+r=1625621335 p[0]=1625621335 q[0]=5678
+=== uaf | Cpp-g++-O0 | args=[] | rc=0
+r=5678 p[0]=5678 q[0]=5678
+=== uaf | Cpp-g++-O2 | args=[] | rc=0
+r=1508805490 p[0]=1508805490 q[0]=5678
+=== uaf | Cpp-g++-san-address+undefined | args=[] | rc=1
+=================================================================
+==20688==ERROR: AddressSanitizer: heap-use-after-free on address 0x502000000030 at pc 0x559a5a06a945 bp 0x7ffd259b9d30 sp 0x7ffd259b9d20
+READ of size 4 at 0x502000000030 thread T0
+    #0 0x559a5a06a944 in main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_uaf.cpp:7
+    #1 0x7f01ba02a1c9 in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58
+    #2 0x7f01ba02a28a in __libc_start_main_impl ../csu/libc-start.c:360
+    #3 0x559a5a06a384 in _start (/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/work/l3/uaf.g++.san+0x7384) (BuildId: 3d0cdf37ccb3fee515ebacae586f23167b4778a4)
+
+0x502000000030 is located 0 bytes inside of 4-byte region [0x502000000030,0x502000000034)
+freed by thread T0 here:
+    #0 0x7f01bb0ff5e8 in operator delete(void*, unsigned long) ../../../../src/libsanitizer/asan/asan_new_delete.cpp:164
+    #1 0x559a5a06a7ce in main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_uaf.cpp:6
+=== ovf | C-kcc | args=[] | rc=0
+y=-2147483648 (x+1>x)=1
+=== ovf | C-clang-O0 | args=[] | rc=0
+y=-2147483648 (x+1>x)=0
+=== ovf | C-clang-O2 | args=[] | rc=0
+y=-2147483648 (x+1>x)=1
+=== ovf | C-gcc-O0 | args=[] | rc=0
+y=-2147483648 (x+1>x)=1
+=== ovf | C-gcc-O2 | args=[] | rc=0
+y=-2147483648 (x+1>x)=1
+=== ovf | C-gcc-san-address+undefined | args=[] | rc=0
+/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_ovf.c:4:9: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'
+y=-2147483648 (x+1>x)=1
+=== ovf | Cpp-clang++-O0 | args=[] | rc=0
+y=-2147483648 (x+1>x)=0
+=== ovf | Cpp-clang++-O2 | args=[] | rc=0
+y=-2147483648 (x+1>x)=1
+=== ovf | Cpp-g++-O0 | args=[] | rc=0
+y=-2147483648 (x+1>x)=1
+=== ovf | Cpp-g++-O2 | args=[] | rc=0
+y=-2147483648 (x+1>x)=1
+=== ovf | Cpp-g++-san-address+undefined | args=[] | rc=0
+/tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_ovf.cpp:4:17: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'
+y=-2147483648 (x+1>x)=1
+=== race | C-kcc | args=[] | rc=0
+counter=2020543 (ожидалось 4000000)
+=== race | C-clang-O0 | args=[] | rc=0
+counter=2333424 (ожидалось 4000000)
+=== race | C-clang-O2 | args=[] | rc=0
+counter=2023547 (ожидалось 4000000)
+=== race | C-gcc-O0 | args=[] | rc=0
+counter=2081854 (ожидалось 4000000)
+=== race | C-gcc-O2 | args=[] | rc=0
+counter=3260152 (ожидалось 4000000)
+=== race | C-gcc-san-thread | args=[] | rc=66
+==================
+WARNING: ThreadSanitizer: data race (pid=21066)
+  Read of size 8 at 0x555a06a43018 by thread T2:
+    #0 w /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_race.c:6 (race.gcc.san+0x126e) (BuildId: a3b133ead0d18049f3cbd5a58723359d23acc849)
+
+  Previous write of size 8 at 0x555a06a43018 by thread T1:
+    #0 w /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_race.c:6 (race.gcc.san+0x1281) (BuildId: a3b133ead0d18049f3cbd5a58723359d23acc849)
+
+  Location is global 'counter' of size 8 at 0x555a06a43018 (race.gcc.san+0x4018)
+
+  Thread T2 (tid=21069, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x5ac1a) (BuildId: 2a13a7710e361d06f7babbea53065ca2be93f738)
+=== race | Cpp-clang++-O0 | args=[] | rc=0
+counter=2214702 (ожидалось 4000000)
+=== race | Cpp-clang++-O2 | args=[] | rc=0
+counter=2000000 (ожидалось 4000000)
+=== race | Cpp-g++-O0 | args=[] | rc=0
+counter=2144703 (ожидалось 4000000)
+=== race | Cpp-g++-O2 | args=[] | rc=0
+counter=2000000 (ожидалось 4000000)
+=== race | Cpp-g++-san-thread | args=[] | rc=66
+==================
+WARNING: ThreadSanitizer: data race (pid=21185)
+  Write of size 8 at 0x55d34ecce020 by thread T1:
+    #0 operator() /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_race.cpp:5 (race.g++.san+0x1353) (BuildId: 9b0b8b8ec7c7c23c97def68c09dd93b5c3bf6047)
+    #1 __invoke_impl<void, main()::<lambda()> > /usr/include/c++/13/bits/invoke.h:61 (race.g++.san+0x1353)
+    #2 __invoke<main()::<lambda()> > /usr/include/c++/13/bits/invoke.h:96 (race.g++.san+0x1353)
+    #3 _M_invoke<0> /usr/include/c++/13/bits/std_thread.h:292 (race.g++.san+0x1353)
+    #4 operator() /usr/include/c++/13/bits/std_thread.h:299 (race.g++.san+0x1353)
+    #5 _M_run /usr/include/c++/13/bits/std_thread.h:244 (race.g++.san+0x1353)
+    #6 <null> <null> (libstdc++.so.6+0xecdb3) (BuildId: 753c6c8608b61d4e67be8f0c890e03e0aa046b8b)
+
+  Previous read of size 8 at 0x55d34ecce020 by thread T2:
+=== stack | Rust-debug | args=[] | rc=101
+
+thread 'main' (21226) panicked at /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_stack.rs:6:93:
+index out of bounds: the len is 8 but the index is 8
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_bounds_check
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:271:5
+   3: rs_stack::main
+   4: <fn() as core::ops::function::FnOnce<()>>::call_once
+=== stack | Rust-debug-unchecked | args=[x] | rc=134
+
+thread 'main' (21242) panicked at /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_stack.rs:6:53:
+unsafe precondition(s) violated: slice::get_unchecked_mut requires that the index is within the slice
+
+This indicates a bug in the program. This Undefined Behavior check is optional, and cannot be relied on for safety.
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_nounwind_fmt::runtime
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:122:22
+   2: core::panicking::panic_nounwind_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/intrinsics/mod.rs:2450:9
+=== stack | Rust-release | args=[] | rc=101
+
+thread 'main' (21276) panicked at /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_stack.rs:6:93:
+index out of bounds: the len is 8 but the index is 8
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_bounds_check
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:271:5
+   3: rs_stack::main
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+=== stack | Rust-release-unchecked | args=[x] | rc=0
+guard=1111 a0=7777
+=== heap | Rust-debug | args=[] | rc=101
+
+thread 'main' (21324) panicked at /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_heap.rs:6:93:
+index out of bounds: the len is 8 but the index is 8
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_bounds_check
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:271:5
+   3: <usize as core::slice::index::SliceIndex<[i32]>>::index_mut
+   4: <alloc::vec::Vec<i32> as core::ops::index::IndexMut<usize>>::index_mut
+=== heap | Rust-debug-unchecked | args=[x] | rc=134
+b0=100 b1=100
+double free or corruption (out)
+=== heap | Rust-release | args=[] | rc=101
+
+thread 'main' (21374) panicked at /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_heap.rs:6:93:
+index out of bounds: the len is 8 but the index is 8
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_bounds_check
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:271:5
+   3: rs_heap::main
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+=== heap | Rust-release-unchecked | args=[x] | rc=0
+b0=100 b1=100
+=== ovf | Rust-debug | args=[] | rc=101
+
+thread 'main' (21423) panicked at /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_ovf.rs:4:13:
+attempt to add with overflow
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_const::panic_const_add_overflow
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:175:17
+   3: rs_ovf::main
+   4: <fn() as core::ops::function::FnOnce<()>>::call_once
+=== ovf | Rust-release | args=[] | rc=0
+y=-2147483648 (x+1>x)=false
+=== uaf | Rust-debug | args=[] | rc=0
+*p=5678 q=5678 same=true
+=== uaf | Rust-release | args=[] | rc=0
+*p=5678 q=5678 same=true
+=== uaf | Rust-debug-safe | COMPILE_ERROR
+error[E0505]: cannot move out of `v` because it is borrowed
+ --> /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_uaf_safe.rs:5:10
+  |
+3 |     let v = vec![1234i32, 0, 0, 0];
+  |         - binding `v` declared here
+4 |     let r = &v[0];
+  |              - borrow of `v` occurs here
+5 |     drop(v);
+  |          ^ move out of `v` occurs here
+6 |     println!("r={}", r);
+  |                      - borrow later used here
+  |
+help: consider cloning the value if the performance cost is acceptable
+  
+=== uaf | Rust-release-safe | COMPILE_ERROR
+error[E0505]: cannot move out of `v` because it is borrowed
+ --> /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_uaf_safe.rs:5:10
+  |
+3 |     let v = vec![1234i32, 0, 0, 0];
+  |         - binding `v` declared here
+4 |     let r = &v[0];
+  |              - borrow of `v` occurs here
+5 |     drop(v);
+  |          ^ move out of `v` occurs here
+6 |     println!("r={}", r);
+  |                      - borrow later used here
+  |
+help: consider cloning the value if the performance cost is acceptable
+  
+=== race | Rust-debug | args=[] | rc=0
+counter=2087278 (ожидалось 4000000)
+=== race | Rust-release | args=[] | rc=0
+counter=2216164 (ожидалось 4000000)
+=== race | Rust-debug-safe | COMPILE_ERROR
+error[E0373]: closure may outlive the current function, but it borrows `counter`, which is owned by the current function
+ --> /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_race_safe.rs:5:27
+  |
+5 |     let a = thread::spawn(|| { for _ in 0..2000000 { counter += 1; } });
+  |                           ^^                         ------- `counter` is borrowed here
+  |                           |
+  |                           may outlive borrowed value `counter`
+  |
+note: function requires argume
+=== race | Rust-release-safe | COMPILE_ERROR
+error[E0373]: closure may outlive the current function, but it borrows `counter`, which is owned by the current function
+ --> /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_race_safe.rs:5:27
+  |
+5 |     let a = thread::spawn(|| { for _ in 0..2000000 { counter += 1; } });
+  |                           ^^                         ------- `counter` is borrowed here
+  |                           |
+  |                           may outlive borrowed value `counter`
+  |
+note: function requires argume
+=== stack | Rust-asan | args=[] | rc=101
+
+thread 'main' (21674) panicked at /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_stack.rs:6:93:
+index out of bounds: the len is 8 but the index is 8
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_bounds_check
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:271:5
+   3: rs_stack::main
+             at /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_stack.rs:6:93
+=== stack | Rust-asan-unchecked | args=[x] | rc=1
+=================================================================
+==21692==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7ffc26b17d70 at pc 0x55d0a5be20c9 bp 0x7ffc26b17bf0 sp 0x7ffc26b17be8
+WRITE of size 4 at 0x7ffc26b17d70 thread T0
+    #0 0x55d0a5be20c8 in rs_stack::main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_stack.rs:6:50
+    #1 0x55d0a5be1cd2 in <fn() as core::ops::function::FnOnce<()>>::call_once /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+    #2 0x55d0a5be1cd2 in std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/sys/backtrace.rs:166:18
+    #3 0x55d0a5be1cf8 in std::rt::lang_start::<()>::{closure#0} /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/rt.rs:206:18
+    #4 0x55d0a5c07896 in <&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe as core::ops::function::FnOnce<()>>::call_once /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:287:21
+    #5 0x55d0a5c07896 in std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:581:40
+    #6 0x55d0a5c07896 in std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:544:19
+    #7 0x55d0a5c07896 in std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panic.rs:359:14
+    #8 0x55d0a5c07896 in std::rt::lang_start_internal::{closure#0} /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/rt.rs:175:24
+=== heap | Rust-asan | args=[] | rc=101
+
+thread 'main' (21724) panicked at /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_heap.rs:6:93:
+index out of bounds: the len is 8 but the index is 8
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_bounds_check
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:271:5
+   3: rs_heap::main
+   4: <fn() as core::ops::function::FnOnce<()>>::call_once
+=== heap | Rust-asan-unchecked | args=[x] | rc=1
+=================================================================
+==21742==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x7b8b20de00c0 at pc 0x55b4fc052501 bp 0x7fffb4f3a070 sp 0x7fffb4f3a068
+WRITE of size 4 at 0x7b8b20de00c0 thread T0
+    #0 0x55b4fc052500 in rs_heap::main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_heap.rs:6:50
+    #1 0x55b4fc051bf2 in <fn() as core::ops::function::FnOnce<()>>::call_once /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+    #2 0x55b4fc051bf2 in std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/sys/backtrace.rs:166:18
+    #3 0x55b4fc051c18 in std::rt::lang_start::<()>::{closure#0} /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/rt.rs:206:18
+    #4 0x55b4fc077ce6 in <&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe as core::ops::function::FnOnce<()>>::call_once /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:287:21
+    #5 0x55b4fc077ce6 in std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:581:40
+    #6 0x55b4fc077ce6 in std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:544:19
+    #7 0x55b4fc077ce6 in std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panic.rs:359:14
+    #8 0x55b4fc077ce6 in std::rt::lang_start_internal::{closure#0} /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/rt.rs:175:24
+=== uaf | Rust-asan | args=[] | rc=1
+=================================================================
+==21774==ERROR: AddressSanitizer: heap-use-after-free on address 0x7bcd7f3e0010 at pc 0x55ab10e1c18d bp 0x7ffcc3482df0 sp 0x7ffcc3482de8
+READ of size 4 at 0x7bcd7f3e0010 thread T0
+    #0 0x55ab10e1c18c in core::ptr::read_volatile::<i32> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ptr/mod.rs:2107:9
+    #1 0x55ab10e1c18c in rs_uaf::main /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/rl/research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_uaf.rs:6:45
+    #2 0x55ab10e1bde2 in <fn() as core::ops::function::FnOnce<()>>::call_once /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+    #3 0x55ab10e1bde2 in std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/sys/backtrace.rs:166:18
+    #4 0x55ab10e1be08 in std::rt::lang_start::<()>::{closure#0} /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/rt.rs:206:18
+    #5 0x55ab10e41916 in <&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe as core::ops::function::FnOnce<()>>::call_once /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:287:21
+    #6 0x55ab10e41916 in std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:581:40
+    #7 0x55ab10e41916 in std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:544:19
+    #8 0x55ab10e41916 in std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32> /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panic.rs:359:14

@@ -1,0 +1,89 @@
+warning: unused macro definition: `atm`
+  --> bench4.rs:15:14
+   |
+15 | macro_rules! atm { ($a:expr, $i:expr) => { $a[$i as usize] }; }
+   |              ^^^
+   |
+   = note: `#[warn(unused_macros)]` (part of `#[warn(unused)]`) on by default
+
+warning: 1 warning emitted
+
+warning: unused macro definition: `atm`
+  --> bench4.rs:15:14
+   |
+15 | macro_rules! atm { ($a:expr, $i:expr) => { $a[$i as usize] }; }
+   |              ^^^
+   |
+   = note: `#[warn(unused_macros)]` (part of `#[warn(unused)]`) on by default
+
+warning: 1 warning emitted
+
+warning: unused macro definition: `atm`
+  --> /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/work/l5/a/bench4.rs:15:14
+   |
+15 | macro_rules! atm { ($a:expr, $i:expr) => { $a[$i as usize] }; }
+   |              ^^^
+   |
+   = note: `#[warn(unused_macros)]` (part of `#[warn(unused)]`) on by default
+
+warning: 1 warning emitted
+
+warning: unused macro definition: `atm`
+  --> /tmp/claude-0/-home-claude/a2574043-553e-5ae0-b042-b737ad0998e8/scratchpad/work/l5/b/bench4.rs:15:14
+   |
+15 | macro_rules! atm { ($a:expr, $i:expr) => { $a[$i as usize] }; }
+   |              ^^^
+   |
+   = note: `#[warn(unused_macros)]` (part of `#[warn(unused)]`) on by default
+
+warning: 1 warning emitted
+
+warning: unused macro definition: `atm`
+  --> ./bench4.rs:15:14
+   |
+15 | macro_rules! atm { ($a:expr, $i:expr) => { $a[$i as usize] }; }
+   |              ^^^
+   |
+   = note: `#[warn(unused_macros)]` (part of `#[warn(unused)]`) on by default
+
+warning: 1 warning emitted
+
+warning: unused macro definition: `atm`
+  --> ./bench4.rs:15:14
+   |
+15 | macro_rules! atm { ($a:expr, $i:expr) => { $a[$i as usize] }; }
+   |              ^^^
+   |
+   = note: `#[warn(unused_macros)]` (part of `#[warn(unused)]`) on by default
+
+warning: 1 warning emitted
+
+warning: `--emit=obj` with `-o` incompatible with `-C codegen-units=N` for N > 1
+
+warning: resetting to default -C codegen-units=1
+
+warning: unused macro definition: `atm`
+  --> bench4.rs:15:14
+   |
+15 | macro_rules! atm { ($a:expr, $i:expr) => { $a[$i as usize] }; }
+   |              ^^^
+   |
+   = note: `#[warn(unused_macros)]` (part of `#[warn(unused)]`) on by default
+
+warning: 1 warning emitted
+
+warning: `--emit=obj` with `-o` incompatible with `-C codegen-units=N` for N > 1
+
+warning: resetting to default -C codegen-units=1
+
+warning: unused macro definition: `atm`
+  --> bench4.rs:15:14
+   |
+15 | macro_rules! atm { ($a:expr, $i:expr) => { $a[$i as usize] }; }
+   |              ^^^
+   |
+   = note: `#[warn(unused_macros)]` (part of `#[warn(unused)]`) on by default
+
+warning: 1 warning emitted
+
+L5 done
