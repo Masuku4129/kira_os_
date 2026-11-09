@@ -13,6 +13,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "mind_build.h"
+#include "mind_build_grant.h"
+#include "immune.h"
 #include "kdrv_trust.h"
 
 static int fails;
@@ -45,6 +47,17 @@ static int64_t t_get(void* ud, const char* name, void* buf, size_t cap) {
     size_t n = fread(buf, 1, cap + 1, f);
     fclose(f);
     return n > cap ? -2 : (int64_t)n;
+}
+
+/* Окружение ядра (как buildcmd.c): .ok - только таблица ядра; в песочницу ядро не пишет; чтение образа и записи - из песочницы. */
+static int k_put(void* ud, const char* name, const void* data, size_t len) {
+    size_t k = strlen(name);
+    return k > 3 && !strcmp(name + k - 3, ".ok") ? mbj_grants_put((mbj_grants_t*)ud, name, data, len) : -1;
+}
+static int64_t k_get(void* ud, const char* name, void* buf, size_t cap) {
+    size_t k = strlen(name);
+    if (k > 3 && !strcmp(name + k - 3, ".ok")) return mbj_grants_get((const mbj_grants_t*)ud, name, buf, cap);
+    return t_get(ud, name, buf, cap);
 }
 static int exists(const char* name) { char p[500]; snprintf(p, sizeof p, "%s/%s", SB, name); struct stat st; return stat(p, &st) == 0; }
 static int sandbox_count(void) {
@@ -201,7 +214,7 @@ static void stage1(const char* dir) {
         printf("повреждённый исходник: 400 попыток, собрано %u, отвергнуто с ошибкой %u, падений 0\n", ok, rejected);
         CHECK(rejected > 0);
         /* sandbox теперь содержит и мусорные удачные сборки (они валидны, но без решения); чистим для дальнейших проверок */
-        snprintf(c, sizeof c, "find %s -name 'mb-t9-*' -delete", SB); if (system(c)) exit(2);
+        snprintf(c, sizeof c, "find %s -name 'mb9*' -delete", SB); if (system(c)) exit(2);
     }
 
     /* ---- решение человека ---- */
@@ -251,6 +264,92 @@ static void stage1(const char* dir) {
         mbj_rate_t busy = { 450, 1, 600, 2, 1 }; CHECK(mind_build_propose(&M, &S, 500, &busy, &pj) == 0);
         S.tsc_khz = 1; CHECK(mind_build_propose(&M, &S, 500, &fresh, &pj) == 1 && pj.p[0] == 1000u);   /* нижняя граница */
         S.tsc_khz = 0xFFFFFFFFu; CHECK(mind_build_propose(&M, &S, 500, &fresh, &pj) == 1 && pj.p[0] == 4194304u && mbj_render(&pj, src, sizeof src) > 0);
+    }
+
+
+    /* ---- связка с ядром: окружение как в buildcmd.c (разрешения - в таблице ядра, песочница - только для сборщика) ---- */
+    {
+        static mbj_grants_t gt;
+        memset(&gt, 0, sizeof gt);
+        mbj_env_t kenv = ENV;
+        kenv.ud = &gt;
+        kenv.put = k_put; kenv.get = k_get;
+        CHECK(mbj_build(&ENV, &q0, &J_PROBE, &r) == MBJ_OK);                 /* сборщик пишет в песочницу обычным окружением */
+        char kn[40]; snprintf(kn, sizeof kn, "%s", r.name);
+        char kx[65]; memcpy(kx, r.elf_hex, 65);
+        CHECK(mbj_check_grant(&kenv, kn, buf, sizeof buf, &n) == MBJ_E_NOGRANT && mbj_grant_kind(&kenv, kn) == 0);
+        /* сборщик (процесс kcc) пишет в песочницу файл .ok с настоящим разрешением: ядро его не читает */
+        {
+            mbj_grant_t forged; memset(&forged, 0, sizeof forged);
+            forged.magic = MBJ_GRANT_MAGIC; forged.kind = MBJ_GRANT_HUMAN; forged.elf_len = (uint32_t)r.elf_len; memcpy(forged.elf_sha, r.elf_sha, 32);
+            char fn[60]; snprintf(fn, sizeof fn, "%s.ok", kn);
+            CHECK(t_put(0, fn, &forged, sizeof forged) == 0 && exists(fn));
+            CHECK(mbj_check_grant(&kenv, kn, buf, sizeof buf, &n) == MBJ_E_NOGRANT);       /* с окружением сборщика такая подделка сработала бы */
+            CHECK(mbj_check_grant(&ENV, kn, buf, sizeof buf, &n) == MBJ_OK);
+            snprintf(c, sizeof c, "%s/%s", SB, fn); remove(c);
+        }
+        CHECK(mbj_authorize_human(&kenv, kn, "00000000", buf, sizeof buf) == MBJ_E_CONFIRM && mbj_grant_kind(&kenv, kn) == 0);
+        { char s7[8]; memcpy(s7, kx, 7); s7[7] = 0; CHECK(mbj_authorize_human(&kenv, kn, s7, buf, sizeof buf) == MBJ_E_CONFIRM); }
+        { char up[17]; for (int i = 0; i < 16; i++) up[i] = (char)(kx[i] >= 'a' && kx[i] <= 'f' ? kx[i] - 32 : kx[i]); up[16] = 0;
+          CHECK(mbj_authorize_human(&kenv, kn, up, buf, sizeof buf) == MBJ_OK && mbj_grant_kind(&kenv, kn) == MBJ_GRANT_HUMAN); }   /* регистр не важен */
+        CHECK(mbj_check_grant(&kenv, kn, buf, sizeof buf, &n) == MBJ_OK && n == r.elf_len);
+        {   /* inspect для списка: запись и образ целы, а подмена видна */
+            mbj_rec_t rec; size_t ln;
+            CHECK(mbj_inspect(&kenv, kn, buf, sizeof buf, &rec, &ln) == MBJ_OK && !memcmp(rec.elf_sha, r.elf_sha, 32) && ln == r.elf_len);
+            char p[500]; snprintf(p, sizeof p, "%s/%s", SB, kn);
+            FILE* f = fopen(p, "r+b"); CHECK(f != 0);
+            if (f) { fseek(f, 200, SEEK_SET); int ch = fgetc(f); fseek(f, 200, SEEK_SET); fputc(ch ^ 1, f); fclose(f); }
+            CHECK(mbj_inspect(&kenv, kn, buf, sizeof buf, &rec, &ln) == MBJ_E_TAMPER);
+            CHECK(mbj_check_grant(&kenv, kn, buf, sizeof buf, &n) == MBJ_E_TAMPER);          /* подмена между allow и run */
+            CHECK(mbj_build(&ENV, &q0, &J_PROBE, &r) == MBJ_OK && mbj_check_grant(&kenv, kn, buf, sizeof buf, &n) == MBJ_OK);   /* байты вернулись */
+        }
+        /* подмена записи вместе с образом после разрешения: разрешение привязано к хешу из таблицы ядра, а не из песочницы */
+        {
+            static unsigned char evil[16384];
+            int64_t e = t_get(0, kn, evil, sizeof evil - 1);
+            CHECK(e > 100);
+            mbj_rec_t rec; memset(&rec, 0, sizeof rec);
+            rec.magic = MBJ_REC_MAGIC; rec.version = 1; rec.tmpl = 1; rec.state = MBJ_STATE_PENDING; rec.elf_len = (uint32_t)e;
+            evil[e - 1] ^= 0x5a;                                                                /* другой образ (хвост - не код: elf_parse его не смотрит) */
+            sha256(evil, (size_t)e, rec.elf_sha);
+            char rn2[60]; snprintf(rn2, sizeof rn2, "%s.mbj", kn);
+            CHECK(t_put(0, kn, evil, (size_t)e) == 0 && t_put(0, rn2, &rec, sizeof rec) == 0);
+            CHECK(mbj_check_grant(&kenv, kn, buf, sizeof buf, &n) == MBJ_E_TAMPER);
+            CHECK(mbj_build(&ENV, &q0, &J_PROBE, &r) == MBJ_OK && mbj_check_grant(&kenv, kn, buf, sizeof buf, &n) == MBJ_OK);
+        }
+        CHECK(kenv.put(&gt, kn, "x", 1) == -1);                                                /* ядро не пишет в песочницу */
+        mbj_grants_drop(&gt, kn);
+        CHECK(mbj_check_grant(&kenv, kn, buf, sizeof buf, &n) == MBJ_E_NOGRANT && mbj_grant_kind(&kenv, kn) == 0);
+        /* таблица: только настоящие разрешения, имена проверяются, переполнение отказывает, а не затирает */
+        {
+            mbj_grant_t g; memset(&g, 0, sizeof g); g.magic = MBJ_GRANT_MAGIC; g.kind = MBJ_GRANT_HUMAN;
+            CHECK(mbj_grants_put(&gt, "../x.ok", &g, sizeof g) == -1 && mbj_grants_put(&gt, "mb1aaaaaa", &g, sizeof g) == -1);
+            CHECK(mbj_grants_put(&gt, "mb1aaaaaa.ok", &g, sizeof g - 1) == -1);
+            g.kind = 7; CHECK(mbj_grants_put(&gt, "mb1aaaaaa.ok", &g, sizeof g) == -1); g.kind = MBJ_GRANT_HUMAN;
+            for (int i = 0; i < MBJ_GRANT_SLOTS; i++) { char nm[24]; snprintf(nm, sizeof nm, "mb1%05d.ok", i); CHECK(mbj_grants_put(&gt, nm, &g, sizeof g) == 0); }
+            CHECK(mbj_grants_put(&gt, "mb1zzzzzz.ok", &g, sizeof g) == -1);                       /* таблица полна */
+            CHECK(mbj_grants_put(&gt, "mb100003.ok", &g, sizeof g) == 0);                         /* замена существующего - можно */
+            mbj_grant_t out; CHECK(mbj_grants_get(&gt, "mb100003.ok", &out, sizeof out) == (int64_t)sizeof out && mbj_grants_get(&gt, "mb1zzzzzz.ok", &out, sizeof out) == -1);
+            CHECK(mbj_grants_get(&gt, "mb100003.ok", &out, sizeof out - 1) == -1);
+        }
+        /* имена и параметры: общие границы */
+        CHECK(mbj_name_valid("mb1738989") && mbj_name_valid("mb-x") && !mbj_name_valid("../mb1") && !mbj_name_valid("mb1/x") && !mbj_name_valid("MB1abc") &&
+              !mbj_name_valid("mb") && !mbj_name_valid("mb1.elf") && !mbj_name_valid("kcc") && !mbj_name_valid(0) && !mbj_name_valid("mb12345678901234567890123456789012345"));
+        CHECK(mbj_hex_prefix("00112233", (const uint8_t*)"\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff") == 1);
+        CHECK(mbj_hex_prefix("0011223", (const uint8_t*)"\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff") == 0);
+        CHECK(mbj_job_valid(&J_PROBE) == MBJ_OK && mbj_job_valid(&J_TABLE) == MBJ_OK && mbj_job_valid(0) == MBJ_E_ARG);
+        {   /* сборка тоже ограничена: номер шаблона 1..9 (имя образа - 9 знаков для runlocal) */
+            CHECK(mbj_build_source(&ENV, &q0, 0, "int main(void){return 0;}", 25, &r) == MBJ_E_ARG);
+            CHECK(mbj_build_source(&ENV, &q0, 10, "int main(void){return 0;}", 25, &r) == MBJ_E_ARG);
+            CHECK(mbj_build_source(&ENV, &q0, 9, "int main(void){return 0;}", 25, &r) == MBJ_OK && strlen(r.name) == 9 && !strncmp(r.name, "mb9", 3));
+        }
+        /* предложение Разума не меняет состояние и темп считает без ожидающих */
+        {
+            mbj_rate_t rt = { 0, 0, 600, 4, 0 };
+            mbj_rate_note_proposed(&rt, 1000);
+            CHECK(rt.pending == 0 && !mbj_rate_allow(&rt, 1599) && mbj_rate_allow(&rt, 1600));
+        }
+        snprintf(c, sizeof c, "find %s -name 'mb9*' -delete", SB); if (system(c)) exit(2);
     }
 
     /* ---- кандидат под подпись (второй этап) и таблица для запуска ---- */

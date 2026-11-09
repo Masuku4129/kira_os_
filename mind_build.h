@@ -4,11 +4,15 @@
 
    Что делает: по шаблону (не произвольному тексту) формирует исходник C, пропускает его через жёсткие квоты и собирает
    встроенным kcc (kcc_compile). Результат - ELF в песочнице (/data/kcc на устройстве) и запись «ожидает решения».
-   Чего не делает НИКОГДА: не устанавливает и не запускает собранное. В модуле нет вызова запуска. Запуск допустим только
+   Чего не делает НИКОГДА: не устанавливает и не запускает собранное. В модуле нет вызова запуска. Файлы модуля:
+     mind_build_core.c   - общее (границы параметров, имена, hex, тексты ошибок), без зависимостей;
+     mind_build.c        - СБОРКА (шаблон, ворота, kcc); работает в процессе kcc без прав (userland/kcc.c, режим @build) и на хосте;
+     mind_build_grant.c  - РЕШЕНИЕ (разрешения, проверка перед запуском, темп, правило Разума); работает в ядре (buildcmd.c) и на хосте.
+   Запуск допустим только
    после выдачи разрешения, и это разрешение есть лишь двух видов, оба уже существуют в системе:
      - человек: ввод первых 8+ знаков SHA-256 образа из отчёта (как drvget confirm, dg_hex_prefix);
      - подпись издателя Ed25519 над байтами образа (kdrv_sig_verify, ключи kdrv_trust_keys; закрытый ключ вне системы).
-   Разрешение записывается рядом с образом вместе с его SHA-256 и действует только на те же байты: mbj_check_grant
+   Разрешение записывается в таблицу ядра (см. mind_build_grant.h) вместе с SHA-256 образа и действует только на те же байты: mbj_check_grant
    перечитывает образ и сверяет хеш в момент запуска (изменённый образ разрешения не имеет).
    Программа, прошедшая проверку, по-прежнему запускается без прав (caps = 0, `runlocal`); задание не умеет просить права.
 
@@ -18,8 +22,6 @@
    дело вызывающего (на устройстве - отдельный процесс kcc под kill). Модуль не потокобезопасен: kcc держит глобальный контекст. */
 #include <stddef.h>
 #include <stdint.h>
-#include "kdrv_sig.h"
-#include "mind.h"
 
 enum { MBJ_T_PROBE = 1, MBJ_T_TABLE = 2 };
 
@@ -97,22 +99,11 @@ int mbj_build_source(const mbj_env_t* env, const mbj_quota_t* q, uint32_t tmpl, 
 /* Шаблон + параметры -> сборка. Единственный вход, которым пользуется Разум. */
 int mbj_build(const mbj_env_t* env, const mbj_quota_t* q, const mbj_job_t* job, mbj_result_t* res);
 
-/* Разрешения. buf - память под образ (cap байт); обе функции читают образ заново и сверяют с записью. */
-int mbj_authorize_human(const mbj_env_t* env, const char* name, const char* typed_hex, void* buf, size_t cap);
-int mbj_authorize_signed(const mbj_env_t* env, const char* name, const void* sig, size_t siglen,
-                         const kdrv_sig_key_t* keys, uint32_t nkeys, void* buf, size_t cap);
-/* Для запускающего: 0 только если образ в buf (*len байт) совпал с записью и разрешением и снова проходит elf_parse. */
-int mbj_check_grant(const mbj_env_t* env, const char* name, void* buf, size_t cap, size_t* len);
+/* Общее для сборщика и ядра (mind_build_core.c, без зависимостей). */
+int  mbj_job_valid(const mbj_job_t* job);                 /* MBJ_OK или MBJ_E_ARG: единственное место, где заданы границы параметров шаблонов */
+int  mbj_name_valid(const char* name);                    /* имя образа в песочнице: "mb" + строчные латинские, цифры и '-', 4..32 знака */
+void mbj_hex(const uint8_t* d, int n, char* out);         /* n байт -> 2n знаков + NUL */
+int  mbj_hex_prefix(const char* typed, const uint8_t sha[32]);   /* 1: typed - от 8 до 64 знаков hex, совпадающих с началом sha (без учёта регистра) */
 const char* mbj_strerror(int status);
-
-/* Темп заданий: не чаще одного за min_gap_s и не больше max_pending ожидающих решения. */
-typedef struct { uint32_t last_s, pending, min_gap_s, max_pending; uint8_t any; } mbj_rate_t;
-int  mbj_rate_allow(const mbj_rate_t* r, uint32_t now_s);
-void mbj_rate_note_built(mbj_rate_t* r, uint32_t now_s);
-void mbj_rate_note_decided(mbj_rate_t* r);
-
-/* Правило Разума: предлагает задание «калибровочный зонд», только если система спокойна. 1 - предложено (в *job), 0 - нет.
-   Само по себе ничего не собирает и не меняет. Параметры зависят от скорости процессора из замера. */
-int mind_build_propose(const mind_t* s, const mind_sample_t* in, uint32_t now_s, const mbj_rate_t* r, mbj_job_t* job);
 
 #endif
