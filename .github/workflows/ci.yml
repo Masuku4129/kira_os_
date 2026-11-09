@@ -126,9 +126,46 @@ jobs:
             !ci-out/${{ matrix.scenario }}/*.img
 
 
-  global-gate:
+  artifact-audit:
     if: always()
     needs: [host-tests, data-lab, build, arm64, vm]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vm-*
+          path: results
+      - name: Validate every VM result artifact
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys
+          root = pathlib.Path("results")
+          x86 = sorted(root.glob("vm-*/result.json"))
+          arm64 = sorted((root / "vm-arm64").glob("**/result.json"))
+          errors = []
+          if len(x86) != 39:
+              errors.append(f"x86-64: expected 39 result files, found {len(x86)}")
+          if not arm64:
+              errors.append("ARM64: no result.json files found")
+          for path in x86 + arm64:
+              try:
+                  result = json.loads(path.read_text())
+              except Exception as exc:
+                  errors.append(f"{path}: invalid JSON: {exc}")
+                  continue
+              if result.get("ok") is not True:
+                  errors.append(f"{path}: FAIL {result.get('name')}: {result.get('error')}")
+          if errors:
+              print("ARTIFACT AUDIT: FAIL")
+              print("\\n".join(errors))
+              sys.exit(1)
+          print(f"ARTIFACT AUDIT: PASS — {len(x86)} x86-64 and {len(arm64)} ARM64 result files")
+          PY
+
+
+  global-gate:
+    if: always()
+    needs: [host-tests, data-lab, build, arm64, vm, artifact-audit]
     runs-on: ubuntu-24.04
     steps:
       - name: Enforce whole-system CI gates
@@ -138,10 +175,11 @@ jobs:
           BUILD: ${{ needs.build.result }}
           ARM64: ${{ needs.arm64.result }}
           VM: ${{ needs.vm.result }}
+          AUDIT: ${{ needs.artifact-audit.result }}
         run: |
-          printf 'Host tests: %s\\nData lab: %s\\nBuild: %s\\nARM64: %s\\nQEMU matrix: %s\\n' "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM"
+          printf 'Host tests: %s\\nData lab: %s\\nBuild: %s\\nARM64: %s\\nQEMU matrix: %s\\nArtifact audit: %s\\n' "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM" "$AUDIT"
           failed=0
-          for result in "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM"; do
+          for result in "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM" "$AUDIT"; do
             [ "$result" = success ] || failed=1
           done
           [ "$failed" -eq 0 ] || { echo "GLOBAL GATE: FAIL"; exit 1; }
