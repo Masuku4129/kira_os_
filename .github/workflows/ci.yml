@@ -238,7 +238,7 @@ jobs:
 
   # Итоги - в ветку ci-results (одна свежая копия): журналы и снимки читаются через git, без хранилища артефактов.
   report:
-    needs: [host-tests, data-formats, build, vm, arm64, global-gate]
+    needs: [host-tests, data-formats, storage-pipeline, compiler-bench, ipc-lab, build, vm, arm64, global-gate]
     if: always()
     runs-on: ubuntu-24.04
     permissions:
