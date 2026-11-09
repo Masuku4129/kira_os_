@@ -14,6 +14,11 @@ static inline volatile void* kdrv_mmio_map(u32 bar, u64 off, u64 len, i64* err) 
     if (err) *err = r;
     return r < 0 ? (volatile void*)0 : (volatile void*)(u64)r;
 }
+/* Порты ввода-вывода своего I/O BAR (x86). Смещение внутри BAR, ширина 1/2/4. Ответ - значение или код ошибки < 0. */
+static inline i64 kdrv_io_in(u32 bar, u32 off, u32 w) { return ksys(KDRV_SYS_IO, kdrv_io_pack(bar, w, KDRV_IO_READ, 0), off, 0); }
+static inline i64 kdrv_io_out(u32 bar, u32 off, u32 w, u32 v) { return ksys(KDRV_SYS_IO, kdrv_io_pack(bar, w, KDRV_IO_WRITE, 0), off, v); }
+static inline i64 kdrv_io_ins(u32 bar, u32 off, u32 w, void* buf, u32 count) { return ksys(KDRV_SYS_IO, kdrv_io_pack(bar, w, KDRV_IO_READ_MULTI, count), off, (u64)buf); }
+static inline i64 kdrv_io_outs(u32 bar, u32 off, u32 w, const void* buf, u32 count) { return ksys(KDRV_SYS_IO, kdrv_io_pack(bar, w, KDRV_IO_WRITE_MULTI, count), off, (u64)buf); }
 /* Непрерывная память для DMA, обнулена. addr_bits - сколько битов адреса достаёт устройство (0 - без предела). */
 static inline i64 kdrv_dma_alloc(u64 bytes, u32 addr_bits, kdrv_dma_t* out) { return ksys(KDRV_SYS_DMA_ALLOC, bytes, addr_bits, (u64)out); }
 /* Ждать прерывание устройства (или звонок передачи у сетевой карты): маска KDRV_EV_*, KE_TIMEOUT по сроку (в 10 мс; K_FOREVER - без срока). */

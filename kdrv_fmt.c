@@ -88,3 +88,18 @@ const char* kdrv_strerror(int e) {
     default: return "?";
     }
 }
+
+/* Порты I/O BAR: чистая проверка параметров KDRV_SYS_IO (ядро и хост-тест). Порт = база BAR + смещение, строго внутри BAR, выровнен по ширине. */
+int kdrv_io_check(uint64_t a1, uint64_t off, int bar_is_io, uint64_t bar_base, uint64_t bar_size, uint32_t* port, uint32_t* width, uint32_t* op, uint32_t* count) {
+    uint32_t bar = (uint32_t)(a1 & 0xFF), w = (uint32_t)((a1 >> 8) & 0xFF), o = (uint32_t)((a1 >> 16) & 0xFF);
+    uint64_t n = (a1 >> 24) & 0xFFFFFF;
+    if (a1 >> 48) return -10;
+    if (bar >= 6 || (w != 1 && w != 2 && w != 4) || o > KDRV_IO_WRITE_MULTI) return -10;
+    if (o <= KDRV_IO_WRITE) { if (n > 1) return -10; n = 1; }
+    else if (!n || n * w > KDRV_IO_MAX_BYTES) return -10;
+    if (!bar_is_io || !bar_size || !bar_base) return -2;                              /* не порты или пустой BAR */
+    if (bar_base > 0xFFFF || bar_size > 0x10000 || bar_base + bar_size > 0x10000) return -2;
+    if (off >= bar_size || (off % w) || w > bar_size - off) return -10;               /* только внутри BAR своего устройства */
+    *port = (uint32_t)(bar_base + off); *width = w; *op = o; *count = (uint32_t)n;
+    return 0;
+}

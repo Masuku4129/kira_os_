@@ -129,6 +129,9 @@ if [ "$RELEASE" != 1 ]; then
     $CC $UCFLAGS -I. -Iuserland -c userland/drvedu.c -o userland/drvedu.o
     ld.lld $ULINK -o userland/drvedu.elf userland/drvedu.o
     tools/mkdrv.sh kira.disk userland/drvedu.elf "$HOSTCC"
+    $CC $UCFLAGS -I. -Iuserland -c userland/drvne2kio.c -o userland/drvne2kio.o
+    ld.lld $ULINK -o userland/drvne2kio.elf userland/drvne2kio.o
+    tools/mkdrv_io.sh kira.disk userland/drvne2kio.elf "$HOSTCC"
 fi
 for h in kcc/include/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h     # заголовки libc-lite для kcc на Кире

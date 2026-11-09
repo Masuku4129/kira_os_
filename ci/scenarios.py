@@ -534,6 +534,19 @@ ALL.append(sc("drv-edu", "MMIO-only Ring 3: хеш и подтверждение
 ], smp=2, mem="1G", extra=["-device", "edu"]))
 
 
+# Порты ввода-вывода Ring 3 (KDRV_SYS_IO): драйвер читает MAC из PROM настоящей карты ne2k_pci через порты её I/O BAR и проверяет отказы ядра.
+ALL.append(sc("drv-io", "Ring 3: порты I/O BAR своей карты (ne2k_pci): чтение MAC, одиночные и ins; чужой BAR, выход за границы, невыровненный доступ, ширина, порты как память - отказ", [
+    {"log": BOOT_LOG},
+    {"sleep": 6},
+    {"log": [r"\[KIRA DRV\] ne2kio: устройство .* 10ec:8029 -> драйвер запущен как drv-ne2kio",
+             r"drvne2kio: bar0 flags 1 size 256", r"drvne2kio: isr after reset=\d+", r"drvne2kio: ins rc=0 mac=52:54:00:12:34:99",
+             r"drvne2kio: refused: mem-bar=-\d+ past=-\d+ unaligned=-\d+ width3=-\d+ no-bar=-\d+ bad-buf=-\d+ map-ports=-\d+",
+             r"drvne2kio: PASS"]},
+    {"log_forbid": [r"drvne2kio: .*\(FAIL\)", r"drvne2kio: partial"] + NO_ERR},
+    {"responsive": "status", "within": 5},
+], smp=2, mem="1G", extra=["-device", "ne2k_pci,mac=52:54:00:12:34:99"]))
+
+
 # drvget + драйвер RTL8139 (пакет L, N). Фаза 1: сеть virtio; drvget по настоящему TLS 1.3 скачивает исходники драйвера rl с хозяина,
 # показывает источник/лицензию/SHA-256/права, ставит только после подтверждения хешем, собирает kcc на устройстве и пишет /drv.
 # Фаза 2 (relaunch на том же диске): вместо virtio-net - rtl8139; драйвер из /drv находит карту по PCI-ID и регистрирует сетевой интерфейс.

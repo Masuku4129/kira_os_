@@ -67,7 +67,7 @@ const char* kdrv_strerror(int err);
 /* Без подтверждённой изоляции IOMMU DMA и MSI запрещены для драйверов Ring 3. */
 int kdrv_dma_policy_allow(uint32_t granted_caps, int device_isolated);
 
-/* ---- Договор драйвера с ядром (системные вызовы 48..54; номера не пересекаются с syscall.c) ---- */
+/* ---- Договор драйвера с ядром (системные вызовы 48..55 и 57; номера не пересекаются с syscall.c) ---- */
 enum { KDRV_SYS_INFO = 48,         /* (буфер kdrv_info_t, ёмкость) -> 0: свои устройство и права */
        KDRV_SYS_CFG_READ = 49,     /* (смещение < 256, ширина 1/2/4) -> значение; CAP_PCIDEV */
        KDRV_SYS_CFG_WRITE = 50,    /* (смещение < 256, ширина 1/2/4, значение) -> 0; CAP_PCIDEV; не BAR, не MSI/MSI-X/PCIe, команда - только MEM/IO/MASTER/INTx-off */
@@ -75,9 +75,17 @@ enum { KDRV_SYS_INFO = 48,         /* (буфер kdrv_info_t, ёмкость) -
        KDRV_SYS_DMA_ALLOC = 52,    /* (байт, предел адреса в битах или 0, kdrv_dma_t*) -> 0; CAP_DMA; освобождается при гибели драйвера */
        KDRV_SYS_IRQ_WAIT = 53,     /* (срок в 10 мс или ~0) -> маска KDRV_EV_* или KE_TIMEOUT; CAP_IRQ */
        KDRV_SYS_NETDEV = 54,       /* (операция KDRV_NET_*, аргумент, флаги) ; CAP_NETDEV */
-       KDRV_SYS_PCILIST = 55 };    /* (буфер kdrv_pcient_t[], число записей, номер первой) -> записано; ТОЛЬКО ЧТЕНИЕ, право CAP_PCILIST (любая программа, не драйвер) */
+       KDRV_SYS_PCILIST = 55,      /* (буфер kdrv_pcient_t[], число записей, номер первой) -> записано; ТОЛЬКО ЧТЕНИЕ, право CAP_PCILIST (любая программа, не драйвер) */
+       KDRV_SYS_IO = 57 };         /* (упаковка kdrv_io_pack, смещение в BAR, значение или буфер) -> значение/0; CAP_MMIO; порты ТОЛЬКО своего I/O BAR, x86 */
 #define KDRV_EV_IRQ 1u             /* пришло прерывание устройства */
 #define KDRV_EV_TX  2u             /* ядро положило кадр в кольцо передачи */
+/* Порты ввода-вывода своего I/O BAR (KDRV_SYS_IO). a1 = bar | ширина(1/2/4) << 8 | операция << 16 | число << 24. */
+enum { KDRV_IO_READ = 0, KDRV_IO_WRITE = 1, KDRV_IO_READ_MULTI = 2, KDRV_IO_WRITE_MULTI = 3 };   /* MULTI - один порт много раз (ins/outs) */
+#define KDRV_IO_MAX_BYTES 4096u
+#define kdrv_io_pack(bar, width, op, count) ((uint64_t)(bar) | (uint64_t)(width) << 8 | (uint64_t)(op) << 16 | (uint64_t)(count) << 24)
+/* Проверка без побочных действий (общая для ядра и хост-теста): 0 или KE_ARG(-10) / KE_NOENT(-2). port - результат (порт ввода-вывода). */
+int kdrv_io_check(uint64_t a1, uint64_t off, int bar_is_io, uint64_t bar_base, uint64_t bar_size, uint32_t* port, uint32_t* width, uint32_t* op, uint32_t* count);
+
 #define KDRV_MAX_MMIO  16          /* отображений BAR на драйвер */
 #define KDRV_MAX_MMIO_BYTES (16u << 20)   /* на одно отображение */
 #define KDRV_MAX_DMA   32          /* блоков DMA на драйвер */

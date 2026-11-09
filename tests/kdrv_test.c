@@ -58,6 +58,27 @@ int main(void) {
     memset(r.source, 'a', sizeof r.source); CHECK(kdrv_rec_check(&r, sizeof r, &ro) == KDRV_E_FORMAT); r.source[0] = 0;
     CHECK(kdrv_rec_check(&r, sizeof r - 1, &ro) == KDRV_E_SHORT);
     CHECK(kdrv_rec_check(&r, sizeof r + 1, &ro) == KDRV_E_FORMAT);
+    {   /* KDRV_SYS_IO: границы I/O BAR */
+        uint32_t port, w, op, n;
+        #define IOC(a1, off, io, base, size) kdrv_io_check(a1, off, io, base, size, &port, &w, &op, &n)
+        CHECK(IOC(kdrv_io_pack(0, 1, KDRV_IO_READ, 0), 0x0F, 1, 0xC000, 0x20) == 0 && port == 0xC00F && w == 1 && n == 1);
+        CHECK(IOC(kdrv_io_pack(0, 4, KDRV_IO_WRITE, 0), 0x1C, 1, 0xC000, 0x20) == 0);
+        CHECK(IOC(kdrv_io_pack(0, 4, KDRV_IO_WRITE, 0), 0x1D, 1, 0xC000, 0x20) == -10);       /* невыровнено */
+        CHECK(IOC(kdrv_io_pack(0, 4, KDRV_IO_READ, 0), 0x20, 1, 0xC000, 0x20) == -10);        /* за концом */
+        CHECK(IOC(kdrv_io_pack(0, 2, KDRV_IO_READ, 0), 0x1F, 1, 0xC000, 0x20) == -10);
+        CHECK(IOC(kdrv_io_pack(0, 3, KDRV_IO_READ, 0), 0, 1, 0xC000, 0x20) == -10);           /* ширина */
+        CHECK(IOC(kdrv_io_pack(0, 1, 9, 0), 0, 1, 0xC000, 0x20) == -10);                      /* операция */
+        CHECK(IOC(kdrv_io_pack(6, 1, KDRV_IO_READ, 0), 0, 1, 0xC000, 0x20) == -10);           /* номер BAR */
+        CHECK(IOC(kdrv_io_pack(0, 1, KDRV_IO_READ, 0), 0, 0, 0xFEBC0000u, 0x1000) == -2);     /* память, не порты */
+        CHECK(IOC(kdrv_io_pack(0, 1, KDRV_IO_READ, 0), 0, 1, 0xC000, 0) == -2);               /* пустой BAR */
+        CHECK(IOC(kdrv_io_pack(0, 1, KDRV_IO_READ, 0), 0, 1, 0xFFF0, 0x20) == -2);            /* BAR выходит за 64 КБ портов */
+        CHECK(IOC(kdrv_io_pack(0, 1, KDRV_IO_READ, 0), 0, 1, 0x1FFF0, 0x10) == -2);
+        CHECK(IOC(kdrv_io_pack(0, 1, KDRV_IO_READ, 3), 0, 1, 0xC000, 0x20) == -10);          /* число для одиночной операции */
+        CHECK(IOC(kdrv_io_pack(0, 4, KDRV_IO_READ_MULTI, 1024), 0, 1, 0xC000, 0x20) == 0 && n == 1024);
+        CHECK(IOC(kdrv_io_pack(0, 4, KDRV_IO_READ_MULTI, 1025), 0, 1, 0xC000, 0x20) == -10);  /* больше 4096 байт */
+        CHECK(IOC(kdrv_io_pack(0, 1, KDRV_IO_WRITE_MULTI, 0), 0, 1, 0xC000, 0x20) == -10);
+        CHECK(IOC(kdrv_io_pack(0, 1, KDRV_IO_READ, 0) | (1ull << 50), 0, 1, 0xC000, 0x20) == -10);
+    }
     srand(7);                                                                                   /* случайные искажения */
     for (int i = 0; i < 20000; i++) {
         mk(&h, f, 100);

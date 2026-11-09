@@ -304,7 +304,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
         if (mc) pci_write16(d, (uint16_t)(mc + 2), (uint16_t)((pci_read16(d, (uint16_t)(mc + 2)) & ~0x8000u) | 0x4000u));
         pci_write16(d, 0x04, (uint16_t)(pci_read16(d, 0x04) & ~PCI_CMD_MASTER));
     }
-    if (granted & CAP_MMIO) pci_enable(d, PCI_CMD_MEM);
+    if (granted & CAP_MMIO) pci_enable(d, PCI_CMD_MEM | PCI_CMD_IO);
     /* Эти действия достижимы только после успешной проверки IOMMU policy выше. */
     if (granted & (CAP_DMA | CAP_IRQ)) pci_enable(d, PCI_CMD_MASTER);
     if (granted & CAP_IRQ) irq_enable(b);
@@ -652,6 +652,45 @@ static int64_t sys_mmio_map(bind_t* b, uint64_t bar, uint64_t off, uint64_t len)
     return rc;
 }
 
+#if defined(__x86_64__) && !defined(KIRA_HOST_TEST)
+static inline uint32_t kio_in(uint16_t p, uint32_t w) { uint32_t v = 0;
+    if (w == 1) { uint8_t x; __asm__ volatile ("inb %1, %0" : "=a"(x) : "Nd"(p)); v = x; }
+    else if (w == 2) { uint16_t x; __asm__ volatile ("inw %1, %0" : "=a"(x) : "Nd"(p)); v = x; }
+    else __asm__ volatile ("inl %1, %0" : "=a"(v) : "Nd"(p));
+    return v; }
+static inline void kio_out(uint16_t p, uint32_t w, uint32_t v) {
+    if (w == 1) __asm__ volatile ("outb %0, %1" :: "a"((uint8_t)v), "Nd"(p));
+    else if (w == 2) __asm__ volatile ("outw %0, %1" :: "a"((uint16_t)v), "Nd"(p));
+    else __asm__ volatile ("outl %0, %1" :: "a"(v), "Nd"(p)); }
+#define KIO_OK 1
+#else
+#define KIO_OK 0
+static inline uint32_t kio_in(uint16_t p, uint32_t w) { (void)p; (void)w; return 0; }
+static inline void kio_out(uint16_t p, uint32_t w, uint32_t v) { (void)p; (void)w; (void)v; }
+#endif
+
+/* Порты ввода-вывода I/O BAR своего устройства. Чужие порты, выход за BAR, неверная ширина - отказ; прав кроме CAP_MMIO не нужно, но декодирование
+   портов включено только если право выдано (pci_enable при привязке). Прерывания не отключаются: одна операция - одна инструкция in/out. */
+static int64_t sys_io(bind_t* b, uint64_t a1, uint64_t off, uint64_t val) {
+    const pci_dev_t* d = b->dev;
+    if (!KIO_OK) return KE_NOENT;                                                      /* портов нет на этой архитектуре */
+    uint32_t bar = (uint32_t)(a1 & 0xFF), port, w, op, n;
+    if (bar >= PCI_BARS) return KE_ARG;
+    int rc = kdrv_io_check(a1, off, d->bar[bar].io, d->bar[bar].base, d->bar[bar].size, &port, &w, &op, &n);
+    if (rc) return rc;
+    if (op == KDRV_IO_READ) return (int64_t)kio_in((uint16_t)port, w);
+    if (op == KDRV_IO_WRITE) { kio_out((uint16_t)port, w, (uint32_t)val); return 0; }
+    uint8_t buf[KDRV_IO_MAX_BYTES];
+    uint32_t bytes = n * w;
+    if (op == KDRV_IO_READ_MULTI) {
+        for (uint32_t i = 0; i < n; i++) { uint32_t v = kio_in((uint16_t)port, w); for (uint32_t k = 0; k < w; k++) buf[i * w + k] = (uint8_t)(v >> (8 * k)); }
+        return copy_to_user(val, buf, bytes) ? KE_ARG : 0;
+    }
+    if (copy_from_user(buf, val, bytes)) return KE_ARG;
+    for (uint32_t i = 0; i < n; i++) { uint32_t v = 0; for (uint32_t k = 0; k < w; k++) v |= (uint32_t)buf[i * w + k] << (8 * k); kio_out((uint16_t)port, w, v); }
+    return 0;
+}
+
 static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t out) {
     if (!bytes || bytes > KDRV_MAX_DMA_BYTES || (bits && (bits < 20 || bits > 63))) return KE_ARG;
     uint32_t pages = (uint32_t)((bytes + 4095) / 4096);
@@ -770,7 +809,7 @@ int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         if ((a2 != 1 && a2 != 2 && a2 != 4) || a1 >= 256 || (a1 % a2)) return KE_ARG;
         if (a1 == 0x04) {                                                              /* команда: только её разрешённые биты и только словом */
             uint32_t ok = PCI_CMD_INTX_OFF | 0x40 | 0x100;
-            if (b->granted & CAP_MMIO) ok |= PCI_CMD_MEM;
+            if (b->granted & CAP_MMIO) ok |= PCI_CMD_MEM | PCI_CMD_IO;
             if (a2 != 2 || (a3 & ~(uint64_t)ok)) { deny_note(b, "запись в регистр команд PCI значения", a3); return KE_PERM; }
             uint16_t cur = pci_read16(b->dev, 0x04);
             pci_write16(b->dev, 0x04, (uint16_t)((cur & ~ok) | (uint16_t)a3));
@@ -784,6 +823,7 @@ int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
     }
     case KDRV_SYS_MMIO_MAP: return sys_mmio_map(b, a1, a2, a3);
     case KDRV_SYS_DMA_ALLOC: return sys_dma_alloc(b, a1, a2, a3);
+    case KDRV_SYS_IO: return sys_io(b, a1, a2, a3);
     case KDRV_SYS_IRQ_WAIT: return sys_irq_wait(b, a1);
     case KDRV_SYS_NETDEV: return sys_netdev(b, a1, a2);
     default: return KE_ARG;
