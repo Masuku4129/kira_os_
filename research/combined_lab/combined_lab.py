@@ -68,7 +68,7 @@ def test_storage(events, repeat):
     def baseline():
         versions=[]; current=[]
         for c in chunks:
-            current.append(c); versions.append(list(current))
+            current.append(c); versions.append([memoryview(x).tobytes() for x in current])
         return versions
     def combined():
         objects={}; versions=[]; refs=[]
