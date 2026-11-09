@@ -31,3 +31,4 @@ kira-bios.img
 BOOTX64.EFI
 kira-uefi.img
 build-bsd/
+*.o.tmp
