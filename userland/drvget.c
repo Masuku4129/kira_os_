@@ -372,15 +372,30 @@ static size_t grow(void *ud, size_t cap, size_t need) {
     return cap + want * PAGE;
 }
 
+/* Имя файла из пути: последний компонент (каталоги корпуса BSD «dev/ic/x.h» в песочнице плоские: файл рецепта называется по последнему компоненту). */
+static const char *last_comp(const char *p) { const char *b = p; for (; *p; p++) if (*p == '/') b = p + 1; return b; }
+
 static const char *rd(void *ud, const char *path, size_t *len) {
     (void)ud;
-    const char *n = path;
-    int inc = 0;
-    char sn[48];
-    if (!strncmp(path, INC_DIR "/", sizeof INC_DIR)) { n = path + sizeof INC_DIR; inc = 1; }
-    else if (!strncmp(path, STAGE_DIR, sizeof STAGE_DIR - 1)) { n = path + sizeof STAGE_DIR - 1; if (!*n || strchr(n, '/')) return 0; stage_name(sn, sizeof sn, n); n = sn; }
-    else return 0;
-    if (!*n || strchr(n, '/')) return 0;
+    char sn[48], fl[48];
+    const char *n; int inc = 0;
+    if (!strncmp(path, INC_DIR "/", sizeof INC_DIR)) {
+        /* Заголовки системы лежат плоско: «sys/param.h» -> «sys_param.h». Системные имеют приоритет: файл рецепта не может подменить системный заголовок. */
+        const char *r = path + sizeof INC_DIR; size_t k = 0;
+        if (!*r || strstr(r, "..")) return 0;
+        for (; *r && k + 1 < sizeof fl; r++) fl[k++] = *r == '/' ? '_' : *r;
+        if (*r) return 0;
+        fl[k] = 0; n = fl; inc = 1;
+        if (k_fs(KFS_INC_STAT, n, strlen(n), 0, 0, 0) < 0) {            /* нет в системе: возможно, файл набора (имя без каталогов) */
+            const char *b = last_comp(path + sizeof INC_DIR);
+            if (!*b || strlen(b) > 40) return 0;
+            stage_name(sn, sizeof sn, b); n = sn; inc = 0;
+        }
+    } else if (!strncmp(path, STAGE_DIR, sizeof STAGE_DIR - 1)) {
+        const char *b = last_comp(path + sizeof STAGE_DIR - 1);
+        if (!*b || strlen(b) > 40) return 0;
+        stage_name(sn, sizeof sn, b); n = sn;
+    } else return 0;
     u64 nl = strlen(n);
     i64 sz = inc ? k_fs(KFS_INC_STAT, n, nl, 0, 0, 0) : k_file_size(n);
     if (sz < 0) return 0;

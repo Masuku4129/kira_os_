@@ -20,6 +20,7 @@ struct Once { Once *next; const char *path; };
 #define NB 512
 static Macro *mtab[NB];
 static Once *once_list;
+static int unity_mode;                        /* #pragma kcc unity: каждый подключённый файл - один раз (многофайловые драйверы BSD в одной единице трансляции) */
 static Token out_head, *out_tail;
 static int incl_level;
 
@@ -621,6 +622,7 @@ static void do_include(Token *hash, Token *line, const char *cur_path, int depth
     }
     if (!found) kerr_tok(hash, "'%s' file not found", nm);
     if (file_once(found)) return;
+    if (unity_mode) { Once *o = ka_new(sizeof *o); o->path = found; o->next = once_list; once_list = o; }
     if (depth >= 100) kerr_tok(hash, "#include nested too deeply");
     Token *t = lex_buf(found, data, dl);
     incl_level++;
@@ -702,7 +704,7 @@ static void pp_tokens(Token *tok, const char *path, int depth) {
                 if (!tok->bol && is_id(tok, "once")) {
                     Once *o = ka_new(sizeof *o);
                     o->path = path; o->next = once_list; once_list = o;
-                }
+                } else if (!tok->bol && is_id(tok, "kcc") && !tok->next->bol && is_id(tok->next, "unity")) unity_mode = 1;
                 tok = skip_line(tok);
             } else if (is_id(dn, "line")) {
                 if (tok->bol || tok->k != TK_NUM) kerr_tok(dn, "#line directive requires a positive integer argument");
@@ -733,7 +735,7 @@ static void pp_tokens(Token *tok, const char *path, int depth) {
 
 Token *preprocess(const char *path) {
     memset(mtab, 0, sizeof mtab);
-    once_list = NULL; incl_level = 0;
+    once_list = NULL; unity_mode = 0; incl_level = 0;
     out_head.next = NULL; out_tail = &out_head;
     define_builtin("__LINE__", 1);
     define_builtin("__FILE__", 2);

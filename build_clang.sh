@@ -140,6 +140,7 @@ fi
 for h in kcc/include/*.h; do
     tools/kfstool kira.disk put /etc/kcc/include/$(basename $h) $h     # заголовки libc-lite для kcc на Кире
 done
+tools/put_bsd_inc.sh kira.disk                           # слой совместимости BSD: заголовки плоскими именами и bsd_rt.c (для драйверов BSD, собираемых drvget на устройстве)
 userland/wasm/build.sh                                   # модули WebAssembly - в /wasm (те же файлы, что у ARM64)
 for w in build-wasm/*.wasm; do tools/kfstool kira.disk put /wasm/$(basename $w) $w; done
 # Корневые сертификаты для HTTPS: системная связка хозяина (PEM) -> /etc/ssl/roots.der на диске Киры
@@ -220,6 +221,7 @@ case "$1" in
             for e in $UELF; do tools/kfstool "$OUT/kira_disk.img" put /bin/$(basename $e .elf) $e >/dev/null; done
             for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
             for h in kcc/include/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
+            tools/put_bsd_inc.sh "$OUT/kira_disk.img"
             [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
             tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/drivers.index drivers/index.txt >/dev/null
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."

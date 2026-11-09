@@ -6,10 +6,10 @@
 #include <stddef.h>
 #include "../kdrv_format.h"
 
-#define DG_FILES      12
+#define DG_FILES      40
 #define DG_FILE_NAME  26                    /* имя файла в рецепте: «s-ИМЯ-файл» должно уместиться в 40 знаков песочницы */
 #define DG_URL_MAX    200
-#define DG_RECIPE_MAX 8192
+#define DG_RECIPE_MAX 16384
 #define DG_SRC_MAX    (400u * 1024u)        /* один исходный файл */
 
 typedef struct { char host[96]; unsigned port; char path[DG_URL_MAX]; } dg_url_t;

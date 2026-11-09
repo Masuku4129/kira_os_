@@ -6,7 +6,7 @@
   {"log": [regex...]}, {"log_forbid": [regex...]} - проверки всего журнала с начала
   {"responsive": "команда", "within": с} - система отвечает на команду не дольше заданного (стабильность под нагрузкой)
 Сроки - для KVM; без KVM стенд умножает их (--timeout-scale)."""
-import os, re, sys
+import os, sys, re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mkfiles import SUMS
 
@@ -631,6 +631,40 @@ ALL.append(sc("drvget-rl", "drvget: исходники RTL8139 по HTTPS, ау�
 ], smp=2, mem="1G", tls_chain=True,
     extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + " --serve " + _DRV_WWW,
            "-device", "virtio-net-pci,netdev=n0"]))
+
+
+# Автоустановка драйвера BSD по идентификатору устройства: drvget скачивает по TLS рецепт и файлы OpenBSD (зеркало с теми же хешами), сверяет SHA-256 и
+# лицензии, собирает всё kcc на устройстве в одну единицу трансляции, ставит после подтверждения хешем. Фаза 2 (relaunch на том же диске): карта ne2k_pci,
+# драйвер из /drv находится по PCI-ID, запускается и даёт ядру DHCP.
+def _bsd_ok():
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import bsdwww
+        return bsdwww.build()
+    except Exception as e:
+        print("drvget-bsd: набор недоступен:", e, file=sys.stderr)
+        return None
+
+_BSD = _bsd_ok()
+if _BSD:
+    _BSD_WWW, _BSD_NAME, _BSD_SET8 = _BSD
+    ALL.append(sc("drvget-bsd", "drvget: драйвер OpenBSD ne(4) по TLS (рецепт, файлы с хешами, лицензии), сборка kcc на устройстве единым модулем, установка после подтверждения; затем драйвер сам находит карту ne2k_pci и даёт ядру DHCP", [
+        {"log": BOOT_LOG}, {"sleep": 6},
+        *_dg("drvget base https://10.0.2.100", r"каталог рецептов теперь https://10\.0\.2\.100", 20),
+        *_dg("drvget install " + _BSD_NAME, r"drvget confirm " + _BSD_NAME + " " + _BSD_SET8, 240),
+        {"log": [r"лицензия:   заявлена BSD-3-Clause", r"dp8390\.c", r"if_ne_pci\.c", r"10ec:8029", r"CAP_NETDEV", r"Установка НЕ выполнена"]},
+        *_dg("drvget confirm " + _BSD_NAME + " " + _BSD_SET8, r"установлено: /drv/" + _BSD_NAME + r"\.kdrv и /drv/" + _BSD_NAME + r"\.rec", 400),
+        {"log": [r"собрано, образ ELF \d+ байт"]},
+        *_dg("drvget verify " + _BSD_NAME, r"verify " + _BSD_NAME + ": OK", 20),
+        {"log_forbid": NO_ERR},
+        {"relaunch": ["-netdev", "user,id=n0", "-device", "ne2k_pci,netdev=n0"]},
+        {"sleep": 10},
+        {"log": [r"\[KIRA DRV\] " + _BSD_NAME + r": устройство .* 10ec:8029 -> драйвер запущен", r"ne0 at pci 10ec:8029", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"ответ от 10\.0\.2\.2", r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"log_forbid": NO_ERR + [r"bsd panic", r"bsdrt: .*FAIL"]},
+    ], smp=2, mem="1G", tls_chain=True,
+        extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + " --serve " + _BSD_WWW,
+               "-device", "virtio-net-pci,netdev=n0"]))
 
 
 # Окно «Драйверы» (/bin/drvman, пакет DM). Ядро чистое: окно - программа Ring 3; список PCI читается одним вызовом ядра под правом CAP_PCILIST,
