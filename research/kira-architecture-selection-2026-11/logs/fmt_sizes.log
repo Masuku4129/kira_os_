@@ -1,0 +1,128 @@
+== ядро x86-64: /home/claude/kira_os_/kira.bin
+  ELF (с .symtab/.strtab) 1040752; strip -s 947088; плоский (objcopy -O binary) 942433
+  kernel.elf                   raw= 1040752
+    gzip-9     496165 ( 47.7%)  распаковка med 3.363 ms (n=9, min 3.305 max 3.541)
+    bzip2-9    478510 ( 46.0%)  распаковка med 47.279 ms (n=9, min 40.323 max 51.192)
+    xz-9e      414128 ( 39.8%)  распаковка med 17.421 ms (n=9, min 16.828 max 17.514)
+    zstd-19    446507 ( 42.9%)  распаковка med 1.201 ms (n=9, min 1.177 max 1.282)
+    zstd-3     520737 ( 50.0%)  распаковка med 0.931 ms (n=9, min 0.910 max 1.344)
+    lz4-hc     574771 ( 55.2%)  распаковка med 0.431 ms (n=9, min 0.413 max 0.495)
+  kernel.elf-stripped          raw=  947088
+    gzip-9     464567 ( 49.1%)  распаковка med 2.808 ms (n=9, min 2.740 max 2.834)
+    bzip2-9    447223 ( 47.2%)  распаковка med 38.014 ms (n=9, min 36.941 max 50.077)
+    xz-9e      390900 ( 41.3%)  распаковка med 16.201 ms (n=9, min 15.938 max 19.888)
+    zstd-19    420977 ( 44.4%)  распаковка med 1.426 ms (n=9, min 1.362 max 1.498)
+    zstd-3     491242 ( 51.9%)  распаковка med 1.026 ms (n=9, min 1.017 max 1.110)
+    lz4-hc     532666 ( 56.2%)  распаковка med 0.402 ms (n=9, min 0.380 max 0.479)
+  kernel.flat                  raw=  942433
+    gzip-9     464201 ( 49.3%)  распаковка med 3.053 ms (n=9, min 3.034 max 3.337)
+    bzip2-9    446824 ( 47.4%)  распаковка med 49.404 ms (n=9, min 41.239 max 51.577)
+    xz-9e      390528 ( 41.4%)  распаковка med 15.296 ms (n=9, min 14.990 max 16.342)
+    zstd-19    420844 ( 44.7%)  распаковка med 1.371 ms (n=9, min 1.353 max 1.432)
+    zstd-3     490919 ( 52.1%)  распаковка med 0.976 ms (n=9, min 0.964 max 1.027)
+    lz4-hc     532319 ( 56.5%)  распаковка med 0.367 ms (n=9, min 0.348 max 0.413)
+  разница ELF - strip (=.symtab+.strtab+.comment+заголовки секций) = 93664 Б (9.0% файла)
+  образ kira.iso         12916736 Б
+  образ kira-bios.img    2097152 Б
+  образ kira-uefi.img    67108864 Б
+  образ kira-arm64.elf   926744 Б
+  образ kira-arm64.img   831812 Б
+  образ bios-stage1.bin  512 Б
+  образ bios-stage2.bin  16384 Б
+  образ kira.disk        8388608 Б
+== ARM64: kira-arm64.elf (static-pie) vs kira-arm64.img (заголовок Image + плоский)
+  R_AARCH64_RELATIVE записей: 584 (применяются ядром в boot.S)
+  arm64.elf strip (llvm-objcopy --strip-all): 836624
+  arm64.elf                    raw=  926744
+    gzip-9     454273 ( 49.0%)  распаковка med 3.382 ms (n=9, min 2.957 max 9.062)
+    bzip2-9    441384 ( 47.6%)  распаковка med 48.161 ms (n=9, min 42.875 max 61.123)
+    xz-9e      352332 ( 38.0%)  распаковка med 15.716 ms (n=9, min 15.623 max 16.948)
+    zstd-19    405188 ( 43.7%)  распаковка med 1.434 ms (n=9, min 1.393 max 1.489)
+    zstd-3     481799 ( 52.0%)  распаковка med 1.039 ms (n=9, min 1.022 max 1.101)
+    lz4-hc     532986 ( 57.5%)  распаковка med 0.338 ms (n=9, min 0.319 max 0.396)
+  arm64.Image                  raw=  831812
+    gzip-9     424050 ( 51.0%)  распаковка med 2.836 ms (n=9, min 2.803 max 2.889)
+    bzip2-9    407524 ( 49.0%)  распаковка med 43.751 ms (n=9, min 39.072 max 56.383)
+    xz-9e      331372 ( 39.8%)  распаковка med 13.783 ms (n=9, min 13.564 max 14.392)
+    zstd-19    380171 ( 45.7%)  распаковка med 1.210 ms (n=9, min 1.177 max 1.327)
+    zstd-3     451399 ( 54.3%)  распаковка med 0.862 ms (n=9, min 0.850 max 0.898)
+    lz4-hc     493128 ( 59.3%)  распаковка med 0.343 ms (n=9, min 0.328 max 0.457)
+== userland x86-64: ET_EXEC, 3 PT_LOAD (R-X, R--, RW-), база 0x8000000000
+  atk-cap    ELF   13568  strip   13264  (-2%)
+  atk-gs     ELF    4872  strip    4480  (-8%)
+  atk-mem    ELF    4856  strip    4456  (-8%)
+  atk-priv   ELF    4832  strip    4440  (-8%)
+  atk-sys    ELF    4912  strip    4488  (-9%)
+  burn       ELF    8808  strip    8504  (-3%)
+  cube3d     ELF   22056  strip   21240  (-4%)
+  demo       ELF    5208  strip    4632  (-11%)
+  drvedu     ELF   13432  strip   13128  (-2%)
+  drvget     ELF  523168  strip  499856  (-4%)
+  drvman     ELF  563696  strip  537328  (-5%)
+  edit       ELF   26760  strip   25336  (-5%)
+  fetch      ELF  121080  strip  115208  (-5%)
+  fpu        ELF    9128  strip    8792  (-4%)
+  ipc        ELF    9192  strip    8896  (-3%)
+  kcc        ELF  377184  strip  360416  (-4%)
+  melody     ELF   13040  strip    8752  (-33%)
+  mt         ELF   13248  strip    8792  (-34%)
+  net6       ELF   22160  strip   17136  (-23%)
+  paint      ELF   17096  strip   12992  (-24%)
+  plasma     ELF    9144  strip    8816  (-4%)
+  rec        ELF   12968  strip    8712  (-33%)
+  serve      ELF   12976  strip    8728  (-33%)
+  udpecho    ELF   13016  strip    8744  (-33%)
+  view       ELF   61200  strip   58072  (-5%)
+  wasm       ELF  154488  strip  149552  (-3%)
+  ИТОГО 26 программ: ELF 2042088, strip 1924760
+ -- edit
+  user/edit.elf-strip          raw=   25336
+    gzip-9       8846 ( 34.9%)  распаковка med 0.050 ms (n=9, min 0.046 max 0.217)
+    bzip2-9      9072 ( 35.8%)  распаковка med 0.578 ms (n=9, min 0.567 max 0.618)
+    xz-9e        7912 ( 31.2%)  распаковка med 0.306 ms (n=9, min 0.303 max 0.353)
+    zstd-19      8291 ( 32.7%)  распаковка med 0.041 ms (n=9, min 0.039 max 0.053)
+    zstd-3       9302 ( 36.7%)  распаковка med 0.037 ms (n=9, min 0.036 max 0.042)
+    lz4-hc      10772 ( 42.5%)  распаковка med 0.006 ms (n=9, min 0.006 max 0.007)
+ -- kcc
+  user/kcc.elf-strip           raw=  360416
+    gzip-9     172602 ( 47.9%)  распаковка med 1.009 ms (n=9, min 1.004 max 1.029)
+    bzip2-9    167565 ( 46.5%)  распаковка med 12.196 ms (n=9, min 11.927 max 12.284)
+    xz-9e      148580 ( 41.2%)  распаковка med 5.954 ms (n=9, min 5.844 max 6.192)
+    zstd-19    157490 ( 43.7%)  распаковка med 0.534 ms (n=9, min 0.522 max 0.578)
+    zstd-3     180695 ( 50.1%)  распаковка med 0.430 ms (n=9, min 0.400 max 0.529)
+    lz4-hc     198382 ( 55.0%)  распаковка med 0.119 ms (n=9, min 0.116 max 0.134)
+ -- fetch
+  user/fetch.elf-strip         raw=  115208
+    gzip-9      55634 ( 48.3%)  распаковка med 0.361 ms (n=9, min 0.353 max 0.386)
+    bzip2-9     54614 ( 47.4%)  распаковка med 3.743 ms (n=9, min 3.701 max 4.302)
+    xz-9e       46900 ( 40.7%)  распаковка med 2.034 ms (n=9, min 1.994 max 2.159)
+    zstd-19     51833 ( 45.0%)  распаковка med 0.187 ms (n=9, min 0.182 max 0.199)
+    zstd-3      60014 ( 52.1%)  распаковка med 0.129 ms (n=9, min 0.121 max 0.149)
+    lz4-hc      65593 ( 56.9%)  распаковка med 0.039 ms (n=9, min 0.037 max 0.045)
+There are 9 section headers, starting at offset 0x5bf20:
+
+Section Headers:
+  [Nr] Name              Type            Address          Off    Size   ES Flg Lk Inf Al
+  [ 0]                   NULL            0000000000000000 000000 000000 00      0   0  0
+  [ 1] .text             PROGBITS        0000008000000000 001000 04b86f 00  AX  0   0 16
+  [ 2] .rodata           PROGBITS        000000800004c000 04d000 00719c 00 AMS  0   0 16
+  [ 3] .data             PROGBITS        0000008000054000 055000 002de8 00  WA  0   0 16
+  [ 4] .got              PROGBITS        0000008000056de8 057de8 000008 00  WA  0   0  8
+  [ 5] .bss              NOBITS          0000008000056df0 057df0 001940 00  WA  0   0 16
+  [ 6] .symtab           SYMTAB          0000000000000000 057df0 002fa0 18      8 505  8
+  [ 7] .shstrtab         STRTAB          0000000000000000 05ad90 000039 00      0   0  1
+  [ 8] .strtab           STRTAB          0000000000000000 05adc9 001155 00      0   0  1
+Key to Flags:
+  W (write), A (alloc), X (execute), M (merge), S (strings), I (info),
+  L (link order), O (extra OS processing required), G (group), T (TLS),
+  C (compressed), x (unknown), o (OS specific), E (exclude),
+  D (mbind), l (large), p (processor specific)
+
+== ET_REL ядра x86-64: 131 объектов, 1753232 Б, 22454 записей перемещений (readelf -r)
+  wasm ftest.wasm   2677 Б
+  wasm wgfx.wasm    3280 Б
+  wasm wmix.wasm    4146 Б
+  wasm wmix0.wasm   9115 Б
+  wasm wtest.wasm   3271 Б
+== .kdrv: заголовок 136 + ELF; .rec 216; .sig 144 => накладные поверх ELF = 496 Б
+  drvedu.elf: 13432 Б; пакет = 13568 Б

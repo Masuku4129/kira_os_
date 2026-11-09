@@ -1,0 +1,3 @@
+arm64 first_byte: n=5 med 57 ms min 53 max 305
+arm64 marker: n=5 med 692 ms min 684 max 956
+arm64: запусков 5, без маркера 0

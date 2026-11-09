@@ -1,0 +1,45 @@
+wasmtime (python) пакет wasmtime; host_clang: Ubuntu clang version 18.1.3 (1ubuntu1)
+
+== sha256 (R=400)
+  размер: wasm 1512 Б; native ELF (динамический, glibc) 16160, strip 14528
+  контрольные суммы: native 00000000f3bb6373 | KIRA-jit 00000000f3bb6373 | KIRA-interp 00000000f3bb6373 | wasmtime 00000000f3bb6373
+  native-clang-O2    wall med    113.52 ms (min 111.15 max 145.27, n=9); peak RSS 1560 KiB
+  kira-wasm-jit      wall med    196.79 ms (min 172.04 max 241.50, n=9); peak RSS 4980 KiB
+  kira-wasm-interp   wall med   2571.82 ms (min 2261.79 max 2624.78, n=9); peak RSS 4700 KiB
+  wasmtime compile      med     2.138 ms (min 2.050 max 2.991)
+  wasmtime instantiate  med     0.264 ms (min 0.235 max 0.357)
+  wasmtime run          med   150.426 ms (min 145.652 max 167.835)
+  ОТНОШЕНИЯ к native (wall процесса; native включает старт процесса ~ms): KIRA-jit 1.7x, KIRA-interp 22.7x, wasmtime run-only 1.33x
+
+== sort (R=3)
+  размер: wasm 1367 Б; native ELF (динамический, glibc) 16168, strip 14536
+  контрольные суммы: native 00000000806a12a7 | KIRA-jit 00000000806a12a7 | KIRA-interp 00000000806a12a7 | wasmtime 00000000806a12a7
+  native-clang-O2    wall med     32.03 ms (min 31.51 max 33.88, n=9); peak RSS 1944 KiB
+  kira-wasm-jit      wall med     41.65 ms (min 38.22 max 43.74, n=9); peak RSS 4944 KiB
+  kira-wasm-interp   wall med    166.22 ms (min 155.45 max 233.20, n=9); peak RSS 4636 KiB
+  wasmtime compile      med     1.818 ms (min 1.733 max 1.952)
+  wasmtime instantiate  med     0.194 ms (min 0.165 max 0.287)
+  wasmtime run          med    18.381 ms (min 18.253 max 18.493)
+  ОТНОШЕНИЯ к native (wall процесса; native включает старт процесса ~ms): KIRA-jit 1.3x, KIRA-interp 5.2x, wasmtime run-only 0.57x
+
+== matmul (R=100)
+  размер: wasm 1060 Б; native ELF (динамический, glibc) 16216, strip 14536
+  контрольные суммы: native 00000000ffff4ffe | KIRA-jit 00000000ffff4ffe | KIRA-interp 00000000ffff4ffe | wasmtime 00000000ffff4ffe
+  native-clang-O2    wall med     37.12 ms (min 36.92 max 37.44, n=9); peak RSS 1560 KiB
+  kira-wasm-jit      wall med    103.97 ms (min 102.14 max 113.29, n=9); peak RSS 4888 KiB
+  kira-wasm-interp   wall med    963.31 ms (min 940.25 max 1064.31, n=9); peak RSS 4636 KiB
+  wasmtime compile      med     1.893 ms (min 1.846 max 2.135)
+  wasmtime instantiate  med     0.255 ms (min 0.212 max 0.299)
+  wasmtime run          med    51.844 ms (min 51.137 max 59.853)
+  ОТНОШЕНИЯ к native (wall процесса; native включает старт процесса ~ms): KIRA-jit 2.8x, KIRA-interp 26.0x, wasmtime run-only 1.40x
+
+== старт (sha256, R=0: заполнение буфера + один вызов kmain)
+  native-clang-O2    старт процесса+модуля med    1.86 ms (min 1.76 max 2.02)
+  kira-wasm-jit      старт процесса+модуля med    3.07 ms (min 2.98 max 3.25)
+  kira-wasm-interp   старт процесса+модуля med    3.23 ms (min 3.11 max 3.85)
+  wasmtime compile      med    1.033 ms
+  wasmtime instantiate  med    0.156 ms
+  wasmtime run          med    0.127 ms
+
+память wasmtime: python+wasmtime без модуля peak RSS med 27472 KiB; с модулем sort (компиляция+выполнение) 34212 KiB; разница 6740 KiB
+интерпретатор KIRA userland/wasm.elf: 154488 Б (ELF, не strip); исходник userland/wasm.c 1039 строк + wasm_jit_x64.h/gen

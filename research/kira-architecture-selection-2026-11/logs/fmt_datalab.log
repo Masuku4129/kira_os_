@@ -1,0 +1,140 @@
+== K1: kira.disk целиком, 8388608 Б (KiraFS v2, блок 4 КБ, большая часть нулей)
+  ненулевых блоков 4 КБ: 620 из 2048
+  zlib-6     1056140 Б (12.59%), распаковка med 7.41 ms
+  zstd-3      630194 Б (7.51%), распаковка med 1.98 ms
+  zstd-19     556534 Б (6.63%), распаковка med 2.20 ms
+  lz4        1402003 Б (16.71%), распаковка med 1.52 ms
+  xz-6        523060 Б (6.24%), распаковка med 26.36 ms
+  gzip-9     1033486 Б (12.32%), распаковка med 6.40 ms
+
+(листинг kfs: 63 записей)
+
+== K2_kfs_listing: путь, размер, тип (kfstool ls kira.disk); строк 63
+  json-map               raw      2637  zlib-6 590  zstd-3 627  zstd-19 578  lz4 945  xz-6 644
+  json-array             raw      1692  zlib-6 543  zstd-3 586  zstd-19 558  lz4 853  xz-6 608
+  cbor-map               raw      1882  zlib-6 639  zstd-3 678  zstd-19 622  lz4 969  xz-6 656
+  cbor-array             raw      1315  zlib-6 610  zstd-3 637  zstd-19 608  lz4 824  xz-6 640
+  msgpack-map            raw      1872  zlib-6 652  zstd-3 687  zstd-19 632  lz4 962  xz-6 660
+  msgpack-array          raw      1305  zlib-6 621  zstd-3 645  zstd-19 625  lz4 818  xz-6 640
+  fixed-binary           raw      2461  zlib-6 594  zstd-3 650  zstd-19 561  lz4 996  xz-6 596
+  varint-rows            raw      1191  zlib-6 591  zstd-3 612  zstd-19 597  lz4 766  xz-6 628
+  columnar               raw      1552  zlib-6 584  zstd-3 614  zstd-19 582  lz4 876  xz-6 600
+  columnar-delta-varint  raw      1191  zlib-6 557  zstd-3 586  zstd-19 563  lz4 722  xz-6 584
+  encode json-map               med     0.081 ms (min 0.063 max 0.126)
+  encode json-array             med     0.029 ms (min 0.028 max 0.059)
+  encode cbor-map               med     0.087 ms (min 0.083 max 0.103)
+  encode cbor-array             med     0.042 ms (min 0.041 max 0.109)
+  encode msgpack-map            med     0.048 ms (min 0.047 max 0.084)
+  encode msgpack-array          med     0.014 ms (min 0.014 max 0.029)
+  encode fixed-binary           med     0.013 ms (min 0.013 max 0.017)
+  encode varint-rows            med     0.061 ms (min 0.059 max 0.101)
+  encode columnar               med     0.008 ms (min 0.008 max 0.010)
+  encode columnar-delta-varint  med     0.035 ms (min 0.034 max 0.039)
+  decompress fixed+zlib-6   med     0.006 ms
+  decompress fixed+zstd-3   med     0.015 ms
+  decompress fixed+zstd-19  med     0.015 ms
+  decompress fixed+lz4      med     0.001 ms
+  decompress fixed+xz-6     med     0.014 ms
+  decode cbor-array             med     0.009 ms
+  decode msgpack-array          med     0.004 ms
+  decode json-array             med     0.010 ms
+  decode columnar-delta-varint med     0.033 ms (чистый Python)
+  decode columnar(fixed ints) med     0.008 ms (numpy)
+
+== K3_boot_log: serial загрузки (то, что хранит klog): номер, тег [KIRA ...], сообщение (fmt_klog_full.log); строк 77
+  json-map               raw     12280  zlib-6 4026  zstd-3 4211  zstd-19 3945  lz4 6024  xz-6 3880
+  json-array             raw     11125  zlib-6 3960  zstd-3 4128  zstd-19 3881  lz4 5969  xz-6 3816
+  cbor-map               raw      8639  zlib-6 4172  zstd-3 4262  zstd-19 4066  lz4 5616  xz-6 3924
+  cbor-array             raw      7946  zlib-6 4093  zstd-3 4223  zstd-19 4008  lz4 5476  xz-6 3892
+  msgpack-map            raw      8583  zlib-6 4177  zstd-3 4266  zstd-19 4072  lz4 5610  xz-6 3912
+  msgpack-array          raw      7890  zlib-6 4086  zstd-3 4213  zstd-19 4009  lz4 5447  xz-6 3880
+  fixed-binary           raw     26723  zlib-6 4348  zstd-3 4538  zstd-19 4239  lz4 5787  xz-6 4080
+  varint-rows            raw      7760  zlib-6 3885  zstd-3 3999  zstd-19 3813  lz4 5247  xz-6 3684
+  columnar               raw      7991  zlib-6 4127  zstd-3 4226  zstd-19 3939  lz4 5548  xz-6 3752
+  columnar-delta-varint  raw      7760  zlib-6 3886  zstd-3 3982  zstd-19 3797  lz4 5249  xz-6 3664
+  encode json-map               med     0.193 ms (min 0.179 max 0.297)
+  encode json-array             med     0.095 ms (min 0.092 max 4.169)
+  encode cbor-map               med     0.198 ms (min 0.190 max 0.233)
+  encode cbor-array             med     0.098 ms (min 0.096 max 0.121)
+  encode msgpack-map            med     0.078 ms (min 0.073 max 8.195)
+  encode msgpack-array          med     0.026 ms (min 0.021 max 0.029)
+  encode fixed-binary           med     0.032 ms (min 0.030 max 0.038)
+  encode varint-rows            med     0.087 ms (min 0.083 max 0.123)
+  encode columnar               med     0.020 ms (min 0.019 max 0.024)
+  encode columnar-delta-varint  med     0.037 ms (min 0.034 max 0.050)
+  decompress fixed+zlib-6   med     0.028 ms
+  decompress fixed+zstd-3   med     0.027 ms
+  decompress fixed+zstd-19  med     0.035 ms
+  decompress fixed+lz4      med     0.007 ms
+  decompress fixed+xz-6     med     0.189 ms
+  decode cbor-array             med     0.027 ms
+  decode msgpack-array          med     0.012 ms
+  decode json-array             med     0.036 ms
+  decode columnar-delta-varint med     0.054 ms (чистый Python)
+  decode columnar(fixed ints) med     0.027 ms (numpy)
+  журнал как текст: 7806 Б
+  текст+zlib-6   3760
+  текст+zstd-3   3870
+  текст+zstd-19  3692
+  текст+lz4      5179
+  текст+xz-6     3588
+
+== K4_manifest: PROG_MANIFEST: имя + SHA-256 (25 программ; из build-arm64/manifest.h); строк 25
+  json-map               raw      2177  zlib-6 1074  zstd-3 1114  zstd-19 1073  lz4 1899  xz-6 1200
+  json-array             raw      1927  zlib-6 1065  zstd-3 1091  zstd-19 1060  lz4 1885  xz-6 1184
+  cbor-map               raw      1178  zlib-6 1070  zstd-3 1041  zstd-19 1023  lz4 1125  xz-6 1092
+  cbor-array             raw      1028  zlib-6 1039  zstd-3 1038  zstd-19 1028  lz4 1049  xz-6 1076
+  msgpack-map            raw      1179  zlib-6 1072  zstd-3 1041  zstd-19 1024  lz4 1127  xz-6 1096
+  msgpack-array          raw      1029  zlib-6 1040  zstd-3 1039  zstd-19 1028  lz4 1052  xz-6 1080
+  fixed-binary           raw      1004  zlib-6 1015  zstd-3 992  zstd-19 983  lz4 1021  xz-6 1036
+  varint-rows            raw       955  zlib-6 966  zstd-3 965  zstd-19 965  lz4 978  xz-6 1016
+  columnar               raw       955  zlib-6 966  zstd-3 965  zstd-19 965  lz4 978  xz-6 1012
+  columnar-delta-varint  raw       955  zlib-6 966  zstd-3 965  zstd-19 965  lz4 978  xz-6 1012
+  encode json-map               med     0.034 ms (min 0.033 max 0.050)
+  encode json-array             med     0.017 ms (min 0.017 max 0.019)
+  encode cbor-map               med     0.039 ms (min 0.033 max 0.133)
+  encode cbor-array             med     0.017 ms (min 0.016 max 0.018)
+  encode msgpack-map            med     0.020 ms (min 0.020 max 0.023)
+  encode msgpack-array          med     0.006 ms (min 0.006 max 0.006)
+  encode fixed-binary           med     0.009 ms (min 0.008 max 0.039)
+  encode varint-rows            med     0.013 ms (min 0.013 max 0.014)
+  encode columnar               med     0.004 ms (min 0.003 max 0.010)
+  encode columnar-delta-varint  med     0.004 ms (min 0.003 max 0.004)
+  decompress fixed+zlib-6   med     0.000 ms
+  decompress fixed+zstd-3   med     0.015 ms
+  decompress fixed+zstd-19  med     0.016 ms
+  decompress fixed+lz4      med     0.001 ms
+  decompress fixed+xz-6     med     0.027 ms
+  decode cbor-array             med     0.005 ms
+  decode msgpack-array          med     0.002 ms
+  decode json-array             med     0.005 ms
+  decode columnar-delta-varint med     0.006 ms (чистый Python)
+  decode columnar(fixed ints) med     0.006 ms (numpy)
+
+== S1_synthetic_telemetry: СИНТЕТИКА: ts мс (дельта 1..19), sensor 0..11, value random walk u16, flags; строк 100000
+  json-map               raw   4516648  zlib-6 604925  zstd-3 684697  zstd-19 423435  lz4 1220128  xz-6 367396
+  json-array             raw   2516648  zlib-6 535821  zstd-3 615986  zstd-19 445432  lz4 851084  xz-6 338200
+  cbor-map               raw   2700005  zlib-6 534761  zstd-3 595458  zstd-19 421646  lz4 764583  xz-6 289256
+  cbor-array             raw   1500005  zlib-6 492018  zstd-3 485404  zstd-19 390660  lz4 603255  xz-6 253316
+  msgpack-map            raw   2700005  zlib-6 534760  zstd-3 595390  zstd-19 422257  lz4 764455  xz-6 290908
+  msgpack-array          raw   1500005  zlib-6 492023  zstd-3 485232  zstd-19 390666  lz4 603100  xz-6 255548
+  fixed-binary           raw   1200004  zlib-6 466327  zstd-3 417433  zstd-19 391305  lz4 792933  xz-6 290056
+  varint-rows            raw    400010  zlib-6 221661  zstd-3 220816  zstd-19 217932  lz4 397161  xz-6 197640
+  columnar               raw   1200004  zlib-6 320833  zstd-3 270284  zstd-19 251313  lz4 678994  xz-6 206696
+  columnar-delta-varint  raw    400010  zlib-6 184004  zstd-3 189717  zstd-19 183999  lz4 329648  xz-6 175688
+  encode cbor-array             med   127.246 ms (min 117.302 max 155.654)
+  encode msgpack-array          med    54.106 ms (min 41.711 max 71.153)
+  encode fixed-binary           med     7.115 ms (min 6.908 max 7.535)
+  encode varint-rows            med   147.505 ms (min 144.445 max 157.687)
+  encode columnar               med     7.110 ms (min 6.740 max 7.922)
+  encode columnar-delta-varint  med    57.805 ms (min 56.308 max 75.168)
+  decompress fixed+zlib-6   med     3.199 ms
+  decompress fixed+zstd-3   med     1.271 ms
+  decompress fixed+zstd-19  med     1.550 ms
+  decompress fixed+lz4      med     1.149 ms
+  decompress fixed+xz-6     med    18.240 ms
+  decode cbor-array             med    23.224 ms
+  decode msgpack-array          med    13.460 ms
+  decode json-array             med    29.958 ms
+  decode columnar-delta-varint med    66.918 ms (чистый Python)
+  decode columnar(fixed ints) med     0.003 ms (numpy)

@@ -1,0 +1,38 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: loading Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x3,0x0)
+BdsDxe: starting Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x3,0x0)
+KIRA OS UEFI loader
+KIRA UEFI: ELF header type=2 machine=62 ver=1 eh=64 phent=56 phnum=4 phoff=40 entry=120000 size=1040752
+KIRA UEFI: ELF identity check begin
+KIRA UEFI: ELF identity accepted
+KIRA UEFI: ELF program-header table accepted
+KIRA UEFI: ELF program-header pointer=DC7F058
+KIRA UEFI: handing off to kernel (BootInfo, ExitBootServices)
+[KIRA UEFI] Common BootInfo accepted; entering shared kernel initialization.
+
+==================================================
+[KIRA OS] Kernel core starting...
+==================================================
+[KIRA BOOT] BootInfo v1 validated: memory ranges=132, modules=0, bytes=3304.
+[KIRA BOOT] Early console is on screen.
+[KIRA GDT] GDT loaded (Ring0/Ring3 segments), TSS loaded with 3 IST stacks (#DF, NMI, #MC).
+[KIRA IDT] Configuring 64-bit Interrupt Descriptor Table...
+[KIRA IDT] IDT loaded: 32 exceptions (#DF/NMI/#MC on IST) + 16 IRQs + LAPIC spurious, other vectors -> unhandled trap.
+[KIRA FPU] x87 + SSE/SSE2 enabled; per-thread FXSAVE state (512 B) saved on every context switch.
+[KIRA PMM] Usable RAM per BootInfo map: 201 MB; allocatable now (below 1 GB, minus kernel and bitmaps): 200 MB; above 1 GB waiting to be mapped: 0 MB; bitmaps 16 KB.
+[KIRA VMM] Verifying paging state...
+[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.
+[KIRA VMM] NULL guard installed: first 2 MB split into 4 KB pages, page 0 unmapped.
+[KIRA VMM] SMEP not offered by this CPU.
+[KIRA VMM] SMAP not offered by this CPU (user copies are still checked and fault-safe).
+[KIRA RAM] Mapped RAM above 1 GB: 0 MB (2 MB pages, no-execute); edges lost to alignment or failures: 0 KB.
+[KIRA VMM] W^X kernel: ok (text=736 KB ro=128 KB rw=1051804 KB)
+[KIRA ACPI] Native RSDP accepted: tables ok 6, bad 0, CPUs 1, IOAPICs 1\n[KIRA HW] CPU AuthenticAMD family 15 model 107 stepping 1, virtual machine
+[KIRA HW] cores (ACPI): 1, RAM 200 MB, address bits 40/48
+[KIRA HW] features: sse2 nx
+[KIRA HW] TSC not measured yet
+[KIRA HW] limits for this machine: program heap up to 100 MB per program, kernel keeps 12 MB free
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 877969 bytes, prefix 898e02e7...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.

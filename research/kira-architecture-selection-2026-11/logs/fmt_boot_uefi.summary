@@ -1,0 +1,4 @@
+uefi first_byte: n=6 med 1550 ms min 1316 max 1878
+uefi kernel_start: n=6 med 2274 ms min 2056 max 2631
+uefi marker: n=6 med 2321 ms min 2102 max 2678
+uefi: запусков 6, без маркера 0

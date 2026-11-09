@@ -1,0 +1,47 @@
+== kdrv_format
+kdrv_test: PASS
+-> PASS
+== pk_ed25519_rsa_ecdsa
+pk: RSA 2048/3072/4096 PKCS#1 v1.5 + PSS (SHA-256/384/512), ECDSA P-256/P-384 (+truncated hash), Ed25519 (RFC 8032 TEST 1-3), forgeries rejected - passed
+-> PASS
+== kdrv_sig
+kdrv_sig: Ed25519 package authentication, validity window, key lookup and revocation passed
+-> PASS
+== kdrvsign_py
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.252s
+
+OK
+-> PASS
+== kdrv_state
+kdrv_state: version floor, rollback, corrupt state, revocation, clock rollback and key rotation passed
+-> PASS
+== kdrv_catalogue
+kdrv_catalogue: authenticated parsing, publisher policy, tamper, revocation, expiry and rollback checks passed
+-> PASS
+== drvget
+drvget: https-only URLs, recipe parsing and mutations, license/GPL/binary rejection, set hash, confirmation prefix passed
+-> PASS
+== elf_loader_kloader_host_BUILD_ONLY
+built
+-> PASS
+== bootinfo
+bootinfo: PASS
+-> PASS
+== bootinfo_mb2
+bootinfo_mb2: PASS
+-> PASS
+== fdt
+fdt: QEMU-virt-like tree, paths, reg cells, compatible lists, cpu count, corrupted blobs passed
+-> PASS
+== kfs
+crash cases: 191
+fuzz: mounted 334, rejected 66
+kfs v2: 1500-entry directory, inode table growth, volume growth with the disk, 5 MB files, v1 upgrade passed
+kfs ok
+-> PASS
+== состав тестов kdrv_test/ks по тестам-подписи: сколько CHECK
+tests/kdrv_sig_test.c:30
+tests/kdrv_state_test.c:98
+tests/kdrv_test.c:34
