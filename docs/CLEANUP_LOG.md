@@ -1,0 +1,86 @@
+# Журнал чистки веток (2026-11-09)
+
+Мусор по классификации Claude. Удаление веток моделью невозможно (нет прав), поэтому выполняет владелец: tools/cleanup_branches.sh. Каждая ветка записана с SHA, чтобы её можно было восстановить командой git push origin SHA:refs/heads/ИМЯ (пока GitHub хранит объекты).
+
+## 1. Служебные ветки CI (ci-results-*, ci-preview-*): публикуются автоматикой, пересоздаются при следующем запуске CI. Ветку ci-results (для main) не трогать.
+- ci-preview-v46-unified-release-integration f07443c289f2a6d1bde36445805b443d18691c12
+- ci-results-3-merge 0f11a3e86c48ea82ef56fbaee1d0222b4272bfda
+- ci-results-4-merge 25c878fb1694ae7a733ae83cd097f44858aa57d7
+- ci-results-47-merge 8971e02dc7a50336fa283036b550cf6c1f849d74
+- ci-results-48-merge 4b13e7d6d841d238cc453be6a7aaaa238c3564fb
+- ci-results-audit-ci-architecture 4d89c64d427d8b7853f0da878c889ac9020767ca
+- ci-results-ci-watchdog-10m 4e0843248c8d8a9bc5f7445e0fa95254f6a01479
+- ci-results-factory-architecture-parallel f4ee5218da215e16b29a3a679aca817edb365888
+- ci-results-factory-architecture-round-2 8e7a2095c03a3b1cc402f59686553e79afd395b4
+- ci-results-integ 203fdd07cb58f83acf2aabc8d74503af18eabeaf
+- ci-results-integ2 fbbc8bd766cf8e366d2dfe41d4d5fa9a62619395
+- ci-results-integ3 4ce9e19ff513a3fb9803d292eb525bb407e27e4c
+- ci-results-integ4 cbbc52e4daff7fd2268699dfc781f28ab367e233
+- ci-results-integ5 65dafc84c5f09ae298ae91e10f6a08281f1e3ea1
+- ci-results-kira-lab-robust-futex-2026-11-09 f5de27e411195f64d7aefef280fc5205dd8fcf2b
+- ci-results-maintenance-watchdog-v45 7519ea80c371d35fcb94aaff437a02e16f2eb627
+- ci-results-pkg-A fe357c858f166133d22e8d612d35cc04292146c8
+- ci-results-pkg-C 86c67ca4c14311d8a21858a817a714fbd6de8833
+- ci-results-pkg-D 71cf94a52e8c39e3c06ff6cbf54ddd53efe5bc18
+- ci-results-pkg-DK b0078593fb74b40afc20c1fe95a237400c583ace
+- ci-results-pkg-DM c83700a01ef7ed710d2b67ff3b6cef09a9126b68
+- ci-results-pkg-E 635ffecdae879ceaaa208d6006f25009e37c6efc
+- ci-results-pkg-F d7bc21ac4ba51e86efa36bba1a83c049ece94710
+- ci-results-pkg-G 4040c0b425890e96a8a704b427e56ad53f16d10a
+- ci-results-pkg-H 686d9713ec83e835dbffed4afce401fbe9f39400
+- ci-results-pkg-H0 fc64db66bad9e06804c65255e3b432ac62a7606e
+- ci-results-pkg-I ea8acfc47e793ba1aa17efb3df0e921faf95cfc7
+- ci-results-pkg-J 174fba388925c56ccbc12fb714cec85d615e4173
+- ci-results-pkg-K e365b77fcae72f327604c4cac0e0abefbe6c81b0
+- ci-results-pkg-LN 060a225a8f77be006fc6044d297e3f3bf1f8ae81
+- ci-results-pkg-M 29ca8b43fc74c63562b9c902b2da687b83f40956
+- ci-results-pkg-M4 7ef431617e63c61b39eb718b0948646134da19c0
+- ci-results-pkg-STAB 43d840e3bfc2d1a7ea8e201f8519032ec0b924f7
+- ci-results-pkg-UX 88f713e959a6007126f686358afe891672d71df8
+- ci-results-pkg-WJ 1ec4e0638a44ec4ef86475f729ac2d21c5b6e240
+- ci-results-research-architecture-validation-round2-2026-11-09 fdfb5df7c137526b6ac13d284509ac9a3b575d09
+- ci-results-research-data-format-lab-2026-11 a08047ed91f2b9a4e273cf05b9025d615aa1f266
+- ci-results-research-driver-adaptation-lab-2026-11 db23f19e1ec5b5f0184455a9cc24a902a89df9a4
+- ci-results-v43-integration f9c6da7324a309e3840df3c27d001bab36df33a7
+- ci-results-v44-global-upgrade cd30dd03d917773eac31e612fd936ff563a7cc72
+- ci-results-v44-next-batch 6c6e6a88a92dbfcf05ae01d89f1d2b75f80f1ec8
+- ci-results-v45-overhaul 6dc827a27840e0b1b5b5cb32620b6b9fa744ed05
+- ci-results-v46-architecture-completion 27cffffe29f9c8f1df909896cb00c429a3175c02
+- ci-results-v46-ci-final-20261107b 89292c56fd07596f0c44bc7bf2c9358a1db08734
+- ci-results-v46-ci-validation-20261107 9efe84ffa67ccb7caa0eec0177d6a46cf090ac89
+- ci-results-v46-ci-validation-fdt-20261107 ed36a4e93c7c52766bc46cfe30a2a7eb03428a85
+- ci-results-v46-ci-validation-final-20261107 0f7825038caa633348e23eb854b0ca731ade48a9
+- ci-results-v46-dma-cleanup-validation 09b2fa4c46e8bfb37b8cf56da698e336469aea21
+- ci-results-v46-dma-device-cleanup 8a6dd6cad279ceca258e2a2a3f0784526bd7c1df
+- ci-results-v46-ed25519-strict-subgroup 2dc52f4b661d8e3e0435a25a8983a834c021c2f7
+- ci-results-v46-engineering-work 7c33d8bcb41775b08be7c797b27b306a70a8ecea
+- ci-results-v46-iommu-network-compile-fixes 913c3da3a94a37e158e3d1f5d1a7c7c3ddae74c5
+- ci-results-v46-kdrv-auth-integration-final 243c763939c23e097a2bf7a0157bdbed7ae83597
+- ci-results-v46-kdrv-catalogue-signature-policy 837a3df8e886b287732acea338f7102f9e459140
+- ci-results-v46-kdrv-host-link-fix e056e7dc2a465f20a355a8cfd09d96fb57f4140b
+- ci-results-v46-kdrv-keyring-array f689c512781e0e44c8def5251f7c8be7d31c696d
+- ci-results-v46-kdrv-runtime-signature-import e9f1fa4d4fb67818c5f9d134e516c46a9e05eae6
+- ci-results-v46-kdrv-signature-ci-routing 4a599c839b53de7bf9099ab284b5d5726c6e26aa
+- ci-results-v46-kdrv-signature-work 0814f9e50b76280c9007b329712b9a591e366cac
+- ci-results-v46-kdrv-tool-ignore 0364ae78d576df8e065682eab875cb288a787ea9
+- ci-results-v46-kira-agent-bootstrap 1d8027aa8ad27570d09b176ab5fa8204eac128bb
+- ci-results-v46-release-completion d665649e28ca539e19f327fa21112d581dc9fb18
+- ci-results-v46-release-gate-hardening b88dabbff724b90849b57fb167665096c9078576
+- ci-results-v46-uefi-bootinfo-validation 88d81b9e2dd2d08a984a80b7168ff7bb540804be
+- ci-results-v46-unified-release-integration 1ee8f4b17b56c7f16e23df7fa7e761848725ecb5
+- ci-results-v46-validation-dma-sync-current 8d8ed8bef72f5c41d0eb81cbf5f2740ba10d6cbb
+- ci-results-v46-validation-lifecycle-current 98ae3888bb51276483e0cfde6d1dbcd0cfa97380
+- ci-results-v46-virtio-release-quiesce 072c6bbd0f283d15ade082011d7ea1922ecba261
+- ci-results-work-ci-drvman-log-fix e0a5d44999301ec727899c21700fe4667f961c33
+- ci-results-work-kdrv-auth 7e6628e503cfcf038d519a92a9a25a95a0181486
+- ci-results-work-parallel-build-factory 2487b63036812806d1d8da8447ee0b9008fdb3c0
+## 2. Дубликаты (тот же коммит, что у оставляемой ветки)
+- impl/bios-uefi-boot 08bd83c0e3af1f96599b259caaa96b7fa51bcee1 impl/arm64-smmu
+- impl/kcc-selfhost 08bd83c0e3af1f96599b259caaa96b7fa51bcee1 impl/arm64-smmu
+- impl/kdrv-trust-lifecycle 08bd83c0e3af1f96599b259caaa96b7fa51bcee1 impl/arm64-smmu
+- impl/platform-acpi 08bd83c0e3af1f96599b259caaa96b7fa51bcee1 impl/arm64-smmu
+- impl/rtl8139-cleanroom 08bd83c0e3af1f96599b259caaa96b7fa51bcee1 impl/arm64-smmu
+- impl/x86-iommu 08bd83c0e3af1f96599b259caaa96b7fa51bcee1 impl/arm64-smmu
+- v46/ci-final-20261107c 232bae450581c0e0e5d2fc0b974a311d1bde2b8e v46/ci-final-20261107b
+- v46/ci-validation-final 37f988ec059794429e90bfd31c5421879005a8cf v46/ci-validation-20261107
+## 3. Кандидаты на ручной разбор (не удалять без решения): ветки без открытого PR с уникальными для них историями: impl/*, impl2/*, integ*, pkg-*, v43-v45, v46/ci-*, v46/validation-*, work/*, ai/*, audit/*, gpt/*. Содержимое не проверялось построчно; часть могла быть заменена слиянием в v46/unified-release-integration. Ветки с открытыми PR (20 шт.) не входят ни в один список удаления.
