@@ -1,0 +1,138 @@
+{
+ "name": "apps-drvman",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "drvman: окно создано 640x560",
+   "ok": true
+  },
+  {
+   "log": "drvman: кадр: строк в списках [1-9]\\d*, устройств [1-9]\\d*, пакетов 4",
+   "ok": true
+  },
+  {
+   "expect": "drvman: набор готов к установке",
+   "ok": true
+  },
+  {
+   "log": "drvman: ищу драйвер «rl»",
+   "ok": true
+  },
+  {
+   "log": "лицензия:   заявлена BSD-3-Clause",
+   "ok": true
+  },
+  {
+   "log": "SHA-256 набора исходников \\(рецепт \\+ файлы\\): 0d110b29",
+   "ok": true
+  },
+  {
+   "log": "10ec:8139",
+   "ok": true
+  },
+  {
+   "log": "CAP_DMA",
+   "ok": true
+  },
+  {
+   "log": "IOMMU",
+   "ok": true
+  },
+  {
+   "log": "Установка НЕ выполнена",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: установить rl v1\\?",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: источник https://10\\.0\\.2\\.100/rl/drvget\\.rec",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: лицензия BSD-3-Clause, права: MMIO DMA PCIDEV NETDEV",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: SHA-256 набора 0d110b29[0-9a-f]{56}",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память",
+   "ok": true
+  },
+  {
+   "log": "drvman: установка отменена пользователем, ничего не записано",
+   "ok": true
+  },
+  {
+   "expect": "drvget: пакетов в /drv: 4 ",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "\\n  rl: версия",
+   "ok": true
+  },
+  {
+   "expect": "drvman: драйвер rl установлен в /drv",
+   "ok": true
+  },
+  {
+   "log": "drvman: подтверждено пользователем, собираю и ставлю",
+   "ok": true
+  },
+  {
+   "log": "drvget: собрано, образ ELF \\d+ байт",
+   "ok": true
+  },
+  {
+   "expect": "rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, источник: https://10\\.0\\.2\\.100/rl/drvget\\.rec",
+   "ok": true
+  },
+  {
+   "expect": "verify rl: OK",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "must": "rl: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV",
+   "ok": false
+  }
+ ],
+ "error": "«drv»: в выводе нет «rl: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV»\n(хеши сходятся с записью, пользователь подтверждал установку)\n[KIRA PROC] pid 4 'drvget' finished, exit code 0, address space destroyed (381 pages returned to PMM).\nкира> ",
+ "boot_seconds": 5.6,
+ "seconds": 32.4,
+ "commands": [
+  {
+   "cmd": "run drvman",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "drv",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "drv",
+   "seconds": 0.0
+  }
+ ]
+}
