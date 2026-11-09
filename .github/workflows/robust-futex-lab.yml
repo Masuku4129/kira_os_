@@ -1,0 +1,54 @@
+name: robust-futex-lab
+
+on:
+  push:
+    branches:
+      - "kira-lab/robust-futex-*"
+    paths:
+      - ".github/workflows/robust-futex-lab.yml"
+      - "lab/robust-futex/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native Linux \${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: \${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain and kernel
+        run: |
+          uname -a
+          uname -m
+          gcc --version | head -1
+          ldd --version | head -1
+      - name: Build strict
+        run: |
+          mkdir -p out
+          gcc -O2 -std=c11 -Wall -Wextra -Wpedantic -Werror \
+            lab/robust-futex/robust_futex_diag.c -pthread \
+            -o out/robust_futex_diag
+      - name: Run bounded recovery checks
+        run: |
+          set +e
+          timeout 10s ./out/robust_futex_diag | tee out/result.txt
+          rc=\${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=$rc"
+          test "$rc" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: robust-futex-\${{ matrix.arch }}
+          path: out/
