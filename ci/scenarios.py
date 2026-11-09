@@ -702,3 +702,98 @@ ALL.append(sc("drvman-quiet", "тихий запуск графического 
     {"log_forbid": [r"drvman: окно создано", r"drvman: кадр:", r"drvman: ищу драйвер"] + NO_ERR},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G"))
+
+
+# Задание на сборку (этап D плана сборщика): `build` ставит задачу процессу kcc без прав, показывает хеш образа, разрешение даёт только
+# человек (первые знаки SHA-256), запуск - только после разрешения и без прав; подмена образа между allow и run отклоняется.
+# Эталоны контрольных сумм считает хост той же арифметикой, что и шаблоны (mind_build.c).
+def _mbj_ref_probe(iters, seed):
+    x = seed & 0xFFFFFFFF; acc = 0
+    for i in range(iters):
+        x = (x * 1664525 + 1013904223) & 0xFFFFFFFF
+        acc ^= x >> 7
+        acc = (acc + i) & 0xFFFFFFFF
+    return acc & 0x7FFFFFFF
+
+
+def _mbj_ref_table(n, mul, mod):
+    s = 0
+    for i in range(n):
+        s = (s + ((i * mul + 1) % mod) * (i + 1)) & 0xFFFFFFFF
+    return s & 0x7FFFFFFF
+
+
+_MBJ_P = _mbj_ref_probe(50000, 7)
+_MBJ_T = _mbj_ref_table(64, 37, 1009)
+_MBJ_REP = r"\[BUILD\] (mb%d[0-9a-f]{6}) sha256 ([0-9a-f]{64})"
+ALL.append(sc("mind-build", "build: сборка процессом kcc без прав, хеш в отчёте, отказ run без разрешения, allow с неверным и верным префиксом, run без прав и контрольная сумма, подмена образа, подделка разрешения в песочнице", [
+    {"log": BOOT_LOG},
+    {"cmd": "build", "must": [r"build probe N SEED", r"build allow ИМЯ ХЕШ", r"решает человек"]},
+    {"cmd": "build probe 0 1", "must": [r"отказ: неизвестный шаблон или параметр вне диапазона"]},
+    {"cmd": "build probe 99999999999 1", "must": [r"использование: build probe N SEED"]},
+    {"cmd": "build table 257 1 1", "must": [r"отказ: неизвестный шаблон или параметр вне диапазона"]},
+    {"cmd": "build list", "must": [r"образов нет"]},
+    # зонд: сборка в процессе kcc, отчёт с хешем
+    {"send": "build probe 50000 7"},
+    {"expect": _MBJ_REP % 1, "timeout": 120},
+    {"capture": {"p": r"\[BUILD\] (mb1[0-9a-f]{6}) sha256", "psha": r"sha256 ([0-9a-f]{64})"}},
+    {"expect": r"ожидает решения; запуска не было", "timeout": 30},
+    {"log": [r"\[BUILD\] задание принято, сборка идёт в процессе kcc \(pid \d+, только CAP_FS\)", r"\[BUILD\] <<p>> размер \d+ байт, лексем \d+, арена \d+ КБ, сборка \d+ мс",
+             r"\[BUILD\] <<p>> ожидает решения; запуска не было"]},
+    # ядро считает хеш само: он обязан совпасть с отчётом сборщика
+    {"cmd": "build list", "must": [r"<<p>>  шаблон 1  \d+ байт  sha256 <<psha>>  ожидает решения"]},
+    # без разрешения запуск отклонён
+    {"cmd": "build run <<p>>", "must": [r"отказ: разрешения нет"], "forbid": [r"запущен без прав", r"запускается по явной команде"]},
+    # неверный и короткий префикс, чужое имя
+    {"cmd": "build allow <<p>> 00000000", "must": [r"отказ: введённый хеш не совпал"], "forbid": [r"разрешён"]},
+    {"cmd": "build allow <<p>> <<psha:7>>", "must": [r"отказ: введённый хеш не совпал"], "forbid": [r"разрешён"]},
+    {"cmd": "build allow mb1000000 <<psha:12>>", "must": [r"отказ: нет записи о сборке или образа"]},
+    {"cmd": "build allow ../bin/kcc <<psha:12>>", "must": [r"отказ: неизвестный шаблон или параметр вне диапазона"]},
+    {"cmd": "build run <<p>>", "must": [r"отказ: разрешения нет"], "forbid": [r"запущен без прав"]},
+    # подделка разрешения процессом/файлом песочницы: файл .ok в /data/kcc ядром не читается
+    {"cmd": "write /data/kcc/<<p>>.ok forged", "must": [r"записано"]},
+    {"cmd": "build run <<p>>", "must": [r"отказ: разрешения нет"], "forbid": [r"запущен без прав"]},
+    # верный префикс: разрешение, затем запуск без прав и контрольная сумма
+    {"cmd": "build allow <<p>> <<psha:12>>", "must": [r"<<p>> разрешён человеком"]},
+    {"cmd": "build list", "must": [r"<<p>>  шаблон 1 .* разрешён человеком"]},
+    {"send": "build run <<p>>"}, {"sleep": 6},
+    {"log": [r"\[LOCAL\] /data/kcc/<<p>> запускается по явной команде пользователя как 'local-<<p>>' без прав",
+             r"\[BUILD\] <<p>> запущен без прав \(pid \d+\)",
+             r"'local-<<p>>' finished, exit code %d," % _MBJ_P]},
+    # подмена образа между allow и run: ядро перечитывает образ и сверяет хеш
+    {"cmd": "write /data/kcc/<<p>> tampered", "must": [r"записано"]},
+    {"cmd": "build run <<p>>", "must": [r"отказ: образ изменён после сборки или разрешения"], "forbid": [r"запущен без прав", r"запускается по явной команде"]},
+    {"cmd": "build allow <<p>> <<psha:12>>", "must": [r"отказ: образ изменён после сборки или разрешения"]},
+    {"cmd": "build list", "must": [r"<<p>>  не годен: образ изменён после сборки или разрешения"]},
+    {"cmd": "build drop <<p>>", "must": [r"<<p>> удалён вместе с записью и разрешением"]},
+    {"cmd": "build run <<p>>", "must": [r"отказ: нет записи о сборке или образа"]},
+    # таблица: тот же путь, другое значение; разрешение именно этого образа не переносится на другой
+    {"send": "build table 64 37 1009"},
+    {"expect": _MBJ_REP % 2, "timeout": 120},
+    {"capture": {"t": r"\[BUILD\] (mb2[0-9a-f]{6}) sha256", "tsha": r"\[BUILD\] mb2[0-9a-f]{6} sha256 ([0-9a-f]{64})"}},
+    {"cmd": "build allow <<t>> <<tsha:8>>", "must": [r"<<t>> разрешён человеком"]},
+    {"send": "build run <<t>>"}, {"sleep": 6},
+    {"log": [r"'local-<<t>>' finished, exit code %d," % _MBJ_T]},
+    # второй зонд с другим SEED: другой образ; хеш первого к нему не подходит
+    {"send": "build probe 1000 99"},
+    {"expect": _MBJ_REP % 1, "timeout": 120},
+    {"capture": {"q": r"\[BUILD\] (mb1[0-9a-f]{6}) sha256", "qsha": r"sha256 ([0-9a-f]{64})"}},
+    {"cmd": "build allow <<q>> <<tsha:12>>", "must": [r"отказ: введённый хеш не совпал"]},
+    {"cmd": "build run <<q>>", "must": [r"отказ: разрешения нет"]},
+    {"cmd": "build drop <<q>>", "must": [r"удалён"]},
+    {"cmd": "build drop <<t>>", "must": [r"удалён"]},
+    {"cmd": "build list", "must": [r"образов нет"]},
+    # сборщик (kcc) права не расширял, ядро не падало; запуск шёл только по разрешению
+    {"log_forbid": NO_ERR + [r"\[KIRA CAPS\] process 'kcc'", r"\[KIRA CAPS\] process 'local-mb", r"\[BUILD\] отказ:", r"\[IMMUNE\] /data/kcc/mb"]},
+    {"responsive": "status", "within": 5},
+], smp=2, mem="1G"))
+
+# Разум только предлагает: строка-предложение в журнале, сборки нет, процесс kcc не запускался, образов нет, разрешать и запускать нечего.
+ALL.append(sc("mind-build-propose", "Разум предлагает задание строкой с командой build, но сам ничего не собирает, не разрешает и не запускает", [
+    {"log": BOOT_LOG},
+    {"send": "ai"}, {"expect": r"\[BUILD\] Разум предлагает задание: калибровочный зонд процессора, выполнить: build probe \d+ \d+ ", "timeout": 150},
+    {"cmd": "build list", "must": [r"образов нет", r"Разум предлагал \(t=\d+ с\): build probe \d+ \d+"]},
+    {"cmd": "build", "must": [r"Разум предлагал"]},
+    {"log_forbid": NO_ERR + [r"\[KIRA PROC\] pid \d+ 'kcc'", r"\[USER pid \d+\] \[BUILD\]", r"\[LOCAL\]", r"разрешён (человеком|подписью)"]},
+    {"responsive": "status", "within": 5},
+], smp=2, mem="1G"))

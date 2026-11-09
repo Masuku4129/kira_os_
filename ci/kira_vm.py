@@ -340,6 +340,22 @@ class VM:
         return out
 
 
+def subst(v, names):
+    """<<имя>> и <<имя:N>> (первые N знаков) в строках шага -> значения, снятые шагом capture; неизвестное имя - ошибка сценария."""
+    if isinstance(v, str):
+        def rep(m):
+            nm, _, cut = m.group(1).partition(":")
+            if nm not in names:
+                raise Fail(f"в сценарии нет значения «{nm}» (его даёт шаг capture)")
+            return names[nm][:int(cut)] if cut else names[nm]
+        return re.sub(r"<<([A-Za-z0-9_]+(?::\d+)?)>>", rep, v)
+    if isinstance(v, list):
+        return [subst(x, names) for x in v]
+    if isinstance(v, dict):
+        return {k: subst(x, names) for k, x in v.items()}
+    return v
+
+
 def run(sc, args):
     out = os.path.join(args.out, sc["name"])
     vm = VM(sc, out, args.iso, args.disk, args.kvm, args.timeout_scale)
@@ -352,7 +368,10 @@ def run(sc, args):
         time.sleep(1.0)
         vm.screenshot("00-boot")
         mark = 0
+        names = {}
         for i, st in enumerate(sc["steps"]):
+            if "capture" not in st:
+                st = subst(st, names)
             if "cmd" in st:
                 cmd = st["cmd"]
                 outp = vm.command(cmd, st.get("timeout", 30))
@@ -369,6 +388,13 @@ def run(sc, args):
             elif "send" in st:                        # без ожидания приглашения (нагрузка, запуск программ)
                 mark = len(vm.log)
                 vm.send(st["send"] + "\r")
+            elif "capture" in st:                     # значения из журнала после последнего send (первая группа регулярного выражения)
+                for nm, rx in st["capture"].items():
+                    m = re.search(rx.encode(), bytes(vm.log[mark:]))
+                    result["checks"].append({"capture": nm, "ok": m is not None})
+                    if not m:
+                        raise Fail(f"capture «{nm}»: в журнале нет «{rx}»")
+                    names[nm] = m.group(1).decode()
             elif "expect" in st:                      # ждать строку в журнале после последнего send
                 vm.expect(st["expect"], st.get("timeout", 60), mark)
                 result["checks"].append({"expect": st["expect"], "ok": True})
