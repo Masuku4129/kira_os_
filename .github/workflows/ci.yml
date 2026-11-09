@@ -44,6 +44,8 @@ jobs:
           python3 benchmarks/data_formats.py --rows 50000 --repeat 3 --out ci-out/data-format-lab
           python3 research/combined_lab/round2_pipeline_lab.py --rows 20000 --versions 8 --repeat 7 --out ci-out/round2-pipeline
           KIRA_BENCH_RUNS=5 bash tests/kcc/bench/bench.sh 2>&1 | tee ci-out/kcc-bench.txt
+          gcc -O2 -std=c11 -Wall -Wextra -Werror -o ci-out/ipc-process-lab research/combined_lab/ipc_process_shared.c
+          ci-out/ipc-process-lab 2>&1 | tee ci-out/ipc-process-lab.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -52,6 +54,7 @@ jobs:
             ci-out/data-format-lab
             ci-out/round2-pipeline
             ci-out/kcc-bench.txt
+            ci-out/ipc-process-lab.txt
 
   build:
     runs-on: ubuntu-24.04
