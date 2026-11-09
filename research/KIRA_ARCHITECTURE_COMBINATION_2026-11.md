@@ -218,3 +218,20 @@ Mind не должен самостоятельно менять границы 
 - WebAssembly sandbox: https://webassembly.org/docs/security/
 - WASI capability design: https://github.com/WebAssembly/WASI/blob/main/docs/DesignPrinciples.md
 - Rust `no_std` for kernel/firmware: https://doc.rust-lang.org/embedded-book/intro/no-std.html
+
+
+## 9. Обязательное дополнение: языки, типы данных и ABI
+
+Первоначальный архитектурный отчёт был неполным: в нём не было полноценного сравнения языков и аудита типовой системы. Этот пробел закрывается отдельным исследованием:
+
+**[KIRA_LANGUAGE_AND_TYPE_SYSTEM_AUDIT_2026-11.md](KIRA_LANGUAGE_AND_TYPE_SYSTEM_AUDIT_2026-11.md)**
+
+Оно фиксирует:
+- фактический языковой состав репозитория (C, assembler, Python; Rust/Zig/Ada пока не интегрированы);
+- возможности и ограничения KCC, LP64 модель и два target ABI;
+- результаты 1373 KCC файловых тестов и 3000 fuzz итераций, отдельно от провалившейся в том же CI самосборки;
+- рекомендуемое распределение языков: C99/GNU C + KCC для текущего ядра, минимальный assembler, Rust `no_std` для новых изолированных служб после ABI-тестов, WASM Component Model/WIT для недоверенных приложений, Python для tooling;
+- типы KIRA IR, ownership, references/slices, tagged variants, fixed-width ABI types, endian wrappers, capability handles и атомарные memory orders;
+- обязательную тестовую матрицу и критерии приёмки.
+
+**Исправление статуса:** архитектура из разделов выше — предварительный кандидат. Её нельзя называть окончательно выбранной или доказанно лучшей до выполнения языковой, типовой и ABI матрицы, описанной в дополнительном аудите.
