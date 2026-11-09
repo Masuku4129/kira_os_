@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <errno.h>
+#include <linux/futex.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -48,7 +49,9 @@ int main(void) {
            (long)getpid());
 #ifdef SYS_get_robust_list
     errno = 0;
-    long gr = syscall(SYS_get_robust_list, 0, NULL, NULL);
+    struct robust_list_head *head = NULL;
+    size_t head_len = 0;
+    long gr = syscall(SYS_get_robust_list, 0, &head, &head_len);
     printf("DIAG | get_robust_list=%s errno=%d (%s)\n",
            gr == 0 ? "available" : "unavailable", gr == 0 ? 0 : errno,
            gr == 0 ? "success" : strerror(errno));
