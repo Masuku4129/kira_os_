@@ -1,0 +1,13 @@
+elf N=1000000 elf.c: Lines executed:81.13% of 53; Branches executed:89.36% of 94; Taken at least once:86.17% of 94
+kex N=1000000 research/kira-architecture-selection-2026-11/scripts/fmt_kex.c: Lines executed:100.00% of 55; Branches executed:100.00% of 100; Taken at least once:96.00% of 100
+kdrv N=1000000 kdrv_fmt.c: Lines executed:48.48% of 66; Branches executed:61.79% of 123; Taken at least once:56.91% of 123
+krec N=1000000 kdrv_fmt.c: Lines executed:22.73% of 66; Branches executed:26.02% of 123; Taken at least once:23.58% of 123
+ksighdr N=1000000 kdrv_sig.c: Lines executed:20.55% of 73; Branches executed:23.40% of 94; Taken at least once:22.34% of 94
+ksig N=30000 kdrv_sig.c: Lines executed:68.49% of 73; Branches executed:76.60% of 94; Taken at least once:62.77% of 94
+kstate N=1000000 kdrv_state.c: Lines executed:51.66% of 151; Branches executed:53.47% of 202; Taken at least once:50.00% of 202
+kbi N=1000000 bootinfo.c: Lines executed:84.07% of 113; Branches executed:87.18% of 234; Taken at least once:80.77% of 234
+mb2 N=1000000 bootinfo_mb2.c: Lines executed:81.25% of 144; Branches executed:80.12% of 161; Taken at least once:60.87% of 161
+kbi2mb N=1000000 bootinfo_uefi.c: Lines executed:75.71% of 70; Branches executed:100.00% of 39; Taken at least once:71.79% of 39
+fdt N=1000000 fdt.c: Lines executed:78.74% of 254; Branches executed:78.11% of 402; Taken at least once:63.18% of 402
+fdt N=1000000 bootinfo_fdt.c: Lines executed:74.49% of 98; Branches executed:83.64% of 110; Taken at least once:58.18% of 110
+kfs N=200000 kfs.c: Lines executed:69.74% of 704; Branches executed:72.55% of 805; Taken at least once:47.33% of 805

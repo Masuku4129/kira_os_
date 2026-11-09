@@ -1,0 +1,279 @@
+== commit артефактов: cecdc10 research: requirements and candidates  (клон исследования: 3d700cc research: skeleton for architecture selection study (CG-20261109-013))
+== file(1) по артефактам
+kira.bin:            ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, not stripped
+kira.iso:            ISO 9660 CD-ROM filesystem data (DOS/MBR boot sector) 'ISOIMAGE' (bootable)
+kira-bios.img:       DOS/MBR boot sector
+kira-uefi.img:       DOS/MBR boot sector; partition 1 : ID=0xee, start-CHS (0x0,0,2), end-CHS (0x3ff,255,63), startsector 1, 131071 sectors, extended partition table (last)
+kira-arm64.elf:      ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), static-pie linked, not stripped
+kira-arm64.img:      Linux kernel ARM64 boot executable Image, little-endian, 4K pages
+bios-stage1.bin:     DOS/MBR boot sector
+bios-stage2.bin:     data
+userland/fetch.elf:  ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, not stripped
+userland/edit.elf:   ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, not stripped
+userland/drvedu.elf: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, not stripped
+userland/boot.o:     cannot open `userland/boot.o' (No such file or directory)
+boot.o:              ELF 64-bit LSB relocatable, x86-64, version 1 (SYSV), not stripped
+sha256.o:            ELF 64-bit LSB relocatable, x86-64, version 1 (SYSV), not stripped
+
+== ET_REL (объект) vs ET_EXEC (исполняемый): readelf -h Type/Machine/Entry
+-- sha256.o
+  Type:                              REL (Relocatable file)
+  Machine:                           Advanced Micro Devices X86-64
+  Entry point address:               0x0
+  Number of program headers:         0
+  Number of section headers:         9
+-- boot.o
+  Type:                              REL (Relocatable file)
+  Machine:                           Advanced Micro Devices X86-64
+  Entry point address:               0x0
+  Number of program headers:         0
+  Number of section headers:         11
+-- userland/edit.o
+  Type:                              REL (Relocatable file)
+  Machine:                           Advanced Micro Devices X86-64
+  Entry point address:               0x0
+  Number of program headers:         0
+  Number of section headers:         16
+-- userland/edit.elf
+  Type:                              EXEC (Executable file)
+  Machine:                           Advanced Micro Devices X86-64
+  Entry point address:               0x8000000000
+  Number of program headers:         3
+  Number of section headers:         8
+-- kira.bin
+  Type:                              EXEC (Executable file)
+  Machine:                           Advanced Micro Devices X86-64
+  Entry point address:               0x120000
+  Number of program headers:         4
+  Number of section headers:         9
+-- kira-arm64.elf
+  Type:                              DYN (Position-Independent Executable file)
+  Machine:                           AArch64
+  Entry point address:               0x0
+  Number of program headers:         7
+  Number of section headers:         12
+-- build-arm64/elf.o
+  Type:                              REL (Relocatable file)
+  Machine:                           AArch64
+  Entry point address:               0x0
+  Number of program headers:         0
+  Number of section headers:         11
+
+== сегменты ядра x86-64 (kira.bin)
+
+Elf file type is EXEC (Executable file)
+Entry point 0x120000
+There are 4 program headers, starting at offset 64
+
+Program Headers:
+  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+  LOAD           0x001000 0x0000000000100000 0x0000000000100000 0x01faf0 0x01faf0 R   0x1000
+  LOAD           0x021000 0x0000000000120000 0x0000000000120000 0x0b6aa1 0x0b6aa1 R E 0x1000
+  LOAD           0x0d8000 0x00000000001d7000 0x00000000001d7000 0x00f161 0x3e3ec0 RW  0x1000
+  GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     .rodata 
+   01     .text 
+   02     .data .bss 
+   03     
+
+== секции ядра
+There are 9 section headers, starting at offset 0xfdf30:
+
+Section Headers:
+  [Nr] Name              Type            Address          Off    Size   ES Flg Lk Inf Al
+  [ 0]                   NULL            0000000000000000 000000 000000 00      0   0  0
+  [ 1] .rodata           PROGBITS        0000000000100000 001000 01faf0 00 AMS  0   0 16
+  [ 2] .text             PROGBITS        0000000000120000 021000 0b6aa1 00  AX  0   0 16
+  [ 3] .data             PROGBITS        00000000001d7000 0d8000 00f161 00  WA  0   0 16
+  [ 4] .bss              NOBITS          00000000001e7000 0e7161 3d3ec0 00  WA  0   0 4096
+  [ 5] .comment          PROGBITS        0000000000000000 0e7161 000042 01  MS  0   0  1
+  [ 6] .symtab           SYMTAB          0000000000000000 0e71a8 00f930 18      8 1552  8
+  [ 7] .shstrtab         STRTAB          0000000000000000 0f6ad8 00003d 00      0   0  1
+  [ 8] .strtab           STRTAB          0000000000000000 0f6b15 00741a 00      0   0  1
+Key to Flags:
+  W (write), A (alloc), X (execute), M (merge), S (strings), I (info),
+  L (link order), O (extra OS processing required), G (group), T (TLS),
+  C (compressed), x (unknown), o (OS specific), E (exclude),
+  D (mbind), l (large), p (processor specific)
+
+== сегменты userland/edit.elf (user.ld, база 0x8000000000)
+
+Elf file type is EXEC (Executable file)
+Entry point 0x8000000000
+There are 3 program headers, starting at offset 64
+
+Program Headers:
+  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+  LOAD           0x001000 0x0000008000000000 0x0000008000000000 0x002865 0x002865 R E 0x1000
+  LOAD           0x004000 0x0000008000003000 0x0000008000003000 0x001cb0 0x001cb0 R   0x1000
+  LOAD           0x006000 0x0000008000005000 0x0000008000005000 0x000150 0x0089d0 RW  0x1000
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     .text 
+   01     .rodata 
+   02     .data .bss 
+
+== сегменты ARM64 ядра (static-pie + .rela)
+
+Elf file type is DYN (Position-Independent Executable file)
+Entry point 0x0
+There are 7 program headers, starting at offset 64
+
+Program Headers:
+  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+  LOAD           0x001000 0x0000000000000000 0x0000000000000000 0x09c5f4 0x09c5f4 R E 0x1000
+  LOAD           0x09e000 0x000000000009d000 0x000000000009d000 0x019184 0x019184 R   0x1000
+  LOAD           0x0b7190 0x00000000000b6190 0x00000000000b6190 0x001be0 0x001be0 RW  0x1000
+  LOAD           0x0b8d70 0x00000000000b7d70 0x00000000000b7d70 0x0036c0 0x0036c0 R   0x1000
+  LOAD           0x0bc430 0x00000000000bb430 0x00000000000bb430 0x00fd14 0x471130 RW  0x1000
+  DYNAMIC        0x0bc430 0x00000000000bb430 0x00000000000bb430 0x0000b0 0x0000b0 RW  0x8
+  GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     .text 
+   01     .rodata 
+   02     .data.rel.ro 
+
+== отладочная информация: DWARF-секции в ядре/userland/ARM64
+-- kira.bin: .debug_*=0 .symtab=1 .eh_frame=0 .note=0
+-- userland/edit.elf: .debug_*=0 .symtab=1 .eh_frame=0 .note=0
+-- userland/fetch.elf: .debug_*=0 .symtab=1 .eh_frame=0 .note=0
+readelf: Warning: [ 5]: Link field (0) should index a string section.
+readelf: Warning: [ 5]: Link field (0) should index a string section.
+readelf: Warning: [ 5]: Link field (0) should index a string section.
+readelf: Warning: [ 5]: Link field (0) should index a string section.
+-- kira-arm64.elf: .debug_*=0 .symtab=1 .eh_frame=0 .note=0
+
+== символы: число в kira.bin (nm) / userland/fetch.elf
+2524
+159
+
+== флаги -g в сборке (build_clang.sh / build_arm64.sh):
+build_clang.sh:0
+build_arm64.sh:0
+
+== архивы .a: поддержка в klink/kcc/сборке
+klink/klink.c:271:    if (n >= 8 && memcmp(d, "!<arch>\n", 8) == 0) fail("%s: archives (.a) are not supported; pass object files", o->name);
+userland/drvget_core.c:255:        (len > 3 && d[0] == 'P' && d[1] == 'K' && d[2] == 3 && d[3] == 4) || (len > 7 && starts((const char*)d, "!<arch>\n")) ||
+ls: cannot access '*.a': No such file or directory
+ls: cannot access 'userland/*.a': No such file or directory
+
+== падения: crashdump.c (текстовый дамп регистров, не core/minidump)
+
+== BIOS-образ: MBR + stage1/stage2 + ядро ELF (mkbios.py)
+#!/usr/bin/env python3
+"""mkbios.py stage1.bin stage2.bin kernel.elf out.img - диск для собственного BIOS-загрузчика KIRA.
+LBA0 stage1, LBA1..32 stage2 (манифест в последних 32 байтах), LBA64.. ядро (ELF64)."""
+import sys, zlib, struct
+KERNEL_LBA = 64
+S2_SECTORS = 32
+def main():
+    if len(sys.argv) != 5:
+        sys.exit(__doc__)
+    s1, s2, k, out = (open(sys.argv[i], 'rb').read() if i < 4 else None for i in range(1, 5))
+    if len(s1) != 512 or s1[510:] != b'\x55\xaa':
+        sys.exit('stage1: нужен ровно 1 сектор с подписью 55AA')
+    if len(s2) != S2_SECTORS * 512:
+        sys.exit('stage2: нужно ровно %d байт' % (S2_SECTORS * 512))
+    if s2[-32:] != bytes(32):
+        sys.exit('stage2: манифест должен быть пустым')
+    if k[:4] != b'\x7fELF' or k[4] != 2:
+        sys.exit('ядро: не ELF64')
+    man = b'KBM1' + struct.pack('<III', KERNEL_LBA, len(k), zlib.crc32(k) & 0xFFFFFFFF) + bytes(16)
+    s2 = s2[:-32] + man
+    img = bytearray(s1 + s2)
+    img += bytes(KERNEL_LBA * 512 - len(img))
+    img += k
+    img += bytes((-len(img)) % (1 << 20))
+    open(sys.argv[4], 'wb').write(img)
+0000000 fa 31 c0 8e d8 8e c0 8e d0 bc 00 7c fb fc 88 16
+0000016
+0000510 55 aa
+0000512
+-rw-r--r-- 1 root root     512 Nov  9 01:41 bios-stage1.bin
+-rw-r--r-- 1 root root   16384 Nov  9 01:41 bios-stage2.bin
+-rw-r--r-- 1 root root 2097152 Nov  9 01:41 kira-bios.img
+
+== UEFI-образ: GPT+ESP, BOOTX64.EFI (PE32+) и KIRA.ELF
+#!/usr/bin/env python3
+"""Собирает загрузочный UEFI-диск Киры: GPT с одним разделом ESP (FAT32), в нём \\EFI\\BOOT\\BOOTX64.EFI (наш загрузчик) и
+\\EFI\\KIRA\\KIRA.ELF (ядро). GRUB не нужен. Использует mformat/mcopy (mtools) для FAT внутри образа по смещению.
+Использование: mkuefi.py BOOTX64.EFI kira.bin kira-uefi.img [размер_МиБ]"""
+import os, struct, subprocess, sys, uuid, zlib
+
+SECTOR = 512
+ESP_TYPE = uuid.UUID("C12A7328-F81F-11D2-BA4B-00A0C93EC93B")
+
+def gpt_image(total_sectors, part_first, part_last, disk_guid, part_guid):
+    entries = bytearray(128 * 128)
+    name = "KIRA ESP".encode("utf-16le")
+    e = ESP_TYPE.bytes_le + part_guid.bytes_le + struct.pack("<QQQ", part_first, part_last, 0) + name.ljust(72, b"\0")
+    entries[:128] = e
+    ecrc = zlib.crc32(bytes(entries)) & 0xFFFFFFFF
+ Volume in drive : has no label
+ Volume Serial Number is 39CF-A93B
+Directory for ::/
+
+EFI          <DIR>     2026-11-09   1:41 
+        1 file                    0 bytes
+
+Directory for ::/EFI
+
+.            <DIR>     2026-11-09   1:41 
+..           <DIR>     2026-11-09   1:41 
+BOOT         <DIR>     2026-11-09   1:41 
+KIRA         <DIR>     2026-11-09   1:41 
+        4 files                   0 bytes
+
+Directory for ::/EFI/BOOT
+
+.            <DIR>     2026-11-09   1:41 
+..           <DIR>     2026-11-09   1:41 
+BOOTX64  EFI     66682 2026-11-09   1:41 
+
+== ARM64 Image заголовок (первые 64 байта) и magic по смещению 56
+0000000 10 00 00 14 00 00 00 00 00 00 08 00 00 00 00 00  >................<
+0000016 00 d0 52 00 00 00 00 00 0a 00 00 00 00 00 00 00  >..R.............<
+0000032 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  >................<
+0000048 00 00 00 00 00 00 00 00 41 52 4d 64 00 00 00 00  >........ARMd....<
+0000064
+
+== kdrv-пакет: kdrv_header_t=136 Б + ELF; .rec=216 Б; .sig=144 Б (kdrv_sig_t) -- static_assert в заголовках
+kdrv_format.h:53:_Static_assert(sizeof(kdrv_match_t) == 12, "kdrv_match_t");
+kdrv_format.h:54:_Static_assert(sizeof(kdrv_header_t) == 136, "kdrv_header_t");
+kdrv_format.h:55:_Static_assert(sizeof(kdrv_rec_t) == 216, "kdrv_rec_t");
+kdrv_sig.h:24:_Static_assert(sizeof(kdrv_sig_t) == 144, "kdrv_sig_t");
+bootinfo.h:49:_Static_assert(sizeof(kbi_mmap_entry_t)==24, "KBI mmap ABI");
+bootinfo.h:50:_Static_assert(sizeof(kbi_module_t)==32, "KBI module ABI");
+bootinfo.h:51:_Static_assert(sizeof(kbi_header_t)==136, "KBI header ABI");
+
+== kfs-образ диска (kira.disk): суперблок
+0000000 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  >................<
+*
+0000064
+
+== Манифест доверенных программ (manifest.h): генерируется kfstool manifest
+/* Создано tools/kfstool manifest. Не редактировать: эталон доверенных программ для иммунной системы. */
+#include "trust.h"
+static const trust_entry_t PROG_MANIFEST[] = {
+    { "mt", {0xa8,0xf3,0x0f,0xeb,0x9a,0xd8,0x02,0x1d,0x65,0x75,0x34,0x1e,0x9b,0x4f,0xe9,0xa2,0x42,0xec,0x8f,0x28,0x89,0x83,0x24,0xf1,0x07,0x7a,0x69,0x6f,0x2e,0xc0,0x51,0x18} },
+    { "ipc", {0xf0,0xcb,0xb4,0xf3,0xed,0x97,0xd3,0xd5,0x8b,0x5a,0xbd,0x4b,0x7e,0x6e,0x73,0xbb,0x33,0x2f,0x0a,0x19,0xee,0xeb,0x2d,0x18,0xad,0xb1,0xbb,0x27,0xc2,0x05,0x49,0x69} },
+    { "bur
+
+== syscall x86-64 (interrupts.s:336): номер rax, аргументы rdi,rsi,rdx (3 арг.), rcx/r11 затираются SYSCALL, r8-r10 обнуляются на выходе
+== syscall AArch64 (arch/aarch64/main.c user_exception): SVC, номер x8, аргументы x0..x2, результат x0
+== ABI-документация: grep 'ABI' в docs/ARCHITECTURE:
+docs/AI_COLLABORATION.md:29
+docs/BUILDER_PLAN.md:1
+docs/DRIVERS.md:2
+docs/PROGRESS.md:2
+docs/RELEASE_GAPS.md:1
+docs/V44_SECURITY_MODEL.md:1
+docs/V44_UPGRADE_PLAN.md:1
+== число SYS_* в syscall.c:
+50

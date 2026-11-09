@@ -1,0 +1,12 @@
+kas_seed1: rc=0 wall=184s запусков=96000
+kas_seed2: rc=0 wall=194s запусков=96000
+klink_seed1: rc=0 wall=155s запусков=50000
+klink_seed2: rc=0 wall=158s запусков=50000
+klink_seed3: rc=0 wall=122s запусков=50000
+kcc: rc=0 wall=51s запусков=200000
+wasm_wtest: rc=0 wall=34s запусков=20000
+wasm_ftest: rc=0 wall=39s запусков=20000
+wasm_wgfx: rc=0 wall=67s запусков=20000
+wasm_wmix: rc=0 wall=33s запусков=20000
+wasm_wmix0: rc=0 wall=40s запусков=20000
+11

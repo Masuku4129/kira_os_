@@ -1,0 +1,4 @@
+bios first_byte: n=6 med 127 ms min 115 max 909
+bios kernel_start: n=6 med 335 ms min 305 max 1104
+bios marker: n=6 med 386 ms min 346 max 1151
+bios: запусков 6, без маркера 0
