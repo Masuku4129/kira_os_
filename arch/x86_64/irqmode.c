@@ -33,6 +33,14 @@ static void spin_ms(uint64_t khz, uint32_t ms) {
 }
 
 int irqmode_is_apic(void) { return apic_mode; }
+int irqmode_pci_line(unsigned irq, int on) {
+    if (!apic_mode || irq >= 16 || irq < 3) return -1;
+    const acpi_info_t* a = acpi_get();
+    if (!a) return -2;
+    if (!on) { ioapic_mask_isa(a, irq, 1); return 0; }
+    irq_set_eoi_apic(irq, 1);
+    return ioapic_route_pci(a, irq, irq_target) == 0 ? 0 : -3;
+}
 uint32_t irqmode_target(void) { return irq_target; }
 
 int irqmode_core_failed(uint32_t failed_apic_id, uint32_t new_apic_id) {

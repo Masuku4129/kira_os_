@@ -102,6 +102,7 @@ typedef struct {
     char     name[16];
     struct { uint64_t size; uint32_t flags; uint32_t pad; } bar[6];   /* flags: KDRV_BAR_* ; size 0 - BAR нет */
 } kdrv_info_t;
+#define KDRV_INFO_INTX 2u                  /* прерывание - линия INTx: ядро маскирует устройство до следующего KDRV_SYS_IRQ_WAIT (драйвер обязан снять причину до повторного ожидания) */
 #define KDRV_INFO_MSI 1u                   /* у устройства есть прерывание сообщением, ядро его включило */
 #define KDRV_BAR_IO 1u                     /* порты ввода-вывода: отобразить нельзя */
 #define KDRV_BAR_MEM64 2u

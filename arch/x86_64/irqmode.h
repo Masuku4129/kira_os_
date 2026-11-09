@@ -13,4 +13,8 @@ uint32_t irqmode_target(void);
    линий, <0 - перенос невозможен (нет APIC-режима). Если отказавшее ядро не было целью, ничего не делает. */
 int irqmode_core_failed(uint32_t failed_apic_id, uint32_t new_apic_id);
 
+/* Линия PCI INTx для драйвера Ring 3: on=1 - направить (уровень, активный низкий) на текущее ядро и подтверждать через LAPIC; on=0 - замаскировать.
+   0 - готово, <0 - нет APIC-режима или линии. */
+int irqmode_pci_line(unsigned irq, int on);
+
 #endif

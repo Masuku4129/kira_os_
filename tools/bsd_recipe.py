@@ -58,7 +58,7 @@ def main(sysd, index, pcidevs, name, commit, outd, base):
     rec = ['# Рецепт drvget для драйвера OpenBSD %s (создан tools/bsd_recipe.py, корпус - коммит %s)' % (name, commit[:10]), 'drvget-recipe 1', 'name ' + dn, 'version 1',
            'license BSD-3-Clause']
     rec += ['pci ' + i for i in ids.split(',')]
-    rec += ['caps mmio pcidev netdev', 'main kdmain.c', 'file kdmain.c kdmain.c sha256 ' + sha(km), 'file kd_pcidevs.h kd_pcidevs.h sha256 ' + sha(pd)]
+    rec += ['caps mmio pcidev netdev irq', 'main kdmain.c', 'file kdmain.c kdmain.c sha256 ' + sha(km), 'file kd_pcidevs.h kd_pcidevs.h sha256 ' + sha(pd)]
     for f in allf: rec.append('file %s %s/%s sha256 %s' % (os.path.basename(f), base, f, sha(rd(os.path.join(sysd, f)))))
     txt = ('\n'.join(rec) + '\n').encode()
     open(os.path.join(d, 'drvget.rec'), 'wb').write(txt)

@@ -205,12 +205,12 @@ int pci_mapreg_map(struct pci_attach_args* pa, int reg, pcireg_t type, int flags
 }
 pcireg_t pci_conf_read(pci_chipset_tag_t pc, pcitag_t tag, int reg) { (void)pc; (void)tag; i64 r = kdrv_cfg_read((u32)reg, 4); return r < 0 ? 0xffffffffu : (u32)r; }
 void pci_conf_write(pci_chipset_tag_t pc, pcitag_t tag, int reg, pcireg_t v) { (void)pc; (void)tag; kdrv_cfg_write((u32)reg, 4, v); }
-/* Ядро даёт драйверам Ring 3 только MSI/MSI-X; у обычного драйвера BSD прерывание - линия INTx, поэтому «прерывание» здесь - опрос обработчика
-   из главного цикла каждые 10 мс. Это честно названо в pci_intr_string. */
+/* Прерывание драйвера BSD: если ядро выдало устройству прерывание (INTx или MSI, права irq), обработчик вызывается из главного цикла по событию
+   KDRV_EV_IRQ; иначе (права irq нет) - опрос каждые 10 мс. Какой режим - видно в pci_intr_string. */
 #define NIH 4
 static struct { int (*fn)(void*); void* arg; } ihs[NIH]; static int nih;
 int pci_intr_map(struct pci_attach_args* pa, pci_intr_handle_t* ih) { (void)pa; *ih = 0; return 0; }
-const char* pci_intr_string(pci_chipset_tag_t pc, pci_intr_handle_t ih) { (void)pc; (void)ih; return "polling"; }
+const char* pci_intr_string(pci_chipset_tag_t pc, pci_intr_handle_t ih) { (void)pc; (void)ih; return (g_info.flags & KDRV_INFO_INTX) ? "intx" : (g_info.flags & KDRV_INFO_MSI) ? "msi" : "polling"; }
 void* pci_intr_establish(pci_chipset_tag_t pc, pci_intr_handle_t ih, int ipl, int (*fn)(void*), void* arg, const char* name) {
     (void)pc; (void)ih; (void)ipl; (void)name; if (nih >= NIH) return NULL; ihs[nih].fn = fn; ihs[nih].arg = arg; return &ihs[nih++];
 }
@@ -246,16 +246,19 @@ int umain(void) {
     if (ifp->if_ioctl) ifp->if_ioctl(ifp, SIOCSIFFLAGS, NULL);                  /* то же, что ifconfig up: инициализация карты */
     __atomic_store_n(&ifp->if_ctl->link, 1u, __ATOMIC_RELEASE);
     printf("bsdrt: %s up, mac %s\n", ifp->if_xname, ether_sprintf(((struct arpcom*)ifp)->ac_enaddr));
+    int use_irq = (g_info.flags & (KDRV_INFO_INTX | KDRV_INFO_MSI)) != 0;
+    printf("bsdrt: прерывания: %s\n", use_irq ? ((g_info.flags & KDRV_INFO_INTX) ? "INTx по событию" : "MSI по событию") : "опрос раз в 10 мс");
+    unsigned irqs = 0; i64 ev = 0;
     u64 next_sec = now_ms() + 1000;
     for (;;) {
-        for (int i = 0; i < nih; i++) if (ihs[i].fn) ihs[i].fn(ihs[i].arg);
+        if (!use_irq || (ev & KDRV_EV_IRQ)) { if (use_irq) irqs++; for (int i = 0; i < nih; i++) if (ihs[i].fn) ihs[i].fn(ihs[i].arg); }
         u64 now = now_ms();
         for (int i = 0; i < NTO; i++) if (tos[i] && tos[i]->to_set && (long)((unsigned long)now - tos[i]->to_due) >= 0) { tos[i]->to_set = 0; tos[i]->to_fn(tos[i]->to_arg); }
         if (now >= next_sec) { next_sec += 1000;
             static unsigned lo, li, le, lt; static int tick;
             if (++tick >= 5 && (ifp->if_opackets != lo || ifp->if_ipackets != li || ifp->if_ierrors != le || ifp->if_oerrors != lt)) {   /* сводка раз в 5 с, только при изменении */
                 tick = 0; lo = ifp->if_opackets; li = ifp->if_ipackets; le = ifp->if_ierrors; lt = ifp->if_oerrors;
-                printf("bsdrt: %s: tx %u rx %u rx-err %u tx-err %u rx-drop %u\n", ifp->if_xname, lo, li, le, lt, ifp->if_iqdrops);
+                printf("bsdrt: %s: tx %u rx %u rx-err %u tx-err %u rx-drop %u irq %u\n", ifp->if_xname, lo, li, le, lt, ifp->if_iqdrops, irqs);
             } if (ifp->if_timer && --ifp->if_timer == 0 && ifp->if_watchdog) ifp->if_watchdog(ifp); }
         kdrv_netctl_t* c = ifp->if_ctl;                                          /* кадры от ядра -> очередь передачи карты */
         while (ifp->if_snd.ifq_len < ifp->if_snd.ifq_maxlen) {
@@ -272,7 +275,8 @@ int umain(void) {
             __atomic_store_n(&c->tx_tail, tail + 1, __ATOMIC_RELEASE);
         }
         if (ifp->if_snd.ifq_len && ifp->if_start) ifp->if_start(ifp);
-        i64 e = kdrv_irq_wait(1);
-        if (e == KE_INTR) return 0;
+        ev = kdrv_irq_wait(use_irq ? 10 : 1);
+        if (ev == KE_INTR) return 0;
+        if (ev < 0) ev = 0;
     }
 }

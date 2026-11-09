@@ -9,6 +9,10 @@
 #include "kdrv_state.h"
 #include "kmutex.h"
 #include "pci.h"
+#if defined(__x86_64__)
+#include "pic.h"
+#include "irqmode.h"
+#endif
 #include "iommu.h"
 #include "msi.h"
 #include "proc.h"
@@ -48,6 +52,7 @@ typedef struct {
     /* прерывание: вектор выдаётся один раз */
     irqwait_t iw; volatile uint32_t irq_count; uint32_t irq_seen;
     int irq_tried, irq_have, irq_on; uint64_t irq_addr; uint32_t irq_data;
+    int intx; int intx_line; volatile uint32_t intx_masked;   /* прерывание - линия INTx (нет MSI) */
     volatile uint32_t waiting, tx_pending;
     uint32_t denied;                 /* отказов по политике (в журнал - первый) */
     kmap_t map[KDRV_MAX_MMIO]; uint32_t nmap; uint64_t mmio_next;
@@ -220,9 +225,80 @@ static uint16_t find_cap(const pci_dev_t* d, uint8_t want) {
     return 0;
 }
 
+/* ---- INTx для драйверов Ring 3 (x86, APIC-режим): линия PCI - уровень, активный низкий; устройство гасится битом INTx-disable командного регистра,
+   пока драйвер не вызовет KDRV_SYS_IRQ_WAIT снова (то есть снял причину). Линию делят несколько драйверов; линия, занятая ядром, не отдаётся. ---- */
+#if defined(__x86_64__)
+#define XL_MAX 8
+static struct { bind_t* volatile b[XL_MAX]; volatile int active; int reg; } xl[16];
+static void intx_dispatch(unsigned irq) {
+    __atomic_add_fetch(&xl[irq].active, 1, __ATOMIC_ACQ_REL);
+    int fired = 0;
+    for (int i = 0; i < XL_MAX; i++) {
+        bind_t* b = __atomic_load_n(&xl[irq].b[i], __ATOMIC_ACQUIRE);
+        if (!b || !(pci_read16(b->dev, 0x06) & 0x08)) continue;                    /* бит «Interrupt Status»: именно это устройство держит линию */
+        if (__atomic_exchange_n(&b->intx_masked, 1, __ATOMIC_ACQ_REL)) continue;
+        pci_write16(b->dev, 0x04, (uint16_t)(pci_read16(b->dev, 0x04) | PCI_CMD_INTX_OFF));
+        __atomic_add_fetch(&b->irq_count, 1, __ATOMIC_RELAXED);
+        irqwait_fire(&b->iw);
+        fired = 1;
+    }
+    if (!fired) (void)irqmode_pci_line(irq, 0);                                   /* никто из наших не держит линию: гасим, чтобы не зациклиться */
+    __atomic_sub_fetch(&xl[irq].active, 1, __ATOMIC_ACQ_REL);
+}
+#define XH(n) static void intx_h##n(void) { intx_dispatch(n); }
+XH(0) XH(1) XH(2) XH(3) XH(4) XH(5) XH(6) XH(7) XH(8) XH(9) XH(10) XH(11) XH(12) XH(13) XH(14) XH(15)
+static const irq_handler_t intx_h[16] = { intx_h0, intx_h1, intx_h2, intx_h3, intx_h4, intx_h5, intx_h6, intx_h7, intx_h8, intx_h9, intx_h10, intx_h11, intx_h12, intx_h13, intx_h14, intx_h15 };
+
+static int intx_attach(bind_t* b) {
+    const pci_dev_t* d = b->dev;
+    unsigned pin = pci_read8(d, 0x3D), line = pci_read8(d, 0x3C);
+    if (!pin || pin > 4 || line < 3 || line >= 16 || !irqmode_is_apic()) return 0;
+    if (!xl[line].reg && irq_has_handler(line)) return 0;                           /* линию занял драйвер ядра */
+    uint16_t cmd = pci_read16(d, 0x04);
+    pci_write16(d, 0x04, (uint16_t)(cmd | PCI_CMD_INTX_OFF));
+    int can = (pci_read16(d, 0x04) & PCI_CMD_INTX_OFF) != 0;                      /* устройство обязано уметь INTx-disable (PCI 2.3) */
+    pci_write16(d, 0x04, (uint16_t)(cmd & ~PCI_CMD_INTX_OFF));
+    if (!can) return 0;
+    uint64_t f = spin_lock_irqsave(&klock);
+    int slot = -1;
+    for (int i = 0; i < XL_MAX; i++) if (!xl[line].b[i]) { slot = i; break; }
+    if (slot < 0) { spin_unlock_irqrestore(&klock, f); return 0; }
+    if (!xl[line].reg) {
+        if (irq_register_handler((unsigned char)line, intx_h[line]) != 0) { spin_unlock_irqrestore(&klock, f); return 0; }
+        xl[line].reg = 1;
+    }
+    b->intx_masked = 0; b->intx_line = (int)line;
+    __atomic_store_n(&xl[line].b[slot], b, __ATOMIC_RELEASE);
+    spin_unlock_irqrestore(&klock, f);
+    if (irqmode_pci_line(line, 1) != 0) return 0;
+    b->intx = 1;
+    return 1;
+}
+static void intx_detach(bind_t* b) {
+    if (!b->intx) return;
+    unsigned line = (unsigned)b->intx_line;
+    pci_write16(b->dev, 0x04, (uint16_t)(pci_read16(b->dev, 0x04) | PCI_CMD_INTX_OFF));
+    uint64_t f = spin_lock_irqsave(&klock);
+    int left = 0;
+    for (int i = 0; i < XL_MAX; i++) { if (xl[line].b[i] == b) __atomic_store_n(&xl[line].b[i], 0, __ATOMIC_RELEASE); else if (xl[line].b[i]) left++; }
+    spin_unlock_irqrestore(&klock, f);
+    while (__atomic_load_n(&xl[line].active, __ATOMIC_ACQUIRE)) cpu_relax();       /* обработчик на другом ядре мог держать b */
+    if (!left) { (void)irqmode_pci_line(line, 0); irq_unregister_handler(line); xl[line].reg = 0; }
+    b->intx = 0;
+}
+static void intx_rearm(bind_t* b) {
+    if (b->intx && __atomic_exchange_n(&b->intx_masked, 0, __ATOMIC_ACQ_REL))
+        pci_write16(b->dev, 0x04, (uint16_t)(pci_read16(b->dev, 0x04) & ~PCI_CMD_INTX_OFF));
+}
+#else
+static int intx_attach(bind_t* b) { (void)b; return 0; }
+static void intx_detach(bind_t* b) { (void)b; }
+static void intx_rearm(bind_t* b) { (void)b; }
+#endif
+
 static void irq_enable(bind_t* b) {
     const pci_dev_t* d = b->dev;
-    if (!find_cap(d, 0x05) && !find_cap(d, 0x11)) return;                          /* ни MSI, ни MSI-X: прерывания драйверу не будет */
+    if (!find_cap(d, 0x05) && !find_cap(d, 0x11)) { b->irq_on = intx_attach(b); return; }   /* ни MSI, ни MSI-X: только линия INTx */
     if (!b->irq_tried) {
         b->irq_tried = 1;
         if (msi_alloc(d, kdrv_irq, b, &b->irq_addr, &b->irq_data) == 0) b->irq_have = 1;
@@ -238,14 +314,14 @@ static uint16_t quiesce(const pci_dev_t* d) {
     c = find_cap(d, 0x11);
     if (c) pci_write16(d, (uint16_t)(c + 2), (uint16_t)((pci_read16(d, (uint16_t)(c + 2)) & ~0x8000u) | 0x4000u));
     uint16_t cmd = pci_read16(d, 0x04);
-    pci_write16(d, 0x04, (uint16_t)(cmd & ~(PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER)));
+    pci_write16(d, 0x04, (uint16_t)((cmd & ~(PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER)) | PCI_CMD_INTX_OFF));
     return pci_read16(d, 0x04);
 }
 
 /* ---- запуск ---- */
 static void bind_reset(bind_t* b) {
     b->granted = b->version = b->pid = 0;
-    b->irq_count = 0; b->irq_seen = 0; b->irq_on = 0; b->waiting = 0; b->tx_pending = 0; b->denied = 0;
+    b->irq_count = 0; b->irq_seen = 0; b->irq_on = 0; b->intx = 0; b->intx_masked = 0; b->waiting = 0; b->tx_pending = 0; b->denied = 0;
     b->nmap = 0; b->mmio_next = MMIO_VA; b->ndma = 0; b->dma_pages = 0; b->dma_next = DMA_VA;
     b->net_alive = 0; b->ctl = 0; b->net_pa = 0; b->net_pages = 0; b->tx_head = b->rx_tail = 0;
     b->net_tx = b->net_rx = b->net_bad = 0;
@@ -273,8 +349,10 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     /* Fail closed: DMA и MSI требуют bus mastering и без IOMMU могут записывать в произвольную физическую память.
        Ring 3 драйвер с DMA/IRQ запускается только когда iommu_device_isolated() истинно для ЭТОГО устройства
        (VT-d: свой домен, устройство видит лишь страницы, выданные через sys_dma_alloc и кольца сети). */
-    if (granted & (CAP_DMA | CAP_IRQ)) (void)iommu_isolate_device(d);      /* свой домен VT-d без отображений; отказ - устройство остаётся неизолированным */
-    if (!kdrv_dma_policy_allow(granted, iommu_device_isolated(d))) {
+    uint32_t policy_caps = granted;
+    if ((granted & CAP_IRQ) && !find_cap(d, 0x05) && !find_cap(d, 0x11)) policy_caps &= ~(uint32_t)CAP_IRQ;   /* только INTx: устройство в память не пишет, изоляция для прерывания не нужна (bus mastering даёт лишь CAP_DMA) */
+    if (policy_caps & (CAP_DMA | CAP_IRQ)) (void)iommu_isolate_device(d);      /* свой домен VT-d без отображений; отказ - устройство остаётся неизолированным */
+    if (!kdrv_dma_policy_allow(policy_caps, iommu_device_isolated(d))) {
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
         uart_print(": DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен\n");
@@ -297,7 +375,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     unsigned k = 0; while (p.h.name[k] && k < sizeof b->name - 1) { b->name[k] = p.h.name[k]; k++; }
     b->name[k] = 0;
     b->granted = granted; b->version = p.h.version;
-    if (!(granted & (CAP_DMA | CAP_IRQ))) {      /* прошивка могла оставить bus mastering и MSI включёнными: драйвер без DMA/IRQ их не получает */
+    if (!(policy_caps & (CAP_DMA | CAP_IRQ))) {      /* прошивка могла оставить bus mastering и MSI включёнными: драйвер без DMA/IRQ их не получает */
         uint16_t mc = find_cap(d, 0x05);
         if (mc) pci_write16(d, (uint16_t)(mc + 2), (uint16_t)(pci_read16(d, (uint16_t)(mc + 2)) & ~1u));
         mc = find_cap(d, 0x11);
@@ -306,7 +384,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     }
     if (granted & CAP_MMIO) pci_enable(d, PCI_CMD_MEM | PCI_CMD_IO);
     /* Эти действия достижимы только после успешной проверки IOMMU policy выше. */
-    if (granted & (CAP_DMA | CAP_IRQ)) pci_enable(d, PCI_CMD_MASTER);
+    if (policy_caps & (CAP_DMA | CAP_IRQ)) pci_enable(d, PCI_CMD_MASTER);
     if (granted & CAP_IRQ) irq_enable(b);
     char pname[16] = "drv-";
     for (k = 0; b->name[k]; k++) pname[4 + k] = b->name[k];
@@ -411,6 +489,7 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
 }
 
 static void release(bind_t* b) {
+    intx_detach(b);
     uint32_t got = 0, want = b->dma_pages + b->net_pages;
     iommu_unmap_all(b->dev);                       /* сначала закрыть доступ устройства, потом отдавать страницы */
     for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
@@ -737,6 +816,7 @@ static int64_t sys_irq_wait(bind_t* b, uint64_t t10) {
     if (__atomic_exchange_n(&b->waiting, 1, __ATOMIC_ACQ_REL)) return KE_LIMIT;       /* ждать может один поток: так устроено ядро (irqwait_t) */
     uint64_t until = t10 == 0xFFFFFFFFull || t10 == ~0ULL ? ~0ULL : timer_get_ticks() + (t10 > 100000 ? 100000 : t10) * TIMER_PER_10MS;
     int64_t rc;
+    intx_rearm(b);                                                                    /* драйвер вернулся к ожиданию: причина снята, устройство снова может прерывать */
     for (;;) {
         uint32_t mark = irqwait_mark(&b->iw);
         uint32_t ev = 0;
@@ -792,7 +872,7 @@ int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         kdrv_info_t i;
         uint8_t* z = (uint8_t*)&i; for (unsigned k = 0; k < sizeof i; k++) z[k] = 0;
         i.size = sizeof i; i.vendor = b->dev->vendor; i.device = b->dev->device; i.cls = cls_of(b->dev);
-        i.granted = b->granted; i.version = b->version; i.flags = b->irq_on ? KDRV_INFO_MSI : 0;
+        i.granted = b->granted; i.version = b->version; i.flags = b->irq_on ? (b->intx ? KDRV_INFO_INTX : KDRV_INFO_MSI) : 0;
         for (unsigned k = 0; k < sizeof i.name && b->name[k]; k++) i.name[k] = b->name[k];
         for (int k = 0; k < PCI_BARS; k++) {
             i.bar[k].size = b->dev->bar[k].size;

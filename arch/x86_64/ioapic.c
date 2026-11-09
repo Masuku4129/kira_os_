@@ -90,6 +90,21 @@ int ioapic_route_isa(const acpi_info_t* a, unsigned irq, uint32_t dest) {
     return 0;
 }
 
+int ioapic_route_pci(const acpi_info_t* a, unsigned irq, uint32_t dest) {
+    irq_line_t l = ioapic_resolve(a, irq);
+    if (!(irq < 16 && a->iso_valid[irq])) { l.active_low = 1; l.level = 1; }   /* без переопределения MADT: обычная линия PCI */
+    unsigned i, p;
+    if (find(a, l.gsi, &i, &p) != 0) return -1;
+    uint32_t lo, hi;
+    ioapic_encode((uint8_t)(32 + irq), l.active_low, l.level, 1, dest, &lo, &hi);
+    wr(i, REG_REDIR(p) + 1, hi);
+    wr(i, REG_REDIR(p), lo);
+    if ((rd(i, REG_REDIR(p)) & ~0x5000u) != (lo & ~0x5000u) || rd(i, REG_REDIR(p) + 1) != hi) return -2;
+    ioapic_encode((uint8_t)(32 + irq), l.active_low, l.level, 0, dest, &lo, &hi);
+    wr(i, REG_REDIR(p), lo);
+    return 0;
+}
+
 void ioapic_mask_isa(const acpi_info_t* a, unsigned irq, int masked) {
     irq_line_t l = ioapic_resolve(a, irq);
     unsigned i, p;

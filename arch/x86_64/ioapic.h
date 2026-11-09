@@ -16,6 +16,8 @@ void ioapic_encode(uint8_t vector, int active_low, int level, int masked, uint32
 int ioapic_init(const acpi_info_t* a);
 /* Направляет ISA IRQ на вектор 32+irq (размаскированным) на процессор dest. 0 - успех. */
 int ioapic_route_isa(const acpi_info_t* a, unsigned isa_irq, uint32_t dest_apic_id);
+/* Линия PCI INTx на ISA-номер irq: уровень, активный низкий (если MADT не говорит иное), вектор 32+irq, размаскирована. 0 - успех. */
+int ioapic_route_pci(const acpi_info_t* a, unsigned isa_irq, uint32_t dest_apic_id);
 void ioapic_mask_isa(const acpi_info_t* a, unsigned isa_irq, int masked);
 unsigned ioapic_entry_count(void);
 
