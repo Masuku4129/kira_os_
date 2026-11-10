@@ -252,7 +252,7 @@ int hda_probe(void) {
     h.ibdl = (uint32_t*)virtio_dma_alloc(NBDL * 16, &h.ibdl_p);
     if (!h.corb || !h.rirb || !h.buf || !h.bdl) return -6;
     if (!h.ibuf || !h.ibdl) { h.ibuf = 0; h.ibdl = 0; }
-#if defined(__aarch64__) || defined(__x86_64__) || defined(__x86_64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     if (iommu_device_isolated(p)) {
         int map_failed =
             iommu_map(p, h.corb_p, h.corb_p, 1024, IOMMU_R | IOMMU_W) != IOMMU_OK ||

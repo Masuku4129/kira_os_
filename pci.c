@@ -202,7 +202,7 @@ void pci_enable(const pci_dev_t* d, uint16_t bits) {
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
 #endif
 #if defined(__aarch64__) || defined(__x86_64__)
-    /* Recheck under the config lock so a concurrent SMMU quarantine wins. */
+    /* Recheck under the config lock so a concurrent IOMMU quarantine wins. */
     if ((bits & PCI_CMD_MASTER) && !iommu_device_ready(d))
         bits &= (uint16_t)~PCI_CMD_MASTER;
 #endif

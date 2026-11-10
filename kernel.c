@@ -230,7 +230,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // консоль возвращается и показывает весь журнал, а не оставляет чёрный экран.
     earlycon_stop();
     /* PCI DMA policy must be active before display_init can probe a virtio GPU. */
-    int pci_devices = pci_init();
+    int pci_devices = pci_count();
+    if (pci_devices == 0) pci_devices = pci_init();
     uart_print("[KIRA PCI] "); uart_print_dec((uint64_t)pci_devices); uart_print(" device(s) found.\n");
     (void)iommu_init();
     if (display_init(addr) != 0) {

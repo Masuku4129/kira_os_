@@ -122,7 +122,7 @@ int ac97_probe(void) {
     a.obdl = (uint32_t*)usb_dma_alloc(NBD * 8, &a.obdl_p, 1);
     a.ibdl = (uint32_t*)usb_dma_alloc(NBD * 8, &a.ibdl_p, 1);
     if (!a.out || !a.in || !a.obdl || !a.ibdl) { uart_print("[KIRA AC97] no memory below 4 GB for DMA buffers.\n"); return -4; }
-#if defined(__aarch64__) || defined(__x86_64__) || defined(__x86_64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     if (iommu_device_isolated(p) &&
         (iommu_map(p, a.out_p, a.out_p, BUFSZ, IOMMU_R | IOMMU_W) != IOMMU_OK ||
          iommu_map(p, a.in_p, a.in_p, BUFSZ, IOMMU_R | IOMMU_W) != IOMMU_OK ||
