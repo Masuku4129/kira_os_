@@ -225,6 +225,11 @@ int main(void) {
               (KBI_F_FDT | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE));
         CHECK(h->mmap_count == 1);
         const kbi_mmap_entry_t* mm = kbi_mmap(handoff);
+        if (!mm) {
+            fprintf(stderr, "FDT KBI accessor: count=%u off=%u entry_size=%u total=%u\\n",
+                    h->mmap_count, h->mmap_off, h->mmap_entry_size, h->total_size);
+            return 1;
+        }
         CHECK(mm[0].base == 0x40000000 && mm[0].length == 0x50000000);
         CHECK(h->fb_phys == 0x3c000000 && h->fb_width == 800 && h->fb_height == 600);
         CHECK(h->cmdline_len == 16 &&
