@@ -171,11 +171,9 @@ static void *smmu_table_page_find(struct kira_smmu_domain *d, uint64_t physical)
     return 0;
 }
 
-static void smmu_table_pages_free(struct kira_smmu_domain *d,
-                                  const struct kira_smmu_platform *p)
+static void smmu_table_page_list_free(struct smmu_table_page *page,
+                                       const struct kira_smmu_platform *p)
 {
-    struct smmu_table_page *page =
-        (struct smmu_table_page *)d->table_pages;
     while (page) {
         struct smmu_table_page *next = page->next;
         p->free_dma_pages(p->context, page->virtual_address,
@@ -183,7 +181,15 @@ static void smmu_table_pages_free(struct kira_smmu_domain *d,
         p->free_metadata(p->context, page);
         page = next;
     }
+}
+
+static void smmu_table_pages_free(struct kira_smmu_domain *d,
+                                  const struct kira_smmu_platform *p)
+{
+    struct smmu_table_page *page =
+        (struct smmu_table_page *)d->table_pages;
     d->table_pages = 0;
+    smmu_table_page_list_free(page, p);
 }
 
 static void smmu_domain_lock(struct kira_smmu_domain *d)
@@ -638,6 +644,7 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     struct kira_smmu *s;
     void *context_table;
     uint64_t context_table_physical;
+    struct smmu_table_page *table_pages;
     uint64_t *ste;
     int rc;
 
@@ -678,6 +685,8 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     smmu_stream_id_clear(s, d->stream_id);
     context_table = d->context_table;
     context_table_physical = d->context_table_physical;
+    table_pages = (struct smmu_table_page *)d->table_pages;
+    d->table_pages = 0;
     d->active = 0;
     d->smmu = 0;
     d->stream_table = 0;
@@ -689,7 +698,7 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     smmu_unlock(s);
     smmu_domain_unlock(d);
 
-    smmu_table_pages_free(d, p);
+    smmu_table_page_list_free(table_pages, p);
     p->free_dma_pages(p->context, context_table,
                       context_table_physical, 1);
     return KIRA_SMMU_OK;
