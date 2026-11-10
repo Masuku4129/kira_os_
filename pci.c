@@ -1,4 +1,7 @@
 #include "pci.h"
+#if defined(__aarch64__) && !defined(KIRA_HOST_TEST)
+#include "iommu.h"
+#endif
 
 #if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
 #include "spinlock.h"
@@ -126,6 +129,12 @@ uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { return (uint16_t)(cr32(d
 uint8_t pci_read8(const pci_dev_t* d, uint16_t off) { return (uint8_t)(cr32(d, off & ~3) >> ((off & 3) * 8)); }
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { be.write32(d->bus, d->dev, d->fn, off, v); }
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
+#if defined(__aarch64__) && !defined(KIRA_HOST_TEST)
+    /* A discovered SMMU is fail-closed: no function may start DMA without a domain. */
+    if ((off & ~3u) == 0x04u && (v & PCI_CMD_MASTER) &&
+        iommu_enabled() && !iommu_device_isolated(d))
+        v = (uint16_t)(v & ~PCI_CMD_MASTER);
+#endif
     uint32_t w = cr32(d, off & ~3), sh = (off & 2) * 8;
     if ((off & ~3) == 0x04) w &= 0x0000FFFFu;                        /* старшая половина - статус с битами «сбросить записью 1» */
     w = (w & ~(0xFFFFu << sh)) | ((uint32_t)v << sh);
