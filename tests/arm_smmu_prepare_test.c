@@ -189,6 +189,9 @@ int main(void)
     CHECK(*(uint32_t *)(registers_page + 0x002cu) == 0x6u);
     CHECK(*(uint32_t *)(registers_page + 0x0020u) == 0x0du);
     CHECK(smmu.enabled == 1);
+    CHECK(smmu.cmdq_producer == 2u); /* global TLBI_NH_ALL + CMD_SYNC */
+    CHECK(((uint64_t*)smmu.cmdq)[0] == 0x10u);
+    CHECK(((uint64_t*)smmu.cmdq)[2] == 0x46u);
     CHECK(*(uint64_t *)(registers_page + 0x0090u) ==
           ((smmu.cmdq_physical & 0x000fffffffffffe0ull) | 8ull));
     CHECK(*(uint64_t *)(registers_page + 0x00a0u) ==
