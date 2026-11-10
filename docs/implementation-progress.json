@@ -2,14 +2,14 @@
   "schema_version": 1,
   "branch": "v46/kdrv-catalogue-signature-policy",
   "inventory": {
-    "commit_before_this_run": "bbac87fe6fce3349d1097ce4bc7a660858b9a4a1",
-    "tree_sha": "056690ce86b4ae5da4067eb3ba0ada2fcdcb750f",
-    "tracked_paths": 959,
+    "commit_before_this_run": "0160a4c5aca2c42bad6ed3c2434a16e28b6caf38",
+    "tree_sha": "d7131968676d2ebe4c33b22ee4d792bf71632e0e",
+    "tracked_paths": 915,
     "tree_truncated": false,
-    "scope_note": "Фактическое дерево ветки получено через Git Trees API перед изменениями этого запуска. Количество путей — инвентарная метрика, не процент готовности."
+    "scope_note": "Фактическое дерево ветки получено через Git Trees API до изменений этого запуска. Количество путей — инвентарная метрика, не процент готовности."
   },
-  "latest_source_commit": "448639f1b59d063316e36b80b2e741f887256ff5",
-  "updated_at_utc": "2026-11-09T17:55:00Z",
+  "latest_source_commit": "e672f26a41eaede3236e74c3ecfd07126d9d3584",
+  "updated_at_utc": "2026-11-10T17:23:16Z",
   "execution_policy": {
     "tests_run": false,
     "audits_run": false,
@@ -43,6 +43,23 @@
       ],
       "details": "ACPI core now rejects empty/oversized DSDT tables, maps the full table, independently validates its checksum, and exposes only the AML payload plus optional physical address through acpi_get_dsdt().",
       "validation": "Not run by explicit instruction. No build, audit, runtime, or Limbo claim is made."
+    },
+    {
+      "id": "acpi-prt-aml-package-decoder",
+      "status": "source_integrated_not_runtime_routed",
+      "files": [
+        "drivers/acpi/prt.c",
+        "drivers/acpi/prt.h",
+        "build_clang.sh"
+      ],
+      "commits": [
+        "37b8bdb4dd7481bfccb98ae83e7395cc44fd9ab7",
+        "ecb725ae6e338c0fce74f6645fde331b8751b135",
+        "14051820ce396e4b06bed66194d51c1eee59575b",
+        "e672f26a41eaede3236e74c3ecfd07126d9d3584"
+      ],
+      "details": "Исправлен учёт AML PkgLength (длина тела без байтов кодирования длины), разбор PackageOp/VarPackage, строгая проверка числа полей и полного потребления пакетов, разбор статических NameString с канонизацией scope и fail-closed для динамических/неразрешённых источников. Декодер добавлен в C_SOURCES x86_64.",
+      "validation": "По прямому требованию не запускались тесты, аудит, сборка и CI. Компиляторная проверка отсутствует; runtime _PRT lookup и IOAPIC routing ещё не подключены."
     }
   ],
   "modules": [
@@ -118,7 +135,7 @@
     },
     {
       "id": "pci-acpi-prt-routing",
-      "state": "partial_parser_files_not_integrated",
+      "state": "partial_static_prt_decoder_compiled_not_routed",
       "existing_files": [
         "pci.c",
         "pci.h",
@@ -135,14 +152,14 @@
       ],
       "completed": [
         "x86 kernel startup now calls pci_init() before PCI consumers.",
-        "ACPI core now exposes the DSDT AML payload only after independent DSDT length/signature/checksum validation; mapping address and payload length are available through acpi_get_dsdt()."
+        "ACPI core now exposes the DSDT AML payload only after independent DSDT length/signature/checksum validation; mapping address and payload length are available through acpi_get_dsdt().",
+        "Добавлен ограниченный декодер статических AML _PRT Package/VarPackage; он собирается в x86_64 kernel source list, но пока не вызывается из kernel startup."
       ],
       "remaining": [
-        "Implement a bounded AML namespace/object lookup that locates _PRT in its correct PCI-root scope; the raw static parser is not a namespace-aware AML interpreter.",
-        "Choose and implement the supported AML namespace/evaluation boundary; current parser variants are not a full AML interpreter.",
-        "Resolve static and dynamic link-device resources (_CRS/_PRS) or report each unsupported route explicitly.",
-        "Connect _PRT entries to PCI segment/bus/device/function and IOAPIC GSI polarity/trigger, then provide an IRQ registration/delivery path.",
-        "Add parser and route sources to the appropriate build source lists only after their ABI and dependencies are fixed."
+        "Реализовать bounded AML namespace walker для поиска _PRT в правильной области PCI root bridge и извлечения статических _SEG/_BBN; методы AML не исполнять.",
+        "Разрешить link-device _CRS/_PRS с ограниченной ресурсной грамматикой либо явно сообщать unsupported route.",
+        "Связать результат с PCI segment/bus/device/function, GSI, polarity/trigger и IOAPIC redirection; добавить регистрацию/доставку IRQ и корректный EOI.",
+        "Добавить регрессионные тесты на этапе тестирования после завершения исходной реализации."
       ],
       "dependencies": [
         "ACPI DSDT lifetime/mapping",
@@ -150,7 +167,7 @@
         "MADT IOAPIC ranges",
         "PCI topology"
       ],
-      "evidence": "acpi.c validates the DSDT checksum separately from the FADT checksum and publishes the AML payload through acpi_get_dsdt(); parser sources remain unintegrated and build_clang.sh does not yet compile them. docs/RELEASE_GAPS.md marks AML _PRT/legacy PCI INTx routing open."
+      "evidence": "drivers/acpi/prt.c теперь включён в C_SOURCES build_clang.sh; kernel startup пока не вызывает декодер. docs/RELEASE_GAPS.md по-прежнему фиксирует незавершённую AML _PRT/legacy PCI INTx маршрутизацию."
     },
     {
       "id": "rtl8139-clean_room",
@@ -283,19 +300,23 @@
     "Full AML interpreter scope: namespace lookup, method execution, synchronization, OperationRegion and resource-template evaluation; current project contains bounded parsers, not a complete AML VM.",
     "Persistent anti-rollback trust anchor and owner-key compromise recovery policy.",
     "Cross-architecture DMA ownership/cache-coherency contract and supported IOMMU feature baseline.",
-    "Final common boot ABI and exact production image layout for BIOS, UEFI x86_64 and UEFI ARM64."
+    "Final common boot ABI and exact production image layout for BIOS, UEFI x86_64 and UEFI ARM64.",
+    "Полная AML namespace resolution и динамическое вычисление link-device ресурсов не определены; текущая реализация намеренно ограничена статическими объектами и должна сообщать unsupported для остальных форм."
   ],
   "next_module": {
-    "id": "acpi-dsdt-and-prt-integration",
-    "intended_scope": "Expose validated DSDT bytes and wire a bounded _PRT path into x86 PCI routing, while making unsupported AML/link-device cases explicit. Do not claim full AML support.",
+    "id": "acpi-prt-namespace-and-ioapic-routing",
+    "intended_scope": "Реализовать ограниченный namespace walker для статических Scope/Device/Name объектов, связать root bridge _SEG/_BBN/_PRT с PCI topology и GSI routing; динамические AML методы не исполнять и явно отклонять.",
     "prerequisites_to_read": [
+      "drivers/acpi/prt.c",
+      "drivers/acpi/prt.h",
       "acpi.c",
       "acpi.h",
-      "drivers/acpi/prt.c",
-      "drivers/bus/acpi_prt.c",
-      "drivers/bus/pci_routing.c",
+      "pci.c",
+      "pci.h",
       "arch/x86_64/ioapic.c",
-      "arch/x86_64/irqmode.c",
+      "arch/x86_64/ioapic.h",
+      "arch/x86_64/pic.c",
+      "arch/x86_64/pic.h",
       "build_clang.sh"
     ]
   }
