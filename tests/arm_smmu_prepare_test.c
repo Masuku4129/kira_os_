@@ -143,7 +143,7 @@ int main(void)
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100001u, &p) == KIRA_SMMU_INVALID);
     CHECK(map_calls == 0);
 
-    /* The linear stream table cannot be used on two-level-only hardware. */
+    /* Reserved ST_LEVEL encodings are rejected; 0 and 1 both permit linear tables. */
     reset_test_platform();
     *(uint32_t *)(registers_page + 0x0000u) = 1u | (2u << 27);
     p = platform();
