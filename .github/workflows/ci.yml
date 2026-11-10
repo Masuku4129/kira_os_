@@ -265,7 +265,7 @@ jobs:
       - name: build (clang, -Werror)
         run: |
           mkdir -p sym ci-out
-          printf 'KIRA-INITRD-TEST\\n' > ci-out/initrd.img
+          printf 'KIRA-INITRD-TEST\n' > ci-out/initrd.img
           KIRA_INITRD=\"$PWD/ci-out/initrd.img\" ./build_clang.sh --no-run
           nm -n kira.bin > sym/kira.sym
       - name: BIOS stage2 module boot and CRC regression
