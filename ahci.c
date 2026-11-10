@@ -242,7 +242,7 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     if (!c->s64 && (p->mem_phys + 4096 > 0x100000000ull || p->buf_phys + BOUNCE > 0x100000000ull)) {
         uart_print("[KIRA AHCI] controller is 32-bit, DMA memory above 4 GB: port skipped\n"); return;
     }
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     if (!iommu_device_ready(c->pci)) {
         pci_disable_bus_master(c->pci);
         iommu_unmap_all(c->pci);
@@ -335,7 +335,7 @@ static void ahci_irq(void* ctx) {
 
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[5].io || !pd->bar[5].base || pd->bar[5].size < 0x180) { uart_print("[KIRA AHCI] controller without ABAR: skipped\n"); return; }
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     int iommu_rc = iommu_isolate_device(pd);
     if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
         iommu_rc != IOMMU_E_NOCOVER) {

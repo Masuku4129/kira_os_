@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
 static int test_iommu_ready;
 int iommu_device_ready(const pci_dev_t* dev)
 {
@@ -50,7 +50,7 @@ int main(void)
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
     CHECK((pci_read16(dev, 0x04) & (PCI_CMD_IO | PCI_CMD_MEM)) ==
           (PCI_CMD_IO | PCI_CMD_MEM));
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     test_iommu_ready = 1; /* Legacy fixture represents an already isolated requester. */
 #endif
     pci_enable(dev, PCI_CMD_MASTER);
@@ -87,7 +87,7 @@ int main(void)
     CHECK(dev != 0 && dev->bus == 5 && dev->dev == 1);
     CHECK(dev->vendor == 0x1234u && dev->device == 0x2000u);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     /* The ARM64 PCI backend must not enable bus mastering for a bypass/unready
        stream, but must allow it after the IOMMU reports a private domain. */
     test_iommu_ready = 0;

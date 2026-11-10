@@ -53,6 +53,8 @@ uint32_t iommu_fault_count(const pci_dev_t* dev);
    after pci_init() and before any driver starts DMA. */
 int iommu_init(void);
 int iommu_enabled(void);
+/* Covered requesters may bus-master only after a live private domain exists. */
+int iommu_device_ready(const pci_dev_t* dev);
 
 /* Switch the device to its own translated domain with NO mappings. 0 on success
    (also when it already is isolated), else an IOMMU_E_* code and the device stays

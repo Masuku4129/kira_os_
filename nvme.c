@@ -239,7 +239,7 @@ static void nvme_irq(void* ctx) { irqwait_fire(&((nvme_ctl_t*)ctx)->iw); }
 
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[0].io || !pd->bar[0].base || pd->bar[0].size < 0x2000) { uart_print("[KIRA NVMe] controller without BAR0: skipped\n"); return; }
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     int iommu_rc = iommu_isolate_device(pd);
     if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
         iommu_rc != IOMMU_E_NOCOVER) {
@@ -280,7 +280,7 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     c->buf = (uint8_t*)virtio_dma_alloc(BOUNCE, &c->buf_phys);
     c->prp = (uint64_t*)virtio_dma_alloc(PAGE, &c->prp_phys);
     if (!c->mem || !c->buf || !c->prp) { uart_print("[KIRA NVMe] no DMA memory\n"); return; }
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     if (iommu_device_isolated(pd) &&
         (iommu_map(pd, c->mem_phys, c->mem_phys, 5 * PAGE, IOMMU_R | IOMMU_W) != IOMMU_OK ||
          iommu_map(pd, c->buf_phys, c->buf_phys, BOUNCE, IOMMU_R | IOMMU_W) != IOMMU_OK ||

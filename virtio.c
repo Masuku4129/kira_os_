@@ -84,7 +84,7 @@ extern volatile void* host_map_bar(const pci_dev_t* d, int bar, uint64_t off, ui
 
 int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
     v->pci = d; v->common = v->notify = v->isr = v->devcfg = 0; v->notify_mult = 0; v->features = 0; v->msix_vec = 0xFFFF;
-#if !defined(KIRA_HOST_TEST) && defined(__aarch64__)
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
     /* Every virtio function must own a translated domain before any queue or
        data buffer is allocated. Do this in the common transport path so GPU,
        input, network and RNG cannot accidentally bypass the SMMU gate. */

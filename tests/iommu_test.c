@@ -278,13 +278,15 @@ int main(int argc, char** argv) {
     CHECK(logged("00:02.0 8086:10d3 passthrough: unrestricted DMA, NOT isolated (RMRR 0x7F000000-0x7F000FFF"));
     CHECK(logged("1 of them RMRR"));
     CHECK(iommu_isolate_device(d2) == IOMMU_E_RMRR && !iommu_device_isolated(d2));      /* RMRR device stays passthrough */
+    CHECK(!iommu_device_ready(d2) && !iommu_device_ready(d3));
     CHECK(hw_dma(sid_of(d2), 0x7F000000, 1, &pa) == 0);
     CHECK(logged("NOT isolated: named by RMRR"));
     CHECK(iommu_map(d3, 0x1000, 0x2000, 0x1000, IOMMU_R) == IOMMU_E_NOENT);            /* no domain yet */
 
     unsigned pages_before = live_pages;
     CHECK(iommu_isolate_device(d3) == IOMMU_OK && iommu_isolate_device(d3) == IOMMU_OK);
-    CHECK(iommu_device_isolated(d3) && !iommu_device_isolated(dev_at(0, 0, 0)));
+    CHECK(iommu_device_isolated(d3) && iommu_device_ready(d3) &&
+          !iommu_device_isolated(dev_at(0, 0, 0)) && iommu_device_ready(dev_at(0, 0, 0)));
     CHECK(logged("00:03.0 isolated: own translation domain"));
     CHECK(hw_dma(sid_of(d3), 0x5000, 0, &pa) != 0);                                     /* nothing mapped: everything faults */
     CHECK(hw_dma(sid_of(dev_at(0, 0, 0)), 0x5000, 1, &pa) == 0);                        /* neighbours unaffected */
@@ -330,8 +332,8 @@ int main(int argc, char** argv) {
 
     /* table of mappings is bounded */
     unsigned n_ok = 0;
-    for (unsigned i = 0; i < 40; i++) if (iommu_map(d3, 0x100000 + 0x2000ull * i, 0x200000 + 0x2000ull * i, 0x1000, IOMMU_R) == IOMMU_OK) n_ok++;
-    CHECK(n_ok > 0 && n_ok < 40);
+    for (unsigned i = 0; i < 2060; i++) if (iommu_map(d3, 0x100000 + 0x2000ull * i, 0x200000 + 0x2000ull * i, 0x1000, IOMMU_R) == IOMMU_OK) n_ok++;
+    CHECK(n_ok > 0 && n_ok < 2060);
 
     /* faults: recorded by the hardware, one log line each, counted per device, never fatal */
     iommu_fault_poll();                                                                 /* drain what accumulated */

@@ -104,7 +104,7 @@ int e1000_probe(void) {
     if (!p) return -1;
     e82574 = p->device == 0x10D3;
     if (p->bar[0].io || !p->bar[0].base) { uart_print("[KIRA NET] e1000: register BAR is not memory - not supported.\n"); return -2; }
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     int iommu_rc = iommu_isolate_device(p);
     if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
         iommu_rc != IOMMU_E_NOCOVER) {
@@ -144,7 +144,7 @@ int e1000_probe(void) {
     e.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &e.rxb_p);
     e.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &e.txb_p);
     if (!e.rx || !e.tx || !e.rxb || !e.txb) { uart_print("[KIRA NET] e1000: no memory for rings.\n"); return -4; }
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     if (iommu_device_isolated(p) &&
         (iommu_map(p, rx_p, rx_p, NRX * sizeof(rxd_t), IOMMU_R | IOMMU_W) != IOMMU_OK ||
          iommu_map(p, tx_p, tx_p, NTX * sizeof(txd_t), IOMMU_R | IOMMU_W) != IOMMU_OK ||

@@ -19,7 +19,7 @@
 #endif
 
 #define IOMMU_MAX_DOMAINS 16
-#define IOMMU_MAX_MAPS 32
+#define IOMMU_MAX_MAPS 2048
 #define IOMMU_FAULT_BATCH 32
 #define IOMMU_FAULT_LOG_PER_DEVICE 8
 #define IOMMU_AW_BITS 48
@@ -261,6 +261,19 @@ int iommu_device_isolated(const pci_dev_t* d) {
     int r = x && x->dom.active && G.on[x->unit];
     spin_unlock_irqrestore(&G.lock, f);
     return r;
+}
+
+int iommu_device_ready(const pci_dev_t* d) {
+    if (!d) return 0;
+    if (!G.active) return 1;
+    int ui = unit_of(d->bus, d->dev, d->fn);
+    if (ui < 0 || ui >= VTD_MAX_UNITS || !G.on[ui]) return 1;
+    if (rmrr_of(d->bus, d->dev, d->fn) >= 0) return 0;
+    uint64_t f = spin_lock_irqsave(&G.lock);
+    idom_t* x = dom_find(d->bus, d->dev, d->fn);
+    int ready = x && x->unit == (uint8_t)ui && x->dom.active && G.on[x->unit];
+    spin_unlock_irqrestore(&G.lock, f);
+    return ready;
 }
 
 int iommu_isolate_device(const pci_dev_t* d) {

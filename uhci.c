@@ -390,7 +390,7 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
         usb_log("[KIRA USB] UHCI: IOMMU isolation failed; controller disabled\n");
         return -1;
     }
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     if (!iommu_device_ready(p)) {
         usb_log("[KIRA USB] UHCI: requester is not isolated or safely unrestricted\n");
         return -1;
@@ -402,7 +402,7 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     uint64_t phys;
     uint8_t* mem = (uint8_t*)usb_dma_alloc(4096 * 13, &phys, 1);
     if (!mem) { usb_log("[KIRA USB] UHCI: no DMA memory below 4 GB\n"); return -1; }
-#if defined(__aarch64__) || defined(__x86_64__)
+#if defined(__aarch64__) || defined(__x86_64__) || defined(__x86_64__)
     if (iommu_device_isolated(p) &&
         iommu_map(p, phys, phys, 4096 * 13, IOMMU_R | IOMMU_W) != IOMMU_OK) {
         iommu_unmap_all(p);

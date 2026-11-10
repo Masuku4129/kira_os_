@@ -187,7 +187,7 @@ void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
     uint32_t w = cr32(d, off & ~3), sh = (off & 2) * 8;
     if ((off & ~3) == 0x04) w &= 0x0000FFFFu;                        /* status is W1C */
     w = (w & ~(0xFFFFu << sh)) | ((uint32_t)v << sh);
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     if (off == 0x04 && (w & PCI_CMD_MASTER) && !iommu_device_ready(d))
         w &= (uint32_t)~PCI_CMD_MASTER;
 #endif
@@ -201,7 +201,7 @@ void pci_enable(const pci_dev_t* d, uint16_t bits) {
 #if !defined(KIRA_HOST_TEST)
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
 #endif
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
     /* Recheck under the config lock so a concurrent SMMU quarantine wins. */
     if ((bits & PCI_CMD_MASTER) && !iommu_device_ready(d))
         bits &= (uint16_t)~PCI_CMD_MASTER;
