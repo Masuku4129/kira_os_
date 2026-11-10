@@ -6,6 +6,9 @@
 
 #define CHECK(x) do { if (!(x)) { printf("uefi_kbi FAIL:%d %s\n", __LINE__, #x); return 1; } } while (0)
 
+static const char test_module_name[] = "initrd.img";
+static const char test_command_line[] = "root=/dev/vda quiet";
+
 static void descriptor(EFI_MEMORY_DESCRIPTOR *d, UINT32 type,
                        uint64_t base, uint64_t pages) {
     memset(d, 0, sizeof(*d));
@@ -22,6 +25,7 @@ int main(void) {
     uint32_t size = 0xdeadbeefu;
     const kbi_header_t *h;
     const kbi_mmap_entry_t *entries;
+    const kbi_module_t *modules;
 
     {
         uint32_t pitch = 0xdeadbeefu;
@@ -50,6 +54,12 @@ int main(void) {
     info.height = 768;
     info.pitch = 4096;
     info.format = 1;
+    info.module_base = 0xa00000;
+    info.module_size = 128;
+    info.module_name = test_module_name;
+    info.module_name_len = sizeof(test_module_name);
+    info.command_line = test_command_line;
+    info.command_line_len = sizeof(test_command_line);
 
     descriptor(&map[0], EfiConventionalMemory, 0x100000, 0x100);
     descriptor(&map[1], EfiACPIReclaimMemory, 0x900000, 4);
@@ -59,14 +69,43 @@ int main(void) {
 
     CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
                               &info, blob, sizeof(blob), &size) == EFI_SUCCESS);
-    CHECK(size == sizeof(kbi_header_t) + 5 * sizeof(kbi_mmap_entry_t));
+    CHECK(size > sizeof(kbi_header_t) + 5 * sizeof(kbi_mmap_entry_t));
     CHECK(kbi_validate(blob, size) == 0);
     h = (const kbi_header_t *)blob;
     entries = kbi_mmap(blob);
+    modules = kbi_modules(blob);
     CHECK(h->arch == KBI_ARCH_X86_64 && h->boot_mode == KBI_BOOT_UEFI);
-    CHECK((h->flags & (KBI_F_ACPI | KBI_F_FRAMEBUFFER)) ==
-          (KBI_F_ACPI | KBI_F_FRAMEBUFFER));
+    CHECK((h->flags & (KBI_F_ACPI | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE)) ==
+          (KBI_F_ACPI | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE));
     CHECK(h->rsdp_phys == info.rsdp && h->kernel_phys_base == info.kernel_base);
+    CHECK(h->modules_count == 1 && h->module_entry_size == sizeof(kbi_module_t));
+    CHECK(modules && modules[0].base == info.module_base && modules[0].length == info.module_size);
+    CHECK(modules[0].name_len == sizeof(test_module_name));
+    CHECK(memcmp((const uint8_t *)blob + modules[0].name_off,
+                 test_module_name, sizeof(test_module_name)) == 0);
+    CHECK((h->flags & KBI_F_CMDLINE) && h->cmdline_len == sizeof(test_command_line));
+    CHECK(memcmp((const uint8_t *)blob + h->cmdline_off,
+                 test_command_line, sizeof(test_command_line)) == 0);
+
+    /* A UEFI boot without INITRD.IMG and LoadOptions remains valid. */
+    info.module_base = 0;
+    info.module_size = 0;
+    info.module_name = 0;
+    info.module_name_len = 0;
+    info.command_line = 0;
+    info.command_line_len = 0;
+    CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
+                              &info, blob, sizeof(blob), &size) == EFI_SUCCESS);
+    CHECK(kbi_validate(blob, size) == 0);
+    h = (const kbi_header_t *)blob;
+    CHECK(h->modules_count == 0 && h->modules_off == 0);
+    CHECK(h->cmdline_len == 0 && h->cmdline_off == 0);
+    info.module_base = 0xa00000;
+    info.module_size = 128;
+    info.module_name = test_module_name;
+    info.module_name_len = sizeof(test_module_name);
+    info.command_line = test_command_line;
+    info.command_line_len = sizeof(test_command_line);
     CHECK(entries[0].type == KBI_MEM_USABLE && entries[0].length == 0x100000);
     CHECK(entries[1].type == KBI_MEM_ACPI_RECLAIM && entries[1].length == 0x4000);
     CHECK(entries[2].type == KBI_MEM_BOOTLOADER);
@@ -80,6 +119,20 @@ int main(void) {
     h = (const kbi_header_t *)blob;
     CHECK(!(h->flags & KBI_F_FRAMEBUFFER) && h->fb_size == 0);
     info.format = 1;
+
+    /* Module ranges overlapping the kernel and unterminated strings are rejected. */
+    info.module_base = info.kernel_base;
+    size = 0xdeadbeefu;
+    CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
+                              &info, blob, sizeof(blob), &size) == EFI_LOAD_ERROR);
+    CHECK(size == 0xdeadbeefu);
+    info.module_base = 0xa00000;
+    info.command_line = "bad";
+    info.command_line_len = 3;
+    CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
+                              &info, blob, sizeof(blob), &size) == EFI_INVALID_PARAMETER);
+    info.command_line = test_command_line;
+    info.command_line_len = sizeof(test_command_line);
 
     /* Invalid GOP pitch and overlapping firmware ranges must fail closed. */
     info.pitch = 1;

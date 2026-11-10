@@ -67,6 +67,17 @@ mkdir -p "$OUT/EFI/BOOT" "$OUT/EFI/KIRA"
     -j .rel -j .rela -j '.rel.*' -j '.rela.*' -j .reloc --output-target=efi-app-x86_64 \
     "$tmp/loader.so" "$OUT/EFI/BOOT/BOOTX64.EFI"
 cp "$ROOT/kira.bin" "$OUT/EFI/KIRA/KIRA.ELF"
+rm -f "$OUT/EFI/KIRA/INITRD.IMG"
+INITRD="${KIRA_INITRD:-$ROOT/initrd.img}"
+if [[ -n "$INITRD" && -s "$INITRD" ]]; then
+    INITRD_SIZE=$(wc -c < "$INITRD")
+    if (( INITRD_SIZE > 67108864 )); then
+        echo "UEFI build: initrd exceeds the 64 MiB loader limit" >&2
+        exit 1
+    fi
+    cp "$INITRD" "$OUT/EFI/KIRA/INITRD.IMG"
+    echo "UEFI build: optional initrd included ($INITRD)"
+fi
 
 objdump -f "$OUT/EFI/BOOT/BOOTX64.EFI" | grep 'pei-x86-64' >/dev/null || {
     echo "UEFI build: BOOTX64.EFI is not a PE32+ x86-64 image" >&2

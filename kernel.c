@@ -105,6 +105,29 @@ void kernel_uefi_entry(const void *blob, uint32_t blob_size) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     uefi_rsdp_override = h->rsdp_phys;
+    uart_print("[KIRA UEFI] Boot modules: ");
+    uart_print_dec(h->modules_count);
+    uart_print(", command line: ");
+    uart_print((h->flags & KBI_F_CMDLINE) ? "present\n" : "absent\n");
+    {
+        const kbi_module_t *modules = kbi_modules(blob);
+        for (uint32_t i = 0; i < h->modules_count; ++i) {
+            uart_print("[KIRA UEFI] Module ");
+            uart_print_dec(i);
+            uart_print(": ");
+            uart_print((const char *)blob + modules[i].name_off);
+            uart_print(" bytes=");
+            uart_print_dec(modules[i].length);
+            uart_print(" magic=");
+            if (modules[i].base < (1ull << 30) &&
+                modules[i].length >= sizeof(uint32_t) &&
+                modules[i].length <= (1ull << 30) - modules[i].base)
+                uart_print_hex(*(const uint32_t *)(uintptr_t)modules[i].base);
+            else
+                uart_print("not-identity-mapped");
+            uart_print("\n");
+        }
+    }
     if (kbi_to_multiboot2(blob, blob_size, uefi_compat_mbi,
                           sizeof(uefi_compat_mbi), &mbi_size) != 0) {
         uart_print("[KIRA UEFI] Cannot translate BootInfo into the kernel's current boot-tag view.\n");

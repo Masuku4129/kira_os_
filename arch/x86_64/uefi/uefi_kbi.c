@@ -66,6 +66,17 @@ static int add_overflow_u64(uint64_t a, uint64_t b)
     return b > UINT64_MAX - a;
 }
 
+static uint32_t align8_u32(uint32_t value)
+{
+    return (value + 7u) & ~7u;
+}
+
+static void copy_bytes(uint8_t *dst, const char *src, uint32_t count)
+{
+    uint32_t i;
+    for (i = 0; i < count; ++i) dst[i] = (uint8_t)src[i];
+}
+
 /* Reason for the last rejected handoff: 0 = none, 1..N = loader-side check,
    negative = kbi_validate() code. Read by the loader to explain Load Error. */
 static int g_kbi_reject_reason;
@@ -89,7 +100,10 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     kbi_header_t *header;
     kbi_mmap_entry_t *entries;
     UINTN count, i;
-    UINT32 mmap_offset, total_size;
+    UINT32 mmap_offset, modules_offset = 0, name_offset = 0;
+    UINT32 cmdline_offset = 0, cursor, total_size;
+    UINT32 module_name_len = 0, command_line_len = 0;
+    int have_module, have_cmdline;
 
     (void)descriptor_version;
     g_kbi_reject_reason = 0;
@@ -107,7 +121,43 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     if (count > (UINT32_MAX - mmap_offset) / sizeof(kbi_mmap_entry_t))
         return EFI_BAD_BUFFER_SIZE;
 
-    total_size = mmap_offset + (UINT32)count * sizeof(kbi_mmap_entry_t);
+    cursor = mmap_offset + (UINT32)count * sizeof(kbi_mmap_entry_t);
+    cursor = align8_u32(cursor);
+
+    have_module = info->module_base || info->module_size ||
+                  info->module_name || info->module_name_len;
+    if (have_module) {
+        if (!info->module_base || !info->module_size ||
+            info->module_size > UINT64_MAX - info->module_base ||
+            !info->module_name || !info->module_name_len ||
+            info->module_name[info->module_name_len - 1] != 0)
+            return EFI_INVALID_PARAMETER;
+        module_name_len = info->module_name_len;
+        modules_offset = cursor;
+        if (cursor > KIRA_BOOTINFO_MAX_SIZE - sizeof(kbi_module_t))
+            return EFI_BUFFER_TOO_SMALL;
+        cursor += sizeof(kbi_module_t);
+        cursor = align8_u32(cursor);
+        name_offset = cursor;
+        if (module_name_len > KIRA_BOOTINFO_MAX_SIZE - cursor)
+            return EFI_BUFFER_TOO_SMALL;
+        cursor += module_name_len;
+        cursor = align8_u32(cursor);
+    }
+
+    have_cmdline = info->command_line || info->command_line_len;
+    if (have_cmdline) {
+        if (!info->command_line || !info->command_line_len ||
+            info->command_line[info->command_line_len - 1] != 0)
+            return EFI_INVALID_PARAMETER;
+        command_line_len = info->command_line_len;
+        cmdline_offset = cursor;
+        if (command_line_len > KIRA_BOOTINFO_MAX_SIZE - cursor)
+            return EFI_BUFFER_TOO_SMALL;
+        cursor += command_line_len;
+    }
+
+    total_size = cursor;
     if (total_size > output_capacity || total_size > KIRA_BOOTINFO_MAX_SIZE)
         return EFI_BUFFER_TOO_SMALL;
 
@@ -126,6 +176,24 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     header->mmap_off = mmap_offset;
     header->mmap_count = (uint32_t)count;
     header->mmap_entry_size = sizeof(kbi_mmap_entry_t);
+    if (have_module) {
+        kbi_module_t *module = (kbi_module_t *)(blob + modules_offset);
+        header->modules_off = modules_offset;
+        header->modules_count = 1;
+        header->module_entry_size = sizeof(kbi_module_t);
+        module->base = info->module_base;
+        module->length = info->module_size;
+        module->name_off = name_offset;
+        module->name_len = module_name_len;
+        copy_bytes(blob + name_offset, info->module_name, module_name_len);
+    }
+    if (have_cmdline) {
+        header->cmdline_off = cmdline_offset;
+        header->cmdline_len = command_line_len;
+        header->flags |= KBI_F_CMDLINE;
+        copy_bytes(blob + cmdline_offset, info->command_line,
+                   command_line_len);
+    }
     header->rsdp_phys = info->rsdp;
     header->kernel_phys_base = info->kernel_base;
     header->kernel_size = info->kernel_size;
