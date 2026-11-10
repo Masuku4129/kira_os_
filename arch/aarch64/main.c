@@ -1074,13 +1074,13 @@ int platform_console_cmd(const char* l, const char* a) {
 static void arm_pci_init(const void* fdt) {
     int n = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
     if (n < 0 || !fdt_node_enabled(fdt, n)) {
-        kprintf("[KIRA PCI] no enabled PCI Express host bridge in the device tree\\n");
+        kprintf("[KIRA PCI] no enabled PCI Express host bridge in the device tree\n");
         return;
     }
 
     uint64_t base, size;
     if (fdt_reg(fdt, n, 0, &base, &size) || !size) {
-        kprintf("[KIRA PCI] invalid ECAM register window\\n");
+        kprintf("[KIRA PCI] invalid ECAM register window\n");
         return;
     }
 
@@ -1089,7 +1089,7 @@ static void arm_pci_init(const void* fdt) {
     int has_bus_range = br != 0;
     if (has_bus_range) {
         if (len != 8u) {
-            kprintf("[KIRA PCI] malformed ECAM bus-range\\n");
+            kprintf("[KIRA PCI] malformed ECAM bus-range\n");
             return;
         }
         bus0 = fdt_u32(br);
@@ -1099,13 +1099,13 @@ static void arm_pci_init(const void* fdt) {
     uint8_t first_bus, last_bus;
     if (pci_ecam_bus_range(size, has_bus_range, bus0, bus1,
                            &first_bus, &last_bus) != 0) {
-        kprintf("[KIRA PCI] ECAM aperture does not cover its bus-range\\n");
+        kprintf("[KIRA PCI] ECAM aperture does not cover its bus-range\n");
         return;
     }
 
     volatile void* e = vmm_map_mmio(base, size, 0);
     if (!e) {
-        kprintf("[KIRA PCI] cannot map ECAM window\\n");
+        kprintf("[KIRA PCI] cannot map ECAM window\n");
         return;
     }
     pci_use_ecam(e, first_bus, last_bus);
@@ -1117,7 +1117,7 @@ static void arm_pci_init(const void* fdt) {
         const void* p = fdt_prop(fdt, par, "#address-cells", &prop_len);
         if (p) {
             if (prop_len != 4u) {
-                kprintf("[KIRA PCI] malformed parent #address-cells; BAR assignment disabled\\n");
+                kprintf("[KIRA PCI] malformed parent #address-cells; BAR assignment disabled\n");
                 goto enumerate_only;
             }
             pac = fdt_u32(p);
@@ -1127,14 +1127,14 @@ static void arm_pci_init(const void* fdt) {
         const void* p = fdt_prop(fdt, n, "#size-cells", &prop_len);
         if (p) {
             if (prop_len != 4u) {
-                kprintf("[KIRA PCI] malformed #size-cells; BAR assignment disabled\\n");
+                kprintf("[KIRA PCI] malformed #size-cells; BAR assignment disabled\n");
                 goto enumerate_only;
             }
             sc = fdt_u32(p);
         }
     }
     if (pac < 1u || pac > 2u || sc < 1u || sc > 2u) {
-        kprintf("[KIRA PCI] unsupported ranges cell widths; BAR assignment disabled\\n");
+        kprintf("[KIRA PCI] unsupported ranges cell widths; BAR assignment disabled\n");
         goto enumerate_only;
     }
 
@@ -1142,7 +1142,7 @@ static void arm_pci_init(const void* fdt) {
         const uint8_t* r = (const uint8_t*)fdt_prop(fdt, n, "ranges", &len);
         uint32_t stride = 4u * (3u + pac + sc);
         if (!r || !len || (len % stride) != 0) {
-            kprintf("[KIRA PCI] missing or malformed PCI ranges; BAR assignment disabled\\n");
+            kprintf("[KIRA PCI] missing or malformed PCI ranges; BAR assignment disabled\n");
             goto enumerate_only;
         }
 
@@ -1161,7 +1161,7 @@ static void arm_pci_init(const void* fdt) {
             if (!w || !sz) continue;
             if (pci > UINT64_MAX - sz || cpu > UINT64_MAX - sz ||
                 pci > INT64_MAX || cpu > INT64_MAX) {
-                kprintf("[KIRA PCI] overflowing or unrepresentable PCI range; BAR assignment disabled\\n");
+                kprintf("[KIRA PCI] overflowing or unrepresentable PCI range; BAR assignment disabled\n");
                 m32.size = m64.size = 0;
                 goto enumerate_only;
             }
@@ -1180,7 +1180,7 @@ static void arm_pci_init(const void* fdt) {
     {
         int nd = pci_init();
         int nb = pci_assign(&m32, &m64);
-        kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\\n",
+        kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\n",
                 base, (uint64_t)first_bus, (uint64_t)last_bus, (uint64_t)nd,
                 (uint64_t)nb, m32.pci_base, m64.pci_base);
     }
@@ -1189,7 +1189,7 @@ static void arm_pci_init(const void* fdt) {
 enumerate_only:
     {
         int nd = pci_init();
-        kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s); BAR assignment disabled\\n",
+        kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s); BAR assignment disabled\n",
                 base, (uint64_t)first_bus, (uint64_t)last_bus, (uint64_t)nd);
     }
 }
