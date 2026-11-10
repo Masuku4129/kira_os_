@@ -410,6 +410,9 @@ int main(void) {
         f1->state = b1->state = pin->state = kt->state = b2->state = THREAD_ZOMBIE;
     }
 
+    thread_t* configured = sched_create_proc_ex("configured", dummy, 0, PRIO_NORMAL, 0, (void*)1, 123, 6, 37);
+    CHECK(configured && configured->pid == 123 && configured->weight == 6 && configured->limit == 37);
+
     printf("%s\n", fails ? "FAILED" : "ALL SCHEDULER TESTS PASSED");
     return fails != 0;
 }

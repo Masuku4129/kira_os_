@@ -216,9 +216,9 @@ static int spawn(const char* name, const void* image, size_t len, const char* gr
     while (name[k] && k < sizeof(p->name) - 1) { p->name[k] = name[k]; k++; }
     p->name[k] = 0;
 
-    thread_t* t = sched_create_proc(p->name, user_entry, p, PRIO_NORMAL, root, p);
+    thread_t* t = sched_create_proc_ex(p->name, user_entry, p, PRIO_NORMAL, root, p,
+                                       p->pid, SCHED_WEIGHT_NORMAL, 0);
     if (!t) { vmm_space_destroy(root); p->used = 0; return -1; }
-    t->pid = p->pid;
 
     uart_print("[KIRA PROC] pid "); uart_print_dec(p->pid);
     uart_print(" '"); uart_print(p->name);
@@ -492,14 +492,12 @@ int64_t proc_thread_create(uint64_t rip, uint64_t stack_top, uint64_t arg) {
     unsigned cap = sched_thread_capacity(), reserve = cap / 8 < 16 ? 16 : cap / 8;
     if (p->dying || p->nthreads + reserve >= cap) { kmutex_unlock(&p->mx); kfree(s); return p->dying ? KE_INTR : KE_LIMIT; }
     __atomic_add_fetch(&p->nthreads, 1, __ATOMIC_ACQ_REL);
-    thread_t* t = sched_create_proc(p->name, user_thread_entry, s, PRIO_NORMAL, p->root, p);
+    const thread_t* me = sched_current();
+    uint32_t weight = me && me->weight ? me->weight : SCHED_WEIGHT_NORMAL;
+    uint32_t limit = me ? me->limit : 0;
+    thread_t* t = sched_create_proc_ex(p->name, user_thread_entry, s, PRIO_NORMAL, p->root, p,
+                                       p->pid, weight, limit);
     if (!t) { __atomic_sub_fetch(&p->nthreads, 1, __ATOMIC_ACQ_REL); kmutex_unlock(&p->mx); kfree(s); return KE_NOMEM; }
-    t->pid = p->pid;
-    {   /* новый поток получает вес и ограничение, которые Разум задал процессу */
-        const thread_t* me = sched_current();
-        t->weight = me->weight ? me->weight : SCHED_WEIGHT_NORMAL;
-        t->limit = me->limit;
-    }
     uint32_t tid = t->id;
     kmutex_unlock(&p->mx);
     return tid;

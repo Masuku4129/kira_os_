@@ -103,6 +103,9 @@ int sched_cpu_stats(unsigned cpu, uint64_t* idle_cycles, uint64_t* total_cycles,
 // То же, но поток принадлежит процессу: у него своё адресное пространство (cr3).
 thread_t* sched_create_proc(const char* name, void (*entry)(void*), void* arg, thread_prio_t prio,
                             uint64_t cr3, void* proc);
+/* Все поля идентичности и политики задаются до публикации потока в очереди планировщика. */
+thread_t* sched_create_proc_ex(const char* name, void (*entry)(void*), void* arg, thread_prio_t prio,
+                               uint64_t cr3, void* proc, uint32_t pid, uint32_t weight, uint32_t limit);
 // Вызывается из потока процесса при завершении: дальше он живёт в адресном пространстве ядра.
 void sched_detach_space(void);
 
