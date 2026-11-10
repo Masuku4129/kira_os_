@@ -325,12 +325,16 @@ int main(int argc, char** argv) {
     CHECK(hw_dma(sid_of(d3), 0x20000, 0, &pa) != 0);                                    /* no stale translation */
     CHECK(iommu_unmap(d3, 0x20000, 0x1000) == IOMMU_E_NOENT);
 
-    /* hardware that does not complete invalidation: the map reports it and leaves no access behind */
+    /* A failed invalidation leaves uncertain translations pinned and quarantines DMA. */
     hw_hang = 1;
     CHECK(iommu_map(d3, 0x50000, 0xB0000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_E_HW);
+    CHECK(!iommu_device_ready(d3));
     hw_hang = 0; *r64(R_IOTLB) &= ~(1ull << 63); *r64(R_CCMD) &= ~(1ull << 63); hw_sync();
+    iommu_unmap_all(d3); /* retry invalidation; caller-owned backing stays pinned until success */
     CHECK(hw_dma(sid_of(d3), 0x50000, 0, &pa) != 0);
-    CHECK(iommu_map(d3, 0x50000, 0xB0000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_OK);     /* and the address is usable afterwards */
+    CHECK(iommu_release_device(d3) == IOMMU_OK);
+    CHECK(iommu_isolate_device(d3) == IOMMU_OK && iommu_device_ready(d3));
+    CHECK(iommu_map(d3, 0x50000, 0xB0000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_OK);
     CHECK(iommu_unmap(d3, 0x50000, 0x1000) == IOMMU_OK);
 
     /* table of mappings is bounded */
