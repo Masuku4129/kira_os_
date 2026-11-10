@@ -9,6 +9,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+enum { S0 = 9, S1 = 10, S2 = 11, S3 = 12, S4 = 13, S5 = 14, S6 = 15 };   /* рабочие регистры */
+#define NPOOL 10
+static const int pool[NPOOL] = { 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
+
+/* ---------- AAPCS64: размещение аргументов ---------- */
+enum { AL_REG, AL_STK, AL_AREG, AL_ASTK, AL_VREG };
+typedef struct { int kind, idx, off; } ALoc;        /* REG: номер x (VREG - номер v); AREG: первый из регистров; STK/ASTK: смещение в области аргументов */
 typedef struct {
     A6 xa;
     ALoc *ploc;
@@ -24,13 +31,6 @@ typedef struct {
 #define xa (A64S->xa)
 #define A (&xa)
 
-enum { S0 = 9, S1 = 10, S2 = 11, S3 = 12, S4 = 13, S5 = 14, S6 = 15 };   /* рабочие регистры */
-#define NPOOL 10
-static const int pool[NPOOL] = { 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
-
-/* ---------- AAPCS64: размещение аргументов ---------- */
-enum { AL_REG, AL_STK, AL_AREG, AL_ASTK, AL_VREG };
-typedef struct { int kind, idx, off; } ALoc;        /* REG: номер x (VREG - номер v); AREG: первый из регистров; STK/ASTK: смещение в области аргументов */
 /* hidden не занимает регистров (указатель результата - в x8). Агрегат больше 16 байт приходит указателем (копию делает вызывающий в ir.c). */
 static int plan_args(int n, const int *asz, const unsigned char *afp, ALoc *loc, int *ngrn, int *nvrn) {
     int g = 0, v = 0, sp = 0;
