@@ -286,7 +286,12 @@ int dg_scan_source(const char* fname, const uint8_t* d, uint32_t len, char lic[2
     if (find_ci(d, len, "proprietary") || find_ci(d, len, "all rights reserved. confidential")) { *err = "признаки закрытой лицензии: отвергнут"; return -1; }
     const char* sp = find_ci(d, len, "SPDX-License-Identifier:");
     if (sp) {
-        const char* p = sp + 24; const char* e = (const char*)d + len;
+        const char* e = (const char*)d + len;
+        if (find_ci((const uint8_t*)sp + 24, (uint32_t)(e - (sp + 24)), "SPDX-License-Identifier:")) {
+            *err = "в файле несколько SPDX-объявлений: неоднозначная лицензия - отказ";
+            return -1;
+        }
+        const char* p = sp + 24;
         while (p < e && (*p == ' ' || *p == '\t')) p++;
         char id[32]; size_t n = 0;
         while (p < e && *p != '\n' && *p != '\r' && *p != ' ' && *p != '\t' && *p != '*' && n + 1 < sizeof id) id[n++] = *p++;
