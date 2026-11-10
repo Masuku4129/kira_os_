@@ -34,6 +34,15 @@ jobs:
           - platform
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare apt package cache
+        run: |
+          sudo mkdir -p /var/cache/apt/archives
+          sudo chmod 1777 /var/cache/apt/archives
+      - name: Restore apt package cache
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-factory-${{ runner.os }}-${{ runner.arch }}
       - name: Install isolated box toolchain
         run: |
           sudo apt-get update -q
