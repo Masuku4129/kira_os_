@@ -7,6 +7,13 @@
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 
+static uint32_t test_crc32(const void* data, unsigned len) {
+    const uint8_t* p = (const uint8_t*)data;
+    uint32_t c = 0xFFFFFFFFu;
+    while (len--) { c ^= *p++; for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); }
+    return ~c;
+}
+
 /* ---- исполнители-записыватели ---- */
 static uint32_t q_now = 4, weight[100], limit[100], killed, trims, restrict_lvl, fx_now = 99, q_sets;
 static mind_profile_t profs[8]; static char prof_names[8][16]; static int nprof;
