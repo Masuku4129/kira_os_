@@ -1,4 +1,7 @@
 #include "pci.h"
+#if defined(__aarch64__)
+#include "iommu.h"
+#endif
 
 #if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
 #include "spinlock.h"
@@ -133,6 +136,12 @@ void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
 }
 
 void pci_enable(const pci_dev_t* d, uint16_t bits) {
+#if defined(__aarch64__)
+    /* A mapped requester may start DMA only after its SMMU stream has a
+       valid explicit bypass or stage-1 domain. Failed setup stays blocked. */
+    if ((bits & PCI_CMD_MASTER) && !iommu_device_ready(d))
+        bits &= (uint16_t)~PCI_CMD_MASTER;
+#endif
     pci_write16(d, 0x04, (uint16_t)(pci_read16(d, 0x04) | bits));
 }
 
