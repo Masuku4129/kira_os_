@@ -41,6 +41,31 @@ void printf(const char* fmt, ...) { char b[256]; va_list ap; va_start(ap, fmt); 
 void log(int level, const char* fmt, ...) { char b[256]; va_list ap; (void)level; va_start(ap, fmt); int n = vfmt(b, sizeof b, fmt, ap); va_end(ap); k_write(b, (u64)n); }
 void panic(const char* fmt, ...) { char b[256]; va_list ap; k_puts("bsd panic: "); va_start(ap, fmt); int n = vfmt(b, sizeof b, fmt, ap); va_end(ap); k_write(b, (u64)n); k_puts("\n"); *(volatile int*)0 = 0; for (;;) { } }
 
+/* ---- приоритет прерываний BSD ----
+   BSD-драйверы используют spl* для вложенных критических секций. В Ring 3
+   обработчики исполняются последовательно в одном event-loop, поэтому
+   аппаратно маскировать IRQ нечего; при этом семантика IPL/восстановления
+   предыдущего уровня должна сохраняться для корректной вложенности. */
+static int bsd_current_ipl;
+
+static int bsd_splraise(int level) {
+    int previous = bsd_current_ipl;
+    if (level > bsd_current_ipl)
+        bsd_current_ipl = level;
+    __asm__ volatile ("" ::: "memory");
+    return previous;
+}
+
+int splnet(void) { return bsd_splraise(IPL_NET); }
+int splimp(void) { return bsd_splraise(IPL_NET); }
+int splbio(void) { return bsd_splraise(IPL_BIO); }
+
+void splx(int previous_ipl) {
+    __asm__ volatile ("" ::: "memory");
+    bsd_current_ipl = previous_ipl < 0 ? 0 : previous_ipl;
+    __asm__ volatile ("" ::: "memory");
+}
+
 /* ---- строки ---- */
 void bcopy(const void* s, void* d, size_t n) { memcpy(d, s, n); }
 void bzero(void* p, size_t n) { memset(p, 0, n); }
