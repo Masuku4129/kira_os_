@@ -526,7 +526,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if (!xall[started]) { usb_log("[KIRA USB] xHCI: no memory for controller state\n"); return -1; }
     X = xall[started];
     if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) { usb_log("[KIRA USB] xHCI without memory BAR0: skipped\n"); return -1; }
-    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     if (p->vendor == 0x8086) {                                        /* Intel: порты, отданные EHCI, вернуть xHCI */
         pci_write32(p, 0xD8, pci_read32(p, 0xDC));
         pci_write32(p, 0xD0, pci_read32(p, 0xD4));
