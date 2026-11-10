@@ -167,6 +167,11 @@ int main(void)
     CHECK(smmu.evtq == dma_pool + 8u * PAGE);
     CHECK(smmu.evtq_physical == next_physical + 8u * PAGE);
     CHECK(smmu.enabled == 0u);
+    {
+        unsigned allocated_before = alloc_calls;
+        CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_INVALID);
+        CHECK(alloc_calls == allocated_before);
+    }
     CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_OK);
     CHECK(smmu.enabled == 1u);
     smmu.stream_ids[0] = 1u;
