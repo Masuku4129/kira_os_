@@ -84,7 +84,7 @@ ALL = [
         {"cmd": "test fpu"}, {"sleep": 8},
         {"log": [r"address spaces are isolated \(PASS\)", r"kernel GS intact after the attack \(PASS\)",
                  r"kernel pointer passed to write\(\) was rejected \(PASS\)", r"mt: .* - PASS|- PASS",
-                 r"atk-cap: 15 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX"]},
+                 r"atk-cap: 16 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX"]},
         {"log_forbid": [r"\(FAIL\)", r"isolation broken", r"ipc (server|client): FAIL", r"mt: FAIL"] + NO_ERR},
         {"responsive": "status", "within": 5},
     ]),
