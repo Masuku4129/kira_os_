@@ -173,7 +173,7 @@ static void arm_report_event(void* context, const uint64_t event[4])
     /* This callback runs under EVTQ lock: bounded memory operations and
        atomics only. PCI config writes and console output are deferred. */
     for (unsigned i = 0; i < 4u; ++i)
-        arm_sid_last_event[sid][i] = event[i];
+        __atomic_store_n(&arm_sid_last_event[sid][i], event[i], __ATOMIC_RELAXED);
     __atomic_store_n(&arm_sid_event_pending[sid], 1u, __ATOMIC_RELEASE);
 
     if (translation_fault) {
@@ -643,13 +643,14 @@ int iommu_fault_poll(void)
     for (uint32_t sid = 0; sid < 256u; ++sid) {
         if (!__atomic_exchange_n(&arm_sid_event_pending[sid], 0u, __ATOMIC_ACQ_REL))
             continue;
-        uint64_t* event = arm_sid_last_event[sid];
+        uint64_t event0 = __atomic_load_n(&arm_sid_last_event[sid][0], __ATOMIC_RELAXED);
+        uint64_t event2 = __atomic_load_n(&arm_sid_last_event[sid][2], __ATOMIC_RELAXED);
         uart_print("[KIRA SMMU] event ");
-        uart_print_hex((uint32_t)(event[0] & 0xffu));
+        uart_print_hex((uint32_t)(event0 & 0xffu));
         uart_print(" SID ");
         uart_print_hex(sid);
         uart_print(" IOVA ");
-        uart_print_hex(event[2]);
+        uart_print_hex(event2);
         uart_print("\n");
     }
     if (rc != KIRA_SMMU_OK)
