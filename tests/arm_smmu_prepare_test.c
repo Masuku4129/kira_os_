@@ -14,7 +14,7 @@ static unsigned fail_alloc_at, misalign_alloc_at, misalign_virtual_alloc_at;
 static unsigned offset_virtual_alloc_at;
 static size_t freed_pages, pool_used;
 static uint64_t next_physical;
-static unsigned high_alloc_at;
+static unsigned high_alloc_at, misalign_map;
 
 static volatile void *test_map_mmio(void *context, uint64_t physical, size_t length)
 {
@@ -22,7 +22,7 @@ static volatile void *test_map_mmio(void *context, uint64_t physical, size_t len
     ++map_calls;
     if (physical != 0x100000u || length != 2u * PAGE)
         return 0;
-    return registers_page;
+    return registers_page + (misalign_map ? 1u : 0u);
 }
 
 static void *test_alloc_dma_pages(void *context, size_t pages, uint64_t *physical)
@@ -87,6 +87,7 @@ static void reset_test_platform(void)
     fail_alloc_at = misalign_alloc_at = misalign_virtual_alloc_at = 0;
     offset_virtual_alloc_at = 0;
     high_alloc_at = 0;
+    misalign_map = 0;
     freed_pages = pool_used = 0;
     next_physical = 0x200000u;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
@@ -132,6 +133,14 @@ int main(void)
     p = platform();
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100001u, &p) == KIRA_SMMU_INVALID);
     CHECK(map_calls == 0);
+
+    /* MMIO mapper must return a page-aligned register window. */
+    reset_test_platform();
+    p = platform();
+    misalign_map = 1;
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MAP_FAILED);
+    CHECK(map_calls == 1 && alloc_calls == 0 && smmu.registers == 0);
 
     /* Unsupported identification is rejected before allocating DMA memory. */
     reset_test_platform();
