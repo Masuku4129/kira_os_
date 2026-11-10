@@ -180,12 +180,12 @@ static EFI_STATUS collect_command_line(EFI_HANDLE image,
 {
     EFI_LOADED_IMAGE *loaded = NULL;
     const CHAR16 *options;
-    UINTN units, i;
+    UINTN units, i, out = 0;
+    EFI_STATUS status;
 
     if (!info) return EFI_INVALID_PARAMETER;
-    EFI_STATUS status = uefi_call_wrapper(g_bs->HandleProtocol, 3, image,
-                                           &LoadedImageProtocol,
-                                           (VOID **)&loaded);
+    status = uefi_call_wrapper(g_bs->HandleProtocol, 3, image,
+                               &LoadedImageProtocol, (VOID **)&loaded);
     if (EFI_ERROR(status)) return status;
     if (!loaded->LoadOptions || !loaded->LoadOptionsSize) return EFI_SUCCESS;
     if ((loaded->LoadOptionsSize % sizeof(CHAR16)) != 0 ||
@@ -194,17 +194,46 @@ static EFI_STATUS collect_command_line(EFI_HANDLE image,
 
     options = (const CHAR16 *)loaded->LoadOptions;
     units = loaded->LoadOptionsSize / sizeof(CHAR16);
-    for (i = 0; i < units && options[i]; ++i) {
-        UINT16 ch = options[i];
-        if (i >= KIRA_CMDLINE_MAX - 1 || ch > 0x7fu ||
-            (ch < 0x20u && ch != 0x09u))
+    for (i = 0; i < units && options[i];) {
+        UINT32 cp = options[i++];
+        UINTN need;
+
+        if (cp >= 0xd800u && cp <= 0xdbffu) {
+            UINT32 low;
+            if (i >= units) return EFI_UNSUPPORTED;
+            low = options[i++];
+            if (low < 0xdc00u || low > 0xdfffu) return EFI_UNSUPPORTED;
+            cp = 0x10000u + ((cp - 0xd800u) << 10) + (low - 0xdc00u);
+        } else if (cp >= 0xdc00u && cp <= 0xdfffu) {
             return EFI_UNSUPPORTED;
-        g_boot_command_line[i] = (char)ch;
+        }
+        if (cp < 0x20u && cp != 0x09u) return EFI_UNSUPPORTED;
+
+        need = cp < 0x80u ? 1u : cp < 0x800u ? 2u :
+               cp < 0x10000u ? 3u : 4u;
+        if (need > sizeof(g_boot_command_line) - 1u - out)
+            return EFI_BAD_BUFFER_SIZE;
+        if (need == 1u) {
+            g_boot_command_line[out++] = (char)cp;
+        } else if (need == 2u) {
+            g_boot_command_line[out++] = (char)(0xc0u | (cp >> 6));
+            g_boot_command_line[out++] = (char)(0x80u | (cp & 0x3fu));
+        } else if (need == 3u) {
+            g_boot_command_line[out++] = (char)(0xe0u | (cp >> 12));
+            g_boot_command_line[out++] = (char)(0x80u | ((cp >> 6) & 0x3fu));
+            g_boot_command_line[out++] = (char)(0x80u | (cp & 0x3fu));
+        } else {
+            g_boot_command_line[out++] = (char)(0xf0u | (cp >> 18));
+            g_boot_command_line[out++] = (char)(0x80u | ((cp >> 12) & 0x3fu));
+            g_boot_command_line[out++] = (char)(0x80u | ((cp >> 6) & 0x3fu));
+            g_boot_command_line[out++] = (char)(0x80u | (cp & 0x3fu));
+        }
     }
-    g_boot_command_line[i] = 0;
-    if (i) {
+
+    g_boot_command_line[out] = 0;
+    if (out) {
         info->command_line = g_boot_command_line;
-        info->command_line_len = (UINT32)i + 1u;
+        info->command_line_len = (UINT32)out + 1u;
     }
     return EFI_SUCCESS;
 }
