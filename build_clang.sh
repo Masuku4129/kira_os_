@@ -203,6 +203,16 @@ if command -v mcopy >/dev/null 2>&1 && [ -s /usr/include/efi/efi.h -o -n "${EFI_
     if bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err" && python3 tools/mkuefi.py "$_u/EFI/BOOT/BOOTX64.EFI" "$_u/EFI/KIRA/KIRA.ELF" kira-uefi.img; then :; else
         echo "[!] kira-uefi.img не собран:"; tail -3 "$_u/err"; fi
     UEFI_DIR="$_u"
+elif [ -s prebuilt/BOOTX64.EFI ] && command -v mcopy >/dev/null 2>&1; then
+    # Нет gnu-efi или хост не x86-64 (телефон на ARM): берётся заранее собранный загрузчик, если он собран из ТЕКУЩИХ исходников (хеш в prebuilt/BOOTX64.EFI.sha256)
+    # и сам не изменён. Загрузчик читает ядро с ESP во время работы, поэтому от сборки ядра не зависит.
+    if [ "$(awk '$1=="src"{print $2}' prebuilt/BOOTX64.EFI.sha256)" = "$(tools/uefi_srchash.sh)" ] && [ "$(awk '$1=="efi"{print $2}' prebuilt/BOOTX64.EFI.sha256)" = "$(sha256sum prebuilt/BOOTX64.EFI | cut -d' ' -f1)" ]; then
+        echo "[*] UEFI-загрузчик: готовый prebuilt/BOOTX64.EFI (исходники не менялись)"
+        _u=$(mktemp -d); mkdir -p "$_u/EFI/BOOT" "$_u/EFI/KIRA"
+        cp prebuilt/BOOTX64.EFI "$_u/EFI/BOOT/BOOTX64.EFI"; cp kira.bin "$_u/EFI/KIRA/KIRA.ELF"; UEFI_DIR="$_u"
+    else
+        echo "[!] prebuilt/BOOTX64.EFI устарел или изменён (исходники загрузчика другие): UEFI-вход в образ не войдёт. Пересоберите на x86-64 (build_uefi.sh) и обновите prebuilt."
+    fi
 fi
 
 echo "[*] ISO..."
