@@ -14,7 +14,7 @@
 #define PA_MASK  0x0000fffffffff000ull
 
 static _Alignas(PAGE) uint8_t registers_page[2u * PAGE];
-static _Alignas(PAGE) uint8_t dma_pool[96u * PAGE];
+static _Alignas(16384) uint8_t dma_pool[96u * PAGE];
 static size_t pool_used;
 static unsigned alloc_calls, free_calls, freed_pages, clean_calls, event_count;
 static uint64_t last_event[4];
