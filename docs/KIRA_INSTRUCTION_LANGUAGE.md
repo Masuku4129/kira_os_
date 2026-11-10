@@ -15,6 +15,50 @@ KIL is not natural-language text executed directly, and it is not a shell-comman
 5. **Auditable escape hatches:** raw pointers, inline assembly and unchecked operations require an explicit unsafe block and a target-specific review.
 6. **Human readability:** Russian comments and UTF-8 intent strings are allowed; v1 keywords and identifiers remain ASCII for stable tokenization and diagnostics.
 
+## Two language layers: task plan and executable core
+
+KIL должен быть понятен человеку и пригоден для планирования ИИ. Поэтому спецификация разделяет два слоя:
+
+1. **Task layer** — декларативное задание: цель, типизированные входы/выходы, ограничения, шаги, критерии приёмки. Оно компилируется в DAG задач, а не исполняется как свободный текст.
+2. **Code layer** — обычные функции KIL, которые реализуют конкретные вычисления. Узлы Task layer могут ссылаться только на типизированные операции/функции из доверенного реестра.
+
+Пример Task layer (контракт синтаксиса; операции пока не заявлены как реализованные API):
+
+```kil
+task adapt_driver {
+    goal "Подготовить законно распространяемый драйвер для целевой платформы";
+
+    input source: DriverSource;
+    input target: TargetTriple;
+    output package: KdrvPackage;
+
+    constraints {
+        license = "redistributable";
+        network = "allowlisted";
+        max_memory = 256 * MiB;
+        require_signature = true;
+    }
+
+    steps {
+        inspect(source) -> metadata;
+        verify_license(source, metadata) -> license_report;
+        adapt(source, target) -> candidate;
+        test(candidate, target) -> test_report;
+        package(candidate, license_report, test_report) -> package;
+    }
+
+    accept {
+        require(license_report.redistributable);
+        require(test_report.all_required_passed);
+        require(package.signature_valid);
+    }
+}
+```
+
+Task layer не может содержать произвольные shell-команды, динамическое выполнение строк или незарегистрированные операции. Каждая операция имеет объявленные типы, эффекты и capability-потребности. Планировщик строит зависимости по входам/выходам, выдаёт каждой задаче собственный лимит памяти/времени и исполняет её в изоляции. AI может предложить план, но не может сам выдать себе разрешения; подпись/подтверждение для опасных действий остаются внешней политикой.
+
+Критерии приёмки — проверяемые выражения или именованные тесты. Естественно-языковое описание цели помогает человеку и модели, но не считается доказательством корректности.
+
 ## Proposed source form
 
 ```kil
