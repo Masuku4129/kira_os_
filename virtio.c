@@ -155,9 +155,7 @@ void virtio_fail(virtio_dev_t* v) {
         if (v->pci)
             iommu_unmap_all(v->pci);
 #endif
-    } else {
-        uart_print("[KIRA VIRTIO] reset timeout; DMA mappings remain pinned.\\n");
-    }
+    } /* On reset timeout, keep every DMA mapping pinned. */
 }
 
 int virtio_begin(virtio_dev_t* v, uint64_t want) {
