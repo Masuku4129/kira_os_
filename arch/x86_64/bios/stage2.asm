@@ -372,6 +372,42 @@ e820_collect:
   mov dword [INFO + edx + 38], 0  ; выравнивание тега
   add edx, 40
 .nofb:
+  cmp byte [cmdbuf], 0            ; командная строка из образа (tools/mkbios.py, KIRA_CMDLINE) -> тег типа 1
+  je .nocmd
+  xor ecx, ecx
+.cl:
+  cmp byte [cmdbuf + ecx], 0
+  je .cld
+  inc ecx
+  cmp ecx, 126
+  jb .cl
+.cld:
+  lea eax, [ecx + 16]             ; 8 заголовок + строка + NUL, до кратного 8
+  and eax, 0xFFFFFFF8
+  push eax
+  push ecx
+  xor ebx, ebx                    ; тег чистится целиком: выравнивающие байты нулевые
+.cz:
+  mov dword [INFO + edx + ebx], 0
+  add ebx, 4
+  cmp ebx, eax
+  jb .cz
+  pop ecx
+  pop eax
+  mov dword [INFO + edx], 1
+  lea ebx, [ecx + 9]
+  mov [INFO + edx + 4], ebx
+  xor ebx, ebx
+.cc:
+  mov al, [cmdbuf + ebx]
+  mov [INFO + edx + 8 + ebx], al
+  inc ebx
+  cmp ebx, ecx
+  jbe .cc
+  lea eax, [ecx + 16]
+  and eax, 0xFFFFFFF8
+  add edx, eax
+.nocmd:
   lea eax, [edx + 8]              ; + конечный тег
   mov [INFO], eax
   mov dword [INFO + 4], 0
@@ -744,7 +780,8 @@ m_elf:     db "KIRA: bad ELF64 kernel", 13, 10, 0
 m_seg:     db "KIRA: ELF segment outside usable RAM or malformed", 13, 10, 0
 m_entry:   db "KIRA: bad kernel entry", 13, 10, 0
 
-times (S2_BYTES - 32) - ($ - $$) db 0
+times (S2_BYTES - 32 - 128) - ($ - $$) db 0
+cmdbuf:    times 128 db 0     ; командная строка загрузки (заполняет tools/mkbios.py), пусто - тега нет
 man_magic: dd 0               ; 'KBM1'
 man_lba:   dd 0
 man_size:  dd 0
