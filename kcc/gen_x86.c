@@ -1109,7 +1109,11 @@ static void gen_func(IrFn *fi) {
             pa[q] = ty_is_agg(p->ty) ? ty_unqual(p->ty)->size : 0;
             pf[q] = (unsigned char)(ty_is_float(p->ty) ? p->ty->size : 0);
         }
-        p_stk = plan_args(np, pa, pf, p_hidden, pl, &p_ngrn, &p_nxrn);
+        int p_ngrn_local = 0, p_nxrn_local = 0;
+        p_stk = plan_args(np, pa, pf, p_hidden, pl,
+                          &p_ngrn_local, &p_nxrn_local);
+        p_ngrn = p_ngrn_local;
+        p_nxrn = p_nxrn_local;
         ploc = pl;
     }
     int vsse = f->ty->variadic && !kcc_nosse;                      /* вариадическая функция сохраняет и xmm0-7 (область регистров: 6 * 8 + 8 * 16 = 176 байт) */
