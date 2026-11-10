@@ -273,7 +273,7 @@ jobs:
       - name: inspect kernel ELF program headers
         run: readelf -h -l kira.bin
       - name: build native UEFI loader (PE32+)
-        run: bash ./build_uefi.sh ci-out/uefi
+        run: KIRA_INITRD="$PWD/ci-out/initrd.img" bash ./build_uefi.sh ci-out/uefi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -344,7 +344,7 @@ jobs:
         run: bash ci/test_uefi_ovmf.sh ci-out/uefi ci-out/uefi-ovmf
       - name: boot the GPT + ESP disk image (layout of a real PC, no GRUB)
         run: |
-          python3 tools/mkuefi.py ci-out/uefi/EFI/BOOT/BOOTX64.EFI ci-out/uefi/EFI/KIRA/KIRA.ELF ci-out/kira-uefi.img
+          python3 tools/mkuefi.py ci-out/uefi/EFI/BOOT/BOOTX64.EFI ci-out/uefi/EFI/KIRA/KIRA.ELF ci-out/kira-uefi.img 64 ci-out/uefi/EFI/KIRA/INITRD.IMG
           KIRA_UEFI_DISK=ci-out/kira-uefi.img bash ci/test_uefi_ovmf.sh ci-out/uefi ci-out/uefi-ovmf-gpt
       - uses: actions/upload-artifact@v4
         if: always()
