@@ -6,10 +6,21 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 KERNEL=${1:-kira.bin}
 nasm -f bin arch/x86_64/bios/stage1.asm -o $T/s1.bin && nasm -f bin -w+all arch/x86_64/bios/stage2.asm -o $T/s2.bin || exit 1
 python3 tools/mkbios.py $T/s1.bin $T/s2.bin "$KERNEL" $T/ok.img >/dev/null || exit 1
+python3 - "$T/ok.img" <<'PY'
+import struct, sys
+image = open(sys.argv[1], "rb").read()
+assert image[510:512] == b"\\x55\\xaa", "missing MBR signature"
+boot, start_chs, kind, end_chs, start_lba, sectors = struct.unpack_from("<B3sB3sII", image, 446)
+assert boot == 0x80 and kind == 0xDA, (boot, kind)
+assert start_lba == 1 and sectors == len(image) // 512 - 1, (start_lba, sectors)
+assert image[462:510] == bytes(48), "unexpected extra partition entries"
+print("ok:   active MBR KIRA partition")
+PY
 run() { timeout 10 qemu-system-x86_64 -drive file=$1,format=raw -m ${2:-256} -display none -serial stdio -no-reboot 2>&1 | head -c 4000; }
 fail=0
 expect() { if echo "$OUT" | grep -q "$2"; then echo "ok:   $1"; else echo "FAIL: $1 (нет '$2')"; fail=1; fi; }
 OUT=$(run $T/ok.img);                      expect "загрузка ядра" "Kernel core starting"
+expect "пустая командная строка" "cmdline=absent"
 expect "W^X ядра (нет страниц W+X)" "W^X kernel: ok"
 echo "$OUT" | grep -q "GRUB" && { echo "FAIL: GRUB в выводе"; fail=1; }
 cp $T/ok.img $T/crc.img; printf '\xff' | dd of=$T/crc.img bs=1 seek=$((64*512+5000)) conv=notrunc 2>/dev/null
@@ -31,6 +42,8 @@ PY
 OUT=$(run $T/elf.img);                     expect "p_paddr ниже 1 МиБ" "outside usable RAM"
 OUT=$(run $T/ok.img 16);                   expect "мало памяти (16 МиБ)" "no RAM for kernel/initrd staging"
 OUT=$(run $T/ok.img 64);                   expect "загрузка при 64 МиБ" "Kernel core starting"
+KIRA_CMDLINE="kira.test=1" python3 tools/mkbios.py $T/s1.bin $T/s2.bin "$KERNEL" $T/cmdline.img >/dev/null || exit 1
+OUT=$(run $T/cmdline.img);                  expect "BIOS command line" "cmdline=present"
 printf 'KIRA-INITRD-TEST\n' > $T/initrd.img
 python3 tools/mkbios.py $T/s1.bin $T/s2.bin "$KERNEL" $T/module.img $T/initrd.img >/dev/null || exit 1
 OUT=$(run $T/module.img);                  expect "загрузка BIOS initrd" "modules=1"
