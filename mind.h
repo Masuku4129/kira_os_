@@ -187,6 +187,7 @@ typedef struct {
     uint32_t chg_t[6], chg_n, total_changes, general_rollbacks;
     uint32_t sig; int8_t sigc[8];
     uint32_t seen_fc, seen_tact, seen_core, seen_bg, seen_odd, seen_fxbad, seen_fxlow, prev_fc;
+    uint32_t seen_skew;        /* последняя секунда перекоса ядер */
 } ml_t;
 
 typedef struct {
@@ -246,6 +247,12 @@ typedef struct {
     uint32_t pre_logged_t, pre_skip;          /* журнал не чаще; каждая 10-я опасная секунда - без упреждения (проверка) */
     int      risk_why;                        /* главный признак риска */
     char     denied_name[16];
+    /* перекос ядер: норма занятости каждого ядра (скользящая, на запуск) и порог перегрузки именно этого ядра */
+    int32_t  core_mean_x100[256], core_var_x100[256];
+    uint16_t core_n[256];
+    uint8_t  core_thr[256];                   /* порог перегрузки ядра, % (для экрана и тестов) */
+    uint32_t skew_s, skew_hot, skew_cold;     /* секунд подряд с перекосом; ядер выше порога и простаивающих */
+    uint32_t skew_core, skew_logged_t;        /* самое перегруженное ядро; когда последний раз писали в журнал */
 } mind_t;
 
 void mind_init(mind_t* s, const mind_model_t* saved, unsigned cores);   /* saved - с диска или 0 */

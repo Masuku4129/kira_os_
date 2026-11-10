@@ -375,6 +375,29 @@ int main(void) {
         CHECK(!mind_model_load(&back, &old, 100));
     }
 
+    /* ---- перекос ядер: порог перегрузки у каждого ядра свой ---- */
+    {
+        static mind_t K; mind_init(&K, 0, 4);
+        uint32_t u = 1;
+        for (; u <= 80; u++) { base(u); for (int c = 0; c < 4; c++) S.busy[c] = (uint8_t)(30 + c); S.runnable = 4; mind_step(&K, &S, &act); }
+        CHECK(K.skew_s == 0 && K.core_n[0] == 80 && K.core_thr[0] >= 85 && K.c_bal == 100);   /* ровная нагрузка - не перекос */
+        for (int k = 0; k < 2; k++, u++) { base(u); S.busy[0] = 100; S.busy[1] = S.busy[2] = S.busy[3] = 5; S.runnable = 4; mind_step(&K, &S, &act); }
+        CHECK(K.skew_s == 2 && K.lv.seen_skew == 0);                                        /* две секунды - ещё не событие */
+        base(u++); S.busy[0] = 100; S.busy[1] = S.busy[2] = S.busy[3] = 5; S.runnable = 4; mind_step(&K, &S, &act);
+        CHECK(K.skew_s == 3 && K.skew_core == 0 && K.skew_hot == 1 && K.skew_cold == 3 && K.c_bal < 100 && K.lv.seen_skew == u - 1);
+        { int found = 0; for (uint32_t i = 0; i < K.jn && i < MIND_JOURNAL; i++) if (strstr(K.j[i].text, "перекос ядер: ядро 0")) found = 1; CHECK(found); }
+        for (int k = 0; k < 8; k++, u++) { base(u); for (int c = 0; c < 4; c++) S.busy[c] = 30; S.runnable = 4; mind_step(&K, &S, &act); }
+        CHECK(K.skew_s == 0);                                                               /* выровнялось - перекос снят */
+        /* ядро, которое всегда занято (фоновая обработка), перекосом не считается: его порог по норме поднимается */
+        static mind_t H; mind_init(&H, 0, 4);
+        for (u = 1; u <= 150; u++) { base(u); S.busy[0] = 97; S.busy[1] = S.busy[2] = S.busy[3] = 5; S.runnable = 4; mind_step(&H, &S, &act); }
+        CHECK(H.skew_s == 0 && H.core_thr[0] >= 97 && H.core_thr[1] == 85);
+        /* простаивающих нет - перекоса тоже: все ядра заняты */
+        static mind_t F; mind_init(&F, 0, 4);
+        for (u = 1; u <= 100; u++) { base(u); for (int c = 0; c < 4; c++) S.busy[c] = 100; S.runnable = 8; mind_step(&F, &S, &act); }
+        CHECK(F.skew_s == 0);
+    }
+
     printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1) passed");
     return fails != 0;
 }

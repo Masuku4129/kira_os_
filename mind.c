@@ -306,6 +306,38 @@ static void assess(mind_t* s, const mind_sample_t* in, uint32_t now) {
     int64_t room = in->mem_used <= 70 ? 100 : 100 - (int64_t)(in->mem_used - 70) * 100 / 27;
     int64_t bal = 100;
     if (in->runnable > cores) { int64_t o = (int64_t)(in->runnable - cores) * 100 / (cores * 3); bal = 100 - (o > 70 ? 70 : o); }
+    /* Перекос ядер. Порог перегрузки у каждого ядра свой: выше его же обычной занятости на 3 разброса, но не ниже 85%. Перекос - когда какое-то ядро выше
+       своего порога, другие простаивают (до 20%), а потоков в очереди больше, чем занятых ядер: работа есть, и её можно перенести. Три секунды подряд - событие. */
+    {
+        unsigned nc = cores > 256 ? 256 : cores;
+        uint32_t hot = 0, cold = 0, worst = 0, worst_busy = 0;
+        for (unsigned c = 0; c < nc; c++) {
+            int32_t b = in->busy[c] > 100 ? 100 : in->busy[c];
+            int32_t mean = s->core_mean_x100[c], var = s->core_var_x100[c];
+            int32_t sd = 5; while (sd * sd * 100 < var && sd < 50) sd++;          /* корень из дисперсии, не меньше 5 */
+            int32_t thr = s->core_n[c] >= 60 ? mean / 100 + 3 * sd : 85;
+            thr = thr < 85 ? 85 : thr > 98 ? 98 : thr;
+            s->core_thr[c] = (uint8_t)thr;
+            if (b >= thr) { hot++; if ((uint32_t)b >= worst_busy) { worst_busy = (uint32_t)b; worst = c; } }
+            else if (b <= 20) cold++;
+            int32_t d = b * 100 - mean;                                             /* скользящая норма, шаг 1/16 */
+            if (s->core_n[c] < 65535) s->core_n[c]++;
+            s->core_mean_x100[c] = s->core_n[c] == 1 ? b * 100 : mean + d / 16;
+            s->core_var_x100[c] = s->core_n[c] == 1 ? 0 : var + (d / 100 * (d / 100) * 100 - var) / 16;
+        }
+        s->skew_hot = hot; s->skew_cold = cold;
+        if (hot && cold && in->runnable > nc - cold) s->skew_s++;
+        else s->skew_s = s->skew_s > 1 ? s->skew_s / 2 : 0;
+        if (s->skew_s >= 3) {
+            s->lv.seen_skew = now; s->skew_core = worst;
+            uint32_t pen = 10 * hot + 5 * cold; if (pen > 40) pen = 40;
+            bal -= pen;
+            if (now - s->skew_logged_t >= 60 || s->skew_logged_t == 0) {
+                s->skew_logged_t = now;
+                jlog(s, now, MJ_INFO, 0, 0, "перекос ядер: ядро %u занято на %u%% (его порог %u%%), простаивают %u ядер, потоков в очереди %u", worst, worst_busy, s->core_thr[worst], cold, in->runnable);
+            }
+        }
+    }
     s->stab_debt += in->faults * 20;
     int64_t stab = 100 - (int64_t)s->stab_debt;
     s->stab_debt = s->stab_debt > 16 ? s->stab_debt * 15 / 16 : (s->stab_debt ? s->stab_debt - 1 : 0);
@@ -1054,7 +1086,8 @@ static unsigned ml_need(const mind_t* s, int L, uint32_t now, const char** why) 
     case ML_BG_CALM: case ML_BG_STEP: *why = "темп фона снижался"; return ml_recent(l->seen_bg, now) ? 50 : 0;
     case ML_FX_CALM: *why = "анимация снижена"; return ml_recent(l->seen_fxlow, now) && !pressure ? 40 : 0;
     case ML_FX_BAD: *why = "кадры опаздывали"; return ml_recent(l->seen_fxbad, now) ? 45 : 0;
-    case ML_STEAL: *why = "очередь потоков при занятых ядрах"; return pressure && a.run / n > 1 ? 45 : 0;
+    case ML_STEAL: *why = ml_recent(l->seen_skew, now) ? "перекос ядер: одни перегружены, другие простаивают" : "очередь потоков при занятых ядрах";
+        return ml_recent(l->seen_skew, now) ? 65 : pressure && a.run / n > 1 ? 45 : 0;
     case ML_AUDIO_LEAD: *why = a.under ? "были недоборы звука" : "звук играет - задержку можно уменьшить";
         return a.audio_s * 2 >= n ? (a.under ? 90 : 40) : 0;
     case ML_AUDIO_PERIOD: *why = "звук играет - микшер можно разгрузить"; return a.audio_s * 2 >= n ? 30 : 0;
