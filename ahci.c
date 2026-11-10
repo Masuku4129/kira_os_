@@ -253,6 +253,7 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     }
     w32(pr, P_SERR, 0xFFFFFFFFu);
     w32(pr, P_IS, 0xFFFFFFFFu);
+    pci_enable(c->pci, PCI_CMD_MASTER);
     if (port_start(p)) { uart_print("[KIRA AHCI] port "); uart_print_dec((uint64_t)pn); uart_print(": device stays busy\n"); return; }
     uint32_t sig = r32(pr, P_SIG);
     if (sig == 0xEB140101u) { uart_print("[KIRA AHCI] port "); uart_print_dec((uint64_t)pn); uart_print(": optical drive (ATAPI) - not used yet\n"); port_stop(p); return; }
@@ -296,11 +297,12 @@ static void ahci_irq(void* ctx) {
 
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[5].io || !pd->bar[5].base || pd->bar[5].size < 0x180) { uart_print("[KIRA AHCI] controller without ABAR: skipped\n"); return; }
-    pci_enable(pd, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    pci_enable(pd, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     uint64_t sz = pd->bar[5].size > 0x1100 ? 0x1100 : pd->bar[5].size;
     volatile uint8_t* ab = (volatile uint8_t*)pci_map_bar(pd, 5, 0, sz);
     if (!ab) { uart_print("[KIRA AHCI] cannot map ABAR\n"); return; }
     ahci_ctl_t* c = &ctls[ci];
+    c->pci = pd;
     c->abar = ab;
     w32(ab, GHC, r32(ab, GHC) | GHC_AE);
     if (r32(ab, CAP2) & 1u) {                                          /* BIOS/OS handoff */
