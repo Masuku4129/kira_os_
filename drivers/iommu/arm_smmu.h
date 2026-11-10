@@ -6,6 +6,7 @@
 
 struct kira_smmu_platform {
     void *context;
+    uint8_t dma_coherent; /* Normal WB DMA memory; otherwise mappings use Normal NC. */
     volatile void *(*map_mmio)(void *context, uint64_t physical, size_t length);
     void *(*alloc_dma_pages)(void *context, size_t pages, uint64_t *physical);
     void (*free_dma_pages)(void *context, void *virtual_address,
