@@ -129,7 +129,11 @@ int main(void) {
     // Null inputs are rejected safely by descriptor helpers; null object refs are no-ops.
     CHECK(htab_add(0, 0) == KE_ARG && htab_cap(0) == 0);
     CHECK(htab_get(0, 1, 0) == 0 && htab_take(0, 1) == 0);
-    htab_free(0); kobj_retain(0); kobj_release(0);
+    htab_free(0); CHECK(kobj_retain(0) == KE_ARG); kobj_release(0);
+    kobj_t rogue = { KOBJ_PORT, 1, "rogue" };
+    CHECK(kobj_retain(&rogue) == KE_BADH);
+    kobj_release(&rogue);
+    CHECK(rogue.refs == 1);
 
     // дескрипторы
     htab_t h; memset(&h, 0, sizeof h);
