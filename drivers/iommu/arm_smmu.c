@@ -614,20 +614,18 @@ int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
         ++count;
     }
 
-    /* Do not acknowledge or discard entries that did not fit this batch. */
-    if (consumer != producer) {
-        *processed = count;
-        __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
-        return KIRA_SMMU_HARDWARE_ERROR;
-    }
-
+    /* Commit each batch so a bounded poll never replays already delivered events.
+       Acknowledge overflow only after the producer position has been drained. */
     smmu->evtq_consumer = consumer;
     *processed = count;
     platform->write_barrier(platform->context);
     smmu_write32(smmu->registers, SMMU_EVTQ_CONS,
-                 consumer | (overflow ? SMMU_EVTQ_OVACK : 0u));
+                 consumer | ((overflow && consumer == producer) ?
+                             SMMU_EVTQ_OVACK : 0u));
     __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
-    return overflow ? KIRA_SMMU_HARDWARE_ERROR : KIRA_SMMU_OK;
+    if (overflow && consumer == producer)
+        return KIRA_SMMU_HARDWARE_ERROR;
+    return KIRA_SMMU_OK;
 }
 
 int kira_smmu_v3_disable(struct kira_smmu *smmu,
