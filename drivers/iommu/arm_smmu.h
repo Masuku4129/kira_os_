@@ -18,9 +18,9 @@ struct kira_smmu_platform {
     void (*write_barrier)(void *context);
     void (*read_barrier)(void *context);
     void (*delay)(void *context);
-    /* Must stop bus mastering on every device before SMMU shutdown. */
+    /* Must stop bus mastering on every PCI function before prepare/enable/disable. */
     int (*quiesce_devices)(void *context);
-    /* Receives the four raw 64-bit words of each SMMUv3 event. */
+    /* Called with the event-queue lock held; must not re-enter SMMU APIs or block. */
     void (*report_event)(void *context, const uint64_t event[4]);
 };
 
