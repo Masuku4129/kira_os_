@@ -10,7 +10,7 @@
 static _Alignas(PAGE) uint8_t registers_page[2u * PAGE];
 static _Alignas(PAGE) uint8_t dma_pool[12u * PAGE];
 static unsigned alloc_calls, free_calls, clean_calls, map_calls;
-static unsigned fail_alloc_at, misalign_alloc_at;
+static unsigned fail_alloc_at, misalign_alloc_at, misalign_virtual_alloc_at;
 static size_t freed_pages, pool_used;
 static uint64_t next_physical;
 
@@ -37,6 +37,8 @@ static void *test_alloc_dma_pages(void *context, size_t pages, uint64_t *physica
     *physical = next_physical + offset;
     if (alloc_calls == misalign_alloc_at)
         ++*physical;
+    if (alloc_calls == misalign_virtual_alloc_at)
+        return dma_pool + offset + 1u;
     return dma_pool + offset;
 }
 
@@ -63,7 +65,7 @@ static void reset_test_platform(void)
     memset(registers_page, 0, sizeof(registers_page));
     memset(dma_pool, 0xa5, sizeof(dma_pool));
     alloc_calls = free_calls = clean_calls = map_calls = 0;
-    fail_alloc_at = misalign_alloc_at = 0;
+    fail_alloc_at = misalign_alloc_at = misalign_virtual_alloc_at = 0;
     freed_pages = pool_used = 0;
     next_physical = 0x201000u;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
@@ -198,6 +200,15 @@ int main(void)
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
     CHECK(alloc_calls == 3 && free_calls == 2 && freed_pages == 8u);
     CHECK(smmu.cmdq == 0 && smmu.stream_table == 0);
+
+    /* A page-aligned physical address is insufficient if the CPU mapping is unaligned. */
+    reset_test_platform();
+    p = platform();
+    misalign_virtual_alloc_at = 1;
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
+    CHECK(alloc_calls == 1 && free_calls == 1 && freed_pages == 7u);
+    CHECK(smmu.stream_table == 0);
 
     /* An unaligned DMA address is rejected and the allocation is returned. */
     reset_test_platform();
