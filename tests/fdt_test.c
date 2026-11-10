@@ -54,6 +54,13 @@ static unsigned build(void) {
         { uint32_t r[] = { 0, 0x3c000000, 0, 800 * 600 * 4 }; pcells("reg", r, 4); }
         p1("width", 800); p1("height", 600); p1("stride", 3200); pstr("format", "a8r8g8b8", 9); end();
       begin("chosen"); pstr("stdout-path", "/pl011@9000000", 15); pstr("bootargs", "console=ttyAMA0", 16); end();
+      begin("smmu@9050000"); pstr("compatible", "arm,smmu-v3", 12);
+        p1("phandle", 0x42); p1("#iommu-cells", 1);
+        { uint32_t r[] = { 0, 0x09050000, 0, 0x20000 }; pcells("reg", r, 4); } end();
+      begin("pcie@4010000000"); pstr("device_type", "pci", 4);
+        p1("#address-cells", 3); p1("#size-cells", 2); p1("iommu-map-mask", 0xffff);
+        { uint32_t m[] = { 0x1000, 0x42, 0x80, 0x100,
+                           0x2000, 0x42, 0x200, 0x10 }; pcells("iommu-map", m, 8); } end();
     end();
     w32(9);
     unsigned off_struct = 40 + 32, off_str = off_struct + sn, total = off_str + tn;
@@ -117,6 +124,44 @@ int main(void) {
     CHECK(so && !strcmp(so, "/pl011@9000000"));
     CHECK(fdt_find_path(blob, "/nope") < 0 && fdt_find_compatible(blob, -1, "x,y") < 0);
     CHECK(fdt_find_compatible(blob, uart, "arm,pl011") < 0);          /* второго такого нет */
+
+    /* PCI requester IDs resolve through iommu-map to a unique SMMUv3 phandle/StreamID. */
+    {
+        int pcie = fdt_find_path(blob, "/pcie@4010000000");
+        uint32_t phandle = 0, sid = 0, len = 0;
+        CHECK(pcie >= 0 && fdt_phandle_node(blob, 0x42) >= 0);
+        CHECK(fdt_iommu_map(blob, pcie, 0xabcd1020u, &phandle, &sid) == 0 &&
+              phandle == 0x42 && sid == 0xa0); /* iommu-map-mask strips upper requester bits */
+        CHECK(fdt_iommu_map(blob, pcie, 0x2005u, &phandle, &sid) == 0 &&
+              phandle == 0x42 && sid == 0x205);
+        CHECK(fdt_iommu_map(blob, pcie, 0x3000u, &phandle, &sid) == -1);
+
+        /* Overlapping ranges, unknown phandles, unsupported cell counts and SID overflow fail closed. */
+        uint8_t* map = (uint8_t*)fdt_prop(blob, pcie, "iommu-map", &len);
+        CHECK(map && len == 32);
+        be(map + 16, 0x1010); be(map + 28, 0x20);
+        CHECK(fdt_iommu_map(blob, pcie, 0x1020u, &phandle, &sid) == -2);
+        total = build();
+        pcie = fdt_find_path(blob, "/pcie@4010000000");
+        map = (uint8_t*)fdt_prop(blob, pcie, "iommu-map", &len);
+        be(map + 4, 0x99);
+        CHECK(fdt_iommu_map(blob, pcie, 0x1020u, &phandle, &sid) == -2);
+        total = build();
+        pcie = fdt_find_path(blob, "/pcie@4010000000");
+        map = (uint8_t*)fdt_prop(blob, pcie, "iommu-map", &len);
+        be(map + 8, 0xfffffff0u);
+        CHECK(fdt_iommu_map(blob, pcie, 0x1020u, &phandle, &sid) == -2);
+        total = build();
+        pcie = fdt_find_path(blob, "/pcie@4010000000");
+        {
+            int smmu = fdt_phandle_node(blob, 0x42);
+            uint8_t* cells = (uint8_t*)fdt_prop(blob, smmu, "#iommu-cells", &len);
+            CHECK(cells && len == 4);
+            be(cells, 2);
+            CHECK(fdt_iommu_map(blob, pcie, 0x1020u, &phandle, &sid) == -2);
+        }
+        total = build();
+    }
 
     fdt_fb_t fb;
     CHECK(fdt_simplefb(blob, &fb) == 0 && fb.base == 0x3c000000 && fb.width == 800 && fb.height == 600 &&
