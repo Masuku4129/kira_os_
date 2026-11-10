@@ -388,6 +388,13 @@ int main(void) {
         old3.version = 3; old3.crc = test_crc32(&old3, sizeof old3);
         CHECK(mind_model_load(&back, &old3, sizeof old3) && back.net.n == sv.net.n &&
               back.net.w[3] == sv.net.w[3] && back.net.w[12] == 0 && back.lv[0].trials == sv.lv[0].trials);
+        mind_model_v4_t old4; memset(&old4, 0, sizeof old4);
+        memcpy(&old4, &sv, __builtin_offsetof(mind_model_v4_t, net));
+        old4.net = sv.net; old4.forecasts = sv.forecasts;
+        memcpy(old4.lv, sv.lv, sizeof old4.lv); old4.mflags = sv.mflags;
+        old4.version = 4; old4.crc = test_crc32(&old4, sizeof old4);
+        CHECK(mind_model_load(&back, &old4, sizeof old4) && back.net.w[3] == sv.net.w[3] &&
+              back.memory_net.n == 0 && back.memory_net.b == -3 * MNET_ONE && mind_model_valid(&back));
         mind_model_v2_t old2; memset(&old2, 0, sizeof old2);
         memcpy(&old2, &sv, __builtin_offsetof(mind_model_v2_t, net));
         for (int i = 0; i < 12; i++) old2.net.w[i] = sv.net.w[i];
@@ -440,6 +447,35 @@ int main(void) {
         }
         unsigned tr = 0, wn = 0, bk = 0; mind_lever_stats(&Q, ML_AUDIO_LEAD, &tr, &wn, &bk);
         CHECK(tr >= 1);                                           /* опережение звука (нужда 40) получило пробу, хотя рычаги темпа фона (нужда 50) нужнее */
+    }
+
+    /* ---- отдельная модель давления памяти: метка через четыре реальные секунды ---- */
+    {
+        static mind_t P; mind_init(&P, 0, 4); P.m.mode = MIND_OBSERVE;
+        for (uint32_t u = 1; u <= 8; u++) { base(u); S.mem_used = 50; mind_step(&P, &S, &none); }
+        uint32_t trained_before = P.m.memory_net.n;
+        for (uint32_t u = 9; u <= 12; u++) {
+            base(u); S.mem_used = u == 9 ? 80 : u == 10 ? 84 : u == 11 ? 88 : 90;
+            mind_step(&P, &S, &none);
+        }
+        CHECK(P.m.memory_net.n > trained_before && P.m.memory_net.pos > 0);
+        CHECK(mind_memory_risk(&P) == 0);
+        mind_model_t saved_mem = P.m; mind_model_seal(&saved_mem);
+        mind_model_t loaded_mem;
+        CHECK(mind_model_load(&loaded_mem, &saved_mem, sizeof saved_mem) &&
+              loaded_mem.memory_net.n == saved_mem.memory_net.n && loaded_mem.memory_net.pos == saved_mem.memory_net.pos);
+        static mind_t Missing; mind_init(&Missing, 0, 4); Missing.m.mode = MIND_OBSERVE;
+        base(1); mind_step(&Missing, &S, &none);
+        for (uint32_t u = 2; u <= 8; u++) { base(u); S.mem_total_mb = 0; mind_step(&Missing, &S, &none); }
+        CHECK(Missing.m.memory_net.n == 0 && Missing.m.memory_net.pos == 0);
+        static mind_t Gap; mind_init(&Gap, 0, 4); Gap.m.mode = MIND_OBSERVE;
+        for (uint32_t u = 1; u <= 8; u++) { base(u); S.mem_used = 50; mind_step(&Gap, &S, &none); }
+        base(9); S.mem_used = 80; mind_step(&Gap, &S, &none);
+        base(11); S.mem_used = 50; mind_step(&Gap, &S, &none);
+        CHECK(Gap.m.memory_net.n == 0 && Gap.mem_pending[0].valid + Gap.mem_pending[1].valid +
+              Gap.mem_pending[2].valid + Gap.mem_pending[3].valid + Gap.mem_pending[4].valid == 1);
+        for (uint32_t u = 12; u <= 16; u++) { base(u); S.mem_used = 50; mind_step(&Gap, &S, &none); }
+        CHECK(Gap.m.memory_net.n > 0);
     }
 
     printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1-v3 and disk validity) passed");
