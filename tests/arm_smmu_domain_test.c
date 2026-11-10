@@ -158,7 +158,7 @@ int main(void)
     CHECK(((cd[0] >> 32) & 7ull) == 5ull);       /* IPS = 48-bit */
     CHECK(((cd[0] >> 41) & 1ull) == 1ull);       /* AA64 */
     CHECK(cd[1] == domain.stage1_root_physical); /* CD.TTB0 */
-    CHECK(cd[2] == 0 && cd[3] == 0);
+    CHECK(cd[2] == 0);
     CHECK(cd[3] == 0xffull); /* MAIR AttrIndx 0 is normal write-back memory. */
 
     /* AArch64 stage-1 page descriptors must encode AF, SH and AP correctly. */
