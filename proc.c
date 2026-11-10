@@ -556,6 +556,8 @@ int64_t proc_shm_map(int h) {
     for (uint32_t i = 0; !rc && i < pages; i++) {
         if (vmm_space_map(p->root, va + (uint64_t)i * 4096, shm_frame(o, i), VMM_WRITE | VMM_NOEXEC | VMM_SHARED) != 0) {
             for (uint32_t k = 0; k < i; k++) vmm_space_unmap(p->root, va + (uint64_t)k * 4096);
+            /* Другие потоки процесса могли успеть получить TLB-записи на частично созданный диапазон. */
+            if (i) vmm_tlb_shootdown(p->root, va, i);
             rc = KE_NOMEM;
         }
     }
