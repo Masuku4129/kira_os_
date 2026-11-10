@@ -4,11 +4,22 @@
 #include "kcc.h"
 #include <string.h>
 
-static Ins *ihead, *itail;
-static int nreg, nlab;
-static Obj *fn, *ltail;
-static int maxslot;
-static SB *out;
+typedef struct {
+    Ins *ihead, *itail;
+    int nreg, nlab;
+    Obj *fn, *ltail;
+    int maxslot;
+    SB *out;
+} IRState;
+#define IRS ((IRState *)K.ir_state)
+#define ihead (IRS->ihead)
+#define itail (IRS->itail)
+#define nreg (IRS->nreg)
+#define nlab (IRS->nlab)
+#define fn (IRS->fn)
+#define ltail (IRS->ltail)
+#define maxslot (IRS->maxslot)
+#define out (IRS->out)
 
 static Ins *emit(IrOp op) {
     Ins *i = ka_new(sizeof *i);
@@ -719,6 +730,7 @@ static void print_ins(const Ins *i) {
 }
 
 IrFn *ir_lower(Obj *f) {
+    if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
     fn = f;
     ihead = itail = NULL;
     nreg = 0; nlab = f->nlabels;
@@ -793,6 +805,7 @@ int ir_uses_sp(const IrFn *fi) {
 }
 
 void ir_dump(Obj *globals, SB *o) {
+    if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
     out = o;
     sb_printf(out, "; kcc IR\n");
     for (Obj *g = globals; g; g = g->next) {
