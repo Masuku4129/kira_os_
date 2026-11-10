@@ -56,7 +56,8 @@ typedef struct {
     const unsigned char *g_mdef;
     int tmplab, g_maxout;
 } X86State;
-#define X86S ((X86State *)K.x86_state)
+static X86State *x86s;
+#define X86S x86s
 #define xa (X86S->xa)
 #define A (&xa)
 #define npool (X86S->npool)
@@ -1261,7 +1262,8 @@ static void x86_reloc(unsigned char *text, void *ctx) {
 
 void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen) {
     if (!K.x86_state) K.x86_state = ka_new(sizeof(X86State));
-    memset(X86S, 0, sizeof *X86S);
+    x86s = K.x86_state;
+    memset(x86s, 0, sizeof *x86s);
     gen_prepare(globals);
     A->file = K.srcpath; A->line = 1;
     for (Obj *g = globals; g; g = g->next)
