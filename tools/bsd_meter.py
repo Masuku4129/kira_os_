@@ -15,7 +15,7 @@ def main(sysd, index, pcidevs, only):
         files = [pci] + ([] if ic == '-' else ic.split(','))
         tot += 1
         with tempfile.TemporaryDirectory() as g:
-                        srcs = [os.path.join(sysd, f) for f in files]
+            srcs = [os.path.join(sysd, f) for f in files]
             names = P.referenced(srcs); out, bad = P.resolve(vend, prod, names)
             open(g + '/kd_pcidevs.h', 'w').write(''.join('#define %s 0x%04x\n' % kv for kv in out.items()))
             first = None
