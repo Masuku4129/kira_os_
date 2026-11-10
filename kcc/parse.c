@@ -15,26 +15,53 @@ typedef struct { int is_typedef, is_static, is_extern, is_inline, noret, packed,
 typedef struct Init Init;
 struct Init { Type *ty; Init **ch; int nch; Node *expr; Member *mem; int flex; };
 
-static Token *tok;
-static Scope *scope, *gscope;
-static Obj *globals_head, *globals_tail;
-static Obj *cur_fn;
-static Obj *fn_locals_tail;
-static int nlocals;
-static int str_count, static_count, type_count;
-static Node *cur_switch;
-static int brk_lbl, cont_lbl;
-static Node *fn_gotos, *fn_labels;
-
-/* ---------- VLA: состояние разбора ----------
-   Длина каждого VLA вычисляется один раз в скрытую локальную Type.vlen; присваивания копятся в vla_head и выпускаются там, где объявление встречено.
-   Объект VLA - блок стека, его адрес лежит в скрытом указателе (VS.vla); первое VLA блока сохраняет sp в скрытой локальной, конец блока,
-   break/continue/goto, выходящие из блока, восстанавливают sp (ND_SPREST). */
-static Node *vla_head, *vla_tail;
-static int in_params;
-static Obj *vla_objs;
-static Obj *vla_stack[64];
-static int vla_depth, blk_vla_base, blk_is_se, stmtexpr_next, brk_vd, cont_vd;
+/* Все изменяемые данные разбора принадлежат текущей компиляции, а не translation-unit globals. */
+typedef struct {
+    Token *tok;
+    Scope *scope, *gscope;
+    Obj *globals_head, *globals_tail, *cur_fn, *fn_locals_tail;
+    int nlocals, str_count, static_count, type_count;
+    Node *cur_switch;
+    int brk_lbl, cont_lbl;
+    Node *fn_gotos, *fn_labels;
+    Node *vla_head, *vla_tail;
+    int in_params;
+    Obj *vla_objs, *vla_stack[64];
+    int vla_depth, blk_vla_base, blk_is_se, stmtexpr_next, brk_vd, cont_vd;
+    Type *va_ty, *va_st;
+    int count_mode;
+} ParseState;
+#define PS ((ParseState *)K.parse_state)
+#define tok (PS->tok)
+#define scope (PS->scope)
+#define gscope (PS->gscope)
+#define globals_head (PS->globals_head)
+#define globals_tail (PS->globals_tail)
+#define cur_fn (PS->cur_fn)
+#define fn_locals_tail (PS->fn_locals_tail)
+#define nlocals (PS->nlocals)
+#define str_count (PS->str_count)
+#define static_count (PS->static_count)
+#define type_count (PS->type_count)
+#define cur_switch (PS->cur_switch)
+#define brk_lbl (PS->brk_lbl)
+#define cont_lbl (PS->cont_lbl)
+#define fn_gotos (PS->fn_gotos)
+#define fn_labels (PS->fn_labels)
+#define vla_head (PS->vla_head)
+#define vla_tail (PS->vla_tail)
+#define in_params (PS->in_params)
+#define vla_objs (PS->vla_objs)
+#define vla_stack (PS->vla_stack)
+#define vla_depth (PS->vla_depth)
+#define blk_vla_base (PS->blk_vla_base)
+#define blk_is_se (PS->blk_is_se)
+#define stmtexpr_next (PS->stmtexpr_next)
+#define brk_vd (PS->brk_vd)
+#define cont_vd (PS->cont_vd)
+#define va_ty (PS->va_ty)
+#define va_st (PS->va_st)
+#define count_mode (PS->count_mode)
 
 /* ---------- вспомогательное ---------- */
 static int P(const char *s) { return tok->k == TK_PUNCT && tok_is(tok, s); }
@@ -269,7 +296,6 @@ static Type *struct_decl(int is_union);
 static Type *enum_decl(void);
 
 /* va_list: x86-64 SysV - массив из одной структуры (24 байта), AAPCS64 - структура (32 байта), передаётся по значению */
-static Type *va_ty, *va_st;
 static Type *va_type(void) {
     if (!va_ty) {
         int a64 = K.cfg->target && !strcmp(K.cfg->target, "aarch64");
@@ -1911,7 +1937,6 @@ static Node *expr(void) {
 }
 
 /* ---------- инициализаторы ---------- */
-static int count_mode;
 
 static Init *new_init(Type *ty, int flex) {
     Init *in = ka_new(sizeof *in);
@@ -2871,6 +2896,7 @@ static void func_def(Token *nm, Type *ty, Attr *a) {
 }
 
 Obj *parse_program(Token *t) {
+    K.parse_state = ka_new(sizeof(ParseState));
     tok = t;
     globals_head = globals_tail = NULL; va_ty = va_st = NULL;
     cur_fn = NULL; scope = NULL; str_count = static_count = type_count = 0;
