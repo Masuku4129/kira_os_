@@ -560,8 +560,6 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
         return -1;
     }
 #endif
-    xs.pci = p;
-    xs.dma_failed = 0;
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     if (p->vendor == 0x8086) {                                        /* Intel: порты, отданные EHCI, вернуть xHCI */
         pci_write32(p, 0xD8, pci_read32(p, 0xDC));
@@ -571,6 +569,8 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     volatile uint8_t* cap = (volatile uint8_t*)pci_map_bar(p, 0, 0, sz);
     if (!cap) { usb_log("[KIRA USB] xHCI: cannot map registers\n"); return -1; }
     for (unsigned long i = 0; i < sizeof xs; i++) ((volatile uint8_t*)X)[i] = 0;   /* десятки КБ: не через временную копию на стеке */
+    xs.pci = p;
+    xs.dma_failed = 0;
     xs.cap = cap;
     uint32_t caplen = cap[0], hcs1 = r32(cap, 4), hcs2 = r32(cap, 8), hcc1 = r32(cap, 0x10);
     xs.op = cap + caplen; xs.rt = cap + (r32(cap, 0x18) & ~0x1Fu); xs.db = (volatile uint32_t*)(cap + (r32(cap, 0x14) & ~3u));
