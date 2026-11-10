@@ -31,7 +31,8 @@ struct ParseState {
     Type *va_ty, *va_st;
     int count_mode;
 };
-#define PS (&K)->parse_state
+static struct ParseState *kcc_parse_state_context(void) { return K.parse_state; }
+#define PS (kcc_parse_state_context())
 #define ptok (PS->current_token)
 #define scope (PS->scope)
 #define gscope (PS->gscope)
