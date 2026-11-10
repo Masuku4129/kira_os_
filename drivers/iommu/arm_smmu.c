@@ -190,6 +190,10 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         !physical_base || (physical_base & 0xfffu))
         return KIRA_SMMU_INVALID;
 
+    if (smmu->enabled || smmu->stream_table || smmu->stream_table_allocation ||
+        smmu->cmdq || smmu->evtq || smmu->evtq_allocation)
+        return KIRA_SMMU_INVALID;
+
     smmu->registers = (volatile uint8_t *)
         platform->map_mmio(platform->context, physical_base, SMMU_REGISTER_MAP_SIZE);
     if (!smmu->registers)
