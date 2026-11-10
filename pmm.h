@@ -24,6 +24,7 @@ int pmm_free_page(uint64_t paddr);
 // Блок из pages подряд идущих страниц (0 - нет такого блока). Освобождать
 // pmm_free_contiguous с теми же аргументами; 0 - успех, -1 - хотя бы одна страница отказала.
 uint64_t pmm_alloc_contiguous(uint32_t pages);
+uint64_t pmm_alloc_contiguous_below(uint32_t pages, uint64_t limit_exclusive);
 int pmm_free_contiguous(uint64_t paddr, uint32_t pages);
 
 uint32_t pmm_get_free_memory_kb(void);
