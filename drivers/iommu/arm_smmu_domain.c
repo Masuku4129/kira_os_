@@ -658,7 +658,7 @@ int kira_smmu_domain_map_4k(struct kira_smmu_domain *d,
         return KIRA_SMMU_INVALID;
 
     smmu_domain_lock(d);
-    if (!d->active) {
+    if (!d->active || d->bypass || !d->stage1_root || !d->context_table) {
         smmu_domain_unlock(d);
         return KIRA_SMMU_INVALID;
     }
