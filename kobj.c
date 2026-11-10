@@ -56,6 +56,7 @@ static int name_eq(const char* a, const char* b) {
 }
 
 int htab_add(htab_t* t, kobj_t* o) {
+    if (!t || !o) return KE_ARG;
     for (uint32_t i = 0; i < t->cap; i++) if (!t->obj[i]) { t->obj[i] = o; return (int)i + 1; }
     if (t->cap >= KH_LIMIT) return KE_LIMIT;
     uint32_t nc = t->cap ? t->cap * 2 : 16;
@@ -69,17 +70,17 @@ int htab_add(htab_t* t, kobj_t* o) {
     return (int)at + 1;
 }
 
-void htab_free(htab_t* t) { kfree(t->obj); t->obj = 0; t->cap = 0; }
-uint32_t htab_cap(const htab_t* t) { return t->cap; }
+void htab_free(htab_t* t) { if (!t) return; kfree(t->obj); t->obj = 0; t->cap = 0; }
+uint32_t htab_cap(const htab_t* t) { return t ? t->cap : 0; }
 
 kobj_t* htab_get(htab_t* t, int h, uint32_t type) {
-    if (h < 1 || (uint32_t)h > t->cap) return 0;
+    if (!t || h < 1 || (uint32_t)h > t->cap) return 0;
     kobj_t* o = t->obj[h - 1];
     return (o && (!type || o->type == type)) ? o : 0;
 }
 
 kobj_t* htab_take(htab_t* t, int h) {
-    if (h < 1 || (uint32_t)h > t->cap) return 0;
+    if (!t || h < 1 || (uint32_t)h > t->cap) return 0;
     kobj_t* o = t->obj[h - 1];
     t->obj[h - 1] = 0;
     return o;
@@ -104,6 +105,7 @@ static void destroy(kobj_t* o) {
 }
 
 void kobj_retain(kobj_t* o) {
+    if (!o) return;
     uint64_t f = spin_lock_irqsave(&reg_lock);
     o->refs++;
     spin_unlock_irqrestore(&reg_lock, f);
@@ -112,6 +114,7 @@ void kobj_retain(kobj_t* o) {
 void kobj_release(kobj_t* o) {
     if (!o) return;
     uint64_t f = spin_lock_irqsave(&reg_lock);
+    if (!o->refs) { spin_unlock_irqrestore(&reg_lock, f); return; }
     uint32_t r = --o->refs;
     if (r == 0) {
         for (unsigned i = 0; i < reg_n; i++) if (reg[i] == o) { reg[i] = reg[--reg_n]; break; }
