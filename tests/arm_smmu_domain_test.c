@@ -209,7 +209,7 @@ int main(void)
     CHECK(((cd[0] >> 32) & 7u) == 5u); /* 48-bit output */
     CHECK(((cd[0] >> 48) & 0xffffu) == 7u);
     CHECK((cd[1] & PA_MASK) == domain.stage1_root_physical);
-    CHECK(cd[3] == 0xffu);
+    CHECK(cd[3] == 0x44u);
     commands = (uint64_t *)smmu.cmdq;
     CHECK(commands[0] == 0x04u && commands[1] == 31u); /* CFGI_ALL */
     CHECK(commands[2] == 0x46u && commands[3] == 0u);
@@ -220,7 +220,7 @@ int main(void)
     CHECK(commands[12] == (0x03ull | (7ull << 32)) && commands[13] == 1u);
     CHECK(commands[14] == 0x46u && commands[15] == 0u);
     CHECK(commands[16] == (0x11ull | (7ull << 48)) && commands[17] == 0u);
-    CHECK(commands[18] == 0x46u && commands[19] == 0u); /* MAIR AttrIdx 0 = normal WB */
+    CHECK(commands[18] == 0x46u && commands[19] == 0u); /* MAIR AttrIdx 0 = normal non-cacheable for this platform */
 
     CHECK(kira_smmu_domain_create(&duplicate, &smmu, 7u, &p) == KIRA_SMMU_INVALID);
     CHECK(duplicate.active == 0);
