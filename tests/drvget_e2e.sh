@@ -38,7 +38,7 @@ gcc -O1 -DKIRA_HOST_TEST -I. -Iarch/x86_64 -o $T/dgcheck tests/drvget_check.c kd
 # сервер и цепочка
 python3 -I ci/mkchain.py $T/chain >/dev/null || exit 1
 mkdir -p $T/ssl && cp $T/chain/root.der $T/ssl/roots.der
-W=$T/www; rm -rf $W; mkdir -p $W/rl $W/gpl $W/bin $W/pin $W/nolic $W/winsys $W/nohash
+W=$T/www; rm -rf $W; mkdir -p $W/rl $W/gpl $W/bin $W/pin $W/nolic $W/winsys $W/nohash $W/mismatch
 cp drivers/net/drvget.rec drivers/net/rtl8139_kdrv.c drivers/net/rtl8139.c drivers/net/rtl8139.h $W/rl/
 # Recipe/source license mismatch: the files are BSD-3-Clause but the recipe claims BSD-2-Clause.
 cp drivers/net/* $W/mismatch/; sed -i 's/^name rl/name mismatch/' $W/mismatch/drvget.rec; sed -i 's/^license BSD-3-Clause/license BSD-2-Clause/' $W/mismatch/drvget.rec
