@@ -133,6 +133,10 @@ int proc_spawn_elf_ex(const char* name, const void* image, size_t len, const cha
     return spawn(name, image, len, grant, args, 0, 0, 0);
 }
 
+int proc_spawn_elf_unprivileged(const char* name, const void* image, size_t len, const char* args) {
+    return spawn(name, image, len, 0, args, 1, 0, 0);
+}
+
 /* Драйвер Ring 3: права не из таблицы доверенных программ, а из пакета (запрошены в .kdrv и подтверждены в .rec); процесс привязан
    к одному устройству (slot - привязка в kdrv.c). */
 int proc_spawn_driver(const char* name, const void* image, size_t len, uint32_t caps, uint32_t slot, const char* args) {
