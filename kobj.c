@@ -248,7 +248,7 @@ int port_open(const char* name, int flags, kobj_t** out) {
 }
 
 int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
-    if (!o || o->type != KOBJ_PORT || len > PORT_MSG_MAX) return KE_ARG;
+    if (!o || o->type != KOBJ_PORT || len > PORT_MSG_MAX || (len && !data)) return KE_ARG;
     port_t* p = (port_t*)o;
     uint8_t* copy = 0;
     if (len) {
@@ -285,7 +285,7 @@ unsigned port_queued(kobj_t* o) {
 }
 
 int64_t port_recv(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_t* from_pid, int (*stop)(void)) {
-    if (!o || o->type != KOBJ_PORT) return KE_ARG;
+    if (!o || o->type != KOBJ_PORT || (cap && !kbuf)) return KE_ARG;
     port_t* p = (port_t*)o;
     uint64_t start = timer_get_ticks();
     for (;;) {
