@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "ac97.h"
 #include "pci.h"
+#include "iommu.h"
 #include "audio.h"
 #include "usb.h"             /* usb_dma_alloc: память ниже 4 ГБ (адреса буферов AC'97 - 32 бита) */
 #include "uart.h"
@@ -86,8 +87,20 @@ int ac97_probe(void) {
     for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x01) p = d; }
     if (!p) return -1;
     if (!p->bar[0].io || !p->bar[1].io || !p->bar[0].base || !p->bar[1].base) { uart_print("[KIRA AC97] controller without I/O port BARs - not supported.\n"); return -2; }
+    int iommu_rc = iommu_isolate_device(p);
+    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
+        iommu_rc != IOMMU_E_NOCOVER) {
+        uart_print("[KIRA AC97] IOMMU isolation failed; controller disabled.\n");
+        return -3;
+    }
+#if defined(__aarch64__)
+    if (!iommu_device_ready(p)) {
+        uart_print("[KIRA AC97] requester is not isolated or safely unrestricted; controller disabled.\n");
+        return -3;
+    }
+#endif
     a.nam = (uint16_t)p->bar[0].base; a.nabm = (uint16_t)p->bar[1].base;
-    pci_enable(p, PCI_CMD_IO | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    pci_enable(p, PCI_CMD_IO | PCI_CMD_INTX_OFF);
     outl((uint16_t)(a.nabm + GLOB_CNT), 2);                     /* снять холодный сброс, прерывания выключены */
     int ready = 0;
     for (int i = 0; i < 200 && !ready; i++) { if (inl((uint16_t)(a.nabm + GLOB_STA)) & (1u << 8)) ready = 1; else sched_sleep_ticks(1); }
@@ -109,6 +122,24 @@ int ac97_probe(void) {
     a.obdl = (uint32_t*)usb_dma_alloc(NBD * 8, &a.obdl_p, 1);
     a.ibdl = (uint32_t*)usb_dma_alloc(NBD * 8, &a.ibdl_p, 1);
     if (!a.out || !a.in || !a.obdl || !a.ibdl) { uart_print("[KIRA AC97] no memory below 4 GB for DMA buffers.\n"); return -4; }
+#if defined(__aarch64__) || defined(__x86_64__)
+    if (iommu_device_isolated(p) &&
+        (iommu_map(p, a.out_p, a.out_p, BUFSZ, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(p, a.in_p, a.in_p, BUFSZ, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(p, a.obdl_p, a.obdl_p, NBD * 8, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(p, a.ibdl_p, a.ibdl_p, NBD * 8, IOMMU_R | IOMMU_W) != IOMMU_OK)) {
+        iommu_unmap_all(p);
+        uart_print("[KIRA AC97] IOMMU DMA mapping failed; controller disabled.\n");
+        return -4;
+    }
+#endif
+    pci_enable(p, PCI_CMD_MASTER);
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        pci_disable_bus_master(p);
+        iommu_unmap_all(p);
+        uart_print("[KIRA AC97] PCI bus mastering was not granted.\n");
+        return -4;
+    }
     fill_bdl(a.obdl, a.out_p); fill_bdl(a.ibdl, a.in_p);
     box_start(BOX_IN, (uint32_t)a.ibdl_p);
     a.in_up = 1;
@@ -118,5 +149,12 @@ int ac97_probe(void) {
     card.name = "AC'97"; card.start = out_start; card.pos = out_pos; card.buf = (int16_t*)a.out; card.bytes = BUFSZ;
     card.service = service; card.in_ready = 1; card.in_pos = in_pos; card.in_buf = (const int16_t*)a.in; card.in_bytes = BUFSZ;
     card.in_name = "microphone"; card.print = print;
-    return audio_attach(&card);
+    int attach_rc = audio_attach(&card);
+    if (attach_rc != 0) {
+        outb((uint16_t)(a.nabm + BOX_IN + B_CR), 0);
+        outb((uint16_t)(a.nabm + BOX_OUT + B_CR), 0);
+        pci_disable_bus_master(p);
+        iommu_unmap_all(p);
+    }
+    return attach_rc;
 }
