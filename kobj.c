@@ -31,7 +31,7 @@ static volatile uint64_t msgs_total;
 #define KOBJ_F_PUBLIC 1u
 #define KOPEN_FLAGS (KOPEN_CREATE | KOPEN_EXCL | KOPEN_PUBLIC)
 
-uint64_t kobj_messages_total(void) { return msgs_total; }
+uint64_t kobj_messages_total(void) { return __atomic_load_n(&msgs_total, __ATOMIC_RELAXED); }
 
 static int open_flags_valid(int flags) {
     return !(flags & ~KOPEN_FLAGS) &&
@@ -119,7 +119,12 @@ void kobj_release(kobj_t* o) {
     if (r == 0) destroy(o);
 }
 
-unsigned kobj_count(void) { return reg_n; }
+unsigned kobj_count(void) {
+    uint64_t f = spin_lock_irqsave(&reg_lock);
+    unsigned n = reg_n;
+    spin_unlock_irqrestore(&reg_lock, f);
+    return n;
+}
 
 // Найти или создать (создание - вне замка: страницы разделяемой памяти обнуляются долго). made - заготовка
 // нового объекта или 0; если объект за это время создал кто-то другой, заготовка уничтожается.
@@ -271,8 +276,12 @@ int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
 }
 
 unsigned port_queued(kobj_t* o) {
+    if (!o || o->type != KOBJ_PORT) return 0;
     port_t* p = (port_t*)o;
-    return p->qh - p->qt;
+    uint64_t f = spin_lock_irqsave(&p->lk);
+    unsigned n = p->qh - p->qt;
+    spin_unlock_irqrestore(&p->lk, f);
+    return n;
 }
 
 int64_t port_recv(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_t* from_pid, int (*stop)(void)) {
