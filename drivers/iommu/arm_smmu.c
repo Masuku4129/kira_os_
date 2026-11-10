@@ -399,6 +399,8 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
         return KIRA_SMMU_HARDWARE_ERROR;
     }
     smmu->enabled = 2u;
+    while (__atomic_exchange_n(&smmu->evtq_lock, 1u, __ATOMIC_ACQUIRE)) {
+    }
 
     /* Disable the unit before changing queue base registers. */
     smmu_write32(smmu->registers, SMMU_CR0, 0);
@@ -408,6 +410,7 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
                         SMMU_CR0ACK_CMDQEN, 0, platform);
     if (rc != KIRA_SMMU_OK) {
         smmu->enabled = 2u;
+        __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
         smmu_stream_table_unlock(smmu);
         return rc;
     }
@@ -448,11 +451,13 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
             smmu->enabled = 0;
         else
             smmu->enabled = 2u;
+        __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
         smmu_stream_table_unlock(smmu);
         return rc;
     }
 
     smmu->enabled = 1;
+    __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
     smmu_stream_table_unlock(smmu);
     return KIRA_SMMU_OK;
 }
@@ -491,6 +496,8 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
         return KIRA_SMMU_INVALID;
     }
     smmu->enabled = 2u; /* Block new domains while hardware is being quiesced. */
+    while (__atomic_exchange_n(&smmu->evtq_lock, 1u, __ATOMIC_ACQUIRE)) {
+    }
 
     smmu_write32(smmu->registers, SMMU_CR0, 0);
     platform->write_barrier(platform->context);
@@ -499,11 +506,13 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
                         SMMU_CR0ACK_CMDQEN, 0, platform);
     if (rc != KIRA_SMMU_OK) {
         smmu->enabled = 2u;
+        __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
         smmu_stream_table_unlock(smmu);
         return rc;
     }
 
     smmu->enabled = 0;
+    __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
     smmu_stream_table_unlock(smmu);
     return KIRA_SMMU_OK;
 }
