@@ -342,6 +342,31 @@ uint64_t shm_room_kb(void);                               // тест задаё
 #else
 static uint64_t shm_room_kb(void) { return pmm_get_free_memory_kb() / 2; }
 #endif
+
+/* Reserve in-flight SHM allocations: PMM free memory is not reduced until each page is allocated,
+   so concurrent creators of different names must account for each other's pending reservations. */
+static spinlock_t shm_budget_lock = SPINLOCK_INIT;
+static uint64_t shm_pending_kb;
+
+static int shm_budget_reserve(uint64_t kb) {
+    uint64_t f = spin_lock_irqsave(&shm_budget_lock);
+    uint64_t room = shm_room_kb();
+    if (kb > room || shm_pending_kb > room - kb) {
+        spin_unlock_irqrestore(&shm_budget_lock, f);
+        return 0;
+    }
+    shm_pending_kb += kb;
+    spin_unlock_irqrestore(&shm_budget_lock, f);
+    return 1;
+}
+
+static void shm_budget_release(uint64_t kb) {
+    uint64_t f = spin_lock_irqsave(&shm_budget_lock);
+    if (kb <= shm_pending_kb) shm_pending_kb -= kb;
+    else shm_pending_kb = 0;
+    spin_unlock_irqrestore(&shm_budget_lock, f);
+}
+
 int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out) {
     if (!kname_ok(name) || !out || !open_flags_valid(flags)) return KE_ARG;
     shm_t* s = 0;
@@ -351,17 +376,19 @@ int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid,
         if (rr == 1) return publish(KOBJ_SHM, name, flags, owner_pid, 0, out);
         if (rr) return rr;
         if (pages == 0) { shm_unreserve(reservation); return KE_ARG; }
-        if ((uint64_t)pages * 4 > shm_room_kb()) {
+        uint64_t budget_kb = (uint64_t)pages * 4;
+        if (!shm_budget_reserve(budget_kb)) {
             shm_unreserve(reservation);
-            return KE_NOMEM;            // не больше половины свободной ОЗУ
+            return KE_NOMEM;            // общий лимит учитывает и параллельные незавершённые выделения
         }
         s = (shm_t*)kmalloc(sizeof(shm_t));
-        if (!s) { shm_unreserve(reservation); return KE_NOMEM; }
+        if (!s) { shm_budget_release(budget_kb); shm_unreserve(reservation); return KE_NOMEM; }
         __builtin_memset(s, 0, sizeof *s);
         set_name(&s->hdr, KOBJ_SHM, name);
         s->frames = (uint64_t*)kmalloc(sizeof(uint64_t) * pages);
         if (!s->frames) {
             kfree(s);
+            shm_budget_release(budget_kb);
             shm_unreserve(reservation);
             return KE_NOMEM;
         }
@@ -372,6 +399,7 @@ int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid,
             s->frames[i] = pa;
             if (!pa) {
                 destroy(&s->hdr);
+                shm_budget_release(budget_kb);
                 shm_unreserve(reservation);
                 return KE_NOMEM;
             }
@@ -379,6 +407,7 @@ int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid,
         }
     }
     int rc = publish(KOBJ_SHM, name, flags, owner_pid, s ? &s->hdr : 0, out);
+    if (reservation) shm_budget_release((uint64_t)pages * 4);
     shm_unreserve(reservation);
     return rc;
 }
