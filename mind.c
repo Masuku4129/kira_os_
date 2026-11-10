@@ -919,21 +919,31 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
     if (!in->mem_total_mb || in->mem_used > 100) {
         for (unsigned i = 0; i < 5; i++) s->mem_pending[i].valid = 0;
         s->mem_prev_valid = 0;
+        s->mem_prev_t = 0;
         s->mem_risk_q16 = 0;
         return;
+    }
+    /* The horizon is four real seconds, not four calls: a missed or repeated
+       timestamp breaks continuity and censors every in-flight label. */
+    if (s->mem_prev_valid && (now <= s->mem_prev_t || now - s->mem_prev_t != 1)) {
+        for (unsigned i = 0; i < 5; i++) s->mem_pending[i].valid = 0;
+        s->mem_prev_valid = 0;
     }
     int32_t mx[MNET_F];
     for (int i = 0; i < MNET_F; i++) mx[i] = x[i];
     uint32_t growth = s->mem_prev_valid && in->mem_used > s->mem_prev_used ? in->mem_used - s->mem_prev_used : 0;
     mx[12] = q16(growth, 10); /* рост занятой памяти за секунду; отдельный смысл признака в memory_net */
     s->mem_prev_used = in->mem_used;
+    s->mem_prev_t = now;
     s->mem_prev_valid = 1;
     for (unsigned i = 0; i < 5; i++) {
         mind_mem_pending_t* p = &s->mem_pending[i];
         if (!p->valid) continue;
+        if (now <= p->created_t) continue;
+        uint32_t elapsed = now - p->created_t;
+        if (elapsed > 4) { p->valid = 0; continue; }
         if (in->mem_used > p->max_used) p->max_used = in->mem_used;
-        if (p->age < 4) p->age++;
-        if (p->age == 4) {
+        if (elapsed == 4) {
             if (!p->acted) mnet_train(&s->m.memory_net, p->x, p->max_used >= 90);
             p->valid = 0;
         }
@@ -941,7 +951,7 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
     mind_mem_pending_t* slot = &s->mem_pending[s->mem_pending_pos++ % 5];
     for (int i = 0; i < MNET_F; i++) slot->x[i] = mx[i];
     slot->max_used = in->mem_used;
-    slot->age = 0;
+    slot->created_t = now;
     slot->acted = 0;
     slot->valid = 1;
     s->mem_risk_q16 = mnet_predict(&s->m.memory_net, mx);
