@@ -601,9 +601,12 @@ int iommu_unmap(const pci_dev_t* pci, uint64_t iova, uint64_t bytes)
 void iommu_unmap_all(const pci_dev_t* pci)
 {
     arm_iommu_device_t* dev = arm_find_device(pci);
-    if (!dev || dev->stream_id >= 256u ||
-        !iommu_device_isolated(pci))
+    if (!dev || !dev->covered || dev->stream_id >= 256u ||
+        !arm_smmu_active || !arm_domains[dev->stream_id].active ||
+        arm_domains[dev->stream_id].bypass)
         return;
+    /* Quarantined devices still need their mappings revoked after the driver
+       has stopped bus mastering; quarantine must not prevent safe teardown. */
     for (unsigned i = 0; i < ARM_IOMMU_MAX_MAPS; ++i)
         if (dev->maps[i].active)
             arm_unmap_record(dev, &dev->maps[i]);
