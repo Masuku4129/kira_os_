@@ -150,7 +150,8 @@ int main(void) {
             CHECK(reg && reg_len == 16u);
             be(reg, 0xffffffffu); be(reg + 4, 0xffffff00u);
             be(reg + 8, 0); be(reg + 12, 0x200u);
-            CHECK(fdt_reg(blob, smmu, 0, &len, &sid) != 0);
+            uint64_t reg_addr = 0, reg_size = 0;
+            CHECK(fdt_reg(blob, smmu, 0, &reg_addr, &reg_size) != 0);
             be(reg, 0); be(reg + 4, 0x09050000u);
             be(reg + 8, 0); be(reg + 12, 0x20000u);
         }
