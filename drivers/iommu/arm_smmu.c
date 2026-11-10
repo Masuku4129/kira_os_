@@ -480,6 +480,7 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
         smmu_stream_table_unlock(smmu);
         return KIRA_SMMU_INVALID;
     }
+    smmu->enabled = 2u; /* Block new domains while hardware is being quiesced. */
     smmu_stream_table_unlock(smmu);
 
     smmu_write32(smmu->registers, SMMU_CR0, 0);
