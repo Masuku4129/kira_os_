@@ -169,6 +169,10 @@ int main(void)
     CHECK(smmu.enabled == 0u);
     CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_OK);
     CHECK(smmu.enabled == 1u);
+    smmu.stream_ids[0] = 1u;
+    CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_INVALID);
+    CHECK(smmu.enabled == 1u);
+    smmu.stream_ids[0] = 0u;
     CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_OK);
     CHECK(smmu.enabled == 0u);
     CHECK(smmu.evtq_allocation_pages == 3u);
