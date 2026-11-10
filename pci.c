@@ -104,7 +104,9 @@ int pci_ecam_bus_range(uint64_t ecam_size, int has_bus_range, uint32_t bus_start
 
 int pci_configure_ecam(const pci_ecam_config_t* config) {
     uint64_t required_buses;
-    if (!config || !config->base || config->first_bus > config->last_bus ||
+    if (!config || !config->base ||
+        ((uintptr_t)config->base & 0xfffu) != 0 ||
+        config->first_bus > config->last_bus ||
         config->size < (1ull << 20))
         return -1;
     required_buses = (uint64_t)config->last_bus - config->first_bus + 1u;
