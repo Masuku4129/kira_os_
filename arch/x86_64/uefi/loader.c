@@ -168,6 +168,136 @@ static EFI_STATUS read_kernel_image(EFI_HANDLE image,
     return EFI_SUCCESS;
 }
 
+
+#define KIRA_INITRD_PATH L"\\EFI\\KIRA\\INITRD.IMG"
+#define KIRA_INITRD_MAX_SIZE (64ull * 1024ull * 1024ull)
+#define KIRA_CMDLINE_MAX 1024u
+
+static char g_boot_command_line[KIRA_CMDLINE_MAX];
+
+static EFI_STATUS collect_command_line(EFI_HANDLE image,
+                                       kira_uefi_kbi_info *info)
+{
+    EFI_LOADED_IMAGE *loaded = NULL;
+    const CHAR16 *options;
+    UINTN units, i;
+
+    if (!info) return EFI_INVALID_PARAMETER;
+    EFI_STATUS status = uefi_call_wrapper(g_bs->HandleProtocol, 3, image,
+                                           &LoadedImageProtocol,
+                                           (VOID **)&loaded);
+    if (EFI_ERROR(status)) return status;
+    if (!loaded->LoadOptions || !loaded->LoadOptionsSize) return EFI_SUCCESS;
+    if ((loaded->LoadOptionsSize % sizeof(CHAR16)) != 0 ||
+        loaded->LoadOptionsSize > KIRA_CMDLINE_MAX * sizeof(CHAR16))
+        return EFI_BAD_BUFFER_SIZE;
+
+    options = (const CHAR16 *)loaded->LoadOptions;
+    units = loaded->LoadOptionsSize / sizeof(CHAR16);
+    for (i = 0; i < units && options[i]; ++i) {
+        UINT16 ch = options[i];
+        if (i >= KIRA_CMDLINE_MAX - 1 || ch > 0x7fu ||
+            (ch < 0x20u && ch != 0x09u))
+            return EFI_UNSUPPORTED;
+        g_boot_command_line[i] = (char)ch;
+    }
+    if (i == units && options[units - 1] != 0)
+        return EFI_BAD_BUFFER_SIZE;
+    g_boot_command_line[i] = 0;
+    if (i) {
+        info->command_line = g_boot_command_line;
+        info->command_line_len = (UINT32)i + 1u;
+    }
+    return EFI_SUCCESS;
+}
+
+/* INITRD.IMG is optional. When present it is loaded into reserved physical
+   pages below the kernel's 1-GiB bootstrap identity map and retained after
+   ExitBootServices. Its exact byte length, not rounded allocation size, is
+   recorded in BootInfo. */
+static EFI_STATUS load_boot_module(EFI_HANDLE image,
+                                   kira_uefi_kbi_info *info)
+{
+    EFI_LOADED_IMAGE *loaded = NULL;
+    EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs = NULL;
+    EFI_FILE_PROTOCOL *root = NULL, *file = NULL;
+    EFI_FILE_INFO *file_info = NULL;
+    EFI_PHYSICAL_ADDRESS module_base = KIRA_BOOTSTRAP_LIMIT - 1u;
+    UINTN info_size = 0, file_size, pages, read_size;
+    EFI_STATUS status;
+    static const char module_name[] = "initrd.img";
+
+    if (!info) return EFI_INVALID_PARAMETER;
+    status = uefi_call_wrapper(g_bs->HandleProtocol, 3, image,
+                               &LoadedImageProtocol, (VOID **)&loaded);
+    if (EFI_ERROR(status)) return status;
+    status = uefi_call_wrapper(g_bs->HandleProtocol, 3, loaded->DeviceHandle,
+                               &FileSystemProtocol, (VOID **)&fs);
+    if (EFI_ERROR(status)) return status;
+    status = uefi_call_wrapper(fs->OpenVolume, 2, fs, &root);
+    if (EFI_ERROR(status)) return status;
+
+    status = uefi_call_wrapper(root->Open, 5, root, &file, KIRA_INITRD_PATH,
+                               EFI_FILE_MODE_READ, 0);
+    if (status == EFI_NOT_FOUND) {
+        uefi_call_wrapper(root->Close, 1, root);
+        return EFI_NOT_FOUND;
+    }
+    if (EFI_ERROR(status)) {
+        uefi_call_wrapper(root->Close, 1, root);
+        return status;
+    }
+
+    status = uefi_call_wrapper(file->GetInfo, 4, file, &kira_file_info_guid,
+                               &info_size, NULL);
+    if (status == EFI_BUFFER_TOO_SMALL) {
+        status = uefi_call_wrapper(g_bs->AllocatePool, 3, EfiLoaderData,
+                                   info_size, (VOID **)&file_info);
+        if (!EFI_ERROR(status))
+            status = uefi_call_wrapper(file->GetInfo, 4, file,
+                                       &kira_file_info_guid, &info_size,
+                                       file_info);
+    }
+    if (EFI_ERROR(status)) goto fail;
+    if (!file_info->FileSize || file_info->FileSize > KIRA_INITRD_MAX_SIZE) {
+        status = EFI_BAD_BUFFER_SIZE;
+        goto fail;
+    }
+
+    file_size = (UINTN)file_info->FileSize;
+    pages = (file_size + KIRA_PAGE_SIZE - 1u) / KIRA_PAGE_SIZE;
+    status = uefi_call_wrapper(g_bs->AllocatePages, 4, AllocateMaxAddress,
+                               EfiLoaderData, pages, &module_base);
+    if (EFI_ERROR(status)) goto fail;
+    SetMem((VOID *)(UINTN)module_base, pages * KIRA_PAGE_SIZE, 0);
+    read_size = file_size;
+    status = uefi_call_wrapper(file->Read, 3, file, &read_size,
+                               (VOID *)(UINTN)module_base);
+    if (EFI_ERROR(status) || read_size != file_size) {
+        if (!EFI_ERROR(status)) status = EFI_END_OF_FILE;
+        (VOID)uefi_call_wrapper(g_bs->FreePages, 2, module_base, pages);
+        goto fail;
+    }
+
+    info->module_base = module_base;
+    info->module_size = file_size;
+    info->module_name = module_name;
+    info->module_name_len = sizeof(module_name);
+
+    if (file_info) uefi_call_wrapper(g_bs->FreePool, 1, file_info);
+    uefi_call_wrapper(file->Close, 1, file);
+    uefi_call_wrapper(root->Close, 1, root);
+    Print(L"KIRA UEFI: loaded INITRD.IMG (%lu bytes at 0x%lx)\\r\\n",
+          (UINT64)file_size, module_base);
+    return EFI_SUCCESS;
+
+fail:
+    if (file_info) uefi_call_wrapper(g_bs->FreePool, 1, file_info);
+    if (file) uefi_call_wrapper(file->Close, 1, file);
+    if (root) uefi_call_wrapper(root->Close, 1, root);
+    return status;
+}
+
 static void release_loaded_segments(kira_loaded_segment *segments,
                                      UINTN segment_count)
 {
@@ -493,6 +623,17 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
     kbi_info.kernel_size = kernel_size;
     (VOID)collect_gop(&kbi_info);
     (VOID)find_rsdp(&kbi_info.rsdp);
+
+    status = collect_command_line(image, &kbi_info);
+    if (EFI_ERROR(status)) {
+        print_error(L"unsupported UEFI command line", status);
+        return status;
+    }
+    status = load_boot_module(image, &kbi_info);
+    if (status != EFI_NOT_FOUND && EFI_ERROR(status)) {
+        print_error(L"cannot load optional INITRD.IMG", status);
+        return status;
+    }
 
     /*
      * Allocate a generously sized memory-map buffer. If firmware reports
