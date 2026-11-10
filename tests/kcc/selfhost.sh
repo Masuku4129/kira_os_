@@ -29,7 +29,7 @@ cp mind_build.h mind_build.c mind_build_core.c elf.h immune.h sha256.c $SB/; cp 
 sed 's|"../kcc/kcc.h"|"kcc.h"|; s|"../mind_build.h"|"mind_build.h"|' userland/kcc.c > $SB/kcc_main.c
 sed -i 's|"kcc/kcc.h"|"kcc.h"|' $SB/mind_build.c
 sed -i 's|"kccrt/\([a-z]*\.h\)"|<\1>|' $SB/kccrt.c
-cp kcc/include/* $INC/
+cp -R kcc/include/* $INC/
 cp userland/kccrt/* $INC/      # заголовки самого kcc (stdio.h, string.h, stdlib.h, setjmp.h) заменяют libc-lite программ
 
 echo "== самосборка kcc: stage1 (kcc хоста собирает kcc) =="
