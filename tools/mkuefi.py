@@ -35,6 +35,8 @@ def main():
     initrd = sys.argv[5] if len(sys.argv) > 5 else None
     if initrd and (not os.path.isfile(initrd) or os.path.getsize(initrd) == 0):
         sys.exit(f"mkuefi: invalid initrd file: {initrd}")
+    if initrd and os.path.getsize(initrd) > 64 * 1024 * 1024:
+        sys.exit("mkuefi: initrd exceeds the UEFI loader 64 MiB limit")
     total = mib * 1024 * 1024 // SECTOR
     part_first = 2048
     part_last = total - 34 - 1
