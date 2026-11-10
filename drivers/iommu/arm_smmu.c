@@ -24,6 +24,8 @@
 #define SMMU_POLL_LIMIT      1000000u
 
 #define SMMU_IDR0            0x0000u
+#define SMMU_IDR0_ST_LVL_SHIFT 27u
+#define SMMU_IDR0_ST_LVL_MASK  3u
 #define SMMU_IDR1            0x0004u
 #define SMMU_IDR1_SIDSIZE_MASK 0x3fu
 #define SMMU_IDR5            0x0014u
@@ -181,7 +183,13 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
             return KIRA_SMMU_UNSUPPORTED;
     }
 
-    /* SMMUv3 identifies itself through the architecture ID registers. */
+    /* This implementation programs a linear stream table. ST_LVL=2 requires
+       a two-level table; ST_LVL=3 is reserved. Never write an incompatible format. */
+    if (((smmu->idr0 >> SMMU_IDR0_ST_LVL_SHIFT) &
+         SMMU_IDR0_ST_LVL_MASK) >= 2u)
+        return KIRA_SMMU_UNSUPPORTED;
+
+    /* SMMUv3 must expose at least stage 1 or stage 2 translation. */
     if ((smmu->idr0 & 0x3u) == 0)
         return KIRA_SMMU_UNSUPPORTED;
 
