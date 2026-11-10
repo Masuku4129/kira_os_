@@ -88,22 +88,92 @@ start16:
   jb near fail_manifest
   cmp eax, MAX_KERNEL
   ja near fail_manifest
+  cmp dword [man_flags], 0
+  je .no_module_manifest
+  cmp dword [man_flags], 1
+  jne near fail_manifest
+  cmp dword [man_mod_size], 0
+  je near fail_manifest
+  cmp dword [man_mod_size], 0x04000000
+  ja near fail_manifest
+  test dword [man_mod_lba], 3
+  jnz near fail_manifest
+  mov eax, [man_size]
+  add eax, 511
+  jc near fail_manifest
+  shr eax, 9
+  add eax, [man_lba]
+  jc near fail_manifest
+  cmp [man_mod_lba], eax
+  jb near fail_manifest
+  jmp .module_manifest_ok
+.no_module_manifest:
+  cmp dword [man_mod_lba], 0
+  jne near fail_manifest
+  cmp dword [man_mod_size], 0
+  jne near fail_manifest
+  cmp dword [man_mod_crc], 0
+  jne near fail_manifest
+.module_manifest_ok:
+  mov dword [mod_stage_base], 0
+  cmp dword [man_mod_size], 0
+  je .no_module_stage
+  mov eax, [man_size]
+  add eax, 4095
+  jc near fail_stage
+  and eax, ~4095
+  add eax, STAGE_BASE
+  jc near fail_stage
+  mov [mod_stage_base], eax
+.no_module_stage:
   sti
   call a20_enable
   jc near fail_a20
   call vbe_set                    ; режим экрана (не критично: без него ядро идёт в текстовом режиме/по серийному порту)
   call e820_collect
   jc near fail_e820
-  ; область промежуточного файла должна быть обычной памятью
+  ; область промежуточного файла ядра должна быть обычной памятью
   mov eax, STAGE_BASE
   mov ebx, [man_size]
   add ebx, 511
   and ebx, ~511
   add ebx, eax
+  jc near fail_stage
   CONTAINED
   jc near fail_stage
+  ; отдельный буфер initrd сразу за staging-областью ядра
+  cmp dword [man_mod_size], 0
+  je .no_module_ram_check
+  mov eax, [mod_stage_base]
+  mov ebx, [man_mod_size]
+  add ebx, 511
+  jc near fail_stage
+  and ebx, ~511
+  add ebx, eax
+  jc near fail_stage
+  CONTAINED
+  jc near fail_stage
+.no_module_ram_check:
   call load_kernel
   jc near fail_disk
+  cmp dword [man_mod_size], 0
+  je .module_load_done
+  mov eax, [man_size]
+  mov [kernel_size_saved], eax
+  mov eax, [man_mod_lba]
+  mov [man_lba], eax
+  mov eax, [man_mod_size]
+  mov [man_size], eax
+  mov eax, [mod_stage_base]
+  mov [load_base], eax
+  call load_kernel
+  jc near fail_module_disk
+  mov eax, [kernel_size_saved]
+  mov [man_size], eax
+  mov dword [load_base], STAGE_BASE
+  mov si, m_module_loaded
+  call print16
+.module_load_done:
   mov si, m_loaded
   call print16
   cli
@@ -408,6 +478,33 @@ e820_collect:
   and eax, 0xFFFFFFF8
   add edx, eax
 .nocmd:
+  cmp dword [man_mod_size], 0
+  je .nomodtag
+  mov eax, [mod_stage_base]
+  mov ebx, eax
+  add ebx, [man_mod_size]
+  jc .bad
+  cmp ebx, 0xFFFFFFFF
+  ja .bad
+  mov dword [INFO + edx], 3       ; Multiboot2 module tag
+  mov dword [INFO + edx + 4], 27  ; 16-byte header + "initrd.img" + NUL
+  mov [INFO + edx + 8], eax
+  mov [INFO + edx + 12], ebx
+  mov byte [INFO + edx + 16], 'i'
+  mov byte [INFO + edx + 17], 'n'
+  mov byte [INFO + edx + 18], 'i'
+  mov byte [INFO + edx + 19], 't'
+  mov byte [INFO + edx + 20], 'r'
+  mov byte [INFO + edx + 21], 'd'
+  mov byte [INFO + edx + 22], '.'
+  mov byte [INFO + edx + 23], 'i'
+  mov byte [INFO + edx + 24], 'm'
+  mov byte [INFO + edx + 25], 'g'
+  mov byte [INFO + edx + 26], 0
+  mov dword [INFO + edx + 27], 0 ; выравнивание до 32 байт
+  mov byte [INFO + edx + 31], 0
+  add edx, 32
+.nomodtag:
   lea eax, [edx + 8]              ; + конечный тег
   mov [INFO], eax
   mov dword [INFO + 4], 0
@@ -506,7 +603,8 @@ load_kernel:
   mov [cur_lba], eax
   mov eax, [man_size]
   mov [rem], eax
-  mov dword [dest], STAGE_BASE
+  mov eax, [load_base]
+  mov [dest], eax
 .loop:
   mov eax, [rem]
   test eax, eax
@@ -553,6 +651,8 @@ fail_e820: mov si, m_e820
 fail_stage: mov si, m_stage
   jmp fail16
 fail_disk: mov si, m_disk
+  jmp fail16
+fail_module_disk: mov si, m_module_disk
 fail16:
   call print16
   cli
@@ -595,6 +695,34 @@ pm_entry:
   cmp edx, [man_crc]
   mov esi, m_crc
   jne near fail32
+  ; Initrd CRC32: не передаём ядру повреждённый модуль.
+  cmp dword [man_mod_size], 0
+  je .module_crc_ok
+  mov esi, [mod_stage_base]
+  mov ecx, [man_mod_size]
+  mov edx, 0xFFFFFFFF
+.mod_crc_byte:
+  test ecx, ecx
+  jz .mod_crc_done
+  movzx eax, byte [esi]
+  xor dl, al
+  mov ebx, 8
+.mod_crc_bit:
+  shr edx, 1
+  jnc .mod_crc_next
+  xor edx, 0xEDB88320
+.mod_crc_next:
+  dec ebx
+  jnz .mod_crc_bit
+  inc esi
+  dec ecx
+  jmp .mod_crc_byte
+.mod_crc_done:
+  not edx
+  cmp edx, [man_mod_crc]
+  mov esi, m_mod_crc
+  jne near fail32
+.module_crc_ok:
   ; ELF64
   mov ebp, STAGE_BASE
   mov edi, [man_size]
@@ -748,6 +876,9 @@ e_count: dd 0
 cur_lba: dd 0
 rem:     dd 0
 dest:    dd 0
+load_base: dd STAGE_BASE
+mod_stage_base: dd 0
+kernel_size_saved: dd 0
 chunk:   dw 0
 ph_cur:  dd 0
 ph_cnt:  dd 0
@@ -769,13 +900,16 @@ dap_lba: dq 0
 
 m_banner:  db "KIRA BIOS stage2", 13, 10, 0
 m_loaded:  db "KIRA: kernel image read", 13, 10, 0
+m_module_loaded: db "KIRA: initrd image read", 13, 10, 0
 m_go:      db "KIRA: entering kernel", 13, 10, 0
 m_manifest: db "KIRA: bad manifest", 13, 10, 0
 m_a20:     db "KIRA: A20 unavailable", 13, 10, 0
 m_e820:    db "KIRA: E820 failed", 13, 10, 0
-m_stage:   db "KIRA: no RAM at 16MiB for kernel image", 13, 10, 0
+m_stage:   db "KIRA: no RAM for kernel/initrd staging", 13, 10, 0
 m_disk:    db "KIRA: kernel read error", 13, 10, 0
+m_module_disk: db "KIRA: initrd read error", 13, 10, 0
 m_crc:     db "KIRA: kernel CRC mismatch", 13, 10, 0
+m_mod_crc: db "KIRA: initrd CRC mismatch", 13, 10, 0
 m_elf:     db "KIRA: bad ELF64 kernel", 13, 10, 0
 m_seg:     db "KIRA: ELF segment outside usable RAM or malformed", 13, 10, 0
 m_entry:   db "KIRA: bad kernel entry", 13, 10, 0
@@ -786,4 +920,7 @@ man_magic: dd 0               ; 'KBM1'
 man_lba:   dd 0
 man_size:  dd 0
 man_crc:   dd 0
-           times 16 db 0
+man_mod_lba: dd 0
+man_mod_size: dd 0
+man_mod_crc: dd 0
+man_flags: dd 0
