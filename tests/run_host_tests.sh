@@ -132,6 +132,10 @@ echo "== ARM SMMUv3 prepare (platform validation, stream table and allocation un
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-smmu tests/arm_smmu_prepare_test.c drivers/iommu/arm_smmu.c
 $T/iommu-smmu
 
+echo "== ARM SMMUv3 domain (STE/CD format, 4-level translation, ASID invalidation, teardown) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/iommu-smmu-domain tests/arm_smmu_domain_test.c drivers/iommu/arm_smmu.c drivers/iommu/arm_smmu_domain.c
+$T/iommu-smmu-domain
+
 echo "== VT-d domain (hardware model: IOTLB invalidation after map/unmap, stale translations) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/vtd-domain tests/vtd_domain_test.c drivers/iommu/vtd_domain.c drivers/iommu/intel_vtd.c
 $T/vtd-domain
