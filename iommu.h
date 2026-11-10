@@ -3,24 +3,22 @@
 #include <stdint.h>
 #include "pci.h"
 
-/* DMA isolation through Intel VT-d (x86-64). Without a usable DMAR table every
-   call below reports "not available" and the kernel behaves as before.
-
-   Model: iommu_init() gives EVERY enumerated PCI function a pass-through context
-   (unchanged, unrestricted DMA - logged as such) and turns translation on. A
-   driver that wants isolation calls iommu_isolate_device() BEFORE the device can
-   master the bus; from then on the device reaches only memory granted with
-   iommu_map(). Devices that no DMAR unit covers, devices named by an RMRR and
-   drivers that never ask stay unrestricted, and iommu_device_isolated() says so. */
+/* Architecture-neutral PCI DMA isolation API.
+   x86-64 uses Intel VT-d; ARM64 uses SMMUv3. Each supported IOMMU starts with
+   explicit pass-through contexts for mapped requesters. A driver that requests
+   isolation receives a private translated domain with no mappings; DMA is
+   enabled only after the driver grants each queue and data buffer with
+   iommu_map(). Uncovered or deliberately pass-through devices remain explicitly
+   unrestricted and iommu_device_isolated() reports that state. */
 
 #define IOMMU_R 1u
 #define IOMMU_W 2u
 
 enum {
     IOMMU_OK = 0,
-    IOMMU_E_NONE = -1,      /* VT-d not active (no DMAR, parse error, no usable unit) */
+    IOMMU_E_NONE = -1,      /* no active IOMMU for this platform/device */
     IOMMU_E_ARG = -2,
-    IOMMU_E_NOCOVER = -3,   /* no DMAR unit translates this device */
+    IOMMU_E_NOCOVER = -3,   /* no IOMMU mapping covers this requester */
     IOMMU_E_RMRR = -4,      /* firmware needs this device to reach a reserved region */
     IOMMU_E_NOMEM = -5,
     IOMMU_E_HW = -6,        /* hardware refused or timed out */
