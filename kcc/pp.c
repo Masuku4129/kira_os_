@@ -18,11 +18,20 @@ typedef struct Once Once;
 struct Once { Once *next; const char *path; };
 
 #define NB 512
-static Macro *mtab[NB];
-static Once *once_list;
-static int unity_mode;                        /* #pragma kcc unity: каждый подключённый файл - один раз (многофайловые драйверы BSD в одной единице трансляции) */
-static Token out_head, *out_tail;
-static int incl_level;
+typedef struct {
+    Macro *mtab[NB];
+    Once *once_list;
+    int unity_mode;                            /* #pragma kcc unity: каждый подключённый файл - один раз */
+    Token out_head, *out_tail;
+    int incl_level;
+} PPState;
+#define PP ((PPState *)K.pp_state)
+#define mtab (PP->mtab)
+#define once_list (PP->once_list)
+#define unity_mode (PP->unity_mode)
+#define out_head (PP->out_head)
+#define out_tail (PP->out_tail)
+#define incl_level (PP->incl_level)
 
 static unsigned hash_str(const char *s, int n) {
     unsigned h = 2166136261u;
@@ -734,8 +743,7 @@ static void pp_tokens(Token *tok, const char *path, int depth) {
 }
 
 Token *preprocess(const char *path) {
-    memset(mtab, 0, sizeof mtab);
-    once_list = NULL; unity_mode = 0; incl_level = 0;
+    K.pp_state = ka_new(sizeof(PPState));
     out_head.next = NULL; out_tail = &out_head;
     define_builtin("__LINE__", 1);
     define_builtin("__FILE__", 2);
