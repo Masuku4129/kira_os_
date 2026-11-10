@@ -56,7 +56,7 @@ struct X86State {
     const unsigned char *g_mdef;
     int tmplab, g_maxout;
 };
-#define X86S K.x86_state
+#define X86S (&K)->x86_state
 #define xa (X86S->assembler)
 #define A (&xa)
 #define npool (X86S->npool)
