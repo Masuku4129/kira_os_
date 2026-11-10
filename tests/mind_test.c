@@ -7,6 +7,13 @@
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 
+static uint32_t test_crc32(const void* data, unsigned len) {
+    const uint8_t* p = (const uint8_t*)data;
+    uint32_t c = 0xFFFFFFFFu;
+    while (len--) { c ^= *p++; for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); }
+    return ~c;
+}
+
 /* ---- исполнители-записыватели ---- */
 static uint32_t q_now = 4, weight[100], limit[100], killed, trims, restrict_lvl, fx_now = 99, q_sets;
 static mind_profile_t profs[8]; static char prof_names[8][16]; static int nprof;
@@ -50,6 +57,16 @@ static int journal_has(const char* w) {
 int main(void) {
     /* ---- нормы и необычности ---- */
     mind_init(&M, 0, 4);
+    {
+        int32_t fx[MNET_F];
+        memset(&S, 0, sizeof S); S.cores = 4;
+        mind_make_features(&M, &S, fx);
+        CHECK(fx[12] == 0);                                /* no disk I/O => latency sample unavailable */
+        S.disk_ops = 1; S.disk_lat_us = 0;
+        mind_make_features(&M, &S, fx);
+        CHECK(fx[12] == MNET_ONE);                          /* zero latency with I/O is a valid measurement */
+        CHECK(!strcmp(mind_feature_name(12), "валидность замера диска"));
+    }
     CHECK(M.m.mode == MIND_ACT && M.m.fx_user == MIND_FX_AUTO && journal_has("первая жизнь"));
     uint32_t t = 1;
     for (; t <= 200; t++) { base(t); S.load = 10 + t % 5; mind_step(&M, &S, &act); }
@@ -361,15 +378,29 @@ int main(void) {
         mind_model_t sv = d->m; mind_model_seal(&sv);
         mind_model_t back;
         CHECK(mind_model_load(&back, &sv, sizeof sv) && back.net.n == d->m.net.n && back.net.w[3] == d->m.net.w[3]);
+        mind_model_v3_t old3; memset(&old3, 0, sizeof old3);
+        memcpy(&old3, &sv, __builtin_offsetof(mind_model_v3_t, net));
+        for (int i = 0; i < 12; i++) old3.net.w[i] = sv.net.w[i];
+        old3.net.b = sv.net.b; old3.net.n = sv.net.n; old3.net.pos = sv.net.pos;
+        old3.net.tp = sv.net.tp; old3.net.fp = sv.net.fp; old3.net.fn = sv.net.fn;
+        old3.net.tn = sv.net.tn; old3.net.loss_x1e4 = sv.net.loss_x1e4;
+        old3.forecasts = sv.forecasts; memcpy(old3.lv, sv.lv, sizeof old3.lv); old3.mflags = sv.mflags;
+        old3.version = 3; old3.crc = test_crc32(&old3, sizeof old3);
+        CHECK(mind_model_load(&back, &old3, sizeof old3) && back.net.n == sv.net.n &&
+              back.net.w[3] == sv.net.w[3] && back.net.w[12] == 0 && back.lv[0].trials == sv.lv[0].trials);
+        mind_model_v2_t old2; memset(&old2, 0, sizeof old2);
+        memcpy(&old2, &sv, __builtin_offsetof(mind_model_v2_t, net));
+        for (int i = 0; i < 12; i++) old2.net.w[i] = sv.net.w[i];
+        old2.net.b = sv.net.b; old2.net.n = sv.net.n; old2.net.pos = sv.net.pos;
+        old2.net.tp = sv.net.tp; old2.net.fp = sv.net.fp; old2.net.fn = sv.net.fn;
+        old2.net.tn = sv.net.tn; old2.net.loss_x1e4 = sv.net.loss_x1e4;
+        old2.forecasts = sv.forecasts; old2.version = 2; old2.crc = test_crc32(&old2, sizeof old2);
+        CHECK(mind_model_load(&back, &old2, sizeof old2) && back.net.n == sv.net.n &&
+              back.net.w[3] == sv.net.w[3] && back.net.w[12] == 0 && mind_model_valid(&back));
         mind_model_v1_t old; memset(&old, 0, sizeof old);
         memcpy(&old, &sv, __builtin_offsetof(mind_model_v1_t, crc));
         old.version = 1; old.norm[MS_LOAD].n = 777;
-        old.crc = 0;
-        {   /* crc прежнего формата - тем же CRC-32 */
-            uint32_t c = 0xFFFFFFFFu; const uint8_t* p = (const uint8_t*)&old;
-            for (unsigned i = 0; i < sizeof old; i++) { c ^= p[i]; for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); }
-            old.crc = ~c;
-        }
+        old.crc = test_crc32(&old, sizeof old);
         CHECK(mind_model_load(&back, &old, sizeof old) && back.norm[MS_LOAD].n == 777 && back.net.n == 0 && mind_model_valid(&back));
         old.norm[MS_LOAD].n = 778;                                /* испорченный файл не принимается */
         CHECK(!mind_model_load(&back, &old, sizeof old));
@@ -411,6 +442,6 @@ int main(void) {
         CHECK(tr >= 1);                                           /* опережение звука (нужда 40) получило пробу, хотя рычаги темпа фона (нужда 50) нужнее */
     }
 
-    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1) passed");
+    printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1-v3 and disk validity) passed");
     return fails != 0;
 }
