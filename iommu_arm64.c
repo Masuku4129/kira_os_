@@ -415,8 +415,9 @@ int iommu_device_ready(const pci_dev_t* pci)
     if (!dev || !dev->covered)
         return 0; /* iommu-map is authoritative: unknown requester stays quiesced. */
     if (__atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) ||
-        !arm_smmu_active || dev->stream_id >= 256u)
-        return 0;
+        !arm_smmu_active || dev->stream_id >= 256u ||
+        arm_sid_shared[dev->stream_id])
+        return 0; /* Shared SID cannot be isolated per function; fail closed. */
     return arm_domains[dev->stream_id].active != 0;
 }
 
