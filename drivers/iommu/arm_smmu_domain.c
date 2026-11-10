@@ -23,6 +23,27 @@
 #define SMMU_POLL_LIMIT 1000000u
 #define SMMU_TTBR_ADDR 0x0000fffffffff000ull
 
+/* ARM IHI 0070: SMMUv3 linear stream-table and AArch64 stage-1 CD fields. */
+#define STE0_VALID              (1ull << 0)
+#define STE0_CFG_S1_TRANS       (5ull << 1)
+#define STE0_S1CTXPTR_MASK      0x000fffffffffffc0ull
+#define STE1_S1DSS_SSID0        2ull
+#define STE1_S1CIR_WBRA         (1ull << 2)
+#define STE1_S1COR_WBRA         (1ull << 4)
+#define STE1_S1CSH_ISH          (3ull << 6)
+#define CD0_T0SZ_48BIT          16ull
+#define CD0_IRGN0_WBRA          (1ull << 8)
+#define CD0_ORGN0_WBRA          (1ull << 10)
+#define CD0_SH0_ISH             (3ull << 12)
+#define CD0_EPD1                (1ull << 30)
+#define CD0_VALID               (1ull << 31)
+#define CD0_IPS_SHIFT           32u
+#define CD0_AA64                (1ull << 41)
+#define CD0_R                   (1ull << 45)
+#define CD0_A                   (1ull << 46)
+#define CD0_ASET                (1ull << 47)
+#define CD1_TTB0_MASK           0x0000fffffffffff0ull
+
 /* SMMUv3 command opcodes. */
 #define CMD_CFGI_STE 0x03u
 #define CMD_CFGI_ALL 0x04u
@@ -121,6 +142,8 @@ static int smmu_cmd_submit(struct kira_smmu *s,
     uint32_t i;
 
     for (i = 0; i < SMMU_POLL_LIMIT; ++i) {
+        if (p->read_barrier)
+            p->read_barrier(p->context);
         consumer = *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS) &
                    SMMU_CMDQ_PTR_MASK;
         if (!((producer & SMMU_CMDQ_INDEX_MASK) ==
@@ -166,9 +189,11 @@ static int smmu_cmd_sync(struct kira_smmu *s,
      * software enables device DMA or frees/reuses translation structures.
      */
     for (i = 0; i < SMMU_POLL_LIMIT; ++i) {
-        uint32_t consumer =
-            *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS) &
-            SMMU_CMDQ_PTR_MASK;
+        uint32_t consumer;
+        if (p->read_barrier)
+            p->read_barrier(p->context);
+        consumer = *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS) &
+                   SMMU_CMDQ_PTR_MASK;
         if (consumer == completion_pointer)
             return KIRA_SMMU_OK;
         if (p->delay)
@@ -280,9 +305,13 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
         stream_id >= s->stream_id_limit)
         return KIRA_SMMU_INVALID;
 
-    /* This domain uses stage 1; do not program it on a stage-2-only SMMU. */
-    if (!(s->idr0 & (1u << 1)))
+    /* This domain uses AArch64 stage 1 with 4 KiB granules and <=48-bit PA. */
+    if (!(s->idr0 & (1u << 1)) ||
+        (((s->idr0 >> 2) & 3u) != 2u && ((s->idr0 >> 2) & 3u) != 3u) ||
+        !(s->idr5 & (1u << 4)))
         return KIRA_SMMU_UNSUPPORTED;
+    if (!p->clean_cache || !p->write_barrier)
+        return KIRA_SMMU_INVALID;
 
     ct = smmu_alloc(p, &ct_pa);
     root = smmu_alloc(p, &root_pa);
@@ -313,20 +342,36 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
         goto fail_locked;
     }
 
-    /* 64-byte STE: valid stage-1 entry points to this domain's CD. */
-    ste[0] = 1ull | (1ull << 1);
-    ste[1] = ct_pa & SMMU_TTBR_ADDR;
+    /*
+     * A linear context-descriptor table uses SSID 0 here (S1CDMAX=0).
+     * CD0 configures a 48-bit AArch64 VA, 4 KiB granules, inner-shareable
+     * WB tables, disables TTBR1 and selects the largest supported OAS up
+     * to 48 bits. CD1 supplies the stage-1 root table.
+     */
+    {
+        uint64_t oas = s->idr5 & 7u;
+        uint64_t *cd = smmu_words(ct);
+        if (oas > 5u) oas = 5u;
+        cd[0] = CD0_T0SZ_48BIT | CD0_IRGN0_WBRA | CD0_ORGN0_WBRA |
+                CD0_SH0_ISH | CD0_EPD1 | CD0_VALID |
+                (oas << CD0_IPS_SHIFT) | CD0_AA64 | CD0_R | CD0_A | CD0_ASET;
+        cd[1] = root_pa & CD1_TTB0_MASK;
+    }
+
+    /*
+     * SMMU can cache a previously invalid STE. First publish the non-valid
+     * words and invalidate that cached state; only then publish V=1.
+     */
+    ste[0] = 0;
+    ste[1] = STE1_S1DSS_SSID0 | STE1_S1CIR_WBRA |
+             STE1_S1COR_WBRA | STE1_S1CSH_ISH;
     ste[2] = 0;
     ste[3] = 0;
-    if (p->clean_cache)
-        p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
-    if (p->clean_cache)
-        p->clean_cache(p->context, ct, SMMU_PAGE_SIZE);
-    if (p->clean_cache)
-        p->clean_cache(p->context, root, SMMU_PAGE_SIZE);
-    if (p->write_barrier) p->write_barrier(p->context);
+    p->clean_cache(p->context, ct, SMMU_PAGE_SIZE);
+    p->clean_cache(p->context, root, SMMU_PAGE_SIZE);
+    p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
+    p->write_barrier(p->context);
 
-    smmu_stream_id_set(s, stream_id);
     d->smmu = s;
     d->stream_table = s->stream_table;
     d->context_table = ct;
@@ -335,16 +380,30 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     d->stage1_root_physical = root_pa;
     d->stream_id = stream_id;
     d->active = 1;
+    rc = smmu_invalidate_stream(d, p);
+    if (rc != KIRA_SMMU_OK) {
+        d->active = 0;
+        d->smmu = 0;
+        d->stream_table = 0;
+        d->context_table = 0;
+        d->stage1_root = 0;
+        smmu_unlock(s);
+        p->free_dma_pages(p->context, root, root_pa, 1);
+        p->free_dma_pages(p->context, ct, ct_pa, 1);
+        return rc;
+    }
 
-    /* Invalidate the newly published STE before returning the domain. */
+    ste[0] = STE0_VALID | STE0_CFG_S1_TRANS |
+             (ct_pa & STE0_S1CTXPTR_MASK);
+    p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
+    p->write_barrier(p->context);
+    smmu_stream_id_set(s, stream_id);
+
     rc = smmu_invalidate_stream(d, p);
     if (rc != KIRA_SMMU_OK) {
         /*
-         * Hardware completion is unknown after a timeout/error. Keep the
-         * STE, StreamID claim and translation pages pinned: freeing them
-         * could leave the SMMU DMA-walking reclaimed memory. The caller may
-         * retry kira_smmu_domain_destroy() to establish invalidation before
-         * resources are released.
+         * The live STE may already be cached. Keep every referenced page and
+         * the StreamID claim pinned until a later destroy completes CFGI+SYNC.
          */
         d->active = 1;
     }
