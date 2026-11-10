@@ -95,8 +95,14 @@ int main(void) {
     kobj_release(pub_shm2); kobj_release(pub_shm1);
     CHECK(kobj_count() == 0 && pages_live == 0);
 
+    // Null inputs are rejected safely by descriptor helpers; null object refs are no-ops.
+    CHECK(htab_add(0, 0) == KE_ARG && htab_cap(0) == 0);
+    CHECK(htab_get(0, 1, 0) == 0 && htab_take(0, 1) == 0);
+    htab_free(0); kobj_retain(0); kobj_release(0);
+
     // дескрипторы
     htab_t h; memset(&h, 0, sizeof h);
+    CHECK(htab_add(&h, 0) == KE_ARG);
     kobj_t a = { KOBJ_PORT, 1, "x" }, b = { KOBJ_SHM, 1, "y" };
     int ha = htab_add(&h, &a), hb = htab_add(&h, &b);
     CHECK(ha == 1 && hb == 2 && htab_get(&h, ha, KOBJ_PORT) == &a && htab_get(&h, ha, KOBJ_SHM) == 0 && htab_get(&h, 99, 0) == 0);
