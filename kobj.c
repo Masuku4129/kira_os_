@@ -104,11 +104,16 @@ static void destroy(kobj_t* o) {
     kfree(o);
 }
 
-void kobj_retain(kobj_t* o) {
-    if (!o) return;
+int kobj_retain(kobj_t* o) {
+    if (!o) return KE_ARG;
     uint64_t f = spin_lock_irqsave(&reg_lock);
+    if (o->refs == UINT32_MAX) {
+        spin_unlock_irqrestore(&reg_lock, f);
+        return KE_LIMIT;
+    }
     o->refs++;
     spin_unlock_irqrestore(&reg_lock, f);
+    return 0;
 }
 
 void kobj_release(kobj_t* o) {
@@ -135,6 +140,11 @@ unsigned kobj_count(void) {
 static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pid, kobj_t* made, kobj_t** out) {
     uint64_t f = spin_lock_irqsave(&reg_lock);
     while (made && reg_n >= reg_cap) {                    // реестр полон: вырастить вне замка и повторить
+        if (reg_cap > UINT32_MAX / 2) {
+            spin_unlock_irqrestore(&reg_lock, f);
+            destroy(made);
+            return KE_LIMIT;
+        }
         unsigned want = reg_cap ? reg_cap * 2 : 64;
         spin_unlock_irqrestore(&reg_lock, f);
         kobj_t** n = (kobj_t**)kmalloc(sizeof(kobj_t*) * want);
@@ -151,6 +161,7 @@ static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pi
     if (o) {
         if (o->owner_pid != owner_pid && !(o->flags & KOBJ_F_PUBLIC)) rc = KE_PERM;
         else if ((flags & KOPEN_CREATE) && (flags & KOPEN_EXCL)) rc = KE_EXIST;
+        else if (o->refs == UINT32_MAX) rc = KE_LIMIT;
         else { o->refs++; *out = o; }
     } else if (!made) {
         rc = KE_NOENT;
