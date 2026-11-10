@@ -87,6 +87,10 @@ int virtio_gpu_probe(void) {
     uint64_t fb_phys;
     uint8_t* fbm = (uint8_t*)virtio_dma_alloc(W * H * 4, &fb_phys);   /* подложка: непрерывная, видна устройству */
     if (!fbm) { virtio_fail(&dev); return -5; }
+    if (virtio_dma_grant(&dev, fb_phys, W * H * 4) != 0) {
+        virtio_fail(&dev);
+        return -6;
+    }
 
     create_t* c = (create_t*)cmd; zero(c, sizeof *c);
     c->h.type = CMD_RESOURCE_CREATE_2D; c->res = 1; c->format = FORMAT_B8G8R8X8; c->width = W; c->height = H;
