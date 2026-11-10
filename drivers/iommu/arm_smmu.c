@@ -632,6 +632,7 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform)
 {
     unsigned int i;
+    uint8_t prior_state;
     int rc = KIRA_SMMU_OK;
 
     if (!smmu || !platform || !smmu->registers ||
@@ -641,6 +642,7 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
         return KIRA_SMMU_INVALID;
 
     smmu_stream_table_lock(smmu);
+    prior_state = smmu->enabled;
     /* Never turn translation off while any StreamID still owns a domain. */
     for (i = 0; i < 8u; ++i) {
         if (smmu->stream_ids[i] != 0) {
@@ -678,7 +680,7 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
     if (platform->quiesce_devices(platform->context) != 0) {
         /* Translation is still active; permit retry, but no domain changes
            have been made and no controller register has been disabled. */
-        smmu->enabled = 1u;
+        smmu->enabled = prior_state == 1u ? 1u : 2u;
         rc = KIRA_SMMU_HARDWARE_ERROR;
         goto out;
     }
