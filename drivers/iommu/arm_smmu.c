@@ -394,10 +394,16 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
 int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform)
 {
+    unsigned int i;
     int rc;
 
     if (!smmu || !platform || !smmu->registers)
         return KIRA_SMMU_INVALID;
+
+    /* Never turn translation off while any StreamID still owns a domain. */
+    for (i = 0; i < 8u; ++i)
+        if (smmu->stream_ids[i] != 0)
+            return KIRA_SMMU_INVALID;
 
     smmu_write32(smmu->registers, SMMU_CR0, 0);
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
