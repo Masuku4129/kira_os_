@@ -2,9 +2,12 @@
 #define KIRA_PCI_H
 #include <stdint.h>
 
-/* PCI: перечисление устройств, BAR, список capabilities. Конфигурационное пространство читается
-   через порты 0xCF8/0xCFC (есть на любом x86-ПК; первые 256 байт - всё, что нужно virtio).
-   Чтение/запись конфигурации поддерживает многопоточный доступ. */
+/* PCI: перечисление устройств, BAR и capabilities.
+   x86 legacy: CF8/CFC; PCIe: ECAM (4 KiB на функцию, 1 MiB на шину).
+   ECAM address = base + ((bus - first_bus) << 20) + (device << 15)
+                       + (function << 12) + register_offset.
+   The ECAM aperture must cover every bus in [first_bus, last_bus].
+   Configuration RMW operations are serialized by pci.c. */
 
 #define PCI_MAX_DEVS 1024         /* функций на всех шинах: у ПК 40-80, у серверов - сотни */
 #define PCI_BARS 6
@@ -21,11 +24,20 @@ typedef struct {                 /* способ доступа к конфиг�
     void (*write32)(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t val);
 } pci_backend_t;
 
-void pci_set_backend(const pci_backend_t* b);      /* 0 - порты 0xCF8/0xCFC (только x86) */
-void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end);
-/* Validate the ECAM aperture against its advertised bus range. */
+void pci_set_backend(const pci_backend_t* b);      /* NULL - platform default backend */
+typedef struct {
+    volatile void* base;          /* already mapped, uncached/device memory */
+    uint64_t size;                 /* mapped aperture bytes */
+    uint8_t first_bus;
+    uint8_t last_bus;
+} pci_ecam_config_t;
+/* Validate DT bus-range and aperture size (one MiB per bus). */
 int pci_ecam_bus_range(uint64_t ecam_size, int has_bus_range, uint32_t bus_start,
-                       uint32_t bus_end, uint8_t* first, uint8_t* last);   /* конфигурация через ECAM */
+                       uint32_t bus_end, uint8_t* first, uint8_t* last);
+/* Install ECAM only after validating base, bus order and aperture size. Returns 0 on success. */
+int pci_configure_ecam(const pci_ecam_config_t* config);
+/* Compatibility wrapper for callers that already validated the aperture. */
+void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end);
 typedef struct { uint64_t pci_base, size, next; int64_t cpu_off; } pci_window_t;   /* окно адресов моста */
 int  pci_assign(pci_window_t* mem32, pci_window_t* mem64);   /* назначить пустые BAR (после pci_init); число BAR */
 int  pci_init(void);                               /* число найденных устройств */
