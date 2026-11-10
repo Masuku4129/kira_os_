@@ -206,6 +206,17 @@ int main(void)
         CHECK(processed == 0u);
         CHECK(reg_read(0x00acu) == 0x80000100u); /* overflow acknowledged, pointer preserved */
         reg_write(0x00a8u, 0x100u);
+
+        /* Bounded polls commit progress: the second call must not replay event 0. */
+        events[0] = 0xaaaau;
+        events[4] = 0xbbbbu;
+        reg_write(0x00a8u, 0x102u);
+        CHECK(kira_smmu_v3_poll_events(&smmu, &p, 1u, &processed) == KIRA_SMMU_OK);
+        CHECK(processed == 1u && smmu.evtq_consumer == 0x101u);
+        CHECK(reg_read(0x00acu) == 0x101u && event_count == 3u);
+        CHECK(kira_smmu_v3_poll_events(&smmu, &p, 1u, &processed) == KIRA_SMMU_OK);
+        CHECK(processed == 1u && smmu.evtq_consumer == 0x102u);
+        CHECK(event_count == 4u && last_event[0] == 0xbbbbu);
     }
 
     /* Reject reserved OAS encodings before allocating any translation table. */
