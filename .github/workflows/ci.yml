@@ -266,7 +266,7 @@ jobs:
         run: |
           mkdir -p sym ci-out
           printf 'KIRA-INITRD-TEST\n' > ci-out/initrd.img
-          KIRA_INITRD=\"$PWD/ci-out/initrd.img\" ./build_clang.sh --no-run
+          KIRA_INITRD="$PWD/ci-out/initrd.img" ./build_clang.sh --no-run
           nm -n kira.bin > sym/kira.sym
       - name: BIOS stage2 module boot and CRC regression
         run: bash tests/bios_boot_test.sh kira.bin
