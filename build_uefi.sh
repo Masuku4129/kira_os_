@@ -67,6 +67,7 @@ mkdir -p "$OUT/EFI/BOOT" "$OUT/EFI/KIRA"
     -j .rel -j .rela -j '.rel.*' -j '.rela.*' -j .reloc --output-target=efi-app-x86_64 \
     "$tmp/loader.so" "$OUT/EFI/BOOT/BOOTX64.EFI"
 cp "$ROOT/kira.bin" "$OUT/EFI/KIRA/KIRA.ELF"
+rm -f "$OUT/EFI/KIRA/INITRD.IMG"
 INITRD="${KIRA_INITRD:-$ROOT/initrd.img}"
 if [[ -n "$INITRD" && -s "$INITRD" ]]; then
     cp "$INITRD" "$OUT/EFI/KIRA/INITRD.IMG"
