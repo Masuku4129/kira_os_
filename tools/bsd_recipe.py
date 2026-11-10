@@ -3,7 +3,7 @@
 kdmain.c (единая единица трансляции kcc: #pragma kcc unity) и kd_pcidevs.h (только упомянутые идентификаторы).
   bsd_recipe.py SYS_DIR INDEX PCIDEVS ИМЯ_ДРАЙВЕРА КОММИТ ВЫХОД_КАТАЛОГ [--corpus-base URL]
 Выход: ВЫХОД/ИМЯ/{drvget.rec,kdmain.c,kd_pcidevs.h}; строки каталога (pci VVVV:DDDD имя url sha256 рецепта) - на стандартный вывод
-(url берётся из --recipe-url-base, по умолчанию заглушка, которую подставляет сборщик каталога)."""
+(url берётся из --recipe-url-base, по умолчанию шаблонный маркер @URL@, который заменяет сборщик каталога)."""
 import hashlib, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bsd_pcidevs as P
