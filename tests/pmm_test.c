@@ -107,6 +107,9 @@ int main(void){
         CHECK(pmm_get_free_memory_kb() == aligned_kb - 32 * 4);
         CHECK(pmm_free_contiguous(dma, 32) == 0);
         CHECK(pmm_get_free_memory_kb() == aligned_kb);
+        uint64_t half_dma = pmm_alloc_contiguous_aligned_below(16, 32, 0x1000000ULL);
+        CHECK(half_dma != 0 && half_dma % (32ULL * 4096) == 0 && half_dma + 16ULL * 4096 <= 0x1000000ULL);
+        CHECK(pmm_free_contiguous(half_dma, 16) == 0);
         CHECK(pmm_alloc_contiguous_aligned_below(32, 3, 0x1000000ULL) == 0); // alignment must be a power of two
         printf("contiguous 3 MB block at 0x%llX\n", (unsigned long long)blk);
     }

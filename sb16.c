@@ -7,8 +7,7 @@
      ответу на сброс DSP (0xAA) и версии DSP 4.xx; других источников порта у ISA нет (в QEMU карты нет в ACPI);
    - прерывание и каналы DMA - читаются из смесителя карты (регистры 0x80 и 0x81), ничего не зашито;
    - порты контроллера 8237 - из номера канала (стандарт ПК: ведущий 0x00-0x0F, ведомый 0xC0-0xDF, страницы 0x80-0x8F).
-   Вывод - 16-битный канал DMA (5..7) в режиме автоповтора по кольцу 128 КБ (предел 8237 для 16-битного канала: 64 К слов)
-   в памяти ниже 16 МБ, выровненной по 128 КБ. Позиция - текущий адрес канала 8237. Прерывание конца блока не ждём
+   Вывод - 16-битный канал DMA (5..7) в режиме автоповтора по кольцу 64 КБ. Кольцо ниже 16 МБ и выровнено по 128 КБ, поэтому не пересекает границу 8237. Позиция - текущий адрес канала 8237. Прерывание конца блока не ждём
    (микшер опрашивает карту каждые ~10 мс): его только подтверждаем (service), линия IRQ остаётся замаскированной. */
 #include <stdint.h>
 #include "sb16.h"
@@ -41,7 +40,7 @@ static inline uint8_t inb(uint16_t p) { uint8_t v; __asm__ volatile ("inb %1, %0
 enum { DSP_RESET = 0x6, DSP_READ = 0xA, DSP_WRITE = 0xC, DSP_RSTAT = 0xE, DSP_ACK16 = 0xF, MIX_ADDR = 0x4, MIX_DATA = 0x5 };
 enum { MIX_IRQ = 0x80, MIX_DMA = 0x81, MIX_ISTAT = 0x82 };
 #define RATE 48000
-#define BUFSZ 131072                         /* 128 КБ = 64 К слов: предел одного прохода 16-битного канала 8237 (~680 мс) */
+#define BUFSZ 65536                          /* 64 КБ; 16-битный DMA ограничен 128-КБ границей, не требует полного 128-КБ кольца */
 #define BUFPAGES (BUFSZ / 4096)
 #define ISA_DMA_TOP 0x1000000ull             /* 8237 адресует 24 бита */
 
@@ -84,7 +83,7 @@ static int dsp_reset(uint16_t base) {
 
 /* Кольцо: ровно 32 страницы, физический адрес кратен 128 КБ и целиком ниже 16 МБ. */
 static uint8_t* dma_ring_alloc(uint64_t* phys) {
-    uint64_t pa = pmm_alloc_contiguous_aligned_below(BUFPAGES, BUFPAGES, ISA_DMA_TOP);
+    uint64_t pa = pmm_alloc_contiguous_aligned_below(BUFPAGES, 32, ISA_DMA_TOP);
     if (!pa || pa > ISA_DMA_TOP - BUFSZ) return 0;
     for (uint32_t i = 0; i < BUFPAGES; i++) {                     /* процессор и устройство видят один адрес */
         uint64_t t;
@@ -108,7 +107,8 @@ static int out_start(void) {
     outb(0xD6, (uint8_t)(0x40 | 0x10 | 0x08 | (sb.dma16 - 4)));
     outb(sb.dma_page, (uint8_t)((sb.buf_p >> 16) & 0xFE));
     outb(sb.dma_addr, (uint8_t)((sb.buf_p >> 1) & 0xFF)); outb(sb.dma_addr, (uint8_t)((sb.buf_p >> 9) & 0xFF));
-    outb(sb.dma_cnt, 0xFF); outb(sb.dma_cnt, 0xFF);
+    const uint16_t dma_count = (uint16_t)(BUFSZ / 2 - 1);       /* число 16-битных слов минус один */
+    outb(sb.dma_cnt, (uint8_t)dma_count); outb(sb.dma_cnt, (uint8_t)(dma_count >> 8));
     dma_mask(0);
     mix_write(0x22, 0xFF); mix_write(0x04, 0xFF);                 /* общая и голос: максимум; громкостью управляет микшер ядра */
     mix_write(0x30, 0xF8); mix_write(0x31, 0xF8); mix_write(0x32, 0xF8); mix_write(0x33, 0xF8);
@@ -176,7 +176,7 @@ int sb16_probe(void) {
     }
     sb.dma_addr = sb16_dma16_port_addr(sb.dma16); sb.dma_cnt = sb16_dma16_port_count(sb.dma16); sb.dma_page = sb16_dma16_port_page(sb.dma16);
     sb.buf = dma_ring_alloc(&sb.buf_p);
-    if (!sb.buf) { uart_print("[KIRA SB16] no 128 KB buffer below 16 MB aligned to 128 KB for ISA DMA.\n"); return -5; }
+    if (!sb.buf) { uart_print("[KIRA SB16] no 64 KB buffer below 16 MB aligned to 128 KB for ISA DMA.\n"); return -5; }
     uart_print("[KIRA SB16] Sound: Sound Blaster 16 DSP "); uart_print_dec(sb.vmaj); uart_print("."); uart_print_dec(sb.vmin);
     uart_print(" at port "); uart_print_hex(sb.base); uart_print(" (DSP reset answered), IRQ ");
     if (sb.irq >= 0) uart_print_dec((uint64_t)sb.irq); else uart_print("not reported");
