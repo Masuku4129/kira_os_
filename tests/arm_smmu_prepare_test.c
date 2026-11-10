@@ -58,6 +58,13 @@ static void test_clean_cache(void *context, const void *address, size_t length)
     ++clean_calls;
 }
 
+static void test_invalidate_cache(void *context, const void *address, size_t length)
+{
+    (void)context;
+    (void)address;
+    (void)length;
+}
+
 static void test_barrier(void *context)
 {
     (void)context;
@@ -108,6 +115,7 @@ static struct kira_smmu_platform platform(void)
     p.alloc_dma_pages = test_alloc_dma_pages;
     p.free_dma_pages = test_free_dma_pages;
     p.clean_cache = test_clean_cache;
+    p.invalidate_cache = test_invalidate_cache;
     p.write_barrier = test_barrier;
     p.read_barrier = test_barrier;
     p.delay = test_delay;
@@ -134,6 +142,14 @@ int main(void)
     p = platform();
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100001u, &p) == KIRA_SMMU_INVALID);
     CHECK(map_calls == 0);
+
+    /* The linear stream table cannot be used on two-level-only hardware. */
+    reset_test_platform();
+    *(uint32_t *)(registers_page + 0x0000u) = 1u | (2u << 27);
+    p = platform();
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
+    CHECK(alloc_calls == 0);
 
     /* Unsupported identification is rejected before allocating DMA memory. */
     reset_test_platform();
@@ -178,8 +194,8 @@ int main(void)
           ((smmu.cmdq_physical & 0x000fffffffffffe0ull) | 8ull));
     CHECK(*(uint64_t *)(registers_page + 0x00a0u) ==
           ((smmu.evtq_physical & 0x000fffffffffffe0ull) | 8ull));
-    CHECK(*(uint32_t *)(registers_page + 0x10a8u) == 0u);
-    CHECK(*(uint32_t *)(registers_page + 0x10acu) == 0u);
+    CHECK(*(uint32_t *)(registers_page + 0x00a8u) == 0u);
+    CHECK(*(uint32_t *)(registers_page + 0x00acu) == 0u);
 
     /* Do not take over a firmware-owned active SMMU. */
     reset_test_platform();
