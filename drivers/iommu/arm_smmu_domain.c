@@ -95,7 +95,8 @@ static void *smmu_alloc_pages(const struct kira_smmu_platform *p,
 {
     void *v = p->alloc_dma_pages(p->context, pages, pa);
     size_t bytes = pages * SMMU_PAGE_SIZE;
-    if (!v || !*pa || (*pa & 0xfffu)) {
+    if (!v || !*pa || (*pa & 0xfffu) ||
+        ((uintptr_t)v & (SMMU_PAGE_SIZE - 1u))) {
         if (v && p->free_dma_pages)
             p->free_dma_pages(p->context, v, *pa, pages);
         *pa = 0;
