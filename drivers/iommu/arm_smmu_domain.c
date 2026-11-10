@@ -709,8 +709,13 @@ int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *d,
     {
         unsigned int index = (unsigned int)((iova >> 12) & 0x1ffu);
         if (!(table[index] & 1ull)) {
+            /* A prior unmap may have cleared the PTE but timed out waiting for
+               TLBI completion. Retry the ASID invalidation before allowing the
+               caller to release the backing page. */
+            p->write_barrier(p->context);
+            rc = smmu_invalidate_asid(d, p);
             smmu_domain_unlock(d);
-            return KIRA_SMMU_HARDWARE_ERROR;
+            return rc;
         }
         table[index] = 0;
         if (p->clean_cache)
