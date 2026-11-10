@@ -326,12 +326,14 @@ int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
 
     {
         unsigned int index = (unsigned int)((iova >> 12) & 0x1ffu);
-        if (!(table[index] & VTD_ENTRY_ANY))
-            return KIRA_VTD_HARDWARE_ERROR;
-        table[index] = 0;
-        if (platform->clean_cache)
-            platform->clean_cache(platform->context, table,
-                                  KIRA_VTD_PAGE_SIZE);
+        /* A previous attempt may have cleared the PTE but timed out waiting
+           for IOTLB invalidation. Repeating unmap must still issue the flush. */
+        if (table[index] & VTD_ENTRY_ANY) {
+            table[index] = 0;
+            if (platform->clean_cache)
+                platform->clean_cache(platform->context, table,
+                                      KIRA_VTD_PAGE_SIZE);
+        }
     }
 
     vtd_barrier(platform);
