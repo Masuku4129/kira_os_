@@ -7,6 +7,10 @@ FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie"
 SSE="-msse2 -mfpmath=sse -fno-math-errno"
 T=$(mktemp -d)
 
+echo "== process PID allocator (no wrap/reuse for private IPC principals) =="
+$CC $FLAGS -o $T/proc-pid tests/proc_pid_test.c
+$T/proc-pid
+
 echo "== logic (sha256, immune) =="
 $CC $FLAGS -o $T/logic tests/logic_test.c immune.c sha256.c \
     -Wl,--defsym=ro_start=ro_area -Wl,--defsym=ro_end=ro_area+256 \
