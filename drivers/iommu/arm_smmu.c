@@ -179,7 +179,8 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         !platform->map_mmio || !platform->alloc_dma_pages ||
         !platform->free_dma_pages || !platform->clean_cache ||
         !platform->write_barrier || !platform->read_barrier ||
-        !physical_base || (physical_base & 0xfffu))
+        !physical_base || (physical_base & 0xfffu) ||
+        physical_base > UINT64_MAX - SMMU_REGISTER_MAP_SIZE)
         return KIRA_SMMU_INVALID;
 
     smmu->registers = (volatile uint8_t *)
