@@ -17,6 +17,12 @@
 #include "vmm.h"
 #include "ramext.h"
 #endif
+#ifdef KIRA_HOST_TEST
+__attribute__((weak)) void pci_disable_bus_master(const pci_dev_t* dev)
+{
+    (void)dev;
+}
+#endif
 
 #define IOMMU_MAX_DOMAINS 128
 #define IOMMU_MAX_MAPS 2048
