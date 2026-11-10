@@ -25,9 +25,8 @@ enum {
 };
 
 #if defined(__x86_64__) || defined(__aarch64__)
-/* Parse DMAR, build contexts, enable translation. Returns the number of units now
-   translating (0: no change in behaviour), negative on a rejected table. Call once,
-   after pci_init() and before any driver starts DMA. */
+/* Initialize the architecture backend once after PCI enumeration and before DMA drivers.
+   ARM64 uses iommu_init_fdt() with the validated device tree. */
 int iommu_init(void);
 #if defined(__aarch64__)
 /* Discover and initialize the SMMUv3 instance and PCI iommu-map from the validated DTB. */
@@ -39,8 +38,8 @@ int iommu_enabled(void);
    (also when it already is isolated), else an IOMMU_E_* code and the device stays
    exactly as it was. */
 int iommu_isolate_device(const pci_dev_t* dev);
-/* Back to pass-through (unrestricted DMA); frees the domain. For a device whose
-   driver found the isolation not to be in effect. */
+/* Release a device domain. The backend's safe default applies: x86 may restore
+   firmware pass-through policy; ARM SMMUv3 leaves an invalid StreamID that aborts DMA. */
 int iommu_release_device(const pci_dev_t* dev);
 /* 1 only when the device is in a translated domain of an active unit. */
 int iommu_device_isolated(const pci_dev_t* dev);
@@ -54,7 +53,7 @@ int iommu_map(const pci_dev_t* dev, uint64_t iova, uint64_t phys, uint64_t len, 
 int iommu_unmap(const pci_dev_t* dev, uint64_t iova, uint64_t len);
 void iommu_unmap_all(const pci_dev_t* dev);
 
-/* Collect hardware fault records, log each as one line. Returns the number consumed. */
+/* Collect hardware fault records and log them. Returns the number consumed. */
 int iommu_fault_poll(void);
 /* Faults attributed to the device since boot (needs iommu_fault_poll to run). */
 uint32_t iommu_fault_count(const pci_dev_t* dev);
