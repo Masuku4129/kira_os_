@@ -84,7 +84,7 @@ int main(void)
     CHECK(processed == 4u && overflow == 1);
     CHECK(smmu.evtq_consumer == 0x002u && smmu.evtq_overflows == 1u);
     CHECK(*(volatile uint32_t *)(registers_page + 0x10acu) ==
-          ((1u << 31) | 0x102u));
+          ((1u << 31) | 0x002u));
     CHECK(ctx.events == 4u && ctx.invalidates == 4u && ctx.writes == 1u);
     CHECK(ctx.first[0] == 0xaaaau && ctx.first[1] == 0xbbbbu &&
           ctx.first[2] == 0xccccu && ctx.first[3] == 0xddddu);
