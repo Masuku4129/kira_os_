@@ -37,6 +37,13 @@ def main():
         sys.exit(f"mkuefi: invalid initrd file: {initrd}")
     if initrd and os.path.getsize(initrd) > 64 * 1024 * 1024:
         sys.exit("mkuefi: initrd exceeds the UEFI loader 64 MiB limit")
+    payload_bytes = os.path.getsize(efi) + os.path.getsize(kernel)
+    if initrd:
+        payload_bytes += os.path.getsize(initrd)
+    # Keep the requested size as a minimum, but grow the GPT disk when the
+    # kernel + EFI loader + initrd would not fit in the FAT32 ESP.
+    minimum_mib = (payload_bytes + 6 * 1024 * 1024 + 1024 * 1024 - 1) // (1024 * 1024)
+    mib = max(mib, 64, minimum_mib)
     total = mib * 1024 * 1024 // SECTOR
     part_first = 2048
     part_last = total - 34 - 1
