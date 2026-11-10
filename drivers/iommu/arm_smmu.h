@@ -20,6 +20,7 @@ struct kira_smmu_platform {
     void (*delay)(void *context);
 };
 
+/* Zero-initialize before the first kira_smmu_v3_prepare call. */
 struct kira_smmu {
     volatile uint8_t *registers;
     uint64_t physical_base;
