@@ -172,8 +172,8 @@ int main(void)
         CHECK(reg_read(0x10acu) == 1u);
 
         events[255u * 4u] = 0xabcdefu;
-        smmu.evtq_consumer = 0x1ffu;
-        reg_write(0x10acu, 0x1ffu);
+        smmu.evtq_consumer = 0xffu;
+        reg_write(0x10acu, 0xffu);
         reg_write(0x10a8u, 0x100u);
         CHECK(kira_smmu_v3_poll_events(&smmu, &p, 1u, &processed) == KIRA_SMMU_OK);
         CHECK(processed == 1u && smmu.evtq_consumer == 0x100u);
