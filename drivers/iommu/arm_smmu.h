@@ -48,6 +48,7 @@ struct kira_smmu {
     uint64_t stream_table_allocation_physical;
     size_t stream_table_allocation_pages;
     uint32_t stream_table_lock;
+    uint32_t evtq_lock;
     /* Serializes CMDQ publication through matching CMD_SYNC completion. */
     uint32_t cmdq_lock;
     uint32_t stream_ids[8];
