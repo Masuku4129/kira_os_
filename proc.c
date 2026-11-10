@@ -168,7 +168,7 @@ static int spawn(const char* name, const void* image, size_t len, const char* gr
     if (!pid) {
         p->used = 0;
         spin_unlock_irqrestore(&proc_lock, f);
-        uart_print("[KIRA PROC] PID space exhausted; refusing process creation rather than reusing an isolation identity.\\n");
+        uart_print("[KIRA PROC] PID space exhausted; refusing process creation rather than reusing an isolation identity.\n");
         return -1;
     }
     spin_unlock_irqrestore(&proc_lock, f);
