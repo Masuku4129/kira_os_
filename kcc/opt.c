@@ -1465,24 +1465,30 @@ void ir_inline(Obj *caller) {
 
 void ir_walk(Ins *i, OpVisit fn, void *ctx) { op_walk(i, fn, ctx); }
 
-/* ---------- флаги отключения проходов (kcc/passes.h) ---------- */
-int kcc_noregs;
-int kcc_nodce;
-int kcc_noalign;
-int kcc_noreassoc;
-int kcc_nocfgfirst;
-int kcc_nopop;
-int kcc_nopooltrim;
-int kcc_norec;
-int kcc_noonce;
-int kcc_noextld;
-int kcc_nodisp;
-int kcc_nomrot;
-int kcc_nonnshift;
-int kcc_flag(const char *arg) {
-    static const struct { const char *name; int *flag; } tab[] = {
-        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-reassoc", &kcc_noreassoc }, { "-fno-cfgfirst", &kcc_nocfgfirst }, { "-fno-popcount", &kcc_nopop }, { "-fno-pooltrim", &kcc_nopooltrim }, { "-fno-rec-inline", &kcc_norec }, { "-fno-once-inline", &kcc_noonce }, { "-fno-extld", &kcc_noextld }, { "-fno-disp", &kcc_nodisp }, { "-fno-mrot", &kcc_nomrot }, { "-fno-nnshift", &kcc_nonnshift },
-        { 0, 0 } };
-    for (int k = 0; tab[k].name; k++) if (!strcmp(arg, tab[k].name)) { *tab[k].flag = 1; return 1; }
+/* ---------- разбор флагов оптимизации ---------- */
+int kcc_flag(const char *arg, KOptions *options) {
+    if (!arg || !options) return 0;
+    static const struct { const char *name; size_t offset; } tab[] = {
+        { "-fno-regs", offsetof(KOptions, noregs) },
+        { "-fno-dce", offsetof(KOptions, nodce) },
+        { "-fno-align", offsetof(KOptions, noalign) },
+        { "-fno-reassoc", offsetof(KOptions, noreassoc) },
+        { "-fno-cfgfirst", offsetof(KOptions, nocfgfirst) },
+        { "-fno-popcount", offsetof(KOptions, nopop) },
+        { "-fno-pooltrim", offsetof(KOptions, nopooltrim) },
+        { "-fno-rec-inline", offsetof(KOptions, norec) },
+        { "-fno-once-inline", offsetof(KOptions, noonce) },
+        { "-fno-extld", offsetof(KOptions, noextld) },
+        { "-fno-disp", offsetof(KOptions, nodisp) },
+        { "-fno-mrot", offsetof(KOptions, nomrot) },
+        { "-fno-nnshift", offsetof(KOptions, nonnshift) },
+        { NULL, 0 }
+    };
+    for (int i = 0; tab[i].name; i++) {
+        if (!strcmp(arg, tab[i].name)) {
+            *(int *)((char *)options + tab[i].offset) = 1;
+            return 1;
+        }
+    }
     return 0;
 }
