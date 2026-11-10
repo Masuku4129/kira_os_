@@ -43,6 +43,7 @@ typedef struct {
 
 static struct {
     int active;                              /* at least one unit translates */
+    int dmar_error;                          /* present but unreadable/malformed: deny PCI DMA */
     uint32_t haw;                            /* physical address width of the host, bits */
     vtd_dmar_info_t info;
     struct kira_vtd_unit unit[VTD_MAX_UNITS];
@@ -155,6 +156,7 @@ static void zero_bytes(void* p, size_t n) { uint8_t* b = (uint8_t*)p; while (n--
 
 int iommu_init(void) {
     if (G.active) return iommu_enabled();
+    G.dmar_error = 0;
     const acpi_info_t* ai = acpi_get();
     if (!ai || !ai->dmar_phys) {
         uart_print("[KIRA IOMMU] No DMAR table: DMA isolation is not available, devices keep unrestricted DMA.\n");
@@ -162,14 +164,16 @@ int iommu_init(void) {
     }
     const void* table = PLAT_DMAR(ai->dmar_phys, ai->dmar_len);
     if (!table) {
-        uart_print("[KIRA IOMMU] DMAR table cannot be read: VT-d left off, devices keep unrestricted DMA.\n");
+        G.dmar_error = 1;
+        uart_print("[KIRA IOMMU] DMAR table cannot be read: PCI bus mastering remains blocked.\n");
         return -1;
     }
     int rc = vtd_dmar_parse(table, ai->dmar_len, &G.info);
     if (rc != 0) {
         zero_bytes(&G.info, sizeof G.info);
+        G.dmar_error = 1;
         uart_print("[KIRA IOMMU] DMAR table rejected ("); print_err(rc);
-        uart_print("): VT-d left off, devices keep unrestricted DMA.\n");
+        uart_print("): PCI bus mastering remains blocked.\n");
         return -1;
     }
     G.haw = (uint32_t)G.info.host_address_width + 1u;
@@ -192,7 +196,7 @@ int iommu_init(void) {
         if (u->segment != 0) { uart_print(": PCI segment "); uart_print_dec(u->segment); uart_print(" is not handled, devices there stay unrestricted\n"); continue; }
         rc = kira_vtd_unit_prepare(&G.unit[i], u->register_base, u->register_bytes, IOMMU_AW_BITS, &G.plat);
         if (rc != KIRA_VTD_OK) {
-            uart_print(": cannot be prepared ("); print_err(rc); uart_print("), left off, its devices stay unrestricted\n");
+            uart_print(": cannot be prepared ("); print_err(rc); uart_print("), left off, covered devices stay bus-master blocked\n");
             continue;
         }
         if (!(G.unit[i].extended_capabilities & (1ull << 6))) {
@@ -214,7 +218,7 @@ int iommu_init(void) {
         uart_print("[KIRA IOMMU] "); print_bdf(d->bus, d->dev, d->fn); uart_print(" ");
         put_hex(d->vendor, 4); uart_print(":"); put_hex(d->device, 4);
         if (ui < 0) { uart_print(" no DMAR unit covers it: not translated, DMA unrestricted\n"); n_uncovered++; continue; }
-        if (!G.usable[ui]) { uart_print(" its DMAR unit is not active: DMA unrestricted\n"); n_uncovered++; continue; }
+        if (!G.usable[ui]) { uart_print(" its DMAR unit is not active: bus mastering blocked\n"); n_uncovered++; continue; }
         rc = kira_vtd_context_passthrough(&G.unit[ui], 0, d->bus, d->dev, d->fn, &G.plat);
         if (rc != KIRA_VTD_OK) {
             failed[ui] = 1;
@@ -271,10 +275,10 @@ int iommu_device_isolated(const pci_dev_t* d) {
 }
 
 int iommu_device_ready(const pci_dev_t* d) {
-    if (!d) return 0;
-    if (!G.active) return 1;
+    if (!d || G.dmar_error) return 0;
     int ui = unit_of(d->bus, d->dev, d->fn);
-    if (ui < 0 || ui >= VTD_MAX_UNITS || !G.on[ui]) return 1;
+    if (ui < 0) return 1; /* No unit covers this requester: legacy DMA policy. */
+    if (ui >= VTD_MAX_UNITS || !G.on[ui]) return 0; /* A covering unit failed: fail closed. */
     if (rmrr_of(d->bus, d->dev, d->fn) >= 0) return 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
@@ -285,11 +289,18 @@ int iommu_device_ready(const pci_dev_t* d) {
 
 int iommu_isolate_device(const pci_dev_t* d) {
     if (!d) return IOMMU_E_ARG;
-    if (!G.active) return IOMMU_E_NONE;
+    if (G.dmar_error) return IOMMU_E_HW;
     int ui = unit_of(d->bus, d->dev, d->fn);
+    if (ui < 0) return G.info.unit_count ? IOMMU_E_NOCOVER : IOMMU_E_NONE;
+    if (ui >= VTD_MAX_UNITS || !G.on[ui]) return IOMMU_E_HW;
     int rc = IOMMU_OK, rm = -1;
     uint64_t f = spin_lock_irqsave(&G.lock);
-    if (dom_find(d->bus, d->dev, d->fn)) { spin_unlock_irqrestore(&G.lock, f); return IOMMU_OK; }
+    idom_t* existing = dom_find(d->bus, d->dev, d->fn);
+    if (existing) {
+        int existing_rc = existing->blocked ? IOMMU_E_HW : IOMMU_OK;
+        spin_unlock_irqrestore(&G.lock, f);
+        return existing_rc;
+    }
     if (ui < 0 || !G.on[ui]) rc = IOMMU_E_NOCOVER;
     else if ((rm = rmrr_of(d->bus, d->dev, d->fn)) >= 0) rc = IOMMU_E_RMRR;
     else {
