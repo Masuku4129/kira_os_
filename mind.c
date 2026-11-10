@@ -931,7 +931,6 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
     for (unsigned i = 0; i < 5; i++) {
         mind_mem_pending_t* p = &s->mem_pending[i];
         if (!p->valid) continue;
-        if (s->mem_level) p->acted = 1;
         if (in->mem_used > p->max_used) p->max_used = in->mem_used;
         if (p->age < 4) p->age++;
         if (p->age == 4) {
@@ -1409,7 +1408,8 @@ void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act) {
     tuner(s, in, act, now);
     visual(s, in, act, now);
     memory(s, in, act, now);
-    if (s->mem_level) for (unsigned i = 0; i < 5; i++) if (s->mem_pending[i].valid) s->mem_pending[i].acted = 1;
+    if (s->m.mode == MIND_ACT && s->mem_level && (act->mem_trim || act->heap_restrict || act->kill))
+        for (unsigned i = 0; i < 5; i++) if (s->mem_pending[i].valid) s->mem_pending[i].acted = 1;
     devices(s, in, act, now);
     levers(s, in, act, now);
     s->hpos++;
