@@ -47,6 +47,19 @@ class LicenseClassificationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MOD.classify_license(b"Copyright. All rights reserved.")
 
+    def test_bsd_advertising_clause_is_rejected(self):
+        text = BSD2 + "3. All advertising materials mentioning features or use of this software must display this acknowledgement.\\n"
+        with self.assertRaisesRegex(ValueError, "advertising clause"):
+            MOD.classify_license(text.encode())
+
+    def test_custom_greenman_notice_is_not_mislabeled_as_bsd(self):
+        text = """Copyright (C) 1993, David Greenman. This software may be used, modified,
+        copied, distributed, and sold, in both source and binary form provided that
+        the above copyright and these terms are retained. Under no circumstances is
+        the author responsible for the proper functioning of this software."""
+        with self.assertRaisesRegex(ValueError, "Greenman"):
+            MOD.classify_license(text.encode())
+
     def test_mixed_source_licenses_fail_closed(self):
         with tempfile.TemporaryDirectory() as root:
             os.makedirs(os.path.join(root, "dev"))
