@@ -40,6 +40,7 @@ static void port_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uin
 /* ECAM (PCI Express): конфигурация каждой функции - 4 КБ по адресу base + (шина << 20 | устройство << 15 |
    функция << 12). Так её видят ARM-платы (дерево устройств: pci-host-ecam-generic) и x86 с таблицей MCFG. */
 static volatile uint8_t* ecam;
+static uint64_t ecam_size;
 static uint8_t ecam_bus0, ecam_bus1;
 
 static pci_backend_t be = { port_read32, port_write32 };
@@ -53,8 +54,6 @@ void pci_set_backend(const pci_backend_t* b) {
     ecam_bus0 = ecam_bus1 = 0;
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
 }
-
-static uint64_t ecam_size;
 
 static uint32_t ecam_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
     uint64_t offset;
