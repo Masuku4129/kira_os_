@@ -13,7 +13,8 @@ struct IRState {
 };
 /* Avoid a second object-like macro expansion here: KCC bootstraps this unity
    translation unit, so keep the context expression in one replacement list. */
-#define IRS (&K)->ir_state
+static struct IRState *kcc_ir_state_context(void) { return K.ir_state; }
+#define IRS (kcc_ir_state_context())
 #define ihead (IRS->ihead)
 #define itail (IRS->itail)
 #define ir_nreg (IRS->reg_count)
