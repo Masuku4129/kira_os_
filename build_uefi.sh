@@ -70,6 +70,11 @@ cp "$ROOT/kira.bin" "$OUT/EFI/KIRA/KIRA.ELF"
 rm -f "$OUT/EFI/KIRA/INITRD.IMG"
 INITRD="${KIRA_INITRD:-$ROOT/initrd.img}"
 if [[ -n "$INITRD" && -s "$INITRD" ]]; then
+    INITRD_SIZE=$(wc -c < "$INITRD")
+    if (( INITRD_SIZE > 67108864 )); then
+        echo "UEFI build: initrd exceeds the 64 MiB loader limit" >&2
+        exit 1
+    fi
     cp "$INITRD" "$OUT/EFI/KIRA/INITRD.IMG"
     echo "UEFI build: optional initrd included ($INITRD)"
 fi
