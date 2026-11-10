@@ -175,11 +175,10 @@ static void arm_report_event(void* context, const uint64_t event[4])
     for (unsigned i = 0; i < 4u; ++i)
         __atomic_store_n(&arm_sid_last_event[sid][i], event[i], __ATOMIC_RELAXED);
     __atomic_store_n(&arm_sid_event_pending[sid], 1u, __ATOMIC_RELEASE);
+    __atomic_add_fetch(&arm_sid_faults[sid], 1u, __ATOMIC_RELAXED);
 
-    if (translation_fault) {
-        __atomic_add_fetch(&arm_sid_faults[sid], 1u, __ATOMIC_RELAXED);
+    if (translation_fault)
         return;
-    }
 
     /* Malformed STE/CD/stream events quarantine every function sharing SID. */
     for (unsigned i = 0; i < arm_device_count; ++i) {
