@@ -92,10 +92,10 @@ int main(void){
     {
         uint32_t kb0 = pmm_get_free_memory_kb();
         uint64_t blk = pmm_alloc_contiguous(768);                 // 3 МБ, как буфер кадра 1024x768x32
-        CHECK(blk != 0 && blk % 4096 == 0 && blk >= 0x320000 && blk + 768 * 4096 <= (1ULL << 30));
+        CHECK(blk != 0 && blk % 4096 == 0 && blk >= 0x1000000 && blk + 768 * 4096 <= (1ULL << 30));
         CHECK(pmm_get_free_memory_kb() == kb0 - 768 * 4);
         uint64_t one = pmm_alloc_page();                          // одиночная страница не пересекается с блоком
-        CHECK(one != 0 && (one < blk || one >= blk + 768 * 4096));
+        CHECK(one != 0 && one >= 0x1000000 && (one < blk || one >= blk + 768 * 4096));
         CHECK(pmm_free_page(blk + 5 * 4096) == 0);               // можно вернуть и по одной странице
         CHECK(pmm_alloc_contiguous(768) != blk);                  // дыра в блоке слишком мала -> другое место
         CHECK(pmm_alloc_contiguous(0) == 0);

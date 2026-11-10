@@ -45,7 +45,10 @@ void pmm_arm_init(const pmm_arm_region_t* r, unsigned n, uint64_t lo, uint64_t h
     uint64_t words = (npages + 63) / 64;
     reserved = bits + words;
     for (uint64_t i = 0; i < words; i++) { bits[i] = ~0ull; reserved[i] = ~0ull; }
-    free_pages = total_pages = 0; hint = 0;
+    free_pages = total_pages = 0;
+    /* Keep the first 16 MiB of RAM available for devices with narrow DMA masks. */
+    hint = (16ULL << 20) / 4096;
+    if (hint >= npages) hint = 0;
     for (unsigned k = 0; k < n; k++) {
         if (!r[k].size || r[k].base > UINT64_MAX - r[k].size || r[k].base > UINT64_MAX - 4095) continue;
         uint64_t a = (r[k].base + 4095) / 4096, b = (r[k].base + r[k].size) / 4096;
@@ -85,14 +88,20 @@ int pmm_free_page(uint64_t pa) {
 uint64_t pmm_alloc_contiguous(uint32_t pages) {
     if (!pages) return 0;
     uint64_t f = spin_lock_irqsave(&lk), r = 0, run = 0;
-    for (uint64_t i = 0; i < npages; i++) {
-        if (used(i)) { run = 0; continue; }
-        if (++run == pages) {
-            uint64_t s = i + 1 - pages;
-            for (uint64_t j = s; j <= i; j++) set_used(j);
-            free_pages -= pages;
-            r = (base_pfn + s) * 4096;
-            break;
+    uint64_t preferred = hint < npages ? hint : 0;
+    for (unsigned pass = 0; pass < 2 && !r; pass++) {
+        uint64_t lo = pass ? 0 : preferred, hi = pass ? preferred : npages;
+        run = 0;
+        for (uint64_t i = lo; i < hi; i++) {
+            if (used(i)) { run = 0; continue; }
+            if (++run == pages) {
+                uint64_t s = i + 1 - pages;
+                for (uint64_t j = s; j <= i; j++) set_used(j);
+                free_pages -= pages;
+                r = (base_pfn + s) * 4096;
+                hint = s + pages < npages ? s + pages : 0;
+                break;
+            }
         }
     }
     spin_unlock_irqrestore(&lk, f);

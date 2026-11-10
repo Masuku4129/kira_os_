@@ -297,7 +297,10 @@ static int pmm_init_map(const kbi_mmap_entry_t* map, uint32_t map_count,
 
     free_pages=0;
     for(uint64_t pg=0;pg<nwords*32;pg++) if(!test_bit(used_map,pg)) free_pages++;
-    search_hint=0;
+    /* Обычные выделения начинаем выше 16 МБ, сохраняя нижнюю память для ISA DMA.
+       Ограниченные устройства используют отдельные *_below() функции и могут брать её явно. */
+    search_hint = (uint32_t)(((16ULL << 20) / PMM_PAGE_SIZE) / 32);
+    if (search_hint >= nwords) search_hint = 0;
     uint64_t high_bytes=0;
     for(unsigned i=0;i<high_n;i++) high_bytes+=high[i].end-high[i].start;
     uart_print("[KIRA PMM] Usable RAM per BootInfo map: ");
@@ -416,16 +419,26 @@ uint64_t pmm_alloc_contiguous(uint32_t pages) {
     uint64_t f = spin_lock_irqsave(&pmm_lock);
     uint64_t result = 0, run = 0, start = 0;
     uint64_t total = nwords * 32;
-    for (uint64_t p = 0; p < total; ) {
-        if ((p & 31) == 0 && used_map[p >> 5] == 0xFFFFFFFFu) { run = 0; p += 32; continue; }
-        if (test_bit(used_map, p)) { run = 0; p++; continue; }
-        if (run == 0) start = p;
-        run++; p++;
-        if (run == pages) {
-            for (uint64_t q = start; q < start + pages; q++) set_bit(used_map, q);
-            free_pages -= pages;
-            result = start * PMM_PAGE_SIZE;
-            break;
+    uint64_t preferred = (uint64_t)search_hint * 32;
+    if (preferred >= total) preferred = 0;
+    /* Two physical ranges, not a modulo walk: a contiguous run must never wrap at RAM's end. */
+    for (unsigned pass = 0; pass < 2 && !result; pass++) {
+        uint64_t lo = pass ? 0 : preferred;
+        uint64_t hi = pass ? preferred : total;
+        run = 0;
+        for (uint64_t p = lo; p < hi; ) {
+            if ((p & 31) == 0 && used_map[p >> 5] == 0xFFFFFFFFu) { run = 0; p += 32; continue; }
+            if (test_bit(used_map, p)) { run = 0; p++; continue; }
+            if (run == 0) start = p;
+            run++; p++;
+            if (run == pages) {
+                for (uint64_t q = start; q < start + pages; q++) set_bit(used_map, q);
+                free_pages -= pages;
+                result = start * PMM_PAGE_SIZE;
+                search_hint = (uint32_t)((start + pages) / 32);
+                if (search_hint >= nwords) search_hint = 0;
+                break;
+            }
         }
     }
     spin_unlock_irqrestore(&pmm_lock, f);

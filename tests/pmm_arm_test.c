@@ -49,6 +49,17 @@ int main(void) {
     CHECK(pmm_free_page(blk + 8192) == 0);
     CHECK(pmm_free_page(blk + 12288) == 0);
 
-    puts(fails ? "pmm_arm: FAIL" : "pmm_arm: reserved pages, range rounding and atomic contiguous free PASS");
+    /* Larger RAM: generic page/run allocations prefer above 16 MiB, while explicit
+       low-DMA allocation can still use the preserved low physical range. */
+    static uint64_t large_map[1024];
+    const pmm_arm_region_t large_ram[] = { { 0x100000, 0x4000000 } };
+    pmm_arm_init(large_ram, 1, 0x100000, 0x4100000, large_map, 0x100000, 0x110000);
+    uint64_t high_page = pmm_alloc_page();
+    CHECK(high_page >= 0x1100000);
+    uint64_t high_run = pmm_alloc_contiguous(4);
+    CHECK(high_run >= 0x1100000);
+    uint64_t low_dma = pmm_alloc_contiguous_below(4, 0x1000000);
+    CHECK(low_dma >= 0x110000 && low_dma + 4 * 4096 <= 0x1000000);
+    puts(fails ? "pmm_arm: FAIL" : "pmm_arm: reserved pages, range rounding, atomic free and high-first allocation PASS");
     return fails != 0;
 }
