@@ -62,6 +62,7 @@ typedef struct {
     int s64;
     uint32_t cap;
     int irq;                            /* события портов приходят сообщением MSI */
+    int dma_failed;                     /* SMMU failure quarantines the whole controller */
 } ahci_ctl_t;
 
 typedef struct {
@@ -242,12 +243,38 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
         uart_print("[KIRA AHCI] controller is 32-bit, DMA memory above 4 GB: port skipped\n"); return;
     }
 #if defined(__aarch64__)
-    if (iommu_device_isolated(c->pci) &&
-        (iommu_map(c->pci, p->mem_phys, p->mem_phys, 4096, IOMMU_R | IOMMU_W) != IOMMU_OK ||
-         iommu_map(c->pci, p->buf_phys, p->buf_phys, BOUNCE, IOMMU_R | IOMMU_W) != IOMMU_OK)) {
+    if (!iommu_device_ready(c->pci)) {
         pci_disable_bus_master(c->pci);
-        uart_print("[KIRA AHCI] IOMMU DMA mapping failed; controller bus mastering disabled.\n");
+        iommu_unmap_all(c->pci);
+        c->dma_failed = 1;
+        uart_print("[KIRA AHCI] requester lost DMA authorization; controller quarantined.\n");
         return;
+    }
+    if (iommu_device_isolated(c->pci)) {
+        int map_rc = iommu_map(c->pci, p->mem_phys, p->mem_phys, 4096, IOMMU_R | IOMMU_W);
+        if (map_rc != IOMMU_OK) {
+            if (!iommu_device_ready(c->pci)) {
+                pci_disable_bus_master(c->pci);
+                iommu_unmap_all(c->pci);
+                c->dma_failed = 1;
+            }
+            uart_print("[KIRA AHCI] command/FIS DMA mapping failed; port skipped.\n");
+            return;
+        }
+        map_rc = iommu_map(c->pci, p->buf_phys, p->buf_phys, BOUNCE, IOMMU_R | IOMMU_W);
+        if (map_rc != IOMMU_OK) {
+            /* This port has not been started: roll back only its first map so
+               already-running ports keep their valid DMA mappings. A failed
+               rollback or SMMU quarantine shuts down the entire controller. */
+            if (!iommu_device_ready(c->pci) ||
+                iommu_unmap(c->pci, p->mem_phys, 4096) != IOMMU_OK) {
+                pci_disable_bus_master(c->pci);
+                iommu_unmap_all(c->pci);
+                c->dma_failed = 1;
+            }
+            uart_print("[KIRA AHCI] data DMA mapping failed; port skipped.\n");
+            return;
+        }
     }
 #endif
     w32(pr, P_CLB, (uint32_t)p->mem_phys); w32(pr, P_CLB + 4, (uint32_t)(p->mem_phys >> 32));
@@ -328,6 +355,7 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     ahci_ctl_t* c = &ctls[ci];
     c->pci = pd;
     c->abar = ab;
+    c->dma_failed = 0;
     w32(ab, GHC, r32(ab, GHC) | GHC_AE);
     if (r32(ab, CAP2) & 1u) {                                          /* BIOS/OS handoff */
         w32(ab, BOHC, r32(ab, BOHC) | 2u);
@@ -353,7 +381,11 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     uart_print(c->irq ? ", completion by MSI interrupt\n" : ", polled\n");
     blk_udelay(10000);                                                 /* линии успевают подняться после сброса */
     if ((uint64_t)0x100 + 0x80 * MAXPORT > sz) pi &= (uint32_t)((1ull << ((sz - 0x100) / 0x80)) - 1);
-    for (int pn = 0; pn < MAXPORT; pn++) if (pi & (1u << pn)) port_init(c, pn, ci);
+    for (int pn = 0; pn < MAXPORT; pn++) {
+        if (!(pi & (1u << pn))) continue;
+        port_init(c, pn, ci);
+        if (c->dma_failed) break;
+    }
     c->used = 1;
 }
 
