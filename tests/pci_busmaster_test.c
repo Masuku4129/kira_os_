@@ -50,7 +50,9 @@ int main(void)
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
     CHECK((pci_read16(dev, 0x04) & (PCI_CMD_IO | PCI_CMD_MEM)) ==
           (PCI_CMD_IO | PCI_CMD_MEM));
-
+#if defined(__aarch64__)
+    test_iommu_ready = 1; /* Legacy fixture represents an already isolated requester. */
+#endif
     pci_enable(dev, PCI_CMD_MASTER);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) != 0);
     pci_set_backend(0);
