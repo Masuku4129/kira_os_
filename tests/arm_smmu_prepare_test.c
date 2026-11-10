@@ -107,6 +107,22 @@ int main(void)
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
     CHECK(map_calls == 1 && alloc_calls == 0);
 
+    /* A two-level-only stream-table implementation cannot accept our linear table. */
+    reset_test_platform();
+    *(uint32_t *)(registers_page + 0x0000u) = 1u | (2u << 27);
+    p = platform();
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
+    CHECK(alloc_calls == 0);
+
+    /* ST_LVL=1 permits a linear table even when two-level tables are supported. */
+    reset_test_platform();
+    *(uint32_t *)(registers_page + 0x0000u) = 1u | (1u << 27);
+    p = platform();
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_OK);
+    CHECK(smmu.stream_table != 0);
+
     /* Successful prepare allocates one 16 KiB stream table and two queues. */
     reset_test_platform();
     p = platform();
