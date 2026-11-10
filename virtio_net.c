@@ -86,6 +86,11 @@ int virtio_net_probe(void) {
     v.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &v.rxb_p);
     v.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &v.txb_p);
     if (!v.rxb || !v.txb) { virtio_fail(&v.dev); return -4; }
+    if (virtio_dma_grant(&v.dev, v.rxb_p, NRX * BUF) != 0 ||
+        virtio_dma_grant(&v.dev, v.txb_p, NTX * BUF) != 0) {
+        virtio_fail(&v.dev);
+        return -5;
+    }
     unsigned nrx = v.rx.size < NRX ? v.rx.size : NRX;
     for (unsigned i = 0; i < nrx; i++) virtq_post(&v.rx, (uint16_t)i, v.rxb_p + i * BUF, BUF, 1);
     virtio_driver_ok(&v.dev);
