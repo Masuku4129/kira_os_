@@ -2,6 +2,7 @@
 #include "blk.h"
 #include "msi.h"
 #include "pci.h"
+#include "iommu.h"
 #include "uart.h"
 
 /* AHCI (SATA): контроллер в памяти (BAR5, «ABAR»), у каждого порта - список команд, область принятых FIS и таблица
@@ -237,6 +238,15 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     p->mem = (uint8_t*)virtio_dma_alloc(4096, &p->mem_phys);
     p->buf = (uint8_t*)virtio_dma_alloc(BOUNCE, &p->buf_phys);
     if (!p->mem || !p->buf) { uart_print("[KIRA AHCI] no DMA memory\n"); return; }
+#if defined(__aarch64__)
+    if (iommu_device_isolated(c->pci) &&
+        (iommu_map(c->pci, p->mem_phys, p->mem_phys, 4096, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(c->pci, p->buf_phys, p->buf_phys, BOUNCE, IOMMU_R | IOMMU_W) != IOMMU_OK)) {
+        pci_disable_bus_master(c->pci);
+        uart_print("[KIRA AHCI] IOMMU DMA mapping failed; controller bus mastering disabled.\n");
+        return;
+    }
+#endif
     if (!c->s64 && (p->mem_phys + 4096 > 0x100000000ull || p->buf_phys + BOUNCE > 0x100000000ull)) {
         uart_print("[KIRA AHCI] controller is 32-bit, DMA memory above 4 GB: port skipped\n"); return;
     }
@@ -298,6 +308,14 @@ static void ahci_irq(void* ctx) {
 
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[5].io || !pd->bar[5].base || pd->bar[5].size < 0x180) { uart_print("[KIRA AHCI] controller without ABAR: skipped\n"); return; }
+#if defined(__aarch64__)
+    int iommu_rc = iommu_isolate_device(pd);
+    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
+        iommu_rc != IOMMU_E_NOCOVER) {
+        uart_print("[KIRA AHCI] IOMMU isolation failed; controller disabled.\n");
+        return;
+    }
+#endif
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     uint64_t sz = pd->bar[5].size > 0x1100 ? 0x1100 : pd->bar[5].size;
     volatile uint8_t* ab = (volatile uint8_t*)pci_map_bar(pd, 5, 0, sz);
