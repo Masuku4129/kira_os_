@@ -11,15 +11,15 @@ typedef struct {
     int maxslot;
     SB *out;
 } IRState;
-#define IRS ((IRState *)K.ir_state)
-#define ihead (IRS->ihead)
-#define itail (IRS->itail)
-#define ir_nreg (IRS->reg_count)
-#define ir_nlab (IRS->label_count)
-#define fn (IRS->fn)
-#define ltail (IRS->ltail)
-#define maxslot (IRS->maxslot)
-#define out (IRS->out)
+static IRState *irs;
+#define ihead (irs->ihead)
+#define itail (irs->itail)
+#define ir_nreg (irs->reg_count)
+#define ir_nlab (irs->label_count)
+#define fn (irs->fn)
+#define ltail (irs->ltail)
+#define maxslot (irs->maxslot)
+#define out (irs->out)
 
 static Ins *emit(IrOp op) {
     Ins *i = ka_new(sizeof *i);
@@ -731,6 +731,7 @@ static void print_ins(const Ins *i) {
 
 IrFn *ir_lower(Obj *f) {
     if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
+    irs = K.ir_state;
     fn = f;
     ihead = itail = NULL;
     ir_nreg = 0; ir_nlab = f->nlabels;
@@ -806,6 +807,7 @@ int ir_uses_sp(const IrFn *fi) {
 
 void ir_dump(Obj *globals, SB *o) {
     if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
+    irs = K.ir_state;
     out = o;
     sb_printf(out, "; kcc IR\n");
     for (Obj *g = globals; g; g = g->next) {
