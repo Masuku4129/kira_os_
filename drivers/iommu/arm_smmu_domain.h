@@ -23,8 +23,13 @@ struct kira_smmu_domain {
     uint16_t asid;
     uint32_t lock;
     uint8_t active;
+    uint8_t bypass;
 };
 
+int kira_smmu_domain_passthrough(struct kira_smmu_domain *domain,
+                                   struct kira_smmu *smmu,
+                                   uint32_t stream_id,
+                                   const struct kira_smmu_platform *platform);
 int kira_smmu_domain_create(struct kira_smmu_domain *domain,
                             struct kira_smmu *smmu,
                             uint32_t stream_id,
