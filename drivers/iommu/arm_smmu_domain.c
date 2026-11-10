@@ -549,6 +549,7 @@ int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *d,
     unsigned int shifts[4] = {39, 30, 21, 12};
     uint64_t *table;
     unsigned int level;
+    int rc;
 
     if (!d || !p || !p->clean_cache ||
         !p->write_barrier || (iova & 0xfffu) || iova >= (1ull << 48))
