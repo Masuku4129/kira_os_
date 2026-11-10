@@ -150,8 +150,7 @@ static int arm_quiesce_devices(void* context)
         const pci_dev_t* dev = pci_get(i);
         if (!dev)
             continue;
-        uint16_t command = pci_read16(dev, 0x04);
-        pci_write16(dev, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+        pci_disable_bus_master(dev);
     }
     return 0;
 }
@@ -173,11 +172,8 @@ static void arm_report_event(void* context, const uint64_t event[4])
                 arm_iommu_device_t* dev = &arm_devices[i];
                 if (dev->covered && dev->stream_id == sid) {
                     __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
-                    if (dev->pci) {
-                        uint16_t command = pci_read16(dev->pci, 0x04);
-                        pci_write16(dev->pci, 0x04,
-                                    (uint16_t)(command & ~PCI_CMD_MASTER));
-                    }
+                    if (dev->pci)
+                        pci_disable_bus_master(dev->pci);
                 }
             }
         }
