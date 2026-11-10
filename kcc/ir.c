@@ -118,7 +118,7 @@ static void agg_ok(const Type *t, const Token *tok) {
     if (u->align > 8) kerr_tok(tok, "unsupported: struct/union with alignment %d passed by value", u->align);
     if (u->packed) kerr_tok(tok, "unsupported: packed struct/union passed by value");
     if (agg_has_fp(u))
-        kerr_tok(tok, "unsupported: struct/union containing float or double passed by value (aggregate FP ABI is not implemented)");
+        kerr_tok(tok, "unsupported: struct/union containing float or double passed by value (aggregate FP ABI support is unavailable)");
 }
 
 static int is_agg_like(const Type *t) { return t->k == TY_ARRAY || t->k == TY_STRUCT || t->k == TY_UNION || t->k == TY_FUNC; }
