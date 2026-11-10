@@ -201,8 +201,6 @@ static EFI_STATUS collect_command_line(EFI_HANDLE image,
             return EFI_UNSUPPORTED;
         g_boot_command_line[i] = (char)ch;
     }
-    if (i == units && options[units - 1] != 0)
-        return EFI_BAD_BUFFER_SIZE;
     g_boot_command_line[i] = 0;
     if (i) {
         info->command_line = g_boot_command_line;
@@ -250,14 +248,15 @@ static EFI_STATUS load_boot_module(EFI_HANDLE image,
 
     status = uefi_call_wrapper(file->GetInfo, 4, file, &kira_file_info_guid,
                                &info_size, NULL);
-    if (status == EFI_BUFFER_TOO_SMALL) {
-        status = uefi_call_wrapper(g_bs->AllocatePool, 3, EfiLoaderData,
-                                   info_size, (VOID **)&file_info);
-        if (!EFI_ERROR(status))
-            status = uefi_call_wrapper(file->GetInfo, 4, file,
-                                       &kira_file_info_guid, &info_size,
-                                       file_info);
+    if (status != EFI_BUFFER_TOO_SMALL) {
+        if (!EFI_ERROR(status)) status = EFI_DEVICE_ERROR;
+        goto fail;
     }
+    status = uefi_call_wrapper(g_bs->AllocatePool, 3, EfiLoaderData,
+                               info_size, (VOID **)&file_info);
+    if (EFI_ERROR(status)) goto fail;
+    status = uefi_call_wrapper(file->GetInfo, 4, file,
+                               &kira_file_info_guid, &info_size, file_info);
     if (EFI_ERROR(status)) goto fail;
     if (!file_info->FileSize || file_info->FileSize > KIRA_INITRD_MAX_SIZE) {
         status = EFI_BAD_BUFFER_SIZE;
