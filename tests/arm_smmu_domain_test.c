@@ -219,22 +219,6 @@ int main(void)
         CHECK(event_count == 4u && last_event[0] == 0xbbbbu);
     }
 
-    /* Reject reserved OAS encodings before allocating any translation table. */
-    {
-        struct kira_smmu_domain unsupported = {0};
-        uint32_t saved_idr5 = smmu.idr5;
-        unsigned before = alloc_calls;
-        smmu.idr5 = (saved_idr5 & ~7u) | 7u;
-        CHECK(kira_smmu_domain_create(&unsupported, &smmu, 8u, &p) == KIRA_SMMU_UNSUPPORTED);
-        CHECK(alloc_calls == before);
-        /* Encoding 6 is valid 52-bit OAS; this driver safely caps its CD to 48 bits. */
-        smmu.idr5 = (saved_idr5 & ~7u) | 6u;
-        CHECK(kira_smmu_domain_create(&unsupported, &smmu, 8u, &p) == KIRA_SMMU_OK);
-        CHECK((((uint64_t *)unsupported.context_table)[0] >> 32 & 7u) == 5u);
-        CHECK(kira_smmu_domain_destroy(&unsupported, &p) == KIRA_SMMU_OK);
-        smmu.idr5 = saved_idr5;
-    }
-
     /* Without ASID16, reserve ASID zero and reject the final 8-bit slot. */
     {
         struct kira_smmu_domain no_asid = {0};
@@ -328,6 +312,21 @@ int main(void)
     CHECK(ste[0] == 0 && ste[1] == 0);
     CHECK(free_calls - freed_before == 5u); /* three intermediate tables + root + CD table */
     CHECK(freed_pages - freed_pages_before == 5u);
+
+    /* Reject reserved OAS encodings; valid 52-bit hardware is safely capped to 48 bits. */
+    {
+        struct kira_smmu_domain unsupported = {0};
+        uint32_t saved_idr5 = smmu.idr5;
+        unsigned before = alloc_calls;
+        smmu.idr5 = (saved_idr5 & ~7u) | 7u;
+        CHECK(kira_smmu_domain_create(&unsupported, &smmu, 8u, &p) == KIRA_SMMU_UNSUPPORTED);
+        CHECK(alloc_calls == before);
+        smmu.idr5 = (saved_idr5 & ~7u) | 6u;
+        CHECK(kira_smmu_domain_create(&unsupported, &smmu, 8u, &p) == KIRA_SMMU_OK);
+        CHECK((((uint64_t *)unsupported.context_table)[0] >> 32 & 7u) == 5u);
+        CHECK(kira_smmu_domain_destroy(&unsupported, &p) == KIRA_SMMU_OK);
+        smmu.idr5 = saved_idr5;
+    }
 
     /* Unisolated mapped devices receive an explicit bypass STE, not global bypass. */
     {
