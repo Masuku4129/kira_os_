@@ -1,0 +1,104 @@
+name: kira-parallel-build-factory
+
+on:
+  push:
+    branches: ['factory/**']
+  pull_request:
+    branches: [autodrv]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kira-box-factory-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  box:
+    name: "box / ${{ matrix.box }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        box:
+          - boot-release
+          - kcc
+          - driver-compat
+          - x86-isolation
+          - dma-audio
+          - arm64
+          - iommu-x86
+          - platform
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated box toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang lld nasm llvm qemu-system-x86 qemu-system-arm \
+            grub-pc-bin grub-efi-amd64-bin grub-common xorriso dosfstools mtools \
+            python3-cryptography python3-pil openssl gnu-efi ovmf
+      - name: Execute assigned workstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          box="${{ matrix.box }}"
+          out="ci-out/boxes/$box"
+          mkdir -p "$out"
+          exec > >(tee "$out/run.log") 2>&1
+          echo "BOX=$box"
+          echo "COMMIT=$GITHUB_SHA"
+          case "$box" in
+            boot-release)
+              ./build_clang.sh --no-run
+              python3 ci/kira_vm.py --out "$out/bios" --scenario boot-bios --scenario boot-grub
+              bash ./build_uefi.sh "$out/uefi"
+              bash ci/test_uefi_ovmf.sh "$out/uefi" "$out/uefi-ovmf"
+              python3 tools/mkuefi.py "$out/uefi/EFI/BOOT/BOOTX64.EFI" "$out/uefi/EFI/KIRA/KIRA.ELF" "$out/kira-uefi.img"
+              KIRA_UEFI_DISK="$out/kira-uefi.img" bash ci/test_uefi_ovmf.sh "$out/uefi" "$out/uefi-gpt"
+              python3 -m unittest ci.test_release_gate
+              ;;
+            kcc)
+              tests/kcc/run.sh
+              ;;
+            driver-compat)
+              python3 -m unittest ci.test_kdrvsign
+              bash tests/drvget_e2e.sh "$out/drvget"
+              ;;
+            x86-isolation)
+              ./build_clang.sh --no-run
+              python3 ci/kira_vm.py --scenario isolation --out "$out/vm"
+              ;;
+            dma-audio)
+              ./build_clang.sh --no-run
+              python3 ci/kira_vm.py --scenario sound-sb16 --out "$out/vm"
+              ;;
+            arm64)
+              ./build_arm64.sh
+              ci/make_flash.sh
+              python3 ci/arm64_vm.py "$out/vm"
+              ;;
+            iommu-x86)
+              ./build_clang.sh --no-run
+              KIRA_SKIP_GUI=1 KIRA_SKIP_MIND=1 KIRA_SKIP_DRIVER_E2E=1 KIRA_SKIP_KCC=1 \
+                bash tests/run_host_tests.sh
+              ;;
+            platform)
+              python3 ci/audit_inventory.py --out "$out/audit"
+              python3 ci/dependency_audit.py
+              ;;
+            *)
+              echo "Unknown box: $box" >&2
+              exit 2
+              ;;
+          esac
+          echo "BOX_RESULT=PASS"
+      - name: Upload box evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kira-box-${{ matrix.box }}
+          path: ci-out/boxes/${{ matrix.box }}/
+          if-no-files-found: warn
