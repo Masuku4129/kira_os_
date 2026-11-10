@@ -212,13 +212,6 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
      * STRTAB_BASE/CFG are only writable while SMMUEN and its acknowledgement
      * are clear. Quiesce the controller before allocating/publishing tables.
      */
-    smmu_stream_table_lock(smmu);
-    if (smmu_has_active_streams(smmu)) {
-        smmu_stream_table_unlock(smmu);
-        return KIRA_SMMU_INVALID;
-    }
-    smmu_stream_table_unlock(smmu);
-
     smmu_write32(smmu->registers, SMMU_CR0, 0);
     platform->write_barrier(platform->context);
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
@@ -481,6 +474,13 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
     if (!smmu || !platform || !smmu->registers ||
         !platform->write_barrier || !platform->read_barrier)
         return KIRA_SMMU_INVALID;
+
+    smmu_stream_table_lock(smmu);
+    if (smmu_has_active_streams(smmu)) {
+        smmu_stream_table_unlock(smmu);
+        return KIRA_SMMU_INVALID;
+    }
+    smmu_stream_table_unlock(smmu);
 
     smmu_write32(smmu->registers, SMMU_CR0, 0);
     platform->write_barrier(platform->context);
