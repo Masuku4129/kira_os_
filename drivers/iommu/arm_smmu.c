@@ -171,7 +171,8 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
 
     if (!smmu || !platform || !platform->map_mmio ||
         !platform->alloc_dma_pages || !platform->free_dma_pages ||
-        !physical_base || (physical_base & 0xfffu))
+        !platform->clean_cache || !platform->write_barrier ||
+        !platform->read_barrier || !physical_base || (physical_base & 0xfffu))
         return KIRA_SMMU_INVALID;
 
     smmu->registers = (volatile uint8_t *)
@@ -212,11 +213,14 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
      * are clear. Quiesce the controller before allocating/publishing tables.
      */
     smmu_write32(smmu->registers, SMMU_CR0, 0);
+    platform->write_barrier(platform->context);
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
                         SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN |
                         SMMU_CR0ACK_CMDQEN, 0, platform);
-    if (rc != KIRA_SMMU_OK)
+    if (rc != KIRA_SMMU_OK) {
+        smmu->enabled = 2u; /* Hardware state is unknown until a later disable succeeds. */
         return rc;
+    }
 
     smmu->queue_entries = SMMU_QUEUE_ENTRIES;
     smmu->stream_table = 0;
@@ -376,14 +380,18 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
     int rc;
 
     if (!smmu || !platform || !smmu->registers ||
-        !smmu->cmdq || !smmu->evtq)
+        !smmu->cmdq || !smmu->evtq || !platform->clean_cache ||
+        !platform->write_barrier || !platform->read_barrier)
         return KIRA_SMMU_INVALID;
 
-    if (smmu->enabled)
+    if (smmu->enabled == 1u)
         return KIRA_SMMU_OK;
+    if (smmu->enabled != 0u)
+        return KIRA_SMMU_HARDWARE_ERROR;
 
     /* Disable the unit before changing queue base registers. */
     smmu_write32(smmu->registers, SMMU_CR0, 0);
+    platform->write_barrier(platform->context);
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
                         SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN |
                         SMMU_CR0ACK_CMDQEN, 0, platform);
@@ -401,6 +409,7 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
     smmu_write64(smmu->registers, SMMU_EVTQ_BASE, queue_base);
     smmu_write32(smmu->registers, SMMU_EVTQ_PROD, 0);
     smmu_write32(smmu->registers, SMMU_EVTQ_CONS, 0);
+    smmu->evtq_consumer = 0;
 
     if (platform->clean_cache) {
         platform->clean_cache(platform->context, smmu->cmdq,
@@ -413,6 +422,7 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
 
     control = SMMU_CR0_CMDQEN | SMMU_CR0_EVENTQEN | SMMU_CR0_SMMUEN;
     smmu_write32(smmu->registers, SMMU_CR0, control);
+    platform->write_barrier(platform->context);
 
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
                         SMMU_CR0ACK_CMDQEN | SMMU_CR0ACK_EVENTQEN |
@@ -421,6 +431,13 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
                         SMMU_CR0ACK_SMMUEN, platform);
     if (rc != KIRA_SMMU_OK) {
         smmu_write32(smmu->registers, SMMU_CR0, 0);
+        platform->write_barrier(platform->context);
+        if (smmu_wait_mask(smmu, SMMU_CR0ACK,
+                           SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN |
+                           SMMU_CR0ACK_CMDQEN, 0, platform) == KIRA_SMMU_OK)
+            smmu->enabled = 0;
+        else
+            smmu->enabled = 2u;
         return rc;
     }
 
@@ -433,15 +450,19 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
 {
     int rc;
 
-    if (!smmu || !platform || !smmu->registers)
+    if (!smmu || !platform || !smmu->registers ||
+        !platform->write_barrier || !platform->read_barrier)
         return KIRA_SMMU_INVALID;
 
     smmu_write32(smmu->registers, SMMU_CR0, 0);
+    platform->write_barrier(platform->context);
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
                         SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN |
                         SMMU_CR0ACK_CMDQEN, 0, platform);
-    if (rc != KIRA_SMMU_OK)
+    if (rc != KIRA_SMMU_OK) {
+        smmu->enabled = 2u;
         return rc;
+    }
 
     smmu->enabled = 0;
     return KIRA_SMMU_OK;
