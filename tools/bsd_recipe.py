@@ -25,7 +25,7 @@ def classify_license(data, path="<source>"):
     spdx = re.findall(r"SPDX-License-Identifier:\\s*([^\\r\\n*]+)", text)
     if spdx:
         identifiers = [item.strip() for item in spdx]
-        if len(set(identifiers)) != 1 or len(identifiers) != 1 or identifiers[0] not in {"BSD-2-Clause", "BSD-3-Clause", "MIT", "ISC"}:
+        if len(set(identifiers)) != 1 or len(identifiers) != 1 or identifiers[0] not in {"BSD-2-Clause", "BSD-3-Clause", "MIT", "ISC", "LicenseRef-Greenman"}:
             raise ValueError("%s: unsupported or compound SPDX license: %s" % (path, ", ".join(identifiers)))
         return identifiers[0]
 
@@ -34,7 +34,7 @@ def classify_license(data, path="<source>"):
         raise ValueError("%s: BSD advertising clause is outside the allowed license set" % path)
     if ("may be used, modified, copied, distributed, and sold, in both source and binary form" in low and
             "under no circumstances is the author responsible for the proper functioning" in low):
-        raise ValueError("%s: custom Greenman permissive notice needs an explicit LicenseRef policy" % path)
+        return "LicenseRef-Greenman"
     if ("redistribution and use in source and binary forms" in low and
             "this software is provided by" in low and
             "1. redistributions of source code must retain" in low and
