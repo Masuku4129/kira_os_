@@ -161,8 +161,27 @@ static void arm_report_event(void* context, const uint64_t event[4])
     uint32_t sid = (uint32_t)(event[0] >> 32);
     uint32_t id = (uint32_t)(event[0] & 0xffu);
     (void)context;
-    if (sid < 256u)
-        __atomic_add_fetch(&arm_sid_faults[sid], 1u, __ATOMIC_RELAXED);
+    if (sid < 256u) {
+        if (id >= 0x10u && id <= 0x13u) {
+            /* Translation/address/access/permission faults prove the stage-1
+               domain rejected a DMA request (also used by the startup probe). */
+            __atomic_add_fetch(&arm_sid_faults[sid], 1u, __ATOMIC_RELAXED);
+        } else {
+            /* STE/CD/stream configuration faults are not a successful isolation
+               probe. Stop every PCI function sharing this SID immediately. */
+            for (unsigned i = 0; i < arm_device_count; ++i) {
+                arm_iommu_device_t* dev = &arm_devices[i];
+                if (dev->covered && dev->stream_id == sid) {
+                    __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
+                    if (dev->pci) {
+                        uint16_t command = pci_read16(dev->pci, 0x04);
+                        pci_write16(dev->pci, 0x04,
+                                    (uint16_t)(command & ~PCI_CMD_MASTER));
+                    }
+                }
+            }
+        }
+    }
     uart_print("[KIRA SMMU] event ");
     uart_print_hex(id);
     uart_print(" SID ");
