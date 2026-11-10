@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 #define ARM_SMMU_REG_BYTES 0x2000u
-#define ARM_IOMMU_MAX_MAPS 32u
+#define ARM_IOMMU_MAX_MAPS 1024u
 #define ARM_IOMMU_MAX_DEVICES 128u
 #define ARM_PAGE_SIZE 4096ull
 #define ARM_PAGE_MASK (~(ARM_PAGE_SIZE - 1ull))
