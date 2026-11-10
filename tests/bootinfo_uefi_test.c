@@ -6,7 +6,7 @@
 int kbi_to_multiboot2(const void *blob, uint32_t available,
                       void *output, uint32_t capacity, uint32_t *output_size);
 
-#define CHECK(x) do { if (!(x)) { printf("bootinfo_uefi FAIL:%d %s\\n",__LINE__,#x); return 1; } } while (0)
+#define CHECK(x) do { if (!(x)) { printf("bootinfo_uefi FAIL:%d %s\n",__LINE__,#x); return 1; } } while (0)
 
 static uint32_t align8(uint32_t n) { return (n + 7u) & ~7u; }
 static const char module_name[] = "initrd0";
