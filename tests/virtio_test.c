@@ -201,6 +201,19 @@ static void rnd(uint8_t* p, size_t n, unsigned seed) { for (size_t i = 0; i < n;
 
 int main(void) {
     vopt_t o0; memset(&o0, 0, sizeof o0);
+    /* ECAM aperture validation: reject empty, reversed, truncated and out-of-range windows. */
+    {
+        uint8_t first = 0, last = 0;
+        CHECK(pci_ecam_bus_range(1ull << 20, 0, 0, 0, &first, &last) == 0 && first == 0 && last == 0);
+        CHECK(pci_ecam_bus_range(4ull << 20, 0, 0, 0, &first, &last) == 0 && first == 0 && last == 3);
+        CHECK(pci_ecam_bus_range(4ull << 20, 1, 5, 8, &first, &last) == -1);
+        CHECK(pci_ecam_bus_range(4ull << 20, 1, 8, 5, &first, &last) == -1);
+        CHECK(pci_ecam_bus_range(4ull << 20, 1, 5, 7, &first, &last) == 0 && first == 5 && last == 7);
+        CHECK(pci_ecam_bus_range(4ull << 20, 1, 255, 256, &first, &last) == -1);
+        CHECK(pci_ecam_bus_range((1ull << 20) - 1, 0, 0, 0, &first, &last) == -1);
+        CHECK(pci_ecam_bus_range(4ull << 20, 0, 0, 0, 0, &last) == -1);
+    }
+
     /* ECAM windows may begin at a nonzero bus. The root scan must start at bus-range[0],
        not hard-coded bus 0 (which ECAM correctly rejects as outside the window). */
     {
