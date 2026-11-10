@@ -261,15 +261,25 @@ jobs:
           path: /var/cache/apt/archives/*.deb
           key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools gnu-efi
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools gnu-efi qemu-system-x86
       - name: build (clang, -Werror)
         run: |
-          ./build_clang.sh --no-run
-          mkdir -p sym ci-out && nm -n kira.bin > sym/kira.sym
+          mkdir -p sym ci-out
+          printf 'KIRA-INITRD-TEST\n' > ci-out/initrd.img
+          KIRA_INITRD="$PWD/ci-out/initrd.img" ./build_clang.sh --no-run
+          nm -n kira.bin > sym/kira.sym
+      - name: BIOS stage2 module boot and CRC regression
+        run: bash tests/bios_boot_test.sh kira.bin
       - name: inspect kernel ELF program headers
         run: readelf -h -l kira.bin
       - name: build native UEFI loader (PE32+)
-        run: bash ./build_uefi.sh ci-out/uefi
+        run: KIRA_INITRD="$PWD/ci-out/initrd.img" bash ./build_uefi.sh ci-out/uefi
+      - name: GPT disk grows to fit a near-limit initrd
+        run: |
+          truncate -s 66060288 ci-out/large-initrd.img
+          python3 tools/mkuefi.py ci-out/uefi/EFI/BOOT/BOOTX64.EFI ci-out/uefi/EFI/KIRA/KIRA.ELF /tmp/kira-uefi-large.img 64 ci-out/large-initrd.img
+          test "$(stat -c%s /tmp/kira-uefi-large.img)" -gt 67108864
+          rm -f /tmp/kira-uefi-large.img
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -340,7 +350,7 @@ jobs:
         run: bash ci/test_uefi_ovmf.sh ci-out/uefi ci-out/uefi-ovmf
       - name: boot the GPT + ESP disk image (layout of a real PC, no GRUB)
         run: |
-          python3 tools/mkuefi.py ci-out/uefi/EFI/BOOT/BOOTX64.EFI ci-out/uefi/EFI/KIRA/KIRA.ELF ci-out/kira-uefi.img
+          python3 tools/mkuefi.py ci-out/uefi/EFI/BOOT/BOOTX64.EFI ci-out/uefi/EFI/KIRA/KIRA.ELF ci-out/kira-uefi.img 64 ci-out/uefi/EFI/KIRA/INITRD.IMG
           KIRA_UEFI_DISK=ci-out/kira-uefi.img bash ci/test_uefi_ovmf.sh ci-out/uefi ci-out/uefi-ovmf-gpt
       - uses: actions/upload-artifact@v4
         if: always()
