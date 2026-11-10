@@ -29,6 +29,7 @@ struct kira_smmu_domain {
     uint8_t active;
 };
 
+/* Domain storage must be zero-initialized before create. */
 int kira_smmu_domain_create(struct kira_smmu_domain *domain,
                             struct kira_smmu *smmu,
                             uint32_t stream_id,
