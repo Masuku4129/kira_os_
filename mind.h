@@ -115,7 +115,7 @@ typedef struct { int64_t mean_x100; uint64_t var_x100; uint32_t n; } mind_norm_t
 
 /* То, что переживает перезагрузку (сохраняется как есть, проверяется по crc). */
 #define MIND_MAGIC   0x444E494DU   /* "MIND" */
-#define MIND_VERSION 3             /* 2: модель предвидения (веса); 3: состояние рычагов 13-30 */
+#define MIND_VERSION 4             /* 4: явная валидность измерения диска в признаках предвидения */
 #define MIND_MODEL_COMMON \
     uint32_t magic, version; \
     mind_norm_t norm[MIND_SIG_N]; \
@@ -138,9 +138,12 @@ typedef struct {
     uint32_t mflags;           /* MF_* */
     uint32_t crc;
 } mind_model_t;
-typedef struct { MIND_MODEL_COMMON mnet_t net; uint32_t forecasts; uint32_t crc; } mind_model_v2_t;   /* прежний формат (без рычагов) */
-typedef struct { MIND_MODEL_COMMON uint32_t crc; } mind_model_v1_t;   /* прежний формат: читается и дополняется */
-/* Опыт с диска (len байт) -> модель текущего формата. 1 - годен (формат 2 или поднятый из 1), 0 - нет. */
+/* Сетевой блок формата v3/v2: 12 признаков. Нужен только для безопасной миграции старых файлов. */
+typedef struct { int32_t w[12], b; uint32_t n, pos, tp, fp, fn, tn, loss_x1e4; } mindnet_v3_t;
+typedef struct { MIND_MODEL_COMMON mindnet_v3_t net; uint32_t forecasts; mind_lv_saved_t lv[ML_N]; uint32_t mflags, crc; } mind_model_v3_t;
+typedef struct { MIND_MODEL_COMMON mindnet_v3_t net; uint32_t forecasts; uint32_t crc; } mind_model_v2_t;
+typedef struct { MIND_MODEL_COMMON uint32_t crc; } mind_model_v1_t;
+/* Опыт с диска (len байт) -> модель текущего формата. Поддерживаются форматы 1, 2 и 3. */
 int mind_model_load(mind_model_t* out, const void* buf, unsigned len);
 /* Семя опыта (файл опыта, полученный на другой машине - в QEMU) -> стартовая модель. Берутся ТОЛЬКО веса модели
    предвидения (число наблюдений урезано до MIND_SEED_N, ниже порога доверия: предупреждения придётся заслужить на
@@ -307,6 +310,7 @@ void mind_model_seal(mind_model_t* m);       /* посчитать crc пере�
 
 const char* mind_signal_name(int sig);
 const char* mind_feature_name(int f);       /* признак модели предвидения */
+void mind_make_features(const mind_t* s, const mind_sample_t* in, int32_t* out); /* Q16 признаки для прогноза/тестов */
 const char* mind_signal_unit(int sig);
 unsigned    mind_quantum_ms(const mind_t* s);
 int         mind_fx_level(const mind_t* s);
