@@ -207,8 +207,15 @@ UEFI_DIR=
 if command -v mcopy >/dev/null 2>&1 && [ -s /usr/include/efi/efi.h -o -n "${EFI_INCLUDE:-}" ]; then
     echo "[*] Собственный UEFI-загрузчик (без GRUB): kira-uefi.img"
     _u=$(mktemp -d)
-    if bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err" && python3 tools/mkuefi.py "$_u/EFI/BOOT/BOOTX64.EFI" "$_u/EFI/KIRA/KIRA.ELF" kira-uefi.img; then :; else
-        echo "[!] kira-uefi.img не собран:"; tail -3 "$_u/err"; fi
+    if bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err"; then
+        if [[ -s "$_u/EFI/KIRA/INITRD.IMG" ]]; then
+            python3 tools/mkuefi.py "$_u/EFI/BOOT/BOOTX64.EFI" "$_u/EFI/KIRA/KIRA.ELF" kira-uefi.img 64 "$_u/EFI/KIRA/INITRD.IMG"
+        else
+            python3 tools/mkuefi.py "$_u/EFI/BOOT/BOOTX64.EFI" "$_u/EFI/KIRA/KIRA.ELF" kira-uefi.img
+        fi
+    else
+        echo "[!] kira-uefi.img не собран:"; tail -3 "$_u/err"
+    fi
     UEFI_DIR="$_u"
 elif [ -s prebuilt/BOOTX64.EFI ] && command -v mcopy >/dev/null 2>&1; then
     # Нет gnu-efi или хост не x86-64 (телефон на ARM): берётся заранее собранный загрузчик, если он собран из ТЕКУЩИХ исходников (хеш в prebuilt/BOOTX64.EFI.sha256)
