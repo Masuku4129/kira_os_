@@ -29,7 +29,7 @@ def classify_license(data, path="<source>"):
             raise ValueError("%s: unsupported or compound SPDX license: %s" % (path, ", ".join(identifiers)))
         return identifiers[0]
 
-    low = text.lower()
+    low = " ".join(text.lower().split())
     if "all advertising materials mentioning" in low:
         raise ValueError("%s: BSD advertising clause is outside the allowed license set" % path)
     if ("may be used, modified, copied, distributed, and sold, in both source and binary form" in low and
