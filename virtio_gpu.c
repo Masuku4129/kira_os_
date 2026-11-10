@@ -65,7 +65,6 @@ int virtio_gpu_probe(void) {
         uart_print("[KIRA GPU] virtio-gpu found but did not start.\n");
         return -2;
     }
-    virtio_driver_ok(&dev);
     cmd = (uint8_t*)virtio_dma_alloc(4096, &cmd_phys);
     resp = (uint8_t*)virtio_dma_alloc(4096, &resp_phys);
     if (!cmd || !resp) { virtio_fail(&dev); return -3; }
@@ -82,6 +81,14 @@ int virtio_gpu_probe(void) {
     uint64_t fb_phys;
     uint8_t* fbm = (uint8_t*)virtio_dma_alloc(W * H * 4, &fb_phys);   /* подложка: непрерывная, видна устройству */
     if (!fbm) { virtio_fail(&dev); return -5; }
+    if (virtio_dma_grant(&dev, cmd_phys, 4096) != 0 ||
+        virtio_dma_grant(&dev, resp_phys, 4096) != 0 ||
+        virtio_dma_grant(&dev, fb_phys, W * H * 4) != 0) {
+        virtio_fail(&dev);
+        uart_print("[KIRA GPU] DMA buffers could not be mapped; device disabled.\n");
+        return -8;
+    }
+    virtio_driver_ok(&dev);
 
     create_t* c = (create_t*)cmd; zero(c, sizeof *c);
     c->h.type = CMD_RESOURCE_CREATE_2D; c->res = 1; c->format = FORMAT_B8G8R8X8; c->width = W; c->height = H;
