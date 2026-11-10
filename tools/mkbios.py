@@ -80,7 +80,7 @@ def main():
                             bytes((0xFE, 0xFF, 0xFF)), 1, sectors - 1)
         image[446:462] = entry
         image[462:510] = bytes(48)
-        if image[510:512] != b"\\x55\\xaa":
+        if image[510:512] != b"\x55\xaa":
             sys.exit("stage1: missing MBR signature after partition-table generation")
 
     with open(out, "wb") as f:
