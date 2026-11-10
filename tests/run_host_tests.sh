@@ -159,6 +159,8 @@ $T/virtio
 echo "== PCI bus mastering (firmware state cleared before driver handoff) =="
 $CC $FLAGS -DKIRA_HOST_TEST -o $T/pci-busmaster tests/pci_busmaster_test.c pci.c
 $T/pci-busmaster
+$CC $FLAGS -DKIRA_HOST_TEST -D__aarch64__ -o $T/pci-busmaster-arm64 tests/pci_busmaster_test.c pci.c
+$T/pci-busmaster-arm64
 
 echo "== programs: ELF validation, trust manifest, life log in KiraFS =="
 $CC $FLAGS -O1 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c
