@@ -9,7 +9,7 @@ permissions:
 
 on:
   push:
-    branches: [main, stable, v45/overhaul, 'v46/**']
+    branches: [main, stable, v45/overhaul, 'v46/**', autodrv]
     paths-ignore: ['docs/**', '**.md']
   pull_request:
     paths-ignore: ['docs/**', '**.md']
