@@ -535,7 +535,11 @@ static void gen_func(IrFn *fi) {
             pa[q] = ty_is_agg(p->ty) ? ty_unqual(p->ty)->size : 0;
             pf[q] = ty_is_float(p->ty) ? (unsigned char)ty_unqual(p->ty)->size : 0;
         }
-        p_stk = plan_args(np, pa, pf, pl, &p_ngrn, &p_nvrn);
+        int p_ngrn_local = 0, p_nvrn_local = 0;
+        p_stk = plan_args(np, pa, pf, pl,
+                          &p_ngrn_local, &p_nvrn_local);
+        p_ngrn = p_ngrn_local;
+        p_nvrn = p_nvrn_local;
         ploc = pl;
     }
     int nhome = f->ty->variadic ? 8 : p_ngrn;
