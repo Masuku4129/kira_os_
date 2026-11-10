@@ -56,8 +56,6 @@ int main(void) {
     CHECK(!strcmp(sched_current()->name, "core") && sched_current()->state == THREAD_RUNNING);
     thread_info_t info[256];
     CHECK(sched_snapshot(info, sched_thread_capacity()) == 2);   // core + idle
-    thread_t* configured = sched_create_proc_ex("configured", dummy, 0, PRIO_NORMAL, 0, (void*)1, 123, 6, 37);
-    CHECK(configured && configured->pid == 123 && configured->weight == 6 && configured->limit == 37);
 
     // ---- 1. два равных потока делят процессор поровну, core спит ----
     sched_set_quantum(4);
@@ -411,6 +409,9 @@ int main(void) {
         CHECK(cm_is_all(&b1->affinity) && cm_is_all(&b2->affinity) && cm_is_all(&f1->affinity) && sched_reserved_core() == -1);
         f1->state = b1->state = pin->state = kt->state = b2->state = THREAD_ZOMBIE;
     }
+
+    thread_t* configured = sched_create_proc_ex("configured", dummy, 0, PRIO_NORMAL, 0, (void*)1, 123, 6, 37);
+    CHECK(configured && configured->pid == 123 && configured->weight == 6 && configured->limit == 37);
 
     printf("%s\n", fails ? "FAILED" : "ALL SCHEDULER TESTS PASSED");
     return fails != 0;
