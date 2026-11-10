@@ -7,6 +7,12 @@
 
 #define KIRA_SMMU_MAP_READ  1u
 #define KIRA_SMMU_MAP_WRITE 2u
+#define KIRA_SMMU_MAX_TABLE_PAGES 256u
+
+struct kira_smmu_pt_page {
+    void *virtual_address;
+    uint64_t physical;
+};
 
 struct kira_smmu_domain {
     struct kira_smmu *smmu;
@@ -17,6 +23,9 @@ struct kira_smmu_domain {
     void *stage1_root;
     uint64_t stage1_root_physical;
     uint32_t stream_id;
+    uint16_t asid;
+    uint16_t table_page_count;
+    struct kira_smmu_pt_page table_pages[KIRA_SMMU_MAX_TABLE_PAGES];
     uint8_t active;
 };
 
