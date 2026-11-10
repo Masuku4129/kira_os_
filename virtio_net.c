@@ -85,7 +85,13 @@ int virtio_net_probe(void) {
     if (virtio_queue_setup(&v.dev, &v.rx, 0, NRX) || virtio_queue_setup(&v.dev, &v.tx, 1, NTX)) { virtio_fail(&v.dev); return -3; }
     v.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &v.rxb_p);
     v.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &v.txb_p);
-    if (!v.rxb || !v.txb) { virtio_fail(&v.dev); return -4; }
+    if (!v.rxb || !v.txb ||
+        virtio_dma_grant(&v.dev, v.rxb_p, NRX * BUF) != 0 ||
+        virtio_dma_grant(&v.dev, v.txb_p, NTX * BUF) != 0) {
+        virtio_fail(&v.dev);
+        uart_print("[KIRA NET] virtio-net: DMA buffers could not be mapped; device disabled.\n");
+        return -4;
+    }
     unsigned nrx = v.rx.size < NRX ? v.rx.size : NRX;
     for (unsigned i = 0; i < nrx; i++) virtq_post(&v.rx, (uint16_t)i, v.rxb_p + i * BUF, BUF, 1);
     virtio_driver_ok(&v.dev);
