@@ -85,10 +85,11 @@ void delay(unsigned us);
 #define DELAY(x) delay(x)
 #define hz 100
 #define tick_ms 10
-static inline int splnet(void) { return 0; }
-static inline int splimp(void) { return 0; }
-static inline int splbio(void) { return 0; }
-static inline void splx(int s) { (void)s; }
+/* Сериализованный event-loop: IPL сохраняется и восстанавливается, даже без аппаратного маскирования IRQ. */
+int splnet(void);
+int splimp(void);
+int splbio(void);
+void splx(int previous_ipl);
 #define IPL_NET 4
 #define IPL_BIO 3
 #define IPL_MPSAFE 0x100
