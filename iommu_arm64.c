@@ -407,10 +407,10 @@ int iommu_device_ready(const pci_dev_t* pci)
     if (arm_map_invalid)
         return 0;
     if (!arm_map_present)
-        return 1;
+        return 1; /* No SMMU mapping property: preserve platform legacy behavior. */
     dev = arm_find_device(pci);
     if (!dev || !dev->covered)
-        return 1; /* No iommu-map entry: the platform does not route this RID here. */
+        return 0; /* iommu-map is authoritative: unknown requester stays quiesced. */
     if (__atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) ||
         !arm_smmu_active || dev->stream_id >= 256u)
         return 0;
