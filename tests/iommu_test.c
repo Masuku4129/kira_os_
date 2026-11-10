@@ -230,6 +230,7 @@ int main(int argc, char** argv) {
         CHECK(iommu_init() == 0);
         CHECK(logged("No DMAR table"));
         CHECK(!iommu_enabled() && iommu_isolate_device(d3) == IOMMU_E_NONE && !iommu_device_isolated(d3));
+        CHECK(iommu_device_ready(d3));
         CHECK(iommu_map(d3, 0x1000, 0x2000, 0x1000, IOMMU_R) == IOMMU_E_NONE);
         CHECK(!(*r32(R_GSTS) & (1u << 31)));         /* hardware never touched */
         puts("iommu_test D: PASS"); return 0;
@@ -260,8 +261,10 @@ int main(int argc, char** argv) {
         CHECK(logged("01:00.0 10ec:8139 passthrough"));            /* found through the bridge path 00:1c.0 -> bus 1 */
         CHECK(iommu_isolate_device(dev_at(0, 0, 0)) == IOMMU_E_NOCOVER);
         CHECK(!iommu_device_isolated(dev_at(0, 0, 0)));
+        CHECK(!iommu_device_ready(d3) && iommu_device_ready(dev_at(0, 0, 0)));
         const pci_dev_t* b1 = dev_at(1, 0, 0);
         CHECK(iommu_isolate_device(d3) == IOMMU_OK && iommu_isolate_device(b1) == IOMMU_OK);
+        CHECK(iommu_device_ready(d3) && iommu_device_ready(b1));
         CHECK(did_of(sid_of(d3)) != did_of(sid_of(b1)) && did_of(sid_of(d3)) != 0 && did_of(sid_of(b1)) != 0);
         CHECK(iommu_map(d3, 0x10000, 0x40000000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_OK);
         CHECK(hw_dma(sid_of(d3), 0x10000, 0, &pa) == 0 && pa == 0x40000000);
