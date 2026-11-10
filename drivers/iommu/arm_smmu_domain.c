@@ -453,8 +453,10 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
         smmu_domain_unlock(d);
         return KIRA_SMMU_INVALID;
     }
-    if (!(s->idr0 & (1u << 12)) && stream_id >= 255u)
+    if (!(s->idr0 & (1u << 12)) && stream_id >= 255u) {
+        smmu_domain_unlock(d);
         return KIRA_SMMU_UNSUPPORTED; /* Reserve ASID 0; use unique 8-bit ASIDs. */
+    }
 
     d->smmu = s;
     d->table_pages = 0;
