@@ -22,6 +22,7 @@
 #include "pmm.h"
 #include "selftest_arm.h"
 #include "pci.h"
+#include "iommu.h"
 #include "blk.h"
 #include "experience.h"
 #include "fscmd.h"
@@ -1410,6 +1411,15 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u (idle cores then switch their tick off)\n", (uint64_t)ticking, (uint64_t)started);
     clock_init(cnt_freq / 1000);
     arm_pci_init(fdt);
+    {
+        int iommu_rc = iommu_init_fdt(fdt);
+        if (iommu_rc == IOMMU_OK)
+            kprintf("[KIRA IOMMU] ARM SMMUv3 active; DMA domains required before bus mastering.\n");
+        else if (iommu_rc == IOMMU_E_NONE)
+            kprintf("[KIRA IOMMU] no SMMUv3 in the device tree; platform DMA remains unisolated.\n");
+        else
+            kprintf("[KIRA IOMMU] SMMUv3 setup failed (%d); PCI bus mastering remains blocked.\n", iommu_rc);
+    }
     rng_init();              /* генератор случайных чисел: RNDR, virtio-rng, времена прерываний */
     immune_init();
     watchdog_init();
@@ -1434,6 +1444,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     console_init();                                              /* общая консоль: те же команды, что у x86-64 */
     for (;;) {                                                   /* поток core: консоль и секундные дела */
         console_poll();
+        (void)iommu_fault_poll();
         static uint64_t last_sec, seconds;
         if (timer_get_ticks() - last_sec >= TIMER_HZ) {          /* раз в секунду: Разум, опыт, журнал, сборка стеков */
             last_sec = timer_get_ticks();
