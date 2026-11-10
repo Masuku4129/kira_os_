@@ -33,6 +33,10 @@ class LicenseClassificationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MOD.classify_license(b"/* SPDX-License-Identifier: BSD-2-Clause OR MIT */")
 
+    def test_multiple_spdx_declarations_are_rejected(self):
+        with self.assertRaises(ValueError):
+            MOD.classify_license(b"/* SPDX-License-Identifier: MIT */\\n/* SPDX-License-Identifier: BSD-2-Clause */")
+
     def test_bsd_two_clause_is_not_mislabeled_three_clause(self):
         self.assertEqual(MOD.classify_license(BSD2.encode()), "BSD-2-Clause")
 
