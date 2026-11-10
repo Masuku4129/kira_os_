@@ -11,13 +11,6 @@ struct IRState {
     int maxslot;
     SB *out;
 };
-struct IRState {
-    Ins *ihead, *itail;
-    int reg_count, label_count;
-    Obj *fn, *ltail;
-    int maxslot;
-    SB *out;
-};
 /* Avoid a second object-like macro expansion here: KCC bootstraps this unity
    translation unit, so keep the context expression in one replacement list. */
 #define IRS (&K)->ir_state
