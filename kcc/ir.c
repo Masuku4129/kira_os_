@@ -816,3 +816,14 @@ void ir_dump(Obj *globals, SB *o) {
         else sb_printf(out, "extern data %s size=%d\n", g->name, g->ty->size);
     }
 }
+
+/* IR state aliases are private to this translation unit; unity.c includes later C files here. */
+#undef IRS
+#undef ihead
+#undef itail
+#undef ir_nreg
+#undef ir_nlab
+#undef fn
+#undef ltail
+#undef maxslot
+#undef out
