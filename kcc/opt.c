@@ -776,7 +776,8 @@ typedef struct {
     Ins *pool, *pool0;
     size_t left, total;
 } OptPoolState;
-#define OPS ((OptPoolState *)K.opt_pool_state)
+static OptPoolState *ops;
+#define OPS ops
 #define op_pool (OPS->pool)
 #define op_pool0 (OPS->pool0)
 #define op_pool_left (OPS->left)
@@ -1011,7 +1012,8 @@ void ir_optimize(IrFn *fi) {
     for (Ins *i = fi->head; i; i = i->next) n++;
     if (n == 0) return;
     if (!K.opt_pool_state) K.opt_pool_state = ka_new(sizeof(OptPoolState));
-    memset(OPS, 0, sizeof *OPS);
+    ops = K.opt_pool_state;
+    memset(ops, 0, sizeof *ops);
     int maxslot0 = -1;
     for (Obj *l = fi->f->locals; l; l = l->next) if (l->slot > maxslot0) maxslot0 = l->slot;
     /* mdef живёт дольше прохода (читают бэкенды): размер с запасом под новые vreg переменных (не больше числа слотов) */
@@ -1282,7 +1284,8 @@ static void op_shift(Ins *i, int *r, int kind, void *c) {
  * Таблица по указателю Obj (открытая адресация), заполняется ir_inline_prepare до встраивания. */
 typedef struct { const Obj *o; int calls, taken; } InlCnt;
 typedef struct { InlCnt *tab; unsigned cap; } InlineState;
-#define ILS ((InlineState *)K.inline_state)
+static InlineState *ils;
+#define ILS ils
 #define inl_tab (ILS->tab)
 #define inl_cap (ILS->cap)
 static InlCnt *inl_slot(const Obj *o, int create) {
@@ -1295,7 +1298,8 @@ static InlCnt *inl_slot(const Obj *o, int create) {
 }
 void ir_inline_prepare(Obj *globals) {
     if (!K.inline_state) K.inline_state = ka_new(sizeof(InlineState));
-    memset(ILS, 0, sizeof *ILS);
+    ils = K.inline_state;
+    memset(ils, 0, sizeof *ils);
     int nf = 0;
     for (Obj *g = globals; g; g = g->next) nf++;
     inl_cap = 16;
