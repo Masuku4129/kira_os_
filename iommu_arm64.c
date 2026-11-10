@@ -417,7 +417,11 @@ int iommu_device_ready(const pci_dev_t* pci)
         !arm_smmu_active || dev->stream_id >= 256u ||
         arm_sid_shared[dev->stream_id])
         return 0; /* Shared SID cannot be isolated per function; fail closed. */
-    return arm_domains[dev->stream_id].active != 0;
+    /* A valid per-stream bypass STE is only a quarantine/transition state,
+       not DMA isolation. Never grant PCI bus mastering until the private
+       stage-1 domain has replaced it successfully. */
+    return arm_domains[dev->stream_id].active != 0 &&
+           arm_domains[dev->stream_id].bypass == 0;
 }
 
 int iommu_device_isolated(const pci_dev_t* pci)
