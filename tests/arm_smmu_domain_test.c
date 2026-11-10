@@ -271,7 +271,7 @@ int main(void)
     CHECK(kira_smmu_domain_unmap_4k(&domain, 0x4000u, &p) == KIRA_SMMU_OK);
     CHECK(l3[4] == 0);
     /* PTE removal must invalidate the cached stage-1 translation by ASID. */
-    CHECK(commands[24] == (0x11ull | (7ull << 48)) && commands[25] == 0u);
+    CHECK(commands[28] == (0x11ull | (7ull << 48)) && commands[29] == 0u);
 
     freed_before = free_calls;
     freed_pages_before = freed_pages;
