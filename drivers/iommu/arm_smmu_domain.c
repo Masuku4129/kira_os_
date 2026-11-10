@@ -597,6 +597,8 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
                              const struct kira_smmu_platform *p)
 {
     struct kira_smmu *s;
+    void *context_table;
+    uint64_t context_table_physical;
     uint64_t *ste;
     int rc;
 
@@ -627,18 +629,20 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     }
 
     smmu_stream_id_clear(s, d->stream_id);
+    context_table = d->context_table;
+    context_table_physical = d->context_table_physical;
     d->active = 0;
+    d->smmu = 0;
+    d->stream_table = 0;
+    d->context_table = 0;
+    d->context_table_physical = 0;
+    d->stage1_root = 0;
+    d->stage1_root_physical = 0;
     smmu_domain_unlock(d);
     smmu_unlock(s);
 
     smmu_table_pages_free(d, p);
-    p->free_dma_pages(p->context, d->context_table,
-                      d->context_table_physical, 1);
-
-    d->stage1_root = 0;
-    d->stage1_root_physical = 0;
-    d->context_table = 0;
-    d->stream_table = 0;
-    d->smmu = 0;
+    p->free_dma_pages(p->context, context_table,
+                      context_table_physical, 1);
     return KIRA_SMMU_OK;
 }
