@@ -363,7 +363,6 @@ static int shm_budget_reserve(uint64_t kb) {
 static void shm_budget_release(uint64_t kb) {
     uint64_t f = spin_lock_irqsave(&shm_budget_lock);
     if (kb <= shm_pending_kb) shm_pending_kb -= kb;
-    else shm_pending_kb = 0;
     spin_unlock_irqrestore(&shm_budget_lock, f);
 }
 
