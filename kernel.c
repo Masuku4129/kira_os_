@@ -119,7 +119,12 @@ void kernel_uefi_entry(const void *blob, uint32_t blob_size) {
             uart_print(" bytes=");
             uart_print_dec(modules[i].length);
             uart_print(" magic=");
-            uart_print_hex(*(const uint32_t *)(uintptr_t)modules[i].base);
+            if (modules[i].base < (1ull << 30) &&
+                modules[i].length >= sizeof(uint32_t) &&
+                modules[i].length <= (1ull << 30) - modules[i].base)
+                uart_print_hex(*(const uint32_t *)(uintptr_t)modules[i].base);
+            else
+                uart_print("not-identity-mapped");
             uart_print("\n");
         }
     }
