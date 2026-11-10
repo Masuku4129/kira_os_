@@ -37,7 +37,7 @@ class LicenseClassificationTests(unittest.TestCase):
         self.assertEqual(MOD.classify_license(BSD2.encode()), "BSD-2-Clause")
 
     def test_wrapped_bsd_notice_is_recognized(self):
-        wrapped = BSD2.replace("Redistribution and use", "Redistribution and\\nuse").replace("source and binary forms", "source and\\nbinary forms")
+        wrapped = BSD2.replace("Redistribution and use", "Redistribution and\nuse").replace("source and binary forms", "source and\nbinary forms")
         self.assertEqual(MOD.classify_license(wrapped.encode()), "BSD-2-Clause")
 
     def test_bsd_three_clause(self):
@@ -52,7 +52,7 @@ class LicenseClassificationTests(unittest.TestCase):
             MOD.classify_license(b"Copyright. All rights reserved.")
 
     def test_bsd_advertising_clause_is_rejected(self):
-        text = BSD2 + "3. All advertising materials mentioning features or use of this software must display this acknowledgement.\\n"
+        text = BSD2 + "3. All advertising materials mentioning features or use of this software must display this acknowledgement.\n"
         with self.assertRaisesRegex(ValueError, "advertising clause"):
             MOD.classify_license(text.encode())
 
