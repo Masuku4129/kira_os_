@@ -96,12 +96,29 @@ static int add_const(int a, int64_t off) {
     return E_bin(ND_ADD, a, E_const(off), 8, 0);
 }
 
+/* Aggregate ABI classification is intentionally conservative until both backends
+   implement the SysV eightbyte classes and the corresponding AAPCS64 HFA/HVA rules.
+   Passing an FP-containing aggregate through the current integer-only aggregate path
+   silently corrupts arguments/results, so reject it instead of emitting wrong code. */
+static int agg_has_fp(const Type *t) {
+    Type *u = ty_unqual((Type *)t);
+    if (ty_is_float(u)) return 1;
+    if (u->k == TY_ARRAY) return agg_has_fp(u->base);
+    if (u->k == TY_STRUCT || u->k == TY_UNION) {
+        for (Member *m = u->mem; m; m = m->next)
+            if (agg_has_fp(m->ty)) return 1;
+    }
+    return 0;
+}
+
 /* агрегат по значению: ограничения ABI бэкендов */
 static void agg_ok(const Type *t, const Token *tok) {
     Type *u = ty_unqual((Type *)t);
     if (u->size <= 0) kerr_tok(tok, "unsupported: zero-sized struct/union passed by value");
     if (u->align > 8) kerr_tok(tok, "unsupported: struct/union with alignment %d passed by value", u->align);
     if (u->packed) kerr_tok(tok, "unsupported: packed struct/union passed by value");
+    if (agg_has_fp(u))
+        kerr_tok(tok, "unsupported: struct/union containing float or double passed by value (aggregate FP ABI is not implemented)");
 }
 
 static int is_agg_like(const Type *t) { return t->k == TY_ARRAY || t->k == TY_STRUCT || t->k == TY_UNION || t->k == TY_FUNC; }
