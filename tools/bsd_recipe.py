@@ -39,7 +39,12 @@ def classify_license(data, path="<source>"):
             "this software is provided by" in low and
             "1. redistributions of source code must retain" in low and
             "2. redistributions in binary form must reproduce" in low):
-        if "neither the name of" in low and "endorse or promote" in low:
+        bsd3_markers = ("neither the name of" in low,
+                         "endorse or promote" in low,
+                         "specific prior written permission" in low)
+        if any(bsd3_markers) and not all(bsd3_markers):
+            raise ValueError("%s: incomplete BSD-3 endorsement condition" % path)
+        if all(bsd3_markers):
             return "BSD-3-Clause"
         return "BSD-2-Clause"
     if ("permission is hereby granted, free of charge, to any person obtaining a copy" in low and
