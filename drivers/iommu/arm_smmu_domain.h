@@ -7,13 +7,8 @@
 
 #define KIRA_SMMU_MAP_READ  1u
 #define KIRA_SMMU_MAP_WRITE 2u
-#define KIRA_SMMU_MAX_TABLE_PAGES 256u
 
-struct kira_smmu_pt_page {
-    void *virtual_address;
-    uint64_t physical;
-};
-
+/* Caller must zero-initialize a domain before its first create call. */
 struct kira_smmu_domain {
     struct kira_smmu *smmu;
     /* Alias of the controller-owned table; never freed by a domain. */
@@ -22,14 +17,14 @@ struct kira_smmu_domain {
     uint64_t context_table_physical;
     void *stage1_root;
     uint64_t stage1_root_physical;
+    /* Kernel metadata list owns every intermediate translation-table page. */
+    void *table_pages;
     uint32_t stream_id;
     uint16_t asid;
-    uint16_t table_page_count;
-    struct kira_smmu_pt_page table_pages[KIRA_SMMU_MAX_TABLE_PAGES];
+    uint32_t lock;
     uint8_t active;
 };
 
-/* Domain storage must be zero-initialized before create. */
 int kira_smmu_domain_create(struct kira_smmu_domain *domain,
                             struct kira_smmu *smmu,
                             uint32_t stream_id,
