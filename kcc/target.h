@@ -18,7 +18,6 @@ void elf_emit(Obj *globals, const unsigned char *code, size_t codelen, int arch,
 uint64_t elf_base(int arch);
 /* Объектный режим (-c): ELF64 ET_REL. text_rel - переносы в тексте (rel32 до символа). */
 typedef struct { uint64_t off; Obj *t; int64_t add; int type; } ObjRel;
-extern int kcc_obj;
 void elf_emit_obj(Obj *globals, const unsigned char *code, size_t codelen, int arch, const ObjRel *rel, size_t nrel,
                   unsigned char **out, size_t *outlen);
 #endif
