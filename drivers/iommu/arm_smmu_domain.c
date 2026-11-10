@@ -457,7 +457,7 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     }
 
     smmu_lock(s);
-    if (smmu_stream_id_claimed(s, stream_id)) {
+    if (s->enabled != 1u || smmu_stream_id_claimed(s, stream_id)) {
         rc = KIRA_SMMU_INVALID;
         goto fail_locked;
     }
