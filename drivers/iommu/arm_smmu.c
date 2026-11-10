@@ -632,40 +632,72 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform)
 {
     unsigned int i;
-    int rc;
+    int rc = KIRA_SMMU_OK;
 
     if (!smmu || !platform || !smmu->registers ||
         !platform->read_barrier || !platform->write_barrier ||
-        !platform->quiesce_devices || !platform->report_event)
+        !platform->quiesce_devices || !platform->report_event ||
+        !platform->invalidate_cache)
         return KIRA_SMMU_INVALID;
 
+    smmu_stream_table_lock(smmu);
     /* Never turn translation off while any StreamID still owns a domain. */
-    for (i = 0; i < 8u; ++i)
-        if (smmu->stream_ids[i] != 0)
+    for (i = 0; i < 8u; ++i) {
+        if (smmu->stream_ids[i] != 0) {
+            smmu_stream_table_unlock(smmu);
             return KIRA_SMMU_INVALID;
+        }
+    }
 
-    if (platform->quiesce_devices(platform->context) != 0)
-        return KIRA_SMMU_HARDWARE_ERROR;
-    if (smmu->enabled) {
+    if (smmu->enabled == 0u) {
+        smmu_stream_table_unlock(smmu);
+        return KIRA_SMMU_OK;
+    }
+    if (smmu->enabled == 1u) {
         uint32_t processed;
         do {
             rc = kira_smmu_v3_poll_events(smmu, platform,
                                           SMMU_QUEUE_ENTRIES, &processed);
-            if (rc != KIRA_SMMU_OK)
+            if (rc != KIRA_SMMU_OK) {
+                smmu_stream_table_unlock(smmu);
                 return rc;
+            }
         } while (processed == SMMU_QUEUE_ENTRIES);
+    } else if (smmu->enabled != 2u) {
+        smmu_stream_table_unlock(smmu);
+        return KIRA_SMMU_HARDWARE_ERROR;
     }
+
+    /* Prevent new event consumers and new domains while quiescing hardware. */
+    smmu->enabled = 2u;
+    while (__atomic_exchange_n(&smmu->evtq_lock, 1u, __ATOMIC_ACQUIRE)) {
+        if (platform->delay)
+            platform->delay(platform->context);
+    }
+
+    if (platform->quiesce_devices(platform->context) != 0) {
+        /* Translation is still active; permit retry, but no domain changes
+           have been made and no controller register has been disabled. */
+        smmu->enabled = 1u;
+        rc = KIRA_SMMU_HARDWARE_ERROR;
+        goto out;
+    }
+
     rc = smmu_update_gbpa(smmu, platform, SMMU_GBPA_ABORT, 0);
     if (rc != KIRA_SMMU_OK)
-        return rc;
+        goto out; /* state 2 keeps new domains blocked */
 
     smmu_write32(smmu->registers, SMMU_CR0, 0);
+    platform->write_barrier(platform->context);
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
                         SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN |
                         SMMU_CR0ACK_CMDQEN, 0, platform);
-    if (rc != KIRA_SMMU_OK)
-        return rc;
+    if (rc == KIRA_SMMU_OK)
+        smmu->enabled = 0u;
+    /* On timeout, keep state 2 and the global abort policy asserted. */
 
-    smmu->enabled = 0;
-    return KIRA_SMMU_OK;
+out:
+    __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
+    smmu_stream_table_unlock(smmu);
+    return rc;
 }
