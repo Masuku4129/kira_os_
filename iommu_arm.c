@@ -173,10 +173,13 @@ static struct arm_iommu_device *arm_find_device(const pci_dev_t *dev)
 static void arm_report_event(void *context, const uint64_t event[4])
 {
     uint32_t sid = (uint32_t)(event[0] >> 32);
+    uint32_t event_id = (uint32_t)(event[0] & 0xffu);
     (void)context;
-    for (unsigned i = 0; i < ARM_IOMMU_MAX_DOMAINS; ++i)
-        if (g_devices[i].used && g_devices[i].stream_id == sid)
-            ++g_devices[i].faults;
+    /* SMMUv3 translation, address-size, access and permission faults. */
+    if (event_id >= 0x10u && event_id <= 0x13u)
+        for (unsigned i = 0; i < ARM_IOMMU_MAX_DOMAINS; ++i)
+            if (g_devices[i].used && g_devices[i].stream_id == sid)
+                ++g_devices[i].faults;
     uart_print("[KIRA SMMU] event SID=");
     uart_print_dec(sid);
     uart_print(" type=");
