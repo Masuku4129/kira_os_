@@ -2,6 +2,15 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(__aarch64__)
+static int test_iommu_ready;
+int iommu_device_ready(const pci_dev_t* dev)
+{
+    (void)dev;
+    return test_iommu_ready;
+}
+#endif
+
 static uint32_t config[64];
 static uint8_t ecam_window[1u << 20] __attribute__((aligned(1u << 20)));
 
@@ -76,6 +85,16 @@ int main(void)
     CHECK(dev != 0 && dev->bus == 5 && dev->dev == 1);
     CHECK(dev->vendor == 0x1234u && dev->device == 0x2000u);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
+#if defined(__aarch64__)
+    /* The ARM64 PCI backend must not enable bus mastering for a bypass/unready
+       stream, but must allow it after the IOMMU reports a private domain. */
+    test_iommu_ready = 0;
+    pci_enable(dev, PCI_CMD_MASTER);
+    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
+    test_iommu_ready = 1;
+    pci_enable(dev, PCI_CMD_MASTER);
+    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) != 0);
+#endif
 
     ecam.first_bus = 6;
     ecam.last_bus = 5;
