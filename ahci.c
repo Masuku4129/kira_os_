@@ -56,6 +56,7 @@
 
 typedef struct {
     int used;
+    const pci_dev_t* pci;
     volatile uint8_t* abar;
     int s64;
     uint32_t cap;
