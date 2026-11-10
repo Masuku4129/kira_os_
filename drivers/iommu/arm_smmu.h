@@ -17,6 +17,8 @@ struct kira_smmu_platform {
     void (*delay)(void *context);
     /* Must stop bus mastering on every device before SMMU shutdown. */
     int (*quiesce_devices)(void *context);
+    /* Receives the four raw 64-bit words of each SMMUv3 event. */
+    void (*report_event)(void *context, const uint64_t event[4]);
 };
 
 struct kira_smmu {
@@ -70,5 +72,8 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform);
 int kira_smmu_v3_invalidate_all(struct kira_smmu *smmu,
                                 const struct kira_smmu_platform *platform);
+int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
+                             const struct kira_smmu_platform *platform,
+                             uint32_t max_events, uint32_t *processed);
 
 #endif
