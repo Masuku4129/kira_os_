@@ -1094,6 +1094,7 @@ unsigned sched_snapshot(thread_info_t* out, unsigned max) {
     uint64_t f = irq_save();
     sl_lock();
     uint64_t now = rdtsc();
+    unsigned ncpu = percpu_count();
     for (unsigned i = 0; i < thread_hi && n < max; i++) {
         const thread_t* t = &threads[i];
         if (t->state == THREAD_UNUSED) continue;
@@ -1103,8 +1104,12 @@ unsigned sched_snapshot(thread_info_t* out, unsigned max) {
         o->state = t->state;
         o->prio = t->prio;
         uint64_t extra = 0;
-        for (unsigned c = 0; c < percpu_count(); c++)
-            if (percpu_table[c].current == t) extra = now - percpu_table[c].last_switch_tsc;   // идёт прямо сейчас
+        /* A thread can execute on only one CPU. last_cpu is updated on every switch,
+           while sched_lock is held, so one indexed check replaces an O(CPU count)
+           scan for every thread in this IRQ-disabled snapshot. */
+        unsigned cpu = t->last_cpu;
+        if (cpu < ncpu && percpu_table[cpu].current == t)
+            extra = now - percpu_table[cpu].last_switch_tsc;
         o->cpu_cycles = t->cpu_cycles + extra;
         o->switches_in = t->switches_in;
         o->cpu = t->last_cpu;
