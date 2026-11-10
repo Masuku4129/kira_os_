@@ -99,8 +99,9 @@ void kwarn(const char *file, int line, const char *fmt, ...) {
     sb_printf(&K.warn, "%s:%d: warning: %s\n", file ? file : "<input>", line, tmp);
 }
 
-int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res) {
+int kcc_compile_opts(const KCfg *cfg, const KOptions *options, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res) {
     memset(&K, 0, sizeof K);
+    if (options) K.options = *options;
     memset(res, 0, sizeof *res);
     K.abase = mem; K.acap = memsz; K.cfg = cfg;
     K.tokbudget = 4000000;
@@ -128,4 +129,8 @@ int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int 
     }
     res->warn = K.warn.p;
     return 0;
+}
+
+int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res) {
+    return kcc_compile_opts(cfg, NULL, mem, memsz, path, emit_ir, res);
 }

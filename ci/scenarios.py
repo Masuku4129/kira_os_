@@ -56,7 +56,8 @@ ALL = [
         {"log": [r"Processors online: 4"]},
         *DISK_IRQ,
     ], boot="grub"),
-    sc("boot-bios", "загрузка нашим BIOS-загрузчиком без GRUB: VBE, E820, диск и initrd-модуль", BASIC + [
+    sc("boot-bios", "загрузка нашим BIOS-загрузчиком без GRUB: VBE, E820 и системный диск", BASIC + [
+        # The release image is built with initrd.img; the MB2 handoff must report one module.
         {"log": [r"\[KIRA FB\] Bootloader mode: 1280x720x32", r"Processors online: 4", r"modules=1"]},
         *DISK_IRQ,
     ], boot="bios"),

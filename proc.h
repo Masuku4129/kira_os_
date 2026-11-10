@@ -22,6 +22,8 @@ uint32_t proc_current_caps(void);        /* права текущего проц
 int  proc_cap_denied(uint32_t cap, uint64_t nr);   /* записывает отказ в журнал (раз на процесс); возвращает KE_PERM */
 const char* proc_current_grant(void);   /* "" - права нет */
 int  proc_spawn_elf_ex(const char* name, const void* image, size_t len, const char* grant, const char* args);
+/* Запуск недоверенного/внешне подписанного образа: capabilities всегда нулевые, независимо от имени. */
+int  proc_spawn_elf_unprivileged(const char* name, const void* image, size_t len, const char* args);
 const char* proc_current_args(void);    /* аргументы запуска ("" - нет) */
 void proc_exit(int code) __attribute__((noreturn));
 int  proc_stack_fault(uint64_t cr2, uint64_t err);   /* #PF программы в резерве стека: 1 - стек вырос */

@@ -15,6 +15,13 @@ typedef struct Member Member;
 typedef struct Param Param;
 typedef struct Reloc Reloc;
 typedef struct HS HS;
+typedef struct PPState PPState;
+typedef struct ParseState ParseState;
+typedef struct IRState IRState;
+typedef struct GenState GenState;
+typedef struct A64State A64State;
+typedef struct X86State X86State;
+typedef struct OptState OptState;
 
 /* ---------- util.c ---------- */
 typedef struct {
@@ -29,6 +36,12 @@ typedef struct {
     size_t (*grow)(void *ud, size_t cap, size_t need);
 } KCfg;
 
+typedef struct {
+    int obj, dumpopt, nosr, wrapv, nolvn, nosse, noopt;
+    int noregs, nodce, noalign, nonnshift, nomrot, nodisp, noextld;
+    int norec, noonce, nopooltrim, nopop, nocfgfirst, noreassoc;
+} KOptions;
+
 typedef struct { char *p; size_t len, cap; } SB;
 
 typedef struct {
@@ -41,8 +54,36 @@ typedef struct {
     long tokbudget;                          /* защита от взрыва макрорасширения */
     int depth;                               /* вложенность разбора */
     const char *srcpath;                     /* главный исходный файл (для сообщений бэкенда) */
+    PPState *pp_state;                           /* состояние препроцессора, принадлежит этой компиляции */
+    ParseState *parse_state;                         /* состояние парсера, принадлежит этой компиляции */
+    IRState *ir_state;                            /* состояние IR lowering, принадлежит этой компиляции */
+    GenState *gen_state;                           /* состояние общей подготовки backend, принадлежит этой компиляции */
+    A64State *a64_state;                           /* состояние кодогенератора AArch64, принадлежит этой компиляции */
+    X86State *x86_state;                           /* состояние кодогенератора x86-64, принадлежит этой компиляции */
+    OptState *opt_state;                           /* состояние оптимизатора IR, принадлежит этой компиляции */
+    KOptions options;                          /* флаги одной компиляции */
 } KCtx;
 extern KCtx K;
+#define kcc_obj       (K.options.obj)
+#define kcc_dumpopt   (K.options.dumpopt)
+#define kcc_nosr      (K.options.nosr)
+#define kcc_wrapv     (K.options.wrapv)
+#define kcc_nolvn     (K.options.nolvn)
+#define kcc_nosse     (K.options.nosse)
+#define kcc_noopt     (K.options.noopt)
+#define kcc_noregs    (K.options.noregs)
+#define kcc_nodce     (K.options.nodce)
+#define kcc_noalign   (K.options.noalign)
+#define kcc_nonnshift (K.options.nonnshift)
+#define kcc_nomrot    (K.options.nomrot)
+#define kcc_nodisp    (K.options.nodisp)
+#define kcc_noextld   (K.options.noextld)
+#define kcc_norec     (K.options.norec)
+#define kcc_noonce    (K.options.noonce)
+#define kcc_nopooltrim (K.options.nopooltrim)
+#define kcc_nopop     (K.options.nopop)
+#define kcc_nocfgfirst (K.options.nocfgfirst)
+#define kcc_noreassoc (K.options.noreassoc)
 
 size_t ka_mark(void);                         /* метка арены для ka_release */
 void ka_release(size_t mark);                 /* освободить всё выделенное после метки (только временные данные!) */
@@ -203,12 +244,6 @@ struct Ins {
     };
 };
 typedef struct { Obj *f; Ins *head; int nreg, nlab; unsigned char *mdef; } IrFn;   /* mdef[v]: vreg переменной с несколькими определениями (ir_optimize) */
-extern int kcc_nolvn;                         /* -fno-lvn: без локальной нумерации значений (для сверки) */
-extern int kcc_wrapv;                         /* -fwrapv: счётчики циклов тоже нормализуются после каждого шага */
-extern int kcc_nosr;                          /* -fno-sr: без понижения силы умножения (для сверки) */
-extern int kcc_dumpopt;                      /* ir.c: -S-oir, дамп IR после ir_optimize */
-extern int kcc_noopt;                        /* gen_common.c */
-extern int kcc_nosse;                        /* -mno-sse: float/double - ошибка компиляции, бэкенд не выдаёт ни одной команды SSE (ядро Киры собирается без SSE) */
 void ir_usecount(IrFn *fi, int *ndef, int *nuse, Ins **defins);
 Obj *gen_lookup(const char *name);           /* gen_common.c */
 typedef void (*OpVisit)(Ins *i, int *r, int kind, void *ctx);   /* kind: 0 - чтение vreg, 1 - запись, 2 - выход asm */
@@ -224,7 +259,6 @@ void ir_dump(Obj *globals, SB *out);
 /* Компиляция программы в исполняемый ELF Киры (x86-64). Результат - в арене. Ошибки - через kerr. */
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
 void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen);
-extern int kcc_obj;
 /* gen_a64.c / asm_a64.c (этап M4): то же для AArch64 (EL0 Киры ARM64). */
 void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
 
@@ -232,5 +266,6 @@ void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
 typedef struct { const char *ir; const char *err; const char *warn; const unsigned char *elf; size_t elflen; } KResult;
 /* Компиляция одного файла. mem/memsz - арена. emit_ir=0: только проверка, 1: текстовый IR, 2: ELF x86-64. Возврат 0 - успех. */
 int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res);
+int kcc_compile_opts(const KCfg *cfg, const KOptions *options, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res);
 
 #endif

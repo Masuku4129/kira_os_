@@ -128,7 +128,7 @@ static int local_launch_signed(const char* path, const char* name, uint8_t* imag
     }
     life_note("signed-trust", name, (int)v);
     (void)fsrv_sandbox(name);
-    int pid = proc_spawn_elf_ex(name, image, size, 0, 0);
+    int pid = proc_spawn_elf_unprivileged(name, image, size, 0);
     immune_phagocytose(image, size);
     if (pid < 0) return -3;
     life_note("start", name, 0);
@@ -149,7 +149,7 @@ static int local_launch(const char* path, const char* name, uint8_t* image, size
     uart_print("' без прав, иммунитет: "); uart_print(v == IMMUNE_SELF ? "своя" : "неопознанная (не из манифеста сборки)"); uart_print("\n");
     life_note("local-trust", name, (int)v);                                 /* доверие дано командой пользователя, не манифестом */
     (void)fsrv_sandbox(name);
-    int pid = proc_spawn_elf_ex(name, image, size, 0, 0);
+    int pid = proc_spawn_elf_unprivileged(name, image, size, 0);
     immune_phagocytose(image, size);
     if (pid < 0) { uart_print("[LOCAL] файл не принят как программа (см. сообщение выше)\n"); return -3; }
     life_note("start", name, 0);

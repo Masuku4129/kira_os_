@@ -133,6 +133,10 @@ int proc_spawn_elf_ex(const char* name, const void* image, size_t len, const cha
     return spawn(name, image, len, grant, args, 0, 0, 0);
 }
 
+int proc_spawn_elf_unprivileged(const char* name, const void* image, size_t len, const char* args) {
+    return spawn(name, image, len, 0, args, 1, 0, 0);
+}
+
 /* Драйвер Ring 3: права не из таблицы доверенных программ, а из пакета (запрошены в .kdrv и подтверждены в .rec); процесс привязан
    к одному устройству (slot - привязка в kdrv.c). */
 int proc_spawn_driver(const char* name, const void* image, size_t len, uint32_t caps, uint32_t slot, const char* args) {
@@ -212,9 +216,9 @@ static int spawn(const char* name, const void* image, size_t len, const char* gr
     while (name[k] && k < sizeof(p->name) - 1) { p->name[k] = name[k]; k++; }
     p->name[k] = 0;
 
-    thread_t* t = sched_create_proc(p->name, user_entry, p, PRIO_NORMAL, root, p);
+    thread_t* t = sched_create_proc_ex(p->name, user_entry, p, PRIO_NORMAL, root, p,
+                                       p->pid, SCHED_WEIGHT_NORMAL, 0);
     if (!t) { vmm_space_destroy(root); p->used = 0; return -1; }
-    t->pid = p->pid;
 
     uart_print("[KIRA PROC] pid "); uart_print_dec(p->pid);
     uart_print(" '"); uart_print(p->name);
@@ -488,14 +492,12 @@ int64_t proc_thread_create(uint64_t rip, uint64_t stack_top, uint64_t arg) {
     unsigned cap = sched_thread_capacity(), reserve = cap / 8 < 16 ? 16 : cap / 8;
     if (p->dying || p->nthreads + reserve >= cap) { kmutex_unlock(&p->mx); kfree(s); return p->dying ? KE_INTR : KE_LIMIT; }
     __atomic_add_fetch(&p->nthreads, 1, __ATOMIC_ACQ_REL);
-    thread_t* t = sched_create_proc(p->name, user_thread_entry, s, PRIO_NORMAL, p->root, p);
+    const thread_t* me = sched_current();
+    uint32_t weight = me && me->weight ? me->weight : SCHED_WEIGHT_NORMAL;
+    uint32_t limit = me ? me->limit : 0;
+    thread_t* t = sched_create_proc_ex(p->name, user_thread_entry, s, PRIO_NORMAL, p->root, p,
+                                       p->pid, weight, limit);
     if (!t) { __atomic_sub_fetch(&p->nthreads, 1, __ATOMIC_ACQ_REL); kmutex_unlock(&p->mx); kfree(s); return KE_NOMEM; }
-    t->pid = p->pid;
-    {   /* новый поток получает вес и ограничение, которые Разум задал процессу */
-        const thread_t* me = sched_current();
-        t->weight = me->weight ? me->weight : SCHED_WEIGHT_NORMAL;
-        t->limit = me->limit;
-    }
     uint32_t tid = t->id;
     kmutex_unlock(&p->mx);
     return tid;
@@ -517,7 +519,7 @@ kobj_t* proc_handle_get(int h, uint32_t type) {             /* +1 ссылка �
     if (!p) return 0;
     kmutex_lock(&p->mx);
     kobj_t* o = htab_get(&p->handles, h, type);
-    if (o) kobj_retain(o);
+    if (o && kobj_retain(o) != 0) o = 0;
     kmutex_unlock(&p->mx);
     return o;
 }
@@ -556,11 +558,17 @@ int64_t proc_shm_map(int h) {
     for (uint32_t i = 0; !rc && i < pages; i++) {
         if (vmm_space_map(p->root, va + (uint64_t)i * 4096, shm_frame(o, i), VMM_WRITE | VMM_NOEXEC | VMM_SHARED) != 0) {
             for (uint32_t k = 0; k < i; k++) vmm_space_unmap(p->root, va + (uint64_t)k * 4096);
+            /* Другие потоки процесса могли успеть получить TLB-записи на частично созданный диапазон. */
+            if (i) vmm_tlb_shootdown(p->root, va, i);
             rc = KE_NOMEM;
         }
     }
+    if (!rc && kobj_retain(o) != 0) {
+        for (uint32_t i = 0; i < pages; i++) vmm_space_unmap(p->root, va + (uint64_t)i * 4096);
+        if (pages) vmm_tlb_shootdown(p->root, va, pages);
+        rc = KE_LIMIT;
+    }
     if (!rc) {
-        kobj_retain(o);                                  /* отображение держит объект, даже если дескриптор закроют */
         p->maps[slot] = (shm_map_t){ o, va, pages };
         p->shm_next = va + (uint64_t)pages * 4096 + 4096;   /* страница-промежуток между отображениями */
         rc = (int64_t)va;

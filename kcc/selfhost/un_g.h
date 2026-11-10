@@ -20,11 +20,8 @@
 #undef ldv
 #undef norm
 #undef plan_args
-#undef ploc
 #undef pool
 #undef rd32
 #undef spill
-#undef spillbase
 #undef stv
 #undef wr32
-#undef xa

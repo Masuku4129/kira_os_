@@ -26,7 +26,8 @@ typedef struct {
     struct { char name[DG_FILE_NAME + 1]; char url[DG_URL_MAX]; char sha[65]; } file[DG_FILES];   /* sha - привязка хеша из рецепта или пусто */
 } dg_recipe_t;
 
-int dg_license_ok(const char* id);          /* 1 - BSD-2-Clause, BSD-3-Clause, MIT, ISC */
+int dg_license_ok(const char* id);          /* supported SPDX IDs plus project LicenseRef-Greenman */
+int dg_license_matches(const char* declared, const char* detected); /* exact recipe/source license match */
 int dg_url_parse(const char* s, dg_url_t* u, const char** err);          /* только https:// ; 0 - готово */
 int dg_url_join(const dg_url_t* base, const char* rel, char* out, size_t cap, const char** err);   /* относительный путь или полный адрес https -> адрес */
 int dg_parse_recipe(const char* text, uint32_t len, dg_recipe_t* r, const char** err);          /* 0 - готово */

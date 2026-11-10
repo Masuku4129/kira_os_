@@ -4,11 +4,25 @@
 #include "kcc.h"
 #include <string.h>
 
-static Ins *ihead, *itail;
-static int nreg, nlab;
-static Obj *fn, *ltail;
-static int maxslot;
-static SB *out;
+struct IRState {
+    Ins *ihead, *itail;
+    int reg_count, label_count;
+    Obj *fn, *ltail;
+    int maxslot;
+    SB *out;
+};
+/* Avoid a second object-like macro expansion here: KCC bootstraps this unity
+   translation unit, so keep the context expression in one replacement list. */
+static struct IRState *kcc_ir_state_context(void) { return K.ir_state; }
+#define IRS (kcc_ir_state_context())
+#define ihead (IRS->ihead)
+#define itail (IRS->itail)
+#define ir_nreg (IRS->reg_count)
+#define ir_nlab (IRS->label_count)
+#define fn (IRS->fn)
+#define ltail (IRS->ltail)
+#define maxslot (IRS->maxslot)
+#define out (IRS->out)
 
 static Ins *emit(IrOp op) {
     Ins *i = ka_new(sizeof *i);
@@ -17,8 +31,8 @@ static Ins *emit(IrOp op) {
     itail = i;
     return i;
 }
-static int newreg(void) { return ++nreg; }
-static int newlab(void) { return ++nlab; }
+static int newreg(void) { return ++ir_nreg; }
+static int newlab(void) { return ++ir_nlab; }
 
 static void E_label(int l) { emit(IR_LABEL)->imm = l; }
 static void E_jmp(int l) { emit(IR_JMP)->imm = l; }
@@ -719,9 +733,10 @@ static void print_ins(const Ins *i) {
 }
 
 IrFn *ir_lower(Obj *f) {
+    if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
     fn = f;
     ihead = itail = NULL;
-    nreg = 0; nlab = f->nlabels;
+    ir_nreg = 0; ir_nlab = f->nlabels;
     maxslot = -1; ltail = NULL;
     for (Obj *l = f->locals; l; l = l->next) { if (l->slot > maxslot) maxslot = l->slot; ltail = l; }
     int idx = 0;
@@ -753,7 +768,7 @@ IrFn *ir_lower(Obj *f) {
         r->a = -1;
     }
     IrFn *res = ka_new(sizeof *res);
-    res->f = f; res->head = ihead; res->nreg = nreg; res->nlab = nlab;
+    res->f = f; res->head = ihead; res->nreg = ir_nreg; res->nlab = ir_nlab;
     return res;
 }
 
@@ -793,6 +808,7 @@ int ir_uses_sp(const IrFn *fi) {
 }
 
 void ir_dump(Obj *globals, SB *o) {
+    if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
     out = o;
     sb_printf(out, "; kcc IR\n");
     for (Obj *g = globals; g; g = g->next) {
@@ -803,3 +819,14 @@ void ir_dump(Obj *globals, SB *o) {
         else sb_printf(out, "extern data %s size=%d\n", g->name, g->ty->size);
     }
 }
+
+/* IR state aliases are private to this translation unit; unity.c includes later C files here. */
+#undef IRS
+#undef ihead
+#undef itail
+#undef ir_nreg
+#undef ir_nlab
+#undef fn
+#undef ltail
+#undef maxslot
+#undef out
