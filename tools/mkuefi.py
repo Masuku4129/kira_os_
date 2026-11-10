@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Собирает загрузочный UEFI-диск Киры: GPT с одним разделом ESP (FAT32), в нём \\EFI\\BOOT\\BOOTX64.EFI (наш загрузчик) и
 \\EFI\\KIRA\\KIRA.ELF (ядро). GRUB не нужен. Использует mformat/mcopy (mtools) для FAT внутри образа по смещению.
-Использование: mkuefi.py BOOTX64.EFI kira.bin kira-uefi.img [размер_МиБ]"""
+Использование: mkuefi.py BOOTX64.EFI kira.bin kira-uefi.img [размер_МиБ] [initrd.img]"""
 import os, struct, subprocess, sys, uuid, zlib
 
 SECTOR = 512
@@ -32,6 +32,9 @@ def main():
         sys.exit(__doc__)
     efi, kernel, out = sys.argv[1:4]
     mib = int(sys.argv[4]) if len(sys.argv) > 4 else 64
+    initrd = sys.argv[5] if len(sys.argv) > 5 else None
+    if initrd and (not os.path.isfile(initrd) or os.path.getsize(initrd) == 0):
+        sys.exit(f"mkuefi: invalid initrd file: {initrd}")
     total = mib * 1024 * 1024 // SECTOR
     part_first = 2048
     part_last = total - 34 - 1
@@ -53,6 +56,9 @@ def main():
     run("mmd", "-i", img, "::/EFI", "::/EFI/BOOT", "::/EFI/KIRA")
     run("mcopy", "-i", img, efi, "::/EFI/BOOT/BOOTX64.EFI")
     run("mcopy", "-i", img, kernel, "::/EFI/KIRA/KIRA.ELF")
-    print(f"mkuefi: {out}, {mib} МиБ, GPT + ESP FAT32 ({size_kib} КиБ), ядро {os.path.getsize(kernel)} байт")
+    if initrd:
+        run("mcopy", "-i", img, initrd, "::/EFI/KIRA/INITRD.IMG")
+    extra = f", initrd {os.path.getsize(initrd)} байт" if initrd else ""
+    print(f"mkuefi: {out}, {mib} МиБ, GPT + ESP FAT32 ({size_kib} КиБ), ядро {os.path.getsize(kernel)} байт{extra}")
 
 main()
