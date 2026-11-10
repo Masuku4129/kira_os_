@@ -60,7 +60,7 @@ static void racing_shm_create(void) {
 }
 
 int main(void) {
-    CHECK(kname_ok("kira.test-1_a") && !kname_ok("") && !kname_ok("Bad") && !kname_ok("a/b") && !kname_ok("0123456789012345678901234567890123"));
+    CHECK(kname_ok("kira.test-1_a") && !kname_ok(0) && !kname_ok("") && !kname_ok("Bad") && !kname_ok("a/b") && !kname_ok("0123456789012345678901234567890123"));
 
     // A concurrent creator must not allocate a second full SHM region for the same name.
     kobj_t* race_owner = 0;
