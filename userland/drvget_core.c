@@ -303,11 +303,11 @@ int dg_scan_source(const char* fname, const uint8_t* d, uint32_t len, char lic[2
         return 0;
     }
     if (find_ci(d, len, "Permission is hereby granted, free of charge") && find_ci(d, len, "THE SOFTWARE IS PROVIDED \"AS IS\"")) {
-        const char* t = "MIT (по тексту)"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
+        const char* t = "MIT"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
         return 0;
     }
     if (find_ci(d, len, "Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted")) {
-        const char* t = "ISC (по тексту)"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
+        const char* t = "ISC"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
         return 0;
     }
     /* Короткая разрешительная лицензия Дэвида Гринмана (dp8390, ne2000 в OpenBSD/NetBSD): использование, изменение, копирование, распространение и продажа
