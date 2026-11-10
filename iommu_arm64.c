@@ -12,6 +12,7 @@
 
 #define ARM_SMMU_REG_BYTES 0x2000u
 #define ARM_IOMMU_MAX_MAPS 32u
+#define ARM_IOMMU_MAX_DEVICES 128u
 #define ARM_PAGE_SIZE 4096ull
 #define ARM_PAGE_MASK (~(ARM_PAGE_SIZE - 1ull))
 
@@ -34,7 +35,7 @@ typedef struct {
 static struct kira_smmu arm_smmu;
 static struct kira_smmu_platform arm_platform;
 static struct kira_smmu_domain arm_domains[256];
-static arm_iommu_device_t arm_devices[PCI_MAX_DEVS];
+static arm_iommu_device_t arm_devices[ARM_IOMMU_MAX_DEVICES];
 static uint16_t arm_sid_refs[256];
 static uint8_t arm_sid_shared[256];
 static uint32_t arm_sid_faults[256];
@@ -287,9 +288,12 @@ int iommu_arm64_init(const void* fdt, int pci_host_node)
         return IOMMU_E_ARG;
     }
 
+    if (pci_count() < 0 || (unsigned)pci_count() > ARM_IOMMU_MAX_DEVICES) {
+        arm_map_invalid = 1u;
+        uart_print("[KIRA SMMU] PCI function count exceeds the bounded requester table; bus mastering blocked.\n");
+        return IOMMU_E_RANGE;
+    }
     arm_device_count = (unsigned)pci_count();
-    if (arm_device_count > PCI_MAX_DEVS)
-        arm_device_count = PCI_MAX_DEVS;
     for (unsigned i = 0; i < arm_device_count; ++i) {
         const pci_dev_t* pci = pci_get((int)i);
         uint32_t phandle = 0, sid = 0;
