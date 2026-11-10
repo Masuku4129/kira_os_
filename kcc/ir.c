@@ -11,7 +11,7 @@ struct IRState {
     int maxslot;
     SB *out;
 };
-#define IRS (K.ir_state)
+#define IRS K.ir_state
 #define ihead (IRS->ihead)
 #define itail (IRS->itail)
 #define ir_nreg (IRS->reg_count)
