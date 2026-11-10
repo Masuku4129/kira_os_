@@ -15,6 +15,12 @@ typedef struct {
     uint64_t rsdp;
     uint64_t kernel_base;
     uint64_t kernel_size;
+    uint64_t module_base;
+    uint64_t module_size;
+    const char *module_name;
+    uint32_t module_name_len;
+    const char *command_line;
+    uint32_t command_line_len;
 } kira_uefi_kbi_info;
 
 int kira_uefi_gop_geometry_valid(uint64_t base, uint64_t size,
