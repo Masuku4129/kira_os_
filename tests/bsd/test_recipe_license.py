@@ -36,6 +36,10 @@ class LicenseClassificationTests(unittest.TestCase):
     def test_bsd_two_clause_is_not_mislabeled_three_clause(self):
         self.assertEqual(MOD.classify_license(BSD2.encode()), "BSD-2-Clause")
 
+    def test_wrapped_bsd_notice_is_recognized(self):
+        wrapped = BSD2.replace("Redistribution and use", "Redistribution and\\nuse").replace("source and binary forms", "source and\\nbinary forms")
+        self.assertEqual(MOD.classify_license(wrapped.encode()), "BSD-2-Clause")
+
     def test_bsd_three_clause(self):
         self.assertEqual(MOD.classify_license(BSD3.encode()), "BSD-3-Clause")
 
