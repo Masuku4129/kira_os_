@@ -517,7 +517,7 @@ kobj_t* proc_handle_get(int h, uint32_t type) {             /* +1 ссылка �
     if (!p) return 0;
     kmutex_lock(&p->mx);
     kobj_t* o = htab_get(&p->handles, h, type);
-    if (o) kobj_retain(o);
+    if (o && kobj_retain(o) != 0) o = 0;
     kmutex_unlock(&p->mx);
     return o;
 }
@@ -561,8 +561,12 @@ int64_t proc_shm_map(int h) {
             rc = KE_NOMEM;
         }
     }
+    if (!rc && kobj_retain(o) != 0) {
+        for (uint32_t i = 0; i < pages; i++) vmm_space_unmap(p->root, va + (uint64_t)i * 4096);
+        if (pages) vmm_tlb_shootdown(p->root, va, pages);
+        rc = KE_LIMIT;
+    }
     if (!rc) {
-        kobj_retain(o);                                  /* отображение держит объект, даже если дескриптор закроют */
         p->maps[slot] = (shm_map_t){ o, va, pages };
         p->shm_next = va + (uint64_t)pages * 4096 + 4096;   /* страница-промежуток между отображениями */
         rc = (int64_t)va;
