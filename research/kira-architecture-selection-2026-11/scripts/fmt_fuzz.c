@@ -171,7 +171,6 @@ static int t_kfs(uint8_t* b, size_t n) {                                    /* �
 /* ---- сидовые корпуса ---- */
 static uint8_t* slurp(const char* p, size_t* n) { FILE* f = fopen(p, "rb"); if (!f) { fprintf(stderr, "нет файла %s\n", p); exit(2); } fseek(f, 0, SEEK_END); *n = (size_t)ftell(f); rewind(f); uint8_t* b = malloc(*n ? *n : 1); if (fread(b, 1, *n, f) != *n) exit(2); fclose(f); return b; }
 static void seed_files(int argc, char** argv) { for (int i = 0; i < argc; i++) { size_t n; uint8_t* b = slurp(argv[i], &n); add_seed(b, n); free(b); } }
-static void kdrv_sha_seed(void) {}
 int main(int argc, char** argv) {
     if (argc < 4) { fprintf(stderr, "usage: fmt_fuzz ЦЕЛЬ N SEED [crash_dir] [файлы-сиды...]\n"); return 2; }
     tname = argv[1]; long long N = atoll(argv[2]); rs ^= (uint64_t)atoll(argv[3]) * 0x9E3779B97F4A7C15ULL; if (!rs) rs = 1; crash_dir = argc > 4 ? argv[4] : ".";
@@ -211,7 +210,7 @@ int main(int argc, char** argv) {
     if (!ncorp) { fprintf(stderr, "пустой корпус\n"); return 2; }
     for (unsigned i = 0; i < nseed; i++) { cur = corpus[i].p; curn = corpus[i].n; int ok = fn(corpus[i].p, corpus[i].n); if (expect_ok_seed && !ok && strcmp(tname, "ksighdr") && strcmp(tname, "kbi2mb")) { fprintf(stderr, "ВНИМАНИЕ: сид %u не принят парсером\n", i); } }
     memset(hist, 0, sizeof hist);
-    long long accepted = 0, grew = 0; clock_t t0 = clock(); (void)kdrv_sha_seed;
+    long long accepted = 0, grew = 0; clock_t t0 = clock();
     for (long long it = 1; it <= N; it++) {
         iter_no = (unsigned long long)it; buf_t* s = &corpus[rnd() % ncorp]; buf_t m = mutate(s);
         /* структурная ветка: у форматов с контрольной суммой иногда пересчитываем её после мутации */
