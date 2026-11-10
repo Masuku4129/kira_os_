@@ -274,6 +274,12 @@ jobs:
         run: readelf -h -l kira.bin
       - name: build native UEFI loader (PE32+)
         run: KIRA_INITRD="$PWD/ci-out/initrd.img" bash ./build_uefi.sh ci-out/uefi
+      - name: GPT disk grows to fit a near-limit initrd
+        run: |
+          truncate -s 66060288 ci-out/large-initrd.img
+          python3 tools/mkuefi.py ci-out/uefi/EFI/BOOT/BOOTX64.EFI ci-out/uefi/EFI/KIRA/KIRA.ELF /tmp/kira-uefi-large.img 64 ci-out/large-initrd.img
+          test "$(stat -c%s /tmp/kira-uefi-large.img)" -gt 67108864
+          rm -f /tmp/kira-uefi-large.img
       - uses: actions/upload-artifact@v4
         if: always()
         with:
