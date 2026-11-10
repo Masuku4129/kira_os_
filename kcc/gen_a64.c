@@ -29,7 +29,8 @@ struct A64State {
     int hasvla;
     int64_t maxout_cur;
 };
-#define A64S (&K)->a64_state
+static struct A64State *kcc_a64_state_context(void) { return K.a64_state; }
+#define A64S (kcc_a64_state_context())
 #define xa (A64S->assembler)
 #define A (&xa)
 
