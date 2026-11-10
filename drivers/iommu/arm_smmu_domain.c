@@ -429,20 +429,30 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     uint64_t *ste;
     int rc = KIRA_SMMU_OK;
 
-    if (!d || !s || !p || s->enabled != 1u || !s->registers || !s->cmdq ||
+    if (!d || !s || !p)
+        return KIRA_SMMU_INVALID;
+
+    smmu_domain_lock(d);
+    if (s->enabled != 1u || !s->registers || !s->cmdq ||
         !p->alloc_dma_pages || !p->free_dma_pages ||
         !p->alloc_metadata || !p->free_metadata || !s->stream_id_limit ||
         s->stream_id_limit > 256u || stream_id >= s->stream_id_limit ||
-        stream_id >= 256u || d->active || d->smmu || d->table_pages)
+        stream_id >= 256u || d->active || d->smmu || d->table_pages) {
+        smmu_domain_unlock(d);
         return KIRA_SMMU_INVALID;
+    }
 
     /* This domain uses AArch64 stage 1 with 4 KiB granules and <=48-bit PA. */
     if (!(s->idr0 & (1u << 1)) ||
         (((s->idr0 >> 2) & 3u) != 2u && ((s->idr0 >> 2) & 3u) != 3u) ||
-        !(s->idr5 & (1u << 4)) || (s->idr5 & 7u) > 6u)
+        !(s->idr5 & (1u << 4)) || (s->idr5 & 7u) > 6u) {
+        smmu_domain_unlock(d);
         return KIRA_SMMU_UNSUPPORTED;
-    if (!p->clean_cache || !p->write_barrier || !p->read_barrier)
+    }
+    if (!p->clean_cache || !p->write_barrier || !p->read_barrier) {
+        smmu_domain_unlock(d);
         return KIRA_SMMU_INVALID;
+    }
     if (!(s->idr0 & (1u << 12)) && stream_id >= 255u)
         return KIRA_SMMU_UNSUPPORTED; /* Reserve ASID 0; use unique 8-bit ASIDs. */
 
@@ -454,6 +464,7 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
         if (ct) p->free_dma_pages(p->context, ct, ct_pa, 1);
         smmu_table_pages_free(d, p);
         d->smmu = 0;
+        smmu_domain_unlock(d);
         return KIRA_SMMU_MEMORY_FAILED;
     }
 
@@ -530,6 +541,7 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
         smmu_unlock(s);
         smmu_table_pages_free(d, p);
         p->free_dma_pages(p->context, ct, ct_pa, 1);
+        smmu_domain_unlock(d);
         return rc;
     }
 
@@ -548,6 +560,7 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
         d->active = 1;
     }
     smmu_unlock(s);
+    smmu_domain_unlock(d);
     return rc;
 
 fail_locked:
@@ -559,6 +572,7 @@ fail_locked:
     d->context_table = 0;
     d->stage1_root = 0;
     d->stage1_root_physical = 0;
+    smmu_domain_unlock(d);
     return rc;
 }
 
