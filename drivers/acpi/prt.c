@@ -154,7 +154,7 @@ static int decode_name_segment(struct aml_cursor *c, char out[5])
     return 0;
 }
 
-/* scope must be a canonical AML path such as "\\_SB.PCI0". */
+/* scope is a dotted ACPI path such as "\\_SB.PCI0"; short ASL NameSegs are padded with underscores. */
 static int decode_scope(const char *scope, char segments[][5],
                         unsigned int *count)
 {
@@ -170,21 +170,27 @@ static int decode_scope(const char *scope, char segments[][5],
         ++p;
 
     while (*p) {
-        unsigned int i;
+        unsigned int i = 0;
         if (n == AML_SCOPE_SEGMENTS)
             return -1;
-        for (i = 0; i < 4; ++i) {
-            if (!p[i] || p[i] == '.' || !valid_name_char((uint8_t)p[i], i == 0))
+        while (*p && *p != '.') {
+            if (i == 4 || !valid_name_char((uint8_t)*p, i == 0))
                 return -1;
-            segments[n][i] = p[i];
+            segments[n][i++] = *p++;
         }
-        segments[n][4] = '\0';
-        p += 4;
-        ++n;
-        if (!*p)
-            break;
-        if (*p++ != '.' || !*p)
+        if (i == 0)
             return -1;
+        while (i < 4)
+            segments[n][i++] = '_';
+        segments[n][4] = '\0';
+        ++n;
+        if (*p == '.') {
+            ++p;
+            if (!*p)
+                return -1;
+        } else if (*p) {
+            return -1;
+        }
     }
 
     *count = n;
