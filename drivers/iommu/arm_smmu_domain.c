@@ -26,6 +26,7 @@
 /* ARM IHI 0070: SMMUv3 linear stream-table and AArch64 stage-1 CD fields. */
 #define STE0_VALID              (1ull << 0)
 #define STE0_CFG_S1_TRANS       (5ull << 1)
+#define STE0_CFG_BYPASS         (4ull << 1)
 #define STE0_S1CTXPTR_MASK      0x000fffffffffffc0ull
 #define STE1_S1DSS_SSID0        2ull
 #define STE1_S1CIR_WBRA         (1ull << 2)
@@ -325,6 +326,72 @@ static int smmu_invalidate_stream(struct kira_smmu_domain *d,
     if (rc == KIRA_SMMU_OK)
         rc = smmu_cmd_sync(d->smmu, p);
     smmu_cmdq_unlock(d->smmu);
+    return rc;
+}
+
+int kira_smmu_domain_passthrough(struct kira_smmu_domain *d,
+                                   struct kira_smmu *s,
+                                   uint32_t stream_id,
+                                   const struct kira_smmu_platform *p)
+{
+    uint64_t *ste;
+    int rc;
+
+    if (!d || !s || !p || !p->clean_cache || !p->write_barrier ||
+        !p->read_barrier || !s->registers || !s->stream_table)
+        return KIRA_SMMU_INVALID;
+
+    smmu_domain_lock(d);
+    if (s->enabled != 1u || !s->stream_id_limit ||
+        stream_id >= s->stream_id_limit || stream_id >= 256u ||
+        d->active || d->smmu || d->table_pages) {
+        smmu_domain_unlock(d);
+        return KIRA_SMMU_INVALID;
+    }
+
+    smmu_lock(s);
+    if (s->enabled != 1u || smmu_stream_id_claimed(s, stream_id)) {
+        smmu_unlock(s);
+        smmu_domain_unlock(d);
+        return KIRA_SMMU_INVALID;
+    }
+    ste = smmu_words(s->stream_table) + stream_id * 8u;
+    if (ste[0] & STE0_VALID) {
+        smmu_unlock(s);
+        smmu_domain_unlock(d);
+        return KIRA_SMMU_INVALID;
+    }
+
+    d->smmu = s;
+    d->stream_table = s->stream_table;
+    d->stream_id = stream_id;
+    d->active = 1u;
+    d->bypass = 1u;
+
+    /* Evict any cached invalid STE before publishing an explicit bypass STE. */
+    ste[0] = 0;
+    ste[1] = ste[2] = ste[3] = 0;
+    p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
+    p->write_barrier(p->context);
+    rc = smmu_invalidate_stream(d, p);
+    if (rc != KIRA_SMMU_OK) {
+        d->active = 0;
+        d->bypass = 0;
+        d->smmu = 0;
+        d->stream_table = 0;
+        smmu_unlock(s);
+        smmu_domain_unlock(d);
+        return rc;
+    }
+
+    ste[0] = STE0_VALID | STE0_CFG_BYPASS;
+    p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
+    p->write_barrier(p->context);
+    smmu_stream_id_set(s, stream_id);
+    rc = smmu_invalidate_stream(d, p);
+    /* On timeout retain the live bypass STE and StreamID claim for safe retry. */
+    smmu_unlock(s);
+    smmu_domain_unlock(d);
     return rc;
 }
 
