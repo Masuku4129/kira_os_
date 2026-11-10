@@ -24,8 +24,6 @@ mkdir -p $SB $INC
 for f in kcc/*.c kcc/*.h; do [ "$f" = kcc/main.c ] || cp $f $SB/; done
 cp kcc/selfhost/* $SB/
 cp userland/kccrt.c userland/kira.h $SB/
-# В песочнице исходники плоские: syscall_abi.h попадает в отдельный -I каталог.
-sed -i 's|"../kcc/include/syscall_abi.h"|"syscall_abi.h"|' $SB/kira.h
 # Только пути включений: в песочнице нет каталогов (userland/kcc.c включает ../kcc/kcc.h, kccrt.c - kccrt/*.h).
 cp mind_build.h mind_build.c mind_build_core.c elf.h immune.h sha256.c $SB/; cp elf.c $SB/rootelf.c      # режим @build (см. kcc/selfhost/unity.c)
 sed 's|"../kcc/kcc.h"|"kcc.h"|; s|"../mind_build.h"|"mind_build.h"|' userland/kcc.c > $SB/kcc_main.c
