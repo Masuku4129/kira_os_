@@ -1,6 +1,7 @@
 #include "cpu.h"
 #include "blk.h"
 #include "pci.h"
+#include "iommu.h"
 #include "uart.h"
 #include "kmutex.h"
 #include "msi.h"
@@ -238,6 +239,14 @@ static void nvme_irq(void* ctx) { irqwait_fire(&((nvme_ctl_t*)ctx)->iw); }
 
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[0].io || !pd->bar[0].base || pd->bar[0].size < 0x2000) { uart_print("[KIRA NVMe] controller without BAR0: skipped\n"); return; }
+#if defined(__aarch64__)
+    int iommu_rc = iommu_isolate_device(pd);
+    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
+        iommu_rc != IOMMU_E_NOCOVER) {
+        uart_print("[KIRA NVMe] IOMMU isolation failed; controller disabled.\n");
+        return;
+    }
+#endif
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     nvme_ctl_t* c = &ctls[ci];
     for (unsigned i = 0; i < sizeof *c; i++) ((uint8_t*)c)[i] = 0;
@@ -266,6 +275,16 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     c->buf = (uint8_t*)virtio_dma_alloc(BOUNCE, &c->buf_phys);
     c->prp = (uint64_t*)virtio_dma_alloc(PAGE, &c->prp_phys);
     if (!c->mem || !c->buf || !c->prp) { uart_print("[KIRA NVMe] no DMA memory\n"); return; }
+#if defined(__aarch64__)
+    if (iommu_device_isolated(pd) &&
+        (iommu_map(pd, c->mem_phys, c->mem_phys, 5 * PAGE, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(pd, c->buf_phys, c->buf_phys, BOUNCE, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(pd, c->prp_phys, c->prp_phys, PAGE, IOMMU_R | IOMMU_W) != IOMMU_OK)) {
+        uart_print("[KIRA NVMe] IOMMU DMA mapping failed; controller disabled.\n");
+        iommu_unmap_all(pd);
+        return;
+    }
+#endif
     for (uint32_t i = 1; i < BOUNCE / PAGE; i++) c->prp[i - 1] = c->buf_phys + (uint64_t)i * PAGE;
     for (int qi = 0; qi < 2; qi++) {
         c->q[qi].sq = c->mem + (uint32_t)qi * 2 * PAGE; c->q[qi].sq_phys = c->mem_phys + (uint64_t)qi * 2 * PAGE;
