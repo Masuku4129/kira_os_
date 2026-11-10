@@ -79,7 +79,7 @@ jobs:
                   p.startswith(("drivers/", "userland/drv"))
                   or p in {"kdrv.c", "kdrv.h", "kdrv_fmt.c", "kdrv_format.h",
                            "kdrv_trust.h", "tools/mkdrv.sh", "tools/kdrvpack.c",
-                           "tests/drvget_e2e.sh"}
+                           "tests/drvget_e2e.sh", "tools/bsd_recipe.py", "tests/bsd/test_recipe_license.py"}
                   for p in changed
               ),
               "build": code,
@@ -236,6 +236,8 @@ jobs:
           key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: driver installer tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld openssl python3-cryptography
+      - name: verify BSD recipe license classification
+        run: python3 tests/bsd/test_recipe_license.py
       - name: real TLS, recipe, KCC build and driver-manager end-to-end tests
         run: |
           mkdir -p ci-out
