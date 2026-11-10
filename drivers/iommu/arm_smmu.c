@@ -43,8 +43,11 @@
 #define SMMU_CMDQ_PROD       0x0098u
 #define SMMU_CMDQ_CONS       0x009cu
 #define SMMU_EVTQ_BASE       0x00a0u
-#define SMMU_EVTQ_PROD       0x10a8u
-#define SMMU_EVTQ_CONS       0x10acu
+#define SMMU_EVTQ_PROD       0x00a8u
+#define SMMU_EVTQ_CONS       0x00acu
+#define SMMU_EVTQ_OVACK      (1u << 31)
+#define SMMU_IDR0_ST_LVL_SHIFT 27u
+#define SMMU_IDR0_ST_LVL_MASK  3u
 #define SMMU_EVTQ_OVF         (1u << 31)
 #define SMMU_EVTQ_PTR_MASK    0x1ffu
 
@@ -148,7 +151,9 @@ static int smmu_alloc_queue(
                                              allocation_physical);
     *allocated_pages = allocation_pages;
     if (!*allocation || !*allocation_physical ||
+        ((uintptr_t)*allocation & (SMMU_PAGE_SIZE - 1u)) != 0 ||
         (*allocation_physical & (SMMU_PAGE_SIZE - 1u)) != 0 ||
+        *allocation_physical > UINT64_MAX - (alignment - 1u) ||
         *allocation_physical >
             UINT64_MAX - (allocation_pages * SMMU_PAGE_SIZE)) {
         if (*allocation)
@@ -163,7 +168,8 @@ static int smmu_alloc_queue(
     aligned_physical = (*allocation_physical + alignment - 1u) &
                        ~((uint64_t)alignment - 1u);
     offset = (size_t)(aligned_physical - *allocation_physical);
-    if (offset + queue_bytes > allocation_pages * SMMU_PAGE_SIZE) {
+    if ((aligned_physical & ~SMMU_QUEUE_BASE_ADDR_MASK) != 0 ||
+        offset + queue_bytes > allocation_pages * SMMU_PAGE_SIZE) {
         platform->free_dma_pages(platform->context, *allocation,
                                  *allocation_physical, allocation_pages);
         *allocation = 0;
@@ -174,6 +180,16 @@ static int smmu_alloc_queue(
 
     *queue_virtual = (uint8_t *)*allocation + offset;
     *queue_physical = aligned_physical;
+    if (((uintptr_t)*queue_virtual & (alignment - 1u)) != 0) {
+        platform->free_dma_pages(platform->context, *allocation,
+                                 *allocation_physical, allocation_pages);
+        *allocation = 0;
+        *allocation_physical = 0;
+        *allocated_pages = 0;
+        *queue_virtual = 0;
+        *queue_physical = 0;
+        return KIRA_SMMU_MEMORY_FAILED;
+    }
     smmu_zero_memory(*queue_virtual, queue_bytes);
     if (platform->clean_cache)
         platform->clean_cache(platform->context, *queue_virtual, queue_bytes);
@@ -189,7 +205,9 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         !platform->alloc_dma_pages || !platform->free_dma_pages ||
         !platform->clean_cache || !platform->write_barrier ||
         !platform->read_barrier || !platform->quiesce_devices ||
-        !platform->report_event || !physical_base || (physical_base & 0xfffu))
+        !platform->report_event || !platform->invalidate_cache ||
+        !physical_base || (physical_base & 0xfffu) ||
+        physical_base > UINT64_MAX - SMMU_REGISTER_MAP_SIZE)
         return KIRA_SMMU_INVALID;
 
     if (smmu->enabled || smmu->stream_table || smmu->stream_table_allocation ||
@@ -198,8 +216,11 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
 
     smmu->registers = (volatile uint8_t *)
         platform->map_mmio(platform->context, physical_base, SMMU_REGISTER_MAP_SIZE);
-    if (!smmu->registers)
+    if (!smmu->registers ||
+        ((uintptr_t)smmu->registers & (SMMU_PAGE_SIZE - 1u)) != 0) {
+        smmu->registers = 0;
         return KIRA_SMMU_MAP_FAILED;
+    }
 
     smmu->physical_base = physical_base;
     smmu->idr0 = smmu_read32(smmu->registers, SMMU_IDR0);
@@ -218,6 +239,12 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
             cmdq_bits < SMMU_QUEUE_LOG2 || evtq_bits < SMMU_QUEUE_LOG2)
             return KIRA_SMMU_UNSUPPORTED;
     }
+
+    /* The installed table is linear; two-level-only and reserved ST_LVL
+       encodings must be rejected before programming STRTAB_BASE_CFG. */
+    if (((smmu->idr0 >> SMMU_IDR0_ST_LVL_SHIFT) &
+         SMMU_IDR0_ST_LVL_MASK) >= 2u)
+        return KIRA_SMMU_UNSUPPORTED;
 
     /* SMMUv3 identifies itself through the architecture ID registers. */
     if ((smmu->idr0 & 0x3u) == 0)
@@ -281,7 +308,10 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->stream_table_allocation_pages = SMMU_STRTAB_ALLOC_PAGES;
     if (!smmu->stream_table_allocation ||
         !smmu->stream_table_allocation_physical ||
+        ((uintptr_t)smmu->stream_table_allocation & (SMMU_PAGE_SIZE - 1u)) ||
         (smmu->stream_table_allocation_physical & (SMMU_PAGE_SIZE - 1u)) ||
+        smmu->stream_table_allocation_physical >
+            UINT64_MAX - (SMMU_STRTAB_ALIGN - 1u) ||
         smmu->stream_table_allocation_physical >
             UINT64_MAX - (SMMU_STRTAB_ALLOC_PAGES * SMMU_PAGE_SIZE)) {
         if (smmu->stream_table_allocation)
@@ -300,7 +330,8 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
             ~((uint64_t)SMMU_STRTAB_ALIGN - 1u);
         size_t offset = (size_t)(aligned_physical -
                                  smmu->stream_table_allocation_physical);
-        if (offset + SMMU_STRTAB_BYTES >
+        if ((aligned_physical & ~SMMU_STRTAB_BASE_ADDR_MASK) != 0 ||
+            offset + SMMU_STRTAB_BYTES >
             SMMU_STRTAB_ALLOC_PAGES * SMMU_PAGE_SIZE) {
             platform->free_dma_pages(platform->context,
                                      smmu->stream_table_allocation,
@@ -313,6 +344,18 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         }
         smmu->stream_table = (uint8_t *)smmu->stream_table_allocation + offset;
         smmu->stream_table_physical = aligned_physical;
+        if (((uintptr_t)smmu->stream_table & (SMMU_STRTAB_ALIGN - 1u)) != 0) {
+            platform->free_dma_pages(platform->context,
+                                     smmu->stream_table_allocation,
+                                     smmu->stream_table_allocation_physical,
+                                     smmu->stream_table_allocation_pages);
+            smmu->stream_table = 0;
+            smmu->stream_table_physical = 0;
+            smmu->stream_table_allocation = 0;
+            smmu->stream_table_allocation_physical = 0;
+            smmu->stream_table_allocation_pages = 0;
+            return KIRA_SMMU_MEMORY_FAILED;
+        }
     }
     smmu_zero_memory(smmu->stream_table, SMMU_STRTAB_BYTES);
     if (platform->clean_cache)
