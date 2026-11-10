@@ -51,7 +51,7 @@ kobj_t* htab_get(htab_t* t, int h, uint32_t type);       // 0 - нет тако�
 kobj_t* htab_take(htab_t* t, int h);                      // убрать из таблицы (ссылку отпускает вызывающий)
 
 int  kname_ok(const char* s);
-int  kobj_retain(kobj_t* o);                  // KE_LIMIT при переполнении счётчика ссылок
+int  kobj_retain(kobj_t* o);                  // 0, KE_BADH для неучтённого объекта, KE_LIMIT при переполнении
 void kobj_release(kobj_t* o);                             // последняя ссылка уничтожает объект
 
 // Порты
