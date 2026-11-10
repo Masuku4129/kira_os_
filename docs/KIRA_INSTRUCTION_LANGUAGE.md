@@ -95,11 +95,21 @@ The example is illustrative syntax, not a claim that the standard library calls 
 
 ```ebnf
 module       = "module", identifier, ";", { item } ;
-item         = intent | requires | import | function ;
+item         = intent | requires | import | function | task_decl ;
 intent       = "intent", string, ";" ;
 requires     = "requires", "{", { capability, ";" }, "}" ;
 capability   = capability_name, "(", [ argument_list ], ")" ;
 import       = "import", string, ";" ;
+task_decl    = "task", identifier, "{", goal, { input_decl }, { output_decl },
+               constraints, steps, accept, "}" ;
+goal         = "goal", string, ";" ;
+input_decl   = "input", identifier, ":", type, ";" ;
+output_decl  = "output", identifier, ":", type, ";" ;
+constraints  = "constraints", "{", { identifier, "=", expression, ";" }, "}" ;
+steps        = "steps", "{", { operation, "(", [ argument_list ], ")",
+               "->", identifier, ";" }, "}" ;
+accept       = "accept", "{", { "require", "(", expression, ")", ";" }, "}" ;
+operation    = identifier ;
 function     = "fn", identifier, "(", [ parameters ], ")", [ "->", type ], block ;
 parameters   = parameter, { ",", parameter } ;
 parameter    = identifier, ":", type ;
