@@ -430,7 +430,8 @@ static void idle_main(void* arg) {
 }
 
 static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg, thread_prio_t prio,
-                               uint64_t cr3, void* proc, cpumask_t affinity, uint32_t flags);
+                               uint64_t cr3, void* proc, uint32_t pid, uint32_t weight, uint32_t limit,
+                               cpumask_t affinity, uint32_t flags);
 
 thread_t* sched_create(const char* name, void (*entry)(void*), void* arg, thread_prio_t prio) {
     return create_thread(name, entry, arg, prio, 0, 0, 0, SCHED_WEIGHT_NORMAL, 0, SCHED_AFFINITY_ALL, THREAD_F_SERVICE);
