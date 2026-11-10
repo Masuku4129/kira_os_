@@ -50,6 +50,7 @@
 #include "uaccess.h"
 #include "fat.h"
 #include "iommu.h"
+#include "pci.h"
 
 #define SELF_CHECK_PERIOD_S 5
 
@@ -228,6 +229,10 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // отобразит видеопамять; если драйвер не смог (формат пикселей, память), ранняя
     // консоль возвращается и показывает весь журнал, а не оставляет чёрный экран.
     earlycon_stop();
+    /* PCI DMA policy must be active before display_init can probe a virtio GPU. */
+    int pci_devices = pci_init();
+    uart_print("[KIRA PCI] "); uart_print_dec((uint64_t)pci_devices); uart_print(" device(s) found.\\n");
+    (void)iommu_init();
     if (display_init(addr) != 0) {
         int ec_rc = earlycon_init(addr);
         uart_print("[KIRA DISPLAY] Running without the graphical shell (");

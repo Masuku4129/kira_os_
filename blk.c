@@ -133,9 +133,9 @@ static int has_ide(void) {
 
 void blk_probe(void) {
     nslots = 0; primary = 0;
-    int n = pci_init();
-    uart_print("[KIRA PCI] "); uart_print_dec((uint64_t)n); uart_print(" device(s) found.\n");
-    (void)iommu_init();      /* VT-d: до первого драйвера с DMA; без IOMMU поведение прежнее */
+    int n = pci_count();
+    if (n == 0) n = pci_init();
+    (void)iommu_init();      /* idempotent; early kernel init also covers the virtio display path */
     blk_dev_t* v = virtio_blk_probe();
     if (v) blk_register(v, "vda", "virtio-blk");
     nvme_probe();
