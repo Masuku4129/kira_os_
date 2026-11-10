@@ -31,7 +31,7 @@ PY
 OUT=$(run $T/elf.img);                     expect "p_paddr ниже 1 МиБ" "outside usable RAM"
 OUT=$(run $T/ok.img 16);                   expect "мало памяти (16 МиБ)" "no RAM at 16MiB"
 OUT=$(run $T/ok.img 64);                   expect "загрузка при 64 МиБ" "Kernel core starting"
-printf 'KIRA-INITRD-TEST\\n' > $T/initrd.img
+printf 'KIRA-INITRD-TEST\n' > $T/initrd.img
 python3 tools/mkbios.py $T/s1.bin $T/s2.bin "$KERNEL" $T/module.img $T/initrd.img >/dev/null || exit 1
 OUT=$(run $T/module.img);                  expect "загрузка BIOS initrd" "modules=1"
 python3 - "$T/module.img" "$T/module-corrupt.img" <<'PY'
