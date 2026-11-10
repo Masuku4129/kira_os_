@@ -151,6 +151,8 @@ static int arm_quiesce_devices(void* context)
         if (!dev)
             continue;
         pci_disable_bus_master(dev);
+        if (pci_read16(dev, 0x04) & PCI_CMD_MASTER)
+            return -1;
     }
     return 0;
 }
