@@ -180,6 +180,10 @@ int main(void)
     smmu.stream_ids[0] = 0u;
     CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_OK);
     CHECK(smmu.enabled == 0u);
+    smmu.cmdq_producer = 17u;
+    CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_OK);
+    CHECK(smmu.enabled == 1u && smmu.cmdq_producer == 0u);
+    CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_OK);
     CHECK(smmu.evtq_allocation_pages == 3u);
     CHECK(smmu.queue_entries == 256u && smmu.enabled == 0);
     CHECK(smmu.stream_id_limit == 256u);
