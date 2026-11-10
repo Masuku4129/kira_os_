@@ -328,8 +328,23 @@ int main(void)
     CHECK(ste[0] == 0 && ste[1] == 0);
     CHECK(free_calls - freed_before == 5u); /* three intermediate tables + root + CD table */
     CHECK(freed_pages - freed_pages_before == 5u);
+
+    /* Unisolated mapped devices receive an explicit bypass STE, not global bypass. */
+    {
+        struct kira_smmu_domain passthrough = {0};
+        uint64_t *bypass_ste = (uint64_t *)smmu.stream_table + 9u * 8u;
+        CHECK(kira_smmu_domain_passthrough(&passthrough, &smmu, 9u, &p) == KIRA_SMMU_OK);
+        CHECK(passthrough.active && passthrough.bypass);
+        CHECK(bypass_ste[0] == 9u); /* V=1, CFG=0b100 (explicit bypass) */
+        CHECK(kira_smmu_domain_map_4k(&passthrough, 0x1000u, 0x300000u,
+                                      KIRA_SMMU_MAP_READ, &p) == KIRA_SMMU_INVALID);
+        CHECK(kira_smmu_domain_destroy(&passthrough, &p) == KIRA_SMMU_OK);
+        CHECK(bypass_ste[0] == 0u);
+        CHECK((smmu.stream_ids[0] & (1u << 9)) == 0);
+    }
+
     CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_OK);
 
-    puts("ARM SMMUv3 domain: STE/CD encoding, stage-1 maps, ASID invalidation and teardown passed");
+    puts("ARM SMMUv3 domain: bypass and stage-1 STEs, mappings, ASID invalidation and teardown passed");
     return 0;
 }
