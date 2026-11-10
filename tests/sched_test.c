@@ -273,19 +273,24 @@ int main(void) {
         CHECK(sched_attach_cpu() == 0);
         thread_t* idle1 = (thread_t*)sched_current();
         host_cpu = 0;
+        thread_t* pin_sleep = sched_create_on("pin-sleep", dummy, 0, PRIO_NORMAL, cm_from64(2));
         thread_t* pin1 = sched_create_on("pin1", dummy, 0, PRIO_NORMAL, cm_from64(2));
         thread_t* both = sched_create_on("both01", dummy, 0, PRIO_NORMAL, cm_from64(3));
         thread_t* svc = sched_create("svc", dummy, 0, PRIO_NORMAL);
-        CHECK(pin1 && both && svc);
+        CHECK(pin_sleep && pin1 && both && svc);
         CHECK((svc->flags & THREAD_F_SERVICE) && !(pin1->flags & THREAD_F_SERVICE));   // сбой в служебном потоке - авария
         host_cpu = 1;
+        for (int i = 0; i < 6 * 25 && sched_current() != pin_sleep; i++) tick();
+        CHECK(sched_current() == pin_sleep);
+        sched_sleep_ticks(500);                                   // поток на отказавшем CPU спит в timer heap
         for (int i = 0; i < 6 * 25 && sched_current() != pin1; i++) tick();
         CHECK(sched_current() == pin1);
         CHECK(sched_thread_alive(pin1->id));
         unsigned orphans = sched_core_fail();                       // «отказ» ядра 1, пока оно исполняет pin1
         host_cpu = 0;
-        CHECK(orphans == 0);                                        // привязанный pin1 - сам виновник, остальных привязанных нет
-        CHECK(pin1->state == THREAD_ZOMBIE && pin1->on_cpu == 1);   // стек виновного не освобождается из-под ядра
+        CHECK(orphans == 1);                                        // pin_sleep был привязан только к отказавшему CPU
+        CHECK(pin1->state == THREAD_ZOMBIE && pin1->on_cpu == 1);
+        CHECK(pin_sleep->state == THREAD_ZOMBIE && pin_sleep->sleep_index == UINT32_MAX);   // стек виновного не освобождается из-под ядра
         CHECK(!sched_thread_alive(pin1->id));
         CHECK(percpu_table[1].failed == 1 && percpu_table[1].sched_on == 0 && percpu_table[1].online == 0);
         CHECK(cm_is64(&both->affinity, 1) && both->state != THREAD_ZOMBIE);   // «оба ядра» стало «только 0»
@@ -298,7 +303,7 @@ int main(void) {
         pin1->on_cpu = 0;
         both->state = svc->state = THREAD_ZOMBIE;
         for (int i = 0; i < 4 && (sched_current() == both || sched_current() == svc); i++) sched_yield();
-        CHECK(sched_reap() == 3);
+        CHECK(sched_reap() == 4);
         idle1->state = THREAD_UNUSED; idle1->on_cpu = 0;
         percpu_table[1].sched_on = 0; percpu_table[1].current = 0; percpu_table[1].idle = 0; percpu_table[1].failed = 0;
     }
