@@ -25,7 +25,7 @@ struct PPState {
     Token out_head, *out_tail;
     int incl_level;
 };
-#define PP (K.pp_state)
+#define PP K.pp_state
 #define mtab (PP->macro_table)
 #define once_list (PP->once_list)
 #define unity_mode (PP->unity_mode)
