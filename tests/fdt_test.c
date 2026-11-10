@@ -226,7 +226,7 @@ int main(void) {
         CHECK(h->mmap_count == 1);
         const kbi_mmap_entry_t* mm = kbi_mmap(handoff);
         if (!mm) {
-            fprintf(stderr, "FDT KBI accessor: count=%u off=%u entry_size=%u total=%u\\n",
+            fprintf(stderr, "FDT KBI accessor: count=%u off=%u entry_size=%u total=%u\n",
                     h->mmap_count, h->mmap_off, h->mmap_entry_size, h->total_size);
             return 1;
         }
