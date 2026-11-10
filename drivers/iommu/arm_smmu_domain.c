@@ -300,7 +300,7 @@ static int smmu_map_page(struct kira_smmu_domain *d,
         uint64_t attr = 3ull | (3ull << 8) | (1ull << 10) |
                         (1ull << 11) | (1ull << 7) |
                         (1ull << 53) | (1ull << 54);
-        if (table[index] & 1ull)
+        if (table[index] != 0)
             return KIRA_SMMU_HARDWARE_ERROR;
         /* AP[2:1]=10 permits DMA at EL0/EL1; 11 makes it read-only. */
         if (!(permissions & KIRA_SMMU_MAP_WRITE))
@@ -387,6 +387,7 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
      * STE[0]: V=1, CFG=S1_TRANS(5), S1Fmt=linear, S1ContextPtr=CD table.
      * STE[1]: no-substream traffic selects CD[0], CD fetches are WB/ISH.
      */
+    smmu_zero(ste, SMMU_STRTAB_ENTRY_BYTES);
     ste[0] = 1ull | (5ull << 1) | (ct_pa & 0x000fffffffffffc0ull);
     ste[1] = 2ull | (1ull << 2) | (1ull << 4) | (3ull << 6);
     ste[2] = 0;
@@ -504,8 +505,7 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     }
 
     ste = smmu_words(s->stream_table) + d->stream_id * 8u;
-    ste[0] = 0;
-    ste[1] = 0;
+    smmu_zero(ste, SMMU_STRTAB_ENTRY_BYTES);
     p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
     p->write_barrier(p->context);
     rc = smmu_invalidate_stream(d, p);
