@@ -402,7 +402,8 @@ static int smmu_map_page(struct kira_smmu_domain *d,
     {
         unsigned int index = (unsigned int)((iova >> 12) & 0x1ffu);
         uint64_t descriptor = (physical & SMMU_TTBR_ADDR) |
-                              3ull | (3ull << 8) | (1ull << 10);
+                              3ull | (3ull << 8) | (1ull << 10) |
+                              (1ull << 11); /* nG: ASID-scoped, never global. */
         if (table[index] & 1ull)
             return KIRA_SMMU_HARDWARE_ERROR;
 
