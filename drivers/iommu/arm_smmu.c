@@ -524,7 +524,7 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
 
     if (!smmu || !platform || !smmu->registers ||
         !platform->read_barrier || !platform->write_barrier ||
-        !platform->quiesce_devices)
+        !platform->quiesce_devices || !platform->report_event)
         return KIRA_SMMU_INVALID;
 
     /* Never turn translation off while any StreamID still owns a domain. */
@@ -534,7 +534,7 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
 
     if (platform->quiesce_devices(platform->context) != 0)
         return KIRA_SMMU_HARDWARE_ERROR;
-    {
+    if (smmu->enabled) {
         uint32_t processed;
         do {
             rc = kira_smmu_v3_poll_events(smmu, platform,
