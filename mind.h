@@ -195,7 +195,7 @@ typedef struct {
     uint32_t seen_skew;        /* последняя секунда перекоса ядер */
 } ml_t;
 
-typedef struct { int32_t x[MNET_F]; uint32_t max_used, age; uint8_t valid, acted; } mind_mem_pending_t;
+typedef struct { int32_t x[MNET_F]; uint32_t max_used, created_t; uint8_t valid, acted; } mind_mem_pending_t;
 
 typedef struct {
     mind_model_t m;
@@ -252,7 +252,7 @@ typedef struct {
     uint32_t risk_q16;                        /* вероятность опоздания экрана в следующую секунду */
     uint32_t mem_risk_q16;                     /* вероятность достижения 90% ОЗУ в следующие 4 секунды */
     mind_mem_pending_t mem_pending[5];         /* отложенные метки: четыре следующих измерения */
-    uint32_t mem_pending_pos, mem_forecasts, mem_logged_t, mem_prev_used;
+    uint32_t mem_pending_pos, mem_forecasts, mem_logged_t, mem_prev_used, mem_prev_t;
     uint8_t mem_prev_valid;
     uint32_t pre_until_ms;                    /* до этого момента тактика держит фон ужатым заранее */
     uint32_t pre_logged_t, pre_skip;          /* журнал не чаще; каждая 10-я опасная секунда - без упреждения (проверка) */
