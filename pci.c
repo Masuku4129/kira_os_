@@ -178,6 +178,11 @@ static uint32_t cr32(const pci_dev_t* d, uint16_t off) { return be.read32(d->bus
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { return cr32(d, off); }
 uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { return (uint16_t)(cr32(d, off & ~3) >> ((off & 2) * 8)); }
 uint8_t pci_read8(const pci_dev_t* d, uint16_t off) { return (uint8_t)(cr32(d, off & ~3) >> ((off & 3) * 8)); }
+static int pci_is_bridge(const pci_dev_t* d)
+{
+    return d && d->class_code == 0x06 && d->subclass == 0x04 &&
+           (d->header_type & 0x7Fu) == 1u;
+}
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) {
     /* Command/status is not a normal dword: status bits are W1C and DMA
        authorization must pass through the same gate as pci_enable(). */
@@ -195,7 +200,7 @@ void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
     if ((off & ~3) == 0x04) w &= 0x0000FFFFu;                        /* status is W1C */
     w = (w & ~(0xFFFFu << sh)) | ((uint32_t)v << sh);
 #if defined(__aarch64__) || defined(__x86_64__)
-    if (off == 0x04 && (w & PCI_CMD_MASTER) && !iommu_device_ready(d))
+    if (off == 0x04 && (w & PCI_CMD_MASTER) && !pci_is_bridge(d) && !iommu_device_ready(d))
         w &= (uint32_t)~PCI_CMD_MASTER;
 #endif
     be.write32(d->bus, d->dev, d->fn, off & ~3, w);
@@ -210,7 +215,7 @@ void pci_enable(const pci_dev_t* d, uint16_t bits) {
 #endif
 #if defined(__aarch64__) || defined(__x86_64__)
     /* Recheck under the config lock so a concurrent IOMMU quarantine wins. */
-    if ((bits & PCI_CMD_MASTER) && !iommu_device_ready(d))
+    if ((bits & PCI_CMD_MASTER) && !pci_is_bridge(d) && !iommu_device_ready(d))
         bits &= (uint16_t)~PCI_CMD_MASTER;
 #endif
     uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
@@ -222,7 +227,9 @@ void pci_enable(const pci_dev_t* d, uint16_t bits) {
 }
 
 void pci_disable_bus_master(const pci_dev_t* d) {
-    if (!d)
+    /* A PCI-to-PCI bridge forwards transactions from isolated downstream
+       functions; its Bus Master bit is a forwarding gate, not a DMA engine. */
+    if (!d || pci_is_bridge(d))
         return;
 #if !defined(KIRA_HOST_TEST)
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
@@ -292,8 +299,11 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
        after their DMA buffers and IOMMU mappings are ready. */
     pci_disable_bus_master(d);
     probe_bars(d);
-    if ((d->header_type & 0x7F) == 1 && d->class_code == 6 && d->subclass == 4) {
-        uint8_t sec = pci_read8(d, 0x19);                          /* вторичная шина моста */
+    if (pci_is_bridge(d)) {
+        /* Keep bridge forwarding enabled; every endpoint remains independently
+           quiesced until its driver receives DMA authorization. */
+        pci_enable(d, PCI_CMD_MASTER);
+        uint8_t sec = pci_read8(d, 0x19);
         if (sec) scan_bus(sec);
     }
 }
