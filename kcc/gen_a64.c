@@ -661,7 +661,7 @@ static void a64_reloc(unsigned char *text, void *ctx) {
 
 void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
     if (!K.a64_state) K.a64_state = ka_new(sizeof(A64State));
-    memset(A64S, 0, sizeof *A64S);
+    memset(A64S, 0, sizeof(struct A64State));
     Obj *mainf = gen_prepare(globals);
     /* _start: main(0, 0); код выхода - в K_EXIT (номер 2, x8) */
     A->file = K.srcpath; A->line = 1;
