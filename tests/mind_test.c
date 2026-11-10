@@ -469,7 +469,7 @@ int main(void) {
         for (uint32_t u = 2; u <= 8; u++) { base(u); S.mem_total_mb = 0; mind_step(&Missing, &S, &none); }
         CHECK(Missing.m.memory_net.n == 0 && Missing.m.memory_net.pos == 0);
         static mind_t Gap; mind_init(&Gap, 0, 4); Gap.m.mode = MIND_OBSERVE;
-        for (uint32_t u = 1; u <= 8; u++) { base(u); S.mem_used = 50; mind_step(&Gap, &S, &none); }
+        for (uint32_t u = 1; u <= 8; u++) { base(u); S.mem_used = 50; S.mem_total_mb = 0; mind_step(&Gap, &S, &none); }
         base(9); S.mem_used = 80; mind_step(&Gap, &S, &none);
         base(11); S.mem_used = 50; mind_step(&Gap, &S, &none);
         CHECK(Gap.m.memory_net.n == 0 && Gap.mem_pending[0].valid + Gap.mem_pending[1].valid +
