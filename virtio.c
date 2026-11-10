@@ -86,7 +86,15 @@ extern volatile void* host_map_bar(const pci_dev_t* d, int bar, uint64_t off, ui
 #endif
 
 int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
+    int isolated = 0;
     v->pci = d; v->common = v->notify = v->isr = v->devcfg = 0; v->notify_mult = 0; v->features = 0; v->msix_vec = 0xFFFF;
+#ifndef KIRA_HOST_TEST
+    if (iommu_enabled()) {
+        if (iommu_isolate_device(d) != IOMMU_OK)
+            return -3;
+        isolated = 1;
+    }
+#endif
     uint8_t id; uint16_t cap = 0;
     for (int guard = 0; guard < 48; guard++) {
         cap = pci_next_cap(d, cap, &id);
@@ -105,7 +113,13 @@ int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
         }
         if (len < need || bar >= PCI_BARS) continue;
         volatile uint8_t* p = (volatile uint8_t*)MAP_BAR(d, bar, off, len);
-        if (!p) { uart_print("[KIRA VIRTIO] cannot map BAR region\n"); return -2; }
+        if (!p) {
+            uart_print("[KIRA VIRTIO] cannot map BAR region\n");
+#ifndef KIRA_HOST_TEST
+            if (isolated) (void)iommu_release_device(d);
+#endif
+            return -2;
+        }
         switch (type) {
         case CAP_COMMON: if (!v->common) v->common = p; break;
         case CAP_NOTIFY: if (!v->notify) { v->notify = p; v->notify_mult = pci_read32(d, (uint16_t)(cap + 16)); } break;
@@ -113,8 +127,14 @@ int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
         case CAP_DEVICE: if (!v->devcfg) v->devcfg = p; break;
         }
     }
-    if (!v->common || !v->notify || !v->isr) return -1;
-    pci_enable(d, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    if (!v->common || !v->notify || !v->isr) {
+#ifndef KIRA_HOST_TEST
+        if (isolated) (void)iommu_release_device(d);
+#endif
+        return -1;
+    }
+    /* Bus mastering is enabled only after all DMA buffers have been mapped. */
+    pci_enable(d, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     return 0;
 }
 
@@ -144,8 +164,18 @@ static int reset(virtio_dev_t* v) {
 }
 
 void virtio_fail(virtio_dev_t* v) {
+#ifndef KIRA_HOST_TEST
+    if (v && v->pci) {
+        uint16_t command = pci_read16(v->pci, 0x04u);
+        pci_write16(v->pci, 0x04u, (uint16_t)(command & ~PCI_CMD_MASTER));
+    }
+#endif
     status_set(v, status_get(v) | VIRTIO_ST_FAILED);
     (void)reset(v);
+#ifndef KIRA_HOST_TEST
+    if (v && v->pci && iommu_device_isolated(v->pci))
+        iommu_unmap_all(v->pci);
+#endif
 }
 
 int virtio_begin(virtio_dev_t* v, uint64_t want) {
@@ -168,7 +198,8 @@ int virtio_dma_grant(virtio_dev_t* v, uint64_t phys, uint32_t bytes) {
     (void)v; (void)phys; (void)bytes;
     return 0;
 #else
-    if (!iommu_device_isolated(v->pci)) return 0;
+    if (!iommu_enabled()) return 0;
+    if (!iommu_device_isolated(v->pci)) return IOMMU_E_NOENT;
     return iommu_map(v->pci, phys, phys, bytes, IOMMU_R | IOMMU_W);
 #endif
 }
@@ -207,6 +238,13 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
 }
 
 void virtio_driver_ok(virtio_dev_t* v) {
+#ifndef KIRA_HOST_TEST
+    if (iommu_enabled() && !iommu_device_isolated(v->pci)) {
+        virtio_fail(v);
+        return;
+    }
+    pci_enable(v->pci, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+#endif
     status_set(v, status_get(v) | VIRTIO_ST_DRIVER_OK);
 }
 
