@@ -15,6 +15,8 @@ struct kira_smmu_platform {
     void (*write_barrier)(void *context);
     void (*read_barrier)(void *context);
     void (*delay)(void *context);
+    /* Must stop bus mastering on every device before SMMU shutdown. */
+    int (*quiesce_devices)(void *context);
 };
 
 struct kira_smmu {
@@ -65,5 +67,7 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
                         const struct kira_smmu_platform *platform);
 int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform);
+int kira_smmu_v3_invalidate_all(struct kira_smmu *smmu,
+                                const struct kira_smmu_platform *platform);
 
 #endif
