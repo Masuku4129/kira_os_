@@ -1262,7 +1262,7 @@ static void x86_reloc(unsigned char *text, void *ctx) {
 
 void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen) {
     if (!K.x86_state) K.x86_state = ka_new(sizeof(X86State));
-    memset(X86S, 0, sizeof *X86S);
+    memset(X86S, 0, sizeof(struct X86State));
     gen_prepare(globals);
     A->file = K.srcpath; A->line = 1;
     for (Obj *g = globals; g; g = g->next)
@@ -1280,7 +1280,7 @@ void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen) {
 
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
     if (!K.x86_state) K.x86_state = ka_new(sizeof(X86State));
-    memset(X86S, 0, sizeof *X86S);
+    memset(X86S, 0, sizeof(struct X86State));
     Obj *mainf = gen_prepare(globals);
     /* _start: argc/argv не передаются, main(0, 0); код выхода - в K_EXIT */
     A->file = K.srcpath; A->line = 1;
