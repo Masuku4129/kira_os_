@@ -37,6 +37,8 @@ static int ndevs;
 static uint8_t bus_seen[256];
 
 void pci_set_backend(const pci_backend_t* b) {
+    ecam = 0;
+    ecam_bus0 = ecam_bus1 = 0;
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
 }
 
@@ -182,7 +184,7 @@ static void scan_bus(uint8_t bus) {
 int pci_init(void) {
     ndevs = 0;
     for (int i = 0; i < 256; i++) bus_seen[i] = 0;
-    scan_bus(0);
+    scan_bus(ecam ? ecam_bus0 : 0);
     return ndevs;
 }
 
