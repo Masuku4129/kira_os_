@@ -209,6 +209,9 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
 }
 
 void virtio_driver_ok(virtio_dev_t* v) {
+    /* All queues and driver-owned DMA buffers must be granted before this call. */
+    if (v && v->pci)
+        pci_enable(v->pci, PCI_CMD_MASTER);
     status_set(v, status_get(v) | VIRTIO_ST_DRIVER_OK);
 }
 
