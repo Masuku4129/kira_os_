@@ -33,3 +33,4 @@ kira-uefi.img
 build-bsd/
 *.o.tmp
 kira-grub.iso
+tools/mindseed
