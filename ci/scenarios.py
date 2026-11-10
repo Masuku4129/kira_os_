@@ -596,7 +596,7 @@ def _bsd_dma_sc(name, about, pci, ifname, qdev, irq=True):
         {"log_forbid": [r"bsdrt: .*FAIL", r"bsd panic", r"irq [0-9]{5,}", r"\[KIRA IOMMU\] DMA fault", r"00:03\.0 .*NOT isolated: (named|no active|domain setup)",
                         r"00:03\.0 back to passthrough"] + NO_ERR},
         {"responsive": "status", "within": 5},
-    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", qdev + ",netdev=n0,romfile="] + (["-trace", "tulip_*"] if os.environ.get("KIRA_TRACE") else []))
+    ], smp=2, mem="1G", machine="q35", disk="sata", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", qdev + ",netdev=n0,romfile="] + (["-trace", "tulip_*"] if os.environ.get("KIRA_TRACE") else []))
 
 
 ALL.append(_bsd_dma_sc("drv-bsd-pcn", "драйвер OpenBSD pcn(4) в Ring 3 с DMA под VT-d: карта pcnet на q35, DHCP и ping через неё, прерывания INTx", "1022:2000", "pcn0", "pcnet"))
