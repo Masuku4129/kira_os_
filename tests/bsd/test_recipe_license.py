@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SPEC = importlib.util.spec_from_file_location("bsd_recipe", os.path.join(ROOT, "tools", "bsd_recipe.py"))
 MOD = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MOD)
