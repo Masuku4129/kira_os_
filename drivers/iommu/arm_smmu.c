@@ -82,6 +82,10 @@ static void smmu_write64(volatile uint8_t *base, uint32_t offset, uint64_t value
     *(volatile uint64_t *)(base + offset) = value;
 }
 
+static void smmu_stream_table_lock(struct kira_smmu *smmu);
+static void smmu_stream_table_unlock(struct kira_smmu *smmu);
+static int smmu_has_active_streams(const struct kira_smmu *smmu);
+
 static int smmu_wait_mask(struct kira_smmu *smmu, uint32_t offset,
                           uint32_t mask, uint32_t expected,
                           const struct kira_smmu_platform *platform)
@@ -385,10 +389,16 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
         !platform->write_barrier || !platform->read_barrier)
         return KIRA_SMMU_INVALID;
 
-    if (smmu->enabled == 1u)
+    smmu_stream_table_lock(smmu);
+    if (smmu->enabled == 1u) {
+        smmu_stream_table_unlock(smmu);
         return KIRA_SMMU_OK;
-    if (smmu->enabled != 0u)
+    }
+    if (smmu->enabled != 0u) {
+        smmu_stream_table_unlock(smmu);
         return KIRA_SMMU_HARDWARE_ERROR;
+    }
+    smmu->enabled = 2u;
 
     /* Disable the unit before changing queue base registers. */
     smmu_write32(smmu->registers, SMMU_CR0, 0);
@@ -398,6 +408,7 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
                         SMMU_CR0ACK_CMDQEN, 0, platform);
     if (rc != KIRA_SMMU_OK) {
         smmu->enabled = 2u;
+        smmu_stream_table_unlock(smmu);
         return rc;
     }
 
@@ -414,14 +425,9 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
     smmu_write32(smmu->registers, SMMU_EVTQ_CONS, 0);
     smmu->evtq_consumer = 0;
 
-    if (platform->clean_cache) {
-        platform->clean_cache(platform->context, smmu->cmdq,
-                              SMMU_CMDQ_BYTES);
-        platform->clean_cache(platform->context, smmu->evtq,
-                              SMMU_EVTQ_BYTES);
-    }
-    if (platform->write_barrier)
-        platform->write_barrier(platform->context);
+    platform->clean_cache(platform->context, smmu->cmdq, SMMU_CMDQ_BYTES);
+    platform->clean_cache(platform->context, smmu->evtq, SMMU_EVTQ_BYTES);
+    platform->write_barrier(platform->context);
 
     control = SMMU_CR0_CMDQEN | SMMU_CR0_EVENTQEN | SMMU_CR0_SMMUEN;
     smmu_write32(smmu->registers, SMMU_CR0, control);
@@ -441,10 +447,12 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
             smmu->enabled = 0;
         else
             smmu->enabled = 2u;
+        smmu_stream_table_unlock(smmu);
         return rc;
     }
 
     smmu->enabled = 1;
+    smmu_stream_table_unlock(smmu);
     return KIRA_SMMU_OK;
 }
 
@@ -482,7 +490,6 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
         return KIRA_SMMU_INVALID;
     }
     smmu->enabled = 2u; /* Block new domains while hardware is being quiesced. */
-    smmu_stream_table_unlock(smmu);
 
     smmu_write32(smmu->registers, SMMU_CR0, 0);
     platform->write_barrier(platform->context);
@@ -491,10 +498,12 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
                         SMMU_CR0ACK_CMDQEN, 0, platform);
     if (rc != KIRA_SMMU_OK) {
         smmu->enabled = 2u;
+        smmu_stream_table_unlock(smmu);
         return rc;
     }
 
     smmu->enabled = 0;
+    smmu_stream_table_unlock(smmu);
     return KIRA_SMMU_OK;
 }
 
