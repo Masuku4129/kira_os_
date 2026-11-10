@@ -10,6 +10,9 @@ struct kira_smmu_platform {
     void *(*alloc_dma_pages)(void *context, size_t pages, uint64_t *physical);
     void (*free_dma_pages)(void *context, void *virtual_address,
                            uint64_t physical, size_t pages);
+    /* Ordinary kernel metadata; distinct from DMA-visible translation pages. */
+    void *(*alloc_metadata)(void *context, size_t bytes);
+    void (*free_metadata)(void *context, void *memory);
     void (*clean_cache)(void *context, const void *address, size_t length);
     void (*invalidate_cache)(void *context, const void *address, size_t length);
     void (*write_barrier)(void *context);
