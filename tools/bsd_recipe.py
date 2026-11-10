@@ -22,11 +22,12 @@ PREFER = {'fxp_pci': ['8086:1209'], 'pcn': ['1022:2000']}
 def classify_license(data, path="<source>"):
     """Return one supported SPDX identifier; unknown, compound and mixed notices fail closed."""
     text = data.decode("latin-1", errors="strict")
-    spdx = re.findall(r"SPDX-License-Identifier:\\s*([^\\s*]+)", text)
+    spdx = re.findall(r"SPDX-License-Identifier:\\s*([^\\r\\n*]+)", text)
     if spdx:
-        if len(set(spdx)) != 1 or len(spdx) != 1 or spdx[0] not in {"BSD-2-Clause", "BSD-3-Clause", "MIT", "ISC"}:
-            raise ValueError("%s: unsupported or compound SPDX license: %s" % (path, ", ".join(spdx)))
-        return spdx[0]
+        identifiers = [item.strip() for item in spdx]
+        if len(set(identifiers)) != 1 or len(identifiers) != 1 or identifiers[0] not in {"BSD-2-Clause", "BSD-3-Clause", "MIT", "ISC"}:
+            raise ValueError("%s: unsupported or compound SPDX license: %s" % (path, ", ".join(identifiers)))
+        return identifiers[0]
 
     low = text.lower()
     if ("redistribution and use in source and binary forms" in low and
