@@ -15,7 +15,7 @@
 typedef struct {
     Ins *op_pool, *op_pool0;
     size_t op_pool_left, op_pool_total;
-    void *inl_tab;
+    void *inl_storage;
     unsigned inl_cap;
 } OptState;
 #define OS ((OptState *)K.opt_state)
@@ -1283,7 +1283,7 @@ static void op_shift(Ins *i, int *r, int kind, void *c) {
 /* Число вызовов функций программы по имени и признак "адрес взят" (GADDR, указатели в данных): для встраивания единственного вызова.
  * Таблица по указателю Obj (открытая адресация), заполняется ir_inline_prepare до встраивания. */
 typedef struct { const Obj *o; int calls, taken; } InlCnt;
-#define inl_tab ((InlCnt *)OS->inl_tab)
+#define inl_tab ((InlCnt *)OS->inl_storage)
 #define inl_cap (OS->inl_cap)
 static InlCnt *inl_slot(const Obj *o, int create) {
     if (!inl_cap) return NULL;
@@ -1295,12 +1295,12 @@ static InlCnt *inl_slot(const Obj *o, int create) {
 }
 void ir_inline_prepare(Obj *globals) {
     if (!K.opt_state) K.opt_state = ka_new(sizeof(OptState));
-    OS->inl_tab = NULL; inl_cap = 0;
+    OS->inl_storage = NULL; inl_cap = 0;
     int nf = 0;
     for (Obj *g = globals; g; g = g->next) nf++;
     inl_cap = 16;
     while (inl_cap < (unsigned)nf * 2 + 16) inl_cap <<= 1;
-    OS->inl_tab = ka_new(sizeof(InlCnt) * inl_cap);
+    OS->inl_storage = ka_new(sizeof(InlCnt) * inl_cap);
     for (Obj *g = globals; g; g = g->next) {
         if (g->is_func && g->body && g->ir) {
             for (const Ins *i = ((IrFn *)g->ir)->head; i; i = i->next) {
