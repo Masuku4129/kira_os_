@@ -217,7 +217,7 @@ int main(void)
     CHECK(commands[6] == 0x46u && commands[7] == 0u);
     CHECK(commands[8] == (0x05ull | (7ull << 32)) && commands[9] == 1u);
     CHECK(commands[10] == 0x46u && commands[11] == 0u);
-    CHECK(commands[12] == (0x03ull | (7ull << 32)) && commands[13] == 0u);
+    CHECK(commands[12] == (0x03ull | (7ull << 32)) && commands[13] == 1u);
     CHECK(commands[14] == 0x46u && commands[15] == 0u);
     CHECK(commands[16] == (0x11ull | (7ull << 48)) && commands[17] == 0u);
     CHECK(commands[18] == 0x46u && commands[19] == 0u); /* MAIR AttrIdx 0 = normal WB */
