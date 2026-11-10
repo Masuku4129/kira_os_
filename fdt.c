@@ -333,3 +333,110 @@ int fdt_simplefb(const void* fdt, fdt_fb_t* fb) {
     if (!streq(fb->format, "x8r8g8b8") && !streq(fb->format, "a8r8g8b8")) return -3;
     return 0;
 }
+
+
+int fdt_phandle_node(const void* fdt, uint32_t phandle)
+{
+    int found = -1;
+    int depth = 0;
+    int node;
+
+    if (!fdt || !phandle || phandle == UINT32_MAX)
+        return -1;
+
+    node = fdt_root(fdt);
+    while (node >= 0) {
+        uint32_t primary = 0, legacy = 0;
+        int have_primary = fdt_prop_u32(fdt, node, "phandle", &primary) == 0;
+        int have_legacy = fdt_prop_u32(fdt, node, "linux,phandle", &legacy) == 0;
+
+        if (have_primary && have_legacy && primary != legacy)
+            return -1;
+        if (fdt_node_enabled(fdt, node) &&
+            ((have_primary && primary == phandle) ||
+             (have_legacy && legacy == phandle))) {
+            if (found >= 0)
+                return -1; /* Duplicate phandles are ambiguous and unsafe. */
+            found = node;
+        }
+        node = fdt_next_node(fdt, node, &depth);
+    }
+    return found;
+}
+
+int fdt_iommu_map(const void* fdt, int host_node, uint32_t requester_id,
+                  uint32_t* iommu_phandle, uint32_t* stream_id)
+{
+    const uint8_t* map;
+    uint32_t map_len = 0, mask = UINT32_MAX;
+    uint32_t mask_len = 0;
+    const void* mask_prop;
+    uint32_t pos = 0, rid;
+    uint32_t matched_phandle = 0, matched_sid = 0;
+    int matched = 0;
+
+    if (!fdt || host_node < 0 || !iommu_phandle || !stream_id)
+        return -2;
+
+    map = (const uint8_t*)fdt_prop(fdt, host_node, "iommu-map", &map_len);
+    if (!map)
+        return -1;
+    if (map_len < 16u || (map_len & 3u))
+        return -2;
+
+    mask_prop = fdt_prop(fdt, host_node, "iommu-map-mask", &mask_len);
+    if (mask_prop) {
+        if (mask_len != 4u)
+            return -2;
+        mask = fdt_u32(mask_prop);
+    }
+    rid = requester_id & mask;
+
+    while (pos < map_len) {
+        uint32_t rid_base, phandle, cells, sid_base, length;
+        uint64_t rid_end, sid;
+
+        if (map_len - pos < 8u)
+            return -2;
+        rid_base = fdt_u32(map + pos);
+        phandle = fdt_u32(map + pos + 4u);
+        pos += 8u;
+
+        {
+            int target = fdt_phandle_node(fdt, phandle);
+            if (target < 0 ||
+                fdt_prop_u32(fdt, target, "#iommu-cells", &cells) != 0 ||
+                cells != 1u)
+                return -2;
+        }
+
+        if (map_len - pos < 8u)
+            return -2;
+        sid_base = fdt_u32(map + pos);
+        length = fdt_u32(map + pos + 4u);
+        pos += 8u;
+
+        if (!length)
+            return -2;
+        rid_end = (uint64_t)rid_base + length;
+        if (rid_end > (uint64_t)UINT32_MAX + 1u)
+            return -2;
+
+        if (rid >= rid_base && (uint64_t)rid < rid_end) {
+            sid = (uint64_t)sid_base + (rid - rid_base);
+            if (sid > UINT32_MAX)
+                return -2;
+            if (matched)
+                return -2; /* More than one tuple claims this requester ID. */
+            matched = 1;
+            matched_phandle = phandle;
+            matched_sid = (uint32_t)sid;
+        }
+    }
+
+    if (!matched)
+        return -1;
+    *iommu_phandle = matched_phandle;
+    *stream_id = matched_sid;
+    return 0;
+}
