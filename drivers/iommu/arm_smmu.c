@@ -185,8 +185,11 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
 
     smmu->registers = (volatile uint8_t *)
         platform->map_mmio(platform->context, physical_base, SMMU_REGISTER_MAP_SIZE);
-    if (!smmu->registers)
+    if (!smmu->registers ||
+        ((uintptr_t)smmu->registers & (SMMU_PAGE_SIZE - 1u)) != 0) {
+        smmu->registers = 0;
         return KIRA_SMMU_MAP_FAILED;
+    }
 
     smmu->physical_base = physical_base;
     smmu->idr0 = smmu_read32(smmu->registers, SMMU_IDR0);
