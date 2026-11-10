@@ -142,7 +142,8 @@ static int smmu_alloc_queue(
     aligned_physical = (*allocation_physical + alignment - 1u) &
                        ~((uint64_t)alignment - 1u);
     offset = (size_t)(aligned_physical - *allocation_physical);
-    if (offset + queue_bytes > allocation_pages * SMMU_PAGE_SIZE) {
+    if ((aligned_physical & ~SMMU_QUEUE_BASE_ADDR_MASK) != 0 ||
+        offset + queue_bytes > allocation_pages * SMMU_PAGE_SIZE) {
         platform->free_dma_pages(platform->context, *allocation,
                                  *allocation_physical, allocation_pages);
         *allocation = 0;
@@ -285,7 +286,8 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
             ~((uint64_t)SMMU_STRTAB_ALIGN - 1u);
         size_t offset = (size_t)(aligned_physical -
                                  smmu->stream_table_allocation_physical);
-        if (offset + SMMU_STRTAB_BYTES >
+        if ((aligned_physical & ~SMMU_STRTAB_BASE_ADDR_MASK) != 0 ||
+            offset + SMMU_STRTAB_BYTES >
             SMMU_STRTAB_ALLOC_PAGES * SMMU_PAGE_SIZE) {
             platform->free_dma_pages(platform->context,
                                      smmu->stream_table_allocation,
