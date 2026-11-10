@@ -468,6 +468,14 @@ int main(void) {
         base(1); mind_step(&Missing, &S, &none);
         for (uint32_t u = 2; u <= 8; u++) { base(u); S.mem_total_mb = 0; mind_step(&Missing, &S, &none); }
         CHECK(Missing.m.memory_net.n == 0 && Missing.m.memory_net.pos == 0);
+        static mind_t Gap; mind_init(&Gap, 0, 4); Gap.m.mode = MIND_OBSERVE;
+        for (uint32_t u = 1; u <= 8; u++) { base(u); S.mem_used = 50; mind_step(&Gap, &S, &none); }
+        base(9); S.mem_used = 80; mind_step(&Gap, &S, &none);
+        base(11); S.mem_used = 50; mind_step(&Gap, &S, &none); /* пропущена секунда: метки сброшены */
+        CHECK(Gap.m.memory_net.n == 0 && Gap.mem_pending[0].valid + Gap.mem_pending[1].valid +
+              Gap.mem_pending[2].valid + Gap.mem_pending[3].valid + Gap.mem_pending[4].valid == 1);
+        for (uint32_t u = 12; u <= 16; u++) { base(u); S.mem_used = 50; mind_step(&Gap, &S, &none); }
+        CHECK(Gap.m.memory_net.n > 0); /* обучение возобновилось после четырёх непрерывных секунд */
     }
 
     printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1-v3 and disk validity) passed");
