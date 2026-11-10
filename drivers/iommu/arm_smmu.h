@@ -71,7 +71,7 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
 int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform);
 
-/* Handler receives the four raw 64-bit words of one SMMUv3 event record. */
+/* Handler receives four raw words synchronously under the event lock; it must not re-enter poll_events. */
 typedef void (*kira_smmu_event_handler)(void *context,
                                         const uint64_t words[4]);
 int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
