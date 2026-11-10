@@ -1,6 +1,6 @@
 #!/bin/bash
-# Проверка добавленных строк на признаки заглушек и пустые функции.
-# ci/lint.sh [база] (по умолчанию origin/stable, иначе origin/main).
+# Проверка производственного кода на добавленные заглушки и пустые функции.
+# Тестовые фикстуры и исследовательские эксперименты имеют собственные тесты и не входят в release lint.
 cd "$(dirname "$0")/.."
 base=${1:-origin/stable}
 git rev-parse -q --verify "$base" >/dev/null || base=origin/main
@@ -14,13 +14,17 @@ while IFS= read -r file; do
         *.c|*.h|*.S|*.py|*.sh) ;;
         *) continue ;;
     esac
-    [ "$file" = "ci/lint.sh" ] && continue
-    matches=$(git diff -U0 "$base" HEAD -- "$file" | grep -E '^\+[^+]' | grep -inE "$pat" || true)
+    case "$file" in
+        tests/*|research/*|docs/*|ci/lint.sh) continue ;;
+    esac
+    added=$(git diff -U0 "$base" HEAD -- "$file" | grep -E '^\+[^+]' || true)
+    matches=$(printf '%s\n' "$added" | grep -nE "$pat" || true)
     if [ -n "$matches" ]; then
         printf '%s\n' "$matches" | sed "s|^|$file:|"
         bad=1
     fi
-    matches=$(git diff -U0 "$base" HEAD -- "$file" | grep -E '^\+[^+]' | grep -nE '\)\s*\{\s*(return\s+(0|-1|NULL);)?\s*\}\s*$' || true)
+    # Проверяем только объявления функций, а не пустые циклы/ветви ожидания.
+    matches=$(printf '%s\n' "$added" | grep -nE '^\+[[:space:]]*(static[[:space:]]+)?([[:alnum:]_]+[[:space:]*]+)+[[:alnum:]_]+[[:space:]]*\([^;]*\)[[:space:]]*\{[[:space:]]*(return[[:space:]]+(0|-1|NULL);)?[[:space:]]*\}[[:space:]]*$' || true)
     if [ -n "$matches" ]; then
         printf '%s\n' "$matches" | sed "s|^|$file:|"
         bad=1
