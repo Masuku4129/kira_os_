@@ -4,9 +4,11 @@
   "inventory": {
     "commit_before_this_run": "0160a4c5aca2c42bad6ed3c2434a16e28b6caf38",
     "tree_sha": "d7131968676d2ebe4c33b22ee4d792bf71632e0e",
-    "tracked_paths": 915,
+    "tracked_paths": 959,
     "tree_truncated": false,
-    "scope_note": "Фактическое дерево ветки получено через Git Trees API до изменений этого запуска. Количество путей — инвентарная метрика, не процент готовности."
+    "scope_note": "Фактическое дерево ветки получено через Git Trees API до изменений этого запуска; tracked_paths включает файлы и каталоги, tracked_files — только blob-файлы. Это инвентарные метрики, не процент готовности.",
+    "tracked_files": 915,
+    "directory_entries": 44
   },
   "latest_source_commit": "e672f26a41eaede3236e74c3ecfd07126d9d3584",
   "updated_at_utc": "2026-11-10T17:23:16Z",
