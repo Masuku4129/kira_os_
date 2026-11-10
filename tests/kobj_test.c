@@ -17,8 +17,11 @@ void kfree(void* p) { free(p); }
 static uint64_t shm_room_limit_kb = 64 * 1024;
 uint64_t shm_room_kb(void) { return shm_room_limit_kb; }
 static int pages_live;
+static int fail_pmm_after = -1;
 static void (*on_pmm_alloc)(void);
 uint64_t pmm_alloc_page(void) {
+    if (fail_pmm_after == 0) return 0;
+    if (fail_pmm_after > 0) fail_pmm_after--;
     uint64_t pa = (uint64_t)(uintptr_t)aligned_alloc(4096, 4096);
     if (pa) pages_live++;
     if (on_pmm_alloc) { void (*fn)(void) = on_pmm_alloc; on_pmm_alloc = 0; fn(); }
@@ -92,6 +95,17 @@ int main(void) {
     CHECK(pages_live == 0 && kobj_count() == 0);
     shm_room_limit_kb = 64 * 1024;
 
+    // Partial physical allocation failure must unwind frames and the pending budget reservation.
+    fail_pmm_after = 1;
+    kobj_t* partial = 0;
+    CHECK(shm_open_as("partial.fail", 3, KOPEN_CREATE, 905, &partial) == KE_NOMEM && partial == 0);
+    fail_pmm_after = -1;
+    CHECK(pages_live == 0 && kobj_count() == 0);
+    kobj_t* after_failure = 0;
+    CHECK(shm_open_as("after.failure", 1, KOPEN_CREATE, 906, &after_failure) == 0 && after_failure);
+    kobj_release(after_failure);
+    CHECK(pages_live == 0 && kobj_count() == 0);
+
     // Приватные IPC-объекты доступны создателю; публикация задаётся только при создании.
     kobj_t *priv1 = 0, *priv2 = 0, *pub1 = 0, *pub2 = 0;
     CHECK(port_open_as("private.port", KOPEN_PUBLIC, 100, &priv1) == KE_ARG);
@@ -130,6 +144,8 @@ int main(void) {
     CHECK(htab_add(0, 0) == KE_ARG && htab_cap(0) == 0);
     CHECK(htab_get(0, 1, 0) == 0 && htab_take(0, 1) == 0);
     htab_free(0); CHECK(kobj_retain(0) == KE_ARG); kobj_release(0);
+    kobj_t zero_refs = { KOBJ_PORT, 0, "zero" };
+    CHECK(kobj_retain(&zero_refs) == KE_LIMIT);
 
     // дескрипторы
     htab_t h; memset(&h, 0, sizeof h);
