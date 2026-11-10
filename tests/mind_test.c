@@ -398,6 +398,18 @@ int main(void) {
         CHECK(F.skew_s == 0);
     }
 
+    /* ---- справедливость рычагов: рычаг с меньшей нуждой не должен голодать, пока более нужные пробуются по кругу ---- */
+    {
+        static mind_t Q; mind_init(&Q, 0, 4);
+        for (uint32_t u = 1; u <= 240; u++) {
+            base(u); S.audio_mixed = 4800; for (int c = 0; c < 4; c++) S.busy[c] = 40; S.runnable = 4;
+            Q.bg_fps_level = 1;                                   /* фон всё время ужат: рычагам темпа фона (22, 23) всегда есть что пробовать */
+            mind_step(&Q, &S, &act);
+        }
+        unsigned tr = 0, wn = 0, bk = 0; mind_lever_stats(&Q, ML_AUDIO_LEAD, &tr, &wn, &bk);
+        CHECK(tr >= 1);                                           /* опережение звука (нужда 40) получило пробу, хотя рычаги темпа фона (нужда 50) нужнее */
+    }
+
     printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1) passed");
     return fails != 0;
 }
