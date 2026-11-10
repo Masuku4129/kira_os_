@@ -31,7 +31,7 @@ struct A64State {
 };
 static A64State *a64_state_ctx;
 #define A64S a64_state_ctx
-#define xa (A64S->assembler)
+#define xa A64S->assembler
 #define A (&xa)
 
 /* hidden не занимает регистров (указатель результата - в x8). Агрегат больше 16 байт приходит указателем (копию делает вызывающий в ir.c). */
@@ -57,25 +57,25 @@ static int plan_args(int n, const int *asz, const unsigned char *afp, ALoc *loc,
 }
 
 /* ---------- состояние функции ---------- */
-#define ploc (A64S->ploc)
-#define p_ngrn (A64S->p_ngrn)
-#define p_nvrn (A64S->p_nvrn)
-#define p_stk (A64S->p_stk)
-#define p_hidden (A64S->p_hidden)
-#define vs (A64S->vs)
-#define ve (A64S->ve)
-#define rg (A64S->rg)
-#define so (A64S->so)
-#define slotoff (A64S->slotoff)
-#define spillbase (A64S->spillbase)
-#define homeoff (A64S->homeoff)
-#define qoff (A64S->qoff)
-#define hidoff (A64S->hidoff)
-#define frame (A64S->frame)
-#define epi (A64S->epi)
-#define tmplab (A64S->tmplab)
-#define hasvla (A64S->hasvla)
-#define maxout_cur (A64S->maxout_cur)
+#define ploc A64S->ploc
+#define p_ngrn A64S->p_ngrn
+#define p_nvrn A64S->p_nvrn
+#define p_stk A64S->p_stk
+#define p_hidden A64S->p_hidden
+#define vs A64S->vs
+#define ve A64S->ve
+#define rg A64S->rg
+#define so A64S->so
+#define slotoff A64S->slotoff
+#define spillbase A64S->spillbase
+#define homeoff A64S->homeoff
+#define qoff A64S->qoff
+#define hidoff A64S->hidoff
+#define frame A64S->frame
+#define epi A64S->epi
+#define tmplab A64S->tmplab
+#define hasvla A64S->hasvla
+#define maxout_cur A64S->maxout_cur
 #define FB (hasvla ? A6_FP : A6_SP)
 
 static int cmp_start(const void *a, const void *b) {
