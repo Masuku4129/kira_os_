@@ -245,6 +245,8 @@ int main(int argc, char** argv) {
     }
     if (sc == 'E') {                                 /* unit without pass-through: left off, nothing blocked */
         CHECK(iommu_init() == 0);
+        unsigned prepared_pages = live_pages;
+        CHECK(iommu_init() == 0 && live_pages == prepared_pages);
         CHECK(logged("no pass-through support"));
         CHECK(!(*r32(R_GSTS) & (1u << 31)));
         CHECK(iommu_isolate_device(d3) == IOMMU_E_HW);
