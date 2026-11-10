@@ -50,27 +50,27 @@ static void arm_dsb(void)
     __asm__ volatile ("dsb sy" ::: "memory");
 }
 
-static void* arm_map_mmio(void* context, uint64_t physical, size_t bytes)
+static volatile void* arm_map_mmio(void* context, uint64_t physical, size_t bytes)
 {
     (void)context;
     return (void*)vmm_map_mmio(physical, bytes, VMM_MMIO_UC);
 }
 
-static void* arm_alloc_dma_pages(void* context, uint32_t pages,
+static void* arm_alloc_dma_pages(void* context, size_t pages,
                                  uint64_t* physical)
 {
     uint64_t pa, translated = 0;
     (void)context;
-    if (!physical || !pages)
+    if (!physical || !pages || pages > UINT32_MAX)
         return 0;
     *physical = 0;
-    pa = pmm_alloc_contiguous_below(pages, 1ull << 48);
+    pa = pmm_alloc_contiguous_below((uint32_t)pages, 1ull << 48);
     if (!pa)
         return 0;
     /* ARM64 early kernel mappings are identity-mapped RAM. Do not hand an
        SMMU table a physical address that is not also a valid CPU pointer. */
     if (vmm_translate(pa, &translated) != 0 || translated != pa) {
-        (void)pmm_free_contiguous(pa, pages);
+        (void)pmm_free_contiguous(pa, (uint32_t)pages);
         return 0;
     }
     *physical = pa;
@@ -78,12 +78,13 @@ static void* arm_alloc_dma_pages(void* context, uint32_t pages,
 }
 
 static void arm_free_dma_pages(void* context, void* virtual_address,
-                               uint64_t physical, uint32_t pages)
+                               uint64_t physical, size_t pages)
 {
     (void)context;
     (void)virtual_address;
     if (physical && pages)
-        (void)pmm_free_contiguous(physical, pages);
+        if (pages <= UINT32_MAX)
+            (void)pmm_free_contiguous(physical, (uint32_t)pages);
 }
 
 static void* arm_alloc_metadata(void* context, size_t bytes)
