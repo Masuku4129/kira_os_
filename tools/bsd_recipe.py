@@ -39,8 +39,7 @@ def classify_license(data, path="<source>"):
             "this software is provided by" in low and
             "1. redistributions of source code must retain" in low and
             "2. redistributions in binary form must reproduce" in low):
-        if (("neither the name of" in low or "the name of " in low) and
-                "endorse or promote" in low):
+        if "neither the name of" in low and "endorse or promote" in low:
             return "BSD-3-Clause"
         return "BSD-2-Clause"
     if ("permission is hereby granted, free of charge, to any person obtaining a copy" in low and
