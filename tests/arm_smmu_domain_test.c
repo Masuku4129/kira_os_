@@ -308,7 +308,8 @@ int main(void)
     CHECK(kira_smmu_domain_destroy(&domain, &p) == KIRA_SMMU_OK);
     CHECK(domain.active == 0 && domain.smmu == 0);
     CHECK((smmu.stream_ids[0] & (1u << 7)) == 0);
-    CHECK(ste[0] == 0 && ste[1] == 0);
+    CHECK(ste[0] == 0 && ste[1] == 0 && ste[2] == 0 && ste[3] == 0 &&
+          ste[4] == 0 && ste[5] == 0 && ste[6] == 0 && ste[7] == 0);
     CHECK(free_calls - freed_before == 5u); /* three intermediate tables + root + CD table */
     CHECK(freed_pages - freed_pages_before == 5u);
 
