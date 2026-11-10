@@ -609,13 +609,17 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
     w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
     w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
+#if defined(__aarch64__)
     if (xs.dma_failed || !iommu_device_ready(p)) {
         pci_disable_bus_master(p);
         iommu_unmap_all(p);
         usb_log("[KIRA USB] xHCI: DMA authorization incomplete; controller remains stopped\n");
         return -1;
     }
-    pci_enable(p, PCI_CMD_MASTER);                                    /* every DMA region has an IOMMU mapping */
+#else
+    if (xs.dma_failed) return -1;
+#endif
+    pci_enable(p, PCI_CMD_MASTER);                                    /* every DMA region is authorized */
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     if (r32(xs.op, 4) & 1u) { usb_log("[KIRA USB] xHCI does not start\n"); return -1; }
