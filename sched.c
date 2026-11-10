@@ -65,9 +65,8 @@ void sched_set_steal_bias(uint32_t quanta) { steal_bias = quanta < 1 ? 1 : quant
 static uint64_t total_switches;
 static uint32_t next_id = 1;
 static uint64_t tsc_khz;
-/* Дешёвый тик: спящих просматривают, только когда наступил ближайший срок пробуждения (next_wake), а холостое ядро
-   ищет работу, только если с прошлого просмотра какой-то поток стал готовым или освободился (ready_epoch).
-   Оба значения меняются под sched_lock. */
+/* Дешёвый тик: срок ближайшего пробуждения берётся из корня sleep min-heap; холостое ядро ищет работу,
+   только если с прошлого просмотра какой-то поток стал готовым или освободился (ready_epoch). */
 static uint64_t next_wake = ~0ULL;
 static uint64_t ready_epoch = 1;
 static thread_t** sleep_heap;
@@ -656,6 +655,7 @@ unsigned sched_reap(void) {
         thread_t* t = &threads[i];
         /* on_cpu: пока ядро не ушло со стека завершённого потока, освобождать его нельзя */
         if (t->state == THREAD_ZOMBIE && t != this_cpu()->current && !t->on_cpu) {
+            sleep_remove_locked(t);
             uint8_t* stack = t->stack_base;
             t->state = THREAD_UNUSED;
             t->stack_base = 0;
