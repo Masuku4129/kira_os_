@@ -99,6 +99,25 @@ uint64_t pmm_alloc_contiguous(uint32_t pages) {
     return r;
 }
 
+uint64_t pmm_alloc_contiguous_below(uint32_t pages, uint64_t limit_exclusive) {
+    if (!pages || limit_exclusive < 4096) return 0;
+    uint64_t limit_pfn = limit_exclusive / 4096;
+    uint64_t f = spin_lock_irqsave(&lk), r = 0, run = 0;
+    for (uint64_t i = 0; i < npages; i++) {
+        uint64_t pfn = base_pfn + i;
+        if (pfn >= limit_pfn || used(i)) { run = 0; continue; }
+        if (++run == pages) {
+            uint64_t s = i + 1 - pages;
+            for (uint64_t j = s; j <= i; j++) set_used(j);
+            free_pages -= pages;
+            r = (base_pfn + s) * 4096;
+            break;
+        }
+    }
+    spin_unlock_irqrestore(&lk, f);
+    return r;
+}
+
 int pmm_free_contiguous(uint64_t pa, uint32_t pages) {
     if (!pages || (pa & 4095) || pa > UINT64_MAX - (uint64_t)pages * 4096) return -1;
     uint64_t first = pa / 4096;
