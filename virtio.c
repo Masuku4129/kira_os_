@@ -143,9 +143,11 @@ static int reset(virtio_dev_t* v) {
 }
 
 void virtio_fail(virtio_dev_t* v) {
-    if (v && v->pci)
+    if (v && v->pci) {
         pci_write16(v->pci, 0x04,
                     (uint16_t)(pci_read16(v->pci, 0x04) & ~PCI_CMD_MASTER));
+        iommu_unmap_all(v->pci);
+    }
     status_set(v, status_get(v) | VIRTIO_ST_FAILED);
     (void)reset(v);
 }
