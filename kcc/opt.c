@@ -18,7 +18,7 @@ struct OptState {
     void *inl_storage;
     unsigned inl_cap;
 };
-#define OS K.opt_state
+#define OS (&K)->opt_state
 #define op_pool (OS->op_pool)
 #define op_pool0 (OS->op_pool0)
 #define op_pool_left (OS->op_pool_left)
