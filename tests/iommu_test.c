@@ -348,16 +348,16 @@ int main(int argc, char** argv) {
     iommu_fault_poll();                                                                 /* drain what accumulated */
     uint32_t before = iommu_fault_count(d3);
     memset(logbuf, 0, 1);                                                               /* new log from here */
-    for (int i = 0; i < 6; i++) hw_dma(sid_of(d3), 0x900000 + 0x1000ull * i, i & 1, &pa);   /* 6 violations, 4 fault records */
+    for (int i = 0; i < 6; i++) hw_dma(sid_of(d3), 0x50000000 + 0x1000ull * i, i & 1, &pa);   /* 6 violations, 4 fault records */
     int got = iommu_fault_poll();
     CHECK(got == NFR);
     CHECK(iommu_fault_count(d3) == before + NFR);
-    CHECK(logged("DMA fault: device 00:03.0 read 0x900000: read not permitted"));
-    CHECK(logged("DMA fault: device 00:03.0 write 0x901000: write not permitted"));
+    CHECK(logged("DMA fault: device 00:03.0 read 0x50000000: read not permitted"));
+    CHECK(logged("DMA fault: device 00:03.0 write 0x50001000: write not permitted"));
     hw_sync();
     CHECK(iommu_fault_poll() == 0);                                                     /* records and overflow flag cleared */
-    CHECK(hw_dma(sid_of(d3), 0xA00000, 1, &pa) != 0 && iommu_fault_poll() == 1);        /* works again after the overflow */
-    for (int i = 0; i < 20; i++) { hw_dma(sid_of(d3), 0xB00000 + 0x1000ull * i, 0, &pa); iommu_fault_poll(); }
+    CHECK(hw_dma(sid_of(d3), 0x60000000, 1, &pa) != 0 && iommu_fault_poll() == 1);        /* works again after the overflow */
+    for (int i = 0; i < 20; i++) { hw_dma(sid_of(d3), 0x61000000 + 0x1000ull * i, 0, &pa); iommu_fault_poll(); }
     int lines = 0; for (const char* s = logbuf; (s = strstr(s, "DMA fault: device 00:03.0")) != 0; s++) lines++;
     CHECK(lines <= 8 + 2);                                                              /* log is rate limited per device */
 
