@@ -40,6 +40,7 @@ static int open_flags_valid(int flags) {
 
 // ---- имена и дескрипторы ----
 int kname_ok(const char* s) {
+    if (!s) return 0;
     unsigned n = 0;
     for (; s[n]; n++) {
         char c = s[n];
