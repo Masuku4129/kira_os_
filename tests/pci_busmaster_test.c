@@ -68,6 +68,9 @@ int main(void)
     invalid_ecam = ecam;
     invalid_ecam.base = 0;
     CHECK(pci_configure_ecam(&invalid_ecam) != 0);
+    invalid_ecam = ecam;
+    invalid_ecam.base = ecam_window + 1u;
+    CHECK(pci_configure_ecam(&invalid_ecam) != 0);
     CHECK(pci_init() == 1);
     dev = pci_get(0);
     CHECK(dev != 0 && dev->bus == 5 && dev->dev == 1);
