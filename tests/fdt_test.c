@@ -186,6 +186,22 @@ int main(void) {
             CHECK(fdt_iommu_map(blob, pcie, 0x1020u, &phandle, &sid) == -2);
         }
         total = build();
+        pcie = fdt_find_path(blob, "/pcie@4010000000");
+        {
+            int smmu = fdt_phandle_node(blob, 0x42);
+            uint8_t* compatible = (uint8_t*)fdt_prop(blob, smmu, "compatible", &len);
+            CHECK(compatible && len == 12u);
+            compatible[0] = 'x';
+            CHECK(fdt_iommu_map(blob, pcie, 0x1020u, &phandle, &sid) == -2);
+        }
+        total = build();
+        pcie = fdt_find_path(blob, "/pcie@4010000000");
+        map = (uint8_t*)fdt_prop(blob, pcie, "iommu-map", &len);
+        CHECK(map && len == 32u);
+        be(map + 20, 0xfffffff0u);
+        be(map + 28, 0x20u);
+        CHECK(fdt_iommu_map(blob, pcie, 0x1020u, &phandle, &sid) == -2);
+        total = build();
     }
 
     fdt_fb_t fb;
