@@ -1115,7 +1115,7 @@ static void arm_pci_init(const void* fdt) {
         .first_bus = first_bus, .last_bus = last_bus
     };
     if (pci_configure_ecam(&ecam_config) != 0) {
-        kprintf("[KIRA PCI] rejected ECAM configuration after mapping\\n");
+        kprintf("[KIRA PCI] rejected ECAM configuration after mapping\n");
         return;
     }
 
