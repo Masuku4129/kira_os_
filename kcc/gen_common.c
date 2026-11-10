@@ -3,16 +3,17 @@
 #include "target.h"
 #include <string.h>
 
-int kcc_obj;                                    /* 1 - вывод объектного файла (ET_REL), main не нужен, внешние символы разрешены */
-int kcc_dumpopt;
-int kcc_nosr;
-int kcc_wrapv;
-int kcc_nolvn;
-int kcc_nosse;
-int kcc_noopt;                                  /* 1 - не запускать ir_optimize (-O0, для сверки и отладки) */
-
-static Obj **htab;
-static unsigned hcap;
+typedef struct {
+    Obj **htab;
+    unsigned hcap;
+    Obj **work;
+    int nwork;
+} GenState;
+#define GS ((GenState *)K.gen_state)
+#define htab (GS->htab)
+#define hcap (GS->hcap)
+#define work (GS->work)
+#define nwork (GS->nwork)
 static unsigned hash(const char *s) { unsigned h = 2166136261u; while (*s) h = (h ^ (unsigned char)*s++) * 16777619u; return h; }
 int gen_is_defined(const Obj *o) { return o->is_func ? o->body != NULL : o->is_def; }
 int gen_is_helper_name(const char *n) { return !strcmp(n, "memcpy") || !strcmp(n, "memset") || !strcmp(n, "memcmp") || !strcmp(n, "strlen") ||
@@ -33,7 +34,6 @@ Obj *gen_lookup(const char *name) {
     return NULL;
 }
 
-static Obj **work; static int nwork;
 
 static void mark_ref(const Obj *from, const char *name) {
     Obj *o = gen_lookup(name);
@@ -56,6 +56,8 @@ static void scan_refs(Obj *o) {
 
 /* Таблица имён, IR всех функций, достижимость. Возвращает main (его отсутствие - ошибка). */
 Obj *gen_prepare(Obj *globals) {
+    if (!K.gen_state) K.gen_state = ka_new(sizeof(GenState));
+    memset(GS, 0, sizeof *GS);
     int ng = 0;
     for (Obj *g = globals; g; g = g->next) ng++;
     hcap = 16;
