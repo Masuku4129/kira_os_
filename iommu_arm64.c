@@ -29,6 +29,7 @@ typedef struct {
     uint32_t stream_id;
     uint8_t covered;
     uint8_t blocked;
+    uint8_t quarantine_pending;
     arm_iommu_map_t maps[ARM_IOMMU_MAX_MAPS];
 } arm_iommu_device_t;
 
@@ -39,6 +40,8 @@ static arm_iommu_device_t arm_devices[ARM_IOMMU_MAX_DEVICES];
 static uint16_t arm_sid_refs[256];
 static uint8_t arm_sid_shared[256];
 static uint32_t arm_sid_faults[256];
+static uint64_t arm_sid_last_event[256][4];
+static uint8_t arm_sid_event_pending[256];
 static unsigned arm_device_count;
 static unsigned arm_domains_created;
 static uint8_t arm_map_present;
@@ -161,33 +164,31 @@ static void arm_report_event(void* context, const uint64_t event[4])
 {
     uint32_t sid = (uint32_t)(event[0] >> 32);
     uint32_t id = (uint32_t)(event[0] & 0xffu);
+    int translation_fault = id >= 0x10u && id <= 0x13u;
     (void)context;
-    if (sid < 256u) {
-        int translation_fault = id >= 0x10u && id <= 0x13u;
-        if (translation_fault) {
-            /* These fault classes prove the stage-1 domain rejected a DMA
-               request; virtio's startup probe intentionally exercises this. */
-            __atomic_add_fetch(&arm_sid_faults[sid], 1u, __ATOMIC_RELAXED);
-        }
-        /* Stop bus mastering on every event. Configuration faults additionally
-           quarantine the stream permanently until an explicit recovery path. */
-        for (unsigned i = 0; i < arm_device_count; ++i) {
-            arm_iommu_device_t* dev = &arm_devices[i];
-            if (dev->covered && dev->stream_id == sid) {
-                if (!translation_fault)
-                    __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
-                if (dev->pci)
-                    pci_disable_bus_master(dev->pci);
-            }
+
+    if (sid >= 256u)
+        return;
+
+    /* This callback runs under EVTQ lock: bounded memory operations and
+       atomics only. PCI config writes and console output are deferred. */
+    for (unsigned i = 0; i < 4u; ++i)
+        arm_sid_last_event[sid][i] = event[i];
+    __atomic_store_n(&arm_sid_event_pending[sid], 1u, __ATOMIC_RELEASE);
+
+    if (translation_fault) {
+        __atomic_add_fetch(&arm_sid_faults[sid], 1u, __ATOMIC_RELAXED);
+        return;
+    }
+
+    /* Malformed STE/CD/stream events quarantine every function sharing SID. */
+    for (unsigned i = 0; i < arm_device_count; ++i) {
+        arm_iommu_device_t* dev = &arm_devices[i];
+        if (dev->covered && dev->stream_id == sid) {
+            __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
+            __atomic_store_n(&dev->quarantine_pending, 1u, __ATOMIC_RELEASE);
         }
     }
-    uart_print("[KIRA SMMU] event ");
-    uart_print_hex(id);
-    uart_print(" SID ");
-    uart_print_hex(sid);
-    uart_print(" IOVA ");
-    uart_print_hex(event[2]);
-    uart_print("\n");
 }
 
 static void arm_platform_init(void)
@@ -620,6 +621,26 @@ int iommu_fault_poll(void)
         return 0;
     rc = kira_smmu_v3_poll_events(&arm_smmu, &arm_platform, 256u,
                                   &processed);
+    /* The callback has released EVTQ lock; perform potentially blocking PCI
+       config writes and console output only now. */
+    for (unsigned i = 0; i < arm_device_count; ++i) {
+        arm_iommu_device_t* dev = &arm_devices[i];
+        if (__atomic_exchange_n(&dev->quarantine_pending, 0u, __ATOMIC_ACQ_REL) &&
+            dev->pci)
+            pci_disable_bus_master(dev->pci);
+    }
+    for (uint32_t sid = 0; sid < 256u; ++sid) {
+        if (!__atomic_exchange_n(&arm_sid_event_pending[sid], 0u, __ATOMIC_ACQ_REL))
+            continue;
+        uint64_t* event = arm_sid_last_event[sid];
+        uart_print("[KIRA SMMU] event ");
+        uart_print_hex((uint32_t)(event[0] & 0xffu));
+        uart_print(" SID ");
+        uart_print_hex(sid);
+        uart_print(" IOVA ");
+        uart_print_hex(event[2]);
+        uart_print("\n");
+    }
     if (rc != KIRA_SMMU_OK)
         uart_print("[KIRA SMMU] event queue reported overflow or hardware error.\n");
     return (int)processed;
