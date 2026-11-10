@@ -84,6 +84,17 @@ extern volatile void* host_map_bar(const pci_dev_t* d, int bar, uint64_t off, ui
 
 int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
     v->pci = d; v->common = v->notify = v->isr = v->devcfg = 0; v->notify_mult = 0; v->features = 0; v->msix_vec = 0xFFFF;
+#if !defined(KIRA_HOST_TEST) && defined(__aarch64__)
+    /* Every virtio function must own a translated domain before any queue or
+       data buffer is allocated. Do this in the common transport path so GPU,
+       input, network and RNG cannot accidentally bypass the SMMU gate. */
+    int iommu_rc = iommu_isolate_device(d);
+    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
+        iommu_rc != IOMMU_E_NOCOVER) {
+        uart_print("[KIRA VIRTIO] requester isolation failed; bus mastering remains disabled\\n");
+        return -3;
+    }
+#endif
     uint8_t id; uint16_t cap = 0;
     for (int guard = 0; guard < 48; guard++) {
         cap = pci_next_cap(d, cap, &id);
