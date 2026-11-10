@@ -157,6 +157,7 @@ int main(void)
     CHECK(((cd[0] >> 30) & 1ull) == 1ull);       /* EPD1 */
     CHECK(((cd[0] >> 32) & 7ull) == 5ull);       /* IPS = 48-bit */
     CHECK(((cd[0] >> 41) & 1ull) == 1ull);       /* AA64 */
+    CHECK(((cd[0] >> 48) & 0xffffull) == 8ull); /* unique nonzero ASID */
     CHECK(cd[1] == domain.stage1_root_physical); /* CD.TTB0 */
     CHECK(cd[2] == 0);
     CHECK(cd[3] == 0xffull); /* MAIR AttrIndx 0 is normal write-back memory. */
@@ -199,6 +200,11 @@ int main(void)
 
     rc = kira_smmu_domain_destroy(&domain, &p);
     CHECK(rc == KIRA_SMMU_OK);
+    CHECK(((uint64_t *)cmdq)[8] == (0x11ull | (8ull << 48)));  /* map TLBI */
+    CHECK(((uint64_t *)cmdq)[12] == (0x11ull | (8ull << 48))); /* read-only TLBI */
+    CHECK(((uint64_t *)cmdq)[16] == (0x11ull | (8ull << 48))); /* unmap TLBI */
+    CHECK(((uint64_t *)cmdq)[24] == (0x05ull | (1ull << 11) | (7ull << 32))); /* CFGI_CD */
+    CHECK(((uint64_t *)cmdq)[28] == (0x11ull | (8ull << 48))); /* destroy TLBI */
     CHECK(!domain.active && free_calls == 5);
     CHECK(metadata_allocs == metadata_frees);
     CHECK(ste[0] == 0);
@@ -219,6 +225,14 @@ int main(void)
     memset(&domain, 0, sizeof(domain));
     p = platform(&ctx);
     CHECK(kira_smmu_domain_create(&domain, &smmu, 7, &p) == KIRA_SMMU_UNSUPPORTED);
+    CHECK(alloc_calls == 0);
+
+    /* Without ASID16, stream 255 cannot be assigned a unique nonzero ASID. */
+    reset();
+    init_smmu(&smmu);
+    memset(&domain, 0, sizeof(domain));
+    p = platform(&ctx);
+    CHECK(kira_smmu_domain_create(&domain, &smmu, 255, &p) == KIRA_SMMU_UNSUPPORTED);
     CHECK(alloc_calls == 0);
 
     puts("ARM SMMUv3 domain: stage-1 STE/CD programming and teardown passed");
