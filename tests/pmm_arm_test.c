@@ -35,6 +35,7 @@ int main(void) {
     CHECK(pmm_free_contiguous(aligned, 4) == 0);
     uint64_t half_aligned = pmm_alloc_contiguous_aligned_below(2, 8, 0x200000);
     CHECK(half_aligned && half_aligned % (8 * 4096) == 0 && half_aligned + 2 * 4096 <= 0x200000);
+    CHECK((half_aligned & 0x1FFFFULL) + 2 * 4096 <= 0x20000ULL);
     CHECK(pmm_free_contiguous(half_aligned, 2) == 0);
     CHECK(pmm_alloc_contiguous_aligned_below(4, 3, 0x200000) == 0); // alignment must be a power of two
 
