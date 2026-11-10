@@ -127,6 +127,7 @@ static int smmu_alloc_queue(
     if (!*allocation || !*allocation_physical ||
         ((uintptr_t)*allocation & (SMMU_PAGE_SIZE - 1u)) != 0 ||
         (*allocation_physical & (SMMU_PAGE_SIZE - 1u)) != 0 ||
+        *allocation_physical > UINT64_MAX - (alignment - 1u) ||
         *allocation_physical >
             UINT64_MAX - (allocation_pages * SMMU_PAGE_SIZE)) {
         if (*allocation)
@@ -264,6 +265,8 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         !smmu->stream_table_allocation_physical ||
         ((uintptr_t)smmu->stream_table_allocation & (SMMU_PAGE_SIZE - 1u)) ||
         (smmu->stream_table_allocation_physical & (SMMU_PAGE_SIZE - 1u)) ||
+        smmu->stream_table_allocation_physical >
+            UINT64_MAX - (SMMU_STRTAB_ALIGN - 1u) ||
         smmu->stream_table_allocation_physical >
             UINT64_MAX - (SMMU_STRTAB_ALLOC_PAGES * SMMU_PAGE_SIZE)) {
         if (smmu->stream_table_allocation)
