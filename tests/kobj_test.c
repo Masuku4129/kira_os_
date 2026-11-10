@@ -116,6 +116,8 @@ int main(void) {
     // очередь: порядок, отправитель, переполнение, длина больше ёмкости
     char buf[64]; uint32_t from = 0;
     CHECK(port_recv(p1, buf, sizeof buf, 0, &from, 0) == KE_AGAIN);
+    CHECK(port_send(p1, 1, 0, 1) == KE_ARG);
+    CHECK(port_recv(p1, 0, 1, 0, &from, 0) == KE_ARG);
     CHECK(port_send(p1, 5, "one", 3) == 0 && port_send(p1, 6, "two!", 4) == 0);
     CHECK(port_queued(p1) == 2 && kobj_messages_total() >= 2);
     CHECK(port_recv(p1, buf, sizeof buf, 0, &from, 0) == 3 && !memcmp(buf, "one", 3) && from == 5);
