@@ -60,8 +60,26 @@ int iommu_fault_poll(void);
 /* Faults attributed to the device since boot (needs iommu_fault_poll to run). */
 uint32_t iommu_fault_count(const pci_dev_t* dev);
 
+#elif defined(__aarch64__)
+/* ARM64 SMMUv3 is initialized from the PCI host's FDT iommu-map before any
+   PCI driver starts. Mapped devices begin with explicit per-stream bypass
+   STEs; drivers may replace one with a private stage-1 domain. */
+int iommu_arm64_init(const void* fdt, int pci_host_node);
+int iommu_init(void);
+int iommu_enabled(void);
+int iommu_device_ready(const pci_dev_t* dev);
+int iommu_isolate_device(const pci_dev_t* dev);
+int iommu_release_device(const pci_dev_t* dev);
+int iommu_device_isolated(const pci_dev_t* dev);
+int iommu_map(const pci_dev_t* dev, uint64_t iova, uint64_t phys,
+              uint64_t len, unsigned rw);
+int iommu_unmap(const pci_dev_t* dev, uint64_t iova, uint64_t len);
+void iommu_unmap_all(const pci_dev_t* dev);
+int iommu_fault_poll(void);
+uint32_t iommu_fault_count(const pci_dev_t* dev);
+
 #else
-/* Other architectures have no VT-d: the same calls report "not available" (ARM64 SMMU is separate work). */
+/* Other architectures have no hardware IOMMU implementation. */
 static inline int iommu_init(void)
 {
     return 0;
