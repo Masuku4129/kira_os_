@@ -39,6 +39,12 @@ echo "UEFI loader sources: compile passed"
 echo "== UEFI: наш загрузчик + GPT/ESP под OVMF (без GRUB) =="
 tests/uefi_boot_test.sh
 
+echo "== syscall ABI: kernel and both userland headers share stable numbers =="
+$CC $FLAGS -Iuserland -Ikcc/include -o $T/sysabi-user tests/syscall_abi_test.c
+$T/sysabi-user
+$CC $FLAGS -Ikcc/include -Iuserland -DKIRA_ABI_USE_KCC_HEADER -o $T/sysabi-kcc tests/syscall_abi_test.c
+$T/sysabi-kcc
+
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c bootinfo_mb2.c bootinfo.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
 $T/pmm | head -4
