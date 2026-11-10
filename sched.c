@@ -70,16 +70,21 @@ static uint64_t tsc_khz;
    Оба значения меняются под sched_lock. */
 static uint64_t next_wake = ~0ULL;
 static uint64_t ready_epoch = 1;
+static thread_t** sleep_heap;
+static unsigned sleep_count;
+#define SLEEP_INDEX_NONE UINT32_MAX
 
 extern void kernel_panic(const char* reason) __attribute__((noreturn));
 
 static void rq_remove(struct thread* t);
+static void sleep_remove_locked(thread_t* t);
 
 // Свободный слот таблицы (вызывать под sched_lock); занятый слот расширяет границу обходов.
 static thread_t* take_slot(void) {
     for (unsigned i = 0; i < thread_cap; i++) {
         if (threads[i].state == THREAD_UNUSED) {
             if (i + 1 > thread_hi) thread_hi = i + 1;
+            sleep_remove_locked(&threads[i]);
             rq_remove(&threads[i]);         /* свободный слот в очереди не стоит; страховка от чужой правки состояния */
             return &threads[i];
         }
@@ -324,9 +329,57 @@ static thread_t* pick_next(unsigned cpu, const thread_t* self) {
     return this_cpu()->idle;
 }
 
+/* Таймерная очередь: min-heap даёт O(1) чтение ближайшего срока и O(log N) вставку/удаление.
+   Все функции вызываются под sched_lock; один поток может иметь только одну запись. */
+static void sleep_publish_next(void) {
+    __atomic_store_n(&next_wake, sleep_count ? sleep_heap[0]->wake_tick : ~0ULL, __ATOMIC_RELEASE);
+}
+static void sleep_swap(unsigned a, unsigned b) {
+    thread_t* t = sleep_heap[a]; sleep_heap[a] = sleep_heap[b]; sleep_heap[b] = t;
+    sleep_heap[a]->sleep_index = a; sleep_heap[b]->sleep_index = b;
+}
+static void sleep_up(unsigned i) {
+    while (i) {
+        unsigned p = (i - 1) / 2;
+        if (sleep_heap[p]->wake_tick <= sleep_heap[i]->wake_tick) break;
+        sleep_swap(p, i); i = p;
+    }
+}
+static void sleep_down(unsigned i) {
+    for (;;) {
+        unsigned l = i * 2 + 1, r = l + 1, b = i;
+        if (l < sleep_count && sleep_heap[l]->wake_tick < sleep_heap[b]->wake_tick) b = l;
+        if (r < sleep_count && sleep_heap[r]->wake_tick < sleep_heap[b]->wake_tick) b = r;
+        if (b == i) break;
+        sleep_swap(i, b); i = b;
+    }
+}
+static void sleep_remove_locked(thread_t* t) {
+    unsigned i = t->sleep_index;
+    if (i == SLEEP_INDEX_NONE) return;
+    if (i >= sleep_count || sleep_heap[i] != t) kernel_panic("Scheduler sleep heap index corrupted");
+    unsigned last = --sleep_count;
+    t->sleep_index = SLEEP_INDEX_NONE;
+    if (i != last) {
+        sleep_heap[i] = sleep_heap[last]; sleep_heap[i]->sleep_index = i;
+        if (i && sleep_heap[i]->wake_tick < sleep_heap[(i - 1) / 2]->wake_tick) sleep_up(i);
+        else sleep_down(i);
+    }
+    sleep_publish_next();
+}
+static void sleep_insert_locked(thread_t* t) {
+    if (t->sleep_index != SLEEP_INDEX_NONE) sleep_remove_locked(t);
+    if (sleep_count >= thread_cap) kernel_panic("Scheduler sleep heap capacity exceeded");
+    unsigned i = sleep_count++;
+    sleep_heap[i] = t; t->sleep_index = i;
+    sleep_up(i);
+    sleep_publish_next();
+}
+
 /* Поток стал готовым (проснулся, создан, получил событие): в очередь подходящего ядра; ядру, где он должен идти
    сразу, - пора выбрать заново (своему - флаг, чужому - межъядерное прерывание). Под sched_lock. */
 static void make_ready_locked(thread_t* t) {
+    if (t->state == THREAD_SLEEPING) sleep_remove_locked(t);
     t->state = THREAD_READY;
     t->ready_since = timer_get_ticks();
     ready_epoch++;
@@ -368,7 +421,7 @@ static void schedule_locked(void) {
     if (prev->state == THREAD_RUNNING && prev->throttled_until > now_tick) {
         prev->state = THREAD_SLEEPING;                 /* исчерпал свою долю окна: спит до его конца */
         prev->wake_tick = prev->throttled_until;
-        if (prev->wake_tick < next_wake) next_wake = prev->wake_tick;
+        sleep_insert_locked(prev);
     }
     if (prev->state == THREAD_RUNNING) {
         prev->state = THREAD_READY;
@@ -496,6 +549,7 @@ static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg
     t->on_cpu = 0;
     t->rq_next = t->rq_prev = 0;
     t->rq_cpu = -1;
+    t->sleep_index = SLEEP_INDEX_NONE;
     __builtin_memcpy(t->fpu, fpu_initial_state(), FPU_STATE_SIZE);
     make_ready_locked(t);        // последним: до этого слот считается свободным
     spin_unlock_raw(&sched_lock);
@@ -510,9 +564,13 @@ void sched_init(unsigned cpus, uint64_t ram_kb) {
     if (!raw) kernel_panic("Cannot allocate the thread table");
     threads = (thread_t*)(((uintptr_t)raw + _Alignof(thread_t) - 1) & ~(uintptr_t)(_Alignof(thread_t) - 1));
     __builtin_memset(threads, 0, (size_t)thread_cap * sizeof(thread_t));
+    sleep_heap = (thread_t**)kmalloc((size_t)thread_cap * sizeof(thread_t*));
+    if (!sleep_heap) kernel_panic("Cannot allocate the scheduler sleep heap");
+    sleep_count = 0;
+    __atomic_store_n(&next_wake, ~0ULL, __ATOMIC_RELEASE);
     thread_hi = 1;
     uint64_t f = irq_save();
-    for (unsigned i = 0; i < thread_cap; i++) { threads[i].state = THREAD_UNUSED; threads[i].rq_cpu = -1; }
+    for (unsigned i = 0; i < thread_cap; i++) { threads[i].state = THREAD_UNUSED; threads[i].rq_cpu = -1; threads[i].sleep_index = SLEEP_INDEX_NONE; }
 
     // Текущий контекст (kernel_main на boot-стеке) становится потоком "core"
     thread_t* core = &threads[0];
@@ -530,6 +588,7 @@ void sched_init(unsigned cpus, uint64_t ram_kb) {
     core->flags = THREAD_F_SERVICE;
     core->mutexes_held = 0;
     core->last_cpu = 0;
+    core->sleep_index = SLEEP_INDEX_NONE;
     core->on_cpu = 1;
     core->rq_cpu = -1;
     __builtin_memcpy(core->fpu, fpu_initial_state(), FPU_STATE_SIZE);
@@ -573,9 +632,10 @@ void sched_sleep_ticks(uint32_t ticks) {
     if (ticks == 0) { sched_yield(); return; }
     uint64_t f = irq_save();
     sl_lock();
-    this_cpu()->current->wake_tick = timer_get_ticks() + ticks;
+    uint64_t now = timer_get_ticks();
+    this_cpu()->current->wake_tick = ticks >= ~0ULL - now ? ~0ULL : now + ticks;
     this_cpu()->current->state = THREAD_SLEEPING;
-    if (this_cpu()->current->wake_tick < next_wake) next_wake = this_cpu()->current->wake_tick;
+    sleep_insert_locked(this_cpu()->current);
     schedule_locked();
     irq_restore(f);
 }
@@ -642,18 +702,13 @@ void sched_tick(void) {
     if (!need) return;
 
     sl_lock();
-    if (now >= next_wake) {
-        uint64_t nw = ~0ULL;
-        for (unsigned i = 0; i < thread_hi; i++) {
-            thread_t* t = &threads[i];
-            if (t->state != THREAD_SLEEPING) continue;
-            if (t->wake_tick <= now) {
-                make_ready_locked(t);                   // в очередь ядра, где пойдёт; более важный вытесняет сразу
-            } else if (t->wake_tick < nw) {
-                nw = t->wake_tick;
-            }
+    if (now >= __atomic_load_n(&next_wake, __ATOMIC_ACQUIRE)) {
+        while (sleep_count && sleep_heap[0]->wake_tick <= now) {
+            thread_t* t = sleep_heap[0];
+            sleep_remove_locked(t);
+            if (t->state == THREAD_SLEEPING)
+                make_ready_locked(t);
         }
-        next_wake = nw;
     }
 
     if (cur == cpu->idle) {
@@ -917,6 +972,7 @@ unsigned sched_core_fail(void) {
         if (!cm_test(&t->affinity, id)) continue;
         cm_clear(&t->affinity, id);
         if (cm_empty(&t->affinity) && t->state != THREAD_BLOCKED) {   // идти больше некуда; ждущего в очереди мьютекса не трогаем
+            sleep_remove_locked(t);
             rq_remove(t);
             t->state = THREAD_ZOMBIE;
             orphans++;
@@ -1048,7 +1104,7 @@ void sched_wait_and_unlock(spinlock_t* l, uint64_t ticks) {
     uint64_t now = timer_get_ticks();
     cur->wake_tick = ticks >= ~0ULL - now ? ~0ULL : now + ticks;
     cur->state = THREAD_SLEEPING;
-    if (cur->wake_tick < next_wake) next_wake = cur->wake_tick;
+    sleep_insert_locked(cur);
     schedule_locked();
 }
 
@@ -1073,8 +1129,9 @@ void sched_set_wake_tick(thread_t* t, uint64_t tick) {
     uint64_t f = irq_save();
     sl_lock();
     if (t->state == THREAD_SLEEPING) {
+        sleep_remove_locked(t);
         t->wake_tick = tick;
-        if (tick < next_wake) next_wake = tick;
+        sleep_insert_locked(t);
     }
     spin_unlock_raw(&sched_lock);
     irq_restore(f);
