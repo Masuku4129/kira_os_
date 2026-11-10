@@ -127,11 +127,18 @@ static uint32_t cr32(const pci_dev_t* d, uint16_t off) { return be.read32(d->bus
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { return cr32(d, off); }
 uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { return (uint16_t)(cr32(d, off & ~3) >> ((off & 2) * 8)); }
 uint8_t pci_read8(const pci_dev_t* d, uint16_t off) { return (uint8_t)(cr32(d, off & ~3) >> ((off & 3) * 8)); }
-void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { be.write32(d->bus, d->dev, d->fn, off, v); }
+void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) {
+#if defined(__aarch64__) && !defined(KIRA_HOST_TEST)
+    if (off == 0x04u && (v & PCI_CMD_MASTER) &&
+        iommu_enabled() && !iommu_device_isolated(d))
+        v &= ~(uint32_t)PCI_CMD_MASTER;
+#endif
+    be.write32(d->bus, d->dev, d->fn, off, v);
+}
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
 #if defined(__aarch64__) && !defined(KIRA_HOST_TEST)
     /* A discovered SMMU is fail-closed: no function may start DMA without a domain. */
-    if ((off & ~3u) == 0x04u && (v & PCI_CMD_MASTER) &&
+    if (off == 0x04u && (v & PCI_CMD_MASTER) &&
         iommu_enabled() && !iommu_device_isolated(d))
         v = (uint16_t)(v & ~PCI_CMD_MASTER);
 #endif
