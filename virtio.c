@@ -91,7 +91,7 @@ int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
     int iommu_rc = iommu_isolate_device(d);
     if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
         iommu_rc != IOMMU_E_NOCOVER) {
-        uart_print("[KIRA VIRTIO] requester isolation failed; bus mastering remains disabled\\n");
+        uart_print("[KIRA VIRTIO] requester isolation failed; bus mastering remains disabled\n");
         return -3;
     }
 #endif
