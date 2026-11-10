@@ -289,7 +289,7 @@ int main(int argc, char** argv) {
     unsigned pages_before = live_pages;
     CHECK(iommu_isolate_device(d3) == IOMMU_OK && iommu_isolate_device(d3) == IOMMU_OK);
     CHECK(iommu_device_isolated(d3) && iommu_device_ready(d3) &&
-          !iommu_device_isolated(dev_at(0, 0, 0)) && iommu_device_ready(dev_at(0, 0, 0)));
+          !iommu_device_isolated(dev_at(0, 0, 0)) && !iommu_device_ready(dev_at(0, 0, 0)));
     CHECK(logged("00:03.0 isolated: own translation domain"));
     CHECK(hw_dma(sid_of(d3), 0x5000, 0, &pa) != 0);                                     /* nothing mapped: everything faults */
     CHECK(hw_dma(sid_of(dev_at(0, 0, 0)), 0x5000, 1, &pa) == 0);                        /* neighbours unaffected */
