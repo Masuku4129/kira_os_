@@ -18,7 +18,7 @@
 #include "ramext.h"
 #endif
 
-#define IOMMU_MAX_DOMAINS 16
+#define IOMMU_MAX_DOMAINS 128
 #define IOMMU_MAX_MAPS 2048
 #define IOMMU_FAULT_BATCH 32
 #define IOMMU_FAULT_LOG_PER_DEVICE 8

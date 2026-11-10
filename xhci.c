@@ -551,7 +551,8 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) { usb_log("[KIRA USB] xHCI without memory BAR0: skipped\n"); return -1; }
 #if defined(__aarch64__) || defined(__x86_64__)
     int iommu_rc = iommu_isolate_device(p);
-    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NOCOVER) {
+    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
+        iommu_rc != IOMMU_E_NOCOVER) {
         usb_log("[KIRA USB] xHCI: IOMMU isolation failed; controller disabled\n");
         return -1;
     }
