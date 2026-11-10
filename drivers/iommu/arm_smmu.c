@@ -417,6 +417,7 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
     smmu_write64(smmu->registers, SMMU_CMDQ_BASE, queue_base);
     smmu_write32(smmu->registers, SMMU_CMDQ_PROD, 0);
     smmu_write32(smmu->registers, SMMU_CMDQ_CONS, 0);
+    smmu->cmdq_producer = 0;
 
     queue_base = (smmu->evtq_physical & SMMU_QUEUE_BASE_ADDR_MASK) |
                  SMMU_QUEUE_LOG2;
