@@ -20,11 +20,8 @@
 #define ldv g64_ldv
 #define norm g64_norm
 #define plan_args g64_plan_args
-#define ploc g64_ploc
 #define pool g64_pool
 #define rd32 g64_rd32
 #define spill g64_spill
-#define spillbase g64_spillbase
 #define stv g64_stv
 #define wr32 g64_wr32
-#define xa g64_xa

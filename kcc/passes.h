@@ -2,18 +2,5 @@
  * Определены в opt.c; разбор командной строки - kcc_flag. */
 #ifndef KCC_PASSES_H
 #define KCC_PASSES_H
-extern int kcc_noregs;                        /* -fno-regs: пул из 8 регистров, все аргументы через домашнюю область, всегда кадр, выбор жертвы по весу */
-extern int kcc_nodce;                         /* -fno-dce: не удалять недостижимые инструкции и ветвления по константе */
-extern int kcc_noalign;                       /* -fno-align: без выравнивания заголовков циклов на 16 байт */
-extern int kcc_nonnshift;                     /* -fno-nnshift: арифметический сдвиг вправо 32-бит читает нормализованный операнд (как до расширения пропуска нормализации) */
-extern int kcc_nomrot;                        /* -fno-mrot: поворот распознаётся только у значений с одним определением */
-extern int kcc_nodisp;                        /* -fno-disp: сложение с константой не сворачивается в смещение обращения к памяти */
-extern int kcc_noextld;                       /* -fno-extld: расширение загруженного значения не сливается с загрузкой */
-extern int kcc_norec;                          /* -fno-rec-inline: рекурсивная функция не разворачивается на один уровень */
-extern int kcc_noonce;                         /* -fno-once-inline: статическая функция с единственным вызовом встраивается только по обычному порогу */
-extern int kcc_nopooltrim;                   /* -fno-pooltrim: неиспользованные узлы пула инверсии циклов остаются в арене (для сверки расхода памяти) */
-extern int kcc_nopop;                          /* -fno-popcount: цикл x &= x - 1 не заменяется битовой последовательностью */
-extern int kcc_nocfgfirst;                     /* -fno-cfgfirst: чистка jmp/меток не выполняется до распространения копий */
-extern int kcc_noreassoc;                      /* -fno-reassoc: адрес (x + y) + z не перестраивается так, чтобы неизменное в цикле слагаемое вынеслось */
-int kcc_flag(const char *arg);                /* 1, если arg - известный флаг этого списка (и он применён) */
+int kcc_flag(const char *arg, KOptions *options);                /* 1, если arg - известный флаг этого списка (и он применён) */
 #endif

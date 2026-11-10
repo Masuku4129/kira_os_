@@ -12,6 +12,19 @@
 #include "passes.h"
 #include <string.h>
 
+struct OptState {
+    Ins *op_pool, *op_pool0;
+    size_t op_pool_left, op_pool_total;
+    void *inl_storage;
+    unsigned inl_cap;
+};
+static struct OptState *kcc_opt_state_context(void) { return K.opt_state; }
+#define OS (kcc_opt_state_context())
+#define op_pool (OS->op_pool)
+#define op_pool0 (OS->op_pool0)
+#define op_pool_left (OS->op_pool_left)
+#define op_pool_total (OS->op_pool_total)
+
 
 static void op_walk(Ins *i, OpVisit fn, void *ctx) {
     switch (i->op) {
@@ -772,7 +785,6 @@ static void op_hdrcnt(Ins *i, int *r, int kind, void *x) { (void)i; OpHdrCnt *h 
 typedef struct { const int *map; int nv; } OpHdrMap;
 static void op_hdrmap(Ins *i, int *r, int kind, void *x) { (void)i; OpHdrMap *h = x; if (kind == 0 && *r > 0 && *r <= h->nv && h->map[*r]) *r = h->map[*r]; }
 #define OP_HDR_MAX 12
-static Ins *op_pool, *op_pool0; static size_t op_pool_left, op_pool_total;   /* узлы инверсии живут дольше временной арены ir_optimize: выделяются заранее */
 static Ins *op_newins(void) { if (!op_pool_left) return NULL; op_pool_left--; return op_pool++; }
 /* Распознавание popcount: цикл while (x) { x &= x - 1; c++; } заменяется последовательностью битовых сложений (SWAR, без popcnt:
  * набор команд машины не предполагается): c += popcount(x); x = 0. Точно и при x == 0. Форма до инверсии циклов:
@@ -999,6 +1011,7 @@ static int op_cfg(Ins **a, int *pn, int nlab, const OpCnt *c, const unsigned cha
 }
 
 void ir_optimize(IrFn *fi) {
+    if (!K.opt_state) K.opt_state = ka_new(sizeof(OptState));
     int nv = fi->nreg, n = 0;
     for (Ins *i = fi->head; i; i = i->next) n++;
     if (n == 0) return;
@@ -1271,7 +1284,8 @@ static void op_shift(Ins *i, int *r, int kind, void *c) {
 /* Число вызовов функций программы по имени и признак "адрес взят" (GADDR, указатели в данных): для встраивания единственного вызова.
  * Таблица по указателю Obj (открытая адресация), заполняется ir_inline_prepare до встраивания. */
 typedef struct { const Obj *o; int calls, taken; } InlCnt;
-static InlCnt *inl_tab; static unsigned inl_cap;
+#define inl_tab ((InlCnt *)OS->inl_storage)
+#define inl_cap (OS->inl_cap)
 static InlCnt *inl_slot(const Obj *o, int create) {
     if (!inl_cap) return NULL;
     unsigned h = (unsigned)(((uintptr_t)o >> 4) * 2654435761u) & (inl_cap - 1);
@@ -1281,11 +1295,13 @@ static InlCnt *inl_slot(const Obj *o, int create) {
     }
 }
 void ir_inline_prepare(Obj *globals) {
+    if (!K.opt_state) K.opt_state = ka_new(sizeof(OptState));
+    OS->inl_storage = NULL; inl_cap = 0;
     int nf = 0;
     for (Obj *g = globals; g; g = g->next) nf++;
     inl_cap = 16;
     while (inl_cap < (unsigned)nf * 2 + 16) inl_cap <<= 1;
-    inl_tab = ka_new(sizeof(InlCnt) * inl_cap);
+    OS->inl_storage = ka_new(sizeof(InlCnt) * inl_cap);
     for (Obj *g = globals; g; g = g->next) {
         if (g->is_func && g->body && g->ir) {
             for (const Ins *i = ((IrFn *)g->ir)->head; i; i = i->next) {
@@ -1450,24 +1466,30 @@ void ir_inline(Obj *caller) {
 
 void ir_walk(Ins *i, OpVisit fn, void *ctx) { op_walk(i, fn, ctx); }
 
-/* ---------- флаги отключения проходов (kcc/passes.h) ---------- */
-int kcc_noregs;
-int kcc_nodce;
-int kcc_noalign;
-int kcc_noreassoc;
-int kcc_nocfgfirst;
-int kcc_nopop;
-int kcc_nopooltrim;
-int kcc_norec;
-int kcc_noonce;
-int kcc_noextld;
-int kcc_nodisp;
-int kcc_nomrot;
-int kcc_nonnshift;
-int kcc_flag(const char *arg) {
-    static const struct { const char *name; int *flag; } tab[] = {
-        { "-fno-regs", &kcc_noregs }, { "-fno-dce", &kcc_nodce }, { "-fno-align", &kcc_noalign }, { "-fno-reassoc", &kcc_noreassoc }, { "-fno-cfgfirst", &kcc_nocfgfirst }, { "-fno-popcount", &kcc_nopop }, { "-fno-pooltrim", &kcc_nopooltrim }, { "-fno-rec-inline", &kcc_norec }, { "-fno-once-inline", &kcc_noonce }, { "-fno-extld", &kcc_noextld }, { "-fno-disp", &kcc_nodisp }, { "-fno-mrot", &kcc_nomrot }, { "-fno-nnshift", &kcc_nonnshift },
-        { 0, 0 } };
-    for (int k = 0; tab[k].name; k++) if (!strcmp(arg, tab[k].name)) { *tab[k].flag = 1; return 1; }
+/* ---------- разбор флагов оптимизации ---------- */
+int kcc_flag(const char *arg, KOptions *options) {
+    if (!arg || !options) return 0;
+    static const struct { const char *name; size_t offset; } tab[] = {
+        { "-fno-regs", offsetof(KOptions, noregs) },
+        { "-fno-dce", offsetof(KOptions, nodce) },
+        { "-fno-align", offsetof(KOptions, noalign) },
+        { "-fno-reassoc", offsetof(KOptions, noreassoc) },
+        { "-fno-cfgfirst", offsetof(KOptions, nocfgfirst) },
+        { "-fno-popcount", offsetof(KOptions, nopop) },
+        { "-fno-pooltrim", offsetof(KOptions, nopooltrim) },
+        { "-fno-rec-inline", offsetof(KOptions, norec) },
+        { "-fno-once-inline", offsetof(KOptions, noonce) },
+        { "-fno-extld", offsetof(KOptions, noextld) },
+        { "-fno-disp", offsetof(KOptions, nodisp) },
+        { "-fno-mrot", offsetof(KOptions, nomrot) },
+        { "-fno-nnshift", offsetof(KOptions, nonnshift) },
+        { NULL, 0 }
+    };
+    for (int i = 0; tab[i].name; i++) {
+        if (!strcmp(arg, tab[i].name)) {
+            *(int *)((char *)options + tab[i].offset) = 1;
+            return 1;
+        }
+    }
     return 0;
 }
