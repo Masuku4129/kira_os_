@@ -82,22 +82,20 @@ static int dsp_reset(uint16_t base) {
     return -1;
 }
 
-/* Кольцо: 32 страницы подряд ниже 16 МБ, начало кратно 128 КБ. Берём 64 страницы, лишнее с краёв возвращаем. */
+/* Кольцо: ровно 32 страницы, физический адрес кратен 128 КБ и целиком ниже 16 МБ. */
 static uint8_t* dma_ring_alloc(uint64_t* phys) {
-    uint64_t pa = pmm_alloc_contiguous_below(2 * BUFPAGES, ISA_DMA_TOP);
-    if (!pa) return 0;
-    if (pa + 2ull * BUFSZ > ISA_DMA_TOP) { pmm_free_contiguous(pa, 2 * BUFPAGES); return 0; }
-    uint64_t al = (pa + BUFSZ - 1) & ~(uint64_t)(BUFSZ - 1);
-    uint32_t head = (uint32_t)((al - pa) / 4096), tail = (uint32_t)((pa + 2ull * BUFSZ - (al + BUFSZ)) / 4096);
-    if (head) pmm_free_contiguous(pa, head);
-    if (tail) pmm_free_contiguous(al + BUFSZ, tail);
+    uint64_t pa = pmm_alloc_contiguous_aligned_below(BUFPAGES, BUFPAGES, ISA_DMA_TOP);
+    if (!pa || pa > ISA_DMA_TOP - BUFSZ) return 0;
     for (uint32_t i = 0; i < BUFPAGES; i++) {                     /* процессор и устройство видят один адрес */
         uint64_t t;
-        if (vmm_translate(al + (uint64_t)i * 4096, &t) != 0 || t != al + (uint64_t)i * 4096) { pmm_free_contiguous(al, BUFPAGES); return 0; }
+        if (vmm_translate(pa + (uint64_t)i * 4096, &t) != 0 || t != pa + (uint64_t)i * 4096) {
+            pmm_free_contiguous(pa, BUFPAGES);
+            return 0;
+        }
     }
-    uint8_t* p = (uint8_t*)(uintptr_t)al;
+    uint8_t* p = (uint8_t*)(uintptr_t)pa;
     for (uint32_t i = 0; i < BUFSZ; i++) p[i] = 0;
-    *phys = al;
+    *phys = pa;
     return p;
 }
 

@@ -457,6 +457,33 @@ uint64_t pmm_alloc_contiguous_below(uint32_t pages, uint64_t limit_exclusive) {
     return result;
 }
 
+/* Allocate only the requested run: do not require an oversized temporary block just to align its interior. */
+uint64_t pmm_alloc_contiguous_aligned_below(uint32_t pages, uint32_t align_pages, uint64_t limit_exclusive) {
+    if (!pages || !align_pages || (align_pages & (align_pages - 1)) || limit_exclusive < PMM_PAGE_SIZE) return 0;
+    uint64_t limit = limit_exclusive / PMM_PAGE_SIZE;
+    uint64_t total = nwords * 32;
+    if (limit > total) limit = total;
+    if (pages > limit) return 0;
+    uint64_t f = spin_lock_irqsave(&pmm_lock);
+    uint64_t result = 0;
+    for (uint64_t start = 0; start <= limit - pages; ) {
+        uint64_t rem = start & (uint64_t)(align_pages - 1);
+        if (rem) start += align_pages - rem;
+        if (start > limit - pages) break;
+        uint32_t i = 0;
+        while (i < pages && !test_bit(used_map, start + i)) i++;
+        if (i == pages) {
+            for (uint64_t q = start; q < start + pages; q++) set_bit(used_map, q);
+            free_pages -= pages;
+            result = start * PMM_PAGE_SIZE;
+            break;
+        }
+        start += (uint64_t)i + 1;
+    }
+    spin_unlock_irqrestore(&pmm_lock, f);
+    return result;
+}
+
 int pmm_free_contiguous(uint64_t paddr, uint32_t pages) {
     if (!pages || (paddr & (PMM_PAGE_SIZE - 1)) ||
         paddr > UINT64_MAX - (uint64_t)pages * PMM_PAGE_SIZE ||

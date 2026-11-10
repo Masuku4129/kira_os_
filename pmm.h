@@ -25,6 +25,8 @@ int pmm_free_page(uint64_t paddr);
 // pmm_free_contiguous с теми же аргументами; 0 - успех, -1 - хотя бы одна страница отказала.
 uint64_t pmm_alloc_contiguous(uint32_t pages);
 uint64_t pmm_alloc_contiguous_below(uint32_t pages, uint64_t limit_exclusive);
+/* Exact-size run whose physical start is aligned to align_pages (power of two), below an exclusive address limit. */
+uint64_t pmm_alloc_contiguous_aligned_below(uint32_t pages, uint32_t align_pages, uint64_t limit_exclusive);
 int pmm_free_contiguous(uint64_t paddr, uint32_t pages);
 
 uint32_t pmm_get_free_memory_kb(void);

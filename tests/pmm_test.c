@@ -101,6 +101,13 @@ int main(void){
         CHECK(pmm_alloc_contiguous(0) == 0);
         CHECK(pmm_alloc_contiguous(1u << 20) == 0);               // 4 ГБ - больше, чем есть
         CHECK(pmm_free_page(one) == 0);
+        uint32_t aligned_kb = pmm_get_free_memory_kb();
+        uint64_t dma = pmm_alloc_contiguous_aligned_below(32, 32, 0x1000000ULL);
+        CHECK(dma != 0 && dma % (32ULL * 4096) == 0 && dma + 32ULL * 4096 <= 0x1000000ULL);
+        CHECK(pmm_get_free_memory_kb() == aligned_kb - 32 * 4);
+        CHECK(pmm_free_contiguous(dma, 32) == 0);
+        CHECK(pmm_get_free_memory_kb() == aligned_kb);
+        CHECK(pmm_alloc_contiguous_aligned_below(32, 3, 0x1000000ULL) == 0); // alignment must be a power of two
         printf("contiguous 3 MB block at 0x%llX\n", (unsigned long long)blk);
     }
     // перезапуск PMM для чистого состояния дальнейших проверок
