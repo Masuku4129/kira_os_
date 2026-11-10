@@ -222,6 +222,7 @@ static void dev_state(const kdrv_pcient_t *e, char *b, int cap, u32 *col) {
     switch (e->owner) {
     case KDRV_OWN_KERNEL: snprintf(b, (size_t)cap, "встроенный драйвер ядра"); *col = GREEN; return;
     case KDRV_OWN_BRIDGE: snprintf(b, (size_t)cap, "мост или шина, драйвер не нужен"); *col = DIM; return;
+    case KDRV_OWN_FB: snprintf(b, (size_t)cap, "экран: буфер загрузчика, драйвер не нужен"); *col = GREEN; return;
     case KDRV_OWN_RING3: snprintf(b, (size_t)cap, "драйвер Ring 3 drv-%s запущен", e->name); *col = GREEN; return;
     default: break;
     }

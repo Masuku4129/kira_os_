@@ -3,6 +3,7 @@
    (стек не умеет забывать карты). Все обращения драйвера к устройству идут через вызовы KDRV_SYS_* ниже, и каждый из них смотрит
    на привязку ТЕКУЩЕГО процесса: другого устройства драйвер не видит, потому что вызовы его не называют. */
 #include "kdrv.h"
+#include "fb.h"
 #include "kdrv_format.h"
 #include "kdrv_sig.h"
 #include "kdrv_trust.h"
@@ -852,6 +853,11 @@ static int64_t sys_pcilist(uint64_t buf, uint64_t max, uint64_t first) {
         e->vendor = d->vendor; e->device = d->device; e->cls = cls_of(d);
         e->bus = d->bus; e->dev = d->dev; e->fn = d->fn;
         e->owner = d->class_code == 0x06 ? KDRV_OWN_BRIDGE : builtin_owned(d) ? KDRV_OWN_KERNEL : KDRV_OWN_NONE;
+        if (e->owner == KDRV_OWN_NONE && d->class_code == 0x03 && fb_available()) {      /* экран держится на буфере этой видеокарты (включён загрузчиком) */
+            const fb_info_t* fi = fb_get_info();
+            for (int k = 0; k < PCI_BARS && fi; k++)
+                if (!d->bar[k].io && d->bar[k].size && fi->phys >= d->bar[k].base && fi->phys - d->bar[k].base < d->bar[k].size) { e->owner = KDRV_OWN_FB; break; }
+        }
         bind_t* b = e->owner == KDRV_OWN_NONE ? find_slot(d, 0) : 0;
         if (b && b->state == B_RUN) {
             e->owner = KDRV_OWN_RING3;
