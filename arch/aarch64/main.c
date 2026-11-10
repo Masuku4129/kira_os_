@@ -1079,8 +1079,9 @@ static void arm_pci_init(const void* fdt) {
     }
 
     uint64_t base, size;
-    if (fdt_reg(fdt, n, 0, &base, &size) || !size) {
-        kprintf("[KIRA PCI] invalid ECAM register window\n");
+    if (fdt_reg(fdt, n, 0, &base, &size) || !size ||
+        (base & ((1ull << 20) - 1u)) != 0) {
+        kprintf("[KIRA PCI] invalid or unaligned ECAM register window\n");
         return;
     }
 
