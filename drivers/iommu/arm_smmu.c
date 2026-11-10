@@ -45,6 +45,8 @@
 #define SMMU_EVTQ_BASE       0x00a0u
 #define SMMU_EVTQ_PROD       0x10a8u
 #define SMMU_EVTQ_CONS       0x10acu
+#define SMMU_EVTQ_OVF         (1u << 31)
+#define SMMU_EVTQ_PTR_MASK    0x1ffu
 
 #define SMMU_CR0_SMMUEN      (1u << 0)
 #define SMMU_CR0_EVENTQEN    (1u << 2)
@@ -187,7 +189,7 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         !platform->alloc_dma_pages || !platform->free_dma_pages ||
         !platform->clean_cache || !platform->write_barrier ||
         !platform->read_barrier || !platform->quiesce_devices ||
-        !physical_base || (physical_base & 0xfffu))
+        !platform->report_event || !physical_base || (physical_base & 0xfffu))
         return KIRA_SMMU_INVALID;
 
     if (smmu->enabled || smmu->stream_table || smmu->stream_table_allocation ||
@@ -389,7 +391,7 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
     if (!smmu || !platform || !smmu->registers ||
         !smmu->cmdq || !smmu->evtq || !platform->clean_cache ||
         !platform->write_barrier || !platform->read_barrier ||
-        !platform->quiesce_devices)
+        !platform->quiesce_devices || !platform->report_event)
         return KIRA_SMMU_INVALID;
     if (smmu->enabled)
         return KIRA_SMMU_OK;
@@ -452,6 +454,57 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
         return rc;
 
     smmu->enabled = 1;
+    return KIRA_SMMU_OK;
+}
+
+static uint32_t smmu_evtq_next(uint32_t pointer)
+{
+    uint32_t index = pointer & 0xffu;
+    uint32_t next = (pointer & 0x100u) | ((index + 1u) & 0xffu);
+    if (index == 0xffu)
+        next ^= 0x100u;
+    return next;
+}
+
+int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
+                             const struct kira_smmu_platform *platform,
+                             uint32_t max_events, uint32_t *processed)
+{
+    uint32_t producer_raw, producer, consumer, count = 0;
+
+    if (!smmu || !smmu->enabled || !smmu->evtq || !platform ||
+        !platform->read_barrier || !platform->write_barrier ||
+        !platform->report_event || !processed || max_events == 0)
+        return KIRA_SMMU_INVALID;
+
+    *processed = 0;
+    platform->read_barrier(platform->context);
+    producer_raw = smmu_read32(smmu->registers, SMMU_EVTQ_PROD);
+    if (producer_raw & SMMU_EVTQ_OVF)
+        return KIRA_SMMU_HARDWARE_ERROR;
+    producer = producer_raw & SMMU_EVTQ_PTR_MASK;
+    consumer = smmu->evtq_consumer & SMMU_EVTQ_PTR_MASK;
+
+    while (consumer != producer && count < max_events) {
+        uint64_t event[4];
+        const uint64_t *entry =
+            (const uint64_t *)smmu->evtq + (consumer & 0xffu) * 4u;
+        unsigned int i;
+
+        platform->read_barrier(platform->context);
+        for (i = 0; i < 4u; ++i)
+            event[i] = entry[i];
+        platform->report_event(platform->context, event);
+        consumer = smmu_evtq_next(consumer);
+        ++count;
+    }
+
+    if (count) {
+        platform->write_barrier(platform->context);
+        smmu_write32(smmu->registers, SMMU_EVTQ_CONS, consumer);
+        smmu->evtq_consumer = consumer;
+    }
+    *processed = count;
     return KIRA_SMMU_OK;
 }
 
