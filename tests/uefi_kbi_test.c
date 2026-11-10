@@ -6,6 +6,9 @@
 
 #define CHECK(x) do { if (!(x)) { printf("uefi_kbi FAIL:%d %s\n", __LINE__, #x); return 1; } } while (0)
 
+static const char test_module_name[] = "initrd.img";
+static const char test_command_line[] = "root=/dev/vda quiet";
+
 static void descriptor(EFI_MEMORY_DESCRIPTOR *d, UINT32 type,
                        uint64_t base, uint64_t pages) {
     memset(d, 0, sizeof(*d));
@@ -72,8 +75,8 @@ int main(void) {
     entries = kbi_mmap(blob);
     modules = kbi_modules(blob);
     CHECK(h->arch == KBI_ARCH_X86_64 && h->boot_mode == KBI_BOOT_UEFI);
-    CHECK((h->flags & (KBI_F_ACPI | KBI_F_FRAMEBUFFER)) ==
-          (KBI_F_ACPI | KBI_F_FRAMEBUFFER));
+    CHECK((h->flags & (KBI_F_ACPI | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE)) ==
+          (KBI_F_ACPI | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE));
     CHECK(h->rsdp_phys == info.rsdp && h->kernel_phys_base == info.kernel_base);
     CHECK(h->modules_count == 1 && h->module_entry_size == sizeof(kbi_module_t));
     CHECK(modules && modules[0].base == info.module_base && modules[0].length == info.module_size);
