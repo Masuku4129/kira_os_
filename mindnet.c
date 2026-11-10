@@ -102,5 +102,8 @@ unsigned mnet_precision(const mnet_t* m) { return m->tp + m->fp ? (unsigned)((ui
 unsigned mnet_recall(const mnet_t* m) { return m->tp + m->fn ? (unsigned)((uint64_t)m->tp * 100 / (m->tp + m->fn)) : 0; }
 
 int mnet_trusted(const mnet_t* m) {
-    return m->n >= 120 && m->tp >= 48 && mnet_precision(m) >= 50;     /* tp x16: хотя бы ~3 недавних попадания */
+    /* Precision alone can trust a predictor that raises one correct alarm but misses
+       almost every incident. Require a minimum recall as well as recent true positives. */
+    return m->n >= 120 && m->tp >= 48 &&
+           mnet_precision(m) >= 50 && mnet_recall(m) >= 25;
 }
