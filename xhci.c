@@ -608,7 +608,6 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
     w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
     w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
-    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
 #if defined(__aarch64__)
     if (xs.dma_failed || !iommu_device_ready(p)) {
         pci_disable_bus_master(p);
@@ -619,10 +618,29 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
 #else
     if (xs.dma_failed) return -1;
 #endif
-    pci_enable(p, PCI_CMD_MASTER);                                    /* every DMA region is authorized */
+    /* QEMU and hardware may fetch the event segment table as soon as ERSTBA
+       is written. Every backing page is mapped above, so grant bus mastering
+       immediately before publishing ERSTBA, not after it. */
+    pci_enable(p, PCI_CMD_MASTER);
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        pci_disable_bus_master(p);
+#if defined(__aarch64__)
+        iommu_unmap_all(p);
+#endif
+        usb_log("[KIRA USB] xHCI: PCI bus mastering was not granted; controller remains stopped\n");
+        return -1;
+    }
+    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA: controller reads table now */
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
-    if (r32(xs.op, 4) & 1u) { usb_log("[KIRA USB] xHCI does not start\n"); return -1; }
+    if (r32(xs.op, 4) & 1u) {
+        pci_disable_bus_master(p);
+#if defined(__aarch64__)
+        iommu_unmap_all(p);
+#endif
+        usb_log("[KIRA USB] xHCI does not start; DMA disabled\n");
+        return -1;
+    }
     if (hcc1 & (1u << 3))                                              /* питание портов управляется: включить */
         for (uint32_t port = 1; port <= xs.nports; port++) { uint32_t v = r32(xs.op, portsc_off(port)); if (!(v & PS_PP)) w32(xs.op, portsc_off(port), (v & PS_PRESERVE) | PS_PP); }
     usb_sleep_ms(50);                                                  /* линии USB 3 успевают натренироваться */

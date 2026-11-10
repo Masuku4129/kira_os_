@@ -246,7 +246,12 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
         uart_print("[KIRA NVMe] IOMMU isolation failed; controller disabled.\n");
         return;
     }
+    if (!iommu_device_ready(pd)) {
+        uart_print("[KIRA NVMe] requester is not isolated or safely unrestricted; controller disabled.\n");
+        return;
+    }
 #endif
+
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     nvme_ctl_t* c = &ctls[ci];
     for (unsigned i = 0; i < sizeof *c; i++) ((uint8_t*)c)[i] = 0;

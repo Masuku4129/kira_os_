@@ -111,7 +111,12 @@ int e1000_probe(void) {
         uart_print("[KIRA NET] e1000: IOMMU isolation failed; controller disabled.\n");
         return -5;
     }
+    if (!iommu_device_ready(p)) {
+        uart_print("[KIRA NET] e1000: requester is not isolated or safely unrestricted; controller disabled.\n");
+        return -5;
+    }
 #endif
+
     pci_enable(p, PCI_CMD_MEM);
     e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
     if (!e.r) return -3;

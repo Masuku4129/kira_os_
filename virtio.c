@@ -94,6 +94,10 @@ int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
         uart_print("[KIRA VIRTIO] requester isolation failed; bus mastering remains disabled\n");
         return -3;
     }
+    if (!iommu_device_ready(d)) {
+        uart_print("[KIRA VIRTIO] requester is not isolated or safely unrestricted; device disabled\n");
+        return -3;
+    }
 #endif
     uint8_t id; uint16_t cap = 0;
     for (int guard = 0; guard < 48; guard++) {
