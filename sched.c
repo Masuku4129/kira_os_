@@ -1094,6 +1094,7 @@ unsigned sched_snapshot(thread_info_t* out, unsigned max) {
     uint64_t f = irq_save();
     sl_lock();
     uint64_t now = rdtsc();
+    unsigned ncpu = percpu_count();
     for (unsigned i = 0; i < thread_hi && n < max; i++) {
         const thread_t* t = &threads[i];
         if (t->state == THREAD_UNUSED) continue;
@@ -1102,9 +1103,14 @@ unsigned sched_snapshot(thread_info_t* out, unsigned max) {
         str_copy(o->name, t->name, SCHED_NAME_LEN);
         o->state = t->state;
         o->prio = t->prio;
+        /* last_cpu is updated before on_cpu becomes visible. The scheduler lock
+           keeps the current CPU/thread pair stable; this avoids scanning all CPUs
+           for every thread in the 40 Hz mind snapshot path. */
         uint64_t extra = 0;
-        for (unsigned c = 0; c < percpu_count(); c++)
-            if (percpu_table[c].current == t) extra = now - percpu_table[c].last_switch_tsc;   // идёт прямо сейчас
+        if (t->on_cpu && t->last_cpu < ncpu) {
+            const percpu_t* pc = &percpu_table[t->last_cpu];
+            if (pc->current == t) extra = now - pc->last_switch_tsc;
+        }
         o->cpu_cycles = t->cpu_cycles + extra;
         o->switches_in = t->switches_in;
         o->cpu = t->last_cpu;
