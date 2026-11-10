@@ -1,6 +1,7 @@
 #ifndef KIRA_KDRV_H
 #define KIRA_KDRV_H
 #include <stdint.h>
+#include <stddef.h>
 
 /* Менеджер драйверов Ring 3 (drvd): устройства PCI без встроенного драйвера получают процесс drv-ИМЯ из пакета /drv/ИМЯ.kdrv.
    Формат пакета и договор с драйвером - kdrv_format.h, устройство проекта - docs/DRIVERS.md.
