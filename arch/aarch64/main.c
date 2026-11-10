@@ -1275,8 +1275,12 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     if (dma_nc_required) dma_pool_choose();
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
-    if (dma_lo) kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at %x without CPU cache for device buffers\n", (dma_hi - dma_lo) >> 20, dma_lo);
-    else kprintf("[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)\n");
+    if (dma_nc_required && dma_lo)
+        kprintf("[KIRA ARM64] DMA: non-coherent devices use reserved uncached pool (%u MB)\n", (dma_hi - dma_lo) >> 20);
+    else if (dma_nc_required)
+        kprintf("[KIRA ARM64] DMA: non-coherent platform has no reserved pool; DMA allocations fail closed\n");
+    else
+        kprintf("[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)\n");
     kprintf("[KIRA ARM64] MMU on: identity map up to %x, %u-bit physical addresses, RAM cached, devices non-executable\n", top, (uint64_t)bits);
     wx_verify(1);
 
