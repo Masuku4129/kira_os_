@@ -156,6 +156,10 @@ echo "== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS ov
 $CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c kfs.c store.c
 $T/virtio
 
+echo "== PCI bus mastering (firmware state cleared before driver handoff) =="
+$CC $FLAGS -DKIRA_HOST_TEST -o $T/pci-busmaster tests/pci_busmaster_test.c pci.c
+$T/pci-busmaster
+
 echo "== programs: ELF validation, trust manifest, life log in KiraFS =="
 $CC $FLAGS -O1 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c
 if ls userland/*.elf >/dev/null 2>&1; then $T/kfstool manifest userland/*.elf | sed 's/PROG_MANIFEST/TEST_MANIFEST/g' > tests/manifest_test.h
