@@ -108,12 +108,12 @@ def main(sysd, index, pcidevs, name, commit, outd, base):
     vend, prod = P.parse(pcidevs)
     syms, bad = P.resolve(vend, prod, P.referenced([os.path.join(sysd, f) for f in allf]))
     if bad: sys.exit('неизвестные имена pcidevs: %s' % ' '.join(bad))
-    pd = ('/* SPDX-License-Identifier: BSD-2-Clause */\n/* Сгенерировано tools/bsd_recipe.py из pcidevs OpenBSD: только то, что упомянуто в исходниках драйвера. */\n' +
+    pd = ('/* SPDX-License-Identifier: %s */\n/* Сгенерировано tools/bsd_recipe.py из pcidevs OpenBSD: только то, что упомянуто в исходниках драйвера. */\n' % license_id +
           ''.join('#define %s 0x%04x\n' % kv for kv in syms.items())).encode()
     inc = ''.join('#include "%s"\n' % os.path.basename(f) for f in cfiles)
-    km = ('/* SPDX-License-Identifier: BSD-2-Clause */\n/* Драйвер BSD %s: единая единица трансляции для kcc (tools/bsd_recipe.py). Файлы OpenBSD - по хешам рецепта. */\n'
+    km = ('/* SPDX-License-Identifier: %s */\n/* Драйвер BSD %s: единая единица трансляции для kcc (tools/bsd_recipe.py). Файлы OpenBSD - по хешам рецепта. */\n'
           '#pragma kcc unity\n#define _KERNEL 1\n#include <bsd_core.h>\n%s'
-          'extern const struct cfattach %s;\nconst struct cfattach* kd_ca = &%s;\nconst char* kd_devname = "%s";\n#include <bsd_rt.c>\n') % (name, inc, ca, ca, dn)
+          'extern const struct cfattach %s;\nconst struct cfattach* kd_ca = &%s;\nconst char* kd_devname = "%s";\n#include <bsd_rt.c>\n') % (license_id, name, inc, ca, ca, dn)
     km = km.encode()
     for n, pids in enumerate(parts, 1):
         pn = dn if n == 1 else '%s%d' % (dn, n)
