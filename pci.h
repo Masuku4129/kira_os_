@@ -24,7 +24,7 @@ typedef struct {                 /* способ доступа к конфиг�
     void (*write32)(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t val);
 } pci_backend_t;
 
-void pci_set_backend(const pci_backend_t* b);      /* NULL - platform default backend */
+void pci_set_backend(const pci_backend_t* b);      /* NULL - legacy CF8/CFC backend (x86 only) */
 typedef struct {
     volatile void* base;          /* already mapped, uncached/device memory */
     uint64_t size;                 /* mapped aperture bytes */
