@@ -236,6 +236,11 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     if (rc != KIRA_SMMU_OK)
         return rc;
 
+    /* Keep global bypass closed even if any later allocation step fails. */
+    rc = smmu_update_gbpa(smmu, platform, SMMU_GBPA_ABORT, 0);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
+
     smmu->queue_entries = SMMU_QUEUE_ENTRIES;
     smmu->stream_table = 0;
     smmu->stream_table_physical = 0;
@@ -367,31 +372,6 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
                  (smmu->stream_table_physical & SMMU_STRTAB_BASE_ADDR_MASK));
     platform->write_barrier(platform->context);
 
-    rc = smmu_update_gbpa(smmu, platform, SMMU_GBPA_ABORT, 0);
-    if (rc != KIRA_SMMU_OK) {
-        platform->free_dma_pages(platform->context, smmu->evtq_allocation,
-                                 smmu->evtq_allocation_physical,
-                                 smmu->evtq_allocation_pages);
-        platform->free_dma_pages(platform->context, smmu->cmdq,
-                                 smmu->cmdq_physical, 1);
-        platform->free_dma_pages(platform->context,
-                                 smmu->stream_table_allocation,
-                                 smmu->stream_table_allocation_physical,
-                                 smmu->stream_table_allocation_pages);
-        smmu->evtq_allocation = 0;
-        smmu->evtq = 0;
-        smmu->cmdq = 0;
-        smmu->stream_table = 0;
-        smmu->stream_table_allocation = 0;
-        smmu->stream_table_physical = 0;
-        smmu->stream_table_allocation_physical = 0;
-        smmu->stream_table_allocation_pages = 0;
-        smmu->cmdq_physical = 0;
-        smmu->evtq_physical = 0;
-        smmu->evtq_allocation_physical = 0;
-        smmu->evtq_allocation_pages = 0;
-        return rc;
-    }
     return KIRA_SMMU_OK;
 }
 
