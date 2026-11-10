@@ -39,6 +39,8 @@ struct kira_smmu {
     size_t evtq_allocation_pages;
     uint32_t cmdq_producer;
     uint32_t evtq_consumer;
+    uint32_t evtq_lock;
+    uint32_t evtq_overflows;
     /* Controller-owned linear stream table shared by every domain. */
     void *stream_table;
     uint64_t stream_table_physical;
@@ -68,5 +70,14 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
                         const struct kira_smmu_platform *platform);
 int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform);
+
+/* Handler receives the four raw 64-bit words of one SMMUv3 event record. */
+typedef void (*kira_smmu_event_handler)(void *context,
+                                        const uint64_t words[4]);
+int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
+                             const struct kira_smmu_platform *platform,
+                             kira_smmu_event_handler handler,
+                             void *handler_context,
+                             size_t *processed, int *overflow);
 
 #endif
