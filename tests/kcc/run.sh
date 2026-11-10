@@ -18,6 +18,11 @@ $CC -std=c99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter $SAN -o $T/kcc k
 INC=tests/kcc/inc
 fail=0; total=0
 note() { echo "FAIL: $*"; fail=$((fail+1)); }
+# API regression: repeated compilations in one process must not retain PP/parser/IR state.
+total=$((total+1))
+$CC -std=gnu99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -o $T/context_test tests/kcc/context_test.c $(ls kcc/*.c | grep -v '/main.c') || exit 1
+$T/context_test || note "KCC per-compilation context isolation failed"
+
 # kc файл -> код возврата в $rc, сообщение в $T/err
 kc() { $T/kcc -I $INC -I kcc/include -S-ir -o $T/out.ir "$1" 2>$T/err; rc=$?; }
 lineinfo() { grep -Eq '^[^:]+:[0-9]+: error: .+' $T/err; }
