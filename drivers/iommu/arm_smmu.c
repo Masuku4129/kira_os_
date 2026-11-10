@@ -529,6 +529,10 @@ int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
     *overflow = 0;
     while (__atomic_exchange_n(&smmu->evtq_lock, 1u, __ATOMIC_ACQUIRE)) {
     }
+    if (smmu->enabled != 1u) {
+        __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
+        return KIRA_SMMU_INVALID;
+    }
 
     platform->read_barrier(platform->context);
     producer_raw = smmu_read32(smmu->registers, SMMU_EVTQ_PROD);
