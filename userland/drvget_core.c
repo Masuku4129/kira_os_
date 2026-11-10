@@ -308,7 +308,9 @@ int dg_scan_source(const char* fname, const uint8_t* d, uint32_t len, char lic[2
         find_wrapped(d, len, "THIS SOFTWARE IS PROVIDED")) {
         int bsd3_name = find_wrapped(d, len, "neither the name of");
         int bsd3_endorse = find_wrapped(d, len, "endorse or promote");
-        if (bsd3_name != bsd3_endorse) {
+        int bsd3_permission = find_wrapped(d, len, "specific prior written permission");
+        if ((bsd3_name || bsd3_endorse || bsd3_permission) &&
+            !(bsd3_name && bsd3_endorse && bsd3_permission)) {
             *err = "BSD: неполная третья оговорка; лицензия неоднозначна - отказ";
             return -1;
         }
