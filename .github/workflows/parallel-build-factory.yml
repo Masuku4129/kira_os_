@@ -1,0 +1,116 @@
+name: kira-parallel-build-factory
+
+on:
+  push:
+    branches: ['factory/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kira-box-factory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  box:
+    name: "box / ${{ matrix.box }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 9
+      matrix:
+        box:
+          - boot-release
+          - kcc
+          - driver-compat
+          - x86-isolation
+          - dma-audio
+          - arm64
+          - iommu-x86
+          - host-regressions
+          - platform
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated box toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang lld nasm llvm qemu-system-x86 qemu-system-arm \
+            grub-pc-bin grub-efi-amd64-bin grub-common gnu-efi ovmf xorriso dosfstools mtools \
+            python3-cryptography python3-pil openssl ca-certificates
+      - name: Execute assigned workstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          box="${{ matrix.box }}"
+          out="ci-out/boxes/$box"
+          mkdir -p "$out"
+          exec > >(tee "$out/run.log") 2>&1
+          echo "BOX=$box"
+          echo "COMMIT=$GITHUB_SHA"
+          case "$box" in
+            boot-release)
+              ./build_clang.sh --no-run
+              test -s kira-uefi.img
+              mkdir -p "$out/uefi"
+              bash ./build_uefi.sh "$out/uefi"
+              python3 tools/mkuefi.py "$out/uefi/EFI/BOOT/BOOTX64.EFI" \
+                "$out/uefi/EFI/KIRA/KIRA.ELF" "$out/kira-uefi-gpt.img"
+              bash ci/test_uefi_ovmf.sh "$out/uefi" "$out/ovmf-efi"
+              KIRA_UEFI_DISK="$out/kira-uefi-gpt.img" \
+                bash ci/test_uefi_ovmf.sh "$out/uefi" "$out/ovmf-gpt"
+              python3 -m unittest ci.test_release_gate
+              if python3 ci/release_gate.py > "$out/release-gate.log" 2>&1; then
+                echo "RELEASE_GATE=PASS"
+              else
+                echo "RELEASE_GATE=BLOCKED"
+                cat "$out/release-gate.log"
+              fi
+              ;;
+            kcc)
+              tests/kcc/run.sh
+              ;;
+            driver-compat)
+              python3 -m unittest ci.test_kdrvsign
+              bash tests/drvget_e2e.sh "$out/drvget"
+              ;;
+            x86-isolation)
+              ./build_clang.sh --no-run
+              python3 ci/kira_vm.py --scenario isolation --out "$out/vm"
+              ;;
+            dma-audio)
+              ./build_clang.sh --no-run
+              python3 ci/kira_vm.py --scenario sound-sb16 --out "$out/vm"
+              ;;
+            arm64)
+              ./build_arm64.sh
+              ci/make_flash.sh
+              python3 ci/arm64_vm.py "$out/vm"
+              ;;
+            iommu-x86)
+              ./build_clang.sh --no-run
+              python3 ci/kira_vm.py \
+                --scenario drv-bsd-pcn --scenario drv-bsd-fxp --scenario drv-bsd-dc \
+                --out "$out/vm"
+              ;;
+            host-regressions)
+              bash tests/run_host_tests.sh
+              ;;
+            platform)
+              python3 ci/audit_inventory.py --out "$out/audit"
+              python3 ci/dependency_audit.py
+              ;;
+            *)
+              echo "Unknown box: $box" >&2
+              exit 2
+              ;;
+          esac
+          echo "BOX_RESULT=PASS"
+      - name: Upload box evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kira-box-${{ matrix.box }}
+          path: ci-out/boxes/${{ matrix.box }}/
+          if-no-files-found: warn
