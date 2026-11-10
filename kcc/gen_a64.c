@@ -29,7 +29,8 @@ struct A64State {
     int hasvla;
     int64_t maxout_cur;
 };
-#define A64S K.a64_state
+static A64State *a64_state_ctx;
+#define A64S a64_state_ctx
 #define xa (A64S->assembler)
 #define A (&xa)
 
@@ -660,6 +661,7 @@ static void a64_reloc(unsigned char *text, void *ctx) {
 
 void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
     if (!K.a64_state) K.a64_state = ka_new(sizeof(A64State));
+    a64_state_ctx = K.a64_state;
     memset(A64S, 0, sizeof *A64S);
     Obj *mainf = gen_prepare(globals);
     /* _start: main(0, 0); код выхода - в K_EXIT (номер 2, x8) */
