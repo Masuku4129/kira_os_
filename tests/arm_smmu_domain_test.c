@@ -124,6 +124,7 @@ int main(void)
     struct kira_smmu_platform p;
     uint64_t *ste, *cd, *root, *l1, *l2, *l3;
     uint64_t ste0, page;
+    uint64_t *commands;
     unsigned freed_before;
 
     reset_model();
@@ -157,7 +158,11 @@ int main(void)
     CHECK(((cd[0] >> 32) & 7u) == 5u); /* 48-bit output */
     CHECK(((cd[0] >> 48) & 0xffffu) == 7u);
     CHECK((cd[1] & PA_MASK) == domain.stage1_root_physical);
-    CHECK(cd[3] == 0xffu); /* MAIR AttrIdx 0 = normal WB */
+    CHECK(cd[3] == 0xffu);
+    commands = (uint64_t *)smmu.cmdq;
+    CHECK(commands[0] == (0x05ull | (7ull << 32)) && commands[1] == 1u);
+    CHECK(commands[2] == (0x03ull | (7ull << 32)) && commands[3] == 0x46u);
+    CHECK(commands[4] == (0x11ull | (7ull << 48)) && commands[5] == 0x46u); /* MAIR AttrIdx 0 = normal WB */
 
     CHECK(kira_smmu_domain_create(&duplicate, &smmu, 7u, &p) == KIRA_SMMU_INVALID);
     CHECK(duplicate.active == 0);
@@ -176,7 +181,7 @@ int main(void)
     page = l3[4];
     CHECK((page & PA_MASK) == 0x300000u);
     CHECK((page & 3u) == 3u); /* valid page descriptor */
-    CHECK(((page >> 6) & 3u) == 0u); /* privileged read/write */
+    CHECK(((page >> 6) & 3u) == 2u); /* EL0/EL1 read/write */
     CHECK(((page >> 8) & 3u) == 3u); /* inner-shareable */
     CHECK((page & (1ull << 10)) != 0); /* access flag */
     CHECK((page & (1ull << 11)) != 0); /* non-global */
@@ -184,7 +189,7 @@ int main(void)
 
     CHECK(kira_smmu_domain_map_4k(&domain, 0x5000u, 0x301000u,
                                   KIRA_SMMU_MAP_READ, &p) == KIRA_SMMU_OK);
-    CHECK(((l3[5] >> 6) & 3u) == 1u); /* privileged read-only */
+    CHECK(((l3[5] >> 6) & 3u) == 3u); /* EL0/EL1 read-only */
     CHECK(kira_smmu_domain_map_4k(&domain, 0x6000u, 0x302000u,
                                   KIRA_SMMU_MAP_WRITE, &p) == KIRA_SMMU_INVALID);
     CHECK(kira_smmu_domain_map_4k(&domain, 0x4000u, 0x303000u,
