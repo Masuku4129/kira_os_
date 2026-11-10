@@ -12,6 +12,9 @@ mkdir -p build-arm64
 HOSTCC="${HOSTCC:-clang}"
 [ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
 UCFLAGS="-ffreestanding -fno-builtin -fno-math-errno -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
+# Проверяем единые номера syscall ABI через оба публичных заголовка и для AArch64.
+$CC $UCFLAGS -Iuserland -Ikcc/include -c tests/syscall_abi_test.c -o build-arm64/sysabi-user.o
+$CC $UCFLAGS -Ikcc/include -Iuserland -c tests/syscall_abi_test.c -o build-arm64/sysabi-kcc.o
 UELF=""
 for app in mt ipc burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk-jmp atk-cap serve melody wasm udpecho rec; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
     $CC $UCFLAGS -c userland/$app.c -o build-arm64/u_$app.o
