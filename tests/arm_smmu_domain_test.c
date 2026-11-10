@@ -1,5 +1,6 @@
 #include "drivers/iommu/arm_smmu_domain.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define PAGE 4096u
@@ -14,6 +15,7 @@ static _Alignas(PAGE) uint8_t cmdq[256u * 16u];
 static _Alignas(PAGE) uint8_t dma_pool[8u * PAGE];
 static size_t dma_used;
 static unsigned alloc_calls, free_calls, clean_calls, barrier_calls;
+static unsigned metadata_allocs, metadata_frees;
 
 struct test_context { uint8_t *registers; };
 
@@ -34,6 +36,20 @@ static void *alloc_dma_pages(void *opaque, size_t pages, uint64_t *physical)
     void *v = dma_pool + dma_used;
     dma_used += bytes;
     return v;
+}
+
+static void *alloc_metadata(void *opaque, size_t bytes)
+{
+    (void)opaque;
+    void *p = calloc(1, bytes);
+    if (p) ++metadata_allocs;
+    return p;
+}
+
+static void free_metadata(void *opaque, void *memory)
+{
+    (void)opaque;
+    if (memory) { ++metadata_frees; free(memory); }
 }
 
 static void free_dma_pages(void *opaque, void *v, uint64_t physical, size_t pages)
@@ -72,6 +88,7 @@ static void reset(void)
     memset(dma_pool, 0xa5, sizeof(dma_pool));
     dma_used = 0;
     alloc_calls = free_calls = clean_calls = barrier_calls = 0;
+    metadata_allocs = metadata_frees = 0;
 }
 
 static void init_smmu(struct kira_smmu *s)
@@ -96,6 +113,8 @@ static struct kira_smmu_platform platform(struct test_context *ctx)
     p.map_mmio = map_mmio;
     p.alloc_dma_pages = alloc_dma_pages;
     p.free_dma_pages = free_dma_pages;
+    p.alloc_metadata = alloc_metadata;
+    p.free_metadata = free_metadata;
     p.clean_cache = clean_cache;
     p.write_barrier = write_barrier;
     p.read_barrier = read_barrier;
@@ -140,10 +159,48 @@ int main(void)
     CHECK(((cd[0] >> 41) & 1ull) == 1ull);       /* AA64 */
     CHECK(cd[1] == domain.stage1_root_physical); /* CD.TTB0 */
     CHECK(cd[2] == 0 && cd[3] == 0);
+    CHECK(cd[3] == 0xffull); /* MAIR AttrIndx 0 is normal write-back memory. */
+
+    /* AArch64 stage-1 page descriptors must encode AF, SH and AP correctly. */
+    CHECK(kira_smmu_domain_map_4k(&domain, 0x12345000u, 0x500000u,
+                                  KIRA_SMMU_MAP_READ | KIRA_SMMU_MAP_WRITE,
+                                  &p) == KIRA_SMMU_OK);
+    {
+        uint64_t *l0 = (uint64_t *)domain.stage1_root;
+        uint64_t *l1 = (uint64_t *)(dma_pool + (0x302000u - 0x300000u));
+        uint64_t *l2 = (uint64_t *)(dma_pool + (0x303000u - 0x300000u));
+        uint64_t *l3 = (uint64_t *)(dma_pool + (0x304000u - 0x300000u));
+        uint64_t leaf = l3[(0x12345000u >> 12) & 0x1ffu];
+        CHECK((l0[(0x12345000u >> 39) & 0x1ffu] & 3ull) == 3ull);
+        CHECK((l1[(0x12345000u >> 30) & 0x1ffu] & 3ull) == 3ull);
+        CHECK((l2[(0x12345000u >> 21) & 0x1ffu] & 3ull) == 3ull);
+        CHECK((leaf & 0x0000fffffffff000ull) == 0x500000u);
+        CHECK((leaf & 3ull) == 3ull);
+        CHECK(((leaf >> 8) & 3ull) == 3ull); /* inner-shareable */
+        CHECK((leaf & (1ull << 10)) != 0);  /* access flag */
+        CHECK(((leaf >> 6) & 3ull) == 0ull); /* EL1 read/write */
+    }
+    CHECK(kira_smmu_domain_map_4k(&domain, 0x12346000u, 0x501000u,
+                                  KIRA_SMMU_MAP_READ, &p) == KIRA_SMMU_OK);
+    {
+        uint64_t *l3 = (uint64_t *)(dma_pool + (0x304000u - 0x300000u));
+        uint64_t leaf = l3[(0x12346000u >> 12) & 0x1ffu];
+        CHECK(((leaf >> 6) & 3ull) == 2ull); /* EL1 read-only */
+    }
+    CHECK(kira_smmu_domain_map_4k(&domain, 0x12347000u, 0x502000u,
+                                  KIRA_SMMU_MAP_WRITE, &p) == KIRA_SMMU_INVALID);
+    CHECK(kira_smmu_domain_map_4k(&domain, 0x12348000u, (1ull << 48),
+                                  KIRA_SMMU_MAP_READ, &p) == KIRA_SMMU_INVALID);
+    CHECK(kira_smmu_domain_unmap_4k(&domain, 0x12345000u, &p) == KIRA_SMMU_OK);
+    {
+        uint64_t *l3 = (uint64_t *)(dma_pool + (0x304000u - 0x300000u));
+        CHECK(l3[(0x12345000u >> 12) & 0x1ffu] == 0);
+    }
 
     rc = kira_smmu_domain_destroy(&domain, &p);
     CHECK(rc == KIRA_SMMU_OK);
-    CHECK(!domain.active && free_calls == 2);
+    CHECK(!domain.active && free_calls == 5);
+    CHECK(metadata_allocs == metadata_frees);
     CHECK(ste[0] == 0);
 
     /* Reject stage-2-only hardware before allocating any DMA memory. */
