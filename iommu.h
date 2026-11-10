@@ -3,22 +3,17 @@
 #include <stdint.h>
 #include "pci.h"
 
-/* DMA isolation through Intel VT-d (x86-64). Without a usable DMAR table every
-   call below reports "not available" and the kernel behaves as before.
-
-   Model: iommu_init() gives EVERY enumerated PCI function a pass-through context
-   (unchanged, unrestricted DMA - logged as such) and turns translation on. A
-   driver that wants isolation calls iommu_isolate_device() BEFORE the device can
-   master the bus; from then on the device reaches only memory granted with
-   iommu_map(). Devices that no DMAR unit covers, devices named by an RMRR and
-   drivers that never ask stay unrestricted, and iommu_device_isolated() says so. */
+/* PCI DMA isolation backends: Intel VT-d on x86-64 and ARM SMMUv3 on AArch64.
+   Drivers must create a per-device domain before bus mastering and explicitly map
+   every DMA buffer. A discovered ARM SMMU is a fail-closed gate: failed setup or
+   missing iommu-map coverage must not fall back to unrestricted DMA. */
 
 #define IOMMU_R 1u
 #define IOMMU_W 2u
 
 enum {
     IOMMU_OK = 0,
-    IOMMU_E_NONE = -1,      /* VT-d not active (no DMAR, parse error, no usable unit) */
+    IOMMU_E_NONE = -1,      /* no IOMMU is present/active on this platform */
     IOMMU_E_ARG = -2,
     IOMMU_E_NOCOVER = -3,   /* no DMAR unit translates this device */
     IOMMU_E_RMRR = -4,      /* firmware needs this device to reach a reserved region */
@@ -29,11 +24,15 @@ enum {
     IOMMU_E_RANGE = -9      /* address beyond what the hardware or the domain can express */
 };
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__aarch64__)
 /* Parse DMAR, build contexts, enable translation. Returns the number of units now
    translating (0: no change in behaviour), negative on a rejected table. Call once,
    after pci_init() and before any driver starts DMA. */
 int iommu_init(void);
+#if defined(__aarch64__)
+/* Discover and initialize the SMMUv3 instance and PCI iommu-map from the validated DTB. */
+int iommu_init_fdt(const void *fdt);
+#endif
 int iommu_enabled(void);
 
 /* Switch the device to its own translated domain with NO mappings. 0 on success
@@ -61,7 +60,7 @@ int iommu_fault_poll(void);
 uint32_t iommu_fault_count(const pci_dev_t* dev);
 
 #else
-/* Other architectures have no VT-d: the same calls report "not available" (ARM64 SMMU is separate work). */
+/* Architectures without a wired IOMMU backend report "not available". */
 static inline int iommu_init(void)
 {
     return 0;
