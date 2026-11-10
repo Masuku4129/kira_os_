@@ -684,3 +684,29 @@ void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
         if (g->is_func && !g->body && g->emit && gen_is_helper_name(g->name)) gen_helper(g);
     elf_emit(globals, A->p, A->len, ELF_ARCH_A64, a64_reloc, NULL, out, outlen);
 }
+
+/* The unity build includes asm_a64.c after this file; do not leak backend aliases. */
+#undef A64S
+#undef xa
+#undef A
+#undef ploc
+#undef p_ngrn
+#undef p_nvrn
+#undef p_stk
+#undef p_hidden
+#undef vs
+#undef ve
+#undef rg
+#undef so
+#undef slotoff
+#undef spillbase
+#undef homeoff
+#undef qoff
+#undef hidoff
+#undef frame
+#undef epi
+#undef tmplab
+#undef hasvla
+#undef maxout_cur
+#undef FB
+#undef NPOOL
