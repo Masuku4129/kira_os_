@@ -245,7 +245,6 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     mouse_init();   // необязательна: без мыши клавиатура работает как раньше
     fat_set_clock(fat_clock);
     rng_init();            // генератор случайных чисел: RDSEED/RDRAND, virtio-rng, времена прерываний
-    usb_init();
     virtio_input_init();
     if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
     net_start();
@@ -269,6 +268,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
 
     uart_print("[KIRA OS] Core initialization complete. Enabling interrupts.\n");
     __asm__ volatile ("sti");
+    /* USB controller reset/enumeration uses scheduler sleeps; start it only after timer IRQs are live. */
+    usb_init();
 
     {
         uint64_t t = timer_get_ticks();
