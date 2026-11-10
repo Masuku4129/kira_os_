@@ -334,13 +334,12 @@ static int smmu_map_page(struct kira_smmu_domain *d,
     {
         unsigned int index = (unsigned int)((iova >> 12) & 0x1ffu);
         uint64_t attr = 3ull | (3ull << 8) | (1ull << 10) |
-                        (1ull << 11) | (1ull << 7) |
-                        (1ull << 53) | (1ull << 54);
+                        (1ull << 11) | (1ull << 53) | (1ull << 54);
         if (table[index] != 0)
             return KIRA_SMMU_HARDWARE_ERROR;
-        /* AP[2:1]=10 permits DMA at EL0/EL1; 11 makes it read-only. */
+        /* Stage-1 AP[2:1]=00 is EL1 read/write; 10 is EL1 read-only. */
         if (!(permissions & KIRA_SMMU_MAP_WRITE))
-            attr |= 1ull << 6;
+            attr |= 1ull << 7;
         table[index] = (physical & SMMU_TTBR_ADDR) | attr;
         if (p->clean_cache)
             p->clean_cache(p->context, table, SMMU_PAGE_SIZE);
@@ -369,7 +368,7 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     if ((s->idr0 & (1u << 1)) == 0 ||
         ((s->idr0 >> 2) & 3u) != 2u ||
         (s->idr5 & (1u << 4)) == 0 ||
-        (s->idr5 & 7u) < 5u)
+        (s->idr5 & 7u) != 5u)
         return KIRA_SMMU_UNSUPPORTED;
 
     ct_memory = smmu_alloc(p, &ct_pa);
