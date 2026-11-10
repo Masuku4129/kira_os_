@@ -40,7 +40,6 @@ static uint8_t arm_sid_shared[256];
 static uint32_t arm_sid_faults[256];
 static unsigned arm_device_count;
 static unsigned arm_domains_created;
-static uint32_t arm_target_phandle;
 static uint8_t arm_map_present;
 static uint8_t arm_map_invalid;
 static uint8_t arm_smmu_active;
