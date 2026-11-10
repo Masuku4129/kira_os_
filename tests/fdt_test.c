@@ -63,7 +63,7 @@ static unsigned build(void) {
                            0x2000, 0x42, 0x200, 0x10 }; pcells("iommu-map", m, 8); } end();
     end();
     w32(9);
-    unsigned off_struct = 40 + 32, off_str = off_struct + sn, total = off_str + tn;
+    unsigned off_struct = 40 + 32, off_str = off_struct + sn, total = (off_str + tn + 3u) & ~3u;
     memset(blob, 0, sizeof blob);
     be(blob, FDT_MAGIC); be(blob + 4, total); be(blob + 8, off_struct); be(blob + 12, off_str); be(blob + 16, 40);
     be(blob + 20, 17); be(blob + 24, 16); be(blob + 28, 0); be(blob + 32, tn); be(blob + 36, sn);
