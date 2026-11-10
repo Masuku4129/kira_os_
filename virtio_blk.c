@@ -90,7 +90,7 @@ blk_dev_t* virtio_blk_probe(void) {
     if (!pd) return 0;
     int isolated = 0;
 #ifndef KIRA_HOST_TEST
-    /* До включения bus mastering (virtio_attach): устройство получает свой домен VT-d без единого отображения. */
+    /* До включения bus mastering (virtio_attach): устройство получает отдельный IOMMU-домен без разрешённых отображений. */
     isolated = iommu_isolate_device(pd) == 0;
 #endif
     if (virtio_attach(&vdev, pd) != 0) { uart_print("[KIRA VIRTIO] blk: no virtio 1.0 capabilities (legacy-only device unsupported).\n"); return 0; }
@@ -148,7 +148,7 @@ blk_dev_t* virtio_blk_probe(void) {
     uart_print("[KIRA VIRTIO] Disk virtio-blk, "); uart_print_dec(cap / 2048); uart_print(" MB (PCI ");
     uart_print_dec(pd->bus); uart_print(":"); uart_print_dec(pd->dev); uart_print(".");  uart_print_dec(pd->fn);
     uart_print(irq ? ", virtio 1.0, completion by MSI-X interrupt" : ", virtio 1.0, polling");
-    uart_print(isolated ? ", DMA isolated by VT-d (only its own queue and buffers are mapped)" : ", DMA not isolated");
+    uart_print(isolated ? ", DMA isolated by IOMMU (only its own queue and buffers are mapped)" : ", DMA not isolated");
     if (vdev.features & BLK_F_RO) uart_print(", READ-ONLY");
     uart_print(").\n");
     return &disk;
