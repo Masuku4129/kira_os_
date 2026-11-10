@@ -9,7 +9,8 @@ struct GenState {
     Obj **work;
     int nwork;
 };
-#define GS (&K)->gen_state
+static struct GenState *kcc_gen_state_context(void) { return K.gen_state; }
+#define GS (kcc_gen_state_context())
 #define htab (GS->htab)
 #define hcap (GS->hcap)
 #define work (GS->work)
