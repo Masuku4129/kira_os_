@@ -48,6 +48,7 @@
 /* SMMUv3 command opcodes. */
 #define CMD_CFGI_STE 0x03u
 #define CMD_CFGI_CD 0x05u
+#define CMD_TLBI_NH_ALL 0x10u
 #define CMD_TLBI_NH_ASID 0x11u
 #define CMD_SYNC 0x46u
 #define CMD_CFGI_LEAF 1ull
@@ -307,6 +308,25 @@ static void smmu_cmdq_lock(struct kira_smmu *s)
 static void smmu_cmdq_unlock(struct kira_smmu *s)
 {
     __atomic_store_n(&s->cmdq_lock, 0u, __ATOMIC_RELEASE);
+}
+
+int kira_smmu_v3_invalidate_all(struct kira_smmu *s,
+                                const struct kira_smmu_platform *p)
+{
+    int rc;
+
+    if (!s || !p || !s->registers || !s->cmdq ||
+        (s->enabled != 2u && s->enabled != 1u) ||
+        !p->read_barrier || !p->write_barrier)
+        return KIRA_SMMU_INVALID;
+
+    /* Global non-hyp stage-1 TLBI must complete before SMMUEN or DMA starts. */
+    smmu_cmdq_lock(s);
+    rc = smmu_cmd_submit(s, p, (uint64_t)CMD_TLBI_NH_ALL, 0, 0);
+    if (rc == KIRA_SMMU_OK)
+        rc = smmu_cmd_sync(s, p);
+    smmu_cmdq_unlock(s);
+    return rc;
 }
 
 static int smmu_invalidate_stream(struct kira_smmu_domain *d,
