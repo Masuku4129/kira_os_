@@ -22,6 +22,9 @@
 #define SMMU_STRTAB_ALIGN    SMMU_STRTAB_BYTES
 #define SMMU_STRTAB_ALLOC_PAGES (SMMU_STRTAB_PAGES + (SMMU_STRTAB_ALIGN / SMMU_PAGE_SIZE) - 1u)
 #define SMMU_POLL_LIMIT      1000000u
+#define SMMU_EVTQ_PTR_MASK   0x1ffu
+#define SMMU_EVTQ_OVF        (1u << 31)
+#define SMMU_EVTQ_OVACK       (1u << 31)
 
 #define SMMU_IDR0            0x0000u
 #define SMMU_IDR0_ST_LVL_SHIFT 27u
@@ -235,6 +238,8 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->evtq_allocation_pages = 0;
     smmu->cmdq_producer = 0;
     smmu->evtq_consumer = 0;
+    smmu->evtq_lock = 0;
+    smmu->evtq_overflows = 0;
     smmu->enabled = 0;
 
     /*
@@ -439,5 +444,78 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
         return rc;
 
     smmu->enabled = 0;
+    return KIRA_SMMU_OK;
+}
+
+static uint32_t smmu_evtq_next(uint32_t pointer)
+{
+    uint32_t index = (pointer & 0xffu) + 1u;
+    uint32_t wrap = pointer & 0x100u;
+    if (index >= SMMU_QUEUE_ENTRIES) {
+        index = 0;
+        wrap ^= 0x100u;
+    }
+    return wrap | index;
+}
+
+int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
+                             const struct kira_smmu_platform *platform,
+                             kira_smmu_event_handler handler,
+                             void *handler_context,
+                             size_t *processed, int *overflow)
+{
+    uint32_t producer_raw, producer, consumer;
+    size_t count = 0;
+    int did_overflow;
+
+    if (!smmu || !platform || !handler || !processed || !overflow ||
+        smmu->enabled != 1u || !smmu->registers || !smmu->evtq ||
+        !platform->read_barrier || !platform->write_barrier ||
+        !platform->invalidate_cache)
+        return KIRA_SMMU_INVALID;
+
+    *processed = 0;
+    *overflow = 0;
+    while (__atomic_exchange_n(&smmu->evtq_lock, 1u, __ATOMIC_ACQUIRE)) {
+    }
+
+    platform->read_barrier(platform->context);
+    producer_raw = smmu_read32(smmu->registers, SMMU_EVTQ_PROD);
+    producer = producer_raw & SMMU_EVTQ_PTR_MASK;
+    did_overflow = (producer_raw & SMMU_EVTQ_OVF) != 0;
+    consumer = smmu->evtq_consumer & SMMU_EVTQ_PTR_MASK;
+
+    while (consumer != producer && count < SMMU_QUEUE_ENTRIES) {
+        uint32_t index = consumer & 0xffu;
+        volatile uint64_t *entry =
+            (volatile uint64_t *)((uint8_t *)smmu->evtq + index * 32u);
+        uint64_t words[4];
+
+        platform->invalidate_cache(platform->context, (const void *)entry, 32u);
+        platform->read_barrier(platform->context);
+        for (unsigned i = 0; i < 4u; ++i)
+            words[i] = entry[i];
+        handler(handler_context, words);
+        consumer = smmu_evtq_next(consumer);
+        ++count;
+    }
+
+    if (consumer != producer) {
+        __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
+        return KIRA_SMMU_HARDWARE_ERROR;
+    }
+
+    smmu->evtq_consumer = consumer;
+    if (did_overflow) {
+        if (smmu->evtq_overflows != UINT32_MAX)
+            ++smmu->evtq_overflows;
+        *overflow = 1;
+    }
+    *processed = count;
+
+    platform->write_barrier(platform->context);
+    smmu_write32(smmu->registers, SMMU_EVTQ_CONS,
+                 consumer | (did_overflow ? SMMU_EVTQ_OVACK : 0u));
+    __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
     return KIRA_SMMU_OK;
 }
