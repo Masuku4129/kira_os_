@@ -5,6 +5,7 @@
 #include <string.h>
 
 struct IRState {
+    Ins *ihead, *itail;
     int reg_count, label_count;
     Obj *fn, *ltail;
     int maxslot;

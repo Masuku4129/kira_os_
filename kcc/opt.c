@@ -13,6 +13,7 @@
 #include <string.h>
 
 struct OptState {
+    Ins *op_pool, *op_pool0;
     size_t op_pool_left, op_pool_total;
     void *inl_storage;
     unsigned inl_cap;

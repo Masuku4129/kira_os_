@@ -4,6 +4,7 @@
 #include <string.h>
 
 struct GenState {
+    Obj **htab;
     unsigned hcap;
     Obj **work;
     int nwork;

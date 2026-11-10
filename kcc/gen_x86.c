@@ -35,6 +35,7 @@ static const int xpool[NXP] = { 8, 9, 10, 11, 12 };
 enum { AL_REG, AL_STK, AL_AREG, AL_ASTK, AL_XREG };
 typedef struct { int kind, idx, off; } ALoc;        /* REG: номер регистра; AREG: первый из регистров; STK/ASTK: смещение в области аргументов */
 struct X86State {
+    XA xa;
     int npool;
     unsigned char *fold;
     int *fbase;

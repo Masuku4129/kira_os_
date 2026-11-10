@@ -19,6 +19,7 @@ struct Once { Once *next; const char *path; };
 
 #define NB 512
 struct PPState {
+    Macro *mtab[NB];
     Once *once_list;
     int unity_mode;                            /* #pragma kcc unity: каждый подключённый файл - один раз */
     Token out_head, *out_tail;
