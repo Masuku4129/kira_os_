@@ -117,8 +117,11 @@ int main(void) {
     char buf[64]; uint32_t from = 0;
     CHECK(port_recv(p1, buf, sizeof buf, 0, &from, 0) == KE_AGAIN);
     CHECK(port_send(p1, 5, "one", 3) == 0 && port_send(p1, 6, "two!", 4) == 0);
+    CHECK(port_queued(p1) == 2 && kobj_messages_total() >= 2);
     CHECK(port_recv(p1, buf, sizeof buf, 0, &from, 0) == 3 && !memcmp(buf, "one", 3) && from == 5);
-    CHECK(port_recv(p1, buf, 2, 0, &from, 0) == 4 && !memcmp(buf, "tw", 2) && from == 6);   /* длина - полная, копия - по ёмкости */
+    CHECK(port_queued(p1) == 1);
+    CHECK(port_recv(p1, buf, 2, 0, &from, 0) == 4 && !memcmp(buf, "tw", 2) && from == 6);
+    CHECK(port_queued(p1) == 0);   /* длина - полная, копия - по ёмкости */
     for (int i = 0; i < PORT_QUEUE; i++) CHECK(port_send(p1, 1, "m", 1) == 0);
     CHECK(port_send(p1, 1, "m", 1) == KE_FULL);
     CHECK(port_send(p1, 1, buf, PORT_MSG_MAX + 1) == KE_ARG);
