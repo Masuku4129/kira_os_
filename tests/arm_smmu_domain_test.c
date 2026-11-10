@@ -14,6 +14,7 @@ static _Alignas(PAGE) uint8_t stream_table[256u * 64u];
 static _Alignas(PAGE) uint8_t cmdq[256u * 16u];
 static _Alignas(PAGE) uint8_t dma_pool[8u * PAGE];
 static size_t dma_used;
+static unsigned misalign_virtual_alloc_at;
 static unsigned alloc_calls, free_calls, clean_calls, barrier_calls;
 static unsigned metadata_allocs, metadata_frees;
 
@@ -35,6 +36,8 @@ static void *alloc_dma_pages(void *opaque, size_t pages, uint64_t *physical)
     *physical = 0x300000u + dma_used;
     void *v = dma_pool + dma_used;
     dma_used += bytes;
+    if (alloc_calls == misalign_virtual_alloc_at)
+        return (uint8_t *)v + 1u;
     return v;
 }
 
@@ -89,6 +92,7 @@ static void reset(void)
     dma_used = 0;
     alloc_calls = free_calls = clean_calls = barrier_calls = 0;
     metadata_allocs = metadata_frees = 0;
+    misalign_virtual_alloc_at = 0;
 }
 
 static void init_smmu(struct kira_smmu *s)
@@ -238,6 +242,16 @@ int main(void)
     p = platform(&ctx);
     CHECK(kira_smmu_domain_create(&domain, &smmu, 255, &p) == KIRA_SMMU_UNSUPPORTED);
     CHECK(alloc_calls == 0);
+
+    /* Unaligned CPU virtual memory is rejected and every partial allocation is unwound. */
+    reset();
+    init_smmu(&smmu);
+    memset(&domain, 0, sizeof(domain));
+    p = platform(&ctx);
+    misalign_virtual_alloc_at = 1;
+    CHECK(kira_smmu_domain_create(&domain, &smmu, 9, &p) == KIRA_SMMU_MEMORY_FAILED);
+    CHECK(!domain.active && !domain.smmu && !domain.table_pages);
+    CHECK(free_calls == 2 && metadata_allocs == metadata_frees);
 
     puts("ARM SMMUv3 domain: stage-1 STE/CD programming and teardown passed");
     return 0;
