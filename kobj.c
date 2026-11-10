@@ -25,11 +25,20 @@ typedef struct {
 static kobj_t** reg;                 // реестр именованных объектов: растёт вдвое
 static unsigned reg_n, reg_cap;
 static spinlock_t reg_lock = SPINLOCK_INIT;
-static volatile uint64_t msgs_total;
-uint64_t kobj_messages_total(void) { return msgs_total; }
+static uint64_t msgs_total;
+#define KOBJ_F_PUBLIC 1u
+#define KOPEN_FLAGS (KOPEN_CREATE | KOPEN_EXCL | KOPEN_PUBLIC)
+
+uint64_t kobj_messages_total(void) { return __atomic_load_n(&msgs_total, __ATOMIC_RELAXED); }
+
+static int open_flags_valid(int flags) {
+    return !(flags & ~KOPEN_FLAGS) &&
+           (!(flags & (KOPEN_EXCL | KOPEN_PUBLIC)) || (flags & KOPEN_CREATE));
+}
 
 // ---- имена и дескрипторы ----
 int kname_ok(const char* s) {
+    if (!s) return 0;
     unsigned n = 0;
     for (; s[n]; n++) {
         char c = s[n];
@@ -45,6 +54,7 @@ static int name_eq(const char* a, const char* b) {
 }
 
 int htab_add(htab_t* t, kobj_t* o) {
+    if (!t || !o) return KE_ARG;
     for (uint32_t i = 0; i < t->cap; i++) if (!t->obj[i]) { t->obj[i] = o; return (int)i + 1; }
     if (t->cap >= KH_LIMIT) return KE_LIMIT;
     uint32_t nc = t->cap ? t->cap * 2 : 16;
@@ -58,17 +68,17 @@ int htab_add(htab_t* t, kobj_t* o) {
     return (int)at + 1;
 }
 
-void htab_free(htab_t* t) { kfree(t->obj); t->obj = 0; t->cap = 0; }
-uint32_t htab_cap(const htab_t* t) { return t->cap; }
+void htab_free(htab_t* t) { if (!t) return; kfree(t->obj); t->obj = 0; t->cap = 0; }
+uint32_t htab_cap(const htab_t* t) { return t ? t->cap : 0; }
 
 kobj_t* htab_get(htab_t* t, int h, uint32_t type) {
-    if (h < 1 || (uint32_t)h > t->cap) return 0;
+    if (!t || h < 1 || (uint32_t)h > t->cap) return 0;
     kobj_t* o = t->obj[h - 1];
     return (o && (!type || o->type == type)) ? o : 0;
 }
 
 kobj_t* htab_take(htab_t* t, int h) {
-    if (h < 1 || (uint32_t)h > t->cap) return 0;
+    if (!t || h < 1 || (uint32_t)h > t->cap) return 0;
     kobj_t* o = t->obj[h - 1];
     t->obj[h - 1] = 0;
     return o;
@@ -93,6 +103,7 @@ static void destroy(kobj_t* o) {
 }
 
 void kobj_retain(kobj_t* o) {
+    if (!o) return;
     uint64_t f = spin_lock_irqsave(&reg_lock);
     o->refs++;
     spin_unlock_irqrestore(&reg_lock, f);
@@ -109,11 +120,16 @@ void kobj_release(kobj_t* o) {
     if (r == 0) destroy(o);
 }
 
-unsigned kobj_count(void) { return reg_n; }
+unsigned kobj_count(void) {
+    uint64_t f = spin_lock_irqsave(&reg_lock);
+    unsigned n = reg_n;
+    spin_unlock_irqrestore(&reg_lock, f);
+    return n;
+}
 
 // Найти или создать (создание - вне замка: страницы разделяемой памяти обнуляются долго). made - заготовка
 // нового объекта или 0; если объект за это время создал кто-то другой, заготовка уничтожается.
-static int publish(uint32_t type, const char* name, int flags, kobj_t* made, kobj_t** out) {
+static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pid, kobj_t* made, kobj_t** out) {
     uint64_t f = spin_lock_irqsave(&reg_lock);
     while (made && reg_n >= reg_cap) {                    // реестр полон: вырастить вне замка и повторить
         unsigned want = reg_cap ? reg_cap * 2 : 64;
@@ -130,11 +146,14 @@ static int publish(uint32_t type, const char* name, int flags, kobj_t* made, kob
     kobj_t* o = find_locked(type, name);
     int rc = 0;
     if (o) {
-        if ((flags & KOPEN_CREATE) && (flags & KOPEN_EXCL)) rc = KE_EXIST;
+        if (o->owner_pid != owner_pid && !(o->flags & KOBJ_F_PUBLIC)) rc = KE_PERM;
+        else if ((flags & KOPEN_CREATE) && (flags & KOPEN_EXCL)) rc = KE_EXIST;
         else { o->refs++; *out = o; }
     } else if (!made) {
         rc = KE_NOENT;
     } else {
+        made->owner_pid = owner_pid;
+        made->flags = (flags & KOPEN_PUBLIC) ? KOBJ_F_PUBLIC : 0;
         made->refs = 1;
         reg[reg_n++] = made;
         *out = made;
@@ -160,8 +179,8 @@ static void set_name(kobj_t* o, uint32_t type, const char* name) {
 }
 
 // ---- порты ----
-int port_open(const char* name, int flags, kobj_t** out) {
-    if (!kname_ok(name)) return KE_ARG;
+int port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out) {
+    if (!kname_ok(name) || !out || !open_flags_valid(flags)) return KE_ARG;
     port_t* p = 0;
     if ((flags & KOPEN_CREATE) && !exists(KOBJ_PORT, name)) {
         p = (port_t*)kmalloc(sizeof(port_t));
@@ -169,11 +188,15 @@ int port_open(const char* name, int flags, kobj_t** out) {
         __builtin_memset(p, 0, sizeof *p);
         set_name(&p->hdr, KOBJ_PORT, name);
     }
-    return publish(KOBJ_PORT, name, flags, p ? &p->hdr : 0, out);
+    return publish(KOBJ_PORT, name, flags, owner_pid, p ? &p->hdr : 0, out);
+}
+
+int port_open(const char* name, int flags, kobj_t** out) {
+    return port_open_as(name, flags, 0, out);
 }
 
 int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
-    if (!o || o->type != KOBJ_PORT || len > PORT_MSG_MAX) return KE_ARG;
+    if (!o || o->type != KOBJ_PORT || len > PORT_MSG_MAX || (len && !data)) return KE_ARG;
     port_t* p = (port_t*)o;
     uint8_t* copy = 0;
     if (len) {
@@ -201,12 +224,16 @@ int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
 }
 
 unsigned port_queued(kobj_t* o) {
+    if (!o || o->type != KOBJ_PORT) return 0;
     port_t* p = (port_t*)o;
-    return p->qh - p->qt;
+    uint64_t f = spin_lock_irqsave(&p->lk);
+    unsigned n = p->qh - p->qt;
+    spin_unlock_irqrestore(&p->lk, f);
+    return n;
 }
 
 int64_t port_recv(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_t* from_pid, int (*stop)(void)) {
-    if (!o || o->type != KOBJ_PORT) return KE_ARG;
+    if (!o || o->type != KOBJ_PORT || (cap && !kbuf)) return KE_ARG;
     port_t* p = (port_t*)o;
     uint64_t start = timer_get_ticks();
     for (;;) {
@@ -248,8 +275,8 @@ uint64_t shm_room_kb(void);                               // тест задаё
 #else
 static uint64_t shm_room_kb(void) { return pmm_get_free_memory_kb() / 2; }
 #endif
-int shm_open(const char* name, uint32_t pages, int flags, kobj_t** out) {
-    if (!kname_ok(name)) return KE_ARG;
+int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out) {
+    if (!kname_ok(name) || !out || !open_flags_valid(flags)) return KE_ARG;
     shm_t* s = 0;
     if ((flags & KOPEN_CREATE) && !exists(KOBJ_SHM, name)) {
         if (pages == 0) return KE_ARG;
@@ -269,7 +296,11 @@ int shm_open(const char* name, uint32_t pages, int flags, kobj_t** out) {
             __builtin_memset((void*)(uintptr_t)pa, 0, 4096);
         }
     }
-    return publish(KOBJ_SHM, name, flags, s ? &s->hdr : 0, out);
+    return publish(KOBJ_SHM, name, flags, owner_pid, s ? &s->hdr : 0, out);
+}
+
+int shm_open(const char* name, uint32_t pages, int flags, kobj_t** out) {
+    return shm_open_as(name, pages, flags, 0, out);
 }
 
 uint32_t shm_pages(kobj_t* o) { return o && o->type == KOBJ_SHM ? ((shm_t*)o)->pages : 0; }
