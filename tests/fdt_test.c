@@ -70,6 +70,25 @@ static unsigned build(void) {
 int main(void) {
     unsigned total = build();
     CHECK(fdt_valid(blob, sizeof blob) && fdt_tree_valid(blob, sizeof blob) && fdt_total_size(blob) == total);
+
+    /* The adapter's available argument is a real bound: never read a partial DTB header. */
+    {
+        /* Match each allocation to its advertised bound. ASan must catch a regression
+           that reads a full header when available is zero. */
+        uint8_t zero_bytes[1] = {0};
+        uint8_t four_bytes[4] = {0xd0, 0x0d, 0xfe, 0xed};
+        uint8_t thirty_nine_bytes[39] = {0xd0, 0x0d, 0xfe, 0xed};
+        uint8_t handoff[4096];
+        uint32_t handoff_size = 123;
+        CHECK(kbi_from_fdt(zero_bytes, 0, 0x800000, 0x100000, 0x200000,
+                           handoff, sizeof handoff, &handoff_size) != 0 && handoff_size == 0);
+        handoff_size = 123;
+        CHECK(kbi_from_fdt(four_bytes, 4, 0x800000, 0x100000, 0x200000,
+                           handoff, sizeof handoff, &handoff_size) != 0 && handoff_size == 0);
+        handoff_size = 123;
+        CHECK(kbi_from_fdt(thirty_nine_bytes, 39, 0x800000, 0x100000, 0x200000,
+                           handoff, sizeof handoff, &handoff_size) != 0 && handoff_size == 0);
+    }
     int root = fdt_root(blob);
     CHECK(root >= 0 && fdt_compatible(blob, root, "linux,dummy-virt"));
 
