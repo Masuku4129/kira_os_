@@ -57,9 +57,8 @@ ALL = [
         *DISK_IRQ,
     ], boot="grub"),
     sc("boot-bios", "загрузка нашим BIOS-загрузчиком без GRUB: VBE, E820 и системный диск", BASIC + [
-        # The production image has no initrd unless KIRA_INITRD/initrd.img is supplied.
-        # tests/bios_boot_test.sh separately verifies the positive initrd=1 path.
-        {"log": [r"\[KIRA FB\] Bootloader mode: 1280x720x32", r"Processors online: 4", r"modules=0"]},
+        # The release BIOS image carries the packaged initrd module; verify the MB2 handoff.
+        {"log": [r"\[KIRA FB\] Bootloader mode: 1280x720x32", r"Processors online: 4", r"modules=1"]},
         *DISK_IRQ,
     ], boot="bios"),
     sc("boot-virtio", "загрузка: virtio-blk, 4 ядра, базовые проверки", BASIC + [
