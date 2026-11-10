@@ -3,14 +3,6 @@
 #include "target.h"
 #include <string.h>
 
-int kcc_obj;                                    /* 1 - вывод объектного файла (ET_REL), main не нужен, внешние символы разрешены */
-int kcc_dumpopt;
-int kcc_nosr;
-int kcc_wrapv;
-int kcc_nolvn;
-int kcc_nosse;
-int kcc_noopt;                                  /* 1 - не запускать ir_optimize (-O0, для сверки и отладки) */
-
 typedef struct {
     Obj **htab;
     unsigned hcap;
