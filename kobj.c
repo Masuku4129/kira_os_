@@ -104,10 +104,19 @@ static void destroy(kobj_t* o) {
     kfree(o);
 }
 
+static int registered_locked(kobj_t* o) {
+    for (unsigned i = 0; i < reg_n; i++) if (reg[i] == o) return 1;
+    return 0;
+}
+
 int kobj_retain(kobj_t* o) {
     if (!o) return KE_ARG;
     uint64_t f = spin_lock_irqsave(&reg_lock);
-    if (o->refs == UINT32_MAX) {
+    if (!registered_locked(o)) {
+        spin_unlock_irqrestore(&reg_lock, f);
+        return KE_BADH;
+    }
+    if (!o->refs || o->refs == UINT32_MAX) {
         spin_unlock_irqrestore(&reg_lock, f);
         return KE_LIMIT;
     }
@@ -119,7 +128,7 @@ int kobj_retain(kobj_t* o) {
 void kobj_release(kobj_t* o) {
     if (!o) return;
     uint64_t f = spin_lock_irqsave(&reg_lock);
-    if (!o->refs) { spin_unlock_irqrestore(&reg_lock, f); return; }
+    if (!registered_locked(o) || !o->refs) { spin_unlock_irqrestore(&reg_lock, f); return; }
     uint32_t r = --o->refs;
     if (r == 0) {
         for (unsigned i = 0; i < reg_n; i++) if (reg[i] == o) { reg[i] = reg[--reg_n]; break; }
