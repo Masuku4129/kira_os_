@@ -916,7 +916,18 @@ void mind_make_features(const mind_t* s, const mind_sample_t* in, int32_t* x) {
 }
 
 static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* x, uint32_t now) {
-    if (!in->mem_total_mb || in->mem_used > 100) return;
+    if (!in->mem_total_mb || in->mem_used > 100) {
+        for (unsigned i = 0; i < 5; i++) s->mem_pending[i].valid = 0;
+        s->mem_prev_valid = 0;
+        s->mem_risk_q16 = 0;
+        return;
+    }
+    int32_t mx[MNET_F];
+    for (int i = 0; i < MNET_F; i++) mx[i] = x[i];
+    uint32_t growth = s->mem_prev_valid && in->mem_used > s->mem_prev_used ? in->mem_used - s->mem_prev_used : 0;
+    mx[12] = q16(growth, 10); /* рост занятой памяти за секунду; отдельный смысл признака в memory_net */
+    s->mem_prev_used = in->mem_used;
+    s->mem_prev_valid = 1;
     for (unsigned i = 0; i < 5; i++) {
         mind_mem_pending_t* p = &s->mem_pending[i];
         if (!p->valid) continue;
@@ -929,16 +940,16 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
         }
     }
     mind_mem_pending_t* slot = &s->mem_pending[s->mem_pending_pos++ % 5];
-    for (int i = 0; i < MNET_F; i++) slot->x[i] = x[i];
+    for (int i = 0; i < MNET_F; i++) slot->x[i] = mx[i];
     slot->max_used = in->mem_used;
     slot->age = 0;
     slot->acted = 0;
     slot->valid = 1;
-    s->mem_risk_q16 = mnet_predict(&s->m.memory_net, x);
+    s->mem_risk_q16 = mnet_predict(&s->m.memory_net, mx);
     if (mnet_trusted(&s->m.memory_net) && s->mem_risk_q16 >= (MNET_ONE * 60u) / 100u) {
         s->mem_forecasts++;
-        if (now - s->pre_logged_t >= 30 || !s->pre_logged_t) {
-            s->pre_logged_t = now;
+        if (now - s->mem_logged_t >= 30 || !s->mem_logged_t) {
+            s->mem_logged_t = now;
             jlog(s, now, MJ_MEMORY, 0, 0, "предвижу давление памяти: риск %u%% достижения 90%% ОЗУ за 4 с (только наблюдение)",
                  s->mem_risk_q16 * 100 / MNET_ONE);
         }
