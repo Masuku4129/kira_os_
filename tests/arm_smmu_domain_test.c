@@ -179,6 +179,7 @@ int main(void)
         CHECK((leaf & 3ull) == 3ull);
         CHECK(((leaf >> 8) & 3ull) == 3ull); /* inner-shareable */
         CHECK((leaf & (1ull << 10)) != 0);  /* access flag */
+        CHECK((leaf & (1ull << 11)) != 0);  /* nG: translation is ASID-tagged */
         CHECK(((leaf >> 6) & 3ull) == 0ull); /* EL1 read/write */
     }
     CHECK(kira_smmu_domain_map_4k(&domain, 0x12346000u, 0x501000u,
