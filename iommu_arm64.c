@@ -311,8 +311,10 @@ int iommu_arm64_init(const void* fdt, int pci_host_node)
         arm_devices[i].stream_id = sid;
         if (!first_phandle)
             first_phandle = phandle;
-        else if (phandle != first_phandle)
+        else if (phandle != first_phandle) {
             arm_devices[i].blocked = 1u; /* Multiple SMMU instances are not merged. */
+            continue;
+        }
         if (arm_sid_refs[sid] != UINT16_MAX)
             ++arm_sid_refs[sid];
         if (arm_sid_refs[sid] > 1u)
