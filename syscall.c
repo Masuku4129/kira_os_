@@ -207,6 +207,7 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return futex_wake(key, a2 > 0xFFFFFFFFu ? 0xFFFFFFFFu : (unsigned)a2);
     }
     case SYS_PORT_OPEN: {
+        if (a3 & ~7ULL) return (uint64_t)(int64_t)KE_ARG;
         char name[KNAME_MAX + 1];
         if (!copy_name(a1, a2, name)) return (uint64_t)(int64_t)KE_ARG;
         kobj_t* o = 0;
@@ -246,6 +247,7 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return (uint64_t)n;
     }
     case SYS_SHM_OPEN: {
+        if (a3 >> 35) return (uint64_t)(int64_t)KE_ARG;
         char name[KNAME_MAX + 1];
         if (!copy_name(a1, a2, name)) return (uint64_t)(int64_t)KE_ARG;
         kobj_t* o = 0;
