@@ -237,12 +237,6 @@ struct Ins {
     };
 };
 typedef struct { Obj *f; Ins *head; int nreg, nlab; unsigned char *mdef; } IrFn;   /* mdef[v]: vreg переменной с несколькими определениями (ir_optimize) */
-extern int kcc_nolvn;                         /* -fno-lvn: без локальной нумерации значений (для сверки) */
-extern int kcc_wrapv;                         /* -fwrapv: счётчики циклов тоже нормализуются после каждого шага */
-extern int kcc_nosr;                          /* -fno-sr: без понижения силы умножения (для сверки) */
-extern int kcc_dumpopt;                      /* ir.c: -S-oir, дамп IR после ir_optimize */
-extern int kcc_noopt;                        /* gen_common.c */
-extern int kcc_nosse;                        /* -mno-sse: float/double - ошибка компиляции, бэкенд не выдаёт ни одной команды SSE (ядро Киры собирается без SSE) */
 void ir_usecount(IrFn *fi, int *ndef, int *nuse, Ins **defins);
 Obj *gen_lookup(const char *name);           /* gen_common.c */
 typedef void (*OpVisit)(Ins *i, int *r, int kind, void *ctx);   /* kind: 0 - чтение vreg, 1 - запись, 2 - выход asm */
@@ -258,7 +252,6 @@ void ir_dump(Obj *globals, SB *out);
 /* Компиляция программы в исполняемый ELF Киры (x86-64). Результат - в арене. Ошибки - через kerr. */
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
 void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen);
-extern int kcc_obj;
 /* gen_a64.c / asm_a64.c (этап M4): то же для AArch64 (EL0 Киры ARM64). */
 void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
 
