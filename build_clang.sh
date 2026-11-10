@@ -195,21 +195,37 @@ if command -v nasm >/dev/null 2>&1; then
         && python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios.img || { echo "[!] kira-bios.img не собран"; exit 1; }
 fi
 
+UEFI_DIR=
 # Собственный UEFI-загрузчик (GNU-EFI нужен только для сборки загрузчика) и диск GPT + ESP: kira-uefi.img. Без gnu-efi/mtools шаг пропускается.
 if command -v mcopy >/dev/null 2>&1 && [ -s /usr/include/efi/efi.h -o -n "${EFI_INCLUDE:-}" ]; then
     echo "[*] Собственный UEFI-загрузчик (без GRUB): kira-uefi.img"
     _u=$(mktemp -d)
     if bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err" && python3 tools/mkuefi.py "$_u/EFI/BOOT/BOOTX64.EFI" "$_u/EFI/KIRA/KIRA.ELF" kira-uefi.img; then :; else
         echo "[!] kira-uefi.img не собран:"; tail -3 "$_u/err"; fi
-    rm -rf "$_u"
+    UEFI_DIR="$_u"
 fi
 
 echo "[*] ISO..."
-rm -rf isodir kira.iso
-mkdir -p isodir/boot/grub
-cp kira.bin isodir/boot/kira.bin
-cp grub.cfg isodir/boot/grub/grub.cfg
-grub-mkrescue -o kira.iso isodir 2>/dev/null
+rm -rf isodir kira.iso kira-grub.iso
+if command -v nasm >/dev/null 2>&1 && command -v xorriso >/dev/null 2>&1; then
+    # Основной образ - с собственным загрузчиком (BIOS и, если собран, UEFI), без GRUB.
+    if [ -n "$UEFI_DIR" ] && [ -s "$UEFI_DIR/EFI/BOOT/BOOTX64.EFI" ]; then
+        tools/mkiso_own.sh kira.bin kira.iso "$UEFI_DIR/EFI/BOOT/BOOTX64.EFI" "$UEFI_DIR/EFI/KIRA/KIRA.ELF" || { echo "[!] kira.iso (свой загрузчик) не собран"; exit 1; }
+    else
+        tools/mkiso_own.sh kira.bin kira.iso || { echo "[!] kira.iso (свой загрузчик) не собран"; exit 1; }
+    fi
+    echo "[*] kira.iso: собственный загрузчик (без GRUB)."
+    if command -v grub-mkrescue >/dev/null 2>&1; then    # запасной образ на GRUB - на случай, если свой загрузчик не заведётся на каком-то BIOS
+        mkdir -p isodir/boot/grub; cp kira.bin isodir/boot/kira.bin; cp grub.cfg isodir/boot/grub/grub.cfg
+        grub-mkrescue -o kira-grub.iso isodir 2>/dev/null && echo "[*] kira-grub.iso: запасной образ на GRUB."
+    fi
+else
+    mkdir -p isodir/boot/grub
+    cp kira.bin isodir/boot/kira.bin
+    cp grub.cfg isodir/boot/grub/grub.cfg
+    grub-mkrescue -o kira.iso isodir 2>/dev/null
+fi
+[ -n "$UEFI_DIR" ] && rm -rf "$UEFI_DIR"
 if command -v xorriso >/dev/null 2>&1 && xorriso -indev kira.iso -report_el_torito plain 2>/dev/null | grep -qi "uefi"; then
     echo "[*] ISO: загрузка BIOS и UEFI."
 else
@@ -222,7 +238,7 @@ case "$1" in
         OUT="${KIRA_OUT:-/storage/emulated/0/Download}"
         [ -d "$OUT" ] || { echo "[!] Нет папки $OUT (в Termux: termux-setup-storage; в proot - проверьте, что /storage примонтирован)"; exit 1; }
         cp kira.iso "$OUT/kira.iso"
-        [ -f kira-bios.img ] && cp kira-bios.img "$OUT/kira-bios.img"   # загрузка без GRUB: Hard Disk B или Boot from: HDD (см. LIMBO.md)
+        [ -f kira-grub.iso ] && cp kira-grub.iso "$OUT/kira-grub.iso"   # запасной образ на GRUB (основной kira.iso - со своим загрузчиком)
         if [ -f "$OUT/kira_disk.img" ]; then
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
             for t in $TESTPROGS; do tools/kfstool "$OUT/kira_disk.img" rm /bin/$t >/dev/null 2>&1 || true; done   # убрать тестовые программы прежних версий

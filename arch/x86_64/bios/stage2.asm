@@ -77,6 +77,8 @@ start16:
   cld
   mov [drive], dl
   call serial_init
+  call cd_detect
+  jc near fail_disk
   mov si, m_banner
   call print16
   cmp dword [man_magic], 'KBM1'
@@ -380,7 +382,51 @@ e820_collect:
 .bad: stc
   ret
 
-disk_read:                      ; читает [dap] с повторами. CF=1 при ошибке
+; Загрузка с компакт-диска (El Torito без эмуляции): сектор диска 2048 байт, образ загрузчика лежит с адреса cd_base (его сообщает BIOS, INT 13h AH=4B01).
+; LBA в манифесте и в dap - в секторах по 512 байт от начала образа; для компакт-диска переводятся в секторы по 2048 (все чтения кратны 4 по началу).
+cd_detect:                      ; CF=1 - компакт-диск, но адрес образа не получен
+  mov byte [is_cd], 0
+  mov word [edd_buf], 0x1E
+  mov si, edd_buf
+  mov dl, [drive]
+  mov ah, 0x48
+  int 0x13
+  jc .no
+  cmp word [edd_buf + 24], 2048
+  jne .no
+  mov byte [spec], 0x13
+  mov si, spec
+  mov dl, [drive]
+  mov ax, 0x4B01
+  int 0x13
+  jc .bad
+  mov eax, [spec + 4]            ; пакет спецификации: +4 - LBA образа загрузки
+  mov [cd_base], eax
+  mov byte [is_cd], 1
+.no: clc
+  ret
+.bad: stc
+  ret
+
+disk_read:                      ; читает [dap] (сектора по 512 от начала образа). CF=1 при ошибке
+  cmp byte [is_cd], 0
+  je disk_raw
+  push dword [dap_lba]
+  push word [dap_n]
+  mov ax, [dap_n]
+  add ax, 3
+  shr ax, 2
+  mov [dap_n], ax
+  mov eax, [dap_lba]
+  shr eax, 2
+  add eax, [cd_base]
+  mov [dap_lba], eax
+  call disk_raw
+  pop word [dap_n]
+  pop dword [dap_lba]
+  ret                           ; CF от disk_raw: pop не меняет флаги
+
+disk_raw:
   mov cx, 3
 .r:
   mov si, dap
@@ -656,6 +702,11 @@ gdtr:
   dd gdt
 
 drive:   db 0
+is_cd:   db 0
+align 4
+cd_base: dd 0
+edd_buf: times 32 db 0
+spec:    times 24 db 0
 align 4
 e_count: dd 0
 cur_lba: dd 0

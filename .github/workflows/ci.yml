@@ -289,6 +289,7 @@ jobs:
             kira.disk
             kira.bin
             kira-bios.img
+            kira-grub.iso
             ci-out/image-audit.json
       - uses: actions/upload-artifact@v4
         with:
@@ -441,7 +442,7 @@ jobs:
               "net-e1000e", "sound-ac97", "net-ipv6", "sound-sb16",
               "mind-levers", "mind-seed", "cc-native", "drv-edu",
               "drvget-rl", "drvman-edu", "apps-drvman", "drvman-quiet",
-              "drv-io", "drv-bsd-ne2k", "drv-bsd-pcn", "drv-bsd-fxp", "drv-bsd-dc", "drvget-bsd", "drvget-bsd-fxp", "boot-bios",
+              "drv-io", "drv-bsd-ne2k", "drv-bsd-pcn", "drv-bsd-fxp", "drv-bsd-dc", "drvget-bsd", "drvget-bsd-fxp", "boot-bios", "boot-grub",
           ]
           shard = int("${{ matrix.shard }}")
           selected = [name for index, name in enumerate(scenarios) if index % 10 == shard]

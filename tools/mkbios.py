@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""mkbios.py stage1.bin stage2.bin kernel.elf out.img - диск для собственного BIOS-загрузчика KIRA.
+"""mkbios.py stage1.bin stage2.bin kernel.elf out.img [cd] - диск для собственного BIOS-загрузчика KIRA.
 LBA0 stage1, LBA1..32 stage2 (манифест в последних 32 байтах), LBA64.. ядро (ELF64)."""
 import sys, zlib, struct
 KERNEL_LBA = 64
 S2_SECTORS = 32
 def main():
-    if len(sys.argv) != 5:
+    cd = len(sys.argv) == 6 and sys.argv[5] == "cd"      # образ для компакт-диска: stage1cd (1024 байта) + stage2, ядро с той же позиции
+    if len(sys.argv) != 5 and not cd:
         sys.exit(__doc__)
     s1, s2, k, out = (open(sys.argv[i], 'rb').read() if i < 4 else None for i in range(1, 5))
-    if len(s1) != 512 or s1[510:] != b'\x55\xaa':
+    if cd:
+        if len(s1) != 1024:
+            sys.exit('stage1cd: нужно ровно 1024 байта')
+    elif len(s1) != 512 or s1[510:] != b'\x55\xaa':
         sys.exit('stage1: нужен ровно 1 сектор с подписью 55AA')
     if len(s2) != S2_SECTORS * 512:
         sys.exit('stage2: нужно ровно %d байт' % (S2_SECTORS * 512))

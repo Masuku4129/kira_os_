@@ -144,6 +144,8 @@ class VM:
             img = os.environ.get("KIRA_BIOS_IMG", "kira-bios.img")
             return ["-drive", f"file={img},format=raw,if=none,id=bootd,snapshot=on",
                     "-device", "ide-hd,drive=bootd,bus=ide.1,unit=0,bootindex=0"]
+        if self.sc.get("boot") == "grub":                       # запасной образ на GRUB
+            return ["-boot", "order=d", "-cdrom", os.environ.get("KIRA_GRUB_ISO", "kira-grub.iso")]
         return ["-boot", "order=d", "-cdrom", self.iso]
 
     def args(self):
