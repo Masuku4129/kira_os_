@@ -52,13 +52,13 @@ class LicenseClassificationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "advertising clause"):
             MOD.classify_license(text.encode())
 
-    def test_custom_greenman_notice_is_not_mislabeled_as_bsd(self):
+    def test_custom_greenman_notice_uses_explicit_license_ref(self):
         text = """Copyright (C) 1993, David Greenman. This software may be used, modified,
         copied, distributed, and sold, in both source and binary form provided that
         the above copyright and these terms are retained. Under no circumstances is
         the author responsible for the proper functioning of this software."""
-        with self.assertRaisesRegex(ValueError, "Greenman"):
-            MOD.classify_license(text.encode())
+        self.assertEqual(MOD.classify_license(text.encode()), "LicenseRef-Greenman")
+        self.assertEqual(MOD.classify_license(b"/* SPDX-License-Identifier: LicenseRef-Greenman */"), "LicenseRef-Greenman")
 
     def test_mixed_source_licenses_fail_closed(self):
         with tempfile.TemporaryDirectory() as root:
