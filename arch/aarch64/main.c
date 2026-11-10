@@ -22,6 +22,7 @@
 #include "pmm.h"
 #include "selftest_arm.h"
 #include "pci.h"
+#include "iommu.h"
 #include "blk.h"
 #include "experience.h"
 #include "fscmd.h"
@@ -1184,6 +1185,9 @@ static void arm_pci_init(const void* fdt) {
         kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\n",
                 base, (uint64_t)first_bus, (uint64_t)last_bus, (uint64_t)nd,
                 (uint64_t)nb, m32.pci_base, m64.pci_base);
+        int iommu = iommu_arm64_init(fdt, n);
+        if (iommu < 0)
+            kprintf("[KIRA SMMU] initialization rejected (%d); covered PCI bus mastering stays disabled\n", iommu);
     }
     return;
 
@@ -1192,6 +1196,9 @@ enumerate_only:
         int nd = pci_init();
         kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s); BAR assignment disabled\n",
                 base, (uint64_t)first_bus, (uint64_t)last_bus, (uint64_t)nd);
+        int iommu = iommu_arm64_init(fdt, n);
+        if (iommu < 0)
+            kprintf("[KIRA SMMU] initialization rejected (%d); covered PCI bus mastering stays disabled\n", iommu);
     }
 }
 
@@ -1446,6 +1453,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
         kdrv_poll();                                             /* драйверы Ring 3 */
         life_tick();
         watchdog_feed();
+        (void)iommu_fault_poll();
         sched_sleep_ticks(1);
     }
 }
