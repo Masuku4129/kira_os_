@@ -211,7 +211,8 @@ int main(void)
     CHECK(((uint64_t *)cmdq)[8] == (0x11ull | (8ull << 48)));  /* map TLBI */
     CHECK(((uint64_t *)cmdq)[12] == (0x11ull | (8ull << 48))); /* read-only TLBI */
     CHECK(((uint64_t *)cmdq)[16] == (0x11ull | (8ull << 48))); /* unmap TLBI */
-    CHECK(((uint64_t *)cmdq)[24] == (0x05ull | (1ull << 11) | (7ull << 32))); /* CFGI_CD */
+    CHECK(((uint64_t *)cmdq)[24] == (0x05ull | (7ull << 32))); /* CFGI_CD: opcode + StreamID, SSID=0 */
+    CHECK(((uint64_t *)cmdq)[25] == 1ull); /* Leaf is bit 64, the low bit of command word 1 */
     CHECK(((uint64_t *)cmdq)[28] == (0x11ull | (8ull << 48))); /* destroy TLBI */
     CHECK(!domain.active && free_calls == 5);
     CHECK(metadata_allocs == metadata_frees);
