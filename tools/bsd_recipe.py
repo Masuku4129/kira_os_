@@ -22,7 +22,7 @@ PREFER = {'fxp_pci': ['8086:1209'], 'pcn': ['1022:2000']}
 def classify_license(data, path="<source>"):
     """Return one supported SPDX identifier; unknown, compound and mixed notices fail closed."""
     text = data.decode("latin-1", errors="strict")
-    spdx = re.findall(r"SPDX-License-Identifier:\\s*([^\\r\\n*]+)", text)
+    spdx = re.findall(r"SPDX-License-Identifier:\s*([^\r\n*]+)", text)
     if spdx:
         identifiers = [item.strip() for item in spdx]
         if len(set(identifiers)) != 1 or len(identifiers) != 1 or identifiers[0] not in {"BSD-2-Clause", "BSD-3-Clause", "MIT", "ISC", "LicenseRef-Greenman"}:
