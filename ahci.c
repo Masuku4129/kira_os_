@@ -238,6 +238,9 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     p->mem = (uint8_t*)virtio_dma_alloc(4096, &p->mem_phys);
     p->buf = (uint8_t*)virtio_dma_alloc(BOUNCE, &p->buf_phys);
     if (!p->mem || !p->buf) { uart_print("[KIRA AHCI] no DMA memory\n"); return; }
+    if (!c->s64 && (p->mem_phys + 4096 > 0x100000000ull || p->buf_phys + BOUNCE > 0x100000000ull)) {
+        uart_print("[KIRA AHCI] controller is 32-bit, DMA memory above 4 GB: port skipped\n"); return;
+    }
 #if defined(__aarch64__)
     if (iommu_device_isolated(c->pci) &&
         (iommu_map(c->pci, p->mem_phys, p->mem_phys, 4096, IOMMU_R | IOMMU_W) != IOMMU_OK ||
@@ -247,9 +250,6 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
         return;
     }
 #endif
-    if (!c->s64 && (p->mem_phys + 4096 > 0x100000000ull || p->buf_phys + BOUNCE > 0x100000000ull)) {
-        uart_print("[KIRA AHCI] controller is 32-bit, DMA memory above 4 GB: port skipped\n"); return;
-    }
     w32(pr, P_CLB, (uint32_t)p->mem_phys); w32(pr, P_CLB + 4, (uint32_t)(p->mem_phys >> 32));
     uint64_t fb = p->mem_phys + 0x400;
     w32(pr, P_FB, (uint32_t)fb); w32(pr, P_FB + 4, (uint32_t)(fb >> 32));
