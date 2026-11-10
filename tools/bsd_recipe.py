@@ -30,11 +30,17 @@ def classify_license(data, path="<source>"):
         return identifiers[0]
 
     low = text.lower()
+    if "all advertising materials mentioning" in low:
+        raise ValueError("%s: BSD advertising clause is outside the allowed license set" % path)
+    if ("may be used, modified, copied, distributed, and sold, in both source and binary form" in low and
+            "under no circumstances is the author responsible for the proper functioning" in low):
+        raise ValueError("%s: custom Greenman permissive notice needs an explicit LicenseRef policy" % path)
     if ("redistribution and use in source and binary forms" in low and
             "this software is provided by" in low and
             "1. redistributions of source code must retain" in low and
             "2. redistributions in binary form must reproduce" in low):
-        if "neither the name of" in low and "endorse or promote" in low:
+        if (("neither the name of" in low or "the name of " in low) and
+                "endorse or promote" in low):
             return "BSD-3-Clause"
         return "BSD-2-Clause"
     if ("permission is hereby granted, free of charge, to any person obtaining a copy" in low and
