@@ -2,9 +2,12 @@
 #if defined(__aarch64__)
 #include "iommu.h"
 #endif
+#if !defined(KIRA_HOST_TEST)
+#include "spinlock.h"
+static spinlock_t cfg_rmw_lock = SPINLOCK_INIT;
+#endif
 
 #if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-#include "spinlock.h"
 /* Порты 0xCF8/0xCFC - пара обращений: с драйверов Ring 3 (kdrv.c) конфигурацию читают и пишут разные ядра и потоки одновременно. */
 static spinlock_t cfg_port_lock = SPINLOCK_INIT;
 static inline void outl(uint16_t p, uint32_t v) { __asm__ volatile ("outl %0, %1" : : "a"(v), "Nd"(p)); }
@@ -129,20 +132,47 @@ uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { return (uint16_t)(cr32(d
 uint8_t pci_read8(const pci_dev_t* d, uint16_t off) { return (uint8_t)(cr32(d, off & ~3) >> ((off & 3) * 8)); }
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { be.write32(d->bus, d->dev, d->fn, off, v); }
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
+#if !defined(KIRA_HOST_TEST)
+    uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
+#endif
     uint32_t w = cr32(d, off & ~3), sh = (off & 2) * 8;
-    if ((off & ~3) == 0x04) w &= 0x0000FFFFu;                        /* старшая половина - статус с битами «сбросить записью 1» */
+    if ((off & ~3) == 0x04) w &= 0x0000FFFFu;                        /* status is W1C */
     w = (w & ~(0xFFFFu << sh)) | ((uint32_t)v << sh);
     be.write32(d->bus, d->dev, d->fn, off & ~3, w);
+#if !defined(KIRA_HOST_TEST)
+    spin_unlock_irqrestore(&cfg_rmw_lock, flags);
+#endif
 }
 
 void pci_enable(const pci_dev_t* d, uint16_t bits) {
+#if !defined(KIRA_HOST_TEST)
+    uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
+#endif
 #if defined(__aarch64__)
-    /* A mapped requester may start DMA only after its SMMU stream has a
-       valid explicit bypass or stage-1 domain. Failed setup stays blocked. */
+    /* Recheck under the config lock so a concurrent SMMU quarantine wins. */
     if ((bits & PCI_CMD_MASTER) && !iommu_device_ready(d))
         bits &= (uint16_t)~PCI_CMD_MASTER;
 #endif
-    pci_write16(d, 0x04, (uint16_t)(pci_read16(d, 0x04) | bits));
+    uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
+    value |= bits;
+    be.write32(d->bus, d->dev, d->fn, 0x04, value);
+#if !defined(KIRA_HOST_TEST)
+    spin_unlock_irqrestore(&cfg_rmw_lock, flags);
+#endif
+}
+
+void pci_disable_bus_master(const pci_dev_t* d) {
+    if (!d)
+        return;
+#if !defined(KIRA_HOST_TEST)
+    uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
+#endif
+    uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
+    value &= (uint32_t)~PCI_CMD_MASTER;
+    be.write32(d->bus, d->dev, d->fn, 0x04, value);
+#if !defined(KIRA_HOST_TEST)
+    spin_unlock_irqrestore(&cfg_rmw_lock, flags);
+#endif
 }
 
 /* Размер и тип BAR: пишем единицы, читаем маску, возвращаем исходное значение. Декодирование на время зонда выключено. */
@@ -200,7 +230,7 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     /* Firmware may leave bus mastering enabled. Stop DMA before probing BARs
        or handing the function to a kernel driver. Drivers re-enable it only
        after their DMA buffers and IOMMU mappings are ready. */
-    pci_write16(d, 0x04, (uint16_t)(pci_read16(d, 0x04) & ~PCI_CMD_MASTER));
+    pci_disable_bus_master(d);
     probe_bars(d);
     if ((d->header_type & 0x7F) == 1 && d->class_code == 6 && d->subclass == 4) {
         uint8_t sec = pci_read8(d, 0x19);                          /* вторичная шина моста */
