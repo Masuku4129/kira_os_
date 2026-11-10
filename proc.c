@@ -1,4 +1,5 @@
 #include "proc.h"
+#include "proc_pid.h"
 #include "net.h"
 #include "audio.h"
 #include "syscall.h"
@@ -163,7 +164,13 @@ static int spawn(const char* name, const void* image, size_t len, const char* gr
         if (args) for (; args[i] && i + 1 < sizeof p->args; i++) p->args[i] = args[i];
         p->args[i] = 0;
     }
-    uint32_t pid = next_pid++;         /* под замком: процессы запускают с разных ядер */
+    uint32_t pid = proc_pid_take(&next_pid); /* под замком: PID не повторяется, приватные IPC не переходят новому процессу */
+    if (!pid) {
+        p->used = 0;
+        spin_unlock_irqrestore(&proc_lock, f);
+        uart_print("[KIRA PROC] PID space exhausted; refusing process creation rather than reusing an isolation identity.\\n");
+        return -1;
+    }
     spin_unlock_irqrestore(&proc_lock, f);
 
     uint64_t root = vmm_space_create();
