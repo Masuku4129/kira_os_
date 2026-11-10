@@ -805,7 +805,7 @@ static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t 
     int64_t rc = 0;
     uint64_t pa = 0;
     if (b->ndma >= KDRV_MAX_DMA || ((uint64_t)b->dma_pages + pages) * 4096 > KDRV_MAX_DMA_TOTAL) rc = KE_LIMIT;
-    else if (!(pa = pmm_alloc_contiguous(pages))) rc = KE_NOMEM;
+    else if (!(pa = bits ? pmm_alloc_contiguous_below(pages, 1ull << bits) : pmm_alloc_contiguous(pages))) rc = KE_NOMEM;
     if (!rc) {
         uint64_t t;
         if (vmm_translate(pa, &t) != 0 || t != pa || vmm_translate(pa + (uint64_t)(pages - 1) * 4096, &t) != 0 || t != pa + (uint64_t)(pages - 1) * 4096) rc = KE_NOMEM;   /* устройству нужен тот же адрес, что виден процессору */
