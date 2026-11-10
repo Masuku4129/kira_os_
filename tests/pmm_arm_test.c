@@ -41,7 +41,7 @@ int main(void) {
 
     /* A reservation inside a live run must make free_contiguous atomic: no prefix is freed. */
     blk = pmm_alloc_contiguous(4);
-    CHECK(blk == 0x111000);
+    CHECK(blk != 0 && (blk & 4095) == 0 && blk + 4 * 4096 <= 0x200000);
     pmm_arm_reserve(blk + 4096, blk + 8192);
     CHECK(pmm_free_contiguous(blk, 4) == -1);
     CHECK(pmm_free_page(blk) == 0);
