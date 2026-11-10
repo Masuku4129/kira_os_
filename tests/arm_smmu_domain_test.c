@@ -218,9 +218,17 @@ int main(void)
         /* Encoding 6 is valid 52-bit OAS; this driver safely caps its CD to 48 bits. */
         smmu.idr5 = (saved_idr5 & ~7u) | 6u;
         CHECK(kira_smmu_domain_create(&unsupported, &smmu, 8u, &p) == KIRA_SMMU_OK);
-        CHECK(((uint64_t *)unsupported.context_table)[0] >> 32 & 7u == 5u);
+        CHECK((((uint64_t *)unsupported.context_table)[0] >> 32 & 7u) == 5u);
         CHECK(kira_smmu_domain_destroy(&unsupported, &p) == KIRA_SMMU_OK);
         smmu.idr5 = saved_idr5;
+    }
+
+    /* Without ASID16, reserve ASID zero and reject the final 8-bit slot. */
+    {
+        struct kira_smmu_domain no_asid = {0};
+        unsigned before = alloc_calls;
+        CHECK(kira_smmu_domain_create(&no_asid, &smmu, 255u, &p) == KIRA_SMMU_UNSUPPORTED);
+        CHECK(alloc_calls == before);
     }
 
     CHECK(kira_smmu_domain_create(&domain, &smmu, 7u, &p) == KIRA_SMMU_OK);
