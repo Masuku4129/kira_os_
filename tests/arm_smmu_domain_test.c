@@ -147,7 +147,7 @@ int main(void)
     uint64_t *ste, *cd, *root, *l1, *l2, *l3;
     uint64_t ste0, page;
     uint64_t *commands;
-    unsigned freed_before;
+    unsigned freed_before, freed_pages_before;
 
     reset_model();
     memset(&smmu, 0, sizeof(smmu));
@@ -261,12 +261,13 @@ int main(void)
     CHECK(l3[4] == 0);
 
     freed_before = free_calls;
+    freed_pages_before = freed_pages;
     CHECK(kira_smmu_domain_destroy(&domain, &p) == KIRA_SMMU_OK);
     CHECK(domain.active == 0 && domain.smmu == 0);
     CHECK((smmu.stream_ids[0] & (1u << 7)) == 0);
     CHECK(ste[0] == 0 && ste[1] == 0);
     CHECK(free_calls - freed_before == 5u); /* three intermediate tables + root + CD table */
-    CHECK(freed_pages == 5u);
+    CHECK(freed_pages - freed_pages_before == 5u);
     CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_OK);
 
     puts("ARM SMMUv3 domain: STE/CD encoding, stage-1 maps, ASID invalidation and teardown passed");
