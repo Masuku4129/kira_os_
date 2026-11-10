@@ -15,7 +15,10 @@ int virtio_rng_read(void* out, uint32_t n) {
         if (!p) p = pci_find(VIRTIO_VENDOR, 0x1005);
         if (!p || virtio_attach(&dev, p) || virtio_begin(&dev, 0) || virtio_queue_setup(&dev, &q, 0, 8)) return -1;
         buf = (uint8_t*)virtio_dma_alloc(64, &buf_p);
-        if (!buf) { virtio_fail(&dev); return -1; }
+        if (!buf || virtio_dma_grant(&dev, buf_p, 64) != 0) {
+            virtio_fail(&dev);
+            return -1;
+        }
         virtio_driver_ok(&dev);
         st = 1;
     }
