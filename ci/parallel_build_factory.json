@@ -11,9 +11,11 @@
       ],
       "checks": [
         "build_clang.sh --no-run",
+        "ci/kira_vm.py boot-bios + boot-grub",
+        "build_uefi.sh + ci/test_uefi_ovmf.sh (FAT ESP and GPT/ESP disk)",
         "ci.test_release_gate"
       ],
-      "acceptance": "BIOS и UEFI загружаются, BootInfo проверяется, production image проходит release policy."
+      "acceptance": "BIOS/GRUB QEMU boots pass; native UEFI PE32+ loader boots under OVMF from FAT ESP and GPT/ESP disk; BootInfo and production release policy pass."
     },
     {
       "id": "kcc",
@@ -80,6 +82,7 @@
       ],
       "checks": [
         "build_arm64.sh",
+        "ci/make_flash.sh",
         "ci/arm64_vm.py"
       ],
       "acceptance": "ARM64 build and all configured QEMU scenarios pass. Physical-board compatibility is tracked separately."
