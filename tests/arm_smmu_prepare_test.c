@@ -58,6 +58,30 @@ static void test_clean_cache(void *context, const void *address, size_t length)
     ++clean_calls;
 }
 
+static void test_barrier(void *context)
+{
+    (void)context;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+}
+
+static void test_delay(void *context)
+{
+    uint32_t cr0 = *(volatile uint32_t *)(registers_page + 0x0020u);
+    uint32_t gbpa = *(volatile uint32_t *)(registers_page + 0x0044u);
+    (void)context;
+    *(volatile uint32_t *)(registers_page + 0x0024u) = cr0 & 0x0du;
+    *(volatile uint32_t *)(registers_page + 0x009cu) =
+        *(volatile uint32_t *)(registers_page + 0x0098u) & 0x1ffu;
+    if (gbpa & (1u << 31))
+        *(volatile uint32_t *)(registers_page + 0x0044u) = gbpa & ~(1u << 31);
+}
+
+static int test_quiesce_devices(void *context)
+{
+    (void)context;
+    return 0;
+}
+
 static void reset_test_platform(void)
 {
     memset(registers_page, 0, sizeof(registers_page));
@@ -78,6 +102,10 @@ static struct kira_smmu_platform platform(void)
     p.alloc_dma_pages = test_alloc_dma_pages;
     p.free_dma_pages = test_free_dma_pages;
     p.clean_cache = test_clean_cache;
+    p.write_barrier = test_barrier;
+    p.read_barrier = test_barrier;
+    p.delay = test_delay;
+    p.quiesce_devices = test_quiesce_devices;
     return p;
 }
 
@@ -128,15 +156,29 @@ int main(void)
     CHECK(*(uint64_t *)(registers_page + 0x0080u) ==
           smmu.stream_table_physical);
     CHECK(clean_calls == 3);
+    CHECK((*(uint32_t *)(registers_page + 0x0044u) & (1u << 20)) != 0);
+    CHECK((*(uint32_t *)(registers_page + 0x0044u) & (1u << 31)) == 0);
 
     /* The hardware queue base registers encode LOG2SIZE=8, not a valid bit. */
-    CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_TIMEOUT);
+    CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_OK);
+    CHECK(*(uint32_t *)(registers_page + 0x0028u) == 0x0d75u);
+    CHECK(*(uint32_t *)(registers_page + 0x002cu) == 0x6u);
+    CHECK(*(uint32_t *)(registers_page + 0x0020u) == 0x0du);
+    CHECK(smmu.enabled == 1);
     CHECK(*(uint64_t *)(registers_page + 0x0090u) ==
           ((smmu.cmdq_physical & 0x000fffffffffffe0ull) | 8ull));
     CHECK(*(uint64_t *)(registers_page + 0x00a0u) ==
           ((smmu.evtq_physical & 0x000fffffffffffe0ull) | 8ull));
     CHECK(*(uint32_t *)(registers_page + 0x10a8u) == 0u);
     CHECK(*(uint32_t *)(registers_page + 0x10acu) == 0u);
+
+    /* Do not take over a firmware-owned active SMMU. */
+    reset_test_platform();
+    p = platform();
+    memset(&smmu, 0, sizeof(smmu));
+    *(uint32_t *)(registers_page + 0x0024u) = 0x0du;
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
+    CHECK(alloc_calls == 0);
 
     /* Hardware with a narrower SID field must not expose unreachable STEs. */
     reset_test_platform();
