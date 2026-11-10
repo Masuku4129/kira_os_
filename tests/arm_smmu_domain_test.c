@@ -171,10 +171,10 @@ int main(void)
         uint64_t *l1 = (uint64_t *)(dma_pool + (0x302000u - 0x300000u));
         uint64_t *l2 = (uint64_t *)(dma_pool + (0x303000u - 0x300000u));
         uint64_t *l3 = (uint64_t *)(dma_pool + (0x304000u - 0x300000u));
-        uint64_t leaf = l3[(0x12345000u >> 12) & 0x1ffu];
-        CHECK((l0[(0x12345000u >> 39) & 0x1ffu] & 3ull) == 3ull);
-        CHECK((l1[(0x12345000u >> 30) & 0x1ffu] & 3ull) == 3ull);
-        CHECK((l2[(0x12345000u >> 21) & 0x1ffu] & 3ull) == 3ull);
+        uint64_t leaf = l3[(0x12345000ull >> 12) & 0x1ffu];
+        CHECK((l0[(0x12345000ull >> 39) & 0x1ffu] & 3ull) == 3ull);
+        CHECK((l1[(0x12345000ull >> 30) & 0x1ffu] & 3ull) == 3ull);
+        CHECK((l2[(0x12345000ull >> 21) & 0x1ffu] & 3ull) == 3ull);
         CHECK((leaf & 0x0000fffffffff000ull) == 0x500000u);
         CHECK((leaf & 3ull) == 3ull);
         CHECK(((leaf >> 8) & 3ull) == 3ull); /* inner-shareable */
@@ -185,7 +185,7 @@ int main(void)
                                   KIRA_SMMU_MAP_READ, &p) == KIRA_SMMU_OK);
     {
         uint64_t *l3 = (uint64_t *)(dma_pool + (0x304000u - 0x300000u));
-        uint64_t leaf = l3[(0x12346000u >> 12) & 0x1ffu];
+        uint64_t leaf = l3[(0x12346000ull >> 12) & 0x1ffu];
         CHECK(((leaf >> 6) & 3ull) == 2ull); /* EL1 read-only */
     }
     CHECK(kira_smmu_domain_map_4k(&domain, 0x12347000u, 0x502000u,
@@ -195,7 +195,7 @@ int main(void)
     CHECK(kira_smmu_domain_unmap_4k(&domain, 0x12345000u, &p) == KIRA_SMMU_OK);
     {
         uint64_t *l3 = (uint64_t *)(dma_pool + (0x304000u - 0x300000u));
-        CHECK(l3[(0x12345000u >> 12) & 0x1ffu] == 0);
+        CHECK(l3[(0x12345000ull >> 12) & 0x1ffu] == 0);
     }
 
     rc = kira_smmu_domain_destroy(&domain, &p);
