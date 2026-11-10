@@ -14,10 +14,14 @@ void uart_print_dec(uint64_t v) { (void)v; }
 void uart_print_hex(uint64_t v) { (void)v; }
 void* kmalloc(size_t n) { return malloc(n); }
 void kfree(void* p) { free(p); }
-uint64_t shm_room_kb(void) { return 64 * 1024; }
+static uint64_t shm_room_limit_kb = 64 * 1024;
+uint64_t shm_room_kb(void) { return shm_room_limit_kb; }
 static int pages_live;
+static int fail_pmm_after = -1;
 static void (*on_pmm_alloc)(void);
 uint64_t pmm_alloc_page(void) {
+    if (fail_pmm_after == 0) return 0;
+    if (fail_pmm_after > 0) fail_pmm_after--;
     uint64_t pa = (uint64_t)(uintptr_t)aligned_alloc(4096, 4096);
     if (pa) pages_live++;
     if (on_pmm_alloc) { void (*fn)(void) = on_pmm_alloc; on_pmm_alloc = 0; fn(); }
@@ -59,8 +63,14 @@ static void racing_shm_create(void) {
     racing_shm_result = shm_open_as("race.area", 1, KOPEN_CREATE, 902, &racing_shm_object);
 }
 
+static int racing_budget_result;
+static kobj_t* racing_budget_object;
+static void racing_budget_create(void) {
+    racing_budget_result = shm_open_as("budget.other", 1, KOPEN_CREATE, 903, &racing_budget_object);
+}
+
 int main(void) {
-    CHECK(kname_ok("kira.test-1_a") && !kname_ok("") && !kname_ok("Bad") && !kname_ok("a/b") && !kname_ok("0123456789012345678901234567890123"));
+    CHECK(kname_ok("kira.test-1_a") && !kname_ok(0) && !kname_ok("") && !kname_ok("Bad") && !kname_ok("a/b") && !kname_ok("0123456789012345678901234567890123"));
 
     // A concurrent creator must not allocate a second full SHM region for the same name.
     kobj_t* race_owner = 0;
@@ -71,6 +81,29 @@ int main(void) {
     CHECK(racing_shm_result == KE_AGAIN && racing_shm_object == 0);
     CHECK(pages_live == 1 && kobj_count() == 1);
     kobj_release(race_owner);
+    CHECK(pages_live == 0 && kobj_count() == 0);
+
+    // Concurrent SHM creators with different names must share the in-flight memory budget.
+    shm_room_limit_kb = 4;
+    racing_budget_result = 0; racing_budget_object = 0;
+    on_pmm_alloc = racing_budget_create;
+    kobj_t* budget_owner = 0;
+    CHECK(shm_open_as("budget.first", 1, KOPEN_CREATE, 904, &budget_owner) == 0 && budget_owner);
+    CHECK(racing_budget_result == KE_NOMEM && racing_budget_object == 0);
+    CHECK(pages_live == 1 && kobj_count() == 1);
+    kobj_release(budget_owner);
+    CHECK(pages_live == 0 && kobj_count() == 0);
+    shm_room_limit_kb = 64 * 1024;
+
+    // Partial physical allocation failure must unwind frames and the pending budget reservation.
+    fail_pmm_after = 1;
+    kobj_t* partial = 0;
+    CHECK(shm_open_as("partial.fail", 3, KOPEN_CREATE, 905, &partial) == KE_NOMEM && partial == 0);
+    fail_pmm_after = -1;
+    CHECK(pages_live == 0 && kobj_count() == 0);
+    kobj_t* after_failure = 0;
+    CHECK(shm_open_as("after.failure", 1, KOPEN_CREATE, 906, &after_failure) == 0 && after_failure);
+    kobj_release(after_failure);
     CHECK(pages_live == 0 && kobj_count() == 0);
 
     // Приватные IPC-объекты доступны создателю; публикация задаётся только при создании.
@@ -95,8 +128,28 @@ int main(void) {
     kobj_release(pub_shm2); kobj_release(pub_shm1);
     CHECK(kobj_count() == 0 && pages_live == 0);
 
+    // Reference counts must never wrap and make a live object appear unreferenced.
+    kobj_t* ref_limit = 0;
+    CHECK(port_open("ref.limit", KOPEN_CREATE, &ref_limit) == 0 && ref_limit);
+    if (ref_limit) {
+        ref_limit->refs = UINT32_MAX;
+        CHECK(kobj_retain(ref_limit) == KE_LIMIT);
+        kobj_t* denied = 0;
+        CHECK(port_open("ref.limit", 0, &denied) == KE_LIMIT && denied == 0);
+        ref_limit->refs = 1;
+        kobj_release(ref_limit);
+    }
+
+    // Null inputs are rejected safely by descriptor helpers; null object refs are no-ops.
+    CHECK(htab_add(0, 0) == KE_ARG && htab_cap(0) == 0);
+    CHECK(htab_get(0, 1, 0) == 0 && htab_take(0, 1) == 0);
+    htab_free(0); CHECK(kobj_retain(0) == KE_ARG); kobj_release(0);
+    kobj_t zero_refs = { KOBJ_PORT, 0, "zero" };
+    CHECK(kobj_retain(&zero_refs) == KE_LIMIT);
+
     // дескрипторы
     htab_t h; memset(&h, 0, sizeof h);
+    CHECK(htab_add(&h, 0) == KE_ARG);
     kobj_t a = { KOBJ_PORT, 1, "x" }, b = { KOBJ_SHM, 1, "y" };
     int ha = htab_add(&h, &a), hb = htab_add(&h, &b);
     CHECK(ha == 1 && hb == 2 && htab_get(&h, ha, KOBJ_PORT) == &a && htab_get(&h, ha, KOBJ_SHM) == 0 && htab_get(&h, 99, 0) == 0);
@@ -116,9 +169,14 @@ int main(void) {
     // очередь: порядок, отправитель, переполнение, длина больше ёмкости
     char buf[64]; uint32_t from = 0;
     CHECK(port_recv(p1, buf, sizeof buf, 0, &from, 0) == KE_AGAIN);
+    CHECK(port_send(p1, 1, 0, 1) == KE_ARG);
+    CHECK(port_recv(p1, 0, 1, 0, &from, 0) == KE_ARG);
     CHECK(port_send(p1, 5, "one", 3) == 0 && port_send(p1, 6, "two!", 4) == 0);
+    CHECK(port_queued(p1) == 2 && kobj_messages_total() >= 2);
     CHECK(port_recv(p1, buf, sizeof buf, 0, &from, 0) == 3 && !memcmp(buf, "one", 3) && from == 5);
-    CHECK(port_recv(p1, buf, 2, 0, &from, 0) == 4 && !memcmp(buf, "tw", 2) && from == 6);   /* длина - полная, копия - по ёмкости */
+    CHECK(port_queued(p1) == 1);
+    CHECK(port_recv(p1, buf, 2, 0, &from, 0) == 4 && !memcmp(buf, "tw", 2) && from == 6);
+    CHECK(port_queued(p1) == 0);   /* длина - полная, копия - по ёмкости */
     for (int i = 0; i < PORT_QUEUE; i++) CHECK(port_send(p1, 1, "m", 1) == 0);
     CHECK(port_send(p1, 1, "m", 1) == KE_FULL);
     CHECK(port_send(p1, 1, buf, PORT_MSG_MAX + 1) == KE_ARG);

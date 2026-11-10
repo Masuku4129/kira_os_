@@ -31,7 +31,7 @@ static volatile uint64_t msgs_total;
 #define KOBJ_F_PUBLIC 1u
 #define KOPEN_FLAGS (KOPEN_CREATE | KOPEN_EXCL | KOPEN_PUBLIC)
 
-uint64_t kobj_messages_total(void) { return msgs_total; }
+uint64_t kobj_messages_total(void) { return __atomic_load_n(&msgs_total, __ATOMIC_RELAXED); }
 
 static int open_flags_valid(int flags) {
     return !(flags & ~KOPEN_FLAGS) &&
@@ -40,6 +40,7 @@ static int open_flags_valid(int flags) {
 
 // ---- имена и дескрипторы ----
 int kname_ok(const char* s) {
+    if (!s) return 0;
     unsigned n = 0;
     for (; s[n]; n++) {
         char c = s[n];
@@ -55,6 +56,7 @@ static int name_eq(const char* a, const char* b) {
 }
 
 int htab_add(htab_t* t, kobj_t* o) {
+    if (!t || !o) return KE_ARG;
     for (uint32_t i = 0; i < t->cap; i++) if (!t->obj[i]) { t->obj[i] = o; return (int)i + 1; }
     if (t->cap >= KH_LIMIT) return KE_LIMIT;
     uint32_t nc = t->cap ? t->cap * 2 : 16;
@@ -68,17 +70,17 @@ int htab_add(htab_t* t, kobj_t* o) {
     return (int)at + 1;
 }
 
-void htab_free(htab_t* t) { kfree(t->obj); t->obj = 0; t->cap = 0; }
-uint32_t htab_cap(const htab_t* t) { return t->cap; }
+void htab_free(htab_t* t) { if (!t) return; kfree(t->obj); t->obj = 0; t->cap = 0; }
+uint32_t htab_cap(const htab_t* t) { return t ? t->cap : 0; }
 
 kobj_t* htab_get(htab_t* t, int h, uint32_t type) {
-    if (h < 1 || (uint32_t)h > t->cap) return 0;
+    if (!t || h < 1 || (uint32_t)h > t->cap) return 0;
     kobj_t* o = t->obj[h - 1];
     return (o && (!type || o->type == type)) ? o : 0;
 }
 
 kobj_t* htab_take(htab_t* t, int h) {
-    if (h < 1 || (uint32_t)h > t->cap) return 0;
+    if (!t || h < 1 || (uint32_t)h > t->cap) return 0;
     kobj_t* o = t->obj[h - 1];
     t->obj[h - 1] = 0;
     return o;
@@ -102,15 +104,22 @@ static void destroy(kobj_t* o) {
     kfree(o);
 }
 
-void kobj_retain(kobj_t* o) {
+int kobj_retain(kobj_t* o) {
+    if (!o) return KE_ARG;
     uint64_t f = spin_lock_irqsave(&reg_lock);
+    if (!o->refs || o->refs == UINT32_MAX) {
+        spin_unlock_irqrestore(&reg_lock, f);
+        return KE_LIMIT;
+    }
     o->refs++;
     spin_unlock_irqrestore(&reg_lock, f);
+    return 0;
 }
 
 void kobj_release(kobj_t* o) {
     if (!o) return;
     uint64_t f = spin_lock_irqsave(&reg_lock);
+    if (!o->refs) { spin_unlock_irqrestore(&reg_lock, f); return; }
     uint32_t r = --o->refs;
     if (r == 0) {
         for (unsigned i = 0; i < reg_n; i++) if (reg[i] == o) { reg[i] = reg[--reg_n]; break; }
@@ -119,13 +128,23 @@ void kobj_release(kobj_t* o) {
     if (r == 0) destroy(o);
 }
 
-unsigned kobj_count(void) { return reg_n; }
+unsigned kobj_count(void) {
+    uint64_t f = spin_lock_irqsave(&reg_lock);
+    unsigned n = reg_n;
+    spin_unlock_irqrestore(&reg_lock, f);
+    return n;
+}
 
 // Найти или создать (создание - вне замка: страницы разделяемой памяти обнуляются долго). made - заготовка
 // нового объекта или 0; если объект за это время создал кто-то другой, заготовка уничтожается.
 static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pid, kobj_t* made, kobj_t** out) {
     uint64_t f = spin_lock_irqsave(&reg_lock);
     while (made && reg_n >= reg_cap) {                    // реестр полон: вырастить вне замка и повторить
+        if (reg_cap > UINT32_MAX / 2) {
+            spin_unlock_irqrestore(&reg_lock, f);
+            destroy(made);
+            return KE_LIMIT;
+        }
         unsigned want = reg_cap ? reg_cap * 2 : 64;
         spin_unlock_irqrestore(&reg_lock, f);
         kobj_t** n = (kobj_t**)kmalloc(sizeof(kobj_t*) * want);
@@ -142,6 +161,7 @@ static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pi
     if (o) {
         if (o->owner_pid != owner_pid && !(o->flags & KOBJ_F_PUBLIC)) rc = KE_PERM;
         else if ((flags & KOPEN_CREATE) && (flags & KOPEN_EXCL)) rc = KE_EXIST;
+        else if (o->refs == UINT32_MAX) rc = KE_LIMIT;
         else { o->refs++; *out = o; }
     } else if (!made) {
         rc = KE_NOENT;
@@ -243,7 +263,7 @@ int port_open(const char* name, int flags, kobj_t** out) {
 }
 
 int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
-    if (!o || o->type != KOBJ_PORT || len > PORT_MSG_MAX) return KE_ARG;
+    if (!o || o->type != KOBJ_PORT || len > PORT_MSG_MAX || (len && !data)) return KE_ARG;
     port_t* p = (port_t*)o;
     uint8_t* copy = 0;
     if (len) {
@@ -271,12 +291,16 @@ int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
 }
 
 unsigned port_queued(kobj_t* o) {
+    if (!o || o->type != KOBJ_PORT) return 0;
     port_t* p = (port_t*)o;
-    return p->qh - p->qt;
+    uint64_t f = spin_lock_irqsave(&p->lk);
+    unsigned n = p->qh - p->qt;
+    spin_unlock_irqrestore(&p->lk, f);
+    return n;
 }
 
 int64_t port_recv(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_t* from_pid, int (*stop)(void)) {
-    if (!o || o->type != KOBJ_PORT) return KE_ARG;
+    if (!o || o->type != KOBJ_PORT || (cap && !kbuf)) return KE_ARG;
     port_t* p = (port_t*)o;
     uint64_t start = timer_get_ticks();
     for (;;) {
@@ -318,6 +342,30 @@ uint64_t shm_room_kb(void);                               // тест задаё
 #else
 static uint64_t shm_room_kb(void) { return pmm_get_free_memory_kb() / 2; }
 #endif
+
+/* Reserve in-flight SHM allocations: PMM free memory is not reduced until each page is allocated,
+   so concurrent creators of different names must account for each other's pending reservations. */
+static spinlock_t shm_budget_lock = SPINLOCK_INIT;
+static uint64_t shm_pending_kb;
+
+static int shm_budget_reserve(uint64_t kb) {
+    uint64_t f = spin_lock_irqsave(&shm_budget_lock);
+    uint64_t room = shm_room_kb();
+    if (kb > room || shm_pending_kb > room - kb) {
+        spin_unlock_irqrestore(&shm_budget_lock, f);
+        return 0;
+    }
+    shm_pending_kb += kb;
+    spin_unlock_irqrestore(&shm_budget_lock, f);
+    return 1;
+}
+
+static void shm_budget_release(uint64_t kb) {
+    uint64_t f = spin_lock_irqsave(&shm_budget_lock);
+    if (kb <= shm_pending_kb) shm_pending_kb -= kb;
+    spin_unlock_irqrestore(&shm_budget_lock, f);
+}
+
 int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out) {
     if (!kname_ok(name) || !out || !open_flags_valid(flags)) return KE_ARG;
     shm_t* s = 0;
@@ -327,17 +375,19 @@ int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid,
         if (rr == 1) return publish(KOBJ_SHM, name, flags, owner_pid, 0, out);
         if (rr) return rr;
         if (pages == 0) { shm_unreserve(reservation); return KE_ARG; }
-        if ((uint64_t)pages * 4 > shm_room_kb()) {
+        uint64_t budget_kb = (uint64_t)pages * 4;
+        if (!shm_budget_reserve(budget_kb)) {
             shm_unreserve(reservation);
-            return KE_NOMEM;            // не больше половины свободной ОЗУ
+            return KE_NOMEM;            // общий лимит учитывает и параллельные незавершённые выделения
         }
         s = (shm_t*)kmalloc(sizeof(shm_t));
-        if (!s) { shm_unreserve(reservation); return KE_NOMEM; }
+        if (!s) { shm_budget_release(budget_kb); shm_unreserve(reservation); return KE_NOMEM; }
         __builtin_memset(s, 0, sizeof *s);
         set_name(&s->hdr, KOBJ_SHM, name);
         s->frames = (uint64_t*)kmalloc(sizeof(uint64_t) * pages);
         if (!s->frames) {
             kfree(s);
+            shm_budget_release(budget_kb);
             shm_unreserve(reservation);
             return KE_NOMEM;
         }
@@ -348,6 +398,7 @@ int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid,
             s->frames[i] = pa;
             if (!pa) {
                 destroy(&s->hdr);
+                shm_budget_release(budget_kb);
                 shm_unreserve(reservation);
                 return KE_NOMEM;
             }
@@ -355,6 +406,7 @@ int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid,
         }
     }
     int rc = publish(KOBJ_SHM, name, flags, owner_pid, s ? &s->hdr : 0, out);
+    if (reservation) shm_budget_release((uint64_t)pages * 4);
     shm_unreserve(reservation);
     return rc;
 }

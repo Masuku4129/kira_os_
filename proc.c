@@ -519,7 +519,7 @@ kobj_t* proc_handle_get(int h, uint32_t type) {             /* +1 ссылка �
     if (!p) return 0;
     kmutex_lock(&p->mx);
     kobj_t* o = htab_get(&p->handles, h, type);
-    if (o) kobj_retain(o);
+    if (o && kobj_retain(o) != 0) o = 0;
     kmutex_unlock(&p->mx);
     return o;
 }
@@ -558,11 +558,17 @@ int64_t proc_shm_map(int h) {
     for (uint32_t i = 0; !rc && i < pages; i++) {
         if (vmm_space_map(p->root, va + (uint64_t)i * 4096, shm_frame(o, i), VMM_WRITE | VMM_NOEXEC | VMM_SHARED) != 0) {
             for (uint32_t k = 0; k < i; k++) vmm_space_unmap(p->root, va + (uint64_t)k * 4096);
+            /* Другие потоки процесса могли успеть получить TLB-записи на частично созданный диапазон. */
+            if (i) vmm_tlb_shootdown(p->root, va, i);
             rc = KE_NOMEM;
         }
     }
+    if (!rc && kobj_retain(o) != 0) {
+        for (uint32_t i = 0; i < pages; i++) vmm_space_unmap(p->root, va + (uint64_t)i * 4096);
+        if (pages) vmm_tlb_shootdown(p->root, va, pages);
+        rc = KE_LIMIT;
+    }
     if (!rc) {
-        kobj_retain(o);                                  /* отображение держит объект, даже если дескриптор закроют */
         p->maps[slot] = (shm_map_t){ o, va, pages };
         p->shm_next = va + (uint64_t)pages * 4096 + 4096;   /* страница-промежуток между отображениями */
         rc = (int64_t)va;
