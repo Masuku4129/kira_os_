@@ -90,10 +90,14 @@ blk_dev_t* virtio_blk_probe(void) {
     if (!pd) return 0;
     int isolated = 0;
 #ifndef KIRA_HOST_TEST
-    /* До включения bus mastering (virtio_attach): устройство получает свой домен VT-d без единого отображения. */
-    isolated = iommu_isolate_device(pd) == 0;
+    /* A present IOMMU is mandatory: no passthrough fallback when coverage or setup fails. */
+    isolated = iommu_isolate_device(pd) == IOMMU_OK;
+    if (iommu_enabled() && !isolated) {
+        uart_print("[KIRA IOMMU] virtio-blk: no isolated DMA domain; device left disabled.\n");
+        return 0;
+    }
 #endif
-    if (virtio_attach(&vdev, pd) != 0) { uart_print("[KIRA VIRTIO] blk: no virtio 1.0 capabilities (legacy-only device unsupported).\n"); return 0; }
+    if (virtio_attach(&vdev, pd) != 0) { uart_print("[KIRA VIRTIO] blk: no virtio 1.0 capabilities or no safe DMA domain.\n"); return 0; }
     if (!vdev.devcfg) { uart_print("[KIRA VIRTIO] blk: no device config.\n"); return 0; }
 #ifndef KIRA_HOST_TEST
     if (isolated) {
@@ -101,10 +105,10 @@ blk_dev_t* virtio_blk_probe(void) {
         int chk = virtio_iommu_check(&vdev);
         if (chk == 1) uart_print("[KIRA IOMMU] virtio-blk: enforcement check passed - DMA to memory that was not granted is blocked.\n");
         else {
-            uart_print(chk < 0 ? "[KIRA IOMMU] virtio-blk: device does not negotiate ACCESS_PLATFORM (its DMA bypasses the IOMMU): NOT isolated.\n"
-                               : "[KIRA IOMMU] virtio-blk: no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n");
+            uart_print(chk < 0 ? "[KIRA IOMMU] virtio-blk: ACCESS_PLATFORM unavailable; DMA device disabled.\n"
+                               : "[KIRA IOMMU] virtio-blk: DMA enforcement test failed; DMA device disabled.\n");
             iommu_release_device(pd);
-            isolated = 0;
+            return 0;
         }
     }
 #endif
