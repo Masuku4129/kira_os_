@@ -82,6 +82,12 @@ static int test_quiesce_devices(void *context)
     return 0;
 }
 
+static void test_report_event(void *context, const uint64_t event[4])
+{
+    (void)context;
+    (void)event;
+}
+
 static void reset_test_platform(void)
 {
     memset(registers_page, 0, sizeof(registers_page));
@@ -106,6 +112,7 @@ static struct kira_smmu_platform platform(void)
     p.read_barrier = test_barrier;
     p.delay = test_delay;
     p.quiesce_devices = test_quiesce_devices;
+    p.report_event = test_report_event;
     return p;
 }
 
