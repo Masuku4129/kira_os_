@@ -10,6 +10,7 @@ mkdir -p "$OUT"
 
 LOADER="$UEFI_ROOT/EFI/BOOT/BOOTX64.EFI"
 KERNEL="$UEFI_ROOT/EFI/KIRA/KIRA.ELF"
+INITRD="$UEFI_ROOT/EFI/KIRA/INITRD.IMG"
 for file in "$LOADER" "$KERNEL"; do
     if [[ ! -s "$file" ]]; then
         echo "OVMF test: required boot file is missing: $file" >&2
@@ -41,6 +42,9 @@ else
     mmd -i "$ESP" ::/EFI ::/EFI/BOOT ::/EFI/KIRA
     mcopy -i "$ESP" "$LOADER" ::/EFI/BOOT/BOOTX64.EFI
     mcopy -i "$ESP" "$KERNEL" ::/EFI/KIRA/KIRA.ELF
+    if [[ -s "$INITRD" ]]; then
+        mcopy -i "$ESP" "$INITRD" ::/EFI/KIRA/INITRD.IMG
+    fi
 fi
 cp "$VARS_TEMPLATE" "$VARS"
 : > "$SERIAL"
@@ -61,6 +65,10 @@ required=(
     "[KIRA BOOT] BootInfo v1 validated:"
     "[KIRA VMM] NULL guard installed"
 )
+if [[ -s "$INITRD" ]]; then
+    required+=("[KIRA UEFI] Boot modules: 1"
+               "[KIRA UEFI] Module 0: initrd.img bytes=17 magic=0x4152494B")
+fi
 for marker in "${required[@]}"; do
     if ! grep -Fq "$marker" "$SERIAL"; then
         echo "OVMF test: missing kernel milestone: $marker" >&2
