@@ -48,7 +48,7 @@ int main(void)
 
     /* A one-bus ECAM aperture starts at bus 5. Device 1/function 0 lives at
        offset 0x8000; enumeration must use bus-relative, not absolute bus, math. */
-    memset(ecam_window, 0, sizeof(ecam_window));
+    memset(ecam_window, 0xff, sizeof(ecam_window));
     *(uint32_t*)(ecam_window + 0x8000) = (0x2000u << 16) | 0x1234u;
     *(uint32_t*)(ecam_window + 0x8004) = 0x0007u;
     pci_ecam_config_t ecam = {
