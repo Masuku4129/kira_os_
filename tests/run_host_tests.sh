@@ -129,7 +129,7 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/iommu tests/iommu_test.c iommu.c i
 for s in A B C D E; do $T/iommu $s; done
 
 echo "== ARM SMMUv3 prepare (platform validation, stream table and allocation unwind) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/iommu-smmu tests/arm_smmu_prepare_test.c drivers/iommu/arm_smmu.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/iommu-smmu tests/arm_smmu_prepare_test.c drivers/iommu/arm_smmu.c drivers/iommu/arm_smmu_domain.c
 $T/iommu-smmu
 
 echo "== ARM SMMUv3 domain (STE/CD format, 4-level translation, ASID invalidation, teardown) =="
