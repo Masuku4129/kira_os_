@@ -39,6 +39,7 @@ static uint16_t arm_sid_refs[256];
 static uint8_t arm_sid_shared[256];
 static uint32_t arm_sid_faults[256];
 static unsigned arm_device_count;
+static unsigned arm_domains_created;
 static uint32_t arm_target_phandle;
 static uint8_t arm_map_present;
 static uint8_t arm_map_invalid;
@@ -270,11 +271,11 @@ int iommu_arm64_init(const void* fdt, int pci_host_node)
     uint64_t smmu_base = 0, smmu_size = 0;
     unsigned created = 0;
 
-    if (arm_init_done)
-        return arm_smmu_active ? (int)created : 0;
-    arm_init_done = 1;
     if (!fdt || pci_host_node < 0)
         return IOMMU_E_ARG;
+    if (arm_init_done)
+        return arm_smmu_active ? (int)arm_domains_created : 0;
+    arm_init_done = 1;
 
     map_property = fdt_prop(fdt, pci_host_node, "iommu-map", &map_len);
     if (!map_property)
@@ -361,6 +362,7 @@ int iommu_arm64_init(const void* fdt, int pci_host_node)
                 arm_devices[i].blocked = 1u;
     }
 
+    arm_domains_created = created;
     uart_print("[KIRA SMMU] SMMUv3 active; explicit per-stream bypass domains: ");
     uart_print_dec(created);
     uart_print(", isolated devices will receive private stage-1 mappings.\n");
@@ -497,8 +499,9 @@ int iommu_map(const pci_dev_t* pci, uint64_t iova, uint64_t physical,
         return rc;
     iova_base = iova & ARM_PAGE_MASK;
     physical_base = physical & ARM_PAGE_MASK;
-    if (iova_base >= (1ull << 48) ||
-        (uint64_t)pages > ((1ull << 48) - iova_base) / ARM_PAGE_SIZE)
+    if (iova_base >= (1ull << 48) || physical_base >= (1ull << 48) ||
+        (uint64_t)pages > ((1ull << 48) - iova_base) / ARM_PAGE_SIZE ||
+        (uint64_t)pages > ((1ull << 48) - physical_base) / ARM_PAGE_SIZE)
         return IOMMU_E_RANGE;
     new_end = iova_base + (uint64_t)pages * ARM_PAGE_SIZE;
 
