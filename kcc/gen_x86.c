@@ -1299,3 +1299,44 @@ void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
         if (g->is_func && !g->body && g->emit && gen_is_helper_name(g->name)) gen_helper(g);
     elf_emit(globals, A->p, A->len, ELF_ARCH_X86, x86_reloc, NULL, out, outlen);
 }
+
+/* Keep per-backend state aliases local: unity.c includes the AArch64 backend next. */
+#undef X86S
+#undef xa
+#undef A
+#undef npool
+#undef fold
+#undef fbase
+#undef fdisp
+#undef pdirect
+#undef g_retlast
+#undef g_frameless
+#undef fcls
+#undef xg
+#undef p_nxrn
+#undef ploc
+#undef p_ngrn
+#undef p_stk
+#undef p_hidden
+#undef vs
+#undef ve
+#undef rg
+#undef so
+#undef slotoff
+#undef spillbase
+#undef epi
+#undef cv
+#undef isc
+#undef fusecmp
+#undef g_nd
+#undef g_nu
+#undef g_mdef
+#undef tmplab
+#undef g_maxout
+#undef NCS
+#undef NPOOL
+#undef NPOOL_OLD
+#undef NXP
+#undef XS0
+#undef XS1
+#undef XS2
