@@ -171,7 +171,15 @@ static uint32_t cr32(const pci_dev_t* d, uint16_t off) { return be.read32(d->bus
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { return cr32(d, off); }
 uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { return (uint16_t)(cr32(d, off & ~3) >> ((off & 2) * 8)); }
 uint8_t pci_read8(const pci_dev_t* d, uint16_t off) { return (uint8_t)(cr32(d, off & ~3) >> ((off & 3) * 8)); }
-void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { be.write32(d->bus, d->dev, d->fn, off, v); }
+void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) {
+    /* Command/status is not a normal dword: status bits are W1C and DMA
+       authorization must pass through the same gate as pci_enable(). */
+    if (off == 0x04) {
+        pci_write16(d, 0x04, (uint16_t)v);
+        return;
+    }
+    be.write32(d->bus, d->dev, d->fn, off, v);
+}
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
 #if !defined(KIRA_HOST_TEST)
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
@@ -179,6 +187,10 @@ void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
     uint32_t w = cr32(d, off & ~3), sh = (off & 2) * 8;
     if ((off & ~3) == 0x04) w &= 0x0000FFFFu;                        /* status is W1C */
     w = (w & ~(0xFFFFu << sh)) | ((uint32_t)v << sh);
+#if defined(__aarch64__)
+    if (off == 0x04 && (w & PCI_CMD_MASTER) && !iommu_device_ready(d))
+        w &= (uint32_t)~PCI_CMD_MASTER;
+#endif
     be.write32(d->bus, d->dev, d->fn, off & ~3, w);
 #if !defined(KIRA_HOST_TEST)
     spin_unlock_irqrestore(&cfg_rmw_lock, flags);
