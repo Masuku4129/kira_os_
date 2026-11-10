@@ -277,6 +277,8 @@ static int smmu_map_page(struct kira_smmu_domain *d,
 
         if (!(entry & 1ull)) {
             uint64_t next_physical = 0;
+            if (entry != 0)
+                return KIRA_SMMU_HARDWARE_ERROR;
             void *next = smmu_alloc_table_page(d, p, &next_physical);
             if (!next)
                 return KIRA_SMMU_MEMORY_FAILED;
@@ -285,6 +287,8 @@ static int smmu_map_page(struct kira_smmu_domain *d,
                 p->clean_cache(p->context, table, SMMU_PAGE_SIZE);
             table = smmu_words(next);
         } else {
+            if ((entry & 3ull) != 3ull)
+                return KIRA_SMMU_HARDWARE_ERROR;
             table = smmu_words(smmu_table_from_entry(d, entry));
             if (!table)
                 return KIRA_SMMU_HARDWARE_ERROR;
@@ -294,10 +298,11 @@ static int smmu_map_page(struct kira_smmu_domain *d,
     {
         unsigned int index = (unsigned int)((iova >> 12) & 0x1ffu);
         uint64_t attr = 3ull | (3ull << 8) | (1ull << 10) |
-                        (1ull << 11) | (1ull << 53) | (1ull << 54);
+                        (1ull << 11) | (1ull << 7) |
+                        (1ull << 53) | (1ull << 54);
         if (table[index] & 1ull)
             return KIRA_SMMU_HARDWARE_ERROR;
-        /* AP[2:1]=00 is privileged RW; AP[2:1]=01 is privileged RO. */
+        /* AP[2:1]=10 permits DMA at EL0/EL1; 11 makes it read-only. */
         if (!(permissions & KIRA_SMMU_MAP_WRITE))
             attr |= 1ull << 6;
         table[index] = (physical & SMMU_TTBR_ADDR) | attr;
@@ -450,14 +455,15 @@ int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *d,
     unsigned int level;
 
     if (!d || !d->active || !p || !p->clean_cache ||
-        !p->write_barrier || !p->read_barrier || (iova & 0xfffu))
+        !p->write_barrier || !p->read_barrier ||
+        iova >= (1ull << 48) || (iova & 0xfffu))
         return KIRA_SMMU_INVALID;
 
     table = smmu_words(d->stage1_root);
     for (level = 0; level < 3; ++level) {
         unsigned int index = (unsigned int)((iova >> shifts[level]) & 0x1ffu);
         uint64_t e = table[index];
-        if (!(e & 1ull))
+        if ((e & 3ull) != 3ull)
             return KIRA_SMMU_HARDWARE_ERROR;
         table = (uint64_t *)smmu_table_from_entry(d, e);
         if (!table)
@@ -466,7 +472,7 @@ int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *d,
 
     {
         unsigned int index = (unsigned int)((iova >> 12) & 0x1ffu);
-        if (!(table[index] & 1ull))
+        if ((table[index] & 3ull) != 3ull)
             return KIRA_SMMU_HARDWARE_ERROR;
         table[index] = 0;
         if (p->clean_cache)
