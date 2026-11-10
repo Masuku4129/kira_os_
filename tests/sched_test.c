@@ -140,20 +140,6 @@ int main(void) {
     CHECK(back && second->sleep_index == UINT32_MAX);       // second проснулся на 40-м, heap membership снят
     CHECK(cpu_ticks[2] >= 29);                              // idle (id 2) честно учтён
 
-    // ---- 4b. раннее пробуждение удаляет произвольный узел из таймерной кучи ----
-    thread_t* early = sched_create("early", dummy, 0, PRIO_CRITICAL);
-    CHECK(early != 0);
-    for (int i = 0; i < 32 && sched_current() != early; i++) tick();
-    CHECK(sched_current() == early);
-    sched_sleep_ticks(100);
-    CHECK(early->state == THREAD_SLEEPING && early->sleep_index != UINT32_MAX);
-    sched_wake_waiter(early);
-    CHECK(early->state == THREAD_READY && early->sleep_index == UINT32_MAX);
-    for (int i = 0; i < 32 && sched_current() != early; i++) tick();
-    CHECK(sched_current() == early);
-    for (int i = 0; i < 110; i++) tick();                    // старый срок не должен повторно разбудить поток
-    CHECK(early->state != THREAD_SLEEPING && early->sleep_index == UINT32_MAX);
-
     // ---- 5. периодический critical-поток не страдает от нагрузки ----
     sched_sleep_ticks(1000);                                // core убираем
     thread_t* p = sched_create("periodic", dummy, 0, PRIO_CRITICAL);
@@ -427,6 +413,20 @@ int main(void) {
         CHECK(cm_is_all(&b1->affinity) && cm_is_all(&b2->affinity) && cm_is_all(&f1->affinity) && sched_reserved_core() == -1);
         f1->state = b1->state = pin->state = kt->state = b2->state = THREAD_ZOMBIE;
     }
+
+    // ---- 4b. раннее пробуждение удаляет произвольный узел из таймерной кучи ----
+    thread_t* early = sched_create("early", dummy, 0, PRIO_CRITICAL);
+    CHECK(early != 0);
+    for (int i = 0; i < 32 && sched_current() != early; i++) tick();
+    CHECK(sched_current() == early);
+    sched_sleep_ticks(100);
+    CHECK(early->state == THREAD_SLEEPING && early->sleep_index != UINT32_MAX);
+    sched_wake_waiter(early);
+    CHECK(early->state == THREAD_READY && early->sleep_index == UINT32_MAX);
+    for (int i = 0; i < 32 && sched_current() != early; i++) tick();
+    CHECK(sched_current() == early);
+    for (int i = 0; i < 110; i++) tick();                    // старый срок не должен повторно разбудить поток
+    CHECK(early->state != THREAD_SLEEPING && early->sleep_index == UINT32_MAX);
 
     printf("%s\n", fails ? "FAILED" : "ALL SCHEDULER TESTS PASSED");
     return fails != 0;
