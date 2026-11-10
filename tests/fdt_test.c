@@ -143,6 +143,17 @@ int main(void) {
         int pcie = fdt_find_path(blob, "/pcie@4010000000");
         uint32_t phandle = 0, sid = 0, len = 0;
         CHECK(pcie >= 0 && fdt_phandle_node(blob, 0x42) >= 0);
+        {
+            int smmu = fdt_phandle_node(blob, 0x42);
+            uint32_t reg_len = 0;
+            uint8_t* reg = (uint8_t*)fdt_prop(blob, smmu, "reg", &reg_len);
+            CHECK(reg && reg_len == 16u);
+            be(reg, 0xffffffffu); be(reg + 4, 0xffffff00u);
+            be(reg + 8, 0); be(reg + 12, 0x200u);
+            CHECK(fdt_reg(blob, smmu, 0, &len, &sid) != 0);
+            be(reg, 0); be(reg + 4, 0x09050000u);
+            be(reg + 8, 0); be(reg + 12, 0x20000u);
+        }
         CHECK(fdt_iommu_map(blob, pcie, 0xabcd1020u, &phandle, &sid) == 0 &&
               phandle == 0x42 && sid == 0xa0); /* iommu-map-mask strips upper requester bits */
         CHECK(fdt_iommu_map(blob, pcie, 0x2005u, &phandle, &sid) == 0 &&
