@@ -12,7 +12,11 @@ static int isl(char c) { c = low(c); return c >= 'a' && c <= 'z'; }
 static int isd(char c) { return c >= '0' && c <= '9'; }
 
 int dg_license_ok(const char* id) {
-    return eq(id, "BSD-2-Clause") || eq(id, "BSD-3-Clause") || eq(id, "MIT") || eq(id, "ISC");
+    return eq(id, "BSD-2-Clause") || eq(id, "BSD-3-Clause") || eq(id, "MIT") || eq(id, "ISC") || eq(id, "LicenseRef-Greenman");
+}
+
+int dg_license_matches(const char* declared, const char* detected) {
+    return declared && detected && eq(declared, detected);
 }
 
 int dg_file_name_ok(const char* n) {
@@ -186,7 +190,7 @@ int dg_parse_recipe(const char* text, uint32_t len, dg_recipe_t* r, const char**
             for (size_t i = 0; i < wl[1]; i++) { if (!isd(w[1][i])) { *err = "версия - число"; return -1; } v = v * 10 + (uint32_t)(w[1][i] - '0'); }
             r->version = v;
         } else if (eq(k, "license") && nw == 2) {
-            if (!dg_license_ok(w[1])) { *err = "лицензия вне списка (разрешены BSD-2-Clause, BSD-3-Clause, MIT, ISC); GPL и прочее не берётся"; return -1; }
+            if (!dg_license_ok(w[1])) { *err = "лицензия вне списка (BSD-2-Clause, BSD-3-Clause, MIT, ISC, LicenseRef-Greenman); GPL и прочее не берётся"; return -1; }
             for (size_t i = 0; i <= wl[1]; i++) r->license[i] = w[1][i];
         } else if (eq(k, "pci") && nw == 2) {
             if (r->nmatch >= KDRV_MATCH_MAX) { *err = "слишком много строк pci/class"; return -1; }
@@ -278,38 +282,59 @@ int dg_scan_source(const char* fname, const uint8_t* d, uint32_t len, char lic[2
     }
     if (find_ci(d, len, "lgpl") || find_ci(d, len, "agpl") || find_ci(d, len, "general public license") || find_ci(d, len, "lesser general") || find_ci(d, len, "affero") || find_ci(d, len, "gnu library"))
     { *err = "в тексте есть GNU General/Lesser Public License: отвергнут"; return -1; }
-    if (find_ci(d, len, "all advertising materials mentioning")) { *err = "рекламная оговорка (BSD с 4 пунктами): вне списка лицензий"; return -1; }
+    if (find_wrapped(d, len, "all advertising materials mentioning")) { *err = "рекламная оговорка (BSD с 4 пунктами): вне списка лицензий"; return -1; }
     if (find_ci(d, len, "proprietary") || find_ci(d, len, "all rights reserved. confidential")) { *err = "признаки закрытой лицензии: отвергнут"; return -1; }
     const char* sp = find_ci(d, len, "SPDX-License-Identifier:");
     if (sp) {
-        const char* p = sp + 24; const char* e = (const char*)d + len;
+        const char* e = (const char*)d + len;
+        if (find_ci((const uint8_t*)sp + 24, (uint32_t)(e - (sp + 24)), "SPDX-License-Identifier:")) {
+            *err = "в файле несколько SPDX-объявлений: неоднозначная лицензия - отказ";
+            return -1;
+        }
+        const char* p = sp + 24;
         while (p < e && (*p == ' ' || *p == '\t')) p++;
         char id[32]; size_t n = 0;
         while (p < e && *p != '\n' && *p != '\r' && *p != ' ' && *p != '\t' && *p != '*' && n + 1 < sizeof id) id[n++] = *p++;
         id[n] = 0;
         while (p < e && (*p == ' ' || *p == '\t')) p++;
         if (p < e && *p != '\n' && *p != '\r' && !(p + 1 < e && p[0] == '*' && p[1] == '/')) { *err = "SPDX: составное выражение (OR/AND/WITH) не принимается - нужен один идентификатор из списка"; return -1; }
-        if (!dg_license_ok(id)) { *err = "SPDX-идентификатор вне списка (BSD-2-Clause, BSD-3-Clause, MIT, ISC)"; return -1; }
+        if (!dg_license_ok(id)) { *err = "SPDX-идентификатор вне списка (BSD-2-Clause, BSD-3-Clause, MIT, ISC, LicenseRef-Greenman)"; return -1; }
         for (size_t i = 0; i <= n; i++) lic[i] = id[i];
         return 0;
     }
-    if (find_ci(d, len, "Redistribution and use in source and binary forms") && find_ci(d, len, "THIS SOFTWARE IS PROVIDED")) {
-        const char* t = "BSD (по тексту)"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
+    if (find_wrapped(d, len, "Redistribution and use in source and binary forms") &&
+        find_wrapped(d, len, "1. Redistributions of source code must retain") &&
+        find_wrapped(d, len, "2. Redistributions in binary form must reproduce") &&
+        find_wrapped(d, len, "THIS SOFTWARE IS PROVIDED")) {
+        int bsd3_name = find_wrapped(d, len, "neither the name of");
+        int bsd3_endorse = find_wrapped(d, len, "endorse or promote");
+        int bsd3_permission = find_wrapped(d, len, "specific prior written permission");
+        if ((bsd3_name || bsd3_endorse || bsd3_permission) &&
+            !(bsd3_name && bsd3_endorse && bsd3_permission)) {
+            *err = "BSD: неполная третья оговорка; лицензия неоднозначна - отказ";
+            return -1;
+        }
+        const char* t = bsd3_name ? "BSD-3-Clause" : "BSD-2-Clause";
+        for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
         return 0;
     }
-    if (find_ci(d, len, "Permission is hereby granted, free of charge") && find_ci(d, len, "THE SOFTWARE IS PROVIDED \"AS IS\"")) {
-        const char* t = "MIT (по тексту)"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
+    if (find_wrapped(d, len, "Permission is hereby granted, free of charge, to any person obtaining a copy") &&
+        find_wrapped(d, len, "the above copyright notice and this permission notice shall be included in all copies") &&
+        find_ci(d, len, "THE SOFTWARE IS PROVIDED \"AS IS\"")) {
+        const char* t = "MIT"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
         return 0;
     }
-    if (find_ci(d, len, "Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted")) {
-        const char* t = "ISC (по тексту)"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
+    if (find_wrapped(d, len, "Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted") &&
+        find_wrapped(d, len, "provided that the above copyright notice and this permission notice appear in all copies") &&
+        find_ci(d, len, "THE SOFTWARE IS PROVIDED \"AS IS\"")) {
+        const char* t = "ISC"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
         return 0;
     }
     /* Короткая разрешительная лицензия Дэвида Гринмана (dp8390, ne2000 в OpenBSD/NetBSD): использование, изменение, копирование, распространение и продажа
        разрешены при сохранении уведомления. Принимается только точный текст обеих фраз (не «похожее»). Решение проекта: list допустимых лицензий расширен этим случаем. */
     if (find_wrapped(d, len, "may be used, modified, copied, distributed, and sold, in both source and binary form provided that the above copyright and these terms are retained") &&
         find_wrapped(d, len, "Under no circumstances is the author responsible for the proper functioning of this software")) {
-        const char* t = "permissive (Greenman)"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
+        const char* t = "LicenseRef-Greenman"; for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
         return 0;
     }
     *err = "лицензия файла не найдена (нужны строка SPDX-License-Identifier из списка или текст BSD/MIT/ISC) - не берём";
