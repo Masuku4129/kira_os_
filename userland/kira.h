@@ -85,7 +85,7 @@ enum { K_THREAD_CREATE = 12, K_THREAD_EXIT = 13, K_GETTID = 14, K_FUTEX_WAIT = 1
    -7 нет памяти, -8 неверный дескриптор, -9 предел, -10 неверные аргументы, -11 процесс завершается. */
 enum { KE_NOENT = -2, KE_EXIST = -3, KE_FULL = -4, KE_TIMEOUT = -5, KE_AGAIN = -6, KE_NOMEM = -7, KE_BADH = -8,
        KE_LIMIT = -9, KE_ARG = -10, KE_INTR = -11, KE_PERM = -12 };   /* -12 - у программы нет права на вызов (caps.h) */
-enum { KOPEN_CREATE = 1, KOPEN_EXCL = 2 };
+enum { KOPEN_CREATE = 1, KOPEN_EXCL = 2, KOPEN_PUBLIC = 4 };
 #define K_FOREVER 0xFFFFFFFFull
 
 static inline u64 k_gettid(void) { return (u64)ksys(K_GETTID, 0, 0, 0); }

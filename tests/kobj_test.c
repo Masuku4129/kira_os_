@@ -50,6 +50,28 @@ static int load_word(uint64_t w, uint32_t* v) { *v = *(volatile uint32_t*)(uintp
 int main(void) {
     CHECK(kname_ok("kira.test-1_a") && !kname_ok("") && !kname_ok("Bad") && !kname_ok("a/b") && !kname_ok("0123456789012345678901234567890123"));
 
+    // Приватные IPC-объекты доступны создателю; публикация задаётся только при создании.
+    kobj_t *priv1 = 0, *priv2 = 0, *pub1 = 0, *pub2 = 0;
+    CHECK(port_open_as("private.port", KOPEN_PUBLIC, 100, &priv1) == KE_ARG);
+    CHECK(port_open_as("private.port", KOPEN_CREATE, 100, &priv1) == 0 && priv1);
+    CHECK(port_open_as("private.port", 0, 200, &priv2) == KE_PERM);
+    CHECK(port_open_as("private.port", KOPEN_CREATE | KOPEN_PUBLIC, 200, &priv2) == KE_PERM);
+    CHECK(port_open_as("private.port", 0, 100, &priv2) == 0 && priv2 == priv1);
+    kobj_release(priv2); kobj_release(priv1);
+    CHECK(port_open_as("public.port", KOPEN_CREATE | KOPEN_PUBLIC, 101, &pub1) == 0 && pub1);
+    CHECK(port_open_as("public.port", 0, 202, &pub2) == 0 && pub2 == pub1);
+    kobj_release(pub2); kobj_release(pub1);
+
+    kobj_t *priv_shm1 = 0, *priv_shm2 = 0, *pub_shm1 = 0, *pub_shm2 = 0;
+    CHECK(shm_open_as("private.area", 1, KOPEN_CREATE, 301, &priv_shm1) == 0 && priv_shm1);
+    CHECK(shm_open_as("private.area", 1, 0, 302, &priv_shm2) == KE_PERM);
+    CHECK(shm_open_as("private.area", 1, 0, 301, &priv_shm2) == 0 && priv_shm2 == priv_shm1);
+    kobj_release(priv_shm2); kobj_release(priv_shm1);
+    CHECK(shm_open_as("public.area", 1, KOPEN_CREATE | KOPEN_PUBLIC, 401, &pub_shm1) == 0 && pub_shm1);
+    CHECK(shm_open_as("public.area", 0, 0, 402, &pub_shm2) == 0 && pub_shm2 == pub_shm1);
+    kobj_release(pub_shm2); kobj_release(pub_shm1);
+    CHECK(kobj_count() == 0 && pages_live == 0);
+
     // дескрипторы
     htab_t h; memset(&h, 0, sizeof h);
     kobj_t a = { KOBJ_PORT, 1, "x" }, b = { KOBJ_SHM, 1, "y" };
