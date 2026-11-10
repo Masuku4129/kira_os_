@@ -502,6 +502,7 @@ e820_collect:
   mov byte [INFO + edx + 25], 'g'
   mov byte [INFO + edx + 26], 0
   mov dword [INFO + edx + 27], 0 ; выравнивание до 32 байт
+  mov byte [INFO + edx + 31], 0
   add edx, 32
 .nomodtag:
   lea eax, [edx + 8]              ; + конечный тег
