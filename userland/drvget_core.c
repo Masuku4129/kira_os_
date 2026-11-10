@@ -282,7 +282,7 @@ int dg_scan_source(const char* fname, const uint8_t* d, uint32_t len, char lic[2
     }
     if (find_ci(d, len, "lgpl") || find_ci(d, len, "agpl") || find_ci(d, len, "general public license") || find_ci(d, len, "lesser general") || find_ci(d, len, "affero") || find_ci(d, len, "gnu library"))
     { *err = "в тексте есть GNU General/Lesser Public License: отвергнут"; return -1; }
-    if (find_ci(d, len, "all advertising materials mentioning")) { *err = "рекламная оговорка (BSD с 4 пунктами): вне списка лицензий"; return -1; }
+    if (find_wrapped(d, len, "all advertising materials mentioning")) { *err = "рекламная оговорка (BSD с 4 пунктами): вне списка лицензий"; return -1; }
     if (find_ci(d, len, "proprietary") || find_ci(d, len, "all rights reserved. confidential")) { *err = "признаки закрытой лицензии: отвергнут"; return -1; }
     const char* sp = find_ci(d, len, "SPDX-License-Identifier:");
     if (sp) {
