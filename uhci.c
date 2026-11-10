@@ -402,7 +402,7 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     uint64_t phys;
     uint8_t* mem = (uint8_t*)usb_dma_alloc(4096 * 13, &phys, 1);
     if (!mem) { usb_log("[KIRA USB] UHCI: no DMA memory below 4 GB\n"); return -1; }
-#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__)) || defined(__x86_64__)
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
     if (iommu_device_isolated(p) &&
         iommu_map(p, phys, phys, 4096 * 13, IOMMU_R | IOMMU_W) != IOMMU_OK) {
         iommu_unmap_all(p);
@@ -452,7 +452,9 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     pci_enable(p, PCI_CMD_MASTER);
     if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
         pci_disable_bus_master(p);
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
         iommu_unmap_all(p);
+#endif
         usb_log("[KIRA USB] UHCI: PCI bus mastering was not granted\n");
         return -1;
     }
