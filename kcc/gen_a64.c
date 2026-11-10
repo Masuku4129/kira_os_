@@ -18,8 +18,7 @@ static const int pool[NPOOL] = { 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
 /* ---------- AAPCS64: размещение аргументов ---------- */
 enum { AL_REG, AL_STK, AL_AREG, AL_ASTK, AL_VREG };
 typedef struct { int kind, idx, off; } ALoc;        /* REG: номер x (VREG - номер v); AREG: первый из регистров; STK/ASTK: смещение в области аргументов */
-typedef struct {
-    A6 xa;
+struct A64State {
     ALoc *ploc;
     int p_ngrn, p_nvrn, p_stk, p_hidden;
     int *vs, *ve, *rg, *so;
@@ -28,8 +27,8 @@ typedef struct {
     int epi, tmplab;
     int hasvla;
     int64_t maxout_cur;
-} A64State;
-#define A64S ((A64State *)K.a64_state)
+};
+#define A64S (K.a64_state)
 #define xa (A64S->xa)
 #define A (&xa)
 

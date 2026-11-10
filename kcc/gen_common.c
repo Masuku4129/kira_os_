@@ -3,13 +3,12 @@
 #include "target.h"
 #include <string.h>
 
-typedef struct {
-    Obj **htab;
+struct GenState {
     unsigned hcap;
     Obj **work;
     int nwork;
-} GenState;
-#define GS ((GenState *)K.gen_state)
+};
+#define GS (K.gen_state)
 #define htab (GS->htab)
 #define hcap (GS->hcap)
 #define work (GS->work)

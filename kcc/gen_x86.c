@@ -34,8 +34,7 @@ static const int xpool[NXP] = { 8, 9, 10, 11, 12 };
 /* ---------- ABI System V: размещение аргументов ---------- */
 enum { AL_REG, AL_STK, AL_AREG, AL_ASTK, AL_XREG };
 typedef struct { int kind, idx, off; } ALoc;        /* REG: номер регистра; AREG: первый из регистров; STK/ASTK: смещение в области аргументов */
-typedef struct {
-    XA xa;
+struct X86State {
     int npool;
     unsigned char *fold;
     int *fbase;
@@ -55,8 +54,8 @@ typedef struct {
     int *g_nd, *g_nu;
     const unsigned char *g_mdef;
     int tmplab, g_maxout;
-} X86State;
-#define X86S ((X86State *)K.x86_state)
+};
+#define X86S (K.x86_state)
 #define xa (X86S->xa)
 #define A (&xa)
 #define npool (X86S->npool)

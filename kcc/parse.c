@@ -16,8 +16,7 @@ typedef struct Init Init;
 struct Init { Type *ty; Init **ch; int nch; Node *expr; Member *mem; int flex; };
 
 /* Все изменяемые данные разбора принадлежат текущей компиляции, а не translation-unit globals. */
-typedef struct {
-    Token *tok;
+struct ParseState {
     Scope *scope, *gscope;
     Obj *globals_head, *globals_tail, *cur_fn, *fn_locals_tail;
     int nlocals, str_count, static_count, type_count;
@@ -30,8 +29,8 @@ typedef struct {
     int vla_depth, blk_vla_base, blk_is_se, stmtexpr_next, brk_vd, cont_vd;
     Type *va_ty, *va_st;
     int count_mode;
-} ParseState;
-#define PS ((ParseState *)K.parse_state)
+};
+#define PS (K.parse_state)
 #define ptok (PS->tok)
 #define scope (PS->scope)
 #define gscope (PS->gscope)

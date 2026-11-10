@@ -15,6 +15,13 @@ typedef struct Member Member;
 typedef struct Param Param;
 typedef struct Reloc Reloc;
 typedef struct HS HS;
+typedef struct PPState PPState;
+typedef struct ParseState ParseState;
+typedef struct IRState IRState;
+typedef struct GenState GenState;
+typedef struct A64State A64State;
+typedef struct X86State X86State;
+typedef struct OptState OptState;
 
 /* ---------- util.c ---------- */
 typedef struct {
@@ -47,13 +54,13 @@ typedef struct {
     long tokbudget;                          /* защита от взрыва макрорасширения */
     int depth;                               /* вложенность разбора */
     const char *srcpath;                     /* главный исходный файл (для сообщений бэкенда) */
-    void *pp_state;                           /* состояние препроцессора, принадлежит этой компиляции */
-    void *parse_state;                         /* состояние парсера, принадлежит этой компиляции */
-    void *ir_state;                            /* состояние IR lowering, принадлежит этой компиляции */
-    void *gen_state;                           /* состояние общей подготовки backend, принадлежит этой компиляции */
-    void *a64_state;                           /* состояние кодогенератора AArch64, принадлежит этой компиляции */
-    void *x86_state;                           /* состояние кодогенератора x86-64, принадлежит этой компиляции */
-    void *opt_state;                           /* состояние оптимизатора IR, принадлежит этой компиляции */
+    PPState *pp_state;                           /* состояние препроцессора, принадлежит этой компиляции */
+    ParseState *parse_state;                         /* состояние парсера, принадлежит этой компиляции */
+    IRState *ir_state;                            /* состояние IR lowering, принадлежит этой компиляции */
+    GenState *gen_state;                           /* состояние общей подготовки backend, принадлежит этой компиляции */
+    A64State *a64_state;                           /* состояние кодогенератора AArch64, принадлежит этой компиляции */
+    X86State *x86_state;                           /* состояние кодогенератора x86-64, принадлежит этой компиляции */
+    OptState *opt_state;                           /* состояние оптимизатора IR, принадлежит этой компиляции */
     KOptions options;                          /* флаги одной компиляции */
 } KCtx;
 extern KCtx K;

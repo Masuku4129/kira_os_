@@ -18,14 +18,13 @@ typedef struct Once Once;
 struct Once { Once *next; const char *path; };
 
 #define NB 512
-typedef struct {
-    Macro *mtab[NB];
+struct PPState {
     Once *once_list;
     int unity_mode;                            /* #pragma kcc unity: каждый подключённый файл - один раз */
     Token out_head, *out_tail;
     int incl_level;
-} PPState;
-#define PP ((PPState *)K.pp_state)
+};
+#define PP (K.pp_state)
 #define mtab (PP->mtab)
 #define once_list (PP->once_list)
 #define unity_mode (PP->unity_mode)
