@@ -1,6 +1,13 @@
 #include "pci.h"
-#if defined(__aarch64__)
 #include "iommu.h"
+#ifdef KIRA_HOST_TEST
+/* Most host models do not instantiate a hardware IOMMU. Dedicated PCI policy
+   tests provide a strong override to exercise both allowed and denied states. */
+__attribute__((weak)) int iommu_device_ready(const pci_dev_t* dev)
+{
+    (void)dev;
+    return 1;
+}
 #endif
 #if !defined(KIRA_HOST_TEST)
 #include "spinlock.h"
