@@ -200,6 +200,9 @@ int main(void)
 
     rc = kira_smmu_domain_destroy(&domain, &p);
     CHECK(rc == KIRA_SMMU_OK);
+    CHECK(((uint64_t *)cmdq)[1] == 1ull);  /* linear STE leaf invalidation */
+    CHECK(((uint64_t *)cmdq)[5] == 1ull);  /* STE publish leaf invalidation */
+    CHECK(((uint64_t *)cmdq)[25] == 1ull); /* linear CD leaf invalidation */
     CHECK(((uint64_t *)cmdq)[8] == (0x11ull | (8ull << 48)));  /* map TLBI */
     CHECK(((uint64_t *)cmdq)[12] == (0x11ull | (8ull << 48))); /* read-only TLBI */
     CHECK(((uint64_t *)cmdq)[16] == (0x11ull | (8ull << 48))); /* unmap TLBI */
