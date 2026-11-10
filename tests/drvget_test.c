@@ -27,7 +27,8 @@ int main(void) {
     dg_url_parse("https://h:8443/a/b.rec", &u, &err);
     CHECK(dg_url_join(&u, "c.c", o, sizeof o, &err) == 0 && !strcmp(o, "https://h:8443/a/c.c"));
 
-    CHECK(dg_license_ok("BSD-2-Clause") && dg_license_ok("BSD-3-Clause") && dg_license_ok("MIT") && dg_license_ok("ISC"));
+    CHECK(dg_license_ok("BSD-2-Clause") && dg_license_ok("BSD-3-Clause") && dg_license_ok("MIT") && dg_license_ok("ISC") && dg_license_ok("LicenseRef-Greenman"));
+    CHECK(dg_license_matches("BSD-2-Clause", "BSD-2-Clause") && !dg_license_matches("BSD-3-Clause", "BSD-2-Clause") && !dg_license_matches(0, "MIT"));
     CHECK(!dg_license_ok("GPL-2.0") && !dg_license_ok("GPL-2.0-or-later") && !dg_license_ok("LGPL-2.1") && !dg_license_ok("BSD-4-Clause") && !dg_license_ok("") && !dg_license_ok("mit"));
     CHECK(dg_file_name_ok("rl.c") && dg_file_name_ok("if_rlreg.h") && !dg_file_name_ok("net.sys") && !dg_file_name_ok("rtl8139.inf") && !dg_file_name_ok("a.ko")
           && !dg_file_name_ok("x.exe") && !dg_file_name_ok("../a.c") && !dg_file_name_ok(".c") && !dg_file_name_ok("a/b.c") && !dg_file_name_ok("a b.c")
@@ -43,6 +44,8 @@ int main(void) {
     CHECK(r.caps == (CAP_MMIO | CAP_DMA | CAP_PCIDEV | CAP_NETDEV) && r.nfile == 2 && !strcmp(r.main_file, "rl.c") && !strcmp(r.file[1].url, "https://x.test/h.h") && strlen(r.file[1].sha) == 64);
     const char* base = "drvget-recipe 1\nname rl\nversion 1\nlicense MIT\npci 10ec:8139\ncaps mmio\nmain a.c\nfile a.c a.c\n";
     CHECK(rec(base, &r, &err) == 0);
+    const char* greenman_recipe = "drvget-recipe 1\nname gm\nversion 1\nlicense LicenseRef-Greenman\npci 10ec:8139\ncaps mmio\nmain a.c\nfile a.c a.c\n";
+    CHECK(rec(greenman_recipe, &r, &err) == 0 && !strcmp(r.license, "LicenseRef-Greenman"));
     struct { const char* from; const char* to; } mut[] = {
         { "license MIT", "license GPL-2.0" }, { "license MIT", "license Proprietary" }, { "name rl", "name RL" }, { "name rl", "name toolongnamexyz" }, { "caps mmio", "caps mmio fs" },
         { "caps mmio", "caps gfx" }, { "pci 10ec:8139", "pci ffff:ffff" }, { "pci 10ec:8139", "pci 10ec" }, { "file a.c a.c", "file a.sys a.sys" }, { "file a.c a.c", "file a.c a.c\nfile a.c b.c" },
@@ -72,11 +75,17 @@ int main(void) {
     CHECK(scan("/* SPDX-License-Identifier: BSD-2-Clause */\n/* LGPL */\n", lic, &err) != 0);
     CHECK(scan("/* SPDX-License-Identifier: BSD-2-Clause */\nint xgplot;\n", lic, &err) == 0);       /* «gpl» внутри слова - не метка */
     CHECK(scan("int a;\n", lic, &err) != 0 && strstr(err, "лицензия"));
-    CHECK(scan("/* Redistribution and use in source and binary forms, with or without modification, are permitted. THIS SOFTWARE IS PROVIDED BY THE AUTHOR */\n", lic, &err) == 0 && strstr(lic, "BSD"));
+    const char* bsd2 = "Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met: 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer. THIS SOFTWARE IS PROVIDED BY THE AUTHOR AS IS.";
+    CHECK(scan(bsd2, lic, &err) == 0 && !strcmp(lic, "BSD-2-Clause"));
+    const char* bsd2_wrapped = "Redistribution and\nuse in source and\nbinary forms, with or without modification, are permitted provided that the following conditions are met: 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer. THIS SOFTWARE IS PROVIDED BY THE AUTHOR AS IS.";
+    CHECK(scan(bsd2_wrapped, lic, &err) == 0 && !strcmp(lic, "BSD-2-Clause"));
+    const char* bsd3 = "Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met: 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer. 3. Neither the name of the author nor contributors may be used to endorse or promote products derived from this software without specific prior written permission. THIS SOFTWARE IS PROVIDED BY THE AUTHOR AS IS.";
+    CHECK(scan(bsd3, lic, &err) == 0 && !strcmp(lic, "BSD-3-Clause"));
     CHECK(scan("/* Redistribution and use in source and binary forms. All advertising materials mentioning features. THIS SOFTWARE IS PROVIDED */\n", lic, &err) != 0);
+    CHECK(scan("/* All advertising materials\n * mentioning features or use of this software must display the acknowledgement. */\n", lic, &err) != 0);
     CHECK(scan("/* Permission is hereby granted, free of charge, to any person. THE SOFTWARE IS PROVIDED \"AS IS\" */\n", lic, &err) == 0 && strstr(lic, "MIT"));
     CHECK(scan("/* Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted */\n", lic, &err) == 0 && strstr(lic, "ISC"));
-    CHECK(scan("/* Copyright (C) 1993, David Greenman. This software may be used, modified, copied, distributed, and sold, in both source and binary form provided that the above copyright and these terms are retained. Under no circumstances is the author responsible for the proper functioning of this software, nor does the author assume any responsibility */\n", lic, &err) == 0 && strstr(lic, "Greenman"));
+    CHECK(scan("/* Copyright (C) 1993, David Greenman. This software may be used, modified, copied, distributed, and sold, in both source and binary form provided that the above copyright and these terms are retained. Under no circumstances is the author responsible for the proper functioning of this software, nor does the author assume any responsibility */\n", lic, &err) == 0 && !strcmp(lic, "LicenseRef-Greenman"));
     CHECK(scan("/* This software may be used, modified, copied, distributed, and sold, in both source and binary form provided that the above copyright and these terms are retained. */\n", lic, &err) != 0);   /* только обе фразы вместе */
     uint8_t mz[200]; memset(mz, 0, sizeof mz); mz[0] = 'M'; mz[1] = 'Z';
     CHECK(dg_scan_source("net.c", mz, sizeof mz, lic, &err) != 0 && strstr(err, "бинарник"));
