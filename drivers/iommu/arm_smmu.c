@@ -515,32 +515,38 @@ int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
                              uint32_t max_events, uint32_t *processed)
 {
     uint32_t producer_raw, producer, consumer, count = 0;
+    int overflow;
 
-    if (!smmu || !smmu->enabled || !smmu->evtq || !platform ||
-        !platform->read_barrier || !platform->write_barrier ||
+    if (!smmu || smmu->enabled != 1u || !smmu->registers ||
+        !smmu->evtq || !platform || !platform->read_barrier ||
+        !platform->write_barrier || !platform->invalidate_cache ||
         !platform->report_event || !processed || max_events == 0)
         return KIRA_SMMU_INVALID;
 
     *processed = 0;
-    platform->read_barrier(platform->context);
     while (__atomic_exchange_n(&smmu->evtq_lock, 1u, __ATOMIC_ACQUIRE)) {
         if (platform->delay)
             platform->delay(platform->context);
     }
-    producer_raw = smmu_read32(smmu->registers, SMMU_EVTQ_PROD);
-    if (producer_raw & SMMU_EVTQ_OVF) {
+    if (smmu->enabled != 1u) {
         __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
-        return KIRA_SMMU_HARDWARE_ERROR;
+        return KIRA_SMMU_INVALID;
     }
+
+    platform->read_barrier(platform->context);
+    producer_raw = smmu_read32(smmu->registers, SMMU_EVTQ_PROD);
+    overflow = (producer_raw & SMMU_EVTQ_OVF) != 0;
     producer = producer_raw & SMMU_EVTQ_PTR_MASK;
     consumer = smmu->evtq_consumer & SMMU_EVTQ_PTR_MASK;
 
     while (consumer != producer && count < max_events) {
         uint64_t event[4];
-        const uint64_t *entry =
-            (const uint64_t *)smmu->evtq + (consumer & 0xffu) * 4u;
+        volatile uint64_t *entry =
+            (volatile uint64_t *)((uint8_t *)smmu->evtq +
+                                  (consumer & 0xffu) * 32u);
         unsigned int i;
 
+        platform->invalidate_cache(platform->context, (const void *)entry, 32u);
         platform->read_barrier(platform->context);
         for (i = 0; i < 4u; ++i)
             event[i] = entry[i];
@@ -549,14 +555,20 @@ int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
         ++count;
     }
 
-    if (count) {
-        platform->write_barrier(platform->context);
-        smmu_write32(smmu->registers, SMMU_EVTQ_CONS, consumer);
-        smmu->evtq_consumer = consumer;
+    /* Do not acknowledge or discard entries that did not fit this batch. */
+    if (consumer != producer) {
+        *processed = count;
+        __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
+        return KIRA_SMMU_HARDWARE_ERROR;
     }
+
+    smmu->evtq_consumer = consumer;
     *processed = count;
+    platform->write_barrier(platform->context);
+    smmu_write32(smmu->registers, SMMU_EVTQ_CONS,
+                 consumer | (overflow ? SMMU_EVTQ_OVACK : 0u));
     __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
-    return KIRA_SMMU_OK;
+    return overflow ? KIRA_SMMU_HARDWARE_ERROR : KIRA_SMMU_OK;
 }
 
 int kira_smmu_v3_disable(struct kira_smmu *smmu,
