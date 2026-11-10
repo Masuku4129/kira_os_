@@ -423,7 +423,8 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     if (!d || !s || !p || !s->enabled || !s->registers || !s->cmdq ||
         !p->alloc_dma_pages || !p->free_dma_pages ||
         !p->alloc_metadata || !p->free_metadata || !s->stream_id_limit ||
-        stream_id >= s->stream_id_limit || d->active || d->smmu || d->table_pages)
+        s->stream_id_limit > 256u || stream_id >= s->stream_id_limit ||
+        stream_id >= 256u || d->active || d->smmu || d->table_pages)
         return KIRA_SMMU_INVALID;
 
     /* This domain uses AArch64 stage 1 with 4 KiB granules and <=48-bit PA. */
@@ -560,7 +561,8 @@ int kira_smmu_domain_map_4k(struct kira_smmu_domain *d,
     int rc;
 
     if (!d || !p || !p->clean_cache ||
-        !p->write_barrier || (iova & 0xfffu) || (physical & 0xfffu))
+        !p->write_barrier || !p->read_barrier ||
+        (iova & 0xfffu) || (physical & 0xfffu))
         return KIRA_SMMU_INVALID;
 
     smmu_domain_lock(d);
@@ -588,7 +590,8 @@ int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *d,
     int rc;
 
     if (!d || !p || !p->clean_cache ||
-        !p->write_barrier || (iova & 0xfffu) || iova >= (1ull << 48))
+        !p->write_barrier || !p->read_barrier ||
+        (iova & 0xfffu) || iova >= (1ull << 48))
         return KIRA_SMMU_INVALID;
 
     smmu_domain_lock(d);
@@ -638,16 +641,20 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     uint64_t *ste;
     int rc;
 
-    if (!d || !d->smmu || !p || !p->free_dma_pages ||
-        !p->free_metadata || !p->clean_cache || !p->write_barrier)
+    if (!d || !p || !p->free_dma_pages || !p->free_metadata ||
+        !p->clean_cache || !p->write_barrier || !p->read_barrier)
         return KIRA_SMMU_INVALID;
 
+    smmu_domain_lock(d);
+    if (!d->active || !d->smmu) {
+        smmu_domain_unlock(d);
+        return KIRA_SMMU_INVALID;
+    }
     s = d->smmu;
     smmu_lock(s);
-    smmu_domain_lock(d);
     if (!s->stream_table || !smmu_stream_id_claimed(s, d->stream_id)) {
-        smmu_domain_unlock(d);
         smmu_unlock(s);
+        smmu_domain_unlock(d);
         return KIRA_SMMU_INVALID;
     }
 
@@ -663,8 +670,8 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
         rc = smmu_invalidate_asid(d, p);
     if (rc != KIRA_SMMU_OK) {
         /* Keep the ID claimed and every translation page pinned on uncertainty. */
-        smmu_domain_unlock(d);
         smmu_unlock(s);
+        smmu_domain_unlock(d);
         return rc;
     }
 
@@ -676,10 +683,11 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     d->stream_table = 0;
     d->context_table = 0;
     d->context_table_physical = 0;
+    d->asid = 0;
     d->stage1_root = 0;
     d->stage1_root_physical = 0;
-    smmu_domain_unlock(d);
     smmu_unlock(s);
+    smmu_domain_unlock(d);
 
     smmu_table_pages_free(d, p);
     p->free_dma_pages(p->context, context_table,
