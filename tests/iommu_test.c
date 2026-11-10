@@ -238,7 +238,8 @@ int main(int argc, char** argv) {
     if (sc == 'C') {                                 /* damaged table is rejected, nothing is enabled */
         CHECK(iommu_init() < 0);
         CHECK(logged("DMAR table rejected"));
-        CHECK(!iommu_enabled() && iommu_isolate_device(d3) == IOMMU_E_NONE);
+        CHECK(!iommu_enabled() && iommu_isolate_device(d3) == IOMMU_E_HW);
+        CHECK(!iommu_device_ready(d3));
         CHECK(!(*r32(R_GSTS) & (1u << 31)) && root_phys == 0);
         puts("iommu_test C: PASS"); return 0;
     }
@@ -246,7 +247,8 @@ int main(int argc, char** argv) {
         CHECK(iommu_init() == 0);
         CHECK(logged("no pass-through support"));
         CHECK(!(*r32(R_GSTS) & (1u << 31)));
-        CHECK(iommu_isolate_device(d3) == IOMMU_E_NONE);
+        CHECK(iommu_isolate_device(d3) == IOMMU_E_HW);
+        CHECK(!iommu_device_ready(d3));
         puts("iommu_test E: PASS"); return 0;
     }
 
