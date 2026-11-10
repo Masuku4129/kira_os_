@@ -316,6 +316,8 @@ int iommu_isolate_device(const pci_dev_t* d) {
 
 int iommu_release_device(const pci_dev_t* d) {
     if (!d) return IOMMU_E_ARG;
+    /* Stop new transactions before touching translations or page tables. */
+    pci_disable_bus_master(d);
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
     int rc = IOMMU_E_NOENT, disable_master = 0;
@@ -437,6 +439,8 @@ int iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len) {
 
 void iommu_unmap_all(const pci_dev_t* d) {
     if (!d || !G.active) return;
+    /* Revocation is only safe after the requester has stopped issuing DMA. */
+    pci_disable_bus_master(d);
     int failed = 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
