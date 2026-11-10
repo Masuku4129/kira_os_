@@ -13,8 +13,9 @@ SHIM = os.path.join(ROOT, 'kcc/include/bsd')
 # драйверы с DMA, проверенные на слое (сценарии drv-bsd-*): права. 
 DMA_OK = {'fxp_pci': 'mmio pcidev netdev irq dma', 'pcn': 'mmio pcidev netdev irq dma'}
 
-# Формат пакета драйвера (kdrv_header_t) вмещает KDRV_MATCH_MAX = 8 идентификаторов. Если у драйвера их больше, заявляются первые 8 (проверенные идут вперёд),
-# в каталог тоже попадают только они: остальные устройства драйвер не получит, пока формат не расширен (docs/BSD_COMPAT.md).
+# Формат пакета драйвера (kdrv_header_t) вмещает KDRV_MATCH_MAX = 8 идентификаторов. Формат не меняется (подписанные пакеты и их векторы остаются годными):
+# если идентификаторов больше, рецепт делится на части по 8 - ИМЯ, ИМЯ2, ИМЯ3... Исходники и права у частей одинаковые, различаются списком pci
+# и именем пакета; проверенные идентификаторы идут в первую часть. Собирается только та часть, в которой нашлась карта.
 MATCH_MAX = 8
 PREFER = {'fxp_pci': ['8086:1209'], 'pcn': ['1022:2000']}
 
@@ -53,12 +54,9 @@ def main(sysd, index, pcidevs, name, commit, outd, base):
     if len(set(bn)) != len(bn): sys.exit('совпадают имена файлов без каталогов: %s' % bn)
     idl = ids.split(',')
     idl = [i for i in PREFER.get(name, []) if i in idl] + [i for i in idl if i not in PREFER.get(name, [])]
-    if len(idl) > MATCH_MAX:
-        print('%s: идентификаторов %d, заявлено %d (формат пакета), остальные не заявлены' % (name, len(idl), MATCH_MAX), file=sys.stderr)
-        idl = idl[:MATCH_MAX]
-    ids = ','.join(idl)
     dn = devname(ca)
-    d = os.path.join(outd, dn); os.makedirs(d, exist_ok=True)
+    parts = [idl[i:i + MATCH_MAX] for i in range(0, len(idl), MATCH_MAX)]
+    if len(parts) > 1: print('%s: идентификаторов %d, частей рецепта %d (по %d)' % (name, len(idl), len(parts), MATCH_MAX), file=sys.stderr)
     vend, prod = P.parse(pcidevs)
     syms, bad = P.resolve(vend, prod, P.referenced([os.path.join(sysd, f) for f in allf]))
     if bad: sys.exit('неизвестные имена pcidevs: %s' % ' '.join(bad))
@@ -69,16 +67,19 @@ def main(sysd, index, pcidevs, name, commit, outd, base):
           '#pragma kcc unity\n#define _KERNEL 1\n#include <bsd_core.h>\n%s'
           'extern const struct cfattach %s;\nconst struct cfattach* kd_ca = &%s;\nconst char* kd_devname = "%s";\n#include <bsd_rt.c>\n') % (name, inc, ca, ca, dn)
     km = km.encode()
-    open(os.path.join(d, 'kd_pcidevs.h'), 'wb').write(pd); open(os.path.join(d, 'kdmain.c'), 'wb').write(km)
-    rec = ['# Рецепт drvget для драйвера OpenBSD %s (создан tools/bsd_recipe.py, корпус - коммит %s)' % (name, commit[:10]), 'drvget-recipe 1', 'name ' + dn, 'version 1',
-           'license BSD-3-Clause']
-    rec += ['pci ' + i for i in ids.split(',')]
-    rec += ['caps ' + caps, 'main kdmain.c', 'file kdmain.c kdmain.c sha256 ' + sha(km), 'file kd_pcidevs.h kd_pcidevs.h sha256 ' + sha(pd)]
-    for f in allf: rec.append('file %s %s/%s sha256 %s' % (os.path.basename(f), base, f, sha(rd(os.path.join(sysd, f)))))
-    txt = ('\n'.join(rec) + '\n').encode()
-    open(os.path.join(d, 'drvget.rec'), 'wb').write(txt)
-    print('recipe', dn, sha(txt), len(rec), file=sys.stderr)
-    for i in ids.split(','): print('pci %s %s @URL@ %s' % (i, dn, sha(txt)))
+    for n, pids in enumerate(parts, 1):
+        pn = dn if n == 1 else '%s%d' % (dn, n)
+        d = os.path.join(outd, pn); os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, 'kd_pcidevs.h'), 'wb').write(pd); open(os.path.join(d, 'kdmain.c'), 'wb').write(km)
+        rec = ['# Рецепт drvget для драйвера OpenBSD %s (создан tools/bsd_recipe.py, корпус - коммит %s)%s' % (name, commit[:10], '' if len(parts) == 1 else ', часть %d из %d' % (n, len(parts))),
+               'drvget-recipe 1', 'name ' + pn, 'version 1', 'license BSD-3-Clause']
+        rec += ['pci ' + i for i in pids]
+        rec += ['caps ' + caps, 'main kdmain.c', 'file kdmain.c kdmain.c sha256 ' + sha(km), 'file kd_pcidevs.h kd_pcidevs.h sha256 ' + sha(pd)]
+        for f in allf: rec.append('file %s %s/%s sha256 %s' % (os.path.basename(f), base, f, sha(rd(os.path.join(sysd, f)))))
+        txt = ('\n'.join(rec) + '\n').encode()
+        open(os.path.join(d, 'drvget.rec'), 'wb').write(txt)
+        print('recipe', pn, sha(txt), len(rec), file=sys.stderr)
+        for i in pids: print('pci %s %s @URL@ %s' % (i, pn, sha(txt)))
 
 if __name__ == '__main__':
     a = sys.argv[1:]; base = 'https://raw.githubusercontent.com/openbsd/src/%s/sys' % a[4]

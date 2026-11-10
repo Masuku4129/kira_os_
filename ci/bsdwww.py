@@ -12,7 +12,7 @@ def build(name="ne_pci", cset="ne2k", mirror="https://10.0.2.100/bsd", out="ci-o
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools/bsd_recipe.py"), sysd, os.path.join(ROOT, "drivers/bsdcorpus/index.txt"),
                         os.path.join(ROOT, "build-bsd/corpus/pcidevs/sys/dev/pci/pcidevs"), name, commit, w, "--corpus-base", mirror], capture_output=True, text=True)
     if r.returncode: sys.stderr.write(r.stderr); return None
-    dn = os.listdir(w)[0]; d = os.path.join(w, dn)
+    dn = min(os.listdir(w), key=len); d = os.path.join(w, dn)
     rec = open(os.path.join(d, "drvget.rec")).read().splitlines()
     names = ["drvget.rec"]
     for ln in rec:
