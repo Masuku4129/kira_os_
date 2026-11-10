@@ -110,6 +110,91 @@ static void *smmu_alloc(const struct kira_smmu_platform *p, uint64_t *pa)
     return smmu_alloc_pages(p, 1, pa);
 }
 
+struct smmu_table_page {
+    void *virtual_address;
+    uint64_t physical_address;
+    struct smmu_table_page *next;
+};
+
+static unsigned smmu_output_bits(const struct kira_smmu *s)
+{
+    static const unsigned bits[6] = {32, 36, 40, 42, 44, 48};
+    unsigned encoding = s->idr5 & 7u;
+    return bits[encoding <= 5u ? encoding : 5u];
+}
+
+static int smmu_physical_valid(const struct kira_smmu *s, uint64_t physical)
+{
+    return physical < (1ull << smmu_output_bits(s));
+}
+
+static void *smmu_table_page_alloc(struct kira_smmu_domain *d,
+                                   const struct kira_smmu_platform *p,
+                                   uint64_t *physical)
+{
+    struct smmu_table_page *record;
+    void *memory = smmu_alloc(p, physical);
+
+    if (!memory)
+        return 0;
+    if (!smmu_physical_valid(d->smmu, *physical)) {
+        p->free_dma_pages(p->context, memory, *physical, 1);
+        *physical = 0;
+        return 0;
+    }
+    record = (struct smmu_table_page *)p->alloc_metadata(p->context,
+                                                         sizeof(*record));
+    if (!record) {
+        p->free_dma_pages(p->context, memory, *physical, 1);
+        *physical = 0;
+        return 0;
+    }
+    record->virtual_address = memory;
+    record->physical_address = *physical;
+    record->next = (struct smmu_table_page *)d->table_pages;
+    d->table_pages = record;
+    return memory;
+}
+
+static void *smmu_table_page_find(struct kira_smmu_domain *d, uint64_t physical)
+{
+    struct smmu_table_page *page =
+        (struct smmu_table_page *)d->table_pages;
+    physical &= SMMU_TTBR_ADDR;
+    while (page) {
+        if (page->physical_address == physical)
+            return page->virtual_address;
+        page = page->next;
+    }
+    return 0;
+}
+
+static void smmu_table_pages_free(struct kira_smmu_domain *d,
+                                  const struct kira_smmu_platform *p)
+{
+    struct smmu_table_page *page =
+        (struct smmu_table_page *)d->table_pages;
+    while (page) {
+        struct smmu_table_page *next = page->next;
+        p->free_dma_pages(p->context, page->virtual_address,
+                          page->physical_address, 1);
+        p->free_metadata(p->context, page);
+        page = next;
+    }
+    d->table_pages = 0;
+}
+
+static void smmu_domain_lock(struct kira_smmu_domain *d)
+{
+    while (__atomic_exchange_n(&d->lock, 1u, __ATOMIC_ACQUIRE)) {
+    }
+}
+
+static void smmu_domain_unlock(struct kira_smmu_domain *d)
+{
+    __atomic_store_n(&d->lock, 0u, __ATOMIC_RELEASE);
+}
+
 /*
  * CMDQ pointers contain an 8-bit index and a wrap bit at bit 8 for
  * this 256-entry queue. Comparing only the index makes full and empty
@@ -234,13 +319,12 @@ static int smmu_invalidate_stream(struct kira_smmu_domain *d,
     return rc;
 }
 
-static void *smmu_table_from_entry(const struct kira_smmu_platform *p,
+static void *smmu_table_from_entry(struct kira_smmu_domain *d,
                                    uint64_t entry)
 {
-    if (!p->map_mmio || !(entry & 1ull))
+    if (!(entry & 1ull))
         return 0;
-    return (void *)p->map_mmio(p->context,
-                               entry & SMMU_TTBR_ADDR, SMMU_PAGE_SIZE);
+    return smmu_table_page_find(d, entry & SMMU_TTBR_ADDR);
 }
 
 static int smmu_map_page(struct kira_smmu_domain *d,
@@ -252,40 +336,44 @@ static int smmu_map_page(struct kira_smmu_domain *d,
     uint64_t *table = smmu_words(d->stage1_root);
     unsigned int level;
 
+    if (iova >= (1ull << 48) || !smmu_physical_valid(d->smmu, physical) ||
+        (permissions & ~(KIRA_SMMU_MAP_READ | KIRA_SMMU_MAP_WRITE)) ||
+        !(permissions & KIRA_SMMU_MAP_READ) ||
+        !(permissions & (KIRA_SMMU_MAP_READ | KIRA_SMMU_MAP_WRITE)))
+        return KIRA_SMMU_INVALID;
+
     for (level = 0; level < 3; ++level) {
         unsigned int index = (unsigned int)((iova >> shifts[level]) & 0x1ffu);
-        uint64_t e = table[index];
+        uint64_t entry = table[index];
 
-        if (!(e & 1ull)) {
-            uint64_t pa = 0;
-            void *next = smmu_alloc(p, &pa);
+        if (!(entry & 1ull)) {
+            uint64_t next_physical = 0;
+            void *next = smmu_table_page_alloc(d, p, &next_physical);
             if (!next)
                 return KIRA_SMMU_MEMORY_FAILED;
-            table[index] = (pa & SMMU_TTBR_ADDR) | 3ull;
-            if (p->clean_cache)
-                p->clean_cache(p->context, table, SMMU_PAGE_SIZE);
+            table[index] = (next_physical & SMMU_TTBR_ADDR) | 3ull;
+            p->clean_cache(p->context, table, SMMU_PAGE_SIZE);
             table = smmu_words(next);
         } else {
-            table = (uint64_t *)smmu_table_from_entry(p, e);
+            table = (uint64_t *)smmu_table_from_entry(d, entry);
             if (!table)
-                return KIRA_SMMU_MEMORY_FAILED;
+                return KIRA_SMMU_HARDWARE_ERROR;
         }
     }
 
     {
         unsigned int index = (unsigned int)((iova >> 12) & 0x1ffu);
-        uint64_t attr = 1ull; /* valid */
+        uint64_t descriptor = (physical & SMMU_TTBR_ADDR) |
+                              3ull | (3ull << 8) | (1ull << 10);
         if (table[index] & 1ull)
             return KIRA_SMMU_HARDWARE_ERROR;
-        if (permissions & KIRA_SMMU_MAP_READ)
-            attr |= 1ull << 6;
-        if (permissions & KIRA_SMMU_MAP_WRITE)
-            attr |= 1ull << 7;
-        if (!(permissions & (KIRA_SMMU_MAP_READ | KIRA_SMMU_MAP_WRITE)))
-            return KIRA_SMMU_INVALID;
-        table[index] = (physical & SMMU_TTBR_ADDR) | attr;
-        if (p->clean_cache)
-            p->clean_cache(p->context, table, SMMU_PAGE_SIZE);
+
+        /* Stage-1 AP=10 is read-only at EL1; AP=00 is read/write.
+           AArch64 stage 1 has no write-only permission encoding. */
+        if (!(permissions & KIRA_SMMU_MAP_WRITE))
+            descriptor |= 1ull << 7;
+        table[index] = descriptor;
+        p->clean_cache(p->context, table, SMMU_PAGE_SIZE);
     }
     return KIRA_SMMU_OK;
 }
@@ -301,23 +389,26 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     int rc = KIRA_SMMU_OK;
 
     if (!d || !s || !p || !s->enabled || !p->alloc_dma_pages ||
-        !p->free_dma_pages || !p->map_mmio || !s->stream_id_limit ||
-        stream_id >= s->stream_id_limit)
+        !p->free_dma_pages || !p->alloc_metadata || !p->free_metadata ||
+        !s->stream_id_limit || stream_id >= s->stream_id_limit)
         return KIRA_SMMU_INVALID;
 
     /* This domain uses AArch64 stage 1 with 4 KiB granules and <=48-bit PA. */
     if (!(s->idr0 & (1u << 1)) ||
         (((s->idr0 >> 2) & 3u) != 2u && ((s->idr0 >> 2) & 3u) != 3u) ||
-        !(s->idr5 & (1u << 4)))
+        !(s->idr5 & (1u << 4)) || (s->idr5 & 7u) > 6u)
         return KIRA_SMMU_UNSUPPORTED;
     if (!p->clean_cache || !p->write_barrier)
         return KIRA_SMMU_INVALID;
 
+    d->smmu = s;
+    d->table_pages = 0;
     ct = smmu_alloc(p, &ct_pa);
-    root = smmu_alloc(p, &root_pa);
-    if (!ct || !root) {
+    root = smmu_table_page_alloc(d, p, &root_pa);
+    if (!ct || !root || !smmu_physical_valid(s, ct_pa)) {
         if (ct) p->free_dma_pages(p->context, ct, ct_pa, 1);
-        if (root) p->free_dma_pages(p->context, root, root_pa, 1);
+        smmu_table_pages_free(d, p);
+        d->smmu = 0;
         return KIRA_SMMU_MEMORY_FAILED;
     }
 
@@ -387,8 +478,9 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
         d->stream_table = 0;
         d->context_table = 0;
         d->stage1_root = 0;
+        d->stage1_root_physical = 0;
         smmu_unlock(s);
-        p->free_dma_pages(p->context, root, root_pa, 1);
+        smmu_table_pages_free(d, p);
         p->free_dma_pages(p->context, ct, ct_pa, 1);
         return rc;
     }
@@ -424,19 +516,23 @@ int kira_smmu_domain_map_4k(struct kira_smmu_domain *d,
 {
     int rc;
 
-    if (!d || !d->active || !p || (iova & 0xfffu) ||
-        (physical & 0xfffu))
+    if (!d || !d->active || !p || !p->clean_cache ||
+        !p->write_barrier || (iova & 0xfffu) || (physical & 0xfffu))
         return KIRA_SMMU_INVALID;
 
+    smmu_domain_lock(d);
+    if (!d->active) {
+        smmu_domain_unlock(d);
+        return KIRA_SMMU_INVALID;
+    }
     rc = smmu_map_page(d, iova, physical, permissions, p);
-    if (rc != KIRA_SMMU_OK)
-        return rc;
-
-    if (p->write_barrier)
+    if (rc == KIRA_SMMU_OK) {
         p->write_barrier(p->context);
-
-    /* Invalidate the stream's translation cache before DMA is resumed. */
-    return smmu_invalidate_stream(d, p);
+        /* Keep the mapping and its backing memory pinned if this times out. */
+        rc = smmu_invalidate_stream(d, p);
+    }
+    smmu_domain_unlock(d);
+    return rc;
 }
 
 int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *d,
@@ -447,32 +543,46 @@ int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *d,
     uint64_t *table;
     unsigned int level;
 
-    if (!d || !d->active || !p || (iova & 0xfffu))
+    if (!d || !d->active || !p || !p->clean_cache ||
+        !p->write_barrier || (iova & 0xfffu) || iova >= (1ull << 48))
         return KIRA_SMMU_INVALID;
 
+    smmu_domain_lock(d);
+    if (!d->active) {
+        smmu_domain_unlock(d);
+        return KIRA_SMMU_INVALID;
+    }
     table = smmu_words(d->stage1_root);
     for (level = 0; level < 3; ++level) {
         unsigned int index = (unsigned int)((iova >> shifts[level]) & 0x1ffu);
         uint64_t e = table[index];
-        if (!(e & 1ull))
+        if (!(e & 1ull)) {
+            smmu_domain_unlock(d);
             return KIRA_SMMU_HARDWARE_ERROR;
-        table = (uint64_t *)smmu_table_from_entry(p, e);
-        if (!table)
-            return KIRA_SMMU_MEMORY_FAILED;
+        }
+        table = (uint64_t *)smmu_table_from_entry(d, e);
+        if (!table) {
+            smmu_domain_unlock(d);
+            return KIRA_SMMU_HARDWARE_ERROR;
+        }
     }
 
     {
         unsigned int index = (unsigned int)((iova >> 12) & 0x1ffu);
-        if (!(table[index] & 1ull))
+        if (!(table[index] & 1ull)) {
+            smmu_domain_unlock(d);
             return KIRA_SMMU_HARDWARE_ERROR;
+        }
         table[index] = 0;
         if (p->clean_cache)
             p->clean_cache(p->context, table, SMMU_PAGE_SIZE);
     }
 
-    if (p->write_barrier)
-        p->write_barrier(p->context);
-    return smmu_invalidate_stream(d, p);
+    p->write_barrier(p->context);
+    /* The caller must not free the unmapped physical page until this succeeds. */
+    rc = smmu_invalidate_stream(d, p);
+    smmu_domain_unlock(d);
+    return rc;
 }
 
 int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
@@ -482,12 +592,15 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     uint64_t *ste;
     int rc;
 
-    if (!d || !d->active || !d->smmu || !p || !p->free_dma_pages)
+    if (!d || !d->active || !d->smmu || !p || !p->free_dma_pages ||
+        !p->free_metadata || !p->clean_cache || !p->write_barrier)
         return KIRA_SMMU_INVALID;
 
     s = d->smmu;
     smmu_lock(s);
+    smmu_domain_lock(d);
     if (!s->stream_table || !smmu_stream_id_claimed(s, d->stream_id)) {
+        smmu_domain_unlock(d);
         smmu_unlock(s);
         return KIRA_SMMU_INVALID;
     }
@@ -495,26 +608,27 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     /* Clear only this domain's STE; the shared table remains controller-owned. */
     ste = smmu_words(s->stream_table) + d->stream_id * 8u;
     ste[0] = 0;
-    if (p->clean_cache)
-        p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
-    if (p->write_barrier) p->write_barrier(p->context);
+    p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
+    p->write_barrier(p->context);
     rc = smmu_invalidate_stream(d, p);
     if (rc != KIRA_SMMU_OK) {
         /* Keep the ID claimed and page tables allocated on uncertain hardware state. */
+        smmu_domain_unlock(d);
         smmu_unlock(s);
         return rc;
     }
 
     smmu_stream_id_clear(s, d->stream_id);
+    smmu_domain_unlock(d);
     smmu_unlock(s);
 
-    p->free_dma_pages(p->context, d->stage1_root,
-                      d->stage1_root_physical, 1);
+    smmu_table_pages_free(d, p);
     p->free_dma_pages(p->context, d->context_table,
                       d->context_table_physical, 1);
 
     d->active = 0;
     d->stage1_root = 0;
+    d->stage1_root_physical = 0;
     d->context_table = 0;
     d->stream_table = 0;
     d->smmu = 0;
