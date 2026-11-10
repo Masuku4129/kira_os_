@@ -28,6 +28,7 @@
 #define CMD_CFGI_CD 0x05u
 #define CMD_CFGI_ALL 0x04u
 #define CMD_TLBI_NH_ASID 0x11u
+#define CMD_TLBI_NSNH_ALL 0x30u
 #define CMD_SYNC 0x46u
 
 static uint64_t *smmu_words(void *p) { return (uint64_t *)p; }
@@ -99,6 +100,10 @@ static void *smmu_alloc(const struct kira_smmu_platform *p, uint64_t *pa)
 #define SMMU_CMDQ_INDEX_MASK 0xffu
 #define SMMU_CMDQ_WRAP       0x100u
 #define SMMU_CMDQ_PTR_MASK   0x1ffu
+#define SMMU_CMDQ_CONS_ERR_MASK 0x7f000000u
+#define SMMU_GERROR 0x0060u
+#define SMMU_GERRORN 0x0064u
+#define SMMU_GERROR_ERR_MASK 0x1fdu
 
 static uint32_t smmu_cmdq_next(uint32_t pointer)
 {
@@ -119,12 +124,15 @@ static int smmu_cmd_submit(struct kira_smmu *s,
     volatile uint64_t *queue = (volatile uint64_t *)s->cmdq;
     uint32_t producer = s->cmdq_producer & SMMU_CMDQ_PTR_MASK;
     uint32_t consumer;
+    uint32_t raw_consumer;
     uint32_t next;
     uint32_t i;
 
     for (i = 0; i < SMMU_POLL_LIMIT; ++i) {
-        consumer = *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS) &
-                   SMMU_CMDQ_PTR_MASK;
+        raw_consumer = *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS);
+        if (raw_consumer & SMMU_CMDQ_CONS_ERR_MASK)
+            return KIRA_SMMU_HARDWARE_ERROR;
+        consumer = raw_consumer & SMMU_CMDQ_PTR_MASK;
         if (!((producer & SMMU_CMDQ_INDEX_MASK) ==
               (consumer & SMMU_CMDQ_INDEX_MASK) &&
               ((producer ^ consumer) & SMMU_CMDQ_WRAP) != 0))
@@ -168,9 +176,16 @@ static int smmu_cmd_sync(struct kira_smmu *s,
      * software enables device DMA or frees/reuses translation structures.
      */
     for (i = 0; i < SMMU_POLL_LIMIT; ++i) {
-        uint32_t consumer =
-            *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS) &
-            SMMU_CMDQ_PTR_MASK;
+        uint32_t raw_consumer =
+            *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS);
+        uint32_t consumer = raw_consumer & SMMU_CMDQ_PTR_MASK;
+        uint32_t gerror =
+            *(volatile uint32_t *)(s->registers + SMMU_GERROR);
+        uint32_t gerrorn =
+            *(volatile uint32_t *)(s->registers + SMMU_GERRORN);
+        if ((raw_consumer & SMMU_CMDQ_CONS_ERR_MASK) ||
+            ((gerror ^ gerrorn) & SMMU_GERROR_ERR_MASK))
+            return KIRA_SMMU_HARDWARE_ERROR;
         if (consumer == completion_pointer)
             return KIRA_SMMU_OK;
         if (p->delay)
@@ -189,6 +204,27 @@ static void smmu_cmdq_lock(struct kira_smmu *s)
 static void smmu_cmdq_unlock(struct kira_smmu *s)
 {
     __atomic_store_n(&s->cmdq_lock, 0u, __ATOMIC_RELEASE);
+}
+
+int kira_smmu_v3_invalidate_all(struct kira_smmu *s,
+                                const struct kira_smmu_platform *p)
+{
+    int rc;
+
+    if (!s || !s->registers || !s->cmdq || !p ||
+        !p->write_barrier || !p->read_barrier)
+        return KIRA_SMMU_INVALID;
+
+    smmu_cmdq_lock(s);
+    rc = smmu_cmd_submit(s, p, (uint64_t)CMD_CFGI_ALL, 31u, 0);
+    if (rc == KIRA_SMMU_OK)
+        rc = smmu_cmd_sync(s, p);
+    if (rc == KIRA_SMMU_OK)
+        rc = smmu_cmd_submit(s, p, (uint64_t)CMD_TLBI_NSNH_ALL, 0, 0);
+    if (rc == KIRA_SMMU_OK)
+        rc = smmu_cmd_sync(s, p);
+    smmu_cmdq_unlock(s);
+    return rc;
 }
 
 static int smmu_invalidate_stream(struct kira_smmu_domain *d,
