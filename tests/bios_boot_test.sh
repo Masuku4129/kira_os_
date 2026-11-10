@@ -29,7 +29,7 @@ struct.pack_into('<I', bad, 512 + 16384 - 32 + 12, crc)
 open(t + '/elf.img', 'wb').write(bad)
 PY
 OUT=$(run $T/elf.img);                     expect "p_paddr ниже 1 МиБ" "outside usable RAM"
-OUT=$(run $T/ok.img 16);                   expect "мало памяти (16 МиБ)" "no RAM at 16MiB"
+OUT=$(run $T/ok.img 16);                   expect "мало памяти (16 МиБ)" "no RAM for kernel/initrd staging"
 OUT=$(run $T/ok.img 64);                   expect "загрузка при 64 МиБ" "Kernel core starting"
 printf 'KIRA-INITRD-TEST\n' > $T/initrd.img
 python3 tools/mkbios.py $T/s1.bin $T/s2.bin "$KERNEL" $T/module.img $T/initrd.img >/dev/null || exit 1
