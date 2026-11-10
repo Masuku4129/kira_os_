@@ -12,6 +12,7 @@
 // Предел PMM_LIMIT = 512 ГБ: identity-карта ядра живёт в PML4[0], а пользовательские адреса начинаются с 512 ГБ.
 #define PMM_LOW        (1ULL << 30)
 #define PMM_LIMIT      (1ULL << 39)
+#define PMM_DMA_RESERVE_WORDS ((uint32_t)(((16ULL << 20) / PMM_PAGE_SIZE) / 32))
 
 #define MB2_MAGIC        0x36D76289UL
 #define MB2_TAG_END      0
@@ -299,7 +300,7 @@ static int pmm_init_map(const kbi_mmap_entry_t* map, uint32_t map_count,
     for(uint64_t pg=0;pg<nwords*32;pg++) if(!test_bit(used_map,pg)) free_pages++;
     /* Обычные выделения начинаем выше 16 МБ, сохраняя нижнюю память для ISA DMA.
        Ограниченные устройства используют отдельные *_below() функции и могут брать её явно. */
-    search_hint = (uint32_t)(((16ULL << 20) / PMM_PAGE_SIZE) / 32);
+    search_hint = PMM_DMA_RESERVE_WORDS;
     if (search_hint >= nwords) search_hint = 0;
     uint64_t high_bytes=0;
     for(unsigned i=0;i<high_n;i++) high_bytes+=high[i].end-high[i].start;
@@ -515,7 +516,9 @@ int pmm_free_contiguous(uint64_t paddr, uint32_t pages) {
         uint64_t page = first + i;
         clear_bit(used_map, page);
         free_pages++;
-        if ((uint32_t)(page >> 5) < search_hint) search_hint = (uint32_t)(page >> 5);
+        if ((uint32_t)(page >> 5) < search_hint &&
+            ((uint32_t)(page >> 5) >= PMM_DMA_RESERVE_WORDS || search_hint < PMM_DMA_RESERVE_WORDS))
+            search_hint = (uint32_t)(page >> 5);
     }
     spin_unlock_irqrestore(&pmm_lock, f);
     return 0;
@@ -531,7 +534,9 @@ int pmm_free_page(uint64_t paddr) {
     } else {
         clear_bit(used_map, page);
         free_pages++;
-        if ((uint32_t)(page >> 5) < search_hint) search_hint = (uint32_t)(page >> 5);
+        if ((uint32_t)(page >> 5) < search_hint &&
+            ((uint32_t)(page >> 5) >= PMM_DMA_RESERVE_WORDS || search_hint < PMM_DMA_RESERVE_WORDS))
+            search_hint = (uint32_t)(page >> 5);
     }
     spin_unlock_irqrestore(&pmm_lock, f);
     return rc;

@@ -176,7 +176,7 @@ int sb16_probe(void) {
     }
     sb.dma_addr = sb16_dma16_port_addr(sb.dma16); sb.dma_cnt = sb16_dma16_port_count(sb.dma16); sb.dma_page = sb16_dma16_port_page(sb.dma16);
     sb.buf = dma_ring_alloc(&sb.buf_p);
-    if (!sb.buf) { uart_print("[KIRA SB16] no 64 KB buffer below 16 MB aligned to 128 KB for ISA DMA.\n"); return -5; }
+    if (!sb.buf) { uart_print("[KIRA SB16] no 64 KB buffer below 16 MB aligned to 64 KB for ISA DMA.\n"); return -5; }
     uart_print("[KIRA SB16] Sound: Sound Blaster 16 DSP "); uart_print_dec(sb.vmaj); uart_print("."); uart_print_dec(sb.vmin);
     uart_print(" at port "); uart_print_hex(sb.base); uart_print(" (DSP reset answered), IRQ ");
     if (sb.irq >= 0) uart_print_dec((uint64_t)sb.irq); else uart_print("not reported");
