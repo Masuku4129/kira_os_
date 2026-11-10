@@ -115,7 +115,7 @@ typedef struct { int64_t mean_x100; uint64_t var_x100; uint32_t n; } mind_norm_t
 
 /* То, что переживает перезагрузку (сохраняется как есть, проверяется по crc). */
 #define MIND_MAGIC   0x444E494DU   /* "MIND" */
-#define MIND_VERSION 4             /* 4: явная валидность измерения диска в признаках предвидения */
+#define MIND_VERSION 5             /* 5: отдельная модель прогноза давления памяти */
 #define MIND_MODEL_COMMON \
     uint32_t magic, version; \
     mind_norm_t norm[MIND_SIG_N]; \
@@ -132,7 +132,8 @@ typedef struct { uint8_t best, flags; uint16_t trials, wins; } mind_lv_saved_t; 
 #define MF_SEED 1                  /* модель взята из семени опыта (data/mind_seed.bin), а не накоплена на этой машине */
 typedef struct {
     MIND_MODEL_COMMON
-    mnet_t   net;              /* модель предвидения: веса этой машины */
+    mnet_t   net;              /* модель предвидения UI: веса этой машины */
+    mnet_t   memory_net;        /* отдельная модель давления памяти, горизонт 4 с */
     uint32_t forecasts;        /* упреждающих решений за жизнь */
     mind_lv_saved_t lv[ML_N];  /* рычаги */
     uint32_t mflags;           /* MF_* */
@@ -141,9 +142,10 @@ typedef struct {
 /* Сетевой блок формата v3/v2: 12 признаков. Нужен только для безопасной миграции старых файлов. */
 typedef struct { int32_t w[12], b; uint32_t n, pos, tp, fp, fn, tn, loss_x1e4; } mindnet_v3_t;
 typedef struct { MIND_MODEL_COMMON mindnet_v3_t net; uint32_t forecasts; mind_lv_saved_t lv[ML_N]; uint32_t mflags, crc; } mind_model_v3_t;
+typedef struct { MIND_MODEL_COMMON mnet_t net; uint32_t forecasts; mind_lv_saved_t lv[ML_N]; uint32_t mflags, crc; } mind_model_v4_t;
 typedef struct { MIND_MODEL_COMMON mindnet_v3_t net; uint32_t forecasts; uint32_t crc; } mind_model_v2_t;
 typedef struct { MIND_MODEL_COMMON uint32_t crc; } mind_model_v1_t;
-/* Опыт с диска (len байт) -> модель текущего формата. Поддерживаются форматы 1, 2 и 3. */
+/* Опыт с диска (len байт) -> модель текущего формата. Поддерживаются форматы 1–4. */
 int mind_model_load(mind_model_t* out, const void* buf, unsigned len);
 /* Семя опыта (файл опыта, полученный на другой машине - в QEMU) -> стартовая модель. Берутся ТОЛЬКО веса модели
    предвидения (число наблюдений урезано до MIND_SEED_N, ниже порога доверия: предупреждения придётся заслужить на
@@ -192,6 +194,8 @@ typedef struct {
     uint32_t seen_fc, seen_tact, seen_core, seen_bg, seen_odd, seen_fxbad, seen_fxlow, prev_fc;
     uint32_t seen_skew;        /* последняя секунда перекоса ядер */
 } ml_t;
+
+typedef struct { int32_t x[MNET_F]; uint32_t max_used, created_t; uint8_t valid, acted; } mind_mem_pending_t;
 
 typedef struct {
     mind_model_t m;
@@ -246,6 +250,10 @@ typedef struct {
     int32_t  nx_prev[MNET_F];
     uint8_t  nx_have, nx_acted;               /* есть пример; в его секунду действовало упреждение (исход не честный) */
     uint32_t risk_q16;                        /* вероятность опоздания экрана в следующую секунду */
+    uint32_t mem_risk_q16;                     /* вероятность достижения 90% ОЗУ в следующие 4 секунды */
+    mind_mem_pending_t mem_pending[5];
+    uint32_t mem_pending_pos, mem_forecasts, mem_logged_t, mem_prev_used, mem_prev_t;
+    uint8_t mem_prev_valid;
     uint32_t pre_until_ms;                    /* до этого момента тактика держит фон ужатым заранее */
     uint32_t pre_logged_t, pre_skip;          /* журнал не чаще; каждая 10-я опасная секунда - без упреждения (проверка) */
     int      risk_why;                        /* главный признак риска */
@@ -310,6 +318,7 @@ void mind_model_seal(mind_model_t* m);       /* посчитать crc пере�
 
 const char* mind_signal_name(int sig);
 const char* mind_feature_name(int f);       /* признак модели предвидения */
+uint32_t mind_memory_risk(const mind_t* s);   /* вероятность давления памяти в следующие 4 с, Q16; без доверия — 0 */
 void mind_make_features(const mind_t* s, const mind_sample_t* in, int32_t* out); /* Q16 признаки для прогноза/тестов */
 const char* mind_signal_unit(int sig);
 unsigned    mind_quantum_ms(const mind_t* s);
