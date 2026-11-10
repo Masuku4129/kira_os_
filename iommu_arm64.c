@@ -555,11 +555,21 @@ int iommu_map(const pci_dev_t* pci, uint64_t iova, uint64_t physical,
                                     physical_base + (uint64_t)i * ARM_PAGE_SIZE,
                                     permissions, &arm_platform);
         if (rc != KIRA_SMMU_OK) {
-            if (i) {
+            uint32_t pinned_pages = i;
+            if (rc == KIRA_SMMU_TIMEOUT ||
+                rc == KIRA_SMMU_HARDWARE_ERROR) {
+                /* PTE publication may have succeeded before TLBI timed out.
+                   Pin the uncertain page and quarantine DMA until teardown
+                   retries invalidation; never let the caller free this memory. */
+                pinned_pages = i + 1u;
+                __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
+                __atomic_store_n(&dev->quarantine_pending, 1u, __ATOMIC_RELEASE);
+            }
+            if (pinned_pages) {
                 map->iova = iova_base;
                 map->physical = physical_base;
-                map->pages = i;
-                map->mapped_pages = i;
+                map->pages = pinned_pages;
+                map->mapped_pages = pinned_pages;
                 map->active = 1u;
             }
             return rc == KIRA_SMMU_MEMORY_FAILED ? IOMMU_E_NOMEM :
