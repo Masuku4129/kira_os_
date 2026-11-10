@@ -65,10 +65,15 @@ int virtio_gpu_probe(void) {
         uart_print("[KIRA GPU] virtio-gpu found but did not start.\n");
         return -2;
     }
-    virtio_driver_ok(&dev);
     cmd = (uint8_t*)virtio_dma_alloc(4096, &cmd_phys);
     resp = (uint8_t*)virtio_dma_alloc(4096, &resp_phys);
     if (!cmd || !resp) { virtio_fail(&dev); return -3; }
+    if (virtio_dma_grant(&dev, cmd_phys, 4096) != 0 ||
+        virtio_dma_grant(&dev, resp_phys, 4096) != 0) {
+        virtio_fail(&dev);
+        return -4;
+    }
+    virtio_driver_ok(&dev);
 
     disp_info_t* di = (disp_info_t*)resp;
     zero(cmd, sizeof(hdr_t)); ((hdr_t*)cmd)->type = CMD_GET_DISPLAY_INFO;
