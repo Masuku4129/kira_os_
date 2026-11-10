@@ -415,6 +415,16 @@ static EFI_STATUS collect_gop(kira_uefi_kbi_info *info)
     return EFI_SUCCESS;
 }
 
+/* CompareGuid из GNU-EFI возвращает 0 при РАВЕНСТВЕ (как memcmp): использовать его как логическое «равны» нельзя. */
+static int guid_equal(const EFI_GUID *a, const EFI_GUID *b)
+{
+    const UINT8 *x = (const UINT8 *)a, *y = (const UINT8 *)b;
+    UINTN i;
+    for (i = 0; i < sizeof(EFI_GUID); ++i)
+        if (x[i] != y[i]) return 0;
+    return 1;
+}
+
 static EFI_STATUS find_rsdp(UINT64 *address)
 {
     UINTN i;
@@ -423,10 +433,10 @@ static EFI_STATUS find_rsdp(UINT64 *address)
     for (i = 0; i < g_st->NumberOfTableEntries; ++i) {
         EFI_CONFIGURATION_TABLE *entry = &g_st->ConfigurationTable[i];
 
-        if (CompareGuid(&entry->VendorGuid, &kira_acpi20_table_guid) ||
-            CompareGuid(&entry->VendorGuid, &kira_acpi_table_guid)) {
+        if (guid_equal(&entry->VendorGuid, &kira_acpi20_table_guid) ||
+            guid_equal(&entry->VendorGuid, &kira_acpi_table_guid)) {
             *address = (UINT64)(UINTN)entry->VendorTable;
-            if (CompareGuid(&entry->VendorGuid, &kira_acpi20_table_guid))
+            if (guid_equal(&entry->VendorGuid, &kira_acpi20_table_guid))
                 return EFI_SUCCESS;
         }
     }
