@@ -53,13 +53,29 @@ void pci_set_backend(const pci_backend_t* b) {
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
 }
 
+static uint64_t ecam_size;
+
 static uint32_t ecam_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
-    if (bus < ecam_bus0 || bus > ecam_bus1) return 0xFFFFFFFFu;
-    return *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC)));
+    uint64_t offset;
+    if (!ecam || bus < ecam_bus0 || bus > ecam_bus1 ||
+        dev >= 32u || fn >= 8u || off > 0xffcu || (off & 3u))
+        return 0xFFFFFFFFu;
+    offset = ((uint64_t)(bus - ecam_bus0) << 20) |
+             ((uint64_t)dev << 15) | ((uint64_t)fn << 12) | off;
+    if (offset > ecam_size || ecam_size - offset < sizeof(uint32_t))
+        return 0xFFFFFFFFu;
+    return *(volatile uint32_t*)(ecam + offset);
 }
 static void ecam_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t v) {
-    if (bus < ecam_bus0 || bus > ecam_bus1) return;
-    *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC))) = v;
+    uint64_t offset;
+    if (!ecam || bus < ecam_bus0 || bus > ecam_bus1 ||
+        dev >= 32u || fn >= 8u || off > 0xffcu || (off & 3u))
+        return;
+    offset = ((uint64_t)(bus - ecam_bus0) << 20) |
+             ((uint64_t)dev << 15) | ((uint64_t)fn << 12) | off;
+    if (offset > ecam_size || ecam_size - offset < sizeof(uint32_t))
+        return;
+    *(volatile uint32_t*)(ecam + offset) = v;
 }
 int pci_ecam_bus_range(uint64_t ecam_size, int has_bus_range, uint32_t bus_start,
                        uint32_t bus_end, uint8_t* first, uint8_t* last) {
@@ -86,9 +102,32 @@ int pci_ecam_bus_range(uint64_t ecam_size, int has_bus_range, uint32_t bus_start
     return 0;
 }
 
+int pci_configure_ecam(const pci_ecam_config_t* config) {
+    uint64_t required_buses;
+    if (!config || !config->base || config->first_bus > config->last_bus ||
+        config->size < (1ull << 20))
+        return -1;
+    required_buses = (uint64_t)config->last_bus - config->first_bus + 1u;
+    if (required_buses > config->size / (1ull << 20))
+        return -1;
+    ecam = (volatile uint8_t*)config->base;
+    ecam_size = config->size;
+    ecam_bus0 = config->first_bus;
+    ecam_bus1 = config->last_bus;
+    be.read32 = ecam_read32;
+    be.write32 = ecam_write32;
+    return 0;
+}
+
 void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end) {
-    ecam = (volatile uint8_t*)base; ecam_bus0 = bus_start; ecam_bus1 = bus_end;
-    be.read32 = ecam_read32; be.write32 = ecam_write32;
+    pci_ecam_config_t config = {
+        .base = base,
+        .size = bus_start <= bus_end ?
+                ((uint64_t)bus_end - bus_start + 1u) << 20 : 0,
+        .first_bus = bus_start,
+        .last_bus = bus_end
+    };
+    (void)pci_configure_ecam(&config);
 }
 
 /* Назначение адресов BAR, когда прошивка этого не сделала (ARM без UEFI: ядро загружено напрямую). Окна - из
