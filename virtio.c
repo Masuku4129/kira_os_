@@ -86,7 +86,9 @@ extern volatile void* host_map_bar(const pci_dev_t* d, int bar, uint64_t off, ui
 #endif
 
 int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
+#ifndef KIRA_HOST_TEST
     int isolated = 0;
+#endif
     v->pci = d; v->common = v->notify = v->isr = v->devcfg = 0; v->notify_mult = 0; v->features = 0; v->msix_vec = 0xFFFF;
 #ifndef KIRA_HOST_TEST
     if (iommu_enabled()) {
