@@ -31,4 +31,19 @@ PY
 OUT=$(run $T/elf.img);                     expect "p_paddr ниже 1 МиБ" "outside usable RAM"
 OUT=$(run $T/ok.img 16);                   expect "мало памяти (16 МиБ)" "no RAM at 16MiB"
 OUT=$(run $T/ok.img 64);                   expect "загрузка при 64 МиБ" "Kernel core starting"
+printf 'KIRA-INITRD-TEST\\n' > $T/initrd.img
+python3 tools/mkbios.py $T/s1.bin $T/s2.bin "$KERNEL" $T/module.img $T/initrd.img >/dev/null || exit 1
+OUT=$(run $T/module.img);                  expect "загрузка BIOS initrd" "modules=1"
+python3 - "$T/module.img" "$T/module-corrupt.img" <<'PY'
+import sys, struct
+source, target = sys.argv[1:3]
+image = bytearray(open(source, "rb").read())
+manifest = 512 + 16384 - 32
+module_lba = struct.unpack_from("<I", image, manifest + 16)[0]
+if not module_lba:
+    raise SystemExit("module manifest missing")
+image[module_lba * 512] ^= 0xff
+open(target, "wb").write(image)
+PY
+OUT=$(run $T/module-corrupt.img);          expect "повреждённый initrd (CRC)" "initrd CRC mismatch"
 [ $fail = 0 ] && echo "bios boot: PASS" || { echo "bios boot: FAIL"; exit 1; }
