@@ -48,7 +48,8 @@
 /* SMMUv3 command opcodes. */
 #define CMD_CFGI_STE 0x03u
 #define CMD_CFGI_CD 0x05u
-#define CMD_TLBI_NH_ALL 0x10u
+#define CMD_CFGI_ALL 0x04u
+#define CMD_TLBI_NSNH_ALL 0x30u
 #define CMD_TLBI_NH_ASID 0x11u
 #define CMD_SYNC 0x46u
 #define CMD_CFGI_LEAF 1ull
@@ -320,9 +321,14 @@ int kira_smmu_v3_invalidate_all(struct kira_smmu *s,
         !p->read_barrier || !p->write_barrier)
         return KIRA_SMMU_INVALID;
 
-    /* Global non-hyp stage-1 TLBI must complete before SMMUEN or DMA starts. */
+    /* Flush cached stream configuration first, then all non-secure
+       non-hyp translations. Each command group is fenced by CMD_SYNC. */
     smmu_cmdq_lock(s);
-    rc = smmu_cmd_submit(s, p, (uint64_t)CMD_TLBI_NH_ALL, 0, 0);
+    rc = smmu_cmd_submit(s, p, (uint64_t)CMD_CFGI_ALL, 31u, 0);
+    if (rc == KIRA_SMMU_OK)
+        rc = smmu_cmd_sync(s, p);
+    if (rc == KIRA_SMMU_OK)
+        rc = smmu_cmd_submit(s, p, (uint64_t)CMD_TLBI_NSNH_ALL, 0, 0);
     if (rc == KIRA_SMMU_OK)
         rc = smmu_cmd_sync(s, p);
     smmu_cmdq_unlock(s);
