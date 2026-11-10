@@ -64,6 +64,16 @@ int main(void) {
     printf("noise world: precision=%u%% recall=%u%% trusted=%d\n", mnet_precision(&r), mnet_recall(&r), mnet_trusted(&r));
     CHECK(!mnet_trusted(&r));
 
+    // High precision with near-zero recall is not a useful predictor and must stay untrusted.
+    mnet_t sparse; mnet_init(&sparse);
+    sparse.n = 120; sparse.tp = 48; sparse.fp = 0; sparse.fn = 192; sparse.tn = 1000;
+    CHECK(mnet_precision(&sparse) == 100);
+    CHECK(mnet_recall(&sparse) == 20);
+    CHECK(!mnet_trusted(&sparse));
+    sparse.fn = 144;
+    CHECK(mnet_recall(&sparse) == 25);
+    CHECK(mnet_trusted(&sparse));
+
     printf(fails ? "MINDNET TESTS FAILED\n" : "mindnet: sigmoid, online learning, calibration, explanation, trust gating passed\n");
 
     // Chronological holdout: features are generated first; the label is sampled independently
