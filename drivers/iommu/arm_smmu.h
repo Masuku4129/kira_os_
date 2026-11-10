@@ -61,6 +61,7 @@ enum kira_smmu_result {
     KIRA_SMMU_HARDWARE_ERROR = -6
 };
 
+/* Controller storage must be zero-initialized before first prepare. */
 int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
                          const struct kira_smmu_platform *platform);
 int kira_smmu_v3_enable(struct kira_smmu *smmu,
