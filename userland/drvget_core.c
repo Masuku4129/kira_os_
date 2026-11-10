@@ -297,8 +297,8 @@ int dg_scan_source(const char* fname, const uint8_t* d, uint32_t len, char lic[2
         for (size_t i = 0; i <= n; i++) lic[i] = id[i];
         return 0;
     }
-    if (find_ci(d, len, "Redistribution and use in source and binary forms") && find_ci(d, len, "THIS SOFTWARE IS PROVIDED")) {
-        const char* t = find_ci(d, len, "neither the name of") ? "BSD-3-Clause" : "BSD-2-Clause";
+    if (find_wrapped(d, len, "Redistribution and use in source and binary forms") && find_wrapped(d, len, "THIS SOFTWARE IS PROVIDED")) {
+        const char* t = find_wrapped(d, len, "neither the name of") ? "BSD-3-Clause" : "BSD-2-Clause";
         for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
         return 0;
     }
