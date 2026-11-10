@@ -143,15 +143,21 @@ static int reset(virtio_dev_t* v) {
 }
 
 void virtio_fail(virtio_dev_t* v) {
-    if (v && v->pci) {
-        pci_write16(v->pci, 0x04,
-                    (uint16_t)(pci_read16(v->pci, 0x04) & ~PCI_CMD_MASTER));
-#ifndef KIRA_HOST_TEST
-        iommu_unmap_all(v->pci);
-#endif
-    }
+    if (!v)
+        return;
+    if (v->pci)
+        pci_disable_bus_master(v->pci);
     status_set(v, status_get(v) | VIRTIO_ST_FAILED);
-    (void)reset(v);
+    /* Quiesce the device before revoking translations. If reset cannot be
+       confirmed, leave mappings pinned rather than risk in-flight DMA. */
+    if (reset(v) == 0) {
+#ifndef KIRA_HOST_TEST
+        if (v->pci)
+            iommu_unmap_all(v->pci);
+#endif
+    } else {
+        uart_print("[KIRA VIRTIO] reset timeout; DMA mappings remain pinned.\\n");
+    }
 }
 
 int virtio_begin(virtio_dev_t* v, uint64_t want) {
