@@ -194,7 +194,7 @@ int main(void)
     CHECK((smmu.stream_table_physical & 0x3fffu) == 0);
     CHECK(*(uint64_t *)(registers_page + 0x0080u) ==
           smmu.stream_table_physical);
-    CHECK(clean_calls == 3);
+    CHECK(clean_calls == 7);
 
     /* The hardware queue base registers encode LOG2SIZE=8, not a valid bit. */
     CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_TIMEOUT);
