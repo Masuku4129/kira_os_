@@ -395,8 +395,10 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
                         SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN |
                         SMMU_CR0ACK_CMDQEN, 0, platform);
-    if (rc != KIRA_SMMU_OK)
+    if (rc != KIRA_SMMU_OK) {
+        smmu->enabled = 2u;
         return rc;
+    }
 
     queue_base = (smmu->cmdq_physical & SMMU_QUEUE_BASE_ADDR_MASK) |
                  SMMU_QUEUE_LOG2;
