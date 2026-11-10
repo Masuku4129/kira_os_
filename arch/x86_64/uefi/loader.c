@@ -287,7 +287,7 @@ static EFI_STATUS load_boot_module(EFI_HANDLE image,
     if (file_info) uefi_call_wrapper(g_bs->FreePool, 1, file_info);
     uefi_call_wrapper(file->Close, 1, file);
     uefi_call_wrapper(root->Close, 1, root);
-    Print(L"KIRA UEFI: loaded INITRD.IMG (%lu bytes at 0x%lx)\\r\\n",
+    Print(L"KIRA UEFI: loaded INITRD.IMG (%lu bytes at 0x%lx)\r\n",
           (UINT64)file_size, module_base);
     return EFI_SUCCESS;
 
