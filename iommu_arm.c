@@ -200,6 +200,10 @@ static int arm_parse_iommu_maps(const void *fdt)
     g_map_count = 0;
     while (node >= 0) {
         uint32_t length = 0;
+        if (!fdt_node_enabled(fdt, node)) {
+            node = fdt_next_node(fdt, node, &depth);
+            continue;
+        }
         const uint8_t *property =
             (const uint8_t *)fdt_prop(fdt, node, "iommu-map", &length);
         if (property) {
