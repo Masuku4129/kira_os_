@@ -799,6 +799,14 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
         return rc;
     }
 
+    /* All cached references are now invalidated. Scrub the entire 64-byte STE
+       before releasing the StreamID so stale CD pointers/config cannot survive
+       domain reuse. */
+    for (unsigned i = 0; i < 8u; ++i)
+        ste[i] = 0;
+    p->clean_cache(p->context, ste, 8u * sizeof(*ste));
+    p->write_barrier(p->context);
+
     smmu_stream_id_clear(s, d->stream_id);
     context_table = d->context_table;
     context_table_physical = d->context_table_physical;
