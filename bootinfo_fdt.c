@@ -16,7 +16,8 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
                  uint64_t kernel_base, uint64_t kernel_size,
                  void* out, uint32_t capacity, uint32_t* out_size) {
     if (out_size) *out_size = 0;
-    if (!fdt || !out || !out_size || !fdt_phys || (fdt_phys & 7) ||
+    /* This adapter receives an actual available-byte count; a partial header is never valid. */
+    if (available < 40 || !fdt || !out || !out_size || !fdt_phys || (fdt_phys & 7) ||
         !kernel_base || !kernel_size || kernel_base > UINT64_MAX - kernel_size ||
         !fdt_tree_valid(fdt, available)) return -1;
 
