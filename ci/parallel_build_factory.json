@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "purpose": "Изолированный параллельный цех KIRA OS. Каждый box — отдельный GitHub-hosted runner со своим checkout и артефактом; зелёный baseline не означает завершение архитектурной реализации.",
+  "boxes": [
+    {
+      "id": "boot-release",
+      "tracks": [
+        "BIOS/UEFI boot",
+        "BootInfo",
+        "production image"
+      ],
+      "checks": [
+        "build_clang.sh --no-run",
+        "ci/kira_vm.py boot-bios + boot-grub",
+        "build_uefi.sh + ci/test_uefi_ovmf.sh (FAT ESP and GPT/ESP disk)",
+        "ci.test_release_gate"
+      ],
+      "acceptance": "BIOS/GRUB QEMU boots pass; native UEFI PE32+ loader boots under OVMF from FAT ESP and GPT/ESP disk; BootInfo and production release policy pass."
+    },
+    {
+      "id": "kcc",
+      "tracks": [
+        "KCC frontend",
+        "typed IR",
+        "optimizers",
+        "self-hosting"
+      ],
+      "checks": [
+        "tests/kcc/run.sh"
+      ],
+      "acceptance": "Дифференциальные, диагностические, исполняемые, fuzz и self-host проверки проходят; benchmark claims backed by retained measurements."
+    },
+    {
+      "id": "driver-compat",
+      "tracks": [
+        "driver recipe",
+        "TLS download",
+        "KDRV package",
+        "trust/signature"
+      ],
+      "checks": [
+        "ci.test_kdrvsign",
+        "tests/drvget_e2e.sh"
+      ],
+      "acceptance": "Лицензии и происхождение проверяются; TLS, hash, signature, staged install and fail-closed cases pass."
+    },
+    {
+      "id": "x86-isolation",
+      "tracks": [
+        "address spaces",
+        "capabilities",
+        "IPC",
+        "threads",
+        "user pointer validation"
+      ],
+      "checks": [
+        "QEMU scenario isolation"
+      ],
+      "acceptance": "Атакующие процессы не нарушают ядро; межпроцессные границы, IPC и права подтверждены end-to-end."
+    },
+    {
+      "id": "dma-audio",
+      "tracks": [
+        "ISA DMA",
+        "SB16",
+        "physical allocator",
+        "audio ring"
+      ],
+      "checks": [
+        "QEMU scenario sound-sb16"
+      ],
+      "acceptance": "Карта обнаруживается по DSP/mixer; DMA не пересекает 128-KiB boundary; playback, cursor progress and mixer tests pass."
+    },
+    {
+      "id": "arm64",
+      "tracks": [
+        "AArch64 kernel",
+        "GIC/PSCI",
+        "EL0",
+        "KCC ARM target",
+        "ARM isolation"
+      ],
+      "checks": [
+        "build_arm64.sh",
+        "ci/make_flash.sh",
+        "ci/arm64_vm.py"
+      ],
+      "acceptance": "ARM64 build and all configured QEMU scenarios pass. Physical-board compatibility is tracked separately."
+    },
+    {
+      "id": "iommu-x86",
+      "tracks": [
+        "VT-d",
+        "DMA isolation",
+        "PMM/VMM",
+        "kernel host regressions"
+      ],
+      "checks": [
+        "build_clang.sh --no-run",
+        "tests/run_host_tests.sh"
+      ],
+      "acceptance": "IOMMU domains, invalidation and negative DMA tests pass; core host regression suite remains green."
+    },
+    {
+      "id": "platform",
+      "tracks": [
+        "source inventory",
+        "dependency provenance",
+        "ACPI/PCI gaps",
+        "release evidence"
+      ],
+      "checks": [
+        "ci/audit_inventory.py",
+        "ci/dependency_audit.py"
+      ],
+      "acceptance": "Architecture gaps and external dependencies are enumerated with traceable source/provenance evidence."
+    }
+  ],
+  "execution": {
+    "parallel_boxes": 8,
+    "fail_fast": false,
+    "each_box_uploads_logs": true,
+    "retry": "Only after diagnosing the exact failing check and committing a correction.",
+    "release_gate": "No release artifact is promoted until the normal CI, all required boxes and production release gate pass."
+  }
+}
