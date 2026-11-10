@@ -197,13 +197,15 @@ int main(void)
     CHECK(clean_calls == 7);
 
     /* The hardware queue base registers encode LOG2SIZE=8, not a valid bit. */
-    CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_TIMEOUT);
+    CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_OK);
+    CHECK(smmu.enabled == 1u);
     CHECK(*(uint64_t *)(registers_page + 0x0090u) ==
           ((smmu.cmdq_physical & 0x000fffffffffffe0ull) | 8ull));
     CHECK(*(uint64_t *)(registers_page + 0x00a0u) ==
           ((smmu.evtq_physical & 0x000fffffffffffe0ull) | 8ull));
-    CHECK(*(uint32_t *)(registers_page + 0x00a8u) == 0u);
-    CHECK(*(uint32_t *)(registers_page + 0x00acu) == 0u);
+    CHECK(*(uint32_t *)(registers_page + 0x10a8u) == 0u);
+    CHECK(*(uint32_t *)(registers_page + 0x10acu) == 0u);
+    CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_OK);
 
     /* Hardware with a narrower SID field must not expose unreachable STEs. */
     reset_test_platform();
