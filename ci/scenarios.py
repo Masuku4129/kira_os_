@@ -16,6 +16,9 @@ BOOT_LOG = [r"\[KIRA SCHED\] Preemptive scheduler online", r"\[KIRA MIND\] Mind 
             r"\[KIRA FS\] KiraFS mounted"]
 NO_ERR = [r"kernel-mode fault", r"\[KIRA IRET\]", r"\[KIRA GS\]", r"\[KIRA VMM ERROR\]", r"Kernel thread stack overflow", r"bad free|double free", r"\[KIRA SMP\].*did not answer"]
 
+# Пакетов драйверов на диске сборки: abad, eduun, edu, edunc, ne2kio + bsdne, bsdpcn, bsdfxp, bsddc (build_clang.sh). Менять вместе со списком пакетов.
+NPKG = 9
+
 BASIC = [
     {"log": BOOT_LOG},
     {"cmd": "test mem", "must": [r"heap: PASS", r"PMM: PASS", r"VMM: PASS"]},
@@ -749,12 +752,12 @@ ALL.append(sc("drvman-edu", "окно «Драйверы»: список PCI и�
     {"log": [r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu", r"drvedu: DMA denied: CAP_DMA not granted \(least-privilege PASS\)", r"drvedu: IRQ/MSI capability not granted \(least-privilege PASS\)", r"drvedu: PASS"]},
     *_dg("drvman do pci;pkgs", r"drvman: готово", 40),
     {"log": [r"drvman: окно создано 640x560",
-             r"drvman: кадр: строк в списках [1-9]\d*, устройств [1-9]\d*, пакетов 4",
+             r"drvman: кадр: строк в списках [1-9]\d*, устройств [1-9]\d*, пакетов %d" % NPKG,
              r"drvman: pci \d\d:\d\d\.\d\s+1234:11e8\s+[0-9a-f]{6}\s+.*драйвер Ring 3 drv-edu запущен",
              r"drvman: pci \d\d:\d\d\.\d\s+[0-9a-f]{4}:[0-9a-f]{4}\s+[0-9a-f]{6}\s+.*встроенный драйвер ядра",
              r"drvman: pci \d\d:\d\d\.\d\s+1234:1111\s+030000\s+.*экран: буфер загрузчика, драйвер не нужен",
              r"drvman: pci \d\d:\d\d\.\d\s+[0-9a-f]{4}:[0-9a-f]{4}\s+060000\s+.*мост или шина",
-             r"drvman: пакетов в /drv: 4",
+             r"drvman: пакетов в /drv: %d" % NPKG,
              r"drvman: пакет edu \| edu\s+v\d+\s+лицензия: не записана\s+ЗАПУЩЕН\s+сверка: SHA-256 OK, локально",
              r"drvman: пакет edu \| права запрошены: MMIO PCIDEV\s+подтверждены: MMIO PCIDEV",
              r"drvman: пакет edu \| sha256 образа [0-9a-f]{64}",
@@ -778,7 +781,7 @@ ALL.append(sc("drvman-edu", "окно «Драйверы»: список PCI и�
              r"drvman: драйвер edunc не запущен: нет свободного подходящего устройства PCI"]},
     # остановить и удалить; пакет исчезает из /drv и из списка
     *_dg("drvman do stop edu;remove edu;pkgs", r"drvman: готово", 60),
-    {"log": [r"drvman: пакет edu удалён", r"drvman: пакетов в /drv: 3"]},
+    {"log": [r"drvman: пакет edu удалён", r"drvman: пакетов в /drv: %d" % (NPKG - 1)]},
     {"cmd": "drv", "forbid": [r"\n  edu: версия"]},
     *_dg("drvman do frobnicate", r"drvman: готово с ошибками", 30),
     {"log": [r"drvman: неизвестная команда «frobnicate»"]},
@@ -794,7 +797,7 @@ open(_DM_BASE, "w").write("https://10.0.2.100")
 ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиатуры: поиск драйвера rl по HTTPS (отчёт: источник, лицензия, хеш, права, IOMMU), подтверждение и отмена, установка со сборкой kcc, пакет виден drvget, запуск без устройства - отказ, удаление", [
     {"log": BOOT_LOG}, {"sleep": 6},
     {"cmd": "run drvman trace"}, {"sleep": 4}, {"shot": "drvman-list"},
-    {"log": [r"drvman: окно создано 640x560", r"drvman: кадр: строк в списках [1-9]\d*, устройств [1-9]\d*, пакетов 4"]},
+    {"log": [r"drvman: окно создано 640x560", r"drvman: кадр: строк в списках [1-9]\d*, устройств [1-9]\d*, пакетов %d" % NPKG]},
     {"send": ""}, {"keys": "rl", "then": ["ret"]},
     {"expect": r"drvman: набор готов к установке", "timeout": 200},
     {"log": [r"drvman: ищу драйвер «rl»", r"лицензия:   заявлена BSD-3-Clause", r"SHA-256 набора исходников \(рецепт \+ файлы\): " + _DRV_SET8,
@@ -808,7 +811,7 @@ ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиату�
     {"shot": "drvman-confirm"},
     {"keys": "", "then": ["esc"]}, {"sleep": 2},
     {"log": [r"drvman: установка отменена пользователем, ничего не записано"]},
-    *_dg("drvget list", r"drvget: пакетов в /drv: 4 ", 30),
+    *_dg("drvget list", r"drvget: пакетов в /drv: %d " % NPKG, 30),
     {"cmd": "drv", "forbid": [r"\n  rl: версия"]},
     {"send": ""}, {"keys": "", "then": ["f2"]}, {"sleep": 2}, {"keys": "", "then": ["ret"]},
     {"expect": r"drvman: драйвер rl установлен в /drv", "timeout": 400},
@@ -824,7 +827,7 @@ ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиату�
     {"expect": r"drvman: пакет rl удалён", "timeout": 40},
     {"shot": "drvman-removed"},
     {"cmd": "drv", "forbid": [r"\n  rl: версия"]},
-    *_dg("drvget list", r"drvget: пакетов в /drv: 4 ", 30),
+    *_dg("drvget list", r"drvget: пакетов в /drv: %d " % NPKG, 30),
     {"log_forbid": NO_ERR + [r"\[KIRA CAPS\] process 'drvman'", r"drvman: .*\(FAIL\)", r"drvman: не удалось создать рабочий поток"]},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", tls_chain=True, put={"/data/drvman/base": _DM_BASE},
