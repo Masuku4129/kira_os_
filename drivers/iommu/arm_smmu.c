@@ -214,6 +214,11 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         smmu->cmdq || smmu->evtq || smmu->evtq_allocation)
         return KIRA_SMMU_INVALID;
 
+    /* Stop every PCI bus master before probing or changing SMMU state. If any
+       device cannot be quiesced, leave the controller untouched. */
+    if (platform->quiesce_devices(platform->context) != 0)
+        return KIRA_SMMU_HARDWARE_ERROR;
+
     smmu->registers = (volatile uint8_t *)
         platform->map_mmio(platform->context, physical_base, SMMU_REGISTER_MAP_SIZE);
     if (!smmu->registers ||
@@ -255,12 +260,9 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         (SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN | SMMU_CR0ACK_CMDQEN))
         return KIRA_SMMU_UNSUPPORTED;
 
-    if (platform->quiesce_devices(platform->context) != 0)
-        return KIRA_SMMU_HARDWARE_ERROR;
-
     /*
-     * The device set is quiesced before the SMMU is prepared. The GBPA abort
-     * policy below prevents DMA bypass while translation is disabled.
+     * The device set is already quiesced. The GBPA abort policy below keeps
+     * bypass closed while translation is disabled and during later failures.
      */
     smmu_write32(smmu->registers, SMMU_CR0, 0);
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
