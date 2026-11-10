@@ -48,6 +48,11 @@ class LicenseClassificationTests(unittest.TestCase):
     def test_bsd_three_clause(self):
         self.assertEqual(MOD.classify_license(BSD3.encode()), "BSD-3-Clause")
 
+    def test_incomplete_bsd_three_clause_is_rejected(self):
+        text = BSD2 + "Neither the name of the author nor contributors may be used to endorse or promote products derived from this software.\\n"
+        with self.assertRaisesRegex(ValueError, "incomplete BSD-3"):
+            MOD.classify_license(text.encode())
+
     def test_mit_and_isc(self):
         self.assertEqual(MOD.classify_license(MIT.encode()), "MIT")
         self.assertEqual(MOD.classify_license(ISC.encode()), "ISC")
