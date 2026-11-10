@@ -56,8 +56,8 @@ ALL = [
         {"log": [r"Processors online: 4"]},
         *DISK_IRQ,
     ], boot="grub"),
-    sc("boot-bios", "загрузка нашим BIOS-загрузчиком без GRUB: VBE-режим, карта памяти, диск, базовые проверки", BASIC + [
-        {"log": [r"\[KIRA FB\] Bootloader mode: 1280x720x32", r"Processors online: 4"]},
+    sc("boot-bios", "загрузка нашим BIOS-загрузчиком без GRUB: VBE, E820, диск и initrd-модуль", BASIC + [
+        {"log": [r"\[KIRA FB\] Bootloader mode: 1280x720x32", r"Processors online: 4", r"modules=1"]},
         *DISK_IRQ,
     ], boot="bios"),
     sc("boot-virtio", "загрузка: virtio-blk, 4 ядра, базовые проверки", BASIC + [
