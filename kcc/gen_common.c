@@ -58,7 +58,7 @@ static void scan_refs(Obj *o) {
 /* Таблица имён, IR всех функций, достижимость. Возвращает main (его отсутствие - ошибка). */
 Obj *gen_prepare(Obj *globals) {
     if (!K.gen_state) K.gen_state = ka_new(sizeof(GenState));
-    memset(GS, 0, sizeof *GS);
+    memset(GS, 0, sizeof(struct GenState));
     int ng = 0;
     for (Obj *g = globals; g; g = g->next) ng++;
     hcap = 16;
