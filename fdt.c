@@ -346,6 +346,31 @@ int fdt_simplefb(const void* fdt, fdt_fb_t* fb) {
 }
 
 
+static int fdt_node_has_compatible(const void* fdt, int node,
+                                     const char* wanted)
+{
+    uint32_t len = 0;
+    const char* list = (const char*)fdt_prop(fdt, node, "compatible", &len);
+    unsigned wanted_len = slen0(wanted, 256u);
+    uint32_t off = 0;
+
+    if (!list || !len || !wanted_len || wanted_len >= 256u)
+        return 0;
+    while (off < len) {
+        unsigned n = slen0(list + off, len - off);
+        if (n == len - off)
+            return 0; /* unterminated string list */
+        if (n == wanted_len) {
+            unsigned i;
+            for (i = 0; i < n && list[off + i] == wanted[i]; ++i) { }
+            if (i == n)
+                return 1;
+        }
+        off += n + 1u;
+    }
+    return 0;
+}
+
 int fdt_phandle_node(const void* fdt, uint32_t phandle)
 {
     int found = -1;
@@ -416,6 +441,7 @@ int fdt_iommu_map(const void* fdt, int host_node, uint32_t requester_id,
         {
             int target = fdt_phandle_node(fdt, phandle);
             if (target < 0 ||
+                !fdt_node_has_compatible(fdt, target, "arm,smmu-v3") ||
                 fdt_prop_u32(fdt, target, "#iommu-cells", &cells) != 0 ||
                 cells != 1u)
                 return -2;
@@ -430,7 +456,9 @@ int fdt_iommu_map(const void* fdt, int host_node, uint32_t requester_id,
         if (!length)
             return -2;
         rid_end = (uint64_t)rid_base + length;
-        if (rid_end > (uint64_t)UINT32_MAX + 1u)
+        sid = (uint64_t)sid_base + length;
+        if (rid_end > (uint64_t)UINT32_MAX + 1u ||
+            sid > (uint64_t)UINT32_MAX + 1u)
             return -2;
 
         if (rid >= rid_base && (uint64_t)rid < rid_end) {
