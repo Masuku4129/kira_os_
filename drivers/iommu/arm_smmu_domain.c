@@ -399,7 +399,7 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
           (1ull << 47) | ((uint64_t)d->asid << 48);
     ct[0] = cd0;
     ct[1] = root_pa & SMMU_TTBR_ADDR;
-    ct[3] = 0xffull; /* MAIR AttrIdx[0] = Normal, Inner/Outer WB. */
+    ct[3] = p->dma_coherent ? 0xffull : 0x44ull; /* Normal WB for coherent DMA, Normal NC otherwise. */
     p->clean_cache(p->context, ct_memory, SMMU_PAGE_SIZE);
     p->clean_cache(p->context, root, SMMU_PAGE_SIZE);
 
