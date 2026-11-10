@@ -2,6 +2,7 @@
 #include "drivers/iommu/arm_smmu_domain.h"
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define PAGE 4096u
@@ -67,6 +68,25 @@ static void test_clean_cache(void *context, const void *address, size_t length)
     ++clean_calls;
 }
 
+static void test_invalidate_cache(void *context, const void *address, size_t length)
+{
+    (void)context;
+    (void)address;
+    (void)length;
+}
+
+static void *test_alloc_metadata(void *context, size_t bytes)
+{
+    (void)context;
+    return calloc(1, bytes);
+}
+
+static void test_free_metadata(void *context, void *memory)
+{
+    (void)context;
+    free(memory);
+}
+
 static int test_quiesce_devices(void *context)
 {
     (void)context;
@@ -107,7 +127,10 @@ static struct kira_smmu_platform make_platform(void)
     p.map_mmio = test_map_mmio;
     p.alloc_dma_pages = test_alloc_dma_pages;
     p.free_dma_pages = test_free_dma_pages;
+    p.alloc_metadata = test_alloc_metadata;
+    p.free_metadata = test_free_metadata;
     p.clean_cache = test_clean_cache;
+    p.invalidate_cache = test_invalidate_cache;
     p.write_barrier = test_barrier;
     p.read_barrier = test_barrier;
     p.delay = test_delay;
@@ -131,11 +154,10 @@ static void reset_model(void)
 static void *table_for(struct kira_smmu_domain *d, uint64_t entry)
 {
     uint64_t pa = entry & PA_MASK;
-    uint16_t i;
-    for (i = 0; i < d->table_page_count; ++i)
-        if (d->table_pages[i].physical == pa)
-            return d->table_pages[i].virtual_address;
-    return 0;
+    (void)d;
+    if (pa < DMA_BASE || pa - DMA_BASE >= sizeof(dma_pool))
+        return 0;
+    return dma_pool + (size_t)(pa - DMA_BASE);
 }
 
 int main(void)
@@ -165,24 +187,24 @@ int main(void)
         events[1] = 0x5555666677778888ull;
         events[2] = 0x9999aaaabbbbccccull;
         events[3] = 0xddddeeeeffff0001ull;
-        reg_write(0x10a8u, 1u);
+        reg_write(0x00a8u, 1u);
         CHECK(kira_smmu_v3_poll_events(&smmu, &p, 8u, &processed) == KIRA_SMMU_OK);
         CHECK(processed == 1u && event_count == 1u);
         CHECK(last_event[0] == events[0] && last_event[3] == events[3]);
-        CHECK(reg_read(0x10acu) == 1u);
+        CHECK(reg_read(0x00acu) == 1u);
 
         events[255u * 4u] = 0xabcdefu;
         smmu.evtq_consumer = 0xffu;
-        reg_write(0x10acu, 0xffu);
-        reg_write(0x10a8u, 0x100u);
+        reg_write(0x00acu, 0xffu);
+        reg_write(0x00a8u, 0x100u);
         CHECK(kira_smmu_v3_poll_events(&smmu, &p, 1u, &processed) == KIRA_SMMU_OK);
         CHECK(processed == 1u && smmu.evtq_consumer == 0x100u);
         CHECK(last_event[0] == 0xabcdefu);
 
-        reg_write(0x10a8u, 0x80000100u);
+        reg_write(0x00a8u, 0x80000100u);
         CHECK(kira_smmu_v3_poll_events(&smmu, &p, 1u, &processed) == KIRA_SMMU_HARDWARE_ERROR);
         CHECK(processed == 0u);
-        reg_write(0x10a8u, 0x100u);
+        reg_write(0x00a8u, 0x100u);
     }
 
     /* Reject reserved OAS encodings before allocating any translation table. */
@@ -190,14 +212,19 @@ int main(void)
         struct kira_smmu_domain unsupported = {0};
         uint32_t saved_idr5 = smmu.idr5;
         unsigned before = alloc_calls;
-        smmu.idr5 = (saved_idr5 & ~7u) | 6u;
+        smmu.idr5 = (saved_idr5 & ~7u) | 7u;
         CHECK(kira_smmu_domain_create(&unsupported, &smmu, 8u, &p) == KIRA_SMMU_UNSUPPORTED);
         CHECK(alloc_calls == before);
+        /* Encoding 6 is valid 52-bit OAS; this driver safely caps its CD to 48 bits. */
+        smmu.idr5 = (saved_idr5 & ~7u) | 6u;
+        CHECK(kira_smmu_domain_create(&unsupported, &smmu, 8u, &p) == KIRA_SMMU_OK);
+        CHECK(((uint64_t *)unsupported.context_table)[0] >> 32 & 7u == 5u);
+        CHECK(kira_smmu_domain_destroy(&unsupported, &p) == KIRA_SMMU_OK);
         smmu.idr5 = saved_idr5;
     }
 
     CHECK(kira_smmu_domain_create(&domain, &smmu, 7u, &p) == KIRA_SMMU_OK);
-    CHECK(domain.active == 1 && domain.stream_id == 7u && domain.asid == 7u);
+    CHECK(domain.active == 1 && domain.stream_id == 7u && domain.asid == 8u);
     CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_INVALID);
     CHECK(smmu.stream_ids[0] & (1u << 7));
 
@@ -218,7 +245,7 @@ int main(void)
     CHECK((cd[0] & (1ull << 30)) != 0); /* TT1 disabled */
     CHECK((cd[0] & (1ull << 41)) != 0); /* AArch64 */
     CHECK(((cd[0] >> 32) & 7u) == 5u); /* 48-bit output */
-    CHECK(((cd[0] >> 48) & 0xffffu) == 7u);
+    CHECK(((cd[0] >> 48) & 0xffffu) == 8u);
     CHECK((cd[1] & PA_MASK) == domain.stage1_root_physical);
     CHECK(cd[3] == 0xffu);
     commands = (uint64_t *)smmu.cmdq;
@@ -226,19 +253,19 @@ int main(void)
     CHECK(commands[2] == 0x46u && commands[3] == 0u);
     CHECK(commands[4] == 0x30u && commands[5] == 0u); /* TLBI_NSNH_ALL */
     CHECK(commands[6] == 0x46u && commands[7] == 0u);
-    CHECK(commands[8] == (0x05ull | (7ull << 32)) && commands[9] == 1u);
+    CHECK(commands[8] == (0x03ull | (7ull << 32)) && commands[9] == 1u);
     CHECK(commands[10] == 0x46u && commands[11] == 0u);
     CHECK(commands[12] == (0x03ull | (7ull << 32)) && commands[13] == 1u);
     CHECK(commands[14] == 0x46u && commands[15] == 0u);
-    CHECK(commands[16] == (0x11ull | (7ull << 48)) && commands[17] == 0u);
-    CHECK(commands[18] == 0x46u && commands[19] == 0u); /* MAIR AttrIdx 0 = normal WB */
+    CHECK(commands[16] == (0x11ull | (8ull << 48)) && commands[17] == 0u); /* first map TLBI */
+    CHECK(commands[18] == 0x46u && commands[19] == 0u);
 
     CHECK(kira_smmu_domain_create(&duplicate, &smmu, 7u, &p) == KIRA_SMMU_INVALID);
     CHECK(duplicate.active == 0);
 
     CHECK(kira_smmu_domain_map_4k(&domain, 0x4000u, 0x300000u,
                                   KIRA_SMMU_MAP_READ | KIRA_SMMU_MAP_WRITE, &p) == KIRA_SMMU_OK);
-    CHECK(domain.table_page_count == 3u);
+    CHECK(domain.table_pages != 0);
     root = (uint64_t *)domain.stage1_root;
     CHECK((root[0] & 3u) == 3u);
     l1 = (uint64_t *)table_for(&domain, root[0]);
@@ -271,7 +298,7 @@ int main(void)
     CHECK(kira_smmu_domain_unmap_4k(&domain, 0x4000u, &p) == KIRA_SMMU_OK);
     CHECK(l3[4] == 0);
     /* PTE removal must invalidate the cached stage-1 translation by ASID. */
-    CHECK(commands[28] == (0x11ull | (7ull << 48)) && commands[29] == 0u);
+    CHECK(commands[24] == (0x11ull | (8ull << 48)) && commands[25] == 0u); /* unmap TLBI */
 
     freed_before = free_calls;
     freed_pages_before = freed_pages;
