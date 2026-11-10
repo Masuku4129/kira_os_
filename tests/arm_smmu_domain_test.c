@@ -137,6 +137,7 @@ int main(void)
 
     CHECK(kira_smmu_domain_create(&domain, &smmu, 7u, &p) == KIRA_SMMU_OK);
     CHECK(domain.active == 1 && domain.stream_id == 7u && domain.asid == 7u);
+    CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_INVALID);
     CHECK(smmu.stream_ids[0] & (1u << 7));
 
     ste = (uint64_t *)smmu.stream_table + 7u * 8u;
@@ -192,6 +193,9 @@ int main(void)
     CHECK(((l3[5] >> 6) & 3u) == 3u); /* EL0/EL1 read-only */
     CHECK(kira_smmu_domain_map_4k(&domain, 0x6000u, 0x302000u,
                                   KIRA_SMMU_MAP_WRITE, &p) == KIRA_SMMU_INVALID);
+    CHECK(kira_smmu_domain_map_4k(&domain, 1ull << 48, 0x302000u,
+                                  KIRA_SMMU_MAP_READ, &p) == KIRA_SMMU_INVALID);
+    CHECK(kira_smmu_domain_unmap_4k(&domain, 1ull << 48, &p) == KIRA_SMMU_INVALID);
     CHECK(kira_smmu_domain_map_4k(&domain, 0x4000u, 0x303000u,
                                   KIRA_SMMU_MAP_READ | KIRA_SMMU_MAP_WRITE, &p) ==
           KIRA_SMMU_HARDWARE_ERROR);
@@ -206,6 +210,7 @@ int main(void)
     CHECK(ste[0] == 0 && ste[1] == 0);
     CHECK(free_calls - freed_before == 5u); /* three intermediate tables + root + CD table */
     CHECK(freed_pages == 5u);
+    CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_OK);
 
     puts("ARM SMMUv3 domain: STE/CD encoding, stage-1 maps, ASID invalidation and teardown passed");
     return 0;
