@@ -1295,12 +1295,12 @@ static InlCnt *inl_slot(const Obj *o, int create) {
 }
 void ir_inline_prepare(Obj *globals) {
     if (!K.opt_state) K.opt_state = ka_new(sizeof(OptState));
-    inl_tab = NULL; inl_cap = 0;
+    OS->inl_tab = NULL; inl_cap = 0;
     int nf = 0;
     for (Obj *g = globals; g; g = g->next) nf++;
     inl_cap = 16;
     while (inl_cap < (unsigned)nf * 2 + 16) inl_cap <<= 1;
-    inl_tab = ka_new(sizeof(InlCnt) * inl_cap);
+    OS->inl_tab = ka_new(sizeof(InlCnt) * inl_cap);
     for (Obj *g = globals; g; g = g->next) {
         if (g->is_func && g->body && g->ir) {
             for (const Ins *i = ((IrFn *)g->ir)->head; i; i = i->next) {
