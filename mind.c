@@ -721,6 +721,7 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
     if (pressure && cpu_short && nbg && bg > budget) {
         /* Давление вернулось вскоре после шага снятия предела: предел был снят зря. Выдержка перед следующим снятием
            удлиняется (не больше чем в 4 раза), иначе предел качается вверх-вниз каждые 1-2 с, и каждый подъём даёт опоздавшие кадры. */
+        if (s->tact_on && s->tact_rel_ms && in->t_ms - s->tact_rel_ms <= 3000) s->stab_relapses++;
         if (s->tact_on && s->tact_rel_ms && in->t_ms - s->tact_rel_ms <= 3000 && s->tact_backoff < MIND_REL_BACKOFF_MAX) {
             s->tact_backoff++;
             s->tact_back_ms = in->t_ms;
@@ -747,6 +748,7 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
                  budget / 10 / cores, mind_core_cap(s));
             s->tact_logged_ms = in->t_ms;
         }
+        if (!s->tact_on) { s->stab_episodes++; s->stab_cur_ms = 0; }
         s->tact_on = 1;
     } else if (s->tact_on) {
         s->tact_calm_ms += in->window_ms;
@@ -765,6 +767,11 @@ void mind_tact_step(mind_t* s, const mind_tact_in_t* in, const mind_act_t* act) 
             s->tact_calm_ms = 200;                                         /* следующий шаг - через ~0,2 с */
             if (!any) { s->tact_on = 0; s->tact_backoff = 0; s->tact_rel_ms = 0; jlog(s, in->t_ms / 1000, MJ_RESTORE, acting, 0, "тактика: давления нет - фон снова без пределов"); }
         }
+    }
+    if (s->tact_on) {                                              /* учёт времени с пределами */
+        uint32_t dt = s->tact_last_ms && in->t_ms > s->tact_last_ms ? in->t_ms - s->tact_last_ms : in->window_ms;
+        s->stab_limited_ms += dt; s->stab_cur_ms += dt;
+        if (s->stab_cur_ms > s->stab_longest_ms) s->stab_longest_ms = s->stab_cur_ms;
     }
     bg_fps_step(s, in, act, pressure, acting);
     core_res_step(s, in, act, pressure, acting, cores, nbg);
@@ -1306,6 +1313,7 @@ void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act) {
     processes(s, in, act, now);
     foresight(s, in, now);
     learn(s, in, now);
+    s->tact_cost_x100 = in->tact_cpu_x100;
     assess(s, in, now);
     tuner(s, in, act, now);
     visual(s, in, act, now);

@@ -40,6 +40,8 @@ typedef struct {
     uint8_t  net_trusted;
     int32_t  net_w[MNET_F];
     uint32_t bg_fps, core_cap;
+    uint32_t stab_episodes, stab_limited_s, stab_relapses, stab_longest_s;   /* стабилизация за запуск */
+    uint32_t tact_cost_x100;               /* цена тактики: доля одного ядра, % x100, за последнюю секунду */
     uint32_t core_res_pid; int core_res;   /* ядро фокуса: кому отдано (0 - никому) и какое (-1 - нет) */             /* тактика: предел кадров фоновых окон (0 - нет), предел загрузки ядер фоном */
     uint32_t comp_par, comp_ns_kpx_par, comp_ns_kpx_ser;   /* композитор: параллельно ли сейчас и цена 1000 точек */
     /* Последние реальные события оборудования и защитных механизмов из секундного снимка ядра. */

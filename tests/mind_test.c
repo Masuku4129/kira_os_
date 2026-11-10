@@ -257,6 +257,7 @@ int main(void) {
         CHECK(limit[20] == 50);                                  /* 0,4 с спокойствия ещё не прошли */
         for (int k = 0; k < 60; k++) { ti.t_ms += 25; mind_tact_step(d, &ti, &act); }
         CHECK(limit[20] == 100 && limit[30] == 100 && !d->tact_on && journal_has("фон снова без пределов"));
+        CHECK(d->stab_episodes == 1 && d->stab_relapses == 0 && d->stab_limited_ms >= 500 && d->stab_limited_ms <= 3000 && d->stab_longest_ms == d->stab_limited_ms);   /* один период ужатия: учтён, качания не было */
         /* без давления фон не трогается, даже если он занимает все ядра */
         ti.p[1].cpu_x10 = ti.p[2].cpu_x10 = 2000; ti.busy_x10 = 4000;
         ti.t_ms += 25; mind_tact_step(d, &ti, &act);

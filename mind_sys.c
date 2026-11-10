@@ -309,6 +309,7 @@ static void publish(const mind_t* model) {
     v.net_trusted = (uint8_t)mnet_trusted(&model->m.net); v.forecasts = model->m.forecasts; v.net_loss_x1e4 = model->m.net.loss_x1e4;
     for (int i = 0; i < MNET_F; i++) v.net_w[i] = model->m.net.w[i];
     v.bg_fps = mind_bg_fps(model); v.core_cap = mind_core_cap(model);
+    v.stab_episodes = model->stab_episodes; v.stab_limited_s = model->stab_limited_ms / 1000; v.stab_relapses = model->stab_relapses; v.stab_longest_s = model->stab_longest_ms / 1000; v.tact_cost_x100 = model->tact_cost_x100;
     v.core_res_pid = mind_core_reserved_pid(model); v.core_res = sched_reserved_core();
     display_compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
     v.dev_errors=S.dev_errors; scopy(v.dev_name,S.dev_name,sizeof v.dev_name);
@@ -796,6 +797,9 @@ void mind_sys_print(const char* what) {
         uart_print(", упреждений "); uart_print_dec(v->forecasts);
         uart_print("\n[MIND] тактика: фон - не больше "); uart_print_dec(v->core_cap); uart_print("% ядер при нехватке; фоновые окна - ");
         if (v->bg_fps) { uart_print("не чаще "); uart_print_dec(v->bg_fps); uart_print(" кадров/с"); } else uart_print("без предела кадров");
+        uart_print("\n[MIND] стабилизация: фон ужимался "); uart_print_dec(v->stab_episodes); uart_print(" раз, всего "); uart_print_dec(v->stab_limited_s);
+        uart_print(" с (самый долгий период "); uart_print_dec(v->stab_longest_s); uart_print(" с), возвратов давления после снятия предела "); uart_print_dec(v->stab_relapses);
+        uart_print("; цена тактики "); uart_print_dec(v->tact_cost_x100 / 100); uart_print(","); uart_print_dec(v->tact_cost_x100 / 10 % 10); uart_print_dec(v->tact_cost_x100 % 10); uart_print("% ядра");
         uart_print("\n[MIND] композитор: ");
         uart_print(v->comp_par ? "параллельно на всех ядрах" : "на одном ядре");
         uart_print(" (цена 1000 точек: параллельно "); uart_print_dec(v->comp_ns_kpx_par); uart_print(" нс, на одном ядре ");
