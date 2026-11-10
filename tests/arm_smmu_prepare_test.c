@@ -151,6 +151,8 @@ int main(void)
     CHECK(smmu.evtq_allocation_pages == 3u);
     CHECK(smmu.queue_entries == 256u && smmu.enabled == 0);
     CHECK(smmu.stream_id_limit == 256u);
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_INVALID);
+    CHECK(alloc_calls == 3);
     CHECK(*(uint32_t *)(registers_page + 0x0088u) == 8u);
     CHECK((smmu.stream_table_physical & 0x3fffu) == 0);
     CHECK(*(uint64_t *)(registers_page + 0x0080u) ==
