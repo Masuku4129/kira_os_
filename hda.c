@@ -6,6 +6,7 @@
 #include "hda.h"
 #ifndef KIRA_HOST_TEST
 #include "pci.h"
+#include "iommu.h"
 #include "virtio.h"          /* virtio_dma_alloc, MMIO_* */
 #include "vmm.h"
 #include "uart.h"
@@ -219,7 +220,19 @@ int hda_probe(void) {
     for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x03) p = d; }
     if (!p) return -1;
     if (p->bar[0].io || !p->bar[0].base) return -2;
-    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    int iommu_rc = iommu_isolate_device(p);
+    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
+        iommu_rc != IOMMU_E_NOCOVER) {
+        uart_print("[KIRA HDA] IOMMU isolation failed; controller disabled.\n");
+        return -4;
+    }
+#if defined(__aarch64__)
+    if (!iommu_device_ready(p)) {
+        uart_print("[KIRA HDA] requester is not isolated or safely unrestricted; controller disabled.\n");
+        return -4;
+    }
+#endif
+    pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     h.r = (volatile uint8_t*)pci_map_bar(p, 0, 0, 0x2000 <= p->bar[0].size ? 0x2000 : p->bar[0].size);
     if (!h.r) return -3;
     w32(GCTL, r32(GCTL) & ~1u);                                  /* сброс контроллера */
@@ -235,7 +248,28 @@ int hda_probe(void) {
     h.rirb = (uint64_t*)virtio_dma_alloc(2048, &h.rirb_p);
     h.buf = (uint8_t*)virtio_dma_alloc(BUFSZ, &h.buf_p);
     h.bdl = (uint32_t*)virtio_dma_alloc(NBDL * 16, &h.bdl_p);
+    h.ibuf = (uint8_t*)virtio_dma_alloc(BUFSZ, &h.ibuf_p);
+    h.ibdl = (uint32_t*)virtio_dma_alloc(NBDL * 16, &h.ibdl_p);
     if (!h.corb || !h.rirb || !h.buf || !h.bdl) return -6;
+    if (!h.ibuf || !h.ibdl) { h.ibuf = 0; h.ibdl = 0; }
+#if defined(__aarch64__) || defined(__x86_64__)
+    if (iommu_device_isolated(p)) {
+        int map_failed =
+            iommu_map(p, h.corb_p, h.corb_p, 1024, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+            iommu_map(p, h.rirb_p, h.rirb_p, 2048, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+            iommu_map(p, h.buf_p, h.buf_p, BUFSZ, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+            iommu_map(p, h.bdl_p, h.bdl_p, NBDL * 16, IOMMU_R | IOMMU_W) != IOMMU_OK;
+        if (!map_failed && h.ibuf && h.ibdl)
+            map_failed = iommu_map(p, h.ibuf_p, h.ibuf_p, BUFSZ, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+                         iommu_map(p, h.ibdl_p, h.ibdl_p, NBDL * 16, IOMMU_R | IOMMU_W) != IOMMU_OK;
+        if (map_failed) {
+            pci_disable_bus_master(p);
+            iommu_unmap_all(p);
+            uart_print("[KIRA HDA] IOMMU DMA mapping failed; controller disabled.\n");
+            return -6;
+        }
+    }
+#endif
     w8(CORBCTL, 0); w8(RIRBCTL, 0);
     w32(CORBLBASE, (uint32_t)h.corb_p); w32(CORBUBASE, (uint32_t)(h.corb_p >> 32));
     w8(CORBSIZE, 2);                                             /* 256 записей */
@@ -248,17 +282,28 @@ int hda_probe(void) {
     w16(RINTCNT, 1);
     /* RIRBCTL: DMA ответов и флаг «ответ получен» (RINTCTL). Без флага контроллер (QEMU - так точно) после RINTCNT
        ответов ждёт его снятия и не берёт следующие команды. Прерывания процессору выключены (INTCTL = 0). */
+    pci_enable(p, PCI_CMD_MASTER);
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        pci_disable_bus_master(p);
+        iommu_unmap_all(p);
+        uart_print("[KIRA HDA] PCI bus mastering was not granted.\n");
+        return -6;
+    }
     w8(CORBCTL, 2); w8(RIRBCTL, 3);
     int rc = codec_init();
-    if (rc) { uart_print("[KIRA HDA] codec "); uart_print_hex(h.vendor); uart_print(" has no usable output path (step ");
-              uart_print_dec((uint64_t)-rc); uart_print(").\n"); return -7; }
+    if (rc) {
+        pci_disable_bus_master(p);
+        w8(CORBCTL, 0); w8(RIRBCTL, 0);
+        iommu_unmap_all(p);
+        uart_print("[KIRA HDA] codec "); uart_print_hex(h.vendor); uart_print(" has no usable output path (step ");
+        uart_print_dec((uint64_t)-rc); uart_print(").\n");
+        return -7;
+    }
     unsigned iss = (r16(GCAP) >> 8) & 15;
     h.sd = h.r + 0x80 + 0x20 * iss;
     h.up = 1;
     if (h.adc && iss) {                                          /* запись: первый поток входа */
         h.isd = h.r + 0x80;
-        h.ibuf = (uint8_t*)virtio_dma_alloc(BUFSZ, &h.ibuf_p);
-        h.ibdl = (uint32_t*)virtio_dma_alloc(NBDL * 16, &h.ibdl_p);
         if (h.ibuf && h.ibdl) { stream_ring(h.isd, h.ibdl, h.ibdl_p, h.ibuf_p, 2); h.in_up = 1; }
     }
     uart_print("[KIRA HDA] Sound: codec "); uart_print_hex(h.vendor >> 16); uart_print(":"); uart_print_hex(h.vendor & 0xFFFF);
