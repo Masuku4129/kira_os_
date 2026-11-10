@@ -6,7 +6,7 @@
 
 typedef struct {
     Ins *ihead, *itail;
-    int nreg, nlab;
+    int reg_count, label_count;
     Obj *fn, *ltail;
     int maxslot;
     SB *out;
@@ -14,8 +14,8 @@ typedef struct {
 #define IRS ((IRState *)K.ir_state)
 #define ihead (IRS->ihead)
 #define itail (IRS->itail)
-#define nreg (IRS->nreg)
-#define nlab (IRS->nlab)
+#define ir_nreg (IRS->reg_count)
+#define ir_nlab (IRS->label_count)
 #define fn (IRS->fn)
 #define ltail (IRS->ltail)
 #define maxslot (IRS->maxslot)
@@ -28,8 +28,8 @@ static Ins *emit(IrOp op) {
     itail = i;
     return i;
 }
-static int newreg(void) { return ++nreg; }
-static int newlab(void) { return ++nlab; }
+static int newreg(void) { return ++ir_nreg; }
+static int newlab(void) { return ++ir_nlab; }
 
 static void E_label(int l) { emit(IR_LABEL)->imm = l; }
 static void E_jmp(int l) { emit(IR_JMP)->imm = l; }
@@ -733,7 +733,7 @@ IrFn *ir_lower(Obj *f) {
     if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
     fn = f;
     ihead = itail = NULL;
-    nreg = 0; nlab = f->nlabels;
+    ir_nreg = 0; ir_nlab = f->nlabels;
     maxslot = -1; ltail = NULL;
     for (Obj *l = f->locals; l; l = l->next) { if (l->slot > maxslot) maxslot = l->slot; ltail = l; }
     int idx = 0;
@@ -765,7 +765,7 @@ IrFn *ir_lower(Obj *f) {
         r->a = -1;
     }
     IrFn *res = ka_new(sizeof *res);
-    res->f = f; res->head = ihead; res->nreg = nreg; res->nlab = nlab;
+    res->f = f; res->head = ihead; res->nreg = ir_nreg; res->nlab = ir_nlab;
     return res;
 }
 
