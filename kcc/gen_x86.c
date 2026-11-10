@@ -10,8 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static XA xa;
-#define A (&xa)
 
 /* ---------- состояние функции ---------- */
 /* Пул vreg (rdx - последний): пять callee-saved (сохраняются в прологе) и три caller-saved (r8-r10: бесплатны, но только для значений,
@@ -20,15 +18,8 @@ static XA xa;
 #define NPOOL 12
 #define NPOOL_OLD 8
 static const int pool[NPOOL] = { R_BX, R_12, R_13, R_14, R_15, R_8, R_9, R_10, R_SI, R_DI, R_11, R_DX };   /* rsi, rdi, r11: тоже только вне вызовов и подобных инструкций; rdx - ещё и вне деления */
-static int npool;                              /* 11, либо 8 при -fno-regs */
 /* Свёртка смещения: t = base + K (K - imm32), который читают только как адрес LOAD/STORE, не вычисляется: каждое обращение
    идёт по [base + K]. fbase[t] - база, fdisp[t] - K; fold[t] - свёрнутый vreg. */
-static unsigned char *fold;
-static int *fbase;
-static int64_t *fdisp;
-static unsigned char pdirect[6];                 /* 2: скалярный параметр берётся прямо из регистра аргумента, домашняя область не нужна */
-static int g_retlast;                          /* текущая инструкция - последняя: переход к эпилогу не нужен */
-static int g_frameless;                        /* листовая функция без кадра: нет push rbp, нет кадра, ret прямо в месте return */
 static const int argreg[6] = { R_DI, R_SI, R_DX, R_CX, R_8, R_9 };
 /* Вещественные значения (SSE2). Пул xmm8-xmm12 для vreg, чей живой интервал не содержит вызова (xmm - все caller-saved: значение через вызов живёт в стековом
    слоте); xmm13-xmm15 - рабочие регистры кодогенератора; xmm0-xmm7 - только аргументы, результат вызова и входные параметры (читаются до любого их
@@ -40,12 +31,64 @@ static const int xpool[NXP] = { 8, 9, 10, 11, 12 };
 #define XS0 13
 #define XS1 14
 #define XS2 15
-static unsigned char *fcls;                    /* NULL, если в функции нет вещественных значений */
-static int *xg;                                /* xmm-регистр vreg либо -1 */
-static int p_nxrn;                             /* xmm-регистров занято именованными параметрами */
 /* ---------- ABI System V: размещение аргументов ---------- */
 enum { AL_REG, AL_STK, AL_AREG, AL_ASTK, AL_XREG };
 typedef struct { int kind, idx, off; } ALoc;        /* REG: номер регистра; AREG: первый из регистров; STK/ASTK: смещение в области аргументов */
+typedef struct {
+    XA xa;
+    int npool;
+    unsigned char *fold;
+    int *fbase;
+    int64_t *fdisp;
+    unsigned char pdirect[6];
+    int g_retlast, g_frameless;
+    unsigned char *fcls;
+    int *xg;
+    int p_nxrn;
+    ALoc *ploc;
+    int p_ngrn, p_stk, p_hidden;
+    int *vs, *ve, *rg, *so;
+    int *slotoff;
+    int spillbase, epi;
+    int64_t *cv;
+    unsigned char *isc, *fusecmp;
+    int *g_nd, *g_nu;
+    const unsigned char *g_mdef;
+    int tmplab, g_maxout;
+} X86State;
+#define X86S ((X86State *)K.x86_state)
+#define xa (X86S->xa)
+#define A (&xa)
+#define npool (X86S->npool)
+#define fold (X86S->fold)
+#define fbase (X86S->fbase)
+#define fdisp (X86S->fdisp)
+#define pdirect (X86S->pdirect)
+#define g_retlast (X86S->g_retlast)
+#define g_frameless (X86S->g_frameless)
+#define fcls (X86S->fcls)
+#define xg (X86S->xg)
+#define p_nxrn (X86S->p_nxrn)
+#define ploc (X86S->ploc)
+#define p_ngrn (X86S->p_ngrn)
+#define p_stk (X86S->p_stk)
+#define p_hidden (X86S->p_hidden)
+#define vs (X86S->vs)
+#define ve (X86S->ve)
+#define rg (X86S->rg)
+#define so (X86S->so)
+#define slotoff (X86S->slotoff)
+#define spillbase (X86S->spillbase)
+#define epi (X86S->epi)
+#define cv (X86S->cv)
+#define isc (X86S->isc)
+#define fusecmp (X86S->fusecmp)
+#define g_nd (X86S->g_nd)
+#define g_nu (X86S->g_nu)
+#define g_mdef (X86S->g_mdef)
+#define tmplab (X86S->tmplab)
+#define g_maxout (X86S->g_maxout)
+
 static int plan_args(int n, const int *asz, const unsigned char *afp, int hidden, ALoc *loc, int *ngrn, int *nxrn) {
     int g = hidden ? 1 : 0, sp = 0, x = 0;
     for (int k = 0; k < n; k++) {
@@ -66,16 +109,8 @@ static int plan_args(int n, const int *asz, const unsigned char *afp, int hidden
     if (nxrn) *nxrn = x;
     return sp;
 }
-static ALoc *ploc;                             /* размещение параметров текущей функции */
-static int p_ngrn, p_stk, p_hidden;            /* регистров занято именованными, байт стека занято именованными, скрытый указатель результата */
-
-static int *vs, *ve, *rg, *so;               /* интервал, регистр (-1 нет), номер слота спила */
-static int *slotoff;                          /* смещение локального слота относительно rbp (вниз) */
-static int spillbase, epi;
 /* Оптимизации бэкенда: константный vreg (одно определение IR_CONST) не занимает регистр и подставляется непосредственно;
    сравнение, единственный читатель результата которого - следующий IR_BRZ/IR_BRNZ, сливается с переходом. */
-static int64_t *cv;
-static unsigned char *isc, *fusecmp;
 
 typedef struct { long *wt; long w; int nv; } WtCtx;
 static void wt_visit(Ins *i, int *r, int kind, void *c) {
@@ -297,8 +332,6 @@ static void gen_ldst(const Ins *i, int base, int ix, int sc, int64_t disp) {
     #undef MEM
 }
 
-static int *g_nd, *g_nu;                       /* числа определений/чтений vreg текущей функции */
-static const unsigned char *g_mdef;
 static int fuse_tmp(int v) { return v > 0 && g_nd[v] == 1 && g_nu[v] == 1 && !(g_mdef && g_mdef[v]) && !isc[v]; }
 /* Слияние расчёта адреса с обращением к памяти: [SHL/MUL(z, 2^s)]; ADD x, y; LOAD/STORE. Возвращает число поглощённых инструкций (0 - не подошло). */
 static int try_addr_fuse(Ins **ins, int k, int n) {
@@ -361,7 +394,6 @@ static void gen_cmpbr(const Ins *c, const Ins *br) {
 
 
 /* ---------- вещественные операции ---------- */
-static int tmplab;
 
 static void gen_fbin(const Ins *i) {
     int w = i->w, a = i->a, b = i->b;
@@ -681,7 +713,6 @@ static void gen_asm(const Ins *i) {
     else if (!gen_asm_tab(i)) kerr(A->file, A->line, "inline asm template '%s' is not supported on x86_64", t);
 }
 
-static int g_maxout;                                      /* размер области исходящих аргументов текущей функции (для IR_ALLOCA) */
 static void gen_ins(const Ins *i, int homebase_h) {
     switch (i->op) {
     case IR_LABEL: xa_label(A, (int)i->imm); break;
@@ -1229,7 +1260,8 @@ static void x86_reloc(unsigned char *text, void *ctx) {
 }
 
 void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen) {
-    memset(&xa, 0, sizeof xa);
+    if (!K.x86_state) K.x86_state = ka_new(sizeof(X86State));
+    memset(X86S, 0, sizeof *X86S);
     gen_prepare(globals);
     A->file = K.srcpath; A->line = 1;
     for (Obj *g = globals; g; g = g->next)
@@ -1246,7 +1278,8 @@ void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen) {
 }
 
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
-    memset(&xa, 0, sizeof xa);
+    if (!K.x86_state) K.x86_state = ka_new(sizeof(X86State));
+    memset(X86S, 0, sizeof *X86S);
     Obj *mainf = gen_prepare(globals);
     /* _start: argc/argv не передаются, main(0, 0); код выхода - в K_EXIT */
     A->file = K.srcpath; A->line = 1;
