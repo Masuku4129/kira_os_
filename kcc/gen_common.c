@@ -17,11 +17,11 @@ typedef struct {
     Obj **work;
     int nwork;
 } GenState;
-#define GS ((GenState *)K.gen_state)
-#define htab (GS->htab)
-#define hcap (GS->hcap)
-#define work (GS->work)
-#define nwork (GS->nwork)
+static GenState *gs;
+#define htab (gs->htab)
+#define hcap (gs->hcap)
+#define work (gs->work)
+#define nwork (gs->nwork)
 static unsigned hash(const char *s) { unsigned h = 2166136261u; while (*s) h = (h ^ (unsigned char)*s++) * 16777619u; return h; }
 int gen_is_defined(const Obj *o) { return o->is_func ? o->body != NULL : o->is_def; }
 int gen_is_helper_name(const char *n) { return !strcmp(n, "memcpy") || !strcmp(n, "memset") || !strcmp(n, "memcmp") || !strcmp(n, "strlen") ||
@@ -65,7 +65,8 @@ static void scan_refs(Obj *o) {
 /* Таблица имён, IR всех функций, достижимость. Возвращает main (его отсутствие - ошибка). */
 Obj *gen_prepare(Obj *globals) {
     if (!K.gen_state) K.gen_state = ka_new(sizeof(GenState));
-    memset(GS, 0, sizeof *GS);
+    gs = K.gen_state;
+    memset(gs, 0, sizeof *gs);
     int ng = 0;
     for (Obj *g = globals; g; g = g->next) ng++;
     hcap = 16;
