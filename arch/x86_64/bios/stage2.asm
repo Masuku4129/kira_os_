@@ -167,7 +167,7 @@ start16:
   mov eax, [mod_stage_base]
   mov [load_base], eax
   call load_kernel
-  jc near fail_disk
+  jc near fail_module_disk
   mov eax, [kernel_size_saved]
   mov [man_size], eax
   mov dword [load_base], STAGE_BASE
@@ -651,6 +651,8 @@ fail_e820: mov si, m_e820
 fail_stage: mov si, m_stage
   jmp fail16
 fail_disk: mov si, m_disk
+  jmp fail16
+fail_module_disk: mov si, m_module_disk
 fail16:
   call print16
   cli
@@ -903,8 +905,9 @@ m_go:      db "KIRA: entering kernel", 13, 10, 0
 m_manifest: db "KIRA: bad manifest", 13, 10, 0
 m_a20:     db "KIRA: A20 unavailable", 13, 10, 0
 m_e820:    db "KIRA: E820 failed", 13, 10, 0
-m_stage:   db "KIRA: no RAM at 16MiB for kernel image", 13, 10, 0
+m_stage:   db "KIRA: no RAM for kernel/initrd staging", 13, 10, 0
 m_disk:    db "KIRA: kernel read error", 13, 10, 0
+m_module_disk: db "KIRA: initrd read error", 13, 10, 0
 m_crc:     db "KIRA: kernel CRC mismatch", 13, 10, 0
 m_mod_crc: db "KIRA: initrd CRC mismatch", 13, 10, 0
 m_elf:     db "KIRA: bad ELF64 kernel", 13, 10, 0
