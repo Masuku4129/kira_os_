@@ -433,21 +433,28 @@ static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg
                                uint64_t cr3, void* proc, cpumask_t affinity, uint32_t flags);
 
 thread_t* sched_create(const char* name, void (*entry)(void*), void* arg, thread_prio_t prio) {
-    return create_thread(name, entry, arg, prio, 0, 0, SCHED_AFFINITY_ALL, THREAD_F_SERVICE);
+    return create_thread(name, entry, arg, prio, 0, 0, 0, SCHED_WEIGHT_NORMAL, 0, SCHED_AFFINITY_ALL, THREAD_F_SERVICE);
 }
 
 thread_t* sched_create_on(const char* name, void (*entry)(void*), void* arg, thread_prio_t prio, cpumask_t affinity) {
     if (cm_empty(&affinity)) return 0;
-    return create_thread(name, entry, arg, prio, 0, 0, affinity, 0);
+    return create_thread(name, entry, arg, prio, 0, 0, 0, SCHED_WEIGHT_NORMAL, 0, affinity, 0);
 }
 
 thread_t* sched_create_proc(const char* name, void (*entry)(void*), void* arg, thread_prio_t prio,
                             uint64_t cr3, void* proc) {
-    return create_thread(name, entry, arg, prio, cr3, proc, SCHED_AFFINITY_ALL, 0);
+    return sched_create_proc_ex(name, entry, arg, prio, cr3, proc, 0, SCHED_WEIGHT_NORMAL, 0);
+}
+
+thread_t* sched_create_proc_ex(const char* name, void (*entry)(void*), void* arg, thread_prio_t prio,
+                               uint64_t cr3, void* proc, uint32_t pid, uint32_t weight, uint32_t limit) {
+    return create_thread(name, entry, arg, prio, cr3, proc, pid,
+                         weight ? weight : SCHED_WEIGHT_NORMAL, limit, SCHED_AFFINITY_ALL, 0);
 }
 
 static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg, thread_prio_t prio,
-                               uint64_t cr3, void* proc, cpumask_t affinity, uint32_t flags) {
+                               uint64_t cr3, void* proc, uint32_t pid, uint32_t weight, uint32_t limit,
+                               cpumask_t affinity, uint32_t flags) {
     if (!entry) return 0;
     uint8_t* stack = kstack_new();
     if (!stack) return 0;
@@ -487,10 +494,10 @@ static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg
     t->affinity = affinity;
     t->flags = flags;
     t->mutexes_held = 0;
-    t->pid = 0;
-    t->weight = SCHED_WEIGHT_NORMAL;
+    t->pid = pid;
+    t->weight = weight ? weight : SCHED_WEIGHT_NORMAL;
     t->ready_since = timer_get_ticks();
-    t->limit = 0; t->lim_used = 0; t->lim_start = 0; t->throttled_until = 0;
+    t->limit = limit; t->lim_used = 0; t->lim_start = 0; t->throttled_until = 0;
     t->last_cpu = this_cpu()->cpu_id;
     t->wait_next = 0;
     t->on_cpu = 0;
