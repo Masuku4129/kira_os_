@@ -272,8 +272,19 @@ int fdt_prop_u32(const void* fdt, int node, const char* name, uint32_t* out) {
 
 int fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* size) {
     int par = fdt_parent(fdt, node);
-    uint32_t ac = 2, sc = 1;                   /* значения по умолчанию спецификации */
-    if (par >= 0) { fdt_prop_u32(fdt, par, "#address-cells", &ac); fdt_prop_u32(fdt, par, "#size-cells", &sc); }
+    uint32_t ac = 2, sc = 1, stride_len = 0;   /* значения по умолчанию спецификации */
+    if (par >= 0) {
+        const void* p = fdt_prop(fdt, par, "#address-cells", &stride_len);
+        if (p) {
+            if (stride_len != 4u) return -1;
+            ac = fdt_u32(p);
+        }
+        p = fdt_prop(fdt, par, "#size-cells", &stride_len);
+        if (p) {
+            if (stride_len != 4u) return -1;
+            sc = fdt_u32(p);
+        }
+    }
     if (ac < 1 || ac > 2 || sc > 2) return -1;
     uint32_t len;
     const uint8_t* r = (const uint8_t*)fdt_prop(fdt, node, "reg", &len);
