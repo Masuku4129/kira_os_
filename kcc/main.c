@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "passes.h"
-extern int kcc_obj;
 
 static const char *read_file(void *ud, const char *path, size_t *len) {
     (void)ud;
@@ -24,18 +23,19 @@ static const char *read_file(void *ud, const char *path, size_t *len) {
 int main(int argc, char **argv) {
     const char *incs[64], *defs[64], *in = NULL, *outp = NULL, *target = "x86_64";
     int ni = 0, nd = 0, ir = 0;
+    KOptions options = {0};
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         if (!strcmp(a, "-S-ir")) ir = 1;
-        else if (!strcmp(a, "-fno-sr")) kcc_nosr = 1;
-        else if (!strcmp(a, "-fwrapv")) kcc_wrapv = 1;
-        else if (!strcmp(a, "-fno-lvn")) kcc_nolvn = 1;
-        else if (kcc_flag(a)) continue;
-        else if (!strcmp(a, "-S-oir")) { ir = 1; kcc_dumpopt = 1; }
-        else if (!strcmp(a, "-c")) kcc_obj = 1;
-        else if (!strcmp(a, "-mno-sse")) kcc_nosse = 1;
-        else if (!strcmp(a, "-O0")) kcc_noopt = 1;
-        else if (!strcmp(a, "-O1")) kcc_noopt = 0;
+        else if (!strcmp(a, "-fno-sr")) options.nosr = 1;
+        else if (!strcmp(a, "-fwrapv")) options.wrapv = 1;
+        else if (!strcmp(a, "-fno-lvn")) options.nolvn = 1;
+        else if (kcc_flag(a, &options)) continue;
+        else if (!strcmp(a, "-S-oir")) { ir = 1; options.dumpopt = 1; }
+        else if (!strcmp(a, "-c")) options.obj = 1;
+        else if (!strcmp(a, "-mno-sse")) options.nosse = 1;
+        else if (!strcmp(a, "-O0")) options.noopt = 1;
+        else if (!strcmp(a, "-O1")) options.noopt = 0;
         else if (!strcmp(a, "-o") && i + 1 < argc) outp = argv[++i];
         else if (!strncmp(a, "-I", 2) && a[2]) { if (ni < 64) incs[ni++] = a + 2; }
         else if (!strcmp(a, "-I") && i + 1 < argc) { if (ni < 64) incs[ni++] = argv[++i]; }
@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
     if (!mem) { fprintf(stderr, "kcc: out of memory\n"); return 2; }
     KCfg cfg = { read_file, NULL, incs, ni, defs, nd, target, NULL };
     KResult r;
-    int rc = kcc_compile(&cfg, mem, memsz, in, ir ? 1 : 2, &r);
+    int rc = kcc_compile_opts(&cfg, &options, mem, memsz, in, ir ? 1 : 2, &r);
     if (r.warn) fputs(r.warn, stderr);
     if (rc) { fprintf(stderr, "%s\n", r.err); return 1; }
     FILE *o = outp ? fopen(outp, "wb") : stdout;
