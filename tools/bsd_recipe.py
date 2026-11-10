@@ -19,6 +19,49 @@ DMA_OK = {'fxp_pci': 'mmio pcidev netdev irq dma', 'pcn': 'mmio pcidev netdev ir
 MATCH_MAX = 8
 PREFER = {'fxp_pci': ['8086:1209'], 'pcn': ['1022:2000']}
 
+def classify_license(data, path="<source>"):
+    """Return one supported SPDX identifier; unknown, compound and mixed notices fail closed."""
+    text = data.decode("latin-1", errors="strict")
+    spdx = re.findall(r"SPDX-License-Identifier:\s*([^\r\n*]+)", text)
+    if spdx:
+        identifiers = [item.strip() for item in spdx]
+        if len(set(identifiers)) != 1 or len(identifiers) != 1 or identifiers[0] not in {"BSD-2-Clause", "BSD-3-Clause", "MIT", "ISC", "LicenseRef-Greenman"}:
+            raise ValueError("%s: unsupported or compound SPDX license: %s" % (path, ", ".join(identifiers)))
+        return identifiers[0]
+
+    low = " ".join(text.lower().split())
+    if "all advertising materials mentioning" in low:
+        raise ValueError("%s: BSD advertising clause is outside the allowed license set" % path)
+    if ("may be used, modified, copied, distributed, and sold, in both source and binary form" in low and
+            "under no circumstances is the author responsible for the proper functioning" in low):
+        return "LicenseRef-Greenman"
+    if ("redistribution and use in source and binary forms" in low and
+            "this software is provided by" in low and
+            "1. redistributions of source code must retain" in low and
+            "2. redistributions in binary form must reproduce" in low):
+        if "neither the name of" in low and "endorse or promote" in low:
+            return "BSD-3-Clause"
+        return "BSD-2-Clause"
+    if ("permission is hereby granted, free of charge, to any person obtaining a copy" in low and
+            "the software is provided \"as is\"" in low):
+        return "MIT"
+    if ("permission to use, copy, modify, and/or distribute this software" in low and
+            "the software is provided \"as is\"" in low):
+        return "ISC"
+    raise ValueError("%s: cannot identify a supported single-file license; refusing to label the recipe" % path)
+
+
+def recipe_license(sysd, files):
+    found = {}
+    for path in files:
+        lic = classify_license(rd(os.path.join(sysd, path)), path)
+        found.setdefault(lic, []).append(path)
+    if len(found) != 1:
+        detail = "; ".join("%s: %s" % (lic, ", ".join(paths)) for lic, paths in sorted(found.items()))
+        raise ValueError("driver sources have mixed licenses; recipe format supports one license only: " + detail)
+    return next(iter(found))
+
+
 def sha(b): return hashlib.sha256(b).hexdigest()
 def rd(p): return open(p, 'rb').read()
 
@@ -50,6 +93,10 @@ def main(sysd, index, pcidevs, name, commit, outd, base):
     cfiles = [pci] + ([] if ic == '-' else ic.split(','))
     hfiles = headers(sysd, cfiles)
     allf = cfiles + hfiles
+    try:
+        license_id = recipe_license(sysd, allf)
+    except (OSError, UnicodeError, ValueError) as exc:
+        sys.exit('%s: license gate: %s' % (name, exc))
     bn = [os.path.basename(f) for f in allf]
     if len(set(bn)) != len(bn): sys.exit('совпадают имена файлов без каталогов: %s' % bn)
     idl = ids.split(',')
@@ -60,19 +107,19 @@ def main(sysd, index, pcidevs, name, commit, outd, base):
     vend, prod = P.parse(pcidevs)
     syms, bad = P.resolve(vend, prod, P.referenced([os.path.join(sysd, f) for f in allf]))
     if bad: sys.exit('неизвестные имена pcidevs: %s' % ' '.join(bad))
-    pd = ('/* SPDX-License-Identifier: BSD-2-Clause */\n/* Сгенерировано tools/bsd_recipe.py из pcidevs OpenBSD: только то, что упомянуто в исходниках драйвера. */\n' +
+    pd = ('/* SPDX-License-Identifier: %s */\n/* Сгенерировано tools/bsd_recipe.py из pcidevs OpenBSD: только то, что упомянуто в исходниках драйвера. */\n' % license_id +
           ''.join('#define %s 0x%04x\n' % kv for kv in syms.items())).encode()
     inc = ''.join('#include "%s"\n' % os.path.basename(f) for f in cfiles)
-    km = ('/* SPDX-License-Identifier: BSD-2-Clause */\n/* Драйвер BSD %s: единая единица трансляции для kcc (tools/bsd_recipe.py). Файлы OpenBSD - по хешам рецепта. */\n'
+    km = ('/* SPDX-License-Identifier: %s */\n/* Драйвер BSD %s: единая единица трансляции для kcc (tools/bsd_recipe.py). Файлы OpenBSD - по хешам рецепта. */\n'
           '#pragma kcc unity\n#define _KERNEL 1\n#include <bsd_core.h>\n%s'
-          'extern const struct cfattach %s;\nconst struct cfattach* kd_ca = &%s;\nconst char* kd_devname = "%s";\n#include <bsd_rt.c>\n') % (name, inc, ca, ca, dn)
+          'extern const struct cfattach %s;\nconst struct cfattach* kd_ca = &%s;\nconst char* kd_devname = "%s";\n#include <bsd_rt.c>\n') % (license_id, name, inc, ca, ca, dn)
     km = km.encode()
     for n, pids in enumerate(parts, 1):
         pn = dn if n == 1 else '%s%d' % (dn, n)
         d = os.path.join(outd, pn); os.makedirs(d, exist_ok=True)
         open(os.path.join(d, 'kd_pcidevs.h'), 'wb').write(pd); open(os.path.join(d, 'kdmain.c'), 'wb').write(km)
         rec = ['# Рецепт drvget для драйвера OpenBSD %s (создан tools/bsd_recipe.py, корпус - коммит %s)%s' % (name, commit[:10], '' if len(parts) == 1 else ', часть %d из %d' % (n, len(parts))),
-               'drvget-recipe 1', 'name ' + pn, 'version 1', 'license BSD-3-Clause']
+               'drvget-recipe 1', 'name ' + pn, 'version 1', 'license ' + license_id]
         rec += ['pci ' + i for i in pids]
         rec += ['caps ' + caps, 'main kdmain.c', 'file kdmain.c kdmain.c sha256 ' + sha(km), 'file kd_pcidevs.h kd_pcidevs.h sha256 ' + sha(pd)]
         for f in allf: rec.append('file %s %s/%s sha256 %s' % (os.path.basename(f), base, f, sha(rd(os.path.join(sysd, f)))))
