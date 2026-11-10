@@ -1,4 +1,6 @@
 #include "progs.h"
+#include "kdrv.h"
+#include "kdrv_sig.h"
 #include "kfs.h"
 #include "proc.h"
 #include "immune.h"
@@ -57,6 +59,7 @@ static int admit(const char* name) {
 static int prog_run_ex(const char* name, const char* grant, const char* args);
 int prog_run(const char* name) { return prog_run_ex(name, 0, 0); }
 int prog_run_args(const char* name, const char* args) { return prog_run_ex(name, 0, args && *args ? args : 0); }
+static int local_launch_signed(const char* path, const char* name, uint8_t* image, size_t size);
 static int prog_run_grant(const char* name, const char* grant) { return prog_run_ex(name, grant, 0); }
 
 static int prog_run_ex(const char* name, const char* grant, const char* args) {
@@ -81,6 +84,18 @@ static int prog_run_ex(const char* name, const char* grant, const char* args) {
     uint8_t digest[32];
     sha256(image, (size_t)st.size, digest);
     trust_verdict_t t = trust_check(PROG_MANIFEST, PROG_MANIFEST_COUNT, name, digest);
+    if (t == TRUST_UNKNOWN) {
+        /* Не из манифеста, но с подписью издателя в /bin/ИМЯ.sig: запускается, как runlocal, без прав. Подмена программы из манифеста (TAMPERED) сюда не попадает. */
+        int missing = 0;
+        int se = kdrv_app_sig_check(path, image, (size_t)st.size, &missing);
+        if (se == 0) {
+            uart_print("[PROG] "); uart_print(path); uart_print(": подпись издателя верна, запуск без прав\n");
+            int pid = local_launch_signed(path, name, image, (size_t)st.size);
+            kfree(image);
+            return pid;
+        }
+        if (!missing) { uart_print("[PROG] "); uart_print(path); uart_print(": подпись приложения отвергнута ("); uart_print(kdrv_sig_strerror(se)); uart_print(")\n"); }
+    }
     if (t != TRUST_OK) {
         immune_verdict_t v = immune_classify(image, (size_t)st.size);      /* заносит в карантин, запоминается в опыте */
         uart_print("[IMMUNE] "); uart_print(path);
@@ -98,6 +113,23 @@ static int prog_run_ex(const char* name, const char* grant, const char* args) {
     int pid = proc_spawn_elf_ex(name, image, (size_t)st.size, grant, args);
     immune_phagocytose(image, (size_t)st.size);                            /* копия в буфере больше не нужна */
     kfree(image);
+    if (pid < 0) return -3;
+    life_note("start", name, 0);
+    return pid;
+}
+
+static int local_launch_signed(const char* path, const char* name, uint8_t* image, size_t size) {
+    immune_verdict_t v = immune_classify(image, size);                     /* подпись не отменяет иммунную проверку */
+    if (v == IMMUNE_HOSTILE) {
+        uart_print("[IMMUNE] "); uart_print(path); uart_print(": сработало антитело, запуск отклонён\n");
+        immune_phagocytose(image, size);
+        life_note("signed-denied", name, (int)v);
+        return -2;
+    }
+    life_note("signed-trust", name, (int)v);
+    (void)fsrv_sandbox(name);
+    int pid = proc_spawn_elf_ex(name, image, size, 0, 0);
+    immune_phagocytose(image, size);
     if (pid < 0) return -3;
     life_note("start", name, 0);
     return pid;

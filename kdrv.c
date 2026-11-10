@@ -213,6 +213,29 @@ static int pkg_load(const char* name, pkg_t* p) {
     return KDRV_OK;
 }
 
+/* Подпись приложения: /bin/ИМЯ.sig рядом с образом. Тот же ключ издателя и то же состояние (часы, отзыв), но свой домен подписи,
+   поэтому подпись драйвера не годится для приложения и наоборот. Возвращает 0 при успехе, иначе код KDRV_SIG_*; прав такое приложение не получает. */
+int kdrv_app_sig_check(const char* path, const void* image, size_t len, int* missing) {
+    char spath[80]; unsigned n = 0;
+    for (const char* q = path; *q && n < sizeof spath - 5; q++) spath[n++] = *q;
+    spath[n++] = '.'; spath[n++] = 's'; spath[n++] = 'i'; spath[n++] = 'g'; spath[n] = 0;
+    if (missing) *missing = 0;
+    kfs_stat_t ss; kdrv_sig_t sig;
+    int se = kfs_stat(spath, &ss);
+    if (se == KFS_ERR_NOENT) { if (missing) *missing = 1; return KDRV_SIG_E_MISSING; }
+    if (se != 0) return KDRV_SIG_E_IO;
+    if (ss.type != KFS_FILE || ss.size != sizeof sig) return KDRV_SIG_E_SIZE;
+    if (kfs_read(spath, 0, &sig, sizeof sig) != (int64_t)sizeof sig) return KDRV_SIG_E_IO;
+    rtc_time_t current;
+    int64_t now = rtc_now(0, &current) == 0 ? rtc_to_epoch(&current) : 0;
+    kmutex_lock(&state_mx);
+    state_load_locked();
+    int rc = kdrv_state_verify(&gst, KDRV_SIG_DOMAIN_APP, image, len, &sig, sizeof sig, kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, now);
+    (void)state_save_locked();
+    kmutex_unlock(&state_mx);
+    return rc;
+}
+
 /* ---- прерывание устройства ---- */
 static void kdrv_irq(void* ctx) {
     bind_t* b = (bind_t*)ctx;

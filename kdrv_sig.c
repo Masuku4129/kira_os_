@@ -31,7 +31,7 @@ int kdrv_sig_header_check(const void* signature, size_t signature_len) {
     return KDRV_SIG_OK;
 }
 
-int kdrv_sig_verify(const void* package, size_t package_len,
+int kdrv_sig_verify_domain(const uint8_t domain[16], const void* package, size_t package_len,
                     const void* signature, size_t signature_len,
                     const kdrv_sig_key_t* keys, uint32_t key_count,
                     int64_t now_utc) {
@@ -63,11 +63,8 @@ int kdrv_sig_verify(const void* package, size_t package_len,
     if (found->not_after && (uint64_t)now_utc >= found->not_after) return KDRV_SIG_E_KEY_EXPIRED;
     if (all_zero(found->public_key, sizeof found->public_key)) return KDRV_SIG_E_TRUST_STORE;
 
-    static const uint8_t domain[16] = {
-        'K','I','R','A','-','K','D','R','V','-','S','I','G','-','V','1'
-    };
     uint8_t message[88];
-    for (unsigned i = 0; i < sizeof domain; i++) message[i] = domain[i];
+    for (unsigned i = 0; i < 16; i++) message[i] = domain[i];
     for (unsigned i = 0; i < KDRV_SIG_KEY_ID_SIZE; i++) message[16 + i] = s->key_id[i];
     for (unsigned i = 0; i < 32; i++) message[32 + i] = s->package_sha256[i];
     put_le64(message + 64, s->package_size);
@@ -76,6 +73,17 @@ int kdrv_sig_verify(const void* package, size_t package_len,
 
     return ed25519_verify(found->public_key, message, sizeof message, s->signature) == 0
         ? KDRV_SIG_OK : KDRV_SIG_E_SIGNATURE;
+}
+
+/* Драйверы и приложения подписываются одним ключом издателя, но с разным доменом: подпись одного назначения не годится для другого. */
+const uint8_t KDRV_SIG_DOMAIN_DRIVER[16] = { 'K','I','R','A','-','K','D','R','V','-','S','I','G','-','V','1' };
+const uint8_t KDRV_SIG_DOMAIN_APP[16]    = { 'K','I','R','A','-','A','P','P','-','S','I','G','-','-','V','1' };
+
+int kdrv_sig_verify(const void* package, size_t package_len,
+                    const void* signature, size_t signature_len,
+                    const kdrv_sig_key_t* keys, uint32_t key_count,
+                    int64_t now_utc) {
+    return kdrv_sig_verify_domain(KDRV_SIG_DOMAIN_DRIVER, package, package_len, signature, signature_len, keys, key_count, now_utc);
 }
 
 const char* kdrv_sig_strerror(int e) {

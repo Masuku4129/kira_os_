@@ -50,6 +50,20 @@ int main(void) {
     CHECK(kdrv_sig_verify(package, sizeof package - 1, &valid_signature, sizeof valid_signature,
                           &test_key, 1, 1800000000LL) == KDRV_SIG_OK);
 
+    /* Домены: подпись приложения проходит только как приложение, подпись драйвера - только как драйвер. */
+    {
+        kdrv_sig_t a = valid_signature;
+        static const uint8_t app_sig[64] = {
+            0x9f,0xe7,0xee,0xef,0xf8,0xfa,0xfa,0x2f,0xfa,0x74,0xc3,0xb3,0xc0,0x5d,0xdf,0xa1,
+            0x12,0xa0,0x91,0x7f,0xff,0x41,0x5b,0x1b,0xe4,0xd2,0x24,0xf3,0x5b,0x4d,0xc4,0xcc,
+            0xae,0xbb,0x11,0x27,0x24,0x4b,0x46,0xe1,0x8d,0xca,0x89,0x72,0xc7,0xd7,0x11,0xea,
+            0x97,0x77,0x2f,0xb2,0xe8,0xbc,0x48,0xf9,0x3b,0x8a,0x3a,0xa5,0xc8,0x7d,0xc1,0x0e };
+        memcpy(a.signature, app_sig, 64);
+        CHECK(kdrv_sig_verify_domain(KDRV_SIG_DOMAIN_APP, package, sizeof package - 1, &a, sizeof a, &test_key, 1, 1800000000LL) == KDRV_SIG_OK);
+        CHECK(kdrv_sig_verify_domain(KDRV_SIG_DOMAIN_DRIVER, package, sizeof package - 1, &a, sizeof a, &test_key, 1, 1800000000LL) != KDRV_SIG_OK);
+        CHECK(kdrv_sig_verify_domain(KDRV_SIG_DOMAIN_APP, package, sizeof package - 1, &valid_signature, sizeof valid_signature, &test_key, 1, 1800000000LL) != KDRV_SIG_OK);
+    }
+
     uint8_t altered[sizeof package];
     memcpy(altered, package, sizeof package);
     altered[0] ^= 1;

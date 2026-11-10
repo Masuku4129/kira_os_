@@ -62,6 +62,8 @@ void kdrv_state_reset_time(kdrv_state_t* st, uint64_t now);   /* ЯВНАЯ ко
    Заголовок разбирается заново из pkg: версия берётся из тех же байт, что подписаны. sig == 0 - подписи нет.
    Время фиксируется в состоянии при каждой проверке подписи, в том числе отказной: иначе после истечения подписи часы можно
    было бы вернуть, пока ничего не записало новый максимум. */
+int kdrv_state_verify(kdrv_state_t* st, const uint8_t domain[16], const void* data, size_t len, const void* sig, size_t sig_len,
+                      const kdrv_sig_key_t* keys, uint32_t nkeys, int64_t now_raw);
 int kdrv_admit(kdrv_state_t* st, const void* pkg, size_t pkg_len, const void* sig, size_t sig_len, int sig_required,
                const kdrv_sig_key_t* keys, uint32_t nkeys, int64_t now_raw,
                kdrv_header_t* h_out, int* auth, int* sig_error);

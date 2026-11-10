@@ -17,4 +17,6 @@ enum { KDRV_CTL_START = 1, KDRV_CTL_STOP = 2 };
 int     kdrv_ctl_request(int op, const char* name);      /* fsrv.c: окно «Драйверы» просит запустить/остановить драйвер; 0 - принято в очередь (основной цикл исполняет), -1 - очередь занята */
 void    kdrv_cmd(const char* arg);                        /* консоль: drv [start ИМЯ [арг] | stop ИМЯ | rescan] */
 
+int kdrv_app_sig_check(const char* path, const void* image, size_t len, int* missing);
+
 #endif

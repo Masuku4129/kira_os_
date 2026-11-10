@@ -149,6 +149,25 @@ static void note_time(kdrv_state_t* st, uint64_t now) {
     if (st->max_time - st->persisted_time >= KDRV_TIME_PERSIST_STEP) st->dirty = 1;
 }
 
+/* Подпись с учётом состояния: часы не ушли назад дальше допуска (максимум виденного времени запоминается), отозванные ключи из файла состояния.
+   Возвращает KDRV_SIG_*; общий путь для драйверов (kdrv_admit) и приложений. */
+int kdrv_state_verify(kdrv_state_t* st, const uint8_t domain[16], const void* data, size_t len, const void* sig, size_t sig_len,
+                      const kdrv_sig_key_t* keys, uint32_t nkeys, int64_t now_raw) {
+    int64_t eff = now_raw;
+    if (now_raw > 0) {
+        if (st->max_time > (uint64_t)now_raw && st->max_time - (uint64_t)now_raw > (uint64_t)KDRV_CLOCK_TOLERANCE) return KDRV_SIG_E_CLOCK;
+        note_time(st, (uint64_t)now_raw);
+        eff = (int64_t)st->max_time;
+    }
+    if (!keys || nkeys == 0 || nkeys > KDRV_SIG_MAX_KEYS) return KDRV_SIG_E_ARGUMENT;
+    kdrv_sig_key_t eff_keys[KDRV_SIG_MAX_KEYS];     /* отзыв из файла состояния только добавляет флаг, снять его нельзя */
+    for (uint32_t i = 0; i < nkeys; i++) {
+        eff_keys[i] = keys[i];
+        if (kdrv_state_is_revoked(st, keys[i].id)) eff_keys[i].flags |= KDRV_SIG_KEY_REVOKED;
+    }
+    return kdrv_sig_verify_domain(domain, data, len, sig, sig_len, eff_keys, nkeys, eff);
+}
+
 int kdrv_admit(kdrv_state_t* st, const void* pkg, size_t pkg_len, const void* sig, size_t sig_len, int sig_required,
                const kdrv_sig_key_t* keys, uint32_t nkeys, int64_t now_raw,
                kdrv_header_t* h_out, int* auth, int* sig_error) {
@@ -167,22 +186,7 @@ int kdrv_admit(kdrv_state_t* st, const void* pkg, size_t pkg_len, const void* si
 
     if (!sig && sig_required) { se = KDRV_SIG_E_MISSING; rc = KDRV_E_SIGNATURE; goto out; }
     if (sig) {
-        int64_t eff = now_raw;
-        if (now_raw > 0) {
-            /* Часы ушли назад дальше допуска - отказ; внутри допуска берём не меньше максимума. Время запоминается ДО проверки подписи. */
-            if (st->max_time > (uint64_t)now_raw && st->max_time - (uint64_t)now_raw > (uint64_t)KDRV_CLOCK_TOLERANCE) {
-                se = KDRV_SIG_E_CLOCK; rc = KDRV_E_SIGNATURE; goto out;
-            }
-            note_time(st, (uint64_t)now_raw);
-            eff = (int64_t)st->max_time;
-        }
-        if (!keys || nkeys == 0 || nkeys > KDRV_SIG_MAX_KEYS) { se = KDRV_SIG_E_ARGUMENT; rc = KDRV_E_SIGNATURE; goto out; }
-        kdrv_sig_key_t eff_keys[KDRV_SIG_MAX_KEYS];     /* отзыв из файла состояния только добавляет флаг, снять его нельзя */
-        for (uint32_t i = 0; i < nkeys; i++) {
-            eff_keys[i] = keys[i];
-            if (kdrv_state_is_revoked(st, keys[i].id)) eff_keys[i].flags |= KDRV_SIG_KEY_REVOKED;
-        }
-        se = kdrv_sig_verify(pkg, pkg_len, sig, sig_len, eff_keys, nkeys, eff);
+        se = kdrv_state_verify(st, KDRV_SIG_DOMAIN_DRIVER, pkg, pkg_len, sig, sig_len, keys, nkeys, now_raw);
         if (se != KDRV_SIG_OK) { rc = KDRV_E_SIGNATURE; goto out; }
         au = KDRV_AUTH_PUBLISHER;
     }
