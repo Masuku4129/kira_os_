@@ -517,7 +517,13 @@ int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *d,
 
     if (p->write_barrier)
         p->write_barrier(p->context);
-    return smmu_invalidate_stream(d, p);
+
+    /*
+     * The page-table entry changed, not the STE/CD. CFGI alone does not
+     * invalidate cached stage-1 translations: invalidate this domain's ASID
+     * before the caller may reuse the unmapped DMA page.
+     */
+    return smmu_invalidate_asid(d, p);
 }
 
 int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
