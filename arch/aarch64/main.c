@@ -169,7 +169,8 @@ static int touches_ram(uint64_t a, uint64_t len) {
 /* Пул DMA для плат, где устройства не видят кэш процессора (в дереве нет dma-coherent): обычная память без кэша
    (MAIR 3 = 0x44, внешняя общая), без исполнения. Блоки по 2 МБ, поэтому гигабайт с пулом дробится. */
 #define PTE_DMA_NC  ((3ull << 2) | PTE_AF | (2ull << 8) | (1ull << 53) | (1ull << 54))
-static uint64_t dma_lo, dma_hi, dma_bump;                       /* границы пула и «указатель» выдачи; dma_lo == 0 - пула нет */
+static uint64_t dma_lo, dma_hi, dma_bump;
+static int dma_nc_required;                       /* границы пула и «указатель» выдачи; dma_lo == 0 - пула нет */
 static uint64_t* l0;
 
 static uint64_t* next_table(uint64_t* t, unsigned idx) {
@@ -272,7 +273,7 @@ static void dma_pool_choose(void) {
         return;
     }
 }
-int platform_dma_noncoherent(void) { return dma_lo != 0; }   /* драйверам Ring 3 DMA без согласованного кэша не отдаётся (kdrv.c) */
+int platform_dma_noncoherent(void) { return dma_nc_required; }   /* драйверам Ring 3 DMA без согласованного кэша не отдаётся (kdrv.c) */
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) {
     if (!dma_lo) return 0;
     uint64_t need = ((uint64_t)bytes + 4095) & ~4095ull, f = irq_save(), a = 0;
@@ -1270,7 +1271,8 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     for (unsigned i = 0; i < nram; i++) if (bump >= ram[i].base && bump < ram[i].base + ram[i].size) bump_end = ram[i].base + ram[i].size;
     kprintf("[KIRA ARM64] RAM: %u MB in %u region(s)\n", total >> 20, (uint64_t)nram);
 
-    if (dma_noncoherent(fdt)) dma_pool_choose();
+    dma_nc_required = dma_noncoherent(fdt);
+    if (dma_nc_required) dma_pool_choose();
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
     if (dma_lo) kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at %x without CPU cache for device buffers\n", (dma_hi - dma_lo) >> 20, dma_lo);
