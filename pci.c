@@ -31,19 +31,22 @@ static void port_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uin
 #endif
 }
 
+/* ECAM (PCI Express): конфигурация каждой функции - 4 КБ по адресу base + (шина << 20 | устройство << 15 |
+   функция << 12). Так её видят ARM-платы (дерево устройств: pci-host-ecam-generic) и x86 с таблицей MCFG. */
+static volatile uint8_t* ecam;
+static uint8_t ecam_bus0, ecam_bus1;
+
 static pci_backend_t be = { port_read32, port_write32 };
 static pci_dev_t devs[PCI_MAX_DEVS];
 static int ndevs;
 static uint8_t bus_seen[256];
 
 void pci_set_backend(const pci_backend_t* b) {
+    ecam = 0;
+    ecam_bus0 = ecam_bus1 = 0;
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
 }
 
-/* ECAM (PCI Express): конфигурация каждой функции - 4 КБ по адресу base + (шина << 20 | устройство << 15 |
-   функция << 12). Так её видят ARM-платы (дерево устройств: pci-host-ecam-generic) и x86 с таблицей MCFG. */
-static volatile uint8_t* ecam;
-static uint8_t ecam_bus0, ecam_bus1;
 static uint32_t ecam_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
     if (bus < ecam_bus0 || bus > ecam_bus1) return 0xFFFFFFFFu;
     return *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC)));
@@ -52,6 +55,31 @@ static void ecam_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uin
     if (bus < ecam_bus0 || bus > ecam_bus1) return;
     *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC))) = v;
 }
+int pci_ecam_bus_range(uint64_t ecam_size, int has_bus_range, uint32_t bus_start,
+                       uint32_t bus_end, uint8_t* first, uint8_t* last) {
+    const uint64_t bus_bytes = 1ull << 20;
+    uint64_t buses;
+
+    if (!first || !last || ecam_size < bus_bytes)
+        return -1;
+    if (has_bus_range) {
+        if (bus_start > 255u || bus_end > 255u || bus_start > bus_end)
+            return -1;
+        buses = (uint64_t)bus_end - bus_start + 1u;
+        if (buses > ecam_size / bus_bytes)
+            return -1;
+        *first = (uint8_t)bus_start;
+        *last = (uint8_t)bus_end;
+        return 0;
+    }
+
+    buses = ecam_size / bus_bytes;
+    if (buses > 256u) buses = 256u;
+    *first = 0;
+    *last = (uint8_t)(buses - 1u);
+    return 0;
+}
+
 void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end) {
     ecam = (volatile uint8_t*)base; ecam_bus0 = bus_start; ecam_bus1 = bus_end;
     be.read32 = ecam_read32; be.write32 = ecam_write32;
@@ -182,7 +210,7 @@ static void scan_bus(uint8_t bus) {
 int pci_init(void) {
     ndevs = 0;
     for (int i = 0; i < 256; i++) bus_seen[i] = 0;
-    scan_bus(0);
+    scan_bus(ecam ? ecam_bus0 : 0);
     return ndevs;
 }
 
