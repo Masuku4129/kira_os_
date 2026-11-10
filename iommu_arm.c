@@ -23,6 +23,7 @@ struct arm_iommu_map {
 
 struct arm_iommu_mapping {
     uint64_t iova;
+    uint64_t page_iova;
     uint64_t physical;
     uint64_t length;
     uint32_t pages;
@@ -473,8 +474,8 @@ int iommu_map(const pci_dev_t *dev, uint64_t iova, uint64_t physical,
                 record = m;
             continue;
         }
-        if (iova_page < m->iova + (uint64_t)m->pages * 4096u &&
-            m->iova < iova_page + bytes)
+        if (iova_page < m->page_iova + (uint64_t)m->pages * 4096u &&
+            m->page_iova < iova_page + bytes)
             return IOMMU_E_EXIST;
     }
     if (!record)
@@ -496,6 +497,7 @@ int iommu_map(const pci_dev_t *dev, uint64_t iova, uint64_t physical,
         }
     }
     record->iova = iova;
+    record->page_iova = iova_page;
     record->physical = physical;
     record->length = length;
     record->pages = pages;
@@ -519,7 +521,7 @@ int iommu_unmap(const pci_dev_t *dev, uint64_t iova, uint64_t length)
         uint64_t page;
         if (!m->used || m->iova != iova || m->length != length)
             continue;
-        page = m->iova & ~0xfffull;
+        page = m->page_iova;
         for (uint32_t n = 0; n < m->pages; ++n) {
             int rc = kira_smmu_domain_unmap_4k(&entry->domain,
                 page + (uint64_t)n * 4096u, &g_platform);
