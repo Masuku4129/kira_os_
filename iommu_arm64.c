@@ -64,7 +64,7 @@ static void* arm_alloc_dma_pages(void* context, uint32_t pages,
     if (!physical || !pages)
         return 0;
     *physical = 0;
-    pa = pmm_alloc_contiguous(pages);
+    pa = pmm_alloc_contiguous_below(pages, 1ull << 48);
     if (!pa)
         return 0;
     /* ARM64 early kernel mappings are identity-mapped RAM. Do not hand an
