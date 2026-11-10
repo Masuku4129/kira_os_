@@ -15,7 +15,8 @@
 static _Alignas(PAGE) uint8_t registers_page[2u * PAGE];
 static _Alignas(PAGE) uint8_t dma_pool[96u * PAGE];
 static size_t pool_used;
-static unsigned alloc_calls, free_calls, freed_pages, clean_calls;
+static unsigned alloc_calls, free_calls, freed_pages, clean_calls, event_count;
+static uint64_t last_event[4];
 
 static uint32_t reg_read(uint32_t off)
 {
@@ -72,6 +73,15 @@ static int test_quiesce_devices(void *context)
     return 0;
 }
 
+static void test_report_event(void *context, const uint64_t event[4])
+{
+    unsigned int i;
+    (void)context;
+    for (i = 0; i < 4u; ++i)
+        last_event[i] = event[i];
+    ++event_count;
+}
+
 static void test_barrier(void *context)
 {
     (void)context;
@@ -102,6 +112,7 @@ static struct kira_smmu_platform make_platform(void)
     p.read_barrier = test_barrier;
     p.delay = test_delay;
     p.quiesce_devices = test_quiesce_devices;
+    p.report_event = test_report_event;
     return p;
 }
 
@@ -110,7 +121,8 @@ static void reset_model(void)
     memset(registers_page, 0, sizeof(registers_page));
     memset(dma_pool, 0xa5, sizeof(dma_pool));
     pool_used = 0;
-    alloc_calls = free_calls = freed_pages = clean_calls = 0;
+    alloc_calls = free_calls = freed_pages = clean_calls = event_count = 0;
+    memset(last_event, 0, sizeof(last_event));
     reg_write(0x0000u, (1u << 1) | (2u << 2)); /* S1P + AArch64 translation tables */
     reg_write(0x0004u, (8u << 21) | (8u << 16) | 8u); /* 256-entry CMDQ/EVTQ and SID table */
     reg_write(0x0014u, (1u << 4) | 5u); /* 4 KiB granule, 48-bit output address */
@@ -144,6 +156,34 @@ int main(void)
     CHECK(kira_smmu_v3_prepare(&smmu, REG_BASE, &p) == KIRA_SMMU_OK);
     CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_OK);
     CHECK(smmu.enabled == 1);
+
+    /* Event queue: normal drain, wrap handling, and overflow detection. */
+    {
+        uint64_t *events = (uint64_t *)smmu.evtq;
+        uint32_t processed = 0;
+        events[0] = 0x1111222233334444ull;
+        events[1] = 0x5555666677778888ull;
+        events[2] = 0x9999aaaabbbbccccull;
+        events[3] = 0xddddeeeeffff0001ull;
+        reg_write(0x10a8u, 1u);
+        CHECK(kira_smmu_v3_poll_events(&smmu, &p, 8u, &processed) == KIRA_SMMU_OK);
+        CHECK(processed == 1u && event_count == 1u);
+        CHECK(last_event[0] == events[0] && last_event[3] == events[3]);
+        CHECK(reg_read(0x10acu) == 1u);
+
+        events[255u * 4u] = 0xabcdefu;
+        smmu.evtq_consumer = 0x1ffu;
+        reg_write(0x10acu, 0x1ffu);
+        reg_write(0x10a8u, 0x100u);
+        CHECK(kira_smmu_v3_poll_events(&smmu, &p, 1u, &processed) == KIRA_SMMU_OK);
+        CHECK(processed == 1u && smmu.evtq_consumer == 0x100u);
+        CHECK(last_event[0] == 0xabcdefu);
+
+        reg_write(0x10a8u, 0x80000100u);
+        CHECK(kira_smmu_v3_poll_events(&smmu, &p, 1u, &processed) == KIRA_SMMU_HARDWARE_ERROR);
+        CHECK(processed == 0u);
+        reg_write(0x10a8u, 0x100u);
+    }
 
     CHECK(kira_smmu_domain_create(&domain, &smmu, 7u, &p) == KIRA_SMMU_OK);
     CHECK(domain.active == 1 && domain.stream_id == 7u && domain.asid == 7u);
