@@ -76,6 +76,7 @@ int main(void) {
     CHECK(scan("/* SPDX-License-Identifier: BSD-2-Clause */\n/* LGPL */\n", lic, &err) != 0);
     CHECK(scan("/* SPDX-License-Identifier: BSD-2-Clause */\nint xgplot;\n", lic, &err) == 0);       /* «gpl» внутри слова - не метка */
     CHECK(scan("int a;\n", lic, &err) != 0 && strstr(err, "лицензия"));
+    /* Text notices must contain both redistribution conditions; a partial BSD-3 clause is not BSD-2. */
     const char* bsd2 = "Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met: 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer. THIS SOFTWARE IS PROVIDED BY THE AUTHOR AS IS.";
     CHECK(scan(bsd2, lic, &err) == 0 && !strcmp(lic, "BSD-2-Clause"));
     const char* bsd2_wrapped = "Redistribution and\nuse in source and\nbinary forms, with or without modification, are permitted provided that the following conditions are met: 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer. THIS SOFTWARE IS PROVIDED BY THE AUTHOR AS IS.";
