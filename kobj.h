@@ -30,6 +30,7 @@
 
 #define KOPEN_CREATE 1           // создать, если нет
 #define KOPEN_EXCL   2           // с CREATE: ошибка, если уже есть
+#define KOPEN_PUBLIC 4           // с CREATE: явно открыть объект другим процессам; по умолчанию объект приватный
 
 enum { KOBJ_PORT = 1, KOBJ_SHM = 2 };
 
@@ -37,6 +38,8 @@ typedef struct kobj {
     uint32_t type;
     volatile uint32_t refs;
     char name[KNAME_MAX + 1];
+    uint32_t owner_pid;          // создавший процесс; приватный объект доступен только ему
+    uint32_t flags;              // KOBJ_F_PUBLIC: явное межпроцессное открытие
 } kobj_t;
 
 // Таблица дескрипторов процесса (защищает вызывающий: мьютекс процесса). Дескриптор = индекс + 1. Растёт вдвое.
@@ -52,7 +55,8 @@ void kobj_retain(kobj_t* o);
 void kobj_release(kobj_t* o);                             // последняя ссылка уничтожает объект
 
 // Порты
-int     port_open(const char* name, int flags, kobj_t** out);                 // +1 ссылка
+int     port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out);
+int     port_open(const char* name, int flags, kobj_t** out);                 // совместимость host callers (PID 0); +1 ссылка
 int     port_send(kobj_t* port, uint32_t from_pid, const void* data, uint32_t len);   // 0, KE_FULL, KE_ARG, KE_NOMEM
 // Приём: длина сообщения (копируется не больше cap) и отправитель. timeout_ticks: 0 - не ждать, ~0 - без срока.
 // stop() != 0 - ожидание прерывается (процесс завершается). Сообщение копируется в kbuf (ядерный буфер cap байт).
@@ -60,7 +64,8 @@ int64_t port_recv(kobj_t* port, void* kbuf, uint32_t cap, uint64_t timeout_ticks
 unsigned port_queued(kobj_t* port);
 
 // Разделяемая память (страницы обнулены при создании)
-int      shm_open(const char* name, uint32_t pages, int flags, kobj_t** out);  // pages - при создании; +1 ссылка
+int      shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out); // KE_AGAIN: same-name creation is in progress
+int      shm_open(const char* name, uint32_t pages, int flags, kobj_t** out);  // совместимость host callers (PID 0); +1 ссылка
 uint32_t shm_pages(kobj_t* shm);
 uint64_t shm_frame(kobj_t* shm, uint32_t i);
 

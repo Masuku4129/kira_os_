@@ -8,7 +8,14 @@ static void say_u(u64 v) { char t[21]; int n = 0; do { t[n++] = (char)('0' + v %
 #define N 200
 
 static int server(i64 port) {
-    i64 shm = k_shm_open("kira.test.shm", 1, KOPEN_CREATE);
+    /* Keep foreign private objects alive while the client attempts to open them. */
+    i64 private_port = k_port_open("kira.test.private", KOPEN_CREATE);
+    i64 private_shm = k_shm_open("kira.test.private.shm", 1, KOPEN_CREATE);
+    if (private_port < 0 || private_shm < 0) {
+        say("ipc server: FAIL private object creation\n");
+        return 1;
+    }
+    i64 shm = k_shm_open("kira.test.shm", 1, KOPEN_CREATE | KOPEN_PUBLIC);
     volatile u32* page = shm < 0 ? (volatile u32*)0 : (volatile u32*)k_shm_map(shm);
     if (!page) { say("ipc server: FAIL shared memory\n"); return 1; }
     page[0] = 0x4B495241;                                       /* метка для клиента */
@@ -38,11 +45,28 @@ static int server(i64 port) {
 static int client(void) {
     i64 port = -1;
     for (int i = 0; i < 100 && port < 0; i++) { port = k_port_open("kira.test", 0); if (port < 0) k_sleep(1); }
-    i64 reply = k_port_open("kira.test.reply", KOPEN_CREATE | KOPEN_EXCL);
+    i64 reply = k_port_open("kira.test.reply", KOPEN_CREATE | KOPEN_EXCL | KOPEN_PUBLIC);
     i64 shm = k_shm_open("kira.test.shm", 0, 0);
     for (int i = 0; i < 100 && shm < 0; i++) { k_sleep(1); shm = k_shm_open("kira.test.shm", 0, 0); }
+    /* The server owns these names. Wait for publication, then verify both are denied. */
+    i64 private_port = KE_NOENT, private_shm = KE_NOENT;
+    for (int i = 0; i < 100 && private_port == KE_NOENT; i++) {
+        private_port = k_port_open("kira.test.private", 0);
+        if (private_port == KE_NOENT) k_sleep(1);
+    }
+    for (int i = 0; i < 100 && private_shm == KE_NOENT; i++) {
+        private_shm = k_shm_open("kira.test.private.shm", 0, 0);
+        if (private_shm == KE_NOENT) k_sleep(1);
+    }
+    int private_denied = private_port == KE_PERM && private_shm == KE_PERM;
+    if (private_port >= 0) k_close(private_port);
+    if (private_shm >= 0) k_close(private_shm);
     volatile u32* page = shm < 0 ? (volatile u32*)0 : (volatile u32*)k_shm_map(shm);
-    if (port < 0 || reply < 0 || !page) { say("ipc client: FAIL setup\n"); return 1; }
+    if (port < 0 || reply < 0 || !page || !private_denied) {
+        say("ipc client: FAIL setup/private isolation\n");
+        return 1;
+    }
+    say("ipc client: foreign private port and SHM denied (PASS)\n");
     while (!__atomic_load_n(&page[1], __ATOMIC_ACQUIRE)) k_futex_wait(&page[1], 0, 100);   /* futex через общую память */
     if (page[0] != 0x4B495241) { say("ipc client: FAIL shared memory content\n"); return 1; }
     u64 t0 = k_clock_ns();
@@ -66,7 +90,7 @@ static int client(void) {
 }
 
 int umain(void) {
-    i64 port = k_port_open("kira.test", KOPEN_CREATE | KOPEN_EXCL);
+    i64 port = k_port_open("kira.test", KOPEN_CREATE | KOPEN_EXCL | KOPEN_PUBLIC);
     if (port >= 0) return server(port);
     if (port == KE_EXIST) return client();
     say("ipc: FAIL cannot open port\n");
