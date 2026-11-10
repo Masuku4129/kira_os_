@@ -42,10 +42,15 @@ enum kira_acpi_prt_status {
 };
 
 /*
- * Parse the AML byte range containing the evaluated _PRT package object.
- * The input begins with the PackageOp (0x12) or VarPackageOp (0x13), not
- * with the enclosing NameOp/MethodOp. Package elements must already be
- * evaluated AML objects. Link-device sources are resolved through ops.
+ * Decode a constant AML Package/VarPackage containing the _PRT entries.
+ * aml begins with the package opcode. scope is the containing namespace path
+ * in dotted ASL form (for example "\\_SB.PCI0"); short NameSegs are padded
+ * to their four-byte AML representation.
+ *
+ * Only literal integers, nested packages and static NameStrings are
+ * accepted. AML methods, dynamic expressions and link-device resource
+ * evaluation are not executed here. A named link source requires ops and
+ * must be resolved by the caller; direct-GSI (NullName) routes need no ops.
  */
 int kira_acpi_prt_parse(const uint8_t *aml, size_t aml_size,
                         const char *scope,
