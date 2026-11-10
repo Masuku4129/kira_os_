@@ -111,12 +111,14 @@ int main(void) {
     sched_set_quantum(4);
 
     // ---- 3. core (critical) просыпается ровно в срок и вытесняет обычные потоки ----
-    sched_set_wake_tick(core, fake_ticks + 10);             // core спит с шага 1
+    CHECK(core->sleep_index != UINT32_MAX);                  // срок core зарегистрирован в min-heap
+    sched_set_wake_tick(core, fake_ticks + 10);             // перенос существующего узла на новый срок
+    CHECK(core->sleep_index != UINT32_MAX);
     uint64_t wake_at = core->wake_tick;
     uint64_t got = 0;
     for (int i = 0; i < 50 && !got; i++) { tick(); if (sched_current() == core) got = fake_ticks; }
     printf("core wake: due %llu, got %llu\n", (unsigned long long)wake_at, (unsigned long long)got);
-    CHECK(got == wake_at);
+    CHECK(got == wake_at && core->sleep_index == UINT32_MAX); // извлечён из heap ровно при пробуждении
     sched_sleep_ticks(100000);
     CHECK(sched_current() == a || sched_current() == b);
 
@@ -124,16 +126,18 @@ int main(void) {
     memset(cpu_ticks, 0, sizeof cpu_ticks);
     thread_t* first = (thread_t*)sched_current();
     sched_sleep_ticks(30);                                  // текущий (A или B) засыпает на 30 тиков
+    CHECK(first->sleep_index != UINT32_MAX);
     thread_t* second = (thread_t*)sched_current();
     CHECK(second != first && (second == a || second == b));
     sched_sleep_ticks(40);                                  // второй - на 40
+    CHECK(second->sleep_index != UINT32_MAX);
     CHECK(!strcmp(sched_current()->name, "idle"));
     for (int i = 0; i < 29; i++) { tick(); CHECK(!strcmp(sched_current()->name, "idle")); }
     tick();                                                 // 30-й тик: first проснулся
-    CHECK(sched_current() == first);
+    CHECK(sched_current() == first && first->sleep_index == UINT32_MAX);
     int back = 0;
     for (int i = 0; i < 12 && !back; i++) { tick(); if (sched_current() == second) back = 1; }
-    CHECK(back);                                            // second проснулся на 40-м и получил CPU в пределах кванта
+    CHECK(back && second->sleep_index == UINT32_MAX);       // second проснулся на 40-м, heap membership снят
     CHECK(cpu_ticks[2] >= 29);                              // idle (id 2) честно учтён
 
     // ---- 5. периодический critical-поток не страдает от нагрузки ----
@@ -269,19 +273,24 @@ int main(void) {
         CHECK(sched_attach_cpu() == 0);
         thread_t* idle1 = (thread_t*)sched_current();
         host_cpu = 0;
+        thread_t* pin_sleep = sched_create_on("pin-sleep", dummy, 0, PRIO_NORMAL, cm_from64(2));
         thread_t* pin1 = sched_create_on("pin1", dummy, 0, PRIO_NORMAL, cm_from64(2));
         thread_t* both = sched_create_on("both01", dummy, 0, PRIO_NORMAL, cm_from64(3));
         thread_t* svc = sched_create("svc", dummy, 0, PRIO_NORMAL);
-        CHECK(pin1 && both && svc);
+        CHECK(pin_sleep && pin1 && both && svc);
         CHECK((svc->flags & THREAD_F_SERVICE) && !(pin1->flags & THREAD_F_SERVICE));   // сбой в служебном потоке - авария
         host_cpu = 1;
+        for (int i = 0; i < 6 * 25 && sched_current() != pin_sleep; i++) tick();
+        CHECK(sched_current() == pin_sleep);
+        sched_sleep_ticks(500);                                   // поток на отказавшем CPU спит в timer heap
         for (int i = 0; i < 6 * 25 && sched_current() != pin1; i++) tick();
         CHECK(sched_current() == pin1);
         CHECK(sched_thread_alive(pin1->id));
         unsigned orphans = sched_core_fail();                       // «отказ» ядра 1, пока оно исполняет pin1
         host_cpu = 0;
-        CHECK(orphans == 0);                                        // привязанный pin1 - сам виновник, остальных привязанных нет
-        CHECK(pin1->state == THREAD_ZOMBIE && pin1->on_cpu == 1);   // стек виновного не освобождается из-под ядра
+        CHECK(orphans == 1);                                        // pin_sleep был привязан только к отказавшему CPU
+        CHECK(pin1->state == THREAD_ZOMBIE && pin1->on_cpu == 1);
+        CHECK(pin_sleep->state == THREAD_ZOMBIE && pin_sleep->sleep_index == UINT32_MAX);   // стек виновного не освобождается из-под ядра
         CHECK(!sched_thread_alive(pin1->id));
         CHECK(percpu_table[1].failed == 1 && percpu_table[1].sched_on == 0 && percpu_table[1].online == 0);
         CHECK(cm_is64(&both->affinity, 1) && both->state != THREAD_ZOMBIE);   // «оба ядра» стало «только 0»
@@ -294,7 +303,7 @@ int main(void) {
         pin1->on_cpu = 0;
         both->state = svc->state = THREAD_ZOMBIE;
         for (int i = 0; i < 4 && (sched_current() == both || sched_current() == svc); i++) sched_yield();
-        CHECK(sched_reap() == 3);
+        CHECK(sched_reap() == 4);
         idle1->state = THREAD_UNUSED; idle1->on_cpu = 0;
         percpu_table[1].sched_on = 0; percpu_table[1].current = 0; percpu_table[1].idle = 0; percpu_table[1].failed = 0;
     }
@@ -409,6 +418,20 @@ int main(void) {
         CHECK(cm_is_all(&b1->affinity) && cm_is_all(&b2->affinity) && cm_is_all(&f1->affinity) && sched_reserved_core() == -1);
         f1->state = b1->state = pin->state = kt->state = b2->state = THREAD_ZOMBIE;
     }
+
+    // ---- 4b. раннее пробуждение удаляет произвольный узел из таймерной кучи ----
+    thread_t* early = sched_create("early", dummy, 0, PRIO_CRITICAL);
+    CHECK(early != 0);
+    for (int i = 0; i < 32 && sched_current() != early; i++) tick();
+    CHECK(sched_current() == early);
+    sched_sleep_ticks(100);
+    CHECK(early->state == THREAD_SLEEPING && early->sleep_index != UINT32_MAX);
+    sched_wake_waiter(early);
+    CHECK(early->state == THREAD_READY && early->sleep_index == UINT32_MAX);
+    for (int i = 0; i < 32 && sched_current() != early; i++) tick();
+    CHECK(sched_current() == early);
+    for (int i = 0; i < 110; i++) tick();                    // старый срок не должен повторно разбудить поток
+    CHECK(early->state != THREAD_SLEEPING && early->sleep_index == UINT32_MAX);
 
     printf("%s\n", fails ? "FAILED" : "ALL SCHEDULER TESTS PASSED");
     return fails != 0;

@@ -36,6 +36,7 @@ typedef struct thread {
     thread_state_t state;
     thread_prio_t prio;
     uint64_t wake_tick;            // для THREAD_SLEEPING
+    uint32_t sleep_index;           // позиция в min-heap сроков пробуждения; UINT32_MAX - не спит по таймеру
     uint32_t quantum_left;         // оставшиеся тики кванта
     uint64_t cpu_cycles;           // накопленное время на CPU (такты TSC)
     uint64_t switches_in;          // сколько раз поток получал процессор
