@@ -1281,6 +1281,7 @@ void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen) {
 
 void x86_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
     if (!K.x86_state) K.x86_state = ka_new(sizeof(X86State));
+    x86_state_ctx = K.x86_state;
     memset(X86S, 0, sizeof *X86S);
     Obj *mainf = gen_prepare(globals);
     /* _start: argc/argv не передаются, main(0, 0); код выхода - в K_EXIT */
