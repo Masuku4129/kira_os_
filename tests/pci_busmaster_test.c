@@ -11,21 +11,21 @@ int iommu_device_ready(const pci_dev_t* dev)
 }
 #endif
 
-static uint32_t config[64];
+static uint32_t config[2][64];
 static uint8_t ecam_window[1u << 20] __attribute__((aligned(1u << 20)));
 
 static uint32_t read_cfg(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off)
 {
-    if (bus != 0 || dev != 1 || fn != 0 || off >= 256u)
+    if (bus != 0 || (dev != 1 && dev != 2) || fn != 0 || off >= 256u)
         return 0xffffffffu;
-    return config[off >> 2];
+    return config[dev - 1u][off >> 2];
 }
 
 static void write_cfg(uint8_t bus, uint8_t dev, uint8_t fn,
                       uint16_t off, uint32_t value)
 {
-    if (bus == 0 && dev == 1 && fn == 0 && off < 256u)
-        config[off >> 2] = value;
+    if (bus == 0 && (dev == 1 || dev == 2) && fn == 0 && off < 256u)
+        config[dev - 1u][off >> 2] = value;
 }
 
 #define CHECK(x) do { if (!(x)) { \
@@ -39,15 +39,23 @@ int main(void)
     const pci_dev_t* dev;
 
     memset(config, 0, sizeof(config));
-    config[0] = (0x1001u << 16) | 0x1af4u;
-    config[1] = 0x0007u; /* I/O, memory and bus mastering were left enabled. */
-    config[2] = 0x01000001u;
+    config[0][0] = (0x1001u << 16) | 0x1af4u;
+    config[0][1] = 0x0007u; /* Endpoint firmware left bus mastering enabled. */
+    config[0][2] = 0x01000001u;
+    config[1][0] = (0x1234u << 16) | 0x8086u;
+    config[1][1] = 0x0003u; /* Bridge starts with forwarding disabled. */
+    config[1][2] = 0x06040001u;
+    config[1][3] = 0x00010000u; /* Type-1 header. */
+    config[1][6] = 0x00050500u; /* Secondary/subordinate bus 5. */
     pci_set_backend(&backend);
 
-    CHECK(pci_init() == 1);
+    CHECK(pci_init() == 2);
     dev = pci_get(0);
+    const pci_dev_t* bridge = pci_get(1);
     CHECK(dev != 0 && dev->vendor == 0x1af4u && dev->device == 0x1001u);
+    CHECK(bridge != 0 && bridge->class_code == 0x06 && bridge->subclass == 0x04);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
+    CHECK((pci_read16(bridge, 0x04) & PCI_CMD_MASTER) != 0);
     CHECK((pci_read16(dev, 0x04) & (PCI_CMD_IO | PCI_CMD_MEM)) ==
           (PCI_CMD_IO | PCI_CMD_MEM));
 #if defined(__aarch64__) || defined(__x86_64__)
