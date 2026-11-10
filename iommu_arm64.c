@@ -161,20 +161,21 @@ static void arm_report_event(void* context, const uint64_t event[4])
     uint32_t id = (uint32_t)(event[0] & 0xffu);
     (void)context;
     if (sid < 256u) {
-        if (id >= 0x10u && id <= 0x13u) {
-            /* Translation/address/access/permission faults prove the stage-1
-               domain rejected a DMA request (also used by the startup probe). */
+        int translation_fault = id >= 0x10u && id <= 0x13u;
+        if (translation_fault) {
+            /* These fault classes prove the stage-1 domain rejected a DMA
+               request; virtio's startup probe intentionally exercises this. */
             __atomic_add_fetch(&arm_sid_faults[sid], 1u, __ATOMIC_RELAXED);
-        } else {
-            /* STE/CD/stream configuration faults are not a successful isolation
-               probe. Stop every PCI function sharing this SID immediately. */
-            for (unsigned i = 0; i < arm_device_count; ++i) {
-                arm_iommu_device_t* dev = &arm_devices[i];
-                if (dev->covered && dev->stream_id == sid) {
+        }
+        /* Stop bus mastering on every event. Configuration faults additionally
+           quarantine the stream permanently until an explicit recovery path. */
+        for (unsigned i = 0; i < arm_device_count; ++i) {
+            arm_iommu_device_t* dev = &arm_devices[i];
+            if (dev->covered && dev->stream_id == sid) {
+                if (!translation_fault)
                     __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
-                    if (dev->pci)
-                        pci_disable_bus_master(dev->pci);
-                }
+                if (dev->pci)
+                    pci_disable_bus_master(dev->pci);
             }
         }
     }
