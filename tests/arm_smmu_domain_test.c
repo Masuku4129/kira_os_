@@ -10,7 +10,7 @@
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); return 1; \
 } } while (0)
 #define REG_BASE 0x100000u
-#define DMA_BASE 0x201000ull
+#define DMA_BASE 0x200000ull
 #define PA_MASK  0x0000fffffffff000ull
 
 static _Alignas(PAGE) uint8_t registers_page[2u * PAGE];
