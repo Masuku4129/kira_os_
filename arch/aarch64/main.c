@@ -1110,7 +1110,14 @@ static void arm_pci_init(const void* fdt) {
         kprintf("[KIRA PCI] cannot map ECAM window\n");
         return;
     }
-    pci_use_ecam(e, first_bus, last_bus);
+    pci_ecam_config_t ecam_config = {
+        .base = e, .size = size,
+        .first_bus = first_bus, .last_bus = last_bus
+    };
+    if (pci_configure_ecam(&ecam_config) != 0) {
+        kprintf("[KIRA PCI] rejected ECAM configuration after mapping\\n");
+        return;
+    }
 
     pci_window_t m32 = { 0, 0, 0, 0 }, m64 = { 0, 0, 0, 0 };
     uint32_t pac = 2, sc = 2, prop_len = 0;
