@@ -49,8 +49,7 @@
 #define CMD_CFGI_CD 0x05u
 #define CMD_TLBI_NH_ASID 0x11u
 #define CMD_SYNC 0x46u
-#define CMD_CFGI_CD_SSV (1ull << 11)
-#define CMD_CFGI_CD_LEAF 1ull
+#define CMD_CFGI_LEAF 1ull
 #define CMD_TLBI_ASID_SHIFT 48u
 
 static uint64_t *smmu_words(void *p) { return (uint64_t *)p; }
@@ -315,7 +314,7 @@ static int smmu_invalidate_stream(struct kira_smmu_domain *d,
      * them and make the consumer pointer an invalid completion test.
      */
     smmu_cmdq_lock(d->smmu);
-    rc = smmu_cmd_submit(d->smmu, p, command, 0, 0);
+    rc = smmu_cmd_submit(d->smmu, p, command, CMD_CFGI_LEAF, 0);
     if (rc == KIRA_SMMU_OK)
         rc = smmu_cmd_sync(d->smmu, p);
     smmu_cmdq_unlock(d->smmu);
@@ -325,12 +324,12 @@ static int smmu_invalidate_stream(struct kira_smmu_domain *d,
 static int smmu_invalidate_cd(struct kira_smmu_domain *d,
                               const struct kira_smmu_platform *p)
 {
-    uint64_t command = (uint64_t)CMD_CFGI_CD | CMD_CFGI_CD_SSV |
+    uint64_t command = (uint64_t)CMD_CFGI_CD |
                        ((uint64_t)d->stream_id << 32);
     int rc;
 
     smmu_cmdq_lock(d->smmu);
-    rc = smmu_cmd_submit(d->smmu, p, command, CMD_CFGI_CD_LEAF, 0);
+    rc = smmu_cmd_submit(d->smmu, p, command, CMD_CFGI_LEAF, 0);
     if (rc == KIRA_SMMU_OK)
         rc = smmu_cmd_sync(d->smmu, p);
     smmu_cmdq_unlock(d->smmu);
