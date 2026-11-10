@@ -3,8 +3,6 @@ name: kira-parallel-build-factory
 on:
   push:
     branches: ['factory/**']
-  pull_request:
-    branches: [autodrv]
   workflow_dispatch:
 
 permissions:
