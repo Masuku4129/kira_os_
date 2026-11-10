@@ -9,7 +9,7 @@ python3 tools/mkbios.py $T/s1.bin $T/s2.bin "$KERNEL" $T/ok.img >/dev/null || ex
 python3 - "$T/ok.img" <<'PY'
 import struct, sys
 image = open(sys.argv[1], "rb").read()
-assert image[510:512] == b"\\x55\\xaa", "missing MBR signature"
+assert image[510:512] == b"\x55\xaa", "missing MBR signature"
 boot, start_chs, kind, end_chs, start_lba, sectors = struct.unpack_from("<B3sB3sII", image, 446)
 assert boot == 0x80 and kind == 0xDA, (boot, kind)
 assert start_lba == 1 and sectors == len(image) // 512 - 1, (start_lba, sectors)
