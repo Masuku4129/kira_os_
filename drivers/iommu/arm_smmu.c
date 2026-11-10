@@ -255,6 +255,7 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->stream_table_allocation_pages = 0;
     smmu->stream_table_lock = 0;
     smmu->cmdq_lock = 0;
+    smmu->evtq_lock = 0;
     for (uint32_t i = 0; i < 8; ++i)
         smmu->stream_ids[i] = 0;
     /* Start from an unallocated queue state; every failure path can unwind. */
@@ -479,9 +480,15 @@ int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
 
     *processed = 0;
     platform->read_barrier(platform->context);
+    while (__atomic_exchange_n(&smmu->evtq_lock, 1u, __ATOMIC_ACQUIRE)) {
+        if (platform->delay)
+            platform->delay(platform->context);
+    }
     producer_raw = smmu_read32(smmu->registers, SMMU_EVTQ_PROD);
-    if (producer_raw & SMMU_EVTQ_OVF)
+    if (producer_raw & SMMU_EVTQ_OVF) {
+        __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
         return KIRA_SMMU_HARDWARE_ERROR;
+    }
     producer = producer_raw & SMMU_EVTQ_PTR_MASK;
     consumer = smmu->evtq_consumer & SMMU_EVTQ_PTR_MASK;
 
@@ -505,6 +512,7 @@ int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
         smmu->evtq_consumer = consumer;
     }
     *processed = count;
+    __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
     return KIRA_SMMU_OK;
 }
 
@@ -526,6 +534,15 @@ int kira_smmu_v3_disable(struct kira_smmu *smmu,
 
     if (platform->quiesce_devices(platform->context) != 0)
         return KIRA_SMMU_HARDWARE_ERROR;
+    {
+        uint32_t processed;
+        do {
+            rc = kira_smmu_v3_poll_events(smmu, platform,
+                                          SMMU_QUEUE_ENTRIES, &processed);
+            if (rc != KIRA_SMMU_OK)
+                return rc;
+        } while (processed == SMMU_QUEUE_ENTRIES);
+    }
     rc = smmu_update_gbpa(smmu, platform, SMMU_GBPA_ABORT, 0);
     if (rc != KIRA_SMMU_OK)
         return rc;
