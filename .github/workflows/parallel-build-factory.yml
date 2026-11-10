@@ -39,7 +39,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q clang lld nasm llvm qemu-system-x86 qemu-system-arm \
             grub-pc-bin grub-efi-amd64-bin grub-common xorriso dosfstools mtools \
-            python3-cryptography python3-pil openssl gnu-efi
+            python3-cryptography python3-pil openssl gnu-efi ovmf
       - name: Execute assigned workstream
         shell: bash
         run: |
@@ -53,6 +53,11 @@ jobs:
           case "$box" in
             boot-release)
               ./build_clang.sh --no-run
+              python3 ci/kira_vm.py --out "$out/bios" --scenario boot-bios --scenario boot-grub
+              bash ./build_uefi.sh "$out/uefi"
+              bash ci/test_uefi_ovmf.sh "$out/uefi" "$out/uefi-ovmf"
+              python3 tools/mkuefi.py "$out/uefi/EFI/BOOT/BOOTX64.EFI" "$out/uefi/EFI/KIRA/KIRA.ELF" "$out/kira-uefi.img"
+              KIRA_UEFI_DISK="$out/kira-uefi.img" bash ci/test_uefi_ovmf.sh "$out/uefi" "$out/uefi-gpt"
               python3 -m unittest ci.test_release_gate
               ;;
             kcc)
