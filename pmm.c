@@ -433,6 +433,30 @@ uint64_t pmm_alloc_contiguous(uint32_t pages) {
     return result;
 }
 
+/* Непрерывный блок с верхней границей адреса (exclusive): для устройств с ограниченной DMA-адресацией. */
+uint64_t pmm_alloc_contiguous_below(uint32_t pages, uint64_t limit_exclusive) {
+    if (!pages || limit_exclusive < PMM_PAGE_SIZE) return 0;
+    uint64_t limit = limit_exclusive / PMM_PAGE_SIZE;
+    uint64_t total = nwords * 32;
+    if (limit > total) limit = total;
+    uint64_t f = spin_lock_irqsave(&pmm_lock);
+    uint64_t result = 0, run = 0, start = 0;
+    for (uint64_t p = 0; p < limit; ) {
+        if ((p & 31) == 0 && used_map[p >> 5] == 0xFFFFFFFFu) { run = 0; p += 32; continue; }
+        if (test_bit(used_map, p)) { run = 0; p++; continue; }
+        if (run == 0) start = p;
+        run++; p++;
+        if (run == pages) {
+            for (uint64_t q = start; q < start + pages; q++) set_bit(used_map, q);
+            free_pages -= pages;
+            result = start * PMM_PAGE_SIZE;
+            break;
+        }
+    }
+    spin_unlock_irqrestore(&pmm_lock, f);
+    return result;
+}
+
 int pmm_free_contiguous(uint64_t paddr, uint32_t pages) {
     if (!pages || (paddr & (PMM_PAGE_SIZE - 1)) ||
         paddr > UINT64_MAX - (uint64_t)pages * PMM_PAGE_SIZE ||
