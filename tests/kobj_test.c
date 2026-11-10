@@ -95,6 +95,18 @@ int main(void) {
     kobj_release(pub_shm2); kobj_release(pub_shm1);
     CHECK(kobj_count() == 0 && pages_live == 0);
 
+    // Reference counts must never wrap and make a live object appear unreferenced.
+    kobj_t* ref_limit = 0;
+    CHECK(port_open("ref.limit", KOPEN_CREATE, &ref_limit) == 0 && ref_limit);
+    if (ref_limit) {
+        ref_limit->refs = UINT32_MAX;
+        CHECK(kobj_retain(ref_limit) == KE_LIMIT);
+        kobj_t* denied = 0;
+        CHECK(port_open("ref.limit", 0, &denied) == KE_LIMIT && denied == 0);
+        ref_limit->refs = 1;
+        kobj_release(ref_limit);
+    }
+
     // Null inputs are rejected safely by descriptor helpers; null object refs are no-ops.
     CHECK(htab_add(0, 0) == KE_ARG && htab_cap(0) == 0);
     CHECK(htab_get(0, 1, 0) == 0 && htab_take(0, 1) == 0);
