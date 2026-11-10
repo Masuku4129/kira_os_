@@ -271,7 +271,7 @@ static void arm_unmap_record(arm_iommu_device_t* dev, arm_iommu_map_t* map)
             &arm_platform);
         if (rc != KIRA_SMMU_OK) {
             map->mapped_pages = i; /* Remaining mappings are the low prefix. */
-            dev->blocked = 1u;
+            __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
             return;
         }
     }
@@ -414,7 +414,8 @@ int iommu_device_ready(const pci_dev_t* pci)
     dev = arm_find_device(pci);
     if (!dev || !dev->covered)
         return 1; /* No iommu-map entry: the platform does not route this RID here. */
-    if (dev->blocked || !arm_smmu_active || dev->stream_id >= 256u)
+    if (__atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) ||
+        !arm_smmu_active || dev->stream_id >= 256u)
         return 0;
     return arm_domains[dev->stream_id].active != 0;
 }
@@ -422,7 +423,8 @@ int iommu_device_ready(const pci_dev_t* pci)
 int iommu_device_isolated(const pci_dev_t* pci)
 {
     arm_iommu_device_t* dev = arm_find_device(pci);
-    if (!dev || !dev->covered || dev->blocked || dev->stream_id >= 256u ||
+    if (!dev || !dev->covered ||
+        __atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) || dev->stream_id >= 256u ||
         arm_sid_shared[dev->stream_id])
         return 0;
     return arm_domains[dev->stream_id].active &&
@@ -455,7 +457,7 @@ int iommu_isolate_device(const pci_dev_t* pci)
 
     rc = kira_smmu_domain_destroy(domain, &arm_platform);
     if (rc != KIRA_SMMU_OK) {
-        dev->blocked = 1u;
+        __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
         return IOMMU_E_HW;
     }
     rc = kira_smmu_domain_create(domain, &arm_smmu, dev->stream_id,
@@ -467,7 +469,7 @@ int iommu_isolate_device(const pci_dev_t* pci)
        unowned valid STE. If restoration also fails, block bus mastering. */
     if (kira_smmu_domain_passthrough(domain, &arm_smmu, dev->stream_id,
                                      &arm_platform) != KIRA_SMMU_OK)
-        dev->blocked = 1u;
+        __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
     return rc == KIRA_SMMU_MEMORY_FAILED ? IOMMU_E_NOMEM : IOMMU_E_HW;
 }
 
@@ -479,8 +481,9 @@ int iommu_release_device(const pci_dev_t* pci)
 
     if (!dev || !dev->covered)
         return IOMMU_E_NOCOVER;
-    if (dev->blocked || dev->stream_id >= 256u ||
-        !arm_smmu_active || arm_sid_shared[dev->stream_id])
+    if (__atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) ||
+        dev->stream_id >= 256u || !arm_smmu_active ||
+        arm_sid_shared[dev->stream_id])
         return IOMMU_E_HW;
     domain = &arm_domains[dev->stream_id];
     if (!domain->active)
