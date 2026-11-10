@@ -26,7 +26,15 @@ static kobj_t** reg;                 // реестр именованных об
 static unsigned reg_n, reg_cap;
 static spinlock_t reg_lock = SPINLOCK_INIT;
 static volatile uint64_t msgs_total;
+#define KOBJ_F_PUBLIC 1u
+#define KOPEN_FLAGS (KOPEN_CREATE | KOPEN_EXCL | KOPEN_PUBLIC)
+
 uint64_t kobj_messages_total(void) { return msgs_total; }
+
+static int open_flags_valid(int flags) {
+    return !(flags & ~KOPEN_FLAGS) &&
+           (!(flags & (KOPEN_EXCL | KOPEN_PUBLIC)) || (flags & KOPEN_CREATE));
+}
 
 // ---- имена и дескрипторы ----
 int kname_ok(const char* s) {
@@ -113,7 +121,7 @@ unsigned kobj_count(void) { return reg_n; }
 
 // Найти или создать (создание - вне замка: страницы разделяемой памяти обнуляются долго). made - заготовка
 // нового объекта или 0; если объект за это время создал кто-то другой, заготовка уничтожается.
-static int publish(uint32_t type, const char* name, int flags, kobj_t* made, kobj_t** out) {
+static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pid, kobj_t* made, kobj_t** out) {
     uint64_t f = spin_lock_irqsave(&reg_lock);
     while (made && reg_n >= reg_cap) {                    // реестр полон: вырастить вне замка и повторить
         unsigned want = reg_cap ? reg_cap * 2 : 64;
@@ -130,11 +138,14 @@ static int publish(uint32_t type, const char* name, int flags, kobj_t* made, kob
     kobj_t* o = find_locked(type, name);
     int rc = 0;
     if (o) {
-        if ((flags & KOPEN_CREATE) && (flags & KOPEN_EXCL)) rc = KE_EXIST;
+        if (o->owner_pid != owner_pid && !(o->flags & KOBJ_F_PUBLIC)) rc = KE_PERM;
+        else if ((flags & KOPEN_CREATE) && (flags & KOPEN_EXCL)) rc = KE_EXIST;
         else { o->refs++; *out = o; }
     } else if (!made) {
         rc = KE_NOENT;
     } else {
+        made->owner_pid = owner_pid;
+        made->flags = (flags & KOPEN_PUBLIC) ? KOBJ_F_PUBLIC : 0;
         made->refs = 1;
         reg[reg_n++] = made;
         *out = made;
@@ -160,8 +171,8 @@ static void set_name(kobj_t* o, uint32_t type, const char* name) {
 }
 
 // ---- порты ----
-int port_open(const char* name, int flags, kobj_t** out) {
-    if (!kname_ok(name)) return KE_ARG;
+int port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out) {
+    if (!kname_ok(name) || !out || !open_flags_valid(flags)) return KE_ARG;
     port_t* p = 0;
     if ((flags & KOPEN_CREATE) && !exists(KOBJ_PORT, name)) {
         p = (port_t*)kmalloc(sizeof(port_t));
@@ -169,7 +180,11 @@ int port_open(const char* name, int flags, kobj_t** out) {
         __builtin_memset(p, 0, sizeof *p);
         set_name(&p->hdr, KOBJ_PORT, name);
     }
-    return publish(KOBJ_PORT, name, flags, p ? &p->hdr : 0, out);
+    return publish(KOBJ_PORT, name, flags, owner_pid, p ? &p->hdr : 0, out);
+}
+
+int port_open(const char* name, int flags, kobj_t** out) {
+    return port_open_as(name, flags, 0, out);
 }
 
 int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
@@ -248,8 +263,8 @@ uint64_t shm_room_kb(void);                               // тест задаё
 #else
 static uint64_t shm_room_kb(void) { return pmm_get_free_memory_kb() / 2; }
 #endif
-int shm_open(const char* name, uint32_t pages, int flags, kobj_t** out) {
-    if (!kname_ok(name)) return KE_ARG;
+int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out) {
+    if (!kname_ok(name) || !out || !open_flags_valid(flags)) return KE_ARG;
     shm_t* s = 0;
     if ((flags & KOPEN_CREATE) && !exists(KOBJ_SHM, name)) {
         if (pages == 0) return KE_ARG;
@@ -269,7 +284,11 @@ int shm_open(const char* name, uint32_t pages, int flags, kobj_t** out) {
             __builtin_memset((void*)(uintptr_t)pa, 0, 4096);
         }
     }
-    return publish(KOBJ_SHM, name, flags, s ? &s->hdr : 0, out);
+    return publish(KOBJ_SHM, name, flags, owner_pid, s ? &s->hdr : 0, out);
+}
+
+int shm_open(const char* name, uint32_t pages, int flags, kobj_t** out) {
+    return shm_open_as(name, pages, flags, 0, out);
 }
 
 uint32_t shm_pages(kobj_t* o) { return o && o->type == KOBJ_SHM ? ((shm_t*)o)->pages : 0; }
