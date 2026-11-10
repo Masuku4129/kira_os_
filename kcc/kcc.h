@@ -29,6 +29,12 @@ typedef struct {
     size_t (*grow)(void *ud, size_t cap, size_t need);
 } KCfg;
 
+typedef struct {
+    int obj, dumpopt, nosr, wrapv, nolvn, nosse, noopt;
+    int noregs, nodce, noalign, nonnshift, nomrot, nodisp, noextld;
+    int norec, noonce, nopooltrim, nopop, nocfgfirst, noreassoc;
+} KOptions;
+
 typedef struct { char *p; size_t len, cap; } SB;
 
 typedef struct {
@@ -48,8 +54,29 @@ typedef struct {
     void *a64_state;                           /* состояние кодогенератора AArch64, принадлежит этой компиляции */
     void *x86_state;                           /* состояние кодогенератора x86-64, принадлежит этой компиляции */
     void *opt_state;                           /* состояние оптимизатора IR, принадлежит этой компиляции */
+    KOptions options;                          /* флаги одной компиляции */
 } KCtx;
 extern KCtx K;
+#define kcc_obj       (K.options.obj)
+#define kcc_dumpopt   (K.options.dumpopt)
+#define kcc_nosr      (K.options.nosr)
+#define kcc_wrapv     (K.options.wrapv)
+#define kcc_nolvn     (K.options.nolvn)
+#define kcc_nosse     (K.options.nosse)
+#define kcc_noopt     (K.options.noopt)
+#define kcc_noregs    (K.options.noregs)
+#define kcc_nodce     (K.options.nodce)
+#define kcc_noalign   (K.options.noalign)
+#define kcc_nonnshift (K.options.nonnshift)
+#define kcc_nomrot    (K.options.nomrot)
+#define kcc_nodisp    (K.options.nodisp)
+#define kcc_noextld   (K.options.noextld)
+#define kcc_norec     (K.options.norec)
+#define kcc_noonce    (K.options.noonce)
+#define kcc_nopooltrim (K.options.nopooltrim)
+#define kcc_nopop     (K.options.nopop)
+#define kcc_nocfgfirst (K.options.nocfgfirst)
+#define kcc_noreassoc (K.options.noreassoc)
 
 size_t ka_mark(void);                         /* метка арены для ka_release */
 void ka_release(size_t mark);                 /* освободить всё выделенное после метки (только временные данные!) */
@@ -239,5 +266,6 @@ void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
 typedef struct { const char *ir; const char *err; const char *warn; const unsigned char *elf; size_t elflen; } KResult;
 /* Компиляция одного файла. mem/memsz - арена. emit_ir=0: только проверка, 1: текстовый IR, 2: ELF x86-64. Возврат 0 - успех. */
 int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res);
+int kcc_compile_opts(const KCfg *cfg, const KOptions *options, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res);
 
 #endif
