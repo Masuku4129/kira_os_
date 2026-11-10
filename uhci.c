@@ -384,13 +384,13 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     uhci_t* u = ctl_state[nctl];
     for (unsigned long i = 0; i < sizeof *u; i++) ((volatile uint8_t*)u)[i] = 0;
     u->io = (uint16_t)p->bar[4].base;
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
     int iommu_rc = iommu_isolate_device(p);
     if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
         iommu_rc != IOMMU_E_NOCOVER) {
         usb_log("[KIRA USB] UHCI: IOMMU isolation failed; controller disabled\n");
         return -1;
     }
-#if defined(__aarch64__) || defined(__x86_64__)
     if (!iommu_device_ready(p)) {
         usb_log("[KIRA USB] UHCI: requester is not isolated or safely unrestricted\n");
         return -1;
@@ -402,7 +402,7 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     uint64_t phys;
     uint8_t* mem = (uint8_t*)usb_dma_alloc(4096 * 13, &phys, 1);
     if (!mem) { usb_log("[KIRA USB] UHCI: no DMA memory below 4 GB\n"); return -1; }
-#if defined(__aarch64__) || defined(__x86_64__) || defined(__x86_64__)
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__)) || defined(__x86_64__)
     if (iommu_device_isolated(p) &&
         iommu_map(p, phys, phys, 4096 * 13, IOMMU_R | IOMMU_W) != IOMMU_OK) {
         iommu_unmap_all(p);
@@ -438,7 +438,9 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     outw((uint16_t)(u->io + USBCMD), CMD_HCRESET);
     for (int i = 0; i < 100 && (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET); i++) usb_sleep_ms(1);
     if (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET) {
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
         iommu_unmap_all(p);
+#endif
         usb_log("[KIRA USB] UHCI reset timeout\n");
         return -1;
     }
@@ -458,7 +460,9 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     usb_sleep_ms(5);
     if (inw((uint16_t)(u->io + USBSTS)) & STS_HALTED) {
         pci_disable_bus_master(p);
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
         iommu_unmap_all(p);
+#endif
         usb_log("[KIRA USB] UHCI does not start; DMA disabled\n");
         return -1;
     }

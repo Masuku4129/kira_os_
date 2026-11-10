@@ -92,7 +92,7 @@ static void* xhci_dma_alloc(uint32_t bytes, uint64_t* phys, int below4g) {
     void* memory = usb_dma_alloc(bytes, phys, below4g);
     if (!memory)
         return 0;
-#if defined(__aarch64__) || defined(__x86_64__)
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
     if (xs.pci && iommu_device_isolated(xs.pci) &&
         iommu_map(xs.pci, *phys, *phys, bytes, IOMMU_R | IOMMU_W) != IOMMU_OK) {
         /* Keep backing pages pinned; disable DMA before invalidating old maps. */
@@ -549,7 +549,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if (!xall[started]) { usb_log("[KIRA USB] xHCI: no memory for controller state\n"); return -1; }
     X = xall[started];
     if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) { usb_log("[KIRA USB] xHCI without memory BAR0: skipped\n"); return -1; }
-#if defined(__aarch64__) || defined(__x86_64__)
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
     int iommu_rc = iommu_isolate_device(p);
     if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
         iommu_rc != IOMMU_E_NOCOVER) {
@@ -609,7 +609,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
     w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
     w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
-#if defined(__aarch64__) || defined(__x86_64__)
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
     if (xs.dma_failed || !iommu_device_ready(p)) {
         pci_disable_bus_master(p);
         iommu_unmap_all(p);
@@ -625,7 +625,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     pci_enable(p, PCI_CMD_MASTER);
     if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
         pci_disable_bus_master(p);
-#if defined(__aarch64__) || defined(__x86_64__)
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
         iommu_unmap_all(p);
 #endif
         usb_log("[KIRA USB] xHCI: PCI bus mastering was not granted; controller remains stopped\n");
@@ -636,7 +636,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     if (r32(xs.op, 4) & 1u) {
         pci_disable_bus_master(p);
-#if defined(__aarch64__) || defined(__x86_64__)
+#if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
         iommu_unmap_all(p);
 #endif
         usb_log("[KIRA USB] xHCI does not start; DMA disabled\n");
