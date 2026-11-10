@@ -261,14 +261,13 @@ int main(void)
     CHECK(commands[10] == 0x46u && commands[11] == 0u);
     CHECK(commands[12] == (0x03ull | (7ull << 32)) && commands[13] == 1u);
     CHECK(commands[14] == 0x46u && commands[15] == 0u);
-    CHECK(commands[16] == (0x11ull | (8ull << 48)) && commands[17] == 0u); /* first map TLBI */
-    CHECK(commands[18] == 0x46u && commands[19] == 0u);
-
     CHECK(kira_smmu_domain_create(&duplicate, &smmu, 7u, &p) == KIRA_SMMU_INVALID);
     CHECK(duplicate.active == 0);
 
     CHECK(kira_smmu_domain_map_4k(&domain, 0x4000u, 0x300000u,
                                   KIRA_SMMU_MAP_READ | KIRA_SMMU_MAP_WRITE, &p) == KIRA_SMMU_OK);
+    CHECK(commands[16] == (0x11ull | (8ull << 48)) && commands[17] == 0u); /* first map TLBI */
+    CHECK(commands[18] == 0x46u && commands[19] == 0u);
     CHECK(domain.table_pages != 0);
     root = (uint64_t *)domain.stage1_root;
     CHECK((root[0] & 3u) == 3u);
