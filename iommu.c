@@ -44,6 +44,8 @@ typedef struct {
 static struct {
     int active;                              /* at least one unit translates */
     int dmar_error;                          /* present but unreadable/malformed: deny PCI DMA */
+    int init_done;
+    int init_result;
     uint32_t haw;                            /* physical address width of the host, bits */
     vtd_dmar_info_t info;
     struct kira_vtd_unit unit[VTD_MAX_UNITS];
@@ -155,18 +157,21 @@ int iommu_enabled(void) {
 static void zero_bytes(void* p, size_t n) { uint8_t* b = (uint8_t*)p; while (n--) *b++ = 0; }
 
 int iommu_init(void) {
-    if (G.active) return iommu_enabled();
-    G.dmar_error = 0;
+    if (G.init_done) return G.init_result;
+    G.init_done = 1;
+    if (G.active) { G.init_result = iommu_enabled(); return G.init_result; }
     const acpi_info_t* ai = acpi_get();
     if (!ai || !ai->dmar_phys) {
         uart_print("[KIRA IOMMU] No DMAR table: DMA isolation is not available, devices keep unrestricted DMA.\n");
-        return 0;
+        G.init_result = 0;
+        return G.init_result;
     }
     const void* table = PLAT_DMAR(ai->dmar_phys, ai->dmar_len);
     if (!table) {
         G.dmar_error = 1;
         uart_print("[KIRA IOMMU] DMAR table cannot be read: PCI bus mastering remains blocked.\n");
-        return -1;
+        G.init_result = -1;
+        return G.init_result;
     }
     int rc = vtd_dmar_parse(table, ai->dmar_len, &G.info);
     if (rc != 0) {
@@ -174,7 +179,8 @@ int iommu_init(void) {
         G.dmar_error = 1;
         uart_print("[KIRA IOMMU] DMAR table rejected ("); print_err(rc);
         uart_print("): PCI bus mastering remains blocked.\n");
-        return -1;
+        G.init_result = -1;
+        return G.init_result;
     }
     G.haw = (uint32_t)G.info.host_address_width + 1u;
     G.plat.context = 0;
@@ -200,7 +206,7 @@ int iommu_init(void) {
             continue;
         }
         if (!(G.unit[i].extended_capabilities & (1ull << 6))) {
-            uart_print(": no pass-through support, left off, its devices stay unrestricted\n");
+            uart_print(": no pass-through support, left off, covered devices stay bus-master blocked\n");
             continue;
         }
         G.usable[i] = 1;
@@ -260,7 +266,8 @@ int iommu_init(void) {
     uart_print(" unit(s): "); uart_print_dec(n_pass); uart_print(" device(s) passthrough (unrestricted DMA, ");
     uart_print_dec(n_rmrr); uart_print(" of them RMRR), "); uart_print_dec(n_uncovered);
     uart_print(" without translation, 0 isolated until a driver asks.\n");
-    return iommu_enabled();
+    G.init_result = iommu_enabled();
+    return G.init_result;
 }
 
 /* ---- Domains ---- */
