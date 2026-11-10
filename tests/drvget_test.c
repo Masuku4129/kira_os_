@@ -69,6 +69,7 @@ int main(void) {
     CHECK(scan("/* SPDX-License-Identifier: GPL-2.0 */\nint a;\n", lic, &err) != 0 && strstr(err, "GPL"));
     CHECK(scan("/* SPDX-License-Identifier: GPL-2.0-only OR BSD-3-Clause */\n", lic, &err) != 0);
     CHECK(scan("/* SPDX-License-Identifier: BSD-3-Clause OR MIT */\n", lic, &err) != 0 && strstr(err, "составное"));
+    CHECK(scan("/* SPDX-License-Identifier: MIT */\\n/* SPDX-License-Identifier: BSD-2-Clause */\\n", lic, &err) != 0 && strstr(err, "несколько SPDX"));
     CHECK(scan("/* SPDX-License-Identifier: Apache-2.0 */\n", lic, &err) != 0);
     CHECK(scan("/* SPDX-License-Identifier: BSD-2-Clause */\n/* This program is free software; GNU General Public License */\n", lic, &err) != 0);
     CHECK(scan("/* SPDX-License-Identifier: BSD-2-Clause */\n/* licensed GPLv2 */\n", lic, &err) != 0);
