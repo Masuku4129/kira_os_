@@ -443,7 +443,8 @@ int iommu_isolate_device(const pci_dev_t* pci)
         return IOMMU_E_HW;
     if (!dev || !dev->covered)
         return IOMMU_E_NOCOVER;
-    if (dev->blocked || !arm_smmu_active || dev->stream_id >= 256u)
+    if (__atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) ||
+        !arm_smmu_active || dev->stream_id >= 256u)
         return IOMMU_E_HW;
     if (arm_sid_shared[dev->stream_id])
         return IOMMU_E_EXIST;
@@ -496,13 +497,13 @@ int iommu_release_device(const pci_dev_t* pci)
         return IOMMU_E_HW;
     rc = kira_smmu_domain_destroy(domain, &arm_platform);
     if (rc != KIRA_SMMU_OK) {
-        dev->blocked = 1u;
+        __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
         return IOMMU_E_HW;
     }
     rc = kira_smmu_domain_passthrough(domain, &arm_smmu, dev->stream_id,
                                       &arm_platform);
     if (rc != KIRA_SMMU_OK) {
-        dev->blocked = 1u;
+        __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
         return IOMMU_E_HW;
     }
     return IOMMU_OK;
