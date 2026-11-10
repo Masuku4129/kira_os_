@@ -357,6 +357,18 @@ int iommu_isolate_device(const pci_dev_t *dev)
         return IOMMU_E_HW;
     if (arm_find_device(dev))
         return IOMMU_OK;
+
+    /* Stop the requester before changing its Stream Table Entry. A device
+       already bus-mastering must never race domain installation. Keep it
+       stopped on every failure; the driver enables it only after DMA maps. */
+    {
+        uint16_t command = pci_read16(dev, 0x04u);
+        if (command & PCI_CMD_MASTER) {
+            pci_write16(dev, 0x04u, (uint16_t)(command & ~PCI_CMD_MASTER));
+            if (pci_read16(dev, 0x04u) & PCI_CMD_MASTER)
+                return IOMMU_E_HW;
+        }
+    }
     rc = arm_stream_id(dev, &sid);
     if (rc != IOMMU_OK)
         return rc;
@@ -388,6 +400,16 @@ int iommu_release_device(const pci_dev_t *dev)
         return IOMMU_E_NONE;
     if (!entry)
         return IOMMU_E_NOENT;
+
+    /* A domain cannot be torn down while the endpoint can still issue DMA. */
+    {
+        uint16_t command = pci_read16(dev, 0x04u);
+        if (command & PCI_CMD_MASTER) {
+            pci_write16(dev, 0x04u, (uint16_t)(command & ~PCI_CMD_MASTER));
+            if (pci_read16(dev, 0x04u) & PCI_CMD_MASTER)
+                return IOMMU_E_HW;
+        }
+    }
     iommu_unmap_all(dev);
     rc = kira_smmu_domain_destroy(&entry->domain, &g_platform);
     if (rc != KIRA_SMMU_OK)
