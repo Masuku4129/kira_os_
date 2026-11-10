@@ -17,7 +17,7 @@ int main(void) {
     CHECK(dg_url_parse("http://example.com/a", &u, &err) != 0 && strstr(err, "https"));
     CHECK(dg_url_parse("ftp://example.com/a", &u, &err) != 0 && dg_url_parse("file:///etc/passwd", &u, &err) != 0 && dg_url_parse("example.com/a", &u, &err) != 0);
     CHECK(dg_url_parse("https://ex ample.com/", &u, &err) != 0 && dg_url_parse("https://h:99999/", &u, &err) != 0 && dg_url_parse("https://h:/", &u, &err) != 0);
-    CHECK(dg_url_parse("https://h/a b", &u, &err) != 0 && dg_url_parse("https://h/a\b", &u, &err) != 0);
+    CHECK(dg_url_parse("https://h/a b", &u, &err) != 0 && dg_url_parse("https://h/a\\b", &u, &err) != 0);
     char o[300];
     dg_url_parse("https://h.example/drv/rl/drvget.rec", &u, &err);
     CHECK(dg_url_join(&u, "rl.c", o, sizeof o, &err) == 0 && !strcmp(o, "https://h.example/drv/rl/rl.c"));
