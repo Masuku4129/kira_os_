@@ -118,6 +118,7 @@ static int smmu_alloc_queue(
                                              allocation_physical);
     *allocated_pages = allocation_pages;
     if (!*allocation || !*allocation_physical ||
+        ((uintptr_t)*allocation & (SMMU_PAGE_SIZE - 1u)) != 0 ||
         (*allocation_physical & (SMMU_PAGE_SIZE - 1u)) != 0 ||
         *allocation_physical >
             UINT64_MAX - (allocation_pages * SMMU_PAGE_SIZE)) {
