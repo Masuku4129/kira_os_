@@ -82,13 +82,21 @@ static int dsp_reset(uint16_t base) {
 }
 
 /* Кольцо: 16 страниц, физический адрес кратен 64 КБ; оно не пересекает границу 128 КБ у 8237. */
+static int dma_alloc_reason;
 static uint8_t* dma_ring_alloc(uint64_t* phys) {
+    dma_alloc_reason = 0;
     uint64_t pa = pmm_alloc_contiguous_aligned_below(BUFPAGES, 16, ISA_DMA_TOP);
-    if (!pa || pa > ISA_DMA_TOP - BUFSZ) return 0;
+    if (!pa) { dma_alloc_reason = 1; return 0; }
+    if (pa > ISA_DMA_TOP - BUFSZ || (pa & 0x1FFFFULL) + BUFSZ > 0x20000ULL) {
+        pmm_free_contiguous(pa, BUFPAGES);
+        dma_alloc_reason = 2;
+        return 0;
+    }
     for (uint32_t i = 0; i < BUFPAGES; i++) {                     /* процессор и устройство видят один адрес */
-        uint64_t t;
-        if (vmm_translate(pa + (uint64_t)i * 4096, &t) != 0 || t != pa + (uint64_t)i * 4096) {
+        uint64_t va = pa + (uint64_t)i * 4096, t = 0;
+        if (vmm_translate(va, &t) != 0 || t != va) {
             pmm_free_contiguous(pa, BUFPAGES);
+            dma_alloc_reason = 3;
             return 0;
         }
     }
@@ -176,7 +184,16 @@ int sb16_probe(void) {
     }
     sb.dma_addr = sb16_dma16_port_addr(sb.dma16); sb.dma_cnt = sb16_dma16_port_count(sb.dma16); sb.dma_page = sb16_dma16_port_page(sb.dma16);
     sb.buf = dma_ring_alloc(&sb.buf_p);
-    if (!sb.buf) { uart_print("[KIRA SB16] no 64 KB buffer below 16 MB aligned to 64 KB for ISA DMA.\n"); return -5; }
+    if (!sb.buf) {
+        uart_print("[KIRA SB16] DMA ring allocation failed: ");
+        if (dma_alloc_reason == 1) uart_print("no aligned contiguous 64 KB run below 16 MB; free RAM KB=");
+        else if (dma_alloc_reason == 2) uart_print("allocator returned a range outside the ISA DMA boundary; pages released.");
+        else if (dma_alloc_reason == 3) uart_print("identity mapping missing or non-identity; pages released.");
+        else uart_print("unknown allocation error.");
+        if (dma_alloc_reason == 1) uart_print_dec(pmm_get_free_memory_kb());
+        uart_print("\n");
+        return -5;
+    }
     uart_print("[KIRA SB16] Sound: Sound Blaster 16 DSP "); uart_print_dec(sb.vmaj); uart_print("."); uart_print_dec(sb.vmin);
     uart_print(" at port "); uart_print_hex(sb.base); uart_print(" (DSP reset answered), IRQ ");
     if (sb.irq >= 0) uart_print_dec((uint64_t)sb.irq); else uart_print("not reported");
