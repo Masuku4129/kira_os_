@@ -8,9 +8,10 @@
 } } while (0)
 
 static _Alignas(PAGE) uint8_t registers_page[2u * PAGE];
-static _Alignas(PAGE) uint8_t dma_pool[12u * PAGE];
+static _Alignas(16384) uint8_t dma_pool[12u * PAGE];
 static unsigned alloc_calls, free_calls, clean_calls, map_calls;
 static unsigned fail_alloc_at, misalign_alloc_at, misalign_virtual_alloc_at;
+static unsigned offset_virtual_alloc_at;
 static size_t freed_pages, pool_used;
 static uint64_t next_physical;
 
@@ -39,6 +40,8 @@ static void *test_alloc_dma_pages(void *context, size_t pages, uint64_t *physica
         ++*physical;
     if (alloc_calls == misalign_virtual_alloc_at)
         return dma_pool + offset + 1u;
+    if (alloc_calls == offset_virtual_alloc_at)
+        return dma_pool + offset + PAGE;
     return dma_pool + offset;
 }
 
@@ -66,8 +69,9 @@ static void reset_test_platform(void)
     memset(dma_pool, 0xa5, sizeof(dma_pool));
     alloc_calls = free_calls = clean_calls = map_calls = 0;
     fail_alloc_at = misalign_alloc_at = misalign_virtual_alloc_at = 0;
+    offset_virtual_alloc_at = 0;
     freed_pages = pool_used = 0;
-    next_physical = 0x201000u;
+    next_physical = 0x200000u;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
     *(uint32_t *)(registers_page + 0x0004u) = (8u << 21) | (8u << 16) | 8u;
 }
@@ -133,11 +137,11 @@ int main(void)
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_OK);
     CHECK(*(uint32_t *)(registers_page + 0x0020u) == 0u);
     CHECK(alloc_calls == 3 && free_calls == 0);
-    CHECK(smmu.stream_table == dma_pool + 3u * PAGE);
-    CHECK(smmu.stream_table_physical == next_physical + 3u * PAGE);
+    CHECK(smmu.stream_table == dma_pool);
+    CHECK(smmu.stream_table_physical == next_physical);
     CHECK(smmu.cmdq == dma_pool + 7u * PAGE);
-    CHECK(smmu.evtq == dma_pool + 9u * PAGE);
-    CHECK(smmu.evtq_physical == next_physical + 9u * PAGE);
+    CHECK(smmu.evtq == dma_pool + 8u * PAGE);
+    CHECK(smmu.evtq_physical == next_physical + 8u * PAGE);
     CHECK(smmu.evtq_allocation_pages == 3u);
     CHECK(smmu.queue_entries == 256u && smmu.enabled == 0);
     CHECK(smmu.stream_id_limit == 256u);
@@ -205,6 +209,15 @@ int main(void)
     reset_test_platform();
     p = platform();
     misalign_virtual_alloc_at = 1;
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
+    CHECK(alloc_calls == 1 && free_calls == 1 && freed_pages == 7u);
+    CHECK(smmu.stream_table == 0);
+
+    /* Page-aligned CPU memory with a different 16 KiB offset cannot back a linear table. */
+    reset_test_platform();
+    p = platform();
+    offset_virtual_alloc_at = 1;
     memset(&smmu, 0, sizeof(smmu));
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
     CHECK(alloc_calls == 1 && free_calls == 1 && freed_pages == 7u);
