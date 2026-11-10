@@ -201,6 +201,22 @@ static void rnd(uint8_t* p, size_t n, unsigned seed) { for (size_t i = 0; i < n;
 
 int main(void) {
     vopt_t o0; memset(&o0, 0, sizeof o0);
+    /* ECAM windows may begin at a nonzero bus. The root scan must start at bus-range[0],
+       not hard-coded bus 0 (which ECAM correctly rejects as outside the window). */
+    {
+        static _Alignas(4096) uint8_t ecam_test[1u << 20];
+        memset(ecam_test, 0xFF, sizeof ecam_test);
+        uint8_t* cfg = ecam_test + (3u << 15);
+        uint32_t id = 0x56781234u, cls = 0x02000001u;
+        memcpy(cfg, &id, sizeof id);
+        memcpy(cfg + 8, &cls, sizeof cls);
+        cfg[0x0E] = 0;
+        pci_use_ecam(ecam_test, 5, 5);
+        CHECK(pci_init() == 1);
+        const pci_dev_t* d = pci_find(0x1234, 0x5678);
+        CHECK(d && d->bus == 5 && d->dev == 3 && d->fn == 0);
+    }
+
     /* --- PCI --- */
     model_init(o0, 0x1042);
     int n = pci_init();
