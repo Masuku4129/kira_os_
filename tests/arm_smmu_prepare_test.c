@@ -273,6 +273,14 @@ int main(void)
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
     CHECK(alloc_calls == 1 && free_calls == 1 && smmu.stream_table == 0);
 
+    /* Aligning a near-UINT64_MAX DMA allocation must not wrap to low memory. */
+    reset_test_platform();
+    p = platform();
+    next_physical = UINT64_MAX - 4095u;
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
+    CHECK(alloc_calls == 1 && free_calls == 1 && smmu.stream_table == 0);
+
     /* MMIO range arithmetic must not wrap the physical address space. */
     reset_test_platform();
     p = platform();
