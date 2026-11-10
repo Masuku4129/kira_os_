@@ -45,7 +45,7 @@ static userlog_t ulog;
 #define SYS_FUTEX_WAIT    15 // (адрес слова, ожидаемое, срок в 10 мс или ~0) -> 0 / KE_AGAIN / KE_TIMEOUT / KE_INTR
 #define SYS_FUTEX_WAKE    16 // (адрес слова, сколько) -> разбужено
 #define SYS_PORT_OPEN     17 // (имя, длина, флаги KOPEN_*) -> дескриптор
-#define SYS_PORT_SEND     18 // (дескриптор, данные, длина до 1024) -> 0 / KE_FULL
+#define SYS_PORT_SEND     18 // (дескриптор, данные, длина до PORT_MSG_MAX) -> 0 / KE_FULL
 #define SYS_PORT_RECV     19 // (дескриптор, буфер, ёмкость | срок_10мс << 32; срок 0xFFFFFFFF - без срока) -> длина | pid отправителя << 32
 #define SYS_SHM_OPEN      20 // (имя, длина, страниц | флаги << 32) -> дескриптор
 #define SYS_SHM_MAP       21 // (дескриптор) -> адрес
@@ -89,6 +89,12 @@ void syscall_proc_gone(uint32_t pid) {
 
 // Вызывается с ВКЛЮЧЁННЫМИ прерываниями (их включает вход своей архитектуры: SYSCALL на x86-64, SVC на ARM64) на kernel-стеке
 // потока: вызов можно вытеснить, общие данные ядра защищены собственными замками модулей.
+static int syscall_handle(uint64_t raw, int* handle) {
+    if (!raw || raw > 0x7FFFFFFFULL) return 0;
+    *handle = (int)raw;
+    return 1;
+}
+
 static int copy_name(uint64_t ptr, uint64_t len, char out[KNAME_MAX + 1]) {
     if (len == 0 || len > KNAME_MAX || copy_from_user(out, ptr, len) != 0) return 0;
     out[len] = 0;
@@ -216,23 +222,30 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return (uint64_t)proc_handle_add(o);
     }
     case SYS_PORT_SEND: {
+        int handle;
+        if (!syscall_handle(a1, &handle)) return (uint64_t)(int64_t)KE_BADH;
         if (a3 > PORT_MSG_MAX) return (uint64_t)(int64_t)KE_ARG;
+        kobj_t* o = proc_handle_get(handle, KOBJ_PORT);
+        if (!o) return (uint64_t)(int64_t)KE_BADH;
         uint8_t* buf = (uint8_t*)kmalloc(a3 ? a3 : 1);              /* копия: программа не изменит данные во время отправки */
-        if (!buf) return (uint64_t)(int64_t)KE_NOMEM;
-        if (a3 && copy_from_user(buf, a2, a3) != 0) { kfree(buf); return (uint64_t)(int64_t)KE_ARG; }
-        kobj_t* o = proc_handle_get((int)a1, KOBJ_PORT);
-        if (!o) { kfree(buf); return (uint64_t)(int64_t)KE_BADH; }
+        if (!buf) { kobj_release(o); return (uint64_t)(int64_t)KE_NOMEM; }
+        if (a3 && copy_from_user(buf, a2, a3) != 0) {
+            kfree(buf); kobj_release(o);
+            return (uint64_t)(int64_t)KE_ARG;
+        }
         int rc = port_send(o, proc_current_pid(), buf, (uint32_t)a3);
         kfree(buf);
         kobj_release(o);
         return (uint64_t)(int64_t)rc;
     }
     case SYS_PORT_RECV: {
+        int handle;
+        if (!syscall_handle(a1, &handle)) return (uint64_t)(int64_t)KE_BADH;
         uint32_t cap = (uint32_t)a3, tmo = (uint32_t)(a3 >> 32);
         if (cap > PORT_MSG_MAX) cap = PORT_MSG_MAX;
-        if (cap && !user_range(a2, cap, 1)) return (uint64_t)(int64_t)KE_ARG;
-        kobj_t* o = proc_handle_get((int)a1, KOBJ_PORT);
+        kobj_t* o = proc_handle_get(handle, KOBJ_PORT);
         if (!o) return (uint64_t)(int64_t)KE_BADH;
+        if (cap && !user_range(a2, cap, 1)) { kobj_release(o); return (uint64_t)(int64_t)KE_ARG; }
         uint8_t* kb = (uint8_t*)kmalloc(cap ? cap : 1);
         if (!kb) { kobj_release(o); return (uint64_t)(int64_t)KE_NOMEM; }
         uint32_t from = 0;
@@ -255,12 +268,18 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         if (rc) return (uint64_t)(int64_t)rc;
         return (uint64_t)proc_handle_add(o);
     }
-    case SYS_SHM_MAP:
-        return (uint64_t)proc_shm_map((int)a1);
+    case SYS_SHM_MAP: {
+        int handle;
+        if (!syscall_handle(a1, &handle)) return (uint64_t)(int64_t)KE_BADH;
+        return (uint64_t)proc_shm_map(handle);
+    }
     case SYS_SHM_UNMAP:
         return (uint64_t)proc_shm_unmap(a1);
-    case SYS_CLOSE:
-        return (uint64_t)proc_handle_close((int)a1);
+    case SYS_CLOSE: {
+        int handle;
+        if (!syscall_handle(a1, &handle)) return (uint64_t)(int64_t)KE_BADH;
+        return (uint64_t)proc_handle_close(handle);
+    }
     case SYS_CLOCK_NS:
         return clock_ns();
     case SYS_NET_DNS: case SYS_NET_CONNECT: case SYS_NET_SEND: case SYS_NET_RECV: case SYS_NET_CLOSE:
