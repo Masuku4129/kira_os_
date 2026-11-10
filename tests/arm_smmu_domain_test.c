@@ -185,6 +185,17 @@ int main(void)
         reg_write(0x10a8u, 0x100u);
     }
 
+    /* Reject reserved OAS encodings before allocating any translation table. */
+    {
+        struct kira_smmu_domain unsupported = {0};
+        uint32_t saved_idr5 = smmu.idr5;
+        unsigned before = alloc_calls;
+        smmu.idr5 = (saved_idr5 & ~7u) | 6u;
+        CHECK(kira_smmu_domain_create(&unsupported, &smmu, 8u, &p) == KIRA_SMMU_UNSUPPORTED);
+        CHECK(alloc_calls == before);
+        smmu.idr5 = saved_idr5;
+    }
+
     CHECK(kira_smmu_domain_create(&domain, &smmu, 7u, &p) == KIRA_SMMU_OK);
     CHECK(domain.active == 1 && domain.stream_id == 7u && domain.asid == 7u);
     CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_INVALID);
@@ -239,7 +250,7 @@ int main(void)
     page = l3[4];
     CHECK((page & PA_MASK) == 0x300000u);
     CHECK((page & 3u) == 3u); /* valid page descriptor */
-    CHECK(((page >> 6) & 3u) == 2u); /* EL0/EL1 read/write */
+    CHECK(((page >> 6) & 3u) == 0u); /* EL1 read/write */
     CHECK(((page >> 8) & 3u) == 3u); /* inner-shareable */
     CHECK((page & (1ull << 10)) != 0); /* access flag */
     CHECK((page & (1ull << 11)) != 0); /* non-global */
@@ -247,7 +258,7 @@ int main(void)
 
     CHECK(kira_smmu_domain_map_4k(&domain, 0x5000u, 0x301000u,
                                   KIRA_SMMU_MAP_READ, &p) == KIRA_SMMU_OK);
-    CHECK(((l3[5] >> 6) & 3u) == 3u); /* EL0/EL1 read-only */
+    CHECK(((l3[5] >> 6) & 3u) == 2u); /* EL1 read-only */
     CHECK(kira_smmu_domain_map_4k(&domain, 0x6000u, 0x302000u,
                                   KIRA_SMMU_MAP_WRITE, &p) == KIRA_SMMU_INVALID);
     CHECK(kira_smmu_domain_map_4k(&domain, 1ull << 48, 0x302000u,
