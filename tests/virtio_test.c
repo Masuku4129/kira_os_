@@ -206,7 +206,7 @@ int main(void) {
         uint8_t first = 0, last = 0;
         CHECK(pci_ecam_bus_range(1ull << 20, 0, 0, 0, &first, &last) == 0 && first == 0 && last == 0);
         CHECK(pci_ecam_bus_range(4ull << 20, 0, 0, 0, &first, &last) == 0 && first == 0 && last == 3);
-        CHECK(pci_ecam_bus_range(4ull << 20, 1, 5, 8, &first, &last) == -1);
+        CHECK(pci_ecam_bus_range(4ull << 20, 1, 5, 9, &first, &last) == -1);
         CHECK(pci_ecam_bus_range(4ull << 20, 1, 8, 5, &first, &last) == -1);
         CHECK(pci_ecam_bus_range(4ull << 20, 1, 5, 7, &first, &last) == 0 && first == 5 && last == 7);
         CHECK(pci_ecam_bus_range(4ull << 20, 1, 255, 256, &first, &last) == -1);
