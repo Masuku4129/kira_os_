@@ -242,7 +242,7 @@ static int smmu_invalidate_stream(struct kira_smmu_domain *d,
     if (rc == KIRA_SMMU_OK)
         rc = smmu_cmd_sync(d->smmu, p);
     if (rc == KIRA_SMMU_OK)
-        rc = smmu_cmd_submit(d->smmu, p, cfgi_ste, 0, 0);
+        rc = smmu_cmd_submit(d->smmu, p, cfgi_ste, 1u, 0);
     if (rc == KIRA_SMMU_OK)
         rc = smmu_cmd_sync(d->smmu, p);
     smmu_cmdq_unlock(d->smmu);
