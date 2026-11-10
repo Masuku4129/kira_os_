@@ -17,7 +17,7 @@ struct Init { Type *ty; Init **ch; int nch; Node *expr; Member *mem; int flex; }
 
 /* Все изменяемые данные разбора принадлежат текущей компиляции, а не translation-unit globals. */
 typedef struct {
-    Token *ptok;
+    Token *tok;
     Scope *scope, *gscope;
     Obj *globals_head, *globals_tail, *cur_fn, *fn_locals_tail;
     int nlocals, str_count, static_count, type_count;
