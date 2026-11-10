@@ -84,7 +84,7 @@ static int dsp_reset(uint16_t base) {
 
 /* Кольцо: 32 страницы подряд ниже 16 МБ, начало кратно 128 КБ. Берём 64 страницы, лишнее с краёв возвращаем. */
 static uint8_t* dma_ring_alloc(uint64_t* phys) {
-    uint64_t pa = pmm_alloc_contiguous(2 * BUFPAGES);
+    uint64_t pa = pmm_alloc_contiguous_below(2 * BUFPAGES, ISA_DMA_TOP);
     if (!pa) return 0;
     if (pa + 2ull * BUFSZ > ISA_DMA_TOP) { pmm_free_contiguous(pa, 2 * BUFPAGES); return 0; }
     uint64_t al = (pa + BUFSZ - 1) & ~(uint64_t)(BUFSZ - 1);
