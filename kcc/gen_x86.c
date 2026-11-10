@@ -56,7 +56,8 @@ struct X86State {
     const unsigned char *g_mdef;
     int tmplab, g_maxout;
 };
-#define X86S K.x86_state
+static X86State *x86_state_ctx;
+#define X86S x86_state_ctx
 #define xa (X86S->assembler)
 #define A (&xa)
 #define npool (X86S->npool)
@@ -1261,6 +1262,7 @@ static void x86_reloc(unsigned char *text, void *ctx) {
 
 void x86_build_obj(Obj *globals, unsigned char **out, size_t *outlen) {
     if (!K.x86_state) K.x86_state = ka_new(sizeof(X86State));
+    x86_state_ctx = K.x86_state;
     memset(X86S, 0, sizeof *X86S);
     gen_prepare(globals);
     A->file = K.srcpath; A->line = 1;
