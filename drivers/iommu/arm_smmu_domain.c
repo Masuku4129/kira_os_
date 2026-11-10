@@ -757,9 +757,9 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
     p->write_barrier(p->context);
     rc = smmu_invalidate_stream(d, p);
-    if (rc == KIRA_SMMU_OK)
+    if (rc == KIRA_SMMU_OK && !d->bypass)
         rc = smmu_invalidate_cd(d, p);
-    if (rc == KIRA_SMMU_OK)
+    if (rc == KIRA_SMMU_OK && !d->bypass)
         rc = smmu_invalidate_asid(d, p);
     if (rc != KIRA_SMMU_OK) {
         /* Keep the ID claimed and every translation page pinned on uncertainty. */
@@ -779,13 +779,15 @@ int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
     d->context_table = 0;
     d->context_table_physical = 0;
     d->asid = 0;
+    d->bypass = 0;
     d->stage1_root = 0;
     d->stage1_root_physical = 0;
     smmu_unlock(s);
     smmu_domain_unlock(d);
 
     smmu_table_page_list_free(table_pages, p);
-    p->free_dma_pages(p->context, context_table,
-                      context_table_physical, 1);
+    if (context_table)
+        p->free_dma_pages(p->context, context_table,
+                          context_table_physical, 1);
     return KIRA_SMMU_OK;
 }
