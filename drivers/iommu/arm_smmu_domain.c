@@ -428,7 +428,7 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     uint64_t *ste;
     int rc = KIRA_SMMU_OK;
 
-    if (!d || !s || !p || !s->enabled || !s->registers || !s->cmdq ||
+    if (!d || !s || !p || s->enabled != 1u || !s->registers || !s->cmdq ||
         !p->alloc_dma_pages || !p->free_dma_pages ||
         !p->alloc_metadata || !p->free_metadata || !s->stream_id_limit ||
         s->stream_id_limit > 256u || stream_id >= s->stream_id_limit ||
