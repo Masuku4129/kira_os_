@@ -26,7 +26,7 @@ typedef struct {                 /* способ доступа к конфиг�
 
 void pci_set_backend(const pci_backend_t* b);      /* NULL - legacy CF8/CFC backend (x86 only) */
 typedef struct {
-    volatile void* base;          /* already mapped, uncached/device memory */
+    volatile void* base;          /* mapped uncached/device memory; virtual base must be 4 KiB aligned */
     uint64_t size;                 /* mapped aperture bytes */
     uint8_t first_bus;
     uint8_t last_bus;
