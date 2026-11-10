@@ -16,7 +16,7 @@ fi
 [ -f kira.bin ] || ./build_clang.sh --no-run >/dev/null 2>&1
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 bash ./build_uefi.sh $T/uefi >$T/build.log 2>&1 || { echo "uefi boot: ПРОПУЩЕН (UEFI-загрузчик не собран: нет gnu-efi?)"; tail -3 $T/build.log; exit 0; }
-printf 'KIRA-INITRD-TEST\\n' > $T/initrd.img
+printf 'KIRA-INITRD-TEST\n' > $T/initrd.img
 python3 -I tools/mkuefi.py $T/uefi/EFI/BOOT/BOOTX64.EFI $T/uefi/EFI/KIRA/KIRA.ELF $T/kira-uefi.img 64 $T/initrd.img >>$T/build.log 2>&1 || { cat $T/build.log; exit 1; }
 cp "$VARS" $T/vars.fd
 timeout 90 qemu-system-x86_64 -machine q35 -m 256 -display none -serial file:$T/serial.log \
