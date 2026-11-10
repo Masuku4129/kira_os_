@@ -4,6 +4,7 @@
 #include "rtc.h"
 #include "crypto.h"
 #include "syscall.h"
+#include "kcc/include/syscall_abi.h"
 #include "net.h"
 #include "audio.h"
 #include "uart.h"
@@ -27,55 +28,6 @@
 
 static spinlock_t ulog_lock = SPINLOCK_INIT;
 static userlog_t ulog;
-
-#define SYS_WRITE  1
-#define SYS_EXIT   2
-#define SYS_TICKS  3
-#define SYS_SLEEP  4
-#define SYS_YIELD  5
-#define SYS_GETPID 6
-#define SYS_GFX_CREATE  7   // (w,h) -> адрес пикселей 0x00RRGGBB в процессе или -1
-#define SYS_GFX_PRESENT 8   // показать изменения
-#define SYS_GFX_EVENT   9   // (ptr на 16 байт) -> 1 событие / 0 нет / -1 ошибка
-#define SYS_HEAP       11   // (страниц) -> адрес нового куска кучи (нулевые RW-NX страницы) или отрицательный код
-#define SYS_FS         10   // (ptr на fsrv_user_req_t) -> результат или отрицательный код; файлы только в песочнице программы
-#define SYS_THREAD_CREATE 12 // (rip, вершина стека, аргумент) -> id потока
-#define SYS_THREAD_EXIT   13 // (код): уходит поток; последний - процесс
-#define SYS_GETTID        14
-#define SYS_FUTEX_WAIT    15 // (адрес слова, ожидаемое, срок в 10 мс или ~0) -> 0 / KE_AGAIN / KE_TIMEOUT / KE_INTR
-#define SYS_FUTEX_WAKE    16 // (адрес слова, сколько) -> разбужено
-#define SYS_PORT_OPEN     17 // (имя, длина, флаги KOPEN_*) -> дескриптор
-#define SYS_PORT_SEND     18 // (дескриптор, данные, длина до 1024) -> 0 / KE_FULL
-#define SYS_PORT_RECV     19 // (дескриптор, буфер, ёмкость | срок_10мс << 32; срок 0xFFFFFFFF - без срока) -> длина | pid отправителя << 32
-#define SYS_SHM_OPEN      20 // (имя, длина, страниц | флаги << 32) -> дескриптор
-#define SYS_SHM_MAP       21 // (дескриптор) -> адрес
-#define SYS_SHM_UNMAP     22 // (адрес)
-#define SYS_CLOSE         23 // (дескриптор)
-#define SYS_CLOCK_NS      24 // -> наносекунды монотонных часов
-#define SYS_NET_DNS       25 // (имя, длина) -> адрес IPv4 или <0
-#define SYS_NET_CONNECT   26 // (адрес, порт) -> номер соединения TCP
-#define SYS_NET_SEND      27 // (h, буфер, длина) -> отправлено (подтверждено)
-#define SYS_NET_RECV      28 // (h, буфер, длина | мс << 32) -> байт; 0 - собеседник закрыл
-#define SYS_NET_CLOSE     29 // (h)
-#define SYS_ARGS          30 // (буфер, ёмкость) -> длина строки аргументов запуска
-#define SYS_NET_LISTEN    31 // (порт) -> номер слушателя (100+)
-#define SYS_NET_ACCEPT    32 // (слушатель, мс; 0 - без срока) -> номер соединения
-#define SYS_SND_OPEN      33 // () -> поток звука программы
-#define SYS_SND_WRITE     34 // (поток, буфер, байт) -> принято байт (кадры 48 кГц, 16 бит, стерео)
-#define SYS_SND_CLOSE     35 // (поток)
-#define SYS_SND_VOLUME    42 // (поток, 0..100) - громкость своего потока
-#define SYS_SND_RECORD    43 // (буф, байт <= 1 с, мс) -> записано байт (48 кГц стерео 16 бит со входа карты)
-#define SYS_UDP_OPEN      38 // (порт или 0) -> сокет UDP
-#define SYS_UDP_SEND      39 // (сокет | порт << 16 | адрес << 32, буфер, длина)
-#define SYS_UDP_RECV      40 // (сокет, буфер, ёмкость | мс << 32) -> байт; буфер: адрес, порт, длина, данные
-#define SYS_UDP_CLOSE     41 // (сокет)
-#define SYS_NET_CONNECT_SA 44 // (адрес сокета: семейство, порт, адрес) -> номер соединения TCP, IPv4 или IPv6
-#define SYS_UDP_SENDTO    45 // (сокет | длина << 16, адрес сокета, буфер)
-#define SYS_UDP_RECVFROM  46 // (сокет, буфер, ёмкость | мс << 32) -> байт данных; в буфере: адрес сокета (20), длина (4), данные
-#define SYS_NET_PEER      47 // (h, адрес сокета) -> семейство собеседника соединения
-#define SYS_TIME          37 // -> секунды UTC от 1970 (часы реального времени) или -1, если часов нет
-#define SYS_JIT           56 // (операция JIT_ALLOC/JIT_SEAL, a, b) -> адрес окна кода / 0 или отрицательный код; право CAP_JIT
-#define SYS_RANDOM        36 // (буф, байт <= 256) -> 1 аппаратный источник, 0 - только время событий
 
 #define SYS_MAX_WRITE 4096
 #define SYS_MAX_SLEEP 1000
