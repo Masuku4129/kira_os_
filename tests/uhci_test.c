@@ -95,8 +95,10 @@ void usb_log(const char* s) { strncat(logbuf, s, sizeof logbuf - strlen(logbuf) 
 void usb_log_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsigned long long)v); usb_log(b); }
 void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); usb_log(b); }
 
-static uint16_t legsup;
-void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; (void)b; }
+static uint16_t legsup, pci_command;
+void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; pci_command |= b; }
+uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { (void)d; return off == 0x04 ? pci_command : 0; }
+void pci_disable_bus_master(const pci_dev_t* d) { (void)d; pci_command &= (uint16_t)~PCI_CMD_MASTER; }
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) { (void)d; if (off == 0xC0) legsup = v; }
 
 static void port_write(int i, uint16_t v) {

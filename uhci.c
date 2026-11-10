@@ -1,5 +1,6 @@
 #include "usb.h"
 #include "pci.h"
+#include "iommu.h"
 
 /* UHCI (USB 1.1, Intel): регистры в портах ввода-вывода (BAR4), расписание в памяти:
    список кадров (1024 указателя) -> очереди (QH) прерывающих каналов -> очередь управляющих передач.
@@ -383,12 +384,32 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     uhci_t* u = ctl_state[nctl];
     for (unsigned long i = 0; i < sizeof *u; i++) ((volatile uint8_t*)u)[i] = 0;
     u->io = (uint16_t)p->bar[4].base;
-    pci_enable(p, PCI_CMD_IO | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    int iommu_rc = iommu_isolate_device(p);
+    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
+        iommu_rc != IOMMU_E_NOCOVER) {
+        usb_log("[KIRA USB] UHCI: IOMMU isolation failed; controller disabled\n");
+        return -1;
+    }
+#if defined(__aarch64__)
+    if (!iommu_device_ready(p)) {
+        usb_log("[KIRA USB] UHCI: requester is not isolated or safely unrestricted\n");
+        return -1;
+    }
+#endif
+    pci_enable(p, PCI_CMD_IO | PCI_CMD_INTX_OFF);
     pci_write16(p, 0xC0, 0x8F00);                     /* LEGSUP: BIOS больше не перехватывает USB (SMI, эмуляция PS/2) */
 
     uint64_t phys;
     uint8_t* mem = (uint8_t*)usb_dma_alloc(4096 * 13, &phys, 1);
     if (!mem) { usb_log("[KIRA USB] UHCI: no DMA memory below 4 GB\n"); return -1; }
+#if defined(__aarch64__) || defined(__x86_64__)
+    if (iommu_device_isolated(p) &&
+        iommu_map(p, phys, phys, 4096 * 13, IOMMU_R | IOMMU_W) != IOMMU_OK) {
+        iommu_unmap_all(p);
+        usb_log("[KIRA USB] UHCI: IOMMU DMA mapping failed; controller disabled\n");
+        return -1;
+    }
+#endif
     u->frames = (volatile uint32_t*)mem;                              /* страница 0: кадры */
     u->qh = (qh_t*)(mem + 4096); u->qh_phys = (uint32_t)phys + 4096;   /* страница 1: очереди и каналы */
     u->ctd = (td_t*)(mem + 8192); u->ctd_phys = (uint32_t)phys + 8192; /* страницы 2-3: TD управляющих передач */
@@ -416,15 +437,31 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     usb_sleep_ms(10);
     outw((uint16_t)(u->io + USBCMD), CMD_HCRESET);
     for (int i = 0; i < 100 && (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET); i++) usb_sleep_ms(1);
-    if (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET) { usb_log("[KIRA USB] UHCI reset timeout\n"); return -1; }
+    if (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET) {
+        iommu_unmap_all(p);
+        usb_log("[KIRA USB] UHCI reset timeout\n");
+        return -1;
+    }
     outw((uint16_t)(u->io + USBINTR), 0);
     outw((uint16_t)(u->io + FRNUM), 0);
     outl((uint16_t)(u->io + FRBASE), (uint32_t)phys);
     outb((uint16_t)(u->io + SOFMOD), 0x40);
     outw((uint16_t)(u->io + USBSTS), 0xFFFF);
+    pci_enable(p, PCI_CMD_MASTER);
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        pci_disable_bus_master(p);
+        iommu_unmap_all(p);
+        usb_log("[KIRA USB] UHCI: PCI bus mastering was not granted\n");
+        return -1;
+    }
     outw((uint16_t)(u->io + USBCMD), CMD_RS | CMD_CF | CMD_MAXP);
     usb_sleep_ms(5);
-    if (inw((uint16_t)(u->io + USBSTS)) & STS_HALTED) { usb_log("[KIRA USB] UHCI does not start\n"); return -1; }
+    if (inw((uint16_t)(u->io + USBSTS)) & STS_HALTED) {
+        pci_disable_bus_master(p);
+        iommu_unmap_all(p);
+        usb_log("[KIRA USB] UHCI does not start; DMA disabled\n");
+        return -1;
+    }
 
     /* портов у UHCI два; у некоторых больше - признак порта: бит 7 читается как 1 */
     u->nports = 2;
