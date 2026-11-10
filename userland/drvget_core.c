@@ -302,8 +302,17 @@ int dg_scan_source(const char* fname, const uint8_t* d, uint32_t len, char lic[2
         for (size_t i = 0; i <= n; i++) lic[i] = id[i];
         return 0;
     }
-    if (find_wrapped(d, len, "Redistribution and use in source and binary forms") && find_wrapped(d, len, "THIS SOFTWARE IS PROVIDED")) {
-        const char* t = find_wrapped(d, len, "neither the name of") ? "BSD-3-Clause" : "BSD-2-Clause";
+    if (find_wrapped(d, len, "Redistribution and use in source and binary forms") &&
+        find_wrapped(d, len, "1. Redistributions of source code must retain") &&
+        find_wrapped(d, len, "2. Redistributions in binary form must reproduce") &&
+        find_wrapped(d, len, "THIS SOFTWARE IS PROVIDED")) {
+        int bsd3_name = find_wrapped(d, len, "neither the name of");
+        int bsd3_endorse = find_wrapped(d, len, "endorse or promote");
+        if (bsd3_name != bsd3_endorse) {
+            *err = "BSD: неполная третья оговорка; лицензия неоднозначна - отказ";
+            return -1;
+        }
+        const char* t = bsd3_name ? "BSD-3-Clause" : "BSD-2-Clause";
         for (int i = 0; ; i++) { lic[i] = t[i]; if (!t[i]) break; }
         return 0;
     }
