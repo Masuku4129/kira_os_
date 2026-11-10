@@ -169,10 +169,11 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
 {
     int rc;
 
-    if (!smmu || !platform || !platform->map_mmio ||
-        !platform->alloc_dma_pages || !platform->free_dma_pages ||
-        !platform->clean_cache || !platform->write_barrier ||
-        !platform->read_barrier || !physical_base || (physical_base & 0xfffu))
+    if (!smmu || !platform || smmu->stream_table || smmu->cmdq || smmu->evtq ||
+        !platform->map_mmio || !platform->alloc_dma_pages ||
+        !platform->free_dma_pages || !platform->clean_cache ||
+        !platform->write_barrier || !platform->read_barrier ||
+        !physical_base || (physical_base & 0xfffu))
         return KIRA_SMMU_INVALID;
 
     smmu->registers = (volatile uint8_t *)
