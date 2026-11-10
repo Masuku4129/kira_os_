@@ -17,7 +17,7 @@ struct Init { Type *ty; Init **ch; int nch; Node *expr; Member *mem; int flex; }
 
 /* Все изменяемые данные разбора принадлежат текущей компиляции, а не translation-unit globals. */
 typedef struct {
-    Token *tok;
+    Token *ptok;
     Scope *scope, *gscope;
     Obj *globals_head, *globals_tail, *cur_fn, *fn_locals_tail;
     int nlocals, str_count, static_count, type_count;
@@ -32,7 +32,7 @@ typedef struct {
     int count_mode;
 } ParseState;
 #define PS ((ParseState *)K.parse_state)
-#define tok (PS->tok)
+#define ptok (PS->tok)
 #define scope (PS->scope)
 #define gscope (PS->gscope)
 #define globals_head (PS->globals_head)
@@ -64,21 +64,21 @@ typedef struct {
 #define count_mode (PS->count_mode)
 
 /* ---------- вспомогательное ---------- */
-static int P(const char *s) { return tok->k == TK_PUNCT && tok_is(tok, s); }
-static int KW(const char *s) { return tok->k == TK_KW && tok_is(tok, s); }
-static int eat(const char *s) { if (P(s)) { tok = tok->next; return 1; } return 0; }
-static int eat_kw(const char *s) { if (KW(s)) { tok = tok->next; return 1; } return 0; }
+static int P(const char *s) { return ptok->k == TK_PUNCT && tok_is(ptok, s); }
+static int KW(const char *s) { return ptok->k == TK_KW && tok_is(ptok, s); }
+static int eat(const char *s) { if (P(s)) { ptok = ptok->next; return 1; } return 0; }
+static int eat_kw(const char *s) { if (KW(s)) { ptok = ptok->next; return 1; } return 0; }
 static const char *tokdesc(const Token *t) {
     if (t->k == TK_EOF) return "end of input";
     return kfmt("'%.*s'", t->len > 40 ? 40 : t->len, t->s);
 }
 static void expect(const char *s) {
-    if (!eat(s)) kerr_tok(tok, "expected '%s' before %s", s, tokdesc(tok));
+    if (!eat(s)) kerr_tok(ptok, "expected '%s' before %s", s, tokdesc(ptok));
 }
 static Token *expect_id(void) {
-    if (tok->k != TK_ID) kerr_tok(tok, "expected identifier before %s", tokdesc(tok));
-    Token *t = tok;
-    tok = tok->next;
+    if (ptok->k != TK_ID) kerr_tok(ptok, "expected identifier before %s", tokdesc(ptok));
+    Token *t = ptok;
+    ptok = ptok->next;
     return t;
 }
 static const char *tname(const Token *t) { return ka_strdup(t->s, (size_t)t->len); }
@@ -167,7 +167,7 @@ static Node *vla_take(void);
 static Node *vla_chain(Node *p, Node *e, const Token *t);
 static Node *size_node(Type *ty, const Token *t);
 
-#define ENTER() do { if (++K.depth > 600) kerr_tok(tok, "nesting is too deep"); } while (0)
+#define ENTER() do { if (++K.depth > 600) kerr_tok(ptok, "nesting is too deep"); } while (0)
 #define TSZ(t) (ty_unqual(t)->size)
 #define TAL(t) (ty_unqual(t)->align)
 
@@ -239,17 +239,17 @@ static void init2(Init *in) {
 /* ---------- атрибуты ---------- */
 static void attrs(Attr *a) {
     while (KW("__attribute__")) {
-        tok = tok->next;
+        ptok = ptok->next;
         expect("("); expect("(");
         while (!P(")")) {
-            if (tok->k != TK_ID && tok->k != TK_KW) kerr_tok(tok, "expected attribute name");
-            const char *s = tok->s; int l = tok->len;
+            if (ptok->k != TK_ID && ptok->k != TK_KW) kerr_tok(ptok, "expected attribute name");
+            const char *s = ptok->s; int l = ptok->len;
             if (l > 4 && s[0] == '_' && s[1] == '_' && s[l - 1] == '_' && s[l - 2] == '_') { s += 2; l -= 4; }
-            const Token *nt = tok;
+            const Token *nt = ptok;
             char name[40];
-            if (l >= (int)sizeof name) kerr_tok(tok, "unsupported attribute '%.*s'", nt->len, nt->s);
+            if (l >= (int)sizeof name) kerr_tok(ptok, "unsupported attribute '%.*s'", nt->len, nt->s);
             memcpy(name, s, (size_t)l); name[l] = 0;
-            tok = tok->next;
+            ptok = ptok->next;
             if (!strcmp(name, "packed")) a->packed = 1;
             else if (!strcmp(name, "noreturn")) a->noret = 1;
             else if (!strcmp(name, "weak")) a->weak = 1;
@@ -265,10 +265,10 @@ static void attrs(Attr *a) {
                 if (eat("(")) {
                     int d = 1;
                     while (d) {
-                        if (tok->k == TK_EOF) kerr_tok(nt, "unterminated attribute");
+                        if (ptok->k == TK_EOF) kerr_tok(nt, "unterminated attribute");
                         if (P("(")) d++;
                         else if (P(")")) d--;
-                        tok = tok->next;
+                        ptok = ptok->next;
                     }
                 }
             } else kerr_tok(nt, "unsupported attribute '%s'", name);
@@ -311,64 +311,64 @@ static Type *declspec_(Attr *a) {
     if (!a) a = &scratch;
     Type *ty = NULL;
     int counter = 0, cq = 0, vq = 0;
-    const Token *first = tok;
-    while (is_typename(tok)) {
-        if (tok->k == TK_KW) {
+    const Token *first = ptok;
+    while (is_typename(ptok)) {
+        if (ptok->k == TK_KW) {
             if (KW("typedef") || KW("static") || KW("extern") || KW("inline") || KW("register") || KW("auto") || KW("_Noreturn") || KW("_Thread_local") || KW("__thread")) {
-                if (KW("_Thread_local") || KW("__thread")) unsupported(tok, "_Thread_local/__thread (no TLS in kernel and klink, see docs/KCC.md G4)");
+                if (KW("_Thread_local") || KW("__thread")) unsupported(ptok, "_Thread_local/__thread (no TLS in kernel and klink, see docs/KCC.md G4)");
                 if (KW("typedef")) a->is_typedef = 1;
                 else if (KW("static")) a->is_static = 1;
                 else if (KW("extern")) a->is_extern = 1;
                 else if (KW("inline")) a->is_inline = 1;
                 else if (KW("_Noreturn")) a->noret = 1;
-                if (a->is_typedef + a->is_static + a->is_extern > 1) kerr_tok(tok, "cannot combine storage-class specifiers");
-                tok = tok->next;
+                if (a->is_typedef + a->is_static + a->is_extern > 1) kerr_tok(ptok, "cannot combine storage-class specifiers");
+                ptok = ptok->next;
                 continue;
             }
-            if (KW("const")) { cq = 1; tok = tok->next; continue; }
-            if (KW("volatile")) { vq = 1; tok = tok->next; continue; }
-            if (KW("restrict")) { tok = tok->next; continue; }
-            if (KW("__extension__")) { tok = tok->next; continue; }
+            if (KW("const")) { cq = 1; ptok = ptok->next; continue; }
+            if (KW("volatile")) { vq = 1; ptok = ptok->next; continue; }
+            if (KW("restrict")) { ptok = ptok->next; continue; }
+            if (KW("__extension__")) { ptok = ptok->next; continue; }
             if (KW("__attribute__")) { attrs(a); continue; }
-            if (KW("_Atomic")) unsupported(tok, "_Atomic");
+            if (KW("_Atomic")) unsupported(ptok, "_Atomic");
             if (KW("_Alignas")) {
-                const Token *at = tok;
-                tok = tok->next;
+                const Token *at = ptok;
+                ptok = ptok->next;
                 expect("(");
                 int64_t v;
-                if (is_typename(tok)) v = TAL(typename());
+                if (is_typename(ptok)) v = TAL(typename());
                 else v = const_expr();
                 expect(")");
                 if (v < 0 || (v & (v - 1)) || v > (1 << 20)) kerr_tok(at, "requested alignment is not a power of 2");
                 if (v > a->align) a->align = (int)v;
                 continue;
             }
-            if (KW("_Complex")) unsupported(tok, "_Complex");
+            if (KW("_Complex")) unsupported(ptok, "_Complex");
             if (KW("float") || KW("double")) {
-                if (counter == C_LONG && KW("double")) unsupported(tok, "long double (kcc has no 80-bit x87 type; use double)");
-                if (counter || ty) kerr_tok(tok, "invalid combination of type specifiers");
-                if (kcc_nosse) unsupported(tok, "float and double (-mno-sse build: no SSE registers)");
+                if (counter == C_LONG && KW("double")) unsupported(ptok, "long double (kcc has no 80-bit x87 type; use double)");
+                if (counter || ty) kerr_tok(ptok, "invalid combination of type specifiers");
+                if (kcc_nosse) unsupported(ptok, "float and double (-mno-sse build: no SSE registers)");
                 ty = KW("float") ? &ty_float : &ty_double;
-                tok = tok->next; counter += C_OTHER;
+                ptok = ptok->next; counter += C_OTHER;
                 continue;
             }
         }
         if (KW("__builtin_va_list")) {
             if (counter || ty) break;
-            ty = va_type(); tok = tok->next; counter += C_OTHER;
+            ty = va_type(); ptok = ptok->next; counter += C_OTHER;
             continue;
         }
-        if (KW("struct") || KW("union") || KW("enum") || KW("typeof") || tok->k == TK_ID) {
+        if (KW("struct") || KW("union") || KW("enum") || KW("typeof") || ptok->k == TK_ID) {
             if (counter) break;
             if (ty) break;
-            if (KW("struct") || KW("union")) { int u = KW("union"); tok = tok->next; ty = struct_decl(u); }
-            else if (KW("enum")) { tok = tok->next; ty = enum_decl(); }
+            if (KW("struct") || KW("union")) { int u = KW("union"); ptok = ptok->next; ty = struct_decl(u); }
+            else if (KW("enum")) { ptok = ptok->next; ty = enum_decl(); }
             else if (KW("typeof")) {
-                tok = tok->next; expect("(");
-                if (is_typename(tok)) ty = typename();
+                ptok = ptok->next; expect("(");
+                if (is_typename(ptok)) ty = typename();
                 else { Node *e = expr(); ty = e->ty; }
                 expect(")");
-            } else { ty = find_typedef(tok); tok = tok->next; }
+            } else { ty = find_typedef(ptok); ptok = ptok->next; }
             counter += C_OTHER;
             continue;
         }
@@ -395,9 +395,9 @@ static Type *declspec_(Attr *a) {
         case C_UNSIGNED + C_LONG: case C_UNSIGNED + C_LONG + C_INT: ty = &ty_ulong; break;
         case C_LONG + C_LONG: case C_LONG + C_LONG + C_INT: case C_SIGNED + C_LONG + C_LONG: case C_SIGNED + C_LONG + C_LONG + C_INT: ty = &ty_llong; break;
         case C_UNSIGNED + C_LONG + C_LONG: case C_UNSIGNED + C_LONG + C_LONG + C_INT: ty = &ty_ullong; break;
-        default: kerr_tok(tok, "invalid combination of type specifiers");
+        default: kerr_tok(ptok, "invalid combination of type specifiers");
         }
-        tok = tok->next;
+        ptok = ptok->next;
     }
     if (!ty) {
         if (counter & (C_SIGNED | C_UNSIGNED)) ty = (counter & C_UNSIGNED) ? &ty_uint : &ty_int;
@@ -470,7 +470,7 @@ static Type *struct_decl_(int is_union) {
     Attr at = {0};
     attrs(&at);
     Token *tag = NULL;
-    if (tok->k == TK_ID) tag = expect_id();
+    if (ptok->k == TK_ID) tag = expect_id();
     if (tag && !P("{")) {
         Type *t = find_tag(tag, 0);
         if (t) {
@@ -483,7 +483,7 @@ static Type *struct_decl_(int is_union) {
         return t;
     }
     if (!tag) {
-        if (!P("{")) kerr_tok(tok, "expected '{' or identifier after struct/union");
+        if (!P("{")) kerr_tok(ptok, "expected '{' or identifier after struct/union");
     }
     Type *t = tag ? find_tag(tag, 1) : NULL;
     if (t && (t->complete || t->k != (is_union ? TY_UNION : TY_STRUCT))) kerr_tok(tag, "redefinition of '%.*s'", tag->len, tag->s);
@@ -496,25 +496,25 @@ static Type *struct_decl_(int is_union) {
     Member head = {0}, *cur = &head;
     Type *saved_self = t;
     while (!P("}")) {
-        if (tok->k == TK_EOF) kerr_tok(tok, "expected '}' at end of struct");
+        if (ptok->k == TK_EOF) kerr_tok(ptok, "expected '}' at end of struct");
         if (KW("_Static_assert")) {
-            tok = tok->next; expect("(");
+            ptok = ptok->next; expect("(");
             int64_t v = const_expr();
-            const Token *at2 = tok;
-            if (eat(",")) { if (tok->k != TK_STR) kerr_tok(tok, "expected string literal in _Static_assert"); tok = tok->next; }
+            const Token *at2 = ptok;
+            if (eat(",")) { if (ptok->k != TK_STR) kerr_tok(ptok, "expected string literal in _Static_assert"); ptok = ptok->next; }
             expect(")"); expect(";");
             if (!v) kerr_tok(at2, "static assertion failed");
             continue;
         }
         Attr ma = {0};
         Type *base = declspec(&ma);
-        if (ma.is_typedef || ma.is_static || ma.is_extern) kerr_tok(tok, "storage class not allowed in struct member");
+        if (ma.is_typedef || ma.is_static || ma.is_extern) kerr_tok(ptok, "storage class not allowed in struct member");
         if (P(";") && ty_is_agg(base) && !ty_unqual(base)->tag) {      /* анонимная структура/объединение */
-            if (!ty_unqual(base)->complete) kerr_tok(tok, "anonymous member has incomplete type");
+            if (!ty_unqual(base)->complete) kerr_tok(ptok, "anonymous member has incomplete type");
             Member *m = ka_new(sizeof *m);
-            m->ty = base; m->bw = -1; m->bo = 0; m->tok = tok;
+            m->ty = base; m->bw = -1; m->bo = 0; m->tok = ptok;
             cur->next = m; cur = m;
-            tok = tok->next;
+            ptok = ptok->next;
             continue;
         }
         int first = 1;
@@ -524,10 +524,10 @@ static Type *struct_decl_(int is_union) {
             Token *nm = NULL;
             Type *mt = base;
             if (!P(":")) mt = declarator(base, &nm);
-            if (mt->vm) kerr_tok(nm ? nm : tok, "fields must have a constant size: variable length array in a struct or union");
+            if (mt->vm) kerr_tok(nm ? nm : ptok, "fields must have a constant size: variable length array in a struct or union");
             attrs(&ma);
             Member *m = ka_new(sizeof *m);
-            m->ty = mt; m->name = nm ? tname(nm) : NULL; m->tok = nm ? nm : tok; m->bw = -1; m->bo = 0; m->align = ma.align;
+            m->ty = mt; m->name = nm ? tname(nm) : NULL; m->tok = nm ? nm : ptok; m->bw = -1; m->bo = 0; m->align = ma.align;
             if (eat(":")) {
                 int64_t w = const_expr();
                 if (!is_inttype_ok(mt) || mt->k == TY_ENUM) {
@@ -536,7 +536,7 @@ static Type *struct_decl_(int is_union) {
                 if (w < 0 || (w == 0 && nm)) kerr_tok(m->tok, "invalid bit-field width");
                 m->bw = (int)w; m->bo = -1;
             } else {
-                if (!nm) kerr_tok(tok, "expected member name or ';' after declaration specifiers");
+                if (!nm) kerr_tok(ptok, "expected member name or ';' after declaration specifiers");
                 if (mt->k == TY_FUNC) kerr_tok(m->tok, "field '%s' declared as a function", m->name);
                 if (mt->k == TY_VOID) kerr_tok(m->tok, "field has incomplete type 'void'");
             }
@@ -558,7 +558,7 @@ static Type *enum_decl(void) {
     Attr at = {0};
     attrs(&at);
     Token *tag = NULL;
-    if (tok->k == TK_ID) tag = expect_id();
+    if (ptok->k == TK_ID) tag = expect_id();
     if (tag && !P("{")) {
         Type *t = find_tag(tag, 0);
         if (!t) kerr_tok(tag, "incomplete enum type 'enum %.*s'", tag->len, tag->s);
@@ -596,7 +596,7 @@ static Type *type_suffix(Type *ty);
 static Param *func_params_(int *variadic, int *noproto) {
     Param head = {0}, *cur = &head;
     int has_br = 0, dep = 0;                                /* объекты параметров нужны только если в списке есть '[' (возможный VLA) */
-    for (Token *q = tok; q->k != TK_EOF; q = q->next) {
+    for (Token *q = ptok; q->k != TK_EOF; q = q->next) {
         if (q->k != TK_PUNCT) continue;
         if (tok_is(q, "(")) dep++;
         else if (tok_is(q, ")")) { if (dep-- == 0) break; }
@@ -604,20 +604,20 @@ static Param *func_params_(int *variadic, int *noproto) {
     }
     *variadic = 0; *noproto = 0;
     if (P(")")) { *noproto = 1; return NULL; }
-    if (KW("void") && tok->next->k == TK_PUNCT && tok_is(tok->next, ")")) { tok = tok->next; return NULL; }
+    if (KW("void") && ptok->next->k == TK_PUNCT && tok_is(ptok->next, ")")) { ptok = ptok->next; return NULL; }
     for (;;) {
         if (eat("...")) {
-            if (!head.next) kerr_tok(tok, "ISO C requires a named parameter before '...'");
+            if (!head.next) kerr_tok(ptok, "ISO C requires a named parameter before '...'");
             *variadic = 1;
             break;
         }
         Attr a = {0};
         Type *base = declspec(&a);
-        if (a.is_typedef || a.is_static || a.is_extern) kerr_tok(tok, "storage class not allowed on parameter");
+        if (a.is_typedef || a.is_static || a.is_extern) kerr_tok(ptok, "storage class not allowed on parameter");
         Token *nm = NULL;
         Type *ty = declarator(base, &nm);
         attrs(&a);
-        if (ty->k == TY_VOID) kerr_tok(tok, "parameter cannot have type 'void'");
+        if (ty->k == TY_VOID) kerr_tok(ptok, "parameter cannot have type 'void'");
         if (ty->k == TY_ARRAY) ty = ty_ptr(ty->base);
         else if (ty->k == TY_FUNC) ty = ty_ptr(ty);
         Param *p = ka_new(sizeof *p);
@@ -655,22 +655,22 @@ static Type *type_suffix_(Type *ty) {
         Node *vi; Obj *vo;
         Param *ps = func_params(&var, &nop, &vi, &vo);
         expect(")");
-        if (ty->k == TY_FUNC) kerr_tok(tok, "function cannot return function type");
-        if (ty->k == TY_ARRAY) kerr_tok(tok, "function cannot return array type");
+        if (ty->k == TY_FUNC) kerr_tok(ptok, "function cannot return function type");
+        if (ty->k == TY_ARRAY) kerr_tok(ptok, "function cannot return array type");
         Type *ft = ty_func(ty, ps, var, nop);
         ft->vinit = vi; ft->vobjs = vo;
         return ft;
     }
     if (eat("[")) {
-        while (KW("static") || KW("const") || KW("volatile") || KW("restrict")) tok = tok->next;
+        while (KW("static") || KW("const") || KW("volatile") || KW("restrict")) ptok = ptok->next;
         int64_t len = -1;
         Obj *vlen = NULL;
         if (!P("]")) {
-            const Token *et = tok;
+            const Token *et = ptok;
             Node *e = NULL;
-            if (P("*") && tok->next->k == TK_PUNCT && tok_is(tok->next, "]")) {      /* [*] только в прототипе: размер не нужен, массив станет указателем */
-                if (!in_params) kerr_tok(tok, "star modifier used outside of function prototype");
-                tok = tok->next;
+            if (P("*") && ptok->next->k == TK_PUNCT && tok_is(ptok->next, "]")) {      /* [*] только в прототипе: размер не нужен, массив станет указателем */
+                if (!in_params) kerr_tok(ptok, "star modifier used outside of function prototype");
+                ptok = ptok->next;
             } else {
                 e = cond_expr();
                 if (!ty_is_int(e->ty)) kerr_tok(et, "size of array has non-integer type '%s'", ty_name(e->ty));
@@ -678,7 +678,7 @@ static Type *type_suffix_(Type *ty) {
             if (!e) len = -1;
             else if (e->k == ND_NUM) {
                 len = e->val;
-                if (len < 0) kerr_tok(tok, "array size is negative");
+                if (len < 0) kerr_tok(ptok, "array size is negative");
             } else {
                 vlen = vla_make_len(e, et);                     /* массив переменной длины: длина вычисляется здесь один раз */
                 len = -2;
@@ -686,10 +686,10 @@ static Type *type_suffix_(Type *ty) {
         }
         expect("]");
         Type *inner = type_suffix(ty);
-        if (inner->k == TY_FUNC) kerr_tok(tok, "array of functions is invalid");
-        if (inner->k == TY_VOID) kerr_tok(tok, "array of void is invalid");
-        if (!ty_unqual(inner)->complete) kerr_tok(tok, "array has incomplete element type '%s'", ty_name(inner));
-        if (inner->k == TY_ARRAY && inner->alen == -1) kerr_tok(tok, "array has incomplete element type '%s'", ty_name(inner));
+        if (inner->k == TY_FUNC) kerr_tok(ptok, "array of functions is invalid");
+        if (inner->k == TY_VOID) kerr_tok(ptok, "array of void is invalid");
+        if (!ty_unqual(inner)->complete) kerr_tok(ptok, "array has incomplete element type '%s'", ty_name(inner));
+        if (inner->k == TY_ARRAY && inner->alen == -1) kerr_tok(ptok, "array has incomplete element type '%s'", ty_name(inner));
         Type *arr = ty_array(inner, len == -2 ? -1 : len);
         if (len == -2) { arr->alen = -2; arr->complete = 1; arr->vlen = vlen; }
         if (len == -2 || inner->vm) arr->vm = 1;
@@ -715,10 +715,10 @@ static Type *pointers(Type *ty) {
 static Type *declarator_(Type *ty, Token **name) {
     ty = pointers(ty);
     if (P("(")) {
-        const Token *n = tok->next;
+        const Token *n = ptok->next;
         int nested = (n->k == TK_PUNCT && (tok_is(n, "*") || tok_is(n, "(") || tok_is(n, "["))) || (n->k == TK_ID && !find_typedef(n)) || (n->k == TK_KW && tok_is(n, "__attribute__"));
         if (nested) {
-            Token *start = tok->next;
+            Token *start = ptok->next;
             int d = 1;
             Token *t = start;
             while (d) {
@@ -727,19 +727,19 @@ static Type *declarator_(Type *ty, Token **name) {
                 else if (t->k == TK_PUNCT && tok_is(t, ")")) d--;
                 t = t->next;
             }
-            tok = t;
+            ptok = t;
             ty = type_suffix(ty);
-            Token *end = tok;
-            tok = start;
+            Token *end = ptok;
+            ptok = start;
             Attr d2 = {0};
             attrs(&d2);
             ty = declarator(ty, name);
             expect(")");
-            tok = end;
+            ptok = end;
             return ty;
         }
     }
-    if (tok->k == TK_ID && name) *name = expect_id();
+    if (ptok->k == TK_ID && name) *name = expect_id();
     else if (name) *name = NULL;
     return type_suffix(ty);
 }
@@ -1208,7 +1208,7 @@ static Node *vla_leave(int d, const Token *t) {
 
 /* ---------- константные выражения ---------- */
 static int64_t const_expr(void) {
-    const Token *t = tok;
+    const Token *t = ptok;
     Node *e = cond_expr();
     if (e->k != ND_NUM || !(ty_is_int(e->ty))) kerr_tok(t, "expression is not an integer constant expression");
     return e->val;
@@ -1247,7 +1247,7 @@ static Node *funcall(Node *fn, const Token *t) {
     int n = 0;
     while (!P(")")) {
         if (n) expect(",");
-        const Token *at = tok;
+        const Token *at = ptok;
         Node *a = rv(assign());
         if (p) {
             a = conv_assign(a, p->ty, at, "passing to parameter of type");
@@ -1336,7 +1336,7 @@ static Node *offsetof_expr(const Token *t) {
             cur = m->ty;
             first = 0;
         } else if (eat("[")) {
-            const Token *it = tok;
+            const Token *it = ptok;
             Node *ie = cond_expr();
             expect("]");
             if (cur->k != TY_ARRAY) kerr_tok(t, "offsetof subscript on non-array");
@@ -1566,8 +1566,8 @@ static int generic_same(const Type *a, const Type *b) {
     return 1;
 }
 static Node *generic_select(void) {
-    const Token *t = tok;
-    tok = tok->next;
+    const Token *t = ptok;
+    ptok = ptok->next;
     expect("(");
     Node *ctl = assign();
     Type *ct = ctl->ty;
@@ -1578,9 +1578,9 @@ static Node *generic_select(void) {
     int ndef = 0;
     while (eat(",")) {
         if (KW("default")) {
-            tok = tok->next;
+            ptok = ptok->next;
             expect(":");
-            if (ndef++) kerr_tok(tok, "duplicate default generic association");
+            if (ndef++) kerr_tok(ptok, "duplicate default generic association");
             dflt = assign();
             continue;
         }
@@ -1599,39 +1599,39 @@ static Node *generic_select(void) {
 }
 
 static Node *primary(void) {
-    const Token *t = tok;
+    const Token *t = ptok;
     if (P("(")) {
-        if (tok->next->k == TK_PUNCT && tok_is(tok->next, "{")) {
-            tok = tok->next;
+        if (ptok->next->k == TK_PUNCT && tok_is(ptok->next, "{")) {
+            ptok = ptok->next;
             Node *n = stmt_expr(t);
             expect(")");
             return n;
         }
-        if (is_typename(tok->next)) {
-            tok = tok->next;
+        if (is_typename(ptok->next)) {
+            ptok = ptok->next;
             Type *ty = typename();
             expect(")");
-            if (!P("{")) kerr_tok(tok, "expected '{' for compound literal");
+            if (!P("{")) kerr_tok(ptok, "expected '{' for compound literal");
             return complit(ty, t);
         }
-        tok = tok->next;
+        ptok = ptok->next;
         Node *e = expr();
         expect(")");
         return e;
     }
-    if (tok->k == TK_NUM || tok->k == TK_CHR) {
-        tok = tok->next;
+    if (ptok->k == TK_NUM || ptok->k == TK_CHR) {
+        ptok = ptok->next;
         if (ty_is_float(t->ty)) return new_fnum((uint64_t)t->ival, t->ty, t);
         return new_num(t->ival, t->ty, t);
     }
-    if (tok->k == TK_STR) {
-        tok = tok->next;
+    if (ptok->k == TK_STR) {
+        ptok = ptok->next;
         return var_node(new_str_obj(t->str, t->slen, t->ty ? t->ty : &ty_char, t), t);
     }
-    if (tok->k == TK_ID) {
+    if (ptok->k == TK_ID) {
         if (t->len >= 10 && !memcmp(t->s, "__builtin_", 10)) {
             const char *nm = t->s + 10; int l = t->len - 10;
-            tok = tok->next;
+            ptok = ptok->next;
             if (l == 6 && !memcmp(nm, "expect", 6)) {
                 expect("(");
                 Node *a = rv(assign()); expect(","); assign(); expect(")");
@@ -1682,35 +1682,35 @@ static Node *primary(void) {
             kerr_tok(t, "unsupported builtin '%.*s'", t->len, t->s);
         }
         if ((t->len > 9 && !memcmp(t->s, "__atomic_", 9)) || (t->len > 7 && !memcmp(t->s, "__sync_", 7))) {
-            tok = tok->next;
+            ptok = ptok->next;
             return atomic_builtin(t);
         }
         if ((t->len == 8 && !memcmp(t->s, "__func__", 8)) || (t->len == 12 && !memcmp(t->s, "__FUNCTION__", 12))) {
             if (!cur_fn) kerr_tok(t, "'__func__' used outside of a function");
-            tok = tok->next;
+            ptok = ptok->next;
             return var_node(new_str_obj(cur_fn->name, (int)strlen(cur_fn->name), &ty_char, t), t);
         }
-        VS *v = find_vs(tok);
+        VS *v = find_vs(ptok);
         if (!v) {
-            if (tok->next->k == TK_PUNCT && tok_is(tok->next, "("))
+            if (ptok->next->k == TK_PUNCT && tok_is(ptok->next, "("))
                 kerr_tok(t, "call to undeclared function '%.*s'; ISO C99 and later do not support implicit function declarations", t->len, t->s);
             kerr_tok(t, "use of undeclared identifier '%.*s'", t->len, t->s);
         }
-        tok = tok->next;
+        ptok = ptok->next;
         if (v->var && v->vla) return new_deref(var_node(v->var, t), t);      /* VLA: объект лежит по адресу из скрытого указателя */
         if (v->var) return var_node(v->var, t);
         if (v->ety) return new_num(v->eval, &ty_int, t);
         kerr_tok(t, "unexpected type name '%.*s': expected expression", t->len, t->s);
     }
-    if (tok->k == TK_KW && tok_is(tok, "_Generic")) return generic_select();
-    kerr_tok(tok, "expected expression before %s", tokdesc(tok));
+    if (ptok->k == TK_KW && tok_is(ptok, "_Generic")) return generic_select();
+    kerr_tok(ptok, "expected expression before %s", tokdesc(ptok));
 }
 
 static Node *postfix(void) {
     Node *n = primary();
     for (int nops = 0;; nops++) {
-        const Token *t = tok;
-        if (nops > 4000) kerr_tok(tok, "expression is too long");
+        const Token *t = ptok;
+        if (nops > 4000) kerr_tok(ptok, "expression is too long");
         if (eat("(")) { n = funcall(n, t); continue; }
         if (eat("[")) {
             Node *i = expr();
@@ -1727,7 +1727,7 @@ static Node *postfix(void) {
 }
 
 static Node *unary_(void) {
-    const Token *t = tok;
+    const Token *t = ptok;
     if (eat("+")) {
         Node *e = rv(cast_expr());
         if (!ty_is_arith(e->ty)) kerr_tok(t, "invalid argument type '%s' to unary expression", ty_name(e->ty));
@@ -1776,11 +1776,11 @@ static Node *unary_(void) {
     if (eat("--")) return new_incdec(unary(), -1, 0, t);
     if (KW("sizeof") || KW("__alignof__")) {
         int is_sz = KW("sizeof");
-        tok = tok->next;
+        ptok = ptok->next;
         Type *ty;
         Node *pend = NULL;
-        if (P("(") && is_typename(tok->next)) {
-            tok = tok->next;
+        if (P("(") && is_typename(ptok->next)) {
+            ptok = ptok->next;
             ty = typename();
             expect(")");
             pend = vla_take();
@@ -1799,13 +1799,13 @@ static Node *unary_(void) {
 }
 
 static Node *cast_expr(void) {
-    if (P("(") && is_typename(tok->next)) {
-        Token *save = tok;
-        const Token *t = tok;
-        tok = tok->next;
+    if (P("(") && is_typename(ptok->next)) {
+        Token *save = ptok;
+        const Token *t = ptok;
+        ptok = ptok->next;
         Type *ty = typename();
         expect(")");
-        if (P("{")) { tok = save; return unary(); }
+        if (P("{")) { ptok = save; return unary(); }
         Node *pend = vla_take();
         return vla_chain(pend, new_cast(cast_expr(), ty, t), t);
     }
@@ -1850,11 +1850,11 @@ static Node *binary(int minp) {
     Node *l = cast_expr();
     int nops = 0;
     for (;;) {
-        int p = prec_of(tok);
-        if (p && ++nops > 4000) kerr_tok(tok, "expression is too long");
+        int p = prec_of(ptok);
+        if (p && ++nops > 4000) kerr_tok(ptok, "expression is too long");
         if (!p || p < minp) return l;
-        const Token *op = tok;
-        tok = tok->next;
+        const Token *op = ptok;
+        ptok = ptok->next;
         Node *r = binary(p + 1);
         l = apply_bin(op, l, r);
     }
@@ -1885,10 +1885,10 @@ static Node *make_cond(Node *c, Node *a, Node *b, const Token *t) {
 
 static Node *cond_expr_(void) {
     Node *c = binary(1);
-    const Token *t = tok;
+    const Token *t = ptok;
     if (!eat("?")) return c;
     if (P(":")) {                                   /* a ?: b - a вычисляется один раз */
-        tok = tok->next;
+        ptok = ptok->next;
         Node *b = cond_expr();
         c = rv(c); b = rv(b);
         Type *ct;
@@ -1912,14 +1912,14 @@ static Node *cond_expr_(void) {
 
 static Node *assign(void) {
     Node *n = cond_expr();
-    const Token *t = tok;
+    const Token *t = ptok;
     if (eat("=")) return new_assign(n, assign(), t);
     static const struct { const char *s; NKind k; } ops[] = {
         { "+=", ND_ADD }, { "-=", ND_SUB }, { "*=", ND_MUL }, { "/=", ND_DIV }, { "%=", ND_MOD }, { "&=", ND_AND },
         { "|=", ND_OR }, { "^=", ND_XOR }, { "<<=", ND_SHL }, { ">>=", ND_SHR }, { 0, 0 } };
-    if (tok->k == TK_PUNCT)
+    if (ptok->k == TK_PUNCT)
         for (int i = 0; ops[i].s; i++)
-            if (tok_is(tok, ops[i].s)) { tok = tok->next; return new_opassign(ops[i].k, n, assign(), t); }
+            if (tok_is(ptok, ops[i].s)) { ptok = ptok->next; return new_opassign(ops[i].k, n, assign(), t); }
     return n;
 }
 
@@ -1927,9 +1927,9 @@ static Node *expr(void) {
     Node *n = assign();
     int nops = 0;
     while (P(",")) {
-        const Token *t = tok;
-        if (++nops > 4000) kerr_tok(tok, "expression is too long");
-        tok = tok->next;
+        const Token *t = ptok;
+        if (++nops > 4000) kerr_tok(ptok, "expression is too long");
+        ptok = ptok->next;
         Node *r = rv(assign());
         n = new_bin(ND_COMMA, n, r, r->ty, t);
     }
@@ -1969,7 +1969,7 @@ static void init2(Init *in);
 
 static int at_end(void) {
     if (P("}")) return 1;
-    return P(",") && tok->next->k == TK_PUNCT && tok_is(tok->next, "}");
+    return P(",") && ptok->next->k == TK_PUNCT && tok_is(ptok->next, "}");
 }
 static int has_member(Type *st, const char *name, int nl) {
     for (Member *m = ty_unqual(st)->mem; m; m = m->next) {
@@ -1982,24 +1982,24 @@ static int has_member(Type *st, const char *name, int nl) {
 static int desig(Init *in) {
     int idx;
     Init *ch;
-    const Token *t = tok;
+    const Token *t = ptok;
     if (eat("[")) {
         if (in->ty->k != TY_ARRAY) kerr_tok(t, "array designator used for non-array type '%s'", ty_name(in->ty));
         idx = (int)const_expr();
-        if (P("...")) unsupported(tok, "array designator ranges");
+        if (P("...")) unsupported(ptok, "array designator ranges");
         expect("]");
         if (idx < 0 || (!count_mode && idx >= in->nch)) kerr_tok(t, "array designator index %d exceeds array bounds", idx);
         ch = child(in, count_mode ? 0 : idx);
         if (count_mode && ch->ty != in->ty->base) ch = new_init(in->ty->base, 0);
     } else {
-        Token *dot = tok;
-        tok = tok->next;
+        Token *dot = ptok;
+        ptok = ptok->next;
         if (!ty_is_agg(in->ty)) kerr_tok(t, "field designator used for non-struct type '%s'", ty_name(in->ty));
         Token *nm = expect_id();
         Member *found = NULL;
         for (Member *m = ty_unqual(in->ty)->mem; m && !found; m = m->next) {
             if (m->name && (int)strlen(m->name) == nm->len && !memcmp(m->name, nm->s, (size_t)nm->len)) found = m;
-            else if (!m->name && ty_is_agg(m->ty) && has_member(m->ty, nm->s, nm->len)) { found = m; tok = dot; }
+            else if (!m->name && ty_is_agg(m->ty) && has_member(m->ty, nm->s, nm->len)) { found = m; ptok = dot; }
         }
         if (!found) kerr_tok(nm, "field designator '%.*s' does not refer to any field in type '%s'", nm->len, nm->s, ty_name(in->ty));
         idx = found->idx;
@@ -2013,11 +2013,11 @@ static int desig(Init *in) {
 }
 
 static void init_string(Init *in) {
-    const Token *t = tok;
+    const Token *t = ptok;
     Type *et = t->ty ? t->ty : &ty_char;
     int ew = et->size;
     int n = t->slen / ew;
-    tok = tok->next;
+    ptok = ptok->next;
     if (in->ty->alen < 0) {
         in->ty = ty_array(in->ty->base, n + 1);
         in->nch = n + 1;
@@ -2036,8 +2036,8 @@ static void init_string(Init *in) {
 static void arr_braced(Init *in) {
     int flex = in->ty->alen < 0;
     if (flex) {
-        if (!in->flex) kerr_tok(tok, "excess elements in array initializer");
-        Token *save = tok;
+        if (!in->flex) kerr_tok(ptok, "excess elements in array initializer");
+        Token *save = ptok;
         int saved_mode = count_mode;
         count_mode = 1;
         Init tmp = *in;
@@ -2055,7 +2055,7 @@ static void arr_braced(Init *in) {
             if (i > mx) mx = i;
         }
         count_mode = saved_mode;
-        tok = save;
+        ptok = save;
         in->ty = ty_array(in->ty->base, mx);
         in->nch = mx;
         if (mx) in->ch = ka_new(sizeof(Init *) * (size_t)mx);
@@ -2065,7 +2065,7 @@ static void arr_braced(Init *in) {
         if (!first) { expect(","); if (P("}")) break; }
         first = 0;
         if (P("[")) i = desig(in);
-        else if (i >= in->nch) kerr_tok(tok, "excess elements in array initializer");
+        else if (i >= in->nch) kerr_tok(ptok, "excess elements in array initializer");
         else init2(child(in, i));
         i++;
     }
@@ -2076,9 +2076,9 @@ static void unbraced(Init *in, int n, Member **ms) {
     for (int j = 0; j < n; j++) {
         if (j > 0) {
             if (!P(",")) break;
-            Token *s = tok;
-            tok = tok->next;
-            if (P("}") || P("[") || P(".")) { tok = s; break; }
+            Token *s = ptok;
+            ptok = ptok->next;
+            if (P("}") || P("[") || P(".")) { ptok = s; break; }
         }
         init2(child(in, ms ? ms[j]->idx : j));
     }
@@ -2108,7 +2108,7 @@ static void st_braced(Init *in) {
             for (Member *x = u->mem; x; x = x->next) if (x->idx == idx) m = x;
             m = m ? next_member(m) : NULL;
             if (u->k == TY_UNION) m = NULL;
-        } else if (!m) kerr_tok(tok, "excess elements in %s initializer", u->k == TY_UNION ? "union" : "struct");
+        } else if (!m) kerr_tok(ptok, "excess elements in %s initializer", u->k == TY_UNION ? "union" : "struct");
         else {
             if (u->k == TY_UNION) in->mem = m;
             init2(child(in, m->idx));
@@ -2132,29 +2132,29 @@ static void st_unbraced(Init *in) {
 
 static void init2_(Init *in) {
     Type *ty = in->ty;
-    if (ty->k == TY_ARRAY && tok->k == TK_STR && ty->base->size == (tok->ty ? tok->ty->size : 1) && ty_is_int(ty->base)) { init_string(in); return; }
+    if (ty->k == TY_ARRAY && ptok->k == TK_STR && ty->base->size == (ptok->ty ? ptok->ty->size : 1) && ty_is_int(ty->base)) { init_string(in); return; }
     if (ty->k == TY_ARRAY) {
         if (eat("{")) { arr_braced(in); return; }
-        if (in->flex || ty->alen < 0) kerr_tok(tok, "array initializer must be an initializer list");
+        if (in->flex || ty->alen < 0) kerr_tok(ptok, "array initializer must be an initializer list");
         unbraced(in, in->nch, NULL);
         return;
     }
     if (ty_is_agg(ty)) {
         if (eat("{")) { st_braced(in); return; }
         if (!P(".") && !P("[")) {
-            Token *s = tok;
+            Token *s = ptok;
             Node *e = rv(assign());
             if (ty_is_agg(e->ty) && ty_unqual(e->ty) == ty_unqual(ty)) { in->expr = e; return; }
-            tok = s;
+            ptok = s;
         }
         st_unbraced(in);
         return;
     }
     if (eat("{")) {
         init2(in);
-        if (P(",")) tok = tok->next;
-        if (!P("}")) kerr_tok(tok, "excess elements in scalar initializer");
-        tok = tok->next;
+        if (P(",")) ptok = ptok->next;
+        if (!P("}")) kerr_tok(ptok, "excess elements in scalar initializer");
+        ptok = ptok->next;
         return;
     }
     in->expr = assign();
@@ -2162,7 +2162,7 @@ static void init2_(Init *in) {
 
 static Init *initializer(Type *ty, Type **newty) {
     Init *in = new_init(ty, 1);
-    if (ty->k == TY_ARRAY && !P("{") && tok->k != TK_STR) kerr_tok(tok, "array initializer must be an initializer list");
+    if (ty->k == TY_ARRAY && !P("{") && ptok->k != TK_STR) kerr_tok(ptok, "array initializer must be an initializer list");
     init2(in);
     *newty = in->ty;
     return in;
@@ -2393,15 +2393,15 @@ static int str_is(const Token *t, const char *s) { return t->slen == (int)strlen
 
 /* asm [volatile] ("шаблон" : выходы : входы : клобберы). Список входов IR: сначала значения "+"-выходов, затем явные входы. */
 static Node *asm_stmt(void) {
-    const Token *t = tok;
-    tok = tok->next;
-    while (KW("volatile") || KW("inline")) tok = tok->next;
-    if (KW("goto")) unsupported(tok, "asm goto");
+    const Token *t = ptok;
+    ptok = ptok->next;
+    while (KW("volatile") || KW("inline")) ptok = ptok->next;
+    if (KW("goto")) unsupported(ptok, "asm goto");
     expect("(");
-    if (tok->k != TK_STR) kerr_tok(tok, "expected string literal in 'asm'");
-    const Token *st = tok;
-    char *tmpl = asm_norm(tok->str, tok->slen);
-    tok = tok->next;
+    if (ptok->k != TK_STR) kerr_tok(ptok, "expected string literal in 'asm'");
+    const Token *st = ptok;
+    char *tmpl = asm_norm(ptok->str, ptok->slen);
+    ptok = ptok->next;
     int idx = -1;
     for (int i = 0; asm_tab[i].t; i++) if (!strcmp(asm_tab[i].t, tmpl)) idx = i;
     if (idx < 0) kerr_tok(st, "unsupported inline asm template '%s'", tmpl);
@@ -2411,12 +2411,12 @@ static Node *asm_stmt(void) {
     Node ohead = {0}, ihead = {0}, xhead = {0}, *oc = &ohead, *ic = &ihead, *xc = &xhead;
     int sect = 0;
     while (P(":")) {
-        tok = tok->next;
-        if (++sect > 3) kerr_tok(tok, "too many asm sections");
+        ptok = ptok->next;
+        if (++sect > 3) kerr_tok(ptok, "too many asm sections");
         int cnt = 0;
-        while (tok->k == TK_STR) {
-            const Token *ct = tok;
-            tok = tok->next;
+        while (ptok->k == TK_STR) {
+            const Token *ct = ptok;
+            ptok = ptok->next;
             if (sect == 3) {
                 int ok = str_is(ct, "memory") || str_is(ct, "cc");
                 if (!ok && ct->slen > 0 && ct->slen < 8) {
@@ -2513,11 +2513,11 @@ static void check_object_type(Type *ty, const Token *nm, int allow_incomplete_ar
 }
 
 static void do_static_assert(void) {
-    const Token *t = tok;
-    tok = tok->next;
+    const Token *t = ptok;
+    ptok = ptok->next;
     expect("(");
     int64_t v = const_expr();
-    if (eat(",")) { if (tok->k != TK_STR) kerr_tok(tok, "expected string literal in _Static_assert"); tok = tok->next; }
+    if (eat(",")) { if (ptok->k != TK_STR) kerr_tok(ptok, "expected string literal in _Static_assert"); ptok = ptok->next; }
     expect(")"); expect(";");
     if (!v) kerr_tok(t, "static assertion failed");
 }
@@ -2526,7 +2526,7 @@ static Node *local_decl(void) {
     Attr a = {0};
     Type *base = declspec(&a);
     Node head = {0}, *tail = &head;
-    const Token *t = tok;
+    const Token *t = ptok;
     if (eat(";")) return NULL;
     int first = 1;
     while (!eat(";")) {
@@ -2535,7 +2535,7 @@ static Node *local_decl(void) {
         Token *nm = NULL;
         Type *ty = declarator(base, &nm);
         attrs(&a);
-        if (!nm) kerr_tok(tok, "expected identifier or '(' before %s", tokdesc(tok));
+        if (!nm) kerr_tok(ptok, "expected identifier or '(' before %s", tokdesc(ptok));
         for (Node *pn = vla_take(), *nx; pn; pn = nx) {      /* длины VLA из этого объявления вычисляются здесь, до самого объекта */
             nx = pn->next; pn->next = NULL;
             Node *es = new_expr_stmt(pn, nm);
@@ -2550,7 +2550,7 @@ static Node *local_decl(void) {
         if (ty->k == TY_FUNC) {
             Obj *o = declare_global(nm, ty, &a, 0);
             if (!find_in(scope, nm->s, nm->len)) { VS *v = add_vs(nm); v->var = o; }
-            if (P("{")) kerr_tok(tok, "function definition is not allowed here");
+            if (P("{")) kerr_tok(ptok, "function definition is not allowed here");
             continue;
         }
         if (ty->vm && (a.is_extern || a.is_static)) kerr_tok(nm, "variable length array declaration cannot have static or external storage duration");
@@ -2579,7 +2579,7 @@ static Node *local_decl(void) {
             continue;
         }
         if (ty->k == TY_ARRAY && ty->vm) {                   /* объект-VLA: блок стека, адрес в скрытом указателе */
-            if (P("=")) kerr_tok(tok, "variable-sized object may not be initialized");
+            if (P("=")) kerr_tok(ptok, "variable-sized object may not be initialized");
             if (blk_is_se) unsupported(nm, "variable length array directly in a statement expression");
             if (a.align) unsupported(nm, "alignment attribute on a variable length array");
             Obj *po = new_lvar(nm, ty_ptr(ty));
@@ -2602,7 +2602,7 @@ static Node *local_decl(void) {
         check_object_type(ty, nm, 1);
         Obj *o = new_lvar(nm, ty);
         if (a.align) o->align = a.align;
-        const Token *et = tok;
+        const Token *et = ptok;
         if (eat("=")) {
             Type *nt;
             Init *in = initializer(ty, &nt);
@@ -2628,7 +2628,7 @@ static Node *new_expr_stmt(Node *e, const Token *t) {
 }
 
 static Node *compound(int new_sc) {
-    const Token *t = tok;
+    const Token *t = ptok;
     expect("{");
     Node *blk = new_node(ND_BLOCK, t);
     Node head = {0}, *cur = &head;
@@ -2636,17 +2636,17 @@ static Node *compound(int new_sc) {
     blk_vla_base = vla_depth; blk_is_se = stmtexpr_next; stmtexpr_next = 0;
     if (new_sc) new_scope(0);
     while (!P("}")) {
-        if (tok->k == TK_EOF) kerr_tok(t, "expected '}' at end of input");
+        if (ptok->k == TK_EOF) kerr_tok(t, "expected '}' at end of input");
         Node *s;
         if (KW("_Static_assert")) { do_static_assert(); continue; }
-        if (is_typename(tok) && !(tok->k == TK_ID && tok->next->k == TK_PUNCT && tok_is(tok->next, ":"))) s = local_decl();
+        if (is_typename(ptok) && !(ptok->k == TK_ID && ptok->next->k == TK_PUNCT && tok_is(ptok->next, ":"))) s = local_decl();
         else s = stmt();
         if (vla_head) unsupported(t, "variably modified type in this context");
         if (!s) continue;
         cur->next = s;
         while (cur->next) cur = cur->next;
     }
-    const Token *et = tok;
+    const Token *et = ptok;
     expect("}");
     if (vla_depth > blk_vla_base) {                          /* конец блока с VLA: стек возвращается к состоянию до первого из них */
         if (new_sc) cur->next = new_expr_stmt(sp_restore(vla_stack[blk_vla_base], et), et);
@@ -2659,19 +2659,19 @@ static Node *compound(int new_sc) {
 }
 
 static Node *stmt_(void) {
-    const Token *t = tok;
+    const Token *t = ptok;
     if (P("{")) return compound(1);
     if (eat(";")) return new_node(ND_BLOCK, t);
     if (KW("asm")) return asm_stmt();
     if (KW("return")) {
-        tok = tok->next;
+        ptok = ptok->next;
         Node *n = new_node(ND_RETURN, t);
         Type *rt = cur_fn->ty->base;
         if (eat(";")) {
             if (rt->k != TY_VOID) kerr_tok(t, "non-void function '%s' should return a value", cur_fn->name);
             return n;
         }
-        const Token *et = tok;
+        const Token *et = ptok;
         Node *e = expr();
         expect(";");
         if (rt->k == TY_VOID) {
@@ -2683,7 +2683,7 @@ static Node *stmt_(void) {
         return n;
     }
     if (KW("if")) {
-        tok = tok->next;
+        ptok = ptok->next;
         expect("(");
         Node *n = new_node(ND_IF, t);
         n->c = to_cond(expr(), t);
@@ -2693,7 +2693,7 @@ static Node *stmt_(void) {
         return n;
     }
     if (KW("switch")) {
-        tok = tok->next;
+        ptok = ptok->next;
         expect("(");
         Node *n = new_node(ND_SWITCH, t);
         Node *c = rv(expr());
@@ -2707,7 +2707,7 @@ static Node *stmt_(void) {
         return n;
     }
     if (KW("case")) {
-        tok = tok->next;
+        ptok = ptok->next;
         if (!cur_switch) kerr_tok(t, "'case' statement not in switch statement");
         int64_t v = const_expr();
         int64_t hi = v;
@@ -2729,7 +2729,7 @@ static Node *stmt_(void) {
         return n;
     }
     if (KW("default")) {
-        tok = tok->next;
+        ptok = ptok->next;
         if (!cur_switch) kerr_tok(t, "'default' statement not in switch statement");
         expect(":");
         if (cur_switch->dflt) kerr_tok(t, "multiple default labels in one switch");
@@ -2740,11 +2740,11 @@ static Node *stmt_(void) {
         return n;
     }
     if (KW("for")) {
-        tok = tok->next;
+        ptok = ptok->next;
         expect("(");
         Node *n = new_node(ND_FOR, t);
         new_scope(0);
-        if (is_typename(tok)) n->ini = local_decl();
+        if (is_typename(ptok)) n->ini = local_decl();
         else if (!eat(";")) { n->ini = new_expr_stmt(expr(), t); expect(";"); }
         if (!P(";")) n->c = to_cond(expr(), t);
         expect(";");
@@ -2759,7 +2759,7 @@ static Node *stmt_(void) {
         return n;
     }
     if (KW("while")) {
-        tok = tok->next;
+        ptok = ptok->next;
         expect("(");
         Node *n = new_node(ND_FOR, t);
         n->c = to_cond(expr(), t);
@@ -2772,21 +2772,21 @@ static Node *stmt_(void) {
         return n;
     }
     if (KW("do")) {
-        tok = tok->next;
+        ptok = ptok->next;
         Node *n = new_node(ND_DO, t);
         int sb = brk_lbl, sc = cont_lbl, sbv = brk_vd, scv = cont_vd;
         brk_vd = cont_vd = vla_depth;
         n->lbl = brk_lbl = new_lbl(); n->lbl2 = cont_lbl = new_lbl();
         n->body = stmt();
         brk_lbl = sb; cont_lbl = sc; brk_vd = sbv; cont_vd = scv;
-        if (!eat_kw("while")) kerr_tok(tok, "expected 'while' in do/while statement");
+        if (!eat_kw("while")) kerr_tok(ptok, "expected 'while' in do/while statement");
         expect("(");
         n->c = to_cond(expr(), t);
         expect(")"); expect(";");
         return n;
     }
     if (KW("break")) {
-        tok = tok->next; expect(";");
+        ptok = ptok->next; expect(";");
         if (!brk_lbl) kerr_tok(t, "'break' statement not in loop or switch statement");
         Node *n = new_node(ND_BREAK, t);
         n->lbl = brk_lbl;
@@ -2794,7 +2794,7 @@ static Node *stmt_(void) {
         return n;
     }
     if (KW("continue")) {
-        tok = tok->next; expect(";");
+        ptok = ptok->next; expect(";");
         if (!cont_lbl) kerr_tok(t, "'continue' statement not in loop statement");
         Node *n = new_node(ND_CONTINUE, t);
         n->lbl = cont_lbl;
@@ -2802,8 +2802,8 @@ static Node *stmt_(void) {
         return n;
     }
     if (KW("goto")) {
-        tok = tok->next;
-        if (P("*")) unsupported(tok, "computed goto");
+        ptok = ptok->next;
+        if (P("*")) unsupported(ptok, "computed goto");
         Token *nm = expect_id();
         expect(";");
         Node *n = new_node(ND_GOTO, t);
@@ -2812,9 +2812,9 @@ static Node *stmt_(void) {
         n->gnext = fn_gotos; fn_gotos = n;
         return n;
     }
-    if (tok->k == TK_ID && tok->next->k == TK_PUNCT && tok_is(tok->next, ":")) {
-        Token *nm = tok;
-        tok = tok->next->next;
+    if (ptok->k == TK_ID && ptok->next->k == TK_PUNCT && tok_is(ptok->next, ":")) {
+        Token *nm = ptok;
+        ptok = ptok->next->next;
         for (Node *l = fn_labels; l; l = l->gnext) if (!strcmp(l->name, tname(nm))) kerr_tok(nm, "redefinition of label '%.*s'", nm->len, nm->s);
         Node *n = new_node(ND_LABEL, t);
         n->name = tname(nm); n->lbl = new_lbl();
@@ -2897,14 +2897,14 @@ static void func_def(Token *nm, Type *ty, Attr *a) {
 
 Obj *parse_program(Token *t) {
     K.parse_state = ka_new(sizeof(ParseState));
-    tok = t;
+    ptok = t;
     globals_head = globals_tail = NULL; va_ty = va_st = NULL;
     cur_fn = NULL; scope = NULL; str_count = static_count = type_count = 0;
     gscope = new_scope(1);
-    while (tok->k != TK_EOF) {
+    while (ptok->k != TK_EOF) {
         if (eat(";")) continue;
         if (KW("_Static_assert")) { do_static_assert(); continue; }
-        if (KW("asm")) unsupported(tok, "file-scope asm");
+        if (KW("asm")) unsupported(ptok, "file-scope asm");
         Attr a = {0};
         Type *base = declspec(&a);
         if (eat(";")) continue;
@@ -2915,7 +2915,7 @@ Obj *parse_program(Token *t) {
             Token *nm = NULL;
             Type *ty = declarator(base, &nm);
             attrs(&a);
-            if (!nm) kerr_tok(tok, "expected identifier or '(' before %s", tokdesc(tok));
+            if (!nm) kerr_tok(ptok, "expected identifier or '(' before %s", tokdesc(ptok));
             if (a.is_typedef) {
                 VS *prev = find_in(gscope, nm->s, nm->len);
                 if (prev && !(prev->tdef && ty_compat(prev->tdef, ty))) kerr_tok(nm, "redefinition of '%.*s' as different kind of symbol", nm->len, nm->s);
@@ -2932,7 +2932,7 @@ Obj *parse_program(Token *t) {
             }
             check_object_type(ty, nm, 1);
             if (P("=")) {
-                tok = tok->next;
+                ptok = ptok->next;
                 Obj *o = declare_global(nm, ty, &a, 1);
                 Type *nt;
                 Init *in = initializer(ty, &nt);
