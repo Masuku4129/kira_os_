@@ -14,7 +14,8 @@ void uart_print_dec(uint64_t v) { (void)v; }
 void uart_print_hex(uint64_t v) { (void)v; }
 void* kmalloc(size_t n) { return malloc(n); }
 void kfree(void* p) { free(p); }
-uint64_t shm_room_kb(void) { return 64 * 1024; }
+static uint64_t shm_room_limit_kb = 64 * 1024;
+uint64_t shm_room_kb(void) { return shm_room_limit_kb; }
 static int pages_live;
 static void (*on_pmm_alloc)(void);
 uint64_t pmm_alloc_page(void) {
@@ -59,6 +60,12 @@ static void racing_shm_create(void) {
     racing_shm_result = shm_open_as("race.area", 1, KOPEN_CREATE, 902, &racing_shm_object);
 }
 
+static int racing_budget_result;
+static kobj_t* racing_budget_object;
+static void racing_budget_create(void) {
+    racing_budget_result = shm_open_as("budget.other", 1, KOPEN_CREATE, 903, &racing_budget_object);
+}
+
 int main(void) {
     CHECK(kname_ok("kira.test-1_a") && !kname_ok(0) && !kname_ok("") && !kname_ok("Bad") && !kname_ok("a/b") && !kname_ok("0123456789012345678901234567890123"));
 
@@ -72,6 +79,18 @@ int main(void) {
     CHECK(pages_live == 1 && kobj_count() == 1);
     kobj_release(race_owner);
     CHECK(pages_live == 0 && kobj_count() == 0);
+
+    // Concurrent SHM creators with different names must share the in-flight memory budget.
+    shm_room_limit_kb = 4;
+    racing_budget_result = 0; racing_budget_object = 0;
+    on_pmm_alloc = racing_budget_create;
+    kobj_t* budget_owner = 0;
+    CHECK(shm_open_as("budget.first", 1, KOPEN_CREATE, 904, &budget_owner) == 0 && budget_owner);
+    CHECK(racing_budget_result == KE_NOMEM && racing_budget_object == 0);
+    CHECK(pages_live == 1 && kobj_count() == 1);
+    kobj_release(budget_owner);
+    CHECK(pages_live == 0 && kobj_count() == 0);
+    shm_room_limit_kb = 64 * 1024;
 
     // Приватные IPC-объекты доступны создателю; публикация задаётся только при создании.
     kobj_t *priv1 = 0, *priv2 = 0, *pub1 = 0, *pub2 = 0;
