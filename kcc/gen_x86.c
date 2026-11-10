@@ -35,7 +35,7 @@ static const int xpool[NXP] = { 8, 9, 10, 11, 12 };
 enum { AL_REG, AL_STK, AL_AREG, AL_ASTK, AL_XREG };
 typedef struct { int kind, idx, off; } ALoc;        /* REG: номер регистра; AREG: первый из регистров; STK/ASTK: смещение в области аргументов */
 struct X86State {
-    XA xa;
+    XA assembler;
     int npool;
     unsigned char *fold;
     int *fbase;
@@ -57,7 +57,7 @@ struct X86State {
     int tmplab, g_maxout;
 };
 #define X86S (K.x86_state)
-#define xa (X86S->xa)
+#define xa (X86S->assembler)
 #define A (&xa)
 #define npool (X86S->npool)
 #define fold (X86S->fold)

@@ -17,7 +17,7 @@ struct Init { Type *ty; Init **ch; int nch; Node *expr; Member *mem; int flex; }
 
 /* Все изменяемые данные разбора принадлежат текущей компиляции, а не translation-unit globals. */
 struct ParseState {
-    Token *tok;
+    Token *current_token;
     Scope *scope, *gscope;
     Obj *globals_head, *globals_tail, *cur_fn, *fn_locals_tail;
     int nlocals, str_count, static_count, type_count;
@@ -32,7 +32,7 @@ struct ParseState {
     int count_mode;
 };
 #define PS (K.parse_state)
-#define ptok (PS->tok)
+#define ptok (PS->current_token)
 #define scope (PS->scope)
 #define gscope (PS->gscope)
 #define globals_head (PS->globals_head)

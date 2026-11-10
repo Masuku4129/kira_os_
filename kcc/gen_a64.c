@@ -19,7 +19,7 @@ static const int pool[NPOOL] = { 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
 enum { AL_REG, AL_STK, AL_AREG, AL_ASTK, AL_VREG };
 typedef struct { int kind, idx, off; } ALoc;        /* REG: номер x (VREG - номер v); AREG: первый из регистров; STK/ASTK: смещение в области аргументов */
 struct A64State {
-    A6 xa;
+    A6 assembler;
     ALoc *ploc;
     int p_ngrn, p_nvrn, p_stk, p_hidden;
     int *vs, *ve, *rg, *so;
@@ -30,7 +30,7 @@ struct A64State {
     int64_t maxout_cur;
 };
 #define A64S (K.a64_state)
-#define xa (A64S->xa)
+#define xa (A64S->assembler)
 #define A (&xa)
 
 /* hidden не занимает регистров (указатель результата - в x8). Агрегат больше 16 байт приходит указателем (копию делает вызывающий в ir.c). */

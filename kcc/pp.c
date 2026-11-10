@@ -19,14 +19,14 @@ struct Once { Once *next; const char *path; };
 
 #define NB 512
 struct PPState {
-    Macro *mtab[NB];
+    Macro *macro_table[NB];
     Once *once_list;
     int unity_mode;                            /* #pragma kcc unity: каждый подключённый файл - один раз */
     Token out_head, *out_tail;
     int incl_level;
 };
 #define PP (K.pp_state)
-#define mtab (PP->mtab)
+#define mtab (PP->macro_table)
 #define once_list (PP->once_list)
 #define unity_mode (PP->unity_mode)
 #define out_head (PP->out_head)
