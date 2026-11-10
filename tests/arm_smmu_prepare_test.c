@@ -14,6 +14,7 @@ static unsigned fail_alloc_at, misalign_alloc_at, misalign_virtual_alloc_at;
 static unsigned offset_virtual_alloc_at;
 static size_t freed_pages, pool_used;
 static uint64_t next_physical;
+static unsigned high_alloc_at;
 
 static volatile void *test_map_mmio(void *context, uint64_t physical, size_t length)
 {
@@ -35,7 +36,8 @@ static void *test_alloc_dma_pages(void *context, size_t pages, uint64_t *physica
     if (offset + pages * PAGE > sizeof(dma_pool))
         return 0;
     pool_used += pages * PAGE;
-    *physical = next_physical + offset;
+    *physical = (alloc_calls == high_alloc_at) ? (1ull << 52) :
+                next_physical + offset;
     if (alloc_calls == misalign_alloc_at)
         ++*physical;
     if (alloc_calls == misalign_virtual_alloc_at)
@@ -84,6 +86,7 @@ static void reset_test_platform(void)
     alloc_calls = free_calls = clean_calls = map_calls = 0;
     fail_alloc_at = misalign_alloc_at = misalign_virtual_alloc_at = 0;
     offset_virtual_alloc_at = 0;
+    high_alloc_at = 0;
     freed_pages = pool_used = 0;
     next_physical = 0x200000u;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
@@ -272,6 +275,23 @@ int main(void)
     memset(&smmu, 0, sizeof(smmu));
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
     CHECK(alloc_calls == 1 && free_calls == 1 && smmu.stream_table == 0);
+
+    /* CMDQ and EVTQ bases must also fit the 52-bit hardware register fields. */
+    reset_test_platform();
+    p = platform();
+    high_alloc_at = 2;
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
+    CHECK(alloc_calls == 2 && free_calls == 2 && freed_pages == 8u);
+    CHECK(!smmu.stream_table && !smmu.cmdq);
+
+    reset_test_platform();
+    p = platform();
+    high_alloc_at = 3;
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
+    CHECK(alloc_calls == 3 && free_calls == 3 && freed_pages == 11u);
+    CHECK(!smmu.stream_table && !smmu.cmdq && !smmu.evtq);
 
     /* Aligning a near-UINT64_MAX DMA allocation must not wrap to low memory. */
     reset_test_platform();
