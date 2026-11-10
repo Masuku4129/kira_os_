@@ -111,12 +111,14 @@ int main(void) {
     sched_set_quantum(4);
 
     // ---- 3. core (critical) просыпается ровно в срок и вытесняет обычные потоки ----
-    sched_set_wake_tick(core, fake_ticks + 10);             // core спит с шага 1
+    CHECK(core->sleep_index != UINT32_MAX);                  // срок core зарегистрирован в min-heap
+    sched_set_wake_tick(core, fake_ticks + 10);             // перенос существующего узла на новый срок
+    CHECK(core->sleep_index != UINT32_MAX);
     uint64_t wake_at = core->wake_tick;
     uint64_t got = 0;
     for (int i = 0; i < 50 && !got; i++) { tick(); if (sched_current() == core) got = fake_ticks; }
     printf("core wake: due %llu, got %llu\n", (unsigned long long)wake_at, (unsigned long long)got);
-    CHECK(got == wake_at);
+    CHECK(got == wake_at && core->sleep_index == UINT32_MAX); // извлечён из heap ровно при пробуждении
     sched_sleep_ticks(100000);
     CHECK(sched_current() == a || sched_current() == b);
 
@@ -124,16 +126,18 @@ int main(void) {
     memset(cpu_ticks, 0, sizeof cpu_ticks);
     thread_t* first = (thread_t*)sched_current();
     sched_sleep_ticks(30);                                  // текущий (A или B) засыпает на 30 тиков
+    CHECK(first->sleep_index != UINT32_MAX);
     thread_t* second = (thread_t*)sched_current();
     CHECK(second != first && (second == a || second == b));
     sched_sleep_ticks(40);                                  // второй - на 40
+    CHECK(second->sleep_index != UINT32_MAX);
     CHECK(!strcmp(sched_current()->name, "idle"));
     for (int i = 0; i < 29; i++) { tick(); CHECK(!strcmp(sched_current()->name, "idle")); }
     tick();                                                 // 30-й тик: first проснулся
-    CHECK(sched_current() == first);
+    CHECK(sched_current() == first && first->sleep_index == UINT32_MAX);
     int back = 0;
     for (int i = 0; i < 12 && !back; i++) { tick(); if (sched_current() == second) back = 1; }
-    CHECK(back);                                            // second проснулся на 40-м и получил CPU в пределах кванта
+    CHECK(back && second->sleep_index == UINT32_MAX);       // second проснулся на 40-м, heap membership снят
     CHECK(cpu_ticks[2] >= 29);                              // idle (id 2) честно учтён
 
     // ---- 5. периодический critical-поток не страдает от нагрузки ----
