@@ -47,7 +47,8 @@ int kira_smmu_domain_map_4k(struct kira_smmu_domain *domain,
                             uint64_t iova, uint64_t physical,
                             uint32_t permissions,
                             const struct kira_smmu_platform *platform);
-/* Remove one mapping and complete the required translation invalidation. */
+/* Remove one mapping and complete ASID invalidation. If the PTE is already
+   absent, retry invalidation so a previous timeout can be safely recovered. */
 int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *domain,
                               uint64_t iova,
                               const struct kira_smmu_platform *platform);
