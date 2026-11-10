@@ -77,20 +77,20 @@ int main(void)
     entry[0] = 0x2222u;
     entry = (uint64_t *)event_queue + 1u * 4u;
     entry[0] = 0x3333u;
-    *(volatile uint32_t *)(registers_page + 0x10a8u) = (1u << 31) | 0x002u;
+    *(volatile uint32_t *)(registers_page + 0x00a8u) = (1u << 31) | 0x002u;
 
     CHECK(kira_smmu_v3_poll_events(&smmu, &platform, event_handler, &ctx,
                                    &processed, &overflow) == KIRA_SMMU_OK);
     CHECK(processed == 4u && overflow == 1);
     CHECK(smmu.evtq_consumer == 0x002u && smmu.evtq_overflows == 1u);
-    CHECK(*(volatile uint32_t *)(registers_page + 0x10acu) ==
+    CHECK(*(volatile uint32_t *)(registers_page + 0x00acu) ==
           ((1u << 31) | 0x002u));
     CHECK(ctx.events == 4u && ctx.invalidates == 4u && ctx.writes == 1u);
     CHECK(ctx.first[0] == 0xaaaau && ctx.first[1] == 0xbbbbu &&
           ctx.first[2] == 0xccccu && ctx.first[3] == 0xddddu);
 
     /* Empty poll is harmless and does not repeat an old overflow indication. */
-    *(volatile uint32_t *)(registers_page + 0x10a8u) = 0x002u;
+    *(volatile uint32_t *)(registers_page + 0x00a8u) = 0x002u;
     CHECK(kira_smmu_v3_poll_events(&smmu, &platform, event_handler, &ctx,
                                    &processed, &overflow) == KIRA_SMMU_OK);
     CHECK(processed == 0u && overflow == 0);
@@ -98,7 +98,7 @@ int main(void)
 
     /* Full ring: same index with the opposite wrap bit means 256 pending events. */
     reset(&smmu, &platform, &ctx);
-    *(volatile uint32_t *)(registers_page + 0x10a8u) = 0x100u;
+    *(volatile uint32_t *)(registers_page + 0x00a8u) = 0x100u;
     for (unsigned i = 0; i < 256u; ++i)
         ((uint64_t *)event_queue)[i * 4u] = i;
     CHECK(kira_smmu_v3_poll_events(&smmu, &platform, event_handler, &ctx,
