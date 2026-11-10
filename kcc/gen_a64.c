@@ -9,7 +9,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-static A6 xa;
+typedef struct {
+    A6 xa;
+    ALoc *ploc;
+    int p_ngrn, p_nvrn, p_stk, p_hidden;
+    int *vs, *ve, *rg, *so;
+    int *slotoff;
+    int64_t spillbase, homeoff, qoff, hidoff, frame;
+    int epi, tmplab;
+    int hasvla;
+    int64_t maxout_cur;
+} A64State;
+#define A64S ((A64State *)K.a64_state)
+#define xa (A64S->xa)
 #define A (&xa)
 
 enum { S0 = 9, S1 = 10, S2 = 11, S3 = 12, S4 = 13, S5 = 14, S6 = 15 };   /* рабочие регистры */
@@ -42,14 +54,25 @@ static int plan_args(int n, const int *asz, const unsigned char *afp, ALoc *loc,
 }
 
 /* ---------- состояние функции ---------- */
-static ALoc *ploc;
-static int p_ngrn, p_nvrn, p_stk, p_hidden;
-static int *vs, *ve, *rg, *so;
-static int *slotoff;
-static int64_t spillbase, homeoff, qoff, hidoff, frame;
-static int epi, tmplab;
-static int hasvla;                                          /* в функции есть IR_ALLOCA/SPSAVE/SPREST: sp плавает, кадр адресуется от x29 (= нижняя граница кадра) */
-static int64_t maxout_cur;                                  /* размер области исходящих аргументов (под sp) */
+#define ploc (A64S->ploc)
+#define p_ngrn (A64S->p_ngrn)
+#define p_nvrn (A64S->p_nvrn)
+#define p_stk (A64S->p_stk)
+#define p_hidden (A64S->p_hidden)
+#define vs (A64S->vs)
+#define ve (A64S->ve)
+#define rg (A64S->rg)
+#define so (A64S->so)
+#define slotoff (A64S->slotoff)
+#define spillbase (A64S->spillbase)
+#define homeoff (A64S->homeoff)
+#define qoff (A64S->qoff)
+#define hidoff (A64S->hidoff)
+#define frame (A64S->frame)
+#define epi (A64S->epi)
+#define tmplab (A64S->tmplab)
+#define hasvla (A64S->hasvla)
+#define maxout_cur (A64S->maxout_cur)
 #define FB (hasvla ? A6_FP : A6_SP)
 
 static int cmp_start(const void *a, const void *b) {
@@ -634,7 +657,8 @@ static void a64_reloc(unsigned char *text, void *ctx) {
 }
 
 void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen) {
-    memset(&xa, 0, sizeof xa);
+    if (!K.a64_state) K.a64_state = ka_new(sizeof(A64State));
+    memset(A64S, 0, sizeof *A64S);
     Obj *mainf = gen_prepare(globals);
     /* _start: main(0, 0); код выхода - в K_EXIT (номер 2, x8) */
     A->file = K.srcpath; A->line = 1;
