@@ -459,7 +459,7 @@ int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *d,
         uint64_t e = table[index];
         if (!(e & 1ull))
             return KIRA_SMMU_HARDWARE_ERROR;
-        table = (uint64_t *)smmu_table_from_entry(p, e);
+        table = (uint64_t *)smmu_table_from_entry(d, e);
         if (!table)
             return KIRA_SMMU_MEMORY_FAILED;
     }
