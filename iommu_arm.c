@@ -314,6 +314,8 @@ int iommu_init_fdt(const void *fdt)
     g_platform.delay = arm_delay;
     g_platform.quiesce_devices = arm_quiesce_devices;
     g_platform.report_event = arm_report_event;
+    g_platform.dma_coherent =
+        !(platform_dma_noncoherent && platform_dma_noncoherent());
 
     rc = kira_smmu_v3_prepare(&g_smmu, base, &g_platform);
     if (rc != KIRA_SMMU_OK)
