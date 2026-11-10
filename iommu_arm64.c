@@ -1,7 +1,7 @@
 /* ARM64 SMMUv3 integration: FDT requester mapping, explicit per-stream bypass,
    optional per-device stage-1 isolation, DMA mapping and event attribution. */
 #include "iommu.h"
-#include "arm_smmu_domain.h"
+#include "drivers/iommu/arm_smmu_domain.h"
 #include "fdt.h"
 #include "pmm.h"
 #include "vmm.h"
