@@ -86,6 +86,26 @@ int main(void) {
     CHECK((h->flags & KBI_F_CMDLINE) && h->cmdline_len == sizeof(test_command_line));
     CHECK(memcmp((const uint8_t *)blob + h->cmdline_off,
                  test_command_line, sizeof(test_command_line)) == 0);
+
+    /* A UEFI boot without INITRD.IMG and LoadOptions remains valid. */
+    info.module_base = 0;
+    info.module_size = 0;
+    info.module_name = 0;
+    info.module_name_len = 0;
+    info.command_line = 0;
+    info.command_line_len = 0;
+    CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
+                              &info, blob, sizeof(blob), &size) == EFI_SUCCESS);
+    CHECK(kbi_validate(blob, size) == 0);
+    h = (const kbi_header_t *)blob;
+    CHECK(h->modules_count == 0 && h->modules_off == 0);
+    CHECK(h->cmdline_len == 0 && h->cmdline_off == 0);
+    info.module_base = 0xa00000;
+    info.module_size = 128;
+    info.module_name = test_module_name;
+    info.module_name_len = sizeof(test_module_name);
+    info.command_line = test_command_line;
+    info.command_line_len = sizeof(test_command_line);
     CHECK(entries[0].type == KBI_MEM_USABLE && entries[0].length == 0x100000);
     CHECK(entries[1].type == KBI_MEM_ACPI_RECLAIM && entries[1].length == 0x4000);
     CHECK(entries[2].type == KBI_MEM_BOOTLOADER);
