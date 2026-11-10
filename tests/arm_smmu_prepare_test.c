@@ -265,6 +265,21 @@ int main(void)
     CHECK(alloc_calls == 1 && free_calls == 1 && freed_pages == 7u);
     CHECK(smmu.stream_table == 0);
 
+    /* Queue base registers cannot represent DMA addresses above bit 51. */
+    reset_test_platform();
+    p = platform();
+    next_physical = (1ull << 52);
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
+    CHECK(alloc_calls == 1 && free_calls == 1 && smmu.stream_table == 0);
+
+    /* MMIO range arithmetic must not wrap the physical address space. */
+    reset_test_platform();
+    p = platform();
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, UINT64_MAX - 4095u, &p) == KIRA_SMMU_INVALID);
+    CHECK(map_calls == 0);
+
     /* An unaligned DMA address is rejected and the allocation is returned. */
     reset_test_platform();
     p = platform();
