@@ -48,7 +48,31 @@ static int stop_fn(void) { return dying; }
 static int load_word(uint64_t w, uint32_t* v) { *v = *(volatile uint32_t*)(uintptr_t)w; return 0; }
 
 int main(void) {
-    CHECK(kname_ok("kira.test-1_a") && !kname_ok("") && !kname_ok("Bad") && !kname_ok("a/b") && !kname_ok("0123456789012345678901234567890123"));
+    CHECK(kname_ok("kira.test-1_a") && !kname_ok(0) && !kname_ok("") && !kname_ok("Bad") && !kname_ok("a/b") && !kname_ok("0123456789012345678901234567890123"));
+    CHECK(htab_add(0, 0) == KE_ARG && htab_get(0, 1, 0) == 0 && htab_take(0, 1) == 0 && htab_cap(0) == 0);
+    htab_free(0);
+
+    // Приватные IPC-объекты доступны создателю; публикация задаётся только при создании.
+    kobj_t *priv1 = 0, *priv2 = 0, *pub1 = 0, *pub2 = 0;
+    CHECK(port_open_as("private.port", KOPEN_PUBLIC, 100, &priv1) == KE_ARG);
+    CHECK(port_open_as("private.port", KOPEN_CREATE, 100, &priv1) == 0 && priv1);
+    CHECK(port_open_as("private.port", 0, 200, &priv2) == KE_PERM);
+    CHECK(port_open_as("private.port", KOPEN_CREATE | KOPEN_PUBLIC, 200, &priv2) == KE_PERM);
+    CHECK(port_open_as("private.port", 0, 100, &priv2) == 0 && priv2 == priv1);
+    kobj_release(priv2); kobj_release(priv1);
+    CHECK(port_open_as("public.port", KOPEN_CREATE | KOPEN_PUBLIC, 101, &pub1) == 0 && pub1);
+    CHECK(port_open_as("public.port", 0, 202, &pub2) == 0 && pub2 == pub1);
+    kobj_release(pub2); kobj_release(pub1);
+
+    kobj_t *priv_shm1 = 0, *priv_shm2 = 0, *pub_shm1 = 0, *pub_shm2 = 0;
+    CHECK(shm_open_as("private.area", 1, KOPEN_CREATE, 301, &priv_shm1) == 0 && priv_shm1);
+    CHECK(shm_open_as("private.area", 1, 0, 302, &priv_shm2) == KE_PERM);
+    CHECK(shm_open_as("private.area", 1, 0, 301, &priv_shm2) == 0 && priv_shm2 == priv_shm1);
+    kobj_release(priv_shm2); kobj_release(priv_shm1);
+    CHECK(shm_open_as("public.area", 1, KOPEN_CREATE | KOPEN_PUBLIC, 401, &pub_shm1) == 0 && pub_shm1);
+    CHECK(shm_open_as("public.area", 0, 0, 402, &pub_shm2) == 0 && pub_shm2 == pub_shm1);
+    kobj_release(pub_shm2); kobj_release(pub_shm1);
+    CHECK(kobj_count() == 0 && pages_live == 0);
 
     // дескрипторы
     htab_t h; memset(&h, 0, sizeof h);
@@ -71,9 +95,15 @@ int main(void) {
     // очередь: порядок, отправитель, переполнение, длина больше ёмкости
     char buf[64]; uint32_t from = 0;
     CHECK(port_recv(p1, buf, sizeof buf, 0, &from, 0) == KE_AGAIN);
-    CHECK(port_send(p1, 5, "one", 3) == 0 && port_send(p1, 6, "two!", 4) == 0);
+    CHECK(port_queued(0) == 0 && port_queued(p1) == 0);
+    CHECK(port_send(p1, 5, 0, 1) == KE_ARG && port_recv(p1, 0, 1, 0, &from, 0) == KE_ARG);
+    uint64_t messages_before = kobj_messages_total();
+    CHECK(port_send(p1, 5, "one", 3) == 0 && kobj_messages_total() == messages_before + 1);
+    CHECK(port_send(p1, 6, "two!", 4) == 0 && port_queued(p1) == 2);
     CHECK(port_recv(p1, buf, sizeof buf, 0, &from, 0) == 3 && !memcmp(buf, "one", 3) && from == 5);
-    CHECK(port_recv(p1, buf, 2, 0, &from, 0) == 4 && !memcmp(buf, "tw", 2) && from == 6);   /* длина - полная, копия - по ёмкости */
+    CHECK(port_queued(p1) == 1);
+    CHECK(port_recv(p1, buf, 2, 0, &from, 0) == 4 && !memcmp(buf, "tw", 2) && from == 6);
+    CHECK(port_queued(p1) == 0);   /* длина - полная, копия - по ёмкости */
     for (int i = 0; i < PORT_QUEUE; i++) CHECK(port_send(p1, 1, "m", 1) == 0);
     CHECK(port_send(p1, 1, "m", 1) == KE_FULL);
     CHECK(port_send(p1, 1, buf, PORT_MSG_MAX + 1) == KE_ARG);
