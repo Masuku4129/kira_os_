@@ -135,6 +135,7 @@ int e1000_probe(void) {
 
     wr(RDBAL, (uint32_t)rx_p); wr(RDBAH, (uint32_t)(rx_p >> 32)); wr(RDLEN, NRX * sizeof(rxd_t));
     wr(RDH, 0); wr(RDT, NRX - 1);
+    pci_enable(p, PCI_CMD_MASTER); /* descriptor rings and packet buffers are ready */
     wr(RCTL, (1u << 1) | (1u << 15) | (1u << 26));               /* EN, BAM (широковещательные), SECRC; буфер 2048 */
     wr(TDBAL, (uint32_t)tx_p); wr(TDBAH, (uint32_t)(tx_p >> 32)); wr(TDLEN, NTX * sizeof(txd_t));
     wr(TDH, 0); wr(TDT, 0);
