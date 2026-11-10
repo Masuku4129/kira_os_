@@ -55,6 +55,20 @@ static void test_free_dma_pages(void *context, void *virtual_address,
     freed_pages += pages;
 }
 
+static void test_read_barrier(void *context)
+{
+    (void)context;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+}
+
+static void test_write_barrier(void *context)
+{
+    uint32_t control = *(volatile uint32_t *)(registers_page + 0x0020u);
+    (void)context;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    *(volatile uint32_t *)(registers_page + 0x0024u) = control;
+}
+
 static void test_clean_cache(void *context, const void *address, size_t length)
 {
     (void)context;
@@ -84,6 +98,8 @@ static struct kira_smmu_platform platform(void)
     p.alloc_dma_pages = test_alloc_dma_pages;
     p.free_dma_pages = test_free_dma_pages;
     p.clean_cache = test_clean_cache;
+    p.read_barrier = test_read_barrier;
+    p.write_barrier = test_write_barrier;
     return p;
 }
 
@@ -91,6 +107,14 @@ int main(void)
 {
     struct kira_smmu smmu;
     struct kira_smmu_platform p;
+
+    /* Cache-maintenance and ordering callbacks are mandatory, not implicit no-ops. */
+    reset_test_platform();
+    p = platform();
+    p.read_barrier = 0;
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_INVALID);
+    CHECK(map_calls == 0);
 
     /* Mandatory cleanup callback is validated before MMIO mapping. */
     reset_test_platform();
@@ -142,6 +166,11 @@ int main(void)
     CHECK(smmu.cmdq == dma_pool + 7u * PAGE);
     CHECK(smmu.evtq == dma_pool + 8u * PAGE);
     CHECK(smmu.evtq_physical == next_physical + 8u * PAGE);
+    CHECK(smmu.enabled == 0u);
+    CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_OK);
+    CHECK(smmu.enabled == 1u);
+    CHECK(kira_smmu_v3_disable(&smmu, &p) == KIRA_SMMU_OK);
+    CHECK(smmu.enabled == 0u);
     CHECK(smmu.evtq_allocation_pages == 3u);
     CHECK(smmu.queue_entries == 256u && smmu.enabled == 0);
     CHECK(smmu.stream_id_limit == 256u);
