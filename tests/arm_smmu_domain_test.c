@@ -204,6 +204,7 @@ int main(void)
         reg_write(0x00a8u, 0x80000100u);
         CHECK(kira_smmu_v3_poll_events(&smmu, &p, 1u, &processed) == KIRA_SMMU_HARDWARE_ERROR);
         CHECK(processed == 0u);
+        CHECK(reg_read(0x00acu) == 0x80000100u); /* overflow acknowledged, pointer preserved */
         reg_write(0x00a8u, 0x100u);
     }
 
