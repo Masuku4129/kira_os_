@@ -43,8 +43,11 @@ int kbi_to_multiboot2(const void *blob, uint32_t available,
                       void *output, uint32_t capacity, uint32_t *output_size) {
     const kbi_header_t *h = (const kbi_header_t *)blob;
     const kbi_mmap_entry_t *map;
+    const kbi_module_t *mods;
+    const uint8_t *source = (const uint8_t *)blob;
     uint8_t *out = (uint8_t *)output;
-    uint32_t mmap_size, fb_size = 0, total, off;
+    uint32_t mmap_size, fb_size = 0, cmd_size = 0, total, off;
+    uint64_t required;
     int have_fb;
 
     if (!blob || !output || !output_size ||
@@ -55,7 +58,8 @@ int kbi_to_multiboot2(const void *blob, uint32_t available,
         return -2;
 
     map = kbi_mmap(blob);
-    if (!map) return -2;
+    mods = kbi_modules(blob);
+    if (!map || (h->modules_count && !mods)) return -2;
 
     if (h->mmap_count > (UINT32_MAX - MB2_MMAP_HEADER_SIZE) /
                         sizeof(mb2_mmap_entry_t))
@@ -65,9 +69,23 @@ int kbi_to_multiboot2(const void *blob, uint32_t available,
     have_fb = !!(h->flags & KBI_F_FRAMEBUFFER);
     if (have_fb) fb_size = MB2_FB_RGB_SIZE;
 
-    total = MB2_HEADER_SIZE + align8(mmap_size) +
-            (have_fb ? align8(fb_size) : 0) + MB2_HEADER_SIZE;
-    if (total > capacity || total > 65536u) return -4;
+    required = MB2_HEADER_SIZE + align8(mmap_size) +
+               (have_fb ? align8(fb_size) : 0) + MB2_HEADER_SIZE;
+    if (h->cmdline_len) {
+        if (h->cmdline_len > UINT32_MAX - MB2_HEADER_SIZE) return -3;
+        cmd_size = MB2_HEADER_SIZE + h->cmdline_len;
+        required += align8(cmd_size);
+    }
+    for (uint32_t i = 0; i < h->modules_count; ++i) {
+        uint64_t end = mods[i].base + mods[i].length;
+        uint64_t tag_size = 16u + (uint64_t)mods[i].name_len;
+        if (mods[i].base > UINT32_MAX || end > UINT32_MAX ||
+            tag_size > UINT32_MAX) return -5;
+        required += align8((uint32_t)tag_size);
+    }
+    if (required > capacity || required > 65536u || required > UINT32_MAX)
+        return -4;
+    total = (uint32_t)required;
 
     zero_bytes(out, total);
     *(uint32_t *)(out + 0) = total;
@@ -105,6 +123,25 @@ int kbi_to_multiboot2(const void *blob, uint32_t available,
         fb->blue_pos = h->fb_blue_pos;
         fb->blue_size = h->fb_blue_size;
         off += align8(fb_size);
+    }
+
+    if (cmd_size) {
+        *(uint32_t *)(out + off + 0) = 1u; /* Multiboot2 command-line tag */
+        *(uint32_t *)(out + off + 4) = cmd_size;
+        for (uint32_t i = 0; i < h->cmdline_len; ++i)
+            out[off + MB2_HEADER_SIZE + i] = source[h->cmdline_off + i];
+        off += align8(cmd_size);
+    }
+
+    for (uint32_t i = 0; i < h->modules_count; ++i) {
+        uint32_t tag_size = 16u + mods[i].name_len;
+        *(uint32_t *)(out + off + 0) = 3u; /* Multiboot2 module tag */
+        *(uint32_t *)(out + off + 4) = tag_size;
+        *(uint32_t *)(out + off + 8) = (uint32_t)mods[i].base;
+        *(uint32_t *)(out + off + 12) = (uint32_t)(mods[i].base + mods[i].length);
+        for (uint32_t j = 0; j < mods[i].name_len; ++j)
+            out[off + 16u + j] = source[mods[i].name_off + j];
+        off += align8(tag_size);
     }
 
     *(uint32_t *)(out + off + 0) = MB2_TAG_END;
