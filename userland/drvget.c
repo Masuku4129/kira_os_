@@ -311,6 +311,10 @@ static int cmd_install(const char *arg) {
             if (memcmp(want, fsha[i], 32)) { sayf("drvget: отказ: SHA-256 файла %s не совпал с рецептом (подмена или повреждение)\n", R.file[i].name); stage_clear(); return 1; }
         }
         if (dg_scan_source(R.file[i].name, body, len, lic[i], &err)) { sayf("drvget: отказ: %s: %s\n", R.file[i].name, err); stage_clear(); return 1; }
+        if (!dg_license_matches(R.license, lic[i])) {
+            sayf("drvget: отказ: рецепт заявляет %s, но файл %s имеет лицензию %s\n", R.license, R.file[i].name, lic[i]);
+            stage_clear(); return 1;
+        }
         dg_set_add(&hs, R.file[i].name, body, len);
         flen[i] = len;
         char sn[48];
@@ -426,6 +430,10 @@ static int load_stage(u8 set[32], char *lic_seen) {
         i64 len = fread_all(sn, body, DG_SRC_MAX);
         if (len <= 0) { sayf("drvget: нет файла %s в подготовленном наборе\n", R.file[i].name); return -1; }
         if (dg_scan_source(R.file[i].name, body, (u32)len, lic, &err)) { sayf("drvget: %s: %s\n", R.file[i].name, err); return -1; }
+        if (!dg_license_matches(R.license, lic)) {
+            sayf("drvget: лицензия файла %s (%s) не совпадает с заявленной в рецепте (%s)\n", R.file[i].name, lic, R.license);
+            return -1;
+        }
         dg_set_add(&hs, R.file[i].name, body, (u32)len);
         if (lic_seen && !i) snprintf(lic_seen, 24, "%s", lic);
     }
