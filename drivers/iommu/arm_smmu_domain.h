@@ -16,7 +16,10 @@ struct kira_smmu_domain {
     uint64_t context_table_physical;
     void *stage1_root;
     uint64_t stage1_root_physical;
+    /* Kernel metadata list owns every intermediate translation-table page. */
+    void *table_pages;
     uint32_t stream_id;
+    uint32_t lock;
     uint8_t active;
 };
 
