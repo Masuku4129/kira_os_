@@ -114,6 +114,18 @@ int main(void) {
     uint32_t r32 = 0;
     CHECK(cpu2 >= 0 && fdt_prop_u32(blob, cpu2, "reg", &r32) == 0 && r32 == 2);
     CHECK(fdt_reg(blob, cpu2, 0, &a, &s) == 0 && a == 2 && s == 0);   /* #address-cells 1, #size-cells 0 */
+    {
+        uint8_t* ac = (uint8_t*)fdt_prop(blob, cpus, "#address-cells", &len);
+        uint8_t* sc = (uint8_t*)fdt_prop(blob, cpus, "#size-cells", &len);
+        CHECK(ac && sc);
+        be(ac, 3);
+        CHECK(fdt_reg(blob, cpu2, 0, &a, &s) != 0);
+        be(ac, 1);
+        be(sc, 3);
+        CHECK(fdt_reg(blob, cpu2, 0, &a, &s) != 0);
+        be(sc, 0);
+        CHECK(fdt_reg(blob, cpu2, 0, &a, &s) == 0 && a == 2 && s == 0);
+    }
     CHECK(fdt_parent(blob, cpu2) == cpus && fdt_parent(blob, cpus) == root && fdt_parent(blob, root) == -1);
     int tmr = fdt_find_compatible(blob, -1, "arm,armv8-timer");
     uint32_t len = 0;
