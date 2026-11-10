@@ -40,6 +40,8 @@ python3 -I ci/mkchain.py $T/chain >/dev/null || exit 1
 mkdir -p $T/ssl && cp $T/chain/root.der $T/ssl/roots.der
 W=$T/www; rm -rf $W; mkdir -p $W/rl $W/gpl $W/bin $W/pin $W/nolic $W/winsys $W/nohash
 cp drivers/net/drvget.rec drivers/net/rtl8139_kdrv.c drivers/net/rtl8139.c drivers/net/rtl8139.h $W/rl/
+# Recipe/source license mismatch: the files are BSD-3-Clause but the recipe claims BSD-2-Clause.
+cp drivers/net/* $W/mismatch/; sed -i 's/^name rl/name mismatch/' $W/mismatch/drvget.rec; sed -i 's/^license BSD-3-Clause/license BSD-2-Clause/' $W/mismatch/drvget.rec
 # GPL: тот же драйвер, но в одном файле есть заголовок GPL
 cp drivers/net/* $W/gpl/; sed -i 's/SPDX-License-Identifier: BSD-3-Clause/SPDX-License-Identifier: GPL-2.0-only/' $W/gpl/rtl8139.h; sed -i 's/^name rl/name gpl/' $W/gpl/drvget.rec; H=$(sha256sum $W/gpl/rtl8139.h | awk '{print $1}'); sed -i "s#^file rtl8139.h rtl8139.h sha256 .*#file rtl8139.h rtl8139.h sha256 $H#" $W/gpl/drvget.rec
 # двойная лицензия с GPL в комментарии
@@ -242,6 +244,7 @@ expect_refuse() { # ИМЯ подстрока-причины
     [ -z "$(ls $T/sb | grep '^s-')" ] || note "$1: остались подготовленные файлы: $(ls $T/sb)"
 }
 expect_refuse gpl "GPL"
+expect_refuse mismatch "рецепт заявляет BSD-2-Clause"
 expect_refuse nolic "лицензия файла не найдена"
 expect_refuse bin "бинарник"
 expect_refuse pin "SHA-256 файла rtl8139_kdrv.c не совпал с рецептом"
