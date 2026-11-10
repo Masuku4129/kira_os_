@@ -48,6 +48,7 @@ class LicenseClassificationTests(unittest.TestCase):
     def test_bsd_three_clause(self):
         self.assertEqual(MOD.classify_license(BSD3.encode()), "BSD-3-Clause")
 
+    # A partial BSD-3 endorsement sentence must never be downgraded to BSD-2.
     def test_incomplete_bsd_three_clause_is_rejected(self):
         text = BSD2 + "Neither the name of the author nor contributors may be used to endorse or promote products derived from this software.\\n"
         with self.assertRaisesRegex(ValueError, "incomplete BSD-3"):
