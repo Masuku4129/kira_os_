@@ -66,6 +66,12 @@ static void test_clean_cache(void *context, const void *address, size_t length)
     ++clean_calls;
 }
 
+static int test_quiesce_devices(void *context)
+{
+    (void)context;
+    return 0;
+}
+
 static void test_barrier(void *context)
 {
     (void)context;
@@ -74,11 +80,14 @@ static void test_barrier(void *context)
 
 static void test_delay(void *context)
 {
-    uint32_t cr0;
+    uint32_t cr0, gbpa;
     (void)context;
     cr0 = reg_read(0x0020u);
+    gbpa = reg_read(0x0044u);
     reg_write(0x0024u, cr0 & 0x0du); /* SMMUEN, EVENTQEN, CMDQEN acknowledgements */
     reg_write(0x009cu, reg_read(0x0098u) & 0x1ffu); /* model command consumption */
+    if (gbpa & (1u << 31))
+        reg_write(0x0044u, gbpa & ~(1u << 31));
 }
 
 static struct kira_smmu_platform make_platform(void)
@@ -92,6 +101,7 @@ static struct kira_smmu_platform make_platform(void)
     p.write_barrier = test_barrier;
     p.read_barrier = test_barrier;
     p.delay = test_delay;
+    p.quiesce_devices = test_quiesce_devices;
     return p;
 }
 
@@ -161,9 +171,16 @@ int main(void)
     CHECK((cd[1] & PA_MASK) == domain.stage1_root_physical);
     CHECK(cd[3] == 0xffu);
     commands = (uint64_t *)smmu.cmdq;
-    CHECK(commands[0] == (0x05ull | (7ull << 32)) && commands[1] == 1u);
-    CHECK(commands[2] == (0x03ull | (7ull << 32)) && commands[3] == 0x46u);
-    CHECK(commands[4] == (0x11ull | (7ull << 48)) && commands[5] == 0x46u); /* MAIR AttrIdx 0 = normal WB */
+    CHECK(commands[0] == 0x04u && commands[1] == 31u); /* CFGI_ALL */
+    CHECK(commands[2] == 0x46u && commands[3] == 0u);
+    CHECK(commands[4] == 0x30u && commands[5] == 0u); /* TLBI_NSNH_ALL */
+    CHECK(commands[6] == 0x46u && commands[7] == 0u);
+    CHECK(commands[8] == (0x05ull | (7ull << 32)) && commands[9] == 1u);
+    CHECK(commands[10] == 0x46u && commands[11] == 0u);
+    CHECK(commands[12] == (0x03ull | (7ull << 32)) && commands[13] == 0u);
+    CHECK(commands[14] == 0x46u && commands[15] == 0u);
+    CHECK(commands[16] == (0x11ull | (7ull << 48)) && commands[17] == 0u);
+    CHECK(commands[18] == 0x46u && commands[19] == 0u); /* MAIR AttrIdx 0 = normal WB */
 
     CHECK(kira_smmu_domain_create(&duplicate, &smmu, 7u, &p) == KIRA_SMMU_INVALID);
     CHECK(duplicate.active == 0);
