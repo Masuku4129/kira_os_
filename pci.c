@@ -233,6 +233,21 @@ void pci_disable_bus_master(const pci_dev_t* d) {
     if (!d || pci_is_bridge(d))
         return;
 #if !defined(KIRA_HOST_TEST)
+#if defined(__x86_64__)
+    if (d->bus == 0 && d->dev == 1 && d->fn == 2) {
+        uart_print("[KIRA PCI TRACE] UHCI disable lock state rmw=");
+        uart_print_dec(__atomic_load_n(&cfg_rmw_lock.next, __ATOMIC_RELAXED));
+        uart_putchar('/');
+        uart_print_dec(__atomic_load_n(&cfg_rmw_lock.owner, __ATOMIC_RELAXED));
+        uart_print(" port=");
+        uart_print_dec(__atomic_load_n(&cfg_port_lock.next, __ATOMIC_RELAXED));
+        uart_putchar('/');
+        uart_print_dec(__atomic_load_n(&cfg_port_lock.owner, __ATOMIC_RELAXED));
+        uart_print(" held=");
+        uart_print_dec(this_cpu()->locks_held);
+        uart_print("\\n");
+    }
+#endif
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
 #endif
     uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
