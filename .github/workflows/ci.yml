@@ -316,7 +316,6 @@ jobs:
           if-no-files-found: ignore
       - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"
         id: arm64-qemu
-        if: github.event_name != 'pull_request'
         run: |
           set -o pipefail
           python3 ci/arm64_vm.py ci-out/arm64 2>&1 | tee arm64.txt
@@ -328,7 +327,6 @@ jobs:
 
   vm:
     needs: [detect-changes, build]
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
