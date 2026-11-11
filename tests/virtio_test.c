@@ -1,6 +1,7 @@
 // PCI (перечисление, мосты, BAR, capabilities) + virtio-blk драйвер против программной модели устройства.
 // Модель проверяет порядок инициализации по спецификации virtio 1.0 и обрабатывает заявки по кольцам в памяти.
 #include "virtio.h"
+#include "pci.h"
 #include "blk.h"
 #include "kfs.h"
 #include <stdio.h>
@@ -237,6 +238,27 @@ int main(void) {
     CHECK(virtio_dma_free(reuse, reuse_phys, 1) == 0);
 
     vopt_t o0; memset(&o0, 0, sizeof o0);
+    /* --- PCI BAR window arithmetic: invalid ranges must not mutate the allocator. --- */
+    pci_window_t win = { .pci_base = 0x10000000u, .size = 0x10000u, .next = 0x10000000u, .cpu_off = 0x20000000 };
+    uint64_t pa = 0, ca = 0;
+    CHECK(pci_window_alloc(&win, 0x1000, &pa, &ca) == 0 && pa == 0x10000000u && ca == 0x30000000u);
+    CHECK(win.next == 0x10001000u);
+    pci_window_t neg = { .pci_base = 0x1000, .size = 0x4000, .next = 0x1000, .cpu_off = -0x800 };
+    CHECK(pci_window_alloc(&neg, 0x1000, &pa, &ca) == 0 && pa == 0x1000 && ca == 0x800);
+    pci_window_t ov_end = { .pci_base = UINT64_MAX - 0xFFF, .size = 0x2000, .next = UINT64_MAX - 0xFFF, .cpu_off = 0 };
+    uint64_t old_next = ov_end.next;
+    CHECK(pci_window_alloc(&ov_end, 0x1000, &pa, &ca) == -1 && ov_end.next == old_next);
+    pci_window_t ov_cpu = { .pci_base = UINT64_MAX - 0x1FFF, .size = 0x1000, .next = UINT64_MAX - 0x1FFF, .cpu_off = 0x2000 };
+    old_next = ov_cpu.next;
+    CHECK(pci_window_alloc(&ov_cpu, 0x1000, &pa, &ca) == -1 && ov_cpu.next == old_next);
+    pci_window_t under_cpu = { .pci_base = 0x1000, .size = 0x1000, .next = 0x1000, .cpu_off = -0x2000 };
+    old_next = under_cpu.next;
+    CHECK(pci_window_alloc(&under_cpu, 0x1000, &pa, &ca) == -1 && under_cpu.next == old_next);
+    pci_window_t misaligned = { .pci_base = 0x1000, .size = 0x3000, .next = 0x1001, .cpu_off = 0 };
+    old_next = misaligned.next;
+    CHECK(pci_window_alloc(&misaligned, 0x1000, &pa, &ca) == -1 && misaligned.next == old_next);
+    CHECK(pci_window_alloc(&win, 0x1800, &pa, &ca) == -1);
+
     /* --- PCI --- */
     model_init(o0, 0x1042);
     CHECK(pci_use_ecam(ecam_probe, 1u << 20, 0, 1) == -1); /* advertised two buses do not fit; backend stays unchanged */
