@@ -246,13 +246,13 @@ static int bootarg_has(const void* fdt, const char* word) {
     return 0;
 }
 static int dma_noncoherent(const void* fdt) {
-    kprintf("[KIRA ARM64] DMA policy: checking boot arguments\\n");
+    kprintf("[KIRA ARM64] DMA policy: checking boot arguments\n");
     if (bootarg_has(fdt, "kira.dma=noncoherent")) return 1;
     if (bootarg_has(fdt, "kira.dma=coherent")) return 0;
-    kprintf("[KIRA ARM64] DMA policy: checking root coherency declaration\\n");
+    kprintf("[KIRA ARM64] DMA policy: checking root coherency declaration\n");
     uint32_t l;
     if (fdt_prop(fdt, fdt_root(fdt), "dma-coherent", &l)) return 0;
-    kprintf("[KIRA ARM64] DMA policy: locating enabled PCI hosts\\n");
+    kprintf("[KIRA ARM64] DMA policy: locating enabled PCI hosts\n");
     int pci = fdt_find_enabled_compatible(fdt, -1, "pci-host-ecam-generic");
     if (pci < 0) return 1;
     unsigned enabled_hosts = 0;
@@ -466,22 +466,22 @@ static uint64_t arm_pa_limit(void) {
     return 1ull << arm_pa_bits[arm_pa_encoding()];
 }
 static int mmu_init(uint64_t top) {
-    kprintf("[KIRA ARM64] MMU: allocating root table\\n");
+    kprintf("[KIRA ARM64] MMU: allocating root table\n");
     l0 = (uint64_t*)palloc(4096, 4096);
     if (!l0) return -1;
     unsigned parange = arm_pa_encoding();
     unsigned bits = arm_pa_bits[parange];
     if (top > (1ull << bits)) top = 1ull << bits;
     for (uint64_t gb = 0; gb < top; gb += 1ull << 30) {
-        kprintf("[KIRA ARM64] MMU: mapping GB %x\\n", gb);
+        kprintf("[KIRA ARM64] MMU: mapping GB %x\n", gb);
         if (map_gb(gb)) return -1;
     }
     tcr_val = 16ull | (1ull << 8) | (1ull << 10) | (3ull << 12) | (1ull << 23) | ((uint64_t)parange << 32);
     if (((SYSREG_R(id_aa64mmfr0_el1) >> 4) & 0xF) == 2) tcr_val |= 1ull << 36;   /* TCR.AS: ASID 16 бит */
-    kprintf("[KIRA ARM64] MMU: enabling translation\\n");
+    kprintf("[KIRA ARM64] MMU: enabling translation\n");
     mmu_enable_this_cpu();
     mmu_on = 1;
-    kprintf("[KIRA ARM64] MMU: translation enabled\\n");
+    kprintf("[KIRA ARM64] MMU: translation enabled\n");
     return (int)bits;
 }
 
@@ -1355,13 +1355,13 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     for (unsigned i = 0; i < nram; i++) if (bump >= ram[i].base && bump < ram[i].base + ram[i].size) bump_end = ram[i].base + ram[i].size;
     kprintf("[KIRA ARM64] RAM: %u MB in %u region(s)\n", total >> 20, (uint64_t)nram);
 
-    kprintf("[KIRA ARM64] DMA policy: evaluation begin\\n");
+    kprintf("[KIRA ARM64] DMA policy: evaluation begin\n");
     dma_noncoherent_platform = dma_noncoherent(fdt);
-    kprintf("[KIRA ARM64] DMA policy: noncoherent=%u\\n", (uint64_t)dma_noncoherent_platform);
+    kprintf("[KIRA ARM64] DMA policy: noncoherent=%u\n", (uint64_t)dma_noncoherent_platform);
     if (dma_noncoherent_platform) {
-        kprintf("[KIRA ARM64] DMA pool: selection begin\\n");
+        kprintf("[KIRA ARM64] DMA pool: selection begin\n");
         dma_pool_choose(fdt);
-        kprintf("[KIRA ARM64] DMA pool: selection end\\n");
+        kprintf("[KIRA ARM64] DMA pool: selection end\n");
     }
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
