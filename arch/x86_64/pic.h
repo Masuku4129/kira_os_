@@ -30,6 +30,7 @@ void irq_unregister_handler(unsigned irq);
    Local APIC. Перед освобождением вызывающий обязан замаскировать GSI и отключить
    источник; release дожидается уже вошедших обработчиков. */
 int irq_vector_alloc(irq_handler_t handler, uint8_t *vector);
+int irq_vector_is_allocated(uint8_t vector);
 int irq_vector_release(uint8_t vector);
 
 // Вызывается из ассемблерной заглушки с номером вектора (32..47)
