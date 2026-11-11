@@ -33,7 +33,7 @@ def read_regular_file(path, label, max_size, exact_size=None, private=False):
         if private and os.name == "posix" and stat.S_IMODE(info.st_mode) & 0o077:
             raise ValueError("private key file permissions must be 0600 or stricter")
         with os.fdopen(fd, "rb", closefd=False) as source:
-            data = source.read((exact_size if exact_size is not None else max_size) + 1)
+            data = source.read((exact_size if exact_size is not None else info.st_size) + 1)
         if len(data) != info.st_size:
             raise ValueError(f"{label} changed while being read")
         if exact_size is not None and len(data) != exact_size:
