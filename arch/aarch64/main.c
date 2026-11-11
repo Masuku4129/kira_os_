@@ -269,6 +269,10 @@ static int dma_pool_hits_reserved(const void* fdt, uint64_t lo, uint64_t hi) {
         int node = fdt_next_node(fdt, parent, &depth);
         while (node >= 0 && depth > 0) {
             if (depth == 1) {
+                uint32_t reg_len = 0;
+                /* Dynamic reserved-memory allocations (size/alloc-ranges, no reg) have no
+                   fixed interval to compare. Do not place a DMA pool while one exists. */
+                if (!fdt_prop(fdt, node, "reg", &reg_len) || !reg_len) return 1;
                 for (unsigned reg = 0; reg < 64; reg++) {
                     uint64_t base = 0, size = 0;
                     if (fdt_reg(fdt, node, reg, &base, &size) != 0) break;
