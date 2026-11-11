@@ -1393,7 +1393,12 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     const kbi_header_t* bootinfo = (const kbi_header_t*)arm_bootinfo_blob;
     const kbi_mmap_entry_t* boot_map = kbi_mmap(bootinfo);
     uint64_t pa_limit = arm_pa_limit();
-    uint64_t top = collect_phys_ram(fdt, pa_limit), total = 0;
+    uint64_t top = collect_phys_ram(fdt, pa_limit), total = 0, physical_total = 0;
+    for (unsigned i = 0; i < nphys; i++) {
+        if (phys_ram[i].size > UINT64_MAX - physical_total)
+            kernel_panic("physical RAM size sum overflows");
+        physical_total += phys_ram[i].size;
+    }
     if (bootinfo->flags & KBI_F_FRAMEBUFFER) {
         fb_lo = bootinfo->fb_phys;
         if (!bootinfo->fb_size || !arm_range_end(fb_lo, bootinfo->fb_size, &fb_hi))
@@ -1427,7 +1432,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     if ((uint64_t)(uintptr_t)fdt >= bump && fdt_end > bump) bump = fdt_end;   /* дерево за ядром - не затирать */
     bump_end = bump; bump_start = bump;
     for (unsigned i = 0; i < nram; i++) if (bump >= ram[i].base && bump < ram[i].base + ram[i].size) bump_end = ram[i].base + ram[i].size;
-    kprintf("[KIRA ARM64] RAM: %u MB in %u region(s)\n", total >> 20, (uint64_t)nram);
+    kprintf("[KIRA ARM64] RAM: %u MB in %u region(s)\n", physical_total >> 20, (uint64_t)nphys);
 
     kprintf("[KIRA ARM64] DMA policy: evaluation begin\n");
     dma_noncoherent_platform = dma_noncoherent(fdt);
