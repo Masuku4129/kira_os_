@@ -20,6 +20,7 @@
 #include "pmm_arm.h"
 #include "pmm.h"
 #include "selftest_arm.h"
+#include "range.h"
 #include "pci.h"
 #include "blk.h"
 #include "experience.h"
@@ -144,12 +145,14 @@ static void* palloc(uint64_t bytes, uint64_t align) {          /* страниц
 }
 
 static int in_ram(uint64_t a, uint64_t len) {
-    for (unsigned i = 0; i < nram; i++) if (a >= ram[i].base && a + len <= ram[i].base + ram[i].size) return 1;
+    for (unsigned i = 0; i < nram; i++)
+        if (arm_range_contains(ram[i].base, ram[i].size, a, len)) return 1;
     return 0;
 }
 int arm_mem_in_ram(uint64_t a, uint64_t len) { return in_ram(a, len); }
 static int touches_ram(uint64_t a, uint64_t len) {
-    for (unsigned i = 0; i < nram; i++) if (a < ram[i].base + ram[i].size && ram[i].base < a + len) return 1;
+    for (unsigned i = 0; i < nram; i++)
+        if (arm_range_overlaps(ram[i].base, ram[i].size, a, len)) return 1;
     return 0;
 }
 

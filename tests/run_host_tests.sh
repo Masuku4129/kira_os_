@@ -28,6 +28,8 @@ $T/pmm | head -4
 echo "== ARM64 PMM (permanent reservations, high-range bitmap, atomic contiguous free) =="
 $CC $FLAGS -o $T/pmm-arm tests/pmm_arm_test.c arch/aarch64/pmm_arm.c
 $T/pmm-arm
+$CC $FLAGS -fsanitize=address,undefined -o $T/arm-range tests/arm_range_test.c
+$T/arm-range
 
 echo "== ramext (mapping RAM above 1 GB) =="
 $CC $FLAGS -o $T/ramext tests/ramext_test.c ramext.c
