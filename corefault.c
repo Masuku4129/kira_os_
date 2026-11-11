@@ -5,6 +5,7 @@
 #define VEC_MC  18
 
 const char* corefault_why_panic(const corefault_input_t* in) {
+    if (!in) return "missing fault context";
     if (in->in_fault)                          return "second fault while handling a fault";
     if (in->vector == VEC_NMI || in->vector == VEC_DF) return "NMI/double fault is never isolated";
     if (in->locks_held)                        return "core holds spinlocks (shared data may be half-written)";
@@ -20,6 +21,7 @@ const char* corefault_why_panic(const corefault_input_t* in) {
 }
 
 corefault_action_t corefault_decide(const corefault_input_t* in) {
+    if (!in) return COREFAULT_PANIC;
     if (corefault_why_panic(in)) return COREFAULT_PANIC;
     return in->vector == VEC_MC ? COREFAULT_FAIL_CORE : COREFAULT_KILL_THREAD;
 }

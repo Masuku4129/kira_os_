@@ -17,6 +17,8 @@ static unsigned emits;
 static void emit(const char* s, unsigned n, void* ctx) { (void)ctx; size_t l = strlen(out); memcpy(out + l, s, n); out[l + n] = 0; emits++; }
 
 int main(void) {
+    CHECK(corefault_decide(0) == COREFAULT_PANIC);
+    CHECK(strcmp(corefault_why_panic(0), "missing fault context") == 0);
     corefault_input_t i = base(14);
     CHECK(corefault_decide(&i) == COREFAULT_KILL_THREAD);       // обычный сбой в потоке: гибнет поток
     CHECK(corefault_why_panic(&i) == 0);
