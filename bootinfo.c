@@ -67,6 +67,7 @@ int kbi_validate(const void* blob, uint32_t available) {
     if (h->fb_size) {
         uint64_t min_pitch = ((uint64_t)h->fb_width * h->fb_bpp + 7) / 8;
         if (!h->fb_phys || h->fb_size > UINT64_MAX - h->fb_phys ||
+            overlaps(h->fb_phys, h->fb_size, h->kernel_phys_base, h->kernel_size) ||
             !h->fb_width || !h->fb_height || !h->fb_pitch ||
             (h->fb_bpp != 15 && h->fb_bpp != 16 &&
              h->fb_bpp != 24 && h->fb_bpp != 32) ||
@@ -109,6 +110,7 @@ int kbi_validate(const void* blob, uint32_t available) {
         if (!mods[i].length || mods[i].base > UINT64_MAX - mods[i].length ||
             overlaps(mods[i].base, mods[i].length, h->kernel_phys_base,
                      h->kernel_size) ||
+            (h->fb_size && overlaps(mods[i].base, mods[i].length, h->fb_phys, h->fb_size)) ||
             !mods[i].name_len || mods[i].reserved ||
             mods[i].name_off < sizeof(*h) ||
             mods[i].name_off > h->total_size ||

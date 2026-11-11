@@ -53,6 +53,7 @@ int main(void) {
     h->fb_size=4096ULL*480;
     CHECK(kbi_validate(b,sizeof b)==0);
     h->fb_pitch=1024; CHECK(kbi_validate(b,sizeof b)==-8); h->fb_pitch=4096;
+    h->fb_phys=h->kernel_phys_base; CHECK(kbi_validate(b,sizeof b)==-8); h->fb_phys=0xE0000000;
     h->fb_blue_pos=15; h->fb_blue_size=8;
     CHECK(kbi_validate(b,sizeof b)==-8);
     h->fb_blue_pos=0; h->fb_blue_size=8;
@@ -77,6 +78,12 @@ int main(void) {
     memcpy(b+mod->name_off,"init",5);
     CHECK(kbi_validate(b,sizeof b)==0);
     mod->base=0x200000; CHECK(kbi_validate(b,sizeof b)==-12); mod->base=0x400000;
+    h->flags=KBI_F_FRAMEBUFFER; h->fb_phys=mod->base; h->fb_size=0x1000;
+    h->fb_width=16; h->fb_height=16; h->fb_pitch=64; h->fb_bpp=32;
+    h->fb_red_pos=16; h->fb_red_size=8; h->fb_green_pos=8; h->fb_green_size=8;
+    h->fb_blue_pos=0; h->fb_blue_size=8;
+    CHECK(kbi_validate(b,sizeof b)==-12); /* module storage cannot alias framebuffer memory */
+    h->flags=0; h->fb_phys=0; h->fb_size=0;
     mod->name_off=h->modules_off; CHECK(kbi_validate(b,sizeof b)==-12);
     mod->name_off=h->modules_off+sizeof(*mod);
     /* Two module names must not alias even when both are individually in-bounds. */
