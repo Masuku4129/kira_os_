@@ -245,7 +245,7 @@ void pci_disable_bus_master(const pci_dev_t* d) {
         uart_print_dec(__atomic_load_n(&cfg_port_lock.owner, __ATOMIC_RELAXED));
         uart_print(" held=");
         uart_print_dec(this_cpu()->locks_held);
-        uart_print("\\n");
+        uart_print("\n");
     }
 #endif
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
