@@ -59,6 +59,11 @@ int main(int argc, char** argv) {
     }
     { uint8_t pk[32], m[1], sg[64]; unhex(ED[1].pk, pk); unhex(ED[1].msg, m); unhex(ED[1].sig, sg);
       pk[31] = 0xff; memset(pk, 0xff, 31); CHECK(ed25519_verify(pk, m, 1, sg) == -1); }                        /* y >= p */
+    { uint8_t pk[32] = {1}, m[1], sg[64]; unhex(ED[1].msg, m); unhex(ED[1].sig, sg);
+      CHECK(ed25519_verify(pk, m, 1, sg) == -1); }                                                /* identity key */
+    { uint8_t pk[32], m[1], sg[64]; memset(pk, 0xff, sizeof pk); pk[0] = 0xec; pk[31] = 0x7f;
+      unhex(ED[1].msg, m); unhex(ED[1].sig, sg);
+      CHECK(ed25519_verify(pk, m, 1, sg) == -1); }                                                /* order-2 key */
     int ned = 0, npss = 0;
     if (argc > 1) fails += cross(argv[1], &ned, &npss);
     CHECK(rsa_verify_pkcs1(r1_n, sizeof r1_n, e65537, 3, PK_SHA256, r1_hash, r1_sig, sizeof r1_sig) == 0);
