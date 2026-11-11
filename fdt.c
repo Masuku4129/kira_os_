@@ -162,6 +162,7 @@ int fdt_root(const void* fdt) {
 }
 
 int fdt_next_node(const void* fdt, int node, int* depth) {
+    if (!fdt || node < 0 || (depth && *depth < 0)) return -1;
     uint32_t tok;
     int off = step(fdt, node, &tok);           /* за BEGIN текущего узла */
     if (off < 0 || tok != T_BEGIN) return -1;
@@ -315,7 +316,7 @@ unsigned fdt_count_type(const void* fdt, int parent, const char* type) {
             uint32_t len;
             const char* t = (const char*)fdt_prop(fdt, c, "device_type", &len);
             unsigned want = slen0(type, 256);
-            if (t && len == want + 1 && !__builtin_memcmp(t, type, want) && t[want] == 0) n++;
+            if (want < 256 && t && len == want + 1 && !__builtin_memcmp(t, type, want) && t[want] == 0) n++;
         }
         c = fdt_next_node(fdt, c, &depth);
     }

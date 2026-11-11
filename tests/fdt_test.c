@@ -84,6 +84,9 @@ int main(void) {
     }
     CHECK(fdt_u32(0) == 0 && fdt_total_size(0) == 0);
     CHECK(fdt_root(0) == -1 && fdt_node_name(0, 0) == 0);
+    CHECK(fdt_next_node(0, 0, 0) == -1);
+    { int bad_depth = -1; CHECK(fdt_next_node(blob, 0, &bad_depth) == -1); }
+
     CHECK(fdt_prop(0, 0, "compatible", 0) == 0);
     CHECK(fdt_prop(blob, -1, "compatible", 0) == 0);
     CHECK(fdt_prop(blob, 0, 0, 0) == 0);
