@@ -121,11 +121,21 @@ int kbi_validate(const void* blob, uint32_t available) {
             return -12;
         const char* n = (const char*)blob + mods[i].name_off;
         if (n[mods[i].name_len - 1] != 0) return -12;
+        /* Embedded NULs make a module's byte name differ from its C-visible name. */
+        for (uint32_t k = 0; k + 1 < mods[i].name_len; k++)
+            if (!n[k]) return -12;
         for (uint32_t j = 0; j < i; j++) {
+            const char* prev = (const char*)blob + mods[j].name_off;
             if (overlaps(mods[i].base, mods[i].length,
                          mods[j].base, mods[j].length) ||
                 overlaps(mods[i].name_off, mods[i].name_len,
                          mods[j].name_off, mods[j].name_len)) return -12;
+            uint32_t a = mods[i].name_len - 1, b = mods[j].name_len - 1;
+            if (a == b) {
+                uint32_t k = 0;
+                while (k < a && n[k] == prev[k]) k++;
+                if (k == a) return -12;
+            }
         }
     }
     return 0;
