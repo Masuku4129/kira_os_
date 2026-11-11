@@ -202,7 +202,8 @@ static int mask_gsi_raw(const acpi_info_t* a, uint32_t gsi, int masked) {
 int ioapic_route_gsi(const acpi_info_t* a, uint32_t gsi, uint8_t vector,
                      uint16_t flags, uint32_t dest) {
     if (vector < IRQ_VECTOR_BASE ||
-        vector >= IRQ_VECTOR_BASE + IRQ_VECTOR_COUNT)
+        vector >= IRQ_VECTOR_BASE + IRQ_VECTOR_COUNT ||
+        !irq_vector_is_allocated(vector))
         return -1;
     return route_gsi_raw(a, gsi, vector, flags, dest);
 }
