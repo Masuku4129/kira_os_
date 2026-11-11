@@ -125,7 +125,10 @@ int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b) {
         const uint8_t* p = aml + i + 4;
         if (p >= e || *p++ != 0x12) continue;                    /* PackageOp */
         const uint8_t* package_end = 0;
-        if (aml_pkg_end(p, e, &package_end) != 0 || p >= package_end) continue;
+        if (aml_pkg_end(p, e, &package_end) != 0) continue;
+        uint32_t pkg_length_bytes = 1u + (uint32_t)(*p >> 6);
+        p += pkg_length_bytes; /* skip PkgLength encoding; NumElements starts the package body */
+        if (p >= package_end) continue;
         uint8_t count = *p++;                                    /* NumElements */
         if (count < 2) continue;
         uint32_t va, vb;
