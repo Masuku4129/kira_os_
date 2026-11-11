@@ -1185,7 +1185,7 @@ int platform_console_cmd(const char* l, const char* a) {
    (3 ячейки адреса шины: тип пространства в старшей - 1 порты, 2 память 32 бита, 3 память 64 бита). Прошивки нет,
    поэтому адреса BAR назначает ядро. Драйверы (virtio, NVMe, AHCI, xHCI) - те же, что на x86-64. */
 static void arm_pci_init(const void* fdt) {
-    int n = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
+    int n = fdt_find_enabled_compatible(fdt, -1, "pci-host-ecam-generic");
     if (n < 0) { kprintf("[KIRA PCI] no PCI Express host bridge in the device tree\n"); return; }
     uint64_t base, size;
     if (fdt_reg(fdt, n, 0, &base, &size)) return;
