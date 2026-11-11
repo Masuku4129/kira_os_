@@ -63,6 +63,8 @@ echo "== KDRV signed manifest (Ed25519, package binding, key policy, hostile inp
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv-manifest tests/kdrv_manifest_test.c kdrv_manifest.c pk.c crypto.c sha256.c
 python3 -I tests/kdrv_manifest_fixture.py "$T/kdrv-manifest-fixture"
 $T/kdrv-manifest "$T/kdrv-manifest-fixture/manifest.bin"
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv-trust tests/kdrv_trust_test.c pk.c crypto.c sha256.c
+$T/kdrv-trust
 echo "== KDRV package builder (strict CLI and bounded input) =="
 bash tests/kdrvpack_test.sh
 
