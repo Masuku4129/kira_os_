@@ -144,7 +144,7 @@ int main(void){
         uint8_t a = 9, b = 9;
         static const uint8_t q[] = { 0x10, 0x20, 0x08, '_', 'S', '5', '_', 0x12, 0x08, 0x04, 0x0A, 0x05, 0x0A, 0x05, 0x00, 0x00 };
         CHECK(acpi_find_s5(q, sizeof q, &a, &b) == 0 && a == 5 && b == 5);
-        static const uint8_t r[] = { 0x08, '\\', '_', 'S', '5', '_', 0x12, 0x07, 0x04, 0x00, 0x01, 0x00, 0x00 };
+        static const uint8_t r[] = { 0x08, '\\', '_', 'S', '5', '_', 0x12, 0x06, 0x04, 0x00, 0x01, 0x00, 0x00 };
         CHECK(acpi_find_s5(r, sizeof r, &a, &b) == 0 && a == 0 && b == 1);
         static const uint8_t m[] = { 0x5B, 0x80, '_', 'S', '5', '_', 0x12, 0x06, 0x04, 0x0A, 0x07, 0x00, 0x00, 0x00, 0x00 };   /* не NameOp */
         CHECK(acpi_find_s5(m, sizeof m, &a, &b) != 0);
@@ -156,7 +156,7 @@ int main(void){
         CHECK(acpi_find_s5(short_pkg, sizeof short_pkg, &a, &b) != 0);
         static const uint8_t bad_pkglen[] = { 0x08, '_', 'S', '5', '_', 0x12, 0x3F, 0x04, 0x00 };
         CHECK(acpi_find_s5(bad_pkglen, sizeof bad_pkglen, &a, &b) != 0);
-        static const uint8_t bad_value[] = { 0x08, '_', 'S', '5', '_', 0x12, 0x08, 0x02, 0x0A, 0x08, 0x00 };
+        static const uint8_t bad_value[] = { 0x08, '_', 'S', '5', '_', 0x12, 0x05, 0x02, 0x0A, 0x08, 0x00 };
         CHECK(acpi_find_s5(bad_value, sizeof bad_value, &a, &b) != 0);
         static const uint8_t too_few[] = { 0x08, '_', 'S', '5', '_', 0x12, 0x03, 0x01, 0x00 };
         CHECK(acpi_find_s5(too_few, sizeof too_few, &a, &b) != 0);
