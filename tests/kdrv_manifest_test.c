@@ -3,7 +3,7 @@
 #include "kdrv_manifest.h"
 
 static int failures;
-#define CHECK(x) do { if (!(x)) { printf("kdrv_manifest_test: FAIL line %d: %s\\n", __LINE__, #x); failures++; } } while (0)
+#define CHECK(x) do { if (!(x)) { printf("kdrv_manifest_test: FAIL line %d: %s\n", __LINE__, #x); failures++; } } while (0)
 
 static const uint8_t test_signature[64] = {
     0x49,0x15,0x1a,0xa7,0x30,0xdf,0x98,0x14,0xe6,0x27,0x16,0xe9,0x69,0xb6,0xed,0x32,
