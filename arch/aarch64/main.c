@@ -1162,7 +1162,7 @@ static void arm_pci_init(const void* fdt) {
     const uint64_t ECAM_BUS_BYTES = 1ull << 20;
     if (!size || (base & (ECAM_BUS_BYTES - 1)) || (size & (ECAM_BUS_BYTES - 1)) ||
         size < ECAM_BUS_BYTES) {
-        kprintf("[KIRA PCI] invalid ECAM base/size in device tree; PCI disabled\n");
+        kprintf("[KIRA PCI] invalid ECAM base/size in device tree; PCI disabled\\n");
         return;
     }
     uint64_t bus_slots = size >> 20;
@@ -1170,43 +1170,61 @@ static void arm_pci_init(const void* fdt) {
     uint32_t bus1 = bus_slots > 256 ? 255 : (uint32_t)bus_slots - 1;
     const uint8_t* br = (const uint8_t*)fdt_prop(fdt, n, "bus-range", &len);
     if (br) {
-        if (len != 8) { kprintf("[KIRA PCI] malformed ECAM bus-range; PCI disabled\n"); return; }
+        if (len != 8) { kprintf("[KIRA PCI] malformed ECAM bus-range; PCI disabled\\n"); return; }
         bus0 = fdt_u32(br); bus1 = fdt_u32(br + 4);
     }
     if (bus0 > bus1 || bus1 > 255 || (uint64_t)(bus1 - bus0 + 1) > bus_slots) {
-        kprintf("[KIRA PCI] ECAM bus-range exceeds mapped configuration space; PCI disabled\n");
+        kprintf("[KIRA PCI] ECAM bus-range exceeds mapped configuration space; PCI disabled\\n");
         return;
     }
-    volatile void* e = vmm_map_mmio(base, size, 0);
-    if (!e) return;
-    if (pci_use_ecam(e, size, (uint8_t)bus0, (uint8_t)bus1) != 0) {
-        kprintf("[KIRA PCI] ECAM mapping is too small for advertised buses; PCI disabled\n");
-        return;
-    }
+
+    /* Decode all host-bridge windows before enabling the ECAM backend. */
     pci_window_t m32 = { 0, 0, 0, 0 }, m64 = { 0, 0, 0, 0 };
     uint32_t pac = 2, sc = 2;
     int par = fdt_parent(fdt, n);
     const uint8_t* cells = par >= 0 ? (const uint8_t*)fdt_prop(fdt, par, "#address-cells", &len) : 0;
-    if (cells) { if (len != 4) { kprintf("[KIRA PCI] malformed parent #address-cells; PCI disabled\n"); return; } pac = fdt_u32(cells); }
+    if (cells) { if (len != 4) { kprintf("[KIRA PCI] malformed parent #address-cells; PCI disabled\\n"); return; } pac = fdt_u32(cells); }
     cells = (const uint8_t*)fdt_prop(fdt, n, "#size-cells", &len);
-    if (cells) { if (len != 4) { kprintf("[KIRA PCI] malformed #size-cells; PCI disabled\n"); return; } sc = fdt_u32(cells); }
+    if (cells) { if (len != 4) { kprintf("[KIRA PCI] malformed #size-cells; PCI disabled\\n"); return; } sc = fdt_u32(cells); }
     if (pac < 1 || pac > 2 || sc < 1 || sc > 2) {
-        kprintf("[KIRA PCI] unsupported ranges cell widths; PCI disabled\n");
+        kprintf("[KIRA PCI] unsupported ranges cell widths; PCI disabled\\n");
         return;
     }
     const uint8_t* r = (const uint8_t*)fdt_prop(fdt, n, "ranges", &len);
     uint32_t stride = 4u * (3u + pac + sc);
-    if (r && len % stride) {
-        kprintf("[KIRA PCI] malformed ECAM ranges property; PCI disabled\n");
+    if (!r || len % stride) {
+        kprintf("[KIRA PCI] missing or malformed ECAM ranges property; PCI disabled\\n");
         return;
     }
-    for (uint32_t o = 0; r && o <= len && stride <= len - o; o += stride) {
+    for (uint32_t o = 0; o < len; o += stride) {
         uint32_t hi = fdt_u32(r + o);
         uint64_t pci = (uint64_t)fdt_u32(r + o + 4) << 32 | fdt_u32(r + o + 8), cpu = 0, sz = 0;
         for (uint32_t i = 0; i < pac; i++) cpu = cpu << 32 | fdt_u32(r + o + 12 + 4 * i);
         for (uint32_t i = 0; i < sc; i++) sz = sz << 32 | fdt_u32(r + o + 12 + 4 * pac + 4 * i);
-        pci_window_t* w = ((hi >> 24) & 3) == 2 ? &m32 : ((hi >> 24) & 3) == 3 ? &m64 : 0;
-        if (w && sz > w->size) { w->pci_base = pci; w->next = pci; w->size = sz; w->cpu_off = (int64_t)(cpu - pci); }
+        unsigned space = (hi >> 24) & 3;
+        pci_window_t* w = space == 2 ? &m32 : space == 3 ? &m64 : 0;
+        if (!w) continue;                         /* I/O windows are not allocated by this MMIO-only path */
+        if (!sz || pci > UINT64_MAX - sz || cpu > UINT64_MAX - sz) {
+            kprintf("[KIRA PCI] invalid or overflowing memory range; PCI disabled\\n");
+            return;
+        }
+        uint64_t delta;
+        if (cpu >= pci) {
+            delta = cpu - pci;
+            if (delta > INT64_MAX) { kprintf("[KIRA PCI] CPU/PCI window offset is not representable; PCI disabled\\n"); return; }
+            w->cpu_off = (int64_t)delta;
+        } else {
+            delta = pci - cpu;
+            if (delta > (uint64_t)INT64_MAX + 1) { kprintf("[KIRA PCI] CPU/PCI window offset is not representable; PCI disabled\\n"); return; }
+            w->cpu_off = delta == (uint64_t)INT64_MAX + 1 ? INT64_MIN : -(int64_t)delta;
+        }
+        if (!w->size || sz > w->size) { w->pci_base = pci; w->next = pci; w->size = sz; }
+    }
+    volatile void* e = vmm_map_mmio(base, size, 0);
+    if (!e) return;
+    if (pci_use_ecam(e, size, (uint8_t)bus0, (uint8_t)bus1) != 0) {
+        kprintf("[KIRA PCI] ECAM mapping is too small for advertised buses; PCI disabled\\n");
+        return;
     }
     int nd = pci_init();
     int nb = pci_assign(&m32, &m64);
