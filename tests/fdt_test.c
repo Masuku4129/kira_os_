@@ -154,21 +154,28 @@ int main(void) {
     {
         uint8_t handoff[KIRA_BOOTINFO_MAX_SIZE < 4096 ? KIRA_BOOTINFO_MAX_SIZE : 4096];
         uint32_t handoff_size = 0;
-        CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
-                           handoff, sizeof handoff, &handoff_size) == 0);
-        const kbi_header_t* h = (const kbi_header_t*)handoff;
-        CHECK(kbi_validate(handoff, handoff_size) == 0);
-        CHECK(h->arch == KBI_ARCH_AARCH64 && h->boot_mode == KBI_BOOT_DEVICE_TREE);
-        CHECK((h->flags & (KBI_F_FDT | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE)) ==
-              (KBI_F_FDT | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE));
-        CHECK(h->mmap_count == 3);
-        const kbi_mmap_entry_t* mm = kbi_mmap(handoff);
-        CHECK(mm[0].base == 0x40000000 && mm[0].length == 0x10000000);
-        CHECK(mm[1].base == 0x50001000 && mm[1].length == 0x0FFEF000);
-        CHECK(mm[2].base == 0x60002000 && mm[2].length == 0x2FFFE000);
-        CHECK(h->fb_phys == 0x3c000000 && h->fb_width == 800 && h->fb_height == 600);
-        CHECK(h->cmdline_len == 16 &&
-              !strcmp((const char*)handoff + h->cmdline_off, "console=ttyAMA0"));
+        CHECK(fdt_find_path(blob, "/reserved-memory/reserved@60000000") >= 0);
+        int handoff_rc = kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                                      handoff, sizeof handoff, &handoff_size);
+        CHECK(handoff_rc == 0);
+        if (handoff_rc == 0) {
+            const kbi_header_t* h = (const kbi_header_t*)handoff;
+            CHECK(kbi_validate(handoff, handoff_size) == 0);
+            CHECK(h->arch == KBI_ARCH_AARCH64 && h->boot_mode == KBI_BOOT_DEVICE_TREE);
+            CHECK((h->flags & (KBI_F_FDT | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE)) ==
+                  (KBI_F_FDT | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE));
+            CHECK(h->mmap_count == 3);
+            const kbi_mmap_entry_t* mm = kbi_mmap(handoff);
+            CHECK(mm != 0);
+            if (mm) {
+                CHECK(mm[0].base == 0x40000000 && mm[0].length == 0x10000000);
+                CHECK(mm[1].base == 0x50001000 && mm[1].length == 0x0FFEF000);
+                CHECK(mm[2].base == 0x60002000 && mm[2].length == 0x2FFFE000);
+            }
+            CHECK(h->fb_phys == 0x3c000000 && h->fb_width == 800 && h->fb_height == 600);
+            CHECK(h->cmdline_len == 16 &&
+                  !strcmp((const char*)handoff + h->cmdline_off, "console=ttyAMA0"));
+        } else printf("kbi_from_fdt returned %d\\n", handoff_rc);
         CHECK(kbi_from_fdt(blob, total, 0x800001, 0x100000, 0x200000,
                            handoff, sizeof handoff, &handoff_size) != 0);
     }
