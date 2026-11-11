@@ -473,6 +473,8 @@ static Type *struct_decl_(int is_union) {
                     if (!is_inttype_ok(mt)) kerr_tok(m->tok, "bit-field has non-integral type '%s'", ty_name(mt));
                 }
                 if (w < 0 || (w == 0 && nm)) kerr_tok(m->tok, "invalid bit-field width");
+                /* Check before narrowing: a large constant must not wrap to a small int. */
+                if (w > (int64_t)mt->size * 8) kerr_tok(m->tok, "width of bit-field exceeds its type");
                 m->bw = (int)w; m->bo = -1;
             } else {
                 if (!nm) kerr_tok(tok, "expected member name or ';' after declaration specifiers");

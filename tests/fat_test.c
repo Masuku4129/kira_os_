@@ -20,7 +20,9 @@ static char dirt[] = "/tmp/kira_fat_XXXXXX";
 typedef struct { uint8_t* m; uint64_t n; int fail_writes; } memdev_t;
 static int mrd(blk_dev_t* d, uint64_t lba, uint32_t c, void* b) { memdev_t* m = d->priv; if (lba + c > m->n) return -1; memcpy(b, m->m + lba * 512, (size_t)c * 512); return 0; }
 static int mwr(blk_dev_t* d, uint64_t lba, uint32_t c, const void* b) { memdev_t* m = d->priv; if (m->fail_writes || lba + c > m->n) return -1; memcpy(m->m + lba * 512, b, (size_t)c * 512); return 0; }
-static blk_dev_t mkdev(memdev_t* m) { blk_dev_t d; memset(&d, 0, sizeof d); strcpy(d.name, "mem"); d.sectors = m->n; d.read = mrd; d.write = mwr; d.priv = m; return d; }
+/* Memory-backed test media are write-through: each successful write is immediately persistent. */
+static int mflush(blk_dev_t* d) { (void)d; return 0; }
+static blk_dev_t mkdev(memdev_t* m) { blk_dev_t d; memset(&d, 0, sizeof d); strcpy(d.name, "mem"); d.sectors = m->n; d.read = mrd; d.write = mwr; d.flush = mflush; d.priv = m; return d; }
 
 static uint8_t* load(const char* path, uint64_t* len) {
     FILE* f = fopen(path, "rb"); CHECK(f);

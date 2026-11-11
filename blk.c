@@ -176,9 +176,9 @@ int blk_set_primary(blk_dev_t* d) {
 int blk_flush_all(void) {
     int bad = 0;
     for (int i = 0; i < nslots; i++) {
-        blk_dev_t* raw = slots[i].raw;
-        /* Missing flush support is not evidence that volatile writes are durable. */
-        if (!raw || !raw->flush || raw->flush(raw) != 0) bad++;
+        blk_dev_t* pub = &slots[i].pub;
+        /* Use the public wrapper so flush is serialized with concurrent I/O. */
+        if (!pub->flush || pub->flush(pub) != 0) bad++;
     }
     return bad;
 }
