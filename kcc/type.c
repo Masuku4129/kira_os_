@@ -94,6 +94,9 @@ Type *ty_common(Type *a, Type *b) {
     if (a->is_unsigned == b->is_unsigned) return rank(a) >= rank(b) ? a : b;
     Type *u = a->is_unsigned ? a : b, *s = a->is_unsigned ? b : a;
     if (rank(u) >= rank(s)) return u;
+    /* A higher-ranked signed type wins when its value range contains every
+       value of the lower-ranked unsigned type (LP64: long contains uint). */
+    if (s->size > u->size) return s;
     return s->k == TY_LONG ? &ty_ulong : s->k == TY_LLONG ? &ty_ullong : &ty_uint;
 }
 
