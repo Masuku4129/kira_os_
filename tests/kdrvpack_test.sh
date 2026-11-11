@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-CC=\${CC:-gcc}
+CC=${CC:-gcc}
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 $CC -O1 -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -o "$T/kdrvpack" tools/kdrvpack.c kdrv_fmt.c sha256.c
