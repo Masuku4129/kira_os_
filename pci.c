@@ -43,18 +43,36 @@ void pci_set_backend(const pci_backend_t* b) {
 /* ECAM (PCI Express): конфигурация каждой функции - 4 КБ по адресу base + (шина << 20 | устройство << 15 |
    функция << 12). Так её видят ARM-платы (дерево устройств: pci-host-ecam-generic) и x86 с таблицей MCFG. */
 static volatile uint8_t* ecam;
+static uint64_t ecam_size;
 static uint8_t ecam_bus0, ecam_bus1;
 static uint32_t ecam_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
-    if (bus < ecam_bus0 || bus > ecam_bus1) return 0xFFFFFFFFu;
-    return *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC)));
+    if (!ecam || bus < ecam_bus0 || bus > ecam_bus1 || dev >= 32 || fn >= 8 || off >= 4096)
+        return 0xFFFFFFFFu;
+    uint64_t offset = ((uint64_t)(bus - ecam_bus0) << 20) |
+                      ((uint64_t)dev << 15) | ((uint64_t)fn << 12) | (off & 0xFFCu);
+    if (offset > ecam_size || ecam_size - offset < sizeof(uint32_t)) return 0xFFFFFFFFu;
+    return *(volatile uint32_t*)(ecam + offset);
 }
 static void ecam_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t v) {
-    if (bus < ecam_bus0 || bus > ecam_bus1) return;
-    *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC))) = v;
+    if (!ecam || bus < ecam_bus0 || bus > ecam_bus1 || dev >= 32 || fn >= 8 || off >= 4096)
+        return;
+    uint64_t offset = ((uint64_t)(bus - ecam_bus0) << 20) |
+                      ((uint64_t)dev << 15) | ((uint64_t)fn << 12) | (off & 0xFFCu);
+    if (offset > ecam_size || ecam_size - offset < sizeof(uint32_t)) return;
+    *(volatile uint32_t*)(ecam + offset) = v;
 }
-void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end) {
-    ecam = (volatile uint8_t*)base; ecam_bus0 = bus_start; ecam_bus1 = bus_end;
-    be.read32 = ecam_read32; be.write32 = ecam_write32;
+int pci_use_ecam(volatile void* base, uint64_t size, uint8_t bus_start, uint8_t bus_end) {
+    if (!base || !size || bus_start > bus_end || size > (uint64_t)UINTPTR_MAX ||
+        (uintptr_t)base > UINTPTR_MAX - (uintptr_t)size) return -1;
+    uint64_t required = ((uint64_t)bus_end - bus_start + 1) << 20;
+    if (size < required) return -1;
+    ecam = (volatile uint8_t*)base;
+    ecam_size = size;
+    ecam_bus0 = bus_start;
+    ecam_bus1 = bus_end;
+    be.read32 = ecam_read32;
+    be.write32 = ecam_write32;
+    return 0;
 }
 
 /* Назначение адресов BAR, когда прошивка этого не сделала (ARM без UEFI: ядро загружено напрямую). Окна - из
