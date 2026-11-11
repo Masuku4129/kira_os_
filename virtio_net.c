@@ -79,19 +79,25 @@ static int recv(netdev_t* d, void* buf, uint32_t max) {
     (void)d;
     uint16_t id; uint32_t len;
     if (!virtq_take(&v.rx, &id, &len)) return 0;
-    /* Treat the device-written used length as untrusted: never inspect bytes beyond
-       the descriptor's advertised buffer, even if a broken device reports more. */
-    if (id >= NRX || len > BUF ||
-        virtio_dma_sync_for_cpu(v.rxb + id * BUF, v.rxb_p + id * BUF, BUF) != 0)
-        return 0;
+    /* The used length and descriptor id are device-controlled.  A malformed
+       completion must not be copied, but a valid slot must be returned to RX
+       so one bad frame cannot permanently shrink the receive ring. */
+    if (id >= NRX) return 0;
+    uint8_t* slot = v.rxb + (uint32_t)id * BUF;
+    uint64_t slot_dma = v.rxb_p + (uint64_t)id * BUF;
+    if (virtio_dma_sync_for_cpu(slot, slot_dma, BUF) != 0) return 0;
+
     int n = 0;
-    if (len > HDR && len - HDR <= max) {
-        const uint8_t* s = v.rxb + id * BUF + HDR; uint8_t* o = (uint8_t*)buf;
+    if (len <= BUF && len >= HDR + 14 && len - HDR <= max) {
+        const uint8_t* src = slot + HDR;
+        uint8_t* dst = (uint8_t*)buf;
         n = (int)(len - HDR);
-        for (int i = 0; i < n; i++) o[i] = s[i];
+        for (int i = 0; i < n; i++) dst[i] = src[i];
     }
-    if (virtio_dma_sync_for_device(v.rxb + id * BUF, v.rxb_p + id * BUF, BUF) == 0) {
-        virtq_post(&v.rx, id, v.rxb_p + id * BUF, BUF, 1);
+
+    /* Re-arm even for short, oversized, or caller-truncated frames. */
+    if (virtio_dma_sync_for_device(slot, slot_dma, BUF) == 0) {
+        virtq_post(&v.rx, id, slot_dma, BUF, 1);
         virtq_kick(&v.rx);
     }
     return n;
