@@ -790,6 +790,7 @@ int kfs_mounted(void) { return fs.mounted; }
 /* --- операции --- */
 
 static int kfs_stat_impl(const char* path, kfs_stat_t* st) {
+    if (!st) return KFS_ERR_INVAL;
     uint32_t parent, ino; char leaf[KFS_NAME_MAX + 1];
     int r = resolve(path, &parent, leaf, &ino);
     if (r) return r;
@@ -801,6 +802,7 @@ static int kfs_stat_impl(const char* path, kfs_stat_t* st) {
 }
 
 static int64_t kfs_read_impl(const char* path, uint64_t off, void* buf, size_t len) {
+    if (len && !buf) return KFS_ERR_INVAL;
     uint32_t parent, ino; char leaf[KFS_NAME_MAX + 1];
     int r = resolve(path, &parent, leaf, &ino);
     if (r) return r;
@@ -840,6 +842,7 @@ static int64_t kfs_read_impl(const char* path, uint64_t off, void* buf, size_t l
 }
 
 static int kfs_write_impl(const char* path, const void* data, size_t len) {
+    if (len && !data) return KFS_ERR_INVAL;
     uint32_t parent, ino; char leaf[KFS_NAME_MAX + 1];
     int r = resolve(path, &parent, leaf, &ino);
     if (r) return r;
@@ -975,6 +978,7 @@ static int list_cb(void* c, dirent_t* e, const dloc_t* l) {
 }
 
 static int kfs_list_impl(const char* path, kfs_list_cb cb, void* ctx) {
+    if (!cb) return KFS_ERR_INVAL;
     uint32_t parent, ino; char leaf[KFS_NAME_MAX + 1];
     int r = resolve(path, &parent, leaf, &ino);
     if (r) return r;
@@ -986,6 +990,7 @@ static int kfs_list_impl(const char* path, kfs_list_cb cb, void* ctx) {
 }
 
 static void kfs_info_impl(kfs_info_t* o) {
+    if (!o) return;
     o->total_blocks = fs.total_blocks; o->free_blocks = fs.free_blocks; o->inodes = fs.inode_count;
     o->free_inodes = fs.free_inodes; o->repaired = fs.repaired;
 }
@@ -1014,7 +1019,8 @@ const char* kfs_strerror(int e) {
 
 int kfs_detect(blk_dev_t* dev, uint64_t base) {
     union { super_t sb; uint8_t raw[BLK_SECTOR]; } u;
-    if (base + 1 > dev->sectors) return KFS_ERR_NOFS;
+    if (!dev) return KFS_ERR_INVAL;
+    if (base >= dev->sectors) return KFS_ERR_NOFS;
     return read_super(dev, base, &u.sb);
 }
 

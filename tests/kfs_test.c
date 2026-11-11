@@ -64,7 +64,14 @@ int main(void){
 
     /* базовые операции */
     CHECK(kfs_mount(&dev,16)==KFS_ERR_NOFS);
+    CHECK(kfs_detect(0,16)==KFS_ERR_INVAL);
+    CHECK(kfs_detect(&dev,UINT64_MAX)==KFS_ERR_NOFS);
     CHECK(kfs_format(&dev,16)==0 && kfs_mounted());
+    CHECK(kfs_stat("/",0)==KFS_ERR_INVAL);
+    CHECK(kfs_read("/",0,0,1)==KFS_ERR_INVAL);
+    CHECK(kfs_write("/null",0,1)==KFS_ERR_INVAL);
+    CHECK(kfs_list("/",0,0)==KFS_ERR_INVAL);
+    kfs_info(0);
     kfs_info_t in0; kfs_info(&in0);
     CHECK(put("/hello",100,3)==0 && same("/hello",100,3));
     CHECK(put("/empty",0,0)==0 && same("/empty",0,0));

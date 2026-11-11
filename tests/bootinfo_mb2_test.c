@@ -60,6 +60,7 @@ int main(void){
         CHECK((ah->flags & KBI_F_ACPI) && ah->rsdp_phys && !(ah->rsdp_phys & 15));
         CHECK(memcmp((const void*)(uintptr_t)ah->rsdp_phys,with_acpi+136,36)==0);
         /* Legacy RSDP tag is retained as the 20-byte ACPI 1.0 structure. */
+        make_rsdp(with_acpi+136,0);
         w32(with_acpi,168);
         w32(with_acpi+128,14); w32(with_acpi+132,28);
         w32(with_acpi+160,0); w32(with_acpi+164,8);
