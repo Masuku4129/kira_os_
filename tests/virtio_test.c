@@ -302,6 +302,24 @@ int main(void) {
     CHECK(pci_read32(assigned, 0x10) == 0x0000000Cu);
     CHECK(pci_read32(assigned, 0x14) == 0x00000002u);
 
+    /* A 32-bit BAR must skip a window above 4 GiB instead of truncating its address. */
+    memset(bus_dev, 0, sizeof bus_dev);
+    mkhdr(F(0, 0, 0), 0x1234, 0x5679, 2, 0, 0);
+    F(0, 0, 0)->bar_size[0] = 0x2000;
+    put32(F(0, 0, 0), 0x10, 0x0);
+    CHECK(pci_init() == 1);
+    assigned = pci_get(0);
+    pci_window_set_t constrained32 = {0}, unused64 = {0};
+    pci_window_t above4g = { .pci_base = 0x100000000ull, .size = 0x8000,
+                             .next = 0x100000000ull, .cpu_off = 0 };
+    pci_window_t below4g = { .pci_base = 0x80000000ull, .size = 0x8000,
+                             .next = 0x80000000ull, .cpu_off = 0 };
+    CHECK(pci_window_set_add(&constrained32, &above4g) == 0);
+    CHECK(pci_window_set_add(&constrained32, &below4g) == 0);
+    CHECK(pci_assign_multi(&constrained32, &unused64) == 1);
+    CHECK(assigned->bar[0].base == 0x80000000ull);
+    CHECK(pci_read32(assigned, 0x10) == 0x80000000u);
+
     /* --- PCI --- */
     model_init(o0, 0x1042);
     CHECK(pci_use_ecam(ecam_probe, 1u << 20, 0, 1) == -1); /* advertised two buses do not fit; backend stays unchanged */

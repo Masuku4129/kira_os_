@@ -140,6 +140,22 @@ int pci_window_set_alloc(pci_window_set_t* set, uint64_t size, uint64_t* pci_add
     }
     return -1;
 }
+static int pci_window_set_alloc_limit(pci_window_set_t* set, uint64_t size, uint64_t max_addr,
+                                         uint64_t* pci_addr, uint64_t* cpu_addr) {
+    if (!set || !pci_addr || !cpu_addr || !size) return -1;
+    for (unsigned i = 0; i < set->count; i++) {
+        pci_window_t candidate = set->windows[i];
+        uint64_t a = 0, cpu = 0;
+        if (pci_window_alloc(&candidate, size, &a, &cpu) == 0 &&
+            a <= max_addr && size - 1 <= max_addr - a) {
+            set->windows[i] = candidate;
+            *pci_addr = a;
+            *cpu_addr = cpu;
+            return 0;
+        }
+    }
+    return -1;
+}
 int pci_assign_multi(pci_window_set_t* mem32, pci_window_set_t* mem64) {
     int n = 0;
     for (int pass = 63; pass >= 4; pass--) {
@@ -150,8 +166,10 @@ int pci_assign_multi(pci_window_set_t* mem32, pci_window_set_t* mem64) {
                 if (d->bar[b].io || !sz || d->bar[b].base || (sz & (sz - 1)) || sz != (1ull << pass)) continue;
                 uint64_t a = 0, cpu = 0;
                 int rc = -1;
-                if (d->bar[b].mem64 && mem64) rc = pci_window_set_alloc(mem64, sz, &a, &cpu);
-                if (rc && mem32) rc = pci_window_set_alloc(mem32, sz, &a, &cpu);
+                if (d->bar[b].mem64 && mem64)
+                    rc = pci_window_set_alloc_limit(mem64, sz, UINT64_MAX, &a, &cpu);
+                if (rc && mem32)
+                    rc = pci_window_set_alloc_limit(mem32, sz, UINT32_MAX, &a, &cpu);
                 if (rc) continue;
                 uint16_t off = (uint16_t)(0x10 + 4 * b);
                 uint32_t lo = pci_read32(d, off) & 0xF;
