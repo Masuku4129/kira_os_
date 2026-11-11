@@ -54,6 +54,8 @@ int main(void)
     const pci_dev_t* bridge = pci_get(1);
     CHECK(dev != 0 && dev->vendor == 0x1af4u && dev->device == 0x1001u);
     CHECK(bridge != 0 && bridge->class_code == 0x06 && bridge->subclass == 0x04);
+    CHECK(pci_is_bridge(bridge));
+    CHECK(!pci_is_bridge(dev));
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
     CHECK((pci_read16(bridge, 0x04) & PCI_CMD_MASTER) != 0);
     CHECK((pci_read16(dev, 0x04) & (PCI_CMD_IO | PCI_CMD_MEM)) ==
