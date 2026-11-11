@@ -18,6 +18,8 @@ static spinlock_t cfg_rmw_lock = SPINLOCK_INIT;
 #if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
 /* Порты 0xCF8/0xCFC - пара обращений: с драйверов Ring 3 (kdrv.c) конфигурацию читают и пишут разные ядра и потоки одновременно. */
 static spinlock_t cfg_port_lock = SPINLOCK_INIT;
+static inline void outb(uint16_t p, uint8_t v) { __asm__ volatile ("outb %0, %1" : : "a"(v), "Nd"(p)); }
+static inline uint8_t inb(uint16_t p) { uint8_t v; __asm__ volatile ("inb %1, %0" : "=a"(v) : "Nd"(p)); return v; }
 static inline void outl(uint16_t p, uint32_t v) { __asm__ volatile ("outl %0, %1" : : "a"(v), "Nd"(p)); }
 static inline uint32_t inl(uint16_t p) { uint32_t v; __asm__ volatile ("inl %1, %0" : "=a"(v) : "Nd"(p)); return v; }
 static void pci_trace_raw_char(char c) {
