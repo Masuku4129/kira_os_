@@ -110,6 +110,13 @@ int irq_vector_alloc(irq_handler_t handler, uint8_t *vector) {
     return -2;
 }
 
+int irq_vector_is_allocated(uint8_t vector) {
+    if (vector < IRQ_VECTOR_BASE || vector >= IRQ_VECTOR_BASE + IRQ_VECTOR_COUNT)
+        return 0;
+    unsigned i = (unsigned)(vector - IRQ_VECTOR_BASE);
+    return __atomic_load_n(&irq_vector_handlers[i], __ATOMIC_ACQUIRE) != 0;
+}
+
 int irq_vector_release(uint8_t vector) {
     if (vector < IRQ_VECTOR_BASE || vector >= IRQ_VECTOR_BASE + IRQ_VECTOR_COUNT)
         return -1;
