@@ -288,7 +288,7 @@ void pci_disable_bus_master(const pci_dev_t* d) {
 #if !defined(KIRA_HOST_TEST)
     spin_unlock_irqrestore(&cfg_rmw_lock, flags);
 #if defined(__x86_64__)
-    if (trace_uhci) pci_trace_raw("[D4]\\r\\n");
+    if (trace_uhci) pci_trace_raw("[D4]\r\n");
 #endif
 #endif
 }
