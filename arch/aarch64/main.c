@@ -226,10 +226,9 @@ static void mmu_enable_this_cpu(void) {
     isb();
 }
 
-/* Устройства видят память согласованно с кэшем процессора только если дерево устройств так говорит (dma-coherent у
-   корня или у узла хоста PCI). Иначе (Raspberry Pi 4 и др.) буферы устройств берутся из пула без кэша. Параметр
-   загрузки kira.dma=noncoherent / kira.dma=coherent переопределяет решение (проверка на стенде и обход ошибок
-   дерева устройств). */
+/* Platform-wide coherent DMA is accepted only when the root or every enabled PCI host
+   explicitly declares dma-coherent. A property on an unrelated child device cannot make
+   every DMA master coherent. Unknown topology defaults to the non-coherent, fail-closed path. */
 static int bootarg_has(const void* fdt, const char* word) {
     int c = fdt_find_path(fdt, "/chosen");
     uint32_t len = 0;
@@ -249,10 +248,13 @@ static int dma_noncoherent(const void* fdt) {
     uint32_t l;
     if (fdt_prop(fdt, fdt_root(fdt), "dma-coherent", &l)) return 0;
     int pci = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
-    if (pci >= 0) return fdt_prop(fdt, pci, "dma-coherent", &l) ? 0 : 1;
-    int depth = 0;                                               /* нет PCI-узла: любой узел с dma-coherent - согласованная платформа */
-    for (int n = fdt_root(fdt); n >= 0; n = fdt_next_node(fdt, n, &depth)) if (fdt_prop(fdt, n, "dma-coherent", &l)) return 0;
-    return 1;
+    if (pci < 0) return 1;
+    for (int node = pci; node >= 0;
+         node = fdt_find_compatible(fdt, node, "pci-host-ecam-generic")) {
+        if (!fdt_node_enabled(fdt, node)) continue;
+        if (!fdt_prop(fdt, node, "dma-coherent", &l)) return 1;
+    }
+    return 0;
 }
 /* Проверка пересечения с областями, которые прошивка/ядро уже зарезервировали.
    DMA pool нельзя вырезать из /reserved-memory, firmware memreserve или framebuffer. */
@@ -1327,8 +1329,14 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     if (dma_noncoherent_platform) dma_pool_choose(fdt);
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
-    if (dma_lo) kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at %x without CPU cache for device buffers\n", (dma_hi - dma_lo) >> 20, dma_lo);
-    else kprintf("[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)\n");
+    if (dma_noncoherent_platform) {
+        if (dma_lo) kprintf("[KIRA ARM64] DMA: non-coherent devices; %u MB non-cacheable pool at %x\n", (dma_hi - dma_lo) >> 20, dma_lo);
+        else kprintf("[KIRA ARM64] DMA: non-coherent devices; DMA allocations disabled (no safe pool)\n");
+    } else if (bootarg_has(fdt, "kira.dma=coherent")) {
+        kprintf("[KIRA ARM64] DMA: coherent mode forced by boot argument\n");
+    } else {
+        kprintf("[KIRA ARM64] DMA: coherent mode declared by root/PCI host device tree\n");
+    }
     kprintf("[KIRA ARM64] MMU on: identity map up to %x, %u-bit physical addresses, RAM cached, devices non-executable\n", top, (uint64_t)bits);
 
     /* контроллер прерываний */
