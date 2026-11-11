@@ -124,6 +124,9 @@ int main(void){
     CHECK(acpi_scan(UINT64_MAX - 7, UINT64_MAX, "RSD PTR ", 8, 20) == 0);
     CHECK(acpi_scan(base + 0x1000, base, "_MP_", 4, 0) == 0);
     CHECK(acpi_scan(base, base + 0x1000, 0, 4, 0) == 0);
+    CHECK(acpi_scan(base, base + 0x1000, "0123456789abcdefg", 17, 17) == 0);
+    CHECK(acpi_scan(base, base + 0x1000, "RSD PTR ", 8, 4) == 0); /* checksum span must cover signature */
+
     /* ---- таблицы Intel MP (как у SeaBIOS при выключенном ACPI) ---- */
     {
         uint8_t* fps = m + 0x800; uint8_t* ct = m + 0x900;
