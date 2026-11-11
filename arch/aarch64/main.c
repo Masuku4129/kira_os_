@@ -59,6 +59,7 @@ static uint8_t arm_bootinfo_blob[8192] __attribute__((aligned(16)));
 
 extern char __kernel_start[], __kernel_end[];
 extern void secondary_entry(void);
+void kernel_panic(const char* reason) __attribute__((noreturn));
 
 static inline void mmio_w32(uint64_t a, uint32_t v) { *(volatile uint32_t*)(uintptr_t)a = v; }
 static inline uint32_t mmio_r32(uint64_t a) { return *(volatile uint32_t*)(uintptr_t)a; }
@@ -979,7 +980,7 @@ const void* fpu_initial_state(void) {
     return z;
 }
 
-void kernel_panic(const char* reason) __attribute__((noreturn));
+
 void kernel_panic(const char* reason) {
     __asm__ volatile ("msr daifset, #2");
     smp_halt_others();
