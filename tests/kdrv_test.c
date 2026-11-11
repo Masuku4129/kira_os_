@@ -20,6 +20,15 @@ int main(void) {
     kdrv_header_t h, o;
     mk(&h, f, 100);
     CHECK(kdrv_header_check(f, sizeof f, &o) == KDRV_OK && !strcmp(o.name, "edu"));
+    CHECK(kdrv_name_check(0, 12) == 0);
+    CHECK(kdrv_name_check("", 1) == 0);
+    CHECK(kdrv_name_check("a", 2) == 1);
+    CHECK(kdrv_name_check("driver_12345", 13) == 0); /* 12 characters exceed the ABI limit */
+    CHECK(kdrv_name_check("driver-1234", 12) == 1);  /* exactly 11 characters */
+    CHECK(kdrv_name_check("bad/name", 9) == 0);
+    char unterminated_name[KDRV_NAME_MAX + 1];
+    memset(unterminated_name, 'a', sizeof unterminated_name);
+    CHECK(kdrv_name_check(unterminated_name, sizeof unterminated_name) == 0);
     CHECK(kdrv_header_check(0, sizeof f, &o) == KDRV_E_INPUT);
     CHECK(kdrv_rec_check(0, sizeof(kdrv_rec_t), 0) == KDRV_E_INPUT);
     CHECK(kdrv_match_dev(0, 0x1234, 0x11e8, 0) == 0);

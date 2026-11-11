@@ -58,6 +58,7 @@ enum { KDRV_OK = 0, KDRV_E_SHORT = -1, KDRV_E_MAGIC = -2, KDRV_E_FORMAT = -3, KD
        KDRV_E_INPUT = -11 };
 
 /* Чистые функции (kdrv_fmt.c; проверяются на хосте). */
+int kdrv_name_check(const char* name, uint32_t capacity);                 /* bounded NUL-terminated [a-z0-9_-], 1..KDRV_NAME_MAX */
 int kdrv_header_check(const void* file, uint32_t len, kdrv_header_t* out);      /* заголовок корректен и файл ровно hdr_size + elf_size */
 int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out);             /* запись корректна и подтверждена пользователем */
 int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uint32_t cls);   /* 1 - подходит */

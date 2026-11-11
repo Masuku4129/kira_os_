@@ -4,14 +4,19 @@
 
 static void cpy(void* d, const void* s, uint32_t n) { uint8_t* a = (uint8_t*)d; const uint8_t* b = (const uint8_t*)s; while (n--) *a++ = *b++; }
 
-static int name_ok(const char* n, unsigned cap) {
-    unsigned i = 0;
-    while (i < cap && n[i]) {
+int kdrv_name_check(const char* n, uint32_t cap) {
+    if (!n || !cap) return 0;
+    for (uint32_t i = 0; i < cap; i++) {
         char c = n[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return 0;
-        i++;
+        if (!c) return i >= 1 && i <= KDRV_NAME_MAX;
+        if (i >= KDRV_NAME_MAX ||
+            !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return 0;
     }
-    return i >= 1 && i <= KDRV_NAME_MAX && i < cap;     /* нуль внутри поля обязателен */
+    return 0;                                      /* нет завершающего нуля в пределах буфера */
+}
+
+static int name_ok(const char* n, unsigned cap) {
+    return kdrv_name_check(n, cap);                /* единая проверка имён для пакета и менеджера */
 }
 
 int kdrv_header_check(const void* file, uint32_t len, kdrv_header_t* out) {

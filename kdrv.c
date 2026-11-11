@@ -111,9 +111,7 @@ static void path_of(char* out, const char* name, const char* ext) {
 }
 
 static int name_valid(const char* n) {
-    unsigned i = 0;
-    for (; n[i]; i++) { char c = n[i]; if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_') || i >= KDRV_NAME_MAX) return 0; }
-    return i > 0;
+    return kdrv_name_check(n, KDRV_NAME_MAX + 1);
 }
 
 /* Читает пакет и ВСЕГДА сверяет хеши: образа ELF и всего файла .kdrv - с /drv/ИМЯ.rec. Ошибка - код KDRV_E_* или KFS-код (< -100 не бывает). */
