@@ -33,6 +33,30 @@ int main(void){
     CHECK(m && m[0].base==0x400000 && m[0].length==0x1000);
     CHECK(!strcmp((const char*)((const uint8_t*)out+m[0].name_off),"init"));
 
+    /* ACPI new tag is copied into aligned kernel-owned storage and represented in BootInfo. */
+    {
+        uint8_t with_acpi[256] __attribute__((aligned(8)));
+        memcpy(with_acpi,b,128);
+        w32(with_acpi,184);
+        w32(with_acpi+128,15); w32(with_acpi+132,44);
+        memset(with_acpi+136,0,36); memcpy(with_acpi+136,"RSD PTR ",8);
+        with_acpi[143]=2; /* revision */
+        w32(with_acpi+156,36);
+        w32(with_acpi+176,0); w32(with_acpi+180,8);
+        CHECK(kbi_from_multiboot2(with_acpi,184,0x100000,0x200000,&out,&out_size)==0);
+        const kbi_header_t* ah=(const kbi_header_t*)out;
+        CHECK((ah->flags & KBI_F_ACPI) && ah->rsdp_phys && !(ah->rsdp_phys & 15));
+        CHECK(memcmp((const void*)(uintptr_t)ah->rsdp_phys,with_acpi+136,36)==0);
+        /* Legacy RSDP tag is retained as the 20-byte ACPI 1.0 structure. */
+        w32(with_acpi,168);
+        w32(with_acpi+128,14); w32(with_acpi+132,28);
+        w32(with_acpi+160,0); w32(with_acpi+164,8);
+        CHECK(kbi_from_multiboot2(with_acpi,168,0x100000,0x200000,&out,&out_size)==0);
+        ah=(const kbi_header_t*)out;
+        CHECK((ah->flags & KBI_F_ACPI) && ah->rsdp_phys && !(ah->rsdp_phys & 15));
+        CHECK(memcmp((const void*)(uintptr_t)ah->rsdp_phys,with_acpi+136,20)==0);
+    }
+
     uint8_t valid[136]; memcpy(valid,b,sizeof valid);
 
     /* A module may not overlap the loaded kernel image. */
