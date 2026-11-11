@@ -11,6 +11,7 @@ static int fails;
 
 static uint8_t sb[4096], st[1024], blob[8192];
 static unsigned sn, tn;
+static int bad_memory_type;
 static void be(uint8_t* p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v; }
 static void w32(uint32_t v) { be(sb + sn, v); sn += 4; }
 static void begin(const char* name) { w32(1); unsigned l = strlen(name) + 1; memcpy(sb + sn, name, l); sn += (l + 3) & ~3u; }
@@ -31,7 +32,7 @@ static unsigned build(void) {
     sn = tn = 0;
     begin("");
       p1("#address-cells", 2); p1("#size-cells", 2); pstr("compatible", "linux,dummy-virt", 17);
-      begin("memory@40000000"); pstr("device_type", "memory", 7);
+      begin("memory@40000000"); if (bad_memory_type) pstr("device_type", "memory\\0x", 8); else pstr("device_type", "memory", 7);
         { uint32_t r[] = { 0, 0x40000000, 0, 0x40000000 }; pcells("reg", r, 4); } end();
       begin("memory@70000000"); pstr("device_type", "memory", 7);
         { uint32_t r[] = { 0, 0x70000000, 0, 0x20000000 }; pcells("reg", r, 4); } end();
@@ -208,6 +209,10 @@ int main(void) {
         } else printf("kbi_from_fdt returned %d\\n", handoff_rc);
         CHECK(kbi_from_fdt(blob, total, 0x800001, 0x100000, 0x200000,
                            handoff, sizeof handoff, &handoff_size) != 0);
+        bad_memory_type = 1; total = build();
+        CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                           handoff, sizeof handoff, &handoff_size) == -3);
+        bad_memory_type = 0; total = build();
     }
 
     printf(fails ? "FDT TESTS FAILED\n" : "fdt: QEMU-virt-like tree, paths, reg cells, compatible lists, cpu count, corrupted blobs passed\n");

@@ -111,6 +111,8 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
         uint32_t type_len = 0;
         const char* type = (const char*)fdt_prop(fdt, node, "device_type", &type_len);
         if (!type || type_len < 7 || __builtin_memcmp(type, "memory", 7)) continue;
+        /* device_type is one NUL-terminated string, not a prefix or string list. */
+        if (type_len != 7 || type[6] != 0) return -3;
 
         int parent = fdt_parent(fdt, node);
         uint32_t ac = 2, sc = 1, reg_len = 0;
