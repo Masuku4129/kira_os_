@@ -510,6 +510,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, pathlib
+          pathlib.Path("results").mkdir(parents=True, exist_ok=True)
           jobs = [
               ("Аудит репозитория", "AUDIT_RESULT"),
               ("Host/regression tests", "HOST_RESULT"),
