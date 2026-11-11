@@ -297,6 +297,23 @@ int main(void) {
                             .next = 0x200000000ull, .cpu_off = -0x10000000 };
     CHECK(pci_window_set_add(&assign64, &too_small) == 0);
     CHECK(pci_window_set_add(&assign64, &usable) == 0);
+
+    /* MEM32/MEM64 pools must not alias in PCI space or in their CPU mapping. */
+    pci_window_set_t conflict32 = {0};
+    pci_window_t pci_alias = { .pci_base = 0x100000000ull, .size = 0x1000,
+                               .next = 0x100000000ull, .cpu_off = 0 };
+    CHECK(pci_window_set_add(&conflict32, &pci_alias) == 0);
+    uint64_t mem64_next = assign64.windows[0].next;
+    CHECK(pci_assign_multi(&conflict32, &assign64) == 0);
+    CHECK(assigned->bar[0].base == 0 && assign64.windows[0].next == mem64_next);
+
+    memset(&conflict32, 0, sizeof conflict32);
+    pci_window_t cpu_alias = { .pci_base = 0x80000000ull, .size = 0x1000,
+                               .next = 0x80000000ull, .cpu_off = 0x80000000ll };
+    CHECK(pci_window_set_add(&conflict32, &cpu_alias) == 0);
+    CHECK(pci_assign_multi(&conflict32, &assign64) == 0);
+    CHECK(assigned->bar[0].base == 0 && assign64.windows[0].next == mem64_next);
+
     CHECK(pci_assign_multi(&assign32, &assign64) == 1);
     CHECK(assigned->bar[0].base == 0x1F0000000ull);
     CHECK(pci_read32(assigned, 0x10) == 0x0000000Cu);

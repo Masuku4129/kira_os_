@@ -156,7 +156,37 @@ static int pci_window_set_alloc_limit(pci_window_set_t* set, uint64_t size, uint
     }
     return -1;
 }
+
+/* MEM32 and MEM64 are separate allocation pools, but PCI memory addresses and
+   their CPU mappings share one physical address space. Reject aliases across
+   pools before assigning any BAR, otherwise devices can receive the same
+   effective address through different host-bridge windows. */
+static int pci_window_sets_disjoint(const pci_window_set_t* a, const pci_window_set_t* b) {
+    if (!a || !b) return 1;
+    if (a->count > PCI_MAX_WINDOWS || b->count > PCI_MAX_WINDOWS) return 0;
+    for (unsigned i = 0; i < a->count; i++) {
+        const pci_window_t* wa = &a->windows[i];
+        uint64_t a_cpu_start, a_cpu_end;
+        if (!wa->size || wa->pci_base > UINT64_MAX - wa->size ||
+            wa->next < wa->pci_base || wa->next > wa->pci_base + wa->size ||
+            pci_window_cpu_range(wa, &a_cpu_start, &a_cpu_end)) return 0;
+        uint64_t a_pci_end = wa->pci_base + wa->size;
+        for (unsigned j = 0; j < b->count; j++) {
+            const pci_window_t* wb = &b->windows[j];
+            uint64_t b_cpu_start, b_cpu_end;
+            if (!wb->size || wb->pci_base > UINT64_MAX - wb->size ||
+                wb->next < wb->pci_base || wb->next > wb->pci_base + wb->size ||
+                pci_window_cpu_range(wb, &b_cpu_start, &b_cpu_end)) return 0;
+            uint64_t b_pci_end = wb->pci_base + wb->size;
+            if ((wa->pci_base < b_pci_end && wb->pci_base < a_pci_end) ||
+                (a_cpu_start < b_cpu_end && b_cpu_start < a_cpu_end)) return 0;
+        }
+    }
+    return 1;
+}
+
 int pci_assign_multi(pci_window_set_t* mem32, pci_window_set_t* mem64) {
+    if (!pci_window_sets_disjoint(mem32, mem64)) return 0;
     int n = 0;
     for (int pass = 63; pass >= 4; pass--) {
         for (int i = 0; i < ndevs; i++) {
