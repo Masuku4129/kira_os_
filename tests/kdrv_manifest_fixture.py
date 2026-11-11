@@ -63,3 +63,14 @@ must_reject("empty-package", pkg=empty)
 directory = out / "package-directory"
 directory.mkdir()
 must_reject("non-regular-package", pkg=directory)
+
+# Symlink inputs must be rejected on platforms that provide O_NOFOLLOW.
+if os.name == "posix" and hasattr(os, "O_NOFOLLOW"):
+    package_link = out / "package-link.kdrv"
+    key_link = out / "key-link.seed"
+    for link in (package_link, key_link):
+        link.unlink(missing_ok=True)
+    package_link.symlink_to(package)
+    key_link.symlink_to(seed)
+    must_reject("package-symlink", pkg=package_link)
+    must_reject("private-key-symlink", key=key_link)
