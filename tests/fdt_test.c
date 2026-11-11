@@ -73,6 +73,9 @@ static unsigned build(void) {
 int main(void) {
     unsigned total = build();
     CHECK(fdt_valid(blob, sizeof blob) && fdt_tree_valid(blob, sizeof blob) && fdt_total_size(blob) == total);
+    /* A bounded caller buffer shorter than the fixed header is never parsed. */
+    for (uint32_t n = 0; n < 40; n++) CHECK(!fdt_valid(blob, n));
+    CHECK(!fdt_valid(0, sizeof blob));
     int root = fdt_root(blob);
     CHECK(root >= 0 && fdt_compatible(blob, root, "linux,dummy-virt"));
 
