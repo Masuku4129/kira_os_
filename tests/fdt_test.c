@@ -59,7 +59,7 @@ static unsigned build(void) {
       begin("chosen"); pstr("stdout-path", "/pl011@9000000", 15); pstr("bootargs", "console=ttyAMA0", 16); end();
     end();
     w32(9);
-    unsigned off_struct = 40 + 32, off_str = off_struct + sn, total = off_str + tn;
+    unsigned off_struct = 40 + 32, off_str = off_struct + sn, total = (off_str + tn + 3u) & ~3u;
     memset(blob, 0, sizeof blob);
     be(blob, FDT_MAGIC); be(blob + 4, total); be(blob + 8, off_struct); be(blob + 12, off_str); be(blob + 16, 40);
     be(blob + 20, 17); be(blob + 24, 16); be(blob + 28, 0); be(blob + 32, tn); be(blob + 36, sn);
