@@ -190,6 +190,11 @@ static int mask_gsi_raw(const acpi_info_t* a, uint32_t gsi, int masked) {
     unsigned i, pin;
     if (find_gsi(a, gsi, &i, &pin) != 0 || !programmed[i][pin])
         return -1;
+    if (!masked &&
+        programmed_vector[i][pin] >= IRQ_VECTOR_BASE &&
+        programmed_vector[i][pin] < IRQ_VECTOR_BASE + IRQ_VECTOR_COUNT &&
+        !irq_vector_is_allocated(programmed_vector[i][pin]))
+        return -2;
     uint32_t low = rd(i, REG_REDIR(pin));
     if (masked) low |= IOAPIC_MASKED;
     else low &= ~IOAPIC_MASKED;
