@@ -15,7 +15,7 @@ seed = out / "test-only.seed"
 manifest = out / "manifest.bin"
 package.write_bytes(bytes(range(32)))
 # RFC 8032 test vector seed only; it is public test material, never a release key.
-seed.write_bytes(bytes.fromhex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"))
+seed.write_bytes(bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"))
 os.chmod(seed, 0o600)
 tool = root / "tools" / "kdrvsign.py"
 subprocess.run([sys.executable, str(tool), "--package", str(package), "--key", str(seed),
