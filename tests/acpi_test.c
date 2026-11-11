@@ -36,6 +36,8 @@ int main(void){
     CHECK(acpi_parse(base, base+(1<<16), &i)==0);
     CHECK(acpi_init_rsdp(base) == 0);
     CHECK(acpi_get() && acpi_get()->cpu_count == 2);
+    CHECK(acpi_init_rsdp(base + 1) == -1 && acpi_get() == 0);
+    CHECK(acpi_init_rsdp(base) == 0 && acpi_get() && acpi_get()->cpu_count == 2);
     /* Multiboot2 compatibility entry must validate the tag stream and use the inline RSDP copy. */
     {
         uint8_t* mbi=m+0x4000;
@@ -49,6 +51,7 @@ int main(void){
         CHECK(acpi_get() && acpi_get()->cpu_count==2);
         total=56; memcpy(mbi,&total,4); end_type=9; memcpy(mbi+56,&end_type,4);
         CHECK(acpi_init((uint64_t)(uintptr_t)mbi)==-1); /* malformed/non-terminated tag stream */
+        CHECK(acpi_get()==0); /* rejected handoff must not leave stale platform data */
     }
     /* RSDP length and root entry array must stay within the supplied physical window. */
     { uint32_t save; memcpy(&save, rsdp+20, 4); uint32_t huge=0xFFFFFFFFu; memcpy(rsdp+20, &huge, 4);
