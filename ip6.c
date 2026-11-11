@@ -13,6 +13,7 @@ static int hexv(char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c 
 static int at_end(char c) { return c == 0 || c == ' '; }
 
 int ip6_parse(const char* s, uint8_t out[16]) {
+    if (!s || !out) return -1;
     uint16_t w[8]; int n = 0, gap = -1;
     if (s[0] == ':') {                                                /* «::» в начале */
         if (s[1] != ':') return -1;
@@ -61,6 +62,7 @@ int ip6_parse(const char* s, uint8_t out[16]) {
 }
 
 void ip6_format(const uint8_t a[16], char out[40]) {
+    if (!a || !out) return;
     uint16_t w[8]; int best = -1, blen = 0;
     for (int i = 0; i < 8; i++) w[i] = get16(a + 2 * i);
     for (int i = 0; i < 8; ) {                                        /* самая длинная серия нулей, при равенстве - первая */
@@ -142,13 +144,14 @@ uint16_t net_csum6(const uint8_t* src, const uint8_t* dst, uint8_t proto, const 
 
 /* ---------- заголовки расширения ---------- */
 int ip6_walk(const uint8_t* b, uint32_t len, uint8_t nh, uint8_t* proto, uint32_t* off) {
+    if (!proto || !off || (!b && len)) return -1;
     uint32_t o = 0;
     for (int hops = 0; hops < 8; hops++) {
         if (nh == 0 || nh == 60 || nh == 43) {                        /* параметры, получатель, маршрутизация */
-            if (o + 8 > len) return -1;
+            if (o > len || len - o < 8) return -1;
             if (nh == 43 && b[o + 3] != 0) return -1;                 /* остались узлы маршрута: мы не пересылаем */
             uint32_t hl = ((uint32_t)b[o + 1] + 1) * 8;
-            if (o + hl > len) return -1;
+            if (hl > len - o) return -1;
             nh = b[o]; o += hl;
         } else if (nh == 44) {
             if (o + 8 > len) return -1;
@@ -198,22 +201,26 @@ uint32_t icmp6_build_echo(uint8_t* o, const uint8_t* src, const uint8_t* dst, ui
 }
 
 int nd_lladdr(const uint8_t* o, uint32_t n, uint8_t type, uint8_t mac[6]) {
+    if (!mac || (!o && n)) return -1;
     int found = 0;
     for (uint32_t i = 0; i < n; ) {
-        if (i + 2 > n || o[i + 1] == 0 || i + (uint32_t)o[i + 1] * 8 > n) return -1;
+        if (n - i < 2 || o[i + 1] == 0) return -1;
+        uint32_t ol = (uint32_t)o[i + 1] * 8;
+        if (ol > n - i) return -1;
         if (o[i] == type && o[i + 1] == 1 && !found) { cpy(mac, o + i + 2, 6); found = 1; }
-        i += (uint32_t)o[i + 1] * 8;
+        i += ol;
     }
     return found;
 }
 
 int nd_parse_ra(const uint8_t* m, uint32_t n, ra_t* r) {
-    if (n < 16 || m[0] != 134) return -1;
+    if (!m || !r || n < 16 || m[0] != 134) return -1;
     zero(r, sizeof *r);
     r->hop = m[4]; r->flags = m[5]; r->lifetime = get16(m + 6); r->reachable = get32(m + 8); r->retrans = get32(m + 12);
     for (uint32_t i = 16; i < n; ) {
-        if (i + 2 > n || m[i + 1] == 0 || i + (uint32_t)m[i + 1] * 8 > n) return -1;
+        if (n - i < 2 || m[i + 1] == 0) return -1;
         const uint8_t* o = m + i; uint32_t ol = (uint32_t)o[1] * 8;
+        if (ol > n - i) return -1;
         if (o[0] == 1 && o[1] == 1 && !r->have_slla) { cpy(r->slla, o + 2, 6); r->have_slla = 1; }
         else if (o[0] == 3 && o[1] == 4) {
             if (r->npi < RA_PI_MAX) {
