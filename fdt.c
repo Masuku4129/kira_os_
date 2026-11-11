@@ -257,7 +257,8 @@ int fdt_find_path(const void* fdt, const char* path) {
         }
         if (found < 0) return -1;
         node = found;
-        p += plen; if (*p == '/') p++;
+        p += plen;
+        if (*p == '/') { p++; if (!*p) return -1; }
     }
     return node;
 }
