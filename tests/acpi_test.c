@@ -74,11 +74,11 @@ int main(void){
     /* MCFG allocations are all validated before any ECAM range is published. */
     {
         uint32_t saved_len; memcpy(&saved_len, mcfg + 4, 4);
-        uint8_t saved = mcfg[44 + 11];
-        mcfg[44 + 11] = 0; fix(mcfg, 60, 9);
+        uint8_t saved_first = mcfg[44 + 10], saved_last = mcfg[44 + 11];
+        mcfg[44 + 10] = 1; mcfg[44 + 11] = 0; fix(mcfg, 60, 9);
         CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
         CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
-        mcfg[44 + 11] = saved; fix(mcfg, 60, 9);
+        mcfg[44 + 10] = saved_first; mcfg[44 + 11] = saved_last; fix(mcfg, 60, 9);
         saved = mcfg[44 + 12]; mcfg[44 + 12] = 1; fix(mcfg, 60, 9);
         CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
         CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
@@ -93,11 +93,13 @@ int main(void){
         CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
         memcpy(mcfg + 4, &saved_len, 4); fix(mcfg, saved_len, 9);
     }
+    CHECK(acpi_parse(base, base + (1 << 16), &i) == 0); /* restore valid MCFG after rejection cases */
 
     CHECK(i.dmar_phys==base+0x600 && i.dmar_len==48);
     { uint32_t save; memcpy(&save,dmar+4,4); uint32_t short_len=47; memcpy(dmar+4,&short_len,4); fix(dmar,short_len,9);
       CHECK(acpi_parse(base,base+(1<<16),&i)==0 && i.dmar_phys==0 && i.dmar_len==0);
       memcpy(dmar+4,&save,4); fix(dmar,save,9); }
+    CHECK(acpi_parse(base,base+(1<<16),&i)==0); /* restore valid DMAR before aggregate assertions */
     CHECK(i.tables_seen==4 && i.tables_bad==0);
     CHECK(i.iso_valid[0]==1 && i.iso_gsi[0]==2 && !i.iso_valid[1]);
     madt[50]^=0xFF;                       /* порча MADT: должна быть отвергнута, остальное разобрано */
