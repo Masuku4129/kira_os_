@@ -382,8 +382,14 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     if (bus == 0 && dev < 3) { uart_print("[KIRA PCI TRACE] fn "); uart_print_dec(fn); uart_print(" class/header read\n"); }
 #endif
     pci_disable_bus_master(d);
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+    if (bus == 0 && dev == 1 && fn == 2) pci_trace_raw("[S0]");
+#endif
 #ifndef KIRA_HOST_TEST
     if (bus == 0 && dev < 3) { uart_print("[KIRA PCI TRACE] fn "); uart_print_dec(fn); uart_print(" busmaster disabled\n"); }
+#endif
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+    if (bus == 0 && dev == 1 && fn == 2) pci_trace_raw("[S1]");
 #endif
     probe_bars(d);
 #ifndef KIRA_HOST_TEST
