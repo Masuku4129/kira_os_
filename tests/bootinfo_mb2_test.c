@@ -55,6 +55,28 @@ int main(void){
         ah=(const kbi_header_t*)out;
         CHECK((ah->flags & KBI_F_ACPI) && ah->rsdp_phys && !(ah->rsdp_phys & 15));
         CHECK(memcmp((const void*)(uintptr_t)ah->rsdp_phys,with_acpi+136,20)==0);
+        /* When both standard tags are present, the extended ACPI 2.0+ tag wins. */
+        {
+            uint8_t both[256] __attribute__((aligned(8)));
+            memcpy(both,b,128); w32(both,216);
+            w32(both+128,14); w32(both+132,28);
+            memset(both+136,0x11,20);
+            w32(both+160,15); w32(both+164,44);
+            memset(both+168,0x22,36);
+            w32(both+208,0); w32(both+212,8);
+            CHECK(kbi_from_multiboot2(both,216,0x100000,0x200000,&out,&out_size)==0);
+            ah=(const kbi_header_t*)out;
+            CHECK((ah->flags & KBI_F_ACPI) && memcmp((const void*)(uintptr_t)ah->rsdp_phys,both+168,36)==0);
+        }
+        /* Duplicate extended ACPI tags are ambiguous and rejected. */
+        {
+            uint8_t dup[256] __attribute__((aligned(8)));
+            memcpy(dup,b,128); w32(dup,232);
+            w32(dup+128,15); w32(dup+132,44); memset(dup+136,0,36);
+            w32(dup+176,15); w32(dup+180,44); memset(dup+184,0,36);
+            w32(dup+224,0); w32(dup+228,8);
+            CHECK(kbi_from_multiboot2(dup,232,0x100000,0x200000,&out,&out_size)==-36);
+        }
     }
 
     uint8_t valid[136]; memcpy(valid,b,sizeof valid);
