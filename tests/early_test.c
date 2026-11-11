@@ -208,7 +208,7 @@ static void test_mbinfo(void) {
     bm_init_rc = 0;
     // отображение не удалось
     bm_host = 0; said[0] = 0;
-    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == (unsigned long)hi);
+    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == 0);          // отказ отображения не возвращает физический адрес как виртуальный
     CHECK(strstr(said, "Cannot map"));
 
     // структура начинается ниже 1 ГБ, но пересекает границу: тоже через окно
