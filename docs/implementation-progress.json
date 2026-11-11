@@ -2,16 +2,16 @@
   "schema_version": 1,
   "branch": "v46/kdrv-catalogue-signature-policy",
   "inventory": {
-    "commit_before_this_run": "0160a4c5aca2c42bad6ed3c2434a16e28b6caf38",
-    "tree_sha": "d7131968676d2ebe4c33b22ee4d792bf71632e0e",
+    "commit_before_this_run": "b7f0d90921f7a58a0209417b1dfc22111f9c215a",
+    "tree_sha": "829d4610918a78884de450c819e94553762393b8",
     "tracked_paths": 959,
     "tree_truncated": false,
     "scope_note": "Фактическое дерево ветки получено через Git Trees API до изменений этого запуска; tracked_paths включает файлы и каталоги, tracked_files — только blob-файлы. Это инвентарные метрики, не процент готовности.",
     "tracked_files": 915,
     "directory_entries": 44
   },
-  "latest_source_commit": "e672f26a41eaede3236e74c3ecfd07126d9d3584",
-  "updated_at_utc": "2026-11-10T17:23:16Z",
+  "latest_source_commit": "ec2c07d4800bebb22394943cb0fd4d177fe8cc2d",
+  "updated_at_utc": "2026-11-11T17:14:06Z",
   "execution_policy": {
     "tests_run": false,
     "audits_run": false,
@@ -62,6 +62,30 @@
       ],
       "details": "Исправлен учёт AML PkgLength (длина тела без байтов кодирования длины), разбор PackageOp/VarPackage, строгая проверка числа полей и полного потребления пакетов, разбор статических NameString с канонизацией scope и fail-closed для динамических/неразрешённых источников. Декодер добавлен в C_SOURCES x86_64.",
       "validation": "По прямому требованию не запускались тесты, аудит, сборка и CI. Компиляторная проверка отсутствует; runtime _PRT lookup и IOAPIC routing ещё не подключены."
+    },
+    {
+      "id": "x86-ioapic-dynamic-gsi-vectors",
+      "status": "source_integrated_not_runtime_validated",
+      "files": [
+        "arch/x86_64/pic.h",
+        "arch/x86_64/pic.c",
+        "arch/x86_64/interrupts.s",
+        "arch/x86_64/ioapic.h",
+        "arch/x86_64/ioapic.c"
+      ],
+      "commits": [
+        "b9c3c9a42a3bf547ecbd35953c1058fdfe5e4e02",
+        "de12c9669e9e9dd4b33e52151e21df4fea87c024",
+        "ca602e659f876db96817e698cbc543c5e2d1e096",
+        "c63b2aad2c92609673c554ba28b3389c003e41d1",
+        "912d2c42ffe4d35deb7e56f79ea112f1aa4fb4bc",
+        "5e65f23ee21b63a0f797054427e79fa10069fed4",
+        "a2a2488c2ed28921f2613d7b86402a6db563b43f",
+        "87708df63f6e5d2b2c1bafcdd500da02d9432c5e",
+        "ec2c07d4800bebb22394943cb0fd4d177fe8cc2d"
+      ],
+      "details": "Добавлены отдельные x86 interrupt stubs и динамическое выделение векторов 0x60..0x7F, регистрация обработчиков и ожидание уже вошедших обработчиков при освобождении. IOAPIC получил отдельный GSI API для PCI INTx: проверка ACPI polarity/trigger flags, GSI range, 8-битного destination APIC ID и факта регистрации обработчика; redirection entry записывается masked, сверяется readback и только затем размаскируется. При инициализации IOAPIC прежние маршруты маскируются, перекрывающиеся GSI-диапазоны отклоняются, один GSI не переназначается на другой вектор.",
+      "validation": "По прямому требованию не запускались тесты, аудит, сборка и CI. PCI _PRT namespace discovery, route-table consumer, shared-INTx fan-out и реальная доставка PCI IRQ ещё не подключены; это аппаратная инфраструктура, не end-to-end реализация PCI routing."
     }
   ],
   "modules": [
@@ -137,7 +161,7 @@
     },
     {
       "id": "pci-acpi-prt-routing",
-      "state": "partial_static_prt_decoder_compiled_not_routed",
+      "state": "partial_static_prt_decoder_and_gsi_primitives_not_routed",
       "existing_files": [
         "pci.c",
         "pci.h",
@@ -155,12 +179,15 @@
       "completed": [
         "x86 kernel startup now calls pci_init() before PCI consumers.",
         "ACPI core now exposes the DSDT AML payload only after independent DSDT length/signature/checksum validation; mapping address and payload length are available through acpi_get_dsdt().",
-        "Добавлен ограниченный декодер статических AML _PRT Package/VarPackage; он собирается в x86_64 kernel source list, но пока не вызывается из kernel startup."
+        "Добавлен ограниченный декодер статических AML _PRT Package/VarPackage; он собирается в x86_64 kernel source list, но пока не вызывается из kernel startup.",
+        "Добавлена x86 инфраструктура динамических IOAPIC-векторов 0x60..0x7F и проверяемого GSI routing; она пока не вызывается из PCI _PRT consumer."
       ],
       "remaining": [
-        "Реализовать bounded AML namespace walker для поиска _PRT в правильной области PCI root bridge и извлечения статических _SEG/_BBN; методы AML не исполнять.",
-        "Разрешить link-device _CRS/_PRS с ограниченной ресурсной грамматикой либо явно сообщать unsupported route.",
-        "Связать результат с PCI segment/bus/device/function, GSI, polarity/trigger и IOAPIC redirection; добавить регистрацию/доставку IRQ и корректный EOI.",
+        "Реализовать bounded AML namespace walker для поиска PCI root bridge Device и извлечения статических _HID/_SEG/_BBN/_PRT; AML методы не исполнять.",
+        "Разрешить статические link-device _CRS resource descriptors; динамические _PRS/_SRS методы явно отклонять до отдельного безопасного AML evaluator.",
+        "Связать root bridge и downstream PCI topology, включая bridge swizzling, с segment/bus/device/function и GSI/polarity/trigger.",
+        "Подключить route-table consumer к irq_vector_alloc(), ioapic_route_gsi(), mask/release и обеспечить безопасное поведение при отсутствующем маршруте.",
+        "Определить и реализовать совместное использование одного GSI несколькими PCI INTx устройствами; текущая IOAPIC инфраструктура намеренно допускает только один вектор на GSI.",
         "Добавить регрессионные тесты на этапе тестирования после завершения исходной реализации."
       ],
       "dependencies": [
@@ -303,11 +330,13 @@
     "Persistent anti-rollback trust anchor and owner-key compromise recovery policy.",
     "Cross-architecture DMA ownership/cache-coherency contract and supported IOMMU feature baseline.",
     "Final common boot ABI and exact production image layout for BIOS, UEFI x86_64 and UEFI ARM64.",
-    "Полная AML namespace resolution и динамическое вычисление link-device ресурсов не определены; текущая реализация намеренно ограничена статическими объектами и должна сообщать unsupported для остальных форм."
+    "Полная AML namespace resolution и динамическое вычисление link-device ресурсов не определены; текущая реализация намеренно ограничена статическими объектами и должна сообщать unsupported для остальных форм.",
+    "Совместные PCI INTx линии: требуется определить fan-out нескольких устройств на одном GSI, правила регистрации/снятия обработчиков и quiescence перед повторным использованием вектора; текущий код fail-closed и допускает один вектор на GSI.",
+    "IOAPIC destination field в обычном redirection entry имеет 8 бит; для APIC ID >255 требуется interrupt remapping, иначе PCI/ISA IOAPIC routing должен оставаться выключенным."
   ],
   "next_module": {
-    "id": "acpi-prt-namespace-and-ioapic-routing",
-    "intended_scope": "Реализовать ограниченный namespace walker для статических Scope/Device/Name объектов, связать root bridge _SEG/_BBN/_PRT с PCI topology и GSI routing; динамические AML методы не исполнять и явно отклонять.",
+    "id": "acpi-prt-namespace-and-pci-route-integration",
+    "intended_scope": "Реализовать ограниченный AML namespace walker для статических Scope/Device/Name и Method/Field package skipping; найти PCI root bridge по _HID, извлечь _SEG/_BBN/_PRT, разобрать прямые GSI и подключить таблицу маршрутов к новым динамическим IOAPIC-векторам. Не исполнять AML методы; link-device resource forms вне поддержанного статического подмножества явно отклонять.",
     "prerequisites_to_read": [
       "drivers/acpi/prt.c",
       "drivers/acpi/prt.h",
@@ -319,6 +348,7 @@
       "arch/x86_64/ioapic.h",
       "arch/x86_64/pic.c",
       "arch/x86_64/pic.h",
+      "arch/x86_64/interrupts.s",
       "build_clang.sh"
     ]
   }
