@@ -32,7 +32,7 @@ static unsigned build(void) {
     sn = tn = 0;
     begin("");
       p1("#address-cells", 2); p1("#size-cells", 2); pstr("compatible", "linux,dummy-virt", 17);
-      begin("memory@40000000"); if (bad_memory_type) pstr("device_type", "memory\\0x", 8); else pstr("device_type", "memory", 7);
+      begin("memory@40000000"); if (bad_memory_type) pstr("device_type", "memory\0x", 8); else pstr("device_type", "memory", 7);
         { uint32_t r[] = { 0, 0x40000000, 0, 0x40000000 }; pcells("reg", r, 4); } end();
       begin("memory@70000000"); pstr("device_type", "memory", 7);
         { uint32_t r[] = { 0, 0x70000000, 0, 0x20000000 }; pcells("reg", r, 4); } end();
