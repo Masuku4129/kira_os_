@@ -1220,8 +1220,9 @@ static void arm_pci_init(const void* fdt) {
         unsigned space = (hi >> 24) & 3;
         pci_window_set_t* w = space == 2 ? &m32 : space == 3 ? &m64 : 0;
         if (!w) continue;                         /* I/O windows are not allocated by this MMIO-only path */
-        if (!sz || pci > UINT64_MAX - sz || cpu > UINT64_MAX - sz) {
-            kprintf("[KIRA PCI] invalid or overflowing memory range; PCI disabled\\n");
+        if (!sz || pci > UINT64_MAX - sz || cpu > UINT64_MAX - sz ||
+            (space == 2 && (pci > UINT32_MAX || sz > 0x100000000ull - pci))) {
+            kprintf("[KIRA PCI] invalid, overflowing, or non-32-bit memory range; PCI disabled\\n");
             return;
         }
         uint64_t delta;

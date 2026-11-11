@@ -267,6 +267,9 @@ int main(void) {
           pa == 0x50000000u && ca == 0x40000000u);
     pci_window_t overlap = { .pci_base = 0x50001000u, .size = 0x1000, .next = 0x50001000u, .cpu_off = 0 };
     CHECK(pci_window_set_add(&windows, &overlap) == -1 && windows.count == 2);
+    pci_window_t cpu_alias = { .pci_base = 0x70000000u, .size = 0x1000,
+                               .next = 0x70000000u, .cpu_off = -0x30000000 };
+    CHECK(pci_window_set_add(&windows, &cpu_alias) == -1 && windows.count == 2);
     pci_window_set_t full = {0};
     for (unsigned wi = 0; wi < PCI_MAX_WINDOWS; wi++) {
         pci_window_t item = { .pci_base = 0x60000000u + (uint64_t)wi * 0x2000u,
