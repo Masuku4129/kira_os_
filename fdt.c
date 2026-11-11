@@ -337,6 +337,13 @@ int fdt_node_enabled(const void* fdt, int node) {
     return 0;
 }
 
+int fdt_find_enabled_compatible(const void* fdt, int after, const char* compat) {
+    int node = after;
+    while ((node = fdt_find_compatible(fdt, node, compat)) >= 0)
+        if (fdt_node_enabled(fdt, node)) return node;
+    return -1;
+}
+
 int fdt_simplefb(const void* fdt, fdt_fb_t* fb) {
     if (!fdt || !fb) return -2;
     int n = -1;

@@ -27,6 +27,7 @@ int main(void) {
 
     // До инициализации ничего не отображается.
     CHECK(bootmap_map(0xFD000000ULL, 4096, 1) == 0);
+    CHECK(bootmap_map(0x1000ULL, 4096, 1) == 0);  // low 1 GiB is already WB in the bootstrap identity map
 
     // Запись PML4[511] занята - окно не ставится и чужая запись не затирается.
     pml4[511] = 0x1234000ULL | P_PRESENT;

@@ -93,6 +93,9 @@ int main(void) {
     CHECK(fdt_prop(blob, 0, 0, 0) == 0);
     CHECK(!fdt_compatible(blob, 0, 0));
     CHECK(fdt_find_compatible(blob, -2, "arm,pl011") == -1);
+    CHECK(fdt_find_enabled_compatible(blob, -1, "arm,pl011") == fdt_find_path(blob, "/pl011@9000000"));
+    CHECK(fdt_find_enabled_compatible(blob, -1, "simple-framebuffer") == fdt_find_path(blob, "/framebuffer@3c000000"));
+    CHECK(fdt_find_enabled_compatible(blob, -1, "missing,device") == -1);
     CHECK(fdt_find_path(blob, 0) == -1 && fdt_find_path(0, "/") == -1);
     CHECK(fdt_find_path(blob, "//cpus") == -1 && fdt_find_path(blob, "/cpus/") == -1);
     { int excessive_depth = 65; CHECK(fdt_next_node(blob, 0, &excessive_depth) == -1); }

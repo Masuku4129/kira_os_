@@ -250,7 +250,7 @@ static int dma_noncoherent(const void* fdt) {
     if (bootarg_has(fdt, "kira.dma=coherent")) return 0;
     uint32_t l;
     if (fdt_prop(fdt, fdt_root(fdt), "dma-coherent", &l)) return 0;
-    int pci = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
+    int pci = fdt_find_enabled_compatible(fdt, -1, "pci-host-ecam-generic");
     if (pci < 0) return 1;
     unsigned enabled_hosts = 0;
     for (int node = pci; node >= 0;
@@ -681,7 +681,7 @@ static uint64_t pages(unsigned n) {
 
 /* LPI в редистрибуторе загрузочного ядра и сам ITS. 0 - готово. */
 static int its_init(const void* fdt) {
-    int n = fdt_find_compatible(fdt, -1, "arm,gic-v3-its");
+    int n = fdt_find_enabled_compatible(fdt, -1, "arm,gic-v3-its");
     uint64_t sz;
     if (n < 0 || fdt_reg(fdt, n, 0, &its, &sz) != 0) { its = 0; return -1; }
     uint64_t rd = my_gicr();
@@ -1092,7 +1092,7 @@ const char* platform_irq_name(void) { return gic_v3 ? "GICv3" : "GICv2"; }
 
 /* Часы реального времени PL031 (QEMU virt и многие платы): регистр данных - секунды UTC от 1970. */
 static void rtc_pl031(const void* fdt) {
-    int n = fdt_find_compatible(fdt, -1, "arm,pl031");
+    int n = fdt_find_enabled_compatible(fdt, -1, "arm,pl031");
     uint64_t base, size;
     if (n < 0 || fdt_reg(fdt, n, 0, &base, &size)) { kprintf("[KIRA RTC] No PL031 real-time clock: date and time are not shown.\n"); return; }
     volatile void* r = vmm_map_mmio(base, size ? size : 4096, 0);
@@ -1293,7 +1293,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
 #endif
     if (!fdt) for (;;) __asm__ volatile ("wfe");                 /* без дерева нет даже адреса порта */
 
-    int u = fdt_find_compatible(fdt, -1, "arm,pl011");
+    int u = fdt_find_enabled_compatible(fdt, -1, "arm,pl011");
     uint64_t sz;
 #ifdef KIRA_EARLY_UART
     kprintf("[early] pl011 node %x\n", (uint64_t)(int64_t)u);
@@ -1361,18 +1361,18 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("[KIRA ARM64] MMU on: identity map up to %x, %u-bit physical addresses, RAM cached, devices non-executable\n", top, (uint64_t)bits);
 
     /* контроллер прерываний */
-    int g = fdt_find_compatible(fdt, -1, "arm,gic-v3");
+    int g = fdt_find_enabled_compatible(fdt, -1, "arm,gic-v3");
     if (g >= 0) {
         gic_v3 = 1;
         fdt_reg(fdt, g, 0, &gicd, &sz);
         fdt_reg(fdt, g, 1, &gicr_base, &gicr_size);
     } else {
         static const char* const v2[] = { "arm,cortex-a15-gic", "arm,gic-400", "arm,cortex-a9-gic", "arm,cortex-a7-gic" };
-        for (unsigned i = 0; i < 4 && g < 0; i++) g = fdt_find_compatible(fdt, -1, v2[i]);
+        for (unsigned i = 0; i < 4 && g < 0; i++) g = fdt_find_enabled_compatible(fdt, -1, v2[i]);
         if (g < 0) { kprintf("[KIRA ARM64] FATAL: no supported interrupt controller in the device tree\n"); for (;;) __asm__ volatile ("wfe"); }
         fdt_reg(fdt, g, 0, &gicd, &sz);
         fdt_reg(fdt, g, 1, &gicc, &sz);
-        int m = fdt_find_compatible(fdt, -1, "arm,gic-v2m-frame");          /* кадр MSI у GICv2 */
+        int m = fdt_find_enabled_compatible(fdt, -1, "arm,gic-v2m-frame");          /* кадр MSI у GICv2 */
         if (m >= 0 && fdt_reg(fdt, m, 0, &v2m, &sz) == 0) {
             uint32_t t = mmio_r32(v2m + 0x8);                                /* MSI_TYPER: первый SPI и их число */
             v2m_spi = (t >> 16) & 0x3FF; v2m_n = t & 0x3FF;
@@ -1380,8 +1380,8 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
         } else v2m = 0;
     }
     /* таймер: прерывания в порядке secure phys, phys, virt, hyp; берём виртуальный */
-    int tn = fdt_find_compatible(fdt, -1, "arm,armv8-timer");
-    if (tn < 0) tn = fdt_find_compatible(fdt, -1, "arm,armv7-timer");
+    int tn = fdt_find_enabled_compatible(fdt, -1, "arm,armv8-timer");
+    if (tn < 0) tn = fdt_find_enabled_compatible(fdt, -1, "arm,armv7-timer");
     uint32_t ilen = 0;
     const uint8_t* irq = tn >= 0 ? (const uint8_t*)fdt_prop(fdt, tn, "interrupts", &ilen) : 0;
     timer_intid = (irq && ilen >= 36) ? 16 + fdt_u32(irq + 24 + 4) : 27;
@@ -1395,7 +1395,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     if (cn >= 0) {
         int d = 0;
         for (int c = fdt_next_node(fdt, cn, &d); c >= 0 && d > 0; c = fdt_next_node(fdt, c, &d)) {
-            if (d != 1) continue;
+            if (d != 1 || !fdt_node_enabled(fdt, c)) continue;
             uint32_t len; const char* t = (const char*)fdt_prop(fdt, c, "device_type", &len);
             uint64_t a;
             if (!t || len < 4 || __builtin_memcmp(t, "cpu", 4) || fdt_reg(fdt, c, 0, &a, 0) || ncpu >= CPU_MAX) continue;
@@ -1409,9 +1409,9 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     percpu_install(&percpu_table[me]);
     percpu_up = 1;
     boot_cpu = me;
-    int ps = fdt_find_compatible(fdt, -1, "arm,psci-1.0");
-    if (ps < 0) ps = fdt_find_compatible(fdt, -1, "arm,psci-0.2");
-    if (ps < 0) ps = fdt_find_compatible(fdt, -1, "arm,psci");
+    int ps = fdt_find_enabled_compatible(fdt, -1, "arm,psci-1.0");
+    if (ps < 0) ps = fdt_find_enabled_compatible(fdt, -1, "arm,psci-0.2");
+    if (ps < 0) ps = fdt_find_enabled_compatible(fdt, -1, "arm,psci");
     if (ps >= 0) {
         uint32_t len; const char* m = (const char*)fdt_prop(fdt, ps, "method", &len);
         if (m && len >= 3) psci_hvc = m[0] == 'h';

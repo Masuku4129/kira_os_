@@ -33,6 +33,7 @@ unsigned fdt_count_type(const void* fdt, int parent, const char* type);
 
 /* Узел включён: status нет, «okay» или «ok». */
 int fdt_node_enabled(const void* fdt, int node);
+int fdt_find_enabled_compatible(const void* fdt, int after, const char* compat);
 /* Кадровый буфер от загрузчика/прошивки (compatible = «simple-framebuffer», включённый): 0 - найден и формат
    32 бита x8r8g8b8/a8r8g8b8 (как у ядра); -1 - нет узла; -2 - неполный узел; -3 - другой формат (в format). */
 typedef struct { uint64_t base, size; uint32_t width, height, stride; char format[16]; } fdt_fb_t;

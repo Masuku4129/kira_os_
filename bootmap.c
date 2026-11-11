@@ -54,6 +54,9 @@ void* bootmap_map(uint64_t phys, uint64_t len, int uncached) {
     uint64_t first = phys & ~(BOOTMAP_SLOT - 1);
     uint64_t last = (phys + len - 1) & ~(BOOTMAP_SLOT - 1);
     if (last >= PHYS_LIMIT) return 0;
+    /* The bootstrap identity map covers the first GiB as WB. Never create a UC
+       alias for any part of that range before the normal MMIO mapper takes over. */
+    if (uncached && first < (1ULL << 30)) return 0;
     uint64_t n64 = (last - first) / BOOTMAP_SLOT + 1;
     if (n64 > BOOTMAP_SLOTS) return 0;
     unsigned n = (unsigned)n64;
