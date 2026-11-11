@@ -166,12 +166,12 @@ static void test_mbinfo(void) {
     *(uint32_t*)(bad + 12) = 0xFFFFFFF8u;
     CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 8) == 0);                  // округление/размер тега не переполняют обход
 
-    // relocate: неверный magic / адрес - без изменений и без обращений к окну
+    // relocate: неверный magic/адрес не возвращает указатель, который поздний код разыменует как virtual
     bm_map_calls = 0; said[0] = 0; bm_init_rc = 0;
-    CHECK(mbinfo_relocate(0x1234, 0x180000000UL) == 0x180000000UL);
+    CHECK(mbinfo_relocate(0x1234, 0x180000000UL) == 0);
     CHECK(mbinfo_relocate(0x36D76289UL, 0) == 0);
-    CHECK(mbinfo_relocate(0x36D76289UL, 0x180000004UL) == 0x180000004UL);
-    CHECK(mbinfo_relocate(0x36D76289UL, UINTPTR_MAX - 7) == UINTPTR_MAX - 7);      // сложение физического адреса не переполняется
+    CHECK(mbinfo_relocate(0x36D76289UL, 0x180000004UL) == 0);
+    CHECK(mbinfo_relocate(0x36D76289UL, UINTPTR_MAX - 7) == 0);                    // сложение физического адреса не переполняется
     CHECK(bm_map_calls == 0);
 
     // структура внутри identity-карты: возвращается тот же адрес, окно не трогается
@@ -182,7 +182,7 @@ static void test_mbinfo(void) {
         CHECK(mbinfo_relocate(0x36D76289UL, 0x10000000UL) == 0x10000000UL);
         CHECK(bm_map_calls == 0);
         *(uint32_t*)low = 8;                                                        // повреждённый размер внутри карты
-        CHECK(mbinfo_relocate(0x36D76289UL, 0x10000000UL) == 0x10000000UL);
+        CHECK(mbinfo_relocate(0x36D76289UL, 0x10000000UL) == 0);
         CHECK(bm_map_calls == 0);
     }
 
@@ -196,14 +196,14 @@ static void test_mbinfo(void) {
     CHECK(strstr(said, "above the 1 GB identity map: copied"));
     CHECK(mbinfo_find_tag(r, 8) != 0);                                              // копия разбирается как обычная структура
 
-    // огромный размер в заголовке - отказ, адрес остаётся прежним
+    // огромный размер в заголовке - отказ без возврата неотображённого физического адреса
     *(uint32_t*)bad = 70000; memcpy(bad + 4, info + 4, 4);
     bm_host = bad; said[0] = 0;
-    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == (unsigned long)hi);
+    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == 0);
     CHECK(strstr(said, "invalid size"));
     // окно не ставится
     bm_host = info; bm_init_rc = -1; said[0] = 0;
-    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == (unsigned long)hi);
+    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == 0);
     CHECK(strstr(said, "cannot be installed"));
     bm_init_rc = 0;
     // отображение не удалось

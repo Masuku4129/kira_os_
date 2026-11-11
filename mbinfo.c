@@ -9,37 +9,39 @@
 static uint8_t info_copy[MBINFO_MAX] __attribute__((aligned(8)));
 
 unsigned long mbinfo_relocate(unsigned long magic, unsigned long addr) {
-    if (magic != MB2_MAGIC || addr == 0 || (addr & 7)) return addr;
+    /* A failed relocation must never return an unverified high physical address:
+       earlycon and later parsers would otherwise dereference it as a virtual pointer. */
+    if (magic != MB2_MAGIC || addr == 0 || (addr & 7)) return 0;
     /* Проверяем арифметику до разыменования/сложения: физический адрес приходит от загрузчика. */
-    if (addr > ULONG_MAX - 8) return addr;
+    if (addr > ULONG_MAX - 8) return 0;
 
     if (addr + 8 <= ONE_GB) {
         uint32_t size = *(const uint32_t*)addr;
         if (size >= 16 && !(size & 7) && addr + size >= addr && addr + size <= ONE_GB)
             return addr;   // уже внутри identity-карты
-        if (size < 16 || size > MBINFO_MAX || (size & 7)) return addr;
+        if (size < 16 || size > MBINFO_MAX || (size & 7)) return 0;
     }
 
     if (bootmap_init() != 0) {
         uart_print("[KIRA BOOT] Multiboot2 info is above the 1 GB identity map and the early window cannot be installed.\n");
-        return addr;
+        return 0;
     }
     const uint8_t* head = (const uint8_t*)bootmap_map(addr, 8, 0);
     if (!head) {
         uart_print("[KIRA BOOT] Cannot map the Multiboot2 info header.\n");
-        return addr;
+        return 0;
     }
     uint32_t size = *(const uint32_t*)head;
     if (size < 16 || size > MBINFO_MAX || (size & 7) || addr > ULONG_MAX - size) {
         uart_print("[KIRA BOOT] Multiboot2 info above 1 GB has an invalid size: ");
         uart_print_dec(size);
         uart_print(" bytes.\n");
-        return addr;
+        return 0;
     }
     const uint8_t* src = (const uint8_t*)bootmap_map(addr, size, 0);
     if (!src) {
         uart_print("[KIRA BOOT] Cannot map the Multiboot2 info body.\n");
-        return addr;
+        return 0;
     }
     for (uint32_t i = 0; i < size; i++) info_copy[i] = src[i];
     uart_print("[KIRA BOOT] Multiboot2 info at ");
