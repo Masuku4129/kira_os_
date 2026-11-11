@@ -79,8 +79,10 @@ static int recv(netdev_t* d, void* buf, uint32_t max) {
     (void)d;
     uint16_t id; uint32_t len;
     if (!virtq_take(&v.rx, &id, &len)) return 0;
-    if (id >= NRX || virtio_dma_sync_for_cpu(v.rxb + id * BUF,
-                                              v.rxb_p + id * BUF, BUF) != 0)
+    /* Treat the device-written used length as untrusted: never inspect bytes beyond
+       the descriptor's advertised buffer, even if a broken device reports more. */
+    if (id >= NRX || len > BUF ||
+        virtio_dma_sync_for_cpu(v.rxb + id * BUF, v.rxb_p + id * BUF, BUF) != 0)
         return 0;
     int n = 0;
     if (len > HDR && len - HDR <= max) {
