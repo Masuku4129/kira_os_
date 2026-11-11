@@ -89,6 +89,9 @@ int main(void){
         acpi_set_map_hook(0);
     }
     CHECK(acpi_parse(0, 1<<30, &i)==-1);
+    CHECK(acpi_scan(UINT64_MAX - 7, UINT64_MAX, "RSD PTR ", 8, 20) == 0);
+    CHECK(acpi_scan(base + 0x1000, base, "_MP_", 4, 0) == 0);
+    CHECK(acpi_scan(base, base + 0x1000, 0, 4, 0) == 0);
     /* ---- таблицы Intel MP (как у SeaBIOS при выключенном ACPI) ---- */
     {
         uint8_t* fps = m + 0x800; uint8_t* ct = m + 0x900;

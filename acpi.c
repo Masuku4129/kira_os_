@@ -218,13 +218,18 @@ int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {
 /* ---------------- таблицы Intel MP ---------------- */
 
 uint64_t acpi_scan(uint64_t from, uint64_t to, const char* sig, unsigned sig_len, unsigned sum_len) {
-    for (uint64_t a = (from + 15) & ~15ull; a + 16 <= to; a += 16) {
+    if (!sig || !sig_len || from > to || to - from < 16 || from > UINT64_MAX - 15) return 0;
+    uint64_t a = (from + 15) & ~15ull;
+    if (a < from) return 0;
+    while (a <= to && to - a >= 16) {
         const uint8_t* p = (const uint8_t*)(uintptr_t)a;
         unsigned k = 0; while (k < sig_len && p[k] == (uint8_t)sig[k]) k++;
-        if (k != sig_len) continue;
-        unsigned n = sum_len ? sum_len : (unsigned)p[8] * 16u;
-        if (n == 0 || a + n > to) continue;
-        if (sum_ok(p, n)) return a;
+        if (k == sig_len) {
+            unsigned n = sum_len ? sum_len : (unsigned)p[8] * 16u;
+            if (n && (uint64_t)n <= to - a && sum_ok(p, n)) return a;
+        }
+        if (a > UINT64_MAX - 16) break;
+        a += 16;
     }
     return 0;
 }
