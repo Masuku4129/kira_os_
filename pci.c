@@ -297,19 +297,44 @@ void pci_disable_bus_master(const pci_dev_t* d) {
 
 /* Размер и тип BAR: пишем единицы, читаем маску, возвращаем исходное значение. Декодирование на время зонда выключено. */
 static void probe_bars(pci_dev_t* d) {
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+    int trace_uhci = d && d->bus == 0 && d->dev == 1 && d->fn == 2;
+    if (trace_uhci) pci_trace_raw("[P0]");
+#endif
     uint16_t cmd = pci_read16(d, 0x04);
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+    if (trace_uhci) pci_trace_raw("[P1]");
+#endif
     pci_write16(d, 0x04, (uint16_t)(cmd & ~(PCI_CMD_IO | PCI_CMD_MEM)));
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+    if (trace_uhci) pci_trace_raw("[P2]");
+#endif
     int nb = (d->header_type & 0x7F) == 0 ? 6 : ((d->header_type & 0x7F) == 1 ? 2 : 0);
     for (int i = 0; i < PCI_BARS; i++) { d->bar[i].base = d->bar[i].size = 0; d->bar[i].io = d->bar[i].mem64 = d->bar[i].prefetch = 0; }
     for (int i = 0; i < nb; i++) {
         uint16_t off = (uint16_t)(0x10 + 4 * i);
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+        if (trace_uhci) { pci_trace_raw("[B"); pci_trace_raw_hex16((uint16_t)i); pci_trace_raw("0]"); }
+#endif
         uint32_t orig = pci_read32(d, off);
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+        if (trace_uhci) pci_trace_raw("[1]");
+#endif
         pci_write32(d, off, 0xFFFFFFFFu);
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+        if (trace_uhci) pci_trace_raw("[2]");
+#endif
         uint32_t mask = pci_read32(d, off);
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+        if (trace_uhci) pci_trace_raw("[3]");
+#endif
         pci_write32(d, off, orig);
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+        if (trace_uhci) pci_trace_raw("[4]");
+#endif
         if (mask == 0 || mask == 0xFFFFFFFFu) continue;
-        if (orig & 1) {                                           /* порты ввода-вывода */
-            uint32_t m = (mask & ~3u) | 0xFFFF0000u;                  /* порты - 16 бит: старшие биты маски не значимы */
+        if (orig & 1) {
+            uint32_t m = (mask & ~3u) | 0xFFFF0000u;
             d->bar[i].io = 1; d->bar[i].base = orig & ~3u;
             d->bar[i].size = ~m + 1;
             continue;
@@ -326,12 +351,15 @@ static void probe_bars(pci_dev_t* d) {
             base |= (uint64_t)orig_hi << 32; m |= (uint64_t)mask_hi << 32;
             d->bar[i].mem64 = 1;
             d->bar[i].base = base; d->bar[i].size = ~m + 1;
-            i++;                                                   /* BAR i+1 - старшая половина, самостоятельного BAR нет */
+            i++;
         } else {
             d->bar[i].base = base; d->bar[i].size = (uint32_t)(~(uint32_t)m + 1);
         }
     }
     pci_write16(d, 0x04, cmd);
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+    if (trace_uhci) pci_trace_raw("[P7]");
+#endif
 }
 
 static void scan_bus(uint8_t bus);
