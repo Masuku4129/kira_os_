@@ -126,6 +126,7 @@ static void reserve_range(uint64_t base, uint64_t len) {
 
 // Запоминает кусок ОЗУ выше 1 ГБ до отображения; в конце pmm_init список сортируется и сливается.
 static void defer_range(uint64_t base, uint64_t end) {
+    if (base > UINT64_MAX - (PMM_PAGE_SIZE - 1)) return;
     uint64_t s = (base + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
     uint64_t e = end & ~(PMM_PAGE_SIZE - 1);
     if (e > managed_top) e = managed_top;
@@ -207,9 +208,11 @@ static int pmm_init_map(const kbi_mmap_entry_t* map, uint32_t map_count,
     for(uint32_t i=0;i<map_count;i++) {
         if(map[i].type!=KBI_MEM_USABLE || !map[i].length ||
            map[i].base>UINT64_MAX-map[i].length) continue;
-        uint64_t t=map[i].base+map[i].length;
+        uint64_t s=map[i].base;
+        if(s>=PMM_LIMIT) continue;
+        uint64_t t=s+map[i].length;
         if(t>PMM_LIMIT) t=PMM_LIMIT;
-        if(t>ram_top) ram_top=t;
+        if(t>s && t>ram_top) ram_top=t;
     }
     if(!ram_top) {
         uart_print("[KIRA PMM ERROR] BootInfo has no usable memory ranges.\n");
@@ -274,8 +277,10 @@ static int pmm_init_map(const kbi_mmap_entry_t* map, uint32_t map_count,
            acpi_n<PMM_MAX_ACPI) {
             acpi_r[acpi_n].start=a; acpi_r[acpi_n].end=b; acpi_n++;
         }
-        if(e->type!=KBI_MEM_USABLE) continue;
-        usable_bytes+=e->length;
+        if(e->type!=KBI_MEM_USABLE || a>=PMM_LIMIT) continue;
+        if(b>PMM_LIMIT) b=PMM_LIMIT;
+        if(b<=a) continue;
+        usable_bytes+=b-a;
         if(a<PMM_LOW) mark_range_free(a,(b<PMM_LOW?b:PMM_LOW)-a);
         if(b>PMM_LOW) defer_range(a>PMM_LOW?a:PMM_LOW,b);
     }

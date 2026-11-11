@@ -36,7 +36,8 @@ static uint8_t* mk_mbi(uint64_t at, int with_mmap){
     if(with_mmap){
         struct E{uint64_t a,l;uint32_t t,r;} ents[]={
             {0,0x9FC00,1,0},{0x9FC00,0x60400,2,0},{0x100000,0x1FF00000ULL,1,0},
-            {0x20000000ULL,0x100000,2,0},{0x100000000ULL,0x40000000ULL,1,0}};
+            {0x20000000ULL,0x100000,2,0},{0x100000000ULL,0x40000000ULL,1,0},
+            {UINT64_MAX-2047,1024,1,0}}; /* malformed-for-PMM upper range: must be clipped out, not wrap into low RAM */
         uint32_t sz=16+sizeof ents;
         *(uint32_t*)p=6; *(uint32_t*)(p+4)=sz; *(uint32_t*)(p+8)=24; *(uint32_t*)(p+12)=0;
         memcpy(p+16,ents,sizeof ents); p+=(sz+7)&~7u;
