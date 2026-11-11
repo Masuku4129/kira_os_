@@ -248,10 +248,9 @@ static int mp_parse_impl(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
     const uint8_t* f = reach(fps, 16, max_phys);
     if (!f) return -1;
     uint32_t fps_len = (uint32_t)f[8] * 16u;
-    if (f[0] != '_' || f[1] != 'M' || f[2] != 'P' || f[3] != '_' ||
-        fps_len < 16 || !sum_ok(reach(fps, fps_len, max_phys), fps_len)) return -2;
+    if (f[0] != '_' || f[1] != 'M' || f[2] != 'P' || f[3] != '_' || fps_len < 16) return -2;
     f = reach(fps, fps_len, max_phys);
-    if (!f) return -2;
+    if (!f || f[0] != '_' || f[1] != 'M' || f[2] != 'P' || f[3] != '_' || !sum_ok(f, fps_len)) return -2;
     o->cpu_count = 0; o->max_apic_id = 0; o->ioapic_count = 0; o->irq_override_count = 0;
     for (int i = 0; i < 16; i++) { o->iso_valid[i] = 0; o->iso_gsi[i] = 0; o->iso_flags[i] = 0; }
     uint32_t cfg = rd32(f + 4);
