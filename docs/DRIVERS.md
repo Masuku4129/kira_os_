@@ -97,3 +97,14 @@ HTTPS защищает канал от части сетевых атак, но 
 - отключение устройства и очистку ресурсов при падении драйвера.
 
 Результаты QEMU не заменяют испытаний на реальных PCI/DMA устройствах.
+
+# KDRV signer input hardening
+
+`tools/kdrvsign.py` performs metadata checks before reading input bytes:
+- package must be a regular, non-empty file no larger than 64 MiB;
+- private seed must be a regular file of exactly 32 bytes;
+- on POSIX, private seed permissions must be 0600 or stricter;
+- reads are bounded and the byte count is checked against the opened file metadata to detect changes during the read;
+- symlinks are rejected on platforms that provide `O_NOFOLLOW`.
+
+The CLI rejects invalid inputs before creating the manifest output. CI exercises sparse oversized files, empty and non-regular packages, 31/33-byte seeds, and insecure POSIX key permissions. The RFC seed used by tests is public test material only and is never a release key.
