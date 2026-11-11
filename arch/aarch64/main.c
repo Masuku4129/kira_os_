@@ -153,11 +153,6 @@ static int in_ram(uint64_t a, uint64_t len) {
     return 0;
 }
 int arm_mem_in_ram(uint64_t a, uint64_t len) { return in_ram(a, len); }
-static int touches_ram(uint64_t a, uint64_t len) {
-    for (unsigned i = 0; i < nram; i++)
-        if (arm_range_overlaps(ram[i].base, ram[i].size, a, len)) return 1;
-    return 0;
-}
 static int phys_in_ram(uint64_t a, uint64_t len) {
     return arm_ranges_contains(phys_ram, nphys, a, len);
 }
