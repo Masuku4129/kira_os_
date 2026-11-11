@@ -265,8 +265,8 @@ void pci_disable_bus_master(const pci_dev_t* d) {
         uart_print("\n");
     }
 #endif
-    int trace_uhci = d->bus == 0 && d->dev == 1 && d->fn == 2;
 #if defined(__x86_64__)
+    int trace_uhci = d->bus == 0 && d->dev == 1 && d->fn == 2;
     if (trace_uhci) pci_trace_raw("[D0]");
 #endif
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
