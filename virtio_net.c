@@ -53,7 +53,7 @@ static void reclaim(void) {                                       /* отпра�
 
 static int send(netdev_t* d, const void* frame, uint32_t len) {
     (void)d;
-    if (len > BUF - HDR || len < 14) return -1;
+    if (!frame || len > BUF - HDR || len < 14) return -1;
     uint64_t f = spin_lock_irqsave(&v.lk);
     reclaim();
     unsigned id = v.tx_next;
@@ -78,6 +78,8 @@ static int send(netdev_t* d, const void* frame, uint32_t len) {
 static int recv(netdev_t* d, void* buf, uint32_t max) {
     (void)d;
     uint16_t id; uint32_t len;
+    /* Invalid caller storage must not consume a completed descriptor. */
+    if (!buf && max) return -1;
     if (!virtq_take(&v.rx, &id, &len)) return 0;
     /* The used length and descriptor id are device-controlled.  A malformed
        completion must not be copied, but a valid slot must be returned to RX
