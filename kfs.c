@@ -196,7 +196,7 @@ static uint32_t alloc_inode(void) {
 
 /* --- блоки файла: адресация --- */
 
-static uint64_t data_blocks(const inode_t* i) { return (i->size + KFS_BLOCK - 1) / KFS_BLOCK; }
+static uint64_t data_blocks(const inode_t* i) { return i->size / KFS_BLOCK + (i->size % KFS_BLOCK != 0); }
 #define L1 ((uint64_t)PTRS)
 #define L2 ((uint64_t)PTRS * PTRS)
 #define L3 ((uint64_t)PTRS * PTRS * PTRS)
@@ -849,7 +849,9 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
     if (!leaf[0]) return KFS_ERR_ISDIR;
     if (fs.itype[parent] != KFS_DIR) return KFS_ERR_NOTDIR;
     if (ino && fs.itype[ino] != KFS_FILE) return KFS_ERR_ISDIR;
-    uint64_t nb = ((uint64_t)len + KFS_BLOCK - 1) / KFS_BLOCK;
+    /* Divide before rounding: len + KFS_BLOCK - 1 can wrap for SIZE_MAX. */
+    uint64_t bytes = (uint64_t)len;
+    uint64_t nb = bytes / KFS_BLOCK + (bytes % KFS_BLOCK != 0);
     if (nb > MAX_FILE_BLOCKS) return KFS_ERR_FBIG;
     uint64_t nmeta = meta_blocks(nb);
     if (nb + nmeta > fs.free_blocks) return KFS_ERR_NOSPC;

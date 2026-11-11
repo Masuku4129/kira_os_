@@ -75,6 +75,8 @@ int main(void){
     kfs_info_t in0; kfs_info(&in0);
     CHECK(put("/hello",100,3)==0 && same("/hello",100,3));
     CHECK(put("/empty",0,0)==0 && same("/empty",0,0));
+    CHECK(kfs_write("/too-big", buf, (size_t)-1) == KFS_ERR_FBIG); /* rounding must not wrap SIZE_MAX to zero blocks */
+    kfs_stat_t too_big; CHECK(kfs_stat("/too-big", &too_big) == KFS_ERR_NOENT);
     CHECK(put("/big",BIGF,4)==0 && same("/big",BIGF,4));
     CHECK(kfs_read("/big",4500000,buf,1000)==1000); for(int i=0;i<1000;i++) CHECK(buf[i]==pat(4,4500000+i));
     CHECK(kfs_mount(&dev,16)==0 && same("/big",BIGF,4));                     /* дерево указателей переживает монтирование */

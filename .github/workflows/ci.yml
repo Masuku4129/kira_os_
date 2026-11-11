@@ -316,7 +316,7 @@ jobs:
           path: /var/cache/apt/archives/*.deb
           key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: tools
-        run: ci/install-tools.sh clang lld llvm qemu-system-arm ipxe-qemu dosfstools mtools python3-cryptography ca-certificates openssl
+        run: ci/install-tools.sh clang lld llvm qemu-system-arm ipxe-qemu dosfstools mtools python3-pil python3-cryptography ca-certificates openssl
       - name: build ARM64 (clang, -Werror)
         run: ./build_arm64.sh && ci/make_flash.sh
       - uses: actions/upload-artifact@v4
