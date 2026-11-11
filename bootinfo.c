@@ -36,6 +36,9 @@ int kbi_validate(const void* blob, uint32_t available) {
     if (h->reserved0 || h->reserved1 || h->fb_reserved ||
         (h->flags & ~KBI_ALLOWED_FLAGS)) return -4;
 
+    if (!h->kernel_phys_base || !h->kernel_size ||
+        h->kernel_size > UINT64_MAX - h->kernel_phys_base) return -10;
+
     if (h->mmap_count > KIRA_BOOTINFO_MAX_MMAP ||
         (h->mmap_count && h->mmap_entry_size != sizeof(kbi_mmap_entry_t)) ||
         (!h->mmap_count && h->mmap_entry_size != 0 &&
@@ -89,9 +92,6 @@ int kbi_validate(const void* blob, uint32_t available) {
         !!(h->flags & KBI_F_CMDLINE) != !!h->cmdline_len ||
         (h->rsdp_phys && (h->rsdp_phys & 15)) ||
         (h->fdt_phys && (h->fdt_phys & 7))) return -9;
-
-    if (!h->kernel_phys_base || !h->kernel_size ||
-        h->kernel_size > UINT64_MAX - h->kernel_phys_base) return -10;
 
     const kbi_mmap_entry_t* mm =
         (const kbi_mmap_entry_t*)((const uint8_t*)blob + h->mmap_off);
