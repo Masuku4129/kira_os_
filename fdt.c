@@ -293,7 +293,13 @@ int fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* s
     if (!fdt || node < 0 || (!addr && !size)) return -1;
     int par = fdt_parent(fdt, node);
     uint32_t ac = 2, sc = 1;                   /* значения по умолчанию спецификации */
-    if (par >= 0) { fdt_prop_u32(fdt, par, "#address-cells", &ac); fdt_prop_u32(fdt, par, "#size-cells", &sc); }
+    if (par >= 0) {
+        uint32_t cell_len = 0;
+        const void* cell = fdt_prop(fdt, par, "#address-cells", &cell_len);
+        if (cell) { if (cell_len != 4) return -1; ac = fdt_u32(cell); }
+        cell = fdt_prop(fdt, par, "#size-cells", &cell_len);
+        if (cell) { if (cell_len != 4) return -1; sc = fdt_u32(cell); }
+    }
     if (ac < 1 || ac > 2 || sc > 2) return -1;
     uint32_t len;
     const uint8_t* r = (const uint8_t*)fdt_prop(fdt, node, "reg", &len);
