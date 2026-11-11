@@ -167,6 +167,7 @@ int fdt_next_node(const void* fdt, int node, int* depth) {
     int off = step(fdt, node, &tok);           /* за BEGIN текущего узла */
     if (off < 0 || tok != T_BEGIN) return -1;
     int d = depth ? *depth : 0;
+    if (d > 64) return -1;
     for (;;) {
         int nx = step(fdt, off, &tok);
         if (nx < 0) return -1;
@@ -246,6 +247,7 @@ int fdt_find_path(const void* fdt, const char* path) {
     const char* p = path + 1;
     while (*p) {
         unsigned plen = 0; while (p[plen] && p[plen] != '/') plen++;
+        if (!plen) return -1; /* reject repeated/trailing separators instead of matching an empty name */
         /* среди прямых детей node */
         int depth = 0, found = -1;
         int c = fdt_next_node(fdt, node, &depth);
