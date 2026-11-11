@@ -76,6 +76,12 @@ int main(void) {
     /* A bounded caller buffer shorter than the fixed header is never parsed. */
     for (uint32_t n = 0; n < 40; n++) CHECK(!fdt_valid(blob, n));
     CHECK(!fdt_valid(0, sizeof blob));
+    {
+        uint32_t saved = fdt_u32(blob + 4);
+        be(blob + 4, 0x80000000u);
+        CHECK(!fdt_valid(blob, UINT32_MAX)); /* signed token offsets cannot represent this tree size */
+        be(blob + 4, saved);
+    }
     int root = fdt_root(blob);
     CHECK(root >= 0 && fdt_compatible(blob, root, "linux,dummy-virt"));
 
