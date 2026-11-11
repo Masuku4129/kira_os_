@@ -106,7 +106,23 @@ Required:
 - Verify UI-reported Mind activity against actual telemetry and model updates.
 - Keep test fixtures clearly separated from learned/user experience.
 
-## 8. Release gate
+## 8. Supply-chain scanning — PARTIAL
+
+Added in the v46 working branch:
+- `.github/workflows/security.yml` runs GitHub CodeQL with `security-extended` for C/C++ (manual build through `build_clang.sh --no-run`) and Python (no-build extraction), on pull requests, pushes to main/stable, weekly schedule and manual dispatch.
+- CodeQL workflow run `43016801131` completed successfully on source commit `4e60ad9df1953ca472ea604c11f9c5c1a1b105b4`; both C/C++ and Python analysis jobs succeeded. This is scan execution evidence, not a reviewed/zero-alert claim. The newer run for `374e88c11ebcd1f3967fc0a534d103cc03f467ce` is separate and must complete before its result is treated as current.
+- `.github/dependabot.yml` enables weekly GitHub Actions dependency update checks.
+
+Still missing:
+- OSV/NVD/GHSA vulnerability scanning for applicable source/build dependencies and a reviewed applicability/remediation register.
+- SPDX or CycloneDX SBOM for source inputs, toolchain/build environment, ISO and KiraFS image.
+- Secret scanning and explicit review of workflow/action pinning and artifact provenance.
+- Retrieval and triage of CodeQL alerts; a successful workflow does not imply zero findings.
+- A release gate based on reviewed, applicable findings; do not fail releases on untriaged or irrelevant CVEs.
+
+The current repository has no confirmed comprehensive third-party runtime dependency manifest. Do not invent package versions or claim an empty CVE result until the actual source/build inputs and final images have been inventoried.
+
+## 9. Release gate
 The next combined user update is eligible only when:
 1. Every blocker above is either implemented with evidence or explicitly deferred by a documented product decision. Core requirements (boot independence, original driver code, signed driver trust, safe DMA policy) are not silently waived.
 2. x86_64 and ARM64 builds pass with `-Werror`.
