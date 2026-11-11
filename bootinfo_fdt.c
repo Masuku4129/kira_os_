@@ -13,7 +13,9 @@ static int add_range(fdt_range_t* a, uint32_t* n, uint32_t cap, uint64_t base, u
     return 0;
 }
 static int add_region(kbi_mmap_entry_t* a, uint32_t* n, uint64_t base, uint64_t size) {
-    if (*n >= KBI_FDT_MAX_REGIONS || add_range((fdt_range_t*)a, n, 0, base, size)) return -1;
+    if (!size || base > UINT64_MAX - size || *n >= KBI_FDT_MAX_REGIONS) return -1;
+    a[*n] = (kbi_mmap_entry_t){ .base=base, .length=size, .type=KBI_MEM_USABLE, .attributes=0 };
+    (*n)++;
     return 0;
 }
 static int reserve_node_ranges(const void* fdt, int node, fdt_range_t* reserved, uint32_t* nr) {
