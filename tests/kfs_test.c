@@ -57,6 +57,10 @@ int main(void){
     CHECK(writes==noflush_writes && !kfs_mounted());
     CHECK(kfs_mount(&noflush,16)==KFS_ERR_IO);
     CHECK(writes==noflush_writes && !kfs_mounted());
+    /* Reject out-of-device volume bases before issuing a sector read. */
+    CHECK(kfs_mount(&dev, dev.sectors) == KFS_ERR_INVAL);
+    CHECK(kfs_mount(&dev, UINT64_MAX) == KFS_ERR_INVAL);
+    CHECK(writes==noflush_writes && !kfs_mounted());
 
     /* базовые операции */
     CHECK(kfs_mount(&dev,16)==KFS_ERR_NOFS);

@@ -531,7 +531,8 @@ static int read_super(blk_dev_t* dev, uint64_t base, super_t* sb) {
         sum += x->count;
     }
     if (sum != sb->inode_count || sum > 0x7FFFFFFFu) return KFS_ERR_CORRUPT;
-    if (base + (uint64_t)sb->total_blocks * SPB > dev->sectors) return KFS_ERR_CORRUPT;
+    uint64_t span = (uint64_t)sb->total_blocks * SPB;
+    if (base > dev->sectors || span > dev->sectors - base) return KFS_ERR_CORRUPT;
     return 0;
 }
 
@@ -711,6 +712,7 @@ static int kfs_mount_impl(blk_dev_t* dev, uint64_t base) {
     fs.mounted = 0;
     release_mem();
     if (!dev) return KFS_ERR_NOFS;
+    if (base >= dev->sectors) return KFS_ERR_INVAL;
     /* KiraFS durability ordering depends on an explicit device persistence barrier. */
     if (!dev->flush) return KFS_ERR_IO;
     super_t sb;
