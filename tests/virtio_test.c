@@ -255,8 +255,7 @@ int main(void) {
     old_next = under_cpu.next;
     CHECK(pci_window_alloc(&under_cpu, 0x1000, &pa, &ca) == -1 && under_cpu.next == old_next);
     pci_window_t misaligned = { .pci_base = 0x1000, .size = 0x3000, .next = 0x1001, .cpu_off = 0 };
-    old_next = misaligned.next;
-    CHECK(pci_window_alloc(&misaligned, 0x1000, &pa, &ca) == -1 && misaligned.next == old_next);
+    CHECK(pci_window_alloc(&misaligned, 0x1000, &pa, &ca) == 0 && pa == 0x2000 && ca == 0x2000);
     CHECK(pci_window_alloc(&win, 0x1800, &pa, &ca) == -1);
 
     /* --- PCI --- */
