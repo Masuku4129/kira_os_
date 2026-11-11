@@ -1,0 +1,53 @@
+name: KIRA security analysis
+
+on:
+  push:
+    branches: [main, stable, v45/overhaul, 'v46/**']
+  pull_request:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: kira-security-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    name: CodeQL (C/C++ and Python)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp, python
+          build-mode: manual
+          queries: security-extended
+
+      - name: Install KIRA build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common \
+            xorriso mtools dosfstools python3-cryptography python3-pil \
+            ca-certificates openssl
+
+      - name: Build x86_64 kernel and images for CodeQL extraction
+        run: ./build_clang.sh --no-run
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language || 'all' }}
+
