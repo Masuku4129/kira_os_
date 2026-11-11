@@ -18,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  codeql:
-    name: CodeQL (C/C++ and Python)
+  codeql-cpp:
+    name: CodeQL C/C++ (kernel and userland)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -31,7 +31,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: c-cpp, python
+          languages: c-cpp
           build-mode: manual
           queries: security-extended
 
@@ -46,8 +46,27 @@ jobs:
       - name: Build x86_64 kernel and images for CodeQL extraction
         run: ./build_clang.sh --no-run
 
-      - name: Analyze
+      - name: Analyze C/C++
         uses: github/codeql-action/analyze@v3
         with:
-          category: /language:${{ matrix.language || 'all' }}
+          category: /language:cpp
 
+  codeql-python:
+    name: CodeQL Python (CI and tooling)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          build-mode: none
+          queries: security-extended
+
+      - name: Analyze Python
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:python
