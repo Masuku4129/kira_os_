@@ -26,11 +26,11 @@ static uint64_t fdt_u64(const uint8_t* p) {
 int fdt_valid(const void* fdt, uint32_t max_len) {
     /* Do not read even the magic until the caller's advertised buffer can
        contain the complete fixed-size FDT header. */
-    if (!fdt || (max_len && max_len < 40) || hdr(fdt, 0) != FDT_MAGIC) return 0;
+    if (!fdt || max_len < 40 || hdr(fdt, 0) != FDT_MAGIC) return 0;
     uint32_t total = hdr(fdt, 1), so = hdr(fdt, 2), sto = hdr(fdt, 3);
     uint32_t rso = hdr(fdt, 4), ver = hdr(fdt, 5);
     uint32_t strings_size = hdr(fdt, 8), struct_size = hdr(fdt, 9);
-    if (total < 56 || (total & 3) || (max_len && total > max_len) || ver < 16) return 0;
+    if (total < 56 || (total & 3) || total > max_len || ver < 16) return 0;
     if (so < 40 || sto < 40 || rso < 40 || (so & 3) || (sto & 3) || (rso & 7) ||
         so > total || struct_size < 4 || struct_size > total - so ||
         sto > total || strings_size > total - sto || rso > total - 16) return 0;
