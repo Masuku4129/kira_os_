@@ -64,8 +64,12 @@ static uint32_t mb2_type(uint32_t t) {
 int kbi_from_multiboot2(const void* info, uint32_t available,
                         uint64_t kernel_base, uint64_t kernel_size,
                         const void** result, uint32_t* result_size) {
-    if(!result || !result_size || !kernel_base || !kernel_size ||
-       kernel_base > UINT64_MAX-kernel_size) return -10;
+    if(!result || !result_size) return -10;
+    /* Failure must never leave a caller holding a stale successful handoff. */
+    *result=0;
+    *result_size=0;
+    if(!kernel_base || !kernel_size || kernel_base > UINT64_MAX-kernel_size)
+        return -10;
     const uint8_t* b=(const uint8_t*)info;
     uint32_t total=0;
     int rc=mb2_bounds(b,available,&total);
