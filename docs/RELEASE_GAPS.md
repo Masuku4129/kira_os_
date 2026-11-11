@@ -48,7 +48,7 @@ Required:
 Do not remove provenance notices without replacing the implementation and reviewing licensing.
 
 ## 4. Driver package authenticity — BLOCKED (signature primitive already exists)
-KDRV currently has SHA-256 integrity checks and explicit user confirmation. SHA-256 does not prove who published a package. Correction to the earlier inventory: the repository already contains a KIRA-owned Ed25519 verifier, `ed25519_verify()`, in `pk.c` / `pk.h`, with RFC 8032 vectors and malformed-signature tests in `tests/pk_test.c`. It is currently linked into selected userland TLS clients, but KDRV does not yet use it.
+KDRV currently has SHA-256 integrity checks and explicit user confirmation. SHA-256 does not prove who published a package. Correction to the earlier inventory: the repository already contains a KIRA-owned Ed25519 verifier, `ed25519_verify()`, in `pk.c` / `pk.h`, with RFC 8032 vectors and malformed-signature tests in `tests/pk_test.c`. It is now compiled into both x86_64 and ARM64 kernel images and remains linked into selected userland TLS clients, but the KDRV load path does not yet invoke it.
 
 Required:
 - Integrate the existing Ed25519 verifier into the kernel KDRV validation path and run the signature vectors in the kernel-compatible build.
