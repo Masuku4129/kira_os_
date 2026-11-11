@@ -1,10 +1,10 @@
 # KIRA OS — release blockers and acceptance criteria
 
-**Snapshot:** 2026-11-07  
+**Snapshot:** 2026-11-11  
 **Working base:** `v45/overhaul`  
 **Status:** engineering work in progress; this document is not a release declaration.
 
-This file separates implemented mechanisms from the capabilities still required before the next combined update. Passing CI does not close a blocker unless the corresponding acceptance criteria are met.
+This file separates implemented mechanisms from the capabilities still required before the next combined update. Passing CI does not close a blocker unless the corresponding acceptance criteria are met. Evidence snapshot: CI run `42946165561` completed successfully on code commit `15c7bb4ca7fc656b9968b8faefe4e454c8bead63`: x86_64 and ARM64 `-Werror` builds, host tests, KCC suite, Driver E2E, GUI, Mind, 40 x86 QEMU scenarios and 13 ARM64 QEMU scenarios all passed. A later documentation-only commit updates KCC status; no code changed after the tested code commit.
 
 ## 1. Boot chain — BLOCKED
 Current x86_64 image uses GRUB 2 / Multiboot2. GRUB is included in the ISO and is therefore a runtime boot-chain dependency.
@@ -14,7 +14,7 @@ Implemented in the v46 working branch:
 - Added strict bounds/overflow/shape validation (`bootinfo.c`), compiled into the kernel, plus host regression tests.
 - Normalized the current Multiboot2 handoff into BootInfo before PMM setup; PMM now reserves boot modules and framebuffer ranges even when firmware reports the containing RAM as usable, and keeps those reservations when high memory is mapped. Host regression cases cover low-memory modules and a high-memory framebuffer.
 - ARM64 PMM now maintains a distinct reserved-page bitmap, avoids double-counting overlapping FDT RAM ranges, clamps reserve operations to managed memory, and validates contiguous frees atomically. A host regression test covers reserved-page freeing and overlapping regions.
-- ARM64 FDT handoff is normalized into BootInfo v1; the ARM PMM consumes the normalized RAM map. The adapter carries framebuffer and bootargs, while firmware memreserve entries and /reserved-memory ranges are explicitly reserved before normal allocation.
+- ARM64 FDT handoff is normalized into BootInfo v1; the ARM PMM consumes the normalized RAM map. The adapter carries framebuffer and bootargs, while firmware memreserve entries and /reserved-memory ranges are explicitly reserved before normal allocation. The non-coherent DMA pool selector also avoids firmware memreserve, `/reserved-memory` child ranges and simple-framebuffer ranges; it searches downward in aligned extents and fails closed if no safe pool fits.
 - FDT parsing now validates the reservation-map terminator and block overlap, validates the complete structure-token stream and property names, bounds string comparisons, and rejects overflowing `reg` ranges.
 - This is the common handoff contract only. The existing Multiboot2 entry has not yet been replaced by a KIRA-owned BIOS stage loader or UEFI application; no boot path is claimed independent yet.
 
@@ -30,7 +30,7 @@ GRUB fallback may remain during development, but it must not be silently describ
 KCC is an in-OS C compiler for a subset of C. The full OS build still uses external Clang, LLD, NASM and wasm-ld.
 
 Required:
-- Explicitly documented supported C subset and diagnostics.
+- Explicitly documented supported C subset and diagnostics in `docs/KCC.md`; the document now distinguishes the tested in-OS compiler from the missing self-hosting system toolchain.
 - Stage-1 / stage-2 self-hosting build with deterministic output comparison.
 - ABI, relocation, object/link and assembler strategy for both x86_64 and AArch64.
 - Tests that compile KCC with KCC and exercise representative kernel/userland translation units.
@@ -76,7 +76,7 @@ Implemented in the v46 working branch:
 - virtio-rng, virtio-gpu, virtio-net and virtio-input now release partially allocated queues and DMA buffers on failed startup, but only after a confirmed device reset. Drivers retain ownership and refuse reprobe when reset cannot be confirmed.
 - virtio-blk now clears device state only after all queue and bounce-buffer allocations have been returned; an unconfirmed reset prevents reuse of that device slot.
 - Before a virtio reset, the common PCI teardown masks MSI and MSI-X and clears PCI bus mastering. The device status must then reach zero before any DMA allocation is returned to its allocator.
-- CI run 718 verified x86-64 build, GUI, Mind, KCC and driver E2E; host tests exposed two virtio-blk lifecycle defects: the fixture reset a live model without shutdown, and a post-timeout write dereferenced the released bounce buffer. The fixture now shuts down before model reset, and all block I/O entry points reject operations after teardown. ARM64's forward declaration issue was also fixed. A fresh CI run is required to confirm these fixes.
+- CI run 718 exposed two virtio-blk lifecycle defects: the fixture reset a live model without shutdown, and a post-timeout write dereferenced the released bounce buffer. The fixture now shuts down before model reset, and all block I/O entry points reject operations after teardown. ARM64's forward declaration issue was also fixed. The later CI run `42946165561` passed host tests, x86_64/ARM64 builds, all 40 x86 QEMU scenarios and all 13 ARM64 QEMU scenarios, including `arm64-dma-nc`.
 
 Still required:
 - Platform discovery and validation for x86 VT-d / AMD-Vi and ARM SMMU.
@@ -105,7 +105,7 @@ Required:
 The next combined user update is eligible only when:
 1. Every blocker above is either implemented with evidence or explicitly deferred by a documented product decision. Core requirements (boot independence, original driver code, signed driver trust, safe DMA policy) are not silently waived.
 2. x86_64 and ARM64 builds pass with `-Werror`.
-3. Host, compiler, driver E2E, GUI, Mind and full QEMU matrices pass.
+3. Host, compiler, driver E2E, GUI, Mind and full QEMU matrices pass on the same code commit. PR CI now runs the full x86 and ARM64 QEMU suites instead of skipping them.
 4. Final ISO and KiraFS receive binary-level dependency/provenance inspection.
 5. Release archive, install instructions, manifest and SHA-256 are generated from the exact tested commit.
 6. Report clearly separates CI/QEMU evidence from physical-hardware evidence.
