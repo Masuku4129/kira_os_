@@ -148,16 +148,17 @@ static void arm_delay(void* context)
 
 static int arm_quiesce_devices(void* context)
 {
+    int failed = 0;
     (void)context;
     for (int i = 0; i < pci_count(); ++i) {
         const pci_dev_t* dev = pci_get(i);
-        if (!dev)
-            continue;
+        if (!dev || pci_is_bridge(dev))
+            continue; /* Bridge bus mastering forwards downstream traffic. */
         pci_disable_bus_master(dev);
         if (pci_read16(dev, 0x04) & PCI_CMD_MASTER)
-            return -1;
+            failed = 1;
     }
-    return 0;
+    return failed ? -1 : 0;
 }
 
 static void arm_report_event(void* context, const uint64_t event[4])
@@ -300,6 +301,14 @@ int iommu_arm64_init(const void* fdt, int pci_host_node)
     if (!map_property)
         return 0;
     arm_map_present = 1u;
+    /* iommu-map makes this controller's DMA policy authoritative. Quiesce
+       endpoints before parsing it, so malformed or unsupported mappings
+       cannot leave firmware-enabled bus mastering running. */
+    if (arm_quiesce_devices(0) != 0) {
+        arm_map_invalid = 1u;
+        uart_print("[KIRA SMMU] cannot quiesce every PCI endpoint; DMA remains blocked.\\n");
+        return IOMMU_E_HW;
+    }
     if (map_len < 16u || (map_len & 3u)) {
         arm_map_invalid = 1u;
         uart_print("[KIRA SMMU] malformed PCI iommu-map; bus mastering blocked for safety.\n");
@@ -486,6 +495,7 @@ int iommu_release_device(const pci_dev_t* pci)
 
     if (!dev || !dev->covered)
         return IOMMU_E_NOCOVER;
+    pci_disable_bus_master(pci);
     if (__atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) ||
         dev->stream_id >= 256u || !arm_smmu_active ||
         arm_sid_shared[dev->stream_id])
@@ -560,8 +570,9 @@ int iommu_map(const pci_dev_t* pci, uint64_t iova, uint64_t physical,
                                     permissions, &arm_platform);
         if (rc != KIRA_SMMU_OK) {
             uint32_t pinned_pages = i;
-            if (rc == KIRA_SMMU_TIMEOUT ||
-                rc == KIRA_SMMU_HARDWARE_ERROR) {
+            int uncertain = rc == KIRA_SMMU_TIMEOUT ||
+                            rc == KIRA_SMMU_HARDWARE_ERROR;
+            if (uncertain) {
                 /* PTE publication may have succeeded before TLBI timed out.
                    Pin the uncertain page and quarantine DMA until teardown
                    retries invalidation; never let the caller free this memory. */
@@ -575,6 +586,16 @@ int iommu_map(const pci_dev_t* pci, uint64_t iova, uint64_t physical,
                 map->pages = pinned_pages;
                 map->mapped_pages = pinned_pages;
                 map->active = 1u;
+                if (!uncertain) {
+                    /* A definite allocation/validation failure must not leave
+                       the successful prefix mapped after returning an error. */
+                    arm_unmap_record(dev, map);
+                    if (map->active) {
+                        __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
+                        __atomic_store_n(&dev->quarantine_pending, 1u, __ATOMIC_RELEASE);
+                        pci_disable_bus_master(pci);
+                    }
+                }
             }
             return rc == KIRA_SMMU_MEMORY_FAILED ? IOMMU_E_NOMEM :
                    rc == KIRA_SMMU_INVALID ? IOMMU_E_RANGE : IOMMU_E_HW;
@@ -620,8 +641,8 @@ void iommu_unmap_all(const pci_dev_t* pci)
         !arm_smmu_active || !arm_domains[dev->stream_id].active ||
         arm_domains[dev->stream_id].bypass)
         return;
-    /* Quarantined devices still need their mappings revoked after the driver
-       has stopped bus mastering; quarantine must not prevent safe teardown. */
+    /* Stop new DMA before revoking mappings or releasing their backing pages. */
+    pci_disable_bus_master(pci);
     for (unsigned i = 0; i < ARM_IOMMU_MAX_MAPS; ++i)
         if (dev->maps[i].active)
             arm_unmap_record(dev, &dev->maps[i]);
