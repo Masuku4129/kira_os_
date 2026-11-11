@@ -761,6 +761,7 @@ pm_entry:
   mov [ph_cur], ebx
   mov [ph_cnt], ecx
   mov dword [n_load], 0
+  mov dword [entry_ok], 0
   ; проход 1: проверка всех PT_LOAD, затем проход 2: копирование
   mov edx, 0
 .pass:
@@ -795,15 +796,50 @@ pm_entry:
   mov edi, eax
   add edi, [ebx + 40]
   jc near fail32_seg
-  cmp edi, STAGE_BASE
+  cmp edi, 0x40000000             ; ранняя identity-карта ограничена 1 ГиБ
   ja near fail32_seg
+
+  ; Целевой PT_LOAD не должен перезаписать ELF/initrd staging до завершения копирования.
+  push ecx
+  mov ecx, STAGE_BASE
+  cmp dword [man_mod_size], 0
+  je .kernel_stage_end
+  mov esi, [mod_stage_base]
+  add esi, [man_mod_size]
+  jc near fail32_seg
+  jmp .stage_end_ready
+.kernel_stage_end:
+  mov esi, [man_size]
+  add esi, ecx
+  jc near fail32_seg
+.stage_end_ready:
+  cmp eax, esi
+  jae .stage_no_overlap
+  cmp ecx, edi
+  jae .stage_no_overlap
+  pop ecx
+  jmp near fail32_seg
+.stage_no_overlap:
+  pop ecx
+
   push ebx
   mov ebx, edi
   CONTAINED
   pop ebx
   jc near fail32_seg
   test edx, edx
+  jnz .copy
+  ; Точка входа обязана находиться внутри исполняемого PT_LOAD.
+  test dword [ebx + 4], 1
   jz .pn
+  mov eax, [ebp + 24]
+  cmp eax, [ebx + 24]
+  jb .pn
+  cmp eax, edi
+  jae .pn
+  mov dword [entry_ok], 1
+  jmp .pn
+.copy:
   ; копирование
   push ecx
   mov esi, [ebx + 8]
@@ -823,13 +859,15 @@ pm_entry:
 .pdone:
   test edx, edx
   jnz .go
+  cmp dword [entry_ok], 1
+  jne near fail32_entry
   inc edx
   jmp .pass
 .go:
   mov eax, [ebp + 24]              ; точка входа в загруженном сегменте
   cmp eax, 0x100000
   jb near fail32_entry
-  cmp eax, STAGE_BASE
+  cmp eax, 0x40000000
   jae near fail32_entry
   mov [entry], eax
   mov esi, m_go
@@ -883,6 +921,7 @@ chunk:   dw 0
 ph_cur:  dd 0
 ph_cnt:  dd 0
 n_load:  dd 0
+entry_ok: dd 0
 entry:   dd 0
 e820buf: times 24 db 0
 vbe_ok:  db 0
