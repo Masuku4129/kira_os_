@@ -12,8 +12,8 @@
 #include "spinlock.h"
 #include "percpu.h"
 
-static uint64_t fake_ticks;
-uint64_t timer_get_ticks(void) { return fake_ticks; }
+static uint64_t sim_ticks;
+uint64_t timer_get_ticks(void) { return sim_ticks; }
 void uart_print(const char* s) { (void)s; }
 void uart_print_dec(uint64_t v) { (void)v; }
 void uart_print_hex(uint64_t v) { (void)v; }
@@ -36,7 +36,7 @@ static unsigned long long cpu_ticks[4096]; // индекс - id потока (id
 
 // Один тик времени: таймер -> sched_tick -> (после EOI) вытеснение.
 static void tick(void) {
-    fake_ticks++;
+    sim_ticks++;
     sched_tick();
     sched_irq_exit();
     cpu_ticks[sched_current()->id]++;
@@ -111,10 +111,10 @@ int main(void) {
     sched_set_quantum(4);
 
     // ---- 3. core (critical) просыпается ровно в срок и вытесняет обычные потоки ----
-    sched_set_wake_tick(core, fake_ticks + 10);             // core спит с шага 1
+    sched_set_wake_tick(core, sim_ticks + 10);             // core спит с шага 1
     uint64_t wake_at = core->wake_tick;
     uint64_t got = 0;
-    for (int i = 0; i < 50 && !got; i++) { tick(); if (sched_current() == core) got = fake_ticks; }
+    for (int i = 0; i < 50 && !got; i++) { tick(); if (sched_current() == core) got = sim_ticks; }
     printf("core wake: due %llu, got %llu\n", (unsigned long long)wake_at, (unsigned long long)got);
     CHECK(got == wake_at);
     sched_sleep_ticks(100000);
@@ -147,10 +147,10 @@ int main(void) {
     for (int i = 0; i < 500; i++) {
         tick();
         if (sched_current() == p) {
-            if (due) { unsigned long long lat = fake_ticks - due; if (lat > max_lat) max_lat = lat; }
+            if (due) { unsigned long long lat = sim_ticks - due; if (lat > max_lat) max_lat = lat; }
             runs++;
             sched_sleep_ticks(25);
-            due = fake_ticks + 25;
+            due = sim_ticks + 25;
         }
     }
     printf("periodic runs=%d max wake latency=%llu ticks\n", runs, max_lat);
@@ -372,8 +372,8 @@ int main(void) {
         for (int i = 0; i < 200 && !(sched_current() != fg && sched_current()->quantum_left > 10); i++) tick();
         thread_t* running_bg = (thread_t*)sched_current();
         CHECK(running_bg != fg && running_bg->weight == 4);
-        fg->wake_tick = fake_ticks + 1;
-        sched_set_wake_tick(fg, fake_ticks + 1);
+        fg->wake_tick = sim_ticks + 1;
+        sched_set_wake_tick(fg, sim_ticks + 1);
         tick();                                                  // срок: фокус проснулся
         CHECK(sched_current() == fg);                            // и пошёл сразу, хотя у фона квант не кончился
         CHECK(running_bg->state == THREAD_READY && running_bg->quantum_left > 0);
@@ -416,15 +416,15 @@ int main(void) {
         CHECK(edge != 0);
         for (int i = 0; i < 100 && sched_current() != edge; i++) tick();
         CHECK(sched_current() == edge);
-        fake_ticks = UINT64_MAX - 2;
+        sim_ticks = UINT64_MAX - 2;
         sched_sleep_ticks(10);
         CHECK(edge->state == THREAD_SLEEPING);
         CHECK(edge->wake_tick == UINT64_MAX);
-        CHECK(edge->wake_tick >= fake_ticks);
-        fake_ticks = UINT64_MAX - 1;
+        CHECK(edge->wake_tick >= sim_ticks);
+        sim_ticks = UINT64_MAX - 1;
         sched_tick();
         CHECK(edge->state == THREAD_SLEEPING);
-        fake_ticks = UINT64_MAX;
+        sim_ticks = UINT64_MAX;
         sched_tick();
         sched_irq_exit();
         CHECK(edge->state != THREAD_SLEEPING);
