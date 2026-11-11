@@ -114,6 +114,13 @@ static void test_dups_overlaps(void) {
 static void test_bad(void) {
     ipf_key_t k = key4(0xC0A80001, 11);
     ipf_out_t o;
+    /* Invalid API pointers must fail without dereferencing or mutating state. */
+    ipfrag_init(&T, 1000, 10);
+    CHECK(ipfrag_add(0, 1, &k, 0, 0, msg, 8, 0, &o) == -1);
+    CHECK(ipfrag_add(&T, 1, 0, 0, 0, msg, 8, 0, &o) == -1);
+    CHECK(ipfrag_add(&T, 1, &k, 0, 0, msg, 8, 0, 0) == -1);
+    CHECK(ipfrag_add(&T, 1, &k, 0, 0, 0, 8, 0, &o) == -1);
+    CHECK(ipfrag_pending(&T) == 0);
     fill(256);
     /* не последний фрагмент не кратен 8 - датаграмма отброшена (RFC 791: смещение и длина кратны 8) */
     ipfrag_init(&T, 1000, 10);
