@@ -89,13 +89,14 @@ static int parse_madt(const sdt_t* t, acpi_info_t* o) {
 
 /* Число AML в пакете: BytePrefix/WordPrefix/DWordPrefix, Zero, One, Ones. -1 - не число. */
 static int aml_int(const uint8_t* p, const uint8_t* e, uint32_t* v, const uint8_t** next) {
-    if (p >= e) return -1;
+    if (!p || !e || !v || !next || p >= e) return -1;
+    uint64_t remain = (uint64_t)(e - p);
     if (*p == 0x00) { *v = 0; *next = p + 1; return 0; }
     if (*p == 0x01) { *v = 1; *next = p + 1; return 0; }
     if (*p == 0xFF) { *v = 0xFF; *next = p + 1; return 0; }
-    if (*p == 0x0A && p + 1 < e) { *v = p[1]; *next = p + 2; return 0; }
-    if (*p == 0x0B && p + 2 < e) { *v = p[1] | (uint32_t)p[2] << 8; *next = p + 3; return 0; }
-    if (*p == 0x0C && p + 4 < e) { *v = rd32(p + 1); *next = p + 5; return 0; }
+    if (*p == 0x0A && remain >= 2) { *v = p[1]; *next = p + 2; return 0; }
+    if (*p == 0x0B && remain >= 3) { *v = p[1] | (uint32_t)p[2] << 8; *next = p + 3; return 0; }
+    if (*p == 0x0C && remain >= 5) { *v = rd32(p + 1); *next = p + 5; return 0; }
     return -1;
 }
 
@@ -117,7 +118,7 @@ static int aml_pkg_end(const uint8_t* p, const uint8_t* e, const uint8_t** end) 
 int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b) {
     if (!aml || !a || !b || len < 8) return -1;
     const uint8_t* e = aml + len;
-    for (uint32_t i = 1; i + 5u < len; i++) {
+    for (uint32_t i = 1; i < len && len - i > 5u; i++) {
         if (aml[i] != '_' || aml[i + 1] != 'S' || aml[i + 2] != '5' || aml[i + 3] != '_') continue;
         /* NameOp (0x08), optionally rooted with '\\'. */
         if (!(aml[i - 1] == 0x08 || (i >= 2 && aml[i - 1] == '\\' && aml[i - 2] == 0x08))) continue;
