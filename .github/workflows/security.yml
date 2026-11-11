@@ -36,12 +36,7 @@ jobs:
           queries: security-extended
 
       - name: Install KIRA build dependencies
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends \
-            clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common \
-            xorriso mtools dosfstools python3-cryptography python3-pil \
-            ca-certificates openssl
+        run: ci/install-tools.sh clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools dosfstools python3-cryptography python3-pil ca-certificates openssl
 
       - name: Build x86_64 kernel and images for CodeQL extraction
         run: ./build_clang.sh --no-run
