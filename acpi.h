@@ -47,6 +47,8 @@ int mp_parse(uint64_t fps_phys, uint64_t max_phys, acpi_info_t* out);
 uint64_t acpi_scan(uint64_t from, uint64_t to, const char* sig, unsigned sig_len, unsigned sum_len);
 /* Найти RSDP в теге Multiboot2 (тип 14/15) или в памяти BIOS и разобрать; без ACPI-процессоров - таблицы MP. */
 int acpi_init(uint64_t mbi_phys);
+/* Native BIOS/UEFI loader path: validated physical RSDP address from BootInfo. */
+int acpi_init_rsdp(uint64_t rsdp_phys);
 
 // Ядро ставит хук, который делает таблицу выше max_phys читаемой (0 - не удалось); без хука такие таблицы пропускаются.
 void acpi_set_map_hook(const void* (*hook)(uint64_t phys, uint64_t len));   /* адрес для чтения таблицы или 0 */
