@@ -254,22 +254,65 @@ static int dma_noncoherent(const void* fdt) {
     for (int n = fdt_root(fdt); n >= 0; n = fdt_next_node(fdt, n, &depth)) if (fdt_prop(fdt, n, "dma-coherent", &l)) return 0;
     return 1;
 }
-/* Пул - верх того участка ОЗУ, где лежат ядро и ранние выделения: до 32 МБ (но не больше 1/8 участка), блоки по 2 МБ. */
-static void dma_pool_choose(void) {
+/* Проверка пересечения с областями, которые прошивка/ядро уже зарезервировали.
+   DMA pool нельзя вырезать из /reserved-memory, firmware memreserve или framebuffer. */
+static int dma_pool_hits_reserved(const void* fdt, uint64_t lo, uint64_t hi) {
+    for (unsigned i = 0; i < fdt_reserve_count(fdt, 4u * 1024u * 1024u); i++) {
+        uint64_t base = 0, size = 0;
+        if (fdt_reserve(fdt, 4u * 1024u * 1024u, i, &base, &size) ||
+            base > UINT64_MAX - size) return 1;
+        if (size && base < hi && lo < base + size) return 1;
+    }
+    int parent = fdt_find_path(fdt, "/reserved-memory");
+    if (parent >= 0) {
+        int depth = 0;
+        int node = fdt_next_node(fdt, parent, &depth);
+        while (node >= 0 && depth > 0) {
+            if (depth == 1) {
+                for (unsigned reg = 0; reg < 64; reg++) {
+                    uint64_t base = 0, size = 0;
+                    if (fdt_reg(fdt, node, reg, &base, &size) != 0) break;
+                    if (size && (base > UINT64_MAX - size ||
+                                 (base < hi && lo < base + size))) return 1;
+                }
+            }
+            node = fdt_next_node(fdt, node, &depth);
+        }
+    }
+    /* simple-framebuffer can be outside /reserved-memory on older firmware trees. */
+    for (int node = fdt_find_compatible(fdt, -1, "simple-framebuffer");
+         node >= 0; node = fdt_find_compatible(fdt, node, "simple-framebuffer")) {
+        uint64_t base = 0, size = 0;
+        if (fdt_reg(fdt, node, 0, &base, &size) == 0 && size &&
+            (base > UINT64_MAX - size || (base < hi && lo < base + size))) return 1;
+    }
+    return 0;
+}
+
+/* Пул - до 32 МБ (не больше 1/8 участка), блоки по 2 МБ. Ищем сверху вниз,
+   не занимая firmware memreserve, /reserved-memory или framebuffer. */
+static void dma_pool_choose(const void* fdt) {
     for (unsigned i = 0; i < nram; i++) {
         if (!(bump >= ram[i].base && bump < ram[i].base + ram[i].size)) continue;
         uint64_t end = (ram[i].base + ram[i].size) & ~((2ull << 20) - 1), sz = ram[i].size / 8;
         if (sz > (32ull << 20)) sz = 32ull << 20;
         sz &= ~((2ull << 20) - 1);
-        if (sz < (2ull << 20) || end < sz || end - sz < bump + (8ull << 20)) return;      /* места нет - пула нет */
+        uint64_t floor = bump + (8ull << 20);
+        if (sz < (2ull << 20) || end < sz || end - sz < floor) return;
+        uint64_t candidate = end - sz;
+        while (candidate >= floor && dma_pool_hits_reserved(fdt, candidate, candidate + sz)) {
+            if (candidate < floor + (2ull << 20)) return;
+            candidate -= (2ull << 20);
+        }
+        if (candidate < floor) return;
         uint64_t pool_pages = sz >> 12;
         if (pool_pages > DMA_POOL_MAX_PAGES) return;
-        dma_lo = end - sz; dma_hi = end;
+        dma_lo = candidate; dma_hi = candidate + sz;
         dma_pool_pages = (uint32_t)pool_pages;
         dma_pool_enabled = 1;
         __builtin_memset(dma_pool_bitmap, 0, sizeof dma_pool_bitmap);
         __builtin_memset(dma_pool_allocations, 0, sizeof dma_pool_allocations);
-        bump_end = dma_lo;                                       /* ранние выделения (таблицы MMU) не залезают в пул */
+        bump_end = dma_lo;
         return;
     }
 }
@@ -1215,7 +1258,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("[KIRA ARM64] RAM: %u MB in %u region(s)\n", total >> 20, (uint64_t)nram);
 
     dma_noncoherent_platform = dma_noncoherent(fdt);
-    if (dma_noncoherent_platform) dma_pool_choose();
+    if (dma_noncoherent_platform) dma_pool_choose(fdt);
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
     if (dma_lo) kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at %x without CPU cache for device buffers\n", (dma_hi - dma_lo) >> 20, dma_lo);
