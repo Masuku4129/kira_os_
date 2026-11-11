@@ -37,7 +37,8 @@ static int ndevs;
 static uint8_t bus_seen[256];
 
 void pci_set_backend(const pci_backend_t* b) {
-    if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
+    if (b && b->read32 && b->write32) be = *b;
+    else { be.read32 = port_read32; be.write32 = port_write32; }
 }
 
 /* ECAM (PCI Express): конфигурация каждой функции - 4 КБ по адресу base + (шина << 20 | устройство << 15 |
@@ -62,7 +63,7 @@ static void ecam_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uin
     *(volatile uint32_t*)(ecam + offset) = v;
 }
 int pci_use_ecam(volatile void* base, uint64_t size, uint8_t bus_start, uint8_t bus_end) {
-    if (!base || !size || bus_start > bus_end || size > (uint64_t)UINTPTR_MAX ||
+    if (!base || ((uintptr_t)base & 3u) || !size || bus_start > bus_end || size > (uint64_t)UINTPTR_MAX ||
         (uintptr_t)base > UINTPTR_MAX - (uintptr_t)size) return -1;
     uint64_t required = ((uint64_t)bus_end - bus_start + 1) << 20;
     if (size < required) return -1;

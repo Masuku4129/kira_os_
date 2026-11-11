@@ -52,6 +52,14 @@ int main(void) {
     if (pci_next_cap(&dev, 0, &id)) return 10;
     put16(0x06, 0);                           /* capability-list status bit clear */
     if (pci_next_cap(&dev, 0, &id)) return 11;
+    {
+        pci_backend_t incomplete = { rd, 0 };
+        pci_set_backend(&incomplete);
+        if (pci_read32(&dev, 0) != 0xFFFFFFFFu) return 12;
+        pci_set_backend(&backend);
+        if (pci_use_ecam((volatile void*)(uintptr_t)1, 1u << 20, 0, 0) == 0) return 13;
+        if (pci_use_ecam((volatile void*)(uintptr_t)0x1000, (1u << 20) - 1, 0, 0) == 0) return 14;
+    }
     puts("pci_cap_test: PASS");
     return 0;
 }
