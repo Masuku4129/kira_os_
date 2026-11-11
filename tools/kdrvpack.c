@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
             uint32_t c, mk; if (!parse_pair(argv[++i], 0x00FFFFFFu, &c, &mk)) { fprintf(stderr, "kdrvpack: неверная PCI class/mask\n"); return 2; }
             kdrv_match_t* m = &h.match[h.nmatch++]; m->vendor = m->device = KDRV_ANY; m->cls = c; m->cls_mask = mk;
         } else if (!strcmp(argv[i], "--caps") && i + 1 < argc) {
-            if (caps_seen || !caps_of(argv[++i], &h.caps)) { fprintf(stderr, "kdrvpack: пустые, повторные или неизвестные права\\n"); return 2; }
+            if (caps_seen || !caps_of(argv[++i], &h.caps)) { fprintf(stderr, "kdrvpack: пустые, повторные или неизвестные права\n"); return 2; }
             caps_seen = 1;
         }
         else if (!strcmp(argv[i], "--version") && i + 1 < argc) { if (!parse_version(argv[++i], &h.version)) { fprintf(stderr, "kdrvpack: версия должна быть числом 1..UINT32_MAX\n"); return 2; } }
@@ -112,11 +112,11 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--corrupt")) corrupt = 1;
         else { fprintf(stderr, "kdrvpack: непонятный аргумент %s\n", argv[i]); return 2; }
     }
-    if (!caps_seen) { fprintf(stderr, "kdrvpack: требуется --caps с одним или несколькими правами\\n"); return 2; }
+    if (!caps_seen) { fprintf(stderr, "kdrvpack: требуется --caps с одним или несколькими правами\n"); return 2; }
     size_t en; uint8_t* elf = slurp(argv[2], &en, KDRV_ELF_MAX);
     h.elf_size = (uint32_t)en;
     uint8_t* pkg = (uint8_t*)malloc(sizeof h + en);
-    if (!pkg) { fprintf(stderr, "kdrvpack: недостаточно памяти для пакета\\n"); free(elf); return 1; }
+    if (!pkg) { fprintf(stderr, "kdrvpack: недостаточно памяти для пакета\n"); free(elf); return 1; }
     memcpy(pkg, &h, sizeof h); memcpy(pkg + sizeof h, elf, en);
     int e = kdrv_header_check(pkg, (uint32_t)(sizeof h + en), 0);
     if (e) { fprintf(stderr, "kdrvpack: %s\n", kdrv_strerror(e)); return 1; }
