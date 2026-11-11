@@ -249,28 +249,15 @@ int mp_parse(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
     return 0;
 }
 
-int acpi_init(uint64_t mbi) {
+static int acpi_finish(uint64_t rs, int from_mb2_tag) {
     const uint64_t ONE_GB = 1ULL << 30;
-    if (mbi == 0 || mbi >= ONE_GB) return -1;
-    uint64_t total = *(const uint32_t*)(uintptr_t)mbi;
-    const uint8_t* p = (const uint8_t*)(uintptr_t)(mbi + 8);
-    const uint8_t* end = (const uint8_t*)(uintptr_t)(mbi + total);
-    const uint8_t* rsdp = 0;
-    while (p + 8 <= end) {
-        uint32_t type = rd32(p), size = rd32(p + 4);
-        if (type == 0 || size < 8 || p + size > end) break;
-        if (type == 15 || (type == 14 && !rsdp)) rsdp = p + 8;
-        p += (size + 7) & ~7u;
-    }
-    /* Области BIOS, где лежат RSDP и "_MP_": конец базовой памяти (EBDA) и ПЗУ E0000-FFFFF.
-       Страницу 0 (там указатель на EBDA) не трогаем: она закрыта защитой от NULL. */
-    uint64_t rs = rsdp ? (uint64_t)(uintptr_t)rsdp : 0;
+    info = (acpi_info_t){0};
     if (!rs) rs = acpi_scan(0x80000, 0xA0000, "RSD PTR ", 8, 20);
     if (!rs) rs = acpi_scan(0xE0000, 0x100000, "RSD PTR ", 8, 20);
     int rc = rs ? acpi_parse(rs, ONE_GB, &info) : -2;
     if (rc == 0) {
         uart_print("[KIRA ACPI] rev "); uart_print_dec(info.revision);
-        uart_print(rsdp ? "" : " (RSDP found in BIOS memory)");
+        uart_print(from_mb2_tag ? "" : " (RSDP from BootInfo/firmware)");
         uart_print(", tables ok "); uart_print_dec(info.tables_seen);
         uart_print(" bad "); uart_print_dec(info.tables_bad);
         uart_print(" unmapped "); uart_print_dec(info.tables_skipped_high);
@@ -280,15 +267,20 @@ int acpi_init(uint64_t mbi) {
         uart_print(", PCIe ECAM "); if (info.mcfg_base) uart_print_hex(info.mcfg_base); else uart_print("none");
         uart_print("\n");
         if (info.cpu_count) return 0;
-    } else if (rs) { uart_print("[KIRA ACPI] RSDP/root table validation failed, code "); uart_print_dec((uint64_t)(-rc)); uart_print("\n"); }
-    else uart_print("[KIRA ACPI] No ACPI tables (bootloader tag or BIOS memory).\n");
+    } else if (rs) {
+        uart_print("[KIRA ACPI] RSDP/root table validation failed, code ");
+        uart_print_dec((uint64_t)(-rc)); uart_print("\n");
+    } else uart_print("[KIRA ACPI] No ACPI tables (BootInfo/Multiboot2/BIOS memory).\n");
 
     uint64_t fps = acpi_scan(0x80000, 0xA0000, "_MP_", 4, 0);
     if (!fps) fps = acpi_scan(0xE0000, 0x100000, "_MP_", 4, 0);
-    acpi_info_t keep = info;                              /* что дал ACPI (HPET, ECAM) - сохранить */
+    acpi_info_t keep = info;
     if (fps && mp_parse(fps, ONE_GB, &info) == 0) {
-        if (keep.valid) { info.revision = keep.revision; info.has_hpet = keep.has_hpet; info.mcfg_base = keep.mcfg_base;
-                          info.mcfg_bus_start = keep.mcfg_bus_start; info.mcfg_bus_end = keep.mcfg_bus_end; info.tables_seen = keep.tables_seen; }
+        if (keep.valid) {
+            info.revision = keep.revision; info.has_hpet = keep.has_hpet; info.mcfg_base = keep.mcfg_base;
+            info.mcfg_bus_start = keep.mcfg_bus_start; info.mcfg_bus_end = keep.mcfg_bus_end;
+            info.tables_seen = keep.tables_seen;
+        }
         uart_print("[KIRA ACPI] Using Intel MP tables: CPUs "); uart_print_dec(info.cpu_count);
         uart_print(", IOAPICs "); uart_print_dec(info.ioapic_count);
         uart_print(", ISA IRQ routes "); uart_print_dec(info.irq_override_count); uart_print(" remapped\n");
@@ -297,6 +289,40 @@ int acpi_init(uint64_t mbi) {
     info = keep;
     if (!info.valid) { uart_print("[KIRA ACPI] No MP tables either: one processor, PIC.\n"); return -2; }
     return 0;
+}
+
+/* Loader-neutral entry: rsdp_phys is a physical address from validated BootInfo.
+   acpi_parse maps it through the platform hook when it is outside the early identity map. */
+int acpi_init_rsdp(uint64_t rsdp_phys) {
+    if (rsdp_phys && (rsdp_phys & 15)) return -1;
+    return acpi_finish(rsdp_phys, 0);
+}
+
+/* Compatibility entry for the current GRUB/Multiboot2 development path. */
+int acpi_init(uint64_t mbi) {
+    const uint64_t ONE_GB = 1ULL << 30;
+    if (mbi == 0 || mbi >= ONE_GB || (mbi & 7) || mbi > ONE_GB - 16) return -1;
+    uint32_t total = rd32((const uint8_t*)(uintptr_t)mbi);
+    if (total < 16 || (total & 7) || total > ONE_GB - mbi) return -1;
+    const uint8_t* p = (const uint8_t*)(uintptr_t)(mbi + 8);
+    const uint8_t* end = (const uint8_t*)(uintptr_t)(mbi + total);
+    const uint8_t* rsdp = 0;
+    int ended = 0;
+    while ((uintptr_t)p <= (uintptr_t)end - 8) {
+        uint32_t type = rd32(p), size = rd32(p + 4);
+        uint64_t padded = ((uint64_t)size + 7u) & ~7ULL;
+        if (size < 8 || size > (uint64_t)(end - p) || padded > (uint64_t)(end - p)) return -1;
+        if (type == 0) {
+            if (size != 8 || p + padded != end) return -1;
+            ended = 1;
+            break;
+        }
+        if (type == 15 && size >= 44) rsdp = p + 8;
+        else if (type == 14 && !rsdp && size >= 28) rsdp = p + 8;
+        p += padded;
+    }
+    if (!ended) return -1;
+    return acpi_finish((uint64_t)(uintptr_t)rsdp, rsdp != 0);
 }
 
 const acpi_info_t* acpi_get(void) { return info.valid ? &info : 0; }
