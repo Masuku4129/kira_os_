@@ -43,18 +43,31 @@ jobs:
           python3 - <<'PY'
           import os, pathlib, subprocess
           event = os.environ["EVENT_NAME"]
-          if event != "pull_request":
+          head = os.environ["HEAD_SHA"]
+          if event == "pull_request":
+              base = os.environ.get("PR_BASE_SHA", "")
+          elif event == "push":
+              base = os.environ.get("PUSH_BASE_SHA", "")
+          else:
+              # Manual dispatch and any future non-diff event run the full suite.
+              base = ""
+
+          # Initial pushes have an all-zero "before" SHA. Missing/unavailable
+          # comparison bases fail closed to a full run rather than skipping checks.
+          if not base or set(base) == {"0"}:
               changed = []
               full = True
+              print(f"No usable comparison base for {event}; selecting full suite.")
           else:
-              base = os.environ.get("PR_BASE_SHA", "")
-              head = os.environ["HEAD_SHA"]
-              if not base:
-                  raise SystemExit("pull_request base SHA is missing; refusing to skip checks")
-              changed = subprocess.check_output(
-                  ["git", "diff", "--name-only", base, head], text=True
-              ).splitlines()
-              full = not changed
+              try:
+                  changed = subprocess.check_output(
+                      ["git", "diff", "--name-only", base, head], text=True
+                  ).splitlines()
+                  full = not changed
+              except subprocess.CalledProcessError:
+                  changed = []
+                  full = True
+                  print("Diff failed; selecting full suite rather than skipping checks.")
           infra = full or any(
               p.startswith(".github/workflows/") or p.startswith("ci/")
               for p in changed
