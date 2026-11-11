@@ -75,6 +75,7 @@ int main(void){
     {
         uint32_t saved_len; memcpy(&saved_len, mcfg + 4, 4);
         uint8_t saved_first = mcfg[44 + 10], saved_last = mcfg[44 + 11];
+        uint8_t saved;
         mcfg[44 + 10] = 1; mcfg[44 + 11] = 0; fix(mcfg, 60, 9);
         CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
         CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
