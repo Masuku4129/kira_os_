@@ -26,6 +26,7 @@ int main(int argc, char** argv) {
     if (!read_ok) return 2;
 
     CHECK(kdrv_manifest_verify(&m, sizeof m, package_sha, 7, KDRV_MANIFEST_ABI, &key, 1) == KDRV_MANIFEST_OK);
+    CHECK(kdrv_manifest_verify_owner(&m, sizeof m, package_sha, 7, KDRV_MANIFEST_ABI) == KDRV_MANIFEST_E_KEY);
     CHECK(kdrv_manifest_verify(0, sizeof m, package_sha, 7, KDRV_MANIFEST_ABI, &key, 1) == KDRV_MANIFEST_E_INPUT);
     CHECK(kdrv_manifest_verify(&m, sizeof m - 1, package_sha, 7, KDRV_MANIFEST_ABI, &key, 1) == KDRV_MANIFEST_E_SIZE);
     CHECK(kdrv_manifest_verify(&m, sizeof m, 0, 7, KDRV_MANIFEST_ABI, &key, 1) == KDRV_MANIFEST_E_INPUT);

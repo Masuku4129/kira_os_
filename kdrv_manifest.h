@@ -51,5 +51,9 @@ enum {
 int kdrv_manifest_verify(const void *data, uint32_t len, const uint8_t package_sha[32],
                          uint32_t version, uint32_t abi,
                          const kdrv_manifest_key_t *keys, uint32_t key_count);
+/* Verifies against the compiled owner trust anchors. Does not imply that the
+ * corresponding private signing key is available or that any package is signed. */
+int kdrv_manifest_verify_owner(const void *data, uint32_t len, const uint8_t package_sha[32],
+                               uint32_t version, uint32_t abi);
 
 #endif

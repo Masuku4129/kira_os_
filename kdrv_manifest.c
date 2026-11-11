@@ -1,4 +1,5 @@
 #include "kdrv_manifest.h"
+#include "kdrv_trust.h"
 #include "pk.h"
 #include <stddef.h>
 
@@ -45,4 +46,10 @@ int kdrv_manifest_verify(const void *data, uint32_t len, const uint8_t package_s
                        (size_t)offsetof(kdrv_manifest_t, signature), m.signature) != 0)
         return KDRV_MANIFEST_E_SIGNATURE;
     return KDRV_MANIFEST_OK;
+}
+
+int kdrv_manifest_verify_owner(const void *data, uint32_t len, const uint8_t package_sha[32],
+                               uint32_t version, uint32_t abi) {
+    return kdrv_manifest_verify(data, len, package_sha, version, abi,
+                                kdrv_trust_keys, KDRV_TRUST_KEY_COUNT);
 }
