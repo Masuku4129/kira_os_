@@ -55,7 +55,7 @@ This is not yet publisher authentication in the running OS: `pkg_load()` still v
 
 Required:
 - Integrate manifest verification into `pkg_load`, `verify`, installation, removal and recovery paths; bind the manifest to the exact `.kdrv` bytes.
-- A compiled owner public-key trust anchor and `kdrv_manifest_verify_owner()` adapter now exist; its fingerprint is checked in host tests and the RFC test signer is rejected by this trust table. **The corresponding private-key possession/provisioning has not been verified**, no production package is signed with it, and the loader does not yet call this adapter. No production private key is present in Git or CI.
+- A compiled owner public-key trust anchor and `kdrv_manifest_verify_owner()` adapter now exist; its bytes are compared against `keys/KIRA_OWNER_ED25519_PUBLIC.hex` and its fingerprint is checked in host tests; the RFC test signer is rejected by this trust table. **The corresponding private-key possession/provisioning has not been verified**, no production package is signed with it, and the loader does not yet call this adapter. No production private key is present in Git or CI.
 - Define key rotation/revocation delivery and trusted persistent state for anti-rollback. Do not claim rollback protection from mutable `/drv/*.rec`.
 - Add trusted-time/expiry semantics only with a defensible clock source; v1 currently has no expiry fields.
 - Update the driver UI to distinguish unsigned/hash-only from authenticated publisher packages.
