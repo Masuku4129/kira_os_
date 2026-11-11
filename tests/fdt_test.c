@@ -37,6 +37,9 @@ static unsigned build(void) {
         { uint32_t r[] = { 0, 0x70000000, 0, 0x20000000 }; pcells("reg", r, 4); } end();
       begin("memory@a0000000"); pstr("device_type", "memory", 7); pstr("status", "disabled", 9);
         { uint32_t r[] = { 0, 0xA0000000, 0, 0x10000000 }; pcells("reg", r, 4); } end();
+      begin("reserved-memory"); p1("#address-cells", 2); p1("#size-cells", 2); prop("ranges", "", 0);
+        begin("reserved@60000000"); { uint32_t r[] = { 0, 0x60000000, 0, 0x2000 }; pcells("reg", r, 4); } end();
+      end();
       begin("cpus"); p1("#address-cells", 1); p1("#size-cells", 0);
         for (int i = 0; i < 4; i++) { char n[16]; sprintf(n, "cpu@%d", i); begin(n); pstr("device_type", "cpu", 4);
           pstr("compatible", "arm,cortex-a72", 15); p1("reg", (uint32_t)i); end(); }
@@ -61,7 +64,7 @@ static unsigned build(void) {
     be(blob, FDT_MAGIC); be(blob + 4, total); be(blob + 8, off_struct); be(blob + 12, off_str); be(blob + 16, 40);
     be(blob + 20, 17); be(blob + 24, 16); be(blob + 28, 0); be(blob + 32, tn); be(blob + 36, sn);
     /* One firmware-reserved physical range, followed by the mandatory (0,0) terminator. */
-    be(blob + 40, 0); be(blob + 44, 0x1000); be(blob + 48, 0); be(blob + 52, 0x2000);
+    be(blob + 40, 0); be(blob + 44, 0x50000000); be(blob + 48, 0); be(blob + 52, 0x1000);
     be(blob + 56, 0); be(blob + 60, 0); be(blob + 64, 0); be(blob + 68, 0);
     memcpy(blob + off_struct, sb, sn); memcpy(blob + off_str, st, tn);
     return total;
@@ -158,9 +161,11 @@ int main(void) {
         CHECK(h->arch == KBI_ARCH_AARCH64 && h->boot_mode == KBI_BOOT_DEVICE_TREE);
         CHECK((h->flags & (KBI_F_FDT | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE)) ==
               (KBI_F_FDT | KBI_F_FRAMEBUFFER | KBI_F_CMDLINE));
-        CHECK(h->mmap_count == 1);
+        CHECK(h->mmap_count == 3);
         const kbi_mmap_entry_t* mm = kbi_mmap(handoff);
-        CHECK(mm[0].base == 0x40000000 && mm[0].length == 0x50000000);
+        CHECK(mm[0].base == 0x40000000 && mm[0].length == 0x10000000);
+        CHECK(mm[1].base == 0x50001000 && mm[1].length == 0x0FFEF000);
+        CHECK(mm[2].base == 0x60002000 && mm[2].length == 0x2FFFE000);
         CHECK(h->fb_phys == 0x3c000000 && h->fb_width == 800 && h->fb_height == 600);
         CHECK(h->cmdline_len == 16 &&
               !strcmp((const char*)handoff + h->cmdline_off, "console=ttyAMA0"));

@@ -2,11 +2,66 @@
 #include "fdt.h"
 
 #define KBI_FDT_MAX_REGIONS 64u
+#define KBI_FDT_MAX_RESERVED 128u
 
-static int add_region(kbi_mmap_entry_t* a, uint32_t* n, uint64_t base, uint64_t size) {
-    if (!size || base > UINT64_MAX - size || *n >= KBI_FDT_MAX_REGIONS) return -1;
-    a[*n] = (kbi_mmap_entry_t){ .base=base, .length=size, .type=KBI_MEM_USABLE, .attributes=0 };
+typedef struct { uint64_t base, size; } fdt_range_t;
+
+static int add_range(fdt_range_t* a, uint32_t* n, uint32_t cap, uint64_t base, uint64_t size) {
+    if (!size || base > UINT64_MAX - size || *n >= cap) return -1;
+    a[*n] = (fdt_range_t){ base, size };
     (*n)++;
+    return 0;
+}
+static int add_region(kbi_mmap_entry_t* a, uint32_t* n, uint64_t base, uint64_t size) {
+    if (*n >= KBI_FDT_MAX_REGIONS || add_range((fdt_range_t*)a, n, 0, base, size)) return -1;
+    return 0;
+}
+static int reserve_node_ranges(const void* fdt, int node, fdt_range_t* reserved, uint32_t* nr) {
+    uint32_t len = 0;
+    const void* reg = fdt_prop(fdt, node, "reg", &len);
+    if (!reg) {
+        /* Dynamic reserved-memory allocations must be placed by the loader before handoff. */
+        return fdt_prop(fdt, node, "size", &len) ? -1 : 0;
+    }
+    int parent = fdt_parent(fdt, node);
+    uint32_t ac = 2, sc = 1, stride;
+    if (parent < 0 || fdt_prop_u32(fdt, parent, "#address-cells", &ac) ||
+        fdt_prop_u32(fdt, parent, "#size-cells", &sc) ||
+        ac < 1 || ac > 2 || sc < 1 || sc > 2) return -1;
+    stride = 4u * (ac + sc);
+    if (!len || len % stride) return -1;
+    for (uint32_t i = 0; i < len / stride; i++) {
+        uint64_t base, size;
+        if (fdt_reg(fdt, node, i, &base, &size) ||
+            add_range(reserved, nr, KBI_FDT_MAX_RESERVED, base, size)) return -1;
+    }
+    return 0;
+}
+static int subtract_reserved(kbi_mmap_entry_t* regions, uint32_t* count,
+                             const fdt_range_t* reserved, uint32_t nr) {
+    kbi_mmap_entry_t next[KBI_FDT_MAX_REGIONS];
+    for (uint32_t r = 0; r < nr; r++) {
+        uint32_t nn = 0;
+        uint64_t rb = reserved[r].base, re = rb + reserved[r].size;
+        for (uint32_t i = 0; i < *count; i++) {
+            uint64_t b = regions[i].base, e = b + regions[i].length;
+            if (re <= b || rb >= e) {
+                if (nn >= KBI_FDT_MAX_REGIONS) return -1;
+                next[nn++] = regions[i];
+                continue;
+            }
+            if (rb > b) {
+                if (nn >= KBI_FDT_MAX_REGIONS) return -1;
+                next[nn] = regions[i]; next[nn].length = rb - b; nn++;
+            }
+            if (re < e) {
+                if (nn >= KBI_FDT_MAX_REGIONS) return -1;
+                next[nn] = regions[i]; next[nn].base = re; next[nn].length = e - re; nn++;
+            }
+        }
+        for (uint32_t i = 0; i < nn; i++) regions[i] = next[i];
+        *count = nn;
+    }
     return 0;
 }
 
@@ -25,6 +80,30 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
     int depth = 0;
     int root = fdt_root(fdt);
     if (root < 0) return -2;
+    fdt_range_t reserved[KBI_FDT_MAX_RESERVED];
+    uint32_t nr = 0;
+    unsigned nfirmware = fdt_reserve_count(fdt, available);
+    for (unsigned i = 0; i < nfirmware; i++) {
+        uint64_t base, size;
+        if (fdt_reserve(fdt, available, i, &base, &size) ||
+            add_range(reserved, &nr, KBI_FDT_MAX_RESERVED, base, size)) return -4;
+    }
+    /* The kernel image and DTB are live boot objects, not free allocator pages. */
+    if (add_range(reserved, &nr, KBI_FDT_MAX_RESERVED, kernel_base, kernel_size) ||
+        add_range(reserved, &nr, KBI_FDT_MAX_RESERVED, fdt_phys, fdt_total_size(fdt))) return -4;
+    int reserved_root = fdt_find_path(fdt, "/reserved-memory");
+    if (reserved_root >= 0) {
+        uint32_t ranges_len = 0;
+        const void* ranges = fdt_prop(fdt, reserved_root, "ranges", &ranges_len);
+        if (!ranges || ranges_len != 0) return -4;
+        int rd = 0;
+        for (int node = fdt_next_node(fdt, reserved_root, &rd); node >= 0;
+             node = fdt_next_node(fdt, node, &rd)) {
+            if (fdt_parent(fdt, node) != reserved_root) continue;
+            if (!fdt_node_enabled(fdt, node)) continue;
+            if (reserve_node_ranges(fdt, node, reserved, &nr)) return -4;
+        }
+    }
     for (int node = root; node >= 0; node = fdt_next_node(fdt, node, &depth)) {
         if (!fdt_node_enabled(fdt, node)) continue;
         uint32_t type_len = 0;
@@ -48,6 +127,9 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
         }
     }
     if (!count) return -5;
+    fdt_fb_t reserved_fb;
+    if (fdt_simplefb(fdt, &reserved_fb) == 0 &&
+        add_range(reserved, &nr, KBI_FDT_MAX_RESERVED, reserved_fb.base, reserved_fb.size)) return -4;
 
     /* Insertion sort by physical base. */
     for (uint32_t i = 1; i < count; i++) {
@@ -70,6 +152,7 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
         }
         regions[merged++] = regions[i];
     }
+    if (subtract_reserved(regions, &merged, reserved, nr) != 0 || !merged) return -4;
 
     uint32_t cmd_len = 0;
     const char* cmd = 0;
