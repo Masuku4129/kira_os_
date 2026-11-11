@@ -265,19 +265,26 @@ static int dma_pool_hits_reserved(const void* fdt, uint64_t lo, uint64_t hi) {
     }
     int parent = fdt_find_path(fdt, "/reserved-memory");
     if (parent >= 0) {
+        uint32_t ac = 0, sc = 0;
+        /* The binding requires explicit cell widths. A malformed parent is not safe to ignore. */
+        if (fdt_prop_u32(fdt, parent, "#address-cells", &ac) ||
+            fdt_prop_u32(fdt, parent, "#size-cells", &sc) ||
+            ac < 1 || ac > 2 || sc < 1 || sc > 2) return 1;
+        uint32_t stride = 4u * (ac + sc);
         int depth = 0;
         int node = fdt_next_node(fdt, parent, &depth);
         while (node >= 0 && depth > 0) {
-            if (depth == 1) {
+            if (depth == 1 && fdt_node_enabled(fdt, node)) {
                 uint32_t reg_len = 0;
-                /* Dynamic reserved-memory allocations (size/alloc-ranges, no reg) have no
-                   fixed interval to compare. Do not place a DMA pool while one exists. */
-                if (!fdt_prop(fdt, node, "reg", &reg_len) || !reg_len) return 1;
-                for (unsigned reg = 0; reg < 64; reg++) {
+                /* Dynamic size/alloc-ranges nodes cannot be bounded before allocation. */
+                const void* reg_data = fdt_prop(fdt, node, "reg", &reg_len);
+                if (!reg_data || !reg_len || reg_len % stride) return 1;
+                unsigned count = reg_len / stride;
+                for (unsigned reg = 0; reg < count; reg++) {
                     uint64_t base = 0, size = 0;
-                    if (fdt_reg(fdt, node, reg, &base, &size) != 0) break;
-                    if (size && (base > UINT64_MAX - size ||
-                                 (base < hi && lo < base + size))) return 1;
+                    if (fdt_reg(fdt, node, reg, &base, &size) != 0 || !size ||
+                        base > UINT64_MAX - size) return 1;
+                    if (base < hi && lo < base + size) return 1;
                 }
             }
             node = fdt_next_node(fdt, node, &depth);
@@ -286,9 +293,11 @@ static int dma_pool_hits_reserved(const void* fdt, uint64_t lo, uint64_t hi) {
     /* simple-framebuffer can be outside /reserved-memory on older firmware trees. */
     for (int node = fdt_find_compatible(fdt, -1, "simple-framebuffer");
          node >= 0; node = fdt_find_compatible(fdt, node, "simple-framebuffer")) {
+        if (!fdt_node_enabled(fdt, node)) continue;
         uint64_t base = 0, size = 0;
-        if (fdt_reg(fdt, node, 0, &base, &size) == 0 && size &&
-            (base > UINT64_MAX - size || (base < hi && lo < base + size))) return 1;
+        if (fdt_reg(fdt, node, 0, &base, &size) != 0 || !size ||
+            base > UINT64_MAX - size) return 1;
+        if (base < hi && lo < base + size) return 1;
     }
     return 0;
 }
