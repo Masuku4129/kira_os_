@@ -102,33 +102,15 @@ int pci_window_alloc(pci_window_t* w, uint64_t size, uint64_t* pci_addr, uint64_
     *cpu_addr = cpu;
     return 0;
 }
-static int pci_window_cpu_range(const pci_window_t* w, uint64_t* start, uint64_t* end) {
-    uint64_t base;
-    if (w->cpu_off >= 0) {
-        uint64_t off = (uint64_t)w->cpu_off;
-        if (w->pci_base > UINT64_MAX - off) return -1;
-        base = w->pci_base + off;
-    } else {
-        uint64_t off = (uint64_t)(-(w->cpu_off + 1)) + 1;
-        if (w->pci_base < off) return -1;
-        base = w->pci_base - off;
-    }
-    if (base > UINT64_MAX - w->size) return -1;
-    *start = base; *end = base + w->size;
-    return 0;
-}
 int pci_window_set_add(pci_window_set_t* set, const pci_window_t* window) {
     if (!set || !window || !window->size || window->pci_base > UINT64_MAX - window->size ||
         window->next < window->pci_base || window->next > window->pci_base + window->size ||
         set->count >= PCI_MAX_WINDOWS) return -1;
-    uint64_t end = window->pci_base + window->size, cpu_start, cpu_end;
-    if (pci_window_cpu_range(window, &cpu_start, &cpu_end)) return -1;
+    uint64_t end = window->pci_base + window->size;
     for (unsigned i = 0; i < set->count; i++) {
         const pci_window_t* old = &set->windows[i];
-        uint64_t old_end = old->pci_base + old->size, old_cpu_start, old_cpu_end;
+        uint64_t old_end = old->pci_base + old->size;
         if (window->pci_base < old_end && old->pci_base < end) return -1;
-        if (pci_window_cpu_range(old, &old_cpu_start, &old_cpu_end) ||
-            (cpu_start < old_cpu_end && old_cpu_start < cpu_end)) return -1;
     }
     set->windows[set->count++] = *window;
     return 0;

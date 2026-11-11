@@ -1220,9 +1220,8 @@ static void arm_pci_init(const void* fdt) {
         unsigned space = (hi >> 24) & 3;
         pci_window_set_t* w = space == 2 ? &m32 : space == 3 ? &m64 : 0;
         if (!w) continue;                         /* I/O windows are not allocated by this MMIO-only path */
-        if (!sz || pci > UINT64_MAX - sz || cpu > UINT64_MAX - sz ||
-            (space == 2 && (pci > UINT32_MAX || sz > 0x100000000ull - pci))) {
-            kprintf("[KIRA PCI] invalid, overflowing, or non-32-bit memory range; PCI disabled\\n");
+        if (!sz || pci > UINT64_MAX - sz || cpu > UINT64_MAX - sz) {
+            kprintf("[KIRA PCI] invalid or overflowing memory range; PCI disabled\\n");
             return;
         }
         uint64_t delta;
@@ -1250,8 +1249,8 @@ static void arm_pci_init(const void* fdt) {
     }
     int nd = pci_init();
     int nb = pci_assign_multi(&m32, &m64);
-    kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %u, 64-bit %u)\n",
-            base, (uint64_t)bus0, (uint64_t)bus1, (uint64_t)nd, (uint64_t)nb, (uint64_t)m32.count, (uint64_t)m64.count);
+    kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\n",
+            base, (uint64_t)bus0, (uint64_t)bus1, (uint64_t)nd, (uint64_t)nb, m32.pci_base, m64.pci_base);
 }
 
 /* ---------------- вход ---------------- */

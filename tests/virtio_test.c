@@ -278,6 +278,30 @@ int main(void) {
     }
     CHECK(pci_window_set_add(&full, &wsmall) == -1 && full.count == PCI_MAX_WINDOWS);
 
+    /* Exercise the real BAR programming path: a 64-bit BAR must skip an undersized
+       first window, use the second window, and program both address halves. */
+    memset(bus_dev, 0, sizeof bus_dev);
+    mkhdr(F(0, 0, 0), 0x1234, 0x5678, 2, 0, 0);
+    F(0, 0, 0)->bar_size[0] = 0x2000;
+    F(0, 0, 0)->bar_64[0] = 1;
+    put32(F(0, 0, 0), 0x10, 0xC);
+    static const pci_backend_t assign_be = { cfg_read, cfg_write };
+    pci_set_backend(&assign_be);
+    CHECK(pci_init() == 1);
+    const pci_dev_t* assigned = pci_get(0);
+    CHECK(assigned && assigned->bar[0].mem64 && assigned->bar[0].size == 0x2000 && assigned->bar[0].base == 0);
+    pci_window_set_t assign32 = {0}, assign64 = {0};
+    pci_window_t too_small = { .pci_base = 0x100000000ull, .size = 0x1000,
+                               .next = 0x100000000ull, .cpu_off = 0 };
+    pci_window_t usable = { .pci_base = 0x200000000ull, .size = 0x8000,
+                            .next = 0x200000000ull, .cpu_off = -0x10000000 };
+    CHECK(pci_window_set_add(&assign64, &too_small) == 0);
+    CHECK(pci_window_set_add(&assign64, &usable) == 0);
+    CHECK(pci_assign_multi(&assign32, &assign64) == 1);
+    CHECK(assigned->bar[0].base == 0x1F0000000ull);
+    CHECK(pci_read32(assigned, 0x10) == 0x0000000Cu);
+    CHECK(pci_read32(assigned, 0x14) == 0x00000002u);
+
     /* --- PCI --- */
     model_init(o0, 0x1042);
     CHECK(pci_use_ecam(ecam_probe, 1u << 20, 0, 1) == -1); /* advertised two buses do not fit; backend stays unchanged */
