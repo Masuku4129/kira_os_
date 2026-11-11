@@ -178,7 +178,7 @@ static uint32_t cr32(const pci_dev_t* d, uint16_t off) { return be.read32(d->bus
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { return cr32(d, off); }
 uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { return (uint16_t)(cr32(d, off & ~3) >> ((off & 2) * 8)); }
 uint8_t pci_read8(const pci_dev_t* d, uint16_t off) { return (uint8_t)(cr32(d, off & ~3) >> ((off & 3) * 8)); }
-static int pci_is_bridge(const pci_dev_t* d)
+int pci_is_bridge(const pci_dev_t* d)
 {
     return d && d->class_code == 0x06 && d->subclass == 0x04 &&
            (d->header_type & 0x7Fu) == 1u;
