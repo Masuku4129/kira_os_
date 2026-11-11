@@ -63,7 +63,7 @@ static unsigned build(void) {
     memset(blob, 0, sizeof blob);
     be(blob, FDT_MAGIC); be(blob + 4, total); be(blob + 8, off_struct); be(blob + 12, off_str); be(blob + 16, 40);
     be(blob + 20, 17); be(blob + 24, 16); be(blob + 28, 0); be(blob + 32, tn); be(blob + 36, sn);
-    /* One firmware-reserved physical range, followed by the mandatory (0,0) terminator. */
+    /* One firmware-reserved range inside RAM, followed by the mandatory (0,0) terminator. */
     be(blob + 40, 0); be(blob + 44, 0x50000000); be(blob + 48, 0); be(blob + 52, 0x1000);
     be(blob + 56, 0); be(blob + 60, 0); be(blob + 64, 0); be(blob + 68, 0);
     memcpy(blob + off_struct, sb, sn); memcpy(blob + off_str, st, tn);
@@ -108,7 +108,7 @@ int main(void) {
     uint64_t reserve_base = 0, reserve_size = 0;
     CHECK(fdt_reserve_count(blob, sizeof blob) == 1);
     CHECK(fdt_reserve(blob, sizeof blob, 0, &reserve_base, &reserve_size) == 0 &&
-          reserve_base == 0x1000 && reserve_size == 0x2000);
+          reserve_base == 0x50000000 && reserve_size == 0x1000);
     CHECK(fdt_reserve(blob, sizeof blob, 1, &reserve_base, &reserve_size) != 0);
 
     /* reg ranges with wrapped 64-bit physical ends are rejected. */
