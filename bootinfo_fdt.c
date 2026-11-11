@@ -117,8 +117,11 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
         int parent = fdt_parent(fdt, node);
         uint32_t ac = 2, sc = 1, reg_len = 0;
         if (parent >= 0) {
-            fdt_prop_u32(fdt, parent, "#address-cells", &ac);
-            fdt_prop_u32(fdt, parent, "#size-cells", &sc);
+            uint32_t cell_len = 0;
+            const void* cell = fdt_prop(fdt, parent, "#address-cells", &cell_len);
+            if (cell) { if (cell_len != 4) return -3; ac = fdt_u32(cell); }
+            cell = fdt_prop(fdt, parent, "#size-cells", &cell_len);
+            if (cell) { if (cell_len != 4) return -3; sc = fdt_u32(cell); }
         }
         const void* reg = fdt_prop(fdt, node, "reg", &reg_len);
         if (ac < 1 || ac > 2 || sc < 1 || sc > 2 || !reg) return -3;
