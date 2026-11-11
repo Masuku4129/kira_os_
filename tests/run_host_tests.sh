@@ -93,6 +93,10 @@ echo "== KiraFS (files, dirs, crash at every write, corruption fuzz) =="
 $CC $FLAGS -fsanitize=address,undefined -Itests -o $T/kfs tests/kfs_test.c tests/kfs_v1_ref.c kfs.c store.c
 $T/kfs
 
+echo "== PCI capability traversal (bounds, malformed links, null arguments) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/pci-cap tests/pci_cap_test.c pci.c
+$T/pci-cap
+
 echo "== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS over virtio) =="
 $CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c kfs.c store.c
 $T/virtio

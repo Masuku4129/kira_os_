@@ -321,11 +321,14 @@ const pci_dev_t* pci_find(uint16_t v, uint16_t dv) {
 }
 
 uint16_t pci_next_cap(const pci_dev_t* d, uint16_t prev, uint8_t* id) {
-    if (!(pci_read16(d, 0x06) & 0x10)) return 0;                     /* бит Capabilities List в статусе */
-    uint16_t p = prev ? pci_read8(d, (uint16_t)(prev + 1)) : pci_read8(d, 0x34);
-    p &= 0xFC;
-    if (p < 0x40) return 0;
-    *id = pci_read8(d, p);
+    if (!d || !id || (prev && (prev < 0x40 || prev > 0xFC || (prev & 3)))) return 0;
+    if (!(pci_read16(d, 0x06) & 0x10)) return 0;
+    uint16_t raw = prev ? pci_read8(d, (uint16_t)(prev + 1)) : pci_read8(d, 0x34);
+    uint16_t p = raw & 0xFC;
+    if (p < 0x40 || p > 0xFC || p == prev) return 0;
+    uint8_t cap_id = pci_read8(d, p);
+    if (!cap_id || cap_id == 0xFF) return 0;
+    *id = cap_id;
     return p;
 }
 
