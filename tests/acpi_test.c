@@ -133,6 +133,20 @@ int main(void){
             CHECK(mp.ioapic_count <= 64 && mp.cpu_count <= 300);
         }
     }
+    {
+        acpi_info_t unchanged; memset(&unchanged, 0xA5, sizeof unchanged);
+        acpi_info_t before = unchanged;
+        CHECK(mp_parse(UINT64_MAX - 7, UINT64_MAX, &unchanged) == -1);
+        CHECK(memcmp(&unchanged, &before, sizeof before) == 0);
+        CHECK(mp_parse(base + 0x800, base + (1 << 16), 0) == -1);
+        /* The MP base-table entry count must consume the entire declared table. */
+        uint16_t saved_count; memcpy(&saved_count, ct + 34, 2);
+        uint16_t short_count = (uint16_t)(saved_count - 1); memcpy(ct + 34, &short_count, 2); fix(ct, tl, 7);
+        before = mp;
+        CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == -4);
+        CHECK(memcmp(&mp, &before, sizeof mp) == 0);
+        memcpy(ct + 34, &saved_count, 2); fix(ct, tl, 7);
+    }
     {   /* FADT: бит LEGACY_DEVICES (IAPC_BOOT_ARCH, смещение 109) - платформа сообщает, что устройства ISA есть */
         uint8_t *rs = m + 0x3000, *xs = m + 0x3100, *fa = m + 0x3200;
         for (int ver = 0; ver < 4; ver++) {

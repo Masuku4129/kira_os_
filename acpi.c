@@ -236,8 +236,8 @@ static void mp_add_cpu(acpi_info_t* o, uint32_t id) {
     o->cpu_count++;
 }
 
-int mp_parse(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
-    if (!fps || fps + 16 > max_phys) return -1;
+static int mp_parse_impl(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
+    if (!o || !fps || fps > max_phys || max_phys - fps < 16) return -1;
     const uint8_t* f = (const uint8_t*)(uintptr_t)fps;
     if (f[0] != '_' || f[1] != 'M' || f[2] != 'P' || f[3] != '_' || f[8] == 0 || !sum_ok(f, (uint32_t)f[8] * 16)) return -2;
     o->cpu_count = 0; o->max_apic_id = 0; o->ioapic_count = 0; o->irq_override_count = 0;
@@ -250,18 +250,19 @@ int mp_parse(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
         o->valid = 1; o->source = 1;
         return 0;
     }
-    if ((uint64_t)cfg + 44 > max_phys) return -3;
+    if ((uint64_t)cfg > max_phys || max_phys - (uint64_t)cfg < 44) return -3;
     const uint8_t* t = (const uint8_t*)(uintptr_t)cfg;
     uint32_t len = (uint32_t)t[4] | (uint32_t)t[5] << 8;
-    if (t[0] != 'P' || t[1] != 'C' || t[2] != 'M' || t[3] != 'P' || len < 44 || (uint64_t)cfg + len > max_phys || !sum_ok(t, len)) return -4;
+    if (t[0] != 'P' || t[1] != 'C' || t[2] != 'M' || t[3] != 'P' || len < 44 || len > max_phys - (uint64_t)cfg || !sum_ok(t, len)) return -4;
     o->lapic_addr = rd32(t + 36);
     uint32_t count = (uint32_t)t[34] | (uint32_t)t[35] << 8;
     uint8_t isa[32] = { 0 };                              /* битовая карта номеров шин ISA */
     uint32_t off = 44;
-    for (uint32_t n = 0; n < count && off < len; n++) {
+    for (uint32_t n = 0; n < count; n++) {
+        if (off >= len) return -4;
         uint8_t type = t[off];
         uint32_t el = type == 0 ? 20 : 8;
-        if (type > 7 || off + el > len) break;
+        if (type > 4 || el > len - off) return -4;
         const uint8_t* e = t + off;
         if (type == 0 && (e[3] & 1)) mp_add_cpu(o, e[1]);
         else if (type == 1 && e[2] == 'I' && e[3] == 'S' && e[4] == 'A') isa[e[1] >> 3] |= (uint8_t)(1u << (e[1] & 7));
@@ -275,12 +276,14 @@ int mp_parse(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
         }
         off += el;
     }
+    if (off != len) return -4;
     for (unsigned b = 0; b < sizeof isa; b++) if (isa[b]) o->legacy_isa = 1;   /* в таблицах MP есть шина ISA */
     off = 44;                                             /* второй проход: назначения прерываний (шины и IOAPIC уже известны) */
-    for (uint32_t n = 0; n < count && off < len; n++) {
+    for (uint32_t n = 0; n < count; n++) {
+        if (off >= len) return -4;
         uint8_t type = t[off];
         uint32_t el = type == 0 ? 20 : 8;
-        if (type > 7 || off + el > len) break;
+        if (type > 4 || el > len - off) return -4;
         const uint8_t* e = t + off;
         if (type == 3 && e[1] == 0) {                     /* INT: шина/IRQ -> IOAPIC/вход */
             uint8_t bus = e[4], irq = e[5], dst = e[6], pin = e[7];
@@ -297,9 +300,18 @@ int mp_parse(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
         }
         off += el;
     }
+    if (off != len) return -4;
     if (!o->cpu_count) return -5;
     o->valid = 1; o->source = 1;
     return 0;
+}
+
+int mp_parse(uint64_t fps, uint64_t max_phys, acpi_info_t* out) {
+    if (!out) return -1;
+    acpi_info_t parsed = *out;
+    int rc = mp_parse_impl(fps, max_phys, &parsed);
+    if (rc == 0) *out = parsed;
+    return rc;
 }
 
 static int acpi_finish(uint64_t rs, int from_mb2_tag) {
