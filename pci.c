@@ -102,22 +102,41 @@ int pci_window_alloc(pci_window_t* w, uint64_t size, uint64_t* pci_addr, uint64_
     *cpu_addr = cpu;
     return 0;
 }
-int pci_assign(pci_window_t* mem32, pci_window_t* mem64) {
+int pci_window_set_add(pci_window_set_t* set, const pci_window_t* window) {
+    if (!set || !window || !window->size || window->pci_base > UINT64_MAX - window->size ||
+        window->next < window->pci_base || window->next > window->pci_base + window->size ||
+        set->count >= PCI_MAX_WINDOWS) return -1;
+    uint64_t end = window->pci_base + window->size;
+    for (unsigned i = 0; i < set->count; i++) {
+        const pci_window_t* old = &set->windows[i];
+        uint64_t old_end = old->pci_base + old->size;
+        if (window->pci_base < old_end && old->pci_base < end) return -1;
+    }
+    set->windows[set->count++] = *window;
+    return 0;
+}
+int pci_window_set_alloc(pci_window_set_t* set, uint64_t size, uint64_t* pci_addr, uint64_t* cpu_addr) {
+    if (!set || !pci_addr || !cpu_addr) return -1;
+    for (unsigned i = 0; i < set->count; i++) {
+        if (pci_window_alloc(&set->windows[i], size, pci_addr, cpu_addr) == 0) return 0;
+    }
+    return -1;
+}
+int pci_assign_multi(pci_window_set_t* mem32, pci_window_set_t* mem64) {
     int n = 0;
-    /* крупные BAR первыми: меньше потерь на выравнивание */
     for (int pass = 63; pass >= 4; pass--) {
         for (int i = 0; i < ndevs; i++) {
             pci_dev_t* d = &devs[i];
             for (int b = 0; b < PCI_BARS; b++) {
                 uint64_t sz = d->bar[b].size;
                 if (d->bar[b].io || !sz || d->bar[b].base || (sz & (sz - 1)) || sz != (1ull << pass)) continue;
-                pci_window_t* w = d->bar[b].mem64 && mem64 && mem64->size ? mem64 : mem32;
                 uint64_t a = 0, cpu = 0;
-                int rc = pci_window_alloc(w, sz, &a, &cpu);
-                if (rc && w != mem32 && d->bar[b].mem64) { w = mem32; rc = pci_window_alloc(w, sz, &a, &cpu); }
-                if (rc) continue;                 /* не трогаем BAR, если CPU-адрес не представим */
+                int rc = -1;
+                if (d->bar[b].mem64 && mem64) rc = pci_window_set_alloc(mem64, sz, &a, &cpu);
+                if (rc && mem32) rc = pci_window_set_alloc(mem32, sz, &a, &cpu);
+                if (rc) continue;
                 uint16_t off = (uint16_t)(0x10 + 4 * b);
-                uint32_t lo = pci_read32(d, off) & 0xF;                        /* биты типа сохраняются */
+                uint32_t lo = pci_read32(d, off) & 0xF;
                 pci_write32(d, off, (uint32_t)a | lo);
                 if (d->bar[b].mem64) pci_write32(d, (uint16_t)(off + 4), (uint32_t)(a >> 32));
                 d->bar[b].base = cpu;
@@ -126,6 +145,12 @@ int pci_assign(pci_window_t* mem32, pci_window_t* mem64) {
         }
     }
     return n;
+}
+int pci_assign(pci_window_t* mem32, pci_window_t* mem64) {
+    pci_window_set_t s32 = {0}, s64 = {0};
+    if (mem32 && mem32->size && pci_window_set_add(&s32, mem32)) return 0;
+    if (mem64 && mem64->size && pci_window_set_add(&s64, mem64)) return 0;
+    return pci_assign_multi(&s32, &s64);
 }
 
 static uint32_t cr32(const pci_dev_t* d, uint16_t off) { return be.read32(d->bus, d->dev, d->fn, off); }

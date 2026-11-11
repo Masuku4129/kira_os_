@@ -1194,8 +1194,8 @@ static void arm_pci_init(const void* fdt) {
         return;
     }
 
-    /* Decode all host-bridge windows before enabling the ECAM backend. */
-    pci_window_t m32 = { 0, 0, 0, 0 }, m64 = { 0, 0, 0, 0 };
+    /* Decode every host-bridge memory window before enabling ECAM. */
+    pci_window_set_t m32 = {0}, m64 = {0};
     uint32_t pac = 2, sc = 2;
     int par = fdt_parent(fdt, n);
     const uint8_t* cells = par >= 0 ? (const uint8_t*)fdt_prop(fdt, par, "#address-cells", &len) : 0;
@@ -1218,7 +1218,7 @@ static void arm_pci_init(const void* fdt) {
         for (uint32_t i = 0; i < pac; i++) cpu = cpu << 32 | fdt_u32(r + o + 12 + 4 * i);
         for (uint32_t i = 0; i < sc; i++) sz = sz << 32 | fdt_u32(r + o + 12 + 4 * pac + 4 * i);
         unsigned space = (hi >> 24) & 3;
-        pci_window_t* w = space == 2 ? &m32 : space == 3 ? &m64 : 0;
+        pci_window_set_t* w = space == 2 ? &m32 : space == 3 ? &m64 : 0;
         if (!w) continue;                         /* I/O windows are not allocated by this MMIO-only path */
         if (!sz || pci > UINT64_MAX - sz || cpu > UINT64_MAX - sz) {
             kprintf("[KIRA PCI] invalid or overflowing memory range; PCI disabled\\n");
@@ -1235,8 +1235,10 @@ static void arm_pci_init(const void* fdt) {
             if (delta > (uint64_t)INT64_MAX + 1) { kprintf("[KIRA PCI] CPU/PCI window offset is not representable; PCI disabled\\n"); return; }
             cpu_off = delta == (uint64_t)INT64_MAX + 1 ? INT64_MIN : -(int64_t)delta;
         }
-        if (!w->size || sz > w->size) {
-            w->pci_base = pci; w->next = pci; w->size = sz; w->cpu_off = cpu_off;
+        pci_window_t window = { .pci_base = pci, .size = sz, .next = pci, .cpu_off = cpu_off };
+        if (pci_window_set_add(w, &window)) {
+            kprintf("[KIRA PCI] overlapping or excessive memory windows; PCI disabled\\n");
+            return;
         }
     }
     volatile void* e = vmm_map_mmio(base, size, 0);
@@ -1246,7 +1248,7 @@ static void arm_pci_init(const void* fdt) {
         return;
     }
     int nd = pci_init();
-    int nb = pci_assign(&m32, &m64);
+    int nb = pci_assign_multi(&m32, &m64);
     kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\n",
             base, (uint64_t)bus0, (uint64_t)bus1, (uint64_t)nd, (uint64_t)nb, m32.pci_base, m64.pci_base);
 }

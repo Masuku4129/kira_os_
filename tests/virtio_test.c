@@ -257,6 +257,23 @@ int main(void) {
     pci_window_t misaligned = { .pci_base = 0x1000, .size = 0x3000, .next = 0x1001, .cpu_off = 0 };
     CHECK(pci_window_alloc(&misaligned, 0x1000, &pa, &ca) == 0 && pa == 0x2000 && ca == 0x2000);
     CHECK(pci_window_alloc(&win, 0x1800, &pa, &ca) == -1);
+    /* Multiple disjoint host-bridge windows: exhaust the first, then allocate from the second. */
+    pci_window_set_t windows = {0};
+    pci_window_t wsmall = { .pci_base = 0x40000000u, .size = 0x1000, .next = 0x40000000u, .cpu_off = 0x10000000 };
+    pci_window_t wlarge = { .pci_base = 0x50000000u, .size = 0x8000, .next = 0x50000000u, .cpu_off = -0x10000000 };
+    CHECK(pci_window_set_add(&windows, &wsmall) == 0);
+    CHECK(pci_window_set_add(&windows, &wlarge) == 0);
+    CHECK(pci_window_set_alloc(&windows, 0x2000, &pa, &ca) == 0 &&
+          pa == 0x50000000u && ca == 0x40000000u);
+    pci_window_t overlap = { .pci_base = 0x50001000u, .size = 0x1000, .next = 0x50001000u, .cpu_off = 0 };
+    CHECK(pci_window_set_add(&windows, &overlap) == -1 && windows.count == 2);
+    pci_window_set_t full = {0};
+    for (unsigned wi = 0; wi < PCI_MAX_WINDOWS; wi++) {
+        pci_window_t item = { .pci_base = 0x60000000u + (uint64_t)wi * 0x2000u,
+                              .size = 0x1000, .next = 0x60000000u + (uint64_t)wi * 0x2000u, .cpu_off = 0 };
+        CHECK(pci_window_set_add(&full, &item) == 0);
+    }
+    CHECK(pci_window_set_add(&full, &wsmall) == -1 && full.count == PCI_MAX_WINDOWS);
 
     /* --- PCI --- */
     model_init(o0, 0x1042);
