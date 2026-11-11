@@ -21,6 +21,8 @@ typedef struct {
     int      has_hpet;
     uint64_t mcfg_base;            /* база PCIe ECAM (0 = нет) */
     uint8_t  mcfg_bus_start, mcfg_bus_end;
+    uint64_t dmar_phys;          /* checksum-validated DMAR table physical address */
+    uint32_t dmar_len;
     uint32_t tables_seen, tables_bad, tables_skipped_high;
     uint8_t  source;               /* 0 - ACPI (MADT), 1 - таблицы Intel MP (ACPI нет или в нём нет процессоров) */
     /* питание (FADT и \_S5 из DSDT) */

@@ -15,7 +15,7 @@ int main(void){
     uint8_t* m = mmap((void*)0x10000000, 1<<16, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
     CHECK(m == (uint8_t*)0x10000000);
     uint64_t base = 0x10000000;
-    uint8_t *rsdp=m, *xsdt=m+0x100, *madt=m+0x200, *hpet=m+0x400, *mcfg=m+0x500;
+    uint8_t *rsdp=m, *xsdt=m+0x100, *madt=m+0x200, *hpet=m+0x400, *mcfg=m+0x500, *dmar=m+0x600;
     /* MADT: 2 CPU (один отключён), 1 IOAPIC, 1 override */
     uint32_t mlen=44+8+8+12+10+16+16; hdr(madt,"APIC",mlen);
     uint32_t la=0xFEE00000; memcpy(madt+36,&la,4);
@@ -28,8 +28,9 @@ int main(void){
     fix(madt,mlen,9);
     hdr(hpet,"HPET",56); fix(hpet,56,9);
     hdr(mcfg,"MCFG",60); uint64_t ecam=0xB0000000ull; memcpy(mcfg+44,&ecam,8); mcfg[44+10]=0; mcfg[44+11]=255; fix(mcfg,60,9);
-    uint32_t xlen=36+3*8; hdr(xsdt,"XSDT",xlen);
-    uint64_t a1=base+0x200,a2=base+0x400,a3=base+0x500; memcpy(xsdt+36,&a1,8);memcpy(xsdt+44,&a2,8);memcpy(xsdt+52,&a3,8); fix(xsdt,xlen,9);
+    hdr(dmar,"DMAR",48); dmar[36]=47; fix(dmar,48,9);
+    uint32_t xlen=36+4*8; hdr(xsdt,"XSDT",xlen);
+    uint64_t a1=base+0x200,a2=base+0x400,a3=base+0x500,a4=base+0x600; memcpy(xsdt+36,&a1,8);memcpy(xsdt+44,&a2,8);memcpy(xsdt+52,&a3,8);memcpy(xsdt+60,&a4,8); fix(xsdt,xlen,9);
     memset(rsdp,0,36); memcpy(rsdp,"RSD PTR ",8); rsdp[15]=2; uint32_t rl=36; memcpy(rsdp+20,&rl,4); uint64_t xa=base+0x100; memcpy(rsdp+24,&xa,8);
     fix(rsdp,20,8); fix(rsdp,36,32);
     acpi_info_t i;
@@ -64,12 +65,16 @@ int main(void){
     /* A checksum-valid MADT with a truncated known entry is rejected transactionally. */
     { uint8_t saved = madt[45]; madt[45] = 1; fix(madt, mlen, 9);
       CHECK(acpi_parse(base, base+(1<<16), &i)==0);
-      CHECK(i.tables_bad==1 && i.tables_seen==2 && i.cpu_count==0 && i.ioapic_count==0 && i.has_hpet);
+      CHECK(i.tables_bad==1 && i.tables_seen==3 && i.cpu_count==0 && i.ioapic_count==0 && i.has_hpet);
       madt[45] = saved; fix(madt, mlen, 9); }
     CHECK(acpi_parse(base, base+(1<<16), &i)==0); /* restore valid topology after malformed-table test */
     CHECK(i.valid && i.revision==2 && i.ioapic_count==1 && i.ioapic[0].addr==0xFEC00000);
     CHECK(i.lapic_addr==0xFEE00000 && i.irq_override_count==1 && i.has_hpet && i.mcfg_base==ecam && i.mcfg_bus_end==255);
-    CHECK(i.tables_seen==3 && i.tables_bad==0);
+    CHECK(i.dmar_phys==base+0x600 && i.dmar_len==48);
+    { uint32_t save; memcpy(&save,dmar+4,4); uint32_t short_len=47; memcpy(dmar+4,&short_len,4); fix(dmar,short_len,9);
+      CHECK(acpi_parse(base,base+(1<<16),&i)==0 && i.dmar_phys==0 && i.dmar_len==0);
+      memcpy(dmar+4,&save,4); fix(dmar,save,9); }
+    CHECK(i.tables_seen==4 && i.tables_bad==0);
     CHECK(i.iso_valid[0]==1 && i.iso_gsi[0]==2 && !i.iso_valid[1]);
     madt[50]^=0xFF;                       /* порча MADT: должна быть отвергнута, остальное разобрано */
     CHECK(acpi_parse(base, base+(1<<16), &i)==0 && i.tables_bad==1 && i.cpu_count==0 && i.has_hpet);
