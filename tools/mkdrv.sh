@@ -15,6 +15,17 @@ tools/kdrvpack abad  $ELF $T/abad.kdrv  $T/abad.rec  $P --caps mmio,pcidev --con
 tools/kdrvpack eduun $ELF $T/eduun.kdrv $T/eduun.rec $P --caps mmio,pcidev >/dev/null
 tools/kdrvpack edu   $ELF $T/edu.kdrv   $T/edu.rec   $P --caps mmio,pcidev --confirm >/dev/null
 tools/kdrvpack edunc $ELF $T/edunc.kdrv $T/edunc.rec $P --caps mmio,pcidev --confirm >/dev/null
+# Hostile CLI inputs must fail before producing a package.
+expect_reject() {
+    if tools/kdrvpack invalid $ELF $T/invalid.kdrv $T/invalid.rec "$@" >/dev/null 2>&1; then
+        echo "kdrvpack accepted invalid arguments: $*"; exit 1
+    fi
+}
+expect_reject --pci 10000:11e8 --caps mmio
+expect_reject --pci 1234:11e8junk --caps mmio
+expect_reject --class 1000000:ffffff --caps mmio
+expect_reject --pci 1234:11e8 --caps mmio --version -1
+expect_reject --pci 1234:11e8 --caps mmio --version 4294967296
 for n in abad eduun edu edunc; do
     tools/kfstool $IMG put /drv/$n.kdrv $T/$n.kdrv >/dev/null
     tools/kfstool $IMG put /drv/$n.rec $T/$n.rec >/dev/null
