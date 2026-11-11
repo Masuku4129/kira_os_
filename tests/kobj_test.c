@@ -48,6 +48,7 @@ static int stop_fn(void) { return dying; }
 static int load_word(uint64_t w, uint32_t* v) { *v = *(volatile uint32_t*)(uintptr_t)w; return 0; }
 
 int main(void) {
+    CHECK(!kname_ok(0));
     CHECK(kname_ok("kira.test-1_a") && !kname_ok("") && !kname_ok("Bad") && !kname_ok("a/b") && !kname_ok("0123456789012345678901234567890123"));
 
     // дескрипторы
@@ -70,6 +71,8 @@ int main(void) {
 
     // очередь: порядок, отправитель, переполнение, длина больше ёмкости
     char buf[64]; uint32_t from = 0;
+    CHECK(port_send(p1, 1, 0, 1) == KE_ARG);
+    CHECK(port_recv(p1, 0, sizeof buf, 0, &from, 0) == KE_ARG);
     CHECK(port_recv(p1, buf, sizeof buf, 0, &from, 0) == KE_AGAIN);
     CHECK(port_send(p1, 5, "one", 3) == 0 && port_send(p1, 6, "two!", 4) == 0);
     CHECK(port_recv(p1, buf, sizeof buf, 0, &from, 0) == 3 && !memcmp(buf, "one", 3) && from == 5);
