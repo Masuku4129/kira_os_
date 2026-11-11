@@ -48,6 +48,20 @@ static int mb2_bounds(const uint8_t* b, uint32_t available, uint32_t* total) {
     return -3;
 }
 
+static int rsdp_valid(const uint8_t* p, uint32_t len, int extended) {
+    static const uint8_t signature[8] = { 'R','S','D',' ','P','T','R',' ' };
+    uint8_t sum = 0;
+    if (!p || len < (extended ? 36u : 20u)) return 0;
+    for (uint32_t i = 0; i < 8; i++) if (p[i] != signature[i]) return 0;
+    for (uint32_t i = 0; i < 20; i++) sum = (uint8_t)(sum + p[i]);
+    if (sum != 0) return 0;
+    if (!extended) return p[15] < 2;
+    if (p[15] < 2 || rd32(p + 20) != 36u) return 0;
+    sum = 0;
+    for (uint32_t i = 0; i < 36; i++) sum = (uint8_t)(sum + p[i]);
+    return sum == 0;
+}
+
 static uint32_t mb2_type(uint32_t t) {
     switch(t) {
         case 1: return KBI_MEM_USABLE;
@@ -160,6 +174,7 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
     uint32_t acpi_tag=acpi_new_tag?acpi_new_tag:acpi_old_tag;
     if(acpi_tag) {
         uint32_t rsdp_len=acpi_new_tag?36u:20u;
+        if (!rsdp_valid(b+acpi_tag+8, rsdp_len, acpi_new_tag != 0)) return -36;
         for(uint32_t i=0;i<sizeof rsdp_copy;i++) rsdp_copy[i]=0;
         copy_bytes(rsdp_copy,b+acpi_tag+8,rsdp_len);
         h->rsdp_phys=(uint64_t)(uintptr_t)rsdp_copy;

@@ -4,6 +4,16 @@
 #define CHECK(x) do { if(!(x)){printf("bootinfo_mb2 FAIL:%d %s\n",__LINE__,#x);return 1;} }while(0)
 static void w32(uint8_t* p,uint32_t v){p[0]=v;p[1]=v>>8;p[2]=v>>16;p[3]=v>>24;}
 static void w64(uint8_t* p,uint64_t v){w32(p,(uint32_t)v);w32(p+4,(uint32_t)(v>>32));}
+static void set_checksum(uint8_t* p,uint32_t n,uint32_t at){
+    p[at]=0; uint8_t sum=0;
+    for(uint32_t i=0;i<n;i++) sum=(uint8_t)(sum+p[i]);
+    p[at]=(uint8_t)(0u-sum);
+}
+static void make_rsdp(uint8_t* p,int extended){
+    memset(p,0,36); memcpy(p,"RSD PTR ",8); p[15]=extended?2:0;
+    if(extended){w32(p+20,36);set_checksum(p,20,8);set_checksum(p,36,32);}
+    else set_checksum(p,20,8);
+}
 int main(void){
     uint8_t b[256] __attribute__((aligned(8))); memset(b,0,sizeof b);
     /* Multiboot2: mmap, initrd module, command line, RGB framebuffer, end tag. */
@@ -43,9 +53,7 @@ int main(void){
         memcpy(with_acpi,b,128);
         w32(with_acpi,184);
         w32(with_acpi+128,15); w32(with_acpi+132,44);
-        memset(with_acpi+136,0,36); memcpy(with_acpi+136,"RSD PTR ",8);
-        with_acpi[143]=2; /* revision */
-        w32(with_acpi+156,36);
+        make_rsdp(with_acpi+136,1);
         w32(with_acpi+176,0); w32(with_acpi+180,8);
         CHECK(kbi_from_multiboot2(with_acpi,184,0x100000,0x200000,&out,&out_size)==0);
         const kbi_header_t* ah=(const kbi_header_t*)out;
@@ -64,20 +72,36 @@ int main(void){
             uint8_t both[256] __attribute__((aligned(8)));
             memcpy(both,b,128); w32(both,216);
             w32(both+128,14); w32(both+132,28);
-            memset(both+136,0x11,20);
+            make_rsdp(both+136,0);
             w32(both+160,15); w32(both+164,44);
-            memset(both+168,0x22,36);
+            make_rsdp(both+168,1);
             w32(both+208,0); w32(both+212,8);
             CHECK(kbi_from_multiboot2(both,216,0x100000,0x200000,&out,&out_size)==0);
             ah=(const kbi_header_t*)out;
             CHECK((ah->flags & KBI_F_ACPI) && memcmp((const void*)(uintptr_t)ah->rsdp_phys,both+168,36)==0);
         }
+        /* Invalid legacy and extended checksums must not be advertised as trusted ACPI data. */
+        {
+            uint8_t bad[256] __attribute__((aligned(8)));
+            memcpy(bad,b,128); w32(bad,184);
+            w32(bad+128,15); w32(bad+132,44); make_rsdp(bad+136,1);
+            bad[168] ^= 1;
+            w32(bad+176,0); w32(bad+180,8);
+            out=(const void*)(uintptr_t)1; out_size=123;
+            CHECK(kbi_from_multiboot2(bad,184,0x100000,0x200000,&out,&out_size)==-36);
+            CHECK(out==0 && out_size==0);
+            memcpy(bad,b,128); w32(bad,168);
+            w32(bad+128,14); w32(bad+132,28); make_rsdp(bad+136,0);
+            bad[144] ^= 1;
+            w32(bad+160,0); w32(bad+164,8);
+            CHECK(kbi_from_multiboot2(bad,168,0x100000,0x200000,&out,&out_size)==-36);
+        }
         /* Duplicate extended ACPI tags are ambiguous and rejected. */
         {
             uint8_t dup[256] __attribute__((aligned(8)));
             memcpy(dup,b,128); w32(dup,232);
-            w32(dup+128,15); w32(dup+132,44); memset(dup+136,0,36);
-            w32(dup+176,15); w32(dup+180,44); memset(dup+184,0,36);
+            w32(dup+128,15); w32(dup+132,44); make_rsdp(dup+136,1);
+            w32(dup+176,15); w32(dup+180,44); make_rsdp(dup+184,1);
             w32(dup+224,0); w32(dup+228,8);
             CHECK(kbi_from_multiboot2(dup,232,0x100000,0x200000,&out,&out_size)==-36);
         }
