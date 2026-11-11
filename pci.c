@@ -20,6 +20,23 @@ static spinlock_t cfg_rmw_lock = SPINLOCK_INIT;
 static spinlock_t cfg_port_lock = SPINLOCK_INIT;
 static inline void outl(uint16_t p, uint32_t v) { __asm__ volatile ("outl %0, %1" : : "a"(v), "Nd"(p)); }
 static inline uint32_t inl(uint16_t p) { uint32_t v; __asm__ volatile ("inl %1, %0" : "=a"(v) : "Nd"(p)); return v; }
+static void pci_trace_raw_char(char c) {
+    if (!uart_present()) return;
+    for (uint32_t spin = 0; spin < 100000u; spin++) {
+        if (inb(0x3FD) & 0x20u) {
+            outb(0x3F8, (uint8_t)c);
+            return;
+        }
+    }
+}
+static void pci_trace_raw(const char *s) {
+    while (s && *s) pci_trace_raw_char(*s++);
+}
+static void pci_trace_raw_hex16(uint16_t value) {
+    static const char hex[] = "0123456789abcdef";
+    for (int shift = 12; shift >= 0; shift -= 4)
+        pci_trace_raw_char(hex[(value >> shift) & 0x0Fu]);
+}
 #endif
 
 /* Порты 0xCF8/0xCFC - только у x86; на других архитектурах конфигурация - через ECAM (pci_use_ecam). */
@@ -248,13 +265,30 @@ void pci_disable_bus_master(const pci_dev_t* d) {
         uart_print("\n");
     }
 #endif
+    int trace_uhci = d->bus == 0 && d->dev == 1 && d->fn == 2;
+#if defined(__x86_64__)
+    if (trace_uhci) pci_trace_raw("[D0]");
+#endif
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
+#if defined(__x86_64__)
+    if (trace_uhci) pci_trace_raw("[D1]");
 #endif
     uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
+#if defined(__x86_64__)
+    if (trace_uhci) {
+        pci_trace_raw("[D2 cmd=");
+        pci_trace_raw_hex16((uint16_t)value);
+        pci_trace_raw("]");
+    }
+#endif
     value &= (uint32_t)~PCI_CMD_MASTER;
     be.write32(d->bus, d->dev, d->fn, 0x04, value);
-#if !defined(KIRA_HOST_TEST)
+#if defined(__x86_64__)
+    if (trace_uhci) pci_trace_raw("[D3]");
+#endif
     spin_unlock_irqrestore(&cfg_rmw_lock, flags);
+#if defined(__x86_64__)
+    if (trace_uhci) pci_trace_raw("[D4]\\n");
 #endif
 }
 
