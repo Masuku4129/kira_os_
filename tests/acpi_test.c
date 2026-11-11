@@ -34,6 +34,8 @@ int main(void){
     fix(rsdp,20,8); fix(rsdp,36,32);
     acpi_info_t i;
     CHECK(acpi_parse(base, base+(1<<16), &i)==0);
+    CHECK(acpi_init_rsdp(base) == 0);
+    CHECK(acpi_get() && acpi_get()->cpu_count == 2);
     /* RSDP length and root entry array must stay within the supplied physical window. */
     { uint32_t save; memcpy(&save, rsdp+20, 4); uint32_t huge=0xFFFFFFFFu; memcpy(rsdp+20, &huge, 4);
       CHECK(acpi_parse(base, base+(1<<16), &i)==-4); memcpy(rsdp+20, &save, 4); }
