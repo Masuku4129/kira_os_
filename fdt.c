@@ -5,6 +5,7 @@
 enum { T_BEGIN = 1, T_END = 2, T_PROP = 3, T_NOP = 4, T_FINISH = 9 };
 
 uint32_t fdt_u32(const void* p) {
+    if (!p) return 0;
     const uint8_t* b = (const uint8_t*)p;
     return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) | b[3];
 }
@@ -51,7 +52,7 @@ int fdt_valid(const void* fdt, uint32_t max_len) {
     return 1;
 }
 
-uint32_t fdt_total_size(const void* fdt) { return hdr(fdt, 1); }
+uint32_t fdt_total_size(const void* fdt) { return fdt ? hdr(fdt, 1) : 0; }
 
 unsigned fdt_reserve_count(const void* fdt, uint32_t max_len) {
     if (!fdt_valid(fdt, max_len)) return 0;
@@ -148,6 +149,7 @@ int fdt_tree_valid(const void* fdt, uint32_t max_len) {
 }
 
 int fdt_root(const void* fdt) {
+    if (!fdt) return -1;
     uint32_t tok; int off = 0;
     while (off >= 0) {
         int nx = step(fdt, off, &tok);
@@ -174,9 +176,14 @@ int fdt_next_node(const void* fdt, int node, int* depth) {
     }
 }
 
-const char* fdt_node_name(const void* fdt, int node) { return (const char*)sblk(fdt) + node + 4; }
+const char* fdt_node_name(const void* fdt, int node) {
+    uint32_t tok;
+    if (!fdt || node < 0 || step(fdt, node, &tok) < 0 || tok != T_BEGIN) return 0;
+    return (const char*)sblk(fdt) + node + 4;
+}
 
 const void* fdt_prop(const void* fdt, int node, const char* name, uint32_t* len) {
+    if (!fdt || node < 0 || !name || !*name) return 0;
     uint32_t tok;
     int off = step(fdt, node, &tok);
     if (off < 0 || tok != T_BEGIN) return 0;
@@ -199,6 +206,7 @@ const void* fdt_prop(const void* fdt, int node, const char* name, uint32_t* len)
 }
 
 int fdt_compatible(const void* fdt, int node, const char* compat) {
+    if (!fdt || node < 0 || !compat || !*compat) return 0;
     uint32_t len;
     const char* c = (const char*)fdt_prop(fdt, node, "compatible", &len);
     if (!c) return 0;
@@ -212,6 +220,7 @@ int fdt_compatible(const void* fdt, int node, const char* compat) {
 }
 
 int fdt_find_compatible(const void* fdt, int after, const char* compat) {
+    if (!fdt || after < -1 || !compat || !*compat) return -1;
     int depth = 0;
     int n = after < 0 ? fdt_root(fdt) : fdt_next_node(fdt, after, &depth);
     while (n >= 0) {
@@ -230,8 +239,9 @@ static int name_match(const char* node, const char* part, unsigned plen) {
 }
 
 int fdt_find_path(const void* fdt, const char* path) {
+    if (!fdt || !path || path[0] != '/') return -1;
     int node = fdt_root(fdt);
-    if (node < 0 || path[0] != '/') return -1;
+    if (node < 0) return -1;
     const char* p = path + 1;
     while (*p) {
         unsigned plen = 0; while (p[plen] && p[plen] != '/') plen++;
@@ -250,6 +260,7 @@ int fdt_find_path(const void* fdt, const char* path) {
 }
 
 int fdt_parent(const void* fdt, int node) {
+    if (!fdt || node < 0) return -1;
     int stack[32]; int depth = 0;
     int n = fdt_root(fdt);
     if (n == node) return -1;
@@ -266,6 +277,7 @@ int fdt_parent(const void* fdt, int node) {
 }
 
 int fdt_prop_u32(const void* fdt, int node, const char* name, uint32_t* out) {
+    if (!fdt || node < 0 || !name || !*name || !out) return -1;
     uint32_t len;
     const void* p = fdt_prop(fdt, node, name, &len);
     if (!p || len != 4) return -1;
@@ -274,6 +286,7 @@ int fdt_prop_u32(const void* fdt, int node, const char* name, uint32_t* out) {
 }
 
 int fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* size) {
+    if (!fdt || node < 0 || (!addr && !size)) return -1;
     int par = fdt_parent(fdt, node);
     uint32_t ac = 2, sc = 1;                   /* значения по умолчанию спецификации */
     if (par >= 0) { fdt_prop_u32(fdt, par, "#address-cells", &ac); fdt_prop_u32(fdt, par, "#size-cells", &sc); }
@@ -293,6 +306,7 @@ int fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* s
 }
 
 unsigned fdt_count_type(const void* fdt, int parent, const char* type) {
+    if (!fdt || parent < 0 || !type || !*type) return 0;
     unsigned n = 0;
     int depth = 0;
     int c = fdt_next_node(fdt, parent, &depth);
@@ -310,6 +324,7 @@ unsigned fdt_count_type(const void* fdt, int parent, const char* type) {
 
 
 int fdt_node_enabled(const void* fdt, int node) {
+    if (!fdt || node < 0) return 0;
     uint32_t len;
     const char* s = (const char*)fdt_prop(fdt, node, "status", &len);
     if (!s) return 1;
@@ -319,6 +334,7 @@ int fdt_node_enabled(const void* fdt, int node) {
 }
 
 int fdt_simplefb(const void* fdt, fdt_fb_t* fb) {
+    if (!fdt || !fb) return -2;
     int n = -1;
     do n = fdt_find_compatible(fdt, n, "simple-framebuffer"); while (n >= 0 && !fdt_node_enabled(fdt, n));
     if (n < 0) return -1;

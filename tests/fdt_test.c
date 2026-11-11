@@ -82,6 +82,20 @@ int main(void) {
         CHECK(!fdt_valid(blob, UINT32_MAX)); /* signed token offsets cannot represent this tree size */
         be(blob + 4, saved);
     }
+    CHECK(fdt_u32(0) == 0 && fdt_total_size(0) == 0);
+    CHECK(fdt_root(0) == -1 && fdt_node_name(0, 0) == 0);
+    CHECK(fdt_prop(0, 0, "compatible", 0) == 0);
+    CHECK(fdt_prop(blob, -1, "compatible", 0) == 0);
+    CHECK(fdt_prop(blob, 0, 0, 0) == 0);
+    CHECK(!fdt_compatible(blob, 0, 0));
+    CHECK(fdt_find_compatible(blob, -2, "arm,pl011") == -1);
+    CHECK(fdt_find_path(blob, 0) == -1 && fdt_find_path(0, "/") == -1);
+    CHECK(fdt_parent(blob, -1) == -1);
+    CHECK(fdt_prop_u32(blob, 0, "#address-cells", 0) != 0);
+    CHECK(fdt_reg(blob, -1, 0, 0, 0) != 0);
+    CHECK(fdt_count_type(blob, -1, "cpu") == 0);
+    CHECK(!fdt_node_enabled(blob, -1));
+    CHECK(fdt_simplefb(blob, 0) == -2);
     int root = fdt_root(blob);
     CHECK(root >= 0 && fdt_compatible(blob, root, "linux,dummy-virt"));
 
