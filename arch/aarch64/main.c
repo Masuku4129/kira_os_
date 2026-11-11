@@ -1209,16 +1209,19 @@ static void arm_pci_init(const void* fdt) {
             return;
         }
         uint64_t delta;
+        int64_t cpu_off;
         if (cpu >= pci) {
             delta = cpu - pci;
             if (delta > INT64_MAX) { kprintf("[KIRA PCI] CPU/PCI window offset is not representable; PCI disabled\\n"); return; }
-            w->cpu_off = (int64_t)delta;
+            cpu_off = (int64_t)delta;
         } else {
             delta = pci - cpu;
             if (delta > (uint64_t)INT64_MAX + 1) { kprintf("[KIRA PCI] CPU/PCI window offset is not representable; PCI disabled\\n"); return; }
-            w->cpu_off = delta == (uint64_t)INT64_MAX + 1 ? INT64_MIN : -(int64_t)delta;
+            cpu_off = delta == (uint64_t)INT64_MAX + 1 ? INT64_MIN : -(int64_t)delta;
         }
-        if (!w->size || sz > w->size) { w->pci_base = pci; w->next = pci; w->size = sz; }
+        if (!w->size || sz > w->size) {
+            w->pci_base = pci; w->next = pci; w->size = sz; w->cpu_off = cpu_off;
+        }
     }
     volatile void* e = vmm_map_mmio(base, size, 0);
     if (!e) return;
