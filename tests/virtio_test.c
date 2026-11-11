@@ -199,6 +199,7 @@ static void model_init(vopt_t o, uint16_t devid) {
 }
 
 static uint8_t buf[300 * 512], ref[300 * 512];
+static uint8_t ecam_probe[1u << 20] __attribute__((aligned(1u << 20)));
 static void rnd(uint8_t* p, size_t n, unsigned seed) { for (size_t i = 0; i < n; i++) { seed = seed * 1103515245u + 12345u; p[i] = (uint8_t)(seed >> 16); } }
 
 int main(void) {
@@ -238,6 +239,7 @@ int main(void) {
     vopt_t o0; memset(&o0, 0, sizeof o0);
     /* --- PCI --- */
     model_init(o0, 0x1042);
+    CHECK(pci_use_ecam(ecam_probe, 1u << 20, 0, 1) == -1); /* advertised two buses do not fit; backend stays unchanged */
     int n = pci_init();
     CHECK(n == 5);
     const pci_dev_t* v = pci_find(0x1AF4, 0x1042);
@@ -334,6 +336,21 @@ int main(void) {
     model_init(o9, 0x1042); pci_init();
     CHECK(virtio_blk_probe() == 0);
 
-    printf("virtio: PCI bus/bridge/BAR/capabilities, virtio 1.0 init order, rings, chunking, size_max, RO, flush, timeout, KiraFS over virtio passed\n");
+    /* ECAM access is bounded by the mapped byte length and the advertised bus range. */
+    memset(ecam_probe, 0, sizeof ecam_probe);
+    uint32_t ecam_id = 0x56781234u, got = 0;
+    memcpy(ecam_probe, &ecam_id, sizeof ecam_id);
+    CHECK(pci_use_ecam(ecam_probe, sizeof ecam_probe, 5, 5) == 0);
+    pci_dev_t ep; memset(&ep, 0, sizeof ep); ep.bus = 5;
+    CHECK(pci_read32(&ep, 0) == ecam_id);
+    ep.bus = 6; CHECK(pci_read32(&ep, 0) == 0xFFFFFFFFu);
+    pci_write32(&ep, 0, 0xAABBCCDDu);
+    memcpy(&got, ecam_probe, sizeof got); CHECK(got == ecam_id);
+    ep.bus = 5; ep.dev = 32; CHECK(pci_read32(&ep, 0) == 0xFFFFFFFFu);
+    ep.dev = 0; ep.fn = 8; CHECK(pci_read32(&ep, 0) == 0xFFFFFFFFu);
+    ep.fn = 0; CHECK(pci_read32(&ep, 4096) == 0xFFFFFFFFu);
+    CHECK(pci_use_ecam(ecam_probe, sizeof ecam_probe, 6, 5) == -1);
+
+    printf("virtio: PCI bus/bridge/BAR/capabilities, bounded ECAM, virtio 1.0 init order, rings, chunking, size_max, RO, flush, timeout, KiraFS over virtio passed\n");
     return 0;
 }
