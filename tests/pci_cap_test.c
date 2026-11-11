@@ -46,10 +46,10 @@ int main(void) {
     put8(0x21, 0x44);
     put8(0x44, 0);
     if (pci_next_cap(&dev, 0x40, &id)) return 8;
-    put8(0x21, 0);
-    if (pci_next_cap(&dev, 0x40, &id)) return 9;
+    put8(0x45, 0);
+    if (pci_next_cap(&dev, 0x44, &id)) return 10;
     put16(0x06, 0);
-    if (pci_next_cap(&dev, 0, &id)) return 10;
+    if (pci_next_cap(&dev, 0, &id)) return 11;
     puts("pci_cap_test: PASS");
     return 0;
 }
