@@ -267,7 +267,10 @@ static int dma_pool_hits_reserved(const void* fdt, uint64_t lo, uint64_t hi) {
     if (parent >= 0) {
         uint32_t ac = 0, sc = 0;
         /* The binding requires explicit cell widths. A malformed parent is not safe to ignore. */
-        if (fdt_prop_u32(fdt, parent, "#address-cells", &ac) ||
+        uint32_t ranges_len = 0;
+        const void* ranges = fdt_prop(fdt, parent, "ranges", &ranges_len);
+        if (!ranges || ranges_len != 0 ||
+            fdt_prop_u32(fdt, parent, "#address-cells", &ac) ||
             fdt_prop_u32(fdt, parent, "#size-cells", &sc) ||
             ac < 1 || ac > 2 || sc < 1 || sc > 2) return 1;
         uint32_t stride = 4u * (ac + sc);
