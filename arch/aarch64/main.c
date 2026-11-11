@@ -1363,6 +1363,9 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
         dma_pool_choose(fdt);
         kprintf("[KIRA ARM64] DMA pool: selection end\n");
     }
+    /* klog's spinlock accounts held locks through this_cpu(); install the static BSP record
+       before the first post-MMU UART write, while the scheduler/per-CPU table is still coming up. */
+    percpu_install(&percpu_table[0]);
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
     if (dma_noncoherent_platform) {
