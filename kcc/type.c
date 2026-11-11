@@ -94,17 +94,17 @@ Type *ty_common(Type *a, Type *b) {
     return s->k == TY_LONG ? &ty_ulong : s->k == TY_LLONG ? &ty_ullong : &ty_uint;
 }
 
-static int norm_kind(const Type *t) { return t->k == TY_ENUM ? TY_INT : t->k; }
-
 int ty_compat(const Type *a, const Type *b) {
     if (a == b) return 1;
     if (a->orig) a = a->orig;
     if (b->orig) b = b->orig;
     if (a == b) return 1;
-    if (norm_kind(a) != norm_kind(b)) return 0;
+    /* Enum types are distinct nominal types. Treating every enum as int here
+       incorrectly made enum A* and enum B* compatible in pointer operations. */
+    if (a->k != b->k) return 0;
     switch (a->k) {
     case TY_VOID: return 1;
-    case TY_STRUCT: case TY_UNION: return 0;
+    case TY_ENUM: case TY_STRUCT: case TY_UNION: return 0;
     case TY_PTR: return ty_compat(a->base, b->base);
     case TY_ARRAY: return ty_compat(a->base, b->base) && (a->alen < 0 || b->alen < 0 || a->alen == b->alen);
     case TY_FUNC: {

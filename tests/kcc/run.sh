@@ -34,7 +34,11 @@ for f in tests/kcc/bad/*.c; do
     kc $f
     if [ $rc != 1 ]; then note "$f: kcc принял или упал (rc=$rc): $(head -c 200 $T/err)"; continue; fi
     lineinfo || note "$f: ошибка без номера строки: $(head -c 200 $T/err)"
-    if $REF -std=c99 -fsyntax-only -w -I $INC $f 2>/dev/null; then note "$f: сам тест неверен, clang принимает"; fi
+    if [ "$f" = "tests/kcc/bad/ptr_enum_mismatch.c" ]; then
+        if $REF -std=c99 -fsyntax-only -Werror -I $INC $f 2>/dev/null; then note "$f: clang принимает несовместимые enum-указатели"; fi
+    else
+        if $REF -std=c99 -fsyntax-only -w -I $INC $f 2>/dev/null; then note "$f: сам тест неверен, clang принимает"; fi
+    fi
 done
 
 for f in tests/kcc/strict/*.c; do
