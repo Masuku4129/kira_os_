@@ -85,7 +85,7 @@ static int g_write(blk_dev_t* d, uint64_t lba, uint32_t n, const void* buf) {
 static int g_flush(blk_dev_t* d) {
     slot_t* s = (slot_t*)d->priv;
     kmutex_lock(&s->mx);
-    int r = s->raw->flush ? s->raw->flush(s->raw) : 0;
+    int r = s->raw->flush ? s->raw->flush(s->raw) : -1;
     kmutex_unlock(&s->mx);
     if (r) devhealth_error(s->info.id);
     return r;
@@ -114,7 +114,7 @@ void blk_register(blk_dev_t* raw, const char* id, const char* model) {
     slot_t* s = &slots[nslots++];
     s->raw = raw;
     s->pub = *raw;
-    s->pub.read = g_read; s->pub.write = g_write; s->pub.flush = g_flush; s->pub.priv = s;
+    s->pub.read = g_read; s->pub.write = g_write; s->pub.flush = raw->flush ? g_flush : 0; s->pub.priv = s;
     s->mx = (kmutex_t)KMUTEX_INIT;
     s->info.dev = &s->pub;
     scopy(s->info.id, id, sizeof s->info.id);

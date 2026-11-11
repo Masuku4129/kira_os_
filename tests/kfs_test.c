@@ -49,8 +49,16 @@ static void base_state(void){
 }
 
 int main(void){
-    /* базовые операции */
+    /* Devices without a persistence barrier must be rejected before any filesystem writes. */
     memset(disk,0,sizeof disk);
+    blk_dev_t noflush = dev; noflush.flush = 0;
+    long noflush_writes = writes;
+    CHECK(kfs_format(&noflush,16)==KFS_ERR_IO);
+    CHECK(writes==noflush_writes && !kfs_mounted());
+    CHECK(kfs_mount(&noflush,16)==KFS_ERR_IO);
+    CHECK(writes==noflush_writes && !kfs_mounted());
+
+    /* базовые операции */
     CHECK(kfs_mount(&dev,16)==KFS_ERR_NOFS);
     CHECK(kfs_format(&dev,16)==0 && kfs_mounted());
     kfs_info_t in0; kfs_info(&in0);

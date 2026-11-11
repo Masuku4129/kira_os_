@@ -91,7 +91,7 @@ static struct {
 
 static int rd(uint64_t sec, uint32_t n, void* b) { return fs.dev->read(fs.dev, fs.base + sec, n, b) == 0 ? 0 : KFS_ERR_IO; }
 static int wr(uint64_t sec, uint32_t n, const void* b) { return fs.dev->write(fs.dev, fs.base + sec, n, b) == 0 ? 0 : KFS_ERR_IO; }
-static int flush(void) { return fs.dev->flush ? (fs.dev->flush(fs.dev) == 0 ? 0 : KFS_ERR_IO) : 0; }
+static int flush(void) { return fs.dev->flush && fs.dev->flush(fs.dev) == 0 ? 0 : KFS_ERR_IO; }
 static int rd_block(uint32_t b, void* buf) { return rd((uint64_t)b * SPB, SPB, buf); }
 static int wr_block(uint32_t b, const void* buf) {
     if (b == fs.pc_no) fs.pc_no = 0;                              /* кэш указателей больше не верен */
@@ -711,6 +711,8 @@ static int kfs_mount_impl(blk_dev_t* dev, uint64_t base) {
     fs.mounted = 0;
     release_mem();
     if (!dev) return KFS_ERR_NOFS;
+    /* KiraFS durability ordering depends on an explicit device persistence barrier. */
+    if (!dev->flush) return KFS_ERR_IO;
     super_t sb;
     int r = read_super(dev, base, &sb);
     if (r) return r;
@@ -739,6 +741,8 @@ static int kfs_mount_impl(blk_dev_t* dev, uint64_t base) {
 
 static int kfs_format_impl(blk_dev_t* dev, uint64_t base) {
     if (!dev || base >= dev->sectors) return KFS_ERR_INVAL;
+    /* Never start formatting a device that cannot confirm persistence ordering. */
+    if (!dev->flush) return KFS_ERR_IO;
     uint64_t blocks = (dev->sectors - base) / SPB;
     if (blocks > 0xFFFFFFFFull) blocks = 0xFFFFFFFFull;
     if (blocks < 16) return KFS_ERR_NOSPC;
