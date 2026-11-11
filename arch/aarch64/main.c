@@ -469,7 +469,7 @@ static int mmu_init(uint64_t top) {
     unsigned bits = arm_pa_bits[parange];
     if (top > (1ull << bits)) top = 1ull << bits;
     for (uint64_t gb = 0; gb < top; gb += 1ull << 30) if (map_gb(gb)) return -1;
-    tcr_val = 16ull | (1ull << 8) | (1ull << 10) | (3ull << 12) | (1ull << 23) | (parange << 32);
+    tcr_val = 16ull | (1ull << 8) | (1ull << 10) | (3ull << 12) | (1ull << 23) | ((uint64_t)parange << 32);
     if (((SYSREG_R(id_aa64mmfr0_el1) >> 4) & 0xF) == 2) tcr_val |= 1ull << 36;   /* TCR.AS: ASID 16 бит */
     mmu_enable_this_cpu();
     mmu_on = 1;
