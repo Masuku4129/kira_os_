@@ -118,7 +118,8 @@ static void corefault_handle(uint64_t vector, uint64_t err, uint64_t rip, uint64
         uart_print("[KIRA CORE] fault detail: error "); uart_print_hex(err); uart_print(", CR2 "); uart_print_hex(cr2);
         uart_print(", RSP "); uart_print_hex(sp); uart_print(", RBP "); uart_print_hex(frame[8]);
         uart_print(", stack:");
-        for (unsigned i = 0; i < 8 && sp >= 0x1000 && !(sp & 7) && vmm_translate(sp + 8ull * i, &tmp) == 0; i++) {   /* до конца отображённого стека */
+        for (unsigned i = 0; i < 8 && sp >= 0x1000 && sp <= UINT64_MAX - 56 &&
+             !(sp & 7) && vmm_translate(sp + 8ull * i, &tmp) == 0; i++) {   /* до конца отображённого стека */
             uart_print(" "); uart_print_hex(((const uint64_t*)(uintptr_t)sp)[i]);
         }
         uart_print("\n");
@@ -198,8 +199,11 @@ void exception_handler_main(uint64_t vector, uint64_t err_code, uint64_t rip, ui
         // Стек читаем только если это стек ядра: identity-карта (первый ГБ, не нулевая страница) или отображённая
         // часть ячейки стека потока.
         uint64_t rsp = frame[20];
-        int kst = vmm_is_kstack(rsp) && !vmm_kstack_guard_hit(rsp) && !vmm_kstack_guard_hit(rsp + 63) && vmm_is_kstack(rsp + 63);
-        const uint64_t* stack = ((cs & 3) == 0 && (rsp & 7) == 0 && (kst || (rsp >= 0x1000 && rsp + 64 <= (1ULL << 30))))
+        int rsp_range_ok = rsp <= UINT64_MAX - 64;
+        int kst = rsp_range_ok && vmm_is_kstack(rsp) && !vmm_kstack_guard_hit(rsp) &&
+                  !vmm_kstack_guard_hit(rsp + 63) && vmm_is_kstack(rsp + 63);
+        const uint64_t* stack = ((cs & 3) == 0 && rsp_range_ok && (rsp & 7) == 0 &&
+                                 (kst || (rsp >= 0x1000 && rsp + 64 <= (1ULL << 30))))
                                     ? (const uint64_t*)(uintptr_t)rsp : 0;
         if ((cs & 3) == 0 && (vmm_kstack_guard_hit(rsp) || ((vector == 14 || vector == 8) && vmm_kstack_guard_hit(cr2))))
             uart_print("[KIRA FATAL] Kernel thread stack overflow: the guard area below the stack was hit.\n");
