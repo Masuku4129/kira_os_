@@ -61,6 +61,12 @@ int main(void){
       CHECK(acpi_parse(base, base+(1<<16), &i)==-6); memcpy(xsdt+4, &save, 4); fix(xsdt,save,9); }
     CHECK(acpi_parse(base, base+(1<<16), &i)==0);
     CHECK(i.cpu_count==2 && i.cpu_apic_id[0]==0 && i.cpu_apic_id[1]==300 && i.max_apic_id==300);
+    /* A checksum-valid MADT with a truncated known entry is rejected transactionally. */
+    { uint8_t saved = madt[45]; madt[45] = 1; fix(madt, mlen, 9);
+      CHECK(acpi_parse(base, base+(1<<16), &i)==0);
+      CHECK(i.tables_bad==1 && i.tables_seen==2 && i.cpu_count==0 && i.ioapic_count==0 && i.has_hpet);
+      madt[45] = saved; fix(madt, mlen, 9); }
+
     CHECK(i.valid && i.revision==2 && i.ioapic_count==1 && i.ioapic[0].addr==0xFEC00000);
     CHECK(i.lapic_addr==0xFEE00000 && i.irq_override_count==1 && i.has_hpet && i.mcfg_base==ecam && i.mcfg_bus_end==255);
     CHECK(i.tables_seen==3 && i.tables_bad==0);
