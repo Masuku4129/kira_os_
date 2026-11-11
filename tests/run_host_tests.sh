@@ -268,6 +268,7 @@ for r in "" "1280 720" "1920 1080"; do
 done
 echo "== view: formats against reference sums (ci/mkfiles.py), fuzz of damaged files =="
 python3 ci/mkfiles.py $T/files > $T/sums.txt
+[ -f "$T/files/pic.jpg" ] || { echo "JPEG fixtures unavailable: install python3-pil"; exit 1; }
 $CC -O1 -g -w -DKIRA_HOST_TEST -I. -fsanitize=address,undefined -o $T/view tests/view_host.c font8x16.c
 sum() { python3 -c "import sys; sys.path.insert(0,'ci'); import mkfiles as m; print('sum %08x' % m.SUMS['$1'])"; }
 ASAN_OPTIONS=detect_leaks=0 $T/view $T/files/pic.png "$(sum /pic.png)" $T/files/rgba.png "$(sum /rgba.png)" \

@@ -154,7 +154,7 @@ jobs:
           git fetch -q origin stable main || true
           ci/lint.sh
       - name: tools
-        run: ci/install-tools.sh clang lld nasm dosfstools mtools python3-cryptography ca-certificates openssl
+        run: ci/install-tools.sh clang lld nasm dosfstools mtools python3-cryptography python3-pil ca-certificates openssl
       - name: Mind synchronization source invariants
         run: python3 ci/check_mind_sync.py
       - name: QMP disconnect regression tests

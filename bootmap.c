@@ -60,6 +60,13 @@ void* bootmap_map(uint64_t phys, uint64_t len, int uncached) {
     unsigned uc = uncached ? 1 : 0;
     int start = -1;
 
+    /* A physical 2 MiB page must never be aliased with different cache types.
+       Such WB/UC aliases are architecturally unsafe even when virtual addresses differ. */
+    for (unsigned i = 0; i < BOOTMAP_SLOTS; i++) {
+        if (slot_used[i] && slot_uc[i] != uc &&
+            slot_phys[i] >= first && slot_phys[i] <= last) return 0;
+    }
+
     // Тот же диапазон уже отображён: используем повторно (адрес не меняется между вызовами).
     for (unsigned s = 0; s + n <= BOOTMAP_SLOTS && start < 0; s++) {
         int same = 1;
