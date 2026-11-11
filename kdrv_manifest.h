@@ -18,7 +18,7 @@ typedef struct {
     uint32_t magic;
     uint16_t format;
     uint16_t size;
-    char key_id[KDRV_MANIFEST_KEY_ID_SIZE];
+    char key_id[KDRV_MANIFEST_KEY_ID_SIZE]; /* SHA-256(public_key)[0..15], raw bytes */
     uint8_t package_sha[32];
     uint32_t version;
     uint32_t abi;

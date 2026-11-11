@@ -47,16 +47,21 @@ Required:
 
 Do not remove provenance notices without replacing the implementation and reviewing licensing.
 
-## 4. Driver package authenticity — BLOCKED (signature primitive already exists)
-KDRV currently has SHA-256 integrity checks and explicit user confirmation. SHA-256 does not prove who published a package. Correction to the earlier inventory: the repository already contains a KIRA-owned Ed25519 verifier, `ed25519_verify()`, in `pk.c` / `pk.h`, with RFC 8032 vectors and malformed-signature tests in `tests/pk_test.c`. It is now compiled into both x86_64 and ARM64 kernel images and remains linked into selected userland TLS clients, but the KDRV load path does not yet invoke it.
+## 4. Driver package authenticity — PARTIAL (canonical verifier and signer; loader not enforced)
+
+KDRV now has a fixed 132-byte canonical v1 manifest (`kdrv_manifest.h`), an Ed25519 verifier (`kdrv_manifest.c`) and a host-side signing CLI (`tools/kdrvsign.py`). The manifest binds the complete package SHA-256, package version and ABI; its key ID is the first 16 bytes of SHA-256(public key). The signer accepts an external raw 32-byte Ed25519 seed, requires restrictive key-file permissions, writes atomically and never stores private keys in the repository. CI generates a disposable RFC 8032 test key and verifies signer/verifier interoperability, package binding, key fingerprint, revocation and hostile inputs.
+
+This is not yet publisher authentication in the running OS: `pkg_load()` still validates the package against the local confirmation record and does not require or read a manifest. The v1 format also has no trusted timestamp or anti-rollback state.
 
 Required:
-- Integrate the existing Ed25519 verifier into the kernel KDRV validation path and run the signature vectors in the kernel-compatible build.
-- Define a canonical signed manifest covering key ID, target ABI/device IDs, package digest, version and validity interval.
-- Provision trusted public keys through a kernel-owned trust store, with explicit fingerprint confirmation, rotation and revocation.
-- Persist the highest accepted version per publisher/package and reject rollback.
-- Fail closed for invalid signatures, unknown/revoked keys, expiry, malformed manifests and interrupted installs.
-- UI must distinguish unsigned/hash-only from authenticated publisher packages.
+- Integrate manifest verification into `pkg_load`, `verify`, installation, removal and recovery paths; bind the manifest to the exact `.kdrv` bytes.
+- Add a kernel-owned production trust table and an externally provisioned release key. No production private key is present in Git or CI; the RFC key is test-only.
+- Define key rotation/revocation delivery and trusted persistent state for anti-rollback. Do not claim rollback protection from mutable `/drv/*.rec`.
+- Add trusted-time/expiry semantics only with a defensible clock source; v1 currently has no expiry fields.
+- Update the driver UI to distinguish unsigned/hash-only from authenticated publisher packages.
+- Enable fail-closed loader enforcement only after package migration and the signed fixture pipeline are complete.
+
+`kdrv_manifest_verify()` is a standalone verified primitive, not a claim that installed drivers are currently authenticated.
 
 ## 5. DMA isolation — PARTIAL (fail-closed fallback implemented)
 The current kernel still has no VT-d / AMD-Vi / ARM SMMU domain implementation. A DMA-capable device without an IOMMU domain can access physical memory outside a process's address-space boundary.

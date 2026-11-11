@@ -37,6 +37,10 @@ int kdrv_manifest_verify(const void *data, uint32_t len, const uint8_t package_s
     }
     if (!key) return KDRV_MANIFEST_E_KEY;
     if (key->revoked) return KDRV_MANIFEST_E_REVOKED;
+    uint8_t fingerprint[PK_SHA256];
+    pk_hash(PK_SHA256, key->public_key, sizeof key->public_key, fingerprint);
+    if (!bytes_equal((const uint8_t *)m.key_id, fingerprint, KDRV_MANIFEST_KEY_ID_SIZE))
+        return KDRV_MANIFEST_E_KEY; /* key ID = SHA-256(public key)[0..15] */
     if (ed25519_verify(key->public_key, (const uint8_t *)data,
                        (size_t)offsetof(kdrv_manifest_t, signature), m.signature) != 0)
         return KDRV_MANIFEST_E_SIGNATURE;
