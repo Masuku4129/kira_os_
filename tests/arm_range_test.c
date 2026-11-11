@@ -10,6 +10,12 @@ int main(void) {
     CHECK(arm_range_end(0x1000, 0x2000, &end) && end == 0x3000);
     CHECK(!arm_range_end(0x1000, 0, &end));
     CHECK(!arm_range_end(UINT64_MAX - 7, 8, &end));
+    uint64_t clipped = 0;
+    CHECK(arm_range_clip(0x1000, 0x2000, 0x4000, &clipped) && clipped == 0x2000);
+    CHECK(arm_range_clip(0x3000, 0x2000, 0x4000, &clipped) && clipped == 0x1000);
+    CHECK(!arm_range_clip(0x4000, 0x1000, 0x4000, &clipped));
+    CHECK(!arm_range_clip(0x1000, 0x2000, 0x1000, &clipped));
+    CHECK(!arm_range_clip(UINT64_MAX - 7, 8, UINT64_MAX, &clipped));
     CHECK(arm_range_contains(0x1000, 0x2000, 0x1000, 0x2000));
     CHECK(arm_range_contains(0x1000, 0x2000, 0x1800, 0x100));
     CHECK(!arm_range_contains(0x1000, 0x2000, 0x2FFF, 2));

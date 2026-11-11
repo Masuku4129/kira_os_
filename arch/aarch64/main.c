@@ -453,13 +453,20 @@ void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes) {
     irq_restore(flags);
 }
 
+static const unsigned arm_pa_bits[] = { 32, 36, 40, 42, 44, 48 };
+static unsigned arm_pa_encoding(void) {
+    unsigned parange = (unsigned)(SYSREG_R(id_aa64mmfr0_el1) & 0xF);
+    /* The current page-table descriptor format supports at most 48-bit PA. */
+    return parange < 6 ? parange : 5;
+}
+static uint64_t arm_pa_limit(void) {
+    return 1ull << arm_pa_bits[arm_pa_encoding()];
+}
 static int mmu_init(uint64_t top) {
     l0 = (uint64_t*)palloc(4096, 4096);
     if (!l0) return -1;
-    uint64_t parange = SYSREG_R(id_aa64mmfr0_el1) & 0xF;
-    static const unsigned pa_bits[] = { 32, 36, 40, 42, 44, 48, 52 };
-    unsigned bits = parange < 7 ? pa_bits[parange] : 48;
-    if (bits > 48) { bits = 48; parange = 5; }
+    unsigned parange = arm_pa_encoding();
+    unsigned bits = arm_pa_bits[parange];
     if (top > (1ull << bits)) top = 1ull << bits;
     for (uint64_t gb = 0; gb < top; gb += 1ull << 30) if (map_gb(gb)) return -1;
     tcr_val = 16ull | (1ull << 8) | (1ull << 10) | (3ull << 12) | (1ull << 23) | (parange << 32);
@@ -1308,17 +1315,26 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     const kbi_header_t* bootinfo = (const kbi_header_t*)arm_bootinfo_blob;
     const kbi_mmap_entry_t* boot_map = kbi_mmap(bootinfo);
     uint64_t top = 4ull << 30, total = 0;
+    uint64_t pa_limit = arm_pa_limit();
+    uint64_t fdt_base = (uint64_t)(uintptr_t)fdt, fdt_bytes = fdt_total_size(fdt);
+    if (kernel_base >= pa_limit || kernel_size > pa_limit - kernel_base ||
+        fdt_base >= pa_limit || fdt_bytes > pa_limit - fdt_base)
+        kernel_panic("kernel or device tree exceeds supported physical address width");
     for (uint32_t i = 0; i < bootinfo->mmap_count; i++) {
-        if (boot_map[i].type != KBI_MEM_USABLE || nram >= MAX_RAM)
-            kernel_panic("invalid or excessive BootInfo RAM map");
+        if (boot_map[i].type != KBI_MEM_USABLE)
+            kernel_panic("invalid BootInfo RAM map");
+        uint64_t clipped = 0;
+        if (!arm_range_clip(boot_map[i].base, boot_map[i].length, pa_limit, &clipped))
+            continue; /* RAM above the page-table PA width is not allocator memory. */
+        if (nram >= MAX_RAM) kernel_panic("excessive BootInfo RAM map");
         ram[nram].base = boot_map[i].base;
-        ram[nram].size = boot_map[i].length;
+        ram[nram].size = clipped;
         nram++;
-        uint64_t end = boot_map[i].base + boot_map[i].length;   /* validated by kbi_validate */
+        uint64_t end = boot_map[i].base + clipped;
         if (end > top) top = end;
-        if (boot_map[i].length > UINT64_MAX - total)
+        if (clipped > UINT64_MAX - total)
             kernel_panic("BootInfo RAM size sum overflows");
-        total += boot_map[i].length;
+        total += clipped;
     }
     if (!nram) kernel_panic("BootInfo contains no usable RAM");
     kprintf("[KIRA BOOT] BootInfo v%u: ARM64 Device Tree, %u normalized RAM range(s), %u bytes\n",

@@ -8,6 +8,15 @@ static inline int arm_range_end(uint64_t base, uint64_t length, uint64_t* end) {
     *end = base + length;
     return 1;
 }
+/* Clip a validated half-open RAM range to the CPU's implemented physical-address limit. */
+static inline int arm_range_clip(uint64_t base, uint64_t size, uint64_t limit, uint64_t* clipped_size) {
+    if (!clipped_size || !size || !limit || base >= limit || base > UINT64_MAX - size) return 0;
+    uint64_t end = base + size;
+    if (end > limit) end = limit;
+    if (end <= base) return 0;
+    *clipped_size = end - base;
+    return 1;
+}
 static inline int arm_range_contains(uint64_t base, uint64_t size,
                                      uint64_t address, uint64_t length) {
     uint64_t limit, end;
