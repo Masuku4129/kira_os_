@@ -162,7 +162,7 @@ static void set_name(kobj_t* o, uint32_t type, const char* name) {
 
 // ---- порты ----
 int port_open(const char* name, int flags, kobj_t** out) {
-    if (!kname_ok(name)) return KE_ARG;
+    if (!kname_ok(name) || !out) return KE_ARG;
     port_t* p = 0;
     if ((flags & KOPEN_CREATE) && !exists(KOBJ_PORT, name)) {
         p = (port_t*)kmalloc(sizeof(port_t));
@@ -202,6 +202,7 @@ int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
 }
 
 unsigned port_queued(kobj_t* o) {
+    if (!o || o->type != KOBJ_PORT) return 0;
     port_t* p = (port_t*)o;
     return p->qh - p->qt;
 }
@@ -250,7 +251,7 @@ uint64_t shm_room_kb(void);                               // тест задаё
 static uint64_t shm_room_kb(void) { return pmm_get_free_memory_kb() / 2; }
 #endif
 int shm_open(const char* name, uint32_t pages, int flags, kobj_t** out) {
-    if (!kname_ok(name)) return KE_ARG;
+    if (!kname_ok(name) || !out) return KE_ARG;
     shm_t* s = 0;
     if ((flags & KOPEN_CREATE) && !exists(KOBJ_SHM, name)) {
         if (pages == 0) return KE_ARG;

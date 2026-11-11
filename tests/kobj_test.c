@@ -63,6 +63,9 @@ int main(void) {
 
     // порты: создание, повторное открытие, EXCL, нет такого
     kobj_t *p1 = 0, *p2 = 0, *p3 = 0;
+    CHECK(port_open("svc", 0, 0) == KE_ARG);
+    CHECK(shm_open("area", 1, KOPEN_CREATE, 0) == KE_ARG);
+    CHECK(port_queued(0) == 0);
     CHECK(port_open("svc", 0, &p1) == KE_NOENT);
     CHECK(port_open("svc", KOPEN_CREATE, &p1) == 0 && p1 && p1->refs == 1);
     CHECK(port_open("svc", KOPEN_CREATE | KOPEN_EXCL, &p2) == KE_EXIST);
