@@ -774,6 +774,10 @@ pm_entry:
   jne .pn
   cmp dword [ebx + 12], 0         ; offset hi
   jne near fail32_seg
+  cmp dword [ebx + 20], 0         ; vaddr hi: kernel uses an identity map
+  jne near fail32_seg
+  cmp dword [ebx + 24], [ebx + 16] ; physical and virtual load addresses must match
+  jne near fail32_seg
   cmp dword [ebx + 28], 0         ; paddr hi
   jne near fail32_seg
   cmp dword [ebx + 36], 0
