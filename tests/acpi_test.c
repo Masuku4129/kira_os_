@@ -88,12 +88,13 @@ int main(void){
         memcpy(hi, m, sizeof hi);                       /* те же таблицы «в высокой памяти» */
         hook_base = base; hook_buf = hi; hook_calls = 0;
         acpi_set_map_hook(hook);
-        CHECK(acpi_parse(base, base + 0x40, &i) == 0 && i.cpu_count == 2 && i.tables_seen == 3 && hook_calls >= 4);
+        CHECK(acpi_parse(base, base + 0x40, &i) == 0 && i.cpu_count == 2 && i.tables_seen == 4 && hook_calls >= 5);
         hook_buf = 0;                                    /* ядро не смогло отобразить: таблица пропущена, не падение */
         CHECK(acpi_parse(base, base + 0x40, &i) == -5);
         acpi_set_map_hook(0);
     }
     CHECK(acpi_parse(0, 1<<30, &i)==-1);
+    CHECK(acpi_parse(base, base+(1<<16), 0)==-1);
     CHECK(acpi_scan(UINT64_MAX - 7, UINT64_MAX, "RSD PTR ", 8, 20) == 0);
     CHECK(acpi_scan(base + 0x1000, base, "_MP_", 4, 0) == 0);
     CHECK(acpi_scan(base, base + 0x1000, 0, 4, 0) == 0);

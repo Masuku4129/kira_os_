@@ -186,6 +186,7 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
 }
 
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {
+    if (!o) return -1;
     uint8_t* z = (uint8_t*)o; for (uint32_t i = 0; i < sizeof(*o); i++) z[i] = 0;
     if (rsdp_phys == 0 || rsdp_phys > max_phys || max_phys - rsdp_phys < 20) return -1;
     const rsdp_t* r = (const rsdp_t*)(uintptr_t)rsdp_phys;
