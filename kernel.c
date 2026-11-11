@@ -153,7 +153,10 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     }
     ramext_init();
     acpi_set_map_hook(acpi_map);
-    acpi_init(addr);
+    if (bootinfo && (((const kbi_header_t*)bootinfo)->flags & KBI_F_ACPI))
+        acpi_init_rsdp(((const kbi_header_t*)bootinfo)->rsdp_phys);
+    else
+        acpi_init(addr);
     {
         const acpi_info_t* ai = acpi_get();
         hw_init(ai && ai->valid ? ai->cpu_count : 1, pmm_get_total_memory_kb());
