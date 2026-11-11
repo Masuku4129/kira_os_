@@ -251,7 +251,8 @@ void pci_disable_bus_master(const pci_dev_t* d) {
         return;
 #if !defined(KIRA_HOST_TEST)
 #if defined(__x86_64__)
-    if (d->bus == 0 && d->dev == 1 && d->fn == 2) {
+    int trace_uhci = d->bus == 0 && d->dev == 1 && d->fn == 2;
+    if (trace_uhci) {
         uart_print("[KIRA PCI TRACE] UHCI disable lock state rmw=");
         uart_print_dec(__atomic_load_n(&cfg_rmw_lock.next, __ATOMIC_RELAXED));
         uart_putchar('/');
@@ -263,18 +264,16 @@ void pci_disable_bus_master(const pci_dev_t* d) {
         uart_print(" held=");
         uart_print_dec(this_cpu()->locks_held);
         uart_print("\n");
+        pci_trace_raw("[D0]");
     }
-#endif
-#if defined(__x86_64__)
-    int trace_uhci = d->bus == 0 && d->dev == 1 && d->fn == 2;
-    if (trace_uhci) pci_trace_raw("[D0]");
 #endif
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
 #if defined(__x86_64__)
     if (trace_uhci) pci_trace_raw("[D1]");
 #endif
+#endif
     uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
-#if defined(__x86_64__)
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
     if (trace_uhci) {
         pci_trace_raw("[D2 cmd=");
         pci_trace_raw_hex16((uint16_t)value);
@@ -283,12 +282,14 @@ void pci_disable_bus_master(const pci_dev_t* d) {
 #endif
     value &= (uint32_t)~PCI_CMD_MASTER;
     be.write32(d->bus, d->dev, d->fn, 0x04, value);
-#if defined(__x86_64__)
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
     if (trace_uhci) pci_trace_raw("[D3]");
 #endif
+#if !defined(KIRA_HOST_TEST)
     spin_unlock_irqrestore(&cfg_rmw_lock, flags);
 #if defined(__x86_64__)
-    if (trace_uhci) pci_trace_raw("[D4]\r\n");
+    if (trace_uhci) pci_trace_raw("[D4]\\r\\n");
+#endif
 #endif
 }
 
