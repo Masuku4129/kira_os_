@@ -333,9 +333,12 @@ uint16_t pci_next_cap(const pci_dev_t* d, uint16_t prev, uint8_t* id) {
 #ifndef KIRA_HOST_TEST
 #include "vmm.h"
 volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t len) {
-    if (bar < 0 || bar >= PCI_BARS || d->bar[bar].io || !d->bar[bar].base) return 0;
-    if (off + len < off || off + len > d->bar[bar].size) return 0;
-    return vmm_map_mmio(d->bar[bar].base + off, len, VMM_MMIO_UC);   /* окно MMIO ядра: где бы ни лежал BAR */
+    if (!d || bar < 0 || bar >= PCI_BARS || d->bar[bar].io || !d->bar[bar].base ||
+        !len || off > d->bar[bar].size || len > d->bar[bar].size - off ||
+        d->bar[bar].base > UINT64_MAX - off) return 0;
+    uint64_t physical = d->bar[bar].base + off;
+    if (physical > UINT64_MAX - len) return 0;
+    return vmm_map_mmio(physical, len, VMM_MMIO_UC);   /* окно MMIO ядра: где бы ни лежал BAR */
 }
 #endif
 

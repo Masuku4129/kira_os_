@@ -30,6 +30,21 @@ int main(void) {
     CHECK(kdrv_dma_policy_allow(CAP_IRQ, 0) == 0);               /* MSI тоже является записью устройства в память */
     CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 0) == 0);
     CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 1) == 1);     /* допускается только после изоляции устройства */
+    uint64_t page_lo = 0, page_hi = 0, physical = 0;
+    uint32_t pages = 0;
+    CHECK(kdrv_mmio_page_bounds(0xFEC00000, 0x1000, &page_lo, &page_hi) == 0 &&
+          page_lo == 0xFEC00000 && page_hi == 0xFEC01000);
+    CHECK(kdrv_mmio_page_bounds(0xFEC00000, 0x1001, &page_lo, &page_hi) == 0 &&
+          page_hi == 0xFEC02000);
+    CHECK(kdrv_mmio_page_bounds(0, 0x1000, &page_lo, &page_hi) != 0);
+    CHECK(kdrv_mmio_page_bounds(UINT64_MAX - 0xFFF, 0x2000, &page_lo, &page_hi) != 0);
+    CHECK(kdrv_mmio_page_bounds(UINT64_MAX - 0x1FFF, 0x1001, &page_lo, &page_hi) != 0);
+    CHECK(kdrv_mmio_map_bounds(0xFEC00000, 0x1001, 0x1000, 1, &physical, &pages) == 0 &&
+          physical == 0xFEC01000 && pages == 1);
+    CHECK(kdrv_mmio_map_bounds(0xFEC00000, 0x1001, 0x1000, 2, &physical, &pages) != 0);
+    CHECK(kdrv_mmio_map_bounds(0xFEC00000, 0x1000, 1, 1, &physical, &pages) != 0);
+    CHECK(kdrv_mmio_map_bounds(0xFEC00000, 0x1000, 0, 0, &physical, &pages) != 0);
+    CHECK(kdrv_mmio_map_bounds(UINT64_MAX - 0xFFF, 0x2000, 0, 0x1000, &physical, &pages) != 0);
     CHECK(kdrv_header_check(f, sizeof f - 1, &o) == KDRV_E_SIZE);
     CHECK(kdrv_header_check(f, 10, &o) == KDRV_E_SHORT);
     h.magic ^= 1; PUT(); CHECK(kdrv_header_check(f, sizeof f, &o) == KDRV_E_MAGIC); h.magic ^= 1;

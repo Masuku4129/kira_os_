@@ -523,13 +523,19 @@ static void deny_note(bind_t* b, const char* what, uint64_t v) {
 
 /* Страница с началом/концом BAR не должна делить адреса с BAR другого устройства (иначе драйвер увидит чужие регистры). */
 static int bar_page_exclusive(const pci_dev_t* me, int bar) {
-    uint64_t lo = me->bar[bar].base & ~4095ull, hi = (me->bar[bar].base + me->bar[bar].size + 4095) & ~4095ull;
+    uint64_t lo, hi;
+    if (!me || bar < 0 || bar >= PCI_BARS ||
+        kdrv_mmio_page_bounds(me->bar[bar].base, me->bar[bar].size, &lo, &hi) != 0) return 0;
     for (int i = 0; i < pci_count(); i++) {
         const pci_dev_t* d = pci_get(i);
+        if (!d) return 0;
         for (int k = 0; k < PCI_BARS; k++) {
             if (d == me && k == bar) continue;
-            if (d->bar[k].io || !d->bar[k].size) continue;
-            if (d->bar[k].base < hi && d->bar[k].base + d->bar[k].size > lo) return 0;
+            if (d->bar[k].io || !d->bar[k].size || !d->bar[k].base) continue;
+            uint64_t other_lo, other_hi;
+            if (kdrv_mmio_page_bounds(d->bar[k].base, d->bar[k].size, &other_lo, &other_hi) != 0)
+                return 0;
+            if (other_lo < hi && lo < other_hi) return 0;
         }
     }
     return 1;
@@ -539,14 +545,15 @@ static int64_t sys_mmio_map(bind_t* b, uint64_t bar, uint64_t off, uint64_t len)
     const pci_dev_t* d = b->dev;
     if (bar >= PCI_BARS || (off & 4095) || !len || len > KDRV_MAX_MMIO_BYTES) return KE_ARG;
     if (d->bar[bar].io || !d->bar[bar].size || !d->bar[bar].base) return KE_NOENT;     /* порты ввода-вывода и пустые BAR не отображаются */
-    uint64_t bsz = (d->bar[bar].size + 4095) & ~4095ull;
-    if (off >= bsz || len > bsz - off) return KE_ARG;                                  /* только внутри BAR своего устройства */
-    if ((d->bar[bar].base & 4095) || !bar_page_exclusive(d, (int)bar)) return KE_PERM;
-    uint32_t pages = (uint32_t)((len + 4095) / 4096);
+    uint64_t physical = 0;
+    uint32_t pages = 0;
+    if (kdrv_mmio_map_bounds(d->bar[bar].base, d->bar[bar].size, off, len,
+                             &physical, &pages) != 0) return KE_ARG;
+    if (!bar_page_exclusive(d, (int)bar)) return KE_PERM;
     proc_space_lock();
     int64_t rc;
     if (b->nmap >= KDRV_MAX_MMIO) rc = KE_LIMIT;
-    else if (proc_map_phys(b->mmio_next, d->bar[bar].base + off, pages, VMM_WRITE | VMM_NOEXEC | VMM_NOCACHE) != 0) rc = KE_NOMEM;
+    else if (proc_map_phys(b->mmio_next, physical, pages, VMM_WRITE | VMM_NOEXEC | VMM_NOCACHE) != 0) rc = KE_NOMEM;
     else {
         b->map[b->nmap].va = b->mmio_next; b->map[b->nmap].pages = pages; b->nmap++;
         rc = (int64_t)b->mmio_next;

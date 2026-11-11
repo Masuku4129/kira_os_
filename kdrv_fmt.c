@@ -68,6 +68,35 @@ int kdrv_dma_policy_allow(uint32_t caps, int isolated) {
     return 1;
 }
 
+int kdrv_mmio_page_bounds(uint64_t base, uint64_t size, uint64_t* page_lo, uint64_t* page_hi) {
+    if (!base || !size || !page_lo || !page_hi || base > UINT64_MAX - size) return -1;
+    uint64_t end = base + size;
+    if (end > UINT64_MAX - 4095u) return -1;
+    uint64_t lo = base & ~4095ull;
+    uint64_t hi = (end + 4095u) & ~4095ull;
+    if (hi <= lo) return -1;
+    *page_lo = lo;
+    *page_hi = hi;
+    return 0;
+}
+
+int kdrv_mmio_map_bounds(uint64_t base, uint64_t size, uint64_t offset, uint64_t length,
+                         uint64_t* physical, uint32_t* pages) {
+    uint64_t lo, hi;
+    if (!physical || !pages || !length || length > KDRV_MAX_MMIO_BYTES ||
+        (base & 4095u) || (offset & 4095u) ||
+        kdrv_mmio_page_bounds(base, size, &lo, &hi) != 0 ||
+        offset >= size || length > size - offset || base > UINT64_MAX - offset) return -1;
+    (void)lo;
+    uint64_t count = (length + 4095u) / 4096u;
+    uint64_t pa = base + offset;
+    uint64_t bytes = count * 4096u;
+    if (!count || count > UINT32_MAX || pa > UINT64_MAX - bytes || pa + bytes > hi) return -1;
+    *physical = pa;
+    *pages = (uint32_t)count;
+    return 0;
+}
+
 const char* kdrv_strerror(int e) {
     switch (e) {
     case KDRV_OK: return "ok";
