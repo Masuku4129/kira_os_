@@ -133,22 +133,22 @@ static int has_ide(void) {
 
 void blk_probe(void) {
     nslots = 0; primary = 0;
-    uart_print("[KIRA DISK] PCI enumeration starting.\\n");
+    uart_print("[KIRA DISK] PCI enumeration starting.\n");
     int n = pci_count();
     if (n == 0) n = pci_init();
-    uart_print("[KIRA DISK] PCI enumeration complete: "); uart_print_dec((uint64_t)n); uart_print(" function(s).\\n");
-    uart_print("[KIRA DISK] IOMMU policy initialization starting.\\n");
+    uart_print("[KIRA DISK] PCI enumeration complete: "); uart_print_dec((uint64_t)n); uart_print(" function(s).\n");
+    uart_print("[KIRA DISK] IOMMU policy initialization starting.\n");
     (void)iommu_init();      /* idempotent; early kernel init also covers the virtio display path */
-    uart_print("[KIRA DISK] IOMMU policy initialization complete.\\n");
-    uart_print("[KIRA DISK] Probing virtio-blk.\\n");
+    uart_print("[KIRA DISK] IOMMU policy initialization complete.\n");
+    uart_print("[KIRA DISK] Probing virtio-blk.\n");
     blk_dev_t* v = virtio_blk_probe();
     if (v) blk_register(v, "vda", "virtio-blk");
-    uart_print("[KIRA DISK] Probing NVMe.\\n");
+    uart_print("[KIRA DISK] Probing NVMe.\n");
     nvme_probe();
-    uart_print("[KIRA DISK] Probing AHCI.\\n");
+    uart_print("[KIRA DISK] Probing AHCI.\n");
     ahci_probe();
 #if defined(__x86_64__)
-    uart_print("[KIRA DISK] Probing legacy IDE.\\n");
+    uart_print("[KIRA DISK] Probing legacy IDE.\n");
     if (has_ide()) { blk_dev_t* a = ata_probe(); if (a) blk_register(a, "ata0", a->name); }   /* порты IDE - только у ПК */
 #endif
     for (int i = 0; i < nslots; i++) if (slots[i].info.kira) { primary = &slots[i].pub; break; }
