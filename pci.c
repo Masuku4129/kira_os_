@@ -11,6 +11,7 @@ __attribute__((weak)) int iommu_device_ready(const pci_dev_t* dev)
 #endif
 #if !defined(KIRA_HOST_TEST)
 #include "spinlock.h"
+#include "uart.h"
 static spinlock_t cfg_rmw_lock = SPINLOCK_INIT;
 #endif
 
