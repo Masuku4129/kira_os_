@@ -215,7 +215,7 @@ SC = [
     dict(name="arm64-dma-nc", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="1G", disk="virtio-blk-pci", gui=True, files=True, flash=True,
          net="virtio",
          extra=["-append", "kira.dma=noncoherent", "-device", "qemu-xhci,id=xhci", "-device", "usb-storage,bus=xhci.0,port=3,drive=stick,removable=on"],
-         must=[r"DMA: devices are NOT cache-coherent: \d+ MB pool at 0x[0-9A-Fa-f]+", r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout",
+         must=[r"DMA: non-coherent devices; \d+ MB non-cacheable pool at 0x[0-9A-Fa-f]+", r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout",
                r"\[KIRA DISPLAY\] Shell online", r"Processors online: 2 of 2"],
          cmds=[("@sleep 3", []), ("@shot dma-nc", []),
                ("df", [r"usb0"]), ("cat /usb0/hello.txt", [r"kira-ci"]),

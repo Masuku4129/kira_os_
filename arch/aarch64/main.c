@@ -249,12 +249,14 @@ static int dma_noncoherent(const void* fdt) {
     if (fdt_prop(fdt, fdt_root(fdt), "dma-coherent", &l)) return 0;
     int pci = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
     if (pci < 0) return 1;
+    unsigned enabled_hosts = 0;
     for (int node = pci; node >= 0;
          node = fdt_find_compatible(fdt, node, "pci-host-ecam-generic")) {
         if (!fdt_node_enabled(fdt, node)) continue;
+        enabled_hosts++;
         if (!fdt_prop(fdt, node, "dma-coherent", &l)) return 1;
     }
-    return 0;
+    return enabled_hosts ? 0 : 1;
 }
 /* Проверка пересечения с областями, которые прошивка/ядро уже зарезервировали.
    DMA pool нельзя вырезать из /reserved-memory, firmware memreserve или framebuffer. */
