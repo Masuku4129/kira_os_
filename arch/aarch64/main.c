@@ -1249,8 +1249,8 @@ static void arm_pci_init(const void* fdt) {
     }
     int nd = pci_init();
     int nb = pci_assign_multi(&m32, &m64);
-    kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\n",
-            base, (uint64_t)bus0, (uint64_t)bus1, (uint64_t)nd, (uint64_t)nb, m32.pci_base, m64.pci_base);
+    kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %u, 64-bit %u)\n",
+            base, (uint64_t)bus0, (uint64_t)bus1, (uint64_t)nd, (uint64_t)nb, (uint64_t)m32.count, (uint64_t)m64.count);
 }
 
 /* ---------------- вход ---------------- */
