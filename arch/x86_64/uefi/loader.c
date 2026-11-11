@@ -351,9 +351,8 @@ static void diagnose_kernel_span(EFI_PHYSICAL_ADDRESS base,
                                    KIRA_PAGE_SIZE)
                 continue;
             d_end = d->PhysicalStart + d->NumberOfPages * KIRA_PAGE_SIZE;
-            if (d->PhysicalStart < end && base < d_end)
-                Print(L"KIRA UEFI: span map type=%u base=%lx end=%lx pages=%lx\\r\\n",
-                      d->Type, d->PhysicalStart, d_end, d->NumberOfPages);
+            Print(L"KIRA UEFI: memory map type=%u base=%lx end=%lx pages=%lx\r\n",
+                  d->Type, d->PhysicalStart, d_end, d->NumberOfPages);
         }
     } else {
         print_error(L"cannot inspect memory map after allocation failure", status);
