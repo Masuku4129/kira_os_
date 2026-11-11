@@ -171,7 +171,7 @@ int fdt_next_node(const void* fdt, int node, int* depth) {
     for (;;) {
         int nx = step(fdt, off, &tok);
         if (nx < 0) return -1;
-        if (tok == T_BEGIN) { if (depth) *depth = d + 1; return off; }
+        if (tok == T_BEGIN) { if (d >= 64) return -1; if (depth) *depth = d + 1; return off; }
         if (tok == T_END) { d--; if (d < -1) return -1; }
         if (tok == T_FINISH) return -1;
         off = nx;
