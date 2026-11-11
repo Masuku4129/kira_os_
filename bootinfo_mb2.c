@@ -8,8 +8,13 @@
 #define MB2_TAG_MODULE 3u
 #define MB2_TAG_MMAP 6u
 #define MB2_TAG_FRAMEBUFFER 8u
+#define MB2_TAG_ACPI_OLD 14u
+#define MB2_TAG_ACPI_NEW 15u
 
 static uint8_t handoff[KIRA_BOOTINFO_MAX_SIZE] __attribute__((aligned(16)));
+/* The Multiboot2 ACPI tags contain an RSDP copy, not a firmware physical address.
+   Keep an aligned kernel-owned copy and expose its identity-mapped physical address in BootInfo. */
+static uint8_t rsdp_copy[36] __attribute__((aligned(16)));
 
 static uint32_t rd32(const uint8_t* p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
@@ -54,8 +59,8 @@ static uint32_t mb2_type(uint32_t t) {
 }
 
 /* Converts the Multiboot2 data currently supplied by GRUB into the stable KBI ABI.
-   It does not reinterpret copied ACPI tables as physical addresses: ACPI remains
-   available through the legacy MB2 path until a native loader supplies RSDP. */
+   ACPI RSDP bytes are copied to aligned kernel-owned storage; only addresses inside
+   firmware tables referenced by that RSDP retain their physical-address semantics. */
 int kbi_from_multiboot2(const void* info, uint32_t available,
                         uint64_t kernel_base, uint64_t kernel_size,
                         const void** result, uint32_t* result_size) {
@@ -69,6 +74,7 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
     uint32_t mmap_tag=0, mmap_count=0, mmap_stride=0;
     uint32_t modules_count=0;
     uint32_t cmd_tag=0, cmd_len=0, fb_tag=0;
+    uint32_t acpi_old_tag=0, acpi_new_tag=0;
     for(uint32_t off=8;off<total;) {
         uint32_t type=rd32(b+off), size=rd32(b+off+4);
         if(type==MB2_TAG_MMAP) {
@@ -91,6 +97,12 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
         } else if(type==MB2_TAG_FRAMEBUFFER) {
             if(fb_tag || size<32) return -33;
             fb_tag=off;
+        } else if(type==MB2_TAG_ACPI_OLD) {
+            if(acpi_old_tag || size<28) return -36;
+            acpi_old_tag=off;
+        } else if(type==MB2_TAG_ACPI_NEW) {
+            if(acpi_new_tag || size<44) return -36;
+            acpi_new_tag=off;
         }
         off+=align8(size);
     }
@@ -141,6 +153,14 @@ int kbi_from_multiboot2(const void* info, uint32_t available,
     h->kernel_phys_base=kernel_base; h->kernel_size=kernel_size;
     h->loader_id=MB2_MAGIC;
     if(cmd_len) h->flags|=KBI_F_CMDLINE;
+    uint32_t acpi_tag=acpi_new_tag?acpi_new_tag:acpi_old_tag;
+    if(acpi_tag) {
+        uint32_t rsdp_len=acpi_new_tag?36u:20u;
+        for(uint32_t i=0;i<sizeof rsdp_copy;i++) rsdp_copy[i]=0;
+        copy_bytes(rsdp_copy,b+acpi_tag+8,rsdp_len);
+        h->rsdp_phys=(uint64_t)(uintptr_t)rsdp_copy;
+        h->flags|=KBI_F_ACPI;
+    }
 
     const uint8_t* mt=b+mmap_tag;
     kbi_mmap_entry_t* out=(kbi_mmap_entry_t*)(handoff+mmap_off);
