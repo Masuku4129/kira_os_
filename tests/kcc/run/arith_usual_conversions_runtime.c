@@ -1,4 +1,4 @@
-int kmain(void) {
+int main(void) {
     if (!(-1L < 1U)) return 1;
     if (-1LL < 1UL) return 2;
     if (1U + -1L != 0L) return 3;

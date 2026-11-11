@@ -8,5 +8,6 @@ int main(void) {
     int e = ((unsigned long long)1 > (long)-1);
     int f = ((unsigned long long)1 < (long)-1);
     int g = ((int)-1 < (unsigned int)1);
-    return a + 2*b + 4*c + 8*d + 16*e + 32*f + 64*g;
+    int h = ((long long)-1 < (unsigned int)1);
+    return a + 2*b + 4*c + 8*d + 16*e + 32*f + 64*g + 128*h;
 }

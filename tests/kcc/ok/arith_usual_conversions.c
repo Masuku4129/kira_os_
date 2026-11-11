@@ -2,7 +2,6 @@
    not just operand width. Clang and KCC both compile this translation unit. */
 char signed_long_keeps_unsigned_int[( (-1L < 1U) ) ? 1 : -1];
 char signed_long_long_keeps_unsigned_int[( (-1LL < 1U) ) ? 1 : -1];
-char signed_long_long_keeps_unsigned_long[( (-1LL < 1UL) ) ? 1 : -1];
 char unsigned_long_keeps_unsigned_int[( sizeof(1UL + 1U) == 8 ) ? 1 : -1];
 char unsigned_long_long_wins[( (-1LL < 1UL) == 0 ) ? 1 : -1];
 char unsigned_long_long_rank[( sizeof(1UL + 1LL) == 8 ) ? 1 : -1];
