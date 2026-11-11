@@ -326,8 +326,7 @@ fail:
     return status;
 }
 
-static void diagnose_kernel_span(EFI_PHYSICAL_ADDRESS base,
-                                   EFI_PHYSICAL_ADDRESS end)
+static void diagnose_kernel_span(void)
 {
     EFI_MEMORY_DESCRIPTOR *map = NULL;
     UINTN map_size = 64u * 1024u, key = 0, descriptor_size = 0;
@@ -529,7 +528,7 @@ static EFI_STATUS load_elf64(VOID *image,
                                EfiLoaderData, allocation_pages, &allocation);
     if (EFI_ERROR(status)) {
         print_error(L"cannot allocate kernel span", status);
-        diagnose_kernel_span(allocation_base, allocation_end);
+        diagnose_kernel_span();
         goto fail;
     }
 
