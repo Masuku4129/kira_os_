@@ -832,7 +832,8 @@ static int is_null_pointer_constant(const Node *n) {
 }
 
 static int is_relational_cmp(NKind k) {
-    return k == ND_LT || k == ND_LE || k == ND_GT || k == ND_GE;
+    /* The parser normalizes > and >= by swapping operands, so only these two IR ops exist. */
+    return k == ND_LT || k == ND_LE;
 }
 
 static Node *new_cmp(NKind k, Node *l, Node *r, const Token *t) {
