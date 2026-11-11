@@ -69,6 +69,11 @@ static uint64_t tsc_khz;
    ищет работу, только если с прошлого просмотра какой-то поток стал готовым или освободился (ready_epoch).
    Оба значения меняются под sched_lock. */
 static uint64_t next_wake = ~0ULL;
+
+/* Deadline arithmetic must never wrap into the past near the 64-bit tick limit. */
+static uint64_t tick_deadline(uint64_t now, uint64_t delta) {
+    return delta > UINT64_MAX - now ? UINT64_MAX : now + delta;
+}
 static uint64_t ready_epoch = 1;
 
 extern void kernel_panic(const char* reason) __attribute__((noreturn));
@@ -573,7 +578,7 @@ void sched_sleep_ticks(uint32_t ticks) {
     if (ticks == 0) { sched_yield(); return; }
     uint64_t f = irq_save();
     sl_lock();
-    this_cpu()->current->wake_tick = timer_get_ticks() + ticks;
+    this_cpu()->current->wake_tick = tick_deadline(timer_get_ticks(), ticks);
     this_cpu()->current->state = THREAD_SLEEPING;
     if (this_cpu()->current->wake_tick < next_wake) next_wake = this_cpu()->current->wake_tick;
     schedule_locked();
@@ -632,7 +637,7 @@ void sched_tick(void) {
             uint32_t lw = limit_window;
             if (now - cur->lim_start >= lw) { cur->lim_start = now; cur->lim_used = 0; }
             if (++cur->lim_used * 100 >= cur->limit * lw) {
-                cur->throttled_until = cur->lim_start + lw;
+                cur->throttled_until = tick_deadline(cur->lim_start, lw);
                 cpu->need_resched = 1;
             }
         }

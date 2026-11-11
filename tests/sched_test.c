@@ -410,6 +410,26 @@ int main(void) {
         f1->state = b1->state = pin->state = kt->state = b2->state = THREAD_ZOMBIE;
     }
 
+    // ---- 11. tick deadline arithmetic must saturate, never wrap into the past ----
+    {
+        thread_t* edge = sched_create_on("tick-edge", dummy, 0, PRIO_NORMAL, SCHED_AFFINITY_BSP);
+        CHECK(edge != 0);
+        for (int i = 0; i < 100 && sched_current() != edge; i++) tick();
+        CHECK(sched_current() == edge);
+        fake_ticks = UINT64_MAX - 2;
+        sched_sleep_ticks(10);
+        CHECK(edge->state == THREAD_SLEEPING);
+        CHECK(edge->wake_tick == UINT64_MAX);
+        CHECK(edge->wake_tick >= fake_ticks);
+        fake_ticks = UINT64_MAX - 1;
+        sched_tick();
+        CHECK(edge->state == THREAD_SLEEPING);
+        fake_ticks = UINT64_MAX;
+        sched_tick();
+        sched_irq_exit();
+        CHECK(edge->state != THREAD_SLEEPING);
+    }
+
     printf("%s\n", fails ? "FAILED" : "ALL SCHEDULER TESTS PASSED");
     return fails != 0;
 }
