@@ -2,7 +2,7 @@ name: KIRA security analysis
 
 on:
   push:
-    branches: [main, stable, v45/overhaul, 'v46/**']
+    branches: [main, stable]
   pull_request:
   schedule:
     - cron: '23 4 * * 1'
