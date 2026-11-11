@@ -47,7 +47,13 @@ static inline void sl_lock(void) {
         sl_contended[c]++;
     }
 #else
-    while (__atomic_load_n(&sched_lock.owner, __ATOMIC_ACQUIRE) != t) spin_relax();
+    /* The single-core host harness has no per-CPU register or cycle counter,
+       but it still reports acquisitions and contention against simulated CPU 0. */
+    sl_taken[0]++;
+    if (__atomic_load_n(&sched_lock.owner, __ATOMIC_ACQUIRE) != t) {
+        sl_contended[0]++;
+        while (__atomic_load_n(&sched_lock.owner, __ATOMIC_ACQUIRE) != t) spin_relax();
+    }
 #endif
     SPIN_HELD_INC();
 }
