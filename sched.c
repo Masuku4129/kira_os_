@@ -53,8 +53,15 @@ static inline void sl_lock(void) {
 }
 
 void sched_lock_stats(unsigned cpu, uint64_t* wait_cycles, uint64_t* contended, uint64_t* taken) {
-    if (cpu >= PERCPU_MAX_CPUS) { *wait_cycles = *contended = *taken = 0; return; }
-    *wait_cycles = sl_wait[cpu]; *contended = sl_contended[cpu]; *taken = sl_taken[cpu];
+    if (cpu >= PERCPU_MAX_CPUS) {
+        if (wait_cycles) *wait_cycles = 0;
+        if (contended) *contended = 0;
+        if (taken) *taken = 0;
+        return;
+    }
+    if (wait_cycles) *wait_cycles = sl_wait[cpu];
+    if (contended) *contended = sl_contended[cpu];
+    if (taken) *taken = sl_taken[cpu];
 }
 static int sched_ready;
 static uint32_t quantum_ticks = DEFAULT_QUANTUM;

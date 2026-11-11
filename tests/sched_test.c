@@ -224,6 +224,18 @@ int main(void) {
         uint64_t idle_c = 0, total_c = 0, sw = 0;
         CHECK(sched_cpu_stats(1, &idle_c, &total_c, &sw) == 0 && total_c > 0 && sw >= 1);
         CHECK(sched_cpu_stats(5, &idle_c, &total_c, &sw) != 0);    // ядро не подключено
+        {
+            uint64_t wait = UINT64_MAX, contended = UINT64_MAX, taken = UINT64_MAX;
+            sched_lock_stats(0, &wait, &contended, &taken);
+            CHECK(wait == 0 && contended == 0 && taken > 0);
+            wait = contended = taken = UINT64_MAX;
+            sched_lock_stats(PERCPU_MAX_CPUS, &wait, &contended, &taken);
+            CHECK(wait == 0 && contended == 0 && taken == 0);
+            wait = UINT64_MAX; taken = UINT64_MAX;
+            sched_lock_stats(PERCPU_MAX_CPUS, &wait, 0, &taken);
+            CHECK(wait == 0 && taken == 0);
+            sched_lock_stats(0, 0, 0, 0); /* optional output fields */
+        }
 
         // Общая очередь: ядро 0 занято критическим потоком, обычный поток с маской «любое ядро» берёт ядро 1.
         thread_t* roam = sched_create("roam", thread_entry, 0, PRIO_NORMAL);
