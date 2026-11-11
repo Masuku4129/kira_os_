@@ -164,6 +164,38 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     if (acpi_find_s5((const uint8_t*)d + sizeof(sdt_t), dl - (uint32_t)sizeof(sdt_t), &o->slp_typa, &o->slp_typb) == 0) o->s5_valid = 1;
 }
 
+/* Validate every MCFG allocation before publishing any ECAM window. The current PCI
+   backend models segment zero only; reject ambiguous multiple segment-zero windows. */
+static int parse_mcfg(const sdt_t* t, acpi_info_t* o) {
+    if (!t || !o || t->len < 60 || ((t->len - 44u) % 16u) != 0) return -1;
+    const uint8_t* b = (const uint8_t*)t;
+    for (unsigned i = 36; i < 44; i++) if (b[i]) return -1;
+    uint32_t count = (t->len - 44u) / 16u;
+    uint64_t base0 = 0;
+    uint8_t bus0 = 0, bus1 = 0;
+    unsigned segment0_count = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const uint8_t* e = b + 44u + i * 16u;
+        uint64_t base = rd64(e);
+        uint16_t segment = rd16(e + 8);
+        uint8_t first = e[10], last = e[11];
+        uint64_t span = ((uint64_t)last - first + 1u) << 20;
+        if (!base || (base & ((1u << 20) - 1u)) || first > last ||
+            rd32(e + 12) != 0 || base > UINT64_MAX - span) return -1;
+        if (segment == 0) {
+            if (++segment0_count > 1) return -1;
+            base0 = base;
+            bus0 = first;
+            bus1 = last;
+        }
+    }
+    o->mcfg_base = base0;
+    o->mcfg_segment = 0;
+    o->mcfg_bus_start = bus0;
+    o->mcfg_bus_end = bus1;
+    return 0;
+}
+
 static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
     const sdt_t* t = phys ? (const sdt_t*)reach(phys, sizeof(sdt_t), max_phys) : 0;
     if (!t) { o->tables_skipped_high++; return; }
@@ -174,15 +206,16 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
         acpi_info_t parsed = *o;
         if (parse_madt(t, &parsed) != 0) { o->tables_bad++; return; }
         *o = parsed; /* malformed MADT must not leak partially parsed topology */
+    } else if (sig_is(t->sig, "MCFG")) {
+        acpi_info_t parsed = *o;
+        if (parse_mcfg(t, &parsed) != 0) { o->tables_bad++; return; }
+        *o = parsed; /* malformed MCFG must not publish a partial ECAM range */
     }
     o->tables_seen++;
     if (sig_is(t->sig, "HPET")) o->has_hpet = 1;
     else if (sig_is(t->sig, "FACP")) parse_fadt(t, max_phys, o);
     else if (sig_is(t->sig, "DMAR") && t->len >= 48) { o->dmar_phys = phys; o->dmar_len = t->len; }
-    else if (sig_is(t->sig, "MCFG") && t->len >= 44 + 16) {
-        const uint8_t* e = (const uint8_t*)t + 44;
-        o->mcfg_base = rd64(e); o->mcfg_bus_start = e[10]; o->mcfg_bus_end = e[11];
-    }
+
 }
 
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {

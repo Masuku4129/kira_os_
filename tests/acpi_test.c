@@ -70,6 +70,30 @@ int main(void){
     CHECK(acpi_parse(base, base+(1<<16), &i)==0); /* restore valid topology after malformed-table test */
     CHECK(i.valid && i.revision==2 && i.ioapic_count==1 && i.ioapic[0].addr==0xFEC00000);
     CHECK(i.lapic_addr==0xFEE00000 && i.irq_override_count==1 && i.has_hpet && i.mcfg_base==ecam && i.mcfg_bus_end==255);
+
+    /* MCFG allocations are all validated before any ECAM range is published. */
+    {
+        uint32_t saved_len; memcpy(&saved_len, mcfg + 4, 4);
+        uint8_t saved = mcfg[44 + 11];
+        mcfg[44 + 11] = 0; fix(mcfg, 60, 9);
+        CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
+        CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
+        mcfg[44 + 11] = saved; fix(mcfg, 60, 9);
+        saved = mcfg[44 + 12]; mcfg[44 + 12] = 1; fix(mcfg, 60, 9);
+        CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
+        CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
+        mcfg[44 + 12] = saved; fix(mcfg, 60, 9);
+        saved = mcfg[44]; mcfg[44] = 1; fix(mcfg, 60, 9);
+        CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
+        CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
+        mcfg[44] = saved; fix(mcfg, 60, 9);
+        memcpy(&saved_len, mcfg + 4, 4);
+        uint32_t malformed_len = 61; memcpy(mcfg + 4, &malformed_len, 4); fix(mcfg, malformed_len, 9);
+        CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
+        CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
+        memcpy(mcfg + 4, &saved_len, 4); fix(mcfg, saved_len, 9);
+    }
+
     CHECK(i.dmar_phys==base+0x600 && i.dmar_len==48);
     { uint32_t save; memcpy(&save,dmar+4,4); uint32_t short_len=47; memcpy(dmar+4,&short_len,4); fix(dmar,short_len,9);
       CHECK(acpi_parse(base,base+(1<<16),&i)==0 && i.dmar_phys==0 && i.dmar_len==0);

@@ -20,6 +20,7 @@ typedef struct {
     uint16_t iso_flags[16];        /* бит0-1 полярность (3 = активный низкий), бит2-3 триггер (3 = по уровню) */
     int      has_hpet;
     uint64_t mcfg_base;            /* база PCIe ECAM (0 = нет) */
+    uint16_t mcfg_segment;         /* segment group (currently only segment zero is exposed to PCI) */
     uint8_t  mcfg_bus_start, mcfg_bus_end;
     uint64_t dmar_phys;          /* checksum-validated DMAR table physical address */
     uint32_t dmar_len;
