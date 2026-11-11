@@ -9,8 +9,8 @@ void uart_print_hex(uint64_t v){(void)v;}
 #define CHECK(c) do{ if(!(c)){ printf("FAIL line %d: %s\n",__LINE__,#c); exit(1);} }while(0)
 static void fix(uint8_t* t, uint32_t len, uint32_t csum_off){ t[csum_off]=0; uint8_t s=0; for(uint32_t i=0;i<len;i++) s+=t[i]; t[csum_off]=(uint8_t)(0-s); }
 static void hdr(uint8_t* t, const char* sig, uint32_t len){ memset(t,0,len); memcpy(t,sig,4); memcpy(t+4,&len,4); t[8]=1; }
-static uint64_t hook_base; static uint8_t* hook_buf; static int hook_calls;
-static const void* hook(uint64_t phys, uint64_t len){ hook_calls++; if(!hook_buf || phys < hook_base || phys + len > hook_base + 0x700) return 0; return hook_buf + (phys - hook_base); }
+static uint64_t hook_base, hook_len = 0x700; static uint8_t* hook_buf; static int hook_calls;
+static const void* hook(uint64_t phys, uint64_t len){ hook_calls++; if(!hook_buf || phys < hook_base || len > hook_len || phys - hook_base > hook_len - len) return 0; return hook_buf + (phys - hook_base); }
 int main(void){
     uint8_t* m = mmap((void*)0x10000000, 1<<16, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
     CHECK(m == (uint8_t*)0x10000000);
@@ -128,6 +128,21 @@ int main(void){
         CHECK(mp.ioapic_count == 1 && mp.ioapic[0].id == 4 && mp.ioapic[0].addr == 0xFEC00000 && mp.ioapic[0].gsi_base == 0);
         CHECK(mp.iso_valid[0] && mp.iso_gsi[0] == 2 && mp.iso_valid[1] && mp.iso_gsi[1] == 1 && mp.iso_flags[9] == 0x0F && mp.irq_override_count == 2);
         CHECK(!mp.iso_valid[12]);
+        {
+            static uint8_t high_mp[0x1000];
+            memcpy(high_mp, m, sizeof high_mp);
+            hook_base = base; hook_len = sizeof high_mp; hook_buf = high_mp; hook_calls = 0;
+            acpi_set_map_hook(hook);
+            acpi_info_t high; memset(&high, 0xA5, sizeof high);
+            CHECK(mp_parse(base + 0x800, base + 0x40, &high) == 0);
+            CHECK(high.valid && high.cpu_count == 3 && high.legacy_isa);
+            CHECK(high.dmar_phys == 0 && high.dmar_len == 0 && !high.has_hpet && !high.mcfg_base);
+            acpi_info_t before_high = high;
+            hook_buf = 0;
+            CHECK(mp_parse(base + 0x800, base + 0x40, &high) == -1);
+            CHECK(memcmp(&high, &before_high, sizeof high) == 0);
+            acpi_set_map_hook(0); hook_buf = 0; hook_len = 0x700;
+        }
         ct[50] ^= 1; CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == -4); ct[50] ^= 1;     /* испорченная таблица */
         fps[9] ^= 1; CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == -2);
         CHECK(acpi_scan(base, base + 0x1000, "_MP_", 4, 0) == 0); fps[9] ^= 1;                 /* сумма не сходится - не находим */
@@ -139,6 +154,7 @@ int main(void){
             CHECK(mp_parse(UINT64_MAX - 7, UINT64_MAX, &unchanged) == -1);
             CHECK(memcmp(&unchanged, &before, sizeof before) == 0);
             CHECK(mp_parse(base + 0x800, base + (1 << 16), 0) == -1);
+            fps[11] = 0; fix(fps, 16, 10); /* force the explicit table path before corrupting its entry count */
             uint16_t saved_count; memcpy(&saved_count, ct + 34, 2);
             uint16_t short_count = (uint16_t)(saved_count - 1);
             memcpy(ct + 34, &short_count, 2); fix(ct, tl, 7);

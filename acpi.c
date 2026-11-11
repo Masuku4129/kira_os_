@@ -244,26 +244,33 @@ static void mp_add_cpu(acpi_info_t* o, uint32_t id) {
 }
 
 static int mp_parse_impl(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
-    if (!o || !fps || fps > max_phys || max_phys - fps < 16) return -1;
-    const uint8_t* f = (const uint8_t*)(uintptr_t)fps;
-    if (f[0] != '_' || f[1] != 'M' || f[2] != 'P' || f[3] != '_' || f[8] == 0 || !sum_ok(f, (uint32_t)f[8] * 16)) return -2;
+    if (!o || !fps) return -1;
+    const uint8_t* f = reach(fps, 16, max_phys);
+    if (!f) return -1;
+    uint32_t fps_len = (uint32_t)f[8] * 16u;
+    if (f[0] != '_' || f[1] != 'M' || f[2] != 'P' || f[3] != '_' ||
+        fps_len < 16 || !sum_ok(reach(fps, fps_len, max_phys), fps_len)) return -2;
+    f = reach(fps, fps_len, max_phys);
+    if (!f) return -2;
     o->cpu_count = 0; o->max_apic_id = 0; o->ioapic_count = 0; o->irq_override_count = 0;
     for (int i = 0; i < 16; i++) { o->iso_valid[i] = 0; o->iso_gsi[i] = 0; o->iso_flags[i] = 0; }
     uint32_t cfg = rd32(f + 4);
-    if (f[11] != 0 || cfg == 0) {                         /* стандартная конфигурация по номеру: 2 процессора, IOAPIC */
+    if (f[11] != 0 || cfg == 0) {
         o->lapic_addr = 0xFEE00000u;
         mp_add_cpu(o, 0); mp_add_cpu(o, 1);
         o->ioapic[0].id = 2; o->ioapic[0].addr = 0xFEC00000u; o->ioapic[0].gsi_base = 0; o->ioapic_count = 1;
         o->valid = 1; o->source = 1;
         return 0;
     }
-    if ((uint64_t)cfg > max_phys || max_phys - (uint64_t)cfg < 44) return -3;
-    const uint8_t* t = (const uint8_t*)(uintptr_t)cfg;
+    const uint8_t* t = reach((uint64_t)cfg, 44, max_phys);
+    if (!t) return -3;
     uint32_t len = (uint32_t)t[4] | (uint32_t)t[5] << 8;
-    if (t[0] != 'P' || t[1] != 'C' || t[2] != 'M' || t[3] != 'P' || len < 44 || len > max_phys - (uint64_t)cfg || !sum_ok(t, len)) return -4;
+    if (t[0] != 'P' || t[1] != 'C' || t[2] != 'M' || t[3] != 'P' || len < 44) return -4;
+    t = reach((uint64_t)cfg, len, max_phys);
+    if (!t || !sum_ok(t, len)) return -4;
     o->lapic_addr = rd32(t + 36);
     uint32_t count = (uint32_t)t[34] | (uint32_t)t[35] << 8;
-    uint8_t isa[32] = { 0 };                              /* битовая карта номеров шин ISA */
+    uint8_t isa[32] = { 0 };
     uint32_t off = 44;
     for (uint32_t n = 0; n < count; n++) {
         if (off >= len) return -4;
@@ -277,22 +284,22 @@ static int mp_parse_impl(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
             if (o->ioapic_count < ACPI_MAX_IOAPIC) {
                 o->ioapic[o->ioapic_count].id = e[1];
                 o->ioapic[o->ioapic_count].addr = rd32(e + 4);
-                o->ioapic[o->ioapic_count].gsi_base = o->ioapic_count * 24;   /* в MP нет базы GSI: по 24 входа на IOAPIC */
+                o->ioapic[o->ioapic_count].gsi_base = o->ioapic_count * 24;
             }
             o->ioapic_count++;
         }
         off += el;
     }
     if (off != len) return -4;
-    for (unsigned b = 0; b < sizeof isa; b++) if (isa[b]) o->legacy_isa = 1;   /* в таблицах MP есть шина ISA */
-    off = 44;                                             /* второй проход: назначения прерываний (шины и IOAPIC уже известны) */
+    for (unsigned b = 0; b < sizeof isa; b++) if (isa[b]) o->legacy_isa = 1;
+    off = 44;
     for (uint32_t n = 0; n < count; n++) {
         if (off >= len) return -4;
         uint8_t type = t[off];
         uint32_t el = type == 0 ? 20 : 8;
         if (type > 4 || el > len - off) return -4;
         const uint8_t* e = t + off;
-        if (type == 3 && e[1] == 0) {                     /* INT: шина/IRQ -> IOAPIC/вход */
+        if (type == 3 && e[1] == 0) {
             uint8_t bus = e[4], irq = e[5], dst = e[6], pin = e[7];
             uint16_t flags = (uint16_t)(e[2] | e[3] << 8);
             if ((isa[bus >> 3] & (1u << (bus & 7))) && irq < 16) {
@@ -312,10 +319,11 @@ static int mp_parse_impl(uint64_t fps, uint64_t max_phys, acpi_info_t* o) {
     o->valid = 1; o->source = 1;
     return 0;
 }
-
 int mp_parse(uint64_t fps, uint64_t max_phys, acpi_info_t* out) {
     if (!out) return -1;
-    acpi_info_t parsed = *out;
+    acpi_info_t parsed;
+    uint8_t* z = (uint8_t*)&parsed;
+    for (uint32_t i = 0; i < sizeof parsed; i++) z[i] = 0;
     int rc = mp_parse_impl(fps, max_phys, &parsed);
     if (rc == 0) *out = parsed;
     return rc;

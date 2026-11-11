@@ -1,4 +1,5 @@
 #include "vmm.h"
+#include "vmm_range.h"
 #include "uaccess.h"
 #include "pmm.h"
 #include "uart.h"
@@ -167,7 +168,11 @@ static int map_huge_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) 
 }
 
 volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
-    if (len == 0 || pa + len < pa) return 0;
+    if ((cache != VMM_MMIO_UC && cache != VMM_MMIO_WC)) return 0;
+    uint64_t first, size;
+    if (!vmm_mmio_page_range(pa, len, PAGE_SIZE, &first, &size)) return 0;
+    uint64_t last = first + size;
+    if (last - 1 > (PTE_ADDR | (PAGE_SIZE - 1))) return 0;
     uint64_t f = spin_lock_irqsave(&mmio_lock);
     for (unsigned i = 0; i < mmio_n; i++) {                       // уже отображено (другая часть того же BAR, LAPIC)
         if (pa >= mmio[i].pa && pa + len <= mmio[i].pa + mmio[i].len && mmio[i].cache == (uint64_t)cache) {
@@ -176,8 +181,6 @@ volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
             return v;
         }
     }
-    uint64_t first = pa & ~(PAGE_SIZE - 1), last = (pa + len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    uint64_t size = last - first;
     const uint64_t BIG = 2ULL << 20;
     uint64_t va = (mmio_next + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     if (size >= BIG) {                                             // сдвиг va так, чтобы va = pa (mod 2 МБ): тогда возможны 2-МБ страницы
