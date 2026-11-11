@@ -74,21 +74,41 @@ static int aml_int(const uint8_t* p, const uint8_t* e, uint32_t* v, const uint8_
     return -1;
 }
 
+/* Decode AML PkgLength and return the exclusive end of its package.
+   PkgLength counts its own encoding bytes as well as the package body. */
+static int aml_pkg_end(const uint8_t* p, const uint8_t* e, const uint8_t** end) {
+    if (!p || !e || p >= e) return -1;
+    uint8_t lead = *p;
+    uint32_t follow = (uint32_t)(lead >> 6);
+    uint32_t length = follow ? (uint32_t)(lead & 0x0F) : (uint32_t)(lead & 0x3F);
+    if ((uint64_t)(e - p) < follow + 1u) return -1;
+    for (uint32_t i = 0; i < follow; i++)
+        length |= (uint32_t)p[1 + i] << (4u + 8u * i);
+    if (length < follow + 2u || (uint64_t)(e - p) < length) return -1;
+    *end = p + length;
+    return 0;
+}
+
 int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b) {
-    for (uint32_t i = 1; i + 8 < len; i++) {
+    if (!aml || !a || !b || len < 8) return -1;
+    const uint8_t* e = aml + len;
+    for (uint32_t i = 1; i + 5u < len; i++) {
         if (aml[i] != '_' || aml[i + 1] != 'S' || aml[i + 2] != '5' || aml[i + 3] != '_') continue;
-        /* имя объявлено: NameOp (0x08) перед именем, возможно с корнем '\\' */
-        if (!(aml[i - 1] == 0x08 || (aml[i - 1] == '\\' && i >= 2 && aml[i - 2] == 0x08))) continue;
-        const uint8_t* p = aml + i + 4; const uint8_t* e = aml + len;
-        if (*p++ != 0x12) continue;                              /* PackageOp */
-        uint32_t follow = (uint32_t)(*p >> 6);                   /* PkgLength: 0-3 дополнительных байта */
-        p += 1 + follow;
-        if (p >= e) continue;
-        p++;                                                     /* NumElements */
+        /* NameOp (0x08), optionally rooted with '\\'. */
+        if (!(aml[i - 1] == 0x08 || (i >= 2 && aml[i - 1] == '\\' && aml[i - 2] == 0x08))) continue;
+        const uint8_t* p = aml + i + 4;
+        if (p >= e || *p++ != 0x12) continue;                    /* PackageOp */
+        const uint8_t* package_end = 0;
+        if (aml_pkg_end(p, e, &package_end) != 0 || p >= package_end) continue;
+        uint8_t count = *p++;                                    /* NumElements */
+        if (count < 2) continue;
         uint32_t va, vb;
-        if (aml_int(p, e, &va, &p) != 0) continue;
-        if (aml_int(p, e, &vb, &p) != 0) vb = 0;
-        *a = (uint8_t)va; *b = (uint8_t)vb;
+        if (aml_int(p, package_end, &va, &p) != 0 ||
+            aml_int(p, package_end, &vb, &p) != 0) continue;
+        /* ACPI SLP_TYP fields are three bits wide; reject malformed values. */
+        if (va > 7 || vb > 7) continue;
+        *a = (uint8_t)va;
+        *b = (uint8_t)vb;
         return 0;
     }
     return -1;
