@@ -6,8 +6,9 @@
 
 static uint8_t disk[64 * 512];
 static int fail_next_write, fail_flush;
+static unsigned write_calls;
 static int rd(blk_dev_t* d, uint64_t lba, uint32_t n, void* b){ (void)d; if(lba+n>64) return -1; memcpy(b, disk+lba*512, n*512); return 0; }
-static int wr(blk_dev_t* d, uint64_t lba, uint32_t n, const void* b){ (void)d; if(fail_next_write){ fail_next_write=0; memcpy(disk+lba*512, b, 20); return -1; } memcpy(disk+lba*512, b, n*512); return 0; }
+static int wr(blk_dev_t* d, uint64_t lba, uint32_t n, const void* b){ (void)d; write_calls++; if(fail_next_write){ fail_next_write=0; memcpy(disk+lba*512, b, 20); return -1; } memcpy(disk+lba*512, b, n*512); return 0; }
 static int fl(blk_dev_t* d){ (void)d; return fail_flush ? -1 : 0; }
 
 int main(void){
@@ -17,6 +18,10 @@ int main(void){
     memset(disk, 0, sizeof disk);
     CHECK(store_mount(&s, &dev, &e) == 0 && e.boot_count == 0);       /* пустой диск */
     memset(&e, 0, sizeof e); e.boot_count = 1; e.load_ema_x100 = 300; e.qcount = 1; e.q[0].size = 77; memcpy(e.q[0].reason, "nop-sled", 9);
+    blk_dev_t noflush = dev; noflush.flush = 0; store_t sn;
+    CHECK(store_mount(&sn, &noflush, &g) == 0);
+    unsigned writes_before = write_calls;
+    CHECK(store_commit(&sn, &e) == -2 && write_calls == writes_before); /* never report a commit without a flush barrier */
     CHECK(store_commit(&s, &e) == 0);
     e.boot_count = 2; CHECK(store_commit(&s, &e) == 0);
     e.boot_count = 3; CHECK(store_commit(&s, &e) == 0);
@@ -28,6 +33,8 @@ int main(void){
     /* следующая запись идёт в испорченную ячейку и становится поколением 3 */
     e.boot_count = 9; CHECK(store_commit(&s2, &e) == 0);
     CHECK(store_mount(&s2, &dev, &g) == 1 && g.boot_count == 9 && s2.generation == 3);
+    store_t exhausted = s2; exhausted.generation = UINT64_MAX; writes_before = write_calls;
+    CHECK(store_commit(&exhausted, &e) == -3 && write_calls == writes_before); /* no generation wrap */
     /* оборванная запись: устройство вернуло ошибку - прошлое состояние цело */
     fail_next_write = 1; e.boot_count = 10; CHECK(store_commit(&s2, &e) == -1);
     CHECK(s2.generation == 3);
@@ -42,7 +49,8 @@ int main(void){
     CHECK(store_mount(&s2, &dev, &g) == 0);
     /* ошибка чтения устройства */
     blk_dev_t bad = {"bad", 0, rd, wr, fl, 0};
-    CHECK(store_mount(&s2, &bad, &g) == -1 || 1);
+    CHECK(store_mount(&s2, &bad, &g) == -1);
+    CHECK(store_detect(&bad) == 0);
     printf("store: CRC vector, A/B generations, torn write, corruption fallback passed\n");
     return 0;
 }

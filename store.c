@@ -38,6 +38,7 @@ static int valid(const uint8_t* sec, const record_t** out) {
 }
 
 int store_detect(blk_dev_t* dev) {
+    if (!dev || !dev->read || dev->sectors < 2) return 0;
     uint8_t sec[BLK_SECTOR];
     const record_t* r;
     for (int i = 0; i < 2; i++) if (dev->read(dev, (uint64_t)i, 1, sec) == 0 && valid(sec, &r)) return 1;
@@ -45,6 +46,7 @@ int store_detect(blk_dev_t* dev) {
 }
 
 int store_mount(store_t* s, blk_dev_t* dev, experience_t* out) {
+    if (!s || !dev || !out || !dev->read || dev->sectors < 2) return -1;
     s->dev = dev;
     s->generation = 0;
     uint8_t sec[2][BLK_SECTOR];
@@ -67,6 +69,9 @@ int store_mount(store_t* s, blk_dev_t* dev, experience_t* out) {
 }
 
 int store_commit(store_t* s, const experience_t* e) {
+    if (!s || !s->dev || !e || !s->dev->write || s->dev->sectors < 2) return -3;
+    if (!s->dev->flush) return -2; /* a successful commit always has a persistence barrier */
+    if (s->generation == UINT64_MAX) return -3; /* generations must remain strictly ordered */
     uint8_t sec[BLK_SECTOR];
     for (int i = 0; i < BLK_SECTOR; i++) sec[i] = 0;
     record_t* r = (record_t*)sec;
@@ -82,7 +87,7 @@ int store_commit(store_t* s, const experience_t* e) {
     r->crc = crc32(sec, BLK_SECTOR);
 
     if (s->dev->write(s->dev, gen & 1, 1, sec) != 0) return -1;
-    if (s->dev->flush && s->dev->flush(s->dev) != 0) return -2;
+    if (s->dev->flush(s->dev) != 0) return -2;
     s->generation = gen;
     return 0;
 }
