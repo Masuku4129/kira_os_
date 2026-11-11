@@ -118,6 +118,31 @@ int main(void) {
     CHECK(fdt_reg(blob, gic, 2, &a, &s) != 0);                    /* третьей пары нет */
     int mem = fdt_find_path(blob, "/memory");
     CHECK(mem >= 0 && fdt_reg(blob, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
+
+    /* Present but malformed cell-width properties must not silently fall back to defaults. */
+    {
+        uint8_t handoff[KIRA_BOOTINFO_MAX_SIZE < 4096 ? KIRA_BOOTINFO_MAX_SIZE : 4096];
+        uint32_t handoff_size = 0, cell_len = 0;
+        uint8_t* cell = (uint8_t*)fdt_prop(blob, root, "#address-cells", &cell_len);
+        CHECK(cell && cell_len == 4);
+        if (cell) {
+            be(cell - 8, 8); /* property length field */
+            CHECK(fdt_reg(blob, mem, 0, &a, &s) != 0);
+            CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                               handoff, sizeof handoff, &handoff_size) == -3);
+            be(cell - 8, 4);
+        }
+        cell = (uint8_t*)fdt_prop(blob, root, "#size-cells", &cell_len);
+        CHECK(cell && cell_len == 4);
+        if (cell) {
+            be(cell - 8, 8);
+            CHECK(fdt_reg(blob, mem, 0, &a, &s) != 0);
+            CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                               handoff, sizeof handoff, &handoff_size) == -3);
+            be(cell - 8, 4);
+        }
+        CHECK(fdt_reg(blob, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
+    }
     int cpus = fdt_find_path(blob, "/cpus");
     CHECK(cpus >= 0 && fdt_count_type(blob, cpus, "cpu") == 4);  /* cpu-map не ядро */
     int cpu2 = fdt_find_path(blob, "/cpus/cpu@2");
