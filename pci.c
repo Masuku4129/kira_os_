@@ -78,12 +78,29 @@ int pci_use_ecam(volatile void* base, uint64_t size, uint8_t bus_start, uint8_t 
 /* Назначение адресов BAR, когда прошивка этого не сделала (ARM без UEFI: ядро загружено напрямую). Окна - из
    дерева устройств (ranges моста). Каждый BAR выровнен по своему размеру; 64-битные - в 64-битное окно, если оно
    есть. cpu_off - разница «адрес процессора минус адрес шины» окна (у QEMU virt - 0). Возвращает число BAR. */
-static uint64_t alloc_in(pci_window_t* w, uint64_t size) {
-    if (!w->size) return 0;
-    uint64_t a = (w->next + size - 1) & ~(size - 1);
-    if (a < w->next || a + size > w->pci_base + w->size || a + size < a) return 0;
+int pci_window_alloc(pci_window_t* w, uint64_t size, uint64_t* pci_addr, uint64_t* cpu_addr) {
+    if (!w || !pci_addr || !cpu_addr || !size || (size & (size - 1)) || !w->size ||
+        w->pci_base > UINT64_MAX - w->size) return -1;
+    uint64_t end = w->pci_base + w->size;
+    uint64_t start = w->next;
+    if (start < w->pci_base || start >= end || start > UINT64_MAX - (size - 1)) return -1;
+    uint64_t a = (start + size - 1) & ~(size - 1);
+    if (a < start || a > end || size > end - a) return -1;
+
+    uint64_t cpu;
+    if (w->cpu_off >= 0) {
+        uint64_t off = (uint64_t)w->cpu_off;
+        if (a > UINT64_MAX - off) return -1;
+        cpu = a + off;
+    } else {
+        uint64_t off = (uint64_t)(-(w->cpu_off + 1)) + 1;
+        if (a < off) return -1;
+        cpu = a - off;
+    }
     w->next = a + size;
-    return a;
+    *pci_addr = a;
+    *cpu_addr = cpu;
+    return 0;
 }
 int pci_assign(pci_window_t* mem32, pci_window_t* mem64) {
     int n = 0;
@@ -95,14 +112,15 @@ int pci_assign(pci_window_t* mem32, pci_window_t* mem64) {
                 uint64_t sz = d->bar[b].size;
                 if (d->bar[b].io || !sz || d->bar[b].base || (sz & (sz - 1)) || sz != (1ull << pass)) continue;
                 pci_window_t* w = d->bar[b].mem64 && mem64 && mem64->size ? mem64 : mem32;
-                uint64_t a = alloc_in(w, sz);
-                if (!a && w != mem32 && d->bar[b].mem64) { w = mem32; a = alloc_in(w, sz); }
-                if (!a) continue;
+                uint64_t a = 0, cpu = 0;
+                int rc = pci_window_alloc(w, sz, &a, &cpu);
+                if (rc && w != mem32 && d->bar[b].mem64) { w = mem32; rc = pci_window_alloc(w, sz, &a, &cpu); }
+                if (rc) continue;                 /* не трогаем BAR, если CPU-адрес не представим */
                 uint16_t off = (uint16_t)(0x10 + 4 * b);
                 uint32_t lo = pci_read32(d, off) & 0xF;                        /* биты типа сохраняются */
                 pci_write32(d, off, (uint32_t)a | lo);
                 if (d->bar[b].mem64) pci_write32(d, (uint16_t)(off + 4), (uint32_t)(a >> 32));
-                d->bar[b].base = a + w->cpu_off;
+                d->bar[b].base = cpu;
                 n++;
             }
         }
