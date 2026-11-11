@@ -374,13 +374,23 @@ static void ept_encode(uint8_t out[32], const ept_t* p) {
     out[31] |= (uint8_t)((x[0] & 1) << 7);
 }
 
+/* Identity check in projective coordinates; field elements use Montgomery form. */
+static int ept_is_identity(const ept_t* p) {
+    return bn_is_zero(p->x, 8) && bn_cmp(p->y, p->z, 8) == 0;
+}
+
 int ed25519_verify(const uint8_t pub[32], const uint8_t* msg, size_t mlen, const uint8_t sig[64]) {
     fe_t S, L, k, zero;
-    ept_t A, B, sB, kA, R;
+    ept_t A, B, sB, kA, R, subgroup;
     if (ed_init()) return -1;
     le_to_bn(S, 8, sig + 32, 32); hexnum(L, 8, ED_L);
     if (bn_cmp(S, L, 8) >= 0) return -1;                          /* S < L обязательно (RFC 8032 §5.1.7) */
     if (ept_decode(&A, pub)) return -1;
+    /* Reject identity and every point outside the prime-order subgroup.
+       This prevents small-order public keys from satisfying a forged equation. */
+    if (ept_is_identity(&A)) return -1;
+    ept_mul(&subgroup, &A, L);
+    if (!ept_is_identity(&subgroup)) return -1;
     if (ept_decode(&B, ED_BASE)) return -1;
     sha512_ctx_t c; uint8_t h[64];
     sha512_init(&c); sha512_update(&c, sig, 32); sha512_update(&c, pub, 32); sha512_update(&c, msg, mlen); sha512_final(&c, h);
