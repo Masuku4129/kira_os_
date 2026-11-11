@@ -17,9 +17,11 @@
     "audits_run": false,
     "builds_run": false,
     "ci_dispatch_requested": false,
-    "commit_messages_use_skip_ci": true,
+    "commit_messages_use_skip_ci": false,
     "pull_requests_merged": [],
-    "other_branches_modified": []
+    "other_branches_modified": [],
+    "automatic_workflows_checked": false,
+    "automatic_ci_status": "not_checked; the source commits in this run did not contain [skip ci], so branch push workflows may have started automatically; no manual CI dispatch was made"
   },
   "completed_this_run": [
     {
@@ -85,7 +87,7 @@
         "ec2c07d4800bebb22394943cb0fd4d177fe8cc2d"
       ],
       "details": "Добавлены отдельные x86 interrupt stubs и динамическое выделение векторов 0x60..0x7F, регистрация обработчиков и ожидание уже вошедших обработчиков при освобождении. IOAPIC получил отдельный GSI API для PCI INTx: проверка ACPI polarity/trigger flags, GSI range, 8-битного destination APIC ID и факта регистрации обработчика; redirection entry записывается masked, сверяется readback и только затем размаскируется. При инициализации IOAPIC прежние маршруты маскируются, перекрывающиеся GSI-диапазоны отклоняются, один GSI не переназначается на другой вектор.",
-      "validation": "По прямому требованию не запускались тесты, аудит, сборка и CI. PCI _PRT namespace discovery, route-table consumer, shared-INTx fan-out и реальная доставка PCI IRQ ещё не подключены; это аппаратная инфраструктура, не end-to-end реализация PCI routing."
+      "validation": "По прямому требованию не запускались тесты, аудит, сборка и CI. PCI _PRT namespace discovery, route-table consumer, shared-INTx fan-out и реальная доставка PCI IRQ ещё не подключены; это аппаратная инфраструктура, не end-to-end реализация PCI routing. The code commits were created without [skip ci]; automatic push-triggered workflows may therefore have started, but their status was not inspected or controlled in this run."
     }
   ],
   "modules": [
