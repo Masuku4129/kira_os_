@@ -124,6 +124,20 @@ int main(void){
         CHECK(acpi_scan(base, base + 0x1000, "_MP_", 4, 0) == 0); fps[9] ^= 1;                 /* сумма не сходится - не находим */
         fps[11] = 6; fix(fps, 16, 10);                     /* стандартная конфигурация без таблицы */
         CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == 0 && mp.cpu_count == 2 && mp.ioapic_count == 1);
+        {
+            acpi_info_t unchanged; memset(&unchanged, 0xA5, sizeof unchanged);
+            acpi_info_t before = unchanged;
+            CHECK(mp_parse(UINT64_MAX - 7, UINT64_MAX, &unchanged) == -1);
+            CHECK(memcmp(&unchanged, &before, sizeof before) == 0);
+            CHECK(mp_parse(base + 0x800, base + (1 << 16), 0) == -1);
+            uint16_t saved_count; memcpy(&saved_count, ct + 34, 2);
+            uint16_t short_count = (uint16_t)(saved_count - 1);
+            memcpy(ct + 34, &short_count, 2); fix(ct, tl, 7);
+            before = mp;
+            CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == -4);
+            CHECK(memcmp(&mp, &before, sizeof mp) == 0);
+            memcpy(ct + 34, &saved_count, 2); fix(ct, tl, 7);
+        }
         srand(3);
         for (int t = 0; t < 20000; t++) {                  /* мусор в таблице не выводит за её пределы */
             fps[11] = 0; fix(fps, 16, 10);
@@ -132,20 +146,6 @@ int main(void){
             mp_parse(base + 0x800, base + (1 << 16), &mp);
             CHECK(mp.ioapic_count <= 64 && mp.cpu_count <= 300);
         }
-    }
-    {
-        acpi_info_t unchanged; memset(&unchanged, 0xA5, sizeof unchanged);
-        acpi_info_t before = unchanged;
-        CHECK(mp_parse(UINT64_MAX - 7, UINT64_MAX, &unchanged) == -1);
-        CHECK(memcmp(&unchanged, &before, sizeof before) == 0);
-        CHECK(mp_parse(base + 0x800, base + (1 << 16), 0) == -1);
-        /* The MP base-table entry count must consume the entire declared table. */
-        uint16_t saved_count; memcpy(&saved_count, ct + 34, 2);
-        uint16_t short_count = (uint16_t)(saved_count - 1); memcpy(ct + 34, &short_count, 2); fix(ct, tl, 7);
-        before = mp;
-        CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == -4);
-        CHECK(memcmp(&mp, &before, sizeof mp) == 0);
-        memcpy(ct + 34, &saved_count, 2); fix(ct, tl, 7);
     }
     {   /* FADT: бит LEGACY_DEVICES (IAPC_BOOT_ARCH, смещение 109) - платформа сообщает, что устройства ISA есть */
         uint8_t *rs = m + 0x3000, *xs = m + 0x3100, *fa = m + 0x3200;
