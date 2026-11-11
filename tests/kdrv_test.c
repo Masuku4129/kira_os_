@@ -20,6 +20,10 @@ int main(void) {
     kdrv_header_t h, o;
     mk(&h, f, 100);
     CHECK(kdrv_header_check(f, sizeof f, &o) == KDRV_OK && !strcmp(o.name, "edu"));
+    CHECK(kdrv_header_check(0, sizeof f, &o) == KDRV_E_INPUT);
+    CHECK(kdrv_rec_check(0, sizeof(kdrv_rec_t), 0) == KDRV_E_INPUT);
+    CHECK(kdrv_match_dev(0, 0x1234, 0x11e8, 0) == 0);
+    CHECK(kdrv_header_check(f, sizeof f, 0) == KDRV_OK);
     CHECK(kdrv_dma_policy_allow(0, 0) == 1);                    /* MMIO/опрос безопасны без DMA */
     CHECK(kdrv_dma_policy_allow(CAP_MMIO, 0) == 1);
     CHECK(kdrv_dma_policy_allow(CAP_DMA, 0) == 0);               /* bus mastering без IOMMU запрещён */

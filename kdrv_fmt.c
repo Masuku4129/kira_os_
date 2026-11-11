@@ -16,6 +16,7 @@ static int name_ok(const char* n, unsigned cap) {
 
 int kdrv_header_check(const void* file, uint32_t len, kdrv_header_t* out) {
     kdrv_header_t h;
+    if (!file) return KDRV_E_INPUT;
     if (len < sizeof h) return KDRV_E_SHORT;
     cpy(&h, file, sizeof h);                            /* копия: проверяем то, что потом используем */
     if (h.magic != KDRV_MAGIC) return KDRV_E_MAGIC;
@@ -36,6 +37,7 @@ int kdrv_header_check(const void* file, uint32_t len, kdrv_header_t* out) {
 
 int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out) {
     kdrv_rec_t r;
+    if (!rec) return KDRV_E_INPUT;
     if (len < sizeof r) return KDRV_E_SHORT;
     cpy(&r, rec, sizeof r);
     if (r.magic != KREC_MAGIC) return KDRV_E_MAGIC;
@@ -50,6 +52,7 @@ int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out) {
 }
 
 int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uint32_t cls) {
+    if (!h || !h->nmatch || h->nmatch > KDRV_MATCH_MAX) return 0;
     for (uint32_t i = 0; i < h->nmatch && i < KDRV_MATCH_MAX; i++) {
         const kdrv_match_t* m = &h->match[i];
         if (m->vendor != KDRV_ANY && m->vendor != vendor) continue;
@@ -78,6 +81,7 @@ const char* kdrv_strerror(int e) {
     case KDRV_E_UNCONFIRMED: return "установка не подтверждена пользователем";
     case KDRV_E_HASH: return "SHA-256 не совпал с записью .rec";
     case KDRV_E_DMA_UNSAFE: return "DMA/MSI запрещены: для устройства нет подтверждённой изоляции IOMMU";
+    case KDRV_E_INPUT: return "отсутствует входной буфер";
     default: return "?";
     }
 }
