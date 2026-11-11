@@ -78,6 +78,9 @@ static Type *canon(const Type *t) {
 }
 
 Type *ty_promote(Type *t) {
+    /* Every KCC enum enumerator is constrained to the range of int, so the
+       integer promotions always produce int (never unsigned int). */
+    if (t->k == TY_ENUM) return &ty_int;
     t = canon(t);
     if (t->k == TY_BOOL || t->k == TY_CHAR || t->k == TY_SHORT) return &ty_int;
     return t;

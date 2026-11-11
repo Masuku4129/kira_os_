@@ -818,13 +818,47 @@ static Node *new_sub(Node *l, Node *r, const Token *t) {
     kerr_tok(t, "invalid operands to binary expression ('%s' and '%s')", ty_name(l->ty), ty_name(r->ty));
 }
 
+static int ptr_eq_compatible(Type *a, Type *b) {
+    a = ty_unqual(a); b = ty_unqual(b);
+    if (ty_compat(a, b)) return 1;
+    /* C permits object-pointer <-> void-pointer equality, but not function-pointer <-> void-pointer. */
+    if (a->k == TY_VOID && b->k != TY_VOID && b->k != TY_FUNC) return 1;
+    if (b->k == TY_VOID && a->k != TY_VOID && a->k != TY_FUNC) return 1;
+    return 0;
+}
+
+static int is_null_pointer_constant(const Node *n) {
+    return ty_is_int(n->ty) && n->k == ND_NUM && n->val == 0;
+}
+
+static int is_relational_cmp(NKind k) {
+    return k == ND_LT || k == ND_LE || k == ND_GT || k == ND_GE;
+}
+
 static Node *new_cmp(NKind k, Node *l, Node *r, const Token *t) {
     l = rv(l); r = rv(r);
     Type *ct;
     if (ty_is_int(l->ty) && ty_is_int(r->ty)) {
         ct = ty_common(l->ty, r->ty);
         l = new_cast(l, ct, t); r = new_cast(r, ct, t);
-    } else if ((l->ty->k == TY_PTR || ty_is_int(l->ty)) && (r->ty->k == TY_PTR || ty_is_int(r->ty))) {
+    } else if (l->ty->k == TY_PTR && r->ty->k == TY_PTR) {
+        Type *a = ty_unqual(l->ty->base), *b = ty_unqual(r->ty->base);
+        if (is_relational_cmp(k)) {
+            if (!ty_compat(a, b) || a->k == TY_VOID || a->k == TY_FUNC)
+                kerr_tok(t, "relational comparison requires pointers to compatible object types");
+        } else if (!ptr_eq_compatible(a, b)) {
+            kerr_tok(t, "equality comparison requires compatible pointers or a void pointer");
+        }
+        ct = &ty_ulong;
+        l = new_cast(l, ct, t); r = new_cast(r, ct, t);
+    } else if (l->ty->k == TY_PTR && ty_is_int(r->ty)) {
+        if (is_relational_cmp(k) || !is_null_pointer_constant(r))
+            kerr_tok(t, "pointer comparison requires a null pointer constant");
+        ct = &ty_ulong;
+        l = new_cast(l, ct, t); r = new_cast(r, ct, t);
+    } else if (ty_is_int(l->ty) && r->ty->k == TY_PTR) {
+        if (is_relational_cmp(k) || !is_null_pointer_constant(l))
+            kerr_tok(t, "pointer comparison requires a null pointer constant");
         ct = &ty_ulong;
         l = new_cast(l, ct, t); r = new_cast(r, ct, t);
     } else kerr_tok(t, "invalid operands to binary expression ('%s' and '%s')", ty_name(l->ty), ty_name(r->ty));
