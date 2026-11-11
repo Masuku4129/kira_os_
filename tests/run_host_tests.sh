@@ -59,6 +59,9 @@ $T/input
 echo "== driver package format (kdrv_format.h: header, record, matching, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c
 $T/kdrv
+echo "== KDRV signed manifest (Ed25519, package binding, key policy, hostile input) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv-manifest tests/kdrv_manifest_test.c kdrv_manifest.c pk.c crypto.c sha256.c
+$T/kdrv-manifest
 echo "== KDRV package builder (strict CLI and bounded input) =="
 bash tests/kdrvpack_test.sh
 
