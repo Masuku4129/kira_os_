@@ -126,8 +126,10 @@ void uart_flush_all(void) { }                                    /* буферо
 int  uart_getchar(void) { return uart_getc(); }
 
 /* ---------------- память ---------------- */
-static struct { uint64_t base, size; } ram[MAX_RAM];
-static unsigned nram;
+static arm_range_t ram[MAX_RAM];                 /* allocator-usable RAM only */
+static arm_range_t phys_ram[MAX_RAM];            /* complete physical RAM banks, including reservations */
+static unsigned nram, nphys;
+static uint64_t fb_lo, fb_hi;                     /* framebuffer is RAM-backed but must remain device-mapped */
 static uint64_t bump, bump_end, bump_start;
 
 static void* palloc(uint64_t bytes, uint64_t align) {          /* страницы для таблиц и стеков - за ядром */
@@ -154,6 +156,75 @@ static int touches_ram(uint64_t a, uint64_t len) {
     for (unsigned i = 0; i < nram; i++)
         if (arm_range_overlaps(ram[i].base, ram[i].size, a, len)) return 1;
     return 0;
+}
+static int phys_in_ram(uint64_t a, uint64_t len) {
+    return arm_ranges_contains(phys_ram, nphys, a, len);
+}
+static int phys_touches_ram(uint64_t a, uint64_t len) {
+    return arm_ranges_overlaps(phys_ram, nphys, a, len);
+}
+
+/* Build a separate physical-RAM map from the original FDT memory banks. BootInfo's
+   usable map intentionally removes the kernel, DTB and firmware reservations; those
+   pages are unavailable to palloc, but they are still normal RAM for MMU attributes. */
+static uint64_t collect_phys_ram(const void* fdt, uint64_t pa_limit) {
+    int depth = 0;
+    uint64_t top = 4ull << 30;
+    for (int node = fdt_root(fdt); node >= 0; node = fdt_next_node(fdt, node, &depth)) {
+        if (!fdt_node_enabled(fdt, node)) continue;
+        uint32_t type_len = 0;
+        const char* type = (const char*)fdt_prop(fdt, node, "device_type", &type_len);
+        if (!type || type_len != 7 || __builtin_memcmp(type, "memory", 6) || type[6] != 0) continue;
+
+        int parent = fdt_parent(fdt, node);
+        uint32_t ac = 2, sc = 1, cell_len = 0;
+        const void* cell = parent >= 0 ? fdt_prop(fdt, parent, "#address-cells", &cell_len) : 0;
+        if (parent < 0 || (cell && cell_len != 4)) kernel_panic("invalid FDT memory address-cells");
+        if (cell) ac = fdt_u32(cell);
+        cell = fdt_prop(fdt, parent, "#size-cells", &cell_len);
+        if (cell && cell_len != 4) kernel_panic("invalid FDT memory size-cells");
+        if (cell) sc = fdt_u32(cell);
+        if (ac < 1 || ac > 2 || sc < 1 || sc > 2) kernel_panic("unsupported FDT memory cell width");
+
+        uint32_t reg_len = 0;
+        const void* reg = fdt_prop(fdt, node, "reg", &reg_len);
+        uint32_t stride = 4u * (ac + sc);
+        if (!reg || !reg_len || reg_len % stride) kernel_panic("invalid FDT memory reg");
+        for (uint32_t i = 0; i < reg_len / stride; i++) {
+            uint64_t base = 0, size = 0, clipped = 0;
+            if (fdt_reg(fdt, node, i, &base, &size)) kernel_panic("invalid FDT memory range");
+            if (!arm_range_clip(base, size, pa_limit, &clipped)) continue;
+            if (nphys >= MAX_RAM) kernel_panic("too many physical RAM banks");
+            phys_ram[nphys++] = (arm_range_t){ .base = base, .size = clipped };
+            uint64_t end = base + clipped;
+            if (end > top) top = end;
+        }
+    }
+    if (!nphys) kernel_panic("FDT contains no physical RAM banks");
+
+    /* Sort and merge adjacent/overlapping banks so a 2 MiB mapping never mistakes
+       a bank boundary for a hole in physical memory. */
+    for (unsigned i = 1; i < nphys; i++) {
+        arm_range_t v = phys_ram[i];
+        unsigned j = i;
+        while (j && phys_ram[j - 1].base > v.base) { phys_ram[j] = phys_ram[j - 1]; j--; }
+        phys_ram[j] = v;
+    }
+    unsigned merged = 0;
+    for (unsigned i = 0; i < nphys; i++) {
+        uint64_t end = phys_ram[i].base + phys_ram[i].size;
+        if (merged) {
+            arm_range_t* prev = &phys_ram[merged - 1];
+            uint64_t prev_end = prev->base + prev->size;
+            if (phys_ram[i].base <= prev_end) {
+                if (end > prev_end) prev->size = end - prev->base;
+                continue;
+            }
+        }
+        phys_ram[merged++] = phys_ram[i];
+    }
+    nphys = merged;
+    return top;
 }
 
 /* ---------------- MMU: тождественная карта, 4 КБ гранула, 48 бит ----------------
@@ -202,14 +273,16 @@ static int map_gb(uint64_t gb) {
     unsigned i1 = (unsigned)(gb >> 30) & 511;
     if (l1[i1] & PTE_VALID) return 0;
     int has_pool = dma_lo && dma_lo < gb + (1ull << 30) && dma_hi > gb;
-    if (in_ram(gb, 1ull << 30) && !has_pool) { l1[i1] = gb | PTE_NORMAL | PTE_BLOCK; return 0; }
-    if (!touches_ram(gb, 1ull << 30)) { l1[i1] = gb | PTE_DEVICE | PTE_BLOCK; return 0; }
+    int has_fb = fb_hi > gb && fb_lo < gb + (1ull << 30);
+    if (phys_in_ram(gb, 1ull << 30) && !has_pool && !has_fb) { l1[i1] = gb | PTE_NORMAL | PTE_BLOCK; return 0; }
+    if (!phys_touches_ram(gb, 1ull << 30)) { l1[i1] = gb | PTE_DEVICE | PTE_BLOCK; return 0; }
     uint64_t* l2 = next_table(l1, i1);
     if (!l2) return -1;
     for (unsigned i = 0; i < 512; i++) {
         uint64_t a = gb + ((uint64_t)i << 21);
-        uint64_t attr = in_ram(a, 1ull << 21) ? PTE_NORMAL : PTE_DEVICE;
+        uint64_t attr = phys_in_ram(a, 1ull << 21) ? PTE_NORMAL : PTE_DEVICE;
         if (dma_lo && a >= dma_lo && a + (1ull << 21) <= dma_hi) attr = PTE_DMA_NC;
+        if (fb_hi > a && fb_lo < a + (1ull << 21)) attr = PTE_DEVICE;
         l2[i] = a | attr | PTE_BLOCK;
     }
     return 0;
@@ -1323,8 +1396,13 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
         kernel_panic("cannot normalize ARM device tree into BootInfo");
     const kbi_header_t* bootinfo = (const kbi_header_t*)arm_bootinfo_blob;
     const kbi_mmap_entry_t* boot_map = kbi_mmap(bootinfo);
-    uint64_t top = 4ull << 30, total = 0;
     uint64_t pa_limit = arm_pa_limit();
+    uint64_t top = collect_phys_ram(fdt, pa_limit), total = 0;
+    if (bootinfo->flags & KBI_F_FRAMEBUFFER) {
+        fb_lo = bootinfo->fb_phys;
+        if (!fb_lo || !arm_range_end(fb_lo, bootinfo->fb_size, &fb_hi))
+            kernel_panic("invalid framebuffer range in BootInfo");
+    }
     uint64_t fdt_base = (uint64_t)(uintptr_t)fdt, fdt_bytes = fdt_total_size(fdt);
     if (kernel_base >= pa_limit || kernel_size > pa_limit - kernel_base ||
         fdt_base >= pa_limit || fdt_bytes > pa_limit - fdt_base)
