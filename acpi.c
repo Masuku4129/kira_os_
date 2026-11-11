@@ -294,12 +294,14 @@ static int acpi_finish(uint64_t rs, int from_mb2_tag) {
 /* Loader-neutral entry: rsdp_phys is a physical address from validated BootInfo.
    acpi_parse maps it through the platform hook when it is outside the early identity map. */
 int acpi_init_rsdp(uint64_t rsdp_phys) {
+    info = (acpi_info_t){0};
     if (rsdp_phys && (rsdp_phys & 15)) return -1;
     return acpi_finish(rsdp_phys, 0);
 }
 
 /* Compatibility entry for the current GRUB/Multiboot2 development path. */
 int acpi_init(uint64_t mbi) {
+    info = (acpi_info_t){0};
     const uint64_t ONE_GB = 1ULL << 30;
     if (mbi == 0 || mbi >= ONE_GB || (mbi & 7) || mbi > ONE_GB - 16) return -1;
     uint32_t total = rd32((const uint8_t*)(uintptr_t)mbi);
