@@ -286,6 +286,9 @@ static void scan_bus(uint8_t bus);
 
 static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = fn;
+#ifndef KIRA_HOST_TEST
+    if (bus == 0 && dev < 3 && fn == 0) { uart_print("[KIRA PCI TRACE] fn begin\n"); }
+#endif
     uint32_t id = cr32(&t, 0);
     if ((id & 0xFFFF) == 0xFFFF) return;
     if (ndevs >= PCI_MAX_DEVS) return;
@@ -295,14 +298,18 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     uint32_t cls = cr32(d, 0x08);
     d->revision = (uint8_t)cls; d->prog_if = (uint8_t)(cls >> 8); d->subclass = (uint8_t)(cls >> 16); d->class_code = (uint8_t)(cls >> 24);
     d->header_type = pci_read8(d, 0x0E);
-    /* Firmware may leave bus mastering enabled. Stop DMA before probing BARs
-       or handing the function to a kernel driver. Drivers re-enable it only
-       after their DMA buffers and IOMMU mappings are ready. */
+#ifndef KIRA_HOST_TEST
+    if (bus == 0 && dev < 3 && fn == 0) { uart_print("[KIRA PCI TRACE] class/header read\n"); }
+#endif
     pci_disable_bus_master(d);
+#ifndef KIRA_HOST_TEST
+    if (bus == 0 && dev < 3 && fn == 0) { uart_print("[KIRA PCI TRACE] busmaster disabled\n"); }
+#endif
     probe_bars(d);
+#ifndef KIRA_HOST_TEST
+    if (bus == 0 && dev < 3 && fn == 0) { uart_print("[KIRA PCI TRACE] BAR probe complete\n"); }
+#endif
     if (pci_is_bridge(d)) {
-        /* Keep bridge forwarding enabled; every endpoint remains independently
-           quiesced until its driver receives DMA authorization. */
         pci_enable(d, PCI_CMD_MASTER);
         uint8_t sec = pci_read8(d, 0x19);
         if (sec) scan_bus(sec);
