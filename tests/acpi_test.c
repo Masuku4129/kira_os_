@@ -67,6 +67,9 @@ int main(void){
       CHECK(i.tables_bad==1 && i.tables_seen==2 && i.cpu_count==0 && i.ioapic_count==0 && i.has_hpet);
       madt[45] = saved; fix(madt, mlen, 9); }
 
+    if (!(i.valid && i.revision==2 && i.ioapic_count==1 && i.ioapic[0].addr==0xFEC00000))
+        printf("ACPI DEBUG valid=%d rev=%u ioapics=%u addr=%08x tables=%u bad=%u cpus=%u\\n",
+               i.valid, i.revision, i.ioapic_count, i.ioapic[0].addr, i.tables_seen, i.tables_bad, i.cpu_count);
     CHECK(i.valid && i.revision==2 && i.ioapic_count==1 && i.ioapic[0].addr==0xFEC00000);
     CHECK(i.lapic_addr==0xFEE00000 && i.irq_override_count==1 && i.has_hpet && i.mcfg_base==ecam && i.mcfg_bus_end==255);
     CHECK(i.tables_seen==3 && i.tables_bad==0);
