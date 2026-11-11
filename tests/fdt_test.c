@@ -168,8 +168,12 @@ int main(void) {
             const kbi_mmap_entry_t* mm = kbi_mmap(handoff);
             CHECK(mm != 0);
             if (mm) {
+                for (unsigned i = 0; i < h->mmap_count; i++)
+                    printf("FDT RAM[%u] base=%llx length=%llx\\n", i,
+                           (unsigned long long)mm[i].base, (unsigned long long)mm[i].length);
                 CHECK(mm[0].base == 0x40000000 && mm[0].length == 0x10000000);
-                CHECK(mm[1].base == 0x50001000 && mm[1].length == 0x0FFEF000);
+                CHECK(mm[1].base == 0x50001000);
+                CHECK(mm[1].length == 0x0FFEF000);
                 CHECK(mm[2].base == 0x60002000 && mm[2].length == 0x2FFFE000);
             }
             CHECK(h->fb_phys == 0x3c000000 && h->fb_width == 800 && h->fb_height == 600);
