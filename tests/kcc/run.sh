@@ -38,6 +38,9 @@ for f in tests/kcc/bad/*.c; do
         tests/kcc/bad/ptr_*)
             if $REF -std=c99 -fsyntax-only -Werror -I $INC $f 2>/dev/null; then note "$f: clang принимает некорректную операцию с указателями"; fi
             ;;
+        tests/kcc/bad/proto_*)
+            if $REF -std=c99 -fsyntax-only -Werror -Wno-deprecated-non-prototype -I $INC $f 2>/dev/null; then note "$f: clang принимает несовместимые объявления функций"; fi
+            ;;
         *)
             if $REF -std=c99 -fsyntax-only -w -I $INC $f 2>/dev/null; then note "$f: сам тест неверен, clang принимает"; fi
             ;;

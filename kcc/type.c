@@ -97,6 +97,17 @@ Type *ty_common(Type *a, Type *b) {
     return s->k == TY_LONG ? &ty_ulong : s->k == TY_LLONG ? &ty_ullong : &ty_uint;
 }
 
+static int proto_compatible_with_no_proto(const Type *fn) {
+    if (fn->variadic) return 0;
+    for (Param *p = fn->params; p; p = p->next) {
+        /* With no prototype, default argument promotions must leave every
+           declared parameter type unchanged (e.g. int is OK; char is not). */
+        Type *promoted = ty_promote(p->ty);
+        if (!ty_compat(p->ty, promoted)) return 0;
+    }
+    return 1;
+}
+
 int ty_compat(const Type *a, const Type *b) {
     if (a == b) return 1;
     if (a->orig) a = a->orig;
@@ -112,7 +123,9 @@ int ty_compat(const Type *a, const Type *b) {
     case TY_ARRAY: return ty_compat(a->base, b->base) && (a->alen < 0 || b->alen < 0 || a->alen == b->alen);
     case TY_FUNC: {
         if (!ty_compat(a->base, b->base)) return 0;
-        if (a->noproto || b->noproto) return 1;
+        if (a->noproto && b->noproto) return 1;
+        if (a->noproto) return proto_compatible_with_no_proto(b);
+        if (b->noproto) return proto_compatible_with_no_proto(a);
         if (a->variadic != b->variadic) return 0;
         Param *p = a->params, *q = b->params;
         for (; p && q; p = p->next, q = q->next) if (!ty_compat(p->ty, q->ty)) return 0;
