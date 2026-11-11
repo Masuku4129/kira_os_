@@ -308,9 +308,9 @@ int main(void) {
     CHECK(assigned->bar[0].base == 0 && assign64.windows[0].next == mem64_next);
 
     memset(&conflict32, 0, sizeof conflict32);
-    pci_window_t cpu_alias = { .pci_base = 0x80000000ull, .size = 0x1000,
-                               .next = 0x80000000ull, .cpu_off = 0x80000000ll };
-    CHECK(pci_window_set_add(&conflict32, &cpu_alias) == 0);
+    pci_window_t cpu_pool_alias = { .pci_base = 0x80000000ull, .size = 0x1000,
+                                    .next = 0x80000000ull, .cpu_off = 0x80000000ll };
+    CHECK(pci_window_set_add(&conflict32, &cpu_pool_alias) == 0);
     CHECK(pci_assign_multi(&conflict32, &assign64) == 0);
     CHECK(assigned->bar[0].base == 0 && assign64.windows[0].next == mem64_next);
 
