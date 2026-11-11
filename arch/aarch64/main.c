@@ -1400,7 +1400,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     uint64_t top = collect_phys_ram(fdt, pa_limit), total = 0;
     if (bootinfo->flags & KBI_F_FRAMEBUFFER) {
         fb_lo = bootinfo->fb_phys;
-        if (!fb_lo || !arm_range_end(fb_lo, bootinfo->fb_size, &fb_hi))
+        if (!bootinfo->fb_size || !arm_range_end(fb_lo, bootinfo->fb_size, &fb_hi))
             kernel_panic("invalid framebuffer range in BootInfo");
     }
     uint64_t fdt_base = (uint64_t)(uintptr_t)fdt, fdt_bytes = fdt_total_size(fdt);
