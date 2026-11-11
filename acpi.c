@@ -177,10 +177,11 @@ static int parse_mcfg(const sdt_t* t, acpi_info_t* o) {
     for (uint32_t i = 0; i < count; i++) {
         const uint8_t* e = b + 44u + i * 16u;
         uint64_t base = rd64(e);
-        uint16_t segment = rd16(e + 8);
+        uint16_t segment = (uint16_t)e[8] | (uint16_t)((uint16_t)e[9] << 8);
         uint8_t first = e[10], last = e[11];
+        if (first > last) return -1;
         uint64_t span = ((uint64_t)last - first + 1u) << 20;
-        if (!base || (base & ((1u << 20) - 1u)) || first > last ||
+        if (!base || (base & ((1u << 20) - 1u)) ||
             rd32(e + 12) != 0 || base > UINT64_MAX - span) return -1;
         if (segment == 0) {
             if (++segment0_count > 1) return -1;
