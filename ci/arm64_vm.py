@@ -451,5 +451,18 @@ def run(sc, out):
 
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else "ci-out"
-    ok = all([run(s, out) for s in SC])
-    sys.exit(0 if ok else 1)
+    results = []
+    for scenario in SC:
+        ok = run(scenario, out)
+        results.append(ok)
+        # A shared early-boot failure makes every remaining machine uninformative.
+        # Stop after the first missing READY marker instead of spending 60 seconds per board.
+        result_path = os.path.join(out, scenario["name"], "result.json")
+        try:
+            result = json.load(open(result_path, encoding="utf-8"))
+        except (OSError, ValueError):
+            result = {}
+        if result.get("error") == "не дождались готовности":
+            print("[ARM64] stopping scenario matrix: kernel did not reach READY", flush=True)
+            break
+    sys.exit(0 if len(results) == len(SC) and all(results) else 1)
