@@ -140,3 +140,11 @@ The next combined user update is eligible only when:
 - Исправлено в `virtio.c`: IRQ wait теперь блокирует поток только при `WAIT_SLEEP_OK()`; если сон запрещён (в частности, mutex удерживается), остаётся bounded polling/CPU relax путь с прежними deadline и spin limit.
 - Commit: `eb56746745e0669e47796be9bd619965ef441a7b`.
 - Это устраняет обнаруженный обход sleep guard по коду, но НЕ закрывает VM shard-4: требуется новый CI run и успешные `wasm-speed`, `stress-3d`, `cc-native`; также требуется проверить, что нет других блокирующих ожиданий без `sched_can_sleep()`.
+
+
+## VMM kernel-stack allocator follow-up (2026-11-12)
+- Audit found that `vmm_kstack_free()` accepted any address inside a stack slot and did not track ownership. Double-free could enqueue the same slot twice and later hand one kernel stack to two threads.
+- Added an active-slot bitmap. Free now requires the exact allocated base, a slot previously issued by the allocator, and an active ownership bit; duplicate/foreign frees are ignored and the free-list append is bounded.
+- A partially mapped slot is now quarantined by advancing `ks_used_hi`, preventing a later allocation from retrying mappings over already-installed PTEs.
+- Commit: `7265682c2e8022a9ddb14af4989503ee51080774`.
+- Not verified PASS: current host suite has no isolated VMM allocator test. Required next: add testable allocator lifecycle coverage, then obtain fresh x86-64/ARM64 build and VM CI evidence. Physical guard-page/stack-overflow validation remains separate.
