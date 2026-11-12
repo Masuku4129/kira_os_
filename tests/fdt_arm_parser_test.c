@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include "fdt.h"
+#include "../arch/aarch64/fdt.h"
 
 #define MAGIC 0xd00dfeedu
 static uint8_t structure[512], strings[128], blob[1024];
