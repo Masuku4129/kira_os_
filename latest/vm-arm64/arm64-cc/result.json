@@ -1,0 +1,1 @@
+{"name": "arm64-cc", "ok": false, "error": "cc bad.c bad: нет «bad\\.c:9: error: »", "seconds": 66.3}

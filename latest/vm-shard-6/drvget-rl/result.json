@@ -1,0 +1,93 @@
+{
+ "name": "drvget-rl",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "expect": "каталог рецептов теперь https://10\\.0\\.2\\.100",
+   "ok": true
+  },
+  {
+   "expect": "drvget: отказ: .*GPL",
+   "ok": true
+  },
+  {
+   "expect": "drvget: отказ: SHA-256 файла rtl8139[.]h",
+   "ok": true
+  },
+  {
+   "expect": "drvget: отказ: rtl8139[.]h: лицензия файла не найдена",
+   "ok": true
+  },
+  {
+   "expect": "разрешён только https",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "drv-rl",
+   "ok": true
+  },
+  {
+   "expect": "drvget confirm rl 928717ee",
+   "ok": true
+  },
+  {
+   "log": "лицензия:   заявлена BSD-3-Clause",
+   "ok": true
+  },
+  {
+   "log": "rtl8139\\.h",
+   "ok": true
+  },
+  {
+   "log": "10ec:8139",
+   "ok": true
+  },
+  {
+   "log": "CAP_DMA",
+   "ok": true
+  },
+  {
+   "log": "CAP_NETDEV",
+   "ok": true
+  },
+  {
+   "log": "IOMMU",
+   "ok": true
+  },
+  {
+   "log": "Установка НЕ выполнена",
+   "ok": true
+  },
+  {
+   "expect": "хеш не совпал",
+   "ok": true
+  }
+ ],
+ "error": "авария ядра:\n[KIRA KERNEL PANIC] called from 0x1BA2D8\n",
+ "boot_seconds": 5.2,
+ "seconds": 39.8,
+ "commands": [
+  {
+   "cmd": "drv",
+   "seconds": 0.01
+  }
+ ]
+}

@@ -1,0 +1,1 @@
+{"name": "arm64-drvman", "ok": false, "error": "@log drvman: драйвер edu запущен на устройстве \\d\\d:\\d\\d\\.\\d \\(1234:11e8\\): нет в журнале", "seconds": 37.9}

@@ -1,0 +1,20 @@
+weights: -0.15 0.04 -0.22 6.59 -0.01 0.10 0.10 -0.14 -0.10 4.79 0.20 -0.19 b=-6.65
+n=30000 pos=5850 precision=63% recall=48% loss=0.335
+p(hot)=0.989 (true 0.993) p(calm)=0.0021 (true 0.0018)
+noise world: precision=0% recall=0% trusted=0
+mindnet: sigmoid, online learning, calibration, explanation, trust gating passed
+temporal holdout: model Brier=0.1242, train-prevalence baseline=0.2498, train-positive=4067/8000, holdout-positive=1028/2000, trusted=1
+foresight: n=719 pos=58 precision=100% recall=63% trusted=1 w[bg]=371 w[late]=-14 forecasts=180
+mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1) passed
+mind levers: 18 levers - win kept after confirmation, worse -> emergency rollback, flat -> marked useless and retried after load change, audio lead and disk run found by measurement, change budget, observe mode, general rollback, hints from saved experience, seed (weights only, trust capped), v2 upgrade passed
+EFF observe late_pm_all=128 late_pm_heavy=578 frames=54000
+EFF observe react_ms=-1,-1,-1 late_secs=194/200 release_ms=-1,-1,-1
+EFF observe false_act=0 limit_calls=0 churn_per_min=0 bg_kept_pct=100
+EFF observe other_actions weight=0 reserve_core=0 bg_fps=0
+EFF observe brier_x1e4=144 base_x1e4=1692 net_n=899 net_pos=194 prec=92 rec=77 trusted=1 forecasts=0
+EFF act late_pm_all=1 late_pm_heavy=5 frames=54000
+EFF act react_ms=200,200,150 late_secs=0/200 release_ms=2875,5500,3000
+EFF act false_act=0 limit_calls=216 churn_per_min=61 bg_kept_pct=56
+EFF act other_actions weight=1 reserve_core=6476 bg_fps=140
+EFF act brier_x1e4=0 base_x1e4=0 net_n=899 net_pos=0 prec=0 rec=0 trusted=0 forecasts=0
+mind efficiency stand: scenario ran

@@ -1,0 +1,89 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA BOOT] BootInfo v1: ARM64 Device Tree, 1 normalized RAM range(s), 160 bytes
+[KIRA ARM64] RAM: 1024 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA VMM] W^X kernel: ok (text=628 KB ro=124 KB rw=1047824 KB)
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 1017 MB free pages; kernel heap and scheduler online (per-core ready queues, 48 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 99 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 2 of 2 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 2 of 2 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 2 function(s), 2 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 744744 bytes, prefix 2a2e3df4...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 2 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 16 MB (PCI 0:1.0, virtio 1.0, completion by MSI-X interrupt, DMA not isolated).
+[KIRA DISK] vda: virtio-blk, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14036 KB free.
+[KIRA PROC] up to 8 programs at once (2 cores, 1024 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): ЧЕТВЕРГ, 12 НОЯБРЯ 2026 14:21
+[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.
+[KIRA NET] No supported network card: networking is off.
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+ls /etc/kcc/include
+         4176  caps.h
+          699  ctype.h
+         2426  kdrv.h
+         7214  kdrv_bsd.h
+        12296  kdrv_format.h
+         6189  kfmt.h
+        18596  kira.h
+          636  limits.h
+          461  stdarg.h
+          172  stdbool.h
+          227  stddef.h
+          930  stdint.h
+         6567  stdio.h
+         4861  stdlib.h
+         2407  string.h
+кира> [KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+cc hello.c
+использование: cc исходник результат   (файлы в /data/kcc, например: cc hello.c hello; запуск: runlocal hello)
+кира> cc hello.c hello
+[KIRA PROC] pid 1 'kcc' started from ELF: Ring 3, own address space, 78 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] kcc: ok: hello.c -> hello, 20528 байт (память компилятора 3801 КБ)
+[KIRA PROC] pid 1 'kcc' finished, exit code 0, address space destroyed (1119 pages returned to PMM).
+ls /data/kcc
+         1741  hello.c
+          148  bad.c
+          607  net.c
+         2575  lang.c
+        20528  hello
+кира> runlocal hello
+[LOCAL] /data/kcc/hello запускается по явной команде пользователя как 'local-hello' без прав, иммунитет: неопознанная (не из манифеста сборки)
+[KIRA PROC] pid 2 'local-hello' started from ELF: Ring 3, own address space, 5 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 2] native: hello from kcc on Kira
+кира> [USER pid 2] native: total=240
+[USER pid 2] native: fib20=6765
+[USER pid 2] native: sorted gear bolt nut
+[USER pid 2] native: reversed=so-arik
+[USER pid 2] native: hex=c0ffee
+[USER pid 2] native: clock ok
+[USER pid 2] native: done
+[KIRA PROC] pid 2 'local-hello' finished, exit code 0, address space destroyed (38 pages returned to PMM).
+cc bad.c bad
+[KIRA PROC] pid 3 'kcc' started from ELF: Ring 3, own address space, 78 page(s) of segments, W^X enforced, stack RW-NX.
+кира> 
+[KIRA KERNEL PANIC] kmutex: blocking acquisition while holding another mutex
+[KIRA SCHED] ticks 2762, next wake 2764, ready epoch 5203, sched_lock next 8513 owner 8513, reported by core 1
+[KIRA SCHED] core 0: running 'core' prio 2, quantum left 1, irq depth 1, locks 0
+[KIRA SCHED]     now at 0x000000004008cb78 calls 0x000000004008d3d4 0x000000004008dcfc 0x0000000040093ff0 0x00000000400926f4 0x00000000400a1db0 0x0000000040118ef8 0x00000000400800c8
+[KIRA SCHED]     last irq entered at 0x000000004008cb78 calls 0x000000004008d3d4 0x000000004008dcfc 0x0000000040093ff0 0x00000000400926f4 0x00000000400a1db0 0x0000000040118ef8 0x00000000400800c8
+[KIRA SCHED] core 1: running 'kcc' prio 1, quantum left 19, irq depth 0, locks 0
+[KIRA SCHED]     (this core reports)
+[KIRA SCHED]     last irq entered at 0x00008080000412ec calls
+[KIRA SCHED] thread 'core': RUNNING, wake at 2755, on cpu flag 1, last core 0, mutexes 2
+[KIRA ARM64] Halting.

@@ -1,0 +1,1 @@
+{"name": "arm64-gui", "ok": false, "error": "cat /data/edit/note.txt: нет «hello kira»", "seconds": 99.7}

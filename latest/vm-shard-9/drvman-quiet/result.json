@@ -1,0 +1,32 @@
+{
+ "name": "drvman-quiet",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  }
+ ],
+ "error": "авария ядра:\n[KIRA KERNEL PANIC] called from 0x1BA2D8\nкира> ",
+ "boot_seconds": 5.2,
+ "seconds": 16.7,
+ "commands": [
+  {
+   "cmd": "run drvman",
+   "seconds": 0.02
+  }
+ ]
+}
