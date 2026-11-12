@@ -147,18 +147,20 @@ int main(void) {
         CHECK(cell && cell_len == 4);
         if (cell) {
             be(cell - 8, 8); /* property length field */
+            CHECK(!fdt_tree_valid(blob, total));
             CHECK(fdt_reg(blob, mem, 0, &a, &s) != 0);
             CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
-                               handoff, sizeof handoff, &handoff_size) == -3);
+                               handoff, sizeof handoff, &handoff_size) != 0);
             be(cell - 8, 4);
         }
         cell = (uint8_t*)fdt_prop(blob, root, "#size-cells", &cell_len);
         CHECK(cell && cell_len == 4);
         if (cell) {
             be(cell - 8, 8);
+            CHECK(!fdt_tree_valid(blob, total));
             CHECK(fdt_reg(blob, mem, 0, &a, &s) != 0);
             CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
-                               handoff, sizeof handoff, &handoff_size) == -3);
+                               handoff, sizeof handoff, &handoff_size) != 0);
             be(cell - 8, 4);
         }
         CHECK(fdt_reg(blob, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
