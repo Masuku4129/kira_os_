@@ -352,6 +352,15 @@ int main(void) {
     while (c && caps < 10) { CHECK(id == 9); caps++; c = pci_next_cap(v, c, &id); }
     CHECK(caps == 4);
 
+    /* Attach must mask inherited interrupts and clear firmware bus mastering;
+       DMA permission is granted only when DRIVER_OK is published. */
+    virtio_dev_t attach_probe = {0};
+    CHECK(virtio_attach(&attach_probe, v) == 0);
+    CHECK((pci_read16(v, 4) & (PCI_CMD_MEM | PCI_CMD_INTX_OFF)) ==
+          (PCI_CMD_MEM | PCI_CMD_INTX_OFF));
+    CHECK(!(pci_read16(v, 4) & PCI_CMD_MASTER));
+    CHECK(virtio_reset_device(&attach_probe) == 0);
+
     /* --- virtio-blk: нормальный путь --- */
     blk_dev_t* d = virtio_blk_probe();
     CHECK(d && d->sectors == DISK_SECT && viol == 0);
