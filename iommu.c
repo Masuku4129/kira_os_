@@ -319,6 +319,11 @@ int iommu_isolate_device(const pci_dev_t* d) {
             int hr = kira_vtd_domain_create(&x->dom, &G.unit[ui], 0, d->bus, d->dev, d->fn, &G.plat);
             if (hr == KIRA_VTD_OK || x->dom.active) {      /* the domain is live even if the final flush failed */
                 x->used = 1; x->bus = d->bus; x->dev = d->dev; x->fn = d->fn; x->unit = (uint8_t)ui;
+                /* A published context with a failed cache invalidation is NOT
+                   proof of isolation: the requester may still use a cached
+                   pass-through translation. Keep the domain owned, but block
+                   every readiness/isolation check until explicit recovery. */
+                x->blocked = hr != KIRA_VTD_OK;
                 rc = hr == KIRA_VTD_OK ? IOMMU_OK : IOMMU_E_HW;
             } else rc = hr == KIRA_VTD_MEMORY_FAILED ? IOMMU_E_NOMEM : IOMMU_E_HW;
         }
