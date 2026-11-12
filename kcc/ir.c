@@ -11,15 +11,16 @@ typedef struct {
     int maxslot;
     SB *out;
 } IRState;
-static IRState *irs;
-#define ihead (irs[0].ihead)
-#define itail (irs[0].itail)
-#define ir_nreg (irs[0].reg_count)
-#define ir_nlab (irs[0].label_count)
-#define fn (irs[0].fn)
-#define ltail (irs[0].ltail)
-#define maxslot (irs[0].maxslot)
-#define out (irs[0].out)
+static IRState *kcc_ir_state_context(void) { return K.ir_state; }
+#define IRS (kcc_ir_state_context())
+#define ihead (IRS->ihead)
+#define itail (IRS->itail)
+#define ir_nreg (IRS->reg_count)
+#define ir_nlab (IRS->label_count)
+#define fn (IRS->fn)
+#define ltail (IRS->ltail)
+#define maxslot (IRS->maxslot)
+#define out (IRS->out)
 
 static Ins *emit(IrOp op) {
     Ins *i = ka_new(sizeof *i);
@@ -731,7 +732,6 @@ static void print_ins(const Ins *i) {
 
 IrFn *ir_lower(Obj *f) {
     if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
-    irs = K.ir_state;
     fn = f;
     ihead = itail = NULL;
     ir_nreg = 0; ir_nlab = f->nlabels;
