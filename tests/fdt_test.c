@@ -139,6 +139,7 @@ int main(void) {
     uint8_t bad[8192];
     memcpy(bad, blob, sizeof bad); be(bad, 0x12345678); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 4, 100000); CHECK(!fdt_valid(bad, sizeof bad));
+    memcpy(bad, blob, sizeof bad); be(bad + 4, 0x80000000u); CHECK(!fdt_valid(bad, UINT32_MAX));
     memcpy(bad, blob, sizeof bad); be(bad + 36, total); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 12, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* strings alias structure */
     memcpy(bad, blob, sizeof bad); be(bad + 16, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* reserve map aliases structure */
