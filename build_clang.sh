@@ -128,6 +128,10 @@ tools/kfstool kira.disk init
 for e in $UELF; do
     tools/kfstool kira.disk put /bin/$(basename $e .elf) $e
 done
+# Portable KIRA VM smoke module, available from /apps in the file manager.
+mkdir -p build-kvm
+python3 tools/kvm_asm.py examples/kvm/hello.kvasm build-kvm/hello.kvm
+tools/kfstool kira.disk put /apps/hello.kvm build-kvm/hello.kvm
 # Только для CI/QEMU: учебный драйвер edu не является production-драйвером.
 # В пользовательскую Android/release-сборку неподписанные тестовые пакеты не попадают.
 if [ "$RELEASE" != 1 ]; then
