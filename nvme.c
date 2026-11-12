@@ -252,6 +252,10 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     }
 #endif
 
+    if (!pci_disable_bus_master(pd)) {
+        uart_print("[KIRA NVMe] inherited bus mastering cannot be disabled; controller quarantined.\\n");
+        return;
+    }
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     nvme_ctl_t* c = &ctls[ci];
     for (unsigned i = 0; i < sizeof *c; i++) ((uint8_t*)c)[i] = 0;
