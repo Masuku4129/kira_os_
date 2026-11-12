@@ -155,3 +155,12 @@
 - В `tests/fdt_test.c` добавлены проверки всех коротких длин заголовка 0..39 на физическом 39-байтовом буфере (под ASan), а также отклонение DTB, чей total size выходит за signed cursor range. Тест уже исполняется существующим host-test этапом CI через `tests/run_host_tests.sh`.
 - Последний commit PR #42: `6249454b263ee6d80304a17bbea59582897f94b7`. На момент записи workflow для предыдущего SHA был pending; после последнего изменения новый workflow ещё не подтверждён. PASS не заявлять. Mergeability PR меняется между запросами; PR не объединять.
 - Продолжить: проверить production callers на предположение о `max_len=0`; аудитировать общие FDT traversal helpers на работу только с validated blob; сверить bootinfo adapter с DT спецификацией; затем вернуться к SMMUv3, WASM app-VM isolation, KDRV lifecycle и Mind.
+
+
+## Продолжение работ — KIRA VM отдельным потоком (2026-11-12)
+- Полностью восстановлен актуальный мастер-план `docs/MASTER_DEVELOPMENT_PLAN.md`: KIRA VM (собственный KIRA bytecode) — отдельное обязательное направление, отличное от существующего WASM runtime, native runtime, compatibility runtime и гипервизора.
+- Проверка дерева `main`: отдельной реализации KIRA VM пока нет; найден только `ci/kira_vm.py` (QEMU orchestration, не приложение VM). Поэтому WASM нельзя выдавать за завершённую KIRA VM.
+- Создана независимая ветка `feat/kira-vm-runtime-foundation` от `main`.
+- Добавлена спецификация `docs/KIRA_VM_SPEC.md` (KVM1 container, typed register bytecode, verifier, capability-checked imports, bounded linear memory/call stack/instruction budget, reference interpreter milestones, cross-architecture requirements). Документ фиксирует разделение с WASM и hardware virtualization.
+- Последний commit спецификации: `5bd8f65958b5e38fd370579d823dd69906568b75`. Это только спецификация, не реализация runtime; никаких заявлений о готовой KIRA VM.
+- Следующий шаг: реализовать host-portable parser/verifier и reference interpreter с негативными ASan/UBSan тестами; затем подключить runtime как Ring 3/EL0 процесс и включить сборку для x86-64/ARM64. Не заменять WASM и не смешивать этот поток с KDRV/FDT PR.
