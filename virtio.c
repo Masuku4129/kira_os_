@@ -289,7 +289,18 @@ extern volatile void* host_map_bar(const pci_dev_t* d, int bar, uint64_t off, ui
 #endif
 
 int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
+    if (!v || !d) return -1;
     v->pci = d; v->common = v->notify = v->isr = v->devcfg = 0; v->notify_mult = 0; v->features = 0; v->msix_vec = 0xFFFF;
+    /* Quiesce firmware-owned DMA and interrupts before touching device state. */
+    int irq_quiet = pci_quiesce_interrupts(d);
+    uint16_t command = pci_read16(d, 0x04);
+    pci_write16(d, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+    if (!irq_quiet || (pci_read16(d, 0x04) & PCI_CMD_MASTER)) {
+        uart_print("[KIRA VIRTIO] inherited PCI DMA/interrupt state could not be quiesced; device refused.\\n");
+        return -3;
+    }
+    pci_enable(d, PCI_CMD_MEM);
+    if (!(pci_read16(d, 0x04) & PCI_CMD_MEM)) return -4;
     uint8_t id; uint16_t cap = 0;
     for (int guard = 0; guard < 48; guard++) {
         cap = pci_next_cap(d, cap, &id);
@@ -317,7 +328,6 @@ int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
         }
     }
     if (!v->common || !v->notify || !v->isr) return -1;
-    pci_enable(d, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
     return 0;
 }
 
@@ -340,23 +350,13 @@ int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
 static uint8_t status_get(virtio_dev_t* v) { return MMIO_R8(v->common + R_STATUS); }
 static void status_set(virtio_dev_t* v, uint8_t s) { MMIO_W8(v->common + R_STATUS, s); }
 
-static void virtio_pci_quiesce(virtio_dev_t* v) {
-    if (!v || !v->pci) return;
-    uint8_t id;
-    uint16_t cap = 0;
-    for (unsigned n = 0; n < 48 && (cap = pci_next_cap(v->pci, cap, &id)) != 0; n++) {
-        if (id == 0x05) {                                      /* MSI */
-            uint16_t ctl = pci_read16(v->pci, (uint16_t)(cap + 2));
-            if (ctl & 1u) pci_write16(v->pci, (uint16_t)(cap + 2), (uint16_t)(ctl & ~1u));
-        } else if (id == 0x11) {                               /* MSI-X: mask function, then disable */
-            uint16_t ctl = pci_read16(v->pci, (uint16_t)(cap + 2));
-            ctl = (uint16_t)((ctl | 0x4000u) & ~0x8000u);
-            pci_write16(v->pci, (uint16_t)(cap + 2), ctl);
-        }
-    }
+static int virtio_pci_quiesce(virtio_dev_t* v) {
+    if (!v || !v->pci) return 0;
+    int safe = pci_quiesce_interrupts(v->pci);
     uint16_t command = pci_read16(v->pci, 0x04);
-    if (command & PCI_CMD_MASTER)
-        pci_write16(v->pci, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+    pci_write16(v->pci, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+    if (pci_read16(v->pci, 0x04) & PCI_CMD_MASTER) safe = 0;
+    return safe;
 }
 
 static int reset(virtio_dev_t* v) {
@@ -371,13 +371,14 @@ static int reset(virtio_dev_t* v) {
 
 int virtio_reset_device(virtio_dev_t* v) {
     if (!v || !v->common) return -1;
-    virtio_pci_quiesce(v);
-    return reset(v);
+    int quiet = virtio_pci_quiesce(v);
+    int rc = reset(v);
+    return quiet && rc == 0 ? 0 : -1;
 }
 
 void virtio_fail(virtio_dev_t* v) {
     if (!v || !v->common) return;
-    virtio_pci_quiesce(v);
+    (void)virtio_pci_quiesce(v);
     status_set(v, status_get(v) | VIRTIO_ST_FAILED);
     (void)reset(v);
 }
@@ -451,8 +452,20 @@ int virtio_queue_release(virtq_t* q) {
     return 0;
 }
 
-void virtio_driver_ok(virtio_dev_t* v) {
+int virtio_driver_ok(virtio_dev_t* v) {
+    if (!v || !v->pci || !v->common) return -1;
+    uint16_t command = pci_read16(v->pci, 0x04);
+    pci_write16(v->pci, 0x04, (uint16_t)(command | PCI_CMD_MASTER));
+    if (!(pci_read16(v->pci, 0x04) & PCI_CMD_MASTER)) {
+        virtio_fail(v);
+        return -1;
+    }
     status_set(v, status_get(v) | VIRTIO_ST_DRIVER_OK);
+    if (!(status_get(v) & VIRTIO_ST_DRIVER_OK)) {
+        virtio_fail(v);
+        return -1;
+    }
+    return 0;
 }
 
 typedef struct { uint64_t addr; uint32_t len; uint16_t flags, next; } desc_t;
