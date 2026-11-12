@@ -200,22 +200,66 @@ static u64 const_expr(const u8** p, const u8* end) {
     trap("unterminated constant expression"); return 0;
 }
 
+static int skip_bytes(const u8** p, const u8* e, u32 n) {
+    if ((u64)(e - *p) < n) {
+        trap("truncated instruction immediate");
+        return -1;
+    }
+    *p += n;
+    return 0;
+}
 static void skip_imm(u8 op, const u8** p, const u8* e) {
-    if (op == 0x0C || op == 0x0D || op == 0x10 || (op >= 0x20 && op <= 0x24)) { leb_u(p, e); return; }
-    if (op == 0x0E) { u32 n = leb_u(p, e); for (u32 i = 0; i <= n && !trapped; i++) leb_u(p, e); return; }
-    if (op == 0x11) { leb_u(p, e); leb_u(p, e); return; }
-    if (op >= 0x28 && op <= 0x3E) { leb_u(p, e); leb_u(p, e); return; }
-    if (op == 0x3F || op == 0x40) { (*p)++; return; }
-    if (op == 0x41) { leb_s(p, e, 32); return; }
-    if (op == 0x42) { leb_s(p, e, 64); return; }
-    if (op == 0x43) { *p += 4; return; }
-    if (op == 0x44) { *p += 8; return; }
-    if (op == 0x1C) { u32 n = leb_u(p, e); *p += n; return; }
+    if (op == 0x0C || op == 0x0D || op == 0x10 || (op >= 0x20 && op <= 0x24)) {
+        (void)leb_u(p, e); return;
+    }
+    if (op == 0x0E) {
+        u32 n = leb_u(p, e);
+        if (trapped || (u64)n + 1u > (u64)(e - *p)) {
+            trap("bad br_table immediate"); return;
+        }
+        for (u32 i = 0; i <= n && !trapped; i++) (void)leb_u(p, e);
+        return;
+    }
+    if (op == 0x11) {
+        (void)leb_u(p, e);
+        if (trapped || *p >= e || *(*p)++ != 0) trap("unsupported call_indirect table index");
+        return;
+    }
+    if (op >= 0x28 && op <= 0x3E) {
+        (void)leb_u(p, e); (void)leb_u(p, e); return;
+    }
+    if (op == 0x3F || op == 0x40) {
+        if (*p >= e || *(*p)++ != 0) trap("unsupported memory index immediate");
+        return;
+    }
+    if (op == 0x41) { (void)leb_s(p, e, 32); return; }
+    if (op == 0x42) { (void)leb_s(p, e, 64); return; }
+    if (op == 0x43) { (void)skip_bytes(p, e, 4); return; }
+    if (op == 0x44) { (void)skip_bytes(p, e, 8); return; }
+    if (op == 0x1C) {
+        u32 n = leb_u(p, e);
+        if (trapped || n != 1 || *p >= e || !wasm_valtype(**p)) {
+            trap("unsupported typed select result type"); return;
+        }
+        (*p)++;
+        return;
+    }
     if (op == 0xFC) {
         u32 sub = leb_u(p, e);
-        if (sub == 8) { leb_u(p, e); (*p)++; } else if (sub == 9) leb_u(p, e);
-        else if (sub == 10) *p += 2; else if (sub == 11) (*p)++;
-        else if (sub >= 12) trap("unsupported 0xFC instruction");
+        if (trapped) return;
+        if (sub == 8) {
+            (void)leb_u(p, e);
+            if (trapped || *p >= e || *(*p)++ != 0) trap("unsupported memory.init memory index");
+        } else if (sub == 9) {
+            (void)leb_u(p, e);
+        } else if (sub == 10) {
+            if (skip_bytes(p, e, 2) == 0 && ((*p)[-2] || (*p)[-1]))
+                trap("unsupported memory.copy memory index");
+        } else if (sub == 11) {
+            if (*p >= e || *(*p)++ != 0) trap("unsupported memory.fill memory index");
+        } else if (sub >= 12) {
+            trap("unsupported 0xFC instruction");
+        }
     }
 }
 
@@ -473,8 +517,10 @@ static int compile_func(func_t* f) {
             c_h -= t->np; hpush(t->nr); break;
         }
         case 0x11: {
-            u32 ti = leb_u(&p, end); p++;
-            if (ti >= ntypes) CERR("call_indirect: bad type");
+            u32 ti = leb_u(&p, end);
+            if (trapped || ti >= ntypes) CERR("call_indirect: bad type");
+            if (p >= end || *p++ != 0) CERR("unsupported call_indirect table index");
+            if (!table) CERR("call_indirect without table");
             const ftype_t* t = &types[ti];
             NEED(t->np + 1u); lz_flush(); ew(OP_CALLI | ti << 16);
             c_h -= t->np + 1u; hpush(t->nr); break;
@@ -484,7 +530,12 @@ static int compile_func(func_t* f) {
             if (!vk[c_h - 1]) ew(0x1A);
             c_h--; break;
         case 0x1B: case 0x1C: {
-            if (op == 0x1C) { u32 k = leb_u(&p, end); p += k; }
+            if (op == 0x1C) {
+                u32 k = leb_u(&p, end);
+                if (trapped || k != 1 || p >= end || !wasm_valtype(*p))
+                    CERR("unsupported typed select result type");
+                p++;
+            }
             NEED(3);
             u32 ic = c_h - 1, ib = c_h - 2, ia = c_h - 3;
             if (vk[ic] != 2) {                                    /* значения и условие: со стека, локальная или константа; константа-условие - на стек */
@@ -555,7 +606,8 @@ static int compile_func(func_t* f) {
         }
         case 0x3F: case 0x40:
             if (!has_memory) CERR("memory size/grow without memory");
-            p++; lz_flush();
+            if (p >= end || *p++ != 0) CERR("unsupported memory index immediate");
+            lz_flush();
             if (op == 0x3F) { ew(op); hpush(1); } else { NEED(1); ew(op); }
             break;
         case 0x41: lz_push(2, (u32)leb_s(&p, end, 32)); break;
@@ -572,8 +624,16 @@ static int compile_func(func_t* f) {
         case 0xFC: {
             u32 sub = leb_u(&p, end);
             if (sub <= 7) { NEED(1); lz_flush(); ew(OP_FC + sub); }
-            else if (sub == 10) { if (!has_memory) CERR("memory.copy without memory"); p += 2; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
-            else if (sub == 11) { if (!has_memory) CERR("memory.fill without memory"); p++; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
+            else if (sub == 10) {
+                if (!has_memory) CERR("memory.copy without memory");
+                if ((u32)(end - p) < 2 || p[0] || p[1]) CERR("unsupported memory.copy memory index");
+                p += 2; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3;
+            }
+            else if (sub == 11) {
+                if (!has_memory) CERR("memory.fill without memory");
+                if (p >= end || *p++ != 0) CERR("unsupported memory.fill memory index");
+                NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3;
+            }
             else { p--; skip_imm(0xFC, &p, end); if (sub == 8 || sub == 9) { lz_flush(); ew(OP_TRAP); ew(TM_PASSIVE); c_unr = 1; } }
             break;
         }
