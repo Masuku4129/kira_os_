@@ -128,6 +128,13 @@ int main(void) {
         total = build();
     }
 
+    /* Truncated header buffers must be rejected before any later header
+       field is read. ASan catches an over-read for every short length. */
+    for (uint32_t short_len = 0; short_len < 40; short_len++) {
+        CHECK(!fdt_valid(blob, short_len));
+        CHECK(!fdt_tree_valid(blob, short_len));
+    }
+
     /* испорченные блобы */
     uint8_t bad[8192];
     memcpy(bad, blob, sizeof bad); be(bad, 0x12345678); CHECK(!fdt_valid(bad, sizeof bad));
