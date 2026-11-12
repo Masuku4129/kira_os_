@@ -3,8 +3,6 @@
 #include "pmm.h"
 #include "uart.h"
 #include "spinlock.h"
-#include "wx.h"
-#include "smp.h"
 
 #define PAGE_SIZE   4096UL
 #define PTE_PRESENT (1ULL << 0)
@@ -169,48 +167,24 @@ static int map_huge_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) 
 }
 
 volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
-    /* Accept only the public cache policies. Unknown values must not silently
-       become UC while being tracked as a distinct cache type. */
-    if (cache != VMM_MMIO_UC && cache != VMM_MMIO_WC) return 0;
-    /* WC requests fall back to UC until PAT is configured. Track the actual
-       effective type so a later WC request cannot reuse a UC mapping. */
-    uint64_t effective_cache;
-    /* Page-table entries carry at most 52 physical-address bits. Validate the
-       unrounded range first; rounding an otherwise valid end must not wrap. */
-    const uint64_t phys_limit = 1ULL << 52;
-    if (len == 0 || pa >= phys_limit || len > phys_limit - pa) return 0;
-    uint64_t end = pa + len;
-    if (end > UINT64_MAX - (PAGE_SIZE - 1)) return 0;
-    uint64_t first = pa & ~(PAGE_SIZE - 1);
-    uint64_t last = (end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    if (last <= first) return 0;
-    uint64_t size = last - first;
-
+    if (len == 0 || pa + len < pa) return 0;
     uint64_t f = spin_lock_irqsave(&mmio_lock);
-    effective_cache = (cache == VMM_MMIO_WC && wc_enabled) ? VMM_MMIO_WC : VMM_MMIO_UC;
-    for (unsigned i = 0; i < mmio_n; i++) {
-        uint64_t existing_end = mmio[i].pa + mmio[i].len;
-        /* Aliasing a physical page with different cache types is unsafe on
-           x86: reject the new mapping instead of silently creating an alias. */
-        if (first < existing_end && mmio[i].pa < last &&
-            mmio[i].cache != effective_cache) {
-            spin_unlock_irqrestore(&mmio_lock, f);
-            return 0;
-        }
-        if (pa >= mmio[i].pa && end <= existing_end &&
-            mmio[i].cache == effective_cache) {
+    for (unsigned i = 0; i < mmio_n; i++) {                       // уже отображено (другая часть того же BAR, LAPIC)
+        if (pa >= mmio[i].pa && pa + len <= mmio[i].pa + mmio[i].len && mmio[i].cache == (uint64_t)cache) {
             volatile void* v = (volatile void*)(uintptr_t)(mmio[i].va + (pa - mmio[i].pa));
             spin_unlock_irqrestore(&mmio_lock, f);
             return v;
         }
     }
+    uint64_t first = pa & ~(PAGE_SIZE - 1), last = (pa + len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t size = last - first;
     const uint64_t BIG = 2ULL << 20;
     uint64_t va = (mmio_next + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     if (size >= BIG) {                                             // сдвиг va так, чтобы va = pa (mod 2 МБ): тогда возможны 2-МБ страницы
         uint64_t want = first & (BIG - 1);
         va = ((va + BIG - 1) & ~(BIG - 1)) + want;
     }
-    uint64_t flags = PTE_WRITE | VMM_NOEXEC | (effective_cache == VMM_MMIO_WC ? VMM_WC : VMM_NOCACHE);
+    uint64_t flags = PTE_WRITE | VMM_NOEXEC | (cache == VMM_MMIO_WC && wc_enabled ? VMM_WC : VMM_NOCACHE);
     volatile void* res = 0;
     if (mmio_n < MMIO_MAX && va + size <= MMIO_TOP && va + size > va) {
         uint64_t off = 0;
@@ -226,7 +200,7 @@ volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
             }
         }
         if (ok) {
-            mmio[mmio_n].pa = first; mmio[mmio_n].len = size; mmio[mmio_n].va = va; mmio[mmio_n].cache = effective_cache;
+            mmio[mmio_n].pa = first; mmio[mmio_n].len = size; mmio[mmio_n].va = va; mmio[mmio_n].cache = (uint64_t)cache;
             mmio_n++;
             mmio_next = va + size;
             res = (volatile void*)(uintptr_t)(va + (pa - first));
@@ -337,11 +311,9 @@ int vmm_enable_write_combining(void) {
     uint32_t a, b, c, d;
     __asm__ volatile ("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(1), "c"(0));
     if (!((d >> 16) & 1)) return -1; // нет PAT
-    uint64_t f = spin_lock_irqsave(&mmio_lock);
     wrmsr(MSR_PAT, PAT_VALUE);
     wc_enabled = 1;
     write_cr3(read_cr3());           // сброс TLB: старые трансляции не должны жить с прежним типом памяти
-    spin_unlock_irqrestore(&mmio_lock, f);
     return 0;
 }
 
@@ -492,82 +464,6 @@ int vmm_init(void) {
 
     uart_print("[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.\n");
     return 0;
-}
-
-// ---- W^X ядра ----
-// Образ ядра лежит в первом гигабайте identity-карты, которую boot.s строит 2-МБ страницами RW без NX. После того как
-// NXE и WP включены (vmm_init), vmm_enforce_wx дробит страницы под образом на 4 КБ и ставит права по секциям
-// (границы - из linker.ld): текст RX, rodata R+NX, data/bss/стеки/куча RW+NX; вся остальная прямая карта получает NX.
-extern char wx_ro_start[], wx_ro_end[], wx_text_start[], wx_text_end[], wx_data_start[], wx_data_end[];
-
-static uint64_t* wx_ptr(uint64_t phys) { return (uint64_t*)(uintptr_t)phys; }
-static uint64_t wx_alloc(void) { return pmm_alloc_page(); }
-static const wx_env_t wx_env = { wx_ptr, wx_alloc };
-
-static wx_layout_t wx_layout(void) {
-    wx_layout_t l;
-    l.text_lo = (uint64_t)(uintptr_t)wx_text_start; l.text_hi = (uint64_t)(uintptr_t)wx_text_end;
-    l.ro_lo = (uint64_t)(uintptr_t)wx_ro_start;     l.ro_hi = (uint64_t)(uintptr_t)wx_ro_end;
-    l.data_lo = (uint64_t)(uintptr_t)wx_data_start; l.data_hi = (uint64_t)(uintptr_t)wx_data_end;
-    l.exec_lo = SMP_TRAMP_BASE; l.exec_hi = SMP_TRAMP_BASE + PAGE_SIZE;     // трамплин AP: его исполняют ядра, стартующие в identity-карте
-    return l;
-}
-
-int vmm_verify_wx(int announce) {
-    wx_layout_t l = wx_layout();
-    wx_stats_t st;
-    if (wx_scan(&wx_env, (const uint64_t*)(uintptr_t)kernel_root, &l, &st) != 0) {
-        if (st.bad_count) {
-            uart_print("[KIRA VMM ERROR] W^X violated: "); uart_print_dec(st.bad_count);
-            uart_print(" mapping(s) both writable and executable, first at "); uart_print_hex(st.bad_va); uart_print("\n");
-        }
-        if (!st.layout_ok) {
-            uart_print("[KIRA VMM ERROR] Kernel image page has wrong rights at "); uart_print_hex(st.layout_bad_va); uart_print("\n");
-        }
-        return -1;
-    }
-    if (announce) {
-        uart_print("[KIRA VMM] W^X kernel: ok (text="); uart_print_dec(st.exec_kb);
-        uart_print(" KB ro="); uart_print_dec(st.ro_kb);
-        uart_print(" KB rw="); uart_print_dec(st.rw_kb); uart_print(" KB)\n");
-    }
-    return 0;
-}
-
-int vmm_enforce_wx(void) {
-    if (!(rdmsr(MSR_EFER) & EFER_NXE) || !(read_cr0() & CR0_WP)) {
-        uart_print("[KIRA VMM ERROR] W^X needs EFER.NXE and CR0.WP, which are off.\n");
-        return -1;
-    }
-    wx_layout_t l = wx_layout();
-    if ((l.text_lo | l.text_hi | l.ro_lo | l.ro_hi | l.data_lo | l.data_hi) & (PAGE_SIZE - 1) ||
-        l.ro_hi > l.text_lo || l.text_hi > l.data_lo || l.text_lo >= l.text_hi || l.ro_lo >= l.ro_hi) {
-        uart_print("[KIRA VMM ERROR] Kernel section boundaries are not page-aligned or not in order.\n");
-        return -1;
-    }
-    if (wx_enforce(&wx_env, (uint64_t*)(uintptr_t)kernel_root, &l) != 0) {
-        uart_print("[KIRA VMM ERROR] W^X: cannot split the kernel mapping (no memory or unsupported entry).\n");
-        return -1;
-    }
-    write_cr3(read_cr3());                      // на этом этапе работает одно ядро: достаточно локального сброса TLB
-    return vmm_verify_wx(1);
-}
-
-// Записываемое окно (RW+NX, обычный кэш) на страницу ниже 1 МБ, которую ядро исполняет по её физическому адресу
-// (трамплин AP). Сам адрес остаётся RX в identity-карте, так что записываемого и исполняемого отображения
-// одной и той же страницы в одном виде нет: пишут только через окно, оно закрывается сразу после запуска ядер.
-void* vmm_code_window_open(uint64_t pa) {
-    if (!kernel_root || (pa & (PAGE_SIZE - 1))) return 0;
-    uint64_t f = spin_lock_irqsave(&mmio_lock);
-    uint64_t va = (mmio_next + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    int ok = va + PAGE_SIZE <= MMIO_TOP && map_in(kernel_root, va, pa, PTE_WRITE | VMM_NOEXEC) == 0;
-    if (ok) mmio_next = va + PAGE_SIZE;
-    spin_unlock_irqrestore(&mmio_lock, f);
-    return ok ? (void*)(uintptr_t)va : 0;
-}
-
-void vmm_code_window_close(void* window) {
-    if (window) vmm_unmap_page((uint64_t)(uintptr_t)window);
 }
 
 // Настройки, которые каждый процессор держит у себя: CR0.WP, SMEP, PAT (EFER.NXE ставит трамплин).
