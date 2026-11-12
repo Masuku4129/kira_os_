@@ -12,15 +12,15 @@ typedef struct {
     SB *out;
 } IRState;
 static IRState *ir_context_state(void) { return K.ir_state; }
-#define IRS (*ir_context_state())
-#define ihead (IRS.ihead)
-#define itail (IRS.itail)
-#define ir_nreg (IRS.reg_count)
-#define ir_nlab (IRS.label_count)
-#define fn (IRS.fn)
-#define ltail (IRS.ltail)
-#define maxslot (IRS.maxslot)
-#define out (IRS.out)
+#define IRS ir_context_state()
+#define ihead (IRS->ihead)
+#define itail (IRS->itail)
+#define ir_nreg (IRS->reg_count)
+#define ir_nlab (IRS->label_count)
+#define fn (IRS->fn)
+#define ltail (IRS->ltail)
+#define maxslot (IRS->maxslot)
+#define out (IRS->out)
 
 static Ins *emit(IrOp op) {
     Ins *i = ka_new(sizeof *i);
