@@ -51,7 +51,7 @@ static void kfs_lock(void) {
     spin_unlock_irqrestore(&kfs_owner_guard, f);
 }
 static void kfs_unlock(void) {
-    void* self = sched_current();
+    const void* self = sched_current();
     if (!self) self = &kfs_early_owner;
     uint64_t f = spin_lock_irqsave(&kfs_owner_guard);
     if (kfs_owner != self || kfs_lock_depth == 0) {
