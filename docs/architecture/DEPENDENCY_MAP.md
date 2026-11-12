@@ -53,7 +53,7 @@ Block device → block API → KiraFS/VFS → package manager → update transac
 | Source | Directly observed dependencies | Architectural concern to verify |
 |---|---|---|
 | kernel.c | includes/init calls across CPU, memory, scheduler, proc, syscall, filesystem, drivers, network, GUI, audio, Mind and watchdog | Is this only a composition root, or do unrelated subsystems rely on shared kernel internals? |
-| syscall.c | direct dispatch into proc, fsrv, gfxsrv, net, audio, kdrv, kobj/futex and capability checks | Which syscalls are stable kernel ABI, and which are service APIs that should cross IPC boundaries? |
+| `kernel/syscall.c` | process/scheduler/memory/IPC primitives, capability checks, and subsystem-agnostic service router | Driver Manager and user-facing service implementations remain behind adapters; adapters are still in-kernel until IPC lifecycle contracts exist. |
 | proc.c | ELF parser, VMM, scheduler, caps table, handles, SHM, JIT | Process lifecycle and capability ownership need a single documented contract |
 | caps.c | static application-name → capability mask mapping | Static allowlist vs future object capability authority, revocation and delegation |
 | mind_sys.c | scheduler/process/memory/display/storage telemetry and control APIs | Every mutating action must pass an auditable policy gate |
