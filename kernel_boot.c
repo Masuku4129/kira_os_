@@ -31,6 +31,7 @@
 #include "proc.h"
 #include "syscall.h"
 #include "life.h"
+#include "fsrv.h"
 #include "experience.h"
 #include "irqmode.h"
 #include "mbinfo.h"
