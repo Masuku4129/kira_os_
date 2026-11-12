@@ -523,6 +523,7 @@ static int xhci_mask_pci_interrupts(const pci_dev_t* p) {
     if (status & 0x10u) {
         uint8_t ptr = pci_read8(p, 0x34);
         uint64_t visited = 0;
+        if (!ptr) safe = 0;
         unsigned n;
         for (n = 0; ptr && n < 48; n++) {
             if (ptr < 0x40u || ptr > 0xFCu || (ptr & 3u)) { safe = 0; break; }
@@ -648,9 +649,15 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     xs.ac64 = hcc1 & 1; xs.csz = (hcc1 & 4) ? 64 : 32;
 
     int handoff_ok = bios_handoff(cap, sz);
-    w32(xs.op, 0, r32(xs.op, 0) & ~1u);                               /* стоп */
-    for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
-    int halted = (r32(xs.op, 4) & 1u) != 0;
+    int halted = 0;
+    /* Do not touch operational registers until firmware has relinquished
+       ownership. On a failed handoff, only mask PCI interrupts and clear
+       BusMaster, then leave the controller quarantined. */
+    if (handoff_ok) {
+        w32(xs.op, 0, r32(xs.op, 0) & ~1u);                           /* stop */
+        for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
+        halted = (r32(xs.op, 4) & 1u) != 0;
+    }
     int pci_quiet = xhci_pci_quiesce(p);
     if (pci_quiet & 2) {
         usb_log("[KIRA USB] xHCI: bus mastering did not clear; controller remains quarantined\\n");
