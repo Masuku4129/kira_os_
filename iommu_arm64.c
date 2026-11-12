@@ -655,8 +655,16 @@ int iommu_unmap_all(const pci_dev_t* pci)
     if (!pci || !dev || !dev->covered)
         return IOMMU_E_NOCOVER;
     if (dev->stream_id >= 256u || !arm_smmu_active ||
-        !arm_domains[dev->stream_id].active || arm_domains[dev->stream_id].bypass)
-        return IOMMU_OK;
+        !arm_domains[dev->stream_id].active || arm_domains[dev->stream_id].bypass) {
+        /* A bypass/disabled domain cannot revoke translations. Never report a
+           successful teardown while software still owns DMA backing pages. */
+        if (!arm_has_maps(dev))
+            return IOMMU_OK;
+        __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
+        __atomic_store_n(&dev->quarantine_pending, 1u, __ATOMIC_RELEASE);
+        (void)pci_disable_bus_master(pci);
+        return IOMMU_E_HW;
+    }
     /* Stop new DMA before revoking mappings or releasing their backing pages. */
     if (!pci_disable_bus_master(pci))
         return IOMMU_E_HW;
