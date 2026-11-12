@@ -415,7 +415,7 @@ int fdt_iommu_map(const void* fdt, int host_node, uint32_t requester_id,
 
         {
             int target = fdt_phandle_node(fdt, phandle);
-            if (target < 0 ||
+            if (target < 0 || !fdt_compatible(fdt, target, "arm,smmu-v3") ||
                 fdt_prop_u32(fdt, target, "#iommu-cells", &cells) != 0 ||
                 cells != 1u)
                 return -2;
