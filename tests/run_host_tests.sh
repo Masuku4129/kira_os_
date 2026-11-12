@@ -7,6 +7,9 @@ FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie"
 SSE="-msse2 -mfpmath=sse -fno-math-errno"
 T=$(mktemp -d)
 
+echo "== architecture boundary: syscall core vs service adapters =="
+python3 tests/architecture_test.py
+
 echo "== logic (sha256, immune) =="
 $CC $FLAGS -o $T/logic tests/logic_test.c immune.c sha256.c \
     -Wl,--defsym=ro_start=ro_area -Wl,--defsym=ro_end=ro_area+256 \
