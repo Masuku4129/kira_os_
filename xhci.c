@@ -524,7 +524,7 @@ static void bios_handoff(volatile uint8_t* cap) {
 int xhci_start(usb_hc_t* hc, const void* pd) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
     if (platform_dma_noncoherent && platform_dma_noncoherent()) {
-        usb_log("[KIRA USB] xHCI disabled; DMA ownership synchronization is not validated on non-coherent ARM64.\\n");
+        usb_log("[KIRA USB] xHCI disabled; DMA ownership synchronization is not validated on non-coherent ARM64.\n");
         return -2;
     }
     if (started >= XHCI_MAX) { usb_log("[KIRA USB] more than 16 xHCI controllers: the rest are not used\n"); return -1; }
