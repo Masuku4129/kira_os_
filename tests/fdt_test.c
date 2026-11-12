@@ -87,9 +87,9 @@ int main(void) {
     }
     CHECK(fdt_u32(0) == 0 && fdt_total_size(0) == 0);
     CHECK(fdt_root(0) == -1 && fdt_node_name(0, 0) == 0);
-    /* The parser accepts nesting to 64 levels; parent lookup must support it too. */
+    /* The parser accepts nesting to 64 levels; parent lookup must support the deepest node too. */
     {
-        deep_nodes = 40;
+        deep_nodes = 64;
         unsigned deep_total = build();
         int d = 0, n = fdt_root(blob), deepest = -1;
         while (n >= 0) {
