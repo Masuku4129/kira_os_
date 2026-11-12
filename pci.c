@@ -160,9 +160,11 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     uint32_t cls = cr32(d, 0x08);
     d->revision = (uint8_t)cls; d->prog_if = (uint8_t)(cls >> 8); d->subclass = (uint8_t)(cls >> 16); d->class_code = (uint8_t)(cls >> 24);
     d->header_type = pci_read8(d, 0x0E);
-    /* Firmware may leave bus mastering enabled. No device driver owns this function yet. */
-    uint16_t command = pci_read16(d, 0x04);
-    if (command & PCI_CMD_MASTER) pci_write16(d, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+    /* Keep PCI bridge/fabric forwarding intact; sanitize endpoints before handing them to a driver. */
+    if (d->class_code != 0x06) {
+        uint16_t command = pci_read16(d, 0x04);
+        if (command & PCI_CMD_MASTER) pci_write16(d, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+    }
     probe_bars(d);
     if ((d->header_type & 0x7F) == 1 && d->class_code == 6 && d->subclass == 4) {
         uint8_t sec = pci_read8(d, 0x19);                          /* вторичная шина моста */
