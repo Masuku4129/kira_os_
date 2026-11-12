@@ -67,12 +67,24 @@ static void smmu_zero(void *p, size_t bytes)
         b[i] = 0;
 }
 
+static int smmu_address_fits(uint8_t width, uint64_t base, size_t bytes)
+{
+    uint64_t maximum;
+    if (!bytes || width < 32 || width > 64 ||
+        base > UINT64_MAX - (uint64_t)(bytes - 1u))
+        return 0;
+    maximum = width == 64 ? UINT64_MAX : ((1ull << width) - 1ull);
+    return base <= maximum && (uint64_t)(bytes - 1u) <= maximum - base;
+}
+
 static void *smmu_alloc_pages(const struct kira_smmu_platform *p,
-                              size_t pages, uint64_t *pa)
+                              uint8_t address_width, size_t pages, uint64_t *pa)
 {
     void *v = p->alloc_dma_pages(p->context, pages, pa);
     size_t bytes = pages * SMMU_PAGE_SIZE;
-    if (!v || !*pa || (*pa & 0xfffu)) {
+    if (!v || !*pa || (*pa & 0xfffu) ||
+        !smmu_address_fits(address_width, *pa, bytes) ||
+        (*pa & ~SMMU_TTBR_ADDR) != 0) {
         if (v && p->free_dma_pages)
             p->free_dma_pages(p->context, v, *pa, pages);
         *pa = 0;
@@ -84,9 +96,10 @@ static void *smmu_alloc_pages(const struct kira_smmu_platform *p,
     return v;
 }
 
-static void *smmu_alloc(const struct kira_smmu_platform *p, uint64_t *pa)
+static void *smmu_alloc(const struct kira_smmu_platform *p,
+                        uint8_t address_width, uint64_t *pa)
 {
-    return smmu_alloc_pages(p, 1, pa);
+    return smmu_alloc_pages(p, address_width, 1, pa);
 }
 
 /*
@@ -233,7 +246,7 @@ static int smmu_map_page(struct kira_smmu_domain *d,
 
         if (!(e & 1ull)) {
             uint64_t pa = 0;
-            void *next = smmu_alloc(p, &pa);
+            void *next = smmu_alloc(p, d->smmu->output_address_width, &pa);
             if (!next)
                 return KIRA_SMMU_MEMORY_FAILED;
             table[index] = (pa & SMMU_TTBR_ADDR) | 3ull;
@@ -284,8 +297,8 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     if (!(s->idr0 & (1u << 1)))
         return KIRA_SMMU_UNSUPPORTED;
 
-    ct = smmu_alloc(p, &ct_pa);
-    root = smmu_alloc(p, &root_pa);
+    ct = smmu_alloc(p, s->output_address_width, &ct_pa);
+    root = smmu_alloc(p, s->output_address_width, &root_pa);
     if (!ct || !root) {
         if (ct) p->free_dma_pages(p->context, ct, ct_pa, 1);
         if (root) p->free_dma_pages(p->context, root, root_pa, 1);
@@ -366,7 +379,10 @@ int kira_smmu_domain_map_4k(struct kira_smmu_domain *d,
     int rc;
 
     if (!d || !d->active || !p || (iova & 0xfffu) ||
-        (physical & 0xfffu))
+        (physical & 0xfffu) ||
+        !smmu_address_fits(d->smmu->output_address_width, physical,
+                            SMMU_PAGE_SIZE) ||
+        (physical & ~SMMU_TTBR_ADDR))
         return KIRA_SMMU_INVALID;
 
     rc = smmu_map_page(d, iova, physical, permissions, p);
