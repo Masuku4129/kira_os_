@@ -382,6 +382,8 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     if ((granted & CAP_IRQ) && !find_cap(d, 0x05) && !find_cap(d, 0x11)) policy_caps &= ~(uint32_t)CAP_IRQ;   /* только INTx: устройство в память не пишет, изоляция для прерывания не нужна (bus mastering даёт лишь CAP_DMA) */
     if (policy_caps & (CAP_DMA | CAP_IRQ)) (void)iommu_isolate_device(d);      /* свой домен VT-d без отображений; отказ - устройство остаётся неизолированным */
     if (!kdrv_dma_policy_allow(policy_caps, iommu_device_isolated(d))) {
+        /* Retry cleanup if a failed isolation attempt left a blocked domain. */
+        (void)iommu_release_device(d);
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
         uart_print(": DMA/MSI запрещены — изоляция IOMMU для устройства не настроена; драйвер НЕ запущен\n");
@@ -389,12 +391,13 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
         return KDRV_E_DMA_UNSAFE;
     }
     if ((granted & CAP_DMA) && platform_dma_noncoherent && platform_dma_noncoherent()) {
+        if (iommu_device_isolated(d)) (void)iommu_release_device(d);
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name); uart_print(": плата без согласованности кэша (пул DMA без кэша) - DMA драйверам Ring 3 здесь не отдаётся, драйвер НЕ запущен\n");
         return -1;
     }
     bind_t* b = find_slot(d, 1);
-    if (!b) { kfree(p.buf); uart_print("[KIRA DRV] нет свободной привязки (устройств с драйверами не больше 8)\n"); return -1; }
+    if (!b) { if (iommu_device_isolated(d)) (void)iommu_release_device(d); kfree(p.buf); uart_print("[KIRA DRV] нет свободной привязки (устройств с драйверами не больше 8)\n"); return -1; }
     uint64_t f = spin_lock_irqsave(&klock);
     int st = b->state;
     if (st == B_FREE) b->state = B_RUN;
@@ -404,6 +407,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     unsigned k = 0; while (p.h.name[k] && k < sizeof b->name - 1) { b->name[k] = p.h.name[k]; k++; }
     b->name[k] = 0;
     b->granted = granted; b->version = p.h.version;
+    b->iommu_bound = iommu_device_isolated(d);
     if (!(policy_caps & (CAP_DMA | CAP_IRQ))) {      /* прошивка могла оставить bus mastering и MSI включёнными: драйвер без DMA/IRQ их не получает */
         uint16_t mc = find_cap(d, 0x05);
         if (mc) pci_write16(d, (uint16_t)(mc + 2), (uint16_t)(pci_read16(d, (uint16_t)(mc + 2)) & ~1u));
@@ -422,7 +426,14 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     kfree(p.buf);
     if (pid < 0) {
         quiesce(d);
-        b->state = B_FREE;
+        if (b->iommu_bound && iommu_release_device(d) != IOMMU_OK) {
+            b->dead_at = timer_get_ticks();
+            b->state = B_DEAD;
+            __atomic_add_fetch(&ndead, 1, __ATOMIC_ACQ_REL);
+        } else {
+            b->iommu_bound = 0;
+            b->state = B_FREE;
+        }
         uart_print("[KIRA DRV] "); uart_print(name); uart_print(": ELF драйвера не принят - не запущен\n");
         return -1;
     }
