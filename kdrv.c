@@ -228,6 +228,20 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     unsigned k = 0; while (p.h.name[k] && k < sizeof b->name - 1) { b->name[k] = p.h.name[k]; k++; }
     b->name[k] = 0;
     b->granted = granted; b->version = p.h.version;
+    /* Firmware or a previous owner may have left Bus Master enabled. Clear it
+       before exposing any BAR or starting this unisolated driver, then verify the
+       config-space write actually took effect. */
+    uint16_t pci_command = pci_read16(d, 0x04);
+    pci_write16(d, 0x04, kdrv_pci_command_clear_master(pci_command));
+    if (pci_read16(d, 0x04) & PCI_CMD_MASTER) {
+        (void)quiesce(d);
+        b->state = B_FREE;
+        kfree(p.buf);
+        uart_print("[KIRA DRV] "); uart_print(name);
+        uart_print(": bus mastering could not be disabled; driver NOT started\\n");
+        life_note("drv-denied-busmaster", name, KDRV_E_DMA_UNSAFE);
+        return KDRV_E_DMA_UNSAFE;
+    }
     if (granted & CAP_MMIO) pci_enable(d, PCI_CMD_MEM);
     /* Эти действия достижимы только после успешной проверки IOMMU policy выше. */
     if (granted & (CAP_DMA | CAP_IRQ)) pci_enable(d, PCI_CMD_MASTER);
