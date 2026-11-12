@@ -134,7 +134,7 @@ int kira_dmar_parse(const void *table,
 
     if (header->host_address_width < 32 ||
         header->host_address_width > 64 ||
-        (header->flags & (uint8_t)~0x3u) != 0)
+        (header->flags & (uint8_t)~0x7u) != 0)
         return KIRA_DMAR_E_STRUCTURE;
 
     {
@@ -156,6 +156,7 @@ int kira_dmar_parse(const void *table,
     out->host_address_width = header->host_address_width;
     out->interrupt_remapping_supported = (header->flags & 0x1u) != 0;
     out->x2apic_opt_out = (header->flags & 0x2u) != 0;
+    out->dma_ctrl_platform_opt_in = (header->flags & 0x4u) != 0;
 
     offset = sizeof(*header);
     while (offset < table_length) {
@@ -183,11 +184,13 @@ int kira_dmar_parse(const void *table,
                 return length < sizeof(struct kira_dmar_drhd)
                     ? KIRA_DMAR_E_STRUCTURE : KIRA_DMAR_E_CAPACITY;
 
-            if ((entry[4] & (uint8_t)~0x1u) != 0 || entry[5] != 0)
+            if ((entry[4] & (uint8_t)~0x1u) != 0 ||
+                (entry[5] & 0xf0u) != 0)
                 return KIRA_DMAR_E_STRUCTURE;
 
             unit = &out->units[out->unit_count];
             unit->include_all = entry[4] & 0x1u;
+            unit->register_size_log2 = entry[5] & 0x0fu;
             unit->segment = dmar_u16(entry + 6);
             unit->register_base = dmar_u64(entry + 8);
 
@@ -201,6 +204,24 @@ int kira_dmar_parse(const void *table,
             if (rc != KIRA_DMAR_OK)
                 return rc;
 
+            if (!unit->include_all && count == 0)
+                return KIRA_DMAR_E_STRUCTURE;
+            {
+                uint16_t n;
+                for (n = 0; n < out->unit_count; ++n) {
+                    const struct kira_dmar_unit *prior = &out->units[n];
+                    if (prior->segment == unit->segment && prior->include_all)
+                        return KIRA_DMAR_E_STRUCTURE; /* INCLUDE_ALL must be last and unique. */
+                    if (prior->segment == unit->segment &&
+                        prior->include_all && unit->include_all)
+                        return KIRA_DMAR_E_STRUCTURE;
+                }
+                for (n = 0; n < count; ++n) {
+                    uint8_t scope_type = out->scopes[first + n].type;
+                    if (unit->include_all && (scope_type == 1 || scope_type == 2))
+                        return KIRA_DMAR_E_STRUCTURE;
+                }
+            }
             unit->first_scope = first;
             unit->scope_count = count;
             ++out->unit_count;
@@ -232,10 +253,20 @@ int kira_dmar_parse(const void *table,
             if (rc != KIRA_DMAR_OK)
                 return rc;
 
+            if (count == 0)
+                return KIRA_DMAR_E_STRUCTURE;
+            {
+                uint16_t n;
+                for (n = 0; n < count; ++n) {
+                    uint8_t scope_type = out->scopes[first + n].type;
+                    if (scope_type != 1 && scope_type != 2)
+                        return KIRA_DMAR_E_STRUCTURE;
+                }
+            }
             region->first_scope = first;
             region->scope_count = count;
             ++out->rmrr_count;
-        } else if (type >= 2 && type <= 5) {
+        } else if (type >= 2 && type <= 6) {
             /*
              * Known optional DMAR structures (ATSR, RHSA, ANDD, SATC) are
              * length-bounded and skipped; this runtime does not consume them.
