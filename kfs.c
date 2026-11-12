@@ -91,7 +91,16 @@ static struct {
 
 static int rd(uint64_t sec, uint32_t n, void* b) { return fs.dev->read(fs.dev, fs.base + sec, n, b) == 0 ? 0 : KFS_ERR_IO; }
 static int wr(uint64_t sec, uint32_t n, const void* b) { return fs.dev->write(fs.dev, fs.base + sec, n, b) == 0 ? 0 : KFS_ERR_IO; }
-static int flush(void) { return fs.dev->flush && fs.dev->flush(fs.dev) == 0 ? 0 : KFS_ERR_IO; }
+/* A failed persistence barrier leaves metadata durability unknown. Stop serving this
+   mount immediately: callers must remount and rebuild allocation state from disk
+   before any later operation can reuse blocks whose commit status is uncertain. */
+static int flush(void) {
+    if (!fs.dev || !fs.dev->flush || fs.dev->flush(fs.dev) != 0) {
+        fs.mounted = 0;
+        return KFS_ERR_IO;
+    }
+    return 0;
+}
 static int rd_block(uint32_t b, void* buf) { return rd((uint64_t)b * SPB, SPB, buf); }
 static int wr_block(uint32_t b, const void* buf) {
     if (b == fs.pc_no) fs.pc_no = 0;                              /* кэш указателей больше не верен */
@@ -676,6 +685,9 @@ static int grow_inodes(void) {
     fs.inode_count += nblk * IPB;
     r = super_write();                                           /* участок существует с этого сектора */
     if (r) {
+        /* The extension descriptor may have reached the superblock sector.
+           Its on-disk state is now authoritative only after a fresh mount. */
+        fs.mounted = 0;
         fs.next--; fs.inode_count = old;
         for (uint32_t b = 0; b < nblk; b++) { fs.used[(start + b) >> 3] &= (uint8_t)~(1u << ((start + b) & 7)); fs.free_blocks++; }
         kfree_(nt); return r;
@@ -737,7 +749,14 @@ static int kfs_mount_impl(blk_dev_t* dev, uint64_t base) {
     if (sb.version == 1 && (r = super_write())) { release_mem(); return r; }   /* v1 -> v2: один сектор */
     if ((r = grow_volume())) { release_mem(); return r; }
     fs.mounted = 1;
-    if (fs.free_inodes < fs.inode_count / 8 + 16) grow_inodes();    /* запас инодов заранее, если есть место */
+    if (fs.free_inodes < fs.inode_count / 8 + 16) {
+        r = grow_inodes();                                         /* запас инодов заранее, если есть место */
+        if (r && r != KFS_ERR_NOSPC) {
+            fs.mounted = 0;
+            release_mem();
+            return r;
+        }
+    }
     return 0;
 }
 
@@ -856,7 +875,7 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
     uint64_t nmeta = meta_blocks(nb);
     if (nb + nmeta > fs.free_blocks) return KFS_ERR_NOSPC;
     uint32_t slot = ino;
-    if (!slot) { slot = alloc_inode(); if (!slot) return KFS_ERR_NOSPC; }
+    if (!slot) { slot = alloc_inode(); if (!slot) return fs.mounted ? KFS_ERR_NOSPC : KFS_ERR_IO; }
     if (nb + nmeta > fs.free_blocks) return KFS_ERR_NOSPC;      /* рост таблицы инодов мог занять место */
 
     uint32_t* list = (uint32_t*)kalloc((size_t)(nb ? nb : 1) * 4);
@@ -890,6 +909,7 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
         kfree_(list); kfree_(mlist);
         return r;
     }
+    int inode_transition = 1;
     inode_t* ip = iget(slot);
     if (!ip) r = KFS_ERR_IO;
     inode_t old = ip ? *ip : nin;
@@ -900,28 +920,37 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
         if (!r) r = flush();
         if (r) { ip = iget(slot); if (ip) *ip = old; }
     }
-    if (r) {                                                     /* инод не переключён: возвращаем всё как было */
+    if (r) {
         for (uint64_t k = 0; k < nb; k++) set_free(list[k]);
         for (uint64_t k = 0; k < meta.n; k++) set_free(mlist[k]);
         kfree_(list); kfree_(mlist);
+        if (inode_transition) fs.mounted = 0; /* inode write/readback may be partially committed */
         return r;
     }
     kfree_(list); kfree_(mlist);
     if (ino) { free_inode_blocks(&old); return 0; }
     fs.free_inodes--;
     r = dir_add(parent, leaf, slot);
-    if (r) {                                                     /* без записи в каталоге файл не существует */
-        ip = iget(slot);
-        if (ip) {
-            inode_t gone = *ip;
-            zero(ip, sizeof *ip);
-            write_inode(slot); flush();
-            free_inode_blocks(&gone);
-        }
-        fs.itype[slot] = 0; fs.free_inodes++;
+    if (!r) return 0;
+    if (r != KFS_ERR_NOSPC) {
+        /* An I/O error can leave the new directory entry or its parent inode
+           partly committed. Never try a second metadata transaction here. */
+        fs.mounted = 0;
         return r;
     }
-    return 0;
+    /* No directory slot was published: reclaim the unreachable inode with a
+       checked write+flush, otherwise require a fresh mount scan. */
+    ip = iget(slot);
+    if (!ip) { fs.mounted = 0; return KFS_ERR_IO; }
+    inode_t gone = *ip;
+    zero(ip, sizeof *ip);
+    int cleanup = write_inode(slot);
+    if (!cleanup) cleanup = flush();
+    if (cleanup) { fs.mounted = 0; return cleanup; }
+    fs.itype[slot] = 0;
+    fs.free_inodes++;
+    free_inode_blocks(&gone);
+    return r;
 }
 
 static int kfs_mkdir_impl(const char* path) {
@@ -931,15 +960,35 @@ static int kfs_mkdir_impl(const char* path) {
     if (!leaf[0] || ino) return KFS_ERR_EXIST;
     if (fs.itype[parent] != KFS_DIR) return KFS_ERR_NOTDIR;
     uint32_t slot = alloc_inode();
-    if (!slot) return KFS_ERR_NOSPC;
+    if (!slot) return fs.mounted ? KFS_ERR_NOSPC : KFS_ERR_IO;
     inode_t* in = iget(slot);
-    if (!in) return KFS_ERR_IO;
+    if (!in) { fs.mounted = 0; return KFS_ERR_IO; }
     zero(in, sizeof *in);
     in->type = KFS_DIR; in->gen = 1;
     r = write_inode(slot);
     if (!r) r = flush();
-    if (!r) { fs.free_inodes--; r = dir_add(parent, leaf, slot); if (r) fs.free_inodes++; }
-    if (r) { in = iget(slot); if (in) { zero(in, sizeof *in); write_inode(slot); flush(); } fs.itype[slot] = 0; }
+    if (r) {
+        /* The inode sector may have reached storage despite an I/O error. */
+        fs.mounted = 0;
+        return r;
+    }
+    fs.free_inodes--;
+    r = dir_add(parent, leaf, slot);
+    if (!r) return 0;
+    if (r != KFS_ERR_NOSPC && r != KFS_ERR_EXIST) {
+        fs.mounted = 0;
+        return r;
+    }
+    /* dir_add rejected the operation before publishing a namespace change.
+       Reclaim the now-unreachable inode only after a confirmed inode flush. */
+    in = iget(slot);
+    if (!in) { fs.mounted = 0; return KFS_ERR_IO; }
+    zero(in, sizeof *in);
+    int cleanup = write_inode(slot);
+    if (!cleanup) cleanup = flush();
+    if (cleanup) { fs.mounted = 0; return cleanup; }
+    fs.itype[slot] = 0;
+    fs.free_inodes++;
     return r;
 }
 
@@ -958,14 +1007,26 @@ static int kfs_unlink_impl(const char* path) {
     r = dir_remove(parent, leaf);                                /* сначала убираем имя, потом сам инод */
     if (r) return r;
     inode_t* ip = iget(ino);
-    if (!ip) return KFS_ERR_IO;
+    if (!ip) {
+        /* The directory entry is already durably gone. Do not continue using
+           allocator state if the inode transition cannot be completed. */
+        fs.mounted = 0;
+        return KFS_ERR_IO;
+    }
     inode_t old = *ip;
     zero(ip, sizeof *ip);
     r = write_inode(ino);
     if (!r) r = flush();
-    fs.itype[ino] = 0; fs.free_inodes++;
+    if (r) {
+        /* The namespace change committed, but inode reclamation did not.
+           Disk state is authoritative; force a remount/re-scan before reuse. */
+        fs.mounted = 0;
+        return r;
+    }
+    fs.itype[ino] = 0;
+    fs.free_inodes++;
     free_inode_blocks(&old);
-    return r;
+    return 0;
 }
 
 typedef struct { kfs_list_cb cb; void* ctx; } list_t;
