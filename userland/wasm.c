@@ -1185,7 +1185,7 @@ static u64 wasm_fuel;
 #define FUEL_TICK do { if (!wasm_fuel || !--wasm_fuel) { trap("fuel exhausted"); return; } } while (0)
 /* Кванты времени: раз в SLICE_TICKS переходов назад и вызовов проверяется часы; если процессор не отдавался дольше SLICE_NS,
    программа уступает его (k_yield) - окна и интерфейс не голодают, даже когда модуль считает кадр секундами. */
-#ifdef WASM_FUEL
+#ifdef WASM_TEST_FAST_SLICE
 #define SLICE_TICKS 16                                            /* хост-тест с испорченными модулями: чаще, каждый переход назад стоит 64 единицы топлива */
 #else
 #define SLICE_TICKS 4096
