@@ -18,6 +18,8 @@ typedef struct {
     int committed;
     int rollback_count;
     int rollback_fail;
+    int activate_fail;
+    int deactivate_fail;
     int discarded;
     int freed;
     enum kdrv_state states[8];
@@ -127,6 +129,7 @@ static int activate_driver(void *opaque, const char *name)
 {
     test_context_t *ctx = opaque;
     if (strcmp(name, "test-driver") != 0) return -1;
+    if (ctx->activate_fail) return -1;
     ctx->active = 1;
     return 0;
 }
@@ -135,6 +138,7 @@ static int deactivate_driver(void *opaque, const char *name)
 {
     test_context_t *ctx = opaque;
     if (strcmp(name, "test-driver") != 0) return -1;
+    if (ctx->deactivate_fail) return -1;
     ctx->active = 0;
     return 0;
 }
@@ -249,6 +253,19 @@ static int test_activation_state_rollback(void)
     CHECK(kdrv_manager_remove(&ops, "test-driver") != 0);
     CHECK(ctx.active == 1);
     CHECK(ctx.state_count == 1 && ctx.states[0] == KDRV_STATE_FAILED);
+
+    setup(&ctx, &ops);
+    ctx.fail_state = KDRV_STATE_ACTIVE;
+    ctx.deactivate_fail = 1;
+    CHECK(kdrv_manager_activate(&ops, "test-driver") == KDRV_STATE_ROLLBACK_FAILED);
+    CHECK(ctx.active == 1); /* never hide a still-live driver behind generic failure */
+
+    setup(&ctx, &ops);
+    ctx.active = 1;
+    ctx.fail_state = KDRV_STATE_ABSENT;
+    ctx.activate_fail = 1;
+    CHECK(kdrv_manager_remove(&ops, "test-driver") == KDRV_STATE_ROLLBACK_FAILED);
+    CHECK(ctx.active == 0); /* failed restoration is surfaced explicitly */
     return 0;
 }
 
