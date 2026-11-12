@@ -57,7 +57,7 @@
 #define TCR_DMA_1024   (6u << 8)
 
 #define RESET_TIMEOUT  100000u
-#define TX_TIMEOUT     100000u
+#define TX_TIMEOUT_US  1000000ull
 #define RX_STATUS_ROK  0x0001u
 #define BMSR_LINK      (1u << 2)
 #define RX_STATUS_FAE  0x0002u
@@ -71,6 +71,28 @@ static int rtl_dma_address_valid(uint64_t physical, size_t size)
     return physical != 0 && size != 0 && (physical & 0xffu) == 0 &&
            physical <= UINT32_MAX &&
            (uint64_t)(size - 1u) <= (uint64_t)UINT32_MAX - physical;
+}
+
+static int rtl_reset_controller(struct kira_rtl8139 *d)
+{
+    unsigned int i;
+    if (!d || !d->io_base || !d->platform.out8 || !d->platform.in8 ||
+        !d->platform.delay_us)
+        return -1;
+    if (d->platform.out16)
+        d->platform.out16(d->platform.context, port(d, REG_IMR), 0);
+    d->platform.out8(d->platform.context, port(d, REG_COMMAND), 0);
+    d->platform.out8(d->platform.context, port(d, REG_COMMAND), CMD_RESET);
+    for (i = 0; i < RESET_TIMEOUT; ++i) {
+        if (!(d->platform.in8(d->platform.context, port(d, REG_COMMAND)) &
+              CMD_RESET)) {
+            if (d->platform.out16)
+                rtl_ack_interrupts(d, 0xffffu);
+            return 0;
+        }
+        d->platform.delay_us(d->platform.context, 1);
+    }
+    return -1;
 }
 
 static void rtl_release_buffers(struct kira_rtl8139 *d)
@@ -129,7 +151,7 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
         !platform.dma_alloc || !platform.dma_free ||
         !platform.cache_invalidate || !platform.cache_clean ||
         !platform.dma_read_barrier || !platform.dma_write_barrier ||
-        !platform.delay_us || !platform.receive)
+        !platform.monotonic_us || !platform.delay_us || !platform.receive)
         return -1;
 
     /* The caller may pass an uninitialized object; never inspect stale DMA pointers. */
@@ -286,9 +308,10 @@ static int rtl_receive_one(struct kira_rtl8139 *d)
     return 1;
 }
 
-static void rtl_reap_tx(struct kira_rtl8139 *d)
+static int rtl_reap_tx(struct kira_rtl8139 *d)
 {
     unsigned int i;
+    uint64_t now = d->platform.monotonic_us(d->platform.context);
 
     for (i = 0; i < KIRA_RTL8139_TX_SLOTS; ++i) {
         uint32_t status;
@@ -300,11 +323,31 @@ static void rtl_reap_tx(struct kira_rtl8139 *d)
         if (status & TSD_OWN) {
             d->platform.dma_read_barrier(d->platform.context);
             d->tx_busy[i] = 0;
+            d->tx_started_us[i] = 0;
             if (d->platform.transmit_complete)
                 d->platform.transmit_complete(d->platform.context, i,
                                                (status & TSD_TOK) ? 0 : -1);
+            continue;
+        }
+
+        if (now >= d->tx_started_us[i] &&
+            now - d->tx_started_us[i] >= TX_TIMEOUT_US) {
+            /* Stop/reset before exposing any still-owned DMA buffer for reuse. */
+            if (rtl_reset_controller(d) != 0) {
+                d->initialized = 0;
+                return -3; /* DMA quiescence unconfirmed; caller must not free buffers. */
+            }
+            d->initialized = 0;
+            for (unsigned int j = 0; j < KIRA_RTL8139_TX_SLOTS; ++j) {
+                if (d->tx_busy[j] && d->platform.transmit_complete)
+                    d->platform.transmit_complete(d->platform.context, j, -1);
+                d->tx_busy[j] = 0;
+                d->tx_started_us[j] = 0;
+            }
+            return -2;
         }
     }
+    return 0;
 }
 
 int kira_rtl8139_poll(struct kira_rtl8139 *d)
@@ -326,7 +369,11 @@ int kira_rtl8139_poll(struct kira_rtl8139 *d)
         }
     }
 
-    rtl_reap_tx(d);
+    {
+        int tx_status = rtl_reap_tx(d);
+        if (tx_status != 0)
+            return tx_status;
+    }
 
     while (budget-- && rtl_receive_one(d) > 0)
         ++work;
@@ -344,7 +391,8 @@ int kira_rtl8139_send(struct kira_rtl8139 *d,
         length < 14 || length > KIRA_RTL8139_MAX_FRAME)
         return -1;
 
-    rtl_reap_tx(d);
+    if (rtl_reap_tx(d) != 0 || !d->initialized)
+        return -3;
 
     for (slot = 0; slot < KIRA_RTL8139_TX_SLOTS; ++slot)
         if (!d->tx_busy[slot])
@@ -365,6 +413,7 @@ int kira_rtl8139_send(struct kira_rtl8139 *d,
     d->platform.dma_write_barrier(d->platform.context);
 
     d->tx_busy[slot] = 1;
+    d->tx_started_us[slot] = d->platform.monotonic_us(d->platform.context);
     d->platform.out32(d->platform.context,
         port(d, (uint16_t)(REG_TSD0 + slot * 4)),
         TSD_ERTXTH | (uint32_t)length);
@@ -382,19 +431,18 @@ int kira_rtl8139_link_up(struct kira_rtl8139 *d)
             BMSR_LINK) != 0;
 }
 
-void kira_rtl8139_shutdown(struct kira_rtl8139 *d)
+int kira_rtl8139_shutdown(struct kira_rtl8139 *d)
 {
     if (!d)
-        return;
+        return -1;
 
-    if (d->io_base && d->platform.out16 && d->platform.out8) {
-        d->platform.out16(d->platform.context, port(d, REG_IMR), 0);
-        d->platform.out8(d->platform.context, port(d, REG_COMMAND), 0);
-        rtl_ack_interrupts(d, 0xffffu);
-        if (d->platform.dma_write_barrier)
-            d->platform.dma_write_barrier(d->platform.context);
+    if (d->io_base && d->platform.out8 && d->platform.in8 &&
+        d->platform.delay_us) {
+        if (rtl_reset_controller(d) != 0)
+            return -1; /* Keep DMA memory allocated until the device is quiescent. */
     }
 
     rtl_release_buffers(d);
     d->initialized = 0;
+    return 0;
 }
