@@ -283,23 +283,15 @@ int pci_disable_bus_master(const pci_dev_t* d) {
 
 /* Размер и тип BAR: пишем единицы, читаем маску, возвращаем исходное значение. Декодирование на время зонда выключено. */
 static void probe_bars(pci_dev_t* d) {
-    int trace = d->bus == 0 && d->dev == 1 && d->fn == 2;
-    if (trace) uart_print("[KIRA PCI PB] begin\n");
     uint16_t cmd = pci_read16(d, 0x04);
-    if (trace) { uart_print("[KIRA PCI PB] command read "); uart_print_hex(cmd); uart_print("\n"); }
     pci_write16(d, 0x04, (uint16_t)(cmd & ~(PCI_CMD_IO | PCI_CMD_MEM)));
-    if (trace) uart_print("[KIRA PCI PB] decode disabled\n");
     int nb = (d->header_type & 0x7F) == 0 ? 6 : ((d->header_type & 0x7F) == 1 ? 2 : 0);
     for (int i = 0; i < PCI_BARS; i++) { d->bar[i].base = d->bar[i].size = 0; d->bar[i].io = d->bar[i].mem64 = d->bar[i].prefetch = 0; }
     for (int i = 0; i < nb; i++) {
         uint16_t off = (uint16_t)(0x10 + 4 * i);
-        if (trace) { uart_print("[KIRA PCI PB] BAR "); uart_print_dec(i); uart_print(" read original\n"); }
         uint32_t orig = pci_read32(d, off);
-        if (trace) { uart_print("[KIRA PCI PB] BAR original "); uart_print_hex(orig); uart_print(" write probe\n"); }
         pci_write32(d, off, 0xFFFFFFFFu);
-        if (trace) uart_print("[KIRA PCI PB] BAR mask read\n");
         uint32_t mask = pci_read32(d, off);
-        if (trace) { uart_print("[KIRA PCI PB] BAR mask "); uart_print_hex(mask); uart_print(" restore\n"); }
         pci_write32(d, off, orig);
         if (mask == 0 || mask == 0xFFFFFFFFu) continue;
         if (orig & 1) {
@@ -325,9 +317,7 @@ static void probe_bars(pci_dev_t* d) {
             d->bar[i].base = base; d->bar[i].size = (uint32_t)(~(uint32_t)m + 1);
         }
     }
-    if (trace) uart_print("[KIRA PCI PB] restore command\n");
     pci_write16(d, 0x04, cmd);
-    if (trace) uart_print("[KIRA PCI PB] done\n");
 }
 
 static void scan_bus(uint8_t bus);
