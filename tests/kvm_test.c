@@ -196,6 +196,22 @@ static void put64(uint8_t *p, uint64_t value)
 {
     put32(p, (uint32_t)value); put32(p + 4, (uint32_t)(value >> 32));
 }
+static int test_resource_limits(void)
+{
+    const struct kvm_instruction code[] = { INS(KVM_OP_HALT, 0, 0, 0, 0) };
+    struct kvm_module module = { (const uint8_t *)code, sizeof code, 0, 0, 1, 0, 0 };
+    CHECK(kvm_verify(&module, 0) == KVM_OK);
+    module.memory_pages = KVM_MAX_MEMORY_PAGES + 1u;
+    CHECK(kvm_verify(&module, 0) == KVM_E_FORMAT);
+    module.memory_pages = 1;
+    module.code_size = KVM_MAX_MODULE_SIZE;
+    CHECK(kvm_verify(&module, 0) == KVM_E_FORMAT);
+    module.code_size = sizeof code;
+    module.memory_pages = 0;
+    CHECK(kvm_verify(&module, 0) == KVM_E_FORMAT);
+    return 0;
+}
+
 static int test_portable_container(void)
 {
     const struct kvm_instruction code[] = {
@@ -236,6 +252,9 @@ static int test_portable_container(void)
     put32(blob + 20, 2u);
     CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
     put32(blob + 20, 0u);
+    put32(blob + 16, KVM_MAX_MEMORY_PAGES + 1u);
+    CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
+    put32(blob + 16, 1u);
     put32(blob + 8, 0xfffffff8u); /* length arithmetic must fail closed on 32-bit too */
     CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
     put32(blob + 8, (uint32_t)sizeof code);
@@ -252,6 +271,7 @@ int main(void)
         test_syscall_capability() ||
         test_call_stack() ||
         test_rejects_malformed_and_traps() ||
+        test_resource_limits() ||
         test_portable_container())
         return 1;
     puts("KIRA VM v1 verifier/interpreter: PASS");
