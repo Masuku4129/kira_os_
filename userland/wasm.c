@@ -844,10 +844,14 @@ static int load(void) {
             for (u32 i = 0; i < n && !trapped; i++) {
                 u32 ml = leb_u(&s, se);
                 if (trapped || ml > (u32)(se - s)) { trap("truncated import module name"); return -1; }
-                const u8* mn = s; s += ml;
+                const u8* mn = s;
+                if (!wasm_utf8_valid(mn, ml)) { trap("invalid UTF-8 import module name"); return -1; }
+                s += ml;
                 u32 nl = leb_u(&s, se);
                 if (trapped || nl > (u32)(se - s)) { trap("truncated import field name"); return -1; }
-                const u8* nn = s; s += nl;
+                const u8* nn = s;
+                if (!wasm_utf8_valid(nn, nl)) { trap("invalid UTF-8 import field name"); return -1; }
+                s += nl;
                 if (s >= se) { trap("truncated import descriptor"); return -1; }
                 u8 kind = *s++;
                 if (kind == 0) {
@@ -952,7 +956,9 @@ static int load(void) {
             for (u32 i = 0; i < n && !trapped; i++) {
                 u32 nl = leb_u(&s, se);
                 if (trapped || nl > (u32)(se - s)) { trap("truncated export name"); return -1; }
-                const u8* nn = s; s += nl;
+                const u8* nn = s;
+                if (!wasm_utf8_valid(nn, nl)) { trap("invalid UTF-8 export name"); return -1; }
+                s += nl;
                 if (s >= se) { trap("truncated export descriptor"); return -1; }
                 u8 kind = *s++;
                 u32 idx = leb_u(&s, se);
