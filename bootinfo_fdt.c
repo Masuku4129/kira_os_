@@ -18,7 +18,7 @@ static int add_region(kbi_mmap_entry_t* a, uint32_t* n, uint64_t base, uint64_t 
     (*n)++;
     return 0;
 }
-static int reserve_node_ranges(const void* fdt, int node, fdt_range_t* reserved, uint32_t* nr) {
+static int reserve_node_ranges(const void* fdt, uint32_t available, int node, fdt_range_t* reserved, uint32_t* nr) {
     uint32_t len = 0;
     const void* reg = fdt_prop(fdt, node, "reg", &len);
     if (!reg) {
@@ -34,7 +34,7 @@ static int reserve_node_ranges(const void* fdt, int node, fdt_range_t* reserved,
     if (!len || len % stride) return -1;
     for (uint32_t i = 0; i < len / stride; i++) {
         uint64_t base, size;
-        if (fdt_reg(fdt, node, i, &base, &size) ||
+        if (fdt_reg(fdt, available, node, i, &base, &size) ||
             add_range(reserved, nr, KBI_FDT_MAX_RESERVED, base, size)) return -1;
     }
     return 0;
@@ -103,7 +103,7 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
              node = fdt_next_node(fdt, node, &rd)) {
             if (fdt_parent(fdt, node) != reserved_root) continue;
             if (!fdt_node_enabled(fdt, node)) continue;
-            if (reserve_node_ranges(fdt, node, reserved, &nr)) return -4;
+            if (reserve_node_ranges(fdt, available, node, reserved, &nr)) return -4;
         }
     }
     for (int node = root; node >= 0; node = fdt_next_node(fdt, node, &depth)) {
@@ -129,13 +129,13 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
         if (!stride || !reg_len || reg_len % stride) return -3;
         for (uint32_t i = 0; i < reg_len / stride; i++) {
             uint64_t base = 0, size = 0;
-            if (fdt_reg(fdt, node, i, &base, &size)) return -3;
+            if (fdt_reg(fdt, available, node, i, &base, &size)) return -3;
             if (size && add_region(regions, &count, base, size)) return -4;
         }
     }
     if (!count) return -5;
     fdt_fb_t reserved_fb;
-    if (fdt_simplefb(fdt, &reserved_fb) == 0 &&
+    if (fdt_simplefb(fdt, available, &reserved_fb) == 0 &&
         add_range(reserved, &nr, KBI_FDT_MAX_RESERVED, reserved_fb.base, reserved_fb.size)) return -4;
 
     /* Insertion sort by physical base. */
@@ -204,7 +204,7 @@ int kbi_from_fdt(const void* fdt, uint32_t available, uint64_t fdt_phys,
     }
 
     fdt_fb_t fb;
-    if (fdt_simplefb(fdt, &fb) == 0) {
+    if (fdt_simplefb(fdt, available, &fb) == 0) {
         h->flags |= KBI_F_FRAMEBUFFER;
         h->fb_phys = fb.base;
         h->fb_size = fb.size;
