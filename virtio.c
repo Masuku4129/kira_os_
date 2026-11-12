@@ -48,7 +48,12 @@ static void zero(void* p, size_t n) { volatile uint8_t* q = (volatile uint8_t*)p
 static void barrier(void) { __sync_synchronize(); }
 
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) __attribute__((weak));   /* ARM64: пул без кэша для плат без согласованности */
+int platform_dma_noncoherent(void) __attribute__((weak));
+void platform_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes) __attribute__((weak));
+void platform_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes) __attribute__((weak));
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
+    if (!bytes || !phys || bytes > UINT32_MAX - 4095u) return 0;
+    *phys = 0;
 #ifdef KIRA_HOST_TEST
     void* p = aligned_alloc(4096, (bytes + 4095) & ~4095u);
     if (!p) return 0;
@@ -57,8 +62,20 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
     *phys = (uint64_t)(uintptr_t)p;
     return p;
 #else
-    if (platform_dma_pool) { void* q = platform_dma_pool(bytes, phys, 0); if (q) return q; }
-    uint32_t pages = (bytes + 4095) / 4096;
+    if (platform_dma_pool) {
+        void* q = platform_dma_pool(bytes, phys, 0);
+        if (q) {
+            if (!((uintptr_t)q & 4095u) && *phys &&
+                !(*phys & 4095u) && (uint64_t)(uintptr_t)q == *phys &&
+                *phys <= UINT64_MAX - bytes)
+                return q;
+            *phys = 0;
+            return 0;
+        }
+    }
+    /* A non-coherent platform must never fall back to cacheable PMM pages. */
+    if (platform_dma_noncoherent && platform_dma_noncoherent()) return 0;
+    uint32_t pages = (bytes + 4095u) / 4096u;
     uint64_t pa = pmm_alloc_contiguous(pages);
     if (!pa) return 0;
     for (uint32_t i = 0; i < pages; i++) {                   /* устройство и процессор должны видеть один и тот же адрес */
@@ -69,6 +86,37 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
     *phys = pa;
     return (void*)(uintptr_t)pa;
 #endif
+}
+
+static int dma_sync_range_valid(void* cpu, uint64_t phys, uint32_t bytes) {
+    if (!cpu || !phys || !bytes || phys > UINT64_MAX - bytes ||
+        (uintptr_t)cpu > UINTPTR_MAX - bytes)
+        return 0;
+#ifndef KIRA_HOST_TEST
+    if ((uint64_t)(uintptr_t)cpu != phys) return 0;
+    uint64_t translated = 0;
+    if (vmm_translate(phys, &translated) != 0 || translated != phys) return 0;
+#endif
+    return 1;
+}
+int virtio_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes) {
+    if (!dma_sync_range_valid(cpu, phys, bytes)) return -1;
+#ifndef KIRA_HOST_TEST
+    if (platform_dma_sync_for_device)
+        platform_dma_sync_for_device(cpu, phys, bytes);
+#endif
+    barrier();
+    return 0;
+}
+int virtio_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes) {
+    if (!dma_sync_range_valid(cpu, phys, bytes)) return -1;
+    barrier();
+#ifndef KIRA_HOST_TEST
+    if (platform_dma_sync_for_cpu)
+        platform_dma_sync_for_cpu(cpu, phys, bytes);
+#endif
+    barrier();
+    return 0;
 }
 
 /* ---- Транспорт PCI ---- */
