@@ -161,6 +161,14 @@ int e1000_probe(void) {
     wr(RDBAL, (uint32_t)rx_p); wr(RDBAH, (uint32_t)(rx_p >> 32)); wr(RDLEN, NRX * sizeof(rxd_t));
     wr(RDH, 0); wr(RDT, NRX - 1);
     pci_enable(p, PCI_CMD_MASTER); /* descriptor rings and packet buffers are ready */
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        if (pci_disable_bus_master(p))
+            (void)iommu_unmap_all(p);
+        else
+            uart_print("[KIRA E1000] bus mastering did not stop; DMA mappings remain pinned.\\n");
+        uart_print("[KIRA E1000] PCI DMA authorization was not granted; device disabled.\\n");
+        return -7;
+    }
     wr(RCTL, (1u << 1) | (1u << 15) | (1u << 26));               /* EN, BAM (широковещательные), SECRC; буфер 2048 */
     wr(TDBAL, (uint32_t)tx_p); wr(TDBAH, (uint32_t)(tx_p >> 32)); wr(TDLEN, NTX * sizeof(txd_t));
     wr(TDH, 0); wr(TDT, 0);
