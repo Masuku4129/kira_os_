@@ -362,6 +362,9 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/sb16 tests/sb16_test.c sb16.c
 $T/sb16
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
+echo "== RTL8139 clean-room PCI/DMA/RX/TX driver model =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/rtl8139 tests/rtl8139_test.c drivers/net/rtl8139.c
+$T/rtl8139
 echo "== IPv4/IPv6 fragment reassembly (all orders, overlaps, duplicates, oversize, TTL, memory limits) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/ipfrag tests/ipfrag_test.c ipfrag.c
 $T/ipfrag
