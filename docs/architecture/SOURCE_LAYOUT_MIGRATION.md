@@ -135,3 +135,16 @@ Implemented on the architecture branch:
 **Verification status:** GitHub Actions was triggered for the architecture PR after the first source-list update. That run targets an earlier head than the final header correction; a fresh run for the final head is required. No build or runtime test is claimed PASS until that exact-head run completes.
 
 **Next M1/M2 work:** compare the extracted boot sequence against the pre-refactor source line-by-line, then split early platform discovery from subsystem startup only after typed init/error contracts are documented. Do not add rollback of hardware initialization until each subsystem exposes a safe teardown operation.
+
+
+## 8. Second migration slice — syscall core vs service adapters
+
+Implemented as a transitional in-kernel boundary:
+- `syscall_numbers.h` is now the shared numeric registry for Native syscall IDs; values remain unchanged.
+- `syscall.c` retains privilege-boundary handling, capability checks and kernel primitives. It delegates service-facing syscall numbers to `syscall_services.c`.
+- `syscall_services.c` currently adapts graphics, filesystem, TCP/UDP/network, audio and RTC operations to their existing subsystem APIs.
+- Both x86-64 and ARM64 build manifests include the new translation unit.
+- This is source-level separation only. Service code still executes in kernel context; there is no claim of process isolation, IPC transport or crash containment yet.
+- RFC: `docs/architecture/rfc/RFC-SVC-001.md`.
+
+**Gate:** exact-head CI must pass both ISA builds, host tests and QEMU scenarios. Follow-up extraction to IPC must preserve ABI IDs, argument semantics, capability checks, errors and blocking behavior.
