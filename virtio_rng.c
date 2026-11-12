@@ -33,7 +33,7 @@ int virtio_rng_read(void* out, uint32_t n) {
             virtio_queue_setup(&dev, &q, 0, 8)) { rng_abort(); return -1; }
         buf = (uint8_t*)virtio_dma_alloc(64, &buf_p);
         if (!buf) { rng_abort(); return -1; }
-        virtio_driver_ok(&dev);
+        if (virtio_driver_ok(&dev) != 0) { rng_abort(); return -1; }
         st = 1;
     }
     if (st < 0) return -1;
