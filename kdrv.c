@@ -173,9 +173,44 @@ static void irq_enable(bind_t* b) {
 /* Устройство останавливается: ни обращений к памяти, ни сообщений прерываний. Не спит (зовётся при гибели процесса). */
 static int quiesce_verified(const pci_dev_t* d, uint16_t* command_out) {
     if (!d) return 0;
-    /* Shared PCI parser validates the whole capability chain, masks MSI,
-       MSI-X Function Mask and legacy INTx, and verifies every readback. */
-    int safe = pci_quiesce_interrupts(d);
+    int safe = 1, has_msi = 0, has_msix = 0;
+    uint16_t msi_control = 0, msix_control = 0;
+    uint16_t status = pci_read16(d, 0x06);
+    if (status & 0x10u) {
+        uint8_t ptr = pci_read8(d, 0x34);
+        uint64_t visited = 0;
+        unsigned n;
+        if (!ptr) safe = 0;
+        for (n = 0; ptr && n < 48; n++) {
+            if (ptr < 0x40u || ptr > 0xFCu || (ptr & 3u)) { safe = 0; break; }
+            uint64_t bit = 1ull << (ptr >> 2);
+            if (visited & bit) { safe = 0; break; }
+            visited |= bit;
+            uint8_t id = pci_read8(d, ptr);
+            uint8_t next = pci_read8(d, (uint16_t)(ptr + 1u));
+            if (!id || id == 0xFFu) { safe = 0; break; }
+            if (id == 0x05u) {
+                has_msi = 1;
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control & ~1u));
+                msi_control = pci_read16(d, (uint16_t)(ptr + 2u));
+            } else if (id == 0x11u) {
+                has_msix = 1;
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control | 0x4000u));
+                msix_control = pci_read16(d, (uint16_t)(ptr + 2u));
+            }
+            if (!next) { ptr = 0; break; }
+            if (next < 0x40u || next > 0xFCu || (next & 3u) || next == ptr) {
+                safe = 0;
+                break;
+            }
+            ptr = next;
+        }
+        if (ptr && n == 48) safe = 0;
+    }
+    if (!kdrv_pci_interrupts_quiesced(msi_control, has_msi, msix_control, has_msix))
+        safe = 0;
     uint16_t cmd = pci_read16(d, 0x04);
     pci_write16(d, 0x04, (uint16_t)(kdrv_pci_command_for_unisolated(cmd) &
                                     ~(PCI_CMD_IO | PCI_CMD_MEM)));
