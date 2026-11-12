@@ -189,6 +189,7 @@ int main(void) {
             be(cell - 8, 2);
             CHECK(fdt_tree_valid(blob, total));
             CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
+            CHECK(fdt_simplefb(blob, total, &malformed_fb) != 0);
             CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
                                handoff, sizeof handoff, &handoff_size) != 0);
             be(cell - 8, 4);
