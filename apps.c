@@ -268,7 +268,7 @@ static void mind_draw_forecast(surface_t* s, const mind_view_t* v) {
         p = cat(t, p, " · положительных исходов: "); p = cat_u(t, p, v->mem_net_pos);
         gfx_text(s, 26, 408, t, TH_TEXT_DIM, -1);
     }
-    gfx_text(s, 26, 492, "Цель — заранее заметить достижение 90% ОЗУ; прогноз пока ничего не освобождает.", TH_TEXT_FAINT, -1);
+    gfx_text(s, 26, 492, "Цель: заметить риск 90% ОЗУ за 4 с; модель пока только наблюдает.", TH_TEXT_FAINT, -1);
     mind_page_status(s, v, "прогноз · диагностическая оценка, не команда управления");
 }
 static void mind_draw_training(surface_t* s, const mind_view_t* v) {
