@@ -122,3 +122,16 @@ The following edges are prohibited unless a reviewed RFC explicitly defines a na
 ## 6. First implementation slice
 
 The first code slice is **M1: extracting the boot composition root**, not moving hundreds of unrelated files. Before editing, enumerate all calls in `kernel_main`, startup dependencies and architecture-specific entry points. Keep the current `kernel_main` ABI and startup sequence stable while moving only the ordered initialization coordinator. This isolates a useful architectural seam without pretending the entire eight-level migration is complete.
+
+## 7. First migration slice — boot/runtime separation
+
+Implemented on the architecture branch:
+- Added `kernel_boot.c` with the existing x86-64 early initialization and hardware bring-up sequence.
+- Reduced `kernel.c` to panic handling and the steady-state core loop; the externally called `kernel_main(unsigned long, unsigned long)` ABI is unchanged.
+- Added `kernel_boot_init` declaration to `kernel.h` and added `kernel_boot.c` to the x86-64 source list in `build_clang.sh`.
+- Preserved the existing initialization order, optional display/network/audio fallback behavior, timer calibration, APIC fallback and SMP startup.
+- ARM64 uses its separate `arch/aarch64/main.c` entry path and is not changed by this x86-only extraction.
+
+**Verification status:** GitHub Actions was triggered for the architecture PR after the first source-list update. That run targets an earlier head than the final header correction; a fresh run for the final head is required. No build or runtime test is claimed PASS until that exact-head run completes.
+
+**Next M1/M2 work:** compare the extracted boot sequence against the pre-refactor source line-by-line, then split early platform discovery from subsystem startup only after typed init/error contracts are documented. Do not add rollback of hardware initialization until each subsystem exposes a safe teardown operation.
