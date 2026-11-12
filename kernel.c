@@ -166,6 +166,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
         uart_print("[KIRA BOOT] BootInfo v"); uart_print_dec(bi->version);
         uart_print(" validated: memory ranges="); uart_print_dec(bi->mmap_count);
         uart_print(", modules="); uart_print_dec(bi->modules_count);
+        uart_print(", cmdline=");
+        uart_print((bi->flags & KBI_F_CMDLINE) ? "present" : "absent");
         uart_print(", bytes="); uart_print_dec(bootinfo_size); uart_print(".\n");
     }
     if (earlycon_init(addr) == 0) uart_print("[KIRA BOOT] Early console is on screen.\n");

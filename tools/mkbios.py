@@ -26,6 +26,8 @@ def main():
             sys.exit("stage1cd: нужно ровно 1024 байта")
     elif len(s1) != 512 or s1[510:] != b"\x55\xaa":
         sys.exit("stage1: нужен ровно 1 сектор с подписью 55AA")
+    if not cd and any(s1[446:510]):
+        sys.exit("stage1: MBR partition-table area must be zero before image generation")
     if len(s2) != S2_SECTORS * 512:
         sys.exit("stage2: нужно ровно %d байт" % (S2_SECTORS * 512))
     if s2[-160:] != bytes(160):
@@ -66,6 +68,21 @@ def main():
     image[s2_offset + S2_SECTORS * 512 - 32:
           s2_offset + S2_SECTORS * 512] = manifest
     image += bytes((-len(image)) % (1 << 20))
+
+    # Keep the first 446 bytes for stage1 and publish one active KIRA data
+    # partition for USB-HDD firmware that insists on a valid MBR partition map.
+    # The loader itself remains LBA-based and does not depend on a filesystem.
+    if not cd:
+        sectors = len(image) // 512
+        if sectors < 2 or sectors - 1 > 0xffffffff:
+            sys.exit("image: cannot represent the disk extent in an MBR partition")
+        entry = struct.pack("<B3sB3sII", 0x80, bytes((0, 2, 0)), 0xDA,
+                            bytes((0xFE, 0xFF, 0xFF)), 1, sectors - 1)
+        image[446:462] = entry
+        image[462:510] = bytes(48)
+        if image[510:512] != b"\x55\xaa":
+            sys.exit("stage1: missing MBR signature after partition-table generation")
+
     with open(out, "wb") as f:
         f.write(image)
     print("mkbios: %s, ядро %d байт, crc32 %08x%s" %
