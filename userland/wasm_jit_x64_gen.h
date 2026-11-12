@@ -276,7 +276,7 @@ static int jcompile_func(u32 fi) {
         if ((++fuel_ops & 255u) == 0)
             jtick();
         u8 op = *p++;
-        if (junr && op != 0x02 && op != 0x03 && op != 0x04 && op != 0x05 && op != 0x0B) { skip_imm(op, &p, end); continue; }
+        if (junr && op != 0x02 && op != 0x03 && op != 0x04 && op != 0x05 && op != 0x0B) { skip_imm(op, &p, end, jnloc, (u32)jnctl); continue; }
         if (!(op == 0x0D || op == 0x04 || op == 0x45 || op == 0x1B || op == 0x1C)) jmaterialize_cc();
         switch (op) {
         case 0x00: jjmp_trap(TK_UNREACH); junr = 1; break;
