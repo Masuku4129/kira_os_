@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "wx.h"
 #include "smp.h"
+#include "kstack_slot.h"
 
 #define PAGE_SIZE   4096UL
 #define PTE_PRESENT (1ULL << 0)
@@ -142,22 +143,20 @@ void* vmm_kstack_alloc(uint32_t bytes) {
         }
         ks_used_hi++;
     }
-    ks_active[slot >> 3] |= (uint8_t)(1u << (slot & 7u));
+    if (!kstack_slot_activate(ks_active, KSTACK_SLOTS, slot)) {
+        spin_unlock_irqrestore(&ks_lock, f);
+        return 0;
+    }
     spin_unlock_irqrestore(&ks_lock, f);
     return (void*)(uintptr_t)(slot_top - bytes);
 }
 
 void vmm_kstack_free(void* base) {
     uint64_t va = (uint64_t)(uintptr_t)base;
-    if (va < KSTACK_BASE || va >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE || !ks_size) return;
-    uint64_t off = va - KSTACK_BASE;
-    uint32_t slot = (uint32_t)(off / KSTACK_STRIDE);
-    uint64_t expected = KSTACK_BASE + (uint64_t)(slot + 1u) * KSTACK_STRIDE - ks_size;
-    if ((off % KSTACK_STRIDE) != KSTACK_STRIDE - ks_size || va != expected) return;
     uint64_t f = spin_lock_irqsave(&ks_lock);
-    uint8_t mask = (uint8_t)(1u << (slot & 7u));
-    if (slot < ks_used_hi && (ks_active[slot >> 3] & mask) && ks_nfree < KSTACK_SLOTS) {
-        ks_active[slot >> 3] &= (uint8_t)~mask;
+    uint32_t slot;
+    if (kstack_slot_from_base(va, KSTACK_BASE, KSTACK_STRIDE, KSTACK_SLOTS, ks_size, ks_used_hi, &slot) &&
+        ks_nfree < KSTACK_SLOTS && kstack_slot_release(ks_active, KSTACK_SLOTS, slot)) {
         ks_free[ks_nfree++] = (uint16_t)slot;
     }
     spin_unlock_irqrestore(&ks_lock, f);
