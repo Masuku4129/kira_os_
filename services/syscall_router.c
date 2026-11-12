@@ -13,5 +13,6 @@ int syscall_service_dispatch(uint64_t nr, uint64_t a1, uint64_t a2,
     if (syscall_service_network(nr, a1, a2, a3, result)) return 1;
     if (syscall_service_audio(nr, a1, a2, a3, result)) return 1;
     if (syscall_service_clock(nr, a1, a2, a3, result)) return 1;
+    if (syscall_service_driver(nr, a1, a2, a3, result)) return 1;
     return 0;
 }
