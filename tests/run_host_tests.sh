@@ -90,6 +90,8 @@ echo "== shared ACPI DMAR parser + VT-d discovery compile contract =="
 $CC $FLAGS -Idrivers/iommu -fsanitize=address,undefined -o $T/dmar-parser tests/dmar_parser_test.c drivers/iommu/intel_vtd_dmar.c
 $T/dmar-parser
 $CC $FLAGS -Idrivers/iommu -c drivers/iommu/iommu_discovery.c -o $T/iommu-discovery.o
+$CC $FLAGS -Idrivers/iommu -fsanitize=address,undefined -o $T/iommu-discovery tests/iommu_discovery_test.c drivers/iommu/intel_vtd.c drivers/iommu/iommu_discovery.c
+$T/iommu-discovery
 
 echo "== ARM SMMUv3 prepare (platform validation, stream table and allocation unwind) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-smmu tests/arm_smmu_prepare_test.c drivers/iommu/arm_smmu.c
