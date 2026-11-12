@@ -117,6 +117,10 @@ int e1000_probe(void) {
     }
 #endif
 
+    if (!pci_disable_bus_master(p)) {
+        uart_print("[KIRA NET] e1000: inherited bus mastering cannot be disabled; device quarantined.\\n");
+        return -3;
+    }
     pci_enable(p, PCI_CMD_MEM);
     e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
     if (!e.r) return -3;
