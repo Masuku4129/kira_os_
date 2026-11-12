@@ -64,6 +64,11 @@
 - PR #130 bootinfo physical RAM bounds: runs `43164087429` и `43164087483` success.
 - Ранее упавший ARM64 timer сценарий PR #121 нужно сверять с более поздними ветками; в PR #128 ARM64 job завершился success.
 
+### PR #131 — unreachable memory alignment validation
+- Продолжен аудит структурной проверки unreachable-кода. В `skip_imm()` таблица natural alignment для opcodes `0x36..0x3E` была смещена: например, `i32.store` ошибочно допускал align=3, а `i64.store` ошибочно отвергал допустимый align=3.
+- Исправлены пределы выравнивания для всех 23 load/store opcodes в общей таблице unreachable parser; добавлены два валидных/невалидных модуля с отдельной exported entry-функцией, чтобы проверить именно структурную проверку недостижимой функции.
+- Commit: `8365ab21f346364153db555fc64cd116130a8d0a` (fix) и `4ab10a79ee4088a8fd1c43591a78a424f788c34d` (tests), ветка `fix/wasm-module-header-bounds`. CI pending; PASS не заявлен.
+
 ### PR #131 — data-segment offset type-check call
 - Независимый просмотр текущего `userland/wasm.c` обнаружил compile-time ошибку: `const_expr` получил обязательный третий аргумент `expected_type`, но data-section parser вызывал его только с двумя аргументами.
 - Исправлено: data segment offset теперь проверяется как обязательный `i32` (`const_expr(&s, se, 0x7F)`), как требует WebAssembly MVP.
