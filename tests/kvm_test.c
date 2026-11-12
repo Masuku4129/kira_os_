@@ -4,7 +4,7 @@
 #include <string.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "kvm_test:%d: %s\n", __LINE__, #x); return 1; } } while (0)
-#define INS(op,d,a,b,imm) { (op), (d), (a), (b), (imm) }
+#define INS(op,d,a,b,imm) { (op), (d), (a), (b), { (uint8_t)((uint32_t)(imm)), (uint8_t)((uint32_t)(imm) >> 8), (uint8_t)((uint32_t)(imm) >> 16), (uint8_t)((uint32_t)(imm) >> 24) } }
 
 static void *test_alloc(void *ctx, size_t bytes)
 {
@@ -48,7 +48,7 @@ static int test_arithmetic_and_code_snapshot(void)
         INS(KVM_OP_ADD, 0, 1, 2, 0),
         INS(KVM_OP_HALT, 0, 0, 0, 0)
     };
-    struct kvm_module module = { code, 4, 0, 0, 1, 0, 0 };
+    struct kvm_module module = { (const uint8_t *)code, sizeof code, 0, 0, 1, 0, 0 };
     struct kvm_instance vm;
     uint64_t result = 0;
     CHECK(kvm_instance_init(&vm, &module, 0, &allocator, 0) == KVM_OK);
@@ -69,7 +69,7 @@ static int test_loop_and_branches(void)
         INS(KVM_OP_JNZ, 0, 1, 0, 3),
         INS(KVM_OP_HALT, 0, 0, 0, 0)
     };
-    const struct kvm_module module = { code, 7, 0, 0, 1, 0, 0 };
+    const struct kvm_module module = { (const uint8_t *)code, sizeof code, 0, 0, 1, 0, 0 };
     uint64_t result = 0;
     CHECK(run(&module, 0, 100, &result) == KVM_OK && result == 5);
     CHECK(run(&module, 0, 4, &result) == KVM_E_FUEL);
@@ -86,7 +86,7 @@ static int test_memory_and_data_snapshot(void)
         INS(KVM_OP_HALT, 0, 0, 0, 0)
     };
     uint8_t data[4] = { 1, 2, 3, 4 };
-    struct kvm_module module = { code, 5, data, sizeof data, 1, 0, 0 };
+    struct kvm_module module = { (const uint8_t *)code, sizeof code, data, sizeof data, 1, 0, 0 };
     struct kvm_instance vm;
     uint64_t result = 0;
     CHECK(kvm_instance_init(&vm, &module, 0, &allocator, 0) == KVM_OK);
@@ -107,7 +107,7 @@ static int test_syscall_capability(void)
         INS(KVM_OP_SYSCALL, 0, 0, 0, 7),
         INS(KVM_OP_HALT, 0, 0, 0, 0)
     };
-    struct kvm_module module = { code, 6, 0, 0, 1, 0, 1ull };
+    struct kvm_module module = { (const uint8_t *)code, sizeof code, 0, 0, 1, 0, 1ull };
     uint64_t result = 0;
     CHECK(kvm_verify(&module, 0) == KVM_E_CAPABILITY);
     CHECK(kvm_verify(&module, 1ull) == KVM_OK);
@@ -127,14 +127,14 @@ static int test_call_stack(void)
         INS(KVM_OP_ADD, 0, 1, 1, 0),
         INS(KVM_OP_RET, 0, 0, 0, 0)
     };
-    const struct kvm_module module = { code, 6, 0, 0, 1, 0, 0 };
+    const struct kvm_module module = { (const uint8_t *)code, sizeof code, 0, 0, 1, 0, 0 };
     uint64_t result = 0;
     CHECK(run(&module, 0, 20, &result) == KVM_OK && result == 42);
 
     const struct kvm_instruction recursive[] = {
         INS(KVM_OP_CALL, 0, 0, 0, 0)
     };
-    const struct kvm_module recursive_module = { recursive, 1, 0, 0, 1, 0, 0 };
+    const struct kvm_module recursive_module = { (const uint8_t *)recursive, sizeof recursive, 0, 0, 1, 0, 0 };
     CHECK(run(&recursive_module, 0, 1000, &result) == KVM_E_CALL_STACK);
     return 0;
 }
@@ -158,10 +158,10 @@ static int test_rejects_malformed_and_traps(void)
         INS(KVM_OP_LOAD8, 0, 1, 0, 0),
         INS(KVM_OP_HALT, 0, 0, 0, 0)
     };
-    const struct kvm_module branch_module = { bad_branch, 1, 0, 0, 1, 0, 0 };
-    const struct kvm_module opcode_module = { bad_opcode, 1, 0, 0, 1, 0, 0 };
-    const struct kvm_module div_module = { div_zero, 4, 0, 0, 1, 0, 0 };
-    const struct kvm_module oob_module = { oob, 3, 0, 0, 1, 0, 0 };
+    const struct kvm_module branch_module = { (const uint8_t *)bad_branch, sizeof bad_branch, 0, 0, 1, 0, 0 };
+    const struct kvm_module opcode_module = { (const uint8_t *)bad_opcode, sizeof bad_opcode, 0, 0, 1, 0, 0 };
+    const struct kvm_module div_module = { (const uint8_t *)div_zero, sizeof div_zero, 0, 0, 1, 0, 0 };
+    const struct kvm_module oob_module = { (const uint8_t *)oob, sizeof oob, 0, 0, 1, 0, 0 };
     uint64_t result = 0;
     CHECK(kvm_verify(&branch_module, 0) == KVM_E_BRANCH);
     CHECK(kvm_verify(&opcode_module, 0) == KVM_E_OPCODE);
