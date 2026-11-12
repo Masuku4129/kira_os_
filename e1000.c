@@ -12,7 +12,6 @@
 #include "cpu.h"
 #include "msi.h"
 
-int platform_dma_noncoherent(void) __attribute__((weak));
 
 enum { CTRL = 0x0, STATUS = 0x8, EERD = 0x14, ICR = 0xC0, IMS = 0xD0, IMC = 0xD8, RCTL = 0x100, TCTL = 0x400, TIPG = 0x410,
        RDBAL = 0x2800, RDBAH = 0x2804, RDLEN = 0x2808, RDH = 0x2810, RDT = 0x2818,
@@ -84,7 +83,7 @@ static int recv(netdev_t* d, void* buf, uint32_t max) {
     cpu_mb();
     if (!(x->status & 1)) return 0;                               /* DD: кадр ещё не принят */
     uint32_t n = x->len;
-    int ok = (x->status & 2) && !x->errors && n <= max;           /* целый кадр (EOP), без ошибок */
+    int ok = (x->status & 2) && !x->errors && n <= BUF && n <= max;           /* целый кадр (EOP), без ошибок */
     if (ok) {
         const uint8_t* s = e.rxb + slot * BUF;
         if (virtio_dma_sync_for_cpu((void*)s, e.rxb_p + (uint64_t)slot * BUF, n) != 0) return -1;
@@ -129,7 +128,7 @@ int e1000_probe(void) {
         uart_print("[KIRA NET] e1000: inherited bus mastering cannot be proven quiescent; refusing device handoff.\n");
         return -5;
     }
-    pci_enable(p, PCI_CMD_MEM);
+    pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
     if (!e.r) return -3;
 
