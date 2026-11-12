@@ -99,7 +99,7 @@ static inline int iommu_unmap(const pci_dev_t* dev, uint64_t iova, uint64_t len)
 static inline int iommu_unmap_all(const pci_dev_t* dev)
 {
     (void)dev;
-    return IOMMU_E_NONE;
+    return IOMMU_OK;
 }
 static inline int iommu_fault_poll(void)
 {
