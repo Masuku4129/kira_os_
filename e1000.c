@@ -23,6 +23,28 @@ enum { CTRL = 0x0, STATUS = 0x8, EERD = 0x14, ICR = 0xC0, IMS = 0xD0, IMC = 0xD8
 typedef struct { uint64_t addr; uint16_t len, csum; uint8_t status, errors; uint16_t special; } rxd_t;
 typedef struct { uint64_t addr; uint16_t len; uint8_t cso, cmd, status, css; uint16_t special; } txd_t;
 
+static int e1000_mask_pci_interrupts(const pci_dev_t* p) {
+    uint8_t id = 0;
+    uint16_t cap = 0;
+    int safe = 1;
+    for (unsigned n = 0; n < 48 && (cap = pci_next_cap(p, cap, &id)) != 0; n++) {
+        if (id == 0x05) {
+            uint16_t control = pci_read16(p, (uint16_t)(cap + 2));
+            pci_write16(p, (uint16_t)(cap + 2), (uint16_t)(control & ~1u));
+            if (pci_read16(p, (uint16_t)(cap + 2)) & 1u) safe = 0;
+        } else if (id == 0x11) {
+            uint16_t control = pci_read16(p, (uint16_t)(cap + 2));
+            pci_write16(p, (uint16_t)(cap + 2), (uint16_t)((control & ~0x8000u) | 0x4000u));
+            uint16_t after = pci_read16(p, (uint16_t)(cap + 2));
+            if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
+        }
+    }
+    uint16_t command = pci_read16(p, 0x04);
+    pci_write16(p, 0x04, (uint16_t)(command | PCI_CMD_INTX_OFF));
+    if (!(pci_read16(p, 0x04) & PCI_CMD_INTX_OFF)) safe = 0;
+    return safe;
+}
+
 static const uint16_t ids[] = { 0x100E, 0x100F, 0x1004, 0x1009, 0x100C, 0x100D, 0x1010, 0x1011, 0x1015, 0x1026, 0x1076, 0x1079, 0x107C,
                                 0x10D3 };   /* 82574L (QEMU e1000e): тот же устаревший формат дескрипторов */
 
@@ -124,17 +146,26 @@ int e1000_probe(void) {
     if (p->bar[0].io || !p->bar[0].base) { uart_print("[KIRA NET] e1000: register BAR is not memory - not supported.\n"); return -2; }
     uint16_t pci_cmd = pci_read16(p, 0x04);
     pci_write16(p, 0x04, (uint16_t)(pci_cmd & ~PCI_CMD_MASTER));
-    if ((pci_cmd & PCI_CMD_MASTER) || (pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
-        uart_print("[KIRA NET] e1000: inherited bus mastering cannot be proven quiescent; refusing device handoff.\n");
+    if (pci_read16(p, 0x04) & PCI_CMD_MASTER) {
+        uart_print("[KIRA NET] e1000: PCI bus mastering could not be disabled; device quarantined.\n");
         return -5;
     }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
+    if (!e1000_mask_pci_interrupts(p)) {
+        uart_print("[KIRA NET] e1000: inherited MSI/MSI-X could not be masked; device quarantined.\n");
+        return -5;
+    }
     e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
     if (!e.r) return -3;
 
     wr(IMC, 0xFFFFFFFF);                                          /* без прерываний: опрос */
-    wr(CTRL, rd(CTRL) | (1u << 26));                              /* сброс */
+    wr(CTRL, rd(CTRL) | (1u << 26));                              /* сброс при отключённом PCI Bus Master */
     for (int i = 0; i < 1000000 && (rd(CTRL) & (1u << 26)); i++) cpu_relax();
+    if (rd(CTRL) & (1u << 26)) {
+        uart_print("[KIRA NET] e1000: controller reset timed out; DMA remains disabled.\n");
+        return -6;
+    }
+    cpu_mb();
     wr(IMC, 0xFFFFFFFF);
     wr(CTRL, (rd(CTRL) | (1u << 6) | (1u << 5)) & ~(1u << 3));    /* SLU, ASDE; без сброса канала */
 
