@@ -257,7 +257,16 @@ int kdrv_catalogue_load(struct kdrv_trust_store *trust,
         }
     }
 
-    return header_seen ? KDRV_CATALOGUE_OK : KDRV_CATALOGUE_INVALID;
+    if (!header_seen)
+        return KDRV_CATALOGUE_INVALID;
+
+    /* Advance only after every signed entry has passed canonical parsing.
+       Otherwise a malformed but correctly signed catalogue could permanently
+       raise the rollback floor and deny recovery with the previous release. */
+    if (kdrv_trust_advance_floor(trust_ops, header_version) != KDRV_TRUST_OK)
+        return KDRV_CATALOGUE_STORAGE_ERROR;
+
+    return KDRV_CATALOGUE_OK;
 }
 
 const struct kdrv_catalogue_entry *
