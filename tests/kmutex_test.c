@@ -82,6 +82,19 @@ int main(void) {
     kmutex_unlock(&m);
     CHECK(m.owner == 0);
 
+    // Чужой поток не может снять мьютекс и испортить счётчик mutexes_held владельца.
+    become(A);
+    kmutex_lock(&m);
+    become(B);
+    panic_reason = 0;
+    if (setjmp(escape) == 0) kmutex_unlock(&m);
+    CHECK(panic_reason && strstr(panic_reason, "non-owner"));
+    CHECK(B->mutexes_held == 0);
+    become(A);
+    CHECK(kmutex_held(&m) && A->mutexes_held == 1);
+    kmutex_unlock(&m);
+    CHECK(m.owner == 0 && A->mutexes_held == 0);
+
     // повторный захват тем же потоком - взаимная блокировка: ядро сообщает, а не зависает
     kmutex_lock(&m);
     panic_reason = 0;
