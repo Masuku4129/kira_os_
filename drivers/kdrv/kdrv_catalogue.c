@@ -216,9 +216,14 @@ static int catalogue_load_impl(struct kdrv_trust_store *trust,
         length > 1024u * 1024u || !trust_ops || !catalogue)
         return KDRV_CATALOGUE_INVALID;
 
-    if (kdrv_trust_verify_catalogue(trust, signature, bytes, length,
-                                    trust_ops) != KDRV_TRUST_OK)
-        return KDRV_CATALOGUE_UNTRUSTED;
+    {
+        int trust_rc = kdrv_trust_verify_catalogue(trust, signature, bytes,
+                                                   length, trust_ops);
+        if (trust_rc == KDRV_TRUST_STORAGE_ERROR)
+            return KDRV_CATALOGUE_STORAGE_ERROR;
+        if (trust_rc != KDRV_TRUST_OK)
+            return KDRV_CATALOGUE_UNTRUSTED;
+    }
 
     copy = (char *)bytes;
     for (pos = 0; pos < length; ++pos)
