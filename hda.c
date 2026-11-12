@@ -15,7 +15,8 @@
 #include "cpu.h"
 #include "audio.h"
 
-int platform_dma_noncoherent(void) __attribute__((weak));
+static int hda_dma_dev(void* cpu, uint64_t phys, uint32_t bytes) { return virtio_dma_sync_for_device(cpu, phys, bytes); }
+static int hda_dma_cpu(void* cpu, uint64_t phys, uint32_t bytes) { return virtio_dma_sync_for_cpu(cpu, phys, bytes); }
 
 enum { GCAP = 0x00, GCTL = 0x08, STATESTS = 0x0E, INTCTL = 0x20, CORBLBASE = 0x40, CORBUBASE = 0x44, CORBWP = 0x48,
        CORBRP = 0x4A, CORBCTL = 0x4C, CORBSIZE = 0x4E, RIRBLBASE = 0x50, RIRBUBASE = 0x54, RIRBWP = 0x58,
@@ -65,15 +66,21 @@ static uint32_t verb(unsigned nid, uint32_t v) {
     uint32_t cmd = (uint32_t)h.cad << 28 | (uint32_t)nid << 20 | v;
     uint16_t wp = (uint16_t)((r16(CORBWP) + 1) & 0xFF);
     h.corb[wp] = cmd;
+    if (hda_dma_dev(&h.corb[wp], h.corb_p + (uint64_t)wp * sizeof(uint32_t), sizeof(uint32_t)) != 0)
+        return ~0u;
     cpu_mb();
     w16(CORBWP, wp);
     for (int i = 0; i < 1000000; i++) {
         uint16_t rw = r16(RIRBWP) & 0xFF;
         if (rw != h.rirb_rp) {
             h.rirb_rp = (uint16_t)((h.rirb_rp + 1) & 0xFF);
+            uint64_t response_phys = h.rirb_p + (uint64_t)h.rirb_rp * sizeof(uint64_t);
+            if (hda_dma_cpu(&h.rirb[h.rirb_rp], response_phys, sizeof(uint64_t)) != 0)
+                return ~0u;
             cpu_mb();
+            uint32_t response = (uint32_t)h.rirb[h.rirb_rp];
             w8(RIRBSTS, 5);
-            return (uint32_t)h.rirb[h.rirb_rp];
+            return response;
         }
         cpu_relax();
     }
@@ -196,11 +203,13 @@ static int codec_init(void) {
     return 0;
 }
 
-static void stream_ring(volatile uint8_t* sd, uint32_t* bdl, uint64_t bdl_p, uint64_t buf_p, unsigned tag) {
+static int stream_ring(volatile uint8_t* sd, uint32_t* bdl, uint64_t bdl_p, uint8_t* buf, uint64_t buf_p, unsigned tag) {
     for (unsigned i = 0; i < NBDL; i++) {
         uint64_t a = buf_p + (uint64_t)i * (BUFSZ / NBDL);
         bdl[4 * i] = (uint32_t)a; bdl[4 * i + 1] = (uint32_t)(a >> 32); bdl[4 * i + 2] = BUFSZ / NBDL; bdl[4 * i + 3] = 0;
     }
+    if (hda_dma_dev(bdl, bdl_p, NBDL * 16) != 0 ||
+        hda_dma_dev(buf, buf_p, BUFSZ) != 0) return -1;
     cpu_mb();
     MMIO_W8(sd + SD_CTL, 1);                                     /* сброс потока */
     for (int i = 0; i < 100000 && !(MMIO_R8(sd + SD_CTL) & 1); i++) cpu_relax();
@@ -213,6 +222,8 @@ static void stream_ring(volatile uint8_t* sd, uint32_t* bdl, uint64_t bdl_p, uin
     MMIO_W8(sd + SD_CTL + 2, (uint8_t)(tag << 4));               /* номер потока */
     MMIO_W8(sd + SD_STS, 0x1C);
     MMIO_W8(sd + SD_CTL, 2);                                     /* пуск: дальше - по кругу */
+    cpu_mb();
+    return 0;
 }
 
 static void hda_print(void);
@@ -220,15 +231,14 @@ int hda_probe(void) {
     const pci_dev_t* p = 0;
     for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x03) p = d; }
     if (!p) return -1;
-    /* HDA uses long-lived CORB/RIRB/BDL/audio rings. Their cache ownership
-       transitions are not yet explicit, so reject non-coherent ARM64 rather
-       than DMA through cacheable or unsynchronized memory. */
-    if (platform_dma_noncoherent && platform_dma_noncoherent()) {
-        uart_print("[KIRA HDA] disabled; DMA ownership sync is not validated on non-coherent ARM64.\n");
+    if (p->bar[0].io || !p->bar[0].base) return -2;
+    uint16_t pci_cmd = pci_read16(p, 0x04);
+    pci_write16(p, 0x04, (uint16_t)(pci_cmd & ~PCI_CMD_MASTER));
+    if ((pci_cmd & PCI_CMD_MASTER) || (pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        uart_print("[KIRA HDA] inherited bus mastering cannot be proven quiescent; refusing device handoff.\n");
         return -6;
     }
-    if (p->bar[0].io || !p->bar[0].base) return -2;
-    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     h.r = (volatile uint8_t*)pci_map_bar(p, 0, 0, 0x2000 <= p->bar[0].size ? 0x2000 : p->bar[0].size);
     if (!h.r) return -3;
     w32(GCTL, r32(GCTL) & ~1u);                                  /* сброс контроллера */
@@ -255,6 +265,10 @@ int hda_probe(void) {
     w8(RIRBSIZE, 2);
     w16(RIRBWP, 0x8000); h.rirb_rp = 0;
     w16(RINTCNT, 1);
+    /* Synchronize both command/response rings before enabling the HDA DMA engines. */
+    if (hda_dma_dev(h.corb, h.corb_p, 1024) != 0 ||
+        hda_dma_dev(h.rirb, h.rirb_p, 2048) != 0) return -6;
+    pci_enable(p, PCI_CMD_MASTER);
     /* RIRBCTL: DMA ответов и флаг «ответ получен» (RINTCTL). Без флага контроллер (QEMU - так точно) после RINTCNT
        ответов ждёт его снятия и не берёт следующие команды. Прерывания процессору выключены (INTCTL = 0). */
     w8(CORBCTL, 2); w8(RIRBCTL, 3);
@@ -268,7 +282,7 @@ int hda_probe(void) {
         h.isd = h.r + 0x80;
         h.ibuf = (uint8_t*)virtio_dma_alloc(BUFSZ, &h.ibuf_p);
         h.ibdl = (uint32_t*)virtio_dma_alloc(NBDL * 16, &h.ibdl_p);
-        if (h.ibuf && h.ibdl) { stream_ring(h.isd, h.ibdl, h.ibdl_p, h.ibuf_p, 2); h.in_up = 1; }
+        if (h.ibuf && h.ibdl) { if (stream_ring(h.isd, h.ibdl, h.ibdl_p, h.ibuf, h.ibuf_p, 2) == 0) h.in_up = 1; }
     }
     uart_print("[KIRA HDA] Sound: codec "); uart_print_hex(h.vendor >> 16); uart_print(":"); uart_print_hex(h.vendor & 0xFFFF);
     uart_print(", output path pin "); uart_print_dec(h.pin); uart_print(" <- DAC "); uart_print_dec(h.dac);
@@ -290,14 +304,15 @@ int hda_ring_start(void) {
     if (!h.up) return -1;
     kmutex_lock(&h.mx);
     for (uint32_t i = 0; i < BUFSZ; i++) h.buf[i] = 0;
-    stream_ring(h.sd, h.bdl, h.bdl_p, h.buf_p, 1);
+    int rc = stream_ring(h.sd, h.bdl, h.bdl_p, h.buf, h.buf_p, 1);
+    if (rc != 0) { kmutex_unlock(&h.mx); return rc; }
     kmutex_unlock(&h.mx);
     return 0;
 }
-uint32_t hda_ring_pos(void) { return h.up ? MMIO_R32(h.sd + SD_LPIB) % BUFSZ : 0; }
+uint32_t hda_ring_pos(void) { if (!h.up) return 0; uint32_t p = MMIO_R32(h.sd + SD_LPIB) % BUFSZ; cpu_mb(); return p; }
 int16_t* hda_ring_buf(void) { return (int16_t*)h.buf; }
 int hda_in_ready(void) { return h.in_up; }
-uint32_t hda_in_pos(void) { return h.in_up ? MMIO_R32(h.isd + SD_LPIB) % BUFSZ : 0; }
+uint32_t hda_in_pos(void) { if (!h.in_up) return 0; uint32_t p = MMIO_R32(h.isd + SD_LPIB) % BUFSZ; (void)hda_dma_cpu(h.ibuf, h.ibuf_p, BUFSZ); cpu_mb(); return p; }
 const int16_t* hda_in_buf(void) { return (const int16_t*)h.ibuf; }
 uint32_t hda_in_bytes(void) { return BUFSZ; }
 const char* hda_in_name(void) { return h.in_dev == 0xA ? "microphone" : h.in_dev == 8 ? "line in" : "input"; }
