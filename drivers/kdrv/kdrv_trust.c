@@ -97,7 +97,9 @@ int kdrv_trust_advance_floor(const struct kdrv_trust_ops *ops,
                              uint64_t verified_version)
 {
     uint64_t current = 0;
-    if (!ops || !ops->read_version_floor || !ops->write_version_floor)
+    if (!ops || !ops->read_version_floor || !ops->write_version_floor ||
+        (ops->storage_flags & ~KDRV_TRUST_STORAGE_KNOWN_FLAGS) != 0 ||
+        !(ops->storage_flags & KDRV_TRUST_STORAGE_HW_MONOTONIC))
         return KDRV_TRUST_STORAGE_ERROR;
     if (ops->read_version_floor(ops->context, &current) != 0)
         return KDRV_TRUST_STORAGE_ERROR;
@@ -136,8 +138,10 @@ int kdrv_trust_verify_catalogue(struct kdrv_trust_store *store,
     if (!store || store->key_count > KDRV_TRUST_MAX_KEYS ||
         !record || (!payload && payload_length) || !ops ||
         !ops->sha256 || !ops->ed25519_verify ||
-        !ops->read_version_floor || !ops->trusted_time)
-        return KDRV_TRUST_INVALID;
+        !ops->read_version_floor || !ops->trusted_time ||
+        (ops->storage_flags & ~KDRV_TRUST_STORAGE_KNOWN_FLAGS) != 0 ||
+        !(ops->storage_flags & KDRV_TRUST_STORAGE_HW_MONOTONIC))
+        return KDRV_TRUST_STORAGE_ERROR;
 
     if (record->format_version != KDRV_TRUST_FORMAT_VERSION ||
         record->flags != 0 || record->catalogue_version == 0 ||
