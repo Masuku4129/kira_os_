@@ -202,7 +202,8 @@ void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
     if ((off & ~3) == 0x04) w &= 0x0000FFFFu;                        /* status is W1C */
     w = (w & ~(0xFFFFu << sh)) | ((uint32_t)v << sh);
 #if defined(__aarch64__) || defined(__x86_64__)
-    if (off == 0x04 && (w & PCI_CMD_MASTER) && !pci_is_bridge(d) && !iommu_device_ready(d))
+    if (off == 0x04 && (w & PCI_CMD_MASTER) && !pci_is_bridge(d) &&
+        (d->dma_quarantined || !iommu_device_ready(d)))
         w &= (uint32_t)~PCI_CMD_MASTER;
 #endif
     be.write32(d->bus, d->dev, d->fn, off & ~3, w);
@@ -217,7 +218,8 @@ void pci_enable(const pci_dev_t* d, uint16_t bits) {
 #endif
 #if defined(__aarch64__) || defined(__x86_64__)
     /* Recheck under the config lock so a concurrent IOMMU quarantine wins. */
-    if ((bits & PCI_CMD_MASTER) && !pci_is_bridge(d) && !iommu_device_ready(d))
+    if ((bits & PCI_CMD_MASTER) && !pci_is_bridge(d) &&
+        (d->dma_quarantined || !iommu_device_ready(d)))
         bits &= (uint16_t)~PCI_CMD_MASTER;
 #endif
     uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
@@ -240,6 +242,8 @@ int pci_disable_bus_master(const pci_dev_t* d) {
     value &= (uint32_t)~PCI_CMD_MASTER;
     be.write32(d->bus, d->dev, d->fn, 0x04, value);
     int disabled = (cr32(d, 0x04) & PCI_CMD_MASTER) == 0;
+    if (!disabled)
+        __atomic_store_n((volatile uint8_t*)&d->dma_quarantined, 1u, __ATOMIC_RELEASE);
 #if !defined(KIRA_HOST_TEST)
     spin_unlock_irqrestore(&cfg_rmw_lock, flags);
 #endif
@@ -306,6 +310,7 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     if ((id & 0xFFFF) == 0xFFFF) return;
     if (ndevs >= PCI_MAX_DEVS) return;
     pci_dev_t* d = &devs[ndevs++];
+    __builtin_memset(d, 0, sizeof *d);
     d->bus = bus; d->dev = dev; d->fn = fn;
     d->vendor = (uint16_t)id; d->device = (uint16_t)(id >> 16);
     uint32_t cls = cr32(d, 0x08);
