@@ -182,7 +182,9 @@ $CC ${FLAGS//-I./-iquote .} -O2 -fsanitize=thread -o $T/spin tests/spinlock_test
 $T/spin
 
 echo "== SMP (AP selection, ICR commands, percpu table) =="
-$CC $FLAGS -o $T/kmutex tests/kmutex_test.c kmutex.c sched.c scale.c percpu.c
+KM="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fno-omit-frame-pointer -mno-red-zone -mno-sse -mno-mmx"
+nasm -f elf64 arch/x86_64/context.s -o $T/kmutex-context.o
+$CC $KM -o $T/kmutex tests/kmutex_test.c kmutex.c sched.c scale.c percpu.c $T/kmutex-context.o
 $T/kmutex
 
 echo "== kernel objects: ports, shared memory, handles, futex =="
