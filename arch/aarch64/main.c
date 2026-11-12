@@ -22,6 +22,7 @@
 #include "selftest_arm.h"
 #include "pci.h"
 #include "pci_host.h"
+#include "rtc_host.h"
 #include "blk.h"
 #include "experience.h"
 #include "fscmd.h"
@@ -901,13 +902,6 @@ unsigned platform_cpus(void) { return ncpu; }
 const char* platform_irq_name(void) { return gic_v3 ? "GICv3" : "GICv2"; }
 
 /* Часы реального времени PL031 (QEMU virt и многие платы): регистр данных - секунды UTC от 1970. */
-static void rtc_pl031(const void* fdt) {
-    int n = fdt_find_compatible(fdt, -1, "arm,pl031");
-    uint64_t base, size;
-    if (n < 0 || fdt_reg(fdt, n, 0, &base, &size)) { kprintf("[KIRA RTC] No PL031 real-time clock: date and time are not shown.\n"); return; }
-    volatile void* r = vmm_map_mmio(base, size ? size : 4096, 0);
-    if (r) rtc_set_epoch((int64_t)mmio_r32((uint64_t)(uintptr_t)r), "PL031, UTC");
-}
 
 /* ---------------- общая консоль: то, что есть только у ARM64 ---------------- */
 unsigned smp_online(void) { unsigned n = 0; for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online) n++; return n; }
@@ -1192,7 +1186,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN %s; user pointers validated.\n",
             uaccess_enable_smap() ? "on (kernel touches programs only via LDTR/STTR)" : "not offered by this CPU (copies still use LDTR/STTR)");
     mind_sys_init();         /* Разум: нормы, модель предвидения, тактика ~40 Гц */
-    rtc_pl031(fdt);
+    arm_rtc_init(fdt, kprintf);
 
     input_init();
     if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.\n");
