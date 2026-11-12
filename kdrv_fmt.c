@@ -94,6 +94,13 @@ int kdrv_pci_command_quiesced(uint16_t command) {
     return !(command & bus_master) && (command & intx_disable) != 0;
 }
 
+int kdrv_pci_interrupts_quiesced(uint16_t msi, int has_msi,
+                                 uint16_t msix, int has_msix) {
+    if (has_msi && (msi & 1u)) return 0;                    /* MSI Enable */
+    if (has_msix && ((msix & 0x8000u) || !(msix & 0x4000u))) return 0;
+    return 1;
+}
+
 int kdrv_mmio_page_bounds(uint64_t base, uint64_t size, uint64_t* page_lo, uint64_t* page_hi) {
     if (!base || !size || !page_lo || !page_hi || base > UINT64_MAX - size) return -1;
     uint64_t end = base + size;
