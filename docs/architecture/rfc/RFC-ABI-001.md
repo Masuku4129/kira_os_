@@ -9,6 +9,7 @@
 - x86-64 entry configures MSR EFER.SCE, STAR, LSTAR and FMASK in `arch/x86_64/syscall_arch.c`; SYSRET segment selectors have an explicit AMD compatibility correction.
 - x86-64 assembly in `arch/x86_64/interrupts.s:325-370`: RAX = syscall number; RDI/RSI/RDX = args 1–3; RAX = result. Entry performs SWAPGS, saves user RSP/RIP/RFLAGS on the per-CPU kernel stack before enabling interrupts, checks canonical return RIP, clears caller-clobbered argument registers before SYSRET, then restores user stack/GS. RCX/R11 are hardware-clobbered; RDI/RSI/RDX/R8-R10 are explicitly treated as clobbered.
 - ARM64 SVC path in `arch/aarch64/main.c:user_exception`: ESR exception class 0x15, X8 = syscall number, X0-X2 = args 1–3, result in saved X0. IRQs are enabled around the shared handler and disabled before exception return.
+- ARM64 vector frame in `arch/aarch64/boot.S:187-234` saves X0-X30, ELR, SPSR, ESR, FAR and SP_EL0; exception return restores all general registers except X0, which carries the syscall result. The frame also preserves X8 (the syscall number) and restores SP_EL0 after a possible thread switch.
 - The C shared handler signature is `syscall_handler(number,arg1,arg2,arg3)`; both architecture adapters currently pass exactly three arguments. AArch64 full exception-frame save/restore and caller-saved register contract still need separate assembly/vector audit.
 - `syscall.h` exports init and C handler but does not freeze a public userspace header or ABI version.
 - Current process loader uses KIRA-native ELF64 ET_EXEC for the build ISA. This is not a Linux ELF personality.
@@ -46,7 +47,7 @@ This is an inventory, not a promise that all calls have stable cross-release ABI
 
 ## 3. Required ABI specification
 
-- per-ISA entry register mapping, clobbers, preserved registers and return register (x86 mapping is observed above; AArch64 full frame preservation remains open);
+- per-ISA entry register mapping, clobbers, preserved registers and return register (x86 preserves callee-saved registers per C ABI and explicitly clears volatile argument registers; ARM64 exception frame restores X1-X30 unchanged and returns result in X0);
 - syscall number namespace and ABI version discovery;
 - 64-bit argument layout, alignment, pointer width and structure packing;
 - negative error encoding and stable error namespace;
@@ -63,7 +64,7 @@ Keep only privileged mechanisms as direct syscalls. Service-specific operations 
 
 ## 5. Required tests
 
-- per-ISA entry/return register conformance, including x86 SWAPGS/kernel-stack/canonical-RIP path and ARM64 X8/X0-X2 SVC path;
+- per-ISA entry/return register conformance, including x86 SWAPGS/kernel-stack/canonical-RIP path and ARM64 full X0-X30 frame, SP_EL0 restore, X8 number and X0 result;
 - invalid syscall number and malformed argument tests;
 - user pointer unmapped/read-only/cross-boundary/concurrently unmapped;
 - process killed during blocking syscall;
