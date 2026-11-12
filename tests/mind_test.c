@@ -501,8 +501,9 @@ int main(void) {
             base(u); S.mem_used = u == 9 ? 80 : 84; mind_step(&Acted, &S, &none);
         }
         uint32_t before_intervention = Acted.m.memory_net.n;
+        unsigned trims_before = trims;
         base(11); S.mem_used = 88; mind_step(&Acted, &S, &mem_only);
-        CHECK(trims > 0 && Acted.mem_level == 1);
+        CHECK(trims == trims_before + 1u && Acted.mem_level == 1);
         CHECK(Acted.m.memory_net.n == before_intervention);
         base(12); S.mem_used = 90; mind_step(&Acted, &S, &mem_only);
         CHECK(Acted.m.memory_net.n == before_intervention);
