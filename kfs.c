@@ -25,12 +25,50 @@ static void  kfree_(void* p) { free(p); }
 #else
 #include "kmutex.h"
 #include "heap.h"
+#include "sched.h"
 static kmutex_t kfs_mx = KMUTEX_INIT;
-#define KFS_LOCK()   kmutex_lock(&kfs_mx)
-#define KFS_UNLOCK() kmutex_unlock(&kfs_mx)
+/* KFS transactions may call public kfs_* operations recursively. Keep one owner/depth
+   record under a short spinlock; never hold the metadata spinlock across disk I/O or sleep. */
+static spinlock_t kfs_owner_guard = SPINLOCK_INIT;
+static void* kfs_owner;
+static unsigned kfs_lock_depth;
+static void kfs_lock(void) {
+    void* self = sched_current();
+    if (!self) { kmutex_lock(&kfs_mx); return; }
+    uint64_t f = spin_lock_irqsave(&kfs_owner_guard);
+    if (kfs_owner == self) {
+        ++kfs_lock_depth;
+        spin_unlock_irqrestore(&kfs_owner_guard, f);
+        return;
+    }
+    spin_unlock_irqrestore(&kfs_owner_guard, f);
+    kmutex_lock(&kfs_mx);
+    f = spin_lock_irqsave(&kfs_owner_guard);
+    kfs_owner = self;
+    kfs_lock_depth = 1;
+    spin_unlock_irqrestore(&kfs_owner_guard, f);
+}
+static void kfs_unlock(void) {
+    void* self = sched_current();
+    if (!self) { kmutex_unlock(&kfs_mx); return; }
+    uint64_t f = spin_lock_irqsave(&kfs_owner_guard);
+    if (kfs_owner != self || kfs_lock_depth == 0) {
+        spin_unlock_irqrestore(&kfs_owner_guard, f);
+        kernel_panic("KiraFS transaction lock ownership corruption");
+    }
+    int release = --kfs_lock_depth == 0;
+    if (release) kfs_owner = 0;
+    spin_unlock_irqrestore(&kfs_owner_guard, f);
+    if (release) kmutex_unlock(&kfs_mx);
+}
+#define KFS_LOCK()   kfs_lock()
+#define KFS_UNLOCK() kfs_unlock()
 static void* kalloc(size_t n) { uint8_t* p = (uint8_t*)kmalloc(n ? n : 1); if (p) for (size_t i = 0; i < n; i++) p[i] = 0; return p; }
 static void  kfree_(void* p) { if (p) kfree(p); }
 #endif
+
+void kfs_transaction_begin(void) { KFS_LOCK(); }
+void kfs_transaction_end(void) { KFS_UNLOCK(); }
 
 #define MAGIC 0x3130534652494B4BULL     /* "KKIRFS01" */
 #define VERSION 2
