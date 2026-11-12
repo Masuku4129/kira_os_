@@ -49,7 +49,7 @@ static int fw_dma_write(uint16_t key, const void* data, uint32_t len) {
 static int ramfb_probe(void) {
     int n = fdt_find_compatible(dt, -1, "qemu,fw-cfg-mmio");
     uint64_t base, sz;
-    if (n < 0 || fdt_reg(dt, n, 0, &base, &sz) || sz < 24) return -1;
+    if (n < 0 || fdt_reg(dt, 4u * 1024u * 1024u, n, 0, &base, &sz) || sz < 24) return -1;
     fw = (volatile uint8_t*)vmm_map_mmio(base, sz, VMM_MMIO_UC);
     if (!fw) return -1;
     fw_select(FW_SIGNATURE);
@@ -101,7 +101,7 @@ static void sfb_flush(int x, int y, int w, int h) {
 }
 
 static int simplefb_probe(void) {
-    int rc = fdt_simplefb(dt, &sfb);
+    int rc = fdt_simplefb(dt, 4u * 1024u * 1024u, &sfb);
     if (rc == -1) return -1;
     if (rc == -2) { uart_print("[KIRA FB] simple-framebuffer node is incomplete (reg/width/height/stride/format).\n"); return -2; }
     if (rc == -3) { uart_print("[KIRA FB] simple-framebuffer format "); uart_print(sfb.format); uart_print(" is not supported (need x8r8g8b8/a8r8g8b8).\n"); return -3; }
@@ -124,13 +124,13 @@ void arm_fb_init(const void* fdt) { dt = fdt; }
 /* Кадр simple-framebuffer и /reserved-memory в ОЗУ - не отдавать распределителю страниц. */
 void arm_fb_reserve(const void* fdt, void (*reserve)(uint64_t lo, uint64_t hi)) {
     fdt_fb_t f;
-    if (fdt_simplefb(fdt, &f) == 0) reserve(f.base, f.base + f.size);
+    if (fdt_simplefb(fdt, 4u * 1024u * 1024u, &f) == 0) reserve(f.base, f.base + f.size);
     int rm = fdt_find_path(fdt, "/reserved-memory"), depth = 0;
     if (rm < 0) return;
     for (int n = fdt_next_node(fdt, rm, &depth); n >= 0 && depth > 0; n = fdt_next_node(fdt, n, &depth)) {
         uint64_t a, s;
         if (depth == 1 && fdt_node_enabled(fdt, n))
-            for (unsigned k = 0; fdt_reg(fdt, n, k, &a, &s) == 0; k++) if (s) reserve(a, a + s);
+            for (unsigned k = 0; fdt_reg(fdt, 4u * 1024u * 1024u, n, k, &a, &s) == 0; k++) if (s) reserve(a, a + s);
     }
 }
 
