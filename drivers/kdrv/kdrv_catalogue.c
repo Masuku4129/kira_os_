@@ -182,7 +182,6 @@ int kdrv_catalogue_load(struct kdrv_trust_store *trust,
 {
     char *copy;
     size_t pos = 0;
-    size_t line_number = 0;
     uint64_t header_version = 0;
     int header_seen = 0;
 
@@ -220,7 +219,6 @@ int kdrv_catalogue_load(struct kdrv_trust_store *trust,
                 return KDRV_CATALOGUE_INVALID; /* canonical final LF required */
             line[n] = '\0';
             offset += n + 1;
-            ++line_number;
 
             if (!n || line[0] == '#')
                 continue;
