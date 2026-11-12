@@ -85,7 +85,7 @@ struct kvm_allocator {
 struct kvm_host {
     void *context;
     /* args are registers r0-r3; result replaces r0. */
-    int (*syscall)(void *context, uint32_t number,
+    int (*syscall)(void *context, uint32_t number, uint8_t capability,
                    const uint64_t args[4], uint64_t *result);
 };
 
