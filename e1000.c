@@ -107,7 +107,7 @@ int e1000_probe(void) {
        every descriptor and packet-buffer transition. Do not bind it to an ARM
        non-coherent platform until that audit is complete. */
     if (platform_dma_noncoherent && platform_dma_noncoherent()) {
-        uart_print("[KIRA NET] e1000: disabled; DMA ownership sync is not validated on non-coherent ARM64.\\n");
+        uart_print("[KIRA NET] e1000: disabled; DMA ownership sync is not validated on non-coherent ARM64.\n");
         return -5;
     }
     e82574 = p->device == 0x10D3;
