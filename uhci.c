@@ -462,10 +462,11 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     outw((uint16_t)(u->io + USBCMD), CMD_RS | CMD_CF | CMD_MAXP);
     usb_sleep_ms(5);
     if (inw((uint16_t)(u->io + USBSTS)) & STS_HALTED) {
-        pci_disable_bus_master(p);
+        if (pci_disable_bus_master(p)) {
 #if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
-        iommu_unmap_all(p);
+            (void)iommu_unmap_all(p);
 #endif
+        } /* otherwise retain all DMA mappings */
         usb_log("[KIRA USB] UHCI does not start; DMA disabled\n");
         return -1;
     }
