@@ -105,7 +105,7 @@ static void make_record(struct kdrv_trust_record *record,
 int main(void)
 {
     struct kdrv_trust_store store;
-    struct kdrv_trust_key key;
+    struct kdrv_trust_key key, bad_key;
     struct kdrv_trust_record record;
     struct kdrv_catalogue catalogue;
     TestTrust state = { 0, 500, 0, 0, 0, 0, 0 };
@@ -121,6 +121,12 @@ int main(void)
     key.not_before = 1;
     key.not_after = 2000;
     key.public_key[0] = 1;
+    bad_key = key;
+    memset(bad_key.id, 0, sizeof bad_key.id);
+    CHECK(kdrv_trust_add_key(&store, &bad_key) == KDRV_TRUST_INVALID);
+    bad_key = key;
+    memset(bad_key.public_key, 0, sizeof bad_key.public_key);
+    CHECK(kdrv_trust_add_key(&store, &bad_key) == KDRV_TRUST_INVALID);
     CHECK(kdrv_trust_add_key(&store, &key) == KDRV_TRUST_OK);
 
     length = make_catalogue(bytes, sizeof(bytes), 5, 1);
