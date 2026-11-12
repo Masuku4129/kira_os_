@@ -289,17 +289,21 @@ static void skip_imm(u8 op, const u8** p, const u8* e, u32 nloc) {
         if (trapped) return;
         if (sub == 8) {
             (void)leb_u(p, e);
-            if (!has_memory) { trap("memory.init without memory in unreachable code"); return; }
-            if (trapped || *p >= e || *(*p)++ != 0) trap("unsupported memory.init memory index");
+            u32 memory_index = leb_u(p, e);
+            if (trapped) return;
+            if (!has_memory || memory_index != 0) trap("unsupported memory.init memory index or missing memory");
+            else trap("passive data segments are not supported");
         } else if (sub == 9) {
             (void)leb_u(p, e);
+            if (!trapped) trap("passive data segments are not supported");
         } else if (sub == 10) {
             if (!has_memory) { trap("memory.copy without memory in unreachable code"); return; }
-            if (skip_bytes(p, e, 2) == 0 && ((*p)[-2] || (*p)[-1]))
-                trap("unsupported memory.copy memory index");
+            u32 dst_memory = leb_u(p, e), src_memory = leb_u(p, e);
+            if (trapped || dst_memory || src_memory) trap("unsupported memory.copy memory index");
         } else if (sub == 11) {
             if (!has_memory) { trap("memory.fill without memory in unreachable code"); return; }
-            if (*p >= e || *(*p)++ != 0) trap("unsupported memory.fill memory index");
+            u32 memory_index = leb_u(p, e);
+            if (trapped || memory_index != 0) trap("unsupported memory.fill memory index");
         } else if (sub >= 12) {
             trap("unsupported 0xFC instruction");
         }
