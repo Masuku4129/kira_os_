@@ -78,16 +78,24 @@ KIRA OS — самостоятельная операционная систем
 - Контролируемые мосты между native-процессами и KIRA VM.
 - Управление библиотеками, зависимостями, версиями ABI и правами.
 
-**C3. Compatibility Runtime**
-- Отдельные изолированные среды совместимости для приложений сторонних ОС.
-- Слой адаптации API/ABI, форматов исполняемых файлов и системных вызовов только в рамках документированной совместимости.
-- Никакого обещания «запуска любого приложения» без подтверждённой матрицы совместимости.
-- Совместимость не должна ослаблять ядро или выдавать гостю прямой доступ к устройствам.
+**C3. Compatibility Runtime — обязательное направление запуска приложений Windows и Linux**
+- Не заменяется виртуализацией целой ОС: приложения должны запускаться непосредственно в KIRA OS через совместимые executable formats, API/ABI и system-call semantics.
+- Linux Compatibility Runtime и Windows Compatibility Runtime — два самостоятельных runtime с отдельными loaders, API coverage, process semantics, library models, sandbox policies and conformance suites. Общим является только capability-mediated KIRA Host API.
+- **Linux:** ELF32/ELF64 profiles, dynamic linker and shared-library resolution, Linux syscall ABI by ISA, process/thread/memory/signals/futex/files/socket/epoll semantics, selected procfs/sysfs views, libc profiles (glibc/musl separately), graphics/audio/input adapters. POSIX compatibility is not equivalent to Linux ABI compatibility.
+- **Windows:** PE32/PE32+ loader, DLL resolution, Win32 API and selected NT user-mode semantics, process/thread/handle/memory/files/registry/socket/synchronization, TLS/exceptions/unwind, graphics/audio/input and selected installer/runtime dependencies.
+- Linux kernel modules and Windows kernel drivers are not part of user-mode application compatibility; they require separate kernel/driver contracts and are not assumed portable.
+- Both runtimes operate in user space where possible, with explicit process isolation, capabilities, quotas, provenance and audit. No direct arbitrary device/MMIO/kernel-memory access.
+- Cross-ISA translation (x86-64 binaries on ARM64 and vice versa) is a separate capability and is not implied by native x86-64 + ARM64 support.
+- No promise of "any application". Maintain a compatibility matrix by exact app/version/hash/ISA/API profile/dependency closure/test environment and achieved level (parse/load/core scenario/profile/app-certified).
+- Architecture specifications: `docs/compat/LINUX_COMPATIBILITY.md`, `docs/compat/WINDOWS_COMPATIBILITY.md`, `docs/compat/COMPATIBILITY_TEST_MATRIX.md`.
 
-**C4. Полная аппаратная виртуализация**
-- Отдельный гипервизорный контур для запуска целых гостевых ОС при наличии VT-x/AMD-V или ARM virtualization extensions.
-- Управление VM, vCPU, гостевой памятью, виртуальными устройствами, snapshot/restore и изоляцией DMA.
-- Это отдельная функция от KIRA VM; не делать её обязательной для запуска обычных приложений.
+**C4. Полная аппаратная виртуализация — KIRA Hypervisor**
+- Отдельный гипервизорный контур для запуска целых гостевых ОС при наличии Intel VT-x/VMX, AMD-V/SVM или ARM64 EL2/Stage-2.
+- Управление VM/vCPU, guest physical memory, VM exits, interrupt/timer virtualization, virtual devices, snapshots and restore.
+- DMA passthrough only after real per-device IOMMU domain isolation (VT-d/AMD IOMMU/ARM SMMU); passthrough disabled by default.
+- Host/guest and guest/guest isolation, capability-bound VM management, bounded exits, device emulation containment and adversarial guest testing.
+- This is distinct from KIRA VM/WASM and Windows/Linux app compatibility; it does not replace either.
+- Architecture and threat model: `docs/virtualization/HYPERVISOR_ARCHITECTURE.md`.
 
 **C5. Проверки KVR**
 - Фаззинг верификатора и загрузчика, malformed bytecode, escape/изоляционные тесты.
@@ -251,7 +259,8 @@ KIRA OS — самостоятельная операционная систем
 - Установка/обновление на диске и recovery.
 
 **Этап 6 — совместимость и аппаратные VM**
-- Compatibility Runtime с подтверждённой матрицей приложений.
+- Отдельные Linux и Windows Compatibility Runtime с подтверждённой матрицей приложений по exact app/version/ISA/API profile.
+- KIRA Hypervisor с реальным guest boot, vCPU/memory isolation and virtual devices; DMA passthrough only with tested IOMMU isolation.
 - Аппаратная виртуализация гостевых ОС, если аппаратная база и безопасность готовы.
 
 **Этап 7 — выпуск**
