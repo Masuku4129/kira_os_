@@ -3,6 +3,7 @@ name: kira
 concurrency:
   group: kira-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
+# WASM PR CI refresh: run against the current verifier and boundary-test head.
 
 on:
   push:
