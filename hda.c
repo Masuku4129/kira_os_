@@ -226,28 +226,6 @@ static int stream_ring(volatile uint8_t* sd, uint32_t* bdl, uint64_t bdl_p, uint
     return 0;
 }
 
-static int hda_mask_pci_interrupts(const pci_dev_t* p) {
-    uint8_t id = 0;
-    uint16_t cap = 0;
-    int safe = 1;
-    for (unsigned n = 0; n < 48 && (cap = pci_next_cap(p, cap, &id)) != 0; n++) {
-        if (id == 0x05) {
-            uint16_t control = pci_read16(p, (uint16_t)(cap + 2));
-            pci_write16(p, (uint16_t)(cap + 2), (uint16_t)(control & ~1u));
-            if (pci_read16(p, (uint16_t)(cap + 2)) & 1u) safe = 0;
-        } else if (id == 0x11) {
-            uint16_t control = pci_read16(p, (uint16_t)(cap + 2));
-            pci_write16(p, (uint16_t)(cap + 2), (uint16_t)((control & ~0x8000u) | 0x4000u));
-            uint16_t after = pci_read16(p, (uint16_t)(cap + 2));
-            if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
-        }
-    }
-    uint16_t command = pci_read16(p, 0x04);
-    pci_write16(p, 0x04, (uint16_t)(command | PCI_CMD_INTX_OFF));
-    if (!(pci_read16(p, 0x04) & PCI_CMD_INTX_OFF)) safe = 0;
-    return safe;
-}
-
 static void hda_print(void);
 static void hda_abort_dma(const pci_dev_t* p) {
     w8(CORBCTL, 0);
@@ -276,7 +254,7 @@ int hda_probe(void) {
         return -6;
     }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
-    if (!hda_mask_pci_interrupts(p)) {
+    if (!pci_quiesce_interrupts(p)) {
         uart_print("[KIRA HDA] inherited MSI/MSI-X could not be masked; device quarantined.\n");
         return -6;
     }
