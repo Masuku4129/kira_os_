@@ -292,9 +292,12 @@ int hda_probe(void) {
     w8(CORBCTL, 2); w8(RIRBCTL, 3);
     int rc = codec_init();
     if (rc) {
-        pci_disable_bus_master(p);
         w8(CORBCTL, 0); w8(RIRBCTL, 0);
-        iommu_unmap_all(p);
+        if (pci_disable_bus_master(p)) {
+            iommu_unmap_all(p);
+        } else {
+            uart_print("[KIRA HDA] bus mastering did not stop; DMA mappings remain pinned.\\n");
+        }
         uart_print("[KIRA HDA] codec "); uart_print_hex(h.vendor); uart_print(" has no usable output path (step ");
         uart_print_dec((uint64_t)-rc); uart_print(").\n");
         return -7;
