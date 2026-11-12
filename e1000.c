@@ -197,6 +197,10 @@ int e1000_probe(void) {
         return -7;
     }
     pci_enable(p, PCI_CMD_MASTER);
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        uart_print("[KIRA NET] e1000: PCI bus mastering did not enable; interface not started.\\n");
+        return -8;
+    }
 
     wr(RDBAL, (uint32_t)rx_p); wr(RDBAH, (uint32_t)(rx_p >> 32)); wr(RDLEN, NRX * sizeof(rxd_t));
     wr(RDH, 0); wr(RDT, NRX - 1);
