@@ -294,6 +294,11 @@ int fdt_prop_u32(const void* fdt, int node, const char* name, uint32_t* out) {
 
 int fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* size) {
     if (!fdt || node < 0 || (!addr && !size)) return -1;
+    /* A malformed property length can make fdt_prop() stop before finding a
+       present cell-width property; without validating the token stream that
+       would be mistaken for an absent property and trigger a default. */
+    uint32_t total = fdt_total_size(fdt);
+    if (!total || !fdt_tree_valid(fdt, total)) return -1;
     int par = fdt_parent(fdt, node);
     uint32_t ac = 2, sc = 1;                   /* значения по умолчанию спецификации */
     if (par >= 0) {
