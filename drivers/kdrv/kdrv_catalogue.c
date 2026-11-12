@@ -118,6 +118,21 @@ static int valid_identifier(const char *s)
     return 1;
 }
 
+static int valid_version(const char *s)
+{
+    size_t i, n = slen(s);
+    if (!n || s[0] < '0' || s[0] > '9')
+        return 0;
+    for (i = 0; i < n; ++i) {
+        char c = s[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '.' || c == '-' ||
+              c == '_' || c == '+'))
+            return 0;
+    }
+    return 1;
+}
+
 static int valid_url(const char *s)
 {
     /* Check the bounded string length before inspecting the scheme prefix. */
@@ -143,7 +158,8 @@ static int parse_entry(char *line, struct kdrv_catalogue_entry *entry)
         return KDRV_CATALOGUE_INVALID;
 
     n = slen(f[1]);
-    if (copy_field(entry->version, sizeof(entry->version), f[1], n) != 0)
+    if (copy_field(entry->version, sizeof(entry->version), f[1], n) != 0 ||
+        !valid_version(entry->version))
         return KDRV_CATALOGUE_INVALID;
 
     n = slen(f[2]);
