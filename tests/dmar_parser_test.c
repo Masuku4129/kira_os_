@@ -49,7 +49,7 @@ int main(void)
     struct kira_dmar_inventory inventory;
     unsigned count = 0;
 
-    base_table(table, 88);
+    base_table(table, sizeof table);
     put16(table + 64, 1); put16(table + 66, 32); /* RMRR */
     put16(table + 68, 0); put16(table + 70, 0);
     put64(table + 72, 0x100000ull);
@@ -59,7 +59,7 @@ int main(void)
     checksum(table, sizeof table);
 
     assert(kira_dmar_parse(table, sizeof table, &inventory) == KIRA_DMAR_OK);
-    assert(inventory.host_address_width == 47 && inventory.unit_count == 1);
+    assert(inventory.host_address_width == 48 && inventory.unit_count == 1);
     assert(inventory.rmrr_count == 1 && inventory.rmrrs[0].base == 0x100000ull);
     assert(inventory.rmrrs[0].scope_count == 1);
     assert(inventory.rmrrs[0].limit == 0x100fffull);
@@ -102,7 +102,7 @@ int main(void)
         uint8_t bad[72];
         base_table(bad, sizeof bad);
         put16(bad + 50, 24);
-        bad[64] = 5; bad[65] = 8; /* unsupported ACPI namespace scope */
+        bad[64] = 6; bad[65] = 8; /* unknown scope type */
         bad[70] = 1; bad[71] = 0;
         checksum(bad, sizeof bad);
         assert(kira_dmar_parse(bad, sizeof bad, &inventory) == KIRA_DMAR_E_STRUCTURE);
