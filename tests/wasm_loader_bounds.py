@@ -233,4 +233,25 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-memoryless-") as td:
         raise SystemExit(1)
     print("PASS: valid memoryless module runs without implicit memory")
 
+# The 10-byte signed-LEB64 encoding of INT64_MIN must be accepted without
+# shifting a 64-bit value by 64 (undefined behavior in C).
+signed_i64_min_module = (
+    magic +
+    b"\x01\x05\x01\x60\x00\x01\x7f" +
+    b"\x03\x02\x01\x00" +
+    b"\x06\x0f\x01\x7e\x00\x42" + (b"\x80" * 9) + b"\x7f\x0b" +
+    b"\x07\x09\x01\x05kmain\x00\x00" +
+    b"\x0a\x06\x01\x04\x00\x41\x00\x0b"
+)
+with tempfile.TemporaryDirectory(prefix="kira-wasm-sleb64-") as td:
+    path = pathlib.Path(td) / "sleb64-min.wasm"
+    path.write_bytes(signed_i64_min_module)
+    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, env=test_env)
+    if run.returncode != 0 or "wasm: finished with code 0" not in run.stdout:
+        print("FAIL: valid INT64_MIN constant expression was rejected")
+        print(run.stdout)
+        raise SystemExit(1)
+    print("PASS: signed LEB64 minimum constant is accepted")
+
 print("wasm loader bounds: all malformed envelopes rejected")
