@@ -49,5 +49,8 @@ int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
 int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
                              uint64_t iova,
                              const struct kira_vtd_platform *platform);
+int kira_vtd_domain_unmap_range(struct kira_vtd_domain *domain,
+                                uint64_t iova, uint32_t pages,
+                                const struct kira_vtd_platform *platform);
 
 #endif
