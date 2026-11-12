@@ -6,6 +6,9 @@
 - [Архитектурный аудит и порядок работ](docs/architecture/ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md) — ближайшая очередь и критерии завершения.
 - [Инвентаризация компонентов](docs/architecture/COMPONENT_INVENTORY.md) — предварительная карта исходников и статусов.
 - [Карта зависимостей](docs/architecture/DEPENDENCY_MAP.md) — целевые и наблюдаемые связи между подсистемами.
+- [Реестр контрактов](docs/architecture/CONTRACT_REGISTRY.md) — ABI/API, владельцы, статусы и критерии утверждения.
+- [Совместимость Windows](docs/compat/WINDOWS_COMPATIBILITY.md), [совместимость Linux](docs/compat/LINUX_COMPATIBILITY.md) и [матрица приложений](docs/compat/COMPATIBILITY_TEST_MATRIX.md).
+- [Архитектура гипервизора](docs/virtualization/HYPERVISOR_ARCHITECTURE.md) — отдельный контур запуска целых гостевых ОС.
 
 ## Обязательный план разработки
 
