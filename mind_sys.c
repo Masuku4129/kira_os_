@@ -307,6 +307,11 @@ static void publish(const mind_t* model) {
     v.risk = model->risk_q16 * 100 / MNET_ONE; v.risk_why = model->risk_why;
     v.net_n = model->m.net.n; v.net_pos = model->m.net.pos; v.net_prec = mnet_precision(&model->m.net); v.net_rec = mnet_recall(&model->m.net);
     v.net_trusted = (uint8_t)mnet_trusted(&model->m.net); v.forecasts = model->m.forecasts; v.net_loss_x1e4 = model->m.net.loss_x1e4;
+    v.mem_risk = model->mem_risk_q16 * 100 / MNET_ONE;
+    v.mem_net_n = model->m.memory_net.n; v.mem_net_pos = model->m.memory_net.pos;
+    v.mem_net_prec = mnet_precision(&model->m.memory_net); v.mem_net_rec = mnet_recall(&model->m.memory_net);
+    v.mem_net_trusted = (uint8_t)mnet_trusted(&model->m.memory_net);
+    v.mem_forecasts = model->mem_forecasts; v.mem_net_loss_x1e4 = model->m.memory_net.loss_x1e4;
     for (int i = 0; i < MNET_F; i++) v.net_w[i] = model->m.net.w[i];
     v.bg_fps = mind_bg_fps(model); v.core_cap = mind_core_cap(model);
     v.stab_episodes = model->stab_episodes; v.stab_limited_s = model->stab_limited_ms / 1000; v.stab_relapses = model->stab_relapses; v.stab_longest_s = model->stab_longest_ms / 1000; v.tact_cost_x100 = model->tact_cost_x100;
@@ -750,7 +755,12 @@ void mind_sys_print(const char* what) {
         uart_print("%; полнота: "); uart_print_dec(v->net_rec);
         uart_print("%; прогнозов с упреждением: "); uart_print_dec(v->forecasts);
         uart_print("\n  средняя лог-потеря x1e4: "); uart_print_dec(v->net_loss_x1e4);
-        uart_print("\n  примечание: это статистический прогноз одного события, не языковой ИИ.\n\n");
+        uart_print("\n[MIND] прогноз памяти на 4 секунды: риск достижения 90% ОЗУ ");
+        uart_print_dec(v->mem_risk); uart_print("%; ");
+        uart_print(v->mem_net_trusted ? "модель допущена к предупреждениям" : "модель обучается, только наблюдение");
+        uart_print("; примеров "); uart_print_dec(v->mem_net_n);
+        uart_print("; прогнозов "); uart_print_dec(v->mem_forecasts);
+        uart_print("\n  примечание: статистические прогнозы независимы; память пока не управляется этим прогнозом.\n\n");
     } else if (what[0] == 'm') {                            /* model: веса модели предвидения */
         uart_print("\n[MIND] модель предвидения (логистическая регрессия, учится каждую секунду; вес > 0 - признак ведёт к опозданию):\n");
         for (int i = 0; i < MNET_F; i++) {
@@ -795,6 +805,10 @@ void mind_sys_print(const char* what) {
         uart_print("), предупреждения сбываются "); uart_print_dec(v->net_prec); uart_print("%, замечено опозданий заранее ");
         uart_print_dec(v->net_rec); uart_print("%, "); uart_print(v->net_trusted ? "доверие есть" : "пока без права действовать");
         uart_print(", упреждений "); uart_print_dec(v->forecasts);
+        uart_print("\n[MIND] память: риск 90% ОЗУ за 4 с "); uart_print_dec(v->mem_risk);
+        uart_print("%, обучающих примеров "); uart_print_dec(v->mem_net_n);
+        uart_print(", "); uart_print(v->mem_net_trusted ? "модель подтверждена" : "модель обучается");
+        uart_print(", прогнозов "); uart_print_dec(v->mem_forecasts);
         uart_print("\n[MIND] тактика: фон - не больше "); uart_print_dec(v->core_cap); uart_print("% ядер при нехватке; фоновые окна - ");
         if (v->bg_fps) { uart_print("не чаще "); uart_print_dec(v->bg_fps); uart_print(" кадров/с"); } else uart_print("без предела кадров");
         uart_print("\n[MIND] стабилизация: фон ужимался "); uart_print_dec(v->stab_episodes); uart_print(" раз, всего "); uart_print_dec(v->stab_limited_s);
