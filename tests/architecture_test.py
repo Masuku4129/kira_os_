@@ -32,12 +32,12 @@ require('#include "syscall_numbers.h"' in read("kcc/include/kira.h"),
 for path in ("userland/kira.h", "kcc/include/kira.h"):
     public_api = read(path)
     duplicated = re.findall(
-        r"\\bK_(?:FS|HEAP|WRITE|EXIT|TICKS|SLEEP|YIELD|GETPID|GFX_CREATE|GFX_PRESENT|GFX_EVENT|"
+        r"\bK_(?:FS|HEAP|WRITE|EXIT|TICKS|SLEEP|YIELD|GETPID|GFX_CREATE|GFX_PRESENT|GFX_EVENT|"
         r"THREAD_CREATE|THREAD_EXIT|GETTID|FUTEX_WAIT|FUTEX_WAKE|PORT_OPEN|PORT_SEND|PORT_RECV|"
         r"SHM_OPEN|SHM_MAP|SHM_UNMAP|CLOSE|CLOCK_NS|NET_DNS|NET_CONNECT|NET_SEND|NET_RECV|"
         r"NET_CLOSE|ARGS|NET_LISTEN|NET_ACCEPT|SND_OPEN|SND_WRITE|SND_CLOSE|RANDOM|TIME|"
         r"UDP_OPEN|UDP_SEND|UDP_RECV|UDP_CLOSE|SND_VOLUME|SND_RECORD|NET_CONNECT_SA|"
-        r"UDP_SENDTO|UDP_RECVFROM|NET_PEER|JIT)\\s*=\\s*\\d+",
+        r"UDP_SENDTO|UDP_RECVFROM|NET_PEER|JIT)\s*=\s*\\d+",
         public_api,
     )
     require(not duplicated, f"{path} duplicates numeric syscall IDs instead of using SYS_* constants")
