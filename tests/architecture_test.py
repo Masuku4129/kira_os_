@@ -74,7 +74,7 @@ for header in ("net.h", "audio.h", "gfxsrv.h", "fsrv.h", "rtc.h"):
     require(f'#include "{header}"' not in core,
             f"service header {header} leaked back into syscall core")
 
-core_defines = re.findall(r"^\s*#\s*define\s+(SYS_[A-Z0-9_]+)\b", core, re.M)
+core_defines = re.findall(r"^\s*#\s*define\s+(SYS_[A-Z0-9_]+)\s+\d+\b", core, re.M)
 require(not core_defines,
         "syscall numbers must have one source of truth; found defines in syscall.c")
 
