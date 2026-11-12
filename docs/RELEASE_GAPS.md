@@ -140,3 +140,13 @@ The next combined user update is eligible only when:
 - Исправлено в `virtio.c`: IRQ wait теперь блокирует поток только при `WAIT_SLEEP_OK()`; если сон запрещён (в частности, mutex удерживается), остаётся bounded polling/CPU relax путь с прежними deadline и spin limit.
 - Commit: `eb56746745e0669e47796be9bd619965ef441a7b`.
 - Это устраняет обнаруженный обход sleep guard по коду, но НЕ закрывает VM shard-4: требуется новый CI run и успешные `wasm-speed`, `stress-3d`, `cc-native`; также требуется проверить, что нет других блокирующих ожиданий без `sched_can_sleep()`.
+
+
+### IRQ wait API sleep-eligibility boundary (follow-up)
+
+`virtio.c` checks `sched_can_sleep()` before entering its IRQ-wait path. The
+IRQ-wait primitive now independently checks the same predicate before registering
+a waiter or blocking. This is defense in depth for future callers: an invocation
+from a thread holding a kmutex, with interrupts disabled, inside an IRQ/lock
+critical section, or before scheduler readiness returns without sleeping. This
+source-level guard is not a substitute for the pending full VM shard-4 regression.
