@@ -44,7 +44,7 @@ static void free_package(void *opaque, void *data, size_t size)
 static int parse_manifest(void *opaque, const void *package, size_t size,
                           struct kdrv_manifest *manifest)
 {
-    (void)opaque;
+    test_context_t *ctx = opaque;
     if (!package || size != 16) return -1;
     memset(manifest, 0, sizeof *manifest);
     strcpy(manifest->name, "test-driver");
