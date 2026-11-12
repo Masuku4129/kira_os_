@@ -915,7 +915,7 @@ void mind_make_features(const mind_t* s, const mind_sample_t* in, int32_t* x) {
     x[12] = in->disk_ops ? MNET_ONE : 0;       /* нулевая задержка без операций не означает валидный замер */
 }
 
-static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* x, uint32_t now) {
+static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* x, uint32_t now, int acted_this_tick) {
     if (!in->mem_total_mb || in->mem_used > 100) {
         for (unsigned i = 0; i < 5; i++) s->mem_pending[i].valid = 0;
         s->mem_prev_valid = 0;
@@ -969,7 +969,7 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
     for (int i = 0; i < MNET_F; i++) slot->x[i] = mx[i];
     slot->max_used = in->mem_used;
     slot->created_t = now;
-    slot->acted = 0;
+    slot->acted = (uint8_t)acted_this_tick;
     slot->valid = 1;
     s->mem_risk_valid = (uint8_t)growth_valid;
     s->mem_risk_q16 = growth_valid ? mnet_predict(&s->m.memory_net, mx) : 0;
@@ -993,7 +993,6 @@ static void foresight(mind_t* s, const mind_sample_t* in, uint32_t now) {
     if (s->nx_have && !s->nx_acted && in->loops) mnet_train(&s->m.net, s->nx_prev, late_pct >= 5);
     int32_t x[MNET_F];
     mind_make_features(s, in, x);
-    memory_foresight(s, in, x, now);
     s->risk_q16 = mnet_predict(&s->m.net, x);
     for (int i = 0; i < MNET_F; i++) s->nx_prev[i] = x[i];
     s->nx_have = in->loops != 0;                               /* без кадров дисплея исхода не будет */
@@ -1437,8 +1436,17 @@ void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act) {
     tuner(s, in, act, now);
     visual(s, in, act, now);
     memory(s, in, act, now);
-    if (s->m.mode == MIND_ACT && s->mem_level && (act->mem_trim || act->heap_restrict || act->kill))
+    int memory_action = s->m.mode == MIND_ACT && s->mem_level &&
+                        (act->mem_trim || act->heap_restrict || act->kill);
+    if (memory_action)
         for (unsigned i = 0; i < 5; i++) if (s->mem_pending[i].valid) s->mem_pending[i].acted = 1;
+    /* Finalize four-second labels only after this tick's memory actions are known.
+       Otherwise an intervention at the horizon is learned as an untreated outcome. */
+    {
+        int32_t memory_features[MNET_F];
+        mind_make_features(s, in, memory_features);
+        memory_foresight(s, in, memory_features, now, memory_action);
+    }
     devices(s, in, act, now);
     levers(s, in, act, now);
     s->hpos++;
