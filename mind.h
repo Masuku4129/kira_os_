@@ -253,7 +253,7 @@ typedef struct {
     uint32_t mem_risk_q16;                     /* вероятность достижения 90% ОЗУ в следующие 4 секунды */
     mind_mem_pending_t mem_pending[5];
     uint32_t mem_pending_pos, mem_forecasts, mem_logged_t, mem_prev_used, mem_prev_t;
-    uint8_t mem_prev_valid;
+    uint8_t mem_prev_valid, mem_risk_valid;
     uint32_t pre_until_ms;                    /* до этого момента тактика держит фон ужатым заранее */
     uint32_t pre_logged_t, pre_skip;          /* журнал не чаще; каждая 10-я опасная секунда - без упреждения (проверка) */
     int      risk_why;                        /* главный признак риска */
