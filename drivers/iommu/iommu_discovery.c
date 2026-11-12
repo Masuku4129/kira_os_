@@ -71,11 +71,8 @@ int kira_iommu_prepare_intel_units(
 
     /* Refuse a mixed-segment inventory before preparing any partial subset. */
     for (i = 0; i < dmar->unit_count; ++i) {
-        if (dmar->units[i].segment != 0 ||
-            dmar->units[i].register_size_log2 != 0) {
-            iommu_report(ops, dmar->units[i].segment != 0
-                         ? "VT-d nonzero PCI segment not activated"
-                         : "VT-d register aperture larger than 4 KiB unsupported",
+        if (dmar->units[i].segment != 0) {
+            iommu_report(ops, "VT-d nonzero PCI segment not activated",
                          KIRA_VTD_UNSUPPORTED, dmar->units[i].register_base);
             return KIRA_VTD_UNSUPPORTED;
         }
