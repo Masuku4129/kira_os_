@@ -411,16 +411,40 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
 }
 
 static void release(bind_t* b) {
-    uint32_t got = 0, want = b->dma_pages + b->net_pages;
-    iommu_unmap_all(b->dev);                       /* сначала закрыть доступ устройства, потом отдавать страницы */
-    for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
-    if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
-    uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": возвращено памяти DMA и колец "); uart_print_dec(got); uart_print(" из ");
-    uart_print_dec(want); uart_print(" стр., отображений устройства и DMA снято "); uart_print_dec(b->nmap + b->ndma);
-    uart_print(got == want ? ", утечек нет\n" : ", УТЕЧКА\n");
-    b->ndma = 0; b->dma_pages = 0; b->net_pages = 0; b->nmap = 0; b->ctl = 0;
+    uint32_t want = b->dma_pages + b->net_pages;
+    if (iommu_unmap_all(b->dev) != IOMMU_OK) {
+        /* A timed-out IOTLB invalidation leaves DMA translations uncertain.
+           Keep every backing page and the DEAD slot; kdrv_poll retries later. */
+        uart_print("[KIRA DRV] "); uart_print(b->name);
+        uart_print(": IOMMU invalidation pending; DMA pages remain pinned\n");
+        return;
+    }
+
+    uint32_t got = 0, kept = 0, kept_pages = 0;
+    for (uint32_t i = 0; i < b->ndma; i++) {
+        if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
+        else {
+            b->dma[kept++] = b->dma[i];
+            kept_pages += b->dma[i].pages;
+        }
+    }
+    b->ndma = kept;
+    b->dma_pages = kept_pages;
+    if (b->net_pages) {
+        if (pmm_free_contiguous(b->net_pa, b->net_pages) == 0) {
+            got += b->net_pages;
+            b->net_pages = 0;
+            b->net_pa = 0;
+        }
+    }
+    uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": возвращено памяти DMA и колец ");
+    uart_print_dec(got); uart_print(" из "); uart_print_dec(want);
+    uart_print(" стр.; остаток остаётся закреплённым до успешного освобождения\n");
+    if (b->ndma || b->net_pages) return;
+
+    b->nmap = 0; b->ctl = 0;
     uint64_t f = spin_lock_irqsave(&klock);
-    b->state = B_FREE;                              /* устройство снова можно отдать драйверу */
+    b->state = B_FREE;
     spin_unlock_irqrestore(&klock, f);
     __atomic_sub_fetch(&ndead, 1, __ATOMIC_ACQ_REL);
 }
@@ -652,6 +676,27 @@ static int64_t sys_mmio_map(bind_t* b, uint64_t bar, uint64_t off, uint64_t len)
     return rc;
 }
 
+static void dma_retain_block(bind_t* b, uint64_t pa, uint32_t pages) {
+    /* sys_dma_alloc reserves a ledger slot before allocating, so this cannot
+       overflow unless the caller violates the serialized process-space path. */
+    if (b->ndma < KDRV_MAX_DMA) {
+        b->dma[b->ndma].pa = pa;
+        b->dma[b->ndma].pages = pages;
+        b->ndma++;
+        b->dma_pages += pages;
+    }
+}
+
+static void dma_discard_block(bind_t* b, uint64_t pa, uint32_t pages,
+                              int iommu_mapped) {
+    if (iommu_mapped && iommu_unmap(b->dev, pa, (uint64_t)pages * 4096) != IOMMU_OK) {
+        dma_retain_block(b, pa, pages);
+        return;
+    }
+    if (pmm_free_contiguous(pa, pages) != 0)
+        dma_retain_block(b, pa, pages);
+}
+
 static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t out) {
     if (!bytes || bytes > KDRV_MAX_DMA_BYTES || (bits && (bits < 20 || bits > 63))) return KE_ARG;
     uint32_t pages = (uint32_t)((bytes + 4095) / 4096);
@@ -672,17 +717,27 @@ static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t 
         uint64_t va = b->dma_next;
         /* Устройство в своём домене VT-d видит только то, что выдано здесь: адрес устройства равен физическому. */
         int iommu = iommu_device_isolated(b->dev);
-        if (iommu && iommu_map(b->dev, pa, pa, (uint64_t)pages * 4096, IOMMU_R | IOMMU_W) != 0) { pmm_free_contiguous(pa, pages); rc = KE_NOMEM; }
-        else if (proc_map_phys(va, pa, pages, VMM_WRITE | VMM_NOEXEC) != 0) {
-            if (iommu) iommu_unmap(b->dev, pa, (uint64_t)pages * 4096);
-            pmm_free_contiguous(pa, pages); rc = KE_NOMEM;
+        if (iommu) {
+            int irc = iommu_map(b->dev, pa, pa, (uint64_t)pages * 4096, IOMMU_R | IOMMU_W);
+            if (irc != IOMMU_OK) {
+                if (irc == IOMMU_E_HW) dma_retain_block(b, pa, pages);
+                else if (pmm_free_contiguous(pa, pages) != 0) dma_retain_block(b, pa, pages);
+                rc = KE_NOMEM;
+                pa = 0;
+            }
         }
-        else {
+        if (!rc && proc_map_phys(va, pa, pages, VMM_WRITE | VMM_NOEXEC) != 0) {
+            dma_discard_block(b, pa, pages, iommu);
+            pa = 0;
+            rc = KE_NOMEM;
+        }
+        else if (!rc) {
             kdrv_dma_t r = { va, pa, (uint64_t)pages * 4096 };
             if (copy_to_user(out, &r, sizeof r) != 0) {
                 proc_unmap_pages(va, pages);
-                if (iommu) iommu_unmap(b->dev, pa, (uint64_t)pages * 4096);
-                pmm_free_contiguous(pa, pages); rc = KE_ARG;
+                dma_discard_block(b, pa, pages, iommu);
+                pa = 0;
+                rc = KE_ARG;
             }
             else {
                 b->dma[b->ndma].pa = pa; b->dma[b->ndma].pages = pages; b->ndma++; b->dma_pages += pages;
