@@ -34,16 +34,16 @@
 
 Ядро отвечает за безопасный переход через privilege boundary и примитивы, а не за реализацию политики файлового менеджера, TCP или аудиомикшера.
 
-### Service-facing syscall adapters — `syscall_services.c`
+### Service-facing syscall adapters
 
-В текущем переходном этапе маршрутизирует неизменённые ABI номера к существующим реализациям:
-- graphics: `SYS_GFX_*` → gfx service API;
-- filesystem: `SYS_FS` → file-service API;
-- networking: TCP/UDP/DNS syscalls → network API;
-- audio: playback/record syscalls → audio API;
-- wall-clock query: `SYS_TIME` → RTC API.
+`syscall_services.c` — subsystem-agnostic router. Он не включает заголовки графики, файлов, сети, звука или RTC и только передаёт запрос специализированному adapter:
+- `syscall_service_graphics.c`: `SYS_GFX_*` → gfx service API;
+- `syscall_service_fs.c`: `SYS_FS` → file-service API;
+- `syscall_service_network.c`: TCP/UDP/DNS syscalls → network API;
+- `syscall_service_audio.c`: playback/record syscalls → audio API;
+- `syscall_service_clock.c`: `SYS_TIME` → RTC API.
 
-Adapter — внутренний kernel facade. Это ещё не отдельный процесс службы, не IPC и не гарантия crash isolation.
+Каждый ABI номер имеет ровно одного владельца-адаптер, что закреплено `tests/architecture_test.py`. Adapter — внутренний kernel facade. Это ещё не отдельный процесс службы, не IPC и не гарантия crash isolation.
 
 ### ABI number registry — `kcc/include/syscall_numbers.h`
 
