@@ -79,6 +79,11 @@ uint16_t kdrv_pci_command_clear_master(uint16_t command) {
     return (uint16_t)(command & ~(1u << 2));
 }
 
+int kdrv_pci_busmaster_handoff_safe(uint16_t before, uint16_t after) {
+    const uint16_t bus_master = 1u << 2;
+    return ((before | after) & bus_master) == 0;
+}
+
 int kdrv_mmio_page_bounds(uint64_t base, uint64_t size, uint64_t* page_lo, uint64_t* page_hi) {
     if (!base || !size || !page_lo || !page_hi || base > UINT64_MAX - size) return -1;
     uint64_t end = base + size;
