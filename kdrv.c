@@ -382,6 +382,8 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     if ((granted & CAP_IRQ) && !find_cap(d, 0x05) && !find_cap(d, 0x11)) policy_caps &= ~(uint32_t)CAP_IRQ;   /* только INTx: устройство в память не пишет, изоляция для прерывания не нужна (bus mastering даёт лишь CAP_DMA) */
     if (policy_caps & (CAP_DMA | CAP_IRQ)) (void)iommu_isolate_device(d);      /* свой домен VT-d без отображений; отказ - устройство остаётся неизолированным */
     if (!kdrv_dma_policy_allow(policy_caps, iommu_device_isolated(d))) {
+        /* Stop any inherited requester before abandoning a failed isolation attempt. */
+        (void)pci_disable_bus_master(d);
         /* Retry cleanup if a failed isolation attempt left a blocked domain. */
         (void)iommu_release_device(d);
         kfree(p.buf);
