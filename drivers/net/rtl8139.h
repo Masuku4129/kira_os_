@@ -29,6 +29,7 @@ struct kira_rtl8139_platform {
     void (*cache_clean)(void *context, const void *address, size_t size);
     void (*dma_read_barrier)(void *context);
     void (*dma_write_barrier)(void *context);
+    uint64_t (*monotonic_us)(void *context);
     void (*delay_us)(void *context, uint32_t microseconds);
     void (*receive)(void *context, const uint8_t *frame, size_t length);
     void (*transmit_complete)(void *context, unsigned int slot, int status);
@@ -44,6 +45,7 @@ struct kira_rtl8139 {
     uint64_t tx_physical[KIRA_RTL8139_TX_SLOTS];
     uint16_t rx_offset;
     uint8_t tx_busy[KIRA_RTL8139_TX_SLOTS];
+    uint64_t tx_started_us[KIRA_RTL8139_TX_SLOTS];
     uint8_t initialized;
 };
 
@@ -53,6 +55,6 @@ int kira_rtl8139_poll(struct kira_rtl8139 *device);
 int kira_rtl8139_send(struct kira_rtl8139 *device,
                       const void *frame, size_t length);
 int kira_rtl8139_link_up(struct kira_rtl8139 *device);
-void kira_rtl8139_shutdown(struct kira_rtl8139 *device);
+int kira_rtl8139_shutdown(struct kira_rtl8139 *device);
 
 #endif
