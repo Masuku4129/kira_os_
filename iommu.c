@@ -273,7 +273,7 @@ int iommu_init(void) {
 /* ---- Domains ---- */
 
 int iommu_device_isolated(const pci_dev_t* d) {
-    if (!d || !G.active) return 0;
+    if (!d || d->dma_quarantined || !G.active) return 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
     int r = x && !x->blocked && x->dom.active && G.on[x->unit];
@@ -282,7 +282,7 @@ int iommu_device_isolated(const pci_dev_t* d) {
 }
 
 int iommu_device_ready(const pci_dev_t* d) {
-    if (!d || G.dmar_error) return 0;
+    if (!d || d->dma_quarantined || G.dmar_error) return 0;
     int ui = unit_of(d->bus, d->dev, d->fn);
     if (ui < 0) return 1; /* No unit covers this requester: legacy DMA policy. */
     if (ui >= VTD_MAX_UNITS || !G.on[ui]) return 0; /* A covering unit failed: fail closed. */
@@ -296,6 +296,7 @@ int iommu_device_ready(const pci_dev_t* d) {
 
 int iommu_isolate_device(const pci_dev_t* d) {
     if (!d) return IOMMU_E_ARG;
+    if (d->dma_quarantined) return IOMMU_E_HW;
     if (G.dmar_error) return IOMMU_E_HW;
     int ui = unit_of(d->bus, d->dev, d->fn);
     if (ui < 0) return G.info.unit_count ? IOMMU_E_NOCOVER : IOMMU_E_NONE;
