@@ -17,6 +17,7 @@ typedef struct {
     uint8_t rxf[256][1600]; size_t rxlen[256]; int nrx;
     unsigned txpend;
     int dma_high;                          /* 1 - dma_alloc отдаёт адрес выше 4 ГиБ */
+    int dma_fail_after, dma_alloc_calls;
     int frees;
 } M;
 
@@ -54,6 +55,8 @@ static void out32(void *c, uint16_t r, uint32_t v) { M *m = c;
     } }
 static void *dma_alloc(void *c, size_t size, size_t al, uint64_t *phys) { M *m = c; (void)al;
     static size_t used;
+    m->dma_alloc_calls++;
+    if (m->dma_fail_after && m->dma_alloc_calls == m->dma_fail_after) { *phys = 0; return 0; }
     if (m->dma_high) { *phys = 1ull << 33; return m->mem_lo; }
     used = (used + 255) & ~(size_t)255; uint8_t *p = m->mem_lo + used; used += size; if (used > (1u << 20)) return 0;
     *phys = (uint64_t)(uintptr_t)p; return p; }
@@ -148,9 +151,17 @@ int main(void) {
     kira_rtl8139_shutdown(&d);
     assert(m.frees == 5 && !d.initialized);
 
-    /* DMA выше 4 ГиБ чип адресовать не может: отказ */
+    /* DMA выше 4 ГиБ чип адресовать не может: отказ и освобождение RX allocation. */
     static M m2; m2.mem_lo = m.mem_lo; m2.dma_high = 1; memcpy(m2.mac, m.mac, 6); p.context = &m2;
     assert(kira_rtl8139_init(&d, 0, &p) == -3);
-    printf("rtl8139: init, rx ring wrap, errors, overrun, tx order, DMA limits passed\n");
+    assert(m2.frees == 1 && !d.rx_buffer && !d.initialized);
+
+    /* Ошибка на третьем TX allocation освобождает RX и два предыдущих TX buffers. */
+    static M m3; m3.mem_lo = m.mem_lo; m3.dma_fail_after = 4; memcpy(m3.mac, m.mac, 6); p.context = &m3;
+    assert(kira_rtl8139_init(&d, 0, &p) == -4);
+    assert(m3.dma_alloc_calls == 4 && m3.frees == 3);
+    assert(!d.rx_buffer && !d.tx_buffer[0] && !d.tx_buffer[1] && !d.initialized);
+
+    printf("rtl8139: init, rx ring wrap, errors, overrun, tx order, DMA limits and partial-allocation cleanup passed\n");
     return 0;
 }
