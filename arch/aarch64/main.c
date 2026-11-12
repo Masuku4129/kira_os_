@@ -326,7 +326,6 @@ static int dma_noncoherent(const void* fdt) {
        zero-length dma-coherent. Any non-PCI DMA driver added later must extend this
        policy or force the non-cacheable pool; a host without a declaration fails closed. */
     kprintf("[KIRA ARM64] DMA policy: checking every enabled PCI host coherency declaration\n");
-    if (fdt_has_bool(fdt, fdt_root(fdt), "dma-coherent")) return 0;
     int pci = fdt_find_enabled_compatible(fdt, -1, "pci-host-ecam-generic");
     if (pci < 0) return 1;
     unsigned enabled_hosts = 0;
