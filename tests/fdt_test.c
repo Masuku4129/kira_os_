@@ -138,6 +138,16 @@ int main(void) {
     CHECK(fdt_reg(blob, total, gic, 2, &a, &s) != 0);                    /* третьей пары нет */
     int mem = fdt_find_path(blob, "/memory");
     CHECK(mem >= 0 && fdt_reg(blob, total, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
+    /* A forged DTB totalsize must never replace the caller's actual buffer bound. */
+    {
+        uint8_t bounded[8192];
+        memcpy(bounded, blob, total);
+        be(bounded + 4, total + 64);
+        CHECK(fdt_reg(bounded, total, mem, 0, &a, &s) != 0);
+        memcpy(bounded, blob, total);
+        be(bounded + 4, total - 4);
+        CHECK(fdt_reg(bounded, total, mem, 0, &a, &s) != 0);
+    }
 
     /* Present but malformed cell-width properties must not silently fall back to defaults. */
     {
