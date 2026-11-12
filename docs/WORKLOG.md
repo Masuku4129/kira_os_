@@ -174,3 +174,14 @@
 ### KIRA VM — allocator lifecycle regressions (2026-11-12)
 - В PR #134 добавлен тестируемый allocator probe: отказ первого выделения, отказ второго выделения после успешной копии кода, успешная инициализация и освобождение обоих блоков. Проверяется отсутствие утечки копии кода при OOM линейной памяти и освобождение memory/code при destroy.
 - Commit: `e9d52b6a081954134885c6c5ba24a29aadfd4a51`; текущий PR head сверить перед следующим изменением. Workflow runs `43215257973` и `43215250095` pending; job records пока не опубликованы, ни один тест не объявлять PASS.
+
+### Снимок параллельных проверок — 2026-11-12 12:10 UTC
+- PR #134 KVM: head `e9d52b6a081954134885c6c5ba24a29aadfd4a51`, run `43215257973` pending; отдельный run `43215250095` pending. Jobs ещё не опубликованы.
+- PR #132 VMM stack slots: head `9156727adb6cec615de7455c3d6a87ac03fc4c32`; последний доступный run `43211039400` относится к более раннему head `34a2820096e14749023518ad17fb3349707a85f5`. Для актуального head доказательства CI нет.
+- PR #131 WASM: head `d8d9d2f0905e1cec5b30826290841b92d14a0611`, run `43210010634` pending.
+- PR #95 KCC: head `b7cb6f655128b38f3b626da6a31f4fba35cad1df`, run `43211438660` pending.
+- PR #81 Mind forecast: head `1802d900365f0de9f82be892b8cd752f8545114b`, run `43212948014` pending.
+- PR #125 ARM SMMUv3/PCI: head `cf35a78b385c0b9939702e19b097b01a4296e273`, run `43207054075` pending.
+- PR #46 unified release: head `5e5778370e09713a3c91fcdc470c66b27bd96003`, run `43212930235` pending; mergeable=false.
+- PR #42 KDRV publisher policy: head `6249454b263ee6d80304a17bbea59582897f94b7`, run `43208432760` queued.
+- У всех перечисленных runs на момент снимка нет завершённых job records; ни один новый PASS не подтверждён. Не считать очередь эквивалентом тестирования.
