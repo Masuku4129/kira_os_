@@ -8,6 +8,11 @@
    gfx_present(ptr) (пиксели 0x00RRGGBB из памяти модуля), gfx_event(ptr)->i32 (16 байт: type,a,b,c).
    Запуск: wasm /путь/к/модулю.wasm (или двойной щелчок по .wasm в Проводнике). */
 #include "kira.h"
+/* Production fuel is always enabled. Host fuzz tests may set a smaller budget. */
+#ifndef WASM_FUEL
+#define WASM_FUEL 1
+#endif
+#define WASM_DEFAULT_FUEL 50000000ull
 KIRA_ENTRY()
 
 /* ---------- вещественные: значения на стеке - биты (f32 - младшие 32) ---------- */
@@ -107,6 +112,15 @@ static const u8* mod; static u32 modlen;
 
 enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT, IMP_N };
 static const char* const imp_names[IMP_N] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event" };
+#define WASM_HOST_CALL_LIMIT 10000u
+#define WASM_WRITE_CALL_LIMIT 4096u
+#define WASM_WRITE_TOTAL_LIMIT 65536ull
+#define WASM_SLEEP_CALL_LIMIT 60000u
+#define WASM_SLEEP_TOTAL_LIMIT 600000ull
+#define WASM_GFX_FRAME_LIMIT 10000u
+static u32 wasm_host_calls, wasm_gfx_frames;
+static u64 wasm_output_bytes, wasm_sleep_ticks;
+static int wasm_gfx_created;
 
 static int wasm_valtype(u8 t) {
     return t == 0x7F || t == 0x7E || t == 0x7D || t == 0x7C;
@@ -1101,25 +1115,58 @@ static u64* host_call(u32 id, const ftype_t* t, u64* s) {
     u64 a[4] = { 0, 0, 0, 0 };
     for (int i = t->np - 1; i >= 0; i--) { u64 v = *--s; if (i < 4) a[i] = v; }
     u64 r = 0, lim = (u64)mem_pages * 65536;
+    if (++wasm_host_calls > WASM_HOST_CALL_LIMIT) {
+        trap("host call quota exceeded");
+        return s;
+    }
     if (id == IMP_WRITE) {
         u32 p = (u32)a[0], n = (u32)a[1];
         if ((u64)p + n > lim) { trap("memory access out of bounds"); return s; }
-        k_write((const char*)mem + p, n); r = n;
+        if (n > WASM_WRITE_CALL_LIMIT || wasm_output_bytes > WASM_WRITE_TOTAL_LIMIT ||
+            n > WASM_WRITE_TOTAL_LIMIT - wasm_output_bytes) {
+            trap("host output quota exceeded");
+            return s;
+        }
+        if (n) k_write((const char*)mem + p, n);
+        wasm_output_bytes += n;
+        r = n;
     }
-    else if (id == IMP_SLEEP) k_sleep(a[0]);
+    else if (id == IMP_SLEEP) {
+        u32 ticks = (u32)a[0];
+        if (ticks > WASM_SLEEP_CALL_LIMIT || wasm_sleep_ticks > WASM_SLEEP_TOTAL_LIMIT ||
+            ticks > WASM_SLEEP_TOTAL_LIMIT - wasm_sleep_ticks) {
+            trap("host sleep quota exceeded");
+            return s;
+        }
+        wasm_sleep_ticks += ticks;
+        if (ticks) k_sleep(ticks);
+    }
     else if (id == IMP_TICKS) r = k_ticks();
     else if (id == IMP_EXIT) { exit_req = 1; exit_code = (int)a[0]; }
-    else if (id == IMP_GFX_CREATE) { fbw = (u32)a[0]; fbh = (u32)a[1]; fb = (fbw && fbh && fbw <= 1024 && fbh <= 768) ? k_gfx_create(fbw, fbh) : 0; r = fb ? 0 : (u64)-1; }
+    else if (id == IMP_GFX_CREATE) {
+        fbw = (u32)a[0]; fbh = (u32)a[1];
+        u64 bytes = (u64)fbw * fbh * 4u;
+        if (!wasm_gfx_created && fbw && fbh && fbw <= 1024 && fbh <= 768 && bytes <= MAXMEM)
+            fb = k_gfx_create(fbw, fbh);
+        if (fb) wasm_gfx_created = 1;
+        else { fbw = 0; fbh = 0; }
+        r = fb ? 0 : (u64)-1;
+    }
     else if (id == IMP_GFX_PRESENT) {
         u32 p = (u32)a[0];
         if (!fb) r = (u64)-1;
         else {
+            if (wasm_gfx_frames >= WASM_GFX_FRAME_LIMIT) {
+                trap("graphics frame quota exceeded");
+                return s;
+            }
             if ((u64)p + (u64)fbw * fbh * 4 > lim) { trap("memory access out of bounds"); return s; }
+            wasm_gfx_frames++;
             u32 n = fbw * fbh, i = 0;
-            for (; i + 1 < n; i += 2) st64((u8*)(fb + i), ld64(mem + p + 4 * i));           /* по 8 байт: кадр копируется вдвое быстрее */
+            for (; i + 1 < n; i += 2) st64((u8*)(fb + i), ld64(mem + p + 4 * i));
             if (i < n) fb[i] = ld32(mem + p + 4 * i);
             k_gfx_present();
-            k_yield();                                            /* кадр отдан композитору: пусть интерфейс успеет, даже если следующий кадр считается долго */
+            k_yield();
         }
     } else if (id == IMP_GFX_EVENT) {
         u32 p = (u32)a[0]; kevent_t e;
@@ -1134,12 +1181,8 @@ static u64* host_call(u32 id, const ftype_t* t, u64* s) {
 
 /* Результат производящей команды: биты слова 15 (TF) - записать ещё и в локальную (номер - последнее слово команды),
    14 (PF) - снять результат со стека (local.tee / local.set, слитые с производящей командой). */
-#ifdef WASM_FUEL                                                  /* только хост-тест с испорченными модулями: счётчик команд против зацикливания */
 static u64 wasm_fuel;
-#define FUEL_TICK do { if (!--wasm_fuel) { trap("fuel exhausted"); return; } } while (0)
-#else
-#define FUEL_TICK do { } while (0)
-#endif
+#define FUEL_TICK do { if (!wasm_fuel || !--wasm_fuel) { trap("fuel exhausted"); return; } } while (0)
 /* Кванты времени: раз в SLICE_TICKS переходов назад и вызовов проверяется часы; если процессор не отдавался дольше SLICE_NS,
    программа уступает его (k_yield) - окна и интерфейс не голодают, даже когда модуль считает кадр секундами. */
 #ifdef WASM_FUEL
@@ -1150,10 +1193,6 @@ static u64 wasm_fuel;
 #define SLICE_NS 4000000ull
 static u64 slice_t0;
 static int wasm_slice(void) {
-#ifdef WASM_FUEL
-    if (wasm_fuel <= SLICE_TICKS * 64u) { wasm_fuel = 0; trap("fuel exhausted"); return 1; }
-    wasm_fuel -= SLICE_TICKS * 64u;
-#endif
     u64 now = k_clock_ns();
     if (now - slice_t0 > SLICE_NS) { k_yield(); slice_t0 = k_clock_ns(); }
     return 0;
@@ -1420,6 +1459,12 @@ oob:
 
 int umain(void) {
     char path[128];
+    if (!wasm_fuel) wasm_fuel = WASM_DEFAULT_FUEL;
+    wasm_host_calls = 0;
+    wasm_output_bytes = 0;
+    wasm_sleep_ticks = 0;
+    wasm_gfx_frames = 0;
+    wasm_gfx_created = 0;
     if (k_grant_name(path, sizeof path) <= 0) { say("wasm: usage: wasm /path/module.wasm (or double click in Files)\n"); return 1; }
     i64 sz = k_grant_size();
     if (sz <= 0 || sz > (8 << 20)) { say("wasm: module not readable or larger than 8 MB\n"); return 1; }
