@@ -375,3 +375,5 @@
 - ABI registry follow-up: canonical syscall IDs now live in `kcc/include/syscall_numbers.h`; kernel forwarding header and both userland/KCC public headers consume it. This removes duplicated numeric syscall assignments from public wrappers.
 
 - Corrected ISA ownership: moved x86 `kernel_main` and boot coordinator into `arch/x86_64/`; moved the boot-init declaration into an x86-private header and removed it from common `kernel.h`. ARM64 entry remains separate.
+
+- Service-boundary refinement: the router `syscall_services.c` is now subsystem-agnostic. Graphics, filesystem, network, audio and clock syscalls have separate adapter translation units. Both x86-64 and ARM64 build manifests include all adapters; architecture tests enforce one owner per service syscall ID.
