@@ -362,7 +362,7 @@ int iommu_arm64_init(const void* fdt, int pci_host_node)
         fdt_reg(fdt, first_smmu_node, 0, &smmu_base, &smmu_size) != 0 ||
         smmu_size < ARM_SMMU_REG_BYTES) {
         arm_map_invalid = 1u;
-        uart_print("[KIRA SMMU] mapped SMMUv3 node has no valid register range.\n");
+        uart_print("[KIRA SMMU] iommu-map target is not an enabled SMMUv3 node or has no register range.\n");
         return IOMMU_E_ARG;
     }
 
