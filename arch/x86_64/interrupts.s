@@ -487,8 +487,8 @@ IRQV 28
 IRQV 29
 IRQV 30
 IRQV 31
-global irq_vector_stub_table
-irq_vector_stub_table:
+global irq_vector_entry_table
+irq_vector_entry_table:
     dq irqv0, irqv1, irqv2, irqv3, irqv4, irqv5, irqv6, irqv7
     dq irqv8, irqv9, irqv10, irqv11, irqv12, irqv13, irqv14, irqv15
     dq irqv16, irqv17, irqv18, irqv19, irqv20, irqv21, irqv22, irqv23
