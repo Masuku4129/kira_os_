@@ -381,3 +381,29 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-global-mutable-") as td:
         print(run.stdout)
         raise SystemExit(1)
     print("PASS: mutable global.set remains supported")
+
+# Truncated block types and floating constants must be rejected without
+# reading beyond the function body's one-past-end pointer.
+truncated_immediate_modules = [
+    ("block-type", b"\\x0a\\x04\\x01\\x02\\x00\\x02", "truncated block type"),
+    ("f32-constant", b"\\x0a\\x06\\x01\\x04\\x00\\x43\\x00\\x00", "truncated f32.const"),
+    ("f64-constant", b"\\x0a\\x07\\x01\\x05\\x00\\x44\\x00\\x00\\x00", "truncated f64.const"),
+]
+for name, code_section, expected in truncated_immediate_modules:
+    module = (
+        magic +
+        b"\\x01\\x04\\x01\\x60\\x00\\x00" +
+        b"\\x03\\x02\\x01\\x00" +
+        b"\\x07\\x09\\x01\\x05kmain\\x00\\x00" +
+        code_section
+    )
+    with tempfile.TemporaryDirectory(prefix="kira-wasm-truncated-imm-") as td:
+        path = pathlib.Path(td) / (name + ".wasm")
+        path.write_bytes(module)
+        run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, env=test_env)
+        if run.returncode == 0 or expected not in run.stdout:
+            print("FAIL: truncated " + name + " immediate was not rejected")
+            print(run.stdout)
+            raise SystemExit(1)
+        print("PASS: truncated " + name + " immediate is rejected")
