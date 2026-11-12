@@ -392,8 +392,8 @@ static void schedule_locked(void) {
     next->switches_in++;
     total_switches++;
     cpu->switches++;
-    next->on_cpu = 1;
     next->last_cpu = cpu->cpu_id;
+    next->on_cpu = 1;
     cpu->current = next;
     cpu->switch_from = prev;
     // Состояние x87/SSE принадлежит потоку, а не ядру: сохранить своё, загрузить чужое.
