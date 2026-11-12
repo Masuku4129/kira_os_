@@ -12,14 +12,14 @@ typedef struct {
     SB *out;
 } IRState;
 static IRState *irs;
-#define ihead (irs->ihead)
-#define itail (irs->itail)
-#define ir_nreg (irs->reg_count)
-#define ir_nlab (irs->label_count)
-#define fn (irs->fn)
-#define ltail (irs->ltail)
-#define maxslot (irs->maxslot)
-#define out (irs->out)
+#define ihead (irs[0].ihead)
+#define itail (irs[0].itail)
+#define ir_nreg (irs[0].reg_count)
+#define ir_nlab (irs[0].label_count)
+#define fn (irs[0].fn)
+#define ltail (irs[0].ltail)
+#define maxslot (irs[0].maxslot)
+#define out (irs[0].out)
 
 static Ins *emit(IrOp op) {
     Ins *i = ka_new(sizeof *i);
