@@ -14,7 +14,7 @@ cases = [
     ("nonzero-version-reserved-byte", magic[:7] + b"\x01", "not a WebAssembly 1.0 module"),
     ("section-length-past-end", magic + b"\x01\x7f", "section past end"),
     ("maximum-section-length-past-end", magic + b"\x01\xff\xff\xff\xff\x0f", "section past end"),
-    ("truncated-section-length-leb", magic + b"\x01\x80", "bad LEB128"),
+    ("truncated-section-length-leb", magic + b"\x01\x80", "bad unsigned LEB128"),
     ("duplicate-type-section", magic + b"\x01\x01\x00" + b"\x01\x01\x00",
      "duplicate WebAssembly section"),
     ("sections-out-of-order", magic + b"\x02\x01\x00" + b"\x01\x01\x00",
