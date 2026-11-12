@@ -21,8 +21,8 @@ OP = {
     "jmp": 21, "jz": 22, "jnz": 23, "call": 24, "ret": 25, "syscall": 26,
 }
 CAP = {"console": 0, "ticks": 1, "yield": 2}
-REG = re.compile(r"r(1[0-5]|[0-9])\\Z")
-LABEL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\\Z")
+REG = re.compile(r"r(1[0-5]|[0-9])\Z")
+LABEL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 MAX_MODULE = 16 * 1024 * 1024
 MAX_PAGES = 4096
 
@@ -34,7 +34,7 @@ def _strip_comment(line: str) -> str:
         if quote:
             if escaped:
                 escaped = False
-            elif ch == "\\\\":
+            elif ch == "\\":
                 escaped = True
             elif ch == quote:
                 quote = None
@@ -90,7 +90,7 @@ def assemble(source: str) -> bytes:
         if not line:
             continue
         try:
-            label_match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\\s*(.*))?$", line)
+            label_match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s*(.*))?$", line)
             if label_match:
                 label, rest = label_match.group(1), label_match.group(2) or ""
                 if in_data:
