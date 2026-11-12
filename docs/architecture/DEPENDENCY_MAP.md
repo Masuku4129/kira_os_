@@ -110,3 +110,6 @@ The FDT-described PCIe host bridge is now a separate architecture backend: `arch
 `arch/aarch64/main.c` owns only the ordered `arm_pci_init()` handoff. `arch/aarch64/pci_host.c` validates the FDT host node, bus-range and ECAM physical span, maps only the declared ECAM bus span and owns PCI initialization order. `arch/aarch64/pci_host_parse.c` is a pure parser for the PCI host `ranges` property; it validates PCI child cell geometry, parent/size cell counts, tuple boundaries, arithmetic bounds and representability of the signed CPU-to-PCI offset. The parser is host-testable and does not access MMIO or mutate PCI state.
 
 The parser/build/test integration is not considered verified until exact-head ARM64 and host CI complete. This contract does not enable x86 PCI enumeration and does not remove the DMA/IOMMU security gates (F-013–F-015, F-018).
+
+
+The current PCI core enumerates from bus 0; therefore the ARM64 host bridge rejects nonzero `bus-range` starts until a range-aware PCI core API is implemented. The ECAM physical base must be 1-MiB aligned. These are explicit current contract limits, not silently assumed support.
