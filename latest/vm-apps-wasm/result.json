@@ -1,0 +1,40 @@
+{
+ "name": "apps-wasm",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "wasm: /wasm/wtest\\.wasm - \\d+ functions",
+   "ok": true
+  },
+  {
+   "log": "wtest:\\ fib\\(24\\)=46368\\ primes<20000=2262\\ sort=ad642057dcc4b702\\ switch=4148393079\\ ops=ba422c8d525a9aea\\ sext=269715",
+   "ok": false
+  }
+ ],
+ "error": "в журнале нет «wtest:\\ fib\\(24\\)=46368\\ primes<20000=2262\\ sort=ad642057dcc4b702\\ switch=4148393079\\ ops=ba422c8d525a9aea\\ sext=269715»",
+ "boot_seconds": 5.4,
+ "seconds": 11.3,
+ "commands": [
+  {
+   "cmd": "wasm /wasm/wtest.wasm",
+   "seconds": 0.01
+  }
+ ]
+}

@@ -1,0 +1,40 @@
+{
+ "name": "wasm-speed",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "wasm: x86-64 native code, \\d+ bytes \\(JIT\\)",
+   "ok": true
+  },
+  {
+   "log": "wgfx: frame0=0000000054f339aa frame30=000000000943d884",
+   "ok": false
+  }
+ ],
+ "error": "в журнале нет «wgfx: frame0=0000000054f339aa frame30=000000000943d884»",
+ "boot_seconds": 5.2,
+ "seconds": 13.0,
+ "commands": [
+  {
+   "cmd": "wasm /wasm/wgfx.wasm",
+   "seconds": 0.01
+  }
+ ]
+}
