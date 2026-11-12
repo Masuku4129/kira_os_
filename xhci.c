@@ -523,23 +523,39 @@ static int xhci_mask_pci_interrupts(const pci_dev_t* p) {
     return safe;
 }
 
-static void bios_handoff(volatile uint8_t* cap) {
+static int bios_handoff(volatile uint8_t* cap, uint64_t bar_size) {
     uint32_t xecp = (r32(cap, 0x10) >> 16) << 2;
-    for (int guard = 0; xecp && guard < 64; guard++) {
+    if (!xecp) return 0;
+    for (unsigned guard = 0; guard < 64; guard++) {
+        if ((xecp & 3u) || (uint64_t)xecp > bar_size || bar_size - xecp < 4)
+            return -1;
         uint32_t v = r32(cap, xecp);
-        if ((v & 0xFF) == 1) {                                         /* USB Legacy Support */
+        if ((v & 0xFFu) == 1u) {
+            if (bar_size - xecp < 8) return -1;
             if (v & (1u << 16)) {
-                w32(cap, xecp, v | (1u << 24));                        /* ОС забирает контроллер */
-                for (int i = 0; i < 100 && (r32(cap, xecp) & (1u << 16)); i++) usb_sleep_ms(10);
-                if (r32(cap, xecp) & (1u << 16)) { usb_log("[KIRA USB] xHCI: BIOS keeps the controller, taking it anyway\n"); w32(cap, xecp, (r32(cap, xecp) & ~(1u << 16)) | (1u << 24)); }
-            } else w32(cap, xecp, v | (1u << 24));
-            w32(cap, xecp + 4, (r32(cap, xecp + 4) & 0x001F1FEEu) | 0xE0000000u);   /* SMI выключить, флаги сбросить */
-            return;
+                w32(cap, xecp, v | (1u << 24));
+                for (unsigned i = 0; i < 100; i++) {
+                    if (!(r32(cap, xecp) & (1u << 16))) break;
+                    usb_sleep_ms(10);
+                }
+                if (r32(cap, xecp) & (1u << 16)) {
+                    usb_log("[KIRA USB] xHCI: BIOS ownership handoff timed out\n");
+                    return -1;
+                }
+            } else {
+                w32(cap, xecp, v | (1u << 24));
+            }
+            w32(cap, xecp + 4, (r32(cap, xecp + 4) & 0x001F1FEEu) | 0xE0000000u);
+            return 0;
         }
-        uint32_t next = (v >> 8) & 0xFF;
-        if (!next) break;
-        xecp += next << 2;
+        uint32_t next = (v >> 8) & 0xFFu;
+        if (!next) return 0;
+        uint64_t next_off = (uint64_t)xecp + (uint64_t)next * 4u;
+        if (next_off <= xecp || next_off > bar_size || bar_size - next_off < 4)
+            return -1;
+        xecp = (uint32_t)next_off;
     }
+    return -1;
 }
 
 int xhci_start(usb_hc_t* hc, const void* pd) {
@@ -560,13 +576,20 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     for (unsigned long i = 0; i < sizeof xs; i++) ((volatile uint8_t*)X)[i] = 0;   /* десятки КБ: не через временную копию на стеке */
     xs.cap = cap;
     uint32_t caplen = cap[0], hcs1 = r32(cap, 4), hcs2 = r32(cap, 8), hcc1 = r32(cap, 0x10);
-    xs.op = cap + caplen; xs.rt = cap + (r32(cap, 0x18) & ~0x1Fu); xs.db = (volatile uint32_t*)(cap + (r32(cap, 0x14) & ~3u));
+    uint32_t rt_off = r32(cap, 0x18) & ~0x1Fu;
+    uint32_t db_off = r32(cap, 0x14) & ~3u;
+    if (caplen < 0x20 || (caplen & 3u) || (uint64_t)caplen + 0x40u > sz ||
+        (uint64_t)rt_off + 0x40u > sz ||
+        (uint64_t)db_off + 4u * (MAXSLOT + 1u) > sz) {
+        usb_log("[KIRA USB] xHCI: capability or operational registers outside BAR\n");
+        return -1;
+    }
+    xs.op = cap + caplen; xs.rt = cap + rt_off; xs.db = (volatile uint32_t*)(cap + db_off);
     xs.maxslots = hcs1 & 0xFF; if (xs.maxslots > MAXSLOT) xs.maxslots = MAXSLOT;
     xs.nports = (hcs1 >> 24) & 0xFF;
     xs.ac64 = hcc1 & 1; xs.csz = (hcc1 & 4) ? 64 : 32;
-    if ((uint64_t)(xs.rt - cap) + 0x40 > sz || (uint64_t)((volatile uint8_t*)xs.db - cap) + 4 * (MAXSLOT + 1) > sz) { usb_log("[KIRA USB] xHCI: registers outside BAR\n"); return -1; }
 
-    bios_handoff(cap);
+    int handoff_ok = bios_handoff(cap, sz);
     w32(xs.op, 0, r32(xs.op, 0) & ~1u);                               /* стоп */
     for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     int halted = (r32(xs.op, 4) & 1u) != 0;
@@ -583,6 +606,10 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     }
     if (!halted) {
         usb_log("[KIRA USB] xHCI did not halt; PCI bus mastering disabled, controller quarantined\\n");
+        return -2;
+    }
+    if (!handoff_ok) {
+        usb_log("[KIRA USB] xHCI: invalid or incomplete BIOS ownership handoff; controller quarantined\n");
         return -2;
     }
     w32(xs.op, 0, 2u);                                                 /* HCRST */
