@@ -11,7 +11,8 @@ typedef struct {
     int maxslot;
     SB *out;
 } IRState;
-#define IRS ((IRState *)K.ir_state)
+static IRState *ir_context_state(void) { return K.ir_state; }
+#define IRS ir_context_state()
 #define ihead (IRS->ihead)
 #define itail (IRS->itail)
 #define ir_nreg (IRS->reg_count)
