@@ -396,6 +396,10 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
         return -1;
     }
 #endif
+    if (!pci_disable_bus_master(p)) {
+        usb_log("[KIRA USB] UHCI: inherited bus mastering cannot be disabled; controller quarantined\\n");
+        return -1;
+    }
     pci_enable(p, PCI_CMD_IO | PCI_CMD_INTX_OFF);
     pci_write16(p, 0xC0, 0x8F00);                     /* LEGSUP: BIOS больше не перехватывает USB (SMI, эмуляция PS/2) */
 
