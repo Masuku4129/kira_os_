@@ -12,6 +12,7 @@ int iommu_device_ready(const pci_dev_t* dev)
 #endif
 
 static uint32_t config[2][64];
+static int reject_command_writes;
 static uint8_t ecam_window[1u << 20] __attribute__((aligned(1u << 20)));
 
 static uint32_t read_cfg(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off)
@@ -24,8 +25,10 @@ static uint32_t read_cfg(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off)
 static void write_cfg(uint8_t bus, uint8_t dev, uint8_t fn,
                       uint16_t off, uint32_t value)
 {
-    if (bus == 0 && (dev == 1 || dev == 2) && fn == 0 && off < 256u)
+    if (bus == 0 && (dev == 1 || dev == 2) && fn == 0 && off < 256u) {
+        if (off == 0x04 && reject_command_writes) return;
         config[dev - 1u][off >> 2] = value;
+    }
 }
 
 #define CHECK(x) do { if (!(x)) { \
@@ -110,9 +113,16 @@ int main(void)
     test_iommu_ready = 1;
     pci_enable(dev, PCI_CMD_MASTER);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) != 0);
-    pci_disable_bus_master(dev);
+    CHECK(pci_disable_bus_master(dev) == 1);
+    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
     pci_write32(dev, 0x04, PCI_CMD_MASTER);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) != 0);
+    reject_command_writes = 1;
+    CHECK(pci_disable_bus_master(dev) == 0); /* hardware ignored the clear: caller must quarantine and pin DMA */
+    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) != 0);
+    reject_command_writes = 0;
+    CHECK(pci_disable_bus_master(dev) == 1);
+    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
 #endif
 
     ecam.first_bus = 6;
