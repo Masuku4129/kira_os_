@@ -328,8 +328,12 @@ static int overlaps(const idom_t* x, uint64_t first, uint32_t pages) {
     return 0;
 }
 
-static void undo_pages(idom_t* x, uint64_t first, uint32_t done) {
-    for (uint32_t i = 0; i < done; i++) (void)kira_vtd_domain_unmap_4k(&x->dom, first + ((uint64_t)i << 12), &G.plat);
+static int undo_pages(idom_t* x, uint64_t first, uint32_t done) {
+    int rc = IOMMU_OK;
+    for (uint32_t i = 0; i < done; i++)
+        if (kira_vtd_domain_unmap_4k(&x->dom, first + ((uint64_t)i << 12), &G.plat) != KIRA_VTD_OK)
+            rc = IOMMU_E_HW;
+    return rc;
 }
 
 int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, unsigned rw) {
@@ -352,8 +356,23 @@ int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, un
             int hr = kira_vtd_domain_map_4k(&x->dom, first + ((uint64_t)i << 12), pfirst + ((uint64_t)i << 12), perm, &G.plat);
             if (hr != KIRA_VTD_OK) { rc = hr == KIRA_VTD_MEMORY_FAILED ? IOMMU_E_NOMEM : IOMMU_E_HW; break; }
         }
-        if (rc != IOMMU_OK) undo_pages(x, first, i + 1u > pages ? pages : i + 1u);   /* the failing page may have been installed before its flush failed */
-        else { x->maps[x->nmaps].iova = first; x->maps[x->nmaps].pages = pages; x->maps[x->nmaps].rw = rw; x->nmaps++; }
+        if (rc != IOMMU_OK) {
+            uint32_t touched = i + 1u > pages ? pages : i + 1u;
+            /* If rollback cannot confirm every IOTLB invalidation, retain a
+               retryable range record. The caller must keep its backing pages. */
+            if (undo_pages(x, first, touched) != IOMMU_OK) {
+                x->maps[x->nmaps].iova = first;
+                x->maps[x->nmaps].pages = pages;
+                x->maps[x->nmaps].rw = rw;
+                x->nmaps++;
+                rc = IOMMU_E_HW;
+            }
+        } else {
+            x->maps[x->nmaps].iova = first;
+            x->maps[x->nmaps].pages = pages;
+            x->maps[x->nmaps].rw = rw;
+            x->nmaps++;
+        }
     }
     spin_unlock_irqrestore(&G.lock, f);
     return rc;
@@ -362,7 +381,7 @@ int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, un
 int iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len) {
     uint64_t first; uint32_t pages;
     if (!d) return IOMMU_E_ARG;
-    if (!G.active) return IOMMU_E_NONE;
+    if (!G.active) return IOMMU_OK;
     if (range_pages(iova, len, &first, &pages) != 0) return IOMMU_E_RANGE;
     int rc = IOMMU_E_NOENT;
     uint64_t f = spin_lock_irqsave(&G.lock);
@@ -371,23 +390,33 @@ int iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len) {
         if (x->maps[i].iova != first || x->maps[i].pages != pages) continue;
         rc = IOMMU_OK;
         for (uint32_t p = 0; p < pages; p++)
-            if (kira_vtd_domain_unmap_4k(&x->dom, first + ((uint64_t)p << 12), &G.plat) != KIRA_VTD_OK) rc = IOMMU_E_HW;
-        x->maps[i] = x->maps[--x->nmaps];
+            if (kira_vtd_domain_unmap_4k(&x->dom, first + ((uint64_t)p << 12), &G.plat) != KIRA_VTD_OK)
+                rc = IOMMU_E_HW;
+        /* Keep the ledger entry on any uncertain invalidation so the caller
+           cannot release the backing pages and a later retry can flush again. */
+        if (rc == IOMMU_OK) x->maps[i] = x->maps[--x->nmaps];
         break;
     }
     spin_unlock_irqrestore(&G.lock, f);
     return rc;
 }
 
-void iommu_unmap_all(const pci_dev_t* d) {
-    if (!d || !G.active) return;
+int iommu_unmap_all(const pci_dev_t* d) {
+    if (!d || !G.active) return IOMMU_OK;
+    int overall = IOMMU_OK;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
-    while (x && x->nmaps) {
-        imap_t m = x->maps[--x->nmaps];
-        for (uint32_t p = 0; p < m.pages; p++) (void)kira_vtd_domain_unmap_4k(&x->dom, m.iova + ((uint64_t)p << 12), &G.plat);
+    for (uint32_t i = 0; x && i < x->nmaps;) {
+        imap_t m = x->maps[i];
+        int rc = IOMMU_OK;
+        for (uint32_t p = 0; p < m.pages; p++)
+            if (kira_vtd_domain_unmap_4k(&x->dom, m.iova + ((uint64_t)p << 12), &G.plat) != KIRA_VTD_OK)
+                rc = IOMMU_E_HW;
+        if (rc == IOMMU_OK) x->maps[i] = x->maps[--x->nmaps];
+        else { overall = IOMMU_E_HW; i++; }
     }
     spin_unlock_irqrestore(&G.lock, f);
+    return overall;
 }
 
 /* ---- Faults ---- */
