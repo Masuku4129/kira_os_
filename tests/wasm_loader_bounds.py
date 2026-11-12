@@ -40,6 +40,27 @@ cases = [
     ("constant-expression-global-index-out-of-range",
      magic + b"\x06\x06\x01\x7f\x00\x23\x00\x0b",
      "constant expression global index out of range"),
+    ("section-size-u32-overflow",
+     magic + b"\x01\xff\xff\xff\xff\x10",
+     "bad unsigned LEB128"),
+    ("section-size-u32-too-long",
+     magic + b"\x01\x80\x80\x80\x80\x80\x00",
+     "bad unsigned LEB128"),
+    ("function-i32-const-signed-overflow",
+     magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
+     b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x00" +
+     b"\x0a\x0a\x01\x08\x00\x41\x80\x80\x80\x80\x08\x0b",
+     "bad signed LEB128"),
+    ("unreachable-function-signed-immediate-overflow",
+     magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
+     b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x00" +
+     b"\x0a\x0b\x01\x09\x00\x00\x41\x80\x80\x80\x80\x08\x0b",
+     "bad signed LEB128"),
+    ("call-indirect-nonzero-table-index",
+     magic + b"\x01\x04\x01\x60\x00\x00" +
+     b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x00" +
+     b"\x0a\x09\x01\x07\x00\x41\x00\x11\x00\x01\x0b",
+     "unsupported call_indirect table index"),
     ("function-body-past-code-section",
      magic + b"\x01\x04\x01\x60\x00\x00" +
      b"\x03\x02\x01\x00" + b"\x0a\x02\x01\x7f",
