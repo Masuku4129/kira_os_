@@ -1,9 +1,17 @@
 name: kira
 
+# A branch with an open PR is verified by pull_request, not by a duplicate push
+# run. New commits supersede older runs for the same PR/branch.
+concurrency:
+  group: kira-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 on:
   push:
+    branches: [main, stable]
     paths-ignore: ['docs/**', '**.md']        # только документы - стенд не нужен
   pull_request:
+    paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
 
 jobs:
