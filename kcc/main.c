@@ -78,7 +78,11 @@ int main(int argc, char **argv) {
     } else if (fwrite(r.elf, 1, r.elflen, o) != r.elflen) {
         write_error = 1;
     }
-    if (outp && fclose(o) != 0) write_error = 1;
+    if (outp) {
+        if (fclose(o) != 0) write_error = 1;
+    } else if (fflush(o) != 0) {
+        write_error = 1;
+    }
     if (write_error) {
         fprintf(stderr, "kcc: write error on '%s'\n", outp ? outp : "stdout");
         return 2;
