@@ -53,7 +53,8 @@ int iommu_map(const pci_dev_t* dev, uint64_t iova, uint64_t phys, uint64_t len, 
 /* Remove exactly one earlier iommu_map (same set of pages). The IOTLB is
    invalidated before it returns, so the memory may be reused afterwards. */
 int iommu_unmap(const pci_dev_t* dev, uint64_t iova, uint64_t len);
-void iommu_unmap_all(const pci_dev_t* dev);
+/* Retry every tracked unmap; nonzero means at least one mapping remains pinned. */
+int iommu_unmap_all(const pci_dev_t* dev);
 
 /* Collect hardware fault records, log each as one line. Returns the number consumed. */
 int iommu_fault_poll(void);
@@ -95,9 +96,10 @@ static inline int iommu_unmap(const pci_dev_t* dev, uint64_t iova, uint64_t len)
     (void)dev; (void)iova; (void)len;
     return IOMMU_E_NONE;
 }
-static inline void iommu_unmap_all(const pci_dev_t* dev)
+static inline int iommu_unmap_all(const pci_dev_t* dev)
 {
     (void)dev;
+    return IOMMU_E_NONE;
 }
 static inline int iommu_fault_poll(void)
 {
