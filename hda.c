@@ -224,7 +224,7 @@ int hda_probe(void) {
        transitions are not yet explicit, so reject non-coherent ARM64 rather
        than DMA through cacheable or unsynchronized memory. */
     if (platform_dma_noncoherent && platform_dma_noncoherent()) {
-        uart_print("[KIRA HDA] disabled; DMA ownership sync is not validated on non-coherent ARM64.\\n");
+        uart_print("[KIRA HDA] disabled; DMA ownership sync is not validated on non-coherent ARM64.\n");
         return -6;
     }
     if (p->bar[0].io || !p->bar[0].base) return -2;
