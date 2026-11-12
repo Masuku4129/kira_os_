@@ -401,12 +401,19 @@ int iommu_unmap_all(const pci_dev_t* d) {
     int overall = IOMMU_OK;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
-    for (uint32_t i = 0; x && i < x->nmaps;) {
-        imap_t m = x->maps[i];
-        int rc = kira_vtd_domain_unmap_range(&x->dom, m.iova, m.pages, &G.plat) == KIRA_VTD_OK
-                 ? IOMMU_OK : IOMMU_E_HW;
-        if (rc == IOMMU_OK) x->maps[i] = x->maps[--x->nmaps];
-        else { overall = IOMMU_E_HW; i++; }
+    if (x && x->nmaps) {
+        struct kira_vtd_range ranges[IOMMU_MAX_MAPS];
+        uint32_t count = x->nmaps;
+        for (uint32_t i = 0; i < count; ++i) {
+            ranges[i].iova = x->maps[i].iova;
+            ranges[i].pages = x->maps[i].pages;
+        }
+        /* A failed batch invalidation leaves every ledger entry pinned. Retry
+           the complete batch later; never release one backing page early. */
+        if (kira_vtd_domain_unmap_ranges(&x->dom, ranges, count, &G.plat) == KIRA_VTD_OK)
+            x->nmaps = 0;
+        else
+            overall = IOMMU_E_HW;
     }
     spin_unlock_irqrestore(&G.lock, f);
     return overall;
