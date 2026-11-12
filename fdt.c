@@ -292,13 +292,12 @@ int fdt_prop_u32(const void* fdt, int node, const char* name, uint32_t* out) {
     return 0;
 }
 
-int fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* size) {
+int fdt_reg(const void* fdt, uint32_t max_len, int node, unsigned idx, uint64_t* addr, uint64_t* size) {
     if (!fdt || node < 0 || (!addr && !size)) return -1;
     /* A malformed property length can make fdt_prop() stop before finding a
        present cell-width property; without validating the token stream that
        would be mistaken for an absent property and trigger a default. */
-    uint32_t total = fdt_total_size(fdt);
-    if (!total || !fdt_tree_valid(fdt, total)) return -1;
+    if (!fdt_tree_valid(fdt, max_len)) return -1;
     int par = fdt_parent(fdt, node);
     uint32_t ac = 2, sc = 1;                   /* значения по умолчанию спецификации */
     if (par >= 0) {
@@ -358,14 +357,14 @@ int fdt_find_enabled_compatible(const void* fdt, int after, const char* compat) 
     return -1;
 }
 
-int fdt_simplefb(const void* fdt, fdt_fb_t* fb) {
+int fdt_simplefb(const void* fdt, uint32_t max_len, fdt_fb_t* fb) {
     if (!fdt || !fb) return -2;
     int n = -1;
     do n = fdt_find_compatible(fdt, n, "simple-framebuffer"); while (n >= 0 && !fdt_node_enabled(fdt, n));
     if (n < 0) return -1;
     uint32_t len;
     const char* f = (const char*)fdt_prop(fdt, n, "format", &len);
-    if (fdt_reg(fdt, n, 0, &fb->base, &fb->size) || fdt_prop_u32(fdt, n, "width", &fb->width) ||
+    if (fdt_reg(fdt, max_len, n, 0, &fb->base, &fb->size) || fdt_prop_u32(fdt, n, "width", &fb->width) ||
         fdt_prop_u32(fdt, n, "height", &fb->height) || fdt_prop_u32(fdt, n, "stride", &fb->stride) || !f || !len) return -2;
     unsigned k = slen0(f, len);
     if (k >= sizeof fb->format || k + 1 != len) return -2;
