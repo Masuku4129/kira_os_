@@ -23,7 +23,8 @@ void arm_pci_init(const void* fdt, arm_pci_log_fn log) {
 
     uint64_t base, size;
     if (fdt_reg(fdt, n, 0, &base, &size) || !size ||
-        base > UINT64_MAX - size || size < (1ULL << 20)) {
+        base > UINT64_MAX - size || size < (1ULL << 20) ||
+        (base & ((1ULL << 20) - 1))) {
         if (log) log("[KIRA PCI] invalid ECAM region; PCI initialization skipped\n");
         return;
     }
