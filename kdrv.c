@@ -540,7 +540,7 @@ static void release(bind_t* b) {
             b->dead_at = timer_get_ticks();
             uart_print("[KIRA DRV] "); uart_print(b->name);
             uart_print(": IOMMU domain teardown failed; DMA pages remain pinned and device quarantined (");
-            uart_print_dec((uint64_t)(-irc)); uart_print(")\\n");
+            uart_print_dec((uint64_t)(-irc)); uart_print(")\n");
             return;
         }
         b->iommu_bound = 0;
@@ -549,7 +549,7 @@ static void release(bind_t* b) {
     if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
     uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": возвращено памяти DMA и колец "); uart_print_dec(got); uart_print(" из ");
     uart_print_dec(want); uart_print(" стр., отображений устройства и DMA снято "); uart_print_dec(b->nmap + b->ndma);
-    uart_print(got == want ? ", утечек нет\\n" : ", УТЕЧКА\\n");
+    uart_print(got == want ? ", утечек нет\n" : ", УТЕЧКА\n");
     b->ndma = 0; b->dma_pages = 0; b->net_pages = 0; b->nmap = 0; b->ctl = 0;
     uint64_t f = spin_lock_irqsave(&klock);
     b->state = B_FREE;                              /* устройство снова можно отдать драйверу */
