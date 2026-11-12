@@ -324,11 +324,11 @@ print("wasm loader bounds: all malformed envelopes rejected")
 # must reject the module during validation, not defer it to execution.
 immutable_global_set_module = (
     magic +
-    b"\\x01\\x04\\x01\\x60\\x00\\x00" +
-    b"\\x03\\x02\\x01\\x00" +
-    b"\\x06\\x06\\x01\\x7f\\x00\\x41\\x00\\x0b" +
-    b"\\x07\\x09\\x01\\x05kmain\\x00\\x00" +
-    b"\\x0a\\x08\\x01\\x06\\x00\\x41\\x01\\x24\\x00\\x0b"
+    b"\x01\x04\x01\x60\x00\x00" +
+    b"\x03\x02\x01\x00" +
+    b"\x06\x06\x01\x7f\x00\x41\x00\x0b" +
+    b"\x07\x09\x01\x05kmain\x00\x00" +
+    b"\x0a\x08\x01\x06\x00\x41\x01\x24\x00\x0b"
 )
 with tempfile.TemporaryDirectory(prefix="kira-wasm-global-mutability-") as td:
     path = pathlib.Path(td) / "immutable-global-set.wasm"
@@ -345,11 +345,11 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-global-mutability-") as td:
 # must not let malformed instructions hide behind an unconditional trap.
 immutable_global_set_unreachable_module = (
     magic +
-    b"\\x01\\x04\\x01\\x60\\x00\\x00" +
-    b"\\x03\\x02\\x01\\x00" +
-    b"\\x06\\x06\\x01\\x7f\\x00\\x41\\x00\\x0b" +
-    b"\\x07\\x09\\x01\\x05kmain\\x00\\x00" +
-    b"\\x0a\\x07\\x01\\x05\\x00\\x00\\x24\\x00\\x0b"
+    b"\x01\x04\x01\x60\x00\x00" +
+    b"\x03\x02\x01\x00" +
+    b"\x06\x06\x01\x7f\x00\x41\x00\x0b" +
+    b"\x07\x09\x01\x05kmain\x00\x00" +
+    b"\x0a\x07\x01\x05\x00\x00\x24\x00\x0b"
 )
 with tempfile.TemporaryDirectory(prefix="kira-wasm-global-unreachable-") as td:
     path = pathlib.Path(td) / "immutable-global-set-unreachable.wasm"
@@ -365,11 +365,11 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-global-unreachable-") as td:
 # Mutable globals remain writable; this is a positive regression case.
 mutable_global_set_module = (
     magic +
-    b"\\x01\\x04\\x01\\x60\\x00\\x00" +
-    b"\\x03\\x02\\x01\\x00" +
-    b"\\x06\\x06\\x01\\x7f\\x01\\x41\\x00\\x0b" +
-    b"\\x07\\x09\\x01\\x05kmain\\x00\\x00" +
-    b"\\x0a\\x08\\x01\\x06\\x00\\x41\\x01\\x24\\x00\\x0b"
+    b"\x01\x04\x01\x60\x00\x00" +
+    b"\x03\x02\x01\x00" +
+    b"\x06\x06\x01\x7f\x01\x41\x00\x0b" +
+    b"\x07\x09\x01\x05kmain\x00\x00" +
+    b"\x0a\x08\x01\x06\x00\x41\x01\x24\x00\x0b"
 )
 with tempfile.TemporaryDirectory(prefix="kira-wasm-global-mutable-") as td:
     path = pathlib.Path(td) / "mutable-global-set.wasm"
@@ -385,16 +385,16 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-global-mutable-") as td:
 # Truncated block types and floating constants must be rejected without
 # reading beyond the function body's one-past-end pointer.
 truncated_immediate_modules = [
-    ("block-type", b"\\x0a\\x04\\x01\\x02\\x00\\x02", "truncated block type"),
-    ("f32-constant", b"\\x0a\\x06\\x01\\x04\\x00\\x43\\x00\\x00", "truncated f32.const"),
-    ("f64-constant", b"\\x0a\\x07\\x01\\x05\\x00\\x44\\x00\\x00\\x00", "truncated f64.const"),
+    ("block-type", b"\x0a\x04\x01\x02\x00\x02", "truncated block type"),
+    ("f32-constant", b"\x0a\x06\x01\x04\x00\x43\x00\x00", "truncated f32.const"),
+    ("f64-constant", b"\x0a\x07\x01\x05\x00\x44\x00\x00\x00", "truncated f64.const"),
 ]
 for name, code_section, expected in truncated_immediate_modules:
     module = (
         magic +
-        b"\\x01\\x04\\x01\\x60\\x00\\x00" +
-        b"\\x03\\x02\\x01\\x00" +
-        b"\\x07\\x09\\x01\\x05kmain\\x00\\x00" +
+        b"\x01\x04\x01\x60\x00\x00" +
+        b"\x03\x02\x01\x00" +
+        b"\x07\x09\x01\x05kmain\x00\x00" +
         code_section
     )
     with tempfile.TemporaryDirectory(prefix="kira-wasm-truncated-imm-") as td:
