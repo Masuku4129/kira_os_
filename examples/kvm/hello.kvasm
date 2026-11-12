@@ -1,0 +1,11 @@
+; Minimal portable KVM1 program. Open hello.kvm in the KIRA file manager.
+.memory 1
+.caps console
+.entry main
+main:
+    const r0, 0
+    const r1, 20
+    syscall 0, console
+    halt
+.data
+.ascii "Hello from KIRA VM!\n"
