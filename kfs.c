@@ -91,7 +91,16 @@ static struct {
 
 static int rd(uint64_t sec, uint32_t n, void* b) { return fs.dev->read(fs.dev, fs.base + sec, n, b) == 0 ? 0 : KFS_ERR_IO; }
 static int wr(uint64_t sec, uint32_t n, const void* b) { return fs.dev->write(fs.dev, fs.base + sec, n, b) == 0 ? 0 : KFS_ERR_IO; }
-static int flush(void) { return fs.dev->flush && fs.dev->flush(fs.dev) == 0 ? 0 : KFS_ERR_IO; }
+/* A failed persistence barrier leaves metadata durability unknown. Stop serving this
+   mount immediately: callers must remount and rebuild allocation state from disk
+   before any later operation can reuse blocks whose commit status is uncertain. */
+static int flush(void) {
+    if (!fs.dev || !fs.dev->flush || fs.dev->flush(fs.dev) != 0) {
+        fs.mounted = 0;
+        return KFS_ERR_IO;
+    }
+    return 0;
+}
 static int rd_block(uint32_t b, void* buf) { return rd((uint64_t)b * SPB, SPB, buf); }
 static int wr_block(uint32_t b, const void* buf) {
     if (b == fs.pc_no) fs.pc_no = 0;                              /* кэш указателей больше не верен */
