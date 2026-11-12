@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#define KIRA_NO_HEAP_GROW 1
 #include "userland/kdrv_bsd.h"
 
 static uint8_t heap[16384] __attribute__((aligned(16)));
