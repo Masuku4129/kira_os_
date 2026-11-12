@@ -329,11 +329,8 @@ static int overlaps(const idom_t* x, uint64_t first, uint32_t pages) {
 }
 
 static int undo_pages(idom_t* x, uint64_t first, uint32_t done) {
-    int rc = IOMMU_OK;
-    for (uint32_t i = 0; i < done; i++)
-        if (kira_vtd_domain_unmap_4k(&x->dom, first + ((uint64_t)i << 12), &G.plat) != KIRA_VTD_OK)
-            rc = IOMMU_E_HW;
-    return rc;
+    return kira_vtd_domain_unmap_range(&x->dom, first, done, &G.plat) == KIRA_VTD_OK
+           ? IOMMU_OK : IOMMU_E_HW;
 }
 
 int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, unsigned rw) {
@@ -388,10 +385,8 @@ int iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len) {
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
     for (uint32_t i = 0; x && i < x->nmaps; i++) {
         if (x->maps[i].iova != first || x->maps[i].pages != pages) continue;
-        rc = IOMMU_OK;
-        for (uint32_t p = 0; p < pages; p++)
-            if (kira_vtd_domain_unmap_4k(&x->dom, first + ((uint64_t)p << 12), &G.plat) != KIRA_VTD_OK)
-                rc = IOMMU_E_HW;
+        rc = kira_vtd_domain_unmap_range(&x->dom, first, pages, &G.plat) == KIRA_VTD_OK
+             ? IOMMU_OK : IOMMU_E_HW;
         /* Keep the ledger entry on any uncertain invalidation so the caller
            cannot release the backing pages and a later retry can flush again. */
         if (rc == IOMMU_OK) x->maps[i] = x->maps[--x->nmaps];
@@ -408,10 +403,8 @@ int iommu_unmap_all(const pci_dev_t* d) {
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
     for (uint32_t i = 0; x && i < x->nmaps;) {
         imap_t m = x->maps[i];
-        int rc = IOMMU_OK;
-        for (uint32_t p = 0; p < m.pages; p++)
-            if (kira_vtd_domain_unmap_4k(&x->dom, m.iova + ((uint64_t)p << 12), &G.plat) != KIRA_VTD_OK)
-                rc = IOMMU_E_HW;
+        int rc = kira_vtd_domain_unmap_range(&x->dom, m.iova, m.pages, &G.plat) == KIRA_VTD_OK
+                 ? IOMMU_OK : IOMMU_E_HW;
         if (rc == IOMMU_OK) x->maps[i] = x->maps[--x->nmaps];
         else { overall = IOMMU_E_HW; i++; }
     }
