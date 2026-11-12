@@ -11,8 +11,11 @@ struct IRState {
     int maxslot;
     SB *out;
 };
-static struct IRState *kcc_ir_state_context(void) { return K.ir_state; }
-#define IRS (kcc_ir_state_context())
+/* The active alias is refreshed at each public IR entry point. KCtx owns the storage;
+ * this alias keeps the self-hosted parser's supported C subset (no call-result -> member).
+ * K itself is currently process-global, so this does not reduce existing concurrency guarantees. */
+static struct IRState *irs;
+#define IRS (irs)
 #define ihead (IRS->ihead)
 #define itail (IRS->itail)
 #define ir_nreg (IRS->reg_count)
@@ -732,6 +735,7 @@ static void print_ins(const Ins *i) {
 
 IrFn *ir_lower(Obj *f) {
     if (!K.ir_state) K.ir_state = ka_new(sizeof(struct IRState));
+    irs = K.ir_state;
     fn = f;
     ihead = itail = NULL;
     ir_nreg = 0; ir_nlab = f->nlabels;
@@ -807,6 +811,7 @@ int ir_uses_sp(const IrFn *fi) {
 
 void ir_dump(Obj *globals, SB *o) {
     if (!K.ir_state) K.ir_state = ka_new(sizeof(struct IRState));
+    irs = K.ir_state;
     out = o;
     sb_printf(out, "; kcc IR\n");
     for (Obj *g = globals; g; g = g->next) {
