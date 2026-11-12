@@ -1,0 +1,157 @@
+name: KIRA OS autonomous coding agent
+
+on:
+  push:
+    branches:
+      - v46/kira-agent-bootstrap
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Конкретная задача для AI-программиста KIRA OS"
+        required: true
+        type: string
+      base_branch:
+        description: "Ветка, от которой создать отдельную ветку с изменениями"
+        required: true
+        default: "v46/kdrv-catalogue-signature-policy"
+        type: string
+
+concurrency:
+  group: kira-agent-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  copilot-requests: write
+
+jobs:
+  implement:
+    name: Implement one requested KIRA OS task
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      pull-requests: write
+      copilot-requests: write
+    steps:
+      - name: Check Copilot authentication
+        id: auth
+        env:
+          COPILOT_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$COPILOT_TOKEN" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Add repository secret COPILOT_GITHUB_TOKEN; agent execution will be skipped."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the requested base
+        if: steps.auth.outputs.ready == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_branch || 'v46/kdrv-catalogue-signature-policy' }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Validate base and create isolated work branch
+        if: steps.auth.outputs.ready == 'true'
+        id: branch
+        env:
+          BASE_BRANCH: ${{ inputs.base_branch || 'v46/kdrv-catalogue-signature-policy' }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/heads/$BASE_BRANCH"
+          git fetch origin "$BASE_BRANCH"
+          git checkout -b "ai/kira-${RUN_ID}" "origin/$BASE_BRANCH"
+          echo "name=ai/kira-${RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Install GitHub Copilot CLI
+        if: steps.auth.outputs.ready == 'true'
+        run: npm install --global @github/copilot
+
+      - name: Run the coding agent — code-writing phase only
+        if: steps.auth.outputs.ready == 'true'
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          KIRA_TASK: ${{ inputs.task || 'Continue KIRA OS code implementation from the existing architecture and TODO/roadmap documents. Identify the next unimplemented production module, implement real code only, and stop before all builds, tests, audits, emulators, QEMU, or ISO packaging. Do not invent a scope; report exactly what remains.' }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/kira-agent-prompt.md" <<'PROMPT'
+          You are the autonomous implementation engineer for KIRA OS.
+          Project rules: implement a real OS, never add stubs, mocks, empty functions, fake hardware behavior, placeholder success paths, or TODO-only implementations. Inspect relevant source, headers, callers, build integration, and architecture docs before editing. Preserve freestanding/no-libc assumptions, ABI and on-disk compatibility, x86_64/AArch64 distinctions, and fail-closed handling for untrusted drivers, signatures, bounds, DMA, and privilege checks. Never add keys or credentials.
+          Work only on the isolated branch and only on the user's task. Make concrete source changes, not a proposal. Do not rewrite unrelated modules.
+          PHASE BOUNDARY: do not run tests, builds, lint, audits, emulators, QEMU, ISO packaging, or release workflows. The owner explicitly requires the code-writing phase to finish before verification begins. You may inspect source files and diffs. Do not claim tests passed.
+          Never modify .github/workflows/, secrets, signing keys, release artifacts, or data/mind_seed.bin. Do not commit, push, merge, or create a PR; the workflow publishes changes.
+          If the task exceeds one run, finish a coherent production-quality subset and state exactly what remains. Never invent completion percentages.
+
+          TASK:
+          PROMPT
+          printf '%s\n' "$KIRA_TASK" >> "$RUNNER_TEMP/kira-agent-prompt.md"
+          copilot -p "$(cat "$RUNNER_TEMP/kira-agent-prompt.md")" -s --no-ask-user \
+            --allow-tool=read \
+            --allow-tool=write \
+            --allow-tool='shell(git status:*)' \
+            --allow-tool='shell(git diff:*)' \
+            --allow-tool='shell(git log:*)' \
+            --allow-tool='shell(git show:*)' \
+            --allow-tool='shell(git grep:*)' \
+            --allow-tool='shell(git ls-files:*)' \
+            --allow-tool='shell(rg:*)' \
+            --allow-tool='shell(grep:*)' \
+            --allow-tool='shell(find:*)' \
+            --allow-tool='shell(sed:*)' \
+            --allow-tool='shell(cat:*)' \
+            --allow-tool='shell(head:*)' \
+            --allow-tool='shell(tail:*)' \
+            --allow-tool='shell(ls:*)' \
+            | tee "$RUNNER_TEMP/kira-agent-output.txt"
+
+      - name: Publish changes as a draft pull request
+        if: steps.auth.outputs.ready == 'true'
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_BRANCH: ${{ inputs.base_branch || 'v46/kdrv-catalogue-signature-policy' }}
+          WORK_BRANCH: ${{ steps.branch.outputs.name }}
+          TASK: ${{ inputs.task || 'Continue KIRA OS code implementation from existing architecture and TODO/roadmap documents; implement real source only and do not run verification.' }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes were produced; no PR will be opened."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --cached --name-only | grep -Eq '^(\.github/workflows/|keys/|data/mind_seed\.bin$)'; then
+            echo "Protected path changed; refusing to publish this run."
+            git diff --cached --name-only
+            exit 1
+          fi
+          git config user.name "kira-os-agent"
+          git config user.email "kira-os-agent@users.noreply.github.com"
+          git commit -m "KIRA Agent: implement requested task"
+          git push origin "HEAD:refs/heads/$WORK_BRANCH"
+          TITLE="$(printf '%s' "$TASK" | head -c 70)"
+          gh pr create --draft --repo "$REPOSITORY" --base "$BASE_BRANCH" --head "$WORK_BRANCH" \
+            --title "KIRA Agent: $TITLE" \
+            --body "$(printf '## Automated implementation\n\nTask:\n%s\n\nDraft PR created by the KIRA OS Copilot CLI workflow. Builds, tests, audits, emulators, QEMU, and packaging were intentionally not run during this code-writing phase. Review the diff, then run verification after the agreed code scope is complete.\n' "$TASK")"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Write run summary
+        if: always()
+        env:
+          BASE_BRANCH: ${{ inputs.base_branch || 'v46/kdrv-catalogue-signature-policy' }}
+          WORK_BRANCH: ${{ steps.branch.outputs.name }}
+          CHANGED: ${{ steps.publish.outputs.changed }}
+        run: |
+          {
+            echo "## KIRA OS coding-agent run"
+            echo "- Base branch: $BASE_BRANCH"
+            echo "- Work branch: $WORK_BRANCH"
+            echo "- Published changes: ${CHANGED:-unknown}"
+            echo "- Verification: intentionally not run (code-writing phase)"
+          } >> "$GITHUB_STEP_SUMMARY"
