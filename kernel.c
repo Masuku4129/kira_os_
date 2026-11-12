@@ -53,6 +53,20 @@
 
 #define SELF_CHECK_PERIOD_S 5
 
+/* Kernel-loop boundaries must never carry a sleeping mutex into the next phase.
+   Catch the first owner instead of waiting for the global watchdog to time out. */
+static void assert_kernel_loop_unlocked(const char *stage) {
+    const thread_t *t = sched_current();
+    if (t && t->mutexes_held) {
+        uart_print("[KIRA LOCK LEAK] after ");
+        uart_print(stage);
+        uart_print(": held=");
+        uart_print_dec(t->mutexes_held);
+        uart_print("\\n");
+        kernel_panic("kernel loop returned while holding kmutex");
+    }
+}
+
 void kernel_panic(const char* reason) {
     __asm__ volatile ("cli");
     smp_halt_others();  // остальные ядра встают (второе паникующее ядро встанет молча)
@@ -306,10 +320,15 @@ void kernel_main(unsigned long magic, unsigned long addr) {
 
     for (;;) {
         console_poll();
+        assert_kernel_loop_unlocked("console_poll");
         prog_poll();         // запуск, заказанный дисплеем (иконки дока)
+        assert_kernel_loop_unlocked("prog_poll");
         kdrv_poll();         // драйверы Ring 3: первое сканирование /drv, возврат памяти погибших
+        assert_kernel_loop_unlocked("kdrv_poll");
         (void)iommu_fault_poll();   // нарушения DMA, записанные VT-d: строка в журнал, без остановки ядра
+        assert_kernel_loop_unlocked("iommu_fault_poll");
         life_tick();         // журнал организма: запись накопленных событий
+        assert_kernel_loop_unlocked("life_tick");
 
         uint64_t now = timer_get_ticks();
         unsigned pending = 0;
@@ -324,14 +343,18 @@ void kernel_main(unsigned long magic, unsigned long addr) {
             seconds += pending;
             (void)console_take_events();
             mind_sys_tick(seconds);
+            assert_kernel_loop_unlocked("mind_sys_tick");
             experience_tick(seconds);
+            assert_kernel_loop_unlocked("experience_tick");
             sched_reap();
+            assert_kernel_loop_unlocked("sched_reap");
 
             // Рефлекс самоконтроля: целостность кода ядра
             if (seconds - last_verify >= SELF_CHECK_PERIOD_S) {
                 last_verify = seconds;
                 if (immune_verify_self() != 0) {
                     kernel_panic("IMMUNE: kernel code/rodata digest mismatch (self-integrity violated)");
+                assert_kernel_loop_unlocked("immune_verify_self");
                 }
             }
         }
@@ -362,6 +385,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
                 uart_print("\n");
             }
         }
+        assert_kernel_loop_unlocked("before kernel-loop sleep");
         sched_sleep_ticks(TIMER_PER_10MS);
     }
 }
