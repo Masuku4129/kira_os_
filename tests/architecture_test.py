@@ -129,7 +129,7 @@ for path in ("userland/kira.h", "kcc/include/kira.h"):
 # The kernel core retains authority and primitives; adapters own service dispatch.
 require('#include "syscall_services.h"' in core,
         "syscall core does not use the service-adapter contract")
-for header in ("net.h", "audio.h", "gfxsrv.h", "fsrv.h", "rtc.h"):
+for header in ("net.h", "audio.h", "gfxsrv.h", "fsrv.h", "rtc.h", "kdrv.h"):
     require(f'#include "{header}"' not in core,
             f"service header {header} leaked into kernel syscall core")
     require(f'#include "{header}"' not in router,
@@ -141,6 +141,7 @@ adapter_sources = (
     "services/network_syscall.c",
     "services/audio_syscall.c",
     "services/clock_syscall.c",
+    "services/driver_syscall.c",
 )
 for source in ("services/syscall_router.c",) + adapter_sources:
     require(source in x86_build and source in arm_build,
@@ -180,5 +181,27 @@ require("SYS_ARGS" not in router and "SYS_JIT" not in router,
         "process argument/JIT syscalls must remain in the kernel core")
 require("syscall_service_dispatch(nr, a1, a2, a3, &service_result)" in core,
         "kernel core does not route service IDs through the adapter boundary")
+
+# Driver syscall operation dispatch belongs to its own transitional adapter;
+# the kernel core retains the capability gate but no direct Driver Manager call.
+driver_adapter = read("services/driver_syscall.c")
+require("kdrv_sys(" not in core and '#include "kdrv.h"' not in core,
+        "kernel syscall core directly depends on the Driver Manager implementation")
+require("syscall_service_driver(nr, a1, a2, a3, result)" in router,
+        "driver syscall adapter is not reachable through the service router")
+driver_ids = (
+    "KDRV_SYS_INFO", "KDRV_SYS_CFG_READ", "KDRV_SYS_CFG_WRITE",
+    "KDRV_SYS_MMIO_MAP", "KDRV_SYS_DMA_ALLOC", "KDRV_SYS_IRQ_WAIT",
+    "KDRV_SYS_NETDEV", "KDRV_SYS_PCILIST",
+)
+for name in driver_ids:
+    require(name in core, f"{name} capability gate missing from kernel core")
+    require(name in driver_adapter, f"{name} dispatch missing from driver adapter")
+    owners = [candidate for candidate in adapter_sources
+              if re.search(r"\\b" + name + r"\\b", read(candidate)) is not None]
+    require(owners == ["services/driver_syscall.c"],
+            f"{name} must have exactly one driver adapter owner")
+require("kdrv_sys(" in driver_adapter,
+        "driver adapter does not call the real Driver Manager implementation")
 
 print("PASS: kernel/service source ownership, Native ABI stability, unique adapter ownership and both ISA build manifests")
