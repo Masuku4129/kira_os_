@@ -61,6 +61,18 @@
 #define SMMU_IDR1_QUEUE_SIZE_MASK 0x1fu
 #define SMMU_IDR1_TABLES_PRESET (1u << 30)
 #define SMMU_IDR1_QUEUES_PRESET (1u << 29)
+#define SMMU_IDR5_OAS_MASK 0x7u
+#define SMMU_TTBR_ADDR_MASK 0x0000fffffffff000ull
+
+static int smmu_dma_range_fits(uint8_t width, uint64_t base, size_t bytes)
+{
+    uint64_t maximum;
+    if (!bytes || width < 32 || width > 64 ||
+        base > UINT64_MAX - (uint64_t)(bytes - 1u))
+        return 0;
+    maximum = width == 64 ? UINT64_MAX : ((1ull << width) - 1ull);
+    return base <= maximum && (uint64_t)(bytes - 1u) <= maximum - base;
+}
 
 static uint32_t smmu_read32(volatile uint8_t *base, uint32_t offset)
 {
@@ -117,6 +129,8 @@ static int smmu_alloc_queue(
     *allocated_pages = allocation_pages;
     if (!*allocation || !*allocation_physical ||
         (*allocation_physical & (SMMU_PAGE_SIZE - 1u)) != 0 ||
+        !smmu_dma_range_fits(48u, *allocation_physical,
+                             allocation_pages * SMMU_PAGE_SIZE) ||
         *allocation_physical >
             UINT64_MAX - (allocation_pages * SMMU_PAGE_SIZE)) {
         if (*allocation)
@@ -167,6 +181,12 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->idr0 = smmu_read32(smmu->registers, SMMU_IDR0);
     smmu->idr1 = smmu_read32(smmu->registers, SMMU_IDR1);
     smmu->idr5 = smmu_read32(smmu->registers, SMMU_IDR5);
+    {
+        uint32_t oas = smmu->idr5 & SMMU_IDR5_OAS_MASK;
+        if (oas < 5u || oas > 6u)
+            return KIRA_SMMU_UNSUPPORTED;
+        smmu->output_address_width = oas == 5u ? 48u : 52u;
+    }
     {
         uint32_t sid_bits = smmu->idr1 & SMMU_IDR1_SIDSIZE_MASK;
         uint32_t cmdq_bits = (smmu->idr1 >> SMMU_IDR1_CMDQS_SHIFT) &
@@ -230,6 +250,9 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     if (!smmu->stream_table_allocation ||
         !smmu->stream_table_allocation_physical ||
         (smmu->stream_table_allocation_physical & (SMMU_PAGE_SIZE - 1u)) ||
+        !smmu_dma_range_fits(smmu->output_address_width,
+                             smmu->stream_table_allocation_physical,
+                             SMMU_STRTAB_ALLOC_PAGES * SMMU_PAGE_SIZE) ||
         smmu->stream_table_allocation_physical >
             UINT64_MAX - (SMMU_STRTAB_ALLOC_PAGES * SMMU_PAGE_SIZE)) {
         if (smmu->stream_table_allocation)
@@ -249,7 +272,9 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         size_t offset = (size_t)(aligned_physical -
                                  smmu->stream_table_allocation_physical);
         if (offset + SMMU_STRTAB_BYTES >
-            SMMU_STRTAB_ALLOC_PAGES * SMMU_PAGE_SIZE) {
+            SMMU_STRTAB_ALLOC_PAGES * SMMU_PAGE_SIZE ||
+            !smmu_dma_range_fits(smmu->output_address_width,
+                                 aligned_physical, SMMU_STRTAB_BYTES)) {
             platform->free_dma_pages(platform->context,
                                      smmu->stream_table_allocation,
                                      smmu->stream_table_allocation_physical,
