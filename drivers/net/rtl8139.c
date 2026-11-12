@@ -375,6 +375,8 @@ int kira_rtl8139_link_up(struct kira_rtl8139 *d)
 {
     if (!d || !d->initialized)
         return 0;
+    /* BMSR link status is latched low; discard the first sample. */
+    (void)d->platform.in16(d->platform.context, port(d, REG_BMSR));
     return (d->platform.in16(d->platform.context, port(d, REG_BMSR)) &
             BMSR_LINK) != 0;
 }
