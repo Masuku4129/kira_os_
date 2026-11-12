@@ -1423,6 +1423,10 @@ int umain(void) {
     if (!buf || !vs) { say("wasm: no memory\n"); return 1; }
     u64 got = 0;
     while (got < (u64)sz) { i64 r = k_grant_read(buf + got, (u64)sz - got > 65536 ? 65536 : (u64)sz - got, got); if (r <= 0) break; got += (u64)r; }
+    if (got != (u64)sz) {
+        say("wasm: incomplete module read\n");
+        return 1;
+    }
     mod = buf; modlen = (u32)got;
     if (load() == 0) {
         say("wasm: "); say(path); say(" - "); say_u(nfuncs - nimports); say(" functions, "); say_u(nimports); say(" imports, memory ");
