@@ -317,7 +317,7 @@ int virtio_iommu_check(virtio_dev_t* v) {
     uint32_t before = iommu_fault_count(v->pci);
     virtq_t q;
     if (queue_setup(v, &q, 0, 16, 0) != 0) { virtio_fail(v); return 0; }
-    virtio_driver_ok(v);
+    if (virtio_driver_ok(v) != 0) return 0;
     virtq_post(&q, 0, q.mem_phys, 16, 1);
     virtq_kick(&q);
     int seen = 0;
