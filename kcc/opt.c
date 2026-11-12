@@ -776,7 +776,8 @@ typedef struct {
     Ins *pool, *pool0;
     size_t left, total;
 } OptPoolState;
-#define OPS ((OptPoolState *)K.opt_pool_state)
+static OptPoolState *op_context_state(void) { return K.opt_pool_state; }
+#define OPS op_context_state()
 #define op_pool (OPS->pool)
 #define op_pool0 (OPS->pool0)
 #define op_pool_left (OPS->left)
