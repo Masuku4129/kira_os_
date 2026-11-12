@@ -233,7 +233,7 @@ int hda_probe(void) {
     }
 #endif
     if (!pci_disable_bus_master(p)) {
-        uart_print("[KIRA HDA] inherited bus mastering cannot be disabled; controller quarantined.\\n");
+        uart_print("[KIRA HDA] inherited bus mastering cannot be disabled; controller quarantined.\n");
         return -3;
     }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
