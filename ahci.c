@@ -299,6 +299,15 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     w32(pr, P_SERR, 0xFFFFFFFFu);
     w32(pr, P_IS, 0xFFFFFFFFu);
     pci_enable(c->pci, PCI_CMD_MASTER);
+    if (!(pci_read16(c->pci, 0x04) & PCI_CMD_MASTER)) {
+        if (pci_disable_bus_master(c->pci))
+            (void)iommu_unmap_all(c->pci);
+        else
+            uart_print("[KIRA AHCI] bus mastering did not stop; DMA mappings remain pinned.\\n");
+        c->dma_failed = 1;
+        uart_print("[KIRA AHCI] PCI DMA authorization was not granted; controller quarantined.\\n");
+        return;
+    }
     if (port_start(p)) { uart_print("[KIRA AHCI] port "); uart_print_dec((uint64_t)pn); uart_print(": device stays busy\n"); return; }
     uint32_t sig = r32(pr, P_SIG);
     if (sig == 0xEB140101u) { uart_print("[KIRA AHCI] port "); uart_print_dec((uint64_t)pn); uart_print(": optical drive (ATAPI) - not used yet\n"); port_stop(p); return; }
