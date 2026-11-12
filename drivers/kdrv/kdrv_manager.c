@@ -30,13 +30,42 @@ static int same_string(const char *a, const char *b)
     return a[i] == b[i];
 }
 
+static int package_name_safe(const char *s, size_t capacity)
+{
+    size_t i;
+    if (!bounded_string(s, capacity))
+        return 0;
+    for (i = 0; s[i]; ++i) {
+        char c = s[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+              c == '_' || c == '-'))
+            return 0;
+    }
+    return 1;
+}
+
+static int package_version_safe(const char *s, size_t capacity)
+{
+    size_t i;
+    if (!bounded_string(s, capacity))
+        return 0;
+    for (i = 0; s[i]; ++i) {
+        char c = s[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '.' || c == '-' ||
+              c == '_' || c == '+'))
+            return 0;
+    }
+    return 1;
+}
+
 static int manifest_valid(const struct kdrv_manifest *m,
                           size_t package_size)
 {
     uint32_t i;
 
-    if (!m || !bounded_string(m->name, sizeof(m->name)) ||
-        !bounded_string(m->version, sizeof(m->version)) ||
+    if (!m || !package_name_safe(m->name, sizeof(m->name)) ||
+        !package_version_safe(m->version, sizeof(m->version)) ||
         !bounded_string(m->target_arch, sizeof(m->target_arch)) ||
         m->dependency_count > KDRV_DEPENDENCY_MAX ||
         m->payload_size == 0 ||
@@ -46,10 +75,10 @@ static int manifest_valid(const struct kdrv_manifest *m,
         return 0;
 
     for (i = 0; i < m->dependency_count; ++i)
-        if (!bounded_string(m->dependencies[i].name,
-                            sizeof(m->dependencies[i].name)) ||
-            !bounded_string(m->dependencies[i].minimum_version,
-                            sizeof(m->dependencies[i].minimum_version)))
+        if (!package_name_safe(m->dependencies[i].name,
+                               sizeof(m->dependencies[i].name)) ||
+            !package_version_safe(m->dependencies[i].minimum_version,
+                                  sizeof(m->dependencies[i].minimum_version)))
             return 0;
 
     return 1;
