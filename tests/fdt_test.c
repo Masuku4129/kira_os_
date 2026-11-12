@@ -122,22 +122,22 @@ int main(void) {
 
     CHECK(fdt_parent(blob, -1) == -1);
     CHECK(fdt_prop_u32(blob, 0, "#address-cells", 0) != 0);
-    CHECK(fdt_reg(blob, -1, 0, 0, 0) != 0);
+    CHECK(fdt_reg(blob, total, -1, 0, 0, 0) != 0);
     CHECK(fdt_count_type(blob, -1, "cpu") == 0);
     CHECK(!fdt_node_enabled(blob, -1));
-    CHECK(fdt_simplefb(blob, 0) == -2);
+    CHECK(fdt_simplefb(blob, total, 0) == -2);
     int root = fdt_root(blob);
     CHECK(root >= 0 && fdt_compatible(blob, root, "linux,dummy-virt"));
 
     int uart = fdt_find_compatible(blob, -1, "arm,pl011");
     uint64_t a, s;
-    CHECK(uart >= 0 && fdt_reg(blob, uart, 0, &a, &s) == 0 && a == 0x09000000 && s == 0x1000);
+    CHECK(uart >= 0 && fdt_reg(blob, total, uart, 0, &a, &s) == 0 && a == 0x09000000 && s == 0x1000);
     CHECK(fdt_compatible(blob, uart, "arm,primecell") && !fdt_compatible(blob, uart, "arm,pl01"));
     int gic = fdt_find_compatible(blob, -1, "arm,cortex-a15-gic");
-    CHECK(gic >= 0 && fdt_reg(blob, gic, 1, &a, &s) == 0 && a == 0x08010000 && s == 0x10000);
-    CHECK(fdt_reg(blob, gic, 2, &a, &s) != 0);                    /* третьей пары нет */
+    CHECK(gic >= 0 && fdt_reg(blob, total, gic, 1, &a, &s) == 0 && a == 0x08010000 && s == 0x10000);
+    CHECK(fdt_reg(blob, total, gic, 2, &a, &s) != 0);                    /* третьей пары нет */
     int mem = fdt_find_path(blob, "/memory");
-    CHECK(mem >= 0 && fdt_reg(blob, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
+    CHECK(mem >= 0 && fdt_reg(blob, total, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
 
     /* Present but malformed cell-width properties must not silently fall back to defaults. */
     {
@@ -148,7 +148,7 @@ int main(void) {
         if (cell) {
             be(cell - 8, 8); /* property length field */
             CHECK(!fdt_tree_valid(blob, total));
-            CHECK(fdt_reg(blob, mem, 0, &a, &s) != 0);
+            CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
             CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
                                handoff, sizeof handoff, &handoff_size) != 0);
             be(cell - 8, 4);
@@ -158,19 +158,19 @@ int main(void) {
         if (cell) {
             be(cell - 8, 8);
             CHECK(!fdt_tree_valid(blob, total));
-            CHECK(fdt_reg(blob, mem, 0, &a, &s) != 0);
+            CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
             CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
                                handoff, sizeof handoff, &handoff_size) != 0);
             be(cell - 8, 4);
         }
-        CHECK(fdt_reg(blob, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
+        CHECK(fdt_reg(blob, total, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
     }
     int cpus = fdt_find_path(blob, "/cpus");
     CHECK(cpus >= 0 && fdt_count_type(blob, cpus, "cpu") == 4);  /* cpu-map не ядро */
     int cpu2 = fdt_find_path(blob, "/cpus/cpu@2");
     uint32_t r32 = 0;
     CHECK(cpu2 >= 0 && fdt_prop_u32(blob, cpu2, "reg", &r32) == 0 && r32 == 2);
-    CHECK(fdt_reg(blob, cpu2, 0, &a, &s) == 0 && a == 2 && s == 0);   /* #address-cells 1, #size-cells 0 */
+    CHECK(fdt_reg(blob, total, cpu2, 0, &a, &s) == 0 && a == 2 && s == 0);   /* #address-cells 1, #size-cells 0 */
     CHECK(fdt_parent(blob, cpu2) == cpus && fdt_parent(blob, cpus) == root && fdt_parent(blob, root) == -1);
     int tmr = fdt_find_compatible(blob, -1, "arm,armv8-timer");
     uint32_t len = 0;
@@ -183,7 +183,7 @@ int main(void) {
     CHECK(fdt_find_compatible(blob, uart, "arm,pl011") < 0);          /* второго такого нет */
 
     fdt_fb_t fb;
-    CHECK(fdt_simplefb(blob, &fb) == 0 && fb.base == 0x3c000000 && fb.width == 800 && fb.height == 600 &&
+    CHECK(fdt_simplefb(blob, total, &fb) == 0 && fb.base == 0x3c000000 && fb.width == 800 && fb.height == 600 &&
           fb.stride == 3200 && !strcmp(fb.format, "a8r8g8b8"));          /* выключенный узел пропущен */
     uint64_t reserve_base = 0, reserve_size = 0;
     CHECK(fdt_reserve_count(blob, sizeof blob) == 1);
@@ -197,7 +197,7 @@ int main(void) {
         CHECK(reg && len == 16);
         be(reg, 0xFFFFFFFFu); be(reg + 4, 0xFFFFF000u);
         be(reg + 8, 0); be(reg + 12, 0x2000);
-        CHECK(fdt_reg(blob, mem, 0, &a, &s) != 0);
+        CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
         total = build();
         mem = fdt_find_path(blob, "/memory");
     }
