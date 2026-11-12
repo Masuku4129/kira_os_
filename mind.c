@@ -920,6 +920,7 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
         for (unsigned i = 0; i < 5; i++) s->mem_pending[i].valid = 0;
         s->mem_prev_valid = 0;
         s->mem_prev_t = 0;
+        s->mem_risk_valid = 0;
         s->mem_risk_q16 = 0;
         return;
     }
@@ -947,6 +948,15 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
             p->valid = 0;
         }
     }
+    if (in->mem_used >= 90) {
+        /* Already over the target: do not train a "future crossing" label from
+           a state where the threshold was reached before the prediction began. */
+        s->mem_prev_valid = 0;
+        s->mem_prev_t = 0;
+        s->mem_risk_valid = 0;
+        s->mem_risk_q16 = 0;
+        return;
+    }
     mind_mem_pending_t* slot = &s->mem_pending[s->mem_pending_pos++ % 5];
     for (int i = 0; i < MNET_F; i++) slot->x[i] = mx[i];
     slot->max_used = in->mem_used;
@@ -954,6 +964,7 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
     slot->acted = 0;
     slot->valid = 1;
     s->mem_risk_q16 = mnet_predict(&s->m.memory_net, mx);
+    s->mem_risk_valid = 1;
     if (mnet_trusted(&s->m.memory_net) && s->mem_risk_q16 >= (MNET_ONE * 60u) / 100u) {
         s->mem_forecasts++;
         if (now - s->mem_logged_t >= 30 || !s->mem_logged_t) {
@@ -965,7 +976,7 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
 }
 
 uint32_t mind_memory_risk(const mind_t* s) {
-    return mnet_trusted(&s->m.memory_net) ? s->mem_risk_q16 : 0;
+    return s->mem_risk_valid && mnet_trusted(&s->m.memory_net) ? s->mem_risk_q16 : 0;
 }
 
 static void foresight(mind_t* s, const mind_sample_t* in, uint32_t now) {
