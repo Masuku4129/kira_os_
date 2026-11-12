@@ -80,7 +80,7 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-memory-max-") as td:
     path = pathlib.Path(td) / "zero-max.wasm"
     path.write_bytes(zero_max_module)
     run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT, text=True)
+                         stderr=subprocess.STDOUT, text=True, env=test_env)
     if "wasm: finished with code 4294967295" not in run.stdout:
         print("FAIL: explicit zero memory maximum was not enforced")
         print(run.stdout)
