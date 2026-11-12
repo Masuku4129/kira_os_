@@ -79,11 +79,13 @@
 - ARM SMMUv3 остаётся только prepare/queue scaffolding с host test; ARM64 production boot/build пока не подключает SMMUv3 domains/device discovery. Не включать bus mastering внешним DMA-драйверам на основании этих тестов.
 - PR #46 включает host tests для Driver Compatibility и KDRV catalogue, но это не доказывает наличие production GUI driver adaptation backend: не путать host test с интегрированным пользовательским приложением.
 
-### PR #46 — VM shard-4 lock-held sleep investigation
-- Предыдущий QEMU VM run `42575383245`, shard 4, показал: поток `core` оставался в `THREAD_SLEEPING` с `wake_tick == timer_get_ticks()`, удерживая 2 kmutex; все остальные ядра простаивали. Scheduler lock был свободен.
-- В предыдущем stack trace путь проходил через синхронный virtio block I/O из `kdrv_poll`/KFS. `virtq_run()` переходил к `sched_sleep_ticks(1)`, потому что `sched_can_sleep()` проверял spinlocks, но не `mutexes_held`. Это позволяло основному потоку уснуть, удерживая filesystem locks.
-- Исправлено: `sched_can_sleep()` запрещает сон при удержании kmutex; прямой `sched_sleep_ticks()` с удерживаемым kmutex вызывает fail-fast panic; блокирующий захват второго mutex при удержании первого тоже fail-fast. В virtio path под файловыми mutex остаётся bounded polling с включёнными IRQ, unlocked path сохраняет interrupt sleep.
-- Это root-cause-based исправление, но его эффективность пока НЕ подтверждена повторным QEMU shard-4. Последний PR #46 head `e6e3ffc2d269a7d0ab044ecbcbaa0d65971c5fca`; CI run `43200318503` pending.
+### PR #46 — VM shard-4 watchdog / lock-held I/O investigation
+- Предыдущий QEMU VM run `42575383245`, shard 4, показал: поток `core` находился в bounded virtio block wait под двумя kmutex; все остальные ядра простаивали. Вызовы шли через `kdrv_poll` → KFS scan → `virtio_blk` → `virtq_run`.
+- Установлен mismatch: `virtq_run` имеет bounded timeout 10 секунд, но software watchdog разрешал только 5 секунд без feed. Основной цикл кормит watchdog после возврата из `kdrv_poll`; пока он ждёт диск, он не доходил до feed и watchdog преждевременно объявлял system-thread hang. В диагностике поэтому был виден core sleeping на ближайшем тике с двумя файловыми mutex.
+- Исправлено: добавлен `watchdog_progress()`, который может обновить feed только у потока, зарегистрированного `watchdog_init` как main kernel thread; `virtq_run` вызывает его раз в секунду во время своего ограниченного ожидания. Другие процессы не могут продлевать watchdog за основной поток; если scheduler перестанет пробуждать его, progress feed прекратится; если устройство не ответит, virtio request вернёт timeout и kernel loop продолжит работу.
+- Дополнительное fail-closed правило: `sched_can_sleep()` теперь запрещает сон при удержании kmutex; прямой `sched_sleep_ticks()` с kmutex вызывает panic; блокирующий захват второго mutex при удержании первого тоже fail-fast. Это предотвращает добровольное переключение с filesystem locks.
+- Найдена и исправлена C data race: `next_wake` и `ready_epoch` читались атомарно на timer IRQ, но обновлялись обычными операциями под scheduler lock. Все обращения теперь атомарные; deadline min/store и ready-epoch bump используют атомарные операции.
+- Все эти исправления пока НЕ подтверждены повторным QEMU shard-4. Последний PR #46 head `aac05e9c1511776d40f5fbad2987e22b6d111d0e`; CI run `43200848712` pending.
 
 ### CI throughput — duplicate branch/PR runs
 - Устранён источник лишней нагрузки: CI запускался одновременно на `push` и `pull_request` для одной feature-ветки, а concurrency groups различались по event/PR number.
