@@ -94,6 +94,8 @@ require((ROOT / "kcc/include/kira.h").is_symlink()
 for path, content in (("build_clang.sh", x86_build), ("build_arm64.sh", arm_build)):
     require("-Ikcc/include" in content,
             f"{path} does not expose canonical ABI headers to user applications")
+require('USSE_FLAGS="-Ikcc/include' in x86_build,
+        "SSE-enabled user applications do not see the canonical syscall registry")
 
 for path in ("userland/kira.h", "kcc/include/kira.h"):
     public_api = read(path)
