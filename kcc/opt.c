@@ -1283,7 +1283,8 @@ static void op_shift(Ins *i, int *r, int kind, void *c) {
  * Таблица по указателю Obj (открытая адресация), заполняется ir_inline_prepare до встраивания. */
 typedef struct { const Obj *o; int calls, taken; } InlCnt;
 typedef struct { InlCnt *tab; unsigned cap; } InlineState;
-#define ILS ((InlineState *)K.inline_state)
+static InlineState *inline_context_state(void) { return K.inline_state; }
+#define ILS inline_context_state()
 #define inl_tab (ILS->tab)
 #define inl_cap (ILS->cap)
 static InlCnt *inl_slot(const Obj *o, int create) {
