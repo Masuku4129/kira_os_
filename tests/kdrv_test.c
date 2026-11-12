@@ -39,6 +39,8 @@ int main(void) {
     CHECK(kdrv_dma_policy_allow(CAP_IRQ, 0) == 0);               /* MSI тоже является записью устройства в память */
     CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 0) == 0);
     CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 1) == 1);     /* допускается только после изоляции устройства */
+    CHECK(kdrv_pci_command_clear_master(0x0007) == 0x0003);   /* clear inherited bus-master permission */
+    CHECK(kdrv_pci_command_clear_master(0x0407) == 0x0403);   /* preserve unrelated command bits */
     uint64_t page_lo = 0, page_hi = 0, physical = 0;
     uint32_t pages = 0;
     CHECK(kdrv_mmio_page_bounds(0xFEC00000, 0x1000, &page_lo, &page_hi) == 0 &&
