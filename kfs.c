@@ -685,6 +685,9 @@ static int grow_inodes(void) {
     fs.inode_count += nblk * IPB;
     r = super_write();                                           /* участок существует с этого сектора */
     if (r) {
+        /* The extension descriptor may have reached the superblock sector.
+           Its on-disk state is now authoritative only after a fresh mount. */
+        fs.mounted = 0;
         fs.next--; fs.inode_count = old;
         for (uint32_t b = 0; b < nblk; b++) { fs.used[(start + b) >> 3] &= (uint8_t)~(1u << ((start + b) & 7)); fs.free_blocks++; }
         kfree_(nt); return r;
@@ -746,7 +749,14 @@ static int kfs_mount_impl(blk_dev_t* dev, uint64_t base) {
     if (sb.version == 1 && (r = super_write())) { release_mem(); return r; }   /* v1 -> v2: один сектор */
     if ((r = grow_volume())) { release_mem(); return r; }
     fs.mounted = 1;
-    if (fs.free_inodes < fs.inode_count / 8 + 16) grow_inodes();    /* запас инодов заранее, если есть место */
+    if (fs.free_inodes < fs.inode_count / 8 + 16) {
+        r = grow_inodes();                                         /* запас инодов заранее, если есть место */
+        if (r && r != KFS_ERR_NOSPC) {
+            fs.mounted = 0;
+            release_mem();
+            return r;
+        }
+    }
     return 0;
 }
 
