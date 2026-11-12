@@ -48,7 +48,7 @@ int kdrv_trust_add_key(struct kdrv_trust_store *store,
 {
     size_t i;
     if (!store || !key || store->key_count > KDRV_TRUST_MAX_KEYS ||
-        key->not_after < key->not_before)
+        key->not_after <= key->not_before)
         return KDRV_TRUST_INVALID;
 
     for (i = 0; i < store->key_count; ++i) {
@@ -124,7 +124,7 @@ int kdrv_trust_verify_catalogue(struct kdrv_trust_store *store,
 
     if (record->format_version != KDRV_TRUST_FORMAT_VERSION ||
         record->payload_length != payload_length ||
-        record->expires_at < record->issued_at)
+        record->expires_at <= record->issued_at)
         return KDRV_TRUST_INVALID;
 
     key = find_key(store, record->key_id);
@@ -134,8 +134,8 @@ int kdrv_trust_verify_catalogue(struct kdrv_trust_store *store,
         return KDRV_TRUST_REVOKED_KEY;
 
     now = ops->trusted_time(ops->context);
-    if (now < key->not_before || now > key->not_after ||
-        now < record->issued_at || now > record->expires_at)
+    if (now < key->not_before || now >= key->not_after ||
+        now < record->issued_at || now >= record->expires_at)
         return KDRV_TRUST_INVALID;
 
     if (ops->sha256(ops->context, payload, payload_length, digest) != 0)
