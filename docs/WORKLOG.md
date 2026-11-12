@@ -414,3 +414,9 @@
 - Added an architecture/host-test guard scanning every `kcc/include/*.h` for non-inline static function definitions/prototypes, so the warning cannot silently reappear in another libc-lite header.
 - Source-level regex check across the five current libc-lite headers (`string.h`, `stdlib.h`, `stdio.h`, `ctype.h`, `limits.h`) found no remaining non-inline static helper. This is not a substitute for CI.
 - Follow-up CI has been triggered by the new commits; exact-head host tests and all target/VM jobs must complete before declaring the fix verified. No PASS claim for host-tests yet.
+
+
+### KCC static-helper guard correction (2026-11-12)
+- Follow-up run `43282939958` stopped at the new architecture guard before host tests: `kcc/include/kira.h` contains `k_thread_return`, a deliberately non-inline helper marked `__attribute__((used))` because its address is installed as a thread return trampoline. This is not an unused-function warning and must remain non-inline.
+- Corrected the guard to reject only non-inline static helpers without an explicit `used` attribute. Manual source check across `kira.h`, `string.h`, `stdlib.h`, `stdio.h`, `ctype.h` and `limits.h` now finds only the intentional `k_thread_return` exception; all other header helpers are inline.
+- A fresh exact-head CI run is required; neither the guard correction nor the libc-header fixes are considered verified until it completes.
