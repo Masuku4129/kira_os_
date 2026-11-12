@@ -1,4 +1,4 @@
-# KIRA VM v1 — portable application bytecode
+# KIRA VM — portable application runtime (experimental prototype)
 
 Status: experimental executable core with a first Ring 3/EL0 runner built into x86-64 and ARM64 images; package manager and signed-app integration are not complete.
 
@@ -22,7 +22,7 @@ low implementation complexity, predictable bounds checks, and identical semantic
 x86-64 and ARM64. A future JIT must preserve the interpreter as the reference and
 fallback implementation.
 
-## KVM1 container format
+## KVP0 container format
 
 All integer fields and instruction immediates are little-endian. The header is exactly
 32 bytes; code immediately follows it, then the initial data image. The file must end
@@ -30,7 +30,7 @@ exactly after the declared data bytes; trailing bytes are rejected.
 
 | Offset | Size | Field |
 |---:|---:|---|
-| 0 | 4 | ASCII magic `KVM1` |
+| 0 | 4 | ASCII magic `KVP0` |
 | 4 | 2 | format version, currently 1 |
 | 6 | 2 | header size, exactly 32 |
 | 8 | 4 | code byte length, nonzero multiple of 8 |
@@ -98,13 +98,13 @@ syscalls, missing capability declarations, and malformed module bounds.
 
 ## Implemented and tested in this first core
 
-- KVM1 container decoder with little-endian fields, strict length checks, and hard 16 MiB module / 16 MiB linear-memory ceilings.
+- KVP0 container decoder with little-endian fields, strict length checks, and hard 16 MiB module / 16 MiB linear-memory ceilings.
 - Structural verifier for the complete code stream and all direct control-flow targets.
 - Instance-owned immutable-by-copy instruction stream and private initialized memory.
 - Interpreter for the v1 opcode set, bounded call stack, deterministic fuel, memory
   bounds, arithmetic traps, and capability-tagged host calls.
 - Host regression cases for arithmetic, loops, branches, calls, recursion overflow,
-  memory load/store, module/data copy isolation, KVM1 decoding, malformed containers,
+  memory load/store, module/data copy isolation, KVP0 decoding, malformed containers,
   invalid opcodes/targets, missing capabilities, division by zero, out-of-bounds
   memory, and fuel exhaustion.
 
@@ -115,7 +115,7 @@ syscalls, missing capability declarations, and malformed module bounds.
 
 The `/bin/kvm` userland runner is built for x86-64 Ring 3 and ARM64 EL0 and
 accepts one sandbox-local filename argument or a file grant from the file manager; double-clicking a `.kvm` file launches it through that grant. Arbitrary absolute paths are never accepted. It loads
-the KVM1 blob, applies the runner policy before allocation, verifies it, creates
+the KVP0 blob, applies the runner policy before allocation, verifies it, creates
 a private instance, runs with a fixed fuel budget, and destroys the instance.
 
 The first runner profile is intentionally narrower than the portable core:
@@ -133,13 +133,13 @@ Both architecture build scripts generate and install `/apps/hello.kvm` from
 `examples/kvm/hello.kvasm`. Open `/apps/hello.kvm` in the file manager to run
 the same portable smoke module through the file-grant path.
 
-The runner uses the same KVM1 interpreter source on both architectures. This
+The runner uses the same KVP0 interpreter source on both architectures. This
 establishes build integration, not yet cross-architecture execution equivalence:
 identical module fixtures must still be run under x86-64 and ARM64 QEMU/VM CI.
 
 ## Experimental assembler
 
-`tools/kvm_asm.py` assembles the current KVM1 instruction syntax into a
+`tools/kvm_asm.py` assembles the current KVP0 instruction syntax into a
 portable container. It supports labels, entry points, integer/register
 instructions, branches/calls, capability declarations, and initial data
 (`.ascii`, `.byte`, `.zero`). Example:
@@ -166,13 +166,17 @@ suite via `tests/kvm_asm_test.py`.
 
 ## ABI decision gate
 
-This branch currently implements an experimental 32-byte KVM1 header with a fixed
-register-file instruction model. A separate draft proposal on
-`feat/kira-vm-runtime-foundation` describes a different 64-byte sectioned container
-with typed function descriptors and named imports. These formats are not compatible.
-Neither proposal is a frozen public ABI. Before either is merged as the canonical KIRA
-VM format, reconcile the two designs, select one versioned format, and add migration
-and conformance fixtures. Do not silently reinterpret one format as the other.
+This branch implements only an experimental **KVP0** prototype: a 32-byte header and
+fixed register-file instruction model. It is deliberately not called KVM1 and is not a
+public ABI. The proposed canonical **KVM1** format is the separate 64-byte sectioned
+container in `docs/KIRA_VM_SPEC.md`, with typed function descriptors and named imports.
+The two formats are incompatible and must never be auto-detected or reinterpreted as
+one another. KVP0 exists only to test interpreter mechanics and the two-architecture
+build path; it must not be used for general application packages or release images.
+
+`docs/ADR-0001-KIRA-VM.md` records the comparison against the existing WebAssembly
+runtime and the decision gate. The KVM1 specification remains draft until its loader,
+typed verifier, imports, conformance suite and package integration are implemented.
 
 ## Explicit remaining work (not claimed complete)
 
@@ -186,8 +190,8 @@ and conformance fixtures. Do not silently reinterpret one format as the other.
 5. Add static control-flow/type analysis and fuzzing of the container decoder/verifier.
    The current verifier is structural; runtime checks remain mandatory.
 6. Integrate the portable C runtime into both x86-64 and ARM64 userland builds and
-   verify the same KVM1 fixtures on both architectures.
-7. Add a compiler/backend or SDK that emits KVM1 modules; until then modules are
+   verify the same KVP0 fixtures on both architectures.
+7. Add a compiler/backend or SDK that emits KVP0 modules; until then modules are
    hand-authored test fixtures, not a production app toolchain.
 8. Consider a JIT only after interpreter semantics and cross-architecture tests are
    stable. JIT pages must be W^X, capability-equivalent, and fall back to interpretation.
@@ -196,10 +200,10 @@ and conformance fixtures. Do not silently reinterpret one format as the other.
 
 - Existing WASM applications continue to run through the existing WASM runtime; no
   forced conversion or duplicate WASM implementation is introduced.
-- New KIRA-native applications may target KVM1 once the package, host ABI, and build
+- New KIRA-native applications may target KVP0 once the package, host ABI, and build
   integration steps above are completed.
 - Native x86-64/AArch64 applications remain supported through the native runtime.
 - Compatibility Runtime and full hardware VMs remain separate projects with their own
   isolation boundaries.
-- A KVM1 version change requires a new format version or an explicitly backward-
+- A KVP0 version change requires a new format version or an explicitly backward-
   compatible extension; unknown versions/opcodes are rejected, never guessed.
