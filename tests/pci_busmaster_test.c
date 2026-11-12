@@ -128,6 +128,11 @@ int main(void)
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
     pci_write16(dev, 0x04, PCI_CMD_MASTER);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
+    CHECK(pci_init() == 1); /* rescanning the same BDF must not clear sticky quarantine */
+    dev = pci_get(0);
+    CHECK(dev && dev->dma_quarantined);
+    pci_enable(dev, PCI_CMD_MASTER);
+    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
 #endif
 
     ecam.first_bus = 6;
