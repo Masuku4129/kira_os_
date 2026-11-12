@@ -280,6 +280,7 @@ static void skip_imm(u8 op, const u8** p, const u8* e, u32 nloc) {
     if (op == 0x23 || op == 0x24) {
         u32 index = leb_u(p, e);
         if (trapped || index >= nglobals) trap("global index out of range in unreachable code");
+        else if (op == 0x24 && !global_mut[index]) trap("global.set on immutable global");
         return;
     }
     if (op == 0x0E) {
