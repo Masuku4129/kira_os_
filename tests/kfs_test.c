@@ -11,6 +11,7 @@ static uint64_t cur_sect = SECT;
 static uint8_t disk[MAXSECT * 512];
 static long budget = -1;       /* сколько записей ещё дойдёт до диска; -1 - без ограничений */
 static long writes;
+static long flush_budget = -1, flushes;
 static int rd(blk_dev_t* d, uint64_t lba, uint32_t n, void* b){ (void)d; if(lba+n>cur_sect) return -1; memcpy(b, disk+lba*512, n*512); return 0; }
 static int wr(blk_dev_t* d, uint64_t lba, uint32_t n, const void* b){
     (void)d; if(lba+n>cur_sect) return -1;
@@ -21,7 +22,12 @@ static int wr(blk_dev_t* d, uint64_t lba, uint32_t n, const void* b){
     }
     return 0;
 }
-static int fl(blk_dev_t* d){ (void)d; return 0; }
+static int fl(blk_dev_t* d){
+    (void)d; flushes++;
+    if (flush_budget == 0) return -1;
+    if (flush_budget > 0) flush_budget--;
+    return 0;
+}
 static blk_dev_t dev = {"ram", SECT, rd, wr, fl, 0};
 static void set_size(uint64_t sect){ cur_sect = sect; dev.sectors = sect; }
 
@@ -41,7 +47,7 @@ static int count_cb(void* c, const char* n, const kfs_stat_t* s){ (void)n;(void)
 static int count(const char* p){ int c=0; CHECK(kfs_list(p,count_cb,&c)==0); return c; }
 
 static void base_state(void){
-    memset(disk,0,sizeof disk); budget=-1;
+    memset(disk,0,sizeof disk); budget=-1; flush_budget=-1;
     CHECK(kfs_format(&dev,16)==0);
     CHECK(put("/a",6000,1)==0);
     CHECK(kfs_mkdir("/d")==0);
@@ -168,6 +174,23 @@ int main(void){
         }
     }
     printf("crash cases: %d\n", total_cases);
+
+    /* A failed flush makes commit durability unknowable. The current mount must
+       become unavailable until remount reconstructs block ownership from disk. */
+    for (long fail = 0; fail < 2; fail++) {
+        base_state();
+        flush_budget = fail;                 /* fail before inode switch, then after inode write */
+        CHECK(put("/a", 20000, 21) == KFS_ERR_IO);
+        CHECK(!kfs_mounted());
+        flush_budget = -1;
+        CHECK(kfs_stat("/a", &(kfs_stat_t){0}) == KFS_ERR_NOFS);
+        CHECK(kfs_write("/blocked", buf, 1) == KFS_ERR_NOFS);
+        CHECK(kfs_mount(&dev, 16) == 0);
+        CHECK(same("/a", 6000, 1) || same("/a", 20000, 21));
+        CHECK(kfs_mount(&dev, 16) == 0);
+        CHECK(same("/a", 6000, 1) || same("/a", 20000, 21));
+    }
+    flush_budget = -1;
 
     /* порча метаданных: монтирование не падает, дальнейшее чтение безопасно */
     srand(12345);
