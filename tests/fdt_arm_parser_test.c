@@ -40,14 +40,14 @@ int main(void){
    (unsigned long long)out.memory[0].size);return 1;
  }
  /* Header-controlled blocks must not alias one another. */
- uint32_t saved=0;
- memcpy(&saved,blob+16,4);be32(blob+16,72);
+ uint8_t saved[4];
+ memcpy(saved,blob+16,4);be32(blob+16,72);
  memset(&out,0xa5,sizeof(out));
  if(kira_fdt_parse(blob,n,&out)==0){puts("FAIL: reserve map overlapping structure accepted");return 1;}
- be32(blob+16,saved);
- memcpy(&saved,blob+12,4);be32(blob+12,72);
+ memcpy(blob+16,saved,4);
+ memcpy(saved,blob+12,4);be32(blob+12,72);
  if(kira_fdt_parse(blob,n,&out)==0){puts("FAIL: strings overlapping structure accepted");return 1;}
- be32(blob+12,saved);
+ memcpy(blob+12,saved,4);
  puts("arm64 FDT parser: initialized outputs, reserve map, scoped cells, memory@unit-address and block overlap checks passed");
  return 0;
 }
