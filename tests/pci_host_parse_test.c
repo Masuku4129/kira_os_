@@ -54,6 +54,19 @@ int main(void) {
     put64(ranges + 12, 0x8000000000000000ULL); put64(ranges + 20, 0x1000);
     CHECK(arm_pci_parse_ranges(ranges, 28, 3, 2, 2, &m32, &m64) != 0);
 
+    /* CPU address + window size must not wrap, even when PCI arithmetic is valid. */
+    memset(ranges, 0, sizeof ranges);
+    put32(ranges, 0x02000000); put64(ranges + 4, 0x10000000);
+    put64(ranges + 12, UINT64_MAX - 0xFFF); put64(ranges + 20, 0x2000);
+    CHECK(arm_pci_parse_ranges(ranges, 28, 3, 2, 2, &m32, &m64) != 0);
+
+    /* The exact negative limit is representable and must not be rejected. */
+    memset(ranges, 0, sizeof ranges);
+    put32(ranges, 0x02000000); put64(ranges + 4, 0x8000000000000000ULL);
+    put64(ranges + 12, 0); put64(ranges + 20, 0x1000);
+    CHECK(arm_pci_parse_ranges(ranges, 28, 3, 2, 2, &m32, &m64) == 0);
+    CHECK(m32.cpu_off == INT64_MIN);
+
     /* Empty ranges is valid and leaves both windows unavailable. */
     CHECK(arm_pci_parse_ranges(0, 0, 3, 2, 2, &m32, &m64) == 0);
     CHECK(m32.size == 0 && m64.size == 0);
