@@ -726,9 +726,9 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w64(xs.op, 0x30, xs.dcbaa_phys);                                   /* DCBAAP */
     w64(xs.op, 0x18, xs.cmd.phys | 1u);                                /* CRCR, RCS = 1 */
     w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
-    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA */
+    w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ before ERSTBA: high-half ERSTBA write loads the table */
     w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
-    w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ: activate after valid addresses */
+    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA last: controller snapshots the initialized segment table */
     cpu_mb();
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
