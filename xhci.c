@@ -527,12 +527,6 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if (!xall[started]) { usb_log("[KIRA USB] xHCI: no memory for controller state\n"); return -1; }
     X = xall[started];
     if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) { usb_log("[KIRA USB] xHCI without memory BAR0: skipped\n"); return -1; }
-    uint16_t pci_cmd = pci_read16(p, 0x04);
-    pci_write16(p, 0x04, (uint16_t)(pci_cmd & ~PCI_CMD_MASTER));
-    if ((pci_cmd & PCI_CMD_MASTER) || (pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
-        usb_log("[KIRA USB] xHCI: inherited bus mastering cannot be proven quiescent; controller refused.\\n");
-        return -2;
-    }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     if (p->vendor == 0x8086) {                                        /* Intel: порты, отданные EHCI, вернуть xHCI */
         pci_write32(p, 0xD8, pci_read32(p, 0xDC));
@@ -553,6 +547,16 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     bios_handoff(cap);
     w32(xs.op, 0, r32(xs.op, 0) & ~1u);                               /* стоп */
     for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
+    if (!(r32(xs.op, 4) & 1u)) {
+        usb_log("[KIRA USB] xHCI did not halt before DMA ownership transfer\\n");
+        return -2;
+    }
+    uint16_t pci_cmd = pci_read16(p, 0x04);
+    pci_write16(p, 0x04, (uint16_t)(pci_cmd & ~PCI_CMD_MASTER));
+    if (pci_read16(p, 0x04) & PCI_CMD_MASTER) {
+        usb_log("[KIRA USB] xHCI: bus mastering did not clear after controller halt\\n");
+        return -2;
+    }
     w32(xs.op, 0, 2u);                                                 /* HCRST */
     for (int i = 0; i < 200 && ((r32(xs.op, 0) & 2u) || (r32(xs.op, 4) & (1u << 11))); i++) usb_sleep_ms(5);
     if ((r32(xs.op, 0) & 2u) || (r32(xs.op, 4) & (1u << 11))) { usb_log("[KIRA USB] xHCI reset timeout\n"); return -1; }
