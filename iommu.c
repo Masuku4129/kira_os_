@@ -274,7 +274,7 @@ int iommu_init(void) {
 /* ---- Domains ---- */
 
 int iommu_device_isolated(const pci_dev_t* d) {
-    if (!d || d->dma_quarantined || !G.active) return 0;
+    if (!d || __atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE) || !G.active) return 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
     int r = x && !x->blocked && x->dom.active && G.on[x->unit];
