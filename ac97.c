@@ -99,6 +99,10 @@ int ac97_probe(void) {
         return -3;
     }
 #endif
+    if (!pci_disable_bus_master(p)) {
+        uart_print("[KIRA AC97] inherited bus mastering cannot be disabled; controller quarantined.\\n");
+        return -3;
+    }
     a.nam = (uint16_t)p->bar[0].base; a.nabm = (uint16_t)p->bar[1].base;
     pci_enable(p, PCI_CMD_IO | PCI_CMD_INTX_OFF);
     outl((uint16_t)(a.nabm + GLOB_CNT), 2);                     /* снять холодный сброс, прерывания выключены */
