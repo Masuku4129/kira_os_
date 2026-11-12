@@ -186,7 +186,7 @@ static int quiesce_verified(const pci_dev_t* d, uint16_t* command_out) {
     if (c) {
         has_msix = 1;
         uint16_t control = pci_read16(d, (uint16_t)(c + 2));
-        pci_write16(d, (uint16_t)(c + 2), (uint16_t)((control & ~0x8000u) | 0x4000u));
+        pci_write16(d, (uint16_t)(c + 2), (uint16_t)((control & ~0x4000u) | 0x8000u));
         msix_control = pci_read16(d, (uint16_t)(c + 2));
         if (!kdrv_pci_interrupts_quiesced(msi_control, has_msi, msix_control, has_msix)) safe = 0;
     } else if (!kdrv_pci_interrupts_quiesced(msi_control, has_msi, msix_control, has_msix)) {
