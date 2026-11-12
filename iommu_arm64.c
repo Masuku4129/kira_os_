@@ -452,7 +452,7 @@ int iommu_isolate_device(const pci_dev_t* pci)
 
     if (!pci)
         return IOMMU_E_ARG;
-    if (pci->dma_quarantined)
+    if (__atomic_load_n(&pci->dma_quarantined, __ATOMIC_ACQUIRE))
         return IOMMU_E_HW;
     if (arm_map_invalid)
         return IOMMU_E_HW;
