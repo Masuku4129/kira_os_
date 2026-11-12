@@ -110,6 +110,9 @@ syscalls, missing capability declarations, and malformed module bounds.
 
 ## First OS runner integration
 
+> Experimental PR #134 only. This runner is not part of the release baseline and must not be merged into release images unless ADR-0001 is superseded by an accepted comparative review. The production KVR baseline remains the existing WebAssembly runtime.
+
+
 The `/bin/kvm` userland runner is built for x86-64 Ring 3 and ARM64 EL0 and
 accepts one sandbox-local filename argument or a file grant from the file manager; double-clicking a `.kvm` file launches it through that grant. Arbitrary absolute paths are never accepted. It loads
 the KVM1 blob, applies the runner policy before allocation, verifies it, creates
