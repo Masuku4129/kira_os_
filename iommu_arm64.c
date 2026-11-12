@@ -495,7 +495,8 @@ int iommu_release_device(const pci_dev_t* pci)
 
     if (!dev || !dev->covered)
         return IOMMU_E_NOCOVER;
-    pci_disable_bus_master(pci);
+    if (!pci_disable_bus_master(pci))
+        return IOMMU_E_HW;
     if (__atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) ||
         dev->stream_id >= 256u || !arm_smmu_active ||
         arm_sid_shared[dev->stream_id])
@@ -506,8 +507,7 @@ int iommu_release_device(const pci_dev_t* pci)
     if (domain->bypass)
         return IOMMU_OK;
 
-    iommu_unmap_all(pci);
-    if (arm_has_maps(dev))
+    if (iommu_unmap_all(pci) != IOMMU_OK || arm_has_maps(dev))
         return IOMMU_E_HW;
     rc = kira_smmu_domain_destroy(domain, &arm_platform);
     if (rc != KIRA_SMMU_OK) {
@@ -634,18 +634,28 @@ int iommu_unmap(const pci_dev_t* pci, uint64_t iova, uint64_t bytes)
     return IOMMU_E_NOENT;
 }
 
-void iommu_unmap_all(const pci_dev_t* pci)
+int iommu_unmap_all(const pci_dev_t* pci)
 {
     arm_iommu_device_t* dev = arm_find_device(pci);
-    if (!dev || !dev->covered || dev->stream_id >= 256u ||
-        !arm_smmu_active || !arm_domains[dev->stream_id].active ||
-        arm_domains[dev->stream_id].bypass)
-        return;
+    if (!pci || !dev || !dev->covered)
+        return IOMMU_E_NOCOVER;
+    if (dev->stream_id >= 256u || !arm_smmu_active ||
+        !arm_domains[dev->stream_id].active || arm_domains[dev->stream_id].bypass)
+        return IOMMU_OK;
     /* Stop new DMA before revoking mappings or releasing their backing pages. */
-    pci_disable_bus_master(pci);
-    for (unsigned i = 0; i < ARM_IOMMU_MAX_MAPS; ++i)
-        if (dev->maps[i].active)
-            arm_unmap_record(dev, &dev->maps[i]);
+    if (!pci_disable_bus_master(pci))
+        return IOMMU_E_HW;
+    for (unsigned i = 0; i < ARM_IOMMU_MAX_MAPS; ++i) {
+        if (!dev->maps[i].active)
+            continue;
+        arm_unmap_record(dev, &dev->maps[i]);
+        if (dev->maps[i].active) {
+            __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
+            __atomic_store_n(&dev->quarantine_pending, 1u, __ATOMIC_RELEASE);
+            return IOMMU_E_HW; /* retain this and every remaining backing allocation */
+        }
+    }
+    return IOMMU_OK;
 }
 
 int iommu_fault_poll(void)
