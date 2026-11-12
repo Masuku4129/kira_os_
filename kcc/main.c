@@ -16,7 +16,9 @@ static const char *read_file(void *ud, const char *path, size_t *len) {
     if (sz < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
     char *buf = ka_new((size_t)sz + 1);          /* буфер живёт в арене компилятора */
     size_t n = fread(buf, 1, (size_t)sz, f);
+    int read_error = ferror(f);
     fclose(f);
+    if (read_error || n != (size_t)sz) return NULL;
     *len = n;
     return buf;
 }
