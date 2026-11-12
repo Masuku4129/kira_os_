@@ -31,7 +31,7 @@ exactly after the declared data bytes; trailing bytes are rejected.
 | Offset | Size | Field |
 |---:|---:|---|
 | 0 | 4 | ASCII magic `KVP0` |
-| 4 | 2 | format version, currently 1 |
+| 4 | 2 | format version, currently 0 (prototype only) |
 | 6 | 2 | header size, exactly 32 |
 | 8 | 4 | code byte length, nonzero multiple of 8 |
 | 12 | 4 | initial data byte length |
@@ -50,7 +50,7 @@ Each 8-byte instruction is:
 | 3 | source register B or syscall capability-bit index |
 | 4–7 | signed 32-bit immediate, little-endian |
 
-The v1 decoder validates magic, version, exact header size, code alignment, entry,
+The KVP0 decoder validates magic, version, exact header size, code alignment, entry,
 memory/data bounds, and exact container length before exposing the module view. The first
 implementation caps the complete module at 16 MiB and linear memory at 4096 pages (16 MiB)
 to prevent unbounded allocations before the OS quota manager is integrated.
@@ -63,7 +63,7 @@ does not change the running program.
 - Registers: `r0..r15`, each 64-bit unsigned. `r0` is the process exit value and
   syscall result; `r0..r3` carry syscall arguments.
 - Constants: signed 32-bit immediates sign-extend to 64 bits.
-- Memory: private linear memory, fixed at module creation in v1. Loads/stores are
+- Memory: private linear memory, fixed at module creation in KVP0. Loads/stores are
   little-endian and support 8/16/32/64-bit widths. Effective addresses use register A
   plus a signed immediate; overflow and every out-of-range access trap.
 - Branches and calls: absolute instruction indices. Calls use a private 256-entry
@@ -101,7 +101,7 @@ syscalls, missing capability declarations, and malformed module bounds.
 - KVP0 container decoder with little-endian fields, strict length checks, and hard 16 MiB module / 16 MiB linear-memory ceilings.
 - Structural verifier for the complete code stream and all direct control-flow targets.
 - Instance-owned immutable-by-copy instruction stream and private initialized memory.
-- Interpreter for the v1 opcode set, bounded call stack, deterministic fuel, memory
+- Interpreter for the KVP0 prototype opcode set, bounded call stack, deterministic fuel, memory
   bounds, arithmetic traps, and capability-tagged host calls.
 - Host regression cases for arithmetic, loops, branches, calls, recursion overflow,
   memory load/store, module/data copy isolation, KVP0 decoding, malformed containers,
