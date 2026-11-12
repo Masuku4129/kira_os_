@@ -379,7 +379,7 @@ static void uhci_ports(usb_hc_t* hc) {
 int uhci_start(usb_hc_t* hc, const void* pd) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
     if (platform_dma_noncoherent && platform_dma_noncoherent()) {
-        usb_log("[KIRA USB] UHCI disabled; DMA ownership synchronization is not validated on non-coherent ARM64.\\n");
+        usb_log("[KIRA USB] UHCI disabled; DMA ownership synchronization is not validated on non-coherent ARM64.\n");
         return -2;
     }
     if (nctl >= 8) { usb_log("[KIRA USB] more than 8 UHCI controllers: the rest are not used\n"); return -1; }
