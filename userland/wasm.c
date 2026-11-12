@@ -660,7 +660,14 @@ static int load(void) {
             if (trapped || nfuncdecl > MAXF - nfuncs) { trap("too many or truncated function declarations"); return -1; }
             decl = (u32*)alloc(4ull * (nfuncdecl + 1));
             if (!decl) { trap("no memory for function declarations"); return -1; }
-            for (u32 i = 0; i < nfuncdecl && !trapped; i++) decl[i] = leb_u(&s, se);
+            for (u32 i = 0; i < nfuncdecl && !trapped; i++) {
+                decl[i] = leb_u(&s, se);
+                if (trapped || decl[i] >= ntypes) { trap("bad function type"); return -1; }
+                funcs[nfuncs + i].type = decl[i];
+                funcs[nfuncs + i].import = 0;
+            }
+            if (trapped) return -1;
+            nfuncs += nfuncdecl;
         } else if (id == 4) {                                     /* таблица */
             u32 n = leb_u(&s, se);
             if (trapped) return -1;
@@ -762,9 +769,8 @@ static int load(void) {
             ccap = 2 * sz + 8 * n + 16;                           /* не больше двух слов на байт кода + запас на функцию */
             code = (u32*)alloc(4ull * ccap);
             if (!code) { trap("no memory for compiled code"); return -1; }
-            if (nfuncs + n > MAXF) { trap("too many functions"); return -1; }
-            for (u32 i = 0; i < n; i++) { funcs[nfuncs + i].type = decl[i]; funcs[nfuncs + i].import = 0; if (decl[i] >= ntypes) { trap("bad function type"); return -1; } }
-            u32 first = nfuncs; nfuncs += n;                      /* все функции известны до разбора тел: вызовы вперёд */
+            if (n != nfuncdecl || n > nfuncs - nimports) { trap("function and code counts differ"); return -1; }
+            u32 first = nimports;                                /* объявления уже зарегистрированы до exports/elements */
             for (u32 i = 0; i < n && !trapped; i++) {
                 u32 bs = leb_u(&s, se);
                 if (trapped || bs > (u32)(se - s)) { trap("function body past code section"); return -1; }
