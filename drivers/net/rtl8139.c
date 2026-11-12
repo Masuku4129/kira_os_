@@ -122,8 +122,8 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
     platform = *p;
     if (platform.pci_vendor_id != 0x10ecu ||
         platform.pci_device_id != 0x8139u ||
-        !io_base || io_base > UINT16_MAX - REG_CONFIG1 ||
-        platform.io_region_size <= REG_CONFIG1 ||
+        !io_base || io_base > UINT16_MAX - (REG_BMSR + 1u) ||
+        platform.io_region_size <= REG_BMSR + 1u ||
         !platform.in8 || !platform.in16 || !platform.in32 ||
         !platform.out8 || !platform.out16 || !platform.out32 ||
         !platform.dma_alloc || !platform.dma_free ||
