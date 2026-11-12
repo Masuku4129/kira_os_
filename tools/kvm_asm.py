@@ -90,11 +90,9 @@ def assemble(source: str) -> bytes:
         if not line:
             continue
         try:
-            if ":" in line:
-                label, rest = line.split(":", 1)
-                if not LABEL.fullmatch(label.strip()):
-                    raise ValueError(f"invalid label: {label.strip()}")
-                label = label.strip()
+            label_match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\\s*(.*))?$", line)
+            if label_match:
+                label, rest = label_match.group(1), label_match.group(2) or ""
                 if in_data:
                     raise ValueError("labels are only allowed in code")
                 if label in labels:
