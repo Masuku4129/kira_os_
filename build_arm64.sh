@@ -11,7 +11,7 @@ mkdir -p build-arm64
 # Программы для ARM64 (EL0): те же исходники, что и для x86-64; ядро их не содержит - они лежат на диске в /bin
 HOSTCC="${HOSTCC:-clang}"
 [ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
-UCFLAGS="-ffreestanding -fno-builtin -fno-math-errno -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
+UCFLAGS="-Ikcc/include -ffreestanding -fno-builtin -fno-math-errno -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 UELF=""
 for app in mt ipc burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk-jmp atk-cap serve melody wasm udpecho rec; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
     $CC $UCFLAGS -c userland/$app.c -o build-arm64/u_$app.o
