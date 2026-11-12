@@ -54,7 +54,7 @@ cases = [
     ("function-i32-const-truncated-signed-leb",
      magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
      b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x00" +
-     b"\x0a\x06\x01\x04\x00\x41\x80\x0b",
+     b"\x0a\x05\x01\x03\x00\x41\x80",
      "bad signed LEB128"),
     ("unreachable-function-signed-immediate-overflow",
      magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
