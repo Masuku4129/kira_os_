@@ -53,6 +53,7 @@ typedef struct {
     irqwait_t net_iw;
     uint64_t net_tx, net_rx, net_bad;
     uint64_t dead_at;
+    volatile int dma_quiesced;
 } bind_t;
 
 static bind_t binds[KDRV_SLOTS];
@@ -235,7 +236,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     /* Also mask inherited MSI/MSI-X state; this driver has no IRQ capability. */
     uint16_t pci_after = quiesce(d);
     if (!kdrv_pci_busmaster_handoff_safe(pci_command, pci_after) ||
-        !(pci_after & PCI_CMD_INTX_OFF) ||
+        !kdrv_pci_command_quiesced(pci_after) ||
         (pci_after & (PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER))) {
         (void)quiesce(d);
         b->state = B_FREE;
@@ -338,6 +339,7 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
     b->net_alive = 0;                               /* карта драйвера для стека: link down, send отказывает, recv пуст */
     spin_unlock_irqrestore(&b->nlk, f);
     uint16_t cmd = quiesce(b->dev);
+    b->dma_quiesced = kdrv_pci_command_quiesced(cmd);
     b->dead_at = timer_get_ticks();
     f = spin_lock_irqsave(&klock);
     b->state = B_DEAD;
@@ -350,6 +352,7 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
 }
 
 static void release(bind_t* b) {
+    if (!b->dma_quiesced) return; /* Never return pages while a device may still bus-master. */
     uint32_t got = 0, want = b->dma_pages + b->net_pages;
     for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
     if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
@@ -416,7 +419,17 @@ void kdrv_poll(void) {
     if (!__atomic_load_n(&ndead, __ATOMIC_ACQUIRE)) return;
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         bind_t* b = &binds[i];
-        if (b->state == B_DEAD && timer_get_ticks() - b->dead_at >= RELEASE_DELAY_TICKS) release(b);
+        if (b->state == B_DEAD && !b->dma_quiesced) {
+            uint16_t cmd = quiesce(b->dev);
+            if (kdrv_pci_command_quiesced(cmd)) {
+                b->dma_quiesced = 1;
+                b->dead_at = timer_get_ticks();
+                uart_print("[KIRA DRV] "); uart_print(b->name);
+                uart_print(": PCI DMA stopped on retry; release timer restarted\\n");
+            }
+        }
+        if (b->state == B_DEAD && b->dma_quiesced &&
+            timer_get_ticks() - b->dead_at >= RELEASE_DELAY_TICKS) release(b);
     }
 }
 
