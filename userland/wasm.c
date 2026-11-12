@@ -127,6 +127,12 @@ static int import_type_ok(u32 id, const ftype_t* t) {
     return !t->nr || t->r == result[id];
 }
 
+static int wasm_type_equal(const ftype_t* a, const ftype_t* b) {
+    if (!a || !b || a->np != b->np || a->nr != b->nr) return 0;
+    for (u32 i = 0; i < a->np; i++) if (a->p[i] != b->p[i]) return 0;
+    return !a->nr || a->r == b->r;
+}
+
 /* WebAssembly LEB128 permits padded encodings, but never more than ceil(N/7)
    bytes and never non-zero/sign-extension bits outside the declared width. */
 static u32 leb_u(const u8** p, const u8* end) {
@@ -1178,7 +1184,7 @@ static void execute(u32 fi0) {
             fi = table[i];
             if (fi >= nfuncs) { trap("call_indirect: bad function"); return; }
             const ftype_t* a = &types[funcs[fi].type]; const ftype_t* b = &types[ti];
-            if (a->np != b->np || a->nr != b->nr) { trap("call_indirect: signature mismatch"); return; }
+            if (!wasm_type_equal(a, b)) { trap("call_indirect: signature mismatch"); return; }
             goto do_call;
         }
         case OP_CALL: fi = w >> 16;
