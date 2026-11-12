@@ -128,9 +128,13 @@ int main(void)
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
     pci_write16(dev, 0x04, PCI_CMD_MASTER);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
-    CHECK(pci_init() == 1); /* rescanning the same BDF must not clear sticky quarantine */
-    dev = pci_get(0);
-    CHECK(dev && dev->dma_quarantined);
+    /* Insert a lower-numbered function so the quarantined requester moves
+       from slot 0 to slot 1; identity-based quarantine must survive reordering. */
+    *(uint32_t*)(ecam_window + 0x0000) = (0x3000u << 16) | 0x5678u;
+    *(uint32_t*)(ecam_window + 0x0004) = 0;
+    CHECK(pci_init() == 2);
+    dev = pci_get(1);
+    CHECK(dev && dev->dev == 1 && dev->dma_quarantined);
     pci_enable(dev, PCI_CMD_MASTER);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
 #endif
