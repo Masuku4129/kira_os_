@@ -499,8 +499,10 @@ int iommu_release_device(const pci_dev_t* pci)
         return IOMMU_E_NOCOVER;
     if (!pci_disable_bus_master(pci))
         return IOMMU_E_HW;
-    if (__atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) ||
-        dev->stream_id >= 256u || !arm_smmu_active ||
+    /* A blocked domain is not eligible for DMA, but teardown must still be
+       allowed to retry failed TLBI/unmap operations while the requester is
+       stopped and all backing pages remain pinned. */
+    if (dev->stream_id >= 256u || !arm_smmu_active ||
         arm_sid_shared[dev->stream_id])
         return IOMMU_E_HW;
     domain = &arm_domains[dev->stream_id];
@@ -522,6 +524,10 @@ int iommu_release_device(const pci_dev_t* pci)
         __atomic_store_n(&dev->blocked, 1u, __ATOMIC_RELEASE);
         return IOMMU_E_HW;
     }
+    /* Domain is fully detached and the stream is back in pass-through. Clear
+       only the transient map-failure quarantine; PCI bus mastering stays off. */
+    __atomic_store_n(&dev->quarantine_pending, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&dev->blocked, 0u, __ATOMIC_RELEASE);
     return IOMMU_OK;
 }
 
