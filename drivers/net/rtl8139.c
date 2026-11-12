@@ -125,8 +125,10 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
         KIRA_RTL8139_RX_RING_SIZE + KIRA_RTL8139_RX_WRAP_SIZE,
         256, &d->rx_physical);
     if (!d->rx_buffer || !d->rx_physical ||
-        (d->rx_physical & 0xffu) || (d->rx_physical >> 32))
+        (d->rx_physical & 0xffu) || (d->rx_physical >> 32)) {
+        kira_rtl8139_shutdown(d);
         return -3;      /* RBSTART - 32 бита */
+    }
 
     if (d->platform.cache_clean)
         d->platform.cache_clean(d->platform.context, d->rx_buffer,
@@ -136,8 +138,10 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
         d->tx_buffer[i] = d->platform.dma_alloc(d->platform.context,
             KIRA_RTL8139_TX_BUFFER_SIZE, 256, &d->tx_physical[i]);
         if (!d->tx_buffer[i] || !d->tx_physical[i] ||
-            (d->tx_physical[i] & 0x3u) || (d->tx_physical[i] >> 32))
+            (d->tx_physical[i] & 0x3u) || (d->tx_physical[i] >> 32)) {
+            kira_rtl8139_shutdown(d);
             return -4;      /* TSAD - 32 бита, выравнивание по двойному слову */
+        }
         d->tx_busy[i] = 0;
         d->platform.out32(d->platform.context,
             port(d, (uint16_t)(REG_TSAD0 + i * 4)),
