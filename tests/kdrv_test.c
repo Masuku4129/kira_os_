@@ -30,6 +30,7 @@ static void test_dma_policy(void) {
 
 int main(void) {
     test_dma_policy();
+    CHECK(strcmp(kdrv_strerror(KDRV_E_ISOLATION), "DMA/MSI запрещены без изоляции устройства через IOMMU") == 0);
     kdrv_header_t h, o;
     mk(&h, f, 100);
     CHECK(kdrv_header_check(f, sizeof f, &o) == KDRV_OK && !strcmp(o.name, "edu"));
