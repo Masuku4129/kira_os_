@@ -549,6 +549,7 @@ static const char* kind_name(int k, int vol) {
     case FM_KIND_IMG: return "рис.";
     case FM_KIND_TEXT: return "текст";
     case FM_KIND_WASM: return "wasm";
+    case FM_KIND_KVM: return "KVM";
     default: return "файл";
     }
 }
@@ -565,6 +566,7 @@ static void kind_icon(int k, int vol, const char* name, int* icon, uint32_t* col
     case FM_KIND_IMG: *icon = ICON_BRUSH; *col = TH_PINK; break;
     case FM_KIND_TEXT: *icon = ICON_FILE; *col = TH_CYAN; break;
     case FM_KIND_WASM: *icon = ICON_CUBE; *col = TH_PURPLE; break;
+    case FM_KIND_KVM: *icon = ICON_CUBE; *col = TH_CYAN; break;
     default: break;
     }
 }
