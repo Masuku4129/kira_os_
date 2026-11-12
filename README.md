@@ -4,6 +4,8 @@
 
 - [Целевая архитектура KIRA OS](docs/architecture/KIRA_OS_TARGET_ARCHITECTURE.md) — конечная модель, включая Windows/Linux application compatibility и отдельный Hypervisor.
 - [Архитектурный аудит и порядок работ](docs/architecture/ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md) — ближайшая очередь и критерии завершения.
+- [Инвентаризация компонентов](docs/architecture/COMPONENT_INVENTORY.md) — предварительная карта исходников и статусов.
+- [Карта зависимостей](docs/architecture/DEPENDENCY_MAP.md) — целевые и наблюдаемые связи между подсистемами.
 
 ## Обязательный план разработки
 
