@@ -103,3 +103,10 @@ The source layout now reflects part of this boundary: `kernel/syscall.c` owns sy
 ## 7. ARM64 PCI host backend ownership
 
 The FDT-described PCIe host bridge is now a separate architecture backend: `arch/aarch64/pci_host.c` owns ECAM discovery, MMIO mapping, address-window parsing and BAR assignment. `arch/aarch64/main.c` owns only the ordered boot handoff and supplies its logger. The common PCI enumeration core remains in `pci.c`; the x86 mechanism-1 host backend and explicit x86 enumeration remain separate work, gated on firmware bus-master sanitization and per-device IOMMU readiness. Do not infer x86/ARM parity from this ARM64 extraction.
+
+
+## 8. AArch64 PCI host parsing contract
+
+`arch/aarch64/main.c` owns only the ordered `arm_pci_init()` handoff. `arch/aarch64/pci_host.c` validates the FDT host node, bus-range and ECAM physical span, maps only the declared ECAM bus span and owns PCI initialization order. `arch/aarch64/pci_host_parse.c` is a pure parser for the PCI host `ranges` property; it validates PCI child cell geometry, parent/size cell counts, tuple boundaries, arithmetic bounds and representability of the signed CPU-to-PCI offset. The parser is host-testable and does not access MMIO or mutate PCI state.
+
+The parser/build/test integration is not considered verified until exact-head ARM64 and host CI complete. This contract does not enable x86 PCI enumeration and does not remove the DMA/IOMMU security gates (F-013–F-015, F-018).
