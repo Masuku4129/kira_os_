@@ -126,6 +126,11 @@ int main(void)
     CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_OK);
     CHECK(state.floor == 5 && state.writes == 1);
 
+    /* Expiration is exclusive: the exact expiry instant is already invalid. */
+    state.now = 1000;
+    CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
+    state.now = 500;
+
     /* A validly signed older catalogue cannot roll back the accepted floor. */
     length = make_catalogue(bytes, sizeof(bytes), 4, 1);
     make_record(&record, bytes, length, 4, &ops);
