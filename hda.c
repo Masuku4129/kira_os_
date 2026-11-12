@@ -295,6 +295,10 @@ int hda_probe(void) {
     if (hda_dma_dev(h.corb, h.corb_p, 1024) != 0 ||
         hda_dma_dev(h.rirb, h.rirb_p, 2048) != 0) return -6;
     pci_enable(p, PCI_CMD_MASTER);
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        uart_print("[KIRA HDA] PCI bus mastering did not enable; audio DMA not started.\\n");
+        return -6;
+    }
     /* RIRBCTL: DMA ответов и флаг «ответ получен» (RINTCTL). Без флага контроллер (QEMU - так точно) после RINTCNT
        ответов ждёт его снятия и не берёт следующие команды. Прерывания процессору выключены (INTCTL = 0). */
     w8(CORBCTL, 2); w8(RIRBCTL, 3);
