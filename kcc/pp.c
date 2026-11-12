@@ -27,7 +27,8 @@ typedef struct {
     Token *eval_token;
     const char *eval_path;
 } PPState;
-#define PP ((PPState *)K.pp_state)
+static PPState *kcc_pp_state_context(void) { return K.pp_state; }
+#define PP (kcc_pp_state_context())
 #define mtab (PP->mtab)
 #define once_list (PP->once_list)
 #define unity_mode (PP->unity_mode)
