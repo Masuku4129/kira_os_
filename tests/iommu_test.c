@@ -339,6 +339,7 @@ int main(int argc, char** argv) {
     hw_hang = 1;
     CHECK(iommu_map(d3, 0x50000, 0xB0000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_E_HW);
     hw_hang = 0; *r64(R_IOTLB) &= ~(1ull << 63); *r64(R_CCMD) &= ~(1ull << 63); hw_sync();
+    CHECK(iommu_unmap(d3, 0x50000, 0x1000) == IOMMU_OK);                                /* retry retained rollback ledger */
     CHECK(hw_dma(sid_of(d3), 0x50000, 0, &pa) != 0);
     CHECK(iommu_map(d3, 0x50000, 0xB0000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_OK);     /* and the address is usable afterwards */
     CHECK(iommu_unmap(d3, 0x50000, 0x1000) == IOMMU_OK);
