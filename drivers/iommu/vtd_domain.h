@@ -9,6 +9,8 @@
 #define KIRA_VTD_MAP_READ  1u
 #define KIRA_VTD_MAP_WRITE 2u
 
+struct kira_vtd_unmap_range { uint64_t iova; uint32_t pages; };
+
 struct kira_vtd_domain {
     struct kira_vtd_unit *unit;
     void *root_context;
@@ -49,6 +51,10 @@ int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
 int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
                              uint64_t iova,
                              const struct kira_vtd_platform *platform);
+int kira_vtd_domain_unmap_ranges(struct kira_vtd_domain *domain,
+                                  const struct kira_vtd_unmap_range *ranges,
+                                  size_t count,
+                                  const struct kira_vtd_platform *platform);
 int kira_vtd_domain_unmap_range(struct kira_vtd_domain *domain,
                                 uint64_t iova, uint32_t pages,
                                 const struct kira_vtd_platform *platform);
