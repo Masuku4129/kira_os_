@@ -16,5 +16,7 @@ int syscall_service_audio(uint64_t nr, uint64_t a1, uint64_t a2,
                           uint64_t a3, uint64_t* result);
 int syscall_service_clock(uint64_t nr, uint64_t a1, uint64_t a2,
                           uint64_t a3, uint64_t* result);
+int syscall_service_driver(uint64_t nr, uint64_t a1, uint64_t a2,
+                           uint64_t a3, uint64_t* result);
 
 #endif
