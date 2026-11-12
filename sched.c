@@ -571,6 +571,9 @@ void sched_yield(void) {
 
 void sched_sleep_ticks(uint32_t ticks) {
     if (ticks == 0) { sched_yield(); return; }
+    thread_t* self = this_cpu()->current;
+    if (self && self->mutexes_held)
+        kernel_panic("sched_sleep_ticks: thread attempted to sleep while holding kmutex");
     uint64_t f = irq_save();
     sl_lock();
     this_cpu()->current->wake_tick = timer_get_ticks() + ticks;
@@ -886,7 +889,7 @@ int sched_can_sleep(void) {
 #else
     percpu_t* c = this_cpu();
     return sched_ready && cpu_irq_enabled() && c->sched_on && c->current && c->current != c->idle &&
-           c->irq_depth == 0 && c->locks_held == 0;
+           c->irq_depth == 0 && c->locks_held == 0 && c->current->mutexes_held == 0;
 #endif
 }
 
