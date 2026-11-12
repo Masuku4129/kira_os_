@@ -579,7 +579,7 @@ static void confirm_open(void) {                           /* окно подт�
     lg("drvman: подтверждение: источник %s\n", drvget_staged_url());
     lg("drvman: подтверждение: лицензия %s, права: %s\n", r->license, cs);
     lg("drvman: подтверждение: SHA-256 набора %s\n", drvget_staged_hash());
-    if (r->caps & CAP_DMA) lg("drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память\n");
+    if (r->caps & (CAP_DMA | CAP_IRQ)) lg("drvman: подтверждение: IOMMU нет: DMA/MSI права заблокированы, пакет не запустится до изоляции устройства\n");
 }
 
 static void press(int id) {
