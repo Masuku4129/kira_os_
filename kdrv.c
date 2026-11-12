@@ -415,7 +415,7 @@ static void release(bind_t* b) {
     uint16_t command = quiesce(b->dev);
     if (command & PCI_CMD_MASTER) {
         uart_print("[KIRA DRV] "); uart_print(b->name);
-        uart_print(": PCI Bus Master is still enabled; DMA pages remain pinned\\n");
+        uart_print(": PCI Bus Master is still enabled; DMA pages remain pinned\n");
         return;
     }
     if (iommu_unmap_all(b->dev) != IOMMU_OK) {
@@ -715,7 +715,7 @@ static int64_t sys_dma_alloc(bind_t* b, uint64_t bytes, uint64_t bits, uint64_t 
         uint64_t t;
         if (vmm_translate(pa, &t) != 0 || t != pa || vmm_translate(pa + (uint64_t)(pages - 1) * 4096, &t) != 0 || t != pa + (uint64_t)(pages - 1) * 4096) rc = KE_NOMEM;   /* устройству нужен тот же адрес, что виден процессору */
         else if (bits && pa + (uint64_t)pages * 4096 > (1ull << bits)) rc = KE_NOMEM;     /* устройство не достанет: предел его шины */
-        if (rc) { pmm_free_contiguous(pa, pages); pa = 0; }
+        if (rc) { if (pmm_free_contiguous(pa, pages) != 0) dma_retain_block(b, pa, pages); pa = 0; }
     }
     if (!rc) {
         uint8_t* z = (uint8_t*)(uintptr_t)pa;
