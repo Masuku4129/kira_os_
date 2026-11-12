@@ -97,7 +97,7 @@ int kdrv_pci_command_quiesced(uint16_t command) {
 int kdrv_pci_interrupts_quiesced(uint16_t msi, int has_msi,
                                  uint16_t msix, int has_msix) {
     if (has_msi && (msi & 1u)) return 0;                    /* MSI Enable */
-    if (has_msix && ((msix & 0x8000u) || !(msix & 0x4000u))) return 0;
+    if (has_msix && (!(msix & 0x8000u) || (msix & 0x4000u))) return 0;
     return 1;
 }
 
