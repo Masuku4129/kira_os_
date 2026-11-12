@@ -52,6 +52,8 @@ struct kdrv_manager_ops {
                          char *staging_path, size_t staging_path_size);
     int (*commit_staged)(void *context, const char *name,
                          const char *staging_path);
+    /* Undo an already committed install if durable INSTALLED state cannot be recorded. */
+    int (*rollback_committed)(void *context, const char *name);
     void (*discard_staged)(void *context, const char *staging_path);
     int (*activate)(void *context, const char *name);
     int (*deactivate)(void *context, const char *name);
