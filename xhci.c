@@ -575,6 +575,11 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
         return -2;
     }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
+    int initial_quiet = xhci_pci_quiesce(p);
+    if ((initial_quiet & 2) || !(initial_quiet & 1)) {
+        usb_log("[KIRA USB] xHCI: inherited PCI DMA/interrupt state could not be quiesced before MMIO; controller quarantined\\n");
+        return -2;
+    }
     if (!(pci_read16(p, 0x04) & PCI_CMD_MEM)) {
         int quiet = xhci_pci_quiesce(p);
         usb_log((quiet & 2) || !(quiet & 1) ?
