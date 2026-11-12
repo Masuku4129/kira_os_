@@ -16,7 +16,20 @@ static void mk(kdrv_header_t* h, uint8_t* file, uint32_t elf) {
 static uint8_t f[sizeof(kdrv_header_t) + 100];
 #define PUT() memcpy(f, &h, sizeof h)
 
+static void test_dma_policy(void) {
+    CHECK(kdrv_dma_policy_allow(0, 0) == 1);
+    CHECK(kdrv_dma_policy_allow(CAP_MMIO, 0) == 1);
+    CHECK(kdrv_dma_policy_allow(CAP_PCIDEV, 0) == 1);
+    CHECK(kdrv_dma_policy_allow(CAP_DMA, 0) == 0);
+    CHECK(kdrv_dma_policy_allow(CAP_IRQ, 0) == 0);
+    CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 0) == 0);
+    CHECK(kdrv_dma_policy_allow(CAP_DMA, 1) == 1);
+    CHECK(kdrv_dma_policy_allow(CAP_IRQ, 1) == 1);
+    CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 1) == 1);
+}
+
 int main(void) {
+    test_dma_policy();
     kdrv_header_t h, o;
     mk(&h, f, 100);
     CHECK(kdrv_header_check(f, sizeof f, &o) == KDRV_OK && !strcmp(o.name, "edu"));
