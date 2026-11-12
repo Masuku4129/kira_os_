@@ -39,6 +39,23 @@ int main(void) {
     CHECK(kdrv_dma_policy_allow(CAP_IRQ, 0) == 0);               /* MSI тоже является записью устройства в память */
     CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 0) == 0);
     CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 1) == 1);     /* допускается только после изоляции устройства */
+    CHECK(kdrv_pci_command_clear_master(0x0007) == 0x0003);   /* clear inherited bus-master permission */
+    CHECK(kdrv_pci_command_clear_master(0x0407) == 0x0403);   /* preserve unrelated command bits */
+    CHECK(kdrv_pci_command_for_unisolated(0x0007) == 0x0403); /* no DMA and no legacy INTx */
+    CHECK(kdrv_pci_busmaster_handoff_safe(0x0003, 0x0003));
+    CHECK(kdrv_pci_command_quiesced(0x0403));
+    CHECK(!kdrv_pci_command_quiesced(0x0003));
+    CHECK(!kdrv_pci_command_quiesced(0x0407));
+    CHECK(kdrv_pci_interrupts_quiesced(0, 1, 0x4000, 1)); /* MSI-X disabled, Function Mask asserted */
+    CHECK(kdrv_pci_interrupts_quiesced(0, 1, 0xC000, 1)); /* MSI-X enabled, Function Mask asserted */
+    CHECK(!kdrv_pci_interrupts_quiesced(1, 1, 0x8000, 1)); /* MSI and MSI-X unmasked */
+    CHECK(kdrv_pci_interrupts_quiesced(0, 1, 0, 1)); /* MSI-X disabled, no pending source */
+    CHECK(!kdrv_pci_start_requires_permanent_quarantine(1, 0x0003, 0x0400));
+    CHECK(kdrv_pci_start_requires_permanent_quarantine(0, 0x0003, 0x0400));
+    CHECK(kdrv_pci_start_requires_permanent_quarantine(1, 0x0007, 0x0400));
+    CHECK(kdrv_pci_start_requires_permanent_quarantine(1, 0x0003, 0x0402));
+    CHECK(!kdrv_pci_busmaster_handoff_safe(0x0007, 0x0003)); /* firmware had enabled DMA */
+    CHECK(!kdrv_pci_busmaster_handoff_safe(0x0003, 0x0007)); /* device refused disable */
     uint64_t page_lo = 0, page_hi = 0, physical = 0;
     uint32_t pages = 0;
     CHECK(kdrv_mmio_page_bounds(0xFEC00000, 0x1000, &page_lo, &page_hi) == 0 &&

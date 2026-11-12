@@ -53,6 +53,8 @@ typedef struct {
     irqwait_t net_iw;
     uint64_t net_tx, net_rx, net_bad;
     uint64_t dead_at;
+    volatile int dma_quiesced;
+    volatile int quarantine_permanent;
 } bind_t;
 
 static bind_t binds[KDRV_SLOTS];
@@ -169,20 +171,73 @@ static void irq_enable(bind_t* b) {
 }
 
 /* Устройство останавливается: ни обращений к памяти, ни сообщений прерываний. Не спит (зовётся при гибели процесса). */
-static uint16_t quiesce(const pci_dev_t* d) {
-    uint16_t c = find_cap(d, 0x05);
-    if (c) pci_write16(d, (uint16_t)(c + 2), (uint16_t)(pci_read16(d, (uint16_t)(c + 2)) & ~1u));
-    c = find_cap(d, 0x11);
-    if (c) pci_write16(d, (uint16_t)(c + 2), (uint16_t)((pci_read16(d, (uint16_t)(c + 2)) & ~0x8000u) | 0x4000u));
+static int quiesce_verified(const pci_dev_t* d, uint16_t* command_out) {
+    if (!d) return 0;
+    int safe = 1, has_msi = 0, has_msix = 0;
+    uint16_t msi_control = 0, msix_control = 0;
+    uint16_t status = pci_read16(d, 0x06);
+    if (status & 0x10u) {
+        uint8_t ptr = pci_read8(d, 0x34);
+        uint64_t visited = 0;
+        unsigned n;
+        if (!ptr) safe = 0;
+        for (n = 0; ptr && n < 48; n++) {
+            if (ptr < 0x40u || ptr > 0xFCu || (ptr & 3u)) { safe = 0; break; }
+            uint64_t bit = 1ull << (ptr >> 2);
+            if (visited & bit) { safe = 0; break; }
+            visited |= bit;
+            uint8_t id = pci_read8(d, ptr);
+            uint8_t next = pci_read8(d, (uint16_t)(ptr + 1u));
+            if (!id || id == 0xFFu) { safe = 0; break; }
+            if (id == 0x05u) {
+                has_msi = 1;
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control & ~1u));
+                msi_control = pci_read16(d, (uint16_t)(ptr + 2u));
+            } else if (id == 0x11u) {
+                has_msix = 1;
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control | 0x4000u));
+                msix_control = pci_read16(d, (uint16_t)(ptr + 2u));
+            }
+            if (!next) { ptr = 0; break; }
+            if (next < 0x40u || next > 0xFCu || (next & 3u) || next == ptr) {
+                safe = 0;
+                break;
+            }
+            ptr = next;
+        }
+        if (ptr && n == 48) safe = 0;
+    }
+    if (!kdrv_pci_interrupts_quiesced(msi_control, has_msi, msix_control, has_msix))
+        safe = 0;
     uint16_t cmd = pci_read16(d, 0x04);
-    pci_write16(d, 0x04, (uint16_t)(cmd & ~(PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER)));
-    return pci_read16(d, 0x04);
+    pci_write16(d, 0x04, (uint16_t)(kdrv_pci_command_for_unisolated(cmd) &
+                                    ~(PCI_CMD_IO | PCI_CMD_MEM)));
+    cmd = pci_read16(d, 0x04);
+    if (!kdrv_pci_command_quiesced(cmd)) safe = 0;
+    if (command_out) *command_out = cmd;
+    return safe;
+}
+/* A failed start still owns the PCI function until hardware quiescence is
+   read back and the same delayed-release path used for dead drivers completes. */
+static void quarantine_failed_start(bind_t* b, int permanent) {
+    uint16_t command = 0;
+    b->quarantine_permanent = permanent != 0;
+    b->dma_quiesced = !b->quarantine_permanent &&
+                      quiesce_verified(b->dev, &command) &&
+                      kdrv_pci_command_quiesced(command);
+    b->dead_at = timer_get_ticks();
+    uint64_t flags = spin_lock_irqsave(&klock);
+    b->state = B_DEAD;
+    spin_unlock_irqrestore(&klock, flags);
+    __atomic_add_fetch(&ndead, 1, __ATOMIC_ACQ_REL);
 }
 
 /* ---- запуск ---- */
 static void bind_reset(bind_t* b) {
     b->granted = b->version = b->pid = 0;
-    b->irq_count = 0; b->irq_seen = 0; b->irq_on = 0; b->waiting = 0; b->tx_pending = 0; b->denied = 0;
+    b->irq_count = 0; b->irq_seen = 0; b->irq_on = 0; b->waiting = 0; b->tx_pending = 0; b->denied = 0; b->dma_quiesced = 0; b->quarantine_permanent = 0;
     b->nmap = 0; b->mmio_next = MMIO_VA; b->ndma = 0; b->dma_pages = 0; b->dma_next = DMA_VA;
     b->net_alive = 0; b->ctl = 0; b->net_pa = 0; b->net_pages = 0; b->tx_head = b->rx_tail = 0;
     b->net_tx = b->net_rx = b->net_bad = 0;
@@ -228,6 +283,24 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     unsigned k = 0; while (p.h.name[k] && k < sizeof b->name - 1) { b->name[k] = p.h.name[k]; k++; }
     b->name[k] = 0;
     b->granted = granted; b->version = p.h.version;
+    /* Firmware or a previous owner may have left Bus Master enabled. Clear it
+       before exposing any BAR or starting this unisolated driver, then verify the
+       config-space write actually took effect. */
+    uint16_t pci_command = pci_read16(d, 0x04);
+    /* Also mask inherited MSI/MSI-X state; this driver has no IRQ capability. */
+    uint16_t pci_after = 0;
+    int device_quiesced = quiesce_verified(d, &pci_after);
+    if (!device_quiesced || !kdrv_pci_busmaster_handoff_safe(pci_command, pci_after) ||
+        !kdrv_pci_command_quiesced(pci_after) ||
+        (pci_after & (PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER))) {
+        quarantine_failed_start(b, kdrv_pci_start_requires_permanent_quarantine(
+            device_quiesced, pci_command, pci_after));
+        kfree(p.buf);
+        uart_print("[KIRA DRV] "); uart_print(name);
+        uart_print(": inherited or uncleared bus mastering; device is not safe to hand off, driver NOT started\n");
+        life_note("drv-denied-busmaster", name, KDRV_E_DMA_UNSAFE);
+        return KDRV_E_DMA_UNSAFE;
+    }
     if (granted & CAP_MMIO) pci_enable(d, PCI_CMD_MEM);
     /* Эти действия достижимы только после успешной проверки IOMMU policy выше. */
     if (granted & (CAP_DMA | CAP_IRQ)) pci_enable(d, PCI_CMD_MASTER);
@@ -238,8 +311,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     int pid = proc_spawn_driver(pname, p.buf + sizeof(kdrv_header_t), p.h.elf_size, granted, (uint32_t)(b - binds), args);
     kfree(p.buf);
     if (pid < 0) {
-        quiesce(d);
-        b->state = B_FREE;
+        quarantine_failed_start(b, 0);
         uart_print("[KIRA DRV] "); uart_print(name); uart_print(": ELF драйвера не принят - не запущен\n");
         return -1;
     }
@@ -320,7 +392,8 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
     uint64_t f = spin_lock_irqsave(&b->nlk);
     b->net_alive = 0;                               /* карта драйвера для стека: link down, send отказывает, recv пуст */
     spin_unlock_irqrestore(&b->nlk, f);
-    uint16_t cmd = quiesce(b->dev);
+    uint16_t cmd = 0;
+    b->dma_quiesced = quiesce_verified(b->dev, &cmd) && kdrv_pci_command_quiesced(cmd);
     b->dead_at = timer_get_ticks();
     f = spin_lock_irqsave(&klock);
     b->state = B_DEAD;
@@ -329,10 +402,13 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
     uart_print("[KIRA DRV] drv-"); uart_print(b->name); uart_print(" (pid "); uart_print_dec(pid); uart_print(") завершён: устройство ");
     print_bdf(b->dev); uart_print(" остановлено (команда PCI "); uart_print_hex(cmd); uart_print(", MSI выключено), DMA ");
     uart_print_dec(b->dma_pages); uart_print(" стр. в "); uart_print_dec(b->ndma); uart_print(" блок(ах) и кольца ");
-    uart_print_dec(b->net_pages); uart_print(" стр. вернутся через 100 мс\n");
+    uart_print_dec(b->net_pages); uart_print(" стр. ");
+    if (b->dma_quiesced) uart_print("вернутся после задержки 100 мс\n");
+    else uart_print("ОСТАЮТСЯ ЗАКРЕПЛЕНЫ: PCI Bus Master не выключен, устройство в карантине\n");
 }
 
 static void release(bind_t* b) {
+    if (!b->dma_quiesced || b->quarantine_permanent) return; /* Never recycle an unsafe or inherited-DMA device slot. */
     uint32_t got = 0, want = b->dma_pages + b->net_pages;
     for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
     if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
@@ -399,7 +475,17 @@ void kdrv_poll(void) {
     if (!__atomic_load_n(&ndead, __ATOMIC_ACQUIRE)) return;
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         bind_t* b = &binds[i];
-        if (b->state == B_DEAD && timer_get_ticks() - b->dead_at >= RELEASE_DELAY_TICKS) release(b);
+        if (b->state == B_DEAD && !b->quarantine_permanent && !b->dma_quiesced) {
+            uint16_t cmd = 0;
+            if (quiesce_verified(b->dev, &cmd) && kdrv_pci_command_quiesced(cmd)) {
+                b->dma_quiesced = 1;
+                b->dead_at = timer_get_ticks();
+                uart_print("[KIRA DRV] "); uart_print(b->name);
+                uart_print(": PCI DMA stopped on retry; release timer restarted\n");
+            }
+        }
+        if (b->state == B_DEAD && b->dma_quiesced &&
+            timer_get_ticks() - b->dead_at >= RELEASE_DELAY_TICKS) release(b);
     }
 }
 
@@ -672,7 +758,9 @@ int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
             if (b->granted & CAP_MMIO) ok |= PCI_CMD_MEM;
             if (a2 != 2 || (a3 & ~(uint64_t)ok)) { deny_note(b, "запись в регистр команд PCI значения", a3); return KE_PERM; }
             uint16_t cur = pci_read16(b->dev, 0x04);
-            pci_write16(b->dev, 0x04, (uint16_t)((cur & ~ok) | (uint16_t)a3));
+            uint16_t requested = (uint16_t)a3;
+            if (!(b->granted & CAP_IRQ)) requested |= PCI_CMD_INTX_OFF;
+            pci_write16(b->dev, 0x04, (uint16_t)((cur & ~ok) | requested));
             return 0;
         }
         if (cfg_deny(b->dev, (uint32_t)a1, (uint32_t)a2)) { deny_note(b, "запись в защищённую область конфигурации, смещение", a1); return KE_PERM; }
