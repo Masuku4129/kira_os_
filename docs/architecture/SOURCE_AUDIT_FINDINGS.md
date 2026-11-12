@@ -146,3 +146,12 @@ No tests were executed during this source-review pass. Findings above are code o
 - **Severity:** Medium — trust boundary and recovery requirement.
 - **Evidence:** `mind_model_valid()` verifies schema/ranges and CRC for `/var/mind.dat`; it does not authenticate who produced the model. The model influences predictive risk and adaptive tuning but must never be treated as a policy or capability source.
 - **Action:** treat persisted weights as untrusted data; maintain hard-coded/administrator policy outside model state. On invalid, stale or low-confidence model, fall back to observation/default behavior. If remote/model-package updates are added, require provenance/signature and atomic rollback. RFC-MIND-001 defines these constraints.
+
+
+## F-016 — PCI host enumeration is asymmetric between x86-64 and ARM64
+
+- **Severity:** High — device discovery and KDRV startup differ by architecture.
+- **Evidence:** ARM64 explicitly calls `arm_pci_init(fdt)` from `arch/aarch64/main.c`; that routine discovers `pci-host-ecam-generic`, installs the ECAM backend, calls `pci_init()` and assigns BAR windows. The x86-64 boot composition root `arch/x86_64/kernel_boot.c` does not call `pci_init()` or install a PCI config backend. `kdrv_poll()` returns early when `pci_count() == 0`. Therefore the x86 boot path does not currently establish the same explicit PCI enumeration stage as ARM64; any alternate initialization path must be identified before declaring parity.
+- **Security gate:** do not simply add `pci_init()` to x86 boot yet. Current main-based KDRV can enable PCI bus mastering for `CAP_DMA` or `CAP_IRQ` without a confirmed per-device IOMMU domain (F-013/F-015), and PCI scan preserves firmware-enabled bus mastering (F-014). Enabling more enumeration before these gates are fixed could expose additional devices to unsafe DMA.
+- **Action:** establish one architecture-neutral Device Model contract with x86 mechanism-1 and ARM64 ECAM host backends; require firmware bus-master sanitization and per-BDF IOMMU domain readiness before a device is offered to KDRV. Then wire explicit PCI enumeration into both boot compositions and add x86/ARM parity tests for discovered functions, bridges, BAR assignment and fail-closed DMA/MSI.
+- **Status:** identified; implementation deliberately deferred until the PCI/IOMMU security prerequisites are merged and verified.
