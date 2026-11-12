@@ -11,7 +11,7 @@ static int fails;
 
 static uint8_t sb[4096], st[1024], blob[8192];
 static unsigned sn, tn;
-static int bad_memory_type;
+static int bad_memory_type, deep_nodes;
 static void be(uint8_t* p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v; }
 static void w32(uint32_t v) { be(sb + sn, v); sn += 4; }
 static void begin(const char* name) { w32(1); unsigned l = strlen(name) + 1; memcpy(sb + sn, name, l); sn += (l + 3) & ~3u; }
@@ -58,6 +58,8 @@ static unsigned build(void) {
         { uint32_t r[] = { 0, 0x3c000000, 0, 800 * 600 * 4 }; pcells("reg", r, 4); }
         p1("width", 800); p1("height", 600); p1("stride", 3200); pstr("format", "a8r8g8b8", 9); end();
       begin("chosen"); pstr("stdout-path", "/pl011@9000000", 15); pstr("bootargs", "console=ttyAMA0", 16); end();
+      for (int i = 0; i < deep_nodes; i++) { char name[24]; sprintf(name, "nested@%d", i); begin(name); }
+      for (int i = 0; i < deep_nodes; i++) end();
     end();
     w32(9);
     unsigned off_struct = 40 + 32, off_str = off_struct + sn, total = (off_str + tn + 3u) & ~3u;
@@ -85,6 +87,24 @@ int main(void) {
     }
     CHECK(fdt_u32(0) == 0 && fdt_total_size(0) == 0);
     CHECK(fdt_root(0) == -1 && fdt_node_name(0, 0) == 0);
+    /* The parser accepts nesting to 64 levels; parent lookup must support the deepest node too. */
+    {
+        deep_nodes = 63;
+        unsigned deep_total = build();
+        int d = 0, n = fdt_root(blob), deepest = -1;
+        while (n >= 0) {
+            if (d == deep_nodes) deepest = n;
+            n = fdt_next_node(blob, n, &d);
+        }
+        CHECK(fdt_tree_valid(blob, deep_total));
+        CHECK(deepest >= 0 && fdt_parent(blob, deepest) >= 0);
+        if (deepest >= 0) {
+            int parent = fdt_parent(blob, deepest);
+            CHECK(parent >= 0 && !strcmp(fdt_node_name(blob, parent), "nested@61"));
+        }
+        deep_nodes = 0;
+        total = build();
+    }
     CHECK(fdt_next_node(0, 0, 0) == -1);
     { int bad_depth = -1; CHECK(fdt_next_node(blob, 0, &bad_depth) == -1); }
 
@@ -102,28 +122,86 @@ int main(void) {
 
     CHECK(fdt_parent(blob, -1) == -1);
     CHECK(fdt_prop_u32(blob, 0, "#address-cells", 0) != 0);
-    CHECK(fdt_reg(blob, -1, 0, 0, 0) != 0);
+    CHECK(fdt_reg(blob, total, -1, 0, 0, 0) != 0);
     CHECK(fdt_count_type(blob, -1, "cpu") == 0);
     CHECK(!fdt_node_enabled(blob, -1));
-    CHECK(fdt_simplefb(blob, 0) == -2);
+    CHECK(fdt_simplefb(blob, total, 0) == -2);
     int root = fdt_root(blob);
     CHECK(root >= 0 && fdt_compatible(blob, root, "linux,dummy-virt"));
 
     int uart = fdt_find_compatible(blob, -1, "arm,pl011");
     uint64_t a, s;
-    CHECK(uart >= 0 && fdt_reg(blob, uart, 0, &a, &s) == 0 && a == 0x09000000 && s == 0x1000);
+    CHECK(uart >= 0 && fdt_reg(blob, total, uart, 0, &a, &s) == 0 && a == 0x09000000 && s == 0x1000);
     CHECK(fdt_compatible(blob, uart, "arm,primecell") && !fdt_compatible(blob, uart, "arm,pl01"));
     int gic = fdt_find_compatible(blob, -1, "arm,cortex-a15-gic");
-    CHECK(gic >= 0 && fdt_reg(blob, gic, 1, &a, &s) == 0 && a == 0x08010000 && s == 0x10000);
-    CHECK(fdt_reg(blob, gic, 2, &a, &s) != 0);                    /* третьей пары нет */
+    CHECK(gic >= 0 && fdt_reg(blob, total, gic, 1, &a, &s) == 0 && a == 0x08010000 && s == 0x10000);
+    CHECK(fdt_reg(blob, total, gic, 2, &a, &s) != 0);                    /* третьей пары нет */
     int mem = fdt_find_path(blob, "/memory");
-    CHECK(mem >= 0 && fdt_reg(blob, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
+    CHECK(mem >= 0 && fdt_reg(blob, total, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
+    /* A forged DTB totalsize must never replace the caller's actual buffer bound. */
+    {
+        uint8_t bounded[8192];
+        fdt_fb_t bad_fb;
+        memcpy(bounded, blob, total);
+        be(bounded + 4, total + 64);
+        CHECK(fdt_reg(bounded, total, mem, 0, &a, &s) != 0);
+        CHECK(fdt_simplefb(bounded, total, &bad_fb) != 0);
+        memcpy(bounded, blob, total);
+        be(bounded + 4, total - 4);
+        CHECK(fdt_reg(bounded, total, mem, 0, &a, &s) != 0);
+        CHECK(fdt_simplefb(bounded, total, &bad_fb) != 0);
+    }
+
+    /* Present but malformed cell-width properties must not silently fall back to defaults. */
+    {
+        uint8_t handoff[KIRA_BOOTINFO_MAX_SIZE < 4096 ? KIRA_BOOTINFO_MAX_SIZE : 4096];
+        uint32_t handoff_size = 0, cell_len = 0;
+        fdt_fb_t malformed_fb;
+        uint8_t* cell = (uint8_t*)fdt_prop(blob, root, "#address-cells", &cell_len);
+        CHECK(cell && cell_len == 4);
+        if (cell) {
+            be(cell - 8, 8); /* property length field */
+            CHECK(!fdt_tree_valid(blob, total));
+            CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
+            CHECK(fdt_simplefb(blob, total, &malformed_fb) != 0);
+            CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                               handoff, sizeof handoff, &handoff_size) != 0);
+            be(cell - 8, 4);
+            /* A 2-byte property preserves token alignment, so the semantic
+               cell-width check (not only the structural validator) must reject it. */
+            be(cell - 8, 2);
+            CHECK(fdt_tree_valid(blob, total));
+            CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
+            CHECK(fdt_simplefb(blob, total, &malformed_fb) != 0);
+            CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                               handoff, sizeof handoff, &handoff_size) != 0);
+            be(cell - 8, 4);
+        }
+        cell = (uint8_t*)fdt_prop(blob, root, "#size-cells", &cell_len);
+        CHECK(cell && cell_len == 4);
+        if (cell) {
+            be(cell - 8, 8);
+            CHECK(!fdt_tree_valid(blob, total));
+            CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
+            CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                               handoff, sizeof handoff, &handoff_size) != 0);
+            be(cell - 8, 4);
+            be(cell - 8, 2);
+            CHECK(fdt_tree_valid(blob, total));
+            CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
+            CHECK(fdt_simplefb(blob, total, &malformed_fb) != 0);
+            CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                               handoff, sizeof handoff, &handoff_size) != 0);
+            be(cell - 8, 4);
+        }
+        CHECK(fdt_reg(blob, total, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
+    }
     int cpus = fdt_find_path(blob, "/cpus");
     CHECK(cpus >= 0 && fdt_count_type(blob, cpus, "cpu") == 4);  /* cpu-map не ядро */
     int cpu2 = fdt_find_path(blob, "/cpus/cpu@2");
     uint32_t r32 = 0;
     CHECK(cpu2 >= 0 && fdt_prop_u32(blob, cpu2, "reg", &r32) == 0 && r32 == 2);
-    CHECK(fdt_reg(blob, cpu2, 0, &a, &s) == 0 && a == 2 && s == 0);   /* #address-cells 1, #size-cells 0 */
+    CHECK(fdt_reg(blob, total, cpu2, 0, &a, &s) == 0 && a == 2 && s == 0);   /* #address-cells 1, #size-cells 0 */
     CHECK(fdt_parent(blob, cpu2) == cpus && fdt_parent(blob, cpus) == root && fdt_parent(blob, root) == -1);
     int tmr = fdt_find_compatible(blob, -1, "arm,armv8-timer");
     uint32_t len = 0;
@@ -136,7 +214,7 @@ int main(void) {
     CHECK(fdt_find_compatible(blob, uart, "arm,pl011") < 0);          /* второго такого нет */
 
     fdt_fb_t fb;
-    CHECK(fdt_simplefb(blob, &fb) == 0 && fb.base == 0x3c000000 && fb.width == 800 && fb.height == 600 &&
+    CHECK(fdt_simplefb(blob, total, &fb) == 0 && fb.base == 0x3c000000 && fb.width == 800 && fb.height == 600 &&
           fb.stride == 3200 && !strcmp(fb.format, "a8r8g8b8"));          /* выключенный узел пропущен */
     uint64_t reserve_base = 0, reserve_size = 0;
     CHECK(fdt_reserve_count(blob, sizeof blob) == 1);
@@ -150,7 +228,7 @@ int main(void) {
         CHECK(reg && len == 16);
         be(reg, 0xFFFFFFFFu); be(reg + 4, 0xFFFFF000u);
         be(reg + 8, 0); be(reg + 12, 0x2000);
-        CHECK(fdt_reg(blob, mem, 0, &a, &s) != 0);
+        CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
         total = build();
         mem = fdt_find_path(blob, "/memory");
     }
