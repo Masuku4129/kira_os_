@@ -807,7 +807,6 @@ int ir_uses_sp(const IrFn *fi) {
 
 void ir_dump(Obj *globals, SB *o) {
     if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
-    irs = K.ir_state;
     out = o;
     sb_printf(out, "; kcc IR\n");
     for (Obj *g = globals; g; g = g->next) {
