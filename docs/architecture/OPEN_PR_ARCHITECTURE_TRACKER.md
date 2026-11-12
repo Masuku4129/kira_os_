@@ -9,7 +9,8 @@
 
 | PR | Head branch / SHA | Base | Направление | Следующая проверка |
 |---|---|---|---|---|
-| #135 | architecture/target-baseline-2026-11 / 69cc8e1850b0f72a183c3e7b6fefafe9f5dd280d | main | Целевая архитектура, аудит, контракты | Проверить diff/docs/links и согласовать владельцем; draft, не merge |
+| #135 | architecture/target-baseline-2026-11 / current head см. GitHub PR | main | Целевая архитектура, аудит, контракты | Проверить diff/docs/links и согласовать владельцем; draft, не merge |
+| #136 | security/kdrv-require-iommu-for-dma-msi / 720a2020f6d78501aed60b5013ad9b7d1c62b30d | main | Fail-closed KDRV DMA/MSI isolation | Review security diff and require exact-head CI success; do not merge without review |
 
 ## 2. Основные открытые PR по подсистемам
 
