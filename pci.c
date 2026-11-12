@@ -94,7 +94,7 @@ static void quarantine_record(const pci_dev_t* d) {
             return;
     }
     if (dma_quarantine_count >= PCI_MAX_DEVS) {
-        dma_quarantine_overflow = 1; /* fail closed globally rather than lose a quarantine */
+        __atomic_store_n(&dma_quarantine_overflow, 1, __ATOMIC_RELEASE); /* fail closed globally rather than lose a quarantine */
         return;
     }
     pci_dma_quarantine_t* q = &dma_quarantine[dma_quarantine_count++];
@@ -248,7 +248,7 @@ void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
     w = (w & ~(0xFFFFu << sh)) | ((uint32_t)v << sh);
 #if defined(__aarch64__) || defined(__x86_64__)
     if (off == 0x04 && (w & PCI_CMD_MASTER) && !pci_is_bridge(d) &&
-        (dma_quarantine_overflow || __atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE) || !iommu_device_ready(d)))
+        (__atomic_load_n(&dma_quarantine_overflow, __ATOMIC_ACQUIRE) || __atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE) || !iommu_device_ready(d)))
         w &= (uint32_t)~PCI_CMD_MASTER;
 #endif
     be.write32(d->bus, d->dev, d->fn, off & ~3, w);
