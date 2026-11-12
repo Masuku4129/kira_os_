@@ -78,8 +78,10 @@ static size_t make_catalogue(char *out, size_t capacity, unsigned version,
         "KIRA-KDRV-CATALOGUE\t1\t%u\n"
         "%s\n",
         version,
-        valid_entry
+        valid_entry == 1
         ? "net\t1.0\tx86_64\thttps://example.org/net.kdrv\thttps://example.org/net.sig\tpublisher-required\t35\t0000000000000000000000000000000000000000000000000000000000000000"
+        : valid_entry == 2
+        ? "net\t..\tx86_64\thttps://example.org/net.kdrv\thttps://example.org/net.sig\tpublisher-required\t35\t0000000000000000000000000000000000000000000000000000000000000000"
         : "net\t1.0\tx86_64\tx\thttps://example.org/net.sig\tpublisher-required\t35\t0000000000000000000000000000000000000000000000000000000000000000");
     return n > 0 && (size_t)n < capacity ? (size_t)n : 0;
 }
@@ -143,6 +145,12 @@ int main(void)
 
     /* A signed but malformed catalogue must not burn a newer rollback floor. */
     length = make_catalogue(bytes, sizeof(bytes), 6, 0);
+    make_record(&record, bytes, length, 6, &ops);
+    CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_INVALID);
+    CHECK(state.floor == 5);
+
+    /* Signed catalogue metadata cannot smuggle a dot-segment version. */
+    length = make_catalogue(bytes, sizeof(bytes), 6, 2);
     make_record(&record, bytes, length, 6, &ops);
     CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_INVALID);
     CHECK(state.floor == 5);
