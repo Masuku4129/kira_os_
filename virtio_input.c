@@ -180,7 +180,12 @@ static int attach(vin_t* d, const pci_dev_t* p, int* has_irq) {
     if (!d->ev) { detach(d); return -2; }
     uint16_t nb = d->q.size < NBUF ? d->q.size : NBUF;
     for (uint16_t i = 0; i < nb; i++) virtq_post(&d->q, i, d->ev_phys + i * sizeof(vev_t), sizeof(vev_t), 1);
-    virtio_driver_ok(&d->dev);
+    if (virtio_dma_sync_for_device(d->ev, d->ev_phys, NBUF * sizeof(vev_t)) != 0 ||
+        virtio_dma_sync_for_device(d->q.mem, d->q.mem_phys, d->q.mem_bytes) != 0) {
+        detach(d);
+        return -3;
+    }
+    if (virtio_driver_ok(&d->dev) != 0) { detach(d); return -3; }
     virtq_kick(&d->q);
     return 0;
 }
