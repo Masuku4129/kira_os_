@@ -384,10 +384,9 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     if (ks_nfree > KSTACK_SLOTS) goto out;
     int reuse = ks_nfree != 0;
     if (reuse) {
-        uint32_t slot = ks_free[ks_nfree - 1u];
-        if (!kstack_slot_can_reuse(slot, (uint32_t)ks_next, (uint32_t)KSTACK_SLOTS) ||
-            !kstack_slot_activate(ks_active, (uint32_t)KSTACK_SLOTS, slot)) goto out;
-        ks_nfree--;
+        uint32_t slot;
+        if (!kstack_slot_free_pop(ks_free, &ks_nfree, ks_active,
+                                  (uint32_t)KSTACK_SLOTS, (uint32_t)ks_next, &slot)) goto out;
         va = KSTACK_VA + (uint64_t)slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
     } else if (ks_next < KSTACK_SLOTS) {
         uint64_t slot = ks_next, base = KSTACK_VA + slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
@@ -418,10 +417,9 @@ void vmm_kstack_free(void* base) {
     while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
     uint32_t slot;
     if (kstack_slot_from_base(va, KSTACK_VA, KSTACK_STRIDE, (uint32_t)KSTACK_SLOTS,
-                              (uint32_t)__atomic_load_n(&ks_size, __ATOMIC_RELAXED), (uint32_t)ks_next, &slot) &&
-        ks_nfree < KSTACK_SLOTS && kstack_slot_release(ks_active, (uint32_t)KSTACK_SLOTS, slot)) {
-        ks_free[ks_nfree++] = (uint16_t)slot;
-    }
+                              (uint32_t)__atomic_load_n(&ks_size, __ATOMIC_RELAXED), (uint32_t)ks_next, &slot))
+        (void)kstack_slot_free_push(ks_free, &ks_nfree, ks_active,
+                                    (uint32_t)KSTACK_SLOTS, (uint32_t)ks_next, slot);
     __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
     irq_restore(f);
 }
