@@ -527,7 +527,13 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if (!xall[started]) { usb_log("[KIRA USB] xHCI: no memory for controller state\n"); return -1; }
     X = xall[started];
     if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) { usb_log("[KIRA USB] xHCI without memory BAR0: skipped\n"); return -1; }
-    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    uint16_t pci_cmd = pci_read16(p, 0x04);
+    pci_write16(p, 0x04, (uint16_t)(pci_cmd & ~PCI_CMD_MASTER));
+    if ((pci_cmd & PCI_CMD_MASTER) || (pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        usb_log("[KIRA USB] xHCI: inherited bus mastering cannot be proven quiescent; controller refused.\\n");
+        return -2;
+    }
+    pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     if (p->vendor == 0x8086) {                                        /* Intel: порты, отданные EHCI, вернуть xHCI */
         pci_write32(p, 0xD8, pci_read32(p, 0xDC));
         pci_write32(p, 0xD0, pci_read32(p, 0xD4));
@@ -574,6 +580,8 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
     w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
     w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
+    cpu_mb();                                                          /* publish NC rings before device DMA starts */
+    pci_enable(p, PCI_CMD_MASTER);
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     if (r32(xs.op, 4) & 1u) { usb_log("[KIRA USB] xHCI does not start\n"); return -1; }
