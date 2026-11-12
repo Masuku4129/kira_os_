@@ -90,6 +90,23 @@ HTTPS защищает канал от части сетевых атак, но 
 - IOMMU и безопасное DMA-отображение там, где платформа это поддерживает.
 - Отдельные политики для встроенных доверенных драйверов и сторонних драйверов.
 
+## Anti-rollback: hardware anchor required
+
+Подпись издателя и SHA-256 не предотвращают откат всего дискового образа.
+Обычный файл версии, CRC, два слота KiraFS или generation counter на том же
+перезаписываемом диске не являются защищённым monotonic anchor.
+
+В текущем дереве нет проверенного TPM NV, secure-element, authenticated
+UEFI-variable или другого аппаратно/firmware-защищённого monotonic provider.
+Поэтому сильная защита от rollback пока **не реализована**. KDRV trust API
+требует явный `KDRV_TRUST_STORAGE_HW_MONOTONIC`; без него catalogue load
+отказывает. Тестовый backend эмулирует только контракт API, не железо.
+
+Архитектурное решение: `docs/adr/ADR-0002-kdrv-anti-rollback-anchor.md`.
+Следующий этап — обнаружение и валидация реального платформенного anchor,
+его provisioning/recovery и тестирование отката питания/образа. Не объявлять
+software-only version floor защищённым от rollback.
+
 ## Проверка реализации
 
 При каждом изменении KDRV проверять:
