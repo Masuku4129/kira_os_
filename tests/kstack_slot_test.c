@@ -37,6 +37,32 @@ int main(void) {
     assert(kstack_slot_activate(active, SLOTS, SLOTS - 1));
     assert(kstack_slot_release(active, SLOTS, SLOTS - 1));
 
+    /* Exercise the checked free-list transaction, including duplicate frees,
+       corrupt entries and full-list refusal without losing stack ownership. */
+    uint16_t free_slots[SLOTS];
+    uint32_t free_count = 0, reused = UINT32_MAX;
+    assert(kstack_slot_activate(active, SLOTS, 7));
+    assert(kstack_slot_free_push(free_slots, &free_count, active, SLOTS, SLOTS, 7));
+    assert(free_count == 1 && !kstack_slot_free_push(free_slots, &free_count, active, SLOTS, SLOTS, 7));
+    assert(kstack_slot_free_pop(free_slots, &free_count, active, SLOTS, SLOTS, &reused));
+    assert(reused == 7 && free_count == 0);
+    assert(!kstack_slot_free_pop(free_slots, &free_count, active, SLOTS, SLOTS, &reused));
+    assert(!kstack_slot_free_push(free_slots, &free_count, active, SLOTS, 7, 7));
+    assert(kstack_slot_free_push(free_slots, &free_count, active, SLOTS, SLOTS, 7));
+    /* Corrupt duplicate entry must not activate twice or consume the bad entry. */
+    free_slots[free_count] = 7; free_count++;
+    assert(kstack_slot_free_pop(free_slots, &free_count, active, SLOTS, SLOTS, &reused));
+    assert(reused == 7 && free_count == 1);
+    assert(!kstack_slot_free_pop(free_slots, &free_count, active, SLOTS, SLOTS, &reused));
+    assert(free_count == 1);
+    assert(kstack_slot_release(active, SLOTS, 7));
+
+    uint32_t full_count = SLOTS;
+    assert(kstack_slot_activate(active, SLOTS, 8));
+    assert(!kstack_slot_free_push(free_slots, &full_count, active, SLOTS, SLOTS, 8));
+    assert(kstack_slot_release(active, SLOTS, 8));
+
+
     /* ARM64 reserves 65,536 slots; exercise its wider slot index and bitmap edge. */
     uint8_t arm_active[(ARM_SLOTS + 7u) / 8u] = {0};
     uint64_t arm_last = BASE + (uint64_t)(ARM_SLOTS - 1u) * STRIDE + STRIDE - SIZE;
