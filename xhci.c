@@ -604,7 +604,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     uint64_t op_end = (uint64_t)caplen + 0x400u + (uint64_t)nports * 0x10u;
     uint64_t rt_end = (uint64_t)rt_off + 0x40u;
     uint64_t db_end = (uint64_t)db_off + 4u * (MAXSLOT + 1u);
-    if (caplen < 0x20 || (caplen & 3u) || op_end > sz ||
+    if (caplen < 0x20 || (caplen & 3u) || !(hcs1 & 0xFFu) || !nports || op_end > sz ||
         (rt_raw & 0x1Fu) || (db_raw & 3u) ||
         rt_off < op_end || db_off < op_end ||
         rt_end > sz || db_end > sz ||
