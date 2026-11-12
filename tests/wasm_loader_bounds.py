@@ -13,7 +13,7 @@ cases = [
     ("maximum-section-length-past-end", magic + b"\x01\xff\xff\xff\xff\x0f", "section past end"),
     ("truncated-section-length-leb", magic + b"\x01\x80", "bad LEB128"),
     ("import-function-type-out-of-range",
-     magic + b"\x01\\x01\\x00" + b"\x02\\x0e\\x01\\x04kira\\x05ticks\\x00\\x00",
+     magic + b"\x01\x01\x00" + b"\x02\x0e\x01\x04kira\x05ticks\x00\x00",
      "bad imported function type"),
 ]
 
