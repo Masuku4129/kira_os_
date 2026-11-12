@@ -381,9 +381,11 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     if (stack_size && stack_size != bytes) goto out;
     /* Fix the slot geometry even if the first mapping attempt partially fails. */
     if (!stack_size) __atomic_store_n(&ks_size, bytes, __ATOMIC_RELEASE);
-    if (ks_nfree) {
-        uint32_t slot = ks_free[--ks_nfree];
+    int reuse = ks_nfree != 0;
+    if (reuse) {
+        uint32_t slot = ks_free[ks_nfree - 1u];
         if (slot >= ks_next || !kstack_slot_activate(ks_active, (uint32_t)KSTACK_SLOTS, slot)) goto out;
+        ks_nfree--;
         va = KSTACK_VA + (uint64_t)slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
     } else if (ks_next < KSTACK_SLOTS) {
         uint64_t slot = ks_next, base = KSTACK_VA + slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
