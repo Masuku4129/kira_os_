@@ -327,6 +327,45 @@ void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
         if (!pci_block_msix_mask) pci_msix_control_model = v;
     }
 }
+
+int pci_quiesce_interrupts(const pci_dev_t* d) {
+    if (!d) return 0;
+    int safe = 1;
+    uint16_t status = pci_read16(d, 0x06);
+    if (status & 0x10u) {
+        uint8_t ptr = pci_read8(d, 0x34);
+        uint64_t visited = 0;
+        if (!ptr) safe = 0;
+        unsigned n;
+        for (n = 0; ptr && n < 48; n++) {
+            if (ptr < 0x40u || ptr > 0xFCu || (ptr & 3u)) { safe = 0; break; }
+            uint64_t bit = 1ull << (ptr >> 2);
+            if (visited & bit) { safe = 0; break; }
+            visited |= bit;
+            uint8_t id = pci_read8(d, ptr);
+            uint8_t next = pci_read8(d, (uint16_t)(ptr + 1u));
+            if (!id || id == 0xFFu) { safe = 0; break; }
+            if (id == 0x05u) {
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control & ~1u));
+                if (pci_read16(d, (uint16_t)(ptr + 2u)) & 1u) safe = 0;
+            } else if (id == 0x11u) {
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)((control & ~0x8000u) | 0x4000u));
+                uint16_t after = pci_read16(d, (uint16_t)(ptr + 2u));
+                if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
+            }
+            if (!next) { ptr = 0; break; }
+            if (next < 0x40u || next > 0xFCu || (next & 3u) || next == ptr) { safe = 0; break; }
+            ptr = next;
+        }
+        if (ptr && n == 48) safe = 0;
+    }
+    uint16_t command = pci_read16(d, 0x04);
+    pci_write16(d, 0x04, (uint16_t)(command | PCI_CMD_INTX_OFF));
+    if (!(pci_read16(d, 0x04) & PCI_CMD_INTX_OFF)) safe = 0;
+    return safe;
+}
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { (void)d; (void)off; return 0; }
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { (void)d; (void)off; (void)v; }
 volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t len) { (void)d; (void)bar; (void)len; return regs + off; }
