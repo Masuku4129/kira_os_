@@ -7,7 +7,7 @@ FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie"
 SSE="-msse2 -mfpmath=sse -fno-math-errno"
 T=$(mktemp -d)
 
-echo "== KIRA VM v1 (portable KVM1 module, verifier, interpreter, capabilities, memory and traps) =="
+echo "== KIRA VM KVP0 prototype (verifier, interpreter, capabilities, memory and traps) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kvm tests/kvm_test.c kvm/kvm.c
 $T/kvm
 python3 tests/kvm_asm_test.py
