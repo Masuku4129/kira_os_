@@ -110,7 +110,7 @@ static thread_t* take_slot(void) {
 
 unsigned sched_thread_capacity(void) { return thread_cap; }
 
-// Инструкции процессора, недоступные в хост-тесте, подменяются заглушками.
+// Инструкции процессора, недоступные в хост-тесте, заменяются тестовыми адаптерами.
 #ifdef KIRA_HOST_TEST
 extern void host_halt(void);
 #define CPU_HALT()  host_halt()
