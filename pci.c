@@ -65,13 +65,23 @@ static int dma_quarantine_overflow;
 
 static int quarantine_matches(uint8_t bus, uint8_t dev, uint8_t fn,
                               uint16_t vendor, uint16_t device) {
-    for (unsigned i = 0; i < dma_quarantine_count; ++i) {
+#if !defined(KIRA_HOST_TEST)
+    uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
+#endif
+    int found = 0;
+    unsigned count = __atomic_load_n(&dma_quarantine_count, __ATOMIC_ACQUIRE);
+    for (unsigned i = 0; i < count; ++i) {
         const pci_dma_quarantine_t* q = &dma_quarantine[i];
         if (q->bus == bus && q->dev == dev && q->fn == fn &&
-            q->vendor == vendor && q->device == device)
-            return 1;
+            q->vendor == vendor && q->device == device) {
+            found = 1;
+            break;
+        }
     }
-    return 0;
+#if !defined(KIRA_HOST_TEST)
+    spin_unlock_irqrestore(&cfg_rmw_lock, flags);
+#endif
+    return found;
 }
 static void quarantine_record(const pci_dev_t* d) {
     if (!d) return;
