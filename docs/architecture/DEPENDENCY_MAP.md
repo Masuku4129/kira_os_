@@ -94,7 +94,7 @@ Static analysis should flag:
 
 ## 6. Implemented transitional syscall dependency boundary
 
-The syscall core now depends on a subsystem-agnostic adapter contract. The router delegates to five per-subsystem adapters (graphics, filesystem, network, audio, clock). This reduces direct dependency fan-out from `kernel/syscall.c` and gives each service-facing API a single owner. All adapters still execute in kernel context; IPC/service-process isolation remains a future gated migration. The canonical syscall ID registry is shared by kernel and both public user APIs at `kcc/include/syscall_numbers.h`.
+The syscall core now depends on a subsystem-agnostic adapter contract. The router delegates to six per-subsystem adapters (graphics, filesystem, network, audio, clock, Driver Manager). This reduces direct dependency fan-out from `kernel/syscall.c` and gives each service-facing API a single owner. All adapters still execute in kernel context; IPC/service-process isolation remains a future gated migration. The canonical syscall ID registry is shared by kernel and both public user APIs at `kcc/include/syscall_numbers.h`.
 
 
 The source layout now reflects part of this boundary: `kernel/syscall.c` owns syscall mechanism and `services/*_syscall.c` own service-facing adapters. Root headers remain temporary compatibility interfaces until the public include tree is consolidated.
