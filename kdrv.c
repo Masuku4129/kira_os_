@@ -197,7 +197,7 @@ static int quiesce_verified(const pci_dev_t* d, uint16_t* command_out) {
             } else if (id == 0x11u) {
                 has_msix = 1;
                 uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
-                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)((control & ~0x8000u) | 0x4000u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control | 0xC000u)); /* MSI-X enabled, Function Mask asserted */
                 msix_control = pci_read16(d, (uint16_t)(ptr + 2u));
             }
             if (!next) break;
