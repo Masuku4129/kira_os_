@@ -52,7 +52,10 @@ static inline void* kd_malloc(u64 n) {
         u64 pages = (n + 4095ull) / 4096ull;
         if (pages < 4) pages = 4;
         if (pages > (~0ull / 4096ull)) return (void*)0;
-        u8* p = (u8*)k_heap_grow(pages);
+#ifndef KDRV_HEAP_GROW
+#define KDRV_HEAP_GROW(pages) k_heap_grow(pages)
+#endif
+        u8* p = (u8*)KDRV_HEAP_GROW(pages);
         if (!p) return (void*)0;
         cur = p;
         left = pages * 4096ull;
