@@ -17,6 +17,7 @@ typedef struct {
     uint16_t vendor, device;
     uint8_t class_code, subclass, prog_if, revision, header_type;
     struct { uint64_t base; uint64_t size; uint8_t io, mem64, prefetch; } bar[PCI_BARS];
+    uint8_t dma_quarantined;       /* sticky: firmware/driver DMA could not be stopped and read back */
 } pci_dev_t;
 
 typedef struct {                 /* способ доступа к конфигурации; в тестах подменяется моделью шины */
