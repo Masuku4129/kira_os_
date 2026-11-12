@@ -289,7 +289,6 @@ void usb_log_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsign
 void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); usb_log(b); }
 static uint16_t pci_command_model, pci_msi_control_model, pci_msix_control_model;
 static int pci_block_busmaster_clear, pci_block_msi_disable, pci_block_msix_mask, pci_block_intx_disable;
-static int pci_block_busmaster_clear;
 void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; if (pci_block_intx_disable) b &= (uint16_t)~PCI_CMD_INTX_OFF; pci_command_model |= b; }
 uint16_t pci_read16(const pci_dev_t* d, uint16_t off) {
     (void)d;
@@ -361,6 +360,14 @@ int main(void) {
     CHECK(xhci_start(&hc, &pd) == -2);
     CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
     pci_block_intx_disable = 0;
+
+    pci_command_model = PCI_CMD_MASTER;
+    pci_msi_control_model = 1u;
+    pci_msix_control_model = 0x8000u;
+    *R(regs, 0x10) = 1u | (1u << 3) | ((0x5000u / 4u) << 16); /* xECP outside mapped BAR */
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    *R(regs, 0x10) = 1u | (1u << 3) | ((XECP / 4) << 16);
 
     pci_command_model = PCI_CMD_MASTER;
     pci_msi_control_model = 1u;
