@@ -71,6 +71,27 @@ static uint64_t tsc_khz;
 static uint64_t next_wake = ~0ULL;
 static uint64_t ready_epoch = 1;
 
+/* next_wake is sampled outside sched_lock by timer IRQs. Every access must be
+   atomic; mixing a lock-protected plain write with an atomic read is a C data race. */
+static uint64_t wake_next_load(void) {
+    return __atomic_load_n(&next_wake, __ATOMIC_RELAXED);
+}
+static void wake_next_store(uint64_t tick) {
+    __atomic_store_n(&next_wake, tick, __ATOMIC_RELEASE);
+}
+static void wake_next_min(uint64_t tick) {
+    uint64_t old = __atomic_load_n(&next_wake, __ATOMIC_RELAXED);
+    while (tick < old &&
+           !__atomic_compare_exchange_n(&next_wake, &old, tick, 1,
+                                        __ATOMIC_RELEASE, __ATOMIC_RELAXED)) { }
+}
+static uint64_t ready_epoch_load(void) {
+    return __atomic_load_n(&ready_epoch, __ATOMIC_ACQUIRE);
+}
+static void ready_epoch_bump(void) {
+    (void)__atomic_add_fetch(&ready_epoch, 1, __ATOMIC_RELEASE);
+}
+
 extern void kernel_panic(const char* reason) __attribute__((noreturn));
 
 static void rq_remove(struct thread* t);
@@ -329,7 +350,7 @@ static thread_t* pick_next(unsigned cpu, const thread_t* self) {
 static void make_ready_locked(thread_t* t) {
     t->state = THREAD_READY;
     t->ready_since = timer_get_ticks();
-    ready_epoch++;
+    ready_epoch_bump();
     unsigned c = choose_cpu(t);
     rq_push(c, t, t->weight > SCHED_WEIGHT_NORMAL);       /* тяжёлый (фокус, голодающий) - в голову очереди */
     percpu_t* me = this_cpu();
@@ -368,7 +389,7 @@ static void schedule_locked(void) {
     if (prev->state == THREAD_RUNNING && prev->throttled_until > now_tick) {
         prev->state = THREAD_SLEEPING;                 /* исчерпал свою долю окна: спит до его конца */
         prev->wake_tick = prev->throttled_until;
-        if (prev->wake_tick < next_wake) next_wake = prev->wake_tick;
+        wake_next_min(prev->wake_tick);
     }
     if (prev->state == THREAD_RUNNING) {
         prev->state = THREAD_READY;
@@ -578,7 +599,7 @@ void sched_sleep_ticks(uint32_t ticks) {
     sl_lock();
     this_cpu()->current->wake_tick = timer_get_ticks() + ticks;
     this_cpu()->current->state = THREAD_SLEEPING;
-    if (this_cpu()->current->wake_tick < next_wake) next_wake = this_cpu()->current->wake_tick;
+    wake_next_min(this_cpu()->current->wake_tick);
     schedule_locked();
     irq_restore(f);
 }
@@ -630,7 +651,7 @@ void sched_tick(void) {
        Замок нужен, только когда есть что решать: настал срок пробуждения, холостое ядро может взять работу, квант
        кончился. Иначе каждое ядро брало бы замок 500 раз в секунду, и на виртуальной машине, где ядер больше, чем
        у хозяина, очередь за замком (ожидающий ядро-поток вытеснен хозяином) останавливала всех. */
-    int need = now >= __atomic_load_n(&next_wake, __ATOMIC_RELAXED);
+    int need = now >= wake_next_load();
     if (cur == cpu->idle) {
         need |= cpu->seen_epoch != __atomic_load_n(&ready_epoch, __ATOMIC_RELAXED);
     } else {
@@ -648,7 +669,7 @@ void sched_tick(void) {
     if (!need) return;
 
     sl_lock();
-    if (now >= next_wake) {
+    if (now >= wake_next_load()) {
         uint64_t nw = ~0ULL;
         for (unsigned i = 0; i < thread_hi; i++) {
             thread_t* t = &threads[i];
@@ -659,12 +680,12 @@ void sched_tick(void) {
                 nw = t->wake_tick;
             }
         }
-        next_wake = nw;
+        wake_next_store(nw);
     }
 
     if (cur == cpu->idle) {
-        if (cpu->seen_epoch != ready_epoch) {
-            cpu->seen_epoch = ready_epoch;
+        if (cpu->seen_epoch != ready_epoch_load()) {
+            cpu->seen_epoch = ready_epoch_load();
             if (has_work(id, PRIO_NORMAL, cur)) cpu->need_resched = 1;
         }
     } else if (cur->quantum_left == 0 && !cpu->need_resched) {
@@ -858,7 +879,7 @@ void sched_crash_wait_halted(void) {
 void sched_crash_report(void (*out)(const char*)) {
     static const char* const st[] = { "unused", "ready", "RUNNING", "sleep", "zombie", "blocked" };
     out("[KIRA SCHED] ticks "); put_num(out, timer_get_ticks());
-    out(", next wake "); put_num(out, next_wake == ~0ULL ? 0 : next_wake);
+    out(", next wake "); { uint64_t nw = wake_next_load(); put_num(out, nw == ~0ULL ? 0 : nw); }
     out(", ready epoch "); put_num(out, ready_epoch);
     out(", sched_lock next "); put_num(out, sched_lock.next); out(" owner "); put_num(out, sched_lock.owner);
 #ifndef KIRA_HOST_TEST
@@ -1054,7 +1075,7 @@ void sched_wait_and_unlock(spinlock_t* l, uint64_t ticks) {
     uint64_t now = timer_get_ticks();
     cur->wake_tick = ticks >= ~0ULL - now ? ~0ULL : now + ticks;
     cur->state = THREAD_SLEEPING;
-    if (cur->wake_tick < next_wake) next_wake = cur->wake_tick;
+    wake_next_min(cur->wake_tick);
     schedule_locked();
 }
 
@@ -1080,7 +1101,7 @@ void sched_set_wake_tick(thread_t* t, uint64_t tick) {
     sl_lock();
     if (t->state == THREAD_SLEEPING) {
         t->wake_tick = tick;
-        if (tick < next_wake) next_wake = tick;
+        wake_next_min(tick);
     }
     spin_unlock_raw(&sched_lock);
     irq_restore(f);
