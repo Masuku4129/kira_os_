@@ -96,8 +96,8 @@ static void* xhci_dma_alloc(uint32_t bytes, uint64_t* phys, int below4g) {
     if (xs.pci && iommu_device_isolated(xs.pci) &&
         iommu_map(xs.pci, *phys, *phys, bytes, IOMMU_R | IOMMU_W) != IOMMU_OK) {
         /* Keep backing pages pinned; disable DMA before invalidating old maps. */
-        pci_disable_bus_master(xs.pci);
-        iommu_unmap_all(xs.pci);
+        if (pci_disable_bus_master(xs.pci))
+            (void)iommu_unmap_all(xs.pci); /* otherwise retain every backing page */
         xs.dma_failed = 1;
         usb_log("[KIRA USB] xHCI: IOMMU DMA map failed; controller quarantined\n");
         return 0;
@@ -611,8 +611,8 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
 #if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
     if (xs.dma_failed || !iommu_device_ready(p)) {
-        pci_disable_bus_master(p);
-        iommu_unmap_all(p);
+        if (pci_disable_bus_master(p))
+            (void)iommu_unmap_all(p); /* otherwise retain every backing page */
         usb_log("[KIRA USB] xHCI: DMA authorization incomplete; controller remains stopped\n");
         return -1;
     }
@@ -624,10 +624,11 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
        immediately before publishing ERSTBA, not after it. */
     pci_enable(p, PCI_CMD_MASTER);
     if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
-        pci_disable_bus_master(p);
+        if (pci_disable_bus_master(p)) {
 #if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
-        iommu_unmap_all(p);
+            (void)iommu_unmap_all(p);
 #endif
+        } /* otherwise retain every backing page */
         usb_log("[KIRA USB] xHCI: PCI bus mastering was not granted; controller remains stopped\n");
         return -1;
     }
@@ -635,10 +636,11 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     if (r32(xs.op, 4) & 1u) {
-        pci_disable_bus_master(p);
+        if (pci_disable_bus_master(p)) {
 #if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
-        iommu_unmap_all(p);
+            (void)iommu_unmap_all(p);
 #endif
+        } /* otherwise retain every backing page */
         usb_log("[KIRA USB] xHCI does not start; DMA disabled\n");
         return -1;
     }
