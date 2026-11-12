@@ -173,6 +173,41 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-bounds-") as td:
         print("PASS:", name)
 
 
+# Unreachable instructions still have to obey the opcode's exact natural alignment.
+# Keep a valid exported entry in function 0; function 1 exercises structural validation.
+def unreachable_memarg_module(opcode, align):
+    body0 = bytes((0, 0x41, 0, 0x0b))
+    body1 = bytes((0, 0, opcode, align, 0, 0x0b))
+    code_payload = bytes((2, len(body0))) + body0 + bytes((len(body1),)) + body1
+    return (magic +
+            bytes((1, 5, 1, 0x60, 0, 1, 0x7f)) +
+            bytes((3, 3, 2, 0, 0)) +
+            bytes((5, 3, 1, 0, 1)) +
+            bytes((7, 9, 1, 5)) + b"kmain" + bytes((0, 0)) +
+            bytes((0x0a, len(code_payload))) + code_payload)
+
+with tempfile.TemporaryDirectory(prefix="kira-wasm-unreachable-align-") as td:
+    path = pathlib.Path(td) / "i64-store-natural.wasm"
+    path.write_bytes(unreachable_memarg_module(0x37, 3))
+    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, env=test_env)
+    if run.returncode != 0 or "wasm: finished with code 0" not in run.stdout:
+        print("FAIL: natural i64.store alignment rejected in unreachable code")
+        print(run.stdout)
+        raise SystemExit(1)
+    print("PASS: natural i64.store alignment accepted in unreachable code")
+
+    path = pathlib.Path(td) / "i32-store-overaligned.wasm"
+    path.write_bytes(unreachable_memarg_module(0x36, 3))
+    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, env=test_env)
+    if "memory alignment exceeds natural alignment" not in run.stdout:
+        print("FAIL: over-aligned i32.store accepted in unreachable code")
+        print(run.stdout)
+        raise SystemExit(1)
+    print("PASS: over-aligned i32.store rejected in unreachable code")
+
+
 # A declared maximum of zero is distinct from an omitted maximum. The module
 # must not be silently granted the runtime's default 32 pages.
 zero_max_module = (
