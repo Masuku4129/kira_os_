@@ -10,6 +10,7 @@
 #define KDRV_DEPENDENCY_MAX 16u
 #define KDRV_PACKAGE_MAX (32u * 1024u * 1024u)
 #define KDRV_INSTALL_ROLLBACK_FAILED (-2)
+#define KDRV_STATE_ROLLBACK_FAILED (-3)
 
 enum kdrv_state {
     KDRV_STATE_ABSENT = 0,
