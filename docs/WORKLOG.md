@@ -344,3 +344,9 @@
 - Current safeguards are concrete: OBSERVE/ACT modes, scheduler trial/rollback, staged memory thresholds 88/93/97%, heap restriction before kill, process kill cooldown 10s and minimum 16 MiB/20% RAM. These safeguards should be preserved and tested; the remaining architecture gap is a unified request→owner policy→apply→verify→rollback→audit contract for all mutating callbacks.
 - Created `docs/architecture/rfc/RFC-MIND-001.md`, added MIND-001 to contract registry and RFC index, and recorded F-017: CRC is corruption detection, not authenticity; model weights must never become authority/policy.
 - No Mind source code changed; PR #78/#81 remain separate branches and need current-head CI verification before integration.
+
+
+### Mind PR CI refresh (2026-11-12)
+- PR #78 exact head workflow `43201169922`: success for audit, ARM64, host tests, driver E2E, KCC tests, GUI regression, Mind quality, build, UEFI OVMF and all VM shards; package/preview jobs skipped.
+- PR #81 exact head workflow `43228045024`: success for Mind quality, KCC, audit, GUI, driver E2E, ARM64, build, host tests, UEFI OVMF and all VM shards; package/preview jobs skipped.
+- These results support the respective PR heads only. They do not prove the target Mind control API or physical hardware behavior; no PR was merged.
