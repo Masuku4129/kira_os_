@@ -99,9 +99,15 @@ int kdrv_trust_advance_floor(const struct kdrv_trust_ops *ops,
        newer floor. Read back as a second line of defence against false success. */
     if (ops->write_version_floor(ops->context, verified_version) != 0)
         return KDRV_TRUST_STORAGE_ERROR;
-    if (ops->read_version_floor(ops->context, &current) != 0 ||
-        current < verified_version)
+    if (ops->read_version_floor(ops->context, &current) != 0)
         return KDRV_TRUST_STORAGE_ERROR;
+    if (current < verified_version)
+        return KDRV_TRUST_STORAGE_ERROR;
+    /* A newer catalogue may have advanced the floor after our first read.
+       The atomic max write protects storage, but accepting this older load
+       would still let its caller install stale packages. */
+    if (current > verified_version)
+        return KDRV_TRUST_ROLLBACK;
     return KDRV_TRUST_OK;
 }
 
