@@ -297,7 +297,7 @@ int iommu_device_ready(const pci_dev_t* d) {
 
 int iommu_isolate_device(const pci_dev_t* d) {
     if (!d) return IOMMU_E_ARG;
-    if (d->dma_quarantined) return IOMMU_E_HW;
+    if (__atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE)) return IOMMU_E_HW;
     if (G.dmar_error) return IOMMU_E_HW;
     int ui = unit_of(d->bus, d->dev, d->fn);
     if (ui < 0) return G.info.unit_count ? IOMMU_E_NOCOVER : IOMMU_E_NONE;
