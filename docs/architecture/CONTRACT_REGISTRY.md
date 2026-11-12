@@ -89,4 +89,4 @@ RFC index: `docs/architecture/rfc/README.md`. No draft RFC is approved or ABI-fr
 
 - TOOL-001 → `docs/architecture/rfc/RFC-TOOL-001.md` (KCC context/reentrancy/deterministic build; draft).
 
-- MIND-001 → `docs/architecture/rfc/RFC-MIND-001.md` (telemetry, model integrity, bounded control and rollback; draft).
+- MIND-001 → `docs/architecture/rfc/RFC-MIND-001.md` (telemetry, model integrity, bounded control and rollback; draft).\n- SVC-001 / HOST-001 → `docs/architecture/rfc/RFC-SVC-001.md` (syscall core vs service adapters; draft, transitional in-kernel extraction).
