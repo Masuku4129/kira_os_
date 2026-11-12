@@ -85,3 +85,6 @@
 - IPC-001 / EVT-001 → `docs/architecture/rfc/RFC-IPC-001.md`
 
 RFC index: `docs/architecture/rfc/README.md`. No draft RFC is approved or ABI-frozen yet.
+
+
+- TOOL-001 → `docs/architecture/rfc/RFC-TOOL-001.md` (KCC context/reentrancy/deterministic build; draft).
