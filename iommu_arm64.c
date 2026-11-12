@@ -508,8 +508,15 @@ int iommu_release_device(const pci_dev_t* pci)
     domain = &arm_domains[dev->stream_id];
     if (!domain->active)
         return IOMMU_E_HW;
-    if (domain->bypass)
+    if (domain->bypass) {
+        /* A bypass domain has no translations to revoke, but stale software
+           map records must never be discarded as if teardown had succeeded. */
+        if (arm_has_maps(dev))
+            return IOMMU_E_HW;
+        __atomic_store_n(&dev->quarantine_pending, 0u, __ATOMIC_RELEASE);
+        __atomic_store_n(&dev->blocked, 0u, __ATOMIC_RELEASE);
         return IOMMU_OK;
+    }
 
     if (iommu_unmap_all(pci) != IOMMU_OK || arm_has_maps(dev))
         return IOMMU_E_HW;
