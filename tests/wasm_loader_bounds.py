@@ -18,6 +18,8 @@ cases = [
     ("custom-section-truncated-name-length", magic + b"\x00\x01\x80",
      "bad unsigned LEB128"),
     ("custom-section-name-past-end", magic + b"\x00\x02\x02x",
+    ("custom-section-invalid-utf8-name", magic + b"\x00\x03\x02\xc0\x80",
+     "invalid UTF-8 custom section name"),
      "truncated custom section name"),
     ("duplicate-type-section", magic + b"\x01\x01\x00" + b"\x01\x01\x00",
      "duplicate WebAssembly section"),
