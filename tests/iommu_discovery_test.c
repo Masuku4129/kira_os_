@@ -10,13 +10,18 @@ typedef struct {
     union { uint64_t align; uint8_t bytes[4096]; } pages[2];
     unsigned allocations;
     unsigned frees;
+    int bad_physical;
+    int firmware_enabled;
 } model_t;
 
 static volatile void *map_mmio(void *opaque, uint64_t physical, size_t length)
 {
     model_t *m = opaque;
     assert(length == 4096);
-    if (physical == 0xfed90000ull) return m->good;
+    if (physical == 0xfed90000ull) {
+        if (m->firmware_enabled) ((uint32_t *)m->good)[7] = 1u << 31;
+        return m->good;
+    }
     if (physical == 0xfeda0000ull) return m->bad;
     return 0;
 }
@@ -25,14 +30,16 @@ static void *alloc_page(void *opaque, uint64_t *physical)
     model_t *m = opaque;
     unsigned n = m->allocations++;
     if (n >= 2) return 0;
-    *physical = 0x100000ull + (uint64_t)n * 4096ull;
+    *physical = m->bad_physical ? (1ull << 52) :
+                0x100000ull + (uint64_t)n * 4096ull;
     return m->pages[n].bytes;
 }
 static void free_page(void *opaque, void *virtual_address, uint64_t physical)
 {
     model_t *m = opaque;
     assert(virtual_address == m->pages[m->frees].bytes);
-    assert(physical == 0x100000ull + (uint64_t)m->frees * 4096ull);
+    assert(physical == (m->bad_physical ? (1ull << 52) :
+                        0x100000ull + (uint64_t)m->frees * 4096ull));
     ++m->frees;
 }
 static void write_barrier(void *opaque) { (void)opaque; }
@@ -77,6 +84,32 @@ int main(void)
     for (size_t i = 0; i < sizeof units; ++i)
         assert(((const uint8_t *)units)[i] == 0);
 
-    puts("IOMMU discovery: partial VT-d prepare rolls back DMA root pages");
+    /* A DMA allocator address outside the hardware PTE address mask is freed. */
+    memset(&m, 0, sizeof m);
+    memset(&platform, 0, sizeof platform);
+    m.bad_physical = 1;
+    m.good[0] = 0x10;
+    ((uint32_t *)m.good)[2] = (1u << 10) | (16u << 24);
+    platform.context = &m;
+    platform.map_mmio = map_mmio;
+    platform.alloc_dma_page = alloc_page;
+    platform.free_dma_page = free_page;
+    assert(kira_vtd_unit_prepare(&units[0], 0xfed90000ull, 48,
+                                 &platform) == KIRA_VTD_MEMORY_FAILED);
+    assert(m.allocations == 1 && m.frees == 1);
+    for (size_t i = 0; i < sizeof units[0]; ++i)
+        assert(((const uint8_t *)&units[0])[i] == 0);
+
+    /* Firmware-owned active translation is never overwritten. */
+    memset(&m, 0, sizeof m);
+    m.firmware_enabled = 1;
+    m.good[0] = 0x10;
+    ((uint32_t *)m.good)[2] = (1u << 10) | (16u << 24);
+    platform.context = &m;
+    assert(kira_vtd_unit_prepare(&units[0], 0xfed90000ull, 48,
+                                 &platform) == KIRA_VTD_UNSUPPORTED);
+    assert(m.allocations == 0 && m.frees == 0);
+
+    puts("IOMMU discovery: rollback, DMA width and firmware ownership checks passed");
     return 0;
 }
