@@ -198,7 +198,7 @@ for name in driver_ids:
     require(name in core, f"{name} capability gate missing from kernel core")
     require(name in driver_adapter, f"{name} dispatch missing from driver adapter")
     owners = [candidate for candidate in adapter_sources
-              if re.search(r"\\b" + name + r"\\b", read(candidate)) is not None]
+              if re.search(r"\b" + name + r"\b", read(candidate)) is not None]
     require(owners == ["services/driver_syscall.c"],
             f"{name} must have exactly one driver adapter owner")
 require("kdrv_sys(" in driver_adapter,
