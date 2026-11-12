@@ -282,3 +282,21 @@
 - Кодовая зона повышенного архитектурного внимания: широкие include/init зависимости kernel.c; централизованный syscall dispatch в syscall.c; статическая name→caps таблица в caps.c; Mind control paths; driver teardown/DMA/IOMMU; KiraFS crash-consistency.
 - Никакие тесты в этом source-review проходе не запускались. PASS не заявлен. Следующая задача — расширить inventory до полного call graph и контрактов, затем оформить CONTRACT_REGISTRY и начать согласование ABI/IPC/security/device contracts.
 - Обновление плана: фаза первичной инвентаризации начата; завершение требует проверки всех значимых модулей, публичных символов, зависимостей, PR head SHAs и фактических тестов.
+
+
+### Architecture audit continuation (2026-11-12, second pass)
+- Созданы отдельные документы: `docs/compat/LINUX_COMPATIBILITY.md`, `docs/compat/WINDOWS_COMPATIBILITY.md`, `docs/compat/COMPATIBILITY_TEST_MATRIX.md`, `docs/virtualization/HYPERVISOR_ARCHITECTURE.md`, `docs/architecture/OPEN_PR_ARCHITECTURE_TRACKER.md`, `docs/architecture/SOURCE_AUDIT_FINDINGS.md`.
+- Целевая архитектура уточнена в соответствии с мастер-планом/ADR-0001: текущая production-база KVR — WASM; собственная KIRA VM — целевое/исследовательское направление, KVM1 PR #134 не считается production и не заменяет WASM без отдельного ADR gate.
+- Main source review выявил конкретные риски, зафиксированные в SOURCE_AUDIT_FINDINGS: F-001 kernel stack free-list допускает double-free/duplicate slot; PR #132 содержит соответствующий ownership/active bitmap fix, но draft и base не main. F-002 main KDRV path сверяет SHA-256 с локальной .rec, но криптографический publisher signature/trust anchor в этом пути не подтверждён; PR #35–#42/#44/#46/#12 — зависимая цепочка. F-005 name-based capability allowlist; F-006 Mind direct action callbacks требуют policy/audit proof; F-007 host tests отключают mutexes; F-008 WASM fuel accounting host-test-only; F-009 syscall dispatcher напрямую связывает много служб.
+- PR tracker зафиксировал 47 открытых PR в доступной выборке и точные head/base SHAs для наиболее важных зависимых цепочек. Не сливать PR и не считать открытые изменения частью main.
+- Latest main CI evidence: run `43244194123` for SHA `bbc7f7ab948e72511aed113b69043add10ec8350`; 30/30 jobs success, включая host-tests, ARM64 build, kernel build, QEMU boot/storage/network/SMP/isolation/apps/driver/audio/crash scenarios and Limbo smoke/stress. Это CI evidence только для данного SHA/конфигураций, не физическое железо и не доказательство всех целевых функций.
+- Draft PR #135 head SHA на последней проверке: `69cc8e1850b0f72a183c3e7b6fefafe9f5dd280d`; 15 commits ahead, 0 behind относительно main в предыдущем compare. После новых файлов/коммитов требуется повторный compare и PR changed-files review. Workflow runs для architecture branch не обнаружены.
+- В этой сессии source files читались через GitHub; локальный checkout и команды host/QEMU/ARM tests не запускались. Никаких новых PASS по коду не заявлено.
+
+### Next continuation point
+1. Повторно получить current branch head SHA, compare and changed files for PR #135; проверить, что все новые документы входят в PR и ссылки README существуют.
+2. Провести diff-level review PR #132 against main; определить, можно ли безопасно перенести slot allocator fix на main-based integration branch, не меняя исходную ветку.
+3. Провести diff-level review signature chain #35/#36/#38/#39/#40/#41/#42/#44/#46/#12; доказать signer trust anchor and anti-rollback before claiming publisher authentication.
+4. Продолжить source audit по public APIs/ownership/error paths в memory, IPC, scheduler, KDRV, KiraFS, WASM, Mind and boot; дополнять inventory with exact symbols and tests.
+5. Создать RFC draft for BootInfo/syscall ABI/capabilities/IPC first, based on actual headers; no guessed syscall numbers or ABI layouts.
+6. Obtain exact CI runs for open PR heads and their dependency bases; no blind merge. Physical hardware remains untested.
