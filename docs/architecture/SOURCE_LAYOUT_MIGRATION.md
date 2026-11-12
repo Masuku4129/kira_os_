@@ -143,7 +143,7 @@ Implemented on the architecture branch:
 Implemented as a transitional in-kernel boundary:
 - `syscall_numbers.h` is now the shared numeric registry for Native syscall IDs; values remain unchanged.
 - `kernel/syscall.c` retains privilege-boundary handling, capability checks and kernel primitives. It delegates service-facing syscall numbers to `services/syscall_router.c`.
-- `services/syscall_router.c` currently adapts graphics, filesystem, TCP/UDP/network, audio and RTC operations to their existing subsystem APIs.
+- `services/syscall_router.c` currently adapts graphics, filesystem, TCP/UDP/network, audio, RTC and Driver Manager operations to their existing subsystem APIs.
 - Both x86-64 and ARM64 build manifests include the new translation unit.
 - This is source-level separation only. Service code still executes in kernel context; there is no claim of process isolation, IPC transport or crash containment yet.
 - RFC: `docs/architecture/rfc/RFC-SVC-001.md`.
@@ -171,6 +171,6 @@ Implemented as a transitional in-kernel boundary:
 
 ## 10. Physical source ownership — kernel and services
 
-The syscall core is located at `kernel/syscall.c`. The service router and subsystem adapters are under `services/`: `services/syscall_router.c`, `services/graphics_syscall.c`, `services/filesystem_syscall.c`, `services/network_syscall.c`, `services/audio_syscall.c`, and `services/clock_syscall.c`.
+The syscall core is located at `kernel/syscall.c`. The service router and subsystem adapters are under `services/`: `services/syscall_router.c`, `services/graphics_syscall.c`, `services/filesystem_syscall.c`, `services/network_syscall.c`, `services/audio_syscall.c`, `services/clock_syscall.c`, and `services/driver_syscall.c`.
 
 Both x86-64 and ARM64 build manifests compile these exact paths. Root `syscall.h`, `syscall_services.h` and `syscall_numbers.h` remain compatibility/interface headers during migration. No syscall numbers or calling convention changed. This is physical ownership only; adapters still execute in kernel context.
