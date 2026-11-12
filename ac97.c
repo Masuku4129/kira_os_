@@ -153,8 +153,11 @@ int ac97_probe(void) {
     if (attach_rc != 0) {
         outb((uint16_t)(a.nabm + BOX_IN + B_CR), 0);
         outb((uint16_t)(a.nabm + BOX_OUT + B_CR), 0);
-        pci_disable_bus_master(p);
-        iommu_unmap_all(p);
+        if (pci_disable_bus_master(p)) {
+            iommu_unmap_all(p);
+        } else {
+            uart_print("[KIRA AC97] bus mastering did not stop; DMA mappings remain pinned.\\n");
+        }
     }
     return attach_rc;
 }
