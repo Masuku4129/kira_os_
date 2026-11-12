@@ -88,3 +88,5 @@ RFC index: `docs/architecture/rfc/README.md`. No draft RFC is approved or ABI-fr
 
 
 - TOOL-001 → `docs/architecture/rfc/RFC-TOOL-001.md` (KCC context/reentrancy/deterministic build; draft).
+
+- MIND-001 → `docs/architecture/rfc/RFC-MIND-001.md` (telemetry, model integrity, bounded control and rollback; draft).
