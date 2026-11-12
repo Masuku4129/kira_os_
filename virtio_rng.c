@@ -20,7 +20,7 @@ int virtio_rng_read(void* out, uint32_t n) {
             virtio_fail(&dev);
             return -1;
         }
-        virtio_driver_ok(&dev);
+        if (virtio_driver_ok(&dev) != 0) { st = -1; return -1; }
         st = 1;
     }
     if (st < 0) return -1;
