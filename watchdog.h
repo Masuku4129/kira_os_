@@ -3,7 +3,7 @@
 
 void watchdog_init(void);
 void watchdog_feed(void);
-/* Progress from a bounded wait owned by the main kernel thread (e.g. virtio I/O). */
+/* Progress from virtq_run's bounded device wait; never call from an unbounded loop. */
 void watchdog_progress(void);
 void watchdog_check(void);
 void watchdog_trigger_panic(const char* reason);
