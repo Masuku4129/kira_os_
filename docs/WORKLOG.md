@@ -350,3 +350,14 @@
 - PR #78 exact head workflow `43201169922`: success for audit, ARM64, host tests, driver E2E, KCC tests, GUI regression, Mind quality, build, UEFI OVMF and all VM shards; package/preview jobs skipped.
 - PR #81 exact head workflow `43228045024`: success for Mind quality, KCC, audit, GUI, driver E2E, ARM64, build, host tests, UEFI OVMF and all VM shards; package/preview jobs skipped.
 - These results support the respective PR heads only. They do not prove the target Mind control API or physical hardware behavior; no PR was merged.
+
+
+## 2026-11-12 — eight-layer architecture migration started
+
+- Architecture target and 8-layer ownership model remain normative in `docs/architecture/KIRA_OS_TARGET_ARCHITECTURE.md`.
+- Added `docs/architecture/SOURCE_LAYOUT_MIGRATION.md`: target source tree, current-file ownership map, prohibited dependency edges, build invariants and phased migration gates.
+- Linked the migration map from `README.md` and made it mandatory in `AGENTS.md`.
+- First behavior-preserving source slice: extracted x86-64 boot initialization from `kernel.c` into `kernel_boot.c`; `kernel_main` ABI remains unchanged. Updated `kernel.h` and `build_clang.sh`. ARM64 entry path was not changed.
+- Latest architecture branch head at this entry: `811fa9e6eeae3493289291f0bab2ce6fc2dbfadc`.
+- Verification: GitHub Actions was triggered on earlier intermediate heads. Exact-head CI for `811fa9e6eeae3493289291f0bab2ce6fc2dbfadc` is not yet confirmed; no build, host-test, QEMU or Limbo PASS is claimed.
+- Next: exact-head build/host/QEMU/ARM64 results; correct any failures; compare boot order against baseline; continue source-level dependency audit across kernel/HAL/security/services/Mind/runtimes/GUI in parallel. Do not merge PR #135 without owner approval.
