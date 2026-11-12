@@ -899,6 +899,7 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
         kfree_(list); kfree_(mlist);
         return r;
     }
+    int inode_transition = 1;
     inode_t* ip = iget(slot);
     if (!ip) r = KFS_ERR_IO;
     inode_t old = ip ? *ip : nin;
@@ -909,28 +910,37 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
         if (!r) r = flush();
         if (r) { ip = iget(slot); if (ip) *ip = old; }
     }
-    if (r) {                                                     /* инод не переключён: возвращаем всё как было */
+    if (r) {
         for (uint64_t k = 0; k < nb; k++) set_free(list[k]);
         for (uint64_t k = 0; k < meta.n; k++) set_free(mlist[k]);
         kfree_(list); kfree_(mlist);
+        if (inode_transition) fs.mounted = 0; /* inode write/readback may be partially committed */
         return r;
     }
     kfree_(list); kfree_(mlist);
     if (ino) { free_inode_blocks(&old); return 0; }
     fs.free_inodes--;
     r = dir_add(parent, leaf, slot);
-    if (r) {                                                     /* без записи в каталоге файл не существует */
-        ip = iget(slot);
-        if (ip) {
-            inode_t gone = *ip;
-            zero(ip, sizeof *ip);
-            write_inode(slot); flush();
-            free_inode_blocks(&gone);
-        }
-        fs.itype[slot] = 0; fs.free_inodes++;
+    if (!r) return 0;
+    if (r != KFS_ERR_NOSPC) {
+        /* An I/O error can leave the new directory entry or its parent inode
+           partly committed. Never try a second metadata transaction here. */
+        fs.mounted = 0;
         return r;
     }
-    return 0;
+    /* No directory slot was published: reclaim the unreachable inode with a
+       checked write+flush, otherwise require a fresh mount scan. */
+    ip = iget(slot);
+    if (!ip) { fs.mounted = 0; return KFS_ERR_IO; }
+    inode_t gone = *ip;
+    zero(ip, sizeof *ip);
+    int cleanup = write_inode(slot);
+    if (!cleanup) cleanup = flush();
+    if (cleanup) { fs.mounted = 0; return cleanup; }
+    fs.itype[slot] = 0;
+    fs.free_inodes++;
+    free_inode_blocks(&gone);
+    return r;
 }
 
 static int kfs_mkdir_impl(const char* path) {
