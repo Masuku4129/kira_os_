@@ -79,6 +79,10 @@ uint16_t kdrv_pci_command_clear_master(uint16_t command) {
     return (uint16_t)(command & ~(1u << 2));
 }
 
+uint16_t kdrv_pci_command_for_unisolated(uint16_t command) {
+    return (uint16_t)(kdrv_pci_command_clear_master(command) | (1u << 10));
+}
+
 int kdrv_pci_busmaster_handoff_safe(uint16_t before, uint16_t after) {
     const uint16_t bus_master = 1u << 2;
     return ((before | after) & bus_master) == 0;
