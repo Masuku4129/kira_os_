@@ -15,7 +15,7 @@
 #define REG_RBSTART    0x30u
 #define REG_COMMAND    0x37u
 #define REG_CAPR       0x38u
-#define REG_CBR        0x3au
+#define REG_BMSR       0x64u
 #define REG_IMR        0x3cu
 #define REG_ISR        0x3eu
 #define REG_TCR        0x40u
@@ -39,6 +39,8 @@
 
 #define TSD_OWN        (1u << 13)
 #define TSD_TOK        (1u << 15)
+#define TSD_TUN        (1u << 14)
+#define TSD_TABT       (1u << 30)
 #define TSD_SIZE_MASK  0x1fffu
 #define TSD_ERTXTH     (0x3fu << 16)
 
@@ -57,11 +59,39 @@
 #define RESET_TIMEOUT  100000u
 #define TX_TIMEOUT     100000u
 #define RX_STATUS_ROK  0x0001u
+#define BMSR_LINK      (1u << 2)
 #define RX_STATUS_FAE  0x0002u
 #define RX_STATUS_CRC  0x0004u
 #define RX_STATUS_LONG 0x0008u
 #define RX_STATUS_RUNT 0x0010u
 #define RX_STATUS_ISE  0x0020u
+
+static int rtl_dma_address_valid(uint64_t physical, size_t size)
+{
+    return physical != 0 && size != 0 && (physical & 0xffu) == 0 &&
+           physical <= UINT32_MAX &&
+           (uint64_t)(size - 1u) <= (uint64_t)UINT32_MAX - physical;
+}
+
+static void rtl_release_buffers(struct kira_rtl8139 *d)
+{
+    unsigned int i;
+    if (!d || !d->platform.dma_free)
+        return;
+    for (i = 0; i < KIRA_RTL8139_TX_SLOTS; ++i) {
+        if (d->tx_buffer[i])
+            d->platform.dma_free(d->platform.context, d->tx_buffer[i],
+                d->tx_physical[i], KIRA_RTL8139_TX_BUFFER_SIZE);
+        d->tx_buffer[i] = 0;
+        d->tx_physical[i] = 0;
+    }
+    if (d->rx_buffer)
+        d->platform.dma_free(d->platform.context, d->rx_buffer,
+            d->rx_physical,
+            KIRA_RTL8139_RX_RING_SIZE + KIRA_RTL8139_RX_WRAP_SIZE);
+    d->rx_buffer = 0;
+    d->rx_physical = 0;
+}
 
 static uint16_t port(struct kira_rtl8139 *d, uint16_t reg)
 {
@@ -82,64 +112,91 @@ static void rtl_ack_interrupts(struct kira_rtl8139 *d, uint16_t bits)
 int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
                       const struct kira_rtl8139_platform *p)
 {
+    struct kira_rtl8139_platform platform;
     unsigned int i;
     uint32_t tcr;
+    int failure = -1;
 
-    if (!d || !p || !io_base || !p->in8 || !p->in16 || !p->in32 ||
-        !p->out8 || !p->out16 || !p->out32 || !p->dma_alloc ||
-        !p->dma_free || !p->receive)
+    if (!d || !p)
+        return -1;
+    platform = *p;
+    if (platform.pci_vendor_id != 0x10ecu ||
+        platform.pci_device_id != 0x8139u ||
+        !io_base || io_base > UINT16_MAX - REG_CONFIG1 ||
+        platform.io_region_size <= REG_CONFIG1 ||
+        !platform.in8 || !platform.in16 || !platform.in32 ||
+        !platform.out8 || !platform.out16 || !platform.out32 ||
+        !platform.dma_alloc || !platform.dma_free ||
+        !platform.cache_invalidate || !platform.cache_clean ||
+        !platform.dma_read_barrier || !platform.dma_write_barrier ||
+        !platform.delay_us || !platform.receive)
         return -1;
 
-    d->platform = *p;
+    /* The caller may pass an uninitialized object; never inspect stale DMA pointers. */
+    for (i = 0; i < sizeof(*d); ++i)
+        ((uint8_t *)d)[i] = 0;
+    d->platform = platform;
     d->io_base = io_base;
-    d->rx_offset = 0;
-    d->initialized = 0;
 
     /* Bring the controller out of power-down and request a software reset. */
     d->platform.out8(d->platform.context, port(d, REG_CONFIG1), 0x00);
     d->platform.out8(d->platform.context, port(d, REG_COMMAND), CMD_RESET);
-
     for (i = 0; i < RESET_TIMEOUT; ++i) {
         if (!(d->platform.in8(d->platform.context, port(d, REG_COMMAND)) &
               CMD_RESET))
             break;
-        rtl_delay(d, 1);
+        d->platform.delay_us(d->platform.context, 1);
     }
-    if (i == RESET_TIMEOUT)
-        return -2;
+    if (i == RESET_TIMEOUT) {
+        failure = -2;
+        goto fail;
+    }
 
     for (i = 0; i < 6; ++i)
         d->mac[i] = d->platform.in8(d->platform.context,
                                     port(d, (uint16_t)(REG_MAC0 + i)));
+    if ((d->mac[0] & 1u) ||
+        !(d->mac[0] | d->mac[1] | d->mac[2] |
+          d->mac[3] | d->mac[4] | d->mac[5])) {
+        failure = -2;
+        goto fail;
+    }
 
     d->rx_buffer = d->platform.dma_alloc(d->platform.context,
         KIRA_RTL8139_RX_RING_SIZE + KIRA_RTL8139_RX_WRAP_SIZE,
         256, &d->rx_physical);
-    if (!d->rx_buffer || !d->rx_physical ||
-        (d->rx_physical & 0xffu))
-        return -3;
-
-    if (d->platform.cache_clean)
-        d->platform.cache_clean(d->platform.context, d->rx_buffer,
-            KIRA_RTL8139_RX_RING_SIZE + KIRA_RTL8139_RX_WRAP_SIZE);
+    if (!d->rx_buffer || !rtl_dma_address_valid(d->rx_physical,
+        KIRA_RTL8139_RX_RING_SIZE + KIRA_RTL8139_RX_WRAP_SIZE)) {
+        failure = -3;
+        goto fail;
+    }
 
     for (i = 0; i < KIRA_RTL8139_TX_SLOTS; ++i) {
         d->tx_buffer[i] = d->platform.dma_alloc(d->platform.context,
             KIRA_RTL8139_TX_BUFFER_SIZE, 256, &d->tx_physical[i]);
-        if (!d->tx_buffer[i] || !d->tx_physical[i] ||
-            (d->tx_physical[i] & 0xffu))
-            return -4;
+        if (!d->tx_buffer[i] ||
+            !rtl_dma_address_valid(d->tx_physical[i],
+                                   KIRA_RTL8139_TX_BUFFER_SIZE)) {
+            failure = -4;
+            goto fail;
+        }
         d->tx_busy[i] = 0;
+    }
+
+    d->platform.cache_clean(d->platform.context, d->rx_buffer,
+        KIRA_RTL8139_RX_RING_SIZE + KIRA_RTL8139_RX_WRAP_SIZE);
+    d->platform.dma_write_barrier(d->platform.context);
+
+    for (i = 0; i < KIRA_RTL8139_TX_SLOTS; ++i)
         d->platform.out32(d->platform.context,
             port(d, (uint16_t)(REG_TSAD0 + i * 4)),
             (uint32_t)d->tx_physical[i]);
-    }
 
     d->platform.out32(d->platform.context, port(d, REG_RBSTART),
                       (uint32_t)d->rx_physical);
     d->platform.out16(d->platform.context, port(d, REG_CAPR), 0xfff0u);
 
-    /* Enable broadcast, physical-match and multicast reception. */
+    /* Accept unicast-to-us, multicast and broadcast; use the 8 KiB ring. */
     d->platform.out32(d->platform.context, port(d, REG_RCR),
         RCR_APM | RCR_AM | RCR_AB | RCR_WRAP | RCR_MXDMA_1024 |
         RCR_RBLEN_8K | RCR_RXFTH_NONE);
@@ -148,61 +205,82 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
     d->platform.out32(d->platform.context, port(d, REG_TCR), tcr);
 
     rtl_ack_interrupts(d, 0xffffu);
-    d->platform.out16(d->platform.context, port(d, REG_IMR),
-        ISR_ROK | ISR_RER | ISR_TOK | ISR_TER | ISR_RXOVW | ISR_FOVW |
-        ISR_TIMEOUT | ISR_SERR);
-
+    /* This driver is polled; enabling IMR without an IRQ owner can storm INTx. */
+    d->platform.out16(d->platform.context, port(d, REG_IMR), 0);
     d->platform.out8(d->platform.context, port(d, REG_COMMAND),
                      CMD_RX_ENABLE | CMD_TX_ENABLE);
     d->initialized = 1;
     return 0;
+
+fail:
+    if (d->platform.out8 && d->io_base)
+        d->platform.out8(d->platform.context, port(d, REG_COMMAND), 0);
+    rtl_release_buffers(d);
+    return failure;
+}
+
+static void rtl_advance_rx(struct kira_rtl8139 *d, uint16_t raw_length)
+{
+    d->rx_offset = (uint16_t)((d->rx_offset + 4u + raw_length + 3u) & ~3u);
+    d->rx_offset &= (KIRA_RTL8139_RX_RING_SIZE - 1u);
+    d->platform.out16(d->platform.context, port(d, REG_CAPR),
+                      (uint16_t)(d->rx_offset - 16u));
 }
 
 static int rtl_receive_one(struct kira_rtl8139 *d)
 {
     uint8_t *ring = (uint8_t *)d->rx_buffer;
+    uint8_t frame[KIRA_RTL8139_MAX_FRAME];
     uint16_t command = d->platform.in8(d->platform.context,
                                        port(d, REG_COMMAND));
-    uint16_t status;
-    uint16_t length;
-    uint16_t offset;
-    uint8_t frame[KIRA_RTL8139_MAX_FRAME];
+    uint16_t status, raw_length, length, offset, data_offset, first;
     unsigned int i;
 
     if (command & CMD_BUFE)
         return 0;
 
     offset = d->rx_offset;
-    if (d->platform.cache_invalidate)
-        d->platform.cache_invalidate(d->platform.context,
-            ring + offset, 4);
-
+    d->platform.cache_invalidate(d->platform.context, ring + offset, 4);
+    d->platform.dma_read_barrier(d->platform.context);
     status = (uint16_t)ring[offset] |
-             ((uint16_t)ring[(offset + 1u) & 0x1fffu] << 8);
-    length = (uint16_t)ring[(offset + 2u) & 0x1fffu] |
-             ((uint16_t)ring[(offset + 3u) & 0x1fffu] << 8);
+             ((uint16_t)ring[offset + 1u] << 8);
+    raw_length = (uint16_t)ring[offset + 2u] |
+                 ((uint16_t)ring[offset + 3u] << 8);
 
-    if (!(status & RX_STATUS_ROK) || (status & (RX_STATUS_CRC |
-        RX_STATUS_LONG | RX_STATUS_RUNT | RX_STATUS_ISE)) ||
-        length < 4 || length > KIRA_RTL8139_MAX_FRAME + 4) {
-        d->rx_offset = (uint16_t)((offset + 4u + length + 3u) & ~3u);
-        d->rx_offset &= (KIRA_RTL8139_RX_RING_SIZE - 1u);
-        d->platform.out16(d->platform.context, port(d, REG_CAPR),
-                          (uint16_t)(d->rx_offset - 16u));
+    /* An impossible length means ring metadata is no longer trustworthy. */
+    if (raw_length < 4u || raw_length > KIRA_RTL8139_MAX_FRAME + 4u) {
+        d->rx_offset = 0;
+        d->platform.out16(d->platform.context, port(d, REG_CAPR), 0xfff0u);
         return 1;
     }
 
-    /* Length includes the four-byte FCS, which is not delivered to the stack. */
-    length = (uint16_t)(length - 4u);
-    for (i = 0; i < length; ++i)
-        frame[i] = ring[(offset + 4u + i) &
-                        (KIRA_RTL8139_RX_RING_SIZE - 1u)];
+    if (!(status & RX_STATUS_ROK) ||
+        (status & (RX_STATUS_FAE | RX_STATUS_CRC | RX_STATUS_LONG |
+                   RX_STATUS_RUNT | RX_STATUS_ISE))) {
+        rtl_advance_rx(d, raw_length);
+        return 1;
+    }
 
-    d->rx_offset = (uint16_t)((offset + 4u + length + 4u + 3u) & ~3u);
-    d->rx_offset &= (KIRA_RTL8139_RX_RING_SIZE - 1u);
-    d->platform.out16(d->platform.context, port(d, REG_CAPR),
-                      (uint16_t)(d->rx_offset - 16u));
+    length = (uint16_t)(raw_length - 4u); /* Strip the FCS. */
+    data_offset = (uint16_t)((offset + 4u) &
+                             (KIRA_RTL8139_RX_RING_SIZE - 1u));
+    first = (uint16_t)(KIRA_RTL8139_RX_RING_SIZE - data_offset);
+    if (first > length)
+        first = length;
+    if (first)
+        d->platform.cache_invalidate(d->platform.context, ring + data_offset,
+                                     first);
+    if (length > first)
+        d->platform.cache_invalidate(d->platform.context, ring,
+                                     (size_t)(length - first));
+    d->platform.dma_read_barrier(d->platform.context);
 
+    for (i = 0; i < first; ++i)
+        frame[i] = ring[data_offset + i];
+    for (i = first; i < length; ++i)
+        frame[i] = ring[i - first];
+
+    rtl_advance_rx(d, raw_length);
     d->platform.receive(d->platform.context, frame, length);
     return 1;
 }
@@ -218,7 +296,8 @@ static void rtl_reap_tx(struct kira_rtl8139 *d)
 
         status = d->platform.in32(d->platform.context,
             port(d, (uint16_t)(REG_TSD0 + i * 4)));
-        if (status & (TSD_TOK | (1u << 14) | (1u << _error_bit))) {
+        if (status & TSD_OWN) {
+            d->platform.dma_read_barrier(d->platform.context);
             d->tx_busy[i] = 0;
             if (d->platform.transmit_complete)
                 d->platform.transmit_complete(d->platform.context, i,
@@ -281,9 +360,8 @@ int kira_rtl8139_send(struct kira_rtl8139 *d,
         length = 60;
     }
 
-    if (d->platform.cache_clean)
-        d->platform.cache_clean(d->platform.context, d->tx_buffer[slot],
-                                length);
+    d->platform.cache_clean(d->platform.context, d->tx_buffer[slot], length);
+    d->platform.dma_write_barrier(d->platform.context);
 
     d->tx_busy[slot] = 1;
     d->platform.out32(d->platform.context,
@@ -293,31 +371,27 @@ int kira_rtl8139_send(struct kira_rtl8139 *d,
     return (int)slot;
 }
 
+int kira_rtl8139_link_up(struct kira_rtl8139 *d)
+{
+    if (!d || !d->initialized)
+        return 0;
+    return (d->platform.in16(d->platform.context, port(d, REG_BMSR)) &
+            BMSR_LINK) != 0;
+}
+
 void kira_rtl8139_shutdown(struct kira_rtl8139 *d)
 {
-    unsigned int i;
-
     if (!d)
         return;
 
-    if (d->initialized) {
+    if (d->io_base && d->platform.out16 && d->platform.out8) {
         d->platform.out16(d->platform.context, port(d, REG_IMR), 0);
         d->platform.out8(d->platform.context, port(d, REG_COMMAND), 0);
         rtl_ack_interrupts(d, 0xffffu);
+        if (d->platform.dma_write_barrier)
+            d->platform.dma_write_barrier(d->platform.context);
     }
 
-    for (i = 0; i < KIRA_RTL8139_TX_SLOTS; ++i) {
-        if (d->tx_buffer[i] && d->platform.dma_free)
-            d->platform.dma_free(d->platform.context, d->tx_buffer[i],
-                d->tx_physical[i], KIRA_RTL8139_TX_BUFFER_SIZE);
-        d->tx_buffer[i] = 0;
-    }
-
-    if (d->rx_buffer && d->platform.dma_free)
-        d->platform.dma_free(d->platform.context, d->rx_buffer,
-            d->rx_physical,
-            KIRA_RTL8139_RX_RING_SIZE + KIRA_RTL8139_RX_WRAP_SIZE);
-
-    d->rx_buffer = 0;
+    rtl_release_buffers(d);
     d->initialized = 0;
 }
