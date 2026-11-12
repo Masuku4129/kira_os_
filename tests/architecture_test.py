@@ -204,4 +204,15 @@ for name in driver_ids:
 require("kdrv_sys(" in driver_adapter,
         "driver adapter does not call the real Driver Manager implementation")
 
+# Header-only libc helpers must not trigger -Wunused-function in translation units
+# that include a header but use only a subset of its API.
+static_helper_pattern = re.compile(
+    r"^\\s*static\\s+(?!inline\\b)[^;=\\n]*?\\b[A-Za-z_]\\w*\\s*\\([^;\\n]*\\)\\s*(?:\\{|__attribute__)",
+    re.M,
+)
+for header in sorted((ROOT / "kcc/include").glob("*.h")):
+    header_text = header.read_text(encoding="utf-8")
+    require(static_helper_pattern.search(header_text) is None,
+            f"{header.name} has a non-inline static helper; -Werror rejects unused header functions")
+
 print("PASS: kernel/service source ownership, Native ABI stability, unique adapter ownership and both ISA build manifests")
