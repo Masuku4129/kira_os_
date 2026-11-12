@@ -46,10 +46,10 @@ int main(void) {
     CHECK(kdrv_pci_command_quiesced(0x0403));
     CHECK(!kdrv_pci_command_quiesced(0x0003));
     CHECK(!kdrv_pci_command_quiesced(0x0407));
-    CHECK(kdrv_pci_interrupts_quiesced(0, 1, 0x8000, 1)); /* Function Mask=1, Enable=0 */
-    CHECK(!kdrv_pci_interrupts_quiesced(1, 1, 0x8000, 1));
-    CHECK(!kdrv_pci_interrupts_quiesced(0, 1, 0x4000, 1)); /* Enable=1, Function Mask=0 */
-    CHECK(!kdrv_pci_interrupts_quiesced(0, 1, 0, 1));
+    CHECK(kdrv_pci_interrupts_quiesced(0, 1, 0x4000, 1)); /* MSI-X disabled, Function Mask asserted */
+    CHECK(kdrv_pci_interrupts_quiesced(0, 1, 0xC000, 1)); /* MSI-X enabled, Function Mask asserted */
+    CHECK(!kdrv_pci_interrupts_quiesced(1, 1, 0x8000, 1)); /* MSI and MSI-X unmasked */
+    CHECK(kdrv_pci_interrupts_quiesced(0, 1, 0, 1)); /* MSI-X disabled, no pending source */
     CHECK(!kdrv_pci_start_requires_permanent_quarantine(1, 0x0003, 0x0400));
     CHECK(kdrv_pci_start_requires_permanent_quarantine(0, 0x0003, 0x0400));
     CHECK(kdrv_pci_start_requires_permanent_quarantine(1, 0x0007, 0x0400));
