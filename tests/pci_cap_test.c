@@ -11,7 +11,16 @@ static uint32_t rd(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
 }
 static void wr(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t value) {
     (void)bus; (void)dev; (void)fn;
-    if (off < 256 && off != blocked_write_off) cfg[off >> 2] = value;
+    if (off >= 256 || off == blocked_write_off) return;
+    if (off == 0x04) {
+        /* PCI Status is write-one-to-clear; writing zero must preserve it. */
+        uint16_t old_status = (uint16_t)(cfg[1] >> 16);
+        uint16_t clear_status = (uint16_t)(value >> 16);
+        uint16_t new_status = (uint16_t)(old_status & ~clear_status);
+        cfg[1] = (value & 0xFFFFu) | ((uint32_t)new_status << 16);
+    } else {
+        cfg[off >> 2] = value;
+    }
 }
 static void put8(uint16_t off, uint8_t v) {
     unsigned sh = (off & 3u) * 8u;
@@ -62,11 +71,7 @@ int main(void) {
         !(pci_read16(&dev, 0x04) & (1u << 10))) return 16;
     put16(0x42, 1); put16(0x46, 0x8000); put16(0x04, 0);
     blocked_write_off = 0x40;                    /* MSI enable refuses to clear */
-    if (pci_quiesce_interrupts(&dev)) {
-        fprintf(stderr, "pci_cap_test: expected fail-closed MSI mask; MSI=%04x MSI-X=%04x cmd=%04x blocked=%04x\\n",
-                pci_read16(&dev, 0x42), pci_read16(&dev, 0x46), pci_read16(&dev, 0x04), blocked_write_off);
-        return 17;
-    }
+    if (pci_quiesce_interrupts(&dev)) return 17;
     blocked_write_off = 0xFFFFu;
     put8(0x34, 0x3C);                             /* malformed list must fail closed */
     if (pci_quiesce_interrupts(&dev)) return 18;
