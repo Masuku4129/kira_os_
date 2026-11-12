@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include "kernel_main.h"
 #include "console.h"
 #include "timer.h"
