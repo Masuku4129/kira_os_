@@ -574,6 +574,7 @@ static int load(void) {
     u32 nfuncdecl = 0; u32* decl = 0;
     u32 seen_sections = 0;
     u32 has_memory = 0;
+    u32 has_start = 0;
     u8 last_section = 0;
     while (p < end && !trapped) {
         u8 id = *p++;
@@ -660,8 +661,25 @@ static int load(void) {
             for (u32 i = 0; i < nfuncdecl && !trapped; i++) decl[i] = leb_u(&s, se);
         } else if (id == 4) {                                     /* таблица */
             u32 n = leb_u(&s, se);
-            if (n) { s++; u8 fl = *s++; ntable = leb_u(&s, se); if (fl & 1) leb_u(&s, se); if (ntable > 65536) ntable = 65536;
-                     table = (u32*)alloc(4ull * (ntable + 1)); for (u32 i = 0; i < ntable; i++) table[i] = ~0u; }
+            if (trapped) return -1;
+            if (n > 1) { trap("multiple WebAssembly tables are unsupported"); return -1; }
+            if (n) {
+                if ((u32)(se - s) < 2 || *s++ != 0x70) { trap("unsupported table element type"); return -1; }
+                u8 fl = *s++;
+                if (fl & ~1u) { trap("unsupported table limits"); return -1; }
+                u32 min_table = leb_u(&s, se);
+                if (trapped) return -1;
+                u32 max_table = 65536u;
+                if (fl & 1u) {
+                    max_table = leb_u(&s, se);
+                    if (trapped) return -1;
+                }
+                if (min_table > max_table || min_table > 65536u) { trap("invalid or excessive table limits"); return -1; }
+                ntable = min_table;
+                table = (u32*)alloc(4ull * (ntable + 1));
+                if (!table) { trap("no memory for table"); return -1; }
+                for (u32 i = 0; i < ntable; i++) table[i] = ~0u;
+            }
         } else if (id == 5) {                                     /* память */
             u32 n = leb_u(&s, se);
             if (trapped) return -1;
@@ -686,16 +704,37 @@ static int load(void) {
             }
         } else if (id == 6) {                                     /* глобальные */
             u32 n = leb_u(&s, se);
-            for (u32 i = 0; i < n && !trapped; i++) { s++; s++; if (nglobals == MAXG) { trap("too many globals"); return -1; } globals[nglobals++] = const_expr(&s, se); }
+            if (trapped || n > MAXG - nglobals) { trap("too many globals or truncated global section"); return -1; }
+            for (u32 i = 0; i < n && !trapped; i++) {
+                if ((u32)(se - s) < 2) { trap("truncated global type"); return -1; }
+                u8 gt = *s++, mut = *s++;
+                if (!wasm_valtype(gt) || mut > 1) { trap("invalid global type or mutability"); return -1; }
+                globals[nglobals++] = const_expr(&s, se);
+                if (trapped) return -1;
+            }
         } else if (id == 7) {                                     /* экспорт: точка входа */
             u32 n = leb_u(&s, se);
+            if (trapped) return -1;
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 nl = leb_u(&s, se); const u8* nn = s; s += nl;
-                u8 kind = *s++; u32 idx = leb_u(&s, se);
+                u32 nl = leb_u(&s, se);
+                if (trapped || nl > (u32)(se - s)) { trap("truncated export name"); return -1; }
+                const u8* nn = s; s += nl;
+                if (s >= se) { trap("truncated export descriptor"); return -1; }
+                u8 kind = *s++;
+                u32 idx = leb_u(&s, se);
+                if (trapped) return -1;
+                if ((kind == 0 && idx >= nfuncs) ||
+                    (kind == 1 && (!table || idx != 0)) ||
+                    (kind == 2 && (!has_memory || idx != 0)) ||
+                    (kind == 3 && idx >= nglobals) || kind > 3) {
+                    trap("export index out of range"); return -1;
+                }
                 if (kind == 0 && (name_is(nn, nl, "main") || name_is(nn, nl, "_start") || name_is(nn, nl, "kmain"))) entry = idx;
             }
         } else if (id == 8) {
             entry = leb_u(&s, se);
+            if (trapped) return -1;
+            has_start = 1;
         } else if (id == 9) {                                     /* элементы таблицы */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
@@ -763,6 +802,13 @@ static int load(void) {
     }
     if (!trapped && entry == ~0u) trap("no exported main/_start");
     if (!trapped && entry >= nfuncs) trap("entry function index out of range");
+    if (!trapped && entry < nfuncs) {
+        const func_t* ef = &funcs[entry];
+        const ftype_t* et = &types[ef->type];
+        if (ef->import || et->np != 0 ||
+            (has_start ? et->nr != 0 : (et->nr > 1 || (et->nr == 1 && et->r != 0x7F))))
+            trap("invalid KIRA entry function signature");
+    }
     if (!trapped && nfuncs > nimports && !code) trap("function and code counts differ");
     return trapped ? -1 : 0;
 }
