@@ -319,3 +319,24 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-sleb64-") as td:
     print("PASS: signed LEB64 minimum constant is accepted")
 
 print("wasm loader bounds: all malformed envelopes rejected")
+
+# An immutable defined global cannot be modified by global.set. The runtime
+# must reject the module during validation, not defer it to execution.
+immutable_global_set_module = (
+    magic +
+    b"\\x01\\x04\\x01\\x60\\x00\\x00" +
+    b"\\x03\\x02\\x01\\x00" +
+    b"\\x06\\x06\\x01\\x7f\\x00\\x41\\x00\\x0b" +
+    b"\\x07\\x09\\x01\\x05kmain\\x00\\x00" +
+    b"\\x0a\\x08\\x01\\x06\\x00\\x41\\x01\\x24\\x00\\x0b"
+)
+with tempfile.TemporaryDirectory(prefix="kira-wasm-global-mutability-") as td:
+    path = pathlib.Path(td) / "immutable-global-set.wasm"
+    path.write_bytes(immutable_global_set_module)
+    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, env=test_env)
+    if run.returncode == 0 or "global.set on immutable global" not in run.stdout:
+        print("FAIL: immutable global.set was not rejected")
+        print(run.stdout)
+        raise SystemExit(1)
+    print("PASS: immutable global.set is rejected during validation")
