@@ -18,6 +18,9 @@
 - PR остаётся draft и не слит.
 - Важная граница готовности: `drvget` — реальная, но ограниченная установка проверенных исходников по рецептам (разрешённые BSD/MIT/ISC, сборка встроенным KCC); это НЕ универсальная конвертация Linux/Windows-драйверов. В PR присутствуют `userland/drvcompat.c`, `drivers/kdrv/kdrv_manager.c` и `drivers/kdrv/kdrv_catalogue.c`, но они не подключены в текущем `build_clang.sh` и не покрыты текущим host-test runner. Их callback-пайплайн/интеграцию нельзя считать рабочей функцией или закрытым требованием; нужен реальный backend, wiring и тесты.
 
+
+- Дополнительная проверка build lists: `build_clang.sh` и `build_arm64.sh` не включают новые `drivers/iommu/{arm_smmu,intel_vtd,amd_vi,*_domain,iommu_discovery}.*`; ARM64 `main.c` также не вызывает SMMUv3. Host suite запускает старый `iommu_vtd.c` parser test и KDRV catalogue/signature tests, но не SMMUv3 runtime, `kdrv_manager.c` или `drvcompat.c`. Следовательно, новые SMMUv3/VT-d runtime и manager/conversion callbacks не входят в собранные образы; это блокер интеграции, а не PASS по факту наличия файлов.
+
 ### PR #95 — KCC context / self-host parser
 - Ветка: `ai/kcc-context-more-state`
 - Head: `b03a532c1753b736c9d77cd0318a7b2869265e8a`
