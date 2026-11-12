@@ -358,7 +358,7 @@ int fdt_find_enabled_compatible(const void* fdt, int after, const char* compat) 
 }
 
 int fdt_simplefb(const void* fdt, uint32_t max_len, fdt_fb_t* fb) {
-    if (!fdt || !fb) return -2;
+    if (!fdt || !fb || !fdt_tree_valid(fdt, max_len)) return -2;
     int n = -1;
     do n = fdt_find_compatible(fdt, n, "simple-framebuffer"); while (n >= 0 && !fdt_node_enabled(fdt, n));
     if (n < 0) return -1;
