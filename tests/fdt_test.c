@@ -141,12 +141,15 @@ int main(void) {
     /* A forged DTB totalsize must never replace the caller's actual buffer bound. */
     {
         uint8_t bounded[8192];
+        fdt_fb_t bad_fb;
         memcpy(bounded, blob, total);
         be(bounded + 4, total + 64);
         CHECK(fdt_reg(bounded, total, mem, 0, &a, &s) != 0);
+        CHECK(fdt_simplefb(bounded, total, &bad_fb) != 0);
         memcpy(bounded, blob, total);
         be(bounded + 4, total - 4);
         CHECK(fdt_reg(bounded, total, mem, 0, &a, &s) != 0);
+        CHECK(fdt_simplefb(bounded, total, &bad_fb) != 0);
     }
 
     /* Present but malformed cell-width properties must not silently fall back to defaults. */
