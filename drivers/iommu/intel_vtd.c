@@ -93,7 +93,11 @@ static int vtd_wait_status(struct kira_vtd_unit *unit,
 static int vtd_select_address_width(uint64_t cap, uint8_t requested)
 {
     uint8_t sagaw = (uint8_t)((cap >> 8) & 0x1fu);
+    uint8_t mgaw = (uint8_t)((cap >> 16) & 0xffu);
     unsigned int levels;
+
+    if (requested > mgaw)
+        return 0;
 
     if (requested <= 39)
         levels = 3;
