@@ -174,8 +174,8 @@ int virtio_attach(virtio_dev_t* v, const pci_dev_t* d) {
         }
     }
     if (!v->common || !v->notify || !v->isr) return -1;
-    /* Decode BARs now; bus mastering is enabled only by virtio_driver_ok,
-       after queue and data-buffer DMA mappings have been installed. */
+    /* Decode BARs now; first revoke any inherited requester permission. */
+    if (!pci_disable_bus_master(d)) return -1;
     pci_enable(d, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     return 0;
 }
