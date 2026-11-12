@@ -335,6 +335,6 @@ int main(void)
         test_allocator_failure_cleanup() ||
         test_portable_container())
         return 1;
-    puts("KIRA VM v1 verifier/interpreter: PASS");
+    puts("KIRA VM KVP0 prototype verifier/interpreter: PASS");
     return 0;
 }
