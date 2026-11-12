@@ -7,6 +7,7 @@
 - [Инвентаризация компонентов](docs/architecture/COMPONENT_INVENTORY.md) — предварительная карта исходников и статусов.
 - [Карта зависимостей](docs/architecture/DEPENDENCY_MAP.md) — целевые и наблюдаемые связи между подсистемами.
 - [Реестр контрактов](docs/architecture/CONTRACT_REGISTRY.md) — ABI/API, владельцы, статусы и критерии утверждения.
+- [Черновики RFC](docs/architecture/rfc/README.md) — BootInfo, syscall ABI, capabilities и IPC на основе текущих исходников.
 - [Source-audit findings](docs/architecture/SOURCE_AUDIT_FINDINGS.md) — конкретные наблюдения по коду и риски.
 - [Открытые PR и зависимости](docs/architecture/OPEN_PR_ARCHITECTURE_TRACKER.md) — веточная топология и интеграционные gates.
 - [Совместимость Windows](docs/compat/WINDOWS_COMPATIBILITY.md), [совместимость Linux](docs/compat/LINUX_COMPATIBILITY.md) и [матрица приложений](docs/compat/COMPATIBILITY_TEST_MATRIX.md).
