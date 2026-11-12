@@ -21,10 +21,10 @@
 | #134 | v46/kira-vm-core-v1 / aa5378d2a1cc52f9cbc55ab7432a4b0f7dad25a7 | v46/unified-release-integration | KIRA VM/KVP0 experiment | Сравнить с WASM baseline, проверить verifier/conformance/performance; не считать production |
 | #132 | fix/vmm-kstack-double-free / 2b8569ad1baf8596e48c81ebebcdcefe8fae859d | v46/unified-release-integration | Kernel VMM stack lifecycle | Verify ownership, concurrent teardown, double-free tests, integration base |
 | #131 | fix/wasm-module-header-bounds / 55328f649baad52f68a0cc5c39c166502eccf278 | main | WASM validation/host ABI | Parser fuzzing, import ABI, JIT W^X and ARM64 interpreter regression |
-| #125 | fix/arm-smmu-integrated-hardening / cf35a78b385c0b9939702e19b097b01a4296e273 | autodrv | ARM SMMUv3/IOMMU | Verify domain lifecycle, invalidation, fault path, DMA isolation |
-| #120 | fix/arm-smmu-domain-encoding / 932f39a8a305da899e8616e3cd50eabb50400e82 | autodrv | SMMUv3 stage-1 domains | Reconcile with #125/#115/#116; no duplicate integration |
-| #116 | feat/fdt-iommu-map / 6c37c98569986f088e184c2ce158c0a6dd49d1df | autodrv | FDT requester IDs/IOMMU | Validate device tree parsing and requester mapping |
-| #115 | fix/arm-smmu-stage1-context-descriptor-v11 / 680d01376cf43050471da867844dcb1cd5097df2 | autodrv | SMMUv3 address-width limits | Check descriptor format and hardware address-width behavior |
+| #125 | fix/arm-smmu-integrated-hardening / cf35a78b385c0b9939702e19b097b01a4296e273 | autodrv | ARM SMMUv3/IOMMU | CI run #43207054075 failed: host-tests + ARM64 build at undeclared IOMMU_E_UNSUPPORTED; QEMU usb-uhci timed out. Fix and rerun before review |
+| #120 | fix/arm-smmu-domain-encoding / 932f39a8a305da899e8616e3cd50eabb50400e82 | autodrv | SMMUv3 stage-1 domains | Workflow #42852157626 success; component evidence only. Reconcile with #125/#115/#116; no duplicate integration |
+| #116 | feat/fdt-iommu-map / 6c37c98569986f088e184c2ce158c0a6dd49d1df | autodrv | FDT requester IDs/IOMMU | Workflow #43172445107 success; parser evidence only, not DMA isolation |
+| #115 | fix/arm-smmu-stage1-context-descriptor-v11 / 680d01376cf43050471da867844dcb1cd5097df2 | autodrv | SMMUv3 address-width limits | Workflow #42822867501 success; component tests only, reconcile with #125/#120 |
 | #112 | fix/bios-mbr-partition-cmdline-v2 / 2dcf255ff4832f5631b1105c7b05fb5fe872d4b6 | autodrv | BIOS boot handoff | Verify partition and cmdline parsing, image-content smoke |
 | #95 | ai/kcc-context-more-state / b7cb6f655128b38f3b626da6a31f4fba35cad1df | ai/kcc-context-backend-regression | KCC compiler state isolation | Reconcile chain with #93, sequential and parallel cross-target tests |
 | #93 | ai/kcc-context-backend-regression / 2f0e38254fbde12ff1a1673b27f0337690c319fb | ai/kcc-context-x86-state | KCC x86/AArch64 isolation | Validate no shared mutable backend state and deterministic output |
