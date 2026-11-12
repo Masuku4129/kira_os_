@@ -56,6 +56,12 @@ cases = [
      b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x00" +
      b"\x0a\x05\x01\x03\x00\x41\x80",
      "bad signed LEB128"),
+    ("function-i64-const-overflow",
+     magic + b"\x01\x05\x01\x60\x00\x01\x7e" +
+     b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x00" +
+     b"\x0a\x0f\x01\x0d\x00\x42" +
+     b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x02\x0b",
+     "bad signed LEB128"),
     ("unreachable-function-signed-immediate-overflow",
      magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
      b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x00" +
@@ -134,5 +140,25 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-memory-max-") as td:
         print(run.stdout)
         raise SystemExit(1)
     print("PASS: explicit zero memory maximum is enforced")
+
+# A valid 10-byte negative i64 LEB must not shift by the 64-bit width.
+i64_min_module = (
+    magic +
+    b"\x01\x05\x01\x60\x00\x01\x7e" +
+    b"\x03\x02\x01\x00" +
+    b"\x07\x09\x01\x05kmain\x00\x00" +
+    b"\x0a\x0f\x01\x0d\x00\x42" +
+    b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f\x0b"
+)
+with tempfile.TemporaryDirectory(prefix="kira-wasm-i64-leb-") as td:
+    path = pathlib.Path(td) / "i64-min.wasm"
+    path.write_bytes(i64_min_module)
+    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, env=test_env)
+    if run.returncode != 0 or "wasm: finished with code 0" not in run.stdout:
+        print("FAIL: valid 10-byte negative i64 LEB was rejected")
+        print(run.stdout)
+        raise SystemExit(1)
+    print("PASS: valid 10-byte negative i64 LEB is accepted")
 
 print("wasm loader bounds: all malformed envelopes rejected")
