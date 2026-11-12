@@ -248,7 +248,7 @@ void pci_enable(const pci_dev_t* d, uint16_t bits) {
 #if defined(__aarch64__) || defined(__x86_64__)
     /* Recheck under the config lock so a concurrent IOMMU quarantine wins. */
     if ((bits & PCI_CMD_MASTER) && !pci_is_bridge(d) &&
-        (dma_quarantine_overflow || d->dma_quarantined || !iommu_device_ready(d)))
+        (dma_quarantine_overflow || __atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE) || !iommu_device_ready(d)))
         bits &= (uint16_t)~PCI_CMD_MASTER;
 #endif
     uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
