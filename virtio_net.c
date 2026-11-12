@@ -132,7 +132,14 @@ int virtio_net_probe(void) {
     v.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &v.txb_p);
     if (!v.rxb || !v.txb) { net_abort(); return -4; }
     unsigned nrx = v.rx.size < NRX ? v.rx.size : NRX;
-    for (unsigned i = 0; i < nrx; i++) virtq_post(&v.rx, (uint16_t)i, v.rxb_p + i * BUF, BUF, 1);
+    /* Publish the freshly initialized receive storage before exposing its
+       descriptors to a device that may not be cache coherent. */
+    if (virtio_dma_sync_for_device(v.rxb, v.rxb_p, NRX * BUF) != 0) {
+        net_abort();
+        return -5;
+    }
+    for (unsigned i = 0; i < nrx; i++)
+        virtq_post(&v.rx, (uint16_t)i, v.rxb_p + (uint64_t)i * BUF, BUF, 1);
     virtio_driver_ok(&v.dev);
     virtq_kick(&v.rx);
     if (v.dev.features & F_MAC) for (int i = 0; i < 6; i++) v.nd.mac[i] = MMIO_R8(v.dev.devcfg + (unsigned)i);
