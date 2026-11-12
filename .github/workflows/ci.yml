@@ -3,6 +3,7 @@ name: kira
 concurrency:
   group: kira-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
+# Mind PR CI refresh: validate the latest memory telemetry and UI changes.
 
 permissions:
   contents: read
