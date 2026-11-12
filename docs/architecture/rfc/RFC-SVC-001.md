@@ -45,9 +45,9 @@
 
 Adapter — внутренний kernel facade. Это ещё не отдельный процесс службы, не IPC и не гарантия crash isolation.
 
-### ABI number registry — `syscall_numbers.h`
+### ABI number registry — `kcc/include/syscall_numbers.h`
 
-Содержит единственный общий набор числовых идентификаторов. Core и adapters включают один и тот же заголовок. Значения перенесены без изменения.
+Содержит канонический набор числовых идентификаторов. Kernel-side `syscall_numbers.h` — forwarding header; `userland/kira.h` и `kcc/include/kira.h` подключают тот же канонический файл. Таким образом kernel, встроенный KCC и приложения используют одну таблицу номеров. Значения перенесены без изменения.
 
 ## 4. Целевая эволюция
 
