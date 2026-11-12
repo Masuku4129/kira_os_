@@ -12,6 +12,8 @@
 #include "cpu.h"
 #include "msi.h"
 
+int platform_dma_noncoherent(void) __attribute__((weak));
+
 enum { CTRL = 0x0, STATUS = 0x8, EERD = 0x14, ICR = 0xC0, IMS = 0xD0, IMC = 0xD8, RCTL = 0x100, TCTL = 0x400, TIPG = 0x410,
        RDBAL = 0x2800, RDBAH = 0x2804, RDLEN = 0x2808, RDH = 0x2810, RDT = 0x2818,
        TDBAL = 0x3800, TDBAH = 0x3804, TDLEN = 0x3808, TDH = 0x3810, TDT = 0x3818, MTA = 0x5200, RAL0 = 0x5400, RAH0 = 0x5404 };
@@ -101,6 +103,13 @@ int e1000_probe(void) {
     const pci_dev_t* p = 0;
     for (unsigned i = 0; i < sizeof ids / sizeof ids[0] && !p; i++) p = pci_find(0x8086, ids[i]);
     if (!p) return -1;
+    /* This driver has not yet implemented explicit DMA ownership barriers for
+       every descriptor and packet-buffer transition. Do not bind it to an ARM
+       non-coherent platform until that audit is complete. */
+    if (platform_dma_noncoherent && platform_dma_noncoherent()) {
+        uart_print("[KIRA NET] e1000: disabled; DMA ownership sync is not validated on non-coherent ARM64.\\n");
+        return -5;
+    }
     e82574 = p->device == 0x10D3;
     if (p->bar[0].io || !p->bar[0].base) { uart_print("[KIRA NET] e1000: register BAR is not memory - not supported.\n"); return -2; }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER);
