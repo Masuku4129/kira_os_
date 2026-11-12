@@ -123,7 +123,13 @@ int e1000_probe(void) {
     if (!p) return -1;
     e82574 = p->device == 0x10D3;
     if (p->bar[0].io || !p->bar[0].base) { uart_print("[KIRA NET] e1000: register BAR is not memory - not supported.\n"); return -2; }
-    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER);
+    uint16_t pci_cmd = pci_read16(p, 0x04);
+    pci_write16(p, 0x04, (uint16_t)(pci_cmd & ~PCI_CMD_MASTER));
+    if ((pci_cmd & PCI_CMD_MASTER) || (pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        uart_print("[KIRA NET] e1000: inherited bus mastering cannot be proven quiescent; refusing device handoff.\n");
+        return -5;
+    }
+    pci_enable(p, PCI_CMD_MEM);
     e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
     if (!e.r) return -3;
 
@@ -160,6 +166,7 @@ int e1000_probe(void) {
         uart_print("[KIRA NET] e1000: DMA ownership setup failed; device not started.\n");
         return -7;
     }
+    pci_enable(p, PCI_CMD_MASTER);
 
     wr(RDBAL, (uint32_t)rx_p); wr(RDBAH, (uint32_t)(rx_p >> 32)); wr(RDLEN, NRX * sizeof(rxd_t));
     wr(RDH, 0); wr(RDT, NRX - 1);
