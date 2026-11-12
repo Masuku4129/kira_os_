@@ -34,6 +34,12 @@ static void become(thread_t* t) {
     CHECK(sched_current() == t);
 }
 
+static void tick(void) {
+    fake_ticks++;
+    sched_tick();
+    sched_irq_exit();
+}
+
 int main(void) {
     setvbuf(stdout, 0, _IONBF, 0);
     sched_init(1, 65536);
@@ -94,6 +100,25 @@ int main(void) {
     CHECK(kmutex_held(&m) && A->mutexes_held == 1);
     kmutex_unlock(&m);
     CHECK(m.owner == 0 && A->mutexes_held == 0);
+
+    // Сон под mutex разрешён контрактом: владелец просыпается, затем передаёт lock ожидающему.
+    become(A);
+    kmutex_lock(&m);
+    sched_sleep_ticks(2);
+    CHECK(A->state == THREAD_SLEEPING && m.owner == A && A->mutexes_held == 1);
+    become(B);
+    kmutex_lock(&m);
+    CHECK(B->state == THREAD_BLOCKED && m.owner == A);
+    tick();
+    tick();
+    become(A);
+    CHECK(kmutex_held(&m) && A->mutexes_held == 1);
+    kmutex_unlock(&m);
+    CHECK(m.owner == B && B->state == THREAD_READY);
+    become(B);
+    CHECK(kmutex_held(&m) && B->mutexes_held == 1);
+    kmutex_unlock(&m);
+    CHECK(m.owner == 0 && B->mutexes_held == 0);
 
     // повторный захват тем же потоком - взаимная блокировка: ядро сообщает, а не зависает
     kmutex_lock(&m);
