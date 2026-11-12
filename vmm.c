@@ -120,8 +120,9 @@ static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags);
 void* vmm_kstack_alloc(uint32_t bytes) {
     if (!kernel_root || bytes == 0 || bytes > KSTACK_STRIDE / 2 || (bytes & (PAGE_SIZE - 1))) return 0;
     uint64_t f = spin_lock_irqsave(&ks_lock);
-    if (ks_size && ks_size != bytes) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
-    ks_size = bytes;
+    uint32_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_RELAXED);
+    if (stack_size && stack_size != bytes) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
+    if (!stack_size) __atomic_store_n(&ks_size, bytes, __ATOMIC_RELEASE);
     uint32_t slot;
     uint64_t slot_top;
     if (ks_nfree) {
@@ -155,7 +156,7 @@ void vmm_kstack_free(void* base) {
     uint64_t va = (uint64_t)(uintptr_t)base;
     uint64_t f = spin_lock_irqsave(&ks_lock);
     uint32_t slot;
-    if (kstack_slot_from_base(va, KSTACK_BASE, KSTACK_STRIDE, KSTACK_SLOTS, ks_size, ks_used_hi, &slot) &&
+    if (kstack_slot_from_base(va, KSTACK_BASE, KSTACK_STRIDE, KSTACK_SLOTS, __atomic_load_n(&ks_size, __ATOMIC_RELAXED), ks_used_hi, &slot) &&
         ks_nfree < KSTACK_SLOTS && kstack_slot_release(ks_active, KSTACK_SLOTS, slot)) {
         ks_free[ks_nfree++] = (uint16_t)slot;
     }
@@ -163,9 +164,10 @@ void vmm_kstack_free(void* base) {
 }
 
 int vmm_kstack_guard_hit(uint64_t addr) {
-    if (addr < KSTACK_BASE || addr >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE || !ks_size) return 0;
+    uint32_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_ACQUIRE);
+    if (addr < KSTACK_BASE || addr >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE || !stack_size) return 0;
     uint64_t off = (addr - KSTACK_BASE) % KSTACK_STRIDE;
-    return off < KSTACK_STRIDE - ks_size;                                   /* ниже отображённой части ячейки */
+    return off < KSTACK_STRIDE - stack_size;                                 /* ниже отображённой части ячейки */
 }
 
 int vmm_is_kstack(uint64_t addr) { return addr >= KSTACK_BASE && addr < KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE; }
