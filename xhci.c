@@ -574,8 +574,10 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if (!xall[started]) { usb_log("[KIRA USB] xHCI: no memory for controller state\n"); return -1; }
     X = xall[started];
     if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) {
-        (void)xhci_pci_quiesce(p);
-        usb_log("[KIRA USB] xHCI without a usable memory BAR0; DMA disabled\n");
+        int quiet = xhci_pci_quiesce(p);
+        usb_log((quiet & 2) || !(quiet & 1) ?
+                "[KIRA USB] xHCI without a usable BAR0; PCI quiescence could not be verified\n" :
+                "[KIRA USB] xHCI without a usable BAR0; PCI DMA and interrupts quiesced\n");
         return -2;
     }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
@@ -586,8 +588,10 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     uint64_t sz = p->bar[0].size > 0x10000 ? 0x10000 : p->bar[0].size;
     volatile uint8_t* cap = (volatile uint8_t*)pci_map_bar(p, 0, 0, sz);
     if (!cap) {
-        (void)xhci_pci_quiesce(p);
-        usb_log("[KIRA USB] xHCI: cannot map registers; DMA disabled\n");
+        int quiet = xhci_pci_quiesce(p);
+        usb_log((quiet & 2) || !(quiet & 1) ?
+                "[KIRA USB] xHCI BAR mapping failed; PCI quiescence could not be verified\n" :
+                "[KIRA USB] xHCI BAR mapping failed; PCI DMA and interrupts quiesced\n");
         return -2;
     }
     for (unsigned long i = 0; i < sizeof xs; i++) ((volatile uint8_t*)X)[i] = 0;   /* десятки КБ: не через временную копию на стеке */
@@ -598,8 +602,10 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if (caplen < 0x20 || (caplen & 3u) || (uint64_t)caplen + 0x40u > sz ||
         (uint64_t)rt_off + 0x40u > sz ||
         (uint64_t)db_off + 4u * (MAXSLOT + 1u) > sz) {
-        (void)xhci_pci_quiesce(p);
-        usb_log("[KIRA USB] xHCI: capability or operational registers outside BAR; DMA disabled\n");
+        int quiet = xhci_pci_quiesce(p);
+        usb_log((quiet & 2) || !(quiet & 1) ?
+                "[KIRA USB] xHCI register bounds invalid; PCI quiescence could not be verified\n" :
+                "[KIRA USB] xHCI register bounds invalid; PCI DMA and interrupts quiesced\n");
         return -2;
     }
     xs.op = cap + caplen; xs.rt = cap + rt_off; xs.db = (volatile uint32_t*)(cap + db_off);
