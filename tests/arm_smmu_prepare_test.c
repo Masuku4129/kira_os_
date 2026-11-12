@@ -13,6 +13,7 @@ static unsigned alloc_calls, free_calls, clean_calls, map_calls;
 static unsigned fail_alloc_at, misalign_alloc_at;
 static size_t freed_pages, pool_used;
 static uint64_t next_physical;
+static int high_physical;
 
 static volatile void *test_map_mmio(void *context, uint64_t physical, size_t length)
 {
@@ -34,7 +35,7 @@ static void *test_alloc_dma_pages(void *context, size_t pages, uint64_t *physica
     if (offset + pages * PAGE > sizeof(dma_pool))
         return 0;
     pool_used += pages * PAGE;
-    *physical = next_physical + offset;
+    *physical = high_physical ? (1ull << 52) : next_physical + offset;
     if (alloc_calls == misalign_alloc_at)
         ++*physical;
     return dma_pool + offset;
@@ -66,6 +67,7 @@ static void reset_test_platform(void)
     fail_alloc_at = misalign_alloc_at = 0;
     freed_pages = pool_used = 0;
     next_physical = 0x201000u;
+    high_physical = 0;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
     *(uint32_t *)(registers_page + 0x0004u) = (8u << 21) | (8u << 16) | 8u;
     *(uint32_t *)(registers_page + 0x0014u) = 5u;
@@ -107,6 +109,15 @@ int main(void)
     p = platform();
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
     CHECK(map_calls == 1 && alloc_calls == 0);
+
+    /* 52-bit OAS is accepted, but a DMA range starting at 2^52 is rejected. */
+    reset_test_platform();
+    *(uint32_t *)(registers_page + 0x0014u) = 6u;
+    high_physical = 1;
+    p = platform();
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_MEMORY_FAILED);
+    CHECK(alloc_calls == 1 && free_calls == 1);
 
     /* Unsupported identification is rejected before allocating DMA memory. */
     reset_test_platform();
