@@ -10,6 +10,8 @@
 #define RUNNER_MAX_MEMORY_PAGES 128u
 #define RUNNER_FUEL 10000000ull
 #define RUNNER_WRITE_MAX 4096u
+#define RUNNER_OUTPUT_BUDGET 65536u
+#define RUNNER_MAX_HOST_CALLS 10000u
 
 enum {
     KVM_CAP_CONSOLE = 0,
@@ -24,6 +26,8 @@ enum {
 
 typedef struct {
     struct kvm_instance *instance;
+    uint32_t host_calls;
+    uint32_t output_bytes;
 } runner_host_t;
 
 static void say(const char *s)
@@ -69,15 +73,20 @@ static int runner_syscall(void *context, uint32_t number, uint8_t capability,
     struct kvm_instance *vm;
     if (!host || !host->instance || !args || !result)
         return -1;
+    if (host->host_calls >= RUNNER_MAX_HOST_CALLS)
+        return -1;
+    host->host_calls++;
     vm = host->instance;
 
     if (number == KVM_HOST_WRITE && capability == KVM_CAP_CONSOLE) {
         if (args[0] > vm->memory_size ||
             args[1] > vm->memory_size - (size_t)args[0] ||
-            args[1] > RUNNER_WRITE_MAX)
+            args[1] > RUNNER_WRITE_MAX ||
+            args[1] > RUNNER_OUTPUT_BUDGET - host->output_bytes)
             return -1;
         if (args[1])
             k_write((const char *)vm->memory + (size_t)args[0], args[1]);
+        host->output_bytes += (uint32_t)args[1];
         *result = args[1];
         return 0;
     }
@@ -183,7 +192,7 @@ int umain(void)
     struct kvm_module module;
     struct kvm_instance instance;
     struct kvm_allocator allocator = { 0, runner_allocate, runner_release };
-    runner_host_t host_context = { 0 };
+    runner_host_t host_context = { 0, 0, 0 };
     struct kvm_host host = { &host_context, runner_syscall };
     const uint64_t grants = (1ull << KVM_CAP_CONSOLE) |
                             (1ull << KVM_CAP_TICKS) |
