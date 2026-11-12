@@ -287,11 +287,28 @@ static char logbuf[16384];
 void usb_log(const char* s) { strncat(logbuf, s, sizeof logbuf - strlen(logbuf) - 1); }
 void usb_log_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsigned long long)v); usb_log(b); }
 void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); usb_log(b); }
-static uint16_t pci_command_model;
+static uint16_t pci_command_model, pci_msi_control_model, pci_msix_control_model;
 void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; pci_command_model |= b; }
-uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { (void)d; return off == 0x04 ? pci_command_model : 0; }
-uint16_t pci_next_cap(const pci_dev_t* d, uint16_t after, uint8_t* id) { (void)d; (void)after; if (id) *id = 0; return 0; }
-void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) { (void)d; if (off == 0x04) pci_command_model = v; }
+uint16_t pci_read16(const pci_dev_t* d, uint16_t off) {
+    (void)d;
+    if (off == 0x04) return pci_command_model;
+    if (off == 0x52) return pci_msi_control_model;
+    if (off == 0x62) return pci_msix_control_model;
+    return 0;
+}
+uint16_t pci_next_cap(const pci_dev_t* d, uint16_t after, uint8_t* id) {
+    (void)d;
+    if (after == 0) { if (id) *id = 0x05; return 0x50; }
+    if (after == 0x50) { if (id) *id = 0x11; return 0x60; }
+    if (id) *id = 0;
+    return 0;
+}
+void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
+    (void)d;
+    if (off == 0x04) pci_command_model = v;
+    else if (off == 0x52) pci_msi_control_model = v;
+    else if (off == 0x62) pci_msix_control_model = v;
+}
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { (void)d; (void)off; return 0; }
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { (void)d; (void)off; (void)v; }
 volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t len) { (void)d; (void)bar; (void)len; return regs + off; }
@@ -312,8 +329,12 @@ int main(void) {
     pci_dev_t pd = { 0 }; pd.vendor = 0x1B36; pd.device = 0x000D; pd.bar[0].base = 0xFEB00000; pd.bar[0].size = 0x4000;
     usb_hc_t hc;
     pci_command_model = PCI_CMD_MASTER;                       /* inherited firmware DMA: halt before clearing */
+    pci_msi_control_model = 1u;                                /* inherited MSI enabled */
+    pci_msix_control_model = 0x8000u;                           /* inherited MSI-X enabled */
     int rc = xhci_start(&hc, &pd);
     CHECK(rc == 0);
+    CHECK((pci_msi_control_model & 1u) == 0);
+    CHECK((pci_msix_control_model & 0xC000u) == 0x4000u);
     CHECK((pci_command_model & (PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF)) ==
           (PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF));
     if (rc) printf("%s", logbuf);
