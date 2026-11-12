@@ -148,3 +148,5 @@ The next combined user update is eligible only when:
 - A partially mapped slot is now quarantined by advancing `ks_used_hi`, preventing a later allocation from retrying mappings over already-installed PTEs.
 - Commit: `7265682c2e8022a9ddb14af4989503ee51080774`.
 - Not verified PASS: current host suite has no isolated VMM allocator test. Required next: add testable allocator lifecycle coverage, then obtain fresh x86-64/ARM64 build and VM CI evidence. Physical guard-page/stack-overflow validation remains separate.
+
+- Follow-up review caught and corrected an address-layout mistake in the new exact-base check: stack bases are top-aligned at `slot_start + KSTACK_STRIDE - ks_size`, not at the beginning of each 64-KiB slot. The check now validates that exact offset. Commit: `a57f817676ecc5ca1b690884adf45943e14890c6`. This correction reinforces why the PR remains draft until targeted allocator tests run.
