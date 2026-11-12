@@ -77,7 +77,7 @@ for f in fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_bl
          immune.c kobj.c futex.c corefault.c crypto.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c kernel/syscall.c services/syscall_router.c services/graphics_syscall.c services/filesystem_syscall.c services/network_syscall.c services/audio_syscall.c services/clock_syscall.c services/driver_syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
          virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
          icons.c brainfx.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
-         $A/main.c $A/kernel_main.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c; do
+         $A/main.c $A/pci_host.c $A/kernel_main.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c; do
     o=build-arm64/$(basename $f .c).o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
 done
 ld.lld -T $A/linker.ld -nostdlib -pie --no-dynamic-linker -z text -z norelro -z max-page-size=4096 $OBJ -o kira-arm64.elf
