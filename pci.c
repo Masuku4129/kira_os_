@@ -22,23 +22,7 @@ static inline void outb(uint16_t p, uint8_t v) { __asm__ volatile ("outb %0, %1"
 static inline uint8_t inb(uint16_t p) { uint8_t v; __asm__ volatile ("inb %1, %0" : "=a"(v) : "Nd"(p)); return v; }
 static inline void outl(uint16_t p, uint32_t v) { __asm__ volatile ("outl %0, %1" : : "a"(v), "Nd"(p)); }
 static inline uint32_t inl(uint16_t p) { uint32_t v; __asm__ volatile ("inl %1, %0" : "=a"(v) : "Nd"(p)); return v; }
-static void pci_trace_raw_char(char c) {
-    if (!uart_present()) return;
-    for (uint32_t spin = 0; spin < 100000u; spin++) {
-        if (inb(0x3FD) & 0x20u) {
-            outb(0x3F8, (uint8_t)c);
-            return;
-        }
-    }
-}
-static void pci_trace_raw(const char *s) {
-    while (s && *s) pci_trace_raw_char(*s++);
-}
-static void pci_trace_raw_hex16(uint16_t value) {
-    static const char hex[] = "0123456789abcdef";
-    for (int shift = 12; shift >= 0; shift -= 4)
-        pci_trace_raw_char(hex[(value >> shift) & 0x0Fu]);
-}
+
 #endif
 
 /* Порты 0xCF8/0xCFC - только у x86; на других архитектурах конфигурация - через ECAM (pci_use_ecam). */
@@ -252,86 +236,28 @@ void pci_disable_bus_master(const pci_dev_t* d) {
     if (!d || pci_is_bridge(d))
         return;
 #if !defined(KIRA_HOST_TEST)
-#if defined(__x86_64__)
-    int trace_uhci = d->bus == 0 && d->dev == 1 && d->fn == 2;
-    if (trace_uhci) {
-        uart_print("[KIRA PCI TRACE] UHCI disable lock state rmw=");
-        uart_print_dec(__atomic_load_n(&cfg_rmw_lock.next, __ATOMIC_RELAXED));
-        uart_putchar('/');
-        uart_print_dec(__atomic_load_n(&cfg_rmw_lock.owner, __ATOMIC_RELAXED));
-        uart_print(" port=");
-        uart_print_dec(__atomic_load_n(&cfg_port_lock.next, __ATOMIC_RELAXED));
-        uart_putchar('/');
-        uart_print_dec(__atomic_load_n(&cfg_port_lock.owner, __ATOMIC_RELAXED));
-        uart_print(" held=");
-        uart_print_dec(this_cpu()->locks_held);
-        uart_print("\n");
-        pci_trace_raw("[D0]");
-    }
-#endif
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
-#if defined(__x86_64__)
-    if (trace_uhci) pci_trace_raw("[D1]");
-#endif
 #endif
     uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-    if (trace_uhci) {
-        pci_trace_raw("[D2 cmd=");
-        pci_trace_raw_hex16((uint16_t)value);
-        pci_trace_raw("]");
-    }
-#endif
     value &= (uint32_t)~PCI_CMD_MASTER;
     be.write32(d->bus, d->dev, d->fn, 0x04, value);
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-    if (trace_uhci) pci_trace_raw("[D3]");
-#endif
 #if !defined(KIRA_HOST_TEST)
     spin_unlock_irqrestore(&cfg_rmw_lock, flags);
-#if defined(__x86_64__)
-    if (trace_uhci) pci_trace_raw("[D4]\r\n");
-#endif
 #endif
 }
 
 /* Размер и тип BAR: пишем единицы, читаем маску, возвращаем исходное значение. Декодирование на время зонда выключено. */
 static void probe_bars(pci_dev_t* d) {
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-    int trace_uhci = d && d->bus == 0 && d->dev == 1 && d->fn == 2;
-    if (trace_uhci) pci_trace_raw("[P0]");
-#endif
     uint16_t cmd = pci_read16(d, 0x04);
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-    if (trace_uhci) pci_trace_raw("[P1]");
-#endif
     pci_write16(d, 0x04, (uint16_t)(cmd & ~(PCI_CMD_IO | PCI_CMD_MEM)));
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-    if (trace_uhci) pci_trace_raw("[P2]");
-#endif
     int nb = (d->header_type & 0x7F) == 0 ? 6 : ((d->header_type & 0x7F) == 1 ? 2 : 0);
     for (int i = 0; i < PCI_BARS; i++) { d->bar[i].base = d->bar[i].size = 0; d->bar[i].io = d->bar[i].mem64 = d->bar[i].prefetch = 0; }
     for (int i = 0; i < nb; i++) {
         uint16_t off = (uint16_t)(0x10 + 4 * i);
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-        if (trace_uhci) { pci_trace_raw("[B"); pci_trace_raw_hex16((uint16_t)i); pci_trace_raw("0]"); }
-#endif
         uint32_t orig = pci_read32(d, off);
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-        if (trace_uhci) pci_trace_raw("[1]");
-#endif
         pci_write32(d, off, 0xFFFFFFFFu);
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-        if (trace_uhci) pci_trace_raw("[2]");
-#endif
         uint32_t mask = pci_read32(d, off);
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-        if (trace_uhci) pci_trace_raw("[3]");
-#endif
         pci_write32(d, off, orig);
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-        if (trace_uhci) pci_trace_raw("[4]");
-#endif
         if (mask == 0 || mask == 0xFFFFFFFFu) continue;
         if (orig & 1) {
             uint32_t m = (mask & ~3u) | 0xFFFF0000u;
@@ -357,9 +283,6 @@ static void probe_bars(pci_dev_t* d) {
         }
     }
     pci_write16(d, 0x04, cmd);
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-    if (trace_uhci) pci_trace_raw("[P7]");
-#endif
 }
 
 static void scan_bus(uint8_t bus);
@@ -382,14 +305,8 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     if (bus == 0 && dev < 3) { uart_print("[KIRA PCI TRACE] fn "); uart_print_dec(fn); uart_print(" class/header read\n"); }
 #endif
     pci_disable_bus_master(d);
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-    if (bus == 0 && dev == 1 && fn == 2) pci_trace_raw("[S0]");
-#endif
 #ifndef KIRA_HOST_TEST
     if (bus == 0 && dev < 3) { uart_print("[KIRA PCI TRACE] fn "); uart_print_dec(fn); uart_print(" busmaster disabled\n"); }
-#endif
-#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-    if (bus == 0 && dev == 1 && fn == 2) pci_trace_raw("[S1]");
 #endif
     probe_bars(d);
 #ifndef KIRA_HOST_TEST
