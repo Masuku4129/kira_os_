@@ -103,7 +103,7 @@ int main(int argc, char** argv) {
 #endif
     if (argc < 2) return 2;
 #ifdef WASM_FUEL
-    if (argc == 3 && !strcmp(argv[1], "count")) { argv++; argc--; wasm_fuel = 1ull << 62; g_count = 1; }
+    if (argc == 3 && !strcmp(argv[1], "count")) { argv++; argc--; wasm_fuel = 1ull << 62; g_count = 1; jit_on = 0; }
 #endif
     FILE* f = fopen(argv[1], "rb"); if (!f) return 2;
     fseek(f, 0, SEEK_END); g_len = ftell(f); fseek(f, 0, SEEK_SET);
