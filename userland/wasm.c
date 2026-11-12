@@ -108,6 +108,25 @@ static const u8* mod; static u32 modlen;
 enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT, IMP_N };
 static const char* const imp_names[IMP_N] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event" };
 
+static int wasm_valtype(u8 t) {
+    return t == 0x7F || t == 0x7E || t == 0x7D || t == 0x7C;
+}
+
+/* Imports are a security boundary: never call a host function with a module-
+   supplied signature that disagrees with the KIRA ABI. */
+static int import_type_ok(u32 id, const ftype_t* t) {
+    static const u8 np[IMP_N] = { 2, 1, 0, 1, 2, 1, 1 };
+    static const u8 nr[IMP_N] = { 1, 0, 1, 0, 1, 1, 1 };
+    static const u8 p[IMP_N][2] = {
+        { 0x7F, 0x7F }, { 0x7F, 0 }, { 0, 0 }, { 0x7F, 0 },
+        { 0x7F, 0x7F }, { 0x7F, 0 }, { 0x7F, 0 }
+    };
+    static const u8 result[IMP_N] = { 0x7F, 0, 0x7E, 0, 0x7F, 0x7F, 0x7F };
+    if (id >= IMP_N || !t || t->np != np[id] || t->nr != nr[id]) return 0;
+    for (u32 i = 0; i < t->np; i++) if (t->p[i] != p[id][i]) return 0;
+    return !t->nr || t->p[0] == 0xFF ? 0 : result[id] != 0;
+}
+
 static u32 leb_u(const u8** p, const u8* end) {
     u32 r = 0; int s = 0;
     while (*p < end) { u8 b = *(*p)++; if (s < 32) r |= (u32)(b & 0x7F) << s; s += 7; if (!(b & 0x80)) return r; if (s > 35) break; }
@@ -573,13 +592,24 @@ static int load(void) {
         const u8* se = p + sz;
         if (id == 1) {                                            /* типы */
             u32 n = leb_u(&s, se);
+            if (trapped || n > 256u - ntypes) { trap("too many types or truncated type section"); return -1; }
             for (u32 i = 0; i < n && !trapped; i++) {
-                if (ntypes == 256 || *s++ != 0x60) { trap("bad type"); return -1; }
+                if (s >= se || *s++ != 0x60) { trap("bad type"); return -1; }
                 ftype_t* t = &types[ntypes++];
-                u32 np = leb_u(&s, se); if (np > 32) { trap("too many params"); return -1; }
-                t->np = (u8)np; for (u32 k = 0; k < np; k++) t->p[k] = *s++;
-                u32 nr = leb_u(&s, se); if (nr > 1) { trap("multi-value results not supported"); return -1; }
-                t->nr = (u8)nr; for (u32 k = 0; k < nr; k++) s++;
+                u32 np = leb_u(&s, se);
+                if (trapped || np > 32 || np > (u32)(se - s)) { trap("bad type parameter vector"); return -1; }
+                t->np = (u8)np;
+                for (u32 k = 0; k < np; k++) {
+                    t->p[k] = *s++;
+                    if (!wasm_valtype(t->p[k])) { trap("unsupported parameter value type"); return -1; }
+                }
+                u32 nr = leb_u(&s, se);
+                if (trapped || nr > 1 || nr > (u32)(se - s)) { trap("multi-value or truncated result vector"); return -1; }
+                t->nr = (u8)nr;
+                for (u32 k = 0; k < nr; k++) {
+                    u8 rt = *s++;
+                    if (!wasm_valtype(rt)) { trap("unsupported result value type"); return -1; }
+                }
             }
         } else if (id == 2) {                                     /* импорт */
             u32 n = leb_u(&s, se);
