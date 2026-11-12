@@ -165,8 +165,8 @@ int e1000_probe(void) {
         if (pci_disable_bus_master(p))
             (void)iommu_unmap_all(p);
         else
-            uart_print("[KIRA E1000] bus mastering did not stop; DMA mappings remain pinned.\\n");
-        uart_print("[KIRA E1000] PCI DMA authorization was not granted; device disabled.\\n");
+            uart_print("[KIRA E1000] bus mastering did not stop; DMA mappings remain pinned.\n");
+        uart_print("[KIRA E1000] PCI DMA authorization was not granted; device disabled.\n");
         return -7;
     }
     wr(RCTL, (1u << 1) | (1u << 15) | (1u << 26));               /* EN, BAM (широковещательные), SECRC; буфер 2048 */
