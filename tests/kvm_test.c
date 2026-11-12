@@ -292,6 +292,9 @@ static int test_portable_container(void)
 
     CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_OK);
     CHECK(kvm_verify(&module, 0) == KVM_OK);
+    memcpy(blob, "KVM1", 4);
+    CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
+    memcpy(blob, "KVP0", 4);
     CHECK(run(&module, 0, 10, &result) == KVM_OK && result == 73);
     CHECK(kvm_module_decode(blob, sizeof blob - 1u, &module) == KVM_E_FORMAT);
 
