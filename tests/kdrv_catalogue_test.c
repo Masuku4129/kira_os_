@@ -3,7 +3,7 @@
 #include <string.h>
 
 #define CHECK(x) do { if (!(x)) { \
-    fprintf(stderr, "kdrv_catalogue_test: FAIL line %d: %s\\n", __LINE__, #x); \
+    fprintf(stderr, "kdrv_catalogue_test: FAIL line %d: %s\n", __LINE__, #x); \
     return 1; \
 } } while (0)
 
@@ -69,12 +69,12 @@ static size_t make_catalogue(char *out, size_t capacity, unsigned version,
                              int valid_entry)
 {
     int n = snprintf(out, capacity,
-        "KIRA-KDRV-CATALOGUE\\t1\\t%u\\n"
-        "%s\\n",
+        "KIRA-KDRV-CATALOGUE\t1\t%u\n"
+        "%s\n",
         version,
         valid_entry
-        ? "net\\t1.0\\tx86_64\\thttps://example.org/net.kdrv\\thttps://example.org/net.sig\\tpublisher-required\\t35\\t0000000000000000000000000000000000000000000000000000000000000000"
-        : "net\\t1.0\\tx86_64\\tbad-url\\thttps://example.org/net.sig\\tpublisher-required\\t35\\t0000000000000000000000000000000000000000000000000000000000000000");
+        ? "net\t1.0\tx86_64\thttps://example.org/net.kdrv\thttps://example.org/net.sig\tpublisher-required\t35\t0000000000000000000000000000000000000000000000000000000000000000"
+        : "net\t1.0\tx86_64\tbad-url\thttps://example.org/net.sig\tpublisher-required\t35\t0000000000000000000000000000000000000000000000000000000000000000");
     return n > 0 && (size_t)n < capacity ? (size_t)n : 0;
 }
 
