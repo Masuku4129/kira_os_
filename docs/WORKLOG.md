@@ -273,3 +273,12 @@
 - Документальная инвентаризация выявила активные направления и явные архитектурные gates, но **полный построчный source audit ещё не выполнен**. Нельзя считать subsystem status подтверждённым до чтения кода и запуска относящихся к нему тестов на точном SHA.
 - Следующий непосредственный шаг: создать `docs/architecture/COMPONENT_INVENTORY.md` и `docs/architecture/DEPENDENCY_MAP.md`, затем `docs/architecture/CONTRACT_REGISTRY.md`; начинать с kernel/boot/memory/process/syscall/IPC и параллельно инвентаризировать runtime/compatibility, security, drivers/IOMMU, storage, Mind, GUI, network, hypervisor, toolchain и release.
 - Рабочая ветка архитектурной фиксации: `architecture/target-baseline-2026-11`. Ветка должна быть открыта как draft PR в main; слияние — только после проверки diff и явного разрешения владельца.
+
+
+### Initial source-level architecture inventory (2026-11-12)
+- Получено полное Git tree main: 828 файлов, recursive listing не усечён. Просмотрены основные точки входа kernel/scheduler/process/syscall/ELF/VMM/capabilities, KDRV, KiraFS/VFS, WASM, Mind, network, GUI и build/test scripts.
+- Созданы `docs/architecture/COMPONENT_INVENTORY.md` и `docs/architecture/DEPENDENCY_MAP.md`; README дополнен ссылками. Это первичный проход: статусы компонентов намеренно помечены как неподтверждённые там, где тесты не запускались.
+- Выявлено для дальнейшей проверки: main содержит KIRA-native ELF ET_EXEC path, WASM runtime и KDRV Ring 3 path; отдельные Windows/Linux compatibility runtimes и hardware hypervisor в просмотренной карте main не обнаружены. KVM1 остаётся экспериментальным PR #134. Это не означает отказ от этих целевых функций.
+- Кодовая зона повышенного архитектурного внимания: широкие include/init зависимости kernel.c; централизованный syscall dispatch в syscall.c; статическая name→caps таблица в caps.c; Mind control paths; driver teardown/DMA/IOMMU; KiraFS crash-consistency.
+- Никакие тесты в этом source-review проходе не запускались. PASS не заявлен. Следующая задача — расширить inventory до полного call graph и контрактов, затем оформить CONTRACT_REGISTRY и начать согласование ABI/IPC/security/device contracts.
+- Обновление плана: фаза первичной инвентаризации начата; завершение требует проверки всех значимых модулей, публичных символов, зависимостей, PR head SHAs и фактических тестов.
