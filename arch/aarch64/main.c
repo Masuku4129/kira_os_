@@ -21,6 +21,7 @@
 #include "pmm.h"
 #include "selftest_arm.h"
 #include "pci.h"
+#include "pci_host.h"
 #include "blk.h"
 #include "experience.h"
 #include "fscmd.h"
@@ -993,39 +994,6 @@ int platform_console_cmd(const char* l, const char* a) {
    Узел pci-host-ecam-generic: reg - окно конфигурации ECAM, bus-range - шины, ranges - окна адресов для BAR
    (3 ячейки адреса шины: тип пространства в старшей - 1 порты, 2 память 32 бита, 3 память 64 бита). Прошивки нет,
    поэтому адреса BAR назначает ядро. Драйверы (virtio, NVMe, AHCI, xHCI) - те же, что на x86-64. */
-static void arm_pci_init(const void* fdt) {
-    int n = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
-    if (n < 0) { kprintf("[KIRA PCI] no PCI Express host bridge in the device tree\n"); return; }
-    uint64_t base, size;
-    if (fdt_reg(fdt, n, 0, &base, &size)) return;
-    uint32_t len, bus0 = 0, bus1 = (uint32_t)(size >> 20) - 1;
-    const uint8_t* br = (const uint8_t*)fdt_prop(fdt, n, "bus-range", &len);
-    if (br && len >= 8) { bus0 = fdt_u32(br); bus1 = fdt_u32(br + 4); }
-    if (bus1 > 255) bus1 = 255;
-    volatile void* e = vmm_map_mmio(base, size, 0);
-    if (!e) return;
-    pci_use_ecam(e, (uint8_t)bus0, (uint8_t)bus1);
-    pci_window_t m32 = { 0, 0, 0, 0 }, m64 = { 0, 0, 0, 0 };
-    uint32_t pac = 2, sc = 2;
-    int par = fdt_parent(fdt, n);
-    if (par >= 0) fdt_prop_u32(fdt, par, "#address-cells", &pac);
-    fdt_prop_u32(fdt, n, "#size-cells", &sc);
-    const uint8_t* r = (const uint8_t*)fdt_prop(fdt, n, "ranges", &len);
-    uint32_t stride = 4 * (3 + pac + sc);
-    for (uint32_t o = 0; r && stride && o + stride <= len; o += stride) {
-        uint32_t hi = fdt_u32(r + o);
-        uint64_t pci = (uint64_t)fdt_u32(r + o + 4) << 32 | fdt_u32(r + o + 8), cpu = 0, sz = 0;
-        for (uint32_t i = 0; i < pac; i++) cpu = cpu << 32 | fdt_u32(r + o + 12 + 4 * i);
-        for (uint32_t i = 0; i < sc; i++) sz = sz << 32 | fdt_u32(r + o + 12 + 4 * pac + 4 * i);
-        pci_window_t* w = ((hi >> 24) & 3) == 2 ? &m32 : ((hi >> 24) & 3) == 3 ? &m64 : 0;
-        if (w && sz > w->size) { w->pci_base = pci; w->next = pci; w->size = sz; w->cpu_off = (int64_t)(cpu - pci); }
-    }
-    int nd = pci_init();
-    int nb = pci_assign(&m32, &m64);
-    kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\n",
-            base, (uint64_t)bus0, (uint64_t)bus1, (uint64_t)nd, (uint64_t)nb, m32.pci_base, m64.pci_base);
-}
-
 /* ---------------- вход ---------------- */
 static const void* find_fdt(uint64_t x0) {
     if (!x0 || (x0 & 7)) return 0;
@@ -1213,7 +1181,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && cpus[i].ticks > 0 && cpus[i].gic_ok) ticking++;
     kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u (idle cores then switch their tick off)\n", (uint64_t)ticking, (uint64_t)started);
     clock_init(cnt_freq / 1000);
-    arm_pci_init(fdt);
+    arm_pci_init(fdt, kprintf);
     rng_init();              /* генератор случайных чисел: RNDR, virtio-rng, времена прерываний */
     immune_init();
     watchdog_init();
