@@ -317,7 +317,12 @@ int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
     for (level = 0; level < 3; ++level) {
         unsigned int index = (unsigned int)((iova >> shifts[level]) & 0x1ffu);
         uint64_t entry = table[index];
-        if (!(entry & VTD_ENTRY_ANY) || (entry & VTD_ENTRY_LARGE))
+        /* Missing intermediate tables mean the IOVA is already unmapped. Still
+           invalidate: a previous attempt may have cleared the PTE but timed out
+           while draining a cached translation. */
+        if (!(entry & VTD_ENTRY_ANY))
+            goto invalidate;
+        if (entry & VTD_ENTRY_LARGE)
             return KIRA_VTD_HARDWARE_ERROR;
         table = (uint64_t *)vtd_table_virt(platform, entry & VTD_ENTRY_ADDRESS);
         if (!table)
@@ -326,14 +331,15 @@ int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
 
     {
         unsigned int index = (unsigned int)((iova >> 12) & 0x1ffu);
-        if (!(table[index] & VTD_ENTRY_ANY))
-            return KIRA_VTD_HARDWARE_ERROR;
-        table[index] = 0;
-        if (platform->clean_cache)
-            platform->clean_cache(platform->context, table,
-                                  KIRA_VTD_PAGE_SIZE);
+        if (table[index] & VTD_ENTRY_ANY) {
+            table[index] = 0;
+            if (platform->clean_cache)
+                platform->clean_cache(platform->context, table,
+                                      KIRA_VTD_PAGE_SIZE);
+        }
     }
 
+invalidate:
     vtd_barrier(platform);
     return kira_vtd_invalidate_iotlb(domain->unit, platform);
 }
