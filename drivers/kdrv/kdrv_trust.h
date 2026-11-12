@@ -50,6 +50,7 @@ struct kdrv_trust_ops {
     int (*sha256)(void *context, const void *data, size_t length,
                   uint8_t digest[32]);
     int (*read_version_floor)(void *context, uint64_t *version);
+    /* Must atomically persist max(current, version); never permit concurrent downgrade. */
     int (*write_version_floor)(void *context, uint64_t version);
     uint64_t (*trusted_time)(void *context);
 };
