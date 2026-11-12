@@ -21,7 +21,7 @@
 #define SMMU_CMDQ_BASE 0x0090u
 #define SMMU_CMDQ_ENTRIES 256u
 #define SMMU_POLL_LIMIT 1000000u
-#define SMMU_TTBR_ADDR 0x0000fffffffff000ull
+#define SMMU_TTBR_ADDR 0x000ffffffffff000ull
 
 /* SMMUv3 command opcodes. */
 #define CMD_CFGI_STE 0x03u
