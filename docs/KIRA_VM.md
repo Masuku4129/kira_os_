@@ -51,7 +51,9 @@ Each 8-byte instruction is:
 | 4–7 | signed 32-bit immediate, little-endian |
 
 The v1 decoder validates magic, version, exact header size, code alignment, entry,
-memory/data bounds, and exact container length before exposing the module view.
+memory/data bounds, and exact container length before exposing the module view. The first
+implementation caps the complete module at 16 MiB and linear memory at 4096 pages (16 MiB)
+to prevent unbounded allocations before the OS quota manager is integrated.
 The instance copies verified code into private storage and copies initial data into
 zero-initialized private linear memory; mutating the source blob after instance creation
 does not change the running program.
@@ -96,7 +98,7 @@ syscalls, missing capability declarations, and malformed module bounds.
 
 ## Implemented and tested in this first core
 
-- KVM1 container decoder with little-endian fields and strict length checks.
+- KVM1 container decoder with little-endian fields, strict length checks, and hard 16 MiB module / 16 MiB linear-memory ceilings.
 - Structural verifier for the complete code stream and all direct control-flow targets.
 - Instance-owned immutable-by-copy instruction stream and private initialized memory.
 - Interpreter for the v1 opcode set, bounded call stack, deterministic fuel, memory
