@@ -90,7 +90,9 @@ struct kvm_host {
 };
 
 struct kvm_instance {
-    const struct kvm_module *module;
+    const struct kvm_instruction *code;
+    size_t code_count;
+    uint32_t entry;
     struct kvm_allocator allocator;
     struct kvm_host host;
     uint64_t registers[KVM_REGISTER_COUNT];
