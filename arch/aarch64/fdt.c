@@ -103,7 +103,9 @@ int kira_fdt_parse(const void *blob,size_t available,struct kira_fdt_info *o)
    else if(name_eq(pn,"#size-cells")&&len==4){sc=be32(v);if(sc>2)return -6;}
    else if(stack[depth-1].chosen&&name_eq(pn,"bootargs")){
     size_t n=len<sizeof(o->bootargs)-1?len:sizeof(o->bootargs)-1;
-    for(size_t j=0;j<n&&v[j];j++)o->bootargs[j]=(char)v[j];o->bootargs[n]=0;
+    size_t j=0;
+    for(;j<n&&v[j];j++) o->bootargs[j]=(char)v[j];
+    o->bootargs[j]=0;
    }else if(stack[depth-1].chosen&&name_eq(pn,"linux,initrd-start")){
     if(len==4)o->initrd_start=be32(v);else if(len==8)o->initrd_start=be64(v);
    }else if(stack[depth-1].chosen&&name_eq(pn,"linux,initrd-end")){
