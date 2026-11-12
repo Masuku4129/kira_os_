@@ -77,6 +77,10 @@ $CC $RF -c tests/ctx_fpu_test.c -o $T/ctx_n.o
 $CC -no-pie -o $T/ctx_fpu_n $T/ctx_n.o $T/sched_n.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
 $T/ctx_fpu_n --nofpu
 
+echo "== kernel stack slot lifecycle (production-shared logic) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kstack tests/kstack_slot_test.c
+$T/kstack
+
 echo "== input layer (PS/2 decoder, ring, overflow) =="
 $CC $FLAGS -o $T/input tests/input_test.c input.c
 $T/input
