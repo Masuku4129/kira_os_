@@ -42,6 +42,34 @@ static int bytes_equal(const uint8_t *a, const uint8_t *b, size_t n)
     return diff == 0;
 }
 
+static int trust_key_valid(const struct kdrv_trust_key *key)
+{
+    return key &&
+           !bytes_all_zero(key->id, KDRV_TRUST_KEY_ID_SIZE) &&
+           !bytes_all_zero(key->public_key, sizeof(key->public_key)) &&
+           key->not_after > key->not_before &&
+           key->revoked <= 1u;
+}
+
+/* Trust stores may be restored from persistent metadata or populated by a
+   platform loader. Validate the complete set before lookup so duplicate IDs
+   cannot shadow a revoked entry and malformed key records cannot be accepted. */
+static int trust_store_valid(const struct kdrv_trust_store *store)
+{
+    size_t i, j;
+    if (!store || store->key_count > KDRV_TRUST_MAX_KEYS)
+        return 0;
+    for (i = 0; i < store->key_count; ++i) {
+        if (!trust_key_valid(&store->keys[i]))
+            return 0;
+        for (j = 0; j < i; ++j)
+            if (bytes_equal(store->keys[i].id, store->keys[j].id,
+                            KDRV_TRUST_KEY_ID_SIZE))
+                return 0;
+    }
+    return 1;
+}
+
 static struct kdrv_trust_key *find_key(struct kdrv_trust_store *store,
                                        const uint8_t id[KDRV_TRUST_KEY_ID_SIZE])
 {
@@ -56,18 +84,19 @@ int kdrv_trust_add_key(struct kdrv_trust_store *store,
                        const struct kdrv_trust_key *key)
 {
     size_t i;
-    if (!store || !key || store->key_count > KDRV_TRUST_MAX_KEYS ||
-        bytes_all_zero(key->id, KDRV_TRUST_KEY_ID_SIZE) ||
-        bytes_all_zero(key->public_key, sizeof(key->public_key)) ||
-        key->not_after <= key->not_before)
+    if (!trust_store_valid(store) || !trust_key_valid(key))
         return KDRV_TRUST_INVALID;
 
     for (i = 0; i < store->key_count; ++i) {
         if (bytes_equal(store->keys[i].id, key->id, KDRV_TRUST_KEY_ID_SIZE)) {
-            /* Key identifiers are immutable: replacement requires revocation. */
-            if (!bytes_equal(store->keys[i].public_key, key->public_key, 32))
+            const struct kdrv_trust_key *existing = &store->keys[i];
+            /* A key ID binds the complete key record, not just its public
+               bytes. Changing validity metadata requires a signed rotation. */
+            if (!bytes_equal(existing->public_key, key->public_key, 32) ||
+                existing->not_before != key->not_before ||
+                existing->not_after != key->not_after)
                 return KDRV_TRUST_INVALID;
-            if (store->keys[i].revoked)
+            if (existing->revoked)
                 return KDRV_TRUST_REVOKED_KEY;
             return KDRV_TRUST_OK;
         }
@@ -84,7 +113,8 @@ int kdrv_trust_revoke_key(struct kdrv_trust_store *store,
                           const uint8_t key_id[KDRV_TRUST_KEY_ID_SIZE])
 {
     struct kdrv_trust_key *key;
-    if (!store || !key_id || store->key_count > KDRV_TRUST_MAX_KEYS)
+    if (!trust_store_valid(store) || !key_id ||
+        bytes_all_zero(key_id, KDRV_TRUST_KEY_ID_SIZE))
         return KDRV_TRUST_INVALID;
     key = find_key(store, key_id);
     if (!key)
@@ -138,8 +168,8 @@ int kdrv_trust_verify_catalogue(struct kdrv_trust_store *store,
     /* Corrupt in-memory trust metadata is an invalid/untrusted input, not
        a backend outage. Keep it distinct so callers can fail closed without
        misreporting a storage-service failure. */
-    if (!store || store->key_count > KDRV_TRUST_MAX_KEYS ||
-        !record || (!payload && payload_length) || !ops)
+    if (!trust_store_valid(store) || !record ||
+        (!payload && payload_length) || !ops)
         return KDRV_TRUST_INVALID;
     if (!ops->sha256 || !ops->ed25519_verify ||
         !ops->read_version_floor || !ops->trusted_time ||
