@@ -4,6 +4,7 @@ concurrency:
   group: kira-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 # Push and pull_request events from this branch share one concurrency slot.
+# scan retry validation follows the KDRV startup and /drv handling fix.
 
 permissions:
   contents: read
