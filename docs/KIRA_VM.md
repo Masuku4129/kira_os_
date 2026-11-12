@@ -119,8 +119,8 @@ The first runner profile is intentionally narrower than the portable core:
 - module container: at most 1 MiB;
 - guest linear memory: at most 128 pages (512 KiB);
 - fuel: 10,000,000 instructions per invocation;
-- host capabilities: console write (maximum 4 KiB per call), monotonic ticks,
-  and cooperative yield only;
+- host capabilities: console write (maximum 4 KiB per call and 64 KiB total), monotonic ticks,
+  and cooperative yield only; all host calls together are capped at 10,000 per invocation;
 - no filesystem, network, device, process, sound, or graphics capabilities;
 - modules are not yet authenticated by the package manager. Only run modules
   whose origin you trust; package signature and anti-rollback are still required
