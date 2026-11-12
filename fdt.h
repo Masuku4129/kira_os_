@@ -25,7 +25,7 @@ int      fdt_find_compatible(const void* fdt, int after, const char* compat);  /
 int      fdt_find_path(const void* fdt, const char* path);       /* «/cpus», «/chosen»; имя без @адреса тоже подходит */
 int      fdt_parent(const void* fdt, int node);
 /* reg[idx] узла в числах родителя (#address-cells / #size-cells). 0 - есть. */
-int      fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* size);
+int      fdt_reg(const void* fdt, uint32_t max_len, int node, unsigned idx, uint64_t* addr, uint64_t* size);
 uint32_t fdt_u32(const void* p);                                  /* большой порядок байт -> число */
 int      fdt_prop_u32(const void* fdt, int node, const char* name, uint32_t* out);
 /* Узлы-дети с device_type = type (например, ядра «cpu» в /cpus). */
@@ -37,6 +37,6 @@ int fdt_find_enabled_compatible(const void* fdt, int after, const char* compat);
 /* Кадровый буфер от загрузчика/прошивки (compatible = «simple-framebuffer», включённый): 0 - найден и формат
    32 бита x8r8g8b8/a8r8g8b8 (как у ядра); -1 - нет узла; -2 - неполный узел; -3 - другой формат (в format). */
 typedef struct { uint64_t base, size; uint32_t width, height, stride; char format[16]; } fdt_fb_t;
-int fdt_simplefb(const void* fdt, fdt_fb_t* fb);
+int fdt_simplefb(const void* fdt, uint32_t max_len, fdt_fb_t* fb);
 
 #endif
