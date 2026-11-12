@@ -990,7 +990,7 @@ static int load(void) {
                 if (fl > 2) { trap("unsupported data segment flags"); return -1; }
                 if (fl == 2 && leb_u(&s, se) != 0) { trap("unsupported data memory index"); return -1; }
                 if (trapped) return -1;
-                u64 off64 = const_expr(&s, se);
+                u64 off64 = const_expr(&s, se, 0x7F);
                 u32 len = leb_u(&s, se);
                 if (trapped || off64 > (u64)mem_pages * 65536 ||
                     (u64)len > (u64)mem_pages * 65536 - off64 ||
