@@ -340,3 +340,44 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-global-mutability-") as td:
         print(run.stdout)
         raise SystemExit(1)
     print("PASS: immutable global.set is rejected during validation")
+
+# The same mutability rule applies after unreachable: structural validation
+# must not let malformed instructions hide behind an unconditional trap.
+immutable_global_set_unreachable_module = (
+    magic +
+    b"\\x01\\x04\\x01\\x60\\x00\\x00" +
+    b"\\x03\\x02\\x01\\x00" +
+    b"\\x06\\x06\\x01\\x7f\\x00\\x41\\x00\\x0b" +
+    b"\\x07\\x09\\x01\\x05kmain\\x00\\x00" +
+    b"\\x0a\\x07\\x01\\x05\\x00\\x00\\x24\\x00\\x0b"
+)
+with tempfile.TemporaryDirectory(prefix="kira-wasm-global-unreachable-") as td:
+    path = pathlib.Path(td) / "immutable-global-set-unreachable.wasm"
+    path.write_bytes(immutable_global_set_unreachable_module)
+    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, env=test_env)
+    if run.returncode == 0 or "global.set on immutable global" not in run.stdout:
+        print("FAIL: unreachable immutable global.set was not rejected")
+        print(run.stdout)
+        raise SystemExit(1)
+    print("PASS: unreachable immutable global.set is rejected")
+
+# Mutable globals remain writable; this is a positive regression case.
+mutable_global_set_module = (
+    magic +
+    b"\\x01\\x04\\x01\\x60\\x00\\x00" +
+    b"\\x03\\x02\\x01\\x00" +
+    b"\\x06\\x06\\x01\\x7f\\x01\\x41\\x00\\x0b" +
+    b"\\x07\\x09\\x01\\x05kmain\\x00\\x00" +
+    b"\\x0a\\x08\\x01\\x06\\x00\\x41\\x01\\x24\\x00\\x0b"
+)
+with tempfile.TemporaryDirectory(prefix="kira-wasm-global-mutable-") as td:
+    path = pathlib.Path(td) / "mutable-global-set.wasm"
+    path.write_bytes(mutable_global_set_module)
+    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, env=test_env)
+    if run.returncode != 0 or "wasm: finished with code 0" not in run.stdout:
+        print("FAIL: valid mutable global.set was rejected")
+        print(run.stdout)
+        raise SystemExit(1)
+    print("PASS: mutable global.set remains supported")
