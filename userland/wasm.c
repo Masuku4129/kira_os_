@@ -578,6 +578,7 @@ static int load(void) {
     u32 nfuncdecl = 0;
     u32 seen_sections = 0;
     u32 has_memory = 0;
+    u32 mem_max_set = 0;
     u32 has_start = 0;
     u8 last_section = 0;
     while (p < end && !trapped) {
@@ -657,6 +658,7 @@ static int load(void) {
                     has_memory = 1;
                     mem_pages = min_pages;
                     mem_max = max_pages > MAXMEM / 65536u ? MAXMEM / 65536u : max_pages;
+                    mem_max_set = (fl & 1u) != 0;
                 } else { trap("only function and memory imports are supported"); return -1; }
             }
         } else if (id == 3) {                                     /* функции */
@@ -712,6 +714,7 @@ static int load(void) {
                 has_memory = 1;
                 mem_pages = min_pages;
                 mem_max = max_pages > MAXMEM / 65536u ? MAXMEM / 65536u : max_pages;
+                mem_max_set = (fl & 1u) != 0;
             }
         } else if (id == 6) {                                     /* глобальные */
             u32 n = leb_u(&s, se);
@@ -767,7 +770,7 @@ static int load(void) {
         } else if (id == 10) {                                    /* код */
             u32 n = leb_u(&s, se);
             if (n != nfuncdecl) { trap("function and code counts differ"); return -1; }
-            if (mem_max == 0) mem_max = MAXMEM / 65536;
+            if (!mem_max_set) mem_max = MAXMEM / 65536;
             ccap = 2 * sz + 8 * n + 16;                           /* не больше двух слов на байт кода + запас на функцию */
             code = (u32*)alloc(4ull * ccap);
             if (!code) { trap("no memory for compiled code"); return -1; }
@@ -793,9 +796,11 @@ static int load(void) {
             }
         } else if (id == 11) {                                    /* данные - после выделения памяти */
             if (!mem) {
-                if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
+                if (!mem_max_set) mem_max = MAXMEM / 65536;
+                if (!mem_max_set) mem_max = MAXMEM / 65536;
+        if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
                 if (mem_pages > mem_max) { trap("module needs more memory than 2 MB"); return -1; }
-                mem = (u8*)alloc((u64)mem_max * 65536);
+                mem = (u8*)alloc((u64)(mem_max ? mem_max : 1) * 65536);
                 if (!mem) { trap("no memory for the module"); return -1; }
             }
             u32 n = leb_u(&s, se);
