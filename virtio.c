@@ -157,19 +157,19 @@ static int reset(virtio_dev_t* v) {
     return -1;
 }
 
-void virtio_fail(virtio_dev_t* v) {
-    if (!v)
-        return;
+int virtio_fail(virtio_dev_t* v) {
+    if (!v || !v->common) return -1;
     int busmaster_stopped = !v->pci || pci_disable_bus_master(v->pci);
     status_set(v, status_get(v) | VIRTIO_ST_FAILED);
     /* Both requester shutdown and device reset must be confirmed before
        revoking translations. Either failure leaves every DMA mapping pinned. */
-    if (busmaster_stopped && reset(v) == 0) {
+    if (!busmaster_stopped || reset(v) != 0)
+        return -1;
 #ifndef KIRA_HOST_TEST
-        if (v->pci)
-            iommu_unmap_all(v->pci);
+    if (v->pci && iommu_unmap_all(v->pci) != IOMMU_OK)
+        return -1;
 #endif
-    }
+    return 0;
 }
 
 int virtio_begin(virtio_dev_t* v, uint64_t want) {
@@ -326,8 +326,9 @@ int virtio_iommu_check(virtio_dev_t* v) {
         seen = iommu_fault_count(v->pci) > before;
         if (!seen) CPU_RELAX();
     }
-    virtio_fail(v);                                              /* сброс: устройство больше не обращается к памяти */
-    pmm_free_contiguous(q.mem_phys, (q.used_off + 6 + 8 * (uint32_t)q.size + 4095) / 4096);
+    if (virtio_fail(v) == 0)
+        (void)pmm_free_contiguous(q.mem_phys, (q.used_off + 6 + 8 * (uint32_t)q.size + 4095) / 4096);
+    /* If shutdown/reset/invalidation is uncertain, retain device-owned pages. */
     return seen;
 #endif
 }
