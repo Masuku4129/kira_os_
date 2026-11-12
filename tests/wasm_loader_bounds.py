@@ -30,6 +30,10 @@ cases = [
      magic + b"\x01\x04\x01\x60\x00\x00" +
      b"\x03\x02\x01\x00" + b"\x0a\x02\x01\x7f",
      "function body past code section"),
+    ("export-function-index-out-of-range",
+     magic + b"\x01\x04\x01\x60\x00\x01\x7f" +
+     b"\x03\x02\x01\x00" + b"\x07\x09\x01\x04kmain\x00\x01",
+     "export index out of range"),
     ("import-function-type-out-of-range",
      magic + b"\x01\x01\x00" + b"\x02\x0e\x01\x04kira\x05ticks\x00\x00",
      "bad imported function type"),
