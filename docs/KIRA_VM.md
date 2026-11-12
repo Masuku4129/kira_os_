@@ -111,7 +111,7 @@ syscalls, missing capability declarations, and malformed module bounds.
 ## First OS runner integration
 
 The `/bin/kvm` userland runner is built for x86-64 Ring 3 and ARM64 EL0 and
-accepts one sandbox-local filename argument or a file grant from the file manager; arbitrary absolute paths are never accepted. It loads
+accepts one sandbox-local filename argument or a file grant from the file manager; double-clicking a `.kvm` file launches it through that grant. Arbitrary absolute paths are never accepted. It loads
 the KVM1 blob, applies the runner policy before allocation, verifies it, creates
 a private instance, runs with a fixed fuel budget, and destroys the instance.
 
