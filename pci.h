@@ -50,6 +50,7 @@ void pci_enable(const pci_dev_t* d, uint16_t cmd_bits);    /* включает d
 
 /* Список capabilities: первый вызов с prev = 0, дальше - с предыдущим смещением. 0 - конец. */
 uint16_t pci_next_cap(const pci_dev_t* d, uint16_t prev, uint8_t* id);
+int pci_quiesce_interrupts(const pci_dev_t* d); /* mask and verify MSI, MSI-X and legacy INTx */
 
 /* Адрес области BAR для обращений процессора (0 - BAR портов, не назначен или выход за размер). Только в ядре. */
 volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t len);
