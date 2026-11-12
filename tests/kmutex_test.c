@@ -101,18 +101,17 @@ int main(void) {
     kmutex_unlock(&m);
     CHECK(m.owner == 0 && A->mutexes_held == 0);
 
-    // Сон под mutex разрешён контрактом: владелец просыпается, затем передаёт lock ожидающему.
+    // Сон под kmutex запрещён: блокировка могла бы удерживать ресурс, нужный пробуждаемому потоку.
     become(A);
     kmutex_lock(&m);
-    sched_sleep_ticks(2);
-    CHECK(A->state == THREAD_SLEEPING && m.owner == A && A->mutexes_held == 1);
+    panic_reason = 0;
+    if (setjmp(escape) == 0) sched_sleep_ticks(2);
+    CHECK(panic_reason && strstr(panic_reason, "sleep while holding kmutex"));
+    CHECK(A->state == THREAD_RUNNING && m.owner == A && A->mutexes_held == 1);
     become(B);
     kmutex_lock(&m);
     CHECK(B->state == THREAD_BLOCKED && m.owner == A);
-    tick();
-    tick();
     become(A);
-    CHECK(kmutex_held(&m) && A->mutexes_held == 1);
     kmutex_unlock(&m);
     CHECK(m.owner == B && B->state == THREAD_READY);
     become(B);
