@@ -6,9 +6,13 @@
 #define KIRA_DRVCOMPAT_HASH_SIZE 32u
 #define KIRA_DRVCOMPAT_MAX_FILES 128u
 #define KIRA_DRVCOMPAT_MAX_FILE_SIZE (8u*1024u*1024u)
+#define KIRA_DRVCOMPAT_MAX_TOTAL_SIZE (32u*1024u*1024u)
+#define KIRA_DRVCOMPAT_MAX_ARCHIVE_SIZE (32u*1024u*1024u)
+#define KIRA_DRVCOMPAT_MAX_OUTPUT_SIZE (32u*1024u*1024u)
 enum kira_drvcompat_stage {
  KIRA_DRV_FETCHED=1,KIRA_DRV_AUTHENTICATED,KIRA_DRV_INSPECTED,
- KIRA_DRV_TRANSLATED,KIRA_DRV_BUILT,KIRA_DRV_SIGNED,KIRA_DRV_PUBLISHED
+ KIRA_DRV_TRANSLATED,KIRA_DRV_BUILT,KIRA_DRV_SIGNED,KIRA_DRV_PUBLISHED,
+ KIRA_DRV_FAILED
 };
 struct kira_drvcompat_file { char path[192]; const uint8_t *data; size_t size; uint8_t digest[32]; };
 struct kira_drvcompat_manifest {
@@ -33,8 +37,11 @@ struct kira_drvcompat_ops {
                     void **signed_package,size_t *signed_size);
  int (*publish_package)(void *,const char *name,const void *package,size_t size);
  void (*release_buffer)(void *,void *buffer,size_t size);
+ /* Release translator-owned file buffers; must tolerate a partially built manifest. */
+ void (*release_manifest)(void *,struct kira_drvcompat_manifest *manifest);
  void (*progress)(void *,enum kira_drvcompat_stage,int status);
 };
 int kira_drvcompat_convert(const struct kira_drvcompat_ops *ops,
-                           const char *source_uri);
+                           const char *source_uri,
+                           const char *target_arch,uint32_t target_abi);
 #endif
