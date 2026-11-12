@@ -301,53 +301,65 @@ int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
     return kira_vtd_invalidate_iotlb(domain->unit, platform);
 }
 
-int kira_vtd_domain_unmap_range(struct kira_vtd_domain *domain,
-                                    uint64_t iova, uint32_t pages,
-                                    const struct kira_vtd_platform *platform)
+int kira_vtd_domain_unmap_ranges(struct kira_vtd_domain *domain,
+                                 const struct kira_vtd_range *ranges,
+                                 size_t count,
+                                 const struct kira_vtd_platform *platform)
 {
     unsigned int shifts[4] = {39, 30, 21, 12};
     uint64_t *dirty_table = 0;
     int status = KIRA_VTD_OK;
 
-    if (!domain || !domain->active || !platform || !pages ||
-        (iova & 0xfffu) || iova >= (1ull << 48) ||
-        (uint64_t)pages > ((1ull << 48) - iova) / KIRA_VTD_PAGE_SIZE)
+    if (!domain || !domain->active || !platform || !ranges || !count)
         return KIRA_VTD_INVALID;
 
-    for (uint32_t page = 0; page < pages; ++page) {
-        uint64_t address = iova + ((uint64_t)page << 12);
-        uint64_t *table = vtd_page(domain->second_level);
-        unsigned int level;
-        int skip = 0;
+    /* Validate the complete batch before touching any page-table entry. */
+    for (size_t r = 0; r < count; ++r) {
+        uint64_t iova = ranges[r].iova;
+        uint32_t pages = ranges[r].pages;
+        if (!pages || (iova & 0xfffu) || iova >= (1ull << 48) ||
+            (uint64_t)pages > ((1ull << 48) - iova) / KIRA_VTD_PAGE_SIZE)
+            return KIRA_VTD_INVALID;
+    }
 
-        for (level = 0; level < 3; ++level) {
-            unsigned int index = (unsigned int)((address >> shifts[level]) & 0x1ffu);
-            uint64_t entry = table[index];
-            if (!(entry & VTD_ENTRY_ANY)) {
-                skip = 1;                   /* already unmapped; still flush at end */
-                break;
-            }
-            if (entry & VTD_ENTRY_LARGE) {
-                status = KIRA_VTD_HARDWARE_ERROR;
-                skip = 1;
-                break;
-            }
-            table = (uint64_t *)vtd_table_virt(platform, entry & VTD_ENTRY_ADDRESS);
-            if (!table) {
-                status = KIRA_VTD_MEMORY_FAILED;
-                skip = 1;
-                break;
-            }
-        }
-        if (skip) continue;
+    for (size_t r = 0; r < count; ++r) {
+        uint64_t iova = ranges[r].iova;
+        uint32_t pages = ranges[r].pages;
+        for (uint32_t page = 0; page < pages; ++page) {
+            uint64_t address = iova + ((uint64_t)page << 12);
+            uint64_t *table = vtd_page(domain->second_level);
+            unsigned int level;
+            int skip = 0;
 
-        unsigned int leaf = (unsigned int)((address >> 12) & 0x1ffu);
-        if (table[leaf] & VTD_ENTRY_ANY) {
-            table[leaf] = 0;
-            if (dirty_table && dirty_table != table && platform->clean_cache)
-                platform->clean_cache(platform->context, dirty_table,
-                                      KIRA_VTD_PAGE_SIZE);
-            dirty_table = table;
+            for (level = 0; level < 3; ++level) {
+                unsigned int index = (unsigned int)((address >> shifts[level]) & 0x1ffu);
+                uint64_t entry = table[index];
+                if (!(entry & VTD_ENTRY_ANY)) {
+                    skip = 1;               /* already unmapped; still flush the complete batch */
+                    break;
+                }
+                if (entry & VTD_ENTRY_LARGE) {
+                    status = KIRA_VTD_HARDWARE_ERROR;
+                    skip = 1;
+                    break;
+                }
+                table = (uint64_t *)vtd_table_virt(platform, entry & VTD_ENTRY_ADDRESS);
+                if (!table) {
+                    status = KIRA_VTD_MEMORY_FAILED;
+                    skip = 1;
+                    break;
+                }
+            }
+            if (skip) continue;
+
+            unsigned int leaf = (unsigned int)((address >> 12) & 0x1ffu);
+            if (table[leaf] & VTD_ENTRY_ANY) {
+                table[leaf] = 0;
+                if (dirty_table && dirty_table != table && platform->clean_cache)
+                    platform->clean_cache(platform->context, dirty_table,
+                                          KIRA_VTD_PAGE_SIZE);
+                dirty_table = table;
+            }
         }
     }
 
@@ -359,6 +371,14 @@ int kira_vtd_domain_unmap_range(struct kira_vtd_domain *domain,
         if (flush != KIRA_VTD_OK) return flush;
     }
     return status;
+}
+
+int kira_vtd_domain_unmap_range(struct kira_vtd_domain *domain,
+                                uint64_t iova, uint32_t pages,
+                                const struct kira_vtd_platform *platform)
+{
+    const struct kira_vtd_range range = { iova, pages };
+    return kira_vtd_domain_unmap_ranges(domain, &range, 1, platform);
 }
 
 int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
