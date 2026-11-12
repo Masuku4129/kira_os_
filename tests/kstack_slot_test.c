@@ -6,6 +6,7 @@
 #define STRIDE (64ULL * 1024ULL)
 #define SLOTS 8192u
 #define SIZE (16u * 1024u)
+#define ARM_SLOTS 65536u
 int main(void) {
     uint8_t active[(SLOTS + 7u) / 8u] = {0};
     uint32_t slot = 999;
@@ -28,6 +29,14 @@ int main(void) {
     assert(!kstack_slot_release(active, SLOTS, SLOTS));
     assert(kstack_slot_activate(active, SLOTS, SLOTS - 1));
     assert(kstack_slot_release(active, SLOTS, SLOTS - 1));
+
+    /* ARM64 reserves 65,536 slots; exercise its wider slot index and bitmap edge. */
+    uint8_t arm_active[(ARM_SLOTS + 7u) / 8u] = {0};
+    uint64_t arm_last = BASE + (uint64_t)(ARM_SLOTS - 1u) * STRIDE + STRIDE - SIZE;
+    assert(kstack_slot_from_base(arm_last, BASE, STRIDE, ARM_SLOTS, SIZE, ARM_SLOTS, &slot));
+    assert(slot == ARM_SLOTS - 1u);
+    assert(kstack_slot_activate(arm_active, ARM_SLOTS, slot));
+    assert(kstack_slot_release(arm_active, ARM_SLOTS, slot));
     puts("kstack slot lifecycle: exact base, bounds, ownership, double-free and reuse passed");
     return 0;
 }
