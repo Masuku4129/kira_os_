@@ -150,3 +150,12 @@ Implemented as a transitional in-kernel boundary:
 **Gate:** exact-head CI must pass both ISA builds, host tests and QEMU scenarios. Follow-up extraction to IPC must preserve ABI IDs, argument semantics, capability checks, errors and blocking behavior.
 
 - ABI number ownership was tightened after review: the canonical registry is `kcc/include/syscall_numbers.h`; kernel and both public userland headers include that exact source. The root `syscall_numbers.h` is only a kernel forwarding header.
+
+
+## 9. Architecture ownership correction — x86 kernel entry
+
+- Moved the x86-only kernel main loop from root `kernel.c` to `arch/x86_64/kernel_main.c`.
+- Moved x86 boot composition from root `kernel_boot.c` to `arch/x86_64/kernel_boot.c`.
+- Scoped `kernel_boot_init` declaration to `arch/x86_64/kernel_boot.h`; the common `kernel.h` no longer exposes an x86-only function.
+- Updated the x86 build's architecture source list. ARM64 continues to use `arch/aarch64/main.c` and does not compile x86 entry code.
+- This change corrects source ownership; it does not yet split the boot sequence into independent platform/driver/service init phases.
