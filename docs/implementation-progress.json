@@ -1,0 +1,367 @@
+{
+  "schema_version": 1,
+  "branch": "v46/kdrv-catalogue-signature-policy",
+  "inventory": {
+    "commit_before_this_run": "b08513f387d9ae9cc779f9faaa7e1eee26d02c39",
+    "tree_sha": "89cffb3512a9041d10e79b33319437190d9e5bbf",
+    "tracked_paths": 967,
+    "tree_truncated": false,
+    "scope_note": "Фактическое дерево ветки получено через Git Trees API до изменений этого запуска; tracked_paths включает файлы и каталоги, tracked_files — только blob-файлы. Это инвентарные метрики, не процент готовности.",
+    "tracked_files": 922,
+    "directory_entries": 45
+  },
+  "latest_source_commit": "bc043d6b5775518779373cdfb14c52f9e4223d1b",
+  "updated_at_utc": "2026-11-12T17:30:39Z",
+  "execution_policy": {
+    "tests_run": false,
+    "audits_run": false,
+    "builds_run": false,
+    "ci_dispatch_requested": false,
+    "commit_messages_use_skip_ci": false,
+    "pull_requests_merged": [],
+    "other_branches_modified": [],
+    "automatic_workflows_checked": false,
+    "automatic_ci_status": "not_checked; the source commit did not request a manual CI run; push-triggered workflows may have started automatically"
+  },
+  "completed_this_run": [
+    {
+      "id": "x86-pci-enumeration-startup",
+      "status": "source_integrated",
+      "files": [
+        "kernel.c"
+      ],
+      "commit": "fc1b524ffcf0b8fe7d6b6461008c10cb0ab4dea5",
+      "details": "Добавлен вызов pci_init() после ACPI discovery и до fs_init()/сетевых probe. До изменения x86 kernel_main не вызывал pci_init(), хотя virtio storage и e1000/virtio-net используют pci_find(). ARM64 уже выполняет pci_init() после настройки ECAM из FDT.",
+      "validation": "Не запускалась по требованию. Сборка, runtime и Limbo не подтверждены."
+    },
+    {
+      "id": "acpi-dsdt-validated-view",
+      "status": "source_integrated",
+      "files": [
+        "acpi.c",
+        "acpi.h"
+      ],
+      "commits": [
+        "ab949d865481b2bce5b222103fc1ffe0b2798176",
+        "448639f1b59d063316e36b80b2e741f887256ff5"
+      ],
+      "details": "ACPI core now rejects empty/oversized DSDT tables, maps the full table, independently validates its checksum, and exposes only the AML payload plus optional physical address through acpi_get_dsdt().",
+      "validation": "Not run by explicit instruction. No build, audit, runtime, or Limbo claim is made."
+    },
+    {
+      "id": "acpi-prt-aml-package-decoder",
+      "status": "source_integrated_not_runtime_routed",
+      "files": [
+        "drivers/acpi/prt.c",
+        "drivers/acpi/prt.h",
+        "build_clang.sh"
+      ],
+      "commits": [
+        "37b8bdb4dd7481bfccb98ae83e7395cc44fd9ab7",
+        "ecb725ae6e338c0fce74f6645fde331b8751b135",
+        "14051820ce396e4b06bed66194d51c1eee59575b",
+        "e672f26a41eaede3236e74c3ecfd07126d9d3584"
+      ],
+      "details": "Исправлен учёт AML PkgLength (длина тела без байтов кодирования длины), разбор PackageOp/VarPackage, строгая проверка числа полей и полного потребления пакетов, разбор статических NameString с канонизацией scope и fail-closed для динамических/неразрешённых источников. Декодер добавлен в C_SOURCES x86_64.",
+      "validation": "По прямому требованию не запускались тесты, аудит, сборка и CI. Компиляторная проверка отсутствует; runtime _PRT lookup и IOAPIC routing ещё не подключены."
+    },
+    {
+      "id": "x86-ioapic-dynamic-gsi-vectors",
+      "status": "source_integrated_not_runtime_validated",
+      "files": [
+        "arch/x86_64/pic.h",
+        "arch/x86_64/pic.c",
+        "arch/x86_64/interrupts.s",
+        "arch/x86_64/ioapic.h",
+        "arch/x86_64/ioapic.c"
+      ],
+      "commits": [
+        "b9c3c9a42a3bf547ecbd35953c1058fdfe5e4e02",
+        "de12c9669e9e9dd4b33e52151e21df4fea87c024",
+        "ca602e659f876db96817e698cbc543c5e2d1e096",
+        "c63b2aad2c92609673c554ba28b3389c003e41d1",
+        "912d2c42ffe4d35deb7e56f79ea112f1aa4fb4bc",
+        "5e65f23ee21b63a0f797054427e79fa10069fed4",
+        "a2a2488c2ed28921f2613d7b86402a6db563b43f",
+        "87708df63f6e5d2b2c1bafcdd500da02d9432c5e",
+        "ec2c07d4800bebb22394943cb0fd4d177fe8cc2d"
+      ],
+      "details": "Добавлены отдельные x86 interrupt stubs и динамическое выделение векторов 0x60..0x7F, регистрация обработчиков и ожидание уже вошедших обработчиков при освобождении. IOAPIC получил отдельный GSI API для PCI INTx: проверка ACPI polarity/trigger flags, GSI range, 8-битного destination APIC ID и факта регистрации обработчика; redirection entry записывается masked, сверяется readback и только затем размаскируется. При инициализации IOAPIC прежние маршруты маскируются, перекрывающиеся GSI-диапазоны отклоняются, один GSI не переназначается на другой вектор.",
+      "validation": "По прямому требованию не запускались тесты, аудит, сборка и CI. PCI _PRT namespace discovery, route-table consumer, shared-INTx fan-out и реальная доставка PCI IRQ ещё не подключены; это аппаратная инфраструктура, не end-to-end реализация PCI routing. The code commits were created without [skip ci]; automatic push-triggered workflows may therefore have started, but their status was not inspected or controlled in this run."
+    },
+    {
+      "id": "kdrv-trust-store-integrity-validation",
+      "status": "source_integrated",
+      "files": [
+        "drivers/kdrv/kdrv_trust.c"
+      ],
+      "commit": "bc043d6b5775518779373cdfb14c52f9e4223d1b",
+      "details": "Trust-store lookup now fails closed unless every key record has a nonzero identifier/public key, a valid time interval and a canonical revocation flag, and all key IDs are unique. Adding an existing ID now requires the full immutable key metadata to match; revoke/verify validate the whole store before lookup.",
+      "validation": "По прямому требованию тесты, аудит, сборка и CI не запускались. Поведение не подтверждено компилятором или runtime."
+    }
+  ],
+  "modules": [
+    {
+      "id": "x86-bios-uefi-boot",
+      "state": "blocked_not_integrated",
+      "existing_files": [
+        "arch/x86_64/bios/stage1.S",
+        "arch/x86_64/bios/stage2.S",
+        "arch/x86_64/bios/bootinfo.c",
+        "arch/x86_64/uefi/loader.c",
+        "arch/x86_64/uefi/memory_map.c",
+        "arch/x86_64/uefi/uefi_kbi.c",
+        "bootinfo.c",
+        "bootinfo.h"
+      ],
+      "remaining": [
+        "Подключить собственные BIOS stage1/stage2 к реальному образу и передаче BootInfo v1.",
+        "Собрать и включить EFI application в ISO/образ, определить и зафиксировать EFI ABI и передачу управления.",
+        "Убрать обязательную зависимость production ISO от GRUB/Multiboot2 только после готового собственного пути."
+      ],
+      "dependencies": [
+        "BootInfo v1 ABI",
+        "x86_64 entry point",
+        "build_clang.sh",
+        "ISO packaging"
+      ],
+      "evidence": "docs/RELEASE_GAPS.md: boot chain BLOCKED; build_clang.sh сейчас собирает kira.bin и помещает его в GRUB ISO."
+    },
+    {
+      "id": "arm64-uefi-fdt-boot",
+      "state": "partial_not_hardware_validated",
+      "existing_files": [
+        "arch/aarch64/uefi/loader.c",
+        "arch/aarch64/boot.S",
+        "arch/aarch64/fdt.c",
+        "arch/aarch64/fdt_boot.c",
+        "bootinfo_fdt.c",
+        "include/kira/bootinfo.h"
+      ],
+      "remaining": [
+        "Связать UEFI loader с ARM64 сборкой и единым BootInfo handoff.",
+        "Сверить FDT/UEFI memory ownership, reserved ranges, framebuffer и cache attributes на реальной платформе.",
+        "Отдельно проверить на физической ARM64 плате; Limbo/QEMU не считается аппаратной проверкой."
+      ],
+      "dependencies": [
+        "BootInfo v1",
+        "AArch64 entry ABI",
+        "build_arm64.sh",
+        "FDT memory map"
+      ]
+    },
+    {
+      "id": "kcc-bootstrap-self-hosting",
+      "state": "partial_not_self_hosting",
+      "existing_files": [
+        "kcc/",
+        "userland/kcc.c",
+        "userland/kccrt.c",
+        "docs/KCC.md"
+      ],
+      "remaining": [
+        "Зафиксировать поддерживаемое подмножество C и ABI/relocation contract.",
+        "Реализовать stage-1/stage-2 bootstrap и детерминированное сравнение результата.",
+        "Доказать сборку KCC самим KCC для требуемых системных translation units на x86_64 и AArch64."
+      ],
+      "dependencies": [
+        "KCC parser/type system",
+        "x86_64 and AArch64 backends",
+        "ELF/linker contract"
+      ],
+      "evidence": "docs/RELEASE_GAPS.md: KCC toolchain BLOCKED; external Clang/LLD/NASM/wasm-ld still build the OS."
+    },
+    {
+      "id": "pci-acpi-prt-routing",
+      "state": "partial_static_prt_decoder_and_gsi_primitives_not_routed",
+      "existing_files": [
+        "pci.c",
+        "pci.h",
+        "acpi.c",
+        "acpi.h",
+        "arch/x86_64/ioapic.c",
+        "arch/x86_64/irqmode.c",
+        "drivers/acpi/prt.c",
+        "drivers/acpi/prt.h",
+        "drivers/bus/acpi_prt.c",
+        "drivers/bus/acpi_prt.h",
+        "drivers/bus/pci_routing.c",
+        "drivers/bus/pci_routing.h"
+      ],
+      "completed": [
+        "x86 kernel startup now calls pci_init() before PCI consumers.",
+        "ACPI core now exposes the DSDT AML payload only after independent DSDT length/signature/checksum validation; mapping address and payload length are available through acpi_get_dsdt().",
+        "Добавлен ограниченный декодер статических AML _PRT Package/VarPackage; он собирается в x86_64 kernel source list, но пока не вызывается из kernel startup.",
+        "Добавлена x86 инфраструктура динамических IOAPIC-векторов 0x60..0x7F и проверяемого GSI routing; она пока не вызывается из PCI _PRT consumer."
+      ],
+      "remaining": [
+        "Реализовать bounded AML namespace walker для поиска PCI root bridge Device и извлечения статических _HID/_SEG/_BBN/_PRT; AML методы не исполнять.",
+        "Разрешить статические link-device _CRS resource descriptors; динамические _PRS/_SRS методы явно отклонять до отдельного безопасного AML evaluator.",
+        "Связать root bridge и downstream PCI topology, включая bridge swizzling, с segment/bus/device/function и GSI/polarity/trigger.",
+        "Подключить route-table consumer к irq_vector_alloc(), ioapic_route_gsi(), mask/release и обеспечить безопасное поведение при отсутствующем маршруте.",
+        "Определить и реализовать совместное использование одного GSI несколькими PCI INTx устройствами; текущая IOAPIC инфраструктура намеренно допускает только один вектор на GSI.",
+        "Добавить регрессионные тесты на этапе тестирования после завершения исходной реализации."
+      ],
+      "dependencies": [
+        "ACPI DSDT lifetime/mapping",
+        "AML namespace and link-device resource resolution",
+        "MADT IOAPIC ranges",
+        "PCI topology"
+      ],
+      "evidence": "drivers/acpi/prt.c теперь включён в C_SOURCES build_clang.sh; kernel startup пока не вызывает декодер. docs/RELEASE_GAPS.md по-прежнему фиксирует незавершённую AML _PRT/legacy PCI INTx маршрутизацию."
+    },
+    {
+      "id": "rtl8139-clean_room",
+      "state": "blocked_provenance_rewrite_required",
+      "existing_files": [
+        "drivers/net/rtl8139.c",
+        "drivers/net/rtl8139.h",
+        "drivers/rl/rl.c",
+        "drivers/rl/if_rlreg.h"
+      ],
+      "remaining": [
+        "Implement RTL8139 from the device specification rather than adapting the existing FreeBSD rl(4) source.",
+        "Preserve existing provenance/license notices until replacement is complete and reviewed.",
+        "Implement and connect reset, DMA rings, RX/TX, interrupt/link handling, timeouts and malformed-frame rejection."
+      ],
+      "dependencies": [
+        "RTL8139 register/DMA specification",
+        "PCI enumeration",
+        "DMA ownership API"
+      ],
+      "evidence": "docs/RELEASE_GAPS.md marks RTL8139 provenance BLOCKED."
+    },
+    {
+      "id": "kdrv-trust-auth-anti_rollback",
+      "state": "partial_authentication_and_install_present",
+      "existing_files": [
+        "kdrv.c",
+        "kdrv_fmt.c",
+        "kdrv_format.h",
+        "kdrv_sig.c",
+        "kdrv_sig.h",
+        "kdrv_trust.h",
+        "drivers/kdrv/",
+        "userland/drvget.c",
+        "userland/drvget_core.c",
+        "tools/kdrvsign.py",
+        "drivers/index.txt"
+      ],
+      "remaining": [
+        "Define a persistent anti-rollback anchor that cannot be reverted by restoring an old disk image.",
+        "Implement authenticated trust-key rotation/revocation and compromise recovery.",
+        "Authenticate the catalogue itself and publish/verify the production publisher key.",
+        "Complete end-to-end package fetch, signature verification, installation and kernel load verification evidence."
+      ],
+      "dependencies": [
+        "Persistent storage/firmware trust anchor",
+        "key lifecycle format and recovery policy",
+        "signed catalogue format"
+      ],
+      "evidence": "docs/RELEASE_GAPS.md marks anti-rollback, key rotation, signed catalogue and full QEMU signed install/load path open."
+    },
+    {
+      "id": "iommu_dma_domains",
+      "state": "partial_hardware_code_not_integrated_or_complete",
+      "existing_files": [
+        "iommu_vtd.c",
+        "iommu_vtd.h",
+        "iommu_vtd_hw.c",
+        "iommu_vtd_hw.h",
+        "drivers/iommu/intel_vtd.c",
+        "drivers/iommu/intel_vtd_dmar.c",
+        "drivers/iommu/vtd_domain.c",
+        "drivers/iommu/amd_vi.c",
+        "drivers/iommu/arm_smmu.c",
+        "drivers/iommu/arm_smmu_domain.c",
+        "drivers/iommu/iommu_discovery.c"
+      ],
+      "remaining": [
+        "Unify platform discovery and the active DMA API for Intel VT-d, AMD-Vi and ARM SMMUv3.",
+        "Complete per-device domain lifecycle, page mapping/unmapping, invalidation, fault reporting and teardown.",
+        "Integrate DMA masks, cache maintenance and bounce buffers where needed.",
+        "Connect domain state to KDRV CAP_DMA authorization and trusted in-kernel drivers."
+      ],
+      "dependencies": [
+        "ACPI DMAR/IVRS and ARM IORT/FDT discovery",
+        "PMM page ownership",
+        "device lifecycle",
+        "KDRV capability policy"
+      ],
+      "evidence": "docs/RELEASE_GAPS.md marks DMA isolation PARTIAL and says current KDRV call site denies untrusted DMA without an isolated domain."
+    },
+    {
+      "id": "driver_compatibility_lifecycle",
+      "state": "partial_implementation_present",
+      "existing_files": [
+        "userland/drvcompat.c",
+        "userland/drvcompat.h",
+        "userland/drvget.c",
+        "userland/drvget_core.c",
+        "userland/drvman.c",
+        "userland/kdrv_bsd.h",
+        "drivers/kdrv/kdrv_manager.c",
+        "drivers/kdrv/kdrv_catalogue.c"
+      ],
+      "remaining": [
+        "Trace and complete the source acquisition -> provenance/license policy -> compatibility transform -> KCC compile -> package/signature -> install -> trust check -> load/unload lifecycle.",
+        "Make unsupported ABI, kernel API and hardware operations fail explicitly; do not silently accept partially adapted drivers.",
+        "Connect the driver GUI to the same authoritative manager/catalogue state."
+      ],
+      "dependencies": [
+        "KCC supported ABI",
+        "KDRV package/trust lifecycle",
+        "device capability and DMA policy"
+      ],
+      "evidence": "Files exist in the tree; their existence alone does not establish that the entire lifecycle is connected or safe."
+    },
+    {
+      "id": "build_and_module_integration",
+      "state": "partial",
+      "existing_files": [
+        "build_clang.sh",
+        "build_arm64.sh",
+        ".github/workflows/ci.yml"
+      ],
+      "remaining": [
+        "Integrate each production module only after its public ABI and dependencies are settled.",
+        "Resolve duplicate/unconnected ACPI PRT parser paths.",
+        "Connect BIOS/UEFI entrypoints and IOMMU platform modules to the correct architecture build.",
+        "Keep production/test-only source and package manifests separate."
+      ],
+      "dependencies": [
+        "Module implementation",
+        "architecture ABI",
+        "BootInfo",
+        "DMA API"
+      ]
+    }
+  ],
+  "unresolved_specification": [
+    "Full AML interpreter scope: namespace lookup, method execution, synchronization, OperationRegion and resource-template evaluation; current project contains bounded parsers, not a complete AML VM.",
+    "Persistent anti-rollback trust anchor and owner-key compromise recovery policy.",
+    "Cross-architecture DMA ownership/cache-coherency contract and supported IOMMU feature baseline.",
+    "Final common boot ABI and exact production image layout for BIOS, UEFI x86_64 and UEFI ARM64.",
+    "Полная AML namespace resolution и динамическое вычисление link-device ресурсов не определены; текущая реализация намеренно ограничена статическими объектами и должна сообщать unsupported для остальных форм.",
+    "Совместные PCI INTx линии: требуется определить fan-out нескольких устройств на одном GSI, правила регистрации/снятия обработчиков и quiescence перед повторным использованием вектора; текущий код fail-closed и допускает один вектор на GSI.",
+    "IOAPIC destination field в обычном redirection entry имеет 8 бит; для APIC ID >255 требуется interrupt remapping, иначе PCI/ISA IOAPIC routing должен оставаться выключенным."
+  ],
+  "next_module": {
+    "id": "acpi-prt-namespace-and-pci-route-integration",
+    "intended_scope": "Реализовать ограниченный AML namespace walker для статических Scope/Device/Name и Method/Field package skipping; найти PCI root bridge по _HID, извлечь _SEG/_BBN/_PRT, разобрать прямые GSI и подключить таблицу маршрутов к новым динамическим IOAPIC-векторам. Не исполнять AML методы; link-device resource forms вне поддержанного статического подмножества явно отклонять.",
+    "prerequisites_to_read": [
+      "drivers/acpi/prt.c",
+      "drivers/acpi/prt.h",
+      "acpi.c",
+      "acpi.h",
+      "pci.c",
+      "pci.h",
+      "arch/x86_64/ioapic.c",
+      "arch/x86_64/ioapic.h",
+      "arch/x86_64/pic.c",
+      "arch/x86_64/pic.h",
+      "arch/x86_64/interrupts.s",
+      "build_clang.sh"
+    ]
+  }
+}

@@ -17,6 +17,13 @@ int ioapic_init(const acpi_info_t* a);
 /* Направляет ISA IRQ на вектор 32+irq (размаскированным) на процессор dest. 0 - успех. */
 int ioapic_route_isa(const acpi_info_t* a, unsigned isa_irq, uint32_t dest_apic_id);
 void ioapic_mask_isa(const acpi_info_t* a, unsigned isa_irq, int masked);
+
+/* PCI INTx / GSI: flags — ACPI interrupt flags (polarity bits 0..1,
+   trigger bits 2..3). Only vectors allocated by irq_vector_alloc (0x60..0x7F)
+   are accepted. Route is verified before being unmasked. */
+int ioapic_route_gsi(const acpi_info_t* a, uint32_t gsi, uint8_t vector,
+                     uint16_t flags, uint32_t dest_apic_id);
+int ioapic_mask_gsi(const acpi_info_t* a, uint32_t gsi, int masked);
 unsigned ioapic_entry_count(void);
 
 #endif

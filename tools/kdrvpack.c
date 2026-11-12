@@ -2,7 +2,7 @@
    /drv/ИМЯ.rec с хешами и подтверждением. На самой Кире то же делает установка драйвера после явного согласия пользователя;
    здесь «согласие» - ключ --confirm (сборка образа с тестовыми драйверами: подтверждает тот, кто собирает образ).
      kdrvpack ИМЯ драйвер.elf выход.kdrv выход.rec --pci VVVV:DDDD [--pci ...] [--class CCSSPP:МАСКА] --caps mmio,irq,dma,pcidev,netdev
-              [--version N] [--source ТЕКСТ] [--src-file ФАЙЛ] [--confirm] [--corrupt]
+              [--version N] [--source ТЕКСТ] [--src-file ФАЙЛ] [--confirm] [--publisher-required] [--corrupt]
    --corrupt портит хеш в .rec (проверка отказа загрузки). Без --confirm запись не подтверждена и драйвер не запустится. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,12 +33,12 @@ static uint32_t caps_of(const char* s) {
 }
 
 int main(int argc, char** argv) {
-    if (argc < 5) { fprintf(stderr, "использование: kdrvpack ИМЯ драйвер.elf выход.kdrv выход.rec --pci VVVV:DDDD --caps mmio,irq,dma,pcidev,netdev [--confirm]\n"); return 2; }
+    if (argc < 5) { fprintf(stderr, "использование: kdrvpack ИМЯ драйвер.elf выход.kdrv выход.rec --pci VVVV:DDDD --caps mmio,irq,dma,pcidev,netdev [--confirm] [--publisher-required]\n"); return 2; }
     kdrv_header_t h; memset(&h, 0, sizeof h);
     kdrv_rec_t r; memset(&r, 0, sizeof r);
     h.magic = KDRV_MAGIC; h.format = KDRV_FORMAT; h.hdr_size = sizeof h; h.version = 1;
     snprintf(h.name, sizeof h.name, "%s", argv[1]);
-    int confirm = 0, corrupt = 0;
+    int confirm = 0, publisher_required = 0, corrupt = 0;
     const char* source = "tools/kdrvpack (сборка образа)"; const char* srcfile = 0;
     for (int i = 5; i < argc; i++) {
         if (!strcmp(argv[i], "--pci") && i + 1 < argc && h.nmatch < KDRV_MATCH_MAX) {
@@ -52,9 +52,11 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--source") && i + 1 < argc) source = argv[++i];
         else if (!strcmp(argv[i], "--src-file") && i + 1 < argc) srcfile = argv[++i];
         else if (!strcmp(argv[i], "--confirm")) confirm = 1;
+        else if (!strcmp(argv[i], "--publisher-required")) publisher_required = 1;
         else if (!strcmp(argv[i], "--corrupt")) corrupt = 1;
         else { fprintf(stderr, "kdrvpack: непонятный аргумент %s\n", argv[i]); return 2; }
     }
+    if (publisher_required && !confirm) { fprintf(stderr, "kdrvpack: --publisher-required требует --confirm; неподтверждённый пакет не может получить состояние издательской подписи\n"); return 2; }
     size_t en; uint8_t* elf = slurp(argv[2], &en);
     h.elf_size = (uint32_t)en;
     uint8_t* pkg = malloc(sizeof h + en);
@@ -64,11 +66,11 @@ int main(int argc, char** argv) {
     r.magic = KREC_MAGIC; r.format = KDRV_FORMAT; r.rec_size = sizeof r;
     sha256(elf, en, r.elf_sha); sha256(pkg, sizeof h + en, r.pkg_sha);
     if (srcfile) { size_t sn; uint8_t* sb = slurp(srcfile, &sn); sha256(sb, sn, r.src_sha); }
-    r.caps_ok = h.caps; r.confirmed = confirm ? KREC_CONFIRMED : 0; r.date = (uint64_t)time(0);
+    r.caps_ok = h.caps; r.confirmed = confirm ? (publisher_required ? KREC_CONFIRMED_PUBLISHER : KREC_CONFIRMED) : 0; r.date = (uint64_t)time(0);
     snprintf(r.source, sizeof r.source, "%s", source);
     if (corrupt) r.elf_sha[0] ^= 0x5A;
     FILE* f = fopen(argv[3], "wb"); if (!f || fwrite(pkg, 1, sizeof h + en, f) != sizeof h + en) { perror(argv[3]); return 1; } fclose(f);
     f = fopen(argv[4], "wb"); if (!f || fwrite(&r, 1, sizeof r, f) != sizeof r) { perror(argv[4]); return 1; } fclose(f);
-    printf("kdrvpack: %s: %zu байт ELF, права 0x%x, устройств в списке %u%s%s\n", h.name, en, h.caps, h.nmatch, confirm ? ", подтверждён" : ", НЕ подтверждён", corrupt ? ", хеш испорчен нарочно" : "");
+    printf("kdrvpack: %s: %zu байт ELF, права 0x%x, устройств в списке %u%s%s\n", h.name, en, h.caps, h.nmatch, confirm ? (publisher_required ? ", подтверждён, подпись издателя обязательна" : ", локально подтверждён") : ", НЕ подтверждён", corrupt ? ", хеш испорчен нарочно" : "");
     return 0;
 }

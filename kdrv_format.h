@@ -5,7 +5,7 @@
 
    /drv/ИМЯ.kdrv = kdrv_header_t + образ ELF драйвера (elf_size байт, дальше ничего).
    /drv/ИМЯ.rec  = kdrv_rec_t: что было подтверждено пользователем при установке и хеши.
-   Подпись издателя хранится отдельно в /drv/ИМЯ.sig; отсутствие .sig означает только локальное подтверждение, а не аутентификацию автора. SHA-256 в .rec проверяет целостность относительно локальной записи подтверждения
+   Подпись издателя хранится отдельно в /drv/ИМЯ.sig. Если confirmed == KREC_CONFIRMED, отсутствие .sig означает только локальное подтверждение; если confirmed == KREC_CONFIRMED_PUBLISHER, отсутствие .sig является ошибкой и загрузка запрещена. SHA-256 в .rec проверяет целостность относительно локальной записи подтверждения
    (хеш образа ELF и хеш всего файла .kdrv, чтобы заголовок с правами и списком устройств тоже нельзя было подменить).
    Права процесса = запрошенные в заголовке И подтверждённые в .rec. Все числа - порядок байт процессора (x86-64, ARM64: little). */
 #include <stdint.h>
@@ -13,7 +13,8 @@
 
 #define KDRV_MAGIC      0x5652444Bu        /* "KDRV" */
 #define KREC_MAGIC      0x4345524Bu        /* "KREC" */
-#define KREC_CONFIRMED  0x4B4F4B4Fu        /* поле confirmed: пользователь подтвердил установку */
+#define KREC_CONFIRMED  0x4B4F4B4Fu        /* локальное подтверждение пользователя */
+#define KREC_CONFIRMED_PUBLISHER 0x4B4F4B50u /* локальное подтверждение + обязательная издательская подпись */
 #define KDRV_FORMAT     1
 #define KDRV_NAME_MAX   11                 /* процесс называется drv-ИМЯ (имя процесса - до 15 знаков) */
 #define KDRV_MATCH_MAX  8
@@ -59,6 +60,7 @@ enum { KDRV_OK = 0, KDRV_E_SHORT = -1, KDRV_E_MAGIC = -2, KDRV_E_FORMAT = -3, KD
 /* Чистые функции (kdrv_fmt.c; проверяются на хосте). */
 int kdrv_header_check(const void* file, uint32_t len, kdrv_header_t* out);      /* заголовок корректен и файл ровно hdr_size + elf_size */
 int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out);             /* запись корректна и подтверждена пользователем */
+int kdrv_rec_publisher_required(const kdrv_rec_t* rec);                        /* 1 - запись требует сохранённую и проверенную подпись издателя */
 int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uint32_t cls);   /* 1 - подходит */
 const char* kdrv_strerror(int err);
 /* Без подтверждённой изоляции IOMMU DMA и MSI запрещены для драйверов Ring 3. */

@@ -128,10 +128,22 @@ int main(void) {
         total = build();
     }
 
+    /* Truncated header buffers must be rejected before any later header
+       field is read. ASan catches an over-read for every short length. */
+    {
+        uint8_t tiny_header[39] = {0};
+        be(tiny_header, FDT_MAGIC);
+        for (uint32_t short_len = 0; short_len <= sizeof tiny_header; short_len++) {
+            CHECK(!fdt_valid(tiny_header, short_len));
+            CHECK(!fdt_tree_valid(tiny_header, short_len));
+        }
+    }
+
     /* испорченные блобы */
     uint8_t bad[8192];
     memcpy(bad, blob, sizeof bad); be(bad, 0x12345678); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 4, 100000); CHECK(!fdt_valid(bad, sizeof bad));
+    memcpy(bad, blob, sizeof bad); be(bad + 4, 0x80000000u); CHECK(!fdt_valid(bad, UINT32_MAX));
     memcpy(bad, blob, sizeof bad); be(bad + 36, total); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 12, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* strings alias structure */
     memcpy(bad, blob, sizeof bad); be(bad + 16, fdt_u32(bad + 8)); CHECK(!fdt_valid(bad, sizeof bad)); /* reserve map aliases structure */

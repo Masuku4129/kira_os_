@@ -446,6 +446,54 @@ msi_stub_table:
     dq msi0, msi1, msi2, msi3, msi4, msi5, msi6, msi7
     dq msi8, msi9, msi10, msi11, msi12, msi13, msi14, msi15
 
+; PCI INTx / прочие выделенные GSI: динамические векторы 0x60..0x7F.
+; Вектор регистрируется в C до того, как соответствующая запись IOAPIC будет размаскирована.
+%macro IRQV 1
+global irqv%1
+irqv%1:
+    push 0
+    push 0x60 + %1
+    jmp irq_common_stub
+%endmacro
+IRQV 0
+IRQV 1
+IRQV 2
+IRQV 3
+IRQV 4
+IRQV 5
+IRQV 6
+IRQV 7
+IRQV 8
+IRQV 9
+IRQV 10
+IRQV 11
+IRQV 12
+IRQV 13
+IRQV 14
+IRQV 15
+IRQV 16
+IRQV 17
+IRQV 18
+IRQV 19
+IRQV 20
+IRQV 21
+IRQV 22
+IRQV 23
+IRQV 24
+IRQV 25
+IRQV 26
+IRQV 27
+IRQV 28
+IRQV 29
+IRQV 30
+IRQV 31
+global irq_vector_entry_table
+irq_vector_entry_table:
+    dq irqv0, irqv1, irqv2, irqv3, irqv4, irqv5, irqv6, irqv7
+    dq irqv8, irqv9, irqv10, irqv11, irqv12, irqv13, irqv14, irqv15
+    dq irqv16, irqv17, irqv18, irqv19, irqv20, irqv21, irqv22, irqv23
+    dq irqv24, irqv25, irqv26, irqv27, irqv28, irqv29, irqv30, irqv31
+
 global load_idt
 load_idt:
     lidt [rdi]

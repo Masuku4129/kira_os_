@@ -54,7 +54,7 @@ KDRV uses a detached Ed25519 signature over the complete .kdrv package digest, s
 Still required:
 - Persistent anti-rollback tied to a storage/firmware trust anchor that cannot be reverted merely by restoring an old disk image. A normal KiraFS file alone is not sufficient evidence of anti-rollback.
 - A tested trust-key rotation and revocation lifecycle, including recovery after compromise of the current owner key; the current trust table is compiled into the kernel and has no authenticated update path.
-- Signed publisher metadata/catalogue policy that distinguishes packages requiring publisher authentication from packages explicitly accepted as local builds. The existing recipe SHA-256 catalogue pins integrity but is not an independent publisher signature.
+- The system catalogue now supports an explicit `publisher-required` policy bit. `drvget confirm` re-reads the system catalogue, re-pins the exact recipe and rejects HTTP 404 for a required signature; the KDRV record and kernel also retain/enforce the signed state so deleting `.sig` cannot downgrade the package. However, `drivers/index.txt` itself is not digitally signed, and the production RTL8139 entry remains optional until its `.sig` is signed with the offline publisher key. Signed catalogue authentication and production key publication remain open.
 - Full QEMU end-to-end test with a valid publisher signature fetched over HTTPS, installed by drvget and then verified again by the kernel at driver load. The host installer E2E now includes a deterministic test-only trust anchor and a valid signed-package path (fetch -> verify -> install -> drvget verify), alongside malformed-signature rejection and unsigned local fallback; the new path still requires a fresh green CI run.
 
 Unsigned local packages remain explicitly untrusted by publisher and require the existing local user confirmation. This is not publisher authentication.
@@ -90,6 +90,17 @@ Required:
 - Mind temporal holdout and policy regressions; check persistence, corrupted state recovery and resource bounds.
 - Verify UI-reported Mind activity against actual telemetry and model updates.
 - Keep test fixtures clearly separated from learned/user experience.
+
+## 7a. KDRV anti-rollback — HARDWARE ANCHOR NOT AVAILABLE
+
+The signed-catalogue policy now refuses to accept/advance a version floor
+unless the platform backend explicitly advertises a validated
+`KDRV_TRUST_STORAGE_HW_MONOTONIC` provider. No TPM NV, secure element,
+authenticated firmware variable or equivalent provider is implemented in
+the current source tree. Host mocks only test the callback contract.
+Do not claim strong anti-rollback or ship a provider backed only by KiraFS,
+CRC, or ordinary writable storage. See
+`docs/adr/ADR-0002-kdrv-anti-rollback-anchor.md`.
 
 ## 8. Release gate
 The next combined user update is eligible only when:

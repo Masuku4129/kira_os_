@@ -4,6 +4,8 @@
 #include "percpu.h"
 #include "proc.h"
 #include "sched.h"
+#include "idt.h"
+#include "spinlock.h"
 
 #define PIC1_COMMAND 0x20
 #define PIC1_DATA    (PIC1_COMMAND + 1)
@@ -13,6 +15,12 @@
 #define PIC_READ_ISR 0x0B
 
 static irq_handler_t irq_handlers[16];
+static irq_handler_t irq_vector_handlers[IRQ_VECTOR_COUNT];
+static volatile uint32_t irq_vector_active[IRQ_VECTOR_COUNT];
+static uint8_t irq_vector_used[IRQ_VECTOR_COUNT];
+static spinlock_t irq_vector_lock = SPINLOCK_INIT;
+extern void* irq_vector_entry_table[IRQ_VECTOR_COUNT];
+extern void isr_unhandled(void);
 
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
@@ -84,6 +92,66 @@ void irq_set_eoi_apic_all(void) { eoi_apic_mask = 0xFFFF; }
 int irq_has_handler(unsigned irq) { return irq < 16 && irq_handlers[irq] != 0; }
 void irq_unregister_handler(unsigned irq) { if (irq < 16) irq_handlers[irq] = 0; }
 
+int irq_vector_alloc(irq_handler_t handler, uint8_t *vector) {
+    if (!handler || !vector || !apic_is_enabled()) return -1;
+    uint64_t f = spin_lock_irqsave(&irq_vector_lock);
+    for (unsigned i = 0; i < IRQ_VECTOR_COUNT; ++i) {
+        if (irq_vector_used[i]) continue;
+        irq_vector_used[i] = 1;
+        irq_vector_handlers[i] = 0;
+        __atomic_store_n(&irq_vector_active[i], 0, __ATOMIC_RELAXED);
+        idt_set_gate((uint8_t)(IRQ_VECTOR_BASE + i), irq_vector_entry_table[i], 0x08, 0x8E);
+        __atomic_store_n(&irq_vector_handlers[i], handler, __ATOMIC_RELEASE);
+        *vector = (uint8_t)(IRQ_VECTOR_BASE + i);
+        spin_unlock_irqrestore(&irq_vector_lock, f);
+        return 0;
+    }
+    spin_unlock_irqrestore(&irq_vector_lock, f);
+    return -2;
+}
+
+int irq_vector_is_allocated(uint8_t vector) {
+    if (vector < IRQ_VECTOR_BASE || vector >= IRQ_VECTOR_BASE + IRQ_VECTOR_COUNT)
+        return 0;
+    unsigned i = (unsigned)(vector - IRQ_VECTOR_BASE);
+    return __atomic_load_n(&irq_vector_handlers[i], __ATOMIC_ACQUIRE) != 0;
+}
+
+int irq_vector_release(uint8_t vector) {
+    if (vector < IRQ_VECTOR_BASE || vector >= IRQ_VECTOR_BASE + IRQ_VECTOR_COUNT)
+        return -1;
+    unsigned i = (unsigned)(vector - IRQ_VECTOR_BASE);
+    uint64_t f = spin_lock_irqsave(&irq_vector_lock);
+    if (!irq_vector_used[i]) {
+        spin_unlock_irqrestore(&irq_vector_lock, f);
+        return -2;
+    }
+    __atomic_store_n(&irq_vector_handlers[i], (irq_handler_t)0, __ATOMIC_RELEASE);
+    spin_unlock_irqrestore(&irq_vector_lock, f);
+
+    /* Не переиспользовать вектор, пока обработчик, уже вошедший на другом CPU, не вышел. */
+    while (__atomic_load_n(&irq_vector_active[i], __ATOMIC_ACQUIRE) != 0)
+        spin_relax();
+
+    f = spin_lock_irqsave(&irq_vector_lock);
+    irq_vector_used[i] = 0;
+    spin_unlock_irqrestore(&irq_vector_lock, f);
+    /* IDT entry остаётся установленным: поздний уже доставленный IRQ получит EOI,
+       а не попадёт в общий fatal-handler. Повторное использование требует, чтобы
+       владелец сначала замаскировал GSI и отключил источник устройства. */
+    (void)isr_unhandled;
+    return 0;
+}
+
+static void irq_vector_dispatch(uint64_t vector) {
+    unsigned i = (unsigned)(vector - IRQ_VECTOR_BASE);
+    if (i >= IRQ_VECTOR_COUNT) return;
+    __atomic_add_fetch(&irq_vector_active[i], 1, __ATOMIC_ACQUIRE);
+    irq_handler_t handler = __atomic_load_n(&irq_vector_handlers[i], __ATOMIC_ACQUIRE);
+    if (handler) handler();
+    __atomic_sub_fetch(&irq_vector_active[i], 1, __ATOMIC_RELEASE);
+}
+
 int irq_register_handler(unsigned char irq, irq_handler_t handler) {
     if (irq >= 16 || handler == 0 || irq_handlers[irq] != 0) {
         return -1;
@@ -112,11 +180,13 @@ static int is_spurious(unsigned char irq) {
 int msi_dispatch(uint64_t vector);
 
 void irq_dispatch(uint64_t vector, uint64_t cs, uint64_t rip, uint64_t rbp) {
-    unsigned char irq = (unsigned char)(vector - 32);
-    if (irq >= 16) {                                  /* сообщение устройства (MSI): только через Local APIC */
+    if (vector >= 48) {                              /* MSI (0x50..0x5F) и выделенные IOAPIC GSI (0x60..0x7F) */
         percpu_t* me = this_cpu();
         me->irq_rip = rip; me->irq_rbp = (cs & 3) ? 0 : rbp; me->irq_depth++;
-        msi_dispatch(vector);
+        if (vector >= 0x50 && vector < 0x60) msi_dispatch(vector);
+        else if (vector >= IRQ_VECTOR_BASE && vector < IRQ_VECTOR_BASE + IRQ_VECTOR_COUNT)
+            irq_vector_dispatch(vector);
+        /* Даже неизвестный выделенный APIC-вектор обязан получить EOI. */
         apic_send_eoi();
         this_cpu()->irq_depth--;
         if ((cs & 3) == 3) proc_return_check();
@@ -124,6 +194,7 @@ void irq_dispatch(uint64_t vector, uint64_t cs, uint64_t rip, uint64_t rbp) {
         return;
     }
 
+    unsigned char irq = (unsigned char)(vector - 32);
     int via_apic = (eoi_apic_mask >> irq) & 1;
     if (!via_apic && is_spurious(irq)) return;
 

@@ -24,6 +24,7 @@
 #include "net.h"
 #include "hda.h"
 #include "acpi.h"
+#include "pci.h"
 #include "hwprofile.h"
 #include "ramext.h"
 #include "percpu.h"
@@ -154,6 +155,19 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     ramext_init();
     acpi_set_map_hook(acpi_map);
     acpi_init(addr);
+    /*
+     * PCI enumeration must precede every consumer of pci_find(): the storage
+     * stack probes virtio during fs_init(), and the network stack probes
+     * e1000/virtio-net later. ARM64 performs the corresponding scan after
+     * configuring ECAM from its device tree; x86 uses configuration mechanism
+     * #1 (CF8/CFC), which is available before device drivers are started.
+     */
+    {
+        int pci_functions = pci_init();
+        uart_print("[KIRA PCI] x86 configuration scan: ");
+        uart_print_dec((uint64_t)pci_functions);
+        uart_print(" function(s) found.\n");
+    }
     {
         const acpi_info_t* ai = acpi_get();
         hw_init(ai && ai->valid ? ai->cpu_count : 1, pmm_get_total_memory_kb());

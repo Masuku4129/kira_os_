@@ -44,6 +44,7 @@ static const kdrv_sig_t valid_signature = {
 };
 
 int main(void) {
+    CHECK(strcmp(kdrv_sig_strerror(KDRV_SIG_E_MISSING), "обязательная издательская подпись отсутствует") == 0);
     CHECK(sizeof(kdrv_sig_t) == 144);
     CHECK(kdrv_sig_header_check(&valid_signature, sizeof valid_signature) == KDRV_SIG_OK);
     CHECK(kdrv_sig_verify(package, sizeof package - 1, &valid_signature, sizeof valid_signature,

@@ -137,6 +137,15 @@ grep -q "rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 све�
 run "verify rl"
 grep -q "подпись издателя: отсутствует; пакет только локально подтверждён" $T/out || note "verify: локальный пакет не помечен как неподписанный"
 grep -q "verify rl: OK" $T/out || note "verify: $(tail -c 300 $T/out)"
+# A stale signature beside a local record must not be carried over to a new unsigned package.
+printf 'x' > "$T/drv/rl.sig"
+run "install $U/rl/drvget.rec"
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' "$T/out")
+[ ${#HASH} = 64 ] || note "stale signature test: не получен хеш staging-набора"
+run "confirm rl ${HASH:0:8}"
+grep -q "замена пакета с издательской подписью или её маркером на unsigned/local запрещена" "$T/out" || note "unsigned replacement retained a stale .sig: $(tail -c 400 "$T/out")"
+[ -s "$T/drv/rl.kdrv" ] && [ -s "$T/drv/rl.rec" ] || note "stale signature refusal damaged the installed local package"
+rm -f "$T/drv/rl.sig"
 # испорченный образ: verify обязан заметить
 cp $T/drv/rl.kdrv $T/rl.keep; printf '\377' | dd of=$T/drv/rl.kdrv bs=1 seek=200 conv=notrunc 2>/dev/null
 run "verify rl"
@@ -179,14 +188,33 @@ grep -q "подпись издателя Ed25519 подтверждена" "$T/o
 [ -s "$T/drv/rl.sig" ] || note "valid publisher signature was not installed beside package"
 run "verify rl"
 grep -q "Ed25519 подтверждена" "$T/out" || note "installed publisher signature did not verify: $(tail -c 400 "$T/out")"
+# The record marks this package as publisher-authenticated; deleting .sig must not downgrade it to local.
+cp "$T/drv/rl.sig" "$T/rl.sig.keep"
+rm -f "$T/drv/rl.sig"
+run "verify rl"
+grep -q "подпись издателя: ОТКЛОНЕНА" "$T/out" || note "missing mandatory signature was accepted as local: $(tail -c 400 "$T/out")"
+cp "$T/rl.sig.keep" "$T/drv/rl.sig"
+run "verify rl"
+grep -q "verify rl: OK" "$T/out" || note "restored publisher signature did not verify: $(tail -c 300 "$T/out")"
 rm -f "$W/rl/drvget.sig"
 
-# A missing signature must not downgrade an already installed publisher-authenticated package.
+# A trusted catalogue entry can require publisher authentication: HTTP 404 must not downgrade to local trust.
+printf 'kira-driver-index 1\npci 10ec:8139 rl %s/rl/drvget.rec %s publisher-required\n' "$U" "$REC_SHA" > "$T/ssl/drivers.index"
+run "install $U/rl/drvget.rec"
+HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' "$T/out")
+[ ${#HASH} = 64 ] || note "required publisher policy test: не получен хеш staging-набора"
+run "confirm rl ${HASH:0:8}"
+grep -q "системный каталог требует издательскую подпись, но сервер вернул HTTP 404" "$T/out" || note "required publisher policy allowed unsigned fallback: $(tail -c 400 "$T/out")"
+[ -s "$T/drv/rl.sig" ] && [ -s "$T/drv/rl.kdrv" ] || note "required publisher policy damaged the installed signed package"
+[ -z "$(ls "$T/sb" | grep '^s-')" ] || note "required publisher refusal left staging files"
+
+# Without the required bit, a local 404 is still explicit, but cannot replace an existing signed package.
+printf 'kira-driver-index 1\npci 10ec:8139 rl %s/rl/drvget.rec %s\n' "$U" "$REC_SHA" > "$T/ssl/drivers.index"
 run "install $U/rl/drvget.rec"
 HASH=$(sed -n 's/^SHA-256 набора исходников (рецепт + файлы): \([0-9a-f]\{64\}\)$/\1/p' "$T/out")
 [ ${#HASH} = 64 ] || note "unsigned replacement test: не получен хеш staging-набора"
 run "confirm rl ${HASH:0:8}"
-grep -q "замена существующего подписанного пакета на unsigned/local запрещена" "$T/out" || note "signed package was silently downgraded: $(tail -c 400 "$T/out")"
+grep -q "замена пакета с издательской подписью или её маркером на unsigned/local запрещена" "$T/out" || note "signed package was silently downgraded: $(tail -c 400 "$T/out")"
 [ -s "$T/drv/rl.sig" ] && [ -s "$T/drv/rl.kdrv" ] || note "refused downgrade damaged the existing signed package"
 [ -z "$(ls "$T/sb" | grep '^s-')" ] || note "refused downgrade left staging files"
 run "remove rl"

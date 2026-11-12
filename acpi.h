@@ -22,6 +22,8 @@ typedef struct {
     uint64_t mcfg_base;            /* база PCIe ECAM (0 = нет) */
     uint8_t  mcfg_bus_start, mcfg_bus_end;
     uint32_t tables_seen, tables_bad, tables_skipped_high;
+    uint64_t dmar_phys;             /* physical address of checksum-validated DMAR table, 0 if absent */
+    uint32_t dmar_len;
     uint8_t  source;               /* 0 - ACPI (MADT), 1 - таблицы Intel MP (ACPI нет или в нём нет процессоров) */
     /* питание (FADT и \_S5 из DSDT) */
     uint32_t pm1a_cnt, pm1b_cnt, smi_cmd;   /* порты; 0 - нет */
@@ -51,5 +53,13 @@ int acpi_init(uint64_t mbi_phys);
 // Ядро ставит хук, который делает таблицу выше max_phys читаемой (0 - не удалось); без хука такие таблицы пропускаются.
 void acpi_set_map_hook(const void* (*hook)(uint64_t phys, uint64_t len));   /* адрес для чтения таблицы или 0 */
 const acpi_info_t* acpi_get(void);
+
+/*
+ * Return the checksum-validated DSDT AML payload and its byte length.
+ * The returned pointer remains valid while the ACPI map-hook mappings remain
+ * installed. phys may be NULL; all other output pointers are required.
+ * Returns 0 on success, -1 for invalid arguments, -2 if no valid DSDT exists.
+ */
+int acpi_get_dsdt(const uint8_t** aml, uint32_t* aml_size, uint64_t* phys);
 
 #endif

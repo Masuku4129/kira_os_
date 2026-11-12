@@ -163,6 +163,8 @@ static int pkg_load(const char* name, pkg_t* p) {
                     else p->auth = KDRV_AUTH_PUBLISHER;
                 }
             }
+        } else if (se == KFS_ERR_NOENT && kdrv_rec_publisher_required(&p->r)) {
+            rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_MISSING;
         } else if (se != KFS_ERR_NOENT) {
             rc = KDRV_E_SIGNATURE; p->sig_error = KDRV_SIG_E_IO;
         }
@@ -320,13 +322,17 @@ static int pkg_wants(const char* name, const pci_dev_t* d) {
     return kdrv_match_dev(&h, d->vendor, d->device, cls_of(d));
 }
 
-static void scan(void) {
-    if (!kfs_mounted() || !pci_count()) return;
+static int scan(void) {
+    if (!kfs_mounted()) return 0;                 /* storage may mount after first poll */
+    int devices = pci_count();
+    if (devices <= 0) return 1;
     list_t* l = (list_t*)kmalloc(sizeof *l);
-    if (!l) return;
+    if (!l) return 0;                             /* retry after memory pressure */
+    int rc = list_pkgs(l);
+    if (rc != 0 && rc != KFS_ERR_NOENT) { kfree(l); return 0; } /* absent /drv is an empty catalogue; I/O errors retry */
     int started = 0;
-    if (list_pkgs(l) == 0 && l->n) {
-        for (int i = 0; i < pci_count(); i++) {
+    if (l->n) {
+        for (int i = 0; i < devices; i++) {
             const pci_dev_t* d = pci_get(i);
             if (builtin_owned(d)) continue;
             bind_t* b = find_slot(d, 0);
@@ -340,6 +346,7 @@ static void scan(void) {
     kfree(l);
     uart_print("[KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: ");
     uart_print_dec((uint64_t)started); uart_print("\n");
+    return 1;
 }
 
 /* ---- гибель драйвера ---- */
@@ -377,6 +384,8 @@ static void release(bind_t* b) {
 }
 
 static int rescan_req;
+static int kdrv_scanned;
+static uint64_t scan_retry_at;
 void kdrv_request_rescan(void) { __atomic_store_n(&rescan_req, 1, __ATOMIC_RELEASE); }
 
 /* Запросы окна «Драйверы» (fsrv.c, FS_OP_DRV_START/STOP): кольцо из 4 записей. Исполняет основной цикл теми же командами консоли
@@ -422,10 +431,18 @@ static void ctl_run(void) {
 }
 
 void kdrv_poll(void) {
-    static int scanned;
-    if (!scanned) { scanned = 1; scan(); }
-    else if (__atomic_exchange_n(&rescan_req, 0, __ATOMIC_ACQ_REL)) scan();               /* drvget установил пакет */
-    ctl_run();                                                                             /* окно «Драйверы»: запуск и остановка по просьбе */
+    uint64_t now = timer_get_ticks();
+    if (!kdrv_scanned && now >= scan_retry_at) {
+        if (scan()) kdrv_scanned = 1;
+        else scan_retry_at = now + TIMER_HZ;     /* retry failed initial scan once per second */
+    }
+    if (now >= scan_retry_at && __atomic_exchange_n(&rescan_req, 0, __ATOMIC_ACQ_REL)) {
+        if (!scan()) {
+            __atomic_store_n(&rescan_req, 1, __ATOMIC_RELEASE);
+            scan_retry_at = now + TIMER_HZ;
+        }
+    }                                           /* drvget installed package / delayed mount */
+    ctl_run();                                  /* окно «Драйверы»: запуск и остановка по просьбе */
     if (!__atomic_load_n(&ndead, __ATOMIC_ACQUIRE)) return;
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         bind_t* b = &binds[i];
@@ -754,7 +771,12 @@ void kdrv_cmd(const char* arg) {
     verb[n] = 0;
     arg += n; while (*arg == ' ') arg++;
     if (!verb[0] || streq(verb, "list")) { show(); return; }
-    if (streq(verb, "rescan")) { scan(); return; }
+    if (streq(verb, "rescan")) {
+        (void)__atomic_exchange_n(&rescan_req, 0, __ATOMIC_ACQ_REL);
+        if (scan()) kdrv_scanned = 1;
+        else { kdrv_request_rescan(); scan_retry_at = timer_get_ticks() + TIMER_HZ; uart_print("[KIRA DRV] повторное сканирование отложено: хранилище ещё не готово\n"); }
+        return;
+    }
     char name[16]; n = 0;
     while (arg[n] && arg[n] != ' ' && n < sizeof name - 1) { name[n] = arg[n]; n++; }
     name[n] = 0;

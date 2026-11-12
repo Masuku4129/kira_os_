@@ -93,6 +93,7 @@ const char* kdrv_sig_strerror(int e) {
     case KDRV_SIG_E_TRUST_STORE: return "ошибка доверенного хранилища ключей";
     case KDRV_SIG_E_SIGNATURE: return "Ed25519 подпись недействительна";
     case KDRV_SIG_E_IO: return "ошибка чтения подписи";
+    case KDRV_SIG_E_MISSING: return "обязательная издательская подпись отсутствует";
     default: return "неизвестная ошибка подписи";
     }
 }

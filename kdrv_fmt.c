@@ -43,10 +43,14 @@ int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out) {
     unsigned z = 0;
     while (z < sizeof r.source && r.source[z]) z++;
     if (z == sizeof r.source) return KDRV_E_FORMAT;     /* строка без нуля */
-    if (r.confirmed != KREC_CONFIRMED) return KDRV_E_UNCONFIRMED;
+    if (r.confirmed != KREC_CONFIRMED && r.confirmed != KREC_CONFIRMED_PUBLISHER) return KDRV_E_UNCONFIRMED;
     if (r.caps_ok & ~(uint32_t)CAP_DRIVER_) return KDRV_E_CAPS;
     if (out) *out = r;
     return KDRV_OK;
+}
+
+int kdrv_rec_publisher_required(const kdrv_rec_t* rec) {
+    return rec && rec->magic == KREC_MAGIC && rec->confirmed == KREC_CONFIRMED_PUBLISHER;
 }
 
 int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uint32_t cls) {

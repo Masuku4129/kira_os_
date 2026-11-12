@@ -60,6 +60,17 @@ echo "== driver package format (kdrv_format.h: header, record, matching, hostile
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c
 $T/kdrv
 
+echo "== kdrvpack: mandatory publisher state requires explicit confirmation =="
+$CC $FLAGS -o $T/kdrvpack tools/kdrvpack.c kdrv_fmt.c sha256.c
+printf '\177ELF\002\001\001\000' > $T/sample.elf
+if $T/kdrvpack rl $T/sample.elf $T/pkg.kdrv $T/pkg.rec --pci 10ec:8139 --caps mmio --publisher-required >/dev/null 2>&1; then
+    echo "FAIL: kdrvpack accepted --publisher-required without --confirm"; exit 1
+fi
+$T/kdrvpack rl $T/sample.elf $T/pkg.kdrv $T/pkg.rec --pci 10ec:8139 --caps mmio --confirm --publisher-required >/dev/null
+PUB_STATE=$(od -An -tx4 -j108 -N4 $T/pkg.rec | tr -d ' ')
+[ "$PUB_STATE" = "4b4f4b50" ] || { echo "FAIL: kdrvpack did not persist KREC_CONFIRMED_PUBLISHER ($PUB_STATE)"; exit 1; }
+echo "kdrvpack: publisher-required record and explicit confirmation passed"
+
 echo "== drvget: https-only, рецепт, лицензии (GPL/бинарники отвергаются), хеш набора =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/drvget tests/drvget_test.c userland/drvget_core.c sha256.c
 $T/drvget
@@ -70,6 +81,10 @@ tests/rl_build.sh $T/rl
 echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
 $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
 $T/acpi
+
+echo "== Intel VT-d DMAR topology parser (DRHD, RMRR, hostile input) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/iommu-vtd tests/iommu_vtd_test.c iommu_vtd.c
+$T/iommu-vtd
 
 echo "== IOAPIC (ISO resolution, redirection encoding) =="
 $CC $FLAGS -o $T/ioapic tests/ioapic_test.c arch/x86_64/ioapic.c
@@ -196,11 +211,23 @@ $T/pk
 echo "== KDRV signed-package verification =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_sig tests/kdrv_sig_test.c kdrv_sig.c pk.c crypto.c sha256.c
 $T/kdrv_sig
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_catalogue tests/kdrv_catalogue_test.c drivers/kdrv/kdrv_catalogue.c drivers/kdrv/kdrv_trust.c
+$T/kdrv_catalogue
+
+echo "== KDRV manager: signed install lifecycle and staged rollback =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_manager tests/kdrv_manager_test.c drivers/kdrv/kdrv_manager.c
+$T/kdrv_manager
+echo "== Driver Compatibility: authenticated source inspection, bounded translation, native signing and cleanup =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/drvcompat tests/drvcompat_test.c userland/drvcompat.c
+$T/drvcompat
 python3 -m unittest ci.test_kdrvsign
 
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c bootinfo_fdt.c bootinfo.c
 $T/fdt
+echo "== ARM64 boot FDT parser (uninitialized output, reserve map, scoped cells) =="
+$CC $FLAGS -fsanitize=address,undefined -Iarch/aarch64 -o $T/fdt-arm-parser tests/fdt_arm_parser_test.c arch/aarch64/fdt.c
+$T/fdt-arm-parser
 $CC $FLAGS -fsanitize=address,undefined -o $T/crypto tests/crypto_test.c crypto.c sha256.c
 $T/crypto
 
@@ -335,6 +362,9 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/sb16 tests/sb16_test.c sb16.c
 $T/sb16
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
+echo "== RTL8139 clean-room PCI/DMA/RX/TX driver model =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/rtl8139 tests/rtl8139_test.c drivers/net/rtl8139.c
+$T/rtl8139
 echo "== IPv4/IPv6 fragment reassembly (all orders, overlaps, duplicates, oversize, TTL, memory limits) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/ipfrag tests/ipfrag_test.c ipfrag.c
 $T/ipfrag
