@@ -66,20 +66,35 @@ int main(void) {
     kbi_mmap_entry_t* m2=(kbi_mmap_entry_t*)(b+h->mmap_off+sizeof(*m));
     m2->base=0x80000; m2->length=0x1000; m2->type=KBI_MEM_RESERVED;
     CHECK(kbi_validate(b,sizeof b)==-11);
-    m2->base=0x100000; CHECK(kbi_validate(b,sizeof b)==0);
+    m2->base=0xA0000; CHECK(kbi_validate(b,sizeof b)==0);
 
     /* Module table and its name live in disjoint blob ranges. */
     h->modules_off=sizeof(*h)+2*sizeof(*m);
     h->modules_count=1; h->module_entry_size=sizeof(kbi_module_t);
     h->total_size=h->modules_off+sizeof(kbi_module_t)+5;
     kbi_module_t* mod=(kbi_module_t*)(b+h->modules_off);
-    memset(mod,0,sizeof(*mod)); mod->base=0x400000; mod->length=0x1000;
+    memset(mod,0,sizeof(*mod)); mod->base=0x80000; mod->length=0x1000;
     mod->name_off=h->modules_off+sizeof(*mod); mod->name_len=5;
     memcpy(b+mod->name_off,"init",5);
     CHECK(kbi_validate(b,sizeof b)==0);
+    m->type=KBI_MEM_MODULE; CHECK(kbi_validate(b,sizeof b)==0); m->type=KBI_MEM_USABLE;
+
+    /* A module may span adjacent usable/module ranges, but not a one-byte hole. */
+    m->base=0x7f000; m->length=0x1000; m2->base=0x80000;
+    m2->length=0x1000; m2->type=KBI_MEM_MODULE;
+    mod->base=0x7f800; mod->length=0x1000;
+    CHECK(kbi_validate(b,sizeof b)==0);
+    m2->base=0x80001; CHECK(kbi_validate(b,sizeof b)==-12);
+    m2->base=0x80000; mod->length=0x2801;
+    CHECK(kbi_validate(b,sizeof b)==-12);
+    mod->base=0x80000; mod->length=0x1000;
+    m->base=0; m->length=0x9f000; m2->base=0xA0000;
+    m2->length=0x1000; m2->type=KBI_MEM_RESERVED;
     b[mod->name_off+1]=0; CHECK(kbi_validate(b,sizeof b)==-12);
     memcpy(b+mod->name_off,"init",5);
-    mod->base=0x200000; CHECK(kbi_validate(b,sizeof b)==-12); mod->base=0x400000;
+    mod->base=0x200000; CHECK(kbi_validate(b,sizeof b)==-12); mod->base=0x80000;
+    mod->base=0x400000; CHECK(kbi_validate(b,sizeof b)==-12); mod->base=0x80000;
+    mod->base=0xA0000; CHECK(kbi_validate(b,sizeof b)==-12); mod->base=0x80000;
     h->flags=KBI_F_FRAMEBUFFER; h->fb_phys=mod->base; h->fb_size=0x1000;
     h->fb_width=16; h->fb_height=16; h->fb_pitch=64; h->fb_bpp=32;
     h->fb_red_pos=16; h->fb_red_size=8; h->fb_green_pos=8; h->fb_green_size=8;
@@ -92,7 +107,7 @@ int main(void) {
     h->modules_count=2;
     h->total_size=h->modules_off+2*sizeof(kbi_module_t)+10;
     kbi_module_t* mod2=mod+1; *mod2=*mod;
-    mod2->base=0x500000;
+    mod2->base=0x90000;
     mod->name_off=h->modules_off+2*sizeof(*mod);
     mod2->name_off=mod->name_off;
     CHECK(kbi_validate(b,sizeof b)==-12);

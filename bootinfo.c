@@ -17,6 +17,24 @@ static int overlaps(uint64_t a, uint64_t an, uint64_t b, uint64_t bn) {
     return a < b + bn && b < a + an;
 }
 
+/* Boot payloads must occupy RAM explicitly reported as usable or module memory.
+   Firmware-reserved, MMIO, framebuffer, and unmapped physical ranges are not
+   acceptable backing storage for an initrd or another loader-provided module. */
+static int module_in_ram(const kbi_mmap_entry_t* map, uint32_t count,
+                         uint64_t base, uint64_t length) {
+    if (!map || !length || base > UINT64_MAX - length) return 0;
+    uint64_t end = base + length, covered = base;
+    for (uint32_t i = 0; i < count && covered < end; i++) {
+        uint64_t map_end = map[i].base + map[i].length;
+        if (map_end <= covered) continue;
+        if (map[i].base > covered ||
+            (map[i].type != KBI_MEM_USABLE && map[i].type != KBI_MEM_MODULE))
+            return 0;
+        covered = map_end < end ? map_end : end;
+    }
+    return covered == end;
+}
+
 static int bit_ranges_overlap(uint8_t ap, uint8_t an, uint8_t bp, uint8_t bn) {
     return (uint16_t)ap < (uint16_t)bp + bn &&
            (uint16_t)bp < (uint16_t)ap + an;
@@ -108,6 +126,7 @@ int kbi_validate(const void* blob, uint32_t available) {
         (const kbi_module_t*)((const uint8_t*)blob + h->modules_off);
     for (uint32_t i = 0; i < h->modules_count; i++) {
         if (!mods[i].length || mods[i].base > UINT64_MAX - mods[i].length ||
+            !module_in_ram(mm, h->mmap_count, mods[i].base, mods[i].length) ||
             overlaps(mods[i].base, mods[i].length, h->kernel_phys_base,
                      h->kernel_size) ||
             (h->fb_size && overlaps(mods[i].base, mods[i].length, h->fb_phys, h->fb_size)) ||
