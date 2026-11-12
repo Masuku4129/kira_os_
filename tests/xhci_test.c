@@ -287,7 +287,10 @@ static char logbuf[16384];
 void usb_log(const char* s) { strncat(logbuf, s, sizeof logbuf - strlen(logbuf) - 1); }
 void usb_log_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsigned long long)v); usb_log(b); }
 void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); usb_log(b); }
-void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; (void)b; }
+static uint16_t pci_command_model;
+void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; pci_command_model |= b; }
+uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { (void)d; return off == 0x04 ? pci_command_model : 0; }
+void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) { (void)d; if (off == 0x04) pci_command_model = v; }
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { (void)d; (void)off; return 0; }
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { (void)d; (void)off; (void)v; }
 volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t len) { (void)d; (void)bar; (void)len; return regs + off; }
