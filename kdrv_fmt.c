@@ -73,6 +73,12 @@ int kdrv_dma_policy_allow(uint32_t caps, int isolated) {
     return 1;
 }
 
+/* PCI Command bit 2 enables device-initiated memory transactions. An untrusted
+   Ring 3 driver must never inherit that permission from firmware or a prior owner. */
+uint16_t kdrv_pci_command_clear_master(uint16_t command) {
+    return (uint16_t)(command & ~(1u << 2));
+}
+
 int kdrv_mmio_page_bounds(uint64_t base, uint64_t size, uint64_t* page_lo, uint64_t* page_hi) {
     if (!base || !size || !page_lo || !page_hi || base > UINT64_MAX - size) return -1;
     uint64_t end = base + size;
