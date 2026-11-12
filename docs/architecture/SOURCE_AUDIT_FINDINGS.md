@@ -63,12 +63,14 @@
 - **Evidence:** `WASM_FUEL` enables deterministic fuel exhaustion accounting in host tests; production build compiles `FUEL_TICK` to no-op and uses periodic `wasm_slice()` yielding based on elapsed time. This is a valid alternative only if process cancellation, scheduler fairness and non-yielding paths are proven.
 - **Action:** add/verify a production runtime test for infinite loops, tight loops, host-call loops, cancellation and scheduler responsiveness on x86-64 and ARM64. Do not equate host-test fuel exhaustion with production instruction quota.
 
-## F-009 — broad syscall dispatcher is a cross-layer coupling hotspot
+## F-009 — syscall/service boundary was a cross-layer coupling hotspot
 
-- **Severity:** Architecture debt.
-- **Files:** `syscall.c`, `fsrv.c`, `gfxsrv.c`, `net.c`, `audio.c`, `kdrv.c`.
-- **Evidence:** `syscall.c` includes and dispatches directly to many service implementations; syscall numbers cover graphics, files, IPC, network, audio, drivers and JIT. Some are legitimate kernel primitives; others appear to be service calls.
-- **Action:** preserve stable syscall ABI while moving service-level behavior behind capability-checked IPC/service endpoints. Do not break user ABI or existing apps during staged migration.
+- **Severity:** Architecture debt; first source separation implemented, IPC isolation remains open.
+- **Historical baseline files:** `syscall.c`, `fsrv.c`, `gfxsrv.c`, `net.c`, `audio.c`, `kdrv.c`.
+- **Current architecture-branch paths:** `kernel/syscall.c`, `services/syscall_router.c`, `services/*_syscall.c`.
+- **Evidence:** the kernel syscall core no longer includes graphics/filesystem/network/audio/RTC implementation headers. A subsystem-agnostic router delegates to five service-owned adapter translation units; `tests/architecture_test.py` enforces a unique owner for each service syscall ID and both ISA build manifests include the adapters.
+- **Residual risk:** adapters still execute in kernel context and accept raw syscall arguments. There is no user-mode service process, IPC transport, typed versioned request envelope, peer-death handling or service crash isolation yet.
+- **Action:** preserve stable Native ABI and central capability checks while introducing typed/versioned requests and capability-bound IPC endpoints one service at a time. Do not move all service calls to IPC before Service Manager and failure semantics are implemented.
 
 ## Validation state
 
@@ -83,7 +85,7 @@ No tests were executed during this source-review pass. Findings above are code o
 ## F-010 — IPC receive can consume a message before user-buffer copy succeeds
 
 - **Severity:** Medium — documented semantic edge case, not automatically a defect.
-- **Files:** `syscall.c` SYS_PORT_RECV, `kobj.c:port_recv`, `uaccess.c`.
+- **Files:** `kernel/syscall.c` SYS_PORT_RECV, `kobj.c:port_recv`, `uaccess.c`.
 - **Evidence:** `port_recv()` dequeues the message and copies into a kernel buffer; after it returns, SYS_PORT_RECV copies the bytes to user memory. If `copy_to_user()` fails because the destination was concurrently unmapped or became invalid, the message has already been removed and is lost; the source comment explicitly records this behavior.
 - **Action:** decide and document whether IPC receive is at-most-once with loss on invalid destination. If not acceptable, design a retry-safe protocol (pre-pin destination pages, dequeue token/ack, or other ownership protocol) without touching user memory under a spinlock. Add race/fault tests. RFC-IPC-001 tracks this open decision.
 
