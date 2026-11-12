@@ -73,7 +73,7 @@ int virtio_gpu_probe(void) {
         virtio_fail(&dev);
         return -4;
     }
-    virtio_driver_ok(&dev);
+    if (virtio_driver_ok(&dev) != 0) return -4;
 
     disp_info_t* di = (disp_info_t*)resp;
     zero(cmd, sizeof(hdr_t)); ((hdr_t*)cmd)->type = CMD_GET_DISPLAY_INFO;
