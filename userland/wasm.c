@@ -675,9 +675,18 @@ static int load(void) {
             for (u32 i = 0; i < n; i++) { funcs[nfuncs + i].type = decl[i]; funcs[nfuncs + i].import = 0; if (decl[i] >= ntypes) { trap("bad function type"); return -1; } }
             u32 first = nfuncs; nfuncs += n;                      /* все функции известны до разбора тел: вызовы вперёд */
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 bs = leb_u(&s, se); const u8* b = s; const u8* be = s + bs;
+                u32 bs = leb_u(&s, se);
+                if (trapped || bs > (u32)(se - s)) { trap("function body past code section"); return -1; }
+                const u8* b = s; const u8* be = s + bs;
                 u32 groups = leb_u(&b, be), nl = 0;
-                for (u32 g = 0; g < groups; g++) { u32 c = leb_u(&b, be); b++; nl += c; if (nl > 4096) { trap("too many locals"); return -1; } }
+                if (trapped) return -1;
+                for (u32 g = 0; g < groups; g++) {
+                    u32 count = leb_u(&b, be);
+                    if (trapped || b >= be || !wasm_valtype(*b) || count > 4096u - nl) {
+                        trap("bad function local declarations"); return -1;
+                    }
+                    b++; nl += count;
+                }
                 func_t* f = &funcs[first + i];
                 f->code = b; f->end = be; f->nlocals = nl;
                 if (compile_func(f)) return -1;
