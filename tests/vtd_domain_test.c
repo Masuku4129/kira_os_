@@ -168,6 +168,17 @@ int main(void)
     CHECK(iotlb_count == before + 1 && !iotlb.valid);
     CHECK(dma_translate(&dom, 0x30000, &pa) != 0);
 
+    /* A multi-page range clears all leaves with one IOTLB invalidation. */
+    CHECK(kira_vtd_domain_map_4k(&dom, 0x50000, 0x600000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_OK);
+    CHECK(kira_vtd_domain_map_4k(&dom, 0x51000, 0x601000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_OK);
+    CHECK(dma_translate(&dom, 0x50000, &pa) == 0 && pa == 0x600000);
+    CHECK(dma_translate(&dom, 0x51000, &pa) == 0 && pa == 0x601000);
+    before = iotlb_count;
+    CHECK(kira_vtd_domain_unmap_range(&dom, 0x50000, 2, &plat) == KIRA_VTD_OK);
+    CHECK(iotlb_count == before + 1);
+    CHECK(dma_translate(&dom, 0x50000, &pa) != 0);
+    CHECK(dma_translate(&dom, 0x51000, &pa) != 0);
+
     /* A missing or out-of-page IOTLB register block is refused, not written blindly. */
     unit.extended_capabilities = (uint64_t)0x3ff << 8;   /* IRO = 0x3ff0, beyond the 4 KiB page */
     CHECK(kira_vtd_domain_map_4k(&dom, 0x40000, 0x500000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_HARDWARE_ERROR);
