@@ -1234,23 +1234,8 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     hda_probe();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 
-    console_init();                                              /* общая консоль: те же команды, что у x86-64 */
-    for (;;) {                                                   /* поток core: консоль и секундные дела */
-        console_poll();
-        static uint64_t last_sec, seconds;
-        if (timer_get_ticks() - last_sec >= TIMER_HZ) {          /* раз в секунду: Разум, опыт, журнал, сборка стеков */
-            last_sec = timer_get_ticks();
-            seconds++;
-            mind_sys_tick(seconds);
-            experience_tick(seconds);
-            sched_reap();
-        }
-        prog_poll();                                             /* запуск, заказанный оболочкой (док, Проводник) */
-        kdrv_poll();                                             /* драйверы Ring 3 */
-        life_tick();
-        watchdog_feed();
-        sched_sleep_ticks(1);
-    }
+    console_init();
+    arm_kernel_main_loop();
 }
 
 uint64_t arm_counter_khz(void) { return cnt_freq / 1000; }
