@@ -238,7 +238,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
         b->state = B_FREE;
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
-        uart_print(": bus mastering could not be disabled; driver NOT started\\n");
+        uart_print(": bus mastering could not be disabled; driver NOT started\n");
         life_note("drv-denied-busmaster", name, KDRV_E_DMA_UNSAFE);
         return KDRV_E_DMA_UNSAFE;
     }
