@@ -45,23 +45,32 @@ static int count_unit(const struct kira_dmar_unit *u, void *ctx)
 
 int main(void)
 {
-    uint8_t table[88];
+    uint8_t table[96];
     struct kira_dmar_inventory inventory;
     unsigned count = 0;
 
     base_table(table, 88);
-    put16(table + 64, 1); put16(table + 66, 24); /* RMRR */
+    put16(table + 64, 1); put16(table + 66, 32); /* RMRR */
     put16(table + 68, 0); put16(table + 70, 0);
     put64(table + 72, 0x100000ull);
     put64(table + 80, 0x100fffull);
+    table[88] = 1; table[89] = 8; /* endpoint scope */
+    table[94] = 2; table[95] = 0;
     checksum(table, sizeof table);
 
     assert(kira_dmar_parse(table, sizeof table, &inventory) == KIRA_DMAR_OK);
     assert(inventory.host_address_width == 47 && inventory.unit_count == 1);
     assert(inventory.rmrr_count == 1 && inventory.rmrrs[0].base == 0x100000ull);
+    assert(inventory.rmrrs[0].scope_count == 1);
     assert(inventory.rmrrs[0].limit == 0x100fffull);
     assert(kira_dmar_for_each_unit(&inventory, count_unit, &count) == KIRA_DMAR_OK);
     assert(count == 1);
+    {
+        uint8_t optin[sizeof table];
+        memcpy(optin, table, sizeof optin); optin[37] = 0x4; checksum(optin, sizeof optin);
+        assert(kira_dmar_parse(optin, sizeof optin, &inventory) == KIRA_DMAR_OK);
+        assert(inventory.dma_ctrl_platform_opt_in == 1);
+    }
 
     assert(kira_dmar_parse(table, 48, &inventory) == KIRA_DMAR_E_LENGTH);
     assert(kira_dmar_parse(0, sizeof table, &inventory) == KIRA_DMAR_E_ARGUMENT);
@@ -72,7 +81,7 @@ int main(void)
         assert(kira_dmar_parse(bad, sizeof bad, &inventory) == KIRA_DMAR_E_STRUCTURE);
         memcpy(bad, table, sizeof bad); bad[52] = 0x80; checksum(bad, sizeof bad);
         assert(kira_dmar_parse(bad, sizeof bad, &inventory) == KIRA_DMAR_E_STRUCTURE);
-        memcpy(bad, table, sizeof bad); bad[53] = 1; checksum(bad, sizeof bad);
+        memcpy(bad, table, sizeof bad); bad[53] = 0x10; checksum(bad, sizeof bad);
         assert(kira_dmar_parse(bad, sizeof bad, &inventory) == KIRA_DMAR_E_STRUCTURE);
         memcpy(bad, table, sizeof bad); put16(bad + 66, 0); checksum(bad, sizeof bad);
         assert(kira_dmar_parse(bad, sizeof bad, &inventory) == KIRA_DMAR_E_STRUCTURE);
