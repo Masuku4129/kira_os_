@@ -197,7 +197,11 @@ static u64 const_expr(const u8** p, const u8* end) {
         else if (op == 0x23) {
             u32 g = leb_u(p, end);
             if (trapped || g >= nglobals) { trap("constant expression global index out of range"); return 0; }
-            v = globals[g];
+            /* Global imports are not part of the KIRA WASM ABI. Defined globals
+               are not valid constant-expression operands in WebAssembly MVP. */
+            (void)g;
+            trap("constant expression references unsupported local global");
+            return 0;
         }
         else if (op == 0x43) { if ((u64)(end - *p) < 4) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
         else if (op == 0x44) { if ((u64)(end - *p) < 8) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
