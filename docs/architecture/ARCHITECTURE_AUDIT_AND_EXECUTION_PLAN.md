@@ -157,7 +157,7 @@
 - Первичная инвентаризация, dependency map и contract registry — созданы. Это первичный source-level pass, не полный аудит всех модулей.
 - Отдельные Windows/Linux compatibility specs, compatibility matrix и Hypervisor threat model — созданы в `docs/compat/` и `docs/virtualization/`.
 - Open PR architecture tracker создан; выявлены важные вложенные веточные цепочки KDRV, IOMMU, KCC, Mind, scheduler. Ни один PR не сливался в рамках этой работы.
-- Critical F-013 KDRV bus-master issue has a narrow main-based remediation PR #136; do not merge before exact-head CI and security review.
+- Critical F-013 KDRV bus-master issue has narrow main-based remediation PR #136; F-014 firmware-set bus mastering has PR #137. Both must pass exact-head CI and security review; do not merge blindly.
 - Source-audit findings зафиксировали конкретные риски: kernel stack slot double-free/free-list ownership (#132); отсутствие подтверждённой publisher signature в main KDRV path (signature PR chain ещё не в main); статическая name-based capabilities; Mind action boundary; host tests с no-op locks; WASM fuel test-only; широкий syscall dispatcher; IPC receive dequeue before user-copy semantics.
 - Первые RFC drafts созданы: BootInfo, syscall/native ABI, capabilities, IPC/SHM. Они фиксируют только наблюдаемые факты и открытые решения, не замораживают ABI.
 - Последний main CI на baseline SHA `bbc7f7ab948e72511aed113b69043add10ec8350`: workflow run `43244194123`, 30 jobs завершились success (host-tests, ARM64, build, QEMU VM scenarios, Limbo smoke/stress). Это evidence для указанного SHA и конкретной матрицы, не доказательство полной архитектуры или физического ARM64/x86 hardware.
