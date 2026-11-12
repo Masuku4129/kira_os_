@@ -49,6 +49,16 @@ int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
 int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
                              uint64_t iova,
                              const struct kira_vtd_platform *platform);
+struct kira_vtd_range {
+    uint64_t iova;
+    uint32_t pages;
+};
+/* Remove several ranges with one IOTLB invalidation. On invalidation failure,
+   the caller must retain every backing page and retry the whole batch. */
+int kira_vtd_domain_unmap_ranges(struct kira_vtd_domain *domain,
+                                 const struct kira_vtd_range *ranges,
+                                 size_t count,
+                                 const struct kira_vtd_platform *platform);
 int kira_vtd_domain_unmap_range(struct kira_vtd_domain *domain,
                                 uint64_t iova, uint32_t pages,
                                 const struct kira_vtd_platform *platform);
