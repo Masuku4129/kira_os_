@@ -81,7 +81,7 @@ static int runner_syscall(void *context, uint32_t number, uint8_t capability,
     if (number == KVM_HOST_WRITE && capability == KVM_CAP_CONSOLE) {
         if (args[0] > vm->memory_size ||
             args[1] > vm->memory_size - (size_t)args[0] ||
-            args[1] > RUNNER_WRITE_MAX ||
+            args[1] > RUNNER_WRITE_MAX || host->output_bytes > RUNNER_OUTPUT_BUDGET ||
             args[1] > RUNNER_OUTPUT_BUDGET - host->output_bytes)
             return -1;
         if (args[1])
