@@ -731,7 +731,7 @@ static void print_ins(const Ins *i) {
 }
 
 IrFn *ir_lower(Obj *f) {
-    if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
+    if (!K.ir_state) K.ir_state = ka_new(sizeof(struct IRState));
     fn = f;
     ihead = itail = NULL;
     ir_nreg = 0; ir_nlab = f->nlabels;
@@ -806,7 +806,7 @@ int ir_uses_sp(const IrFn *fi) {
 }
 
 void ir_dump(Obj *globals, SB *o) {
-    if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
+    if (!K.ir_state) K.ir_state = ka_new(sizeof(struct IRState));
     out = o;
     sb_printf(out, "; kcc IR\n");
     for (Obj *g = globals; g; g = g->next) {
