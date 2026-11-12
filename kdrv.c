@@ -175,7 +175,7 @@ static uint16_t quiesce(const pci_dev_t* d) {
     c = find_cap(d, 0x11);
     if (c) pci_write16(d, (uint16_t)(c + 2), (uint16_t)((pci_read16(d, (uint16_t)(c + 2)) & ~0x8000u) | 0x4000u));
     uint16_t cmd = pci_read16(d, 0x04);
-    pci_write16(d, 0x04, (uint16_t)(cmd & ~(PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER)));
+    pci_write16(d, 0x04, (uint16_t)((cmd & ~(PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER)) | PCI_CMD_INTX_OFF));
     return pci_read16(d, 0x04);
 }
 
