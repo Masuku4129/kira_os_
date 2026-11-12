@@ -73,6 +73,9 @@ int kdrv_pci_busmaster_handoff_safe(uint16_t command_before, uint16_t command_af
 int kdrv_pci_command_quiesced(uint16_t command);
 int kdrv_pci_interrupts_quiesced(uint16_t msi_control, int has_msi,
                                  uint16_t msix_control, int has_msix);
+int kdrv_pci_start_requires_permanent_quarantine(int device_quiesced,
+                                                  uint16_t command_before,
+                                                  uint16_t command_after);
 /* Overflow-safe physical/page bounds for untrusted PCI BAR metadata. */
 int kdrv_mmio_page_bounds(uint64_t base, uint64_t size, uint64_t* page_lo, uint64_t* page_hi);
 int kdrv_mmio_map_bounds(uint64_t base, uint64_t size, uint64_t offset, uint64_t length,
