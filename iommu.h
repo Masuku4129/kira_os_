@@ -50,8 +50,8 @@ int iommu_device_isolated(const pci_dev_t* dev);
    have the same offset inside a page; the pages covering the range are mapped. A
    range overlapping an earlier mapping is refused. */
 int iommu_map(const pci_dev_t* dev, uint64_t iova, uint64_t phys, uint64_t len, unsigned rw);
-/* Remove exactly one earlier iommu_map (same set of pages). The IOTLB is
-   invalidated before it returns, so the memory may be reused afterwards. */
+/* Remove exactly one earlier iommu_map (same set of pages). Only IOMMU_OK
+   confirms invalidation; on any other result the backing pages must stay pinned. */
 int iommu_unmap(const pci_dev_t* dev, uint64_t iova, uint64_t len);
 /* Retry every tracked unmap; nonzero means at least one mapping remains pinned. */
 int iommu_unmap_all(const pci_dev_t* dev);
