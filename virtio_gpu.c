@@ -108,7 +108,7 @@ int virtio_gpu_probe(void) {
     }
     if (!ok) { uart_print("[KIRA GPU] virtio-gpu refused the 2D resource.\n"); virtio_fail(&dev); return -6; }
     up = 1;
-    if (fb_attach_linear(fb_phys, fbm, W, H, W * 4, gpu_flush) != 0) { up = 0; return -7; }
+    if (fb_attach_linear(fb_phys, fbm, W, H, W * 4, gpu_flush) != 0) { up = 0; (void)virtio_fail(&dev); return -7; }
     uart_print("[KIRA GPU] virtio-gpu: "); uart_print_dec(W); uart_print("x"); uart_print_dec(H);
     uart_print(" 2D scanout, frames are sent to the host after each composed frame.\n");
     return 0;
