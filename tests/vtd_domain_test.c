@@ -153,10 +153,20 @@ int main(void)
     hw_rejects = 1;
     CHECK(kira_vtd_domain_map_4k(&dom, 0x20000, 0x300000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_HARDWARE_ERROR);
     hw_rejects = 0;
+
+    /* If unmap clears the PTE but IOTLB invalidation times out, retrying the
+       same unmap must still issue an invalidation for the now-absent PTE. */
+    CHECK(kira_vtd_domain_map_4k(&dom, 0x30000, 0x400000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_OK);
+    CHECK(dma_translate(&dom, 0x30000, &pa) == 0 && pa == 0x400000);
     hw_never_completes = 1;
-    CHECK(kira_vtd_domain_map_4k(&dom, 0x30000, 0x400000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_TIMEOUT);
+    CHECK(kira_vtd_domain_unmap_4k(&dom, 0x30000, &plat) == KIRA_VTD_TIMEOUT);
+    CHECK(iotlb.valid);                              /* stale translation remains: caller must pin backing memory */
     hw_never_completes = 0;
     *reg64(IOTLB_OFF) = 0; *reg64(CCMD_OFF) = 0;
+    before = iotlb_count;
+    CHECK(kira_vtd_domain_unmap_4k(&dom, 0x30000, &plat) == KIRA_VTD_OK);
+    CHECK(iotlb_count == before + 1 && !iotlb.valid);
+    CHECK(dma_translate(&dom, 0x30000, &pa) != 0);
 
     /* A missing or out-of-page IOTLB register block is refused, not written blindly. */
     unit.extended_capabilities = (uint64_t)0x3ff << 8;   /* IRO = 0x3ff0, beyond the 4 KiB page */
