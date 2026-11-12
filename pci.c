@@ -85,8 +85,14 @@ static int quarantine_matches(uint8_t bus, uint8_t dev, uint8_t fn,
 }
 static void quarantine_record(const pci_dev_t* d) {
     if (!d) return;
-    if (quarantine_matches(d->bus, d->dev, d->fn, d->vendor, d->device))
-        return;
+    /* Caller holds cfg_rmw_lock: do not call quarantine_matches(), which
+       acquires the same lock for scan-time readers. */
+    for (unsigned i = 0; i < dma_quarantine_count; ++i) {
+        const pci_dma_quarantine_t* q = &dma_quarantine[i];
+        if (q->bus == d->bus && q->dev == d->dev && q->fn == d->fn &&
+            q->vendor == d->vendor && q->device == d->device)
+            return;
+    }
     if (dma_quarantine_count >= PCI_MAX_DEVS) {
         dma_quarantine_overflow = 1; /* fail closed globally rather than lose a quarantine */
         return;
