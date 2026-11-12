@@ -125,21 +125,26 @@ int kira_vtd_unit_prepare(struct kira_vtd_unit *unit,
     uint64_t ecap;
     uint64_t root_physical = 0;
     void *root_virtual;
+    volatile uint8_t *registers;
     unsigned int i;
 
     if (!unit || !platform || !platform->map_mmio ||
-        !platform->alloc_dma_page || register_base == 0 ||
-        (register_base & 0xfffu) != 0)
+        !platform->alloc_dma_page || !platform->free_dma_page ||
+        register_base == 0 || (register_base & 0xfffu) != 0)
         return KIRA_VTD_INVALID;
 
-    unit->registers = (volatile uint8_t *)
+    /* Caller storage may be uninitialized; publish no partial unit state. */
+    for (i = 0; i < sizeof(*unit); ++i)
+        ((uint8_t *)unit)[i] = 0;
+
+    registers = (volatile uint8_t *)
         platform->map_mmio(platform->context, register_base, VTD_PAGE_SIZE);
-    if (!unit->registers)
+    if (!registers)
         return KIRA_VTD_MMIO_FAILED;
 
-    version = vtd_read32(unit->registers, VTD_REG_VER);
-    cap = vtd_read64(unit->registers, VTD_REG_CAP);
-    ecap = vtd_read64(unit->registers, VTD_REG_ECAP);
+    version = vtd_read32(registers, VTD_REG_VER);
+    cap = vtd_read64(registers, VTD_REG_CAP);
+    ecap = vtd_read64(registers, VTD_REG_ECAP);
 
     /* Version register's low byte is the minor revision, next byte major. */
     if (((version >> 4) & 0xfu) == 0 && ((version >> 8) & 0xffu) == 0)
@@ -164,6 +169,7 @@ int kira_vtd_unit_prepare(struct kira_vtd_unit *unit,
     for (i = 0; i < VTD_PAGE_SIZE / sizeof(uint64_t); ++i)
         ((volatile uint64_t *)root_virtual)[i] = 0;
 
+    unit->registers = registers;
     unit->physical_base = register_base;
     unit->capabilities = cap;
     unit->extended_capabilities = ecap;
@@ -255,3 +261,31 @@ int kira_vtd_unit_disable_translation(struct kira_vtd_unit *unit,
     unit->translation_enabled = 0;
     return KIRA_VTD_OK;
 }
+int kira_vtd_unit_release(struct kira_vtd_unit *unit,
+                          const struct kira_vtd_platform *platform)
+{
+    unsigned int i;
+    int rc;
+
+    if (!unit || !platform)
+        return KIRA_VTD_INVALID;
+
+    if (unit->translation_enabled) {
+        rc = kira_vtd_unit_disable_translation(unit, platform);
+        if (rc != KIRA_VTD_OK)
+            return rc; /* Keep the root table pinned while hardware may use it. */
+    }
+
+    if (unit->root_table) {
+        if (!platform->free_dma_page)
+            return KIRA_VTD_INVALID;
+        platform->free_dma_page(platform->context, unit->root_table,
+                                unit->root_table_physical);
+    }
+
+    /* The MMIO mapping lifetime is owned by the platform mapper. */
+    for (i = 0; i < sizeof(*unit); ++i)
+        ((uint8_t *)unit)[i] = 0;
+    return KIRA_VTD_OK;
+}
+
