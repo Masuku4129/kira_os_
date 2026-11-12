@@ -1,4 +1,6 @@
 #include "usb.h"
+
+int platform_dma_noncoherent(void) __attribute__((weak));
 #include "pci.h"
 
 /* UHCI (USB 1.1, Intel): регистры в портах ввода-вывода (BAR4), расписание в памяти:
@@ -376,6 +378,10 @@ static void uhci_ports(usb_hc_t* hc) {
 
 int uhci_start(usb_hc_t* hc, const void* pd) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
+    if (platform_dma_noncoherent && platform_dma_noncoherent()) {
+        usb_log("[KIRA USB] UHCI disabled; DMA ownership synchronization is not validated on non-coherent ARM64.\\n");
+        return -2;
+    }
     if (nctl >= 8) { usb_log("[KIRA USB] more than 8 UHCI controllers: the rest are not used\n"); return -1; }
     if (!p->bar[4].io || !p->bar[4].base) { usb_log("[KIRA USB] UHCI without I/O BAR4: skipped\n"); return -1; }
     if (!ctl_state[nctl]) ctl_state[nctl] = (uhci_t*)usb_dma_alloc(sizeof(uhci_t), &(uint64_t){ 0 }, 0);
