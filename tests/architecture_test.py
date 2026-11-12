@@ -64,6 +64,10 @@ for path in ("userland/kira.h", "kcc/include/kira.h"):
         public_api,
     )
     require(not duplicated, f"{path} duplicates numeric syscall IDs instead of using SYS_* constants")
+    aliases = re.findall(r"\\b(K_[A-Z0-9_]+)\\s*=\\s*(SYS_[A-Z0-9_]+)\\b", public_api)
+    require(aliases, f"{path} has no aliases to the canonical SYS_* registry")
+    for alias, syscall_id in aliases:
+        require(syscall_id in names, f"{path}: {alias} references unknown {syscall_id}")
 require('#include "syscall_services.h"' in core,
         "syscall core does not use the service-adapter contract")
 for header in ("net.h", "audio.h", "gfxsrv.h", "fsrv.h", "rtc.h"):
