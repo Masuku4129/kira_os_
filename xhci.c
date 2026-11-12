@@ -523,6 +523,15 @@ static int xhci_mask_pci_interrupts(const pci_dev_t* p) {
     return safe;
 }
 
+static int xhci_pci_quiesce(const pci_dev_t* p) {
+    int safe = xhci_mask_pci_interrupts(p);
+    uint16_t command = pci_read16(p, 0x04);
+    pci_write16(p, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+    if (pci_read16(p, 0x04) & PCI_CMD_MASTER) safe |= 2;
+    else safe |= 4;
+    return safe; /* bit 0: IRQs masked; bit 2: bus mastering read back clear */
+}
+
 static int bios_handoff(volatile uint8_t* cap, uint64_t bar_size) {
     uint32_t xecp = (r32(cap, 0x10) >> 16) << 2;
     if (!xecp) return 0;
@@ -564,7 +573,11 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if (!xall[started]) xall[started] = (xhci_t*)usb_dma_alloc(sizeof(xhci_t), &(uint64_t){ 0 }, 0);   /* обнулённые страницы */
     if (!xall[started]) { usb_log("[KIRA USB] xHCI: no memory for controller state\n"); return -1; }
     X = xall[started];
-    if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) { usb_log("[KIRA USB] xHCI without memory BAR0: skipped\n"); return -1; }
+    if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) {
+        (void)xhci_pci_quiesce(p);
+        usb_log("[KIRA USB] xHCI without a usable memory BAR0; DMA disabled\n");
+        return -2;
+    }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     if (p->vendor == 0x8086) {                                        /* Intel: порты, отданные EHCI, вернуть xHCI */
         pci_write32(p, 0xD8, pci_read32(p, 0xDC));
@@ -572,7 +585,11 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     }
     uint64_t sz = p->bar[0].size > 0x10000 ? 0x10000 : p->bar[0].size;
     volatile uint8_t* cap = (volatile uint8_t*)pci_map_bar(p, 0, 0, sz);
-    if (!cap) { usb_log("[KIRA USB] xHCI: cannot map registers\n"); return -1; }
+    if (!cap) {
+        (void)xhci_pci_quiesce(p);
+        usb_log("[KIRA USB] xHCI: cannot map registers; DMA disabled\n");
+        return -2;
+    }
     for (unsigned long i = 0; i < sizeof xs; i++) ((volatile uint8_t*)X)[i] = 0;   /* десятки КБ: не через временную копию на стеке */
     xs.cap = cap;
     uint32_t caplen = cap[0], hcs1 = r32(cap, 4), hcs2 = r32(cap, 8), hcc1 = r32(cap, 0x10);
@@ -581,8 +598,9 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if (caplen < 0x20 || (caplen & 3u) || (uint64_t)caplen + 0x40u > sz ||
         (uint64_t)rt_off + 0x40u > sz ||
         (uint64_t)db_off + 4u * (MAXSLOT + 1u) > sz) {
-        usb_log("[KIRA USB] xHCI: capability or operational registers outside BAR\n");
-        return -1;
+        (void)xhci_pci_quiesce(p);
+        usb_log("[KIRA USB] xHCI: capability or operational registers outside BAR; DMA disabled\n");
+        return -2;
     }
     xs.op = cap + caplen; xs.rt = cap + rt_off; xs.db = (volatile uint32_t*)(cap + db_off);
     xs.maxslots = hcs1 & 0xFF; if (xs.maxslots > MAXSLOT) xs.maxslots = MAXSLOT;
@@ -593,14 +611,12 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w32(xs.op, 0, r32(xs.op, 0) & ~1u);                               /* стоп */
     for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     int halted = (r32(xs.op, 4) & 1u) != 0;
-    int interrupts_masked = xhci_mask_pci_interrupts(p);
-    uint16_t pci_cmd = pci_read16(p, 0x04);
-    pci_write16(p, 0x04, (uint16_t)(pci_cmd & ~PCI_CMD_MASTER));
-    if (pci_read16(p, 0x04) & PCI_CMD_MASTER) {
+    int pci_quiet = xhci_pci_quiesce(p);
+    if (pci_quiet & 2) {
         usb_log("[KIRA USB] xHCI: bus mastering did not clear; controller remains quarantined\\n");
         return -2;
     }
-    if (!interrupts_masked) {
+    if (!(pci_quiet & 1)) {
         usb_log("[KIRA USB] xHCI: inherited MSI/MSI-X could not be masked; controller remains quarantined\\n");
         return -2;
     }
