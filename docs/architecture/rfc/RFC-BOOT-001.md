@@ -12,11 +12,22 @@
 - ARM64 boot path в `arch/aarch64/main.c` использует FDT, memory nodes, chosen bootargs, UART, GIC/PSCI и платформенные данные.
 - В main не обнаружен единый cross-ISA BootInfo structure/header. PR #42/#46 contain proposed handoff-related work but are not main.
 
-## 2. Цель
+## 2. Candidate implementation already present in an open branch (not main)
+
+PR #42 branch `v46/kdrv-catalogue-signature-policy` contains a root `bootinfo.h` proposal:
+- packed `kbi_header_t` size 136 bytes, magic `0x4941524B`, version 1;
+- offset-based bounded blob with memory-map entries (24 bytes), module entries (32 bytes), command line, framebuffer channel layout, ACPI RSDP/FDT physical references, kernel physical base/size, architecture and boot mode;
+- `bootinfo.c` validator, Multiboot2 adapter and FDT adapter;
+- host tests for malformed ranges, overlap, module metadata, Multiboot2 tags and FDT parsing;
+- kernel x86-64 and ARM64 entry paths consume this root KBI format in that branch.
+
+However the same PR branch also adds a second incompatible `include/kira/bootinfo.h` format and `kernel/boot/boot_handoff.[ch]`; the latter is not in the production build source list or called by reviewed kernel entry paths. This duplicate must be resolved before any BootInfo ABI is accepted. The PR's boot implementation is not part of main.
+
+## 3. Цель
 
 Общий kernel bootstrap получает один версионированный, проверенный BootInfo view независимо от источника firmware/bootloader. Архитектурные различия остаются в backend adapters.
 
-## 3. Proposed logical fields (not frozen layout)
+## 4. Proposed logical fields (not frozen layout)
 
 - magic, structure_size, ABI_version, flags;
 - architecture and firmware/boot protocol identity;
@@ -33,7 +44,7 @@
 
 Do not copy pointers from loader-owned structures into persistent kernel state without validation and ownership transfer.
 
-## 4. Required invariants
+## 5. Required invariants
 
 1. All physical ranges are overflow-safe, aligned where required, non-overlapping unless explicitly allowed, and within declared memory/firmware map.
 2. Kernel image, boot stack, BootInfo copy and modules are reserved before PMM exposes free pages.
@@ -42,7 +53,9 @@ Do not copy pointers from loader-owned structures into persistent kernel state w
 5. BootInfo is immutable after handoff; services receive read-only views.
 6. x86-64 and ARM64 adapters produce the same logical semantics, not necessarily identical raw firmware data.
 
-## 5. Open decisions
+## 6. Open decisions
+
+- Whether to adopt the root `kbi_header_t` proposal from PR #42 as a candidate, after resolving duplicate format and reviewing every consumer, or redesign it based on this RFC.
 
 - Whether bootloader-owned raw structures are normalized by each architecture backend or by a shared parser.
 - Exact physical address width and memory attribute vocabulary.
@@ -51,7 +64,7 @@ Do not copy pointers from loader-owned structures into persistent kernel state w
 - Optional framebuffer/module/boot-device ownership lifecycle.
 - Version negotiation and compatibility window.
 
-## 6. Conformance tests
+## 7. Conformance tests
 
 - malformed magic/version/size/alignment;
 - truncated tags, integer overflow and overlapping ranges;
@@ -62,6 +75,6 @@ Do not copy pointers from loader-owned structures into persistent kernel state w
 - unknown optional and mandatory tags;
 - identical logical memory/topology view for equivalent x86-64/ARM64 fixtures.
 
-## 7. Acceptance gate
+## 8. Acceptance gate
 
 Do not freeze structure layout or replace existing boot paths until BIOS/UEFI x86-64 and ARM64 FDT boot adapters pass the same shared conformance suite and a migration path is documented.
