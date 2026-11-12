@@ -78,3 +78,12 @@ No tests were executed during this source-review pass. Findings above are code o
 3. run existing host tests and production x86-64/ARM64 builds at a recorded SHA;
 4. add production/QEMU tests for VFS/KFS concurrency, WASM scheduling, Mind control and driver lifecycle;
 5. update each finding with fixed commit, test command, exact result and residual risk.
+
+
+## F-010 — IPC receive can consume a message before user-buffer copy succeeds
+
+- **Severity:** Medium — documented semantic edge case, not automatically a defect.
+- **Files:** `syscall.c` SYS_PORT_RECV, `kobj.c:port_recv`, `uaccess.c`.
+- **Evidence:** `port_recv()` dequeues the message and copies into a kernel buffer; after it returns, SYS_PORT_RECV copies the bytes to user memory. If `copy_to_user()` fails because the destination was concurrently unmapped or became invalid, the message has already been removed and is lost; the source comment explicitly records this behavior.
+- **Action:** decide and document whether IPC receive is at-most-once with loss on invalid destination. If not acceptable, design a retry-safe protocol (pre-pin destination pages, dequeue token/ack, or other ownership protocol) without touching user memory under a spinlock. Add race/fault tests. RFC-IPC-001 tracks this open decision.
+
