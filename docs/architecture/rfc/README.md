@@ -8,6 +8,7 @@
 | [RFC-ABI-001](RFC-ABI-001.md) | Syscall and native application ABI | Draft; syscall numbers inventoried, per-ISA register map still requires source trace | main @ bbc7f7ab |
 | [RFC-SEC-001](RFC-SEC-001.md) | Capabilities, identity and authority | Draft; static CAP_* model preserved as legacy baseline | main @ bbc7f7ab |
 | [RFC-IPC-001](RFC-IPC-001.md) | IPC, shared memory and event semantics | Draft; PORT/SHM/futex facts captured | main @ bbc7f7ab |
+| [RFC-TOOL-001](RFC-TOOL-001.md) | KCC compiler context/reentrancy | Draft; global context and self-host failures recorded | main @ bbc7f7ab |
 
 ## RFC review requirements
 
