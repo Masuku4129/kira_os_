@@ -203,3 +203,8 @@
 - PR #112 `fix/bios-mbr-partition-cmdline-v2`, head `2dcf255ff4832f5631b1105c7b05fb5fe872d4b6`, run `42814184313`: завершены успешно build, ARM64, driver-e2e, KCC, host-tests, Mind quality, audit, GUI regression, UEFI OVMF и все 10 VM matrix jobs.
 - Отдельно в `tests/bios_boot_test.sh` проверяются MBR partition table, загрузка BIOS, отсутствие/наличие command line, initrd, CRC отказ, недостаток RAM и некорректный ELF. Это CI/QEMU evidence, не физическое железо и не Limbo.
 - PR target `autodrv`, mergeable=true; оставлен открытым до согласования release integration.
+
+### KIRA VM v1 — verifier cleanup regression (2026-11-12)
+- PR #134: добавлен тест отказа verifier после копирования кода. При неизвестном opcode instance init обязан освободить snapshot кода и не выделять guest linear memory. Commit `a5afc19b9024cf7128094d3e4dfbdf6fc8a99c00`.
+- Workflow `43218444622` для точного head создан и ожидает выполнения; PASS не подтверждён.
+- ABI остаётся экспериментальным 32-byte KVM1; 64-byte sectioned proposal в другой ветке несовместим. Интеграция с /apps, package signature, syscall registry, resource quotas, cancel/pause, compiler SDK, fuzzing и cross-architecture conformance ещё не завершены.
