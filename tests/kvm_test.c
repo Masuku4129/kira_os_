@@ -279,7 +279,7 @@ static int test_portable_container(void)
     uint64_t result = 0;
 
     memset(blob, 0, sizeof blob);
-    memcpy(blob, "KVM1", 4);
+    memcpy(blob, "KVP0", 4);
     put16(blob + 4, KVM_MODULE_VERSION);
     put16(blob + 6, KVM_MODULE_HEADER_SIZE);
     put32(blob + 8, (uint32_t)sizeof code);
