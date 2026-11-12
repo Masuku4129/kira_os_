@@ -66,6 +66,8 @@ int  virtio_iommu_check(virtio_dev_t* v);
 
 /* Непрерывная память для DMA (обнулена). Возвращает указатель; *phys - адрес для устройства. 0 - нет памяти. */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
+int virtio_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes);
+int virtio_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes);
 
 /* Блочное устройство virtio-blk. NULL - такого устройства нет или оно не поднялось. */
 struct blk_dev;
