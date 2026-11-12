@@ -130,9 +130,13 @@ int main(void) {
 
     /* Truncated header buffers must be rejected before any later header
        field is read. ASan catches an over-read for every short length. */
-    for (uint32_t short_len = 0; short_len < 40; short_len++) {
-        CHECK(!fdt_valid(blob, short_len));
-        CHECK(!fdt_tree_valid(blob, short_len));
+    {
+        uint8_t tiny_header[39] = {0};
+        be(tiny_header, FDT_MAGIC);
+        for (uint32_t short_len = 0; short_len < sizeof tiny_header; short_len++) {
+            CHECK(!fdt_valid(tiny_header, short_len));
+            CHECK(!fdt_tree_valid(tiny_header, short_len));
+        }
     }
 
     /* испорченные блобы */
