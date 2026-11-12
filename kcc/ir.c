@@ -15,15 +15,16 @@ struct IRState {
  * this alias keeps the self-hosted parser's supported C subset (no call-result -> member).
  * K itself is currently process-global, so this does not reduce existing concurrency guarantees. */
 static struct IRState *irs;
-#define IRS irs
-#define ihead (IRS->ihead)
-#define itail (IRS->itail)
-#define ir_nreg (IRS->reg_count)
-#define ir_nlab (IRS->label_count)
-#define fn (IRS->fn)
-#define ltail (IRS->ltail)
-#define maxslot (IRS->maxslot)
-#define out (IRS->out)
+/* Keep each member expression direct: the self-hosted preprocessor does not
+ * reliably rescan an object-like alias nested inside another macro body. */
+#define ihead (irs->ihead)
+#define itail (irs->itail)
+#define ir_nreg (irs->reg_count)
+#define ir_nlab (irs->label_count)
+#define fn (irs->fn)
+#define ltail (irs->ltail)
+#define maxslot (irs->maxslot)
+#define out (irs->out)
 
 static Ins *emit(IrOp op) {
     Ins *i = ka_new(sizeof *i);
