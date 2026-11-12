@@ -150,8 +150,8 @@ static u64 const_expr(const u8** p, const u8* end) {
         if (op == 0x41) v = (u64)(u32)leb_s(p, end, 32);
         else if (op == 0x42) v = (u64)leb_s(p, end, 64);
         else if (op == 0x23) { u32 g = leb_u(p, end); v = g < nglobals ? globals[g] : 0; }
-        else if (op == 0x43) { if (*p + 4 > end) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
-        else if (op == 0x44) { if (*p + 8 > end) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
+        else if (op == 0x43) { if ((u64)(end - *p) < 4) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
+        else if (op == 0x44) { if ((u64)(end - *p) < 8) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
         else { trap("unsupported constant expression"); return 0; }
     }
     trap("unterminated constant expression"); return 0;
@@ -657,7 +657,9 @@ static int load(void) {
             }
         } else if (id == 3) {                                     /* функции */
             nfuncdecl = leb_u(&s, se);
+            if (trapped || nfuncdecl > MAXF - nfuncs) { trap("too many or truncated function declarations"); return -1; }
             decl = (u32*)alloc(4ull * (nfuncdecl + 1));
+            if (!decl) { trap("no memory for function declarations"); return -1; }
             for (u32 i = 0; i < nfuncdecl && !trapped; i++) decl[i] = leb_u(&s, se);
         } else if (id == 4) {                                     /* таблица */
             u32 n = leb_u(&s, se);
