@@ -362,10 +362,9 @@ void fsrv_execute(fsrv_req_t* r) {
 #include "heap.h"
 #include "kmutex.h"
 
-/* Запрос выполняется прямо в потоке вызвавшей программы (на любом ядре): KiraFS и блочное устройство под своими
-   мьютексами. Мьютекс сервиса делает атомарными многошаговые операции (проверка квоты и запись, stat и удаление)
-   между программами. Раньше запрос шёл через один общий слот, который основной поток ядра опрашивал раз в 10 мс. */
-static kmutex_t fsrv_mx = KMUTEX_INIT;
+/* Запрос выполняется прямо в потоке вызвавшей программы. Многошаговая операция сериализуется
+   транзакционной блокировкой KiraFS; вложенные kfs_* вызовы используют тот же lock owner/depth,
+   а не пытаются захватить второй блокирующий mutex поверх первого. */
 
 #include "uaccess.h"
 /* Файл, выданный программе при запуске (Проводник открыл его в программе просмотра): только чтение, только он.
@@ -459,9 +458,9 @@ int64_t fsrv_syscall(uint64_t up) {
     for (unsigned i = 0; i <= FSRV_NAME_MAX; i++) r->name[i] = name[i];
     r->off = u.off; r->len = u.buf_len;
     if (from_user && copy_from_user(r->data, u.buf_ptr, u.buf_len) != 0) { kfree(r->data); kfree(r); return FS_E_ARG; }   /* копия: программа не изменит данные во время записи */
-    kmutex_lock(&fsrv_mx);
+    kfs_transaction_begin();
     fsrv_execute(r);
-    kmutex_unlock(&fsrv_mx);
+    kfs_transaction_end();
     int64_t res = r->result;
     if (to_user && res > 0) {
         if ((uint64_t)res > u.buf_len) res = (int64_t)u.buf_len;
