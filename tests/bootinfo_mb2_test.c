@@ -19,7 +19,7 @@ int main(void){
     /* Multiboot2: mmap, initrd module, command line, RGB framebuffer, end tag. */
     w32(b,136); w32(b+4,0);
     w32(b+8,6); w32(b+12,40); w32(b+16,24); w32(b+20,0);
-    w64(b+24,0); w64(b+32,0x9f000); w32(b+40,1); w32(b+44,0);
+    w64(b+24,0); w64(b+32,0x1000000); w32(b+40,1); w32(b+44,0);
     w32(b+48,3); w32(b+52,21); w32(b+56,0x400000); w32(b+60,0x401000);
     memcpy(b+64,"init",5);
     w32(b+72,1); w32(b+76,14); memcpy(b+80,"quiet",6);
