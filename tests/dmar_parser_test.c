@@ -7,6 +7,10 @@ static void put16(uint8_t *p, uint16_t v)
 {
     p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
 }
+static void put32(uint8_t *p, uint32_t v)
+{
+    for (unsigned i = 0; i < 4; ++i) p[i] = (uint8_t)(v >> (i * 8));
+}
 static void put64(uint8_t *p, uint64_t v)
 {
     for (unsigned i = 0; i < 8; ++i) p[i] = (uint8_t)(v >> (i * 8));
