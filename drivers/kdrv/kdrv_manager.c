@@ -95,13 +95,15 @@ int kdrv_manager_install(struct kdrv_manager_ops *ops, const char *path,
     uint32_t i;
     int rc = -1;
     int staged = 0;
+    int committed = 0;
     int manifest_ready = 0;
 
     if (!ops || !path || !target_arch || !ops->read_package ||
         !ops->free_package || !ops->parse_manifest ||
         !ops->verify_signature || !ops->dependency_satisfied ||
         !ops->stage_payload || !ops->commit_staged ||
-        !ops->discard_staged || !ops->record_state)
+        !ops->rollback_committed || !ops->discard_staged ||
+        !ops->record_state)
         return -1;
 
     staging_path[0] = '\0';
@@ -154,13 +156,17 @@ int kdrv_manager_install(struct kdrv_manager_ops *ops, const char *path,
         goto out;
 
     staged = 0;
+    committed = 1;
     if (ops->record_state(ops->context, manifest.name, manifest.version,
                           KDRV_STATE_INSTALLED) != 0)
         goto out;
 
+    committed = 0;
     rc = 0;
 
 out:
+    if (committed)
+        (void)ops->rollback_committed(ops->context, manifest.name);
     if (staged)
         ops->discard_staged(ops->context, staging_path);
     if (rc != 0 && manifest_ready)
