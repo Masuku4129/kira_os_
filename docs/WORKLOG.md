@@ -366,8 +366,8 @@
 ## 2026-11-12 — syscall core/service adapter separation
 
 - Added `syscall_numbers.h` as the single shared registry of Native syscall numbers; all numeric values were preserved.
-- Added `syscall_services.h/.c` and moved graphics, filesystem, network, audio and wall-clock syscall routing out of `syscall.c` into one service-facing adapter translation unit.
-- `syscall.c` now retains the syscall entry handler, capability gate, process/thread/memory/IPC primitives, driver calls and fallback to the adapter. It no longer includes graphics/filesystem/network/audio/RTC service headers.
+- Added `syscall_services.h/.c` and moved graphics, filesystem, network, audio and wall-clock syscall routing out of `kernel/syscall.c` into one service-facing adapter translation unit.
+- `kernel/syscall.c` now retains the syscall entry handler, capability gate, process/thread/memory/IPC primitives, driver calls and fallback to the adapter. It no longer includes graphics/filesystem/network/audio/RTC service headers.
 - Added `RFC-SVC-001.md`: explicitly marks this as an in-kernel transitional facade, not a user-mode Service Manager or IPC isolation claim.
 - Added adapter source to both x86-64 and ARM64 build source lists. Native syscall numbers and dispatch argument order are unchanged by design.
 - Verification pending for the final branch head: x86-64/ARM64 build, host tests and QEMU suite. Do not claim runtime compatibility until CI on exact head succeeds.
@@ -376,4 +376,6 @@
 
 - Corrected ISA ownership: moved x86 `kernel_main` and boot coordinator into `arch/x86_64/`; moved the boot-init declaration into an x86-private header and removed it from common `kernel.h`. ARM64 entry remains separate.
 
-- Service-boundary refinement: the router `syscall_services.c` is now subsystem-agnostic. Graphics, filesystem, network, audio and clock syscalls have separate adapter translation units. Both x86-64 and ARM64 build manifests include all adapters; architecture tests enforce one owner per service syscall ID.
+- Service-boundary refinement: the router `services/syscall_router.c` is now subsystem-agnostic. Graphics, filesystem, network, audio and clock syscalls have separate adapter translation units. Both x86-64 and ARM64 build manifests include all adapters; architecture tests enforce one owner per service syscall ID.
+
+- Physical source ownership: moved syscall core to `kernel/syscall.c`; moved service router and five subsystem adapters under `services/`. Updated both ISA builds and architecture tests. Public compatibility headers remain at repository root for now.
