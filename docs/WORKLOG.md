@@ -397,3 +397,12 @@
 - Host failure на head `005342875d84eb094ed6c292942a2d5269c662e5` был в KCC libc-lite headers: empty loop under `-Wempty-body` и неиспользуемые static helpers под `-Werror`. Последующие коммиты сделали тела циклов явными и функции `static inline`; это исправление ожидает fresh exact-head CI.
 - ARM64 build и QEMU, x86 build и вся QEMU/Limbo VM matrix прошли на head `005342875d84eb094ed6c292942a2d5269c662e5`; host suite на этом head FAILED, не PASS. Более поздние source split commits были отменены CI push-cancellation; требуется новый полный прогон на конечном head.
 - Не сливать PR #135. Следующий шаг после зелёного exact-head CI: извлечь ARM64 platform discovery/early boot в отдельные composition/backend modules по dependency-closed slices, затем формализовать BootInfo/Device Model contracts; PCI enumeration на x86 не включать до закрытия DMA/IOMMU security gates.
+
+
+### Driver Manager syscall ownership extraction (2026-11-12)
+- Continued the eight-layer source migration on the architecture branch. The kernel syscall core previously called `kdrv_sys()` directly and included `kdrv.h`, coupling the privilege-boundary dispatcher to the Driver Manager implementation.
+- Added `services/driver_syscall.c` and routed KDRV operation dispatch through the existing subsystem-agnostic service router. The kernel retains all existing KDRV capability checks in `cap_needed()`; the adapter does not grant capabilities or change the KDRV ABI.
+- Updated `syscall_services.h`, router, x86-64/ARM64 build manifests and `tests/architecture_test.py`. The guard now requires the driver adapter to own each KDRV operation ID exactly once, verifies capability-gate symbols remain in the kernel, and rejects a direct `kdrv_sys()` dependency in the core.
+- Updated RFC-SVC-001, source-layout migration, component inventory and dependency map. This remains an in-kernel adapter boundary, not user-mode service isolation or IPC.
+- KCC CI issue from run `43278771976` was corrected separately in `kcc/include/string.h` by using `static inline`; the fix commit is `ccdd22336febdf17cf5ed876b52c2b145a804f72`.
+- Current integration slice is unverified until fresh exact-head x86-64/ARM64 builds, architecture guard, host tests and QEMU scenarios complete. Do not claim PASS or merge PR #135.
