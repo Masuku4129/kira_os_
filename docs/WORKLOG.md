@@ -420,3 +420,11 @@
 - Follow-up run `43282939958` stopped at the new architecture guard before host tests: `kcc/include/kira.h` contains `k_thread_return`, a deliberately non-inline helper marked `__attribute__((used))` because its address is installed as a thread return trampoline. This is not an unused-function warning and must remain non-inline.
 - Corrected the guard to reject only non-inline static helpers without an explicit `used` attribute. Manual source check across `kira.h`, `string.h`, `stdlib.h`, `stdio.h`, `ctype.h` and `limits.h` now finds only the intentional `k_thread_return` exception; all other header helpers are inline.
 - A fresh exact-head CI run is required; neither the guard correction nor the libc-header fixes are considered verified until it completes.
+
+
+### Exact-head architecture CI and AArch64 PCI host extraction (2026-11-12)
+- Exact-head run `43283236117` on `005553b0f91712116c6fb846e2cfb4500b4d09ea` completed **30/30 jobs successfully**: x86-64 build, ARM64 build, host-tests (including architecture guard and KCC), ARM64 QEMU GICv2/GICv3, EL2 and 29 VM scenarios. This verifies the KCC libc-lite `static inline` corrections and the corrected guard at that exact head.
+- Next M2 slice: extracted the FDT-described AArch64 PCIe host bridge into `arch/aarch64/pci_host.c` with the internal `pci_host.h` contract. It owns `pci-host-ecam-generic` discovery, ECAM MMIO mapping, PCI address-window parsing, `pci_use_ecam()`, `pci_init()` and BAR assignment.
+- `arch/aarch64/main.c` now retains only the ordered `arm_pci_init(fdt, kprintf)` handoff. The callback preserves the existing serialized console/logging path; the source no longer contains the PCI host implementation. `build_arm64.sh` compiles the new backend, and `tests/architecture_test.py` enforces unique ownership and the boot-call contract.
+- Updated source-layout migration, component inventory, dependency map and F-020 audit status. x86 PCI enumeration remains deliberately untouched until firmware bus-master sanitization and per-device IOMMU domain lifecycle gates are verified.
+- The PCI extraction itself is not yet verified: fresh exact-head x86-64/ARM64 builds, host tests and VM/QEMU matrix are required before continuing to the next backend.
