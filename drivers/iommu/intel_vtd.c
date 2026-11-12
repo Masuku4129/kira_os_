@@ -130,6 +130,7 @@ int kira_vtd_unit_prepare(struct kira_vtd_unit *unit,
 
     if (!unit || !platform || !platform->map_mmio ||
         !platform->alloc_dma_page || !platform->free_dma_page ||
+        host_address_width < 32 || host_address_width > 57 ||
         register_base == 0 || (register_base & 0xfffu) != 0)
         return KIRA_VTD_INVALID;
 
@@ -149,6 +150,9 @@ int kira_vtd_unit_prepare(struct kira_vtd_unit *unit,
     /* Version register's low byte is the minor revision, next byte major. */
     if (((version >> 4) & 0xfu) == 0 && ((version >> 8) & 0xffu) == 0)
         return KIRA_VTD_UNSUPPORTED;
+    /* Never replace a root pointer while firmware has translation enabled. */
+    if (vtd_read32(registers, VTD_REG_GSTS) & VTD_GSTS_TES)
+        return KIRA_VTD_UNSUPPORTED;
 
     if (!vtd_select_address_width(cap, host_address_width))
         return KIRA_VTD_UNSUPPORTED;
@@ -159,7 +163,8 @@ int kira_vtd_unit_prepare(struct kira_vtd_unit *unit,
 
     root_virtual = platform->alloc_dma_page(platform->context, &root_physical);
     if (!root_virtual || (root_physical & 0xfffu) != 0 ||
-        root_physical == 0) {
+        root_physical == 0 || (root_physical >> host_address_width) != 0 ||
+        (root_physical & ~0x000ffffffffff000ull) != 0) {
         if (root_virtual && platform->free_dma_page)
             platform->free_dma_page(platform->context, root_virtual,
                                     root_physical);
@@ -277,6 +282,8 @@ int kira_vtd_unit_release(struct kira_vtd_unit *unit,
     }
 
     if (unit->root_table) {
+        if (unit->registers)
+            vtd_write64(unit->registers, VTD_REG_RTADDR, 0);
         if (!platform->free_dma_page)
             return KIRA_VTD_INVALID;
         platform->free_dma_page(platform->context, unit->root_table,
