@@ -160,17 +160,16 @@ static int reset(virtio_dev_t* v) {
 void virtio_fail(virtio_dev_t* v) {
     if (!v)
         return;
-    if (v->pci)
-        pci_disable_bus_master(v->pci);
+    int busmaster_stopped = !v->pci || pci_disable_bus_master(v->pci);
     status_set(v, status_get(v) | VIRTIO_ST_FAILED);
-    /* Quiesce the device before revoking translations. If reset cannot be
-       confirmed, leave mappings pinned rather than risk in-flight DMA. */
-    if (reset(v) == 0) {
+    /* Both requester shutdown and device reset must be confirmed before
+       revoking translations. Either failure leaves every DMA mapping pinned. */
+    if (busmaster_stopped && reset(v) == 0) {
 #ifndef KIRA_HOST_TEST
         if (v->pci)
             iommu_unmap_all(v->pci);
 #endif
-    } /* On reset timeout, keep every DMA mapping pinned. */
+    }
 }
 
 int virtio_begin(virtio_dev_t* v, uint64_t want) {
