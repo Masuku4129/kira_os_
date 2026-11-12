@@ -91,6 +91,17 @@ Required:
 - Verify UI-reported Mind activity against actual telemetry and model updates.
 - Keep test fixtures clearly separated from learned/user experience.
 
+## 7a. KDRV anti-rollback — HARDWARE ANCHOR NOT AVAILABLE
+
+The signed-catalogue policy now refuses to accept/advance a version floor
+unless the platform backend explicitly advertises a validated
+`KDRV_TRUST_STORAGE_HW_MONOTONIC` provider. No TPM NV, secure element,
+authenticated firmware variable or equivalent provider is implemented in
+the current source tree. Host mocks only test the callback contract.
+Do not claim strong anti-rollback or ship a provider backed only by KiraFS,
+CRC, or ordinary writable storage. See
+`docs/adr/ADR-0002-kdrv-anti-rollback-anchor.md`.
+
 ## 8. Release gate
 The next combined user update is eligible only when:
 1. Every blocker above is either implemented with evidence or explicitly deferred by a documented product decision. Core requirements (boot independence, original driver code, signed driver trust, safe DMA policy) are not silently waived.
