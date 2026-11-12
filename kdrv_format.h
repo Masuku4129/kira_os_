@@ -65,6 +65,8 @@ int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uin
 const char* kdrv_strerror(int err);
 /* Без подтверждённой изоляции IOMMU DMA и MSI запрещены для драйверов Ring 3. */
 int kdrv_dma_policy_allow(uint32_t granted_caps, int device_isolated);
+/* PCI Command.BusMaster must be cleared before an unisolated Ring 3 driver starts. */
+uint16_t kdrv_pci_command_clear_master(uint16_t command);
 /* Overflow-safe physical/page bounds for untrusted PCI BAR metadata. */
 int kdrv_mmio_page_bounds(uint64_t base, uint64_t size, uint64_t* page_lo, uint64_t* page_hi);
 int kdrv_mmio_map_bounds(uint64_t base, uint64_t size, uint64_t offset, uint64_t length,
