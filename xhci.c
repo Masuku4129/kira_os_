@@ -59,6 +59,7 @@ struct usb_pipe {
 };
 
 typedef struct {
+    const pci_dev_t* pci;
     volatile uint8_t* cap; volatile uint8_t* op; volatile uint8_t* rt; volatile uint32_t* db;
     uint32_t nports, maxslots, csz;
     int ac64;
@@ -162,6 +163,8 @@ static int command(uint32_t p0, uint32_t p1, uint32_t ctl, uint32_t* slot_out) {
             trb_t* ev = &xs.ev[xs.ev_deq];
             usb_log("[KIRA USB] xHCI command timeout: USBSTS=");
             usb_log_hex(r32(xs.op, 4));
+            usb_log(" PCI-CMD=");
+            usb_log_hex(xs.pci ? pci_read16(xs.pci, 0x04) : 0);
             usb_log(" USBCMD=");
             usb_log_hex(r32(xs.op, 0));
             usb_log(" PAGESIZE=");
@@ -638,7 +641,8 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
                 "[KIRA USB] xHCI BAR mapping failed; PCI DMA and interrupts quiesced\n");
         return -2;
     }
-    for (unsigned long i = 0; i < sizeof xs; i++) ((volatile uint8_t*)X)[i] = 0;   /* десятки КБ: не через временную копию на стеке */
+    for (unsigned long i = 0; i < sizeof xs; i++) ((volatile uint8_t*)X)[i] = 0;
+    xs.pci = p;   /* десятки КБ: не через временную копию на стеке */
     xs.cap = cap;
     uint32_t caplen = cap[0], hcs1 = r32(cap, 4), hcs2 = r32(cap, 8), hcc1 = r32(cap, 0x10);
     uint32_t rt_raw = r32(cap, 0x18), db_raw = r32(cap, 0x14);
