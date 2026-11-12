@@ -31,8 +31,12 @@ driver is integrated into the supported network-device path.
   TX cleans the payload and issues a write barrier before ownership is handed
   to the device.
 - The driver is polling-only and keeps IMR disabled; it does not claim an IRQ
-  path. RX validates status and packet length, strips FCS, handles ring wrap,
-  and resets ring ownership on impossible length metadata.
+  path. RX validates status and packet length, strips FCS, wraps to the ring
+  start (RCR.WRAP=0), and resets ring ownership on impossible length metadata.
+- TX waits for the hardware OWN completion bit and has a one-second monotonic
+  deadline. Timeout resets the controller before any DMA buffer is made
+  reusable. If reset cannot be confirmed, the driver disables itself and
+  deliberately retains DMA allocations; `shutdown()` can be retried.
 - TX slot reuse is gated by the hardware OWN completion bit; TOK distinguishes
   successful completion. Link state is read from the Basic Mode Status
   Register.
@@ -40,7 +44,8 @@ driver is integrated into the supported network-device path.
 ## Evidence and remaining work
 
 The host model exercises PCI rejection, reset timeout, partial DMA allocation
-cleanup, 32-bit DMA bounds, TX padding/completion/error, RX validation,
+cleanup, 32-bit DMA bounds, TX padding/completion/error/timeout, reset-before-free,
+RX validation,
 ring wrap, FAE rejection, malformed length recovery, cache/barrier callbacks,
 link state and shutdown. It is a deterministic host model, not QEMU device
 emulation and not physical-card evidence.
