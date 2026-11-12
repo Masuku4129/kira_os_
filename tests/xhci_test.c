@@ -310,11 +310,9 @@ int main(void) {
     for (int p = 1; p <= 4; p++) port_last[p] = ~0u;
     pci_dev_t pd = { 0 }; pd.vendor = 0x1B36; pd.device = 0x000D; pd.bar[0].base = 0xFEB00000; pd.bar[0].size = 0x4000;
     usb_hc_t hc;
-    pci_command_model = PCI_CMD_MASTER;                       /* stale firmware DMA must not be inherited */
-    CHECK(xhci_start(&hc, &pd) == -2);
-    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
-    pci_command_model = 0;
+    pci_command_model = PCI_CMD_MASTER;                       /* inherited firmware DMA: halt before clearing */
     int rc = xhci_start(&hc, &pd);
+    CHECK(rc == 0);
     CHECK((pci_command_model & (PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF)) ==
           (PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF));
     if (rc) printf("%s", logbuf);
