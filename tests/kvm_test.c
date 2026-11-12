@@ -295,6 +295,8 @@ static int test_portable_container(void)
     memcpy(blob, "KVM1", 4);
     CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
     memcpy(blob, "KVP0", 4);
+    /* A rejected decode clears the output descriptor; restore it before use. */
+    CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_OK);
     CHECK(run(&module, 0, 10, &result) == KVM_OK && result == 73);
     CHECK(kvm_module_decode(blob, sizeof blob - 1u, &module) == KVM_E_FORMAT);
 
