@@ -341,11 +341,14 @@ int iommu_arm64_init(const void* fdt, int pci_host_node)
         }
         arm_devices[i].covered = 1u;
         arm_devices[i].stream_id = sid;
-        if (!first_phandle)
+        if (!first_phandle) {
             first_phandle = phandle;
-        else if (phandle != first_phandle) {
-            arm_devices[i].blocked = 1u; /* Multiple SMMU instances are not merged. */
-            continue;
+        } else if (phandle != first_phandle) {
+            /* This implementation owns one SMMUv3 instance. Do not silently
+               attach a stream from another controller to the first instance. */
+            arm_map_invalid = 1u;
+            uart_print("[KIRA SMMU] multiple SMMUv3 targets in iommu-map are unsupported; all endpoints remain blocked.\\n");
+            return IOMMU_E_UNSUPPORTED;
         }
         if (arm_sid_refs[sid] != UINT16_MAX)
             ++arm_sid_refs[sid];
