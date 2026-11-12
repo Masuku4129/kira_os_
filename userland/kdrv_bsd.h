@@ -45,9 +45,22 @@ static inline u64 kd_now_ms(void) { return k_clock_ns() / 1000000; }
 /* ---- память: куча программы, куски без возврата (драйвер выделяет всё при подключении) ---- */
 static inline void* kd_malloc(u64 n) {
     static u8* cur; static u64 left;
-    n = (n + 15) & ~15ull;
-    if (n > left) { u64 pages = (n + 4095) / 4096; if (pages < 4) pages = 4; u8* p = (u8*)k_heap_grow(pages); if (!p) return (void*)0; cur = p; left = pages * 4096; }
-    void* r = cur; cur += n; left -= n; return r;
+    /* Reject arithmetic wrap before rounding the request or computing pages. */
+    if (n > ~0ull - 4095ull) return (void*)0;
+    n = (n + 15ull) & ~15ull;
+    if (n > left) {
+        u64 pages = (n + 4095ull) / 4096ull;
+        if (pages < 4) pages = 4;
+        if (pages > (~0ull / 4096ull)) return (void*)0;
+        u8* p = (u8*)k_heap_grow(pages);
+        if (!p) return (void*)0;
+        cur = p;
+        left = pages * 4096ull;
+    }
+    void* r = cur;
+    cur += n;
+    left -= n;
+    return r;
 }
 static inline void kd_memcpy(void* d, const void* s, u64 n) { u8* a = (u8*)d; const u8* b = (const u8*)s; while (n--) *a++ = *b++; }
 static inline void kd_memset(void* d, int c, u64 n) { u8* a = (u8*)d; while (n--) *a++ = (u8)c; }
