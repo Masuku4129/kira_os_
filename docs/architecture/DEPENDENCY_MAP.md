@@ -90,3 +90,8 @@ Static analysis should flag:
 11. Desktop/system applications and KIRA Mind control integration.
 
 Все потоки могут готовить независимые изменения параллельно; интеграция должна соблюдать зависимости.
+
+
+## 6. Implemented transitional syscall dependency boundary
+
+The syscall core now depends on a subsystem-agnostic adapter contract. The router delegates to five per-subsystem adapters (graphics, filesystem, network, audio, clock). This reduces direct dependency fan-out from `syscall.c` and gives each service-facing API a single owner. All adapters still execute in kernel context; IPC/service-process isolation remains a future gated migration. The canonical syscall ID registry is shared by kernel and both public user APIs at `kcc/include/syscall_numbers.h`.
