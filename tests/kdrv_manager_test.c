@@ -9,6 +9,9 @@ typedef struct {
     int dependency_ok;
     int stage_fail;
     int commit_fail;
+    int bad_name;
+    int bad_version;
+    int bad_dependency;
     int staged;
     int committed;
     int discarded;
@@ -52,6 +55,9 @@ static int parse_manifest(void *opaque, const void *package, size_t size,
     manifest->dependency_count = 1;
     strcpy(manifest->dependencies[0].name, "pci-core");
     strcpy(manifest->dependencies[0].minimum_version, "1.0");
+    if (ctx->bad_name) strcpy(manifest->name, "../escape");
+    if (ctx->bad_version) strcpy(manifest->version, "1/../../escape");
+    if (ctx->bad_dependency) strcpy(manifest->dependencies[0].name, "../escape");
     manifest->payload_offset = 4;
     manifest->payload_size = 8;
     return 0;
@@ -172,11 +178,28 @@ static int test_failure_cleanup(int mode)
     return 0;
 }
 
+static int test_rejects_unsafe_metadata(int mode)
+{
+    test_context_t ctx;
+    struct kdrv_manager_ops ops;
+    setup(&ctx, &ops);
+    if (mode == 0) ctx.bad_name = 1;
+    if (mode == 1) ctx.bad_version = 1;
+    if (mode == 2) ctx.bad_dependency = 1;
+    CHECK(kdrv_manager_install(&ops, "/drv/test.kdrv", "x86_64", 1, 2) != 0);
+    CHECK(ctx.freed == 1);
+    CHECK(!ctx.staged && !ctx.committed && ctx.discarded == 0);
+    CHECK(ctx.state_count == 0); /* metadata is rejected before trust/state changes */
+    return 0;
+}
+
 int main(void)
 {
     if (test_success()) return 1;
     for (int i = 0; i < 4; ++i)
         if (test_failure_cleanup(i)) return 1;
+    for (int i = 0; i < 3; ++i)
+        if (test_rejects_unsafe_metadata(i)) return 1;
     puts("kdrv manager lifecycle: PASS");
     return 0;
 }
