@@ -94,7 +94,13 @@ int kdrv_trust_advance_floor(const struct kdrv_trust_ops *ops,
         return KDRV_TRUST_ROLLBACK;
     if (verified_version == current)
         return KDRV_TRUST_OK;
+    /* The storage callback must implement an atomic monotonic max update:
+       concurrent catalogue loads must never let an older version overwrite a
+       newer floor. Read back as a second line of defence against false success. */
     if (ops->write_version_floor(ops->context, verified_version) != 0)
+        return KDRV_TRUST_STORAGE_ERROR;
+    if (ops->read_version_floor(ops->context, &current) != 0 ||
+        current < verified_version)
         return KDRV_TRUST_STORAGE_ERROR;
     return KDRV_TRUST_OK;
 }
