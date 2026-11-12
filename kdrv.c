@@ -329,7 +329,7 @@ static int scan(void) {
     list_t* l = (list_t*)kmalloc(sizeof *l);
     if (!l) return 0;                             /* retry after memory pressure */
     int rc = list_pkgs(l);
-    if (rc != 0) { kfree(l); return 0; }          /* do not mark a failed directory read complete */
+    if (rc != 0 && rc != KFS_ERR_NOENT) { kfree(l); return 0; } /* absent /drv is an empty catalogue; I/O errors retry */
     int started = 0;
     if (l->n) {
         for (int i = 0; i < devices; i++) {
