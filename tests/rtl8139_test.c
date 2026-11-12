@@ -73,6 +73,8 @@ static void out8(void *opaque, uint16_t p, uint8_t v)
     m->regs[r] = v;
     if (r == REG_COMMAND && (v & CMD_RESET) && !m->reset_stuck)
         m->regs[r] = 0;
+    else if (r == REG_COMMAND)
+        m->regs[r] = (uint8_t)(v | CMD_BUFE);
 }
 static void out16(void *opaque, uint16_t p, uint16_t v)
 {
@@ -84,7 +86,10 @@ static void out16(void *opaque, uint16_t p, uint16_t v)
     } else {
         m->regs[r] = (uint8_t)v;
         m->regs[r + 1u] = (uint8_t)(v >> 8);
-        if (r == REG_CAPR) m->last_capr = v;
+        if (r == REG_CAPR) {
+            m->last_capr = v;
+            m->regs[REG_COMMAND] |= CMD_BUFE;
+        }
         if (r == REG_IMR) m->imr = v;
     }
 }
