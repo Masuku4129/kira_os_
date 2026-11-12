@@ -653,17 +653,23 @@ static void visual(mind_t* s, const mind_sample_t* in, const mind_act_t* act, ui
     }
 }
 
-static void memory(mind_t* s, const mind_sample_t* in, const mind_act_t* act, uint32_t now) {
+static int memory(mind_t* s, const mind_sample_t* in, const mind_act_t* act, uint32_t now) {
     int acting = s->m.mode == MIND_ACT;
+    int action_now = 0;
     uint32_t u = in->mem_used;
     if (u >= 88 && s->mem_level < 1) {
         s->mem_level = 1;
         unsigned pages = acting && act->mem_trim ? act->mem_trim() : 0;
+        if (pages) { s->mem_action_active = 1; action_now = 1; }
         jlog(s, now, MJ_MEMORY, acting, 0, "%sпамять занята на %u%%: вернула запасы ядра (%u страниц)", acting ? "" : "(наблюдение) ", u, (uint32_t)pages);
     }
     if (u >= 93 && s->mem_level < 2) {
         s->mem_level = 2;
-        if (acting && act->heap_restrict) act->heap_restrict(2);
+        if (acting && act->heap_restrict) {
+            act->heap_restrict(2);
+            s->mem_action_active = 1;
+            action_now = 1;
+        }
         jlog(s, now, MJ_MEMORY, acting, 0, "%sпамять занята на %u%%: программам - только осторожный рост куч", acting ? "" : "(наблюдение) ", u);
     }
     if (u >= 97 && acting && now - s->last_kill_t >= 10) {
@@ -673,6 +679,8 @@ static void memory(mind_t* s, const mind_sample_t* in, const mind_act_t* act, ui
         if (big && heap >= 16384 && (uint64_t)heap * 100 >= (uint64_t)in->mem_total_mb * 1024 * 20) {   /* не меньше 20% ОЗУ */
             s->last_kill_t = now;
             if (act->kill && act->kill(big->pid) == 0) {
+                s->mem_action_active = 1;
+                action_now = 1;
                 s->m.kills++;
                 jlog(s, now, MJ_KILL, 1, big->pid, "память исчерпана (%u%%): остановлена %s, занимавшая %u МБ кучи - система жива",
                      u, big->name, heap / 1024);
@@ -680,10 +688,15 @@ static void memory(mind_t* s, const mind_sample_t* in, const mind_act_t* act, ui
         }
     }
     if (u < 80 && s->mem_level) {
-        if (s->mem_level >= 2 && acting && act->heap_restrict) act->heap_restrict(0);
+        if (s->mem_level >= 2 && acting && act->heap_restrict) {
+            act->heap_restrict(0);
+            action_now = 1;
+        }
+        s->mem_action_active = 0;
         s->mem_level = 0;
         jlog(s, now, MJ_RESTORE, acting, 0, "давление памяти ушло (%u%%): обычный режим", u);
     }
+    return action_now || s->mem_action_active;
 }
 
 /* ---------------- шаг ---------------- */
@@ -1435,9 +1448,7 @@ void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act) {
     assess(s, in, now);
     tuner(s, in, act, now);
     visual(s, in, act, now);
-    memory(s, in, act, now);
-    int memory_action = s->m.mode == MIND_ACT && s->mem_level &&
-                        (act->mem_trim || act->heap_restrict || act->kill);
+    int memory_action = memory(s, in, act, now);
     if (memory_action)
         for (unsigned i = 0; i < 5; i++) if (s->mem_pending[i].valid) s->mem_pending[i].acted = 1;
     /* Finalize four-second labels only after this tick's memory actions are known.
