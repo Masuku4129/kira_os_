@@ -41,7 +41,10 @@
 - `services/filesystem_syscall.c`: `SYS_FS` → file-service API;
 - `services/network_syscall.c`: TCP/UDP/DNS syscalls → network API;
 - `services/audio_syscall.c`: playback/record syscalls → audio API;
-- `services/clock_syscall.c`: `SYS_TIME` → RTC API;\n- `services/driver_syscall.c`: KDRV operation IDs → `kdrv_sys()` / Driver Manager API.\n\nДля KDRV core сохраняет проверку `CAP_DRIVER_`, `CAP_PCIDEV`, `CAP_MMIO`, `CAP_DMA`, `CAP_IRQ`, `CAP_NETDEV` и `CAP_PCILIST`; adapter не выдаёт полномочия и не обходит этот gate.
+- `services/clock_syscall.c`: `SYS_TIME` → RTC API;
+- `services/driver_syscall.c`: KDRV operation IDs → `kdrv_sys()` / Driver Manager API.
+
+Для KDRV core сохраняет проверку `CAP_DRIVER_`, `CAP_PCIDEV`, `CAP_MMIO`, `CAP_DMA`, `CAP_IRQ`, `CAP_NETDEV` и `CAP_PCILIST`; adapter не выдаёт полномочия и не обходит этот gate.
 
 Каждый ABI номер имеет ровно одного владельца-адаптер, что закреплено `tests/architecture_test.py`. Adapter — внутренний kernel facade. Это ещё не отдельный процесс службы, не IPC и не гарантия crash isolation.
 
