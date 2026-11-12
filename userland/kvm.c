@@ -1,6 +1,6 @@
 /* KIRA VM v1 userland runner.
  * This is a deliberately small, fail-closed first OS integration:
- * one granted module (file grant or explicit path), private memory, bounded
+ * one granted module (file grant or sandbox-local filename), private memory, bounded
  * module/guest quotas, and only console/tick/yield host capabilities.
  */
 #include "kira.h"
