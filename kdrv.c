@@ -232,10 +232,11 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
        before exposing any BAR or starting this unisolated driver, then verify the
        config-space write actually took effect. */
     uint16_t pci_command = pci_read16(d, 0x04);
-    pci_write16(d, 0x04, kdrv_pci_command_for_unisolated(pci_command));
-    uint16_t pci_after = pci_read16(d, 0x04);
+    /* Also mask inherited MSI/MSI-X state; this driver has no IRQ capability. */
+    uint16_t pci_after = quiesce(d);
     if (!kdrv_pci_busmaster_handoff_safe(pci_command, pci_after) ||
-        !(pci_after & PCI_CMD_INTX_OFF)) {
+        !(pci_after & PCI_CMD_INTX_OFF) ||
+        (pci_after & (PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER))) {
         (void)quiesce(d);
         b->state = B_FREE;
         kfree(p.buf);
