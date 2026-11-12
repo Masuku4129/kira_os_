@@ -958,6 +958,13 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
         s->mem_risk_q16 = 0;
         return;
     }
+    if (!growth_valid) {
+        /* A first sample after boot/telemetry gap has no measured growth input;
+           neither forecast nor training label may pretend that growth was zero. */
+        s->mem_risk_valid = 0;
+        s->mem_risk_q16 = 0;
+        return;
+    }
     mind_mem_pending_t* slot = &s->mem_pending[s->mem_pending_pos++ % 5];
     for (int i = 0; i < MNET_F; i++) slot->x[i] = mx[i];
     slot->max_used = in->mem_used;
