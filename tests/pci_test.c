@@ -13,6 +13,7 @@ static uint32_t model_read(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
 
 static void model_write(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t value) {
     if (bus || dev || fn || off >= sizeof cfg) return;
+    if (off >= 0x10 && off < 0x28) return; /* all BARs are unimplemented in this model and read back as zero */
     if (off == 4) {
         /* PCI status is write-one-to-clear; the driver's pci_write16 masks it to zero. */
         cfg[1] = value & 0xFFFFu;
