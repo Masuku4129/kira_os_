@@ -79,6 +79,24 @@ int main(int argc, char** argv) {
     if (getenv("WASM_NOJIT")) jit_on = 0;                          /* только интерпретатор (как на ARM64) */
 #ifdef WASM_FUEL
     if (argc == 4 && !strcmp(argv[1], "fuzz")) return fuzz_module(argv[2], atoi(argv[3]));
+    if (argc == 4 && !strcmp(argv[1], "trap")) {
+        FILE *f = fopen(argv[3], "rb");
+        if (!f) return 2;
+        fseek(f, 0, SEEK_END); g_len = ftell(f); fseek(f, 0, SEEK_SET);
+        if (g_len <= 0) { fclose(f); return 2; }
+        g_data = malloc((size_t)g_len);
+        if (!g_data || fread(g_data, 1, (size_t)g_len, f) != (size_t)g_len) { fclose(f); return 2; }
+        fclose(f);
+        g_path = argv[3]; g_quiet = 1; wasm_fuel = 50000000ull;
+        (void)wasm_main();
+        g_quiet = 0;
+        if (trapped && trap_msg && !strcmp(trap_msg, argv[2])) {
+            printf("wasm: expected host quota trap: %s\\n", argv[2]);
+            return 0;
+        }
+        fprintf(stderr, "wasm: expected trap %s, got %s\\n", argv[2], trap_msg ? trap_msg : "normal completion");
+        return 1;
+    }
     if (argc == 4 && !strcmp(argv[1], "fuel")) {
         char *end = NULL;
         unsigned long long limit = strtoull(argv[2], &end, 10);
