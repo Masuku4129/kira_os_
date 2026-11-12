@@ -55,7 +55,7 @@ int umain(void) {
     i64 rc = kdrv_dma_alloc(4096, 30, &d);                   /* адреса edu - 30 бит */
     say("drvedu: dma rc="); put(rc); say("\n");
     if (rc == -12) {
-        say("drvedu: dma denied (expected without CAP_DMA/IOMMU)\\n");
+        say("drvedu: dma denied (expected without CAP_DMA/IOMMU)\n");
     } else if (rc == 0) {
         volatile u8* p = (volatile u8*)d.va;
         for (int i = 0; i < 256; i++) p[i] = (u8)(i * 7 + 1);
