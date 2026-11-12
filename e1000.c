@@ -23,28 +23,6 @@ enum { CTRL = 0x0, STATUS = 0x8, EERD = 0x14, ICR = 0xC0, IMS = 0xD0, IMC = 0xD8
 typedef struct { uint64_t addr; uint16_t len, csum; uint8_t status, errors; uint16_t special; } rxd_t;
 typedef struct { uint64_t addr; uint16_t len; uint8_t cso, cmd, status, css; uint16_t special; } txd_t;
 
-static int e1000_mask_pci_interrupts(const pci_dev_t* p) {
-    uint8_t id = 0;
-    uint16_t cap = 0;
-    int safe = 1;
-    for (unsigned n = 0; n < 48 && (cap = pci_next_cap(p, cap, &id)) != 0; n++) {
-        if (id == 0x05) {
-            uint16_t control = pci_read16(p, (uint16_t)(cap + 2));
-            pci_write16(p, (uint16_t)(cap + 2), (uint16_t)(control & ~1u));
-            if (pci_read16(p, (uint16_t)(cap + 2)) & 1u) safe = 0;
-        } else if (id == 0x11) {
-            uint16_t control = pci_read16(p, (uint16_t)(cap + 2));
-            pci_write16(p, (uint16_t)(cap + 2), (uint16_t)((control & ~0x8000u) | 0x4000u));
-            uint16_t after = pci_read16(p, (uint16_t)(cap + 2));
-            if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
-        }
-    }
-    uint16_t command = pci_read16(p, 0x04);
-    pci_write16(p, 0x04, (uint16_t)(command | PCI_CMD_INTX_OFF));
-    if (!(pci_read16(p, 0x04) & PCI_CMD_INTX_OFF)) safe = 0;
-    return safe;
-}
-
 static const uint16_t ids[] = { 0x100E, 0x100F, 0x1004, 0x1009, 0x100C, 0x100D, 0x1010, 0x1011, 0x1015, 0x1026, 0x1076, 0x1079, 0x107C,
                                 0x10D3 };   /* 82574L (QEMU e1000e): тот же устаревший формат дескрипторов */
 
@@ -151,7 +129,7 @@ int e1000_probe(void) {
         return -5;
     }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
-    if (!e1000_mask_pci_interrupts(p)) {
+    if (!pci_quiesce_interrupts(p)) {
         uart_print("[KIRA NET] e1000: inherited MSI/MSI-X could not be masked; device quarantined.\n");
         return -5;
     }
