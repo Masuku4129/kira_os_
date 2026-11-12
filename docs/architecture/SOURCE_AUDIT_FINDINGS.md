@@ -46,8 +46,8 @@
 
 - **Severity:** Medium/High — privileged policy boundary.
 - **Files:** `mind_sys.c`, `mind.c`, scheduler/process/resource APIs.
-- **Evidence:** action callbacks include scheduler quantum/weight/limit, process heap restriction/kill, USB HID verdict, display effects and CPU reservation. This may be intentionally trusted in-kernel code, but the target architecture requires explicit bounds, ownership, audit and rollback. A bounded request→policy→apply path was not established by this source slice.
-- **Action:** enumerate all action callbacks, identify policy validation and rate/bounds checks at the authoritative owner, record action provenance and rollback. Move noncritical policy out of kernel where feasible; keep enforcement at resource owners.
+- **Evidence:** action callbacks include scheduler quantum/weight/limit, process heap restriction/kill, USB HID verdict, display effects and CPU reservation. The Mind policy is not entirely unbounded: most actions run only in `MIND_ACT`; scheduler tuning uses measured 8-sample trials and rollback; memory actions have staged 88%/93%/97% thresholds, a 10-second kill interval, and kill only when the largest process heap is at least 16 MiB and at least 20% of total RAM. However, callbacks directly invoke subsystem functions; a common typed request→owner policy→apply→audit/rollback contract is not present in the reviewed path.
+- **Action:** preserve current safeguards; document and test every threshold/rollback. Add resource-owner validation, action reason/bounds/TTL and audit IDs to the control boundary. Require explicit user policy for destructive kill behavior and test false-positive scenarios. Move noncritical policy out of kernel where feasible; keep final enforcement at resource owners.
 
 ## F-007 — VFS/KiraFS concurrency evidence differs between host tests and production
 
