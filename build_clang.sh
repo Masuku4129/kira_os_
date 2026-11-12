@@ -83,7 +83,7 @@ ld.lld $ULINK -o userland/drvman.elf userland/drvman.o userland/drvget_lib.o use
     userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_libc_min.o
 UELF="$UELF userland/drvman.elf"
 # Программы с вещественной арифметикой (3D, тест FPU): SSE2 разрешён только им, ядро собирается без SSE.
-USSE_FLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -msse2 -mfpmath=sse -mno-mmx -fno-math-errno -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
+USSE_FLAGS="-Ikcc/include -ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -msse2 -mfpmath=sse -mno-mmx -fno-math-errno -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 for app in cube3d fpu wasm; do
     $CC $USSE_FLAGS -c userland/$app.c -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
