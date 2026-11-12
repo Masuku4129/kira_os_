@@ -159,3 +159,10 @@ Implemented as a transitional in-kernel boundary:
 - Scoped `kernel_boot_init` declaration to `arch/x86_64/kernel_boot.h`; the common `kernel.h` no longer exposes an x86-only function.
 - Updated the x86 build's architecture source list. ARM64 continues to use `arch/aarch64/main.c` and does not compile x86 entry code.
 - This change corrects source ownership; it does not yet split the boot sequence into independent platform/driver/service init phases.
+
+### 8.1 Subsystem adapter ownership
+
+- The central router `syscall_services.c` contains no subsystem-specific headers and delegates to per-subsystem translation units.
+- `syscall_service_graphics.c`, `syscall_service_fs.c`, `syscall_service_network.c`, `syscall_service_audio.c`, and `syscall_service_clock.c` each own their syscall subset.
+- `tests/architecture_test.py` checks that each service syscall has exactly one adapter owner and that both ISA builds compile the full adapter set.
+- These are still in-kernel calls. The next step is typed, versioned service request contracts and IPC migration, not pretending that process isolation already exists.
