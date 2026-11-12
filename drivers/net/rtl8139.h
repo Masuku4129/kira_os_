@@ -12,6 +12,9 @@
 
 struct kira_rtl8139_platform {
     void *context;
+    uint16_t pci_vendor_id;
+    uint16_t pci_device_id;
+    uint16_t io_region_size;
     uint8_t (*in8)(void *context, uint16_t port);
     uint16_t (*in16)(void *context, uint16_t port);
     uint32_t (*in32)(void *context, uint16_t port);
@@ -24,6 +27,8 @@ struct kira_rtl8139_platform {
                      uint64_t physical, size_t size);
     void (*cache_invalidate)(void *context, void *address, size_t size);
     void (*cache_clean)(void *context, const void *address, size_t size);
+    void (*dma_read_barrier)(void *context);
+    void (*dma_write_barrier)(void *context);
     void (*delay_us)(void *context, uint32_t microseconds);
     void (*receive)(void *context, const uint8_t *frame, size_t length);
     void (*transmit_complete)(void *context, unsigned int slot, int status);
@@ -47,6 +52,7 @@ int kira_rtl8139_init(struct kira_rtl8139 *device, uint16_t io_base,
 int kira_rtl8139_poll(struct kira_rtl8139 *device);
 int kira_rtl8139_send(struct kira_rtl8139 *device,
                       const void *frame, size_t length);
+int kira_rtl8139_link_up(struct kira_rtl8139 *device);
 void kira_rtl8139_shutdown(struct kira_rtl8139 *device);
 
 #endif
