@@ -129,10 +129,7 @@ int e1000_probe(void) {
         return -5;
     }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
-    if (!pci_quiesce_interrupts(p)) {
-        uart_print("[KIRA NET] e1000: inherited MSI/MSI-X could not be masked; device quarantined.\n");
-        return -5;
-    }
+    int pci_irq_quiet = pci_quiesce_interrupts(p);
     e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
     if (!e.r) return -3;
 
@@ -145,6 +142,10 @@ int e1000_probe(void) {
     }
     cpu_mb();
     wr(IMC, 0xFFFFFFFF);
+    if (!pci_irq_quiet && !pci_quiesce_interrupts(p)) {
+        uart_print("[KIRA NET] e1000: PCI MSI/MSI-X remained active after device reset; device quarantined.\\n");
+        return -5;
+    }
     wr(CTRL, (rd(CTRL) | (1u << 6) | (1u << 5)) & ~(1u << 3));    /* SLU, ASDE; без сброса канала */
 
     uint32_t lo = rd(RAL0), hi = rd(RAH0);
