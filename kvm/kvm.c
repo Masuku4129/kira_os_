@@ -184,37 +184,50 @@ int kvm_instance_init(struct kvm_instance *instance,
                       const struct kvm_allocator *allocator,
                       const struct kvm_host *host)
 {
+    struct kvm_module snapshot;
     size_t bytes, code_bytes;
     struct kvm_instruction *code_copy;
     int rc;
 
-    if (!instance || !allocator || !allocator->allocate ||
+    if (!instance || !module || !allocator || !allocator->allocate ||
         !allocator->release)
         return KVM_E_ARGUMENT;
     memset(instance, 0, sizeof(*instance));
-    rc = kvm_verify(module, granted_capabilities);
-    if (rc != KVM_OK)
-        return rc;
-
-    if (!pages_to_bytes(module->memory_pages, &bytes))
+    snapshot = *module;
+    if (!snapshot.code || !snapshot.code_size ||
+        (snapshot.code_size % sizeof(struct kvm_instruction)) != 0 ||
+        snapshot.code_size / sizeof(struct kvm_instruction) > UINT32_MAX ||
+        !pages_to_bytes(snapshot.memory_pages, &bytes) ||
+        (snapshot.data_size && !snapshot.data) ||
+        snapshot.data_size > bytes)
         return KVM_E_FORMAT;
-    code_bytes = module->code_size;
+
+    /* Snapshot code before verification. The verifier and interpreter must
+       consume the exact same bytes, even if the caller's source buffer changes. */
+    code_bytes = snapshot.code_size;
     code_copy = allocator->allocate(allocator->context, code_bytes);
     if (!code_copy)
         return KVM_E_MEMORY;
+    memcpy(code_copy, snapshot.code, code_bytes);
+    snapshot.code = (const uint8_t *)code_copy;
+    rc = kvm_verify(&snapshot, granted_capabilities);
+    if (rc != KVM_OK) {
+        allocator->release(allocator->context, code_copy, code_bytes);
+        return rc;
+    }
+
     instance->memory = allocator->allocate(allocator->context, bytes);
     if (!instance->memory) {
         allocator->release(allocator->context, code_copy, code_bytes);
         return KVM_E_MEMORY;
     }
-
-    memcpy(code_copy, module->code, code_bytes);
     memset(instance->memory, 0, bytes);
-    if (module->data_size)
-        memcpy(instance->memory, module->data, module->data_size);
+    if (snapshot.data_size)
+        memcpy(instance->memory, snapshot.data, snapshot.data_size);
+
     instance->code = code_copy;
-    instance->code_count = module->code_size / sizeof(struct kvm_instruction);
-    instance->entry = module->entry;
+    instance->code_count = code_bytes / sizeof(struct kvm_instruction);
+    instance->entry = snapshot.entry;
     instance->allocator = *allocator;
     if (host)
         instance->host = *host;
