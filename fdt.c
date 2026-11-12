@@ -31,7 +31,9 @@ int fdt_valid(const void* fdt, uint32_t max_len) {
     uint32_t total = hdr(fdt, 1), so = hdr(fdt, 2), sto = hdr(fdt, 3);
     uint32_t rso = hdr(fdt, 4), ver = hdr(fdt, 5);
     uint32_t strings_size = hdr(fdt, 8), struct_size = hdr(fdt, 9);
-    if (total < 56 || (total & 3) || (max_len && total > max_len) || ver < 16) return 0;
+    /* Public node offsets and traversal cursors are signed int values. Refuse
+       blobs that cannot be represented without truncation in that API. */
+    if (total < 56 || total > INT32_MAX || (total & 3) || total > max_len || ver < 16) return 0;
     if (so < 40 || sto < 40 || rso < 40 || (so & 3) || (sto & 3) || (rso & 7) ||
         so > total || struct_size < 4 || struct_size > total - so ||
         sto > total || strings_size > total - sto || rso > total - 16) return 0;
@@ -93,13 +95,18 @@ static int step(const void* fdt, int off, uint32_t* tok) {
     off += 4;
     if (t == T_BEGIN) {
         unsigned l = slen0((const char*)s + off, n - (uint32_t)off);
-        if ((uint32_t)off + l >= n) return -1;
-        off += (int)((l + 1 + 3) & ~3u);
+        if (l > UINT32_MAX - 4u) return -1;
+        uint32_t padded = (l + 4u) & ~3u;
+        if (padded > n - (uint32_t)off || padded > (uint32_t)INT32_MAX - (uint32_t)off) return -1;
+        off += (int)padded;
     } else if (t == T_PROP) {
         if ((uint32_t)off + 8 > n) return -1;
         uint32_t len = fdt_u32(s + off);
-        if (len > n - (uint32_t)off - 8) return -1;
-        off += 8 + (int)((len + 3) & ~3u);
+        if (len > UINT32_MAX - 3u) return -1;
+        uint32_t padded = (len + 3u) & ~3u;
+        if (padded > n - (uint32_t)off - 8u ||
+            padded > (uint32_t)INT32_MAX - (uint32_t)off - 8u) return -1;
+        off += 8 + (int)padded;
     } else if (t != T_END && t != T_NOP && t != T_FINISH) return -1;
     return off;
 }
