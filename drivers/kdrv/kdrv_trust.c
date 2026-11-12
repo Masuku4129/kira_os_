@@ -47,7 +47,8 @@ int kdrv_trust_add_key(struct kdrv_trust_store *store,
                        const struct kdrv_trust_key *key)
 {
     size_t i;
-    if (!store || !key || key->not_after < key->not_before)
+    if (!store || !key || store->key_count > KDRV_TRUST_MAX_KEYS ||
+        key->not_after < key->not_before)
         return KDRV_TRUST_INVALID;
 
     for (i = 0; i < store->key_count; ++i) {
@@ -72,7 +73,7 @@ int kdrv_trust_revoke_key(struct kdrv_trust_store *store,
                           const uint8_t key_id[KDRV_TRUST_KEY_ID_SIZE])
 {
     struct kdrv_trust_key *key;
-    if (!store || !key_id)
+    if (!store || !key_id || store->key_count > KDRV_TRUST_MAX_KEYS)
         return KDRV_TRUST_INVALID;
     key = find_key(store, key_id);
     if (!key)
@@ -109,7 +110,8 @@ int kdrv_trust_verify_catalogue(struct kdrv_trust_store *store,
     uint64_t now, floor = 0;
     size_t off = 0;
 
-    if (!store || !record || (!payload && payload_length) || !ops ||
+    if (!store || store->key_count > KDRV_TRUST_MAX_KEYS ||
+        !record || (!payload && payload_length) || !ops ||
         !ops->sha256 || !ops->ed25519_verify ||
         !ops->read_version_floor || !ops->trusted_time)
         return KDRV_TRUST_INVALID;
