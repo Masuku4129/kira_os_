@@ -10,36 +10,35 @@
 
 ## Текущие рабочие ветки
 
-### PR #42 — ARM64 FDT framebuffer include
-- Ветка: `v46/kdrv-catalogue-signature-policy`
-- Head: `13258d9f0cb4a464b6ff16605d91a5f78b69526a`
-- Исправлено: `arch/aarch64/fb_arm.c` теперь явно включает корневой `../../fdt.h`, а не одноимённый локальный заголовок загрузочного FDT.
-- Проверка: run `43181799184`; build, ARM64, host-tests, KCC, audit, GUI и driver-e2e завершились success; VM job был skipped, package skipped, report оставался queued. Эмуляторный VM прогон этой ветки не подтверждён.
-- PR остаётся draft и не слит.
-- Важная граница готовности: `drvget` — реальная, но ограниченная установка проверенных исходников по рецептам (разрешённые BSD/MIT/ISC, сборка встроенным KCC); это НЕ универсальная конвертация Linux/Windows-драйверов. В PR присутствуют `userland/drvcompat.c`, `drivers/kdrv/kdrv_manager.c` и `drivers/kdrv/kdrv_catalogue.c`, но они не подключены в текущем `build_clang.sh` и не покрыты текущим host-test runner. Их callback-пайплайн/интеграцию нельзя считать рабочей функцией или закрытым требованием; нужен реальный backend, wiring и тесты.
-
-
-- Дополнительная проверка build lists: `build_clang.sh` и `build_arm64.sh` не включают новые `drivers/iommu/{arm_smmu,intel_vtd,amd_vi,*_domain,iommu_discovery}.*`; ARM64 `main.c` также не вызывает SMMUv3. Host suite запускает старый `iommu_vtd.c` parser test и KDRV catalogue/signature tests, но не SMMUv3 runtime, `kdrv_manager.c` или `drvcompat.c`. Следовательно, новые SMMUv3/VT-d runtime и manager/conversion callbacks не входят в собранные образы; это блокер интеграции, а не PASS по факту наличия файлов.
+### PR #42 — KDRV publisher-required policy / v46 integration branch
+- Ветка: `v46/kdrv-catalogue-signature-policy`; base: `v46/kdrv-auth-integration-final`.
+- Head: `13258d9f0cb4a464b6ff16605d91a5f78b69526a`.
+- Это накопительная ветка примерно с 80 файлами: BIOS/UEFI BootInfo и handoff, ARM64 FDT/GIC, ACPI PCI routing, IOMMU/KDRV trust, каталог драйверов, installer и release-gap документы. В ней также исправлено подключение корневого FDT header в `arch/aarch64/fb_arm.c`.
+- Актуальная проверка: push run `43181790698` — build, ARM64, host-tests, KCC, audit, GUI, driver-e2e и все 10 VM jobs завершились success; report job остался queued. PR run `43181799184` — те же основные jobs success, VM skipped по условиям PR event, report queued. Не считать release gate закрытым до итогового report и проверки полного объединённого head.
+- PR draft, не слит. Не объединять без разрешения владельца проекта.
+- Граница Driver Manager: `drvget`/`drvman` реально включены в x86-64 и ARM64 userland build; `drvget` — ограниченная установка проверенных исходников по рецептам и лицензиям, а не универсальная конвертация Linux/Windows драйверов. Однако `drivers/kdrv/kdrv_manager.c` и `userland/drvcompat.c` не подключены к production build и не покрыты host-test runner. Их callback orchestration не считать готовой рабочей функцией; требуются backend, wiring и тесты.
+- Граница IOMMU в этой ветке: новые `drivers/iommu/{arm_smmu,intel_vtd,amd_vi,*_domain,iommu_discovery}.*` не входят в `build_clang.sh`/`build_arm64.sh`; ARM64 `main.c` не вызывает новый SMMUv3 runtime. Host suite покрывает старый `iommu_vtd.c` parser и KDRV tests, но не эти новые runtime-модули. Это отдельный блокер интеграции.
+- Отдельная ветка PR #125 ниже уже содержит другой путь интеграции SMMUv3 в ARM64 PCI startup и прошла CI на своём head; это не означает, что её код уже включён в PR #42 или main.
 
 ### PR #95 — KCC context / self-host parser
 - Ветка: `ai/kcc-context-more-state`
 - Head: `b03a532c1753b736c9d77cd0318a7b2869265e8a`
 - Предыдущий head `4fdeb593582fb6a3e83d21e7f43dd6f6c67574cc` провалил self-host stage1: `ir.c:23 expected ')' before '->'`.
 - Исправление: `#define IRS irs` вместо `#define IRS (irs)`, чтобы макросы полей раскрывались в `irs->field`, а не в `(irs)->field`.
-- Новый PR run: `43182964870`, pending/ожидает runner; исправление пока НЕ подтверждено тестом.
+- PR run `43182964870` остаётся pending без созданных jobs; исправление пока НЕ подтверждено тестом.
 - Не объявлять KCC self-host исправленным до успешного stage1/stage2/stage3 прогона.
 
 ### PR #131 — KIRA WASM runtime validation
 - Ветка: `fix/wasm-module-header-bounds`
-- Head: `7027e1ce11b287ab889cdd911bd2d3e1a242aff0` (актуальность сверять; последняя проверка ветки)
+- Head: `bd8f210da042e363c7dac03ad06b5590bfb9ca57`
 - Усилены: проверка версии и границ секций; уникальность/порядок секций; типы функций и точные сигнатуры KIRA imports; лимиты памяти/таблицы; индексы функций/экспортов/глобальных; сегменты данных/элементов; тела функций и локальные объявления; запрет memory ops без memory; различение явно заданного max=0 и отсутствующего maximum.
 - Добавлен `tests/wasm_loader_bounds.py` с отрицательными случаями и тестом `memory.grow` при max=0; подключён к `tests/run_host_tests.sh`.
-- CI runs `43183584327` (push) и `43183581968` (pull_request) созданы; build/ARM64/host-tests находятся в queued. Тесты ещё НЕ запускались/не подтверждены.
+- После новых проверок на текущем head запущены push run `43184407005` и PR run `43184415905`; build/ARM64/host-tests queued. Тесты ещё НЕ запускались/не подтверждены.
 - Это первая hardening-порция, не полная WebAssembly type-stack verification и не заявление о полной WASM-конформности.
 - PR draft, не слит.
 
 ## Уже подтверждённые соседние проверки
-- PR #125 ARM SMMU/PCI quarantine hardening: run `43177373290` success.
+- PR #125 ARM SMMU/PCI quarantine hardening: head `6074a9f3eeb8a51e63dccaeff3caaff103ddaa33`, base `autodrv`, non-draft and mergeable; run `43177373290` success across build, ARM64, host-tests, KCC, driver-e2e, audit, GUI, Mind, UEFI OVMF and all 10 VM jobs. This branch integrates SMMUv3 domains into ARM64 PCI startup; physical SMMUv3 validation is still absent and PR is not merged.
 - PR #128 xHCI/DMA/scheduler hardening: run `43175213615` success.
 - PR #120 SMMUv3 stage-1 domains: run `42852157626` success.
 - PR #126 FDT cell-width validation: runs `43162737639` и `43162737625` success.
