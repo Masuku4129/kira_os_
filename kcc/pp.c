@@ -24,14 +24,19 @@ typedef struct {
     int unity_mode;                            /* #pragma kcc unity: каждый подключённый файл - один раз */
     Token out_head, *out_tail;
     int incl_level;
+    Token *eval_token;
+    const char *eval_path;
 } PPState;
-#define PP ((PPState *)K.pp_state)
+static PPState *kcc_pp_state_context(void) { return K.pp_state; }
+#define PP (kcc_pp_state_context())
 #define mtab (PP->mtab)
 #define once_list (PP->once_list)
 #define unity_mode (PP->unity_mode)
 #define out_head (PP->out_head)
 #define out_tail (PP->out_tail)
 #define incl_level (PP->incl_level)
+#define ev_t (PP->eval_token)
+#define eval_path (PP->eval_path)
 
 static unsigned hash_str(const char *s, int n) {
     unsigned h = 2166136261u;
@@ -344,7 +349,6 @@ static Token *expand_arg_list(Token *t) {
 
 /* ---------- #if ---------- */
 typedef struct { int64_t v; int u; } V;
-static Token *ev_t;
 
 static int binprec(const Token *t) {
     if (t->k != TK_PUNCT) return 0;
@@ -444,7 +448,6 @@ static V ev_cond(int skip) {
 }
 
 static const char *path_dir(const char *p);
-static const char *eval_path = "";
 /* __has_include("x") / __has_include(<x>): ищет файл теми же путями, что и #include, не читая его содержимое в препроцессор. */
 static int has_include(Token *name_tok, int angle, const char *nm) {
     const KCfg *c = K.cfg;

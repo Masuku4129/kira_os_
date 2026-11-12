@@ -772,7 +772,16 @@ static void op_hdrcnt(Ins *i, int *r, int kind, void *x) { (void)i; OpHdrCnt *h 
 typedef struct { const int *map; int nv; } OpHdrMap;
 static void op_hdrmap(Ins *i, int *r, int kind, void *x) { (void)i; OpHdrMap *h = x; if (kind == 0 && *r > 0 && *r <= h->nv && h->map[*r]) *r = h->map[*r]; }
 #define OP_HDR_MAX 12
-static Ins *op_pool, *op_pool0; static size_t op_pool_left, op_pool_total;   /* узлы инверсии живут дольше временной арены ir_optimize: выделяются заранее */
+typedef struct {
+    Ins *pool, *pool0;
+    size_t left, total;
+} OptPoolState;
+static OptPoolState *kcc_opt_pool_state_context(void) { return K.opt_pool_state; }
+#define OPS (kcc_opt_pool_state_context())
+#define op_pool (OPS->pool)
+#define op_pool0 (OPS->pool0)
+#define op_pool_left (OPS->left)
+#define op_pool_total (OPS->total)
 static Ins *op_newins(void) { if (!op_pool_left) return NULL; op_pool_left--; return op_pool++; }
 /* Распознавание popcount: цикл while (x) { x &= x - 1; c++; } заменяется последовательностью битовых сложений (SWAR, без popcnt:
  * набор команд машины не предполагается): c += popcount(x); x = 0. Точно и при x == 0. Форма до инверсии циклов:
@@ -1002,6 +1011,8 @@ void ir_optimize(IrFn *fi) {
     int nv = fi->nreg, n = 0;
     for (Ins *i = fi->head; i; i = i->next) n++;
     if (n == 0) return;
+    if (!K.opt_pool_state) K.opt_pool_state = ka_new(sizeof(OptPoolState));
+    memset(K.opt_pool_state, 0, sizeof(OptPoolState));
     int maxslot0 = -1;
     for (Obj *l = fi->f->locals; l; l = l->next) if (l->slot > maxslot0) maxslot0 = l->slot;
     /* mdef живёт дольше прохода (читают бэкенды): размер с запасом под новые vreg переменных (не больше числа слотов) */
@@ -1271,7 +1282,11 @@ static void op_shift(Ins *i, int *r, int kind, void *c) {
 /* Число вызовов функций программы по имени и признак "адрес взят" (GADDR, указатели в данных): для встраивания единственного вызова.
  * Таблица по указателю Obj (открытая адресация), заполняется ir_inline_prepare до встраивания. */
 typedef struct { const Obj *o; int calls, taken; } InlCnt;
-static InlCnt *inl_tab; static unsigned inl_cap;
+typedef struct { InlCnt *tab; unsigned cap; } InlineState;
+static InlineState *kcc_inline_state_context(void) { return K.inline_state; }
+#define ILS (kcc_inline_state_context())
+#define inl_tab (ILS->tab)
+#define inl_cap (ILS->cap)
 static InlCnt *inl_slot(const Obj *o, int create) {
     if (!inl_cap) return NULL;
     unsigned h = (unsigned)(((uintptr_t)o >> 4) * 2654435761u) & (inl_cap - 1);
@@ -1281,6 +1296,8 @@ static InlCnt *inl_slot(const Obj *o, int create) {
     }
 }
 void ir_inline_prepare(Obj *globals) {
+    if (!K.inline_state) K.inline_state = ka_new(sizeof(InlineState));
+    memset(K.inline_state, 0, sizeof(InlineState));
     int nf = 0;
     for (Obj *g = globals; g; g = g->next) nf++;
     inl_cap = 16;

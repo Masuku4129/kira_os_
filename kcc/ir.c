@@ -4,22 +4,27 @@
 #include "kcc.h"
 #include <string.h>
 
-typedef struct {
+struct IRState {
     Ins *ihead, *itail;
     int reg_count, label_count;
     Obj *fn, *ltail;
     int maxslot;
     SB *out;
-} IRState;
-#define IRS ((IRState *)K.ir_state)
-#define ihead (IRS->ihead)
-#define itail (IRS->itail)
-#define ir_nreg (IRS->reg_count)
-#define ir_nlab (IRS->label_count)
-#define fn (IRS->fn)
-#define ltail (IRS->ltail)
-#define maxslot (IRS->maxslot)
-#define out (IRS->out)
+};
+/* The active alias is refreshed at each public IR entry point. KCtx owns the storage;
+ * this alias keeps the self-hosted parser's supported C subset (no call-result -> member).
+ * K itself is currently process-global, so this does not reduce existing concurrency guarantees. */
+static struct IRState *irs;
+/* Keep each member expression direct: the self-hosted preprocessor does not
+ * reliably rescan an object-like alias nested inside another macro body. */
+#define ihead irs->ihead
+#define itail irs->itail
+#define ir_nreg irs->reg_count
+#define ir_nlab irs->label_count
+#define fn irs->fn
+#define ltail irs->ltail
+#define maxslot irs->maxslot
+#define out irs->out
 
 static Ins *emit(IrOp op) {
     Ins *i = ka_new(sizeof *i);
@@ -730,7 +735,8 @@ static void print_ins(const Ins *i) {
 }
 
 IrFn *ir_lower(Obj *f) {
-    if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
+    if (!K.ir_state) K.ir_state = ka_new(sizeof(struct IRState));
+    irs = K.ir_state;
     fn = f;
     ihead = itail = NULL;
     ir_nreg = 0; ir_nlab = f->nlabels;
@@ -805,7 +811,8 @@ int ir_uses_sp(const IrFn *fi) {
 }
 
 void ir_dump(Obj *globals, SB *o) {
-    if (!K.ir_state) K.ir_state = ka_new(sizeof(IRState));
+    if (!K.ir_state) K.ir_state = ka_new(sizeof(struct IRState));
+    irs = K.ir_state;
     out = o;
     sb_printf(out, "; kcc IR\n");
     for (Obj *g = globals; g; g = g->next) {

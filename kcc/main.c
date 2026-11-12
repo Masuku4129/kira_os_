@@ -16,7 +16,9 @@ static const char *read_file(void *ud, const char *path, size_t *len) {
     if (sz < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
     char *buf = ka_new((size_t)sz + 1);          /* буфер живёт в арене компилятора */
     size_t n = fread(buf, 1, (size_t)sz, f);
+    int read_error = ferror(f);
     fclose(f);
+    if (read_error || n != (size_t)sz) return NULL;
     *len = n;
     return buf;
 }
@@ -37,10 +39,22 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "-O0")) kcc_noopt = 1;
         else if (!strcmp(a, "-O1")) kcc_noopt = 0;
         else if (!strcmp(a, "-o") && i + 1 < argc) outp = argv[++i];
-        else if (!strncmp(a, "-I", 2) && a[2]) { if (ni < 64) incs[ni++] = a + 2; }
-        else if (!strcmp(a, "-I") && i + 1 < argc) { if (ni < 64) incs[ni++] = argv[++i]; }
-        else if (!strncmp(a, "-D", 2) && a[2]) { if (nd < 64) defs[nd++] = a + 2; }
-        else if (!strcmp(a, "-D") && i + 1 < argc) { if (nd < 64) defs[nd++] = argv[++i]; }
+        else if (!strncmp(a, "-I", 2) && a[2]) {
+            if (ni >= 64) { fprintf(stderr, "kcc: too many include directories (maximum 64)\n"); return 2; }
+            incs[ni++] = a + 2;
+        }
+        else if (!strcmp(a, "-I") && i + 1 < argc) {
+            if (ni >= 64) { fprintf(stderr, "kcc: too many include directories (maximum 64)\n"); return 2; }
+            incs[ni++] = argv[++i];
+        }
+        else if (!strncmp(a, "-D", 2) && a[2]) {
+            if (nd >= 64) { fprintf(stderr, "kcc: too many macro definitions (maximum 64)\n"); return 2; }
+            defs[nd++] = a + 2;
+        }
+        else if (!strcmp(a, "-D") && i + 1 < argc) {
+            if (nd >= 64) { fprintf(stderr, "kcc: too many macro definitions (maximum 64)\n"); return 2; }
+            defs[nd++] = argv[++i];
+        }
         else if (!strcmp(a, "-target") && i + 1 < argc) target = argv[++i];
         else if (a[0] == '-') { fprintf(stderr, "kcc: unknown option '%s'\n", a); return 2; }
         else if (!in) in = a;
@@ -58,8 +72,20 @@ int main(int argc, char **argv) {
     if (rc) { fprintf(stderr, "%s\n", r.err); return 1; }
     FILE *o = outp ? fopen(outp, "wb") : stdout;
     if (!o) { fprintf(stderr, "kcc: cannot write '%s'\n", outp); return 2; }
-    if (ir) fputs(r.ir, o);
-    else if (fwrite(r.elf, 1, r.elflen, o) != r.elflen) { fprintf(stderr, "kcc: write error on '%s'\n", outp); return 2; }
-    if (outp) fclose(o);
+    int write_error = 0;
+    if (ir) {
+        if (fputs(r.ir, o) == EOF) write_error = 1;
+    } else if (fwrite(r.elf, 1, r.elflen, o) != r.elflen) {
+        write_error = 1;
+    }
+    if (outp) {
+        if (fclose(o) != 0) write_error = 1;
+    } else if (fflush(o) != 0) {
+        write_error = 1;
+    }
+    if (write_error) {
+        fprintf(stderr, "kcc: write error on '%s'\n", outp ? outp : "stdout");
+        return 2;
+    }
     return 0;
 }
