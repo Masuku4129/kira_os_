@@ -317,11 +317,15 @@ static int bootarg_has(const void* fdt, const char* word) {
 static int dma_noncoherent(const void* fdt) {
     kprintf("[KIRA ARM64] DMA policy: checking boot arguments\n");
     if (bootarg_has(fdt, "kira.dma=noncoherent")) return 1;
-    if (bootarg_has(fdt, "kira.dma=coherent")) return 0;
-    kprintf("[KIRA ARM64] DMA policy: checking root coherency declaration\n");
-    uint32_t l;
-    if (fdt_prop(fdt, fdt_root(fdt), "dma-coherent", &l)) return 0;
-    kprintf("[KIRA ARM64] DMA policy: locating enabled PCI hosts\n");
+    /* A writable boot argument is not evidence about hardware cache coherency.
+       It may force the conservative path, but must never disable it. */
+    if (bootarg_has(fdt, "kira.dma=coherent"))
+        kprintf("[KIRA ARM64] DMA policy: ignoring unsafe coherent override; firmware declarations required\n");
+    /* All current ARM64 DMA-capable controllers are PCI devices. A global cached
+       DMA mapping is permitted only if every enabled PCI host explicitly declares
+       zero-length dma-coherent. Any non-PCI DMA driver added later must extend this
+       policy or force the non-cacheable pool; a host without a declaration fails closed. */
+    kprintf("[KIRA ARM64] DMA policy: checking every enabled PCI host coherency declaration\n");
     int pci = fdt_find_enabled_compatible(fdt, -1, "pci-host-ecam-generic");
     if (pci < 0) return 1;
     unsigned enabled_hosts = 0;
@@ -329,7 +333,7 @@ static int dma_noncoherent(const void* fdt) {
          node = fdt_find_compatible(fdt, node, "pci-host-ecam-generic")) {
         if (!fdt_node_enabled(fdt, node)) continue;
         enabled_hosts++;
-        if (!fdt_prop(fdt, node, "dma-coherent", &l)) return 1;
+        if (!fdt_has_bool(fdt, node, "dma-coherent")) return 1;
     }
     return enabled_hosts ? 0 : 1;
 }

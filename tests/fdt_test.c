@@ -32,6 +32,7 @@ static unsigned build(void) {
     sn = tn = 0;
     begin("");
       p1("#address-cells", 2); p1("#size-cells", 2); pstr("compatible", "linux,dummy-virt", 17);
+      pstr("dma-coherent", "x", 1); prop("test-boolean", "", 0);
       begin("memory@40000000"); if (bad_memory_type) pstr("device_type", "memory\0x", 8); else pstr("device_type", "memory", 7);
         { uint32_t r[] = { 0, 0x40000000, 0, 0x40000000 }; pcells("reg", r, 4); } end();
       begin("memory@70000000"); pstr("device_type", "memory", 7);
@@ -109,6 +110,9 @@ int main(void) {
     { int bad_depth = -1; CHECK(fdt_next_node(blob, 0, &bad_depth) == -1); }
 
     CHECK(fdt_prop(0, 0, "compatible", 0) == 0);
+    CHECK(!fdt_has_bool(blob, fdt_root(blob), "dma-coherent"));
+    CHECK(fdt_has_bool(blob, fdt_root(blob), "test-boolean"));
+    CHECK(!fdt_has_bool(blob, fdt_root(blob), "missing-boolean"));
     CHECK(fdt_prop(blob, -1, "compatible", 0) == 0);
     CHECK(fdt_prop(blob, 0, 0, 0) == 0);
     CHECK(!fdt_compatible(blob, 0, 0));

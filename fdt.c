@@ -207,6 +207,13 @@ const void* fdt_prop(const void* fdt, int node, const char* name, uint32_t* len)
     }
 }
 
+/* Device-tree boolean properties are represented by presence with zero data bytes.
+   A non-empty property must never be treated as an affirmative security declaration. */
+int fdt_has_bool(const void* fdt, int node, const char* name) {
+    uint32_t len = 0;
+    return fdt_prop(fdt, node, name, &len) != 0 && len == 0;
+}
+
 int fdt_compatible(const void* fdt, int node, const char* compat) {
     if (!fdt || node < 0 || !compat || !*compat) return 0;
     uint32_t len;

@@ -287,7 +287,85 @@ static char logbuf[16384];
 void usb_log(const char* s) { strncat(logbuf, s, sizeof logbuf - strlen(logbuf) - 1); }
 void usb_log_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsigned long long)v); usb_log(b); }
 void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); usb_log(b); }
-void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; (void)b; }
+static uint16_t pci_command_model, pci_msi_control_model, pci_msix_control_model;
+static int pci_block_busmaster_clear, pci_block_msi_disable, pci_block_msix_mask, pci_block_intx_disable;
+static uint8_t pci_cap_ptr_model = 0x50;
+void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; if (pci_block_intx_disable) b &= (uint16_t)~PCI_CMD_INTX_OFF; pci_command_model |= b; }
+uint8_t pci_read8(const pci_dev_t* d, uint16_t off) {
+    (void)d;
+    if (off == 0x34) return pci_cap_ptr_model;
+    if (off == 0x50) return 0x05;
+    if (off == 0x51) return 0x60;
+    if (off == 0x60) return 0x11;
+    if (off == 0x61) return 0;
+    return 0;
+}
+uint16_t pci_read16(const pci_dev_t* d, uint16_t off) {
+    (void)d;
+    if (off == 0x06) return 0x10;
+    if (off == 0x04) return pci_command_model;
+    if (off == 0x52) return pci_msi_control_model;
+    if (off == 0x62) return pci_msix_control_model;
+    return 0;
+}
+uint16_t pci_next_cap(const pci_dev_t* d, uint16_t after, uint8_t* id) {
+    (void)d;
+    if (after == 0) { if (id) *id = 0x05; return 0x50; }
+    if (after == 0x50) { if (id) *id = 0x11; return 0x60; }
+    if (id) *id = 0;
+    return 0;
+}
+void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
+    (void)d;
+    if (off == 0x04) {
+        if (pci_block_busmaster_clear) v |= PCI_CMD_MASTER;
+        if (pci_block_intx_disable) v &= (uint16_t)~PCI_CMD_INTX_OFF;
+        pci_command_model = v;
+    } else if (off == 0x52) {
+        if (!pci_block_msi_disable) pci_msi_control_model = v;
+    } else if (off == 0x62) {
+        if (!pci_block_msix_mask) pci_msix_control_model = v;
+    }
+}
+
+int pci_quiesce_interrupts(const pci_dev_t* d) {
+    if (!d) return 0;
+    int safe = 1;
+    uint16_t status = pci_read16(d, 0x06);
+    if (status & 0x10u) {
+        uint8_t ptr = pci_read8(d, 0x34);
+        uint64_t visited = 0;
+        if (!ptr) safe = 0;
+        unsigned n;
+        for (n = 0; ptr && n < 48; n++) {
+            if (ptr < 0x40u || ptr > 0xFCu || (ptr & 3u)) { safe = 0; break; }
+            uint64_t bit = 1ull << (ptr >> 2);
+            if (visited & bit) { safe = 0; break; }
+            visited |= bit;
+            uint8_t id = pci_read8(d, ptr);
+            uint8_t next = pci_read8(d, (uint16_t)(ptr + 1u));
+            if (!id || id == 0xFFu) { safe = 0; break; }
+            if (id == 0x05u) {
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control & ~1u));
+                if (pci_read16(d, (uint16_t)(ptr + 2u)) & 1u) safe = 0;
+            } else if (id == 0x11u) {
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control | 0x4000u));
+                uint16_t after = pci_read16(d, (uint16_t)(ptr + 2u));
+                if (!(after & 0x4000u)) safe = 0;
+            }
+            if (!next) { ptr = 0; break; }
+            if (next < 0x40u || next > 0xFCu || (next & 3u) || next == ptr) { safe = 0; break; }
+            ptr = next;
+        }
+        if (ptr && n == 48) safe = 0;
+    }
+    uint16_t command = pci_read16(d, 0x04);
+    pci_write16(d, 0x04, (uint16_t)(command | PCI_CMD_INTX_OFF));
+    if (!(pci_read16(d, 0x04) & PCI_CMD_INTX_OFF)) safe = 0;
+    return safe;
+}
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { (void)d; (void)off; return 0; }
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { (void)d; (void)off; (void)v; }
 volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t len) { (void)d; (void)bar; (void)len; return regs + off; }
@@ -307,7 +385,66 @@ int main(void) {
     for (int p = 1; p <= 4; p++) port_last[p] = ~0u;
     pci_dev_t pd = { 0 }; pd.vendor = 0x1B36; pd.device = 0x000D; pd.bar[0].base = 0xFEB00000; pd.bar[0].size = 0x4000;
     usb_hc_t hc;
+    pci_command_model = PCI_CMD_MASTER;                       /* inherited firmware DMA: halt before clearing */
+    pci_msi_control_model = 1u;                                /* inherited MSI enabled */
+    pci_msix_control_model = 0x8000u;                           /* inherited MSI-X enabled */
+    pci_block_busmaster_clear = 1;                              /* emulate a stuck PCI Command.BusMaster bit */
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) != 0);           /* refusal must not pretend DMA was stopped */
+    pci_block_busmaster_clear = 0;
+
+    pci_command_model = 0; pci_msi_control_model = 1u; pci_msix_control_model = 0x8000u;
+    pci_block_msi_disable = 1;
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    pci_block_msi_disable = 0;
+
+    pci_command_model = 0; pci_msi_control_model = 1u; pci_msix_control_model = 0x8000u;
+    pci_block_msix_mask = 1;
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    pci_block_msix_mask = 0;
+
+    pci_command_model = 0; pci_msi_control_model = 1u; pci_msix_control_model = 0x8000u;
+    pci_block_intx_disable = 1;
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    pci_block_intx_disable = 0;
+
+    pci_command_model = PCI_CMD_MASTER;
+    pci_cap_ptr_model = 0x20;                                  /* malformed capability-list pointer */
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    pci_cap_ptr_model = 0x50;
+
+    pci_command_model = PCI_CMD_MASTER;
+    *R(regs, 0x18) = 0x2001u;                               /* misaligned runtime register offset */
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    *R(regs, 0x18) = 0x2000u;
+    pci_command_model = PCI_CMD_MASTER;
+    *R(regs, 0x14) = 0x2000u;                               /* doorbell array overlaps runtime registers */
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    *R(regs, 0x14) = 0x3000u;
+
+    pci_command_model = PCI_CMD_MASTER;
+    pci_msi_control_model = 1u;
+    pci_msix_control_model = 0x8000u;
+    *R(regs, 0x10) = 1u | (1u << 3) | ((0x5000u / 4u) << 16); /* xECP outside mapped BAR */
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    *R(regs, 0x10) = 1u | (1u << 3) | ((XECP / 4) << 16);
+
+    pci_command_model = PCI_CMD_MASTER;
+    pci_msi_control_model = 1u;
+    pci_msix_control_model = 0x8000u;
     int rc = xhci_start(&hc, &pd);
+    CHECK(rc == 0);
+    CHECK((pci_msi_control_model & 1u) == 0);
+    CHECK((pci_msix_control_model & 0xC000u) == 0xC000u);
+    CHECK((pci_command_model & (PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF)) ==
+          (PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF));
     if (rc) printf("%s", logbuf);
     CHECK(rc == 0 && handoff_done && resets == 1 && running);
     hc.ports(&hc);

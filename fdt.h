@@ -24,6 +24,7 @@ int      fdt_root(const void* fdt);
 int      fdt_next_node(const void* fdt, int node, int* depth);   /* обход всего дерева по порядку */
 const char* fdt_node_name(const void* fdt, int node);            /* «uart@9000000» */
 const void* fdt_prop(const void* fdt, int node, const char* name, uint32_t* len);
+int fdt_has_bool(const void* fdt, int node, const char* name);
 int      fdt_compatible(const void* fdt, int node, const char* compat);   /* 1 - узел совместим */
 int      fdt_find_compatible(const void* fdt, int after, const char* compat);  /* следующий после after (-1 - с начала) */
 int      fdt_find_path(const void* fdt, const char* path);       /* «/cpus», «/chosen»; имя без @адреса тоже подходит */
