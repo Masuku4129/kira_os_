@@ -121,7 +121,12 @@ int main(void)
     CHECK(pci_disable_bus_master(dev) == 0); /* hardware ignored the clear: caller must quarantine and pin DMA */
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) != 0);
     reject_command_writes = 0;
+    CHECK(dev->dma_quarantined != 0); /* failed readback is sticky until reboot/re-enumeration */
     CHECK(pci_disable_bus_master(dev) == 1);
+    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
+    pci_enable(dev, PCI_CMD_MASTER);
+    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
+    pci_write16(dev, 0x04, PCI_CMD_MASTER);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
 #endif
 
