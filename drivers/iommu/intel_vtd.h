@@ -48,5 +48,8 @@ int kira_vtd_unit_enable_translation(struct kira_vtd_unit *unit,
                                      const struct kira_vtd_platform *platform);
 int kira_vtd_unit_disable_translation(struct kira_vtd_unit *unit,
                                       const struct kira_vtd_platform *platform);
+/* Releases the root page only after translation is confirmed disabled. */
+int kira_vtd_unit_release(struct kira_vtd_unit *unit,
+                          const struct kira_vtd_platform *platform);
 
 #endif
