@@ -274,9 +274,8 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     if (!device_quiesced || !kdrv_pci_busmaster_handoff_safe(pci_command, pci_after) ||
         !kdrv_pci_command_quiesced(pci_after) ||
         (pci_after & (PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER))) {
-        quarantine_failed_start(b, !device_quiesced ||
-            (pci_command & PCI_CMD_MASTER) ||
-            (pci_after & (PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER)));
+        quarantine_failed_start(b, kdrv_pci_start_requires_permanent_quarantine(
+            device_quiesced, pci_command, pci_after));
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
         uart_print(": inherited or uncleared bus mastering; device is not safe to hand off, driver NOT started\n");
