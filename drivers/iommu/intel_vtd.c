@@ -96,7 +96,8 @@ static int vtd_select_address_width(uint64_t cap, uint8_t requested)
     uint8_t mgaw = (uint8_t)((cap >> 16) & 0xffu);
     unsigned int levels;
 
-    if (requested > mgaw)
+    /* This implementation's PTE/root address fields are limited to 52 bits. */
+    if (requested > mgaw || requested > 52u)
         return 0;
 
     if (requested <= 39)
@@ -134,7 +135,7 @@ int kira_vtd_unit_prepare(struct kira_vtd_unit *unit,
 
     if (!unit || !platform || !platform->map_mmio ||
         !platform->alloc_dma_page || !platform->free_dma_page ||
-        host_address_width < 32 || host_address_width > 57 ||
+        host_address_width < 32 || host_address_width > 52 ||
         register_base == 0 || (register_base & 0xfffu) != 0)
         return KIRA_VTD_INVALID;
 
