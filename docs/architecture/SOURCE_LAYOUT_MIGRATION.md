@@ -148,3 +148,5 @@ Implemented as a transitional in-kernel boundary:
 - RFC: `docs/architecture/rfc/RFC-SVC-001.md`.
 
 **Gate:** exact-head CI must pass both ISA builds, host tests and QEMU scenarios. Follow-up extraction to IPC must preserve ABI IDs, argument semantics, capability checks, errors and blocking behavior.
+
+- ABI number ownership was tightened after review: the canonical registry is `kcc/include/syscall_numbers.h`; kernel and both public userland headers include that exact source. The root `syscall_numbers.h` is only a kernel forwarding header.
