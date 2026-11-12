@@ -100,7 +100,7 @@ typedef struct { u32 type; int import; u32 imp_id; const u8* code; const u8* end
 static ftype_t* types; static u32 ntypes;
 static func_t* funcs; static u32 nfuncs, nimports;
 static u32* table; static u32 ntable;
-static u8* mem; static u32 mem_pages, mem_max;
+static u8* mem; static u32 mem_pages, mem_max, has_memory;
 static u64 globals[MAXG]; static u32 nglobals;
 static u32 entry = ~0u;
 static const u8* mod; static u32 modlen;
@@ -483,6 +483,7 @@ static int compile_func(func_t* f) {
         }
         case 0x28: case 0x29: case 0x2A: case 0x2B: case 0x2C: case 0x2D: case 0x2E: case 0x2F:
         case 0x30: case 0x31: case 0x32: case 0x33: case 0x34: case 0x35: {
+            if (!has_memory) CERR("memory instruction without memory");
             leb_u(&p, end); u32 off = leb_u(&p, end);
             NEED(1);
             static const u8 ldk[8] = { 0, 1, 0, 1, 3, 2, 5, 4 };    /* 0x28..0x2F -> LD32, LD64, LD32, LD64, LD8S, LD8U, LD16S, LD16U */
@@ -497,6 +498,7 @@ static int compile_func(func_t* f) {
             break;
         }
         case 0x36: case 0x37: case 0x38: case 0x39: case 0x3A: case 0x3B: case 0x3C: case 0x3D: case 0x3E: {
+            if (!has_memory) CERR("memory instruction without memory");
             leb_u(&p, end); u32 off = leb_u(&p, end);
             NEED(2);
             static const u8 stk[9] = { 0, 1, 0, 1, 2, 3, 2, 3, 0 };   /* 0x36..0x3E -> ST32, ST64, ST8, ST16 */
@@ -513,6 +515,7 @@ static int compile_func(func_t* f) {
             c_h -= 2; break;
         }
         case 0x3F: case 0x40:
+            if (!has_memory) CERR("memory size/grow without memory");
             p++; lz_flush();
             if (op == 0x3F) { ew(op); hpush(1); } else { NEED(1); ew(op); }
             break;
@@ -530,8 +533,8 @@ static int compile_func(func_t* f) {
         case 0xFC: {
             u32 sub = leb_u(&p, end);
             if (sub <= 7) { NEED(1); lz_flush(); ew(OP_FC + sub); }
-            else if (sub == 10) { p += 2; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
-            else if (sub == 11) { p++; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
+            else if (sub == 10) { if (!has_memory) CERR("memory.copy without memory"); p += 2; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
+            else if (sub == 11) { if (!has_memory) CERR("memory.fill without memory"); p++; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
             else { p--; skip_imm(0xFC, &p, end); if (sub == 8 || sub == 9) { lz_flush(); ew(OP_TRAP); ew(TM_PASSIVE); c_unr = 1; } }
             break;
         }
@@ -577,7 +580,7 @@ static int load(void) {
     const u8* p = mod + 8; const u8* end = mod + modlen;
     u32 nfuncdecl = 0;
     u32 seen_sections = 0;
-    u32 has_memory = 0;
+    has_memory = 0;
     u32 mem_max_set = 0;
     u32 has_start = 0;
     u8 last_section = 0;
@@ -770,7 +773,8 @@ static int load(void) {
         } else if (id == 10) {                                    /* код */
             u32 n = leb_u(&s, se);
             if (n != nfuncdecl) { trap("function and code counts differ"); return -1; }
-            if (!mem_max_set) mem_max = MAXMEM / 65536;
+            if (!has_memory) mem_max = 0;
+            else if (!mem_max_set) mem_max = MAXMEM / 65536;
             ccap = 2 * sz + 8 * n + 16;                           /* не больше двух слов на байт кода + запас на функцию */
             code = (u32*)alloc(4ull * ccap);
             if (!code) { trap("no memory for compiled code"); return -1; }
@@ -795,16 +799,15 @@ static int load(void) {
                 s = be;
             }
         } else if (id == 11) {                                    /* данные - после выделения памяти */
-            if (!mem) {
-                if (!mem_max_set) mem_max = MAXMEM / 65536;
-                if (!mem_max_set) mem_max = MAXMEM / 65536;
-        if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
+            u32 n = leb_u(&s, se);
+            if (trapped || (n && !has_memory)) { trap("data segments without memory"); return -1; }
+            if (n && !mem) {
+                if (!mem_max_set) mem_max = has_memory ? MAXMEM / 65536 : 0;
+                if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
                 if (mem_pages > mem_max) { trap("module needs more memory than 2 MB"); return -1; }
                 mem = (u8*)alloc((u64)(mem_max ? mem_max : 1) * 65536);
                 if (!mem) { trap("no memory for the module"); return -1; }
             }
-            u32 n = leb_u(&s, se);
-            if (trapped) return -1;
             for (u32 i = 0; i < n && !trapped; i++) {
                 u32 fl = leb_u(&s, se);
                 if (trapped || fl == 1) { trap("passive data segments are not supported"); return -1; }
@@ -828,6 +831,7 @@ static int load(void) {
         p = se;
     }
     if (!trapped && !mem) {
+        if (!mem_max_set) mem_max = has_memory ? MAXMEM / 65536 : 0;
         if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
         if (mem_pages > mem_max) { trap("module needs more memory than 2 MB"); return -1; }
         mem = (u8*)alloc((u64)(mem_max ? mem_max : 1) * 65536);
