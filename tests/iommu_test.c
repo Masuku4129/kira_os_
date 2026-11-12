@@ -28,6 +28,7 @@ static int logged(const char* s) { return strstr(logbuf, s) != 0; }
 typedef struct { pci_dev_t d; uint8_t sec, sub; } mdev_t;
 static mdev_t mdev[8];
 static int nmdev;
+static int d3_bus_master_enabled = 1;
 static void add_dev(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t ven, uint16_t id, uint8_t hdr, uint8_t cls, uint8_t sub, uint8_t sec, uint8_t subo) {
     pci_dev_t* d = &mdev[nmdev].d;
     memset(d, 0, sizeof *d);
@@ -39,6 +40,12 @@ const pci_dev_t* pci_get(int i) { return i >= 0 && i < nmdev ? &mdev[i].d : 0; }
 uint8_t pci_read8(const pci_dev_t* d, uint16_t off) {
     for (int i = 0; i < nmdev; i++) if (&mdev[i].d == d) return off == 0x19 ? mdev[i].sec : off == 0x1A ? mdev[i].sub : 0;
     return 0;
+}
+int pci_disable_bus_master(const pci_dev_t* d) {
+    if (!d) return 0;
+    if (d->bus == 0 && d->dev == 3 && d->fn == 0)
+        d3_bus_master_enabled = 0;
+    return 1;
 }
 
 /* ---- ACPI + DMAR ---- */
@@ -158,6 +165,8 @@ static void record_fault(uint16_t sid, uint64_t iova, int write, int reason) {
 /* One DMA access by a device. 0 = allowed (pa filled), -1 = blocked and recorded. */
 static int hw_dma(uint16_t sid, uint64_t iova, int write, uint64_t* pa) {
     hw_sync();
+    if (sid == (uint16_t)(3u << 3) && !d3_bus_master_enabled)
+        return -1;
     int rc = -1;
     if (!(*r32(R_GSTS) & (1u << 31))) { *pa = iova; return 0; }            /* translation off */
     for (int i = 0; i < 16; i++)
@@ -267,8 +276,8 @@ int main(int argc, char** argv) {
         CHECK(!iommu_device_isolated(d3) && !iommu_device_ready(d3));
         /* A failed invalidation leaves the hardware state uncertain: either the
            cached bypass remains or DMA is blocked. It must never claim isolation. */
-        int dma_rc = hw_dma(sid_of(d3), 0x123456000ull, 1, &pa);
-        CHECK(dma_rc != 0 || pa == 0x123456000ull);
+        CHECK(!d3_bus_master_enabled);
+        CHECK(hw_dma(sid_of(d3), 0x123456000ull, 1, &pa) != 0); /* requester stopped after failed invalidation */
         puts("iommu_test F: PASS (failed invalidation is not isolation)");
         return 0;
     }
