@@ -169,7 +169,7 @@ static struct kira_rtl8139_platform platform(mock_t *m)
     p.context = m;
     p.pci_vendor_id = 0x10ec;
     p.pci_device_id = 0x8139;
-    p.io_region_size = 0x54;
+    p.io_region_size = 0x66;
     p.in8 = in8; p.in16 = in16; p.in32 = in32;
     p.out8 = out8; p.out16 = out16; p.out32 = out32;
     p.dma_alloc = dma_alloc; p.dma_free = dma_free;
