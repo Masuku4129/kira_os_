@@ -174,3 +174,12 @@ No tests were executed during this source-review pass. Findings above are code o
 - **Change:** the FDT-described PCI ECAM host backend was extracted to `arch/aarch64/pci_host.c`; `arm_main()` retains the ordered call and supplies the serialized logger.
 - **Action:** do not split by arbitrary line ranges. First map shared state and callers; then extract dependency-closed backends (MMU/memory mapping, interrupt controller/MSI, timer/SMP/PSCI, platform discovery) behind explicit architecture-owned contracts. Preserve boot order and failure behavior. Add per-backend host/contract tests where possible and exact-head ARM64/QEMU GICv2/GICv3 boot tests after each slice.
 - **Status:** partially addressed; the PCI host bridge is separated, while the remaining platform bootstrap is still mixed.
+
+
+## F-021 — AArch64 PCI host bridge parser needed strict FDT/ECAM bounds
+
+- **Severity:** High — malformed Device Tree properties could underflow the default bus range, truncate bus numbers, produce out-of-bounds `ranges` reads or overflow the signed CPU-to-PCI window offset.
+- **Files:** `arch/aarch64/pci_host.c`, new `arch/aarch64/pci_host_parse.[ch]`.
+- **Evidence:** the first extracted implementation derived `bus1` using unsigned `(size >> 20) - 1`, accepted bus-range values before narrowing to 8 bits, trusted range cell counts and computed `cpu_base - pci_base` in unsigned arithmetic before casting to `int64_t`. Those operations did not establish safe bounds for malformed FDT data.
+- **Change on architecture branch:** validate the FDT header and enabled host node; require a nonzero ECAM span, valid bus-range and sufficient region size; reject overflow; parse only bounded PCI ranges tuples; safely encode signed CPU offsets; add dedicated parser tests and build/architecture guards.
+- **Verification status:** implementation and tests are committed, but exact-head CI has not yet completed. Do not mark fixed/PASS until host tests, ARM64 build and QEMU scenarios pass on the same final SHA. Physical hardware remains untested.
