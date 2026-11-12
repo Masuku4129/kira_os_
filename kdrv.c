@@ -58,6 +58,7 @@ typedef struct {
     uint32_t denied;                 /* отказов по политике (в журнал - первый) */
     kmap_t map[KDRV_MAX_MMIO]; uint32_t nmap; uint64_t mmio_next;
     kblk_t dma[KDRV_MAX_DMA]; uint32_t ndma, dma_pages; uint64_t dma_next;
+    int iommu_bound;                 /* private requester domain owned by this binding until release completes */
     /* карта драйвера для сетевого стека */
     netdev_t nd; int nd_registered;
     spinlock_t nlk; volatile int net_alive;
@@ -350,7 +351,7 @@ static uint16_t quiesce(const pci_dev_t* d) {
 static void bind_reset(bind_t* b) {
     b->granted = b->version = b->pid = 0;
     b->irq_count = 0; b->irq_seen = 0; b->irq_on = 0; b->intx = 0; b->intx_masked = 0; b->waiting = 0; b->tx_pending = 0; b->denied = 0;
-    b->nmap = 0; b->mmio_next = MMIO_VA; b->ndma = 0; b->dma_pages = 0; b->dma_next = DMA_VA;
+    b->nmap = 0; b->mmio_next = MMIO_VA; b->ndma = 0; b->dma_pages = 0; b->dma_next = DMA_VA; b->iommu_bound = 0;
     b->net_alive = 0; b->ctl = 0; b->net_pa = 0; b->net_pages = 0; b->tx_head = b->rx_tail = 0;
     b->net_tx = b->net_rx = b->net_bad = 0;
     b->floor_pending = 0; b->started_at = 0;
@@ -519,12 +520,25 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
 static void release(bind_t* b) {
     intx_detach(b);
     uint32_t got = 0, want = b->dma_pages + b->net_pages;
-    iommu_unmap_all(b->dev);                       /* сначала закрыть доступ устройства, потом отдавать страницы */
+    /* A failed IOMMU invalidation keeps the requester blocked and its backing
+       pages pinned. Never return those pages to PMM until domain teardown has
+       completed successfully. The DEAD slot is retried after RELEASE_DELAY. */
+    if (b->iommu_bound) {
+        int irc = iommu_release_device(b->dev);
+        if (irc != IOMMU_OK) {
+            b->dead_at = timer_get_ticks();
+            uart_print("[KIRA DRV] "); uart_print(b->name);
+            uart_print(": IOMMU domain teardown failed; DMA pages remain pinned and device quarantined (");
+            uart_print_dec((uint64_t)(-irc)); uart_print(")\\n");
+            return;
+        }
+        b->iommu_bound = 0;
+    }
     for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
     if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
     uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": возвращено памяти DMA и колец "); uart_print_dec(got); uart_print(" из ");
     uart_print_dec(want); uart_print(" стр., отображений устройства и DMA снято "); uart_print_dec(b->nmap + b->ndma);
-    uart_print(got == want ? ", утечек нет\n" : ", УТЕЧКА\n");
+    uart_print(got == want ? ", утечек нет\\n" : ", УТЕЧКА\\n");
     b->ndma = 0; b->dma_pages = 0; b->net_pages = 0; b->nmap = 0; b->ctl = 0;
     uint64_t f = spin_lock_irqsave(&klock);
     b->state = B_FREE;                              /* устройство снова можно отдать драйверу */
