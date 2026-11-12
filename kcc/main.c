@@ -60,8 +60,16 @@ int main(int argc, char **argv) {
     if (rc) { fprintf(stderr, "%s\n", r.err); return 1; }
     FILE *o = outp ? fopen(outp, "wb") : stdout;
     if (!o) { fprintf(stderr, "kcc: cannot write '%s'\n", outp); return 2; }
-    if (ir) fputs(r.ir, o);
-    else if (fwrite(r.elf, 1, r.elflen, o) != r.elflen) { fprintf(stderr, "kcc: write error on '%s'\n", outp); return 2; }
-    if (outp) fclose(o);
+    int write_error = 0;
+    if (ir) {
+        if (fputs(r.ir, o) == EOF) write_error = 1;
+    } else if (fwrite(r.elf, 1, r.elflen, o) != r.elflen) {
+        write_error = 1;
+    }
+    if (outp && fclose(o) != 0) write_error = 1;
+    if (write_error) {
+        fprintf(stderr, "kcc: write error on '%s'\\n", outp ? outp : "stdout");
+        return 2;
+    }
     return 0;
 }
