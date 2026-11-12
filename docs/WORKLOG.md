@@ -270,3 +270,12 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+
+### UI-0 — фактическая инвентаризация KIRA Spatial Minimal (2026-11-12)
+- Проверены текущие исходники `wm.c/.h`, `dock.c/.h`, `gfxui.c/.h`, `theme.h`, а также `tests/wm_test.c`, `tests/dock_test.c`, `tests/ui_test.c`, `tests/gfx_test.c`.
+- Подтверждено: текущий desktop всё ещё использует верхнюю панель с вкладками/телеметрией и левую панель, совмещающую launcher со списком окон; тесты WM прямо фиксируют эти элементы. Это legacy UI, а не реализация Spatial Minimal.
+- Существующая модель Dock `/var/dock`, оконный менеджер, композитор, damage tracking и UI primitives пригодны для переиспользования; их API нельзя ломать при визуальной миграции.
+- Добавлен `docs/UI0_SPATIAL_MINIMAL_AUDIT.md`: карта модулей, конфликты с дизайн-контрактом, сохраняемые инварианты и последовательность UI-1…UI-5.
+- Commit audit: `a8cab94c1c2b76cb3bd66d10545aa777d4f870dc` на ветке `docs/ui0-spatial-minimal-audit`. Изменены только документы; runtime/GUI тесты не запускались и PASS не заявляется.
+- Следующий шаг: проследить wiring `wm_side_set/wm_tabs_set/wm_set_meters` и жизненный цикл Dock в системном цикле; затем подготовить UI-1 token/layout contract и acceptance tests до изменения production GUI.
