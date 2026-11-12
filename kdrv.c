@@ -54,6 +54,7 @@ typedef struct {
     uint64_t net_tx, net_rx, net_bad;
     uint64_t dead_at;
     volatile int dma_quiesced;
+    volatile int quarantine_permanent;
 } bind_t;
 
 static bind_t binds[KDRV_SLOTS];
@@ -201,9 +202,11 @@ static int quiesce_verified(const pci_dev_t* d, uint16_t* command_out) {
 }
 /* A failed start still owns the PCI function until hardware quiescence is
    read back and the same delayed-release path used for dead drivers completes. */
-static void quarantine_failed_start(bind_t* b) {
+static void quarantine_failed_start(bind_t* b, int permanent) {
     uint16_t command = 0;
-    b->dma_quiesced = quiesce_verified(b->dev, &command) &&
+    b->quarantine_permanent = permanent != 0;
+    b->dma_quiesced = !b->quarantine_permanent &&
+                      quiesce_verified(b->dev, &command) &&
                       kdrv_pci_command_quiesced(command);
     b->dead_at = timer_get_ticks();
     uint64_t flags = spin_lock_irqsave(&klock);
@@ -215,7 +218,7 @@ static void quarantine_failed_start(bind_t* b) {
 /* ---- запуск ---- */
 static void bind_reset(bind_t* b) {
     b->granted = b->version = b->pid = 0;
-    b->irq_count = 0; b->irq_seen = 0; b->irq_on = 0; b->waiting = 0; b->tx_pending = 0; b->denied = 0; b->dma_quiesced = 0;
+    b->irq_count = 0; b->irq_seen = 0; b->irq_on = 0; b->waiting = 0; b->tx_pending = 0; b->denied = 0; b->dma_quiesced = 0; b->quarantine_permanent = 0;
     b->nmap = 0; b->mmio_next = MMIO_VA; b->ndma = 0; b->dma_pages = 0; b->dma_next = DMA_VA;
     b->net_alive = 0; b->ctl = 0; b->net_pa = 0; b->net_pages = 0; b->tx_head = b->rx_tail = 0;
     b->net_tx = b->net_rx = b->net_bad = 0;
@@ -271,7 +274,9 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     if (!device_quiesced || !kdrv_pci_busmaster_handoff_safe(pci_command, pci_after) ||
         !kdrv_pci_command_quiesced(pci_after) ||
         (pci_after & (PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER))) {
-        quarantine_failed_start(b);
+        quarantine_failed_start(b, !device_quiesced ||
+            (pci_command & PCI_CMD_MASTER) ||
+            (pci_after & (PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER)));
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
         uart_print(": inherited or uncleared bus mastering; device is not safe to hand off, driver NOT started\n");
@@ -385,7 +390,7 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
 }
 
 static void release(bind_t* b) {
-    if (!b->dma_quiesced) return; /* Never return pages while a device may still bus-master. */
+    if (!b->dma_quiesced || b->quarantine_permanent) return; /* Never recycle an unsafe or inherited-DMA device slot. */
     uint32_t got = 0, want = b->dma_pages + b->net_pages;
     for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
     if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
@@ -452,7 +457,7 @@ void kdrv_poll(void) {
     if (!__atomic_load_n(&ndead, __ATOMIC_ACQUIRE)) return;
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         bind_t* b = &binds[i];
-        if (b->state == B_DEAD && !b->dma_quiesced) {
+        if (b->state == B_DEAD && !b->quarantine_permanent && !b->dma_quiesced) {
             uint16_t cmd = 0;
             if (quiesce_verified(b->dev, &cmd) && kdrv_pci_command_quiesced(cmd)) {
                 b->dma_quiesced = 1;
