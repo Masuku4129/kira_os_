@@ -15,6 +15,8 @@
 #include "cpu.h"
 #include "audio.h"
 
+int platform_dma_noncoherent(void) __attribute__((weak));
+
 enum { GCAP = 0x00, GCTL = 0x08, STATESTS = 0x0E, INTCTL = 0x20, CORBLBASE = 0x40, CORBUBASE = 0x44, CORBWP = 0x48,
        CORBRP = 0x4A, CORBCTL = 0x4C, CORBSIZE = 0x4E, RIRBLBASE = 0x50, RIRBUBASE = 0x54, RIRBWP = 0x58,
        RINTCNT = 0x5A, RIRBCTL = 0x5C, RIRBSTS = 0x5D, RIRBSIZE = 0x5E };
@@ -218,6 +220,13 @@ int hda_probe(void) {
     const pci_dev_t* p = 0;
     for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x03) p = d; }
     if (!p) return -1;
+    /* HDA uses long-lived CORB/RIRB/BDL/audio rings. Their cache ownership
+       transitions are not yet explicit, so reject non-coherent ARM64 rather
+       than DMA through cacheable or unsynchronized memory. */
+    if (platform_dma_noncoherent && platform_dma_noncoherent()) {
+        uart_print("[KIRA HDA] disabled; DMA ownership sync is not validated on non-coherent ARM64.\\n");
+        return -6;
+    }
     if (p->bar[0].io || !p->bar[0].base) return -2;
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
     h.r = (volatile uint8_t*)pci_map_bar(p, 0, 0, 0x2000 <= p->bar[0].size ? 0x2000 : p->bar[0].size);
