@@ -32,7 +32,7 @@ static int strncmp(const char *a, const char *b, size_t n) {
     }
     return 0;
 }
-static char *strcpy(char *d, const char *s) { char *r = d; while ((*d++ = *s++)) ; return r; }
+static char *strcpy(char *d, const char *s) { char *r = d; while ((*d++ = *s++)) { } return r; }
 static char *strncpy(char *d, const char *s, size_t n) {
     size_t i = 0;
     for (; i < n && s[i]; i++) d[i] = s[i];
