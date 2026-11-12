@@ -46,6 +46,8 @@ static void wasm_reset(void) {
     trapped = 0; trap_msg = 0; heap_end = 0; heap_left = 0; code = 0; cn = ccap = 0; sp = 0; exit_req = 0; exit_code = 0; fb = 0;
     for (u32 i = 0; i < MAXG; i++) globals[i] = 0;
     g_used = 0; jit_free_all();
+    wasm_host_calls = 0; wasm_output_bytes = 0; wasm_sleep_ticks = 0;
+    wasm_gfx_frames = 0; wasm_gfx_created = 0;
 }
 static int fuzz_module(const char* path, int iters) {
     FILE* f = fopen(path, "rb"); if (!f) return 2;
@@ -77,6 +79,27 @@ int main(int argc, char** argv) {
     if (getenv("WASM_NOJIT")) jit_on = 0;                          /* только интерпретатор (как на ARM64) */
 #ifdef WASM_FUEL
     if (argc == 4 && !strcmp(argv[1], "fuzz")) return fuzz_module(argv[2], atoi(argv[3]));
+    if (argc == 4 && !strcmp(argv[1], "fuel")) {
+        char *end = NULL;
+        unsigned long long limit = strtoull(argv[2], &end, 10);
+        if (!end || *end || !limit) return 2;
+        FILE *f = fopen(argv[3], "rb");
+        if (!f) return 2;
+        fseek(f, 0, SEEK_END); g_len = ftell(f); fseek(f, 0, SEEK_SET);
+        if (g_len <= 0) { fclose(f); return 2; }
+        g_data = malloc((size_t)g_len);
+        if (!g_data || fread(g_data, 1, (size_t)g_len, f) != (size_t)g_len) { fclose(f); return 2; }
+        fclose(f);
+        g_path = argv[3]; g_quiet = 1; wasm_fuel = (u64)limit;
+        (void)wasm_main();
+        g_quiet = 0;
+        if (trapped && trap_msg && !strcmp(trap_msg, "fuel exhausted")) {
+            puts("wasm: bounded fuel exhaustion trapped in selected execution mode");
+            return 0;
+        }
+        fprintf(stderr, "wasm: expected fuel exhaustion, got %s\n", trap_msg ? trap_msg : "normal completion");
+        return 1;
+    }
 #endif
     if (argc < 2) return 2;
 #ifdef WASM_FUEL
