@@ -361,3 +361,13 @@
 - Latest architecture branch head at this entry: `811fa9e6eeae3493289291f0bab2ce6fc2dbfadc`.
 - Verification: GitHub Actions was triggered on earlier intermediate heads. Exact-head CI for `811fa9e6eeae3493289291f0bab2ce6fc2dbfadc` is not yet confirmed; no build, host-test, QEMU or Limbo PASS is claimed.
 - Next: exact-head build/host/QEMU/ARM64 results; correct any failures; compare boot order against baseline; continue source-level dependency audit across kernel/HAL/security/services/Mind/runtimes/GUI in parallel. Do not merge PR #135 without owner approval.
+
+
+## 2026-11-12 — syscall core/service adapter separation
+
+- Added `syscall_numbers.h` as the single shared registry of Native syscall numbers; all numeric values were preserved.
+- Added `syscall_services.h/.c` and moved graphics, filesystem, network, audio and wall-clock syscall routing out of `syscall.c` into one service-facing adapter translation unit.
+- `syscall.c` now retains the syscall entry handler, capability gate, process/thread/memory/IPC primitives, driver calls and fallback to the adapter. It no longer includes graphics/filesystem/network/audio/RTC service headers.
+- Added `RFC-SVC-001.md`: explicitly marks this as an in-kernel transitional facade, not a user-mode Service Manager or IPC isolation claim.
+- Added adapter source to both x86-64 and ARM64 build source lists. Native syscall numbers and dispatch argument order are unchanged by design.
+- Verification pending for the final branch head: x86-64/ARM64 build, host tests and QEMU suite. Do not claim runtime compatibility until CI on exact head succeeds.
