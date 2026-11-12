@@ -10,6 +10,9 @@ struct kira_smmu_platform {
     void *(*alloc_dma_pages)(void *context, size_t pages, uint64_t *physical);
     void (*free_dma_pages)(void *context, void *virtual_address,
                            uint64_t physical, size_t pages);
+    /* Ordinary kernel metadata; distinct from DMA-visible translation pages. */
+    void *(*alloc_metadata)(void *context, size_t bytes);
+    void (*free_metadata)(void *context, void *memory);
     void (*clean_cache)(void *context, const void *address, size_t length);
     void (*invalidate_cache)(void *context, const void *address, size_t length);
     void (*write_barrier)(void *context);
@@ -17,6 +20,7 @@ struct kira_smmu_platform {
     void (*delay)(void *context);
 };
 
+/* Zero-initialize before the first kira_smmu_v3_prepare call. */
 struct kira_smmu {
     volatile uint8_t *registers;
     uint64_t physical_base;
@@ -36,6 +40,8 @@ struct kira_smmu {
     size_t evtq_allocation_pages;
     uint32_t cmdq_producer;
     uint32_t evtq_consumer;
+    uint32_t evtq_lock;
+    uint32_t evtq_overflows;
     /* Controller-owned linear stream table shared by every domain. */
     void *stream_table;
     uint64_t stream_table_physical;
@@ -65,5 +71,14 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
                         const struct kira_smmu_platform *platform);
 int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform);
+
+/* Handler receives four raw words under the event lock; it must not call SMMU control/domain APIs or re-enter poll_events. */
+typedef void (*kira_smmu_event_handler)(void *context,
+                                        const uint64_t words[4]);
+int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
+                             const struct kira_smmu_platform *platform,
+                             kira_smmu_event_handler handler,
+                             void *handler_context,
+                             size_t *processed, int *overflow);
 
 #endif
