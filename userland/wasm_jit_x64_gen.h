@@ -259,6 +259,7 @@ static int jcompile_func(u32 fi) {
     jnloc = ft->np + f->nlocals; jnr = ft->nr; jh_ = jmaxh = 0; junr = 0;
     for (int i = 0; i < 16; i++) gown[i] = xown[i] = 0;
     jfnoff[fi] = jn;
+    u32 fuel_ops = 0;
     alu_ri(A_SUB, 1, RSP, 8);
     alu_rm(A_CMP, 1, RSP, R13, CXO(slim)); jjcc_trap(6, TK_CSTACK);             /* jbe */
     jrm(0, 1, 0x8D, RAX, RBX, -1, 0, 0x1000, 0); u32 vpatch = jn - 4;           /* lea rax, [rbx + размер кадра] */
@@ -272,6 +273,8 @@ static int jcompile_func(u32 fi) {
     jtick();
     jctl[0].kind = 3; jctl[0].ar = (u8)jnr; jctl[0].dead = 0; jctl[0].h = 0; jctl[0].start = 0; jctl[0].pend = 0; jctl[0].ifz = 0; jnctl = 1;
     while (p < end && !jfail && !trapped) {
+        if ((++fuel_ops & 255u) == 0)
+            jtick();
         u8 op = *p++;
         if (junr && op != 0x02 && op != 0x03 && op != 0x04 && op != 0x05 && op != 0x0B) { skip_imm(op, &p, end); continue; }
         if (!(op == 0x0D || op == 0x04 || op == 0x45 || op == 0x1B || op == 0x1C)) jmaterialize_cc();
