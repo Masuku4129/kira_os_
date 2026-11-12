@@ -67,6 +67,8 @@ const char* kdrv_strerror(int err);
 int kdrv_dma_policy_allow(uint32_t granted_caps, int device_isolated);
 /* PCI Command.BusMaster must be cleared before an unisolated Ring 3 driver starts. */
 uint16_t kdrv_pci_command_clear_master(uint16_t command);
+/* Unisolated drivers may not bus-master or raise legacy INTx. */
+uint16_t kdrv_pci_command_for_unisolated(uint16_t command);
 int kdrv_pci_busmaster_handoff_safe(uint16_t command_before, uint16_t command_after);
 /* Overflow-safe physical/page bounds for untrusted PCI BAR metadata. */
 int kdrv_mmio_page_bounds(uint64_t base, uint64_t size, uint64_t* page_lo, uint64_t* page_hi);
