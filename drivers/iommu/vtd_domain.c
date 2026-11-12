@@ -28,12 +28,14 @@ static void vtd_barrier(const struct kira_vtd_platform *p)
 }
 
 static void *vtd_alloc_page(const struct kira_vtd_platform *p,
-                            uint64_t *physical)
+                            uint8_t address_width, uint64_t *physical)
 {
     void *v = p->alloc_dma_page(p->context, physical);
     unsigned int i;
 
-    if (!v || !*physical || (*physical & 0xfffu)) {
+    if (!v || !*physical || (*physical & 0xfffu) ||
+        (*physical & ~VTD_ENTRY_ADDRESS) != 0 ||
+        (address_width < 64 && (*physical >> address_width) != 0)) {
         if (v && p->free_dma_page)
             p->free_dma_page(p->context, v, *physical);
         *physical = 0;
@@ -84,7 +86,7 @@ static int vtd_install_leaf(struct kira_vtd_domain *domain,
 
         if (!(entry & VTD_ENTRY_PRESENT)) {
             uint64_t next_physical = 0;
-            void *next = vtd_alloc_page(p, &next_physical);
+            void *next = vtd_alloc_page(p, domain->unit->host_address_width, &next_physical);
             if (!next)
                 return KIRA_VTD_MEMORY_FAILED;
             table[index] = (next_physical & VTD_ENTRY_ADDRESS) |
@@ -166,7 +168,7 @@ int kira_vtd_domain_create(struct kira_vtd_domain *domain,
         if (!context)
             return KIRA_VTD_MEMORY_FAILED;
     } else {
-        context = vtd_alloc_page(platform, &context_physical);
+        context = vtd_alloc_page(platform, unit->host_address_width, &context_physical);
         if (!context)
             return KIRA_VTD_MEMORY_FAILED;
         new_context = 1;
@@ -182,7 +184,7 @@ int kira_vtd_domain_create(struct kira_vtd_domain *domain,
         return KIRA_VTD_HARDWARE_ERROR;
     }
 
-    slpt = vtd_alloc_page(platform, &slpt_physical);
+    slpt = vtd_alloc_page(platform, unit->host_address_width, &slpt_physical);
     if (!slpt) {
         if (new_context && platform->free_dma_page)
             platform->free_dma_page(platform->context, context,
@@ -243,7 +245,9 @@ int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
     if (!domain || !domain->active || !platform ||
         (iova & 0xfffu) || (physical & 0xfffu) ||
         iova > 0x0000ffffffffffffull ||
-        (physical & ~VTD_ENTRY_ADDRESS) != 0)
+        (physical & ~VTD_ENTRY_ADDRESS) != 0 ||
+        (domain->unit->host_address_width < 64 &&
+         (physical >> domain->unit->host_address_width) != 0))
         return KIRA_VTD_INVALID;
 
     rc = vtd_install_leaf(domain, iova, physical, permissions, platform);
