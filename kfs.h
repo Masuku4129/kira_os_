@@ -33,6 +33,9 @@ int  kfs_detect(blk_dev_t* dev, uint64_t base_lba);   /* 0 - на диске к�
 int  kfs_format(blk_dev_t* dev, uint64_t base_lba);   /* создаёт пустую систему (стирает область!) и монтирует её */
 int  kfs_mount(blk_dev_t* dev, uint64_t base_lba);    /* 0 - готово; KFS_ERR_NOFS - на диске нет KiraFS */
 int  kfs_mounted(void);
+/* Serialize a multi-operation filesystem transaction. Nested kfs_* calls share the same owner lock. */
+void kfs_transaction_begin(void);
+void kfs_transaction_end(void);
 int  kfs_stat(const char* path, kfs_stat_t* st);
 int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len);   /* прочитано байт или ошибка */
 int  kfs_write(const char* path, const void* data, size_t len);            /* создаёт или целиком и атомарно заменяет файл */
