@@ -1,5 +1,7 @@
 #ifndef KIRA_USER_H
 #define KIRA_USER_H
+
+#include "../kcc/include/syscall_numbers.h"
 /* API программ для Kira OS (x86-64 Ring 3 и ARM64 EL0). Без libc: только системные вызовы.
    x86-64: rax = номер, rdi/rsi/rdx = аргументы, результат в rax. ARM64: x8 = номер, x0..x2, результат в x0. */
 typedef unsigned char u8; typedef unsigned short u16; typedef unsigned int u32;
@@ -30,11 +32,11 @@ static inline i64 ksys(u64 n, u64 a, u64 b, u64 c) {
 }
 #endif
 
-enum { K_FS = 10, K_HEAP = 11 };
+enum { K_FS = SYS_FS, K_HEAP = SYS_HEAP };
 enum { KFS_READ = 1, KFS_WRITE = 2, KFS_STAT = 3, KFS_LIST = 4, KFS_REMOVE = 5, KFS_GRANT_READ = 6, KFS_GRANT_STAT = 7, KFS_GRANT_NAME = 8, KFS_SYS_READ = 9, KFS_SYS_STAT = 10 };
 typedef struct { u32 op, name_len; u64 name_ptr, buf_ptr, buf_len, off; } kfs_req_t;
-enum { K_WRITE = 1, K_EXIT = 2, K_TICKS = 3, K_SLEEP = 4, K_YIELD = 5, K_GETPID = 6,
-       K_GFX_CREATE = 7, K_GFX_PRESENT = 8, K_GFX_EVENT = 9 };
+enum { K_WRITE = SYS_WRITE, K_EXIT = SYS_EXIT, K_TICKS = SYS_TICKS, K_SLEEP = SYS_SLEEP, K_YIELD = SYS_YIELD, K_GETPID = SYS_GETPID,
+       K_GFX_CREATE = SYS_GFX_CREATE, K_GFX_PRESENT = SYS_GFX_PRESENT, K_GFX_EVENT = SYS_GFX_EVENT };
 
 typedef struct { u32 type, a, b, c; } kevent_t;
 /* type: 1 клавиша вниз (a=код, b=символ, c=модификаторы), 2 клавиша вверх,
@@ -78,9 +80,9 @@ static inline i64 k_sys_stat(const char* name) { return k_fs(KFS_SYS_STAT, name,
 static inline i64 k_grant_read(void* buf, u64 len, u64 off) { return k_fs(KFS_GRANT_READ, "", 0, buf, len, off); }
 
 /* ---- Потоки, futex, порты, разделяемая память, часы ---- */
-enum { K_THREAD_CREATE = 12, K_THREAD_EXIT = 13, K_GETTID = 14, K_FUTEX_WAIT = 15, K_FUTEX_WAKE = 16,
-       K_PORT_OPEN = 17, K_PORT_SEND = 18, K_PORT_RECV = 19, K_SHM_OPEN = 20, K_SHM_MAP = 21, K_SHM_UNMAP = 22,
-       K_CLOSE = 23, K_CLOCK_NS = 24 };
+enum { K_THREAD_CREATE = SYS_THREAD_CREATE, K_THREAD_EXIT = SYS_THREAD_EXIT, K_GETTID = SYS_GETTID, K_FUTEX_WAIT = SYS_FUTEX_WAIT, K_FUTEX_WAKE = SYS_FUTEX_WAKE,
+       K_PORT_OPEN = SYS_PORT_OPEN, K_PORT_SEND = SYS_PORT_SEND, K_PORT_RECV = SYS_PORT_RECV, K_SHM_OPEN = SYS_SHM_OPEN, K_SHM_MAP = SYS_SHM_MAP, K_SHM_UNMAP = SYS_SHM_UNMAP,
+       K_CLOSE = SYS_CLOSE, K_CLOCK_NS = SYS_CLOCK_NS };
 /* Ошибки: -2 нет такого, -3 уже есть, -4 очередь полна, -5 срок вышел, -6 значение другое / нет сообщения,
    -7 нет памяти, -8 неверный дескриптор, -9 предел, -10 неверные аргументы, -11 процесс завершается. */
 enum { KE_NOENT = -2, KE_EXIST = -3, KE_FULL = -4, KE_TIMEOUT = -5, KE_AGAIN = -6, KE_NOMEM = -7, KE_BADH = -8,
@@ -138,7 +140,7 @@ static inline void* k_shm_map(i64 h) { i64 r = ksys(K_SHM_MAP, (u64)h, 0, 0); re
 static inline i64 k_shm_unmap(void* va) { return ksys(K_SHM_UNMAP, (u64)va, 0, 0); }
 static inline i64 k_close(i64 h) { return ksys(K_CLOSE, (u64)h, 0, 0); }
 /* ---- Сеть (TCP ядра) и аргументы запуска ---- */
-enum { K_NET_DNS = 25, K_NET_CONNECT = 26, K_NET_SEND = 27, K_NET_RECV = 28, K_NET_CLOSE = 29, K_ARGS = 30 };
+enum { K_NET_DNS = SYS_NET_DNS, K_NET_CONNECT = SYS_NET_CONNECT, K_NET_SEND = SYS_NET_SEND, K_NET_RECV = SYS_NET_RECV, K_NET_CLOSE = SYS_NET_CLOSE, K_ARGS = SYS_ARGS };
 /* Адрес по имени (или строка «a.b.c.d»): >= 0 - адрес IPv4 (старший байт - первое число), < 0 - ошибка. */
 static inline i64 k_net_dns(const char* name) { return ksys(K_NET_DNS, (u64)name, k_strlen(name), 0); }
 static inline i64 k_net_connect(u32 ip, u32 port) { return ksys(K_NET_CONNECT, ip, port, 0); }   /* номер соединения */
@@ -146,7 +148,7 @@ static inline i64 k_net_send(i64 h, const void* p, u64 n) { return ksys(K_NET_SE
 /* Байт принято; 0 - собеседник закрыл; < 0 - сброс или срок (timeout_ms, 0 - 10 с). */
 static inline i64 k_net_recv(i64 h, void* p, u32 n, u32 timeout_ms) { return ksys(K_NET_RECV, (u64)h, (u64)p, (u64)n | ((u64)timeout_ms << 32)); }
 static inline i64 k_net_close(i64 h) { return ksys(K_NET_CLOSE, (u64)h, 0, 0); }   /* соединение или слушатель */
-enum { K_NET_LISTEN = 31, K_NET_ACCEPT = 32, K_SND_OPEN = 33, K_SND_WRITE = 34, K_SND_CLOSE = 35, K_RANDOM = 36, K_TIME = 37, K_UDP_OPEN = 38, K_UDP_SEND = 39, K_UDP_RECV = 40, K_UDP_CLOSE = 41, K_SND_VOLUME = 42, K_SND_RECORD = 43 };
+enum { K_NET_LISTEN = SYS_NET_LISTEN, K_NET_ACCEPT = SYS_NET_ACCEPT, K_SND_OPEN = SYS_SND_OPEN, K_SND_WRITE = SYS_SND_WRITE, K_SND_CLOSE = SYS_SND_CLOSE, K_RANDOM = SYS_RANDOM, K_TIME = SYS_TIME, K_UDP_OPEN = SYS_UDP_OPEN, K_UDP_SEND = SYS_UDP_SEND, K_UDP_RECV = SYS_UDP_RECV, K_UDP_CLOSE = SYS_UDP_CLOSE, K_SND_VOLUME = SYS_SND_VOLUME, K_SND_RECORD = SYS_SND_RECORD };
 /* Звук: поток программы (кадры 48 кГц, 16 бит, стерео - 4 байта); write принимает, сколько влезло в очередь (1 с). */
 static inline i64 k_snd_open(void) { return ksys(K_SND_OPEN, 0, 0, 0); }                 /* 48 кГц стерео */
 /* Поток со своим форматом: частота 8000..96000, каналов 1 или 2 (кадр - 2 байта на канал); ядро пересчитывает в 48 кГц. */
@@ -158,7 +160,7 @@ static inline i64 k_snd_volume(i64 h, u32 percent) { return ksys(K_SND_VOLUME, (
 static inline i64 k_snd_record(void* buf, u64 bytes, u32 timeout_ms) { return ksys(K_SND_RECORD, (u64)buf, bytes, timeout_ms); }
 /* случайные байты ядра (до 256): 1 - засеяно аппаратным источником, 0 - только временем событий, <0 - ошибка */
 /* Окно кода JIT (право CAP_JIT, только wasm): ALLOC - страницы RW-NX, SEAL - один раз и навсегда R-X. */
-enum { K_JIT = 56, K_JIT_ALLOC = 1, K_JIT_SEAL = 2 };
+enum { K_JIT = SYS_JIT, K_JIT_ALLOC = 1, K_JIT_SEAL = 2 };
 static inline void* k_jit_alloc(u64 pages) { i64 r = ksys(K_JIT, K_JIT_ALLOC, pages, 0); return r < 0 ? (void*)0 : (void*)(u64)r; }
 static inline int k_jit_seal(void* p, u64 pages) { return (int)ksys(K_JIT, K_JIT_SEAL, (u64)p, pages); }
 static inline i64 k_random(void* buf, u64 n) { return ksys(K_RANDOM, (u64)buf, n, 0); }
@@ -173,7 +175,7 @@ static inline i64 k_net_accept(i64 l, u32 timeout_ms) { return ksys(K_NET_ACCEPT
 /* Адреса любого семейства (вызовы 44-47). Семейство сокета задаёт открытие: порт | семейство << 16 (0 или 4 - IPv4, 6 - IPv6);
    слушатель TCP - так же. Старые вызовы выше - только IPv4. Отправка датаграммы IPv6 - до 1452 байт (без разбиения). */
 typedef struct { u16 family, port; u8 addr[16]; } ksockaddr_t;      /* family 4: адрес в первых 4 байтах; порт - число хоста */
-enum { K_NET_CONNECT_SA = 44, K_UDP_SENDTO = 45, K_UDP_RECVFROM = 46, K_NET_PEER = 47 };
+enum { K_NET_CONNECT_SA = SYS_NET_CONNECT_SA, K_UDP_SENDTO = SYS_UDP_SENDTO, K_UDP_RECVFROM = SYS_UDP_RECVFROM, K_NET_PEER = SYS_NET_PEER };
 static inline i64 k_net_connect_sa(const ksockaddr_t* sa) { return ksys(K_NET_CONNECT_SA, (u64)sa, 0, 0); }
 static inline i64 k_net_peer(i64 h, ksockaddr_t* sa) { return ksys(K_NET_PEER, (u64)h, (u64)sa, 0); }   /* семейство или < 0 */
 static inline i64 k_udp_open_fam(u32 port, u32 family) { return ksys(K_UDP_OPEN, port | family << 16, 0, 0); }
