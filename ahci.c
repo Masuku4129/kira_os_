@@ -254,8 +254,10 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
         int map_rc = iommu_map(c->pci, p->mem_phys, p->mem_phys, 4096, IOMMU_R | IOMMU_W);
         if (map_rc != IOMMU_OK) {
             if (!iommu_device_ready(c->pci)) {
-                pci_disable_bus_master(c->pci);
-                iommu_unmap_all(c->pci);
+                if (pci_disable_bus_master(c->pci))
+                    iommu_unmap_all(c->pci);
+                else
+                    uart_print("[KIRA AHCI] bus mastering did not stop; mappings remain pinned.\\n");
                 c->dma_failed = 1;
             }
             uart_print("[KIRA AHCI] command/FIS DMA mapping failed; port skipped.\n");
@@ -268,8 +270,10 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
                rollback or SMMU quarantine shuts down the entire controller. */
             if (!iommu_device_ready(c->pci) ||
                 iommu_unmap(c->pci, p->mem_phys, 4096) != IOMMU_OK) {
-                pci_disable_bus_master(c->pci);
-                iommu_unmap_all(c->pci);
+                if (pci_disable_bus_master(c->pci))
+                    iommu_unmap_all(c->pci);
+                else
+                    uart_print("[KIRA AHCI] bus mastering did not stop; mappings remain pinned.\\n");
                 c->dma_failed = 1;
             }
             uart_print("[KIRA AHCI] data DMA mapping failed; port skipped.\n");
