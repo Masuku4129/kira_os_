@@ -17,7 +17,7 @@
 
 | ID | Контракт | Владелец (предлагаемый) | Текущая точка в main | Статус | Критерий утверждения |
 |---|---|---|---|---|---|
-| ABI-001 | Kernel syscall ABI | Kernel | syscall.c, syscall.h, arch syscall entry | Нужно проверить | номера/версии, calling conventions x86-64/AArch64, аргументы, ошибки, pointer validation, compat policy, conformance tests |
+| ABI-001 | Kernel syscall ABI | Kernel | kernel/syscall.c, syscall.h, arch syscall entry | Нужно проверить | номера/версии, calling conventions x86-64/AArch64, аргументы, ошибки, pointer validation, compat policy, conformance tests |
 | ABI-002 | Native Application ABI | Runtime + Kernel | elf.c, proc.c, headers | Требуется спецификация | ELF contract, entry/stack, TLS, sysroot, libraries, syscalls, handles, app manifest, ABI versioning |
 | PROC-001 | Process/thread lifecycle | Kernel | proc.c, sched.c | Частичная реализация | state machine, ownership, exit/reap, signals/events, thread teardown, resource limits, race tests |
 | MEM-001 | VM/address-space ownership | Kernel + HAL | pmm.c, vmm.c, arch/* | Нужно проверить | page ownership, map/unmap, permissions, TLB shootdown, COW policy, OOM, SMP and ISA tests |
