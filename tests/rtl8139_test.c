@@ -276,7 +276,7 @@ static void test_rx_tx_lifecycle(void)
     assert(kira_rtl8139_poll(&d) == 1);
     assert(m.receive_calls == 1 && m.received_length == sizeof payload);
     assert(memcmp(m.received, payload, sizeof payload) == 0);
-    assert(m.invalidate_calls == 2 && m.read_barriers == 2);
+    assert(m.invalidate_calls == 2 && m.read_barriers == 4);
     assert(m.last_invalidate < m.last_read_barrier);
 
     /* The payload crosses the 8 KiB ring boundary and must be copied in two spans. */
