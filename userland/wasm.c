@@ -186,28 +186,44 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
 }
 static int name_is(const u8* n, u32 len, const char* s) { u32 i = 0; for (; i < len && s[i]; i++) if (n[i] != (u8)s[i]) return 0; return i == len && !s[i]; }
 
-/* Постоянное выражение (смещение данных/элементов, начало глобальной). */
-static u64 const_expr(const u8** p, const u8* end) {
+/* WebAssembly MVP constant expressions contain exactly one typed constant
+   (or an imported immutable global, which this KIRA ABI does not expose), then end. */
+static u64 const_expr(const u8** p, const u8* end, u8 expected_type) {
+    if (*p >= end) { trap("truncated constant expression"); return 0; }
+    u8 op = *(*p)++;
+    u8 actual_type = 0;
     u64 v = 0;
-    while (*p < end) {
-        u8 op = *(*p)++;
-        if (op == 0x0B) return v;
-        if (op == 0x41) v = (u64)(u32)leb_s(p, end, 32);
-        else if (op == 0x42) v = (u64)leb_s(p, end, 64);
-        else if (op == 0x23) {
-            u32 g = leb_u(p, end);
-            if (trapped || g >= nglobals) { trap("constant expression global index out of range"); return 0; }
-            /* Global imports are not part of the KIRA WASM ABI. Defined globals
-               are not valid constant-expression operands in WebAssembly MVP. */
-            (void)g;
-            trap("constant expression references unsupported local global");
-            return 0;
-        }
-        else if (op == 0x43) { if ((u64)(end - *p) < 4) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
-        else if (op == 0x44) { if ((u64)(end - *p) < 8) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
-        else { trap("unsupported constant expression"); return 0; }
+    if (op == 0x41) { actual_type = 0x7F; v = (u64)(u32)leb_s(p, end, 32); }
+    else if (op == 0x42) { actual_type = 0x7E; v = (u64)leb_s(p, end, 64); }
+    else if (op == 0x43) {
+        actual_type = 0x7D;
+        if ((u64)(end - *p) < 4) { trap("truncated f32 constant expression"); return 0; }
+        v = (u64)((u32)(*p)[0] | (u32)(*p)[1] << 8 | (u32)(*p)[2] << 16 | (u32)(*p)[3] << 24);
+        *p += 4;
+    } else if (op == 0x44) {
+        actual_type = 0x7C;
+        if ((u64)(end - *p) < 8) { trap("truncated f64 constant expression"); return 0; }
+        for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i];
+        *p += 8;
+    } else if (op == 0x23) {
+        u32 g = leb_u(p, end);
+        if (trapped || g >= nglobals) trap("constant expression global index out of range");
+        else trap("constant expression references unsupported local global");
+        return 0;
+    } else {
+        trap("unsupported constant expression");
+        return 0;
     }
-    trap("unterminated constant expression"); return 0;
+    if (trapped) return 0;
+    if (*p >= end || *(*p)++ != 0x0B) {
+        trap("constant expression must contain one value and end");
+        return 0;
+    }
+    if (actual_type != expected_type) {
+        trap("constant expression type mismatch");
+        return 0;
+    }
+    return v;
 }
 
 static int skip_bytes(const u8** p, const u8* e, u32 n) {
@@ -885,8 +901,9 @@ static int load(void) {
                 if ((u32)(se - s) < 2) { trap("truncated global type"); return -1; }
                 u8 gt = *s++, mut = *s++;
                 if (!wasm_valtype(gt) || mut > 1) { trap("invalid global type or mutability"); return -1; }
-                globals[nglobals++] = const_expr(&s, se);
+                u64 initial_value = const_expr(&s, se, gt);
                 if (trapped) return -1;
+                globals[nglobals++] = initial_value;
             }
         } else if (id == 7) {                                     /* экспорт: точка входа */
             u32 n = leb_u(&s, se);
@@ -917,7 +934,7 @@ static int load(void) {
             for (u32 i = 0; i < n && !trapped; i++) {
                 u32 fl = leb_u(&s, se);
                 if (trapped || fl != 0) { trap("only active element segments (flag 0) are supported"); return -1; }
-                u64 off64 = const_expr(&s, se);
+                u64 off64 = const_expr(&s, se, 0x7F);
                 u32 cnt = leb_u(&s, se);
                 if (trapped || off64 > ntable || (u64)cnt > (u64)ntable - off64) {
                     trap("element segment outside table"); return -1;
