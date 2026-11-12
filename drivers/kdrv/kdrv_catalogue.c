@@ -120,6 +120,9 @@ static int valid_identifier(const char *s)
 
 static int valid_url(const char *s)
 {
+    /* Check the bounded string length before inspecting the scheme prefix. */
+    if (!s || slen(s) < 9u)
+        return 0;
     return (s[0] == 'h' && s[1] == 't' && s[2] == 't' &&
             s[3] == 'p' && s[4] == 's' && s[5] == ':' &&
             s[6] == '/' && s[7] == '/' && s[8] != '\0');
