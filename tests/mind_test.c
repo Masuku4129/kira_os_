@@ -482,8 +482,12 @@ int main(void) {
         base(11); S.mem_used = 50; mind_step(&Gap, &S, &none);
          CHECK(!Gap.mem_risk_valid);
         CHECK(Gap.m.memory_net.n == 0 && Gap.mem_pending[0].valid + Gap.mem_pending[1].valid +
-              Gap.mem_pending[2].valid + Gap.mem_pending[3].valid + Gap.mem_pending[4].valid == 1);
-        for (uint32_t u = 12; u <= 16; u++) { base(u); S.mem_used = 50; mind_step(&Gap, &S, &none); }
+              Gap.mem_pending[2].valid + Gap.mem_pending[3].valid + Gap.mem_pending[4].valid == 0);
+        for (uint32_t u = 12; u <= 17; u++) {
+             base(u); S.mem_used = 50; mind_step(&Gap, &S, &none);
+             if (u == 12) CHECK(!Gap.mem_risk_valid);
+             if (u == 13) CHECK(Gap.mem_risk_valid);
+         }
         CHECK(Gap.mem_risk_valid && Gap.m.memory_net.n > 0);
     }
 
