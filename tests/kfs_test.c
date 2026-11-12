@@ -220,6 +220,22 @@ int main(void){
     CHECK(put("/d/after-write-failure", 901, 32) == 0);
     CHECK(same("/d/after-write-failure", 901, 32));
 
+    /* mkdir must not keep using the mount after either its inode or
+       parent-directory commit reports an uncertain persistence barrier. */
+    for (long fail = 0; fail < 2; fail++) {
+        base_state();
+        flush_budget = fail;
+        CHECK(kfs_mkdir("/newdir") == KFS_ERR_IO);
+        CHECK(!kfs_mounted());
+        flush_budget = -1;
+        CHECK(kfs_mount(&dev, 16) == 0);
+        kfs_stat_t mst;
+        int mr = kfs_stat("/newdir", &mst);
+        CHECK(mr == KFS_ERR_NOENT || (mr == 0 && mst.type == KFS_DIR));
+        CHECK(put("/after-mkdir-failure", 333, 33) == 0);
+        CHECK(same("/after-mkdir-failure", 333, 33));
+    }
+
     /* порча метаданных: монтирование не падает, дальнейшее чтение безопасно */
     srand(12345);
     int mounted_ok=0, rejected=0;
