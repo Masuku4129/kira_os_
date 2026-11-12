@@ -145,3 +145,13 @@
 - Важное ограничение интеграции: `build_arm64.sh` компилирует корневой `fdt.c`, а не `arch/aarch64/fdt.c`; ARM64 `main.c` также использует legacy API из корневого `fdt.h`. Поэтому новый arch-local parser пока не является путём загрузки production и его host test не доказывает исправность действующего boot path. Нужна отдельная архитектурная развилка: интегрировать этот parser и перевести потребителей либо удалить дублирующую неиспользуемую реализацию после согласования API.
 - После новых commits workflow для последнего head `2c93f22a...` ещё не найден; host test и ARM64 build не подтверждены. PASS не заявлять.
 - Следующие независимые направления: аудит WASM verifier/type-stack и quotas; KDRV production callback coverage и cryptographic publisher trust; SMMUv3 runtime/teardown; kernel scheduler/process lifecycle; native/compatibility runtime; KCC, Mind, KiraFS/network/GUI/build/recovery. PR не объединять без разрешения владельца.
+
+
+## Продолжение работ — production FDT path hardening (2026-11-12)
+- Переключил аудит с неиспользуемого arch-local parser на действующий ARM64 boot path: `build_arm64.sh` компилирует общий `fdt.c`, а `arch/aarch64/main.c` использует общий API. Это выявило отдельный реальный риск в production parser.
+- В `fdt_valid()` теперь до чтения полей заголовка проверяется, что доступный буфер не короче 40 байт. Ранее функция читала magic/offsets даже при переданном коротком `max_len`.
+- FDT total size ограничен `INT32_MAX`, поскольку публичный API хранит смещения узлов и курсоры в signed `int`; большие DTB теперь отвергаются до потенциального усечения.
+- В `step()` вычисление padded lengths для BEGIN_NODE и PROP выполняется с проверками переполнения, доступной длины и диапазона signed cursor.
+- В `tests/fdt_test.c` добавлены проверки всех коротких длин заголовка 0..39 и отклонение DTB, чей total size выходит за signed cursor range. Тест уже исполняется существующим host-test этапом CI через `tests/run_host_tests.sh`.
+- Последний commit PR #42: `a4e020a5eaf064dd666a4054c564c81c66299d9d`. На момент записи workflow для точного SHA не найден; PASS не заявлять. Mergeability PR меняется между запросами, сейчас `false`; PR не объединять.
+- Продолжить: проверить production callers на предположение о `max_len=0`; аудитировать общие FDT traversal helpers на работу только с validated blob; сверить bootinfo adapter с DT спецификацией; затем вернуться к SMMUv3, WASM app-VM isolation, KDRV lifecycle и Mind.
