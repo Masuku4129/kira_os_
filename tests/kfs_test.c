@@ -192,6 +192,22 @@ int main(void){
     }
     flush_budget = -1;
 
+    /* Unlink has two durable transitions: remove the name, then clear the
+       inode. A failed second transition must quarantine the mount as well. */
+    for (long fail = 0; fail < 2; fail++) {
+        base_state();
+        flush_budget = fail;
+        CHECK(kfs_unlink("/d/b") == KFS_ERR_IO);
+        CHECK(!kfs_mounted());
+        flush_budget = -1;
+        CHECK(kfs_stat("/d/b", &(kfs_stat_t){0}) == KFS_ERR_NOFS);
+        CHECK(kfs_mount(&dev, 16) == 0);
+        CHECK(kfs_stat("/d", &(kfs_stat_t){0}) == 0);
+        CHECK(kfs_stat("/d/b", &(kfs_stat_t){0}) == KFS_ERR_NOENT);
+        CHECK(put("/d/after-unlink", 777, 31) == 0);
+        CHECK(same("/d/after-unlink", 777, 31));
+    }
+
     /* порча метаданных: монтирование не падает, дальнейшее чтение безопасно */
     srand(12345);
     int mounted_ok=0, rejected=0;
