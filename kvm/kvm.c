@@ -32,6 +32,7 @@ int kvm_module_decode(const void *blob, size_t blob_size,
     const uint8_t *bytes = (const uint8_t *)blob;
     uint32_t code_bytes, data_bytes, pages, entry;
     size_t expected;
+    if (module) memset(module, 0, sizeof(*module));
     if (!bytes || !module || blob_size < KVM_MODULE_HEADER_SIZE ||
         bytes[0] != 'K' || bytes[1] != 'V' || bytes[2] != 'M' || bytes[3] != '1' ||
         read_le16(bytes + 4) != KVM_MODULE_VERSION ||
@@ -52,8 +53,8 @@ int kvm_module_decode(const void *blob, size_t blob_size,
         data_bytes > (size_t)pages * KVM_PAGE_SIZE ||
         entry >= code_bytes / 8u)
         return KVM_E_FORMAT;
-    module->code = (const struct kvm_instruction *)(const void *)(bytes + KVM_MODULE_HEADER_SIZE);
-    module->code_count = code_bytes / 8u;
+    module->code = bytes + KVM_MODULE_HEADER_SIZE;
+    module->code_size = code_bytes;
     module->data = data_bytes ? bytes + KVM_MODULE_HEADER_SIZE + code_bytes : 0;
     module->data_size = data_bytes;
     module->memory_pages = pages;
@@ -82,15 +83,17 @@ static int fields_zero(const struct kvm_instruction *i,
 
 static int target_valid(const struct kvm_module *m, int32_t target)
 {
-    return target >= 0 && (uint32_t)target < m->code_count;
+    return target >= 0 && (uint32_t)target < m->code_size / sizeof(struct kvm_instruction);
 }
 
 int kvm_verify(const struct kvm_module *m, uint64_t granted_capabilities)
 {
     size_t n;
 
-    if (!m || !m->code || !m->code_count ||
-        m->code_count > UINT32_MAX || m->entry >= m->code_count ||
+    if (!m || !m->code || !m->code_size ||
+        (m->code_size % sizeof(struct kvm_instruction)) != 0 ||
+        m->code_size / sizeof(struct kvm_instruction) > UINT32_MAX ||
+        m->entry >= m->code_size / sizeof(struct kvm_instruction) ||
         !m->memory_pages || m->memory_pages > SIZE_MAX / KVM_PAGE_SIZE ||
         (m->data_size && !m->data) ||
         m->data_size > (size_t)m->memory_pages * KVM_PAGE_SIZE)
@@ -100,8 +103,10 @@ int kvm_verify(const struct kvm_module *m, uint64_t granted_capabilities)
     if (sizeof(struct kvm_instruction) != 8u)
         return KVM_E_FORMAT;
 
-    for (n = 0; n < m->code_count; ++n) {
-        const struct kvm_instruction *i = &m->code[n];
+    for (n = 0; n < m->code_size / sizeof(struct kvm_instruction); ++n) {
+        struct kvm_instruction decoded;
+        const struct kvm_instruction *i = &decoded;
+        memcpy(&decoded, m->code + n * sizeof(decoded), sizeof(decoded));
         switch (i->opcode) {
         case KVM_OP_HALT:
         case KVM_OP_RET:
@@ -180,9 +185,7 @@ int kvm_instance_init(struct kvm_instance *instance,
         return rc;
 
     bytes = (size_t)module->memory_pages * KVM_PAGE_SIZE;
-    if (module->code_count > SIZE_MAX / sizeof(struct kvm_instruction))
-        return KVM_E_FORMAT;
-    code_bytes = module->code_count * sizeof(struct kvm_instruction);
+    code_bytes = module->code_size;
     code_copy = allocator->allocate(allocator->context, code_bytes);
     if (!code_copy)
         return KVM_E_MEMORY;
@@ -197,7 +200,7 @@ int kvm_instance_init(struct kvm_instance *instance,
     if (module->data_size)
         memcpy(instance->memory, module->data, module->data_size);
     instance->code = code_copy;
-    instance->code_count = module->code_count;
+    instance->code_count = module->code_size / sizeof(struct kvm_instruction);
     instance->entry = module->entry;
     instance->allocator = *allocator;
     if (host)
