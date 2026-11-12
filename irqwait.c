@@ -19,6 +19,8 @@ void irqwait_fire(irqwait_t* w) {
 }
 
 void irqwait_wait(irqwait_t* w, uint32_t mark, uint64_t ticks) {
+    /* Defensive API boundary: never block while a kmutex is held, even if a new caller forgets its own guard. */
+    if (!sched_can_sleep()) return;
     uint64_t f = spin_lock_irqsave(&w->lk);
     if (__atomic_load_n(&w->fired, __ATOMIC_ACQUIRE) != mark) { spin_unlock_irqrestore(&w->lk, f); return; }
     w->waiter = (void*)sched_current();
