@@ -10,6 +10,9 @@ static inline int kstack_slot_from_base(uint64_t base, uint64_t window, uint64_t
     *slot_out = (uint32_t)slot;
     return 1;
 }
+static inline int kstack_slot_can_reuse(uint32_t slot, uint32_t used_hi, uint32_t slots) {
+    return slot < used_hi && slot < slots;
+}
 static inline int kstack_slot_activate(uint8_t *active, uint32_t slots, uint32_t slot) {
     if (!active || slot >= slots) return 0;
     uint8_t mask = (uint8_t)(1u << (slot & 7u)), *byte = &active[slot >> 3];
