@@ -573,6 +573,7 @@ static int load(void) {
     const u8* p = mod + 8; const u8* end = mod + modlen;
     u32 nfuncdecl = 0; u32* decl = 0;
     u32 seen_sections = 0;
+    u32 has_memory = 0;
     u8 last_section = 0;
     while (p < end && !trapped) {
         u8 id = *p++;
@@ -614,9 +615,15 @@ static int load(void) {
             }
         } else if (id == 2) {                                     /* импорт */
             u32 n = leb_u(&s, se);
+            if (trapped) return -1;
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 ml = leb_u(&s, se); const u8* mn = s; s += ml;
-                u32 nl = leb_u(&s, se); const u8* nn = s; s += nl;
+                u32 ml = leb_u(&s, se);
+                if (trapped || ml > (u32)(se - s)) { trap("truncated import module name"); return -1; }
+                const u8* mn = s; s += ml;
+                u32 nl = leb_u(&s, se);
+                if (trapped || nl > (u32)(se - s)) { trap("truncated import field name"); return -1; }
+                const u8* nn = s; s += nl;
+                if (s >= se) { trap("truncated import descriptor"); return -1; }
                 u8 kind = *s++;
                 if (kind == 0) {
                     u32 ti = leb_u(&s, se);
@@ -629,8 +636,22 @@ static int load(void) {
                     if (nfuncs == MAXF) { trap("too many functions"); return -1; }
                     funcs[nfuncs].type = ti; funcs[nfuncs].import = 1; funcs[nfuncs].imp_id = (u32)found; nfuncs++; nimports++;
                 } else if (kind == 2) {                           /* импорт памяти: создаём свою */
-                    u8 fl = *s++; u32 mn2 = leb_u(&s, se); if (fl & 1) leb_u(&s, se);
-                    mem_pages = mn2;
+                    if (has_memory || s >= se) { trap("multiple or truncated memory imports"); return -1; }
+                    u8 fl = *s++;
+                    if (fl & ~1u) { trap("unsupported memory import limits"); return -1; }
+                    u32 min_pages = leb_u(&s, se);
+                    if (trapped) return -1;
+                    u32 max_pages = MAXMEM / 65536u;
+                    if (fl & 1u) {
+                        max_pages = leb_u(&s, se);
+                        if (trapped) return -1;
+                    }
+                    if (min_pages > max_pages || min_pages > MAXMEM / 65536u) {
+                        trap("invalid or excessive imported memory limits"); return -1;
+                    }
+                    has_memory = 1;
+                    mem_pages = min_pages;
+                    mem_max = max_pages > MAXMEM / 65536u ? MAXMEM / 65536u : max_pages;
                 } else { trap("only function and memory imports are supported"); return -1; }
             }
         } else if (id == 3) {                                     /* функции */
@@ -643,7 +664,26 @@ static int load(void) {
                      table = (u32*)alloc(4ull * (ntable + 1)); for (u32 i = 0; i < ntable; i++) table[i] = ~0u; }
         } else if (id == 5) {                                     /* память */
             u32 n = leb_u(&s, se);
-            if (n) { u8 fl = *s++; mem_pages = leb_u(&s, se); mem_max = (fl & 1) ? leb_u(&s, se) : MAXMEM / 65536; }
+            if (trapped) return -1;
+            if (n > 1 || (n && has_memory)) { trap("multiple WebAssembly memories"); return -1; }
+            if (n) {
+                if (s >= se) { trap("truncated memory limits"); return -1; }
+                u8 fl = *s++;
+                if (fl & ~1u) { trap("unsupported memory limits"); return -1; }
+                u32 min_pages = leb_u(&s, se);
+                if (trapped) return -1;
+                u32 max_pages = MAXMEM / 65536u;
+                if (fl & 1u) {
+                    max_pages = leb_u(&s, se);
+                    if (trapped) return -1;
+                }
+                if (min_pages > max_pages || min_pages > MAXMEM / 65536u) {
+                    trap("invalid or excessive memory limits"); return -1;
+                }
+                has_memory = 1;
+                mem_pages = min_pages;
+                mem_max = max_pages > MAXMEM / 65536u ? MAXMEM / 65536u : max_pages;
+            }
         } else if (id == 6) {                                     /* глобальные */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) { s++; s++; if (nglobals == MAXG) { trap("too many globals"); return -1; } globals[nglobals++] = const_expr(&s, se); }
