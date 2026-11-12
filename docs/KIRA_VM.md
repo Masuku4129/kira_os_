@@ -1,6 +1,6 @@
 # KIRA VM v1 — portable application bytecode
 
-Status: first executable core implementation; not yet integrated into the OS loader, package manager, or userland build.
+Status: experimental executable core with a first Ring 3/EL0 runner built into x86-64 and ARM64 images; package manager and signed-app integration are not complete.
 
 ## Purpose and relationship to KVR
 
@@ -108,6 +108,28 @@ syscalls, missing capability declarations, and malformed module bounds.
   invalid opcodes/targets, missing capabilities, division by zero, out-of-bounds
   memory, and fuel exhaustion.
 
+## First OS runner integration
+
+The `/bin/kvm` userland runner is built for x86-64 Ring 3 and ARM64 EL0 and
+accepts one module path argument or a file grant from the file manager. It loads
+the KVM1 blob, applies the runner policy before allocation, verifies it, creates
+a private instance, runs with a fixed fuel budget, and destroys the instance.
+
+The first runner profile is intentionally narrower than the portable core:
+- module container: at most 1 MiB;
+- guest linear memory: at most 128 pages (512 KiB);
+- fuel: 10,000,000 instructions per invocation;
+- host capabilities: console write (maximum 4 KiB per call), monotonic ticks,
+  and cooperative yield only;
+- no filesystem, network, device, process, sound, or graphics capabilities;
+- modules are not yet authenticated by the package manager. Only run modules
+  whose origin you trust; package signature and anti-rollback are still required
+  before general distribution.
+
+The runner uses the same KVM1 interpreter source on both architectures. This
+establishes build integration, not yet cross-architecture execution equivalence:
+identical module fixtures must still be run under x86-64 and ARM64 QEMU/VM CI.
+
 ## ABI decision gate
 
 This branch currently implements an experimental 32-byte KVM1 header with a fixed
@@ -120,7 +142,7 @@ and conformance fixtures. Do not silently reinterpret one format as the other.
 
 ## Explicit remaining work (not claimed complete)
 
-1. Integrate the module loader with signed KIRA packages and the KiraFS `/apps` path.
+1. Replace the first runner's path/file-grant loader with a signed KIRA package loader integrated with the package manager and KiraFS `/apps` path.
 2. Define and freeze the KIRA host ABI, syscall registry, capability policy, and ABI
    version negotiation. The current callback is a narrow testable boundary, not a
    complete OS service implementation.
