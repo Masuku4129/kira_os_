@@ -162,17 +162,39 @@ static int command(uint32_t p0, uint32_t p1, uint32_t ctl, uint32_t* slot_out) {
             trb_t* ev = &xs.ev[xs.ev_deq];
             usb_log("[KIRA USB] xHCI command timeout: USBSTS=");
             usb_log_hex(r32(xs.op, 4));
+            usb_log(" USBCMD=");
+            usb_log_hex(r32(xs.op, 0));
+            usb_log(" PAGESIZE=");
+            usb_log_hex(r32(xs.op, 8));
+            usb_log(" CONFIG=");
+            usb_log_hex(r32(xs.op, 0x38));
+            usb_log(" DCBAAP=");
+            usb_log_hex((uint64_t)r32(xs.op, 0x34) << 32 | r32(xs.op, 0x30));
             usb_log(" CRCR=");
             usb_log_hex((uint64_t)r32(xs.op, 0x1C) << 32 | r32(xs.op, 0x18));
+            usb_log(" ERSTSZ=");
+            usb_log_hex(r32(xs.rt, 0x28));
+            usb_log(" ERSTBA=");
+            usb_log_hex((uint64_t)r32(xs.rt, 0x34) << 32 | r32(xs.rt, 0x30));
             usb_log(" ERDP=");
             usb_log_hex((uint64_t)r32(xs.rt, 0x3C) << 32 | r32(xs.rt, 0x38));
+            usb_log(" ERST[0/1]=");
+            usb_log_hex(xs.erst[0]);
+            usb_log("/");
+            usb_log_hex(xs.erst[1]);
             usb_log(" event=");
             usb_log_hex(ev->ctl);
-            usb_log(" event-cycle=");
-            usb_log_dec(xs.ev_cycle);
+            usb_log(" cmd=");
+            usb_log_hex(xs.cmd.t[0].p0);
+            usb_log("/");
+            usb_log_hex(xs.cmd.t[0].p1);
+            usb_log("/");
+            usb_log_hex(xs.cmd.t[0].st);
+            usb_log("/");
+            usb_log_hex(xs.cmd.t[0].ctl);
             usb_log(" cmd-trb=");
             usb_log_hex(xs.cmd_trb);
-            usb_log("\\n");
+            usb_log("\n");
             return -1;
         }
         usb_sleep_ms(1);
@@ -525,9 +547,9 @@ static int xhci_abort_start(const pci_dev_t* p) {
     pci_write16(p, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
     int master_stuck = (pci_read16(p, 0x04) & PCI_CMD_MASTER) != 0;
     if (master_stuck)
-        usb_log("[KIRA USB] xHCI abort: bus mastering stuck; DMA arena slot quarantined\\n");
+        usb_log("[KIRA USB] xHCI abort: bus mastering stuck; DMA arena slot quarantined\n");
     else
-        usb_log("[KIRA USB] xHCI abort: controller stopped and PCI bus mastering cleared; DMA pages retained\\n");
+        usb_log("[KIRA USB] xHCI abort: controller stopped and PCI bus mastering cleared; DMA pages retained\n");
     started++; /* DMA was armed: never reuse this controller state or its arena allocations. */
     return master_stuck ? -1 : 0;
 }
@@ -593,7 +615,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     int initial_quiet = xhci_pci_quiesce(p);
     if ((initial_quiet & 2) || !(initial_quiet & 1)) {
-        usb_log("[KIRA USB] xHCI: inherited PCI DMA/interrupt state could not be quiesced before MMIO; controller quarantined\\n");
+        usb_log("[KIRA USB] xHCI: inherited PCI DMA/interrupt state could not be quiesced before MMIO; controller quarantined\n");
         return -2;
     }
     if (!(pci_read16(p, 0x04) & PCI_CMD_MEM)) {
@@ -653,15 +675,15 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     }
     int pci_quiet = xhci_pci_quiesce(p);
     if (pci_quiet & 2) {
-        usb_log("[KIRA USB] xHCI: bus mastering did not clear; controller remains quarantined\\n");
+        usb_log("[KIRA USB] xHCI: bus mastering did not clear; controller remains quarantined\n");
         return -2;
     }
     if (!(pci_quiet & 1)) {
-        usb_log("[KIRA USB] xHCI: inherited MSI/MSI-X could not be masked; controller remains quarantined\\n");
+        usb_log("[KIRA USB] xHCI: inherited MSI/MSI-X could not be masked; controller remains quarantined\n");
         return -2;
     }
     if (!halted) {
-        usb_log("[KIRA USB] xHCI did not halt; PCI bus mastering disabled, controller quarantined\\n");
+        usb_log("[KIRA USB] xHCI did not halt; PCI bus mastering disabled, controller quarantined\n");
         return -2;
     }
     if (handoff_ok < 0) {
@@ -693,7 +715,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     cpu_mb();
     pci_enable(p, PCI_CMD_MASTER);
     if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
-        usb_log("[KIRA USB] xHCI: PCI bus mastering did not enable; controller not started.\\n");
+        usb_log("[KIRA USB] xHCI: PCI bus mastering did not enable; controller not started.\n");
         return -2;
     }
     w32(xs.op, 0x38, xs.maxslots);                                     /* CONFIG */
@@ -707,7 +729,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     if (r32(xs.op, 4) & 1u) {
-        usb_log("[KIRA USB] xHCI does not start; aborting DMA ownership\\n");
+        usb_log("[KIRA USB] xHCI does not start; aborting DMA ownership\n");
         (void)xhci_abort_start(p);
         return -1;
     }
