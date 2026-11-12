@@ -158,11 +158,11 @@ for source, owned_ids in service_owners.items():
     for name in owned_ids:
         require(re.search(r"\b" + name + r"\b", source_text) is not None,
                 f"{name} missing from owner {source}")
-        occurrences = sum(
-            len(re.findall(r"\b" + name + r"\b", read(candidate)))
-            for candidate in adapter_sources
-        )
-        require(occurrences == 1, f"{name} must have exactly one service adapter owner")
+        owners = [
+            candidate for candidate in adapter_sources
+            if re.search(r"\b" + name + r"\b", read(candidate)) is not None
+        ]
+        require(owners == [source], f"{name} must have exactly one service adapter owner")
 
 require("SYS_ARGS" not in router and "SYS_JIT" not in router,
         "process argument/JIT syscalls must remain in the kernel core")
