@@ -50,6 +50,10 @@ int main(void) {
     CHECK(!kdrv_pci_interrupts_quiesced(1, 1, 0x8000, 1));
     CHECK(!kdrv_pci_interrupts_quiesced(0, 1, 0x4000, 1)); /* Enable=1, Function Mask=0 */
     CHECK(!kdrv_pci_interrupts_quiesced(0, 1, 0, 1));
+    CHECK(!kdrv_pci_start_requires_permanent_quarantine(1, 0x0003, 0x0400));
+    CHECK(kdrv_pci_start_requires_permanent_quarantine(0, 0x0003, 0x0400));
+    CHECK(kdrv_pci_start_requires_permanent_quarantine(1, 0x0007, 0x0400));
+    CHECK(kdrv_pci_start_requires_permanent_quarantine(1, 0x0003, 0x0402));
     CHECK(!kdrv_pci_busmaster_handoff_safe(0x0007, 0x0003)); /* firmware had enabled DMA */
     CHECK(!kdrv_pci_busmaster_handoff_safe(0x0003, 0x0007)); /* device refused disable */
     uint64_t page_lo = 0, page_hi = 0, physical = 0;
