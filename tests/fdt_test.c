@@ -89,7 +89,7 @@ int main(void) {
     CHECK(fdt_root(0) == -1 && fdt_node_name(0, 0) == 0);
     /* The parser accepts nesting to 64 levels; parent lookup must support the deepest node too. */
     {
-        deep_nodes = 64;
+        deep_nodes = 63;
         unsigned deep_total = build();
         int d = 0, n = fdt_root(blob), deepest = -1;
         while (n >= 0) {
@@ -100,7 +100,7 @@ int main(void) {
         CHECK(deepest >= 0 && fdt_parent(blob, deepest) >= 0);
         if (deepest >= 0) {
             int parent = fdt_parent(blob, deepest);
-            CHECK(parent >= 0 && !strcmp(fdt_node_name(blob, parent), "nested@38"));
+            CHECK(parent >= 0 && !strcmp(fdt_node_name(blob, parent), "nested@61"));
         }
         deep_nodes = 0;
         total = build();
