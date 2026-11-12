@@ -220,3 +220,10 @@
 - PR #134: `.kvm`/ `.KVM` распознаются отдельным типом файлов в FM; отображаются как KVM. Enter/двойной щелчок передаёт выбранный файл в `/bin/kvm` через существующий one-file grant API, а не через произвольный путь из userland. Добавлены проверки extension detection в `tests/fm_test.c`.
 - Commits: `63e1e2c4c6393c2ef54762268bd7e2a390054376`, `c23a95e234e9d408b4b115715d0adbe9af996336`, `03d9bc9d177e522744aec188ab7f729e05335313`, `417755826ec6fd0c8b71b9c22c14ed375f404437`, `dc801ae273d53d203ccadc122371c565f51de577`.
 - CI на head `dc801ae273d53d203ccadc122371c565f51de577` pending; build и host regression ещё не подтверждены.
+
+### KIRA VM — experimental assembler and source path (2026-11-12)
+- PR #134: добавлен `tools/kvm_asm.py` для текущего экспериментального 32-byte KVM1: labels/entry, registers, arithmetic, load/store, branches/calls, syscalls/capabilities, initial data directives. Добавлены негативные/позитивные tests `tests/kvm_asm_test.py`, подключены к host suite.
+- Исправлены ошибки самого парсера до запуска CI: корректное распознавание labels и escaped strings/comments; текущий тест проверяет header, code/data lengths, labels, capability bits и malformed source.
+- Обновлена `docs/KIRA_VM.md`; это seed assembler, не production compiler и не замена будущему KCC backend. ABI decision gate (32-byte vs 64-byte proposal) остаётся открытым.
+- Commits: `210d3bd1b437311e16086e4b275354b8863bfeab`, `d4e24b4607302360847e22e4983d1c3eb33b9760`, `57f5c6ca4f7d06256a566b94eef543b4768fe321`, `c59aa0bb27e3443222a7b946b4120af0abfdb1d6`, `702b60d15c930283397d9f8b05c184a9b010fa1b`, `7fb27412f6dd51c6a3ed89ec707ea9a42288f550`.
+- CI ещё ожидает завершения; assembler/runner не объявлять проверенными до фактического результата.
