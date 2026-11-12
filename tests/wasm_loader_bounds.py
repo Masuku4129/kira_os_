@@ -26,6 +26,9 @@ cases = [
      magic + b"\x01\x06\x01\x60\x01\x7e\x01\x7f" +
      b"\x02\x0e\x01\x04kira\x05ticks\x00\x00",
      "bad KIRA import signature"),
+    ("constant-expression-global-index-out-of-range",
+     magic + b"\x06\x06\x01\x7f\x00\x23\x00\x0b",
+     "constant expression global index out of range"),
     ("function-body-past-code-section",
      magic + b"\x01\x04\x01\x60\x00\x00" +
      b"\x03\x02\x01\x00" + b"\x0a\x02\x01\x7f",
