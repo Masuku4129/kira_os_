@@ -39,7 +39,7 @@ static char *strncpy(char *d, const char *s, size_t n) {
     for (; i < n; i++) d[i] = 0;
     return d;
 }
-static char *strcat(char *d, const char *s) { char *r = d; while (*d) d++; while ((*d++ = *s++)) ; return r; }
+static char *strcat(char *d, const char *s) { char *r = d; while (*d) d++; while ((*d++ = *s++)) { } return r; }
 static char *strchr(const char *s, int c) {
     for (;; s++) {
         if (*s == (char)c) return (char *)s;
