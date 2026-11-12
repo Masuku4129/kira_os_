@@ -108,6 +108,16 @@ syscalls, missing capability declarations, and malformed module bounds.
   invalid opcodes/targets, missing capabilities, division by zero, out-of-bounds
   memory, and fuel exhaustion.
 
+## ABI decision gate
+
+This branch currently implements an experimental 32-byte KVM1 header with a fixed
+register-file instruction model. A separate draft proposal on
+`feat/kira-vm-runtime-foundation` describes a different 64-byte sectioned container
+with typed function descriptors and named imports. These formats are not compatible.
+Neither proposal is a frozen public ABI. Before either is merged as the canonical KIRA
+VM format, reconcile the two designs, select one versioned format, and add migration
+and conformance fixtures. Do not silently reinterpret one format as the other.
+
 ## Explicit remaining work (not claimed complete)
 
 1. Integrate the module loader with signed KIRA packages and the KiraFS `/apps` path.
