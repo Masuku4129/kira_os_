@@ -201,7 +201,7 @@ static int parse_entry(char *line, struct kdrv_catalogue_entry *entry)
     return KDRV_CATALOGUE_OK;
 }
 
-int kdrv_catalogue_load(struct kdrv_trust_store *trust,
+static int catalogue_load_impl(struct kdrv_trust_store *trust,
                         const struct kdrv_trust_record *signature,
                         const void *bytes, size_t length,
                         const struct kdrv_trust_ops *trust_ops,
@@ -297,6 +297,29 @@ int kdrv_catalogue_load(struct kdrv_trust_store *trust,
     }
 
     return KDRV_CATALOGUE_OK;
+}
+
+
+int kdrv_catalogue_load(struct kdrv_trust_store *trust,
+                        const struct kdrv_trust_record *signature,
+                        const void *bytes, size_t length,
+                        const struct kdrv_trust_ops *trust_ops,
+                        struct kdrv_catalogue *catalogue)
+{
+    int rc;
+    if (catalogue) {
+        catalogue->count = 0;
+        catalogue->version = 0;
+    }
+    rc = catalogue_load_impl(trust, signature, bytes, length,
+                             trust_ops, catalogue);
+    if (rc != KDRV_CATALOGUE_OK && catalogue) {
+        /* A failed reload must never leave a previous or partial catalogue
+           visible to a caller that inspects the object after the error. */
+        catalogue->count = 0;
+        catalogue->version = 0;
+    }
+    return rc;
 }
 
 const struct kdrv_catalogue_entry *
