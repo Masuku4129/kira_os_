@@ -310,9 +310,14 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     if ((id & 0xFFFF) == 0xFFFF) return;
     if (ndevs >= PCI_MAX_DEVS) return;
     pci_dev_t* d = &devs[ndevs++];
+    /* Preserve a failed-stop quarantine across rescans of the same function. */
+    uint8_t quarantined = d->bus == bus && d->dev == dev && d->fn == fn &&
+                          d->vendor == (uint16_t)id && d->device == (uint16_t)(id >> 16)
+                          ? d->dma_quarantined : 0;
     __builtin_memset(d, 0, sizeof *d);
     d->bus = bus; d->dev = dev; d->fn = fn;
     d->vendor = (uint16_t)id; d->device = (uint16_t)(id >> 16);
+    d->dma_quarantined = quarantined;
     uint32_t cls = cr32(d, 0x08);
     d->revision = (uint8_t)cls; d->prog_if = (uint8_t)(cls >> 8); d->subclass = (uint8_t)(cls >> 16); d->class_code = (uint8_t)(cls >> 24);
     d->header_type = pci_read8(d, 0x0E);
