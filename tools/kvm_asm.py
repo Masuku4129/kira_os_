@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Experimental assembler for the current KVM1 v1 bytecode ABI.
+"""Experimental assembler for the current KVP0 v1 bytecode ABI.
 
-This emits the 32-byte KVM1 container implemented by kvm/kvm.c. The format is
+This emits the 32-byte KVP0 container implemented by kvm/kvm.c. The format is
 not yet the frozen public KIRA VM ABI; keep generated modules versioned and
 rebuild them if the ABI decision gate selects a different container.
 """
@@ -240,7 +240,7 @@ def assemble(source: str) -> bytes:
         raise ValueError("entry target is outside code")
     if len(data) > MAX_MODULE or len(code) + len(data) + 32 > MAX_MODULE:
         raise ValueError("module exceeds 16 MiB")
-    header = struct.pack("<4sHHIIIIQ", b"KVM1", 1, 32, len(code), len(data),
+    header = struct.pack("<4sHHIIIIQ", b"KVP0", 0, 32, len(code), len(data),
                          memory_pages, entry, caps)
     return header + code + data
 
@@ -255,7 +255,7 @@ def main() -> int:
         args.output.write_bytes(blob)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
-    print(f"KVM1: {len(blob)} bytes -> {args.output}")
+    print(f"KVP0: {len(blob)} bytes -> {args.output}")
     return 0
 
 
