@@ -214,7 +214,7 @@ for header in sorted((ROOT / "kcc/include").glob("*.h")):
     header_text = header.read_text(encoding="utf-8")
     unsafe_helpers = [
         match for match in static_helper_pattern.finditer(header_text)
-        if not re.search(r"\\bused\\b", match.group(0))
+        if not re.search(r"\bused\b", match.group(0))
     ]
     require(not unsafe_helpers,
             f"{header.name} has a non-inline static helper without a used attribute; -Werror may reject it")
