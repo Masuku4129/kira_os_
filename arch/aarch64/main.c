@@ -5,7 +5,7 @@
    Второй этап: поверх платформы работает общее ядро - менеджер страниц, куча, планировщик с очередями на каждом
    ядре, мьютексы ядра; межъядерные сигналы - SGI контроллера GIC. Файловые системы, Разум, программы - дальше. */
 #include <stdint.h>
-#include "fdt.h"
+#include "../../fdt.h" /* legacy hardware-tree accessors; arch-local fdt.h is the BootInfo parser */
 #include "bootinfo.h"
 #include "fb_arm.h"
 #include "timer.h"
