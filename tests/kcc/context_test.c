@@ -46,8 +46,8 @@ int main(void) {
         "int main(void) { return __COUNTER__; }\n";
     const char *simple = "int main(void) { return 7; }\n";
     const char *optimized =
-        "static int twice(int x) { return x * 2 + 1; }\\n"
-        "int main(void) { int s = 0; for (int i = 0; i < 19; i++) s += twice(i); return s; }\\n";
+        "static int twice(int x) { return x * 2 + 1; }\n"
+        "int main(void) { int s = 0; for (int i = 0; i < 19; i++) s += twice(i); return s; }\n";
 
     if (compile(with_header, header, "x86_64", 1, arena, sizeof arena, &first) != 0 ||
         !first.ir || !strstr(first.ir, "func main")) {
@@ -78,19 +78,19 @@ int main(void) {
     }
     if (compile(optimized, "", "x86_64", 2, arena, sizeof arena, &opt_x86) != 0 ||
         !check_elf(&opt_x86, 62) || opt_x86.elflen > sizeof opt_saved) {
-        fprintf(stderr, "optimized x86-64 compile failed: %s\\n", opt_x86.err ? opt_x86.err : "invalid ELF");
+        fprintf(stderr, "optimized x86-64 compile failed: %s\n", opt_x86.err ? opt_x86.err : "invalid ELF");
         return 1;
     }
     memcpy(opt_saved, opt_x86.elf, opt_x86.elflen);
     size_t opt_saved_len = opt_x86.elflen;
     if (compile(optimized, "", "aarch64", 2, arena, sizeof arena, &opt_a64) != 0 || !check_elf(&opt_a64, 183)) {
-        fprintf(stderr, "optimized AArch64 compile failed: %s\\n", opt_a64.err ? opt_a64.err : "invalid ELF");
+        fprintf(stderr, "optimized AArch64 compile failed: %s\n", opt_a64.err ? opt_a64.err : "invalid ELF");
         return 1;
     }
     if (compile(optimized, "", "x86_64", 2, arena, sizeof arena, &opt_x86_again) != 0 ||
         !check_elf(&opt_x86_again, 62) || opt_x86_again.elflen != opt_saved_len ||
         memcmp(opt_saved, opt_x86_again.elf, opt_saved_len) != 0) {
-        fprintf(stderr, "inliner/optimizer state leaked across target switch or repeated compilation\\n");
+        fprintf(stderr, "inliner/optimizer state leaked across target switch or repeated compilation\n");
         return 1;
     }
     puts("KCC sequential PP/parser/IR/backend/inliner/optimizer context isolation: PASS");
