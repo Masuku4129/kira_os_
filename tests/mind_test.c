@@ -460,6 +460,13 @@ int main(void) {
         }
         CHECK(P.m.memory_net.n > trained_before && P.m.memory_net.pos > 0);
         CHECK(mind_memory_risk(&P) == 0);
+        /* Starting above the threshold is a current incident, not a future-crossing training example. */
+        static mind_t AlreadyHigh; mind_init(&AlreadyHigh, 0, 4); AlreadyHigh.m.mode = MIND_OBSERVE;
+        for (uint32_t u = 1; u <= 8; u++) {
+            base(u); S.mem_used = 95; mind_step(&AlreadyHigh, &S, &none);
+        }
+        CHECK(AlreadyHigh.m.memory_net.n == 0 && !AlreadyHigh.mem_risk_valid &&
+              mind_memory_risk(&AlreadyHigh) == 0);
         mind_model_t saved_mem = P.m; mind_model_seal(&saved_mem);
         mind_model_t loaded_mem;
         CHECK(mind_model_load(&loaded_mem, &saved_mem, sizeof saved_mem) &&
