@@ -5,6 +5,8 @@
 #include <stdint.h>
 
 #define KVM_PAGE_SIZE 4096u
+#define KVM_MAX_MEMORY_PAGES 4096u
+#define KVM_MAX_MODULE_SIZE (16u * 1024u * 1024u)
 #define KVM_REGISTER_COUNT 16u
 #define KVM_MAX_CALL_DEPTH 256u
 #define KVM_MODULE_HEADER_SIZE 32u
