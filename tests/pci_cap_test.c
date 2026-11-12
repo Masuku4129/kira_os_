@@ -62,7 +62,11 @@ int main(void) {
         !(pci_read16(&dev, 0x04) & (1u << 10))) return 16;
     put16(0x42, 1); put16(0x46, 0x8000); put16(0x04, 0);
     blocked_write_off = 0x40;                    /* MSI enable refuses to clear */
-    if (pci_quiesce_interrupts(&dev)) return 17;
+    if (pci_quiesce_interrupts(&dev)) {
+        fprintf(stderr, "pci_cap_test: expected fail-closed MSI mask; MSI=%04x MSI-X=%04x cmd=%04x blocked=%04x\\n",
+                pci_read16(&dev, 0x42), pci_read16(&dev, 0x46), pci_read16(&dev, 0x04), blocked_write_off);
+        return 17;
+    }
     blocked_write_off = 0xFFFFu;
     put8(0x34, 0x3C);                             /* malformed list must fail closed */
     if (pci_quiesce_interrupts(&dev)) return 18;
