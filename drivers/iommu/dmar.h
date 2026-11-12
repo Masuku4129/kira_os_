@@ -51,7 +51,6 @@ struct KIRA_PACKED kira_dmar_structure {
 struct KIRA_PACKED kira_dmar_drhd {
     struct kira_dmar_structure header;
     uint8_t flags;
-    uint8_t register_size_log2;
     uint16_t segment;
     uint64_t register_base;
 };
@@ -81,7 +80,6 @@ struct kira_dmar_path {
 struct kira_dmar_unit {
     uint16_t segment;
     uint8_t include_all;
-    uint8_t register_size_log2;
     uint64_t register_base;
     uint16_t first_scope;
     uint16_t scope_count;
