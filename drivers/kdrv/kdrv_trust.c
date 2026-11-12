@@ -140,7 +140,8 @@ int kdrv_trust_verify_catalogue(struct kdrv_trust_store *store,
         return KDRV_TRUST_INVALID;
 
     if (record->format_version != KDRV_TRUST_FORMAT_VERSION ||
-        record->payload_length != payload_length ||
+        record->flags != 0 || record->catalogue_version == 0 ||
+        record->issued_at == 0 || record->payload_length != payload_length ||
         record->expires_at <= record->issued_at)
         return KDRV_TRUST_INVALID;
 
