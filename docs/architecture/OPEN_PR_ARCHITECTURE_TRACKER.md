@@ -47,6 +47,7 @@
 
 1. Несколько важных PR направлены не в main, а в промежуточные ветки `autodrv`, `v46/*` и `ai/*`. Проверять ancestry и cumulative diff; merge в main не является простым выбором одного PR.
 2. IOMMU work (#115/#116/#120/#125/#44) пересекается по ARM SMMUv3/FDT/VT-d. Нужна единая интеграционная последовательность и проверка реального invalidation/fault lifecycle.
+3a. PR #132 adds useful shared helper tests for kstack slot ownership/double-free, but tests do not exercise the actual kernel VMM allocator under SMP or mapping-failure conditions; PR body explicitly leaves allocator integration tests outstanding.
 3. KDRV signature chain (#35/#36/#38/#39/#40/#41/#42/#44/#46/#12) содержит вложенные bases. Проверять source provenance, keyring, trust anchor, anti-rollback и E2E install/load.
 4. KCC (#93/#95), Mind (#78/#81), scheduler (#74/#79) — зависимые пары/цепочки; тестировать совокупный результат, не только изолированный PR.
 5. #134 — экспериментальная VM; current KVR production baseline остаётся WASM согласно мастер-плану/ADR-0001.
