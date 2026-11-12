@@ -223,7 +223,23 @@ static int test_portable_container(void)
     CHECK(kvm_verify(&module, 0) == KVM_OK);
     CHECK(run(&module, 0, 10, &result) == KVM_OK && result == 73);
     CHECK(kvm_module_decode(blob, sizeof blob - 1u, &module) == KVM_E_FORMAT);
+
     put16(blob + 4, 2);
+    CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
+    put16(blob + 4, KVM_MODULE_VERSION);
+    put32(blob + 8, 7u);
+    CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
+    put32(blob + 8, (uint32_t)sizeof code);
+    put32(blob + 12, KVM_PAGE_SIZE + 1u);
+    CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
+    put32(blob + 12, (uint32_t)sizeof data);
+    put32(blob + 20, 2u);
+    CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
+    put32(blob + 20, 0u);
+    put32(blob + 8, 0xfffffff8u); /* length arithmetic must fail closed on 32-bit too */
+    CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
+    put32(blob + 8, (uint32_t)sizeof code);
+    blob[0] = 'X';
     CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
     return 0;
 }
