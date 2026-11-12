@@ -20,6 +20,13 @@
 - Граница IOMMU в этой ветке: новые `drivers/iommu/{arm_smmu,intel_vtd,amd_vi,*_domain,iommu_discovery}.*` не входят в `build_clang.sh`/`build_arm64.sh`; ARM64 `main.c` не вызывает новый SMMUv3 runtime. Host suite покрывает старый `iommu_vtd.c` parser и KDRV tests, но не эти новые runtime-модули. Это отдельный блокер интеграции.
 - Отдельная ветка PR #125 ниже уже содержит другой путь интеграции SMMUv3 в ARM64 PCI startup и прошла CI на своём head; это не означает, что её код уже включён в PR #42 или main.
 
+### PR #46 — unified release / native UEFI integration
+- Ветка: `v46/unified-release-integration`; base: `v46/kdrv-catalogue-signature-policy`; head после последних исправлений lint: `9e9221397425640e3f22c4f2015f92dc9054d236`. PR draft, GitHub сообщает mergeable=false; не сливать.
+- Предыдущий полный run `42575383245`: build, ARM64, KCC, GUI, driver-e2e, Mind, audit и UEFI OVMF success; 9 из 10 VM shards success; shard 4 failed на `wasm-speed`, `stress-3d`, `cc-native` с watchdog hang. Host-tests failed только на diff-lint: в research harness были пустой неиспользуемый `kdrv_sha_seed`, мёртвая ветка `if (argc > a + 2 && 0)`, плюс тестовый Rust ABI shim ошибочно попадал под production no-stubs scan.
+- Удалены пустой helper и мёртвая ветка; `ci/lint.sh` теперь исключает `research/` из production stub scan, сохраняя проверку production C/H/ASM/Python/Shell. Новый run `43185215076` создан, но pending без jobs; исправление ещё не подтверждено CI.
+- VM shard 4: watchdog показывает kernel thread `core` sleeping at its wake tick with `mutexes_held=2`; все остальные ядра idle, watchdog прекращает исполнение. Это не признано решённым: нужно установить, какая ветка основного цикла оставляет два kmutex удержанными или почему scheduler не пробуждает core, затем повторить три сценария. Не маскировать timeout и не ослаблять тесты.
+- UEFI OVMF прошёл в старом run, но это evidence только для того head; physical firmware/hardware validation отсутствует. Новый head требует полного CI.
+
 ### PR #95 — KCC context / self-host parser
 - Ветка: `ai/kcc-context-more-state`
 - Head: `b03a532c1753b736c9d77cd0318a7b2869265e8a`
