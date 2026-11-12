@@ -14,9 +14,9 @@ def require(condition, message):
         print("FAIL:", message)
         sys.exit(1)
 
-core = read("syscall.c")
-adapter = read("syscall_services.c")
-adapter_sources = ("syscall_service_graphics.c", "syscall_service_fs.c", "syscall_service_network.c", "syscall_service_audio.c", "syscall_service_clock.c")
+core = read("kernel/syscall.c")
+adapter = read("services/syscall_router.c")
+adapter_sources = ("services/graphics_syscall.c", "services/filesystem_syscall.c", "services/network_syscall.c", "services/audio_syscall.c", "services/clock_syscall.c")
 x86_main = read("arch/x86_64/kernel_main.c")
 x86_boot = read("arch/x86_64/kernel_boot.c")
 x86_boot_header = read("arch/x86_64/kernel_boot.h")
@@ -35,7 +35,7 @@ require("void kernel_main(" in x86_main and "kernel_boot_init(" in x86_boot,
         "x86 entry/boot ownership is incomplete")
 numbers = read("kcc/include/syscall_numbers.h")
 for path in ("build_clang.sh", "build_arm64.sh"):
-    require("syscall_services.c" in read(path),
+    require("services/syscall_router.c" in read(path),
             f"{path} does not compile syscall_services.c")
 
 require('#include "syscall_numbers.h"' in core,
@@ -89,15 +89,15 @@ for source in adapter_sources:
     require(source in read("build_clang.sh") and source in read("build_arm64.sh"),
             f"{source} is not built for both ISAs")
 service_owners = {
-    "syscall_service_graphics.c": ("SYS_GFX_CREATE", "SYS_GFX_PRESENT", "SYS_GFX_EVENT"),
-    "syscall_service_fs.c": ("SYS_FS",),
-    "syscall_service_network.c": ("SYS_NET_DNS", "SYS_NET_CONNECT", "SYS_NET_SEND", "SYS_NET_RECV",
+    "services/graphics_syscall.c": ("SYS_GFX_CREATE", "SYS_GFX_PRESENT", "SYS_GFX_EVENT"),
+    "services/filesystem_syscall.c": ("SYS_FS",),
+    "services/network_syscall.c": ("SYS_NET_DNS", "SYS_NET_CONNECT", "SYS_NET_SEND", "SYS_NET_RECV",
         "SYS_NET_CLOSE", "SYS_NET_LISTEN", "SYS_NET_ACCEPT", "SYS_UDP_OPEN", "SYS_UDP_SEND",
         "SYS_UDP_RECV", "SYS_UDP_CLOSE", "SYS_NET_CONNECT_SA", "SYS_NET_PEER",
         "SYS_UDP_SENDTO", "SYS_UDP_RECVFROM"),
-    "syscall_service_audio.c": ("SYS_SND_OPEN", "SYS_SND_WRITE", "SYS_SND_CLOSE",
+    "services/audio_syscall.c": ("SYS_SND_OPEN", "SYS_SND_WRITE", "SYS_SND_CLOSE",
         "SYS_SND_VOLUME", "SYS_SND_RECORD"),
-    "syscall_service_clock.c": ("SYS_TIME",),
+    "services/clock_syscall.c": ("SYS_TIME",),
 }
 for source, owned_ids in service_owners.items():
     source_text = read(source)
