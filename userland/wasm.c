@@ -112,6 +112,33 @@ static int wasm_valtype(u8 t) {
     return t == 0x7F || t == 0x7E || t == 0x7D || t == 0x7C;
 }
 
+/* WebAssembly names are UTF-8. Reject overlong encodings, surrogates,
+   truncated continuation sequences and code points above U+10FFFF. */
+static int wasm_utf8_valid(const u8* p, u32 n) {
+    u32 i = 0;
+    while (i < n) {
+        u8 a = p[i++];
+        if (a < 0x80) continue;
+        if (a >= 0xC2 && a <= 0xDF) {
+            if (i >= n || (p[i++] & 0xC0) != 0x80) return 0;
+        } else if (a >= 0xE0 && a <= 0xEF) {
+            if (i + 1 >= n) return 0;
+            u8 b = p[i++], c = p[i++];
+            if ((c & 0xC0) != 0x80 || (b & 0xC0) != 0x80 ||
+                (a == 0xE0 && b < 0xA0) || (a == 0xED && b >= 0xA0))
+                return 0;
+        } else if (a >= 0xF0 && a <= 0xF4) {
+            if (i + 2 >= n) return 0;
+            u8 b = p[i++], c = p[i++], d = p[i++];
+            if ((c & 0xC0) != 0x80 || (d & 0xC0) != 0x80 ||
+                (b & 0xC0) != 0x80 || (a == 0xF0 && b < 0x90) ||
+                (a == 0xF4 && b >= 0x90))
+                return 0;
+        } else return 0;
+    }
+    return 1;
+}
+
 /* Imports are a security boundary: never call a host function with a module-
    supplied signature that disagrees with the KIRA ABI. */
 static int import_type_ok(u32 id, const ftype_t* t) {
@@ -783,6 +810,10 @@ static int load(void) {
             }
             /* Custom payload after the name is opaque, but the name itself is
                part of the WebAssembly envelope and must be present in-bounds. */
+            if (!wasm_utf8_valid(s, name_len)) {
+                trap("invalid UTF-8 custom section name");
+                return -1;
+            }
             s += name_len;
             s = se;
         } else if (id == 1) {                                     /* типы */
