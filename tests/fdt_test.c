@@ -186,6 +186,15 @@ int main(void) {
             CHECK(fdt_iommu_map(blob, pcie, 0x1020u, &phandle, &sid) == -2);
         }
         total = build();
+        pcie = fdt_find_path(blob, "/pcie@4010000000");
+        {
+            int smmu = fdt_phandle_node(blob, 0x42);
+            uint8_t* compat = (uint8_t*)fdt_prop(blob, smmu, "compatible", &len);
+            CHECK(compat && len == 12u);
+            memcpy(compat, "arm,other-v3", 12u);
+            CHECK(fdt_iommu_map(blob, pcie, 0x1020u, &phandle, &sid) == -2);
+        }
+        total = build();
     }
 
     fdt_fb_t fb;
