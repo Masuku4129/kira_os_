@@ -303,6 +303,14 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     w64(rg, R_ASQ, c->q[0].sq_phys);
     w64(rg, R_ACQ, c->q[0].cq_phys);
     pci_enable(pd, PCI_CMD_MASTER); /* all admin queues and bounce buffers are ready */
+    if (!(pci_read16(pd, 0x04) & PCI_CMD_MASTER)) {
+        if (pci_disable_bus_master(pd))
+            (void)iommu_unmap_all(pd);
+        else
+            uart_print("[KIRA NVMe] bus mastering did not stop; DMA mappings remain pinned.\\n");
+        uart_print("[KIRA NVMe] PCI DMA authorization was not granted; controller disabled.\\n");
+        return;
+    }
     w32(rg, R_CC, (6u << 16) | (4u << 20) | 1u);                        /* IOSQES 64, IOCQES 16, страница 4 КБ, NVM, вкл. */
     if (wait_rdy(c, 1)) { uart_print("[KIRA NVMe] controller does not start (CSTS "); uart_print_hex(r32(rg, R_CSTS)); uart_print(")\n"); return; }
 
