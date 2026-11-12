@@ -25,6 +25,10 @@ void kmutex_lock(kmutex_t* m) {
         spin_unlock_irqrestore(&m->lk, f);
         kernel_panic("kmutex: recursive lock (deadlock)");
     }
+    if (real(t) && t->mutexes_held) {
+        spin_unlock_irqrestore(&m->lk, f);
+        kernel_panic("kmutex: blocking acquisition while holding another mutex");
+    }
     t->wait_next = 0;
     if (m->tail) m->tail->wait_next = t; else m->head = t;
     m->tail = t;
