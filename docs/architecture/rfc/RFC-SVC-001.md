@@ -20,7 +20,7 @@
 
 ## 3. Разделение ответственности
 
-### Kernel syscall core — `syscall.c`
+### Kernel syscall core — `kernel/syscall.c`
 
 Оставляет:
 - syscall entry-facing handler и общий post-dispatch lifecycle;
@@ -36,12 +36,12 @@
 
 ### Service-facing syscall adapters
 
-`syscall_services.c` — subsystem-agnostic router. Он не включает заголовки графики, файлов, сети, звука или RTC и только передаёт запрос специализированному adapter:
-- `syscall_service_graphics.c`: `SYS_GFX_*` → gfx service API;
-- `syscall_service_fs.c`: `SYS_FS` → file-service API;
-- `syscall_service_network.c`: TCP/UDP/DNS syscalls → network API;
-- `syscall_service_audio.c`: playback/record syscalls → audio API;
-- `syscall_service_clock.c`: `SYS_TIME` → RTC API.
+`services/syscall_router.c` — subsystem-agnostic router. Он не включает заголовки графики, файлов, сети, звука или RTC и только передаёт запрос специализированному adapter:
+- `services/graphics_syscall.c`: `SYS_GFX_*` → gfx service API;
+- `services/filesystem_syscall.c`: `SYS_FS` → file-service API;
+- `services/network_syscall.c`: TCP/UDP/DNS syscalls → network API;
+- `services/audio_syscall.c`: playback/record syscalls → audio API;
+- `services/clock_syscall.c`: `SYS_TIME` → RTC API.
 
 Каждый ABI номер имеет ровно одного владельца-адаптер, что закреплено `tests/architecture_test.py`. Adapter — внутренний kernel facade. Это ещё не отдельный процесс службы, не IPC и не гарантия crash isolation.
 
@@ -70,7 +70,7 @@
 
 ## 6. Build and verification
 
-Оба target build обязаны включать `syscall_services.c`:
+Оба target build обязаны включать `services/syscall_router.c`:
 - x86-64: `build_clang.sh`;
 - ARM64: `build_arm64.sh`.
 
