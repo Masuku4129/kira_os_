@@ -10,6 +10,7 @@ T=$(mktemp -d)
 echo "== KIRA VM v1 (portable KVM1 module, verifier, interpreter, capabilities, memory and traps) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kvm tests/kvm_test.c kvm/kvm.c
 $T/kvm
+python3 tests/kvm_asm_test.py
 
 echo "== logic (sha256, immune) =="
 $CC $FLAGS -o $T/logic tests/logic_test.c immune.c sha256.c \
