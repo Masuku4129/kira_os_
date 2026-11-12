@@ -580,6 +580,8 @@ static int load(void) {
                 u8 kind = *s++;
                 if (kind == 0) {
                     u32 ti = leb_u(&s, se);
+                    if (trapped) return -1;
+                    if (ti >= ntypes) { trap("bad imported function type"); return -1; }
                     int found = -1;
                     for (int k = 0; k < IMP_N; k++) if ((name_is(mn, ml, "kira") || name_is(mn, ml, "env")) && name_is(nn, nl, imp_names[k])) found = k;
                     if (found < 0) { trap("unknown import (module kira: write, sleep, ticks, exit, gfx_create, gfx_present, gfx_event)"); return -1; }
@@ -640,6 +642,9 @@ static int load(void) {
                 if (compile_func(f)) return -1;
                 s = be;
             }
+        } else if (id > 11) {
+            trap("unsupported WebAssembly section id");
+            return -1;
         } else if (id == 11) {                                    /* данные - после выделения памяти */
             if (!mem) {
                 if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
