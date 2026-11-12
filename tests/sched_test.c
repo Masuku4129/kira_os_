@@ -56,6 +56,16 @@ int main(void) {
     CHECK(!strcmp(sched_current()->name, "core") && sched_current()->state == THREAD_RUNNING);
     thread_info_t info[256];
     CHECK(sched_snapshot(info, sched_thread_capacity()) == 2);   // core + idle
+    {
+        unsigned ns = sched_snapshot(info, sched_thread_capacity());
+        uint32_t core_id_now = sched_current()->id;
+        int found = 0;
+        for (unsigned i = 0; i < ns; i++) if (info[i].id == core_id_now) {
+            CHECK(info[i].cpu_cycles >= sched_current()->cpu_cycles);
+            found = 1;
+        }
+        CHECK(found);                                      // snapshot includes the current thread (host RDTSC may be zero)
+    }
 
     // ---- 1. два равных потока делят процессор поровну, core спит ----
     sched_set_quantum(4);
@@ -189,6 +199,16 @@ int main(void) {
         CHECK(sched_attach_cpu() == 0);
         thread_t* idle1 = (thread_t*)sched_current();
         CHECK(idle1 && idle1->prio == PRIO_IDLE && cm_is64(&idle1->affinity, 2) && idle1->on_cpu == 1);
+        {
+            thread_info_t multi[256];
+            unsigned nm = sched_snapshot(multi, 256);
+            int found_idle1 = 0;
+            for (unsigned i = 0; i < nm; i++) if (multi[i].id == idle1->id) {
+                CHECK(multi[i].cpu == 1 && multi[i].cpu_cycles >= idle1->cpu_cycles);
+                found_idle1 = 1;
+            }
+            CHECK(found_idle1);                              // current thread lookup follows last_cpu on AP
+        }
         host_cpu = 0;
         CHECK(sched_current() != idle1);                          // у ядра 0 свой текущий поток
 
