@@ -279,3 +279,12 @@
 - Добавлен `docs/UI0_SPATIAL_MINIMAL_AUDIT.md`: карта модулей, конфликты с дизайн-контрактом, сохраняемые инварианты и последовательность UI-1…UI-5.
 - Commit audit: `a8cab94c1c2b76cb3bd66d10545aa777d4f870dc` на ветке `docs/ui0-spatial-minimal-audit`. Изменены только документы; runtime/GUI тесты не запускались и PASS не заявляется.
 - Следующий шаг: проследить wiring `wm_side_set/wm_tabs_set/wm_set_meters` и жизненный цикл Dock в системном цикле; затем подготовить UI-1 token/layout contract и acceptance tests до изменения production GUI.
+
+
+### UI-1 — контракт Spatial Minimal (2026-11-12)
+- Прослежена фактическая дисплейная интеграция в `display.c`: `side_rebuild()` объединяет закреплённые приложения, незакреплённые запущенные окна и «Добавить программу»; `dock_toggle()` сохраняет модель в `/var/dock`; `update_mind()` публикует метрики в постоянную верхнюю панель; `on_tab()` связывает вкладки с системными приложениями.
+- UI-0 audit дополнен точной картой этих связей. Это подтверждает, что миграция должна разделить Dock model, navigation и window overview, сохранив запуск приложений и storage.
+- Добавлен `docs/UI1_SPATIAL_LAYOUT_CONTRACT.md`: состояния idle/contextual, responsive tokens, семантическая палитра, motion/accessibility/security invariants, 10 acceptance tests и безопасная стратегия feature-gated migration.
+- Commits на `docs/ui0-spatial-minimal-audit`: UI-0 audit `a8cab94c1c2b76cb3bd66d10545aa777d4f870dc`, display wiring `e782aa7fb7f2d9f175478cdd96e257e836a93756`, UI-1 contract `a02367a98bf794b11ed9c5340608ca8bbb7ee90b`; PR #138 draft открыт, не слит.
+- Только документация. Production GUI и тесты не менялись/не запускались; PASS не заявляется.
+- Следующий implementation gate: отдельно спроектировать layout-mode state/API и тестовые doubles в `tests/wm_test.c`, затем добавить новый layout за feature gate без изменения legacy default.
