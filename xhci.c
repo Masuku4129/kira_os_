@@ -672,19 +672,22 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     xs.erst[0] = xs.ev_phys; xs.erst[1] = EV_N;
     xs.ev_deq = 0; xs.ev_cycle = 1;
 
-    w32(xs.op, 0x38, xs.maxslots);                                     /* CONFIG */
-    w64(xs.op, 0x30, xs.dcbaa_phys);                                   /* DCBAAP */
-    w64(xs.op, 0x18, xs.cmd.phys | 1u);                                /* CRCR, RCS = 1 */
-    w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
-    w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
-    w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
-    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
-    cpu_mb();                                                          /* publish NC rings before device DMA starts */
+    /* All DMA objects are allocated and initialized while BusMaster is clear.
+       Enable it before publishing device-visible ring addresses. */
+    cpu_mb();
     pci_enable(p, PCI_CMD_MASTER);
     if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
         usb_log("[KIRA USB] xHCI: PCI bus mastering did not enable; controller not started.\\n");
         return -2;
     }
+    w32(xs.op, 0x38, xs.maxslots);                                     /* CONFIG */
+    w64(xs.op, 0x30, xs.dcbaa_phys);                                   /* DCBAAP */
+    w64(xs.op, 0x18, xs.cmd.phys | 1u);                                /* CRCR, RCS = 1 */
+    w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
+    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA */
+    w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
+    w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ: activate after valid addresses */
+    cpu_mb();
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     if (r32(xs.op, 4) & 1u) {
