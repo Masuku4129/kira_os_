@@ -21,9 +21,9 @@
 - Отдельная ветка PR #125 ниже уже содержит другой путь интеграции SMMUv3 в ARM64 PCI startup и прошла CI на своём head; это не означает, что её код уже включён в PR #42 или main.
 
 ### PR #46 — unified release / native UEFI integration
-- Ветка: `v46/unified-release-integration`; base: `v46/kdrv-catalogue-signature-policy`; head после изменения concurrency: `bfb77c809337025044276dad4850b7ca3f76e1f9`. PR draft, GitHub сообщает mergeable=false; не сливать.
+- Ветка: `v46/unified-release-integration`; base: `v46/kdrv-catalogue-signature-policy`; head: `0b413a9712f0b1c871040480c6b3b794d03155ae`. PR draft, GitHub сообщает mergeable=false; не сливать.
 - Предыдущий полный run `42575383245`: build, ARM64, KCC, GUI, driver-e2e, Mind, audit и UEFI OVMF success; 9 из 10 VM shards success; shard 4 failed на `wasm-speed`, `stress-3d`, `cc-native` с watchdog hang. Host-tests failed только на diff-lint: в research harness были пустой неиспользуемый `kdrv_sha_seed`, мёртвая ветка `if (argc > a + 2 && 0)`, плюс тестовый Rust ABI shim ошибочно попадал под production no-stubs scan.
-- Удалены пустой helper и мёртвая ветка; `ci/lint.sh` теперь исключает `research/` из production stub scan, сохраняя проверку production C/H/ASM/Python/Shell. Последний run `43198443728` queued на head `bfb77c80...`; исправления ещё не подтверждены CI.
+- Удалены пустой helper и мёртвая ветка; `ci/lint.sh` теперь исключает `research/` из production stub scan, сохраняя проверку production C/H/ASM/Python/Shell. Последний run `43201693527` pending на head `0b413a97...`; изменения ещё не подтверждены CI.
 - VM shard 4: watchdog показывает kernel thread `core` sleeping at its wake tick with `mutexes_held=2`; все остальные ядра idle, watchdog прекращает исполнение. Это не признано решённым: нужно установить, какая ветка основного цикла оставляет два kmutex удержанными или почему scheduler не пробуждает core, затем повторить три сценария. Не маскировать timeout и не ослаблять тесты.
 - UEFI OVMF прошёл в старом run, но это evidence только для того head; physical firmware/hardware validation отсутствует. Новый head требует полного CI.
 
@@ -37,10 +37,10 @@
 
 ### PR #131 — KIRA WASM runtime validation
 - Ветка: `fix/wasm-module-header-bounds`
-- Head: `968b6b6b50452dbc19c6bd58fc0966115f759633`
+- Head: `7c777f470294a5cf491e7d02b490ce98ab23ae37`
 - Усилены: проверка версии и границ секций; уникальность/порядок секций; типы функций и точные сигнатуры KIRA imports; лимиты памяти/таблицы; индексы функций/экспортов/глобальных; сегменты данных/элементов; тела функций и локальные объявления; запрет memory ops без memory; различение явно заданного max=0 и отсутствующего maximum.
 - Добавлен `tests/wasm_loader_bounds.py` с отрицательными случаями и тестом `memory.grow` при max=0; подключён к `tests/run_host_tests.sh`.
-- На текущем head создан push run `43201211841` pending; PR run ещё не появился. Последние изменения добавили строгую проверку LEB128, немедленных полей `call_indirect`/typed select/memory instructions и полное сравнение сигнатур `call_indirect`. Тесты ещё НЕ запускались/не подтверждены.
+- На текущем head создан push run `43201823701` pending; PR run ещё не появился. Последние изменения добавили строгую проверку LEB128, немедленных полей `call_indirect`/typed select/memory instructions и полное сравнение сигнатур `call_indirect`. Тесты ещё НЕ запускались/не подтверждены.
 - Это первая hardening-порция, не полная WebAssembly type-stack verification и не заявление о полной WASM-конформности.
 - Важное архитектурное различие: этот код — совместимый WebAssembly interpreter/JIT внутри Ring 3, НЕ собственная KIRA VM/ISA. Собственный portable KIRA bytecode, verifier, module ABI и native bridge из мастер-плана остаются отдельной незакрытой работой.
 - PR draft, не слит.
@@ -52,7 +52,7 @@
 - Host tests уже покрывают метки через 4 секунды, отсутствие RAM telemetry, пропуск секунды, сохранение модели и запрет доверенного риска до достаточного обучения. Новые изменения UI/снимка пока не подтверждены CI.
 - Дополнительно исправлена семантика метки: если текущая ОЗУ уже ≥90%, это не считается прогнозом будущего пересечения; модель не создаёт новые обучающие примеры из уже случившегося события, `mem_risk_valid` выключается, UI/консоль прямо сообщают, что порог уже достигнут. Добавлен тест этого случая.
 - Уточнено качество входных данных: после boot/пропуска телеметрии первый валидный замер не используется ни для прогноза, ни для обучающей метки, потому что рост ОЗУ ещё неизвестен. Прогноз и обучение возобновляются только после второго последовательного замера; добавлены проверки разрыва временного ряда.
-- Последний run `43201572080` pending на предыдущем head `4843fe22...`; head `7465b0df...` требует свежей проверки. Сборка, host-tests и VM/UI проверки ещё не завершены. Не заявлять PASS.
+- Последний run `43201622724` pending на head `7465b0df...`; проверка ещё не завершена. Сборка, host-tests и VM/UI проверки ещё не завершены. Не заявлять PASS.
 
 ## Уже подтверждённые соседние проверки
 - PR #125 ARM SMMU/PCI quarantine hardening: head `6074a9f3eeb8a51e63dccaeff3caaff103ddaa33`, base `autodrv`, non-draft and mergeable; run `43177373290` success across build, ARM64, host-tests, KCC, driver-e2e, audit, GUI, Mind, UEFI OVMF and all 10 VM jobs. This branch integrates SMMUv3 domains into ARM64 PCI startup; physical SMMUv3 validation is still absent and PR is not merged.
@@ -71,7 +71,7 @@
 - Уже существующий негативный fixture `constant-expression-data-offset-type-mismatch` должен проверять отказ от f32 offset; после нового CI нужно убедиться, что fixture доходит до ожидаемой ошибки.
 
 ### Продолжение 2026-11-12, дополнительная проверка KVR/KCC
-- PR #131, ветка `fix/wasm-module-header-bounds`: CI run `43183595676` (head до последних исправлений) — build success, ARM64 success, host-tests failure. Реальная причина: fixture `constant-expression-global-index-out-of-range` не содержал функции/экспорт и runtime завершался раньше сообщением `no exported main/_start`; fixture дополнен типом, функцией и экспортом. Последний head: `968b6b6b50452dbc19c6bd58fc0966115f759633`; CI run `43201211841` (push) pending. Не объявлять исправленным до полного прогона.
+- PR #131, ветка `fix/wasm-module-header-bounds`: CI run `43183595676` (head до последних исправлений) — build success, ARM64 success, host-tests failure. Реальная причина: fixture `constant-expression-global-index-out-of-range` не содержал функции/экспорт и runtime завершался раньше сообщением `no exported main/_start`; fixture дополнен типом, функцией и экспортом. Последний head: `7c777f470294a5cf491e7d02b490ce98ab23ae37`; CI run `43201823701` (push) pending. Не объявлять исправленным до полного прогона.
 - В PR #131 добавлена строгая проверка unsigned/signed LEB128 (включая 5/10-байтовые переполнения и усечённые значения), индексов/глубин ветвлений, локальных/глобальных/функций в unreachable-коде, наличия памяти и естественного выравнивания load/store; индексы bulk-memory разбираются как LEB128. Добавлены негативные тесты для некорректного align, unreachable local/branch/call_indirect.
 - Текущий PR #131 всё ещё не является полной WASM type-stack validator: остаётся отдельный аудит корректности типов операндов/стека, block signatures, локальных/глобальных типов, таблиц, data/element segments, квот/отмены и runtime cleanup.
 - PR #95 KCC: run `43179992778` подтвердил 1390 файловых тестов и 3000 fuzz итераций, но self-host stage1 упал на `ir.c:20 expected ')' before '->'`. Исправлено: убран вложенный объектный макрос `IRS`, поля IRState теперь обращаются напрямую через `irs->...` (commit `ada37b5e0db790cffe7bc60eab59a42f6559b9dd`). Повторного CI на новом head пока нет; self-host не подтверждён.
@@ -109,7 +109,7 @@
 ## Следующие действия
 1. Дождаться CI PR #46 на head `9c7d021a...`; обязательно проверить полный QEMU matrix и shard 4 (`wasm-speed`, `stress-3d`, `cc-native`) после watchdog/scheduler исправлений.
 2. Дождаться CI PR #95 на head `f738656e...`; если self-host падает, читать точный stage1 диагностический вывод и исправлять первопричину.
-3. Дождаться CI PR #131 на head `968b6b6b...`; при падении исправлять реализацию/фикстуры и повторять host-tests, build, ARM64. Не оставлять известные ошибки.
+3. Дождаться CI PR #131 на head `7c777f47...`; при падении исправлять реализацию/фикстуры и повторять host-tests, build, ARM64. Не оставлять известные ошибки.
 4. Дождаться CI PR #81 на head `7465b0df...`; проверить Mind forecast UI, telemetry validity и memory label semantics.
 5. После подтверждения веток продолжить независимый аудит WASM type-stack verifier, Driver Manager production compatibility backend, ARM64 SMMUv3 runtime и остальных потоков мастер-плана параллельно.
 6. Не создавать ISO/update archive из непроверенных или неинтегрированных веток. Финальная поставка — после согласованной интеграции и полного регрессионного прогона.
