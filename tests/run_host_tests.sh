@@ -211,6 +211,8 @@ $T/pk
 echo "== KDRV signed-package verification =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_sig tests/kdrv_sig_test.c kdrv_sig.c pk.c crypto.c sha256.c
 $T/kdrv_sig
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_catalogue tests/kdrv_catalogue_test.c drivers/kdrv/kdrv_catalogue.c drivers/kdrv/kdrv_trust.c
+$T/kdrv_catalogue
 python3 -m unittest ci.test_kdrvsign
 
 echo "== device tree (FDT) parser =="
