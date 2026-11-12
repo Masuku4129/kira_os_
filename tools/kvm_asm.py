@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Experimental assembler for the current KVP0 v1 bytecode ABI.
+"""Experimental assembler for the current KVP0 prototype bytecode ABI.
 
-This emits the 32-byte KVP0 container implemented by kvm/kvm.c. The format is
-not yet the frozen public KIRA VM ABI; keep generated modules versioned and
-rebuild them if the ABI decision gate selects a different container.
+This emits the 32-byte KVP0 container implemented by kvm/kvm.c. The format is not a public KIRA VM ABI. It is a version-0 prototype only; do not
+ship generated modules as general KIRA applications.
 """
 from __future__ import annotations
 
