@@ -208,3 +208,10 @@
 - PR #134: добавлен тест отказа verifier после копирования кода. При неизвестном opcode instance init обязан освободить snapshot кода и не выделять guest linear memory. Commit `a5afc19b9024cf7128094d3e4dfbdf6fc8a99c00`.
 - Workflow `43218444622` для точного head создан и ожидает выполнения; PASS не подтверждён.
 - ABI остаётся экспериментальным 32-byte KVM1; 64-byte sectioned proposal в другой ветке несовместим. Интеграция с /apps, package signature, syscall registry, resource quotas, cancel/pause, compiler SDK, fuzzing и cross-architecture conformance ещё не завершены.
+
+### KIRA VM — первый userland runner (2026-11-12)
+- В PR #134 `v46/kira-vm-core-v1` создан `userland/kvm.c`: runner `/bin/kvm` принимает один sandbox-local filename либо file grant из файлового менеджера; абсолютные/произвольные пути не принимаются. Загрузка ограничена 1 MiB, гостевая память — 128 страниц (512 KiB), fuel — 10 млн инструкций.
+- Host ABI ограничен тремя низкорисковыми возможностями: console write (до 4 KiB за вызов, с проверкой диапазона guest memory), monotonic ticks и yield. Файлы, сеть, устройства, звук, графика и процессы не выдаются. Подпись пакетов и package manager integration остаются обязательными следующими этапами.
+- `build_clang.sh` и `build_arm64.sh` включают одинаковый KVM1 interpreter и runner в x86-64/ARM64 userland images; обновлена `docs/KIRA_VM.md`.
+- Commits: `3565541b6a4f99ebd7262f019434b87022c0a2cc`, `770ea0bbbd595f87d87f202d4508a62831b0710f`, `15b4a5a27b48a4aa0bc304eff5f0db8bbfcb0593`, `587c05acde156e1b7ed94831d95fb61fee76fb46`, `1cbd3182c8367095a0f31ab90f5a7a2e6241a310`, `2c0332b61a871c60044f8fece5ebca0dfcb9886e`, `a3038316bc29f780d0df0d0bd069e3349df08667`.
+- CI на текущем head ещё ожидается. До успешного build/ARM64/host-tests/VM matrix runner не считать собранным или работающим.
