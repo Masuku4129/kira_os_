@@ -15,6 +15,10 @@ struct kira_smmu_platform {
     void (*write_barrier)(void *context);
     void (*read_barrier)(void *context);
     void (*delay)(void *context);
+    /* Must stop bus mastering on every device before SMMU shutdown. */
+    int (*quiesce_devices)(void *context);
+    /* Receives the four raw 64-bit words of each SMMUv3 event. */
+    void (*report_event)(void *context, const uint64_t event[4]);
 };
 
 struct kira_smmu {
@@ -44,6 +48,7 @@ struct kira_smmu {
     uint64_t stream_table_allocation_physical;
     size_t stream_table_allocation_pages;
     uint32_t stream_table_lock;
+    uint32_t evtq_lock;
     /* Serializes CMDQ publication through matching CMD_SYNC completion. */
     uint32_t cmdq_lock;
     uint32_t stream_ids[8];
@@ -59,11 +64,17 @@ enum kira_smmu_result {
     KIRA_SMMU_HARDWARE_ERROR = -6
 };
 
+/* Controller storage must be zero-initialized before first prepare. */
 int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
                          const struct kira_smmu_platform *platform);
 int kira_smmu_v3_enable(struct kira_smmu *smmu,
                         const struct kira_smmu_platform *platform);
 int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform);
+int kira_smmu_v3_invalidate_all(struct kira_smmu *smmu,
+                                const struct kira_smmu_platform *platform);
+int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
+                             const struct kira_smmu_platform *platform,
+                             uint32_t max_events, uint32_t *processed);
 
 #endif

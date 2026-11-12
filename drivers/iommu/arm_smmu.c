@@ -8,6 +8,7 @@
  */
 
 #include "arm_smmu.h"
+#include "arm_smmu_domain.h"
 
 #define SMMU_PAGE_SIZE       4096u
 #define SMMU_QUEUE_ENTRIES   256u
@@ -44,6 +45,8 @@
 #define SMMU_EVTQ_BASE       0x00a0u
 #define SMMU_EVTQ_PROD       0x10a8u
 #define SMMU_EVTQ_CONS       0x10acu
+#define SMMU_EVTQ_OVF         (1u << 31)
+#define SMMU_EVTQ_PTR_MASK    0x1ffu
 
 #define SMMU_CR0_SMMUEN      (1u << 0)
 #define SMMU_CR0_EVENTQEN    (1u << 2)
@@ -52,6 +55,11 @@
 #define SMMU_CR0ACK_SMMUEN   (1u << 0)
 #define SMMU_CR0ACK_EVENTQEN (1u << 2)
 #define SMMU_CR0ACK_CMDQEN   (1u << 3)
+#define SMMU_GBPA_UPDATE     (1u << 31)
+#define SMMU_GBPA_ABORT      (1u << 20)
+#define SMMU_CR1_CONFIG      ((3u << 10) | (1u << 8) | (1u << 6) | \
+                              (3u << 4) | (1u << 2) | 1u)
+#define SMMU_CR2_CONFIG      ((1u << 2) | (1u << 1))
 
 #define SMMU_QUEUE_LOG2      8u
 #define SMMU_QUEUE_BASE_ADDR_MASK 0x000fffffffffffe0ull
@@ -91,6 +99,30 @@ static int smmu_wait_mask(struct kira_smmu *smmu, uint32_t offset,
             platform->delay(platform->context);
     }
     return KIRA_SMMU_TIMEOUT;
+}
+
+static int smmu_update_gbpa(struct kira_smmu *smmu,
+                            const struct kira_smmu_platform *platform,
+                            uint32_t set, uint32_t clear)
+{
+    uint32_t value;
+    int rc;
+
+    rc = smmu_wait_mask(smmu, SMMU_GBPA, SMMU_GBPA_UPDATE, 0, platform);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
+
+    value = smmu_read32(smmu->registers, SMMU_GBPA);
+    value &= ~clear;
+    value |= set;
+    smmu_write32(smmu->registers, SMMU_GBPA, value | SMMU_GBPA_UPDATE);
+    platform->write_barrier(platform->context);
+
+    rc = smmu_wait_mask(smmu, SMMU_GBPA, SMMU_GBPA_UPDATE, 0, platform);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
+    return (smmu_read32(smmu->registers, SMMU_GBPA) & set) == set ?
+           KIRA_SMMU_OK : KIRA_SMMU_HARDWARE_ERROR;
 }
 
 static void smmu_zero_memory(void *memory, size_t bytes)
@@ -155,7 +187,13 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
 
     if (!smmu || !platform || !platform->map_mmio ||
         !platform->alloc_dma_pages || !platform->free_dma_pages ||
-        !physical_base || (physical_base & 0xfffu))
+        !platform->clean_cache || !platform->write_barrier ||
+        !platform->read_barrier || !platform->quiesce_devices ||
+        !platform->report_event || !physical_base || (physical_base & 0xfffu))
+        return KIRA_SMMU_INVALID;
+
+    if (smmu->enabled || smmu->stream_table || smmu->stream_table_allocation ||
+        smmu->cmdq || smmu->evtq || smmu->evtq_allocation)
         return KIRA_SMMU_INVALID;
 
     smmu->registers = (volatile uint8_t *)
@@ -185,14 +223,27 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     if ((smmu->idr0 & 0x3u) == 0)
         return KIRA_SMMU_UNSUPPORTED;
 
+    /* Do not take over a live firmware-owned SMMU or destroy its domains. */
+    if (smmu_read32(smmu->registers, SMMU_CR0ACK) &
+        (SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN | SMMU_CR0ACK_CMDQEN))
+        return KIRA_SMMU_UNSUPPORTED;
+
+    if (platform->quiesce_devices(platform->context) != 0)
+        return KIRA_SMMU_HARDWARE_ERROR;
+
     /*
-     * STRTAB_BASE/CFG are only writable while SMMUEN and its acknowledgement
-     * are clear. Quiesce the controller before allocating/publishing tables.
+     * The device set is quiesced before the SMMU is prepared. The GBPA abort
+     * policy below prevents DMA bypass while translation is disabled.
      */
     smmu_write32(smmu->registers, SMMU_CR0, 0);
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
                         SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN |
                         SMMU_CR0ACK_CMDQEN, 0, platform);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
+
+    /* Keep global bypass closed even if any later allocation step fails. */
+    rc = smmu_update_gbpa(smmu, platform, SMMU_GBPA_ABORT, 0);
     if (rc != KIRA_SMMU_OK)
         return rc;
 
@@ -204,6 +255,7 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
     smmu->stream_table_allocation_pages = 0;
     smmu->stream_table_lock = 0;
     smmu->cmdq_lock = 0;
+    smmu->evtq_lock = 0;
     for (uint32_t i = 0; i < 8; ++i)
         smmu->stream_ids[i] = 0;
     /* Start from an unallocated queue state; every failure path can unwind. */
@@ -325,8 +377,7 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
                  (smmu->idr1 & SMMU_IDR1_SIDSIZE_MASK) : 8u);
     smmu_write64(smmu->registers, SMMU_STRTAB_BASE,
                  (smmu->stream_table_physical & SMMU_STRTAB_BASE_ADDR_MASK));
-    if (platform->write_barrier)
-        platform->write_barrier(platform->context);
+    platform->write_barrier(platform->context);
 
     return KIRA_SMMU_OK;
 }
@@ -339,65 +390,162 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
     int rc;
 
     if (!smmu || !platform || !smmu->registers ||
-        !smmu->cmdq || !smmu->evtq)
+        !smmu->cmdq || !smmu->evtq || !platform->clean_cache ||
+        !platform->write_barrier || !platform->read_barrier ||
+        !platform->quiesce_devices || !platform->report_event)
         return KIRA_SMMU_INVALID;
-
     if (smmu->enabled)
         return KIRA_SMMU_OK;
+    if (platform->quiesce_devices(platform->context) != 0)
+        return KIRA_SMMU_HARDWARE_ERROR;
+    if ((smmu_read32(smmu->registers, SMMU_GBPA) & SMMU_GBPA_ABORT) == 0)
+        return KIRA_SMMU_HARDWARE_ERROR;
 
-    /* Disable the unit before changing queue base registers. */
-    smmu_write32(smmu->registers, SMMU_CR0, 0);
-    rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
-                        SMMU_CR0ACK_SMMUEN | SMMU_CR0ACK_EVENTQEN |
-                        SMMU_CR0ACK_CMDQEN, 0, platform);
-    if (rc != KIRA_SMMU_OK)
-        return rc;
+    /* Table and queue fetches are Normal WB, Inner Shareable. */
+    smmu_write32(smmu->registers, SMMU_CR1, SMMU_CR1_CONFIG);
+    smmu_write32(smmu->registers, SMMU_CR2, SMMU_CR2_CONFIG);
 
+    /* Program both queues and start command processing before translation. */
     queue_base = (smmu->cmdq_physical & SMMU_QUEUE_BASE_ADDR_MASK) |
                  SMMU_QUEUE_LOG2;
     smmu_write64(smmu->registers, SMMU_CMDQ_BASE, queue_base);
+    smmu->cmdq_producer = 0;
     smmu_write32(smmu->registers, SMMU_CMDQ_PROD, 0);
     smmu_write32(smmu->registers, SMMU_CMDQ_CONS, 0);
 
     queue_base = (smmu->evtq_physical & SMMU_QUEUE_BASE_ADDR_MASK) |
                  SMMU_QUEUE_LOG2;
     smmu_write64(smmu->registers, SMMU_EVTQ_BASE, queue_base);
+    smmu->evtq_consumer = 0;
     smmu_write32(smmu->registers, SMMU_EVTQ_PROD, 0);
     smmu_write32(smmu->registers, SMMU_EVTQ_CONS, 0);
 
-    if (platform->clean_cache) {
-        platform->clean_cache(platform->context, smmu->cmdq,
-                              SMMU_CMDQ_BYTES);
-        platform->clean_cache(platform->context, smmu->evtq,
-                              SMMU_EVTQ_BYTES);
-    }
-    if (platform->write_barrier)
-        platform->write_barrier(platform->context);
+    platform->clean_cache(platform->context, smmu->cmdq, SMMU_CMDQ_BYTES);
+    platform->clean_cache(platform->context, smmu->evtq, SMMU_EVTQ_BYTES);
+    platform->write_barrier(platform->context);
 
-    control = SMMU_CR0_CMDQEN | SMMU_CR0_EVENTQEN | SMMU_CR0_SMMUEN;
+    control = SMMU_CR0_CMDQEN;
     smmu_write32(smmu->registers, SMMU_CR0, control);
+    rc = smmu_wait_mask(smmu, SMMU_CR0ACK, SMMU_CR0ACK_CMDQEN,
+                        SMMU_CR0ACK_CMDQEN, platform);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
 
+    /* Mandatory reset-time configuration and non-secure TLB invalidation. */
+    rc = kira_smmu_v3_invalidate_all(smmu, platform);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
+
+    control |= SMMU_CR0_EVENTQEN;
+    smmu_write32(smmu->registers, SMMU_CR0, control);
+    rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
+                        SMMU_CR0ACK_CMDQEN | SMMU_CR0ACK_EVENTQEN,
+                        SMMU_CR0ACK_CMDQEN | SMMU_CR0ACK_EVENTQEN, platform);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
+
+    control |= SMMU_CR0_SMMUEN;
+    smmu_write32(smmu->registers, SMMU_CR0, control);
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
                         SMMU_CR0ACK_CMDQEN | SMMU_CR0ACK_EVENTQEN |
                         SMMU_CR0ACK_SMMUEN,
                         SMMU_CR0ACK_CMDQEN | SMMU_CR0ACK_EVENTQEN |
                         SMMU_CR0ACK_SMMUEN, platform);
-    if (rc != KIRA_SMMU_OK) {
-        smmu_write32(smmu->registers, SMMU_CR0, 0);
+    if (rc != KIRA_SMMU_OK)
         return rc;
-    }
 
     smmu->enabled = 1;
+    return KIRA_SMMU_OK;
+}
+
+static uint32_t smmu_evtq_next(uint32_t pointer)
+{
+    uint32_t index = pointer & 0xffu;
+    uint32_t next = (pointer & 0x100u) | ((index + 1u) & 0xffu);
+    if (index == 0xffu)
+        next ^= 0x100u;
+    return next;
+}
+
+int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
+                             const struct kira_smmu_platform *platform,
+                             uint32_t max_events, uint32_t *processed)
+{
+    uint32_t producer_raw, producer, consumer, count = 0;
+
+    if (!smmu || !smmu->enabled || !smmu->evtq || !platform ||
+        !platform->read_barrier || !platform->write_barrier ||
+        !platform->report_event || !processed || max_events == 0)
+        return KIRA_SMMU_INVALID;
+
+    *processed = 0;
+    platform->read_barrier(platform->context);
+    while (__atomic_exchange_n(&smmu->evtq_lock, 1u, __ATOMIC_ACQUIRE)) {
+        if (platform->delay)
+            platform->delay(platform->context);
+    }
+    producer_raw = smmu_read32(smmu->registers, SMMU_EVTQ_PROD);
+    if (producer_raw & SMMU_EVTQ_OVF) {
+        __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
+        return KIRA_SMMU_HARDWARE_ERROR;
+    }
+    producer = producer_raw & SMMU_EVTQ_PTR_MASK;
+    consumer = smmu->evtq_consumer & SMMU_EVTQ_PTR_MASK;
+
+    while (consumer != producer && count < max_events) {
+        uint64_t event[4];
+        const uint64_t *entry =
+            (const uint64_t *)smmu->evtq + (consumer & 0xffu) * 4u;
+        unsigned int i;
+
+        platform->read_barrier(platform->context);
+        for (i = 0; i < 4u; ++i)
+            event[i] = entry[i];
+        platform->report_event(platform->context, event);
+        consumer = smmu_evtq_next(consumer);
+        ++count;
+    }
+
+    if (count) {
+        platform->write_barrier(platform->context);
+        smmu_write32(smmu->registers, SMMU_EVTQ_CONS, consumer);
+        smmu->evtq_consumer = consumer;
+    }
+    *processed = count;
+    __atomic_store_n(&smmu->evtq_lock, 0u, __ATOMIC_RELEASE);
     return KIRA_SMMU_OK;
 }
 
 int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform)
 {
+    unsigned int i;
     int rc;
 
-    if (!smmu || !platform || !smmu->registers)
+    if (!smmu || !platform || !smmu->registers ||
+        !platform->read_barrier || !platform->write_barrier ||
+        !platform->quiesce_devices || !platform->report_event)
         return KIRA_SMMU_INVALID;
+
+    /* Never turn translation off while any StreamID still owns a domain. */
+    for (i = 0; i < 8u; ++i)
+        if (smmu->stream_ids[i] != 0)
+            return KIRA_SMMU_INVALID;
+
+    if (platform->quiesce_devices(platform->context) != 0)
+        return KIRA_SMMU_HARDWARE_ERROR;
+    if (smmu->enabled) {
+        uint32_t processed;
+        do {
+            rc = kira_smmu_v3_poll_events(smmu, platform,
+                                          SMMU_QUEUE_ENTRIES, &processed);
+            if (rc != KIRA_SMMU_OK)
+                return rc;
+        } while (processed == SMMU_QUEUE_ENTRIES);
+    }
+    rc = smmu_update_gbpa(smmu, platform, SMMU_GBPA_ABORT, 0);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
 
     smmu_write32(smmu->registers, SMMU_CR0, 0);
     rc = smmu_wait_mask(smmu, SMMU_CR0ACK,
