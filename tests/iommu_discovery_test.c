@@ -5,9 +5,9 @@
 #include <string.h>
 
 typedef struct {
-    uint32_t good[1024];
-    uint32_t bad[1024];
-    uint8_t pages[2][4096];
+    uint64_t good[512];
+    uint64_t bad[512];
+    union { uint64_t align; uint8_t bytes[4096]; } pages[2];
     unsigned allocations;
     unsigned frees;
 } model_t;
@@ -26,12 +26,12 @@ static void *alloc_page(void *opaque, uint64_t *physical)
     unsigned n = m->allocations++;
     if (n >= 2) return 0;
     *physical = 0x100000ull + (uint64_t)n * 4096ull;
-    return m->pages[n];
+    return m->pages[n].bytes;
 }
 static void free_page(void *opaque, void *virtual_address, uint64_t physical)
 {
     model_t *m = opaque;
-    assert(virtual_address == m->pages[m->frees]);
+    assert(virtual_address == m->pages[m->frees].bytes);
     assert(physical == 0x100000ull + (uint64_t)m->frees * 4096ull);
     ++m->frees;
 }
@@ -51,10 +51,10 @@ int main(void)
     memset(units, 0xa5, sizeof units);
     memset(&platform, 0, sizeof platform);
 
-    m.good[0] = 0x10; /* non-zero VT-d version */
-    m.good[2] = (1u << 10) | (16u << 24); /* 48-bit SAGAW + valid FRO */
-    m.bad[0] = 0x10;
-    m.bad[2] = (16u << 24); /* lacks 48-bit second-level walk support */
+    ((uint32_t *)m.good)[0] = 0x10; /* non-zero VT-d version */
+    ((uint32_t *)m.good)[2] = (1u << 10) | (16u << 24); /* 48-bit SAGAW + valid FRO */
+    ((uint32_t *)m.bad)[0] = 0x10;
+    ((uint32_t *)m.bad)[2] = (16u << 24); /* lacks 48-bit second-level walk support */
 
     dmar.host_address_width = 48;
     dmar.unit_count = 2;
