@@ -244,8 +244,11 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     }
 #if defined(__aarch64__) || defined(__x86_64__)
     if (!iommu_device_ready(c->pci)) {
-        pci_disable_bus_master(c->pci);
-        iommu_unmap_all(c->pci);
+        if (pci_disable_bus_master(c->pci)) {
+            iommu_unmap_all(c->pci);
+        } else {
+            uart_print("[KIRA AHCI] bus mastering did not stop; DMA mappings remain pinned.\n");
+        }
         c->dma_failed = 1;
         uart_print("[KIRA AHCI] requester lost DMA authorization; controller quarantined.\n");
         return;
