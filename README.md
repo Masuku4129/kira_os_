@@ -4,6 +4,7 @@
 
 - [Целевая архитектура KIRA OS](docs/architecture/KIRA_OS_TARGET_ARCHITECTURE.md) — конечная модель, включая Windows/Linux application compatibility и отдельный Hypervisor.
 - [Архитектурный аудит и порядок работ](docs/architecture/ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md) — ближайшая очередь и критерии завершения.
+- [Карта миграции исходников по 8 уровням](docs/architecture/SOURCE_LAYOUT_MIGRATION.md) — целевые границы, карта текущих исходников и безопасная последовательность физического переноса.
 - [Инвентаризация компонентов](docs/architecture/COMPONENT_INVENTORY.md) — предварительная карта исходников и статусов.
 - [Карта зависимостей](docs/architecture/DEPENDENCY_MAP.md) — целевые и наблюдаемые связи между подсистемами.
 - [Реестр контрактов](docs/architecture/CONTRACT_REGISTRY.md) — ABI/API, владельцы, статусы и критерии утверждения.
@@ -17,12 +18,9 @@
 
 Перед любой разработкой, аудитом или изменением кода прочитайте [AGENTS.md](AGENTS.md) и полный [мастер-план KIRA OS](docs/MASTER_DEVELOPMENT_PLAN.md). Это обязательная точка входа для всех участников и ИИ-агентов.
 
+Микроядро на C и ассемблере без libc: x86_64 и ARM64, загрузка BIOS/UEFI, SMP, собственный планировщик, KiraFS и FAT, USB, virtio/ATA/AHCI/NVMe, графическая оболочка и KIRA Mind.
 
-Микроядро на C и ассемблере без libc: x86_64 (дальше - ARM64), загрузка BIOS и UEFI, SMP, свой планировщик,
-KiraFS и FAT, USB (UHCI/xHCI, хабы, флешки), диски virtio/ATA/AHCI/NVMe, графическая оболочка и «Разум» -
-подсистема, которая учит нормы машины и управляет ею.
-
-- Сборка: `./build_clang.sh --no-run` (clang, ld.lld, nasm, grub-mkrescue). Запуск: `./build_clang.sh --vnc`.
-- Тесты на хосте: `bash tests/run_host_tests.sh` (модели устройств, файловые системы, планировщик, Разум).
-- Стенд: `python3 ci/kira_vm.py --all` - QEMU (KVM, если есть), сценарии из `ci/scenarios.py`; на каждый push - GitHub Actions.
-- Устройство системы - `ARCHITECTURE.md`, запуск на телефоне в Limbo - `LIMBO.md`.
+- Сборка: `./build_clang.sh --no-run`. Запуск: `./build_clang.sh --vnc`.
+- Тесты на хосте: `bash tests/run_host_tests.sh`.
+- Стенд: `python3 ci/kira_vm.py --all` — QEMU-сценарии из `ci/scenarios.py`.
+- Устройство системы — `ARCHITECTURE.md`; запуск на телефоне в Limbo — `LIMBO.md`.
