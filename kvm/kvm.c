@@ -89,8 +89,10 @@ int kvm_verify(const struct kvm_module *m, uint64_t granted_capabilities)
                 return KVM_E_BRANCH;
             break;
         case KVM_OP_SYSCALL:
-            if (!fields_zero(i, 0, 0, 0, 1) || i->immediate < 0)
+            if (!fields_zero(i, 0, 0, 1, 1) || i->immediate < 0 || i->b >= 64u)
                 return KVM_E_FORMAT;
+            if (!(m->required_capabilities & (1ull << i->b)))
+                return KVM_E_CAPABILITY;
             break;
         default:
             return KVM_E_OPCODE;
@@ -105,7 +107,8 @@ int kvm_instance_init(struct kvm_instance *instance,
                       const struct kvm_allocator *allocator,
                       const struct kvm_host *host)
 {
-    size_t bytes;
+    size_t bytes, code_bytes;
+    struct kvm_instruction *code_copy;
     int rc;
 
     if (!instance || !allocator || !allocator->allocate ||
@@ -117,14 +120,25 @@ int kvm_instance_init(struct kvm_instance *instance,
         return rc;
 
     bytes = (size_t)module->memory_pages * KVM_PAGE_SIZE;
-    instance->memory = allocator->allocate(allocator->context, bytes);
-    if (!instance->memory)
+    if (module->code_count > SIZE_MAX / sizeof(struct kvm_instruction))
+        return KVM_E_FORMAT;
+    code_bytes = module->code_count * sizeof(struct kvm_instruction);
+    code_copy = allocator->allocate(allocator->context, code_bytes);
+    if (!code_copy)
         return KVM_E_MEMORY;
+    instance->memory = allocator->allocate(allocator->context, bytes);
+    if (!instance->memory) {
+        allocator->release(allocator->context, code_copy, code_bytes);
+        return KVM_E_MEMORY;
+    }
 
+    memcpy(code_copy, module->code, code_bytes);
     memset(instance->memory, 0, bytes);
     if (module->data_size)
         memcpy(instance->memory, module->data, module->data_size);
-    instance->module = module;
+    instance->code = code_copy;
+    instance->code_count = module->code_count;
+    instance->entry = module->entry;
     instance->allocator = *allocator;
     if (host)
         instance->host = *host;
@@ -139,6 +153,10 @@ void kvm_instance_destroy(struct kvm_instance *instance)
     if (instance->memory && instance->allocator.release)
         instance->allocator.release(instance->allocator.context,
                                     instance->memory, instance->memory_size);
+    if (instance->code && instance->allocator.release)
+        instance->allocator.release(instance->allocator.context,
+                                    (void *)instance->code,
+                                    instance->code_count * sizeof(struct kvm_instruction));
     memset(instance, 0, sizeof(*instance));
 }
 
@@ -188,17 +206,17 @@ int kvm_run(struct kvm_instance *v, uint64_t fuel, uint64_t *exit_value)
     uint32_t depth = 0;
     uint32_t pc;
 
-    if (!v || !v->module || !v->memory || !exit_value)
+    if (!v || !v->code || !v->code_count || !v->memory || !exit_value)
         return KVM_E_ARGUMENT;
-    pc = v->module->entry;
+    pc = v->entry;
 
     while (fuel) {
         const struct kvm_instruction *i;
-        uint64_t x, y;
+        uint64_t y;
         --fuel;
-        if (pc >= v->module->code_count)
+        if (pc >= v->code_count)
             return KVM_E_PROGRAM_COUNTER;
-        i = &v->module->code[pc++];
+        i = &v->code[pc++];
 
         switch (i->opcode) {
         case KVM_OP_HALT:
@@ -309,7 +327,6 @@ int kvm_run(struct kvm_instance *v, uint64_t fuel, uint64_t *exit_value)
         default:
             return KVM_E_OPCODE;
         }
-        (void)x;
     }
     return KVM_E_FUEL;
 }
