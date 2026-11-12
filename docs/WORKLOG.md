@@ -12,9 +12,9 @@
 
 ### PR #42 — KDRV publisher-required policy / v46 integration branch
 - Ветка: `v46/kdrv-catalogue-signature-policy`; base: `v46/kdrv-auth-integration-final`.
-- Head: `13258d9f0cb4a464b6ff16605d91a5f78b69526a`.
+- Head: `d77c5dd7e1676904b9ab3ab7172d5ec33d69a222`.
 - Это накопительная ветка примерно с 80 файлами: BIOS/UEFI BootInfo и handoff, ARM64 FDT/GIC, ACPI PCI routing, IOMMU/KDRV trust, каталог драйверов, installer и release-gap документы. В ней также исправлено подключение корневого FDT header в `arch/aarch64/fb_arm.c`.
-- Актуальная проверка: push run `43181790698` — build, ARM64, host-tests, KCC, audit, GUI, driver-e2e и все 10 VM jobs завершились success; report job остался queued. PR run `43181799184` — те же основные jobs success, VM skipped по условиям PR event, report queued. Не считать release gate закрытым до итогового report и проверки полного объединённого head.
+- Предыдущая проверка на head `13258d9...`: push run `43181790698` — build, ARM64, host-tests, KCC, audit, GUI, driver-e2e и все 10 VM jobs завершились success; report job оставался queued. На новом head добавлены failure-state cleanup в `kdrv_manager.c` и host lifecycle tests (`tests/kdrv_manager_test.c`, подключён в `tests/run_host_tests.sh`). Новый PR run `43184888229` создан, но пока pending без jobs; новые изменения ещё НЕ подтверждены CI. Не считать release gate закрытым до зелёного CI на новом head и итогового report.
 - PR draft, не слит. Не объединять без разрешения владельца проекта.
 - Граница Driver Manager: `drvget`/`drvman` реально включены в x86-64 и ARM64 userland build; `drvget` — ограниченная установка проверенных исходников по рецептам и лицензиям, а не универсальная конвертация Linux/Windows драйверов. Однако `drivers/kdrv/kdrv_manager.c` и `userland/drvcompat.c` не подключены к production build и не покрыты host-test runner. Их callback orchestration не считать готовой рабочей функцией; требуются backend, wiring и тесты.
 - Граница IOMMU в этой ветке: новые `drivers/iommu/{arm_smmu,intel_vtd,amd_vi,*_domain,iommu_discovery}.*` не входят в `build_clang.sh`/`build_arm64.sh`; ARM64 `main.c` не вызывает новый SMMUv3 runtime. Host suite покрывает старый `iommu_vtd.c` parser и KDRV tests, но не эти новые runtime-модули. Это отдельный блокер интеграции.
@@ -30,10 +30,10 @@
 
 ### PR #131 — KIRA WASM runtime validation
 - Ветка: `fix/wasm-module-header-bounds`
-- Head: `bd8f210da042e363c7dac03ad06b5590bfb9ca57`
+- Head: `cf3a9c34726d7956f8edf7205820633d79b2d476`
 - Усилены: проверка версии и границ секций; уникальность/порядок секций; типы функций и точные сигнатуры KIRA imports; лимиты памяти/таблицы; индексы функций/экспортов/глобальных; сегменты данных/элементов; тела функций и локальные объявления; запрет memory ops без memory; различение явно заданного max=0 и отсутствующего maximum.
 - Добавлен `tests/wasm_loader_bounds.py` с отрицательными случаями и тестом `memory.grow` при max=0; подключён к `tests/run_host_tests.sh`.
-- После новых проверок на текущем head запущены push run `43184407005` и PR run `43184415905`; build/ARM64/host-tests queued. Тесты ещё НЕ запускались/не подтверждены.
+- На текущем head создан push run `43184564665`; build/ARM64/host-tests queued. Последние изменения добавили строгую проверку LEB128, немедленных полей `call_indirect`/typed select/memory instructions и полное сравнение сигнатур `call_indirect`. Тесты ещё НЕ запускались/не подтверждены.
 - Это первая hardening-порция, не полная WebAssembly type-stack verification и не заявление о полной WASM-конформности.
 - PR draft, не слит.
 
