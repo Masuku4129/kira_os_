@@ -1,19 +1,16 @@
 /* Системные вызовы программ: номера и обработка общие для всех архитектур. Вход в ядро (SYSCALL на x86-64, SVC на
    ARM64) и регистры - в arch/<архитектура>/syscall_arch.c и ассемблере входа. */
 #include "rng.h"
-#include "rtc.h"
 #include "crypto.h"
 #include "syscall.h"
-#include "net.h"
-#include "audio.h"
+#include "syscall_numbers.h"
+#include "syscall_services.h"
 #include "uart.h"
 #include "vmm.h"
 #include "proc.h"
 #include "sched.h"
 #include "timer.h"
 #include "cpu.h"
-#include "gfxsrv.h"
-#include "fsrv.h"
 #include "spinlock.h"
 #include "userlog.h"
 #include "kobj.h"
@@ -27,58 +24,6 @@
 
 static spinlock_t ulog_lock = SPINLOCK_INIT;
 static userlog_t ulog;
-
-#define SYS_WRITE  1
-#define SYS_EXIT   2
-#define SYS_TICKS  3
-#define SYS_SLEEP  4
-#define SYS_YIELD  5
-#define SYS_GETPID 6
-#define SYS_GFX_CREATE  7   // (w,h) -> адрес пикселей 0x00RRGGBB в процессе или -1
-#define SYS_GFX_PRESENT 8   // показать изменения
-#define SYS_GFX_EVENT   9   // (ptr на 16 байт) -> 1 событие / 0 нет / -1 ошибка
-#define SYS_HEAP       11   // (страниц) -> адрес нового куска кучи (нулевые RW-NX страницы) или отрицательный код
-#define SYS_FS         10   // (ptr на fsrv_user_req_t) -> результат или отрицательный код; файлы только в песочнице программы
-#define SYS_THREAD_CREATE 12 // (rip, вершина стека, аргумент) -> id потока
-#define SYS_THREAD_EXIT   13 // (код): уходит поток; последний - процесс
-#define SYS_GETTID        14
-#define SYS_FUTEX_WAIT    15 // (адрес слова, ожидаемое, срок в 10 мс или ~0) -> 0 / KE_AGAIN / KE_TIMEOUT / KE_INTR
-#define SYS_FUTEX_WAKE    16 // (адрес слова, сколько) -> разбужено
-#define SYS_PORT_OPEN     17 // (имя, длина, флаги KOPEN_*) -> дескриптор
-#define SYS_PORT_SEND     18 // (дескриптор, данные, длина до 1024) -> 0 / KE_FULL
-#define SYS_PORT_RECV     19 // (дескриптор, буфер, ёмкость | срок_10мс << 32; срок 0xFFFFFFFF - без срока) -> длина | pid отправителя << 32
-#define SYS_SHM_OPEN      20 // (имя, длина, страниц | флаги << 32) -> дескриптор
-#define SYS_SHM_MAP       21 // (дескриптор) -> адрес
-#define SYS_SHM_UNMAP     22 // (адрес)
-#define SYS_CLOSE         23 // (дескриптор)
-#define SYS_CLOCK_NS      24 // -> наносекунды монотонных часов
-#define SYS_NET_DNS       25 // (имя, длина) -> адрес IPv4 или <0
-#define SYS_NET_CONNECT   26 // (адрес, порт) -> номер соединения TCP
-#define SYS_NET_SEND      27 // (h, буфер, длина) -> отправлено (подтверждено)
-#define SYS_NET_RECV      28 // (h, буфер, длина | мс << 32) -> байт; 0 - собеседник закрыл
-#define SYS_NET_CLOSE     29 // (h)
-#define SYS_ARGS          30 // (буфер, ёмкость) -> длина строки аргументов запуска
-#define SYS_NET_LISTEN    31 // (порт) -> номер слушателя (100+)
-#define SYS_NET_ACCEPT    32 // (слушатель, мс; 0 - без срока) -> номер соединения
-#define SYS_SND_OPEN      33 // () -> поток звука программы
-#define SYS_SND_WRITE     34 // (поток, буфер, байт) -> принято байт (кадры 48 кГц, 16 бит, стерео)
-#define SYS_SND_CLOSE     35 // (поток)
-#define SYS_SND_VOLUME    42 // (поток, 0..100) - громкость своего потока
-#define SYS_SND_RECORD    43 // (буф, байт <= 1 с, мс) -> записано байт (48 кГц стерео 16 бит со входа карты)
-#define SYS_UDP_OPEN      38 // (порт или 0) -> сокет UDP
-#define SYS_UDP_SEND      39 // (сокет | порт << 16 | адрес << 32, буфер, длина)
-#define SYS_UDP_RECV      40 // (сокет, буфер, ёмкость | мс << 32) -> байт; буфер: адрес, порт, длина, данные
-#define SYS_UDP_CLOSE     41 // (сокет)
-#define SYS_NET_CONNECT_SA 44 // (адрес сокета: семейство, порт, адрес) -> номер соединения TCP, IPv4 или IPv6
-#define SYS_UDP_SENDTO    45 // (сокет | длина << 16, адрес сокета, буфер)
-#define SYS_UDP_RECVFROM  46 // (сокет, буфер, ёмкость | мс << 32) -> байт данных; в буфере: адрес сокета (20), длина (4), данные
-#define SYS_NET_PEER      47 // (h, адрес сокета) -> семейство собеседника соединения
-#define SYS_TIME          37 // -> секунды UTC от 1970 (часы реального времени) или -1, если часов нет
-#define SYS_JIT           56 // (операция JIT_ALLOC/JIT_SEAL, a, b) -> адрес окна кода / 0 или отрицательный код; право CAP_JIT
-#define SYS_RANDOM        36 // (буф, байт <= 256) -> 1 аппаратный источник, 0 - только время событий
-
-#define SYS_MAX_WRITE 4096
-#define SYS_MAX_SLEEP 1000
 
 // Процесс завершился: его незаконченная строка выводится, место под строку освобождается.
 void syscall_proc_gone(uint32_t pid) {
@@ -174,22 +119,10 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return 0;
     case SYS_GETPID:
         return proc_current_pid();
-    case SYS_GFX_CREATE: {
-        proc_space_lock();                   /* отображение окна меняет адресное пространство, как и рост кучи */
-        int64_t r = gfx_sys_create(proc_current_pid(), proc_current_name(), (uint32_t)a1, (uint32_t)a2);
-        proc_space_unlock();
-        return (uint64_t)r;
-    }
-    case SYS_GFX_PRESENT:
-        return (uint64_t)gfx_sys_present(proc_current_pid());
-    case SYS_GFX_EVENT:
-        return (uint64_t)gfx_sys_event(proc_current_pid(), a1);
     case SYS_HEAP:
         return (uint64_t)proc_heap_grow(a1);
     case SYS_JIT:
         return (uint64_t)proc_jit(a1, a2, a3);
-    case SYS_FS:
-        return (uint64_t)fsrv_syscall(a1);
     case SYS_THREAD_CREATE:
         return (uint64_t)proc_thread_create(a1, a2, a3);
     case SYS_THREAD_EXIT:
@@ -261,27 +194,6 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return (uint64_t)proc_handle_close((int)a1);
     case SYS_CLOCK_NS:
         return clock_ns();
-    case SYS_NET_DNS: case SYS_NET_CONNECT: case SYS_NET_SEND: case SYS_NET_RECV: case SYS_NET_CLOSE:
-    case SYS_NET_LISTEN: case SYS_NET_ACCEPT:
-        return (uint64_t)net_sys((unsigned)(nr - SYS_NET_DNS), a1, a2, a3);
-    case SYS_SND_OPEN: case SYS_SND_WRITE: case SYS_SND_CLOSE:
-        return (uint64_t)audio_sys((unsigned)(nr - SYS_SND_OPEN), a1, a2, a3);
-    case SYS_SND_VOLUME:
-        return (uint64_t)audio_sys(3, a1, a2, 0);
-    case SYS_SND_RECORD:
-        return (uint64_t)audio_record_sys(a1, a2, a3);
-    case SYS_UDP_OPEN: case SYS_UDP_SEND: case SYS_UDP_RECV: case SYS_UDP_CLOSE:
-        return (uint64_t)net_udp_sys((unsigned)(nr - SYS_UDP_OPEN), a1, a2, a3);
-    case SYS_NET_CONNECT_SA:
-        return (uint64_t)net_sys(NET_SYS_CONNECT_SA, a1, a2, a3);
-    case SYS_NET_PEER:
-        return (uint64_t)net_sys(NET_SYS_PEER, a1, a2, a3);
-    case SYS_UDP_SENDTO: case SYS_UDP_RECVFROM:
-        return (uint64_t)net_udp_sys(nr == SYS_UDP_SENDTO ? NET_UDP_SENDTO : NET_UDP_RECVFROM, a1, a2, a3);
-    case SYS_TIME: {
-        rtc_time_t tm;
-        return rtc_now(0, &tm) == 0 ? (uint64_t)rtc_to_epoch(&tm) : (uint64_t)-1;
-    }
     case SYS_RANDOM: {
         uint8_t rb[256];
         if (a2 > sizeof rb) return (uint64_t)-2;
@@ -299,7 +211,11 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
     case KDRV_SYS_INFO: case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: case KDRV_SYS_MMIO_MAP: case KDRV_SYS_DMA_ALLOC:
     case KDRV_SYS_IRQ_WAIT: case KDRV_SYS_NETDEV: case KDRV_SYS_PCILIST:
         return (uint64_t)kdrv_sys((unsigned)nr, a1, a2, a3);
-    default:
+    default: {
+        uint64_t service_result;
+        if (syscall_service_dispatch(nr, a1, a2, a3, &service_result))
+            return service_result;
         return (uint64_t)-1;
+    }
     }
 }
