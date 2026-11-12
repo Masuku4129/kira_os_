@@ -300,7 +300,7 @@ int iommu_isolate_device(const pci_dev_t* d) {
     int ui = unit_of(d->bus, d->dev, d->fn);
     if (ui < 0) return G.info.unit_count ? IOMMU_E_NOCOVER : IOMMU_E_NONE;
     if (ui >= VTD_MAX_UNITS || !G.on[ui]) return IOMMU_E_HW;
-    int rc = IOMMU_OK, rm = -1;
+    int rc = IOMMU_OK, rm = -1, disable_master = 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* existing = dom_find(d->bus, d->dev, d->fn);
     if (existing) {
@@ -324,11 +324,15 @@ int iommu_isolate_device(const pci_dev_t* d) {
                    pass-through translation. Keep the domain owned, but block
                    every readiness/isolation check until explicit recovery. */
                 x->blocked = hr != KIRA_VTD_OK;
+                if (x->blocked) disable_master = 1;
                 rc = hr == KIRA_VTD_OK ? IOMMU_OK : IOMMU_E_HW;
             } else rc = hr == KIRA_VTD_MEMORY_FAILED ? IOMMU_E_NOMEM : IOMMU_E_HW;
         }
     }
     spin_unlock_irqrestore(&G.lock, f);
+    /* Do not acquire the PCI config lock while holding G.lock: pci_enable()
+       takes those locks in the opposite order when checking readiness. */
+    if (disable_master) pci_disable_bus_master(d);
     uart_print("[KIRA IOMMU] "); print_bdf(d->bus, d->dev, d->fn);
     if (rc == IOMMU_OK) uart_print(" isolated: own translation domain, no DMA allowed until buffers are mapped\n");
     else if (rc == IOMMU_E_RMRR) { uart_print(" NOT isolated: named by RMRR "); uart_print_hex(G.info.rmrr[rm].base); uart_print("-"); uart_print_hex(G.info.rmrr[rm].limit); uart_print(", stays passthrough\n"); }
