@@ -19,7 +19,6 @@
 #include "heap.h"
 #include "uaccess.h"
 #include "caps.h"
-#include "kdrv.h"
 #include "kdrv_format.h"
 
 #define SYS_MAX_WRITE 4096
@@ -211,9 +210,6 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         if (!a2 || len + 1 > a2) return (uint64_t)-10;
         return copy_to_user(a1, s, len + 1) ? (uint64_t)-10 : len;
     }
-    case KDRV_SYS_INFO: case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: case KDRV_SYS_MMIO_MAP: case KDRV_SYS_DMA_ALLOC:
-    case KDRV_SYS_IRQ_WAIT: case KDRV_SYS_NETDEV: case KDRV_SYS_PCILIST:
-        return (uint64_t)kdrv_sys((unsigned)nr, a1, a2, a3);
     default: {
         uint64_t service_result;
         if (syscall_service_dispatch(nr, a1, a2, a3, &service_result))
