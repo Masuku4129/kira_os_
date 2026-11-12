@@ -241,3 +241,25 @@
 - Сверка с обязательным мастер-планом выявила, что уже существующий WASM runtime объявлен базовым KVR, а второй ISA запрещён без отдельного решения и измеримых преимуществ. KVM1 PR #134 содержит полезный исследовательский interpreter/assembler/runner, но ABI 32-byte конфликтует с 64-byte proposal, а compiler/package signature/lifecycle/conformance ещё отсутствуют.
 - Создан `docs/adr/ADR-0001-kvr-primary-wasm.md`: WASM остаётся основной production KVR; KVM1 остаётся draft research branch и не включается в release baseline до сравнительного review. `docs/MASTER_DEVELOPMENT_PLAN.md` обновлён; KVM1 docs на ветке PR помечены экспериментальными.
 - Commits main: `90ff518e058fa9e96fc10da10dbd272aa4b49c24`, `f3f0a98146b58552a288918285a25c564496624c`. KVM1 implementation stays available for evidence collection, not as a released second VM.
+
+### KDRV anti-rollback trust-anchor gate (2026-11-12)
+- На ветке `v46/kdrv-catalogue-signature-policy` добавлен явный `KDRV_TRUST_STORAGE_HW_MONOTONIC` capability contract. Проверка/обновление version floor теперь отказывает с `KDRV_TRUST_STORAGE_ERROR`, если backend не заявляет аппаратно/firmware-защищённый monotonic anchor или передаёт неизвестные флаги.
+- `kdrv_catalogue_load` сохраняет различие между ошибкой trust storage и неверной подписью. Host regression эмулирует capability только для проверки policy и отдельно подтверждает отказ обычного disk/CRC backend; это не доказательство физического TPM/secure-element.
+- Добавлен `docs/adr/ADR-0002-kdrv-anti-rollback-anchor.md`; в `docs/DRIVERS.md` и `docs/RELEASE_GAPS.md` зафиксировано отсутствие provider в текущем дереве. Сильный anti-rollback не закрыт до реального platform provider, provisioning/recovery и hardware tests.
+- PR #42 latest head `e88424f026436d17c8f78ab3823278ae401f5f07`; CI run `43224905623` queued, PASS не подтверждён.
+
+### RTL8139 clean-room driver hardening (2026-11-12)
+- На той же исследовательской ветке добавлена отдельная реализация `drivers/net/rtl8139.c` по Realtek RTL8139C(L) Rev.1.6 register contract, без переноса FreeBSD/Linux implementation code. Валидация PCI ID/I/O aperture, 32-bit DMA address ranges, partial-allocation cleanup, cache maintenance + DMA barriers, RX FAE/CRC/length validation, wrap-to-start, FCS stripping, TX OWN completion, one-second monotonic TX timeout, link state and reset-before-free.
+- Host model `tests/rtl8139_test.c` проверяет PCI rejection, reset/allocation failures, DMA overflow, TX padding/completion/error/timeout, cache/barrier ordering, RX wrap/error/malformed lengths, link and shutdown retry. Добавлен provenance note `docs/RTL8139_PROVENANCE.md`.
+- Legacy `drivers/rl/rl.c` / `if_rlreg.h` остаётся отдельным BSD-3-Clause-derived path и не заменён; новая реализация не интегрирована в production network registration. QEMU RX/TX и физическая карта не проверены.
+- PR #42 head `e88424f026436d17c8f78ab3823278ae401f5f07`; CI queued, PASS не подтверждён.
+
+### VT-d DMAR discovery parser and fail-closed bounds (2026-11-12)
+- На ветке `v46/iommu-network-compile-fixes` добавлен отсутствовавший общий `drivers/iommu/dmar.h`, используемый parser и discovery orchestration; новый host parser test подключён к `tests/run_host_tests.sh`, а `iommu_discovery.c` компилируется отдельным `-Werror` шагом.
+- DMAR parser теперь проверяет reserved header/DRHD/scope fields, известные scope types и PCI path bounds, include-all ordering/ownership, RMRR scope requirements, register-size field, актуальный platform opt-in flag; известные optional DMAR structures length-bounded, неизвестные будущие type fail closed.
+- Discovery больше не возвращает success для смешанных/nonzero PCI segments или неподдерживаемого register aperture; проверяет inventory counts и сообщает число уже подготовленных units при частичном отказе.
+- PR #44 head `fda7e95f02a12db0b65b479d21e8c289c712ada4`; CI run `43225687488` pending, выполнение parser/discovery tests ещё не подтверждено. Полная VT-d isolation остаётся открытой: IOTLB invalidation, domain lifecycle, fault handling and QEMU DMA isolation требуют отдельной реализации.
+
+### Mind memory forecast — telemetry-gap expectation correction (2026-11-12)
+- В PR #81 исправлен regression expectation: timestamp 11 после пропущенного 10 становится новым baseline, timestamp 12 уже содержит первый измеренный growth interval. Проверка теперь отражает фактическую последовательность, не откладывая валидный прогноз ещё на один tick.
+- Latest head `9e70a1d2ab490d1c414c85e28fdbd06327bfefd1`, workflow run `43223432833` in progress: `mind-quality`, ARM64 build, driver E2E, GUI regression и audit завершились success; host tests, KCC и kernel build ещё выполнялись на момент записи. Полный CI пока не завершён.
