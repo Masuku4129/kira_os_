@@ -83,6 +83,24 @@ int mind_model_load(mind_model_t* out, const void* buf, unsigned len) {
         mcopy(out, buf, sizeof *out);
         return mind_model_valid(out);
     }
+    if (len == sizeof(mind_model_v3_t)) {
+        mind_model_v3_t o;
+        mcopy(&o, buf, sizeof o);
+        if (o.magic != MIND_MAGIC || o.version != 3) return 0;
+        uint32_t c = o.crc; o.crc = 0;
+        if (crc32_m(&o, sizeof o) != c) return 0;
+        mzero(out, sizeof *out);
+        mcopy(out, &o, __builtin_offsetof(mind_model_v3_t, net));
+        for (int i = 0; i < 12; i++) out->net.w[i] = o.net.w[i];
+        out->net.b = o.net.b; out->net.n = o.net.n; out->net.pos = o.net.pos;
+        out->net.tp = o.net.tp; out->net.fp = o.net.fp; out->net.fn = o.net.fn;
+        out->net.tn = o.net.tn; out->net.loss_x1e4 = o.net.loss_x1e4;
+        out->forecasts = o.forecasts;
+        mcopy(out->lv, o.lv, sizeof out->lv);
+        out->mflags = o.mflags;
+        mind_model_seal(out);
+        return 1;
+    }
     if (len == sizeof(mind_model_v2_t)) {                     /* версия 2: те же поля без рычагов */
         mind_model_v2_t o;
         mcopy(&o, buf, sizeof o);
@@ -90,7 +108,12 @@ int mind_model_load(mind_model_t* out, const void* buf, unsigned len) {
         uint32_t c = o.crc; o.crc = 0;
         if (crc32_m(&o, sizeof o) != c) return 0;
         mzero(out, sizeof *out);
-        mcopy(out, &o, __builtin_offsetof(mind_model_v2_t, crc));
+        mcopy(out, &o, __builtin_offsetof(mind_model_v2_t, net));
+        for (int i = 0; i < 12; i++) out->net.w[i] = o.net.w[i];
+        out->net.b = o.net.b; out->net.n = o.net.n; out->net.pos = o.net.pos;
+        out->net.tp = o.net.tp; out->net.fp = o.net.fp; out->net.fn = o.net.fn;
+        out->net.tn = o.net.tn; out->net.loss_x1e4 = o.net.loss_x1e4;
+        out->forecasts = o.forecasts;
         mind_model_seal(out);
         return 1;
     }
@@ -838,7 +861,7 @@ static void devices(mind_t* s, const mind_sample_t* in, const mind_act_t* act, u
    Поэтому каждая десятая опасная секунда проходит без упреждения - модель видит честный исход и не застывает. */
 static const char* const feat_name[MNET_F] = {
     "загрузка ядер", "очередь потоков", "память", "фоновые программы", "программа в фокусе", "обмен сообщениями",
-    "задержка диска", "переключения потоков", "число программ", "опоздания сейчас", "ожидание процессора", "анимация"
+    "задержка диска", "переключения потоков", "число программ", "опоздания сейчас", "ожидание процессора", "анимация", "валидность замера диска"
 };
 const char* mind_feature_name(int f) { return f >= 0 && f < MNET_F ? feat_name[f] : "?"; }
 
@@ -848,7 +871,7 @@ static int32_t q16(uint64_t num, uint64_t den) {
     return (int32_t)(v > MNET_ONE ? MNET_ONE : v);
 }
 
-static void features(const mind_t* s, const mind_sample_t* in, int32_t* x) {
+void mind_make_features(const mind_t* s, const mind_sample_t* in, int32_t* x) {
     unsigned cores = in->cores ? in->cores : 1;
     uint64_t bg = 0, fg = 0;
     for (int i = 0; i < MIND_PROC_MAX; i++) {
@@ -868,13 +891,14 @@ static void features(const mind_t* s, const mind_sample_t* in, int32_t* x) {
     x[9] = q16(in->late, in->loops ? in->loops : 1);
     x[10] = q16(ilog2u((uint64_t)in->max_wait_ms + 1), 12);
     x[11] = q16((uint64_t)(s->fx < 0 ? 0 : s->fx), 3);
+    x[12] = in->disk_ops ? MNET_ONE : 0;       /* нулевая задержка без операций не означает валидный замер */
 }
 
 static void foresight(mind_t* s, const mind_sample_t* in, uint32_t now) {
     uint32_t late_pct = in->loops ? in->late * 100 / in->loops : 0;
     if (s->nx_have && !s->nx_acted && in->loops) mnet_train(&s->m.net, s->nx_prev, late_pct >= 5);
     int32_t x[MNET_F];
-    features(s, in, x);
+    mind_make_features(s, in, x);
     s->risk_q16 = mnet_predict(&s->m.net, x);
     for (int i = 0; i < MNET_F; i++) s->nx_prev[i] = x[i];
     s->nx_have = in->loops != 0;                               /* без кадров дисплея исхода не будет */
