@@ -6,25 +6,25 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include <kira.h>
-static int putchar(int c) { char b = (char)c; k_write(&b, 1); return (unsigned char)c; }
-static int puts(const char *s) { k_write(s, k_strlen(s)); putchar('\n'); return 0; }
-static int fputs_out(const char *s) { k_write(s, k_strlen(s)); return 0; }          /* без перевода строки */
-static void put_udec(unsigned long v) {
+static inline int putchar(int c) { char b = (char)c; k_write(&b, 1); return (unsigned char)c; }
+static inline int puts(const char *s) { k_write(s, k_strlen(s)); putchar('\n'); return 0; }
+static inline int fputs_out(const char *s) { k_write(s, k_strlen(s)); return 0; }          /* без перевода строки */
+static inline void put_udec(unsigned long v) {
     char b[24]; int i = 24;
     do { b[--i] = (char)('0' + v % 10); v /= 10; } while (v);
     k_write(b + i, (u64)(24 - i));
 }
-static void put_dec(long v) {
+static inline void put_dec(long v) {
     if (v < 0) { putchar('-'); put_udec(0UL - (unsigned long)v); }
     else put_udec((unsigned long)v);
 }
-static void put_hex(unsigned long v) {
+static inline void put_hex(unsigned long v) {
     char b[20]; int i = 20;
     do { b[--i] = "0123456789abcdef"[v & 15]; v >>= 4; } while (v);
     k_write(b + i, (u64)(20 - i));
 }
 
-static int vsnprintf(char *buf, size_t n, const char *fmt, va_list ap) {
+static inline int vsnprintf(char *buf, size_t n, const char *fmt, va_list ap) {
     size_t k = 0;
 #define KCC_OUT(ch) do { if (k + 1 < n) buf[k] = (char)(ch); k++; } while (0)
     for (; *fmt; fmt++) {
@@ -102,13 +102,13 @@ static int vsnprintf(char *buf, size_t n, const char *fmt, va_list ap) {
     return (int)k;
 #undef KCC_OUT
 }
-static int snprintf(char *buf, size_t n, const char *fmt, ...) {
+static inline int snprintf(char *buf, size_t n, const char *fmt, ...) {
     va_list ap; va_start(ap, fmt);
     int r = vsnprintf(buf, n, fmt, ap);
     va_end(ap);
     return r;
 }
-static int printf(const char *fmt, ...) {
+static inline int printf(const char *fmt, ...) {
     char b[512];
     va_list ap; va_start(ap, fmt);
     int r = vsnprintf(b, sizeof b, fmt, ap);
