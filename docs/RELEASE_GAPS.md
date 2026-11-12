@@ -150,3 +150,8 @@ The next combined user update is eligible only when:
 - Not verified PASS: current host suite has no isolated VMM allocator test. Required next: add testable allocator lifecycle coverage, then obtain fresh x86-64/ARM64 build and VM CI evidence. Physical guard-page/stack-overflow validation remains separate.
 
 - Follow-up review caught and corrected an address-layout mistake in the new exact-base check: stack bases are top-aligned at `slot_start + KSTACK_STRIDE - ks_size`, not at the beginning of each 64-KiB slot. The check now validates that exact offset. Commit: `a57f817676ecc5ca1b690884adf45943e14890c6`. This correction reinforces why the PR remains draft until targeted allocator tests run.
+
+
+## Kernel stack slot lifecycle regression
+
+PR #132 shares exact slot-base validation and ownership-bit transitions between production VMM and host tests via `kstack_slot.h`. `tests/kstack_slot_test.c` covers exact-base acceptance, interior/foreign/out-of-range rejection, used-slot bounds, duplicate activation, foreign release, double-free rejection, reuse, and the final bitmap slot. The host runner compiles it with ASan/UBSan. This does not replace hardware guard-page validation.
