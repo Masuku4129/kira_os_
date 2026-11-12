@@ -21,6 +21,19 @@ cases = [
      "truncated custom section name"),
     ("custom-section-invalid-utf8-name", magic + b"\x00\x03\x02\xc0\x80",
      "invalid UTF-8 custom section name"),
+    ("import-module-invalid-utf8-name",
+     magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
+     b"\x02\x0c\x01\x02\xc0\x80\x05ticks\x00\x00",
+     "invalid UTF-8 import module name"),
+    ("import-field-invalid-utf8-name",
+     magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
+     b"\x02\x0c\x01\x04kira\x02\xc0\x80\x00\x00",
+     "invalid UTF-8 import field name"),
+    ("export-invalid-utf8-name",
+     magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
+     b"\x03\x02\x01\x00" +
+     b"\x07\x06\x01\x02\xc0\x80\x00\x00",
+     "invalid UTF-8 export name"),
     ("duplicate-type-section", magic + b"\x01\x01\x00" + b"\x01\x01\x00",
      "duplicate WebAssembly section"),
     ("sections-out-of-order", magic + b"\x02\x01\x00" + b"\x01\x01\x00",
