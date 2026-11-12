@@ -11,7 +11,7 @@ static int fails;
 
 static uint8_t sb[4096], st[1024], blob[8192];
 static unsigned sn, tn;
-static int bad_memory_type;
+static int bad_memory_type, deep_nodes;
 static void be(uint8_t* p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v; }
 static void w32(uint32_t v) { be(sb + sn, v); sn += 4; }
 static void begin(const char* name) { w32(1); unsigned l = strlen(name) + 1; memcpy(sb + sn, name, l); sn += (l + 3) & ~3u; }
@@ -58,6 +58,8 @@ static unsigned build(void) {
         { uint32_t r[] = { 0, 0x3c000000, 0, 800 * 600 * 4 }; pcells("reg", r, 4); }
         p1("width", 800); p1("height", 600); p1("stride", 3200); pstr("format", "a8r8g8b8", 9); end();
       begin("chosen"); pstr("stdout-path", "/pl011@9000000", 15); pstr("bootargs", "console=ttyAMA0", 16); end();
+      for (int i = 0; i < deep_nodes; i++) { char name[24]; sprintf(name, "nested@%d", i); begin(name); }
+      for (int i = 0; i < deep_nodes; i++) end();
     end();
     w32(9);
     unsigned off_struct = 40 + 32, off_str = off_struct + sn, total = (off_str + tn + 3u) & ~3u;
@@ -85,6 +87,24 @@ int main(void) {
     }
     CHECK(fdt_u32(0) == 0 && fdt_total_size(0) == 0);
     CHECK(fdt_root(0) == -1 && fdt_node_name(0, 0) == 0);
+    /* The parser accepts nesting to 64 levels; parent lookup must support it too. */
+    {
+        deep_nodes = 40;
+        unsigned deep_total = build();
+        int d = 0, n = fdt_root(blob), deepest = -1;
+        while (n >= 0) {
+            if (d == deep_nodes) deepest = n;
+            n = fdt_next_node(blob, n, &d);
+        }
+        CHECK(fdt_tree_valid(blob, deep_total));
+        CHECK(deepest >= 0 && fdt_parent(blob, deepest) >= 0);
+        if (deepest >= 0) {
+            int parent = fdt_parent(blob, deepest);
+            CHECK(parent >= 0 && !strcmp(fdt_node_name(blob, parent), "nested@38"));
+        }
+        deep_nodes = 0;
+        total = build();
+    }
     CHECK(fdt_next_node(0, 0, 0) == -1);
     { int bad_depth = -1; CHECK(fdt_next_node(blob, 0, &bad_depth) == -1); }
 
