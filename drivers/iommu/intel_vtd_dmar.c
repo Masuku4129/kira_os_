@@ -61,7 +61,8 @@ static int dmar_parse_scopes(const uint8_t *bytes,
         if (length - offset < 6)
             return KIRA_DMAR_E_STRUCTURE;
 
-        if (s[0] < 1 || s[0] > 4 || dmar_u16(s + 2) != 0)
+        if (s[0] < 1 || s[0] > 4 || dmar_u16(s + 2) != 0 ||
+            ((s[0] == 1 || s[0] == 2) && s[4] != 0))
             return KIRA_DMAR_E_STRUCTURE;
 
         scope_length = s[1];
@@ -212,9 +213,6 @@ int kira_dmar_parse(const void *table,
                     const struct kira_dmar_unit *prior = &out->units[n];
                     if (prior->segment == unit->segment && prior->include_all)
                         return KIRA_DMAR_E_STRUCTURE; /* INCLUDE_ALL must be last and unique. */
-                    if (prior->segment == unit->segment &&
-                        prior->include_all && unit->include_all)
-                        return KIRA_DMAR_E_STRUCTURE;
                 }
                 for (n = 0; n < count; ++n) {
                     uint8_t scope_type = out->scopes[first + n].type;
