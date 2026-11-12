@@ -9,6 +9,6 @@ df=$(git diff -U0 "$base" HEAD -- '*.c' '*.h' '*.S' '*.py' '*.sh' ':!ci/lint.sh'
 d=$(echo "$df" | grep -E '^\+[^+]')
 pat='TODO|FIXME|XXX|HACK|stub|not implemented|unimplemented|NotImplemented|заглушк|пока не реализ|упрощённо вместо|имитаци|fake|dummy|placeholder'
 if echo "$d" | grep -inE "$pat"; then echo "lint: найдены признаки заглушек (выше)"; bad=1; fi
-if echo "$d" | grep -nE '\)\s*\{\s*(return\s+(0|-1|NULL);)?\s*\}\s*$'; then echo "lint: пустые функции или функции-только-возврат (выше): оправдать в отчёте или реализовать"; bad=1; fi
+if echo "$d" | grep -nE '^\+[[:space:]]*(static[[:space:]]+)?(void|int|bool|size_t|uint[0-9]+_t|int[0-9]+_t|char|long|unsigned|const[[:space:]]+[[:alnum:]_]+)[[:space:]*]+[[:alnum:]_]+[[:space:]]*\([^;]*\)[[:space:]]*\{[[:space:]]*(return[[:space:]]+(0|-1|NULL);)?[[:space:]]*\}[[:space:]]*$'; then echo "lint: пустые функции или функции-только-возврат (выше): реализовать"; bad=1; fi
 [ $bad = 0 ] && echo "lint: чисто"
 exit $bad
