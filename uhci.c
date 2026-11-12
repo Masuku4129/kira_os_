@@ -451,10 +451,11 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     outw((uint16_t)(u->io + USBSTS), 0xFFFF);
     pci_enable(p, PCI_CMD_MASTER);
     if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
-        pci_disable_bus_master(p);
+        if (pci_disable_bus_master(p)) {
 #if !defined(KIRA_HOST_TEST) && (defined(__aarch64__) || defined(__x86_64__))
-        iommu_unmap_all(p);
+            (void)iommu_unmap_all(p);
 #endif
+        } /* otherwise keep DMA backing pages pinned */
         usb_log("[KIRA USB] UHCI: PCI bus mastering was not granted\n");
         return -1;
     }
