@@ -775,7 +775,17 @@ static int load(void) {
         if ((u64)sz > (u64)(end - p)) { trap("section past end"); return -1; }
         const u8* s = p;
         const u8* se = p + sz;
-        if (id == 1) {                                            /* типы */
+        if (id == 0) {                                            /* custom section: mandatory UTF-8 name prefix */
+            u32 name_len = leb_u(&s, se);
+            if (trapped || name_len > (u32)(se - s)) {
+                trap("truncated custom section name");
+                return -1;
+            }
+            /* Custom payload after the name is opaque, but the name itself is
+               part of the WebAssembly envelope and must be present in-bounds. */
+            s += name_len;
+            s = se;
+        } else if (id == 1) {                                     /* типы */
             u32 n = leb_u(&s, se);
             if (trapped || n > 256u - ntypes) { trap("too many types or truncated type section"); return -1; }
             for (u32 i = 0; i < n && !trapped; i++) {
