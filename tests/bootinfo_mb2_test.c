@@ -115,6 +115,11 @@ int main(void){
     w32(b+56,0x100000); w32(b+60,0x101000);
     CHECK(kbi_from_multiboot2(b,136,0x100000,0x200000,&out,&out_size)!=0);
 
+    /* A module outside every declared RAM range is not a valid handoff. */
+    memcpy(b,valid,sizeof valid);
+    w32(b+56,0x2000000); w32(b+60,0x2001000);
+    CHECK(kbi_from_multiboot2(b,136,0x100000,0x200000,&out,&out_size)!=0);
+
     /* RGB component bit ranges must be disjoint. */
     memcpy(b,valid,sizeof valid);
     b[122]=16;
