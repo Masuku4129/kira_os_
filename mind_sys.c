@@ -759,6 +759,7 @@ void mind_sys_print(const char* what) {
         if (!v->mem_telemetry_valid) uart_print("нет валидной телеметрии ОЗУ");
         else if (v->mem_used >= 90) uart_print("порог 90% ОЗУ уже достигнут; будущий переход не прогнозируется");
         else if (!v->mem_risk_valid) uart_print("нет непрерывного ряда для четырёхсекундного прогноза");
+        else if (!v->mem_net_trusted) uart_print("модель ещё обучается; доверенного риска нет");
         else { uart_print("риск достижения 90% ОЗУ "); uart_print_dec(v->mem_risk); uart_print("%; "); }
         uart_print(v->mem_net_trusted ? "модель допущена к предупреждениям" : "модель обучается, только наблюдение");
         uart_print("; примеров "); uart_print_dec(v->mem_net_n);
@@ -812,6 +813,7 @@ void mind_sys_print(const char* what) {
         if (!v->mem_telemetry_valid) uart_print("нет валидной телеметрии; ");
         else if (v->mem_used >= 90) uart_print("порог 90% уже достигнут; ");
         else if (!v->mem_risk_valid) uart_print("нет непрерывного ряда; ");
+        else if (!v->mem_net_trusted) uart_print("модель обучается, доверенного риска нет; ");
         else { uart_print("риск 90% за 4 с "); uart_print_dec(v->mem_risk); uart_print("%; "); }
         uart_print("обучающих примеров "); uart_print_dec(v->mem_net_n);
         uart_print(", "); uart_print(v->mem_net_trusted ? "модель подтверждена" : "модель обучается");
