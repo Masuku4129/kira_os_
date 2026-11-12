@@ -227,6 +227,18 @@ static int test_allocator_failure_cleanup(void)
     CHECK(kvm_instance_init(&vm, &module, 0, &tracked, 0) == KVM_E_MEMORY);
     CHECK(probe.calls == 1 && probe.releases == 0);
 
+    /* A verifier rejection after the code snapshot allocation must release it
+       and must not proceed to allocate guest linear memory. */
+    {
+        const struct kvm_instruction invalid[] = { INS(255, 0, 0, 0, 0) };
+        const struct kvm_module bad = {
+            (const uint8_t *)invalid, sizeof invalid, 0, 0, 1, 0, 0
+        };
+        probe.calls = 0; probe.releases = 0; probe.fail_at = 0;
+        CHECK(kvm_instance_init(&vm, &bad, 0, &tracked, 0) == KVM_E_OPCODE);
+        CHECK(probe.calls == 1 && probe.releases == 1);
+    }
+
     probe.calls = 0; probe.releases = 0; probe.fail_at = 2;
     CHECK(kvm_instance_init(&vm, &module, 0, &tracked, 0) == KVM_E_MEMORY);
     CHECK(probe.calls == 2 && probe.releases == 1);
