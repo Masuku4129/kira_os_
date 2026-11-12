@@ -21,6 +21,8 @@ static uint64_t be64(const void *p){return ((uint64_t)be32(p)<<32)|be32((const u
 static int bounded(size_t off,size_t len,size_t total){return off<=total&&len<=total-off;}
 static size_t align4(size_t n){return (n+3u)&~(size_t)3u;}
 static int name_eq(const char *a,const char *b){size_t i=0;while(a[i]&&b[i]&&a[i]==b[i])i++;return a[i]==b[i];}
+static int memory_node_name(const char *s)
+{return name_eq(s,"memory")||(s[0]=='m'&&s[1]=='e'&&s[2]=='m'&&s[3]=='o'&&s[4]=='r'&&s[5]=='y'&&s[6]=='@');}
 static uint64_t read_cells(const uint8_t *p,uint32_t cells)
 {return cells==1?be32(p):cells==2?be64(p):0;}
 static int add_region(struct kira_fdt_region *r,size_t *n,size_t cap,uint64_t base,uint64_t size)
@@ -64,7 +66,7 @@ int kira_fdt_parse(const void *blob,size_t available,struct kira_fdt_info *o)
    n=pos-start;if(n>=sizeof(stack[0].name))return -5;
    for(size_t j=0;j<n;j++)stack[depth].name[j]=(char)s[start+j];
    stack[depth].name[n]=0;pos=align4(pos+1);
-   stack[depth].memory=(depth&&stack[depth-1].memory)||name_eq(stack[depth].name,"memory")||name_eq(stack[depth].name,"memory@0");
+   stack[depth].memory=(depth&&stack[depth-1].memory)||memory_node_name(stack[depth].name);
    stack[depth].reserved=(depth&&stack[depth-1].reserved)||name_eq(stack[depth].name,"reserved-memory");
    stack[depth].cpus=(depth&&stack[depth-1].cpus)||name_eq(stack[depth].name,"cpus");
    stack[depth].cpu=stack[depth].cpus&&depth>0&&name_eq(stack[depth].name,"cpu");
