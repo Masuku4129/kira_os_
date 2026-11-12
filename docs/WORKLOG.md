@@ -317,3 +317,9 @@
 3. Review KDRV trust chain end-to-end, especially trust-anchor provisioning, revocation, signature required flag, key rotation, time source and whole-disk rollback.
 4. Expand inventory for all remaining subsystems and symbols; then map each RFC to actual tests/CI.
 5. Add real allocator, IPC receive-race, production WASM fairness and Mind policy tests before code changes.
+
+
+### Critical driver isolation remediation opened (2026-11-12)
+- F-013 was confirmed on exact main SHA: KDRV enables PCI bus mastering for either CAP_DMA or CAP_IRQ; no per-device IOMMU domain is required. MSI/MSI-X also uses bus mastering, so both rights must be denied without isolation.
+- Opened narrow main-based PR #136: `security/kdrv-require-iommu-for-dma-msi`. Changes: shared `kdrv_dma_policy_allow`, fail-closed check before KDRV binding/spawn/PCI bus-master enable, device quiesce on denial, `KDRV_E_ISOLATION`, host policy tests and corrected driver trust docs. No merge performed.
+- PR #136 head `720a2020f6d78501aed60b5013ad9b7d1c62b30d`; exact-head CI still needs completion/refresh. Main code remains unchanged until PR is reviewed and merged by owner.
