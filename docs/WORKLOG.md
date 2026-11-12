@@ -227,3 +227,8 @@
 - Обновлена `docs/KIRA_VM.md`; это seed assembler, не production compiler и не замена будущему KCC backend. ABI decision gate (32-byte vs 64-byte proposal) остаётся открытым.
 - Commits: `210d3bd1b437311e16086e4b275354b8863bfeab`, `d4e24b4607302360847e22e4983d1c3eb33b9760`, `57f5c6ca4f7d06256a566b94eef543b4768fe321`, `c59aa0bb27e3443222a7b946b4120af0abfdb1d6`, `702b60d15c930283397d9f8b05c184a9b010fa1b`, `7fb27412f6dd51c6a3ed89ec707ea9a42288f550`.
 - CI ещё ожидает завершения; assembler/runner не объявлять проверенными до фактического результата.
+
+### VMM kernel-stack allocator — free-list transaction tests (2026-11-12)
+- PR #132: вынесены атомарные checked-переходы free-list в `kstack_slot_free_push/pop`; x86-64 и ARM64 теперь используют одну реализацию. Push сначала проверяет границы/high-water mark/capacity и ownership bitmap, затем освобождает слот и добавляет его в список. Pop не уменьшает счётчик и не выдаёт слот, пока повторная активация bitmap не прошла.
+- Host test дополнен проверками normal reuse, duplicate free, corrupted duplicate entry, invalid high-water slot и full-list отказа без потери ownership. Commits: `8b6897e1e9a1a7da3064273db8e3a8e2ceeb39e0`, `714de33811f3cc02409baf3687e02d32629a5446`, `579c6b561e5277a9d22df4e64425b945d665b493`, `4fd13e86e0d028996299c56891c613933b76037d`.
+- На точном head CI run пока не найден; последний run `43211039400` относится к старому SHA `34a2820096e14749023518ad17fb3349707a85f5`. Изменения не подтверждены выполнением тестов.
