@@ -494,7 +494,29 @@ uint64_t pmm_alloc_contiguous_aligned_below(uint32_t pages, uint32_t align_pages
         }
         start += (uint64_t)i + 1;
     }
+    uint32_t low_free = 0, max_run = 0, run = 0;
+    if (!result) {
+        for (uint64_t p = 0; p < limit; p++) {
+            if (!test_bit(used_map, p)) {
+                low_free++;
+                if (++run > max_run) max_run = run;
+            } else run = 0;
+        }
+    }
     spin_unlock_irqrestore(&pmm_lock, f);
+    if (!result) {
+        uart_print("[KIRA PMM] DMA allocation failed: pages=");
+        uart_print_dec(pages);
+        uart_print(" align_pages=");
+        uart_print_dec(align_pages);
+        uart_print(" limit=");
+        uart_print_hex(limit_exclusive);
+        uart_print(" free_pages_below_limit=");
+        uart_print_dec(low_free);
+        uart_print(" largest_run=");
+        uart_print_dec(max_run);
+        uart_print(".\n");
+    }
     return result;
 }
 

@@ -1,0 +1,144 @@
+{
+  "schema": 2,
+  "purpose": "Изолированный параллельный цех KIRA OS. Каждый box — отдельный GitHub-hosted runner со своим checkout и журналом. BOX_RESULT=PASS означает прохождение назначенных проверок; RELEASE_GATE отдельно отражает право выпускать релиз.",
+  "boxes": [
+    {
+      "id": "boot-release",
+      "tracks": [
+        "BIOS/UEFI boot",
+        "GPT/ESP",
+        "OVMF",
+        "release gate"
+      ],
+      "checks": [
+        "build_clang.sh --no-run",
+        "build_uefi.sh",
+        "ci/test_uefi_ovmf.sh (EFI + GPT disk)",
+        "ci.test_release_gate",
+        "ci/release_gate.py status"
+      ],
+      "acceptance": "BIOS и UEFI образы собраны; UEFI реально загружается через OVMF в EFI и GPT/ESP режимах. Текущий release gate может честно сообщать BLOCKED, пока RELEASE_GAPS не закрыты."
+    },
+    {
+      "id": "kcc",
+      "tracks": [
+        "KCC frontend",
+        "typed IR",
+        "optimizers",
+        "self-hosting"
+      ],
+      "checks": [
+        "tests/kcc/run.sh"
+      ],
+      "acceptance": "Дифференциальные, диагностические, исполняемые, fuzz и self-host suites проходят; benchmark claims backed by retained measurements."
+    },
+    {
+      "id": "driver-compat",
+      "tracks": [
+        "driver recipe",
+        "TLS download",
+        "KDRV package",
+        "trust/signature"
+      ],
+      "checks": [
+        "ci.test_kdrvsign",
+        "tests/drvget_e2e.sh"
+      ],
+      "acceptance": "Лицензии и происхождение проверяются; TLS, hash, signature, staged install and fail-closed cases pass."
+    },
+    {
+      "id": "x86-isolation",
+      "tracks": [
+        "address spaces",
+        "capabilities",
+        "IPC",
+        "threads",
+        "user pointer validation"
+      ],
+      "checks": [
+        "QEMU scenario isolation"
+      ],
+      "acceptance": "Враждебные процессы не нарушают ядро; границы адресных пространств, IPC, полномочия и FPU state подтверждены end-to-end."
+    },
+    {
+      "id": "dma-audio",
+      "tracks": [
+        "ISA DMA",
+        "SB16",
+        "physical allocator",
+        "audio ring"
+      ],
+      "checks": [
+        "QEMU scenario sound-sb16"
+      ],
+      "acceptance": "Карта обнаруживается по DSP/mixer; 64-KiB DMA ring ниже 16 MiB не пересекает 128-KiB boundary; playback, cursor progress and mixer tests pass."
+    },
+    {
+      "id": "arm64",
+      "tracks": [
+        "AArch64 kernel",
+        "GIC/PSCI",
+        "EL0",
+        "KCC ARM target",
+        "ARM isolation"
+      ],
+      "checks": [
+        "build_arm64.sh",
+        "ci/make_flash.sh",
+        "ci/arm64_vm.py"
+      ],
+      "acceptance": "ARM64 build, flash image and configured QEMU scenarios pass. Physical-board compatibility is tracked separately."
+    },
+    {
+      "id": "iommu-x86",
+      "tracks": [
+        "VT-d",
+        "DMA isolation",
+        "bus_dma drivers"
+      ],
+      "checks": [
+        "QEMU drv-bsd-pcn",
+        "QEMU drv-bsd-fxp",
+        "QEMU drv-bsd-dc"
+      ],
+      "acceptance": "VT-d translation is enabled in QEMU; real driver DMA domains, mapping, interrupts and network traffic pass for all three devices."
+    },
+    {
+      "id": "host-regressions",
+      "tracks": [
+        "PMM",
+        "VMM",
+        "IPC",
+        "filesystem",
+        "scheduler",
+        "crypto",
+        "IOMMU models"
+      ],
+      "checks": [
+        "tests/run_host_tests.sh"
+      ],
+      "acceptance": "The complete host regression suite passes, including x86 and ARM64 PMM tests and modeled VT-d/SMMUv3 paths."
+    },
+    {
+      "id": "platform",
+      "tracks": [
+        "source inventory",
+        "dependency provenance",
+        "ACPI/PCI gaps",
+        "release evidence"
+      ],
+      "checks": [
+        "ci/audit_inventory.py",
+        "ci/dependency_audit.py"
+      ],
+      "acceptance": "Architecture gaps and external dependencies are enumerated with traceable source/provenance evidence."
+    }
+  ],
+  "execution": {
+    "parallel_boxes": 9,
+    "fail_fast": false,
+    "each_box_uploads_logs": true,
+    "retry": "Only after diagnosing the exact failing check and committing a correction.",
+    "release_gate": "No release artifact is promoted until the normal CI and all required architecture acceptance gates pass."
+  }
+}
