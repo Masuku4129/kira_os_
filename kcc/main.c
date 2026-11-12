@@ -39,10 +39,22 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "-O0")) kcc_noopt = 1;
         else if (!strcmp(a, "-O1")) kcc_noopt = 0;
         else if (!strcmp(a, "-o") && i + 1 < argc) outp = argv[++i];
-        else if (!strncmp(a, "-I", 2) && a[2]) { if (ni < 64) incs[ni++] = a + 2; }
-        else if (!strcmp(a, "-I") && i + 1 < argc) { if (ni < 64) incs[ni++] = argv[++i]; }
-        else if (!strncmp(a, "-D", 2) && a[2]) { if (nd < 64) defs[nd++] = a + 2; }
-        else if (!strcmp(a, "-D") && i + 1 < argc) { if (nd < 64) defs[nd++] = argv[++i]; }
+        else if (!strncmp(a, "-I", 2) && a[2]) {
+            if (ni >= 64) { fprintf(stderr, "kcc: too many include directories (maximum 64)\\n"); return 2; }
+            incs[ni++] = a + 2;
+        }
+        else if (!strcmp(a, "-I") && i + 1 < argc) {
+            if (ni >= 64) { fprintf(stderr, "kcc: too many include directories (maximum 64)\\n"); return 2; }
+            incs[ni++] = argv[++i];
+        }
+        else if (!strncmp(a, "-D", 2) && a[2]) {
+            if (nd >= 64) { fprintf(stderr, "kcc: too many macro definitions (maximum 64)\\n"); return 2; }
+            defs[nd++] = a + 2;
+        }
+        else if (!strcmp(a, "-D") && i + 1 < argc) {
+            if (nd >= 64) { fprintf(stderr, "kcc: too many macro definitions (maximum 64)\\n"); return 2; }
+            defs[nd++] = argv[++i];
+        }
         else if (!strcmp(a, "-target") && i + 1 < argc) target = argv[++i];
         else if (a[0] == '-') { fprintf(stderr, "kcc: unknown option '%s'\n", a); return 2; }
         else if (!in) in = a;
