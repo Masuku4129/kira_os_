@@ -254,21 +254,22 @@ int hda_probe(void) {
         return -6;
     }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
-    if (!pci_quiesce_interrupts(p)) {
-        uart_print("[KIRA HDA] inherited MSI/MSI-X could not be masked; device quarantined.\n");
-        return -6;
-    }
+    int pci_irq_quiet = pci_quiesce_interrupts(p);
     h.r = (volatile uint8_t*)pci_map_bar(p, 0, 0, 0x2000 <= p->bar[0].size ? 0x2000 : p->bar[0].size);
     if (!h.r) return -3;
     w32(GCTL, r32(GCTL) & ~1u);                                  /* сброс контроллера */
     if (wait_bit(GCTL, 1, 0, 4)) return -4;
     w32(GCTL, r32(GCTL) | 1u);
     if (wait_bit(GCTL, 1, 1, 4)) return -4;
+    w32(INTCTL, 0);                                                 /* no device-side interrupts while polling */
+    if (!pci_irq_quiet && !pci_quiesce_interrupts(p)) {
+        uart_print("[KIRA HDA] PCI MSI/MSI-X remained active after controller reset; device quarantined.\\n");
+        return -6;
+    }
     for (int i = 0; i < 1000 && !r16(STATESTS); i++) sched_sleep_ticks(1);   /* кодеки отзываются за ~0,5 мс */
     uint16_t st = r16(STATESTS);
     if (!st) { uart_print("[KIRA HDA] controller found, no codec on the link.\n"); return -5; }
     while (!(st & (1u << h.cad))) h.cad++;
-    w32(INTCTL, 0);
     h.corb = (uint32_t*)virtio_dma_alloc(1024, &h.corb_p);
     h.rirb = (uint64_t*)virtio_dma_alloc(2048, &h.rirb_p);
     h.buf = (uint8_t*)virtio_dma_alloc(BUFSZ, &h.buf_p);
