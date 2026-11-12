@@ -701,6 +701,10 @@ static int load(void) {
                 s += len;
             }
         }
+        if (id != 0 && !trapped && s != se) {
+            trap("trailing bytes in WebAssembly section");
+            return -1;
+        }
         p = se;
     }
     if (!trapped && !mem) {
