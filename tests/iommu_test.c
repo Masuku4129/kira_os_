@@ -29,6 +29,7 @@ typedef struct { pci_dev_t d; uint8_t sec, sub; } mdev_t;
 static mdev_t mdev[8];
 static int nmdev;
 static int d3_bus_master_enabled = 1;
+static int model_busmaster_gate;
 static void add_dev(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t ven, uint16_t id, uint8_t hdr, uint8_t cls, uint8_t sub, uint8_t sec, uint8_t subo) {
     pci_dev_t* d = &mdev[nmdev].d;
     memset(d, 0, sizeof *d);
@@ -43,7 +44,7 @@ uint8_t pci_read8(const pci_dev_t* d, uint16_t off) {
 }
 int pci_disable_bus_master(const pci_dev_t* d) {
     if (!d) return 0;
-    if (d->bus == 0 && d->dev == 3 && d->fn == 0)
+    if (model_busmaster_gate && d->bus == 0 && d->dev == 3 && d->fn == 0)
         d3_bus_master_enabled = 0;
     return 1;
 }
@@ -165,7 +166,7 @@ static void record_fault(uint16_t sid, uint64_t iova, int write, int reason) {
 /* One DMA access by a device. 0 = allowed (pa filled), -1 = blocked and recorded. */
 static int hw_dma(uint16_t sid, uint64_t iova, int write, uint64_t* pa) {
     hw_sync();
-    if (sid == (uint16_t)(3u << 3) && !d3_bus_master_enabled)
+    if (model_busmaster_gate && sid == (uint16_t)(3u << 3) && !d3_bus_master_enabled)
         return -1;
     int rc = -1;
     if (!(*r32(R_GSTS) & (1u << 31))) { *pa = iova; return 0; }            /* translation off */
@@ -271,6 +272,7 @@ int main(int argc, char** argv) {
     if (sc == 'F') {                                 /* rejected context/IOTLB invalidation must never count as isolation */
         CHECK(hw_dma(sid_of(d3), 0x123456000ull, 1, &pa) == 0 &&
               pa == 0x123456000ull);                /* initial pass-through */
+        model_busmaster_gate = 1;
         hw_reject = 1;                               /* hardware refuses the flush after the context is published */
         CHECK(iommu_isolate_device(d3) == IOMMU_E_HW);
         CHECK(!iommu_device_isolated(d3) && !iommu_device_ready(d3));
