@@ -170,14 +170,32 @@ static void irq_enable(bind_t* b) {
 }
 
 /* Устройство останавливается: ни обращений к памяти, ни сообщений прерываний. Не спит (зовётся при гибели процесса). */
-static uint16_t quiesce(const pci_dev_t* d) {
+static int quiesce_verified(const pci_dev_t* d, uint16_t* command_out) {
+    int safe = 1;
     uint16_t c = find_cap(d, 0x05);
-    if (c) pci_write16(d, (uint16_t)(c + 2), (uint16_t)(pci_read16(d, (uint16_t)(c + 2)) & ~1u));
+    if (c) {
+        uint16_t control = pci_read16(d, (uint16_t)(c + 2));
+        pci_write16(d, (uint16_t)(c + 2), (uint16_t)(control & ~1u));
+        if (pci_read16(d, (uint16_t)(c + 2)) & 1u) safe = 0;
+    }
     c = find_cap(d, 0x11);
-    if (c) pci_write16(d, (uint16_t)(c + 2), (uint16_t)((pci_read16(d, (uint16_t)(c + 2)) & ~0x8000u) | 0x4000u));
+    if (c) {
+        uint16_t control = pci_read16(d, (uint16_t)(c + 2));
+        pci_write16(d, (uint16_t)(c + 2), (uint16_t)((control & ~0x8000u) | 0x4000u));
+        uint16_t after = pci_read16(d, (uint16_t)(c + 2));
+        if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
+    }
     uint16_t cmd = pci_read16(d, 0x04);
     pci_write16(d, 0x04, (uint16_t)(kdrv_pci_command_for_unisolated(cmd) & ~(PCI_CMD_IO | PCI_CMD_MEM)));
-    return pci_read16(d, 0x04);
+    cmd = pci_read16(d, 0x04);
+    if (!kdrv_pci_command_quiesced(cmd)) safe = 0;
+    if (command_out) *command_out = cmd;
+    return safe;
+}
+static uint16_t quiesce(const pci_dev_t* d) {
+    uint16_t command = 0;
+    (void)quiesce_verified(d, &command);
+    return command;
 }
 
 /* ---- запуск ---- */
@@ -234,8 +252,9 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
        config-space write actually took effect. */
     uint16_t pci_command = pci_read16(d, 0x04);
     /* Also mask inherited MSI/MSI-X state; this driver has no IRQ capability. */
-    uint16_t pci_after = quiesce(d);
-    if (!kdrv_pci_busmaster_handoff_safe(pci_command, pci_after) ||
+    uint16_t pci_after = 0;
+    int device_quiesced = quiesce_verified(d, &pci_after);
+    if (!device_quiesced || !kdrv_pci_busmaster_handoff_safe(pci_command, pci_after) ||
         !kdrv_pci_command_quiesced(pci_after) ||
         (pci_after & (PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER))) {
         (void)quiesce(d);
@@ -338,8 +357,8 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
     uint64_t f = spin_lock_irqsave(&b->nlk);
     b->net_alive = 0;                               /* карта драйвера для стека: link down, send отказывает, recv пуст */
     spin_unlock_irqrestore(&b->nlk, f);
-    uint16_t cmd = quiesce(b->dev);
-    b->dma_quiesced = kdrv_pci_command_quiesced(cmd);
+    uint16_t cmd = 0;
+    b->dma_quiesced = quiesce_verified(b->dev, &cmd) && kdrv_pci_command_quiesced(cmd);
     b->dead_at = timer_get_ticks();
     f = spin_lock_irqsave(&klock);
     b->state = B_DEAD;
@@ -422,8 +441,8 @@ void kdrv_poll(void) {
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         bind_t* b = &binds[i];
         if (b->state == B_DEAD && !b->dma_quiesced) {
-            uint16_t cmd = quiesce(b->dev);
-            if (kdrv_pci_command_quiesced(cmd)) {
+            uint16_t cmd = 0;
+            if (quiesce_verified(b->dev, &cmd) && kdrv_pci_command_quiesced(cmd)) {
                 b->dma_quiesced = 1;
                 b->dead_at = timer_get_ticks();
                 uart_print("[KIRA DRV] "); uart_print(b->name);
