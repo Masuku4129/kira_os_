@@ -1,6 +1,6 @@
 # KIRA OS — source layout migration map
 
-**Status:** normative migration plan; the source tree is not yet physically split into these directories.
+**Status:** normative migration plan; partial physical migration is in progress. x86 boot ownership and syscall core/service adapters have been split into `arch/x86_64/`, `kernel/` and `services/`; most other modules remain in their historical paths.
 **Baseline:** architecture branch at the time this document was added.
 **Rule:** migrate one dependency-closed slice at a time. Do not move a file merely to make the tree look layered.
 
