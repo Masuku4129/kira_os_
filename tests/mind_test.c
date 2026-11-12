@@ -508,6 +508,20 @@ int main(void) {
         CHECK(Acted.m.memory_net.n == before_intervention);
         base(12); S.mem_used = 90; mind_step(&Acted, &S, &mem_only);
         CHECK(Acted.m.memory_net.n == before_intervention);
+
+        /* A threshold without its matching callback is not an intervention. */
+        static mind_t NoTrim; mind_init(&NoTrim, 0, 4); NoTrim.m.mode = MIND_ACT;
+        const mind_act_t restrict_only = { .heap_restrict = a_r };
+        for (uint32_t u = 1; u <= 8; u++) {
+            base(u); S.mem_used = 50; mind_step(&NoTrim, &S, &none);
+        }
+        for (uint32_t u = 9; u <= 10; u++) {
+            base(u); S.mem_used = u == 9 ? 80 : 84; mind_step(&NoTrim, &S, &none);
+        }
+        uint32_t no_trim_before = NoTrim.m.memory_net.n;
+        base(11); S.mem_used = 88; mind_step(&NoTrim, &S, &restrict_only);
+        CHECK(NoTrim.mem_level == 1 && !NoTrim.mem_action_active);
+        CHECK(NoTrim.m.memory_net.n > no_trim_before);
     }
 
     printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1-v3 and disk validity) passed");
