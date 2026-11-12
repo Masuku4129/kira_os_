@@ -242,6 +242,7 @@ for f in pic.png rgba.png pic.bmp pic.ppm pic.gif lace.gif pic.jpg p444.jpg prog
 echo "== wasm: interpreter output equals the same program compiled natively =="
 userland/wasm/build.sh
 $CC -O1 -g -w -I. -fsanitize=address,undefined -o $T/wasmh tests/wasm_host.c -lm
+python3 tests/wasm_loader_bounds.py "$T/wasmh"
 clang -O2 -DKW_NATIVE -w -Iuserland/wasm -o $T/wtest_native userland/wasm/wtest.c
 $T/wtest_native > $T/w_native.txt
 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wtest.wasm > $T/w_interp.txt
