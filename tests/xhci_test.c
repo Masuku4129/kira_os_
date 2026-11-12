@@ -379,6 +379,17 @@ int main(void) {
     pci_cap_ptr_model = 0x50;
 
     pci_command_model = PCI_CMD_MASTER;
+    *R(regs, 0x18) = 0x2001u;                               /* misaligned runtime register offset */
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    *R(regs, 0x18) = 0x2000u;
+    pci_command_model = PCI_CMD_MASTER;
+    *R(regs, 0x14) = 0x2000u;                               /* doorbell array overlaps runtime registers */
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    *R(regs, 0x14) = 0x3000u;
+
+    pci_command_model = PCI_CMD_MASTER;
     pci_msi_control_model = 1u;
     pci_msix_control_model = 0x8000u;
     *R(regs, 0x10) = 1u | (1u << 3) | ((0x5000u / 4u) << 16); /* xECP outside mapped BAR */
