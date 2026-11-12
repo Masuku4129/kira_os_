@@ -59,9 +59,9 @@ int main(void)
     memset(&platform, 0, sizeof platform);
 
     ((uint32_t *)m.good)[0] = 0x10; /* non-zero VT-d version */
-    ((uint32_t *)m.good)[2] = (1u << 10) | (16u << 24); /* 48-bit SAGAW + valid FRO */
+    ((uint32_t *)m.good)[2] = (1u << 10) | (48u << 16) | (16u << 24); /* 48-bit SAGAW + valid FRO */
     ((uint32_t *)m.bad)[0] = 0x10;
-    ((uint32_t *)m.bad)[2] = (16u << 24); /* lacks 48-bit second-level walk support */
+    ((uint32_t *)m.bad)[2] = (48u << 16) | (16u << 24); /* lacks 48-bit second-level walk support */
 
     dmar.host_address_width = 48;
     dmar.unit_count = 2;
@@ -99,6 +99,15 @@ int main(void)
     assert(m.allocations == 1 && m.frees == 1);
     for (size_t i = 0; i < sizeof units[0]; ++i)
         assert(((const uint8_t *)&units[0])[i] == 0);
+
+    /* MGAW is a separate capability from SAGAW and must cover the DMAR HAW. */
+    memset(&m, 0, sizeof m);
+    m.good[0] = 0x10;
+    ((uint32_t *)m.good)[2] = (1u << 10) | (47u << 16) | (16u << 24);
+    platform.context = &m;
+    assert(kira_vtd_unit_prepare(&units[0], 0xfed90000ull, 48,
+                                 &platform) == KIRA_VTD_UNSUPPORTED);
+    assert(m.allocations == 0 && m.frees == 0);
 
     /* Firmware-owned active translation is never overwritten. */
     memset(&m, 0, sizeof m);
