@@ -1,0 +1,169 @@
+{
+ "name": "apps-explorer2",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FILES\\] explorer: /fm-a \\| /fm-b",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FILES\\] copy /fm-a/one\\.txt -> /fm-b/one\\.txt: 9 байт",
+   "ok": true
+  },
+  {
+   "step": "cat /fm-b/one.txt",
+   "must": "kira-one",
+   "ok": true
+  },
+  {
+   "step": "cat /fm-a/one.txt",
+   "must": "kira-one",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FILES\\] move /fm-a/two\\.txt -> /fm-b/two\\.txt: 9 байт",
+   "ok": true
+  },
+  {
+   "step": "cat /fm-b/two.txt",
+   "must": "kira-two",
+   "ok": true
+  },
+  {
+   "step": "ls /fm-a",
+   "must": "one\\.txt",
+   "ok": true
+  },
+  {
+   "step": "ls /fm-a",
+   "forbid": "two\\.txt",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FILES\\] mkdir /fm-b/sub",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FILES\\] delete /fm-b/one\\.txt",
+   "ok": true
+  },
+  {
+   "step": "ls /fm-b",
+   "must": "sub",
+   "ok": true
+  },
+  {
+   "step": "ls /fm-b",
+   "must": "two\\.txt",
+   "ok": true
+  },
+  {
+   "step": "ls /fm-b",
+   "forbid": "one\\.txt",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FILES\\] rename /fm-b/two\\.txt -> /fm-b/two\\.dat",
+   "ok": true
+  },
+  {
+   "step": "cat /fm-b/two.dat",
+   "must": "kira-two",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.4,
+ "seconds": 27.3,
+ "commands": [
+  {
+   "cmd": "mkdir /fm-a",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "mkdir /fm-b",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "write /fm-a/one.txt kira-one",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "write /fm-a/two.txt kira-two",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "files /fm-a /fm-b",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "cat /fm-b/one.txt",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "cat /fm-a/one.txt",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "cat /fm-b/two.txt",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "ls /fm-a",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "ls /fm-b",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "cat /fm-b/two.dat",
+   "seconds": 0.0
+  }
+ ]
+}
