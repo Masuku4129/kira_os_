@@ -967,14 +967,26 @@ static int kfs_unlink_impl(const char* path) {
     r = dir_remove(parent, leaf);                                /* сначала убираем имя, потом сам инод */
     if (r) return r;
     inode_t* ip = iget(ino);
-    if (!ip) return KFS_ERR_IO;
+    if (!ip) {
+        /* The directory entry is already durably gone. Do not continue using
+           allocator state if the inode transition cannot be completed. */
+        fs.mounted = 0;
+        return KFS_ERR_IO;
+    }
     inode_t old = *ip;
     zero(ip, sizeof *ip);
     r = write_inode(ino);
     if (!r) r = flush();
-    fs.itype[ino] = 0; fs.free_inodes++;
+    if (r) {
+        /* The namespace change committed, but inode reclamation did not.
+           Disk state is authoritative; force a remount/re-scan before reuse. */
+        fs.mounted = 0;
+        return r;
+    }
+    fs.itype[ino] = 0;
+    fs.free_inodes++;
     free_inode_blocks(&old);
-    return r;
+    return 0;
 }
 
 typedef struct { kfs_list_cb cb; void* ctx; } list_t;
