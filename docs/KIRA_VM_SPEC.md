@@ -58,14 +58,18 @@ Type IDs: `0=void` (return only), `1=i32`, `2=u32`, `3=i64`, `4=u64`. Register d
 
 Function instruction ranges may not overlap and must fit inside the code section. Register type vectors must be in-bounds, non-overlapping with other sections and long enough for `register_count`.
 
-### 2.3 Import descriptor (16 bytes)
+### 2.3 Import descriptor (24 bytes)
 
-- `name_hash:u32`: stable hash of the canonical ASCII import name.
-- `signature:u32`: ABI signature identifier defined by the KIRA VM import registry.
-- `capability:u32`: required capability bit (zero only for explicitly public, side-effect-free imports).
-- `flags:u32`: must be zero in v1.
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 4 | name_offset (absolute file offset) |
+| 4 | 2 | name_length (1..63 bytes) |
+| 6 | 2 | flags (must be zero) |
+| 8 | 4 | signature (registry-defined ABI signature ID) |
+| 12 | 4 | capability (required capability bit; zero only for explicitly public, side-effect-free imports) |
+| 16 | 8 | reserved, all zero |
 
-The module does not supply function pointers or kernel syscall numbers. The runtime resolves the name hash against a compile-time registry, verifies the signature and capability, and rejects unknown imports. Hash collisions are resolved by comparing the full canonical name in the module's bounded import-name string table; the import descriptor layout will gain an explicit string-table reference before implementation is frozen.
+The name is a bounded canonical ASCII identifier stored in the module. It must not contain NUL, control characters or non-ASCII bytes. The runtime compares the full name against its compile-time registry; no hash-only dispatch is permitted. The module does not supply function pointers or kernel syscall numbers. Unknown names, signature mismatches and missing capabilities reject the module.
 
 ## 3. Instruction encoding
 
