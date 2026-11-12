@@ -148,7 +148,7 @@ No tests were executed during this source-review pass. Findings above are code o
 - **Action:** treat persisted weights as untrusted data; maintain hard-coded/administrator policy outside model state. On invalid, stale or low-confidence model, fall back to observation/default behavior. If remote/model-package updates are added, require provenance/signature and atomic rollback. RFC-MIND-001 defines these constraints.
 
 
-## F-016 — PCI host enumeration is asymmetric between x86-64 and ARM64
+## F-018 — PCI host enumeration is asymmetric between x86-64 and ARM64
 
 - **Severity:** High — device discovery and KDRV startup differ by architecture.
 - **Evidence:** ARM64 explicitly calls `arm_pci_init(fdt)` from `arch/aarch64/main.c`; that routine discovers `pci-host-ecam-generic`, installs the ECAM backend, calls `pci_init()` and assigns BAR windows. The x86-64 boot composition root `arch/x86_64/kernel_boot.c` does not call `pci_init()` or install a PCI config backend. `kdrv_poll()` returns early when `pci_count() == 0`. Therefore the x86 boot path does not currently establish the same explicit PCI enumeration stage as ARM64; any alternate initialization path must be identified before declaring parity.
@@ -157,10 +157,19 @@ No tests were executed during this source-review pass. Findings above are code o
 - **Status:** identified; implementation deliberately deferred until the PCI/IOMMU security prerequisites are merged and verified.
 
 
-## F-017 — ARM64 platform entry also owned the steady-state kernel loop
+## F-019 — ARM64 platform entry also owned the steady-state kernel loop
 
 - **Severity:** Medium — architecture ownership and test isolation.
 - **Evidence:** `arch/aarch64/main.c` combined FDT/platform discovery, MMU/GIC/timer/PSCI/SMP bring-up, shared subsystem startup and the permanent console/Mind/driver maintenance loop. Unlike x86-64, the ARM64 steady-state loop had no separate source owner.
 - **Change:** extracted the permanent loop into `arch/aarch64/kernel_main.c`, exposed only through `arch/aarch64/kernel_main.h`, and added it to the ARM64 source manifest. `arm_main()` still owns platform discovery and initialization and now hands off to `arm_kernel_main_loop()`. Loop ordering and cadence are preserved.
 - **Boundary:** this does not yet extract ARM64 early boot or create a platform-neutral Boot Manager/Service Manager. Those remain separate migration gates.
 - **Verification:** exact-head CI is required for ARM64 build, host architecture guard and QEMU GICv2/GICv3 scenarios; no PASS is claimed before those jobs complete.
+
+
+## F-020 — ARM64 platform entry still combines platform backends and boot orchestration
+
+- **Severity:** Medium — architecture boundary and independent testability.
+- **Snapshot:** architecture branch after extraction of the steady-state loop; `arch/aarch64/main.c` remains approximately 1,246 lines.
+- **Evidence:** the same translation unit still owns FDT discovery and RAM inventory, early PL011 console, early page-table/MMU mapping, DMA-coherency/pool selection, GICv2/v3 distributor/redistributor and ITS/MSI setup, generic timer, SMP/PSCI CPU bring-up, PCI ECAM discovery/BAR assignment, RTC/platform power hooks, and ordered initialization of the shared kernel subsystems. The permanent maintenance loop has been extracted to `arch/aarch64/kernel_main.c`, but the platform bootstrap remains a large mixed composition/implementation unit.
+- **Action:** do not split by arbitrary line ranges. First map shared state and callers; then extract dependency-closed backends (MMU/memory mapping, interrupt controller/MSI, timer/SMP/PSCI, platform discovery) behind explicit architecture-owned contracts. Preserve boot order and failure behavior. Add per-backend host/contract tests where possible and exact-head ARM64/QEMU GICv2/GICv3 boot tests after each slice.
+- **Status:** identified on the architecture branch; no code change for this finding yet.
