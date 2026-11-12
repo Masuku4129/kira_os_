@@ -1006,8 +1006,8 @@ static int load(void) {
         }
         p = se;
     }
-    if (!trapped && !mem) {
-        if (!mem_max_set) mem_max = has_memory ? MAXMEM / 65536 : 0;
+    if (!trapped && has_memory && !mem) {
+        if (!mem_max_set) mem_max = MAXMEM / 65536;
         if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
         if (mem_pages > mem_max) { trap("module needs more memory than 2 MB"); return -1; }
         mem = (u8*)alloc((u64)(mem_max ? mem_max : 1) * 65536);
