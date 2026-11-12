@@ -267,7 +267,7 @@ int fdt_parent(const void* fdt, int node) {
     if (!fdt || node < 0) return -1;
     /* fdt_tree_valid() accepts a maximum nesting depth of 64. Keep the
        parent walk's capacity aligned with that parser limit. */
-    int stack[64]; int depth = 0;
+    int stack[65]; int depth = 0;
     int n = fdt_root(fdt);
     if (n < 0 || n == node) return -1;
     stack[0] = n;
@@ -275,7 +275,7 @@ int fdt_parent(const void* fdt, int node) {
         int d = depth;
         n = fdt_next_node(fdt, n, &d);
         if (n < 0) return -1;
-        if (d <= 0 || d >= 64) return -1;
+        if (d <= 0 || d > 64) return -1;
         stack[d] = n;
         depth = d;
         if (n == node) return stack[d - 1];
