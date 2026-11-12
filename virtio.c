@@ -253,6 +253,7 @@ int virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n) {
     MMIO_W16(q->notify_addr, q->index);
     uint64_t start = WAIT_NOW(), t0 = WAIT_T0();
 #ifndef KIRA_HOST_TEST
+    watchdog_progress();                       /* a new bounded wait is main-thread progress */
     uint64_t last_progress = start;
 #endif
     for (uint32_t i = 0; ; i++) {
