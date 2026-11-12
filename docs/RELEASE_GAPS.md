@@ -140,3 +140,18 @@ The next combined user update is eligible only when:
 - Исправлено в `virtio.c`: IRQ wait теперь блокирует поток только при `WAIT_SLEEP_OK()`; если сон запрещён (в частности, mutex удерживается), остаётся bounded polling/CPU relax путь с прежними deadline и spin limit.
 - Commit: `eb56746745e0669e47796be9bd619965ef441a7b`.
 - Это устраняет обнаруженный обход sleep guard по коду, но НЕ закрывает VM shard-4: требуется новый CI run и успешные `wasm-speed`, `stress-3d`, `cc-native`; также требуется проверить, что нет других блокирующих ожиданий без `sched_can_sleep()`.
+
+
+## VMM kernel-stack allocator follow-up (2026-11-12)
+- Audit found that `vmm_kstack_free()` accepted any address inside a stack slot and did not track ownership. Double-free could enqueue the same slot twice and later hand one kernel stack to two threads.
+- Added an active-slot bitmap. Free now requires the exact allocated base, a slot previously issued by the allocator, and an active ownership bit; duplicate/foreign frees are ignored and the free-list append is bounded.
+- A partially mapped slot is now quarantined by advancing `ks_used_hi`, preventing a later allocation from retrying mappings over already-installed PTEs.
+- Commit: `7265682c2e8022a9ddb14af4989503ee51080774`.
+- Not verified PASS: current host suite has no isolated VMM allocator test. Required next: add testable allocator lifecycle coverage, then obtain fresh x86-64/ARM64 build and VM CI evidence. Physical guard-page/stack-overflow validation remains separate.
+
+- Follow-up review caught and corrected an address-layout mistake in the new exact-base check: stack bases are top-aligned at `slot_start + KSTACK_STRIDE - ks_size`, not at the beginning of each 64-KiB slot. The check now validates that exact offset. Commit: `a57f817676ecc5ca1b690884adf45943e14890c6`. This correction reinforces why the PR remains draft until targeted allocator tests run.
+
+
+## Kernel stack slot lifecycle regression
+
+PR #132 shares exact slot-base validation and ownership-bit transitions between production VMM and host tests via `kstack_slot.h`. `tests/kstack_slot_test.c` covers exact-base acceptance, interior/foreign/out-of-range rejection, used-slot bounds, duplicate activation, foreign release, double-free rejection, reuse, and the final bitmap slot. The same ownership helpers now protect both x86-64 `vmm.c` and ARM64 `arch/aarch64/main.c`; ARM64 now uses a bounded external free-slot array instead of storing allocator links inside freed stacks; this keeps allocator metadata out of stack memory. Partial ARM64 mapping failures quarantine slots that already received PTEs. The host runner compiles the shared logic with ASan/UBSan and checks the full 65,536-slot ARM64 index range. This does not replace hardware guard-page validation.
