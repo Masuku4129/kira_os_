@@ -1,5 +1,10 @@
 # Kira OS (ОС Кира)
 
+## Обязательные архитектурные документы
+
+- [Целевая архитектура KIRA OS](docs/architecture/KIRA_OS_TARGET_ARCHITECTURE.md) — конечная модель, включая Windows/Linux application compatibility и отдельный Hypervisor.
+- [Архитектурный аудит и порядок работ](docs/architecture/ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md) — ближайшая очередь и критерии завершения.
+
 ## Обязательный план разработки
 
 Перед любой разработкой, аудитом или изменением кода прочитайте [AGENTS.md](AGENTS.md) и полный [мастер-план KIRA OS](docs/MASTER_DEVELOPMENT_PLAN.md). Это обязательная точка входа для всех участников и ИИ-агентов.
