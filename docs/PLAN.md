@@ -49,7 +49,7 @@ H0 → I и J (параллельно, 2 помощника) → M1–M3 (ком
 - VT-d unit preparation не публикует частично инициализированный объект, не заменяет firmware root table при активном TE, проверяет адрес DMA root page и умеет освобождать root page только после подтверждённого отключения translation.
 - Discovery откатывает уже подготовленные units при отказе следующего unit; host regression проверяет rollback и отказ от DMA-адреса вне физической адресной ширины.
 - Это не закрывает VT-d device-domain lifecycle: нужны корректные Context Entries, полный page-table ownership/teardown, invalidation/fault handling, реальные requester mappings и QEMU/железные тесты.
-- SMMUv3 stage-1 пока не считается безопасным для attach: требуется завершить и проверить архитектурное кодирование Stream Table Entry и Context Descriptor, адресные ограничения, teardown и fault path.
+- SMMUv3 stage-1 пока не считается безопасным для attach: IDR5.OAS теперь ограничивает выделение queue/stream-table/page-table DMA областей; нужно завершить и проверить архитектурное кодирование Stream Table Entry и Context Descriptor, teardown и fault path.
 - CI для текущего head должен быть реально завершён; queued/pending/cancelled не равны PASS.
 
 ### Следующие обязательные шаги
