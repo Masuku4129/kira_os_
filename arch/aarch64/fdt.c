@@ -31,6 +31,9 @@ int kira_fdt_parse(const void *blob,size_t available,struct kira_fdt_info *o)
  const uint8_t *b=blob,*s,*strings;struct fdt_header h;size_t pos,str_end;
  struct node_ctx stack[32];unsigned depth=0;uint32_t ac=2,sc=1;
  if(!blob||!o||available<FDT_HEADER_SIZE)return -1;
+ /* The caller may pass an uninitialized handoff structure. Initialize every
+    output field before the first append or parse operation. */
+ for(size_t i=0;i<sizeof(*o);i++)((uint8_t*)o)[i]=0;
  h.magic=be32(b);h.total=be32(b+4);h.off_struct=be32(b+8);h.off_strings=be32(b+12);
  h.off_rsvmap=be32(b+16);h.version=be32(b+20);h.last_comp=be32(b+24);
  h.size_strings=be32(b+32);h.size_struct=be32(b+36);
@@ -41,15 +44,14 @@ int kira_fdt_parse(const void *blob,size_t available,struct kira_fdt_info *o)
     h.off_rsvmap>=h.total)return -2;
  s=b+h.off_struct;strings=b+h.off_strings;str_end=h.size_strings;pos=0;
  {
-  size_t rp=h.off_rsvmap;unsigned n=0;
+  size_t rp=h.off_rsvmap;unsigned n=0;int terminated=0;
   while(bounded(rp,16,h.total)&&n++<KIRA_FDT_MAX_RESERVED+1){
    uint64_t base=be64(b+rp),size=be64(b+rp+8);rp+=16;
-   if(!base&&!size)break;
+   if(!base&&!size){terminated=1;break;}
    if(add_region(o->reserved,&o->reserved_count,KIRA_FDT_MAX_RESERVED,base,size))return -3;
   }
+  if(!terminated)return -3;
  }
- o->memory_count=o->reserved_count=0;o->cpu_count=0;
- o->initrd_start=o->initrd_end=0;o->gic_dist=o->gic_redist=0;o->bootargs[0]=0;
  while(pos<h.size_struct){
   uint32_t token;
   if(!bounded(pos,4,h.size_struct))return -4;
@@ -70,7 +72,13 @@ int kira_fdt_parse(const void *blob,size_t available,struct kira_fdt_info *o)
    stack[depth].soc=(depth&&stack[depth-1].soc)||name_eq(stack[depth].name,"soc");
    stack[depth].ac=ac;stack[depth].sc=sc;depth++;continue;
   }
-  if(token==FDT_END_NODE){if(!depth)return -4;depth--;continue;}
+  if(token==FDT_END_NODE){
+   if(!depth)return -4;
+   /* #address-cells/#size-cells are scoped to the current bus node.
+      Do not leak a child bus's cell widths into following siblings. */
+   ac=stack[depth-1].ac;sc=stack[depth-1].sc;
+   depth--;continue;
+  }
   if(token==FDT_NOP)continue;
   if(token==FDT_END)return depth==0?0:-4;
   if(token==FDT_PROP){
