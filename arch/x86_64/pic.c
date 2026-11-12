@@ -19,7 +19,7 @@ static irq_handler_t irq_vector_handlers[IRQ_VECTOR_COUNT];
 static volatile uint32_t irq_vector_active[IRQ_VECTOR_COUNT];
 static uint8_t irq_vector_used[IRQ_VECTOR_COUNT];
 static spinlock_t irq_vector_lock = SPINLOCK_INIT;
-extern void* irq_vector_stub_table[IRQ_VECTOR_COUNT];
+extern void* irq_vector_entry_table[IRQ_VECTOR_COUNT];
 extern void isr_unhandled(void);
 
 static inline void outb(uint16_t port, uint8_t val) {
@@ -100,7 +100,7 @@ int irq_vector_alloc(irq_handler_t handler, uint8_t *vector) {
         irq_vector_used[i] = 1;
         irq_vector_handlers[i] = 0;
         __atomic_store_n(&irq_vector_active[i], 0, __ATOMIC_RELAXED);
-        idt_set_gate((uint8_t)(IRQ_VECTOR_BASE + i), irq_vector_stub_table[i], 0x08, 0x8E);
+        idt_set_gate((uint8_t)(IRQ_VECTOR_BASE + i), irq_vector_entry_table[i], 0x08, 0x8E);
         __atomic_store_n(&irq_vector_handlers[i], handler, __ATOMIC_RELEASE);
         *vector = (uint8_t)(IRQ_VECTOR_BASE + i);
         spin_unlock_irqrestore(&irq_vector_lock, f);
@@ -136,7 +136,7 @@ int irq_vector_release(uint8_t vector) {
     f = spin_lock_irqsave(&irq_vector_lock);
     irq_vector_used[i] = 0;
     spin_unlock_irqrestore(&irq_vector_lock, f);
-    /* IDT stub остаётся установленным: поздний уже доставленный IRQ получит EOI,
+    /* IDT entry остаётся установленным: поздний уже доставленный IRQ получит EOI,
        а не попадёт в общий fatal-handler. Повторное использование требует, чтобы
        владелец сначала замаскировал GSI и отключил источник устройства. */
     (void)isr_unhandled;
