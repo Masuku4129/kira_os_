@@ -358,9 +358,9 @@ int pci_quiesce_interrupts(const pci_dev_t* d) {
                 if (pci_read16(d, (uint16_t)(ptr + 2u)) & 1u) safe = 0;
             } else if (id == 0x11u) {
                 uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
-                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)((control & ~0x8000u) | 0x4000u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control | 0x4000u));
                 uint16_t after = pci_read16(d, (uint16_t)(ptr + 2u));
-                if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
+                if (!(after & 0x4000u)) safe = 0;
             }
             if (!next) { ptr = 0; break; }
             if (next < 0x40u || next > 0xFCu || (next & 3u) || next == ptr) {
