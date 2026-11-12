@@ -358,6 +358,7 @@ int iommu_arm64_init(const void* fdt, int pci_host_node)
 
     first_smmu_node = fdt_phandle_node(fdt, first_phandle);
     if (first_smmu_node < 0 ||
+        !fdt_compatible(fdt, first_smmu_node, "arm,smmu-v3") ||
         fdt_reg(fdt, first_smmu_node, 0, &smmu_base, &smmu_size) != 0 ||
         smmu_size < ARM_SMMU_REG_BYTES) {
         arm_map_invalid = 1u;
