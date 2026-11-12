@@ -1,7 +1,7 @@
 #ifndef KIRA_USER_H
 #define KIRA_USER_H
 
-#include "../kcc/include/syscall_numbers.h"
+#include "syscall_numbers.h"
 /* API программ для Kira OS (x86-64 Ring 3 и ARM64 EL0). Без libc: только системные вызовы.
    x86-64: rax = номер, rdi/rsi/rdx = аргументы, результат в rax. ARM64: x8 = номер, x0..x2, результат в x0. */
 typedef unsigned char u8; typedef unsigned short u16; typedef unsigned int u32;
