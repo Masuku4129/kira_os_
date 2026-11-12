@@ -261,10 +261,12 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-memory-max-") as td:
 # A valid 10-byte negative i64 LEB must not shift by the 64-bit width.
 i64_min_module = (
     magic +
-    b"\x01\x05\x01\x60\x00\x01\x7e" +
-    b"\x03\x02\x01\x00" +
+    # Keep the exported KIRA entry () -> (); place the signed i64 constant in
+    # a second, non-entry function so the loader reaches its LEB decoder.
+    b"\x01\x08\x02\x60\x00\x00\x60\x00\x01\x7e" +
+    b"\x03\x03\x02\x00\x01" +
     b"\x07\x09\x01\x05kmain\x00\x00" +
-    b"\x0a\x0f\x01\x0d\x00\x42" +
+    b"\x0a\x12\x02\x02\x00\x0b\x0d\x00\x42" +
     b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f\x0b"
 )
 with tempfile.TemporaryDirectory(prefix="kira-wasm-i64-leb-") as td:
