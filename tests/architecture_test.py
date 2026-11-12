@@ -16,6 +16,22 @@ def require(condition, message):
 
 core = read("syscall.c")
 adapter = read("syscall_services.c")
+x86_main = read("arch/x86_64/kernel_main.c")
+x86_boot = read("arch/x86_64/kernel_boot.c")
+x86_boot_header = read("arch/x86_64/kernel_boot.h")
+kernel_header = read("kernel.h")
+require("arch/x86_64/kernel_main.c" in read("build_clang.sh"),
+        "x86 kernel entry is not owned by the x86 backend build")
+require("arch/x86_64/kernel_boot.c" in read("build_clang.sh"),
+        "x86 boot coordinator is not owned by the x86 backend build")
+require("kernel_boot_init" not in kernel_header,
+        "x86-only boot API leaked into the common kernel header")
+require("kernel_boot_init" in x86_boot_header and '#include "kernel_boot.h"' in x86_main,
+        "x86 boot coordinator API is not scoped to the x86 backend")
+require(not (ROOT / "kernel.c").exists() and not (ROOT / "kernel_boot.c").exists(),
+        "architecture-specific kernel entry source remains in the repository root")
+require("void kernel_main(" in x86_main and "kernel_boot_init(" in x86_boot,
+        "x86 entry/boot ownership is incomplete")
 numbers = read("kcc/include/syscall_numbers.h")
 for path in ("build_clang.sh", "build_arm64.sh"):
     require("syscall_services.c" in read(path),
