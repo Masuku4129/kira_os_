@@ -21,6 +21,11 @@ int main(void) {
     assert(!kstack_slot_from_base(valid, BASE, STRIDE, SLOTS, SIZE, 1, 0));
     assert(!kstack_slot_from_base(valid, BASE, STRIDE, SLOTS, SIZE, SLOTS + 1u, &slot));
     assert(!kstack_slot_from_base(0, 0, UINT64_MAX, 2, 1, 1, &slot));
+    assert(!kstack_slot_can_reuse(0, 0, SLOTS));
+    assert(kstack_slot_can_reuse(0, 1, SLOTS));
+    assert(kstack_slot_can_reuse(SLOTS - 1, SLOTS, SLOTS));
+    assert(!kstack_slot_can_reuse(SLOTS, SLOTS, SLOTS));
+    assert(!kstack_slot_can_reuse(1, 1, SLOTS));
     assert(kstack_slot_activate(active, SLOTS, 0));
     assert(!kstack_slot_activate(active, SLOTS, 0));
     assert(!kstack_slot_release(active, SLOTS, 1));
