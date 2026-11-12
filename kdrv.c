@@ -183,7 +183,7 @@ static uint16_t quiesce(const pci_dev_t* d) {
 /* ---- запуск ---- */
 static void bind_reset(bind_t* b) {
     b->granted = b->version = b->pid = 0;
-    b->irq_count = 0; b->irq_seen = 0; b->irq_on = 0; b->waiting = 0; b->tx_pending = 0; b->denied = 0;
+    b->irq_count = 0; b->irq_seen = 0; b->irq_on = 0; b->waiting = 0; b->tx_pending = 0; b->denied = 0; b->dma_quiesced = 0;
     b->nmap = 0; b->mmio_next = MMIO_VA; b->ndma = 0; b->dma_pages = 0; b->dma_next = DMA_VA;
     b->net_alive = 0; b->ctl = 0; b->net_pa = 0; b->net_pages = 0; b->tx_head = b->rx_tail = 0;
     b->net_tx = b->net_rx = b->net_bad = 0;
@@ -348,7 +348,9 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
     uart_print("[KIRA DRV] drv-"); uart_print(b->name); uart_print(" (pid "); uart_print_dec(pid); uart_print(") завершён: устройство ");
     print_bdf(b->dev); uart_print(" остановлено (команда PCI "); uart_print_hex(cmd); uart_print(", MSI выключено), DMA ");
     uart_print_dec(b->dma_pages); uart_print(" стр. в "); uart_print_dec(b->ndma); uart_print(" блок(ах) и кольца ");
-    uart_print_dec(b->net_pages); uart_print(" стр. вернутся через 100 мс\n");
+    uart_print_dec(b->net_pages); uart_print(" стр. ");
+    if (b->dma_quiesced) uart_print("вернутся после задержки 100 мс\n");
+    else uart_print("ОСТАЮТСЯ ЗАКРЕПЛЕНЫ: PCI Bus Master не выключен, устройство в карантине\n");
 }
 
 static void release(bind_t* b) {
@@ -425,7 +427,7 @@ void kdrv_poll(void) {
                 b->dma_quiesced = 1;
                 b->dead_at = timer_get_ticks();
                 uart_print("[KIRA DRV] "); uart_print(b->name);
-                uart_print(": PCI DMA stopped on retry; release timer restarted\\n");
+                uart_print(": PCI DMA stopped on retry; release timer restarted\n");
             }
         }
         if (b->state == B_DEAD && b->dma_quiesced &&
