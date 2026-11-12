@@ -158,15 +158,28 @@ static int test_rejects_malformed_and_traps(void)
         INS(KVM_OP_LOAD8, 0, 1, 0, 0),
         INS(KVM_OP_HALT, 0, 0, 0, 0)
     };
+    const struct kvm_instruction bad_shift[] = {
+        INS(KVM_OP_CONST, 1, 0, 0, 64),
+        INS(KVM_OP_CONST, 2, 0, 0, 1),
+        INS(KVM_OP_SHL, 0, 2, 1, 0),
+        INS(KVM_OP_HALT, 0, 0, 0, 0)
+    };
+    const struct kvm_instruction bad_register[] = {
+        INS(KVM_OP_MOV, 16, 0, 0, 0)
+    };
     const struct kvm_module branch_module = { (const uint8_t *)bad_branch, sizeof bad_branch, 0, 0, 1, 0, 0 };
     const struct kvm_module opcode_module = { (const uint8_t *)bad_opcode, sizeof bad_opcode, 0, 0, 1, 0, 0 };
     const struct kvm_module div_module = { (const uint8_t *)div_zero, sizeof div_zero, 0, 0, 1, 0, 0 };
     const struct kvm_module oob_module = { (const uint8_t *)oob, sizeof oob, 0, 0, 1, 0, 0 };
+    const struct kvm_module shift_module = { (const uint8_t *)bad_shift, sizeof bad_shift, 0, 0, 1, 0, 0 };
+    const struct kvm_module register_module = { (const uint8_t *)bad_register, sizeof bad_register, 0, 0, 1, 0, 0 };
     uint64_t result = 0;
     CHECK(kvm_verify(&branch_module, 0) == KVM_E_BRANCH);
     CHECK(kvm_verify(&opcode_module, 0) == KVM_E_OPCODE);
+    CHECK(kvm_verify(&register_module, 0) == KVM_E_REGISTER);
     CHECK(run(&div_module, 0, 20, &result) == KVM_E_DIVIDE_BY_ZERO);
     CHECK(run(&oob_module, 0, 20, &result) == KVM_E_MEMORY_BOUNDS);
+    CHECK(run(&shift_module, 0, 20, &result) == KVM_E_SHIFT_RANGE);
     return 0;
 }
 
