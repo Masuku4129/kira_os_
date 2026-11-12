@@ -130,6 +130,33 @@ The runner uses the same KVM1 interpreter source on both architectures. This
 establishes build integration, not yet cross-architecture execution equivalence:
 identical module fixtures must still be run under x86-64 and ARM64 QEMU/VM CI.
 
+## Experimental assembler
+
+`tools/kvm_asm.py` assembles the current KVM1 instruction syntax into a
+portable container. It supports labels, entry points, integer/register
+instructions, branches/calls, capability declarations, and initial data
+(`.ascii`, `.byte`, `.zero`). Example:
+
+```asm
+.memory 1
+.caps console
+.entry start
+start:
+    const r0, 0
+    const r1, 6
+    syscall 0, console
+    halt
+.data
+.ascii "hello!"
+```
+
+Build with `python3 tools/kvm_asm.py hello.kvasm hello.kvm`. The assembler
+automatically includes capabilities used by `syscall` instructions and rejects
+unknown labels, invalid registers, unsupported capability names, and out-of-range
+immediates. It is an experimental SDK seed, not a frozen source language or a
+replacement for the future C/KCC KVM backend. Regression tests run in the host
+suite via `tests/kvm_asm_test.py`.
+
 ## ABI decision gate
 
 This branch currently implements an experimental 32-byte KVM1 header with a fixed
