@@ -305,21 +305,43 @@ static int nhc;
 static const pci_dev_t* hc_pci[USB_MAX_HC];
 
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) __attribute__((weak));
+void platform_dma_free(void* cpu, uint64_t phys, uint32_t bytes) __attribute__((weak));
 int platform_dma_noncoherent(void) __attribute__((weak));
 void* usb_dma_alloc(uint32_t bytes, uint64_t* phys, int below_4g) {
-    if (platform_dma_pool) { void* q = platform_dma_pool(bytes, phys, below_4g); if (q) return q; }
+    if (!bytes || !phys || bytes > UINT32_MAX - 4095u) return 0;
+    *phys = 0;
+    uint32_t pages = (bytes + 4095u) / 4096u;
+    uint64_t rounded = (uint64_t)pages * 4096u;
+    if (platform_dma_pool) {
+        void* q = platform_dma_pool(bytes, phys, below_4g);
+        if (q) {
+            int valid = !((uintptr_t)q & 4095u) && *phys && !(*phys & 4095u) &&
+                        *phys <= UINT64_MAX - rounded &&
+                        (!below_4g || *phys + rounded <= 0x100000000ULL);
+            if (valid) return q;
+            if (platform_dma_free && *phys) platform_dma_free(q, *phys, bytes);
+            *phys = 0;
+            return 0;
+        }
+    }
     /* Never fall back to cacheable PMM pages on a non-coherent platform. */
     if (platform_dma_noncoherent && platform_dma_noncoherent()) return 0;
-    uint32_t pages = (bytes + 4095) / 4096;
     uint64_t pa = pmm_alloc_contiguous(pages);
     if (!pa) return 0;
-    if (below_4g && pa + (uint64_t)pages * 4096 > 0x100000000ULL) { pmm_free_contiguous(pa, pages); return 0; }
+    if (pa > UINT64_MAX - rounded ||
+        (below_4g && pa + rounded > 0x100000000ULL)) {
+        pmm_free_contiguous(pa, pages);
+        return 0;
+    }
     for (uint32_t i = 0; i < pages; i++) {                    /* устройство и процессор видят один адрес */
         uint64_t t;
-        if (vmm_translate(pa + (uint64_t)i * 4096, &t) != 0 || t != pa + (uint64_t)i * 4096) { pmm_free_contiguous(pa, pages); return 0; }
+        if (vmm_translate(pa + (uint64_t)i * 4096, &t) != 0 || t != pa + (uint64_t)i * 4096) {
+            pmm_free_contiguous(pa, pages);
+            return 0;
+        }
     }
     uint8_t* p = (uint8_t*)(uintptr_t)pa;
-    for (uint64_t i = 0; i < (uint64_t)pages * 4096; i++) p[i] = 0;
+    for (uint64_t i = 0; i < rounded; i++) p[i] = 0;
     *phys = pa;
     return p;
 }
