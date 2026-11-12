@@ -737,11 +737,21 @@ static int load(void) {
             has_start = 1;
         } else if (id == 9) {                                     /* элементы таблицы */
             u32 n = leb_u(&s, se);
+            if (trapped || (n && !table)) { trap("element segment without a table"); return -1; }
             for (u32 i = 0; i < n && !trapped; i++) {
                 u32 fl = leb_u(&s, se);
-                if (fl != 0) { trap("only active element segments (flag 0) are supported"); return -1; }
-                u32 off = (u32)const_expr(&s, se), cnt = leb_u(&s, se);
-                for (u32 k = 0; k < cnt; k++) { u32 f = leb_u(&s, se); if (off + k < ntable) table[off + k] = f; }
+                if (trapped || fl != 0) { trap("only active element segments (flag 0) are supported"); return -1; }
+                u64 off64 = const_expr(&s, se);
+                u32 cnt = leb_u(&s, se);
+                if (trapped || off64 > ntable || (u64)cnt > (u64)ntable - off64) {
+                    trap("element segment outside table"); return -1;
+                }
+                u32 off = (u32)off64;
+                for (u32 k = 0; k < cnt; k++) {
+                    u32 f = leb_u(&s, se);
+                    if (trapped || f >= nfuncs) { trap("element function index out of range"); return -1; }
+                    table[off + k] = f;
+                }
             }
         } else if (id == 10) {                                    /* код */
             u32 n = leb_u(&s, se);
@@ -779,12 +789,19 @@ static int load(void) {
                 if (!mem) { trap("no memory for the module"); return -1; }
             }
             u32 n = leb_u(&s, se);
+            if (trapped) return -1;
             for (u32 i = 0; i < n && !trapped; i++) {
                 u32 fl = leb_u(&s, se);
-                if (fl == 2) leb_u(&s, se);
-                if (fl == 1) { trap("passive data segments are not supported"); return -1; }
-                u32 off = (u32)const_expr(&s, se), len = leb_u(&s, se);
-                if ((u64)off + len > (u64)mem_pages * 65536 || s + len > se) { trap("data segment out of memory"); return -1; }
+                if (trapped || fl == 1) { trap("passive data segments are not supported"); return -1; }
+                if (fl > 2) { trap("unsupported data segment flags"); return -1; }
+                if (fl == 2 && leb_u(&s, se) != 0) { trap("unsupported data memory index"); return -1; }
+                if (trapped) return -1;
+                u64 off64 = const_expr(&s, se);
+                u32 len = leb_u(&s, se);
+                if (trapped || off64 > (u64)mem_pages * 65536 ||
+                    (u64)len > (u64)mem_pages * 65536 - off64 ||
+                    len > (u32)(se - s)) { trap("data segment out of memory or section"); return -1; }
+                u32 off = (u32)off64;
                 for (u32 k = 0; k < len; k++) mem[off + k] = s[k];
                 s += len;
             }
