@@ -126,6 +126,10 @@ The first runner profile is intentionally narrower than the portable core:
   whose origin you trust; package signature and anti-rollback are still required
   before general distribution.
 
+Both architecture build scripts generate and install `/apps/hello.kvm` from
+`examples/kvm/hello.kvasm`. Open `/apps/hello.kvm` in the file manager to run
+the same portable smoke module through the file-grant path.
+
 The runner uses the same KVM1 interpreter source on both architectures. This
 establishes build integration, not yet cross-architecture execution equivalence:
 identical module fixtures must still be run under x86-64 and ARM64 QEMU/VM CI.
