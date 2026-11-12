@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Negative tests for the untrusted WebAssembly module header/section envelope."""
+import os
 import pathlib
 import subprocess
 import sys
 import tempfile
 
 host = sys.argv[1]
+test_env = os.environ.copy()
+test_env["WASM_NOJIT"] = "1"  # exercise the portable interpreter, as on ARM64
 magic = b"\x00asm\x01\x00\x00\x00"
 cases = [
     ("nonzero-version-reserved-byte", magic[:7] + b"\x01", "not a WebAssembly 1.0 module"),
@@ -55,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-bounds-") as td:
         path = pathlib.Path(td) / (name + ".wasm")
         path.write_bytes(module)
         run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, text=True)
+                             stderr=subprocess.STDOUT, text=True, env=test_env)
         if run.returncode == 0 or expected not in run.stdout:
             print("FAIL:", name, "exit=", run.returncode)
             print(run.stdout)
