@@ -18,9 +18,10 @@ static uint32_t instruction_immediate(const struct kvm_instruction *i)
            ((uint32_t)i->immediate_le[2] << 16) |
            ((uint32_t)i->immediate_le[3] << 24);
 }
-static int32_t instruction_signed_immediate(const struct kvm_instruction *i)
+static int64_t instruction_signed_immediate(const struct kvm_instruction *i)
 {
-    return (int32_t)instruction_immediate(i);
+    uint32_t raw = instruction_immediate(i);
+    return (raw & 0x80000000u) ? (int64_t)raw - 0x100000000ll : (int64_t)raw;
 }
 static uint16_t read_le16(const uint8_t *p)
 {
@@ -92,9 +93,9 @@ static int fields_zero(const struct kvm_instruction *i,
            (keep_imm || instruction_immediate(i) == 0);
 }
 
-static int target_valid(const struct kvm_module *m, int32_t target)
+static int target_valid(const struct kvm_module *m, int64_t target)
 {
-    return target >= 0 && (uint32_t)target < m->code_size / sizeof(struct kvm_instruction);
+    return target >= 0 && (uint64_t)target < m->code_size / sizeof(struct kvm_instruction);
 }
 
 int kvm_verify(const struct kvm_module *m, uint64_t granted_capabilities)
@@ -240,7 +241,7 @@ static int effective_address(const struct kvm_instance *v,
                              size_t width, size_t *address)
 {
     uint64_t base = v->registers[i->a];
-    int64_t offset = (int64_t)instruction_signed_immediate(i);
+    int64_t offset = instruction_signed_immediate(i);
     uint64_t result;
 
     if (offset < 0) {
