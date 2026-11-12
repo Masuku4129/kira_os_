@@ -128,15 +128,22 @@ int ac97_probe(void) {
          iommu_map(p, a.in_p, a.in_p, BUFSZ, IOMMU_R | IOMMU_W) != IOMMU_OK ||
          iommu_map(p, a.obdl_p, a.obdl_p, NBD * 8, IOMMU_R | IOMMU_W) != IOMMU_OK ||
          iommu_map(p, a.ibdl_p, a.ibdl_p, NBD * 8, IOMMU_R | IOMMU_W) != IOMMU_OK)) {
-        iommu_unmap_all(p);
+        if (pci_disable_bus_master(p)) {
+            iommu_unmap_all(p);
+        } else {
+            uart_print("[KIRA AC97] bus mastering did not stop; DMA mappings remain pinned.\n");
+        }
         uart_print("[KIRA AC97] IOMMU DMA mapping failed; controller disabled.\n");
         return -4;
     }
 #endif
     pci_enable(p, PCI_CMD_MASTER);
     if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
-        pci_disable_bus_master(p);
-        iommu_unmap_all(p);
+        if (pci_disable_bus_master(p)) {
+            iommu_unmap_all(p);
+        } else {
+            uart_print("[KIRA AC97] bus mastering did not stop; DMA mappings remain pinned.\n");
+        }
         uart_print("[KIRA AC97] PCI bus mastering was not granted.\n");
         return -4;
     }
@@ -156,7 +163,7 @@ int ac97_probe(void) {
         if (pci_disable_bus_master(p)) {
             iommu_unmap_all(p);
         } else {
-            uart_print("[KIRA AC97] bus mastering did not stop; DMA mappings remain pinned.\\n");
+            uart_print("[KIRA AC97] bus mastering did not stop; DMA mappings remain pinned.\n");
         }
     }
     return attach_rc;
