@@ -233,7 +233,8 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
        config-space write actually took effect. */
     uint16_t pci_command = pci_read16(d, 0x04);
     pci_write16(d, 0x04, kdrv_pci_command_clear_master(pci_command));
-    if ((pci_command & PCI_CMD_MASTER) || (pci_read16(d, 0x04) & PCI_CMD_MASTER)) {
+    uint16_t pci_after = pci_read16(d, 0x04);
+    if (!kdrv_pci_busmaster_handoff_safe(pci_command, pci_after)) {
         (void)quiesce(d);
         b->state = B_FREE;
         kfree(p.buf);
