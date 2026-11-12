@@ -33,8 +33,8 @@ start:
 '''
     blob = ASM.assemble(hello)
     version, header, code_len, data_len, pages, entry, caps = struct.unpack_from("<HHIIIIQ", blob, 4)
-    assert blob[:4] == b"KVM1"
-    assert (version, header, code_len, data_len, pages, entry) == (1, 32, 32, 6, 1, 0)
+    assert blob[:4] == b"KVP0"
+    assert (version, header, code_len, data_len, pages, entry) == (0, 32, 32, 6, 1, 0)
     assert caps == 1
     assert blob[32 + code_len:] == b"hello:"
     assert len(blob) == 32 + code_len + data_len
