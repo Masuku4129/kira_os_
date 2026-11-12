@@ -87,3 +87,18 @@ No tests were executed during this source-review pass. Findings above are code o
 - **Evidence:** `port_recv()` dequeues the message and copies into a kernel buffer; after it returns, SYS_PORT_RECV copies the bytes to user memory. If `copy_to_user()` fails because the destination was concurrently unmapped or became invalid, the message has already been removed and is lost; the source comment explicitly records this behavior.
 - **Action:** decide and document whether IPC receive is at-most-once with loss on invalid destination. If not acceptable, design a retry-safe protocol (pre-pin destination pages, dequeue token/ack, or other ownership protocol) without touching user memory under a spinlock. Add race/fault tests. RFC-IPC-001 tracks this open decision.
 
+
+
+## F-011 — KDRV catalogue/trust/manager proposal in PR #42 is not wired into production runtime
+
+- **Severity:** High — integration/assurance gap; not a claim that the standalone library logic is incorrect.
+- **Evidence:** In PR #42 branch `v46/kdrv-catalogue-signature-policy`, new `drivers/kdrv/kdrv_trust.c`, `kdrv_catalogue.c` and `kdrv_manager.c` are compiled by `tests/run_host_tests.sh`, but the production `build_clang.sh` source list and kernel entry paths do not compile/call these modules. `kernel.c` and `arch/aarch64/main.c` do not reference `kdrv_catalogue_load`, `kdrv_manager_install` or `kdrv_trust_verify_catalogue`. The current production driver path remains the existing `kdrv.c` package loader; PR #42 also modifies that path for detached per-package Ed25519 signatures and publisher-required .rec policy.
+- **Trust provider gap:** `kdrv_trust_ops` delegates Ed25519, SHA-256, trusted time and monotonic version storage to callbacks. The PR's catalogue test supplies mock hash/verify/time/floor callbacks and sets `KDRV_TRUST_STORAGE_HW_MONOTONIC`; ADR-0002 explicitly says no real hardware-backed monotonic provider exists. The API flag is a contract assertion, not proof that a platform provider exists.
+- **Action:** separate the production per-package signature path from the new signed-catalogue architecture. Before calling catalogue trust production-ready, wire a real key store, trusted-time source, cryptographic provider, hardware monotonic storage provider, serialized catalogue→package activation path and persistent rollback/recovery behavior. Keep host mock tests labeled policy-only; require platform evidence for the monotonic flag.
+
+## F-012 — PR #42 introduces two incompatible BootInfo v1 structures, one of them unintegrated
+
+- **Severity:** High — architecture/ABI duplication risk.
+- **Evidence:** PR #42 branch contains root `bootinfo.h` (`kbi_header_t`, 136-byte packed header, magic `0x4941524B`, offset-based blob with x86/ARM architecture, memory map, modules, cmdline, framebuffer, ACPI/FDT) which is consumed by `kernel.c`, `arch/aarch64/main.c`, `bootinfo.c`, `bootinfo_mb2.c` and `bootinfo_fdt.c`, and compiled by build scripts. The same branch also adds `include/kira/bootinfo.h` with a different 64-bit magic, different struct fields and descriptor-pointer model, plus `kernel/boot/boot_handoff.[ch]` using that second format. The latter handoff source is not in the production build source lists and its entry function is not called by the kernel entry paths reviewed.
+- **Action:** do not integrate both formats. Keep one canonical KIRA BootInfo ABI, one version/magic/layout, one validator and architecture-specific adapters. Remove or explicitly quarantine the unused alternate format only after confirming no dependent PR consumes it. Add a cross-ISA fixture and compile-time ABI size/offset assertions to the canonical contract.
+
