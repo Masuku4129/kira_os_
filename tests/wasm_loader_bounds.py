@@ -57,4 +57,26 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-bounds-") as td:
             raise SystemExit(1)
         print("PASS:", name)
 
+
+# A declared maximum of zero is distinct from an omitted maximum. The module
+# must not be silently granted the runtime's default 32 pages.
+zero_max_module = (
+    magic +
+    b"\x01\x05\x01\x60\x00\x01\x7f" +
+    b"\x03\x02\x01\x00" +
+    b"\x05\x04\x01\x01\x00\x00" +
+    b"\x07\x09\x01\x05kmain\x00\x00" +
+    b"\x0a\x08\x01\x06\x00\x41\x01\x40\x00\x0b"
+)
+with tempfile.TemporaryDirectory(prefix="kira-wasm-memory-max-") as td:
+    path = pathlib.Path(td) / "zero-max.wasm"
+    path.write_bytes(zero_max_module)
+    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True)
+    if "wasm: finished with code 4294967295" not in run.stdout:
+        print("FAIL: explicit zero memory maximum was not enforced")
+        print(run.stdout)
+        raise SystemExit(1)
+    print("PASS: explicit zero memory maximum is enforced")
+
 print("wasm loader bounds: all malformed envelopes rejected")
