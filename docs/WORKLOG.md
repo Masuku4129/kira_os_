@@ -134,7 +134,7 @@
 
 
 ## Продолжение работ — ARM64 FDT parser audit (2026-11-12)
-- Рабочая ветка PR #42: `v46/kdrv-catalogue-signature-policy`; текущий head после последующих изменений: `d980f840f2e2d32c261dbe56701c3a4f6c0fbc5a`.
+- Рабочая ветка PR #42: `v46/kdrv-catalogue-signature-policy`; текущий head после последующих изменений: `2c93f22a780b1b7171abd9525e0430aa2c22bc00`.
 - В `arch/aarch64/fdt.c` исправлены три ошибки парсера загрузочного FDT:
   1. `reserved_count` использовался до инициализации при добавлении firmware reserve-map entries; теперь весь выходной `kira_fdt_info` обнуляется до парсинга.
   2. `#address-cells/#size-cells` из дочерней шины протекали в последующие sibling nodes; значения восстанавливаются при `FDT_END_NODE`.
@@ -143,5 +143,5 @@
 - Дополнительно reserve map обязан иметь нулевой терминатор в пределах blob; проверяются выравнивание и отсутствие пересечения reserve map, structure и strings blocks.
 - Добавлен `tests/fdt_arm_parser_test.c`: входная структура заранее заполнена 0xA5; проверяются reserve map, восстановление ширины cell после вложенной шины, `/cpus/cpu@3` с нулевой шириной size-cells, RAM node с unit-address и отклонение перекрывающихся блоков. Тест подключён к `tests/run_host_tests.sh`.
 - Важное ограничение интеграции: `build_arm64.sh` компилирует корневой `fdt.c`, а не `arch/aarch64/fdt.c`; ARM64 `main.c` также использует legacy API из корневого `fdt.h`. Поэтому новый arch-local parser пока не является путём загрузки production и его host test не доказывает исправность действующего boot path. Нужна отдельная архитектурная развилка: интегрировать этот parser и перевести потребителей либо удалить дублирующую неиспользуемую реализацию после согласования API.
-- После новых commits workflow для последнего head `99ebfca1...` ещё не завершён; host test и ARM64 build не подтверждены. PASS не заявлять.
+- После новых commits workflow для последнего head `2c93f22a...` ещё не найден; host test и ARM64 build не подтверждены. PASS не заявлять.
 - Следующие независимые направления: аудит WASM verifier/type-stack и quotas; KDRV production callback coverage и cryptographic publisher trust; SMMUv3 runtime/teardown; kernel scheduler/process lifecycle; native/compatibility runtime; KCC, Mind, KiraFS/network/GUI/build/recovery. PR не объединять без разрешения владельца.
