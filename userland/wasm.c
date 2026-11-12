@@ -517,6 +517,7 @@ static int compile_func(func_t* f) {
         case 0x00: lz_flush(); ew(OP_TRAP); ew(TM_UNREACH); c_unr = 1; break;
         case 0x01: break;
         case 0x02: case 0x03: case 0x04: {
+            if (p >= end) CERR("truncated block type");
             u8 bt = *p; u32 ar = 0; int bad = 0;
             if (bt == 0x40) p++;
             else if (bt == 0x7F || bt == 0x7E || bt == 0x7D || bt == 0x7C) { p++; ar = 1; }
@@ -715,13 +716,13 @@ static int compile_func(func_t* f) {
             break;
         case 0x41: lz_push(2, (u32)leb_s(&p, end, 32)); break;
         case 0x43: {
-            if (p + 4 > end) CERR("truncated f32.const");
+            if ((u64)(end - p) < 4) CERR("truncated f32.const");
             lz_push(2, (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24); p += 4; break;
         }
         case 0x42: case 0x44: {
             u64 v = 0;
             if (op == 0x42) v = (u64)leb_s(&p, end, 64);
-            else { if (p + 8 > end) CERR("truncated f64.const"); for (int i = 7; i >= 0; i--) v = v << 8 | p[i]; p += 8; }
+            else { if ((u64)(end - p) < 8) CERR("truncated f64.const"); for (int i = 7; i >= 0; i--) v = v << 8 | p[i]; p += 8; }
             lz_flush(); ew(op); ew((u32)v); ew((u32)(v >> 32)); hpush(1); break;
         }
         case 0xFC: {
