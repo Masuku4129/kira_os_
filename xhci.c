@@ -507,13 +507,13 @@ static int xhci_abort_start(const pci_dev_t* p) {
     cpu_mb();
     uint16_t command = pci_read16(p, 0x04);
     pci_write16(p, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
-    if (pci_read16(p, 0x04) & PCI_CMD_MASTER) {
+    int master_stuck = (pci_read16(p, 0x04) & PCI_CMD_MASTER) != 0;
+    if (master_stuck)
         usb_log("[KIRA USB] xHCI abort: bus mastering stuck; DMA arena slot quarantined\\n");
-        started++; /* never reuse the controller state if the device may still DMA */
-        return -1;
-    }
-    usb_log("[KIRA USB] xHCI abort: controller stopped and PCI bus mastering cleared; DMA pages retained\\n");
-    return 0;
+    else
+        usb_log("[KIRA USB] xHCI abort: controller stopped and PCI bus mastering cleared; DMA pages retained\\n");
+    started++; /* DMA was armed: never reuse this controller state or its arena allocations. */
+    return master_stuck ? -1 : 0;
 }
 
 static int xhci_mask_pci_interrupts(const pci_dev_t* p) {
