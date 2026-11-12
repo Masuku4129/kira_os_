@@ -98,3 +98,8 @@ The syscall core now depends on a subsystem-agnostic adapter contract. The route
 
 
 The source layout now reflects part of this boundary: `kernel/syscall.c` owns syscall mechanism and `services/*_syscall.c` own service-facing adapters. Root headers remain temporary compatibility interfaces until the public include tree is consolidated.
+
+
+## 7. ARM64 PCI host backend ownership
+
+The FDT-described PCIe host bridge is now a separate architecture backend: `arch/aarch64/pci_host.c` owns ECAM discovery, MMIO mapping, address-window parsing and BAR assignment. `arch/aarch64/main.c` owns only the ordered boot handoff and supplies its logger. The common PCI enumeration core remains in `pci.c`; the x86 mechanism-1 host backend and explicit x86 enumeration remain separate work, gated on firmware bus-master sanitization and per-device IOMMU readiness. Do not infer x86/ARM parity from this ARM64 extraction.
