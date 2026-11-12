@@ -188,7 +188,7 @@ static uint64_t collect_phys_ram(const void* fdt, uint64_t pa_limit) {
         if (!reg || !reg_len || reg_len % stride) kernel_panic("invalid FDT memory reg");
         for (uint32_t i = 0; i < reg_len / stride; i++) {
             uint64_t base = 0, size = 0, clipped = 0;
-            if (fdt_reg(fdt, 4u * 1024u * 1024u, node, i, &base, &size)) kernel_panic("invalid FDT memory range");
+            if (fdt_reg(fdt, FDT_BOOT_MAX_SIZE, node, i, &base, &size)) kernel_panic("invalid FDT memory range");
             if (!arm_range_clip(base, size, pa_limit, &clipped)) continue;
             if (nphys >= MAX_RAM) kernel_panic("too many physical RAM banks");
             phys_ram[nphys++] = (arm_range_t){ .base = base, .size = clipped };
@@ -336,9 +336,9 @@ static int dma_noncoherent(const void* fdt) {
 /* Проверка пересечения с областями, которые прошивка/ядро уже зарезервировали.
    DMA pool нельзя вырезать из /reserved-memory, firmware memreserve или framebuffer. */
 static int dma_pool_hits_reserved(const void* fdt, uint64_t lo, uint64_t hi) {
-    for (unsigned i = 0; i < fdt_reserve_count(fdt, 4u * 1024u * 1024u); i++) {
+    for (unsigned i = 0; i < fdt_reserve_count(fdt, FDT_BOOT_MAX_SIZE); i++) {
         uint64_t base = 0, size = 0;
-        if (fdt_reserve(fdt, 4u * 1024u * 1024u, i, &base, &size) ||
+        if (fdt_reserve(fdt, FDT_BOOT_MAX_SIZE, i, &base, &size) ||
             base > UINT64_MAX - size) return 1;
         if (size && base < hi && lo < base + size) return 1;
     }
@@ -364,7 +364,7 @@ static int dma_pool_hits_reserved(const void* fdt, uint64_t lo, uint64_t hi) {
                 unsigned count = reg_len / stride;
                 for (unsigned reg = 0; reg < count; reg++) {
                     uint64_t base = 0, size = 0;
-                    if (fdt_reg(fdt, 4u * 1024u * 1024u, node, reg, &base, &size) != 0 || !size ||
+                    if (fdt_reg(fdt, FDT_BOOT_MAX_SIZE, node, reg, &base, &size) != 0 || !size ||
                         base > UINT64_MAX - size) return 1;
                     if (base < hi && lo < base + size) return 1;
                 }
@@ -377,7 +377,7 @@ static int dma_pool_hits_reserved(const void* fdt, uint64_t lo, uint64_t hi) {
          node >= 0; node = fdt_find_compatible(fdt, node, "simple-framebuffer")) {
         if (!fdt_node_enabled(fdt, node)) continue;
         uint64_t base = 0, size = 0;
-        if (fdt_reg(fdt, 4u * 1024u * 1024u, node, 0, &base, &size) != 0 || !size ||
+        if (fdt_reg(fdt, FDT_BOOT_MAX_SIZE, node, 0, &base, &size) != 0 || !size ||
             base > UINT64_MAX - size) return 1;
         if (base < hi && lo < base + size) return 1;
     }
@@ -761,7 +761,7 @@ static uint64_t pages(unsigned n) {
 static int its_init(const void* fdt) {
     int n = fdt_find_enabled_compatible(fdt, -1, "arm,gic-v3-its");
     uint64_t sz;
-    if (n < 0 || fdt_reg(fdt, 4u * 1024u * 1024u, n, 0, &its, &sz) != 0) { its = 0; return -1; }
+    if (n < 0 || fdt_reg(fdt, FDT_BOOT_MAX_SIZE, n, 0, &its, &sz) != 0) { its = 0; return -1; }
     uint64_t rd = my_gicr();
     if (!rd || !(mmio_r64(rd + 0x8) & 1)) { its = 0; return -2; }   /* GICR_TYPER.PLPIS */
     /* таблица настроек: байт на LPI с 8192; таблица ожидания: бит на номер, выровнена на 64 КБ */
@@ -1172,7 +1172,7 @@ const char* platform_irq_name(void) { return gic_v3 ? "GICv3" : "GICv2"; }
 static void rtc_pl031(const void* fdt) {
     int n = fdt_find_enabled_compatible(fdt, -1, "arm,pl031");
     uint64_t base, size;
-    if (n < 0 || fdt_reg(fdt, 4u * 1024u * 1024u, n, 0, &base, &size)) { kprintf("[KIRA RTC] No PL031 real-time clock: date and time are not shown.\n"); return; }
+    if (n < 0 || fdt_reg(fdt, FDT_BOOT_MAX_SIZE, n, 0, &base, &size)) { kprintf("[KIRA RTC] No PL031 real-time clock: date and time are not shown.\n"); return; }
     volatile void* r = vmm_map_mmio(base, size ? size : 4096, 0);
     if (r) rtc_set_epoch((int64_t)mmio_r32((uint64_t)(uintptr_t)r), "PL031, UTC");
 }
@@ -1266,7 +1266,7 @@ static void arm_pci_init(const void* fdt) {
     int n = fdt_find_enabled_compatible(fdt, -1, "pci-host-ecam-generic");
     if (n < 0) { kprintf("[KIRA PCI] no PCI Express host bridge in the device tree\n"); return; }
     uint64_t base, size;
-    if (fdt_reg(fdt, 4u * 1024u * 1024u, n, 0, &base, &size)) return;
+    if (fdt_reg(fdt, FDT_BOOT_MAX_SIZE, n, 0, &base, &size)) return;
     const uint64_t ECAM_BUS_BYTES = 1ull << 20;
     if (!size || (base & (ECAM_BUS_BYTES - 1)) || (size & (ECAM_BUS_BYTES - 1)) ||
         size < ECAM_BUS_BYTES) {
@@ -1350,7 +1350,7 @@ static const void* find_fdt(uint64_t x0) {
     if (!x0 || (x0 & 7)) return 0;
     probing = 1; probe_failed = 0;
     int ok = *(volatile uint32_t*)(uintptr_t)x0 == 0xEDFE0DD0u;   /* FDT_MAGIC в памяти (большой порядок байт) */
-    if (ok && !probe_failed) ok = fdt_tree_valid((const void*)(uintptr_t)x0, 4u * 1024u * 1024u);
+    if (ok && !probe_failed) ok = fdt_tree_valid((const void*)(uintptr_t)x0, FDT_BOOT_MAX_SIZE);
     probing = 0;
     return ok && !probe_failed ? (const void*)(uintptr_t)x0 : 0;
 }
@@ -1376,7 +1376,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
 #ifdef KIRA_EARLY_UART
     kprintf("[early] pl011 node %x\n", (uint64_t)(int64_t)u);
 #endif
-    if (u >= 0) fdt_reg(fdt, 4u * 1024u * 1024u, u, 0, &uart, &sz);
+    if (u >= 0) fdt_reg(fdt, FDT_BOOT_MAX_SIZE, u, 0, &uart, &sz);
     kprintf("\n[KIRA ARM64] Kira OS on ARM64: device tree at %x (%u bytes), console PL011 at %x\n",
             (uint64_t)(uintptr_t)fdt, (uint64_t)fdt_total_size(fdt), uart);
     kprintf("[KIRA ARM64] entered at EL%u, running at EL%u\n", entry_el & 3, (SYSREG_R(CurrentEL) >> 2) & 3);
@@ -1461,16 +1461,16 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     int g = fdt_find_enabled_compatible(fdt, -1, "arm,gic-v3");
     if (g >= 0) {
         gic_v3 = 1;
-        fdt_reg(fdt, 4u * 1024u * 1024u, g, 0, &gicd, &sz);
-        fdt_reg(fdt, 4u * 1024u * 1024u, g, 1, &gicr_base, &gicr_size);
+        fdt_reg(fdt, FDT_BOOT_MAX_SIZE, g, 0, &gicd, &sz);
+        fdt_reg(fdt, FDT_BOOT_MAX_SIZE, g, 1, &gicr_base, &gicr_size);
     } else {
         static const char* const v2[] = { "arm,cortex-a15-gic", "arm,gic-400", "arm,cortex-a9-gic", "arm,cortex-a7-gic" };
         for (unsigned i = 0; i < 4 && g < 0; i++) g = fdt_find_enabled_compatible(fdt, -1, v2[i]);
         if (g < 0) { kprintf("[KIRA ARM64] FATAL: no supported interrupt controller in the device tree\n"); for (;;) __asm__ volatile ("wfe"); }
-        fdt_reg(fdt, 4u * 1024u * 1024u, g, 0, &gicd, &sz);
-        fdt_reg(fdt, 4u * 1024u * 1024u, g, 1, &gicc, &sz);
+        fdt_reg(fdt, FDT_BOOT_MAX_SIZE, g, 0, &gicd, &sz);
+        fdt_reg(fdt, FDT_BOOT_MAX_SIZE, g, 1, &gicc, &sz);
         int m = fdt_find_enabled_compatible(fdt, -1, "arm,gic-v2m-frame");          /* кадр MSI у GICv2 */
-        if (m >= 0 && fdt_reg(fdt, 4u * 1024u * 1024u, m, 0, &v2m, &sz) == 0) {
+        if (m >= 0 && fdt_reg(fdt, FDT_BOOT_MAX_SIZE, m, 0, &v2m, &sz) == 0) {
             uint32_t t = mmio_r32(v2m + 0x8);                                /* MSI_TYPER: первый SPI и их число */
             v2m_spi = (t >> 16) & 0x3FF; v2m_n = t & 0x3FF;
             if (!v2m_n) v2m = 0;
@@ -1495,7 +1495,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
             if (d != 1 || !fdt_node_enabled(fdt, c)) continue;
             uint32_t len; const char* t = (const char*)fdt_prop(fdt, c, "device_type", &len);
             uint64_t a;
-            if (!t || len < 4 || __builtin_memcmp(t, "cpu", 4) || fdt_reg(fdt, 4u * 1024u * 1024u, c, 0, &a, 0) || ncpu >= CPU_MAX) continue;
+            if (!t || len < 4 || __builtin_memcmp(t, "cpu", 4) || fdt_reg(fdt, FDT_BOOT_MAX_SIZE, c, 0, &a, 0) || ncpu >= CPU_MAX) continue;
             cpus[ncpu++].mpidr = a;
         }
     }
@@ -1528,9 +1528,9 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     pmm_arm_reserve((uint64_t)(uintptr_t)fdt, (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt));
     pmm_arm_reserve(bump_start, bump);
     /* Firmware memreserve entries are separate from /reserved-memory nodes. */
-    for (unsigned i = 0; i < fdt_reserve_count(fdt, 4u * 1024u * 1024u); i++) {
+    for (unsigned i = 0; i < fdt_reserve_count(fdt, FDT_BOOT_MAX_SIZE); i++) {
         uint64_t base = 0, size = 0;
-        if (fdt_reserve(fdt, 4u * 1024u * 1024u, i, &base, &size) || base > UINT64_MAX - size)
+        if (fdt_reserve(fdt, FDT_BOOT_MAX_SIZE, i, &base, &size) || base > UINT64_MAX - size)
             kernel_panic("invalid FDT memory reservation");
         pmm_arm_reserve(base, base + size);
     }
