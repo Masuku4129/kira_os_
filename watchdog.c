@@ -15,14 +15,23 @@
 #define WATCHDOG_TIMEOUT_LIMIT (5 * TIMER_HZ)
 
 static volatile uint64_t last_feed_tick;
+static thread_t* watchdog_main_thread;
 
 void watchdog_init(void) {
+    watchdog_main_thread = sched_current();
     __atomic_store_n(&last_feed_tick, timer_get_ticks(), __ATOMIC_RELEASE);
     uart_print("[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).\n");
 }
 
 void watchdog_feed(void) {
     __atomic_store_n(&last_feed_tick, timer_get_ticks(), __ATOMIC_RELEASE);
+}
+
+/* Only the designated main thread may extend the watchdog while inside a
+   bounded device wait. A stalled scheduler stops these progress reports. */
+void watchdog_progress(void) {
+    if (watchdog_main_thread && sched_current() == watchdog_main_thread)
+        watchdog_feed();
 }
 
 /* Остановка всей машины - не зависание системы. Хранитель времени тикает всегда (каждые 2 мс), поэтому если между
