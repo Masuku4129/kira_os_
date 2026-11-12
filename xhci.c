@@ -501,6 +501,21 @@ static void xhci_ports(usb_hc_t* hc) {
 
 /* ---------------- запуск ---------------- */
 
+static int xhci_abort_start(const pci_dev_t* p) {
+    w32(xs.op, 0, r32(xs.op, 0) & ~1u);
+    for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
+    cpu_mb();
+    uint16_t command = pci_read16(p, 0x04);
+    pci_write16(p, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+    if (pci_read16(p, 0x04) & PCI_CMD_MASTER) {
+        usb_log("[KIRA USB] xHCI abort: bus mastering stuck; DMA arena slot quarantined\\n");
+        started++; /* never reuse the controller state if the device may still DMA */
+        return -1;
+    }
+    usb_log("[KIRA USB] xHCI abort: controller stopped and PCI bus mastering cleared; DMA pages retained\\n");
+    return 0;
+}
+
 static int xhci_mask_pci_interrupts(const pci_dev_t* p) {
     uint8_t id = 0;
     uint16_t cap = 0;
@@ -669,7 +684,11 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     }
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
-    if (r32(xs.op, 4) & 1u) { usb_log("[KIRA USB] xHCI does not start\n"); return -1; }
+    if (r32(xs.op, 4) & 1u) {
+        usb_log("[KIRA USB] xHCI does not start; aborting DMA ownership\\n");
+        (void)xhci_abort_start(p);
+        return -1;
+    }
     if (hcc1 & (1u << 3))                                              /* питание портов управляется: включить */
         for (uint32_t port = 1; port <= xs.nports; port++) { uint32_t v = r32(xs.op, portsc_off(port)); if (!(v & PS_PP)) w32(xs.op, portsc_off(port), (v & PS_PRESERVE) | PS_PP); }
     usb_sleep_ms(50);                                                  /* линии USB 3 успевают натренироваться */
