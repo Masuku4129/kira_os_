@@ -89,7 +89,7 @@ int main(void)
     memset(&platform, 0, sizeof platform);
     m.bad_physical = 1;
     m.good[0] = 0x10;
-    ((uint32_t *)m.good)[2] = (1u << 10) | (16u << 24);
+    ((uint32_t *)m.good)[2] = (1u << 10) | (48u << 16) | (16u << 24);
     platform.context = &m;
     platform.map_mmio = map_mmio;
     platform.alloc_dma_page = alloc_page;
