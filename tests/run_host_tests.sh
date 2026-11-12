@@ -246,6 +246,10 @@ python3 tests/wasm_loader_bounds.py "$T/wasmh"
 python3 tests/mkwasm_fuel_loop.py "$T/fuel_loop.wasm"
 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh fuel 1000 "$T/fuel_loop.wasm"
 WASM_NOJIT=1 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh fuel 1000 "$T/fuel_loop.wasm"
+python3 tests/mkwasm_host_quota.py "$T"
+UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh trap "host output quota exceeded" "$T/wasm_output_quota.wasm"
+UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh trap "host call quota exceeded" "$T/wasm_host_call_quota.wasm"
+WASM_NOJIT=1 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh trap "host sleep quota exceeded" "$T/wasm_sleep_quota.wasm"
 clang -O2 -DKW_NATIVE -w -Iuserland/wasm -o $T/wtest_native userland/wasm/wtest.c
 $T/wtest_native > $T/w_native.txt
 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wtest.wasm > $T/w_interp.txt
