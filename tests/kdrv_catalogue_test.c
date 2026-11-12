@@ -151,6 +151,7 @@ int main(void)
     /* Expiration is exclusive: the exact expiry instant is already invalid. */
     state.now = 1000;
     CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
+    CHECK(catalogue.count == 0 && catalogue.version == 0);
     state.now = 500;
 
     /* A validly signed older catalogue cannot roll back the accepted floor. */
@@ -163,6 +164,7 @@ int main(void)
     length = make_catalogue(bytes, sizeof(bytes), 6, 0);
     make_record(&record, bytes, length, 6, &ops);
     CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_INVALID);
+    CHECK(catalogue.count == 0 && catalogue.version == 0);
     CHECK(state.floor == 5);
 
     /* Signed catalogue metadata cannot smuggle a dot-segment version. */
