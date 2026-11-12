@@ -22,6 +22,9 @@
 #include "kdrv.h"
 #include "kdrv_format.h"
 
+#define SYS_MAX_WRITE 4096
+#define SYS_MAX_SLEEP 1000
+
 static spinlock_t ulog_lock = SPINLOCK_INIT;
 static userlog_t ulog;
 
