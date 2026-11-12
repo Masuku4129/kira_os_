@@ -30,6 +30,12 @@ static int same_string(const char *a, const char *b)
     return a[i] == b[i];
 }
 
+static int architecture_safe(const char *s, size_t capacity)
+{
+    return bounded_string(s, capacity) &&
+           (same_string(s, "x86_64") || same_string(s, "aarch64"));
+}
+
 static int package_name_safe(const char *s, size_t capacity)
 {
     size_t i;
@@ -66,7 +72,7 @@ static int manifest_valid(const struct kdrv_manifest *m,
 
     if (!m || !package_name_safe(m->name, sizeof(m->name)) ||
         !package_version_safe(m->version, sizeof(m->version)) ||
-        !bounded_string(m->target_arch, sizeof(m->target_arch)) ||
+        !architecture_safe(m->target_arch, sizeof(m->target_arch)) ||
         m->dependency_count > KDRV_DEPENDENCY_MAX ||
         m->payload_size == 0 ||
         m->payload_size > KDRV_PACKAGE_MAX ||
@@ -98,7 +104,7 @@ int kdrv_manager_install(struct kdrv_manager_ops *ops, const char *path,
     int committed = 0;
     int manifest_ready = 0;
 
-    if (!ops || !path || !target_arch || !ops->read_package ||
+    if (!ops || !path || !architecture_safe(target_arch, 16) || !ops->read_package ||
         !ops->free_package || !ops->parse_manifest ||
         !ops->verify_signature || !ops->dependency_satisfied ||
         !ops->stage_payload || !ops->commit_staged ||
