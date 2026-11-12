@@ -485,8 +485,9 @@ int main(void) {
               Gap.mem_pending[2].valid + Gap.mem_pending[3].valid + Gap.mem_pending[4].valid == 0);
         for (uint32_t u = 12; u <= 17; u++) {
              base(u); S.mem_used = 50; mind_step(&Gap, &S, &none);
-             if (u == 12) CHECK(!Gap.mem_risk_valid);
-             if (u == 13) CHECK(Gap.mem_risk_valid);
+             /* t=11 is the first fresh baseline after the missing t=10;
+                t=12 is the first interval with a measured growth delta. */
+             if (u == 12) CHECK(Gap.mem_risk_valid);
          }
         CHECK(Gap.mem_risk_valid && Gap.m.memory_net.n > 0);
 
