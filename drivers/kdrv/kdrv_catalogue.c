@@ -135,12 +135,20 @@ static int valid_version(const char *s)
 
 static int valid_url(const char *s)
 {
+    size_t i, n;
     /* Check the bounded string length before inspecting the scheme prefix. */
-    if (!s || slen(s) < 9u)
+    if (!s)
         return 0;
-    return (s[0] == 'h' && s[1] == 't' && s[2] == 't' &&
-            s[3] == 'p' && s[4] == 's' && s[5] == ':' &&
-            s[6] == '/' && s[7] == '/' && s[8] != '\0');
+    n = slen(s);
+    if (n < 9u || s[0] != 'h' || s[1] != 't' || s[2] != 't' ||
+        s[3] != 'p' || s[4] != 's' || s[5] != ':' ||
+        s[6] != '/' || s[7] != '/')
+        return 0;
+    /* Authority must be non-empty; userinfo is deliberately unsupported. */
+    for (i = 8; i < n && s[i] != '/' && s[i] != '?' && s[i] != '#'; ++i)
+        if (s[i] == '@')
+            return 0;
+    return i > 8u;
 }
 
 static int parse_entry(char *line, struct kdrv_catalogue_entry *entry)
