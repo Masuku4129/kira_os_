@@ -173,7 +173,7 @@ blk_dev_t* virtio_blk_probe(void) {
             blk_abort("[KIRA VIRTIO] blk: size_max below one sector.\n"); return 0;
         }
     }
-    virtio_driver_ok(&vdev);
+    if (virtio_driver_ok(&vdev) != 0) { blk_abort("[KIRA VIRTIO] blk: PCI bus mastering could not be enabled.\\n"); return 0; }
 
     uint64_t cap = MMIO_R32(vdev.devcfg + 0) | ((uint64_t)MMIO_R32(vdev.devcfg + 4) << 32);
     if (cap < 16) { blk_abort("[KIRA VIRTIO] blk: disk too small.\n"); return 0; }
