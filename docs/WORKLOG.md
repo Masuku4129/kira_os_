@@ -371,3 +371,5 @@
 - Added `RFC-SVC-001.md`: explicitly marks this as an in-kernel transitional facade, not a user-mode Service Manager or IPC isolation claim.
 - Added adapter source to both x86-64 and ARM64 build source lists. Native syscall numbers and dispatch argument order are unchanged by design.
 - Verification pending for the final branch head: x86-64/ARM64 build, host tests and QEMU suite. Do not claim runtime compatibility until CI on exact head succeeds.
+
+- ABI registry follow-up: canonical syscall IDs now live in `kcc/include/syscall_numbers.h`; kernel forwarding header and both userland/KCC public headers consume it. This removes duplicated numeric syscall assignments from public wrappers.
