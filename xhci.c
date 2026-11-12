@@ -158,7 +158,23 @@ static int command(uint32_t p0, uint32_t p1, uint32_t ctl, uint32_t* slot_out) {
     while (!xs.cmd_done) {
         process_events();
         if (xs.cmd_done) break;
-        if ((int32_t)(usb_now_ms() - deadline) > 0) { usb_log("[KIRA USB] xHCI command timeout\n"); return -1; }
+        if ((int32_t)(usb_now_ms() - deadline) > 0) {
+            trb_t* ev = &xs.ev[xs.ev_deq];
+            usb_log("[KIRA USB] xHCI command timeout: USBSTS=");
+            usb_log_hex(r32(xs.op, 4));
+            usb_log(" CRCR=");
+            usb_log_hex((uint64_t)r32(xs.op, 0x1C) << 32 | r32(xs.op, 0x18));
+            usb_log(" ERDP=");
+            usb_log_hex((uint64_t)r32(xs.rt, 0x3C) << 32 | r32(xs.rt, 0x38));
+            usb_log(" event=");
+            usb_log_hex(ev->ctl);
+            usb_log(" event-cycle=");
+            usb_log_dec(xs.ev_cycle);
+            usb_log(" cmd-trb=");
+            usb_log_hex(xs.cmd_trb);
+            usb_log("\\n");
+            return -1;
+        }
         usb_sleep_ms(1);
     }
     if (slot_out) *slot_out = xs.cmd_slot;
