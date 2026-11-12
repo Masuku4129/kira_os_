@@ -48,9 +48,9 @@ require('#include "syscall_numbers.h"' in core,
         "syscall core does not use the shared syscall-number registry")
 require('#include "kcc/include/syscall_numbers.h"' in read("syscall_numbers.h"),
         "kernel forwarding header does not use the canonical registry")
-require('#include "../kcc/include/syscall_numbers.h"' in read("userland/kira.h"),
+require('#include "syscall_numbers.h"' in read("userland/kira.h"),
         "userland API does not use the canonical syscall registry")
-require('#include "../kcc/include/syscall_numbers.h"' in read("kcc/include/kira.h"),
+require('#include "syscall_numbers.h"' in read("kcc/include/kira.h"),
         "KCC public API symlink target does not use the canonical syscall registry")
 for path in ("userland/kira.h", "kcc/include/kira.h"):
     public_api = read(path)
