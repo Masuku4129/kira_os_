@@ -436,7 +436,7 @@ int iommu_device_ready(const pci_dev_t* pci)
 int iommu_device_isolated(const pci_dev_t* pci)
 {
     arm_iommu_device_t* dev = arm_find_device(pci);
-    if (!pci || pci->dma_quarantined || !dev || !dev->covered ||
+    if (!pci || __atomic_load_n(&pci->dma_quarantined, __ATOMIC_ACQUIRE) || !dev || !dev->covered ||
         __atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) || dev->stream_id >= 256u ||
         arm_sid_shared[dev->stream_id])
         return 0;
