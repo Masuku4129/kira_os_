@@ -1,0 +1,27 @@
+name: KIRA source intake lab
+
+on:
+  push:
+    branches: [research/driver-adaptation-lab-2026-11]
+    paths:
+      - "tools/kira_source_intake.py"
+      - "tests/test_source_intake.py"
+      - ".github/workflows/driver-intake-lab.yml"
+      - "research/DRIVER_ADAPTATION_PIPELINE.md"
+      - "research/KIRA_DEVELOPMENT_PLATFORM.md"
+  pull_request:
+    paths:
+      - "tools/kira_source_intake.py"
+      - "tests/test_source_intake.py"
+      - ".github/workflows/driver-intake-lab.yml"
+  workflow_dispatch:
+
+jobs:
+  source-intake-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python3 -m py_compile tools/kira_source_intake.py tests/test_source_intake.py
+      - name: Intake security and preservation tests
+        run: python3 -m unittest -v tests.test_source_intake

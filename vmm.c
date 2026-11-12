@@ -1,8 +1,10 @@
 #include "vmm.h"
+#include "vmm_policy.h"
 #include "uaccess.h"
 #include "pmm.h"
 #include "uart.h"
 #include "spinlock.h"
+#include "sched.h"
 
 #define PAGE_SIZE   4096UL
 #define PTE_PRESENT (1ULL << 0)
@@ -109,6 +111,7 @@ static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) {
 static spinlock_t ks_lock = SPINLOCK_INIT;
 static uint32_t ks_used_hi;                       /* ячеек, когда-либо отображённых */
 static uint16_t ks_free[KSTACK_SLOTS]; static uint32_t ks_nfree;
+static uint8_t ks_allocated[KSTACK_SLOTS];
 static uint32_t ks_size;
 
 static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags);
@@ -119,21 +122,42 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     if (ks_size && ks_size != bytes) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
     ks_size = bytes;
     uint64_t slot_top;
-    if (ks_nfree) slot_top = KSTACK_BASE + (uint64_t)(ks_free[--ks_nfree] + 1) * KSTACK_STRIDE;
-    else {
+    uint32_t slot;
+    if (ks_nfree) {
+        slot = ks_free[--ks_nfree];
+        slot_top = KSTACK_BASE + (uint64_t)(slot + 1) * KSTACK_STRIDE;
+    } else {
         if (ks_used_hi >= KSTACK_SLOTS) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
-        slot_top = KSTACK_BASE + (uint64_t)(ks_used_hi + 1) * KSTACK_STRIDE;
+        slot = ks_used_hi;
+        slot_top = KSTACK_BASE + (uint64_t)(slot + 1) * KSTACK_STRIDE;
         for (uint64_t va = slot_top - bytes; va < slot_top; va += PAGE_SIZE) {
             uint64_t pa = pmm_alloc_page();
             if (!pa || map_in(kernel_root, va, pa, PTE_WRITE | VMM_NOEXEC) != 0) {
                 if (pa) pmm_free_page(pa);
-                /* частично отображённая ячейка не выдаётся (ks_used_hi не растёт), её страницы остаются ей */
+                /* Откатываем только страницы, успешно отображённые этим вызовом. */
+                for (uint64_t undo = slot_top - bytes; undo < va; undo += PAGE_SIZE) {
+                    uint64_t* pml4 = (uint64_t*)(uintptr_t)(kernel_root & PTE_ADDR);
+                    uint64_t* pdpt = next_level(pml4, (undo >> 39) & 0x1FF, 0, 0);
+                    uint64_t* pd = pdpt ? next_level(pdpt, (undo >> 30) & 0x1FF, 0, 0) : 0;
+                    uint64_t* pt = pd ? next_level(pd, (undo >> 21) & 0x1FF, 0, 0) : 0;
+                    if (pt) {
+                        unsigned idx = (unsigned)((undo >> 12) & 0x1FF);
+                        uint64_t entry = pt[idx];
+                        if (entry & PTE_PRESENT) {
+                            pt[idx] = 0;
+                            pmm_free_page(entry & PTE_ADDR);
+                            invlpg(undo);
+                        }
+                    }
+                }
                 spin_unlock_irqrestore(&ks_lock, f);
                 return 0;
             }
         }
         ks_used_hi++;
     }
+    if (ks_allocated[slot]) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
+    ks_allocated[slot] = 1;
     spin_unlock_irqrestore(&ks_lock, f);
     return (void*)(uintptr_t)(slot_top - bytes);
 }
@@ -142,7 +166,17 @@ void vmm_kstack_free(void* base) {
     uint64_t va = (uint64_t)(uintptr_t)base;
     if (va < KSTACK_BASE || va >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE) return;
     uint64_t f = spin_lock_irqsave(&ks_lock);
-    ks_free[ks_nfree++] = (uint16_t)((va - KSTACK_BASE) / KSTACK_STRIDE);
+    uint32_t slot = 0;
+    uint32_t candidate = (uint32_t)((va - KSTACK_BASE) / KSTACK_STRIDE);
+    if (!kira_vmm_kstack_slot_valid(KSTACK_BASE, KSTACK_STRIDE, KSTACK_SLOTS,
+                                    ks_size, va, ks_used_hi,
+                                    ks_allocated[candidate], &slot) ||
+        ks_nfree >= KSTACK_SLOTS) {
+        spin_unlock_irqrestore(&ks_lock, f);
+        return;
+    }
+    ks_allocated[slot] = 0;
+    ks_free[ks_nfree++] = (uint16_t)slot;
     spin_unlock_irqrestore(&ks_lock, f);
 }
 
@@ -167,16 +201,19 @@ static int map_huge_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) 
 }
 
 volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
-    if (len == 0 || pa + len < pa) return 0;
+    if (len == 0 || (cache != VMM_MMIO_UC && cache != VMM_MMIO_WC)) return 0;
+    /* MMIO PTEs carry only physical-address bits; validate before rounding. */
+    uint64_t first, last;
+    if (!kira_vmm_mmio_span(pa, len, PTE_ADDR, PAGE_SIZE, &first, &last)) return 0;
+    uint64_t phys_end = pa + len;
     uint64_t f = spin_lock_irqsave(&mmio_lock);
     for (unsigned i = 0; i < mmio_n; i++) {                       // уже отображено (другая часть того же BAR, LAPIC)
-        if (pa >= mmio[i].pa && pa + len <= mmio[i].pa + mmio[i].len && mmio[i].cache == (uint64_t)cache) {
+        if (pa >= mmio[i].pa && phys_end <= mmio[i].pa + mmio[i].len && mmio[i].cache == (uint64_t)cache) {
             volatile void* v = (volatile void*)(uintptr_t)(mmio[i].va + (pa - mmio[i].pa));
             spin_unlock_irqrestore(&mmio_lock, f);
             return v;
         }
     }
-    uint64_t first = pa & ~(PAGE_SIZE - 1), last = (pa + len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     uint64_t size = last - first;
     const uint64_t BIG = 2ULL << 20;
     uint64_t va = (mmio_next + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
@@ -281,11 +318,10 @@ int vmm_user_range_ok(uint64_t va, uint64_t len, int write) {
         for (int lvl = 0; lvl < 3; lvl++) {
             unsigned idx = (unsigned)((p >> (30 - 9 * lvl)) & 0x1FF);
             e = t[idx];
-            if ((e & (PTE_PRESENT | PTE_USER)) != (PTE_PRESENT | PTE_USER)) return 0;
+            if (!kira_vmm_x86_entry_allows_user(e, write)) return 0;
             if (lvl < 2 && (e & PTE_HUGE)) return 0;
             if (lvl < 2) t = (const uint64_t*)(uintptr_t)(e & PTE_ADDR);
         }
-        if (write && !(e & PTE_WRITE)) return 0;
     }
     return 1;
 }
@@ -461,6 +497,27 @@ int vmm_init(void) {
             return -5;
         }
     }
+
+    /* Exercise the real stack allocator before the scheduler starts. A duplicate
+       free must not put the same slot into the free-list twice. */
+    void* stack_a = vmm_kstack_alloc(SCHED_STACK_SIZE);
+    if (!stack_a) {
+        uart_print("[KIRA VMM ERROR] Kernel-stack self-test allocation A failed.\n");
+        return -6;
+    }
+    vmm_kstack_free(stack_a);
+    vmm_kstack_free(stack_a); /* deliberate double-free: must be ignored */
+    void* stack_b = vmm_kstack_alloc(SCHED_STACK_SIZE);
+    void* stack_c = vmm_kstack_alloc(SCHED_STACK_SIZE);
+    if (!stack_b || !stack_c || stack_b != stack_a || stack_c == stack_b) {
+        if (stack_b) vmm_kstack_free(stack_b);
+        if (stack_c && stack_c != stack_b) vmm_kstack_free(stack_c);
+        uart_print("[KIRA VMM ERROR] Kernel-stack double-free self-test failed.\n");
+        return -6;
+    }
+    vmm_kstack_free(stack_b);
+    vmm_kstack_free(stack_c);
+    uart_print("[KIRA VMM] Kernel-stack double-free self-test passed.\n");
 
     uart_print("[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.\n");
     return 0;

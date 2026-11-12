@@ -24,11 +24,27 @@ jobs:
           mkdir -p ci-out
           set -o pipefail
           bash tests/run_host_tests.sh 2>&1 | tee ci-out/host-tests.log
+          python3 -m unittest discover -s tests -p 'test_source_intake.py' -v 2>&1 | tee ci-out/source-intake-tests.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: vm-host-tests
-          path: ci-out/host-tests.log
+          path: |
+            ci-out/host-tests.log
+            ci-out/source-intake-tests.log
+
+  data-lab:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: data format round-trip and benchmark
+        run: |
+          python3 benchmarks/data_formats.py --rows 50000 --repeat 3 --out ci-out/data-format-lab
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: data-format-lab-results
+          path: ci-out/data-format-lab
 
   build:
     runs-on: ubuntu-24.04
@@ -109,9 +125,31 @@ jobs:
             ci-out/${{ matrix.scenario }}
             !ci-out/${{ matrix.scenario }}/*.img
 
+
+  global-gate:
+    if: always()
+    needs: [host-tests, data-lab, build, arm64, vm]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce whole-system CI gates
+        env:
+          HOST: ${{ needs.host-tests.result }}
+          DATA: ${{ needs.data-lab.result }}
+          BUILD: ${{ needs.build.result }}
+          ARM64: ${{ needs.arm64.result }}
+          VM: ${{ needs.vm.result }}
+        run: |
+          printf 'Host tests: %s\\nData lab: %s\\nBuild: %s\\nARM64: %s\\nQEMU matrix: %s\\n' "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM"
+          failed=0
+          for result in "$HOST" "$DATA" "$BUILD" "$ARM64" "$VM"; do
+            [ "$result" = success ] || failed=1
+          done
+          [ "$failed" -eq 0 ] || { echo "GLOBAL GATE: FAIL"; exit 1; }
+          echo "GLOBAL GATE: PASS (all required CI jobs succeeded)"
+
   # Итоги - в ветку ci-results (одна свежая копия): журналы и снимки читаются через git, без хранилища артефактов.
   report:
-    needs: [host-tests, build, vm, arm64]
+    needs: [host-tests, data-lab, build, vm, arm64, global-gate]
     if: always()
     runs-on: ubuntu-24.04
     permissions:
@@ -134,7 +172,12 @@ jobs:
           {
             echo "# Прогон ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
             echo
-            echo "host-tests: ${{ needs.host-tests.result }}, build: ${{ needs.build.result }}, vm: ${{ needs.vm.result }}, arm64: ${{ needs.arm64.result }}"
+            echo "host-tests: ${{ needs.host-tests.result }}"
+            echo "data-lab: ${{ needs.data-lab.result }}"
+            echo "build: ${{ needs.build.result }}"
+            echo "vm matrix: ${{ needs.vm.result }}"
+            echo "arm64: ${{ needs.arm64.result }}"
+            echo "global gate: ${{ needs.global-gate.result }}"
             echo
             for r in latest/vm-*/result.json latest/vm-arm64/*/result.json; do
               python3 -c "import json,sys; r=json.load(open(sys.argv[1])); print(('OK  ' if r['ok'] else 'FAIL'), r['name'], r.get('seconds'), 'с', '' if r['ok'] else '- ' + (r.get('error') or '').splitlines()[0][:300])" "$r" || true

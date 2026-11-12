@@ -22,6 +22,10 @@ $CC -O1 -Wall -fno-builtin -Dmemcpy=k_memcpy -Dmemmove=k_memmove -Dmemset=k_mems
 $CC -O1 -Wall -o $T/mem tests/mem_test.c $T/kmem.o
 $T/mem
 
+echo "== VMM policy (effective page permissions, MMIO overflow, exact stack-slot validation) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/vmm_policy tests/vmm_policy_test.c
+$T/vmm_policy
+
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
 $T/pmm | head -4
