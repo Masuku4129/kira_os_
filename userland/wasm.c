@@ -275,10 +275,10 @@ static int skip_bytes(const u8** p, const u8* e, u32 n) {
     *p += n;
     return 0;
 }
-static void skip_imm(u8 op, const u8** p, const u8* e, u32 nloc) {
+static void skip_imm(u8 op, const u8** p, const u8* e, u32 nloc, u32 nctl_depth) {
     if (op == 0x0C || op == 0x0D) {
         u32 depth = leb_u(p, e);
-        if (trapped || depth >= (u32)nctl) trap("branch depth out of range in unreachable code");
+        if (trapped || depth >= nctl_depth) trap("branch depth out of range in unreachable code");
         return;
     }
     if (op == 0x10) {
@@ -304,7 +304,7 @@ static void skip_imm(u8 op, const u8** p, const u8* e, u32 nloc) {
         }
         for (u32 i = 0; i <= n && !trapped; i++) {
             u32 depth = leb_u(p, e);
-            if (!trapped && depth >= (u32)nctl) trap("br_table depth out of range in unreachable code");
+            if (!trapped && depth >= nctl_depth) trap("br_table depth out of range in unreachable code");
         }
         return;
     }
@@ -526,7 +526,7 @@ static int compile_func(func_t* f) {
     ctl[0].kind = 3; ctl[0].ar = ft->nr; ctl[0].dead = 0; ctl[0].h = 0; ctl[0].start = 0; ctl[0].pend = 0; ctl[0].ifz = 0; nctl = 1;
     while (p < end && !trapped) {
         u8 op = *p++;
-        if (c_unr && op != 0x02 && op != 0x03 && op != 0x04 && op != 0x05 && op != 0x0B) { skip_imm(op, &p, end, nloc); continue; }
+        if (c_unr && op != 0x02 && op != 0x03 && op != 0x04 && op != 0x05 && op != 0x0B) { skip_imm(op, &p, end, nloc, (u32)nctl); continue; }
         switch (op) {
         case 0x00: lz_flush(); ew(OP_TRAP); ew(TM_UNREACH); c_unr = 1; break;
         case 0x01: break;
@@ -754,7 +754,7 @@ static int compile_func(func_t* f) {
                 if (trapped || memory_index) CERR("unsupported memory.fill memory index");
                 NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3;
             }
-            else { p--; skip_imm(0xFC, &p, end); if (sub == 8 || sub == 9) { lz_flush(); ew(OP_TRAP); ew(TM_PASSIVE); c_unr = 1; } }
+            else { p--; skip_imm(0xFC, &p, end, nloc, (u32)nctl); if (sub == 8 || sub == 9) { lz_flush(); ew(OP_TRAP); ew(TM_PASSIVE); c_unr = 1; } }
             break;
         }
         default: {
