@@ -4,14 +4,14 @@
 #include "kcc.h"
 #include <string.h>
 
-typedef struct {
+struct IRState {
     Ins *ihead, *itail;
     int reg_count, label_count;
     Obj *fn, *ltail;
     int maxslot;
     SB *out;
-} IRState;
-static IRState *kcc_ir_state_context(void) { return K.ir_state; }
+};
+static struct IRState *kcc_ir_state_context(void) { return K.ir_state; }
 #define IRS (kcc_ir_state_context())
 #define ihead (IRS->ihead)
 #define itail (IRS->itail)
