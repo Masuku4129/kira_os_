@@ -155,3 +155,12 @@ The next combined user update is eligible only when:
 ## Kernel stack slot lifecycle regression
 
 PR #132 shares exact slot-base validation and ownership-bit transitions between production VMM and host tests via `kstack_slot.h`. `tests/kstack_slot_test.c` covers exact-base acceptance, interior/foreign/out-of-range rejection, used-slot bounds, duplicate activation, foreign release, double-free rejection, reuse, and the final bitmap slot. The same ownership helpers now protect both x86-64 `vmm.c` and ARM64 `arch/aarch64/main.c`; ARM64 now uses a bounded external free-slot array instead of storing allocator links inside freed stacks; this keeps allocator metadata out of stack memory. Partial ARM64 mapping failures quarantine slots that already received PTEs, and the configured stack size is fixed before the first mapping attempt so guard geometry remains stable even when that attempt fails. The host runner compiles the shared logic with ASan/UBSan and checks the full 65,536-slot ARM64 index range. This does not replace hardware guard-page validation.
+
+
+## Kernel stack slot lifecycle follow-up (PR #132)
+
+The slot-ownership hardening is shared by x86-64 and ARM64 through `kstack_slot.h`. Slot-window arithmetic rejects multiplication overflow and invalid used-slot bounds. Allocator reuse peeks at the free-list entry and removes it only after ownership activation succeeds, preserving suspect entries for diagnosis instead of silently losing them. ARM64 keeps its bounded free-slot array outside stack memory.
+
+The host regression suite now covers exact stack bases, interior/foreign pointers, out-of-range and used-slot bounds, arithmetic overflow, duplicate activation, foreign/double release, reuse, and the final ARM64 slot index. It runs under ASan/UBSan when the host suite executes.
+
+Known limitation: if a stack mapping fails after one or more pages have already been mapped, the virtual slot is quarantined to prevent page-table overwrite, but those already mapped physical pages are retained. Reclaim requires a safe unmap plus cross-core TLB invalidation path. Latest branch-head CI and physical guard-page/overflow validation remain unconfirmed; this is not a release-ready claim.
