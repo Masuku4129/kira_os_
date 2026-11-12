@@ -364,6 +364,10 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     }
 #endif
 
+    if (!pci_disable_bus_master(pd)) {
+        uart_print("[KIRA AHCI] inherited bus mastering cannot be disabled; controller quarantined.\\n");
+        return;
+    }
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     uint64_t sz = pd->bar[5].size > 0x1100 ? 0x1100 : pd->bar[5].size;
     volatile uint8_t* ab = (volatile uint8_t*)pci_map_bar(pd, 5, 0, sz);
