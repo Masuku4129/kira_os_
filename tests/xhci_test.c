@@ -290,6 +290,7 @@ void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsi
 static uint16_t pci_command_model;
 void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; pci_command_model |= b; }
 uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { (void)d; return off == 0x04 ? pci_command_model : 0; }
+uint16_t pci_next_cap(const pci_dev_t* d, uint16_t after, uint8_t* id) { (void)d; (void)after; if (id) *id = 0; return 0; }
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) { (void)d; if (off == 0x04) pci_command_model = v; }
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { (void)d; (void)off; return 0; }
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { (void)d; (void)off; (void)v; }
