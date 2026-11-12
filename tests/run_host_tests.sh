@@ -225,6 +225,9 @@ python3 -m unittest ci.test_kdrvsign
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c bootinfo_fdt.c bootinfo.c
 $T/fdt
+echo "== ARM64 boot FDT parser (uninitialized output, reserve map, scoped cells) =="
+$CC $FLAGS -fsanitize=address,undefined -Iarch/aarch64 -o $T/fdt-arm-parser tests/fdt_arm_parser_test.c arch/aarch64/fdt.c
+$T/fdt-arm-parser
 $CC $FLAGS -fsanitize=address,undefined -o $T/crypto tests/crypto_test.c crypto.c sha256.c
 $T/crypto
 
