@@ -88,7 +88,7 @@ static inline void exit(int code) { k_exit(code); }
 static inline void abort(void) __attribute__((noreturn));
 static inline void abort(void) { k_exit(134); }
 
-static inline unsigned long krand_state = 1;
+static unsigned long krand_state = 1;
 static inline void srand(unsigned seed) { krand_state = seed; }
 static inline int rand(void) { krand_state = krand_state * 6364136223846793005UL + 1442695040888963407UL; return (int)((krand_state >> 33) & 0x7fffffff); }
 
