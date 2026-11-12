@@ -188,3 +188,14 @@
 ## 6. Статус этого документа
 
 На момент создания это baseline-план. Полный source-level аудит ещё не завершён. Пункты, подтверждённые только WORKLOG или историческим ARCHITECTURE.md, должны быть перепроверены по текущему `main`/точному PR head и актуальным тестам. Не трактовать список открытых PR как наличие этих изменений в main.
+
+
+## 7. Выполнение первичного source-level прохода (2026-11-12)
+
+- Получен полный рекурсивный список main: 828 файлов; дерево не усечено. Это карта репозитория, не доказательство реализации.
+- Созданы `COMPONENT_INVENTORY.md` и `DEPENDENCY_MAP.md` на основе первичного чтения kernel.c, sched.c, syscall.c, proc.c, elf.c, vmm.c, caps.c, kdrv.c, kfs.c, vfs.c, userland/wasm.c, mind.c/mind_sys.c, net.c, wm.c, build scripts и host-test runner.
+- Первичные разрывы: в main не обнаружены отдельные Windows Compatibility Runtime, Linux Compatibility Runtime и hardware Hypervisor; текущий ELF path является KIRA-native ET_EXEC loader, не Linux loader; WASM — имеющаяся переносимая runtime база; KVM1 — эксперимент в PR #134, не production baseline.
+- В коде видны статическая таблица caps по имени программы, широкая связность kernel init/syscall dispatch и управляющие точки Mind к системным подсистемам. Это не объявлено дефектом без полного call-graph и security review; это приоритетные зоны архитектурной проверки.
+- KiraFS v2 описывает crash consistency через порядок записи без журнала; фактическая устойчивость должна быть подтверждена power-cut/fault-injection tests.
+- **Тесты в этом проходе не запускались.** GitHub source review не заменяет локальную сборку, host suite, QEMU, Limbo или physical hardware tests.
+- Следующий gate: расширить inventory до публичных символов/полных зависимостей; создать CONTRACT_REGISTRY; начать kernel/boot/memory/process/syscall/IPC contracts и параллельно детализировать compatibility/driver/storage/Mind/GUI/network/Hypervisor contracts.
