@@ -12,6 +12,19 @@ KIRA остаётся самостоятельной ОС со своим ядр
 
 Нельзя считать все драйверы Linux одной лицензии: лицензия проверяется по конкретному файлу и его истории. Если лицензия или происхождение не установлены, код не включается в дерево KIRA и не собирается.
 
+## RTL8139: clean-room replacement in progress
+
+Новая независимая реализация `drivers/net/rtl8139.c` написана по
+публичной спецификации Realtek RTL8139C(L), Rev. 1.6. Её происхождение,
+register sections, host-model scope и незакрытые integration gates описаны в
+`docs/RTL8139_PROVENANCE.md`.
+
+Важно: legacy `drivers/rl/rl.c` / `if_rlreg.h` всё ещё BSD-3-Clause-derived
+и остаётся отдельным KDRV source path. Новый модуль пока не доказывает замену
+этого production-рецепта: сначала нужны green host/build CI, PCI/network-stack
+integration и QEMU RX/TX. Не заявлять clean-room completion до удаления
+legacy path из shipped catalogue и успешной интеграции.
+
 ## Граница доверия
 
 Драйвер — потенциально недоверенный код. Он не получает право исполнения только потому, что его удалось скачать, распаковать или собрать.
