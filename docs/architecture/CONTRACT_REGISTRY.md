@@ -76,3 +76,12 @@
 ## Изменение контракта
 
 Изменения ABI, IPC, on-disk format, capability semantics, driver ABI, runtime host API или guest boundary требуют ADR/RFC, migration plan, compatibility tests и явного review владельцев затронутых подсистем. Нельзя менять контракт скрыто в рамках несвязанного feature PR.
+
+
+## RFC mapping (draft only)
+- BOOT-001 → `docs/architecture/rfc/RFC-BOOT-001.md`
+- ABI-001 / ABI-002 → `docs/architecture/rfc/RFC-ABI-001.md`
+- CAP-001 → `docs/architecture/rfc/RFC-SEC-001.md`
+- IPC-001 / EVT-001 → `docs/architecture/rfc/RFC-IPC-001.md`
+
+RFC index: `docs/architecture/rfc/README.md`. No draft RFC is approved or ABI-frozen yet.
