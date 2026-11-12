@@ -316,8 +316,14 @@ void* usb_dma_alloc(uint32_t bytes, uint64_t* phys, int below_4g) {
         void* q = platform_dma_pool(bytes, phys, below_4g);
         if (q) {
             int valid = !((uintptr_t)q & 4095u) && *phys && !(*phys & 4095u) &&
+                        (uint64_t)(uintptr_t)q == *phys &&
                         *phys <= UINT64_MAX - rounded &&
                         (!below_4g || *phys + rounded <= 0x100000000ULL);
+            for (uint32_t i = 0; valid && i < pages; i++) {
+                uint64_t translated = 0;
+                if (vmm_translate(*phys + (uint64_t)i * 4096u, &translated) != 0 ||
+                    translated != *phys + (uint64_t)i * 4096u) valid = 0;
+            }
             if (valid) return q;
             if (platform_dma_free && *phys) platform_dma_free(q, *phys, bytes);
             *phys = 0;
