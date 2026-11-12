@@ -5,7 +5,7 @@
 
    /drv/ИМЯ.kdrv = kdrv_header_t + образ ELF драйвера (elf_size байт, дальше ничего).
    /drv/ИМЯ.rec  = kdrv_rec_t: что было подтверждено пользователем при установке и хеши.
-   Подписей нет (решение владельца): доверие = явное подтверждение пользователя + SHA-256 в .rec, сверяемый при КАЖДОЙ загрузке
+   Формат v1 не содержит подписи издателя: SHA-256 в .rec проверяет только целостность относительно локальной записи подтверждения и не аутентифицирует автора пакета
    (хеш образа ELF и хеш всего файла .kdrv, чтобы заголовок с правами и списком устройств тоже нельзя было подменить).
    Права процесса = запрошенные в заголовке И подтверждённые в .rec. Все числа - порядок байт процессора (x86-64, ARM64: little). */
 #include <stdint.h>
@@ -54,13 +54,32 @@ _Static_assert(sizeof(kdrv_header_t) == 136, "kdrv_header_t");
 _Static_assert(sizeof(kdrv_rec_t) == 216, "kdrv_rec_t");
 
 enum { KDRV_OK = 0, KDRV_E_SHORT = -1, KDRV_E_MAGIC = -2, KDRV_E_FORMAT = -3, KDRV_E_NAME = -4, KDRV_E_CAPS = -5,
-       KDRV_E_MATCH = -6, KDRV_E_SIZE = -7, KDRV_E_UNCONFIRMED = -8, KDRV_E_HASH = -9 };
+       KDRV_E_MATCH = -6, KDRV_E_SIZE = -7, KDRV_E_UNCONFIRMED = -8, KDRV_E_HASH = -9, KDRV_E_DMA_UNSAFE = -10,
+       KDRV_E_INPUT = -11 };
 
 /* Чистые функции (kdrv_fmt.c; проверяются на хосте). */
+int kdrv_name_check(const char* name, uint32_t capacity);                 /* bounded NUL-terminated [a-z0-9_-], 1..KDRV_NAME_MAX */
 int kdrv_header_check(const void* file, uint32_t len, kdrv_header_t* out);      /* заголовок корректен и файл ровно hdr_size + elf_size */
 int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out);             /* запись корректна и подтверждена пользователем */
 int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uint32_t cls);   /* 1 - подходит */
 const char* kdrv_strerror(int err);
+/* Без подтверждённой изоляции IOMMU DMA и MSI запрещены для драйверов Ring 3. */
+int kdrv_dma_policy_allow(uint32_t granted_caps, int device_isolated);
+/* PCI Command.BusMaster must be cleared before an unisolated Ring 3 driver starts. */
+uint16_t kdrv_pci_command_clear_master(uint16_t command);
+/* Unisolated drivers may not bus-master or raise legacy INTx. */
+uint16_t kdrv_pci_command_for_unisolated(uint16_t command);
+int kdrv_pci_busmaster_handoff_safe(uint16_t command_before, uint16_t command_after);
+int kdrv_pci_command_quiesced(uint16_t command);
+int kdrv_pci_interrupts_quiesced(uint16_t msi_control, int has_msi,
+                                 uint16_t msix_control, int has_msix);
+int kdrv_pci_start_requires_permanent_quarantine(int device_quiesced,
+                                                  uint16_t command_before,
+                                                  uint16_t command_after);
+/* Overflow-safe physical/page bounds for untrusted PCI BAR metadata. */
+int kdrv_mmio_page_bounds(uint64_t base, uint64_t size, uint64_t* page_lo, uint64_t* page_hi);
+int kdrv_mmio_map_bounds(uint64_t base, uint64_t size, uint64_t offset, uint64_t length,
+                         uint64_t* physical, uint32_t* pages);
 
 /* ---- Договор драйвера с ядром (системные вызовы 48..54; номера не пересекаются с syscall.c) ---- */
 enum { KDRV_SYS_INFO = 48,         /* (буфер kdrv_info_t, ёмкость) -> 0: свои устройство и права */

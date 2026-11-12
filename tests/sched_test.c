@@ -12,8 +12,8 @@
 #include "spinlock.h"
 #include "percpu.h"
 
-static uint64_t fake_ticks;
-uint64_t timer_get_ticks(void) { return fake_ticks; }
+static uint64_t sim_ticks;
+uint64_t timer_get_ticks(void) { return sim_ticks; }
 void uart_print(const char* s) { (void)s; }
 void uart_print_dec(uint64_t v) { (void)v; }
 void uart_print_hex(uint64_t v) { (void)v; }
@@ -30,13 +30,13 @@ void host_halt(void) { longjmp(escape, 2); }
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 
-static void dummy(void* a) { (void)a; }
+static void thread_entry(void* a) { (void)a; }
 
 static unsigned long long cpu_ticks[4096]; // индекс - id потока (id растут монотонно)
 
 // Один тик времени: таймер -> sched_tick -> (после EOI) вытеснение.
 static void tick(void) {
-    fake_ticks++;
+    sim_ticks++;
     sched_tick();
     sched_irq_exit();
     cpu_ticks[sched_current()->id]++;
@@ -59,8 +59,8 @@ int main(void) {
 
     // ---- 1. два равных потока делят процессор поровну, core спит ----
     sched_set_quantum(4);
-    thread_t* a = sched_create("A", dummy, 0, PRIO_NORMAL);
-    thread_t* b = sched_create("B", dummy, 0, PRIO_NORMAL);
+    thread_t* a = sched_create("A", thread_entry, 0, PRIO_NORMAL);
+    thread_t* b = sched_create("B", thread_entry, 0, PRIO_NORMAL);
     CHECK(a && b && a->id != b->id);
     thread_t* core = (thread_t*)sched_current();
     uint32_t core_id = core->id;
@@ -78,7 +78,7 @@ int main(void) {
     // ---- 1b. регрессия: critical-поток просыпается КАЖДЫЙ тик (как core), а два
     //          обычных потока всё равно должны делить остаток поровну ----
     {
-        thread_t* pulse = sched_create("pulse", dummy, 0, PRIO_CRITICAL);
+        thread_t* pulse = sched_create("pulse", thread_entry, 0, PRIO_CRITICAL);
         CHECK(pulse != 0);
         // pulse просыпается на границе тика, работает мгновенно и засыпает: остаток тика
         // достаётся тому, кого планировщик выберет следом (его и учитываем)
@@ -111,10 +111,10 @@ int main(void) {
     sched_set_quantum(4);
 
     // ---- 3. core (critical) просыпается ровно в срок и вытесняет обычные потоки ----
-    sched_set_wake_tick(core, fake_ticks + 10);             // core спит с шага 1
+    sched_set_wake_tick(core, sim_ticks + 10);             // core спит с шага 1
     uint64_t wake_at = core->wake_tick;
     uint64_t got = 0;
-    for (int i = 0; i < 50 && !got; i++) { tick(); if (sched_current() == core) got = fake_ticks; }
+    for (int i = 0; i < 50 && !got; i++) { tick(); if (sched_current() == core) got = sim_ticks; }
     printf("core wake: due %llu, got %llu\n", (unsigned long long)wake_at, (unsigned long long)got);
     CHECK(got == wake_at);
     sched_sleep_ticks(100000);
@@ -138,7 +138,7 @@ int main(void) {
 
     // ---- 5. периодический critical-поток не страдает от нагрузки ----
     sched_sleep_ticks(1000);                                // core убираем
-    thread_t* p = sched_create("periodic", dummy, 0, PRIO_CRITICAL);
+    thread_t* p = sched_create("periodic", thread_entry, 0, PRIO_CRITICAL);
     CHECK(p != 0);
     unsigned long long max_lat = 0; int runs = 0;
     uint64_t due = 0;
@@ -147,10 +147,10 @@ int main(void) {
     for (int i = 0; i < 500; i++) {
         tick();
         if (sched_current() == p) {
-            if (due) { unsigned long long lat = fake_ticks - due; if (lat > max_lat) max_lat = lat; }
+            if (due) { unsigned long long lat = sim_ticks - due; if (lat > max_lat) max_lat = lat; }
             runs++;
             sched_sleep_ticks(25);
-            due = fake_ticks + 25;
+            due = sim_ticks + 25;
         }
     }
     printf("periodic runs=%d max wake latency=%llu ticks\n", runs, max_lat);
@@ -161,7 +161,7 @@ int main(void) {
 
     // ---- 6. завершение потока, сборка, повторное использование слота ----
     unsigned before = sched_snapshot(info, sched_thread_capacity());
-    thread_t* x = sched_create("x", dummy, 0, PRIO_NORMAL);
+    thread_t* x = sched_create("x", thread_entry, 0, PRIO_NORMAL);
     CHECK(x != 0);
     while (sched_current() != x) tick();
     if (setjmp(escape) == 0) sched_exit();                  // host_halt вернёт сюда
@@ -170,15 +170,15 @@ int main(void) {
     CHECK(sched_reap() == 1);
     CHECK(x->state == THREAD_UNUSED);
     CHECK(sched_snapshot(info, sched_thread_capacity()) == before);
-    thread_t* y = sched_create("y", dummy, 0, PRIO_NORMAL);
+    thread_t* y = sched_create("y", thread_entry, 0, PRIO_NORMAL);
     CHECK(y == x);                                          // слот переиспользован
     y->state = THREAD_UNUSED; free(y->stack_base); y->stack_base = 0;
 
     // ---- 7. таблица потоков ограничена ----
     int created = 0; thread_t* spare[256];
-    for (int i = 0; i < (int)sched_thread_capacity() + 4; i++) { thread_t* t = sched_create("s", dummy, 0, PRIO_IDLE); if (t) spare[created++] = t; }
+    for (int i = 0; i < (int)sched_thread_capacity() + 4; i++) { thread_t* t = sched_create("s", thread_entry, 0, PRIO_IDLE); if (t) spare[created++] = t; }
     printf("extra threads created: %d\n", created);
-    CHECK(sched_create("over", dummy, 0, PRIO_NORMAL) == 0);
+    CHECK(sched_create("over", thread_entry, 0, PRIO_NORMAL) == 0);
     for (int i = 0; i < created; i++) { spare[i]->state = THREAD_UNUSED; free(spare[i]->stack_base); spare[i]->stack_base = 0; }
 
     // ---- 7b. несколько ядер: маска ядер, свой текущий и холостой поток у каждого, поток не живёт на двух ядрах ----
@@ -192,10 +192,10 @@ int main(void) {
         host_cpu = 0;
         CHECK(sched_current() != idle1);                          // у ядра 0 свой текущий поток
 
-        CHECK(sched_create_on("nomask", dummy, 0, PRIO_NORMAL, cm_none()) == 0);   // пустая маска бессмысленна
-        thread_t* only1 = sched_create_on("only1", dummy, 0, PRIO_NORMAL, cm_from64(2));
+        CHECK(sched_create_on("nomask", thread_entry, 0, PRIO_NORMAL, cm_none()) == 0);   // пустая маска бессмысленна
+        thread_t* only1 = sched_create_on("only1", thread_entry, 0, PRIO_NORMAL, cm_from64(2));
         CHECK(only1 != 0 && cm_is64(&only1->affinity, 2));
-        thread_t* plain = sched_create("plain", dummy, 0, PRIO_NORMAL);
+        thread_t* plain = sched_create("plain", thread_entry, 0, PRIO_NORMAL);
         CHECK(plain && cm_is_all(&plain->affinity));     // ядра равнозначны: по умолчанию поток может идти на любое
 
         memset(cpu_ticks, 0, sizeof cpu_ticks);
@@ -211,7 +211,7 @@ int main(void) {
         CHECK(sched_current() != only1);
 
         // Поток, ещё не ушедший со своего стека (on_cpu), другое ядро взять не может, даже если он уже "готов".
-        thread_t* both = sched_create_on("both", dummy, 0, PRIO_CRITICAL, cm_from64(3));
+        thread_t* both = sched_create_on("both", thread_entry, 0, PRIO_CRITICAL, cm_from64(3));
         CHECK(both != 0);
         both->on_cpu = 1; both->state = THREAD_READY;
         memset(cpu_ticks, 0, sizeof cpu_ticks);
@@ -224,9 +224,21 @@ int main(void) {
         uint64_t idle_c = 0, total_c = 0, sw = 0;
         CHECK(sched_cpu_stats(1, &idle_c, &total_c, &sw) == 0 && total_c > 0 && sw >= 1);
         CHECK(sched_cpu_stats(5, &idle_c, &total_c, &sw) != 0);    // ядро не подключено
+        {
+            uint64_t wait = UINT64_MAX, contended = UINT64_MAX, taken = UINT64_MAX;
+            sched_lock_stats(0, &wait, &contended, &taken);
+            CHECK(wait == 0 && contended == 0 && taken > 0);
+            wait = contended = taken = UINT64_MAX;
+            sched_lock_stats(PERCPU_MAX_CPUS, &wait, &contended, &taken);
+            CHECK(wait == 0 && contended == 0 && taken == 0);
+            wait = UINT64_MAX; taken = UINT64_MAX;
+            sched_lock_stats(PERCPU_MAX_CPUS, &wait, 0, &taken);
+            CHECK(wait == 0 && taken == 0);
+            sched_lock_stats(0, 0, 0, 0); /* optional output fields */
+        }
 
         // Общая очередь: ядро 0 занято критическим потоком, обычный поток с маской «любое ядро» берёт ядро 1.
-        thread_t* roam = sched_create("roam", dummy, 0, PRIO_NORMAL);
+        thread_t* roam = sched_create("roam", thread_entry, 0, PRIO_NORMAL);
         CHECK(roam != 0);
         host_cpu = 1;
         // ядро 1 сейчас исполняет only1 (обычный приоритет): дадим ему свободную очередь, only1 уступает по кванту
@@ -269,9 +281,9 @@ int main(void) {
         CHECK(sched_attach_cpu() == 0);
         thread_t* idle1 = (thread_t*)sched_current();
         host_cpu = 0;
-        thread_t* pin1 = sched_create_on("pin1", dummy, 0, PRIO_NORMAL, cm_from64(2));
-        thread_t* both = sched_create_on("both01", dummy, 0, PRIO_NORMAL, cm_from64(3));
-        thread_t* svc = sched_create("svc", dummy, 0, PRIO_NORMAL);
+        thread_t* pin1 = sched_create_on("pin1", thread_entry, 0, PRIO_NORMAL, cm_from64(2));
+        thread_t* both = sched_create_on("both01", thread_entry, 0, PRIO_NORMAL, cm_from64(3));
+        thread_t* svc = sched_create("svc", thread_entry, 0, PRIO_NORMAL);
         CHECK(pin1 && both && svc);
         CHECK((svc->flags & THREAD_F_SERVICE) && !(pin1->flags & THREAD_F_SERVICE));   // сбой в служебном потоке - авария
         host_cpu = 1;
@@ -300,7 +312,7 @@ int main(void) {
     }
 
     // ---- 8. канарейка стека ----
-    thread_t* v = sched_create("victim", dummy, 0, PRIO_NORMAL);
+    thread_t* v = sched_create("victim", thread_entry, 0, PRIO_NORMAL);
     while (sched_current() != v) tick();
     *(uint64_t*)v->stack_base = 0;                          // "переполнение стека"
     panic_reason = 0;
@@ -310,7 +322,7 @@ int main(void) {
     // ---- 9. realtime вытесняет critical и не отдаёт процессор ----
     v->state = THREAD_UNUSED; free(v->stack_base); v->stack_base = 0;
     uint32_t cur_before = sched_current()->id; (void)cur_before;
-    thread_t* rt = sched_create("rt", dummy, 0, PRIO_REALTIME);
+    thread_t* rt = sched_create("rt", thread_entry, 0, PRIO_REALTIME);
     CHECK(rt != 0);
     memset(cpu_ticks, 0, sizeof cpu_ticks);
     for (int i = 0; i < 100; i++) tick();
@@ -323,8 +335,8 @@ int main(void) {
     sched_yield();
     for (int i = 0; i < 3; i++) tick();
     sched_set_quantum(4);
-    thread_t* wa = sched_create("wa", dummy, 0, PRIO_NORMAL);
-    thread_t* wb = sched_create("wb", dummy, 0, PRIO_NORMAL);
+    thread_t* wa = sched_create("wa", thread_entry, 0, PRIO_NORMAL);
+    thread_t* wb = sched_create("wb", thread_entry, 0, PRIO_NORMAL);
     CHECK(wa && wb);
     wa->pid = 501; wb->pid = 502;
     CHECK(sched_runnable() >= 2);
@@ -361,10 +373,10 @@ int main(void) {
     //         конца кванта; вытесненный фон идёт следующим с остатком кванта, а не в хвост ----
     {
         sched_set_quantum(20);
-        thread_t* fg = sched_create("fg", dummy, 0, PRIO_NORMAL);
+        thread_t* fg = sched_create("fg", thread_entry, 0, PRIO_NORMAL);
         fg->pid = 503;
         sched_set_proc_weight(503, 6);
-        thread_t* bg2 = sched_create("bg2", dummy, 0, PRIO_NORMAL);
+        thread_t* bg2 = sched_create("bg2", thread_entry, 0, PRIO_NORMAL);
         bg2->pid = 504;
         for (int i = 0; i < 200 && sched_current() != fg; i++) tick();
         CHECK(sched_current() == fg);
@@ -372,8 +384,8 @@ int main(void) {
         for (int i = 0; i < 200 && !(sched_current() != fg && sched_current()->quantum_left > 10); i++) tick();
         thread_t* running_bg = (thread_t*)sched_current();
         CHECK(running_bg != fg && running_bg->weight == 4);
-        fg->wake_tick = fake_ticks + 1;
-        sched_set_wake_tick(fg, fake_ticks + 1);
+        fg->wake_tick = sim_ticks + 1;
+        sched_set_wake_tick(fg, sim_ticks + 1);
         tick();                                                  // срок: фокус проснулся
         CHECK(sched_current() == fg);                            // и пошёл сразу, хотя у фона квант не кончился
         CHECK(running_bg->state == THREAD_READY && running_bg->quantum_left > 0);
@@ -390,17 +402,17 @@ int main(void) {
         extern unsigned host_cpu;
         for (unsigned c = 2; c <= 3; c++) { percpu_alloc(c); host_cpu = c; CHECK(sched_attach_cpu() == 0); }
         host_cpu = 0;
-        thread_t* f1 = sched_create("focus", dummy, 0, PRIO_NORMAL); f1->pid = 600;
-        thread_t* b1 = sched_create("bg", dummy, 0, PRIO_NORMAL);    b1->pid = 601;
-        thread_t* pin = sched_create_on("pinned", dummy, 0, PRIO_NORMAL, cm_from64(8)); pin->pid = 601;
-        thread_t* kt = sched_create("kthread", dummy, 0, PRIO_NORMAL);
+        thread_t* f1 = sched_create("focus", thread_entry, 0, PRIO_NORMAL); f1->pid = 600;
+        thread_t* b1 = sched_create("bg", thread_entry, 0, PRIO_NORMAL);    b1->pid = 601;
+        thread_t* pin = sched_create_on("pinned", thread_entry, 0, PRIO_NORMAL, cm_from64(8)); pin->pid = 601;
+        thread_t* kt = sched_create("kthread", thread_entry, 0, PRIO_NORMAL);
         CHECK(sched_reserve_core(3, 600) >= 1 && sched_reserved_core() == 3);
         CHECK(!cm_test(&b1->affinity, 3) && cm_test(&b1->affinity, 2) && (b1->flags & THREAD_F_OFFCORE));
         CHECK(cm_test(&f1->affinity, 3) && !(f1->flags & THREAD_F_OFFCORE));
         CHECK(cm_is64(&pin->affinity, 8));                        // закрепление программы - её решение
         CHECK(cm_is_all(&kt->affinity));                          // потоки ядра не трогаются
         CHECK(b1->rq_cpu != 3);                                   // из очереди отданного ядра ушёл
-        thread_t* b2 = sched_create("bg-new", dummy, 0, PRIO_NORMAL); b2->pid = 601;
+        thread_t* b2 = sched_create("bg-new", thread_entry, 0, PRIO_NORMAL); b2->pid = 601;
         sched_reserve_core(3, 600);                               // повтор подхватывает новый поток
         CHECK(!cm_test(&b2->affinity, 3));
         sched_reserve_core(2, 601);                               // фокус сменился: теперь 601, ядро 2
@@ -408,6 +420,26 @@ int main(void) {
         sched_reserve_core(-1, 0);
         CHECK(cm_is_all(&b1->affinity) && cm_is_all(&b2->affinity) && cm_is_all(&f1->affinity) && sched_reserved_core() == -1);
         f1->state = b1->state = pin->state = kt->state = b2->state = THREAD_ZOMBIE;
+    }
+
+    // ---- 11. tick deadline arithmetic must saturate, never wrap into the past ----
+    {
+        thread_t* edge = sched_create_on("tick-edge", thread_entry, 0, PRIO_NORMAL, SCHED_AFFINITY_BSP);
+        CHECK(edge != 0);
+        for (int i = 0; i < 100 && sched_current() != edge; i++) tick();
+        CHECK(sched_current() == edge);
+        sim_ticks = UINT64_MAX - 2;
+        sched_sleep_ticks(10);
+        CHECK(edge->state == THREAD_SLEEPING);
+        CHECK(edge->wake_tick == UINT64_MAX);
+        CHECK(edge->wake_tick >= sim_ticks);
+        sim_ticks = UINT64_MAX - 1;
+        sched_tick();
+        CHECK(edge->state == THREAD_SLEEPING);
+        sim_ticks = UINT64_MAX;
+        sched_tick();
+        sched_irq_exit();
+        CHECK(edge->state != THREAD_SLEEPING);
     }
 
     printf("%s\n", fails ? "FAILED" : "ALL SCHEDULER TESTS PASSED");

@@ -38,6 +38,7 @@
 #include "experience.h"
 #include "irqmode.h"
 #include "mbinfo.h"
+#include "bootinfo.h"
 #include "earlycon.h"
 #include "spinlock.h"
 #include "rtc.h"
@@ -84,6 +85,9 @@ static const void* acpi_map(uint64_t phys, uint64_t len) {
     return (const void*)vmm_map_mmio(phys, len, VMM_MMIO_UC);
 }
 
+extern char kernel_start[];
+extern char kernel_end[];
+
 void kernel_main(unsigned long magic, unsigned long addr) {
     percpu_install(&percpu_table[0]);   /* учёт замков и вывод обращаются к данным ядра с первой строки */
     uart_init();
@@ -95,6 +99,26 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // Загрузчик (UEFI) мог положить Multiboot2-структуру выше 1 ГБ: переносим её в ядро
     // и сразу включаем раннюю консоль на экране, чтобы любой сбой дальше был виден.
     addr = mbinfo_relocate(magic, addr);
+    const void* bootinfo = 0;
+    uint32_t bootinfo_size = 0;
+    uint32_t mb2_size = 0;
+    if (magic == 0x36D76289UL && addr && addr < (1UL << 30) && (addr & 7) == 0) {
+        mb2_size = *(const uint32_t*)(uintptr_t)addr;
+        int bi_rc = kbi_from_multiboot2((const void*)(uintptr_t)addr, mb2_size,
+            (uint64_t)(uintptr_t)kernel_start,
+            ((uint64_t)(uintptr_t)kernel_end - (uint64_t)(uintptr_t)kernel_start),
+            &bootinfo, &bootinfo_size);
+        if (bi_rc != 0) {
+            uart_print("[KIRA BOOT] Multiboot2 to BootInfo conversion rejected: ");
+            uart_print_dec((uint32_t)(-bi_rc)); uart_print(".\n");
+            kernel_panic("BootInfo validation failed");
+        }
+        const kbi_header_t* bi = (const kbi_header_t*)bootinfo;
+        uart_print("[KIRA BOOT] BootInfo v"); uart_print_dec(bi->version);
+        uart_print(" validated: memory ranges="); uart_print_dec(bi->mmap_count);
+        uart_print(", modules="); uart_print_dec(bi->modules_count);
+        uart_print(", bytes="); uart_print_dec(bootinfo_size); uart_print(".\n");
+    }
     if (earlycon_init(addr) == 0) uart_print("[KIRA BOOT] Early console is on screen.\n");
 
     // Каждый модуль печатает "online" только после реальной проверки;
@@ -106,7 +130,10 @@ void kernel_main(unsigned long magic, unsigned long addr) {
 
     if (fpu_init() != 0)            kernel_panic("FPU/SSE initialization failed");
 
-    if (pmm_init(magic, addr) != 0) kernel_panic("PMM initialization failed");
+    if (bootinfo) {
+        if (pmm_init_bootinfo(bootinfo, bootinfo_size, addr, mb2_size) != 0)
+            kernel_panic("PMM initialization from BootInfo failed");
+    } else if (pmm_init(magic, addr) != 0) kernel_panic("PMM initialization failed");
     if (vmm_init() != 0)            kernel_panic("VMM initialization failed");
 
     if (vmm_guard_null_page() != 0) kernel_panic("Cannot install NULL guard page");
@@ -126,7 +153,10 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     }
     ramext_init();
     acpi_set_map_hook(acpi_map);
-    acpi_init(addr);
+    if (bootinfo && (((const kbi_header_t*)bootinfo)->flags & KBI_F_ACPI))
+        acpi_init_rsdp(((const kbi_header_t*)bootinfo)->rsdp_phys);
+    else
+        acpi_init(addr);
     {
         const acpi_info_t* ai = acpi_get();
         hw_init(ai && ai->valid ? ai->cpu_count : 1, pmm_get_total_memory_kb());

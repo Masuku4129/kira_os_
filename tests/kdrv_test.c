@@ -20,6 +20,57 @@ int main(void) {
     kdrv_header_t h, o;
     mk(&h, f, 100);
     CHECK(kdrv_header_check(f, sizeof f, &o) == KDRV_OK && !strcmp(o.name, "edu"));
+    CHECK(kdrv_name_check(0, 12) == 0);
+    CHECK(kdrv_name_check("", 1) == 0);
+    CHECK(kdrv_name_check("a", 2) == 1);
+    CHECK(kdrv_name_check("driver_12345", 13) == 0); /* 12 characters exceed the ABI limit */
+    CHECK(kdrv_name_check("driver-1234", 12) == 1);  /* exactly 11 characters */
+    CHECK(kdrv_name_check("bad/name", 9) == 0);
+    char unterminated_name[KDRV_NAME_MAX + 1];
+    memset(unterminated_name, 'a', sizeof unterminated_name);
+    CHECK(kdrv_name_check(unterminated_name, sizeof unterminated_name) == 0);
+    CHECK(kdrv_header_check(0, sizeof f, &o) == KDRV_E_INPUT);
+    CHECK(kdrv_rec_check(0, sizeof(kdrv_rec_t), 0) == KDRV_E_INPUT);
+    CHECK(kdrv_match_dev(0, 0x1234, 0x11e8, 0) == 0);
+    CHECK(kdrv_header_check(f, sizeof f, 0) == KDRV_OK);
+    CHECK(kdrv_dma_policy_allow(0, 0) == 1);                    /* MMIO/опрос безопасны без DMA */
+    CHECK(kdrv_dma_policy_allow(CAP_MMIO, 0) == 1);
+    CHECK(kdrv_dma_policy_allow(CAP_DMA, 0) == 0);               /* bus mastering без IOMMU запрещён */
+    CHECK(kdrv_dma_policy_allow(CAP_IRQ, 0) == 0);               /* MSI тоже является записью устройства в память */
+    CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 0) == 0);
+    CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 1) == 1);     /* допускается только после изоляции устройства */
+    CHECK(kdrv_pci_command_clear_master(0x0007) == 0x0003);   /* clear inherited bus-master permission */
+    CHECK(kdrv_pci_command_clear_master(0x0407) == 0x0403);   /* preserve unrelated command bits */
+    CHECK(kdrv_pci_command_for_unisolated(0x0007) == 0x0403); /* no DMA and no legacy INTx */
+    CHECK(kdrv_pci_busmaster_handoff_safe(0x0003, 0x0003));
+    CHECK(kdrv_pci_command_quiesced(0x0403));
+    CHECK(!kdrv_pci_command_quiesced(0x0003));
+    CHECK(!kdrv_pci_command_quiesced(0x0407));
+    CHECK(kdrv_pci_interrupts_quiesced(0, 1, 0x4000, 1)); /* MSI-X disabled, Function Mask asserted */
+    CHECK(kdrv_pci_interrupts_quiesced(0, 1, 0xC000, 1)); /* MSI-X enabled, Function Mask asserted */
+    CHECK(!kdrv_pci_interrupts_quiesced(1, 1, 0x8000, 1)); /* MSI and MSI-X unmasked */
+    CHECK(kdrv_pci_interrupts_quiesced(0, 1, 0, 1)); /* MSI-X disabled, no pending source */
+    CHECK(!kdrv_pci_start_requires_permanent_quarantine(1, 0x0003, 0x0400));
+    CHECK(kdrv_pci_start_requires_permanent_quarantine(0, 0x0003, 0x0400));
+    CHECK(kdrv_pci_start_requires_permanent_quarantine(1, 0x0007, 0x0400));
+    CHECK(kdrv_pci_start_requires_permanent_quarantine(1, 0x0003, 0x0402));
+    CHECK(!kdrv_pci_busmaster_handoff_safe(0x0007, 0x0003)); /* firmware had enabled DMA */
+    CHECK(!kdrv_pci_busmaster_handoff_safe(0x0003, 0x0007)); /* device refused disable */
+    uint64_t page_lo = 0, page_hi = 0, physical = 0;
+    uint32_t pages = 0;
+    CHECK(kdrv_mmio_page_bounds(0xFEC00000, 0x1000, &page_lo, &page_hi) == 0 &&
+          page_lo == 0xFEC00000 && page_hi == 0xFEC01000);
+    CHECK(kdrv_mmio_page_bounds(0xFEC00000, 0x1001, &page_lo, &page_hi) == 0 &&
+          page_hi == 0xFEC02000);
+    CHECK(kdrv_mmio_page_bounds(0, 0x1000, &page_lo, &page_hi) != 0);
+    CHECK(kdrv_mmio_page_bounds(UINT64_MAX - 0xFFF, 0x2000, &page_lo, &page_hi) != 0);
+    CHECK(kdrv_mmio_page_bounds(UINT64_MAX - 0x1FFF, 0x1001, &page_lo, &page_hi) != 0);
+    CHECK(kdrv_mmio_map_bounds(0xFEC00000, 0x1001, 0x1000, 1, &physical, &pages) == 0 &&
+          physical == 0xFEC01000 && pages == 1);
+    CHECK(kdrv_mmio_map_bounds(0xFEC00000, 0x1001, 0x1000, 2, &physical, &pages) != 0);
+    CHECK(kdrv_mmio_map_bounds(0xFEC00000, 0x1000, 1, 1, &physical, &pages) != 0);
+    CHECK(kdrv_mmio_map_bounds(0xFEC00000, 0x1000, 0, 0, &physical, &pages) != 0);
+    CHECK(kdrv_mmio_map_bounds(UINT64_MAX - 0xFFF, 0x2000, 0, 0x1000, &physical, &pages) != 0);
     CHECK(kdrv_header_check(f, sizeof f - 1, &o) == KDRV_E_SIZE);
     CHECK(kdrv_header_check(f, 10, &o) == KDRV_E_SHORT);
     h.magic ^= 1; PUT(); CHECK(kdrv_header_check(f, sizeof f, &o) == KDRV_E_MAGIC); h.magic ^= 1;

@@ -152,11 +152,26 @@ static void test_mbinfo(void) {
     *(uint32_t*)bad = 12;                                                          // общий размер слишком мал
     CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 1) == 0);
 
-    // relocate: неверный magic / адрес - без изменений и без обращений к окну
+    // Строгая структура: выравнивание, end tag обязателен и должен быть последним.
+    memcpy(bad, info, total);
+    *(uint32_t*)bad = total - 1;
+    CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 8) == 0);                  // total_size не кратен 8
+    memcpy(bad, info, total);
+    *(uint32_t*)(bad + total - 8) = 99;
+    CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 8) == 0);                  // отсутствует end tag
+    memcpy(bad, info, total);
+    *(uint32_t*)(bad + total - 4) = 16;
+    CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 8) == 0);                  // end tag имеет неверный размер
+    memcpy(bad, info, total);
+    *(uint32_t*)(bad + 12) = 0xFFFFFFF8u;
+    CHECK(mbinfo_find_tag((unsigned long)(uintptr_t)bad, 8) == 0);                  // округление/размер тега не переполняют обход
+
+    // relocate: неверный magic/адрес не возвращает указатель, который поздний код разыменует как virtual
     bm_map_calls = 0; said[0] = 0; bm_init_rc = 0;
-    CHECK(mbinfo_relocate(0x1234, 0x180000000UL) == 0x180000000UL);
+    CHECK(mbinfo_relocate(0x1234, 0x180000000UL) == 0);
     CHECK(mbinfo_relocate(0x36D76289UL, 0) == 0);
-    CHECK(mbinfo_relocate(0x36D76289UL, 0x180000004UL) == 0x180000004UL);
+    CHECK(mbinfo_relocate(0x36D76289UL, 0x180000004UL) == 0);
+    CHECK(mbinfo_relocate(0x36D76289UL, UINTPTR_MAX - 7) == 0);                    // сложение физического адреса не переполняется
     CHECK(bm_map_calls == 0);
 
     // структура внутри identity-карты: возвращается тот же адрес, окно не трогается
@@ -167,7 +182,7 @@ static void test_mbinfo(void) {
         CHECK(mbinfo_relocate(0x36D76289UL, 0x10000000UL) == 0x10000000UL);
         CHECK(bm_map_calls == 0);
         *(uint32_t*)low = 8;                                                        // повреждённый размер внутри карты
-        CHECK(mbinfo_relocate(0x36D76289UL, 0x10000000UL) == 0x10000000UL);
+        CHECK(mbinfo_relocate(0x36D76289UL, 0x10000000UL) == 0);
         CHECK(bm_map_calls == 0);
     }
 
@@ -181,19 +196,19 @@ static void test_mbinfo(void) {
     CHECK(strstr(said, "above the 1 GB identity map: copied"));
     CHECK(mbinfo_find_tag(r, 8) != 0);                                              // копия разбирается как обычная структура
 
-    // огромный размер в заголовке - отказ, адрес остаётся прежним
+    // огромный размер в заголовке - отказ без возврата неотображённого физического адреса
     *(uint32_t*)bad = 70000; memcpy(bad + 4, info + 4, 4);
     bm_host = bad; said[0] = 0;
-    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == (unsigned long)hi);
+    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == 0);
     CHECK(strstr(said, "invalid size"));
     // окно не ставится
     bm_host = info; bm_init_rc = -1; said[0] = 0;
-    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == (unsigned long)hi);
+    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == 0);
     CHECK(strstr(said, "cannot be installed"));
     bm_init_rc = 0;
     // отображение не удалось
     bm_host = 0; said[0] = 0;
-    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == (unsigned long)hi);
+    CHECK(mbinfo_relocate(0x36D76289UL, (unsigned long)hi) == 0);          // отказ отображения не возвращает физический адрес как виртуальный
     CHECK(strstr(said, "Cannot map"));
 
     // структура начинается ниже 1 ГБ, но пересекает границу: тоже через окно

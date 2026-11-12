@@ -78,6 +78,9 @@ static Type *canon(const Type *t) {
 }
 
 Type *ty_promote(Type *t) {
+    /* Every KCC enum enumerator is constrained to the range of int, so the
+       integer promotions always produce int (never unsigned int). */
+    if (t->k == TY_ENUM) return &ty_int;
     t = canon(t);
     if (t->k == TY_BOOL || t->k == TY_CHAR || t->k == TY_SHORT) return &ty_int;
     return t;
@@ -94,22 +97,35 @@ Type *ty_common(Type *a, Type *b) {
     return s->k == TY_LONG ? &ty_ulong : s->k == TY_LLONG ? &ty_ullong : &ty_uint;
 }
 
-static int norm_kind(const Type *t) { return t->k == TY_ENUM ? TY_INT : t->k; }
+static int proto_compatible_with_no_proto(const Type *fn) {
+    if (fn->variadic) return 0;
+    for (Param *p = fn->params; p; p = p->next) {
+        /* With no prototype, default argument promotions must leave every
+           declared parameter type unchanged (e.g. int is OK; char is not). */
+        Type *promoted = ty_promote(p->ty);
+        if (!ty_compat(p->ty, promoted)) return 0;
+    }
+    return 1;
+}
 
 int ty_compat(const Type *a, const Type *b) {
     if (a == b) return 1;
     if (a->orig) a = a->orig;
     if (b->orig) b = b->orig;
     if (a == b) return 1;
-    if (norm_kind(a) != norm_kind(b)) return 0;
+    /* Enum types are distinct nominal types. Treating every enum as int here
+       incorrectly made enum A* and enum B* compatible in pointer operations. */
+    if (a->k != b->k) return 0;
     switch (a->k) {
     case TY_VOID: return 1;
-    case TY_STRUCT: case TY_UNION: return 0;
+    case TY_ENUM: case TY_STRUCT: case TY_UNION: return 0;
     case TY_PTR: return ty_compat(a->base, b->base);
     case TY_ARRAY: return ty_compat(a->base, b->base) && (a->alen < 0 || b->alen < 0 || a->alen == b->alen);
     case TY_FUNC: {
         if (!ty_compat(a->base, b->base)) return 0;
-        if (a->noproto || b->noproto) return 1;
+        if (a->noproto && b->noproto) return 1;
+        if (a->noproto) return proto_compatible_with_no_proto(b);
+        if (b->noproto) return proto_compatible_with_no_proto(a);
         if (a->variadic != b->variadic) return 0;
         Param *p = a->params, *q = b->params;
         for (; p && q; p = p->next, q = q->next) if (!ty_compat(p->ty, q->ty)) return 0;

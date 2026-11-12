@@ -9,13 +9,13 @@ void uart_print_hex(uint64_t v){(void)v;}
 #define CHECK(c) do{ if(!(c)){ printf("FAIL line %d: %s\n",__LINE__,#c); exit(1);} }while(0)
 static void fix(uint8_t* t, uint32_t len, uint32_t csum_off){ t[csum_off]=0; uint8_t s=0; for(uint32_t i=0;i<len;i++) s+=t[i]; t[csum_off]=(uint8_t)(0-s); }
 static void hdr(uint8_t* t, const char* sig, uint32_t len){ memset(t,0,len); memcpy(t,sig,4); memcpy(t+4,&len,4); t[8]=1; }
-static uint64_t hook_base; static uint8_t* hook_buf; static int hook_calls;
-static const void* hook(uint64_t phys, uint64_t len){ hook_calls++; if(!hook_buf || phys < hook_base || phys + len > hook_base + 0x700) return 0; return hook_buf + (phys - hook_base); }
+static uint64_t hook_base, hook_len = 0x700; static uint8_t* hook_buf; static int hook_calls;
+static const void* hook(uint64_t phys, uint64_t len){ hook_calls++; if(!hook_buf || phys < hook_base || len > hook_len || phys - hook_base > hook_len - len) return 0; return hook_buf + (phys - hook_base); }
 int main(void){
     uint8_t* m = mmap((void*)0x10000000, 1<<16, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
     CHECK(m == (uint8_t*)0x10000000);
     uint64_t base = 0x10000000;
-    uint8_t *rsdp=m, *xsdt=m+0x100, *madt=m+0x200, *hpet=m+0x400, *mcfg=m+0x500;
+    uint8_t *rsdp=m, *xsdt=m+0x100, *madt=m+0x200, *hpet=m+0x400, *mcfg=m+0x500, *dmar=m+0x600;
     /* MADT: 2 CPU (один отключён), 1 IOAPIC, 1 override */
     uint32_t mlen=44+8+8+12+10+16+16; hdr(madt,"APIC",mlen);
     uint32_t la=0xFEE00000; memcpy(madt+36,&la,4);
@@ -28,16 +28,80 @@ int main(void){
     fix(madt,mlen,9);
     hdr(hpet,"HPET",56); fix(hpet,56,9);
     hdr(mcfg,"MCFG",60); uint64_t ecam=0xB0000000ull; memcpy(mcfg+44,&ecam,8); mcfg[44+10]=0; mcfg[44+11]=255; fix(mcfg,60,9);
-    uint32_t xlen=36+3*8; hdr(xsdt,"XSDT",xlen);
-    uint64_t a1=base+0x200,a2=base+0x400,a3=base+0x500; memcpy(xsdt+36,&a1,8);memcpy(xsdt+44,&a2,8);memcpy(xsdt+52,&a3,8); fix(xsdt,xlen,9);
+    hdr(dmar,"DMAR",48); dmar[36]=47; fix(dmar,48,9);
+    uint32_t xlen=36+4*8; hdr(xsdt,"XSDT",xlen);
+    uint64_t a1=base+0x200,a2=base+0x400,a3=base+0x500,a4=base+0x600; memcpy(xsdt+36,&a1,8);memcpy(xsdt+44,&a2,8);memcpy(xsdt+52,&a3,8);memcpy(xsdt+60,&a4,8); fix(xsdt,xlen,9);
     memset(rsdp,0,36); memcpy(rsdp,"RSD PTR ",8); rsdp[15]=2; uint32_t rl=36; memcpy(rsdp+20,&rl,4); uint64_t xa=base+0x100; memcpy(rsdp+24,&xa,8);
     fix(rsdp,20,8); fix(rsdp,36,32);
     acpi_info_t i;
     CHECK(acpi_parse(base, base+(1<<16), &i)==0);
+    CHECK(acpi_init_rsdp(base) == 0);
+    CHECK(acpi_get() && acpi_get()->cpu_count == 2);
+    CHECK(acpi_init_rsdp(base + 1) == -1 && acpi_get() == 0);
+    CHECK(acpi_init_rsdp(base) == 0 && acpi_get() && acpi_get()->cpu_count == 2);
+    /* Multiboot2 compatibility entry must validate the tag stream and use the inline RSDP copy. */
+    {
+        uint8_t* mbi=m+0x4000;
+        memset(mbi,0,64);
+        uint32_t total=64, type=15, size=44, end_type=0, end_size=8;
+        memcpy(mbi,&total,4);
+        memcpy(mbi+8,&type,4); memcpy(mbi+12,&size,4);
+        memcpy(mbi+16,rsdp,36);
+        memcpy(mbi+56,&end_type,4); memcpy(mbi+60,&end_size,4);
+        CHECK(acpi_init((uint64_t)(uintptr_t)mbi)==0);
+        CHECK(acpi_get() && acpi_get()->cpu_count==2);
+        total=56; memcpy(mbi,&total,4); end_type=9; memcpy(mbi+56,&end_type,4);
+        CHECK(acpi_init((uint64_t)(uintptr_t)mbi)==-1); /* malformed/non-terminated tag stream */
+        CHECK(acpi_get()==0); /* rejected handoff must not leave stale platform data */
+    }
+    /* RSDP length and root entry array must stay within the supplied physical window. */
+    { uint32_t save; memcpy(&save, rsdp+20, 4); uint32_t huge=0xFFFFFFFFu; memcpy(rsdp+20, &huge, 4);
+      CHECK(acpi_parse(base, base+(1<<16), &i)==-4); memcpy(rsdp+20, &save, 4); }
+    CHECK(acpi_parse(UINT64_MAX-7, base+(1<<16), &i)==-1);
+    { uint32_t save; memcpy(&save, xsdt+4, 4); uint32_t bad=61; memcpy(xsdt+4, &bad, 4); fix(xsdt,bad,9);
+      CHECK(acpi_parse(base, base+(1<<16), &i)==-6); memcpy(xsdt+4, &save, 4); fix(xsdt,save,9); }
+    CHECK(acpi_parse(base, base+(1<<16), &i)==0);
     CHECK(i.cpu_count==2 && i.cpu_apic_id[0]==0 && i.cpu_apic_id[1]==300 && i.max_apic_id==300);
+    /* A checksum-valid MADT with a truncated known entry is rejected transactionally. */
+    { uint8_t saved = madt[45]; madt[45] = 1; fix(madt, mlen, 9);
+      CHECK(acpi_parse(base, base+(1<<16), &i)==0);
+      CHECK(i.tables_bad==1 && i.tables_seen==3 && i.cpu_count==0 && i.ioapic_count==0 && i.has_hpet);
+      madt[45] = saved; fix(madt, mlen, 9); }
+    CHECK(acpi_parse(base, base+(1<<16), &i)==0); /* restore valid topology after malformed-table test */
     CHECK(i.valid && i.revision==2 && i.ioapic_count==1 && i.ioapic[0].addr==0xFEC00000);
     CHECK(i.lapic_addr==0xFEE00000 && i.irq_override_count==1 && i.has_hpet && i.mcfg_base==ecam && i.mcfg_bus_end==255);
-    CHECK(i.tables_seen==3 && i.tables_bad==0);
+
+    /* MCFG allocations are all validated before any ECAM range is published. */
+    {
+        uint32_t saved_len; memcpy(&saved_len, mcfg + 4, 4);
+        uint8_t saved_first = mcfg[44 + 10], saved_last = mcfg[44 + 11];
+        uint8_t saved;
+        mcfg[44 + 10] = 1; mcfg[44 + 11] = 0; fix(mcfg, 60, 9);
+        CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
+        CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
+        mcfg[44 + 10] = saved_first; mcfg[44 + 11] = saved_last; fix(mcfg, 60, 9);
+        saved = mcfg[44 + 12]; mcfg[44 + 12] = 1; fix(mcfg, 60, 9);
+        CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
+        CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
+        mcfg[44 + 12] = saved; fix(mcfg, 60, 9);
+        saved = mcfg[44]; mcfg[44] = 1; fix(mcfg, 60, 9);
+        CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
+        CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
+        mcfg[44] = saved; fix(mcfg, 60, 9);
+        memcpy(&saved_len, mcfg + 4, 4);
+        uint32_t malformed_len = 61; memcpy(mcfg + 4, &malformed_len, 4); fix(mcfg, malformed_len, 9);
+        CHECK(acpi_parse(base, base + (1 << 16), &i) == 0);
+        CHECK(i.tables_bad == 1 && i.mcfg_base == 0);
+        memcpy(mcfg + 4, &saved_len, 4); fix(mcfg, saved_len, 9);
+    }
+    CHECK(acpi_parse(base, base + (1 << 16), &i) == 0); /* restore valid MCFG after rejection cases */
+
+    CHECK(i.dmar_phys==base+0x600 && i.dmar_len==48);
+    { uint32_t save; memcpy(&save,dmar+4,4); uint32_t short_len=47; memcpy(dmar+4,&short_len,4); fix(dmar,short_len,9);
+      CHECK(acpi_parse(base,base+(1<<16),&i)==0 && i.dmar_phys==0 && i.dmar_len==0);
+      memcpy(dmar+4,&save,4); fix(dmar,save,9); }
+    CHECK(acpi_parse(base,base+(1<<16),&i)==0); /* restore valid DMAR before aggregate assertions */
+    CHECK(i.tables_seen==4 && i.tables_bad==0);
     CHECK(i.iso_valid[0]==1 && i.iso_gsi[0]==2 && !i.iso_valid[1]);
     madt[50]^=0xFF;                       /* порча MADT: должна быть отвергнута, остальное разобрано */
     CHECK(acpi_parse(base, base+(1<<16), &i)==0 && i.tables_bad==1 && i.cpu_count==0 && i.has_hpet);
@@ -51,12 +115,19 @@ int main(void){
         memcpy(hi, m, sizeof hi);                       /* те же таблицы «в высокой памяти» */
         hook_base = base; hook_buf = hi; hook_calls = 0;
         acpi_set_map_hook(hook);
-        CHECK(acpi_parse(base, base + 0x40, &i) == 0 && i.cpu_count == 2 && i.tables_seen == 3 && hook_calls >= 4);
+        CHECK(acpi_parse(base, base + 0x40, &i) == 0 && i.cpu_count == 2 && i.tables_seen == 4 && hook_calls >= 5);
         hook_buf = 0;                                    /* ядро не смогло отобразить: таблица пропущена, не падение */
         CHECK(acpi_parse(base, base + 0x40, &i) == -5);
         acpi_set_map_hook(0);
     }
     CHECK(acpi_parse(0, 1<<30, &i)==-1);
+    CHECK(acpi_parse(base, base+(1<<16), 0)==-1);
+    CHECK(acpi_scan(UINT64_MAX - 7, UINT64_MAX, "RSD PTR ", 8, 20) == 0);
+    CHECK(acpi_scan(base + 0x1000, base, "_MP_", 4, 0) == 0);
+    CHECK(acpi_scan(base, base + 0x1000, 0, 4, 0) == 0);
+    CHECK(acpi_scan(base, base + 0x1000, "0123456789abcdefg", 17, 17) == 0);
+    CHECK(acpi_scan(base, base + 0x1000, "RSD PTR ", 8, 4) == 0); /* checksum span must cover signature */
+
     /* ---- таблицы Intel MP (как у SeaBIOS при выключенном ACPI) ---- */
     {
         uint8_t* fps = m + 0x800; uint8_t* ct = m + 0x900;
@@ -87,11 +158,41 @@ int main(void){
         CHECK(mp.ioapic_count == 1 && mp.ioapic[0].id == 4 && mp.ioapic[0].addr == 0xFEC00000 && mp.ioapic[0].gsi_base == 0);
         CHECK(mp.iso_valid[0] && mp.iso_gsi[0] == 2 && mp.iso_valid[1] && mp.iso_gsi[1] == 1 && mp.iso_flags[9] == 0x0F && mp.irq_override_count == 2);
         CHECK(!mp.iso_valid[12]);
+        {
+            static uint8_t high_mp[0x1000];
+            memcpy(high_mp, m, sizeof high_mp);
+            hook_base = base; hook_len = sizeof high_mp; hook_buf = high_mp; hook_calls = 0;
+            acpi_set_map_hook(hook);
+            acpi_info_t high; memset(&high, 0xA5, sizeof high);
+            CHECK(mp_parse(base + 0x800, base + 0x40, &high) == 0);
+            CHECK(high.valid && high.cpu_count == 3 && high.legacy_isa);
+            CHECK(high.dmar_phys == 0 && high.dmar_len == 0 && !high.has_hpet && !high.mcfg_base);
+            acpi_info_t before_high = high;
+            hook_buf = 0;
+            CHECK(mp_parse(base + 0x800, base + 0x40, &high) == -1);
+            CHECK(memcmp(&high, &before_high, sizeof high) == 0);
+            acpi_set_map_hook(0); hook_buf = 0; hook_len = 0x700;
+        }
         ct[50] ^= 1; CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == -4); ct[50] ^= 1;     /* испорченная таблица */
         fps[9] ^= 1; CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == -2);
         CHECK(acpi_scan(base, base + 0x1000, "_MP_", 4, 0) == 0); fps[9] ^= 1;                 /* сумма не сходится - не находим */
         fps[11] = 6; fix(fps, 16, 10);                     /* стандартная конфигурация без таблицы */
         CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == 0 && mp.cpu_count == 2 && mp.ioapic_count == 1);
+        {
+            acpi_info_t unchanged; memset(&unchanged, 0xA5, sizeof unchanged);
+            acpi_info_t before = unchanged;
+            CHECK(mp_parse(UINT64_MAX - 7, UINT64_MAX, &unchanged) == -1);
+            CHECK(memcmp(&unchanged, &before, sizeof before) == 0);
+            CHECK(mp_parse(base + 0x800, base + (1 << 16), 0) == -1);
+            fps[11] = 0; fix(fps, 16, 10); /* force the explicit table path before corrupting its entry count */
+            uint16_t saved_count; memcpy(&saved_count, ct + 34, 2);
+            uint16_t short_count = (uint16_t)(saved_count - 1);
+            memcpy(ct + 34, &short_count, 2); fix(ct, tl, 7);
+            before = mp;
+            CHECK(mp_parse(base + 0x800, base + (1 << 16), &mp) == -4);
+            CHECK(memcmp(&mp, &before, sizeof mp) == 0);
+            memcpy(ct + 34, &saved_count, 2); fix(ct, tl, 7);
+        }
         srand(3);
         for (int t = 0; t < 20000; t++) {                  /* мусор в таблице не выводит за её пределы */
             fps[11] = 0; fix(fps, 16, 10);
@@ -116,14 +217,24 @@ int main(void){
     }
     {   /* \_S5: как у QEMU (Name(\_S5, Package(4){5, 5, 0, 0}) через BytePrefix), Zero/One, длина пакета в 2 байта, ложные */
         uint8_t a = 9, b = 9;
-        static const uint8_t q[] = { 0x10, 0x20, 0x08, '_', 'S', '5', '_', 0x12, 0x0A, 0x04, 0x0A, 0x05, 0x0A, 0x05, 0x00, 0x00 };
+        static const uint8_t q[] = { 0x10, 0x20, 0x08, '_', 'S', '5', '_', 0x12, 0x08, 0x04, 0x0A, 0x05, 0x0A, 0x05, 0x00, 0x00 };
         CHECK(acpi_find_s5(q, sizeof q, &a, &b) == 0 && a == 5 && b == 5);
-        static const uint8_t r[] = { 0x08, '\\', '_', 'S', '5', '_', 0x12, 0x46, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00 };
+        static const uint8_t r[] = { 0x08, '\\', '_', 'S', '5', '_', 0x12, 0x06, 0x04, 0x00, 0x01, 0x00, 0x00 };
         CHECK(acpi_find_s5(r, sizeof r, &a, &b) == 0 && a == 0 && b == 1);
         static const uint8_t m[] = { 0x5B, 0x80, '_', 'S', '5', '_', 0x12, 0x06, 0x04, 0x0A, 0x07, 0x00, 0x00, 0x00, 0x00 };   /* не NameOp */
         CHECK(acpi_find_s5(m, sizeof m, &a, &b) != 0);
         static const uint8_t t[] = { 0x08, '_', 'S', '5', '_', 0x12 };                         /* обрезано */
         CHECK(acpi_find_s5(t, sizeof t, &a, &b) != 0);
+        CHECK(acpi_find_s5(0, sizeof q, &a, &b) != 0);
+        CHECK(acpi_find_s5(q, sizeof q, 0, &b) != 0);
+        static const uint8_t short_pkg[] = { 0x08, '_', 'S', '5', '_', 0x12, 0x07, 0x04, 0x0A };
+        CHECK(acpi_find_s5(short_pkg, sizeof short_pkg, &a, &b) != 0);
+        static const uint8_t bad_pkglen[] = { 0x08, '_', 'S', '5', '_', 0x12, 0x3F, 0x04, 0x00 };
+        CHECK(acpi_find_s5(bad_pkglen, sizeof bad_pkglen, &a, &b) != 0);
+        static const uint8_t bad_value[] = { 0x08, '_', 'S', '5', '_', 0x12, 0x05, 0x02, 0x0A, 0x08, 0x00 };
+        CHECK(acpi_find_s5(bad_value, sizeof bad_value, &a, &b) != 0);
+        static const uint8_t too_few[] = { 0x08, '_', 'S', '5', '_', 0x12, 0x03, 0x01, 0x00 };
+        CHECK(acpi_find_s5(too_few, sizeof too_few, &a, &b) != 0);
     }
     printf("acpi: all parser checks passed (incl. Intel MP tables, BIOS scan)\n");
     return 0;

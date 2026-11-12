@@ -1,20 +1,126 @@
 name: kira
 
 concurrency:
-  group: kira-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: kira-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 on:
   push:
+    branches: [main, stable, v45/overhaul, 'v46/**']
     paths-ignore: ['docs/**', '**.md']
   pull_request:
+    paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      audit: ${{ steps.classify.outputs.audit }}
+      host: ${{ steps.classify.outputs.host }}
+      kcc: ${{ steps.classify.outputs.kcc }}
+      driver: ${{ steps.classify.outputs.driver }}
+      build: ${{ steps.classify.outputs.build }}
+      arm64: ${{ steps.classify.outputs.arm64 }}
+      gui: ${{ steps.classify.outputs.gui }}
+      mind: ${{ steps.classify.outputs.mind }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify changed components
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          event = os.environ["EVENT_NAME"]
+          head = os.environ["HEAD_SHA"]
+          if event == "pull_request":
+              base = os.environ.get("PR_BASE_SHA", "")
+          elif event == "push":
+              base = os.environ.get("PUSH_BASE_SHA", "")
+          else:
+              # Manual dispatch and any future non-diff event run the full suite.
+              base = ""
+
+          # Initial pushes have an all-zero "before" SHA. Missing/unavailable
+          # comparison bases fail closed to a full run rather than skipping checks.
+          if not base or set(base) == {"0"}:
+              changed = []
+              full = True
+              print(f"No usable comparison base for {event}; selecting full suite.")
+          else:
+              try:
+                  changed = subprocess.check_output(
+                      ["git", "diff", "--name-only", base, head], text=True
+                  ).splitlines()
+                  full = not changed
+              except subprocess.CalledProcessError:
+                  changed = []
+                  full = True
+                  print("Diff failed; selecting full suite rather than skipping checks.")
+          infra = full or any(
+              p.startswith(".github/workflows/") or p.startswith("ci/")
+              for p in changed
+          )
+          code_ext = (".c", ".h", ".S", ".s", ".asm", ".ld", ".py", ".sh")
+          code = infra or any(
+              pathlib.PurePosixPath(p).suffix in code_ext
+              or p in {"Makefile", "build_clang.sh", "build_arm64.sh", "linker.ld"}
+              for p in changed
+          )
+          groups = {
+              "audit": infra or code,
+              "host": infra or code or any(p.startswith("tests/") for p in changed),
+              "kcc": infra or any(
+                  p.startswith(("kcc/", "tests/kcc/"))
+                  or p in {"tests/kcc/run.sh", "tests/run_host_tests.sh"}
+                  for p in changed
+              ),
+              "driver": infra or any(
+                  p.startswith(("drivers/", "userland/drv"))
+                  or p in {"kdrv.c", "kdrv.h", "kdrv_fmt.c", "kdrv_format.h",
+                           "kdrv_trust.h", "tools/mkdrv.sh", "tools/kdrvpack.c",
+                           "tests/drvget_e2e.sh"}
+                  for p in changed
+              ),
+              "build": code,
+              "arm64": code,
+              "gui": infra or any(
+                  p in {"wm.c", "gfxui.c", "gfx2d.c", "font8x16.c", "icons.c",
+                        "brainfx.c", "apps.c", "dock.c"}
+                  or p.startswith(("tests/wm", "tests/ui"))
+                  for p in changed
+              ),
+              "mind": infra or any(
+                  p.startswith(("mind", "tests/mind"))
+                  or p in {"experience.c", "mind_sync.h", "mind_sys.c", "mind_sys.h"}
+                  for p in changed
+              ),
+          }
+          # For a docs-only PR, all component jobs may be skipped safely.
+          # Workflow/CI edits always exercise every job so infrastructure changes
+          # cannot silently bypass the pipeline.
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              for name, enabled in groups.items():
+                  out.write(f"{name}={'true' if enabled else 'false'}\n")
+          print("Changed files:")
+          print("\n".join(changed) if changed else "(full run / no diff)")
+          print("Selected jobs:", ", ".join(k for k,v in groups.items() if v))
+          PY
+
   audit:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.audit == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -30,22 +136,39 @@ jobs:
           path: ci-out/audit/
 
   host-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.host == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - name: Prepare writable apt archive cache
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: lint (new lines)
         run: |
           git fetch -q origin stable main || true
           ci/lint.sh
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm dosfstools mtools python3-cryptography python3-pil ca-certificates openssl
+        run: ci/install-tools.sh clang lld nasm dosfstools mtools python3-cryptography python3-pil ca-certificates openssl
       - name: Mind synchronization source invariants
         run: python3 ci/check_mind_sync.py
       - name: QMP disconnect regression tests
         run: python3 -m unittest ci.test_qmp
-      - name: host tests (models of devices, file systems, scheduler, mind)
+      - name: binary image audit parser regression tests
+        run: python3 -m unittest ci.test_audit_image
+      - name: production image policy regression tests
+        run: python3 -m unittest ci.test_release_image
+      - name: host tests (unique models and core regressions; dedicated suites run separately)
+        env:
+          KIRA_SKIP_GUI: "1"
+          KIRA_SKIP_MIND: "1"
+          KIRA_SKIP_DRIVER_E2E: "1"
+          KIRA_SKIP_KCC: "1"
         run: |
           mkdir -p ci-out
           set -o pipefail
@@ -63,12 +186,20 @@ jobs:
           if-no-files-found: warn
 
   kcc-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.kcc == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: compiler tools (including target linker for the in-OS KCC build)
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm
+        run: ci/install-tools.sh clang lld nasm
       - name: compiler differential, diagnostics, execution and fuzz suite
         run: |
           mkdir -p ci-out
@@ -81,12 +212,20 @@ jobs:
           path: ci-out/kcc-tests.log
 
   driver-e2e:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.driver == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: driver installer tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld openssl python3-cryptography
+        run: ci/install-tools.sh clang lld openssl python3-cryptography
       - name: real TLS, recipe, KCC build and driver-manager end-to-end tests
         run: |
           mkdir -p ci-out
@@ -99,16 +238,26 @@ jobs:
           path: ci-out/driver-e2e.log
 
   build:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools
+        run: ci/install-tools.sh clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools
       - name: build (clang, -Werror)
         run: |
           ./build_clang.sh --no-run
-          mkdir -p sym && nm -n kira.bin > sym/kira.sym
+          mkdir -p sym ci-out && nm -n kira.bin > sym/kira.sym
+      - name: binary runtime dependency audit (ISO + KiraFS)
+        run: python3 ci/audit_image.py --iso kira.iso --disk kira.disk --kfstool tools/kfstool --out ci-out/image-audit.json
       - uses: actions/upload-artifact@v4
         with:
           name: vm-symbols
@@ -120,14 +269,54 @@ jobs:
             kira.iso
             kira.disk
             kira.bin
+            ci-out/image-audit.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-image-audit
+          path: ci-out/image-audit.json
+      - name: production upgrade image (preserve data, remove unsigned EDU fixtures)
+        run: |
+          set -euo pipefail
+          mkdir -p ci-out/release
+          printf 'KIRA-USER-DATA-PRESERVE\\n' > ci-out/release/preserve-before.txt
+          tools/kfstool kira.disk put /data/release-preserve.txt ci-out/release/preserve-before.txt
+          cp kira.disk ci-out/release/kira_disk.img
+          KIRA_OUT="$PWD/ci-out/release" ./build_clang.sh --android
+          tools/kfstool ci-out/release/kira_disk.img cat /data/release-preserve.txt > ci-out/release/preserve-after.txt
+          cmp ci-out/release/preserve-before.txt ci-out/release/preserve-after.txt
+          tools/kfstool ci-out/release/kira_disk.img rm /data/release-preserve.txt
+      - name: audit production ISO and KiraFS
+        run: |
+          python3 ci/audit_image.py --iso ci-out/release/kira.iso --disk ci-out/release/kira_disk.img --kfstool tools/kfstool --out ci-out/release/image-audit.json
+          python3 ci/release_image.py ci-out/release/image-audit.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-release-image
+          path: |
+            ci-out/release/kira.iso
+            ci-out/release/kira_disk.img
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-release-image-audit
+          path: ci-out/release/image-audit.json
 
   arm64:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.arm64 == 'true'
+    outputs:
+      qemu_result: ${{ steps.arm64-qemu.outcome }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends clang lld llvm qemu-system-arm ipxe-qemu dosfstools mtools python3-pil python3-cryptography ca-certificates openssl
+        run: ci/install-tools.sh clang lld llvm qemu-system-arm ipxe-qemu dosfstools mtools python3-pil python3-cryptography ca-certificates openssl
       - name: build ARM64 (clang, -Werror)
         run: ./build_arm64.sh && ci/make_flash.sh
       - uses: actions/upload-artifact@v4
@@ -139,6 +328,7 @@ jobs:
             kira-arm64.disk
           if-no-files-found: ignore
       - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"
+        id: arm64-qemu
         run: |
           set -o pipefail
           python3 ci/arm64_vm.py ci-out/arm64 2>&1 | tee arm64.txt
@@ -149,15 +339,21 @@ jobs:
           path: ci-out/arm64
 
   vm:
-    needs: build
+    needs: [detect-changes, build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        scenario: [boot-virtio, boot-ata, boot-sata, boot-nvme, boot-1cpu, boot-8cpu, soak-8cpu, isolation, smp, usb-xhci, usb-uhci, stress-spam, stress-spam-2, stress-spam-4, stress-3d, limbo-spam, limbo-mttcg, net-e1000, sound-hda, apps-edit, apps-explorer2, apps-view, net-virtio, apps-wasm, wasm-speed, power-off, power-reboot, crash-isolation, net-e1000e, sound-ac97, net-ipv6, sound-sb16, mind-levers, mind-seed, cc-native, drv-edu, drvget-rl, drvman-edu, apps-drvman, drvman-quiet]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - uses: actions/download-artifact@v4
         with:
           name: kira-image
@@ -168,7 +364,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm || true
       - name: QEMU
-        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends qemu-system-x86 ipxe-qemu dosfstools mtools python3-pil python3-cryptography openssl
+        run: ci/install-tools.sh qemu-system-x86 ipxe-qemu dosfstools mtools python3-pil python3-cryptography openssl
       - name: kfstool (test files on the VM disk)
         run: gcc -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
       - name: mindseed (испытательное семя для сценария mind-seed - не результат обучения)
@@ -176,19 +372,43 @@ jobs:
           mkdir -p ci-out
           gcc -O1 -Wall -DKIRA_HOST_TEST -I. -Iarch/x86_64 -o tools/mindseed tools/mindseed.c mind.c mindnet.c
           tools/mindseed --fixture ci-out/mind_seed_fixture.bin
-      - name: scenario
+      - name: run assigned QEMU scenario batch
         run: |
+          set -euo pipefail
           ci/make_flash.sh
-          python3 ci/kira_vm.py --scenario ${{ matrix.scenario }} --out ci-out
+          python3 - <<'PY'
+          import subprocess
+          scenarios = [
+              "boot-virtio", "boot-ata", "boot-sata", "boot-nvme",
+              "boot-1cpu", "boot-8cpu", "soak-8cpu", "isolation",
+              "smp", "usb-xhci", "usb-uhci", "stress-spam",
+              "stress-spam-2", "stress-spam-4", "stress-3d", "limbo-spam",
+              "limbo-mttcg", "net-e1000", "sound-hda", "apps-edit",
+              "apps-explorer2", "apps-view", "net-virtio", "apps-wasm",
+              "wasm-speed", "power-off", "power-reboot", "crash-isolation",
+              "net-e1000e", "sound-ac97", "net-ipv6", "sound-sb16",
+              "mind-levers", "mind-seed", "cc-native", "drv-edu",
+              "drvget-rl", "drvman-edu", "apps-drvman", "drvman-quiet",
+          ]
+          shard = int("${{ matrix.shard }}")
+          selected = [name for index, name in enumerate(scenarios) if index % 10 == shard]
+          print(f"QEMU shard {shard}: {', '.join(selected)}", flush=True)
+          command = ["python3", "ci/kira_vm.py", "--out", "ci-out"]
+          for name in selected:
+              command.extend(["--scenario", name])
+          subprocess.run(command, check=True)
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: vm-${{ matrix.scenario }}
+          name: vm-shard-${{ matrix.shard }}
           path: |
-            ci-out/${{ matrix.scenario }}
-            !ci-out/${{ matrix.scenario }}/*.img
+            ci-out/*/
+            !ci-out/*/*.img
 
   mind-quality:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.mind == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -210,6 +430,8 @@ jobs:
           path: ci-out/mind-quality.log
 
   gui-regression:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.gui == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -229,7 +451,7 @@ jobs:
           path: ci-out/gui-regression.log
 
   report:
-    needs: [audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -272,6 +494,56 @@ jobs:
         with:
           name: kira-driver-e2e
           path: results/driver-e2e
+      - name: Write CI summary to Actions UI
+        if: always()
+        env:
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          HOST_RESULT: ${{ needs.host-tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          VM_RESULT: ${{ needs.vm.result }}
+          ARM64_RESULT: ${{ needs.arm64.result }}
+          ARM64_QEMU_RESULT: ${{ needs.arm64.outputs.qemu_result || 'not-run' }}
+          MIND_RESULT: ${{ needs.mind-quality.result }}
+          GUI_RESULT: ${{ needs.gui-regression.result }}
+          KCC_RESULT: ${{ needs.kcc-tests.result }}
+          DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          pathlib.Path("results").mkdir(parents=True, exist_ok=True)
+          jobs = [
+              ("Аудит репозитория", "AUDIT_RESULT"),
+              ("Host/regression tests", "HOST_RESULT"),
+              ("x86_64 build + ISO", "BUILD_RESULT"),
+              ("QEMU x86 matrix", "VM_RESULT"),
+              ("ARM64 build", "ARM64_RESULT"),
+              ("ARM64 QEMU (full suite only)", "ARM64_QEMU_RESULT"),
+              ("Mind quality", "MIND_RESULT"),
+              ("GUI regression", "GUI_RESULT"),
+              ("KCC compiler suite", "KCC_RESULT"),
+              ("Driver installer E2E", "DRIVER_RESULT"),
+          ]
+          lines = ["# KIRA OS — CI result", "", "| Stage | Result |", "|---|---|"]
+          lines += [f"| {name} | **{os.getenv(key, 'missing')}** |" for name, key in jobs]
+          lines += ["", "## QEMU scenario results", ""]
+          count = passed = failed = 0
+          for path in sorted(pathlib.Path("results").rglob("result.json")):
+              count += 1
+              try:
+                  item = json.loads(path.read_text())
+                  ok = bool(item.get("ok"))
+                  passed += int(ok)
+                  failed += int(not ok)
+                  name = str(item.get("name", path.parent.name))
+                  detail = "" if ok else " — " + str(item.get("error") or "failure").splitlines()[0][:200]
+                  lines.append(f"- {'PASS' if ok else 'FAIL'}: {name}{detail}")
+              except Exception as exc:
+                  failed += 1
+                  lines.append(f"- FAIL: {path}: invalid JSON ({exc})")
+          lines += ["", f"QEMU result files: {count}; PASS: {passed}; FAIL: {failed}", ""]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write("\n".join(lines))
+          PY
       - name: publish complete CI summary
         if: github.event_name != 'pull_request'
         env:
@@ -280,6 +552,7 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           VM_RESULT: ${{ needs.vm.result }}
           ARM64_RESULT: ${{ needs.arm64.result }}
+          ARM64_QEMU_RESULT: ${{ needs.arm64.outputs.qemu_result || 'not-run' }}
           MIND_RESULT: ${{ needs.mind-quality.result }}
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
@@ -289,10 +562,12 @@ jobs:
           python3 - <<'PY'
           import json, os, pathlib
           root = pathlib.Path("results")
+          root.mkdir(parents=True, exist_ok=True)
           lines = ["# Прогон " + os.environ["GITHUB_SHA"][:7] + " (" + os.environ["GITHUB_REF_NAME"] + ")", "",
                    "| Проверка | Результат |", "|---|---|"]
           jobs = [("audit","AUDIT_RESULT"),("host-tests","HOST_RESULT"),("x86_64 build","BUILD_RESULT"),
-                  ("x86_64 QEMU matrix","VM_RESULT"),("ARM64 build/QEMU","ARM64_RESULT"),
+                  ("x86_64 QEMU matrix","VM_RESULT"),("ARM64 build","ARM64_RESULT"),
+                   ("ARM64 QEMU (full suite only)","ARM64_QEMU_RESULT"),
                   ("Mind quality","MIND_RESULT"),("GUI regression","GUI_RESULT"),("KCC compiler suite","KCC_RESULT"),
                   ("Driver installer end-to-end","DRIVER_RESULT")]
           lines += ["| " + name + " | " + os.getenv(key,"missing") + " |" for name,key in jobs]
@@ -323,7 +598,7 @@ jobs:
           git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"
 
   package:
-    needs: [audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, vm, arm64, mind-quality, gui-regression]
     if: success() && github.event_name != 'pull_request' && github.ref_name != 'main' && github.ref_name != 'stable'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -340,6 +615,10 @@ jobs:
         with:
           name: kira-audit
           path: ci-out/audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-release-image-audit
+          path: ci-out/release-image-audit
       - uses: actions/download-artifact@v4
         with:
           name: kira-mind-quality
@@ -367,6 +646,9 @@ jobs:
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
+          IMAGE_AUDIT_RESULT: ${{ needs.build.result }}
+          IMAGE_AUDIT_DIR: ci-out/release-image-audit
+          KIRA_VERSION: v46
           KIRA_BASE_REF: edae4ab3367a055826f431e261af5d6dee790ddf
           CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash ci/package_update.sh origin/main ci-out/package

@@ -50,6 +50,7 @@ static void test_text(void) {
     CHECK(fmt_is("fec0::2 хвост", "fec0::2"));                          /* разбор останавливается на пробеле */
     /* негодные */
     uint8_t a[16];
+    CHECK(ip6_parse(0, a) == -1 && ip6_parse("::", 0) == -1);
     const char* bad[] = { "", ":", ":1", "1:", "1::2::3", "12345::", "1:2:3:4:5:6:7", "1:2:3:4:5:6:7:8:9", "g::", "::1::", "1:::2",
                           "1.2.3.4", "::1.2.3", "::1.2.3.256", "1:2:3:4:5:6:7::8", "::1x", "1:2:3:4:5:6:1.2.3.4:5" };
     for (unsigned i = 0; i < sizeof bad / sizeof bad[0]; i++)
@@ -184,6 +185,9 @@ static void test_build(void) {
 
 static void test_walk(void) {
     uint8_t b[64], proto = 0; uint32_t off = 0;
+    CHECK(ip6_walk(0, 0, 17, &proto, &off) == 0);
+    CHECK(ip6_walk(b, 0, 60, 0, &off) == -1);
+    CHECK(ip6_walk(b, 0, 60, &proto, 0) == -1);
     /* без расширений */
     CHECK(ip6_walk(b, 20, 17, &proto, &off) == 0 && proto == 17 && off == 0);
     /* параметры получателя (8 байт) затем UDP */
@@ -224,6 +228,10 @@ static uint32_t put_pi(uint8_t* o, const char* prefix, uint8_t plen, uint8_t fl,
 
 static void test_nd(void) {
     uint8_t m[512]; ra_t r;
+    CHECK(nd_parse_ra(0, 16, &r) == -1);
+    CHECK(nd_parse_ra(m, 16, 0) == -1);
+    CHECK(nd_lladdr(0, 0, 1, (uint8_t[6]){0}) == 0);
+    CHECK(nd_lladdr(0, 0, 1, 0) == -1);
     /* RA: hop 64, флаги O, срок 1800, SLLA, MTU 1500, префикс fec0::/64 (L+A, 86400/14400), RDNSS fec0::3 */
     memset(m, 0, sizeof m);
     m[0] = 134; m[4] = 64; m[5] = 0x40; m[6] = 0x07; m[7] = 0x08;

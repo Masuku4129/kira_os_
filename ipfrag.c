@@ -32,6 +32,9 @@ static void drop(ipf_slot_t* s) { if (s) s->used = 0; }
 
 int ipfrag_add(ipfrag_t* t, uint64_t now, const ipf_key_t* k, uint32_t off, int more,
                const uint8_t* d, uint32_t n, int aux, ipf_out_t* out) {
+    /* Public parser boundary: reject absent state/input/output before touching
+       caller memory. A zero-length fragment is malformed, not a valid null data. */
+    if (!t || !k || !out || (!d && n)) return -1;
     ipfrag_expire(t, now);
     ipf_slot_t* s = 0;
     for (int i = 0; i < IPF_SLOTS && !s; i++) if (t->slot[i].used && key_eq(&t->slot[i].key, k)) s = &t->slot[i];

@@ -31,6 +31,7 @@ static const struct { const char* name; uint32_t caps; } table[] = {
 };
 
 uint32_t caps_for_program(const char* name) {
+    if (!name) return 0;
     /* Программа, собранная пользователем на Кире и запущенная командой runlocal (progs.c): доверие дано явной командой, а не манифестом
        сборки, поэтому прав нет вообще - ни файлов, ни сети, ни окон. Имена с этой приставкой в таблице не заводятся. */
     const char* lp = "local-";

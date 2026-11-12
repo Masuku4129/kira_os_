@@ -8,7 +8,7 @@ static uint64_t r64(const uint8_t* p) { return (uint64_t)r32(p) | ((uint64_t)r32
 
 int elf_parse(const void* image, size_t len, uint64_t win_lo, uint64_t win_hi, uint32_t max_pages, elf_info_t* out) {
     const uint8_t* b = (const uint8_t*)image;
-    if (!b || len < 64) return ELF_ERR_SHORT;
+    if (!b || !out || len < 64) return ELF_ERR_SHORT;
     if (b[0] != 0x7F || b[1] != 'E' || b[2] != 'L' || b[3] != 'F') return ELF_ERR_MAGIC;
     if (b[4] != 2 || b[5] != 1 || b[6] != 1) return ELF_ERR_FORMAT;                 /* 64 бита, little endian, версия 1 */
 #if (defined(__aarch64__) && !defined(KIRA_HOST_TEST)) || defined(KIRA_HOST_ARM64)
@@ -38,13 +38,22 @@ int elf_parse(const void* image, size_t len, uint64_t win_lo, uint64_t win_hi, u
         if (va & (PAGE - 1) || (off & (PAGE - 1)) != 0) return ELF_ERR_SEGMENT;     /* сегмент начинается на границе страницы и в файле */
         if (off > len || fsz > len - off) return ELF_ERR_SHORT;
         if (va < win_lo || va >= win_hi || msz > win_hi - va) return ELF_ERR_SEGMENT;
-        uint64_t pages = (msz + PAGE - 1) / PAGE;
-        if (pages > max_pages || out->pages + pages > max_pages) return ELF_ERR_LIMIT;
+        /* Round without addition overflow, then validate the complete mapped
+           page range (not only the byte range) against the address window. */
+        uint64_t pages = msz / PAGE + (msz % PAGE != 0);
+        if (pages > max_pages || out->pages > max_pages ||
+            pages > (win_hi - va) / PAGE ||
+            pages > (UINT64_MAX - va) / PAGE)
+            return ELF_ERR_LIMIT;
         uint64_t end = va + pages * PAGE;
         for (unsigned k = 0; k < out->nsegs; k++) {                                  /* страницы сегментов не пересекаются */
-            uint64_t ks = out->seg[k].vaddr, ke = ks + ((out->seg[k].mem_size + PAGE - 1) / PAGE) * PAGE;
+            uint64_t ks = out->seg[k].vaddr;
+            uint64_t kpages = out->seg[k].mem_size / PAGE + (out->seg[k].mem_size % PAGE != 0);
+            if (kpages > (UINT64_MAX - ks) / PAGE) return ELF_ERR_SEGMENT;
+            uint64_t ke = ks + kpages * PAGE;
             if (va < ke && ks < end) return ELF_ERR_SEGMENT;
         }
+        if (pages > (uint64_t)(max_pages - out->pages)) return ELF_ERR_LIMIT;
         elf_seg_t* s = &out->seg[out->nsegs++];
         s->vaddr = va; s->file_off = off; s->file_size = fsz; s->mem_size = msz;
         s->write = (flags & 2) != 0; s->exec = (flags & 1) != 0;

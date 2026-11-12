@@ -27,6 +27,7 @@ int main(void) {
 
     // До инициализации ничего не отображается.
     CHECK(bootmap_map(0xFD000000ULL, 4096, 1) == 0);
+    CHECK(bootmap_map(0x1000ULL, 4096, 1) == 0);  // low 1 GiB is already WB in the bootstrap identity map
 
     // Запись PML4[511] занята - окно не ставится и чужая запись не затирается.
     pml4[511] = 0x1234000ULL | P_PRESENT;
@@ -68,8 +69,11 @@ int main(void) {
     CHECK((pd[used_after_fb] & P_NX) && !(pd[used_after_fb] & P_PCD));
     CHECK((pd[used_after_fb] & 0x000FFFFFFFFFF000ULL) == 0x180000000ULL);
     // тот же физический кусок, но другой тип кэша - отдельный слот (смешивать типы памяти нельзя)
-    uint8_t* ram_uc = bootmap_map(0x180000000ULL, 0x100, 1);
-    CHECK(ram_uc && (uint8_t*)ram_uc != ram - 0x40);
+    CHECK(bootmap_map(0x180000000ULL, 0x100, 1) == 0);   // WB mapping already exists: reject UC alias
+    bootmap_release_all();
+    CHECK(bootmap_map(0x180000000ULL, 0x100, 1) != 0);      // UC first
+    CHECK(bootmap_map(0x180000000ULL, 0x100, 0) == 0);      // then reject WB alias
+    bootmap_release_all();
 
     // Граничные случаи.
     CHECK(bootmap_map(0xFD000000ULL, 0, 1) == 0);

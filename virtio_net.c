@@ -26,6 +26,26 @@ static struct {
     netdev_t nd;
 } v = { .lk = SPINLOCK_INIT, .iw = IRQWAIT_INIT };
 
+static void net_abort(void) {
+    if (v.dev.common) {
+        virtio_fail(&v.dev);
+        if (virtio_reset_device(&v.dev) != 0) return;
+    }
+    if (v.rxb && virtio_dma_free(v.rxb, v.rxb_p, NRX * BUF) == 0) {
+        v.rxb = 0; v.rxb_p = 0;
+    }
+    if (v.txb && virtio_dma_free(v.txb, v.txb_p, NTX * BUF) == 0) {
+        v.txb = 0; v.txb_p = 0;
+    }
+    if (v.rx.mem) (void)virtio_queue_release(&v.rx);
+    if (v.tx.mem) (void)virtio_queue_release(&v.tx);
+    if (!v.rxb && !v.txb && !v.rx.mem && !v.tx.mem) {
+        v.dev = (virtio_dev_t){0};
+        v.rx = (virtq_t){0};
+        v.tx = (virtq_t){0};
+    }
+}
+
 static void reclaim(void) {                                       /* отправленные кадры: буферы свободны */
     uint16_t id; uint32_t len;
     while (virtq_take(&v.tx, &id, &len)) if (id < NTX) v.tx_busy[id] = 0;
@@ -33,7 +53,7 @@ static void reclaim(void) {                                       /* отпра�
 
 static int send(netdev_t* d, const void* frame, uint32_t len) {
     (void)d;
-    if (len > BUF - HDR || len < 14) return -1;
+    if (!frame || len > BUF - HDR || len < 14) return -1;
     uint64_t f = spin_lock_irqsave(&v.lk);
     reclaim();
     unsigned id = v.tx_next;
@@ -42,6 +62,11 @@ static int send(netdev_t* d, const void* frame, uint32_t len) {
     for (unsigned i = 0; i < HDR; i++) b[i] = 0;
     const uint8_t* s = (const uint8_t*)frame;
     for (uint32_t i = 0; i < len; i++) b[HDR + i] = s[i];
+    if (virtio_dma_sync_for_device(v.txb + id * BUF, v.txb_p + id * BUF,
+                                    HDR + len) != 0) {
+        spin_unlock_irqrestore(&v.lk, f);
+        return -1;
+    }
     v.tx_busy[id] = 1;
     v.tx_next = (id + 1) % NTX;
     virtq_post(&v.tx, (uint16_t)id, v.txb_p + id * BUF, HDR + len, 0);
@@ -53,14 +78,30 @@ static int send(netdev_t* d, const void* frame, uint32_t len) {
 static int recv(netdev_t* d, void* buf, uint32_t max) {
     (void)d;
     uint16_t id; uint32_t len;
+    /* Invalid caller storage must not consume a completed descriptor. */
+    if (!buf && max) return -1;
     if (!virtq_take(&v.rx, &id, &len)) return 0;
+    /* The used length and descriptor id are device-controlled.  A malformed
+       completion must not be copied, but a valid slot must be returned to RX
+       so one bad frame cannot permanently shrink the receive ring. */
+    if (id >= NRX) return 0;
+    uint8_t* slot = v.rxb + (uint32_t)id * BUF;
+    uint64_t slot_dma = v.rxb_p + (uint64_t)id * BUF;
+    if (virtio_dma_sync_for_cpu(slot, slot_dma, BUF) != 0) return 0;
+
     int n = 0;
-    if (id < NRX && len > HDR && len - HDR <= max) {
-        const uint8_t* s = v.rxb + id * BUF + HDR; uint8_t* o = (uint8_t*)buf;
+    if (len <= BUF && len >= HDR + 14 && len - HDR <= max) {
+        const uint8_t* src = slot + HDR;
+        uint8_t* dst = (uint8_t*)buf;
         n = (int)(len - HDR);
-        for (int i = 0; i < n; i++) o[i] = s[i];
+        for (int i = 0; i < n; i++) dst[i] = src[i];
     }
-    if (id < NRX) { virtq_post(&v.rx, id, v.rxb_p + id * BUF, BUF, 1); virtq_kick(&v.rx); }
+
+    /* Re-arm even for short, oversized, or caller-truncated frames. */
+    if (virtio_dma_sync_for_device(slot, slot_dma, BUF) == 0) {
+        virtq_post(&v.rx, id, slot_dma, BUF, 1);
+        virtq_kick(&v.rx);
+    }
     return n;
 }
 
@@ -73,22 +114,37 @@ static int link(netdev_t* d) {
 static void irq(void* ctx) { (void)ctx; irqwait_fire(&v.iw); }
 
 int virtio_net_probe(void) {
+    if (v.dev.common || v.rx.mem || v.tx.mem || v.rxb || v.txb) return -5;
     const pci_dev_t* p = pci_find(VIRTIO_VENDOR, 0x1041);
     if (!p) p = pci_find(VIRTIO_VENDOR, 0x1000);                  /* переходный с capabilities 1.0 */
     if (!p) return -1;
-    if (virtio_attach(&v.dev, p) || !v.dev.devcfg || virtio_begin(&v.dev, F_MAC | (1ull << 16))) {
+    if (virtio_attach(&v.dev, p) || !v.dev.devcfg ||
+        virtio_begin(&v.dev, F_MAC | (1ull << 16))) {
+        net_abort();
         uart_print("[KIRA NET] virtio-net: no virtio 1.0 interface.\n");
         return -2;
     }
     uint64_t ma; uint32_t md; int has_irq = 0;
     if (msi_alloc(p, irq, 0, &ma, &md) == 0 && pci_msix_setup(p, 0, ma, md) == 0) { v.dev.msix_vec = 0; has_irq = 1; }
-    if (virtio_queue_setup(&v.dev, &v.rx, 0, NRX) || virtio_queue_setup(&v.dev, &v.tx, 1, NTX)) { virtio_fail(&v.dev); return -3; }
+    if (virtio_queue_setup(&v.dev, &v.rx, 0, NRX) ||
+        virtio_queue_setup(&v.dev, &v.tx, 1, NTX)) { net_abort(); return -3; }
     v.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &v.rxb_p);
     v.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &v.txb_p);
-    if (!v.rxb || !v.txb) { virtio_fail(&v.dev); return -4; }
+    if (!v.rxb || !v.txb) { net_abort(); return -4; }
     unsigned nrx = v.rx.size < NRX ? v.rx.size : NRX;
-    for (unsigned i = 0; i < nrx; i++) virtq_post(&v.rx, (uint16_t)i, v.rxb_p + i * BUF, BUF, 1);
-    virtio_driver_ok(&v.dev);
+    /* Publish the freshly initialized receive storage before exposing its
+       descriptors to a device that may not be cache coherent. */
+    if (virtio_dma_sync_for_device(v.rxb, v.rxb_p, NRX * BUF) != 0) {
+        net_abort();
+        return -5;
+    }
+    for (unsigned i = 0; i < nrx; i++)
+        virtq_post(&v.rx, (uint16_t)i, v.rxb_p + (uint64_t)i * BUF, BUF, 1);
+    if (virtio_dma_sync_for_device(v.rx.mem, v.rx.mem_phys, v.rx.mem_bytes) != 0) {
+        net_abort();
+        return -6;
+    }
+    if (virtio_driver_ok(&v.dev) != 0) { net_abort(); return -7; }
     virtq_kick(&v.rx);
     if (v.dev.features & F_MAC) for (int i = 0; i < 6; i++) v.nd.mac[i] = MMIO_R8(v.dev.devcfg + (unsigned)i);
     else { static const uint8_t m[6] = { 0x52, 0x54, 0x00, 0x4B, 0x49, 0x52 }; for (int i = 0; i < 6; i++) v.nd.mac[i] = m[i]; }

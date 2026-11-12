@@ -29,6 +29,8 @@ static int64_t call(const char* prog, int op, const char* name, const void* data
 }
 
 int main(void) {
+    CHECK(caps_for_program(0) == 0 && caps_for_program("") == 0);
+    CHECK(caps_for_program("local-paint") == 0 && caps_for_program("paint") == (CAP_GFX | CAP_FS));
     CHECK(fsrv_prog_ok("paint") && fsrv_prog_ok("atk-mem") && fsrv_prog_ok("a_1") && !fsrv_prog_ok("") && !fsrv_prog_ok("Paint") && !fsrv_prog_ok("a/b") && !fsrv_prog_ok("0123456789abcdef") && !fsrv_prog_ok(".."));
     CHECK(fsrv_name_ok("picture.kpnt") && fsrv_name_ok("a") && fsrv_name_ok("A-b_c.1") && !fsrv_name_ok("") && !fsrv_name_ok(".hidden") && !fsrv_name_ok("..") && !fsrv_name_ok(".") && !fsrv_name_ok("a/b") && !fsrv_name_ok("/etc") && !fsrv_name_ok("a b") && !fsrv_name_ok("a\n") && !fsrv_name_ok("-x"));
     char longn[64]; memset(longn, 'a', 41); longn[41] = 0; CHECK(!fsrv_name_ok(longn)); longn[40] = 0; CHECK(fsrv_name_ok(longn));

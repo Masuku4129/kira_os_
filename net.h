@@ -9,7 +9,7 @@ typedef struct netdev {
     char name[12];
     uint8_t mac[6];
     int  (*send)(struct netdev* d, const void* frame, uint32_t len);   /* 0 - кадр отдан карте */
-    int  (*recv)(struct netdev* d, void* buf, uint32_t max);           /* длина кадра или 0 - пусто */
+    int  (*recv)(struct netdev* d, void* buf, uint32_t max);           /* длина кадра; 0 - пусто/невалидный буфер не потреблён; <0 - ошибка аргументов */
     int  (*link)(struct netdev* d);                                     /* 1 - кабель/канал есть */
     void* priv;
     struct irqwait* iw;                                                 /* прерывание приёма (0 - опрос по тику) */

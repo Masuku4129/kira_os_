@@ -22,9 +22,15 @@ typedef struct {                 /* способ доступа к конфиг�
 } pci_backend_t;
 
 void pci_set_backend(const pci_backend_t* b);      /* 0 - порты 0xCF8/0xCFC (только x86) */
-void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end);   /* конфигурация через ECAM */
+int pci_use_ecam(volatile void* base, uint64_t size, uint8_t bus_start, uint8_t bus_end); /* ECAM; отказ, если отображения не хватает на все шины */
 typedef struct { uint64_t pci_base, size, next; int64_t cpu_off; } pci_window_t;   /* окно адресов моста */
-int  pci_assign(pci_window_t* mem32, pci_window_t* mem64);   /* назначить пустые BAR (после pci_init); число BAR */
+#define PCI_MAX_WINDOWS 8
+typedef struct { pci_window_t windows[PCI_MAX_WINDOWS]; unsigned count; } pci_window_set_t;
+int  pci_window_set_add(pci_window_set_t* set, const pci_window_t* window); /* reject overlap/capacity/overflow */
+int  pci_window_set_alloc(pci_window_set_t* set, uint64_t size, uint64_t* pci_addr, uint64_t* cpu_addr);
+int  pci_window_alloc(pci_window_t* w, uint64_t size, uint64_t* pci_addr, uint64_t* cpu_addr); /* bounded, overflow-safe BAR window allocation */
+int  pci_assign_multi(pci_window_set_t* mem32, pci_window_set_t* mem64);
+int  pci_assign(pci_window_t* mem32, pci_window_t* mem64); /* compatibility wrapper */   /* назначить пустые BAR (после pci_init); число BAR */
 int  pci_init(void);                               /* число найденных устройств */
 int  pci_count(void);
 const pci_dev_t* pci_get(int i);
@@ -44,6 +50,7 @@ void pci_enable(const pci_dev_t* d, uint16_t cmd_bits);    /* включает d
 
 /* Список capabilities: первый вызов с prev = 0, дальше - с предыдущим смещением. 0 - конец. */
 uint16_t pci_next_cap(const pci_dev_t* d, uint16_t prev, uint8_t* id);
+int pci_quiesce_interrupts(const pci_dev_t* d); /* mask and verify MSI, MSI-X and legacy INTx */
 
 /* Адрес области BAR для обращений процессора (0 - BAR портов, не назначен или выход за размер). Только в ядре. */
 volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t len);

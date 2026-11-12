@@ -20,7 +20,10 @@ typedef struct {
     uint16_t iso_flags[16];        /* бит0-1 полярность (3 = активный низкий), бит2-3 триггер (3 = по уровню) */
     int      has_hpet;
     uint64_t mcfg_base;            /* база PCIe ECAM (0 = нет) */
+    uint16_t mcfg_segment;         /* segment group (currently only segment zero is exposed to PCI) */
     uint8_t  mcfg_bus_start, mcfg_bus_end;
+    uint64_t dmar_phys;          /* checksum-validated DMAR table physical address */
+    uint32_t dmar_len;
     uint32_t tables_seen, tables_bad, tables_skipped_high;
     uint8_t  source;               /* 0 - ACPI (MADT), 1 - таблицы Intel MP (ACPI нет или в нём нет процессоров) */
     /* питание (FADT и \_S5 из DSDT) */
@@ -47,6 +50,8 @@ int mp_parse(uint64_t fps_phys, uint64_t max_phys, acpi_info_t* out);
 uint64_t acpi_scan(uint64_t from, uint64_t to, const char* sig, unsigned sig_len, unsigned sum_len);
 /* Найти RSDP в теге Multiboot2 (тип 14/15) или в памяти BIOS и разобрать; без ACPI-процессоров - таблицы MP. */
 int acpi_init(uint64_t mbi_phys);
+/* Native BIOS/UEFI loader path: validated physical RSDP address from BootInfo. */
+int acpi_init_rsdp(uint64_t rsdp_phys);
 
 // Ядро ставит хук, который делает таблицу выше max_phys читаемой (0 - не удалось); без хука такие таблицы пропускаются.
 void acpi_set_map_hook(const void* (*hook)(uint64_t phys, uint64_t len));   /* адрес для чтения таблицы или 0 */

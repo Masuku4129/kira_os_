@@ -5,10 +5,10 @@
 #include <stddef.h>
 #include "pci.h"
 
-/* virtio 1.0 поверх PCI (современный интерфейс: capabilities + MMIO BAR; старый интерфейс на портах не поддерживается).
-   Очереди split-ring; обмен синхронный (одна заявка в очереди, опрос used-кольца без прерываний), как и в остальных
-   драйверах ядра на этом этапе. Память для DMA выделяется физически непрерывно и лежит в identity-карте ядра,
-   поэтому физический адрес равен указателю. */
+/* virtio 1.0 over PCI (modern capabilities + MMIO BAR).
+   DMA allocations expose a CPU pointer separately from the device-visible address.
+   The generic fallback currently requires low-memory identity mapping; it is not
+   an IOMMU implementation. Platform DMA pools may provide a different address. */
 
 #define VIRTIO_VENDOR 0x1AF4
 #define VIRTIO_F_VERSION_1 (1ULL << 32)
@@ -32,7 +32,8 @@ typedef struct {
     uint16_t index, size, last_used, avail_idx;
     volatile uint8_t* notify_addr;
     uint8_t* mem;                    /* desc | avail | used */
-    uint64_t mem_phys;
+    uint64_t mem_phys;                /* device-visible DMA address; not necessarily equal to mem */
+    uint32_t mem_bytes;               /* exact allocation size passed to virtio_dma_alloc */
     uint32_t avail_off, used_off;
     struct irqwait* iw;              /* ожидание сном до прерывания очереди (0 - опрос) */
 } virtq_t;
@@ -44,7 +45,10 @@ int  virtio_attach(virtio_dev_t* v, const pci_dev_t* pci);
 /* Сброс, ACK, DRIVER, согласование признаков (нужен VERSION_1; из want берутся только предложенные), FEATURES_OK. */
 int  virtio_begin(virtio_dev_t* v, uint64_t want);
 int  virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size);
-void virtio_driver_ok(virtio_dev_t* v);
+/* Release queue memory only after a successful device reset. */
+int  virtio_queue_release(virtq_t* q);
+int  virtio_reset_device(virtio_dev_t* v);               /* masks MSI/MSI-X, disables PCI bus mastering, then waits for status zero */
+int  virtio_driver_ok(virtio_dev_t* v);
 void virtio_fail(virtio_dev_t* v);                      /* FAILED + сброс: устройство больше не пишет в нашу память */
 /* Отправляет цепочку буферов (до 8) и ждёт завершения. 0 - готово, -1 - таймаут. */
 int  virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n);
@@ -54,12 +58,23 @@ void virtq_post(virtq_t* q, uint16_t id, uint64_t addr, uint32_t len, int device
 void virtq_kick(virtq_t* q);
 int  virtq_take(virtq_t* q, uint16_t* id, uint32_t* len);   /* 1 - взят */
 
-/* Непрерывная память для DMA (обнулена). Возвращает указатель; *phys - адрес для устройства. 0 - нет памяти. */
+/* DMA buffer (zeroed). CPU pointer and device-visible *phys are distinct values.
+   Generic fallback requires identity-mapped contiguous RAM; 0 means failure. */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
+/* Frees only an allocation returned by virtio_dma_alloc with the exact size.
+   The backing allocator is called outside the registry spinlock.
+   -1: invalid, mismatched, unknown or already-releasing allocation.
+   -2: platform DMA pool has no release hook; buffer remains owned by that pool.
+   -3: internal registry state changed unexpectedly during release. */
+int   virtio_dma_free(void* cpu, uint64_t phys, uint32_t bytes);
+int   virtio_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes);
+int   virtio_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes);
 
 /* Блочное устройство virtio-blk. NULL - такого устройства нет или оно не поднялось. */
 struct blk_dev;
 struct blk_dev* virtio_blk_probe(void);
+/* Stop the device and release DMA only after reset has been confirmed. */
+void virtio_blk_shutdown(void);
 
 #ifdef KIRA_HOST_TEST
 uint64_t host_mmio_read(const volatile void* a, int size);

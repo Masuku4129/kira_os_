@@ -23,8 +23,16 @@ $CC -O1 -Wall -o $T/mem tests/mem_test.c $T/kmem.o
 $T/mem
 
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
-$CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
+$CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c bootinfo_mb2.c bootinfo.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
 $T/pmm | head -4
+echo "== MMIO physical range rounding and overflow ==" 
+$CC $FLAGS -fsanitize=address,undefined -o $T/vmm-range tests/vmm_range_test.c
+$T/vmm-range
+echo "== ARM64 PMM (permanent reservations, high-range bitmap, atomic contiguous free) =="
+$CC $FLAGS -o $T/pmm-arm tests/pmm_arm_test.c arch/aarch64/pmm_arm.c
+$T/pmm-arm
+$CC $FLAGS -fsanitize=address,undefined -o $T/arm-range tests/arm_range_test.c
+$T/arm-range
 
 echo "== ramext (mapping RAM above 1 GB) =="
 $CC $FLAGS -o $T/ramext tests/ramext_test.c ramext.c
@@ -56,6 +64,14 @@ $T/input
 echo "== driver package format (kdrv_format.h: header, record, matching, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c
 $T/kdrv
+echo "== KDRV signed manifest (Ed25519, package binding, key policy, hostile input) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv-manifest tests/kdrv_manifest_test.c kdrv_manifest.c pk.c crypto.c sha256.c
+python3 -I tests/kdrv_manifest_fixture.py "$T/kdrv-manifest-fixture"
+$T/kdrv-manifest "$T/kdrv-manifest-fixture/manifest.bin"
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv-trust tests/kdrv_trust_test.c pk.c crypto.c sha256.c
+$T/kdrv-trust
+echo "== KDRV package builder (strict CLI and bounded input) =="
+bash tests/kdrvpack_test.sh
 
 echo "== drvget: https-only, рецепт, лицензии (GPL/бинарники отвергаются), хеш набора =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/drvget tests/drvget_test.c userland/drvget_core.c sha256.c
@@ -79,6 +95,10 @@ $T/store
 echo "== KiraFS (files, dirs, crash at every write, corruption fuzz) =="
 $CC $FLAGS -fsanitize=address,undefined -Itests -o $T/kfs tests/kfs_test.c tests/kfs_v1_ref.c kfs.c store.c
 $T/kfs
+
+echo "== PCI capability traversal (bounds, malformed links, null arguments) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/pci-cap tests/pci_cap_test.c pci.c
+$T/pci-cap
 
 echo "== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS over virtio) =="
 $CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c kfs.c store.c
@@ -130,6 +150,12 @@ echo "== user program log (prefix per line, interleaving) =="
 $CC $FLAGS -fsanitize=undefined -o $T/ulog tests/userlog_test.c userlog.c
 $T/ulog
 
+echo "== versioned loader-neutral BootInfo ABI (bounds, overflow, optional data) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/bootinfo tests/bootinfo_test.c bootinfo.c
+$T/bootinfo
+$CC $FLAGS -fsanitize=address,undefined -o $T/bootinfo-mb2 tests/bootinfo_mb2_test.c bootinfo_mb2.c bootinfo.c
+$T/bootinfo-mb2
+
 echo "== early window (bootmap page tables) =="
 $CC $FLAGS -fsanitize=undefined -o $T/bootmap tests/bootmap_test.c bootmap.c
 $T/bootmap
@@ -160,20 +186,28 @@ echo "== console command line (Enter, backspace, history, clear, Ctrl keys) =="
 $CC $FLAGS -o $T/console tests/console_test.c console.c hwprofile.c uheap.c percpu.c net.c hda.c
 $T/console
 
-echo "== UI primitives (angles, arcs, anti-aliasing) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/ui tests/ui_test.c gfxui.c gfx2d.c font8x16.c -lm
-$T/ui
+if [ "${KIRA_SKIP_GUI:-0}" != 1 ]; then
+    echo "== UI primitives (angles, arcs, anti-aliasing) =="
+    $CC $FLAGS -fsanitize=address,undefined -o $T/ui tests/ui_test.c gfxui.c gfx2d.c font8x16.c -lm
+    $T/ui
+else
+    echo "UI primitives: covered by gui-regression job"
+fi
 
-echo "== mind (norms, anomalies, health, quantum self-tuning, memory, focus, starvation, behavior, persistence) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c mindnet.c
-$T/mind
+if [ "${KIRA_SKIP_MIND:-0}" != 1 ]; then
+    echo "== mind (norms, anomalies, health, quantum self-tuning, memory, focus, starvation, behavior, persistence) =="
+    $CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c mindnet.c
+    $T/mind
 
-echo "== mind levers 13-30 (A/B by measurement, rollback, useless marking, budget, general rollback, hints, seed) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/mindlv tests/mind_lever_test.c mind.c mindnet.c
-$T/mindlv
+    echo "== mind levers 13-30 (A/B by measurement, rollback, useless marking, budget, general rollback, hints, seed) =="
+    $CC $FLAGS -fsanitize=address,undefined -o $T/mindlv tests/mind_lever_test.c mind.c mindnet.c
+    $T/mindlv
+else
+    echo "Mind quality: covered by mind-quality job"
+fi
 
 echo "== device tree (FDT) parser =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c bootinfo_fdt.c bootinfo.c
 $T/fdt
 $CC $FLAGS -fsanitize=address,undefined -o $T/crypto tests/crypto_test.c crypto.c sha256.c
 $T/crypto
@@ -216,9 +250,13 @@ echo "== quick-launch dock (/var/dock) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/dock tests/dock_test.c dock.c
 $T/dock
 
-echo "== shell (top bar, side launcher, traffic lights, fullscreen, drag, input, live background, culling) =="
-$CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c
-$T/wm
+if [ "${KIRA_SKIP_GUI:-0}" != 1 ]; then
+    echo "== shell (top bar, side launcher, traffic lights, fullscreen, drag, input, live background, culling) =="
+    $CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c
+    $T/wm
+else
+    echo "Window manager regressions: covered by gui-regression job"
+fi
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
@@ -230,6 +268,7 @@ for r in "" "1280 720" "1920 1080"; do
 done
 echo "== view: formats against reference sums (ci/mkfiles.py), fuzz of damaged files =="
 python3 ci/mkfiles.py $T/files > $T/sums.txt
+[ -f "$T/files/pic.jpg" ] || { echo "JPEG fixtures unavailable: install python3-pil"; exit 1; }
 $CC -O1 -g -w -DKIRA_HOST_TEST -I. -fsanitize=address,undefined -o $T/view tests/view_host.c font8x16.c
 sum() { python3 -c "import sys; sys.path.insert(0,'ci'); import mkfiles as m; print('sum %08x' % m.SUMS['$1'])"; }
 ASAN_OPTIONS=detect_leaks=0 $T/view $T/files/pic.png "$(sum /pic.png)" $T/files/rgba.png "$(sum /rgba.png)" \
@@ -346,10 +385,18 @@ for o in good deleg; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.d
 for o in revoked forged other; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
 for o in stale unknown; do ossl_run 18449 ocsp-$o 1 -status_file $T/chain/ocsp_$o.der; done
 ossl_run 18450 resume 3
-echo "== drvget целиком на хосте: TLS-сервер, install, confirm, сборка kcc, /drv =="
-bash tests/drvget_e2e.sh $T/e2e
+if [ "${KIRA_SKIP_DRIVER_E2E:-0}" != 1 ]; then
+    echo "== drvget целиком на хосте: TLS-сервер, install, confirm, сборка kcc, /drv =="
+    bash tests/drvget_e2e.sh $T/e2e
+else
+    echo "Driver installer E2E: covered by driver-e2e job"
+fi
 
-echo "== kcc (препроцессор, лексер, разбор, типы, IR; сверка с clang; fuzz; ASAN/UBSAN) =="
-bash tests/kcc/run.sh
+if [ "${KIRA_SKIP_KCC:-0}" != 1 ]; then
+    echo "== kcc (препроцессор, лексер, разбор, типы, IR; сверка с clang; fuzz; ASAN/UBSAN) =="
+    bash tests/kcc/run.sh
+else
+    echo "KCC compiler suite: covered by kcc-tests job"
+fi
 rm -rf $T
 echo "ALL HOST TESTS PASSED"

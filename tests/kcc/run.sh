@@ -34,7 +34,17 @@ for f in tests/kcc/bad/*.c; do
     kc $f
     if [ $rc != 1 ]; then note "$f: kcc принял или упал (rc=$rc): $(head -c 200 $T/err)"; continue; fi
     lineinfo || note "$f: ошибка без номера строки: $(head -c 200 $T/err)"
-    if $REF -std=c99 -fsyntax-only -w -I $INC $f 2>/dev/null; then note "$f: сам тест неверен, clang принимает"; fi
+    case "$f" in
+        tests/kcc/bad/ptr_*)
+            if $REF -std=c99 -fsyntax-only -Werror -I $INC $f 2>/dev/null; then note "$f: clang принимает некорректную операцию с указателями"; fi
+            ;;
+        tests/kcc/bad/proto_*)
+            if $REF -std=c99 -fsyntax-only -Werror -Wno-deprecated-non-prototype -I $INC $f 2>/dev/null; then note "$f: clang принимает несовместимые объявления функций"; fi
+            ;;
+        *)
+            if $REF -std=c99 -fsyntax-only -w -I $INC $f 2>/dev/null; then note "$f: сам тест неверен, clang принимает"; fi
+            ;;
+    esac
 done
 
 for f in tests/kcc/strict/*.c; do

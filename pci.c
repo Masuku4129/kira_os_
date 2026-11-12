@@ -37,59 +37,187 @@ static int ndevs;
 static uint8_t bus_seen[256];
 
 void pci_set_backend(const pci_backend_t* b) {
-    if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
+    if (b && b->read32 && b->write32) be = *b;
+    else { be.read32 = port_read32; be.write32 = port_write32; }
 }
 
 /* ECAM (PCI Express): конфигурация каждой функции - 4 КБ по адресу base + (шина << 20 | устройство << 15 |
    функция << 12). Так её видят ARM-платы (дерево устройств: pci-host-ecam-generic) и x86 с таблицей MCFG. */
 static volatile uint8_t* ecam;
+static uint64_t ecam_size;
 static uint8_t ecam_bus0, ecam_bus1;
 static uint32_t ecam_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
-    if (bus < ecam_bus0 || bus > ecam_bus1) return 0xFFFFFFFFu;
-    return *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC)));
+    if (!ecam || bus < ecam_bus0 || bus > ecam_bus1 || dev >= 32 || fn >= 8 || off >= 4096)
+        return 0xFFFFFFFFu;
+    uint64_t offset = ((uint64_t)(bus - ecam_bus0) << 20) |
+                      ((uint64_t)dev << 15) | ((uint64_t)fn << 12) | (off & 0xFFCu);
+    if (offset > ecam_size || ecam_size - offset < sizeof(uint32_t)) return 0xFFFFFFFFu;
+    return *(volatile uint32_t*)(ecam + offset);
 }
 static void ecam_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t v) {
-    if (bus < ecam_bus0 || bus > ecam_bus1) return;
-    *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC))) = v;
+    if (!ecam || bus < ecam_bus0 || bus > ecam_bus1 || dev >= 32 || fn >= 8 || off >= 4096)
+        return;
+    uint64_t offset = ((uint64_t)(bus - ecam_bus0) << 20) |
+                      ((uint64_t)dev << 15) | ((uint64_t)fn << 12) | (off & 0xFFCu);
+    if (offset > ecam_size || ecam_size - offset < sizeof(uint32_t)) return;
+    *(volatile uint32_t*)(ecam + offset) = v;
 }
-void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end) {
-    ecam = (volatile uint8_t*)base; ecam_bus0 = bus_start; ecam_bus1 = bus_end;
-    be.read32 = ecam_read32; be.write32 = ecam_write32;
+int pci_use_ecam(volatile void* base, uint64_t size, uint8_t bus_start, uint8_t bus_end) {
+    if (!base || ((uintptr_t)base & 3u) || !size || bus_start > bus_end || size > (uint64_t)UINTPTR_MAX ||
+        (uintptr_t)base > UINTPTR_MAX - (uintptr_t)size) return -1;
+    uint64_t required = ((uint64_t)bus_end - bus_start + 1) << 20;
+    if (size < required) return -1;
+    ecam = (volatile uint8_t*)base;
+    ecam_size = size;
+    ecam_bus0 = bus_start;
+    ecam_bus1 = bus_end;
+    be.read32 = ecam_read32;
+    be.write32 = ecam_write32;
+    return 0;
 }
 
 /* Назначение адресов BAR, когда прошивка этого не сделала (ARM без UEFI: ядро загружено напрямую). Окна - из
    дерева устройств (ranges моста). Каждый BAR выровнен по своему размеру; 64-битные - в 64-битное окно, если оно
    есть. cpu_off - разница «адрес процессора минус адрес шины» окна (у QEMU virt - 0). Возвращает число BAR. */
-static uint64_t alloc_in(pci_window_t* w, uint64_t size) {
-    if (!w->size) return 0;
-    uint64_t a = (w->next + size - 1) & ~(size - 1);
-    if (a < w->next || a + size > w->pci_base + w->size || a + size < a) return 0;
+int pci_window_alloc(pci_window_t* w, uint64_t size, uint64_t* pci_addr, uint64_t* cpu_addr) {
+    if (!w || !pci_addr || !cpu_addr || !size || (size & (size - 1)) || !w->size ||
+        w->pci_base > UINT64_MAX - w->size) return -1;
+    uint64_t end = w->pci_base + w->size;
+    uint64_t start = w->next;
+    if (start < w->pci_base || start >= end || start > UINT64_MAX - (size - 1)) return -1;
+    uint64_t a = (start + size - 1) & ~(size - 1);
+    if (a < start || a > end || size > end - a) return -1;
+
+    uint64_t cpu;
+    if (w->cpu_off >= 0) {
+        uint64_t off = (uint64_t)w->cpu_off;
+        if (a > UINT64_MAX - off) return -1;
+        cpu = a + off;
+    } else {
+        uint64_t off = (uint64_t)(-(w->cpu_off + 1)) + 1;
+        if (a < off) return -1;
+        cpu = a - off;
+    }
     w->next = a + size;
-    return a;
+    *pci_addr = a;
+    *cpu_addr = cpu;
+    return 0;
 }
-int pci_assign(pci_window_t* mem32, pci_window_t* mem64) {
+static int pci_window_cpu_range(const pci_window_t* w, uint64_t* start, uint64_t* end) {
+    uint64_t base;
+    if (w->cpu_off >= 0) {
+        uint64_t off = (uint64_t)w->cpu_off;
+        if (w->pci_base > UINT64_MAX - off) return -1;
+        base = w->pci_base + off;
+    } else {
+        uint64_t off = (uint64_t)(-(w->cpu_off + 1)) + 1;
+        if (w->pci_base < off) return -1;
+        base = w->pci_base - off;
+    }
+    if (base > UINT64_MAX - w->size) return -1;
+    *start = base; *end = base + w->size;
+    return 0;
+}
+int pci_window_set_add(pci_window_set_t* set, const pci_window_t* window) {
+    if (!set || !window || !window->size || window->pci_base > UINT64_MAX - window->size ||
+        window->next < window->pci_base || window->next > window->pci_base + window->size ||
+        set->count >= PCI_MAX_WINDOWS) return -1;
+    uint64_t end = window->pci_base + window->size, cpu_start, cpu_end;
+    if (pci_window_cpu_range(window, &cpu_start, &cpu_end)) return -1;
+    for (unsigned i = 0; i < set->count; i++) {
+        const pci_window_t* old = &set->windows[i];
+        uint64_t old_end = old->pci_base + old->size, old_cpu_start, old_cpu_end;
+        if (window->pci_base < old_end && old->pci_base < end) return -1;
+        if (pci_window_cpu_range(old, &old_cpu_start, &old_cpu_end) ||
+            (cpu_start < old_cpu_end && old_cpu_start < cpu_end)) return -1;
+    }
+    set->windows[set->count++] = *window;
+    return 0;
+}
+int pci_window_set_alloc(pci_window_set_t* set, uint64_t size, uint64_t* pci_addr, uint64_t* cpu_addr) {
+    if (!set || !pci_addr || !cpu_addr) return -1;
+    for (unsigned i = 0; i < set->count; i++) {
+        if (pci_window_alloc(&set->windows[i], size, pci_addr, cpu_addr) == 0) return 0;
+    }
+    return -1;
+}
+static int pci_window_set_alloc_limit(pci_window_set_t* set, uint64_t size, uint64_t max_addr,
+                                         uint64_t* pci_addr, uint64_t* cpu_addr) {
+    if (!set || !pci_addr || !cpu_addr || !size) return -1;
+    for (unsigned i = 0; i < set->count; i++) {
+        pci_window_t candidate = set->windows[i];
+        uint64_t a = 0, cpu = 0;
+        if (pci_window_alloc(&candidate, size, &a, &cpu) == 0 &&
+            a <= max_addr && size - 1 <= max_addr - a) {
+            set->windows[i] = candidate;
+            *pci_addr = a;
+            *cpu_addr = cpu;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+/* MEM32 and MEM64 are separate allocation pools, but PCI memory addresses and
+   their CPU mappings share one physical address space. Reject aliases across
+   pools before assigning any BAR, otherwise devices can receive the same
+   effective address through different host-bridge windows. */
+static int pci_window_sets_disjoint(const pci_window_set_t* a, const pci_window_set_t* b) {
+    if (!a || !b) return 1;
+    if (a->count > PCI_MAX_WINDOWS || b->count > PCI_MAX_WINDOWS) return 0;
+    for (unsigned i = 0; i < a->count; i++) {
+        const pci_window_t* wa = &a->windows[i];
+        uint64_t a_cpu_start, a_cpu_end;
+        if (!wa->size || wa->pci_base > UINT64_MAX - wa->size ||
+            wa->next < wa->pci_base || wa->next > wa->pci_base + wa->size ||
+            pci_window_cpu_range(wa, &a_cpu_start, &a_cpu_end)) return 0;
+        uint64_t a_pci_end = wa->pci_base + wa->size;
+        for (unsigned j = 0; j < b->count; j++) {
+            const pci_window_t* wb = &b->windows[j];
+            uint64_t b_cpu_start, b_cpu_end;
+            if (!wb->size || wb->pci_base > UINT64_MAX - wb->size ||
+                wb->next < wb->pci_base || wb->next > wb->pci_base + wb->size ||
+                pci_window_cpu_range(wb, &b_cpu_start, &b_cpu_end)) return 0;
+            uint64_t b_pci_end = wb->pci_base + wb->size;
+            if ((wa->pci_base < b_pci_end && wb->pci_base < a_pci_end) ||
+                (a_cpu_start < b_cpu_end && b_cpu_start < a_cpu_end)) return 0;
+        }
+    }
+    return 1;
+}
+
+int pci_assign_multi(pci_window_set_t* mem32, pci_window_set_t* mem64) {
+    if (!pci_window_sets_disjoint(mem32, mem64)) return 0;
     int n = 0;
-    /* крупные BAR первыми: меньше потерь на выравнивание */
     for (int pass = 63; pass >= 4; pass--) {
         for (int i = 0; i < ndevs; i++) {
             pci_dev_t* d = &devs[i];
             for (int b = 0; b < PCI_BARS; b++) {
                 uint64_t sz = d->bar[b].size;
                 if (d->bar[b].io || !sz || d->bar[b].base || (sz & (sz - 1)) || sz != (1ull << pass)) continue;
-                pci_window_t* w = d->bar[b].mem64 && mem64 && mem64->size ? mem64 : mem32;
-                uint64_t a = alloc_in(w, sz);
-                if (!a && w != mem32 && d->bar[b].mem64) { w = mem32; a = alloc_in(w, sz); }
-                if (!a) continue;
+                uint64_t a = 0, cpu = 0;
+                int rc = -1;
+                if (d->bar[b].mem64 && mem64)
+                    rc = pci_window_set_alloc_limit(mem64, sz, UINT64_MAX, &a, &cpu);
+                if (rc && mem32)
+                    rc = pci_window_set_alloc_limit(mem32, sz, UINT32_MAX, &a, &cpu);
+                if (rc) continue;
                 uint16_t off = (uint16_t)(0x10 + 4 * b);
-                uint32_t lo = pci_read32(d, off) & 0xF;                        /* биты типа сохраняются */
+                uint32_t lo = pci_read32(d, off) & 0xF;
                 pci_write32(d, off, (uint32_t)a | lo);
                 if (d->bar[b].mem64) pci_write32(d, (uint16_t)(off + 4), (uint32_t)(a >> 32));
-                d->bar[b].base = a + w->cpu_off;
+                d->bar[b].base = cpu;
                 n++;
             }
         }
     }
     return n;
+}
+int pci_assign(pci_window_t* mem32, pci_window_t* mem64) {
+    pci_window_set_t s32 = {0}, s64 = {0};
+    if (mem32 && mem32->size && pci_window_set_add(&s32, mem32)) return 0;
+    if (mem64 && mem64->size && pci_window_set_add(&s64, mem64)) return 0;
+    return pci_assign_multi(&s32, &s64);
 }
 
 static uint32_t cr32(const pci_dev_t* d, uint16_t off) { return be.read32(d->bus, d->dev, d->fn, off); }
@@ -194,21 +322,71 @@ const pci_dev_t* pci_find(uint16_t v, uint16_t dv) {
 }
 
 uint16_t pci_next_cap(const pci_dev_t* d, uint16_t prev, uint8_t* id) {
-    if (!(pci_read16(d, 0x06) & 0x10)) return 0;                     /* бит Capabilities List в статусе */
-    uint16_t p = prev ? pci_read8(d, (uint16_t)(prev + 1)) : pci_read8(d, 0x34);
-    p &= 0xFC;
-    if (p < 0x40) return 0;
-    *id = pci_read8(d, p);
+    if (!d || !id || (prev && (prev < 0x40 || prev > 0xFC || (prev & 3)))) return 0;
+    if (!(pci_read16(d, 0x06) & 0x10)) return 0;
+    uint16_t raw = prev ? pci_read8(d, (uint16_t)(prev + 1)) : pci_read8(d, 0x34);
+    uint16_t p = raw & 0xFC;
+    if (p < 0x40 || p > 0xFC || p == prev) return 0;
+    uint8_t cap_id = pci_read8(d, p);
+    if (!cap_id || cap_id == 0xFF) return 0;
+    *id = cap_id;
     return p;
+}
+
+/* A malformed capability list is not equivalent to "no MSI". Mask every
+   discoverable message interrupt and legacy INTx, then verify config readback. */
+int pci_quiesce_interrupts(const pci_dev_t* d) {
+    if (!d) return 0;
+    int safe = 1;
+    uint16_t status = pci_read16(d, 0x06);
+    if (status & 0x10u) {
+        uint8_t ptr = pci_read8(d, 0x34);
+        uint64_t visited = 0;
+        if (!ptr) safe = 0;
+        unsigned n;
+        for (n = 0; ptr && n < 48; n++) {
+            if (ptr < 0x40u || ptr > 0xFCu || (ptr & 3u)) { safe = 0; break; }
+            uint64_t bit = 1ull << (ptr >> 2);
+            if (visited & bit) { safe = 0; break; }
+            visited |= bit;
+            uint8_t id = pci_read8(d, ptr);
+            uint8_t next = pci_read8(d, (uint16_t)(ptr + 1u));
+            if (!id || id == 0xFFu) { safe = 0; break; }
+            if (id == 0x05u) {
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control & ~1u));
+                if (pci_read16(d, (uint16_t)(ptr + 2u)) & 1u) safe = 0;
+            } else if (id == 0x11u) {
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control | 0x4000u));
+                uint16_t after = pci_read16(d, (uint16_t)(ptr + 2u));
+                if (!(after & 0x4000u)) safe = 0;
+            }
+            if (!next) { ptr = 0; break; }
+            if (next < 0x40u || next > 0xFCu || (next & 3u) || next == ptr) {
+                safe = 0;
+                break;
+            }
+            ptr = next;
+        }
+        if (ptr && n == 48) safe = 0;
+    }
+    uint16_t command = pci_read16(d, 0x04);
+    pci_write16(d, 0x04, (uint16_t)(command | (1u << 10)));
+    if (!(pci_read16(d, 0x04) & (1u << 10))) safe = 0;
+    return safe;
 }
 
 /* Отображение части BAR в окно MMIO ядра: без кэширования и без исполнения. */
 #ifndef KIRA_HOST_TEST
 #include "vmm.h"
 volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t len) {
-    if (bar < 0 || bar >= PCI_BARS || d->bar[bar].io || !d->bar[bar].base) return 0;
-    if (off + len < off || off + len > d->bar[bar].size) return 0;
-    return vmm_map_mmio(d->bar[bar].base + off, len, VMM_MMIO_UC);   /* окно MMIO ядра: где бы ни лежал BAR */
+    if (!d || bar < 0 || bar >= PCI_BARS || d->bar[bar].io || !d->bar[bar].base ||
+        !len || off > d->bar[bar].size || len > d->bar[bar].size - off ||
+        d->bar[bar].base > UINT64_MAX - off) return 0;
+    uint64_t physical = d->bar[bar].base + off;
+    if (physical > UINT64_MAX - len) return 0;
+    return vmm_map_mmio(physical, len, VMM_MMIO_UC);   /* окно MMIO ядра: где бы ни лежал BAR */
 }
 #endif
 

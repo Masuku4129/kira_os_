@@ -11,6 +11,7 @@ static uint64_t cur_sect = SECT;
 static uint8_t disk[MAXSECT * 512];
 static long budget = -1;       /* сколько записей ещё дойдёт до диска; -1 - без ограничений */
 static long writes;
+static long flush_budget = -1, flushes;
 static int rd(blk_dev_t* d, uint64_t lba, uint32_t n, void* b){ (void)d; if(lba+n>cur_sect) return -1; memcpy(b, disk+lba*512, n*512); return 0; }
 static int wr(blk_dev_t* d, uint64_t lba, uint32_t n, const void* b){
     (void)d; if(lba+n>cur_sect) return -1;
@@ -21,7 +22,12 @@ static int wr(blk_dev_t* d, uint64_t lba, uint32_t n, const void* b){
     }
     return 0;
 }
-static int fl(blk_dev_t* d){ (void)d; return 0; }
+static int fl(blk_dev_t* d){
+    (void)d; flushes++;
+    if (flush_budget == 0) return -1;
+    if (flush_budget > 0) flush_budget--;
+    return 0;
+}
 static blk_dev_t dev = {"ram", SECT, rd, wr, fl, 0};
 static void set_size(uint64_t sect){ cur_sect = sect; dev.sectors = sect; }
 
@@ -41,7 +47,7 @@ static int count_cb(void* c, const char* n, const kfs_stat_t* s){ (void)n;(void)
 static int count(const char* p){ int c=0; CHECK(kfs_list(p,count_cb,&c)==0); return c; }
 
 static void base_state(void){
-    memset(disk,0,sizeof disk); budget=-1;
+    memset(disk,0,sizeof disk); budget=-1; flush_budget=-1;
     CHECK(kfs_format(&dev,16)==0);
     CHECK(put("/a",6000,1)==0);
     CHECK(kfs_mkdir("/d")==0);
@@ -49,13 +55,34 @@ static void base_state(void){
 }
 
 int main(void){
-    /* базовые операции */
+    /* Devices without a persistence barrier must be rejected before any filesystem writes. */
     memset(disk,0,sizeof disk);
+    blk_dev_t noflush = dev; noflush.flush = 0;
+    long noflush_writes = writes;
+    CHECK(kfs_format(&noflush,16)==KFS_ERR_IO);
+    CHECK(writes==noflush_writes && !kfs_mounted());
+    CHECK(kfs_mount(&noflush,16)==KFS_ERR_IO);
+    CHECK(writes==noflush_writes && !kfs_mounted());
+    /* Reject out-of-device volume bases before issuing a sector read. */
+    CHECK(kfs_mount(&dev, dev.sectors) == KFS_ERR_INVAL);
+    CHECK(kfs_mount(&dev, UINT64_MAX) == KFS_ERR_INVAL);
+    CHECK(writes==noflush_writes && !kfs_mounted());
+
+    /* базовые операции */
     CHECK(kfs_mount(&dev,16)==KFS_ERR_NOFS);
+    CHECK(kfs_detect(0,16)==KFS_ERR_INVAL);
+    CHECK(kfs_detect(&dev,UINT64_MAX)==KFS_ERR_NOFS);
     CHECK(kfs_format(&dev,16)==0 && kfs_mounted());
+    CHECK(kfs_stat("/",0)==KFS_ERR_INVAL);
+    CHECK(kfs_read("/",0,0,1)==KFS_ERR_INVAL);
+    CHECK(kfs_write("/null",0,1)==KFS_ERR_INVAL);
+    CHECK(kfs_list("/",0,0)==KFS_ERR_INVAL);
+    kfs_info(0);
     kfs_info_t in0; kfs_info(&in0);
     CHECK(put("/hello",100,3)==0 && same("/hello",100,3));
     CHECK(put("/empty",0,0)==0 && same("/empty",0,0));
+    CHECK(kfs_write("/too-big", buf, (size_t)-1) == KFS_ERR_FBIG); /* rounding must not wrap SIZE_MAX to zero blocks */
+    kfs_stat_t too_big; CHECK(kfs_stat("/too-big", &too_big) == KFS_ERR_NOENT);
     CHECK(put("/big",BIGF,4)==0 && same("/big",BIGF,4));
     CHECK(kfs_read("/big",4500000,buf,1000)==1000); for(int i=0;i<1000;i++) CHECK(buf[i]==pat(4,4500000+i));
     CHECK(kfs_mount(&dev,16)==0 && same("/big",BIGF,4));                     /* дерево указателей переживает монтирование */
@@ -147,6 +174,67 @@ int main(void){
         }
     }
     printf("crash cases: %d\n", total_cases);
+
+    /* A failed flush makes commit durability unknowable. The current mount must
+       become unavailable until remount reconstructs block ownership from disk. */
+    for (long fail = 0; fail < 2; fail++) {
+        base_state();
+        flush_budget = fail;                 /* fail before inode switch, then after inode write */
+        CHECK(put("/a", 20000, 21) == KFS_ERR_IO);
+        CHECK(!kfs_mounted());
+        flush_budget = -1;
+        CHECK(kfs_stat("/a", &(kfs_stat_t){0}) == KFS_ERR_NOFS);
+        CHECK(kfs_write("/blocked", buf, 1) == KFS_ERR_NOFS);
+        CHECK(kfs_mount(&dev, 16) == 0);
+        CHECK(same("/a", 6000, 1) || same("/a", 20000, 21));
+        CHECK(kfs_mount(&dev, 16) == 0);
+        CHECK(same("/a", 6000, 1) || same("/a", 20000, 21));
+    }
+    flush_budget = -1;
+
+    /* Unlink has two durable transitions: remove the name, then clear the
+       inode. A failed second transition must quarantine the mount as well. */
+    for (long fail = 0; fail < 2; fail++) {
+        base_state();
+        flush_budget = fail;
+        CHECK(kfs_unlink("/d/b") == KFS_ERR_IO);
+        CHECK(!kfs_mounted());
+        flush_budget = -1;
+        CHECK(kfs_stat("/d/b", &(kfs_stat_t){0}) == KFS_ERR_NOFS);
+        CHECK(kfs_mount(&dev, 16) == 0);
+        CHECK(kfs_stat("/d", &(kfs_stat_t){0}) == 0);
+        CHECK(kfs_stat("/d/b", &(kfs_stat_t){0}) == KFS_ERR_NOENT);
+        CHECK(put("/d/after-unlink", 777, 31) == 0);
+        CHECK(same("/d/after-unlink", 777, 31));
+    }
+
+    /* If the directory removal reaches disk but the following inode-sector
+       write fails, the live mount must still stop before allocator reuse. */
+    base_state();
+    budget = 1;
+    CHECK(kfs_unlink("/d/b") == KFS_ERR_IO);
+    CHECK(!kfs_mounted());
+    budget = -1;
+    CHECK(kfs_mount(&dev, 16) == 0);
+    CHECK(kfs_stat("/d/b", &(kfs_stat_t){0}) == KFS_ERR_NOENT);
+    CHECK(put("/d/after-write-failure", 901, 32) == 0);
+    CHECK(same("/d/after-write-failure", 901, 32));
+
+    /* mkdir must not keep using the mount after either its inode or
+       parent-directory commit reports an uncertain persistence barrier. */
+    for (long fail = 0; fail < 2; fail++) {
+        base_state();
+        flush_budget = fail;
+        CHECK(kfs_mkdir("/newdir") == KFS_ERR_IO);
+        CHECK(!kfs_mounted());
+        flush_budget = -1;
+        CHECK(kfs_mount(&dev, 16) == 0);
+        kfs_stat_t mst;
+        int mr = kfs_stat("/newdir", &mst);
+        CHECK(mr == KFS_ERR_NOENT || (mr == 0 && mst.type == KFS_DIR));
+        CHECK(put("/after-mkdir-failure", 333, 33) == 0);
+        CHECK(same("/after-mkdir-failure", 333, 33));
+    }
 
     /* порча метаданных: монтирование не падает, дальнейшее чтение безопасно */
     srand(12345);

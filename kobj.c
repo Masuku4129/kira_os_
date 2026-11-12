@@ -30,6 +30,7 @@ uint64_t kobj_messages_total(void) { return msgs_total; }
 
 // ---- имена и дескрипторы ----
 int kname_ok(const char* s) {
+    if (!s) return 0;
     unsigned n = 0;
     for (; s[n]; n++) {
         char c = s[n];
@@ -161,7 +162,7 @@ static void set_name(kobj_t* o, uint32_t type, const char* name) {
 
 // ---- порты ----
 int port_open(const char* name, int flags, kobj_t** out) {
-    if (!kname_ok(name)) return KE_ARG;
+    if (!kname_ok(name) || !out) return KE_ARG;
     port_t* p = 0;
     if ((flags & KOPEN_CREATE) && !exists(KOBJ_PORT, name)) {
         p = (port_t*)kmalloc(sizeof(port_t));
@@ -173,7 +174,7 @@ int port_open(const char* name, int flags, kobj_t** out) {
 }
 
 int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
-    if (!o || o->type != KOBJ_PORT || len > PORT_MSG_MAX) return KE_ARG;
+    if (!o || o->type != KOBJ_PORT || len > PORT_MSG_MAX || (!data && len)) return KE_ARG;
     port_t* p = (port_t*)o;
     uint8_t* copy = 0;
     if (len) {
@@ -201,12 +202,13 @@ int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
 }
 
 unsigned port_queued(kobj_t* o) {
+    if (!o || o->type != KOBJ_PORT) return 0;
     port_t* p = (port_t*)o;
     return p->qh - p->qt;
 }
 
 int64_t port_recv(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_t* from_pid, int (*stop)(void)) {
-    if (!o || o->type != KOBJ_PORT) return KE_ARG;
+    if (!o || o->type != KOBJ_PORT || (!kbuf && cap)) return KE_ARG;
     port_t* p = (port_t*)o;
     uint64_t start = timer_get_ticks();
     for (;;) {
@@ -249,7 +251,7 @@ uint64_t shm_room_kb(void);                               // тест задаё
 static uint64_t shm_room_kb(void) { return pmm_get_free_memory_kb() / 2; }
 #endif
 int shm_open(const char* name, uint32_t pages, int flags, kobj_t** out) {
-    if (!kname_ok(name)) return KE_ARG;
+    if (!kname_ok(name) || !out) return KE_ARG;
     shm_t* s = 0;
     if ((flags & KOPEN_CREATE) && !exists(KOBJ_SHM, name)) {
         if (pages == 0) return KE_ARG;
