@@ -37,7 +37,7 @@ require("kernel_boot_init" not in kernel_header,
 arm_main = read("arch/aarch64/main.c")
 arm_core = read("arch/aarch64/kernel_main.c")
 arm_core_header = read("arch/aarch64/kernel_main.h")
-require("arch/aarch64/kernel_main.c" in arm_build,
+require("$A/kernel_main.c" in arm_build,
         "ARM64 steady-state core loop is not owned by the ARM64 backend build")
 require('#include "kernel_main.h"' in arm_main
         and "arm_kernel_main_loop();" in arm_main
