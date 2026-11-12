@@ -926,13 +926,14 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
     }
     /* Горизонт равен четырём реальным секундам: пропущенный/повторный timestamp
        обрывает непрерывность и цензурирует все незавершённые метки. */
-    if (s->mem_prev_valid && (now <= s->mem_prev_t || now - s->mem_prev_t != 1)) {
+    int growth_valid = s->mem_prev_valid && now > s->mem_prev_t && now - s->mem_prev_t == 1;
+    if (s->mem_prev_valid && !growth_valid) {
         for (unsigned i = 0; i < 5; i++) s->mem_pending[i].valid = 0;
         s->mem_prev_valid = 0;
     }
     int32_t mx[MNET_F];
     for (int i = 0; i < MNET_F; i++) mx[i] = x[i];
-    uint32_t growth = s->mem_prev_valid && in->mem_used > s->mem_prev_used ? in->mem_used - s->mem_prev_used : 0;
+    uint32_t growth = growth_valid && in->mem_used > s->mem_prev_used ? in->mem_used - s->mem_prev_used : 0;
     mx[12] = q16(growth, 10);
     s->mem_prev_used = in->mem_used;
     s->mem_prev_t = now;
@@ -963,9 +964,10 @@ static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* 
     slot->created_t = now;
     slot->acted = 0;
     slot->valid = 1;
-    s->mem_risk_q16 = mnet_predict(&s->m.memory_net, mx);
-    s->mem_risk_valid = 1;
-    if (mnet_trusted(&s->m.memory_net) && s->mem_risk_q16 >= (MNET_ONE * 60u) / 100u) {
+    s->mem_risk_valid = (uint8_t)growth_valid;
+    s->mem_risk_q16 = growth_valid ? mnet_predict(&s->m.memory_net, mx) : 0;
+    if (growth_valid && mnet_trusted(&s->m.memory_net) &&
+        s->mem_risk_q16 >= (MNET_ONE * 60u) / 100u) {
         s->mem_forecasts++;
         if (now - s->mem_logged_t >= 30 || !s->mem_logged_t) {
             s->mem_logged_t = now;
