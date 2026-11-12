@@ -30,6 +30,7 @@ static const uint16_t ids[] = { 0x100E, 0x100F, 0x1004, 0x1009, 0x100C, 0x100D, 
 static struct {
     volatile uint8_t* r;
     rxd_t* rx; txd_t* tx;
+    uint64_t rx_p, tx_p;
     uint8_t* rxb; uint8_t* txb;
     uint64_t rxb_p, txb_p;
     unsigned rx_next, tx_next;
@@ -51,14 +52,23 @@ static int send(netdev_t* d, const void* frame, uint32_t len) {
     uint32_t n = len;
     if (len < 60) len = 60;                                        /* короче нельзя: дополняется нулями */
     uint64_t f = spin_lock_irqsave(&e.txlk);
-    txd_t* t = &e.tx[e.tx_next];
+    unsigned slot = e.tx_next;
+    txd_t* t = &e.tx[slot];
+    uint64_t td_phys = e.tx_p + (uint64_t)slot * sizeof(*t);
+    if (virtio_dma_sync_for_cpu(t, td_phys, sizeof(*t)) != 0) {
+        spin_unlock_irqrestore(&e.txlk, f); return -1;
+    }
     if (t->cmd && !(t->status & 1)) { spin_unlock_irqrestore(&e.txlk, f); return -1; }   /* кольцо полно */
-    uint8_t* b = e.txb + e.tx_next * BUF;
+    uint8_t* b = e.txb + slot * BUF;
     const uint8_t* s = (const uint8_t*)frame;
     for (uint32_t i = 0; i < len; i++) b[i] = i < n ? s[i] : 0;
     t->addr = e.txb_p + e.tx_next * BUF; t->len = (uint16_t)len; t->cso = 0; t->css = 0; t->special = 0;
     t->status = 0; t->cmd = 1 | 2 | 8;                            /* EOP, IFCS (контрольную сумму кадра считает карта), RS */
-    e.tx_next = (e.tx_next + 1) % NTX;
+    if (virtio_dma_sync_for_device(b, e.txb_p + (uint64_t)slot * BUF, len) != 0 ||
+        virtio_dma_sync_for_device(t, td_phys, sizeof(*t)) != 0) {
+        spin_unlock_irqrestore(&e.txlk, f); return -1;
+    }
+    e.tx_next = (slot + 1) % NTX;
     cpu_mb();
     wr(TDT, e.tx_next);
     spin_unlock_irqrestore(&e.txlk, f);
@@ -67,14 +77,22 @@ static int send(netdev_t* d, const void* frame, uint32_t len) {
 
 static int recv(netdev_t* d, void* buf, uint32_t max) {
     (void)d;
-    rxd_t* x = &e.rx[e.rx_next];
+    unsigned slot = e.rx_next;
+    rxd_t* x = &e.rx[slot];
+    uint64_t rd_phys = e.rx_p + (uint64_t)slot * sizeof(*x);
+    if (virtio_dma_sync_for_cpu(x, rd_phys, sizeof(*x)) != 0) return -1;
     cpu_mb();
     if (!(x->status & 1)) return 0;                               /* DD: кадр ещё не принят */
     uint32_t n = x->len;
     int ok = (x->status & 2) && !x->errors && n <= max;           /* целый кадр (EOP), без ошибок */
-    if (ok) { const uint8_t* s = e.rxb + e.rx_next * BUF; uint8_t* o = (uint8_t*)buf; for (uint32_t i = 0; i < n; i++) o[i] = s[i]; }
+    if (ok) {
+        const uint8_t* s = e.rxb + slot * BUF;
+        if (virtio_dma_sync_for_cpu((void*)s, e.rxb_p + (uint64_t)slot * BUF, n) != 0) return -1;
+        uint8_t* o = (uint8_t*)buf; for (uint32_t i = 0; i < n; i++) o[i] = s[i];
+    }
     x->status = 0;
-    unsigned done = e.rx_next;
+    if (virtio_dma_sync_for_device(x, rd_phys, sizeof(*x)) != 0) return -1;
+    unsigned done = slot;
     e.rx_next = (e.rx_next + 1) % NRX;
     cpu_mb();
     wr(RDT, done);                                                /* буфер снова у карты */
@@ -103,13 +121,6 @@ int e1000_probe(void) {
     const pci_dev_t* p = 0;
     for (unsigned i = 0; i < sizeof ids / sizeof ids[0] && !p; i++) p = pci_find(0x8086, ids[i]);
     if (!p) return -1;
-    /* This driver has not yet implemented explicit DMA ownership barriers for
-       every descriptor and packet-buffer transition. Do not bind it to an ARM
-       non-coherent platform until that audit is complete. */
-    if (platform_dma_noncoherent && platform_dma_noncoherent()) {
-        uart_print("[KIRA NET] e1000: disabled; DMA ownership sync is not validated on non-coherent ARM64.\n");
-        return -5;
-    }
     e82574 = p->device == 0x10D3;
     if (p->bar[0].io || !p->bar[0].base) { uart_print("[KIRA NET] e1000: register BAR is not memory - not supported.\n"); return -2; }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER);
@@ -136,11 +147,19 @@ int e1000_probe(void) {
     uint64_t rx_p, tx_p;
     e.rx = (rxd_t*)virtio_dma_alloc(NRX * sizeof(rxd_t), &rx_p);
     e.tx = (txd_t*)virtio_dma_alloc(NTX * sizeof(txd_t), &tx_p);
+    e.rx_p = rx_p; e.tx_p = tx_p;
     e.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &e.rxb_p);
     e.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &e.txb_p);
     if (!e.rx || !e.tx || !e.rxb || !e.txb) { uart_print("[KIRA NET] e1000: no memory for rings.\n"); return -4; }
     for (unsigned i = 0; i < NRX; i++) { e.rx[i].addr = e.rxb_p + i * BUF; e.rx[i].status = 0; }
     for (unsigned i = 0; i < NTX; i++) { e.tx[i].cmd = 0; e.tx[i].status = 1; }
+    if (virtio_dma_sync_for_device(e.rx, rx_p, NRX * sizeof(rxd_t)) != 0 ||
+        virtio_dma_sync_for_device(e.tx, tx_p, NTX * sizeof(txd_t)) != 0 ||
+        virtio_dma_sync_for_device(e.rxb, e.rxb_p, NRX * BUF) != 0 ||
+        virtio_dma_sync_for_device(e.txb, e.txb_p, NTX * BUF) != 0) {
+        uart_print("[KIRA NET] e1000: DMA ownership setup failed; device not started.\n");
+        return -7;
+    }
 
     wr(RDBAL, (uint32_t)rx_p); wr(RDBAH, (uint32_t)(rx_p >> 32)); wr(RDLEN, NRX * sizeof(rxd_t));
     wr(RDH, 0); wr(RDT, NRX - 1);
