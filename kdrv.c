@@ -293,7 +293,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     int pid = proc_spawn_driver(pname, p.buf + sizeof(kdrv_header_t), p.h.elf_size, granted, (uint32_t)(b - binds), args);
     kfree(p.buf);
     if (pid < 0) {
-        quarantine_failed_start(b);
+        quarantine_failed_start(b, 0);
         uart_print("[KIRA DRV] "); uart_print(name); uart_print(": ELF драйвера не принят - не запущен\n");
         return -1;
     }
