@@ -191,3 +191,10 @@ Both x86-64 and ARM64 build manifests compile these exact paths. Root `syscall.h
 - `arch/aarch64/pci_host.c` now rejects invalid/disabled host nodes, malformed bus-range properties, bus numbers outside 0..255, ECAM regions too small for the declared bus span and overflowing physical ranges. It maps only the required ECAM span and fails closed on malformed ranges before PCI enumeration.
 - Added `tests/pci_host_parse_test.c` for valid 32/64-bit windows, negative offsets, invalid cell geometry, truncated tuples and arithmetic overflow. The test is registered in `tests/run_host_tests.sh`; the parser is included in the ARM64 build and guarded by `tests/architecture_test.py`.
 - **Verification:** changes are committed on the architecture branch. Fresh exact-head CI is required; no build/test PASS is claimed for this slice until the run on the final SHA completes.
+
+
+### PCI host follow-up constraints
+
+- The current common PCI enumerator starts scanning at bus 0. Until a range-aware enumeration API is introduced, the ARM64 host backend explicitly rejects a Device Tree `bus-range` whose first bus is not 0 instead of silently enumerating no devices.
+- ECAM base must be 1-MiB aligned, matching the per-bus ECAM aperture. A final exact-head run is required for this follow-up.
+- Exact-head CI run `43298087855` on `618ce01344e219991323aca51f9de58c55ed2aab` completed **30/30 jobs successfully**, including host tests, x86-64/ARM64 builds and the full QEMU/Limbo matrix. This run predates the bus-start/alignment follow-up commits; those new checks remain unverified until the next run.
