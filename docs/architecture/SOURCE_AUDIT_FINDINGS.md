@@ -112,3 +112,11 @@ No tests were executed during this source-review pass. Findings above are code o
 - **Related work:** PR #42 branch adds `kdrv_dma_policy_allow(granted, 0)` and fail-closed rejection because no per-BDF VT-d/AMD-Vi/SMMU domain exists. This policy is not present in main. PR #125/#120/#116/#115 and #44 address IOMMU foundations, but the complete domain lifecycle and hardware isolation remain unproven.
 - **Action/status:** a narrow main-based fix is open as PR #136 (`security/kdrv-require-iommu-for-dma-msi`, head `720a2020f6d78501aed60b5013ad9b7d1c62b30d`). It adds a host-testable policy, rejects either CAP_DMA or CAP_IRQ when no domain is confirmed, quiesces the device before rejection, adds a distinct error and tests the capability matrix. PR is not merged. Latest Actions runs for the preceding code/docs commits were pending/in progress when checked; final-head verification must be refreshed. Review that rejection occurs before any bus-master enable, MSI/MSI-X setup or process spawn. Then test device removal, domain teardown and fault handling. Do not claim DMA isolation based on reserved DMA buffers alone.
 
+
+
+## F-014 — PCI enumeration preserves firmware-enabled bus mastering
+
+- **Severity:** High — DMA can remain active before KIRA assigns ownership or applies driver policy.
+- **Files:** `pci.c:scan_fn()`, `pci.c:probe_bars()`.
+- **Evidence:** `scan_fn()` reads identity/class/header and calls `probe_bars()` without clearing `PCI_CMD_MASTER`. `probe_bars()` reads the command word, temporarily clears only `PCI_CMD_IO | PCI_CMD_MEM`, then restores the full original command word. If firmware hands off a function with bus mastering enabled, that bit survives enumeration and may remain active before any KIRA driver has claimed the device.
+- **Action/status:** narrow fix is open as PR #137 (`security/pci-clear-firmware-busmaster`, current head to be refreshed). It clears `PCI_CMD_MASTER` for each discovered function before BAR probing, preserving IO/MEM bits; built-in drivers can explicitly enable it after ownership. Adds a fake PCI backend regression test and wires it into host tests. PR not merged; exact-head CI is pending. This does not replace PR #136: firmware handoff sanitation and KDRV per-device IOMMU gating are both required.
