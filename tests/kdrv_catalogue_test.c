@@ -110,7 +110,7 @@ int main(void)
     struct kdrv_catalogue catalogue;
     TestTrust state = { 0, 500, 0, 0, 0, 0, 0 };
     struct kdrv_trust_ops ops = {
-        &state, test_verify, test_hash, read_floor, write_floor, trusted_time
+        &state, test_verify, test_hash, read_floor, write_floor, trusted_time, 0
     };
     /* Host mock models the hardware-monotonic contract; it is not hardware evidence. */
     ops.storage_flags = KDRV_TRUST_STORAGE_HW_MONOTONIC;
