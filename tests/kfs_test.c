@@ -208,6 +208,18 @@ int main(void){
         CHECK(same("/d/after-unlink", 777, 31));
     }
 
+    /* If the directory removal reaches disk but the following inode-sector
+       write fails, the live mount must still stop before allocator reuse. */
+    base_state();
+    budget = 1;
+    CHECK(kfs_unlink("/d/b") == KFS_ERR_IO);
+    CHECK(!kfs_mounted());
+    budget = -1;
+    CHECK(kfs_mount(&dev, 16) == 0);
+    CHECK(kfs_stat("/d/b", &(kfs_stat_t){0}) == KFS_ERR_NOENT);
+    CHECK(put("/d/after-write-failure", 901, 32) == 0);
+    CHECK(same("/d/after-write-failure", 901, 32));
+
     /* порча метаданных: монтирование не падает, дальнейшее чтение безопасно */
     srand(12345);
     int mounted_ok=0, rejected=0;
