@@ -2,16 +2,16 @@
   "schema_version": 1,
   "branch": "v46/kdrv-catalogue-signature-policy",
   "inventory": {
-    "commit_before_this_run": "b7f0d90921f7a58a0209417b1dfc22111f9c215a",
-    "tree_sha": "829d4610918a78884de450c819e94553762393b8",
-    "tracked_paths": 959,
+    "commit_before_this_run": "b08513f387d9ae9cc779f9faaa7e1eee26d02c39",
+    "tree_sha": "89cffb3512a9041d10e79b33319437190d9e5bbf",
+    "tracked_paths": 967,
     "tree_truncated": false,
     "scope_note": "Фактическое дерево ветки получено через Git Trees API до изменений этого запуска; tracked_paths включает файлы и каталоги, tracked_files — только blob-файлы. Это инвентарные метрики, не процент готовности.",
-    "tracked_files": 915,
-    "directory_entries": 44
+    "tracked_files": 922,
+    "directory_entries": 45
   },
-  "latest_source_commit": "ec2c07d4800bebb22394943cb0fd4d177fe8cc2d",
-  "updated_at_utc": "2026-11-11T17:14:06Z",
+  "latest_source_commit": "bc043d6b5775518779373cdfb14c52f9e4223d1b",
+  "updated_at_utc": "2026-11-12T17:30:39Z",
   "execution_policy": {
     "tests_run": false,
     "audits_run": false,
@@ -21,7 +21,7 @@
     "pull_requests_merged": [],
     "other_branches_modified": [],
     "automatic_workflows_checked": false,
-    "automatic_ci_status": "not_checked; the source commits in this run did not contain [skip ci], so branch push workflows may have started automatically; no manual CI dispatch was made"
+    "automatic_ci_status": "not_checked; the source commit did not request a manual CI run; push-triggered workflows may have started automatically"
   },
   "completed_this_run": [
     {
@@ -88,6 +88,16 @@
       ],
       "details": "Добавлены отдельные x86 interrupt stubs и динамическое выделение векторов 0x60..0x7F, регистрация обработчиков и ожидание уже вошедших обработчиков при освобождении. IOAPIC получил отдельный GSI API для PCI INTx: проверка ACPI polarity/trigger flags, GSI range, 8-битного destination APIC ID и факта регистрации обработчика; redirection entry записывается masked, сверяется readback и только затем размаскируется. При инициализации IOAPIC прежние маршруты маскируются, перекрывающиеся GSI-диапазоны отклоняются, один GSI не переназначается на другой вектор.",
       "validation": "По прямому требованию не запускались тесты, аудит, сборка и CI. PCI _PRT namespace discovery, route-table consumer, shared-INTx fan-out и реальная доставка PCI IRQ ещё не подключены; это аппаратная инфраструктура, не end-to-end реализация PCI routing. The code commits were created without [skip ci]; automatic push-triggered workflows may therefore have started, but their status was not inspected or controlled in this run."
+    },
+    {
+      "id": "kdrv-trust-store-integrity-validation",
+      "status": "source_integrated",
+      "files": [
+        "drivers/kdrv/kdrv_trust.c"
+      ],
+      "commit": "bc043d6b5775518779373cdfb14c52f9e4223d1b",
+      "details": "Trust-store lookup now fails closed unless every key record has a nonzero identifier/public key, a valid time interval and a canonical revocation flag, and all key IDs are unique. Adding an existing ID now requires the full immutable key metadata to match; revoke/verify validate the whole store before lookup.",
+      "validation": "По прямому требованию тесты, аудит, сборка и CI не запускались. Поведение не подтверждено компилятором или runtime."
     }
   ],
   "modules": [
