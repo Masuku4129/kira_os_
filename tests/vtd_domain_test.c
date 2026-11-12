@@ -179,6 +179,30 @@ int main(void)
     CHECK(dma_translate(&dom, 0x50000, &pa) != 0);
     CHECK(dma_translate(&dom, 0x51000, &pa) != 0);
 
+    /* Disjoint batches issue one global invalidation and preserve unselected leaves. */
+    CHECK(kira_vtd_domain_map_4k(&dom, 0x70000, 0x800000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_OK);
+    CHECK(kira_vtd_domain_map_4k(&dom, 0x71000, 0x801000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_OK);
+    CHECK(kira_vtd_domain_map_4k(&dom, 0x72000, 0x802000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_OK);
+    {
+        const struct kira_vtd_range ranges[] = {{0x70000, 1}, {0x72000, 1}};
+        before = iotlb_count;
+        CHECK(kira_vtd_domain_unmap_ranges(&dom, ranges, 2, &plat) == KIRA_VTD_OK);
+        CHECK(iotlb_count == before + 1);
+        CHECK(dma_translate(&dom, 0x70000, &pa) != 0);
+        CHECK(dma_translate(&dom, 0x71000, &pa) == 0 && pa == 0x801000);
+        CHECK(dma_translate(&dom, 0x72000, &pa) != 0);
+    }
+
+    /* Validate every range before mutation: a bad later range cannot partially unmap an earlier one. */
+    {
+        const struct kira_vtd_range invalid_ranges[] = {{0x71000, 1}, {0x73001, 1}};
+        before = iotlb_count;
+        CHECK(kira_vtd_domain_unmap_ranges(&dom, invalid_ranges, 2, &plat) == KIRA_VTD_INVALID);
+        CHECK(iotlb_count == before);
+        CHECK(dma_translate(&dom, 0x71000, &pa) == 0 && pa == 0x801000);
+        CHECK(kira_vtd_domain_unmap_4k(&dom, 0x71000, &plat) == KIRA_VTD_OK);
+    }
+
     /* A missing or out-of-page IOTLB register block is refused, not written blindly. */
     unit.extended_capabilities = (uint64_t)0x3ff << 8;   /* IRO = 0x3ff0, beyond the 4 KiB page */
     CHECK(kira_vtd_domain_map_4k(&dom, 0x40000, 0x500000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_HARDWARE_ERROR);
