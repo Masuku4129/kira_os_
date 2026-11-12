@@ -1284,9 +1284,9 @@ static void op_shift(Ins *i, int *r, int kind, void *c) {
 typedef struct { const Obj *o; int calls, taken; } InlCnt;
 typedef struct { InlCnt *tab; unsigned cap; } InlineState;
 static InlineState *inline_context_state(void) { return K.inline_state; }
-#define ILS (*inline_context_state())
-#define inl_tab (ILS.tab)
-#define inl_cap (ILS.cap)
+#define ILS inline_context_state()
+#define inl_tab (ILS->tab)
+#define inl_cap (ILS->cap)
 static InlCnt *inl_slot(const Obj *o, int create) {
     if (!inl_cap) return NULL;
     unsigned h = (unsigned)(((uintptr_t)o >> 4) * 2654435761u) & (inl_cap - 1);
