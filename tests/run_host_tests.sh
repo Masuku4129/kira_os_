@@ -64,6 +64,10 @@ $T/drvget
 echo "== драйвер rl(4) (RTL8139) против модели чипа =="
 tests/rl_build.sh $T/rl
 
+echo "== PCI enumeration clears firmware bus mastering before driver ownership =="
+$CC $FLAGS -o $T/pci tests/pci_test.c pci.c
+$T/pci
+
 echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
 $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
 $T/acpi
