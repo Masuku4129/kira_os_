@@ -224,6 +224,7 @@ typedef struct {
     uint32_t fx_bad_s, fx_calm_s;
     /* память */
     int      mem_level;
+    uint8_t  mem_action_active;
     uint32_t last_kill_t;
     /* фон и фокус */
     uint32_t late_s, calm_s, focus_pid;
