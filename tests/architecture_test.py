@@ -16,13 +16,19 @@ def require(condition, message):
 
 core = read("syscall.c")
 adapter = read("syscall_services.c")
-numbers = read("syscall_numbers.h")
+numbers = read("kcc/include/syscall_numbers.h")
 for path in ("build_clang.sh", "build_arm64.sh"):
     require("syscall_services.c" in read(path),
             f"{path} does not compile syscall_services.c")
 
 require('#include "syscall_numbers.h"' in core,
         "syscall core does not use the shared syscall-number registry")
+require('#include "kcc/include/syscall_numbers.h"' in read("syscall_numbers.h"),
+        "kernel forwarding header does not use the canonical registry")
+require('#include "../kcc/include/syscall_numbers.h"' in read("userland/kira.h"),
+        "userland API does not use the canonical syscall registry")
+require('#include "syscall_numbers.h"' in read("kcc/include/kira.h"),
+        "KCC public API does not use the canonical syscall registry")
 require('#include "syscall_services.h"' in core,
         "syscall core does not use the service-adapter contract")
 for header in ("net.h", "audio.h", "gfxsrv.h", "fsrv.h", "rtc.h"):
