@@ -28,6 +28,13 @@ static uint64_t dmar_u64(const uint8_t *p)
            ((uint64_t)dmar_u32(p + 4) << 32);
 }
 
+static int dmar_address_fits(uint8_t width, uint64_t address)
+{
+    if (width >= 64)
+        return 1;
+    return (address >> width) == 0;
+}
+
 static int dmar_checksum_valid(const uint8_t *bytes, size_t length)
 {
     uint8_t sum = 0;
@@ -195,7 +202,9 @@ int kira_dmar_parse(const void *table,
             unit->register_base = dmar_u64(entry + 8);
 
             if ((unit->register_base & 0xfffu) != 0 ||
-                unit->register_base == 0)
+                unit->register_base == 0 ||
+                !dmar_address_fits(out->host_address_width,
+                                   unit->register_base))
                 return KIRA_DMAR_E_STRUCTURE;
 
             rc = dmar_parse_scopes(entry + sizeof(struct kira_dmar_drhd),
@@ -242,7 +251,9 @@ int kira_dmar_parse(const void *table,
 
             if (region->base > region->limit ||
                 (region->base & 0xfffu) != 0 ||
-                (region->limit & 0xfffu) != 0xfffu)
+                (region->limit & 0xfffu) != 0xfffu ||
+                !dmar_address_fits(out->host_address_width, region->base) ||
+                !dmar_address_fits(out->host_address_width, region->limit))
                 return KIRA_DMAR_E_STRUCTURE;
 
             rc = dmar_parse_scopes(entry + sizeof(struct kira_dmar_rmrr),
