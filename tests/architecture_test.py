@@ -88,14 +88,25 @@ for name in service_ids:
 for source in adapter_sources:
     require(source in read("build_clang.sh") and source in read("build_arm64.sh"),
             f"{source} is not built for both ISAs")
-for name in ("SYS_GFX_CREATE", "SYS_GFX_PRESENT", "SYS_GFX_EVENT"):
-    require(name in read("syscall_service_graphics.c"), f"{name} missing from graphics adapter")
-require("SYS_FS" in read("syscall_service_fs.c"), "filesystem adapter missing SYS_FS")
-for name in ("SYS_NET_DNS", "SYS_UDP_OPEN", "SYS_NET_CONNECT_SA", "SYS_NET_PEER", "SYS_UDP_SENDTO", "SYS_UDP_RECVFROM"):
-    require(name in read("syscall_service_network.c"), f"{name} missing from network adapter")
-for name in ("SYS_SND_OPEN", "SYS_SND_VOLUME", "SYS_SND_RECORD"):
-    require(name in read("syscall_service_audio.c"), f"{name} missing from audio adapter")
-require("SYS_TIME" in read("syscall_service_clock.c"), "clock adapter missing SYS_TIME")
+service_owners = {
+    "syscall_service_graphics.c": ("SYS_GFX_CREATE", "SYS_GFX_PRESENT", "SYS_GFX_EVENT"),
+    "syscall_service_fs.c": ("SYS_FS",),
+    "syscall_service_network.c": ("SYS_NET_DNS", "SYS_NET_CONNECT", "SYS_NET_SEND", "SYS_NET_RECV",
+        "SYS_NET_CLOSE", "SYS_NET_LISTEN", "SYS_NET_ACCEPT", "SYS_UDP_OPEN", "SYS_UDP_SEND",
+        "SYS_UDP_RECV", "SYS_UDP_CLOSE", "SYS_NET_CONNECT_SA", "SYS_NET_PEER",
+        "SYS_UDP_SENDTO", "SYS_UDP_RECVFROM"),
+    "syscall_service_audio.c": ("SYS_SND_OPEN", "SYS_SND_WRITE", "SYS_SND_CLOSE",
+        "SYS_SND_VOLUME", "SYS_SND_RECORD"),
+    "syscall_service_clock.c": ("SYS_TIME",),
+}
+for source, owned_ids in service_owners.items():
+    source_text = read(source)
+    for name in owned_ids:
+        require(re.search(r"\\b" + name + r"\\b", source_text) is not None,
+                f"{name} missing from owner {source}")
+        occurrences = sum(len(re.findall(r"\\b" + name + r"\\b", read(candidate)))
+                          for candidate in adapter_sources)
+        require(occurrences == 1, f"{name} must have exactly one service adapter owner")
 
 require("SYS_ARGS" not in adapter,
         "process argument syscall must remain in the kernel core")
