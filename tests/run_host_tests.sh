@@ -173,6 +173,9 @@ $T/mindlv
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c
 $T/fdt
+echo "== AArch64 PCI host ranges parser (cell layout, offsets, overflow, malformed input) =="
+$CC $FLAGS -fsanitize=address,undefined -Iarch/aarch64 -o $T/pci-host-ranges tests/pci_host_parse_test.c arch/aarch64/pci_host_parse.c
+$T/pci-host-ranges
 $CC $FLAGS -fsanitize=address,undefined -o $T/crypto tests/crypto_test.c crypto.c sha256.c
 $T/crypto
 
