@@ -368,7 +368,7 @@ static void finish_switch(void) {
     c->switch_from = 0;
     if (p) {
         __atomic_store_n(&p->on_cpu, 0, __ATOMIC_RELEASE);
-        if (p->state == THREAD_READY) ready_epoch++;     /* вытесненный поток теперь может взять другое ядро */
+        if (p->state == THREAD_READY) ready_epoch_bump();     /* вытесненный поток теперь может взять другое ядро */
     }
     int do_kick = p && p->state == THREAD_READY && p->prio > PRIO_IDLE;
     cpumask_t kick = do_kick ? p->affinity : cm_none();
@@ -880,7 +880,7 @@ void sched_crash_report(void (*out)(const char*)) {
     static const char* const st[] = { "unused", "ready", "RUNNING", "sleep", "zombie", "blocked" };
     out("[KIRA SCHED] ticks "); put_num(out, timer_get_ticks());
     out(", next wake "); { uint64_t nw = wake_next_load(); put_num(out, nw == ~0ULL ? 0 : nw); }
-    out(", ready epoch "); put_num(out, ready_epoch);
+    out(", ready epoch "); put_num(out, ready_epoch_load());
     out(", sched_lock next "); put_num(out, sched_lock.next); out(" owner "); put_num(out, sched_lock.owner);
 #ifndef KIRA_HOST_TEST
     out(", reported by core "); put_num(out, this_cpu()->cpu_id);
