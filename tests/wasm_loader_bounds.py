@@ -27,7 +27,7 @@ cases = [
      "invalid UTF-8 import module name"),
     ("import-field-invalid-utf8-name",
      magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
-     b"\x02\x0c\x01\x04kira\x02\xc0\x80\x00\x00",
+     b"\x02\x0b\x01\x04kira\x02\xc0\x80\x00\x00",
      "invalid UTF-8 import field name"),
     ("export-invalid-utf8-name",
      magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
