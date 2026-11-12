@@ -46,7 +46,7 @@ int kvm_module_decode(const void *blob, size_t blob_size,
     if (module) memset(module, 0, sizeof(*module));
     if (!bytes || !module || blob_size < KVM_MODULE_HEADER_SIZE ||
         blob_size > KVM_MAX_MODULE_SIZE ||
-        bytes[0] != 'K' || bytes[1] != 'V' || bytes[2] != 'M' || bytes[3] != '1' ||
+        bytes[0] != 'K' || bytes[1] != 'V' || bytes[2] != 'P' || bytes[3] != '0' ||
         read_le16(bytes + 4) != KVM_MODULE_VERSION ||
         read_le16(bytes + 6) != KVM_MODULE_HEADER_SIZE)
         return KVM_E_FORMAT;
