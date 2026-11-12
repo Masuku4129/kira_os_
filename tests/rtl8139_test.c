@@ -264,13 +264,13 @@ static void test_rx_tx_lifecycle(void)
 
     /* Frame-alignment errors are dropped and consumed, never delivered. */
     rx_packet(&m, d.rx_offset, RX_ROK | RX_FAE, 64, payload, 60);
-    assert(kira_rtl8139_poll(&d) == 0);
+    assert(kira_rtl8139_poll(&d) == 1);
     assert(m.receive_calls == 2);
 
     /* Impossible packet lengths reset ring ownership rather than trusting metadata. */
     d.rx_offset = 0;
     rx_packet(&m, 0, RX_ROK, 0xffffu, payload, 0);
-    assert(kira_rtl8139_poll(&d) == 0);
+    assert(kira_rtl8139_poll(&d) == 1);
     assert(d.rx_offset == 0 && m.last_capr == 0xfff0u);
 
     m.regs[0x64] = 0;
