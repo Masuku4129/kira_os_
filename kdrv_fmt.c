@@ -101,6 +101,11 @@ int kdrv_pci_interrupts_quiesced(uint16_t msi, int has_msi,
     return 1;
 }
 
+int kdrv_pci_start_requires_permanent_quarantine(int quiesced, uint16_t before, uint16_t after) {
+    const uint16_t dangerous_after = (1u << 0) | (1u << 1) | (1u << 2);
+    return !quiesced || (before & (1u << 2)) || (after & dangerous_after);
+}
+
 int kdrv_mmio_page_bounds(uint64_t base, uint64_t size, uint64_t* page_lo, uint64_t* page_hi) {
     if (!base || !size || !page_lo || !page_hi || base > UINT64_MAX - size) return -1;
     uint64_t end = base + size;
