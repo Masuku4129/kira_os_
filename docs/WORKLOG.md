@@ -236,3 +236,8 @@
 - Дополнительно: host regression проверяет 65,536-й ARM64 слот (index 65,535) через полный push/pop и отказ для capacity 65,537; commit `d9bac009a4d0e04815279d90ae2dbdbf201b165d`. CI evidence на обновлённый head по-прежнему отсутствует.
 
 - KVM runner policy дополнена агрегатными лимитами: не более 10,000 host calls и 64 KiB суммарного console output за запуск (не более 4 KiB на вызов); защита от переполнения счётчика/вычитания. Это ограничивает output/host-call DoS поверх 10 млн instruction fuel. Commits: `56442c61bfd3f09f0a90f32ca96103a8a6bf305f`, `e8b6dcca9658cc36d895496216a6394f06e2490a`, `1d074ccf8443bfa046d2f71a4da50c20b8befa47`. CI ожидается.
+
+### KVR architecture gate — ADR-0001 (2026-11-12)
+- Сверка с обязательным мастер-планом выявила, что уже существующий WASM runtime объявлен базовым KVR, а второй ISA запрещён без отдельного решения и измеримых преимуществ. KVM1 PR #134 содержит полезный исследовательский interpreter/assembler/runner, но ABI 32-byte конфликтует с 64-byte proposal, а compiler/package signature/lifecycle/conformance ещё отсутствуют.
+- Создан `docs/adr/ADR-0001-kvr-primary-wasm.md`: WASM остаётся основной production KVR; KVM1 остаётся draft research branch и не включается в release baseline до сравнительного review. `docs/MASTER_DEVELOPMENT_PLAN.md` обновлён; KVM1 docs на ветке PR помечены экспериментальными.
+- Commits main: `90ff518e058fa9e96fc10da10dbd272aa4b49c24`, `f3f0a98146b58552a288918285a25c564496624c`. KVM1 implementation stays available for evidence collection, not as a released second VM.
