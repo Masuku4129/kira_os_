@@ -266,7 +266,7 @@ int virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n) {
             last_progress = now;
         }
 #endif
-        if (IW_READY(t0)) {                                      /* прерывание очереди есть: спать до него */
+        if (IW_READY(t0) && WAIT_SLEEP_OK()) {                  /* ожидание IRQ блокирует поток: только без удерживаемых mutex */
             IW_SLEEP();
             if (WAIT_NOW() - start > WAIT_LIMIT) return -1;
         } else if (WAIT_SPUN(t0) && WAIT_SLEEP_OK()) {
