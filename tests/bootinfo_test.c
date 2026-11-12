@@ -85,7 +85,7 @@ int main(void) {
     mod->base=0x7f800; mod->length=0x1000;
     CHECK(kbi_validate(b,sizeof b)==0);
     m2->base=0x80001; CHECK(kbi_validate(b,sizeof b)==-12);
-    m2->base=0x80000; mod->length=0x1001;
+    m2->base=0x80000; mod->length=0x1801;
     CHECK(kbi_validate(b,sizeof b)==-12);
     mod->base=0x80000; mod->length=0x1000;
     m->base=0; m->length=0x9f000; m2->base=0xA0000;
