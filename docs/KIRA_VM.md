@@ -200,10 +200,11 @@ typed verifier, imports, conformance suite and package integration are implement
 
 - Existing WASM applications continue to run through the existing WASM runtime; no
   forced conversion or duplicate WASM implementation is introduced.
-- New KIRA-native applications may target KVP0 once the package, host ABI, and build
-  integration steps above are completed.
+- New KIRA-native applications may target the typed KVM1 format only after the
+  canonical loader, host ABI, package trust and conformance gates are completed.
+  KVP0 remains a non-production prototype and is never a supported package target.
 - Native x86-64/AArch64 applications remain supported through the native runtime.
 - Compatibility Runtime and full hardware VMs remain separate projects with their own
   isolation boundaries.
-- A KVP0 version change requires a new format version or an explicitly backward-
-  compatible extension; unknown versions/opcodes are rejected, never guessed.
+- A future KVM1 version change requires a new format version or an explicitly
+  backward-compatible extension; unknown versions/opcodes are rejected, never guessed.
