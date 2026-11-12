@@ -321,19 +321,12 @@ static int dma_noncoherent(const void* fdt) {
        It may force the conservative path, but must never disable it. */
     if (bootarg_has(fdt, "kira.dma=coherent"))
         kprintf("[KIRA ARM64] DMA policy: ignoring unsafe coherent override; firmware declarations required\n");
-    kprintf("[KIRA ARM64] DMA policy: checking root coherency declaration\n");
-    if (fdt_has_bool(fdt, fdt_root(fdt), "dma-coherent")) return 0;
-    kprintf("[KIRA ARM64] DMA policy: locating enabled PCI hosts\n");
-    int pci = fdt_find_enabled_compatible(fdt, -1, "pci-host-ecam-generic");
-    if (pci < 0) return 1;
-    unsigned enabled_hosts = 0;
-    for (int node = pci; node >= 0;
-         node = fdt_find_compatible(fdt, node, "pci-host-ecam-generic")) {
-        if (!fdt_node_enabled(fdt, node)) continue;
-        enabled_hosts++;
-        if (!fdt_has_bool(fdt, node, "dma-coherent")) return 1;
-    }
-    return enabled_hosts ? 0 : 1;
+    /* This kernel currently has one platform-wide DMA attribute and no per-device
+       coherency domains. A PCI-host declaration cannot prove that every possible
+       SoC/PCI bus master is coherent, so only a zero-length root property is global
+       evidence. Otherwise use the non-cacheable pool or deny DMA if it is unavailable. */
+    kprintf("[KIRA ARM64] DMA policy: checking platform-wide coherency declaration\n");
+    return !fdt_has_bool(fdt, fdt_root(fdt), "dma-coherent");
 }
 /* Проверка пересечения с областями, которые прошивка/ядро уже зарезервировали.
    DMA pool нельзя вырезать из /reserved-memory, firmware memreserve или framebuffer. */
