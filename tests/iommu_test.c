@@ -311,14 +311,29 @@ int main(int argc, char** argv) {
     CHECK(iommu_map(d3, 0xFFFFFFFFFFFFF000ull, 0xA0000, 0x1000, IOMMU_R) == IOMMU_E_RANGE);
     CHECK(hw_dma(sid_of(d3), 0x40000, 0, &pa) != 0);                                    /* refused maps leave nothing behind */
 
-    /* unmap needs the exact range, invalidates the IOTLB and closes the window */
+    /* unmap needs the exact range. A failed invalidation keeps the map record
+       and backing page pinned until a later retry actually flushes the IOTLB. */
     CHECK(hw_dma(sid_of(d3), 0x20000, 0, &pa) == 0);                                    /* cached in the IOTLB */
     CHECK(iommu_unmap(d3, 0x20000, 0x2000) == IOMMU_E_NOENT);                      /* a different page range is not that mapping */
     int fl = iotlb_flushes;
-    CHECK(iommu_unmap(d3, 0x20000, 0x1000) == IOMMU_OK);
+    hw_hang = 1;
+    CHECK(iommu_unmap(d3, 0x20000, 0x1000) == IOMMU_E_HW);
+    CHECK(hw_dma(sid_of(d3), 0x20000, 0, &pa) == 0);                                    /* cached DMA is still possible: do not free */
+    hw_hang = 0; *r64(R_IOTLB) &= ~(1ull << 63); *r64(R_CCMD) &= ~(1ull << 63); hw_sync();
+    CHECK(iommu_unmap(d3, 0x20000, 0x1000) == IOMMU_OK);                               /* retries even though the PTE is already clear */
     CHECK(iotlb_flushes > fl);
-    CHECK(hw_dma(sid_of(d3), 0x20000, 0, &pa) != 0);                                    /* no stale translation */
+    CHECK(hw_dma(sid_of(d3), 0x20000, 0, &pa) != 0);                                    /* stale translation is now gone */
     CHECK(iommu_unmap(d3, 0x20000, 0x1000) == IOMMU_E_NOENT);
+
+    /* Bulk unmap also retains failed ranges instead of dropping their ledger. */
+    CHECK(iommu_map(d3, 0x60000, 0xC0000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_OK);
+    CHECK(hw_dma(sid_of(d3), 0x60000, 0, &pa) == 0);
+    hw_hang = 1;
+    CHECK(iommu_unmap_all(d3) == IOMMU_E_HW);
+    CHECK(hw_dma(sid_of(d3), 0x60000, 0, &pa) == 0);
+    hw_hang = 0; *r64(R_IOTLB) &= ~(1ull << 63); *r64(R_CCMD) &= ~(1ull << 63); hw_sync();
+    CHECK(iommu_unmap_all(d3) == IOMMU_OK);
+    CHECK(hw_dma(sid_of(d3), 0x60000, 0, &pa) != 0);
 
     /* hardware that does not complete invalidation: the map reports it and leaves no access behind */
     hw_hang = 1;
@@ -357,7 +372,7 @@ int main(int argc, char** argv) {
     CHECK(hw_dma(sid_of(d0), 0x10000100, 0, &pa) != 0);
 
     /* drop everything, then back to pass-through; tables are returned */
-    iommu_unmap_all(d3);
+    CHECK(iommu_unmap_all(d3) == IOMMU_OK);
     CHECK(hw_dma(sid_of(d3), 0x10000100, 0, &pa) != 0);
     CHECK(iommu_release_device(d3) == IOMMU_OK && !iommu_device_isolated(d3));
     CHECK(hw_dma(sid_of(d3), 0xDEAD000, 1, &pa) == 0 && pa == 0xDEAD000);
