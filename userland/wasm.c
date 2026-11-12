@@ -127,17 +127,56 @@ static int import_type_ok(u32 id, const ftype_t* t) {
     return !t->nr || t->r == result[id];
 }
 
+/* WebAssembly LEB128 permits padded encodings, but never more than ceil(N/7)
+   bytes and never non-zero/sign-extension bits outside the declared width. */
 static u32 leb_u(const u8** p, const u8* end) {
-    u32 r = 0; int s = 0;
-    while (*p < end) { u8 b = *(*p)++; if (s < 32) r |= (u32)(b & 0x7F) << s; s += 7; if (!(b & 0x80)) return r; if (s > 35) break; }
-    trap("bad LEB128"); return 0;
+    u32 r = 0;
+    for (u32 i = 0; i < 5; i++) {
+        if (*p >= end) break;
+        u8 b = *(*p)++;
+        u8 payload = b & 0x7Fu;
+        if (i == 4 && (payload & 0x70u)) break;
+        r |= (u32)payload << (i * 7u);
+        if (!(b & 0x80u)) return r;
+        if (i == 4) break;
+    }
+    trap("bad unsigned LEB128");
+    return 0;
 }
 static i64 leb_s(const u8** p, const u8* end, int bits) {
-    u64 r = 0; int s = 0; u8 b = 0;                               /* беззнаково: сдвиги определены */
-    while (*p < end) { b = *(*p)++; if (s < 64) r |= (u64)(b & 0x7F) << s; s += 7; if (!(b & 0x80)) break; if (s > 70) { trap("bad LEB128"); return 0; } }
-    if (s < 64 && (b & 0x40)) r |= ~0ull << s;
-    if (bits == 32) return (i64)(int)(u32)r;
-    return (i64)r;
+    if (bits != 32 && bits != 64) {
+        trap("unsupported signed LEB128 width");
+        return 0;
+    }
+    u64 r = 0;
+    u32 max_bytes = bits == 32 ? 5u : 10u;
+    for (u32 i = 0; i < max_bytes; i++) {
+        if (*p >= end) break;
+        u8 b = *(*p)++;
+        u8 payload = b & 0x7Fu;
+        u32 shift = i * 7u;
+        if (i + 1u == max_bytes) {
+            u32 used = (u32)bits - shift;
+            u8 low_mask = (u8)((1u << used) - 1u);
+            u8 high_mask = (u8)(0x7Fu & (u8)~low_mask);
+            int negative = (payload & (1u << (used - 1u))) != 0;
+            if ((b & 0x80u) ||
+                (negative ? ((payload & high_mask) != high_mask)
+                          : ((payload & high_mask) != 0)))
+                break;
+            r |= (u64)(payload & low_mask) << shift;
+            if (negative) r |= ~0ull << bits;
+            return bits == 32 ? (i64)(int)(u32)r : (i64)r;
+        }
+        r |= (u64)payload << shift;
+        if (!(b & 0x80u)) {
+            u32 total = shift + 7u;
+            if (b & 0x40u) r |= ~0ull << total;
+            return bits == 32 ? (i64)(int)(u32)r : (i64)r;
+        }
+    }
+    trap("bad signed LEB128");
+    return 0;
 }
 static int name_is(const u8* n, u32 len, const char* s) { u32 i = 0; for (; i < len && s[i]; i++) if (n[i] != (u8)s[i]) return 0; return i == len && !s[i]; }
 
