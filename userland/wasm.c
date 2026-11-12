@@ -149,7 +149,11 @@ static u64 const_expr(const u8** p, const u8* end) {
         if (op == 0x0B) return v;
         if (op == 0x41) v = (u64)(u32)leb_s(p, end, 32);
         else if (op == 0x42) v = (u64)leb_s(p, end, 64);
-        else if (op == 0x23) { u32 g = leb_u(p, end); v = g < nglobals ? globals[g] : 0; }
+        else if (op == 0x23) {
+            u32 g = leb_u(p, end);
+            if (trapped || g >= nglobals) { trap("constant expression global index out of range"); return 0; }
+            v = globals[g];
+        }
         else if (op == 0x43) { if ((u64)(end - *p) < 4) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
         else if (op == 0x44) { if ((u64)(end - *p) < 8) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
         else { trap("unsupported constant expression"); return 0; }
