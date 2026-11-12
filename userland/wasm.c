@@ -684,12 +684,14 @@ static int compile_func(func_t* f) {
             if (sub <= 7) { NEED(1); lz_flush(); ew(OP_FC + sub); }
             else if (sub == 10) {
                 if (!has_memory) CERR("memory.copy without memory");
-                if ((u32)(end - p) < 2 || p[0] || p[1]) CERR("unsupported memory.copy memory index");
-                p += 2; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3;
+                u32 dst_memory = leb_u(&p, end), src_memory = leb_u(&p, end);
+                if (trapped || dst_memory || src_memory) CERR("unsupported memory.copy memory index");
+                NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3;
             }
             else if (sub == 11) {
                 if (!has_memory) CERR("memory.fill without memory");
-                if (p >= end || *p++ != 0) CERR("unsupported memory.fill memory index");
+                u32 memory_index = leb_u(&p, end);
+                if (trapped || memory_index) CERR("unsupported memory.fill memory index");
                 NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3;
             }
             else { p--; skip_imm(0xFC, &p, end); if (sub == 8 || sub == 9) { lz_flush(); ew(OP_TRAP); ew(TM_PASSIVE); c_unr = 1; } }
