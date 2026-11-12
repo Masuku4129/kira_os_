@@ -640,11 +640,17 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     for (unsigned long i = 0; i < sizeof xs; i++) ((volatile uint8_t*)X)[i] = 0;   /* десятки КБ: не через временную копию на стеке */
     xs.cap = cap;
     uint32_t caplen = cap[0], hcs1 = r32(cap, 4), hcs2 = r32(cap, 8), hcc1 = r32(cap, 0x10);
-    uint32_t rt_off = r32(cap, 0x18) & ~0x1Fu;
-    uint32_t db_off = r32(cap, 0x14) & ~3u;
-    if (caplen < 0x20 || (caplen & 3u) || (uint64_t)caplen + 0x40u > sz ||
-        (uint64_t)rt_off + 0x40u > sz ||
-        (uint64_t)db_off + 4u * (MAXSLOT + 1u) > sz) {
+    uint32_t rt_raw = r32(cap, 0x18), db_raw = r32(cap, 0x14);
+    uint32_t rt_off = rt_raw & ~0x1Fu, db_off = db_raw & ~3u;
+    uint32_t nports = (hcs1 >> 24) & 0xFFu;
+    uint64_t op_end = (uint64_t)caplen + 0x400u + (uint64_t)nports * 0x10u;
+    uint64_t rt_end = (uint64_t)rt_off + 0x40u;
+    uint64_t db_end = (uint64_t)db_off + 4u * (MAXSLOT + 1u);
+    if (caplen < 0x20 || (caplen & 3u) || op_end > sz ||
+        (rt_raw & 0x1Fu) || (db_raw & 3u) ||
+        rt_off < op_end || db_off < op_end ||
+        rt_end > sz || db_end > sz ||
+        !((rt_end <= db_off) || (db_end <= rt_off))) {
         int quiet = xhci_pci_quiesce(p);
         usb_log((quiet & 2) || !(quiet & 1) ?
                 "[KIRA USB] xHCI register bounds invalid; PCI quiescence could not be verified\n" :
@@ -653,7 +659,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     }
     xs.op = cap + caplen; xs.rt = cap + rt_off; xs.db = (volatile uint32_t*)(cap + db_off);
     xs.maxslots = hcs1 & 0xFF; if (xs.maxslots > MAXSLOT) xs.maxslots = MAXSLOT;
-    xs.nports = (hcs1 >> 24) & 0xFF;
+    xs.nports = nports;
     xs.ac64 = hcc1 & 1; xs.csz = (hcc1 & 4) ? 64 : 32;
 
     int handoff_ok = bios_handoff(cap, sz);
