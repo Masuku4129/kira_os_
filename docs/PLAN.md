@@ -36,3 +36,25 @@ H0 → I и J (параллельно, 2 помощника) → M1–M3 (ком
 
 ## Безопасность слоя драйверов (сборка на устройстве)
 Подписей GitHub нет, поэтому защита другая: `drvget install <имя>` показывает пользователю источник (URL, лицензия BSD/MIT/ISC из списка разрешённых), SHA-256 исходников и запрашиваемые права (MMIO/DMA/IRQ/PCI-устройство) и ставит только после явного подтверждения в консоли; загрузка идёт по HTTPS с проверкой цепочки (`/etc/ssl/roots.der`); хэш исходников и собранного ELF записываются в `/drv/<имя>.rec`, при загрузке `drvd` сверяет хэш ELF; права драйвера ограничены его устройством. Без IOMMU DMA-устройство может писать в любую память — предупреждение показывается при установке.
+
+
+## Продолжение разработки — 12.11.2026
+
+Этот раздел дополняет исходный план; старые пункты не считаются закрытыми только
+потому, что рядом появились новые прототипы.
+
+### DMA / IOMMU — текущая ветка `v46/iommu-network-compile-fixes`
+- Общий ACPI DMAR parser: HAW width-minus-one нормализуется в фактическое число бит; проверяются checksum, revision, reserved fields, DRHD/RMRR ranges, PCI scopes и границы host physical address width.
+- Неизвестные DMAR structure types отклоняются. Неподдерживаемые ACPI namespace scopes, nonzero PCI segments и дополнительные DRHD aperture sizes остаются fail-closed.
+- VT-d unit preparation не публикует частично инициализированный объект, не заменяет firmware root table при активном TE, проверяет адрес DMA root page и умеет освобождать root page только после подтверждённого отключения translation.
+- Discovery откатывает уже подготовленные units при отказе следующего unit; host regression проверяет rollback и отказ от DMA-адреса вне физической адресной ширины.
+- Это не закрывает VT-d device-domain lifecycle: нужны корректные Context Entries, полный page-table ownership/teardown, invalidation/fault handling, реальные requester mappings и QEMU/железные тесты.
+- SMMUv3 stage-1 пока не считается безопасным для attach: требуется завершить и проверить архитектурное кодирование Stream Table Entry и Context Descriptor, адресные ограничения, teardown и fault path.
+- CI для текущего head должен быть реально завершён; queued/pending/cancelled не равны PASS.
+
+### Следующие обязательные шаги
+1. Довести host tests и CI на точном head SHA до завершённого результата.
+2. Проверить VT-d domain map/unmap и SMMUv3 STE/CD по архитектурной спецификации; добавить тесты, проверяющие точные битовые поля, а не только успешные return codes.
+3. Ввести полное владение всеми выделенными page-table pages и безопасный teardown после успешной invalidation; при timeout память остаётся pinned.
+4. Связать DMAR scopes с PCI requester discovery; не создавать домены для устройств, не принадлежащих выбранному unit.
+5. Сохранить DMA isolation fail-closed до завершения аппаратно-модельной проверки.
