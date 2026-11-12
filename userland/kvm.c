@@ -219,7 +219,7 @@ int umain(void)
 
     rc = kvm_module_decode(blob, blob_size, &module);
     if (rc != KVM_OK) {
-        say("KIRA VM: повреждённый контейнер KVM1, код ");
+        say("KIRA VM: повреждённый контейнер KVP0, код ");
         say_number((u64)(-rc));
         say("\n");
         return 1;
@@ -244,7 +244,7 @@ int umain(void)
         return 1;
     }
     host_context.instance = &instance;
-    say("KIRA VM: запуск KVM1; лимит памяти 512 KiB; fuel 10000000\n");
+    say("KIRA VM: запуск KVP0; лимит памяти 512 KiB; fuel 10000000\n");
     rc = kvm_run(&instance, RUNNER_FUEL, &exit_value);
     kvm_instance_destroy(&instance);
     say("KIRA VM: завершение, статус ");
