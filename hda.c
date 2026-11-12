@@ -249,6 +249,21 @@ static int hda_mask_pci_interrupts(const pci_dev_t* p) {
 }
 
 static void hda_print(void);
+static void hda_abort_dma(const pci_dev_t* p) {
+    w8(CORBCTL, 0);
+    w8(RIRBCTL, 0);
+    (void)wait_bit(CORBCTL, 2, 0, 4);
+    (void)wait_bit(RIRBCTL, 2, 0, 4);
+    cpu_mb();
+    uint16_t command = pci_read16(p, 0x04);
+    pci_write16(p, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+    if (pci_read16(p, 0x04) & PCI_CMD_MASTER)
+        uart_print("[KIRA HDA] abort: bus mastering stuck; NC DMA pages remain reserved and device quarantined.\\n");
+    else
+        uart_print("[KIRA HDA] abort: CORB/RIRB stopped and PCI bus mastering cleared; DMA pages retained.\\n");
+    h.up = 0;
+}
+
 int hda_probe(void) {
     const pci_dev_t* p = 0;
     for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x03) p = d; }
@@ -303,8 +318,12 @@ int hda_probe(void) {
        ответов ждёт его снятия и не берёт следующие команды. Прерывания процессору выключены (INTCTL = 0). */
     w8(CORBCTL, 2); w8(RIRBCTL, 3);
     int rc = codec_init();
-    if (rc) { uart_print("[KIRA HDA] codec "); uart_print_hex(h.vendor); uart_print(" has no usable output path (step ");
-              uart_print_dec((uint64_t)-rc); uart_print(").\n"); return -7; }
+    if (rc) {
+        uart_print("[KIRA HDA] codec "); uart_print_hex(h.vendor); uart_print(" has no usable output path (step ");
+        uart_print_dec((uint64_t)-rc); uart_print("); stopping DMA engines.\\n");
+        hda_abort_dma(p);
+        return -7;
+    }
     unsigned iss = (r16(GCAP) >> 8) & 15;
     h.sd = h.r + 0x80 + 0x20 * iss;
     h.up = 1;
