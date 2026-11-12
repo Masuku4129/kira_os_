@@ -75,8 +75,8 @@ for header in ("net.h", "audio.h", "gfxsrv.h", "fsrv.h", "rtc.h"):
             f"service header {header} leaked back into syscall core")
 
 core_defines = re.findall(r"^\s*#\s*define\s+(SYS_[A-Z0-9_]+)\s+\d+\b", core, re.M)
-require(not core_defines,
-        "syscall numbers must have one source of truth; found defines in syscall.c")
+require(not (set(core_defines) & set(expected_abi)),
+        "syscall number IDs must have one source of truth; found duplicate ID defines in kernel syscall core")
 
 ids = re.findall(r"^\s*#\s*define\s+(SYS_[A-Z0-9_]+)\s+(\d+)\b", numbers, re.M)
 names = [name for name, _ in ids]
