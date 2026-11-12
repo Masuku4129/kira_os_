@@ -66,6 +66,7 @@ int kdrv_manager_install(struct kdrv_manager_ops *ops, const char *path,
     uint32_t i;
     int rc = -1;
     int staged = 0;
+    int manifest_ready = 0;
 
     if (!ops || !path || !target_arch || !ops->read_package ||
         !ops->free_package || !ops->parse_manifest ||
@@ -84,6 +85,7 @@ int kdrv_manager_install(struct kdrv_manager_ops *ops, const char *path,
                             &manifest) != 0 ||
         !manifest_valid(&manifest, package_size))
         goto out;
+    manifest_ready = 1;
 
     /* No package content is trusted before the signature callback succeeds. */
     if (ops->verify_signature(ops->context, package, package_size) != 0)
@@ -103,15 +105,17 @@ int kdrv_manager_install(struct kdrv_manager_ops *ops, const char *path,
                           KDRV_STATE_VERIFIED) != 0)
         goto out;
 
-    if (ops->stage_payload(ops->context, manifest.name,
+    {
+        int stage_rc = ops->stage_payload(ops->context, manifest.name,
             (const unsigned char *)package + manifest.payload_offset,
             (size_t)manifest.payload_size,
-            staging_path, sizeof(staging_path)) != 0)
-        goto out;
-
-    staged = 1;
-    if (!bounded_string(staging_path, sizeof(staging_path)))
-        goto out;
+            staging_path, sizeof(staging_path));
+        /* A backend may have created a temporary object before reporting an
+           error. If it returned a bounded path, always attempt to discard it. */
+        staged = bounded_string(staging_path, sizeof(staging_path));
+        if (stage_rc != 0 || !staged)
+            goto out;
+    }
 
     if (ops->record_state(ops->context, manifest.name, manifest.version,
                           KDRV_STATE_STAGED) != 0)
@@ -130,6 +134,9 @@ int kdrv_manager_install(struct kdrv_manager_ops *ops, const char *path,
 out:
     if (staged)
         ops->discard_staged(ops->context, staging_path);
+    if (rc != 0 && manifest_ready)
+        (void)ops->record_state(ops->context, manifest.name, manifest.version,
+                                KDRV_STATE_FAILED);
     if (package)
         ops->free_package(ops->context, package, package_size);
     return rc;
