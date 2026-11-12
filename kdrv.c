@@ -547,12 +547,33 @@ static void release(bind_t* b) {
         }
         b->iommu_bound = 0;
     }
-    for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
-    if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
+    uint32_t kept = 0, kept_pages = 0;
+    for (uint32_t i = 0; i < b->ndma; i++) {
+        if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) {
+            got += b->dma[i].pages;
+        } else {
+            if (kept != i) b->dma[kept] = b->dma[i];
+            kept++;
+            kept_pages += b->dma[i].pages;
+        }
+    }
+    b->ndma = kept;
+    b->dma_pages = kept_pages;
+    if (b->net_pages) {
+        if (pmm_free_contiguous(b->net_pa, b->net_pages) == 0) {
+            got += b->net_pages;
+            b->net_pages = 0;
+            b->net_pa = 0;
+        }
+    }
     uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": возвращено памяти DMA и колец "); uart_print_dec(got); uart_print(" из ");
     uart_print_dec(want); uart_print(" стр., отображений устройства и DMA снято "); uart_print_dec(b->nmap + b->ndma);
-    uart_print(got == want ? ", утечек нет\n" : ", УТЕЧКА\n");
-    b->ndma = 0; b->dma_pages = 0; b->net_pages = 0; b->nmap = 0; b->ctl = 0;
+    uart_print(got == want ? ", утечек нет\n" : ", память оставлена закреплённой для повторного освобождения\n");
+    if (b->ndma || b->net_pages) {
+        b->dead_at = timer_get_ticks();
+        return; /* retain the ledger and DEAD slot; retry PMM release without reopening the device */
+    }
+    b->nmap = 0; b->ctl = 0;
     uint64_t f = spin_lock_irqsave(&klock);
     b->state = B_FREE;                              /* устройство снова можно отдать драйверу */
     spin_unlock_irqrestore(&klock, f);
