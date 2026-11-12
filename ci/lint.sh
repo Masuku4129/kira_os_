@@ -2,7 +2,18 @@
 # Проверка добавленных строк на заглушки: ci/lint.sh [база] (по умолчанию origin/stable, иначе origin/main).
 # Ищет в НОВЫХ строках C/asm/py/sh слова-признаки недоделок и пустые функции. Код возврата 1 - найдено.
 cd "$(dirname "$0")/.."
-base=${1:-origin/stable}; git rev-parse -q --verify "$base" >/dev/null || base=origin/main
+if [ -n "${1:-}" ]; then
+    base=$1
+elif [ -n "${GITHUB_BASE_REF:-}" ]; then
+    base="origin/$GITHUB_BASE_REF"
+elif [ "${GITHUB_EVENT_NAME:-}" = "push" ] && git rev-parse -q --verify HEAD^ >/dev/null; then
+    # A push job has no PR base. Validate the pushed commit; the PR job validates
+    # the complete branch diff against its actual target branch.
+    base=HEAD^
+else
+    base=origin/stable
+    git rev-parse -q --verify "$base" >/dev/null || base=origin/main
+fi
 bad=0
 # Research harnesses may contain intentionally minimal ABI shims; production source is checked separately.
 df=$(git diff -U0 "$base" HEAD -- '*.c' '*.h' '*.S' '*.py' '*.sh' ':!ci/lint.sh' ':!docs' ':!research') || { echo "lint: нет базы $base"; exit 2; }
