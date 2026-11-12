@@ -875,7 +875,7 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
     uint64_t nmeta = meta_blocks(nb);
     if (nb + nmeta > fs.free_blocks) return KFS_ERR_NOSPC;
     uint32_t slot = ino;
-    if (!slot) { slot = alloc_inode(); if (!slot) return KFS_ERR_NOSPC; }
+    if (!slot) { slot = alloc_inode(); if (!slot) return fs.mounted ? KFS_ERR_NOSPC : KFS_ERR_IO; }
     if (nb + nmeta > fs.free_blocks) return KFS_ERR_NOSPC;      /* рост таблицы инодов мог занять место */
 
     uint32_t* list = (uint32_t*)kalloc((size_t)(nb ? nb : 1) * 4);
@@ -960,7 +960,7 @@ static int kfs_mkdir_impl(const char* path) {
     if (!leaf[0] || ino) return KFS_ERR_EXIST;
     if (fs.itype[parent] != KFS_DIR) return KFS_ERR_NOTDIR;
     uint32_t slot = alloc_inode();
-    if (!slot) return KFS_ERR_NOSPC;
+    if (!slot) return fs.mounted ? KFS_ERR_NOSPC : KFS_ERR_IO;
     inode_t* in = iget(slot);
     if (!in) { fs.mounted = 0; return KFS_ERR_IO; }
     zero(in, sizeof *in);
