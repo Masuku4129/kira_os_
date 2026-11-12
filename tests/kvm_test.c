@@ -170,6 +170,51 @@ static int test_rejects_malformed_and_traps(void)
     return 0;
 }
 
+static void put16(uint8_t *p, uint16_t value)
+{
+    p[0] = (uint8_t)value; p[1] = (uint8_t)(value >> 8);
+}
+static void put32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)value; p[1] = (uint8_t)(value >> 8);
+    p[2] = (uint8_t)(value >> 16); p[3] = (uint8_t)(value >> 24);
+}
+static void put64(uint8_t *p, uint64_t value)
+{
+    put32(p, (uint32_t)value); put32(p + 4, (uint32_t)(value >> 32));
+}
+static int test_portable_container(void)
+{
+    const struct kvm_instruction code[] = {
+        INS(KVM_OP_CONST, 0, 0, 0, 73),
+        INS(KVM_OP_HALT, 0, 0, 0, 0)
+    };
+    const uint8_t data[] = { 9, 8, 7, 6 };
+    uint8_t blob[KVM_MODULE_HEADER_SIZE + sizeof code + sizeof data];
+    struct kvm_module module;
+    uint64_t result = 0;
+
+    memset(blob, 0, sizeof blob);
+    memcpy(blob, "KVM1", 4);
+    put16(blob + 4, KVM_MODULE_VERSION);
+    put16(blob + 6, KVM_MODULE_HEADER_SIZE);
+    put32(blob + 8, (uint32_t)sizeof code);
+    put32(blob + 12, (uint32_t)sizeof data);
+    put32(blob + 16, 1);
+    put32(blob + 20, 0);
+    put64(blob + 24, 0);
+    memcpy(blob + KVM_MODULE_HEADER_SIZE, code, sizeof code);
+    memcpy(blob + KVM_MODULE_HEADER_SIZE + sizeof code, data, sizeof data);
+
+    CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_OK);
+    CHECK(kvm_verify(&module, 0) == KVM_OK);
+    CHECK(run(&module, 0, 10, &result) == KVM_OK && result == 73);
+    CHECK(kvm_module_decode(blob, sizeof blob - 1u, &module) == KVM_E_FORMAT);
+    put16(blob + 4, 2);
+    CHECK(kvm_module_decode(blob, sizeof blob, &module) == KVM_E_FORMAT);
+    return 0;
+}
+
 int main(void)
 {
     if (test_arithmetic_and_code_snapshot() ||
@@ -177,7 +222,8 @@ int main(void)
         test_memory_and_data_snapshot() ||
         test_syscall_capability() ||
         test_call_stack() ||
-        test_rejects_malformed_and_traps())
+        test_rejects_malformed_and_traps() ||
+        test_portable_container())
         return 1;
     puts("KIRA VM v1 verifier/interpreter: PASS");
     return 0;
