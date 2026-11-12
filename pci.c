@@ -333,6 +333,50 @@ uint16_t pci_next_cap(const pci_dev_t* d, uint16_t prev, uint8_t* id) {
     return p;
 }
 
+/* A malformed capability list is not equivalent to "no MSI". Mask every
+   discoverable message interrupt and legacy INTx, then verify config readback. */
+int pci_quiesce_interrupts(const pci_dev_t* d) {
+    if (!d) return 0;
+    int safe = 1;
+    uint16_t status = pci_read16(d, 0x06);
+    if (status & 0x10u) {
+        uint8_t ptr = pci_read8(d, 0x34);
+        uint64_t visited = 0;
+        if (!ptr) safe = 0;
+        unsigned n;
+        for (n = 0; ptr && n < 48; n++) {
+            if (ptr < 0x40u || ptr > 0xFCu || (ptr & 3u)) { safe = 0; break; }
+            uint64_t bit = 1ull << (ptr >> 2);
+            if (visited & bit) { safe = 0; break; }
+            visited |= bit;
+            uint8_t id = pci_read8(d, ptr);
+            uint8_t next = pci_read8(d, (uint16_t)(ptr + 1u));
+            if (!id || id == 0xFFu) { safe = 0; break; }
+            if (id == 0x05u) {
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control & ~1u));
+                if (pci_read16(d, (uint16_t)(ptr + 2u)) & 1u) safe = 0;
+            } else if (id == 0x11u) {
+                uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)((control & ~0x8000u) | 0x4000u));
+                uint16_t after = pci_read16(d, (uint16_t)(ptr + 2u));
+                if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
+            }
+            if (!next) { ptr = 0; break; }
+            if (next < 0x40u || next > 0xFCu || (next & 3u) || next == ptr) {
+                safe = 0;
+                break;
+            }
+            ptr = next;
+        }
+        if (ptr && n == 48) safe = 0;
+    }
+    uint16_t command = pci_read16(d, 0x04);
+    pci_write16(d, 0x04, (uint16_t)(command | (1u << 10)));
+    if (!(pci_read16(d, 0x04) & (1u << 10))) safe = 0;
+    return safe;
+}
+
 /* Отображение части BAR в окно MMIO ядра: без кэширования и без исполнения. */
 #ifndef KIRA_HOST_TEST
 #include "vmm.h"
