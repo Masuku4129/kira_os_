@@ -10,6 +10,8 @@
 | PR | Head branch / SHA | Base | Направление | Следующая проверка |
 |---|---|---|---|---|
 | #135 | architecture/target-baseline-2026-11 / current head см. GitHub PR | main | Целевая архитектура, аудит, контракты | Проверить diff/docs/links и согласовать владельцем; draft, не merge |
+| #136 | security/kdrv-require-iommu-for-dma-msi / current head см. GitHub PR | main | Block Ring 3 DMA/MSI without per-device IOMMU | Host/build/ARM64/QEMU CI running; review exact head before merge |
+| #137 | security/pci-clear-firmware-busmaster / current head см. GitHub PR | main | Clear firmware bus-master before PCI ownership | Host/build/ARM64 CI running; review PCI mock test and exact head before merge |
 | #136 | security/kdrv-require-iommu-for-dma-msi / 720a2020f6d78501aed60b5013ad9b7d1c62b30d | main | Fail-closed KDRV DMA/MSI isolation | Review security diff and require exact-head CI success; do not merge without review |
 
 ## 2. Основные открытые PR по подсистемам
