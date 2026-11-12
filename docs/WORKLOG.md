@@ -437,3 +437,10 @@
 - Hardened `arch/aarch64/pci_host.c`: validate FDT header and enabled node, exact bus-range encoding, 0..255 bus limits, ECAM coverage and physical arithmetic; map only the required ECAM bus span; fail closed on malformed `ranges`.
 - Added `tests/pci_host_parse_test.c` and registered it in the host test suite. Added architecture guards and included the parser in the ARM64 build manifest.
 - Fresh CI is pending for the resulting branch head. No PASS is claimed until the exact final SHA completes host tests, x86-64/ARM64 builds and the QEMU matrix. The earlier run on SHA `6c97d9e86126bb7cef3dcbb31fdd8a4397dfbf03` compiled ARM64 but failed the `arm64-el2-8cpu` SMP scenario; that failure remains under investigation and is not attributed to the PCI parser.
+
+
+### PCI host parser baseline verification and follow-up (2026-11-12)
+
+- Exact-head GitHub Actions run `43298087855` on `618ce01344e219991323aca51f9de58c55ed2aab`: **30/30 jobs success**. Host tests, x86-64 build, ARM64 build and all QEMU/Limbo VM jobs passed. ARM64 artifact inspection confirmed 16/16 scenarios passed, including EL2 with 8 CPUs.
+- Follow-up review found a silent functional limitation: `pci_init()` always starts scanning at bus 0. The ARM64 host backend now rejects nonzero bus-range starts until the core exposes range-aware enumeration. ECAM base alignment is also checked at the 1-MiB per-bus aperture boundary.
+- Added tests for CPU address-window overflow and the exact signed `INT64_MIN` CPU-to-PCI offset. These follow-up changes are not covered by run `43298087855`; a new exact-head CI run is required.
