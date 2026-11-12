@@ -93,7 +93,7 @@ int virtio_net_probe(void) {
     }
     unsigned nrx = v.rx.size < NRX ? v.rx.size : NRX;
     for (unsigned i = 0; i < nrx; i++) virtq_post(&v.rx, (uint16_t)i, v.rxb_p + i * BUF, BUF, 1);
-    virtio_driver_ok(&v.dev);
+    if (virtio_driver_ok(&v.dev) != 0) return -6;
     virtq_kick(&v.rx);
     if (v.dev.features & F_MAC) for (int i = 0; i < 6; i++) v.nd.mac[i] = MMIO_R8(v.dev.devcfg + (unsigned)i);
     else { static const uint8_t m[6] = { 0x52, 0x54, 0x00, 0x4B, 0x49, 0x52 }; for (int i = 0; i < 6; i++) v.nd.mac[i] = m[i]; }
