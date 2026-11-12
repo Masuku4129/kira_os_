@@ -199,10 +199,17 @@ static int quiesce_verified(const pci_dev_t* d, uint16_t* command_out) {
     if (command_out) *command_out = cmd;
     return safe;
 }
-static uint16_t quiesce(const pci_dev_t* d) {
+/* A failed start still owns the PCI function until hardware quiescence is
+   read back and the same delayed-release path used for dead drivers completes. */
+static void quarantine_failed_start(bind_t* b) {
     uint16_t command = 0;
-    (void)quiesce_verified(d, &command);
-    return command;
+    b->dma_quiesced = quiesce_verified(b->dev, &command) &&
+                      kdrv_pci_command_quiesced(command);
+    b->dead_at = timer_get_ticks();
+    uint64_t flags = spin_lock_irqsave(&klock);
+    b->state = B_DEAD;
+    spin_unlock_irqrestore(&klock, flags);
+    __atomic_add_fetch(&ndead, 1, __ATOMIC_ACQ_REL);
 }
 
 /* ---- запуск ---- */
@@ -264,8 +271,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     if (!device_quiesced || !kdrv_pci_busmaster_handoff_safe(pci_command, pci_after) ||
         !kdrv_pci_command_quiesced(pci_after) ||
         (pci_after & (PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER))) {
-        (void)quiesce(d);
-        b->state = B_FREE;
+        quarantine_failed_start(b);
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
         uart_print(": inherited or uncleared bus mastering; device is not safe to hand off, driver NOT started\n");
@@ -282,8 +288,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     int pid = proc_spawn_driver(pname, p.buf + sizeof(kdrv_header_t), p.h.elf_size, granted, (uint32_t)(b - binds), args);
     kfree(p.buf);
     if (pid < 0) {
-        quiesce(d);
-        b->state = B_FREE;
+        quarantine_failed_start(b);
         uart_print("[KIRA DRV] "); uart_print(name); uart_print(": ELF драйвера не принят - не запущен\n");
         return -1;
     }
