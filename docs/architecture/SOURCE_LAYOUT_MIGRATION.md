@@ -42,7 +42,7 @@ This is the destination model. Existing build scripts and include paths are part
 | Level 1 — platform | `platform.h`, `hwprofile.c/.h`, `mbinfo.c/.h`, `acpi.c/.h`, `fdt.c/.h`, firmware parsing in `bootmap.c` | Separate immutable platform discovery data from architecture-specific accessors. |
 | Level 2 — HAL/drivers | `arch/x86_64/**`, `arch/aarch64/**`, `pci.c/.h`, `usb.c/.h`, `virtio_*.c/.h`, `ata.c`, `ahci.c`, `nvme.c`, `e1000.c/.h`, `hda.c/.h`, `ac97.c`, `sb16.c`, `keyboard.c/.h`, `mouse.c/.h`, `fb.c/.h`, `fb_arm.c/.h` | Device discovery, resource ownership, DMA/IOMMU and driver lifecycle must become explicit contracts. Keep ISA-specific code behind HAL interfaces. |
 | Level 3 — kernel | `kernel.c/.h` (privileged panic and bootstrap composition only), `pmm.c/.h`, `vmm.c/.h`, `heap.c/.h`, `sched.c/.h`, `proc.c/.h`, `syscall.c/.h` (entry/dispatch boundary), `futex.c/.h`, `kobj.c/.h`, `kmutex.c/.h`, `spinlock.h`, `percpu.c/.h`, `timer.c/.h`, `clock.c/.h`, `uaccess.*` | Kernel must not absorb user-facing services. Syscall dispatch should remain a thin, validated boundary; service semantics move behind IPC/host-service interfaces only after contracts exist. |
-| Level 4 — security | `caps.c/.h`, `trust.c/.h`, `crypto.c/.h`, `sha256.c`, `kdrv_fmt.c`, security-relevant checks in `kdrv.c`, `proc.c`, `syscall.c` | Enforcement is cross-layer. Establish one authority and object-bound capabilities before relocating checks; do not create a second policy implementation. |
+| Level 4 — security | `caps.c/.h`, `trust.c/.h`, `crypto.c/.h`, `sha256.c`, `kdrv_fmt.c`, security-relevant checks in `kdrv.c`, `proc.c`, `kernel/syscall.c` | Enforcement is cross-layer. Establish one authority and object-bound capabilities before relocating checks; do not create a second policy implementation. |
 | Level 5 — intelligence | `mind.c/.h`, `mind_sys.c/.h`, `mindnet.c/.h`, `immune.c/.h`, `devhealth.c/.h`, `experience.c/.h` | Separate read-only telemetry, model/learning, proposal generation and owner-authorized actions. Existing direct callbacks are migration targets, not proof of a finished control boundary. |
 | Level 6 — services | `kfs.c/.h`, `vfs.c/.h`, `fat.c/.h`, `blk.c/.h`, `part.c/.h`, `store.c/.h`, `fsrv.c/.h`, `fscmd.c/.h`, `net.c/.h`, `ip*.c/.h`, `audio.c/.h`, `display.c/.h`, `gfxsrv.c/.h`, `gfxui.c/.h`, `wm.c/.h`, `watchdog.c/.h`, `life.c/.h`, `scale.c/.h`, package/update code | Split service implementation from kernel mechanisms incrementally; preserve current boot and Limbo/QEMU behavior. Add Service Manager/Event Bus/Resource Manager only as real implementations with contracts and tests. |
 | Level 7 — runtimes | `elf.c/.h`, `userland/wasm.c`, `userland/wasm_jit_*.h`, `userland/kira.h`, runtime launch paths in `proc.c`; future Linux/Windows runtime modules | Native ELF must be distinguished from Linux ELF personality. WASM remains current KVR baseline per ADR-0001. KIRA VM remains a separate target/experiment. Linux and Windows compatibility are separate runtimes. |
@@ -141,8 +141,8 @@ Implemented on the architecture branch:
 
 Implemented as a transitional in-kernel boundary:
 - `syscall_numbers.h` is now the shared numeric registry for Native syscall IDs; values remain unchanged.
-- `syscall.c` retains privilege-boundary handling, capability checks and kernel primitives. It delegates service-facing syscall numbers to `syscall_services.c`.
-- `syscall_services.c` currently adapts graphics, filesystem, TCP/UDP/network, audio and RTC operations to their existing subsystem APIs.
+- `kernel/syscall.c` retains privilege-boundary handling, capability checks and kernel primitives. It delegates service-facing syscall numbers to `services/syscall_router.c`.
+- `services/syscall_router.c` currently adapts graphics, filesystem, TCP/UDP/network, audio and RTC operations to their existing subsystem APIs.
 - Both x86-64 and ARM64 build manifests include the new translation unit.
 - This is source-level separation only. Service code still executes in kernel context; there is no claim of process isolation, IPC transport or crash containment yet.
 - RFC: `docs/architecture/rfc/RFC-SVC-001.md`.
@@ -162,7 +162,14 @@ Implemented as a transitional in-kernel boundary:
 
 ### 8.1 Subsystem adapter ownership
 
-- The central router `syscall_services.c` contains no subsystem-specific headers and delegates to per-subsystem translation units.
-- `syscall_service_graphics.c`, `syscall_service_fs.c`, `syscall_service_network.c`, `syscall_service_audio.c`, and `syscall_service_clock.c` each own their syscall subset.
+- The central router `services/syscall_router.c` contains no subsystem-specific headers and delegates to per-subsystem translation units.
+- `services/graphics_syscall.c`, `services/filesystem_syscall.c`, `services/network_syscall.c`, `services/audio_syscall.c`, and `services/clock_syscall.c` each own their syscall subset.
 - `tests/architecture_test.py` checks that each service syscall has exactly one adapter owner and that both ISA builds compile the full adapter set.
 - These are still in-kernel calls. The next step is typed, versioned service request contracts and IPC migration, not pretending that process isolation already exists.
+
+
+## 10. Physical source ownership — kernel and services
+
+The syscall core is located at `kernel/syscall.c`. The service router and subsystem adapters are under `services/`: `services/syscall_router.c`, `services/graphics_syscall.c`, `services/filesystem_syscall.c`, `services/network_syscall.c`, `services/audio_syscall.c`, and `services/clock_syscall.c`.
+
+Both x86-64 and ARM64 build manifests compile these exact paths. Root `syscall.h`, `syscall_services.h` and `syscall_numbers.h` remain compatibility/interface headers during migration. No syscall numbers or calling convention changed. This is physical ownership only; adapters still execute in kernel context.
