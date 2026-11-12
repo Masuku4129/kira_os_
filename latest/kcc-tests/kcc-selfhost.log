@@ -1,0 +1,10 @@
+== самосборка kcc: stage1 (kcc хоста собирает kcc) ==
+stage1: 696560 байт
+stage2: 696560 байт, память компилятора 110544 КБ
+stage3: 696560 байт, память компилятора 110544 КБ
+stage3 sha256: 8e16da9c9145086efdd85c09ba4bf9d79385c2f0dfabbd79fd73762afab41fa8
+== setjmp/longjmp (встроенные функции kcc) ==
+== корпус: stage2 против stage0 (побайтно) ==
+cp: -r not specified; omitting directory 'kcc/include/bsd'
+корпус: сравнено программ 88
+kcc selfhost: OK

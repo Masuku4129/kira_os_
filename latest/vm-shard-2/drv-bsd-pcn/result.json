@@ -1,0 +1,145 @@
+{
+ "name": "drv-bsd-pcn",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA IOMMU\\] VT-d translation enabled on [1-9]",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA IOMMU\\] 00:03\\.0 isolated: own translation domain",
+   "ok": true
+  },
+  {
+   "log": "pcn0 at pci 1022:2000",
+   "ok": true
+  },
+  {
+   "log": "bsdrt: pcn0 up, mac 52:54:00:12:34:56",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA NET\\] DHCP: address 10\\.0\\.2\\.15/24",
+   "ok": true
+  },
+  {
+   "step": "net",
+   "must": "канал есть",
+   "ok": true
+  },
+  {
+   "step": "net",
+   "must": "адрес 10\\.0\\.2\\.15",
+   "ok": true
+  },
+  {
+   "step": "ping 10.0.2.2 3",
+   "must": "ответ от 10\\.0\\.2\\.2",
+   "ok": true
+  },
+  {
+   "step": "ping 10.0.2.2 3",
+   "must": "отправлено 3, получено [1-3]",
+   "ok": true
+  },
+  {
+   "log": "bsdrt: прерывания: INTx по событию",
+   "ok": true
+  },
+  {
+   "log": "bsdrt: pcn0: tx [1-9][0-9]* rx [1-9][0-9]* .* irq [1-9][0-9]*",
+   "ok": true
+  },
+  {
+   "log_forbid": "bsdrt: .*FAIL",
+   "ok": true
+  },
+  {
+   "log_forbid": "bsd panic",
+   "ok": true
+  },
+  {
+   "log_forbid": "irq [0-9]{5,}",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IOMMU\\] DMA fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "00:03\\.0 .*NOT isolated: (named|no active|domain setup)",
+   "ok": true
+  },
+  {
+   "log_forbid": "00:03\\.0 back to passthrough",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.65,
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 2.2,
+ "seconds": 20.9,
+ "commands": [
+  {
+   "cmd": "net",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "ping 10.0.2.2 3",
+   "seconds": 1.01
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.02
+  }
+ ]
+}

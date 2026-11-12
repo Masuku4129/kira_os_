@@ -1,0 +1,97 @@
+{
+ "name": "drv-io",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] ne2kio: устройство .* 10ec:8029 -> драйвер запущен как drv-ne2kio",
+   "ok": true
+  },
+  {
+   "log": "drvne2kio: bar0 flags 1 size 256",
+   "ok": true
+  },
+  {
+   "log": "drvne2kio: isr after reset=\\d+",
+   "ok": true
+  },
+  {
+   "log": "drvne2kio: ins rc=0 mac=52:54:00:12:34:99",
+   "ok": true
+  },
+  {
+   "log": "drvne2kio: refused: mem-bar=-\\d+ past=-\\d+ unaligned=-\\d+ width3=-\\d+ no-bar=-\\d+ bad-buf=-\\d+ map-ports=-\\d+",
+   "ok": true
+  },
+  {
+   "log": "drvne2kio: PASS",
+   "ok": true
+  },
+  {
+   "log_forbid": "drvne2kio: .*\\(FAIL\\)",
+   "ok": true
+  },
+  {
+   "log_forbid": "drvne2kio: partial",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.65,
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 1.8,
+ "seconds": 10.3,
+ "commands": [
+  {
+   "cmd": "status",
+   "seconds": 0.02
+  }
+ ]
+}

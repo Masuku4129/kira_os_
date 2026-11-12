@@ -1,0 +1,276 @@
+KIRA BIOS stage2
+KIRA: kernel image read
+KIRA: entering kernel
+
+==================================================
+[KIRA OS] Kernel core starting...
+==================================================
+[KIRA BOOT] BootInfo v1 validated: memory ranges=8, modules=0, bytes=328.
+[KIRA BOOT] Early console is on screen.
+[KIRA GDT] GDT loaded (Ring0/Ring3 segments), TSS loaded with 3 IST stacks (#DF, NMI, #MC).
+[KIRA IDT] Configuring 64-bit Interrupt Descriptor Table...
+[KIRA IDT] IDT loaded: 32 exceptions (#DF/NMI/#MC on IST) + 16 IRQs + LAPIC spurious, other vectors -> unhandled trap.
+[KIRA FPU] x87 + SSE/SSE2 enabled; per-thread FXSAVE state (512 B) saved on every context switch. AVX present but not enabled (needs XSAVE area).
+[KIRA PMM] Usable RAM per BootInfo map: 1023 MB; allocatable now (below 1 GB, minus kernel and bitmaps): 1018 MB; above 1 GB waiting to be mapped: 0 MB; bitmaps 64 KB.
+[KIRA VMM] Verifying paging state...
+[KIRA VMM] 4-level paging verified (identity 0-1 GB via 2 MB pages; map/unmap self-test passed); device MMIO window at 0xFFFFFF0000000000 shared by all address spaces.
+[KIRA VMM] NULL guard installed: first 2 MB split into 4 KB pages, page 0 unmapped.
+[KIRA VMM] SMEP enabled: kernel cannot execute user pages.
+[KIRA VMM] SMAP enabled: kernel touches user memory only through checked copies.
+[KIRA RAM] Mapped RAM above 1 GB: 0 MB (2 MB pages, no-execute); edges lost to alignment or failures: 0 KB.
+[KIRA VMM] W^X kernel: ok (text=748 KB ro=132 KB rw=1051788 KB)
+[KIRA ACPI] rev 0 (RSDP found in BIOS memory), tables ok 4 bad 0 unmapped 0, CPUs 2, IOAPICs 1, HPET yes, PCIe ECAM none
+[KIRA HW] CPU AuthenticAMD family 25 model 1 stepping 1, virtual machine
+[KIRA HW] cores (ACPI): 2, RAM 1018 MB, address bits 48/48
+[KIRA HW] features: sse2 nx page1g xsave(832B) avx avx2 pcid invpcid smep smap fsgsbase rdrand rdseed x2apic tsc-deadline
+[KIRA HW] TSC not measured yet
+[KIRA HW] limits for this machine: program heap up to 509 MB per program, kernel keeps 63 MB free
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 893057 bytes, prefix 3c165fcc...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+[KIRA PROC] up to 8 programs at once (2 cores, 1018 MB RAM).
+[KIRA SYSCALL] SYSCALL/SYSRET enabled: write, exit, ticks, sleep, yield, getpid, gfx, fs (sandbox /data/<name>), heap (quota), threads, futex, ports, shared memory, clock; user pointers validated.
+[KIRA PCI] 7 device(s) found.
+[KIRA IOMMU] No DMAR table: DMA isolation is not available, devices keep unrestricted DMA.
+[KIRA VIRTIO] Disk virtio-blk, 8 MB (PCI 0:3.0, virtio 1.0, completion by MSI-X interrupt, DMA not isolated).
+[KIRA ATA] No disk on the primary IDE channel (floating bus): persistence disabled.
+[KIRA DISK] vda: virtio-blk, 8 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 5352 KB free.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA FB] Bootloader mode: 1280x720x32 type 1 addr 0xFD000000
+[KIRA FB] 1280x720x32 linear framebuffer at 0xFD000000, write-combining (PAT); back buffer 3600 KB in RAM.
+[KIRA PAR] parallel helpers: 1 (compositor and other split work)
+[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.
+[KIRA KEYBOARD] PS/2 IRQ1 handler registered (decoded by the input layer).
+[KIRA MOUSE] PS/2 mouse enabled (IRQ12, 3-byte packets).
+[KIRA NET] virtio-net: MAC 52:54:00:12:34:56, receive wakes the network thread by MSI-X
+[KIRA NET] Network stack online: Ethernet, ARP, IPv4 (fragments), ICMP, UDP, DHCP client, DNS, TCP, IPv6 (ND, SLAAC, ICMPv6, UDP, TCP) (commands: net, ping, ping6, dns, http).
+[KIRA TIMER] PIT started, frequency 500 Hz, IRQ0 unmasked.
+[KIRA APIC] xAPIC mode: registers in the kernel MMIO window, base 0xFEE00000, id 0, version 0x14
+[KIRA OS] Core initialization complete. Enabling interrupts.
+[KIRA RTC] Real-time clock (CMOS, read as UTC): ЧЕТВЕРГ, 12 НОЯБРЯ 2026 12:39
+[KIRA CPU] TSC 2445526 kHz, measured by PIT channel 2, 3x50 ms median.
+[KIRA APIC] Timer calibrated against TSC: 62504 kcounts/s (bus clock ~1000 MHz).
+[KIRA IOAPIC] id 0 at 0xFEC00000, version 0x11, 24 pins, GSI base 0
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA IRQ] IOAPIC delivery verified end-to-end: RTC -> IOAPIC -> LAPIC, 51 interrupts in 50 ms.
+[KIRA IRQ] LAPIC timer verified: 99 ticks in 200 ms (expected 100).
+[KIRA IRQ] APIC mode: LAPIC timer 500 Hz is the tick source, 2 device lines routed through IOAPIC, legacy PIC and PIT disabled.
+[KIRA SMP] Processors online: 2 of 2 (MADT).
+[KIRA SMP] IPI ping answered by 1 of 1 started processors. Each core runs its own scheduler tick and its own ready queue; idle cores take waiting work from busy ones.
+[KIRA NET] DHCP: address 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, lease 86400 s
+[KIRA SMP] TSC skew between cores: max 6 ns (measurement precision +-40 ns): clocks agree.
+[KIRA OS] Ready. Type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[KIRA NET] IPv6: fe80::5054:ff:fe12:3456 (link-local, DAD passed) ready
+[KIRA NET] IPv6: router advertisement from fe80::2, default router
+[KIRA NET] IPv6: fec0::5054:ff:fe12:3456 (SLAAC /64, DAD passed) ready
+run drvman trace
+[KIRA PROC] pid 1 'drvman' started from ELF: Ring 3, own address space, 431 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 1] drvman: окно создано 640x560
+кира> [KIRA DOCK] открыта: drvman «Драйверы» (закреплена)
+[USER pid 1] drvman: кадр: строк в списках 15, устройств 7, пакетов 9
+[USER pid 1] drvman: PCI-обзор: устройств 7, уже обслуживаются 7, пакеты установлены 0, нет записи в каталог�
+[USER pid 1] � 0, кандидатов 0
+[USER pid 1] drvman: автопоиск завершён: совместимых рецептов в локальном каталоге нет; новые устройст�
+[USER pid 1] �а не изменены
+[KIRA MIND] фокус: drvman - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: пробую 2000 мс вместо 1000 (причина: темп фона снижался; о�
+
+кира> [USER pid 1] drvman: ищу драйвер «rl» (скачивание по HTTPS, проверка лицензии и хеша)...
+[USER pid 1] drvget: каталог рецептов: https://10.0.2.100 (пользовательский; не закреплён системным каталогом)
+[USER pid 1] drvget: скачиваю рецепт https://10.0.2.100/rl/drvget.rec
+[USER pid 1] drvget: предупреждение: рецепт не закреплён системным каталогом; издатель не аутентифицир
+[USER pid 1] ован, требуется ручная проверка и подтверждение
+[USER pid 1] drvget: скачиваю https://10.0.2.100/rl/rtl8139_kdrv.c
+[USER pid 1] drvget: скачиваю https://10.0.2.100/rl/rtl8139.c
+[USER pid 1] drvget: скачиваю https://10.0.2.100/rl/rtl8139.h
+[USER pid 1] 
+[USER pid 1] === драйвер 'rl' версия 2 ===
+[USER pid 1] источник:   https://10.0.2.100/rl/drvget.rec
+[USER pid 1] лицензия:   заявлена BSD-3-Clause; проверено по тексту каждого файла (SPDX/текст), GPL и бинарных ф�
+[USER pid 1] �йлов нет:
+[USER pid 1]   rtl8139_kdrv.c             4908 байт  BSD-3-Clause  sha256 610292710ee08cd9e3b5574ecd6390c5a78c1bf1028e85837bd31ae42738766d
+[USER pid 1]   rtl8139.c                 12013 байт  BSD-3-Clause  sha256 b538099cf82a4e782d210ed3607836bd31b0274923d44403ec973419284331a1
+[USER pid 1]   rtl8139.h                  2614 байт  BSD-3-Clause  sha256 fd8078f7e625fddea6ce8a0d2c6af64792cd3933725d319c830b3f390faf0089
+[USER pid 1] SHA-256 набора исходников (рецепт + файлы): 5cf1cd7c224bf5037afa3ff7fd33b7e2b2e1ce24360de92caf765db25922e528
+[USER pid 1] устройства PCI: 10ec:8139
+[USER pid 1] запрашиваемые права:
+[USER pid 1]   CAP_MMIO - отображать регистры (BAR) СВОЕГО устройства
+[USER pid 1]   CAP_DMA - получать непрерывную память для обмена устройства с ОЗУ
+[USER pid 1]   CAP_PCIDEV - читать и (частично) писать конфигурацию PCI СВОЕГО устройства
+[USER pid 1]   CAP_NETDEV - отдать ядру сетевую карту (кольца кадров)
+[USER pid 1] ограничения: права действуют только на устройство драйвера. Сейчас ядро не настраивает
+[USER pid 1]  IOMMU-домены,
+[USER pid 1] поэтому драйверы с CAP_DMA или CAP_IRQ будут отклонены и не смогут включить bus mastering/MSI.
+[USER pid 1] 
+[USER pid 1] Установка НЕ выполнена. Прочитайте источник и права выше.
+[USER pid 1] drvman: набор готов к установке (F2 или «Установить»: окно подтверждения)
+[USER pid 1] drvman: подтверждение: установить rl v2?
+[USER pid 1] drvman: подтверждение: источник https://10.0.2.100/rl/drvget.rec
+[USER pid 1] drvman: подтверждение: лицензия BSD-3-Clause, права: MMIO DMA PCIDEV NETDEV
+[USER pid 1] drvman: подтверждение: SHA-256 набора 5cf1cd7c224bf5037afa3ff7fd33b7e2b2e1ce24360de92caf765db25922e528
+[USER pid 1] drvman: предупреждение: цифровой подписи издателя нет; SHA-256 сверяется только с локальной з�
+[USER pid 1] �писью и не доказывает автора
+[USER pid 1] drvman: подтверждение: DMA/MSI будут отклонены ядром: домен IOMMU для устройства не настроен
+[USER pid 1] drvman: установка отменена пользователем, ничего не записано
+[KIRA MIND] рычаг 22 «спокойствие до роста темпа фона»: откат на 1000 мс - оценка 0 не лучше 0
+drvget list
+[KIRA PROC] pid 2 'drvget' started from ELF: Ring 3, own address space, 408 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 2]   abad: версия 1, права: MMIO PCIDEV, SHA-256 НЕ СОВПАДАЕТ, издатель: не подтверждён (локально), источн
+[USER pid 2] ик: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 2]   eduun: версия 1, права: MMIO PCIDEV, SHA-256 НЕ СОВПАДАЕТ, издатель: не подтверждён (локально), источ�
+[USER pid 2] �ик: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 2]   edu: версия 1, права: MMIO PCIDEV, SHA-256 сверен, издатель: не подтверждён (локально), источник: tools/
+[USER pid 2] mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 2]   edunc: версия 1, права: MMIO PCIDEV, SHA-256 сверен, издатель: не подтверждён (локально), источник: tool
+[USER pid 2] s/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 2]   ne2kio: версия 1, права: MMIO PCIDEV, SHA-256 сверен, издатель: не подтверждён (локально), источник: too
+[USER pid 2] ls/mkdrv_pkg.sh(тестовый-пакет-ne2kio)
+[USER pid 2]   bsdne: версия 1, права: MMIO IRQ PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), источ�
+[USER pid 2] �ик: tools/mkdrv_pkg.sh(тестовый-пакет-bsdne)
+[USER pid 2]   bsdpcn: версия 1, права: MMIO IRQ DMA PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), ист
+[USER pid 2] очник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdpcn)
+[USER pid 2]   bsdfxp: версия 1, права: MMIO IRQ DMA PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), ист
+[USER pid 2] очник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdfxp)
+[USER pid 2]   bsddc: версия 1, права: MMIO IRQ DMA PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), ист�
+[USER pid 2] �чник: tools/mkdrv_pkg.sh(тестовый-пакет-bsddc)
+[USER pid 2] drvget: пакетов в /drv: 9 (работающие драйверы: команда drv)
+[KIRA PROC] pid 2 'drvget' finished, exit code 0, address space destroyed (425 pages returned to PMM).
+drv
+пакеты в /drv: 9
+  abad: ОТКЛОНЁН (SHA-256 не совпал с записью .rec)
+  eduun: ОТКЛОНЁН (установка не подтверждена пользователем)
+  edu: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  edunc: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  ne2kio: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-ne2kio)
+  bsdne: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdne)
+  bsdpcn: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdpcn)
+  bsdfxp: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdfxp)
+  bsddc: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsddc)
+  драйверам Ring 3 устройства пока не отданы
+кира> 
+кира> [USER pid 1] drvman: подтверждение: установить rl v2?
+[USER pid 1] drvman: подтверждение: источник https://10.0.2.100/rl/drvget.rec
+[USER pid 1] drvman: подтверждение: лицензия BSD-3-Clause, права: MMIO DMA PCIDEV NETDEV
+[USER pid 1] drvman: подтверждение: SHA-256 набора 5cf1cd7c224bf5037afa3ff7fd33b7e2b2e1ce24360de92caf765db25922e528
+[USER pid 1] drvman: предупреждение: цифровой подписи издателя нет; SHA-256 сверяется только с локальной з�
+[USER pid 1] �писью и не доказывает автора
+[USER pid 1] drvman: подтверждение: DMA/MSI будут отклонены ядром: домен IOMMU для устройства не настроен
+[KIRA MIND] тактика: экран опаздывает - фоновые окна не чаще 30 кадров/с (их копия и сборка - работа экрана)
+[KIRA MIND] тактика: экран успевает - фоновые окна снова без предела кадров
+[USER pid 1] drvman: подтверждено пользователем, собираю и ставлю
+[USER pid 1] drvget: собираю rtl8139_kdrv.c встроенным kcc (x86_64)...
+[USER pid 1] drvget: собрано, образ ELF 20480 байт
+[USER pid 1] drvget: .sig отсутствует (HTTP 404); пакет будет только локально подтверждён
+[USER pid 1] drvget: установлено: /drv/rl.kdrv и /drv/rl.rec; издательская подпись: отсутствует, локальное подтвер�
+[USER pid 1] �дение
+[USER pid 1] drvman: драйвер rl установлен в /drv
+[KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+drvget list
+[KIRA PROC] pid 3 'drvget' started from ELF: Ring 3, own address space, 408 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 3]   abad: версия 1, права: MMIO PCIDEV, SHA-256 НЕ СОВПАДАЕТ, издатель: не подтверждён (локально), источн
+[USER pid 3] ик: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 3]   eduun: версия 1, права: MMIO PCIDEV, SHA-256 НЕ СОВПАДАЕТ, издатель: не подтверждён (локально), источ�
+[USER pid 3] �ик: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 3]   edu: версия 1, права: MMIO PCIDEV, SHA-256 сверен, издатель: не подтверждён (локально), источник: tools/
+[USER pid 3] mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 3]   edunc: версия 1, права: MMIO PCIDEV, SHA-256 сверен, издатель: не подтверждён (локально), источник: tool
+[USER pid 3] s/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 3]   ne2kio: версия 1, права: MMIO PCIDEV, SHA-256 сверен, издатель: не подтверждён (локально), источник: too
+[USER pid 3] ls/mkdrv_pkg.sh(тестовый-пакет-ne2kio)
+[USER pid 3]   bsdne: версия 1, права: MMIO IRQ PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), источ�
+[USER pid 3] �ик: tools/mkdrv_pkg.sh(тестовый-пакет-bsdne)
+[USER pid 3]   bsdpcn: версия 1, права: MMIO IRQ DMA PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), ист
+[USER pid 3] очник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdpcn)
+[USER pid 3]   bsdfxp: версия 1, права: MMIO IRQ DMA PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), ист
+[USER pid 3] очник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdfxp)
+[USER pid 3]   bsddc: версия 1, права: MMIO IRQ DMA PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), ист�
+[USER pid 3] �чник: tools/mkdrv_pkg.sh(тестовый-пакет-bsddc)
+[USER pid 3]   rl: версия 2, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), источни
+[USER pid 3] к: https://10.0.2.100/rl/drvget.rec
+[USER pid 3] drvget: пакетов в /drv: 10 (работающие драйверы: команда drv)
+[KIRA PROC] pid 3 'drvget' finished, exit code 0, address space destroyed (425 pages returned to PMM).
+[KIRA MIND] рычаг 23 «интервал сужения темпа фона»: пробую 400 мс вместо 200 (причина: темп фона снижался; оценка
+drvget verify rl
+[KIRA PROC] pid 4 'drvget' started from ELF: Ring 3, own address space, 408 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 4] drvget: rl: SHA-256 образа 550b23270120741a360dfc3f62cb88eff415165a2ea69ca6c66a12461da0571c, пакета 5d7da6b412f2fece20a597d4e6a48fb2fdd79be78a1e6994
+[USER pid 4] c152c2c25cb8e9ee, исходников 5cf1cd7c224bf5037afa3ff7fd33b7e2b2e1ce24360de92caf765db25922e528
+[USER pid 4] drvget: подпись издателя: отсутствует; пакет только локально подтверждён
+[USER pid 4] drvget: verify rl: OK (хеши сходятся с локальной записью подтверждения)
+[KIRA PROC] pid 4 'drvget' finished, exit code 0, address space destroyed (425 pages returned to PMM).
+drv
+пакеты в /drv: 10
+  abad: ОТКЛОНЁН (SHA-256 не совпал с записью .rec)
+  eduun: ОТКЛОНЁН (установка не подтверждена пользователем)
+  edu: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  edunc: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  ne2kio: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-ne2kio)
+  bsdne: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdne)
+  bsdpcn: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdpcn)
+  bsdfxp: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdfxp)
+  bsddc: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsddc)
+  rl: версия 2, SHA-256 сверен, запрошено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: https://10.0.2.100/rl/drvget.rec
+  драйверам Ring 3 устройства пока не отданы
+кира> [BUILD] Разум предлагает задание: калибровочный зонд процессора, выполнить: build probe 2037938 31 (сам Разум не собирает, �
+кира> [USER pid 1] drvman: просьба запустить rl принята менеджером драйверов ядра, жду...
+[KIRA DRV] rl: нет пакета /drv/rl.kdrv или нет свободного подходящего устройства
+[KIRA MIND] пробую квант 60 мс вместо 40 мс: сравню переключения и ожидание потоков
+[USER pid 1] drvman: драйвер rl не запущен: нет свободного подходящего устройства PCI
+[USER pid 1] drvman: либо пакет не прошёл проверку ядра: причина в журнале ядра (команда drv)
+[KIRA MIND] рычаг 23 «интервал сужения темпа фона»: откат на 200 мс - оценка 0 не лучше -8
+
+кира> [USER pid 1] drvget: пакет rl удалён из /drv вместе с подтверждением. Если драйвер работает, остановите его
+[USER pid 1] : drv stop rl
+[USER pid 1] drvman: пакет rl удалён
+drv
+пакеты в /drv: 9
+  abad: ОТКЛОНЁН (SHA-256 не совпал с записью .rec)
+  eduun: ОТКЛОНЁН (установка не подтверждена пользователем)
+  edu: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  edunc: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  ne2kio: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_PCIDEV, подтверждено: CAP_MMIO CAP_PCIDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-ne2kio)
+  bsdne: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdne)
+  bsdpcn: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdpcn)
+  bsdfxp: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdfxp)
+  bsddc: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV CAP_NETDEV, источник: tools/mkdrv_pkg.sh(тестовый-пакет-bsddc)
+  драйверам Ring 3 устройства пока не отданы
+кира> drvget list
+[KIRA PROC] pid 5 'drvget' started from ELF: Ring 3, own address space, 408 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 5]   abad: версия 1, права: MMIO PCIDEV, SHA-256 НЕ СОВПАДАЕТ, издатель: не подтверждён (локально), источн
+[USER pid 5] ик: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 5]   eduun: версия 1, права: MMIO PCIDEV, SHA-256 НЕ СОВПАДАЕТ, издатель: не подтверждён (локально), источ�
+[USER pid 5] �ик: tools/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 5]   edu: версия 1, права: MMIO PCIDEV, SHA-256 сверен, издатель: не подтверждён (локально), источник: tools/
+[USER pid 5] mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 5]   edunc: версия 1, права: MMIO PCIDEV, SHA-256 сверен, издатель: не подтверждён (локально), источник: tool
+[USER pid 5] s/mkdrv.sh(тестовый-драйвер-edu)
+[USER pid 5]   ne2kio: версия 1, права: MMIO PCIDEV, SHA-256 сверен, издатель: не подтверждён (локально), источник: too
+[USER pid 5] ls/mkdrv_pkg.sh(тестовый-пакет-ne2kio)
+[USER pid 5]   bsdne: версия 1, права: MMIO IRQ PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), источ�
+[USER pid 5] �ик: tools/mkdrv_pkg.sh(тестовый-пакет-bsdne)
+[USER pid 5]   bsdpcn: версия 1, права: MMIO IRQ DMA PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), ист
+[USER pid 5] очник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdpcn)
+[USER pid 5]   bsdfxp: версия 1, права: MMIO IRQ DMA PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), ист
+[USER pid 5] очник: tools/mkdrv_pkg.sh(тестовый-пакет-bsdfxp)
+[USER pid 5]   bsddc: версия 1, права: MMIO IRQ DMA PCIDEV NETDEV, SHA-256 сверен, издатель: не подтверждён (локально), ист�
+[USER pid 5] �чник: tools/mkdrv_pkg.sh(тестовый-пакет-bsddc)
+[USER pid 5] drvget: пакетов в /drv: 9 (работающие драйверы: команда drv)
+[KIRA PROC] pid 5 'drvget' finished, exit code 0, address space destroyed (425 pages returned to PMM).
+status
+
+[STATUS] uptime ticks: 21245, precise clock ms: 42487
+[STATUS] PMM free: 996 MB of 1018 MB
+[STATUS] kernel heap: 8 blocks, 136 KB in use; pages: 7 small-block, 34 large-block
+[STATUS] mind: health 100 (спокойна), mode act, quantum 60 ms, decisions 10
+[STATUS] immune: kernel integrity OK, antibodies 3, quarantine 0
+[STATUS] LAPIC: enabled, id 0, timer 62504 kcounts/s (div 16); interrupts: IOAPIC
+
+кира> 
