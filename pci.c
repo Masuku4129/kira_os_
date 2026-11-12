@@ -228,20 +228,22 @@ void pci_enable(const pci_dev_t* d, uint16_t bits) {
 #endif
 }
 
-void pci_disable_bus_master(const pci_dev_t* d) {
+int pci_disable_bus_master(const pci_dev_t* d) {
     /* A PCI-to-PCI bridge forwards transactions from isolated downstream
        functions; its Bus Master bit is a forwarding gate, not a DMA engine. */
-    if (!d || pci_is_bridge(d))
-        return;
+    if (!d) return 0;
+    if (pci_is_bridge(d)) return 1;
 #if !defined(KIRA_HOST_TEST)
     uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
 #endif
     uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
     value &= (uint32_t)~PCI_CMD_MASTER;
     be.write32(d->bus, d->dev, d->fn, 0x04, value);
+    int disabled = (cr32(d, 0x04) & PCI_CMD_MASTER) == 0;
 #if !defined(KIRA_HOST_TEST)
     spin_unlock_irqrestore(&cfg_rmw_lock, flags);
 #endif
+    return disabled;
 }
 
 /* Размер и тип BAR: пишем единицы, читаем маску, возвращаем исходное значение. Декодирование на время зонда выключено. */
