@@ -124,9 +124,9 @@ echo "== Intel VT-d DMAR topology parser (DRHD, RMRR, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-vtd tests/iommu_vtd_test.c iommu_vtd.c
 $T/iommu-vtd
 
-echo "== VT-d end to end (iommu.c against a hardware model: DMAR -> contexts -> TE -> domains -> maps -> faults; scenarios A-E) =="
+echo "== VT-d end to end (iommu.c against a hardware model: DMAR -> contexts -> TE -> domains -> maps -> faults; scenarios A-F) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu tests/iommu_test.c iommu.c iommu_vtd.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c
-for s in A B C D E; do $T/iommu $s; done
+for s in A B C D E F; do $T/iommu $s; done
 
 echo "== ARM SMMUv3 prepare (platform validation, stream table and allocation unwind) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-smmu tests/arm_smmu_prepare_test.c drivers/iommu/arm_smmu.c drivers/iommu/arm_smmu_domain.c
