@@ -263,3 +263,177 @@
 ### Mind memory forecast — telemetry-gap expectation correction (2026-11-12)
 - В PR #81 исправлен regression expectation: timestamp 11 после пропущенного 10 становится новым baseline, timestamp 12 уже содержит первый измеренный growth interval. Проверка теперь отражает фактическую последовательность, не откладывая валидный прогноз ещё на один tick.
 - Latest head `9e70a1d2ab490d1c414c85e28fdbd06327bfefd1`, workflow run `43223432833` in progress: `mind-quality`, ARM64 build, driver E2E, GUI regression и audit завершились success; host tests, KCC и kernel build ещё выполнялись на момент записи. Полный CI пока не завершён.
+
+
+### Architecture baseline confirmation (2026-11-12)
+- Зафиксирована целевая архитектура в `docs/architecture/KIRA_OS_TARGET_ARCHITECTURE.md`: независимая KIRA OS, 8 логических уровней, отдельный Hypervisor, Native/WASM/KIRA VM, отдельные Windows и Linux Compatibility Runtime, единая security/capability model, KIRA Mind с ограниченными полномочиями, x86-64/ARM64, сквозные службы и критерии доказанной готовности.
+- Зафиксирован исполняемый порядок в `docs/architecture/ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md`: baseline → полная инвентаризация → dependency map → contract registry/ADR → параллельное выравнивание 12 потоков → Windows/Linux compatibility design → Hypervisor threat model → интеграционная/безопасностная/производительная верификация → release gates.
+- README и AGENTS на этой ветке уже указывают на эти нормативные документы; агент обязан читать их до начала любой задачи. Целевая архитектура — не заявление о текущей реализации.
+- Сверка GitHub на момент фиксации: main SHA `bbc7f7ab948e72511aed113b69043add10ec8350`; обнаружено 45 открытых PR в доступной выборке, в том числе KVM1 experiment (#134), WASM validation (#131), VMM stack lifecycle (#132), IOMMU (#125/#120/#115/#44), KCC isolation (#95/#93), Mind (#81/#78), scheduler (#79/#74), driver signing/lifecycle (#42/#41/#40), BIOS/UEFI (#112/#46/#45) и несколько архитектурных RFC/CI PR. Открытые PR не равны изменениям в main; ни один не сливался в рамках этого аудита.
+- Документальная инвентаризация выявила активные направления и явные архитектурные gates, но **полный построчный source audit ещё не выполнен**. Нельзя считать subsystem status подтверждённым до чтения кода и запуска относящихся к нему тестов на точном SHA.
+- Следующий непосредственный шаг: создать `docs/architecture/COMPONENT_INVENTORY.md` и `docs/architecture/DEPENDENCY_MAP.md`, затем `docs/architecture/CONTRACT_REGISTRY.md`; начинать с kernel/boot/memory/process/syscall/IPC и параллельно инвентаризировать runtime/compatibility, security, drivers/IOMMU, storage, Mind, GUI, network, hypervisor, toolchain и release.
+- Рабочая ветка архитектурной фиксации: `architecture/target-baseline-2026-11`. Ветка должна быть открыта как draft PR в main; слияние — только после проверки diff и явного разрешения владельца.
+
+
+### Initial source-level architecture inventory (2026-11-12)
+- Получено полное Git tree main: 828 файлов, recursive listing не усечён. Просмотрены основные точки входа kernel/scheduler/process/syscall/ELF/VMM/capabilities, KDRV, KiraFS/VFS, WASM, Mind, network, GUI и build/test scripts.
+- Созданы `docs/architecture/COMPONENT_INVENTORY.md` и `docs/architecture/DEPENDENCY_MAP.md`; README дополнен ссылками. Это первичный проход: статусы компонентов намеренно помечены как неподтверждённые там, где тесты не запускались.
+- Выявлено для дальнейшей проверки: main содержит KIRA-native ELF ET_EXEC path, WASM runtime и KDRV Ring 3 path; отдельные Windows/Linux compatibility runtimes и hardware hypervisor в просмотренной карте main не обнаружены. KVM1 остаётся экспериментальным PR #134. Это не означает отказ от этих целевых функций.
+- Кодовая зона повышенного архитектурного внимания: широкие include/init зависимости kernel.c; централизованный syscall dispatch в syscall.c; статическая name→caps таблица в caps.c; Mind control paths; driver teardown/DMA/IOMMU; KiraFS crash-consistency.
+- Никакие тесты в этом source-review проходе не запускались. PASS не заявлен. Следующая задача — расширить inventory до полного call graph и контрактов, затем оформить CONTRACT_REGISTRY и начать согласование ABI/IPC/security/device contracts.
+- Обновление плана: фаза первичной инвентаризации начата; завершение требует проверки всех значимых модулей, публичных символов, зависимостей, PR head SHAs и фактических тестов.
+
+
+### Architecture audit continuation (2026-11-12, second pass)
+- Созданы отдельные документы: `docs/compat/LINUX_COMPATIBILITY.md`, `docs/compat/WINDOWS_COMPATIBILITY.md`, `docs/compat/COMPATIBILITY_TEST_MATRIX.md`, `docs/virtualization/HYPERVISOR_ARCHITECTURE.md`, `docs/architecture/OPEN_PR_ARCHITECTURE_TRACKER.md`, `docs/architecture/SOURCE_AUDIT_FINDINGS.md`.
+- Целевая архитектура уточнена в соответствии с мастер-планом/ADR-0001: текущая production-база KVR — WASM; собственная KIRA VM — целевое/исследовательское направление, KVM1 PR #134 не считается production и не заменяет WASM без отдельного ADR gate.
+- Main source review выявил конкретные риски, зафиксированные в SOURCE_AUDIT_FINDINGS: F-001 kernel stack free-list допускает double-free/duplicate slot; PR #132 содержит соответствующий ownership/active bitmap fix, но draft и base не main. F-002 main KDRV path сверяет SHA-256 с локальной .rec, но криптографический publisher signature/trust anchor в этом пути не подтверждён; PR #35–#42/#44/#46/#12 — зависимая цепочка. F-005 name-based capability allowlist; F-006 Mind direct action callbacks требуют policy/audit proof; F-007 host tests отключают mutexes; F-008 WASM fuel accounting host-test-only; F-009 syscall dispatcher напрямую связывает много служб.
+- PR tracker зафиксировал 47 открытых PR в доступной выборке и точные head/base SHAs для наиболее важных зависимых цепочек. Не сливать PR и не считать открытые изменения частью main.
+- Latest main CI evidence: run `43244194123` for SHA `bbc7f7ab948e72511aed113b69043add10ec8350`; 30/30 jobs success, включая host-tests, ARM64 build, kernel build, QEMU boot/storage/network/SMP/isolation/apps/driver/audio/crash scenarios and Limbo smoke/stress. Это CI evidence только для данного SHA/конфигураций, не физическое железо и не доказательство всех целевых функций.
+- Draft PR #135 head SHA на последней проверке: `69cc8e1850b0f72a183c3e7b6fefafe9f5dd280d`; 15 commits ahead, 0 behind относительно main в предыдущем compare. После новых файлов/коммитов требуется повторный compare и PR changed-files review. Workflow runs для architecture branch не обнаружены.
+- В этой сессии source files читались через GitHub; локальный checkout и команды host/QEMU/ARM tests не запускались. Никаких новых PASS по коду не заявлено.
+
+### Next continuation point
+1. Повторно получить current branch head SHA, compare and changed files for PR #135; проверить, что все новые документы входят в PR и ссылки README существуют.
+2. Провести diff-level review PR #132 against main; определить, можно ли безопасно перенести slot allocator fix на main-based integration branch, не меняя исходную ветку.
+3. Провести diff-level review signature chain #35/#36/#38/#39/#40/#41/#42/#44/#46/#12; доказать signer trust anchor and anti-rollback before claiming publisher authentication.
+4. Продолжить source audit по public APIs/ownership/error paths в memory, IPC, scheduler, KDRV, KiraFS, WASM, Mind and boot; дополнять inventory with exact symbols and tests.
+5. Создать RFC draft for BootInfo/syscall ABI/capabilities/IPC first, based on actual headers; no guessed syscall numbers or ABI layouts.
+6. Obtain exact CI runs for open PR heads and their dependency bases; no blind merge. Physical hardware remains untested.
+
+
+### Contract RFC and PR CI review (2026-11-12, third pass)
+- Created draft RFCs based on actual main headers/source: `docs/architecture/rfc/RFC-BOOT-001.md`, `RFC-ABI-001.md`, `RFC-SEC-001.md`, `RFC-IPC-001.md`, plus index. They preserve existing syscall numbers and current boot paths; no ABI is frozen.
+- Additional concrete finding F-010: SYS_PORT_RECV dequeues a message before copy_to_user; if user destination mapping disappears, message is lost. This is a documented at-most-once behavior that needs explicit contract decision and race tests, not silently changed.
+- PR #132 review: proposed helper `kstack_slot.h` and host ASan/UBSan test cover slot bounds, ownership, double-free and ARM64 65,536-slot boundary. However actual kernel VMM allocator SMP lifecycle, partial mapping failures and end-to-end stack reuse are not exercised. No PR-triggered workflow run found for its current head. Draft base is `v46/unified-release-integration`, not main.
+- KDRV signature PR review: #41 adds Ed25519 package signature verification with key ID, validity interval, digest/size binding and trust key list; #42 adds publisher-required policy. #42 head workflow `43236730618` passed audit/driver-e2e/KCC/ARM64/host-tests/build, but VM and package jobs were skipped. Its cumulative diff spans 95 files and includes boot/IOMMU/KDRV/release changes; review/split before integration. ADR-0002 explicitly states strong anti-rollback is unavailable without hardware-backed monotonic storage; a signed catalogue alone does not solve whole-disk rollback.
+- KVM1 PR #134 current head workflow `43236030817` failed: host lint found `fake_ticks` stub; ARM64 and VM shards 5/7/9 failed. Other VM shards, UEFI OVMF, build and KCC succeeded. This reinforces current WASM production baseline; KVM1 remains experimental.
+- Draft PR #135 current compare: 38 commits ahead, 0 behind main; 19 changed files. No PR-head workflow run found. Latest main CI run `43244194123` still reports 30/30 success on baseline SHA only.
+- Локальные сборки/тесты не запускались; все CI claims выше привязаны к exact PR/main head SHA and run ID.
+
+### Next point
+1. Finish full syscall entry ABI tracing for x86-64 and ARM64 (assembly/vector entry, register preservation, return path).
+2. Review PR #132 complete cumulative diff and determine a safe main-based backport path; do not merge its broad base branch.
+3. Review KDRV trust chain end-to-end, especially trust-anchor provisioning, revocation, signature required flag, key rotation, time source and whole-disk rollback.
+4. Expand inventory for all remaining subsystems and symbols; then map each RFC to actual tests/CI.
+5. Add real allocator, IPC receive-race, production WASM fairness and Mind policy tests before code changes.
+
+
+### Critical driver isolation remediation opened (2026-11-12)
+- F-013 was confirmed on exact main SHA: KDRV enables PCI bus mastering for either CAP_DMA or CAP_IRQ; no per-device IOMMU domain is required. MSI/MSI-X also uses bus mastering, so both rights must be denied without isolation.
+- Opened narrow main-based PR #136: `security/kdrv-require-iommu-for-dma-msi`. Changes: shared `kdrv_dma_policy_allow`, fail-closed check before KDRV binding/spawn/PCI bus-master enable, device quiesce on denial, `KDRV_E_ISOLATION`, host policy tests and corrected driver trust docs. No merge performed.
+- PR #136 head `720a2020f6d78501aed60b5013ad9b7d1c62b30d`; exact-head CI still needs completion/refresh. Main code remains unchanged until PR is reviewed and merged by owner.
+
+
+### PCI DMA boundary audit and remediation (2026-11-12)
+- Additional F-014: `pci_init()` did not clear firmware-set `PCI_CMD_MASTER`; `probe_bars()` temporarily clears only IO/MEM and restores the original command word, preserving bus mastering. This can leave a device capable of DMA before KIRA assigns a driver.
+- Opened PR #137 `security/pci-clear-firmware-busmaster`: clear bus-master on every enumerated PCI function before BAR probing; host fake-backend test verifies clear-on-enumeration and explicit re-enable by owner. PR not merged.
+- PR #136 `security/kdrv-require-iommu-for-dma-msi` independently blocks Ring 3 CAP_DMA/CAP_IRQ until per-device IOMMU isolation is real. Both controls are required; neither substitutes for full IOMMU implementation.
+- PR #136 run `43253649785` is in progress (host-tests, build, ARM64 and VM matrix); PR #137 run `43253985440` is in progress (host-tests, build, ARM64). No exact-head PASS yet.
+
+
+### KCC context and self-host audit (2026-11-12)
+- Reviewed exact main `kcc/util.c`: one global `KCtx K`; every `kcc_compile()` clears it with memset and uses one global setjmp buffer. Concurrent calls are not safe.
+- Reviewed #93/#95 CI and source: both PRs pass main build, host, ARM64 and VM matrix but fail only `kcc-tests` self-host stage1. #93 fails at `ir.c:14` macro `IRS ((IRState *)K.ir_state)`; #95 fails at `ir.c:24` member alias `irs->fn`. Their new context tests are sequential x86/AArch64 interleaving only; #95 explicitly retains process-global K and does not improve concurrency guarantees.
+- Created `docs/architecture/rfc/RFC-TOOL-001.md` and mapped TOOL-001 in contract registry. Requirement: explicit context ownership, context-local error unwinding/arena/PP/parser/IR/optimizer/backends; no global mutable state; self-host stage1/2 and concurrent independent-context tests.
+- No KCC code changed. Do not merge #93/#95 until exact-head self-host failures are fixed and independent-context semantics are proven.
+
+
+### KIRA Mind architecture audit (2026-11-12)
+- Reviewed exact main `mind.c`, `mindnet.c`, `mind_sys.c`, `mind.h`: current Mind is a kernel-resident adaptive resource/diagnostic controller with a small fixed-point logistic classifier, not a general LLM. It learns per-machine norms and a narrow late-loop risk prediction; model persisted at `/var/mind.dat` with CRC/schema checks.
+- Current safeguards are concrete: OBSERVE/ACT modes, scheduler trial/rollback, staged memory thresholds 88/93/97%, heap restriction before kill, process kill cooldown 10s and minimum 16 MiB/20% RAM. These safeguards should be preserved and tested; the remaining architecture gap is a unified request→owner policy→apply→verify→rollback→audit contract for all mutating callbacks.
+- Created `docs/architecture/rfc/RFC-MIND-001.md`, added MIND-001 to contract registry and RFC index, and recorded F-017: CRC is corruption detection, not authenticity; model weights must never become authority/policy.
+- No Mind source code changed; PR #78/#81 remain separate branches and need current-head CI verification before integration.
+
+
+### Mind PR CI refresh (2026-11-12)
+- PR #78 exact head workflow `43201169922`: success for audit, ARM64, host tests, driver E2E, KCC tests, GUI regression, Mind quality, build, UEFI OVMF and all VM shards; package/preview jobs skipped.
+- PR #81 exact head workflow `43228045024`: success for Mind quality, KCC, audit, GUI, driver E2E, ARM64, build, host tests, UEFI OVMF and all VM shards; package/preview jobs skipped.
+- These results support the respective PR heads only. They do not prove the target Mind control API or physical hardware behavior; no PR was merged.
+
+
+## 2026-11-12 — eight-layer architecture migration started
+
+- Architecture target and 8-layer ownership model remain normative in `docs/architecture/KIRA_OS_TARGET_ARCHITECTURE.md`.
+- Added `docs/architecture/SOURCE_LAYOUT_MIGRATION.md`: target source tree, current-file ownership map, prohibited dependency edges, build invariants and phased migration gates.
+- Linked the migration map from `README.md` and made it mandatory in `AGENTS.md`.
+- First behavior-preserving source slice: extracted x86-64 boot initialization from `kernel.c` into `kernel_boot.c`; `kernel_main` ABI remains unchanged. Updated `kernel.h` and `build_clang.sh`. ARM64 entry path was not changed.
+- Latest architecture branch head at this entry: `811fa9e6eeae3493289291f0bab2ce6fc2dbfadc`.
+- Verification: GitHub Actions was triggered on earlier intermediate heads. Exact-head CI for `811fa9e6eeae3493289291f0bab2ce6fc2dbfadc` is not yet confirmed; no build, host-test, QEMU or Limbo PASS is claimed.
+- Next: exact-head build/host/QEMU/ARM64 results; correct any failures; compare boot order against baseline; continue source-level dependency audit across kernel/HAL/security/services/Mind/runtimes/GUI in parallel. Do not merge PR #135 without owner approval.
+
+
+## 2026-11-12 — syscall core/service adapter separation
+
+- Added `syscall_numbers.h` as the single shared registry of Native syscall numbers; all numeric values were preserved.
+- Added `syscall_services.h/.c` and moved graphics, filesystem, network, audio and wall-clock syscall routing out of `kernel/syscall.c` into one service-facing adapter translation unit.
+- `kernel/syscall.c` now retains the syscall entry handler, capability gate, process/thread/memory/IPC primitives, driver calls and fallback to the adapter. It no longer includes graphics/filesystem/network/audio/RTC service headers.
+- Added `RFC-SVC-001.md`: explicitly marks this as an in-kernel transitional facade, not a user-mode Service Manager or IPC isolation claim.
+- Added adapter source to both x86-64 and ARM64 build source lists. Native syscall numbers and dispatch argument order are unchanged by design.
+- Verification pending for the final branch head: x86-64/ARM64 build, host tests and QEMU suite. Do not claim runtime compatibility until CI on exact head succeeds.
+
+- ABI registry follow-up: canonical syscall IDs now live in `kcc/include/syscall_numbers.h`; kernel forwarding header and both userland/KCC public headers consume it. This removes duplicated numeric syscall assignments from public wrappers.
+
+- Corrected ISA ownership: moved x86 `kernel_main` and boot coordinator into `arch/x86_64/`; moved the boot-init declaration into an x86-private header and removed it from common `kernel.h`. ARM64 entry remains separate.
+
+- Service-boundary refinement: the router `services/syscall_router.c` is now subsystem-agnostic. Graphics, filesystem, network, audio and clock syscalls have separate adapter translation units. Both x86-64 and ARM64 build manifests include all adapters; architecture tests enforce one owner per service syscall ID.
+
+- Physical source ownership: moved syscall core to `kernel/syscall.c`; moved service router and five subsystem adapters under `services/`. Updated both ISA builds and architecture tests. Public compatibility headers remain at repository root for now.
+
+
+### Architecture branch CI regression — KCC libc-lite header (2026-11-12)
+- Exact tested head before fix: `005342875d84eb094ed6c292942a2d5269c662e5`, workflow run `43278771976`.
+- x86-64 build, ARM64 build and all 29 QEMU/Limbo VM jobs completed successfully. Host-tests failed in KCC self-host compilation: `kcc/include/string.h` defined unused `static` helpers, and `-Werror=unused-function` rejected `memmove`/ `memset` in translation units that did not use them. The host suite reached KCC with 1 failure; host-tests is not PASS.
+- Corrective change: changed header-only libc-lite helpers from `static` to `static inline` in `kcc/include/string.h`, preserving function bodies and behavior while allowing unused inline helpers in individual translation units.
+- Fix commit: `ccdd22336febdf17cf5ed876b52c2b145a804f72`. Exact-head CI had not yet appeared when this entry was written; fix remains unverified until a fresh workflow run completes.
+- Next: verify exact-head CI; then resume the M2 HAL/Device Model boundary with a dependency-closed slice. Keep PR #135 draft and do not merge.
+
+
+### ARM64 core-loop ownership migration (2026-11-12)
+
+- Из `arch/aarch64/main.c` вынесен steady-state loop в `arch/aarch64/kernel_main.c`; приватный интерфейс — `arch/aarch64/kernel_main.h`. `arm_main()` сохраняет прежний порядок инициализации и передаёт управление после `console_init()`. Цикл `console_poll → periodic Mind/experience/reap → prog_poll → kdrv_poll → life_tick → watchdog_feed → sched_sleep_ticks(1)` сохранён.
+- `build_arm64.sh` и `tests/architecture_test.py` обновлены; guard теперь требует отдельного ARM64 owner и проверяет подключение source/header.
+- Аудит F-017 добавлен в `SOURCE_AUDIT_FINDINGS.md`; инвентаризация отражает, что ARM64 platform bring-up всё ещё остаётся в `main.c`. Это не полный перенос boot и не Service Manager.
+- Host failure на head `005342875d84eb094ed6c292942a2d5269c662e5` был в KCC libc-lite headers: empty loop under `-Wempty-body` и неиспользуемые static helpers под `-Werror`. Последующие коммиты сделали тела циклов явными и функции `static inline`; это исправление ожидает fresh exact-head CI.
+- ARM64 build и QEMU, x86 build и вся QEMU/Limbo VM matrix прошли на head `005342875d84eb094ed6c292942a2d5269c662e5`; host suite на этом head FAILED, не PASS. Более поздние source split commits были отменены CI push-cancellation; требуется новый полный прогон на конечном head.
+- Не сливать PR #135. Следующий шаг после зелёного exact-head CI: извлечь ARM64 platform discovery/early boot в отдельные composition/backend modules по dependency-closed slices, затем формализовать BootInfo/Device Model contracts; PCI enumeration на x86 не включать до закрытия DMA/IOMMU security gates.
+
+
+### Driver Manager syscall ownership extraction (2026-11-12)
+- Continued the eight-layer source migration on the architecture branch. The kernel syscall core previously called `kdrv_sys()` directly and included `kdrv.h`, coupling the privilege-boundary dispatcher to the Driver Manager implementation.
+- Added `services/driver_syscall.c` and routed KDRV operation dispatch through the existing subsystem-agnostic service router. The kernel retains all existing KDRV capability checks in `cap_needed()`; the adapter does not grant capabilities or change the KDRV ABI.
+- Updated `syscall_services.h`, router, x86-64/ARM64 build manifests and `tests/architecture_test.py`. The guard now requires the driver adapter to own each KDRV operation ID exactly once, verifies capability-gate symbols remain in the kernel, and rejects a direct `kdrv_sys()` dependency in the core.
+- Updated RFC-SVC-001, source-layout migration, component inventory and dependency map. This remains an in-kernel adapter boundary, not user-mode service isolation or IPC.
+- KCC CI issue from run `43278771976` was corrected separately in `kcc/include/string.h` by using `static inline`; the fix commit is `ccdd22336febdf17cf5ed876b52c2b145a804f72`.
+- Current integration slice is unverified until fresh exact-head x86-64/ARM64 builds, architecture guard, host tests and QEMU scenarios complete. Do not claim PASS or merge PR #135.
+
+
+### KCC header-only helper warning follow-up (2026-11-12)
+- Exact-head run `43281084734` on `cdb886d1288ef0104c5d2a4c312b90502fce509e`: x86-64 build PASS, ARM64 build PASS, ARM64 GICv2/GICv3 + EL2 scenarios PASS, all 29 x86/QEMU VM jobs PASS. Host suite reached KCC after the earlier tests, then failed at self-host compilation because `kcc/include/stdlib.h` still declared unused `calloc`/`realloc` as non-inline static functions (`-Werror=unused-function`).
+- Root cause: the libc-lite headers use header-only static helper functions; changing only `string.h` exposed the same warning in the next header included by a different translation unit. Converted function helpers in `stdlib.h`, `stdio.h` and `ctype.h` to `static inline`; static per-program state remains ordinary `static` data.
+- Added an architecture/host-test guard scanning every `kcc/include/*.h` for non-inline static function definitions/prototypes, so the warning cannot silently reappear in another libc-lite header.
+- Source-level regex check across the five current libc-lite headers (`string.h`, `stdlib.h`, `stdio.h`, `ctype.h`, `limits.h`) found no remaining non-inline static helper. This is not a substitute for CI.
+- Follow-up CI has been triggered by the new commits; exact-head host tests and all target/VM jobs must complete before declaring the fix verified. No PASS claim for host-tests yet.
+
+
+### KCC static-helper guard correction (2026-11-12)
+- Follow-up run `43282939958` stopped at the new architecture guard before host tests: `kcc/include/kira.h` contains `k_thread_return`, a deliberately non-inline helper marked `__attribute__((used))` because its address is installed as a thread return trampoline. This is not an unused-function warning and must remain non-inline.
+- Corrected the guard to reject only non-inline static helpers without an explicit `used` attribute. Manual source check across `kira.h`, `string.h`, `stdlib.h`, `stdio.h`, `ctype.h` and `limits.h` now finds only the intentional `k_thread_return` exception; all other header helpers are inline.
+- A fresh exact-head CI run is required; neither the guard correction nor the libc-header fixes are considered verified until it completes.
+
+
+### Exact-head architecture CI and AArch64 PCI host extraction (2026-11-12)
+- Exact-head run `43283236117` on `005553b0f91712116c6fb846e2cfb4500b4d09ea` completed **30/30 jobs successfully**: x86-64 build, ARM64 build, host-tests (including architecture guard and KCC), ARM64 QEMU GICv2/GICv3, EL2 and 29 VM scenarios. This verifies the KCC libc-lite `static inline` corrections and the corrected guard at that exact head.
+- Next M2 slice: extracted the FDT-described AArch64 PCIe host bridge into `arch/aarch64/pci_host.c` with the internal `pci_host.h` contract. It owns `pci-host-ecam-generic` discovery, ECAM MMIO mapping, PCI address-window parsing, `pci_use_ecam()`, `pci_init()` and BAR assignment.
+- `arch/aarch64/main.c` now retains only the ordered `arm_pci_init(fdt, kprintf)` handoff. The callback preserves the existing serialized console/logging path; the source no longer contains the PCI host implementation. `build_arm64.sh` compiles the new backend, and `tests/architecture_test.py` enforces unique ownership and the boot-call contract.
+- Updated source-layout migration, component inventory, dependency map and F-020 audit status. x86 PCI enumeration remains deliberately untouched until firmware bus-master sanitization and per-device IOMMU domain lifecycle gates are verified.
+- The PCI extraction itself is not yet verified: fresh exact-head x86-64/ARM64 builds, host tests and VM/QEMU matrix are required before continuing to the next backend.
+
+
+### AArch64 PCI host FDT/ECAM bounds hardening (2026-11-12)
+
+- Added pure `arch/aarch64/pci_host_parse.[ch]` to decode PCI host `ranges` tuples with explicit PCI child (3-cell), parent (1–2-cell) and size (1–2-cell) geometry.
+- The parser rejects truncated tuples, PCI/CPU address-span overflow and CPU-to-PCI deltas outside signed 64-bit range. It retains the largest memory window per supported width and leaves I/O windows out of memory BAR allocation.
+- Hardened `arch/aarch64/pci_host.c`: validate FDT header and enabled node, exact bus-range encoding, 0..255 bus limits, ECAM coverage and physical arithmetic; map only the required ECAM bus span; fail closed on malformed `ranges`.
+- Added `tests/pci_host_parse_test.c` and registered it in the host test suite. Added architecture guards and included the parser in the ARM64 build manifest.
+- Fresh CI is pending for the resulting branch head. No PASS is claimed until the exact final SHA completes host tests, x86-64/ARM64 builds and the QEMU matrix. The earlier run on SHA `6c97d9e86126bb7cef3dcbb31fdd8a4397dfbf03` compiled ARM64 but failed the `arm64-el2-8cpu` SMP scenario; that failure remains under investigation and is not attributed to the PCI parser.

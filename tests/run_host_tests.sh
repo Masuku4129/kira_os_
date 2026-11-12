@@ -7,6 +7,9 @@ FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie"
 SSE="-msse2 -mfpmath=sse -fno-math-errno"
 T=$(mktemp -d)
 
+echo "== architecture boundary: syscall core vs service adapters =="
+python3 tests/architecture_test.py
+
 echo "== logic (sha256, immune) =="
 $CC $FLAGS -o $T/logic tests/logic_test.c immune.c sha256.c \
     -Wl,--defsym=ro_start=ro_area -Wl,--defsym=ro_end=ro_area+256 \
@@ -170,6 +173,9 @@ $T/mindlv
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c
 $T/fdt
+echo "== AArch64 PCI host ranges parser (cell layout, offsets, overflow, malformed input) =="
+$CC $FLAGS -fsanitize=address,undefined -Iarch/aarch64 -o $T/pci-host-ranges tests/pci_host_parse_test.c arch/aarch64/pci_host_parse.c
+$T/pci-host-ranges
 $CC $FLAGS -fsanitize=address,undefined -o $T/crypto tests/crypto_test.c crypto.c sha256.c
 $T/crypto
 

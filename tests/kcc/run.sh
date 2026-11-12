@@ -122,7 +122,7 @@ if [ $rc != 1 ] || ! grep -q '^tests/kcc/native/bad.c:9: error: ' $T/err; then n
 # K_FS - каталоги хоста (песочница и заголовки), K_ARGS - строка запуска, арена растёт через K_HEAP.
 if command -v ld.lld >/dev/null && clang --target=x86_64-unknown-none-elf -ffreestanding -c -x c /dev/null -o $T/probe.o 2>/dev/null; then
     UC="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra -Werror -nostdlibinc"
-    KC="clang --target=x86_64-unknown-none-elf $UC"
+    KC="clang --target=x86_64-unknown-none-elf $UC -Ikcc/include"
     objs=""; built=1
     for src in kcc/*.c; do
         [ $src = kcc/main.c ] && continue

@@ -5,6 +5,7 @@
    Второй этап: поверх платформы работает общее ядро - менеджер страниц, куча, планировщик с очередями на каждом
    ядре, мьютексы ядра; межъядерные сигналы - SGI контроллера GIC. Файловые системы, Разум, программы - дальше. */
 #include <stdint.h>
+#include "kernel_main.h"
 #include "fdt.h"
 #include "fb_arm.h"
 #include "timer.h"
@@ -20,6 +21,8 @@
 #include "pmm.h"
 #include "selftest_arm.h"
 #include "pci.h"
+#include "pci_host.h"
+#include "rtc_host.h"
 #include "blk.h"
 #include "experience.h"
 #include "fscmd.h"
@@ -899,13 +902,6 @@ unsigned platform_cpus(void) { return ncpu; }
 const char* platform_irq_name(void) { return gic_v3 ? "GICv3" : "GICv2"; }
 
 /* Часы реального времени PL031 (QEMU virt и многие платы): регистр данных - секунды UTC от 1970. */
-static void rtc_pl031(const void* fdt) {
-    int n = fdt_find_compatible(fdt, -1, "arm,pl031");
-    uint64_t base, size;
-    if (n < 0 || fdt_reg(fdt, n, 0, &base, &size)) { kprintf("[KIRA RTC] No PL031 real-time clock: date and time are not shown.\n"); return; }
-    volatile void* r = vmm_map_mmio(base, size ? size : 4096, 0);
-    if (r) rtc_set_epoch((int64_t)mmio_r32((uint64_t)(uintptr_t)r), "PL031, UTC");
-}
 
 /* ---------------- общая консоль: то, что есть только у ARM64 ---------------- */
 unsigned smp_online(void) { unsigned n = 0; for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online) n++; return n; }
@@ -992,39 +988,6 @@ int platform_console_cmd(const char* l, const char* a) {
    Узел pci-host-ecam-generic: reg - окно конфигурации ECAM, bus-range - шины, ranges - окна адресов для BAR
    (3 ячейки адреса шины: тип пространства в старшей - 1 порты, 2 память 32 бита, 3 память 64 бита). Прошивки нет,
    поэтому адреса BAR назначает ядро. Драйверы (virtio, NVMe, AHCI, xHCI) - те же, что на x86-64. */
-static void arm_pci_init(const void* fdt) {
-    int n = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
-    if (n < 0) { kprintf("[KIRA PCI] no PCI Express host bridge in the device tree\n"); return; }
-    uint64_t base, size;
-    if (fdt_reg(fdt, n, 0, &base, &size)) return;
-    uint32_t len, bus0 = 0, bus1 = (uint32_t)(size >> 20) - 1;
-    const uint8_t* br = (const uint8_t*)fdt_prop(fdt, n, "bus-range", &len);
-    if (br && len >= 8) { bus0 = fdt_u32(br); bus1 = fdt_u32(br + 4); }
-    if (bus1 > 255) bus1 = 255;
-    volatile void* e = vmm_map_mmio(base, size, 0);
-    if (!e) return;
-    pci_use_ecam(e, (uint8_t)bus0, (uint8_t)bus1);
-    pci_window_t m32 = { 0, 0, 0, 0 }, m64 = { 0, 0, 0, 0 };
-    uint32_t pac = 2, sc = 2;
-    int par = fdt_parent(fdt, n);
-    if (par >= 0) fdt_prop_u32(fdt, par, "#address-cells", &pac);
-    fdt_prop_u32(fdt, n, "#size-cells", &sc);
-    const uint8_t* r = (const uint8_t*)fdt_prop(fdt, n, "ranges", &len);
-    uint32_t stride = 4 * (3 + pac + sc);
-    for (uint32_t o = 0; r && stride && o + stride <= len; o += stride) {
-        uint32_t hi = fdt_u32(r + o);
-        uint64_t pci = (uint64_t)fdt_u32(r + o + 4) << 32 | fdt_u32(r + o + 8), cpu = 0, sz = 0;
-        for (uint32_t i = 0; i < pac; i++) cpu = cpu << 32 | fdt_u32(r + o + 12 + 4 * i);
-        for (uint32_t i = 0; i < sc; i++) sz = sz << 32 | fdt_u32(r + o + 12 + 4 * pac + 4 * i);
-        pci_window_t* w = ((hi >> 24) & 3) == 2 ? &m32 : ((hi >> 24) & 3) == 3 ? &m64 : 0;
-        if (w && sz > w->size) { w->pci_base = pci; w->next = pci; w->size = sz; w->cpu_off = (int64_t)(cpu - pci); }
-    }
-    int nd = pci_init();
-    int nb = pci_assign(&m32, &m64);
-    kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\n",
-            base, (uint64_t)bus0, (uint64_t)bus1, (uint64_t)nd, (uint64_t)nb, m32.pci_base, m64.pci_base);
-}
-
 /* ---------------- вход ---------------- */
 static const void* find_fdt(uint64_t x0) {
     if (!x0 || (x0 & 7)) return 0;
@@ -1212,7 +1175,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && cpus[i].ticks > 0 && cpus[i].gic_ok) ticking++;
     kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u (idle cores then switch their tick off)\n", (uint64_t)ticking, (uint64_t)started);
     clock_init(cnt_freq / 1000);
-    arm_pci_init(fdt);
+    arm_pci_init(fdt, kprintf);
     rng_init();              /* генератор случайных чисел: RNDR, virtio-rng, времена прерываний */
     immune_init();
     watchdog_init();
@@ -1223,7 +1186,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN %s; user pointers validated.\n",
             uaccess_enable_smap() ? "on (kernel touches programs only via LDTR/STTR)" : "not offered by this CPU (copies still use LDTR/STTR)");
     mind_sys_init();         /* Разум: нормы, модель предвидения, тактика ~40 Гц */
-    rtc_pl031(fdt);
+    arm_rtc_init(fdt, kprintf);
 
     input_init();
     if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.\n");
@@ -1234,23 +1197,8 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     hda_probe();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 
-    console_init();                                              /* общая консоль: те же команды, что у x86-64 */
-    for (;;) {                                                   /* поток core: консоль и секундные дела */
-        console_poll();
-        static uint64_t last_sec, seconds;
-        if (timer_get_ticks() - last_sec >= TIMER_HZ) {          /* раз в секунду: Разум, опыт, журнал, сборка стеков */
-            last_sec = timer_get_ticks();
-            seconds++;
-            mind_sys_tick(seconds);
-            experience_tick(seconds);
-            sched_reap();
-        }
-        prog_poll();                                             /* запуск, заказанный оболочкой (док, Проводник) */
-        kdrv_poll();                                             /* драйверы Ring 3 */
-        life_tick();
-        watchdog_feed();
-        sched_sleep_ticks(1);
-    }
+    console_init();
+    arm_kernel_main_loop();
 }
 
 uint64_t arm_counter_khz(void) { return cnt_freq / 1000; }
