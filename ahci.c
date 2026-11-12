@@ -260,7 +260,7 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
                 if (pci_disable_bus_master(c->pci))
                     iommu_unmap_all(c->pci);
                 else
-                    uart_print("[KIRA AHCI] bus mastering did not stop; mappings remain pinned.\\n");
+                    uart_print("[KIRA AHCI] bus mastering did not stop; mappings remain pinned.\n");
                 c->dma_failed = 1;
             }
             uart_print("[KIRA AHCI] command/FIS DMA mapping failed; port skipped.\n");
@@ -276,7 +276,7 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
                 if (pci_disable_bus_master(c->pci))
                     iommu_unmap_all(c->pci);
                 else
-                    uart_print("[KIRA AHCI] bus mastering did not stop; mappings remain pinned.\\n");
+                    uart_print("[KIRA AHCI] bus mastering did not stop; mappings remain pinned.\n");
                 c->dma_failed = 1;
             }
             uart_print("[KIRA AHCI] data DMA mapping failed; port skipped.\n");
@@ -303,9 +303,9 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
         if (pci_disable_bus_master(c->pci))
             (void)iommu_unmap_all(c->pci);
         else
-            uart_print("[KIRA AHCI] bus mastering did not stop; DMA mappings remain pinned.\\n");
+            uart_print("[KIRA AHCI] bus mastering did not stop; DMA mappings remain pinned.\n");
         c->dma_failed = 1;
-        uart_print("[KIRA AHCI] PCI DMA authorization was not granted; controller quarantined.\\n");
+        uart_print("[KIRA AHCI] PCI DMA authorization was not granted; controller quarantined.\n");
         return;
     }
     if (port_start(p)) { uart_print("[KIRA AHCI] port "); uart_print_dec((uint64_t)pn); uart_print(": device stays busy\n"); return; }
