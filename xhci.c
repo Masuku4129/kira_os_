@@ -562,7 +562,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     }
 #endif
     if (!pci_disable_bus_master(p)) {
-        usb_log("[KIRA USB] xHCI: inherited bus mastering cannot be disabled; controller quarantined\\n");
+        usb_log("[KIRA USB] xHCI: inherited bus mastering cannot be disabled; controller quarantined\n");
         return -1;
     }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
