@@ -45,6 +45,10 @@ void kmutex_unlock(kmutex_t* m) {
     uint64_t f = spin_lock_irqsave(&m->lk);
     thread_t* w = m->head;
     thread_t* self = me();
+    if (m->owner != self) {
+        spin_unlock_irqrestore(&m->lk, f);
+        kernel_panic("kmutex: unlock by non-owner");
+    }
     if (real(self) && self->mutexes_held) self->mutexes_held--;
     if (w) {                                  // передаём первому в очереди, минуя «свободное» состояние
         m->head = w->wait_next;
