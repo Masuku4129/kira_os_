@@ -70,6 +70,16 @@ int main(void) {
     assert(slot == ARM_SLOTS - 1u);
     assert(kstack_slot_activate(arm_active, ARM_SLOTS, slot));
     assert(kstack_slot_release(arm_active, ARM_SLOTS, slot));
+    uint16_t arm_free[ARM_SLOTS];
+    uint32_t arm_free_count = 0, arm_reused = 0;
+    assert(kstack_slot_activate(arm_active, ARM_SLOTS, ARM_SLOTS - 1u));
+    assert(kstack_slot_free_push(arm_free, &arm_free_count, arm_active,
+                                 ARM_SLOTS, ARM_SLOTS, ARM_SLOTS - 1u));
+    assert(kstack_slot_free_pop(arm_free, &arm_free_count, arm_active,
+                                ARM_SLOTS, ARM_SLOTS, &arm_reused));
+    assert(arm_reused == ARM_SLOTS - 1u && arm_free_count == 0);
+    assert(!kstack_slot_free_push(arm_free, &arm_free_count, arm_active,
+                                  ARM_SLOTS + 1u, ARM_SLOTS, ARM_SLOTS - 1u));
     puts("kstack slot lifecycle: exact base, bounds, ownership, double-free and reuse passed");
     return 0;
 }
