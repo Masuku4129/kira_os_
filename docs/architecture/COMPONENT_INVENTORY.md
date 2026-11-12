@@ -70,3 +70,6 @@
 
 
 **PCI host parsing hardening (architecture branch):** ECAM bus-range and physical-span checks now fail closed; PCI `ranges` decoding is isolated in a host-testable pure parser with signed-offset and overflow validation. This is source/test coverage awaiting exact-head CI, not proof of physical PCI hardware support.
+
+
+**Latest verified baseline:** CI run `43298087855` on SHA `618ce01344e219991323aca51f9de58c55ed2aab` passed 30/30 jobs, including 16 ARM64 QEMU scenarios. Subsequent bus-range-start and ECAM-alignment hardening is committed but awaits a new exact-head run.
