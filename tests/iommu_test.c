@@ -325,15 +325,19 @@ int main(int argc, char** argv) {
     CHECK(hw_dma(sid_of(d3), 0x20000, 0, &pa) != 0);                                    /* stale translation is now gone */
     CHECK(iommu_unmap(d3, 0x20000, 0x1000) == IOMMU_E_NOENT);
 
-    /* Bulk unmap also retains failed ranges instead of dropping their ledger. */
-    CHECK(iommu_map(d3, 0x60000, 0xC0000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_OK);
+    /* Bulk unmap retains failed multi-page ranges and retries one batched flush. */
+    CHECK(iommu_map(d3, 0x60000, 0xC0000, 0x2000, IOMMU_R | IOMMU_W) == IOMMU_OK);
     CHECK(hw_dma(sid_of(d3), 0x60000, 0, &pa) == 0);
+    CHECK(hw_dma(sid_of(d3), 0x61000, 0, &pa) == 0);
+    int bulk_flushes = iotlb_flushes;
     hw_hang = 1;
     CHECK(iommu_unmap_all(d3) == IOMMU_E_HW);
-    CHECK(hw_dma(sid_of(d3), 0x60000, 0, &pa) == 0);
+    CHECK(hw_dma(sid_of(d3), 0x61000, 0, &pa) == 0);
     hw_hang = 0; *r64(R_IOTLB) &= ~(1ull << 63); *r64(R_CCMD) &= ~(1ull << 63); hw_sync();
     CHECK(iommu_unmap_all(d3) == IOMMU_OK);
+    CHECK(iotlb_flushes == bulk_flushes + 1);
     CHECK(hw_dma(sid_of(d3), 0x60000, 0, &pa) != 0);
+    CHECK(hw_dma(sid_of(d3), 0x61000, 0, &pa) != 0);
 
     /* hardware that does not complete invalidation: the map reports it and leaves no access behind */
     hw_hang = 1;
