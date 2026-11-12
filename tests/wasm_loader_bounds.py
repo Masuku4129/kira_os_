@@ -48,6 +48,12 @@ cases = [
      b"\x7f\x00\x41\x00\x0b" +
      b"\x7f\x00\x23\x00\x0b",
      "constant expression references unsupported local global"),
+    ("constant-expression-global-type-mismatch",
+     magic + b"\x01\x04\x01\x60\x00\x00" +
+     b"\x03\x02\x01\x00" +
+     b"\x06\x06\x01\x7f\x00\x42\x00\x0b" +
+     b"\x07\x09\x01\x05kmain\x00\x00",
+     "constant expression type mismatch"),
     ("section-size-u32-overflow",
      magic + b"\x01\xff\xff\xff\xff\x10",
      "bad unsigned LEB128"),
@@ -194,5 +200,24 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-i64-leb-") as td:
         print(run.stdout)
         raise SystemExit(1)
     print("PASS: valid 10-byte negative i64 LEB is accepted")
+
+# A memoryless MVP module is valid and must not receive an implicit 64 KiB memory.
+memoryless_module = (
+    magic +
+    b"\x01\x05\x01\x60\x00\x01\x7f" +
+    b"\x03\x02\x01\x00" +
+    b"\x07\x09\x01\x05kmain\x00\x00" +
+    b"\x0a\x06\x01\x04\x00\x41\x00\x0b"
+)
+with tempfile.TemporaryDirectory(prefix="kira-wasm-memoryless-") as td:
+    path = pathlib.Path(td) / "memoryless.wasm"
+    path.write_bytes(memoryless_module)
+    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, env=test_env)
+    if run.returncode != 0 or "wasm: finished with code 0" not in run.stdout:
+        print("FAIL: valid memoryless module was rejected")
+        print(run.stdout)
+        raise SystemExit(1)
+    print("PASS: valid memoryless module runs without implicit memory")
 
 print("wasm loader bounds: all malformed envelopes rejected")
