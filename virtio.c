@@ -230,11 +230,21 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
     return queue_setup(v, q, index, max_size, 1);
 }
 
-void virtio_driver_ok(virtio_dev_t* v) {
+int virtio_driver_ok(virtio_dev_t* v) {
     /* All queues and driver-owned DMA buffers must be granted before this call. */
-    if (v && v->pci)
-        pci_enable(v->pci, PCI_CMD_MASTER);
+    if (!v || !v->pci || !v->common)
+        return -1;
+    pci_enable(v->pci, PCI_CMD_MASTER);
+    if (!(pci_read16(v->pci, 0x04) & PCI_CMD_MASTER)) {
+        virtio_fail(v);
+        return -1;
+    }
     status_set(v, status_get(v) | VIRTIO_ST_DRIVER_OK);
+    if (!(status_get(v) & VIRTIO_ST_DRIVER_OK)) {
+        virtio_fail(v);
+        return -1;
+    }
+    return 0;
 }
 
 typedef struct { uint64_t addr; uint32_t len; uint16_t flags, next; } desc_t;
