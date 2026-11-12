@@ -406,3 +406,11 @@
 - Updated RFC-SVC-001, source-layout migration, component inventory and dependency map. This remains an in-kernel adapter boundary, not user-mode service isolation or IPC.
 - KCC CI issue from run `43278771976` was corrected separately in `kcc/include/string.h` by using `static inline`; the fix commit is `ccdd22336febdf17cf5ed876b52c2b145a804f72`.
 - Current integration slice is unverified until fresh exact-head x86-64/ARM64 builds, architecture guard, host tests and QEMU scenarios complete. Do not claim PASS or merge PR #135.
+
+
+### KCC header-only helper warning follow-up (2026-11-12)
+- Exact-head run `43281084734` on `cdb886d1288ef0104c5d2a4c312b90502fce509e`: x86-64 build PASS, ARM64 build PASS, ARM64 GICv2/GICv3 + EL2 scenarios PASS, all 29 x86/QEMU VM jobs PASS. Host suite reached KCC after the earlier tests, then failed at self-host compilation because `kcc/include/stdlib.h` still declared unused `calloc`/`realloc` as non-inline static functions (`-Werror=unused-function`).
+- Root cause: the libc-lite headers use header-only static helper functions; changing only `string.h` exposed the same warning in the next header included by a different translation unit. Converted function helpers in `stdlib.h`, `stdio.h` and `ctype.h` to `static inline`; static per-program state remains ordinary `static` data.
+- Added an architecture/host-test guard scanning every `kcc/include/*.h` for non-inline static function definitions/prototypes, so the warning cannot silently reappear in another libc-lite header.
+- Source-level regex check across the five current libc-lite headers (`string.h`, `stdlib.h`, `stdio.h`, `ctype.h`, `limits.h`) found no remaining non-inline static helper. This is not a substitute for CI.
+- Follow-up CI has been triggered by the new commits; exact-head host tests and all target/VM jobs must complete before declaring the fix verified. No PASS claim for host-tests yet.
