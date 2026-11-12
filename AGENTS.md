@@ -4,13 +4,14 @@
 1. `docs/MASTER_DEVELOPMENT_PLAN.md` — обязательный полный план проекта.
 2. `docs/architecture/KIRA_OS_TARGET_ARCHITECTURE.md` — обязательная целевая архитектура и границы компонентов.
 3. `docs/architecture/ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md` — текущая последовательность аудита и интеграции.
-4. `docs/architecture/COMPONENT_INVENTORY.md`, `DEPENDENCY_MAP.md` и `CONTRACT_REGISTRY.md` — фактические компоненты, зависимости и обязательные интерфейсы.
-5. `docs/architecture/OPEN_PR_ARCHITECTURE_TRACKER.md` и `SOURCE_AUDIT_FINDINGS.md` — открытая веточная работа и подтверждённые риски.
-6. Профильные спецификации `docs/compat/` и `docs/virtualization/`, если задача касается этих направлений.
-7. `docs/WORKLOG.md` — последняя точка продолжения, открытые ветки и подтверждённые/неподтверждённые проверки.
-8. `README.md` — текущий способ сборки и тестирования.
-9. `ARCHITECTURE.md` — текущая архитектура и исторические ограничения.
-10. Документы подсистемы, которую затрагивает задача.
+4. `docs/architecture/SOURCE_LAYOUT_MIGRATION.md` — целевые каталоги, source ownership и gates физической миграции.
+5. `docs/architecture/COMPONENT_INVENTORY.md`, `DEPENDENCY_MAP.md` и `CONTRACT_REGISTRY.md` — фактические компоненты, зависимости и обязательные интерфейсы.
+6. `docs/architecture/OPEN_PR_ARCHITECTURE_TRACKER.md` и `SOURCE_AUDIT_FINDINGS.md` — открытая веточная работа и подтверждённые риски.
+7. Профильные спецификации `docs/compat/` и `docs/virtualization/`, если задача касается этих направлений.
+8. `docs/WORKLOG.md` — последняя точка продолжения, открытые ветки и подтверждённые/неподтверждённые проверки.
+9. `README.md` — текущий способ сборки и тестирования.
+10. `ARCHITECTURE.md` — текущая архитектура и исторические ограничения.
+11. Документы подсистемы, которую затрагивает задача.
 
 Не начинать анализ/кодирование/PR до чтения мастер-плана. Это обязательный gate, а не рекомендация.
 
