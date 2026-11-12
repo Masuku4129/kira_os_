@@ -2,7 +2,9 @@
  * RTL8139 PCI Ethernet controller driver.
  *
  * Register definitions and device behavior follow the public RTL8139
- * programming specification. The platform supplies port I/O, DMA allocation,
+ * programming specification. Register offsets/status bits are from Realtek
+ * RTL8139C(L) Datasheet Rev. 1.6, Track ID JATR-1076-21, sections 6.1-6.8.
+ * The platform supplies port I/O, DMA allocation,
  * cache maintenance and packet delivery. The driver uses the 8 KiB receive
  * ring and four independent transmit descriptors.
  */
@@ -48,7 +50,7 @@
 #define RCR_APM        (1u << 1)
 #define RCR_AM         (1u << 2)
 #define RCR_AB         (1u << 3)
-#define RCR_WRAP       (0u << 7) /* Wrap to ring start; bit 1 would require >=1.5 KiB tail. */
+#define RCR_WRAP       (0u << 7) /* Wrap to ring start; bit 7=1 requires >=1.5 KiB tail. */
 #define RCR_MXDMA_1024 (6u << 8)
 #define RCR_RBLEN_8K   (0u << 11)
 #define RCR_RXFTH_NONE (7u << 13)
