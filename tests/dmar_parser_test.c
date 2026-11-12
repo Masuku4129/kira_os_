@@ -93,7 +93,7 @@ int main(void)
     {
         uint8_t bad[68];
         base_table(bad, sizeof bad);
-        put16(bad + 64, 6); put16(bad + 66, 4); checksum(bad, sizeof bad);
+        put16(bad + 64, 7); put16(bad + 66, 4); checksum(bad, sizeof bad);
         assert(kira_dmar_parse(bad, sizeof bad, &inventory) == KIRA_DMAR_E_STRUCTURE);
     }
 
