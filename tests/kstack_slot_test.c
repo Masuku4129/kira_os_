@@ -57,6 +57,12 @@ int main(void) {
     assert(free_count == 1);
     assert(kstack_slot_release(active, SLOTS, 7));
 
+    free_slots[0] = (uint16_t)SLOTS;
+    free_count = 1;
+    assert(!kstack_slot_free_pop(free_slots, &free_count, active, SLOTS, SLOTS, &reused));
+    assert(free_count == 1); /* Out-of-range entry is not consumed. */
+    free_count = 0;
+
     uint32_t full_count = SLOTS;
     assert(kstack_slot_activate(active, SLOTS, 8));
     assert(!kstack_slot_free_push(free_slots, &full_count, active, SLOTS, SLOTS, 8));
