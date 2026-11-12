@@ -28,7 +28,6 @@ int main(int argc, char** argv) {
             long long t0, t1; uint8_t d[32];
             t0 = now_ns(); for (int i = 0; i < n; i++) sink += elf_parse(e, le, LO, HI, 4096, &ie); t1 = now_ns(); printf("%d elf_parse %s %lld\n", r, nm, (t1 - t0) / n);
             t0 = now_ns(); for (int i = 0; i < n; i++) sink += kex_parse(k, lk, LO, HI, 4096, &ik); t1 = now_ns(); printf("%d kex_parse %s %lld\n", r, nm, (t1 - t0) / n);
-            if (argc > a + 2 && 0) {}
             t0 = now_ns(); for (int i = 0; i < n / 10 + 1; i++) { sink += kex_parse(k, lk, LO, HI, 4096, &ik); sink += kex_verify_hash(k, lk); } t1 = now_ns(); printf("%d kex_parse+sha256 %s %lld\n", r, nm, (t1 - t0) / (n / 10 + 1));
             t0 = now_ns(); for (int i = 0; i < n / 10 + 1; i++) { sink += elf_parse(e, le, LO, HI, 4096, &ie); sha256(e, le, d); sink += d[0]; } t1 = now_ns(); printf("%d elf_parse+sha256 %s %lld\n", r, nm, (t1 - t0) / (n / 10 + 1));
         }
