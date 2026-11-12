@@ -24,6 +24,15 @@ static void put_le64(uint8_t *p, uint64_t v)
         p[i] = (uint8_t)(v >> (i * 8));
 }
 
+static int bytes_all_zero(const uint8_t *p, size_t n)
+{
+    uint8_t value = 0;
+    size_t i;
+    for (i = 0; i < n; ++i)
+        value |= p[i];
+    return value == 0;
+}
+
 static int bytes_equal(const uint8_t *a, const uint8_t *b, size_t n)
 {
     uint8_t diff = 0;
@@ -48,6 +57,8 @@ int kdrv_trust_add_key(struct kdrv_trust_store *store,
 {
     size_t i;
     if (!store || !key || store->key_count > KDRV_TRUST_MAX_KEYS ||
+        bytes_all_zero(key->id, KDRV_TRUST_KEY_ID_SIZE) ||
+        bytes_all_zero(key->public_key, sizeof(key->public_key)) ||
         key->not_after <= key->not_before)
         return KDRV_TRUST_INVALID;
 
