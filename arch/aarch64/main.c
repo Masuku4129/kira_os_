@@ -1310,7 +1310,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
     if (dma_nc_policy && dma_lo)
-        kprintf("[KIRA ARM64] DMA: non-coherent devices use uncached pool: %u MB at %x\n", (dma_hi - dma_lo) >> 20, dma_lo);
+        kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at 0x%x\n", (dma_hi - dma_lo) >> 20, dma_lo);
     else if (dma_nc_policy)
         kprintf("[KIRA ARM64] DMA: non-coherent platform has no safe pool; DMA allocation fails closed\n");
     else
