@@ -581,6 +581,9 @@ void sched_sleep_ticks(uint32_t ticks) {
 }
 
 void sched_exit(void) {
+    thread_t *self = this_cpu()->current;
+    if (self && self->mutexes_held)
+        kernel_panic("sched_exit: thread exited while holding kmutex");
     CPU_CLI();
     sl_lock();
     this_cpu()->current->state = THREAD_ZOMBIE;
