@@ -341,7 +341,9 @@ static int mmu_init(uint64_t top) {
 #define KSTACK_SLOTS  65536ull
 #define PTE_PAGE      3ull
 #define PTE_KDATA     ((2ull << 2) | PTE_AF | PTE_SH_IN | (1ull << 53) | (1ull << 54))
-static uint64_t ks_next, ks_free = ~0ull, ks_size;
+static uint64_t ks_next, ks_size;
+static uint16_t ks_free[KSTACK_SLOTS];
+static uint32_t ks_nfree;
 static uint8_t ks_active[(KSTACK_SLOTS + 7u) / 8u];
 static volatile uint32_t ks_lock;
 
@@ -377,11 +379,10 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     uint64_t va = 0;
     uint64_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_RELAXED);
     if (stack_size && stack_size != bytes) goto out;
-    if (ks_free != ~0ull) {
-        uint64_t slot = ks_free;
-        if (slot >= ks_next || !kstack_slot_activate(ks_active, (uint32_t)KSTACK_SLOTS, (uint32_t)slot)) goto out;
-        va = KSTACK_VA + slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
-        ks_free = *(volatile uint64_t*)(uintptr_t)va;
+    if (ks_nfree) {
+        uint32_t slot = ks_free[--ks_nfree];
+        if (slot >= ks_next || !kstack_slot_activate(ks_active, (uint32_t)KSTACK_SLOTS, slot)) goto out;
+        va = KSTACK_VA + (uint64_t)slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
     } else if (ks_next < KSTACK_SLOTS) {
         uint64_t slot = ks_next, base = KSTACK_VA + slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
         int ok = 1, mapped = 0;
@@ -413,9 +414,8 @@ void vmm_kstack_free(void* base) {
     uint32_t slot;
     if (kstack_slot_from_base(va, KSTACK_VA, KSTACK_STRIDE, (uint32_t)KSTACK_SLOTS,
                               (uint32_t)__atomic_load_n(&ks_size, __ATOMIC_RELAXED), (uint32_t)ks_next, &slot) &&
-        kstack_slot_release(ks_active, (uint32_t)KSTACK_SLOTS, slot)) {
-        *(volatile uint64_t*)(uintptr_t)va = ks_free;
-        ks_free = slot;
+        ks_nfree < KSTACK_SLOTS && kstack_slot_release(ks_active, (uint32_t)KSTACK_SLOTS, slot)) {
+        ks_free[ks_nfree++] = (uint16_t)slot;
     }
     __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
     irq_restore(f);
