@@ -264,8 +264,13 @@ int kdrv_catalogue_load(struct kdrv_trust_store *trust,
     /* Advance only after every signed entry has passed canonical parsing.
        Otherwise a malformed but correctly signed catalogue could permanently
        raise the rollback floor and deny recovery with the previous release. */
-    if (kdrv_trust_advance_floor(trust_ops, header_version) != KDRV_TRUST_OK)
-        return KDRV_CATALOGUE_STORAGE_ERROR;
+    {
+        int floor_rc = kdrv_trust_advance_floor(trust_ops, header_version);
+        if (floor_rc == KDRV_TRUST_ROLLBACK)
+            return KDRV_CATALOGUE_UNTRUSTED;
+        if (floor_rc != KDRV_TRUST_OK)
+            return KDRV_CATALOGUE_STORAGE_ERROR;
+    }
 
     return KDRV_CATALOGUE_OK;
 }
