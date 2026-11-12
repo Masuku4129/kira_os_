@@ -217,6 +217,9 @@ $T/kdrv_catalogue
 echo "== KDRV manager: signed install lifecycle and staged rollback =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_manager tests/kdrv_manager_test.c drivers/kdrv/kdrv_manager.c
 $T/kdrv_manager
+echo "== Driver Compatibility: authenticated source inspection, bounded translation, native signing and cleanup =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/drvcompat tests/drvcompat_test.c userland/drvcompat.c
+$T/drvcompat
 python3 -m unittest ci.test_kdrvsign
 
 echo "== device tree (FDT) parser =="
