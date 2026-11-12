@@ -57,7 +57,7 @@
 - открытые дефекты, заглушки, дублирование, обходы security boundary;
 - точные PR/branch зависимости и риск конфликта.
 
-Создать матрицу `docs/architecture/COMPONENT_INVENTORY.md` и граф зависимостей `docs/architecture/DEPENDENCY_MAP.md`. Не маркировать модуль «реализовано» без исходного кода и конкретного успешного теста.
+Создать и поддерживать матрицу `docs/architecture/COMPONENT_INVENTORY.md`, граф зависимостей `docs/architecture/DEPENDENCY_MAP.md`, findings `docs/architecture/SOURCE_AUDIT_FINDINGS.md` и tracker `docs/architecture/OPEN_PR_ARCHITECTURE_TRACKER.md`. Не маркировать модуль «реализовано» без исходного кода и конкретного успешного теста.
 
 **Выход:** полная карта фактической системы и список противоречий с целевой моделью.
 
@@ -151,7 +151,18 @@
 
 После фаз 1–3 составить конкретный набор небольших PR. Приоритет определяется не желанием быстрее показать функцию, а критичностью архитектурного контракта, количеством зависимых компонентов и риском безопасности. Все 12 потоков продолжаются; интеграция не означает последовательное замораживание разработки.
 
-## 3. Текущая рабочая очередь
+## 3. Текущее состояние выполнения (обновлено 2026-11-12)
+
+- Целевая архитектура, исполняемый план, обязательные входные ссылки в AGENTS/README — созданы в draft PR #135.
+- Первичная инвентаризация, dependency map и contract registry — созданы. Это первичный source-level pass, не полный аудит всех модулей.
+- Отдельные Windows/Linux compatibility specs, compatibility matrix и Hypervisor threat model — созданы в `docs/compat/` и `docs/virtualization/`.
+- Open PR architecture tracker создан; выявлены важные вложенные веточные цепочки KDRV, IOMMU, KCC, Mind, scheduler. Ни один PR не сливался в рамках этой работы.
+- Source-audit findings зафиксировали конкретные риски: kernel stack slot double-free/free-list ownership (#132); отсутствие подтверждённой publisher signature в main KDRV path (signature PR chain ещё не в main); статическая name-based capabilities; Mind action boundary; host tests с no-op locks; WASM fuel test-only; широкий syscall dispatcher.
+- Последний main CI на baseline SHA `bbc7f7ab948e72511aed113b69043add10ec8350`: workflow run `43244194123`, 30 jobs завершились success (host-tests, ARM64, build, QEMU VM scenarios, Limbo smoke/stress). Это evidence для указанного SHA и конкретной матрицы, не доказательство полной архитектуры или физического ARM64/x86 hardware.
+- Для draft PR #135 workflow runs на его head SHA не обнаружены; документы не получили отдельного CI подтверждения. Сравнение с main: 15 commits ahead, 0 behind, 8 changed files до последних документов; после добавления compatibility/audit docs требуется обновить compare.
+- Никаких host tests или локальных сборок в этой сессии не запускалось.
+
+## 4. Текущая рабочая очередь
 
 | Приоритет | Задача | Зависимости | Критерий завершения |
 |---|---|---|---|
@@ -166,7 +177,7 @@
 | P1 | Architecture conformance CI | Contract registry | Проверки направленности зависимостей и контрактов |
 | P2 | Вертикальные реализации по каждому потоку | P0/P1 contracts | Интеграционные PR с реальными tests |
 
-## 4. Обязательные правила выполнения
+## 5. Обязательные правила выполнения
 
 - Перед каждой сессией перечитать `AGENTS.md`, мастер-план, этот документ, `WORKLOG.md`, `README.md`, `ARCHITECTURE.md` и затрагиваемые subsystem docs.
 - Проверить свежие main SHA, branches, open PRs, workflow runs и точные head SHAs.
@@ -177,7 +188,7 @@
 - Не перезаписывать существующие изменения и не делать массовые архитектурные рефакторинги без карты зависимостей.
 - В WORKLOG фиксировать SHA, изменённые файлы, реальные команды/CI, фактические результаты и следующую точку продолжения.
 
-## 5. Что делаем прямо сейчас
+## 6. Что делаем прямо сейчас
 
 1. Создаём отдельную ветку для целевой архитектуры и плана; main не затрагиваем.
 2. Добавляем нормативную архитектурную спецификацию и исполняемый audit plan.
