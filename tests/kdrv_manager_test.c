@@ -56,7 +56,7 @@ static int parse_manifest(void *opaque, const void *package, size_t size,
     strcpy(manifest->dependencies[0].name, "pci-core");
     strcpy(manifest->dependencies[0].minimum_version, "1.0");
     if (ctx->bad_name) strcpy(manifest->name, "../escape");
-    if (ctx->bad_version) strcpy(manifest->version, "1/../../escape");
+    if (ctx->bad_version) strcpy(manifest->version, "..");
     if (ctx->bad_dependency) strcpy(manifest->dependencies[0].name, "../escape");
     manifest->payload_offset = 4;
     manifest->payload_size = 8;
