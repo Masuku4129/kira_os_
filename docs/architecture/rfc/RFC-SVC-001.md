@@ -6,7 +6,7 @@
 
 ## 1. Цель
 
-Отделить стабильный вход системных вызовов и механизмы ядра от знания о конкретных подсистемах ОС. Пользовательский Native ABI остаётся стабильным, а реализация файловых, графических, сетевых и аудиофункций получает отдельную точку адаптации.
+Отделить стабильный вход системных вызовов и механизмы ядра от знания о конкретных подсистемах ОС. Пользовательский Native ABI остаётся стабильным, а реализация файловых, графических, сетевых, аудио- и driver-management функций получает отдельную точку адаптации.
 
 Это первый структурный шаг к Service Manager и отдельным системным службам. Он **не** создаёт IPC-процессы и не повышает отказоустойчивость сам по себе.
 
@@ -29,7 +29,7 @@
 - память процесса: heap/JIT;
 - futex, port, shared-memory и handle primitives;
 - monotonic clock;
-- capability gate и driver-specific privileged syscalls;
+- capability gate для driver-specific privileged syscalls;
 - общую безопасную работу с user pointers, где она нужна kernel mechanisms.
 
 Ядро отвечает за безопасный переход через privilege boundary и примитивы, а не за реализацию политики файлового менеджера, TCP или аудиомикшера.
@@ -41,7 +41,7 @@
 - `services/filesystem_syscall.c`: `SYS_FS` → file-service API;
 - `services/network_syscall.c`: TCP/UDP/DNS syscalls → network API;
 - `services/audio_syscall.c`: playback/record syscalls → audio API;
-- `services/clock_syscall.c`: `SYS_TIME` → RTC API.
+- `services/clock_syscall.c`: `SYS_TIME` → RTC API;\n- `services/driver_syscall.c`: KDRV operation IDs → `kdrv_sys()` / Driver Manager API.\n\nДля KDRV core сохраняет проверку `CAP_DRIVER_`, `CAP_PCIDEV`, `CAP_MMIO`, `CAP_DMA`, `CAP_IRQ`, `CAP_NETDEV` и `CAP_PCILIST`; adapter не выдаёт полномочия и не обходит этот gate.
 
 Каждый ABI номер имеет ровно одного владельца-адаптер, что закреплено `tests/architecture_test.py`. Adapter — внутренний kernel facade. Это ещё не отдельный процесс службы, не IPC и не гарантия crash isolation.
 
@@ -70,14 +70,14 @@
 
 ## 6. Build and verification
 
-Оба target build обязаны включать `services/syscall_router.c`:
+Оба target build обязаны включать `services/syscall_router.c` и все subsystem adapters, включая `services/driver_syscall.c`:
 - x86-64: `build_clang.sh`;
 - ARM64: `build_arm64.sh`.
 
 Acceptance для текущего extraction:
 - номера syscall до/после совпадают побайтно;
 - каждый service syscall из исходного dispatcher обрабатывается ровно одним adapter case;
-- core не включает `net.h`, `audio.h`, `gfxsrv.h`, `fsrv.h` или `rtc.h`;
+- core не включает subsystem implementation headers (`net.h`, `audio.h`, `gfxsrv.h`, `fsrv.h`, `rtc.h`, `kdrv.h`) и не вызывает `kdrv_sys()` напрямую;
 - x86-64 и ARM64 сборки проходят с `-Werror`;
 - host tests и QEMU scenarios проходят;
 - приложения и ABI smoke tests демонстрируют прежние коды возврата и поведение.
