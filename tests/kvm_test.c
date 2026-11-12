@@ -196,6 +196,49 @@ static void put64(uint8_t *p, uint64_t value)
 {
     put32(p, (uint32_t)value); put32(p + 4, (uint32_t)(value >> 32));
 }
+struct alloc_probe {
+    unsigned calls;
+    unsigned releases;
+    unsigned fail_at;
+};
+static void *probe_alloc(void *context, size_t bytes)
+{
+    struct alloc_probe *probe = (struct alloc_probe *)context;
+    ++probe->calls;
+    if (probe->fail_at && probe->calls == probe->fail_at)
+        return 0;
+    return malloc(bytes);
+}
+static void probe_free(void *context, void *memory, size_t bytes)
+{
+    struct alloc_probe *probe = (struct alloc_probe *)context;
+    (void)bytes;
+    ++probe->releases;
+    free(memory);
+}
+static int test_allocator_failure_cleanup(void)
+{
+    const struct kvm_instruction code[] = { INS(KVM_OP_HALT, 0, 0, 0, 0) };
+    const struct kvm_module module = { (const uint8_t *)code, sizeof code, 0, 0, 1, 0, 0 };
+    struct alloc_probe probe = { 0, 0, 1 };
+    struct kvm_allocator tracked = { &probe, probe_alloc, probe_free };
+    struct kvm_instance vm;
+
+    CHECK(kvm_instance_init(&vm, &module, 0, &tracked, 0) == KVM_E_MEMORY);
+    CHECK(probe.calls == 1 && probe.releases == 0);
+
+    probe.calls = 0; probe.releases = 0; probe.fail_at = 2;
+    CHECK(kvm_instance_init(&vm, &module, 0, &tracked, 0) == KVM_E_MEMORY);
+    CHECK(probe.calls == 2 && probe.releases == 1);
+
+    probe.calls = 0; probe.releases = 0; probe.fail_at = 0;
+    CHECK(kvm_instance_init(&vm, &module, 0, &tracked, 0) == KVM_OK);
+    CHECK(probe.calls == 2 && probe.releases == 0);
+    kvm_instance_destroy(&vm);
+    CHECK(probe.releases == 2);
+    return 0;
+}
+
 static int test_resource_limits(void)
 {
     const struct kvm_instruction code[] = { INS(KVM_OP_HALT, 0, 0, 0, 0) };
@@ -272,6 +315,7 @@ int main(void)
         test_call_stack() ||
         test_rejects_malformed_and_traps() ||
         test_resource_limits() ||
+        test_allocator_failure_cleanup() ||
         test_portable_container())
         return 1;
     puts("KIRA VM v1 verifier/interpreter: PASS");
