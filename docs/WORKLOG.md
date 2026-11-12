@@ -428,3 +428,12 @@
 - `arch/aarch64/main.c` now retains only the ordered `arm_pci_init(fdt, kprintf)` handoff. The callback preserves the existing serialized console/logging path; the source no longer contains the PCI host implementation. `build_arm64.sh` compiles the new backend, and `tests/architecture_test.py` enforces unique ownership and the boot-call contract.
 - Updated source-layout migration, component inventory, dependency map and F-020 audit status. x86 PCI enumeration remains deliberately untouched until firmware bus-master sanitization and per-device IOMMU domain lifecycle gates are verified.
 - The PCI extraction itself is not yet verified: fresh exact-head x86-64/ARM64 builds, host tests and VM/QEMU matrix are required before continuing to the next backend.
+
+
+### AArch64 PCI host FDT/ECAM bounds hardening (2026-11-12)
+
+- Added pure `arch/aarch64/pci_host_parse.[ch]` to decode PCI host `ranges` tuples with explicit PCI child (3-cell), parent (1–2-cell) and size (1–2-cell) geometry.
+- The parser rejects truncated tuples, PCI/CPU address-span overflow and CPU-to-PCI deltas outside signed 64-bit range. It retains the largest memory window per supported width and leaves I/O windows out of memory BAR allocation.
+- Hardened `arch/aarch64/pci_host.c`: validate FDT header and enabled node, exact bus-range encoding, 0..255 bus limits, ECAM coverage and physical arithmetic; map only the required ECAM bus span; fail closed on malformed `ranges`.
+- Added `tests/pci_host_parse_test.c` and registered it in the host test suite. Added architecture guards and included the parser in the ARM64 build manifest.
+- Fresh CI is pending for the resulting branch head. No PASS is claimed until the exact final SHA completes host tests, x86-64/ARM64 builds and the QEMU matrix. The earlier run on SHA `6c97d9e86126bb7cef3dcbb31fdd8a4397dfbf03` compiled ARM64 but failed the `arm64-el2-8cpu` SMP scenario; that failure remains under investigation and is not attributed to the PCI parser.
