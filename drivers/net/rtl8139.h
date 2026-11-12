@@ -57,6 +57,7 @@ int kira_rtl8139_poll(struct kira_rtl8139 *device);
 int kira_rtl8139_send(struct kira_rtl8139 *device,
                       const void *frame, size_t length);
 int kira_rtl8139_link_up(struct kira_rtl8139 *device);
+/* Returns -1 and retains DMA buffers if reset cannot prove the device quiescent. Retry later. */
 int kira_rtl8139_shutdown(struct kira_rtl8139 *device);
 
 #endif
