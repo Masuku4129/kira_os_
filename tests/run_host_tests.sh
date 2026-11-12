@@ -241,7 +241,7 @@ ASAN_OPTIONS=detect_leaks=0 $T/view $J/big-prog.jpg "коэффициенты н
 for f in pic.png rgba.png pic.bmp pic.ppm pic.gif lace.gif pic.jpg p444.jpg prog.jpg prog-rst.jpg prog-opt.jpg prog-gray.jpg; do ASAN_OPTIONS=detect_leaks=0 $T/view fuzz $T/files/$f > $T/view.out 2>&1 || { tail -20 $T/view.out; exit 1; }; tail -1 $T/view.out; done
 echo "== wasm: interpreter output equals the same program compiled natively =="
 userland/wasm/build.sh
-$CC -O1 -g -w -I. -fsanitize=address,undefined -o $T/wasmh tests/wasm_host.c -lm
+$CC -O1 -g -w -DWASM_TEST_FAST_SLICE -I. -fsanitize=address,undefined -o $T/wasmh tests/wasm_host.c -lm
 python3 tests/wasm_loader_bounds.py "$T/wasmh"
 python3 tests/mkwasm_fuel_loop.py "$T/fuel_loop.wasm"
 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh fuel 1000 "$T/fuel_loop.wasm"
@@ -269,7 +269,7 @@ for mod in wmix wmix0; do
     cmp -s $T/m_native.txt $T/m_body.txt || { echo "WASM $mod OUTPUT DIFFERS"; cat $T/m_native.txt $T/m_body.txt; exit 1; }
 done
 echo "wasm: calls, call_indirect, i64, br_table, loops, 8/16-bit memory, memory.copy, f64 (-O2 and -O0 builds) equal native"
-$CC -O1 -g -w -DWASM_FUEL -I. -fsanitize=address,undefined -o $T/wasmfz tests/wasm_host.c -lm
+$CC -O1 -g -w -DWASM_FUEL -DWASM_TEST_FAST_SLICE -I. -fsanitize=address,undefined -o $T/wasmfz tests/wasm_host.c -lm
 for mod in wtest ftest wgfx wmix wmix0; do
     UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmfz fuzz build-wasm/$mod.wasm 3000 > $T/wfz.out 2>&1 || { tail -5 $T/wfz.out; exit 1; }
     tail -1 $T/wfz.out
