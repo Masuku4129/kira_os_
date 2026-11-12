@@ -187,26 +187,28 @@ def unreachable_memarg_module(opcode, align):
             bytes((0x0a, len(code_payload))) + code_payload)
 
 with tempfile.TemporaryDirectory(prefix="kira-wasm-unreachable-align-") as td:
-    path = pathlib.Path(td) / "i64-store-natural.wasm"
-    path.write_bytes(unreachable_memarg_module(0x37, 3))
-    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT, text=True, env=test_env)
-    if run.returncode != 0 or "wasm: finished with code 0" not in run.stdout:
-        print("FAIL: natural i64.store alignment rejected in unreachable code")
-        print(run.stdout)
-        raise SystemExit(1)
-    print("PASS: natural i64.store alignment accepted in unreachable code")
-
-    path = pathlib.Path(td) / "i32-store-overaligned.wasm"
-    path.write_bytes(unreachable_memarg_module(0x36, 3))
-    run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT, text=True, env=test_env)
-    if "memory alignment exceeds natural alignment" not in run.stdout:
-        print("FAIL: over-aligned i32.store accepted in unreachable code")
-        print(run.stdout)
-        raise SystemExit(1)
-    print("PASS: over-aligned i32.store rejected in unreachable code")
-
+    natural_alignments = [
+        2, 3, 2, 3, 0, 0, 1, 1, 0, 0, 1, 1, 2, 2,
+        2, 3, 2, 3, 0, 1, 0, 1, 2,
+    ]
+    for opcode, natural in enumerate(natural_alignments, start=0x28):
+        path = pathlib.Path(td) / f"op-{opcode:02x}-natural.wasm"
+        path.write_bytes(unreachable_memarg_module(opcode, natural))
+        run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, env=test_env)
+        if run.returncode != 0 or "wasm: finished with code 0" not in run.stdout:
+            print(f"FAIL: natural alignment {natural} rejected for opcode 0x{opcode:02x}")
+            print(run.stdout)
+            raise SystemExit(1)
+        path = pathlib.Path(td) / f"op-{opcode:02x}-overaligned.wasm"
+        path.write_bytes(unreachable_memarg_module(opcode, natural + 1))
+        run = subprocess.run([host, str(path)], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, env=test_env)
+        if "memory alignment exceeds natural alignment" not in run.stdout:
+            print(f"FAIL: over-alignment {natural + 1} accepted for opcode 0x{opcode:02x}")
+            print(run.stdout)
+            raise SystemExit(1)
+    print("PASS: all 23 unreachable load/store natural-alignment boundaries")
 
 # A declared maximum of zero is distinct from an omitted maximum. The module
 # must not be silently granted the runtime's default 32 pages.
