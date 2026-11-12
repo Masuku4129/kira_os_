@@ -79,6 +79,26 @@ names = [name for name, _ in ids]
 values = [value for _, value in ids]
 require(len(names) == len(set(names)), "duplicate syscall names in syscall_numbers.h")
 require(len(values) == len(set(values)), "duplicate syscall numeric IDs in syscall_numbers.h")
+expected_abi = {
+    "SYS_WRITE": 1, "SYS_EXIT": 2, "SYS_TICKS": 3, "SYS_SLEEP": 4,
+    "SYS_YIELD": 5, "SYS_GETPID": 6, "SYS_GFX_CREATE": 7,
+    "SYS_GFX_PRESENT": 8, "SYS_GFX_EVENT": 9, "SYS_FS": 10,
+    "SYS_HEAP": 11, "SYS_THREAD_CREATE": 12, "SYS_THREAD_EXIT": 13,
+    "SYS_GETTID": 14, "SYS_FUTEX_WAIT": 15, "SYS_FUTEX_WAKE": 16,
+    "SYS_PORT_OPEN": 17, "SYS_PORT_SEND": 18, "SYS_PORT_RECV": 19,
+    "SYS_SHM_OPEN": 20, "SYS_SHM_MAP": 21, "SYS_SHM_UNMAP": 22,
+    "SYS_CLOSE": 23, "SYS_CLOCK_NS": 24, "SYS_NET_DNS": 25,
+    "SYS_NET_CONNECT": 26, "SYS_NET_SEND": 27, "SYS_NET_RECV": 28,
+    "SYS_NET_CLOSE": 29, "SYS_ARGS": 30, "SYS_NET_LISTEN": 31,
+    "SYS_NET_ACCEPT": 32, "SYS_SND_OPEN": 33, "SYS_SND_WRITE": 34,
+    "SYS_SND_CLOSE": 35, "SYS_RANDOM": 36, "SYS_TIME": 37,
+    "SYS_UDP_OPEN": 38, "SYS_UDP_SEND": 39, "SYS_UDP_RECV": 40,
+    "SYS_UDP_CLOSE": 41, "SYS_SND_VOLUME": 42, "SYS_SND_RECORD": 43,
+    "SYS_NET_CONNECT_SA": 44, "SYS_UDP_SENDTO": 45,
+    "SYS_UDP_RECVFROM": 46, "SYS_NET_PEER": 47, "SYS_JIT": 56,
+}
+require(dict((name, int(value)) for name, value in ids) == expected_abi,
+        "Native syscall IDs changed from the reviewed ABI baseline")
 
 service_ids = [
     "SYS_GFX_CREATE", "SYS_GFX_PRESENT", "SYS_GFX_EVENT", "SYS_FS",
