@@ -58,7 +58,7 @@ int main(void) {
     put8(0x44, 0x11); put8(0x45, 0);
     put16(0x42, 1); put16(0x46, 0x8000); put16(0x04, 0);
     if (!pci_quiesce_interrupts(&dev)) return 15;
-    if ((pci_read16(&dev, 0x42) & 1u) || pci_read16(&dev, 0x46) != 0x4000u ||
+    if ((pci_read16(&dev, 0x42) & 1u) || pci_read16(&dev, 0x46) != 0xC000u ||
         !(pci_read16(&dev, 0x04) & (1u << 10))) return 16;
     put16(0x42, 1); put16(0x46, 0x8000); put16(0x04, 0);
     blocked_write_off = 0x40;                    /* MSI enable refuses to clear */
