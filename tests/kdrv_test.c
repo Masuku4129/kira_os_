@@ -41,6 +41,7 @@ int main(void) {
     CHECK(kdrv_dma_policy_allow(CAP_DMA | CAP_IRQ, 1) == 1);     /* допускается только после изоляции устройства */
     CHECK(kdrv_pci_command_clear_master(0x0007) == 0x0003);   /* clear inherited bus-master permission */
     CHECK(kdrv_pci_command_clear_master(0x0407) == 0x0403);   /* preserve unrelated command bits */
+    CHECK(kdrv_pci_command_for_unisolated(0x0007) == 0x0403); /* no DMA and no legacy INTx */
     CHECK(kdrv_pci_busmaster_handoff_safe(0x0003, 0x0003));
     CHECK(!kdrv_pci_busmaster_handoff_safe(0x0007, 0x0003)); /* firmware had enabled DMA */
     CHECK(!kdrv_pci_busmaster_handoff_safe(0x0003, 0x0007)); /* device refused disable */
