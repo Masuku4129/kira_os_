@@ -37,7 +37,7 @@ for path in ("userland/kira.h", "kcc/include/kira.h"):
         r"SHM_OPEN|SHM_MAP|SHM_UNMAP|CLOSE|CLOCK_NS|NET_DNS|NET_CONNECT|NET_SEND|NET_RECV|"
         r"NET_CLOSE|ARGS|NET_LISTEN|NET_ACCEPT|SND_OPEN|SND_WRITE|SND_CLOSE|RANDOM|TIME|"
         r"UDP_OPEN|UDP_SEND|UDP_RECV|UDP_CLOSE|SND_VOLUME|SND_RECORD|NET_CONNECT_SA|"
-        r"UDP_SENDTO|UDP_RECVFROM|NET_PEER|JIT)\s*=\s*\\d+",
+        r"UDP_SENDTO|UDP_RECVFROM|NET_PEER|JIT)\s*=\s*\d+",
         public_api,
     )
     require(not duplicated, f"{path} duplicates numeric syscall IDs instead of using SYS_* constants")
