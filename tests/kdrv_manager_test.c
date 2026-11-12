@@ -12,6 +12,7 @@ typedef struct {
     int bad_name;
     int bad_version;
     int bad_dependency;
+    int bad_arch;
     int active;
     int fail_state;
     int staged;
@@ -56,6 +57,7 @@ static int parse_manifest(void *opaque, const void *package, size_t size,
     strcpy(manifest->name, "test-driver");
     strcpy(manifest->version, "1.2.3");
     strcpy(manifest->target_arch, "x86_64");
+    if (ctx->bad_arch) strcpy(manifest->target_arch, "riscv64");
     manifest->abi_major = 1;
     manifest->abi_minor = 2;
     manifest->dependency_count = 1;
@@ -276,6 +278,15 @@ int main(void)
         if (test_failure_cleanup(i)) return 1;
     for (int i = 0; i < 3; ++i)
         if (test_rejects_unsafe_metadata(i)) return 1;
+    {
+        test_context_t ctx; struct kdrv_manager_ops ops;
+        setup(&ctx, &ops); ctx.bad_arch = 1;
+        CHECK(kdrv_manager_install(&ops, "/drv/test.kdrv", "x86_64", 1, 2) != 0);
+        CHECK(ctx.freed == 1 && !ctx.staged && ctx.state_count == 0);
+        setup(&ctx, &ops);
+        CHECK(kdrv_manager_install(&ops, "/drv/test.kdrv", "riscv64", 1, 2) != 0);
+        CHECK(ctx.freed == 0 && !ctx.staged && ctx.state_count == 0);
+    }
     if (test_activation_state_rollback()) return 1;
     puts("kdrv manager lifecycle: PASS");
     return 0;
