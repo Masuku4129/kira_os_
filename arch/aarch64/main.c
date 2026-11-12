@@ -256,7 +256,7 @@ static int fdt_bool_property(const void* fdt, int node, const char* name) {
 static int dma_noncoherent(const void* fdt) {
     if (bootarg_has(fdt, "kira.dma=noncoherent")) return 1;
     if (bootarg_has(fdt, "kira.dma=coherent"))
-        kprintf("[KIRA ARM64] DMA policy: ignoring unsafe coherent override; firmware declarations required\\n");
+        kprintf("[KIRA ARM64] DMA policy: ignoring unsafe coherent override; firmware declarations required\n");
     /* Coherency belongs to each actual DMA host. A root property or a single
        coherent host cannot authorize all PCI requesters. Missing declarations
        force the non-cacheable pool, and pool exhaustion keeps DMA disabled. */
@@ -1310,11 +1310,11 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
     if (dma_nc_policy && dma_lo)
-        kprintf("[KIRA ARM64] DMA: non-coherent devices use uncached pool: %u MB at %x\\n", (dma_hi - dma_lo) >> 20, dma_lo);
+        kprintf("[KIRA ARM64] DMA: non-coherent devices use uncached pool: %u MB at %x\n", (dma_hi - dma_lo) >> 20, dma_lo);
     else if (dma_nc_policy)
-        kprintf("[KIRA ARM64] DMA: non-coherent platform has no safe pool; DMA allocation fails closed\\n");
+        kprintf("[KIRA ARM64] DMA: non-coherent platform has no safe pool; DMA allocation fails closed\n");
     else
-        kprintf("[KIRA ARM64] DMA: all enabled PCI hosts declare dma-coherent\\n");
+        kprintf("[KIRA ARM64] DMA: all enabled PCI hosts declare dma-coherent\n");
     kprintf("[KIRA ARM64] MMU on: identity map up to %x, %u-bit physical addresses, RAM cached, devices non-executable\n", top, (uint64_t)bits);
     wx_verify(1);
 
