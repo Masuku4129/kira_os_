@@ -24,7 +24,7 @@ ARCH=arch/x86_64
 ARCH_SOURCES="$ARCH/kernel_main.c $ARCH/kernel_boot.c $ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c"
 
 echo "[*] Ассемблер..."
-rm -f *.o arch/x86_64/*.o kira.bin
+rm -f *.o arch/x86_64/*.o kernel/*.o services/*.o kira.bin
 nasm -f elf64 $ARCH/boot.s -o boot.o
 nasm -f elf64 $ARCH/interrupts.s -o interrupts.o
 nasm -f elf64 $ARCH/context.s -o context.o
