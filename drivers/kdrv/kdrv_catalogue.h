@@ -41,7 +41,9 @@ enum kdrv_catalogue_status {
 /*
  * Authenticate the exact catalogue bytes before parsing any entry.
  * The detached record must sign the complete byte stream using the KDRV
- * trust-record format. The grammar is strict UTF-8-compatible ASCII:
+ * trust-record format. After every entry passes parsing, the monotonic
+ * catalogue-version floor is durably advanced; storage failure rejects load.
+ * The grammar is strict UTF-8-compatible ASCII:
  *
  * KIRA-KDRV-CATALOGUE<TAB>1<TAB>version<LF>
  * name<TAB>version<TAB>arch<TAB>package-url<TAB>signature-url<TAB>flags<TAB>size<TAB>sha256hex<LF>
