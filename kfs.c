@@ -942,13 +942,33 @@ static int kfs_mkdir_impl(const char* path) {
     uint32_t slot = alloc_inode();
     if (!slot) return KFS_ERR_NOSPC;
     inode_t* in = iget(slot);
-    if (!in) return KFS_ERR_IO;
+    if (!in) { fs.mounted = 0; return KFS_ERR_IO; }
     zero(in, sizeof *in);
     in->type = KFS_DIR; in->gen = 1;
     r = write_inode(slot);
     if (!r) r = flush();
-    if (!r) { fs.free_inodes--; r = dir_add(parent, leaf, slot); if (r) fs.free_inodes++; }
-    if (r) { in = iget(slot); if (in) { zero(in, sizeof *in); write_inode(slot); flush(); } fs.itype[slot] = 0; }
+    if (r) {
+        /* The inode sector may have reached storage despite an I/O error. */
+        fs.mounted = 0;
+        return r;
+    }
+    fs.free_inodes--;
+    r = dir_add(parent, leaf, slot);
+    if (!r) return 0;
+    if (r != KFS_ERR_NOSPC && r != KFS_ERR_EXIST) {
+        fs.mounted = 0;
+        return r;
+    }
+    /* dir_add rejected the operation before publishing a namespace change.
+       Reclaim the now-unreachable inode only after a confirmed inode flush. */
+    in = iget(slot);
+    if (!in) { fs.mounted = 0; return KFS_ERR_IO; }
+    zero(in, sizeof *in);
+    int cleanup = write_inode(slot);
+    if (!cleanup) cleanup = flush();
+    if (cleanup) { fs.mounted = 0; return cleanup; }
+    fs.itype[slot] = 0;
+    fs.free_inodes++;
     return r;
 }
 
