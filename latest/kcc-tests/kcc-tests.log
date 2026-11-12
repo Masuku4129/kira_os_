@@ -1,0 +1,17 @@
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+kcc: файлов-тестов 1374, провалов 0
+== kcc fuzz ==
+fuzz: итераций 3000, принято 271, отвергнуто 2729
+kcc tests: OK

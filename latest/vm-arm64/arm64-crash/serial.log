@@ -1,0 +1,60 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA BOOT] BootInfo v1: ARM64 Device Tree, 1 normalized RAM range(s), 160 bytes
+[KIRA ARM64] RAM: 512 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA VMM] W^X kernel: ok (text=628 KB ro=124 KB rw=523536 KB)
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 505 MB free pages; kernel heap and scheduler online (per-core ready queues, 72 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 98 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 4 of 4 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 4 of 4 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 1 function(s), 0 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 745100 bytes, prefix 88364469...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 1 device(s) found.
+[KIRA EXPERIENCE] No disk: experience lives in RAM only (run_qemu.sh attaches kira.disk).
+[KIRA PROC] up to 16 programs at once (4 cores, 512 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, first life (no saved model).
+[KIRA RTC] Real-time clock (PL031, UTC): ЧЕТВЕРГ, 12 НОЯБРЯ 2026 15:11
+[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA NET] No supported network card: networking is off.
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> test crash thread
+[KIRA SMPCRASH] crash thread started.
+кира> [KIRA CORE 1] kernel-mode fault (data abort) at PC 0x00000000401172FC, FAR 0x0000600000000000, thread 'smpcrash'. Thread terminated, the core and the system keep running.
+[KIRA MIND] первая жизнь: учусь, что для этой машины нормально
+test crash 1
+[KIRA SMPCRASH] core failure is an SError on ARM64; this CPU cannot raise SError from software (no RAS error injection), so the path is not testable here.
+кира> test smp
+[KIRA SELFTEST] started: 5 pinned workers, 4 mutex threads, 1 sleeper
+[KIRA SMPTEST] started 4 worker threads on the other cores; result will be printed when they finish.
+кира> [KIRA SELFTEST] workers finished:
+  worker 0: core 0, checksum ok, stayed on its core, preempted by tick
+  worker 1: core 1, checksum ok, stayed on its core
+  worker 2: core 2, checksum ok, stayed on its core
+  worker 3: core 3, checksum ok, stayed on its core
+  worker 4: core 0, checksum ok, stayed on its core
+  spin-lock counter 100000 of 100000 ok, atomic 100000 ok
+  kernel mutex (threads sleep while waiting): 8000 of 8000 ok
+  sleep 200 ms: late by 0 ms
+RESULT: PASS
+status
+
+[STATUS] uptime ticks: 1794, precise clock ms: 3178
+[STATUS] PMM free: 504 MB of 512 MB
+[STATUS] kernel heap: 4 blocks, 80 KB in use; pages: 0 small-block, 20 large-block
+[STATUS] mind: health 100 (просыпается), mode act, quantum 40 ms, decisions 0
+[STATUS] immune: kernel integrity OK, antibodies 3, quarantine 0
+[STATUS] interrupts: GICv3, generic timer (virtual), PSCI
+
+кира> 

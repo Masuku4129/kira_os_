@@ -1,0 +1,12 @@
+# Рецепт drvget для драйвера RTL8139: drvget install rl
+# Оригинальный код Kira OS (по публичной спецификации Realtek), без заимствований из BSD/Linux. Лицензия BSD-3-Clause; SPDX в каждом файле.
+drvget-recipe 1
+name rl
+version 2
+license BSD-3-Clause
+pci 10ec:8139
+caps mmio dma pcidev netdev
+main rtl8139_kdrv.c
+file rtl8139_kdrv.c rtl8139_kdrv.c sha256 610292710ee08cd9e3b5574ecd6390c5a78c1bf1028e85837bd31ae42738766d
+file rtl8139.c rtl8139.c sha256 17a41775dfb7b4e24a1b7fba4993e8b62d575e04559db9dd4bec14bf9a6b0e3f
+file rtl8139.h rtl8139.h sha256 fd8078f7e625fddea6ce8a0d2c6af64792cd3933725d319c830b3f390faf0089

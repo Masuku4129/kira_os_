@@ -1,0 +1,93 @@
+== logic (sha256, immune) ==
+sha256 boundary vectors checked: 12
+ALL LOGIC TESTS PASSED
+== kernel heap (size classes, large page runs, ownership table, bad frees, random load, OOM) ==
+heap: classes, alignment, large blocks, ownership table growth, bad frees, 200k random ops, OOM recovery passed
+== kernel string functions (rep movsb/stosb, overlap both ways) ==
+mem: memcpy/memmove (both directions)/memset/memcmp passed
+== UEFI BootInfo to kernel-compatible Multiboot2 bridge ==
+bootinfo_uefi: PASS
+== UEFI loader and KBI adapter compile (GNU-EFI ABI) ==
+UEFI loader sources: compile passed
+== UEFI: наш загрузчик + GPT/ESP под OVMF (без GRUB) ==
+uefi boot: ПРОПУЩЕН (нет OVMF, qemu или mtools)
+== Intel VT-d domain: single and disjoint batch unmap, one IOTLB flush, atomic validation ==
+vtd_domain: PASS
+== pmm (synthetic Multiboot2 memory map, contiguous blocks) ==
+free kb = 521076, expected 521076 (info_size=240)
+contiguous 3 MB block at 0x320000
+allocated 130269 pages, first=0x320000 last=0x1FFFF000
+ALL PMM TESTS PASSED
+== ARM64 PMM (permanent reservations, high-range bitmap, atomic contiguous free) ==
+pmm_arm: reserved pages, range rounding and atomic contiguous free PASS
+== ramext (mapping RAM above 1 GB) ==
+ALL RAMEXT TESTS PASSED
+== W^X ядра (дробление страниц, права секций, обход таблиц, поиск W+X) ==
+wx: PASS
+== W^X ядра ARM64 (дробление блоков, права секций, обход таблиц, поиск W+X) ==
+wx_arm: PASS
+== scheduler policy (incl. regression: pulsing critical thread) ==
+fair share: A=400 B=400 idle=0 switches=200
+fair share with a pulsing critical thread: A=1000 B=1000 pulses=2000
+quantum 8: switches=100
+core wake: due 3610, got 3610
+periodic runs=20 max wake latency=0 ticks
+extra threads created: 32
+ALL SCHEDULER TESTS PASSED
+== REAL context switch + FXSAVE/FXRSTOR (arch/x86_64/context.s, 3 threads, xmm live across switches) ==
+real FPU save/restore: context switches=102965, workers=3, rounds each=40, mismatches=0
+PASS
+no-FPU-save control: context switches=102965, workers=3, rounds each=40, mismatches=120
+CONTROL OK: corruption detected without FPU save
+== input layer (PS/2 decoder, ring, overflow) ==
+input: all decoder checks passed (incl. Cyrillic layout)
+== authenticated KDRV catalogue (signature policy, canonical parser, tamper, revocation, expiry, rollback) ==
+kdrv_catalogue: authenticated parsing, publisher policy, tamper, revocation, expiry and rollback checks passed
+== driver package format (kdrv_format.h: header, record, matching, hostile input) ==
+kdrv_test: PASS
+== kdrvpack: mandatory publisher state requires explicit confirmation ==
+kdrvpack: publisher-required record and explicit confirmation passed
+== drvget: https-only, рецепт, лицензии (GPL/бинарники отвергаются), хеш набора ==
+drvget: https-only URLs, recipe parsing and mutations, license/GPL/binary rejection, set hash, confirmation prefix passed
+== driver compatibility pipeline (HTTPS, bounds, path safety, fail-closed stages) ==
+drvcompat: HTTPS gate, bounded manifests, path/name validation, ordered fail-closed pipeline passed
+== KDRV BSD compatibility allocator (overflow and alignment) ==
+KDRV BSD allocator: overflow rejection and aligned allocation passed
+== драйвер RTL8139 (чистая реализация) против модели чипа ==
+rtl8139: init, rx ring wrap, errors, overrun, tx order, DMA limits and partial-allocation cleanup passed
+== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) ==
+acpi: all parser checks passed (incl. Intel MP tables, BIOS scan)
+== Intel VT-d DMAR topology parser (DRHD, RMRR, hostile input) ==
+VT-d DMAR parser: topology, bounds, checksums and malformed-input fuzz passed
+== VT-d end to end (iommu.c against a hardware model: DMAR -> contexts -> TE -> domains -> maps -> faults; scenarios A-E) ==
+iommu_test A: PASS
+iommu_test B: PASS
+iommu_test C: PASS
+iommu_test D: PASS
+iommu_test E: PASS
+== ARM SMMUv3 prepare (platform validation, stream table and allocation unwind) ==
+ARM SMMUv3 prepare: validation, stream table setup and allocation unwind passed
+== VT-d domain (hardware model: IOTLB invalidation after map/unmap, stale translations) ==
+vtd_domain: PASS
+== IOAPIC (ISO resolution, redirection encoding) ==
+ioapic: ISO resolution and redirection-entry encoding passed
+== persistent store (CRC32, A/B generations, torn write, corruption) ==
+store: CRC vector, A/B generations, torn write, corruption fallback passed
+== KiraFS (files, dirs, crash at every write, corruption fuzz) ==
+crash cases: 191
+fuzz: mounted 334, rejected 66
+kfs v2: 1500-entry directory, inode table growth, volume growth with the disk, 5 MB files, v1 upgrade passed
+kfs ok
+== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS over virtio) ==
+virtio: PCI bus/bridge/BAR/capabilities, virtio 1.0 init order, rings, chunking, size_max, RO, flush, timeout, KiraFS over virtio passed
+== programs: ELF validation, trust manifest, life log in KiraFS ==
+programs: ELF validation (0 real binaries, 20000 corruptions), trust manifest, life log and profiles in KiraFS passed
+== program file service (sandbox /data/<name>) ==
+fsrv: sandbox names/paths, isolation between programs, size and quota limits, atomic replace, persistence passed
+paint: save/load round-trip, strict validation of corrupt files, oversize refusal passed
+== Mind request mailboxes (atomic exchange/store under concurrent producer/consumer; ThreadSanitizer) ==
+mind-sync: atomic request mailbox ordering and final delivery passed
+== spinlock (ticket lock: real threads, mutual exclusion, FIFO, panic bust; ThreadSanitizer) ==
+spinlock: mutual exclusion (2 threads x 50000), FIFO order, panic bust passed
+== SMP (AP selection, ICR commands, percpu table) ==
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
