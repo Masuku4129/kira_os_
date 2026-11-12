@@ -38,7 +38,10 @@ cases = [
      b"\x0a\x08\x01\x06\x00\x41\x01\x40\x00\x0b",
      "memory size/grow without memory"),
     ("constant-expression-global-index-out-of-range",
-     magic + b"\x06\x06\x01\x7f\x00\x23\x00\x0b",
+     magic + b"\x01\x04\x01\x60\x00\x00" +
+     b"\x03\x02\x01\x00" +
+     b"\x06\x06\x01\x7f\x00\x23\x00\x0b" +
+     b"\x07\x09\x01\x05kmain\x00\x00",
      "constant expression global index out of range"),
     ("constant-expression-local-global-reference",
      magic + b"\x06\x0b\x02" +
