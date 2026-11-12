@@ -553,10 +553,19 @@ static int load(void) {
     if (!types || !funcs) { trap("no memory"); return -1; }
     const u8* p = mod + 8; const u8* end = mod + modlen;
     u32 nfuncdecl = 0; u32* decl = 0;
+    u32 seen_sections = 0;
+    u8 last_section = 0;
     while (p < end && !trapped) {
         u8 id = *p++;
         u32 sz = leb_u(&p, end);
         if (trapped) return -1;
+        if (id != 0) {
+            if (id > 11) { trap("unsupported WebAssembly section id"); return -1; }
+            if (seen_sections & (1u << id)) { trap("duplicate WebAssembly section"); return -1; }
+            if (id < last_section) { trap("WebAssembly sections out of order"); return -1; }
+            seen_sections |= 1u << id;
+            last_section = id;
+        }
         /* Check the declared length before forming p + sz: even pointer arithmetic
            beyond one-past-end is undefined in C, before any section read occurs. */
         if ((u64)sz > (u64)(end - p)) { trap("section past end"); return -1; }
@@ -642,9 +651,6 @@ static int load(void) {
                 if (compile_func(f)) return -1;
                 s = be;
             }
-        } else if (id > 11) {
-            trap("unsupported WebAssembly section id");
-            return -1;
         } else if (id == 11) {                                    /* данные - после выделения памяти */
             if (!mem) {
                 if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
