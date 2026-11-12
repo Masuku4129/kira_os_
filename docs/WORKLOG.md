@@ -323,3 +323,10 @@
 - F-013 was confirmed on exact main SHA: KDRV enables PCI bus mastering for either CAP_DMA or CAP_IRQ; no per-device IOMMU domain is required. MSI/MSI-X also uses bus mastering, so both rights must be denied without isolation.
 - Opened narrow main-based PR #136: `security/kdrv-require-iommu-for-dma-msi`. Changes: shared `kdrv_dma_policy_allow`, fail-closed check before KDRV binding/spawn/PCI bus-master enable, device quiesce on denial, `KDRV_E_ISOLATION`, host policy tests and corrected driver trust docs. No merge performed.
 - PR #136 head `720a2020f6d78501aed60b5013ad9b7d1c62b30d`; exact-head CI still needs completion/refresh. Main code remains unchanged until PR is reviewed and merged by owner.
+
+
+### PCI DMA boundary audit and remediation (2026-11-12)
+- Additional F-014: `pci_init()` did not clear firmware-set `PCI_CMD_MASTER`; `probe_bars()` temporarily clears only IO/MEM and restores the original command word, preserving bus mastering. This can leave a device capable of DMA before KIRA assigns a driver.
+- Opened PR #137 `security/pci-clear-firmware-busmaster`: clear bus-master on every enumerated PCI function before BAR probing; host fake-backend test verifies clear-on-enumeration and explicit re-enable by owner. PR not merged.
+- PR #136 `security/kdrv-require-iommu-for-dma-msi` independently blocks Ring 3 CAP_DMA/CAP_IRQ until per-device IOMMU isolation is real. Both controls are required; neither substitutes for full IOMMU implementation.
+- PR #136 run `43253649785` is in progress (host-tests, build, ARM64 and VM matrix); PR #137 run `43253985440` is in progress (host-tests, build, ARM64). No exact-head PASS yet.
