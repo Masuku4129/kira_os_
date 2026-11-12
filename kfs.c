@@ -32,10 +32,10 @@ static char kfs_early_owner;
 /* KFS transactions may call public kfs_* operations recursively. Keep one owner/depth
    record under a short spinlock; never hold the metadata spinlock across disk I/O or sleep. */
 static spinlock_t kfs_owner_guard = SPINLOCK_INIT;
-static void* kfs_owner;
+static const void* kfs_owner;
 static unsigned kfs_lock_depth;
 static void kfs_lock(void) {
-    void* self = sched_current();
+    const void* self = sched_current();
     if (!self) self = &kfs_early_owner;
     uint64_t f = spin_lock_irqsave(&kfs_owner_guard);
     if (kfs_owner == self) {
