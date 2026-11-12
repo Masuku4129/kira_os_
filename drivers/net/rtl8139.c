@@ -66,6 +66,9 @@
 #define RX_STATUS_RUNT 0x0010u
 #define RX_STATUS_ISE  0x0020u
 
+static uint16_t port(struct kira_rtl8139 *d, uint16_t reg);
+static void rtl_ack_interrupts(struct kira_rtl8139 *d, uint16_t bits);
+
 static int rtl_dma_address_valid(uint64_t physical, size_t size)
 {
     return physical != 0 && size != 0 && (physical & 0xffu) == 0 &&
@@ -118,12 +121,6 @@ static void rtl_release_buffers(struct kira_rtl8139 *d)
 static uint16_t port(struct kira_rtl8139 *d, uint16_t reg)
 {
     return (uint16_t)(d->io_base + reg);
-}
-
-static void rtl_delay(struct kira_rtl8139 *d, uint32_t us)
-{
-    if (d->platform.delay_us)
-        d->platform.delay_us(d->platform.context, us);
 }
 
 static void rtl_ack_interrupts(struct kira_rtl8139 *d, uint16_t bits)
