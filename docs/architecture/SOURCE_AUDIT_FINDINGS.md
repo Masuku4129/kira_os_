@@ -183,3 +183,9 @@ No tests were executed during this source-review pass. Findings above are code o
 - **Evidence:** the first extracted implementation derived `bus1` using unsigned `(size >> 20) - 1`, accepted bus-range values before narrowing to 8 bits, trusted range cell counts and computed `cpu_base - pci_base` in unsigned arithmetic before casting to `int64_t`. Those operations did not establish safe bounds for malformed FDT data.
 - **Change on architecture branch:** validate the FDT header and enabled host node; require a nonzero ECAM span, valid bus-range and sufficient region size; reject overflow; parse only bounded PCI ranges tuples; safely encode signed CPU offsets; add dedicated parser tests and build/architecture guards.
 - **Verification status:** implementation and tests are committed, but exact-head CI has not yet completed. Do not mark fixed/PASS until host tests, ARM64 build and QEMU scenarios pass on the same final SHA. Physical hardware remains untested.
+
+
+### F-021 verification update
+
+- Run `43298087855` on SHA `618ce01344e219991323aca51f9de58c55ed2aab` passed **30/30 jobs**: host tests, x86-64 build, ARM64 build and the full QEMU/Limbo matrix. The ARM64 artifact contained 16/16 passing scenarios, including `arm64-el2-8cpu`.
+- Follow-up hardening now also requires 1-MiB ECAM base alignment and rejects nonzero bus-range starts because the common PCI core currently starts enumeration at bus 0. New parser tests cover CPU-span overflow and the exact `INT64_MIN` offset boundary. These follow-up commits require their own exact-head CI before F-021 can be marked fully verified.
