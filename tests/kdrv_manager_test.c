@@ -12,6 +12,8 @@ typedef struct {
     int bad_name;
     int bad_version;
     int bad_dependency;
+    int active;
+    int fail_state;
     int staged;
     int committed;
     int discarded;
@@ -109,12 +111,30 @@ static void discard_staged(void *opaque, const char *staging_path)
     ctx->discarded++;
 }
 
+static int activate_driver(void *opaque, const char *name)
+{
+    test_context_t *ctx = opaque;
+    if (strcmp(name, "test-driver") != 0) return -1;
+    ctx->active = 1;
+    return 0;
+}
+
+static int deactivate_driver(void *opaque, const char *name)
+{
+    test_context_t *ctx = opaque;
+    if (strcmp(name, "test-driver") != 0) return -1;
+    ctx->active = 0;
+    return 0;
+}
+
 static int record_state(void *opaque, const char *name, const char *version,
                         enum kdrv_state state)
 {
     test_context_t *ctx = opaque;
+    if ((int)state == ctx->fail_state) return -1;
     if (strcmp(name, "test-driver") != 0 ||
-        (state != KDRV_STATE_ACTIVE && strcmp(version, "1.2.3") != 0))
+        (state != KDRV_STATE_ACTIVE && state != KDRV_STATE_ABSENT &&
+         state != KDRV_STATE_FAILED && strcmp(version, "1.2.3") != 0))
         return -1;
     if (ctx->state_count >= sizeof ctx->states / sizeof ctx->states[0])
         return -1;
@@ -125,6 +145,7 @@ static int record_state(void *opaque, const char *name, const char *version,
 static void setup(test_context_t *ctx, struct kdrv_manager_ops *ops)
 {
     memset(ctx, 0, sizeof *ctx);
+    ctx->fail_state = -1;
     ctx->signature_ok = 1;
     ctx->dependency_ok = 1;
     memset(ops, 0, sizeof *ops);
@@ -137,6 +158,8 @@ static void setup(test_context_t *ctx, struct kdrv_manager_ops *ops)
     ops->stage_payload = stage_payload;
     ops->commit_staged = commit_staged;
     ops->discard_staged = discard_staged;
+    ops->activate = activate_driver;
+    ops->deactivate = deactivate_driver;
     ops->record_state = record_state;
 }
 
@@ -193,6 +216,25 @@ static int test_rejects_unsafe_metadata(int mode)
     return 0;
 }
 
+static int test_activation_state_rollback(void)
+{
+    test_context_t ctx;
+    struct kdrv_manager_ops ops;
+    setup(&ctx, &ops);
+    ctx.fail_state = KDRV_STATE_ACTIVE;
+    CHECK(kdrv_manager_activate(&ops, "test-driver") != 0);
+    CHECK(ctx.active == 0);
+    CHECK(ctx.state_count == 1 && ctx.states[0] == KDRV_STATE_FAILED);
+
+    setup(&ctx, &ops);
+    ctx.active = 1;
+    ctx.fail_state = KDRV_STATE_ABSENT;
+    CHECK(kdrv_manager_remove(&ops, "test-driver") != 0);
+    CHECK(ctx.active == 1);
+    CHECK(ctx.state_count == 1 && ctx.states[0] == KDRV_STATE_FAILED);
+    return 0;
+}
+
 int main(void)
 {
     if (test_success()) return 1;
@@ -200,6 +242,7 @@ int main(void)
         if (test_failure_cleanup(i)) return 1;
     for (int i = 0; i < 3; ++i)
         if (test_rejects_unsafe_metadata(i)) return 1;
+    if (test_activation_state_rollback()) return 1;
     puts("kdrv manager lifecycle: PASS");
     return 0;
 }
