@@ -481,7 +481,7 @@ static void draw_confirm(void) {
     snprintf(b, sizeof b, "запрашиваемые права: %s", cs);
     text(x, y, b, FG, 66); y += CH;
     text(x, y, "права действуют только на устройство этого драйвера.", DIM, 66); y += CH + 6;
-    if (r->caps & CAP_DMA) {
+    if (r->caps & (CAP_DMA | CAP_IRQ)) {
         text(x, y, "ВНИМАНИЕ: IOMMU нет. Пакеты с DMA/MSI не запустятся", RED, 66); y += CH;
         text(x, y, "в любую память; программно это не отключить. Ставьте", RED, 66); y += CH;
         text(x, y, "только драйверы, чьим исходникам вы доверяете.", RED, 66); y += CH;
