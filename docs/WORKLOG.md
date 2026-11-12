@@ -12,18 +12,18 @@
 
 ### PR #42 — KDRV publisher-required policy / v46 integration branch
 - Ветка: `v46/kdrv-catalogue-signature-policy`; base: `v46/kdrv-auth-integration-final`.
-- Head: `d77c5dd7e1676904b9ab3ab7172d5ec33d69a222`.
+- Head: `6ace6455f3fbc25a123a4cec6b9254071622bf12`.
 - Это накопительная ветка примерно с 80 файлами: BIOS/UEFI BootInfo и handoff, ARM64 FDT/GIC, ACPI PCI routing, IOMMU/KDRV trust, каталог драйверов, installer и release-gap документы. В ней также исправлено подключение корневого FDT header в `arch/aarch64/fb_arm.c`.
-- Предыдущая проверка на head `13258d9...`: push run `43181790698` — build, ARM64, host-tests, KCC, audit, GUI, driver-e2e и все 10 VM jobs завершились success; report job оставался queued. На новом head добавлены failure-state cleanup в `kdrv_manager.c` и host lifecycle tests (`tests/kdrv_manager_test.c`, подключён в `tests/run_host_tests.sh`). Новый PR run `43184888229` создан, но пока pending без jobs; новые изменения ещё НЕ подтверждены CI. Не считать release gate закрытым до зелёного CI на новом head и итогового report.
+- Предыдущая проверка на head `13258d9...`: push run `43181790698` — build, ARM64, host-tests, KCC, audit, GUI, driver-e2e и все 10 VM jobs завершились success; report job оставался queued. На новом head добавлены failure-state cleanup в `kdrv_manager.c` и host lifecycle tests (`tests/kdrv_manager_test.c`, подключён в `tests/run_host_tests.sh`). Новые CI runs `43198527512` (pull_request, pending) и `43198515530` (push, queued); изменения concurrency/lifecycle на актуальном head ещё НЕ подтверждены CI. Не считать release gate закрытым до зелёного CI на новом head и итогового report.
 - PR draft, не слит. Не объединять без разрешения владельца проекта.
 - Граница Driver Manager: `drvget`/`drvman` реально включены в x86-64 и ARM64 userland build; `drvget` — ограниченная установка проверенных исходников по рецептам и лицензиям, а не универсальная конвертация Linux/Windows драйверов. Однако `drivers/kdrv/kdrv_manager.c` и `userland/drvcompat.c` не подключены к production build и не покрыты host-test runner. Их callback orchestration не считать готовой рабочей функцией; требуются backend, wiring и тесты.
 - Граница IOMMU в этой ветке: новые `drivers/iommu/{arm_smmu,intel_vtd,amd_vi,*_domain,iommu_discovery}.*` не входят в `build_clang.sh`/`build_arm64.sh`; ARM64 `main.c` не вызывает новый SMMUv3 runtime. Host suite покрывает старый `iommu_vtd.c` parser и KDRV tests, но не эти новые runtime-модули. Это отдельный блокер интеграции.
 - Отдельная ветка PR #125 ниже уже содержит другой путь интеграции SMMUv3 в ARM64 PCI startup и прошла CI на своём head; это не означает, что её код уже включён в PR #42 или main.
 
 ### PR #46 — unified release / native UEFI integration
-- Ветка: `v46/unified-release-integration`; base: `v46/kdrv-catalogue-signature-policy`; head после исправлений DMA teardown: `79796a15bc1b2d309756b5bee607144aa36addc9`. PR draft, GitHub сообщает mergeable=false; не сливать.
+- Ветка: `v46/unified-release-integration`; base: `v46/kdrv-catalogue-signature-policy`; head после изменения concurrency: `bfb77c809337025044276dad4850b7ca3f76e1f9`. PR draft, GitHub сообщает mergeable=false; не сливать.
 - Предыдущий полный run `42575383245`: build, ARM64, KCC, GUI, driver-e2e, Mind, audit и UEFI OVMF success; 9 из 10 VM shards success; shard 4 failed на `wasm-speed`, `stress-3d`, `cc-native` с watchdog hang. Host-tests failed только на diff-lint: в research harness были пустой неиспользуемый `kdrv_sha_seed`, мёртвая ветка `if (argc > a + 2 && 0)`, плюс тестовый Rust ABI shim ошибочно попадал под production no-stubs scan.
-- Удалены пустой helper и мёртвая ветка; `ci/lint.sh` теперь исключает `research/` из production stub scan, сохраняя проверку production C/H/ASM/Python/Shell. Новый run `43185215076` создан, но pending без jobs; исправление ещё не подтверждено CI.
+- Удалены пустой helper и мёртвая ветка; `ci/lint.sh` теперь исключает `research/` из production stub scan, сохраняя проверку production C/H/ASM/Python/Shell. Последний run `43198443728` queued на head `bfb77c80...`; исправления ещё не подтверждены CI.
 - VM shard 4: watchdog показывает kernel thread `core` sleeping at its wake tick with `mutexes_held=2`; все остальные ядра idle, watchdog прекращает исполнение. Это не признано решённым: нужно установить, какая ветка основного цикла оставляет два kmutex удержанными или почему scheduler не пробуждает core, затем повторить три сценария. Не маскировать timeout и не ослаблять тесты.
 - UEFI OVMF прошёл в старом run, но это evidence только для того head; physical firmware/hardware validation отсутствует. Новый head требует полного CI.
 
@@ -40,7 +40,7 @@
 - Head: `d28e08dfc178b3102e673c35bdfd8d852c39a881`
 - Усилены: проверка версии и границ секций; уникальность/порядок секций; типы функций и точные сигнатуры KIRA imports; лимиты памяти/таблицы; индексы функций/экспортов/глобальных; сегменты данных/элементов; тела функций и локальные объявления; запрет memory ops без memory; различение явно заданного max=0 и отсутствующего maximum.
 - Добавлен `tests/wasm_loader_bounds.py` с отрицательными случаями и тестом `memory.grow` при max=0; подключён к `tests/run_host_tests.sh`.
-- На текущем head создан push run `43198340417` (push) и `43198223808` (pull_request); оба queued. Последние изменения добавили строгую проверку LEB128, немедленных полей `call_indirect`/typed select/memory instructions и полное сравнение сигнатур `call_indirect`. Тесты ещё НЕ запускались/не подтверждены.
+- На текущем head созданы push run `43198340417` и PR run `43198511388`; оба queued. Последние изменения добавили строгую проверку LEB128, немедленных полей `call_indirect`/typed select/memory instructions и полное сравнение сигнатур `call_indirect`. Тесты ещё НЕ запускались/не подтверждены.
 - Это первая hardening-порция, не полная WebAssembly type-stack verification и не заявление о полной WASM-конформности.
 - Важное архитектурное различие: этот код — совместимый WebAssembly interpreter/JIT внутри Ring 3, НЕ собственная KIRA VM/ISA. Собственный portable KIRA bytecode, verifier, module ABI и native bridge из мастер-плана остаются отдельной незакрытой работой.
 - PR draft, не слит.
@@ -75,7 +75,7 @@
 - Исправлено: VT-d unmap теперь повторно выполняет invalidation даже при уже очищенном PTE; map rollback сохраняет retryable ledger при неуспешном откате; `iommu_unmap()`/ `iommu_unmap_all()` не удаляют запись до подтверждённого flush; bulk-unmap возвращает статус.
 - Исправлено в KDRV: при неуспешном IOMMU flush, неотключённом PCI Bus Master или ошибке PMM страницы остаются закреплёнными, слот остаётся `B_DEAD`, `kdrv_poll` повторяет очистку; DMA allocation cleanup также сохраняет страницы при неуспешном unmap/free.
 - Добавлены тесты повторной VT-d invalidation после timeout, сохранения IOMMU ledger и повторного bulk-unmap после восстановления hardware model.
-- Последний commit PR #46 branch: `79796a15bc1b2d309756b5bee607144aa36addc9`; CI run `43197990652` pending. Сборка и тесты этих изменений ещё НЕ подтверждены.
+- Последний code commit PR #46 для VT-d/KDRV: `79796a15bc1b2d309756b5bee607144aa36addc9`; после него workflow concurrency commit `bfb77c809337025044276dad4850b7ca3f76e1f9`; актуальный run `43198443728` queued. Сборка и тесты ещё НЕ подтверждены. Сборка и тесты этих изменений ещё НЕ подтверждены.
 - ARM SMMUv3 остаётся только prepare/queue scaffolding с host test; ARM64 production boot/build пока не подключает SMMUv3 domains/device discovery. Не включать bus mastering внешним DMA-драйверам на основании этих тестов.
 - PR #46 включает host tests для Driver Compatibility и KDRV catalogue, но это не доказывает наличие production GUI driver adaptation backend: не путать host test с интегрированным пользовательским приложением.
 
