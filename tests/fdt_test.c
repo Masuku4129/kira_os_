@@ -167,12 +167,27 @@ int main(void) {
             CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
                                handoff, sizeof handoff, &handoff_size) != 0);
             be(cell - 8, 4);
+            /* A 2-byte property preserves token alignment, so the semantic
+               cell-width check (not only the structural validator) must reject it. */
+            be(cell - 8, 2);
+            CHECK(fdt_tree_valid(blob, total));
+            CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
+            CHECK(fdt_simplefb(blob, total, &malformed_fb) != 0);
+            CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                               handoff, sizeof handoff, &handoff_size) != 0);
+            be(cell - 8, 4);
         }
         cell = (uint8_t*)fdt_prop(blob, root, "#size-cells", &cell_len);
         CHECK(cell && cell_len == 4);
         if (cell) {
             be(cell - 8, 8);
             CHECK(!fdt_tree_valid(blob, total));
+            CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
+            CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
+                               handoff, sizeof handoff, &handoff_size) != 0);
+            be(cell - 8, 4);
+            be(cell - 8, 2);
+            CHECK(fdt_tree_valid(blob, total));
             CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
             CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
                                handoff, sizeof handoff, &handoff_size) != 0);
