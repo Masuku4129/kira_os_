@@ -213,6 +213,10 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_sig tests/kdrv_sig_test.c kdr
 $T/kdrv_sig
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_catalogue tests/kdrv_catalogue_test.c drivers/kdrv/kdrv_catalogue.c drivers/kdrv/kdrv_trust.c
 $T/kdrv_catalogue
+
+echo "== KDRV manager: signed install lifecycle and staged rollback =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_manager tests/kdrv_manager_test.c drivers/kdrv/kdrv_manager.c
+$T/kdrv_manager
 python3 -m unittest ci.test_kdrvsign
 
 echo "== device tree (FDT) parser =="
