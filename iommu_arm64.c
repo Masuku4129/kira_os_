@@ -415,7 +415,7 @@ int iommu_enabled(void)
 int iommu_device_ready(const pci_dev_t* pci)
 {
     arm_iommu_device_t* dev;
-    if (!pci || pci->dma_quarantined || arm_map_invalid)
+    if (!pci || __atomic_load_n(&pci->dma_quarantined, __ATOMIC_ACQUIRE) || arm_map_invalid)
         return 0;
     if (!arm_map_present)
         return 1; /* No SMMU mapping property: preserve platform legacy behavior. */
