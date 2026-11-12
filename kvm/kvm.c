@@ -319,7 +319,7 @@ int kvm_run(struct kvm_instance *v, uint64_t fuel, uint64_t *exit_value)
             args[2] = v->registers[2];
             args[3] = v->registers[3];
             if (v->host.syscall(v->host.context, (uint32_t)i->immediate,
-                                args, &result) != 0)
+                                i->b, args, &result) != 0)
                 return KVM_E_HOST;
             v->registers[0] = result;
             break;
