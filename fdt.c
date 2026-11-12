@@ -265,14 +265,17 @@ int fdt_find_path(const void* fdt, const char* path) {
 
 int fdt_parent(const void* fdt, int node) {
     if (!fdt || node < 0) return -1;
-    int stack[32]; int depth = 0;
+    /* fdt_tree_valid() accepts a maximum nesting depth of 64. Keep the
+       parent walk's capacity aligned with that parser limit. */
+    int stack[64]; int depth = 0;
     int n = fdt_root(fdt);
-    if (n == node) return -1;
+    if (n < 0 || n == node) return -1;
     stack[0] = n;
     while (n >= 0) {
         int d = depth;
         n = fdt_next_node(fdt, n, &d);
-        if (n < 0 || d <= 0 || d >= 32) return -1;
+        if (n < 0) return -1;
+        if (d <= 0 || d >= 64) return -1;
         stack[d] = n;
         depth = d;
         if (n == node) return stack[d - 1];
