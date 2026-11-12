@@ -379,3 +379,11 @@
 - Service-boundary refinement: the router `services/syscall_router.c` is now subsystem-agnostic. Graphics, filesystem, network, audio and clock syscalls have separate adapter translation units. Both x86-64 and ARM64 build manifests include all adapters; architecture tests enforce one owner per service syscall ID.
 
 - Physical source ownership: moved syscall core to `kernel/syscall.c`; moved service router and five subsystem adapters under `services/`. Updated both ISA builds and architecture tests. Public compatibility headers remain at repository root for now.
+
+
+### Architecture branch CI regression — KCC libc-lite header (2026-11-12)
+- Exact tested head before fix: `005342875d84eb094ed6c292942a2d5269c662e5`, workflow run `43278771976`.
+- x86-64 build, ARM64 build and all 29 QEMU/Limbo VM jobs completed successfully. Host-tests failed in KCC self-host compilation: `kcc/include/string.h` defined unused `static` helpers, and `-Werror=unused-function` rejected `memmove`/ `memset` in translation units that did not use them. The host suite reached KCC with 1 failure; host-tests is not PASS.
+- Corrective change: changed header-only libc-lite helpers from `static` to `static inline` in `kcc/include/string.h`, preserving function bodies and behavior while allowing unused inline helpers in individual translation units.
+- Fix commit: `ccdd22336febdf17cf5ed876b52c2b145a804f72`. Exact-head CI had not yet appeared when this entry was written; fix remains unverified until a fresh workflow run completes.
+- Next: verify exact-head CI; then resume the M2 HAL/Device Model boundary with a dependency-closed slice. Keep PR #135 draft and do not merge.
