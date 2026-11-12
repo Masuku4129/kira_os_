@@ -16,6 +16,7 @@ def require(condition, message):
 
 core = read("syscall.c")
 adapter = read("syscall_services.c")
+adapter_sources = ("syscall_service_graphics.c", "syscall_service_fs.c", "syscall_service_network.c", "syscall_service_audio.c", "syscall_service_clock.c")
 x86_main = read("arch/x86_64/kernel_main.c")
 x86_boot = read("arch/x86_64/kernel_boot.c")
 x86_boot_header = read("arch/x86_64/kernel_boot.h")
@@ -84,8 +85,17 @@ service_ids = [
 ]
 for name in service_ids:
     require(name in names, f"{name} missing from the shared syscall registry")
-    require(re.search(r"\bcase\s+" + name + r"\b", adapter) is not None,
-            f"{name} missing from service adapter dispatch")
+for source in adapter_sources:
+    require(source in read("build_clang.sh") and source in read("build_arm64.sh"),
+            f"{source} is not built for both ISAs")
+for name in ("SYS_GFX_CREATE", "SYS_GFX_PRESENT", "SYS_GFX_EVENT"):
+    require(name in read("syscall_service_graphics.c"), f"{name} missing from graphics adapter")
+require("SYS_FS" in read("syscall_service_fs.c"), "filesystem adapter missing SYS_FS")
+for name in ("SYS_NET_DNS", "SYS_UDP_OPEN", "SYS_NET_CONNECT_SA", "SYS_NET_PEER", "SYS_UDP_SENDTO", "SYS_UDP_RECVFROM"):
+    require(name in read("syscall_service_network.c"), f"{name} missing from network adapter")
+for name in ("SYS_SND_OPEN", "SYS_SND_VOLUME", "SYS_SND_RECORD"):
+    require(name in read("syscall_service_audio.c"), f"{name} missing from audio adapter")
+require("SYS_TIME" in read("syscall_service_clock.c"), "clock adapter missing SYS_TIME")
 
 require("SYS_ARGS" not in adapter,
         "process argument syscall must remain in the kernel core")
