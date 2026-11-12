@@ -188,7 +188,8 @@ int kdrv_manager_activate(struct kdrv_manager_ops *ops, const char *name)
     if (ops->record_state(ops->context, name, "", KDRV_STATE_ACTIVE) == 0)
         return 0;
     /* Never leave a live driver active when durable state could not record it. */
-    (void)ops->deactivate(ops->context, name);
+    if (ops->deactivate(ops->context, name) != 0)
+        return KDRV_STATE_ROLLBACK_FAILED;
     (void)ops->record_state(ops->context, name, "", KDRV_STATE_FAILED);
     return -1;
 }
@@ -203,7 +204,8 @@ int kdrv_manager_remove(struct kdrv_manager_ops *ops, const char *name)
     if (ops->record_state(ops->context, name, "", KDRV_STATE_ABSENT) == 0)
         return 0;
     /* Restore the previous active state if its durable removal did not commit. */
-    (void)ops->activate(ops->context, name);
+    if (ops->activate(ops->context, name) != 0)
+        return KDRV_STATE_ROLLBACK_FAILED;
     (void)ops->record_state(ops->context, name, "", KDRV_STATE_FAILED);
     return -1;
 }
