@@ -47,7 +47,7 @@ static int package_name_safe(const char *s, size_t capacity)
 static int package_version_safe(const char *s, size_t capacity)
 {
     size_t i;
-    if (!bounded_string(s, capacity))
+    if (!bounded_string(s, capacity) || s[0] < '0' || s[0] > '9')
         return 0;
     for (i = 0; s[i]; ++i) {
         char c = s[i];
