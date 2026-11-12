@@ -14,7 +14,7 @@
 - Ветка: `v46/kdrv-catalogue-signature-policy`
 - Head: `13258d9f0cb4a464b6ff16605d91a5f78b69526a`
 - Исправлено: `arch/aarch64/fb_arm.c` теперь явно включает корневой `../../fdt.h`, а не одноимённый локальный заголовок загрузочного FDT.
-- Проверка: run `43181799184`; build, ARM64, host-tests, KCC, audit, GUI и driver-e2e завершились success; итоговый report ещё ожидал завершения на момент снимка.
+- Проверка: run `43181799184`; build, ARM64, host-tests, KCC, audit, GUI и driver-e2e завершились success; VM job был skipped, package skipped, report оставался queued. Эмуляторный VM прогон этой ветки не подтверждён.
 - PR остаётся draft и не слит.
 - Важная граница готовности: `drvget` — реальная, но ограниченная установка проверенных исходников по рецептам (разрешённые BSD/MIT/ISC, сборка встроенным KCC); это НЕ универсальная конвертация Linux/Windows-драйверов. В PR присутствуют `userland/drvcompat.c`, `drivers/kdrv/kdrv_manager.c` и `drivers/kdrv/kdrv_catalogue.c`, но они не подключены в текущем `build_clang.sh` и не покрыты текущим host-test runner. Их callback-пайплайн/интеграцию нельзя считать рабочей функцией или закрытым требованием; нужен реальный backend, wiring и тесты.
 
@@ -28,10 +28,10 @@
 
 ### PR #131 — KIRA WASM runtime validation
 - Ветка: `fix/wasm-module-header-bounds`
-- Head: `7027e1ce11b287ab889cdd911bd2d3e1a242aff0`
+- Head: `7027e1ce11b287ab889cdd911bd2d3e1a242aff0` (актуальность сверять; последняя проверка ветки)
 - Усилены: проверка версии и границ секций; уникальность/порядок секций; типы функций и точные сигнатуры KIRA imports; лимиты памяти/таблицы; индексы функций/экспортов/глобальных; сегменты данных/элементов; тела функций и локальные объявления; запрет memory ops без memory; различение явно заданного max=0 и отсутствующего maximum.
 - Добавлен `tests/wasm_loader_bounds.py` с отрицательными случаями и тестом `memory.grow` при max=0; подключён к `tests/run_host_tests.sh`.
-- CI run `43183584327` (push) queued; PR-check runs `43183581968`/`43183570462` ещё в очереди. Тесты ещё НЕ запускались/не подтверждены.
+- CI runs `43183584327` (push) и `43183581968` (pull_request) созданы; build/ARM64/host-tests находятся в queued. Тесты ещё НЕ запускались/не подтверждены.
 - Это первая hardening-порция, не полная WebAssembly type-stack verification и не заявление о полной WASM-конформности.
 - PR draft, не слит.
 
