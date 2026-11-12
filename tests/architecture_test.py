@@ -31,6 +31,12 @@ require("kernel_boot_init" in x86_boot_header and '#include "kernel_boot.h"' in 
         "x86 boot coordinator API is not scoped to the x86 backend")
 require(not (ROOT / "kernel.c").exists() and not (ROOT / "kernel_boot.c").exists(),
         "architecture-specific kernel entry source remains in the repository root")
+require(not (ROOT / "syscall.c").exists(),
+        "kernel syscall core remains outside the kernel layer")
+require("kernel/syscall.c" in read("build_clang.sh") and "kernel/syscall.c" in read("build_arm64.sh"),
+        "kernel syscall core is not built by both architecture targets")
+require(not (ROOT / "syscall_services.c").exists(),
+        "service router remains outside the services layer")
 require("void kernel_main(" in x86_main and "kernel_boot_init(" in x86_boot,
         "x86 entry/boot ownership is incomplete")
 numbers = read("kcc/include/syscall_numbers.h")
