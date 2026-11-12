@@ -43,6 +43,9 @@ static inline void DELAY(u64 us) { u64 t = k_clock_ns(); while (k_clock_ns() - t
 static inline u64 kd_now_ms(void) { return k_clock_ns() / 1000000; }
 
 /* ---- память: куча программы, куски без возврата (драйвер выделяет всё при подключении) ---- */
+#ifndef KDRV_HEAP_GROW
+#define KDRV_HEAP_GROW(pages) k_heap_grow(pages)
+#endif
 static inline void* kd_malloc(u64 n) {
     static u8* cur; static u64 left;
     /* Reject arithmetic wrap before rounding the request or computing pages. */
@@ -52,9 +55,6 @@ static inline void* kd_malloc(u64 n) {
         u64 pages = (n + 4095ull) / 4096ull;
         if (pages < 4) pages = 4;
         if (pages > (~0ull / 4096ull)) return (void*)0;
-#ifndef KDRV_HEAP_GROW
-#define KDRV_HEAP_GROW(pages) k_heap_grow(pages)
-#endif
         u8* p = (u8*)KDRV_HEAP_GROW(pages);
         if (!p) return (void*)0;
         cur = p;
