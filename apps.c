@@ -248,7 +248,13 @@ static void mind_draw_forecast(surface_t* s, const mind_view_t* v) {
     p = cat(t, 0, "доверие: "); cat(t, p, v->net_trusted ? "подтверждено" : "не подтверждено");
     gfx_text(s, 316, 260, t, v->net_trusted ? TH_GREEN : TH_AMBER, -1);
     card(s, 10, 335, 580, 190, "ПРОГНОЗ ДАВЛЕНИЯ ПАМЯТИ · 4 СЕКУНДЫ", TH_AMBER);
-    if (v->mem_net_trusted) {
+    if (v->mem_used >= 90) {
+        gfx_text(s, 26, 376, "Порог 90% ОЗУ уже достигнут; будущий переход не прогнозируется.", TH_RED, -1);
+        gfx_text(s, 26, 408, "Сначала нужно восстановить запас памяти; модель не выдаёт ложный прогноз.", TH_TEXT_DIM, -1);
+    } else if (!v->mem_risk_valid) {
+        gfx_text(s, 26, 376, "Нет валидного замера памяти для четырёхсекундного прогноза.", TH_AMBER, -1);
+        gfx_text(s, 26, 408, "Обучение приостанавливается до восстановления телеметрии.", TH_TEXT_DIM, -1);
+    } else if (v->mem_net_trusted) {
         unsigned mrisk = v->mem_risk > 100 ? 100 : v->mem_risk;
         uint32_t mc = mrisk >= 70 ? TH_RED : mrisk >= 40 ? TH_AMBER : TH_GREEN;
         p = cat(t, 0, "вероятность достичь 90% занятой ОЗУ: ");
