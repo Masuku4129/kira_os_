@@ -115,7 +115,8 @@ static void smmu_zero_memory(void *memory, size_t bytes)
 
 static int smmu_alloc_queue(
     const struct kira_smmu_platform *platform,
-    size_t allocation_pages, size_t queue_bytes, size_t alignment,
+    uint8_t address_width, size_t allocation_pages,
+    size_t queue_bytes, size_t alignment,
     void **allocation, uint64_t *allocation_physical,
     size_t *allocated_pages, void **queue_virtual,
     uint64_t *queue_physical)
@@ -129,7 +130,7 @@ static int smmu_alloc_queue(
     *allocated_pages = allocation_pages;
     if (!*allocation || !*allocation_physical ||
         (*allocation_physical & (SMMU_PAGE_SIZE - 1u)) != 0 ||
-        !smmu_dma_range_fits(48u, *allocation_physical,
+        !smmu_dma_range_fits(address_width, *allocation_physical,
                              allocation_pages * SMMU_PAGE_SIZE) ||
         *allocation_physical >
             UINT64_MAX - (allocation_pages * SMMU_PAGE_SIZE)) {
@@ -296,7 +297,7 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         void *cmdq_allocation = 0;
         uint64_t cmdq_allocation_physical = 0;
         size_t cmdq_allocation_pages = 0;
-        rc = smmu_alloc_queue(platform, 1u, SMMU_CMDQ_BYTES,
+        rc = smmu_alloc_queue(platform, smmu->output_address_width, 1u, SMMU_CMDQ_BYTES,
                               SMMU_PAGE_SIZE, &cmdq_allocation,
                               &cmdq_allocation_physical,
                               &cmdq_allocation_pages, &smmu->cmdq,
@@ -319,7 +320,7 @@ int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
         return rc;
     }
 
-    rc = smmu_alloc_queue(platform, SMMU_EVTQ_ALLOC_PAGES,
+    rc = smmu_alloc_queue(platform, smmu->output_address_width, SMMU_EVTQ_ALLOC_PAGES,
                           SMMU_EVTQ_BYTES, SMMU_EVTQ_ALIGN,
                           &smmu->evtq_allocation,
                           &smmu->evtq_allocation_physical,
