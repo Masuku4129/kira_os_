@@ -15,7 +15,6 @@ typedef struct Member Member;
 typedef struct Param Param;
 typedef struct Reloc Reloc;
 typedef struct HS HS;
-typedef struct IRState IRState;
 
 /* ---------- util.c ---------- */
 typedef struct {
@@ -44,7 +43,7 @@ typedef struct {
     const char *srcpath;                     /* главный исходный файл (для сообщений бэкенда) */
     void *pp_state;                           /* состояние препроцессора, принадлежит этой компиляции */
     void *parse_state;                         /* состояние парсера, принадлежит этой компиляции */
-    IRState *ir_state;                            /* состояние IR lowering, принадлежит этой компиляции */
+    void *ir_state;                            /* состояние IR lowering, принадлежит этой компиляции */
     void *gen_state;                           /* состояние общей подготовки backend, принадлежит этой компиляции */
     void *a64_state;                           /* состояние кодогенератора AArch64, принадлежит этой компиляции */
     void *x86_state;                           /* состояние кодогенератора x86-64, принадлежит этой компиляции */
