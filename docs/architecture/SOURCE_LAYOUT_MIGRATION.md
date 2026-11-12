@@ -40,7 +40,7 @@ This is the destination model. Existing build scripts and include paths are part
 | Target owner | Current source paths / files | Migration notes |
 |---|---|---|
 | Level 1 — platform | `platform.h`, `hwprofile.c/.h`, `mbinfo.c/.h`, `acpi.c/.h`, `fdt.c/.h`, firmware parsing in `bootmap.c` | Separate immutable platform discovery data from architecture-specific accessors. |
-| Level 2 — HAL/drivers | `arch/x86_64/**`, `arch/aarch64/**`, `pci.c/.h`, `usb.c/.h`, `virtio_*.c/.h`, `ata.c`, `ahci.c`, `nvme.c`, `e1000.c/.h`, `hda.c/.h`, `ac97.c`, `sb16.c`, `keyboard.c/.h`, `mouse.c/.h`, `fb.c/.h`, `fb_arm.c/.h` | Device discovery, resource ownership, DMA/IOMMU and driver lifecycle must become explicit contracts. Keep ISA-specific code behind HAL interfaces. |
+| Level 2 — HAL/drivers | `arch/x86_64/**`, `arch/aarch64/**` (including the FDT-driven `arch/aarch64/pci_host.c` ECAM host backend), `pci.c/.h`, `usb.c/.h`, `virtio_*.c/.h`, `ata.c`, `ahci.c`, `nvme.c`, `e1000.c/.h`, `hda.c/.h`, `ac97.c`, `sb16.c`, `keyboard.c/.h`, `mouse.c/.h`, `fb.c/.h`, `fb_arm.c/.h` | Device discovery, resource ownership, DMA/IOMMU and driver lifecycle must become explicit contracts. Keep ISA-specific code behind HAL interfaces. |
 | Level 3 — kernel | `kernel.h` (shared declarations), `arch/x86_64/kernel_main.c`, `arch/x86_64/kernel_boot.c` (x86 composition root), `kernel/syscall.c` (privilege-boundary dispatch and kernel primitives), `pmm.c/.h`, `vmm.c/.h`, `heap.c/.h`, `sched.c/.h`, `proc.c/.h`, `futex.c/.h`, `kobj.c/.h`, `kmutex.c/.h`, `spinlock.h`, `percpu.c/.h`, `timer.c/.h`, `clock.c/.h`, `uaccess.*` | Kernel must not absorb user-facing services. Syscall dispatch should remain a thin, validated boundary; service semantics move behind IPC/host-service interfaces only after contracts exist. |
 | Level 4 — security | `caps.c/.h`, `trust.c/.h`, `crypto.c/.h`, `sha256.c`, `kdrv_fmt.c`, security-relevant checks in `kdrv.c`, `proc.c`, `kernel/syscall.c` | Enforcement is cross-layer. Establish one authority and object-bound capabilities before relocating checks; do not create a second policy implementation. |
 | Level 5 — intelligence | `mind.c/.h`, `mind_sys.c/.h`, `mindnet.c/.h`, `immune.c/.h`, `devhealth.c/.h`, `experience.c/.h` | Separate read-only telemetry, model/learning, proposal generation and owner-authorized actions. Existing direct callbacks are migration targets, not proof of a finished control boundary. |
@@ -174,3 +174,11 @@ Implemented as a transitional in-kernel boundary:
 The syscall core is located at `kernel/syscall.c`. The service router and subsystem adapters are under `services/`: `services/syscall_router.c`, `services/graphics_syscall.c`, `services/filesystem_syscall.c`, `services/network_syscall.c`, `services/audio_syscall.c`, `services/clock_syscall.c`, and `services/driver_syscall.c`.
 
 Both x86-64 and ARM64 build manifests compile these exact paths. Root `syscall.h`, `syscall_services.h` and `syscall_numbers.h` remain compatibility/interface headers during migration. No syscall numbers or calling convention changed. This is physical ownership only; adapters still execute in kernel context.
+
+
+## 11. AArch64 PCI host backend ownership
+
+- `arch/aarch64/pci_host.c` owns FDT-described `pci-host-ecam-generic` discovery, ECAM MMIO mapping, PCI address-window parsing and BAR assignment.
+- `arch/aarch64/main.c` retains the ordered boot call and supplies its serialized console logger; it no longer implements PCI host discovery or calls `pci_use_ecam()`, `pci_init()` or `pci_assign()` directly.
+- The backend is built only by the ARM64 target. This extraction does not enable or change x86-64 PCI enumeration and does not bypass the pending DMA/IOMMU security gates.
+- Acceptance: architecture ownership guard, both builds, host suite, ARM64 QEMU GICv2/GICv3 and PCI/driver boot scenarios on the exact head.
