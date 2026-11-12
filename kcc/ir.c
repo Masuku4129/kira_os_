@@ -15,7 +15,7 @@ struct IRState {
  * this alias keeps the self-hosted parser's supported C subset (no call-result -> member).
  * K itself is currently process-global, so this does not reduce existing concurrency guarantees. */
 static struct IRState *irs;
-#define IRS (irs)
+#define IRS irs
 #define ihead (IRS->ihead)
 #define itail (IRS->itail)
 #define ir_nreg (IRS->reg_count)
