@@ -182,3 +182,12 @@ Both x86-64 and ARM64 build manifests compile these exact paths. Root `syscall.h
 - `arch/aarch64/main.c` retains the ordered boot call and supplies its serialized console logger; it no longer implements PCI host discovery or calls `pci_use_ecam()`, `pci_init()` or `pci_assign()` directly.
 - The backend is built only by the ARM64 target. This extraction does not enable or change x86-64 PCI enumeration and does not bypass the pending DMA/IOMMU security gates.
 - Acceptance: architecture ownership guard, both builds, host suite, ARM64 QEMU GICv2/GICv3 and PCI/driver boot scenarios on the exact head.
+
+
+## 12. AArch64 PCI host FDT/ECAM validation slice
+
+- Added `arch/aarch64/pci_host_parse.[ch]` as a pure parser for the PCI host bridge `ranges` property. PCI child addresses must use the three-cell PCI format; parent address and size cell counts are bounded to one or two cells.
+- The parser rejects truncated range tuples, address-window overflow, CPU-address overflow and CPU-to-PCI offsets that cannot be represented by the existing signed `pci_window_t.cpu_off` contract. It selects the largest memory window of each supported width and does not reinterpret I/O windows as memory.
+- `arch/aarch64/pci_host.c` now rejects invalid/disabled host nodes, malformed bus-range properties, bus numbers outside 0..255, ECAM regions too small for the declared bus span and overflowing physical ranges. It maps only the required ECAM span and fails closed on malformed ranges before PCI enumeration.
+- Added `tests/pci_host_parse_test.c` for valid 32/64-bit windows, negative offsets, invalid cell geometry, truncated tuples and arithmetic overflow. The test is registered in `tests/run_host_tests.sh`; the parser is included in the ARM64 build and guarded by `tests/architecture_test.py`.
+- **Verification:** changes are committed on the architecture branch. Fresh exact-head CI is required; no build/test PASS is claimed for this slice until the run on the final SHA completes.
