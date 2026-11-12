@@ -103,7 +103,7 @@
 - Дополнительное fail-closed правило: `sched_can_sleep()` теперь запрещает сон при удержании kmutex; прямой `sched_sleep_ticks()` с kmutex вызывает panic; блокирующий захват второго mutex при удержании первого тоже fail-fast. Это предотвращает добровольное переключение с filesystem locks.
 - Найдена и исправлена C data race: `next_wake` и `ready_epoch` читались атомарно на timer IRQ, но обновлялись обычными операциями под scheduler lock. Все обращения теперь атомарные; deadline min/store и ready-epoch bump используют атомарные операции.
 - VT-d range teardown дополнительно оптимизирован: новый `kira_vtd_domain_unmap_range()` очищает contiguous PTE range, чистит каждую leaf table и выполняет один IOTLB invalidation на весь range; `iommu_unmap`, rollback и `iommu_unmap_all` используют batched API. Добавлены host tests для multi-page range и retry после timeout; это ещё ожидает CI.
-- Все эти исправления пока НЕ подтверждены повторным QEMU shard-4. Последний PR #46 head `9c7d021af709935ab926fb3cd8a683daecede42e`; CI run `43201868836` pending.
+- Все эти исправления пока НЕ подтверждены повторным QEMU shard-4. Последний PR #46 head `e63ad1d51f262c5efd7ae3d75da2f1cad11cf8a3`; предыдущие runs отменены concurrency, свежий run для этого head ещё не появился.
 
 ### CI throughput — duplicate branch/PR runs
 - Устранён источник лишней нагрузки: CI запускался одновременно на `push` и `pull_request` для одной feature-ветки, а concurrency groups различались по event/PR number.
@@ -112,7 +112,7 @@
 - Это уменьшает дублирование, но не устраняет очередь GitHub runner полностью. Новые workflow commits требуют завершённого CI для подтверждения корректности.
 
 ## Следующие действия
-1. Дождаться CI PR #46 на head `9c7d021a...`; обязательно проверить полный QEMU matrix и shard 4 (`wasm-speed`, `stress-3d`, `cc-native`) после watchdog/scheduler исправлений.
+1. Дождаться CI PR #46 на head `e63ad1d5...`; обязательно проверить полный QEMU matrix и shard 4 (`wasm-speed`, `stress-3d`, `cc-native`) после watchdog/scheduler исправлений.
 2. Дождаться CI PR #95 на head `f738656e...`; если self-host падает, читать точный stage1 диагностический вывод и исправлять первопричину.
 3. Дождаться CI PR #131 на head `7c777f47...`; при падении исправлять реализацию/фикстуры и повторять host-tests, build, ARM64. Не оставлять известные ошибки.
 4. Дождаться CI PR #81 на head `700010a1...`; проверить Mind forecast UI, telemetry validity и memory label semantics.
