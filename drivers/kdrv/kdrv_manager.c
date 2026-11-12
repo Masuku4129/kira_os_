@@ -165,8 +165,9 @@ int kdrv_manager_install(struct kdrv_manager_ops *ops, const char *path,
     rc = 0;
 
 out:
-    if (committed)
-        (void)ops->rollback_committed(ops->context, manifest.name);
+    if (committed &&
+        ops->rollback_committed(ops->context, manifest.name) != 0)
+        rc = KDRV_INSTALL_ROLLBACK_FAILED;
     if (staged)
         ops->discard_staged(ops->context, staging_path);
     if (rc != 0 && manifest_ready)
