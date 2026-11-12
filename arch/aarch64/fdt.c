@@ -98,7 +98,7 @@ int kira_fdt_parse(const void *blob,size_t available,struct kira_fdt_info *o)
    {size_t k=0;while(no+k<str_end&&pn[k])k++;if(no+k>=str_end)return -4;}
    v=s+pos;pos=align4(pos+len);
    if(name_eq(pn,"#address-cells")&&len==4){ac=be32(v);if(ac<1||ac>2)return -6;}
-   else if(name_eq(pn,"#size-cells")&&len==4){sc=be32(v);if(sc<1||sc>2)return -6;}
+   else if(name_eq(pn,"#size-cells")&&len==4){sc=be32(v);if(sc>2)return -6;}
    else if(stack[depth-1].chosen&&name_eq(pn,"bootargs")){
     size_t n=len<sizeof(o->bootargs)-1?len:sizeof(o->bootargs)-1;
     for(size_t j=0;j<n&&v[j];j++)o->bootargs[j]=(char)v[j];o->bootargs[n]=0;
