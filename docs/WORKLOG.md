@@ -387,3 +387,13 @@
 - Corrective change: changed header-only libc-lite helpers from `static` to `static inline` in `kcc/include/string.h`, preserving function bodies and behavior while allowing unused inline helpers in individual translation units.
 - Fix commit: `ccdd22336febdf17cf5ed876b52c2b145a804f72`. Exact-head CI had not yet appeared when this entry was written; fix remains unverified until a fresh workflow run completes.
 - Next: verify exact-head CI; then resume the M2 HAL/Device Model boundary with a dependency-closed slice. Keep PR #135 draft and do not merge.
+
+
+### ARM64 core-loop ownership migration (2026-11-12)
+
+- Из `arch/aarch64/main.c` вынесен steady-state loop в `arch/aarch64/kernel_main.c`; приватный интерфейс — `arch/aarch64/kernel_main.h`. `arm_main()` сохраняет прежний порядок инициализации и передаёт управление после `console_init()`. Цикл `console_poll → periodic Mind/experience/reap → prog_poll → kdrv_poll → life_tick → watchdog_feed → sched_sleep_ticks(1)` сохранён.
+- `build_arm64.sh` и `tests/architecture_test.py` обновлены; guard теперь требует отдельного ARM64 owner и проверяет подключение source/header.
+- Аудит F-017 добавлен в `SOURCE_AUDIT_FINDINGS.md`; инвентаризация отражает, что ARM64 platform bring-up всё ещё остаётся в `main.c`. Это не полный перенос boot и не Service Manager.
+- Host failure на head `005342875d84eb094ed6c292942a2d5269c662e5` был в KCC libc-lite headers: empty loop under `-Wempty-body` и неиспользуемые static helpers под `-Werror`. Последующие коммиты сделали тела циклов явными и функции `static inline`; это исправление ожидает fresh exact-head CI.
+- ARM64 build и QEMU, x86 build и вся QEMU/Limbo VM matrix прошли на head `005342875d84eb094ed6c292942a2d5269c662e5`; host suite на этом head FAILED, не PASS. Более поздние source split commits были отменены CI push-cancellation; требуется новый полный прогон на конечном head.
+- Не сливать PR #135. Следующий шаг после зелёного exact-head CI: извлечь ARM64 platform discovery/early boot в отдельные composition/backend modules по dependency-closed slices, затем формализовать BootInfo/Device Model contracts; PCI enumeration на x86 не включать до закрытия DMA/IOMMU security gates.
