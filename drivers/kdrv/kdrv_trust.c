@@ -135,9 +135,13 @@ int kdrv_trust_verify_catalogue(struct kdrv_trust_store *store,
     uint64_t now, floor = 0;
     size_t off = 0;
 
+    /* Corrupt in-memory trust metadata is an invalid/untrusted input, not
+       a backend outage. Keep it distinct so callers can fail closed without
+       misreporting a storage-service failure. */
     if (!store || store->key_count > KDRV_TRUST_MAX_KEYS ||
-        !record || (!payload && payload_length) || !ops ||
-        !ops->sha256 || !ops->ed25519_verify ||
+        !record || (!payload && payload_length) || !ops)
+        return KDRV_TRUST_INVALID;
+    if (!ops->sha256 || !ops->ed25519_verify ||
         !ops->read_version_floor || !ops->trusted_time ||
         (ops->storage_flags & ~KDRV_TRUST_STORAGE_KNOWN_FLAGS) != 0 ||
         !(ops->storage_flags & KDRV_TRUST_STORAGE_HW_MONOTONIC))
