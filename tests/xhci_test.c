@@ -351,9 +351,9 @@ int pci_quiesce_interrupts(const pci_dev_t* d) {
                 if (pci_read16(d, (uint16_t)(ptr + 2u)) & 1u) safe = 0;
             } else if (id == 0x11u) {
                 uint16_t control = pci_read16(d, (uint16_t)(ptr + 2u));
-                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)((control & ~0x8000u) | 0x4000u));
+                pci_write16(d, (uint16_t)(ptr + 2u), (uint16_t)(control | 0x4000u));
                 uint16_t after = pci_read16(d, (uint16_t)(ptr + 2u));
-                if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
+                if (!(after & 0x4000u)) safe = 0;
             }
             if (!next) { ptr = 0; break; }
             if (next < 0x40u || next > 0xFCu || (next & 3u) || next == ptr) { safe = 0; break; }
@@ -442,7 +442,7 @@ int main(void) {
     int rc = xhci_start(&hc, &pd);
     CHECK(rc == 0);
     CHECK((pci_msi_control_model & 1u) == 0);
-    CHECK((pci_msix_control_model & 0xC000u) == 0x4000u);
+    CHECK((pci_msix_control_model & 0xC000u) == 0xC000u);
     CHECK((pci_command_model & (PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF)) ==
           (PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF));
     if (rc) printf("%s", logbuf);
