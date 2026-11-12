@@ -716,8 +716,9 @@ int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
 
 /* ---- консоль ---- */
 static void show(void) {
-    list_t* l = (list_t*)kmalloc(sizeof *l);
-    if (!l) return;
+    /* This console path must remain observable even when the kernel heap is under pressure. */
+    list_t storage;
+    list_t* l = &storage;
     int r = list_pkgs(l);
     if (r) { uart_print("каталога /drv нет (пакеты драйверов: /drv/ИМЯ.kdrv и /drv/ИМЯ.rec)\n"); }
     else {
@@ -732,7 +733,6 @@ static void show(void) {
             kfree(p.buf);
         }
     }
-    kfree(l);
     unsigned used = 0;
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         bind_t* b = &binds[i];
@@ -750,6 +750,7 @@ static void show(void) {
 }
 
 void kdrv_cmd(const char* arg) {
+    if (!arg) arg = "";
     while (*arg == ' ') arg++;
     char verb[12]; unsigned n = 0;
     while (arg[n] && arg[n] != ' ' && n < sizeof verb - 1) { verb[n] = arg[n]; n++; }
