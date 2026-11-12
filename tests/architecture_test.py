@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Static architecture guard for the transitional syscall/service split."""
 from pathlib import Path
+import os
 import re
 import sys
 
@@ -52,6 +53,12 @@ require('#include "syscall_numbers.h"' in read("userland/kira.h"),
         "userland API does not use the canonical syscall registry")
 require('#include "syscall_numbers.h"' in read("kcc/include/kira.h"),
         "KCC public API symlink target does not use the canonical syscall registry")
+require((ROOT / "kcc/include/kira.h").is_symlink()
+        and os.readlink(ROOT / "kcc/include/kira.h") == "../../userland/kira.h",
+        "KCC public API header symlink was replaced or retargeted")
+for path in ("build_clang.sh", "build_arm64.sh"):
+    require("-Ikcc/include" in read(path),
+            f"{path} does not expose the canonical ABI headers to user applications")
 for path in ("userland/kira.h", "kcc/include/kira.h"):
     public_api = read(path)
     duplicated = re.findall(
