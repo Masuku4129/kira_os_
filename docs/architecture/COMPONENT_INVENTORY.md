@@ -67,3 +67,6 @@
 - Создать dependency map и contract registry, не выдумывая отсутствующие интерфейсы.
 - Сопоставить открытые PR с компонентами и точными head SHA; не считать изменения из PR частью main.
 - Запустить тесты только в доступном checkout/CI и записать реальные команды, окружение и результат.
+
+
+**PCI host parsing hardening (architecture branch):** ECAM bus-range and physical-span checks now fail closed; PCI `ranges` decoding is isolated in a host-testable pure parser with signed-offset and overflow validation. This is source/test coverage awaiting exact-head CI, not proof of physical PCI hardware support.
