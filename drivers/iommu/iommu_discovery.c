@@ -60,7 +60,7 @@ int kira_iommu_prepare_intel_units(
     size_t prepared = 0;
 
     if (!dmar || !units || !units_prepared || !platform ||
-        dmar->unit_count > KIRA_DMAR_MAX_UNITS)
+        !platform->free_dma_page || dmar->unit_count > KIRA_DMAR_MAX_UNITS)
         return KIRA_VTD_INVALID;
 
     *units_prepared = 0;
@@ -87,8 +87,16 @@ int kira_iommu_prepare_intel_units(
                                    dmar->host_address_width, platform);
         iommu_report(ops, "VT-d unit prepare", rc, source->register_base);
         if (rc != KIRA_VTD_OK) {
-            *units_prepared = prepared;
-            return rc;
+            size_t rollback = prepared;
+            int rollback_failed = 0;
+            while (rollback > 0) {
+                --rollback;
+                if (kira_vtd_unit_release(&units[rollback], platform) !=
+                    KIRA_VTD_OK)
+                    rollback_failed = 1;
+            }
+            *units_prepared = rollback_failed ? prepared : 0;
+            return rollback_failed ? KIRA_VTD_HARDWARE_ERROR : rc;
         }
 
         ++prepared;
