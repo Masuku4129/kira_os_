@@ -489,6 +489,23 @@ int main(void) {
              if (u == 13) CHECK(Gap.mem_risk_valid);
          }
         CHECK(Gap.mem_risk_valid && Gap.m.memory_net.n > 0);
+
+        /* An intervention at the four-second horizon must censor the label
+           before training, not after memory_foresight has already consumed it. */
+        static mind_t Acted; mind_init(&Acted, 0, 4); Acted.m.mode = MIND_ACT;
+        const mind_act_t mem_only = { .mem_trim = a_trim };
+        for (uint32_t u = 1; u <= 8; u++) {
+            base(u); S.mem_used = 50; mind_step(&Acted, &S, &none);
+        }
+        for (uint32_t u = 9; u <= 10; u++) {
+            base(u); S.mem_used = u == 9 ? 80 : 84; mind_step(&Acted, &S, &none);
+        }
+        uint32_t before_intervention = Acted.m.memory_net.n;
+        base(11); S.mem_used = 88; mind_step(&Acted, &S, &mem_only);
+        CHECK(trims > 0 && Acted.mem_level == 1);
+        CHECK(Acted.m.memory_net.n == before_intervention);
+        base(12); S.mem_used = 90; mind_step(&Acted, &S, &mem_only);
+        CHECK(Acted.m.memory_net.n == before_intervention);
     }
 
     printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1-v3 and disk validity) passed");
