@@ -300,3 +300,20 @@
 4. Продолжить source audit по public APIs/ownership/error paths в memory, IPC, scheduler, KDRV, KiraFS, WASM, Mind and boot; дополнять inventory with exact symbols and tests.
 5. Создать RFC draft for BootInfo/syscall ABI/capabilities/IPC first, based on actual headers; no guessed syscall numbers or ABI layouts.
 6. Obtain exact CI runs for open PR heads and their dependency bases; no blind merge. Physical hardware remains untested.
+
+
+### Contract RFC and PR CI review (2026-11-12, third pass)
+- Created draft RFCs based on actual main headers/source: `docs/architecture/rfc/RFC-BOOT-001.md`, `RFC-ABI-001.md`, `RFC-SEC-001.md`, `RFC-IPC-001.md`, plus index. They preserve existing syscall numbers and current boot paths; no ABI is frozen.
+- Additional concrete finding F-010: SYS_PORT_RECV dequeues a message before copy_to_user; if user destination mapping disappears, message is lost. This is a documented at-most-once behavior that needs explicit contract decision and race tests, not silently changed.
+- PR #132 review: proposed helper `kstack_slot.h` and host ASan/UBSan test cover slot bounds, ownership, double-free and ARM64 65,536-slot boundary. However actual kernel VMM allocator SMP lifecycle, partial mapping failures and end-to-end stack reuse are not exercised. No PR-triggered workflow run found for its current head. Draft base is `v46/unified-release-integration`, not main.
+- KDRV signature PR review: #41 adds Ed25519 package signature verification with key ID, validity interval, digest/size binding and trust key list; #42 adds publisher-required policy. #42 head workflow `43236730618` passed audit/driver-e2e/KCC/ARM64/host-tests/build, but VM and package jobs were skipped. Its cumulative diff spans 95 files and includes boot/IOMMU/KDRV/release changes; review/split before integration. ADR-0002 explicitly states strong anti-rollback is unavailable without hardware-backed monotonic storage; a signed catalogue alone does not solve whole-disk rollback.
+- KVM1 PR #134 current head workflow `43236030817` failed: host lint found `fake_ticks` stub; ARM64 and VM shards 5/7/9 failed. Other VM shards, UEFI OVMF, build and KCC succeeded. This reinforces current WASM production baseline; KVM1 remains experimental.
+- Draft PR #135 current compare: 38 commits ahead, 0 behind main; 19 changed files. No PR-head workflow run found. Latest main CI run `43244194123` still reports 30/30 success on baseline SHA only.
+- Локальные сборки/тесты не запускались; все CI claims выше привязаны к exact PR/main head SHA and run ID.
+
+### Next point
+1. Finish full syscall entry ABI tracing for x86-64 and ARM64 (assembly/vector entry, register preservation, return path).
+2. Review PR #132 complete cumulative diff and determine a safe main-based backport path; do not merge its broad base branch.
+3. Review KDRV trust chain end-to-end, especially trust-anchor provisioning, revocation, signature required flag, key rotation, time source and whole-disk rollback.
+4. Expand inventory for all remaining subsystems and symbols; then map each RFC to actual tests/CI.
+5. Add real allocator, IPC receive-race, production WASM fairness and Mind policy tests before code changes.
