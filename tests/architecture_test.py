@@ -237,4 +237,29 @@ for header in sorted((ROOT / "kcc/include").glob("*.h")):
     require(not unsafe_helpers,
             f"{header.name} has a non-inline static helper without a used attribute; -Werror may reject it")
 
-print("PASS: kernel/service source ownership, Native ABI stability, unique adapter ownership and both ISA build manifests")
+# The ARM64 PCI host bridge validates FDT/ECAM bounds and delegates ranges
+# decoding to a separately host-tested parser with explicit cell geometry.
+pci_host = read("arch/aarch64/pci_host.c")
+pci_parse = read("arch/aarch64/pci_host_parse.c")
+pci_parse_header = read("arch/aarch64/pci_host_parse.h")
+require("$A/pci_host_parse.c" in arm_build,
+        "ARM64 PCI ranges parser is not part of the ARM64 build")
+require('#include "pci_host_parse.h"' in pci_host
+        and "fdt_valid(fdt, 0)" in pci_host
+        and "fdt_node_enabled(fdt, n)" in pci_host
+        and "bus0 > bus1 || bus1 > 255" in pci_host
+        and "size < required_size" in pci_host
+        and "arm_pci_parse_ranges(" in pci_host,
+        "ARM64 PCI host backend does not fail closed on malformed FDT/ECAM data")
+require("signed_offset(" in pci_parse
+        and "UINT64_MAX - base" in pci_parse
+        and "len % stride" in pci_parse
+        and "child_address_cells != 3" in pci_parse
+        and "INT64_MIN" in pci_parse_header + pci_parse,
+        "PCI ranges parser is missing signed-offset, cell-layout or overflow guards")
+host_tests = read("tests/run_host_tests.sh")
+require("tests/pci_host_parse_test.c" in host_tests
+        and "arch/aarch64/pci_host_parse.c" in host_tests,
+        "PCI host ranges parser is not covered by the host test suite")
+
+print("PASS: kernel/service source ownership, Native ABI stability, unique adapter ownership, both ISA manifests and PCI host bounds contract")
