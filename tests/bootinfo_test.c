@@ -77,6 +77,7 @@ int main(void) {
     mod->name_off=h->modules_off+sizeof(*mod); mod->name_len=5;
     memcpy(b+mod->name_off,"init",5);
     CHECK(kbi_validate(b,sizeof b)==0);
+    m->type=KBI_MEM_MODULE; CHECK(kbi_validate(b,sizeof b)==0); m->type=KBI_MEM_USABLE;
     b[mod->name_off+1]=0; CHECK(kbi_validate(b,sizeof b)==-12);
     memcpy(b+mod->name_off,"init",5);
     mod->base=0x200000; CHECK(kbi_validate(b,sizeof b)==-12); mod->base=0x80000;
