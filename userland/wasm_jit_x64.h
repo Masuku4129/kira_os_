@@ -37,7 +37,19 @@ static int jit_on = 1;
 #define JIT_STACK (192 * 1024)              /* машинный стек JIT-кода: адреса возврата и кадры помощников на C */
 
 /* ---------- помощники на C (вызываются из кода по таблице в контексте) ---------- */
-static u64 jh_tick(void) { jc.ctr = JIT_TICKS; return (u64)wasm_slice(); }
+static u64 jh_tick(void) {
+    /* jtick is emitted every 256 source instructions and at each loop/function
+       boundary. Charge one conservative chunk per JIT_TICKS checkpoints. */
+    const u64 chunk = (u64)JIT_TICKS * 256u;
+    if (wasm_fuel <= chunk) {
+        wasm_fuel = 0;
+        trap("fuel exhausted");
+        return 1;
+    }
+    wasm_fuel -= chunk;
+    jc.ctr = JIT_TICKS;
+    return (u64)wasm_slice();
+}
 static u64 jh_host(u64 fi, u64* fp) {
     const func_t* c = &funcs[fi]; const ftype_t* t = &types[c->type];
     host_call(c->imp_id, t, fp + t->np);                          /* аргументы сняты, результат - в fp[0] */
