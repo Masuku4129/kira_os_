@@ -288,8 +288,9 @@ void usb_log(const char* s) { strncat(logbuf, s, sizeof logbuf - strlen(logbuf) 
 void usb_log_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsigned long long)v); usb_log(b); }
 void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); usb_log(b); }
 static uint16_t pci_command_model, pci_msi_control_model, pci_msix_control_model;
+static int pci_block_busmaster_clear, pci_block_msi_disable, pci_block_msix_mask, pci_block_intx_disable;
 static int pci_block_busmaster_clear;
-void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; pci_command_model |= b; }
+void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; if (pci_block_intx_disable) b &= (uint16_t)~PCI_CMD_INTX_OFF; pci_command_model |= b; }
 uint16_t pci_read16(const pci_dev_t* d, uint16_t off) {
     (void)d;
     if (off == 0x04) return pci_command_model;
@@ -306,9 +307,15 @@ uint16_t pci_next_cap(const pci_dev_t* d, uint16_t after, uint8_t* id) {
 }
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
     (void)d;
-    if (off == 0x04) pci_command_model = pci_block_busmaster_clear ? (uint16_t)(v | PCI_CMD_MASTER) : v;
-    else if (off == 0x52) pci_msi_control_model = v;
-    else if (off == 0x62) pci_msix_control_model = v;
+    if (off == 0x04) {
+        if (pci_block_busmaster_clear) v |= PCI_CMD_MASTER;
+        if (pci_block_intx_disable) v &= (uint16_t)~PCI_CMD_INTX_OFF;
+        pci_command_model = v;
+    } else if (off == 0x52) {
+        if (!pci_block_msi_disable) pci_msi_control_model = v;
+    } else if (off == 0x62) {
+        if (!pci_block_msix_mask) pci_msix_control_model = v;
+    }
 }
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { (void)d; (void)off; return 0; }
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { (void)d; (void)off; (void)v; }
@@ -336,6 +343,25 @@ int main(void) {
     CHECK(xhci_start(&hc, &pd) == -2);
     CHECK((pci_command_model & PCI_CMD_MASTER) != 0);           /* refusal must not pretend DMA was stopped */
     pci_block_busmaster_clear = 0;
+
+    pci_command_model = 0; pci_msi_control_model = 1u; pci_msix_control_model = 0x8000u;
+    pci_block_msi_disable = 1;
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    pci_block_msi_disable = 0;
+
+    pci_command_model = 0; pci_msi_control_model = 1u; pci_msix_control_model = 0x8000u;
+    pci_block_msix_mask = 1;
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    pci_block_msix_mask = 0;
+
+    pci_command_model = 0; pci_msi_control_model = 1u; pci_msix_control_model = 0x8000u;
+    pci_block_intx_disable = 1;
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    pci_block_intx_disable = 0;
+
     pci_command_model = PCI_CMD_MASTER;
     pci_msi_control_model = 1u;
     pci_msix_control_model = 0x8000u;
