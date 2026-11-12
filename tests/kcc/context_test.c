@@ -14,15 +14,25 @@ static const char *read_mem(void *ud, const char *path, size_t *len) {
     return s;
 }
 
-static int compile(const char *main_src, const char *header_src, void *arena, size_t arena_size, KResult *res) {
+static int compile(const char *main_src, const char *header_src, const char *target,
+                   int emit, void *arena, size_t arena_size, KResult *res) {
     MemFS fs = { main_src, header_src };
-    KCfg cfg = { read_mem, &fs, NULL, 0, NULL, 0, "x86_64", NULL };
-    return kcc_compile(&cfg, arena, arena_size, "main.c", 1, res);
+    KCfg cfg = { read_mem, &fs, NULL, 0, NULL, 0, target, NULL };
+    return kcc_compile(&cfg, arena, arena_size, "main.c", emit, res);
+}
+
+static int check_elf(const KResult *r, unsigned machine) {
+    return r->elf && r->elflen >= 64 &&
+           r->elf[0] == 0x7f && r->elf[1] == 'E' &&
+           r->elf[2] == 'L' && r->elf[3] == 'F' &&
+           r->elf[4] == 2 && r->elf[5] == 1 &&
+           r->elf[18] == (unsigned char)(machine & 0xff) &&
+           r->elf[19] == (unsigned char)(machine >> 8);
 }
 
 int main(void) {
     static unsigned char arena[16u * 1024u * 1024u];
-    KResult first, second;
+    KResult first, second, x86, a64, x86_again;
     const char *with_header =
         "#include \"once.h\"\n"
         "#include \"once.h\"\n"
@@ -33,23 +43,35 @@ int main(void) {
         "#error macro leaked between compilations\n"
         "#endif\n"
         "int main(void) { return __COUNTER__; }\n";
+    const char *simple = "int main(void) { return 7; }\n";
 
-    if (compile(with_header, header, arena, sizeof arena, &first) != 0) {
-        fprintf(stderr, "first compilation failed: %s\n", first.err ? first.err : "unknown");
+    if (compile(with_header, header, "x86_64", 1, arena, sizeof arena, &first) != 0 ||
+        !first.ir || !strstr(first.ir, "func main")) {
+        fprintf(stderr, "first compilation failed: %s\n", first.err ? first.err : "no IR");
         return 1;
     }
-    if (!first.ir || !strstr(first.ir, "func main")) {
-        fputs("first compilation produced no main IR\n", stderr);
+    if (compile(without_header, header, "x86_64", 1, arena, sizeof arena, &second) != 0 ||
+        !second.ir || !strstr(second.ir, "func main") || !strstr(second.ir, "const 0")) {
+        fprintf(stderr, "second compilation retained stale PP/parser/IR state: %s\n",
+                second.err ? second.err : "invalid IR");
         return 1;
     }
-    if (compile(without_header, header, arena, sizeof arena, &second) != 0) {
-        fprintf(stderr, "second compilation failed: %s\n", second.err ? second.err : "unknown");
+    if (compile(simple, "", "x86_64", 2, arena, sizeof arena, &x86) != 0 ||
+        !check_elf(&x86, 62)) {
+        fprintf(stderr, "x86-64 backend state reset failed: %s\n", x86.err ? x86.err : "invalid ELF");
         return 1;
     }
-    if (!second.ir || !strstr(second.ir, "func main") || !strstr(second.ir, "const 0")) {
-        fputs("second compilation retained stale preprocessor/parser/IR state\n", stderr);
+    if (compile(simple, "", "aarch64", 2, arena, sizeof arena, &a64) != 0 ||
+        !check_elf(&a64, 183)) {
+        fprintf(stderr, "AArch64 backend state reset failed: %s\n", a64.err ? a64.err : "invalid ELF");
         return 1;
     }
-    puts("KCC compilation-context sequential isolation: PASS");
+    if (compile(simple, "", "x86_64", 2, arena, sizeof arena, &x86_again) != 0 ||
+        !check_elf(&x86_again, 62)) {
+        fprintf(stderr, "x86-64 state leaked across AArch64 compilation: %s\n",
+                x86_again.err ? x86_again.err : "invalid ELF");
+        return 1;
+    }
+    puts("KCC sequential PP/parser/IR/x86-64/AArch64 context isolation: PASS");
     return 0;
 }
