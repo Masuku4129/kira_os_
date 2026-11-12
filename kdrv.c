@@ -172,18 +172,25 @@ static void irq_enable(bind_t* b) {
 /* Устройство останавливается: ни обращений к памяти, ни сообщений прерываний. Не спит (зовётся при гибели процесса). */
 static int quiesce_verified(const pci_dev_t* d, uint16_t* command_out) {
     int safe = 1;
+    int has_msi = 0, has_msix = 0;
+    uint16_t msi_control = 0, msix_control = 0;
     uint16_t c = find_cap(d, 0x05);
+    if (c) has_msi = 1;
     if (c) {
         uint16_t control = pci_read16(d, (uint16_t)(c + 2));
         pci_write16(d, (uint16_t)(c + 2), (uint16_t)(control & ~1u));
-        if (pci_read16(d, (uint16_t)(c + 2)) & 1u) safe = 0;
+        msi_control = pci_read16(d, (uint16_t)(c + 2));
+        if (msi_control & 1u) safe = 0;
     }
     c = find_cap(d, 0x11);
     if (c) {
+        has_msix = 1;
         uint16_t control = pci_read16(d, (uint16_t)(c + 2));
         pci_write16(d, (uint16_t)(c + 2), (uint16_t)((control & ~0x8000u) | 0x4000u));
-        uint16_t after = pci_read16(d, (uint16_t)(c + 2));
-        if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
+        msix_control = pci_read16(d, (uint16_t)(c + 2));
+        if (!kdrv_pci_interrupts_quiesced(msi_control, has_msi, msix_control, has_msix)) safe = 0;
+    } else if (!kdrv_pci_interrupts_quiesced(msi_control, has_msi, msix_control, has_msix)) {
+        safe = 0;
     }
     uint16_t cmd = pci_read16(d, 0x04);
     pci_write16(d, 0x04, (uint16_t)(kdrv_pci_command_for_unisolated(cmd) & ~(PCI_CMD_IO | PCI_CMD_MEM)));
