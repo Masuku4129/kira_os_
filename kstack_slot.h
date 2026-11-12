@@ -27,4 +27,30 @@ static inline int kstack_slot_release(uint8_t *active, uint32_t slots, uint32_t 
     *byte &= (uint8_t)~mask;
     return 1;
 }
+static inline int kstack_slot_free_push(uint16_t *free_slots, uint32_t *free_count,
+                                        uint8_t *active, uint32_t slots,
+                                        uint32_t used_hi, uint32_t slot) {
+    if (!free_slots || !free_count || !active || slots > (uint32_t)UINT16_MAX + 1u ||
+        *free_count >= slots || !kstack_slot_can_reuse(slot, used_hi, slots))
+        return 0;
+    if (!kstack_slot_release(active, slots, slot))
+        return 0;
+    free_slots[(*free_count)++] = (uint16_t)slot;
+    return 1;
+}
+static inline int kstack_slot_free_pop(uint16_t *free_slots, uint32_t *free_count,
+                                       uint8_t *active, uint32_t slots,
+                                       uint32_t used_hi, uint32_t *slot_out) {
+    uint32_t slot;
+    if (!free_slots || !free_count || !active || !slot_out ||
+        slots > (uint32_t)UINT16_MAX + 1u || !*free_count || *free_count > slots)
+        return 0;
+    slot = free_slots[*free_count - 1u];
+    if (!kstack_slot_can_reuse(slot, used_hi, slots) ||
+        !kstack_slot_activate(active, slots, slot))
+        return 0;
+    --*free_count;
+    *slot_out = slot;
+    return 1;
+}
 #endif
