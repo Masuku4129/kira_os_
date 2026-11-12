@@ -56,6 +56,35 @@ static pci_backend_t be = { port_read32, port_write32 };
 static pci_dev_t devs[PCI_MAX_DEVS];
 static int ndevs;
 static uint8_t bus_seen[256];
+/* Quarantine identity is independent of enumeration order: a rescan or hotplug
+   must never make a requester eligible for bus mastering after a failed stop. */
+typedef struct { uint8_t bus, dev, fn; uint16_t vendor, device; } pci_dma_quarantine_t;
+static pci_dma_quarantine_t dma_quarantine[PCI_MAX_DEVS];
+static unsigned dma_quarantine_count;
+static int dma_quarantine_overflow;
+
+static int quarantine_matches(uint8_t bus, uint8_t dev, uint8_t fn,
+                              uint16_t vendor, uint16_t device) {
+    for (unsigned i = 0; i < dma_quarantine_count; ++i) {
+        const pci_dma_quarantine_t* q = &dma_quarantine[i];
+        if (q->bus == bus && q->dev == dev && q->fn == fn &&
+            q->vendor == vendor && q->device == device)
+            return 1;
+    }
+    return 0;
+}
+static void quarantine_record(const pci_dev_t* d) {
+    if (!d) return;
+    if (quarantine_matches(d->bus, d->dev, d->fn, d->vendor, d->device))
+        return;
+    if (dma_quarantine_count >= PCI_MAX_DEVS) {
+        dma_quarantine_overflow = 1; /* fail closed globally rather than lose a quarantine */
+        return;
+    }
+    pci_dma_quarantine_t* q = &dma_quarantine[dma_quarantine_count++];
+    q->bus = d->bus; q->dev = d->dev; q->fn = d->fn;
+    q->vendor = d->vendor; q->device = d->device;
+}
 
 void pci_set_backend(const pci_backend_t* b) {
     ecam = 0;
@@ -203,7 +232,7 @@ void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
     w = (w & ~(0xFFFFu << sh)) | ((uint32_t)v << sh);
 #if defined(__aarch64__) || defined(__x86_64__)
     if (off == 0x04 && (w & PCI_CMD_MASTER) && !pci_is_bridge(d) &&
-        (d->dma_quarantined || !iommu_device_ready(d)))
+        (dma_quarantine_overflow || d->dma_quarantined || !iommu_device_ready(d)))
         w &= (uint32_t)~PCI_CMD_MASTER;
 #endif
     be.write32(d->bus, d->dev, d->fn, off & ~3, w);
@@ -242,8 +271,10 @@ int pci_disable_bus_master(const pci_dev_t* d) {
     value &= (uint32_t)~PCI_CMD_MASTER;
     be.write32(d->bus, d->dev, d->fn, 0x04, value);
     int disabled = (cr32(d, 0x04) & PCI_CMD_MASTER) == 0;
-    if (!disabled)
+    if (!disabled) {
         __atomic_store_n((volatile uint8_t*)&d->dma_quarantined, 1u, __ATOMIC_RELEASE);
+        quarantine_record(d);
+    }
 #if !defined(KIRA_HOST_TEST)
     spin_unlock_irqrestore(&cfg_rmw_lock, flags);
 #endif
@@ -311,9 +342,8 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     if (ndevs >= PCI_MAX_DEVS) return;
     pci_dev_t* d = &devs[ndevs++];
     /* Preserve a failed-stop quarantine across rescans of the same function. */
-    uint8_t quarantined = d->bus == bus && d->dev == dev && d->fn == fn &&
-                          d->vendor == (uint16_t)id && d->device == (uint16_t)(id >> 16)
-                          ? d->dma_quarantined : 0;
+    uint8_t quarantined = quarantine_matches(bus, dev, fn,
+                          (uint16_t)id, (uint16_t)(id >> 16));
     __builtin_memset(d, 0, sizeof *d);
     d->bus = bus; d->dev = dev; d->fn = fn;
     d->vendor = (uint16_t)id; d->device = (uint16_t)(id >> 16);
