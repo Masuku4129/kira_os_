@@ -14,6 +14,7 @@ typedef struct {
     unsigned verifies;
     int fail_write;
     int ignore_write;
+    uint64_t race_floor;
 } TestTrust;
 
 static int test_hash(void *ctx, const void *data, size_t length, uint8_t digest[32])
@@ -58,6 +59,9 @@ static int write_floor(void *ctx, uint64_t version)
         return -1;
     if (!t->ignore_write && version > t->floor)
         t->floor = version;
+    /* Simulate a concurrent newer catalogue committing after our read. */
+    if (t->race_floor > t->floor)
+        t->floor = t->race_floor;
     ++t->writes;
     return 0;
 }
@@ -100,7 +104,7 @@ int main(void)
     struct kdrv_trust_key key;
     struct kdrv_trust_record record;
     struct kdrv_catalogue catalogue;
-    TestTrust state = { 0, 500, 0, 0, 0, 0 };
+    TestTrust state = { 0, 500, 0, 0, 0, 0, 0 };
     struct kdrv_trust_ops ops = {
         &state, test_verify, test_hash, read_floor, write_floor, trusted_time
     };
@@ -153,6 +157,17 @@ int main(void)
     state.ignore_write = 1; /* callback falsely reports success without persisting */
     CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_STORAGE_ERROR);
     CHECK(state.floor == 5);
+    state.ignore_write = 0;
+
+    /* A newer catalogue can win between our floor read and atomic max write.
+       The old catalogue must not be returned as accepted even though storage
+       correctly keeps the higher floor. */
+    state.race_floor = 7;
+    length = make_catalogue(bytes, sizeof(bytes), 6, 1);
+    make_record(&record, bytes, length, 6, &ops);
+    CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
+    CHECK(state.floor == 7);
+    state.race_floor = 0;
 
     /* Corrupted trust-store metadata is rejected before key-array traversal. */
     store.key_count = KDRV_TRUST_MAX_KEYS + 1u;
