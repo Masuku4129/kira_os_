@@ -17,14 +17,14 @@ struct IRState {
 static struct IRState *irs;
 /* Keep each member expression direct: the self-hosted preprocessor does not
  * reliably rescan an object-like alias nested inside another macro body. */
-#define ihead (irs->ihead)
-#define itail (irs->itail)
-#define ir_nreg (irs->reg_count)
-#define ir_nlab (irs->label_count)
-#define fn (irs->fn)
-#define ltail (irs->ltail)
-#define maxslot (irs->maxslot)
-#define out (irs->out)
+#define ihead irs->ihead
+#define itail irs->itail
+#define ir_nreg irs->reg_count
+#define ir_nlab irs->label_count
+#define fn irs->fn
+#define ltail irs->ltail
+#define maxslot irs->maxslot
+#define out irs->out
 
 static Ins *emit(IrOp op) {
     Ins *i = ka_new(sizeof *i);
