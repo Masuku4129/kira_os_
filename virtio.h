@@ -46,7 +46,7 @@ int  virtio_attach(virtio_dev_t* v, const pci_dev_t* pci);
 int  virtio_begin(virtio_dev_t* v, uint64_t want);
 int  virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size);
 int virtio_driver_ok(virtio_dev_t* v);
-void virtio_fail(virtio_dev_t* v);                      /* FAILED + сброс: устройство больше не пишет в нашу память */
+int virtio_fail(virtio_dev_t* v);                      /* FAILED + сброс: устройство больше не пишет в нашу память */
 /* Отправляет цепочку буферов (до 8) и ждёт завершения. 0 - готово, -1 - таймаут. */
 int  virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n);
 
