@@ -141,12 +141,12 @@ static int build_native(void *opaque, const struct kira_drvcompat_manifest *m,
 {
     test_ctx_t *ctx = opaque;
     uint8_t *p;
-    if (ctx->fail_stage == FAIL_BUILD) return -1;
     p = malloc(8);
     if (!p) return -1;
     memset(p, 0x42, 8);
     *binary = p;
     *size = 8;
+    if (ctx->fail_stage == FAIL_BUILD) return -1;
     return m->target_abi == 2 ? 0 : -1;
 }
 
@@ -262,9 +262,9 @@ int main(void)
                                  "x86_64", 2) == 0);
     CHECK(ctx.published == 1 && ctx.archive_releases == 1);
     CHECK(ctx.manifest_releases == 1 && ctx.buffer_releases == 2);
-    CHECK(ctx.progress_count == 6);
+    CHECK(ctx.progress_count == 7);
     CHECK(ctx.progress_stage[0] == KIRA_DRV_FETCHED);
-    CHECK(ctx.progress_stage[5] == KIRA_DRV_PUBLISHED);
+    CHECK(ctx.progress_stage[6] == KIRA_DRV_PUBLISHED);
     for (int i = 0; i < 11; ++i)
         CHECK(run_failure_case(i) == 0);
     puts("drvcompat: bounded extraction, metadata, ABI, digest, cleanup and signed publish PASS");
