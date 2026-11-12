@@ -207,7 +207,7 @@ require("kdrv_sys(" in driver_adapter,
 # Header-only libc helpers must not trigger -Wunused-function in translation units
 # that include a header but use only a subset of its API.
 static_helper_pattern = re.compile(
-    r"^\\s*static\\s+(?!inline\\b)[^;=\\n]*?\\b[A-Za-z_]\\w*\\s*\\([^;\\n]*\\)\\s*(?:\\{|__attribute__)",
+    r"^\s*static\s+(?!inline\b)[^;=\n]*?\b[A-Za-z_]\w*\s*\([^;\n]*\)\s*(?:\{|__attribute__)",
     re.M,
 )
 for header in sorted((ROOT / "kcc/include").glob("*.h")):
