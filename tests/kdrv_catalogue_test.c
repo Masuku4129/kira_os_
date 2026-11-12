@@ -112,6 +112,8 @@ int main(void)
     struct kdrv_trust_ops ops = {
         &state, test_verify, test_hash, read_floor, write_floor, trusted_time
     };
+    /* Host mock models the hardware-monotonic contract; it is not hardware evidence. */
+    ops.storage_flags = KDRV_TRUST_STORAGE_HW_MONOTONIC;
     char bytes[512];
     size_t length;
 
@@ -135,6 +137,15 @@ int main(void)
     CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_OK);
     CHECK(catalogue.version == 5 && catalogue.count == 1);
     CHECK(state.floor == 5 && state.writes == 1);
+
+    /* A plain writable-disk/CRC backend must not be accepted as a secure rollback anchor. */
+    {
+        struct kdrv_trust_ops unanchored = ops;
+        unanchored.storage_flags = 0;
+        CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &unanchored,
+                                  &catalogue) == KDRV_CATALOGUE_STORAGE_ERROR);
+        CHECK(state.floor == 5 && state.writes == 1);
+    }
 
     /* Re-reading the current version is allowed and does not rewrite storage. */
     CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_OK);
