@@ -87,6 +87,10 @@ int main(void)
         assert(kira_dmar_parse(bad, sizeof bad, &inventory) == KIRA_DMAR_E_STRUCTURE);
         memcpy(bad, table, sizeof bad); put64(bad + 80, 0x100ffeull); checksum(bad, sizeof bad);
         assert(kira_dmar_parse(bad, sizeof bad, &inventory) == KIRA_DMAR_E_STRUCTURE);
+        memcpy(bad, table, sizeof bad); put64(bad + 56, 0x1000000000000ull); checksum(bad, sizeof bad);
+        assert(kira_dmar_parse(bad, sizeof bad, &inventory) == KIRA_DMAR_E_STRUCTURE);
+        memcpy(bad, table, sizeof bad); put64(bad + 80, 0x1000000000fffull); checksum(bad, sizeof bad);
+        assert(kira_dmar_parse(bad, sizeof bad, &inventory) == KIRA_DMAR_E_STRUCTURE);
     }
 
     /* A future structure type may carry DMA policy: do not silently ignore it. */
