@@ -62,6 +62,8 @@ struct kdrv_manager_ops {
                         const char *version, enum kdrv_state state);
 };
 
+/* Returns KDRV_INSTALL_ROLLBACK_FAILED when a post-commit state write fails
+   and the backend cannot remove the newly committed payload. */
 int kdrv_manager_install(struct kdrv_manager_ops *ops, const char *path,
                          const char *target_arch,
                          uint32_t abi_major, uint32_t abi_minor);
