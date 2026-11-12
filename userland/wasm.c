@@ -95,7 +95,7 @@ static int trapped;
 static void trap(const char* m) { if (!trapped) { trapped = 1; trap_msg = m; } }
 
 /* ---------- модуль ---------- */
-typedef struct { u8 np, nr; u8 p[32]; } ftype_t;
+typedef struct { u8 np, nr, r; u8 p[32]; } ftype_t;
 typedef struct { u32 type; int import; u32 imp_id; const u8* code; const u8* end; u32 nlocals, centry, maxh; } func_t;
 static ftype_t* types; static u32 ntypes;
 static func_t* funcs; static u32 nfuncs, nimports;
@@ -124,7 +124,7 @@ static int import_type_ok(u32 id, const ftype_t* t) {
     static const u8 result[IMP_N] = { 0x7F, 0, 0x7E, 0, 0x7F, 0x7F, 0x7F };
     if (id >= IMP_N || !t || t->np != np[id] || t->nr != nr[id]) return 0;
     for (u32 i = 0; i < t->np; i++) if (t->p[i] != p[id][i]) return 0;
-    return !t->nr || t->p[0] == 0xFF ? 0 : result[id] != 0;
+    return !t->nr || t->r == result[id];
 }
 
 static u32 leb_u(const u8** p, const u8* end) {
@@ -609,6 +609,7 @@ static int load(void) {
                 for (u32 k = 0; k < nr; k++) {
                     u8 rt = *s++;
                     if (!wasm_valtype(rt)) { trap("unsupported result value type"); return -1; }
+                    t->r = rt;
                 }
             }
         } else if (id == 2) {                                     /* импорт */
@@ -624,6 +625,7 @@ static int load(void) {
                     int found = -1;
                     for (int k = 0; k < IMP_N; k++) if ((name_is(mn, ml, "kira") || name_is(mn, ml, "env")) && name_is(nn, nl, imp_names[k])) found = k;
                     if (found < 0) { trap("unknown import (module kira: write, sleep, ticks, exit, gfx_create, gfx_present, gfx_event)"); return -1; }
+                    if (!import_type_ok((u32)found, &types[ti])) { trap("bad KIRA import signature"); return -1; }
                     if (nfuncs == MAXF) { trap("too many functions"); return -1; }
                     funcs[nfuncs].type = ti; funcs[nfuncs].import = 1; funcs[nfuncs].imp_id = (u32)found; nfuncs++; nimports++;
                 } else if (kind == 2) {                           /* импорт памяти: создаём свою */
