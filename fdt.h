@@ -8,6 +8,9 @@
    размер буфера и не могут безопасно вывести его из недоверенного totalsize. fdt_reg/fdt_simplefb принимают
    внешний max_len и выполняют проверку самостоятельно. Разбор не выделяет память и не меняет блоб. */
 
+/* KIRA ARM64 firmware handoff contract: the DTB is fully resident and no larger than 2 MiB. */
+#define FDT_BOOT_MAX_SIZE (2u * 1024u * 1024u)
+
 #define FDT_MAGIC 0xD00DFEEDu
 
 int      fdt_valid(const void* fdt, uint32_t max_len);      /* 1 - заголовок и границы блоков разумны */
