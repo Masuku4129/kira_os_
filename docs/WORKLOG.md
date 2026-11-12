@@ -330,3 +330,10 @@
 - Opened PR #137 `security/pci-clear-firmware-busmaster`: clear bus-master on every enumerated PCI function before BAR probing; host fake-backend test verifies clear-on-enumeration and explicit re-enable by owner. PR not merged.
 - PR #136 `security/kdrv-require-iommu-for-dma-msi` independently blocks Ring 3 CAP_DMA/CAP_IRQ until per-device IOMMU isolation is real. Both controls are required; neither substitutes for full IOMMU implementation.
 - PR #136 run `43253649785` is in progress (host-tests, build, ARM64 and VM matrix); PR #137 run `43253985440` is in progress (host-tests, build, ARM64). No exact-head PASS yet.
+
+
+### KCC context and self-host audit (2026-11-12)
+- Reviewed exact main `kcc/util.c`: one global `KCtx K`; every `kcc_compile()` clears it with memset and uses one global setjmp buffer. Concurrent calls are not safe.
+- Reviewed #93/#95 CI and source: both PRs pass main build, host, ARM64 and VM matrix but fail only `kcc-tests` self-host stage1. #93 fails at `ir.c:14` macro `IRS ((IRState *)K.ir_state)`; #95 fails at `ir.c:24` member alias `irs->fn`. Their new context tests are sequential x86/AArch64 interleaving only; #95 explicitly retains process-global K and does not improve concurrency guarantees.
+- Created `docs/architecture/rfc/RFC-TOOL-001.md` and mapped TOOL-001 in contract registry. Requirement: explicit context ownership, context-local error unwinding/arena/PP/parser/IR/optimizer/backends; no global mutable state; self-host stage1/2 and concurrent independent-context tests.
+- No KCC code changed. Do not merge #93/#95 until exact-head self-host failures are fixed and independent-context semantics are proven.
