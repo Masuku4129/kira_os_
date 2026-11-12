@@ -66,8 +66,8 @@
 
 ### PR #131 — unreachable memory alignment validation
 - Продолжен аудит структурной проверки unreachable-кода. В `skip_imm()` таблица natural alignment для opcodes `0x36..0x3E` была смещена: например, `i32.store` ошибочно допускал align=3, а `i64.store` ошибочно отвергал допустимый align=3.
-- Исправлены пределы выравнивания для всех 23 load/store opcodes в общей таблице unreachable parser; добавлены два валидных/невалидных модуля с отдельной exported entry-функцией, чтобы проверить именно структурную проверку недостижимой функции.
-- Commit: `8365ab21f346364153db555fc64cd116130a8d0a` (fix) и `4ab10a79ee4088a8fd1c43591a78a424f788c34d` (tests), ветка `fix/wasm-module-header-bounds`. CI pending; PASS не заявлен.
+- Исправлены пределы выравнивания для всех 23 load/store opcodes в общей таблице unreachable parser; добавлены тестовые модули с отдельной exported entry-функцией: для каждого из 23 load/store opcodes проверяется допустимый natural alignment и отклонение align на единицу выше.
+- Commit: `8365ab21f346364153db555fc64cd116130a8d0a` (fix), `4ab10a79ee4088a8fd1c43591a78a424f788c34d` (initial tests) и `df4f9c93a6fddcf414b0a9e364cff7454f42600f` (all 23 opcodes), ветка `fix/wasm-module-header-bounds`. CI pending; PASS не заявлен.
 
 ### PR #131 — data-segment offset type-check call
 - Независимый просмотр текущего `userland/wasm.c` обнаружил compile-time ошибку: `const_expr` получил обязательный третий аргумент `expected_type`, но data-section parser вызывал его только с двумя аргументами.
