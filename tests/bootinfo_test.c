@@ -78,6 +78,18 @@ int main(void) {
     memcpy(b+mod->name_off,"init",5);
     CHECK(kbi_validate(b,sizeof b)==0);
     m->type=KBI_MEM_MODULE; CHECK(kbi_validate(b,sizeof b)==0); m->type=KBI_MEM_USABLE;
+
+    /* A module may span adjacent usable/module ranges, but not a one-byte hole. */
+    m->base=0x7f000; m->length=0x1000; m2->base=0x80000;
+    m2->length=0x1000; m2->type=KBI_MEM_MODULE;
+    mod->base=0x7f800; mod->length=0x1000;
+    CHECK(kbi_validate(b,sizeof b)==0);
+    m2->base=0x80001; CHECK(kbi_validate(b,sizeof b)==-12);
+    m2->base=0x80000; mod->length=0x1001;
+    CHECK(kbi_validate(b,sizeof b)==-12);
+    mod->base=0x80000; mod->length=0x1000;
+    m->base=0; m->length=0x9f000; m2->base=0xA0000;
+    m2->length=0x1000; m2->type=KBI_MEM_RESERVED;
     b[mod->name_off+1]=0; CHECK(kbi_validate(b,sizeof b)==-12);
     memcpy(b+mod->name_off,"init",5);
     mod->base=0x200000; CHECK(kbi_validate(b,sizeof b)==-12); mod->base=0x80000;
