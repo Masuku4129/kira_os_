@@ -51,6 +51,7 @@ struct KIRA_PACKED kira_dmar_structure {
 struct KIRA_PACKED kira_dmar_drhd {
     struct kira_dmar_structure header;
     uint8_t flags;
+    uint8_t reserved;
     uint16_t segment;
     uint64_t register_base;
 };
