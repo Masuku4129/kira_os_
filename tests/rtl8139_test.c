@@ -42,6 +42,7 @@ typedef struct {
     int tx_status[KIRA_RTL8139_TX_SLOTS];
     uint16_t last_capr, imr;
     uint32_t rx_phys_reg, rcr;
+    uint64_t now_us;
 } mock_t;
 
 static uint8_t in8(void *opaque, uint16_t p)
@@ -159,6 +160,7 @@ static void dma_write_barrier(void *opaque)
 {
     mock_t *m = opaque; ++m->write_barriers; m->last_write_barrier = ++m->sequence;
 }
+static uint64_t monotonic_us(void *opaque) { return ((mock_t *)opaque)->now_us; }
 static void delay_us(void *opaque, uint32_t us) { (void)opaque; (void)us; }
 static void receive(void *opaque, const uint8_t *frame, size_t length)
 {
@@ -190,6 +192,7 @@ static struct kira_rtl8139_platform platform(mock_t *m)
     p.cache_invalidate = cache_invalidate; p.cache_clean = cache_clean;
     p.dma_read_barrier = dma_read_barrier;
     p.dma_write_barrier = dma_write_barrier;
+    p.monotonic_us = monotonic_us;
     p.delay_us = delay_us; p.receive = receive;
     p.transmit_complete = tx_complete;
     return p;
@@ -297,9 +300,15 @@ static void test_rx_tx_lifecycle(void)
 
     m.regs[0x64] = 0;
     assert(kira_rtl8139_link_up(&d) == 0);
-    kira_rtl8139_shutdown(&d);
+
+    /* A stuck TX descriptor triggers a bounded reset before buffers are released. */
+    assert(kira_rtl8139_send(&d, frame, sizeof frame) == 0);
+    m.now_us = 1000000u;
+    assert(kira_rtl8139_poll(&d) == -2);
+    assert(!d.initialized && m.tx_complete_calls == 3 && m.tx_status[0] == -1);
+    assert(kira_rtl8139_shutdown(&d) == 0);
     assert(!d.initialized && m.free_count == KIRA_RTL8139_TX_SLOTS + 1u);
-    kira_rtl8139_shutdown(&d);
+    assert(kira_rtl8139_shutdown(&d) == 0);
     assert(m.free_count == KIRA_RTL8139_TX_SLOTS + 1u);
 }
 
