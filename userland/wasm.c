@@ -171,7 +171,7 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
                           : ((payload & high_mask) != 0)))
                 break;
             r |= (u64)(payload & low_mask) << shift;
-            if (negative) r |= ~0ull << bits;
+            if (negative && bits < 64) r |= ~0ull << bits;
             return bits == 32 ? (i64)(int)(u32)r : (i64)r;
         }
         r |= (u64)payload << shift;
