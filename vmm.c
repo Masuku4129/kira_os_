@@ -153,7 +153,7 @@ void vmm_kstack_free(void* base) {
     uint64_t off = va - KSTACK_BASE;
     uint32_t slot = (uint32_t)(off / KSTACK_STRIDE);
     uint64_t expected = KSTACK_BASE + (uint64_t)(slot + 1u) * KSTACK_STRIDE - ks_size;
-    if ((off % KSTACK_STRIDE) || va != expected) return;
+    if ((off % KSTACK_STRIDE) != KSTACK_STRIDE - ks_size || va != expected) return;
     uint64_t f = spin_lock_irqsave(&ks_lock);
     uint8_t mask = (uint8_t)(1u << (slot & 7u));
     if (slot < ks_used_hi && (ks_active[slot >> 3] & mask) && ks_nfree < KSTACK_SLOTS) {
