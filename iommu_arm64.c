@@ -415,7 +415,7 @@ int iommu_enabled(void)
 int iommu_device_ready(const pci_dev_t* pci)
 {
     arm_iommu_device_t* dev;
-    if (arm_map_invalid)
+    if (!pci || pci->dma_quarantined || arm_map_invalid)
         return 0;
     if (!arm_map_present)
         return 1; /* No SMMU mapping property: preserve platform legacy behavior. */
@@ -436,7 +436,7 @@ int iommu_device_ready(const pci_dev_t* pci)
 int iommu_device_isolated(const pci_dev_t* pci)
 {
     arm_iommu_device_t* dev = arm_find_device(pci);
-    if (!dev || !dev->covered ||
+    if (!pci || pci->dma_quarantined || !dev || !dev->covered ||
         __atomic_load_n(&dev->blocked, __ATOMIC_ACQUIRE) || dev->stream_id >= 256u ||
         arm_sid_shared[dev->stream_id])
         return 0;
@@ -452,6 +452,8 @@ int iommu_isolate_device(const pci_dev_t* pci)
 
     if (!pci)
         return IOMMU_E_ARG;
+    if (pci->dma_quarantined)
+        return IOMMU_E_HW;
     if (arm_map_invalid)
         return IOMMU_E_HW;
     if (!dev || !dev->covered)
