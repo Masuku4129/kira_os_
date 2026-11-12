@@ -11,7 +11,7 @@
 typedef struct kmh { size_t size, used; } kmh;     /* заголовок блока: 16 байт, данные идут сразу за ним */
 static char *kheap_lo, *kheap_top, *kheap_lim;     /* начало, конец нарезанных блоков, конец полученной памяти */
 
-static void *malloc(size_t n) {
+static inline void *malloc(size_t n) {
     if (n == 0) n = 1;
     if (n > ((size_t)1 << 40)) return 0;
     n = (n + 15) & ~(size_t)15;
@@ -49,20 +49,20 @@ static void *malloc(size_t n) {
     kheap_top += need;
     return (char *)h + 16;
 }
-static void free(void *p) {
+static inline void free(void *p) {
     if (!p) return;
     char *c = (char *)p;
     if (c < kheap_lo + 16 || c >= kheap_top) return;
     ((kmh *)(c - 16))->used = 0;
 }
-static void *calloc(size_t n, size_t m) {
+static inline void *calloc(size_t n, size_t m) {
     if (m && n > ((size_t)1 << 40) / m) return 0;
     size_t t = n * m;
     char *p = (char *)malloc(t);
     if (p) for (size_t i = 0; i < t; i++) p[i] = 0;
     return p;
 }
-static void *realloc(void *p, size_t n) {
+static inline void *realloc(void *p, size_t n) {
     if (!p) return malloc(n);
     kmh *h = (kmh *)((char *)p - 16);
     if (n <= h->size) return p;
@@ -73,28 +73,28 @@ static void *realloc(void *p, size_t n) {
     return q;
 }
 
-static int abs(int v) { return v < 0 ? -v : v; }
-static long labs(long v) { return v < 0 ? -v : v; }
-static long atol(const char *s) {
+static inline int abs(int v) { return v < 0 ? -v : v; }
+static inline long labs(long v) { return v < 0 ? -v : v; }
+static inline long atol(const char *s) {
     long v = 0; int neg = 0;
     while (*s == ' ' || (*s >= 9 && *s <= 13)) s++;
     if (*s == '-' || *s == '+') neg = *s++ == '-';
     while (*s >= '0' && *s <= '9') v = v * 10 + (*s++ - '0');
     return neg ? -v : v;
 }
-static int atoi(const char *s) { return (int)atol(s); }
-static void exit(int code) __attribute__((noreturn));
-static void exit(int code) { k_exit(code); }
-static void abort(void) __attribute__((noreturn));
-static void abort(void) { k_exit(134); }
+static inline int atoi(const char *s) { return (int)atol(s); }
+static inline void exit(int code) __attribute__((noreturn));
+static inline void exit(int code) { k_exit(code); }
+static inline void abort(void) __attribute__((noreturn));
+static inline void abort(void) { k_exit(134); }
 
-static unsigned long krand_state = 1;
-static void srand(unsigned seed) { krand_state = seed; }
-static int rand(void) { krand_state = krand_state * 6364136223846793005UL + 1442695040888963407UL; return (int)((krand_state >> 33) & 0x7fffffff); }
+static inline unsigned long krand_state = 1;
+static inline void srand(unsigned seed) { krand_state = seed; }
+static inline int rand(void) { krand_state = krand_state * 6364136223846793005UL + 1442695040888963407UL; return (int)((krand_state >> 33) & 0x7fffffff); }
 
 /* Пирамидальная сортировка: без рекурсии и без дополнительной памяти. */
-static void kq_swap(unsigned char *a, unsigned char *b, size_t n) { while (n--) { unsigned char t = *a; *a++ = *b; *b++ = t; } }
-static void kq_sift(unsigned char *base, size_t size, size_t i, size_t n, int (*cmp)(const void *, const void *)) {
+static inline void kq_swap(unsigned char *a, unsigned char *b, size_t n) { while (n--) { unsigned char t = *a; *a++ = *b; *b++ = t; } }
+static inline void kq_sift(unsigned char *base, size_t size, size_t i, size_t n, int (*cmp)(const void *, const void *)) {
     for (;;) {
         size_t c = 2 * i + 1;
         if (c >= n) return;
@@ -104,7 +104,7 @@ static void kq_sift(unsigned char *base, size_t size, size_t i, size_t n, int (*
         i = c;
     }
 }
-static void qsort(void *vb, size_t n, size_t size, int (*cmp)(const void *, const void *)) {
+static inline void qsort(void *vb, size_t n, size_t size, int (*cmp)(const void *, const void *)) {
     unsigned char *base = (unsigned char *)vb;
     if (n < 2 || !size) return;
     for (size_t i = n / 2; i-- > 0;) kq_sift(base, size, i, n, cmp);
