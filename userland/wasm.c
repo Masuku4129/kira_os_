@@ -571,7 +571,7 @@ static int load(void) {
     types = (ftype_t*)alloc(sizeof(ftype_t) * 256); funcs = (func_t*)alloc(sizeof(func_t) * MAXF);
     if (!types || !funcs) { trap("no memory"); return -1; }
     const u8* p = mod + 8; const u8* end = mod + modlen;
-    u32 nfuncdecl = 0; u32* decl = 0;
+    u32 nfuncdecl = 0;
     u32 seen_sections = 0;
     u32 has_memory = 0;
     u32 has_start = 0;
@@ -658,12 +658,10 @@ static int load(void) {
         } else if (id == 3) {                                     /* функции */
             nfuncdecl = leb_u(&s, se);
             if (trapped || nfuncdecl > MAXF - nfuncs) { trap("too many or truncated function declarations"); return -1; }
-            decl = (u32*)alloc(4ull * (nfuncdecl + 1));
-            if (!decl) { trap("no memory for function declarations"); return -1; }
             for (u32 i = 0; i < nfuncdecl && !trapped; i++) {
-                decl[i] = leb_u(&s, se);
-                if (trapped || decl[i] >= ntypes) { trap("bad function type"); return -1; }
-                funcs[nfuncs + i].type = decl[i];
+                u32 ti = leb_u(&s, se);
+                if (trapped || ti >= ntypes) { trap("bad function type"); return -1; }
+                funcs[nfuncs + i].type = ti;
                 funcs[nfuncs + i].import = 0;
             }
             if (trapped) return -1;
