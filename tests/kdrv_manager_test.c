@@ -16,6 +16,7 @@ typedef struct {
     int fail_state;
     int staged;
     int committed;
+    int rollback_count;
     int discarded;
     int freed;
     enum kdrv_state states[8];
@@ -104,6 +105,15 @@ static int commit_staged(void *opaque, const char *name,
     return 0;
 }
 
+static int rollback_committed(void *opaque, const char *name)
+{
+    test_context_t *ctx = opaque;
+    if (strcmp(name, "test-driver") != 0) return -1;
+    ctx->rollback_count++;
+    ctx->committed = 0;
+    return 0;
+}
+
 static void discard_staged(void *opaque, const char *staging_path)
 {
     test_context_t *ctx = opaque;
@@ -157,6 +167,7 @@ static void setup(test_context_t *ctx, struct kdrv_manager_ops *ops)
     ops->dependency_satisfied = dependency_satisfied;
     ops->stage_payload = stage_payload;
     ops->commit_staged = commit_staged;
+    ops->rollback_committed = rollback_committed;
     ops->discard_staged = discard_staged;
     ops->activate = activate_driver;
     ops->deactivate = deactivate_driver;
@@ -191,9 +202,11 @@ static int test_failure_cleanup(int mode)
     if (mode == 1) ctx.dependency_ok = 0;
     if (mode == 2) ctx.stage_fail = 1; /* backend reports failure after creating staging object */
     if (mode == 3) ctx.commit_fail = 1;
+    if (mode == 4) ctx.fail_state = KDRV_STATE_INSTALLED;
     CHECK(kdrv_manager_install(&ops, "/drv/test.kdrv", "x86_64", 1, 2) != 0);
     CHECK(ctx.freed == 1);
     CHECK(!ctx.committed);
+    CHECK(ctx.rollback_count == (mode == 4 ? 1 : 0));
     CHECK(ctx.state_count > 0);
     CHECK(ctx.states[ctx.state_count - 1] == KDRV_STATE_FAILED);
     if (mode == 2 || mode == 3) CHECK(ctx.discarded == 1);
@@ -238,7 +251,7 @@ static int test_activation_state_rollback(void)
 int main(void)
 {
     if (test_success()) return 1;
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 5; ++i)
         if (test_failure_cleanup(i)) return 1;
     for (int i = 0; i < 3; ++i)
         if (test_rejects_unsafe_metadata(i)) return 1;
