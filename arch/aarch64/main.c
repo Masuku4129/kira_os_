@@ -375,7 +375,8 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     uint64_t f = irq_save();
     while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
     uint64_t va = 0;
-    if (ks_size && ks_size != bytes) goto out;
+    uint64_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_RELAXED);
+    if (stack_size && stack_size != bytes) goto out;
     if (ks_free != ~0ull) {
         uint64_t slot = ks_free;
         if (slot >= ks_next || !kstack_slot_activate(ks_active, (uint32_t)KSTACK_SLOTS, (uint32_t)slot)) goto out;
@@ -392,7 +393,7 @@ void* vmm_kstack_alloc(uint32_t bytes) {
         }
         if (ok && kstack_slot_activate(ks_active, (uint32_t)KSTACK_SLOTS, (uint32_t)slot)) {
             ks_next++;
-            ks_size = bytes;
+            __atomic_store_n(&ks_size, bytes, __ATOMIC_RELEASE);
             va = base;
         } else if (mapped) {
             /* Never retry a partially mapped virtual slot over existing PTEs. */
@@ -411,7 +412,7 @@ void vmm_kstack_free(void* base) {
     while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
     uint32_t slot;
     if (kstack_slot_from_base(va, KSTACK_VA, KSTACK_STRIDE, (uint32_t)KSTACK_SLOTS,
-                              (uint32_t)ks_size, (uint32_t)ks_next, &slot) &&
+                              (uint32_t)__atomic_load_n(&ks_size, __ATOMIC_RELAXED), (uint32_t)ks_next, &slot) &&
         kstack_slot_release(ks_active, (uint32_t)KSTACK_SLOTS, slot)) {
         *(volatile uint64_t*)(uintptr_t)va = ks_free;
         ks_free = slot;
@@ -425,7 +426,7 @@ void vmm_kstack_free(void* base) {
 int vmm_enable_write_combining(void) { return -1; }
 
 int vmm_is_kstack(uint64_t a) { return a >= KSTACK_VA && a < KSTACK_VA + KSTACK_SLOTS * KSTACK_STRIDE; }
-int vmm_kstack_guard_hit(uint64_t a) { return vmm_is_kstack(a) && ks_size && (a - KSTACK_VA) % KSTACK_STRIDE < KSTACK_STRIDE - ks_size; }
+int vmm_kstack_guard_hit(uint64_t a) { uint64_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_ACQUIRE); return vmm_is_kstack(a) && stack_size && (a - KSTACK_VA) % KSTACK_STRIDE < KSTACK_STRIDE - stack_size; }
 
 /* ---------------- окно устройств и проверка отображения (vmm.h) ----------------
    Тождественная карта уже покрывает ОЗУ и первые 4 ГБ; регистры устройств выше (ECAM, окна PCIe за 4 ГБ)
