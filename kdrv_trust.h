@@ -9,6 +9,9 @@
 #include <stdint.h>
 #define KDRV_TRUST_KEY_COUNT 1u
 #define KDRV_TRUST_KEY_ID "aa85df60c87d3666"
+static const char kdrv_trust_key_ids[KDRV_TRUST_KEY_COUNT][17] = {
+    KDRV_TRUST_KEY_ID
+};
 static const uint8_t kdrv_trust_ed25519_keys[KDRV_TRUST_KEY_COUNT][32] = {
     {
         0x86,0xef,0x20,0x0e,0x9a,0x9f,0xab,0xb3,
