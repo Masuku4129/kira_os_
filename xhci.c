@@ -614,6 +614,10 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
     cpu_mb();                                                          /* publish NC rings before device DMA starts */
     pci_enable(p, PCI_CMD_MASTER);
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        usb_log("[KIRA USB] xHCI: PCI bus mastering did not enable; controller not started.\\n");
+        return -2;
+    }
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     if (r32(xs.op, 4) & 1u) { usb_log("[KIRA USB] xHCI does not start\n"); return -1; }
