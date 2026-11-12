@@ -19,6 +19,8 @@ struct fdt_header {
 static uint32_t be32(const void *p){const uint8_t*b=p;return ((uint32_t)b[0]<<24)|((uint32_t)b[1]<<16)|((uint32_t)b[2]<<8)|b[3];}
 static uint64_t be64(const void *p){return ((uint64_t)be32(p)<<32)|be32((const uint8_t*)p+4);}
 static int bounded(size_t off,size_t len,size_t total){return off<=total&&len<=total-off;}
+static int overlaps(size_t a,size_t an,size_t b,size_t bn)
+{return an&&bn&&a<b+bn&&b<a+an;}
 static size_t align4(size_t n){return (n+3u)&~(size_t)3u;}
 static int name_eq(const char *a,const char *b){size_t i=0;while(a[i]&&b[i]&&a[i]==b[i])i++;return a[i]==b[i];}
 static int memory_node_name(const char *s)
@@ -41,9 +43,12 @@ int kira_fdt_parse(const void *blob,size_t available,struct kira_fdt_info *o)
  h.size_strings=be32(b+32);h.size_struct=be32(b+36);
  if(h.magic!=FDT_MAGIC||h.total>available||h.total<FDT_HEADER_SIZE||
     h.version<17||h.last_comp>17||
+    h.off_struct<FDT_HEADER_SIZE||h.off_strings<FDT_HEADER_SIZE||
+    h.off_rsvmap<FDT_HEADER_SIZE||(h.off_struct&3u)||(h.off_rsvmap&7u)||
     !bounded(h.off_struct,h.size_struct,h.total)||
     !bounded(h.off_strings,h.size_strings,h.total)||
-    h.off_rsvmap>=h.total)return -2;
+    h.off_rsvmap>=h.total||
+    overlaps(h.off_struct,h.size_struct,h.off_strings,h.size_strings))return -2;
  s=b+h.off_struct;strings=b+h.off_strings;str_end=h.size_strings;pos=0;
  {
   size_t rp=h.off_rsvmap;unsigned n=0;int terminated=0;
@@ -52,7 +57,8 @@ int kira_fdt_parse(const void *blob,size_t available,struct kira_fdt_info *o)
    if(!base&&!size){terminated=1;break;}
    if(add_region(o->reserved,&o->reserved_count,KIRA_FDT_MAX_RESERVED,base,size))return -3;
   }
-  if(!terminated)return -3;
+  if(!terminated||overlaps(h.off_rsvmap,rp-h.off_rsvmap,h.off_struct,h.size_struct)||
+     overlaps(h.off_rsvmap,rp-h.off_rsvmap,h.off_strings,h.size_strings))return -3;
  }
  while(pos<h.size_struct){
   uint32_t token;
