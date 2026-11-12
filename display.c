@@ -212,6 +212,19 @@ static int cur_prog_pinned(void) {
     return dock_find(&dock, P->e[P->cur].name) >= 0;
 }
 
+static int path_ext_is(const char* path, const char* ext) {
+    unsigned n = 0, m = 0;
+    while (path[n]) n++;
+    while (ext[m]) m++;
+    if (n <= m + 1 || path[n - m - 1] != '.') return 0;
+    for (unsigned i = 0; i < m; ++i) {
+        char c = path[n - m + i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        if (c != ext[i]) return 0;
+    }
+    return 1;
+}
+
 /* Просьба менеджера: Enter/двойной щелчок по файлу (программа из /bin - запуск, иначе просмотр), F3, F4. */
 static void files_act(void) {
     const char* path = ev.fm.act_path;
@@ -221,10 +234,12 @@ static void files_act(void) {
         return;
     }
     if (ev.fm.act_kind == FM_ACT_OPEN && prog) { files_run(prog); return; }
-    unsigned pl = 0; while (path[pl]) pl++;
-    int is_wasm = ev.fm.act_kind == FM_ACT_OPEN && pl > 5 && path[pl - 5] == '.' && path[pl - 4] == 'w' && path[pl - 3] == 'a' && path[pl - 2] == 's' && path[pl - 1] == 'm';
-    prog_request_file(is_wasm ? "wasm" : "view", path);
-    int p = scpy(files_status, 0, "открыто в просмотре: ", sizeof files_status);
+    int is_open = ev.fm.act_kind == FM_ACT_OPEN;
+    int is_wasm = is_open && path_ext_is(path, "wasm");
+    int is_kvm = is_open && path_ext_is(path, "kvm");
+    const char* app = is_kvm ? "kvm" : is_wasm ? "wasm" : "view";
+    prog_request_file(app, path);
+    int p = scpy(files_status, 0, is_kvm ? "запуск KIRA VM: " : is_wasm ? "запуск WASM: " : "открыто в просмотре: ", sizeof files_status);
     (void)scpy(files_status, p, path, sizeof files_status);
 }
 

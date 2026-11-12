@@ -64,6 +64,11 @@ $CC $UCFLAGS -I. -c font8x16.c -o build-arm64/dm_font.o
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/drvman.elf build-arm64/dm_main.o build-arm64/dm_drvget.o build-arm64/dg_core.o build-arm64/dg_kdrv_fmt.o \
     build-arm64/dm_font.o $KCC_OBJ build-arm64/ukccrt.o $DG_TLS build-arm64/ukcc_libc_min.o
 UELF="$UELF build-arm64/drvman.elf"
+# KIRA VM v1: portable bytecode runner in EL0, same KVM1 ABI as x86-64.
+$CC $KCFLAGS -Iuserland/kccrt -Iuserland -Ikvm -c userland/kvm.c -o build-arm64/kvm_runner.o
+$CC $KCFLAGS -Iuserland/kccrt -Ikvm -c kvm/kvm.c -o build-arm64/kvm_runtime.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/kvm.elf build-arm64/kvm_runner.o build-arm64/kvm_runtime.o build-arm64/ukcc_libc_min.o
+UELF="$UELF build-arm64/kvm.elf"
 for app in edit view; do                 # с текстом: шрифт ядра вместе с программой
     $CC $UCFLAGS -I. -c userland/$app.c -o build-arm64/u_$app.o
     $CC $UCFLAGS -I. -c font8x16.c -o build-arm64/u_font_$app.o
@@ -91,6 +96,10 @@ echo "[*] kira-arm64.img (образ ARM64 с заголовком загруз�
 [ -f kira-arm64.disk ] || dd if=/dev/zero of=kira-arm64.disk bs=1M count=16 2>/dev/null
 tools/kfstool kira-arm64.disk init >/dev/null
 for e in $UELF; do tools/kfstool kira-arm64.disk put /bin/$(basename $e .elf) $e >/dev/null; done
+# Portable KIRA VM smoke module, available from /apps in the file manager.
+mkdir -p build-kvm
+python3 tools/kvm_asm.py examples/kvm/hello.kvasm build-kvm/hello.kvm
+tools/kfstool kira-arm64.disk put /apps/hello.kvm build-kvm/hello.kvm >/dev/null
 for h in kcc/include/*.h; do                              # заголовки libc-lite для kcc на Кире (те же файлы, что у x86-64)
     tools/kfstool kira-arm64.disk put /etc/kcc/include/$(basename $h) $h >/dev/null
 done

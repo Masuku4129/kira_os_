@@ -61,6 +61,7 @@ int fm_kind_of(const char* dir, const char* name, int is_dir) {
     if (is_dir) return FM_KIND_DIR;
     if (seq(dir, "/bin")) return FM_KIND_PROG;
     if (ext_is(name, "wasm")) return FM_KIND_WASM;
+    if (ext_is(name, "kvm")) return FM_KIND_KVM;
     static const char* const img[] = { "png", "bmp", "ppm", "gif", "jpg", "jpeg" };
     static const char* const txt[] = { "txt", "md", "log", "c", "h", "py", "sh", "cfg", "ini", "json", "s", "asm" };
     for (unsigned i = 0; i < sizeof img / sizeof img[0]; i++) if (ext_is(name, img[i])) return FM_KIND_IMG;

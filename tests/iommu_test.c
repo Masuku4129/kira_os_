@@ -327,8 +327,10 @@ int main(int argc, char** argv) {
 
     /* Bulk unmap retains failed multi-page ranges and retries one batched flush. */
     CHECK(iommu_map(d3, 0x60000, 0xC0000, 0x2000, IOMMU_R | IOMMU_W) == IOMMU_OK);
+    CHECK(iommu_map(d3, 0x64000, 0xC4000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_OK);
     CHECK(hw_dma(sid_of(d3), 0x60000, 0, &pa) == 0);
     CHECK(hw_dma(sid_of(d3), 0x61000, 0, &pa) == 0);
+    CHECK(hw_dma(sid_of(d3), 0x64000, 0, &pa) == 0);
     int bulk_flushes = iotlb_flushes;
     hw_hang = 1;
     CHECK(iommu_unmap_all(d3) == IOMMU_E_HW);
@@ -338,6 +340,7 @@ int main(int argc, char** argv) {
     CHECK(iotlb_flushes == bulk_flushes + 1);
     CHECK(hw_dma(sid_of(d3), 0x60000, 0, &pa) != 0);
     CHECK(hw_dma(sid_of(d3), 0x61000, 0, &pa) != 0);
+    CHECK(hw_dma(sid_of(d3), 0x64000, 0, &pa) != 0);
 
     /* hardware that does not complete invalidation: the map reports it and leaves no access behind */
     hw_hang = 1;

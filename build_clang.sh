@@ -86,6 +86,11 @@ $CC $UCFLAGS -I. -c font8x16.c -o userland/font_drvman.o
 ld.lld $ULINK -o userland/drvman.elf userland/drvman.o userland/drvget_lib.o userland/u_drvget_core.o userland/u_kdrv_fmt.o userland/font_drvman.o $KCC_OBJ userland/u_kccrt.o \
     userland/u_tls.o userland/u_x509.o userland/u_pk.o userland/u_crypto.o userland/u_sha256.o userland/u_kdrv_sig.o userland/u_libc_min.o
 UELF="$UELF userland/drvman.elf"
+# KIRA VM v1: portable bytecode runner in Ring 3, shared interpreter on x86-64/ARM64.
+$CC $UCFLAGS -nostdlibinc -Iuserland/kccrt -Iuserland -Ikvm -c userland/kvm.c -o userland/kvm_runner.o
+$CC $UCFLAGS -nostdlibinc -Iuserland/kccrt -Ikvm -c kvm/kvm.c -o userland/u_kvm_runtime.o
+ld.lld $ULINK -o userland/kvm.elf userland/kvm_runner.o userland/u_kvm_runtime.o userland/u_libc_min.o
+UELF="$UELF userland/kvm.elf"
 # Программы с вещественной арифметикой (3D, тест FPU): SSE2 разрешён только им, ядро собирается без SSE.
 USSE_FLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -msse2 -mfpmath=sse -mno-mmx -fno-math-errno -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 for app in cube3d fpu wasm; do
@@ -123,6 +128,10 @@ tools/kfstool kira.disk init
 for e in $UELF; do
     tools/kfstool kira.disk put /bin/$(basename $e .elf) $e
 done
+# Portable KIRA VM smoke module, available from /apps in the file manager.
+mkdir -p build-kvm
+python3 tools/kvm_asm.py examples/kvm/hello.kvasm build-kvm/hello.kvm
+tools/kfstool kira.disk put /apps/hello.kvm build-kvm/hello.kvm
 # Только для CI/QEMU: учебный драйвер edu не является production-драйвером.
 # В пользовательскую Android/release-сборку неподписанные тестовые пакеты не попадают.
 if [ "$RELEASE" != 1 ]; then

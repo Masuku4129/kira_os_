@@ -15,7 +15,7 @@
 #define FM_TREE   512        /* объектов одного каталога при копировании и удалении дерева */
 #define FM_CHUNK  65536      /* порция чтения при копировании */
 
-enum { FM_KIND_FILE, FM_KIND_DIR, FM_KIND_UP, FM_KIND_PROG, FM_KIND_IMG, FM_KIND_TEXT, FM_KIND_WASM };
+enum { FM_KIND_FILE, FM_KIND_DIR, FM_KIND_UP, FM_KIND_PROG, FM_KIND_IMG, FM_KIND_TEXT, FM_KIND_WASM, FM_KIND_KVM };
 
 typedef struct { char name[FM_NAME]; uint64_t size; uint8_t dir, mark, kind, pad; } fm_ent_t;
 

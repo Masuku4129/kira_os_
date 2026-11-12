@@ -87,6 +87,8 @@ int main(void) {
     CHECK(F->act_kind == FM_ACT_OPEN && !strcmp(F->act_path, "/bin/paint"));                       /* запуск - системное имя */
     cur_to(0, "zork"); key(KEY_F4); CHECK(F->act_kind == FM_ACT_PIN && !strcmp(F->act_path, "/bin/zork"));
     fm_goto(F, &IO, 0, "/data"); CHECK(fm_kind_of("/data", "plasma", 0) != FM_KIND_PROG);          /* «программа» - только файл прямо в /bin */
+    CHECK(fm_kind_of("/", "demo.kvm", 0) == FM_KIND_KVM);
+    CHECK(fm_kind_of("/", "DEMO.KVM", 0) == FM_KIND_KVM);
     /* копирование F5: курсор слева, цель справа (/data) */
     fm_goto(F, &IO, 0, "/"); fm_goto(F, &IO, 1, "/data"); F->active = 0;
     cur_to(0, "zeta.txt"); key(KEY_F5);
