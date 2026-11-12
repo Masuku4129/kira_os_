@@ -625,7 +625,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     /* Do not touch operational registers until firmware has relinquished
        ownership. On a failed handoff, only mask PCI interrupts and clear
        BusMaster, then leave the controller quarantined. */
-    if (handoff_ok) {
+    if (handoff_ok >= 0) {
         w32(xs.op, 0, r32(xs.op, 0) & ~1u);                           /* stop */
         for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
         halted = (r32(xs.op, 4) & 1u) != 0;
@@ -643,7 +643,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
         usb_log("[KIRA USB] xHCI did not halt; PCI bus mastering disabled, controller quarantined\\n");
         return -2;
     }
-    if (!handoff_ok) {
+    if (handoff_ok < 0) {
         usb_log("[KIRA USB] xHCI: invalid or incomplete BIOS ownership handoff; controller quarantined\n");
         return -2;
     }
