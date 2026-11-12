@@ -307,8 +307,8 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
         if (pci_disable_bus_master(pd))
             (void)iommu_unmap_all(pd);
         else
-            uart_print("[KIRA NVMe] bus mastering did not stop; DMA mappings remain pinned.\\n");
-        uart_print("[KIRA NVMe] PCI DMA authorization was not granted; controller disabled.\\n");
+            uart_print("[KIRA NVMe] bus mastering did not stop; DMA mappings remain pinned.\n");
+        uart_print("[KIRA NVMe] PCI DMA authorization was not granted; controller disabled.\n");
         return;
     }
     w32(rg, R_CC, (6u << 16) | (4u << 20) | 1u);                        /* IOSQES 64, IOCQES 16, страница 4 КБ, NVM, вкл. */
