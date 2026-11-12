@@ -218,25 +218,54 @@ static int skip_bytes(const u8** p, const u8* e, u32 n) {
     *p += n;
     return 0;
 }
-static void skip_imm(u8 op, const u8** p, const u8* e) {
-    if (op == 0x0C || op == 0x0D || op == 0x10 || (op >= 0x20 && op <= 0x24)) {
-        (void)leb_u(p, e); return;
+static void skip_imm(u8 op, const u8** p, const u8* e, u32 nloc) {
+    if (op == 0x0C || op == 0x0D) {
+        u32 depth = leb_u(p, e);
+        if (trapped || depth >= (u32)nctl) trap("branch depth out of range in unreachable code");
+        return;
+    }
+    if (op == 0x10) {
+        u32 index = leb_u(p, e);
+        if (trapped || index >= nfuncs) trap("call function index out of range in unreachable code");
+        return;
+    }
+    if (op >= 0x20 && op <= 0x22) {
+        u32 index = leb_u(p, e);
+        if (trapped || index >= nloc) trap("local index out of range in unreachable code");
+        return;
+    }
+    if (op == 0x23 || op == 0x24) {
+        u32 index = leb_u(p, e);
+        if (trapped || index >= nglobals) trap("global index out of range in unreachable code");
+        return;
     }
     if (op == 0x0E) {
         u32 n = leb_u(p, e);
         if (trapped || (u64)n + 1u > (u64)(e - *p)) {
             trap("bad br_table immediate"); return;
         }
-        for (u32 i = 0; i <= n && !trapped; i++) (void)leb_u(p, e);
+        for (u32 i = 0; i <= n && !trapped; i++) {
+            u32 depth = leb_u(p, e);
+            if (!trapped && depth >= (u32)nctl) trap("br_table depth out of range in unreachable code");
+        }
         return;
     }
     if (op == 0x11) {
-        (void)leb_u(p, e);
-        if (trapped || *p >= e || *(*p)++ != 0) trap("unsupported call_indirect table index");
+        u32 type_index = leb_u(p, e);
+        if (trapped || type_index >= ntypes) { trap("call_indirect type index out of range in unreachable code"); return; }
+        if (!table || *p >= e || *(*p)++ != 0) trap("unsupported call_indirect table index");
         return;
     }
     if (op >= 0x28 && op <= 0x3E) {
-        (void)leb_u(p, e); (void)leb_u(p, e); return;
+        static const u8 max_align[23] = {
+            2,3,2,3,0,0,1,1,0,0,1,1,2,2,3,2,3,0,1,0,1,2,2
+        };
+        u32 align = leb_u(p, e);
+        (void)leb_u(p, e);
+        if (trapped) return;
+        if (!has_memory) { trap("memory instruction without memory in unreachable code"); return; }
+        if (align > max_align[op - 0x28]) trap("memory alignment exceeds natural alignment");
+        return;
     }
     if (op == 0x3F || op == 0x40) {
         if (*p >= e || *(*p)++ != 0) trap("unsupported memory index immediate");
@@ -431,7 +460,7 @@ static int compile_func(func_t* f) {
     ctl[0].kind = 3; ctl[0].ar = ft->nr; ctl[0].dead = 0; ctl[0].h = 0; ctl[0].start = 0; ctl[0].pend = 0; ctl[0].ifz = 0; nctl = 1;
     while (p < end && !trapped) {
         u8 op = *p++;
-        if (c_unr && op != 0x02 && op != 0x03 && op != 0x04 && op != 0x05 && op != 0x0B) { skip_imm(op, &p, end); continue; }
+        if (c_unr && op != 0x02 && op != 0x03 && op != 0x04 && op != 0x05 && op != 0x0B) { skip_imm(op, &p, end, nloc); continue; }
         switch (op) {
         case 0x00: lz_flush(); ew(OP_TRAP); ew(TM_UNREACH); c_unr = 1; break;
         case 0x01: break;
