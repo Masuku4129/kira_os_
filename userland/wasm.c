@@ -545,15 +545,23 @@ static int compile_func(func_t* f) {
 
 /* ---------- загрузка ---------- */
 static int load(void) {
-    if (modlen < 8 || mod[0] || mod[1] != 'a' || mod[2] != 's' || mod[3] != 'm' || mod[4] != 1) { trap("not a WebAssembly 1.0 module"); return -1; }
+    if (modlen < 8 || mod[0] || mod[1] != 'a' || mod[2] != 's' || mod[3] != 'm' ||
+        mod[4] != 1 || mod[5] || mod[6] || mod[7]) {
+        trap("not a WebAssembly 1.0 module"); return -1;
+    }
     types = (ftype_t*)alloc(sizeof(ftype_t) * 256); funcs = (func_t*)alloc(sizeof(func_t) * MAXF);
     if (!types || !funcs) { trap("no memory"); return -1; }
     const u8* p = mod + 8; const u8* end = mod + modlen;
     u32 nfuncdecl = 0; u32* decl = 0;
     while (p < end && !trapped) {
-        u8 id = *p++; u32 sz = leb_u(&p, end);
-        const u8* s = p; const u8* se = p + sz;
-        if (se > end) { trap("section past end"); return -1; }
+        u8 id = *p++;
+        u32 sz = leb_u(&p, end);
+        if (trapped) return -1;
+        /* Check the declared length before forming p + sz: even pointer arithmetic
+           beyond one-past-end is undefined in C, before any section read occurs. */
+        if ((u64)sz > (u64)(end - p)) { trap("section past end"); return -1; }
+        const u8* s = p;
+        const u8* se = p + sz;
         if (id == 1) {                                            /* типы */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
