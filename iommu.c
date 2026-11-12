@@ -397,19 +397,28 @@ int iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len) {
 }
 
 int iommu_unmap_all(const pci_dev_t* d) {
+    struct kira_vtd_unmap_range ranges[IOMMU_MAX_MAPS];
     if (!d || !G.active) return IOMMU_OK;
-    int overall = IOMMU_OK;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
-    for (uint32_t i = 0; x && i < x->nmaps;) {
-        imap_t m = x->maps[i];
-        int rc = kira_vtd_domain_unmap_range(&x->dom, m.iova, m.pages, &G.plat) == KIRA_VTD_OK
-                 ? IOMMU_OK : IOMMU_E_HW;
-        if (rc == IOMMU_OK) x->maps[i] = x->maps[--x->nmaps];
-        else { overall = IOMMU_E_HW; i++; }
+    if (!x || !x->nmaps) {
+        spin_unlock_irqrestore(&G.lock, f);
+        return IOMMU_OK;
     }
+    if (x->nmaps > IOMMU_MAX_MAPS) {
+        spin_unlock_irqrestore(&G.lock, f);
+        return IOMMU_E_HW;
+    }
+    for (uint32_t i = 0; i < x->nmaps; ++i) {
+        ranges[i].iova = x->maps[i].iova;
+        ranges[i].pages = x->maps[i].pages;
+    }
+    /* Clear all tracked ranges, then issue one IOTLB invalidation. Keep the
+       entire ledger pinned if the batch has any uncertain result. */
+    int rc = kira_vtd_domain_unmap_ranges(&x->dom, ranges, x->nmaps, &G.plat);
+    if (rc == KIRA_VTD_OK) x->nmaps = 0;
     spin_unlock_irqrestore(&G.lock, f);
-    return overall;
+    return rc == KIRA_VTD_OK ? IOMMU_OK : IOMMU_E_HW;
 }
 
 /* ---- Faults ---- */
