@@ -33,6 +33,8 @@ typedef struct {
     uint64_t next_phys;
     unsigned alloc_count, free_count, fail_alloc_at;
     int bad_rx_phys, reset_stuck;
+    unsigned sequence, last_clean, last_invalidate, last_read_barrier;
+    unsigned last_write_barrier, last_tsd_write;
     unsigned clean_calls, invalidate_calls, read_barriers, write_barriers;
     unsigned receive_calls, tx_complete_calls;
     size_t received_length;
@@ -100,8 +102,10 @@ static void out32(void *opaque, uint16_t p, uint32_t v)
     if (r >= 0x20u && r < 0x30u && !(r & 3u))
         m->tsad[(r - 0x20u) / 4u] = v;
     if (r == REG_RBSTART) m->rx_phys_reg = v;
-    if (r >= REG_TSD0 && r < REG_TSD0 + 16u && !(r & 3u))
+    if (r >= REG_TSD0 && r < REG_TSD0 + 16u && !(r & 3u)) {
         m->tsd[(r - REG_TSD0) / 4u] = v & ~TSD_OWN;
+        m->last_tsd_write = ++m->sequence;
+    }
     m->regs[r] = (uint8_t)v;
     m->regs[r + 1u] = (uint8_t)(v >> 8);
     m->regs[r + 2u] = (uint8_t)(v >> 16);
@@ -115,7 +119,8 @@ static void *dma_alloc(void *opaque, size_t size, size_t alignment,
     assert(alignment == 256u);
     if (index == m->fail_alloc_at) return 0;
     if (index == 1u) {
-        *physical = m->bad_rx_phys ? 0x100000000ull : 0x100000ull;
+        *physical = m->bad_rx_phys == 1 ? 0x100000000ull :
+                    m->bad_rx_phys == 2 ? 0xffffff00ull : 0x100000ull;
         assert(size == sizeof m->rx);
         return m->rx;
     }
@@ -136,15 +141,23 @@ static void cache_invalidate(void *opaque, void *p, size_t n)
     mock_t *m = opaque;
     assert(p != 0 && n != 0);
     ++m->invalidate_calls;
+    m->last_invalidate = ++m->sequence;
 }
 static void cache_clean(void *opaque, const void *p, size_t n)
 {
     mock_t *m = opaque;
     assert(p != 0 && n != 0);
     ++m->clean_calls;
+    m->last_clean = ++m->sequence;
 }
-static void dma_read_barrier(void *opaque) { ++((mock_t *)opaque)->read_barriers; }
-static void dma_write_barrier(void *opaque) { ++((mock_t *)opaque)->write_barriers; }
+static void dma_read_barrier(void *opaque)
+{
+    mock_t *m = opaque; ++m->read_barriers; m->last_read_barrier = ++m->sequence;
+}
+static void dma_write_barrier(void *opaque)
+{
+    mock_t *m = opaque; ++m->write_barriers; m->last_write_barrier = ++m->sequence;
+}
 static void delay_us(void *opaque, uint32_t us) { (void)opaque; (void)us; }
 static void receive(void *opaque, const uint8_t *frame, size_t length)
 {
@@ -219,6 +232,10 @@ static void test_reject_and_cleanup(void)
     init_mock(&m); p = platform(&m); m.bad_rx_phys = 1;
     assert(kira_rtl8139_init(&d, IO_BASE, &p) == -3);
     assert(m.alloc_count == 1 && m.free_count == 1 && !d.initialized);
+
+    init_mock(&m); p = platform(&m); m.bad_rx_phys = 2;
+    assert(kira_rtl8139_init(&d, IO_BASE, &p) == -3);
+    assert(m.alloc_count == 1 && m.free_count == 1 && !d.initialized);
 }
 
 static void test_rx_tx_lifecycle(void)
@@ -236,6 +253,8 @@ static void test_rx_tx_lifecycle(void)
     assert(kira_rtl8139_send(&d, frame, 13) == -1);
     assert(kira_rtl8139_send(&d, frame, sizeof frame) == 0);
     assert(d.tx_busy[0] && m.clean_calls > 0 && m.write_barriers > 0);
+    assert(m.last_clean < m.last_write_barrier &&
+           m.last_write_barrier < m.last_tsd_write);
     assert(memcmp(m.tx[0], frame, sizeof frame) == 0);
     for (size_t i = sizeof frame; i < 60; ++i) assert(m.tx[0][i] == 0);
     m.tsd[0] = TSD_OWN | TSD_TOK;
@@ -253,6 +272,7 @@ static void test_rx_tx_lifecycle(void)
     assert(m.receive_calls == 1 && m.received_length == sizeof payload);
     assert(memcmp(m.received, payload, sizeof payload) == 0);
     assert(m.invalidate_calls >= 3 && m.read_barriers >= 2);
+    assert(m.last_invalidate < m.last_read_barrier);
 
     /* The payload crosses the 8 KiB ring boundary and must be copied in two spans. */
     d.rx_offset = 8176;
