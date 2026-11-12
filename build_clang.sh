@@ -32,7 +32,7 @@ nasm -f elf64 $ARCH/ap_tramp.s -o ap_tramp.o
 nasm -f elf64 $ARCH/uaccess.s -o uaccess_s.o
 
 echo "[*] Userland (Ring 3): программы собираются в ELF и кладутся на диск, ядро их не содержит..."
-UCFLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
+UCFLAGS="-Ikcc/include -ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 ULINK="-T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro"
 UELF=""
 for app in plasma paint burn mt ipc serve melody udpecho rec atk-cap; do
