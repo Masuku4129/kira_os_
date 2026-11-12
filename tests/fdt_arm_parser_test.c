@@ -12,10 +12,13 @@ static void begin(const char *n){token(1);size_t z=strlen(n)+1;memcpy(structure+
 static void endnode(void){token(2);}
 static uint32_t stroff(const char *n){size_t p=0;while(p<tp){if(!strcmp((char*)strings+p,n))return (uint32_t)p;p+=strlen((char*)strings+p)+1;}uint32_t r=(uint32_t)tp;size_t z=strlen(n)+1;memcpy(strings+tp,n,z);tp+=z;return r;}
 static void prop(const char *n,uint32_t v){token(3);be32(structure+sp,4);be32(structure+sp+4,stroff(n));sp+=8;be32(structure+sp,v);sp+=4;}
+static void reg1(uint32_t value){token(3);be32(structure+sp,4);be32(structure+sp+4,stroff("reg"));sp+=8;be32(structure+sp,value);sp+=4;}
 static void reg2(uint32_t base,uint32_t size){uint8_t v[8];be32(v,base);be32(v+4,size);token(3);be32(structure+sp,8);be32(structure+sp+4,stroff("reg"));sp+=8;memcpy(structure+sp,v,8);sp+=8;}
 static size_t make_blob(void){
  sp=tp=0;begin("");
  prop("#address-cells",1);prop("#size-cells",1);
+ begin("cpus");prop("#address-cells",1);prop("#size-cells",0);
+ begin("cpu@3");reg1(3);endnode();endnode();
  begin("bus@0");prop("#address-cells",2);prop("#size-cells",2);
  begin("device@0");endnode();endnode();
  begin("memory@1000");reg2(0x1000,0x2000);endnode();
@@ -34,7 +37,8 @@ int main(void){
  int rc=kira_fdt_parse(blob,n,&out);
  if(rc||out.reserved_count!=1||out.reserved[0].base!=0x800||
     out.reserved[0].size!=0x100||out.memory_count!=1||
-    out.memory[0].base!=0x1000||out.memory[0].size!=0x2000){
+    out.memory[0].base!=0x1000||out.memory[0].size!=0x2000||
+    out.cpu_count!=1||out.cpu_ids[0]!=3){
   printf("FAIL: parse=%d reserved=%zu memory=%zu base=%llx size=%llx\n",rc,
    out.reserved_count,out.memory_count,(unsigned long long)out.memory[0].base,
    (unsigned long long)out.memory[0].size);return 1;
@@ -48,6 +52,6 @@ int main(void){
  memcpy(saved,blob+12,4);be32(blob+12,72);
  if(kira_fdt_parse(blob,n,&out)==0){puts("FAIL: strings overlapping structure accepted");return 1;}
  memcpy(blob+12,saved,4);
- puts("arm64 FDT parser: initialized outputs, reserve map, scoped cells, memory@unit-address and block overlap checks passed");
+ puts("arm64 FDT parser: initialized outputs, reserve map, zero-size-cells CPU node, scoped cells, memory@unit-address and block overlap checks passed");
  return 0;
 }
