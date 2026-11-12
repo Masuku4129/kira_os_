@@ -76,7 +76,7 @@ static size_t make_catalogue(char *out, size_t capacity, unsigned version,
         version,
         valid_entry
         ? "net\t1.0\tx86_64\thttps://example.org/net.kdrv\thttps://example.org/net.sig\tpublisher-required\t35\t0000000000000000000000000000000000000000000000000000000000000000"
-        : "net\t1.0\tx86_64\tbad-url\thttps://example.org/net.sig\tpublisher-required\t35\t0000000000000000000000000000000000000000000000000000000000000000");
+        : "net\t1.0\tx86_64\tx\thttps://example.org/net.sig\tpublisher-required\t35\t0000000000000000000000000000000000000000000000000000000000000000");
     return n > 0 && (size_t)n < capacity ? (size_t)n : 0;
 }
 
