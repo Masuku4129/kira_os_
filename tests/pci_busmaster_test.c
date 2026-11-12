@@ -130,7 +130,7 @@ int main(void)
     CHECK(pci_disable_bus_master(dev) == 1);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
     pci_enable(dev, PCI_CMD_MASTER);
-    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
+    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) != 0);
 #endif
 
     ecam.first_bus = 6;
