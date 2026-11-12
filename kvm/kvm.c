@@ -5,7 +5,8 @@
 static int pages_to_bytes(uint32_t pages, size_t *bytes)
 {
     size_t count = (size_t)pages;
-    if (!bytes || count > SIZE_MAX / KVM_PAGE_SIZE)
+    if (!bytes || !pages || pages > KVM_MAX_MEMORY_PAGES ||
+        count > SIZE_MAX / KVM_PAGE_SIZE)
         return 0;
     *bytes = count * KVM_PAGE_SIZE;
     return 1;
@@ -44,6 +45,7 @@ int kvm_module_decode(const void *blob, size_t blob_size,
     size_t code_length, data_length, memory_bytes, expected;
     if (module) memset(module, 0, sizeof(*module));
     if (!bytes || !module || blob_size < KVM_MODULE_HEADER_SIZE ||
+        blob_size > KVM_MAX_MODULE_SIZE ||
         bytes[0] != 'K' || bytes[1] != 'V' || bytes[2] != 'M' || bytes[3] != '1' ||
         read_le16(bytes + 4) != KVM_MODULE_VERSION ||
         read_le16(bytes + 6) != KVM_MODULE_HEADER_SIZE)
@@ -108,7 +110,9 @@ int kvm_verify(const struct kvm_module *m, uint64_t granted_capabilities)
         m->entry >= m->code_size / sizeof(struct kvm_instruction) ||
         !pages_to_bytes(m->memory_pages, &memory_bytes) ||
         (m->data_size && !m->data) ||
-        m->data_size > memory_bytes)
+        m->data_size > memory_bytes ||
+        m->code_size > KVM_MAX_MODULE_SIZE - KVM_MODULE_HEADER_SIZE ||
+        m->data_size > KVM_MAX_MODULE_SIZE - KVM_MODULE_HEADER_SIZE - m->code_size)
         return KVM_E_FORMAT;
     if (m->required_capabilities & ~granted_capabilities)
         return KVM_E_CAPABILITY;
@@ -197,9 +201,11 @@ int kvm_instance_init(struct kvm_instance *instance,
     if (!snapshot.code || !snapshot.code_size ||
         (snapshot.code_size % sizeof(struct kvm_instruction)) != 0 ||
         snapshot.code_size / sizeof(struct kvm_instruction) > UINT32_MAX ||
+        snapshot.code_size > KVM_MAX_MODULE_SIZE - KVM_MODULE_HEADER_SIZE ||
         !pages_to_bytes(snapshot.memory_pages, &bytes) ||
         (snapshot.data_size && !snapshot.data) ||
-        snapshot.data_size > bytes)
+        snapshot.data_size > bytes ||
+        snapshot.data_size > KVM_MAX_MODULE_SIZE - KVM_MODULE_HEADER_SIZE - snapshot.code_size)
         return KVM_E_FORMAT;
 
     /* Snapshot code before verification. The verifier and interpreter must
