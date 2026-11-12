@@ -233,12 +233,12 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
        config-space write actually took effect. */
     uint16_t pci_command = pci_read16(d, 0x04);
     pci_write16(d, 0x04, kdrv_pci_command_clear_master(pci_command));
-    if (pci_read16(d, 0x04) & PCI_CMD_MASTER) {
+    if ((pci_command & PCI_CMD_MASTER) || (pci_read16(d, 0x04) & PCI_CMD_MASTER)) {
         (void)quiesce(d);
         b->state = B_FREE;
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
-        uart_print(": bus mastering could not be disabled; driver NOT started\n");
+        uart_print(": inherited or uncleared bus mastering; device is not safe to hand off, driver NOT started\n");
         life_note("drv-denied-busmaster", name, KDRV_E_DMA_UNSAFE);
         return KDRV_E_DMA_UNSAFE;
     }
