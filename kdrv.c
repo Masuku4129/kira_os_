@@ -412,6 +412,12 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
 
 static void release(bind_t* b) {
     uint32_t want = b->dma_pages + b->net_pages;
+    uint16_t command = quiesce(b->dev);
+    if (command & PCI_CMD_MASTER) {
+        uart_print("[KIRA DRV] "); uart_print(b->name);
+        uart_print(": PCI Bus Master is still enabled; DMA pages remain pinned\\n");
+        return;
+    }
     if (iommu_unmap_all(b->dev) != IOMMU_OK) {
         /* A timed-out IOTLB invalidation leaves DMA translations uncertain.
            Keep every backing page and the DEAD slot; kdrv_poll retries later. */
