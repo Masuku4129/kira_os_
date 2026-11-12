@@ -604,6 +604,7 @@ static int bios_handoff(volatile uint8_t* cap, uint64_t bar_size) {
 
 int xhci_start(usb_hc_t* hc, const void* pd) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
+    if (!p || !hc) return -1;
     if (started >= XHCI_MAX) { usb_log("[KIRA USB] more than 16 xHCI controllers: the rest are not used\n"); return -1; }
     if (!xall[started]) xall[started] = (xhci_t*)usb_dma_alloc(sizeof(xhci_t), &(uint64_t){ 0 }, 0);   /* обнулённые страницы */
     if (!xall[started]) { usb_log("[KIRA USB] xHCI: no memory for controller state\n"); return -1; }
@@ -616,6 +617,13 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
         return -2;
     }
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MEM)) {
+        int quiet = xhci_pci_quiesce(p);
+        usb_log((quiet & 2) || !(quiet & 1) ?
+                "[KIRA USB] xHCI memory decode failed; PCI quiescence could not be verified\n" :
+                "[KIRA USB] xHCI memory decode failed; PCI DMA and interrupts quiesced\n");
+        return -2;
+    }
     if (p->vendor == 0x8086) {                                        /* Intel: порты, отданные EHCI, вернуть xHCI */
         pci_write32(p, 0xD8, pci_read32(p, 0xDC));
         pci_write32(p, 0xD0, pci_read32(p, 0xD4));
