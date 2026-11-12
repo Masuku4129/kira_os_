@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "wx.h"
 #include "smp.h"
+#include "kstack_slots.h"
 
 #define PAGE_SIZE   4096UL
 #define PTE_PRESENT (1ULL << 0)
@@ -109,9 +110,7 @@ static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) {
 #define KSTACK_STRIDE (64 * 1024ULL)
 #define KSTACK_SLOTS  8192u
 static spinlock_t ks_lock = SPINLOCK_INIT;
-static uint32_t ks_used_hi;                       /* ячеек, когда-либо отображённых */
-static uint16_t ks_free[KSTACK_SLOTS]; static uint32_t ks_nfree;
-static uint8_t ks_active[(KSTACK_SLOTS + 7u) / 8u];
+static kstack_slots_t ks_slots;
 static uint32_t ks_size;
 
 static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags);
@@ -122,27 +121,24 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     if (ks_size && ks_size != bytes) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
     ks_size = bytes;
     uint32_t slot;
-    uint64_t slot_top;
-    if (ks_nfree) {
-        slot = ks_free[--ks_nfree];
-        slot_top = KSTACK_BASE + (uint64_t)(slot + 1u) * KSTACK_STRIDE;
-    } else {
-        if (ks_used_hi >= KSTACK_SLOTS) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
-        slot = ks_used_hi;
-        slot_top = KSTACK_BASE + (uint64_t)(slot + 1u) * KSTACK_STRIDE;
+    int is_new;
+    if (kstack_slots_take(&ks_slots, &slot, &is_new) != 0) {
+        spin_unlock_irqrestore(&ks_lock, f);
+        return 0;
+    }
+    uint64_t slot_top = KSTACK_BASE + (uint64_t)(slot + 1u) * KSTACK_STRIDE;
+    if (is_new) {
         for (uint64_t va = slot_top - bytes; va < slot_top; va += PAGE_SIZE) {
             uint64_t pa = pmm_alloc_page();
             if (!pa || map_in(kernel_root, va, pa, PTE_WRITE | VMM_NOEXEC) != 0) {
                 if (pa) pmm_free_page(pa);
                 /* A partially mapped slot is quarantined; never retry over existing PTEs. */
-                ks_used_hi++;
+                kstack_slots_quarantine(&ks_slots, slot);
                 spin_unlock_irqrestore(&ks_lock, f);
                 return 0;
             }
         }
-        ks_used_hi++;
     }
-    ks_active[slot >> 3] |= (uint8_t)(1u << (slot & 7u));
     spin_unlock_irqrestore(&ks_lock, f);
     return (void*)(uintptr_t)(slot_top - bytes);
 }
@@ -150,16 +146,10 @@ void* vmm_kstack_alloc(uint32_t bytes) {
 void vmm_kstack_free(void* base) {
     uint64_t va = (uint64_t)(uintptr_t)base;
     if (va < KSTACK_BASE || va >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE || !ks_size) return;
-    uint64_t off = va - KSTACK_BASE;
-    uint32_t slot = (uint32_t)(off / KSTACK_STRIDE);
-    uint64_t expected = KSTACK_BASE + (uint64_t)(slot + 1u) * KSTACK_STRIDE - ks_size;
-    if ((off % KSTACK_STRIDE) != KSTACK_STRIDE - ks_size || va != expected) return;
+    uint32_t slot;
+    if (kstack_slots_decode_base(va, KSTACK_BASE, ks_size, &slot) != 0) return;
     uint64_t f = spin_lock_irqsave(&ks_lock);
-    uint8_t mask = (uint8_t)(1u << (slot & 7u));
-    if (slot < ks_used_hi && (ks_active[slot >> 3] & mask) && ks_nfree < KSTACK_SLOTS) {
-        ks_active[slot >> 3] &= (uint8_t)~mask;
-        ks_free[ks_nfree++] = (uint16_t)slot;
-    }
+    (void)kstack_slots_release(&ks_slots, slot);
     spin_unlock_irqrestore(&ks_lock, f);
 }
 
