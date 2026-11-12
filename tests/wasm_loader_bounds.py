@@ -40,6 +40,11 @@ cases = [
     ("constant-expression-global-index-out-of-range",
      magic + b"\x06\x06\x01\x7f\x00\x23\x00\x0b",
      "constant expression global index out of range"),
+    ("constant-expression-local-global-reference",
+     magic + b"\x06\x0b\x02" +
+     b"\x7f\x00\x41\x00\x0b" +
+     b"\x7f\x00\x23\x00\x0b",
+     "constant expression references unsupported local global"),
     ("section-size-u32-overflow",
      magic + b"\x01\xff\xff\xff\xff\x10",
      "bad unsigned LEB128"),
