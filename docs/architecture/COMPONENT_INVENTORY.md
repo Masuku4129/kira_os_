@@ -16,7 +16,7 @@
 
 | Подсистема | Фактические исходники / точки входа | Предварительный статус | Что доказать/сделать дальше |
 |---|---|---|---|
-| Kernel bootstrap / init | kernel.c, kernel.h, bootmap.c, boot/ и arch/* | Код обнаружен — проверка не завершена | Проследить порядок init, error unwind, boot contract BIOS/UEFI и ARM64; выполнить clean builds и boot tests |
+| Kernel bootstrap / init | arch/x86_64/kernel_main.c, arch/x86_64/kernel_boot.c, arch/aarch64/main.c, kernel.h, bootmap.c, boot/ | Код обнаружен — проверка не завершена | Проследить порядок init, error unwind, boot contract BIOS/UEFI и ARM64; выполнить clean builds и boot tests |
 | x86-64 HAL | arch/x86_64/*, cpu.h, apic.c, gdt.c, idt.c, exceptions.c, smp.c | Код обнаружен — проверка не завершена | Проверить все IRQ paths, AP startup, memory ordering, timer, power и аппаратные сценарии |
 | ARM64 HAL | arch/aarch64/*, FDT/GIC/PSCI/SMMU paths | Код обнаружен — проверка не завершена | Отдельно проверить AArch64 build, boot, SMP, GIC, timer, FDT, cache/DMA и реальные платы |
 | Physical/virtual memory | pmm.c, vmm.c, heap.c, ramext.c, arch/*/vmm* | Код обнаружен — проверка не завершена | Проверить ownership, page-table lifecycle, user isolation, TLB shootdown, OOM, ARM64 parity |
@@ -24,8 +24,8 @@
 | Process model | proc.c, proc.h | Код обнаружен — проверка не завершена | Проверить process/thread lifecycle, fault teardown, address-space cleanup, handles и resource limits |
 | Native ELF loader | elf.c, elf.h, proc.c | **Частично**: parser заявляет ELF64 ET_EXEC своей ISA; динамический linker/shared objects не обнаружены в проверенном пути | Проверить все bounds/relocations/overlaps; определить полноценный KIRA Native ABI и динамическую загрузку |
 | Syscall ABI | kernel/syscall.c, syscall.h, arch/x86_64/syscall_arch.c, arch/aarch64 syscall path | Код обнаружен — проверка не завершена | Зафиксировать номера, calling convention, errors, pointer validation и совместимость ABI по ISA |
-| IPC / shared memory | syscall.c (ports/SHM), kobj.c, futex.c, proc.c | Код обнаружен — проверка не завершена | Специфицировать endpoint ownership, peer identity, capability passing, queue limits, timeout, peer crash |
-| Capability policy | caps.c, caps.h, proc.c, syscall.c, kdrv.c | **Частично**: статическая таблица полномочий по имени приложения; process caps назначаются при запуске и дальше не меняются | Проверить полноту checks на каждом syscall; спроектировать объектные capabilities, делегирование/отзыв и аудит |
+| IPC / shared memory | kernel/syscall.c (ports/SHM), kobj.c, futex.c, proc.c | Код обнаружен — проверка не завершена | Специфицировать endpoint ownership, peer identity, capability passing, queue limits, timeout, peer crash |
+| Capability policy | caps.c, caps.h, proc.c, kernel/syscall.c, kdrv.c | **Частично**: статическая таблица полномочий по имени приложения; process caps назначаются при запуске и дальше не меняются | Проверить полноту checks на каждом syscall; спроектировать объектные capabilities, делегирование/отзыв и аудит |
 | KIRA Mind | mind.c, mind_sys.c, mindnet.c, mind.h | Код обнаружен — проверка не завершена | Проследить каждое действие и источник телеметрии; проверить policy boundary, диапазоны, rollback и запрет прямого доступа |
 | KIRA Mind control boundary | mind_sys.c → sched/proc/pmm/display/storage APIs | **Архитектурный риск для проверки**: в исходниках видны управляющие функции, вызывающие subsystem APIs; требуется доказать единый policy gate и аудит действий | Составить список всех control actions и показать путь request → authorization → apply → audit |
 | Driver framework / Manager | kdrv.c, kdrv.h, kdrv_format.h, userland/kdrv.h, docs/DRIVERS.md | Код обнаружен — проверка не завершена; F-013/F-014 security blockers in main | KDRV can enable PCI bus mastering for CAP_DMA or CAP_IRQ without a per-device IOMMU domain; pci_init preserves firmware-set bus-master. PR #136 blocks unisolated Ring 3 DMA/MSI; PR #137 clears firmware bus-master on enumeration. Review exact-head CI and integrate only after owner review. Then verify lifecycle, revoke, unbind/hotplug, IOMMU, DMA ownership and error recovery |
@@ -53,7 +53,7 @@
 ## Первые архитектурные наблюдения (не окончательные выводы)
 
 1. В kernel.c собран широкий набор прямых include/init-зависимостей. Это может быть допустимым bootstrap composition root, но нужно отделить orchestration от фактических привилегированных обязанностей и проверить направление зависимостей.
-2. syscall.c выступает центральным dispatch point и напрямую знает о многих подсистемах. Нужен аудит, какие вызовы являются тонкими kernel primitives, а какие следует направить через service/IPC APIs.
+2. `kernel/syscall.c` теперь содержит syscall core и не включает заголовки графики/FS/сети/аудио/RTC; service routing находится в `services/syscall_router.c` и пяти subsystem adapters. Это source boundary only: адаптеры пока исполняются в kernel context. Следующий gate — typed/versioned requests и IPC migration без изменения Native ABI.
 3. proc.c + elf.c сейчас дают базовый KIRA ELF ET_EXEC process path. Это не Linux compatibility и не Windows PE compatibility.
 4. caps.c использует статическую таблицу доверенных приложений; это уже полезная least-privilege база, но не полная объектная capability authority с delegation/revocation.
 5. KIRA Mind имеет управляющие точки к scheduler/resource/display subsystems. Нужно доказать, что все изменения проходят единую проверку полномочий, ограничений и audit trail.
