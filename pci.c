@@ -341,7 +341,6 @@ static void scan_bus(uint8_t bus);
 static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = fn;
 #ifndef KIRA_HOST_TEST
-    if (bus == 0 && dev < 3) { uart_print("[KIRA PCI TRACE] fn "); uart_print_dec(fn); uart_print(" begin\n"); }
 #endif
     uint32_t id = cr32(&t, 0);
     if ((id & 0xFFFF) == 0xFFFF) return;
@@ -358,15 +357,12 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     d->revision = (uint8_t)cls; d->prog_if = (uint8_t)(cls >> 8); d->subclass = (uint8_t)(cls >> 16); d->class_code = (uint8_t)(cls >> 24);
     d->header_type = pci_read8(d, 0x0E);
 #ifndef KIRA_HOST_TEST
-    if (bus == 0 && dev < 3) { uart_print("[KIRA PCI TRACE] fn "); uart_print_dec(fn); uart_print(" class/header read\n"); }
 #endif
     pci_disable_bus_master(d);
 #ifndef KIRA_HOST_TEST
-    if (bus == 0 && dev < 3) { uart_print("[KIRA PCI TRACE] fn "); uart_print_dec(fn); uart_print(" busmaster disabled\n"); }
 #endif
     probe_bars(d);
 #ifndef KIRA_HOST_TEST
-    if (bus == 0 && dev < 3) { uart_print("[KIRA PCI TRACE] fn "); uart_print_dec(fn); uart_print(" BAR probe complete\n"); }
 #endif
     if (pci_is_bridge(d)) {
         pci_enable(d, PCI_CMD_MASTER);
@@ -379,31 +375,25 @@ static void scan_bus(uint8_t bus) {
     if (bus_seen[bus]) return;                                       /* защита от петель в неверно настроенных мостах */
     bus_seen[bus] = 1;
 #ifndef KIRA_HOST_TEST
-    uart_print("[KIRA PCI SCAN] bus "); uart_print_dec(bus); uart_print(" begin.\n");
 #endif
     for (uint8_t dev = 0; dev < 32; dev++) {
         pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = 0;
 #ifndef KIRA_HOST_TEST
-        uart_print("[KIRA PCI SCAN] probe "); uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_print(".0\n");
 #endif
         if ((cr32(&t, 0) & 0xFFFF) == 0xFFFF) continue;
 #ifndef KIRA_HOST_TEST
-        uart_print("[KIRA PCI SCAN] present "); uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_print(".0\n");
 #endif
         uint8_t multi = pci_read8(&t, 0x0E) & 0x80;
 #ifndef KIRA_HOST_TEST
-        if (bus == 0 && dev < 3) { uart_print("[KIRA PCI TRACE] multifunction="); uart_print_dec(multi != 0); uart_print("\n"); }
 #endif
         scan_fn(bus, dev, 0);
         if (multi) for (uint8_t fn = 1; fn < 8; fn++) {
 #ifndef KIRA_HOST_TEST
-            if (bus == 0 && dev < 3) { uart_print("[KIRA PCI TRACE] dispatch fn "); uart_print_dec(fn); uart_print("\n"); }
 #endif
             scan_fn(bus, dev, fn);
         }
     }
 #ifndef KIRA_HOST_TEST
-    uart_print("[KIRA PCI SCAN] bus "); uart_print_dec(bus); uart_print(" complete.\n");
 #endif
 }
 
