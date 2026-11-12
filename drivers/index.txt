@@ -1,3 +1,3 @@
 kira-driver-index 1
 # pci VVVV:DDDD name recipe-url recipe-sha256 [publisher-required]  # final field makes .sig mandatory
-pci 10ec:8139 rl https://raw.githubusercontent.com/Masuku4129/kira_os_/79fcc360765f85ac7b9ed45aaf4df7180879d9bf/drivers/net/drvget.rec 88d9b5efa020ea8345196414b6419949bdb445916d2e158cd7c10f9eed0c870a
+pci 10ec:8139 rl https://raw.githubusercontent.com/Masuku4129/kira_os_/da7c1198c5b422224a649362e63b6f0d0ca43577/drivers/net/drvget.rec 88d9b5efa020ea8345196414b6419949bdb445916d2e158cd7c10f9eed0c870a
