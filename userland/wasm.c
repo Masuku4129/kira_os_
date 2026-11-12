@@ -268,6 +268,7 @@ static void skip_imm(u8 op, const u8** p, const u8* e, u32 nloc) {
         return;
     }
     if (op == 0x3F || op == 0x40) {
+        if (!has_memory) { trap("memory size/grow without memory in unreachable code"); return; }
         if (*p >= e || *(*p)++ != 0) trap("unsupported memory index immediate");
         return;
     }
@@ -288,13 +289,16 @@ static void skip_imm(u8 op, const u8** p, const u8* e, u32 nloc) {
         if (trapped) return;
         if (sub == 8) {
             (void)leb_u(p, e);
+            if (!has_memory) { trap("memory.init without memory in unreachable code"); return; }
             if (trapped || *p >= e || *(*p)++ != 0) trap("unsupported memory.init memory index");
         } else if (sub == 9) {
             (void)leb_u(p, e);
         } else if (sub == 10) {
+            if (!has_memory) { trap("memory.copy without memory in unreachable code"); return; }
             if (skip_bytes(p, e, 2) == 0 && ((*p)[-2] || (*p)[-1]))
                 trap("unsupported memory.copy memory index");
         } else if (sub == 11) {
+            if (!has_memory) { trap("memory.fill without memory in unreachable code"); return; }
             if (*p >= e || *(*p)++ != 0) trap("unsupported memory.fill memory index");
         } else if (sub >= 12) {
             trap("unsupported 0xFC instruction");
@@ -620,7 +624,9 @@ static int compile_func(func_t* f) {
         case 0x28: case 0x29: case 0x2A: case 0x2B: case 0x2C: case 0x2D: case 0x2E: case 0x2F:
         case 0x30: case 0x31: case 0x32: case 0x33: case 0x34: case 0x35: {
             if (!has_memory) CERR("memory instruction without memory");
-            leb_u(&p, end); u32 off = leb_u(&p, end);
+            u32 align = leb_u(&p, end); u32 off = leb_u(&p, end);
+            static const u8 max_align[14] = { 2,3,2,3,0,0,1,1,0,0,1,1,2,2 };
+            if (trapped || align > max_align[op - 0x28]) CERR("invalid WebAssembly load alignment");
             NEED(1);
             static const u8 ldk[8] = { 0, 1, 0, 1, 3, 2, 5, 4 };    /* 0x28..0x2F -> LD32, LD64, LD32, LD64, LD8S, LD8U, LD16S, LD16U */
             if (op <= 0x2F) {
@@ -635,7 +641,9 @@ static int compile_func(func_t* f) {
         }
         case 0x36: case 0x37: case 0x38: case 0x39: case 0x3A: case 0x3B: case 0x3C: case 0x3D: case 0x3E: {
             if (!has_memory) CERR("memory instruction without memory");
-            leb_u(&p, end); u32 off = leb_u(&p, end);
+            u32 align = leb_u(&p, end); u32 off = leb_u(&p, end);
+            static const u8 max_align[9] = { 2,3,2,3,0,1,0,1,2 };
+            if (trapped || align > max_align[op - 0x36]) CERR("invalid WebAssembly store alignment");
             NEED(2);
             static const u8 stk[9] = { 0, 1, 0, 1, 2, 3, 2, 3, 0 };   /* 0x36..0x3E -> ST32, ST64, ST8, ST16 */
             u32 id = ST32_SS + stk[op - 0x36] * 3;
