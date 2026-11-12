@@ -76,6 +76,11 @@ int main(void)
     CHECK(pci_disable_bus_master(dev) == 1);
     pci_enable(dev, PCI_CMD_MASTER);
     CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
+    CHECK(pci_init() == 2); /* a fresh enumeration must recover quarantine by BDF/vendor/device */
+    dev = pci_get(0);
+    CHECK(dev && dev->dma_quarantined);
+    pci_enable(dev, PCI_CMD_MASTER);
+    CHECK((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
     pci_set_backend(0);
 
     /* A one-bus ECAM aperture starts at bus 5. Device 1/function 0 lives at
