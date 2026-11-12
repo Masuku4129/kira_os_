@@ -68,6 +68,7 @@ static void reset_test_platform(void)
     next_physical = 0x201000u;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
     *(uint32_t *)(registers_page + 0x0004u) = (8u << 21) | (8u << 16) | 8u;
+    *(uint32_t *)(registers_page + 0x0014u) = 5u;
 }
 
 static struct kira_smmu_platform platform(void)
@@ -99,6 +100,13 @@ int main(void)
     p = platform();
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100001u, &p) == KIRA_SMMU_INVALID);
     CHECK(map_calls == 0);
+
+    /* Unsupported output-address size is rejected before DMA allocation. */
+    reset_test_platform();
+    *(uint32_t *)(registers_page + 0x0014u) = 4u; /* 44-bit OAS */
+    p = platform();
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
+    CHECK(map_calls == 1 && alloc_calls == 0);
 
     /* Unsupported identification is rejected before allocating DMA memory. */
     reset_test_platform();
