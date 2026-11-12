@@ -283,7 +283,7 @@ int iommu_device_isolated(const pci_dev_t* d) {
 }
 
 int iommu_device_ready(const pci_dev_t* d) {
-    if (!d || d->dma_quarantined || G.dmar_error) return 0;
+    if (!d || __atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE) || G.dmar_error) return 0;
     int ui = unit_of(d->bus, d->dev, d->fn);
     if (ui < 0) return 1; /* No unit covers this requester: legacy DMA policy. */
     if (ui >= VTD_MAX_UNITS || !G.on[ui]) return 0; /* A covering unit failed: fail closed. */
