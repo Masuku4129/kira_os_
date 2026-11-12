@@ -2,6 +2,15 @@
 
 #include <string.h>
 
+static int pages_to_bytes(uint32_t pages, size_t *bytes)
+{
+    size_t count = (size_t)pages;
+    if (!bytes || count > SIZE_MAX / KVM_PAGE_SIZE)
+        return 0;
+    *bytes = count * KVM_PAGE_SIZE;
+    return 1;
+}
+
 static uint32_t instruction_immediate(const struct kvm_instruction *i)
 {
     return (uint32_t)i->immediate_le[0] |
@@ -31,7 +40,7 @@ int kvm_module_decode(const void *blob, size_t blob_size,
 {
     const uint8_t *bytes = (const uint8_t *)blob;
     uint32_t code_bytes, data_bytes, pages, entry;
-    size_t expected;
+    size_t code_length, data_length, memory_bytes, expected;
     if (module) memset(module, 0, sizeof(*module));
     if (!bytes || !module || blob_size < KVM_MODULE_HEADER_SIZE ||
         bytes[0] != 'K' || bytes[1] != 'V' || bytes[2] != 'M' || bytes[3] != '1' ||
@@ -42,15 +51,17 @@ int kvm_module_decode(const void *blob, size_t blob_size,
     data_bytes = read_le32(bytes + 12);
     pages = read_le32(bytes + 16);
     entry = read_le32(bytes + 20);
+    code_length = (size_t)code_bytes;
+    data_length = (size_t)data_bytes;
     if (!code_bytes || (code_bytes % 8u) || !pages ||
-        pages > SIZE_MAX / KVM_PAGE_SIZE)
+        !pages_to_bytes(pages, &memory_bytes))
         return KVM_E_FORMAT;
-    if ((size_t)code_bytes > SIZE_MAX - KVM_MODULE_HEADER_SIZE ||
-        (size_t)data_bytes > SIZE_MAX - KVM_MODULE_HEADER_SIZE - code_bytes)
+    if (code_length > SIZE_MAX - KVM_MODULE_HEADER_SIZE ||
+        data_length > SIZE_MAX - KVM_MODULE_HEADER_SIZE - code_length)
         return KVM_E_FORMAT;
-    expected = KVM_MODULE_HEADER_SIZE + (size_t)code_bytes + (size_t)data_bytes;
+    expected = KVM_MODULE_HEADER_SIZE + code_length + data_length;
     if (expected != blob_size ||
-        data_bytes > (size_t)pages * KVM_PAGE_SIZE ||
+        data_length > memory_bytes ||
         entry >= code_bytes / 8u)
         return KVM_E_FORMAT;
     module->code = bytes + KVM_MODULE_HEADER_SIZE;
@@ -88,15 +99,15 @@ static int target_valid(const struct kvm_module *m, int32_t target)
 
 int kvm_verify(const struct kvm_module *m, uint64_t granted_capabilities)
 {
-    size_t n;
+    size_t n, memory_bytes;
 
     if (!m || !m->code || !m->code_size ||
         (m->code_size % sizeof(struct kvm_instruction)) != 0 ||
         m->code_size / sizeof(struct kvm_instruction) > UINT32_MAX ||
         m->entry >= m->code_size / sizeof(struct kvm_instruction) ||
-        !m->memory_pages || m->memory_pages > SIZE_MAX / KVM_PAGE_SIZE ||
+        !pages_to_bytes(m->memory_pages, &memory_bytes) ||
         (m->data_size && !m->data) ||
-        m->data_size > (size_t)m->memory_pages * KVM_PAGE_SIZE)
+        m->data_size > memory_bytes)
         return KVM_E_FORMAT;
     if (m->required_capabilities & ~granted_capabilities)
         return KVM_E_CAPABILITY;
@@ -184,7 +195,8 @@ int kvm_instance_init(struct kvm_instance *instance,
     if (rc != KVM_OK)
         return rc;
 
-    bytes = (size_t)module->memory_pages * KVM_PAGE_SIZE;
+    if (!pages_to_bytes(module->memory_pages, &bytes))
+        return KVM_E_FORMAT;
     code_bytes = module->code_size;
     code_copy = allocator->allocate(allocator->context, code_bytes);
     if (!code_copy)
