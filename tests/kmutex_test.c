@@ -120,6 +120,15 @@ int main(void) {
     kmutex_unlock(&m);
     CHECK(m.owner == 0 && B->mutexes_held == 0);
 
+    // Поток не может завершиться, оставив чужие ожидания навсегда заблокированными.
+    become(A);
+    kmutex_lock(&m);
+    panic_reason = 0;
+    if (setjmp(escape) == 0) sched_exit();
+    CHECK(panic_reason && strstr(panic_reason, "exited while holding kmutex"));
+    CHECK(A->state != THREAD_ZOMBIE && A->mutexes_held == 1);
+    kmutex_unlock(&m);
+
     // повторный захват тем же потоком - взаимная блокировка: ядро сообщает, а не зависает
     kmutex_lock(&m);
     panic_reason = 0;
