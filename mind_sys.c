@@ -307,7 +307,7 @@ static void publish(const mind_t* model) {
     v.risk = model->risk_q16 * 100 / MNET_ONE; v.risk_why = model->risk_why;
     v.net_n = model->m.net.n; v.net_pos = model->m.net.pos; v.net_prec = mnet_precision(&model->m.net); v.net_rec = mnet_recall(&model->m.net);
     v.net_trusted = (uint8_t)mnet_trusted(&model->m.net); v.forecasts = model->m.forecasts; v.net_loss_x1e4 = model->m.net.loss_x1e4;
-    v.mem_risk = model->mem_risk_q16 * 100 / MNET_ONE;
+    v.mem_risk = model->mem_risk_q16 * 100 / MNET_ONE; v.mem_risk_valid = model->mem_risk_valid;
     v.mem_net_n = model->m.memory_net.n; v.mem_net_pos = model->m.memory_net.pos;
     v.mem_net_prec = mnet_precision(&model->m.memory_net); v.mem_net_rec = mnet_recall(&model->m.memory_net);
     v.mem_net_trusted = (uint8_t)mnet_trusted(&model->m.memory_net);
@@ -755,8 +755,9 @@ void mind_sys_print(const char* what) {
         uart_print("%; полнота: "); uart_print_dec(v->net_rec);
         uart_print("%; прогнозов с упреждением: "); uart_print_dec(v->forecasts);
         uart_print("\n  средняя лог-потеря x1e4: "); uart_print_dec(v->net_loss_x1e4);
-        uart_print("\n[MIND] прогноз памяти на 4 секунды: риск достижения 90% ОЗУ ");
-        uart_print_dec(v->mem_risk); uart_print("%; ");
+        uart_print("\n[MIND] прогноз памяти на 4 секунды: ");
+        if (!v->mem_risk_valid) uart_print(v->mem_used >= 90 ? "порог 90% ОЗУ уже достигнут; будущий переход не прогнозируется" : "нет валидного замера памяти");
+        else { uart_print("риск достижения 90% ОЗУ "); uart_print_dec(v->mem_risk); uart_print("%; "); }
         uart_print(v->mem_net_trusted ? "модель допущена к предупреждениям" : "модель обучается, только наблюдение");
         uart_print("; примеров "); uart_print_dec(v->mem_net_n);
         uart_print("; прогнозов "); uart_print_dec(v->mem_forecasts);
@@ -805,8 +806,10 @@ void mind_sys_print(const char* what) {
         uart_print("), предупреждения сбываются "); uart_print_dec(v->net_prec); uart_print("%, замечено опозданий заранее ");
         uart_print_dec(v->net_rec); uart_print("%, "); uart_print(v->net_trusted ? "доверие есть" : "пока без права действовать");
         uart_print(", упреждений "); uart_print_dec(v->forecasts);
-        uart_print("\n[MIND] память: риск 90% ОЗУ за 4 с "); uart_print_dec(v->mem_risk);
-        uart_print("%, обучающих примеров "); uart_print_dec(v->mem_net_n);
+        uart_print("\n[MIND] память: ");
+        if (!v->mem_risk_valid) uart_print(v->mem_used >= 90 ? "порог 90% уже достигнут; " : "нет валидного замера; ");
+        else { uart_print("риск 90% за 4 с "); uart_print_dec(v->mem_risk); uart_print("%; "); }
+        uart_print("обучающих примеров "); uart_print_dec(v->mem_net_n);
         uart_print(", "); uart_print(v->mem_net_trusted ? "модель подтверждена" : "модель обучается");
         uart_print(", прогнозов "); uart_print_dec(v->mem_forecasts);
         uart_print("\n[MIND] тактика: фон - не больше "); uart_print_dec(v->core_cap); uart_print("% ядер при нехватке; фоновые окна - ");
