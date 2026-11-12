@@ -39,6 +39,9 @@ echo "UEFI loader sources: compile passed"
 echo "== UEFI: наш загрузчик + GPT/ESP под OVMF (без GRUB) =="
 tests/uefi_boot_test.sh
 
+echo "== Intel VT-d domain: single and disjoint batch unmap, one IOTLB flush, atomic validation =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/vtd-domain tests/vtd_domain_test.c drivers/iommu/vtd_domain.c drivers/iommu/intel_vtd.c
+ASAN_OPTIONS=detect_leaks=0 $T/vtd-domain
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c bootinfo_mb2.c bootinfo.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
 $T/pmm | head -4
