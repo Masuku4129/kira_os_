@@ -517,20 +517,39 @@ static int xhci_abort_start(const pci_dev_t* p) {
 }
 
 static int xhci_mask_pci_interrupts(const pci_dev_t* p) {
-    uint8_t id = 0;
-    uint16_t cap = 0;
+    if (!p) return 0;
+    uint16_t status = pci_read16(p, 0x06);
     int safe = 1;
-    for (unsigned n = 0; n < 48 && (cap = pci_next_cap(p, cap, &id)) != 0; n++) {
-        if (id == 0x05) {
-            uint16_t control = pci_read16(p, (uint16_t)(cap + 2));
-            pci_write16(p, (uint16_t)(cap + 2), (uint16_t)(control & ~1u));
-            if (pci_read16(p, (uint16_t)(cap + 2)) & 1u) safe = 0;
-        } else if (id == 0x11) {
-            uint16_t control = pci_read16(p, (uint16_t)(cap + 2));
-            pci_write16(p, (uint16_t)(cap + 2), (uint16_t)((control & ~0x8000u) | 0x4000u));
-            uint16_t after = pci_read16(p, (uint16_t)(cap + 2));
-            if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
+    if (status & 0x10u) {
+        uint8_t ptr = pci_read8(p, 0x34);
+        uint64_t visited = 0;
+        unsigned n;
+        for (n = 0; ptr && n < 48; n++) {
+            if (ptr < 0x40u || ptr > 0xFCu || (ptr & 3u)) { safe = 0; break; }
+            uint64_t bit = 1ull << (ptr >> 2);
+            if (visited & bit) { safe = 0; break; }
+            visited |= bit;
+            uint8_t id = pci_read8(p, ptr);
+            uint8_t next = pci_read8(p, (uint16_t)(ptr + 1u));
+            if (!id || id == 0xFFu) { safe = 0; break; }
+            if (id == 0x05u) {
+                uint16_t control = pci_read16(p, (uint16_t)(ptr + 2u));
+                pci_write16(p, (uint16_t)(ptr + 2u), (uint16_t)(control & ~1u));
+                if (pci_read16(p, (uint16_t)(ptr + 2u)) & 1u) safe = 0;
+            } else if (id == 0x11u) {
+                uint16_t control = pci_read16(p, (uint16_t)(ptr + 2u));
+                pci_write16(p, (uint16_t)(ptr + 2u), (uint16_t)((control & ~0x8000u) | 0x4000u));
+                uint16_t after = pci_read16(p, (uint16_t)(ptr + 2u));
+                if ((after & 0x8000u) || !(after & 0x4000u)) safe = 0;
+            }
+            if (!next) break;
+            if (next < 0x40u || next > 0xFCu || (next & 3u) || next == ptr) {
+                safe = 0;
+                break;
+            }
+            ptr = next;
         }
+        if (ptr && n == 48) safe = 0;
     }
     uint16_t command = pci_read16(p, 0x04);
     pci_write16(p, 0x04, (uint16_t)(command | PCI_CMD_INTX_OFF));
