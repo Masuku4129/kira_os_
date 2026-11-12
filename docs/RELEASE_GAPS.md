@@ -70,6 +70,7 @@ Implemented in the v46 working branch:
 
 Still required:
 - Complete platform discovery and validation for x86 VT-d / AMD-Vi and ARM SMMU.
+- The shared DMAR parser now has an explicit header and host regressions for DRHD/RMRR, checksum/length, reserved bits, PCI scopes, include-all ordering and unknown future structure rejection. ACPI namespace device scopes (type 5), nonzero PCI segments and register apertures larger than 4 KiB remain unsupported and fail closed; this is discovery parsing, not an enabled VT-d runtime.
 - Finish architecturally correct per-device domains, map/unmap, invalidation and fault reporting. SMMUv3 currently allocates a context table and stage-1 root but does not yet populate a validated Context Descriptor linking the translation root; do not enable device attachment or treat map/unmap as safe hardware translation.
 - Add SMMUv3 host regression coverage for prepare/allocation unwind (now added; CI result pending), followed by spec-derived tests for STE/CD encoding, StreamID ownership, CMDQ wrap/full, CMD_SYNC completion, timeout and teardown.
 - DMA masks, cache maintenance and bounce-buffer fallback where appropriate.
