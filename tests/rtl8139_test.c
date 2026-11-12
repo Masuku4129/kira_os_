@@ -306,6 +306,10 @@ static void test_rx_tx_lifecycle(void)
     m.now_us = 1000000u;
     assert(kira_rtl8139_poll(&d) == -2);
     assert(!d.initialized && m.tx_complete_calls == 3 && m.tx_status[0] == -1);
+    m.reset_stuck = 1;
+    assert(kira_rtl8139_shutdown(&d) == -1);
+    assert(m.free_count == 0); /* Never free memory while DMA quiescence is unknown. */
+    m.reset_stuck = 0;
     assert(kira_rtl8139_shutdown(&d) == 0);
     assert(!d.initialized && m.free_count == KIRA_RTL8139_TX_SLOTS + 1u);
     assert(kira_rtl8139_shutdown(&d) == 0);
