@@ -11,6 +11,10 @@
 #define KDRV_TRUST_MAX_REVOCATIONS 128u
 #define KDRV_TRUST_FORMAT_VERSION 1u
 
+/* Only a platform backend backed by TPM/secure-element/firmware monotonic state may set this bit. */
+#define KDRV_TRUST_STORAGE_HW_MONOTONIC 0x00000001u
+#define KDRV_TRUST_STORAGE_KNOWN_FLAGS KDRV_TRUST_STORAGE_HW_MONOTONIC
+
 enum kdrv_trust_result {
     KDRV_TRUST_OK = 0,
     KDRV_TRUST_INVALID = -1,
@@ -56,6 +60,8 @@ struct kdrv_trust_ops {
     /* Must atomically persist max(current, version); never permit concurrent downgrade. */
     int (*write_version_floor)(void *context, uint64_t version);
     uint64_t (*trusted_time)(void *context);
+    /* Explicit platform assertion; ordinary writable disk/CRC storage is insufficient. */
+    uint32_t storage_flags;
 };
 
 struct kdrv_trust_store {
