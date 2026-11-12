@@ -56,7 +56,7 @@ void     pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v);
 #define PCI_CMD_MASTER 0x4
 #define PCI_CMD_INTX_OFF 0x400   /* без прерываний INTx: драйверы работают опросом */
 void pci_enable(const pci_dev_t* d, uint16_t cmd_bits);    /* bus mastering разрешается только после готовности DMA/IOMMU */
-void pci_disable_bus_master(const pci_dev_t* d);            /* атомарно запрещает DMA от PCI-функции */
+int pci_disable_bus_master(const pci_dev_t* d);             /* запрещает DMA и подтверждает readback */
 int pci_is_bridge(const pci_dev_t* d);                     /* PCI-to-PCI bridge: forwarding gate, not endpoint DMA */
 
 /* Список capabilities: первый вызов с prev = 0, дальше - с предыдущим смещением. 0 - конец. */
