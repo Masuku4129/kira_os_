@@ -337,3 +337,10 @@
 - Reviewed #93/#95 CI and source: both PRs pass main build, host, ARM64 and VM matrix but fail only `kcc-tests` self-host stage1. #93 fails at `ir.c:14` macro `IRS ((IRState *)K.ir_state)`; #95 fails at `ir.c:24` member alias `irs->fn`. Their new context tests are sequential x86/AArch64 interleaving only; #95 explicitly retains process-global K and does not improve concurrency guarantees.
 - Created `docs/architecture/rfc/RFC-TOOL-001.md` and mapped TOOL-001 in contract registry. Requirement: explicit context ownership, context-local error unwinding/arena/PP/parser/IR/optimizer/backends; no global mutable state; self-host stage1/2 and concurrent independent-context tests.
 - No KCC code changed. Do not merge #93/#95 until exact-head self-host failures are fixed and independent-context semantics are proven.
+
+
+### KIRA Mind architecture audit (2026-11-12)
+- Reviewed exact main `mind.c`, `mindnet.c`, `mind_sys.c`, `mind.h`: current Mind is a kernel-resident adaptive resource/diagnostic controller with a small fixed-point logistic classifier, not a general LLM. It learns per-machine norms and a narrow late-loop risk prediction; model persisted at `/var/mind.dat` with CRC/schema checks.
+- Current safeguards are concrete: OBSERVE/ACT modes, scheduler trial/rollback, staged memory thresholds 88/93/97%, heap restriction before kill, process kill cooldown 10s and minimum 16 MiB/20% RAM. These safeguards should be preserved and tested; the remaining architecture gap is a unified request→owner policy→apply→verify→rollback→audit contract for all mutating callbacks.
+- Created `docs/architecture/rfc/RFC-MIND-001.md`, added MIND-001 to contract registry and RFC index, and recorded F-017: CRC is corruption detection, not authenticity; model weights must never become authority/policy.
+- No Mind source code changed; PR #78/#81 remain separate branches and need current-head CI verification before integration.
