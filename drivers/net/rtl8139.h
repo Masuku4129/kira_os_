@@ -29,8 +29,10 @@ struct kira_rtl8139_platform {
     void (*cache_clean)(void *context, const void *address, size_t size);
     void (*dma_read_barrier)(void *context);
     void (*dma_write_barrier)(void *context);
+    /* Monotonic microseconds; used to bound a TX descriptor's ownership time. */
     uint64_t (*monotonic_us)(void *context);
     void (*delay_us)(void *context, uint32_t microseconds);
+    /* receive() must consume/copy the frame before returning; its buffer is transient. */
     void (*receive)(void *context, const uint8_t *frame, size_t length);
     void (*transmit_complete)(void *context, unsigned int slot, int status);
 };
