@@ -69,8 +69,8 @@ enum kvm_status {
 };
 
 struct kvm_module {
-    const struct kvm_instruction *code;
-    size_t code_count;
+    const uint8_t *code;
+    size_t code_size;
     const void *data;
     size_t data_size;
     uint32_t memory_pages;
