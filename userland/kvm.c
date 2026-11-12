@@ -98,8 +98,21 @@ static int read_module(const char *path, uint8_t **blob, size_t *length)
     i64 size;
     u64 pages;
     void *memory;
+    size_t name_length, i;
     if (!path || !*path || !blob || !length)
         return -1;
+    name_length = k_strlen(path);
+    if (name_length > 63u || (name_length == 1u && path[0] == '.') ||
+        (name_length == 2u && path[0] == '.' && path[1] == '.'))
+        return -1;
+    /* KFS_READ is intentionally scoped to this runner's sandbox; files outside
+       it must be passed as a file-manager grant, never by a forged path. */
+    for (i = 0; i < name_length; ++i) {
+        char c = path[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_'))
+            return -1;
+    }
     size = k_file_size(path);
     if (size <= 0 || (u64)size > RUNNER_MAX_MODULE_BYTES)
         return -1;
@@ -180,12 +193,12 @@ int umain(void)
 
     path_state = get_path(path, sizeof(path));
     if (path_state < 0) {
-        say("KIRA VM: укажите один путь к .kvm без дополнительных аргументов\n");
+        say("KIRA VM: укажите одно имя .kvm в песочнице или откройте файл через файловый менеджер\n");
         return 2;
     }
     if (path_state > 0) {
         if (read_module(path, &blob, &blob_size)) {
-            say("KIRA VM: не удалось прочитать модуль или превышен лимит 1 MiB\n");
+            say("KIRA VM: не удалось прочитать файл песочницы или превышен лимит 1 MiB\n");
             return 1;
         }
     } else {
