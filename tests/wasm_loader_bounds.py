@@ -280,7 +280,7 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-i64-leb-") as td:
 
 # A memoryless MVP module is valid and must not receive an implicit 64 KiB memory.
 memoryless_module = (
-    magic + b"\x00\x04\x01x\xaa\xbb" +
+    magic + b"\x00\x05\x02\xc3\xa9\xaa\xbb" +
     b"\x01\x05\x01\x60\x00\x01\x7f" +
     b"\x03\x02\x01\x00" +
     b"\x07\x09\x01\x05kmain\x00\x00" +
