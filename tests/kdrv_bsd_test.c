@@ -1,11 +1,13 @@
 #include <stdint.h>
 #include <stdio.h>
+#define KDRV_HEAP_GROW(pages) host_heap_grow(pages)
+static void *host_heap_grow(unsigned long long pages);
 #include "userland/kdrv_bsd.h"
 
 static uint8_t heap[16384] __attribute__((aligned(16)));
 static uint64_t requested_pages;
 
-void *k_heap_grow(u64 pages)
+static void *host_heap_grow(u64 pages)
 {
     requested_pages = pages;
     if (pages > sizeof heap / 4096u) return 0;
