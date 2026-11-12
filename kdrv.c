@@ -232,9 +232,10 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
        before exposing any BAR or starting this unisolated driver, then verify the
        config-space write actually took effect. */
     uint16_t pci_command = pci_read16(d, 0x04);
-    pci_write16(d, 0x04, kdrv_pci_command_clear_master(pci_command));
+    pci_write16(d, 0x04, kdrv_pci_command_for_unisolated(pci_command));
     uint16_t pci_after = pci_read16(d, 0x04);
-    if (!kdrv_pci_busmaster_handoff_safe(pci_command, pci_after)) {
+    if (!kdrv_pci_busmaster_handoff_safe(pci_command, pci_after) ||
+        !(pci_after & PCI_CMD_INTX_OFF)) {
         (void)quiesce(d);
         b->state = B_FREE;
         kfree(p.buf);
@@ -687,7 +688,9 @@ int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
             if (b->granted & CAP_MMIO) ok |= PCI_CMD_MEM;
             if (a2 != 2 || (a3 & ~(uint64_t)ok)) { deny_note(b, "запись в регистр команд PCI значения", a3); return KE_PERM; }
             uint16_t cur = pci_read16(b->dev, 0x04);
-            pci_write16(b->dev, 0x04, (uint16_t)((cur & ~ok) | (uint16_t)a3));
+            uint16_t requested = (uint16_t)a3;
+            if (!(b->granted & CAP_IRQ)) requested |= PCI_CMD_INTX_OFF;
+            pci_write16(b->dev, 0x04, (uint16_t)((cur & ~ok) | requested));
             return 0;
         }
         if (cfg_deny(b->dev, (uint32_t)a1, (uint32_t)a2)) { deny_note(b, "запись в защищённую область конфигурации, смещение", a1); return KE_PERM; }
