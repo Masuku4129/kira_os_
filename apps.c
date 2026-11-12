@@ -247,16 +247,42 @@ static void mind_draw_forecast(surface_t* s, const mind_view_t* v) {
     p = cat(t, 0, "полнота: "); p = cat_u(t, p, v->net_rec); cat(t, p, "%"); gfx_text(s, 316, 232, t, TH_TEXT, -1);
     p = cat(t, 0, "доверие: "); cat(t, p, v->net_trusted ? "подтверждено" : "не подтверждено");
     gfx_text(s, 316, 260, t, v->net_trusted ? TH_GREEN : TH_AMBER, -1);
-    card(s, 10, 335, 580, 190, "ОГРАНИЧЕНИЯ ПРОГНОЗА", TH_BLUE);
-    gfx_text(s, 26, 376, "Оценивается только вероятность задержки экрана на следующей секунде.", TH_TEXT_DIM, -1);
-    gfx_text(s, 26, 402, "Это не универсальный прогноз производительности всей системы.", TH_TEXT_DIM, -1);
-    gfx_text(s, 26, 438, "При недостаточном доверии модель не используется для предупреждений.", TH_TEXT_FAINT, -1);
-    gfx_text(s, 26, 474, "Причина указана, только если ядро выделило значимый признак.", TH_TEXT_FAINT, -1);
+    card(s, 10, 335, 580, 190, "ПРОГНОЗ ДАВЛЕНИЯ ПАМЯТИ · 4 СЕКУНДЫ", TH_AMBER);
+    if (!v->mem_telemetry_valid) {
+        gfx_text(s, 26, 376, "Нет валидной телеметрии оперативной памяти.", TH_AMBER, -1);
+        gfx_text(s, 26, 408, "Обучение и прогноз приостановлены до восстановления замеров.", TH_TEXT_DIM, -1);
+    } else if (v->mem_used >= 90) {
+        gfx_text(s, 26, 376, "Порог 90% ОЗУ уже достигнут; будущий переход не прогнозируется.", TH_RED, -1);
+        gfx_text(s, 26, 408, "Сначала нужно восстановить запас памяти; модель не выдаёт ложный прогноз.", TH_TEXT_DIM, -1);
+    } else if (!v->mem_risk_valid) {
+        gfx_text(s, 26, 376, "Нет непрерывного ряда замеров для горизонта 4 секунды.", TH_AMBER, -1);
+        gfx_text(s, 26, 408, "Прогноз возобновится после восстановления последовательных отсчётов.", TH_TEXT_DIM, -1);
+    } else if (v->mem_net_trusted) {
+        unsigned mrisk = v->mem_risk > 100 ? 100 : v->mem_risk;
+        uint32_t mc = mrisk >= 70 ? TH_RED : mrisk >= 40 ? TH_AMBER : TH_GREEN;
+        p = cat(t, 0, "вероятность достичь 90% занятой ОЗУ: ");
+        p = cat_u(t, p, mrisk); cat(t, p, "%");
+        ui_text_bold(s, 26, 376, t, mc);
+        ui_round_rect(s, 26, 404, 540, 14, 7, TRACK, 255);
+        if (mrisk) ui_round_rect(s, 26, 404, (int)(540 * mrisk / 100), 14, 7, mc, 255);
+        p = cat(t, 0, "обучающих примеров: "); p = cat_u(t, p, v->mem_net_n);
+        p = cat(t, p, " · прогнозов: "); p = cat_u(t, p, v->mem_forecasts);
+        gfx_text(s, 26, 436, t, TH_TEXT, -1);
+        p = cat(t, 0, "точность: "); p = cat_u(t, p, v->mem_net_prec);
+        p = cat(t, p, "% · полнота: "); p = cat_u(t, p, v->mem_net_rec); cat(t, p, "%");
+        gfx_text(s, 26, 462, t, TH_TEXT_DIM, -1);
+    } else {
+        gfx_text(s, 26, 376, "Модель памяти пока обучается; предупреждения не используются.", TH_AMBER, -1);
+        p = cat(t, 0, "обучающих примеров: "); p = cat_u(t, p, v->mem_net_n);
+        p = cat(t, p, " · положительных исходов: "); p = cat_u(t, p, v->mem_net_pos);
+        gfx_text(s, 26, 408, t, TH_TEXT_DIM, -1);
+    }
+    gfx_text(s, 26, 492, "Цель: заметить риск 90% ОЗУ за 4 с; модель пока только наблюдает.", TH_TEXT_FAINT, -1);
     mind_page_status(s, v, "прогноз · диагностическая оценка, не команда управления");
 }
 static void mind_draw_training(surface_t* s, const mind_view_t* v) {
     gfx_fill(s, TH_CONTENT);
-    card(s, 10, 10, 580, 125, "СОСТОЯНИЕ ОБУЧЕНИЯ", TH_PURPLE);
+    card(s, 10, 10, 580, 145, "СОСТОЯНИЕ ОБУЧЕНИЯ", TH_PURPLE);
     char t[96]; int p = cat(t, 0, "примеров: "); p = cat_u(t, p, v->net_n);
     p = cat(t, p, " · положительных: "); p = cat_u(t, p, v->net_pos); gfx_text(s, 26, 48, t, TH_TEXT, -1);
     p = cat(t, 0, "точность: "); p = cat_u(t, p, v->net_prec); p = cat(t, p, "% · полнота: ");
@@ -265,9 +291,12 @@ static void mind_draw_training(surface_t* s, const mind_view_t* v) {
     { unsigned f = v->net_loss_x1e4 % 10000; t[p++] = (char)('0' + f / 1000); t[p++] = (char)('0' + f / 100 % 10); t[p++] = (char)('0' + f / 10 % 10); t[p++] = (char)('0' + f % 10); t[p] = 0; }
     gfx_text(s, 26, 100, t, TH_TEXT_DIM, -1);
     gfx_text(s, 370, 100, v->net_trusted ? "модель доверенная" : "модель не доверенная", v->net_trusted ? TH_GREEN : TH_AMBER, -1);
-    card(s, 10, 145, 580, 380, "ВЕСА ПРИЗНАКОВ · Q16", TH_CYAN);
+    p = cat(t, 0, "память: "); p = cat_u(t, p, v->mem_net_n);
+    p = cat(t, p, " примеров · "); cat(t, p, v->mem_net_trusted ? "модель доверенная" : "модель обучается");
+    gfx_text(s, 26, 124, t, v->mem_net_trusted ? TH_GREEN : TH_AMBER, -1);
+    card(s, 10, 165, 580, 360, "ВЕСА ПРИЗНАКОВ · Q16", TH_CYAN);
     for (int i = 0; i < MNET_F; i++) {
-        int x = i / 6 ? 310 : 26, y = 182 + (i % 6) * 52;
+        int x = i / 6 ? 310 : 26, y = 202 + (i % 6) * 52;
         int32_t value = v->net_w[i]; int64_t mag = value; if (mag < 0) mag = -mag;
         char w[24]; int q = 0; if (value < 0) w[q++] = '-';
         q = cat_u(w, q, (uint64_t)mag / MNET_ONE);

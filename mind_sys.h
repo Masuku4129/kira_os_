@@ -38,6 +38,8 @@ typedef struct {
     int      risk_why;
     uint32_t net_n, net_pos, net_prec, net_rec, forecasts, net_loss_x1e4;
     uint8_t  net_trusted;
+    uint32_t mem_risk, mem_net_n, mem_net_pos, mem_net_prec, mem_net_rec, mem_forecasts, mem_net_loss_x1e4;
+    uint8_t  mem_net_trusted, mem_risk_valid, mem_telemetry_valid;
     int32_t  net_w[MNET_F];
     uint32_t bg_fps, core_cap;
     uint32_t stab_episodes, stab_limited_s, stab_relapses, stab_longest_s;   /* стабилизация за запуск */

@@ -83,6 +83,22 @@ int mind_model_load(mind_model_t* out, const void* buf, unsigned len) {
         mcopy(out, buf, sizeof *out);
         return mind_model_valid(out);
     }
+    if (len == sizeof(mind_model_v4_t)) {
+        mind_model_v4_t o;
+        mcopy(&o, buf, sizeof o);
+        if (o.magic != MIND_MAGIC || o.version != 4) return 0;
+        uint32_t csum = o.crc; o.crc = 0;
+        if (crc32_m(&o, sizeof o) != csum) return 0;
+        mzero(out, sizeof *out);
+        mcopy(out, &o, __builtin_offsetof(mind_model_v4_t, net));
+        out->net = o.net;
+        mnet_init(&out->memory_net);
+        out->forecasts = o.forecasts;
+        mcopy(out->lv, o.lv, sizeof out->lv);
+        out->mflags = o.mflags;
+        mind_model_seal(out);
+        return 1;
+    }
     if (len == sizeof(mind_model_v3_t)) {
         mind_model_v3_t o;
         mcopy(&o, buf, sizeof o);
@@ -95,6 +111,7 @@ int mind_model_load(mind_model_t* out, const void* buf, unsigned len) {
         out->net.b = o.net.b; out->net.n = o.net.n; out->net.pos = o.net.pos;
         out->net.tp = o.net.tp; out->net.fp = o.net.fp; out->net.fn = o.net.fn;
         out->net.tn = o.net.tn; out->net.loss_x1e4 = o.net.loss_x1e4;
+        mnet_init(&out->memory_net);
         out->forecasts = o.forecasts;
         mcopy(out->lv, o.lv, sizeof out->lv);
         out->mflags = o.mflags;
@@ -113,6 +130,7 @@ int mind_model_load(mind_model_t* out, const void* buf, unsigned len) {
         out->net.b = o.net.b; out->net.n = o.net.n; out->net.pos = o.net.pos;
         out->net.tp = o.net.tp; out->net.fp = o.net.fp; out->net.fn = o.net.fn;
         out->net.tn = o.net.tn; out->net.loss_x1e4 = o.net.loss_x1e4;
+        mnet_init(&out->memory_net);
         out->forecasts = o.forecasts;
         mind_model_seal(out);
         return 1;
@@ -126,6 +144,7 @@ int mind_model_load(mind_model_t* out, const void* buf, unsigned len) {
         mzero(out, sizeof *out);
         mcopy(out, &o, __builtin_offsetof(mind_model_v1_t, crc));
         mnet_init(&out->net);
+        mnet_init(&out->memory_net);
         mind_model_seal(out);
         return 1;
     }
@@ -140,6 +159,7 @@ int mind_model_seed(mind_model_t* out, const void* buf, unsigned len) {
     mzero(out, sizeof *out);
     out->mode = MIND_ACT; out->fx_user = MIND_FX_AUTO; out->tz_min = 180;
     mnet_init(&out->net);
+    mnet_init(&out->memory_net); /* память зависит от конкретной машины */
     for (int i = 0; i < MNET_F; i++) out->net.w[i] = src.net.w[i];
     out->net.b = src.net.b;
     out->net.n = src.net.n < MIND_SEED_N ? src.net.n : MIND_SEED_N;
@@ -185,6 +205,7 @@ void mind_init(mind_t* s, const mind_model_t* saved, unsigned cores) {
         s->m.fx_user = MIND_FX_AUTO;
         s->m.tz_min = 180;
         mnet_init(&s->m.net);
+        mnet_init(&s->m.memory_net);
     }
     if (s->m.mode > MIND_ACT) s->m.mode = MIND_ACT;
     if (s->m.fx_user > MIND_FX_AUTO) s->m.fx_user = MIND_FX_AUTO;
@@ -632,17 +653,23 @@ static void visual(mind_t* s, const mind_sample_t* in, const mind_act_t* act, ui
     }
 }
 
-static void memory(mind_t* s, const mind_sample_t* in, const mind_act_t* act, uint32_t now) {
+static int memory(mind_t* s, const mind_sample_t* in, const mind_act_t* act, uint32_t now) {
     int acting = s->m.mode == MIND_ACT;
+    int action_now = 0;
     uint32_t u = in->mem_used;
     if (u >= 88 && s->mem_level < 1) {
         s->mem_level = 1;
         unsigned pages = acting && act->mem_trim ? act->mem_trim() : 0;
+        if (pages) { s->mem_action_active = 1; action_now = 1; }
         jlog(s, now, MJ_MEMORY, acting, 0, "%sпамять занята на %u%%: вернула запасы ядра (%u страниц)", acting ? "" : "(наблюдение) ", u, (uint32_t)pages);
     }
     if (u >= 93 && s->mem_level < 2) {
         s->mem_level = 2;
-        if (acting && act->heap_restrict) act->heap_restrict(2);
+        if (acting && act->heap_restrict) {
+            act->heap_restrict(2);
+            s->mem_action_active = 1;
+            action_now = 1;
+        }
         jlog(s, now, MJ_MEMORY, acting, 0, "%sпамять занята на %u%%: программам - только осторожный рост куч", acting ? "" : "(наблюдение) ", u);
     }
     if (u >= 97 && acting && now - s->last_kill_t >= 10) {
@@ -652,6 +679,8 @@ static void memory(mind_t* s, const mind_sample_t* in, const mind_act_t* act, ui
         if (big && heap >= 16384 && (uint64_t)heap * 100 >= (uint64_t)in->mem_total_mb * 1024 * 20) {   /* не меньше 20% ОЗУ */
             s->last_kill_t = now;
             if (act->kill && act->kill(big->pid) == 0) {
+                s->mem_action_active = 1;
+                action_now = 1;
                 s->m.kills++;
                 jlog(s, now, MJ_KILL, 1, big->pid, "память исчерпана (%u%%): остановлена %s, занимавшая %u МБ кучи - система жива",
                      u, big->name, heap / 1024);
@@ -659,10 +688,15 @@ static void memory(mind_t* s, const mind_sample_t* in, const mind_act_t* act, ui
         }
     }
     if (u < 80 && s->mem_level) {
-        if (s->mem_level >= 2 && acting && act->heap_restrict) act->heap_restrict(0);
+        if (s->mem_level >= 2 && acting && act->heap_restrict) {
+            act->heap_restrict(0);
+            action_now = 1;
+        }
+        s->mem_action_active = 0;
         s->mem_level = 0;
         jlog(s, now, MJ_RESTORE, acting, 0, "давление памяти ушло (%u%%): обычный режим", u);
     }
+    return action_now || s->mem_action_active;
 }
 
 /* ---------------- шаг ---------------- */
@@ -892,6 +926,79 @@ void mind_make_features(const mind_t* s, const mind_sample_t* in, int32_t* x) {
     x[10] = q16(ilog2u((uint64_t)in->max_wait_ms + 1), 12);
     x[11] = q16((uint64_t)(s->fx < 0 ? 0 : s->fx), 3);
     x[12] = in->disk_ops ? MNET_ONE : 0;       /* нулевая задержка без операций не означает валидный замер */
+}
+
+static void memory_foresight(mind_t* s, const mind_sample_t* in, const int32_t* x, uint32_t now, int acted_this_tick) {
+    if (!in->mem_total_mb || in->mem_used > 100) {
+        for (unsigned i = 0; i < 5; i++) s->mem_pending[i].valid = 0;
+        s->mem_prev_valid = 0;
+        s->mem_prev_t = 0;
+        s->mem_risk_valid = 0;
+        s->mem_risk_q16 = 0;
+        return;
+    }
+    /* Горизонт равен четырём реальным секундам: пропущенный/повторный timestamp
+       обрывает непрерывность и цензурирует все незавершённые метки. */
+    int growth_valid = s->mem_prev_valid && now > s->mem_prev_t && now - s->mem_prev_t == 1;
+    if (s->mem_prev_valid && !growth_valid) {
+        for (unsigned i = 0; i < 5; i++) s->mem_pending[i].valid = 0;
+        s->mem_prev_valid = 0;
+    }
+    int32_t mx[MNET_F];
+    for (int i = 0; i < MNET_F; i++) mx[i] = x[i];
+    uint32_t growth = growth_valid && in->mem_used > s->mem_prev_used ? in->mem_used - s->mem_prev_used : 0;
+    mx[12] = q16(growth, 10);
+    s->mem_prev_used = in->mem_used;
+    s->mem_prev_t = now;
+    s->mem_prev_valid = 1;
+    for (unsigned i = 0; i < 5; i++) {
+        mind_mem_pending_t* p = &s->mem_pending[i];
+        if (!p->valid || now <= p->created_t) continue;
+        uint32_t elapsed = now - p->created_t;
+        if (elapsed > 4) { p->valid = 0; continue; }
+        if (in->mem_used > p->max_used) p->max_used = in->mem_used;
+        if (elapsed == 4) {
+            if (!p->acted) mnet_train(&s->m.memory_net, p->x, p->max_used >= 90);
+            p->valid = 0;
+        }
+    }
+    if (in->mem_used >= 90) {
+        /* Already over the target: do not train a "future crossing" label from
+           a state where the threshold was reached before the prediction began. */
+        s->mem_prev_valid = 0;
+        s->mem_prev_t = 0;
+        s->mem_risk_valid = 0;
+        s->mem_risk_q16 = 0;
+        return;
+    }
+    if (!growth_valid) {
+        /* A first sample after boot/telemetry gap has no measured growth input;
+           neither forecast nor training label may pretend that growth was zero. */
+        s->mem_risk_valid = 0;
+        s->mem_risk_q16 = 0;
+        return;
+    }
+    mind_mem_pending_t* slot = &s->mem_pending[s->mem_pending_pos++ % 5];
+    for (int i = 0; i < MNET_F; i++) slot->x[i] = mx[i];
+    slot->max_used = in->mem_used;
+    slot->created_t = now;
+    slot->acted = (uint8_t)acted_this_tick;
+    slot->valid = 1;
+    s->mem_risk_valid = (uint8_t)growth_valid;
+    s->mem_risk_q16 = growth_valid ? mnet_predict(&s->m.memory_net, mx) : 0;
+    if (growth_valid && mnet_trusted(&s->m.memory_net) &&
+        s->mem_risk_q16 >= (MNET_ONE * 60u) / 100u) {
+        s->mem_forecasts++;
+        if (now - s->mem_logged_t >= 30 || !s->mem_logged_t) {
+            s->mem_logged_t = now;
+            jlog(s, now, MJ_MEMORY, 0, 0, "предвижу давление памяти: риск %u%% достижения 90%% ОЗУ за 4 с (только наблюдение)",
+                 s->mem_risk_q16 * 100 / MNET_ONE);
+        }
+    }
+}
+
+uint32_t mind_memory_risk(const mind_t* s) {
+    return s->mem_risk_valid && mnet_trusted(&s->m.memory_net) ? s->mem_risk_q16 : 0;
 }
 
 static void foresight(mind_t* s, const mind_sample_t* in, uint32_t now) {
@@ -1341,7 +1448,16 @@ void mind_step(mind_t* s, const mind_sample_t* in, const mind_act_t* act) {
     assess(s, in, now);
     tuner(s, in, act, now);
     visual(s, in, act, now);
-    memory(s, in, act, now);
+    int memory_action = memory(s, in, act, now);
+    if (memory_action)
+        for (unsigned i = 0; i < 5; i++) if (s->mem_pending[i].valid) s->mem_pending[i].acted = 1;
+    /* Finalize four-second labels only after this tick's memory actions are known.
+       Otherwise an intervention at the horizon is learned as an untreated outcome. */
+    {
+        int32_t memory_features[MNET_F];
+        mind_make_features(s, in, memory_features);
+        memory_foresight(s, in, memory_features, now, memory_action);
+    }
     devices(s, in, act, now);
     levers(s, in, act, now);
     s->hpos++;
