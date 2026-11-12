@@ -777,10 +777,10 @@ typedef struct {
     size_t left, total;
 } OptPoolState;
 static OptPoolState *ops;
-#define op_pool (ops->pool)
-#define op_pool0 (ops->pool0)
-#define op_pool_left (ops->left)
-#define op_pool_total (ops->total)
+#define op_pool (ops[0].pool)
+#define op_pool0 (ops[0].pool0)
+#define op_pool_left (ops[0].left)
+#define op_pool_total (ops[0].total)
 static Ins *op_newins(void) { if (!op_pool_left) return NULL; op_pool_left--; return op_pool++; }
 /* Распознавание popcount: цикл while (x) { x &= x - 1; c++; } заменяется последовательностью битовых сложений (SWAR, без popcnt:
  * набор команд машины не предполагается): c += popcount(x); x = 0. Точно и при x == 0. Форма до инверсии циклов:
