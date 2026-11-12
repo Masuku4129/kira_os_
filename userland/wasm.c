@@ -274,7 +274,7 @@ static void skip_imm(u8 op, const u8** p, const u8* e, u32 nloc) {
     }
     if (op >= 0x28 && op <= 0x3E) {
         static const u8 max_align[23] = {
-            2,3,2,3,0,0,1,1,0,0,1,1,2,2,3,2,3,0,1,0,1,2,2
+            2,3,2,3,0,0,1,1,0,0,1,1,2,2,2,3,2,3,0,1,0,1,2
         };
         u32 align = leb_u(p, e);
         (void)leb_u(p, e);
