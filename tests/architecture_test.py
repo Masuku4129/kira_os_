@@ -44,6 +44,24 @@ require('#include "kernel_main.h"' in arm_main
         and "void arm_kernel_main_loop(void)" in arm_core
         and "arm_kernel_main_loop" in arm_core_header,
         "ARM64 platform entry and steady-state core loop are not separated")
+arm_pci = read("arch/aarch64/pci_host.c")
+arm_pci_header = read("arch/aarch64/pci_host.h")
+require("$A/pci_host.c" in arm_build,
+        "ARM64 PCI host backend is not compiled by the ARM64 target")
+require('#include "pci_host.h"' in arm_main
+        and "arm_pci_init(fdt, kprintf);" in arm_main
+        and "void arm_pci_init(const void* fdt, arm_pci_log_fn log)" in arm_pci_header
+        and "void arm_pci_init(const void* fdt, arm_pci_log_fn log)" in arm_pci
+        and "fdt_find_compatible" in arm_pci
+        and "pci_use_ecam(" in arm_pci
+        and "pci_init()" in arm_pci
+        and "pci_assign(" in arm_pci,
+        "ARM64 PCI host bridge ownership or boot call contract is incomplete")
+require("static void arm_pci_init" not in arm_main
+        and "pci_use_ecam(" not in arm_main
+        and "pci_init()" not in arm_main
+        and "pci_assign(" not in arm_main,
+        "ARM64 boot composition still owns PCI host bridge implementation")
 require("kernel_boot_init" in x86_boot_header and '#include "kernel_boot.h"' in x86_main,
         "x86 boot coordinator API is not scoped to the x86 backend")
 require(not (ROOT / "kernel.c").exists() and not (ROOT / "kernel_boot.c").exists(),
