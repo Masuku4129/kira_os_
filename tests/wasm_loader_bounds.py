@@ -111,6 +111,27 @@ cases = [
      magic + b"\x01\x04\x01\x60\x00\x00" +
      b"\x03\x02\x01\x00" + b"\x0a\x02\x01\x7f",
      "function body past code section"),
+    ("load-alignment-exceeds-natural-width",
+     magic + b"\x01\x04\x01\x60\x00\x00" +
+     b"\x03\x02\x01\x00" + b"\x05\x03\x01\x00\x01" +
+     b"\x07\x09\x01\x05kmain\x00\x00" +
+     b"\x0a\x0a\x01\x08\x00\x41\x00\x28\x03\x00\x1a\x0b",
+     "invalid WebAssembly load alignment"),
+    ("unreachable-local-index-out-of-range",
+     magic + b"\x01\x04\x01\x60\x00\x00" +
+     b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x00" +
+     b"\x0a\x07\x01\x05\x00\x00\x20\x01\x0b",
+     "local index out of range in unreachable code"),
+    ("unreachable-branch-depth-out-of-range",
+     magic + b"\x01\x04\x01\x60\x00\x00" +
+     b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x00" +
+     b"\x0a\x06\x01\x04\x00\x00\x0c\x01\x0b",
+     "branch depth out of range in unreachable code"),
+    ("unreachable-call-indirect-type-out-of-range",
+     magic + b"\x01\x04\x01\x60\x00\x00" +
+     b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x00" +
+     b"\x0a\x07\x01\x05\x00\x00\x11\x01\x00\x0b",
+     "call_indirect type index out of range in unreachable code"),
     ("export-function-index-out-of-range",
      magic + b"\x01\x05\x01\x60\x00\x01\x7f" +
      b"\x03\x02\x01\x00" + b"\x07\x09\x01\x05kmain\x00\x01",
