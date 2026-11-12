@@ -42,6 +42,9 @@ struct kdrv_trust_record {
     uint8_t signature[KDRV_TRUST_SIGNATURE_SIZE];
 };
 
+/* Callers must serialize catalogue verification/parse/acceptance with package
+   activation. The monotonic storage callback prevents floor downgrade, while
+   serialization prevents a stale concurrent consumer from using an older list. */
 struct kdrv_trust_ops {
     void *context;
     int (*ed25519_verify)(void *context, const uint8_t public_key[32],
