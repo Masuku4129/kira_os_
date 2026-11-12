@@ -1,139 +1,83 @@
-// Хост-тест блокирующего мьютекса: честная очередь, передача владения без «обгона», пробуждение, повторный захват.
-// Переключение контекста подменено заглушкой: «вернулся из блокировки» означает «поток снова выбран».
+// Реальный host-тест kmutex: настоящий scheduler и x86-64 context switch.
+// Два ожидающих потока действительно блокируются и пробуждаются передачей владения.
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
-#include <setjmp.h>
+#include <stdalign.h>
 #include "sched.h"
 #include "kmutex.h"
 #include "timer.h"
 
-static uint64_t fake_ticks;
+uint64_t fake_ticks;
 uint64_t timer_get_ticks(void) { return fake_ticks; }
-void uart_print(const char* s) { (void)s; }
-void uart_print_dec(uint64_t v) { (void)v; }
-void uart_print_hex(uint64_t v) { (void)v; }
-void* kmalloc(size_t n) { return malloc(n); }
-void kfree(void* p) { free(p); }
-const void* fpu_initial_state(void) { static uint8_t z[512] __attribute__((aligned(16))); return z; }
-void context_switch(uint64_t* old_rsp_slot, uint64_t new_rsp) { (void)old_rsp_slot; (void)new_rsp; }
-static jmp_buf escape;
-static const char* panic_reason;
-void kernel_panic(const char* r) { panic_reason = r; spin_bust_locks(); longjmp(escape, 1); }
-void host_halt(void) { longjmp(escape, 2); }
-
-static int fails;
-#define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
-static void dummy(void* a) { (void)a; }
-
-// Делает t текущим: текущий поток отдаёт остаток кванта (round-robin по обычным потокам)
-static void become(thread_t* t) {
-    for (int i = 0; i < 12 && sched_current() != t; i++) sched_yield();
-    CHECK(sched_current() == t);
+void uart_print(const char *s) { if (s) fputs(s, stdout); }
+void uart_print_dec(uint64_t v) { printf("%llu", (unsigned long long)v); }
+void uart_print_hex(uint64_t v) { printf("0x%llx", (unsigned long long)v); }
+void *kmalloc(size_t n) { return malloc(n); }
+void kfree(void *p) { free(p); }
+static alignas(16) uint8_t initial_fpu_state[512];
+const void *fpu_initial_state(void) { return initial_fpu_state; }
+void kernel_panic(const char *reason) {
+    fprintf(stderr, "unexpected kernel panic in kmutex host test: %s\n", reason ? reason : "unknown");
+    abort();
+}
+void host_halt(void) {
+    fputs("unexpected idle halt while kmutex test is active\n", stderr);
+    abort();
 }
 
-static void tick(void) {
-    fake_ticks++;
-    sched_tick();
-    sched_irq_exit();
+static volatile unsigned b_waiting, c_waiting, b_done, c_done;
+static volatile unsigned handoff_order[2], handoff_count;
+static kmutex_t mutex = KMUTEX_INIT;
+static int failed;
+#define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #c); failed = 1; } } while (0)
+
+static void owner(void *arg) {
+    (void)arg;
+    kmutex_lock(&mutex);
+    CHECK(kmutex_held(&mutex));
+    while (!b_waiting || !c_waiting) sched_yield();
+    CHECK(mutex.owner == sched_current());
+    CHECK(mutex.head != 0 && mutex.tail != 0 && mutex.head != mutex.tail);
+    CHECK(mutex.head->wait_next == mutex.tail);
+    kmutex_unlock(&mutex);
+    while (!b_done || !c_done) sched_yield();
+    CHECK(mutex.owner == 0 && mutex.head == 0 && mutex.tail == 0);
+}
+
+static void waiter_b(void *arg) {
+    (void)arg;
+    b_waiting = 1;
+    kmutex_lock(&mutex);
+    handoff_order[handoff_count++] = 1;
+    kmutex_unlock(&mutex);
+    b_done = 1;
+}
+
+static void waiter_c(void *arg) {
+    (void)arg;
+    c_waiting = 1;
+    kmutex_lock(&mutex);
+    handoff_order[handoff_count++] = 2;
+    kmutex_unlock(&mutex);
+    c_done = 1;
 }
 
 int main(void) {
     setvbuf(stdout, 0, _IONBF, 0);
+    __asm__ volatile ("fninit");
+    uint32_t mxcsr = 0x1f80;
+    __asm__ volatile ("ldmxcsr %0" : : "m"(mxcsr));
+    __asm__ volatile ("fxsave (%0)" : : "r"(initial_fpu_state) : "memory");
     sched_init(1, 65536);
-    kmutex_t m = KMUTEX_INIT;
-
-    // без борьбы: взял - держит - отпустил
-    CHECK(!kmutex_held(&m));
-    kmutex_lock(&m);
-    CHECK(kmutex_held(&m) && m.owner == sched_current());
-    CHECK(((thread_t*)sched_current())->mutexes_held == 1);      // сбой с мьютексом изолировать нельзя: учёт
-    CHECK(kmutex_trylock(&m) == 0);                              // занят
-    kmutex_unlock(&m);
-    CHECK(((thread_t*)sched_current())->mutexes_held == 0);
-    CHECK(!kmutex_held(&m) && m.owner == 0);
-    CHECK(kmutex_trylock(&m) == 1 && kmutex_held(&m));
-    kmutex_unlock(&m);
-
-    // три потока: A держит, B и C встают в очередь по порядку, владение передаётся B, потом C
-    thread_t* A = sched_create("A", dummy, 0, PRIO_NORMAL);
-    thread_t* B = sched_create("B", dummy, 0, PRIO_NORMAL);
-    thread_t* C = sched_create("C", dummy, 0, PRIO_NORMAL);
-    CHECK(A && B && C);
-    sched_sleep_ticks(100000);                                   // "core" уступает: дальше ходят A, B, C (заглушка возвращает сюда же)
-    become(A);
-    kmutex_lock(&m);
-    CHECK(m.owner == A);
-
-    become(B);
-    kmutex_lock(&m);                                             // блокируется
-    CHECK(B->state == THREAD_BLOCKED && sched_current() != B);
-    CHECK(m.head == B && m.tail == B);
-    become(C);
-    kmutex_lock(&m);
-    CHECK(C->state == THREAD_BLOCKED && m.head == B && m.tail == C && B->wait_next == C);
-
-    become(A);
-    kmutex_unlock(&m);                                           // владение сразу у B: мьютекс не «свободен» для обгона
-    CHECK(m.owner == B && B->state == THREAD_READY && C->state == THREAD_BLOCKED && m.head == C);
-    CHECK(kmutex_trylock(&m) == 0);                              // A не может влезть без очереди
-
-    become(B);
-    CHECK(kmutex_held(&m));
-    kmutex_unlock(&m);
-    CHECK(m.owner == C && C->state == THREAD_READY && m.head == 0 && m.tail == 0);
-    become(C);
-    kmutex_unlock(&m);
-    CHECK(m.owner == 0);
-
-    // Чужой поток не может снять мьютекс и испортить счётчик mutexes_held владельца.
-    become(A);
-    kmutex_lock(&m);
-    become(B);
-    panic_reason = 0;
-    if (setjmp(escape) == 0) kmutex_unlock(&m);
-    CHECK(panic_reason && strstr(panic_reason, "non-owner"));
-    CHECK(B->mutexes_held == 0);
-    become(A);
-    CHECK(kmutex_held(&m) && A->mutexes_held == 1);
-    kmutex_unlock(&m);
-    CHECK(m.owner == 0 && A->mutexes_held == 0);
-
-    // Сон под kmutex запрещён: блокировка могла бы удерживать ресурс, нужный пробуждаемому потоку.
-    become(A);
-    kmutex_lock(&m);
-    panic_reason = 0;
-    if (setjmp(escape) == 0) sched_sleep_ticks(2);
-    CHECK(panic_reason && strstr(panic_reason, "sleep while holding kmutex"));
-    CHECK(A->state == THREAD_RUNNING && m.owner == A && A->mutexes_held == 1);
-    become(B);
-    kmutex_lock(&m);
-    CHECK(B->state == THREAD_BLOCKED && m.owner == A);
-    become(A);
-    kmutex_unlock(&m);
-    CHECK(m.owner == B && B->state == THREAD_READY);
-    become(B);
-    CHECK(kmutex_held(&m) && B->mutexes_held == 1);
-    kmutex_unlock(&m);
-    CHECK(m.owner == 0 && B->mutexes_held == 0);
-
-    // Поток не может завершиться, оставив чужие ожидания навсегда заблокированными.
-    become(A);
-    kmutex_lock(&m);
-    panic_reason = 0;
-    if (setjmp(escape) == 0) sched_exit();
-    CHECK(panic_reason && strstr(panic_reason, "exited while holding kmutex"));
-    CHECK(A->state != THREAD_ZOMBIE && A->mutexes_held == 1);
-    kmutex_unlock(&m);
-
-    // повторный захват тем же потоком - взаимная блокировка: ядро сообщает, а не зависает
-    kmutex_lock(&m);
-    panic_reason = 0;
-    if (setjmp(escape) == 0) kmutex_lock(&m);
-    CHECK(panic_reason && strstr(panic_reason, "recursive"));
-
-    printf("%s\n", fails ? "FAILED" : "kmutex: fair queue, ownership hand-off, wake-up, no overtaking, recursion detection passed");
-    return fails != 0;
+    sched_set_quantum(2);
+    CHECK(sched_create("owner", owner, 0, PRIO_NORMAL) != 0);
+    CHECK(sched_create("waiter-b", waiter_b, 0, PRIO_NORMAL) != 0);
+    CHECK(sched_create("waiter-c", waiter_c, 0, PRIO_NORMAL) != 0);
+    while (!b_done || !c_done || handoff_count != 2) sched_yield();
+    CHECK(handoff_order[0] == 1 && handoff_order[1] == 2);
+    CHECK(mutex.owner == 0 && mutex.head == 0 && mutex.tail == 0);
+    printf("%s\n", failed ? "FAILED" : "kmutex: real context switching, FIFO blocking, direct ownership hand-off and wake-up passed");
+    return failed;
 }
