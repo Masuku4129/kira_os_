@@ -266,7 +266,14 @@ static void skip_imm(u8 op, const u8** p, const u8* e) {
         } else if (sub >= 12) {
             trap("unsupported 0xFC instruction");
         }
+        return;
     }
+    /* Even unreachable code must be structurally valid. Only accept known
+       no-immediate instructions here; unknown opcodes can carry immediates. */
+    if (op == 0x00 || op == 0x01 || op == 0x0F || op == 0x1A || op == 0x1B ||
+        (op >= 0x45 && op <= 0xC4))
+        return;
+    trap("unsupported instruction in unreachable code");
 }
 
 /* ---------- предкомпиляция: байты WASM -> плотный байт-код (слова u32) ----------
