@@ -48,7 +48,7 @@
 #define RCR_APM        (1u << 1)
 #define RCR_AM         (1u << 2)
 #define RCR_AB         (1u << 3)
-#define RCR_WRAP       (1u << 7)
+#define RCR_WRAP       (0u << 7) /* Wrap to ring start; bit 1 would require >=1.5 KiB tail. */
 #define RCR_MXDMA_1024 (6u << 8)
 #define RCR_RBLEN_8K   (0u << 11)
 #define RCR_RXFTH_NONE (7u << 13)
@@ -196,7 +196,8 @@ int kira_rtl8139_init(struct kira_rtl8139 *d, uint16_t io_base,
                       (uint32_t)d->rx_physical);
     d->platform.out16(d->platform.context, port(d, REG_CAPR), 0xfff0u);
 
-    /* Accept unicast-to-us, multicast and broadcast; use the 8 KiB ring. */
+    /* Accept unicast-to-us, multicast and broadcast. RCR.WRAP=0 wraps DMA to
+       ring start; the software parser uses the same 8 KiB modulo boundary. */
     d->platform.out32(d->platform.context, port(d, REG_RCR),
         RCR_APM | RCR_AM | RCR_AB | RCR_WRAP | RCR_MXDMA_1024 |
         RCR_RBLEN_8K | RCR_RXFTH_NONE);
