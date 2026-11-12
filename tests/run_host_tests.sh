@@ -86,6 +86,11 @@ echo "== Intel VT-d DMAR topology parser (DRHD, RMRR, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-vtd tests/iommu_vtd_test.c iommu_vtd.c
 $T/iommu-vtd
 
+echo "== shared ACPI DMAR parser + VT-d discovery compile contract =="
+$CC $FLAGS -Idrivers/iommu -fsanitize=address,undefined -o $T/dmar-parser tests/dmar_parser_test.c drivers/iommu/intel_vtd_dmar.c
+$T/dmar-parser
+$CC $FLAGS -Idrivers/iommu -c drivers/iommu/iommu_discovery.c -o $T/iommu-discovery.o
+
 echo "== ARM SMMUv3 prepare (platform validation, stream table and allocation unwind) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-smmu tests/arm_smmu_prepare_test.c drivers/iommu/arm_smmu.c
 $T/iommu-smmu
