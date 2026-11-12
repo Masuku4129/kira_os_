@@ -155,3 +155,12 @@ No tests were executed during this source-review pass. Findings above are code o
 - **Security gate:** do not simply add `pci_init()` to x86 boot yet. Current main-based KDRV can enable PCI bus mastering for `CAP_DMA` or `CAP_IRQ` without a confirmed per-device IOMMU domain (F-013/F-015), and PCI scan preserves firmware-enabled bus mastering (F-014). Enabling more enumeration before these gates are fixed could expose additional devices to unsafe DMA.
 - **Action:** establish one architecture-neutral Device Model contract with x86 mechanism-1 and ARM64 ECAM host backends; require firmware bus-master sanitization and per-BDF IOMMU domain readiness before a device is offered to KDRV. Then wire explicit PCI enumeration into both boot compositions and add x86/ARM parity tests for discovered functions, bridges, BAR assignment and fail-closed DMA/MSI.
 - **Status:** identified; implementation deliberately deferred until the PCI/IOMMU security prerequisites are merged and verified.
+
+
+## F-017 — ARM64 platform entry also owned the steady-state kernel loop
+
+- **Severity:** Medium — architecture ownership and test isolation.
+- **Evidence:** `arch/aarch64/main.c` combined FDT/platform discovery, MMU/GIC/timer/PSCI/SMP bring-up, shared subsystem startup and the permanent console/Mind/driver maintenance loop. Unlike x86-64, the ARM64 steady-state loop had no separate source owner.
+- **Change:** extracted the permanent loop into `arch/aarch64/kernel_main.c`, exposed only through `arch/aarch64/kernel_main.h`, and added it to the ARM64 source manifest. `arm_main()` still owns platform discovery and initialization and now hands off to `arm_kernel_main_loop()`. Loop ordering and cadence are preserved.
+- **Boundary:** this does not yet extract ARM64 early boot or create a platform-neutral Boot Manager/Service Manager. Those remain separate migration gates.
+- **Verification:** exact-head CI is required for ARM64 build, host architecture guard and QEMU GICv2/GICv3 scenarios; no PASS is claimed before those jobs complete.
