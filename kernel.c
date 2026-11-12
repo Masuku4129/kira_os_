@@ -62,7 +62,7 @@ static void assert_kernel_loop_unlocked(const char *stage) {
         uart_print(stage);
         uart_print(": held=");
         uart_print_dec(t->mutexes_held);
-        uart_print("\\n");
+        uart_print("\n");
         kernel_panic("kernel loop returned while holding kmutex");
     }
 }
