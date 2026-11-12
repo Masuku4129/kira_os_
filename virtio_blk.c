@@ -135,7 +135,7 @@ blk_dev_t* virtio_blk_probe(void) {
         if (smax >= BLK_SECTOR && smax / BLK_SECTOR < chunk_sectors) chunk_sectors = smax / BLK_SECTOR;
         if (smax && smax < BLK_SECTOR) { virtio_fail(&vdev); uart_print("[KIRA VIRTIO] blk: size_max below one sector.\n"); return 0; }
     }
-    virtio_driver_ok(&vdev);
+    if (virtio_driver_ok(&vdev) != 0) return 0;
 
     uint64_t cap = MMIO_R32(vdev.devcfg + 0) | ((uint64_t)MMIO_R32(vdev.devcfg + 4) << 32);
     if (cap < 16) { virtio_fail(&vdev); uart_print("[KIRA VIRTIO] blk: disk too small.\n"); return 0; }
