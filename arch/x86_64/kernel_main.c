@@ -1,4 +1,5 @@
 #include "kernel.h"
+#include "kernel_boot.h"
 #include "uart.h"
 #include "smp.h"
 #include "spinlock.h"
