@@ -289,9 +289,20 @@ void usb_log_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsign
 void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); usb_log(b); }
 static uint16_t pci_command_model, pci_msi_control_model, pci_msix_control_model;
 static int pci_block_busmaster_clear, pci_block_msi_disable, pci_block_msix_mask, pci_block_intx_disable;
+static uint8_t pci_cap_ptr_model = 0x50;
 void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; if (pci_block_intx_disable) b &= (uint16_t)~PCI_CMD_INTX_OFF; pci_command_model |= b; }
+uint8_t pci_read8(const pci_dev_t* d, uint16_t off) {
+    (void)d;
+    if (off == 0x34) return pci_cap_ptr_model;
+    if (off == 0x50) return 0x05;
+    if (off == 0x51) return 0x60;
+    if (off == 0x60) return 0x11;
+    if (off == 0x61) return 0;
+    return 0;
+}
 uint16_t pci_read16(const pci_dev_t* d, uint16_t off) {
     (void)d;
+    if (off == 0x06) return 0x10;
     if (off == 0x04) return pci_command_model;
     if (off == 0x52) return pci_msi_control_model;
     if (off == 0x62) return pci_msix_control_model;
@@ -360,6 +371,12 @@ int main(void) {
     CHECK(xhci_start(&hc, &pd) == -2);
     CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
     pci_block_intx_disable = 0;
+
+    pci_command_model = PCI_CMD_MASTER;
+    pci_cap_ptr_model = 0x20;                                  /* malformed capability-list pointer */
+    CHECK(xhci_start(&hc, &pd) == -2);
+    CHECK((pci_command_model & PCI_CMD_MASTER) == 0);
+    pci_cap_ptr_model = 0x50;
 
     pci_command_model = PCI_CMD_MASTER;
     pci_msi_control_model = 1u;
