@@ -100,7 +100,7 @@ int ac97_probe(void) {
     }
 #endif
     if (!pci_disable_bus_master(p)) {
-        uart_print("[KIRA AC97] inherited bus mastering cannot be disabled; controller quarantined.\\n");
+        uart_print("[KIRA AC97] inherited bus mastering cannot be disabled; controller quarantined.\n");
         return -3;
     }
     a.nam = (uint16_t)p->bar[0].base; a.nabm = (uint16_t)p->bar[1].base;
