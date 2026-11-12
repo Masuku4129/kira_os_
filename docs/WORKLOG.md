@@ -134,12 +134,12 @@
 
 
 ## Продолжение работ — ARM64 FDT parser audit (2026-11-12)
-- Рабочая ветка PR #42: `v46/kdrv-catalogue-signature-policy`; текущий head после изменений: `6c144256a4143ca2a5fadd2a04b849be2b950b60`.
+- Рабочая ветка PR #42: `v46/kdrv-catalogue-signature-policy`; текущий head после последующих изменений: `99ebfca1f30d449c0825c45c89595b3215581d70`.
 - В `arch/aarch64/fdt.c` исправлены три ошибки парсера загрузочного FDT:
   1. `reserved_count` использовался до инициализации при добавлении firmware reserve-map entries; теперь весь выходной `kira_fdt_info` обнуляется до парсинга.
   2. `#address-cells/#size-cells` из дочерней шины протекали в последующие sibling nodes; значения восстанавливаются при `FDT_END_NODE`.
   3. RAM-узлы вида `memory@<unit-address>` не распознавались, кроме частного имени `memory@0`; теперь распознаётся префикс `memory@`.
-- Дополнительно reserve map теперь обязан иметь корректный нулевой терминатор в пределах FDT blob.
-- Добавлен `tests/fdt_arm_parser_test.c`: входная структура заранее заполнена 0xA5; проверяются reserve map, восстановление ширины cell после вложенной шины и RAM node с unit-address. Тест подключён к `tests/run_host_tests.sh`.
-- CI для head `6c144256...`: workflow run `43207377853` находился в состоянии pending при последней проверке; выполнение host test и ARM64 build ещё не подтверждено. PASS не заявлять.
+- Дополнительно reserve map обязан иметь нулевой терминатор в пределах blob; проверяются выравнивание и отсутствие пересечения reserve map, structure и strings blocks.
+- Добавлен `tests/fdt_arm_parser_test.c`: входная структура заранее заполнена 0xA5; проверяются reserve map, восстановление ширины cell после вложенной шины, RAM node с unit-address и отклонение перекрывающихся блоков. Тест подключён к `tests/run_host_tests.sh`.
+- После новых commits workflow для последнего head `99ebfca1...` ещё не найден; host test и ARM64 build не подтверждены. PASS не заявлять.
 - Следующие независимые направления: аудит WASM verifier/type-stack и quotas; KDRV production callback coverage и cryptographic publisher trust; SMMUv3 runtime/teardown; kernel scheduler/process lifecycle; native/compatibility runtime; KCC, Mind, KiraFS/network/GUI/build/recovery. PR не объединять без разрешения владельца.
