@@ -41,7 +41,7 @@ typedef struct {
     uint8_t received[KIRA_RTL8139_MAX_FRAME];
     int tx_status[KIRA_RTL8139_TX_SLOTS];
     uint16_t last_capr, imr;
-    uint32_t rx_phys_reg;
+    uint32_t rx_phys_reg, rcr;
 } mock_t;
 
 static uint8_t in8(void *opaque, uint16_t p)
@@ -102,6 +102,7 @@ static void out32(void *opaque, uint16_t p, uint32_t v)
     if (r >= 0x20u && r < 0x30u && !(r & 3u))
         m->tsad[(r - 0x20u) / 4u] = v;
     if (r == REG_RBSTART) m->rx_phys_reg = v;
+    if (r == 0x44u) m->rcr = v;
     if (r >= REG_TSD0 && r < REG_TSD0 + 16u && !(r & 3u)) {
         m->tsd[(r - REG_TSD0) / 4u] = v & ~TSD_OWN;
         m->last_tsd_write = ++m->sequence;
@@ -247,6 +248,7 @@ static void test_rx_tx_lifecycle(void)
     assert(kira_rtl8139_init(&d, IO_BASE, &p) == 0);
     assert(d.initialized && m.free_count == 0 && m.imr == 0);
     assert(m.rx_phys_reg == 0x100000u && m.tsad[0] == 0x200000u);
+    assert((m.rcr & (1u << 7)) == 0);
     assert(kira_rtl8139_link_up(&d) == 1);
 
     memset(frame, 0x5a, sizeof frame);
