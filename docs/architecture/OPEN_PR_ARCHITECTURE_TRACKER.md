@@ -46,12 +46,13 @@
 ## 3. Branch topology risks
 
 1. PR #132 currently has no associated PR-triggered workflow run for head `2b8569ad1baf8596e48c81ebebcdcefe8fae859d`; the PR description explicitly says actual VMM allocator host test is missing and asks for fresh x86/ARM builds.
-2. Несколько важных PR направлены не в main, а в промежуточные ветки `autodrv`, `v46/*` и `ai/*`. Проверять ancestry и cumulative diff; merge в main не является простым выбором одного PR.
-3. IOMMU work (#115/#116/#120/#125/#44) пересекается по ARM SMMUv3/FDT/VT-d. Нужна единая интеграционная последовательность и проверка реального invalidation/fault lifecycle.
+2. PR #42 also introduces two incompatible BootInfo v1 structures: root `bootinfo.h` (used by kernel/build) and `include/kira/bootinfo.h` (used by an unbuilt `kernel/boot/boot_handoff.c`). Resolve to one canonical ABI before integrating any of its boot changes.
+3. Несколько важных PR направлены не в main, а в промежуточные ветки `autodrv`, `v46/*` и `ai/*`. Проверять ancestry и cumulative diff; merge в main не является простым выбором одного PR.
+4. IOMMU work (#115/#116/#120/#125/#44) пересекается по ARM SMMUv3/FDT/VT-d. Нужна единая интеграционная последовательность и проверка реального invalidation/fault lifecycle.
 3a. PR #132 adds useful shared helper tests for kstack slot ownership/double-free, but tests do not exercise the actual kernel VMM allocator under SMP or mapping-failure conditions; PR body explicitly leaves allocator integration tests outstanding.
-4. KDRV signature chain (#35/#36/#38/#39/#40/#41/#42/#44/#46/#12) содержит вложенные bases. Проверять source provenance, keyring, trust anchor, anti-rollback и E2E install/load.
-5. KCC (#93/#95), Mind (#78/#81), scheduler (#74/#79) — зависимые пары/цепочки; тестировать совокупный результат, не только изолированный PR.
-6. #134 — экспериментальная VM; current KVR production baseline остаётся WASM согласно мастер-плану/ADR-0001. Its head SHA `aa5378d2a1cc52f9cbc55ab7432a4b0f7dad25a7` has workflow run `43236030817` failed: host-tests lint flagged `fake_ticks` as a stub; ARM64 job and VM shards 5/7/9 also concluded failure. Other VM shards, build, UEFI OVMF, KCC and driver E2E succeeded. Do not promote KVM1 on this evidence.
+5. KDRV signature chain (#35/#36/#38/#39/#40/#41/#42/#44/#46/#12) содержит вложенные bases. Проверять source provenance, keyring, trust anchor, anti-rollback и E2E install/load.
+6. KCC (#93/#95), Mind (#78/#81), scheduler (#74/#79) — зависимые пары/цепочки; тестировать совокупный результат, не только изолированный PR.
+7. #134 — экспериментальная VM; current KVR production baseline остаётся WASM согласно мастер-плану/ADR-0001. Its head SHA `aa5378d2a1cc52f9cbc55ab7432a4b0f7dad25a7` has workflow run `43236030817` failed: host-tests lint flagged `fake_ticks` as a stub; ARM64 job and VM shards 5/7/9 also concluded failure. Other VM shards, build, UEFI OVMF, KCC and driver E2E succeeded. Do not promote KVM1 on this evidence.
 
 ## 4. Остальные открытые PR
 
