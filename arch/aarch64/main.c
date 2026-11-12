@@ -379,6 +379,8 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     uint64_t va = 0;
     uint64_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_RELAXED);
     if (stack_size && stack_size != bytes) goto out;
+    /* Fix the slot geometry even if the first mapping attempt partially fails. */
+    if (!stack_size) __atomic_store_n(&ks_size, bytes, __ATOMIC_RELEASE);
     if (ks_nfree) {
         uint32_t slot = ks_free[--ks_nfree];
         if (slot >= ks_next || !kstack_slot_activate(ks_active, (uint32_t)KSTACK_SLOTS, slot)) goto out;
@@ -394,7 +396,6 @@ void* vmm_kstack_alloc(uint32_t bytes) {
         }
         if (ok && kstack_slot_activate(ks_active, (uint32_t)KSTACK_SLOTS, (uint32_t)slot)) {
             ks_next++;
-            __atomic_store_n(&ks_size, bytes, __ATOMIC_RELEASE);
             va = base;
         } else if (mapped) {
             /* Never retry a partially mapped virtual slot over existing PTEs. */
