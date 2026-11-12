@@ -259,6 +259,16 @@ int main(int argc, char** argv) {
     CHECK(logged("VT-d translation enabled on 1 unit"));
     CHECK(logged("0 isolated until a driver asks"));
 
+    if (sc == 'F') {                                 /* rejected context/IOTLB invalidation must never count as isolation */
+        CHECK(hw_dma(sid_of(d3), 0x123456000ull, 1, &pa) == 0 && pa == 0x123456000ull); /* cache pass-through */
+        hw_reject = 1;                               /* hardware refuses the flush after the context is published */
+        CHECK(iommu_isolate_device(d3) == IOMMU_E_HW);
+        CHECK(!iommu_device_isolated(d3) && !iommu_device_ready(d3));
+        CHECK(hw_dma(sid_of(d3), 0x123456000ull, 1, &pa) == 0 && pa == 0x123456000ull); /* stale bypass still works */
+        puts("iommu_test F: PASS (failed invalidation is not isolation)");
+        return 0;
+    }
+
     if (sc == 'B') {                                 /* scope-limited unit: uncovered devices are reported, not isolated */
         CHECK(logged("00:00.0 8086:29c0 no DMAR unit covers it"));
         CHECK(logged("00:03.0 1af4:1042 passthrough"));
