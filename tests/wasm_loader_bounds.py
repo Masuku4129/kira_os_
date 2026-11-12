@@ -318,7 +318,6 @@ with tempfile.TemporaryDirectory(prefix="kira-wasm-sleb64-") as td:
         raise SystemExit(1)
     print("PASS: signed LEB64 minimum constant is accepted")
 
-print("wasm loader bounds: all malformed envelopes rejected")
 
 # An immutable defined global cannot be modified by global.set. The runtime
 # must reject the module during validation, not defer it to execution.
@@ -407,3 +406,5 @@ for name, code_section, expected in truncated_immediate_modules:
             print(run.stdout)
             raise SystemExit(1)
         print("PASS: truncated " + name + " immediate is rejected")
+
+print("wasm loader bounds: all malformed envelopes rejected")
