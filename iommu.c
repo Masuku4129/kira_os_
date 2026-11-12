@@ -17,9 +17,16 @@
 #include "vmm.h"
 #include "ramext.h"
 #endif
+#ifdef KIRA_HOST_TEST
+__attribute__((weak)) int pci_disable_bus_master(const pci_dev_t* dev)
+{
+    (void)dev;
+    return 1; /* host IOMMU model has no PCI config backend; default to a stopped requester */
+}
+#endif
 
-#define IOMMU_MAX_DOMAINS 16
-#define IOMMU_MAX_MAPS 32
+#define IOMMU_MAX_DOMAINS 128
+#define IOMMU_MAX_MAPS 2048
 #define IOMMU_FAULT_BATCH 32
 #define IOMMU_FAULT_LOG_PER_DEVICE 8
 #define IOMMU_AW_BITS 48
@@ -28,6 +35,7 @@ typedef struct { uint64_t iova; uint32_t pages; uint32_t rw; } imap_t;
 
 typedef struct {
     uint8_t used, bus, dev, fn, unit;
+    uint8_t blocked;                    /* uncertain IOTLB state: deny future DMA */
     struct kira_vtd_domain dom;
     imap_t maps[IOMMU_MAX_MAPS];
     uint32_t nmaps;
@@ -36,6 +44,9 @@ typedef struct {
 
 static struct {
     int active;                              /* at least one unit translates */
+    int dmar_error;                          /* present but unreadable/malformed: deny PCI DMA */
+    int init_done;
+    int init_result;
     uint32_t haw;                            /* physical address width of the host, bits */
     vtd_dmar_info_t info;
     struct kira_vtd_unit unit[VTD_MAX_UNITS];
@@ -147,23 +158,30 @@ int iommu_enabled(void) {
 static void zero_bytes(void* p, size_t n) { uint8_t* b = (uint8_t*)p; while (n--) *b++ = 0; }
 
 int iommu_init(void) {
-    if (G.active) return iommu_enabled();
+    if (G.init_done) return G.init_result;
+    G.init_done = 1;
+    if (G.active) { G.init_result = iommu_enabled(); return G.init_result; }
     const acpi_info_t* ai = acpi_get();
     if (!ai || !ai->dmar_phys) {
         uart_print("[KIRA IOMMU] No DMAR table: DMA isolation is not available, devices keep unrestricted DMA.\n");
-        return 0;
+        G.init_result = 0;
+        return G.init_result;
     }
     const void* table = PLAT_DMAR(ai->dmar_phys, ai->dmar_len);
     if (!table) {
-        uart_print("[KIRA IOMMU] DMAR table cannot be read: VT-d left off, devices keep unrestricted DMA.\n");
-        return -1;
+        G.dmar_error = 1;
+        uart_print("[KIRA IOMMU] DMAR table cannot be read: PCI bus mastering remains blocked.\n");
+        G.init_result = -1;
+        return G.init_result;
     }
     int rc = vtd_dmar_parse(table, ai->dmar_len, &G.info);
     if (rc != 0) {
         zero_bytes(&G.info, sizeof G.info);
+        G.dmar_error = 1;
         uart_print("[KIRA IOMMU] DMAR table rejected ("); print_err(rc);
-        uart_print("): VT-d left off, devices keep unrestricted DMA.\n");
-        return -1;
+        uart_print("): PCI bus mastering remains blocked.\n");
+        G.init_result = -1;
+        return G.init_result;
     }
     G.haw = (uint32_t)G.info.host_address_width + 1u;
     G.plat.context = 0;
@@ -185,11 +203,11 @@ int iommu_init(void) {
         if (u->segment != 0) { uart_print(": PCI segment "); uart_print_dec(u->segment); uart_print(" is not handled, devices there stay unrestricted\n"); continue; }
         rc = kira_vtd_unit_prepare(&G.unit[i], u->register_base, u->register_bytes, IOMMU_AW_BITS, &G.plat);
         if (rc != KIRA_VTD_OK) {
-            uart_print(": cannot be prepared ("); print_err(rc); uart_print("), left off, its devices stay unrestricted\n");
+            uart_print(": cannot be prepared ("); print_err(rc); uart_print("), left off, covered devices stay bus-master blocked\n");
             continue;
         }
         if (!(G.unit[i].extended_capabilities & (1ull << 6))) {
-            uart_print(": no pass-through support, left off, its devices stay unrestricted\n");
+            uart_print(": no pass-through support, left off, covered devices stay bus-master blocked\n");
             continue;
         }
         G.usable[i] = 1;
@@ -207,7 +225,7 @@ int iommu_init(void) {
         uart_print("[KIRA IOMMU] "); print_bdf(d->bus, d->dev, d->fn); uart_print(" ");
         put_hex(d->vendor, 4); uart_print(":"); put_hex(d->device, 4);
         if (ui < 0) { uart_print(" no DMAR unit covers it: not translated, DMA unrestricted\n"); n_uncovered++; continue; }
-        if (!G.usable[ui]) { uart_print(" its DMAR unit is not active: DMA unrestricted\n"); n_uncovered++; continue; }
+        if (!G.usable[ui]) { uart_print(" its DMAR unit is not active: bus mastering blocked\n"); n_uncovered++; continue; }
         rc = kira_vtd_context_passthrough(&G.unit[ui], 0, d->bus, d->dev, d->fn, &G.plat);
         if (rc != KIRA_VTD_OK) {
             failed[ui] = 1;
@@ -249,27 +267,49 @@ int iommu_init(void) {
     uart_print(" unit(s): "); uart_print_dec(n_pass); uart_print(" device(s) passthrough (unrestricted DMA, ");
     uart_print_dec(n_rmrr); uart_print(" of them RMRR), "); uart_print_dec(n_uncovered);
     uart_print(" without translation, 0 isolated until a driver asks.\n");
-    return iommu_enabled();
+    G.init_result = iommu_enabled();
+    return G.init_result;
 }
 
 /* ---- Domains ---- */
 
 int iommu_device_isolated(const pci_dev_t* d) {
-    if (!d || !G.active) return 0;
+    if (!d || __atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE) || !G.active) return 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
-    int r = x && x->dom.active && G.on[x->unit];
+    int r = x && !x->blocked && x->dom.active && G.on[x->unit];
     spin_unlock_irqrestore(&G.lock, f);
     return r;
 }
 
+int iommu_device_ready(const pci_dev_t* d) {
+    if (!d || __atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE) || G.dmar_error) return 0;
+    int ui = unit_of(d->bus, d->dev, d->fn);
+    if (ui < 0) return 1; /* No unit covers this requester: legacy DMA policy. */
+    if (ui >= VTD_MAX_UNITS || !G.on[ui]) return 0; /* A covering unit failed: fail closed. */
+    if (rmrr_of(d->bus, d->dev, d->fn) >= 0) return 0;
+    uint64_t f = spin_lock_irqsave(&G.lock);
+    idom_t* x = dom_find(d->bus, d->dev, d->fn);
+    int ready = x && !x->blocked && x->unit == (uint8_t)ui && x->dom.active && G.on[x->unit];
+    spin_unlock_irqrestore(&G.lock, f);
+    return ready;
+}
+
 int iommu_isolate_device(const pci_dev_t* d) {
     if (!d) return IOMMU_E_ARG;
-    if (!G.active) return IOMMU_E_NONE;
+    if (__atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE)) return IOMMU_E_HW;
+    if (G.dmar_error) return IOMMU_E_HW;
     int ui = unit_of(d->bus, d->dev, d->fn);
-    int rc = IOMMU_OK, rm = -1;
+    if (ui < 0) return G.info.unit_count ? IOMMU_E_NOCOVER : IOMMU_E_NONE;
+    if (ui >= VTD_MAX_UNITS || !G.on[ui]) return IOMMU_E_HW;
+    int rc = IOMMU_OK, rm = -1, disable_master = 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
-    if (dom_find(d->bus, d->dev, d->fn)) { spin_unlock_irqrestore(&G.lock, f); return IOMMU_OK; }
+    idom_t* existing = dom_find(d->bus, d->dev, d->fn);
+    if (existing) {
+        int existing_rc = existing->blocked ? IOMMU_E_HW : IOMMU_OK;
+        spin_unlock_irqrestore(&G.lock, f);
+        return existing_rc;
+    }
     if (ui < 0 || !G.on[ui]) rc = IOMMU_E_NOCOVER;
     else if ((rm = rmrr_of(d->bus, d->dev, d->fn)) >= 0) rc = IOMMU_E_RMRR;
     else {
@@ -281,11 +321,20 @@ int iommu_isolate_device(const pci_dev_t* d) {
             int hr = kira_vtd_domain_create(&x->dom, &G.unit[ui], 0, d->bus, d->dev, d->fn, &G.plat);
             if (hr == KIRA_VTD_OK || x->dom.active) {      /* the domain is live even if the final flush failed */
                 x->used = 1; x->bus = d->bus; x->dev = d->dev; x->fn = d->fn; x->unit = (uint8_t)ui;
+                /* A published context with a failed cache invalidation is NOT
+                   proof of isolation: the requester may still use a cached
+                   pass-through translation. Keep the domain owned, but block
+                   every readiness/isolation check until explicit recovery. */
+                x->blocked = hr != KIRA_VTD_OK;
+                if (x->blocked) disable_master = 1;
                 rc = hr == KIRA_VTD_OK ? IOMMU_OK : IOMMU_E_HW;
             } else rc = hr == KIRA_VTD_MEMORY_FAILED ? IOMMU_E_NOMEM : IOMMU_E_HW;
         }
     }
     spin_unlock_irqrestore(&G.lock, f);
+    /* Do not acquire the PCI config lock while holding G.lock: pci_enable()
+       takes those locks in the opposite order when checking readiness. */
+    if (disable_master) pci_disable_bus_master(d);
     uart_print("[KIRA IOMMU] "); print_bdf(d->bus, d->dev, d->fn);
     if (rc == IOMMU_OK) uart_print(" isolated: own translation domain, no DMA allowed until buffers are mapped\n");
     else if (rc == IOMMU_E_RMRR) { uart_print(" NOT isolated: named by RMRR "); uart_print_hex(G.info.rmrr[rm].base); uart_print("-"); uart_print_hex(G.info.rmrr[rm].limit); uart_print(", stays passthrough\n"); }
@@ -296,14 +345,34 @@ int iommu_isolate_device(const pci_dev_t* d) {
 
 int iommu_release_device(const pci_dev_t* d) {
     if (!d) return IOMMU_E_ARG;
+    /* Stop new transactions before touching translations or page tables. */
+    if (!pci_disable_bus_master(d)) return IOMMU_E_HW;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
-    int rc = IOMMU_E_NOENT;
+    int rc = IOMMU_E_NOENT, disable_master = 0;
     if (x) {
-        rc = kira_vtd_domain_release(&x->dom, &G.plat) == KIRA_VTD_OK ? IOMMU_OK : IOMMU_E_HW;
-        if (rc == IOMMU_OK) zero_bytes(x, sizeof *x);
+        while (x->nmaps) {
+            imap_t *m = &x->maps[x->nmaps - 1u];
+            int unmap_rc = IOMMU_OK;
+            for (uint32_t p = 0; p < m->pages; ++p)
+                if (kira_vtd_domain_unmap_4k(&x->dom, m->iova + ((uint64_t)p << 12), &G.plat) != KIRA_VTD_OK)
+                    unmap_rc = IOMMU_E_HW;
+            if (unmap_rc != IOMMU_OK) {
+                x->blocked = 1;
+                disable_master = 1;
+                rc = IOMMU_E_HW;
+                break; /* retain uncertain mapping records and backing pages */
+            }
+            x->nmaps--;
+        }
+        if (!x->nmaps && rc != IOMMU_E_HW) {
+            rc = kira_vtd_domain_release(&x->dom, &G.plat) == KIRA_VTD_OK ? IOMMU_OK : IOMMU_E_HW;
+            if (rc == IOMMU_OK) zero_bytes(x, sizeof *x);
+            else { x->blocked = 1; disable_master = 1; }
+        }
     }
     spin_unlock_irqrestore(&G.lock, f);
+    if (disable_master) pci_disable_bus_master(d);
     if (rc == IOMMU_OK) { uart_print("[KIRA IOMMU] "); print_bdf(d->bus, d->dev, d->fn); uart_print(" back to passthrough: unrestricted DMA, NOT isolated\n"); }
     return rc;
 }
@@ -328,8 +397,13 @@ static int overlaps(const idom_t* x, uint64_t first, uint32_t pages) {
     return 0;
 }
 
-static void undo_pages(idom_t* x, uint64_t first, uint32_t done) {
-    for (uint32_t i = 0; i < done; i++) (void)kira_vtd_domain_unmap_4k(&x->dom, first + ((uint64_t)i << 12), &G.plat);
+static int undo_pages(idom_t* x, uint64_t first, uint32_t done) {
+    int rc = IOMMU_OK;
+    for (uint32_t i = 0; i < done; i++)
+        if (kira_vtd_domain_unmap_4k(&x->dom, first + ((uint64_t)i << 12), &G.plat) != KIRA_VTD_OK)
+            rc = IOMMU_E_HW;
+    if (rc != IOMMU_OK) x->blocked = 1;
+    return rc;
 }
 
 int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, unsigned rw) {
@@ -343,7 +417,7 @@ int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, un
     int rc = IOMMU_OK;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
-    if (!x || !x->dom.active) rc = IOMMU_E_NOENT;
+    if (!x || !x->dom.active || x->blocked) rc = IOMMU_E_NOENT;
     else if (x->nmaps >= IOMMU_MAX_MAPS || overlaps(x, first, pages)) rc = IOMMU_E_EXIST;
     else {
         uint32_t perm = (rw & IOMMU_R ? KIRA_VTD_MAP_READ : 0) | (rw & IOMMU_W ? KIRA_VTD_MAP_WRITE : 0);
@@ -352,10 +426,20 @@ int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, un
             int hr = kira_vtd_domain_map_4k(&x->dom, first + ((uint64_t)i << 12), pfirst + ((uint64_t)i << 12), perm, &G.plat);
             if (hr != KIRA_VTD_OK) { rc = hr == KIRA_VTD_MEMORY_FAILED ? IOMMU_E_NOMEM : IOMMU_E_HW; break; }
         }
-        if (rc != IOMMU_OK) undo_pages(x, first, i + 1u > pages ? pages : i + 1u);   /* the failing page may have been installed before its flush failed */
-        else { x->maps[x->nmaps].iova = first; x->maps[x->nmaps].pages = pages; x->maps[x->nmaps].rw = rw; x->nmaps++; }
+        if (rc != IOMMU_OK) {
+            uint32_t attempted = i + 1u > pages ? pages : i + 1u;
+            if (undo_pages(x, first, attempted) != IOMMU_OK) {
+                /* Keep the caller's backing pinned if any PTE/TLB state is uncertain. */
+                x->maps[x->nmaps].iova = first;
+                x->maps[x->nmaps].pages = attempted;
+                x->maps[x->nmaps].rw = rw;
+                x->nmaps++;
+            }
+        } else { x->maps[x->nmaps].iova = first; x->maps[x->nmaps].pages = pages; x->maps[x->nmaps].rw = rw; x->nmaps++; }
     }
+    int disable_master = x && x->blocked;
     spin_unlock_irqrestore(&G.lock, f);
+    if (disable_master) pci_disable_bus_master(d);
     return rc;
 }
 
@@ -372,22 +456,40 @@ int iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len) {
         rc = IOMMU_OK;
         for (uint32_t p = 0; p < pages; p++)
             if (kira_vtd_domain_unmap_4k(&x->dom, first + ((uint64_t)p << 12), &G.plat) != KIRA_VTD_OK) rc = IOMMU_E_HW;
-        x->maps[i] = x->maps[--x->nmaps];
+        if (rc == IOMMU_OK) x->maps[i] = x->maps[--x->nmaps];
+        else x->blocked = 1; /* do not release backing while a stale translation may survive */
         break;
     }
+    int disable_master = rc == IOMMU_E_HW;
     spin_unlock_irqrestore(&G.lock, f);
+    if (disable_master) pci_disable_bus_master(d);
     return rc;
 }
 
-void iommu_unmap_all(const pci_dev_t* d) {
-    if (!d || !G.active) return;
+int iommu_unmap_all(const pci_dev_t* d) {
+    if (!d) return IOMMU_E_ARG;
+    if (!G.active) return IOMMU_OK;
+    /* Revocation is only safe after the requester has stopped issuing DMA. */
+    if (!pci_disable_bus_master(d)) return IOMMU_E_HW;
+    int failed = 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
     while (x && x->nmaps) {
-        imap_t m = x->maps[--x->nmaps];
-        for (uint32_t p = 0; p < m.pages; p++) (void)kira_vtd_domain_unmap_4k(&x->dom, m.iova + ((uint64_t)p << 12), &G.plat);
+        imap_t *m = &x->maps[x->nmaps - 1u];
+        int rc = IOMMU_OK;
+        for (uint32_t p = 0; p < m->pages; p++)
+            if (kira_vtd_domain_unmap_4k(&x->dom, m->iova + ((uint64_t)p << 12), &G.plat) != KIRA_VTD_OK)
+                rc = IOMMU_E_HW;
+        if (rc != IOMMU_OK) {
+            x->blocked = 1;
+            failed = 1;
+            break; /* retain record and pin backing pages */
+        }
+        x->nmaps--;
     }
     spin_unlock_irqrestore(&G.lock, f);
+    if (failed) { (void)pci_disable_bus_master(d); return IOMMU_E_HW; }
+    return IOMMU_OK;
 }
 
 /* ---- Faults ---- */

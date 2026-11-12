@@ -1,11 +1,26 @@
 #include "pci.h"
+#include "iommu.h"
+#ifdef KIRA_HOST_TEST
+/* Most host models do not instantiate a hardware IOMMU. Dedicated PCI policy
+   tests provide a strong override to exercise both allowed and denied states. */
+__attribute__((weak)) int iommu_device_ready(const pci_dev_t* dev)
+{
+    (void)dev;
+    return 1;
+}
+#endif
+#if !defined(KIRA_HOST_TEST)
+#include "spinlock.h"
+#include "uart.h"
+static spinlock_t cfg_rmw_lock = SPINLOCK_INIT;
+#endif
 
 #if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
-#include "spinlock.h"
 /* Порты 0xCF8/0xCFC - пара обращений: с драйверов Ring 3 (kdrv.c) конфигурацию читают и пишут разные ядра и потоки одновременно. */
 static spinlock_t cfg_port_lock = SPINLOCK_INIT;
 static inline void outl(uint16_t p, uint32_t v) { __asm__ volatile ("outl %0, %1" : : "a"(v), "Nd"(p)); }
 static inline uint32_t inl(uint16_t p) { uint32_t v; __asm__ volatile ("inl %1, %0" : "=a"(v) : "Nd"(p)); return v; }
+
 #endif
 
 /* Порты 0xCF8/0xCFC - только у x86; на других архитектурах конфигурация - через ECAM (pci_use_ecam). */
@@ -34,26 +49,87 @@ static void port_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uin
 /* ECAM (PCI Express): конфигурация каждой функции - 4 КБ по адресу base + (шина << 20 | устройство << 15 |
    функция << 12). Так её видят ARM-платы (дерево устройств: pci-host-ecam-generic) и x86 с таблицей MCFG. */
 static volatile uint8_t* ecam;
+static uint64_t ecam_size;
 static uint8_t ecam_bus0, ecam_bus1;
 
 static pci_backend_t be = { port_read32, port_write32 };
 static pci_dev_t devs[PCI_MAX_DEVS];
 static int ndevs;
 static uint8_t bus_seen[256];
+/* Quarantine identity is independent of enumeration order: a rescan or hotplug
+   must never make a requester eligible for bus mastering after a failed stop. */
+typedef struct { uint8_t bus, dev, fn; uint16_t vendor, device; } pci_dma_quarantine_t;
+static pci_dma_quarantine_t dma_quarantine[PCI_MAX_DEVS];
+static unsigned dma_quarantine_count;
+static int dma_quarantine_overflow;
+
+static int quarantine_matches(uint8_t bus, uint8_t dev, uint8_t fn,
+                              uint16_t vendor, uint16_t device) {
+#if !defined(KIRA_HOST_TEST)
+    uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
+#endif
+    int found = 0;
+    unsigned count = __atomic_load_n(&dma_quarantine_count, __ATOMIC_ACQUIRE);
+    for (unsigned i = 0; i < count; ++i) {
+        const pci_dma_quarantine_t* q = &dma_quarantine[i];
+        if (q->bus == bus && q->dev == dev && q->fn == fn &&
+            q->vendor == vendor && q->device == device) {
+            found = 1;
+            break;
+        }
+    }
+#if !defined(KIRA_HOST_TEST)
+    spin_unlock_irqrestore(&cfg_rmw_lock, flags);
+#endif
+    return found;
+}
+static void quarantine_record(const pci_dev_t* d) {
+    if (!d) return;
+    /* Caller holds cfg_rmw_lock: do not call quarantine_matches(), which
+       acquires the same lock for scan-time readers. */
+    for (unsigned i = 0; i < dma_quarantine_count; ++i) {
+        const pci_dma_quarantine_t* q = &dma_quarantine[i];
+        if (q->bus == d->bus && q->dev == d->dev && q->fn == d->fn &&
+            q->vendor == d->vendor && q->device == d->device)
+            return;
+    }
+    if (dma_quarantine_count >= PCI_MAX_DEVS) {
+        __atomic_store_n(&dma_quarantine_overflow, 1, __ATOMIC_RELEASE); /* fail closed globally rather than lose a quarantine */
+        return;
+    }
+    pci_dma_quarantine_t* q = &dma_quarantine[dma_quarantine_count++];
+    q->bus = d->bus; q->dev = d->dev; q->fn = d->fn;
+    q->vendor = d->vendor; q->device = d->device;
+}
 
 void pci_set_backend(const pci_backend_t* b) {
     ecam = 0;
+    ecam_size = 0;
     ecam_bus0 = ecam_bus1 = 0;
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
 }
 
 static uint32_t ecam_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
-    if (bus < ecam_bus0 || bus > ecam_bus1) return 0xFFFFFFFFu;
-    return *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC)));
+    uint64_t offset;
+    if (!ecam || bus < ecam_bus0 || bus > ecam_bus1 ||
+        dev >= 32u || fn >= 8u || off > 0xffcu || (off & 3u))
+        return 0xFFFFFFFFu;
+    offset = ((uint64_t)(bus - ecam_bus0) << 20) |
+             ((uint64_t)dev << 15) | ((uint64_t)fn << 12) | off;
+    if (offset > ecam_size || ecam_size - offset < sizeof(uint32_t))
+        return 0xFFFFFFFFu;
+    return *(volatile uint32_t*)(ecam + offset);
 }
 static void ecam_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t v) {
-    if (bus < ecam_bus0 || bus > ecam_bus1) return;
-    *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC))) = v;
+    uint64_t offset;
+    if (!ecam || bus < ecam_bus0 || bus > ecam_bus1 ||
+        dev >= 32u || fn >= 8u || off > 0xffcu || (off & 3u))
+        return;
+    offset = ((uint64_t)(bus - ecam_bus0) << 20) |
+             ((uint64_t)dev << 15) | ((uint64_t)fn << 12) | off;
+    if (offset > ecam_size || ecam_size - offset < sizeof(uint32_t))
+        return;
+    *(volatile uint32_t*)(ecam + offset) = v;
 }
 int pci_ecam_bus_range(uint64_t ecam_size, int has_bus_range, uint32_t bus_start,
                        uint32_t bus_end, uint8_t* first, uint8_t* last) {
@@ -80,9 +156,34 @@ int pci_ecam_bus_range(uint64_t ecam_size, int has_bus_range, uint32_t bus_start
     return 0;
 }
 
+int pci_configure_ecam(const pci_ecam_config_t* config) {
+    uint64_t required_buses;
+    if (!config || !config->base ||
+        ((uintptr_t)config->base & 0xfffu) != 0 ||
+        config->first_bus > config->last_bus ||
+        config->size < (1ull << 20))
+        return -1;
+    required_buses = (uint64_t)config->last_bus - config->first_bus + 1u;
+    if (required_buses > config->size / (1ull << 20))
+        return -1;
+    ecam = (volatile uint8_t*)config->base;
+    ecam_size = config->size;
+    ecam_bus0 = config->first_bus;
+    ecam_bus1 = config->last_bus;
+    be.read32 = ecam_read32;
+    be.write32 = ecam_write32;
+    return 0;
+}
+
 void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end) {
-    ecam = (volatile uint8_t*)base; ecam_bus0 = bus_start; ecam_bus1 = bus_end;
-    be.read32 = ecam_read32; be.write32 = ecam_write32;
+    pci_ecam_config_t config = {
+        .base = base,
+        .size = bus_start <= bus_end ?
+                ((uint64_t)bus_end - bus_start + 1u) << 20 : 0,
+        .first_bus = bus_start,
+        .last_bus = bus_end
+    };
+    (void)pci_configure_ecam(&config);
 }
 
 /* Назначение адресов BAR, когда прошивка этого не сделала (ARM без UEFI: ядро загружено напрямую). Окна - из
@@ -124,16 +225,76 @@ static uint32_t cr32(const pci_dev_t* d, uint16_t off) { return be.read32(d->bus
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { return cr32(d, off); }
 uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { return (uint16_t)(cr32(d, off & ~3) >> ((off & 2) * 8)); }
 uint8_t pci_read8(const pci_dev_t* d, uint16_t off) { return (uint8_t)(cr32(d, off & ~3) >> ((off & 3) * 8)); }
-void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { be.write32(d->bus, d->dev, d->fn, off, v); }
+int pci_is_bridge(const pci_dev_t* d)
+{
+    return d && d->class_code == 0x06 && d->subclass == 0x04 &&
+           (d->header_type & 0x7Fu) == 1u;
+}
+void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) {
+    /* Command/status is not a normal dword: status bits are W1C and DMA
+       authorization must pass through the same gate as pci_enable(). */
+    if (off == 0x04) {
+        pci_write16(d, 0x04, (uint16_t)v);
+        return;
+    }
+    be.write32(d->bus, d->dev, d->fn, off, v);
+}
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) {
+#if !defined(KIRA_HOST_TEST)
+    uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
+#endif
     uint32_t w = cr32(d, off & ~3), sh = (off & 2) * 8;
-    if ((off & ~3) == 0x04) w &= 0x0000FFFFu;                        /* старшая половина - статус с битами «сбросить записью 1» */
+    if ((off & ~3) == 0x04) w &= 0x0000FFFFu;                        /* status is W1C */
     w = (w & ~(0xFFFFu << sh)) | ((uint32_t)v << sh);
+#if defined(__aarch64__) || defined(__x86_64__)
+    if (off == 0x04 && (w & PCI_CMD_MASTER) && !pci_is_bridge(d) &&
+        (__atomic_load_n(&dma_quarantine_overflow, __ATOMIC_ACQUIRE) || __atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE) || !iommu_device_ready(d)))
+        w &= (uint32_t)~PCI_CMD_MASTER;
+#endif
     be.write32(d->bus, d->dev, d->fn, off & ~3, w);
+#if !defined(KIRA_HOST_TEST)
+    spin_unlock_irqrestore(&cfg_rmw_lock, flags);
+#endif
 }
 
 void pci_enable(const pci_dev_t* d, uint16_t bits) {
-    pci_write16(d, 0x04, (uint16_t)(pci_read16(d, 0x04) | bits));
+#if !defined(KIRA_HOST_TEST)
+    uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
+#endif
+#if defined(__aarch64__) || defined(__x86_64__)
+    /* Recheck under the config lock so a concurrent IOMMU quarantine wins. */
+    if ((bits & PCI_CMD_MASTER) && !pci_is_bridge(d) &&
+        (__atomic_load_n(&dma_quarantine_overflow, __ATOMIC_ACQUIRE) || __atomic_load_n(&d->dma_quarantined, __ATOMIC_ACQUIRE) || !iommu_device_ready(d)))
+        bits &= (uint16_t)~PCI_CMD_MASTER;
+#endif
+    uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
+    value |= bits;
+    be.write32(d->bus, d->dev, d->fn, 0x04, value);
+#if !defined(KIRA_HOST_TEST)
+    spin_unlock_irqrestore(&cfg_rmw_lock, flags);
+#endif
+}
+
+int pci_disable_bus_master(const pci_dev_t* d) {
+    /* A PCI-to-PCI bridge forwards transactions from isolated downstream
+       functions; its Bus Master bit is a forwarding gate, not a DMA engine. */
+    if (!d) return 0;
+    if (pci_is_bridge(d)) return 1;
+#if !defined(KIRA_HOST_TEST)
+    uint64_t flags = spin_lock_irqsave(&cfg_rmw_lock);
+#endif
+    uint32_t value = cr32(d, 0x04) & 0x0000FFFFu;
+    value &= (uint32_t)~PCI_CMD_MASTER;
+    be.write32(d->bus, d->dev, d->fn, 0x04, value);
+    int disabled = (cr32(d, 0x04) & PCI_CMD_MASTER) == 0;
+    if (!disabled) {
+        __atomic_store_n((volatile uint8_t*)&d->dma_quarantined, 1u, __ATOMIC_RELEASE);
+        quarantine_record(d);
+    }
+#if !defined(KIRA_HOST_TEST)
+    spin_unlock_irqrestore(&cfg_rmw_lock, flags);
+#endif
+    return disabled;
 }
 
 /* Размер и тип BAR: пишем единицы, читаем маску, возвращаем исходное значение. Декодирование на время зонда выключено. */
@@ -149,8 +310,8 @@ static void probe_bars(pci_dev_t* d) {
         uint32_t mask = pci_read32(d, off);
         pci_write32(d, off, orig);
         if (mask == 0 || mask == 0xFFFFFFFFu) continue;
-        if (orig & 1) {                                           /* порты ввода-вывода */
-            uint32_t m = (mask & ~3u) | 0xFFFF0000u;                  /* порты - 16 бит: старшие биты маски не значимы */
+        if (orig & 1) {
+            uint32_t m = (mask & ~3u) | 0xFFFF0000u;
             d->bar[i].io = 1; d->bar[i].base = orig & ~3u;
             d->bar[i].size = ~m + 1;
             continue;
@@ -167,7 +328,7 @@ static void probe_bars(pci_dev_t* d) {
             base |= (uint64_t)orig_hi << 32; m |= (uint64_t)mask_hi << 32;
             d->bar[i].mem64 = 1;
             d->bar[i].base = base; d->bar[i].size = ~m + 1;
-            i++;                                                   /* BAR i+1 - старшая половина, самостоятельного BAR нет */
+            i++;
         } else {
             d->bar[i].base = base; d->bar[i].size = (uint32_t)(~(uint32_t)m + 1);
         }
@@ -179,18 +340,33 @@ static void scan_bus(uint8_t bus);
 
 static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = fn;
+#ifndef KIRA_HOST_TEST
+#endif
     uint32_t id = cr32(&t, 0);
     if ((id & 0xFFFF) == 0xFFFF) return;
     if (ndevs >= PCI_MAX_DEVS) return;
     pci_dev_t* d = &devs[ndevs++];
+    /* Preserve a failed-stop quarantine across rescans of the same function. */
+    uint8_t quarantined = quarantine_matches(bus, dev, fn,
+                          (uint16_t)id, (uint16_t)(id >> 16));
+    __builtin_memset(d, 0, sizeof *d);
     d->bus = bus; d->dev = dev; d->fn = fn;
     d->vendor = (uint16_t)id; d->device = (uint16_t)(id >> 16);
+    d->dma_quarantined = quarantined;
     uint32_t cls = cr32(d, 0x08);
     d->revision = (uint8_t)cls; d->prog_if = (uint8_t)(cls >> 8); d->subclass = (uint8_t)(cls >> 16); d->class_code = (uint8_t)(cls >> 24);
     d->header_type = pci_read8(d, 0x0E);
+#ifndef KIRA_HOST_TEST
+#endif
+    pci_disable_bus_master(d);
+#ifndef KIRA_HOST_TEST
+#endif
     probe_bars(d);
-    if ((d->header_type & 0x7F) == 1 && d->class_code == 6 && d->subclass == 4) {
-        uint8_t sec = pci_read8(d, 0x19);                          /* вторичная шина моста */
+#ifndef KIRA_HOST_TEST
+#endif
+    if (pci_is_bridge(d)) {
+        pci_enable(d, PCI_CMD_MASTER);
+        uint8_t sec = pci_read8(d, 0x19);
         if (sec) scan_bus(sec);
     }
 }
@@ -198,13 +374,27 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
 static void scan_bus(uint8_t bus) {
     if (bus_seen[bus]) return;                                       /* защита от петель в неверно настроенных мостах */
     bus_seen[bus] = 1;
+#ifndef KIRA_HOST_TEST
+#endif
     for (uint8_t dev = 0; dev < 32; dev++) {
         pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = 0;
+#ifndef KIRA_HOST_TEST
+#endif
         if ((cr32(&t, 0) & 0xFFFF) == 0xFFFF) continue;
+#ifndef KIRA_HOST_TEST
+#endif
         uint8_t multi = pci_read8(&t, 0x0E) & 0x80;
+#ifndef KIRA_HOST_TEST
+#endif
         scan_fn(bus, dev, 0);
-        if (multi) for (uint8_t fn = 1; fn < 8; fn++) scan_fn(bus, dev, fn);
+        if (multi) for (uint8_t fn = 1; fn < 8; fn++) {
+#ifndef KIRA_HOST_TEST
+#endif
+            scan_fn(bus, dev, fn);
+        }
     }
+#ifndef KIRA_HOST_TEST
+#endif
 }
 
 int pci_init(void) {

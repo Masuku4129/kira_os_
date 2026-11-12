@@ -45,8 +45,8 @@ int  virtio_attach(virtio_dev_t* v, const pci_dev_t* pci);
 /* Сброс, ACK, DRIVER, согласование признаков (нужен VERSION_1; из want берутся только предложенные), FEATURES_OK. */
 int  virtio_begin(virtio_dev_t* v, uint64_t want);
 int  virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size);
-void virtio_driver_ok(virtio_dev_t* v);
-void virtio_fail(virtio_dev_t* v);                      /* FAILED + сброс: устройство больше не пишет в нашу память */
+int virtio_driver_ok(virtio_dev_t* v);
+int virtio_fail(virtio_dev_t* v);                      /* FAILED + сброс: устройство больше не пишет в нашу память */
 /* Отправляет цепочку буферов (до 8) и ждёт завершения. 0 - готово, -1 - таймаут. */
 int  virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n);
 
@@ -66,6 +66,8 @@ int  virtio_iommu_check(virtio_dev_t* v);
 
 /* Непрерывная память для DMA (обнулена). Возвращает указатель; *phys - адрес для устройства. 0 - нет памяти. */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
+int virtio_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes);
+int virtio_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes);
 
 /* Блочное устройство virtio-blk. NULL - такого устройства нет или оно не поднялось. */
 struct blk_dev;

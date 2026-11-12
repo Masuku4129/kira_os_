@@ -2,6 +2,7 @@
 #include "blk.h"
 #include "msi.h"
 #include "pci.h"
+#include "iommu.h"
 #include "uart.h"
 
 /* AHCI (SATA): контроллер в памяти (BAR5, «ABAR»), у каждого порта - список команд, область принятых FIS и таблица
@@ -56,10 +57,12 @@
 
 typedef struct {
     int used;
+    const pci_dev_t* pci;
     volatile uint8_t* abar;
     int s64;
     uint32_t cap;
     int irq;                            /* события портов приходят сообщением MSI */
+    int dma_failed;                     /* SMMU failure quarantines the whole controller */
 } ahci_ctl_t;
 
 typedef struct {
@@ -239,6 +242,48 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     if (!c->s64 && (p->mem_phys + 4096 > 0x100000000ull || p->buf_phys + BOUNCE > 0x100000000ull)) {
         uart_print("[KIRA AHCI] controller is 32-bit, DMA memory above 4 GB: port skipped\n"); return;
     }
+#if defined(__aarch64__) || defined(__x86_64__)
+    if (!iommu_device_ready(c->pci)) {
+        if (pci_disable_bus_master(c->pci)) {
+            iommu_unmap_all(c->pci);
+        } else {
+            uart_print("[KIRA AHCI] bus mastering did not stop; DMA mappings remain pinned.\n");
+        }
+        c->dma_failed = 1;
+        uart_print("[KIRA AHCI] requester lost DMA authorization; controller quarantined.\n");
+        return;
+    }
+    if (iommu_device_isolated(c->pci)) {
+        int map_rc = iommu_map(c->pci, p->mem_phys, p->mem_phys, 4096, IOMMU_R | IOMMU_W);
+        if (map_rc != IOMMU_OK) {
+            if (!iommu_device_ready(c->pci)) {
+                if (pci_disable_bus_master(c->pci))
+                    iommu_unmap_all(c->pci);
+                else
+                    uart_print("[KIRA AHCI] bus mastering did not stop; mappings remain pinned.\n");
+                c->dma_failed = 1;
+            }
+            uart_print("[KIRA AHCI] command/FIS DMA mapping failed; port skipped.\n");
+            return;
+        }
+        map_rc = iommu_map(c->pci, p->buf_phys, p->buf_phys, BOUNCE, IOMMU_R | IOMMU_W);
+        if (map_rc != IOMMU_OK) {
+            /* This port has not been started: roll back only its first map so
+               already-running ports keep their valid DMA mappings. A failed
+               rollback or SMMU quarantine shuts down the entire controller. */
+            if (!iommu_device_ready(c->pci) ||
+                iommu_unmap(c->pci, p->mem_phys, 4096) != IOMMU_OK) {
+                if (pci_disable_bus_master(c->pci))
+                    iommu_unmap_all(c->pci);
+                else
+                    uart_print("[KIRA AHCI] bus mastering did not stop; mappings remain pinned.\n");
+                c->dma_failed = 1;
+            }
+            uart_print("[KIRA AHCI] data DMA mapping failed; port skipped.\n");
+            return;
+        }
+    }
+#endif
     w32(pr, P_CLB, (uint32_t)p->mem_phys); w32(pr, P_CLB + 4, (uint32_t)(p->mem_phys >> 32));
     uint64_t fb = p->mem_phys + 0x400;
     w32(pr, P_FB, (uint32_t)fb); w32(pr, P_FB + 4, (uint32_t)(fb >> 32));
@@ -253,6 +298,16 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     }
     w32(pr, P_SERR, 0xFFFFFFFFu);
     w32(pr, P_IS, 0xFFFFFFFFu);
+    pci_enable(c->pci, PCI_CMD_MASTER);
+    if (!(pci_read16(c->pci, 0x04) & PCI_CMD_MASTER)) {
+        if (pci_disable_bus_master(c->pci))
+            (void)iommu_unmap_all(c->pci);
+        else
+            uart_print("[KIRA AHCI] bus mastering did not stop; DMA mappings remain pinned.\n");
+        c->dma_failed = 1;
+        uart_print("[KIRA AHCI] PCI DMA authorization was not granted; controller quarantined.\n");
+        return;
+    }
     if (port_start(p)) { uart_print("[KIRA AHCI] port "); uart_print_dec((uint64_t)pn); uart_print(": device stays busy\n"); return; }
     uint32_t sig = r32(pr, P_SIG);
     if (sig == 0xEB140101u) { uart_print("[KIRA AHCI] port "); uart_print_dec((uint64_t)pn); uart_print(": optical drive (ATAPI) - not used yet\n"); port_stop(p); return; }
@@ -296,12 +351,31 @@ static void ahci_irq(void* ctx) {
 
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[5].io || !pd->bar[5].base || pd->bar[5].size < 0x180) { uart_print("[KIRA AHCI] controller without ABAR: skipped\n"); return; }
-    pci_enable(pd, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+#if defined(__aarch64__) || defined(__x86_64__)
+    int iommu_rc = iommu_isolate_device(pd);
+    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
+        iommu_rc != IOMMU_E_NOCOVER) {
+        uart_print("[KIRA AHCI] IOMMU isolation failed; controller disabled.\n");
+        return;
+    }
+    if (!iommu_device_ready(pd)) {
+        uart_print("[KIRA AHCI] requester is not isolated or safely unrestricted; controller disabled.\n");
+        return;
+    }
+#endif
+
+    if (!pci_disable_bus_master(pd)) {
+        uart_print("[KIRA AHCI] inherited bus mastering cannot be disabled; controller quarantined.\n");
+        return;
+    }
+    pci_enable(pd, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     uint64_t sz = pd->bar[5].size > 0x1100 ? 0x1100 : pd->bar[5].size;
     volatile uint8_t* ab = (volatile uint8_t*)pci_map_bar(pd, 5, 0, sz);
     if (!ab) { uart_print("[KIRA AHCI] cannot map ABAR\n"); return; }
     ahci_ctl_t* c = &ctls[ci];
+    c->pci = pd;
     c->abar = ab;
+    c->dma_failed = 0;
     w32(ab, GHC, r32(ab, GHC) | GHC_AE);
     if (r32(ab, CAP2) & 1u) {                                          /* BIOS/OS handoff */
         w32(ab, BOHC, r32(ab, BOHC) | 2u);
@@ -327,7 +401,11 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     uart_print(c->irq ? ", completion by MSI interrupt\n" : ", polled\n");
     blk_udelay(10000);                                                 /* линии успевают подняться после сброса */
     if ((uint64_t)0x100 + 0x80 * MAXPORT > sz) pi &= (uint32_t)((1ull << ((sz - 0x100) / 0x80)) - 1);
-    for (int pn = 0; pn < MAXPORT; pn++) if (pi & (1u << pn)) port_init(c, pn, ci);
+    for (int pn = 0; pn < MAXPORT; pn++) {
+        if (!(pi & (1u << pn))) continue;
+        port_init(c, pn, ci);
+        if (c->dma_failed) break;
+    }
     c->used = 1;
 }
 

@@ -40,6 +40,7 @@ static uint64_t R64(uint8_t* b, unsigned off) { return (uint64_t)*R(b, off) | (u
 static mdev_t devm[4];                    /* порты 1..4 */
 static uint32_t port_state[5], port_last[5];
 static int running;
+static uint16_t pci_command;
 static uint64_t cr_deq; static uint32_t cr_cycle;
 static uint64_t ev_base; static uint32_t ev_size, ev_enq, ev_cycle;
 static struct { int used, port; mdev_t* dev; uint64_t ep_deq[32]; uint32_t ep_cycle[32]; int maxp0, halted[32], type[32], maxp[32], hub, hub_ports; } slots[17];
@@ -241,6 +242,7 @@ static void step(void) {
         return;
     }
     if ((c & 1) && !running) {
+        CHECK(pci_command & PCI_CMD_MASTER); /* DMA authorization precedes controller execution. */
         running = 1; *R(OP, 4) &= ~1u;
         uint64_t crcr = R64(OP, 0x18); cr_deq = crcr & ~63ull; cr_cycle = crcr & 1;
         CHECK(*R(RT, 0x28) == 1);
@@ -287,7 +289,9 @@ static char logbuf[16384];
 void usb_log(const char* s) { strncat(logbuf, s, sizeof logbuf - strlen(logbuf) - 1); }
 void usb_log_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsigned long long)v); usb_log(b); }
 void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); usb_log(b); }
-void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; (void)b; }
+void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; pci_command |= b; }
+uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { (void)d; return off == 0x04 ? pci_command : 0; }
+int pci_disable_bus_master(const pci_dev_t* d) { (void)d; pci_command &= (uint16_t)~PCI_CMD_MASTER; return 1; }
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { (void)d; (void)off; return 0; }
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { (void)d; (void)off; (void)v; }
 volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t len) { (void)d; (void)bar; (void)len; return regs + off; }

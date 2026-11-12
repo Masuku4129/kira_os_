@@ -8,7 +8,7 @@
 } } while (0)
 
 static _Alignas(PAGE) uint8_t registers_page[2u * PAGE];
-static _Alignas(PAGE) uint8_t dma_pool[12u * PAGE];
+static _Alignas(16384) uint8_t dma_pool[12u * PAGE];
 static unsigned alloc_calls, free_calls, clean_calls, map_calls;
 static unsigned fail_alloc_at, misalign_alloc_at;
 static size_t freed_pages, pool_used;
@@ -58,6 +58,43 @@ static void test_clean_cache(void *context, const void *address, size_t length)
     ++clean_calls;
 }
 
+static void test_invalidate_cache(void *context, const void *address, size_t length)
+{
+    (void)context;
+    (void)address;
+    (void)length;
+}
+
+static void test_barrier(void *context)
+{
+    (void)context;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+}
+
+static void test_delay(void *context)
+{
+    uint32_t cr0 = *(volatile uint32_t *)(registers_page + 0x0020u);
+    uint32_t gbpa = *(volatile uint32_t *)(registers_page + 0x0044u);
+    (void)context;
+    *(volatile uint32_t *)(registers_page + 0x0024u) = cr0 & 0x0du;
+    *(volatile uint32_t *)(registers_page + 0x009cu) =
+        *(volatile uint32_t *)(registers_page + 0x0098u) & 0x1ffu;
+    if (gbpa & (1u << 31))
+        *(volatile uint32_t *)(registers_page + 0x0044u) = gbpa & ~(1u << 31);
+}
+
+static int test_quiesce_devices(void *context)
+{
+    (void)context;
+    return 0;
+}
+
+static void test_report_event(void *context, const uint64_t event[4])
+{
+    (void)context;
+    (void)event;
+}
+
 static void reset_test_platform(void)
 {
     memset(registers_page, 0, sizeof(registers_page));
@@ -65,7 +102,7 @@ static void reset_test_platform(void)
     alloc_calls = free_calls = clean_calls = map_calls = 0;
     fail_alloc_at = misalign_alloc_at = 0;
     freed_pages = pool_used = 0;
-    next_physical = 0x201000u;
+    next_physical = 0x200000u;
     *(uint32_t *)(registers_page + 0x0000u) = 1u;
     *(uint32_t *)(registers_page + 0x0004u) = (8u << 21) | (8u << 16) | 8u;
 }
@@ -78,6 +115,12 @@ static struct kira_smmu_platform platform(void)
     p.alloc_dma_pages = test_alloc_dma_pages;
     p.free_dma_pages = test_free_dma_pages;
     p.clean_cache = test_clean_cache;
+    p.invalidate_cache = test_invalidate_cache;
+    p.write_barrier = test_barrier;
+    p.read_barrier = test_barrier;
+    p.delay = test_delay;
+    p.quiesce_devices = test_quiesce_devices;
+    p.report_event = test_report_event;
     return p;
 }
 
@@ -100,6 +143,14 @@ int main(void)
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100001u, &p) == KIRA_SMMU_INVALID);
     CHECK(map_calls == 0);
 
+    /* Reserved ST_LEVEL encodings are rejected; 0 and 1 both permit linear tables. */
+    reset_test_platform();
+    *(uint32_t *)(registers_page + 0x0000u) = 1u | (2u << 27);
+    p = platform();
+    memset(&smmu, 0, sizeof(smmu));
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
+    CHECK(alloc_calls == 0);
+
     /* Unsupported identification is rejected before allocating DMA memory. */
     reset_test_platform();
     *(uint32_t *)(registers_page + 0x0000u) = 0;
@@ -111,32 +162,53 @@ int main(void)
     reset_test_platform();
     p = platform();
     memset(&smmu, 0, sizeof(smmu));
-    *(uint32_t *)(registers_page + 0x0020u) = 0x0du;
     CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_OK);
     CHECK(*(uint32_t *)(registers_page + 0x0020u) == 0u);
     CHECK(alloc_calls == 3 && free_calls == 0);
-    CHECK(smmu.stream_table == dma_pool + 3u * PAGE);
-    CHECK(smmu.stream_table_physical == next_physical + 3u * PAGE);
+    CHECK(smmu.stream_table == dma_pool);
+    CHECK(smmu.stream_table_physical == next_physical);
     CHECK(smmu.cmdq == dma_pool + 7u * PAGE);
-    CHECK(smmu.evtq == dma_pool + 9u * PAGE);
-    CHECK(smmu.evtq_physical == next_physical + 9u * PAGE);
+    CHECK(smmu.evtq == dma_pool + 8u * PAGE);
+    CHECK(smmu.evtq_physical == next_physical + 8u * PAGE);
     CHECK(smmu.evtq_allocation_pages == 3u);
     CHECK(smmu.queue_entries == 256u && smmu.enabled == 0);
     CHECK(smmu.stream_id_limit == 256u);
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_INVALID);
+    CHECK(alloc_calls == 3);
     CHECK(*(uint32_t *)(registers_page + 0x0088u) == 8u);
     CHECK((smmu.stream_table_physical & 0x3fffu) == 0);
     CHECK(*(uint64_t *)(registers_page + 0x0080u) ==
           smmu.stream_table_physical);
     CHECK(clean_calls == 3);
+    CHECK((*(uint32_t *)(registers_page + 0x0044u) & (1u << 20)) != 0);
+    CHECK((*(uint32_t *)(registers_page + 0x0044u) & (1u << 31)) == 0);
 
     /* The hardware queue base registers encode LOG2SIZE=8, not a valid bit. */
-    CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_TIMEOUT);
+    CHECK(kira_smmu_v3_enable(&smmu, &p) == KIRA_SMMU_OK);
+    CHECK(*(uint32_t *)(registers_page + 0x0028u) == 0x0d75u);
+    CHECK(*(uint32_t *)(registers_page + 0x002cu) == 0x6u);
+    CHECK(*(uint32_t *)(registers_page + 0x0020u) == 0x0du);
+    CHECK(smmu.enabled == 1);
+    CHECK(smmu.cmdq_producer == 4u); /* CFGI_ALL/SYNC + TLBI_NSNH_ALL/SYNC */
+    CHECK(((uint64_t*)smmu.cmdq)[0] == 0x04u);
+    CHECK(((uint64_t*)smmu.cmdq)[1] == 31u);
+    CHECK(((uint64_t*)smmu.cmdq)[2] == 0x46u);
+    CHECK(((uint64_t*)smmu.cmdq)[4] == 0x30u);
+    CHECK(((uint64_t*)smmu.cmdq)[6] == 0x46u);
     CHECK(*(uint64_t *)(registers_page + 0x0090u) ==
           ((smmu.cmdq_physical & 0x000fffffffffffe0ull) | 8ull));
     CHECK(*(uint64_t *)(registers_page + 0x00a0u) ==
           ((smmu.evtq_physical & 0x000fffffffffffe0ull) | 8ull));
-    CHECK(*(uint32_t *)(registers_page + 0x10a8u) == 0u);
-    CHECK(*(uint32_t *)(registers_page + 0x10acu) == 0u);
+    CHECK(*(uint32_t *)(registers_page + 0x00a8u) == 0u);
+    CHECK(*(uint32_t *)(registers_page + 0x00acu) == 0u);
+
+    /* Do not take over a firmware-owned active SMMU. */
+    reset_test_platform();
+    p = platform();
+    memset(&smmu, 0, sizeof(smmu));
+    *(uint32_t *)(registers_page + 0x0024u) = 0x0du;
+    CHECK(kira_smmu_v3_prepare(&smmu, 0x100000u, &p) == KIRA_SMMU_UNSUPPORTED);
+    CHECK(alloc_calls == 0);
 
     /* Hardware with a narrower SID field must not expose unreachable STEs. */
     reset_test_platform();

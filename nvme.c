@@ -1,6 +1,7 @@
 #include "cpu.h"
 #include "blk.h"
 #include "pci.h"
+#include "iommu.h"
 #include "uart.h"
 #include "kmutex.h"
 #include "msi.h"
@@ -29,6 +30,7 @@
 
 typedef struct {
     int used, dead;
+    const pci_dev_t* pci;
     volatile uint8_t* regs;
     uint32_t dstrd;                 /* шаг звонков в байтах */
     uint32_t timeout_ms;
@@ -236,13 +238,46 @@ static void add_ns(nvme_ctl_t* c, uint32_t nsid) {
 
 static void nvme_irq(void* ctx) { irqwait_fire(&((nvme_ctl_t*)ctx)->iw); }
 
+/* Stop the controller before revoking its DMA domain. If PCI requester shutdown
+   cannot be read back, keep every mapping pinned and leave the function quarantined. */
+static void nvme_dma_abort(nvme_ctl_t* c) {
+    if (!c) return;
+    if (c->regs) {
+        w32(c->regs, R_CC, r32(c->regs, R_CC) & ~1u);
+        (void)wait_rdy(c, 0);
+    }
+    if (c->pci && pci_disable_bus_master(c->pci))
+        (void)iommu_unmap_all(c->pci);
+    else
+        uart_print("[KIRA NVMe] requester shutdown uncertain; DMA mappings remain pinned.\n");
+    c->used = 0;
+}
+
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[0].io || !pd->bar[0].base || pd->bar[0].size < 0x2000) { uart_print("[KIRA NVMe] controller without BAR0: skipped\n"); return; }
-    pci_enable(pd, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+#if defined(__aarch64__) || defined(__x86_64__)
+    int iommu_rc = iommu_isolate_device(pd);
+    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
+        iommu_rc != IOMMU_E_NOCOVER) {
+        uart_print("[KIRA NVMe] IOMMU isolation failed; controller disabled.\n");
+        return;
+    }
+    if (!iommu_device_ready(pd)) {
+        uart_print("[KIRA NVMe] requester is not isolated or safely unrestricted; controller disabled.\n");
+        return;
+    }
+#endif
+
+    if (!pci_disable_bus_master(pd)) {
+        uart_print("[KIRA NVMe] inherited bus mastering cannot be disabled; controller quarantined.\n");
+        return;
+    }
+    pci_enable(pd, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     nvme_ctl_t* c = &ctls[ci];
     for (unsigned i = 0; i < sizeof *c; i++) ((uint8_t*)c)[i] = 0;
     c->mx = (kmutex_t)KMUTEX_INIT;
     c->index = ci;
+    c->pci = pd;
     volatile uint8_t* rg = (volatile uint8_t*)pci_map_bar(pd, 0, 0, 0x1000);
     if (!rg) { uart_print("[KIRA NVMe] cannot map registers\n"); return; }
     uint64_t cap = r64(rg, R_CAP);
@@ -266,6 +301,16 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     c->buf = (uint8_t*)virtio_dma_alloc(BOUNCE, &c->buf_phys);
     c->prp = (uint64_t*)virtio_dma_alloc(PAGE, &c->prp_phys);
     if (!c->mem || !c->buf || !c->prp) { uart_print("[KIRA NVMe] no DMA memory\n"); return; }
+#if defined(__aarch64__) || defined(__x86_64__)
+    if (iommu_device_isolated(pd) &&
+        (iommu_map(pd, c->mem_phys, c->mem_phys, 5 * PAGE, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(pd, c->buf_phys, c->buf_phys, BOUNCE, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(pd, c->prp_phys, c->prp_phys, PAGE, IOMMU_R | IOMMU_W) != IOMMU_OK)) {
+        uart_print("[KIRA NVMe] IOMMU DMA mapping failed; controller disabled.\n");
+        iommu_unmap_all(pd);
+        return;
+    }
+#endif
     for (uint32_t i = 1; i < BOUNCE / PAGE; i++) c->prp[i - 1] = c->buf_phys + (uint64_t)i * PAGE;
     for (int qi = 0; qi < 2; qi++) {
         c->q[qi].sq = c->mem + (uint32_t)qi * 2 * PAGE; c->q[qi].sq_phys = c->mem_phys + (uint64_t)qi * 2 * PAGE;
@@ -278,10 +323,19 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     w32(rg, R_AQA, (uint32_t)(QN - 1) << 16 | (QN - 1));
     w64(rg, R_ASQ, c->q[0].sq_phys);
     w64(rg, R_ACQ, c->q[0].cq_phys);
+    pci_enable(pd, PCI_CMD_MASTER); /* all admin queues and bounce buffers are ready */
+    if (!(pci_read16(pd, 0x04) & PCI_CMD_MASTER)) {
+        if (pci_disable_bus_master(pd))
+            (void)iommu_unmap_all(pd);
+        else
+            uart_print("[KIRA NVMe] bus mastering did not stop; DMA mappings remain pinned.\n");
+        uart_print("[KIRA NVMe] PCI DMA authorization was not granted; controller disabled.\n");
+        return;
+    }
     w32(rg, R_CC, (6u << 16) | (4u << 20) | 1u);                        /* IOSQES 64, IOCQES 16, страница 4 КБ, NVM, вкл. */
-    if (wait_rdy(c, 1)) { uart_print("[KIRA NVMe] controller does not start (CSTS "); uart_print_hex(r32(rg, R_CSTS)); uart_print(")\n"); return; }
+    if (wait_rdy(c, 1)) { uart_print("[KIRA NVMe] controller does not start (CSTS "); uart_print_hex(r32(rg, R_CSTS)); uart_print(")\n"); nvme_dma_abort(c); return; }
 
-    if (admin_identify(c, 1, 0) != 0) { uart_print("[KIRA NVMe] Identify failed\n"); return; }
+    if (admin_identify(c, 1, 0) != 0) { uart_print("[KIRA NVMe] Identify failed\n"); nvme_dma_abort(c); return; }
     str_trim(c->model, c->buf + 24, 40);
     uint8_t mdts = c->buf[77];
     c->max_bytes = mdts ? (mdts >= 5 ? BOUNCE : (uint32_t)PAGE << mdts) : BOUNCE;
@@ -293,16 +347,16 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
 
     uint32_t cmd[16] = { 0x09 };                                        /* Set Features: одна пара очередей */
     cmd[10] = 0x07; cmd[11] = 0;
-    submit(c, 0, cmd, 0);
+    if (submit(c, 0, cmd, 0) != 0) { uart_print("[KIRA NVMe] Set Features failed\n"); nvme_dma_abort(c); return; }
     uint32_t cq[16] = { 0x05 };                                         /* Create I/O Completion Queue 1 */
     cq[6] = (uint32_t)c->q[1].cq_phys; cq[7] = (uint32_t)(c->q[1].cq_phys >> 32);
     cq[10] = (uint32_t)(QN - 1) << 16 | 1u;
     cq[11] = c->irq ? 3u : 1u;                                          /* непрерывная; IEN - прерывания (вектор 0) */
-    if (submit(c, 0, cq, 0) != 0) { uart_print("[KIRA NVMe] Create I/O CQ failed\n"); return; }
+    if (submit(c, 0, cq, 0) != 0) { uart_print("[KIRA NVMe] Create I/O CQ failed\n"); nvme_dma_abort(c); return; }
     uint32_t sq[16] = { 0x01 };                                         /* Create I/O Submission Queue 1 -> CQ 1 */
     sq[6] = (uint32_t)c->q[1].sq_phys; sq[7] = (uint32_t)(c->q[1].sq_phys >> 32);
     sq[10] = (uint32_t)(QN - 1) << 16 | 1u; sq[11] = (1u << 16) | 1u;
-    if (submit(c, 0, sq, 0) != 0) { uart_print("[KIRA NVMe] Create I/O SQ failed\n"); return; }
+    if (submit(c, 0, sq, 0) != 0) { uart_print("[KIRA NVMe] Create I/O SQ failed\n"); nvme_dma_abort(c); return; }
     c->q[1].qid = 1;
     c->used = 1;
 

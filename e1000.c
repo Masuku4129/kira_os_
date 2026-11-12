@@ -5,6 +5,7 @@
 #include "e1000.h"
 #include "net.h"
 #include "pci.h"
+#include "iommu.h"
 #include "virtio.h"          /* virtio_dma_alloc (непрерывная память для устройства), MMIO_R32/W32 */
 #include "uart.h"
 #include "spinlock.h"
@@ -103,7 +104,24 @@ int e1000_probe(void) {
     if (!p) return -1;
     e82574 = p->device == 0x10D3;
     if (p->bar[0].io || !p->bar[0].base) { uart_print("[KIRA NET] e1000: register BAR is not memory - not supported.\n"); return -2; }
-    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER);
+#if defined(__aarch64__) || defined(__x86_64__)
+    int iommu_rc = iommu_isolate_device(p);
+    if (iommu_rc != IOMMU_OK && iommu_rc != IOMMU_E_NONE &&
+        iommu_rc != IOMMU_E_NOCOVER) {
+        uart_print("[KIRA NET] e1000: IOMMU isolation failed; controller disabled.\n");
+        return -5;
+    }
+    if (!iommu_device_ready(p)) {
+        uart_print("[KIRA NET] e1000: requester is not isolated or safely unrestricted; controller disabled.\n");
+        return -5;
+    }
+#endif
+
+    if (!pci_disable_bus_master(p)) {
+        uart_print("[KIRA NET] e1000: inherited bus mastering cannot be disabled; device quarantined.\n");
+        return -3;
+    }
+    pci_enable(p, PCI_CMD_MEM);
     e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
     if (!e.r) return -3;
 
@@ -130,11 +148,31 @@ int e1000_probe(void) {
     e.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &e.rxb_p);
     e.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &e.txb_p);
     if (!e.rx || !e.tx || !e.rxb || !e.txb) { uart_print("[KIRA NET] e1000: no memory for rings.\n"); return -4; }
+#if defined(__aarch64__) || defined(__x86_64__)
+    if (iommu_device_isolated(p) &&
+        (iommu_map(p, rx_p, rx_p, NRX * sizeof(rxd_t), IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(p, tx_p, tx_p, NTX * sizeof(txd_t), IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(p, e.rxb_p, e.rxb_p, NRX * BUF, IOMMU_R | IOMMU_W) != IOMMU_OK ||
+         iommu_map(p, e.txb_p, e.txb_p, NTX * BUF, IOMMU_R | IOMMU_W) != IOMMU_OK)) {
+        uart_print("[KIRA NET] e1000: IOMMU DMA mapping failed; controller disabled.\n");
+        iommu_unmap_all(p);
+        return -6;
+    }
+#endif
     for (unsigned i = 0; i < NRX; i++) { e.rx[i].addr = e.rxb_p + i * BUF; e.rx[i].status = 0; }
     for (unsigned i = 0; i < NTX; i++) { e.tx[i].cmd = 0; e.tx[i].status = 1; }
 
     wr(RDBAL, (uint32_t)rx_p); wr(RDBAH, (uint32_t)(rx_p >> 32)); wr(RDLEN, NRX * sizeof(rxd_t));
     wr(RDH, 0); wr(RDT, NRX - 1);
+    pci_enable(p, PCI_CMD_MASTER); /* descriptor rings and packet buffers are ready */
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        if (pci_disable_bus_master(p))
+            (void)iommu_unmap_all(p);
+        else
+            uart_print("[KIRA E1000] bus mastering did not stop; DMA mappings remain pinned.\n");
+        uart_print("[KIRA E1000] PCI DMA authorization was not granted; device disabled.\n");
+        return -7;
+    }
     wr(RCTL, (1u << 1) | (1u << 15) | (1u << 26));               /* EN, BAM (широковещательные), SECRC; буфер 2048 */
     wr(TDBAL, (uint32_t)tx_p); wr(TDBAH, (uint32_t)(tx_p >> 32)); wr(TDLEN, NTX * sizeof(txd_t));
     wr(TDH, 0); wr(TDT, 0);

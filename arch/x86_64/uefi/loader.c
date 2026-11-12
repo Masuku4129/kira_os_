@@ -326,6 +326,39 @@ fail:
     return status;
 }
 
+static void diagnose_kernel_span(void)
+{
+    EFI_MEMORY_DESCRIPTOR *map = NULL;
+    UINTN map_size = 64u * 1024u, key = 0, descriptor_size = 0;
+    UINT32 descriptor_version = 0;
+    EFI_STATUS status;
+    UINTN offset;
+
+    status = uefi_call_wrapper(g_bs->AllocatePool, 3, EfiLoaderData,
+                               map_size, (VOID **)&map);
+    if (EFI_ERROR(status)) return;
+    status = uefi_call_wrapper(g_bs->GetMemoryMap, 5, &map_size, map, &key,
+                               &descriptor_size, &descriptor_version);
+    if (!EFI_ERROR(status) && descriptor_size >= sizeof(EFI_MEMORY_DESCRIPTOR)) {
+        for (offset = 0; offset + descriptor_size <= map_size;
+             offset += descriptor_size) {
+            EFI_MEMORY_DESCRIPTOR *d =
+                (EFI_MEMORY_DESCRIPTOR *)((UINT8 *)map + offset);
+            EFI_PHYSICAL_ADDRESS d_end;
+            if (!d->NumberOfPages ||
+                d->NumberOfPages > (~(EFI_PHYSICAL_ADDRESS)0 - d->PhysicalStart) /
+                                   KIRA_PAGE_SIZE)
+                continue;
+            d_end = d->PhysicalStart + d->NumberOfPages * KIRA_PAGE_SIZE;
+            Print(L"KIRA UEFI: memory map type=%u base=%lx end=%lx pages=%lx\r\n",
+                  d->Type, d->PhysicalStart, d_end, d->NumberOfPages);
+        }
+    } else {
+        print_error(L"cannot inspect memory map after allocation failure", status);
+    }
+    uefi_call_wrapper(g_bs->FreePool, 1, map);
+}
+
 static void release_loaded_segments(kira_loaded_segment *segments,
                                      UINTN segment_count)
 {
@@ -495,6 +528,7 @@ static EFI_STATUS load_elf64(VOID *image,
                                EfiLoaderData, allocation_pages, &allocation);
     if (EFI_ERROR(status)) {
         print_error(L"cannot allocate kernel span", status);
+        diagnose_kernel_span();
         goto fail;
     }
 

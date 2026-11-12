@@ -50,6 +50,7 @@
 #include "uaccess.h"
 #include "fat.h"
 #include "iommu.h"
+#include "pci.h"
 
 #define SELF_CHECK_PERIOD_S 5
 
@@ -228,6 +229,11 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // отобразит видеопамять; если драйвер не смог (формат пикселей, память), ранняя
     // консоль возвращается и показывает весь журнал, а не оставляет чёрный экран.
     earlycon_stop();
+    /* PCI DMA policy must be active before display_init can probe a virtio GPU. */
+    int pci_devices = pci_count();
+    if (pci_devices == 0) pci_devices = pci_init();
+    uart_print("[KIRA PCI] "); uart_print_dec((uint64_t)pci_devices); uart_print(" device(s) found.\n");
+    (void)iommu_init();
     if (display_init(addr) != 0) {
         int ec_rc = earlycon_init(addr);
         uart_print("[KIRA DISPLAY] Running without the graphical shell (");
@@ -239,7 +245,6 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     mouse_init();   // необязательна: без мыши клавиатура работает как раньше
     fat_set_clock(fat_clock);
     rng_init();            // генератор случайных чисел: RDSEED/RDRAND, virtio-rng, времена прерываний
-    usb_init();
     virtio_input_init();
     if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
     net_start();
@@ -263,6 +268,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
 
     uart_print("[KIRA OS] Core initialization complete. Enabling interrupts.\n");
     __asm__ volatile ("sti");
+    /* USB controller reset/enumeration uses scheduler sleeps; start it only after timer IRQs are live. */
+    usb_init();
 
     {
         uint64_t t = timer_get_ticks();

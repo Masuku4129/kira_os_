@@ -2,9 +2,12 @@
 #define KIRA_PCI_H
 #include <stdint.h>
 
-/* PCI: перечисление устройств, BAR, список capabilities. Конфигурационное пространство читается
-   через порты 0xCF8/0xCFC (есть на любом x86-ПК; первые 256 байт - всё, что нужно virtio).
-   Все функции вызываются из одного потока при старте. */
+/* PCI: перечисление устройств, BAR и capabilities.
+   x86 legacy: CF8/CFC; PCIe: ECAM (4 KiB на функцию, 1 MiB на шину).
+   ECAM address = base + ((bus - first_bus) << 20) + (device << 15)
+                       + (function << 12) + register_offset.
+   The ECAM aperture must cover every bus in [first_bus, last_bus].
+   Configuration RMW operations are serialized by pci.c. */
 
 #define PCI_MAX_DEVS 1024         /* функций на всех шинах: у ПК 40-80, у серверов - сотни */
 #define PCI_BARS 6
@@ -14,6 +17,7 @@ typedef struct {
     uint16_t vendor, device;
     uint8_t class_code, subclass, prog_if, revision, header_type;
     struct { uint64_t base; uint64_t size; uint8_t io, mem64, prefetch; } bar[PCI_BARS];
+    uint8_t dma_quarantined;       /* sticky: firmware/driver DMA could not be stopped and read back */
 } pci_dev_t;
 
 typedef struct {                 /* способ доступа к конфигурации; в тестах подменяется моделью шины */
@@ -21,11 +25,20 @@ typedef struct {                 /* способ доступа к конфиг�
     void (*write32)(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t val);
 } pci_backend_t;
 
-void pci_set_backend(const pci_backend_t* b);      /* 0 - порты 0xCF8/0xCFC (только x86) */
-void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end);
-/* Validate the ECAM aperture against its advertised bus range. */
+void pci_set_backend(const pci_backend_t* b);      /* NULL - legacy CF8/CFC backend (x86 only) */
+typedef struct {
+    volatile void* base;          /* mapped uncached/device memory; virtual base must be 4 KiB aligned */
+    uint64_t size;                 /* mapped aperture bytes */
+    uint8_t first_bus;
+    uint8_t last_bus;
+} pci_ecam_config_t;
+/* Validate DT bus-range and aperture size (one MiB per bus). */
 int pci_ecam_bus_range(uint64_t ecam_size, int has_bus_range, uint32_t bus_start,
-                       uint32_t bus_end, uint8_t* first, uint8_t* last);   /* конфигурация через ECAM */
+                       uint32_t bus_end, uint8_t* first, uint8_t* last);
+/* Install ECAM only after validating base, bus order and aperture size. Returns 0 on success. */
+int pci_configure_ecam(const pci_ecam_config_t* config);
+/* Compatibility wrapper for callers that already validated the aperture. */
+void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end);
 typedef struct { uint64_t pci_base, size, next; int64_t cpu_off; } pci_window_t;   /* окно адресов моста */
 int  pci_assign(pci_window_t* mem32, pci_window_t* mem64);   /* назначить пустые BAR (после pci_init); число BAR */
 int  pci_init(void);                               /* число найденных устройств */
@@ -43,7 +56,9 @@ void     pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v);
 #define PCI_CMD_MEM    0x2
 #define PCI_CMD_MASTER 0x4
 #define PCI_CMD_INTX_OFF 0x400   /* без прерываний INTx: драйверы работают опросом */
-void pci_enable(const pci_dev_t* d, uint16_t cmd_bits);    /* включает decode памяти/портов и bus mastering; гасит INTx-маску не трогая */
+void pci_enable(const pci_dev_t* d, uint16_t cmd_bits);    /* bus mastering разрешается только после готовности DMA/IOMMU */
+int pci_disable_bus_master(const pci_dev_t* d);             /* запрещает DMA и подтверждает readback */
+int pci_is_bridge(const pci_dev_t* d);                     /* PCI-to-PCI bridge: forwarding gate, not endpoint DMA */
 
 /* Список capabilities: первый вызов с prev = 0, дальше - с предыдущим смещением. 0 - конец. */
 uint16_t pci_next_cap(const pci_dev_t* d, uint16_t prev, uint8_t* id);

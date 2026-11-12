@@ -154,9 +154,13 @@ static int attach(vin_t* d, const pci_dev_t* p, int* has_irq) {
     }
     d->ev = (vev_t*)virtio_dma_alloc(NBUF * sizeof(vev_t), &d->ev_phys);
     if (!d->ev) { virtio_fail(&d->dev); return -2; }
+    if (virtio_dma_grant(&d->dev, d->ev_phys, NBUF * sizeof(vev_t)) != 0) {
+        virtio_fail(&d->dev);
+        return -3;
+    }
     uint16_t nb = d->q.size < NBUF ? d->q.size : NBUF;
     for (uint16_t i = 0; i < nb; i++) virtq_post(&d->q, i, d->ev_phys + i * sizeof(vev_t), sizeof(vev_t), 1);
-    virtio_driver_ok(&d->dev);
+    if (virtio_driver_ok(&d->dev) != 0) return -3;
     virtq_kick(&d->q);
     return 0;
 }
