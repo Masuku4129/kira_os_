@@ -34,6 +34,16 @@ require("arch/x86_64/kernel_boot.c" in x86_build,
         "x86 boot coordinator is not owned by the x86 backend build")
 require("kernel_boot_init" not in kernel_header,
         "x86-only boot API leaked into the common kernel header")
+arm_main = read("arch/aarch64/main.c")
+arm_core = read("arch/aarch64/kernel_main.c")
+arm_core_header = read("arch/aarch64/kernel_main.h")
+require("arch/aarch64/kernel_main.c" in arm_build,
+        "ARM64 steady-state core loop is not owned by the ARM64 backend build")
+require('#include "kernel_main.h"' in arm_main
+        and "arm_kernel_main_loop();" in arm_main
+        and "void arm_kernel_main_loop(void)" in arm_core
+        and "arm_kernel_main_loop" in arm_core_header,
+        "ARM64 platform entry and steady-state core loop are not separated")
 require("kernel_boot_init" in x86_boot_header and '#include "kernel_boot.h"' in x86_main,
         "x86 boot coordinator API is not scoped to the x86 backend")
 require(not (ROOT / "kernel.c").exists() and not (ROOT / "kernel_boot.c").exists(),
