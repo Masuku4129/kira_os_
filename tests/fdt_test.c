@@ -133,7 +133,7 @@ int main(void) {
     {
         uint8_t tiny_header[39] = {0};
         be(tiny_header, FDT_MAGIC);
-        for (uint32_t short_len = 0; short_len < sizeof tiny_header; short_len++) {
+        for (uint32_t short_len = 0; short_len <= sizeof tiny_header; short_len++) {
             CHECK(!fdt_valid(tiny_header, short_len));
             CHECK(!fdt_tree_valid(tiny_header, short_len));
         }
