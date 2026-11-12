@@ -56,7 +56,7 @@ done:
     expect_error(".memory 1\njmp nowhere", "unknown label")
     expect_error(".memory 1\nconst r16, 1", "invalid register")
     expect_error(".memory 1\n.data\n.ascii 123", ".ascii expects a quoted string")
-    expect_error(".memory 1\n.data\n.ascii \"unterminated", "invalid syntax")
+    expect_error(".memory 1\n.data\n.ascii \"unterminated", "unterminated string literal")
     expect_error(".memory 1\n.caps network\nhalt", "unknown capability")
     expect_error(".memory 1\nsyscall 0, cap64", "invalid syscall number or capability")
     expect_error(".memory 0\nhalt", "memory pages must be")
