@@ -301,47 +301,71 @@ int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
     return kira_vtd_invalidate_iotlb(domain->unit, platform);
 }
 
+int kira_vtd_domain_unmap_range(struct kira_vtd_domain *domain,
+                                    uint64_t iova, uint32_t pages,
+                                    const struct kira_vtd_platform *platform)
+{
+    unsigned int shifts[4] = {39, 30, 21, 12};
+    uint64_t *dirty_table = 0;
+    int status = KIRA_VTD_OK;
+
+    if (!domain || !domain->active || !platform || !pages ||
+        (iova & 0xfffu) || iova >= (1ull << 48) ||
+        (uint64_t)pages > ((1ull << 48) - iova) / KIRA_VTD_PAGE_SIZE)
+        return KIRA_VTD_INVALID;
+
+    for (uint32_t page = 0; page < pages; ++page) {
+        uint64_t address = iova + ((uint64_t)page << 12);
+        uint64_t *table = vtd_page(domain->second_level);
+        unsigned int level;
+        int skip = 0;
+
+        for (level = 0; level < 3; ++level) {
+            unsigned int index = (unsigned int)((address >> shifts[level]) & 0x1ffu);
+            uint64_t entry = table[index];
+            if (!(entry & VTD_ENTRY_ANY)) {
+                skip = 1;                   /* already unmapped; still flush at end */
+                break;
+            }
+            if (entry & VTD_ENTRY_LARGE) {
+                status = KIRA_VTD_HARDWARE_ERROR;
+                skip = 1;
+                break;
+            }
+            table = (uint64_t *)vtd_table_virt(platform, entry & VTD_ENTRY_ADDRESS);
+            if (!table) {
+                status = KIRA_VTD_MEMORY_FAILED;
+                skip = 1;
+                break;
+            }
+        }
+        if (skip) continue;
+
+        unsigned int leaf = (unsigned int)((address >> 12) & 0x1ffu);
+        if (table[leaf] & VTD_ENTRY_ANY) {
+            table[leaf] = 0;
+            if (dirty_table && dirty_table != table && platform->clean_cache)
+                platform->clean_cache(platform->context, dirty_table,
+                                      KIRA_VTD_PAGE_SIZE);
+            dirty_table = table;
+        }
+    }
+
+    if (dirty_table && platform->clean_cache)
+        platform->clean_cache(platform->context, dirty_table, KIRA_VTD_PAGE_SIZE);
+    vtd_barrier(platform);
+    {
+        int flush = kira_vtd_invalidate_iotlb(domain->unit, platform);
+        if (flush != KIRA_VTD_OK) return flush;
+    }
+    return status;
+}
+
 int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
                              uint64_t iova,
                              const struct kira_vtd_platform *platform)
 {
-    uint64_t *table;
-    unsigned int shifts[4] = {39, 30, 21, 12};
-    unsigned int level;
-
-    if (!domain || !domain->active || !platform ||
-        (iova & 0xfffu) || iova > 0x0000ffffffffffffull)
-        return KIRA_VTD_INVALID;
-
-    table = vtd_page(domain->second_level);
-    for (level = 0; level < 3; ++level) {
-        unsigned int index = (unsigned int)((iova >> shifts[level]) & 0x1ffu);
-        uint64_t entry = table[index];
-        /* Missing intermediate tables mean the IOVA is already unmapped. Still
-           invalidate: a previous attempt may have cleared the PTE but timed out
-           while draining a cached translation. */
-        if (!(entry & VTD_ENTRY_ANY))
-            goto invalidate;
-        if (entry & VTD_ENTRY_LARGE)
-            return KIRA_VTD_HARDWARE_ERROR;
-        table = (uint64_t *)vtd_table_virt(platform, entry & VTD_ENTRY_ADDRESS);
-        if (!table)
-            return KIRA_VTD_MEMORY_FAILED;
-    }
-
-    {
-        unsigned int index = (unsigned int)((iova >> 12) & 0x1ffu);
-        if (table[index] & VTD_ENTRY_ANY) {
-            table[index] = 0;
-            if (platform->clean_cache)
-                platform->clean_cache(platform->context, table,
-                                      KIRA_VTD_PAGE_SIZE);
-        }
-    }
-
-invalidate:
-    vtd_barrier(platform);
-    return kira_vtd_invalidate_iotlb(domain->unit, platform);
+    return kira_vtd_domain_unmap_range(domain, iova, 1, platform);
 }
 
 /* Free a paging structure and everything below it. Level 3 is the leaf table
