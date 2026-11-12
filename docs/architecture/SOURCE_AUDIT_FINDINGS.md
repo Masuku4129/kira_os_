@@ -137,3 +137,10 @@ No tests were executed during this source-review pass. Findings above are code o
 - **Evidence:** Main `kcc/util.c` has process-global `KCtx K`; `kcc_compile()` resets it with `memset(&K,0,sizeof K)` and uses a single global `jmp_buf`. This makes simultaneous compiler calls unsafe. PR #93 and #95 move selected PP/IR/optimizer/backend fields into per-compilation structures, but #95 explicitly acknowledges that `K` remains process-global and concurrency guarantees do not improve. The added context test exercises sequential calls and x86→AArch64→x86, not concurrent contexts.
 - **CI:** #93 head `2f0e38254fbde12ff1a1673b27f0337690c319fb`, run `43201182562`: only `kcc-tests` failed at self-host stage1 with `ir.c:14: expected ')' before 'K'` in `#define IRS ((IRState *)K.ir_state)`. #95 head `b7cb6f655128b38f3b626da6a31f4fba35cad1df`, run `43211438660`: only `kcc-tests` failed at self-host stage1 with `ir.c:24: expected ')' before '->'` in the replacement member alias. Main build, host tests, ARM64, VM scenarios and other jobs passed on those PR runs.
 - **Action:** do not merge the KCC context chain until self-host stage1/2 passes. Replace macro-hidden state with explicit context parameters/accessors supported by the self-host parser; then add independent-context interleaving and true concurrent-call tests. RFC-TOOL-001 records the target API and migration.
+
+
+## F-017 — Mind model CRC is integrity against accidental corruption, not authenticity
+
+- **Severity:** Medium — trust boundary and recovery requirement.
+- **Evidence:** `mind_model_valid()` verifies schema/ranges and CRC for `/var/mind.dat`; it does not authenticate who produced the model. The model influences predictive risk and adaptive tuning but must never be treated as a policy or capability source.
+- **Action:** treat persisted weights as untrusted data; maintain hard-coded/administrator policy outside model state. On invalid, stale or low-confidence model, fall back to observation/default behavior. If remote/model-package updates are added, require provenance/signature and atomic rollback. RFC-MIND-001 defines these constraints.
