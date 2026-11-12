@@ -140,6 +140,14 @@ int main(void)
     CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_OK);
     CHECK(state.floor == 5 && state.writes == 1);
 
+    /* Reserved trust flags and a zero catalogue version are not accepted. */
+    record.flags = 1;
+    CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
+    record.flags = 0;
+    record.catalogue_version = 0;
+    CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
+    record.catalogue_version = 5;
+
     /* Expiration is exclusive: the exact expiry instant is already invalid. */
     state.now = 1000;
     CHECK(kdrv_catalogue_load(&store, &record, bytes, length, &ops, &catalogue) == KDRV_CATALOGUE_UNTRUSTED);
