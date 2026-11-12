@@ -10,7 +10,7 @@
 #define KVM_REGISTER_COUNT 16u
 #define KVM_MAX_CALL_DEPTH 256u
 #define KVM_MODULE_HEADER_SIZE 32u
-#define KVM_MODULE_VERSION 1u
+#define KVM_MODULE_VERSION 0u
 
 /* Fixed-width, endian-independent instruction fields. Immediate values are
    interpreted as signed 32-bit values where the opcode requires it. */
@@ -104,7 +104,7 @@ struct kvm_instance {
     size_t memory_size;
 };
 
-/* Decode the portable KVM1 container. Code instructions and header integers
+/* Decode the experimental KVP0 prototype container. Code instructions and header integers
    are little-endian; returned pointers refer into the caller's blob. */
 int kvm_module_decode(const void *blob, size_t blob_size, struct kvm_module *module);
 
