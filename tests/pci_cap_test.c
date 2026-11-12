@@ -4,13 +4,14 @@
 #include "pci.h"
 
 static uint32_t cfg[64];
+static uint16_t blocked_write_off = 0xFFFFu;
 static uint32_t rd(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
     (void)bus; (void)dev; (void)fn;
     return off < 256 ? cfg[off >> 2] : 0xFFFFFFFFu;
 }
 static void wr(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t value) {
     (void)bus; (void)dev; (void)fn;
-    if (off < 256) cfg[off >> 2] = value;
+    if (off < 256 && off != blocked_write_off) cfg[off >> 2] = value;
 }
 static void put8(uint16_t off, uint8_t v) {
     unsigned sh = (off & 3u) * 8u;
@@ -52,6 +53,22 @@ int main(void) {
     if (pci_next_cap(&dev, 0, &id)) return 10;
     put16(0x06, 0);                           /* capability-list status bit clear */
     if (pci_next_cap(&dev, 0, &id)) return 11;
+    put16(0x06, 0x10);
+    put8(0x34, 0x40); put8(0x40, 0x05); put8(0x41, 0x44);
+    put8(0x44, 0x11); put8(0x45, 0);
+    put16(0x42, 1); put16(0x46, 0x8000); put16(0x04, 0);
+    if (!pci_quiesce_interrupts(&dev)) return 15;
+    if ((pci_read16(&dev, 0x42) & 1u) || pci_read16(&dev, 0x46) != 0x4000u ||
+        !(pci_read16(&dev, 0x04) & (1u << 10))) return 16;
+    put16(0x42, 1); put16(0x46, 0x8000); put16(0x04, 0);
+    blocked_write_off = 0x40;                    /* MSI enable refuses to clear */
+    if (pci_quiesce_interrupts(&dev)) return 17;
+    blocked_write_off = 0xFFFFu;
+    put8(0x34, 0x3C);                             /* malformed list must fail closed */
+    if (pci_quiesce_interrupts(&dev)) return 18;
+    put8(0x34, 0x40); put8(0x41, 0x40);           /* cyclic list must fail closed */
+    if (pci_quiesce_interrupts(&dev)) return 19;
+    put8(0x41, 0x44); put8(0x45, 0); put16(0x06, 0);
     {
         pci_backend_t incomplete = { rd, 0 };
         pci_set_backend(&incomplete);
