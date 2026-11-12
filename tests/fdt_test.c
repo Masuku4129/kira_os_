@@ -156,12 +156,14 @@ int main(void) {
     {
         uint8_t handoff[KIRA_BOOTINFO_MAX_SIZE < 4096 ? KIRA_BOOTINFO_MAX_SIZE : 4096];
         uint32_t handoff_size = 0, cell_len = 0;
+        fdt_fb_t malformed_fb;
         uint8_t* cell = (uint8_t*)fdt_prop(blob, root, "#address-cells", &cell_len);
         CHECK(cell && cell_len == 4);
         if (cell) {
             be(cell - 8, 8); /* property length field */
             CHECK(!fdt_tree_valid(blob, total));
             CHECK(fdt_reg(blob, total, mem, 0, &a, &s) != 0);
+            CHECK(fdt_simplefb(blob, total, &malformed_fb) != 0);
             CHECK(kbi_from_fdt(blob, total, 0x800000, 0x100000, 0x200000,
                                handoff, sizeof handoff, &handoff_size) != 0);
             be(cell - 8, 4);
