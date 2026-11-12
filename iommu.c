@@ -18,9 +18,10 @@
 #include "ramext.h"
 #endif
 #ifdef KIRA_HOST_TEST
-__attribute__((weak)) void pci_disable_bus_master(const pci_dev_t* dev)
+__attribute__((weak)) int pci_disable_bus_master(const pci_dev_t* dev)
 {
     (void)dev;
+    return 1; /* host IOMMU model has no PCI config backend; default to a stopped requester */
 }
 #endif
 
