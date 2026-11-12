@@ -102,9 +102,9 @@ service_owners = {
 for source, owned_ids in service_owners.items():
     source_text = read(source)
     for name in owned_ids:
-        require(re.search(r"\\b" + name + r"\\b", source_text) is not None,
+        require(re.search(r"\b" + name + r"\b", source_text) is not None,
                 f"{name} missing from owner {source}")
-        occurrences = sum(len(re.findall(r"\\b" + name + r"\\b", read(candidate)))
+        occurrences = sum(len(re.findall(r"\b" + name + r"\b", read(candidate)))
                           for candidate in adapter_sources)
         require(occurrences == 1, f"{name} must have exactly one service adapter owner")
 
