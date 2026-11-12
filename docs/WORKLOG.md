@@ -172,3 +172,11 @@
 - Добавлены три сценария: отказ reachable immutable `global.set`, отказ unreachable immutable `global.set`, успешное выполнение mutable `global.set`.
 - Commits: `dde3d7250be9a921be0f8ec73e20f61d8e4d630a`, `3e8157e089167df816fbbcbad93f88f3b818d2d5`, `00e8d5a0a20beb6735c86774c1521aeb78a85f4a`.
 - CI/host suite на новом head не подтверждены; GitHub API commits не создали workflow run. Не объявлять исправление проверенным до реального запуска `bash tests/run_host_tests.sh` и CI build/ARM64/VM.
+
+
+### PR #131 — truncated instruction immediate bounds (2026-11-12)
+- Дополнительный аудит `compile_func()` обнаружил чтение `*p` без проверки `p < end` для block type, а также сравнения `p + 4 > end` / `p + 8 > end`, которые сами формировали указатель за пределами объекта при усечённых f32/f64 immediates.
+- Исправлено: явная проверка block type до чтения; длины f32/f64 проверяются через `end - p` без выхода за one-past-end.
+- Добавлены негативные fixtures: truncated block type, truncated f32.const, truncated f64.const. Проверки добавлены в `tests/wasm_loader_bounds.py`.
+- Commits: `b3ee4da6bebbeb83cd12efb0fff4437a6d96ff64` (fix), `d80122fe292f6346f51fd14659ccec2ba823116d` (tests).
+- Host suite/CI на новом head всё ещё не подтверждены.
