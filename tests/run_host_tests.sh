@@ -108,6 +108,10 @@ echo "== driver compatibility pipeline (HTTPS, bounds, path safety, fail-closed 
 $CC $FLAGS -fsanitize=address,undefined -o $T/drvcompat tests/drvcompat_test.c userland/drvcompat.c
 $T/drvcompat
 
+echo "== KDRV BSD compatibility allocator (overflow and alignment) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv-bsd tests/kdrv_bsd_test.c
+$T/kdrv-bsd
+
 echo "== драйвер RTL8139 (чистая реализация) против модели чипа =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/rtl8139 tests/rtl8139_test.c drivers/net/rtl8139.c
 $T/rtl8139
