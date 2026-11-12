@@ -101,7 +101,7 @@ static ftype_t* types; static u32 ntypes;
 static func_t* funcs; static u32 nfuncs, nimports;
 static u32* table; static u32 ntable;
 static u8* mem; static u32 mem_pages, mem_max, has_memory;
-static u64 globals[MAXG]; static u32 nglobals;
+static u64 globals[MAXG]; static u8 global_mut[MAXG]; static u32 nglobals;
 static u32 entry = ~0u;
 static const u8* mod; static u32 modlen;
 
@@ -664,6 +664,7 @@ static int compile_func(func_t* f) {
         case 0x23: case 0x24: {
             u32 i = leb_u(&p, end);
             if (i >= nglobals) { lz_flush(); ew(OP_TRAP); ew(TM_GLOBAL); c_unr = 1; break; }
+            if (op == 0x24 && !global_mut[i]) CERR("global.set on immutable global");
             if (op == 0x23) { lz_flush(); ew(OP_GGET | i << 16); hpush(1); }
             else { NEED(1); lz_flush(); ew(OP_GSET | i << 16); c_h--; }
             break;
@@ -948,7 +949,9 @@ static int load(void) {
                 if (!wasm_valtype(gt) || mut > 1) { trap("invalid global type or mutability"); return -1; }
                 u64 initial_value = const_expr(&s, se, gt);
                 if (trapped) return -1;
-                globals[nglobals++] = initial_value;
+                globals[nglobals] = initial_value;
+                global_mut[nglobals] = mut;
+                nglobals++;
             }
         } else if (id == 7) {                                     /* экспорт: точка входа */
             u32 n = leb_u(&s, se);
