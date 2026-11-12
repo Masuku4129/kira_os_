@@ -25,7 +25,7 @@ int main(void){
  b[0]='X'; CHECK(vtd_dmar_parse(b,sizeof b,&info)==-3); b[0]='D';
  b[9]^=1; CHECK(vtd_dmar_parse(b,sizeof b,&info)==-5); b[9]^=1;
  w32(b+4,0xffffffffu); CHECK(vtd_dmar_parse(b,sizeof b,&info)==-4); w32(b+4,sizeof b); fix(b,sizeof b);
- w16(b+50,3); CHECK(vtd_dmar_parse(b,sizeof b,&info)==-7); w16(b+50,24); fix(b,sizeof b);
+ w16(b+50,3); fix(b,sizeof b); CHECK(vtd_dmar_parse(b,sizeof b,&info)==-7); w16(b+50,24); fix(b,sizeof b);
  b[70]=32; fix(b,sizeof b); CHECK(vtd_dmar_parse(b,sizeof b,&info)<0);
  /* Fuzz every structure byte with valid checksum: parser must reject or safely accept. */
  for(unsigned i=0;i<50000;i++){uint8_t c[sizeof b];memcpy(c,b,sizeof b);unsigned p=48+(i*37u)%56;c[p]^=(uint8_t)(1u+(i%255));fix(c,sizeof c);(void)vtd_dmar_parse(c,sizeof c,&info);}

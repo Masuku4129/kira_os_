@@ -86,6 +86,10 @@ echo "== Intel VT-d DMAR topology parser (DRHD, RMRR, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-vtd tests/iommu_vtd_test.c iommu_vtd.c
 $T/iommu-vtd
 
+echo "== ARM SMMUv3 prepare (platform validation, stream table and allocation unwind) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/iommu-smmu tests/arm_smmu_prepare_test.c drivers/iommu/arm_smmu.c
+$T/iommu-smmu
+
 echo "== IOAPIC (ISO resolution, redirection encoding) =="
 $CC $FLAGS -o $T/ioapic tests/ioapic_test.c arch/x86_64/ioapic.c
 $T/ioapic

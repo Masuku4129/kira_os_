@@ -8,17 +8,12 @@
 
 #include "vtd_domain.h"
 
-#define VTD_ROOT_ENTRIES 256u
-#define VTD_TABLE_ENTRIES 512u
 #define VTD_ENTRY_PRESENT 1ull
 #define VTD_ENTRY_READ    (1ull << 0)
 #define VTD_ENTRY_WRITE   (1ull << 1)
 #define VTD_ENTRY_LARGE   (1ull << 7)
 #define VTD_ENTRY_ADDRESS 0x000ffffffffff000ull
 #define VTD_CCMD          0x028u
-#define VTD_CCMD_ICC      (1ull << 63)
-#define VTD_CCMD_GLOBAL   (1ull << 61)
-#define VTD_CCMD_DEVICE   (1ull << _DEVICE_INVALID)
 #define VTD_POLL_LIMIT    1000000u
 
 static uint64_t *vtd_page(void *p)
@@ -138,72 +133,90 @@ int kira_vtd_domain_create(struct kira_vtd_domain *domain,
                            uint8_t device, uint8_t function,
                            const struct kira_vtd_platform *platform)
 {
-    uint64_t root_physical = 0;
     uint64_t slpt_physical = 0;
-    void *root;
-    void *slpt;
+    uint64_t context_physical = 0;
     uint64_t *root_entries;
     uint64_t *context_entries;
-    uint64_t context_physical = 0;
+    uint64_t *entry;
     void *context;
-    unsigned int i;
+    void *slpt;
+    unsigned int requester;
+    int new_context = 0;
+    int rc;
 
     if (!domain || !unit || !platform || !platform->alloc_dma_page ||
         !platform->map_mmio || !unit->translation_enabled ||
+        !unit->root_table || !unit->root_table_physical ||
+        unit->host_address_width < 48 ||
+        !(unit->capabilities & (1ull << 10)) ||
         device > 31 || function > 7 || segment != 0)
         return KIRA_VTD_INVALID;
 
-    root = vtd_alloc_page(platform, &root_physical);
-    if (!root)
-        return KIRA_VTD_MEMORY_FAILED;
+    /*
+     * RTADDR was installed once by kira_vtd_unit_enable_translation().
+     * A device domain must add its context to that shared root table; it
+     * must never replace RTADDR with a private one-device root table.
+     */
+    root_entries = vtd_page(unit->root_table);
+    if (root_entries[bus] & VTD_ENTRY_PRESENT) {
+        context_physical = root_entries[bus] & VTD_ENTRY_ADDRESS;
+        context = (void *)platform->map_mmio(platform->context,
+                                             context_physical,
+                                             KIRA_VTD_PAGE_SIZE);
+        if (!context)
+            return KIRA_VTD_MEMORY_FAILED;
+    } else {
+        context = vtd_alloc_page(platform, &context_physical);
+        if (!context)
+            return KIRA_VTD_MEMORY_FAILED;
+        new_context = 1;
+    }
 
-    context = vtd_alloc_page(platform, &context_physical);
-    if (!context) {
-        if (platform->free_dma_page)
-            platform->free_dma_page(platform->context, root, root_physical);
-        return KIRA_VTD_MEMORY_FAILED;
+    context_entries = vtd_page(context);
+    requester = ((unsigned int)device << 3) | function;
+    entry = &context_entries[requester * 2u];
+    if (entry[0] & VTD_ENTRY_PRESENT) {
+        if (new_context && platform->free_dma_page)
+            platform->free_dma_page(platform->context, context,
+                                    context_physical);
+        return KIRA_VTD_HARDWARE_ERROR;
     }
 
     slpt = vtd_alloc_page(platform, &slpt_physical);
     if (!slpt) {
-        if (platform->free_dma_page) {
+        if (new_context && platform->free_dma_page)
             platform->free_dma_page(platform->context, context,
-                                     context_physical);
-            platform->free_dma_page(platform->context, root, root_physical);
-        }
+                                    context_physical);
         return KIRA_VTD_MEMORY_FAILED;
     }
 
-    root_entries = vtd_page(root);
-    context_entries = vtd_page(context);
-
-    for (i = 0; i < 512; ++i)
-        context_entries[i] = 0;
-
-    /* Root entry points at this bus's context table. */
-    root_entries[bus] = (context_physical & VTD_ENTRY_ADDRESS) |
-                        VTD_ENTRY_PRESENT;
-
     /*
-     * Context entry: translation type 0 (multi-level), four-level SLPT,
-     * second-level root pointer. Hardware context layout is 128 bits.
+     * VT-d context entry is 128 bits:
+     *   low:  present + second-level translation type (TT=00) + SLPTPTR
+     *   high: address-width encoding (AW=2 means a 4-level, 48-bit walk).
+     * Present belongs to the low qword; AW belongs to the high qword.
      */
-    {
-        unsigned int requester = ((unsigned int)device << 3) | function;
-        uint64_t *entry = &context_entries[requester * 2u];
-        entry[0] = (slpt_physical & VTD_ENTRY_ADDRESS) | 1ull;
-        entry[1] = (2ull << 2) | (1ull << 0); /* AW=48-bit, present */
-    }
+    entry[0] = (slpt_physical & VTD_ENTRY_ADDRESS) | VTD_ENTRY_PRESENT;
+    entry[1] = 2ull;
 
     if (platform->clean_cache) {
         platform->clean_cache(platform->context, context, KIRA_VTD_PAGE_SIZE);
-        platform->clean_cache(platform->context, root, KIRA_VTD_PAGE_SIZE);
         platform->clean_cache(platform->context, slpt, KIRA_VTD_PAGE_SIZE);
     }
 
+    if (new_context) {
+        root_entries[bus] = (context_physical & VTD_ENTRY_ADDRESS) |
+                            VTD_ENTRY_PRESENT;
+        if (platform->clean_cache)
+            platform->clean_cache(platform->context, unit->root_table,
+                                  KIRA_VTD_PAGE_SIZE);
+    }
+
+    vtd_barrier(platform);
+
     domain->unit = unit;
-    domain->root_context = root;
-    domain->root_context_physical = root_physical;
+    domain->root_context = context;
+    domain->root_context_physical = context_physical;
     domain->second_level = slpt;
     domain->second_level_physical = slpt_physical;
     domain->segment = segment;
@@ -212,14 +225,14 @@ int kira_vtd_domain_create(struct kira_vtd_domain *domain,
     domain->function = function;
     domain->active = 1;
 
-    /* Install the device's root table only after all structures are ready. */
-    *(volatile uint64_t *)(unit->registers + 0x020u) =
-        root_physical & ~0xfffull;
-    vtd_barrier(platform);
-
-    return vtd_invalidate_context(unit, platform);
+    /*
+     * Do not rewrite RTADDR or issue SRTP here: the unit is already enabled
+     * and owns a single shared root table. Invalidate cached contexts after
+     * publishing the new entry.
+     */
+    rc = vtd_invalidate_context(unit, platform);
+    return rc;
 }
-
 int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
                            uint64_t iova, uint64_t physical,
                            uint32_t permissions,
@@ -229,6 +242,7 @@ int kira_vtd_domain_map_4k(struct kira_vtd_domain *domain,
 
     if (!domain || !domain->active || !platform ||
         (iova & 0xfffu) || (physical & 0xfffu) ||
+        iova > 0x0000ffffffffffffull ||
         (physical & ~VTD_ENTRY_ADDRESS) != 0)
         return KIRA_VTD_INVALID;
 
@@ -249,7 +263,7 @@ int kira_vtd_domain_unmap_4k(struct kira_vtd_domain *domain,
     unsigned int level;
 
     if (!domain || !domain->active || !platform ||
-        (iova & 0xfffu))
+        (iova & 0xfffu) || iova > 0x0000ffffffffffffull)
         return KIRA_VTD_INVALID;
 
     table = vtd_page(domain->second_level);

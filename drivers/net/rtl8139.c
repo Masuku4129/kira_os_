@@ -39,6 +39,8 @@
 
 #define TSD_OWN        (1u << 13)
 #define TSD_TOK        (1u << 15)
+#define TSD_TUN        (1u << 14)
+#define TSD_TABT       (1u << 30)
 #define TSD_SIZE_MASK  0x1fffu
 #define TSD_ERTXTH     (0x3fu << 16)
 
@@ -218,7 +220,7 @@ static void rtl_reap_tx(struct kira_rtl8139 *d)
 
         status = d->platform.in32(d->platform.context,
             port(d, (uint16_t)(REG_TSD0 + i * 4)));
-        if (status & (TSD_TOK | (1u << 14) | (1u << _error_bit))) {
+        if (status & (TSD_TOK | TSD_TUN | TSD_TABT)) {
             d->tx_busy[i] = 0;
             if (d->platform.transmit_complete)
                 d->platform.transmit_complete(d->platform.context, i,

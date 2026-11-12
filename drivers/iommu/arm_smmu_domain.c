@@ -9,6 +9,10 @@
 #include "arm_smmu_domain.h"
 
 #define SMMU_PAGE_SIZE 4096u
+#define SMMU_STRTAB_ENTRIES 256u
+#define SMMU_STRTAB_ENTRY_BYTES 64u
+#define SMMU_STRTAB_BYTES (SMMU_STRTAB_ENTRIES * SMMU_STRTAB_ENTRY_BYTES)
+#define SMMU_STRTAB_PAGES (SMMU_STRTAB_BYTES / SMMU_PAGE_SIZE)
 #define SMMU_ENTRIES 512u
 #define SMMU_STRTAB_BASE 0x0080u
 #define SMMU_STRTAB_BASE_CFG 0x0088u
@@ -27,6 +31,34 @@
 
 static uint64_t *smmu_words(void *p) { return (uint64_t *)p; }
 
+/* Serialize shared stream-table setup and StreamID ownership. */
+static void smmu_lock(struct kira_smmu *s)
+{
+    while (__atomic_exchange_n(&s->stream_table_lock, 1u, __ATOMIC_ACQUIRE)) {
+        /* Short controller-local critical section; no allocation or I/O wait. */
+    }
+}
+
+static void smmu_unlock(struct kira_smmu *s)
+{
+    __atomic_store_n(&s->stream_table_lock, 0u, __ATOMIC_RELEASE);
+}
+
+static int smmu_stream_id_claimed(const struct kira_smmu *s, uint32_t id)
+{
+    return (s->stream_ids[id >> 5] & (1u << (id & 31u))) != 0;
+}
+
+static void smmu_stream_id_set(struct kira_smmu *s, uint32_t id)
+{
+    s->stream_ids[id >> 5] |= 1u << (id & 31u);
+}
+
+static void smmu_stream_id_clear(struct kira_smmu *s, uint32_t id)
+{
+    s->stream_ids[id >> 5] &= ~(1u << (id & 31u));
+}
+
 static void smmu_zero(void *p, size_t bytes)
 {
     volatile uint8_t *b = (volatile uint8_t *)p;
@@ -35,32 +67,65 @@ static void smmu_zero(void *p, size_t bytes)
         b[i] = 0;
 }
 
-static void *smmu_alloc(const struct kira_smmu_platform *p, uint64_t *pa)
+static void *smmu_alloc_pages(const struct kira_smmu_platform *p,
+                              size_t pages, uint64_t *pa)
 {
-    void *v = p->alloc_dma_pages(p->context, 1, pa);
+    void *v = p->alloc_dma_pages(p->context, pages, pa);
+    size_t bytes = pages * SMMU_PAGE_SIZE;
     if (!v || !*pa || (*pa & 0xfffu)) {
         if (v && p->free_dma_pages)
-            p->free_dma_pages(p->context, v, *pa, 1);
+            p->free_dma_pages(p->context, v, *pa, pages);
         *pa = 0;
         return 0;
     }
-    smmu_zero(v, SMMU_PAGE_SIZE);
+    smmu_zero(v, bytes);
     if (p->clean_cache)
-        p->clean_cache(p->context, v, SMMU_PAGE_SIZE);
+        p->clean_cache(p->context, v, bytes);
     return v;
 }
 
-static int smmu_cmd_sync(struct kira_smmu *s,
-                         const struct kira_smmu_platform *p)
+static void *smmu_alloc(const struct kira_smmu_platform *p, uint64_t *pa)
+{
+    return smmu_alloc_pages(p, 1, pa);
+}
+
+/*
+ * CMDQ pointers contain an 8-bit index and a wrap bit at bit 8 for
+ * this 256-entry queue. Comparing only the index makes full and empty
+ * indistinguishable after the producer wraps.
+ */
+#define SMMU_CMDQ_INDEX_MASK 0xffu
+#define SMMU_CMDQ_WRAP       0x100u
+#define SMMU_CMDQ_PTR_MASK   0x1ffu
+
+static uint32_t smmu_cmdq_next(uint32_t pointer)
+{
+    uint32_t index = pointer & SMMU_CMDQ_INDEX_MASK;
+    uint32_t next = (pointer & SMMU_CMDQ_WRAP) |
+                    ((index + 1u) & SMMU_CMDQ_INDEX_MASK);
+
+    if (index == SMMU_CMDQ_INDEX_MASK)
+        next ^= SMMU_CMDQ_WRAP;
+    return next;
+}
+
+static int smmu_cmd_submit(struct kira_smmu *s,
+                           const struct kira_smmu_platform *p,
+                           uint64_t word0, uint64_t word1,
+                           uint32_t *submitted_pointer)
 {
     volatile uint64_t *queue = (volatile uint64_t *)s->cmdq;
-    uint32_t prod = s->cmdq_producer;
-    uint32_t next = (prod + 1u) % SMMU_CMDQ_ENTRIES;
+    uint32_t producer = s->cmdq_producer & SMMU_CMDQ_PTR_MASK;
+    uint32_t consumer;
+    uint32_t next;
     uint32_t i;
 
     for (i = 0; i < SMMU_POLL_LIMIT; ++i) {
-        uint32_t cons = *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS);
-        if (((cons >> 0) & 0x3ffu) != next)
+        consumer = *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS) &
+                   SMMU_CMDQ_PTR_MASK;
+        if (!((producer & SMMU_CMDQ_INDEX_MASK) ==
+              (consumer & SMMU_CMDQ_INDEX_MASK) &&
+              ((producer ^ consumer) & SMMU_CMDQ_WRAP) != 0))
             break;
         if (p->delay)
             p->delay(p->context);
@@ -68,19 +133,43 @@ static int smmu_cmd_sync(struct kira_smmu *s,
     if (i == SMMU_POLL_LIMIT)
         return KIRA_SMMU_TIMEOUT;
 
-    queue[prod * 2u] = ((uint64_t)CMD_SYNC <<  opcode_shift);
-    queue[prod * 2u + 1u] = 0;
+    queue[(producer & SMMU_CMDQ_INDEX_MASK) * 2u] = word0;
+    queue[(producer & SMMU_CMDQ_INDEX_MASK) * 2u + 1u] = word1;
     if (p->clean_cache)
-        p->clean_cache(p->context, (const void *)&queue[prod * 2u], 16);
+        p->clean_cache(p->context,
+                       (const void *)&queue[(producer & SMMU_CMDQ_INDEX_MASK) * 2u],
+                       16);
     if (p->write_barrier)
         p->write_barrier(p->context);
 
+    next = smmu_cmdq_next(producer);
     s->cmdq_producer = next;
     *(volatile uint32_t *)(s->registers + SMMU_CMDQ_PROD) = next;
+    if (submitted_pointer)
+        *submitted_pointer = next;
+    return KIRA_SMMU_OK;
+}
 
+static int smmu_cmd_sync(struct kira_smmu *s,
+                         const struct kira_smmu_platform *p)
+{
+    uint32_t completion_pointer = 0;
+    uint32_t i;
+    int rc = smmu_cmd_submit(s, p, (uint64_t)CMD_SYNC, 0,
+                             &completion_pointer);
+    if (rc != KIRA_SMMU_OK)
+        return rc;
+
+    /*
+     * Completion of CMD_SYNC, not merely consumption of the preceding
+     * invalidation command, is the synchronization point required before
+     * software enables device DMA or frees/reuses translation structures.
+     */
     for (i = 0; i < SMMU_POLL_LIMIT; ++i) {
-        uint32_t cons = *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS);
-        if ((cons & 0x3ffu) == next)
+        uint32_t consumer =
+            *(volatile uint32_t *)(s->registers + SMMU_CMDQ_CONS) &
+            SMMU_CMDQ_PTR_MASK;
+        if (consumer == completion_pointer)
             return KIRA_SMMU_OK;
         if (p->delay)
             p->delay(p->context);
@@ -88,22 +177,36 @@ static int smmu_cmd_sync(struct kira_smmu *s,
     return KIRA_SMMU_TIMEOUT;
 }
 
+static void smmu_cmdq_lock(struct kira_smmu *s)
+{
+    while (__atomic_exchange_n(&s->cmdq_lock, 1u, __ATOMIC_ACQUIRE)) {
+        /* Keep command publication and its completion fence indivisible. */
+    }
+}
+
+static void smmu_cmdq_unlock(struct kira_smmu *s)
+{
+    __atomic_store_n(&s->cmdq_lock, 0u, __ATOMIC_RELEASE);
+}
+
 static int smmu_invalidate_stream(struct kira_smmu_domain *d,
                                   const struct kira_smmu_platform *p)
 {
-    volatile uint64_t *queue = (volatile uint64_t *)d->smmu->cmdq;
-    uint32_t prod = d->smmu->cmdq_producer;
-    uint32_t next = (prod + 1u) % SMMU_CMDQ_ENTRIES;
+    uint64_t command = (uint64_t)CMD_CFGI_STE |
+                       ((uint64_t)d->stream_id << 32);
+    int rc;
 
-    queue[prod * 2u] = ((uint64_t)CMD_CFGI_STE << 32) | d->stream_id;
-    queue[prod * 2u + 1u] = 0;
-    if (p->clean_cache)
-        p->clean_cache(p->context, (const void *)&queue[prod * 2u], 16);
-    if (p->write_barrier)
-        p->write_barrier(p->context);
-    d->smmu->cmdq_producer = next;
-    *(volatile uint32_t *)(d->smmu->registers + SMMU_CMDQ_PROD) = next;
-    return smmu_cmd_sync(d->smmu, p);
+    /*
+     * CFGI_STE and its CMD_SYNC form one ordered transaction. Without a
+     * controller-wide lock, another producer could enqueue commands between
+     * them and make the consumer pointer an invalid completion test.
+     */
+    smmu_cmdq_lock(d->smmu);
+    rc = smmu_cmd_submit(d->smmu, p, command, 0, 0);
+    if (rc == KIRA_SMMU_OK)
+        rc = smmu_cmd_sync(d->smmu, p);
+    smmu_cmdq_unlock(d->smmu);
+    return rc;
 }
 
 static void *smmu_table_from_entry(const struct kira_smmu_platform *p,
@@ -167,53 +270,65 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
                             uint32_t stream_id,
                             const struct kira_smmu_platform *p)
 {
-    uint64_t st_pa = 0, ct_pa = 0, root_pa = 0;
-    void *st, *ct, *root;
+    uint64_t ct_pa = 0, root_pa = 0;
+    void *ct = 0, *root = 0;
     uint64_t *ste;
+    int rc = KIRA_SMMU_OK;
 
     if (!d || !s || !p || !s->enabled || !p->alloc_dma_pages ||
-        !p->map_mmio || stream_id >= 256u)
+        !p->free_dma_pages || !p->map_mmio || !s->stream_id_limit ||
+        stream_id >= s->stream_id_limit)
         return KIRA_SMMU_INVALID;
 
-    st = smmu_alloc(p, &st_pa);
+    /* This domain uses stage 1; do not program it on a stage-2-only SMMU. */
+    if (!(s->idr0 & (1u << 1)))
+        return KIRA_SMMU_UNSUPPORTED;
+
     ct = smmu_alloc(p, &ct_pa);
     root = smmu_alloc(p, &root_pa);
-    if (!st || !ct || !root) {
-        if (p->free_dma_pages) {
-            if (st) p->free_dma_pages(p->context, st, st_pa, 1);
-            if (ct) p->free_dma_pages(p->context, ct, ct_pa, 1);
-            if (root) p->free_dma_pages(p->context, root, root_pa, 1);
-        }
+    if (!ct || !root) {
+        if (ct) p->free_dma_pages(p->context, ct, ct_pa, 1);
+        if (root) p->free_dma_pages(p->context, root, root_pa, 1);
         return KIRA_SMMU_MEMORY_FAILED;
     }
 
+    smmu_lock(s);
+    if (smmu_stream_id_claimed(s, stream_id)) {
+        rc = KIRA_SMMU_INVALID;
+        goto fail_locked;
+    }
+
     /*
-     * Linear stream-table entry: STE word 0 valid/config, word 1 points
-     * to context descriptor. The descriptor uses a 4-level stage-1 table.
+     * The controller-global linear stream table is allocated and programmed
+     * by kira_smmu_v3_prepare() before SMMUEN. Domains may only claim entries.
      */
-    ste = smmu_words(st) + stream_id * 8u;
-    ste[0] = 1ull | (1ull << 1); /* valid, bypass disabled */
+    if (!s->stream_table || !s->stream_table_physical) {
+        rc = KIRA_SMMU_INVALID;
+        goto fail_locked;
+    }
+
+    ste = smmu_words(s->stream_table) + stream_id * 8u;
+    if (ste[0] & 1ull) {
+        rc = KIRA_SMMU_INVALID;
+        goto fail_locked;
+    }
+
+    /* 64-byte STE: valid stage-1 entry points to this domain's CD. */
+    ste[0] = 1ull | (1ull << 1);
     ste[1] = ct_pa & SMMU_TTBR_ADDR;
     ste[2] = 0;
     ste[3] = 0;
-
-    {
-        uint64_t *cd = smmu_words(ct);
-        cd[0] = 1ull | (1ull << 1); /* valid, stage-1 translation */
-        cd[1] = root_pa & SMMU_TTBR_ADDR;
-        cd[2] = 0;
-        cd[3] = 0;
-    }
-
-    if (p->clean_cache) {
-        p->clean_cache(p->context, st, SMMU_PAGE_SIZE);
+    if (p->clean_cache)
+        p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
+    if (p->clean_cache)
         p->clean_cache(p->context, ct, SMMU_PAGE_SIZE);
+    if (p->clean_cache)
         p->clean_cache(p->context, root, SMMU_PAGE_SIZE);
-    }
+    if (p->write_barrier) p->write_barrier(p->context);
 
+    smmu_stream_id_set(s, stream_id);
     d->smmu = s;
-    d->stream_table = st;
-    d->stream_table_physical = st_pa;
+    d->stream_table = s->stream_table;
     d->context_table = ct;
     d->context_table_physical = ct_pa;
     d->stage1_root = root;
@@ -221,19 +336,26 @@ int kira_smmu_domain_create(struct kira_smmu_domain *d,
     d->stream_id = stream_id;
     d->active = 1;
 
-    /*
-     * Program linear stream table base and size. The SMMU must be configured
-     * for a linear table by platform firmware or prior initialization.
-     */
-    *(volatile uint64_t *)(s->registers + SMMU_STRTAB_BASE) =
-        (st_pa & ~0xfffull) | 1ull;
-    *(volatile uint32_t *)(s->registers + SMMU_STRTAB_BASE_CFG) =
-        8u; /* 2^8 stream entries */
+    /* Invalidate the newly published STE before returning the domain. */
+    rc = smmu_invalidate_stream(d, p);
+    if (rc != KIRA_SMMU_OK) {
+        /*
+         * Hardware completion is unknown after a timeout/error. Keep the
+         * STE, StreamID claim and translation pages pinned: freeing them
+         * could leave the SMMU DMA-walking reclaimed memory. The caller may
+         * retry kira_smmu_domain_destroy() to establish invalidation before
+         * resources are released.
+         */
+        d->active = 1;
+    }
+    smmu_unlock(s);
+    return rc;
 
-    if (p->write_barrier)
-        p->write_barrier(p->context);
-
-    return smmu_invalidate_stream(d, p);
+fail_locked:
+    smmu_unlock(s);
+    p->free_dma_pages(p->context, root, root_pa, 1);
+    p->free_dma_pages(p->context, ct, ct_pa, 1);
+    return rc;
 }
 
 int kira_smmu_domain_map_4k(struct kira_smmu_domain *d,
@@ -297,34 +419,45 @@ int kira_smmu_domain_unmap_4k(struct kira_smmu_domain *d,
 int kira_smmu_domain_destroy(struct kira_smmu_domain *d,
                              const struct kira_smmu_platform *p)
 {
+    struct kira_smmu *s;
+    uint64_t *ste;
     int rc;
 
-    if (!d || !d->active || !p)
+    if (!d || !d->active || !d->smmu || !p || !p->free_dma_pages)
         return KIRA_SMMU_INVALID;
 
-    /* Invalidate the STE before freeing any translation structures. */
-    smmu_words(d->stream_table)[d->stream_id * 8u] = 0;
-    if (p->clean_cache)
-        p->clean_cache(p->context, d->stream_table, SMMU_PAGE_SIZE);
-    if (p->write_barrier)
-        p->write_barrier(p->context);
-
-    rc = smmu_invalidate_stream(d, p);
-    if (rc != KIRA_SMMU_OK)
-        return rc;
-
-    if (p->free_dma_pages) {
-        p->free_dma_pages(p->context, d->stage1_root,
-                          d->stage1_root_physical, 1);
-        p->free_dma_pages(p->context, d->context_table,
-                          d->context_table_physical, 1);
-        p->free_dma_pages(p->context, d->stream_table,
-                          d->stream_table_physical, 1);
+    s = d->smmu;
+    smmu_lock(s);
+    if (!s->stream_table || !smmu_stream_id_claimed(s, d->stream_id)) {
+        smmu_unlock(s);
+        return KIRA_SMMU_INVALID;
     }
+
+    /* Clear only this domain's STE; the shared table remains controller-owned. */
+    ste = smmu_words(s->stream_table) + d->stream_id * 8u;
+    ste[0] = 0;
+    if (p->clean_cache)
+        p->clean_cache(p->context, s->stream_table, SMMU_STRTAB_BYTES);
+    if (p->write_barrier) p->write_barrier(p->context);
+    rc = smmu_invalidate_stream(d, p);
+    if (rc != KIRA_SMMU_OK) {
+        /* Keep the ID claimed and page tables allocated on uncertain hardware state. */
+        smmu_unlock(s);
+        return rc;
+    }
+
+    smmu_stream_id_clear(s, d->stream_id);
+    smmu_unlock(s);
+
+    p->free_dma_pages(p->context, d->stage1_root,
+                      d->stage1_root_physical, 1);
+    p->free_dma_pages(p->context, d->context_table,
+                      d->context_table_physical, 1);
 
     d->active = 0;
     d->stage1_root = 0;
     d->context_table = 0;
     d->stream_table = 0;
+    d->smmu = 0;
     return KIRA_SMMU_OK;
 }

@@ -200,8 +200,15 @@ int kira_vtd_unit_enable_translation(struct kira_vtd_unit *unit,
 
     /*
      * Root table address is programmed before SRTP. All entries are zero:
-     * devices without explicit context entries remain blocked.
+     * devices without explicit context entries remain blocked. On
+     * non-coherent platforms the hardware must see the cleared table first.
      */
+    if (platform->clean_cache)
+        platform->clean_cache(platform->context, unit->root_table,
+                              VTD_PAGE_SIZE);
+    if (platform->write_barrier)
+        platform->write_barrier(platform->context);
+
     vtd_write64(unit->registers, VTD_REG_RTADDR,
                 unit->root_table_physical & ~0xfffull);
     if (platform->write_barrier)
