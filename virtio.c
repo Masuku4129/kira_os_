@@ -455,6 +455,8 @@ int virtio_queue_release(virtq_t* q) {
 int virtio_driver_ok(virtio_dev_t* v) {
     if (!v || !v->pci || !v->common) return -1;
     uint16_t command = pci_read16(v->pci, 0x04);
+    if (!(command & PCI_CMD_MEM) || !(command & PCI_CMD_INTX_OFF) ||
+        (command & PCI_CMD_MASTER)) return -1;
     pci_write16(v->pci, 0x04, (uint16_t)(command | PCI_CMD_MASTER));
     if (!(pci_read16(v->pci, 0x04) & PCI_CMD_MASTER)) {
         virtio_fail(v);
