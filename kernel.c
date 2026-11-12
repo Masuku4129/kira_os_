@@ -354,8 +354,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
                 last_verify = seconds;
                 if (immune_verify_self() != 0) {
                     kernel_panic("IMMUNE: kernel code/rodata digest mismatch (self-integrity violated)");
-                assert_kernel_loop_unlocked("immune_verify_self");
                 }
+                assert_kernel_loop_unlocked("immune_verify_self");
             }
         }
 
