@@ -8,6 +8,7 @@
 #include "timer.h"
 #include "clock.h"
 #include "cpu.h"
+#include "watchdog.h"
 /* Ожидание ответа устройства. Сначала кручение до 1 мс по TSC (обычно ответ приходит за микросекунды), потом поток
    засыпает на тик между проверками: ядро уходит в hlt и не отнимает процессор у остальных (в эмуляторе - у потока,
    который как раз обрабатывает запрос устройства; при всех ядрах в нагрузке кручение растягивало запрос на секунды).
@@ -251,9 +252,19 @@ int virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n) {
     IW_MARK();
     MMIO_W16(q->notify_addr, q->index);
     uint64_t start = WAIT_NOW(), t0 = WAIT_T0();
+#ifndef KIRA_HOST_TEST
+    uint64_t last_progress = start;
+#endif
     for (uint32_t i = 0; ; i++) {
         barrier();
         if (used[1] != q->last_used) { q->last_used++; barrier(); return 0; }
+#ifndef KIRA_HOST_TEST
+        uint64_t now = WAIT_NOW();
+        if (now - last_progress >= TIMER_HZ) {
+            watchdog_progress();                 /* bounded wait is alive; scheduler stalls still stop this feed */
+            last_progress = now;
+        }
+#endif
         if (IW_READY(t0)) {                                      /* прерывание очереди есть: спать до него */
             IW_SLEEP();
             if (WAIT_NOW() - start > WAIT_LIMIT) return -1;
