@@ -585,7 +585,7 @@ ALL.append(sc("drvman-edu", "Driver Manager: MMIO-only Ring 3 driver starts; DMA
     *_dg("drvman do stop edunc;pci", r"drvman: готово", 40),
     {"log": [r"drvman: просьба остановить edunc принята", r"\[KIRA DRV\] останавливаю drv-edunc", r"\[KIRA DRV\] drv-edunc \(pid \d+\) завершён: устройство .* остановлено",
              r"drvman: драйвер edunc остановлен, устройство возвращено ядру",
-             r"drvman: pci \d\d:\d\d\.\d\s+1234:11e8\s+[0-9a-f]{6}\s+.*пакет edu установлен, не запущен"]},
+             r"drvman: pci \d\d:\d\d\.\d\s+1234:11e8\s+[0-9a-f]{6}\s+.*пакет edunc установлен, не запущен"]},
     {"cmd": "drv", "forbid": [r"drv-edunc pid"]},
     *_dg("drvman do start edu;pci", r"drvman: готово", 50),
     {"log": [r"\[KIRA DRV\] edu: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
