@@ -221,3 +221,12 @@
 - `tests/wm_test.c` now checks the actual Spatial system-zone pixels and bottom border after switching layouts. Existing hit-test verifies the Overview action remains functional.
 - Android/Limbo builds select Spatial Minimal through `build_clang.sh --android` (`KIRA_SPATIAL_PREVIEW`); ordinary CI/desktop builds retain Legacy for compatibility.
 - This closes a concrete rendering defect in the preview, not the full visual acceptance gate. The current phone/Limbo appearance, touch ergonomics and frame-time remain unverified.
+
+
+## 19. Short-screen navigation layout (2026-11-13)
+
+- Spatial navigation item height and vertical step now adapt to the available display height. The rail reserves the bottom Dock region rather than keeping fixed 48 px spacing on every screen.
+- Icon size scales down at compact heights; the Dock remains separate and contains only pinned items.
+- Added a 800×400 GUI regression scenario with all seven navigation destinations; it verifies the final navigation hit target ends above the Dock and remains clickable.
+- Very small viewports below 240 px height are not an acceptance target yet; touch/DPI and phone-specific scaling still require device validation.
+- Exact-head CI for the source/test follow-up is pending.
