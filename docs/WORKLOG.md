@@ -563,3 +563,5 @@
 - Extended `tests/pci_range_test.c` to verify denied rescans preserve the current snapshot and handles; architecture guards require the PCI callback contract and KDRV registration.
 - This is deliberately a conservative reboot-required restriction, not hotplug support. Replacing it requires the full Device Model quiesce → MMIO revoke → DMA drain → resource release lifecycle.
 - Exact-head CI for the PCI rescan gate and KDRV migration is pending. No local test run or hardware validation is claimed.
+
+- Updated `tests/virtio_test.c` to register an explicit always-allow guard for its synthetic multi-scan PCI model; production defaults remain fail-closed after the first snapshot. `tests/architecture_test.py` now requires that test-only authorization so repeated model scans cannot accidentally rely on the production default.
