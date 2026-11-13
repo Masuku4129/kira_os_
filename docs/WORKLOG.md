@@ -616,8 +616,15 @@
 - PCI discovery registers normalized descriptors; `pci_dev_t` stores the common handle; `pci_handle_t` remains a compatibility alias. `pci_resolve()` resolves through the common registry and validates the PCI location. KDRV binding stores `device_handle_t`, with PCI-specific operation adapter retained.
 - Both x86-64 and ARM64 build manifests include the registry. Host suite includes registry tests and links `device_model.c` into PCI range and virtio PCI host tests. Architecture guard checks the integration.
 - Invalid PCI bus ranges preserve the previous valid snapshot; registry insertion failure aborts the new snapshot. This remains boot-time single-writer, PCI-only discovery. Resource ownership, non-PCI adapters, driver lifecycle and hotplug are not implemented.
-- PR #141 exact-head CI has not yet been observed. Do not mark PASS until host-tests, x86-64, ARM64 and VM jobs complete on the exact code head.
+- Exact-head workflow `43408288041` passed host-tests, x86-64, ARM64/QEMU and all 27 VM jobs on branch head `3a8064f053ad74bdb9b5e5ad78926a26b4facca0` (code head `2048058c87f9ff0f55d6ae882cf87ebf3460e213`). PR compliance workflow `43408709474` passed.
 
 ### PCI nested bridge verification — PR #139
 - Exact source head `8a5884c93a75801c6bfe89db08fb5abfc60ba7ed`, workflow `43405811778`: host-tests, x86-64 build, ARM64 build/QEMU and all 27 VM jobs completed successfully.
 - This closes the nested subordinate-window CI gate for PR #139 R-07. Android Limbo visual validation and physical hardware remain unverified.
+
+
+### Common Device Model exact-head verification — PR #141 (2026-11-13)
+- Branch head: `3a8064f053ad74bdb9b5e5ad78926a26b4facca0`; source code head: `2048058c87f9ff0f55d6ae882cf87ebf3460e213` (subsequent commits are documentation-only).
+- Full workflow `43408288041` passed: host-tests, x86-64 build, ARM64 build/QEMU and all 27 VM scenarios, including USB-UHCI.
+- PR compliance workflow `43408709474` passed.
+- This verifies only the initial common registry + PCI discovery adapter. Non-PCI adapters, resource ownership, DMA/IOMMU domains, lifecycle and hotplug remain unimplemented. PR #141 remains Draft and stacked on PR #139.
