@@ -500,3 +500,13 @@
 - Added Ctrl+Alt+N as a shell-level shortcut to open/close notification history in Spatial Minimal. The chord is consumed by the shared input layer and is not forwarded to the focused application; the existing workspace shortcuts are unchanged.
 - Added a host input regression for the scan-code sequence, hotkey delivery and suppression from the application event queue.
 - Current source head before this log update: 9aa890d1af9dba46abe4621146d5d65cf6188449. Fresh exact-head CI is required. Limbo touch/visual and physical-hardware validation remain unverified.
+
+
+### Spatial Minimal window chrome and compact context panel — 2026-11-13
+
+- Based on the approved design contract and master-plan sections J/J.1/N, the Spatial-only window renderer now uses a quiet solid header, thin separator and restrained outline. The Legacy renderer remains on its original path; window control hit targets and content geometry are unchanged.
+- The contextual system panel now uses a compact responsive layout and reserves space below the floating capsule. On 320×240 the layout is sized to show CPU, memory and KIRA Mind rows together with the notifications entry; no network/audio/power toggles are fabricated because a unified shell control API is not wired.
+- Added host WM assertions for Spatial window header/separator colors and for the KIRA Mind telemetry row on a 320×240 viewport. Updated the design-system status to distinguish implemented behavior from remaining integration work.
+- Latest code/test SHA: `31a74257f2adb68d3e3ca0b5e32a5a4254e5db9c`; latest documentation SHA: `7ecdcb98d7572bdc2a52d2fe202e0dd914b74d5d`.
+- No local checkout/build is available in this session. Exact-head CI has not yet reported a run for the latest commits; do not claim host/x86/ARM/QEMU PASS. Android Limbo visual acceptance and measured render performance remain unverified.
+- Remaining UI work outside this slice: real network/audio/power quick controls via stable system APIs, wallpaper/preferences, DPI/reduced-motion/accessibility, a distinct KIRA AI assistant surface, and final Limbo review. No PR merge, main update or ISO release.
