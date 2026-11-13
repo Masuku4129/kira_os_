@@ -186,14 +186,33 @@ static int spatial_dock_slot(int item) {
     return slot;
 }
 
-static int spatial_dock_x(int item) {
+static int spatial_dock_tile(void) {
     int n = spatial_dock_count();
-    int width = n ? n * TILE + (n - 1) * TILE_GAP + 24 : 0;
-    int left = (scr->w - width) / 2 + 12;
-    return left + spatial_dock_slot(item) * (TILE + TILE_GAP);
+    if (n <= 0) return TILE;
+    int available = scr->w - 24;
+    int gap = TILE_GAP;
+    int width = n * TILE + (n - 1) * gap;
+    if (width > available) {
+        gap = 4;
+        int fit = (available - (n - 1) * gap) / n;
+        if (fit < TILE) return fit > 12 ? fit : 12;
+    }
+    return TILE;
 }
 
-static int spatial_dock_y(void) { return scr->h - TILE - 20; }
+static int spatial_dock_gap(void) {
+    int n = spatial_dock_count(), tile = spatial_dock_tile();
+    return n * tile + (n - 1) * TILE_GAP > scr->w - 24 ? 4 : TILE_GAP;
+}
+
+static int spatial_dock_x(int item) {
+    int n = spatial_dock_count(), tile = spatial_dock_tile(), gap = spatial_dock_gap();
+    int width = n ? n * tile + (n - 1) * gap + 24 : 0;
+    int left = (scr->w - width) / 2 + 12;
+    return left + spatial_dock_slot(item) * (tile + gap);
+}
+
+static int spatial_dock_y(void) { return scr->h - spatial_dock_tile() - 20; }
 
 /* Keep the complete navigation rail above the Dock on short Limbo/mobile modes. */
 static int spatial_tab_height(void) {
@@ -236,9 +255,10 @@ static void damage_side(void) {
 static int side_hit(int px, int py) {
     for (int i = 0; i < side_n; i++) {
         if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && (side[i].temp || side[i].bottom)) continue;
+        int tile = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? spatial_dock_tile() : TILE;
         int x = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? spatial_dock_x(i) : SIDE_X + 6;
         int y = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? spatial_dock_y() : side_item_y(i);
-        if (px >= x && px < x + TILE && py >= y && py < y + TILE) return i;
+        if (px >= x && px < x + tile && py >= y && py < y + tile) return i;
     }
     return -1;
 }
@@ -247,7 +267,8 @@ int wm_side_center(int i, int* x, int* y) {
     if (i < 0 || i >= side_n) return -1;
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
         if (side[i].temp || side[i].bottom) return -1;
-        *x = spatial_dock_x(i) + TILE / 2; *y = spatial_dock_y() + TILE / 2;
+        int tile = spatial_dock_tile();
+        *x = spatial_dock_x(i) + tile / 2; *y = spatial_dock_y() + tile / 2;
     } else { *x = SIDE_X + 6 + TILE / 2; *y = side_item_y(i) + TILE / 2; }
     return 0;
 }
@@ -1216,10 +1237,11 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     }
     int count = spatial_dock_count();
     if (!count) return;
-    int width = count * TILE + (count - 1) * TILE_GAP + 24;
+    int tile = spatial_dock_tile(), gap = spatial_dock_gap();
+    int width = count * tile + (count - 1) * gap + 24;
     int dx = (scr->w - width) / 2 + ox, dy = spatial_dock_y() + oy - 8;
-    ui_round_rect(c, dx, dy, width, TILE + 16, 18, TH_BAR0, 248);
-    ui_round_frame(c, dx, dy, width, TILE + 16, 18, TH_BORDER, 255);
+    ui_round_rect(c, dx, dy, width, tile + 16, 18, TH_BAR0, 248);
+    ui_round_frame(c, dx, dy, width, tile + 16, 18, TH_BORDER, 255);
     int top = wm_top();
     for (int i = 0; i < side_n; i++) {
         if (side[i].temp || side[i].bottom) continue;
@@ -1227,16 +1249,18 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
         int running = id >= 0, shown = running && win[id].visible, focused = shown && id == top;
         uint32_t col = side[i].color;
         int tx = spatial_dock_x(i) + ox, ty = spatial_dock_y() + oy;
+        int icon_size = tile >= 40 ? 26 : tile >= 28 ? 20 : 14;
+        int radius = tile >= 32 ? 12 : 7;
         uint32_t fill = i == side_hover ? ui_mix(TH_TILE, col, 40) : TH_TILE;
-        if (focused) ui_glow(c, tx, ty, TILE, TILE, 12, 3, col, 110);
-        ui_round_rect(c, tx, ty, TILE, TILE, 12, fill, 255);
-        ui_round_frame(c, tx, ty, TILE, TILE, 12, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 150 : 70), 255);
-        icon_draw(c, tx + TILE / 2, ty + TILE / 2, 26, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
-        if (shown) ui_round_rect(c, tx + 12, ty + TILE - 3, TILE - 24, 2, 1, col, 255);
+        if (focused) ui_glow(c, tx, ty, tile, tile, 10, 3, col, 110);
+        ui_round_rect(c, tx, ty, tile, tile, radius, fill, 255);
+        ui_round_frame(c, tx, ty, tile, tile, radius, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 150 : 70), 255);
+        icon_draw(c, tx + tile / 2, ty + tile / 2, icon_size, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
+        if (shown && tile >= 20) ui_round_rect(c, tx + tile / 3, ty + tile - 3, tile / 3, 2, 1, col, 255);
     }
     if (side_hover >= 0 && side_hover < side_n && !side[side_hover].temp && !side[side_hover].bottom) {
         const char* label = side[side_hover].label;
-        int lw = gfx_text_width(label) + 20, tx = spatial_dock_x(side_hover) + TILE / 2 - lw / 2 + ox;
+        int lw = gfx_text_width(label) + 20, tx = spatial_dock_x(side_hover) + tile / 2 - lw / 2 + ox;
         int ty = spatial_dock_y() + oy - 40;
         ui_round_rect(c, tx, ty, lw, 28, 8, TH_BAR0, 250);
         ui_round_frame(c, tx, ty, lw, 28, 8, side[side_hover].color, 180);
