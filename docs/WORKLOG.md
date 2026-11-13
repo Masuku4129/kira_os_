@@ -444,3 +444,13 @@
 - Exact-head GitHub Actions run `43298087855` on `618ce01344e219991323aca51f9de58c55ed2aab`: **30/30 jobs success**. Host tests, x86-64 build, ARM64 build and all QEMU/Limbo VM jobs passed. ARM64 artifact inspection confirmed 16/16 scenarios passed, including EL2 with 8 CPUs.
 - Follow-up review found a silent functional limitation: `pci_init()` always starts scanning at bus 0. The ARM64 host backend now rejects nonzero bus-range starts until the core exposes range-aware enumeration. ECAM base alignment is also checked at the 1-MiB per-bus aperture boundary.
 - Added tests for CPU address-window overflow and the exact signed `INT64_MIN` CPU-to-PCI offset. These follow-up changes are not covered by run `43298087855`; a new exact-head CI run is required.
+
+
+### Architecture continuation snapshot and current head (2026-11-13)
+
+- Revalidated live repository `Masuku4129/kira_os_`: PR #135 remains open Draft, base `main`, branch `architecture/target-baseline-2026-11`, current head `8626c4e1f063796da383880e656a36d654fb27fa`. `main` was not changed; no PR was merged.
+- Added `docs/architecture/CURRENT_STATE_AND_HANDOFF_2026-11-13.md` as a dated continuation pointer. It consolidates the independent_all direction, eight logical levels, separate Hypervisor, cross-cutting systems, architecture rules, current source slices, evidence boundaries and next M2/M3 gates. Normative source documents remain the master plan, target architecture, RFCs and registries.
+- Linked the snapshot from `README.md` and made it the first mandatory read in `AGENTS.md`.
+- Verification evidence: run `43298087855` passed 30/30 jobs on commit `618ce01344e219991323aca51f9de58c55ed2aab`; current PR head `8626c4e1f063796da383880e656a36d654fb27fa` includes later PCI host parser/range hardening and is NOT covered by that run. Current head remains unverified until a fresh exact-head workflow completes.
+- PCI host follow-up intentionally rejects nonzero bus-range starts because the shared PCI enumerator currently starts at bus 0. Keep fail-closed behavior; next M2 work must introduce and test a range-aware enumerator before relaxing this guard.
+- Next: exact-head CI for PR #135; then dependency-closed M2 Device Model/BootInfo contracts and M3 object-capability authority. Continue all master-plan streams. PR #135 remains Draft and unmerged.
