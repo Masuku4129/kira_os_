@@ -992,14 +992,17 @@ static void update_hover(void) {
         } else damage_top();
     }
     int lh = -1;
+    int controls_w = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? 116 : 72;
     if (fs < 0 && cy >= WM_TOP_H) {
         int id = hit_window(cx, cy);
-        if (id >= 0 && !win[id].pinned && !win[id].full && cy < win[id].y + WM_HEAD && cx < win[id].x + 70) lh = id;
+        if (id >= 0 && !win[id].pinned && !win[id].full &&
+            cy < win[id].y + WM_HEAD && cx >= win[id].x && cx < win[id].x + controls_w) lh = id;
     }
     if (lh != light_hover) {
-        if (light_hover >= 0 && win[light_hover].used) damage(win[light_hover].x, win[light_hover].y, win[light_hover].x + 72, win[light_hover].y + WM_HEAD);
+        if (light_hover >= 0 && win[light_hover].used)
+            damage(win[light_hover].x, win[light_hover].y, win[light_hover].x + controls_w, win[light_hover].y + WM_HEAD);
         light_hover = lh;
-        if (lh >= 0) damage(win[lh].x, win[lh].y, win[lh].x + 72, win[lh].y + WM_HEAD);
+        if (lh >= 0) damage(win[lh].x, win[lh].y, win[lh].x + controls_w, win[lh].y + WM_HEAD);
     }
 }
 
