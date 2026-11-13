@@ -547,3 +547,9 @@
 - Exact CI run `43399057283` stopped at the architecture guard before host tests: the new negative assertion searched for the substring `binds[i].dev`, which also appears in the valid field name `binds[i].device`.
 - Narrowed the assertion to match only raw pointer field operations and corrected its regular-expression escaping. This was a test-guard defect, not a compiler or runtime failure.
 - A fresh CI run for the corrected guard and KDRV handle migration is required; the failed run is not counted as validation.
+
+### KDRV guard regex follow-up (2026-11-13)
+
+- The next host CI run (`43399280985`) caught a syntax error in the new architecture guard's second regular expression (`re.error: unbalanced parenthesis`). The test stopped before product tests.
+- Replaced the nested expression with a simpler word-boundary check that distinguishes `.dev` from `.device`; this remains a test-only correction.
+- Fresh CI after commit `36c2fdc1081239e3e90a103b1903c06b49ac7b7a` is required. No host-test PASS is claimed.
