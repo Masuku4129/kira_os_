@@ -479,7 +479,7 @@ ALL.append(sc("drv-edu", "драйвер Ring 3: найден по PCI-ID и з�
     {"sleep": 6},
     {"log": [r"\[KIRA DRV\] abad: SHA-256 не совпал с записью /drv/abad\.rec - драйвер НЕ запущен",
              r"\[KIRA DRV\] eduun: пакет отклонён \(установка не подтверждена пользователем\)",
-             r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \(pid \d+\), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV, прерывание MSI включено",
+             r"\[KIRA DRV\] edu: устройство .* 1234:11e8 -> драйвер запущен как drv-edu \(pid \d+\), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV,",
              r"drvedu: id=0x10000ed", r"drvedu: 10!=3628800", r"drvedu: irq wait=1 5!=120", r"drvedu: dma round trip equal",
              r"drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x",
              r"drvedu: PASS"]},

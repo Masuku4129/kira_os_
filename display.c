@@ -31,6 +31,10 @@
 #include "vfs.h"
 #include "spinlock.h"
 #include "cpu.h"
+#ifndef KIRA_HOST_TEST
+#include "net.h"
+#include "audio.h"
+#endif
 
 /* Поток дисплея: единственный, кто выводит кадры. Оболочка «ОС Кира»: верхняя панель с разделами, часами и
    индикаторами, боковая панель приложений, окна; приложения ядра (Терминал, Разум, Монитор, Проводник, Настройки)
@@ -442,35 +446,50 @@ static void on_resize(int id, int w, int h) {
 
 static int streq(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 
-/* Собрать значки: закреплённые, затем идущие незакреплённые, внизу «+». Перестраивается, только если что-то изменилось. */
+/* Собрать только закреплённые значки Dock. Перестраивается при изменении списка закреплений. */
 static void side_rebuild(int force) {
+    /* Spatial Minimal Dock is intentionally pin-only: running windows are
+       reached through the workspace overview, never appended as task buttons.
+       Legacy keeps its historical running-app launcher and the final "+" item. */
+    int spatial = wm_get_layout_mode() == WM_LAYOUT_SPATIAL_MINIMAL;
     char run[8][16];
-    int nrun = wm_user_tags(run, 8);
+    int nrun = spatial ? 0 : wm_user_tags(run, 8);
     char sig[SIDE_N * 17]; int sp = 0;
-    for (int i = 0; i < dock.n; i++) { sp = scpy(sig, sp, dock.name[i], (int)sizeof sig); sig[sp++] = '|'; sig[sp] = 0; }
-    sig[sp++] = '#'; sig[sp] = 0;
-    for (int i = 0; i < nrun; i++) if (dock_find(&dock, run[i]) < 0) { sp = scpy(sig, sp, run[i], (int)sizeof sig); sig[sp++] = '|'; sig[sp] = 0; }
+    for (int i = 0; i < dock.n; i++) {
+        sp = scpy(sig, sp, dock.name[i], (int)sizeof sig);
+        sig[sp++] = '|'; sig[sp] = 0;
+    }
+    if (!spatial) {
+        sig[sp++] = '#'; sig[sp] = 0;
+        for (int i = 0; i < nrun; i++) if (dock_find(&dock, run[i]) < 0) {
+            sp = scpy(sig, sp, run[i], (int)sizeof sig);
+            sig[sp++] = '|'; sig[sp] = 0;
+        }
+    }
     if (!force && streq(sig, side_sig)) return;
     scpy(side_sig, 0, sig, (int)sizeof side_sig);
     side_n = 0;
-    for (int i = 0; i < dock.n && side_n < SIDE_N - 1; i++) {
+    for (int i = 0; i < dock.n && side_n < SIDE_N - (spatial ? 0 : 1); i++) {
         scpy(side_names[side_n], 0, dock.name[i], 16);
         side[side_n] = (wm_side_item_t){ dock_title(dock.name[i]) ? dock_title(dock.name[i]) : side_names[side_n], side_names[side_n], dock_color(dock.name[i]), dock_icon(dock.name[i]), 0, 0,
                                          "правая кнопка - открепить", 0 };
         if (side[side_n].icon == ICON_TERMINAL && dock.name[i][0] >= 'a' && dock.name[i][0] <= 'z') side[side_n].badge = (char)(dock.name[i][0] - 32);
         side_n++;
     }
-    for (int i = 0; i < nrun && side_n < SIDE_N - 1; i++) {
-        if (dock_find(&dock, run[i]) >= 0 || !dock_valid_name(run[i])) continue;
-        int dup = 0; for (int k = 0; k < side_n; k++) if (streq(side_names[k], run[i])) dup = 1;
-        if (dup) continue;
-        scpy(side_names[side_n], 0, run[i], 16);
-        side[side_n] = (wm_side_item_t){ dock_title(run[i]) ? dock_title(run[i]) : side_names[side_n], side_names[side_n], dock_color(run[i]), dock_icon(run[i]), 0, 1,
-                                         "правая кнопка - закрепить", 0 };
-        if (side[side_n].icon == ICON_TERMINAL && run[i][0] >= 'a' && run[i][0] <= 'z') side[side_n].badge = (char)(run[i][0] - 32);
-        side_n++;
+    if (!spatial) {
+        for (int i = 0; i < nrun && side_n < SIDE_N - 1; i++) {
+            if (dock_find(&dock, run[i]) >= 0 || !dock_valid_name(run[i])) continue;
+            int dup = 0;
+            for (int k = 0; k < side_n; k++) if (streq(side_names[k], run[i])) dup = 1;
+            if (dup) continue;
+            scpy(side_names[side_n], 0, run[i], 16);
+            side[side_n] = (wm_side_item_t){ dock_title(run[i]) ? dock_title(run[i]) : side_names[side_n], side_names[side_n], dock_color(run[i]), dock_icon(run[i]), 0, 1,
+                                             "правая кнопка - закрепить", 0 };
+            if (side[side_n].icon == ICON_TERMINAL && run[i][0] >= 'a' && run[i][0] <= 'z') side[side_n].badge = (char)(run[i][0] - 32);
+            side_n++;
+        }
+        side[side_n++] = (wm_side_item_t){ "Добавить программу", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, "откроет /bin в Проводнике", 0 };
     }
-    side[side_n++] = (wm_side_item_t){ "Добавить программу", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, "откроет /bin в Проводнике", 0 };
     wm_side_set(side, side_n);
 }
 
@@ -545,6 +564,33 @@ static void update_clock(void) {
         date[n] = 0;
     }
     wm_set_clock(date, hm);
+}
+
+#ifndef KIRA_HOST_TEST
+static int system_link_state(void) {
+    netdev_t* dev = net_dev();
+    if (!dev) return -2;
+    if (!dev->link) return -1;
+    int state = dev->link(dev);
+    return state > 0 ? 1 : state == 0 ? 0 : -1;
+}
+#endif
+
+static void update_system_io(void) {
+#ifndef KIRA_HOST_TEST
+    int volume = audio_running() ? audio_master(-1) : -1;
+    wm_set_system_io(system_link_state(), volume);
+#else
+    wm_set_system_io(-1, -1);
+#endif
+}
+
+static void on_system_volume(int percent) {
+#ifndef KIRA_HOST_TEST
+    if (audio_running()) wm_set_system_io(system_link_state(), audio_master(percent));
+#else
+    (void)percent;
+#endif
 }
 
 static void update_mind(void) {
@@ -700,7 +746,7 @@ static void display_main(void* arg) {
         update_files();
 
         uint64_t now0 = clock_ns();
-        if (now0 - clock_t0 >= 500000000ULL) { clock_t0 = now0; update_clock(); }
+        if (now0 - clock_t0 >= 500000000ULL) { clock_t0 = now0; update_clock(); update_system_io(); }
         side_rebuild(0);                                   /* появились/закрылись окна программ - левая панель следует */
         {                                                  /* подключили или вынули флешку - Проводник перечитывает дерево */
             static uint32_t vgen;
@@ -739,7 +785,7 @@ int display_init(unsigned long mbi) {
     if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
     notify_head = notify_tail = 0;
-    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher, on_workspace_changed };
+    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher, on_workspace_changed, on_system_volume };
 #ifdef KIRA_SPATIAL_PREVIEW
     wm_init_mode(fb_surface(), &ops, WM_LAYOUT_SPATIAL_MINIMAL);
 #else

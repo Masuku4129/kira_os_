@@ -8,6 +8,7 @@
 
 static int notes, last_id, last_vis, launches, last_launch, tabs_hit, last_tab, launcher_hits;
 static int workspace_changes, last_workspace;
+static int volume_changes, last_volume;
 static int in_n, in_id, in_type, in_x, in_y, in_b;
 static void inp(int id, int type, int x, int y, unsigned b) { in_n++; in_id = id; in_type = type; in_x = x; in_y = y; in_b = (int)b; }
 static void* al(uint64_t n) { return calloc(1, n); }
@@ -16,6 +17,7 @@ static void lc(int i) { launches++; last_launch = i; }
 static void tb(int i) { tabs_hit++; last_tab = i; }
 static void launcher(void) { launcher_hits++; }
 static void ws_changed(int workspace) { workspace_changes++; last_workspace = workspace; }
+static void vol_cb(int percent) { volume_changes++; last_volume = percent; wm_set_system_io(1, percent); }
 static int rz_n, rz_id, rz_w, rz_h;
 static void rz(int id, int w, int h) { rz_n++; rz_id = id; rz_w = w; rz_h = h; }
 static uint32_t px(surface_t* s, int x, int y) { return s->px[y * s->pitch + x]; }
@@ -42,7 +44,7 @@ static void same_as_full(surface_t* scr, const char* what) {
 
 int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
-    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, launcher, ws_changed };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, launcher, ws_changed, vol_cb };
     wm_init(&scr, &ops);
     CHECK(wm_get_layout_mode() == WM_LAYOUT_LEGACY);
     int x, y, w, h;
@@ -320,19 +322,31 @@ int main(void) {
     wm_set_layout_mode(WM_LAYOUT_SPATIAL_MINIMAL);
     CHECK(wm_get_layout_mode() == WM_LAYOUT_SPATIAL_MINIMAL);
     frame();
-    /* Spatial keeps a compact system bar, not the Legacy tab/telemetry bar. */
-    CHECK(px(&scr, 500, 20) == TH_BAR0);
-    CHECK(px(&scr, 500, WM_TOP_H - 1) == TH_BORDER);
+    /* Spatial has no full-width top bar; the center canvas remains visually quiet. */
+    CHECK(px(&scr, 500, 20) == TH_BG0);
+    CHECK(px(&scr, 500, WM_TOP_H - 1) == TH_BG0);
     int nav_x, nav_y, dock_x, dock_y;
-    CHECK(wm_tab_center(1, &nav_x, &nav_y) == 0 && nav_x < WM_SIDE_W && nav_y >= WM_TOP_H);
+    CHECK(wm_tab_center(1, &nav_x, &nav_y) == 0 && nav_x < WM_SPATIAL_RAIL_W && nav_y >= WM_TOP_H);
     CHECK(wm_side_center(0, &dock_x, &dock_y) == 0 && dock_y > 768 - 100);
     CHECK(wm_side_center(2, &dock_x, &dock_y) == -1); /* bottom action is not a Dock pin */
     CHECK(wm_side_center(3, &dock_x, &dock_y) == -1); /* running, unpinned apps are not in the Dock */
 
+    /* Spatial windows use a quiet surface and a thin separator; Legacy keeps its neon frame. */
+    int spatial_style = wm_create("spatial-style", 300, 220, 220, 100, WM_CLOSABLE);
+    CHECK(spatial_style >= 0);
+    wm_raise(spatial_style);
+    frame();
+    int style_x, style_y;
+    CHECK(wm_window_pos(spatial_style, &style_x, &style_y) == 0);
+    CHECK(px(&scr, style_x + 140, style_y + WM_HEAD - 1) == TH_BORDER);
+    CHECK(px(&scr, style_x + 230, style_y + 12) == TH_BAR0);
+    wm_destroy(spatial_style);
+    frame();
+
     /* Four isolated workspaces; pinned system windows remain global. */
     CHECK(wm_workspace_count() == 4 && wm_workspace_current() == 0);
     CHECK(wm_workspace_switch(-1) == -1 && wm_workspace_switch(4) == -1);
-    CHECK(wm_workspace_center(0, &nav_x, &nav_y) == 0 && nav_x == 204 && nav_y == 20);
+    CHECK(wm_workspace_center(0, &nav_x, &nav_y) == 0 && nav_x == scr.w - 165 && nav_y == 20);
     wm_set_visible(a, 1); wm_set_visible(b, 1);
     wm_set_visible(a, 0); /* side activation below must restore a from another workspace */
     CHECK(wm_workspace_switch(1) == 1 && wm_workspace_current() == 1);
@@ -388,7 +402,7 @@ int main(void) {
     wm_destroy(ov_input);
 
     /* The visible Spatial top-bar affordance opens the same overlay; close button exits without selecting. */
-    click(140, 20);
+    click(800, 20); /* Spatial overview capsule on the right */
     CHECK(wm_window_overview_is_open());
     frame();
     click(1024 - 68, 66);
@@ -578,10 +592,13 @@ int main(void) {
     CHECK(!wm_window_overview_is_open());
     wm_destroy(compact_window);
     CHECK(wm_workspace_current() == 0 && wm_workspace_count() == 4);
-    click(204, 20); CHECK(wm_workspace_current() == 1);
-    click(204, 20); CHECK(wm_workspace_current() == 2);
-    click(204, 20); CHECK(wm_workspace_current() == 3);
-    click(204, 20); CHECK(wm_workspace_current() == 0);
+    int workspace_x, workspace_y;
+    CHECK(wm_workspace_center(1, &workspace_x, &workspace_y) == 0);
+    CHECK(workspace_x == 320 - 82 && workspace_y == 20);
+    click(workspace_x, workspace_y); CHECK(wm_workspace_current() == 1);
+    click(workspace_x, workspace_y); CHECK(wm_workspace_current() == 2);
+    click(workspace_x, workspace_y); CHECK(wm_workspace_current() == 3);
+    click(workspace_x, workspace_y); CHECK(wm_workspace_current() == 0);
     int px_, py_;
     int previous_dock_x = -1;
     for (int i = 0; i < 3; i++) {
@@ -625,10 +642,19 @@ int main(void) {
 
     int small_notif_under = wm_create("small-notification-underlay", 40, 100, 100, 60, WM_INPUT);
     CHECK(small_notif_under >= 0);
+    uint8_t small_busy[1] = { 35 };
+    wm_set_meters(small_busy, 1, 58, 20);
+    wm_set_system_io(1, 75);
     wm_anim(20000, 0);
     CHECK(wm_notification_post("Система", "Событие на компактном экране", WM_NOTIFY_WARNING) == 0);
     CHECK(wm_notification_toast_is_visible());
     click(294, 20); CHECK(wm_system_panel_is_open());
+    frame();
+    CHECK(px(&narrow, 48, 173) == TH_RED); /* KIRA Mind remains visible in the compact panel */
+    CHECK(px(&narrow, 180, 173) == TH_GREEN); /* live network link is rendered */
+    CHECK(px(&narrow, 48, 203) == TH_CYAN); /* audio master volume is rendered */
+    click(230, 203); /* set master volume through the live audio card */
+    CHECK(volume_changes == 1 && last_volume >= 75 && last_volume <= 80);
     click(160, 108); CHECK(wm_notification_center_is_open());
     in_n = 0; move_to(80, 130, 0); CHECK(in_n == 0);
     click(80, 130); CHECK(in_n == 0 && wm_notification_center_is_open());

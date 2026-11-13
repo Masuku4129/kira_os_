@@ -500,3 +500,72 @@
 - Added Ctrl+Alt+N as a shell-level shortcut to open/close notification history in Spatial Minimal. The chord is consumed by the shared input layer and is not forwarded to the focused application; the existing workspace shortcuts are unchanged.
 - Added a host input regression for the scan-code sequence, hotkey delivery and suppression from the application event queue.
 - Current source head before this log update: 9aa890d1af9dba46abe4621146d5d65cf6188449. Fresh exact-head CI is required. Limbo touch/visual and physical-hardware validation remain unverified.
+
+
+### Spatial Minimal window chrome and compact context panel — 2026-11-13
+
+- Based on the approved design contract and master-plan sections J/J.1/N, the Spatial-only window renderer now uses a quiet solid header, thin separator and restrained outline. The Legacy renderer remains on its original path; window control hit targets and content geometry are unchanged.
+- The contextual system panel now uses a compact responsive layout and reserves space below the floating capsule. On 320×240 the layout is sized to show CPU, memory and KIRA Mind rows together with the notifications entry; no network/audio/power toggles are fabricated because a unified shell control API is not wired.
+- Added host WM assertions for Spatial window header/separator colors and for the KIRA Mind telemetry row on a 320×240 viewport. Updated the design-system status to distinguish implemented behavior from remaining integration work.
+- Latest code/test SHA: `31a74257f2adb68d3e3ca0b5e32a5a4254e5db9c`; latest documentation SHA: `7ecdcb98d7572bdc2a52d2fe202e0dd914b74d5d`.
+- No local checkout/build is available in this session. Exact-head CI has not yet reported a run for the latest commits; do not claim host/x86/ARM/QEMU PASS. Android Limbo visual acceptance and measured render performance remain unverified.
+- Remaining UI work outside this slice: real network/audio/power quick controls via stable system APIs, wallpaper/preferences, DPI/reduced-motion/accessibility, a distinct KIRA AI assistant surface, and final Limbo review. No PR merge, main update or ISO release.
+
+
+### Spatial quick-panel live I/O integration and regression correction — 2026-11-13
+
+- The contextual panel now receives the actual network adapter link callback state and audio mixer/master-volume state from the display loop. It explicitly labels link state (not Internet reachability); absent adapters/mixers remain unavailable rather than being shown as connected.
+- Reworked the panel into compact metric cards for CPU, memory, KIRA Mind, network link and audio volume. The 320×240 host fixture now checks all three visible rows, including the Mind, network and audio indicators.
+- Exact-head CI run `43432439272` exposed a pre-existing stale host assertion: the overview test clicked x=140 although the Spatial overview affordance had moved to the right-side capsule. Updated the test to click x=800. That run had x86 build success, host-tests failure at the stale click, and several VM scenarios success; ARM64 and several VM shards were cancelled by newer commits. It is not a full pass.
+- Added the Spatial window surface and compact panel pixel assertions; Legacy renderer remains on its original branch.
+- Code/test commits in this follow-up: `wm.c` `9a0c768883d6fd4e520a3b64c77ef8c7d828a085`, `display.c` `6fb899aedbec63d53393a330819dfeb359d80a5c`, `tests/wm_test.c` `2eaa2c408ef7322511c448d12fdf47422ab8670d`; documentation `1be8a7305888cbc612d6963255d9aa0713c1999c`.
+- A new CI run was queued for the corrected host assertion; latest exact-head result must be checked after the newest code/docs commits. No local build, Limbo visual acceptance or measured performance comparison is available in this session.
+- Still not implemented: actual network enable/disable, audio control interaction, battery/power controls, wallpaper preferences, full DPI/reduced-motion/accessibility, and a separate AI assistant overlay. These are not represented as completed. No PR merge, main update or ISO release.
+
+
+### Spatial quick-panel volume interaction — 2026-11-13
+
+- Added a bounded pointer interaction on the audio card: clicking its level bar computes a 0–100 master-volume value and invokes the display callback, which calls the existing audio mixer API. The displayed value refreshes immediately; the display loop also polls the real mixer state.
+- Added host WM coverage for the callback and verifies a click on the compact 320×240 audio bar produces the expected 75–80% setting.
+- Network status remains read-only link state; no unsafe stop/start operation was added because the network stack has no corresponding lifecycle API. Battery/power controls, wallpaper, DPI/accessibility and a separate assistant surface remain outside the current implementation.
+- Exact code/test commits: wm.h e8f103b55a0a5723ee4da200fc3dc2bdc21d97d9, wm.c 574f594e404f8a6b6793109f33bf11d77132addd, display.c 7a3fc15de2becd2ee2f9e6d6258d5e29e3b81761, tests/wm_test.c 9010cb709e67de9762a924d5b0df0daefb1e0138.
+- Fresh exact-head CI is required after these commits; no build/test PASS is claimed yet.
+
+
+### Compact workspace switcher regression — 2026-11-13
+
+- Exact-head CI run 43434048102: x86-64 build passed; ARM64 compile passed and QEMU scenarios were still running; host suite failed at `wm_workspace_current() == 1` because the 320×240 UI had no workspace hit target even though the test/API assumed one. The first failure was a genuine missing compact-layout affordance, not a flaky assertion.
+- Added a visible `1/4` workspace capsule beside the system button on sub-640px Spatial displays; tapping it cycles through the four workspaces. The workspace-center API now returns the actual rendered/hit-tested center for both compact and wide layouts.
+- Updated the host test to use the geometry API and assert the compact center is `320-82, 20`, then cycle through all four workspaces. Updated the design specification accordingly.
+- Commits: wm.c 74a995c259ab19edba836582ef58546af07c89e4; tests/wm_test.c aa7b8cd4f4a3b6435b102196f941f7a3de2a1c31; design docs 10a68929c4a5864a3dedc800fcce617b1c7ed1bd.
+- The previous run's host failure is fixed in source; a new exact-head run is required to validate it. No PASS claimed until host, x86-64, ARM64/QEMU and VM matrix finish. Limbo visual/performance acceptance remains pending.
+
+
+### Compact status panel footer spacing — 2026-11-13
+
+- Follow-up review found the third status row's audio card could touch the footer hint on 320×240. Reduced vertical row step from 32px to 30px and moved the first row up 2px; the audio card now ends before the footer. The audio card's full 28px height remains the touch target while the horizontal level bar controls 0–100% volume.
+- Updated host pixel and click assertions for the compact Mind/network/audio rows and the revised audio-card hit area.
+- Commits: wm.c 93c8f2fab4f5c97d00e80ddf658a603152e9ac09; tests/wm_test.c cd573c2c4ae6affb6d50be552f840e21d6f9404c.
+- Latest branch head must receive a fresh CI run; no pass claimed. Limbo visual and performance acceptance remains pending.
+
+
+### Wide workspace geometry assertion correction — 2026-11-13
+
+- Exact-head CI run 43434842440: x86-64 build passed; host suite caught one remaining stale expectation from the pre-capsule layout (`workspace_center == 204`). The workspace capsule is now at the actual rendered wide-screen position, `screen_width - 165`, matching the hit target and compact helper contract. Updated the 1024×768 host assertion to derive its expected center from the surface width.
+- ARM64 compile/QEMU and VM scenarios were still running at the time of this correction; host failure means this run is not a pass. Fresh CI is required for the latest test commit.
+- Commit: tests/wm_test.c d694e62cef70e226db39aeb69d3354058d0c1bfc.
+
+
+### Host-test build guard correction — 2026-11-13
+
+- Exact-head run 43435318555: x86-64 build passed; host suite reached compilation and failed under `-Werror` because `system_link_state()` was compiled into `KIRA_HOST_TEST` but only used by the non-host display callbacks. ARM64 compile passed and its QEMU scenario was still running. This is a build-guard defect, not a test assertion failure.
+- Wrapped the real network-link helper in `#ifndef KIRA_HOST_TEST`; host-test behavior remains unavailable/unknown, and production builds retain the actual adapter callback. Commit: display.c a917d69bfa3fda0de4a2409b2ed8c7c539b8491e.
+- Fresh exact-head CI required; no PASS claimed.
+
+
+### Legacy launcher regression isolated by display preview — 2026-11-13
+
+- Exact-head CI run `43435928319` passed the x86-64 build and the completed VM scenarios, but host `display_preview` failed its Legacy launcher checks: the default Dock's final slot, running unpinned app entries, the legacy “+” entry, and pin persistence were missing.
+- Root cause: the Spatial pin-only refactor had replaced the shared `side_rebuild` behavior for both layouts. The new behavior was correct for Spatial Minimal but unintentionally removed the pre-existing Legacy running-app list and “+” action.
+- Fixed `display.c` so Spatial Minimal remains strictly pinned-only, while Legacy reconstructs its historical pinned + running-unpinned + “+” list and includes running tags in its change signature. No Legacy behavior is used by Spatial Minimal.
+- Fix commit: `8daa4b2a1b2e73f0ce80c7263236fbd5778b7111`. Exact-head CI for this fix is pending; no PASS is claimed. ISO release remains blocked until the complete host/build/ARM64/QEMU/VM matrix passes.

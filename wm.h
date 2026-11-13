@@ -17,7 +17,7 @@
 #define WM_PAD       10      /* поля окна вокруг содержимого */
 #define WM_HEAD      36      /* заголовок окна */
 #define WM_SIDE_W    76      /* место под боковую панель слева */
-#define WM_SPATIAL_RAIL_W 88  /* ширина компактной навигации Spatial Minimal */
+#define WM_SPATIAL_RAIL_W 208 /* максимальная ширина навигации Spatial Minimal; на узких экранах сворачивается */
 #define WM_GLOW      4       /* свечение окна в фокусе (за пределами рамки) */
 #define WM_AUTO      (-100000) /* координата "разместить самому" */
 #define WM_SIDE_MAX  10
@@ -51,7 +51,8 @@ typedef struct {
     void  (*tab)(int tab_index);                  /* нажат раздел в верхней панели */
     void  (*side_alt)(int side_index);            /* правая кнопка на значке боковой панели */
     void  (*launcher)(void);                     /* открыть каталог приложений (только Spatial Minimal) */
-    void  (*workspace_changed)(int workspace);  /* новое рабочее пространство стало активным */
+    void  (*workspace_changed)(int workspace);   /* новое рабочее пространство стало активным */
+    void  (*system_volume)(int percent);       /* Spatial quick panel: set audio master volume */
 } wm_ops_t;
 
 void wm_init(surface_t* screen, const wm_ops_t* ops); /* legacy-compatible entry point */
@@ -119,6 +120,8 @@ void wm_set_culling(int on);
 /* Верхняя панель: дата («ПЯТНИЦА, 30 ОКТЯБРЯ 2026») и время; ядра (занятость, %), память (%), здоровье Разума. */
 void wm_set_clock(const char* date, const char* hm);
 void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health);
+/* Spatial Minimal: real link state (-2 no adapter, -1 unknown, 0 down, 1 up) and master audio volume (-1 unavailable). */
+void wm_set_system_io(int network_link, int audio_volume);
 /* Фон: уровень анимации 0..3 и шаг анимации (каждый цикл дисплея). */
 void wm_set_fx(int level);
 void wm_anim(uint32_t now_ms, unsigned activity);
