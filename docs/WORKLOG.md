@@ -588,3 +588,9 @@
 - Regression: `tests/pci_range_test.c` now models a nested bridge and endpoint. It verifies discovery when the endpoint is inside all ancestor windows, then lowers the parent subordinate limit and verifies the nested endpoint is not enumerated. Existing stale-handle and denied-rescan checks remain in the same test.
 - This closes a traversal-boundary gap not covered by the previous root-range-only test. No local test is claimed; fresh exact-head host, x86-64, ARM64 and VM CI is required.
 - Follow-up architecture docs updated: DEV-001 RFC, source-layout migration, component inventory, dependency map, current handoff, execution plan, contract registry, open-PR tracker and source-audit finding F-018.
+
+### Nested bridge CI feedback — architecture guard alignment (2026-11-13)
+
+- Full workflow `43405404492` on source/documentation head `d2b5ae7f1f3f9beb8be07f095e48277da24222bd` reached host tests and failed immediately in `tests/architecture_test.py`: its PCI contract assertion still expected the old `scan_bus(bus)` signature and root-only bounds.
+- Updated the architecture guard to require the new `bus_limit` parameter, host-range bound, primary-bus match and subordinate-window intersection. This is a test expectation correction; the product source had compiled further in the parallel x86-64/ARM64 jobs, which were still running at the time of this note.
+- Guard correction commit: `940cc8a6f08a844c6e7628ca814de318dfa3aeb9`. Fresh full CI is required; run `43405404492` is not a PASS.
