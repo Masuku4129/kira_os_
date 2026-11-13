@@ -49,6 +49,8 @@ static int light_hover = -1;       /* окно, над «светофором» 
 static int last_fs = -1, last_pill;
 static int cascade;
 static wm_layout_mode_t layout_mode = WM_LAYOUT_LEGACY;
+static int overview_open, overview_page, overview_n;
+static int overview_ids[WM_MAX_WIN];
 static uint32_t* bg;
 static surface_t bgs;
 static char clock_date[48], clock_hm[8];
@@ -275,6 +277,7 @@ static void str_copy(char* d, const char* s, int cap) {
 
 void wm_init(surface_t* screen, const wm_ops_t* o) {
     layout_mode = WM_LAYOUT_LEGACY;
+    overview_open = 0; overview_page = 0; overview_n = 0;
     scr = screen;
     ops = *o;
     for (int i = 0; i < WM_MAX_WIN; i++) win[i].used = 0;
@@ -561,6 +564,41 @@ void wm_set_layout_mode(wm_layout_mode_t mode) {
 
 wm_layout_mode_t wm_get_layout_mode(void) { return layout_mode; }
 
+static int overview_refresh(void) {
+    int ids[WM_MAX_WIN], n = 0;
+    for (int i = zcount - 1; i >= 0; i--) {
+        int id = zorder[i];
+        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned) ids[n++] = id;
+    }
+    int changed = n != overview_n;
+    for (int i = 0; i < n && !changed; i++) if (ids[i] != overview_ids[i]) changed = 1;
+    if (changed) {
+        for (int i = 0; i < n; i++) overview_ids[i] = ids[i];
+        overview_n = n;
+        int cols = scr->w >= 900 ? 3 : scr->w >= 600 ? 2 : 1;
+        int rows = scr->h >= 560 ? 2 : 1;
+        int per_page = cols * rows;
+        int pages = n ? (n + per_page - 1) / per_page : 1;
+        if (overview_page >= pages) overview_page = pages - 1;
+        if (overview_page < 0) overview_page = 0;
+    }
+    return changed;
+}
+
+void wm_window_overview_toggle(void) {
+    if (overview_open) overview_open = 0;
+    else { overview_page = 0; overview_refresh(); overview_open = 1; }
+    damage(0, 0, scr->w, scr->h);
+}
+
+int wm_window_overview_is_open(void) { return overview_open; }
+
+int wm_window_overview_count(void) {
+    overview_refresh();
+    return overview_n;
+}
+
+
 void wm_set_fx(int level) { fx_level = level < 0 ? 0 : level > 3 ? 3 : level; }
 
 static void anim_damage(int x0, int y0, int x1, int y1) { damage(x0, y0, x1, y1); }
@@ -706,10 +744,15 @@ static void apply_resize(int id) {
 static int gets_input(const win_t* w) { return w->user || w->input; }
 
 static void click(int px, int py) {
+    if (overview_open) { overview_click(px, py); return; }
     int fs = fs_top();
     if (fs >= 0) {
         if (pill_visible(fs) && click_pill(fs, px, py)) return;
         if (gets_input(&win[fs])) capture = fs;
+        return;
+    }
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && py < WM_TOP_H) {
+        if (px >= 104 && px < 188 && py >= 6 && py < 34) wm_window_overview_toggle();
         return;
     }
     if (layout_mode == WM_LAYOUT_LEGACY && py < WM_TOP_H) {
@@ -945,6 +988,9 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         gfx_rect(c, ox, y + WM_TOP_H - 1, W, 1, TH_BORDER);
         icon_draw(c, ox + 22, y + 20, 24, ICON_BRAIN, TH_CYAN, 1);
         ui_text_smooth(c, ox + 40, y + 10, "KIRA", 20, TH_TEXT);
+        ui_round_rect(c, ox + 104, y + 7, 76, 26, 8, TH_TILE, 255);
+        ui_round_frame(c, ox + 104, y + 7, 76, 26, 8, TH_BORDER, 220);
+        gfx_text(c, ox + 119, y + 14, "ОКНА", TH_TEXT_DIM, -1);
         int rx = W - 14 + ox;
         if (clock_hm[0]) {
             rx -= gfx_text_width(clock_hm);
@@ -1121,6 +1167,121 @@ static void draw_side(surface_t* c, int ox, int oy) {
     }
 }
 
+
+static void overview_grid(int* cols, int* rows, int* per, int* left, int* top, int* cw, int* ch) {
+    *cols = scr->w >= 900 ? 3 : scr->w >= 600 ? 2 : 1;
+    *rows = scr->h >= 560 ? 2 : 1;
+    *per = *cols * *rows;
+    *left = 28;
+    *top = 100;
+    int gap = 14;
+    *cw = (scr->w - 2 * *left - (*cols - 1) * gap) / *cols;
+    *ch = (scr->h - *top - 68 - (*rows - 1) * gap) / *rows;
+    if (*cw < 120) *cw = 120;
+    if (*ch < 100) *ch = 100;
+}
+
+static int overview_card_rect(int slot, int* x, int* y, int* w, int* h) {
+    int cols, rows, per, left, top, cw, ch;
+    overview_grid(&cols, &rows, &per, &left, &top, &cw, &ch);
+    if (slot < 0 || slot >= per || overview_page * per + slot >= overview_n) return -1;
+    *x = left + (slot % cols) * (cw + 14);
+    *y = top + (slot / cols) * (ch + 14);
+    *w = cw; *h = ch;
+    return 0;
+}
+
+int wm_window_overview_item_center(int item, int* x, int* y) {
+    int rx, ry, rw, rh;
+    if (!overview_open || !x || !y || overview_card_rect(item, &rx, &ry, &rw, &rh) != 0) return -1;
+    *x = rx + rw / 2; *y = ry + rh / 2;
+    return 0;
+}
+
+static int overview_hit_item(int px, int py) {
+    int cols, rows, per, left, top, cw, ch;
+    overview_grid(&cols, &rows, &per, &left, &top, &cw, &ch);
+    for (int i = 0; i < per; i++) {
+        int x, y, w, h;
+        if (overview_card_rect(i, &x, &y, &w, &h) == 0 &&
+            px >= x && px < x + w && py >= y && py < y + h) return overview_page * per + i;
+    }
+    return -1;
+}
+
+static void overview_button(surface_t* c, int ox, int oy, int x, int y, int w, const char* label, int enabled) {
+    uint32_t edge = enabled ? TH_CYAN : TH_BORDER;
+    ui_round_rect(c, x + ox, y + oy, w, 32, 9, TH_TILE, 255);
+    ui_round_frame(c, x + ox, y + oy, w, 32, 9, edge, enabled ? 210 : 90);
+    int tw = gfx_text_width(label);
+    gfx_text(c, x + ox + (w - tw) / 2, y + oy + 10, label, enabled ? TH_TEXT : TH_TEXT_FAINT, -1);
+}
+
+static void draw_overview(surface_t* c, int ox, int oy) {
+    gfx_rect(c, 0, 0, c->w, c->h, TH_BG0);
+    ui_round_rect(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BAR0, 255);
+    ui_round_frame(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BORDER, 255);
+    gfx_text(c, 36 + ox, 58 + oy, "ОКНА", TH_TEXT, -1);
+    gfx_text(c, 118 + ox, 60 + oy, "Выберите окно для возврата", TH_TEXT_DIM, -1);
+    overview_button(c, ox, oy, scr->w - 104, 50, 72, "Закрыть", 1);
+
+    int cols, rows, per, left, top, cw, ch;
+    overview_grid(&cols, &rows, &per, &left, &top, &cw, &ch);
+    int first = overview_page * per;
+    if (!overview_n) {
+        gfx_text(c, scr->w / 2 - 74 + ox, scr->h / 2 + oy, "Нет открытых окон", TH_TEXT_DIM, -1);
+    }
+    for (int slot = 0; slot < per && first + slot < overview_n; slot++) {
+        int id = overview_ids[first + slot];
+        if (id < 0 || id >= WM_MAX_WIN || !win[id].used) continue;
+        const win_t* w = &win[id];
+        int x, y, ww, hh;
+        if (overview_card_rect(slot, &x, &y, &ww, &hh) != 0) continue;
+        int focused = id == wm_top();
+        ui_round_rect(c, x + ox, y + oy, ww, hh, 14, TH_CARD, 255);
+        ui_round_frame(c, x + ox, y + oy, ww, hh, 14, focused ? TH_CYAN : TH_CARD_EDGE, focused ? 255 : 180);
+        int px = x + 10, py = y + 10, pw = ww - 20, ph = hh - 62;
+        if (ph < 32) ph = 32;
+        ui_round_rect(c, px + ox, py + oy, pw, ph, 8, TH_CONTENT, 255);
+        if (w->content.px && w->content.w > 0 && w->content.h > 0)
+            blit_scaled(c, px + ox, py + oy, pw, ph, &w->content);
+        gfx_text(c, x + 12 + ox, y + hh - 42 + oy, w->title, TH_TEXT, -1);
+        gfx_text(c, x + 12 + ox, y + hh - 23 + oy, w->visible ? "ОТКРЫТО" : "СВЁРНУТО",
+                 w->visible ? TH_CYAN : TH_TEXT_FAINT, -1);
+        if (focused) ui_round_rect(c, x + ww - 18 + ox, y + hh - 18 + oy, 6, 6, 3, TH_CYAN, 255);
+    }
+    int pages = overview_n ? (overview_n + per - 1) / per : 1;
+    overview_button(c, ox, oy, 32, scr->h - 48, 88, "Назад", overview_page > 0);
+    overview_button(c, ox, oy, scr->w - 120, scr->h - 48, 88, "Далее", overview_page + 1 < pages);
+}
+
+static void overview_click(int px, int py) {
+    int cols, rows, per, left, top, cw, ch;
+    overview_grid(&cols, &rows, &per, &left, &top, &cw, &ch);
+    int pages = overview_n ? (overview_n + per - 1) / per : 1;
+    if (px >= scr->w - 104 && px < scr->w - 32 && py >= 50 && py < 82) {
+        overview_open = 0; damage(0, 0, scr->w, scr->h); return;
+    }
+    if (px >= 32 && px < 120 && py >= scr->h - 48 && py < scr->h - 16) {
+        if (overview_page > 0) { overview_page--; damage(0, 0, scr->w, scr->h); }
+        return;
+    }
+    if (px >= scr->w - 120 && px < scr->w - 32 && py >= scr->h - 48 && py < scr->h - 16) {
+        if (overview_page + 1 < pages) { overview_page++; damage(0, 0, scr->w, scr->h); }
+        return;
+    }
+    int index = overview_hit_item(px, py);
+    if (index >= 0 && index < overview_n) {
+        int id = overview_ids[index];
+        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned) {
+            wm_set_visible(id, 1);
+            wm_raise(id);
+        }
+    }
+    overview_open = 0;
+    damage(0, 0, scr->w, scr->h);
+}
+
 static void draw_cursor(surface_t* c, int ox, int oy) {
     for (int j = 0; j < CUR_H; j++)
         for (int i = 0; i < CUR_W; i++) {
@@ -1135,6 +1296,7 @@ void wm_set_culling(int on) { cull_enabled = on; }
 
 /* Признаки, меняющие всю картинку (полноэкранный режим, плашка, вкладка), - до сборки изменённых мест. */
 static int compose_prepare(void) {
+    if (overview_open && overview_refresh()) damage(0, 0, scr->w, scr->h);
     int fs = fs_top();
     if (fs != last_fs) { last_fs = fs; damage(0, 0, scr->w, scr->h); }
     int pill = pill_visible(fs);
@@ -1151,6 +1313,12 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     int pill = last_pill;
     surface_t clip = { scr->px + (long)y0 * scr->pitch + x0, rw, rh, scr->pitch };
     int ox = -x0, oy = -y0;
+
+    if (overview_open) {
+        draw_overview(&clip, ox, oy);
+        draw_cursor(&clip, ox, oy);
+        return;
+    }
 
     /* Ищем самое верхнее окно, которое целиком закрывает изменённую область: всё, что под ним, рисовать незачем.
        Окно сверху «задевает» область вместе со своим свечением. */
