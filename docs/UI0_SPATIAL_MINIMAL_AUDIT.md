@@ -212,3 +212,12 @@
 - Exact-head run `43408346184` passed on branch head `1850c0ea0f4f3436116b1b3e3942f5f05293ef34`; source/test head was `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae` (later commits are documentation-only).
 - Host tests, x86-64 build, ARM64/QEMU and all VM scenarios passed, including `limbo-spam`, `limbo-mttcg`, USB-UHCI, USB-xHCI and driver scenarios.
 - This verifies the bounded invalidation contracts and builds. It does not measure FPS/frame time/dirty-pixel reduction and does not replace the user's Android Limbo visual comparison.
+
+
+## 18. Spatial system-zone visibility correction (2026-11-13)
+
+- Visual-path inspection found that `draw_topbar()` already had a compact Spatial branch (KIRA mark, Window Overview action, clock/date), but `compose_rect()` called it only for Legacy. The Spatial Overview hit target was therefore invisible and the system clock had no visible surface.
+- `compose_rect()` now draws the layout-specific top system zone for both modes. Spatial uses only its compact system strip; it does not draw the Legacy horizontal navigation tabs or telemetry meters.
+- `tests/wm_test.c` now checks the actual Spatial system-zone pixels and bottom border after switching layouts. Existing hit-test verifies the Overview action remains functional.
+- Android/Limbo builds select Spatial Minimal through `build_clang.sh --android` (`KIRA_SPATIAL_PREVIEW`); ordinary CI/desktop builds retain Legacy for compatibility.
+- This closes a concrete rendering defect in the preview, not the full visual acceptance gate. The current phone/Limbo appearance, touch ergonomics and frame-time remain unverified.
