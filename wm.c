@@ -177,7 +177,7 @@ static int side_item_y(int i) {
 
 #define WM_DOCK_TOUCH_TILE 40
 #define WM_DOCK_TOUCH_GAP 8
-#define WM_DOCK_CONTROL_W 28
+#define WM_DOCK_CONTROL_W 44
 
 static int spatial_dock_count(void) {
     int n = 0;
@@ -265,9 +265,9 @@ int wm_dock_page_control_center(int next, int* x, int* y) {
 
 static int spatial_dock_control_hit(int px, int py) {
     int x, y;
-    if (spatial_dock_pages() <= 1 || py < spatial_dock_y() - 4 || py >= spatial_dock_y() + spatial_dock_tile() + 4) return 0;
-    if (spatial_dock_control_center(0, &x, &y) == 0 && px >= x - 16 && px < x + 16) return -1;
-    if (spatial_dock_control_center(1, &x, &y) == 0 && px >= x - 16 && px < x + 16) return 1;
+    if (spatial_dock_pages() <= 1) return 0;
+    if (spatial_dock_control_center(0, &x, &y) == 0 && px >= x - 22 && px < x + 22 && py >= y - 22 && py < y + 22) return -1;
+    if (spatial_dock_control_center(1, &x, &y) == 0 && px >= x - 22 && px < x + 22 && py >= y - 22 && py < y + 22) return 1;
     return 0;
 }
 
@@ -1326,8 +1326,8 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
         int rx = dx + width - WM_DOCK_CONTROL_W / 2 - 2;
         uint32_t lc = dock_page > 0 ? TH_TEXT : TH_TEXT_FAINT;
         uint32_t rc = dock_page + 1 < pages ? TH_TEXT : TH_TEXT_FAINT;
-        ui_round_rect(c, lx - 13, cy - 15, 26, 30, 9, TH_TILE, 255);
-        ui_round_rect(c, rx - 13, cy - 15, 26, 30, 9, TH_TILE, 255);
+        ui_round_rect(c, lx - 18, cy - 20, 36, 40, 11, TH_TILE, 255);
+        ui_round_rect(c, rx - 18, cy - 20, 36, 40, 11, TH_TILE, 255);
         gfx_line(c, lx + 3, cy - 7, lx - 3, cy, lc);
         gfx_line(c, lx - 3, cy, lx + 3, cy + 7, lc);
         gfx_line(c, rx - 3, cy - 7, rx + 3, cy, rc);
