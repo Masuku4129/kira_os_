@@ -421,3 +421,9 @@
 - Legacy invalidation path is unchanged. No default-layout switch or ISO release is made by this change.
 
 - PR #140 now carries R-01/R-02 requirement-to-evidence rows pinned to `cb0d41e29ae7b01fe4b82e2be66e77414c71e39c`; final CI/limbo evidence remains pending.
+
+
+### Spatial Minimal CI result — partial redraw follow-up
+
+- Run 43396919980: x86-64 build PASS; host-tests PASS (`ALL HOST TESTS PASSED`); ARM64 build PASS with Clang `-Werror`; ARM64 QEMU scenarios PASS; all 29 VM jobs PASS. The host suite executes `tests/ui_damage_contract_test.py`.
+- This validates the CI source/test paths, not a user-visible performance improvement. Android Limbo visual verification and frame-time/dirty-pixel measurements remain open. No ISO release, PR merge or `main` update.
