@@ -12,6 +12,9 @@ static model_device_t devices[4];
 static unsigned device_count;
 static unsigned out_of_range_reads;
 
+static int allow_rescan = 1;
+static int model_rescan_guard(void) { return allow_rescan; }
+
 static model_device_t* find_device(uint8_t bus, uint8_t dev, uint8_t fn) {
     for (unsigned i = 0; i < device_count; i++)
         if (devices[i].bus == bus && devices[i].dev == dev && devices[i].fn == fn)
@@ -45,6 +48,7 @@ static model_device_t* add_device(uint8_t bus, uint8_t dev, uint16_t vendor,
 int main(void) {
     pci_backend_t backend = { model_read, model_write };
     pci_set_backend(&backend);
+    pci_set_rescan_guard(model_rescan_guard);
 
     model_device_t* bridge = add_device(5, 1, 0x1111, 0x2222, 0x06040000u, 1);
     bridge->cfg[6] = 5u | (9u << 8) | (9u << 16); /* secondary bus is outside the host range */
@@ -85,6 +89,14 @@ int main(void) {
         puts("FAIL: rescan did not invalidate the old generation-safe handle");
         return 1;
     }
+
+    allow_rescan = 0;
+    if (pci_init_range(5, 7) != -1 || pci_count() != 2 ||
+        pci_resolve(second_handle) != pci_get(0)) {
+        puts("FAIL: denied rescan invalidated the current PCI snapshot");
+        return 1;
+    }
+    allow_rescan = 1;
 
     if (pci_init_range(8, 7) != -1 || pci_count() != 0 || pci_resolve(second_handle)) {
         puts("FAIL: inverted bus range was not rejected");
