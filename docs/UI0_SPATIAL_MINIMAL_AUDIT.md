@@ -91,3 +91,15 @@
 - `on_tab()` открывает системные приложения либо сворачивает все окна для «Главной». Эту семантику следует сохранить за новым навигационным API, а не за вкладками top bar.
 - `wm_test.c` проверяет боковую панель, вкладки, часы, meters, hit-testing, запуск и возврат окон. Это главный GUI regression gate при переключении layout.
 - В `display_init()` startup log прямо описывает legacy top bar/side launcher/neural background; его также нужно обновить только после фактической реализации нового режима.
+
+
+## 8. UI-2 implementation progress (2026-11-13)
+
+- Feature gate is present in `wm_layout_mode_t`; legacy remains the `wm_init()` default.
+- Spatial Minimal currently renders a compact system zone, icon-only navigation rail, pinned-only bottom Dock, and a quiet canvas. Existing tab actions remain the destination handlers.
+- Navigation labels are shown only for the hovered destination; the rail itself uses the existing authored icon set. Tooltip damage is included in the partial-redraw region.
+- The running-app list and the “add application” action are intentionally not projected into the persistent Dock.
+- `tests/wm_test.c` covers legacy default, mode switching, navigation hit-testing/callbacks, pinned-only Dock filtering, restore behavior, hidden telemetry, and full-vs-damage redraw equivalence.
+- This is still a first UI-2 vertical slice, not the full Spatial Minimal experience. App discovery/search, temporary window overview, KIRA AI entry, quick system/diagnostics/notifications, workspace switching, responsive overflow, DPI/touch/accessibility and performance baselines remain open.
+- GitHub Actions run `43380318838` was pending on the preceding code head `f992cd55c0bd3f4ca464745ee8f4a25e5d391a95` when this note was prepared. The documentation update below changes the branch head; only a run on the final updated SHA can verify the final PR head.
+- No local build or physical hardware test was performed in this session.
