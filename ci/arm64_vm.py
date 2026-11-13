@@ -86,6 +86,7 @@ SC = [
                r"\[KIRA INPUT\] virtio-input: .*\(absolute pointer\), MSI-X interrupt", r"\[KIRA DISPLAY\] Shell online",
                r"\[KIRA RTC\] Real-time clock \(PL031, UTC\): "],
          cmds=[("@sleep 3", []), ("@shot desktop", []),
+               ("@tap 3000 16384", []), ("@sleep 1", []),                  # открыть терминал через Spatial navigation
                ("@keys smp", [r"core 3: MPIDR 0x0+3, online"]),              # клавиатура virtio -> консоль
                ("@tap 16000 16000", []),
                ("plasma", []), ("cube3d", []), ("@sleep 10", []), ("@shot apps", []),
