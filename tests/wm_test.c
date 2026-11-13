@@ -323,8 +323,12 @@ int main(void) {
     CHECK(wm_side_center(2, &dock_x, &dock_y) == -1); /* bottom action is not a Dock pin */
     CHECK(wm_side_center(3, &dock_x, &dock_y) == -1); /* running, unpinned apps are not in the Dock */
     tabs_hit = 0;
-    click(nav_x, nav_y);
-    CHECK(tabs_hit == 1 && last_tab == 1);
+    for (int tab = 0; tab < 3; tab++) {
+        CHECK(wm_tab_center(tab, &nav_x, &nav_y) == 0 && nav_x < WM_SPATIAL_RAIL_W && nav_y >= WM_TOP_H);
+        click(nav_x, nav_y);
+        CHECK(last_tab == tab);
+    }
+    CHECK(tabs_hit == 3);
     wm_set_visible(a, 0);
     click_side(0);
     CHECK(wm_top() == a);
