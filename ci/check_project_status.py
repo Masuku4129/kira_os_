@@ -103,11 +103,13 @@ for target, names in (
 
 # 5. The branch-only inventory must remain pinned and internally complete.
 v46_only = set(inventory["differences"]["v46_not_in_main"])
+baseline_paths = set(inventory["baseline"]["files"])
 build_diff = manifest["in_progress"]["build_source_differences"]
 for architecture, record in build_diff.items():
     for source in record["v46_only"]:
-        if source not in v46_only:
-            fail(architecture + " build-only source is absent from v46 inventory: " + source)
+        # A source can exist in main but not be compiled there; build-list delta != tree-path delta.
+        if source not in baseline_paths and source not in v46_only:
+            fail(architecture + " build-only source is absent from both baseline and v46 inventory: " + source)
 for source in manifest["in_progress"]["release_pipeline_files"]:
     if source not in v46_only:
         fail("release pipeline path is absent from v46 inventory: " + source)
