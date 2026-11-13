@@ -539,3 +539,11 @@
 - Updated the host test to use the geometry API and assert the compact center is `320-82, 20`, then cycle through all four workspaces. Updated the design specification accordingly.
 - Commits: wm.c 74a995c259ab19edba836582ef58546af07c89e4; tests/wm_test.c aa7b8cd4f4a3b6435b102196f941f7a3de2a1c31; design docs 10a68929c4a5864a3dedc800fcce617b1c7ed1bd.
 - The previous run's host failure is fixed in source; a new exact-head run is required to validate it. No PASS claimed until host, x86-64, ARM64/QEMU and VM matrix finish. Limbo visual/performance acceptance remains pending.
+
+
+### Compact status panel footer spacing — 2026-11-13
+
+- Follow-up review found the third status row's audio card could touch the footer hint on 320×240. Reduced vertical row step from 32px to 30px and moved the first row up 2px; the audio card now ends before the footer. The audio card's full 28px height remains the touch target while the horizontal level bar controls 0–100% volume.
+- Updated host pixel and click assertions for the compact Mind/network/audio rows and the revised audio-card hit area.
+- Commits: wm.c 93c8f2fab4f5c97d00e80ddf658a603152e9ac09; tests/wm_test.c cd573c2c4ae6affb6d50be552f840e21d6f9404c.
+- Latest branch head must receive a fresh CI run; no pass claimed. Limbo visual and performance acceptance remains pending.
