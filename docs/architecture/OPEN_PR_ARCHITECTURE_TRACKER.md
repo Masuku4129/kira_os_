@@ -1,7 +1,7 @@
 # KIRA OS — реестр открытых архитектурно значимых PR
 
 **Снимок GitHub:** 2026-11-13  
-**Базовая ветка main:** `bbc7f7ab948e72511aed113b69043add10ec8350`  
+**Базовая ветка main (live на 2026-11-13):** `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`  
 **Архитектурная ветка:** `architecture/target-baseline-2026-11`  
 **Правило:** PR — отдельная ветка предложений, не часть main до merge. Статус CI проверять на текущем head SHA, не переносить старый PASS на новый commit.
 
@@ -9,10 +9,9 @@
 
 | PR | Head branch / SHA | Base | Направление | Следующая проверка |
 |---|---|---|---|---|
-| #135 | architecture/target-baseline-2026-11 / `8626c4e1f063796da383880e656a36d654fb27fa` | main | Целевая архитектура, аудит, контракты, HAL/PCI source slices | Exact-head CI обязателен: run 43298087855 PASS относится к более раннему `618ce013...`; текущий head не проверен. Draft, не merge |
+| #135 | architecture/target-baseline-2026-11 / `f3d7d43b3434e817254f12a9a15a3097e8e99b97` (source baseline before workspace-doc commits; refresh live head) | main | Целевая архитектура, аудит, контракты, HAL/PCI source slices, project control center | Exact-head CI required; 43298087855 PASS is for `618ce013...`, not this baseline. PR base snapshot `bbc7f7ab...` was behind live main `811ca3a...`; reconcile base and cumulative diff before integration. Draft, do not merge |
 | #136 | security/kdrv-require-iommu-for-dma-msi / current head см. GitHub PR | main | Block Ring 3 DMA/MSI without per-device IOMMU | Host/build/ARM64/QEMU CI running; review exact head before merge |
 | #137 | security/pci-clear-firmware-busmaster / current head см. GitHub PR | main | Clear firmware bus-master before PCI ownership | Host/build/ARM64 CI running; review PCI mock test and exact head before merge |
-| #136 | security/kdrv-require-iommu-for-dma-msi / 720a2020f6d78501aed60b5013ad9b7d1c62b30d | main | Fail-closed KDRV DMA/MSI isolation | Review security diff and require exact-head CI success; do not merge without review |
 
 ## 2. Основные открытые PR по подсистемам
 
