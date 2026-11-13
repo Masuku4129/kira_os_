@@ -39,7 +39,7 @@ int main(void) {
     CHECK(feed(notif_toggle, (int)sizeof notif_toggle, ev) == 4);
     for (int i = 0; i < 4; i++) CHECK(ev[i].key != 'n');
     CHECK(input_take_hotkey() == KEY_NOTIFICATION_TOGGLE && input_take_hotkey() == 0);
-        uint8_t junk[] = {0xFA, 0xE1, 0x00, 0xFF};        /* ACK/Pause/ошибки: без событий */
+    uint8_t junk[] = {0xFA, 0xE1, 0x00, 0xFF};        /* ACK/Pause/ошибки: без событий */
     input_init(); CHECK(feed(junk,4,ev)==0);
     uint8_t ent[] = {0x1C, 0x9C};
     CHECK(feed(ent,2,ev)==2); CHECK(ev[0].ch=='\n');
