@@ -629,6 +629,8 @@ static void display_main(void* arg) {
             int top = wm_top();
             if (hk == KEY_F11) wm_set_fullscreen(top, !wm_fullscreen(top));
             else if (hk == KEY_F10) wm_minimize(top);
+            else if (hk == KEY_WORKSPACE_PREV) wm_workspace_switch((wm_workspace_current() + wm_workspace_count() - 1) % wm_workspace_count());
+            else if (hk == KEY_WORKSPACE_NEXT) wm_workspace_switch((wm_workspace_current() + 1) % wm_workspace_count());
         }
 
         mouse_event_t me;
