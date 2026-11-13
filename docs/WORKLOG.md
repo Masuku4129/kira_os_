@@ -527,3 +527,6 @@
 
 
 - Reconciled RFC-DEV-001, contract registry, component inventory, dependency map, source audit, execution plan and continuation handoff with the new PCI snapshot identity API. All documents explicitly state that KDRV remains pointer-based and that this is not yet a bus-independent Device Model or hotplug-safe lifecycle.
+
+
+- Exact-host CI run 43397356577 exposed a stale source-contract assertion in `tests/architecture_test.py`: a second check still required `bus0 != 0` even though nonzero ARM64 root buses are now supported. This was a test expectation defect, not a PCI compile/runtime failure. Updated the assertion to require `bus0 <= bus1 <= 255` and explicitly forbid the old zero-start restriction (commit `98f3a3c05a0bcaa8be60211e832dc8c54f77c66a`). The failing run stopped before compiling/running the PCI regression; exact-head rerun is still required.
