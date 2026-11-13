@@ -444,33 +444,23 @@ static int streq(const char* a, const char* b) { while (*a && *a == *b) { a++; b
 
 /* Собрать значки: закреплённые, затем идущие незакреплённые, внизу «+». Перестраивается, только если что-то изменилось. */
 static void side_rebuild(int force) {
-    char run[8][16];
-    int nrun = wm_user_tags(run, 8);
+    /* Spatial Minimal Dock is intentionally pin-only: running windows are
+       reached through the workspace overview, never appended as task buttons. */
     char sig[SIDE_N * 17]; int sp = 0;
-    for (int i = 0; i < dock.n; i++) { sp = scpy(sig, sp, dock.name[i], (int)sizeof sig); sig[sp++] = '|'; sig[sp] = 0; }
-    sig[sp++] = '#'; sig[sp] = 0;
-    for (int i = 0; i < nrun; i++) if (dock_find(&dock, run[i]) < 0) { sp = scpy(sig, sp, run[i], (int)sizeof sig); sig[sp++] = '|'; sig[sp] = 0; }
+    for (int i = 0; i < dock.n; i++) {
+        sp = scpy(sig, sp, dock.name[i], (int)sizeof sig);
+        sig[sp++] = '|'; sig[sp] = 0;
+    }
     if (!force && streq(sig, side_sig)) return;
     scpy(side_sig, 0, sig, (int)sizeof side_sig);
     side_n = 0;
-    for (int i = 0; i < dock.n && side_n < SIDE_N - 1; i++) {
+    for (int i = 0; i < dock.n && side_n < SIDE_N; i++) {
         scpy(side_names[side_n], 0, dock.name[i], 16);
         side[side_n] = (wm_side_item_t){ dock_title(dock.name[i]) ? dock_title(dock.name[i]) : side_names[side_n], side_names[side_n], dock_color(dock.name[i]), dock_icon(dock.name[i]), 0, 0,
                                          "правая кнопка - открепить", 0 };
         if (side[side_n].icon == ICON_TERMINAL && dock.name[i][0] >= 'a' && dock.name[i][0] <= 'z') side[side_n].badge = (char)(dock.name[i][0] - 32);
         side_n++;
     }
-    for (int i = 0; i < nrun && side_n < SIDE_N - 1; i++) {
-        if (dock_find(&dock, run[i]) >= 0 || !dock_valid_name(run[i])) continue;
-        int dup = 0; for (int k = 0; k < side_n; k++) if (streq(side_names[k], run[i])) dup = 1;
-        if (dup) continue;
-        scpy(side_names[side_n], 0, run[i], 16);
-        side[side_n] = (wm_side_item_t){ dock_title(run[i]) ? dock_title(run[i]) : side_names[side_n], side_names[side_n], dock_color(run[i]), dock_icon(run[i]), 0, 1,
-                                         "правая кнопка - закрепить", 0 };
-        if (side[side_n].icon == ICON_TERMINAL && run[i][0] >= 'a' && run[i][0] <= 'z') side[side_n].badge = (char)(run[i][0] - 32);
-        side_n++;
-    }
-    side[side_n++] = (wm_side_item_t){ "Добавить программу", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, "откроет /bin в Проводнике", 0 };
     wm_side_set(side, side_n);
 }
 
