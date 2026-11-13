@@ -387,3 +387,9 @@
 - Integrated a kernel Launcher window over the generated curated catalog: Russian/English substring search, keyboard selection, Enter launch, mouse row selection, Escape close, and async launch status.
 - Keyboard ownership is exclusive between Launcher and Explorer; display_kbd_owner() suppresses console reads while either owns input. Launches use prog_request() and result retrieval; trust verification remains in the kernel launch path.
 - Current code head before this log entry: 82844f2bd69e774480deadd18eb8c860f9f47181. This code is newer than run 43388886629 and has not yet passed CI. No local build or Limbo/physical device test performed. Next: run fresh x86/ARM/host/VM CI, fix any compile/test failures, then add focused Launcher state/keyboard tests.
+
+
+### Launcher CI compile correction — 2026-11-13
+- Run 43390614381 failed the x86 build at the new Launcher drawing calls: display.c lacked declarations for gfxui primitives (ui_card, ui_round_rect, ui_round_frame, ui_text_fit, ui_statusbar). This is a real compile failure; it is not being marked as passed.
+- Added the missing gfxui.h include, and bounded the search-field text with ui_text_fit. The failed run used earlier head c46522f81c5c60a9b76f634a8965bf6f86b110e3 and therefore does not include this correction.
+- Corrected source head at this note: 569c028388e2f011c2199b64419870a3af575329. Fresh CI on the corrected tree is still required.
