@@ -561,3 +561,11 @@
 - Exact-head run 43435318555: x86-64 build passed; host suite reached compilation and failed under `-Werror` because `system_link_state()` was compiled into `KIRA_HOST_TEST` but only used by the non-host display callbacks. ARM64 compile passed and its QEMU scenario was still running. This is a build-guard defect, not a test assertion failure.
 - Wrapped the real network-link helper in `#ifndef KIRA_HOST_TEST`; host-test behavior remains unavailable/unknown, and production builds retain the actual adapter callback. Commit: display.c a917d69bfa3fda0de4a2409b2ed8c7c539b8491e.
 - Fresh exact-head CI required; no PASS claimed.
+
+
+### Legacy launcher regression isolated by display preview — 2026-11-13
+
+- Exact-head CI run `43435928319` passed the x86-64 build and the completed VM scenarios, but host `display_preview` failed its Legacy launcher checks: the default Dock's final slot, running unpinned app entries, the legacy “+” entry, and pin persistence were missing.
+- Root cause: the Spatial pin-only refactor had replaced the shared `side_rebuild` behavior for both layouts. The new behavior was correct for Spatial Minimal but unintentionally removed the pre-existing Legacy running-app list and “+” action.
+- Fixed `display.c` so Spatial Minimal remains strictly pinned-only, while Legacy reconstructs its historical pinned + running-unpinned + “+” list and includes running tags in its change signature. No Legacy behavior is used by Spatial Minimal.
+- Fix commit: `8daa4b2a1b2e73f0ce80c7263236fbd5778b7111`. Exact-head CI for this fix is pending; no PASS is claimed. ISO release remains blocked until the complete host/build/ARM64/QEMU/VM matrix passes.
