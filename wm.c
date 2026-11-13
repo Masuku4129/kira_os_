@@ -51,9 +51,12 @@ static int cascade;
 static wm_layout_mode_t layout_mode = WM_LAYOUT_LEGACY;
 static uint32_t win_generation;
 static int overview_open, overview_page, overview_n, overview_release_guard;
+static int system_panel_open;
 static int overview_ids[WM_MAX_WIN];
 static uint32_t overview_generations[WM_MAX_WIN];
 static void overview_click(int px, int py);
+static void draw_system_panel(surface_t* c, int ox, int oy);
+static void damage_system_panel(void);
 static void overview_damage_window(int id);
 static uint32_t* bg;
 static surface_t bgs;
@@ -130,6 +133,21 @@ static void damage_win(const win_t* w) {
 }
 static void damage_cursor(void) { damage(cx, cy, cx + CUR_W, cy + CUR_H); }
 static void damage_top(void) { damage(0, 0, scr->w, WM_TOP_H); }
+
+#define WM_SYSTEM_PANEL_W 264
+#define WM_SYSTEM_PANEL_H 204
+static void system_panel_rect(int* x, int* y, int* w, int* h) {
+    *w = scr->w - 24; if (*w > WM_SYSTEM_PANEL_W) *w = WM_SYSTEM_PANEL_W;
+    if (*w < 160) *w = scr->w - 8;
+    *h = scr->h - 64; if (*h > WM_SYSTEM_PANEL_H) *h = WM_SYSTEM_PANEL_H;
+    if (*h < 112) *h = scr->h - 48;
+    *x = scr->w - *w - 12; *y = WM_TOP_H + 8;
+}
+static void damage_system_panel(void) {
+    int x, y, w, h; system_panel_rect(&x, &y, &w, &h);
+    damage(x, y, x + w, y + h); damage(scr->w - 48, 0, scr->w, WM_TOP_H);
+}
+int wm_system_panel_is_open(void) { return system_panel_open; }
 
 static int fs_top(void) {
     for (int i = zcount - 1; i >= 0; i--) {
@@ -314,6 +332,7 @@ static void str_copy(char* d, const char* s, int cap) {
 void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
     layout_mode = (mode == WM_LAYOUT_SPATIAL_MINIMAL) ? WM_LAYOUT_SPATIAL_MINIMAL : WM_LAYOUT_LEGACY;
     overview_open = 0; overview_page = 0; overview_n = 0; overview_release_guard = 0;
+    system_panel_open = 0;
     win_generation = 0;
     scr = screen;
     ops = *o;
@@ -602,12 +621,14 @@ void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
     for (int i = 0; i < ncores; i++) m_busy[i] = busy[i];
     m_cores = ncores; m_mem = mem_pct; m_health = health;
     if (layout_mode == WM_LAYOUT_LEGACY) damage_top();
+    else if (system_panel_open) damage_system_panel();
 }
 
 void wm_set_layout_mode(wm_layout_mode_t mode) {
     if (mode != WM_LAYOUT_LEGACY && mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
     if (layout_mode == mode) return;
     layout_mode = mode;
+    system_panel_open = 0;
     if (mode == WM_LAYOUT_LEGACY && !bg) bg_render();
     side_hover = -1; tab_hover = -1; last_tab = -2;
     if (scr) damage(0, 0, scr->w, scr->h);
@@ -646,6 +667,7 @@ static int overview_refresh(void) {
 }
 
 void wm_window_overview_toggle(void) {
+    system_panel_open = 0;
     if (overview_open) overview_open = 0;
     else { overview_page = 0; overview_refresh(); overview_open = 1; }
     capture = -1; dragging = -1; resizing = -1;
