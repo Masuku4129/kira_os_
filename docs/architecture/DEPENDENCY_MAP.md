@@ -112,7 +112,7 @@ The FDT-described PCIe host bridge is now a separate architecture backend: `arch
 The parser/build/test integration is not considered verified until exact-head ARM64 and host CI complete. This contract does not enable x86 PCI enumeration and does not remove the DMA/IOMMU security gates (F-013–F-015, F-018).
 
 
-The PCI core exposes `pci_init_range(first_bus, last_bus)` for host-bridge root ranges and bounds recursive bridge traversal to that range; `pci_init()` remains the x86-compatible bus-0 wrapper. ARM64 consumes the FDT `bus-range` through this API. The ECAM physical base must be 1-MiB aligned. Synthetic host tests cover the range contract; exact-head CI and physical PCI hardware validation remain required.
+The PCI core exposes `pci_init_range(first_bus, last_bus)` for host-bridge root ranges and bounds recursive bridge traversal to the host aperture and every ancestor bridge's subordinate-bus window; `pci_init()` remains the x86-compatible bus-0 wrapper. ARM64 consumes the FDT `bus-range` through this API. The ECAM physical base must be 1-MiB aligned. Range/identity/rescan tests passed full CI at source head `a11338bc76405c3facda0c1d633d781f04fccd9b`; the additional nested-window regression is pending fresh exact-head CI, and physical PCI hardware remains untested.
 
 
 ## Device Model lifecycle dependency (DEV-001 draft, 2026-11-13)
