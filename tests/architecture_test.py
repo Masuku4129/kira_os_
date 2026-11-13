@@ -254,7 +254,8 @@ require("$A/pci_host_parse.c" in arm_build,
 require('#include "pci_host_parse.h"' in pci_host
         and "fdt_valid(fdt, 0)" in pci_host
         and "fdt_node_enabled(fdt, n)" in pci_host
-        and "bus0 != 0 || bus0 > bus1 || bus1 > 255" in pci_host
+        and "bus0 > bus1 || bus1 > 255" in pci_host
+        and "bus0 != 0" not in pci_host
         and "base & ((1ULL << 20) - 1)" in pci_host
         and "size < required_size" in pci_host
         and "arm_pci_parse_ranges(" in pci_host,
