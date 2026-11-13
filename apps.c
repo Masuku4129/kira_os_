@@ -114,7 +114,7 @@ static void orb(surface_t* s, int cx, int cy, const mind_view_t* v) {
     static const uint32_t col[4] = { TH_CYAN, TH_GREEN, TH_PURPLE, TH_AMBER };
     const unsigned val[4] = { v->c_resp, v->c_room, v->c_bal, v->c_stab };   /* каждая часть здоровья - 0..100 */
     ui_disc(s, cx, cy, 86, TH_PURPLE, 14);
-    ui_disc(s, cx, cy, 52, 0x00060B16, 255);
+    ui_disc(s, cx, cy, 52, TH_CONTENT, 255);
     for (int i = 0; i < 4; i++) {
         int ro = 84 - i * 9, ri = ro - 6;
         ui_ring(s, cx, cy, ri, ro, TRACK, 255);
