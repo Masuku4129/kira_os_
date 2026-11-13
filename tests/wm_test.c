@@ -334,15 +334,21 @@ int main(void) {
     CHECK(wm_top() == a);
 
     /* Window overview includes minimized windows, excludes pinned widgets, and restores the selected window. */
+    int ov_input = wm_create("overview-input", 600, 400, 100, 60, WM_INPUT);
     wm_set_visible(a, 0);
     wm_window_overview_toggle();
     CHECK(wm_window_overview_is_open());
-    CHECK(wm_window_overview_count() == 2);
+    CHECK(wm_window_overview_count() == 3); /* a, b and overview-input; pinned widget is excluded */
     frame();
     same_as_full(&scr, "Spatial window overview");
-    CHECK(wm_window_overview_item_center(0, &nav_x, &nav_y) == 0);
+    int ovx, ovy; wm_window_pos(ov_input, &ovx, &ovy);
+    in_n = 0;
+    move_to(ovx + WM_PAD + 10, ovy + WM_HEAD + 10, 0);
+    CHECK(in_n == 0); /* overlay must not leak pointer input to the underlying app */
+    CHECK(wm_window_overview_item_center(1, &nav_x, &nav_y) == 0); /* hidden a follows the frontmost input window */
     click(nav_x, nav_y);
     CHECK(!wm_window_overview_is_open() && wm_visible(a) && wm_top() == a);
+    wm_destroy(ov_input);
 
     /* The visible Spatial top-bar affordance opens the same overlay; close button exits without selecting. */
     click(140, 20);
