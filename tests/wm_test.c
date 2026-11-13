@@ -400,7 +400,7 @@ int main(void) {
     wm_destroy(ov_input);
 
     /* The visible Spatial top-bar affordance opens the same overlay; close button exits without selecting. */
-    click(140, 20);
+    click(800, 20); /* Spatial overview capsule on the right */
     CHECK(wm_window_overview_is_open());
     frame();
     click(1024 - 68, 66);
