@@ -322,7 +322,57 @@
     ],
     "active_pull_requests": 58,
     "closed_unmerged_pull_requests_preserved": 49,
-    "rule": "No branch-only file is considered integrated until its exact changes are reviewed and merged into the release baseline. Do not delete source branches or close PRs as cleanup."
+    "rule": "No branch-only file is considered integrated until its exact changes are reviewed and merged into the release baseline. Do not delete source branches or close PRs as cleanup.",
+    "build_source_differences": {
+      "x86_64": {
+        "main_source_count": 98,
+        "v46_source_count": 112,
+        "v46_only": [
+          "buildcmd.c",
+          "mind_build_core.c",
+          "mind_build_grant.c",
+          "bootinfo.c",
+          "bootinfo_mb2.c",
+          "bootinfo_uefi.c",
+          "iommu_vtd.c",
+          "iommu.c",
+          "drivers/iommu/intel_vtd.c",
+          "drivers/iommu/vtd_domain.c",
+          "pk.c",
+          "kdrv_sig.c",
+          "kdrv_state.c",
+          "wx.c"
+        ]
+      },
+      "arm64": {
+        "main_common_source_count": 88,
+        "v46_common_source_count": 97,
+        "v46_only": [
+          "bootinfo.c",
+          "bootinfo_fdt.c",
+          "buildcmd.c",
+          "mind_build_core.c",
+          "mind_build_grant.c",
+          "pk.c",
+          "kdrv_sig.c",
+          "kdrv_state.c",
+          "arch/aarch64/wx_arm.c"
+        ]
+      }
+    },
+    "release_pipeline_files": [
+      "ci/package_update.sh",
+      "ci/release_gate.py",
+      "ci/release_image.py",
+      "ci/audit_image.py",
+      "ci/audit_inventory.py",
+      "ci/test_release_gate.py",
+      "ci/test_release_image.py",
+      "docs/RELEASE_GAPS.md",
+      "docs/UNIFIED_RELEASE_PLAN.md",
+      "docs/RELEASE_SPLIT.md"
+    ],
+    "release_gate_state": "OPEN/BLOCKED in the v46 RELEASE_GAPS snapshot; package_update.sh refuses a combined update unless all required evidence jobs and image audits succeed."
   },
   "planned": [
     {
