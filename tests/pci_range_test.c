@@ -60,6 +60,13 @@ int main(void) {
         return 1;
     }
 
+    pci_handle_t first_handle = pci_get_handle(0);
+    if (!first_handle.id || !first_handle.generation ||
+        pci_resolve(first_handle) != pci_get(0)) {
+        puts("FAIL: current PCI handle did not resolve");
+        return 1;
+    }
+
     bridge->cfg[6] = 5u | (6u << 8) | (7u << 16);
     out_of_range_reads = 0;
     count = pci_init_range(5, 7);
@@ -71,7 +78,15 @@ int main(void) {
         return 1;
     }
 
-    if (pci_init_range(8, 7) != -1 || pci_count() != 0) {
+    pci_handle_t second_handle = pci_get_handle(0);
+    if (pci_resolve(first_handle) || pci_resolve(second_handle) != pci_get(0) ||
+        second_handle.id <= first_handle.id ||
+        second_handle.generation <= first_handle.generation) {
+        puts("FAIL: rescan did not invalidate the old generation-safe handle");
+        return 1;
+    }
+
+    if (pci_init_range(8, 7) != -1 || pci_count() != 0 || pci_resolve(second_handle)) {
         puts("FAIL: inverted bus range was not rejected");
         return 1;
     }
