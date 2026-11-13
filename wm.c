@@ -1243,7 +1243,7 @@ static void draw_overview(surface_t* c, int ox, int oy) {
         if (ph < 32) ph = 32;
         ui_round_rect(c, px + ox, py + oy, pw, ph, 8, TH_CONTENT, 255);
         if (w->content.px && w->content.w > 0 && w->content.h > 0)
-            blit_scaled(c, px + ox, py + oy, pw, ph, &w->content);
+            blit_content(c, px + ox, py + oy, pw, ph, w);
         gfx_text(c, x + 12 + ox, y + hh - 42 + oy, w->title, TH_TEXT, -1);
         gfx_text(c, x + 12 + ox, y + hh - 23 + oy, w->visible ? "ОТКРЫТО" : "СВЁРНУТО",
                  w->visible ? TH_CYAN : TH_TEXT_FAINT, -1);
