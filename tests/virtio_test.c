@@ -175,7 +175,7 @@ static uint8_t* vblk_cfg_space;
 static void model_init(vopt_t o, uint16_t devid) {
     opt = o; memset(&dv, 0, sizeof dv); memset(bus_dev, 0, sizeof bus_dev); memset(mmio, 0, sizeof mmio); viol = 0;
     mkhdr(F(0, 0, 0), 0x8086, 0x1237, 6, 0, 0);                                         /* хост-мост */
-    mkhdr(F(0, 1, 0), 0x8086, 0x1111, 6, 4, 1); F(0, 1, 0)->cfg[0x19] = 1;              /* мост на шину 1 */
+    mkhdr(F(0, 1, 0), 0x8086, 0x1111, 6, 4, 1); F(0, 1, 0)->cfg[0x18] = 0; F(0, 1, 0)->cfg[0x19] = 1; F(0, 1, 0)->cfg[0x1A] = 1; /* primary 0, secondary/subordinate 1 */
     mkhdr(F(0, 2, 0), 0x8086, 0x7010, 1, 1, 0x80);                                       /* многофункциональное */
     F(0, 2, 0)->bar_size[4] = 32; F(0, 2, 0)->bar_io[4] = 1; put32(F(0, 2, 0), 0x20, 0xC041);
     mkhdr(F(0, 2, 1), 0x8086, 0x7011, 12, 3, 0);
@@ -199,7 +199,10 @@ static void model_init(vopt_t o, uint16_t devid) {
 static uint8_t buf[300 * 512], ref[300 * 512];
 static void rnd(uint8_t* p, size_t n, unsigned seed) { for (size_t i = 0; i < n; i++) { seed = seed * 1103515245u + 12345u; p[i] = (uint8_t)(seed >> 16); } }
 
+static int test_pci_rescan_allowed(void) { return 1; }
+
 int main(void) {
+    pci_set_rescan_guard(test_pci_rescan_allowed); /* test model explicitly owns repeated enumeration */
     vopt_t o0; memset(&o0, 0, sizeof o0);
     /* --- PCI --- */
     model_init(o0, 0x1042);

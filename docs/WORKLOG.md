@@ -487,3 +487,123 @@
 - Linked DEV-001 from the RFC index and contract registry; updated the architecture execution plan, component inventory and dependency map. The docs explicitly distinguish PCI enumeration/KDRV binding from a complete Device Model implementation.
 - Source-backed limitation: `arch/aarch64/pci_host.c` rejects nonzero bus-range starts because shared `pci_init()` enumerates from bus 0. This fail-closed behavior must remain until range-aware enumeration and ECAM bounds tests are implemented.
 - Next code gate remains exact-head CI for PR #135. The latest 30/30 workflow tested `618ce013...`, not current head `8626c4e1...`; no new PASS is claimed.
+
+
+### Architecture follow-up — bounded PCI host bus enumeration (2026-11-13)
+
+- Follow-up branch: `architecture/pci-range-device-model-2026-11`, based on the architecture baseline branch; PR #135 remains separate and unmerged.
+- Implemented `pci_init_range(first_bus, last_bus)` in `pci.c/.h`. The first scan starts at the host bridge's declared root bus, and recursive PCI-to-PCI bridge traversal is constrained to the same inclusive range. Invalid inverted ranges fail closed.
+- Preserved `pci_init()` as the compatibility wrapper for root bus 0 and the full 0..255 range.
+- ARM64 FDT PCI host bridge now accepts a nonzero `bus-range` start and passes the declared range into the common enumerator. ECAM span/alignment checks remain in place.
+- Added `tests/pci_range_test.c` and wired it into `tests/run_host_tests.sh`: nonzero root bus, in-range bridge discovery, out-of-range secondary-bus rejection, invalid range rejection, and legacy wrapper behavior.
+- Extended `tests/architecture_test.py` to require the ARM64 range-aware API and common scan bounds. Updated DEV-001 and dependency-map statements to match the source.
+- **Verification:** no local host suite or architecture build was run in this session. Exact-head CI is required; no PASS is claimed. Physical ARM64/PCI hardware is not available for validation.
+- **Next:** run the new focused PCI host test and full host suite on this branch; then x86-64/ARM64 builds and QEMU ARM64 PCI scenarios. Continue Device Model identity/generation and resource lifecycle only after this boundary is verified.
+
+- CI follow-up: the first PR #139 host-tests job stopped in `ci/lint.sh` before compiling anything. It falsely matched the legitimate validator's literal list of empty-answer markers in `ci/check_pr_compliance.py`. Rewrote those markers without embedding the linter's banned tokens; this is a lint self-match correction, not a production runtime change. Await a fresh exact-head CI run.
+
+- PR #139 evidence matrix now includes stable R-01/R-02 requirement rows with exact branch SHA `4d2edd61aa4aea3c3aa0ba25d348fa694e90398d`; the first compliance retry reused the original `opened` payload and therefore still saw the old body. A new branch synchronization is used to validate the corrected body.
+
+
+### Architecture documentation reconciliation — 2026-11-13
+
+- Updated COMPONENT_INVENTORY.md, CONTRACT_REGISTRY.md, DEPENDENCY_MAP.md, CURRENT_STATE_AND_HANDOFF_2026-11-13.md, SOURCE_AUDIT_FINDINGS.md, ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md and OPEN_PR_ARCHITECTURE_TRACKER.md for the new range-aware PCI API.
+- Preserved the remaining boundaries: PCI BDF is still a location, not stable identity; generation-safe registry, resource ownership, bind/unbind, teardown/hotplug, and x86 PCI boot parity are not implemented by this slice.
+- Security gates remain unchanged: do not enable x86 enumeration or KDRV bus mastering until firmware bus-master sanitization and per-device IOMMU domain lifecycle are verified.
+- PR #139 requirement matrix now pins source-bearing commit 965678e235a298f017d5bdc8ab62c8c3f305f996. Structural compliance check succeeded on an earlier synchronized event; later documentation-only commits mean exact-head host/build/ARM64/QEMU results must still be obtained.
+- No code merge or main update. PR #139 remains draft and dependent on #135.
+
+
+- Source review caught an incomplete first edit in `arch/aarch64/pci_host.c`: although the range-aware API call had been wired, the old `bus0 != 0` fail-closed guard remained. Corrected it in commit `3903d42afd92ec99ef0b8198d9ed261e7300b224` and strengthened `tests/architecture_test.py` in `483b9b80f05e4d42a9df37a6796897e0a920cc89` to fail if that restriction returns. Earlier CI runs predate this correction and must not be used as evidence for nonzero-root support.
+
+
+### DEV-001 identity slice — PCI snapshot handles
+
+- Added `device_id` and `generation` to the internal `pci_dev_t` descriptor. IDs are monotonically allocated for the life of the kernel; the generation increments on each successful enumeration snapshot.
+- Added `pci_handle_t`, `pci_get_handle()` and `pci_resolve()`. A handle is the opaque `(id, generation)` pair; resolution fails for null, unknown, removed-from-snapshot or prior-generation handles. Invalid range scans clear the visible snapshot; ID/generation counters fail closed on exhaustion rather than wrapping.
+- Extended `tests/pci_range_test.c` to verify current-handle resolution, invalidation after rescan, monotonic ID/generation advance and invalid-range invalidation. The existing host runner already compiles this test with ASan/UBSan.
+- This is intentionally a PCI-only migration seam. Generation is scan-wide, so every rescan invalidates all PCI handles; KDRV still keys bindings by raw `pci_dev_t*`. Do not enable hotplug/rescan or claim full DEV-001 until a bus-independent registry and KDRV handle migration exist.
+- Exact-head CI has been triggered by source changes; no local build/test result is claimed. No merge or `main` change.
+
+
+- Reconciled RFC-DEV-001, contract registry, component inventory, dependency map, source audit, execution plan and continuation handoff with the new PCI snapshot identity API. All documents explicitly state that KDRV remains pointer-based and that this is not yet a bus-independent Device Model or hotplug-safe lifecycle.
+
+
+- Exact-host CI run 43397356577 exposed a stale source-contract assertion in `tests/architecture_test.py`: a second check still required `bus0 != 0` even though nonzero ARM64 root buses are now supported. This was a test expectation defect, not a PCI compile/runtime failure. Updated the assertion to require `bus0 <= bus1 <= 255` and explicitly forbid the old zero-start restriction (commit `98f3a3c05a0bcaa8be60211e832dc8c54f77c66a`). The failing run stopped before compiling/running the PCI regression; exact-head rerun is still required.
+
+
+### KDRV identity migration — DEV-001 follow-up (2026-11-13)
+
+- Replaced `bind_t.dev` raw `pci_dev_t*` identity with `pci_handle_t` (`id`, `generation`) in `kdrv.c`; slot lookup now compares opaque handles obtained from the current PCI snapshot.
+- All KDRV device operations resolve the binding with `pci_resolve()` before dereferencing a PCI descriptor. The KDRV syscall path fails closed when the handle is stale.
+- Added `B_QUARANTINED`: if a driver exits after its PCI handle has become stale, KDRV does not pretend it successfully quiesced the device and deliberately retains DMA/resource memory rather than freeing pages while device quiescence is unconfirmed.
+- Extended `tests/architecture_test.py` to reject pointer-based KDRV binding identity and require the generation-safe resolver/quarantine path. The existing `tests/pci_range_test.c` continues to cover stale-snapshot rejection.
+- This migration does not implement hotplug, coordinated rescan, bus-independent registry, resource reservation or full lifecycle teardown. No local test run is claimed; exact-head CI is required.
+
+- Tightened the migration gate: if any KDRV slot holds a handle that no longer resolves after a full PCI scan, `find_slot(..., create=1)` refuses all new KDRV bindings until recovery; a stale driver-exit path quarantines the slot and retains DMA pages. This is intentionally conservative and does not claim hotplug support.
+
+### KDRV architecture guard correction (2026-11-13)
+
+- Exact CI run `43399057283` stopped at the architecture guard before host tests: the new negative assertion searched for the substring `binds[i].dev`, which also appears in the valid field name `binds[i].device`.
+- Narrowed the assertion to match only raw pointer field operations and corrected its regular-expression escaping. This was a test-guard defect, not a compiler or runtime failure.
+- A fresh CI run for the corrected guard and KDRV handle migration is required; the failed run is not counted as validation.
+
+### KDRV guard regex follow-up (2026-11-13)
+
+- The next host CI run (`43399280985`) caught a syntax error in the new architecture guard's second regular expression (`re.error: unbalanced parenthesis`). The test stopped before product tests.
+- Replaced the nested expression with a simpler word-boundary check that distinguishes `.dev` from `.device`; this remains a test-only correction.
+- Fresh CI after commit `36c2fdc1081239e3e90a103b1903c06b49ac7b7a` is required. No host-test PASS is claimed.
+
+- Follow-up source review tightened `find_slot`: a stale binding now blocks both new slots and restarting an otherwise matching current slot. This closes the case where one stale device could coexist with a fresh driver binding after a rescan.
+
+### PCI re-enumeration ownership gate — DEV-001 follow-up (2026-11-13)
+
+- Added `pci_rescan_guard_fn` and `pci_set_rescan_guard()`. After the first successful PCI snapshot, `pci_init_range()` now refuses re-enumeration unless an owner callback is registered and explicitly approves; a denied request leaves the current snapshot and handles intact.
+- KDRV registers its guard from `kdrv_poll()`. It refuses PCI rescan after any KDRV binding slot has been assigned, including a stopped/released slot, because the current driver model cannot transactionally revoke existing Ring 3 MMIO mappings, drain DMA and release resources before a new snapshot.
+- Extended `tests/pci_range_test.c` to verify denied rescans preserve the current snapshot and handles; architecture guards require the PCI callback contract and KDRV registration.
+- This is deliberately a conservative reboot-required restriction, not hotplug support. Replacing it requires the full Device Model quiesce → MMIO revoke → DMA drain → resource release lifecycle.
+- Exact-head CI for the PCI rescan gate and KDRV migration is pending. No local test run or hardware validation is claimed.
+
+- Updated `tests/virtio_test.c` to register an explicit always-allow guard for its synthetic multi-scan PCI model; production defaults remain fail-closed after the first snapshot. `tests/architecture_test.py` now requires that test-only authorization so repeated model scans cannot accidentally rely on the production default.
+
+- Clarified the GitHub Actions host-test step label to call out PCI range/rescan and KDRV identity coverage explicitly. The underlying command remains `bash tests/run_host_tests.sh`; this is observability only and does not replace test execution.
+
+### Pre-rescan-guard CI run outcome (2026-11-13)
+
+- Run `43399558761` was built from the earlier branch head `dc7ea6c55df4a9f114d0ad01bad50809c437dcb7`, before the PCI rescan guard and its regression tests were added.
+- x86-64 build completed successfully; all 27 VM scenario jobs completed successfully. Host-tests and ARM64 jobs were cancelled when the run was superseded. The overall workflow is therefore not PASS and does not validate the rescan-guard changes.
+- Current branch head `29708b0aad5a72c4e33183c49cb0a410918f3080` still requires a fresh full host/build/ARM64/VM run. No physical hardware or Android Limbo validation is claimed.
+
+### Exact-head validation — PCI/KDRV identity and rescan guard (2026-11-13)
+
+- Exact branch HEAD: `a11338bc76405c3facda0c1d633d781f04fccd9b`.
+- Full CI workflow run `43400611001`: host-tests PASS, x86-64 build PASS, ARM64 build/scenarios PASS, and all 26 VM scenarios PASS (including `limbo-spam`, `limbo-mttcg`, PCI/network/USB/storage, SMP, isolation and stress scenarios).
+- Evidence/report workflows `43400611021` and `43400676602` also completed successfully.
+- This validates the PCI range/identity, KDRV handle migration, fail-closed rescan guard and associated host architecture regressions at this exact source head.
+- It does not validate the user's Android Limbo installation or physical hardware, and does not establish hotplug support. KDRV's rescan policy intentionally remains reboot-required once a binding slot has been assigned.
+
+### Nested PCI bridge subordinate-window hardening (2026-11-13)
+
+- Source change: `pci.c` now carries the current ancestor bus limit through recursive enumeration. A bridge is followed only when its primary bus matches the bus being scanned and its secondary bus is inside the intersection of the host aperture and inherited subordinate limit; child recursion narrows that limit to the bridge's subordinate bus.
+- Regression: `tests/pci_range_test.c` now models a nested bridge and endpoint. It verifies discovery when the endpoint is inside all ancestor windows, then lowers the parent subordinate limit and verifies the nested endpoint is not enumerated. Existing stale-handle and denied-rescan checks remain in the same test.
+- This closes a traversal-boundary gap not covered by the previous root-range-only test. No local test is claimed; fresh exact-head host, x86-64, ARM64 and VM CI is required.
+- Follow-up architecture docs updated: DEV-001 RFC, source-layout migration, component inventory, dependency map, current handoff, execution plan, contract registry, open-PR tracker and source-audit finding F-018.
+
+### Nested bridge CI feedback — architecture guard alignment (2026-11-13)
+
+- Full workflow `43405404492` on source/documentation head `d2b5ae7f1f3f9beb8be07f095e48277da24222bd` reached host tests and failed immediately in `tests/architecture_test.py`: its PCI contract assertion still expected the old `scan_bus(bus)` signature and root-only bounds.
+- Updated the architecture guard to require the new `bus_limit` parameter, host-range bound, primary-bus match and subordinate-window intersection. This is a test expectation correction; the product source had compiled further in the parallel x86-64/ARM64 jobs, which were still running at the time of this note.
+- Guard correction commit: `940cc8a6f08a844c6e7628ca814de318dfa3aeb9`. Fresh full CI is required; run `43405404492` is not a PASS.
+
+### PCI bridge model fixture correction (2026-11-13)
+
+- After the architecture guard was corrected, host tests advanced through the core suites and failed in `tests/virtio_test.c` at `CHECK(n == 5)`. The synthetic bridge fixture set only its secondary bus (`0x19`) and left subordinate bus (`0x1A`) at zero.
+- The production enumerator now correctly requires a valid primary/secondary/subordinate window. Updated the test fixture to describe primary bus 0 and secondary/subordinate bus 1. This is a malformed test-model fixture correction, not a relaxation of the production bounds.
+- Fixture correction commit: `118a7b1ecc5c12b0b215f1ef13e4f01fd3855122`. Fresh exact-head host/build/ARM64/VM CI is required.
+
+
+### PCI nested-bridge exact-head verification — 2026-11-13
+- PR #139 branch `architecture/pci-range-device-model-2026-11`, exact source head `8a5884c93a75801c6bfe89db08fb5abfc60ba7ed`.
+- Workflow run `43405811778` completed successfully: x86-64 build PASS, host-tests PASS, ARM64 Clang `-Werror` build and QEMU scenarios PASS, and all 27 VM matrix jobs PASS.
+- Host suite included the nested PCI bridge positive/negative subordinate-window regression, updated architecture guard, and corrected synthetic virtio bridge fixture.
+- This closes the exact-head CI gate for PR #139 R-07. It does not prove Android Limbo visual behavior or physical hardware support. PR remains Draft; no merge, main update, or ISO release.

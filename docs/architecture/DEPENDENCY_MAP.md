@@ -112,7 +112,7 @@ The FDT-described PCIe host bridge is now a separate architecture backend: `arch
 The parser/build/test integration is not considered verified until exact-head ARM64 and host CI complete. This contract does not enable x86 PCI enumeration and does not remove the DMA/IOMMU security gates (F-013–F-015, F-018).
 
 
-The current PCI core enumerates from bus 0; therefore the ARM64 host bridge rejects nonzero `bus-range` starts until a range-aware PCI core API is implemented. The ECAM physical base must be 1-MiB aligned. These are explicit current contract limits, not silently assumed support.
+The PCI core exposes `pci_init_range(first_bus, last_bus)` for host-bridge root ranges and bounds recursive bridge traversal to the host aperture and every ancestor bridge's subordinate-bus window; `pci_init()` remains the x86-compatible bus-0 wrapper. ARM64 consumes the FDT `bus-range` through this API. The ECAM physical base must be 1-MiB aligned. Range/identity/rescan tests passed full CI at source head `a11338bc76405c3facda0c1d633d781f04fccd9b`; the additional nested-window regression is pending fresh exact-head CI, and physical PCI hardware remains untested.
 
 
 ## Device Model lifecycle dependency (DEV-001 draft, 2026-11-13)
@@ -130,3 +130,5 @@ Firmware / bus discovery
 ```
 
 Discovery is not authorization. Device location (PCI BDF) is not identity. DMA/MSI stays disabled until per-device isolation is established. This is a target dependency flow, not a claim that all boxes exist in the current implementation.
+
+Current transitional source slice: `pci_dev_t` carries a boot-local monotonic `device_id` and the current full-scan `generation`; `pci_get_handle()` returns the opaque pair and `pci_resolve()` rejects stale snapshots. The generation is deliberately scan-wide (a rescan invalidates every prior PCI handle), not per-location. This does not yet provide a bus-independent registry, resource ownership, or driver authorization. `kdrv.c` now keys bindings by `pci_handle_t` and resolves the current descriptor through `pci_resolve()` before device operations. A stale handle quarantines the binding and retains DMA resources if quiesce cannot be confirmed. This is stale-reference containment, not hotplug safety: any stale binding blocks new/restarted KDRV bindings globally. The PCI core denies post-boot re-enumeration unless an owner guard approves; KDRV's guard refuses it after a binding slot has ever been assigned, because existing MMIO mappings/DMA cannot yet be revoked transactionally. A lifecycle implementation must replace this conservative gate with quiesce, mapping revocation, DMA drain, resource ownership and full teardown.

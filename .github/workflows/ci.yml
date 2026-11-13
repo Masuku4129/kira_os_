@@ -27,7 +27,7 @@ jobs:
           ci/lint.sh
       - name: tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm dosfstools mtools python3-cryptography python3-pil ca-certificates openssl
-      - name: host tests (models of devices, file systems, scheduler, mind)
+      - name: host tests (PCI range/rescan, KDRV identity, device models, filesystems, scheduler, mind)
         run: |
           mkdir -p ci-out
           set -o pipefail

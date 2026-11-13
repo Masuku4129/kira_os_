@@ -54,9 +54,22 @@ require('#include "pci_host.h"' in arm_main
         and "void arm_pci_init(const void* fdt, arm_pci_log_fn log)" in arm_pci
         and "fdt_find_compatible" in arm_pci
         and "pci_use_ecam(" in arm_pci
-        and "pci_init()" in arm_pci
+        and "pci_init_range((uint8_t)bus0, (uint8_t)bus1)" in arm_pci
+        and "if (bus0 > bus1 || bus1 > 255)" in arm_pci
+        and "bus0 != 0" not in arm_pci
         and "pci_assign(" in arm_pci,
         "ARM64 PCI host bridge ownership or boot call contract is incomplete")
+pci_core = read("pci.c")
+require("int pci_init_range(uint8_t first_bus, uint8_t last_bus)" in pci_core
+        and "if (bus < scan_bus_min || bus > scan_bus_max || bus > bus_limit) return;" in pci_core
+        and "scan_bus(first_bus, last_bus);" in pci_core
+        and "uint8_t primary = pci_read8(d, 0x18);" in pci_core
+        and "uint8_t subordinate = pci_read8(d, 0x1A);" in pci_core
+        and "uint8_t child_limit = subordinate < bus_limit ? subordinate : bus_limit;" in pci_core
+        and "if (primary == bus && sec >= scan_bus_min && sec <= child_limit)" in pci_core
+        and "pci_set_rescan_guard" in pci_core
+        and "pci_snapshot_generation && (!pci_rescan_guard || !pci_rescan_guard())" in pci_core,
+        "PCI enumeration does not enforce host and ancestor bridge bus windows")
 require("static void arm_pci_init" not in arm_main
         and "pci_use_ecam(" not in arm_main
         and "pci_init()" not in arm_main
@@ -247,7 +260,8 @@ require("$A/pci_host_parse.c" in arm_build,
 require('#include "pci_host_parse.h"' in pci_host
         and "fdt_valid(fdt, 0)" in pci_host
         and "fdt_node_enabled(fdt, n)" in pci_host
-        and "bus0 != 0 || bus0 > bus1 || bus1 > 255" in pci_host
+        and "bus0 > bus1 || bus1 > 255" in pci_host
+        and "bus0 != 0" not in pci_host
         and "base & ((1ULL << 20) - 1)" in pci_host
         and "size < required_size" in pci_host
         and "arm_pci_parse_ranges(" in pci_host,
@@ -258,9 +272,22 @@ require("signed_offset(" in pci_parse
         and "child_address_cells != 3" in pci_parse
         and "INT64_MIN" in pci_parse_header + pci_parse,
         "PCI ranges parser is missing signed-offset, cell-layout or overflow guards")
+virtio_test = read("tests/virtio_test.c")
+require("pci_set_rescan_guard(test_pci_rescan_allowed);" in virtio_test,
+        "virtio host model must explicitly authorize its repeated PCI enumerations")
 host_tests = read("tests/run_host_tests.sh")
 require("tests/pci_host_parse_test.c" in host_tests
         and "arch/aarch64/pci_host_parse.c" in host_tests,
         "PCI host ranges parser is not covered by the host test suite")
 
+kdrv = read("kdrv.c")
+require("pci_handle_t device;" in kdrv
+        and "return pci_resolve(b->device);" in kdrv
+        and "B_QUARANTINED" in kdrv
+        and "pci_resolve(binds[i].device)" in kdrv
+        and "if (create && stale_binding) r = 0;" in kdrv
+        and "pci_set_rescan_guard(kdrv_pci_rescan_allowed);" in kdrv
+        and not re.search(r"\bb->dev(?:\s*->|\s*[;,)])", kdrv)
+        and not re.search(r"binds\[i\]\.dev\b", kdrv),
+        "KDRV binding identity must use generation-safe PCI handles and quarantine stale bindings")
 print("PASS: kernel/service source ownership, Native ABI stability, unique adapter ownership, both ISA manifests and PCI host bounds contract")
