@@ -110,10 +110,10 @@ if [ "$RELEASE" = 1 ]; then
 fi
 
 echo "[*] Инструмент kfstool, манифест доверенных программ и установка в образ диска..."
-tools/kfstool catalog $UELF > app_catalog.h
 HOSTCC="${HOSTCC:-clang}"
 $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
 tools/kfstool manifest $UELF > manifest.h
+tools/kfstool catalog $UELF > app_catalog.h
 rm -f kira.disk; dd if=/dev/zero of=kira.disk bs=1M count=8 2>/dev/null     # образ каждый раз новый: старые файлы не остаются
 tools/kfstool kira.disk init
 for e in $UELF; do
