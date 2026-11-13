@@ -167,6 +167,19 @@ if len(branch_audit["branch_refs"]) != branch_heads["branch_count"]:
     fail("all-branch refs are incomplete in the branch audit")
 if len(branch_audit["branch_refs"]) != len(branch_heads["branches"]):
     fail("all-branch refs differ from the pinned branch-head inventory")
+branch_ref_pairs = {(item["name"], item["sha"]) for item in branch_audit["branch_refs"]}
+head_ref_pairs = {(item["name"], item["sha"]) for item in branch_heads["branches"]}
+if branch_ref_pairs != head_ref_pairs:
+    fail("branch names or HEAD SHAs differ between the two snapshots")
+classified_paths = {}
+for category, records in branch_audit["branch_only_path_classes"].items():
+    for record in records:
+        path = record["path"]
+        if path in classified_paths:
+            fail("branch-only path appears in multiple categories: " + path)
+        classified_paths[path] = record["head_occurrences"]
+if classified_paths != branch_audit["branch_only_paths"]:
+    fail("branch-only path categories do not cover the complete path inventory")
 
 # 8. Keep the documented artifact contract aligned with the main CI workflow.
 workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
