@@ -39,6 +39,9 @@ static uint8_t scan_bus_min, scan_bus_max;
 static uint64_t pci_snapshot_generation;
 static uint64_t pci_next_device_id = 1;
 static int pci_identity_exhausted;
+static pci_rescan_guard_fn pci_rescan_guard;
+
+void pci_set_rescan_guard(pci_rescan_guard_fn guard) { pci_rescan_guard = guard; }
 
 void pci_set_backend(const pci_backend_t* b) {
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
@@ -188,6 +191,8 @@ static void scan_bus(uint8_t bus) {
 }
 
 int pci_init_range(uint8_t first_bus, uint8_t last_bus) {
+    /* Never invalidate descriptors while drivers may retain direct MMIO/DMA mappings. */
+    if (pci_snapshot_generation && (!pci_rescan_guard || !pci_rescan_guard())) return -1;
     ndevs = 0;
     pci_identity_exhausted = 0;
     for (int i = 0; i < 256; i++) bus_seen[i] = 0;
