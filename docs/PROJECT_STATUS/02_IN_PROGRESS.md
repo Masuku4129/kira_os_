@@ -54,6 +54,7 @@
 - PR #138–#144: Spatial Minimal UI, damage bounds, context panel, workspaces/notifications и layout.
 - PR #146: семантическая палитра/геометрия Spatial UI. PR #147 закрыт без merge как отдельная проверочная копия; его ветку не удалять до сверки изменений.
 - PR #145: release artifact workflow на Spatial base. В текущем снимке он не добавляет недостающие 437 файлов v46.
+- PR #148: этот трёхсекционный реестр, полный snapshot файлов/веток/PR и CI guard от удаления/добавления неучтённых файлов. PR оставлен Draft до exact-head CI.
 
 ## Другие незавершённые потоки
 
