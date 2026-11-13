@@ -1681,10 +1681,10 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     if (cpu >= 0) { int v = cpu > 100 ? 100 : cpu; cpu_text[0] = (char)('0' + v / 100); cpu_text[1] = (char)('0' + (v / 10) % 10); cpu_text[2] = (char)('0' + v % 10); cpu_text[3] = '%'; cpu_text[4] = 0; if (cpu_text[0] == '0') { cpu_text[0] = cpu_text[1]; cpu_text[1] = cpu_text[2]; cpu_text[2] = '%'; cpu_text[3] = 0; if (cpu_text[0] == '0') { cpu_text[0] = cpu_text[1]; cpu_text[1] = '%'; cpu_text[2] = 0; } } }
     if (m_mem >= 0) { int v = m_mem > 100 ? 100 : m_mem; mem_text[0] = (char)('0' + v / 100); mem_text[1] = (char)('0' + (v / 10) % 10); mem_text[2] = (char)('0' + v % 10); mem_text[3] = '%'; mem_text[4] = 0; if (mem_text[0] == '0') { mem_text[0] = mem_text[1]; mem_text[1] = mem_text[2]; mem_text[2] = '%'; mem_text[3] = 0; if (mem_text[0] == '0') { mem_text[0] = mem_text[1]; mem_text[1] = '%'; mem_text[2] = 0; } } }
     if (m_health >= 0) { int v = m_health > 100 ? 100 : m_health; mind_text[0] = (char)('0' + v / 100); mind_text[1] = (char)('0' + (v / 10) % 10); mind_text[2] = (char)('0' + v % 10); mind_text[3] = '%'; mind_text[4] = 0; if (mind_text[0] == '0') { mind_text[0] = mind_text[1]; mind_text[1] = mind_text[2]; mind_text[2] = '%'; mind_text[3] = 0; if (mind_text[0] == '0') { mind_text[0] = mind_text[1]; mind_text[1] = '%'; mind_text[2] = 0; } } }
-    if (m_network < 0) scpy(net_text, 0, "НЕТ КАРТЫ", sizeof net_text);
-    else if (m_network == 0) scpy(net_text, 0, "НЕТ СВЯЗИ", sizeof net_text);
-    else scpy(net_text, 0, "ЕСТЬ СВЯЗЬ", sizeof net_text);
-    if (m_audio_volume < 0) scpy(audio_text, 0, "НЕТ ЗВУКА", sizeof audio_text);
+    if (m_network < 0) str_copy(net_text, "НЕТ КАРТЫ", sizeof net_text);
+    else if (m_network == 0) str_copy(net_text, "НЕТ СВЯЗИ", sizeof net_text);
+    else str_copy(net_text, "ЕСТЬ СВЯЗЬ", sizeof net_text);
+    if (m_audio_volume < 0) str_copy(audio_text, "НЕТ ЗВУКА", sizeof audio_text);
     else {
         int v = m_audio_volume > 100 ? 100 : m_audio_volume;
         int n = 0;
