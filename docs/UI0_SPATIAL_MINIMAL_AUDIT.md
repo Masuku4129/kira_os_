@@ -123,12 +123,12 @@
 - progs.c::prog_list() синхронно читает и хеширует каждый бинарный файл; GUI/display thread его не вызывает.
 - Контракт очереди уже реализован в prog_queue.c: состояния IDLE/PENDING/RUNNING/COMPLETE, атомарное принятие одного запроса, явные ACCEPTED/BUSY/INVALID, request ID и однократное получение результата. Слот остаётся занятым до получения результата; второй запрос не затирает первый.
 - Имя и путь проверяются до копирования; слишком длинный путь отклоняется, а не обрезается. Host-тесты покрывают границы, BUSY на этапах PENDING/RUNNING/COMPLETE, completion и конкурентную отправку 12 потоками.
-- `prog_request()`/`prog_request_file()` — безопасный интерфейс для GUI; `prog_poll()` исполняет запрос в основном цикле ядра. Окно Launcher ещё не подключено к этому контракту.
+- `prog_request()`/`prog_request_file()` — безопасный интерфейс для GUI; `prog_poll()` исполняет запрос в основном цикле ядра. Новый Launcher подключает `prog_request()` и получает итог через `prog_request_take_result()`.
 - Проверка доверия должна оставаться в prog_run_ex(): имя и SHA-256 сверяются с встроенным манифестом непосредственно при запуске. Launcher не должен обходить эту проверку или исполнять найденный ELF напрямую.
 - Встроенный манифест включает не только обычные приложения, но и тестовые/атакующие/benchmark binaries (например atk-*). Каталог должен иметь явную мета-классификацию и не показывать security-test binaries как обычные пользовательские приложения.
-- display_main() сейчас забирает клавиатуру только когда Проводник сверху; display_kbd_owner() сообщает консоли только files_focus. Launcher должен получить эксклюзивный keyboard focus и подавлять console input, иначе ввод поиска уйдёт в командную строку.
+- `display_main()` маршрутизирует клавиатуру одному владельцу: Launcher сверху получает ввод первым, иначе его получает Проводник. `display_kbd_owner()` сообщает консоли о любом из этих владельцев.
 - apps.c/h — слой рисования и hit-testing; display.c — orchestration/state; WM input callback — mouse events. Новый launcher entrypoint следует добавить только в Spatial Minimal (отдельный rail affordance/контекстный вызов), не добавляя legacy top-bar tab.
-- Следующий вертикальный срез: curated catalog model + async launch acceptance/result; затем search field/keyboard ownership; затем UI cards/categories/empty/error states и тесты trust gating, queue busy, search, keyboard focus и launch feedback.
+- Следующий срез: категории и фильтры, явные состояния загрузки/ошибки, управление фокусом мышью/сенсором, проверка короткого экрана и регрессии клавиатуры.
 
 
 ## 11. UI-3 — curated build-time application catalog
@@ -140,5 +140,15 @@
 - x86-64 and ARM64 generate their own catalog header. It is not a trust source; prog_run_ex() continues SHA-256 verification against PROG_MANIFEST.
 - Host coverage verifies allowlist filtering, generated membership, invalid indices, empty query, result capacity and mixed-case Russian/English search. Truncated UTF-8 search input is also covered to prevent reads past the string terminator.
 - The catalog service is compiled for x86-64 and ARM64 from the architecture-specific generated `app_catalog.h`; the ARM64 source list now includes `prog_catalog.c`.
-- This slice supplies the catalog model only. Launcher cards, live search input, keyboard ownership and launch selection UI remain open.
+- The catalog model is consumed by the Spatial Minimal Launcher added in UI-3 section 12; the catalog remains independent from the trust manifest.
 - Scope: master plan J/J.1, K, F and N; workstreams 2, 5, 9 and 12.
+
+
+## 12. UI-3 — first integrated Launcher slice (2026-11-13)
+
+- Added a dedicated “ПРИЛОЖЕНИЯ” action to the Spatial Minimal system zone. It is a WM callback, not a legacy tab; the legacy top bar and tab behavior remain unchanged.
+- Added a kernel-owned Launcher window that renders the generated curated catalog, supports substring search over program name/title/category/description, keyboard navigation, Enter launch, row selection and Escape close.
+- Search input is routed through the shared input layer and Russian keyboard-layout conversion. The Launcher owns keyboard focus only while it is the top visible window; Explorer receives focus only when it is top and Launcher is not. The console is told when either owns the keyboard.
+- Launch requests use prog_request() and report accepted/busy/invalid plus asynchronous completion. No direct ELF execution or trust bypass was added; prog_run_ex() remains responsible for manifest/SHA-256 verification.
+- Added a WM regression assertion for the Spatial-only launcher callback. Full display-level keyboard/search/launch integration tests are still needed.
+- Validation status: the preceding exact code head 37a53ba6229ab7f8a556c6ff93815c5851549b2a passed x86-64, ARM64, host-tests and the VM matrix (run 43388886629). This new Launcher code is later and is NOT covered by that PASS; a fresh CI run is required. No local build, Limbo visual check or physical-hardware test is claimed.
