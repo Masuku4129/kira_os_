@@ -17,7 +17,7 @@
 #define WM_PAD       10      /* поля окна вокруг содержимого */
 #define WM_HEAD      36      /* заголовок окна */
 #define WM_SIDE_W    76      /* место под боковую панель слева */
-#define WM_SPATIAL_RAIL_W 88  /* ширина компактной навигации Spatial Minimal */
+#define WM_SPATIAL_RAIL_W 208 /* максимальная ширина навигации Spatial Minimal; на узких экранах сворачивается */
 #define WM_GLOW      4       /* свечение окна в фокусе (за пределами рамки) */
 #define WM_AUTO      (-100000) /* координата "разместить самому" */
 #define WM_SIDE_MAX  10
