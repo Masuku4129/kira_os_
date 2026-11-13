@@ -1315,24 +1315,23 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     }
     int count = spatial_dock_count();
     if (!count) return;
-    int visible = spatial_dock_visible_count();
-    int tile = spatial_dock_tile(), gap = spatial_dock_gap(), pages = spatial_dock_pages();
+    int tile = spatial_dock_tile(), pages = spatial_dock_pages();
     int width = spatial_dock_width();
     int dx = (scr->w - width) / 2 + ox, dy = spatial_dock_y() + oy - 8;
     ui_round_rect(c, dx, dy, width, tile + 16, 18, TH_BAR0, 248);
     ui_round_frame(c, dx, dy, width, tile + 16, 18, TH_BORDER, 255);
     if (pages > 1) {
         int cy = spatial_dock_y() + tile / 2 + oy;
-        int lx = dx + WM_DOCK_CONTROL_W / 2 + 2 + ox;
-        int rx = dx + width - WM_DOCK_CONTROL_W / 2 - 2 + ox;
+        int lx = dx + WM_DOCK_CONTROL_W / 2 + 2;
+        int rx = dx + width - WM_DOCK_CONTROL_W / 2 - 2;
         uint32_t lc = dock_page > 0 ? TH_TEXT : TH_TEXT_FAINT;
         uint32_t rc = dock_page + 1 < pages ? TH_TEXT : TH_TEXT_FAINT;
         ui_round_rect(c, lx - 13, cy - 15, 26, 30, 9, TH_TILE, 255);
         ui_round_rect(c, rx - 13, cy - 15, 26, 30, 9, TH_TILE, 255);
-        gfx_line(c, lx + 3 + ox, cy - 7 + oy, lx - 3 + ox, cy + oy, lc);
-        gfx_line(c, lx - 3 + ox, cy + oy, lx + 3 + ox, cy + 7 + oy, lc);
-        gfx_line(c, rx - 3 + ox, cy - 7 + oy, rx + 3 + ox, cy + oy, rc);
-        gfx_line(c, rx + 3 + ox, cy + oy, rx - 3 + ox, cy + 7 + oy, rc);
+        gfx_line(c, lx + 3, cy - 7, lx - 3, cy, lc);
+        gfx_line(c, lx - 3, cy, lx + 3, cy + 7, lc);
+        gfx_line(c, rx - 3, cy - 7, rx + 3, cy, rc);
+        gfx_line(c, rx + 3, cy, rx - 3, cy + 7, rc);
     }
     int top = wm_top();
     for (int i = 0; i < side_n; i++) {
