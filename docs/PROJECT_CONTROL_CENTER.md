@@ -96,3 +96,13 @@ A Architecture/Platform; B Kernel; C KVR and application runtimes; D Mind; E KCC
 ## 7. Безопасные границы
 
 Работа ведётся в отдельной рабочей ветке/PR. `main` не изменять напрямую. Не выполнять merge, release, delete, force-push, массовое переименование или изменение доступа без отдельного разрешения. Реальные реализации и проверяемые тесты обязательны; mock/stub допустимы только в тестах, где они явно моделируют внешний boundary и не выдаются за production.
+
+
+## 8. PR compliance automation
+
+- PR template: `.github/pull_request_template.md`.
+- Structural checker: `ci/check_pr_compliance.py`.
+- Workflow: `.github/workflows/pr-compliance.yml`.
+- The checker requires four PR sections, at least one populated requirement row, a syntactically valid exact SHA and an allowed status. It prevents empty compliance paperwork.
+- This automation **does not prove semantic compliance**: it cannot know the complete intent of a chat prompt or judge whether a claimed test really covers the requirement. That review remains mandatory under `AGENTS.md` and the project control matrix.
+- The workflow is staged in the Draft architecture PR. GitHub has not yet reported a run for it on this branch; do not represent it as an active required branch-protection check until it is integrated into the default-branch workflow configuration and its status requirement is configured.
