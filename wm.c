@@ -76,6 +76,7 @@ static surface_t bgs;
 static char clock_date[48], clock_hm[8];
 static uint8_t m_busy[64];
 static int m_cores, m_mem = -1, m_health = -1;
+static int m_network = -1, m_audio_volume = -1;
 static int fx_level = 3;
 static uint32_t anim_ms;
 static int brain_cx, brain_cy;
@@ -805,6 +806,17 @@ void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
     m_cores = ncores; m_mem = mem_pct; m_health = health;
     if (layout_mode == WM_LAYOUT_LEGACY) damage_top();
     else if (system_panel_open) damage_system_panel();
+}
+
+void wm_set_system_io(int network_link, int audio_volume) {
+    if (network_link < -1) network_link = -1;
+    if (network_link > 1) network_link = 1;
+    if (audio_volume < -1) audio_volume = -1;
+    if (audio_volume > 100) audio_volume = 100;
+    if (m_network == network_link && m_audio_volume == audio_volume) return;
+    m_network = network_link;
+    m_audio_volume = audio_volume;
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && system_panel_open) damage_system_panel();
 }
 
 void wm_set_layout_mode(wm_layout_mode_t mode) {
@@ -1658,32 +1670,57 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     ui_text_bold(c, x + w - 28 - gfx_text_width(unread_text) + ox, y + 52 + oy,
                  unread_text, unread ? TH_AMBER : TH_TEXT_FAINT);
 
-    unsigned cpu = 0;
-    for (int i = 0; i < m_cores; i++) cpu += m_busy[i];
-    int values[3] = { m_cores > 0 ? (int)(cpu / (unsigned)m_cores) : -1, m_mem, m_health };
-    const char* labels[3] = { "ПРОЦЕССОР", "ПАМЯТЬ", "KIRA MIND" };
-    int rows = (h - 88) / 28;
-    if (rows > 3) rows = 3;
-    if (rows < 1) rows = 1;
-    for (int i = 0; i < rows; i++) {
-        int ry = y + 76 + i * 28;
-        gfx_text(c, x + 16 + ox, ry + oy, labels[i], TH_TEXT_DIM, -1);
-        if (values[i] < 0) {
-            gfx_text(c, x + w - 28 + ox, ry + oy, "—", TH_TEXT_FAINT, -1);
-            continue;
-        }
-        int v = values[i] > 100 ? 100 : values[i];
-        char num[5]; int n = 0, q = v, digits[3], nd = 0;
-        do { digits[nd++] = q % 10; q /= 10; } while (q && nd < 3);
-        while (nd) num[n++] = (char)('0' + digits[--nd]);
-        num[n++] = '%'; num[n] = 0;
-        uint32_t col; meter_color((unsigned)v, &col);
-        if (i == 2) col = v >= 70 ? TH_GREEN : v >= 50 ? TH_AMBER : TH_RED;
-        ui_text_bold(c, x + w - 16 - gfx_text_width(num) + ox, ry + oy, num, col);
-        ui_round_rect(c, x + 16 + ox, ry + 14 + oy, w - 32, 4, 2, TH_TILE, 255);
-        ui_round_rect(c, x + 16 + ox, ry + 14 + oy, (w - 32) * v / 100, 4, 2, col, 255);
+    char cpu_text[8] = "—", mem_text[8] = "—", mind_text[8] = "—";
+    char net_text[16], audio_text[16];
+    int cpu = -1;
+    if (m_cores > 0) {
+        unsigned sum = 0;
+        for (int i = 0; i < m_cores; i++) sum += m_busy[i];
+        cpu = (int)(sum / (unsigned)m_cores);
     }
-    gfx_text(c, x + 16 + ox, y + h - 16 + oy, "Нажмите вне панели, чтобы закрыть", TH_TEXT_FAINT, -1);
+    if (cpu >= 0) { int v = cpu > 100 ? 100 : cpu; cpu_text[0] = (char)('0' + v / 100); cpu_text[1] = (char)('0' + (v / 10) % 10); cpu_text[2] = (char)('0' + v % 10); cpu_text[3] = '%'; cpu_text[4] = 0; if (cpu_text[0] == '0') { cpu_text[0] = cpu_text[1]; cpu_text[1] = cpu_text[2]; cpu_text[2] = '%'; cpu_text[3] = 0; if (cpu_text[0] == '0') { cpu_text[0] = cpu_text[1]; cpu_text[1] = '%'; cpu_text[2] = 0; } } }
+    if (m_mem >= 0) { int v = m_mem > 100 ? 100 : m_mem; mem_text[0] = (char)('0' + v / 100); mem_text[1] = (char)('0' + (v / 10) % 10); mem_text[2] = (char)('0' + v % 10); mem_text[3] = '%'; mem_text[4] = 0; if (mem_text[0] == '0') { mem_text[0] = mem_text[1]; mem_text[1] = mem_text[2]; mem_text[2] = '%'; mem_text[3] = 0; if (mem_text[0] == '0') { mem_text[0] = mem_text[1]; mem_text[1] = '%'; mem_text[2] = 0; } } }
+    if (m_health >= 0) { int v = m_health > 100 ? 100 : m_health; mind_text[0] = (char)('0' + v / 100); mind_text[1] = (char)('0' + (v / 10) % 10); mind_text[2] = (char)('0' + v % 10); mind_text[3] = '%'; mind_text[4] = 0; if (mind_text[0] == '0') { mind_text[0] = mind_text[1]; mind_text[1] = mind_text[2]; mind_text[2] = '%'; mind_text[3] = 0; if (mind_text[0] == '0') { mind_text[0] = mind_text[1]; mind_text[1] = '%'; mind_text[2] = 0; } } }
+    if (m_network < 0) scpy(net_text, 0, "НЕТ КАРТЫ", sizeof net_text);
+    else if (m_network == 0) scpy(net_text, 0, "НЕТ СВЯЗИ", sizeof net_text);
+    else scpy(net_text, 0, "ЕСТЬ СВЯЗЬ", sizeof net_text);
+    if (m_audio_volume < 0) scpy(audio_text, 0, "НЕТ ЗВУКА", sizeof audio_text);
+    else {
+        int v = m_audio_volume > 100 ? 100 : m_audio_volume;
+        int n = 0;
+        if (v >= 100) audio_text[n++] = '1';
+        if (v >= 10) audio_text[n++] = (char)('0' + (v / 10) % 10);
+        audio_text[n++] = (char)('0' + v % 10); audio_text[n++] = '%'; audio_text[n] = 0;
+    }
+
+    const char* labels[5] = { "ПРОЦЕССОР", "ПАМЯТЬ", "KIRA MIND", "СЕТЬ", "ЗВУК" };
+    const char* values[5] = { cpu_text, mem_text, mind_text, net_text, audio_text };
+    int levels[5] = { cpu, m_mem, m_health, m_network < 0 ? -1 : m_network ? 100 : 0, m_audio_volume };
+    int columns = (w - 40) / 2;
+    if (columns < 56) columns = 56;
+    for (int i = 0; i < 5; i++) {
+        int row = i / 2, col = i % 2;
+        int cx = x + 16 + col * (columns + 8);
+        int cy = y + 76 + row * 32;
+        int cw = i == 4 ? w - 32 : columns;
+        ui_round_rect(c, cx + ox, cy + oy, cw, 28, 7, TH_TILE, 255);
+        gfx_text(c, cx + 8 + ox, cy + 4 + oy, labels[i], TH_TEXT_DIM, -1);
+        int vw = gfx_text_width(values[i]);
+        ui_text_fit(c, cx + cw - 8 - vw + ox, cy + 4 + oy, values[i], vw, 
+                    i == 3 ? (m_network > 0 ? TH_GREEN : TH_AMBER) :
+                    i == 4 ? (m_audio_volume >= 0 ? TH_CYAN : TH_TEXT_FAINT) :
+                    levels[i] < 0 ? TH_TEXT_FAINT : TH_TEXT);
+        if (levels[i] >= 0) {
+            int level = levels[i] > 100 ? 100 : levels[i];
+            uint32_t color;
+            if (i == 2) color = level >= 70 ? TH_GREEN : level >= 50 ? TH_AMBER : TH_RED;
+            else if (i == 3) color = level ? TH_GREEN : TH_RED;
+            else color = i == 4 ? TH_CYAN : (level < 60 ? TH_GREEN : level < 85 ? TH_AMBER : TH_RED);
+            ui_round_rect(c, cx + 8 + ox, cy + 20 + oy, cw - 16, 3, 1, TH_BAR1, 255);
+            ui_round_rect(c, cx + 8 + ox, cy + 20 + oy, (cw - 16) * level / 100, 3, 1, color, 255);
+        }
+    }
+    gfx_text(c, x + 16 + ox, y + h - 12 + oy, "Нажмите вне панели, чтобы закрыть", TH_TEXT_FAINT, -1);
 }
 
 static uint32_t notification_color(unsigned priority) {
