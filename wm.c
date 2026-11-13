@@ -196,7 +196,7 @@ int wm_notification_post(const char* title, const char* message, int priority) {
     n->unread = 1; n->created_ms = anim_ms;
     notification_head = (notification_head + 1) % WM_NOTIFICATION_MAX;
     if (notification_count < WM_NOTIFICATION_MAX) notification_count++;
-    notification_toast_active = 1;
+    notification_toast_active = !system_panel_open;
     notification_toast_until = anim_ms + 5000u;
     int x, y, w, h;
     notification_toast_rect(&x, &y, &w, &h);
@@ -1089,7 +1089,12 @@ static void click(int px, int py) {
             return;
         }
         if (px >= scr->w - 48 && px < scr->w - 8 && py >= 6 && py < 34) {
-            system_panel_open = !system_panel_open; damage_system_panel(); return;
+            system_panel_open = !system_panel_open;
+            if (system_panel_open && notification_toast_active) {
+                int tx, ty, tw, th; notification_toast_rect(&tx, &ty, &tw, &th);
+                notification_toast_active = 0; damage(tx, ty, tx + tw, ty + th);
+            }
+            damage_system_panel(); return;
         }
         return;
     }
