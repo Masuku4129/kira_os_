@@ -454,3 +454,11 @@
 - Verification evidence: run `43298087855` passed 30/30 jobs on commit `618ce01344e219991323aca51f9de58c55ed2aab`; current PR head `8626c4e1f063796da383880e656a36d654fb27fa` includes later PCI host parser/range hardening and is NOT covered by that run. Current head remains unverified until a fresh exact-head workflow completes.
 - PCI host follow-up intentionally rejects nonzero bus-range starts because the shared PCI enumerator currently starts at bus 0. Keep fail-closed behavior; next M2 work must introduce and test a range-aware enumerator before relaxing this guard.
 - Next: exact-head CI for PR #135; then dependency-closed M2 Device Model/BootInfo contracts and M3 object-capability authority. Continue all master-plan streams. PR #135 remains Draft and unmerged.
+
+
+### Device Model contract drafted (2026-11-13)
+
+- Added `docs/architecture/rfc/RFC-DEV-001.md` (Draft, not an ABI freeze). It defines device identity/generation, resource descriptors, resource reservation, driver binding, lifecycle transitions, cross-ISA backend responsibilities, DMA/IOMMU security invariants, error semantics and conformance tests.
+- Linked DEV-001 from the RFC index and contract registry; updated the architecture execution plan, component inventory and dependency map. The docs explicitly distinguish PCI enumeration/KDRV binding from a complete Device Model implementation.
+- Source-backed limitation: `arch/aarch64/pci_host.c` rejects nonzero bus-range starts because shared `pci_init()` enumerates from bus 0. This fail-closed behavior must remain until range-aware enumeration and ECAM bounds tests are implemented.
+- Next code gate remains exact-head CI for PR #135. The latest 30/30 workflow tested `618ce013...`, not current head `8626c4e1...`; no new PASS is claimed.
