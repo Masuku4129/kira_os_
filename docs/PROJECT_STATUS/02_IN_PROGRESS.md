@@ -30,6 +30,27 @@
 
 Это не означает, что все 437 файлов нужно слить в main без проверки. Внутри есть рабочие реализации, тесты, исследовательские материалы, артефакты измерений и документы. Их надо разбирать по зависимостям и доказательствам, а не копировать вслепую.
 
+### Что конкретно не попадает в текущую main-сборку
+
+Сверка самих build scripts показала, что это не только дополнительные тесты и документы:
+
+- x86-64: main собирает 98 общих C-источников, v46 — 112. В main build list отсутствуют 14 v46 источников: buildcmd.c, mind_build_core.c, mind_build_grant.c, bootinfo.c, bootinfo_mb2.c, bootinfo_uefi.c, iommu_vtd.c, iommu.c, drivers/iommu/intel_vtd.c, drivers/iommu/vtd_domain.c, pk.c, kdrv_sig.c, kdrv_state.c, wx.c.
+- ARM64: main common-kernel list содержит 88 источников, v46 — 97. Отсутствуют 9: bootinfo.c, bootinfo_fdt.c, buildcmd.c, mind_build_core.c, mind_build_grant.c, pk.c, kdrv_sig.c, kdrv_state.c, arch/aarch64/wx_arm.c.
+
+Следствие: текущий main/Spatial ISO не содержит все эти build units. Некоторые отвечают за BootInfo/UEFI, IOMMU/VT-d, KDRV signatures/state, W^X и Mind build. Их нельзя объявлять готовыми только потому, что они компилируются в v46: у части подсистем в RELEASE_GAPS остаются серьёзные блокеры.
+
+### Отдельно: полноценный release/update pipeline v46
+
+В v46 существуют, но отсутствуют в main, следующие файлы:
+- ci/package_update.sh
+- ci/release_gate.py
+- ci/release_image.py
+- ci/audit_image.py и ci/audit_inventory.py
+- ci/test_release_gate.py и ci/test_release_image.py
+- docs/RELEASE_GAPS.md, docs/UNIFIED_RELEASE_PLAN.md, docs/RELEASE_SPLIT.md
+
+Это не просто zip-скрипт. package_update.sh проверяет exact base commit, успешность host/build/VM/ARM64/audit/Mind/GUI/KCC/driver/UEFI/image-audit jobs, наличие x86-64 + ARM64 + UEFI images, binary image audit, evidence logs и только после этого собирает update archive с manifest и SHA-256. Release gate остаётся OPEN/BLOCKED в документе v46; это кандидат на интеграцию, а не готовый релиз.
+
 ### 56 файлов, оставшихся только в autodrv относительно v46
 
 Важные группы: BSD compatibility headers/corpus, userland/bsd_rt.c, userland/drvne2kio.c, tools/bsd_*, tests/bsd/*, proc_pid.h, tests/proc_pid_test.c, arch/x86_64/bios/stage1cd.asm, дополнительные KCC tests и документы APP_ISOLATION.md, BACKLOG.md, BSD_COMPAT.md.
