@@ -809,7 +809,7 @@ void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
 }
 
 void wm_set_system_io(int network_link, int audio_volume) {
-    if (network_link < -1) network_link = -1;
+    if (network_link < -2) network_link = -1;
     if (network_link > 1) network_link = 1;
     if (audio_volume < -1) audio_volume = -1;
     if (audio_volume > 100) audio_volume = 100;
@@ -1689,7 +1689,8 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     system_percent(cpu_text, cpu);
     system_percent(mem_text, m_mem);
     system_percent(mind_text, m_health);
-    if (m_network < 0) str_copy(net_text, "НЕТ КАРТЫ", sizeof net_text);
+    if (m_network == -2) str_copy(net_text, "НЕТ КАРТЫ", sizeof net_text);
+    else if (m_network < 0) str_copy(net_text, "СТАТУС ?", sizeof net_text);
     else if (m_network == 0) str_copy(net_text, "НЕТ ЛИНКА", sizeof net_text);
     else str_copy(net_text, "ЛИНК ЕСТЬ", sizeof net_text);
     if (m_audio_volume < 0) str_copy(audio_text, "НЕТ ЗВУКА", sizeof audio_text);
