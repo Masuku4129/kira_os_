@@ -29,12 +29,12 @@
 
 int platform_dma_noncoherent(void) __attribute__((weak));   /* ARM64: плата без согласованности кэша - пул без кэша, драйверам его не отдаём */
 
-enum { B_FREE = 0, B_RUN = 1, B_DEAD = 2 };
+enum { B_FREE = 0, B_RUN = 1, B_DEAD = 2, B_QUARANTINED = 3 };
 typedef struct { uint64_t va; uint32_t pages; } kmap_t;
 typedef struct { uint64_t pa; uint32_t pages; } kblk_t;
 
 typedef struct {
-    const pci_dev_t* dev;            /* слот закреплён за устройством навсегда (0 - свободен) */
+    pci_handle_t device;              /* identity/generation snapshot; slot remains reserved for this device */
     volatile int state;
     char name[16];
     uint32_t granted, version, pid;
@@ -90,11 +90,30 @@ static int builtin_owned(const pci_dev_t* d) {
     return 0;
 }
 
+static pci_handle_t handle_for_device(const pci_dev_t* d) {
+    pci_handle_t empty = { 0, 0 };
+    for (int i = 0; i < pci_count(); i++) {
+        if (pci_get(i) == d) return pci_get_handle(i);
+    }
+    return empty;
+}
+
+static int handle_equal(pci_handle_t a, pci_handle_t b) {
+    return a.id == b.id && a.generation == b.generation && a.id != 0 && a.generation != 0;
+}
+
+static const pci_dev_t* bound_device(const bind_t* b) {
+    return pci_resolve(b->device);
+}
+
 static bind_t* find_slot(const pci_dev_t* d, int create) {
+    pci_handle_t h = handle_for_device(d);
+    if (!h.id || !h.generation) return 0;
     uint64_t f = spin_lock_irqsave(&klock);
     bind_t* r = 0;
-    for (unsigned i = 0; i < KDRV_SLOTS && !r; i++) if (binds[i].dev == d) r = &binds[i];
-    for (unsigned i = 0; create && i < KDRV_SLOTS && !r; i++) if (!binds[i].dev) { binds[i].dev = d; r = &binds[i]; }
+    for (unsigned i = 0; i < KDRV_SLOTS && !r; i++) if (handle_equal(binds[i].device, h)) r = &binds[i];
+    for (unsigned i = 0; create && i < KDRV_SLOTS && !r; i++)
+        if (!binds[i].device.id && !binds[i].device.generation) { binds[i].device = h; r = &binds[i]; }
     spin_unlock_irqrestore(&klock, f);
     return r;
 }
@@ -160,8 +179,8 @@ static uint16_t find_cap(const pci_dev_t* d, uint8_t want) {
 }
 
 static void irq_enable(bind_t* b) {
-    const pci_dev_t* d = b->dev;
-    if (!find_cap(d, 0x05) && !find_cap(d, 0x11)) return;                          /* ни MSI, ни MSI-X: прерывания драйверу не будет */
+    const pci_dev_t* d = bound_device(b);
+    if (!d || (!find_cap(d, 0x05) && !find_cap(d, 0x11))) return;                          /* ни MSI, ни MSI-X: прерывания драйверу не будет */
     if (!b->irq_tried) {
         b->irq_tried = 1;
         if (msi_alloc(d, kdrv_irq, b, &b->irq_addr, &b->irq_data) == 0) b->irq_have = 1;
@@ -210,6 +229,8 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     }
     bind_t* b = find_slot(d, 1);
     if (!b) { kfree(p.buf); uart_print("[KIRA DRV] нет свободной привязки (устройств с драйверами не больше 8)\n"); return -1; }
+    d = bound_device(b);
+    if (!d) { kfree(p.buf); uart_print("[KIRA DRV] PCI identity устарела, устройство не будет запущено\n"); return -1; }
     uint64_t f = spin_lock_irqsave(&klock);
     int st = b->state;
     if (st == B_FREE) b->state = B_RUN;
@@ -310,14 +331,22 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
     uint64_t f = spin_lock_irqsave(&b->nlk);
     b->net_alive = 0;                               /* карта драйвера для стека: link down, send отказывает, recv пуст */
     spin_unlock_irqrestore(&b->nlk, f);
-    uint16_t cmd = quiesce(b->dev);
+    const pci_dev_t* d = bound_device(b);
+    if (!d) {
+        f = spin_lock_irqsave(&klock);
+        b->state = B_QUARANTINED;                  /* stale identity: never free DMA pages without confirmed quiesce */
+        spin_unlock_irqrestore(&klock, f);
+        uart_print("[KIRA DRV] drv-"); uart_print(b->name); uart_print(" завершён: PCI handle устарел; DMA и ресурсы оставлены в карантине\n");
+        return;
+    }
+    uint16_t cmd = quiesce(d);
     b->dead_at = timer_get_ticks();
     f = spin_lock_irqsave(&klock);
     b->state = B_DEAD;
     spin_unlock_irqrestore(&klock, f);
     __atomic_add_fetch(&ndead, 1, __ATOMIC_ACQ_REL);
     uart_print("[KIRA DRV] drv-"); uart_print(b->name); uart_print(" (pid "); uart_print_dec(pid); uart_print(") завершён: устройство ");
-    print_bdf(b->dev); uart_print(" остановлено (команда PCI "); uart_print_hex(cmd); uart_print(", MSI выключено), DMA ");
+    print_bdf(d); uart_print(" остановлено (команда PCI "); uart_print_hex(cmd); uart_print(", MSI выключено), DMA ");
     uart_print_dec(b->dma_pages); uart_print(" стр. в "); uart_print_dec(b->ndma); uart_print(" блок(ах) и кольца ");
     uart_print_dec(b->net_pages); uart_print(" стр. вернутся через 100 мс\n");
 }
@@ -524,7 +553,8 @@ static int bar_page_exclusive(const pci_dev_t* me, int bar) {
 }
 
 static int64_t sys_mmio_map(bind_t* b, uint64_t bar, uint64_t off, uint64_t len) {
-    const pci_dev_t* d = b->dev;
+    const pci_dev_t* d = bound_device(b);
+    if (!d) return KE_NOENT;
     if (bar >= PCI_BARS || (off & 4095) || !len || len > KDRV_MAX_MMIO_BYTES) return KE_ARG;
     if (d->bar[bar].io || !d->bar[bar].size || !d->bar[bar].base) return KE_NOENT;     /* порты ввода-вывода и пустые BAR не отображаются */
     uint64_t bsz = (d->bar[bar].size + 4095) & ~4095ull;
@@ -629,24 +659,26 @@ int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
     if (!slot || slot > KDRV_SLOTS) return proc_cap_denied(CAP_PCIDEV, nr);          /* не драйвер: даже если бы право было, устройства нет */
     bind_t* b = &binds[slot - 1];
     if (b->state != B_RUN) return KE_INTR;
+    const pci_dev_t* d = bound_device(b);
+    if (!d) return KE_NOENT;
     switch (nr) {
     case KDRV_SYS_INFO: {
         if (a2 < sizeof(kdrv_info_t)) return KE_ARG;
         kdrv_info_t i;
         uint8_t* z = (uint8_t*)&i; for (unsigned k = 0; k < sizeof i; k++) z[k] = 0;
-        i.size = sizeof i; i.vendor = b->dev->vendor; i.device = b->dev->device; i.cls = cls_of(b->dev);
+        i.size = sizeof i; i.vendor = d->vendor; i.device = d->device; i.cls = cls_of(d);
         i.granted = b->granted; i.version = b->version; i.flags = b->irq_on ? KDRV_INFO_MSI : 0;
         for (unsigned k = 0; k < sizeof i.name && b->name[k]; k++) i.name[k] = b->name[k];
         for (int k = 0; k < PCI_BARS; k++) {
-            i.bar[k].size = b->dev->bar[k].size;
-            i.bar[k].flags = (b->dev->bar[k].io ? KDRV_BAR_IO : 0) | (b->dev->bar[k].mem64 ? KDRV_BAR_MEM64 : 0) | (b->dev->bar[k].prefetch ? KDRV_BAR_PREFETCH : 0);
+            i.bar[k].size = d->bar[k].size;
+            i.bar[k].flags = (d->bar[k].io ? KDRV_BAR_IO : 0) | (d->bar[k].mem64 ? KDRV_BAR_MEM64 : 0) | (d->bar[k].prefetch ? KDRV_BAR_PREFETCH : 0);
         }
         return copy_to_user(a1, &i, sizeof i) ? KE_ARG : 0;
     }
     case KDRV_SYS_CFG_READ: {
         if ((a2 != 1 && a2 != 2 && a2 != 4) || a1 >= 256 || (a1 % a2)) return KE_ARG;
         if (overlap((uint32_t)a1, (uint32_t)(a1 + a2), 0x10, 0x28) || overlap((uint32_t)a1, (uint32_t)(a1 + a2), 0x30, 0x34)) return 0;   /* адреса BAR и ПЗУ ядро не показывает */
-        return a2 == 1 ? pci_read8(b->dev, (uint16_t)a1) : a2 == 2 ? pci_read16(b->dev, (uint16_t)a1) : (int64_t)pci_read32(b->dev, (uint16_t)a1);
+        return a2 == 1 ? pci_read8(d, (uint16_t)a1) : a2 == 2 ? pci_read16(d, (uint16_t)a1) : (int64_t)pci_read32(d, (uint16_t)a1);
     }
     case KDRV_SYS_CFG_WRITE: {
         if ((a2 != 1 && a2 != 2 && a2 != 4) || a1 >= 256 || (a1 % a2)) return KE_ARG;
@@ -655,14 +687,14 @@ int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
             if (b->granted & CAP_MMIO) ok |= PCI_CMD_MEM;
             if (b->granted & (CAP_DMA | CAP_IRQ)) ok |= PCI_CMD_MASTER;
             if (a2 != 2 || (a3 & ~(uint64_t)ok)) { deny_note(b, "запись в регистр команд PCI значения", a3); return KE_PERM; }
-            uint16_t cur = pci_read16(b->dev, 0x04);
-            pci_write16(b->dev, 0x04, (uint16_t)((cur & ~ok) | (uint16_t)a3));
+            uint16_t cur = pci_read16(d, 0x04);
+            pci_write16(d, 0x04, (uint16_t)((cur & ~ok) | (uint16_t)a3));
             return 0;
         }
-        if (cfg_deny(b->dev, (uint32_t)a1, (uint32_t)a2)) { deny_note(b, "запись в защищённую область конфигурации, смещение", a1); return KE_PERM; }
-        if (a2 == 1) { uint16_t o = (uint16_t)(a1 & ~3u); uint32_t sh = (uint32_t)(a1 & 3) * 8; pci_write32(b->dev, o, (pci_read32(b->dev, o) & ~(0xFFu << sh)) | ((uint32_t)(a3 & 0xFF) << sh)); }
-        else if (a2 == 2) pci_write16(b->dev, (uint16_t)a1, (uint16_t)a3);
-        else pci_write32(b->dev, (uint16_t)a1, (uint32_t)a3);
+        if (cfg_deny(d, (uint32_t)a1, (uint32_t)a2)) { deny_note(b, "запись в защищённую область конфигурации, смещение", a1); return KE_PERM; }
+        if (a2 == 1) { uint16_t o = (uint16_t)(a1 & ~3u); uint32_t sh = (uint32_t)(a1 & 3) * 8; pci_write32(d, o, (pci_read32(d, o) & ~(0xFFu << sh)) | ((uint32_t)(a3 & 0xFF) << sh)); }
+        else if (a2 == 2) pci_write16(d, (uint16_t)a1, (uint16_t)a3);
+        else pci_write32(d, (uint16_t)a1, (uint32_t)a3);
         return 0;
     }
     case KDRV_SYS_MMIO_MAP: return sys_mmio_map(b, a1, a2, a3);
@@ -695,10 +727,15 @@ static void show(void) {
     unsigned used = 0;
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         bind_t* b = &binds[i];
-        if (!b->dev) continue;
+        if (!b->device.id || !b->device.generation) continue;
         used++;
-        uart_print("  устройство "); print_bdf(b->dev); uart_print(" "); print_id(b->dev); uart_print(": ");
+        const pci_dev_t* d = bound_device(b);
+        uart_print("  устройство ");
+        if (d) { print_bdf(d); uart_print(" "); print_id(d); }
+        else uart_print("<устаревший PCI handle>");
+        uart_print(": ");
         if (b->state == B_FREE) { uart_print(b->name[0] ? "драйвер " : "свободно"); uart_print(b->name); if (b->name[0]) uart_print(" не работает"); }
+        else if (b->state == B_QUARANTINED) { uart_print("КАРАНТИН, DMA не освобождена, drv-"); uart_print(b->name); }
         else { uart_print(b->state == B_RUN ? "drv-" : "освобождается, было drv-"); uart_print(b->name); uart_print(" pid "); uart_print_dec(b->pid); }
         uart_print(", DMA "); uart_print_dec(b->dma_pages); uart_print(" стр., отображений "); uart_print_dec(b->nmap);
         uart_print(", прерываний "); uart_print_dec(b->irq_count);
