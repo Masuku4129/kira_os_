@@ -217,7 +217,7 @@ void input_push_scancode_from(int src, uint8_t byte) {
     }
     input_event_t ev;
     if (ps2_decoder_feed(&decs[src], byte, &ev)) {
-        if (ev.type == INPUT_KEY_DOWN &&                     /* Alt+Shift - другая раскладка */
+        if (ev.type == INPUT_KEY_DOWN && !(ev.mods & INPUT_MOD_CTRL) && /* Alt+Shift - другая раскладка; Ctrl+Alt+Shift reserved for window movement */
             (((ev.key == KEY_LSHIFT || ev.key == KEY_RSHIFT) && (ev.mods & INPUT_MOD_ALT)) ||
              ((ev.key == KEY_LALT || ev.key == KEY_RALT) && (ev.mods & INPUT_MOD_SHIFT))))
             layout_ru = !layout_ru;
