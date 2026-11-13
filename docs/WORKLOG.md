@@ -271,3 +271,10 @@
 - Expanded `tests/pci_test.c` to cover host bridge, PCI-to-PCI bridge, ISA bridge, CardBus bridge and endpoint, including preservation of IO/MEM decode and explicit owner enable for an endpoint.
 - Updated `pci.h` to document the precise forwarding exception. Source head: `f1bdedd0af1fc11feae1a7db1a65f4cf7a91624e`.
 - Exact-head CI has not yet been observed; local test execution is unavailable in this session. Do not mark this change PASS until CI runs on this SHA.
+
+
+### PCI Bus Master hardening exact-head CI — PR #137 (2026-11-13)
+- Code head: `f1bdedd0af1fc11feae1a7db1a65f4cf7a91624e`, workflow `43407440293`.
+- x86-64 build, host-tests and ARM64 build/QEMU passed. 26 of 27 VM scenarios passed.
+- `vm (usb-uhci)` failed: no `кира> ` prompt within 90 seconds; serial output stops after syscall initialization without a panic. The same failure and serial checkpoint occurred on earlier head `d2d05b1b576566b45445c719bf4ce1f95c69ae33` in run `43256184711`, before the latest bridge-classification refinement.
+- The repeat suggests a pre-existing main-based USB-UHCI boot-path blocker, but root cause is not proven. Keep PR #137 unverified and do not merge until this scenario is understood or independently baselined. The latest PCI classification change itself has host/build/ARM64 coverage, but the full VM matrix is not green.
