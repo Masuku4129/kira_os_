@@ -359,3 +359,13 @@
 - Updated tests/wm_test.c to call frame() after destroying the replacement window, consuming the lifecycle damage before testing that meter telemetry is inert in Spatial Minimal. This changes test setup only, not WM production behavior.
 - Fix commit: db2ec664dd131ba209079485c4e2181de24bbebe. A fresh CI run is required on this exact head; the failed host-test result from 1ee5a49 is not applicable to the corrected test head.
 - In run 43381832589, ARM64 remained in progress and most completed VM scenarios succeeded; several VM shards were cancelled or still running. No full CI PASS is claimed.
+
+
+### UI-3 — curated application catalog model (2026-11-13)
+- Starting exact PR #138 head: 26c802299f1425a31237b35d0732481f81359d44; CI run 43385228857 on that SHA completed successfully: host-tests, x86-64 build, ARM64 build and all VM matrix jobs reported success. This verifies the previous launch-request contract and Window Overview on that SHA, not physical hardware.
+- Added explicit end-user allowlist in tools/kfstool catalog. The catalog header is generated from the actual architecture-specific ELF input list; test/attack/benchmark/internal binaries are not surfaced.
+- Added prog_catalog.c / prog_catalog.h: immutable metadata, bounded indexed access and UTF-8 case-insensitive substring search across name/title/category/description (ASCII and Russian Cyrillic, including Ё).
+- x86-64 and ARM64 build scripts generate separate catalog headers and compile the same catalog API. Trust remains independent in PROG_MANIFEST; launch still passes through the existing SHA-256 check.
+- Added tests/prog_catalog_test.c and host runner coverage for generated allowlist membership, hidden test/unknown binaries, search, case folding and bounds.
+- Validation for this catalog change is pending a new CI run. No local build was run; no Limbo or physical hardware test was performed.
+- Next: verify this exact head; then implement Spatial-only Launcher surface and keyboard focus without changing legacy navigation or console behavior.
