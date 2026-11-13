@@ -215,7 +215,7 @@ jobs:
           EOF
           (cd dist/full && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           mkdir -p dist/out
-          zip -X -qr "dist/out/KIRA-OS-full-${GITHUB_SHA::12}.zip" dist/full
+          (cd dist && zip -X -qr "out/KIRA-OS-full-${GITHUB_SHA::12}.zip" full)
           sha256sum "dist/out/KIRA-OS-full-${GITHUB_SHA::12}.zip" > "dist/out/SHA256SUMS"
       - uses: actions/upload-artifact@v4
         with:
