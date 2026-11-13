@@ -594,3 +594,9 @@
 - Full workflow `43405404492` on source/documentation head `d2b5ae7f1f3f9beb8be07f095e48277da24222bd` reached host tests and failed immediately in `tests/architecture_test.py`: its PCI contract assertion still expected the old `scan_bus(bus)` signature and root-only bounds.
 - Updated the architecture guard to require the new `bus_limit` parameter, host-range bound, primary-bus match and subordinate-window intersection. This is a test expectation correction; the product source had compiled further in the parallel x86-64/ARM64 jobs, which were still running at the time of this note.
 - Guard correction commit: `940cc8a6f08a844c6e7628ca814de318dfa3aeb9`. Fresh full CI is required; run `43405404492` is not a PASS.
+
+### PCI bridge model fixture correction (2026-11-13)
+
+- After the architecture guard was corrected, host tests advanced through the core suites and failed in `tests/virtio_test.c` at `CHECK(n == 5)`. The synthetic bridge fixture set only its secondary bus (`0x19`) and left subordinate bus (`0x1A`) at zero.
+- The production enumerator now correctly requires a valid primary/secondary/subordinate window. Updated the test fixture to describe primary bus 0 and secondary/subordinate bus 1. This is a malformed test-model fixture correction, not a relaxation of the production bounds.
+- Fixture correction commit: `118a7b1ecc5c12b0b215f1ef13e4f01fd3855122`. Fresh exact-head host/build/ARM64/VM CI is required.
