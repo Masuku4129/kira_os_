@@ -5460,5 +5460,2915 @@
       "name": "work/kdrv-runtime-signature-import",
       "sha": "55fbf15b1afb61c55e6c34982e671eeae03a99d4"
     }
-  ]
+  ],
+  "branch_only_path_classes": {
+    "documentation": [
+      {
+        "path": "docs/AI_COLLABORATION.md",
+        "head_occurrences": 92
+      },
+      {
+        "path": "docs/APP_ISOLATION.md",
+        "head_occurrences": 58
+      },
+      {
+        "path": "docs/BACKLOG.md",
+        "head_occurrences": 83
+      },
+      {
+        "path": "docs/BSD_COMPAT.md",
+        "head_occurrences": 81
+      },
+      {
+        "path": "docs/BUILDER_PLAN.md",
+        "head_occurrences": 91
+      },
+      {
+        "path": "docs/CHATGPT_AUDIT_REPORT_2026-11-08.md",
+        "head_occurrences": 91
+      },
+      {
+        "path": "docs/CLEANUP_LOG.md",
+        "head_occurrences": 88
+      },
+      {
+        "path": "docs/DEPENDENCIES.md",
+        "head_occurrences": 148
+      },
+      {
+        "path": "docs/RELEASE_GAPS.md",
+        "head_occurrences": 144
+      },
+      {
+        "path": "docs/RELEASE_SPLIT.md",
+        "head_occurrences": 91
+      },
+      {
+        "path": "docs/UNIFIED_RELEASE_PLAN.md",
+        "head_occurrences": 92
+      },
+      {
+        "path": "docs/V44_BASELINE_AUDIT.md",
+        "head_occurrences": 147
+      },
+      {
+        "path": "docs/V44_GUI_HOME.md",
+        "head_occurrences": 146
+      },
+      {
+        "path": "docs/V44_GUI_MIND.md",
+        "head_occurrences": 146
+      },
+      {
+        "path": "docs/V44_MIND_REDESIGN.md",
+        "head_occurrences": 147
+      },
+      {
+        "path": "docs/V44_PROGRESS.md",
+        "head_occurrences": 147
+      },
+      {
+        "path": "docs/V44_SECURITY_MODEL.md",
+        "head_occurrences": 147
+      },
+      {
+        "path": "docs/V44_UPGRADE_PLAN.md",
+        "head_occurrences": 147
+      },
+      {
+        "path": "docs/SYSTEM_BOTTLENECKS_AND_MIND_VNEXT.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/KIRA_AI_SERVICE_PLAN.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/PROJECT_CONTROL_CENTER.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/COMPONENT_INVENTORY.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/CONTRACT_REGISTRY.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/CURRENT_STATE_AND_HANDOFF_2026-11-13.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/DEPENDENCY_MAP.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/KIRA_OS_TARGET_ARCHITECTURE.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/OPEN_PR_ARCHITECTURE_TRACKER.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/SOURCE_AUDIT_FINDINGS.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/SOURCE_LAYOUT_MIGRATION.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/rfc/README.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/rfc/RFC-ABI-001.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/rfc/RFC-BOOT-001.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/rfc/RFC-DEV-001.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/rfc/RFC-IPC-001.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/rfc/RFC-MIND-001.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/rfc/RFC-SEC-001.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/rfc/RFC-SVC-001.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/architecture/rfc/RFC-TOOL-001.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/compat/COMPATIBILITY_TEST_MATRIX.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/compat/LINUX_COMPATIBILITY.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/compat/WINDOWS_COMPATIBILITY.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/virtualization/HYPERVISOR_ARCHITECTURE.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/UI0_SPATIAL_MINIMAL_AUDIT.md",
+        "head_occurrences": 8
+      },
+      {
+        "path": "docs/UI1_SPATIAL_LAYOUT_CONTRACT.md",
+        "head_occurrences": 8
+      },
+      {
+        "path": "docs/WORKING_CONTRACT.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/KIRA_VM.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "docs/KIRA_VM_SPEC.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "docs/KIRA_OS_COMPLETION_PLAN.md",
+        "head_occurrences": 6
+      },
+      {
+        "path": "docs/KIRA_OS_MASTER_SPEC.md",
+        "head_occurrences": 6
+      },
+      {
+        "path": "docs/WASM_RUNTIME.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/BIOS_STAGE2_IMPLEMENTATION.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/BOOT_PATHS.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "docs/KDRV_TRUST.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "docs/VT_D.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/KCC_SELFHOST.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "docs/RTL8139_CLEANROOM.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/PROJECT_STATUS/01_READY.md",
+        "head_occurrences": 7
+      },
+      {
+        "path": "docs/PROJECT_STATUS/02_IN_PROGRESS.md",
+        "head_occurrences": 7
+      },
+      {
+        "path": "docs/PROJECT_STATUS/03_PLANNED.md",
+        "head_occurrences": 7
+      },
+      {
+        "path": "docs/PROJECT_STATUS/README.md",
+        "head_occurrences": 7
+      },
+      {
+        "path": "docs/PROJECT_STATUS/all_branch_tree_audit.json",
+        "head_occurrences": 7
+      },
+      {
+        "path": "docs/PROJECT_STATUS/branch_heads_2026-11-13.json",
+        "head_occurrences": 7
+      },
+      {
+        "path": "docs/PROJECT_STATUS/branch_inventory_2026-11-13.json",
+        "head_occurrences": 7
+      },
+      {
+        "path": "docs/PROJECT_STATUS/status_manifest.json",
+        "head_occurrences": 7
+      },
+      {
+        "path": "docs/research/KIRA_BASELINE_V1_EVIDENCE_2026-11-09.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/RTL8139_PROVENANCE.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/adr/ADR-0002-kdrv-anti-rollback-anchor.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/implementation-progress.json",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/ADR-0001-KIRA-VM.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/ARCH_ABI.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "docs/ARCHITECTURE_DECISIONS_2026-11.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "docs/KIRA_INSTRUCTION_LANGUAGE.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "docs/BUILD_FACTORY.md",
+        "head_occurrences": 1
+      }
+    ],
+    "research": [
+      {
+        "path": "research/kira-architecture-selection-2026-11/README.md",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/binary-format-matrix.md",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/data/fuzz_seeds/fdt-short-4B.bin",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/data/fuzz_seeds/virt.dtb",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/data/results_fmt.csv",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/data/results_lang.csv",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/language-toolchain-matrix.md",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_bios_boot_test.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_arm64.summary",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_arm64_1.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_arm64_2.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_arm64_3.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_arm64_4.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_arm64_5.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_bios.summary",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_bios_1.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_bios_2.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_bios_3.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_bios_4.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_bios_5.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_bios_6.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_uefi.summary",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_uefi_1.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_uefi_2.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_uefi_3.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_uefi_4.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_uefi_5.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_boot_uefi_6.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_cov.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_cov.out",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_datalab.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_edbench.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_elfbench.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_elf.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_existing.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_existing.out",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_fdt.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_fdt_finding.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_kbi.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_kbi2mb.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_kdrv.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_kex.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_kfs.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_krec.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_ksig.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_ksighdr.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_kstate.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_mb2.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_fuzz_run.out",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_inventory.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_klog_full.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_sigtests.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_sizes.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/fmt_wasm.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_1_bench.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_2_langs.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_2b_rust_sort.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_3_safety.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_3_safety_raw.txt",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_4_abi.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_4_abi_out_clang_clang.txt",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_4_abi_out_clang_gcc.txt",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_4_abi_out_clang_kcc.txt",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_4_abi_out_gcc_clang.txt",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_4_abi_out_gcc_gcc.txt",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_4_abi_out_gcc_kcc.txt",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_4_abi_out_kcc_clang.txt",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_4_abi_out_kcc_gcc.txt",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_4_abi_out_kcc_kcc.txt",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_5_repro.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_6_asmld.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_6_klink_test.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_7_a64.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/logs/lang_8_passes.log",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/requirements-and-constraints.md",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_bios_boot_test.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_boot.py",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_cov.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_datalab.py",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_edbench.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_edbench.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_elfbench.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_elfbench.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_env.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_fuzz.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_fuzz.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_fuzz_existing.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_fuzz_repro_fdt.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_fuzz_repro_fdt.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_inventory.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_kex.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_kex.h",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_klog_capture.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_mkkex.py",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_rss.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_run_all.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_sigtests.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_sizes.py",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_wasm.py",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/fmt_wasm_wl.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_1_bench.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_2_langs.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_3_safety.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_4_abi.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_5_repro.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_6_asmld.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_7_a64.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_8_passes.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_common.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_report.py",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/abi_call.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/abi_cpp.cpp",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/abi_g.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/abi_impl.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/abi_k.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/abi_main.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/abi_refimpl.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/abi_rs.rs",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/abi_t.h",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/chain.h",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/abi/start.asm",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/bench4.cpp",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/bench4.go",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/bench4.rs",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/driver.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/frame4.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/maxrss.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_heap.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_ovf.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_race.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_stack.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/c_uaf.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_heap.cpp",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_ovf.cpp",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_race.cpp",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_stack.cpp",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/cpp_uaf.cpp",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_heap.rs",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_ovf.rs",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_race.rs",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_race_safe.rs",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_stack.rs",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_uaf.rs",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/safety/rs_uaf_safe.rs",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/strscan_asm_main.c",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lang_src/strscan_kernels.s",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/lib.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/scripts/merge.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/kira-architecture-selection-2026-11/technology-candidates.md",
+        "head_occurrences": 88
+      },
+      {
+        "path": "research/KIRA_ARCHITECTURE_COMBINATION_2026-11.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "research/KIRA_LANGUAGE_AND_TYPE_SYSTEM_AUDIT_2026-11.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "research/ARCHITECTURE_CANDIDATE_MATRIX.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "research/ARCHITECTURE_DECISION_PROGRAM.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "research/DATA_FORMAT_LAB.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": "research/DRIVER_ADAPTATION_PIPELINE.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "research/GLOBAL_TEST_COVERAGE_AUDIT.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "research/GLOBAL_VALIDATION_PROGRAM.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "research/KIRA_DEVELOPMENT_PLATFORM.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "research/combined_lab/ipc_process_shared.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "research/combined_lab/round2_pipeline_lab.py",
+        "head_occurrences": 1
+      },
+      {
+        "path": "research/validation-round2/TEST_SCOPE.txt",
+        "head_occurrences": 1
+      },
+      {
+        "path": "research/combined_lab/ROUND1_RESULTS.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "research/combined_lab/combined_lab.py",
+        "head_occurrences": 2
+      },
+      {
+        "path": "research/ipc_lab/ipc_process_lab.c",
+        "head_occurrences": 1
+      }
+    ],
+    "tests": [
+      {
+        "path": "tests/arm_smmu_prepare_test.c",
+        "head_occurrences": 93
+      },
+      {
+        "path": "tests/bios_boot_test.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/boot_entry_test.sh",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/bootinfo_mb2_test.c",
+        "head_occurrences": 144
+      },
+      {
+        "path": "tests/bootinfo_test.c",
+        "head_occurrences": 144
+      },
+      {
+        "path": "tests/bootinfo_uefi_test.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/bsd/meter.sh",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tests/drvcompat_test.c",
+        "head_occurrences": 93
+      },
+      {
+        "path": "tests/fixtures/mind-corrupt-model.bin",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/iommu_test.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/iommu_vtd_test.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "tests/kas/bad/addr16.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/bad_number.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/bss_data.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/call_short.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/dup_label.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/global_undef.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/imm_range.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/include.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/jcc_short_overflow_ok_near.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/macro_args.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/macro_inner_err.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/macro_noend.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/mem_mem.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/mov_far.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/no_size.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/nosection.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/pc_error.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/push_byte.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/reg64_in32.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/reloc16.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/sec_attr.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/short_overflow.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/three_ops.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/trailing.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/undefined_label.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/undefined_label_data.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/bad/unknown_mnemonic.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/cases32.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas/cases64.s",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas_fuzz.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kas_test.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/ucn_char_big.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/ucn_low.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/ucn_short.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/ucn_surrogate.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/vla_file_scope.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/vla_goto_into.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/vla_init.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/vla_star_local.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/vla_static.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/vla_struct_member.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/wide_empty_char.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bad/wide_mixed_concat.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/bench/bench.sh",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/bits.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/calls.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/fmatmul.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/hash.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/list.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/matmul.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/mlp.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/sha256.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/sieve.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/sort.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/bench/strscan.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/kcc/exec/e_audit12_atomic.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/exec/x_float_printf.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/exec/x_float_structval.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/exec/x_float_vararg.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/obj.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/ok/float_cast.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/ok/float_double_expr.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/ok/float_forms.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/ok/float_literal.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/ok/float_var.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/ok/has_include.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/ok/pp_wide_char.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/ok/vla_proto.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/offsetof_dyn.c",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tests/kcc/run/r_alignas.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_alloca.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_audit12.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_cfgfirst.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_disp.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_float_agg.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_float_arith.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_float_call.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_float_cond.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_float_const.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_float_conv.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_float_matrix.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_float_nan.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_float_newton.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_generic.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_inline2.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_licm_addr.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_lvn.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_nnshift.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_nonorm.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_opt_alias_sub.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_opt_loopcarried.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_opt_narrow.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_popcount.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_reassoc.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_regs.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_rotate.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_rotvar.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_sr.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_sr64.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_vla_basic.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/run/r_wide.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/selfhost.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/selfhost/setjmp_test.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/softfp_test.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/unsup/long_double.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/unsup/long_double_cast.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/unsup/thread_local2.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/unsup/vla_stmtexpr.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/x86_sse_enc.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/x86_sse_ref.txt",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kdrv_catalogue_test.c",
+        "head_occurrences": 93
+      },
+      {
+        "path": "tests/kdrv_sig_test.c",
+        "head_occurrences": 113
+      },
+      {
+        "path": "tests/kdrv_state_test.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kdrv_state_vectors.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kernel_kcc_boot_test.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kernel_selfbuilt_boot_test.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/cmp_elf.py",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/custom.ld",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/fuzz.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/t_a.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/t_b.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/t_c.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/t_d.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/t_expected.txt",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/t_g.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/t_got.asm",
+        "head_occurrences": 88
+      },
+      {
+        "path": "tests/klink/t_main.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/t_n.asm",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/t_start.asm",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink/t_w.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/klink_test.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/mind_archive_policy_test.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/mind_build_boot_test.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/mind_build_test.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/mind_build_test.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/mind_eff_test.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/mind_sync_test.c",
+        "head_occurrences": 145
+      },
+      {
+        "path": "tests/pmm_arm_test.c",
+        "head_occurrences": 143
+      },
+      {
+        "path": "tests/proc_pid_test.c",
+        "head_occurrences": 60
+      },
+      {
+        "path": "tests/rtl8139_test.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/uefi/efi.h",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/uefi_boot_test.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/uefi_exit_order_test.sh",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/uefi_kbi_test.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/vtd_boot_test.sh",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/vtd_domain_test.c",
+        "head_occurrences": 92
+      },
+      {
+        "path": "tests/wx_arm_test.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/wx_test.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tests/kcc/context_test.c",
+        "head_occurrences": 22
+      },
+      {
+        "path": "tests/architecture_test.py",
+        "head_occurrences": 3
+      },
+      {
+        "path": "tests/device_model_test.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/pci_host_parse_test.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "tests/pci_range_test.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/bsd/test_recipe_license.py",
+        "head_occurrences": 7
+      },
+      {
+        "path": "tests/prog_catalog_test.c",
+        "head_occurrences": 8
+      },
+      {
+        "path": "tests/prog_queue_test.c",
+        "head_occurrences": 8
+      },
+      {
+        "path": "tests/ui_damage_contract_test.py",
+        "head_occurrences": 7
+      },
+      {
+        "path": "tests/wm_spatial_startup_test.c",
+        "head_occurrences": 8
+      },
+      {
+        "path": "tests/arm_smmu_domain_test.c",
+        "head_occurrences": 13
+      },
+      {
+        "path": "tests/kdrv_bsd_test.c",
+        "head_occurrences": 5
+      },
+      {
+        "path": "tests/kvm_test.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/spatial_build_contract_test.py",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/theme_contract_test.py",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/arm_range_test.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/bad/bitfield_width_overflow.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/bad/proto_noproto_char.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/bad/ptr_enum_mismatch.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/bad/ptr_incompatible_compare.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/bad/ptr_incompatible_eq.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/bad/ptr_int_compare.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/bad/ptr_nonzero_eq.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/ok/arith_usual_conversions.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/ok/expr_ptr_void_eq.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/ok/proto_noproto_int.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/run/arith_usual_conversions_runtime.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/run/r_enum_promote.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kcc/run/r_usual_arith.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kdrv_manifest_fixture.py",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kdrv_manifest_test.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kdrv_trust_test.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/kdrvpack_test.sh",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/pci_cap_test.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/vmm_range_test.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tests/pci_busmaster_test.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/arm_smmu_event_test.c",
+        "head_occurrences": 4
+      },
+      {
+        "path": "tests/kstack_slot_test.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/mkwasm_fuel_loop.py",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/mkwasm_host_quota.py",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/wasm_loader_bounds.py",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/kdrvtrust_test.py",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/explorer_test.c",
+        "head_occurrences": 11
+      },
+      {
+        "path": "tests/kcc/unsup/case_range.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/kcc/unsup/elvis_operator.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/kcc/unsup/struct_by_value_param.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/kcc/unsup/struct_by_value_return.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/kcc/unsup/va_list.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/linebuf_test.c",
+        "head_occurrences": 7
+      },
+      {
+        "path": "tests/test_source_intake.py",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/vmm_policy_test.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tests/pci_test.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/dmar_parser_test.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/iommu_discovery_test.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/fdt_arm_parser_test.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/kdrv_manager_test.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/kvm_asm_test.py",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tests/syscall_abi_test.c",
+        "head_occurrences": 1
+      }
+    ],
+    "ci_and_build": [
+      {
+        "path": "build_uefi.sh",
+        "head_occurrences": 92
+      },
+      {
+        "path": "buildcmd.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "buildcmd.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "ci/audit_image.py",
+        "head_occurrences": 144
+      },
+      {
+        "path": "ci/audit_inventory.py",
+        "head_occurrences": 149
+      },
+      {
+        "path": "ci/bsdwww.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "ci/check_mind_sync.py",
+        "head_occurrences": 145
+      },
+      {
+        "path": "ci/dependency_audit.py",
+        "head_occurrences": 148
+      },
+      {
+        "path": "ci/gen_kdrv_state_vectors.py",
+        "head_occurrences": 91
+      },
+      {
+        "path": "ci/package_update.sh",
+        "head_occurrences": 149
+      },
+      {
+        "path": "ci/release_gate.py",
+        "head_occurrences": 118
+      },
+      {
+        "path": "ci/release_image.py",
+        "head_occurrences": 138
+      },
+      {
+        "path": "ci/test_audit_image.py",
+        "head_occurrences": 144
+      },
+      {
+        "path": "ci/test_kdrvsign.py",
+        "head_occurrences": 113
+      },
+      {
+        "path": "ci/test_qmp.py",
+        "head_occurrences": 147
+      },
+      {
+        "path": "ci/test_release_gate.py",
+        "head_occurrences": 118
+      },
+      {
+        "path": "ci/test_release_image.py",
+        "head_occurrences": 138
+      },
+      {
+        "path": "ci/test_uefi_ovmf.sh",
+        "head_occurrences": 92
+      },
+      {
+        "path": ".github/workflows/kira-agent.yml",
+        "head_occurrences": 2
+      },
+      {
+        "path": ".github/pull_request_template.md",
+        "head_occurrences": 3
+      },
+      {
+        "path": ".github/workflows/pr-compliance.yml",
+        "head_occurrences": 3
+      },
+      {
+        "path": "ci/check_pr_compliance.py",
+        "head_occurrences": 3
+      },
+      {
+        "path": ".github/workflows/architecture-factory.yml",
+        "head_occurrences": 11
+      },
+      {
+        "path": "ci/architecture_factory.json",
+        "head_occurrences": 11
+      },
+      {
+        "path": ".github/workflows/parallel-build-factory.yml",
+        "head_occurrences": 4
+      },
+      {
+        "path": "ci/parallel_build_factory.json",
+        "head_occurrences": 4
+      },
+      {
+        "path": ".github/dependabot.yml",
+        "head_occurrences": 6
+      },
+      {
+        "path": ".github/workflows/security.yml",
+        "head_occurrences": 6
+      },
+      {
+        "path": "ci/install-tools.sh",
+        "head_occurrences": 6
+      },
+      {
+        "path": ".github/workflows/robust-futex-lab.yml",
+        "head_occurrences": 1
+      },
+      {
+        "path": "ci/__pycache__/arm64_vm.cpython-313.pyc",
+        "head_occurrences": 7
+      },
+      {
+        "path": "ci/__pycache__/kira_vm.cpython-313.pyc",
+        "head_occurrences": 7
+      },
+      {
+        "path": "ci/__pycache__/mkfiles.cpython-313.pyc",
+        "head_occurrences": 7
+      },
+      {
+        "path": "ci/__pycache__/mkjpeg.cpython-313.pyc",
+        "head_occurrences": 7
+      },
+      {
+        "path": "ci/__pycache__/scenarios.cpython-313.pyc",
+        "head_occurrences": 7
+      },
+      {
+        "path": "ci/check_project_status.py",
+        "head_occurrences": 7
+      },
+      {
+        "path": ".github/workflows/driver-intake-lab.yml",
+        "head_occurrences": 2
+      },
+      {
+        "path": ".github/workflows/combined-tech-lab.yml",
+        "head_occurrences": 2
+      },
+      {
+        "path": ".github/workflows/ipc-process-lab.yml",
+        "head_occurrences": 1
+      }
+    ],
+    "source_and_runtime": [
+      {
+        "path": "arch/aarch64/fdt.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/aarch64/fdt.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/aarch64/fdt_boot.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/aarch64/fdt_boot.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/aarch64/gicv3.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/aarch64/gicv3.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/aarch64/uefi/loader.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/aarch64/wx_arm.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "arch/aarch64/wx_arm.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "arch/x86_64/bios/bootinfo.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/x86_64/bios/bootinfo.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/x86_64/bios/stage1.asm",
+        "head_occurrences": 91
+      },
+      {
+        "path": "arch/x86_64/bios/stage1cd.asm",
+        "head_occurrences": 81
+      },
+      {
+        "path": "arch/x86_64/bios/stage2.asm",
+        "head_occurrences": 91
+      },
+      {
+        "path": "arch/x86_64/uefi/loader.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/x86_64/uefi/memory_map.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/x86_64/uefi/memory_map.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/x86_64/uefi/uefi_kbi.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "arch/x86_64/uefi/uefi_kbi.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "bootinfo.c",
+        "head_occurrences": 144
+      },
+      {
+        "path": "bootinfo.h",
+        "head_occurrences": 144
+      },
+      {
+        "path": "bootinfo_fdt.c",
+        "head_occurrences": 141
+      },
+      {
+        "path": "bootinfo_mb2.c",
+        "head_occurrences": 144
+      },
+      {
+        "path": "bootinfo_uefi.c",
+        "head_occurrences": 94
+      },
+      {
+        "path": "drivers/acpi/prt.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/acpi/prt.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/bsdcorpus/index.txt",
+        "head_occurrences": 81
+      },
+      {
+        "path": "drivers/bsdcorpus/manifest.txt",
+        "head_occurrences": 81
+      },
+      {
+        "path": "drivers/bus/acpi_prt.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/bus/acpi_prt.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/bus/pci_routing.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/bus/pci_routing.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/index.txt",
+        "head_occurrences": 148
+      },
+      {
+        "path": "drivers/iommu/amd_vi.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/amd_vi.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/arm_smmu.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/arm_smmu.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/arm_smmu_domain.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/arm_smmu_domain.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/intel_vtd.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/intel_vtd.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/intel_vtd_dmar.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/iommu_discovery.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/iommu_discovery.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/vtd_domain.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/iommu/vtd_domain.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/kdrv/kdrv_catalogue.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/kdrv/kdrv_catalogue.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/kdrv/kdrv_manager.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/kdrv/kdrv_manager.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/kdrv/kdrv_trust.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/kdrv/kdrv_trust.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/net/drvget.rec",
+        "head_occurrences": 91
+      },
+      {
+        "path": "drivers/net/rtl8139.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/net/rtl8139.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "drivers/net/rtl8139_kdrv.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "include/kira/bootinfo.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "iommu.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "iommu.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "iommu_vtd.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "iommu_vtd.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "iommu_vtd_hw.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "iommu_vtd_hw.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "kas/kas.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kas/kas.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kas/kas_main.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kcc/include/bsd/bpfilter.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/bsd_core.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/dev/mii/mii.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/dev/mii/miivar.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/dev/pci/pcidevs.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/dev/pci/pcireg.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/dev/pci/pcivar.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/machine/bus.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/machine/cpu.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/machine/intr.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/net/bpf.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/net/if.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/net/if_dl.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/net/if_media.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/netinet/if_ether.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/netinet/in.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/device.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/endian.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/errno.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/ioctl.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/kernel.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/malloc.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/mbuf.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/param.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/queue.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/socket.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/syslog.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/systm.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/bsd/sys/timeout.h",
+        "head_occurrences": 81
+      },
+      {
+        "path": "kcc/include/kfmt.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kcc/opt.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kcc/passes.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kcc/selfhost/ren_g.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kcc/selfhost/ren_s.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kcc/selfhost/un_g.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kcc/selfhost/un_s.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kcc/selfhost/unity.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kcc/softfp.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kdrv_sig.c",
+        "head_occurrences": 113
+      },
+      {
+        "path": "kdrv_sig.h",
+        "head_occurrences": 113
+      },
+      {
+        "path": "kdrv_state.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kdrv_state.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "kdrv_trust.h",
+        "head_occurrences": 144
+      },
+      {
+        "path": "kernel/boot/boot_handoff.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "kernel/boot/boot_handoff.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "keys/KIRA_OWNER_ED25519_PUBLIC.hex",
+        "head_occurrences": 144
+      },
+      {
+        "path": "keys/README.md",
+        "head_occurrences": 144
+      },
+      {
+        "path": "klink/klink.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "klink/klink.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "klink/main.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "mind_archive_policy.h",
+        "head_occurrences": 92
+      },
+      {
+        "path": "mind_build.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "mind_build.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "mind_build_core.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "mind_build_grant.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "mind_build_grant.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "mind_sync.h",
+        "head_occurrences": 145
+      },
+      {
+        "path": "proc_pid.h",
+        "head_occurrences": 60
+      },
+      {
+        "path": "userland/bsd_rt.c",
+        "head_occurrences": 81
+      },
+      {
+        "path": "userland/drvcompat.c",
+        "head_occurrences": 97
+      },
+      {
+        "path": "userland/drvcompat.h",
+        "head_occurrences": 97
+      },
+      {
+        "path": "userland/drvne2kio.c",
+        "head_occurrences": 81
+      },
+      {
+        "path": "wx.c",
+        "head_occurrences": 91
+      },
+      {
+        "path": "wx.h",
+        "head_occurrences": 91
+      },
+      {
+        "path": "arch/x86_64/bios/stage1.S",
+        "head_occurrences": 6
+      },
+      {
+        "path": "arch/x86_64/bios/stage2.S",
+        "head_occurrences": 6
+      },
+      {
+        "path": "arch/aarch64/kernel_main.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/aarch64/kernel_main.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/aarch64/pci_host.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/aarch64/pci_host.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/aarch64/pci_host_parse.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/aarch64/pci_host_parse.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/aarch64/rtc_host.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/aarch64/rtc_host.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/x86_64/kernel_boot.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/x86_64/kernel_boot.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/x86_64/kernel_main.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "device_model.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "device_model.h",
+        "head_occurrences": 1
+      },
+      {
+        "path": "kcc/include/syscall_numbers.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "kernel/syscall.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "services/audio_syscall.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "services/clock_syscall.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "services/driver_syscall.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "services/filesystem_syscall.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "services/graphics_syscall.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "services/network_syscall.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "services/syscall_router.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "syscall_numbers.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "syscall_services.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "prog_catalog.c",
+        "head_occurrences": 8
+      },
+      {
+        "path": "prog_catalog.h",
+        "head_occurrences": 8
+      },
+      {
+        "path": "prog_queue.c",
+        "head_occurrences": 8
+      },
+      {
+        "path": "prog_queue.h",
+        "head_occurrences": 8
+      },
+      {
+        "path": "iommu_arm.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "kvm/kvm.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "kvm/kvm.h",
+        "head_occurrences": 2
+      },
+      {
+        "path": "arch/aarch64/range.h",
+        "head_occurrences": 6
+      },
+      {
+        "path": "kdrv_manifest.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "kdrv_manifest.h",
+        "head_occurrences": 6
+      },
+      {
+        "path": "vmm_range.h",
+        "head_occurrences": 6
+      },
+      {
+        "path": "iommu_arm64.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "kstack_slot.h",
+        "head_occurrences": 1
+      },
+      {
+        "path": "kstack_slots.h",
+        "head_occurrences": 1
+      },
+      {
+        "path": "arch/arm64/smmu_v3.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "arch/arm64/smmu_v3.h",
+        "head_occurrences": 2
+      },
+      {
+        "path": "acpi_prt.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "acpi_prt.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/x86_64/bios_mbr.asm",
+        "head_occurrences": 2
+      },
+      {
+        "path": "arch/x86_64/bios_stage2.asm",
+        "head_occurrences": 2
+      },
+      {
+        "path": "arch/x86_64/boot/bootinfo.h",
+        "head_occurrences": 2
+      },
+      {
+        "path": "arch/x86_64/linker_uefi.ld",
+        "head_occurrences": 2
+      },
+      {
+        "path": "arch/x86_64/uefi_loader.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "arch/x86_64/vtd.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "arch/x86_64/vtd.h",
+        "head_occurrences": 1
+      },
+      {
+        "path": "arch/x86_64/vtd_regs.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "arch/x86_64/vtd_tables.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "bootinfo_e820.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "drivers/rtl8139/README.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "drivers/rtl8139/kira_rtl8139_core.h",
+        "head_occurrences": 2
+      },
+      {
+        "path": "drivers/rtl8139/rtl8139.c",
+        "head_occurrences": 2
+      },
+      {
+        "path": "kdrv_revocation.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "kdrv_revocation.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "kdrv_transition.c",
+        "head_occurrences": 3
+      },
+      {
+        "path": "kdrv_transition.h",
+        "head_occurrences": 3
+      },
+      {
+        "path": "keys/kdrv-publishers.json",
+        "head_occurrences": 3
+      },
+      {
+        "path": "uefi/README.md",
+        "head_occurrences": 2
+      },
+      {
+        "path": "acpi_dmar.h",
+        "head_occurrences": 2
+      },
+      {
+        "path": "drivers/rl/kira_rtl8139_core.h",
+        "head_occurrences": 1
+      },
+      {
+        "path": "lab/robust-futex/robust_futex_diag.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "vmm_policy.h",
+        "head_occurrences": 2
+      },
+      {
+        "path": "tools/kdrvsig.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "drivers/iommu/dmar.h",
+        "head_occurrences": 1
+      },
+      {
+        "path": "userland/kvm.c",
+        "head_occurrences": 1
+      },
+      {
+        "path": "kcc/include/syscall_abi.h",
+        "head_occurrences": 1
+      },
+      {
+        "path": "userland/syscall_abi.h",
+        "head_occurrences": 1
+      }
+    ],
+    "assets_and_other": [
+      {
+        "path": "prebuilt/BOOTX64.EFI.sha256",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_build.sh",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_corpus.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_glue.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_index.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_meter.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_pcidevs.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_recipe.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/cleanup_branches.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "tools/kdrvsign.py",
+        "head_occurrences": 119
+      },
+      {
+        "path": "tools/mkbios.py",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tools/mkdrv_pkg.sh",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/mkiso_own.sh",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/mkuefi.py",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tools/put_bsd_inc.sh",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/uefi_srchash.sh",
+        "head_occurrences": 81
+      },
+      {
+        "path": "AI_TASK.md",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tools/kcc-amalgamate.sh",
+        "head_occurrences": 3
+      },
+      {
+        "path": "tools/kcc-bootstrap.sh",
+        "head_occurrences": 3
+      },
+      {
+        "path": "tools/kdrvrevoke.py",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tools/kdrvrotate.py",
+        "head_occurrences": 3
+      },
+      {
+        "path": "tools/kdrvtrust.py",
+        "head_occurrences": 3
+      },
+      {
+        "path": "benchmarks/data_formats.py",
+        "head_occurrences": 3
+      },
+      {
+        "path": "tools/kira_source_intake.py",
+        "head_occurrences": 2
+      },
+      {
+        "path": "examples/kvm/hello.kvasm",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tools/kvm_asm.py",
+        "head_occurrences": 1
+      }
+    ]
+  },
+  "branch_only_class_counts": {
+    "documentation": 74,
+    "research": 164,
+    "tests": 217,
+    "ci_and_build": 39,
+    "source_and_runtime": 202,
+    "assets_and_other": 26
+  }
 }
