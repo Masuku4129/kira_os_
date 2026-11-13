@@ -1,6 +1,7 @@
 #ifndef KIRA_PCI_H
 #define KIRA_PCI_H
 #include <stdint.h>
+#include "device_model.h"
 
 /* PCI: перечисление устройств, BAR, список capabilities. Конфигурационное пространство читается
    через порты 0xCF8/0xCFC (есть на любом x86-ПК; первые 256 байт - всё, что нужно virtio).
@@ -9,11 +10,11 @@
 #define PCI_MAX_DEVS 1024         /* функций на всех шинах: у ПК 40-80, у серверов - сотни */
 #define PCI_BARS 6
 
-typedef struct { uint64_t id, generation; } pci_handle_t;
+typedef device_handle_t pci_handle_t; /* compatibility alias; identity is owned by the common Device Model */
 typedef int (*pci_rescan_guard_fn)(void);
 
 typedef struct {
-    uint64_t device_id, generation; /* opaque boot-local identity; generation invalidates snapshot handles on rescan */
+    device_handle_t handle; /* common bus-independent identity; BDF remains a location only */
     uint8_t bus, dev, fn;
     uint16_t vendor, device;
     uint8_t class_code, subclass, prog_if, revision, header_type;
