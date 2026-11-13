@@ -7,6 +7,7 @@ static int name_valid(const char* name) {
     }
     return 1;
 }
+/* Check the bound before dereferencing so an unterminated fixed-size buffer is rejected safely. */
 static int file_length_valid(const char* file) {
     if (!file) return 1;
     unsigned i = 0;
