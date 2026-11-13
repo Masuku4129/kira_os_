@@ -50,6 +50,7 @@ typedef struct {
     void  (*resize)(int id, int w, int h);        /* у окна с WM_RESIZABLE изменился размер содержимого */
     void  (*tab)(int tab_index);                  /* нажат раздел в верхней панели */
     void  (*side_alt)(int side_index);            /* правая кнопка на значке боковой панели */
+    void  (*launcher)(void);                     /* открыть каталог приложений (только Spatial Minimal) */
 } wm_ops_t;
 
 void wm_init(surface_t* screen, const wm_ops_t* ops);
