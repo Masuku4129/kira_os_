@@ -4,7 +4,13 @@
   "repository": "Masuku4129/kira_os_",
   "branch_count": 302,
   "unique_head_commits": 290,
-  "scope": "All repository branch refs returned by GitHub REST pages 1-4. This is a ref-preservation snapshot; full tree diffs are recorded separately only for the explicitly listed snapshots in branch_inventory_2026-11-13.json.",
+  "scope": {
+    "all_branch_refs": 302,
+    "all_unique_commit_heads": 290,
+    "non_ci_branch_refs": 211,
+    "non_ci_unique_tree_heads": 205,
+    "ci_result_and_preview_refs": 91
+  },
   "branches": [
     {
       "name": "ai/appbox-object-accounting-safety",
@@ -147,6 +153,10 @@
       "sha": "5fc8f49184e2e27e44790bdcd238977bfd126cc4"
     },
     {
+      "name": "ci/watchdog-10m",
+      "sha": "e087289a8ab82706f990176fa299b0decb87188b"
+    },
+    {
       "name": "ci-preview-autodrv",
       "sha": "5b348f12df8063c69bff07f6db67360b76deefaf"
     },
@@ -157,6 +167,22 @@
     {
       "name": "ci-results",
       "sha": "e6ed91ff29589e3bd09ade395a022d07361d9ee9"
+    },
+    {
+      "name": "ci-results-3-merge",
+      "sha": "0f11a3e86c48ea82ef56fbaee1d0222b4272bfda"
+    },
+    {
+      "name": "ci-results-4-merge",
+      "sha": "25c878fb1694ae7a733ae83cd097f44858aa57d7"
+    },
+    {
+      "name": "ci-results-47-merge",
+      "sha": "8971e02dc7a50336fa283036b550cf6c1f849d74"
+    },
+    {
+      "name": "ci-results-48-merge",
+      "sha": "4b13e7d6d841d238cc453be6a7aaaa238c3564fb"
     },
     {
       "name": "ci-results-131-merge",
@@ -216,23 +242,7 @@
     },
     {
       "name": "ci-results-148-merge",
-      "sha": "071f6e169835ce929c743cbff6f0a8c8527d2e52"
-    },
-    {
-      "name": "ci-results-3-merge",
-      "sha": "0f11a3e86c48ea82ef56fbaee1d0222b4272bfda"
-    },
-    {
-      "name": "ci-results-4-merge",
-      "sha": "25c878fb1694ae7a733ae83cd097f44858aa57d7"
-    },
-    {
-      "name": "ci-results-47-merge",
-      "sha": "8971e02dc7a50336fa283036b550cf6c1f849d74"
-    },
-    {
-      "name": "ci-results-48-merge",
-      "sha": "4b13e7d6d841d238cc453be6a7aaaa238c3564fb"
+      "sha": "9a89340f27a045ebf925b0fc33c542c849414adb"
     },
     {
       "name": "ci-results-audit-ci-architecture",
@@ -511,10 +521,6 @@
       "sha": "2487b63036812806d1d8da8447ee0b9008fdb3c0"
     },
     {
-      "name": "ci/watchdog-10m",
-      "sha": "e087289a8ab82706f990176fa299b0decb87188b"
-    },
-    {
       "name": "docs/ui0-spatial-minimal-audit",
       "sha": "c05dac32ac9ced00e8e8856f2520012e3ef23128"
     },
@@ -575,6 +581,14 @@
       "sha": "5fc8f49184e2e27e44790bdcd238977bfd126cc4"
     },
     {
+      "name": "fix/arm64-dma-coherency-fail-closed",
+      "sha": "6e92326d5336ce87de67fdbedcf3d01dc7e8b580"
+    },
+    {
+      "name": "fix/arm64-pci-ecam-validation",
+      "sha": "838e4c57746783cf6b79df7ce5f6c9381482e726"
+    },
+    {
       "name": "fix/arm-smmu-domain-encoding",
       "sha": "932f39a8a305da899e8616e3cd50eabb50400e82"
     },
@@ -585,14 +599,6 @@
     {
       "name": "fix/arm-smmu-stage1-context-descriptor",
       "sha": "a2c8e18555214a8f71dd947b15e220530e9ef822"
-    },
-    {
-      "name": "fix/arm-smmu-stage1-context-descriptor-v10",
-      "sha": "eb3334f2ed7ff4da2ece9c4d5d378728e4e67e4f"
-    },
-    {
-      "name": "fix/arm-smmu-stage1-context-descriptor-v11",
-      "sha": "680d01376cf43050471da867844dcb1cd5097df2"
     },
     {
       "name": "fix/arm-smmu-stage1-context-descriptor-v2",
@@ -627,12 +633,12 @@
       "sha": "185d434cdf1a3b0b36149b15b79146e94631ac59"
     },
     {
-      "name": "fix/arm64-dma-coherency-fail-closed",
-      "sha": "6e92326d5336ce87de67fdbedcf3d01dc7e8b580"
+      "name": "fix/arm-smmu-stage1-context-descriptor-v10",
+      "sha": "eb3334f2ed7ff4da2ece9c4d5d378728e4e67e4f"
     },
     {
-      "name": "fix/arm64-pci-ecam-validation",
-      "sha": "838e4c57746783cf6b79df7ce5f6c9381482e726"
+      "name": "fix/arm-smmu-stage1-context-descriptor-v11",
+      "sha": "680d01376cf43050471da867844dcb1cd5097df2"
     },
     {
       "name": "fix/bios-mbr-partition-cmdline",
@@ -944,7 +950,7 @@
     },
     {
       "name": "project/status-ledger-2026-11-13",
-      "sha": "dbc1eb634d18ada970ea2ba6c36f328359b56a35"
+      "sha": "8b5a5dee68f5f8239d226ab6f31e169aa0f602d0"
     },
     {
       "name": "release/full-os-artifacts-2026-11-13",
