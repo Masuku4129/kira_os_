@@ -556,7 +556,7 @@ void wm_set_layout_mode(wm_layout_mode_t mode) {
     if (layout_mode == mode) return;
     layout_mode = mode;
     side_hover = -1; tab_hover = -1; last_tab = -2;
-    damage(0, 0, scr->w, scr->h);
+    if (scr) damage(0, 0, scr->w, scr->h);
 }
 
 wm_layout_mode_t wm_get_layout_mode(void) { return layout_mode; }
@@ -712,8 +712,13 @@ static void click(int px, int py) {
         if (gets_input(&win[fs])) capture = fs;
         return;
     }
-    if ((layout_mode == WM_LAYOUT_LEGACY && py < WM_TOP_H) ||
-        (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && tab_hit(px, py) >= 0)) {
+    if (layout_mode == WM_LAYOUT_LEGACY && py < WM_TOP_H) {
+        int t = tab_hit(px, py);
+        if (t >= 0 && ops.tab) ops.tab(t);
+        return;
+    }
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && py < WM_TOP_H) return;
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && tab_hit(px, py) >= 0) {
         int t = tab_hit(px, py);
         if (t >= 0 && ops.tab) ops.tab(t);
         return;
@@ -777,7 +782,8 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
     if (left && dragging >= 0 && win[dragging].used) {
         win_t* w = &win[dragging];
         int nx = cx - drag_ox, ny = cy - drag_oy;
-        if (nx < 80 - outer_w(w)) nx = 80 - outer_w(w);
+        int min_visible_x = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? WM_SPATIAL_RAIL_W : 80;
+        if (nx < min_visible_x - outer_w(w)) nx = min_visible_x - outer_w(w);
         if (nx > scr->w - 80) nx = scr->w - 80;
         if (ny < WM_TOP_H) ny = WM_TOP_H;
         if (ny > scr->h - WM_HEAD) ny = scr->h - WM_HEAD;
