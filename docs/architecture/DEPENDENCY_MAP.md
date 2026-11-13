@@ -113,3 +113,20 @@ The parser/build/test integration is not considered verified until exact-head AR
 
 
 The current PCI core enumerates from bus 0; therefore the ARM64 host bridge rejects nonzero `bus-range` starts until a range-aware PCI core API is implemented. The ECAM physical base must be 1-MiB aligned. These are explicit current contract limits, not silently assumed support.
+
+
+## Device Model lifecycle dependency (DEV-001 draft, 2026-11-13)
+
+```text
+Firmware / bus discovery
+  -> normalized device descriptor + generation
+  -> resource validation and reservation
+  -> trusted driver match
+  -> Security capability decision
+  -> IOMMU domain + DMA/interrupt isolation (when needed)
+  -> driver start with scoped resource handles
+  -> bounded I/O and health monitoring
+  -> quiesce -> revoke -> unmap/invalidate -> release -> remove/recover
+```
+
+Discovery is not authorization. Device location (PCI BDF) is not identity. DMA/MSI stays disabled until per-device isolation is established. This is a target dependency flow, not a claim that all boxes exist in the current implementation.
