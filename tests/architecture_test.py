@@ -55,6 +55,8 @@ require('#include "pci_host.h"' in arm_main
         and "fdt_find_compatible" in arm_pci
         and "pci_use_ecam(" in arm_pci
         and "pci_init_range((uint8_t)bus0, (uint8_t)bus1)" in arm_pci
+        and "if (bus0 > bus1 || bus1 > 255)" in arm_pci
+        and "bus0 != 0" not in arm_pci
         and "pci_assign(" in arm_pci,
         "ARM64 PCI host bridge ownership or boot call contract is incomplete")
 pci_core = read("pci.c")
