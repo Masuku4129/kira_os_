@@ -70,9 +70,9 @@ jobs:
           sha256sum ci-out/android/kira.iso ci-out/android/kira_disk.img > ci-out/android/SHA256SUMS
           sudo apt-get install -y -q qemu-system-x86
           python3 ci/kira_vm.py --scenario boot-ata --iso ci-out/android/kira.iso --disk ci-out/android/kira_disk.img --out ci-out/android-smoke
-          grep -q "Shell online: Spatial Minimal preview" ci-out/android-smoke/serial.log
+          grep -q "Shell online: Spatial Minimal preview" ci-out/android-smoke/boot-ata/serial.log
           cp ci-out/android-smoke/serial.log ci-out/android/boot-smoke.log
-          cp ci-out/android-smoke/result.json ci-out/android/boot-smoke-result.json
+          cp ci-out/android-smoke/boot-ata/result.json ci-out/android/boot-smoke-result.json
       - uses: actions/upload-artifact@v4
         with:
           name: kira-android-update
