@@ -196,3 +196,12 @@
 - The host suite includes `tests/ui_damage_contract_test.py`, so the source-level bounded-damage regression guard executed successfully in CI.
 - Still unverified: appearance and interaction on the user's Android Limbo session, real frame-time/dirty-pixel measurements, and physical hardware. CI's `limbo-spam` is not the user's phone emulator.
 - PR #140 updated with the requirement/evidence matrix; remains Draft and is not merged. No ISO generated or installed.
+
+
+## 16. Active navigation state invalidation correction (2026-11-13)
+
+- Follow-up review found one remaining caller in `compose_prepare()`: when the active section changed, it still called `damage_side()`. After the Dock optimization this repainted the Dock band instead of the left rail, so the active-section marker could remain visually stale.
+- Updated active-tab changes to invalidate only the previous and current rail item via `damage_spatial_tab()`; Legacy continues to invalidate its top panel.
+- Extended `tests/ui_damage_contract_test.py` to assert both hover transitions and active-section transitions use bounded per-item invalidation, and that active-tab changes do not call `damage_side()`.
+- Source/test commits: `85884292734df3ae4a4b08888a8768aa835fc682`, `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae`.
+- Prior run `43396919980` validated the earlier Dock/hover fix only. Fresh exact-head CI is required for this follow-up. Android Limbo visual check and frame-time/dirty-pixel measurements remain open.
