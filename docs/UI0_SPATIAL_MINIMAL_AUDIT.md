@@ -239,11 +239,11 @@
 - Panel refreshes when new metrics arrive while it is open. Clicking outside dismisses it and consumes that click so it cannot activate an obscured window. The Window Overview and status panel are mutually exclusive.
 - Added host GUI coverage for opening, drawing, outside dismissal and toggling closed. Phone/Limbo appearance and touch-target validation remain outstanding.
 
-- Dock geometry now scales tile size and spacing when pinned entries would exceed the available width. A 320×240 GUI case checks all ten pinned entries remain inside the viewport and each hit target launches its corresponding item.
+- The earlier responsive-shrink implementation was superseded by the paged touch Dock below; do not use its 320×240 all-visible geometry as the current contract.
 
 
 ### Compact-display Dock paging — 2026-11-13
-- Replaced sub-40px icon shrinking on compact Spatial Minimal screens with paged Dock navigation. At 320px width, up to four pinned apps are shown per page with 40px touch tiles and dedicated previous/next controls; the remaining pins stay reachable without reducing target size.
+- Replaced sub-40px icon shrinking on compact Spatial Minimal screens with paged Dock navigation. At 320px width, three pinned apps are shown per page with 40×40 app tiles and 44×44 previous/next hit targets; the remaining pins stay reachable without reducing target size.
 - Larger viewports retain the unpaged Dock when all pins fit at the normal tile size. The persisted pin order is unchanged; paging is presentation-only.
 - Added WM API for active page-control centers and host regression coverage for page visibility, previous/next bounds, and launching every pin across all pages.
 - This change still requires fresh exact-head CI and a visual/touch check in Android Limbo; no hardware validation is claimed.
