@@ -1175,6 +1175,13 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
         prev_buttons = buttons;
         return; /* history is modal to the pointer, but never changes keyboard focus */
     }
+    if (notification_toast_active && left && !was) {
+        int tx, ty, tw, th; notification_toast_rect(&tx, &ty, &tw, &th);
+        if (cx >= tx && cx < tx + tw && cy >= ty && cy < ty + th) {
+            notification_toast_active = 0; damage(tx, ty, tx + tw, ty + th);
+            prev_buttons = buttons; return; /* dismiss toast without delivering click to covered app */
+        }
+    }
     if (system_panel_open && layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
         if (left && !was) click(cx, cy);
         capture = -1; dragging = -1; resizing = -1;
