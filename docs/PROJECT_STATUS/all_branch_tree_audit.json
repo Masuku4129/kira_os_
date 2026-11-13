@@ -7362,6 +7362,66 @@
         "head_occurrences": 92
       },
       {
+        "path": "tools/bsd_build.sh",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_corpus.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_glue.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_index.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_meter.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_pcidevs.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/bsd_recipe.py",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/cleanup_branches.sh",
+        "head_occurrences": 88
+      },
+      {
+        "path": "tools/kdrvsign.py",
+        "head_occurrences": 119
+      },
+      {
+        "path": "tools/mkbios.py",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tools/mkdrv_pkg.sh",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/mkiso_own.sh",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/mkuefi.py",
+        "head_occurrences": 91
+      },
+      {
+        "path": "tools/put_bsd_inc.sh",
+        "head_occurrences": 81
+      },
+      {
+        "path": "tools/uefi_srchash.sh",
+        "head_occurrences": 81
+      },
+      {
         "path": ".github/workflows/kira-agent.yml",
         "head_occurrences": 2
       },
@@ -7406,6 +7466,26 @@
         "head_occurrences": 6
       },
       {
+        "path": "tools/kcc-amalgamate.sh",
+        "head_occurrences": 3
+      },
+      {
+        "path": "tools/kcc-bootstrap.sh",
+        "head_occurrences": 3
+      },
+      {
+        "path": "tools/kdrvrevoke.py",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tools/kdrvrotate.py",
+        "head_occurrences": 3
+      },
+      {
+        "path": "tools/kdrvtrust.py",
+        "head_occurrences": 3
+      },
+      {
         "path": ".github/workflows/robust-futex-lab.yml",
         "head_occurrences": 1
       },
@@ -7438,11 +7518,23 @@
         "head_occurrences": 2
       },
       {
+        "path": "tools/kira_source_intake.py",
+        "head_occurrences": 2
+      },
+      {
         "path": ".github/workflows/combined-tech-lab.yml",
         "head_occurrences": 2
       },
       {
         "path": ".github/workflows/ipc-process-lab.yml",
+        "head_occurrences": 1
+      },
+      {
+        "path": "tools/kdrvsig.c",
+        "head_occurrences": 6
+      },
+      {
+        "path": "tools/kvm_asm.py",
         "head_occurrences": 1
       }
     ],
@@ -8236,10 +8328,6 @@
         "head_occurrences": 2
       },
       {
-        "path": "tools/kdrvsig.c",
-        "head_occurrences": 6
-      },
-      {
         "path": "drivers/iommu/dmar.h",
         "head_occurrences": 1
       },
@@ -8262,103 +8350,15 @@
         "head_occurrences": 81
       },
       {
-        "path": "tools/bsd_build.sh",
-        "head_occurrences": 81
-      },
-      {
-        "path": "tools/bsd_corpus.py",
-        "head_occurrences": 81
-      },
-      {
-        "path": "tools/bsd_glue.py",
-        "head_occurrences": 81
-      },
-      {
-        "path": "tools/bsd_index.py",
-        "head_occurrences": 81
-      },
-      {
-        "path": "tools/bsd_meter.py",
-        "head_occurrences": 81
-      },
-      {
-        "path": "tools/bsd_pcidevs.py",
-        "head_occurrences": 81
-      },
-      {
-        "path": "tools/bsd_recipe.py",
-        "head_occurrences": 81
-      },
-      {
-        "path": "tools/cleanup_branches.sh",
-        "head_occurrences": 88
-      },
-      {
-        "path": "tools/kdrvsign.py",
-        "head_occurrences": 119
-      },
-      {
-        "path": "tools/mkbios.py",
-        "head_occurrences": 91
-      },
-      {
-        "path": "tools/mkdrv_pkg.sh",
-        "head_occurrences": 81
-      },
-      {
-        "path": "tools/mkiso_own.sh",
-        "head_occurrences": 81
-      },
-      {
-        "path": "tools/mkuefi.py",
-        "head_occurrences": 91
-      },
-      {
-        "path": "tools/put_bsd_inc.sh",
-        "head_occurrences": 81
-      },
-      {
-        "path": "tools/uefi_srchash.sh",
-        "head_occurrences": 81
-      },
-      {
         "path": "AI_TASK.md",
         "head_occurrences": 1
-      },
-      {
-        "path": "tools/kcc-amalgamate.sh",
-        "head_occurrences": 3
-      },
-      {
-        "path": "tools/kcc-bootstrap.sh",
-        "head_occurrences": 3
-      },
-      {
-        "path": "tools/kdrvrevoke.py",
-        "head_occurrences": 1
-      },
-      {
-        "path": "tools/kdrvrotate.py",
-        "head_occurrences": 3
-      },
-      {
-        "path": "tools/kdrvtrust.py",
-        "head_occurrences": 3
       },
       {
         "path": "benchmarks/data_formats.py",
         "head_occurrences": 3
       },
       {
-        "path": "tools/kira_source_intake.py",
-        "head_occurrences": 2
-      },
-      {
         "path": "examples/kvm/hello.kvasm",
-        "head_occurrences": 1
-      },
-      {
-        "path": "tools/kvm_asm.py",
         "head_occurrences": 1
       }
     ]
@@ -8367,8 +8367,8 @@
     "documentation": 74,
     "research": 164,
     "tests": 217,
-    "ci_and_build": 39,
-    "source_and_runtime": 202,
-    "assets_and_other": 26
+    "ci_and_build": 62,
+    "source_and_runtime": 201,
+    "assets_and_other": 4
   }
 }
