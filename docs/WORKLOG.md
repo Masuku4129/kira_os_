@@ -581,3 +581,10 @@
 - Evidence/report workflows `43400611021` and `43400676602` also completed successfully.
 - This validates the PCI range/identity, KDRV handle migration, fail-closed rescan guard and associated host architecture regressions at this exact source head.
 - It does not validate the user's Android Limbo installation or physical hardware, and does not establish hotplug support. KDRV's rescan policy intentionally remains reboot-required once a binding slot has been assigned.
+
+### Nested PCI bridge subordinate-window hardening (2026-11-13)
+
+- Source change: `pci.c` now carries the current ancestor bus limit through recursive enumeration. A bridge is followed only when its primary bus matches the bus being scanned and its secondary bus is inside the intersection of the host aperture and inherited subordinate limit; child recursion narrows that limit to the bridge's subordinate bus.
+- Regression: `tests/pci_range_test.c` now models a nested bridge and endpoint. It verifies discovery when the endpoint is inside all ancestor windows, then lowers the parent subordinate limit and verifies the nested endpoint is not enumerated. Existing stale-handle and denied-rescan checks remain in the same test.
+- This closes a traversal-boundary gap not covered by the previous root-range-only test. No local test is claimed; fresh exact-head host, x86-64, ARM64 and VM CI is required.
+- Follow-up architecture docs updated: DEV-001 RFC, source-layout migration, component inventory, dependency map, current handoff, execution plan, contract registry, open-PR tracker and source-audit finding F-018.
