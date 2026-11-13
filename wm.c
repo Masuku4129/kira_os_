@@ -1641,7 +1641,7 @@ static void draw_side(surface_t* c, int ox, int oy) {
     }
     for (int i = 0; i < side_n; i++) {
         int id = wm_find(side[i].tag);
-        int running = id >= 0, shown = running && win[id].visible, focused = shown && id == top;
+        int running = id >= 0, shown = running && wm_visible(id), focused = shown && id == top;
         uint32_t col = side[i].color;
         int tx = SIDE_X + 6 + ox, ty = side_item_y(i) + oy;
         uint32_t fill = i == side_hover ? ui_mix(TH_TILE, col, 40) : TH_TILE;
