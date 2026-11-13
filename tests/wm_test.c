@@ -450,6 +450,8 @@ int main(void) {
     in_n = 0; click(900, 108); /* notifications row inside the quick-system panel */
     CHECK(wm_notification_center_is_open() && !wm_system_panel_is_open());
     CHECK(wm_notification_unread_count() == 0 && wm_notification_count() == 8);
+    move_to(800, 150, 0); CHECK(in_n == 0);
+    click(800, 150); CHECK(in_n == 0 && wm_notification_center_is_open());
     move_to(450, 300, 0); CHECK(in_n == 0);
     click(450, 300); CHECK(!wm_notification_center_is_open() && in_n == 0);
     click(1024 - 26, 20); click(900, 108);
