@@ -118,6 +118,6 @@ KIRA AI доступен как один ненавязчивый вход/то�
 - основной/вторичный текст `#F1F3FA` / `#AAB5CC`;
 - семантическая геометрия: control radius 12 px, surface radius 20 px, spacing scale 4/8/12/16/24.
 
-Legacy-макросы `TH_CYAN`, `TH_BLUE`, `TH_PURPLE` сохранены как совместимые aliases к новым семантическим токенам. Общие карточки/кнопки, Spatial window chrome, navigation rail, Dock, quick system panel, notifications и window overview используют общие цвета/радиусы. Legacy layout сохраняет прежнюю структуру и режим; палитра общих приложений меняется согласованно.
+В сборке с `KIRA_SPATIAL_PREVIEW` старые имена `TH_CYAN`, `TH_BLUE`, `TH_PURPLE` остаются совместимыми aliases к новым семантическим токенам. Общие карточки/кнопки, Spatial window chrome, navigation rail, Dock, quick system panel и notifications используют новые цвета/радиусы. Обычные сборки без `KIRA_SPATIAL_PREVIEW` сохраняют прежнюю Legacy-палитру, радиусы и цвета специальных поверхностей; это предотвращает незапрошенное изменение Legacy-режима.
 
 Добавлен `tests/theme_contract_test.py` и подключён к host suite. Это проверяет соответствие токенов контракту, но не заменяет визуальную проверку кадров в Limbo. До exact-head CI и просмотра экранов на 1024×768 и 320×240 статус визуальной приёмки остаётся UNVERIFIED.
