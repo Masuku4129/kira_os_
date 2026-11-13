@@ -157,6 +157,8 @@ static void draw_settings(void) {
     wm_invalidate(w_set);
 }
 
+static int scpy(char* d, int p, const char* s, int cap);
+
 static void launcher_refresh(void) {
     launcher_count = prog_catalog_search(launcher_query, launcher_matches, 16);
     if (launcher_selected >= launcher_count) launcher_selected = launcher_count ? launcher_count - 1 : 0;
