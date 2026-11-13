@@ -153,3 +153,12 @@
 - Launch requests use prog_request() and report accepted/busy/invalid plus asynchronous completion. No direct ELF execution or trust bypass was added; prog_run_ex() remains responsible for manifest/SHA-256 verification.
 - Added a WM regression assertion for the Spatial-only launcher callback. Full display-level keyboard/search/launch integration tests are still needed.
 - Validation status: the preceding exact code head 37a53ba6229ab7f8a556c6ff93815c5851549b2a passed x86-64, ARM64, host-tests and the VM matrix (run 43388886629). This new Launcher code is later and is NOT covered by that PASS; a fresh CI run is required. No local build, Limbo visual check or physical-hardware test is claimed.
+
+
+## 11. Android/Limbo preview startup correction (2026-11-13)
+
+- Root cause: `display_init()` always called `wm_init()`, which deliberately selected `WM_LAYOUT_LEGACY`. Spatial Minimal existed but was never selected by the Android build.
+- Added `wm_init_mode()`; existing `wm_init()` remains a Legacy-compatible wrapper.
+- `build_clang.sh --android` defines `KIRA_SPATIAL_PREVIEW`; only this Android/Limbo build selects Spatial Minimal. Ordinary builds and CI retain Legacy.
+- Spatial Minimal startup skips allocation and rendering of the full-screen legacy brain background. Switching back to Legacy builds it lazily.
+- Added a dedicated startup-mode host regression test. It does not replace Limbo visual/performance verification.
