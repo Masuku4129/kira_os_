@@ -25,8 +25,8 @@ Observed in the architecture branch:
 - PCI configuration access is backend-based: x86-64 mechanism-1 ports or ECAM selected through `pci_use_ecam()`.
 - `arch/aarch64/pci_host.c` discovers the FDT `pci-host-ecam-generic` bridge, validates ECAM coverage, parses `ranges`, maps the ECAM window and calls the common PCI core.
 - `arch/aarch64/pci_host_parse.c` validates cell geometry, arithmetic overflow and signed CPU-to-PCI offsets.
-- The architecture follow-up branch adds `pci_init_range(first_bus, last_bus)`, bounds recursive bridge traversal to the host range, and preserves `pci_init()` as the bus-0 compatibility wrapper. ARM64 now passes the FDT-declared root/range to that API. The synthetic host regression covers nonzero root buses, in-range bridge traversal, out-of-range bridge rejection, invalid ranges and the legacy wrapper; exact-head CI is still required.
-- PCI inventory and KDRV driver binding are not yet one complete, generic Device Model lifecycle.
+- The architecture follow-up branch adds `pci_init_range(first_bus, last_bus)`, bounds recursive bridge traversal to the host range, and preserves `pci_init()` as the bus-0 compatibility wrapper. ARM64 now passes the FDT-declared root/range to that API. The PCI snapshot now assigns a monotonically increasing boot-local `device_id` and a scan `generation`; `pci_get_handle()` creates an opaque pair and `pci_resolve()` rejects handles from an earlier enumeration snapshot. This is a conservative PCI-only transitional identity API, not yet the common bus-independent registry or a driver-binding authority. Synthetic regression covers nonzero root buses, bridge bounds, invalid ranges, legacy enumeration and stale-handle rejection; exact-head CI is still required.
+- PCI inventory and KDRV driver binding are not yet one complete, generic Device Model lifecycle. KDRV still stores `pci_dev_t*` pointers and has not migrated to the new handle API.
 - A PCI function's BDF is a location, not a permanent identity. Bus renumbering, hot removal and replacement can reuse it.
 - BAR probing and assignment do not by themselves prove resource reservation against every platform owner or safe DMA isolation.
 - Open security work is tracked separately: PR #136 blocks Ring 3 DMA/MSI absent per-device IOMMU isolation; PR #137 clears firmware-enabled PCI bus mastering before ownership. Neither is equivalent to a complete IOMMU implementation.
@@ -153,6 +153,7 @@ Errors must preserve the device's last known safe state and must not silently en
 
 ### Discovery and identity
 - PCI multifunction functions, bridges and nested buses;
+- current snapshot handle resolves; handle from a prior full enumeration is rejected; IDs are not reused within one boot;
 - ECAM bus start/end boundaries, bus > 0, address calculation and out-of-range access;
 - duplicate discovery, location reuse and generation increment;
 - malformed config responses, invalid FDT ranges, arithmetic overflow and truncated properties;
@@ -181,7 +182,7 @@ Tests must include host models for deterministic malformed-input coverage, but a
 1. Keep current PCI APIs and behavior while extracting source ownership; do not silently change enumeration semantics.
 2. Add a range-aware common PCI enumerator accepting explicit `[bus_start,bus_end]`; preserve the existing `pci_init()` wrapper only if its semantics remain unambiguous.
 3. Test ECAM base calculation for nonzero bus starts and prevent access outside the mapped aperture.
-4. Introduce a normalized device descriptor registry with generation-safe identity.
+4. Introduce a normalized, bus-independent device descriptor registry. The current PCI snapshot handle is only a migration seam: decide whether scan-wide invalidation is sufficient or whether per-location generations are required, and migrate KDRV away from raw `pci_dev_t*` identity before hotplug/rescan is enabled.
 5. Route existing PCI and KDRV binding through explicit lifecycle transitions without changing KDRV ABI in the same patch.
 6. Add resource reservation and interrupt ownership before widening driver access.
 7. Integrate IOMMU domain lifecycle and firmware bus-master sanitization as mandatory gates for DMA/MSI.
@@ -190,8 +191,9 @@ Tests must include host models for deterministic malformed-input coverage, but a
 
 ## 11. Open decisions
 
-- Exact opaque device ID generation and persistence across reboot.
+- Whether opaque IDs should be boot-local monotonic values or include a boot epoch for cross-reboot diagnostics.
 - Whether topology parent references are stable handles or registry indices.
+- Whether scan-wide PCI handle invalidation is sufficient for early boot or per-location generations are required for hotplug.
 - Driver matching precedence and conflict resolution.
 - Interrupt abstraction and event delivery contract.
 - Resource sharing rules for bridges, multifunction devices and platform devices.
