@@ -70,8 +70,17 @@ static int gin_n;
 void gfx_on_input(int w, int t, int x, int y, unsigned b) { (void)w; (void)t; (void)x; (void)y; (void)b; gin_n++; }
 void gfx_on_close(int w) { (void)w; }
 static char spawned[16];
-void prog_request(const char* n) { snprintf(spawned, sizeof spawned, "%s", n); }
-void prog_request_file(const char* n, const char* f) { (void)f; snprintf(spawned, sizeof spawned, "%s", n); }
+prog_request_status_t prog_request(const char* n, uint32_t* id) {
+    if (!id) return PROG_REQUEST_INVALID;
+    *id = 1; snprintf(spawned, sizeof spawned, "%s", n); return PROG_REQUEST_ACCEPTED;
+}
+prog_request_status_t prog_request_file(const char* n, const char* f, uint32_t* id) {
+    if (!id || !n || !f) return PROG_REQUEST_INVALID;
+    *id = 1; (void)f; snprintf(spawned, sizeof spawned, "%s", n); return PROG_REQUEST_ACCEPTED;
+}
+prog_result_state_t prog_request_take_result(uint32_t id, int* result) {
+    (void)id; (void)result; return PROG_RESULT_PENDING;
+}
 static char con_cmd[64]; static int con_n;
 int console_request(const char* l) { snprintf(con_cmd, sizeof con_cmd, "%s", l); con_n++; return 0; }
 
