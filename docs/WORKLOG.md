@@ -530,3 +530,12 @@
 - Network status remains read-only link state; no unsafe stop/start operation was added because the network stack has no corresponding lifecycle API. Battery/power controls, wallpaper, DPI/accessibility and a separate assistant surface remain outside the current implementation.
 - Exact code/test commits: wm.h e8f103b55a0a5723ee4da200fc3dc2bdc21d97d9, wm.c 574f594e404f8a6b6793109f33bf11d77132addd, display.c 7a3fc15de2becd2ee2f9e6d6258d5e29e3b81761, tests/wm_test.c 9010cb709e67de9762a924d5b0df0daefb1e0138.
 - Fresh exact-head CI is required after these commits; no build/test PASS is claimed yet.
+
+
+### Compact workspace switcher regression — 2026-11-13
+
+- Exact-head CI run 43434048102: x86-64 build passed; ARM64 compile passed and QEMU scenarios were still running; host suite failed at `wm_workspace_current() == 1` because the 320×240 UI had no workspace hit target even though the test/API assumed one. The first failure was a genuine missing compact-layout affordance, not a flaky assertion.
+- Added a visible `1/4` workspace capsule beside the system button on sub-640px Spatial displays; tapping it cycles through the four workspaces. The workspace-center API now returns the actual rendered/hit-tested center for both compact and wide layouts.
+- Updated the host test to use the geometry API and assert the compact center is `320-82, 20`, then cycle through all four workspaces. Updated the design specification accordingly.
+- Commits: wm.c 74a995c259ab19edba836582ef58546af07c89e4; tests/wm_test.c aa7b8cd4f4a3b6435b102196f941f7a3de2a1c31; design docs 10a68929c4a5864a3dedc800fcce617b1c7ed1bd.
+- The previous run's host failure is fixed in source; a new exact-head run is required to validate it. No PASS claimed until host, x86-64, ARM64/QEMU and VM matrix finish. Limbo visual/performance acceptance remains pending.
