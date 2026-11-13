@@ -2,6 +2,17 @@
 
 ## Workspace control center and mandatory compliance gate (2026-11-13)
 
+
+### PR request-to-plan compliance infrastructure (2026-11-13)
+
+- Added `.github/pull_request_template.md` with explicit user acceptance criteria, architecture/dependency impact, a requirement-to-evidence matrix, exact SHA, verification and final compliance review.
+- Added `ci/check_pr_compliance.py` and `.github/workflows/pr-compliance.yml`. The checker validates required PR sections, populated requirement rows, exact SHA syntax and allowed result states. It is deliberately a structural completeness check only; semantic truthfulness and plan alignment remain mandatory review duties in `AGENTS.md`.
+- Updated PR #135 description with five requirement rows. Architecture implementation and source-level claims remain PARTIAL/UNVERIFIED where exact-head evidence is absent; no old CI result was carried forward.
+- Local checker validation: `python3 -m py_compile /tmp/check_pr_compliance.py` passed; synthetic GitHub pull_request event passed with one populated matrix row. The actual PR body was separately read back and contains all four required sections and five requirement rows.
+- GitHub has not yet reported a check run for the new workflow on this branch. The workflow is staged in the Draft PR; do not call it an active required branch-protection check until it is available on the default branch and configured as required if desired.
+- No production kernel code changed in this compliance-infrastructure slice. Full OS host/build/QEMU tests were not run as part of this documentation/CI-form change.
+
+
 - Added `docs/PROJECT_CONTROL_CENTER.md` as the single navigation entrypoint: authoritative document map, eight-layer architecture summary, distinction between 14 plan domains (A–N) and 12 parallel workstreams, live GitHub baseline, safe cleanup policy and mandatory requirement-to-evidence matrix.
 - Updated `AGENTS.md`: agents must read the control center before work, map user requirements to plan domains/workstreams/contracts, verify exact SHA evidence, and independently check prompt/plan compliance before reporting.
 - Updated `README.md` with a direct link to the control center.
