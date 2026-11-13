@@ -9,7 +9,7 @@
   "scope": {
     "all_branch_refs": 211,
     "unique_commit_heads": 199,
-    "completed_unique_heads": 144
+    "completed_unique_heads": 156
   },
   "completed_tree_heads": [
     "8d624bd887da29f75f163c29f1b7a0d052ae578d",
@@ -155,7 +155,19 @@
     "085325afcbe2a5a5ec8babe6f9089e2e341e6799",
     "d86ef3aebb615a01cae7c75e88b2cc2cdbb67fe8",
     "761a212f3ab73c41f7a867c0337526b70cb8a174",
-    "d35c00069bf41bc0316a0dc743c7a9fe4a01be56"
+    "d35c00069bf41bc0316a0dc743c7a9fe4a01be56",
+    "6e5e09fb9ab0be3d5e62603732743e7578f0b756",
+    "edae4ab3367a055826f431e261af5d6dee790ddf",
+    "c7dfee3dc6223e26ec1c58d20846150f95990cf5",
+    "f01d970a451a7b011e4f65f7442305337524804b",
+    "c07a7a3465fa8d3ed88b4b2478fa9955b0a756ca",
+    "813b1de9cf0a2d079bfeb08b3b20ada76347afba",
+    "0e82b23149fc8defc72eb4e676a38a77ab9b1882",
+    "232bae450581c0e0e5d2fc0b974a311d1bde2b8e",
+    "8a893e34d37625745c974797ab1950fc6b082b8f",
+    "5272a12a68afec5c90e9947e26f9acf864e1c08f",
+    "37f988ec059794429e90bfd31c5421879005a8cf",
+    "b75c40e7b96dc9c3df2874d24e304596dcd0b571"
   ],
   "trees": {
     "8d624bd887da29f75f163c29f1b7a0d052ae578d": {
@@ -1319,6 +1331,104 @@
       "file_count": 829,
       "branch_only_count": 1,
       "main_missing_count": 1
+    },
+    "6e5e09fb9ab0be3d5e62603732743e7578f0b756": {
+      "branches": [
+        "project/status-ledger-2026-11-13"
+      ],
+      "file_count": 839,
+      "branch_only_count": 10,
+      "main_missing_count": 0
+    },
+    "edae4ab3367a055826f431e261af5d6dee790ddf": {
+      "branches": [
+        "v43/integration"
+      ],
+      "file_count": 828,
+      "branch_only_count": 5,
+      "main_missing_count": 6
+    },
+    "c7dfee3dc6223e26ec1c58d20846150f95990cf5": {
+      "branches": [
+        "v44/global-upgrade"
+      ],
+      "file_count": 834,
+      "branch_only_count": 11,
+      "main_missing_count": 6
+    },
+    "f01d970a451a7b011e4f65f7442305337524804b": {
+      "branches": [
+        "v44/next-batch"
+      ],
+      "file_count": 836,
+      "branch_only_count": 13,
+      "main_missing_count": 6
+    },
+    "c07a7a3465fa8d3ed88b4b2478fa9955b0a756ca": {
+      "branches": [
+        "v45/overhaul"
+      ],
+      "file_count": 839,
+      "branch_only_count": 16,
+      "main_missing_count": 6
+    },
+    "813b1de9cf0a2d079bfeb08b3b20ada76347afba": {
+      "branches": [
+        "v46/architecture-completion"
+      ],
+      "file_count": 856,
+      "branch_only_count": 33,
+      "main_missing_count": 6
+    },
+    "0e82b23149fc8defc72eb4e676a38a77ab9b1882": {
+      "branches": [
+        "v46/arm64-dma-pool-validation"
+      ],
+      "file_count": 854,
+      "branch_only_count": 31,
+      "main_missing_count": 6
+    },
+    "232bae450581c0e0e5d2fc0b974a311d1bde2b8e": {
+      "branches": [
+        "v46/ci-final-20261107b",
+        "v46/ci-final-20261107c"
+      ],
+      "file_count": 852,
+      "branch_only_count": 29,
+      "main_missing_count": 6
+    },
+    "8a893e34d37625745c974797ab1950fc6b082b8f": {
+      "branches": [
+        "v46/ci-final-20261107d"
+      ],
+      "file_count": 852,
+      "branch_only_count": 29,
+      "main_missing_count": 6
+    },
+    "5272a12a68afec5c90e9947e26f9acf864e1c08f": {
+      "branches": [
+        "v46/ci-final-check-20261107"
+      ],
+      "file_count": 852,
+      "branch_only_count": 29,
+      "main_missing_count": 6
+    },
+    "37f988ec059794429e90bfd31c5421879005a8cf": {
+      "branches": [
+        "v46/ci-validation-20261107",
+        "v46/ci-validation-final"
+      ],
+      "file_count": 850,
+      "branch_only_count": 27,
+      "main_missing_count": 6
+    },
+    "b75c40e7b96dc9c3df2874d24e304596dcd0b571": {
+      "branches": [
+        "v46/ci-validation-fdt-20261107"
+      ],
+      "file_count": 851,
+      "branch_only_count": 28,
+      "main_missing_count": 6
     }
   },
   "branch_only_paths": {
@@ -1341,28 +1451,28 @@
     "arch/x86_64/uefi/memory_map.h": 78,
     "arch/x86_64/uefi/uefi_kbi.c": 78,
     "arch/x86_64/uefi/uefi_kbi.h": 78,
-    "bootinfo.c": 94,
-    "bootinfo.h": 94,
-    "bootinfo_fdt.c": 94,
-    "bootinfo_mb2.c": 94,
+    "bootinfo.c": 101,
+    "bootinfo.h": 101,
+    "bootinfo_fdt.c": 99,
+    "bootinfo_mb2.c": 101,
     "bootinfo_uefi.c": 79,
     "build_uefi.sh": 77,
     "buildcmd.c": 76,
     "buildcmd.h": 76,
-    "ci/audit_image.py": 94,
-    "ci/audit_inventory.py": 95,
+    "ci/audit_image.py": 101,
+    "ci/audit_inventory.py": 106,
     "ci/bsdwww.py": 68,
-    "ci/check_mind_sync.py": 94,
-    "ci/dependency_audit.py": 94,
+    "ci/check_mind_sync.py": 102,
+    "ci/dependency_audit.py": 105,
     "ci/gen_kdrv_state_vectors.py": 76,
-    "ci/package_update.sh": 95,
-    "ci/release_gate.py": 89,
-    "ci/release_image.py": 94,
-    "ci/test_audit_image.py": 94,
+    "ci/package_update.sh": 106,
+    "ci/release_gate.py": 90,
+    "ci/release_image.py": 96,
+    "ci/test_audit_image.py": 101,
     "ci/test_kdrvsign.py": 89,
-    "ci/test_qmp.py": 94,
-    "ci/test_release_gate.py": 89,
-    "ci/test_release_image.py": 94,
+    "ci/test_qmp.py": 104,
+    "ci/test_release_gate.py": 90,
+    "ci/test_release_image.py": 96,
     "ci/test_uefi_ovmf.sh": 77,
     "docs/AI_COLLABORATION.md": 77,
     "docs/APP_ISOLATION.md": 56,
@@ -1371,17 +1481,17 @@
     "docs/BUILDER_PLAN.md": 76,
     "docs/CHATGPT_AUDIT_REPORT_2026-11-08.md": 76,
     "docs/CLEANUP_LOG.md": 73,
-    "docs/DEPENDENCIES.md": 94,
-    "docs/RELEASE_GAPS.md": 94,
+    "docs/DEPENDENCIES.md": 105,
+    "docs/RELEASE_GAPS.md": 101,
     "docs/RELEASE_SPLIT.md": 76,
     "docs/UNIFIED_RELEASE_PLAN.md": 77,
-    "docs/V44_BASELINE_AUDIT.md": 94,
-    "docs/V44_GUI_HOME.md": 94,
-    "docs/V44_GUI_MIND.md": 94,
-    "docs/V44_MIND_REDESIGN.md": 94,
-    "docs/V44_PROGRESS.md": 94,
-    "docs/V44_SECURITY_MODEL.md": 94,
-    "docs/V44_UPGRADE_PLAN.md": 94,
+    "docs/V44_BASELINE_AUDIT.md": 104,
+    "docs/V44_GUI_HOME.md": 103,
+    "docs/V44_GUI_MIND.md": 103,
+    "docs/V44_MIND_REDESIGN.md": 104,
+    "docs/V44_PROGRESS.md": 104,
+    "docs/V44_SECURITY_MODEL.md": 104,
+    "docs/V44_UPGRADE_PLAN.md": 104,
     "drivers/acpi/prt.c": 78,
     "drivers/acpi/prt.h": 78,
     "drivers/bsdcorpus/index.txt": 68,
@@ -1390,7 +1500,7 @@
     "drivers/bus/acpi_prt.h": 78,
     "drivers/bus/pci_routing.c": 78,
     "drivers/bus/pci_routing.h": 78,
-    "drivers/index.txt": 94,
+    "drivers/index.txt": 105,
     "drivers/iommu/amd_vi.c": 78,
     "drivers/iommu/amd_vi.h": 78,
     "drivers/iommu/arm_smmu.c": 78,
@@ -1466,11 +1576,11 @@
     "kdrv_sig.h": 89,
     "kdrv_state.c": 76,
     "kdrv_state.h": 76,
-    "kdrv_trust.h": 94,
+    "kdrv_trust.h": 101,
     "kernel/boot/boot_handoff.c": 78,
     "kernel/boot/boot_handoff.h": 78,
-    "keys/KIRA_OWNER_ED25519_PUBLIC.hex": 94,
-    "keys/README.md": 94,
+    "keys/KIRA_OWNER_ED25519_PUBLIC.hex": 101,
+    "keys/README.md": 101,
     "klink/klink.c": 76,
     "klink/klink.h": 76,
     "klink/main.c": 76,
@@ -1480,7 +1590,7 @@
     "mind_build_core.c": 76,
     "mind_build_grant.c": 76,
     "mind_build_grant.h": 76,
-    "mind_sync.h": 94,
+    "mind_sync.h": 102,
     "prebuilt/BOOTX64.EFI.sha256": 68,
     "proc_pid.h": 59,
     "research/kira-architecture-selection-2026-11/README.md": 73,
@@ -1635,8 +1745,8 @@
     "tests/arm_smmu_prepare_test.c": 77,
     "tests/bios_boot_test.sh": 76,
     "tests/boot_entry_test.sh": 77,
-    "tests/bootinfo_mb2_test.c": 94,
-    "tests/bootinfo_test.c": 94,
+    "tests/bootinfo_mb2_test.c": 101,
+    "tests/bootinfo_test.c": 101,
     "tests/bootinfo_uefi_test.c": 77,
     "tests/bsd/meter.sh": 68,
     "tests/drvcompat_test.c": 77,
@@ -1779,8 +1889,8 @@
     "tests/mind_build_test.c": 76,
     "tests/mind_build_test.sh": 76,
     "tests/mind_eff_test.c": 76,
-    "tests/mind_sync_test.c": 94,
-    "tests/pmm_arm_test.c": 94,
+    "tests/mind_sync_test.c": 102,
+    "tests/pmm_arm_test.c": 100,
     "tests/proc_pid_test.c": 59,
     "tests/rtl8139_test.c": 76,
     "tests/uefi/efi.h": 77,
@@ -1988,16 +2098,16 @@
     "tests/kcc/unsup/struct_by_value_param.c": 2,
     "tests/kcc/unsup/struct_by_value_return.c": 2,
     "tests/kcc/unsup/va_list.c": 2,
-    "ci/check_project_status.py": 1,
-    "docs/PROJECT_STATUS/01_READY.md": 1,
-    "docs/PROJECT_STATUS/02_IN_PROGRESS.md": 1,
-    "docs/PROJECT_STATUS/03_PLANNED.md": 1,
-    "docs/PROJECT_STATUS/README.md": 1,
-    "docs/PROJECT_STATUS/all_branch_tree_audit.json": 1,
-    "docs/PROJECT_STATUS/branch_heads_2026-11-13.json": 1,
-    "docs/PROJECT_STATUS/branch_inventory_2026-11-13.json": 1,
-    "docs/PROJECT_STATUS/status_manifest.json": 1,
-    "tests/linebuf_test.c": 1,
+    "ci/check_project_status.py": 2,
+    "docs/PROJECT_STATUS/01_READY.md": 2,
+    "docs/PROJECT_STATUS/02_IN_PROGRESS.md": 2,
+    "docs/PROJECT_STATUS/03_PLANNED.md": 2,
+    "docs/PROJECT_STATUS/README.md": 2,
+    "docs/PROJECT_STATUS/all_branch_tree_audit.json": 2,
+    "docs/PROJECT_STATUS/branch_heads_2026-11-13.json": 2,
+    "docs/PROJECT_STATUS/branch_inventory_2026-11-13.json": 2,
+    "docs/PROJECT_STATUS/status_manifest.json": 2,
+    "tests/linebuf_test.c": 2,
     "research/KIRA_ARCHITECTURE_COMBINATION_2026-11.md": 1,
     "research/KIRA_LANGUAGE_AND_TYPE_SYSTEM_AUDIT_2026-11.md": 1,
     ".github/workflows/driver-intake-lab.yml": 2,
