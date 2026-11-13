@@ -247,3 +247,10 @@
 - Larger viewports retain the unpaged Dock when all pins fit at the normal tile size. The persisted pin order is unchanged; paging is presentation-only.
 - Added WM API for active page-control centers and host regression coverage for page visibility, previous/next bounds, and launching every pin across all pages.
 - This change still requires fresh exact-head CI and a visual/touch check in Android Limbo; no hardware validation is claimed.
+
+
+## Spatial touch window controls — 2026-11-13
+- In Spatial Minimal only, the three window title controls now have distinct 32×32 hit regions while retaining compact circular visual indicators. Their centers are spaced 36 px apart to prevent hit-region overlap.
+- Hover invalidation spans the full control group; Legacy control positions and 9 px circular hit behavior are unchanged.
+- The resize/zoom corner target expands from 22×22 to 36×36 in Spatial Minimal; Legacy remains unchanged.
+- Host GUI tests activate minimize and fullscreen from the far corner of the 32×32 target. Exact-head CI and Android Limbo touch verification are required before acceptance.
