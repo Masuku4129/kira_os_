@@ -578,6 +578,7 @@ void wm_set_fullscreen(int id, int on) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used || win[id].pinned) return;
     on = on != 0;
     if (win[id].full == on) return;
+    if (on) system_panel_open = 0;
     damage_win(&win[id]);
     win[id].full = on;
     if (win[id].resizable) {
