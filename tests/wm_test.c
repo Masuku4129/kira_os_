@@ -344,9 +344,9 @@ int main(void) {
     CHECK(workspace_changes == 1 && last_workspace == 1 && wm_top() == -1);
     wm_set_visible(ws_window, 1);
     CHECK(wm_top() == ws_window && wm_visible(ws_window));
-    CHECK(wm_workspace_switch(0) == 1 && wm_visible(a) && !wm_visible(ws_window));
-    click_side(0); /* Dock activation follows an app to its owning workspace */
-    CHECK(wm_workspace_current() == 0 && wm_top() == a);
+    CHECK(wm_workspace_switch(0) == 1 && !wm_visible(a) && !wm_visible(ws_window));
+    click_side(0); /* Dock activation restores a minimized app in its owning workspace */
+    CHECK(wm_workspace_current() == 0 && wm_visible(a) && wm_top() == a);
     CHECK(wm_workspace_switch(1) == 1 && wm_top() == ws_window);
     CHECK(workspace_changes == 4 && last_workspace == 1);
     wm_destroy(ws_window);
