@@ -96,10 +96,10 @@ enum { APP_TERM, APP_MIND, APP_FILES, APP_MON, APP_SET, APP_LAUNCHER, APP_N };
 static const char* const app_tag[APP_N] = { "Console", "Mind", "Files", "Monitor", "Settings", "Launcher" };
 
 static const wm_tab_t tabs[] = {
-    { "ГЛАВНАЯ", "" }, { "ТЕРМИНАЛ", "Console" }, { "РАЗУМ", "Mind" }, { "ПРОВОДНИК", "Files" }, { "МОНИТОР", "Monitor" },
-    { "НАСТРОЙКИ", "Settings" },
+    { "ГЛАВНАЯ", "" }, { "ПРИЛОЖЕНИЯ", "Launcher" }, { "ПРОВОДНИК", "Files" },
+    { "KIRA AI", "Mind" }, { "МОНИТОР", "Monitor" }, { "НАСТРОЙКИ", "Settings" }, { "ТЕРМИНАЛ", "Console" },
 };
-static const int app_of_tab[] = { -1, APP_TERM, APP_MIND, APP_FILES, APP_MON, APP_SET };
+static const int app_of_tab[] = { -1, APP_LAUNCHER, APP_FILES, APP_MIND, APP_MON, APP_SET, APP_TERM };
 
 #define SIDE_N (DOCK_MAX + 8 + 1)
 static dock_t dock;
@@ -484,7 +484,8 @@ static void on_side_alt(int index) {
 
 static void on_tab(int i) {
     if (i == 0) { wm_minimize_all(); return; }
-    if (i < (int)(sizeof app_of_tab / sizeof app_of_tab[0])) open_app(app_of_tab[i]);
+    if (i == 1) { on_launcher(); return; }
+    if (i > 0 && i < (int)(sizeof app_of_tab / sizeof app_of_tab[0])) open_app(app_of_tab[i]);
 }
 
 /* ---------------- верхняя панель ---------------- */
