@@ -346,3 +346,9 @@
 - Keyboard ownership сейчас только у верхнего Проводника; launcher должен забрать ввод у console через display_kbd_owner и display_main.
 - Отдельный Spatial launcher affordance предпочтительнее нового tab, чтобы не менять legacy UI.
 - Полный контракт добавлен в docs/UI0_SPATIAL_MINIMAL_AUDIT.md, раздел 10. Production app launcher пока не реализован.
+
+
+### CI correction result — code head f6ecb467e4abc50eef9858cb6f62b78335de71c5
+- Исправлена ошибка поколения handle: сравнение overview_generations[index] находится только в ветке выбора карточки; overview_refresh сравнивает локальные id/generation пары. Также заголовок карточки ограничен ui_text_fit, чтобы длинное имя не заходило на соседнюю карточку.
+- Run 43381639422 на точном code SHA f6ecb467e4abc50eef9858cb6f62b78335de71c5: x86-64 build SUCCESS. На момент записи host-tests и ARM64 ещё in_progress; несколько VM jobs in_progress, несколько cancelled/queued. Общий результат не PASS.
+- PR head после дополнительной документации app discovery: 99a078618ada444ffa2f47242577e112e911764c. Документы не меняют production code; проверяемый кодовый SHA остаётся f6ecb467e4abc50eef9858cb6f62b78335de71c5.
