@@ -2,6 +2,8 @@
 
 ## Обязательные архитектурные документы
 
+- [Текущее состояние и точка продолжения (2026-11-13)](docs/architecture/CURRENT_STATE_AND_HANDOFF_2026-11-13.md) — актуальный снимок ветки, CI-доказательства, ограничения и следующие gates. Перед работой сверять с live GitHub.
+
 - [Целевая архитектура KIRA OS](docs/architecture/KIRA_OS_TARGET_ARCHITECTURE.md) — конечная модель, включая Windows/Linux application compatibility и отдельный Hypervisor.
 - [Архитектурный аудит и порядок работ](docs/architecture/ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md) — ближайшая очередь и критерии завершения.
 - [Карта миграции исходников по 8 уровням](docs/architecture/SOURCE_LAYOUT_MIGRATION.md) — целевые границы, карта текущих исходников и безопасная последовательность физического переноса.
