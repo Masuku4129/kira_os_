@@ -347,6 +347,7 @@ int main(void) {
     CHECK(in_n == 0); /* overlay must not leak pointer input to the underlying app */
     CHECK(wm_window_overview_item_center(1, &nav_x, &nav_y) == 0); /* hidden a follows the frontmost input window */
     click(nav_x, nav_y);
+    CHECK(in_n == 0); /* including the release edge, no event reaches the covered app */
     CHECK(!wm_window_overview_is_open() && wm_visible(a) && wm_top() == a);
     wm_destroy(ov_input);
 
