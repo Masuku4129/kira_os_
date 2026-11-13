@@ -462,9 +462,12 @@ int main(void) {
     wm_side_set(narrow_pins, 10);
     frame();
     int px_, py_;
+    int previous_dock_x = -1;
     for (int i = 0; i < 4; i++) {
         CHECK(wm_side_center(i, &px_, &py_) == 0);
         CHECK(px_ >= 20 && px_ < 300 && py_ >= 0 && py_ < 240);
+        if (i) CHECK(px_ - previous_dock_x == 48); /* 40px target + 8px gap */
+        previous_dock_x = px_;
     }
     for (int i = 4; i < 10; i++) CHECK(wm_side_center(i, &px_, &py_) == -1);
     CHECK(wm_dock_page_control_center(0, &px_, &py_) == -1);
