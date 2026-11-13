@@ -366,6 +366,20 @@ int main(void) {
     frame();
     same_as_full(&scr, "Spatial Minimal");
 
+    /* Spatial system status is on-demand and does not permanently occupy the desktop. */
+    click(1024 - 26, 20);
+    CHECK(wm_system_panel_is_open());
+    frame();
+    CHECK(px(&scr, 760, 60) == TH_BAR0);
+    click(500, 300);
+    CHECK(!wm_system_panel_is_open());
+    frame();
+    click(1024 - 26, 20);
+    CHECK(wm_system_panel_is_open());
+    click(1024 - 26, 20);
+    CHECK(!wm_system_panel_is_open());
+    frame();
+
     /* Hidden app content can still refresh its overview thumbnail without exposing the window. */
     wm_set_visible(a, 0);
     wm_window_overview_toggle();
