@@ -54,6 +54,11 @@ typedef struct {
 void wm_init(surface_t* screen, const wm_ops_t* ops);
 void wm_set_layout_mode(wm_layout_mode_t mode);
 wm_layout_mode_t wm_get_layout_mode(void);
+/* Spatial Minimal: временный обзор всех неприкреплённых окон, включая свёрнутые. */
+void wm_window_overview_toggle(void);
+int wm_window_overview_is_open(void);
+int wm_window_overview_count(void);
+int wm_window_overview_item_center(int item, int* x, int* y);
 int  wm_create(const char* title, int x, int y, int content_w, int content_h, int flags); /* id или -1 */
 /* Как wm_create, но память под содержимое выделяется на cap_w x cap_h: размер можно менять до этого предела. */
 int  wm_create_ex(const char* title, int x, int y, int content_w, int content_h, int flags, int cap_w, int cap_h);
