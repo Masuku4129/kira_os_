@@ -360,6 +360,18 @@ int main(void) {
     frame();
     same_as_full(&scr, "Spatial Minimal");
 
+    /* Hidden app content can still refresh its overview thumbnail without exposing the window. */
+    wm_set_visible(a, 0);
+    wm_window_overview_toggle();
+    CHECK(wm_window_overview_count() == 2);
+    frame();
+    gfx_fill(wm_content(a), 0x00334455);
+    wm_invalidate(a);
+    same_as_full(&scr, "Spatial overview hidden content update");
+    CHECK(wm_window_overview_item_center(0, &nav_x, &nav_y) == 0);
+    click(nav_x, nav_y);
+    CHECK(wm_visible(a) && wm_top() == a);
+
     /* A destroyed window ID may be reused before the next compose; stale overview cards must not select the replacement. */
     wm_window_overview_toggle();
     CHECK(wm_window_overview_count() == 2);
