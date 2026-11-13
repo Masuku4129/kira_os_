@@ -1106,7 +1106,7 @@ static void click(int px, int py) {
             wm_notification_center_toggle(); return;
         }
         if (m_audio_volume >= 0 && ops.system_volume &&
-            px >= sx + 16 && px < sx + sw - 16 && py >= sy + 140 && py < sy + 168) {
+            px >= sx + 16 && px < sx + sw - 16 && py >= sy + 134 && py < sy + 162) {
             int pct = (px - (sx + 24)) * 100 / (sw - 48);
             if (pct < 0) pct = 0;
             if (pct > 100) pct = 100;
@@ -1724,7 +1724,7 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     for (int i = 0; i < 5; i++) {
         int row = i / 2, col = i % 2;
         int cx = x + 16 + col * (columns + 8);
-        int cy = y + 76 + row * 32;
+        int cy = y + 74 + row * 30;
         int cw = i == 4 ? w - 32 : columns;
         ui_round_rect(c, cx + ox, cy + oy, cw, 28, 7, TH_TILE, 255);
         gfx_text(c, cx + 8 + ox, cy + 4 + oy, labels[i], TH_TEXT_DIM, -1);
