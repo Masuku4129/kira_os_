@@ -384,6 +384,7 @@ int main(void) {
     click(nav_x, nav_y);
     CHECK(!wm_window_overview_is_open() && wm_top() == a);
     wm_destroy(replacement);
+    frame(); /* consume window lifecycle damage before isolating telemetry invalidation */
 
     uint8_t spatial_busy[1] = { 99 };
     wm_set_meters(spatial_busy, 1, 88, 20);
