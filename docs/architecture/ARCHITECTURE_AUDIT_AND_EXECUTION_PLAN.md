@@ -213,3 +213,11 @@
 - KiraFS v2 описывает crash consistency через порядок записи без журнала; фактическая устойчивость должна быть подтверждена power-cut/fault-injection tests.
 - **Тесты в этом проходе не запускались.** GitHub source review не заменяет локальную сборку, host suite, QEMU, Limbo или physical hardware tests.
 - Следующий gate: расширить inventory до публичных символов/полных зависимостей; создать CONTRACT_REGISTRY; начать kernel/boot/memory/process/syscall/IPC contracts и параллельно детализировать compatibility/driver/storage/Mind/GUI/network/Hypervisor contracts.
+
+
+## 8. Дополнение 2026-11-13 — Device Model gate
+
+- Draft contract `docs/architecture/rfc/RFC-DEV-001.md` now specifies device identity/generation, resource ownership, driver binding, lifecycle, DMA/IOMMU security gates, cross-ISA semantics and conformance tests.
+- Immediate implementation dependency: shared PCI enumeration currently starts at bus 0, while ARM64 host bridge discovery can describe an explicit bus range. Keep nonzero starts rejected until range-aware enumeration and ECAM bounds tests exist.
+- Do not claim a generic Device Model from PCI inventory plus KDRV binding. Device registry, generation-safe handles, resource reservation and teardown ordering still need implementation.
+- Current PR #135 head must pass a fresh exact-head workflow before the next code slice; the recorded 30/30 run tested an earlier commit.
