@@ -9,6 +9,7 @@
   },
   "managed_files": [
     "ci/check_project_status.py",
+    "docs/DEVELOPMENT_QUEUE.md",
     "docs/PROJECT_STATUS/01_READY.md",
     "docs/PROJECT_STATUS/02_IN_PROGRESS.md",
     "docs/PROJECT_STATUS/03_PLANNED.md",
