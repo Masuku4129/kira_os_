@@ -232,14 +232,17 @@ echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
 $CC $FLAGS -I$T -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c prog_catalog.c -lm
 # код возврата превью - не через tail (раньше сбой терялся в конвейере)
 for r in "" "1280 720" "1920 1080"; do
-    ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1; rc=$?
+    rc=0
+    ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1 || rc=$?
     tail -1 $T/disp.out
-    [ $rc -eq 0 ] || { cat $T/disp.out | grep FAIL | head; exit 1; }
+    [ $rc -eq 0 ] || { echo "display preview failed (exit $rc, args: $r)"; cat $T/disp.out; exit 1; }
 done
 echo "== display thread: Spatial Minimal Android preview startup =="
 $CC $FLAGS -DKIRA_SPATIAL_PREVIEW=1 -I$T -fsanitize=address,undefined -o $T/disps tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c prog_catalog.c -lm
-ASAN_OPTIONS=detect_leaks=0 $T/disps > $T/disps.out 2>&1 || { cat $T/disps.out; exit 1; }
+rc=0
+ASAN_OPTIONS=detect_leaks=0 $T/disps > $T/disps.out 2>&1 || rc=$?
 tail -1 $T/disps.out
+[ $rc -eq 0 ] || { echo "Spatial Minimal display preview failed (exit $rc)"; cat $T/disps.out; exit 1; }
 echo "== view: formats against reference sums (ci/mkfiles.py), fuzz of damaged files =="
 python3 ci/mkfiles.py $T/files > $T/sums.txt
 $CC -O1 -g -w -DKIRA_HOST_TEST -I. -fsanitize=address,undefined -o $T/view tests/view_host.c font8x16.c
