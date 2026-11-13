@@ -582,7 +582,7 @@ static int overview_refresh(void) {
     uint32_t generations[WM_MAX_WIN];
     for (int i = zcount - 1; i >= 0; i--) {
         int id = zorder[i];
-        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned && win[id].generation == overview_generations[index]) {
+        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned) {
             ids[n] = id;
             generations[n] = win[id].generation;
             n++;
@@ -1297,7 +1297,7 @@ static void draw_overview(surface_t* c, int ox, int oy) {
         ui_round_rect(c, px + ox, py + oy, pw, ph, 8, TH_CONTENT, 255);
         if (w->content.px && w->content.w > 0 && w->content.h > 0)
             blit_content(c, px + ox, py + oy, pw, ph, w);
-        gfx_text(c, x + 12 + ox, y + hh - 42 + oy, w->title, TH_TEXT, -1);
+        ui_text_fit(c, x + 12 + ox, y + hh - 42 + oy, w->title, ww - 24, TH_TEXT);
         gfx_text(c, x + 12 + ox, y + hh - 23 + oy, w->visible ? "ОТКРЫТО" : "СВЁРНУТО",
                  w->visible ? TH_CYAN : TH_TEXT_FAINT, -1);
         if (focused) ui_round_rect(c, x + ww - 18 + ox, y + hh - 18 + oy, 6, 6, 3, TH_CYAN, 255);
@@ -1325,7 +1325,7 @@ static void overview_click(int px, int py) {
     int index = overview_hit_item(px, py);
     if (index >= 0 && index < overview_n) {
         int id = overview_ids[index];
-        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned) {
+        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned && win[id].generation == overview_generations[index]) {
             wm_set_visible(id, 1);
             wm_raise(id);
         }
