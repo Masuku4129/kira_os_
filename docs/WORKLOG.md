@@ -628,3 +628,12 @@
 - Full workflow `43408288041` passed: host-tests, x86-64 build, ARM64 build/QEMU and all 27 VM scenarios, including USB-UHCI.
 - PR compliance workflow `43408709474` passed.
 - This verifies only the initial common registry + PCI discovery adapter. Non-PCI adapters, resource ownership, DMA/IOMMU domains, lifecycle and hotplug remain unimplemented. PR #141 remains Draft and stacked on PR #139.
+
+
+### Device Model lifecycle state primitive — PR #141 follow-up (2026-11-13)
+- Added atomic expected-state transitions to the common device registry.
+- Allowed only monotonic fail-closed transitions: DISCOVERED -> VALIDATED / QUARANTINED / FAILED; VALIDATED -> QUARANTINED / FAILED; QUARANTINED -> FAILED. FAILED is terminal.
+- Added host regression cases and wired `tests/device_model_test.c` into `tests/run_host_tests.sh`.
+- This is descriptor lifecycle bookkeeping only; it does not quiesce hardware, revoke resources or make hotplug safe.
+- Follow-up code commits: `332f0b50b1a68a968fdd0578125f009cae1d05ab`, `4f81f95eb858b2274469f035e95973d7190b15b2`, `88bd24f4211f0a13bdbbd36885d3b8b8d14c0c23`, `6331a96dcc713503af3cdc2f5cff215101663f15`, `a5fce6c638c70b28f32369437908ad6ab787e92d`.
+- Exact-head CI is pending; the prior green CI applies only to the earlier code head.
