@@ -61,11 +61,15 @@ require('#include "pci_host.h"' in arm_main
         "ARM64 PCI host bridge ownership or boot call contract is incomplete")
 pci_core = read("pci.c")
 require("int pci_init_range(uint8_t first_bus, uint8_t last_bus)" in pci_core
-        and "if (bus < scan_bus_min || bus > scan_bus_max) return;" in pci_core
-        and "scan_bus(first_bus);" in pci_core
+        and "if (bus < scan_bus_min || bus > scan_bus_max || bus > bus_limit) return;" in pci_core
+        and "scan_bus(first_bus, last_bus);" in pci_core
+        and "uint8_t primary = pci_read8(d, 0x18);" in pci_core
+        and "uint8_t subordinate = pci_read8(d, 0x1A);" in pci_core
+        and "uint8_t child_limit = subordinate < bus_limit ? subordinate : bus_limit;" in pci_core
+        and "if (primary == bus && sec >= scan_bus_min && sec <= child_limit)" in pci_core
         and "pci_set_rescan_guard" in pci_core
         and "pci_snapshot_generation && (!pci_rescan_guard || !pci_rescan_guard())" in pci_core,
-        "PCI enumeration does not enforce the declared root/bridge bus range")
+        "PCI enumeration does not enforce host and ancestor bridge bus windows")
 require("static void arm_pci_init" not in arm_main
         and "pci_use_ecam(" not in arm_main
         and "pci_init()" not in arm_main
