@@ -366,18 +366,26 @@ int main(void) {
     frame();
     same_as_full(&scr, "Spatial Minimal");
 
-    /* Spatial system status is on-demand and does not permanently occupy the desktop. */
+    /* Spatial system status is modal: it must not leak pointer input to a covered app. */
+    int panel_under = wm_create("panel-underlay", 740, 50, 120, 100, WM_INPUT);
+    wm_raise(panel_under);
+    int panel_under_top = wm_top();
+    in_n = 0;
     click(1024 - 26, 20);
     CHECK(wm_system_panel_is_open());
+    move_to(780, 70, 0);
+    CHECK(in_n == 0);
+    click(780, 70);
+    CHECK(in_n == 0 && wm_system_panel_is_open());
     frame();
     uint8_t panel_busy[2] = { 20, 80 };
     wm_set_meters(panel_busy, 2, 65, 75);
     CHECK(wm_compose(&x, &y, &w, &h)); /* live telemetry invalidates the open panel */
     frame();
     CHECK(px(&scr, 780, 70) == TH_BAR0);
-    int panel_top = wm_top();
     click(500, 300);
-    CHECK(!wm_system_panel_is_open() && wm_top() == panel_top);
+    CHECK(!wm_system_panel_is_open() && wm_top() == panel_under_top);
+    wm_destroy(panel_under);
     frame();
     click(1024 - 26, 20);
     CHECK(wm_system_panel_is_open());
