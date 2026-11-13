@@ -450,7 +450,7 @@ int main(void) {
     click(last_nav_x, last_nav_y);
     CHECK(tabs_hit == 1 && last_tab == 6);
 
-    /* Narrow Spatial viewport: preserve >=40px touch tiles and page ten pins. */
+    /* Narrow Spatial viewport: 40px app tiles and 44px pager hit targets. */
     surface_t narrow = { calloc(320 * 240, 4), 320, 240, 320 };
     CHECK(narrow.px != 0);
     wm_init_mode(&narrow, &ops, WM_LAYOUT_SPATIAL_MINIMAL);
@@ -463,35 +463,44 @@ int main(void) {
     frame();
     int px_, py_;
     int previous_dock_x = -1;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 3; i++) {
         CHECK(wm_side_center(i, &px_, &py_) == 0);
         CHECK(px_ >= 20 && px_ < 300 && py_ >= 0 && py_ < 240);
         if (i) CHECK(px_ - previous_dock_x == 48); /* 40px target + 8px gap */
         previous_dock_x = px_;
     }
-    for (int i = 4; i < 10; i++) CHECK(wm_side_center(i, &px_, &py_) == -1);
+    for (int i = 3; i < 10; i++) CHECK(wm_side_center(i, &px_, &py_) == -1);
     CHECK(wm_dock_page_control_center(0, &px_, &py_) == -1);
     CHECK(wm_dock_page_control_center(1, &px_, &py_) == 0);
-    click(px_, py_);
-    for (int i = 4; i < 8; i++) CHECK(wm_side_center(i, &px_, &py_) == 0);
-    CHECK(wm_side_center(3, &px_, &py_) == -1);
+    click(px_ - 21, py_ - 21); /* edge of the 44x44 touch target */
+    for (int i = 3; i < 6; i++) CHECK(wm_side_center(i, &px_, &py_) == 0);
+    CHECK(wm_side_center(2, &px_, &py_) == -1);
     CHECK(wm_dock_page_control_center(1, &px_, &py_) == 0);
     click(px_, py_);
-    CHECK(wm_side_center(8, &px_, &py_) == 0 && wm_side_center(9, &px_, &py_) == 0);
+    for (int i = 6; i < 9; i++) CHECK(wm_side_center(i, &px_, &py_) == 0);
+    CHECK(wm_dock_page_control_center(1, &px_, &py_) == 0);
+    click(px_, py_);
+    CHECK(wm_side_center(9, &px_, &py_) == 0);
     CHECK(wm_dock_page_control_center(1, &px_, &py_) == -1);
     launches = 0;
-    click_side(8); click_side(9);
-    CHECK(launches == 2 && last_launch == 9);
+    click_side(9);
+    CHECK(launches == 1 && last_launch == 9);
     CHECK(wm_dock_page_control_center(0, &px_, &py_) == 0);
     click(px_, py_);
     launches = 0;
-    for (int i = 4; i < 8; i++) click_side(i);
-    CHECK(launches == 4 && last_launch == 7);
+    for (int i = 6; i < 9; i++) click_side(i);
+    CHECK(launches == 3 && last_launch == 8);
     CHECK(wm_dock_page_control_center(0, &px_, &py_) == 0);
     click(px_, py_);
     launches = 0;
-    for (int i = 0; i < 4; i++) click_side(i);
-    CHECK(launches == 4 && last_launch == 3);
+    for (int i = 3; i < 6; i++) click_side(i);
+    CHECK(launches == 3 && last_launch == 5);
+    CHECK(wm_dock_page_control_center(0, &px_, &py_) == 0);
+    click(px_, py_);
+    launches = 0;
+    for (int i = 0; i < 3; i++) click_side(i);
+    CHECK(launches == 3 && last_launch == 2);
+    CHECK(wm_dock_page_control_center(0, &px_, &py_) == -1);
 
     printf("wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw passed\n");
