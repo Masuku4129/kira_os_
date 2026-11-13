@@ -51,8 +51,8 @@ typedef struct {
     void  (*tab)(int tab_index);                  /* нажат раздел в верхней панели */
     void  (*side_alt)(int side_index);            /* правая кнопка на значке боковой панели */
     void  (*launcher)(void);                     /* открыть каталог приложений (только Spatial Minimal) */
-    void  (*workspace_changed)(int workspace);
-    void  (*system_volume)(int percent);       /* Spatial quick panel: set audio master volume */  /* новое рабочее пространство стало активным */
+    void  (*workspace_changed)(int workspace);   /* новое рабочее пространство стало активным */
+    void  (*system_volume)(int percent);       /* Spatial quick panel: set audio master volume */
 } wm_ops_t;
 
 void wm_init(surface_t* screen, const wm_ops_t* ops); /* legacy-compatible entry point */
