@@ -367,13 +367,13 @@ static void run_calls(void) {
 static void usb_main(void* arg) {
     (void)arg;
     usb_thr = (thread_t*)sched_current();
-    usb_log("[KIRA USB TRACE] worker entered\\n");
+    usb_log("[KIRA USB TRACE] worker entered\n");
     if (pci_count() == 0) {
-        usb_log("[KIRA USB TRACE] PCI scan starting\\n");
+        usb_log("[KIRA USB TRACE] PCI scan starting\n");
         int found = pci_init();
         usb_log("[KIRA USB TRACE] PCI scan complete: ");
         usb_log_dec((uint64_t)found);
-        usb_log("\\n");
+        usb_log("\n");
     }
     for (int i = 0; i < pci_count() && nhc < USB_MAX_HC; i++) {
         const pci_dev_t* p = pci_get(i);
