@@ -952,6 +952,12 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
         prev_buttons = buttons;
         return; /* overlay owns input; never leak clicks or pointer events to an underlying app */
     }
+    if (system_panel_open && layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        if (left && !was) click(cx, cy);
+        capture = -1; dragging = -1; resizing = -1;
+        prev_buttons = buttons;
+        return; /* status panel is modal: do not forward pointer movement or buttons underneath */
+    }
     if (left && !was) click(cx, cy);
     if ((buttons & 2) && !(prev_buttons & 2) && fs_top() < 0 && ops.side_alt) {      /* правая кнопка на значке */
         int si = side_hit(cx, cy);
