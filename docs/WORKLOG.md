@@ -515,3 +515,12 @@
 
 
 - Source review caught an incomplete first edit in `arch/aarch64/pci_host.c`: although the range-aware API call had been wired, the old `bus0 != 0` fail-closed guard remained. Corrected it in commit `3903d42afd92ec99ef0b8198d9ed261e7300b224` and strengthened `tests/architecture_test.py` in `483b9b80f05e4d42a9df37a6796897e0a920cc89` to fail if that restriction returns. Earlier CI runs predate this correction and must not be used as evidence for nonzero-root support.
+
+
+### DEV-001 identity slice — PCI snapshot handles
+
+- Added `device_id` and `generation` to the internal `pci_dev_t` descriptor. IDs are monotonically allocated for the life of the kernel; the generation increments on each successful enumeration snapshot.
+- Added `pci_handle_t`, `pci_get_handle()` and `pci_resolve()`. A handle is the opaque `(id, generation)` pair; resolution fails for null, unknown, removed-from-snapshot or prior-generation handles. Invalid range scans clear the visible snapshot; ID/generation counters fail closed on exhaustion rather than wrapping.
+- Extended `tests/pci_range_test.c` to verify current-handle resolution, invalidation after rescan, monotonic ID/generation advance and invalid-range invalidation. The existing host runner already compiles this test with ASan/UBSan.
+- This is intentionally a PCI-only migration seam. Generation is scan-wide, so every rescan invalidates all PCI handles; KDRV still keys bindings by raw `pci_dev_t*`. Do not enable hotplug/rescan or claim full DEV-001 until a bus-independent registry and KDRV handle migration exist.
+- Exact-head CI has been triggered by source changes; no local build/test result is claimed. No merge or `main` change.
