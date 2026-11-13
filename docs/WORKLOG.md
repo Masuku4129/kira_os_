@@ -487,3 +487,15 @@
 - Linked DEV-001 from the RFC index and contract registry; updated the architecture execution plan, component inventory and dependency map. The docs explicitly distinguish PCI enumeration/KDRV binding from a complete Device Model implementation.
 - Source-backed limitation: `arch/aarch64/pci_host.c` rejects nonzero bus-range starts because shared `pci_init()` enumerates from bus 0. This fail-closed behavior must remain until range-aware enumeration and ECAM bounds tests are implemented.
 - Next code gate remains exact-head CI for PR #135. The latest 30/30 workflow tested `618ce013...`, not current head `8626c4e1...`; no new PASS is claimed.
+
+
+### Architecture follow-up — bounded PCI host bus enumeration (2026-11-13)
+
+- Follow-up branch: `architecture/pci-range-device-model-2026-11`, based on the architecture baseline branch; PR #135 remains separate and unmerged.
+- Implemented `pci_init_range(first_bus, last_bus)` in `pci.c/.h`. The first scan starts at the host bridge's declared root bus, and recursive PCI-to-PCI bridge traversal is constrained to the same inclusive range. Invalid inverted ranges fail closed.
+- Preserved `pci_init()` as the compatibility wrapper for root bus 0 and the full 0..255 range.
+- ARM64 FDT PCI host bridge now accepts a nonzero `bus-range` start and passes the declared range into the common enumerator. ECAM span/alignment checks remain in place.
+- Added `tests/pci_range_test.c` and wired it into `tests/run_host_tests.sh`: nonzero root bus, in-range bridge discovery, out-of-range secondary-bus rejection, invalid range rejection, and legacy wrapper behavior.
+- Extended `tests/architecture_test.py` to require the ARM64 range-aware API and common scan bounds. Updated DEV-001 and dependency-map statements to match the source.
+- **Verification:** no local host suite or architecture build was run in this session. Exact-head CI is required; no PASS is claimed. Physical ARM64/PCI hardware is not available for validation.
+- **Next:** run the new focused PCI host test and full host suite on this branch; then x86-64/ARM64 builds and QEMU ARM64 PCI scenarios. Continue Device Model identity/generation and resource lifecycle only after this boundary is verified.
