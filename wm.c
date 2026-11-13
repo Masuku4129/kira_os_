@@ -1028,6 +1028,21 @@ static int gets_input(const win_t* w) { return w->user || w->input; }
 
 static void click(int px, int py) {
     if (overview_open) { overview_click(px, py); return; }
+    if (notification_center_open) {
+        int nx, ny, nw, nh; notification_center_rect(&nx, &ny, &nw, &nh);
+        if (px >= nx && px < nx + nw && py >= ny && py < ny + nh) {
+            if (px >= nx + nw - 100 && py >= ny + 8 && py < ny + 42) wm_notification_clear();
+            return;
+        }
+        notification_center_open = 0; damage(0, 0, scr->w, scr->h);
+        return; /* dismiss without activating the covered window */
+    }
+    if (notification_toast_active) {
+        int tx, ty, tw, th; notification_toast_rect(&tx, &ty, &tw, &th);
+        if (px >= tx && px < tx + tw && py >= ty && py < ty + th) {
+            notification_toast_active = 0; damage(tx, ty, tx + tw, ty + th); return;
+        }
+    }
     int fs = fs_top();
     if (fs >= 0) {
         if (pill_visible(fs) && click_pill(fs, px, py)) return;
@@ -1036,6 +1051,9 @@ static void click(int px, int py) {
     }
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && system_panel_open) {
         int sx, sy, sw, sh; system_panel_rect(&sx, &sy, &sw, &sh);
+        if (px >= sx && px < sx + sw && py >= sy + 48 && py < sy + 72) {
+            wm_notification_center_toggle(); return;
+        }
         if (px >= sx && px < sx + sw && py >= sy && py < sy + sh) return;
         system_panel_open = 0; damage_system_panel();
         return; /* dismissing the overlay must not activate a covered window */
@@ -1146,6 +1164,12 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
         capture = -1; dragging = -1; resizing = -1;
         prev_buttons = buttons;
         return; /* overlay owns input; never leak clicks or pointer events to an underlying app */
+    }
+    if (notification_center_open && layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        if (left && !was) click(cx, cy);
+        capture = -1; dragging = -1; resizing = -1;
+        prev_buttons = buttons;
+        return; /* history is modal to the pointer, but never changes keyboard focus */
     }
     if (system_panel_open && layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
         if (left && !was) click(cx, cy);
