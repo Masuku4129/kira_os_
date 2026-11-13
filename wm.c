@@ -55,6 +55,13 @@ static int overview_open, overview_page, overview_n, overview_release_guard;
 static int system_panel_open;
 static int dock_page;
 static int current_workspace;
+#define WM_NOTIFICATION_MAX 8
+typedef struct { char title[40]; char message[112]; uint32_t created_ms; uint8_t priority, unread; } wm_notification_t;
+static wm_notification_t notifications[WM_NOTIFICATION_MAX];
+static unsigned notification_head, notification_count;
+static int notification_center_open, notification_toast_active;
+static uint32_t notification_toast_until;
+static void str_copy(char* d, const char* s, int cap);
 static int overview_ids[WM_MAX_WIN];
 static uint32_t overview_generations[WM_MAX_WIN];
 static void overview_click(int px, int py);
@@ -153,6 +160,76 @@ static void damage_system_panel(void) {
     damage(x, y, x + w, y + h); damage(scr->w - 48, 0, scr->w, WM_TOP_H);
 }
 int wm_system_panel_is_open(void) { return system_panel_open; }
+
+static void notification_toast_rect(int* x, int* y, int* w, int* h) {
+    *w = scr->w - 24; if (*w > 320) *w = 320;
+    if (*w < 160) *w = scr->w - 8;
+    *h = 72; *x = scr->w - *w - 12; *y = WM_TOP_H + 8;
+}
+static void notification_center_rect(int* x, int* y, int* w, int* h) {
+    *w = scr->w - 24; if (*w > 360) *w = 360;
+    if (*w < 160) *w = scr->w - 8;
+    *h = scr->h - WM_TOP_H - 24; if (*h > 360) *h = 360;
+    if (*h < 100) *h = scr->h - WM_TOP_H - 8;
+    *x = scr->w - *w - 12; *y = WM_TOP_H + 8;
+}
+static int notification_unread(void) {
+    int n = 0;
+    for (unsigned i = 0; i < notification_count; i++) {
+        unsigned at = (notification_head + WM_NOTIFICATION_MAX - 1 - i) % WM_NOTIFICATION_MAX;
+        if (notifications[at].unread) n++;
+    }
+    return n;
+}
+int wm_notification_count(void) { return (int)notification_count; }
+int wm_notification_unread_count(void) { return notification_unread(); }
+int wm_notification_center_is_open(void) { return notification_center_open; }
+int wm_notification_toast_is_visible(void) { return notification_toast_active; }
+int wm_notification_post(const char* title, const char* message, int priority) {
+    if (!title || !message || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return -1;
+    unsigned at = notification_head;
+    wm_notification_t* n = &notifications[at];
+    str_copy(n->title, title, sizeof n->title);
+    str_copy(n->message, message, sizeof n->message);
+    n->priority = (uint8_t)(priority < WM_NOTIFY_INFO ? WM_NOTIFY_INFO : priority > WM_NOTIFY_CRITICAL ? WM_NOTIFY_CRITICAL : priority);
+    n->unread = 1; n->created_ms = anim_ms;
+    notification_head = (notification_head + 1) % WM_NOTIFICATION_MAX;
+    if (notification_count < WM_NOTIFICATION_MAX) notification_count++;
+    notification_toast_active = 1;
+    notification_toast_until = anim_ms + 5000u;
+    int x, y, w, h;
+    notification_toast_rect(&x, &y, &w, &h);
+    damage(x, y, x + w, y + h);
+    damage_top();
+    if (notification_center_open) {
+        notification_toast_active = 0;
+        for (unsigned i = 0; i < notification_count; i++) {
+            unsigned ix = (notification_head + WM_NOTIFICATION_MAX - 1 - i) % WM_NOTIFICATION_MAX;
+            notifications[ix].unread = 0;
+        }
+        damage(0, 0, scr->w, scr->h);
+    }
+    return 0;
+}
+void wm_notification_center_toggle(void) {
+    if (layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
+    notification_center_open = !notification_center_open;
+    if (notification_center_open) {
+        overview_open = 0; system_panel_open = 0; notification_toast_active = 0;
+        for (unsigned i = 0; i < notification_count; i++) {
+            unsigned at = (notification_head + WM_NOTIFICATION_MAX - 1 - i) % WM_NOTIFICATION_MAX;
+            notifications[at].unread = 0;
+        }
+    }
+    capture = -1; dragging = -1; resizing = -1;
+    damage(0, 0, scr->w, scr->h);
+}
+void wm_notification_clear(void) {
+    notification_count = 0; notification_head = 0;
+    notification_center_open = 0; notification_toast_active = 0;
+    damage(0, 0, scr->w, scr->h);
+}
+
 
 static int fs_top(void) {
     for (int i = zcount - 1; i >= 0; i--) {
@@ -417,6 +494,7 @@ void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
     layout_mode = (mode == WM_LAYOUT_SPATIAL_MINIMAL) ? WM_LAYOUT_SPATIAL_MINIMAL : WM_LAYOUT_LEGACY;
     overview_open = 0; overview_page = 0; overview_n = 0; overview_release_guard = 0;
     system_panel_open = 0; dock_page = 0; current_workspace = 0;
+    notification_head = notification_count = 0; notification_center_open = notification_toast_active = 0; notification_toast_until = 0;
     win_generation = 0;
     scr = screen;
     ops = *o;
@@ -739,7 +817,7 @@ int wm_workspace_switch(int workspace) {
     if (workspace == current_workspace) return 0;
     current_workspace = workspace;
     overview_open = 0; overview_page = 0;
-    system_panel_open = 0;
+    system_panel_open = 0; notification_center_open = 0; notification_toast_active = 0;
     capture = -1; dragging = -1; resizing = -1;
     overview_release_guard = 0;
     damage(0, 0, scr->w, scr->h);
