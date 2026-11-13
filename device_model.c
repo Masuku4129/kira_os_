@@ -47,8 +47,13 @@ int device_registry_add(const device_descriptor_t* candidate, device_handle_t* o
     } else if (!candidate->location.key) {
         return DEVICE_E_INVALID;
     }
-    if (!handle_is_zero(candidate->parent) && !device_resolve(candidate->parent))
-        return DEVICE_E_STALE;
+    if (!handle_is_zero(candidate->parent)) {
+        const device_descriptor_t* parent = device_resolve(candidate->parent);
+        if (!parent) return DEVICE_E_STALE;
+        if (parent->state == DEVICE_STATE_QUARANTINED ||
+            parent->state == DEVICE_STATE_FAILED)
+            return DEVICE_E_STATE;
+    }
     if (device_count >= DEVICE_MAX_DEVICES) return DEVICE_E_FULL;
     for (uint32_t i = 0; i < device_count; i++)
         if (same_location(&devices[i], candidate)) return DEVICE_E_DUPLICATE;
