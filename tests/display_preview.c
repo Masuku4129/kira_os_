@@ -254,7 +254,15 @@ int main(int argc, char** argv) {
              "WARN: heap 81% (cube3d)\n"
              "кира> ai why\n");
 
-    if (display_init(0x10000) != 0) { printf("display_init failed\n"); return 1; }
+    if (display_init(0x10000) != 0) { printf("display_init failed\\n"); return 1; }
+#ifdef KIRA_SPATIAL_PREVIEW
+    CHECK(wm_get_layout_mode() == WM_LAYOUT_SPATIAL_MINIMAL);
+    run(3);
+    CHECK(presents_rect > 0);
+    save_shot("spatial-minimal-startup.ppm");
+    printf("%s\\n", fails ? "SPATIAL PREVIEW FAILED" : "Spatial Minimal display startup passed");
+    return fails != 0;
+#endif
     run(30);
     CHECK(presents_rect > 10);
     save_shot("terminal.ppm");
