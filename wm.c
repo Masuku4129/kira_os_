@@ -825,7 +825,10 @@ static int hit_window(int px, int py) {
 }
 
 /* «Светофор»: 1 - закрыть (красный), 2 - свернуть (жёлтый), 3 - на весь экран (зелёный). */
-static int light_x(const win_t* w, int which) { return w->x + 18 + (which - 1) * 20; }
+static int light_x(const win_t* w, int which) {
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) return w->x + 22 + (which - 1) * 36;
+    return w->x + 18 + (which - 1) * 20;
+}
 static int light_y(const win_t* w) { return w->y + WM_HEAD / 2; }
 
 int wm_button_center(int id, int which, int* x, int* y) {
@@ -838,7 +841,9 @@ static int ctl_hit(const win_t* w, int px, int py) {
     if (w->pinned) return 0;
     for (int k = 1; k <= 3; k++) {
         int dx = px - light_x(w, k), dy = py - light_y(w);
-        if (dx * dx + dy * dy <= 9 * 9) return k;
+        if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+            if (dx >= -16 && dx < 16 && dy >= -16 && dy < 16) return k;
+        } else if (dx * dx + dy * dy <= 9 * 9) return k;
     }
     return 0;
 }
@@ -875,7 +880,8 @@ static int click_pill(int fs, int px, int py) {
 
 static int grip_hit(const win_t* w, int px, int py) {
     if (!(w->resizable || w->zoomable) || w->full) return 0;
-    return px >= w->x + outer_w(w) - 22 && py >= w->y + outer_h(w) - 22;
+    int target = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? 36 : 22;
+    return px >= w->x + outer_w(w) - target && py >= w->y + outer_h(w) - target;
 }
 
 static void apply_resize(int id) {
@@ -1120,7 +1126,8 @@ static void blit_content(surface_t* c, int dx, int dy, int dw, int dh, const win
 static void draw_lights(surface_t* c, int x, int y, int hover) {
     static const uint32_t col[3] = { TH_CLOSE, TH_MIN, TH_FULL };
     for (int k = 0; k < 3; k++) {
-        int lx = x + 18 + k * 20, ly = y + WM_HEAD / 2;
+        int lx = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? x + 22 + k * 36 : x + 18 + k * 20;
+        int ly = y + WM_HEAD / 2;
         ui_disc(c, lx, ly, LIGHT_R, col[k], 255);
         if (!hover) continue;
         uint32_t g = 0x003A1010;
