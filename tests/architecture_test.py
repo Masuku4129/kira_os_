@@ -54,9 +54,14 @@ require('#include "pci_host.h"' in arm_main
         and "void arm_pci_init(const void* fdt, arm_pci_log_fn log)" in arm_pci
         and "fdt_find_compatible" in arm_pci
         and "pci_use_ecam(" in arm_pci
-        and "pci_init()" in arm_pci
+        and "pci_init_range((uint8_t)bus0, (uint8_t)bus1)" in arm_pci
         and "pci_assign(" in arm_pci,
         "ARM64 PCI host bridge ownership or boot call contract is incomplete")
+pci_core = read("pci.c")
+require("int pci_init_range(uint8_t first_bus, uint8_t last_bus)" in pci_core
+        and "if (bus < scan_bus_min || bus > scan_bus_max) return;" in pci_core
+        and "scan_bus(first_bus);" in pci_core,
+        "PCI enumeration does not enforce the declared root/bridge bus range")
 require("static void arm_pci_init" not in arm_main
         and "pci_use_ecam(" not in arm_main
         and "pci_init()" not in arm_main
