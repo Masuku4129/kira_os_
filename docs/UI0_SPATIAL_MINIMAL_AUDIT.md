@@ -188,3 +188,11 @@
 - Added `tests/ui_damage_contract_test.py` and wired it into `tests/run_host_tests.sh` to prevent full-desktop invalidation from returning.
 - This is a source-level performance correction, not a measured performance claim. Exact-head host tests, QEMU/Limbo visual check and frame-time comparison are still required.
 - Legacy invalidation path is unchanged. No default-layout switch or ISO release is made by this change.
+
+
+## 15. Partial-redraw verification update (2026-11-13)
+
+- Exact PR workflow run `43396919980`: x86-64 build PASS; full host suite PASS (`ALL HOST TESTS PASSED`); ARM64 Clang `-Werror` build PASS; ARM64 QEMU scenarios PASS; all 29 VM matrix jobs PASS, including `limbo-spam`.
+- The host suite includes `tests/ui_damage_contract_test.py`, so the source-level bounded-damage regression guard executed successfully in CI.
+- Still unverified: appearance and interaction on the user's Android Limbo session, real frame-time/dirty-pixel measurements, and physical hardware. CI's `limbo-spam` is not the user's phone emulator.
+- PR #140 updated with the requirement/evidence matrix; remains Draft and is not merged. No ISO generated or installed.
