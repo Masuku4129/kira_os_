@@ -310,7 +310,11 @@
       "userland/wasm.c",
       "userland/wasm/build.sh",
       "userland/x509.c"
-    ]
+    ],
+    "baseline_branch": "main",
+    "baseline_sha": "811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4",
+    "baseline_file_count": 829,
+    "baseline_inventory": "docs/PROJECT_STATUS/branch_inventory_2026-11-13.json"
   },
   "in_progress": {
     "branch_inventory": "docs/PROJECT_STATUS/branch_inventory_2026-11-13.json",
@@ -323,7 +327,7 @@
       "spatial_tokens_not_in_spatial_base",
       "release_not_in_spatial"
     ],
-    "active_pull_requests": 58,
+    "active_pull_requests": 59,
     "closed_unmerged_pull_requests_preserved": 49,
     "rule": "No branch-only file is considered integrated until its exact changes are reviewed and merged into the release baseline. Do not delete source branches or close PRs as cleanup.",
     "build_source_differences": {
@@ -377,7 +381,13 @@
     ],
     "release_gate_state": "OPEN/BLOCKED in the v46 RELEASE_GAPS snapshot; package_update.sh refuses a combined update unless all required evidence jobs and image audits succeed.",
     "branch_heads_inventory": "docs/PROJECT_STATUS/branch_heads_2026-11-13.json",
-    "branch_heads_count": 302
+    "branch_heads_count": 302,
+    "all_branch_tree_inventory": "docs/PROJECT_STATUS/all_branch_tree_audit.json",
+    "non_ci_branch_refs": 211,
+    "non_ci_unique_tree_heads": 205,
+    "branch_only_unique_paths": 722,
+    "non_ci_branches_without_pr": 77,
+    "branch_only_paths_status": "IN_PROGRESS_UNREVIEWED; all paths retained in all_branch_tree_audit.json; never auto-merge"
   },
   "planned": [
     {
