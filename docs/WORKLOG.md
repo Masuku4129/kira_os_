@@ -1,5 +1,19 @@
 # KIRA OS — журнал продолжения работ
 
+## Workspace control center and mandatory compliance gate (2026-11-13)
+
+- Added `docs/PROJECT_CONTROL_CENTER.md` as the single navigation entrypoint: authoritative document map, eight-layer architecture summary, distinction between 14 plan domains (A–N) and 12 parallel workstreams, live GitHub baseline, safe cleanup policy and mandatory requirement-to-evidence matrix.
+- Updated `AGENTS.md`: agents must read the control center before work, map user requirements to plan domains/workstreams/contracts, verify exact SHA evidence, and independently check prompt/plan compliance before reporting.
+- Updated `README.md` with a direct link to the control center.
+- Added `.github/pull_request_template.md` with mandatory user-request acceptance criteria, architecture/dependency review, exact-SHA evidence matrix, verification checklist and final compliance review.
+- The setup commits are documentation/process changes only; no kernel source, build manifest, branch, PR or release artifact was deleted or rewritten.
+- Live baseline observed before these documentation commits: main `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`; architecture branch `f3d7d43b3434e817254f12a9a15a3097e8e99b97`; PR #135 Draft, open, not mergeable. Its base snapshot was `bbc7f7ab948e72511aed113b69043add10ec8350`, behind the live main SHA at the time of inspection.
+- Exact-head CI at the pre-change architecture SHA had 0 check-runs and no status checks (status pending). Last recorded 30/30 successful run #43298087855 belongs to `618ce01344e219991323aca51f9de58c55ed2aab`, not the current architecture head. This is not a PASS for current code.
+- Workspace inventory: first page returned 100 branch refs and 50 open PRs; the branch listing may be paginated and includes CI-result/dependency branches. No branch cleanup was performed because ownership and dependency closure have not been proven.
+- Verification still required after this documentation setup: read back all changed files, verify Markdown links and PR template placement, inspect final PR head and exact-head CI. No source-code test suite was run because no production code changed.
+
+---
+
 > Снимок состояния на 2026-11-12. Перед использованием сверять SHA и CI с GitHub: статусы быстро меняются.
 
 ## Обязательный порядок
