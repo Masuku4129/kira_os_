@@ -422,6 +422,7 @@ int main(void) {
     int notification_under = wm_create("notification-underlay", 700, 60, 180, 110, WM_INPUT);
     CHECK(notification_under >= 0);
     wm_raise(notification_under);
+    move_to(800, 80, 0); in_n = 0;
     wm_anim(10000, 0);
     CHECK(wm_notification_post("Система", "Проверочное уведомление", WM_NOTIFY_INFO) == 0);
     CHECK(wm_notification_count() == 1 && wm_notification_unread_count() == 1);
