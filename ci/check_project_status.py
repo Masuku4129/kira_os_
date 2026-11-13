@@ -102,6 +102,17 @@ for target, names in (
             fail(target + " userland source is missing for app " + name)
 
 # 5. The branch-only inventory must remain pinned and internally complete.
+v46_only = set(inventory["differences"]["v46_not_in_main"])
+build_diff = manifest["in_progress"]["build_source_differences"]
+for architecture, record in build_diff.items():
+    for source in record["v46_only"]:
+        if source not in v46_only:
+            fail(architecture + " build-only source is absent from v46 inventory: " + source)
+for source in manifest["in_progress"]["release_pipeline_files"]:
+    if source not in v46_only:
+        fail("release pipeline path is absent from v46 inventory: " + source)
+if len(build_diff["x86_64"]["v46_only"]) != 14 or len(build_diff["arm64"]["v46_only"]) != 9:
+    fail("v46 build source gap counts changed; refresh build comparison")
 expected_diffs = {
     "v46_not_in_main": 437,
     "main_not_in_v46": 21,
