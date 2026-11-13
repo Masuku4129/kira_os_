@@ -54,6 +54,7 @@ static int overview_open, overview_page, overview_n, overview_release_guard;
 static int overview_ids[WM_MAX_WIN];
 static uint32_t overview_generations[WM_MAX_WIN];
 static void overview_click(int px, int py);
+static void overview_damage_window(int id);
 static uint32_t* bg;
 static surface_t bgs;
 static char clock_date[48], clock_hm[8];
@@ -393,6 +394,7 @@ void wm_set_title(int id, const char* t) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
     str_copy(win[id].title, t, sizeof(win[id].title));
     if (win[id].visible && !win[id].full) damage(win[id].x, win[id].y, win[id].x + outer_w(&win[id]), win[id].y + WM_HEAD);
+    overview_damage_window(id);
 }
 
 void wm_set_subtitle(int id, const char* t) {
@@ -473,6 +475,7 @@ void wm_set_visible(int id, int v) {
     damage_win(&win[id]);
     damage_side();
     damage_top();
+    overview_damage_window(id);
 }
 
 int wm_visible(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used && win[id].visible; }
@@ -515,6 +518,8 @@ void wm_set_fullscreen(int id, int on) {
 int wm_fullscreen(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used && win[id].full; }
 
 void wm_invalidate(int id) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
+    if (overview_open) { overview_damage_window(id); return; }
     if (!wm_visible(id)) return;
     win_t* w = &win[id];
     int ox, oy, dw, dh; geom(w, &ox, &oy, &dw, &dh);
@@ -522,6 +527,8 @@ void wm_invalidate(int id) {
 }
 
 void wm_invalidate_rows(int id, int y0, int y1) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
+    if (overview_open) { overview_damage_window(id); return; }
     if (!wm_visible(id)) return;
     win_t* w = &win[id];
     if (y0 < 0) y0 = 0;
@@ -655,6 +662,7 @@ void wm_set_content_size(int id, int w, int h) {
     damage_win(wn);
     wn->content.w = w; wn->content.h = h;
     damage_win(wn);
+    overview_damage_window(id);
 }
 
 /* --- мышь --- */
@@ -1227,6 +1235,19 @@ int wm_window_overview_item_center(int item, int* x, int* y) {
     if (!overview_open || !x || !y || overview_card_rect(item, &rx, &ry, &rw, &rh) != 0) return -1;
     *x = rx + rw / 2; *y = ry + rh / 2;
     return 0;
+}
+
+static void overview_damage_window(int id) {
+    if (!overview_open || id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
+    int cols, rows, per, left, top, cw, ch;
+    overview_grid(&cols, &rows, &per, &left, &top, &cw, &ch);
+    for (int i = 0; i < overview_n; i++) {
+        if (overview_ids[i] != id || overview_generations[i] != win[id].generation) continue;
+        if (i / per != overview_page) return;
+        int x, y, w, h;
+        if (overview_card_rect(i % per, &x, &y, &w, &h) == 0) damage(x, y, x + w, y + h);
+        return;
+    }
 }
 
 static int overview_hit_item(int px, int py) {
