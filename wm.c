@@ -50,6 +50,7 @@ static int cascade;
 static wm_layout_mode_t layout_mode = WM_LAYOUT_LEGACY;
 static int overview_open, overview_page, overview_n, overview_release_guard;
 static int overview_ids[WM_MAX_WIN];
+static void overview_click(int px, int py);
 static uint32_t* bg;
 static surface_t bgs;
 static char clock_date[48], clock_hm[8];
