@@ -346,7 +346,7 @@ int main(void) {
     /* Four isolated workspaces; pinned system windows remain global. */
     CHECK(wm_workspace_count() == 4 && wm_workspace_current() == 0);
     CHECK(wm_workspace_switch(-1) == -1 && wm_workspace_switch(4) == -1);
-    CHECK(wm_workspace_center(0, &nav_x, &nav_y) == 0 && nav_x == 204 && nav_y == 20);
+    CHECK(wm_workspace_center(0, &nav_x, &nav_y) == 0 && nav_x == scr.w - 165 && nav_y == 20);
     wm_set_visible(a, 1); wm_set_visible(b, 1);
     wm_set_visible(a, 0); /* side activation below must restore a from another workspace */
     CHECK(wm_workspace_switch(1) == 1 && wm_workspace_current() == 1);
