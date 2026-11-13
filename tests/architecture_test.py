@@ -277,6 +277,6 @@ require("pci_handle_t device;" in kdrv
         and "B_QUARANTINED" in kdrv
         and "pci_resolve(binds[i].device)" in kdrv
         and not re.search(r"\bb->dev(?:\s*->|\s*[;,)])", kdrv)
-        and not re.search(r"binds\\[i\\]\\.dev(?:\\s*(?:==|=|;|\\)))", kdrv),
+        and not re.search(r"binds\[i\]\.dev(?:\s*(?:==|=|;|\)))", kdrv),
         "KDRV binding identity must use generation-safe PCI handles and quarantine stale bindings")
 print("PASS: kernel/service source ownership, Native ABI stability, unique adapter ownership, both ISA manifests and PCI host bounds contract")
