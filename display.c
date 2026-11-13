@@ -595,12 +595,15 @@ static void display_main(void* arg) {
         launcher_poll();               // результат ранее принятого запроса
 
         {                                 // Клавиатура принадлежит верхнему окну ввода.
-            int lown = w_launcher >= 0 && wm_visible(w_launcher) && wm_top() == w_launcher;
-            int fown = !lown && w_files >= 0 && wm_visible(w_files) && wm_top() == w_files;
-            __atomic_store_n(&launcher_focus, lown, __ATOMIC_RELEASE);
-            __atomic_store_n(&files_focus, fown, __ATOMIC_RELEASE);
             input_event_t ke;
-            while ((lown || fown) && input_pop(&ke)) {
+            for (;;) {
+                /* Re-evaluate ownership after every key: Escape may close Launcher. */
+                int lown = w_launcher >= 0 && wm_visible(w_launcher) && wm_top() == w_launcher;
+                int fown = !lown && w_files >= 0 && wm_visible(w_files) && wm_top() == w_files;
+                __atomic_store_n(&launcher_focus, lown, __ATOMIC_RELEASE);
+                __atomic_store_n(&files_focus, fown, __ATOMIC_RELEASE);
+                if (!lown && !fown) break;
+                if (!input_pop(&ke)) break;
                 if (lown) launcher_key(&ke);
                 else if (ke.type == INPUT_KEY_DOWN && !(ke.key >= KEY_LSHIFT && ke.key <= KEY_CAPS)) explorer_key(ke.key, ke.ch);
             }
