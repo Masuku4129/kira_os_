@@ -263,3 +263,11 @@
 ### Mind memory forecast — telemetry-gap expectation correction (2026-11-12)
 - В PR #81 исправлен regression expectation: timestamp 11 после пропущенного 10 становится новым baseline, timestamp 12 уже содержит первый измеренный growth interval. Проверка теперь отражает фактическую последовательность, не откладывая валидный прогноз ещё на один tick.
 - Latest head `9e70a1d2ab490d1c414c85e28fdbd06327bfefd1`, workflow run `43223432833` in progress: `mind-quality`, ARM64 build, driver E2E, GUI regression и audit завершились success; host tests, KCC и kernel build ещё выполнялись на момент записи. Полный CI пока не завершён.
+
+
+### IOMMU-gated Ring 3 driver policy — ARM64 test correction (2026-11-13)
+- PR #136 exact-head run `43255878911`: x86-64 build, host-tests and all 27 VM scenarios passed; ARM64 build passed, but ARM64 QEMU scenarios failed in `arm64-drv` and `arm64-drvman`.
+- Failure was stale test expectation: ARM64 scenarios still expected the old `edu` package with DMA+MSI to launch, although PR #136 correctly blocks `CAP_DMA | CAP_IRQ` without per-device IOMMU isolation.
+- Updated ARM64 scenarios to assert `edu` is denied, `edunc` (MMIO-only) runs without IRQ/DMA, its resource cleanup and restart are checked, and Driver Manager reflects the same state.
+- Removed x86-specific exception-number wording from the ARM64 crash assertion; the test relies on the common KDRV termination record and successful restart.
+- Latest code/test head: `32e5d145f916c5568cd037451e36791f1758c471`. Fresh exact-head CI pending; no PASS claimed yet.
