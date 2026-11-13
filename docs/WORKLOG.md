@@ -512,3 +512,6 @@
 - Security gates remain unchanged: do not enable x86 enumeration or KDRV bus mastering until firmware bus-master sanitization and per-device IOMMU domain lifecycle are verified.
 - PR #139 requirement matrix now pins source-bearing commit 965678e235a298f017d5bdc8ab62c8c3f305f996. Structural compliance check succeeded on an earlier synchronized event; later documentation-only commits mean exact-head host/build/ARM64/QEMU results must still be obtained.
 - No code merge or main update. PR #139 remains draft and dependent on #135.
+
+
+- Source review caught an incomplete first edit in `arch/aarch64/pci_host.c`: although the range-aware API call had been wired, the old `bus0 != 0` fail-closed guard remained. Corrected it in commit `3903d42afd92ec99ef0b8198d9ed261e7300b224` and strengthened `tests/architecture_test.py` in `483b9b80f05e4d42a9df37a6796897e0a920cc89` to fail if that restriction returns. Earlier CI runs predate this correction and must not be used as evidence for nonzero-root support.
