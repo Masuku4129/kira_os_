@@ -530,3 +530,12 @@
 
 
 - Exact-host CI run 43397356577 exposed a stale source-contract assertion in `tests/architecture_test.py`: a second check still required `bus0 != 0` even though nonzero ARM64 root buses are now supported. This was a test expectation defect, not a PCI compile/runtime failure. Updated the assertion to require `bus0 <= bus1 <= 255` and explicitly forbid the old zero-start restriction (commit `98f3a3c05a0bcaa8be60211e832dc8c54f77c66a`). The failing run stopped before compiling/running the PCI regression; exact-head rerun is still required.
+
+
+### KDRV identity migration — DEV-001 follow-up (2026-11-13)
+
+- Replaced `bind_t.dev` raw `pci_dev_t*` identity with `pci_handle_t` (`id`, `generation`) in `kdrv.c`; slot lookup now compares opaque handles obtained from the current PCI snapshot.
+- All KDRV device operations resolve the binding with `pci_resolve()` before dereferencing a PCI descriptor. The KDRV syscall path fails closed when the handle is stale.
+- Added `B_QUARANTINED`: if a driver exits after its PCI handle has become stale, KDRV does not pretend it successfully quiesced the device and deliberately retains DMA/resource memory rather than freeing pages while device quiescence is unconfirmed.
+- Extended `tests/architecture_test.py` to reject pointer-based KDRV binding identity and require the generation-safe resolver/quarantine path. The existing `tests/pci_range_test.c` continues to cover stale-snapshot rejection.
+- This migration does not implement hotplug, coordinated rescan, bus-independent registry, resource reservation or full lifecycle teardown. No local test run is claimed; exact-head CI is required.
