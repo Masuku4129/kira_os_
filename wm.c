@@ -1643,13 +1643,14 @@ static void overview_grid(int* cols, int* rows, int* per, int* left, int* top, i
     *cols = scr->w >= 900 ? 3 : scr->w >= 600 ? 2 : 1;
     *rows = scr->h >= 560 ? 2 : 1;
     *per = *cols * *rows;
-    *left = 28;
-    *top = 100;
-    int gap = 14;
+    *left = scr->w < 480 ? 12 : 28;
+    *top = scr->h < 360 ? 78 : 100;
+    int gap = scr->w < 480 ? 8 : 14;
+    int bottom = scr->h < 360 ? 48 : 68;
     *cw = (scr->w - 2 * *left - (*cols - 1) * gap) / *cols;
-    *ch = (scr->h - *top - 68 - (*rows - 1) * gap) / *rows;
-    if (*cw < 120) *cw = 120;
-    if (*ch < 100) *ch = 100;
+    *ch = (scr->h - *top - bottom - (*rows - 1) * gap) / *rows;
+    if (*cw < 1) *cw = 1;
+    if (*ch < 1) *ch = 1;
 }
 
 static int overview_card_rect(int slot, int* x, int* y, int* w, int* h) {
