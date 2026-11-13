@@ -544,7 +544,7 @@ static void update_clock(void) {
 static void update_system_io(void) {
 #ifndef KIRA_HOST_TEST
     netdev_t* dev = net_dev();
-    int link = -1;
+    int link = dev ? -1 : -2;
     if (dev && dev->link) {
         int state = dev->link(dev);
         link = state > 0 ? 1 : state == 0 ? 0 : -1;
