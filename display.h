@@ -15,6 +15,7 @@ int  display_kbd_owner(void);                /* 1 - клавиатуру заб�
 void display_panic_flush(void);              // синхронно вывести журнал на экран (паника/исключение)
 // Для Разума: циклов дисплея и опозданий с начала (растут), худший промежуток между циклами с прошлого вызова.
 void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns);
+void display_get_render_stats(uint64_t* frames, uint64_t* composed, uint64_t* pixels, uint64_t* busy_ns, uint64_t* worst_busy_ns, uint64_t* last_present_ns);
 void display_set_fx(int level);
 /* Потокобезопасная очередь уведомлений для служб/драйверов; 0 — принято, -1 — неверный ввод/дисплей не готов, -2 — очередь заполнена. */
 int display_notify(const char* title, const char* message, int priority);
