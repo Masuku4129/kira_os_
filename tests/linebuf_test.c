@@ -14,13 +14,13 @@ static void capture(const char *s, unsigned n, void *ctx) {
     emits++;
 }
 
-#define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s\\n", __LINE__, #x); return 1; } } while (0)
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #x); return 1; } } while (0)
 
 int main(void) {
     linebuf_t b = {0};
     char message[402];
     memset(message, 'K', 400);
-    message[400] = '\\n';
+    message[400] = '\n';
     message[401] = 0;
 
     for (unsigned i = 0; i < 400; i++) lb_putc(&b, message[i], capture, 0);
