@@ -176,12 +176,33 @@ static int spatial_dock_x(int item) {
 }
 
 static int spatial_dock_y(void) { return scr->h - TILE - 20; }
-static int spatial_tab_y(int i) { return WM_TOP_H + 18 + i * (WM_SPATIAL_TAB_H + WM_SPATIAL_TAB_GAP); }
+
+/* Keep the complete navigation rail above the Dock on short Limbo/mobile modes. */
+static int spatial_tab_height(void) {
+    if (scr->h < 320) return 14;
+    if (scr->h < 400) return 24;
+    if (scr->h < 520) return 32;
+    return WM_SPATIAL_TAB_H;
+}
+
+static int spatial_tab_step(void) {
+    int height = spatial_tab_height();
+    int step = WM_SPATIAL_TAB_H + WM_SPATIAL_TAB_GAP;
+    if (tab_n > 1) {
+        int available = spatial_dock_y() - 16 - (WM_TOP_H + 18) - height;
+        int fit = available / (tab_n - 1);
+        if (fit < step) step = fit;
+    }
+    if (step < height) step = height;
+    return step;
+}
+
+static int spatial_tab_y(int i) { return WM_TOP_H + 18 + i * spatial_tab_step(); }
 
 static void damage_spatial_tab(int i) {
     if (i < 0 || i >= tab_n) return;
     int y = spatial_tab_y(i);
-    damage(0, y, WM_SPATIAL_RAIL_W, y + WM_SPATIAL_TAB_H);
+    damage(0, y, WM_SPATIAL_RAIL_W, y + spatial_tab_height());
     int label_w = gfx_text_width(tabs[i].label) + 20;
     int label_x = WM_SPATIAL_RAIL_W + 8;
     damage(label_x, y + 6, label_x + label_w, y + 34);
@@ -230,7 +251,7 @@ static int tab_hit(int px, int py) {
         if (px < 8 || px >= WM_SPATIAL_RAIL_W - 8) return -1;
         for (int i = 0; i < tab_n; i++) {
             int y = spatial_tab_y(i);
-            if (py >= y && py < y + WM_SPATIAL_TAB_H) return i;
+            if (py >= y && py < y + spatial_tab_height()) return i;
         }
         return -1;
     }
@@ -242,7 +263,7 @@ static int tab_hit(int px, int py) {
 int wm_tab_center(int i, int* x, int* y) {
     if (i < 0 || i >= tab_n) return -1;
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
-        *x = WM_SPATIAL_RAIL_W / 2; *y = spatial_tab_y(i) + WM_SPATIAL_TAB_H / 2;
+        *x = WM_SPATIAL_RAIL_W / 2; *y = spatial_tab_y(i) + spatial_tab_height() / 2;
     } else { *x = tab_x(i) + tab_w(i) / 2; *y = 7 + TAB_H / 2; }
     return 0;
 }
@@ -1132,7 +1153,8 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
 
 static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     int rail_x = 8 + ox, rail_y = WM_TOP_H + 10 + oy;
-    int rail_h = tab_n ? tab_n * (WM_SPATIAL_TAB_H + WM_SPATIAL_TAB_GAP) - WM_SPATIAL_TAB_GAP + 20 : 20;
+    int tab_h = spatial_tab_height(), tab_step = spatial_tab_step();
+    int rail_h = tab_n ? (tab_n - 1) * tab_step + tab_h + 20 : 20;
     ui_round_rect(c, rail_x, rail_y, WM_SPATIAL_RAIL_W - 16, rail_h, 16, TH_BAR0, 255);
     ui_round_frame(c, rail_x, rail_y, WM_SPATIAL_RAIL_W - 16, rail_h, 16, TH_BORDER, 255);
     int act = active_tab();
@@ -1141,11 +1163,13 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     };
     for (int i = 0; i < tab_n; i++) {
         int ty = spatial_tab_y(i) + oy, tx = rail_x + 6, tw = WM_SPATIAL_RAIL_W - 28;
+        int icon_size = tab_h >= 32 ? 22 : tab_h >= 24 ? 18 : 14;
         if (i == act) {
-            ui_round_rect(c, tx, ty, tw, WM_SPATIAL_TAB_H, 10, TH_CYAN, 42);
-            ui_round_rect(c, tx, ty + 9, 3, WM_SPATIAL_TAB_H - 18, 2, TH_CYAN, 255);
-        } else if (i == tab_hover) ui_round_rect(c, tx, ty, tw, WM_SPATIAL_TAB_H, 10, TH_TILE, 255);
-        icon_draw(c, tx + tw / 2, ty + WM_SPATIAL_TAB_H / 2, 22, nav_icon[i], i == act ? TH_CYAN : TH_TEXT_DIM, 0);
+            ui_round_rect(c, tx, ty, tw, tab_h, 10, TH_CYAN, 42);
+            int mark_h = tab_h > 18 ? tab_h - 18 : 8;
+            ui_round_rect(c, tx, ty + (tab_h - mark_h) / 2, 3, mark_h, 2, TH_CYAN, 255);
+        } else if (i == tab_hover) ui_round_rect(c, tx, ty, tw, tab_h, 10, TH_TILE, 255);
+        icon_draw(c, tx + tw / 2, ty + tab_h / 2, icon_size, nav_icon[i], i == act ? TH_CYAN : TH_TEXT_DIM, 0);
     }
     if (tab_hover >= 0 && tab_hover < tab_n) {
         const char* label = tabs[tab_hover].label;
