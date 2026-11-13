@@ -85,7 +85,11 @@ void arm_pci_init(const void* fdt, arm_pci_log_fn log) {
     }
     pci_use_ecam(ecam, (uint8_t)bus0, (uint8_t)bus1);
 
-    int devices = pci_init();
+    int devices = pci_init_range((uint8_t)bus0, (uint8_t)bus1);
+    if (devices < 0) {
+        if (log) log("[KIRA PCI] invalid enumeration range; PCI initialization skipped\\n");
+        return;
+    }
     int bars = pci_assign(&mem32, &mem64);
     if (log) log("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\n",
                  base, (uint64_t)bus0, (uint64_t)bus1, (uint64_t)devices, (uint64_t)bars,
