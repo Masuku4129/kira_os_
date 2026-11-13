@@ -1369,12 +1369,12 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
         /* Spatial windows are quiet work surfaces: no neon perimeter glow or
            decorative title stripe. Keep the Legacy renderer below untouched. */
-        ui_round_rect(c, x, y, ow, oh, 12, TH_PANEL1, 255);
-        ui_round_rect(c, x, y, ow, WM_HEAD, 12, TH_BAR0, 255);
-        gfx_rect(c, x + 1, y + 12, ow - 2, WM_HEAD - 12, TH_BAR0);
+        ui_round_rect(c, x, y, ow, oh, TH_RADIUS_SURFACE, TH_PANEL1, 255);
+        ui_round_rect(c, x, y, ow, WM_HEAD, TH_RADIUS_SURFACE, TH_BAR0, 255);
+        gfx_rect(c, x + 1, y + TH_RADIUS_SURFACE, ow - 2, WM_HEAD - TH_RADIUS_SURFACE, TH_BAR0);
         if (!w->pinned) draw_lights(c, x, y, light_hover == id);
         gfx_rect(c, x + 12, y + WM_HEAD - 1, ow - 24, 1, TH_BORDER);
-        ui_round_frame(c, x, y, ow, oh, 12,
+        ui_round_frame(c, x, y, ow, oh, TH_RADIUS_SURFACE,
                        focused ? ui_mix(TH_BORDER, TH_CYAN, 72) : TH_BORDER, 255);
 
         char sub[24]; int sn = 0;
@@ -1395,7 +1395,7 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
             if (max_sw < 24) max_sw = 24;
             if (sw > max_sw) sw = max_sw;
             int sx = x + ow - sw - 20;
-            ui_round_rect(c, sx, y + 7, sw + 12, 22, 8, TH_TILE, 255);
+            ui_round_rect(c, sx, y + 7, sw + 12, 22, TH_RADIUS_CONTROL, TH_TILE, 255);
             ui_text_fit(c, sx + 6, y + 10, sub, sw, TH_TEXT_DIM);
             right = sx - 8;
         }
@@ -1447,7 +1447,7 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     }
     blit_content(c, x + WM_PAD, y + WM_HEAD, disp_w(w), disp_h(w), w);
     if (w->resizable || w->zoomable) {
-        uint32_t gc = resizing == id ? TH_CYAN : 0x0035557A;
+        uint32_t gc = resizing == id ? TH_ACCENT_PRIMARY : TH_TEXT_FAINT;
         int bx = x + ow - 6, by = y + oh - 6;
         for (int a = 3; a <= 9; a += 3) gfx_line(c, bx - a, by, bx, by - a, gc);
     }
@@ -1456,7 +1456,7 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
 static void draw_fullscreen(surface_t* c, int ox, int oy, int id) {
     const win_t* w = &win[id];
     int fx, fy, dw, dh; geom(w, &fx, &fy, &dw, &dh);
-    gfx_rect(c, 0, 0, c->w, c->h, 0x0004070E);
+    gfx_rect(c, 0, 0, c->w, c->h, TH_BG0);
     blit_content(c, fx + ox, fy + oy, dw, dh, w);
 }
 
@@ -1465,8 +1465,8 @@ static void draw_pill(surface_t* c, int ox, int oy, int fs, int show) {
     if (!show) { ui_round_rect(c, scr->w / 2 - 24 + ox, 4 + oy, 48, 4, 2, TH_CYAN, 110); return; }
     int x, y, pw, ph, n; pill_rect(w, &x, &y, &pw, &ph, &n);
     x += ox; y += oy;
-    ui_round_rect(c, x, y, pw, ph, 18, TH_BAR0, 240);
-    ui_round_frame(c, x, y, pw, ph, 18, ui_mix(TH_BORDER, TH_CYAN, 120), 255);
+    ui_round_rect(c, x, y, pw, ph, TH_RADIUS_SURFACE, TH_BAR0, 240);
+    ui_round_frame(c, x, y, pw, ph, TH_RADIUS_SURFACE, ui_mix(TH_BORDER, TH_ACCENT_PRIMARY, 120), 255);
     static const uint32_t col[3] = { TH_CLOSE, TH_MIN, TH_FULL };
     for (int k = 0; k < n; k++) ui_disc(c, x + 12 + k * 36 + 18, y + 18, 8, col[k], 255);
 }
@@ -1479,29 +1479,29 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         /* No full-width top bar: only a floating context capsule remains. */
         int gx = W >= 640 ? W - 270 : W - 56;
         int gw = W >= 640 ? 260 : 48;
-        ui_round_rect(c, gx + ox, y + 7, gw, 34, 15, TH_BAR0, 244);
-        ui_round_frame(c, gx + ox, y + 7, gw, 34, 15, TH_BORDER, 220);
+        ui_round_rect(c, gx + ox, y + 7, gw, 34, TH_RADIUS_CONTROL + 4, TH_BAR0, 244);
+        ui_round_frame(c, gx + ox, y + 7, gw, 34, TH_RADIUS_CONTROL + 4, TH_BORDER, 220);
         if (W >= 640) {
-            ui_round_rect(c, gx + 7 + ox, y + 11, 62, 26, 9, TH_TILE, 255);
+            ui_round_rect(c, gx + 7 + ox, y + 11, 62, 26, TH_RADIUS_CONTROL, TH_TILE, 255);
             gfx_text(c, gx + 17 + ox, y + 18, "ОКНА", TH_TEXT_DIM, -1);
-            ui_round_rect(c, gx + 76 + ox, y + 11, 58, 26, 9, TH_TILE, 255);
+            ui_round_rect(c, gx + 76 + ox, y + 11, 58, 26, TH_RADIUS_CONTROL, TH_TILE, 255);
             for (int wi = 0; wi < WM_WORKSPACE_MAX; wi++)
                 ui_disc(c, gx + 87 + wi * 11 + ox, y + 24,
                         wi == current_workspace ? 3 : 2,
                         wi == current_workspace ? TH_CYAN : TH_TEXT_FAINT, 255);
             if (clock_hm[0]) ui_text_bold(c, gx + 143 + ox, y + 18, clock_hm, TH_TEXT);
-            ui_round_rect(c, gx + 216 + ox, y + 11, 36, 26, 9, TH_TILE, 255);
-            ui_round_frame(c, gx + 216 + ox, y + 11, 36, 26, 9,
+            ui_round_rect(c, gx + 216 + ox, y + 11, 36, 26, TH_RADIUS_CONTROL, TH_TILE, 255);
+            ui_round_frame(c, gx + 216 + ox, y + 11, 36, 26, TH_RADIUS_CONTROL,
                            system_panel_open ? TH_CYAN : TH_BORDER, 220);
             icon_draw(c, gx + 234 + ox, y + 24, 16, ICON_MONITOR,
                       system_panel_open ? TH_CYAN : TH_TEXT_DIM, 0);
             if (notification_unread()) ui_disc(c, gx + 247 + ox, y + 12, 4, TH_AMBER, 255);
         } else {
-            ui_round_rect(c, gx - 46 + ox, y + 11, 40, 26, 9, TH_TILE, 255);
+            ui_round_rect(c, gx - 46 + ox, y + 11, 40, 26, TH_RADIUS_CONTROL, TH_TILE, 255);
             char workspace_text[8] = { (char)('1' + current_workspace), '/', '4', 0 };
             gfx_text(c, gx - 37 + ox, y + 18, workspace_text, TH_TEXT_DIM, -1);
-            ui_round_rect(c, gx + 6 + ox, y + 11, 36, 26, 9, TH_TILE, 255);
-            ui_round_frame(c, gx + 6 + ox, y + 11, 36, 26, 9,
+            ui_round_rect(c, gx + 6 + ox, y + 11, 36, 26, TH_RADIUS_CONTROL, TH_TILE, 255);
+            ui_round_frame(c, gx + 6 + ox, y + 11, 36, 26, TH_RADIUS_CONTROL,
                            system_panel_open ? TH_CYAN : TH_BORDER, 220);
             icon_draw(c, gx + 24 + ox, y + 24, 16, ICON_MONITOR,
                       system_panel_open ? TH_CYAN : TH_TEXT_DIM, 0);
@@ -1554,7 +1554,7 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
             unsigned sum = 0, cnt = 0;
             for (int k = i * per; k < (i + 1) * per && k < m_cores; k++) { sum += m_busy[k]; cnt++; }
             unsigned p = cnt ? sum / cnt : 0; uint32_t col; meter_color(p, &col);
-            gfx_rect(c, bx + i * (bw + gap), y + 10, bw, 20, 0x00142238);
+            gfx_rect(c, bx + i * (bw + gap), y + 10, bw, 20, TH_TRACK);
             int hgt = (int)(p * 20 / 100); if (hgt < 2) hgt = 2;
             gfx_rect(c, bx + i * (bw + gap), y + 30 - hgt, bw, hgt, col);
         }
@@ -1578,8 +1578,8 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     int rail_x = 8 + ox, rail_y = 8 + oy;
     int rail_h = scr->h - 16;
     int tab_h = spatial_tab_height();
-    ui_round_rect(c, rail_x, rail_y, rail_w - 16, rail_h, 18, TH_BAR0, 242);
-    ui_round_frame(c, rail_x, rail_y, rail_w - 16, rail_h, 18, TH_BORDER, 220);
+    ui_round_rect(c, rail_x, rail_y, rail_w - 16, rail_h, TH_RADIUS_SURFACE, TH_BAR0, 242);
+    ui_round_frame(c, rail_x, rail_y, rail_w - 16, rail_h, TH_RADIUS_SURFACE, TH_BORDER, 220);
 
     /* Brand and navigation header are part of the left workspace rail, not a top bar. */
     icon_draw(c, rail_x + 28, rail_y + 28, 26, ICON_BRAIN, TH_CYAN, 0);
@@ -1597,10 +1597,10 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
         int tw = rail_w - 28;
         int icon_size = rail_w >= 160 ? 20 : 18;
         if (i == act) {
-            ui_round_rect(c, tx, ty, tw, tab_h, 10, TH_CYAN, 34);
+            ui_round_rect(c, tx, ty, tw, tab_h, TH_RADIUS_CONTROL, TH_ACCENT_PRIMARY, 34);
             ui_round_rect(c, tx, ty + 7, 3, tab_h - 14 > 0 ? tab_h - 14 : 4, 2, TH_CYAN, 255);
         } else if (i == tab_hover) {
-            ui_round_rect(c, tx, ty, tw, tab_h, 10, TH_TILE, 220);
+            ui_round_rect(c, tx, ty, tw, tab_h, TH_RADIUS_CONTROL, TH_TILE, 220);
         }
         int icon_x = rail_w >= 160 ? tx + 25 : tx + tw / 2;
         icon_draw(c, icon_x, ty + tab_h / 2, icon_size, nav_icon[i],
@@ -1615,8 +1615,8 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
         int lw = gfx_text_width(label) + 20;
         int tx = rail_w + 8 + ox;
         int ty = spatial_tab_y(tab_hover) + oy + 4;
-        ui_round_rect(c, tx, ty, lw, 28, 8, TH_BAR0, 255);
-        ui_round_frame(c, tx, ty, lw, 28, 8, TH_BORDER, 255);
+        ui_round_rect(c, tx, ty, lw, 28, TH_RADIUS_CONTROL, TH_BAR0, 255);
+        ui_round_frame(c, tx, ty, lw, 28, TH_RADIUS_CONTROL, TH_BORDER, 255);
         gfx_text(c, tx + 10, ty + 8, label, TH_TEXT, -1);
     }
 
@@ -1626,16 +1626,16 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     int tile = spatial_dock_tile(), pages = spatial_dock_pages();
     int width = spatial_dock_width();
     int dx = (scr->w - width) / 2 + ox, dy = spatial_dock_y() + oy - 8;
-    ui_round_rect(c, dx, dy, width, tile + 16, 18, TH_BAR0, 248);
-    ui_round_frame(c, dx, dy, width, tile + 16, 18, TH_BORDER, 255);
+    ui_round_rect(c, dx, dy, width, tile + 16, TH_RADIUS_SURFACE, TH_BAR0, 248);
+    ui_round_frame(c, dx, dy, width, tile + 16, TH_RADIUS_SURFACE, TH_BORDER, 255);
     if (pages > 1) {
         int cy = spatial_dock_y() + tile / 2 + oy;
         int lx = dx + WM_DOCK_CONTROL_W / 2 + 2;
         int rx = dx + width - WM_DOCK_CONTROL_W / 2 - 2;
         uint32_t lc = dock_page > 0 ? TH_TEXT : TH_TEXT_FAINT;
         uint32_t rc = dock_page + 1 < pages ? TH_TEXT : TH_TEXT_FAINT;
-        ui_round_rect(c, lx - 18, cy - 20, 36, 40, 11, TH_TILE, 255);
-        ui_round_rect(c, rx - 18, cy - 20, 36, 40, 11, TH_TILE, 255);
+        ui_round_rect(c, lx - 18, cy - 20, 36, 40, TH_RADIUS_CONTROL, TH_TILE, 255);
+        ui_round_rect(c, rx - 18, cy - 20, 36, 40, TH_RADIUS_CONTROL, TH_TILE, 255);
         gfx_line(c, lx + 3, cy - 7, lx - 3, cy, lc);
         gfx_line(c, lx - 3, cy, lx + 3, cy + 7, lc);
         gfx_line(c, rx - 3, cy - 7, rx + 3, cy, rc);
@@ -1649,7 +1649,7 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
         uint32_t col = side[i].color;
         int tx = spatial_dock_x(i) + ox, ty = spatial_dock_y() + oy;
         int icon_size = tile >= 40 ? 26 : tile >= 28 ? 20 : 14;
-        int radius = tile >= 32 ? 12 : 7;
+        int radius = tile >= 32 ? TH_RADIUS_CONTROL : 7;
         uint32_t fill = i == side_hover ? ui_mix(TH_TILE, col, 40) : TH_TILE;
         if (focused) ui_glow(c, tx, ty, tile, tile, 10, 3, col, 110);
         ui_round_rect(c, tx, ty, tile, tile, radius, fill, 255);
@@ -1661,8 +1661,8 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
         const char* label = side[side_hover].label;
         int lw = gfx_text_width(label) + 20, tx = spatial_dock_x(side_hover) + tile / 2 - lw / 2 + ox;
         int ty = spatial_dock_y() + oy - 40;
-        ui_round_rect(c, tx, ty, lw, 28, 8, TH_BAR0, 250);
-        ui_round_frame(c, tx, ty, lw, 28, 8, side[side_hover].color, 180);
+        ui_round_rect(c, tx, ty, lw, 28, TH_RADIUS_CONTROL, TH_BAR0, 250);
+        ui_round_frame(c, tx, ty, lw, 28, TH_RADIUS_CONTROL, side[side_hover].color, 180);
         gfx_text(c, tx + 10, ty + 8, label, TH_TEXT, -1);
     }
 }
@@ -1678,8 +1678,8 @@ static void system_percent(char* out, int value) {
 static void draw_system_panel(surface_t* c, int ox, int oy) {
     if (!system_panel_open || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
     int x, y, w, h; system_panel_rect(&x, &y, &w, &h);
-    ui_round_rect(c, x + ox, y + oy, w, h, 16, TH_BAR0, 255);
-    ui_round_frame(c, x + ox, y + oy, w, h, 16, TH_BORDER, 255);
+    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BORDER, 255);
     gfx_text(c, x + 16 + ox, y + 12 + oy, "СИСТЕМА", TH_TEXT, -1);
     gfx_text(c, x + 16 + ox, y + 30 + oy, "Состояние устройства", TH_TEXT_DIM, -1);
 
@@ -1755,8 +1755,8 @@ static void draw_notification_toast(surface_t* c, int ox, int oy) {
     const wm_notification_t* n = &notifications[at];
     int x, y, w, h; notification_toast_rect(&x, &y, &w, &h);
     uint32_t col = notification_color(n->priority);
-    ui_round_rect(c, x + ox, y + oy, w, h, 14, TH_BAR0, 255);
-    ui_round_frame(c, x + ox, y + oy, w, h, 14, col, 230);
+    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, col, 230);
     ui_round_rect(c, x + 10 + ox, y + 12 + oy, 4, h - 24, 2, col, 255);
     ui_text_fit(c, x + 24 + ox, y + 12 + oy, n->title, w - 42, col);
     ui_text_fit(c, x + 24 + ox, y + 38 + oy, n->message, w - 42, TH_TEXT);
@@ -1778,7 +1778,7 @@ static void draw_notification_center(surface_t* c, int ox, int oy) {
         const wm_notification_t* n = &notifications[at];
         int ry = y + 48 + i * 48;
         uint32_t col = notification_color(n->priority);
-        ui_round_rect(c, x + 12 + ox, ry + oy, w - 24, 42, 8, TH_TILE, 255);
+        ui_round_rect(c, x + 12 + ox, ry + oy, w - 24, 42, TH_RADIUS_CONTROL, TH_TILE, 255);
         ui_round_rect(c, x + 12 + ox, ry + 8 + oy, 3, 26, 1, col, 255);
         ui_text_fit(c, x + 24 + ox, ry + 5 + oy, n->title, w - 48, col);
         ui_text_fit(c, x + 24 + ox, ry + 22 + oy, n->message, w - 48, TH_TEXT_DIM);
@@ -1913,11 +1913,11 @@ static void draw_overview(surface_t* c, int ox, int oy) {
         int x, y, ww, hh;
         if (overview_card_rect(slot, &x, &y, &ww, &hh) != 0) continue;
         int focused = id == wm_top();
-        ui_round_rect(c, x + ox, y + oy, ww, hh, 14, TH_CARD, 255);
-        ui_round_frame(c, x + ox, y + oy, ww, hh, 14, focused ? TH_CYAN : TH_CARD_EDGE, focused ? 255 : 180);
+        ui_round_rect(c, x + ox, y + oy, ww, hh, TH_RADIUS_SURFACE, TH_CARD, 255);
+        ui_round_frame(c, x + ox, y + oy, ww, hh, TH_RADIUS_SURFACE, focused ? TH_ACCENT_PRIMARY : TH_CARD_EDGE, focused ? 255 : 180);
         int px = x + 10, py = y + 10, pw = ww - 20, ph = hh - 62;
         if (ph < 32) ph = 32;
-        ui_round_rect(c, px + ox, py + oy, pw, ph, 8, TH_CONTENT, 255);
+        ui_round_rect(c, px + ox, py + oy, pw, ph, TH_RADIUS_CONTROL, TH_CONTENT, 255);
         if (w->content.px && w->content.w > 0 && w->content.h > 0)
             blit_content(c, px + ox, py + oy, pw, ph, w);
         ui_text_fit(c, x + 12 + ox, y + hh - 42 + oy, w->title, ww - 24, TH_TEXT);
@@ -1961,7 +1961,7 @@ static void draw_cursor(surface_t* c, int ox, int oy) {
     for (int j = 0; j < CUR_H; j++)
         for (int i = 0; i < CUR_W; i++) {
             char ch = cursor_art[j][i];
-            if (ch == '#') gfx_pixel(c, cx + i + ox, cy + j + oy, 0x00051018);
+            if (ch == '#') gfx_pixel(c, cx + i + ox, cy + j + oy, TH_BG0);
             else if (ch == '.') gfx_pixel(c, cx + i + ox, cy + j + oy, 0x00FFFFFF);
         }
 }
