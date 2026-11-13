@@ -271,3 +271,11 @@
 - Updated ARM64 scenarios to assert `edu` is denied, `edunc` (MMIO-only) runs without IRQ/DMA, its resource cleanup and restart are checked, and Driver Manager reflects the same state.
 - Removed x86-specific exception-number wording from the ARM64 crash assertion; the test relies on the common KDRV termination record and successful restart.
 - Latest code/test head: `32e5d145f916c5568cd037451e36791f1758c471`. Fresh exact-head CI pending; no PASS claimed yet.
+
+
+### IOMMU policy CI follow-up — stale status expectations and ARM64 regex (2026-11-13)
+- Run `43409014002` on code head `32e5d145f916c5568cd037451e36791f1758c471`: x86-64 build and host tests passed; VM matrix exposed three driver-scenario failures and ARM64 exposed two.
+- Confirmed stale post-stop expectation in both `ci/arm64_vm.py` and `ci/scenarios.py`: after stopping the MMIO-only `edunc` package, Driver Manager reports `edunc установлен, не запущен`, not `edu установлен, не запущен`. Corrected both.
+- ARM64 `drv` assertion used an over-escaped raw regex for the PID (`\\\\d+`), which searched for a literal backslash instead of digits. Corrected to `\\d+`.
+- Remaining failures are not waived: `drvget-rl` expected a package-list capability summary that did not appear; `apps-drvman` did not observe the IOMMU confirmation log in the UI flow. Need inspect their captured serial/GUI artifacts and fix the underlying implementation or the evidence contract, not weaken the tests.
+- Latest test/source head after these corrections: `a091cd9db26ad77380fc5036419763a326f288dd`; exact-head CI pending.
