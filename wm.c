@@ -1690,8 +1690,8 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     system_percent(mem_text, m_mem);
     system_percent(mind_text, m_health);
     if (m_network < 0) str_copy(net_text, "НЕТ КАРТЫ", sizeof net_text);
-    else if (m_network == 0) str_copy(net_text, "НЕТ СВЯЗИ", sizeof net_text);
-    else str_copy(net_text, "ЕСТЬ СВЯЗЬ", sizeof net_text);
+    else if (m_network == 0) str_copy(net_text, "НЕТ ЛИНКА", sizeof net_text);
+    else str_copy(net_text, "ЛИНК ЕСТЬ", sizeof net_text);
     if (m_audio_volume < 0) str_copy(audio_text, "НЕТ ЗВУКА", sizeof audio_text);
     else {
         int v = m_audio_volume > 100 ? 100 : m_audio_volume;
