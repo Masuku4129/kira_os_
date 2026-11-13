@@ -573,3 +573,11 @@
 - Run `43399558761` was built from the earlier branch head `dc7ea6c55df4a9f114d0ad01bad50809c437dcb7`, before the PCI rescan guard and its regression tests were added.
 - x86-64 build completed successfully; all 27 VM scenario jobs completed successfully. Host-tests and ARM64 jobs were cancelled when the run was superseded. The overall workflow is therefore not PASS and does not validate the rescan-guard changes.
 - Current branch head `29708b0aad5a72c4e33183c49cb0a410918f3080` still requires a fresh full host/build/ARM64/VM run. No physical hardware or Android Limbo validation is claimed.
+
+### Exact-head validation — PCI/KDRV identity and rescan guard (2026-11-13)
+
+- Exact branch HEAD: `a11338bc76405c3facda0c1d633d781f04fccd9b`.
+- Full CI workflow run `43400611001`: host-tests PASS, x86-64 build PASS, ARM64 build/scenarios PASS, and all 26 VM scenarios PASS (including `limbo-spam`, `limbo-mttcg`, PCI/network/USB/storage, SMP, isolation and stress scenarios).
+- Evidence/report workflows `43400611021` and `43400676602` also completed successfully.
+- This validates the PCI range/identity, KDRV handle migration, fail-closed rescan guard and associated host architecture regressions at this exact source head.
+- It does not validate the user's Android Limbo installation or physical hardware, and does not establish hotplug support. KDRV's rescan policy intentionally remains reboot-required once a binding slot has been assigned.
