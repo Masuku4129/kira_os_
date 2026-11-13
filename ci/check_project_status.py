@@ -135,7 +135,16 @@ for pr in inventory["open_pull_requests"] + inventory["closed_unmerged_pull_requ
     if not pr.get("head") or not pr.get("head_sha") or not pr.get("base"):
         fail("PR snapshot contains an incomplete head/base record")
 
-# 6. Keep the documented artifact contract aligned with the main CI workflow.
+# 6. Preserve every branch ref in the pinned repository snapshot.
+branch_heads = json.loads((STATUS_DIR / "branch_heads_2026-11-13.json").read_text(encoding="utf-8"))
+if len(branch_heads["branches"]) != manifest["in_progress"]["branch_heads_count"]:
+    fail("branch head inventory count changed; refresh all branch refs deliberately")
+if len({item["name"] for item in branch_heads["branches"]}) != len(branch_heads["branches"]):
+    fail("branch head inventory contains duplicate names")
+if len({item["sha"] for item in branch_heads["branches"]}) != branch_heads["unique_head_commits"]:
+    fail("branch head inventory unique SHA count is inconsistent")
+
+# 7. Keep the documented artifact contract aligned with the main CI workflow.
 workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 for artifact in ready["release_outputs_current_main"]:
     if artifact not in workflow:
