@@ -63,6 +63,8 @@ int wm_window_overview_is_open(void);
 int wm_window_overview_count(void);
 int wm_window_overview_item_center(int item, int* x, int* y);
 int wm_system_panel_is_open(void);
+/* Spatial Minimal: centers of active previous/next Dock page controls for hit-test integration. */
+int wm_dock_page_control_center(int next, int* x, int* y);
 int  wm_create(const char* title, int x, int y, int content_w, int content_h, int flags); /* id или -1 */
 /* Как wm_create, но память под содержимое выделяется на cap_w x cap_h: размер можно менять до этого предела. */
 int  wm_create_ex(const char* title, int x, int y, int content_w, int content_h, int flags, int cap_w, int cap_h);
