@@ -115,3 +115,15 @@
 - tests/wm_test.c дополнен сценариями включения, подсчёта, отображения, full-vs-damage redraw, восстановления свёрнутого окна и закрытия overlay.
 - Дополнительно изолирован pointer input: пока overlay открыт, события не передаются нижележащим приложениям; release после выбора поглощается. Добавлен WM_INPUT regression test.
 - Проверка сборкой/host-tests на новом head ещё ожидается. Визуальная проверка в Limbo и на физическом устройстве не выполнена.
+
+
+## 10. UI-3 — app discovery/search: confirmed integration constraints
+
+- Каталог встроенных Ring 3 программ формируется сборкой: tools/kfstool manifest генерирует PROG_MANIFEST из ELF-файлов, которые сборка кладёт в /bin. Это предпочтительнее сканирования /bin из потока дисплея.
+- progs.c уже содержит prog_list(), но он синхронно читает и хеширует каждый бинарный файл, поэтому его нельзя вызывать из GUI/display thread.
+- Запуск из произвольного потока проходит через prog_request() и обрабатывается prog_poll() в основном цикле ядра. Текущая очередь односоставная: если запрос уже ожидает, следующий запрос молча не ставится. До подключения launcher UI нужен явный try/accepted + результат/ошибка, либо очередь с подтверждаемой семантикой.
+- Проверка доверия должна оставаться в prog_run_ex(): имя и SHA-256 сверяются с встроенным манифестом непосредственно при запуске. Launcher не должен обходить эту проверку или исполнять найденный ELF напрямую.
+- Встроенный манифест включает не только обычные приложения, но и тестовые/атакующие/benchmark binaries (например atk-*). Каталог должен иметь явную мета-классификацию и не показывать security-test binaries как обычные пользовательские приложения.
+- display_main() сейчас забирает клавиатуру только когда Проводник сверху; display_kbd_owner() сообщает консоли только files_focus. Launcher должен получить эксклюзивный keyboard focus и подавлять console input, иначе ввод поиска уйдёт в командную строку.
+- apps.c/h — слой рисования и hit-testing; display.c — orchestration/state; WM input callback — mouse events. Новый launcher entrypoint следует добавить только в Spatial Minimal (отдельный rail affordance/контекстный вызов), не добавляя legacy top-bar tab.
+- Следующий вертикальный срез: curated catalog model + async launch acceptance/result; затем search field/keyboard ownership; затем UI cards/categories/empty/error states и тесты trust gating, queue busy, search, keyboard focus и launch feedback.
