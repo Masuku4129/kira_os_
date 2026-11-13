@@ -127,3 +127,15 @@
 - display_main() сейчас забирает клавиатуру только когда Проводник сверху; display_kbd_owner() сообщает консоли только files_focus. Launcher должен получить эксклюзивный keyboard focus и подавлять console input, иначе ввод поиска уйдёт в командную строку.
 - apps.c/h — слой рисования и hit-testing; display.c — orchestration/state; WM input callback — mouse events. Новый launcher entrypoint следует добавить только в Spatial Minimal (отдельный rail affordance/контекстный вызов), не добавляя legacy top-bar tab.
 - Следующий вертикальный срез: curated catalog model + async launch acceptance/result; затем search field/keyboard ownership; затем UI cards/categories/empty/error states и тесты trust gating, queue busy, search, keyboard focus и launch feedback.
+
+
+## 11. UI-3 — curated build-time application catalog
+
+- kfstool catalog generates an immutable catalog header from each architecture's actual ELF input list. Only names in an explicit end-user allowlist are emitted; absent binaries are not listed.
+- Security tests, attack samples, benchmarks and internal helpers are excluded by default. The trust manifest remains independent and continues to include every executable required for launch verification.
+- Metadata contains program ID, Russian title, category and short description. The display path never scans /bin, reads ELF files or hashes binaries.
+- prog_catalog_count/get/search expose the generated catalog. Search is substring-based and case-insensitive for ASCII and Russian Cyrillic, including Ё/ё.
+- x86-64 and ARM64 generate their own catalog header. It is not a trust source; prog_run_ex() continues SHA-256 verification against PROG_MANIFEST.
+- Host coverage verifies allowlist filtering, generated membership, invalid indices, empty query, result capacity and mixed-case Russian/English search.
+- This slice supplies the catalog model only. Launcher cards, live search input, keyboard ownership and launch selection UI remain open.
+- Scope: master plan J/J.1, K, F and N; workstreams 2, 5, 9 and 12.
