@@ -93,6 +93,12 @@ $T/prog
 echo "== asynchronous program request queue (validation, acceptance, completion, concurrency) =="
 $CC $FLAGS -fsanitize=thread -o $T/progq tests/prog_queue_test.c prog_queue.c -lpthread
 $T/progq
+echo "== curated app catalog (generated allowlist and UTF-8 search) =="
+$CC $FLAGS -o $T/kfstool_catalog tools/kfstool.c kfs.c store.c sha256.c
+: > $T/paint.elf; : > $T/atk-mem.elf; : > $T/drvman.elf; : > $T/unknown.elf
+$T/kfstool_catalog catalog $T/paint.elf $T/atk-mem.elf $T/drvman.elf $T/unknown.elf > $T/app_catalog.h
+$CC $FLAGS -I$T -o $T/appcat tests/prog_catalog_test.c prog_catalog.c
+$T/appcat
 rm -f tests/manifest_test.h
 
 echo "== program file service (sandbox /data/<name>) =="
