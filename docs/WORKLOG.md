@@ -600,3 +600,10 @@
 - After the architecture guard was corrected, host tests advanced through the core suites and failed in `tests/virtio_test.c` at `CHECK(n == 5)`. The synthetic bridge fixture set only its secondary bus (`0x19`) and left subordinate bus (`0x1A`) at zero.
 - The production enumerator now correctly requires a valid primary/secondary/subordinate window. Updated the test fixture to describe primary bus 0 and secondary/subordinate bus 1. This is a malformed test-model fixture correction, not a relaxation of the production bounds.
 - Fixture correction commit: `118a7b1ecc5c12b0b215f1ef13e4f01fd3855122`. Fresh exact-head host/build/ARM64/VM CI is required.
+
+
+### PCI nested-bridge exact-head verification — 2026-11-13
+- PR #139 branch `architecture/pci-range-device-model-2026-11`, exact source head `8a5884c93a75801c6bfe89db08fb5abfc60ba7ed`.
+- Workflow run `43405811778` completed successfully: x86-64 build PASS, host-tests PASS, ARM64 Clang `-Werror` build and QEMU scenarios PASS, and all 27 VM matrix jobs PASS.
+- Host suite included the nested PCI bridge positive/negative subordinate-window regression, updated architecture guard, and corrected synthetic virtio bridge fixture.
+- This closes the exact-head CI gate for PR #139 R-07. It does not prove Android Limbo visual behavior or physical hardware support. PR remains Draft; no merge, main update, or ISO release.
