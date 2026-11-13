@@ -607,3 +607,17 @@
 - Workflow run `43405811778` completed successfully: x86-64 build PASS, host-tests PASS, ARM64 Clang `-Werror` build and QEMU scenarios PASS, and all 27 VM matrix jobs PASS.
 - Host suite included the nested PCI bridge positive/negative subordinate-window regression, updated architecture guard, and corrected synthetic virtio bridge fixture.
 - This closes the exact-head CI gate for PR #139 R-07. It does not prove Android Limbo visual behavior or physical hardware support. PR remains Draft; no merge, main update, or ISO release.
+
+
+### Common Device Model registry — PR #141 (2026-11-13)
+- Branch: `architecture/device-registry-pci-adapter-2026-11`, stacked on PR #139.
+- Code head before documentation-only commits: `2048058c87f9ff0f55d6ae882cf87ebf3460e213`.
+- Added `device_model.h/.c`: bounded registry (1024 descriptors), bus-neutral typed identity/location, registry-owned monotonic IDs and snapshot generations, optional parent handles, duplicate-location rejection, fail-closed stale resolution and capacity/overflow behavior.
+- PCI discovery registers normalized descriptors; `pci_dev_t` stores the common handle; `pci_handle_t` remains a compatibility alias. `pci_resolve()` resolves through the common registry and validates the PCI location. KDRV binding stores `device_handle_t`, with PCI-specific operation adapter retained.
+- Both x86-64 and ARM64 build manifests include the registry. Host suite includes registry tests and links `device_model.c` into PCI range and virtio PCI host tests. Architecture guard checks the integration.
+- Invalid PCI bus ranges preserve the previous valid snapshot; registry insertion failure aborts the new snapshot. This remains boot-time single-writer, PCI-only discovery. Resource ownership, non-PCI adapters, driver lifecycle and hotplug are not implemented.
+- PR #141 exact-head CI has not yet been observed. Do not mark PASS until host-tests, x86-64, ARM64 and VM jobs complete on the exact code head.
+
+### PCI nested bridge verification — PR #139
+- Exact source head `8a5884c93a75801c6bfe89db08fb5abfc60ba7ed`, workflow `43405811778`: host-tests, x86-64 build, ARM64 build/QEMU and all 27 VM jobs completed successfully.
+- This closes the nested subordinate-window CI gate for PR #139 R-07. Android Limbo visual validation and physical hardware remain unverified.
