@@ -777,6 +777,7 @@ static void click(int px, int py) {
     }
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && py < WM_TOP_H) {
         if (px >= 104 && px < 188 && py >= 6 && py < 34) wm_window_overview_toggle();
+        else if (px >= 192 && px < 304 && py >= 6 && py < 34 && ops.launcher) ops.launcher();
         return;
     }
     if (layout_mode == WM_LAYOUT_LEGACY && py < WM_TOP_H) {
@@ -1030,6 +1031,9 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         ui_round_rect(c, ox + 104, y + 7, 76, 26, 8, TH_TILE, 255);
         ui_round_frame(c, ox + 104, y + 7, 76, 26, 8, TH_BORDER, 220);
         gfx_text(c, ox + 119, y + 14, "ОКНА", TH_TEXT_DIM, -1);
+        ui_round_rect(c, ox + 192, y + 7, 112, 26, 8, TH_TILE, 255);
+        ui_round_frame(c, ox + 192, y + 7, 112, 26, 8, TH_BORDER, 220);
+        gfx_text(c, ox + 201, y + 14, "ПРИЛОЖЕНИЯ", TH_TEXT_DIM, -1);
         int rx = W - 14 + ox;
         if (clock_hm[0]) {
             rx -= gfx_text_width(clock_hm);
