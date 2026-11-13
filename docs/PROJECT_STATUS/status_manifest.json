@@ -8,13 +8,14 @@
     "inventory": "docs/PROJECT_STATUS/branch_inventory_2026-11-13.json"
   },
   "managed_files": [
-    "docs/PROJECT_STATUS/README.md",
+    "ci/check_project_status.py",
     "docs/PROJECT_STATUS/01_READY.md",
     "docs/PROJECT_STATUS/02_IN_PROGRESS.md",
     "docs/PROJECT_STATUS/03_PLANNED.md",
-    "docs/PROJECT_STATUS/status_manifest.json",
+    "docs/PROJECT_STATUS/README.md",
     "docs/PROJECT_STATUS/branch_inventory_2026-11-13.json",
-    "ci/check_project_status.py"
+    "docs/PROJECT_STATUS/status_manifest.json",
+    "tests/linebuf_test.c"
   ],
   "ready": {
     "definition": "Present in main baseline and/or current CI build inputs. This means integrated into this source baseline, not that every feature is fully complete or hardware-validated.",
