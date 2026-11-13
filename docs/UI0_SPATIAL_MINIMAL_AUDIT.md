@@ -120,8 +120,10 @@
 ## 10. UI-3 — app discovery/search: confirmed integration constraints
 
 - Каталог встроенных Ring 3 программ формируется сборкой: tools/kfstool manifest генерирует PROG_MANIFEST из ELF-файлов, которые сборка кладёт в /bin. Это предпочтительнее сканирования /bin из потока дисплея.
-- progs.c уже содержит prog_list(), но он синхронно читает и хеширует каждый бинарный файл, поэтому его нельзя вызывать из GUI/display thread.
-- Запуск из произвольного потока проходит через prog_request() и обрабатывается prog_poll() в основном цикле ядра. Текущая очередь односоставная: если запрос уже ожидает, следующий запрос молча не ставится. До подключения launcher UI нужен явный try/accepted + результат/ошибка, либо очередь с подтверждаемой семантикой.
+- progs.c::prog_list() синхронно читает и хеширует каждый бинарный файл; GUI/display thread его не вызывает.
+- Контракт очереди уже реализован в prog_queue.c: состояния IDLE/PENDING/RUNNING/COMPLETE, атомарное принятие одного запроса, явные ACCEPTED/BUSY/INVALID, request ID и однократное получение результата. Слот остаётся занятым до получения результата; второй запрос не затирает первый.
+- Имя и путь проверяются до копирования; слишком длинный путь отклоняется, а не обрезается. Host-тесты покрывают границы, BUSY на этапах PENDING/RUNNING/COMPLETE, completion и конкурентную отправку 12 потоками.
+- `prog_request()`/`prog_request_file()` — безопасный интерфейс для GUI; `prog_poll()` исполняет запрос в основном цикле ядра. Окно Launcher ещё не подключено к этому контракту.
 - Проверка доверия должна оставаться в prog_run_ex(): имя и SHA-256 сверяются с встроенным манифестом непосредственно при запуске. Launcher не должен обходить эту проверку или исполнять найденный ELF напрямую.
 - Встроенный манифест включает не только обычные приложения, но и тестовые/атакующие/benchmark binaries (например atk-*). Каталог должен иметь явную мета-классификацию и не показывать security-test binaries как обычные пользовательские приложения.
 - display_main() сейчас забирает клавиатуру только когда Проводник сверху; display_kbd_owner() сообщает консоли только files_focus. Launcher должен получить эксклюзивный keyboard focus и подавлять console input, иначе ввод поиска уйдёт в командную строку.
@@ -136,6 +138,7 @@
 - Metadata contains program ID, Russian title, category and short description. The display path never scans /bin, reads ELF files or hashes binaries.
 - prog_catalog_count/get/search expose the generated catalog. Search is substring-based and case-insensitive for ASCII and Russian Cyrillic, including Ё/ё.
 - x86-64 and ARM64 generate their own catalog header. It is not a trust source; prog_run_ex() continues SHA-256 verification against PROG_MANIFEST.
-- Host coverage verifies allowlist filtering, generated membership, invalid indices, empty query, result capacity and mixed-case Russian/English search.
+- Host coverage verifies allowlist filtering, generated membership, invalid indices, empty query, result capacity and mixed-case Russian/English search. Truncated UTF-8 search input is also covered to prevent reads past the string terminator.
+- The catalog service is compiled for x86-64 and ARM64 from the architecture-specific generated `app_catalog.h`; the ARM64 source list now includes `prog_catalog.c`.
 - This slice supplies the catalog model only. Launcher cards, live search input, keyboard ownership and launch selection UI remain open.
 - Scope: master plan J/J.1, K, F and N; workstreams 2, 5, 9 and 12.
