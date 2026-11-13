@@ -518,7 +518,7 @@ void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
     for (int i = 0; i < WM_MAX_WIN; i++) win[i].used = 0;
     zcount = 0; dragging = -1; resizing = -1; capture = -1; prev_buttons = 0;
     side_n = 0; side_hover = -1; tab_n = 0; tab_hover = -1; light_hover = -1; last_tab = -2;
-    last_fs = -1; last_pill = 0; cascade = 0; clock_date[0] = 0; clock_hm[0] = 0; m_cores = 0; m_mem = -1; m_health = -1;
+    last_fs = -1; last_pill = 0; cascade = 0; clock_date[0] = 0; clock_hm[0] = 0; m_cores = 0; m_mem = -1; m_health = -1; m_network = -1; m_audio_volume = -1;
     cx = scr->w / 2; cy = scr->h / 2;
     dmg_valid = 0;
     bg = 0; bgs.px = 0; bgs.w = bgs.h = bgs.pitch = 0;
@@ -1653,6 +1653,14 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     }
 }
 
+static void system_percent(char* out, int value) {
+    if (value < 0) { str_copy(out, "—", 8); return; }
+    if (value > 100) value = 100;
+    if (value >= 100) { out[0] = '1'; out[1] = '0'; out[2] = '0'; out[3] = '%'; out[4] = 0; }
+    else if (value >= 10) { out[0] = (char)('0' + value / 10); out[1] = (char)('0' + value % 10); out[2] = '%'; out[3] = 0; }
+    else { out[0] = (char)('0' + value); out[1] = '%'; out[2] = 0; }
+}
+
 static void draw_system_panel(surface_t* c, int ox, int oy) {
     if (!system_panel_open || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
     int x, y, w, h; system_panel_rect(&x, &y, &w, &h);
@@ -1670,7 +1678,7 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     ui_text_bold(c, x + w - 28 - gfx_text_width(unread_text) + ox, y + 52 + oy,
                  unread_text, unread ? TH_AMBER : TH_TEXT_FAINT);
 
-    char cpu_text[8] = "—", mem_text[8] = "—", mind_text[8] = "—";
+    char cpu_text[8], mem_text[8], mind_text[8];
     char net_text[16], audio_text[16];
     int cpu = -1;
     if (m_cores > 0) {
@@ -1678,9 +1686,9 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
         for (int i = 0; i < m_cores; i++) sum += m_busy[i];
         cpu = (int)(sum / (unsigned)m_cores);
     }
-    if (cpu >= 0) { int v = cpu > 100 ? 100 : cpu; cpu_text[0] = (char)('0' + v / 100); cpu_text[1] = (char)('0' + (v / 10) % 10); cpu_text[2] = (char)('0' + v % 10); cpu_text[3] = '%'; cpu_text[4] = 0; if (cpu_text[0] == '0') { cpu_text[0] = cpu_text[1]; cpu_text[1] = cpu_text[2]; cpu_text[2] = '%'; cpu_text[3] = 0; if (cpu_text[0] == '0') { cpu_text[0] = cpu_text[1]; cpu_text[1] = '%'; cpu_text[2] = 0; } } }
-    if (m_mem >= 0) { int v = m_mem > 100 ? 100 : m_mem; mem_text[0] = (char)('0' + v / 100); mem_text[1] = (char)('0' + (v / 10) % 10); mem_text[2] = (char)('0' + v % 10); mem_text[3] = '%'; mem_text[4] = 0; if (mem_text[0] == '0') { mem_text[0] = mem_text[1]; mem_text[1] = mem_text[2]; mem_text[2] = '%'; mem_text[3] = 0; if (mem_text[0] == '0') { mem_text[0] = mem_text[1]; mem_text[1] = '%'; mem_text[2] = 0; } } }
-    if (m_health >= 0) { int v = m_health > 100 ? 100 : m_health; mind_text[0] = (char)('0' + v / 100); mind_text[1] = (char)('0' + (v / 10) % 10); mind_text[2] = (char)('0' + v % 10); mind_text[3] = '%'; mind_text[4] = 0; if (mind_text[0] == '0') { mind_text[0] = mind_text[1]; mind_text[1] = mind_text[2]; mind_text[2] = '%'; mind_text[3] = 0; if (mind_text[0] == '0') { mind_text[0] = mind_text[1]; mind_text[1] = '%'; mind_text[2] = 0; } } }
+    system_percent(cpu_text, cpu);
+    system_percent(mem_text, m_mem);
+    system_percent(mind_text, m_health);
     if (m_network < 0) str_copy(net_text, "НЕТ КАРТЫ", sizeof net_text);
     else if (m_network == 0) str_copy(net_text, "НЕТ СВЯЗИ", sizeof net_text);
     else str_copy(net_text, "ЕСТЬ СВЯЗЬ", sizeof net_text);
