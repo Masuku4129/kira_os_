@@ -1154,7 +1154,7 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
 static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     int rail_x = 8 + ox, rail_y = WM_TOP_H + 10 + oy;
     int tab_h = spatial_tab_height(), tab_step = spatial_tab_step();
-    int rail_h = tab_n ? (tab_n - 1) * tab_step + tab_h + 20 : 20;
+    int rail_h = tab_n ? (tab_n - 1) * tab_step + tab_h + 16 : 20;
     ui_round_rect(c, rail_x, rail_y, WM_SPATIAL_RAIL_W - 16, rail_h, 16, TH_BAR0, 255);
     ui_round_frame(c, rail_x, rail_y, WM_SPATIAL_RAIL_W - 16, rail_h, 16, TH_BORDER, 255);
     int act = active_tab();
