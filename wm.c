@@ -881,6 +881,10 @@ static void anim_damage(int x0, int y0, int x1, int y1) { damage(x0, y0, x1, y1)
 
 void wm_anim(uint32_t now_ms, unsigned activity) {
     anim_ms = now_ms;
+    if (notification_toast_active && (int32_t)(now_ms - notification_toast_until) >= 0) {
+        int x, y, w, h; notification_toast_rect(&x, &y, &w, &h);
+        notification_toast_active = 0; damage(x, y, x + w, y + h);
+    }
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL || fs_top() >= 0) return;                        /* во весь экран фон не виден */
     brainfx_anim(now_ms, fx_level, activity, anim_damage);
 }
