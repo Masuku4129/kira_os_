@@ -162,3 +162,10 @@
 - `build_clang.sh --android` defines `KIRA_SPATIAL_PREVIEW`; only this Android/Limbo build selects Spatial Minimal. Ordinary builds and CI retain Legacy.
 - Spatial Minimal startup skips allocation and rendering of the full-screen legacy brain background. Switching back to Legacy builds it lazily.
 - Added a dedicated startup-mode host regression test. It does not replace Limbo visual/performance verification.
+
+
+## 12. Navigation regression and spatial chrome correction (2026-11-13)
+
+- Host display-preview failure was caused by the test still clicking legacy tab indices after the navigation catalog was reordered. Updated the test to activate Mind at index 3 and Files at index 2; Settings/Home retain their indices.
+- Spatial Minimal compositor no longer draws the Legacy top bar. This removes the duplicate horizontal navigation/status strip; the primary navigation remains on the left rail and pinned apps remain in the bottom Dock.
+- The host suite must pass both the dedicated Spatial Minimal startup smoke test and the full Legacy display-preview interaction sequence. Neither result is inferred from a build-only pass.
