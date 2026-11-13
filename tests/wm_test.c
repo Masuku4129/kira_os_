@@ -359,6 +359,20 @@ int main(void) {
     CHECK(!wm_window_overview_is_open());
     frame();
     same_as_full(&scr, "Spatial Minimal");
+
+    /* A destroyed window ID may be reused before the next compose; stale overview cards must not select the replacement. */
+    wm_window_overview_toggle();
+    CHECK(wm_window_overview_count() == 2);
+    frame();
+    CHECK(wm_window_overview_item_center(1, &nav_x, &nav_y) == 0); /* second card is b */
+    wm_destroy(b);
+    int replacement = wm_create("replacement", 500, 300, 100, 60, WM_INPUT);
+    CHECK(replacement == b); /* exercise immediate slot reuse */
+    wm_raise(a);
+    click(nav_x, nav_y);
+    CHECK(!wm_window_overview_is_open() && wm_top() == a);
+    wm_destroy(replacement);
+
     uint8_t spatial_busy[1] = { 99 };
     wm_set_meters(spatial_busy, 1, 88, 20);
     CHECK(!wm_compose(&x, &y, &w, &h)); /* hidden telemetry must not invalidate the idle shell */
