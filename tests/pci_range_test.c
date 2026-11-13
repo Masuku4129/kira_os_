@@ -8,7 +8,7 @@ typedef struct {
     uint32_t cfg[16];
 } model_device_t;
 
-static model_device_t devices[4];
+static model_device_t devices[8];
 static unsigned device_count;
 static unsigned out_of_range_reads;
 
@@ -72,13 +72,17 @@ int main(void) {
     }
 
     bridge->cfg[6] = 5u | (6u << 8) | (7u << 16);
+    model_device_t* nested = add_device(6, 4, 0x1111, 0x3333, 0x06040000u, 1);
+    nested->cfg[6] = 6u | (7u << 8) | (7u << 16);
+    add_device(7, 5, 0x4321, 0x8765, 0x02000000u, 0);
     out_of_range_reads = 0;
     count = pci_init_range(5, 7);
     const pci_dev_t* endpoint = pci_find(0x1234, 0x5678);
-    if (count != 2 || pci_count() != 2 || !endpoint ||
-        endpoint->bus != 6 || pci_find(0x9999, 0x8888) ||
-        out_of_range_reads != 0) {
-        puts("FAIL: nonzero root bus or in-range bridge traversal failed");
+    const pci_dev_t* nested_endpoint = pci_find(0x4321, 0x8765);
+    if (count != 4 || pci_count() != 4 || !endpoint || endpoint->bus != 6 ||
+        !nested_endpoint || nested_endpoint->bus != 7 ||
+        pci_find(0x9999, 0x8888) || out_of_range_reads != 0) {
+        puts("FAIL: valid nested bridge traversal inside subordinate windows failed");
         return 1;
     }
 
@@ -90,9 +94,21 @@ int main(void) {
         return 1;
     }
 
+    /* The parent bridge now limits descendants to bus 6; its child must not expose bus 7. */
+    bridge->cfg[6] = 5u | (6u << 8) | (6u << 16);
+    out_of_range_reads = 0;
+    count = pci_init_range(5, 7);
+    const pci_dev_t* third_handle_device = pci_get(0);
+    pci_handle_t third_handle = pci_get_handle(0);
+    if (count != 3 || pci_find(0x4321, 0x8765) || out_of_range_reads != 0 ||
+        pci_resolve(second_handle) || pci_resolve(third_handle) != third_handle_device) {
+        puts("FAIL: nested bridge escaped its parent's subordinate bus window");
+        return 1;
+    }
+
     allow_rescan = 0;
-    if (pci_init_range(5, 7) != -1 || pci_count() != 2 ||
-        pci_resolve(second_handle) != pci_get(0)) {
+    if (pci_init_range(5, 7) != -1 || pci_count() != 3 ||
+        pci_resolve(third_handle) != pci_get(0)) {
         puts("FAIL: denied rescan invalidated the current PCI snapshot");
         return 1;
     }
