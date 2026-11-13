@@ -36,6 +36,9 @@ static pci_dev_t devs[PCI_MAX_DEVS];
 static int ndevs;
 static uint8_t bus_seen[256];
 static uint8_t scan_bus_min, scan_bus_max;
+static uint64_t pci_snapshot_generation;
+static uint64_t pci_next_device_id = 1;
+static int pci_identity_exhausted;
 
 void pci_set_backend(const pci_backend_t* b) {
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
@@ -154,8 +157,11 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = fn;
     uint32_t id = cr32(&t, 0);
     if ((id & 0xFFFF) == 0xFFFF) return;
-    if (ndevs >= PCI_MAX_DEVS) return;
+    if (ndevs >= PCI_MAX_DEVS || pci_identity_exhausted) return;
+    if (!pci_next_device_id) { pci_identity_exhausted = 1; return; }
     pci_dev_t* d = &devs[ndevs++];
+    d->device_id = pci_next_device_id++;
+    d->generation = pci_snapshot_generation;
     d->bus = bus; d->dev = dev; d->fn = fn;
     d->vendor = (uint16_t)id; d->device = (uint16_t)(id >> 16);
     uint32_t cls = cr32(d, 0x08);
@@ -183,11 +189,14 @@ static void scan_bus(uint8_t bus) {
 
 int pci_init_range(uint8_t first_bus, uint8_t last_bus) {
     ndevs = 0;
+    pci_identity_exhausted = 0;
     for (int i = 0; i < 256; i++) bus_seen[i] = 0;
-    if (first_bus > last_bus) return -1;
+    if (first_bus > last_bus || pci_snapshot_generation == UINT64_MAX || !pci_next_device_id) return -1;
+    pci_snapshot_generation++;
     scan_bus_min = first_bus;
     scan_bus_max = last_bus;
     scan_bus(first_bus);
+    if (pci_identity_exhausted) { ndevs = 0; return -1; }
     return ndevs;
 }
 
@@ -197,6 +206,18 @@ int pci_init(void) {
 
 int pci_count(void) { return ndevs; }
 const pci_dev_t* pci_get(int i) { return i >= 0 && i < ndevs ? &devs[i] : 0; }
+pci_handle_t pci_get_handle(int i) {
+    pci_handle_t h = { 0, 0 };
+    const pci_dev_t* d = pci_get(i);
+    if (d) { h.id = d->device_id; h.generation = d->generation; }
+    return h;
+}
+const pci_dev_t* pci_resolve(pci_handle_t h) {
+    if (!h.id || !h.generation || h.generation != pci_snapshot_generation) return 0;
+    for (int i = 0; i < ndevs; i++)
+        if (devs[i].device_id == h.id && devs[i].generation == h.generation) return &devs[i];
+    return 0;
+}
 const pci_dev_t* pci_find(uint16_t v, uint16_t dv) {
     for (int i = 0; i < ndevs; i++) if (devs[i].vendor == v && devs[i].device == dv) return &devs[i];
     return 0;
