@@ -23,6 +23,11 @@
 #define WM_TAB_MAX   8
 #define WM_DOCK_MAX  WM_SIDE_MAX
 
+typedef enum {
+    WM_LAYOUT_LEGACY = 0,
+    WM_LAYOUT_SPATIAL_MINIMAL = 1
+} wm_layout_mode_t;
+
 #define WM_CLOSABLE  1       /* окно можно закрыть (иначе красная кнопка сворачивает) */
 #define WM_PINNED    2       /* виджет: не двигается, не поднимается, без кнопок */
 #define WM_RESIZABLE 4       /* размер меняет владелец содержимого (консоль, панели ядра): вызывается ops.resize */
@@ -47,6 +52,8 @@ typedef struct {
 } wm_ops_t;
 
 void wm_init(surface_t* screen, const wm_ops_t* ops);
+void wm_set_layout_mode(wm_layout_mode_t mode);
+wm_layout_mode_t wm_get_layout_mode(void);
 int  wm_create(const char* title, int x, int y, int content_w, int content_h, int flags); /* id или -1 */
 /* Как wm_create, но память под содержимое выделяется на cap_w x cap_h: размер можно менять до этого предела. */
 int  wm_create_ex(const char* title, int x, int y, int content_w, int content_h, int flags, int cap_w, int cap_h);
