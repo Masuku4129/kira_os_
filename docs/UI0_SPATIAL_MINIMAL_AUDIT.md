@@ -265,3 +265,9 @@
 - Compositor counters are exposed through `display_get_render_stats()`; boot diagnostics now report average dirty pixels per composed frame. This is instrumentation, not a measured legacy-vs-Spatial benchmark.
 - Added host regressions for workspace isolation, pinned-global windows, moving windows, shortcut routing, bounded notification history, toast expiry/dismissal, modal pointer isolation, and compact viewport geometry.
 - Pending: exact-head CI, QEMU/Limbo runtime visual verification, actual Android touch test, multi-resolution/DPI matrix and measured frame-time comparison. DPI scaling is not claimed; physical density is not currently provided by the display abstraction.
+
+
+## 15. Notification-center keyboard access — PR #143 (2026-11-13)
+- Ctrl+Alt+N toggles the notification history in Spatial Minimal. It is handled by the display owner and consumed by the shared input layer, so the focused application does not receive the shortcut.
+- Added a regression in `tests/input_test.c` verifying the scan-code chord, emitted shell hotkey and suppression of the printable key event.
+- This improves keyboard reachability; it does not complete the broader accessibility requirements (focus traversal, visible focus, screen-reader API, reduced motion and DPI scaling remain open/unverified).
