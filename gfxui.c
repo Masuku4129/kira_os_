@@ -300,8 +300,8 @@ void ui_text_fit(surface_t* s, int x, int y, const char* t, int maxw, uint32_t c
 }
 
 void ui_card(surface_t* s, int x, int y, int w, int h, const char* title, uint32_t accent) {
-    ui_round_rect(s, x, y, w, h, TH_RADIUS, TH_CARD, 255);
-    ui_round_frame(s, x, y, w, h, TH_RADIUS, TH_CARD_EDGE, 255);
+    ui_round_rect(s, x, y, w, h, TH_RADIUS_SURFACE, TH_CARD, 255);
+    ui_round_frame(s, x, y, w, h, TH_RADIUS_SURFACE, TH_CARD_EDGE, 255);
     if (title) {
         gfx_rect(s, x + 12, y + 11, 3, 12, accent);
         gfx_text(s, x + 21, y + 9, title, TH_TEXT_FAINT, -1);
@@ -309,8 +309,8 @@ void ui_card(surface_t* s, int x, int y, int w, int h, const char* title, uint32
 }
 
 void ui_button(surface_t* s, int x, int y, int w, int h, const char* label, uint32_t color, int hover, int on) {
-    ui_round_rect(s, x, y, w, h, 8, on ? ui_mix(TH_CARD, color, 70) : hover ? ui_mix(TH_CARD, color, 45) : TH_TRACK, 255);
-    ui_round_frame(s, x, y, w, h, 8, on ? color : hover ? ui_mix(TH_CARD_EDGE, color, 140) : TH_CARD_EDGE, 255);
+    ui_round_rect(s, x, y, w, h, TH_RADIUS_CONTROL, on ? ui_mix(TH_CARD, color, 70) : hover ? ui_mix(TH_CARD, color, 45) : TH_TRACK, 255);
+    ui_round_frame(s, x, y, w, h, TH_RADIUS_CONTROL, on ? color : hover ? ui_mix(TH_CARD_EDGE, color, 140) : TH_CARD_EDGE, 255);
     int tw = gfx_text_width(label);
     gfx_text(s, x + (w - tw) / 2, y + (h - 16) / 2, label, on || hover ? TH_TEXT : TH_TEXT_DIM, -1);
 }

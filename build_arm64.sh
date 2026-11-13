@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 A=arch/aarch64
 CC="clang --target=aarch64-unknown-none-elf"
 CFLAGS="$KIRA_ARM64_EXTRA -ffreestanding -fno-builtin -nostdlib -mgeneral-regs-only -mstrict-align -fpie -fno-stack-protector -fno-omit-frame-pointer -fno-asynchronous-unwind-tables -O2 -Wall -Wextra -Werror -Ibuild-arm64 -I$A -I."
+if [ "${KIRA_SPATIAL_PREVIEW:-0}" = "1" ]; then CFLAGS="$CFLAGS -DKIRA_SPATIAL_PREVIEW=1"; fi
 mkdir -p build-arm64
 # Программы для ARM64 (EL0): те же исходники, что и для x86-64; ядро их не содержит - они лежат на диске в /bin
 HOSTCC="${HOSTCC:-clang}"

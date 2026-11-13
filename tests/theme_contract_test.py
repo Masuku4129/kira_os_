@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Guard the Spatial Minimal palette and ensure default Legacy builds stay unchanged."""
+from pathlib import Path
+import re
+
+source = Path(__file__).resolve().parents[1].joinpath("theme.h").read_text(encoding="utf-8")
+spatial = source.split("#ifdef KIRA_SPATIAL_PREVIEW", 1)[1].split("#else", 1)[0]
+legacy = source.split("#else", 1)[1].split("#endif", 1)[0]
+
+spatial_expected = {
+    "TH_BG0": "0x00070D19u",
+    "TH_PANEL1": "0x000C1629u",
+    "TH_TILE": "0x0013213Au",
+    "TH_BORDER": "0x00263653u",
+    "TH_ACCENT_PRIMARY": "0x009B6BFFu",
+    "TH_ACCENT_SECONDARY": "0x0042A5FFu",
+    "TH_STATE_SUCCESS": "0x0035C995u",
+    "TH_STATE_WARNING": "0x00F2B84Bu",
+    "TH_STATE_DANGER": "0x00F07178u",
+    "TH_TEXT": "0x00F1F3FAu",
+    "TH_TEXT_DIM": "0x00AAB5CCu",
+    "TH_RADIUS_CONTROL": "12",
+    "TH_RADIUS_SURFACE": "20",
+}
+for name, value in spatial_expected.items():
+    pattern = rf"^#define\s+{name}\s+{re.escape(value)}\s*$"
+    if not re.search(pattern, spatial, re.MULTILINE):
+        raise SystemExit(f"FAIL: Spatial {name} must be {value}")
+
+for name, target in {
+    "TH_CYAN": "TH_ACCENT_PRIMARY",
+    "TH_PURPLE": "TH_ACCENT_PRIMARY",
+    "TH_BLUE": "TH_ACCENT_SECONDARY",
+    "TH_GREEN": "TH_STATE_SUCCESS",
+    "TH_AMBER": "TH_STATE_WARNING",
+    "TH_RED": "TH_STATE_DANGER",
+}.items():
+    if not re.search(rf"^#define\s+{name}\s+{target}\s*$", spatial, re.MULTILINE):
+        raise SystemExit(f"FAIL: Spatial {name} must alias {target}")
+
+for name, target in {
+    "TH_ACCENT_PRIMARY": "TH_CYAN",
+    "TH_ACCENT_SECONDARY": "TH_BLUE",
+    "TH_STATE_SUCCESS": "TH_GREEN",
+    "TH_STATE_WARNING": "TH_AMBER",
+    "TH_STATE_DANGER": "TH_RED",
+}.items():
+    if not re.search(rf"^#define\s+{name}\s+{target}\s*$", legacy, re.MULTILINE):
+        raise SystemExit(f"FAIL: Legacy semantic alias {name} must map to {target}")
+
+legacy_expected = {
+    "TH_CYAN": "0x0022D3EEu",
+    "TH_RADIUS_CONTROL": "8",
+    "TH_RADIUS_SURFACE": "10",
+    "TH_FULLSCREEN_BG": "0x0004070Eu",
+}
+for name, value in legacy_expected.items():
+    pattern = rf"^#define\s+{name}\s+{re.escape(value)}\s*$"
+    if not re.search(pattern, legacy, re.MULTILINE):
+        raise SystemExit(f"FAIL: Legacy {name} must remain {value}")
+
+print("theme: Spatial Minimal tokens and Legacy palette preservation passed")

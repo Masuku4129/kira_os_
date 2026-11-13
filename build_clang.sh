@@ -5,6 +5,7 @@
 #   ./build_clang.sh --vnc      собрать и запустить с экраном по VNC (127.0.0.1:5900)
 #   ./build_clang.sh --vnc --ata  то же, но диск как ATA (по умолчанию virtio-blk)
 #   ./build_clang.sh --no-run   только собрать
+#   ./build_clang.sh --no-run --spatial-preview  собрать Spatial Minimal для CI без Android-пути и без исключения тестовых программ
 #   ./build_clang.sh --vnc --xhci --hub --flash   собрать и запустить с USB-хабом и флешкой (см. run_qemu.sh)
 #   ./build_clang.sh --android  собрать Spatial Minimal preview и положить kira.iso и kira_disk.img в Download телефона (для Limbo x86):
 #                               диск в Download обновляется на месте - /bin новый, опыт (/var) и файлы программ (/data) сохраняются.
@@ -17,7 +18,7 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
 # Android/Limbo package is an explicit Spatial Minimal preview; CI and ordinary builds keep Legacy.
-case " $* " in *" --android "*) CFLAGS="$CFLAGS -DKIRA_SPATIAL_PREVIEW=1" ;; esac
+case " $* " in *" --android "*|*" --spatial-preview "*) CFLAGS="$CFLAGS -DKIRA_SPATIAL_PREVIEW=1" ;; esac
 
 C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c prog_queue.c prog_catalog.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c crypto.c rng.c virtio_rng.c scale.c kobj.c futex.c"
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
@@ -165,9 +166,9 @@ else
     echo "[!] В ISO нет UEFI-загрузки: современные ПК её не увидят. Установите: apt install grub-efi-amd64-bin mtools xorriso, затем соберите снова."
 fi
 
-case "$1" in
-    --no-run) exit 0 ;;
-    --android)
+case " $* " in
+    *" --no-run "*) exit 0 ;;
+    *" --android "*)
         OUT="${KIRA_OUT:-/storage/emulated/0/Download}"
         [ -d "$OUT" ] || { echo "[!] Нет папки $OUT (в Termux: termux-setup-storage; в proot - проверьте, что /storage примонтирован)"; exit 1; }
         cp kira.iso "$OUT/kira.iso"

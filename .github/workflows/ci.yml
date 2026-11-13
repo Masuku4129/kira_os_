@@ -46,7 +46,7 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools
       - name: build (clang, -Werror)
         run: |
-          ./build_clang.sh --no-run
+          ./build_clang.sh --no-run --spatial-preview
           mkdir -p sym && nm -n kira.bin > sym/kira.sym
       - uses: actions/upload-artifact@v4
         with:
@@ -59,6 +59,24 @@ jobs:
             kira.iso
             kira.disk
             kira.bin
+      - name: build Android/Limbo update package (Spatial Minimal)
+        run: |
+          mkdir -p ci-out/android
+          KIRA_OUT="$GITHUB_WORKSPACE/ci-out/android" ./build_clang.sh --android
+          test -s ci-out/android/kira.iso
+          test -s ci-out/android/kira_disk.img
+          xorriso -indev ci-out/android/kira.iso -report_el_torito plain 2>&1 | tee ci-out/android/boot-report.txt
+          grep -qi uefi ci-out/android/boot-report.txt
+          sha256sum ci-out/android/kira.iso ci-out/android/kira_disk.img > ci-out/android/SHA256SUMS
+          sudo apt-get install -y -q qemu-system-x86
+          python3 ci/kira_vm.py --scenario boot-ata --iso ci-out/android/kira.iso --disk ci-out/android/kira_disk.img --out ci-out/android-smoke
+          grep -q "Shell online: Spatial Minimal preview" ci-out/android-smoke/boot-ata/serial.log
+          cp ci-out/android-smoke/boot-ata/serial.log ci-out/android/boot-smoke.log
+          cp ci-out/android-smoke/boot-ata/result.json ci-out/android/boot-smoke-result.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-android-update
+          path: ci-out/android/
 
   arm64:
     runs-on: ubuntu-24.04
@@ -67,7 +85,7 @@ jobs:
       - name: tools
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld llvm qemu-system-arm dosfstools mtools python3-pil python3-cryptography ca-certificates openssl
       - name: build ARM64 (clang, -Werror)
-        run: ./build_arm64.sh && ci/make_flash.sh
+        run: KIRA_SPATIAL_PREVIEW=1 ./build_arm64.sh && ci/make_flash.sh
       - name: "scenarios (QEMU virt - GICv2/GICv3, 1-8 cores, EL1/EL2, exception vectors)"
         run: |
           set -o pipefail
