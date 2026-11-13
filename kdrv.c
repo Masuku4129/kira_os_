@@ -34,7 +34,7 @@ typedef struct { uint64_t va; uint32_t pages; } kmap_t;
 typedef struct { uint64_t pa; uint32_t pages; } kblk_t;
 
 typedef struct {
-    pci_handle_t device;              /* identity/generation snapshot; slot remains reserved for this device */
+    device_handle_t device;              /* identity/generation snapshot; slot remains reserved for this device */
     volatile int state;
     char name[16];
     uint32_t granted, version, pid;
@@ -99,15 +99,15 @@ static int builtin_owned(const pci_dev_t* d) {
     return 0;
 }
 
-static pci_handle_t handle_for_device(const pci_dev_t* d) {
-    pci_handle_t empty = { 0, 0 };
+static device_handle_t handle_for_device(const pci_dev_t* d) {
+    device_handle_t empty = { 0, 0 };
     for (int i = 0; i < pci_count(); i++) {
         if (pci_get(i) == d) return pci_get_handle(i);
     }
     return empty;
 }
 
-static int handle_equal(pci_handle_t a, pci_handle_t b) {
+static int handle_equal(device_handle_t a, device_handle_t b) {
     return a.id == b.id && a.generation == b.generation && a.id != 0 && a.generation != 0;
 }
 
@@ -116,7 +116,7 @@ static const pci_dev_t* bound_device(const bind_t* b) {
 }
 
 static bind_t* find_slot(const pci_dev_t* d, int create) {
-    pci_handle_t h = handle_for_device(d);
+    device_handle_t h = handle_for_device(d);
     if (!h.id || !h.generation) return 0;
     uint64_t f = spin_lock_irqsave(&klock);
     bind_t* r = 0;
