@@ -31,6 +31,10 @@
 #include "vfs.h"
 #include "spinlock.h"
 #include "cpu.h"
+#ifndef KIRA_HOST_TEST
+#include "net.h"
+#include "audio.h"
+#endif
 
 /* Поток дисплея: единственный, кто выводит кадры. Оболочка «ОС Кира»: верхняя панель с разделами, часами и
    индикаторами, боковая панель приложений, окна; приложения ядра (Терминал, Разум, Монитор, Проводник, Настройки)
@@ -537,6 +541,21 @@ static void update_clock(void) {
     wm_set_clock(date, hm);
 }
 
+static void update_system_io(void) {
+#ifndef KIRA_HOST_TEST
+    netdev_t* dev = net_dev();
+    int link = -1;
+    if (dev && dev->link) {
+        int state = dev->link(dev);
+        link = state > 0 ? 1 : state == 0 ? 0 : -1;
+    }
+    int volume = audio_running() ? audio_master(-1) : -1;
+    wm_set_system_io(link, volume);
+#else
+    wm_set_system_io(-1, -1);
+#endif
+}
+
 static void update_mind(void) {
     uint32_t v = mind_sys_version();
     if (v == mv_ver) return;
@@ -690,7 +709,7 @@ static void display_main(void* arg) {
         update_files();
 
         uint64_t now0 = clock_ns();
-        if (now0 - clock_t0 >= 500000000ULL) { clock_t0 = now0; update_clock(); }
+        if (now0 - clock_t0 >= 500000000ULL) { clock_t0 = now0; update_clock(); update_system_io(); }
         side_rebuild(0);                                   /* появились/закрылись окна программ - левая панель следует */
         {                                                  /* подключили или вынули флешку - Проводник перечитывает дерево */
             static uint32_t vgen;
