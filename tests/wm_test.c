@@ -418,6 +418,32 @@ int main(void) {
     CHECK(!wm_system_panel_is_open());
     frame();
 
+    /* Bounded notification history and passive toast never steal application input. */
+    int notification_under = wm_create("notification-underlay", 400, 250, 180, 110, WM_INPUT);
+    CHECK(notification_under >= 0);
+    wm_raise(notification_under);
+    wm_anim(10000, 0);
+    CHECK(wm_notification_post("Система", "Проверочное уведомление", WM_NOTIFY_INFO) == 0);
+    CHECK(wm_notification_count() == 1 && wm_notification_unread_count() == 1);
+    CHECK(wm_notification_toast_is_visible());
+    frame();
+    wm_anim(14999, 0); CHECK(wm_notification_toast_is_visible());
+    wm_anim(15000, 0); CHECK(!wm_notification_toast_is_visible());
+    for (int ni = 0; ni < 10; ni++) CHECK(wm_notification_post("Событие", "Проверка ограниченной очереди", ni % 3) == 0);
+    CHECK(wm_notification_count() == 8 && wm_notification_unread_count() == 8);
+    click(1024 - 26, 20); CHECK(wm_system_panel_is_open());
+    in_n = 0; click(900, 108); /* notifications row inside the quick-system panel */
+    CHECK(wm_notification_center_is_open() && !wm_system_panel_is_open());
+    CHECK(wm_notification_unread_count() == 0 && wm_notification_count() == 8);
+    move_to(450, 300, 0); CHECK(in_n == 0);
+    click(450, 300); CHECK(!wm_notification_center_is_open() && in_n == 0);
+    click(1024 - 26, 20); click(900, 108);
+    CHECK(wm_notification_center_is_open());
+    click(960, 70); /* clear-history action */
+    CHECK(!wm_notification_center_is_open() && wm_notification_count() == 0);
+    wm_destroy(notification_under);
+    frame();
+
     /* Spatial window controls expose 32x32 hit areas while retaining compact visual dots. */
     int touch_window = wm_create("touch-controls", 280, 180, 160, 100, WM_CLOSABLE);
     CHECK(touch_window >= 0);
