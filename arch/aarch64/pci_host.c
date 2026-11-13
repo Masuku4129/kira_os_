@@ -38,8 +38,8 @@ void arm_pci_init(const void* fdt, arm_pci_log_fn log) {
         }
         bus0 = fdt_u32(br);
         bus1 = fdt_u32(br + 4);
-        if (bus0 != 0 || bus0 > bus1 || bus1 > 255) {
-            if (log) log("[KIRA PCI] bus-range must start at bus 0 and end within 0..255\n");
+        if (bus0 > bus1 || bus1 > 255) {
+            if (log) log("[KIRA PCI] invalid bus-range; expected 0 <= start <= end <= 255\n");
             return;
         }
     } else {
