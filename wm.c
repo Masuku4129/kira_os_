@@ -189,7 +189,7 @@ static int spatial_dock_slot(int item) {
 static int spatial_dock_tile(void) {
     int n = spatial_dock_count();
     if (n <= 0) return TILE;
-    int available = scr->w - 24;
+    int available = scr->w - 48;
     int gap = TILE_GAP;
     int width = n * TILE + (n - 1) * gap;
     if (width > available) {
@@ -202,7 +202,7 @@ static int spatial_dock_tile(void) {
 
 static int spatial_dock_gap(void) {
     int n = spatial_dock_count(), tile = spatial_dock_tile();
-    return n * tile + (n - 1) * TILE_GAP > scr->w - 24 ? 4 : TILE_GAP;
+    return n * tile + (n - 1) * TILE_GAP > scr->w - 48 ? 4 : TILE_GAP;
 }
 
 static int spatial_dock_x(int item) {
