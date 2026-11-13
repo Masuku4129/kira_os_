@@ -263,3 +263,11 @@
 ### Mind memory forecast — telemetry-gap expectation correction (2026-11-12)
 - В PR #81 исправлен regression expectation: timestamp 11 после пропущенного 10 становится новым baseline, timestamp 12 уже содержит первый измеренный growth interval. Проверка теперь отражает фактическую последовательность, не откладывая валидный прогноз ещё на один tick.
 - Latest head `9e70a1d2ab490d1c414c85e28fdbd06327bfefd1`, workflow run `43223432833` in progress: `mind-quality`, ARM64 build, driver E2E, GUI regression и audit завершились success; host tests, KCC и kernel build ещё выполнялись на момент записи. Полный CI пока не завершён.
+
+
+### PCI firmware Bus Master classification hardening — 2026-11-13
+- PR #137: source review found the previous exemption `class_code == 0x06` preserved `PCI_CMD_MASTER` for every bridge-class function, not just bridges that must forward downstream transactions.
+- Updated `pci.c`: preserve the bit only for PCI-to-PCI bridges (header type 1, class 06/subclass 04) and CardBus bridges (header type 2, class 06/subclass 07); clear it for host bridges, ISA/other non-forwarding bridge classes and endpoints.
+- Expanded `tests/pci_test.c` to cover host bridge, PCI-to-PCI bridge, ISA bridge, CardBus bridge and endpoint, including preservation of IO/MEM decode and explicit owner enable for an endpoint.
+- Updated `pci.h` to document the precise forwarding exception. Source head: `f1bdedd0af1fc11feae1a7db1a65f4cf7a91624e`.
+- Exact-head CI has not yet been observed; local test execution is unavailable in this session. Do not mark this change PASS until CI runs on this SHA.
