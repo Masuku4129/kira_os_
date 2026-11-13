@@ -97,7 +97,7 @@ static void notify_copy(char* dst, const char* src, unsigned cap) {
     dst[i] = 0;
 }
 int display_notify(const char* title, const char* message, int priority) {
-    if (!title || !message || !ready) return -1;
+    if (!title || !message || !__atomic_load_n(&ready, __ATOMIC_ACQUIRE)) return -1;
     uint64_t flags = spin_lock_irqsave(&notify_lk);
     if (notify_head - notify_tail >= DISPLAY_NOTIFY_QUEUE) { spin_unlock_irqrestore(&notify_lk, flags); return -2; }
     display_notification_t* n = &notify_queue[notify_head % DISPLAY_NOTIFY_QUEUE];
@@ -771,7 +771,7 @@ int display_init(unsigned long mbi) {
         uart_print("[KIRA DISPLAY] cannot create display thread.\n");
         return -6;
     }
-    ready = 1;
+    __atomic_store_n(&ready, 1, __ATOMIC_RELEASE);
 #ifdef KIRA_SPATIAL_PREVIEW
     uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal preview, left navigation, pinned-only bottom Dock, quiet canvas.\n");
 #else
