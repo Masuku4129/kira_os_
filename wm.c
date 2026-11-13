@@ -1707,7 +1707,7 @@ static void draw_overview(surface_t* c, int ox, int oy) {
     ui_round_rect(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BAR0, 255);
     ui_round_frame(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BORDER, 255);
     gfx_text(c, 36 + ox, 58 + oy, "ОКНА", TH_TEXT, -1);
-    gfx_text(c, 118 + ox, 60 + oy, "Выберите окно для возврата", TH_TEXT_DIM, -1);
+    if (scr->w >= 480) gfx_text(c, 118 + ox, 60 + oy, "Выберите окно для возврата", TH_TEXT_DIM, -1);
     overview_button(c, ox, oy, scr->w - 104, 50, 72, "Закрыть", 1);
 
     int cols, rows, per, left, top, cw, ch;
