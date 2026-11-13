@@ -224,11 +224,12 @@ void input_push_scancode_from(int src, uint8_t byte) {
         if (layout_ru) ev.ch = input_cyr(ev.key, ev.ch, ev.mods);
         if (ev.key == KEY_F10 || ev.key == KEY_F11 ||
             ((ev.mods & (INPUT_MOD_CTRL | INPUT_MOD_ALT)) == (INPUT_MOD_CTRL | INPUT_MOD_ALT) &&
-             (ev.key == KEY_LEFT || ev.key == KEY_RIGHT))) {
+             (ev.key == KEY_LEFT || ev.key == KEY_RIGHT || ev.key == 'n'))) {
             if (ev.type == INPUT_KEY_DOWN) {
                 int hk = ev.key;
                 if (ev.key == KEY_LEFT) hk = (ev.mods & INPUT_MOD_SHIFT) ? KEY_WORKSPACE_MOVE_PREV : KEY_WORKSPACE_PREV;
                 else if (ev.key == KEY_RIGHT) hk = (ev.mods & INPUT_MOD_SHIFT) ? KEY_WORKSPACE_MOVE_NEXT : KEY_WORKSPACE_NEXT;
+                else if (ev.key == 'n') hk = KEY_NOTIFICATION_TOGGLE;
                 __atomic_store_n(&hotkey_pending, hk, __ATOMIC_RELEASE);
             }
         } else {
