@@ -146,7 +146,8 @@
 
 ## 12. UI-3 — first integrated Launcher slice (2026-11-13)
 
-- Added a dedicated “ПРИЛОЖЕНИЯ” action to the Spatial Minimal system zone. It is a WM callback, not a legacy tab; the legacy top bar and tab behavior remain unchanged.
+- The primary navigation rail now contains the real system destinations in this order: Home, Applications, Files, KIRA AI, Monitor, Settings and Terminal. Applications is a normal navigation destination; its former duplicate top-bar button has been removed. The separate Window Overview control remains in the system zone.
+- The bottom Dock remains a projection of the persisted user-pinned application list only. Running-but-unpinned applications and the old “add program” action are not rendered or hit-testable in Spatial Minimal. Existing `/var/dock` persistence and pin/unpin actions remain intact.
 - Added a kernel-owned Launcher window that renders the generated curated catalog, supports substring search over program name/title/category/description, keyboard navigation, Enter launch, row selection and Escape close.
 - Search input is routed through the shared input layer and Russian keyboard-layout conversion. The Launcher owns keyboard focus only while it is the top visible window; Explorer receives focus only when it is top and Launcher is not. The console is told when either owns the keyboard.
 - Launch requests use prog_request() and report accepted/busy/invalid plus asynchronous completion. No direct ELF execution or trust bypass was added; prog_run_ex() remains responsible for manifest/SHA-256 verification.
