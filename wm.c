@@ -836,7 +836,7 @@ int wm_workspace_count(void) { return WM_WORKSPACE_MAX; }
 
 int wm_workspace_center(int workspace, int* x, int* y) {
     if (workspace < 0 || workspace >= WM_WORKSPACE_MAX || !x || !y || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return -1;
-    *x = 204; *y = WM_TOP_H / 2;
+    *x = scr->w >= 640 ? scr->w - 165 : scr->w - 82; *y = WM_TOP_H / 2;
     return 0;
 }
 
@@ -1122,6 +1122,9 @@ static void click(int px, int py) {
             wm_window_overview_toggle(); return;
         }
         if (scr->w >= 640 && px >= scr->w - 192 && px < scr->w - 130 && py >= 10 && py < 38) {
+            wm_workspace_switch((current_workspace + 1) % WM_WORKSPACE_MAX); return;
+        }
+        if (scr->w < 640 && px >= scr->w - 102 && px < scr->w - 60 && py >= 10 && py < 38) {
             wm_workspace_switch((current_workspace + 1) % WM_WORKSPACE_MAX); return;
         }
         if (px >= scr->w - 52 && px < scr->w - 12 && py >= 10 && py < 38) {
@@ -1494,6 +1497,9 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
                       system_panel_open ? TH_CYAN : TH_TEXT_DIM, 0);
             if (notification_unread()) ui_disc(c, gx + 247 + ox, y + 12, 4, TH_AMBER, 255);
         } else {
+            ui_round_rect(c, gx - 46 + ox, y + 11, 40, 26, 9, TH_TILE, 255);
+            char workspace_text[8] = { (char)('1' + current_workspace), '/', '4', 0 };
+            gfx_text(c, gx - 37 + ox, y + 18, workspace_text, TH_TEXT_DIM, -1);
             ui_round_rect(c, gx + 6 + ox, y + 11, 36, 26, 9, TH_TILE, 255);
             ui_round_frame(c, gx + 6 + ox, y + 11, 36, 26, 9,
                            system_panel_open ? TH_CYAN : TH_BORDER, 220);
