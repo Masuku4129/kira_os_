@@ -288,3 +288,16 @@
 - Commits на `docs/ui0-spatial-minimal-audit`: UI-0 audit `a8cab94c1c2b76cb3bd66d10545aa777d4f870dc`, display wiring `e782aa7fb7f2d9f175478cdd96e257e836a93756`, UI-1 contract `a02367a98bf794b11ed9c5340608ca8bbb7ee90b`; PR #138 draft открыт, не слит.
 - Только документация. Production GUI и тесты не менялись/не запускались; PASS не заявляется.
 - Следующий implementation gate: отдельно спроектировать layout-mode state/API и тестовые doubles в `tests/wm_test.c`, затем добавить новый layout за feature gate без изменения legacy default.
+
+
+## 2026-11-13 — Spatial Minimal UI-2 continuation
+
+- Branch: `docs/ui0-spatial-minimal-audit`; PR #138 remains Draft/open; no merge.
+- Starting exact code head before this log update: `f992cd55c0bd3f4ca464745ee8f4a25e5d391a95`.
+- Scope: master plan J/J.1 (desktop and Spatial Minimal), D (telemetry remains contextual), K (existing system/app interfaces), N (regression evidence); workstream 9 (desktop/compositor/system apps) and 12 (CI/verification). No other workstream is declared complete or superseded.
+- Files changed in this continuation: `wm.c` (compact icon navigation rail, hover labels, partial-damage coverage for the tooltip), `tests/wm_test.c` (navigation destination callback coverage), `docs/UI0_SPATIAL_MINIMAL_AUDIT.md` (implementation progress).
+- Verification: Actions run `43379609018` on older head `3aef7f87af90e89e52626ee8b1900d611f2744be` had build and 28 VM jobs complete successfully; host tests and ARM64 QEMU scenarios were still running at last inspection. It is not a full PASS and does not verify the later code changes.
+- Actions run `43380318838` was pending on head `f992cd55c0bd3f4ca464745ee8f4a25e5d391a95`; the current documentation commit will produce a newer head and must be checked separately.
+- No local host test, local cross-build, physical device test, or visual screenshot comparison was run in this session.
+- No main-branch changes, merges, deletions, or destructive operations.
+- Remaining UI-2 work: app discovery/search, temporary window overview and a supported way to reach unpinned running applications; user-facing layout preference; contextual KIRA AI/system surfaces; responsive rail/Dock overflow and touch/DPI verification; performance baselines.
