@@ -39,6 +39,14 @@ int main(void) {
     lb_tick(&b, capture, 0);
     CHECK(emits == 1);                    /* incomplete prompt still flushes after its age */
     CHECK(emitted_len == 120);
-    puts("linebuf: long lines remain atomic; idle prompt flush works");
+
+    emitted_len = emits = 0;
+    for (unsigned i = 0; i < LB_SIZE; i++) lb_putc(&b, 'z', capture, 0);
+    CHECK(emits == 1);                    /* full buffer flushes without overflow */
+    CHECK(emitted_len == LB_SIZE);
+    CHECK(b.len == 0);
+    for (unsigned i = 0; i < LB_SIZE; i++) CHECK(emitted[i] == 'z');
+
+    puts("linebuf: long lines remain atomic; idle prompt and full-buffer flush work");
     return 0;
 }
