@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-11-13",
+  "baseline": {
+    "branch": "main",
+    "sha": "811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4",
+    "file_count": 829
+  },
+  "scope": {
+    "all_branch_refs": 302,
+    "unique_commit_heads": 290,
+    "non_ci_branch_refs": 211,
+    "non_ci_unique_tree_heads": 199,
+    "ci_result_and_preview_refs": 91
+  },
+  "completed_tree_heads": [],
+  "trees": {},
+  "branch_only_paths": {},
+  "note": "Tree-level comparison is being extended across every non-CI branch head. CI-results/preview refs are retained in branch_heads snapshot but excluded from this first active-source pass. No branch is deleted."
+}
