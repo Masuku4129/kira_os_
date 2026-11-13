@@ -547,3 +547,10 @@
 - Updated host pixel and click assertions for the compact Mind/network/audio rows and the revised audio-card hit area.
 - Commits: wm.c 93c8f2fab4f5c97d00e80ddf658a603152e9ac09; tests/wm_test.c cd573c2c4ae6affb6d50be552f840e21d6f9404c.
 - Latest branch head must receive a fresh CI run; no pass claimed. Limbo visual and performance acceptance remains pending.
+
+
+### Wide workspace geometry assertion correction — 2026-11-13
+
+- Exact-head CI run 43434842440: x86-64 build passed; host suite caught one remaining stale expectation from the pre-capsule layout (`workspace_center == 204`). The workspace capsule is now at the actual rendered wide-screen position, `screen_width - 165`, matching the hit target and compact helper contract. Updated the 1024×768 host assertion to derive its expected center from the surface width.
+- ARM64 compile/QEMU and VM scenarios were still running at the time of this correction; host failure means this run is not a pass. Fresh CI is required for the latest test commit.
+- Commit: tests/wm_test.c d694e62cef70e226db39aeb69d3354058d0c1bfc.
