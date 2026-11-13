@@ -35,6 +35,7 @@ static pci_backend_t be = { port_read32, port_write32 };
 static pci_dev_t devs[PCI_MAX_DEVS];
 static int ndevs;
 static uint8_t bus_seen[256];
+static uint8_t scan_bus_min, scan_bus_max;
 
 void pci_set_backend(const pci_backend_t* b) {
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
@@ -168,6 +169,7 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
 }
 
 static void scan_bus(uint8_t bus) {
+    if (bus < scan_bus_min || bus > scan_bus_max) return;
     if (bus_seen[bus]) return;                                       /* защита от петель в неверно настроенных мостах */
     bus_seen[bus] = 1;
     for (uint8_t dev = 0; dev < 32; dev++) {
@@ -179,11 +181,18 @@ static void scan_bus(uint8_t bus) {
     }
 }
 
-int pci_init(void) {
+int pci_init_range(uint8_t first_bus, uint8_t last_bus) {
     ndevs = 0;
     for (int i = 0; i < 256; i++) bus_seen[i] = 0;
-    scan_bus(0);
+    if (first_bus > last_bus) return -1;
+    scan_bus_min = first_bus;
+    scan_bus_max = last_bus;
+    scan_bus(first_bus);
     return ndevs;
+}
+
+int pci_init(void) {
+    return pci_init_range(0, 255);
 }
 
 int pci_count(void) { return ndevs; }
