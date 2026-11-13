@@ -333,6 +333,8 @@ int main(void) {
     CHECK(wm_workspace_count() == 4 && wm_workspace_current() == 0);
     CHECK(wm_workspace_switch(-1) == -1 && wm_workspace_switch(4) == -1);
     CHECK(wm_workspace_center(0, &nav_x, &nav_y) == 0 && nav_x == 204 && nav_y == 20);
+    wm_set_visible(a, 1); wm_set_visible(b, 1);
+    wm_set_visible(a, 0); /* side activation below must restore a from another workspace */
     int ws_window = wm_create("workspace-one", 620, 420, 120, 80, WM_CLOSABLE);
     CHECK(ws_window >= 0 && wm_visible(ws_window));
     wm_set_visible(ws_window, 0);
