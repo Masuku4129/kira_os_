@@ -1,0 +1,1 @@
+{"name": "arm64-drvman", "ok": false, "error": "@log drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*пакет edunc установлен, не запущен: нет в журнале", "seconds": 29.2}
