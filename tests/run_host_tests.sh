@@ -10,6 +10,7 @@ echo "== Spatial Minimal partial redraw bounds =="
 python3 tests/ui_damage_contract_test.py
 echo "== Spatial Minimal semantic design tokens =="
 python3 tests/theme_contract_test.py
+python3 tests/spatial_build_contract_test.py
 
 
 echo "== logic (sha256, immune) =="
