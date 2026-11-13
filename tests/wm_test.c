@@ -329,6 +329,18 @@ int main(void) {
     CHECK(wm_side_center(2, &dock_x, &dock_y) == -1); /* bottom action is not a Dock pin */
     CHECK(wm_side_center(3, &dock_x, &dock_y) == -1); /* running, unpinned apps are not in the Dock */
 
+    /* Spatial windows use a quiet surface and a thin separator; Legacy keeps its neon frame. */
+    int spatial_style = wm_create("spatial-style", 300, 220, 220, 100, WM_CLOSABLE);
+    CHECK(spatial_style >= 0);
+    wm_raise(spatial_style);
+    frame();
+    int style_x, style_y;
+    CHECK(wm_window_pos(spatial_style, &style_x, &style_y) == 0);
+    CHECK(px(&scr, style_x + 140, style_y + WM_HEAD - 1) == TH_BORDER);
+    CHECK(px(&scr, style_x + 220, style_y + 12) == TH_BAR0);
+    wm_destroy(spatial_style);
+    frame();
+
     /* Four isolated workspaces; pinned system windows remain global. */
     CHECK(wm_workspace_count() == 4 && wm_workspace_current() == 0);
     CHECK(wm_workspace_switch(-1) == -1 && wm_workspace_switch(4) == -1);
@@ -625,10 +637,14 @@ int main(void) {
 
     int small_notif_under = wm_create("small-notification-underlay", 40, 100, 100, 60, WM_INPUT);
     CHECK(small_notif_under >= 0);
+    uint8_t small_busy[1] = { 35 };
+    wm_set_meters(small_busy, 1, 58, 20);
     wm_anim(20000, 0);
     CHECK(wm_notification_post("Система", "Событие на компактном экране", WM_NOTIFY_WARNING) == 0);
     CHECK(wm_notification_toast_is_visible());
     click(294, 20); CHECK(wm_system_panel_is_open());
+    frame();
+    CHECK(px(&narrow, 40, 196) == TH_RED); /* KIRA Mind row remains visible in the 320x240 quick panel */
     click(160, 108); CHECK(wm_notification_center_is_open());
     in_n = 0; move_to(80, 130, 0); CHECK(in_n == 0);
     click(80, 130); CHECK(in_n == 0 && wm_notification_center_is_open());
