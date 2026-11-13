@@ -370,7 +370,7 @@ int main(void) {
     click(1024 - 26, 20);
     CHECK(wm_system_panel_is_open());
     frame();
-    CHECK(px(&scr, 760, 60) == TH_BAR0);
+    CHECK(px(&scr, 780, 70) == TH_BAR0);
     click(500, 300);
     CHECK(!wm_system_panel_is_open());
     frame();
