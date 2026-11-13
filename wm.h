@@ -69,6 +69,8 @@ int wm_workspace_current(void);
 int wm_workspace_count(void);
 int wm_workspace_switch(int workspace);
 int wm_workspace_center(int workspace, int* x, int* y);
+int wm_window_workspace(int id);
+int wm_window_move_workspace(int id, int workspace);
 /* Bounded, non-modal notifications. Posting never changes focus or window ownership. */
 enum { WM_NOTIFY_INFO = 0, WM_NOTIFY_WARNING = 1, WM_NOTIFY_CRITICAL = 2 };
 int wm_notification_post(const char* title, const char* message, int priority);
