@@ -327,3 +327,12 @@
 - Fixed by clearing capture/drag/resize on overview activation, routing all pointer events exclusively to the overlay while open, and consuming the release edge that closes it.
 - Added a WM_INPUT regression case proving no motion, press, or release is forwarded to a covered window during selection.
 - Latest code/test head before this log update: 8f5ea7c0666f6414f8c62b373113ee62631baf6e. Actions run 43381183587 was pending at inspection; no jobs had started yet. Await a fresh run on the final documented head.
+
+
+### Window overview hardening and CI follow-up — 2026-11-13
+- Run 43381228981 on SHA 2a07ef6a7ec72c21afce121250dfebdf0ae65b94 failed x86 build: click() called overview_click() before declaration. Added a static forward declaration; this was a defect in the new implementation and is corrected in subsequent head.
+- Run 43381369536 on SHA ecc2249e447229254d73bb7da96e2e90f60754df was cancelled by a newer push before jobs completed; it is not evidence of PASS or FAIL for later code.
+- Added per-window generation tokens to prevent stale overview cards from selecting a different window after WM slot reuse. Added a test that destroys a window and reuses its ID before the next compose.
+- Added overview-card damage mapping so title/visibility/content updates refresh the corresponding card, including a hidden app's thumbnail, without forcing a full-screen redraw on every pointer move.
+- Added regression coverage for hidden-window thumbnail refresh and retained input isolation/release tests.
+- Latest code/test SHA at this log entry: 92457448177442e9d429fbaf0685faa55961815c. Latest exact-head Actions run not yet visible at time of writing; no PASS declared. Local compile, Limbo and physical-hardware tests were not run.
