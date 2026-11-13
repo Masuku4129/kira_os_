@@ -587,6 +587,7 @@ static int overview_refresh(void) {
 void wm_window_overview_toggle(void) {
     if (overview_open) overview_open = 0;
     else { overview_page = 0; overview_refresh(); overview_open = 1; }
+    capture = -1; dragging = -1; resizing = -1;
     damage(0, 0, scr->w, scr->h);
 }
 
@@ -814,6 +815,12 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
     update_hover();
 
     int left = buttons & 1, was = prev_buttons & 1;
+    if (overview_open) {
+        if (left && !was) click(cx, cy);
+        capture = -1; dragging = -1; resizing = -1;
+        prev_buttons = buttons;
+        return; /* overlay owns input; never leak clicks or pointer events to an underlying app */
+    }
     if (left && !was) click(cx, cy);
     if ((buttons & 2) && !(prev_buttons & 2) && fs_top() < 0 && ops.side_alt) {      /* правая кнопка на значке */
         int si = side_hit(cx, cy);
