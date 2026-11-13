@@ -1447,7 +1447,7 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     }
     blit_content(c, x + WM_PAD, y + WM_HEAD, disp_w(w), disp_h(w), w);
     if (w->resizable || w->zoomable) {
-        uint32_t gc = resizing == id ? TH_ACCENT_PRIMARY : TH_TEXT_FAINT;
+        uint32_t gc = resizing == id ? TH_CYAN : TH_RESIZE_IDLE;
         int bx = x + ow - 6, by = y + oh - 6;
         for (int a = 3; a <= 9; a += 3) gfx_line(c, bx - a, by, bx, by - a, gc);
     }
@@ -1456,7 +1456,7 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
 static void draw_fullscreen(surface_t* c, int ox, int oy, int id) {
     const win_t* w = &win[id];
     int fx, fy, dw, dh; geom(w, &fx, &fy, &dw, &dh);
-    gfx_rect(c, 0, 0, c->w, c->h, TH_BG0);
+    gfx_rect(c, 0, 0, c->w, c->h, TH_FULLSCREEN_BG);
     blit_content(c, fx + ox, fy + oy, dw, dh, w);
 }
 
@@ -1465,8 +1465,8 @@ static void draw_pill(surface_t* c, int ox, int oy, int fs, int show) {
     if (!show) { ui_round_rect(c, scr->w / 2 - 24 + ox, 4 + oy, 48, 4, 2, TH_CYAN, 110); return; }
     int x, y, pw, ph, n; pill_rect(w, &x, &y, &pw, &ph, &n);
     x += ox; y += oy;
-    ui_round_rect(c, x, y, pw, ph, TH_RADIUS_SURFACE, TH_BAR0, 240);
-    ui_round_frame(c, x, y, pw, ph, TH_RADIUS_SURFACE, ui_mix(TH_BORDER, TH_ACCENT_PRIMARY, 120), 255);
+    ui_round_rect(c, x, y, pw, ph, 18, TH_BAR0, 240);
+    ui_round_frame(c, x, y, pw, ph, 18, ui_mix(TH_BORDER, TH_CYAN, 120), 255);
     static const uint32_t col[3] = { TH_CLOSE, TH_MIN, TH_FULL };
     for (int k = 0; k < n; k++) ui_disc(c, x + 12 + k * 36 + 18, y + 18, 8, col[k], 255);
 }
@@ -1554,7 +1554,7 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
             unsigned sum = 0, cnt = 0;
             for (int k = i * per; k < (i + 1) * per && k < m_cores; k++) { sum += m_busy[k]; cnt++; }
             unsigned p = cnt ? sum / cnt : 0; uint32_t col; meter_color(p, &col);
-            gfx_rect(c, bx + i * (bw + gap), y + 10, bw, 20, TH_TRACK);
+            gfx_rect(c, bx + i * (bw + gap), y + 10, bw, 20, TH_METER_TRACK);
             int hgt = (int)(p * 20 / 100); if (hgt < 2) hgt = 2;
             gfx_rect(c, bx + i * (bw + gap), y + 30 - hgt, bw, hgt, col);
         }
@@ -1913,11 +1913,11 @@ static void draw_overview(surface_t* c, int ox, int oy) {
         int x, y, ww, hh;
         if (overview_card_rect(slot, &x, &y, &ww, &hh) != 0) continue;
         int focused = id == wm_top();
-        ui_round_rect(c, x + ox, y + oy, ww, hh, TH_RADIUS_SURFACE, TH_CARD, 255);
-        ui_round_frame(c, x + ox, y + oy, ww, hh, TH_RADIUS_SURFACE, focused ? TH_ACCENT_PRIMARY : TH_CARD_EDGE, focused ? 255 : 180);
+        ui_round_rect(c, x + ox, y + oy, ww, hh, 14, TH_CARD, 255);
+        ui_round_frame(c, x + ox, y + oy, ww, hh, 14, focused ? TH_CYAN : TH_CARD_EDGE, focused ? 255 : 180);
         int px = x + 10, py = y + 10, pw = ww - 20, ph = hh - 62;
         if (ph < 32) ph = 32;
-        ui_round_rect(c, px + ox, py + oy, pw, ph, TH_RADIUS_CONTROL, TH_CONTENT, 255);
+        ui_round_rect(c, px + ox, py + oy, pw, ph, 8, TH_CONTENT, 255);
         if (w->content.px && w->content.w > 0 && w->content.h > 0)
             blit_content(c, px + ox, py + oy, pw, ph, w);
         ui_text_fit(c, x + 12 + ox, y + hh - 42 + oy, w->title, ww - 24, TH_TEXT);
@@ -1961,7 +1961,7 @@ static void draw_cursor(surface_t* c, int ox, int oy) {
     for (int j = 0; j < CUR_H; j++)
         for (int i = 0; i < CUR_W; i++) {
             char ch = cursor_art[j][i];
-            if (ch == '#') gfx_pixel(c, cx + i + ox, cy + j + oy, TH_BG0);
+            if (ch == '#') gfx_pixel(c, cx + i + ox, cy + j + oy, TH_CURSOR_EDGE);
             else if (ch == '.') gfx_pixel(c, cx + i + ox, cy + j + oy, 0x00FFFFFF);
         }
 }
