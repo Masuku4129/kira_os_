@@ -39,7 +39,6 @@ int main(void) {
     lb_tick(&b, capture, 0);
     CHECK(emits == 1);                    /* incomplete prompt still flushes after its age */
     CHECK(emitted_len == 120);
-    CHECK(memcmp(emitted, message, 0) == 0);
     puts("linebuf: long lines remain atomic; idle prompt flush works");
     return 0;
 }
