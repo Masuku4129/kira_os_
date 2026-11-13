@@ -479,3 +479,9 @@
 - Wider layouts retain the unpaged 44px Dock when all pins fit. The underlying pinned-app list and persistence format are unchanged.
 - Added `wm_dock_page_control_center()` for deterministic control hit-test integration and expanded `tests/wm_test.c` to verify page bounds, visible/hidden entries, navigation, and launching all ten pins.
 - Fresh exact-head CI is required. Android Limbo touch/visual validation remains outstanding.
+
+
+### Spatial window touch targets — 2026-11-13
+- Spatial Minimal window title controls now use non-overlapping 32×32 hit areas spaced 36 px apart; compact visual dots remain. Hover damage covers the full control group.
+- Spatial resize/zoom corner hit area expanded to 36×36. Legacy geometry/input remains unchanged.
+- Added tests clicking the far corner of minimize/fullscreen targets. Fresh exact-head CI and phone/Limbo validation remain pending.
