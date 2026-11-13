@@ -6,13 +6,14 @@
 #include <string.h>
 #define CHECK(c) do{ if(!(c)){ printf("FAIL line %d: %s\n",__LINE__,#c); exit(1);} }while(0)
 
-static int notes, last_id, last_vis, launches, last_launch, tabs_hit, last_tab;
+static int notes, last_id, last_vis, launches, last_launch, tabs_hit, last_tab, launcher_hits;
 static int in_n, in_id, in_type, in_x, in_y, in_b;
 static void inp(int id, int type, int x, int y, unsigned b) { in_n++; in_id = id; in_type = type; in_x = x; in_y = y; in_b = (int)b; }
 static void* al(uint64_t n) { return calloc(1, n); }
 static void nt(int id, int v) { notes++; last_id = id; last_vis = v; }
 static void lc(int i) { launches++; last_launch = i; }
 static void tb(int i) { tabs_hit++; last_tab = i; }
+static void launcher(void) { launcher_hits++; }
 static int rz_n, rz_id, rz_w, rz_h;
 static void rz(int id, int w, int h) { rz_n++; rz_id = id; rz_w = w; rz_h = h; }
 static uint32_t px(surface_t* s, int x, int y) { return s->px[y * s->pitch + x]; }
@@ -39,7 +40,7 @@ static void same_as_full(surface_t* scr, const char* what) {
 
 int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
-    wm_ops_t ops = { al, nt, inp, lc, rz, tb };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, launcher };
     wm_init(&scr, &ops);
     CHECK(wm_get_layout_mode() == WM_LAYOUT_LEGACY);
     int x, y, w, h;
