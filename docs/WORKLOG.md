@@ -301,3 +301,14 @@
 - No local host test, local cross-build, physical device test, or visual screenshot comparison was run in this session.
 - No main-branch changes, merges, deletions, or destructive operations.
 - Remaining UI-2 work: app discovery/search, temporary window overview and a supported way to reach unpinned running applications; user-facing layout preference; contextual KIRA AI/system surfaces; responsive rail/Dock overflow and touch/DPI verification; performance baselines.
+
+
+### Продолжение 2026-11-13 — Spatial Minimal: temporary window overview
+- PR #138, ветка docs/ui0-spatial-minimal-audit; добавлен реальный временный обзор окон поверх существующего WM.
+- Изменены wm.h, wm.c, tests/wm_test.c, docs/UI0_SPATIAL_MINIMAL_AUDIT.md.
+- Контракт: список по текущему z-order; включены скрытые/свёрнутые окна; pinned widgets исключены; миниатюры берутся из текущих content surfaces; выбор валидирует handle, восстанавливает видимость и вызывает raise; закрытие не меняет состояние окон. Большое число окон поддерживается страницами.
+- UI entrypoint: кнопка «ОКНА» в Spatial top bar. Legacy layout и его click path не менялись; Spatial остаётся opt-in.
+- Тесты добавлены для списка, исключения pinned, выбора свёрнутого окна, topbar entrypoint, закрытия overlay и full-vs-damage redraw.
+- Коммиты: API ca8b1398c5bfff9c29c46d65045e992c2065e485; реализация c02d6ff503b7a2f83a97c117dc26437102ba1899; тесты 59de35e3c6f81f900fb40ff9941e04863e9244b7.
+- На момент записи автоматическая сборка и host tests для нового head не подтверждены; локальная сборка не выполнялась. Проверки Limbo/физического оборудования не выполнялись. Не объявлять PASS до CI.
+- Следующий шаг: дождаться и разобрать CI точного head; исправить все реальные ошибки; затем оценить window overview на малых разрешениях и переходить к app discovery/search.
