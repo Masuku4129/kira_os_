@@ -232,4 +232,4 @@ No ABI freeze or production Device Model claim is made by this RFC.
 - Invalid bus ranges preserve the last valid snapshot. A registry insertion failure aborts the new snapshot and invalidates all handles from it.
 - Host tests cover multiple bus types, duplicate and malformed locations, parent-handle validation, stale generations, bounded capacity and PCI adapter consistency. x86-64 and ARM64 manifests include the registry.
 - Explicitly not implemented: USB/virtio/platform/ACPI discovery adapters, resource reservation/ownership, interrupt ownership, DMA/IOMMU domain binding, lifecycle state transitions, quiesce/revoke, hotplug and generic driver binding.
-- PR #141 is Draft and stacked on PR #139. Exact-head CI is pending; no PASS is claimed.
+- PR #141 is Draft and stacked on PR #139. Exact-head run `43408288041` passed host-tests, x86-64, ARM64/QEMU and all 27 VM jobs on branch head `3a8064f053ad74bdb9b5e5ad78926a26b4facca0` (code head `2048058c87f9ff0f55d6ae882cf87ebf3460e213`); PR compliance run `43408709474` passed. The wider Device Model remains partial by design.
