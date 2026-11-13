@@ -524,3 +524,6 @@
 - Extended `tests/pci_range_test.c` to verify current-handle resolution, invalidation after rescan, monotonic ID/generation advance and invalid-range invalidation. The existing host runner already compiles this test with ASan/UBSan.
 - This is intentionally a PCI-only migration seam. Generation is scan-wide, so every rescan invalidates all PCI handles; KDRV still keys bindings by raw `pci_dev_t*`. Do not enable hotplug/rescan or claim full DEV-001 until a bus-independent registry and KDRV handle migration exist.
 - Exact-head CI has been triggered by source changes; no local build/test result is claimed. No merge or `main` change.
+
+
+- Reconciled RFC-DEV-001, contract registry, component inventory, dependency map, source audit, execution plan and continuation handoff with the new PCI snapshot identity API. All documents explicitly state that KDRV remains pointer-based and that this is not yet a bus-independent Device Model or hotplug-safe lifecycle.
