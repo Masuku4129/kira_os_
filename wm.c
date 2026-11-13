@@ -835,8 +835,16 @@ static void click(int px, int py) {
         if (gets_input(&win[fs])) capture = fs;
         return;
     }
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && system_panel_open) {
+        int sx, sy, sw, sh; system_panel_rect(&sx, &sy, &sw, &sh);
+        if (px >= sx && px < sx + sw && py >= sy && py < sy + sh) return;
+        system_panel_open = 0; damage_system_panel();
+    }
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && py < WM_TOP_H) {
-        if (px >= 104 && px < 188 && py >= 6 && py < 34) wm_window_overview_toggle();
+        if (px >= 104 && px < 188 && py >= 6 && py < 34) { wm_window_overview_toggle(); return; }
+        if (px >= scr->w - 48 && px < scr->w - 8 && py >= 6 && py < 34) {
+            system_panel_open = !system_panel_open; damage_system_panel(); return;
+        }
         return;
     }
     if (layout_mode == WM_LAYOUT_LEGACY && py < WM_TOP_H) {
@@ -1097,7 +1105,10 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         ui_round_rect(c, ox + 104, y + 7, 76, 26, 8, TH_TILE, 255);
         ui_round_frame(c, ox + 104, y + 7, 76, 26, 8, TH_BORDER, 220);
         gfx_text(c, ox + 119, y + 14, "ОКНА", TH_TEXT_DIM, -1);
-        int rx = W - 14 + ox;
+        ui_round_rect(c, ox + W - 42, y + 6, 32, 28, 8, TH_TILE, 255);
+        ui_round_frame(c, ox + W - 42, y + 6, 32, 28, 8, system_panel_open ? TH_CYAN : TH_BORDER, 220);
+        icon_draw(c, ox + W - 26, y + 20, 16, ICON_MONITOR, system_panel_open ? TH_CYAN : TH_TEXT_DIM, 0);
+        int rx = W - 58 + ox;
         if (clock_hm[0]) {
             rx -= gfx_text_width(clock_hm);
             ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT);
