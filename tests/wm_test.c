@@ -349,6 +349,11 @@ int main(void) {
     CHECK(wm_workspace_current() == 0 && wm_visible(a) && wm_top() == a);
     CHECK(wm_workspace_switch(1) == 1 && wm_top() == ws_window);
     CHECK(workspace_changes == 4 && last_workspace == 1);
+    CHECK(wm_window_workspace(ws_window) == 1 && wm_window_move_workspace(p, 2) == -1);
+    CHECK(wm_window_move_workspace(ws_window, 2) == 1);
+    CHECK(wm_workspace_current() == 1 && !wm_visible(ws_window) && wm_window_workspace(ws_window) == 2);
+    CHECK(wm_workspace_switch(2) == 1 && wm_visible(ws_window) && wm_top() == ws_window);
+    CHECK(wm_workspace_switch(1) == 1 && !wm_visible(ws_window));
     wm_destroy(ws_window);
     CHECK(wm_workspace_switch(0) == 1);
     tabs_hit = 0; launcher_hits = 0;
