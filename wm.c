@@ -54,7 +54,6 @@ static uint32_t win_generation;
 static int overview_open, overview_page, overview_n, overview_release_guard;
 static int system_panel_open;
 static int dock_page;
-#define WM_WORKSPACE_MAX 4
 static int current_workspace;
 static int overview_ids[WM_MAX_WIN];
 static uint32_t overview_generations[WM_MAX_WIN];
@@ -726,6 +725,32 @@ void wm_set_layout_mode(wm_layout_mode_t mode) {
 
 wm_layout_mode_t wm_get_layout_mode(void) { return layout_mode; }
 
+int wm_workspace_current(void) { return current_workspace; }
+int wm_workspace_count(void) { return WM_WORKSPACE_MAX; }
+
+int wm_workspace_center(int workspace, int* x, int* y) {
+    if (workspace < 0 || workspace >= WM_WORKSPACE_MAX || !x || !y || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return -1;
+    *x = 204; *y = WM_TOP_H / 2;
+    return 0;
+}
+
+int wm_workspace_switch(int workspace) {
+    if (workspace < 0 || workspace >= WM_WORKSPACE_MAX) return -1;
+    if (workspace == current_workspace) return 0;
+    current_workspace = workspace;
+    overview_open = 0; overview_page = 0;
+    system_panel_open = 0;
+    capture = -1; dragging = -1; resizing = -1;
+    overview_release_guard = 0;
+    damage(0, 0, scr->w, scr->h);
+    workspace_changed();
+    return 1;
+}
+
+static void workspace_changed(void) {
+    if (ops.workspace_changed) ops.workspace_changed(current_workspace);
+}
+
 static int overview_refresh(void) {
     int ids[WM_MAX_WIN], n = 0;
     uint32_t generations[WM_MAX_WIN];
@@ -939,6 +964,10 @@ static void click(int px, int py) {
     }
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && py < WM_TOP_H) {
         if (px >= 104 && px < 188 && py >= 6 && py < 34) { wm_window_overview_toggle(); return; }
+        if (px >= 184 && px < 224 && py >= 0 && py < WM_TOP_H) {
+            wm_workspace_switch((current_workspace + 1) % WM_WORKSPACE_MAX);
+            return;
+        }
         if (px >= scr->w - 48 && px < scr->w - 8 && py >= 6 && py < 34) {
             system_panel_open = !system_panel_open; damage_system_panel(); return;
         }
@@ -1223,6 +1252,11 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         ui_round_rect(c, ox + 104, y + 7, 76, 26, 8, TH_TILE, 255);
         ui_round_frame(c, ox + 104, y + 7, 76, 26, 8, TH_BORDER, 220);
         gfx_text(c, ox + 119, y + 14, "ОКНА", TH_TEXT_DIM, -1);
+        ui_round_rect(c, ox + 184, y, 40, WM_TOP_H, 8, TH_TILE, 255);
+        ui_round_frame(c, ox + 184, y + 1, 40, WM_TOP_H - 2, 8, TH_BORDER, 220);
+        for (int wi = 0; wi < WM_WORKSPACE_MAX; wi++)
+            ui_disc(c, ox + 192 + wi * 8, y + 20, wi == current_workspace ? 3 : 2,
+                    wi == current_workspace ? TH_CYAN : TH_TEXT_FAINT, 255);
         ui_round_rect(c, ox + W - 42, y + 6, 32, 28, 8, TH_TILE, 255);
         ui_round_frame(c, ox + W - 42, y + 6, 32, 28, 8, system_panel_open ? TH_CYAN : TH_BORDER, 220);
         icon_draw(c, ox + W - 26, y + 20, 16, ICON_MONITOR, system_panel_open ? TH_CYAN : TH_TEXT_DIM, 0);
