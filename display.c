@@ -85,6 +85,39 @@ static unsigned launcher_matches[16], launcher_count, launcher_selected;
 static unsigned launcher_btn;
 static uint32_t launcher_request;
 static spinlock_t rq_lk = SPINLOCK_INIT;                 /* просьба консоли «files» открыть Проводник на путях */
+#define DISPLAY_NOTIFY_QUEUE 16
+typedef struct { char title[40]; char message[112]; int priority; } display_notification_t;
+static display_notification_t notify_queue[DISPLAY_NOTIFY_QUEUE];
+static uint32_t notify_head, notify_tail;
+static spinlock_t notify_lk = SPINLOCK_INIT;
+static void notify_copy(char* dst, const char* src, unsigned cap) {
+    unsigned i = 0; if (!src) src = "";
+    while (src[i] && i + 1 < cap) { dst[i] = src[i]; i++; }
+    dst[i] = 0;
+}
+int display_notify(const char* title, const char* message, int priority) {
+    if (!title || !message || !ready) return -1;
+    uint64_t flags = spin_lock_irqsave(&notify_lk);
+    if (notify_head - notify_tail >= DISPLAY_NOTIFY_QUEUE) { spin_unlock_irqrestore(&notify_lk, flags); return -2; }
+    display_notification_t* n = &notify_queue[notify_head % DISPLAY_NOTIFY_QUEUE];
+    notify_copy(n->title, title, sizeof n->title);
+    notify_copy(n->message, message, sizeof n->message);
+    n->priority = priority;
+    notify_head++;
+    spin_unlock_irqrestore(&notify_lk, flags);
+    return 0;
+}
+static void notification_poll(void) {
+    for (;;) {
+        display_notification_t n;
+        uint64_t flags = spin_lock_irqsave(&notify_lk);
+        if (notify_tail == notify_head) { spin_unlock_irqrestore(&notify_lk, flags); break; }
+        n = notify_queue[notify_tail % DISPLAY_NOTIFY_QUEUE];
+        notify_tail++;
+        spin_unlock_irqrestore(&notify_lk, flags);
+        (void)wm_notification_post(n.title, n.message, n.priority);
+    }
+}
 static char rq_l[FM_PATH], rq_r[FM_PATH]; static int rq_pending;
 
 /* ---------------- приложения ядра ---------------- */
@@ -599,6 +632,7 @@ static void display_main(void* arg) {
         int timed = t0 != 0;
 
         gfx_server_run();                 // окна приложений Ring 3: создание, перерисовка, закрытие
+        notification_poll();              // bounded cross-thread notification queue -> WM on display owner thread
         files_launch_poll();
         launcher_poll();               // результат ранее принятого запроса
 
@@ -692,6 +726,7 @@ int display_init(unsigned long mbi) {
     if (rc != 0 && virtio_gpu_probe() == 0) rc = 0;
     if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
+    notify_head = notify_tail = 0;
     wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher, on_workspace_changed };
 #ifdef KIRA_SPATIAL_PREVIEW
     wm_init_mode(fb_surface(), &ops, WM_LAYOUT_SPATIAL_MINIMAL);
