@@ -178,9 +178,20 @@ static int spatial_dock_x(int item) {
 static int spatial_dock_y(void) { return scr->h - TILE - 20; }
 static int spatial_tab_y(int i) { return WM_TOP_H + 18 + i * (WM_SPATIAL_TAB_H + WM_SPATIAL_TAB_GAP); }
 
+static void damage_spatial_tab(int i) {
+    if (i < 0 || i >= tab_n) return;
+    int y = spatial_tab_y(i);
+    damage(0, y, WM_SPATIAL_RAIL_W, y + WM_SPATIAL_TAB_H);
+    int label_w = gfx_text_width(tabs[i].label) + 20;
+    int label_x = WM_SPATIAL_RAIL_W + 8;
+    damage(label_x, y + 6, label_x + label_w, y + 34);
+}
+
 static void damage_side(void) {
-    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) damage(0, WM_TOP_H, scr->w, scr->h);
-    else damage(0, WM_TOP_H, WM_SIDE_W + 300, scr->h);
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL)
+        damage(0, spatial_dock_y() - 40, scr->w, scr->h);
+    else
+        damage(0, WM_TOP_H, WM_SIDE_W + 300, scr->h);
 }
 
 static int side_hit(int px, int py) {
@@ -821,7 +832,14 @@ static void update_hover(void) {
     int sh = fs >= 0 ? -1 : side_hit(cx, cy);
     if (sh != side_hover) { side_hover = sh; damage_side(); }
     int th = fs >= 0 ? -1 : tab_hit(cx, cy);
-    if (th != tab_hover) { tab_hover = th; if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) damage_side(); else damage_top(); }
+    if (th != tab_hover) {
+        int old_tab = tab_hover;
+        tab_hover = th;
+        if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+            damage_spatial_tab(old_tab);
+            damage_spatial_tab(th);
+        } else damage_top();
+    }
     int lh = -1;
     if (fs < 0 && cy >= WM_TOP_H) {
         int id = hit_window(cx, cy);
