@@ -205,4 +205,4 @@ Both x86-64 and ARM64 build manifests compile these exact paths. Root `syscall.h
 - Added `device_model.h/.c` as a bus-neutral, bounded registry. It owns monotonic device IDs and snapshot generations and exposes opaque `device_handle_t` resolution.
 - PCI enumeration is the first production adapter and registers normalized descriptors. `pci_handle_t` remains a compatibility alias; KDRV now stores the common handle type.
 - The registry is compiled in both x86-64 and ARM64 targets and covered by `tests/device_model_test.c`, the PCI range model and the virtio PCI host model.
-- The registry currently has boot-time single-writer semantics. USB/virtio/platform/ACPI producers, resource ownership, lifecycle and hotplug are not part of this slice. PR #141 exact-head CI is pending.
+- The registry currently has boot-time single-writer semantics. USB/virtio/platform/ACPI producers, resource ownership, lifecycle and hotplug are not part of this slice. PR #141 exact-head run `43408288041` passed host-tests, x86-64, ARM64/QEMU and 27/27 VM jobs; compliance run `43408709474` passed.
