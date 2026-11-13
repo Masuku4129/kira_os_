@@ -171,7 +171,7 @@ static void draw_launcher(void) {
     ui_card(s, 12, 10, s->w - 24, 58, "ПОИСК ПРИЛОЖЕНИЙ", TH_CYAN);
     ui_round_rect(s, 24, 36, s->w - 48, 26, 7, TH_TILE, 255);
     ui_round_frame(s, 24, 36, s->w - 48, 26, 7, TH_BORDER, 255);
-    gfx_text(s, 34, 43, launcher_query[0] ? launcher_query : "Начните вводить название или назначение…", launcher_query[0] ? TH_TEXT : TH_TEXT_FAINT, -1);
+    ui_text_fit(s, 34, 43, launcher_query[0] ? launcher_query : "Начните вводить название или назначение…", s->w - 68, launcher_query[0] ? TH_TEXT : TH_TEXT_FAINT);
     if (!launcher_count) gfx_text(s, 28, 92, "Ничего не найдено. Измените запрос.", TH_TEXT_DIM, -1);
     for (unsigned i = 0; i < launcher_count && i < 7; i++) {
         const prog_catalog_entry_t* e = prog_catalog_get(launcher_matches[i]);
