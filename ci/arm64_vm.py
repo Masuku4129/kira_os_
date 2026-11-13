@@ -178,7 +178,7 @@ SC = [
                ("@log drvman: готово", []),
                ("drvman do stop edunc;pci", []), ("@sleep 8", []),
                ("@log drvman: драйвер edunc остановлен, устройство возвращено ядру", []),
-               ("@log drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*пакет edu установлен, не запущен", []),
+               ("@log drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*пакет edunc установлен, не запущен", []),
                ("drvman do start edunc", []), ("@sleep 8", []),
                ("@log drvman: драйвер edunc запущен на устройстве \\d\\d:\\d\\d\\.\\d \\(1234:11e8\\)", []),
                ("drv", [r"drv-edunc pid \\d+"])]),
