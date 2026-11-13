@@ -52,6 +52,10 @@ $CC $RF -c tests/ctx_fpu_test.c -o $T/ctx_n.o
 $CC -no-pie -o $T/ctx_fpu_n $T/ctx_n.o $T/sched_n.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
 $T/ctx_fpu_n --nofpu
 
+echo "== Device Model (identity, parent scoping, stale handles, lifecycle) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/device_model tests/device_model_test.c device_model.c
+$T/device_model
+
 echo "== input layer (PS/2 decoder, ring, overflow) =="
 $CC $FLAGS -o $T/input tests/input_test.c input.c
 $T/input
