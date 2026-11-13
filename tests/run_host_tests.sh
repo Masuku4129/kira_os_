@@ -90,6 +90,9 @@ if ls userland/*.elf >/dev/null 2>&1; then $T/kfstool manifest userland/*.elf | 
 else printf '#include "trust.h"\nstatic const trust_entry_t TEST_MANIFEST[] = { { "none", {0} } };\n#define TEST_MANIFEST_COUNT 0\n' > tests/manifest_test.h; fi
 $CC $FLAGS -fsanitize=undefined -Itests -o $T/prog tests/prog_test.c elf.c trust.c life.c kfs.c store.c sha256.c
 $T/prog
+echo "== asynchronous program request queue (validation, acceptance, completion, concurrency) =="
+$CC $FLAGS -fsanitize=thread -o $T/progq tests/prog_queue_test.c prog_queue.c -lpthread
+$T/progq
 rm -f tests/manifest_test.h
 
 echo "== program file service (sandbox /data/<name>) =="

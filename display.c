@@ -72,6 +72,7 @@ static app_hit_t files_hover;
 static int set_hover = -1, files_drop = -1;
 static unsigned files_btn, set_btn;
 static char files_status[96];
+static uint32_t files_launch_id;
 static uint64_t files_click_ns; static int files_click_panel = -1, files_click_row = -1;
 static struct { int on, panel, row, x, y; } drag;       /* файл тащат мышью на другую панель */
 static uint32_t act_seen;                                /* последняя обработанная просьба менеджера (открыть, закрепить) */
@@ -117,6 +118,22 @@ static void draw_files(void) {
     if (!wm_visible(w_files)) return;
     app_files_draw(wm_content(w_files), &ev, &files_hover, files_drop, files_status, cur_prog_pinned());
     wm_invalidate(w_files);
+}
+
+static int scpy(char* d, int p, const char* s, int cap);
+static void files_launch_poll(void) {
+    if (!files_launch_id) return;
+    int result = 0;
+    prog_result_state_t state = prog_request_take_result(files_launch_id, &result);
+    if (state == PROG_RESULT_PENDING) return;
+    files_launch_id = 0;
+    if (state != PROG_RESULT_COMPLETE) (void)scpy(files_status, 0, "результат запуска недоступен", sizeof files_status);
+    else if (result > 0) (void)scpy(files_status, 0, "программа успешно запущена", sizeof files_status);
+    else if (result == -2) (void)scpy(files_status, 0, "запуск отклонён: проверка доверия", sizeof files_status);
+    else if (result == -3) (void)scpy(files_status, 0, "ошибка формата исполняемого файла", sizeof files_status);
+    else if (result == -4) (void)scpy(files_status, 0, "лимит запуска KIRA Mind", sizeof files_status);
+    else (void)scpy(files_status, 0, "не удалось открыть файл/запустить программу", sizeof files_status);
+    draw_files();
 }
 
 static void settings_state(app_settings_t* s) {
@@ -219,9 +236,16 @@ static void files_act(void) {
     if (ev.fm.act_kind == FM_ACT_OPEN && prog) { files_run(prog); return; }
     unsigned pl = 0; while (path[pl]) pl++;
     int is_wasm = ev.fm.act_kind == FM_ACT_OPEN && pl > 5 && path[pl - 5] == '.' && path[pl - 4] == 'w' && path[pl - 3] == 'a' && path[pl - 2] == 's' && path[pl - 1] == 'm';
-    prog_request_file(is_wasm ? "wasm" : "view", path);
-    int p = scpy(files_status, 0, "открыто в просмотре: ", sizeof files_status);
-    (void)scpy(files_status, p, path, sizeof files_status);
+    uint32_t request_id = 0;
+    prog_request_status_t accepted = prog_request_file(is_wasm ? "wasm" : "view", path, &request_id);
+    if (accepted == PROG_REQUEST_ACCEPTED) {
+        files_launch_id = request_id;
+        (void)scpy(files_status, 0, "запрос просмотра принят", sizeof files_status);
+    } else if (accepted == PROG_REQUEST_BUSY) {
+        (void)scpy(files_status, 0, "запуск занят: дождитесь результата", sizeof files_status);
+    } else {
+        (void)scpy(files_status, 0, "путь или имя файла некорректны/слишком длинны", sizeof files_status);
+    }
 }
 
 static void on_input(int id, int type, int x, int y, unsigned buttons) {
@@ -467,6 +491,7 @@ static void display_main(void* arg) {
         int timed = t0 != 0;
 
         gfx_server_run();                 // окна приложений Ring 3: создание, перерисовка, закрытие
+        files_launch_poll();               // результат ранее принятого запроса
 
         {                                 // Проводник сверху: клавиатура у него (консоль в это время не читает)
             int own = w_files >= 0 && wm_visible(w_files) && wm_top() == w_files;
