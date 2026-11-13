@@ -413,6 +413,22 @@ int main(void) {
     wm_destroy(touch_window);
     frame();
 
+    /* The Spatial resize corner also accepts a finger-sized 36x36 target. */
+    int touch_resize = wm_create_ex("touch-resize", 500, 200, 160, 96, WM_RESIZABLE, 240, 160);
+    CHECK(touch_resize >= 0);
+    wm_set_resize_limits(touch_resize, 80, 48, 8, 8);
+    wm_raise(touch_resize);
+    int trw0, trh0, trw1, trh1;
+    wm_content_size(touch_resize, &trw0, &trh0);
+    move_to(650, 312, 0); /* 30px from the lower-right edge: inside 36x36 target */
+    wm_mouse(0, 0, 1);
+    wm_mouse(30, 30, 1);
+    wm_mouse(0, 0, 0);
+    wm_content_size(touch_resize, &trw1, &trh1);
+    CHECK(trw1 > trw0 && trh1 > trh0);
+    wm_destroy(touch_resize);
+    frame();
+
     /* Hidden app content can still refresh its overview thumbnail without exposing the window. */
     wm_set_visible(a, 0);
     wm_window_overview_toggle();
