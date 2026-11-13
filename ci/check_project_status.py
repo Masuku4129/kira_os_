@@ -92,6 +92,15 @@ for key, actual in checks:
     if actual != expected:
         fail(key + " differs from build script; update the manifest after reviewing the build change")
 
+# Userland programs are selected by name in shell loops; verify their source files too.
+for target, names in (
+    ("x86-64", ready["x86_userland_app_names"]),
+    ("ARM64", ready["arm64_userland_app_names"]),
+):
+    for name in names:
+        if not (ROOT / "userland" / (name + ".c")).is_file() and not (ROOT / "userland" / (name + ".s")).is_file():
+            fail(target + " userland source is missing for app " + name)
+
 # 5. The branch-only inventory must remain pinned and internally complete.
 expected_diffs = {
     "v46_not_in_main": 437,
