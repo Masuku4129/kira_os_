@@ -481,8 +481,8 @@ static void draw_confirm(void) {
     snprintf(b, sizeof b, "запрашиваемые права: %s", cs);
     text(x, y, b, FG, 66); y += CH;
     text(x, y, "права действуют только на устройство этого драйвера.", DIM, 66); y += CH + 6;
-    if (r->caps & CAP_DMA) {
-        text(x, y, "ВНИМАНИЕ: IOMMU нет. Устройство с DMA способно писать", RED, 66); y += CH;
+    if (r->caps & (CAP_DMA | CAP_IRQ)) {
+        text(x, y, "ВНИМАНИЕ: IOMMU нет. Пакеты с DMA/MSI не запустятся", RED, 66); y += CH;
         text(x, y, "в любую память; программно это не отключить. Ставьте", RED, 66); y += CH;
         text(x, y, "только драйверы, чьим исходникам вы доверяете.", RED, 66); y += CH;
     }
@@ -579,7 +579,7 @@ static void confirm_open(void) {                           /* окно подт�
     lg("drvman: подтверждение: источник %s\n", drvget_staged_url());
     lg("drvman: подтверждение: лицензия %s, права: %s\n", r->license, cs);
     lg("drvman: подтверждение: SHA-256 набора %s\n", drvget_staged_hash());
-    if (r->caps & CAP_DMA) lg("drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память\n");
+    if (r->caps & (CAP_DMA | CAP_IRQ)) lg("drvman: подтверждение: IOMMU нет: DMA/MSI права заблокированы, пакет не запустится до изоляции устройства\n");
 }
 
 static void press(int id) {

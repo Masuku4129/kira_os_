@@ -1,4 +1,5 @@
-/* Тестовый драйвер Ring 3 для устройства QEMU «edu» (1234:11e8, -device edu): регистры MMIO, прерывание MSI, DMA, а заодно
+/* Тестовый драйвер Ring 3 для QEMU «edu» (1234:11e8): один ELF используется в двух пакетах.
+   edu запрашивает DMA+MSI и должен быть заблокирован без IOMMU; edunc получает только MMIO+PCIDEV и проверяет отказ DMA/IRQ.
    попытки выйти за свои права (чужой BAR, защищённая конфигурация), которые ядро обязано отклонить. Обе архитектуры.
    Аргумент запуска «crash» - после проверки обратиться по нулевому адресу (ядро живо, ресурсы возвращаются). */
 #include "kdrv.h"
@@ -54,7 +55,9 @@ int umain(void) {
     kdrv_dma_t d;
     i64 rc = kdrv_dma_alloc(4096, 30, &d);                   /* адреса edu - 30 бит */
     say("drvedu: dma rc="); put(rc); say("\n");
-    if (rc == 0) {
+    if (rc == -12) {
+        say("drvedu: dma denied (expected without CAP_DMA/IOMMU)\n");
+    } else if (rc == 0) {
         volatile u8* p = (volatile u8*)d.va;
         for (int i = 0; i < 256; i++) p[i] = (u8)(i * 7 + 1);
         KDRV_R32(m, DMA_SRC) = (u32)d.phys; KDRV_R32(m, DMA_SRC + 4) = 0;
