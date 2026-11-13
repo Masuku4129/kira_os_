@@ -218,6 +218,6 @@
 ## 8. Дополнение 2026-11-13 — Device Model gate
 
 - Draft contract `docs/architecture/rfc/RFC-DEV-001.md` now specifies device identity/generation, resource ownership, driver binding, lifecycle, DMA/IOMMU security gates, cross-ISA semantics and conformance tests.
-- Immediate implementation dependency: shared PCI enumeration currently starts at bus 0, while ARM64 host bridge discovery can describe an explicit bus range. Keep nonzero starts rejected until range-aware enumeration and ECAM bounds tests exist.
+- Immediate implementation slice is in draft PR #139: the shared PCI core exposes `pci_init_range(first_bus, last_bus)`, bounds recursive bridge traversal, and ARM64 passes the validated FDT bus-range including nonzero starts. The synthetic regression is added; exact-head host/ARM64/QEMU validation is still pending. The generic Device Model registry, generation-safe identity, resource ownership and teardown lifecycle remain unimplemented.
 - Do not claim a generic Device Model from PCI inventory plus KDRV binding. Device registry, generation-safe handles, resource reservation and teardown ordering still need implementation.
 - Current PR #135 head must pass a fresh exact-head workflow before the next code slice; the recorded 30/30 run tested an earlier commit.
