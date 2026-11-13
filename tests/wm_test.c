@@ -393,6 +393,26 @@ int main(void) {
     CHECK(!wm_system_panel_is_open());
     frame();
 
+    /* Spatial window controls expose 32x32 hit areas while retaining compact visual dots. */
+    int touch_window = wm_create("touch-controls", 280, 180, 160, 100, WM_CLOSABLE);
+    CHECK(touch_window >= 0);
+    wm_raise(touch_window);
+    int t1x, t1y, t2x, t2y, t3x, t3y;
+    CHECK(wm_button_center(touch_window, 1, &t1x, &t1y) == 0);
+    CHECK(wm_button_center(touch_window, 2, &t2x, &t2y) == 0);
+    CHECK(wm_button_center(touch_window, 3, &t3x, &t3y) == 0);
+    CHECK(t2x - t1x == 36 && t3x - t2x == 36);
+    notes = 0;
+    click(t2x + 15, t2y + 15); /* far corner of the 32x32 minimize target */
+    CHECK(!wm_visible(touch_window) && notes == 1 && last_id == touch_window && last_vis == 0);
+    wm_set_visible(touch_window, 1);
+    wm_raise(touch_window);
+    click(t3x + 15, t3y + 15); /* far corner of the 32x32 fullscreen target */
+    CHECK(wm_fullscreen(touch_window));
+    wm_set_fullscreen(touch_window, 0);
+    wm_destroy(touch_window);
+    frame();
+
     /* Hidden app content can still refresh its overview thumbnail without exposing the window. */
     wm_set_visible(a, 0);
     wm_window_overview_toggle();
