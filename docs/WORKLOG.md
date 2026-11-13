@@ -553,3 +553,5 @@
 - The next host CI run (`43399280985`) caught a syntax error in the new architecture guard's second regular expression (`re.error: unbalanced parenthesis`). The test stopped before product tests.
 - Replaced the nested expression with a simpler word-boundary check that distinguishes `.dev` from `.device`; this remains a test-only correction.
 - Fresh CI after commit `36c2fdc1081239e3e90a103b1903c06b49ac7b7a` is required. No host-test PASS is claimed.
+
+- Follow-up source review tightened `find_slot`: a stale binding now blocks both new slots and restarting an otherwise matching current slot. This closes the case where one stale device could coexist with a fresh driver binding after a rescan.
