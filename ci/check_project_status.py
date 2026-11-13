@@ -128,7 +128,7 @@ for key, count in expected_diffs.items():
     actual = inventory["differences"].get(key)
     if actual is None or len(actual) != count:
         fail("branch snapshot count changed for " + key + "; refresh the snapshot deliberately")
-if len(inventory["open_pull_requests"]) != 58 or len(inventory["closed_unmerged_pull_requests"]) != 49:
+if len(inventory["open_pull_requests"]) != 59 or len(inventory["closed_unmerged_pull_requests"]) != 49:
     fail("PR snapshot changed; refresh branch/PR inventory deliberately")
 
 for pr in inventory["open_pull_requests"] + inventory["closed_unmerged_pull_requests"]:
@@ -144,7 +144,31 @@ if len({item["name"] for item in branch_heads["branches"]}) != len(branch_heads[
 if len({item["sha"] for item in branch_heads["branches"]}) != branch_heads["unique_head_commits"]:
     fail("branch head inventory unique SHA count is inconsistent")
 
-# 7. Keep the documented artifact contract aligned with the main CI workflow.
+# 7. Keep the complete non-CI branch-tree audit and the three-stage file ledger pinned.
+branch_audit = json.loads((STATUS_DIR / "all_branch_tree_audit.json").read_text(encoding="utf-8"))
+scope = branch_audit["scope"]
+if scope["all_branch_refs"] != branch_heads["branch_count"]:
+    fail("all-branch audit and branch-head snapshot counts differ")
+if scope["all_unique_commit_heads"] != branch_heads["unique_head_commits"]:
+    fail("all-branch audit and branch-head unique SHA counts differ")
+if scope["non_ci_unique_tree_heads"] != len(branch_audit["completed_tree_heads"]):
+    fail("not every non-CI branch tree has been audited")
+if len(set(branch_audit["completed_tree_heads"])) != len(branch_audit["completed_tree_heads"]):
+    fail("branch tree audit contains duplicate completed HEADs")
+if any("error" in item for item in branch_audit["trees"].values()):
+    fail("one or more branch trees could not be audited")
+if len(branch_audit["branch_only_paths"]) != 722:
+    fail("branch-only path inventory changed; refresh the all-branch audit deliberately")
+if len(branch_audit["non_ci_branches_without_pr"]) != 77:
+    fail("non-CI branches without PR changed; refresh the branch audit deliberately")
+if len(branch_audit["pull_requests"]) != 134:
+    fail("all-PR snapshot changed; refresh the branch audit deliberately")
+if len(branch_audit["branch_refs"]) != branch_heads["branch_count"]:
+    fail("all-branch refs are incomplete in the branch audit")
+if len(branch_audit["branch_refs"]) != len(branch_heads["branches"]):
+    fail("all-branch refs differ from the pinned branch-head inventory")
+
+# 8. Keep the documented artifact contract aligned with the main CI workflow.
 workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 for artifact in ready["release_outputs_current_main"]:
     if artifact not in workflow:
