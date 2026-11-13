@@ -9,7 +9,7 @@
   "scope": {
     "all_branch_refs": 211,
     "unique_commit_heads": 199,
-    "completed_unique_heads": 120
+    "completed_unique_heads": 132
   },
   "completed_tree_heads": [
     "8d624bd887da29f75f163c29f1b7a0d052ae578d",
@@ -131,7 +131,19 @@
     "a9a9d543ee39f7d9b351be0ad0f2a20f12a55e18",
     "ad18c88247e18aa497d47973c79731e98d4248fd",
     "b0d99dd20eb6a3ae1f909697db1011ad3312ef16",
-    "861c7c217def40c9fd52a76d32d65a5d65101567"
+    "861c7c217def40c9fd52a76d32d65a5d65101567",
+    "d7ad84058021cb671d2603e848ad055db9242138",
+    "0de152bfa9dfef1762fa19929467932ecceae82e",
+    "9d76416ad713547b778d753267a172978d93b4dd",
+    "6eccfebf3304af43d25318a6ef21d4e7e4afeefe",
+    "ba9b86782d3855904d08b1c61af60fb729df4d27",
+    "05299430788e3c80b41d093c7f85fb9e1e48c78c",
+    "1f62be2ccace50fe23218b21d13e20166c459f2c",
+    "cf966b750ba2ac271eb6b17a171574aa30cd0c19",
+    "f868d14b054703fb94f31f27f6a24123f5348646",
+    "a42cf34440abb877c6fd7f4b633e46886399f992",
+    "16842854996fe78c8c89693d43465f8b24adb6ea",
+    "f20663e3ddb332d09b6bd2f64a649597c0ece950"
   ],
   "trees": {
     "8d624bd887da29f75f163c29f1b7a0d052ae578d": {
@@ -1103,6 +1115,102 @@
       "file_count": 373,
       "branch_only_count": 6,
       "main_missing_count": 462
+    },
+    "d7ad84058021cb671d2603e848ad055db9242138": {
+      "branches": [
+        "pkg-G"
+      ],
+      "file_count": 371,
+      "branch_only_count": 6,
+      "main_missing_count": 464
+    },
+    "0de152bfa9dfef1762fa19929467932ecceae82e": {
+      "branches": [
+        "pkg-H"
+      ],
+      "file_count": 375,
+      "branch_only_count": 6,
+      "main_missing_count": 460
+    },
+    "9d76416ad713547b778d753267a172978d93b4dd": {
+      "branches": [
+        "pkg-H0"
+      ],
+      "file_count": 387,
+      "branch_only_count": 1,
+      "main_missing_count": 443
+    },
+    "6eccfebf3304af43d25318a6ef21d4e7e4afeefe": {
+      "branches": [
+        "pkg-I"
+      ],
+      "file_count": 389,
+      "branch_only_count": 0,
+      "main_missing_count": 440
+    },
+    "ba9b86782d3855904d08b1c61af60fb729df4d27": {
+      "branches": [
+        "pkg-J"
+      ],
+      "file_count": 390,
+      "branch_only_count": 1,
+      "main_missing_count": 440
+    },
+    "05299430788e3c80b41d093c7f85fb9e1e48c78c": {
+      "branches": [
+        "pkg-K"
+      ],
+      "file_count": 777,
+      "branch_only_count": 5,
+      "main_missing_count": 57
+    },
+    "1f62be2ccace50fe23218b21d13e20166c459f2c": {
+      "branches": [
+        "pkg-L"
+      ],
+      "file_count": 386,
+      "branch_only_count": 1,
+      "main_missing_count": 444
+    },
+    "cf966b750ba2ac271eb6b17a171574aa30cd0c19": {
+      "branches": [
+        "pkg-LN"
+      ],
+      "file_count": 816,
+      "branch_only_count": 0,
+      "main_missing_count": 13
+    },
+    "f868d14b054703fb94f31f27f6a24123f5348646": {
+      "branches": [
+        "pkg-M"
+      ],
+      "file_count": 768,
+      "branch_only_count": 5,
+      "main_missing_count": 66
+    },
+    "a42cf34440abb877c6fd7f4b633e46886399f992": {
+      "branches": [
+        "pkg-M4"
+      ],
+      "file_count": 791,
+      "branch_only_count": 0,
+      "main_missing_count": 38
+    },
+    "16842854996fe78c8c89693d43465f8b24adb6ea": {
+      "branches": [
+        "pkg-N4"
+      ],
+      "file_count": 393,
+      "branch_only_count": 0,
+      "main_missing_count": 436
+    },
+    "f20663e3ddb332d09b6bd2f64a649597c0ece950": {
+      "branches": [
+        "pkg-STAB"
+      ],
+      "file_count": 823,
+      "branch_only_count": 0,
+      "main_missing_count": 6
     }
   },
   "branch_only_paths": {
@@ -1757,16 +1865,21 @@
     "docs/KCC_SELFHOST.md": 2,
     "tests/kdrvtrust_test.py": 2,
     "acpi_dmar.h": 2,
-    "tests/explorer_test.c": 6,
+    "tests/explorer_test.c": 11,
     "docs/RTL8139_CLEANROOM.md": 1,
     "drivers/rl/kira_rtl8139_core.h": 1,
     ".github/workflows/robust-futex-lab.yml": 1,
     "lab/robust-futex/robust_futex_diag.c": 1,
-    "ci/__pycache__/arm64_vm.cpython-313.pyc": 5,
-    "ci/__pycache__/kira_vm.cpython-313.pyc": 5,
-    "ci/__pycache__/mkfiles.cpython-313.pyc": 5,
-    "ci/__pycache__/mkjpeg.cpython-313.pyc": 5,
-    "ci/__pycache__/scenarios.cpython-313.pyc": 5
+    "ci/__pycache__/arm64_vm.cpython-313.pyc": 7,
+    "ci/__pycache__/kira_vm.cpython-313.pyc": 7,
+    "ci/__pycache__/mkfiles.cpython-313.pyc": 7,
+    "ci/__pycache__/mkjpeg.cpython-313.pyc": 7,
+    "ci/__pycache__/scenarios.cpython-313.pyc": 7,
+    "tests/kcc/unsup/case_range.c": 2,
+    "tests/kcc/unsup/elvis_operator.c": 2,
+    "tests/kcc/unsup/struct_by_value_param.c": 2,
+    "tests/kcc/unsup/struct_by_value_return.c": 2,
+    "tests/kcc/unsup/va_list.c": 2
   },
   "note": "Tree snapshots compare each unique non-CI branch head to pinned main baseline. No branch is deleted; branch-only paths remain catalogued for review, not auto-merged."
 }
