@@ -227,8 +227,8 @@ void input_push_scancode_from(int src, uint8_t byte) {
              (ev.key == KEY_LEFT || ev.key == KEY_RIGHT))) {
             if (ev.type == INPUT_KEY_DOWN) {
                 int hk = ev.key;
-                if (ev.key == KEY_LEFT) hk = KEY_WORKSPACE_PREV;
-                else if (ev.key == KEY_RIGHT) hk = KEY_WORKSPACE_NEXT;
+                if (ev.key == KEY_LEFT) hk = (ev.mods & INPUT_MOD_SHIFT) ? KEY_WORKSPACE_MOVE_PREV : KEY_WORKSPACE_PREV;
+                else if (ev.key == KEY_RIGHT) hk = (ev.mods & INPUT_MOD_SHIFT) ? KEY_WORKSPACE_MOVE_NEXT : KEY_WORKSPACE_NEXT;
                 __atomic_store_n(&hotkey_pending, hk, __ATOMIC_RELEASE);
             }
         } else {
