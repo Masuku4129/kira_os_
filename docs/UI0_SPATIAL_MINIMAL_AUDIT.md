@@ -230,3 +230,11 @@
 - Added a 800×400 GUI regression scenario with all seven navigation destinations; it verifies the final navigation hit target ends above the Dock and remains clickable.
 - Very small viewports below 240 px height are not an acceptance target yet; touch/DPI and phone-specific scaling still require device validation.
 - Exact-head CI for the source/test follow-up is pending.
+
+
+## 20. On-demand system status panel (2026-11-13)
+
+- Added a compact status affordance at the right end of the Spatial top strip. It opens a contextual panel; it does not reserve permanent desktop space.
+- The panel reports CPU average from per-core busy samples, memory percentage and KIRA Mind health. Missing telemetry is shown as unavailable rather than fabricated.
+- Panel refreshes when new metrics arrive while it is open. Clicking outside dismisses it and consumes that click so it cannot activate an obscured window. The Window Overview and status panel are mutually exclusive.
+- Added host GUI coverage for opening, drawing, outside dismissal and toggling closed. Phone/Limbo appearance and touch-target validation remain outstanding.
