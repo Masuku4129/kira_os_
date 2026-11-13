@@ -10,7 +10,7 @@ static int name_valid(const char* name) {
 static int file_length_valid(const char* file) {
     if (!file) return 1;
     unsigned i = 0;
-    while (file[i] && i < PROG_QUEUE_FILE_CAP) i++;
+    while (i < PROG_QUEUE_FILE_CAP && file[i]) i++;
     return i < PROG_QUEUE_FILE_CAP;
 }
 static void copy_string(char* dst, const char* src) {
