@@ -1,5 +1,15 @@
 # KIRA OS — журнал продолжения работ
 
+## Текущая точка продолжения — PR #138 / UI-3 App Launcher (2026-11-13)
+
+- Ветка: `docs/ui0-spatial-minimal-audit`; PR #138 открыт, Draft, не слит. Не менять `main` и не выполнять merge без разрешения владельца.
+- Последний полностью зелёный CI: run `43387644283`, SHA `00d05f93d0cb63667f1f85c1d445e5bde11bbd3e`: build, host-tests, ARM64 и все VM jobs — SUCCESS. Это подтверждение только указанного SHA.
+- После этого добавлены изменения на текущем head: `prog_catalog.c` проверяет наличие байтов продолжения UTF-8 перед чтением; тесты включают усечённые 2/3/4-байтовые последовательности; ARM64 kernel source list включает `prog_catalog.c` рядом с `prog_queue.c`. Изменения требуют нового CI; PASS для нового head пока не подтверждён.
+- Контракт очереди запуска уже существует и покрыт `tests/prog_queue_test.c`: ACCEPTED/BUSY/INVALID, request ID, PENDING/RUNNING/COMPLETE, результат с однократным потреблением, строгие пределы имени/пути и 12-поточная конкуренция. Не переписывать этот контракт заново.
+- Build-time curated catalog уже существует: `tools/kfstool catalog` + `prog_catalog.c/h`, явный allowlist с русскими метаданными; тест исключает `atk-mem` и неизвестные ELF. Проверка доверия остаётся отдельно в `prog_run_ex()` через SHA-256 `PROG_MANIFEST`.
+- Следующий production slice: UI Launcher в Spatial Minimal, интеграция с `prog_catalog_search()` и `prog_request()`, явный keyboard ownership (сейчас только `files_focus` блокирует консоль), статусы принятия/завершения. Не вызывать KFS/хеширование из display thread; не запускать ELF напрямую.
+- Архитектурная трассировка: мастер-план J/J.1, K, F, N; workstreams 2, 5, 9, 12. Физическое железо не тестировалось.
+
 > Снимок состояния на 2026-11-12. Перед использованием сверять SHA и CI с GitHub: статусы быстро меняются.
 
 ## Обязательный порядок
