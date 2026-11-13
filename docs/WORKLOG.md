@@ -288,3 +288,10 @@
 - Run #43455111511 exposed a deterministic false-negative in VM scenario `drv-edu`: the driver itself passed PCI discovery, SHA-256 validation, MSI, DMA round-trip and negative access checks, but the serial log split the kernel status line at byte 192 and inserted another CPU's user-process line in the middle. The exact missing substring in the test was caused by the fixed `LB_SIZE=192` buffer flushing a long UTF-8 status line before newline.
 - This was not a driver start failure and the test is not weakened. `linebuf.h` raises the per-CPU/per-context line buffer to 512 bytes; a new `tests/linebuf_test.c` regression checks a 400-byte line is emitted once, intact, at newline, and verifies delayed prompt flush remains intact.
 - The regression is added to `tests/run_host_tests.sh` and registered in `docs/PROJECT_STATUS/status_manifest.json`. Exact-head CI after this fix is pending; do not call this fixed/PASS until host test and `drv-edu` VM scenario pass on the new SHA.
+
+### Реестр: исправлена проверка разницы build lists и Git trees (2026-11-13)
+
+- Первый host CI на snapshot ветки выявил ошибку самого нового guard: он трактовал source-list delta как tree-file delta и ошибочно требовал, чтобы `pk.c` отсутствовал в main tree. Файл существует в baseline, но не включён в main kernel source list.
+- Guard исправлен: каждый source input из v46 должен быть либо в pinned main baseline, либо в v46-only tree paths; разница сборочных списков и разница Git trees теперь учитываются отдельно.
+- В `02_IN_PROGRESS.md` добавлено явное пояснение: 14 x86-64 и 9 ARM64 source-list deltas — это не автоматически 23 отсутствующих файла.
+- Предыдущий CI на SHA `f78970a` подтвердил, что registry step и lint прошли; host-tests остановился на этом ложном условии. Повторный CI для исправленного checker и увеличенного line buffer ожидается.
