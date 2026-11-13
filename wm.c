@@ -1528,6 +1528,44 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     gfx_text(c, x + 16 + ox, y + h - 20 + oy, "Закрыть: нажмите вне панели", TH_TEXT_FAINT, -1);
 }
 
+static uint32_t notification_color(unsigned priority) {
+    return priority >= WM_NOTIFY_CRITICAL ? TH_RED : priority == WM_NOTIFY_WARNING ? TH_AMBER : TH_CYAN;
+}
+static void draw_notification_toast(surface_t* c, int ox, int oy) {
+    if (!notification_toast_active || !notification_count) return;
+    unsigned at = (notification_head + WM_NOTIFICATION_MAX - 1) % WM_NOTIFICATION_MAX;
+    const wm_notification_t* n = &notifications[at];
+    int x, y, w, h; notification_toast_rect(&x, &y, &w, &h);
+    uint32_t col = notification_color(n->priority);
+    ui_round_rect(c, x + ox, y + oy, w, h, 14, TH_BAR0, 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, 14, col, 230);
+    ui_round_rect(c, x + 10 + ox, y + 12 + oy, 4, h - 24, 2, col, 255);
+    ui_text_fit(c, x + 24 + ox, y + 12 + oy, n->title, w - 42, col);
+    ui_text_fit(c, x + 24 + ox, y + 38 + oy, n->message, w - 42, TH_TEXT);
+}
+static void draw_notification_center(surface_t* c, int ox, int oy) {
+    if (!notification_center_open) return;
+    int x, y, w, h; notification_center_rect(&x, &y, &w, &h);
+    ui_round_rect(c, x + ox, y + oy, w, h, 16, TH_BAR0, 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, 16, TH_BORDER, 255);
+    gfx_text(c, x + 16 + ox, y + 14 + oy, "УВЕДОМЛЕНИЯ", TH_TEXT, -1);
+    gfx_text(c, x + 16 + ox, y + 34 + oy, notification_count ? "Последние системные события" : "Новых событий нет", TH_TEXT_DIM, -1);
+    int clear_w = 76;
+    ui_round_rect(c, x + w - clear_w - 12 + ox, y + 10 + oy, clear_w, 26, 7, TH_TILE, 255);
+    ui_round_frame(c, x + w - clear_w - 12 + ox, y + 10 + oy, clear_w, 26, 7, TH_BORDER, 200);
+    gfx_text(c, x + w - clear_w - 2 + ox, y + 18 + oy, "Очистить", TH_TEXT_DIM, -1);
+    int visible = (h - 58) / 48; if (visible > 6) visible = 6;
+    for (int i = 0; i < visible && (unsigned)i < notification_count; i++) {
+        unsigned at = (notification_head + WM_NOTIFICATION_MAX - 1 - (unsigned)i) % WM_NOTIFICATION_MAX;
+        const wm_notification_t* n = &notifications[at];
+        int ry = y + 48 + i * 48;
+        uint32_t col = notification_color(n->priority);
+        ui_round_rect(c, x + 12 + ox, ry + oy, w - 24, 42, 8, TH_TILE, 255);
+        ui_round_rect(c, x + 12 + ox, ry + 8 + oy, 3, 26, 1, col, 255);
+        ui_text_fit(c, x + 24 + ox, ry + 5 + oy, n->title, w - 48, col);
+        ui_text_fit(c, x + 24 + ox, ry + 22 + oy, n->message, w - 48, TH_TEXT_DIM);
+    }
+}
 static void draw_side(surface_t* c, int ox, int oy) {
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) { draw_spatial_shell(c, ox, oy); return; }
     if (!side_n) return;
