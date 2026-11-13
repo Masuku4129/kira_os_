@@ -352,3 +352,10 @@
 - Исправлена ошибка поколения handle: сравнение overview_generations[index] находится только в ветке выбора карточки; overview_refresh сравнивает локальные id/generation пары. Также заголовок карточки ограничен ui_text_fit, чтобы длинное имя не заходило на соседнюю карточку.
 - Run 43381639422 на точном code SHA f6ecb467e4abc50eef9858cb6f62b78335de71c5: x86-64 build SUCCESS. На момент записи host-tests и ARM64 ещё in_progress; несколько VM jobs in_progress, несколько cancelled/queued. Общий результат не PASS.
 - PR head после дополнительной документации app discovery: 99a078618ada444ffa2f47242577e112e911764c. Документы не меняют production code; проверяемый кодовый SHA остаётся f6ecb467e4abc50eef9858cb6f62b78335de71c5.
+
+
+### Host-test regression isolation — 2026-11-13
+- Run 43381832589 on SHA 1ee5a49b08187acfb276561ccb063846450a3261: x86 build SUCCESS; host-tests FAILED at tests/wm_test.c:390 (`!wm_compose(...)`). Failure occurred because the preceding overview/window-destruction regression sequence had left legitimate damage pending; the telemetry assertion was not isolated from that lifecycle damage.
+- Updated tests/wm_test.c to call frame() after destroying the replacement window, consuming the lifecycle damage before testing that meter telemetry is inert in Spatial Minimal. This changes test setup only, not WM production behavior.
+- Fix commit: db2ec664dd131ba209079485c4e2181de24bbebe. A fresh CI run is required on this exact head; the failed host-test result from 1ee5a49 is not applicable to the corrected test head.
+- In run 43381832589, ARM64 remained in progress and most completed VM scenarios succeeded; several VM shards were cancelled or still running. No full CI PASS is claimed.
