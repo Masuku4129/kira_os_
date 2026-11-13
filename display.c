@@ -541,18 +541,32 @@ static void update_clock(void) {
     wm_set_clock(date, hm);
 }
 
-static void update_system_io(void) {
+static int system_link_state(void) {
 #ifndef KIRA_HOST_TEST
     netdev_t* dev = net_dev();
-    int link = dev ? -1 : -2;
-    if (dev && dev->link) {
-        int state = dev->link(dev);
-        link = state > 0 ? 1 : state == 0 ? 0 : -1;
-    }
+    if (!dev) return -2;
+    if (!dev->link) return -1;
+    int state = dev->link(dev);
+    return state > 0 ? 1 : state == 0 ? 0 : -1;
+#else
+    return -1;
+#endif
+}
+
+static void update_system_io(void) {
+#ifndef KIRA_HOST_TEST
     int volume = audio_running() ? audio_master(-1) : -1;
-    wm_set_system_io(link, volume);
+    wm_set_system_io(system_link_state(), volume);
 #else
     wm_set_system_io(-1, -1);
+#endif
+}
+
+static void on_system_volume(int percent) {
+#ifndef KIRA_HOST_TEST
+    if (audio_running()) wm_set_system_io(system_link_state(), audio_master(percent));
+#else
+    (void)percent;
 #endif
 }
 
@@ -748,7 +762,7 @@ int display_init(unsigned long mbi) {
     if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
     notify_head = notify_tail = 0;
-    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher, on_workspace_changed };
+    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher, on_workspace_changed, on_system_volume };
 #ifdef KIRA_SPATIAL_PREVIEW
     wm_init_mode(fb_surface(), &ops, WM_LAYOUT_SPATIAL_MINIMAL);
 #else
