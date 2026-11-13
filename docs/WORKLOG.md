@@ -501,3 +501,5 @@
 - **Next:** run the new focused PCI host test and full host suite on this branch; then x86-64/ARM64 builds and QEMU ARM64 PCI scenarios. Continue Device Model identity/generation and resource lifecycle only after this boundary is verified.
 
 - CI follow-up: the first PR #139 host-tests job stopped in `ci/lint.sh` before compiling anything. It falsely matched the legitimate validator's literal list of empty-answer markers in `ci/check_pr_compliance.py`. Rewrote those markers without embedding the linter's banned tokens; this is a lint self-match correction, not a production runtime change. Await a fresh exact-head CI run.
+
+- PR #139 evidence matrix now includes stable R-01/R-02 requirement rows with exact branch SHA `4d2edd61aa4aea3c3aa0ba25d348fa694e90398d`; the first compliance retry reused the original `opened` payload and therefore still saw the old body. A new branch synchronization is used to validate the corrected body.
