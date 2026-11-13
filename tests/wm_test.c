@@ -639,12 +639,15 @@ int main(void) {
     CHECK(small_notif_under >= 0);
     uint8_t small_busy[1] = { 35 };
     wm_set_meters(small_busy, 1, 58, 20);
+    wm_set_system_io(1, 75);
     wm_anim(20000, 0);
     CHECK(wm_notification_post("Система", "Событие на компактном экране", WM_NOTIFY_WARNING) == 0);
     CHECK(wm_notification_toast_is_visible());
     click(294, 20); CHECK(wm_system_panel_is_open());
     frame();
-    CHECK(px(&narrow, 40, 196) == TH_RED); /* KIRA Mind row remains visible in the 320x240 quick panel */
+    CHECK(px(&narrow, 40, 177) == TH_RED); /* KIRA Mind remains visible in the compact panel */
+    CHECK(px(&narrow, 180, 177) == TH_GREEN); /* live network link is rendered */
+    CHECK(px(&narrow, 40, 209) == TH_CYAN); /* audio master volume is rendered */
     click(160, 108); CHECK(wm_notification_center_is_open());
     in_n = 0; move_to(80, 130, 0); CHECK(in_n == 0);
     click(80, 130); CHECK(in_n == 0 && wm_notification_center_is_open());
