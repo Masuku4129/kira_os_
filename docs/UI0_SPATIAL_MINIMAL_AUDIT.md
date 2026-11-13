@@ -238,3 +238,5 @@
 - The panel reports CPU average from per-core busy samples, memory percentage and KIRA Mind health. Missing telemetry is shown as unavailable rather than fabricated.
 - Panel refreshes when new metrics arrive while it is open. Clicking outside dismisses it and consumes that click so it cannot activate an obscured window. The Window Overview and status panel are mutually exclusive.
 - Added host GUI coverage for opening, drawing, outside dismissal and toggling closed. Phone/Limbo appearance and touch-target validation remain outstanding.
+
+- Dock geometry now scales tile size and spacing when pinned entries would exceed the available width. A 320×240 GUI case checks all ten pinned entries remain inside the viewport and each hit target launches its corresponding item.
