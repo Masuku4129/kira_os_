@@ -1,7 +1,7 @@
 # KIRA OS — первичная инвентаризация компонентов
 
 **Снимок:** main @ bbc7f7ab948e72511aed113b69043add10ec8350  
-**Дата:** 2026-11-12  
+**Дата:** 2026-11-13  
 **Статус документа:** первичный source-level pass, не финальный аудит.  
 **Ограничение:** исходники просмотрены через GitHub; команды сборки и тесты в этом проходе локально не запускались. Наличие тестового файла не считается PASS.
 
@@ -73,3 +73,10 @@
 
 
 **Latest verified baseline:** CI run `43298087855` on SHA `618ce01344e219991323aca51f9de58c55ed2aab` passed 30/30 jobs, including 16 ARM64 QEMU scenarios. Subsequent bus-range-start and ECAM-alignment hardening is committed but awaits a new exact-head run.
+
+
+## Device Model contract follow-up (2026-11-13)
+
+- Draft contract: `docs/architecture/rfc/RFC-DEV-001.md` (DEV-001). It defines device identity/generation, resource ownership, driver binding and lifecycle, with explicit DMA/IOMMU and teardown gates.
+- Current architecture branch has PCI inventory and ARM64 FDT/ECAM host bridge source ownership, but not a complete generic Device Model lifecycle. PCI BDF is location, not stable identity. ARM64 rejects nonzero bus-range starts because the shared enumerator begins at bus 0.
+- Status remains **partial / not accepted** until range-aware enumeration, generation-safe registry, resource reservation, security lifecycle and exact-head integration tests are implemented.
