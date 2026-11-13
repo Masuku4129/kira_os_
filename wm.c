@@ -839,6 +839,7 @@ static void click(int px, int py) {
         int sx, sy, sw, sh; system_panel_rect(&sx, &sy, &sw, &sh);
         if (px >= sx && px < sx + sw && py >= sy && py < sy + sh) return;
         system_panel_open = 0; damage_system_panel();
+        return; /* dismissing the overlay must not activate a covered window */
     }
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && py < WM_TOP_H) {
         if (px >= 104 && px < 188 && py >= 6 && py < 34) { wm_window_overview_toggle(); return; }
