@@ -301,3 +301,15 @@
 - Получены все страницы GitHub branches API: **302 ветки, 290 уникальных HEAD commit SHA**.
 - Создан `docs/PROJECT_STATUS/branch_heads_2026-11-13.json` с каждым именем ветки и точным SHA; добавлен в managed_files и CI guard.
 - Это закрывает риск потерять сами branch refs из-за отсутствия списка. Полный tree diff пока выполнен только для восьми ключевых линий, описанных в `02_IN_PROGRESS.md`; остальные ветки требуют следующего сравнения путей. До завершения сравнения их нельзя считать пустыми или безопасными для удаления.
+
+### Завершён полный tree-level аудит всех веток и обновлён трёхсекционный реестр (2026-11-13)
+
+- Сверены 302 branch refs (290 уникальных HEAD): 211 не-CI refs, 205 уникальных не-CI деревьев исходников, 91 CI-result/preview refs.
+- Все 205 уникальных не-CI Git trees успешно прочитаны и сравнены с pinned main baseline SHA `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`; tree read errors = 0.
+- Найдены 722 уникальных пути, присутствующих в не-CI ветках, но отсутствующих в main. Классификация: 201 source/runtime, 62 CI/build/tools, 217 tests/fixtures, 164 research, 74 docs, 4 other.
+- 77 не-CI refs без PR сохранены для отдельного triage (включая main, т.е. 76 дополнительных веток). Ветки и PR не удалялись, изменения не переносились в main.
+- Все 302 branch refs и 134 PR snapshot (59 open, 49 closed-unmerged, 26 merged) сохранены в `all_branch_tree_audit.json`; `branch_heads_2026-11-13.json` синхронизирован с тем же ref snapshot.
+- `status_manifest.json` связывает три раздела: baseline main (829 файлов), branch-only backlog (722 пути) и planned work в `03_PLANNED.md`. Полный path catalog и частота присутствия каждого пути лежат в `all_branch_tree_audit.json`.
+- CI guard дополнен проверками согласованности двух branch snapshots, полноты 205 tree records, PR/branch counts и полного непересекающегося распределения 722 путей по категориям.
+- В ходе исправления VM `drv-edu` false-negative увеличен `LB_SIZE` с 192 до 512; добавлен host regression для длинной строки, idle prompt flush и full-buffer boundary. Удалён дублирующий запуск registry guard из host script.
+- Exact-head CI на SHA `2c5e960bc8edbfa4ff3b07350ef9a3f66f7ec877` запущен; build, ARM64 и host-tests наблюдались как in progress. До завершения и получения результатов PASS не заявлять.
