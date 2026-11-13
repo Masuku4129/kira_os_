@@ -318,6 +318,9 @@ int main(void) {
     wm_set_layout_mode(WM_LAYOUT_SPATIAL_MINIMAL);
     CHECK(wm_get_layout_mode() == WM_LAYOUT_SPATIAL_MINIMAL);
     frame();
+    /* Spatial keeps a compact system bar, not the Legacy tab/telemetry bar. */
+    CHECK(px(&scr, 500, 20) == TH_BAR0);
+    CHECK(px(&scr, 500, WM_TOP_H - 1) == TH_BORDER);
     int nav_x, nav_y, dock_x, dock_y;
     CHECK(wm_tab_center(1, &nav_x, &nav_y) == 0 && nav_x < WM_SIDE_W && nav_y >= WM_TOP_H);
     CHECK(wm_side_center(0, &dock_x, &dock_y) == 0 && dock_y > 768 - 100);
