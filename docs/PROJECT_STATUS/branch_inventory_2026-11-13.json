@@ -1465,496 +1465,19 @@
   },
   "open_pull_requests": [
     {
-      "number": 146,
-      "title": "ui(spatial): apply approved visual design tokens across shell and apps",
-      "head": "feat/spatial-visual-tokens-2026-11-13",
-      "head_sha": "29017f5d5835f569086d8a6a5a3acaf9e1066ede",
-      "base": "feat/spatial-minimal-desktop-visual-2026-11",
+      "number": 12,
+      "title": "[Draft] v46 release completion: audit fixes and architecture blockers",
+      "head": "v46/release-completion",
+      "head_sha": "c3342321667045a29b3c7e4726a31b926117a9b1",
+      "base": "v45/overhaul",
       "draft": true,
       "state": "open"
     },
     {
-      "number": 145,
-      "title": "ci(release): publish complete x86-64 and ARM64 system images",
-      "head": "release/full-os-artifacts-2026-11-13",
-      "head_sha": "4b28ee5fb60ec7aa95d959b6c5defac64dc4f127",
-      "base": "feat/spatial-minimal-desktop-visual-2026-11",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 144,
-      "title": "feat(gui): complete Spatial Minimal desktop visual pass",
-      "head": "feat/spatial-minimal-desktop-visual-2026-11",
-      "head_sha": "95a672eae2ef94a61eb29df60e509d69ce5c4335",
-      "base": "baseline/spatial-preview-5fc8f491",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 143,
-      "title": "Spatial workspaces and contextual notifications",
-      "head": "feat/spatial-workspaces-notifications-2026-11",
-      "head_sha": "5fc8f49184e2e27e44790bdcd238977bfd126cc4",
-      "base": "feat/spatial-context-panel-2026-11",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 142,
-      "title": "feat(gui): add on-demand Spatial system status panel",
-      "head": "feat/spatial-context-panel-2026-11",
-      "head_sha": "10650832ad60d3d1cf871c53a675dda2b28136fc",
-      "base": "fix/ui-spatial-damage-bounds-2026-11",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 141,
-      "title": "feat(device-model): add common registry and PCI discovery adapter",
-      "head": "architecture/device-registry-pci-adapter-2026-11",
-      "head_sha": "cda2ba2b3b9432f0dcae1843bc331ac858c4b6e2",
-      "base": "architecture/pci-range-device-model-2026-11",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 140,
-      "title": "fix(gui): restore partial redraw performance in Spatial Minimal",
-      "head": "fix/ui-spatial-damage-bounds-2026-11",
-      "head_sha": "efada8f2d64c55516ac6ac76f41b58a1bf1cad16",
-      "base": "docs/ui0-spatial-minimal-audit",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 139,
-      "title": "feat(architecture): bounded PCI host bus enumeration",
-      "head": "architecture/pci-range-device-model-2026-11",
-      "head_sha": "ea83f83bdc59307bba22a6bd013b24c5c5c09731",
-      "base": "architecture/target-baseline-2026-11",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 138,
-      "title": "feat(gui): gated KIRA Spatial Minimal first layout slice",
-      "head": "docs/ui0-spatial-minimal-audit",
-      "head_sha": "c05dac32ac9ced00e8e8856f2520012e3ef23128",
-      "base": "main",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 137,
-      "title": "security: clear firmware PCI bus mastering before driver ownership",
-      "head": "security/pci-clear-firmware-busmaster",
-      "head_sha": "d35c00069bf41bc0316a0dc743c7a9fe4a01be56",
-      "base": "main",
-      "draft": false,
-      "state": "open"
-    },
-    {
-      "number": 136,
-      "title": "security: block Ring 3 DMA/MSI drivers until IOMMU isolation",
-      "head": "security/kdrv-require-iommu-for-dma-msi",
-      "head_sha": "761a212f3ab73c41f7a867c0337526b70cb8a174",
-      "base": "main",
-      "draft": false,
-      "state": "open"
-    },
-    {
-      "number": 135,
-      "title": "Architecture: закрепить целевую архитектуру KIRA OS и план полного аудита",
-      "head": "architecture/target-baseline-2026-11",
-      "head_sha": "78a76003d0d808147f994c7ed23098c607039fd8",
-      "base": "main",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 134,
-      "title": "feat(kvm): add KVP0 experimental interpreter prototype",
-      "head": "v46/kira-vm-core-v1",
-      "head_sha": "aa5378d2a1cc52f9cbc55ab7432a4b0f7dad25a7",
-      "base": "v46/unified-release-integration",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 132,
-      "title": "fix(vmm): harden kernel stack slot lifecycle",
-      "head": "fix/vmm-kstack-double-free",
-      "head_sha": "2b8569ad1baf8596e48c81ebebcdcefe8fae859d",
-      "base": "v46/unified-release-integration",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 131,
-      "title": "fix(wasm): harden module validation and KIRA import ABI",
-      "head": "fix/wasm-module-header-bounds",
-      "head_sha": "55328f649baad52f68a0cc5c39c166502eccf278",
-      "base": "main",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 125,
-      "title": "fix(iommu): combine hardened SMMUv3 domains and controller safety",
-      "head": "fix/arm-smmu-integrated-hardening",
-      "head_sha": "cf35a78b385c0b9939702e19b097b01a4296e273",
-      "base": "autodrv",
-      "draft": false,
-      "state": "open"
-    },
-    {
-      "number": 121,
-      "title": "test(boot): align BIOS smoke test with image contents",
-      "head": "fix/boot-bios-smoke-no-initrd",
-      "head_sha": "029c18a47825e480b2d50f99e6095c9200094208",
-      "base": "autodrv",
-      "draft": false,
-      "state": "open"
-    },
-    {
-      "number": 120,
-      "title": "fix(iommu): implement valid SMMUv3 stage-1 domains",
-      "head": "fix/arm-smmu-domain-encoding",
-      "head_sha": "932f39a8a305da899e8616e3cd50eabb50400e82",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 116,
-      "title": "feat(fdt): resolve PCI requester IDs through iommu-map",
-      "head": "feat/fdt-iommu-map",
-      "head_sha": "6c37c98569986f088e184c2ce158c0a6dd49d1df",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 115,
-      "title": "fix(iommu): enforce SMMUv3 DMA address-width limits",
-      "head": "fix/arm-smmu-stage1-context-descriptor-v11",
-      "head_sha": "680d01376cf43050471da867844dcb1cd5097df2",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 112,
-      "title": "fix(boot): complete BIOS MBR and command-line handoff",
-      "head": "fix/bios-mbr-partition-cmdline-v2",
-      "head_sha": "2dcf255ff4832f5631b1105c7b05fb5fe872d4b6",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 95,
-      "title": "refactor(kcc): isolate remaining preprocessor and optimizer state",
-      "head": "ai/kcc-context-more-state",
-      "head_sha": "b7cb6f655128b38f3b626da6a31f4fba35cad1df",
-      "base": "ai/kcc-context-backend-regression",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 93,
-      "title": "test(kcc): verify sequential isolation across x86-64 and AArch64",
-      "head": "ai/kcc-context-backend-regression",
-      "head_sha": "2f0e38254fbde12ff1a1673b27f0337690c319fb",
-      "base": "ai/kcc-context-x86-state",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 81,
-      "title": "feat(mind): forecast memory pressure four seconds ahead",
-      "head": "ai/mind-memory-pressure-forecast-v2",
-      "head_sha": "579e807f74efe21f9049c57a4111021a6f3ffec7",
-      "base": "ai/mind-validity-feature",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 79,
-      "title": "perf(sched): replace timed-sleep scans with min-heap",
-      "head": "perf/scheduler-sleep-heap",
-      "head_sha": "5acdc5e359a434bfa1a14a198397b3189fb2b2f5",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 78,
-      "title": "feat(mind): distinguish missing disk telemetry from zero latency",
-      "head": "ai/mind-validity-feature",
-      "head_sha": "464070a038c35a22fa385395d6a47645f2caa489",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 76,
-      "title": "docs: audit system bottlenecks and define Mind vNext",
-      "head": "ai/mind-multitask-foundation",
-      "head_sha": "aeb9f2b7865ca5101be6daeb7aecf2bab801173b",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 74,
-      "title": "perf(sched): reduce snapshot lock hold time",
-      "head": "perf/scheduler-snapshot-linear",
-      "head_sha": "5568c8f11dd8717ac19a4a17fcae07b5dfa13120",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 72,
-      "title": "fix(drivers): enforce exact per-file source licenses",
-      "head": "fix/bsd-driver-license-accuracy-rebased2",
-      "head_sha": "3b8f685caee564a8697ff6f4547e14a8d82066d8",
-      "base": "autodrv",
-      "draft": false,
-      "state": "open"
-    },
-    {
-      "number": 63,
-      "title": "docs: record KIRA OS working contract and project constraints",
-      "head": "docs/user-work-contract-and-project-tracker",
-      "head_sha": "f6657bd55f20ee5ef9f2047a8720658a92966b6e",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 59,
-      "title": "CI: восемь параллельных боксов проверки KIRA OS",
-      "head": "factory/parallel-build-boxes-v3",
-      "head_sha": "556fc1837c95ae824714e6aba3efcd57716f5a54",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 58,
-      "title": "Architecture: decisions from November 2026 technology research",
-      "head": "work/architecture-selection-2026-11",
-      "head_sha": "024739047bd7a6ac2528f49b7b197be96177d111",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 57,
-      "title": "Design: язык инструкций KIL для человека и ИИ",
-      "head": "work/kil-language-design-v2",
-      "head_sha": "9a9a92d1e5072e568288ff2bbd3ca1ed43fb0a45",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 55,
-      "title": "docs: зафиксировать выбор технологий по результатам исследования",
-      "head": "work/architecture-decisions-2026-11",
-      "head_sha": "6b01625f25525e796b9c4cb66880a087b827ff01",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 54,
-      "title": "fix(sb16): diagnose and enforce ISA DMA ring constraints",
-      "head": "work/sb16-dma-diagnostics",
-      "head_sha": "49e83abc88098d63a10358e7624312a173f0a8c7",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 52,
-      "title": "CI: девять изолированных параллельных боксов разработки KIRA",
-      "head": "factory/parallel-build-boxes",
-      "head_sha": "ceccebf2b454509d060facbc287ba0e152bc9bf6",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 51,
-      "title": "Design: KIL — декларативный язык инструкций для человека и ИИ",
-      "head": "work/kil-language-design",
-      "head_sha": "a1c8fdcc8af9a14f1ff1979b5cad552bdbe225a7",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 50,
-      "title": "Draft: единый syscall ABI x86-64 / ARM64",
-      "head": "work/arch-parity-abi-v1",
-      "head_sha": "5ed9b14405239fc6ef585ab500ee2d65680fbf87",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 49,
-      "title": "Isolation: private IPC objects and per-process capability boundary",
-      "head": "work/isolation-ipc-v1",
-      "head_sha": "9eae47fed27fc1d6bb0be9bb25b0b3fbdda7f64b",
-      "base": "autodrv",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 48,
-      "title": "Research: global KIRA validation program and full-system gates",
-      "head": "research/driver-adaptation-lab-2026-11",
-      "head_sha": "085325afcbe2a5a5ec8babe6f9089e2e341e6799",
-      "base": "main",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 47,
-      "title": "Research: add KIRA data-format benchmark lab",
-      "head": "research/data-format-lab-2026-11",
-      "head_sha": "e7ca8f061de3147f5fcc7f0a0d2dee6bd223dbb4",
-      "base": "main",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 46,
-      "title": "Draft: KIRA OS unified release integration and UEFI boot validation",
-      "head": "v46/unified-release-integration",
-      "head_sha": "dacc04d0dafd507ef0721698b5e9c2512f1947a5",
-      "base": "v46/kdrv-catalogue-signature-policy",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 45,
-      "title": "Harden x86-64 UEFI ELF loading and BootInfo conversion",
-      "head": "v46/uefi-bootinfo-validation",
-      "head_sha": "f7e05a2a20f2eadbf3e99787933085bf0bc46b71",
-      "base": "v46/kdrv-catalogue-signature-policy",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 44,
-      "title": "Harden VT-d domains, SMMUv3 command queue and RTL8139 TX status",
-      "head": "v46/iommu-network-compile-fixes",
-      "head_sha": "b72a5b1f58bc1d8f585add9e3c05efa1a7cfd877",
-      "base": "v46/kdrv-catalogue-signature-policy",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 43,
-      "title": "Prepare KIRA OS autonomous coding agent",
-      "head": "v46/kira-agent-bootstrap",
-      "head_sha": "89707a285bd7548412a141dc344f50e3450042b2",
-      "base": "v46/kdrv-catalogue-signature-policy",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 42,
-      "title": "KDRV: enforce publisher-required policy through install and kernel load",
-      "head": "v46/kdrv-catalogue-signature-policy",
-      "head_sha": "2d1ffeaa5faeb13b5ad6f56ae344b2219fa89ffa",
-      "base": "v46/kdrv-auth-integration-final",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 41,
-      "title": "KDRV: authenticate publisher packages and make signed installs crash-safe",
-      "head": "v46/kdrv-auth-integration-final",
-      "head_sha": "5aefeb8cf1d0d13f8e9781c3cf5fe85bfedb2b8e",
-      "base": "v46/release-completion",
-      "draft": false,
-      "state": "open"
-    },
-    {
-      "number": 40,
-      "title": "KDRV: integrate publisher signatures and installer verification",
-      "head": "v46/kdrv-runtime-signature-import",
-      "head_sha": "7504bda7cff2cafdd53b94f9f922698238f76a21",
-      "base": "v46/release-completion",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 39,
-      "title": "ci: exercise driver E2E for KDRV signature changes",
-      "head": "v46/kdrv-signature-ci-routing",
-      "head_sha": "de5928260f8739d9a23e92a3d4367181e2ebc6cf",
-      "base": "v46/ed25519-strict-subgroup",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 38,
-      "title": "crypto: reject Ed25519 small-order and identity public keys",
-      "head": "v46/ed25519-strict-subgroup",
-      "head_sha": "fb12562b5ca07d3e19c2901db871f1e5fa91b0cd",
-      "base": "v46/kdrv-host-link-fix",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 36,
-      "title": "v46: fix KDRV signature host links and keyring identifiers",
-      "head": "v46/kdrv-keyring-array",
-      "head_sha": "03511e430e09d27869208c4eefe5eefc63988a54",
-      "base": "v46/kdrv-signature-work",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 35,
-      "title": "v46: integrate detached Ed25519 signatures for KDRV packages",
-      "head": "v46/kdrv-signature-work",
-      "head_sha": "d5b85234a518948911a7fcda486d0cc8e90c0891",
-      "base": "v46/dma-device-cleanup",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 32,
-      "title": "Add parallel architecture baseline factory",
-      "head": "factory/architecture-parallel",
-      "head_sha": "4afb6a78f9ec171bc2142b3580b9f9010bf9131c",
-      "base": "work/ci-drvman-log-fix",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 24,
-      "title": "Fix Driver Manager CI diagnostics and package listing",
-      "head": "work/ci-drvman-log-fix",
-      "head_sha": "11582736308187700ac7b1f3ae5cf648046a2f37",
-      "base": "work/kdrv-auth",
-      "draft": true,
-      "state": "open"
-    },
-    {
-      "number": 23,
-      "title": "ci: add KIRA OS parallel build factory notifications",
-      "head": "work/parallel-build-factory",
-      "head_sha": "96a11542585473c823eed531330e17882543f612",
+      "number": 21,
+      "title": "KIRA OS v46: harden release gate and authenticate KDRV packages",
+      "head": "work/kdrv-auth",
+      "head_sha": "31d186176f69efa7bd2df4c91d41e1d851c6ffce",
       "base": "v46/architecture-completion",
       "draft": true,
       "state": "open"
@@ -1969,20 +1492,506 @@
       "state": "open"
     },
     {
-      "number": 21,
-      "title": "KIRA OS v46: harden release gate and authenticate KDRV packages",
-      "head": "work/kdrv-auth",
-      "head_sha": "31d186176f69efa7bd2df4c91d41e1d851c6ffce",
+      "number": 23,
+      "title": "ci: add KIRA OS parallel build factory notifications",
+      "head": "work/parallel-build-factory",
+      "head_sha": "96a11542585473c823eed531330e17882543f612",
       "base": "v46/architecture-completion",
       "draft": true,
       "state": "open"
     },
     {
-      "number": 12,
-      "title": "[Draft] v46 release completion: audit fixes and architecture blockers",
-      "head": "v46/release-completion",
-      "head_sha": "c3342321667045a29b3c7e4726a31b926117a9b1",
-      "base": "v45/overhaul",
+      "number": 24,
+      "title": "Fix Driver Manager CI diagnostics and package listing",
+      "head": "work/ci-drvman-log-fix",
+      "head_sha": "11582736308187700ac7b1f3ae5cf648046a2f37",
+      "base": "work/kdrv-auth",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 32,
+      "title": "Add parallel architecture baseline factory",
+      "head": "factory/architecture-parallel",
+      "head_sha": "4afb6a78f9ec171bc2142b3580b9f9010bf9131c",
+      "base": "work/ci-drvman-log-fix",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 35,
+      "title": "v46: integrate detached Ed25519 signatures for KDRV packages",
+      "head": "v46/kdrv-signature-work",
+      "head_sha": "d5b85234a518948911a7fcda486d0cc8e90c0891",
+      "base": "v46/dma-device-cleanup",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 36,
+      "title": "v46: fix KDRV signature host links and keyring identifiers",
+      "head": "v46/kdrv-keyring-array",
+      "head_sha": "03511e430e09d27869208c4eefe5eefc63988a54",
+      "base": "v46/kdrv-signature-work",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 38,
+      "title": "crypto: reject Ed25519 small-order and identity public keys",
+      "head": "v46/ed25519-strict-subgroup",
+      "head_sha": "fb12562b5ca07d3e19c2901db871f1e5fa91b0cd",
+      "base": "v46/kdrv-host-link-fix",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 39,
+      "title": "ci: exercise driver E2E for KDRV signature changes",
+      "head": "v46/kdrv-signature-ci-routing",
+      "head_sha": "de5928260f8739d9a23e92a3d4367181e2ebc6cf",
+      "base": "v46/ed25519-strict-subgroup",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 40,
+      "title": "KDRV: integrate publisher signatures and installer verification",
+      "head": "v46/kdrv-runtime-signature-import",
+      "head_sha": "7504bda7cff2cafdd53b94f9f922698238f76a21",
+      "base": "v46/release-completion",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 41,
+      "title": "KDRV: authenticate publisher packages and make signed installs crash-safe",
+      "head": "v46/kdrv-auth-integration-final",
+      "head_sha": "5aefeb8cf1d0d13f8e9781c3cf5fe85bfedb2b8e",
+      "base": "v46/release-completion",
+      "draft": false,
+      "state": "open"
+    },
+    {
+      "number": 42,
+      "title": "KDRV: enforce publisher-required policy through install and kernel load",
+      "head": "v46/kdrv-catalogue-signature-policy",
+      "head_sha": "2d1ffeaa5faeb13b5ad6f56ae344b2219fa89ffa",
+      "base": "v46/kdrv-auth-integration-final",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 43,
+      "title": "Prepare KIRA OS autonomous coding agent",
+      "head": "v46/kira-agent-bootstrap",
+      "head_sha": "89707a285bd7548412a141dc344f50e3450042b2",
+      "base": "v46/kdrv-catalogue-signature-policy",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 44,
+      "title": "Harden VT-d domains, SMMUv3 command queue and RTL8139 TX status",
+      "head": "v46/iommu-network-compile-fixes",
+      "head_sha": "b72a5b1f58bc1d8f585add9e3c05efa1a7cfd877",
+      "base": "v46/kdrv-catalogue-signature-policy",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 45,
+      "title": "Harden x86-64 UEFI ELF loading and BootInfo conversion",
+      "head": "v46/uefi-bootinfo-validation",
+      "head_sha": "f7e05a2a20f2eadbf3e99787933085bf0bc46b71",
+      "base": "v46/kdrv-catalogue-signature-policy",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 46,
+      "title": "Draft: KIRA OS unified release integration and UEFI boot validation",
+      "head": "v46/unified-release-integration",
+      "head_sha": "dacc04d0dafd507ef0721698b5e9c2512f1947a5",
+      "base": "v46/kdrv-catalogue-signature-policy",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 47,
+      "title": "Research: add KIRA data-format benchmark lab",
+      "head": "research/data-format-lab-2026-11",
+      "head_sha": "e7ca8f061de3147f5fcc7f0a0d2dee6bd223dbb4",
+      "base": "main",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 48,
+      "title": "Research: global KIRA validation program and full-system gates",
+      "head": "research/driver-adaptation-lab-2026-11",
+      "head_sha": "085325afcbe2a5a5ec8babe6f9089e2e341e6799",
+      "base": "main",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 49,
+      "title": "Isolation: private IPC objects and per-process capability boundary",
+      "head": "work/isolation-ipc-v1",
+      "head_sha": "9eae47fed27fc1d6bb0be9bb25b0b3fbdda7f64b",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 50,
+      "title": "Draft: единый syscall ABI x86-64 / ARM64",
+      "head": "work/arch-parity-abi-v1",
+      "head_sha": "5ed9b14405239fc6ef585ab500ee2d65680fbf87",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 51,
+      "title": "Design: KIL — декларативный язык инструкций для человека и ИИ",
+      "head": "work/kil-language-design",
+      "head_sha": "a1c8fdcc8af9a14f1ff1979b5cad552bdbe225a7",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 52,
+      "title": "CI: девять изолированных параллельных боксов разработки KIRA",
+      "head": "factory/parallel-build-boxes",
+      "head_sha": "ceccebf2b454509d060facbc287ba0e152bc9bf6",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 54,
+      "title": "fix(sb16): diagnose and enforce ISA DMA ring constraints",
+      "head": "work/sb16-dma-diagnostics",
+      "head_sha": "49e83abc88098d63a10358e7624312a173f0a8c7",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 55,
+      "title": "docs: зафиксировать выбор технологий по результатам исследования",
+      "head": "work/architecture-decisions-2026-11",
+      "head_sha": "6b01625f25525e796b9c4cb66880a087b827ff01",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 57,
+      "title": "Design: язык инструкций KIL для человека и ИИ",
+      "head": "work/kil-language-design-v2",
+      "head_sha": "9a9a92d1e5072e568288ff2bbd3ca1ed43fb0a45",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 58,
+      "title": "Architecture: decisions from November 2026 technology research",
+      "head": "work/architecture-selection-2026-11",
+      "head_sha": "024739047bd7a6ac2528f49b7b197be96177d111",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 59,
+      "title": "CI: восемь параллельных боксов проверки KIRA OS",
+      "head": "factory/parallel-build-boxes-v3",
+      "head_sha": "556fc1837c95ae824714e6aba3efcd57716f5a54",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 63,
+      "title": "docs: record KIRA OS working contract and project constraints",
+      "head": "docs/user-work-contract-and-project-tracker",
+      "head_sha": "f6657bd55f20ee5ef9f2047a8720658a92966b6e",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 72,
+      "title": "fix(drivers): enforce exact per-file source licenses",
+      "head": "fix/bsd-driver-license-accuracy-rebased2",
+      "head_sha": "3b8f685caee564a8697ff6f4547e14a8d82066d8",
+      "base": "autodrv",
+      "draft": false,
+      "state": "open"
+    },
+    {
+      "number": 74,
+      "title": "perf(sched): reduce snapshot lock hold time",
+      "head": "perf/scheduler-snapshot-linear",
+      "head_sha": "5568c8f11dd8717ac19a4a17fcae07b5dfa13120",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 76,
+      "title": "docs: audit system bottlenecks and define Mind vNext",
+      "head": "ai/mind-multitask-foundation",
+      "head_sha": "aeb9f2b7865ca5101be6daeb7aecf2bab801173b",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 78,
+      "title": "feat(mind): distinguish missing disk telemetry from zero latency",
+      "head": "ai/mind-validity-feature",
+      "head_sha": "464070a038c35a22fa385395d6a47645f2caa489",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 79,
+      "title": "perf(sched): replace timed-sleep scans with min-heap",
+      "head": "perf/scheduler-sleep-heap",
+      "head_sha": "5acdc5e359a434bfa1a14a198397b3189fb2b2f5",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 81,
+      "title": "feat(mind): forecast memory pressure four seconds ahead",
+      "head": "ai/mind-memory-pressure-forecast-v2",
+      "head_sha": "579e807f74efe21f9049c57a4111021a6f3ffec7",
+      "base": "ai/mind-validity-feature",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 93,
+      "title": "test(kcc): verify sequential isolation across x86-64 and AArch64",
+      "head": "ai/kcc-context-backend-regression",
+      "head_sha": "2f0e38254fbde12ff1a1673b27f0337690c319fb",
+      "base": "ai/kcc-context-x86-state",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 95,
+      "title": "refactor(kcc): isolate remaining preprocessor and optimizer state",
+      "head": "ai/kcc-context-more-state",
+      "head_sha": "b7cb6f655128b38f3b626da6a31f4fba35cad1df",
+      "base": "ai/kcc-context-backend-regression",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 112,
+      "title": "fix(boot): complete BIOS MBR and command-line handoff",
+      "head": "fix/bios-mbr-partition-cmdline-v2",
+      "head_sha": "2dcf255ff4832f5631b1105c7b05fb5fe872d4b6",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 115,
+      "title": "fix(iommu): enforce SMMUv3 DMA address-width limits",
+      "head": "fix/arm-smmu-stage1-context-descriptor-v11",
+      "head_sha": "680d01376cf43050471da867844dcb1cd5097df2",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 116,
+      "title": "feat(fdt): resolve PCI requester IDs through iommu-map",
+      "head": "feat/fdt-iommu-map",
+      "head_sha": "6c37c98569986f088e184c2ce158c0a6dd49d1df",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 120,
+      "title": "fix(iommu): implement valid SMMUv3 stage-1 domains",
+      "head": "fix/arm-smmu-domain-encoding",
+      "head_sha": "932f39a8a305da899e8616e3cd50eabb50400e82",
+      "base": "autodrv",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 121,
+      "title": "test(boot): align BIOS smoke test with image contents",
+      "head": "fix/boot-bios-smoke-no-initrd",
+      "head_sha": "029c18a47825e480b2d50f99e6095c9200094208",
+      "base": "autodrv",
+      "draft": false,
+      "state": "open"
+    },
+    {
+      "number": 125,
+      "title": "fix(iommu): combine hardened SMMUv3 domains and controller safety",
+      "head": "fix/arm-smmu-integrated-hardening",
+      "head_sha": "cf35a78b385c0b9939702e19b097b01a4296e273",
+      "base": "autodrv",
+      "draft": false,
+      "state": "open"
+    },
+    {
+      "number": 131,
+      "title": "fix(wasm): harden module validation and KIRA import ABI",
+      "head": "fix/wasm-module-header-bounds",
+      "head_sha": "55328f649baad52f68a0cc5c39c166502eccf278",
+      "base": "main",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 132,
+      "title": "fix(vmm): harden kernel stack slot lifecycle",
+      "head": "fix/vmm-kstack-double-free",
+      "head_sha": "2b8569ad1baf8596e48c81ebebcdcefe8fae859d",
+      "base": "v46/unified-release-integration",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 134,
+      "title": "feat(kvm): add KVP0 experimental interpreter prototype",
+      "head": "v46/kira-vm-core-v1",
+      "head_sha": "aa5378d2a1cc52f9cbc55ab7432a4b0f7dad25a7",
+      "base": "v46/unified-release-integration",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 135,
+      "title": "Architecture: закрепить целевую архитектуру KIRA OS и план полного аудита",
+      "head": "architecture/target-baseline-2026-11",
+      "head_sha": "78a76003d0d808147f994c7ed23098c607039fd8",
+      "base": "main",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 136,
+      "title": "security: block Ring 3 DMA/MSI drivers until IOMMU isolation",
+      "head": "security/kdrv-require-iommu-for-dma-msi",
+      "head_sha": "761a212f3ab73c41f7a867c0337526b70cb8a174",
+      "base": "main",
+      "draft": false,
+      "state": "open"
+    },
+    {
+      "number": 137,
+      "title": "security: clear firmware PCI bus mastering before driver ownership",
+      "head": "security/pci-clear-firmware-busmaster",
+      "head_sha": "d35c00069bf41bc0316a0dc743c7a9fe4a01be56",
+      "base": "main",
+      "draft": false,
+      "state": "open"
+    },
+    {
+      "number": 138,
+      "title": "feat(gui): gated KIRA Spatial Minimal first layout slice",
+      "head": "docs/ui0-spatial-minimal-audit",
+      "head_sha": "c05dac32ac9ced00e8e8856f2520012e3ef23128",
+      "base": "main",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 139,
+      "title": "feat(architecture): bounded PCI host bus enumeration",
+      "head": "architecture/pci-range-device-model-2026-11",
+      "head_sha": "ea83f83bdc59307bba22a6bd013b24c5c5c09731",
+      "base": "architecture/target-baseline-2026-11",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 140,
+      "title": "fix(gui): restore partial redraw performance in Spatial Minimal",
+      "head": "fix/ui-spatial-damage-bounds-2026-11",
+      "head_sha": "efada8f2d64c55516ac6ac76f41b58a1bf1cad16",
+      "base": "docs/ui0-spatial-minimal-audit",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 141,
+      "title": "feat(device-model): add common registry and PCI discovery adapter",
+      "head": "architecture/device-registry-pci-adapter-2026-11",
+      "head_sha": "cda2ba2b3b9432f0dcae1843bc331ac858c4b6e2",
+      "base": "architecture/pci-range-device-model-2026-11",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 142,
+      "title": "feat(gui): add on-demand Spatial system status panel",
+      "head": "feat/spatial-context-panel-2026-11",
+      "head_sha": "10650832ad60d3d1cf871c53a675dda2b28136fc",
+      "base": "fix/ui-spatial-damage-bounds-2026-11",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 143,
+      "title": "Spatial workspaces and contextual notifications",
+      "head": "feat/spatial-workspaces-notifications-2026-11",
+      "head_sha": "5fc8f49184e2e27e44790bdcd238977bfd126cc4",
+      "base": "feat/spatial-context-panel-2026-11",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 144,
+      "title": "feat(gui): complete Spatial Minimal desktop visual pass",
+      "head": "feat/spatial-minimal-desktop-visual-2026-11",
+      "head_sha": "95a672eae2ef94a61eb29df60e509d69ce5c4335",
+      "base": "baseline/spatial-preview-5fc8f491",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 145,
+      "title": "ci(release): publish complete x86-64 and ARM64 system images",
+      "head": "release/full-os-artifacts-2026-11-13",
+      "head_sha": "4b28ee5fb60ec7aa95d959b6c5defac64dc4f127",
+      "base": "feat/spatial-minimal-desktop-visual-2026-11",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 146,
+      "title": "ui(spatial): apply approved visual design tokens across shell and apps",
+      "head": "feat/spatial-visual-tokens-2026-11-13",
+      "head_sha": "29017f5d5835f569086d8a6a5a3acaf9e1066ede",
+      "base": "feat/spatial-minimal-desktop-visual-2026-11",
+      "draft": true,
+      "state": "open"
+    },
+    {
+      "number": 148,
+      "title": "docs: add three-stage project status and file-loss guard",
+      "head": "project/status-ledger-2026-11-13",
+      "head_sha": "6ce616630c29e1bd09fd87d70c27ba4cac89ce89",
+      "base": "main",
       "draft": true,
       "state": "open"
     }
