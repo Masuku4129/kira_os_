@@ -4,7 +4,7 @@
 **Repository:** `Masuku4129/kira_os_`  
 **Working branch:** `architecture/target-baseline-2026-11`  
 **Open architecture PR:** [#135](https://github.com/Masuku4129/kira_os_/pull/135)  
-**Snapshot head:** `6698cf76465eabde67a377d6b7e77787a54d574a`  
+**Initial source-review head:** `8626c4e1f063796da383880e656a36d654fb27fa` (documentation commits were added after this review; refresh the live PR head before work)  
 **Base:** `main` at `bbc7f7ab948e72511aed113b69043add10ec8350`  
 **Status:** working architecture baseline; PR remains Draft; no merge authorized.
 
@@ -81,11 +81,11 @@ These are source-organization and boundary improvements. In particular, service 
 
 ## 6. Verification evidence and limits at this snapshot
 
-- PR #135 current head after the documentation commits is `6698cf76465eabde67a377d6b7e77787a54d574a`.
+- The source-review head at the start of this documentation pass was `8626c4e1f063796da383880e656a36d654fb27fa`; documentation-only commits followed. Read the live PR #135 page for the current branch head before every new task.
 - The latest fully successful recorded architecture CI run is [43298087855](https://github.com/Masuku4129/kira_os_/actions/runs/43298087855), which tested commit `618ce01344e219991323aca51f9de58c55ed2aab`: 30/30 jobs passed, including host tests, x86-64 build, ARM64 build, and the QEMU/Limbo VM matrix (including ARM64 GIC/EL2 coverage).
 - That successful run predates the later PCI host follow-up changes now present at the snapshot head. It does **not** verify `8626c4e1...`.
 - The follow-up changes added strict PCI ECAM alignment and FDT/range arithmetic checks and deliberately reject a nonzero PCI bus-range start because the shared PCI enumerator currently begins at bus 0. Those changes require a fresh exact-head CI run.
-- Therefore the snapshot head is **UNVERIFIED**. Do not carry the 30/30 result forward to it.
+- Therefore the source-review head is **UNVERIFIED**. Documentation-only commits do not change that code-verification status; do not carry the 30/30 result forward. A fresh exact-head workflow is still required.
 - No physical x86-64 or ARM64 hardware validation is recorded here. QEMU/Limbo evidence must not be represented as physical-device validation.
 
 ## 7. Immediate execution queue
