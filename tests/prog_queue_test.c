@@ -16,6 +16,7 @@ int main(void) {
     uint32_t id = 0, taken = 0; int result = 0;
     char name[PROG_QUEUE_NAME_CAP], file[PROG_QUEUE_FILE_CAP];
     CHECK(prog_queue_submit(&q, 0, 0, &id) == PROG_REQUEST_INVALID);
+    CHECK(prog_queue_submit(&q, "paint", 0, 0) == PROG_REQUEST_INVALID);
     CHECK(prog_queue_submit(&q, "", 0, &id) == PROG_REQUEST_INVALID);
     CHECK(prog_queue_submit(&q, "../paint", 0, &id) == PROG_REQUEST_INVALID);
     CHECK(prog_queue_submit(&q, "Paint", 0, &id) == PROG_REQUEST_INVALID);
@@ -27,6 +28,7 @@ int main(void) {
     CHECK(prog_queue_submit(&q, "paint", 0, &taken) == PROG_REQUEST_BUSY);
     CHECK(prog_queue_take(&q, name, file, &taken) == 1);
     CHECK(taken == id && strcmp(name, max_name) == 0 && strcmp(file, max_file) == 0);
+    CHECK(prog_queue_submit(&q, "paint", 0, &taken) == PROG_REQUEST_BUSY); /* RUNNING is still owned */
     CHECK(prog_queue_take(&q, name, file, &taken) == 0);
     CHECK(prog_queue_take_result(&q, id, &result) == PROG_RESULT_PENDING);
     CHECK(prog_queue_complete(&q, id + 1, 42) == -1);
