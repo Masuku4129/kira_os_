@@ -173,8 +173,12 @@ $T/mindlv
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c
 $T/fdt
+echo "== common Device Model (bus identity, bounded registry, snapshot generations) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/device-model tests/device_model_test.c device_model.c
+$T/device-model
+
 echo "== PCI range enumeration (nonzero root bus, bridge bounds, legacy wrapper) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/pci-range tests/pci_range_test.c pci.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/pci-range tests/pci_range_test.c pci.c device_model.c
 $T/pci-range
 
 echo "== AArch64 PCI host ranges parser (cell layout, offsets, overflow, malformed input) =="
