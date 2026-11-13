@@ -65,8 +65,13 @@ int main(void) {
     }
 
     pci_handle_t first_handle = pci_get_handle(0);
+    const device_descriptor_t* first_record = device_resolve(first_handle);
     if (!first_handle.id || !first_handle.generation ||
-        pci_resolve(first_handle) != pci_get(0)) {
+        pci_resolve(first_handle) != pci_get(0) ||
+        device_registry_count() != pci_count() || !first_record ||
+        first_record->bus != DEVICE_BUS_PCI ||
+        first_record->location.bus != 5 ||
+        first_record->location.device != 1) {
         puts("FAIL: current PCI handle did not resolve");
         return 1;
     }
@@ -87,7 +92,10 @@ int main(void) {
     }
 
     pci_handle_t second_handle = pci_get_handle(0);
-    if (pci_resolve(first_handle) || pci_resolve(second_handle) != pci_get(0) ||
+    const device_descriptor_t* second_record = device_resolve(second_handle);
+    if (pci_resolve(first_handle) || device_resolve(first_handle) ||
+        pci_resolve(second_handle) != pci_get(0) || !second_record ||
+        device_registry_count() != pci_count() ||
         second_handle.id <= first_handle.id ||
         second_handle.generation <= first_handle.generation) {
         puts("FAIL: rescan did not invalidate the old generation-safe handle");
@@ -101,7 +109,9 @@ int main(void) {
     const pci_dev_t* third_handle_device = pci_get(0);
     pci_handle_t third_handle = pci_get_handle(0);
     if (count != 3 || pci_find(0x4321, 0x8765) || out_of_range_reads != 0 ||
-        pci_resolve(second_handle) || pci_resolve(third_handle) != third_handle_device) {
+        pci_resolve(second_handle) || device_resolve(second_handle) ||
+        pci_resolve(third_handle) != third_handle_device ||
+        device_registry_count() != pci_count()) {
         puts("FAIL: nested bridge escaped its parent's subordinate bus window");
         return 1;
     }
@@ -114,15 +124,19 @@ int main(void) {
     }
     allow_rescan = 1;
 
-    if (pci_init_range(8, 7) != -1 || pci_count() != 0 || pci_resolve(second_handle)) {
-        puts("FAIL: inverted bus range was not rejected");
+    if (pci_init_range(8, 7) != -1 || pci_count() != 3 ||
+        pci_resolve(third_handle) != pci_get(0) ||
+        device_resolve(third_handle) == 0) {
+        puts("FAIL: invalid bus range destroyed the valid device snapshot");
         return 1;
     }
 
     out_of_range_reads = 0;
     count = pci_init();
     if (count != 1 || !pci_find(0x4444, 0x3333) ||
-        pci_find(0x1111, 0x2222)) {
+        pci_find(0x1111, 0x2222) || device_registry_count() != pci_count() ||
+        !device_resolve(pci_get_handle(0)) ||
+        device_resolve(pci_get_handle(0))->location.bus != 0) {
         puts("FAIL: legacy pci_init() no longer starts at bus zero");
         return 1;
     }

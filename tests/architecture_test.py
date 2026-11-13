@@ -59,6 +59,19 @@ require('#include "pci_host.h"' in arm_main
         and "bus0 != 0" not in arm_pci
         and "pci_assign(" in arm_pci,
         "ARM64 PCI host bridge ownership or boot call contract is incomplete")
+device_model_header = read("device_model.h")
+device_model_core = read("device_model.c")
+require("typedef struct {" in device_model_header
+        and "device_handle_t" in device_model_header
+        and "DEVICE_BUS_PCI" in device_model_header
+        and "device_registry_begin_snapshot" in device_model_core
+        and "device_registry_add" in device_model_core
+        and "device_resolve" in device_model_core
+        and "DEVICE_MAX_DEVICES" in device_model_core,
+        "common Device Model registry contract or bounded generation-safe identity is incomplete")
+require("device_model.c" in read("build_clang.sh")
+        and "device_model.c" in read("build_arm64.sh"),
+        "common Device Model registry is not compiled for both x86-64 and ARM64")
 pci_core = read("pci.c")
 require("int pci_init_range(uint8_t first_bus, uint8_t last_bus)" in pci_core
         and "if (bus < scan_bus_min || bus > scan_bus_max || bus > bus_limit) return;" in pci_core
@@ -68,7 +81,10 @@ require("int pci_init_range(uint8_t first_bus, uint8_t last_bus)" in pci_core
         and "uint8_t child_limit = subordinate < bus_limit ? subordinate : bus_limit;" in pci_core
         and "if (primary == bus && sec >= scan_bus_min && sec <= child_limit)" in pci_core
         and "pci_set_rescan_guard" in pci_core
-        and "pci_snapshot_generation && (!pci_rescan_guard || !pci_rescan_guard())" in pci_core,
+        and "pci_has_snapshot && (!pci_rescan_guard || !pci_rescan_guard())" in pci_core
+        and "device_registry_begin_snapshot()" in pci_core
+        and "device_registry_add(&descriptor, &d->handle)" in pci_core
+        and "device_resolve(h)" in pci_core,
         "PCI enumeration does not enforce host and ancestor bridge bus windows")
 require("static void arm_pci_init" not in arm_main
         and "pci_use_ecam(" not in arm_main
@@ -277,11 +293,13 @@ require("pci_set_rescan_guard(test_pci_rescan_allowed);" in virtio_test,
         "virtio host model must explicitly authorize its repeated PCI enumerations")
 host_tests = read("tests/run_host_tests.sh")
 require("tests/pci_host_parse_test.c" in host_tests
-        and "arch/aarch64/pci_host_parse.c" in host_tests,
+        and "arch/aarch64/pci_host_parse.c" in host_tests
+        and "tests/device_model_test.c" in host_tests
+        and "device_model.c" in host_tests,
         "PCI host ranges parser is not covered by the host test suite")
 
 kdrv = read("kdrv.c")
-require("pci_handle_t device;" in kdrv
+require("device_handle_t device;" in kdrv
         and "return pci_resolve(b->device);" in kdrv
         and "B_QUARANTINED" in kdrv
         and "pci_resolve(binds[i].device)" in kdrv

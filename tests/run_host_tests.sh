@@ -52,6 +52,10 @@ $CC $RF -c tests/ctx_fpu_test.c -o $T/ctx_n.o
 $CC -no-pie -o $T/ctx_fpu_n $T/ctx_n.o $T/sched_n.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
 $T/ctx_fpu_n --nofpu
 
+echo "== Device Model (identity, parent scoping, stale handles, lifecycle) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/device_model tests/device_model_test.c device_model.c
+$T/device_model
+
 echo "== input layer (PS/2 decoder, ring, overflow) =="
 $CC $FLAGS -o $T/input tests/input_test.c input.c
 $T/input
@@ -84,7 +88,7 @@ $CC $FLAGS -fsanitize=address,undefined -Itests -o $T/kfs tests/kfs_test.c tests
 $T/kfs
 
 echo "== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS over virtio) =="
-$CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c kfs.c store.c
+$CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c device_model.c kfs.c store.c
 $T/virtio
 
 echo "== programs: ELF validation, trust manifest, life log in KiraFS =="
@@ -173,8 +177,12 @@ $T/mindlv
 echo "== device tree (FDT) parser =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c
 $T/fdt
+echo "== common Device Model (bus identity, bounded registry, snapshot generations) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/device-model tests/device_model_test.c device_model.c
+$T/device-model
+
 echo "== PCI range enumeration (nonzero root bus, bridge bounds, legacy wrapper) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/pci-range tests/pci_range_test.c pci.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/pci-range tests/pci_range_test.c pci.c device_model.c
 $T/pci-range
 
 echo "== AArch64 PCI host ranges parser (cell layout, offsets, overflow, malformed input) =="

@@ -195,6 +195,14 @@ Both x86-64 and ARM64 build manifests compile these exact paths. Root `syscall.h
 
 ### PCI host follow-up constraints
 
-- The common PCI enumerator now accepts an explicit root bus range through `pci_init_range(first_bus, last_bus)`; `pci_init()` remains the legacy bus-0 wrapper. ARM64 passes the validated FDT `bus-range`, including a nonzero start. Recursive bridge traversal is bounded by the host aperture and each ancestor bridge's subordinate-bus window. Exact-head CI for the later nested-window regression remains required.
+- The common PCI enumerator now accepts an explicit root bus range through `pci_init_range(first_bus, last_bus)`; `pci_init()` remains the legacy bus-0 wrapper. ARM64 passes the validated FDT `bus-range`, including a nonzero start. Recursive bridge traversal is bounded by the host aperture and each ancestor bridge's subordinate-bus window. Exact-head CI for nested-window regression passed in run `43405811778` on source head `8a5884c93a75801c6bfe89db08fb5abfc60ba7ed`. PR #141 adds the first common registry and PCI adapter; its exact-head CI remains required.
 - ECAM base must be 1-MiB aligned, matching the per-bus ECAM aperture. A final exact-head run is required for this follow-up.
 - Exact-head CI run `43298087855` on `618ce01344e219991323aca51f9de58c55ed2aab` completed **30/30 jobs successfully**, including host tests, x86-64/ARM64 builds and the full QEMU/Limbo matrix. This run predates the bus-start/alignment follow-up commits; those new checks remain unverified until the next run.
+
+
+## 13. Initial common Device Model registry adapter (PR #141)
+
+- Added `device_model.h/.c` as a bus-neutral, bounded registry. It owns monotonic device IDs and snapshot generations and exposes opaque `device_handle_t` resolution.
+- PCI enumeration is the first production adapter and registers normalized descriptors. `pci_handle_t` remains a compatibility alias; KDRV now stores the common handle type.
+- The registry is compiled in both x86-64 and ARM64 targets and covered by `tests/device_model_test.c`, the PCI range model and the virtio PCI host model.
+- The registry currently has boot-time single-writer semantics. USB/virtio/platform/ACPI producers, resource ownership, lifecycle and hotplug are not part of this slice. PR #141 exact-head run `43408288041` passed host-tests, x86-64, ARM64/QEMU and 27/27 VM jobs; compliance run `43408709474` passed.
