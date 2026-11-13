@@ -335,10 +335,10 @@ int main(void) {
     CHECK(wm_workspace_center(0, &nav_x, &nav_y) == 0 && nav_x == 204 && nav_y == 20);
     wm_set_visible(a, 1); wm_set_visible(b, 1);
     wm_set_visible(a, 0); /* side activation below must restore a from another workspace */
+    CHECK(wm_workspace_switch(1) == 1 && wm_workspace_current() == 1);
     int ws_window = wm_create("workspace-one", 620, 420, 120, 80, WM_CLOSABLE);
     CHECK(ws_window >= 0 && wm_visible(ws_window));
     wm_set_visible(ws_window, 0);
-    CHECK(wm_workspace_switch(1) == 1 && wm_workspace_current() == 1);
     CHECK(!wm_visible(a) && !wm_visible(b) && !wm_visible(ws_window));
     CHECK(wm_visible(p)); /* pinned widget is shared across all workspaces */
     CHECK(workspace_changes == 1 && last_workspace == 1 && wm_top() == -1);
@@ -348,7 +348,7 @@ int main(void) {
     click_side(0); /* Dock activation restores a minimized app in its owning workspace */
     CHECK(wm_workspace_current() == 0 && wm_visible(a) && wm_top() == a);
     CHECK(wm_workspace_switch(1) == 1 && wm_top() == ws_window);
-    CHECK(workspace_changes == 4 && last_workspace == 1);
+    CHECK(workspace_changes == 3 && last_workspace == 1);
     CHECK(wm_window_workspace(ws_window) == 1 && wm_window_move_workspace(p, 2) == -1);
     CHECK(wm_window_move_workspace(ws_window, 2) == 1);
     CHECK(wm_workspace_current() == 1 && !wm_visible(ws_window) && wm_window_workspace(ws_window) == 2);
