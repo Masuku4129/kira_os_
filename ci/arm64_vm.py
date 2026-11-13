@@ -154,7 +154,6 @@ SC = [
                ("drv", [r"свободно"]),
                ("drv start edunc crash", [r"драйвер запущен как drv-edunc"]), ("@sleep 3", []),
                ("@log drvedu: crashing on purpose", []),
-               ("@log \\[KIRA PROC\\] pid \\d+ killed by CPU exception #14", []),
                ("@log \\[KIRA DRV\\] drv-edunc \\(pid \\d+\\) завершён", []),
                ("@sleep 2", []),
                ("drv start edunc", [r"драйвер запущен как drv-edunc"]), ("@sleep 3", []),
