@@ -22,7 +22,10 @@ static int same_location(const device_descriptor_t* a, const device_descriptor_t
                a->location.device == b->location.device &&
                a->location.function == b->location.function;
     }
-    return a->location.key == b->location.key;
+    /* Non-PCI addresses are scoped to their parent controller/bridge. */
+    return a->location.key == b->location.key &&
+           a->parent.id == b->parent.id &&
+           a->parent.generation == b->parent.generation;
 }
 
 int device_registry_begin_snapshot(void) {
