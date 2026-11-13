@@ -494,3 +494,9 @@
 - Responsive overview uses compact geometry at short widths; tests cover 320×240. `display_get_render_stats()` exposes frames/composed/dirtied pixels/busy time/present time; no performance benchmark result is claimed.
 - Host tests added for workspace isolation/global pinned windows/move-window, hotkeys, notification FIFO bound, toast timer/dismissal, modal release consumption and compact viewport.
 - Exact-head CI and runtime checks are pending; no Limbo or physical-hardware claim. DPI scaling and system toggles for network/audio/power remain unsupported because no corresponding display-density/control service API is wired yet.
+
+
+### Spatial notification keyboard access — PR #143 (2026-11-13)
+- Added Ctrl+Alt+N as a shell-level shortcut to open/close notification history in Spatial Minimal. The chord is consumed by the shared input layer and is not forwarded to the focused application; the existing workspace shortcuts are unchanged.
+- Added a host input regression for the scan-code sequence, hotkey delivery and suppression from the application event queue.
+- Current source head before this log update: 9aa890d1af9dba46abe4621146d5d65cf6188449. Fresh exact-head CI is required. Limbo touch/visual and physical-hardware validation remain unverified.
