@@ -253,4 +253,4 @@
 - In Spatial Minimal only, the three window title controls now have distinct 32×32 hit regions while retaining compact circular visual indicators. Their centers are spaced 36 px apart to prevent hit-region overlap.
 - Hover invalidation spans the full control group; Legacy control positions and 9 px circular hit behavior are unchanged.
 - The resize/zoom corner target expands from 22×22 to 36×36 in Spatial Minimal; Legacy remains unchanged.
-- Host GUI tests activate minimize and fullscreen from the far corner of the 32×32 target. Exact-head CI and Android Limbo touch verification are required before acceptance.
+- Host GUI tests activate minimize and fullscreen from the far corner of the 32×32 target and resize from within the 36×36 corner target. Exact-head CI and Android Limbo touch verification are required before acceptance.
