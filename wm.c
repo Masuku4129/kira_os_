@@ -210,10 +210,10 @@ static int spatial_dock_pages(void) {
 }
 
 static int spatial_dock_page_first(void) {
-    int pages = spatial_dock_pages();
-    if (dock_page < 0) dock_page = 0;
-    if (pages > 0 && dock_page >= pages) dock_page = pages - 1;
-    return dock_page * spatial_dock_page_size();
+    int pages = spatial_dock_pages(), page = dock_page;
+    if (page < 0) page = 0;
+    if (pages > 0 && page >= pages) page = pages - 1;
+    return page * spatial_dock_page_size();
 }
 
 static int spatial_dock_visible_count(void) {
