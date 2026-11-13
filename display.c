@@ -803,7 +803,12 @@ int display_init(unsigned long mbi) {
     fbcon_reserve(fbs->w, fbs->h, wm_alloc);              /* сетка знаков - под любой экран */
     fbcon_init(wm_content(w_con));
     fbcon_repaint();
+#ifdef KIRA_SPATIAL_PREVIEW
+    /* Keep the initial Spatial canvas quiet; the terminal remains reachable from the navigation rail. */
+    wm_set_visible(w_con, 0);
+#else
     wm_raise(w_con);
+#endif
     explorer_init();
     st.start_ns = clock_ns();
 #ifndef KIRA_HOST_TEST
