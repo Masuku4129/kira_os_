@@ -1,6 +1,7 @@
 # Обязательные инструкции для агентов KIRA OS
 
 Перед ЛЮБОЙ задачей в этом репозитории сначала полностью прочитать:
+0. `docs/architecture/CURRENT_STATE_AND_HANDOFF_2026-11-13.md` — актуальный снимок архитектуры, подтверждённые границы и точка продолжения (после сверки live GitHub SHA/CI).
 1. `docs/MASTER_DEVELOPMENT_PLAN.md` — обязательный полный план проекта.
 2. `docs/architecture/KIRA_OS_TARGET_ARCHITECTURE.md` — обязательная целевая архитектура и границы компонентов.
 3. `docs/architecture/ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md` — текущая последовательность аудита и интеграции.
