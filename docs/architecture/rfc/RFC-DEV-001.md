@@ -25,7 +25,7 @@ Observed in the architecture branch:
 - PCI configuration access is backend-based: x86-64 mechanism-1 ports or ECAM selected through `pci_use_ecam()`.
 - `arch/aarch64/pci_host.c` discovers the FDT `pci-host-ecam-generic` bridge, validates ECAM coverage, parses `ranges`, maps the ECAM window and calls the common PCI core.
 - `arch/aarch64/pci_host_parse.c` validates cell geometry, arithmetic overflow and signed CPU-to-PCI offsets.
-- The current ARM64 host adapter deliberately rejects a nonzero `bus-range` start because the common enumerator starts at bus 0. Do not relax this guard until range-aware enumeration is implemented and tested.
+- The architecture follow-up branch adds `pci_init_range(first_bus, last_bus)`, bounds recursive bridge traversal to the host range, and preserves `pci_init()` as the bus-0 compatibility wrapper. ARM64 now passes the FDT-declared root/range to that API. The synthetic host regression covers nonzero root buses, in-range bridge traversal, out-of-range bridge rejection, invalid ranges and the legacy wrapper; exact-head CI is still required.
 - PCI inventory and KDRV driver binding are not yet one complete, generic Device Model lifecycle.
 - A PCI function's BDF is a location, not a permanent identity. Bus renumbering, hot removal and replacement can reuse it.
 - BAR probing and assignment do not by themselves prove resource reservation against every platform owner or safe DMA isolation.
