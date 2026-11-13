@@ -1243,6 +1243,35 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     }
 }
 
+static void draw_system_panel(surface_t* c, int ox, int oy) {
+    if (!system_panel_open || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
+    int x, y, w, h; system_panel_rect(&x, &y, &w, &h);
+    ui_round_rect(c, x + ox, y + oy, w, h, 16, TH_BAR0, 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, 16, TH_BORDER, 255);
+    gfx_text(c, x + 16 + ox, y + 14 + oy, "СИСТЕМА", TH_TEXT, -1);
+    gfx_text(c, x + 16 + ox, y + 32 + oy, "Текущие показатели", TH_TEXT_DIM, -1);
+    unsigned cpu = 0;
+    for (int i = 0; i < m_cores; i++) cpu += m_busy[i];
+    int values[3] = { m_cores > 0 ? (int)(cpu / (unsigned)m_cores) : -1, m_mem, m_health };
+    const char* labels[3] = { "ПРОЦЕССОР", "ПАМЯТЬ", "KIRA MIND" };
+    for (int i = 0; i < 3; i++) {
+        int ry = y + 58 + i * 38;
+        gfx_text(c, x + 16 + ox, ry + oy, labels[i], TH_TEXT_DIM, -1);
+        if (values[i] < 0) { gfx_text(c, x + w - 28 + ox, ry + oy, "—", TH_TEXT_FAINT, -1); continue; }
+        int v = values[i] > 100 ? 100 : values[i];
+        char num[5]; int n = 0, q = v, digits[3], nd = 0;
+        do { digits[nd++] = q % 10; q /= 10; } while (q && nd < 3);
+        while (nd) num[n++] = (char)('0' + digits[--nd]);
+        num[n++] = '%'; num[n] = 0;
+        uint32_t col; meter_color((unsigned)v, &col);
+        if (i == 2) col = v >= 70 ? TH_GREEN : v >= 50 ? TH_AMBER : TH_RED;
+        ui_text_bold(c, x + w - 16 - gfx_text_width(num) + ox, ry + oy, num, col);
+        ui_round_rect(c, x + 16 + ox, ry + 18 + oy, w - 32, 5, 2, TH_TILE, 255);
+        ui_round_rect(c, x + 16 + ox, ry + 18 + oy, (w - 32) * v / 100, 5, 2, col, 255);
+    }
+    gfx_text(c, x + 16 + ox, y + h - 20 + oy, "Закрыть: нажмите вне панели", TH_TEXT_FAINT, -1);
+}
+
 static void draw_side(surface_t* c, int ox, int oy) {
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) { draw_spatial_shell(c, ox, oy); return; }
     if (!side_n) return;
@@ -1511,6 +1540,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         if (y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
         if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
             if (x0 < WM_SPATIAL_RAIL_W + 220 || y1 > scr->h - WM_SPATIAL_DOCK_H) draw_side(&clip, ox, oy);
+            if (system_panel_open) draw_system_panel(&clip, ox, oy);
         } else if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
     draw_cursor(&clip, ox, oy);
