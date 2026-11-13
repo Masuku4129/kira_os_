@@ -279,8 +279,8 @@ static void str_copy(char* d, const char* s, int cap) {
     int i = 0; while (s[i] && i + 1 < cap) { d[i] = s[i]; i++; } d[i] = 0;
 }
 
-void wm_init(surface_t* screen, const wm_ops_t* o) {
-    layout_mode = WM_LAYOUT_LEGACY;
+void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
+    layout_mode = (mode == WM_LAYOUT_SPATIAL_MINIMAL) ? WM_LAYOUT_SPATIAL_MINIMAL : WM_LAYOUT_LEGACY;
     overview_open = 0; overview_page = 0; overview_n = 0; overview_release_guard = 0;
     win_generation = 0;
     scr = screen;
@@ -291,8 +291,13 @@ void wm_init(surface_t* screen, const wm_ops_t* o) {
     last_fs = -1; last_pill = 0; cascade = 0; clock_date[0] = 0; clock_hm[0] = 0; m_cores = 0; m_mem = -1; m_health = -1;
     cx = scr->w / 2; cy = scr->h / 2;
     dmg_valid = 0;
-    bg_render();
+    bg = 0; bgs.px = 0; bgs.w = bgs.h = bgs.pitch = 0;
+    if (layout_mode == WM_LAYOUT_LEGACY) bg_render();
     damage(0, 0, scr->w, scr->h);
+}
+
+void wm_init(surface_t* screen, const wm_ops_t* o) {
+    wm_init_mode(screen, o, WM_LAYOUT_LEGACY);
 }
 
 static void auto_place(win_t* w) {
@@ -571,6 +576,7 @@ void wm_set_layout_mode(wm_layout_mode_t mode) {
     if (mode != WM_LAYOUT_LEGACY && mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
     if (layout_mode == mode) return;
     layout_mode = mode;
+    if (mode == WM_LAYOUT_LEGACY && !bg) bg_render();
     side_hover = -1; tab_hover = -1; last_tab = -2;
     if (scr) damage(0, 0, scr->w, scr->h);
 }
