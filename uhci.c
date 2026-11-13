@@ -378,16 +378,17 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
     if (nctl >= 8) { usb_log("[KIRA USB] more than 8 UHCI controllers: the rest are not used\n"); return -1; }
     if (!p->bar[4].io || !p->bar[4].base) { usb_log("[KIRA USB] UHCI without I/O BAR4: skipped\n"); return -1; }
+    usb_log("[KIRA USB TRACE] UHCI BAR4 accepted; DMA allocation starting\n");
     if (!ctl_state[nctl]) ctl_state[nctl] = (uhci_t*)usb_dma_alloc(sizeof(uhci_t), &(uint64_t){ 0 }, 0);
     if (!ctl_state[nctl]) { usb_log("[KIRA USB] UHCI: no memory for controller state\n"); return -1; }
     uhci_t* u = ctl_state[nctl];
     for (unsigned long i = 0; i < sizeof *u; i++) ((volatile uint8_t*)u)[i] = 0;
     u->io = (uint16_t)p->bar[4].base;
-    usb_log("[KIRA USB TRACE] UHCI DMA allocation complete; enabling PCI bus master\\n");
+    usb_log("[KIRA USB TRACE] UHCI DMA allocation complete; enabling PCI bus master\n");
     pci_enable(p, PCI_CMD_IO | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
     usb_log("[KIRA USB TRACE] UHCI PCI command after enable: ");
     usb_log_hex(pci_read16(p, 0x04));
-    usb_log("\\n");
+    usb_log("\n");
     pci_write16(p, 0xC0, 0x8F00);                     /* LEGSUP: BIOS больше не перехватывает USB (SMI, эмуляция PS/2) */
 
     uint64_t phys;
