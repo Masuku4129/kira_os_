@@ -446,7 +446,7 @@ int main(void) {
     CHECK(wm_notification_count() == 8 && wm_notification_unread_count() == 8);
     int notification_dismiss_under = wm_create("notification-dismiss-underlay", 420, 250, 120, 80, WM_INPUT);
     CHECK(notification_dismiss_under >= 0); wm_raise(notification_dismiss_under);
-    click(1024 - 26, 20); CHECK(wm_system_panel_is_open());
+    click(1024 - 26, 20); CHECK(wm_system_panel_is_open() && !wm_notification_toast_is_visible());
     in_n = 0; click(900, 108); /* notifications row inside the quick-system panel */
     CHECK(wm_notification_center_is_open() && !wm_system_panel_is_open());
     CHECK(wm_notification_unread_count() == 0 && wm_notification_count() == 8);
