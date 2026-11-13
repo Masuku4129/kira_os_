@@ -6,6 +6,9 @@ CC=${CC:-gcc}
 FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie"
 SSE="-msse2 -mfpmath=sse -fno-math-errno"
 T=$(mktemp -d)
+echo "== Spatial Minimal partial redraw bounds =="
+python3 tests/ui_damage_contract_test.py
+
 
 echo "== logic (sha256, immune) =="
 $CC $FLAGS -o $T/logic tests/logic_test.c immune.c sha256.c \
