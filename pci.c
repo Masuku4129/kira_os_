@@ -147,6 +147,12 @@ static void probe_bars(pci_dev_t* d) {
     pci_write16(d, 0x04, cmd);
 }
 
+static int pci_is_forwarding_bridge(const pci_dev_t* d) {
+    uint8_t header = d->header_type & 0x7F;
+    return (d->class_code == 0x06 && d->subclass == 0x04 && header == 1) ||
+           (d->class_code == 0x06 && d->subclass == 0x07 && header == 2);
+}
+
 static void scan_bus(uint8_t bus);
 
 static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
@@ -160,8 +166,9 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     uint32_t cls = cr32(d, 0x08);
     d->revision = (uint8_t)cls; d->prog_if = (uint8_t)(cls >> 8); d->subclass = (uint8_t)(cls >> 16); d->class_code = (uint8_t)(cls >> 24);
     d->header_type = pci_read8(d, 0x0E);
-    /* Keep PCI bridge/fabric forwarding intact; sanitize endpoints before handing them to a driver. */
-    if (d->class_code != 0x06) {
+    /* Preserve bus mastering only on real PCI-to-PCI/CardBus bridges needed for downstream forwarding.
+       Other class-06 devices (e.g. host/ISA bridges) are not exempt from firmware handoff sanitization. */
+    if (!pci_is_forwarding_bridge(d)) {
         uint16_t command = pci_read16(d, 0x04);
         if (command & PCI_CMD_MASTER) pci_write16(d, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
     }
