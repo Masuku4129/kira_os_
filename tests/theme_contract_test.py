@@ -38,6 +38,16 @@ for name, target in {
     if not re.search(rf"^#define\s+{name}\s+{target}\s*$", spatial, re.MULTILINE):
         raise SystemExit(f"FAIL: Spatial {name} must alias {target}")
 
+for name, target in {
+    "TH_ACCENT_PRIMARY": "TH_CYAN",
+    "TH_ACCENT_SECONDARY": "TH_BLUE",
+    "TH_STATE_SUCCESS": "TH_GREEN",
+    "TH_STATE_WARNING": "TH_AMBER",
+    "TH_STATE_DANGER": "TH_RED",
+}.items():
+    if not re.search(rf"^#define\s+{name}\s+{target}\s*$", legacy, re.MULTILINE):
+        raise SystemExit(f"FAIL: Legacy semantic alias {name} must map to {target}")
+
 legacy_expected = {
     "TH_CYAN": "0x0022D3EEu",
     "TH_RADIUS_CONTROL": "8",
