@@ -57,7 +57,8 @@ enum {
     DEVICE_E_FULL = -2,
     DEVICE_E_DUPLICATE = -3,
     DEVICE_E_STALE = -4,
-    DEVICE_E_OVERFLOW = -5
+    DEVICE_E_OVERFLOW = -5,
+    DEVICE_E_STATE = -6
 };
 
 /* Discovery mutation is boot-time only and single-writer. After enumeration,
@@ -70,5 +71,9 @@ int device_registry_count(void);
 uint64_t device_registry_generation(void);
 const device_descriptor_t* device_registry_get(int index);
 const device_descriptor_t* device_resolve(device_handle_t handle);
+/* Lifecycle updates are compare-and-transition operations. Callers must not
+   treat a successful state change as proof that hardware resources are safe. */
+int device_registry_transition(device_handle_t handle, device_state_t expected,
+                               device_state_t next);
 
 #endif
