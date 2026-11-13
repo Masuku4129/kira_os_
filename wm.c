@@ -1105,6 +1105,14 @@ static void click(int px, int py) {
         if (px >= sx && px < sx + sw && py >= sy + 48 && py < sy + 72) {
             wm_notification_center_toggle(); return;
         }
+        if (m_audio_volume >= 0 && ops.system_volume &&
+            px >= sx + 16 && px < sx + sw - 16 && py >= sy + 140 && py < sy + 168) {
+            int pct = (px - (sx + 24)) * 100 / (sw - 48);
+            if (pct < 0) pct = 0;
+            if (pct > 100) pct = 100;
+            ops.system_volume(pct);
+            return;
+        }
         if (px >= sx && px < sx + sw && py >= sy && py < sy + sh) return;
         system_panel_open = 0; damage_system_panel();
         return; /* dismissing the overlay must not activate a covered window */
@@ -1729,7 +1737,7 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
             ui_round_rect(c, cx + 8 + ox, cy + 20 + oy, (cw - 16) * level / 100, 3, 1, color, 255);
         }
     }
-    gfx_text(c, x + 16 + ox, y + h - 12 + oy, "Нажмите вне панели, чтобы закрыть", TH_TEXT_FAINT, -1);
+    gfx_text(c, x + 16 + ox, y + h - 12 + oy, "Нажмите на шкалу звука, чтобы изменить громкость", TH_TEXT_FAINT, -1);
 }
 
 static uint32_t notification_color(unsigned priority) {
