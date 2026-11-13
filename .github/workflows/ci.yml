@@ -59,6 +59,19 @@ jobs:
             kira.iso
             kira.disk
             kira.bin
+      - name: build Android/Limbo update package (Spatial Minimal)
+        run: |
+          mkdir -p ci-out/android
+          KIRA_OUT="$GITHUB_WORKSPACE/ci-out/android" ./build_clang.sh --android
+          test -s ci-out/android/kira.iso
+          test -s ci-out/android/kira_disk.img
+          xorriso -indev ci-out/android/kira.iso -report_el_torito plain 2>&1 | tee ci-out/android/boot-report.txt
+          grep -qi uefi ci-out/android/boot-report.txt
+          sha256sum ci-out/android/kira.iso ci-out/android/kira_disk.img > ci-out/android/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-android-update
+          path: ci-out/android/
 
   arm64:
     runs-on: ubuntu-24.04
