@@ -147,13 +147,15 @@ static void damage_win(const win_t* w) {
 static void damage_cursor(void) { damage(cx, cy, cx + CUR_W, cy + CUR_H); }
 static void damage_top(void) { damage(0, 0, scr->w, WM_TOP_H); }
 
-#define WM_SYSTEM_PANEL_W 264
-#define WM_SYSTEM_PANEL_H 204
+#define WM_SYSTEM_PANEL_W 288
+#define WM_SYSTEM_PANEL_H 236
 static void system_panel_rect(int* x, int* y, int* w, int* h) {
     *w = scr->w - 24; if (*w > WM_SYSTEM_PANEL_W) *w = WM_SYSTEM_PANEL_W;
     if (*w < 160) *w = scr->w - 8;
-    *h = scr->h - 64; if (*h > WM_SYSTEM_PANEL_H) *h = WM_SYSTEM_PANEL_H;
-    if (*h < 112) *h = scr->h - 48;
+    /* Reserve room below the floating status capsule even on 320x240 screens. */
+    *h = scr->h - WM_TOP_H - 16;
+    if (*h > WM_SYSTEM_PANEL_H) *h = WM_SYSTEM_PANEL_H;
+    if (*h < 112) *h = scr->h - WM_TOP_H - 8;
     *x = scr->w - *w - 12; *y = WM_TOP_H + 8;
 }
 static void damage_system_panel(void) {
@@ -1340,6 +1342,54 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     int x = w->x + ox, y = w->y + oy, ow = outer_w(w), oh = outer_h(w);
     int focused = w->pinned || id == wm_top();
     uint32_t accent = accent_of(w);
+
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        /* Spatial windows are quiet work surfaces: no neon perimeter glow or
+           decorative title stripe. Keep the Legacy renderer below untouched. */
+        ui_round_rect(c, x, y, ow, oh, 12, TH_PANEL1, 255);
+        ui_round_rect(c, x, y, ow, WM_HEAD, 12, TH_BAR0, 255);
+        gfx_rect(c, x + 1, y + 12, ow - 2, WM_HEAD - 12, TH_BAR0);
+        if (!w->pinned) draw_lights(c, x, y, light_hover == id);
+        gfx_rect(c, x + 12, y + WM_HEAD - 1, ow - 24, 1, TH_BORDER);
+        ui_round_frame(c, x, y, ow, oh, 12,
+                       focused ? ui_mix(TH_BORDER, TH_CYAN, 72) : TH_BORDER, 255);
+
+        char sub[24]; int sn = 0;
+        if (w->zoomable && w->zoom16 != 16) {
+            int z = w->zoom16 * 100 / 16; char dg[4]; int k = 0;
+            do { dg[k++] = (char)('0' + z % 10); z /= 10; } while (z && k < 4);
+            while (k) sub[sn++] = dg[--k];
+            sub[sn++] = '%'; sub[sn++] = ' ';
+        }
+        for (int i = 0; w->sub[i] && sn < 22; i++) sub[sn++] = w->sub[i];
+        sub[sn] = 0;
+
+        int title_x = x + (w->pinned ? 22 : 116);
+        int right = x + ow - 14;
+        if (sn) {
+            int sw = gfx_text_width(sub);
+            int max_sw = ow - (w->pinned ? 66 : 154);
+            if (max_sw < 24) max_sw = 24;
+            if (sw > max_sw) sw = max_sw;
+            int sx = x + ow - sw - 20;
+            ui_round_rect(c, sx, y + 7, sw + 12, 22, 8, TH_TILE, 255);
+            ui_text_fit(c, sx + 6, y + 10, sub, sw, TH_TEXT_DIM);
+            right = sx - 8;
+        }
+        int title_w = right - title_x;
+        if (title_w < 12) title_w = 12;
+        ui_text_fit(c, title_x, y + 10, w->title, title_w,
+                    focused ? TH_TEXT : TH_TEXT_DIM);
+
+        blit_content(c, x + WM_PAD, y + WM_HEAD, disp_w(w), disp_h(w), w);
+        if (w->resizable || w->zoomable) {
+            uint32_t gc = resizing == id ? TH_CYAN : TH_TEXT_FAINT;
+            int bx = x + ow - 6, by = y + oh - 6;
+            for (int a = 3; a <= 9; a += 3) gfx_line(c, bx - a, by, bx, by - a, gc);
+        }
+        return;
+    }
+
     if (focused && !w->pinned) ui_glow(c, x, y, ow, oh, PANEL_R, WM_GLOW, accent, 150);
     ui_round_rect(c, x, y, ow, oh, PANEL_R, TH_PANEL1, 255);
     ui_round_rect(c, x, y, ow, WM_HEAD, PANEL_R, TH_PANEL0, 255);              /* заголовок светлее */
@@ -1596,25 +1646,32 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     int x, y, w, h; system_panel_rect(&x, &y, &w, &h);
     ui_round_rect(c, x + ox, y + oy, w, h, 16, TH_BAR0, 255);
     ui_round_frame(c, x + ox, y + oy, w, h, 16, TH_BORDER, 255);
-    gfx_text(c, x + 16 + ox, y + 14 + oy, "СИСТЕМА", TH_TEXT, -1);
-    gfx_text(c, x + 16 + ox, y + 32 + oy, "Текущие показатели", TH_TEXT_DIM, -1);
-    ui_round_rect(c, x + 12 + ox, y + 48 + oy, w - 24, 24, 7, TH_TILE, 255);
-    ui_round_frame(c, x + 12 + ox, y + 48 + oy, w - 24, 24, 7, TH_BORDER, 200);
-    gfx_text(c, x + 22 + ox, y + 55 + oy, "УВЕДОМЛЕНИЯ", TH_TEXT, -1);
+    gfx_text(c, x + 16 + ox, y + 12 + oy, "СИСТЕМА", TH_TEXT, -1);
+    gfx_text(c, x + 16 + ox, y + 30 + oy, "Состояние устройства", TH_TEXT_DIM, -1);
+
+    ui_round_rect(c, x + 12 + ox, y + 46 + oy, w - 24, 22, 7, TH_TILE, 255);
+    gfx_text(c, x + 22 + ox, y + 52 + oy, "УВЕДОМЛЕНИЯ", TH_TEXT, -1);
     char unread_text[8]; int unread = notification_unread(), un = 0;
     if (unread > 99) unread = 99;
     if (unread >= 10) unread_text[un++] = (char)('0' + unread / 10);
     unread_text[un++] = (char)('0' + unread % 10); unread_text[un] = 0;
-    ui_text_bold(c, x + w - 28 - gfx_text_width(unread_text) + ox, y + 55 + oy, unread_text, unread ? TH_AMBER : TH_TEXT_FAINT);
+    ui_text_bold(c, x + w - 28 - gfx_text_width(unread_text) + ox, y + 52 + oy,
+                 unread_text, unread ? TH_AMBER : TH_TEXT_FAINT);
+
     unsigned cpu = 0;
     for (int i = 0; i < m_cores; i++) cpu += m_busy[i];
     int values[3] = { m_cores > 0 ? (int)(cpu / (unsigned)m_cores) : -1, m_mem, m_health };
     const char* labels[3] = { "ПРОЦЕССОР", "ПАМЯТЬ", "KIRA MIND" };
-    int rows = (h - 88) / 32; if (rows > 3) rows = 3; if (rows < 1) rows = 1;
+    int rows = (h - 88) / 28;
+    if (rows > 3) rows = 3;
+    if (rows < 1) rows = 1;
     for (int i = 0; i < rows; i++) {
-        int ry = y + 80 + i * 32;
+        int ry = y + 76 + i * 28;
         gfx_text(c, x + 16 + ox, ry + oy, labels[i], TH_TEXT_DIM, -1);
-        if (values[i] < 0) { gfx_text(c, x + w - 28 + ox, ry + oy, "—", TH_TEXT_FAINT, -1); continue; }
+        if (values[i] < 0) {
+            gfx_text(c, x + w - 28 + ox, ry + oy, "—", TH_TEXT_FAINT, -1);
+            continue;
+        }
         int v = values[i] > 100 ? 100 : values[i];
         char num[5]; int n = 0, q = v, digits[3], nd = 0;
         do { digits[nd++] = q % 10; q /= 10; } while (q && nd < 3);
@@ -1623,10 +1680,10 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
         uint32_t col; meter_color((unsigned)v, &col);
         if (i == 2) col = v >= 70 ? TH_GREEN : v >= 50 ? TH_AMBER : TH_RED;
         ui_text_bold(c, x + w - 16 - gfx_text_width(num) + ox, ry + oy, num, col);
-        ui_round_rect(c, x + 16 + ox, ry + 16 + oy, w - 32, 4, 2, TH_TILE, 255);
-        ui_round_rect(c, x + 16 + ox, ry + 16 + oy, (w - 32) * v / 100, 4, 2, col, 255);
+        ui_round_rect(c, x + 16 + ox, ry + 14 + oy, w - 32, 4, 2, TH_TILE, 255);
+        ui_round_rect(c, x + 16 + ox, ry + 14 + oy, (w - 32) * v / 100, 4, 2, col, 255);
     }
-    gfx_text(c, x + 16 + ox, y + h - 20 + oy, "Закрыть: нажмите вне панели", TH_TEXT_FAINT, -1);
+    gfx_text(c, x + 16 + ox, y + h - 16 + oy, "Нажмите вне панели, чтобы закрыть", TH_TEXT_FAINT, -1);
 }
 
 static uint32_t notification_color(unsigned priority) {
