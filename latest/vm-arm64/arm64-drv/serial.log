@@ -1,0 +1,132 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA ARM64] RAM: 512 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 505 MB free pages; kernel heap and scheduler online (per-core ready queues, 48 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 98 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 2 of 2 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 2 of 2 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 3 function(s), 3 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 669160 bytes, prefix 5e0ab02c...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 3 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 16 MB (PCI 0:1.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA DISK] vda: virtio-blk, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14484 KB free.
+[KIRA PROC] up to 8 programs at once (2 cores, 512 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): ПЯТНИЦА, 13 НОЯБРЯ 2026 11:40
+[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA NET] No supported network card: networking is off.
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA DRV] abad: SHA-256 не совпал с записью /drv/abad.rec - драйвер НЕ запущен
+[KIRA DRV] eduun: пакет отклонён (установка не подтверждена пользователем) - драйвер НЕ запущен
+[KIRA PROC] pid 1 'drv-edu' started from ELF: Ring 3, own address space, 3 page(s) of segments, W^X enforced, stack RW-NX.
+[KIRA DRV] edu: устройство 00:02.0 1234:11e8 -> драйвер запущен как drv-edu (pid 1), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV, прерывание MSI включено
+[KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: [USER pid 1] drvedu: device 0x1234:0x11e8, rights 0x7800, MSI
+1
+[USER pid 1] drvedu: id=0x10000ed
+[USER pid 1] drvedu: 10!=3628800
+[USER pid 1] drvedu: irq wait=1 5!=120
+[USER pid 1] drvedu: dma rc=-7
+[KIRA DRV] drv-edu: запись в защищённую область конфигурации, смещение 0x0000000000000010 отклонено ядром
+[USER pid 1] drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x11e81234
+[USER pid 1] drvedu: partial (see above)
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA TELEMETRY] t=1s health=100 load=26% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=2s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=3s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=4s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=5s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=6s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+drv
+пакеты в /drv: 4
+  abad: ОТКЛОНЁН (SHA-256 не совпал с записью .rec)
+  eduun: ОТКЛОНЁН (установка не подтверждена пользователем)
+  edu: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  edunc: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_PCIDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  устройство 00:02.0 1234:11e8: drv-edu pid 1, DMA 0 стр., отображений 1, прерываний 1
+кира> [KIRA TELEMETRY] t=7s health=100 load=2% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+drv stop edu
+[KIRA DRV] останавливаю drv-edu
+кира> [KIRA DRV] drv-edu (pid 1) завершён: устройство 00:02.0 остановлено (команда PCI 0x0000000000000400, MSI выключено), DMA 0 стр. в 0 блок(ах) и кольца 0 стр. вернутся через 100 мс
+[KIRA PROC] pid 1 'drv-edu' finished, exit code -1 (killed), address space destroyed (20 pages returned to PMM).
+[KIRA DRV] edu: возвращено памяти DMA и колец 0 из 0 стр., отображений устройства и DMA снято 1, утечек нет
+[KIRA TELEMETRY] t=8s health=95 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=9s health=95 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=10s health=96 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+drv start edunc
+[KIRA PROC] pid 2 'drv-edunc' started from ELF: Ring 3, own address space, 3 page(s) of segments, W^X enforced, stack RW-NX.
+[KIRA DRV] edunc: устройство 00:02.0 1234:11e8 -> драйвер запущен как drv-edunc (pid 2), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_PCIDEV, прерывание MSI включено
+[USER pid 2] drvedu: device 0x1234:0x11e8, rights 0x5800, MSI
+кира> [USER pid 2] drvedu: id=0x10000ed
+[USER pid 2] drvedu: 10!=3628800
+[USER pid 2] drvedu: irq wait=1 5!=120
+[KIRA CAPS] process 'drv-edunc' (pid 2): system call 52 denied, no right CAP_DMA.
+[USER pid 2] drvedu: dma rc=-12
+[KIRA DRV] drv-edunc: запись в защищённую область конфигурации, смещение 0x0000000000000010 отклонено ядром
+[USER pid 2] drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x11e81234
+[USER pid 2] drvedu: partial (see above)
+[KIRA TELEMETRY] t=11s health=96 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=12s health=96 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=13s health=96 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=14s health=97 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+drv stop edunc
+[KIRA DRV] останавливаю drv-edunc
+кира> [KIRA DRV] drv-edunc (pid 2) завершён: устройство 00:02.0 остановлено (команда PCI 0x0000000000000400, MSI выключено), DMA 0 стр. в 0 блок(ах) и кольца 0 стр. вернутся через 100 мс
+[KIRA PROC] pid 2 'drv-edunc' finished, exit code -1 (killed), address space destroyed (20 pages returned to PMM).
+[KIRA DRV] edunc: возвращено памяти DMA и колец 0 из 0 стр., отображений устройства и DMA снято 1, утечек нет
+[KIRA TELEMETRY] t=15s health=92 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=16s health=92 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=17s health=93 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+drv start edu crash
+[KIRA PROC] pid 3 'drv-edu' started from ELF: Ring 3, own address space, 3 page(s) of segments, W^X enforced, stack RW-NX.
+[KIRA DRV] edu: устройство 00:02.0 1234:11e8 -> драйвер запущен как drv-edu (pid 3), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV, прерывание MSI включено
+[USER pid 3] drvedu: device 0x1234:0x11e8, rights 0x7800, MSI
+кира> [USER pid 3] drvedu: id=0x10000ed
+[USER pid 3] drvedu: 10!=3628800
+[USER pid 3] drvedu: irq wait=1 5!=120
+[USER pid 3] drvedu: dma rc=-7
+[KIRA DRV] drv-edu: запись в защищённую область конфигурации, смещение 0x0000000000000010 отклонено ядром
+[USER pid 3] drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x11e81234
+[USER pid 3] drvedu: partial (see above)
+[USER pid 3] drvedu: crashing on purpose
+[KIRA PROC] pid 3: data abort at PC 0x0000808000001234, address 0x0000000000000000 (ESR 0x000000009200004D): process terminated, the kernel keeps running.
+[KIRA DRV] drv-edu (pid 3) завершён: устройство 00:02.0 остановлено (команда PCI 0x0000000000000400, MSI выключено), DMA 0 стр. в 0 блок(ах) и кольца 0 стр. вернутся через 100 мс
+[KIRA PROC] pid 3 'drv-edu' finished, exit code -1 (killed), address space destroyed (20 pages returned to PMM).
+[KIRA DRV] edu: возвращено памяти DMA и колец 0 из 0 стр., отображений устройства и DMA снято 1, утечек нет
+[KIRA TELEMETRY] t=18s health=88 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=19s health=89 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=20s health=90 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=21s health=91 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=22s health=91 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=23s health=92 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+drv
+пакеты в /drv: 4
+  abad: ОТКЛОНЁН (SHA-256 не совпал с записью .rec)
+  eduun: ОТКЛОНЁН (установка не подтверждена пользователем)
+  edu: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  edunc: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_IRQ CAP_PCIDEV, подтверждено: CAP_MMIO CAP_IRQ CAP_PCIDEV, источник: tools/mkdrv.sh(тестовый-драйвер-edu)
+  устройство 00:02.0 1234:11e8: драйвер edu не работает, DMA 0 стр., отображений 0, прерываний 1
+кира> [KIRA TELEMETRY] t=24s health=93 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+status
+
+[STATUS] uptime ticks: 12332, precise clock ms: 24258
+[STATUS] PMM free: 505 MB of 512 MB
+[STATUS] kernel heap: 6 blocks, 53 KB in use; pages: 2 small-block, 13 large-block
+[STATUS] mind: health 93 (спокойна), mode act, quantum 40 ms, decisions 0
+[STATUS] immune: kernel integrity OK, antibodies 3, quarantine 0
+[STATUS] interrupts: GICv3, generic timer (virtual), PSCI
+
+кира> [KIRA TELEMETRY] t=25s health=93 load=2% mem=2% run=1 frames=0 late=0 q=40ms fx=3
