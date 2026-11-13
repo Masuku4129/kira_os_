@@ -1,0 +1,152 @@
+{
+ "name": "apps-view",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "view: /pic\\.png - .* sum 83623c20",
+   "ok": true
+  },
+  {
+   "log": "view: /rgba\\.png - .* sum 55e15d64",
+   "ok": true
+  },
+  {
+   "log": "view: /pic\\.bmp - .* sum 59392620",
+   "ok": true
+  },
+  {
+   "log": "view: /pic\\.ppm - .* sum 4c3c0b20",
+   "ok": true
+  },
+  {
+   "log": "view: /pic\\.gif - .* sum 68afcf6d",
+   "ok": true
+  },
+  {
+   "log": "view: /lace\\.gif - .* sum acd25c7b",
+   "ok": true
+  },
+  {
+   "log": "view: /pic\\.jpg - JPEG 97x61, YCbCr 2x2",
+   "ok": true
+  },
+  {
+   "log": "view: /prog\\.jpg - JPEG 97x61, YCbCr 2x2, прогрессивный, проходов 10",
+   "ok": true
+  },
+  {
+   "log": "view: /prog-rst\\.jpg - JPEG 83x70, YCbCr 2x2, прогрессивный",
+   "ok": true
+  },
+  {
+   "log": "view: /big-prog\\.jpg - JPEG: прогрессивный - коэффициенты не помещаются в память",
+   "ok": true
+  },
+  {
+   "log": "view: /note\\.txt - текст, 31 байт",
+   "ok": true
+  },
+  {
+   "log": "view: /blob\\.bin - двоичный, 512 байт",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.1,
+ "seconds": 48.3,
+ "commands": [
+  {
+   "cmd": "view /pic.png",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "view /rgba.png",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "view /pic.bmp",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "view /pic.ppm",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "view /pic.gif",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "view /lace.gif",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "view /pic.jpg",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "view /prog.jpg",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "view /prog-rst.jpg",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "view /big-prog.jpg",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "view /note.txt",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "view /blob.bin",
+   "seconds": 0.0
+  }
+ ]
+}
