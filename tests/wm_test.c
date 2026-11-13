@@ -8,6 +8,7 @@
 
 static int notes, last_id, last_vis, launches, last_launch, tabs_hit, last_tab, launcher_hits;
 static int workspace_changes, last_workspace;
+static int volume_changes, last_volume;
 static int in_n, in_id, in_type, in_x, in_y, in_b;
 static void inp(int id, int type, int x, int y, unsigned b) { in_n++; in_id = id; in_type = type; in_x = x; in_y = y; in_b = (int)b; }
 static void* al(uint64_t n) { return calloc(1, n); }
@@ -16,6 +17,7 @@ static void lc(int i) { launches++; last_launch = i; }
 static void tb(int i) { tabs_hit++; last_tab = i; }
 static void launcher(void) { launcher_hits++; }
 static void ws_changed(int workspace) { workspace_changes++; last_workspace = workspace; }
+static void vol_cb(int percent) { volume_changes++; last_volume = percent; wm_set_system_io(1, percent); }
 static int rz_n, rz_id, rz_w, rz_h;
 static void rz(int id, int w, int h) { rz_n++; rz_id = id; rz_w = w; rz_h = h; }
 static uint32_t px(surface_t* s, int x, int y) { return s->px[y * s->pitch + x]; }
@@ -42,7 +44,7 @@ static void same_as_full(surface_t* scr, const char* what) {
 
 int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
-    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, launcher, ws_changed };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, launcher, ws_changed, vol_cb };
     wm_init(&scr, &ops);
     CHECK(wm_get_layout_mode() == WM_LAYOUT_LEGACY);
     int x, y, w, h;
@@ -648,6 +650,8 @@ int main(void) {
     CHECK(px(&narrow, 40, 177) == TH_RED); /* KIRA Mind remains visible in the compact panel */
     CHECK(px(&narrow, 180, 177) == TH_GREEN); /* live network link is rendered */
     CHECK(px(&narrow, 40, 209) == TH_CYAN); /* audio master volume is rendered */
+    click(230, 209); /* set master volume through the live audio card */
+    CHECK(volume_changes == 1 && last_volume >= 75 && last_volume <= 80);
     click(160, 108); CHECK(wm_notification_center_is_open());
     in_n = 0; move_to(80, 130, 0); CHECK(in_n == 0);
     click(80, 130); CHECK(in_n == 0 && wm_notification_center_is_open());
