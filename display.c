@@ -97,7 +97,7 @@ static void notify_copy(char* dst, const char* src, unsigned cap) {
     dst[i] = 0;
 }
 int display_notify(const char* title, const char* message, int priority) {
-    if (!title || !message || !__atomic_load_n(&ready, __ATOMIC_ACQUIRE)) return -1;
+    if (!title || !message || !__atomic_load_n(&ready, __ATOMIC_ACQUIRE) || wm_get_layout_mode() != WM_LAYOUT_SPATIAL_MINIMAL) return -1;
     uint64_t flags = spin_lock_irqsave(&notify_lk);
     if (notify_head - notify_tail >= DISPLAY_NOTIFY_QUEUE) { spin_unlock_irqrestore(&notify_lk, flags); return -2; }
     display_notification_t* n = &notify_queue[notify_head % DISPLAY_NOTIFY_QUEUE];
