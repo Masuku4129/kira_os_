@@ -268,6 +268,9 @@ require("signed_offset(" in pci_parse
         and "child_address_cells != 3" in pci_parse
         and "INT64_MIN" in pci_parse_header + pci_parse,
         "PCI ranges parser is missing signed-offset, cell-layout or overflow guards")
+virtio_test = read("tests/virtio_test.c")
+require("pci_set_rescan_guard(test_pci_rescan_allowed);" in virtio_test,
+        "virtio host model must explicitly authorize its repeated PCI enumerations")
 host_tests = read("tests/run_host_tests.sh")
 require("tests/pci_host_parse_test.c" in host_tests
         and "arch/aarch64/pci_host_parse.c" in host_tests,
