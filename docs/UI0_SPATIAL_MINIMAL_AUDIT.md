@@ -178,3 +178,55 @@
 - Fixed both startup variants in `display.c` to retain the stable prefix `[KIRA DISPLAY] Shell online:` and append the selected layout details.
 - Fix commit: `613a6e734b767914c14b1d511c8e5677e5d3e246`.
 - This fix has not yet been validated by a workflow run on its exact commit. Host-tests were still in progress in run `43395060732`; ARM64 VM scenarios need a fresh run after the fix. No local build or Limbo visual test is claimed.
+
+
+## 14. Spatial Minimal partial-redraw regression fix (2026-11-13)
+
+- Root cause found in `wm.c`: `damage_side()` marked the full desktop below the top edge dirty in Spatial Minimal. It is called on Dock hover changes and on app/window lifecycle changes. The navigation hover path also reused `damage_side()`, causing unrelated desktop tiles to be recomposed for a rail tooltip.
+- Dock invalidation is now limited to the bottom band containing the Dock and its hover label.
+- Navigation hover invalidation now targets only the previous/current rail item and its tooltip bounds through `damage_spatial_tab()`.
+- Added `tests/ui_damage_contract_test.py` and wired it into `tests/run_host_tests.sh` to prevent full-desktop invalidation from returning.
+- This is a source-level performance correction, not a measured performance claim. Exact-head host tests, QEMU/Limbo visual check and frame-time comparison are still required.
+- Legacy invalidation path is unchanged. No default-layout switch or ISO release is made by this change.
+
+
+## 15. Partial-redraw verification update (2026-11-13)
+
+- Exact PR workflow run `43396919980`: x86-64 build PASS; full host suite PASS (`ALL HOST TESTS PASSED`); ARM64 Clang `-Werror` build PASS; ARM64 QEMU scenarios PASS; all 29 VM matrix jobs PASS, including `limbo-spam`.
+- The host suite includes `tests/ui_damage_contract_test.py`, so the source-level bounded-damage regression guard executed successfully in CI.
+- Still unverified: appearance and interaction on the user's Android Limbo session, real frame-time/dirty-pixel measurements, and physical hardware. CI's `limbo-spam` is not the user's phone emulator.
+- PR #140 updated with the requirement/evidence matrix; remains Draft and is not merged. No ISO generated or installed.
+
+
+## 16. Active navigation state invalidation correction (2026-11-13)
+
+- Follow-up review found one remaining caller in `compose_prepare()`: when the active section changed, it still called `damage_side()`. After the Dock optimization this repainted the Dock band instead of the left rail, so the active-section marker could remain visually stale.
+- Updated active-tab changes to invalidate only the previous and current rail item via `damage_spatial_tab()`; Legacy continues to invalidate its top panel.
+- Extended `tests/ui_damage_contract_test.py` to assert both hover transitions and active-section transitions use bounded per-item invalidation, and that active-tab changes do not call `damage_side()`.
+- Source/test commits: `85884292734df3ae4a4b08888a8768aa835fc682`, `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae`.
+- Prior run `43396919980` validated the earlier Dock/hover fix only. Fresh exact-head CI is required for this follow-up. Android Limbo visual check and frame-time/dirty-pixel measurements remain open.
+
+
+## 17. Exact-head CI verification (2026-11-13)
+
+- Exact-head run `43408346184` passed on branch head `1850c0ea0f4f3436116b1b3e3942f5f05293ef34`; source/test head was `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae` (later commits are documentation-only).
+- Host tests, x86-64 build, ARM64/QEMU and all VM scenarios passed, including `limbo-spam`, `limbo-mttcg`, USB-UHCI, USB-xHCI and driver scenarios.
+- This verifies the bounded invalidation contracts and builds. It does not measure FPS/frame time/dirty-pixel reduction and does not replace the user's Android Limbo visual comparison.
+
+
+## 18. Spatial system-zone visibility correction (2026-11-13)
+
+- Visual-path inspection found that `draw_topbar()` already had a compact Spatial branch (KIRA mark, Window Overview action, clock/date), but `compose_rect()` called it only for Legacy. The Spatial Overview hit target was therefore invisible and the system clock had no visible surface.
+- `compose_rect()` now draws the layout-specific top system zone for both modes. Spatial uses only its compact system strip; it does not draw the Legacy horizontal navigation tabs or telemetry meters.
+- `tests/wm_test.c` now checks the actual Spatial system-zone pixels and bottom border after switching layouts. Existing hit-test verifies the Overview action remains functional.
+- Android/Limbo builds select Spatial Minimal through `build_clang.sh --android` (`KIRA_SPATIAL_PREVIEW`); ordinary CI/desktop builds retain Legacy for compatibility.
+- This closes a concrete rendering defect in the preview, not the full visual acceptance gate. The current phone/Limbo appearance, touch ergonomics and frame-time remain unverified.
+
+
+## 19. Short-screen navigation layout (2026-11-13)
+
+- Spatial navigation item height and vertical step now adapt to the available display height. The rail reserves the bottom Dock region rather than keeping fixed 48 px spacing on every screen.
+- Icon size scales down at compact heights; the Dock remains separate and contains only pinned items.
+- Added a 800×400 GUI regression scenario with all seven navigation destinations; it verifies the final navigation hit target ends above the Dock and remains clickable.
+- Very small viewports below 240 px height are not an acceptance target yet; touch/DPI and phone-specific scaling still require device validation.
+- Exact-head CI for the source/test follow-up is pending.

@@ -409,3 +409,51 @@
 - Исправлено в `display.c`: оба режима теперь выводят `[KIRA DISPLAY] Shell online:` и затем описание layout. Commit `613a6e734b767914c14b1d511c8e5677e5d3e246`.
 - На момент проверки host-tests в run `43395060732` ещё выполнялись. Новый CI на exact fix commit пока не подтверждён; Limbo/physical hardware не тестировались.
 - Следующее: получить свежий CI для ветки `docs/ui0-spatial-minimal-audit`, проверить host-tests + ARM64 VM; затем продолжить responsive Dock/short-screen acceptance and performance baseline. PR не сливать.
+
+
+## 14. Spatial Minimal partial-redraw regression fix (2026-11-13)
+
+- Root cause found in `wm.c`: `damage_side()` marked the full desktop below the top edge dirty in Spatial Minimal. It is called on Dock hover changes and on app/window lifecycle changes. The navigation hover path also reused `damage_side()`, causing unrelated desktop tiles to be recomposed for a rail tooltip.
+- Dock invalidation is now limited to the bottom band containing the Dock and its hover label.
+- Navigation hover invalidation now targets only the previous/current rail item and its tooltip bounds through `damage_spatial_tab()`.
+- Added `tests/ui_damage_contract_test.py` and wired it into `tests/run_host_tests.sh` to prevent full-desktop invalidation from returning.
+- This is a source-level performance correction, not a measured performance claim. Exact-head host tests, QEMU/Limbo visual check and frame-time comparison are still required.
+- Legacy invalidation path is unchanged. No default-layout switch or ISO release is made by this change.
+
+- PR #140 now carries R-01/R-02 requirement-to-evidence rows pinned to `cb0d41e29ae7b01fe4b82e2be66e77414c71e39c`; final CI/limbo evidence remains pending.
+
+
+### Spatial Minimal CI result — partial redraw follow-up
+
+- Run 43396919980: x86-64 build PASS; host-tests PASS (`ALL HOST TESTS PASSED`); ARM64 build PASS with Clang `-Werror`; ARM64 QEMU scenarios PASS; all 29 VM jobs PASS. The host suite executes `tests/ui_damage_contract_test.py`.
+- This validates the CI source/test paths, not a user-visible performance improvement. Android Limbo visual verification and frame-time/dirty-pixel measurements remain open. No ISO release, PR merge or `main` update.
+
+
+### Spatial Minimal active-rail invalidation follow-up — PR #140 (2026-11-13)
+- Review found `compose_prepare()` still called `damage_side()` when the active tab changed. With Dock invalidation now scoped to the bottom band, this left the left-rail active marker potentially stale.
+- Fixed active-tab transitions to damage only the previous/current rail entries using `damage_spatial_tab()`; Legacy still uses `damage_top()`.
+- Extended `tests/ui_damage_contract_test.py` to guard active-tab redraw as well as hover redraw.
+- Exact source/test head: `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae`. The prior CI run `43396919980` predates this follow-up; fresh exact-head CI is pending. No measured frame-time improvement or Android Limbo visual result is claimed.
+
+
+### Spatial Minimal dirty-region follow-up — PR #140 exact-head CI (2026-11-13)
+- Branch head: `1850c0ea0f4f3436116b1b3e3942f5f05293ef34`; source/test head: `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae`.
+- Workflow `43408346184` passed host-tests, x86-64, ARM64/QEMU and all VM jobs.
+- Verified source contract covers Dock bottom-band invalidation, previous/current navigation hover entries, and previous/current active navigation entries. Android Limbo visual comparison and measured frame-time/dirty-pixel data remain unverified.
+
+
+### Spatial system-zone visibility correction — PR #140 (2026-11-13)
+- Исправлен пропуск в композиторе: компактная ветка `draw_topbar()` для Spatial Minimal существовала, но `compose_rect()` вызывал её только для Legacy. Поэтому кнопка «ОКНА» была невидимой, а часы не имели видимой системной поверхности.
+- Теперь для обоих режимов рисуется собственная верхняя системная зона: Spatial — только компактные KIRA / «ОКНА» / дата-время, без старой навигации и постоянной телеметрии.
+- В `tests/wm_test.c` добавлена проверка пикселей верхней зоны Spatial Minimal и нижней границы; существующий тест проверяет действие кнопки обзора окон.
+- Android/Limbo preview выбирается `build_clang.sh --android`; Legacy сохраняется для обычных сборок и CI.
+- Код/тесты: `a558aa9dd23db02759fa673cec979c021a93ca35`, `9064c5581d0a05716042412cd2ac036a0bfb1d73`. Документация: `826574fdc3d9de512519c6fb82097808f8bc6b39`.
+- Exact-head CI ещё не подтверждён. Проверка в Limbo на телефоне и измерения производительности остаются обязательными.
+
+
+### Spatial short-screen navigation — PR #140 (2026-11-13)
+- Геометрия левого rail теперь рассчитывает высоту и вертикальный шаг по реальной высоте экрана, резервируя место под нижний Dock. На коротких экранах уменьшаются размеры элементов и значков.
+- Добавлен GUI-сценарий 800×400 со всеми семью разделами: последний элемент должен оставаться выше поверхности Dock и принимать нажатие.
+- Изменения: `9d6ead69c82ad5b5747ea689cbab5df2809498b1`, `9f5f35879f3e4ccd29e307552d0a1d6fee274891`. Exact-head CI ожидается; телефонный Limbo пока не проверен.
+
+- Дополнительно поджата высота фона rail: его нижняя граница теперь не заходит на поверхность Dock в коротком Spatial viewport (`a9adb4101b3a7a01425d5ffbfcb60772d22cbbe5`).
