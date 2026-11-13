@@ -11,6 +11,7 @@
 | [RFC-SVC-001](RFC-SVC-001.md) | Syscall core vs service-facing adapters | Draft; first source extraction in architecture branch, still in-kernel | architecture branch |
 | [RFC-TOOL-001](RFC-TOOL-001.md) | KCC compiler context/reentrancy | Draft; global context and self-host failures recorded | main @ bbc7f7ab |
 | [RFC-MIND-001](RFC-MIND-001.md) | KIRA Mind telemetry, learning and bounded control | Draft; current safeguards and direct action callbacks inventoried | main @ bbc7f7ab |
+| [RFC-DEV-001](RFC-DEV-001.md) | Device Model identity, resource ownership and lifecycle | Draft; current PCI/ARM64 ECAM source facts and missing lifecycle gates recorded | architecture branch |
 
 ## RFC review requirements
 
