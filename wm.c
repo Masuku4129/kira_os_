@@ -251,7 +251,7 @@ static int spatial_rail_width(void) {
     return 64;
 }
 static int spatial_nav_top(void) {
-    return scr->h < 360 ? WM_TOP_H + 12 : WM_TOP_H + 48;
+    return scr->h < 360 ? WM_TOP_H + 12 : WM_TOP_H + 36;
 }
 
 #define SEP_GAP 14                 /* черта между закреплёнными и идущими */
