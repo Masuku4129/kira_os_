@@ -475,7 +475,7 @@
 
 
 ### Touch-sized Dock paging — PR #142 (2026-11-13)
-- Compact Spatial Minimal layouts no longer shrink pinned Dock tiles below 40px to fit ten entries on one row. The Dock now pages the existing pin order, with previous/next controls and 40px tiles and 44px paging hit targets; at 320px viewport width four pins are visible per page.
+- Compact Spatial Minimal layouts no longer shrink pinned Dock tiles below 40px to fit ten entries on one row. The Dock now pages the existing pin order, with previous/next controls and 40px tiles and 44px paging hit targets; at 320px viewport width three pins are visible per page.
 - Wider layouts retain the unpaged 44px Dock when all pins fit. The underlying pinned-app list and persistence format are unchanged.
 - Added `wm_dock_page_control_center()` for deterministic control hit-test integration and expanded `tests/wm_test.c` to verify page bounds, visible/hidden entries, navigation, and launching all ten pins.
 - Fresh exact-head CI is required. Android Limbo touch/visual validation remains outstanding.
