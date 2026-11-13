@@ -30,6 +30,10 @@ int main(void) {
     uint8_t ws_next[] = {0x1D, 0x38, 0xE0, 0x4D};
     (void)feed(ws_next, (int)sizeof ws_next, ev);
     CHECK(input_take_hotkey() == KEY_WORKSPACE_NEXT);
+    input_init();
+    uint8_t ws_move[] = {0x1D, 0x38, 0x2A, 0xE0, 0x4B, 0xE0, 0xCB, 0xAA, 0xB8, 0x9D};
+    CHECK(feed(ws_move, (int)sizeof ws_move, ev) == 6);
+    CHECK(input_take_hotkey() == KEY_WORKSPACE_MOVE_PREV);
         uint8_t junk[] = {0xFA, 0xE1, 0x00, 0xFF};        /* ACK/Pause/ошибки: без событий */
     input_init(); CHECK(feed(junk,4,ev)==0);
     uint8_t ent[] = {0x1C, 0x9C};
