@@ -280,12 +280,33 @@
       "wasm"
     ],
     "required_files": [
-      "build_clang.sh",
       "build_arm64.sh",
-      "grub.cfg",
+      "build_clang.sh",
       "ci/make_flash.sh",
       "data/mind_seed.bin",
-      "tests/run_host_tests.sh"
+      "grub.cfg",
+      "kcc/kcc.h",
+      "kcc/main.c",
+      "kcc/target.h",
+      "kdrv_fmt.c",
+      "tests/run_host_tests.sh",
+      "tools/kfstool.c",
+      "tools/mkdrv.sh",
+      "tools/pem2der.c",
+      "userland/drvedu.c",
+      "userland/drvget.c",
+      "userland/drvget_core.c",
+      "userland/drvman.c",
+      "userland/fetch.c",
+      "userland/kcc.c",
+      "userland/kccrt.c",
+      "userland/net6.c",
+      "userland/tls.c",
+      "userland/user.ld",
+      "userland/user_arm64.ld",
+      "userland/wasm.c",
+      "userland/wasm/build.sh",
+      "userland/x509.c"
     ]
   },
   "in_progress": {
