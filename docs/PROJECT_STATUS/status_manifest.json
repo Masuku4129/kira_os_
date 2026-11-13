@@ -13,6 +13,7 @@
     "docs/PROJECT_STATUS/02_IN_PROGRESS.md",
     "docs/PROJECT_STATUS/03_PLANNED.md",
     "docs/PROJECT_STATUS/README.md",
+    "docs/PROJECT_STATUS/branch_heads_2026-11-13.json",
     "docs/PROJECT_STATUS/branch_inventory_2026-11-13.json",
     "docs/PROJECT_STATUS/status_manifest.json",
     "tests/linebuf_test.c"
@@ -373,7 +374,9 @@
       "docs/UNIFIED_RELEASE_PLAN.md",
       "docs/RELEASE_SPLIT.md"
     ],
-    "release_gate_state": "OPEN/BLOCKED in the v46 RELEASE_GAPS snapshot; package_update.sh refuses a combined update unless all required evidence jobs and image audits succeed."
+    "release_gate_state": "OPEN/BLOCKED in the v46 RELEASE_GAPS snapshot; package_update.sh refuses a combined update unless all required evidence jobs and image audits succeed.",
+    "branch_heads_inventory": "docs/PROJECT_STATUS/branch_heads_2026-11-13.json",
+    "branch_heads_count": 302
   },
   "planned": [
     {
