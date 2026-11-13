@@ -9,11 +9,11 @@
 | P-03 | Аппаратный Hypervisor для целых гостевых ОС | VMX/SVM/EL2, guest memory translation, vCPU/VM-exit lifecycle, virtual devices, IOMMU isolation и guest boot tests |
 | P-04 | User-mode system services | Service Manager, Event Bus, Resource/Power Manager, versioned IPC, backpressure, crash/restart и peer-death tests |
 | P-05 | Installer / updater / recovery | атомарное обновление, подписанные manifests, rollback/anti-rollback, восстановление после прерванной установки, boot fallback и reproducible update archive |
-| P-06 | Полноценная адаптация сторонних драйверов | проверяемое происхождение и лицензия, source adapters, target ABI conversion, sandbox build/test, signing и rollback; не обещать универсальное переписывание любого бинарного драйвера |
+| P-06 | KIRA Driver Adaptation Layer — полноценная адаптация сторонних драйверов | получение исходников драйвера из разрешённых источников, проверка происхождения/лицензии, адаптер исходного API и KIRA ABI, sandbox build/test, подпись, установка/откат; произвольный бинарный драйвер не объявлять автоматически переносимым |
 | P-07 | Физическая аппаратная приёмка | отдельные доказательства на x86-64 и ARM64 устройствах: boot, display/input, storage, network, DMA/IOMMU, power и recovery |
 | P-08 | Дополнительные классы устройств | Wi-Fi, Bluetooth, камеры, датчики и аппаратное GPU acceleration с реальной матрицей устройств |
 | P-09 | Полный Native runtime / dynamic linking | versioned Native ABI, shared libraries/dynamic linker, relocation validation и cross-ISA conformance |
-| P-10 | Формальная власть и жизненный цикл KIRA Mind | bounded typed proposals, policy enforcement владельцами ресурсов, audit/rollback, versioned/signed models и adversarial tests |
+| P-10 | KIRA Mind — собственный AI-слой ОС с kernel-level интеграцией | bounded typed proposals, policy enforcement владельцами ресурсов ядра, изоляция от прямого произвольного доступа, versioned/signed models, audit/rollback и adversarial tests; наличие mind.c/mind_sys.c само по себе не означает готовый kernel-level AI |
 
 ## Не потерять 12 параллельных потоков мастер-плана
 
