@@ -336,3 +336,13 @@
 - Added overview-card damage mapping so title/visibility/content updates refresh the corresponding card, including a hidden app's thumbnail, without forcing a full-screen redraw on every pointer move.
 - Added regression coverage for hidden-window thumbnail refresh and retained input isolation/release tests.
 - Latest code/test SHA at this log entry: 92457448177442e9d429fbaf0685faa55961815c. Latest exact-head Actions run not yet visible at time of writing; no PASS declared. Local compile, Limbo and physical-hardware tests were not run.
+
+
+### UI-3 app discovery/search — architecture reconnaissance
+- Подтверждён каталог встроенных программ: tools/kfstool генерирует PROG_MANIFEST из ELF, включённых в /bin. Дисплейный поток не должен сканировать и хешировать бинарники.
+- prog_list() выполняет синхронное чтение/хеширование; запуск из GUI идёт через prog_request() -> prog_poll() в основном цикле ядра, а trust_check остаётся в prog_run_ex().
+- Текущая очередь запуска односоставная и молча игнорирует новый запрос при занятой очереди; нужен явный busy/result contract до UI интеграции.
+- Манифест содержит тестовые и атакующие бинарники, их нужно скрывать/маркировать в пользовательском каталоге.
+- Keyboard ownership сейчас только у верхнего Проводника; launcher должен забрать ввод у console через display_kbd_owner и display_main.
+- Отдельный Spatial launcher affordance предпочтительнее нового tab, чтобы не менять legacy UI.
+- Полный контракт добавлен в docs/UI0_SPATIAL_MINIMAL_AUDIT.md, раздел 10. Production app launcher пока не реализован.
