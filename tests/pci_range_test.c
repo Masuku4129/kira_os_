@@ -127,6 +127,6 @@ int main(void) {
         return 1;
     }
 
-    puts("PCI range enumeration: nonzero root, bridge bounds, invalid range and legacy wrapper passed");
+    puts("PCI range enumeration: host and nested bridge windows, stale handles, rescan guard and legacy wrapper passed");
     return 0;
 }
