@@ -13,7 +13,8 @@ enum {
     KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7, KEY_F8, KEY_F9, KEY_F10,
     KEY_F11, KEY_F12,
     KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_HOME, KEY_END, KEY_PGUP, KEY_PGDN,
-    KEY_INSERT, KEY_DELETE
+    KEY_INSERT, KEY_DELETE,
+    KEY_WORKSPACE_PREV = 0x180, KEY_WORKSPACE_NEXT
 };
 /* Печатные клавиши имеют код = их ASCII без учёта Shift (строчные буквы, цифры, знаки). */
 
@@ -61,7 +62,7 @@ void input_push_scancode(uint8_t byte);        /* из IRQ */
 unsigned input_raw_take(uint8_t* out, unsigned max);   /* сырые байты клавиатуры с прошлого вызова (диагностика) */
 int  input_pop(input_event_t* ev);             /* 1 - событие получено */
 uint32_t input_dropped(void);
-/* Горячие клавиши оболочки (F10, F11) не попадают в очередь событий: их забирает поток дисплея,
+/* Горячие клавиши оболочки (F10/F11 и Ctrl+Alt+стрелки) не попадают в очередь событий: их забирает поток дисплея,
    поэтому они работают, даже если приложение не читает клавиатуру. Возвращает KEY_F10/KEY_F11 или 0. */
 int input_take_hotkey(void);                  /* сколько событий потеряно при переполнении */
 
