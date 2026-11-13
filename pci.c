@@ -190,8 +190,8 @@ static void scan_bus(uint8_t bus, uint8_t bus_limit) {
         pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = 0;
         if ((cr32(&t, 0) & 0xFFFF) == 0xFFFF) continue;
         uint8_t multi = pci_read8(&t, 0x0E) & 0x80;
-        scan_fn(bus, dev, 0);
-        if (multi) for (uint8_t fn = 1; fn < 8; fn++) scan_fn(bus, dev, fn);
+        scan_fn(bus, dev, 0, bus_limit);
+        if (multi) for (uint8_t fn = 1; fn < 8; fn++) scan_fn(bus, dev, fn, bus_limit);
     }
 }
 
