@@ -48,7 +48,7 @@ static int light_hover = -1;       /* окно, над «светофором» 
 static int last_fs = -1, last_pill;
 static int cascade;
 static wm_layout_mode_t layout_mode = WM_LAYOUT_LEGACY;
-static int overview_open, overview_page, overview_n;
+static int overview_open, overview_page, overview_n, overview_release_guard;
 static int overview_ids[WM_MAX_WIN];
 static uint32_t* bg;
 static surface_t bgs;
@@ -276,7 +276,7 @@ static void str_copy(char* d, const char* s, int cap) {
 
 void wm_init(surface_t* screen, const wm_ops_t* o) {
     layout_mode = WM_LAYOUT_LEGACY;
-    overview_open = 0; overview_page = 0; overview_n = 0;
+    overview_open = 0; overview_page = 0; overview_n = 0; overview_release_guard = 0;
     scr = screen;
     ops = *o;
     for (int i = 0; i < WM_MAX_WIN; i++) win[i].used = 0;
@@ -815,8 +815,17 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
     update_hover();
 
     int left = buttons & 1, was = prev_buttons & 1;
+    if (overview_release_guard) {
+        overview_release_guard = left;
+        capture = -1; dragging = -1; resizing = -1;
+        prev_buttons = buttons;
+        return; /* consume the release belonging to the overlay click */
+    }
     if (overview_open) {
-        if (left && !was) click(cx, cy);
+        if (left && !was) {
+            click(cx, cy);
+            if (!overview_open) overview_release_guard = 1;
+        }
         capture = -1; dragging = -1; resizing = -1;
         prev_buttons = buttons;
         return; /* overlay owns input; never leak clicks or pointer events to an underlying app */
