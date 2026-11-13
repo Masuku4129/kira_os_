@@ -2,6 +2,9 @@
 # Хост-тесты ядра (без QEMU). Нужны gcc (или clang), nasm.
 set -e
 cd "$(dirname "$0")/.."
+
+echo "== project status registry: baseline files, branch inventory, build inputs =="
+python3 ci/check_project_status.py
 CC=${CC:-gcc}
 FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie"
 SSE="-msse2 -mfpmath=sse -fno-math-errno"
