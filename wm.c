@@ -18,6 +18,7 @@
 
 typedef struct {
     int used, visible, closable, pinned, user, full, input;
+    uint32_t generation;
     int resizable, zoomable;
     int zoom16;
     int cap_w, cap_h, min_w, min_h, step_w, step_h, norm_w, norm_h;
@@ -48,8 +49,10 @@ static int light_hover = -1;       /* окно, над «светофором» 
 static int last_fs = -1, last_pill;
 static int cascade;
 static wm_layout_mode_t layout_mode = WM_LAYOUT_LEGACY;
+static uint32_t win_generation;
 static int overview_open, overview_page, overview_n, overview_release_guard;
 static int overview_ids[WM_MAX_WIN];
+static uint32_t overview_generations[WM_MAX_WIN];
 static void overview_click(int px, int py);
 static uint32_t* bg;
 static surface_t bgs;
@@ -278,6 +281,7 @@ static void str_copy(char* d, const char* s, int cap) {
 void wm_init(surface_t* screen, const wm_ops_t* o) {
     layout_mode = WM_LAYOUT_LEGACY;
     overview_open = 0; overview_page = 0; overview_n = 0; overview_release_guard = 0;
+    win_generation = 0;
     scr = screen;
     ops = *o;
     for (int i = 0; i < WM_MAX_WIN; i++) win[i].used = 0;
@@ -318,6 +322,8 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
     }
     win_t* w = &win[id];
     w->used = 1; w->visible = 1; w->full = 0; w->seq = 0;
+    w->generation = ++win_generation;
+    if (!w->generation) w->generation = ++win_generation;
     w->closable = (flags & WM_CLOSABLE) != 0; w->pinned = (flags & WM_PINNED) != 0; w->user = user;
     w->input = (flags & WM_INPUT) != 0;
     str_copy(w->title, title, sizeof(w->title));
@@ -566,14 +572,23 @@ wm_layout_mode_t wm_get_layout_mode(void) { return layout_mode; }
 
 static int overview_refresh(void) {
     int ids[WM_MAX_WIN], n = 0;
+    uint32_t generations[WM_MAX_WIN];
     for (int i = zcount - 1; i >= 0; i--) {
         int id = zorder[i];
-        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned) ids[n++] = id;
+        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned && win[id].generation == overview_generations[index]) {
+            ids[n] = id;
+            generations[n] = win[id].generation;
+            n++;
+        }
     }
     int changed = n != overview_n;
-    for (int i = 0; i < n && !changed; i++) if (ids[i] != overview_ids[i]) changed = 1;
+    for (int i = 0; i < n && !changed; i++)
+        if (ids[i] != overview_ids[i] || generations[i] != overview_generations[i]) changed = 1;
     if (changed) {
-        for (int i = 0; i < n; i++) overview_ids[i] = ids[i];
+        for (int i = 0; i < n; i++) {
+            overview_ids[i] = ids[i];
+            overview_generations[i] = generations[i];
+        }
         overview_n = n;
         int cols = scr->w >= 900 ? 3 : scr->w >= 600 ? 2 : 1;
         int rows = scr->h >= 560 ? 2 : 1;
