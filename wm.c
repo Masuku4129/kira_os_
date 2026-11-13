@@ -149,7 +149,7 @@ static void damage_cursor(void) { damage(cx, cy, cx + CUR_W, cy + CUR_H); }
 static void damage_top(void) { damage(0, 0, scr->w, WM_TOP_H); }
 
 #define WM_SYSTEM_PANEL_W 288
-#define WM_SYSTEM_PANEL_H 236
+#define WM_SYSTEM_PANEL_H 204
 static void system_panel_rect(int* x, int* y, int* w, int* h) {
     *w = scr->w - 24; if (*w > WM_SYSTEM_PANEL_W) *w = WM_SYSTEM_PANEL_W;
     if (*w < 160) *w = scr->w - 8;
