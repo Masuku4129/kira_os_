@@ -14,6 +14,7 @@ checks = {
     "x86 CI image is Spatial Minimal": './build_clang.sh --no-run --spatial-preview' in ci,
     "ARM64 CI image is Spatial Minimal": 'KIRA_SPATIAL_PREVIEW=1 ./build_arm64.sh' in ci,
     "Android/Limbo build enables Spatial Minimal": '*" --android "*' in x86 and '-DKIRA_SPATIAL_PREVIEW=1' in x86,
+    "Android/Limbo output dispatch matches the flag": '*" --android "*)' in x86,
     "Android/Limbo build exports ISO and persistent disk": 'cp kira.iso "$OUT/kira.iso"' in x86 and 'kira_disk.img' in x86,
 }
 failed = [name for name, ok in checks.items() if not ok]
