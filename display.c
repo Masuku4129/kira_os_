@@ -680,7 +680,11 @@ int display_init(unsigned long mbi) {
     if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
     wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher };
+#ifdef KIRA_SPATIAL_PREVIEW
+    wm_init_mode(fb_surface(), &ops, WM_LAYOUT_SPATIAL_MINIMAL);
+#else
     wm_init(fb_surface(), &ops);
+#endif
     surface_t* fbs = fb_surface();
     w_con = wm_create_ex("Терминал", WM_AUTO, WM_AUTO, CON_W, CON_H, WM_RESIZABLE, fbs->w, fbs->h);   // можно растянуть до размера экрана
     if (w_con < 0) { uart_print("[KIRA DISPLAY] cannot allocate window surfaces.\n"); return -7; }
@@ -709,9 +713,11 @@ int display_init(unsigned long mbi) {
         return -6;
     }
     ready = 1;
-    uart_print("[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, "
-               "apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, "
-               "fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.\n");
+#ifdef KIRA_SPATIAL_PREVIEW
+    uart_print("[KIRA DISPLAY] Spatial Minimal preview online: left navigation, pinned-only bottom Dock, quiet canvas.\n");
+#else
+    uart_print("[KIRA DISPLAY] Legacy shell online: top navigation, side launcher, apps Terminal / Mind / Files / Monitor / Settings.\n");
+#endif
     return 0;
 }
 
