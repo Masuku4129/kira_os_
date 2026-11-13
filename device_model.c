@@ -91,3 +91,27 @@ const device_descriptor_t* device_resolve(device_handle_t handle) {
             return &devices[i];
     return 0;
 }
+
+static int transition_allowed(device_state_t from, device_state_t to) {
+    if (from == DEVICE_STATE_DISCOVERED)
+        return to == DEVICE_STATE_VALIDATED || to == DEVICE_STATE_QUARANTINED ||
+               to == DEVICE_STATE_FAILED;
+    if (from == DEVICE_STATE_VALIDATED)
+        return to == DEVICE_STATE_QUARANTINED || to == DEVICE_STATE_FAILED;
+    if (from == DEVICE_STATE_QUARANTINED)
+        return to == DEVICE_STATE_FAILED;
+    return 0;
+}
+
+int device_registry_transition(device_handle_t handle, device_state_t expected,
+                               device_state_t next) {
+    if (!transition_allowed(expected, next)) return DEVICE_E_STATE;
+    const device_descriptor_t* resolved = device_resolve(handle);
+    if (!resolved) return DEVICE_E_STALE;
+    device_descriptor_t* descriptor = (device_descriptor_t*)resolved;
+    int observed = (int)expected;
+    if (!__atomic_compare_exchange_n((int*)&descriptor->state, &observed, (int)next,
+                                     0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        return DEVICE_E_STATE;
+    return DEVICE_OK;
+}
