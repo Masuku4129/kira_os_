@@ -103,3 +103,13 @@
 - This is still a first UI-2 vertical slice, not the full Spatial Minimal experience. App discovery/search, temporary window overview, KIRA AI entry, quick system/diagnostics/notifications, workspace switching, responsive overflow, DPI/touch/accessibility and performance baselines remain open.
 - GitHub Actions run `43380318838` was pending on the preceding code head `f992cd55c0bd3f4ca464745ee8f4a25e5d391a95` when this note was prepared. The documentation update below changes the branch head; only a run on the final updated SHA can verify the final PR head.
 - No local build or physical hardware test was performed in this session.
+
+
+## 9. UI-2 — временный обзор окон (реализация в работе)
+
+- В wm.h добавлен отдельный контракт временного обзора окон; существующие API создания/уничтожения/фокуса/видимости не изменены.
+- В wm.c обзор строит актуальный список по z-order, включает свёрнутые окна, исключает закреплённые системные виджеты, показывает миниатюры содержимого и состояние окна.
+- В Spatial Minimal обзор открывается кнопкой «ОКНА» в верхней системной зоне; выбор карточки восстанавливает окно и поднимает его наверх. Есть закрытие и постраничная навигация для большого числа окон.
+- Список сверяется с жизненным циклом окон перед композицией; выбранный ID дополнительно проверяется на used и pinned перед восстановлением.
+- tests/wm_test.c дополнен сценариями включения, подсчёта, отображения, full-vs-damage redraw, восстановления свёрнутого окна и закрытия overlay.
+- Проверка сборкой/host-tests на новом head ещё ожидается. Визуальная проверка в Limbo и на физическом устройстве не выполнена.
