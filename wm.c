@@ -18,6 +18,7 @@
 
 typedef struct {
     int used, visible, closable, pinned, user, full, input;
+    int workspace;
     uint32_t generation;
     int resizable, zoomable;
     int zoom16;
@@ -53,9 +54,20 @@ static uint32_t win_generation;
 static int overview_open, overview_page, overview_n, overview_release_guard;
 static int system_panel_open;
 static int dock_page;
+static int current_workspace;
+#define WM_NOTIFICATION_MAX 8
+typedef struct { char title[40]; char message[112]; uint32_t created_ms; uint8_t priority, unread; } wm_notification_t;
+static wm_notification_t notifications[WM_NOTIFICATION_MAX];
+static unsigned notification_head, notification_count;
+static int notification_center_open, notification_toast_active;
+static int modal_release_guard;
+static uint32_t notification_toast_until;
+static void str_copy(char* d, const char* s, int cap);
 static int overview_ids[WM_MAX_WIN];
 static uint32_t overview_generations[WM_MAX_WIN];
 static void overview_click(int px, int py);
+static int window_on_workspace(const win_t* w) { return w->pinned || w->workspace == current_workspace; }
+static void workspace_changed(void);
 static void draw_system_panel(surface_t* c, int ox, int oy);
 static void damage_system_panel(void);
 static void overview_damage_window(int id);
@@ -150,10 +162,80 @@ static void damage_system_panel(void) {
 }
 int wm_system_panel_is_open(void) { return system_panel_open; }
 
+static void notification_toast_rect(int* x, int* y, int* w, int* h) {
+    *w = scr->w - 24; if (*w > 320) *w = 320;
+    if (*w < 160) *w = scr->w - 8;
+    *h = 72; *x = scr->w - *w - 12; *y = WM_TOP_H + 8;
+}
+static void notification_center_rect(int* x, int* y, int* w, int* h) {
+    *w = scr->w - 24; if (*w > 360) *w = 360;
+    if (*w < 160) *w = scr->w - 8;
+    *h = scr->h - WM_TOP_H - 24; if (*h > 360) *h = 360;
+    if (*h < 100) *h = scr->h - WM_TOP_H - 8;
+    *x = scr->w - *w - 12; *y = WM_TOP_H + 8;
+}
+static int notification_unread(void) {
+    int n = 0;
+    for (unsigned i = 0; i < notification_count; i++) {
+        unsigned at = (notification_head + WM_NOTIFICATION_MAX - 1 - i) % WM_NOTIFICATION_MAX;
+        if (notifications[at].unread) n++;
+    }
+    return n;
+}
+int wm_notification_count(void) { return (int)notification_count; }
+int wm_notification_unread_count(void) { return notification_unread(); }
+int wm_notification_center_is_open(void) { return notification_center_open; }
+int wm_notification_toast_is_visible(void) { return notification_toast_active; }
+int wm_notification_post(const char* title, const char* message, int priority) {
+    if (!title || !message || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return -1;
+    unsigned at = notification_head;
+    wm_notification_t* n = &notifications[at];
+    str_copy(n->title, title, sizeof n->title);
+    str_copy(n->message, message, sizeof n->message);
+    n->priority = (uint8_t)(priority < WM_NOTIFY_INFO ? WM_NOTIFY_INFO : priority > WM_NOTIFY_CRITICAL ? WM_NOTIFY_CRITICAL : priority);
+    n->unread = 1; n->created_ms = anim_ms;
+    notification_head = (notification_head + 1) % WM_NOTIFICATION_MAX;
+    if (notification_count < WM_NOTIFICATION_MAX) notification_count++;
+    notification_toast_active = !system_panel_open;
+    notification_toast_until = anim_ms + 5000u;
+    int x, y, w, h;
+    notification_toast_rect(&x, &y, &w, &h);
+    damage(x, y, x + w, y + h);
+    damage_top();
+    if (notification_center_open) {
+        notification_toast_active = 0;
+        for (unsigned i = 0; i < notification_count; i++) {
+            unsigned ix = (notification_head + WM_NOTIFICATION_MAX - 1 - i) % WM_NOTIFICATION_MAX;
+            notifications[ix].unread = 0;
+        }
+        damage(0, 0, scr->w, scr->h);
+    }
+    return 0;
+}
+void wm_notification_center_toggle(void) {
+    if (layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
+    notification_center_open = !notification_center_open;
+    if (notification_center_open) {
+        overview_open = 0; system_panel_open = 0; notification_toast_active = 0;
+        for (unsigned i = 0; i < notification_count; i++) {
+            unsigned at = (notification_head + WM_NOTIFICATION_MAX - 1 - i) % WM_NOTIFICATION_MAX;
+            notifications[at].unread = 0;
+        }
+    }
+    capture = -1; dragging = -1; resizing = -1;
+    damage(0, 0, scr->w, scr->h);
+}
+void wm_notification_clear(void) {
+    notification_count = 0; notification_head = 0;
+    notification_center_open = 0; notification_toast_active = 0;
+    damage(0, 0, scr->w, scr->h);
+}
+
+
 static int fs_top(void) {
     for (int i = zcount - 1; i >= 0; i--) {
         const win_t* w = &win[zorder[i]];
-        if (w->visible && !w->pinned) return w->full ? zorder[i] : -1;
+        if (w->visible && window_on_workspace(w) && !w->pinned) return w->full ? zorder[i] : -1;
     }
     return -1;
 }
@@ -412,7 +494,8 @@ static void str_copy(char* d, const char* s, int cap) {
 void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
     layout_mode = (mode == WM_LAYOUT_SPATIAL_MINIMAL) ? WM_LAYOUT_SPATIAL_MINIMAL : WM_LAYOUT_LEGACY;
     overview_open = 0; overview_page = 0; overview_n = 0; overview_release_guard = 0;
-    system_panel_open = 0; dock_page = 0;
+    system_panel_open = 0; dock_page = 0; current_workspace = 0;
+    notification_head = notification_count = 0; notification_center_open = notification_toast_active = 0; notification_toast_until = 0; modal_release_guard = 0;
     win_generation = 0;
     scr = screen;
     ops = *o;
@@ -459,6 +542,7 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
     }
     win_t* w = &win[id];
     w->used = 1; w->visible = 1; w->full = 0; w->seq = 0;
+    w->workspace = (flags & WM_PINNED) ? -1 : current_workspace;
     w->generation = ++win_generation;
     if (!w->generation) w->generation = ++win_generation;
     w->closable = (flags & WM_CLOSABLE) != 0; w->pinned = (flags & WM_PINNED) != 0; w->user = user;
@@ -578,7 +662,8 @@ int wm_user_tags(char (*out)[16], int max) {
 }
 
 int wm_top(void) {
-    for (int i = zcount - 1; i >= 0; i--) if (win[zorder[i]].visible && !win[zorder[i]].pinned) return zorder[i];
+    for (int i = zcount - 1; i >= 0; i--)
+        if (win[zorder[i]].visible && !win[zorder[i]].pinned && window_on_workspace(&win[zorder[i]])) return zorder[i];
     return -1;
 }
 
@@ -591,6 +676,7 @@ static int active_tab(void) {
 
 void wm_raise(int id) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used || win[id].pinned) return;
+    if (win[id].workspace != current_workspace) wm_workspace_switch(win[id].workspace);
     int pos = -1;
     for (int i = 0; i < zcount; i++) if (zorder[i] == id) pos = i;
     if (pos < 0 || pos == zcount - 1) return;
@@ -606,7 +692,7 @@ void wm_raise(int id) {
 void wm_set_visible(int id, int v) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
     v = v != 0;
-    if (win[id].visible == v) return;
+    if (win[id].visible == v) { if (v && !win[id].pinned) wm_raise(id); return; }
     win[id].visible = v;
     if (v) wm_raise(id);
     damage_win(&win[id]);
@@ -615,7 +701,7 @@ void wm_set_visible(int id, int v) {
     overview_damage_window(id);
 }
 
-int wm_visible(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used && win[id].visible; }
+int wm_visible(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used && win[id].visible && window_on_workspace(&win[id]); }
 
 void wm_minimize(int id) {
     if (!wm_visible(id) || win[id].pinned) return;
@@ -625,7 +711,7 @@ void wm_minimize(int id) {
 }
 
 void wm_minimize_all(void) {
-    for (int i = 0; i < WM_MAX_WIN; i++) if (win[i].used && win[i].visible && !win[i].pinned) wm_minimize(i);
+    for (int i = 0; i < WM_MAX_WIN; i++) if (wm_visible(i) && !win[i].pinned) wm_minimize(i);
 }
 
 static void owner_resize(int id, int nw, int nh) {
@@ -638,7 +724,7 @@ void wm_set_fullscreen(int id, int on) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used || win[id].pinned) return;
     on = on != 0;
     if (win[id].full == on) return;
-    if (on) system_panel_open = 0;
+    if (on) { system_panel_open = 0; notification_center_open = 0; notification_toast_active = 0; }
     damage_win(&win[id]);
     win[id].full = on;
     if (win[id].resizable) {
@@ -648,7 +734,7 @@ void wm_set_fullscreen(int id, int on) {
             owner_resize(id, nw / win[id].step_w * win[id].step_w, nh / win[id].step_h * win[id].step_h);
         } else owner_resize(id, win[id].norm_w, win[id].norm_h);
     }
-    if (win[id].visible) wm_raise(id);
+    if (wm_visible(id)) wm_raise(id);
     damage_win(&win[id]);
     damage(0, 0, scr->w, scr->h);
 }
@@ -710,7 +796,7 @@ void wm_set_layout_mode(wm_layout_mode_t mode) {
     if (mode != WM_LAYOUT_LEGACY && mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
     if (layout_mode == mode) return;
     layout_mode = mode;
-    system_panel_open = 0;
+    system_panel_open = 0; notification_center_open = 0; notification_toast_active = 0;
     if (mode == WM_LAYOUT_LEGACY && !bg) bg_render();
     side_hover = -1; tab_hover = -1; last_tab = -2;
     if (scr) damage(0, 0, scr->w, scr->h);
@@ -718,12 +804,57 @@ void wm_set_layout_mode(wm_layout_mode_t mode) {
 
 wm_layout_mode_t wm_get_layout_mode(void) { return layout_mode; }
 
+int wm_workspace_current(void) { return current_workspace; }
+int wm_workspace_count(void) { return WM_WORKSPACE_MAX; }
+
+int wm_workspace_center(int workspace, int* x, int* y) {
+    if (workspace < 0 || workspace >= WM_WORKSPACE_MAX || !x || !y || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return -1;
+    *x = 204; *y = WM_TOP_H / 2;
+    return 0;
+}
+
+int wm_workspace_switch(int workspace) {
+    if (workspace < 0 || workspace >= WM_WORKSPACE_MAX) return -1;
+    if (workspace == current_workspace) return 0;
+    current_workspace = workspace;
+    overview_open = 0; overview_page = 0;
+    system_panel_open = 0; notification_center_open = 0; notification_toast_active = 0;
+    capture = -1; dragging = -1; resizing = -1;
+    overview_release_guard = 0;
+    damage(0, 0, scr->w, scr->h);
+    workspace_changed();
+    return 1;
+}
+
+static void workspace_changed(void) {
+    if (ops.workspace_changed) ops.workspace_changed(current_workspace);
+}
+
+int wm_window_workspace(int id) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used || win[id].pinned) return -1;
+    return win[id].workspace;
+}
+
+int wm_window_move_workspace(int id, int workspace) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used || win[id].pinned ||
+        workspace < 0 || workspace >= WM_WORKSPACE_MAX) return -1;
+    if (win[id].workspace == workspace) return 0;
+    int active = wm_visible(id);
+    if (win[id].full) wm_set_fullscreen(id, 0);
+    if (active) damage_win(&win[id]);
+    win[id].workspace = workspace;
+    overview_open = 0; system_panel_open = 0; notification_center_open = 0; notification_toast_active = 0;
+    damage(0, 0, scr->w, scr->h);
+    if (active) workspace_changed();
+    return 1;
+}
+
 static int overview_refresh(void) {
     int ids[WM_MAX_WIN], n = 0;
     uint32_t generations[WM_MAX_WIN];
     for (int i = zcount - 1; i >= 0; i--) {
         int id = zorder[i];
-        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned) {
+        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned && win[id].workspace == current_workspace) {
             ids[n] = id;
             generations[n] = win[id].generation;
             n++;
@@ -749,7 +880,7 @@ static int overview_refresh(void) {
 }
 
 void wm_window_overview_toggle(void) {
-    system_panel_open = 0;
+    system_panel_open = 0; notification_center_open = 0; notification_toast_active = 0;
     if (overview_open) overview_open = 0;
     else { overview_page = 0; overview_refresh(); overview_open = 1; }
     capture = -1; dragging = -1; resizing = -1;
@@ -770,6 +901,10 @@ static void anim_damage(int x0, int y0, int x1, int y1) { damage(x0, y0, x1, y1)
 
 void wm_anim(uint32_t now_ms, unsigned activity) {
     anim_ms = now_ms;
+    if (notification_toast_active && (int32_t)(now_ms - notification_toast_until) >= 0) {
+        int x, y, w, h; notification_toast_rect(&x, &y, &w, &h);
+        notification_toast_active = 0; damage(x, y, x + w, y + h);
+    }
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL || fs_top() >= 0) return;                        /* во весь экран фон не виден */
     brainfx_anim(now_ms, fx_level, activity, anim_damage);
 }
@@ -818,7 +953,7 @@ static int hit_window(int px, int py) {
     for (int pass = 0; pass < 2; pass++)
         for (int i = zcount - 1; i >= 0; i--) {
             const win_t* w = &win[zorder[i]];
-            if (!w->visible || w->pinned != pass) continue;
+            if (!w->visible || !window_on_workspace(w) || w->pinned != pass) continue;
             if (hit_rect(w, px, py)) return zorder[i];
         }
     return -1;
@@ -858,7 +993,7 @@ static void side_click(int i) {
     if (i < 0 || i >= side_n) return;
     int id = wm_find(side[i].tag);
     if (id < 0) { if (ops.launch) ops.launch(i); return; }
-    if (win[id].visible && wm_top() == id) { wm_minimize(id); return; }
+    if (wm_visible(id) && wm_top() == id) { wm_minimize(id); return; }
     int was = win[id].visible;
     wm_set_visible(id, 1);
     wm_raise(id);
@@ -917,6 +1052,21 @@ static int gets_input(const win_t* w) { return w->user || w->input; }
 
 static void click(int px, int py) {
     if (overview_open) { overview_click(px, py); return; }
+    if (notification_center_open) {
+        int nx, ny, nw, nh; notification_center_rect(&nx, &ny, &nw, &nh);
+        if (px >= nx && px < nx + nw && py >= ny && py < ny + nh) {
+            if (px >= nx + nw - 100 && py >= ny + 8 && py < ny + 42) wm_notification_clear();
+            return;
+        }
+        notification_center_open = 0; damage(0, 0, scr->w, scr->h);
+        return; /* dismiss without activating the covered window */
+    }
+    if (notification_toast_active) {
+        int tx, ty, tw, th; notification_toast_rect(&tx, &ty, &tw, &th);
+        if (px >= tx && px < tx + tw && py >= ty && py < ty + th) {
+            notification_toast_active = 0; damage(tx, ty, tx + tw, ty + th); return;
+        }
+    }
     int fs = fs_top();
     if (fs >= 0) {
         if (pill_visible(fs) && click_pill(fs, px, py)) return;
@@ -925,14 +1075,26 @@ static void click(int px, int py) {
     }
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && system_panel_open) {
         int sx, sy, sw, sh; system_panel_rect(&sx, &sy, &sw, &sh);
+        if (px >= sx && px < sx + sw && py >= sy + 48 && py < sy + 72) {
+            wm_notification_center_toggle(); return;
+        }
         if (px >= sx && px < sx + sw && py >= sy && py < sy + sh) return;
         system_panel_open = 0; damage_system_panel();
         return; /* dismissing the overlay must not activate a covered window */
     }
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && py < WM_TOP_H) {
         if (px >= 104 && px < 188 && py >= 6 && py < 34) { wm_window_overview_toggle(); return; }
+        if (px >= 184 && px < 224 && py >= 0 && py < WM_TOP_H) {
+            wm_workspace_switch((current_workspace + 1) % WM_WORKSPACE_MAX);
+            return;
+        }
         if (px >= scr->w - 48 && px < scr->w - 8 && py >= 6 && py < 34) {
-            system_panel_open = !system_panel_open; damage_system_panel(); return;
+            system_panel_open = !system_panel_open;
+            if (system_panel_open && notification_toast_active) {
+                int tx, ty, tw, th; notification_toast_rect(&tx, &ty, &tw, &th);
+                notification_toast_active = 0; damage(tx, ty, tx + tw, ty + th);
+            }
+            damage_system_panel(); return;
         }
         return;
     }
@@ -1023,6 +1185,12 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
         prev_buttons = buttons;
         return; /* consume the release belonging to the overlay click */
     }
+    if (modal_release_guard) {
+        modal_release_guard = left;
+        capture = -1; dragging = -1; resizing = -1;
+        prev_buttons = buttons;
+        return; /* consume release after a modal/toast click, even if it closed the surface */
+    }
     if (overview_open) {
         if (left && !was) {
             click(cx, cy);
@@ -1032,8 +1200,21 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
         prev_buttons = buttons;
         return; /* overlay owns input; never leak clicks or pointer events to an underlying app */
     }
+    if (notification_center_open && layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        if (left && !was) { click(cx, cy); modal_release_guard = 1; }
+        capture = -1; dragging = -1; resizing = -1;
+        prev_buttons = buttons;
+        return; /* history is modal to the pointer, but never changes keyboard focus */
+    }
+    if (notification_toast_active && left && !was) {
+        int tx, ty, tw, th; notification_toast_rect(&tx, &ty, &tw, &th);
+        if (cx >= tx && cx < tx + tw && cy >= ty && cy < ty + th) {
+            notification_toast_active = 0; damage(tx, ty, tx + tw, ty + th);
+            modal_release_guard = 1; prev_buttons = buttons; return; /* dismiss toast without delivering click to covered app */
+        }
+    }
     if (system_panel_open && layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
-        if (left && !was) click(cx, cy);
+        if (left && !was) { click(cx, cy); modal_release_guard = 1; }
         capture = -1; dragging = -1; resizing = -1;
         prev_buttons = buttons;
         return; /* status panel is modal: do not forward pointer movement or buttons underneath */
@@ -1215,9 +1396,15 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         ui_round_rect(c, ox + 104, y + 7, 76, 26, 8, TH_TILE, 255);
         ui_round_frame(c, ox + 104, y + 7, 76, 26, 8, TH_BORDER, 220);
         gfx_text(c, ox + 119, y + 14, "ОКНА", TH_TEXT_DIM, -1);
+        ui_round_rect(c, ox + 184, y, 40, WM_TOP_H, 8, TH_TILE, 255);
+        ui_round_frame(c, ox + 184, y + 1, 40, WM_TOP_H - 2, 8, TH_BORDER, 220);
+        for (int wi = 0; wi < WM_WORKSPACE_MAX; wi++)
+            ui_disc(c, ox + 192 + wi * 8, y + 20, wi == current_workspace ? 3 : 2,
+                    wi == current_workspace ? TH_CYAN : TH_TEXT_FAINT, 255);
         ui_round_rect(c, ox + W - 42, y + 6, 32, 28, 8, TH_TILE, 255);
         ui_round_frame(c, ox + W - 42, y + 6, 32, 28, 8, system_panel_open ? TH_CYAN : TH_BORDER, 220);
         icon_draw(c, ox + W - 26, y + 20, 16, ICON_MONITOR, system_panel_open ? TH_CYAN : TH_TEXT_DIM, 0);
+        if (notification_unread()) ui_disc(c, ox + W - 13, y + 8, 4, TH_AMBER, 255);
         int rx = W - 58 + ox;
         if (clock_hm[0]) {
             rx -= gfx_text_width(clock_hm);
@@ -1347,7 +1534,7 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     for (int i = 0; i < side_n; i++) {
         if (side[i].temp || side[i].bottom || spatial_dock_x(i) < 0) continue;
         int id = wm_find(side[i].tag);
-        int running = id >= 0, shown = running && win[id].visible, focused = shown && id == top;
+        int running = id >= 0, shown = running && wm_visible(id), focused = shown && id == top;
         uint32_t col = side[i].color;
         int tx = spatial_dock_x(i) + ox, ty = spatial_dock_y() + oy;
         int icon_size = tile >= 40 ? 26 : tile >= 28 ? 20 : 14;
@@ -1376,12 +1563,21 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     ui_round_frame(c, x + ox, y + oy, w, h, 16, TH_BORDER, 255);
     gfx_text(c, x + 16 + ox, y + 14 + oy, "СИСТЕМА", TH_TEXT, -1);
     gfx_text(c, x + 16 + ox, y + 32 + oy, "Текущие показатели", TH_TEXT_DIM, -1);
+    ui_round_rect(c, x + 12 + ox, y + 48 + oy, w - 24, 24, 7, TH_TILE, 255);
+    ui_round_frame(c, x + 12 + ox, y + 48 + oy, w - 24, 24, 7, TH_BORDER, 200);
+    gfx_text(c, x + 22 + ox, y + 55 + oy, "УВЕДОМЛЕНИЯ", TH_TEXT, -1);
+    char unread_text[8]; int unread = notification_unread(), un = 0;
+    if (unread > 99) unread = 99;
+    if (unread >= 10) unread_text[un++] = (char)('0' + unread / 10);
+    unread_text[un++] = (char)('0' + unread % 10); unread_text[un] = 0;
+    ui_text_bold(c, x + w - 28 - gfx_text_width(unread_text) + ox, y + 55 + oy, unread_text, unread ? TH_AMBER : TH_TEXT_FAINT);
     unsigned cpu = 0;
     for (int i = 0; i < m_cores; i++) cpu += m_busy[i];
     int values[3] = { m_cores > 0 ? (int)(cpu / (unsigned)m_cores) : -1, m_mem, m_health };
     const char* labels[3] = { "ПРОЦЕССОР", "ПАМЯТЬ", "KIRA MIND" };
-    for (int i = 0; i < 3; i++) {
-        int ry = y + 58 + i * 38;
+    int rows = (h - 88) / 32; if (rows > 3) rows = 3; if (rows < 1) rows = 1;
+    for (int i = 0; i < rows; i++) {
+        int ry = y + 80 + i * 32;
         gfx_text(c, x + 16 + ox, ry + oy, labels[i], TH_TEXT_DIM, -1);
         if (values[i] < 0) { gfx_text(c, x + w - 28 + ox, ry + oy, "—", TH_TEXT_FAINT, -1); continue; }
         int v = values[i] > 100 ? 100 : values[i];
@@ -1392,12 +1588,50 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
         uint32_t col; meter_color((unsigned)v, &col);
         if (i == 2) col = v >= 70 ? TH_GREEN : v >= 50 ? TH_AMBER : TH_RED;
         ui_text_bold(c, x + w - 16 - gfx_text_width(num) + ox, ry + oy, num, col);
-        ui_round_rect(c, x + 16 + ox, ry + 18 + oy, w - 32, 5, 2, TH_TILE, 255);
-        ui_round_rect(c, x + 16 + ox, ry + 18 + oy, (w - 32) * v / 100, 5, 2, col, 255);
+        ui_round_rect(c, x + 16 + ox, ry + 16 + oy, w - 32, 4, 2, TH_TILE, 255);
+        ui_round_rect(c, x + 16 + ox, ry + 16 + oy, (w - 32) * v / 100, 4, 2, col, 255);
     }
     gfx_text(c, x + 16 + ox, y + h - 20 + oy, "Закрыть: нажмите вне панели", TH_TEXT_FAINT, -1);
 }
 
+static uint32_t notification_color(unsigned priority) {
+    return priority >= WM_NOTIFY_CRITICAL ? TH_RED : priority == WM_NOTIFY_WARNING ? TH_AMBER : TH_CYAN;
+}
+static void draw_notification_toast(surface_t* c, int ox, int oy) {
+    if (!notification_toast_active || !notification_count) return;
+    unsigned at = (notification_head + WM_NOTIFICATION_MAX - 1) % WM_NOTIFICATION_MAX;
+    const wm_notification_t* n = &notifications[at];
+    int x, y, w, h; notification_toast_rect(&x, &y, &w, &h);
+    uint32_t col = notification_color(n->priority);
+    ui_round_rect(c, x + ox, y + oy, w, h, 14, TH_BAR0, 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, 14, col, 230);
+    ui_round_rect(c, x + 10 + ox, y + 12 + oy, 4, h - 24, 2, col, 255);
+    ui_text_fit(c, x + 24 + ox, y + 12 + oy, n->title, w - 42, col);
+    ui_text_fit(c, x + 24 + ox, y + 38 + oy, n->message, w - 42, TH_TEXT);
+}
+static void draw_notification_center(surface_t* c, int ox, int oy) {
+    if (!notification_center_open) return;
+    int x, y, w, h; notification_center_rect(&x, &y, &w, &h);
+    ui_round_rect(c, x + ox, y + oy, w, h, 16, TH_BAR0, 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, 16, TH_BORDER, 255);
+    gfx_text(c, x + 16 + ox, y + 14 + oy, "УВЕДОМЛЕНИЯ", TH_TEXT, -1);
+    gfx_text(c, x + 16 + ox, y + 34 + oy, notification_count ? "Последние системные события" : "Новых событий нет", TH_TEXT_DIM, -1);
+    int clear_w = 76;
+    ui_round_rect(c, x + w - clear_w - 12 + ox, y + 10 + oy, clear_w, 26, 7, TH_TILE, 255);
+    ui_round_frame(c, x + w - clear_w - 12 + ox, y + 10 + oy, clear_w, 26, 7, TH_BORDER, 200);
+    gfx_text(c, x + w - clear_w - 2 + ox, y + 18 + oy, "Очистить", TH_TEXT_DIM, -1);
+    int visible = (h - 58) / 48; if (visible > 6) visible = 6;
+    for (int i = 0; i < visible && (unsigned)i < notification_count; i++) {
+        unsigned at = (notification_head + WM_NOTIFICATION_MAX - 1 - (unsigned)i) % WM_NOTIFICATION_MAX;
+        const wm_notification_t* n = &notifications[at];
+        int ry = y + 48 + i * 48;
+        uint32_t col = notification_color(n->priority);
+        ui_round_rect(c, x + 12 + ox, ry + oy, w - 24, 42, 8, TH_TILE, 255);
+        ui_round_rect(c, x + 12 + ox, ry + 8 + oy, 3, 26, 1, col, 255);
+        ui_text_fit(c, x + 24 + ox, ry + 5 + oy, n->title, w - 48, col);
+        ui_text_fit(c, x + 24 + ox, ry + 22 + oy, n->message, w - 48, TH_TEXT_DIM);
+    }
+}
 static void draw_side(surface_t* c, int ox, int oy) {
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) { draw_spatial_shell(c, ox, oy); return; }
     if (!side_n) return;
@@ -1412,7 +1646,7 @@ static void draw_side(surface_t* c, int ox, int oy) {
     }
     for (int i = 0; i < side_n; i++) {
         int id = wm_find(side[i].tag);
-        int running = id >= 0, shown = running && win[id].visible, focused = shown && id == top;
+        int running = id >= 0, shown = running && wm_visible(id), focused = shown && id == top;
         uint32_t col = side[i].color;
         int tx = SIDE_X + 6 + ox, ty = side_item_y(i) + oy;
         uint32_t fill = i == side_hover ? ui_mix(TH_TILE, col, 40) : TH_TILE;
@@ -1447,13 +1681,14 @@ static void overview_grid(int* cols, int* rows, int* per, int* left, int* top, i
     *cols = scr->w >= 900 ? 3 : scr->w >= 600 ? 2 : 1;
     *rows = scr->h >= 560 ? 2 : 1;
     *per = *cols * *rows;
-    *left = 28;
-    *top = 100;
-    int gap = 14;
+    *left = scr->w < 480 ? 12 : 28;
+    *top = scr->h < 360 ? 78 : 100;
+    int gap = scr->w < 480 ? 8 : 14;
+    int bottom = scr->h < 360 ? 48 : 68;
     *cw = (scr->w - 2 * *left - (*cols - 1) * gap) / *cols;
-    *ch = (scr->h - *top - 68 - (*rows - 1) * gap) / *rows;
-    if (*cw < 120) *cw = 120;
-    if (*ch < 100) *ch = 100;
+    *ch = (scr->h - *top - bottom - (*rows - 1) * gap) / *rows;
+    if (*cw < 1) *cw = 1;
+    if (*ch < 1) *ch = 1;
 }
 
 static int overview_card_rect(int slot, int* x, int* y, int* w, int* h) {
@@ -1510,7 +1745,7 @@ static void draw_overview(surface_t* c, int ox, int oy) {
     ui_round_rect(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BAR0, 255);
     ui_round_frame(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BORDER, 255);
     gfx_text(c, 36 + ox, 58 + oy, "ОКНА", TH_TEXT, -1);
-    gfx_text(c, 118 + ox, 60 + oy, "Выберите окно для возврата", TH_TEXT_DIM, -1);
+    if (scr->w >= 480) gfx_text(c, 118 + ox, 60 + oy, "Выберите окно для возврата", TH_TEXT_DIM, -1);
     overview_button(c, ox, oy, scr->w - 104, 50, 72, "Закрыть", 1);
 
     int cols, rows, per, left, top, cw, ch;
@@ -1621,7 +1856,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < zcount; i++) {
             const win_t* wn = &win[zorder[i]];
-            if (wn->visible && wn->pinned == (pass == 0)) seq[ns++] = zorder[i];
+            if (wn->visible && window_on_workspace(wn) && wn->pinned == (pass == 0)) seq[ns++] = zorder[i];
         }
     int start = -1, content_only = 0;
     if (fs < 0 && cull_enabled) {
@@ -1669,6 +1904,8 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
             if (system_panel_open) draw_system_panel(&clip, ox, oy);
         } else if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
+    if (notification_center_open) draw_notification_center(&clip, ox, oy);
+    else if (notification_toast_active) draw_notification_toast(&clip, ox, oy);
     draw_cursor(&clip, ox, oy);
 }
 

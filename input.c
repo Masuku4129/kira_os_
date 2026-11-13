@@ -161,14 +161,15 @@ int input_pop_mouse(mouse_event_t* ev) {
     return 1;
 }
 
+static volatile int hotkey_pending;
+
 void input_init(void) {
     for (int i = 0; i < INPUT_SRC_N; i++) ps2_decoder_reset(&decs[i]);
     ps2_mouse_reset(&mdec);
     head = tail = dropped = 0;
     mhead = mtail = 0;
+    __atomic_store_n(&hotkey_pending, 0, __ATOMIC_RELEASE);
 }
-
-static volatile int hotkey_pending;
 
 int input_take_hotkey(void) { return __atomic_exchange_n(&hotkey_pending, 0, __ATOMIC_ACQ_REL); }
 
@@ -216,13 +217,21 @@ void input_push_scancode_from(int src, uint8_t byte) {
     }
     input_event_t ev;
     if (ps2_decoder_feed(&decs[src], byte, &ev)) {
-        if (ev.type == INPUT_KEY_DOWN &&                     /* Alt+Shift - другая раскладка */
+        if (ev.type == INPUT_KEY_DOWN && !(ev.mods & INPUT_MOD_CTRL) && /* Alt+Shift - другая раскладка; Ctrl+Alt+Shift reserved for window movement */
             (((ev.key == KEY_LSHIFT || ev.key == KEY_RSHIFT) && (ev.mods & INPUT_MOD_ALT)) ||
              ((ev.key == KEY_LALT || ev.key == KEY_RALT) && (ev.mods & INPUT_MOD_SHIFT))))
             layout_ru = !layout_ru;
         if (layout_ru) ev.ch = input_cyr(ev.key, ev.ch, ev.mods);
-        if (ev.key == KEY_F10 || ev.key == KEY_F11) {     /* горячие клавиши оболочки: в очередь не кладём */
-            if (ev.type == INPUT_KEY_DOWN) __atomic_store_n(&hotkey_pending, (int)ev.key, __ATOMIC_RELEASE);
+        if (ev.key == KEY_F10 || ev.key == KEY_F11 ||
+            ((ev.mods & (INPUT_MOD_CTRL | INPUT_MOD_ALT)) == (INPUT_MOD_CTRL | INPUT_MOD_ALT) &&
+             (ev.key == KEY_LEFT || ev.key == KEY_RIGHT || ev.key == 'n'))) {
+            if (ev.type == INPUT_KEY_DOWN) {
+                int hk = ev.key;
+                if (ev.key == KEY_LEFT) hk = (ev.mods & INPUT_MOD_SHIFT) ? KEY_WORKSPACE_MOVE_PREV : KEY_WORKSPACE_PREV;
+                else if (ev.key == KEY_RIGHT) hk = (ev.mods & INPUT_MOD_SHIFT) ? KEY_WORKSPACE_MOVE_NEXT : KEY_WORKSPACE_NEXT;
+                else if (ev.key == 'n') hk = KEY_NOTIFICATION_TOGGLE;
+                __atomic_store_n(&hotkey_pending, hk, __ATOMIC_RELEASE);
+            }
         } else {
             uint32_t h = head;
             if (h - tail >= RING) dropped++;

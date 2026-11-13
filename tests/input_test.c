@@ -21,6 +21,24 @@ int main(void) {
     input_init(); CHECK(feed(arr,4,ev)==2); CHECK(ev[0].key==KEY_UP && ev[1].type==INPUT_KEY_UP);
     uint8_t ctl[] = {0x1D, 0x2E, 0xAE, 0x9D};         /* Ctrl+C -> 0x03 */
     CHECK(feed(ctl,4,ev)==4); CHECK(ev[1].ch==3);
+    /* Ctrl+Alt+Left/Right are shell workspace shortcuts, not app key events. */
+    input_init();
+    uint8_t ws_prev[] = {0x1D, 0x38, 0xE0, 0x4B, 0xE0, 0xCB, 0xB8, 0x9D};
+    CHECK(feed(ws_prev, (int)sizeof ws_prev, ev) == 4); /* only modifier events remain in the app queue */
+    for (int i = 0; i < 4; i++) CHECK(ev[i].key != KEY_LEFT && ev[i].key != KEY_RIGHT);
+    CHECK(input_take_hotkey() == KEY_WORKSPACE_PREV && input_take_hotkey() == 0);
+    uint8_t ws_next[] = {0x1D, 0x38, 0xE0, 0x4D};
+    (void)feed(ws_next, (int)sizeof ws_next, ev);
+    CHECK(input_take_hotkey() == KEY_WORKSPACE_NEXT);
+    input_init();
+    uint8_t ws_move[] = {0x1D, 0x38, 0x2A, 0xE0, 0x4B, 0xE0, 0xCB, 0xAA, 0xB8, 0x9D};
+    CHECK(feed(ws_move, (int)sizeof ws_move, ev) == 6);
+    CHECK(input_take_hotkey() == KEY_WORKSPACE_MOVE_PREV);
+    input_init();
+    uint8_t notif_toggle[] = {0x1D, 0x38, 0x31, 0xB1, 0xB8, 0x9D}; /* Ctrl+Alt+N opens notification history */
+    CHECK(feed(notif_toggle, (int)sizeof notif_toggle, ev) == 4);
+    for (int i = 0; i < 4; i++) CHECK(ev[i].key != 'n');
+    CHECK(input_take_hotkey() == KEY_NOTIFICATION_TOGGLE && input_take_hotkey() == 0);
     uint8_t junk[] = {0xFA, 0xE1, 0x00, 0xFF};        /* ACK/Pause/ошибки: без событий */
     input_init(); CHECK(feed(junk,4,ev)==0);
     uint8_t ent[] = {0x1C, 0x9C};

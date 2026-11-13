@@ -69,6 +69,7 @@ static struct {
 /* снимки данных для приложений */
 static mind_view_t mv;
 static exp_view_t ev;
+static int mind_health_band = -1;
 static uint32_t mv_ver = ~0u, ev_ver = ~0u;
 static app_hit_t files_hover;
 static int set_hover = -1, files_drop = -1;
@@ -85,6 +86,39 @@ static unsigned launcher_matches[16], launcher_count, launcher_selected;
 static unsigned launcher_btn;
 static uint32_t launcher_request;
 static spinlock_t rq_lk = SPINLOCK_INIT;                 /* просьба консоли «files» открыть Проводник на путях */
+#define DISPLAY_NOTIFY_QUEUE 16
+typedef struct { char title[40]; char message[112]; int priority; } display_notification_t;
+static display_notification_t notify_queue[DISPLAY_NOTIFY_QUEUE];
+static uint32_t notify_head, notify_tail;
+static spinlock_t notify_lk = SPINLOCK_INIT;
+static void notify_copy(char* dst, const char* src, unsigned cap) {
+    unsigned i = 0; if (!src) src = "";
+    while (src[i] && i + 1 < cap) { dst[i] = src[i]; i++; }
+    dst[i] = 0;
+}
+int display_notify(const char* title, const char* message, int priority) {
+    if (!title || !message || !__atomic_load_n(&ready, __ATOMIC_ACQUIRE) || wm_get_layout_mode() != WM_LAYOUT_SPATIAL_MINIMAL) return -1;
+    uint64_t flags = spin_lock_irqsave(&notify_lk);
+    if (notify_head - notify_tail >= DISPLAY_NOTIFY_QUEUE) { spin_unlock_irqrestore(&notify_lk, flags); return -2; }
+    display_notification_t* n = &notify_queue[notify_head % DISPLAY_NOTIFY_QUEUE];
+    notify_copy(n->title, title, sizeof n->title);
+    notify_copy(n->message, message, sizeof n->message);
+    n->priority = priority;
+    notify_head++;
+    spin_unlock_irqrestore(&notify_lk, flags);
+    return 0;
+}
+static void notification_poll(void) {
+    for (;;) {
+        display_notification_t n;
+        uint64_t flags = spin_lock_irqsave(&notify_lk);
+        if (notify_tail == notify_head) { spin_unlock_irqrestore(&notify_lk, flags); break; }
+        n = notify_queue[notify_tail % DISPLAY_NOTIFY_QUEUE];
+        notify_tail++;
+        spin_unlock_irqrestore(&notify_lk, flags);
+        (void)wm_notification_post(n.title, n.message, n.priority);
+    }
+}
 static char rq_l[FM_PATH], rq_r[FM_PATH]; static int rq_pending;
 
 /* ---------------- приложения ядра ---------------- */
@@ -140,6 +174,7 @@ static void files_launch_poll(void) {
     else if (result == -3) (void)scpy(files_status, 0, "ошибка формата исполняемого файла", sizeof files_status);
     else if (result == -4) (void)scpy(files_status, 0, "лимит запуска KIRA Mind", sizeof files_status);
     else (void)scpy(files_status, 0, "не удалось открыть файл/запустить программу", sizeof files_status);
+    wm_notification_post("Проводник", files_status, state == PROG_RESULT_COMPLETE && result > 0 ? WM_NOTIFY_INFO : WM_NOTIFY_WARNING);
     draw_files();
 }
 
@@ -213,6 +248,7 @@ static void launcher_poll(void) {
     else if (result == -2) (void)scpy(launcher_status, 0, "Запуск отклонён проверкой доверия.", sizeof launcher_status);
     else if (result == -3) (void)scpy(launcher_status, 0, "Неверный формат исполняемого файла.", sizeof launcher_status);
     else (void)scpy(launcher_status, 0, "Не удалось запустить приложение.", sizeof launcher_status);
+    wm_notification_post("Приложения", launcher_status, state == PROG_RESULT_COMPLETE && result > 0 ? WM_NOTIFY_INFO : WM_NOTIFY_WARNING);
     draw_launcher();
 }
 static void launcher_key(const input_event_t* ke) {
@@ -488,6 +524,12 @@ static void on_tab(int i) {
     if (i > 0 && i < (int)(sizeof app_of_tab / sizeof app_of_tab[0])) open_app(app_of_tab[i]);
 }
 
+static void on_workspace_changed(int workspace) {
+    (void)workspace;
+    if (w_con >= 0) wm_invalidate(w_con);
+    draw_mind(); draw_monitor(); draw_files(); draw_settings(); draw_launcher();
+}
+
 /* ---------------- верхняя панель ---------------- */
 
 static void update_clock(void) {
@@ -510,7 +552,15 @@ static void update_mind(void) {
     if (v == mv_ver) return;
     mv_ver = v;
     mind_sys_view(&mv);
-    if (mv.t) wm_set_meters(mv.busy, (int)(mv.cores > 64 ? 64 : mv.cores), (int)mv.mem_used, mv.health);
+    if (mv.t) {
+        wm_set_meters(mv.busy, (int)(mv.cores > 64 ? 64 : mv.cores), (int)mv.mem_used, mv.health);
+        int band = mv.health < 25 ? 2 : mv.health < 50 ? 1 : 0;
+        if (mind_health_band >= 0 && band > mind_health_band)
+            (void)display_notify("KIRA Mind", band == 2 ? "Критическое снижение здоровья системы" : "Здоровье системы ниже 50%", band == 2 ? WM_NOTIFY_CRITICAL : WM_NOTIFY_WARNING);
+        else if (mind_health_band > 0 && band == 0)
+            (void)display_notify("KIRA Mind", "Показатель здоровья системы восстановился", WM_NOTIFY_INFO);
+        mind_health_band = band;
+    }
     draw_mind();
     draw_monitor();
     draw_settings();
@@ -591,6 +641,7 @@ static void display_main(void* arg) {
         int timed = t0 != 0;
 
         gfx_server_run();                 // окна приложений Ring 3: создание, перерисовка, закрытие
+        notification_poll();              // bounded cross-thread notification queue -> WM on display owner thread
         files_launch_poll();
         launcher_poll();               // результат ранее принятого запроса
 
@@ -623,6 +674,11 @@ static void display_main(void* arg) {
             int top = wm_top();
             if (hk == KEY_F11) wm_set_fullscreen(top, !wm_fullscreen(top));
             else if (hk == KEY_F10) wm_minimize(top);
+            else if (hk == KEY_WORKSPACE_PREV) wm_workspace_switch((wm_workspace_current() + wm_workspace_count() - 1) % wm_workspace_count());
+            else if (hk == KEY_WORKSPACE_NEXT) wm_workspace_switch((wm_workspace_current() + 1) % wm_workspace_count());
+            else if (hk == KEY_WORKSPACE_MOVE_PREV) wm_window_move_workspace(top, (wm_workspace_current() + wm_workspace_count() - 1) % wm_workspace_count());
+            else if (hk == KEY_WORKSPACE_MOVE_NEXT) wm_window_move_workspace(top, (wm_workspace_current() + 1) % wm_workspace_count());
+            else if (hk == KEY_NOTIFICATION_TOGGLE) wm_notification_center_toggle();
         }
 
         mouse_event_t me;
@@ -682,7 +738,8 @@ int display_init(unsigned long mbi) {
     if (rc != 0 && virtio_gpu_probe() == 0) rc = 0;
     if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
-    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher };
+    notify_head = notify_tail = 0;
+    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher, on_workspace_changed };
 #ifdef KIRA_SPATIAL_PREVIEW
     wm_init_mode(fb_surface(), &ops, WM_LAYOUT_SPATIAL_MINIMAL);
 #else
@@ -715,7 +772,7 @@ int display_init(unsigned long mbi) {
         uart_print("[KIRA DISPLAY] cannot create display thread.\n");
         return -6;
     }
-    ready = 1;
+    __atomic_store_n(&ready, 1, __ATOMIC_RELEASE);
 #ifdef KIRA_SPATIAL_PREVIEW
     uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal preview, left navigation, pinned-only bottom Dock, quiet canvas.\n");
 #else
@@ -729,6 +786,15 @@ void display_set_fx(int level) { fx_req = level < 0 ? 0 : level > 3 ? 3 : level;
 void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns) {
     *loops = st.frames; *late = st.late; *worst_gap_ns = st.worst_gap_ns;
     st.worst_gap_ns = 0;                       /* худший промежуток - за период между вызовами */
+}
+
+void display_get_render_stats(uint64_t* frames, uint64_t* composed, uint64_t* pixels, uint64_t* busy_ns, uint64_t* worst_busy_ns, uint64_t* last_present_ns) {
+    if (frames) *frames = st.frames;
+    if (composed) *composed = st.composed;
+    if (pixels) *pixels = st.pixels;
+    if (busy_ns) *busy_ns = st.busy_ns;
+    if (worst_busy_ns) *worst_busy_ns = st.worst_busy_ns;
+    if (last_present_ns) *last_present_ns = st.present_ns;
 }
 
 void display_request_files(const char* left, const char* right) {
@@ -758,7 +824,8 @@ void display_print_info(void) {
     uart_print(" us\n[DISPLAY] drawn frames "); uart_print_dec(st.composed);
     uint64_t span = clock_ns() - st.start_ns;
     uart_print(" ("); uart_print_dec(span ? st.composed * 1000000000ULL / span : 0);
-    uart_print(" per second on average), late cycles "); uart_print_dec(st.late);
+    uart_print(" per second on average), avg dirty pixels/composed frame "); uart_print_dec(st.composed ? st.pixels / st.composed : 0);
+    uart_print(", late cycles "); uart_print_dec(st.late);
     uart_print(", worst gap "); uart_print_dec(st.worst_gap_ns / 1000);
     uart_print(" us, worst cycle "); uart_print_dec(st.worst_busy_ns / 1000);
     uart_print(" us, budget "); uart_print_dec(FRAME_NS / 1000);

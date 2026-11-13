@@ -7,6 +7,7 @@
 #define CHECK(c) do{ if(!(c)){ printf("FAIL line %d: %s\n",__LINE__,#c); exit(1);} }while(0)
 
 static int notes, last_id, last_vis, launches, last_launch, tabs_hit, last_tab, launcher_hits;
+static int workspace_changes, last_workspace;
 static int in_n, in_id, in_type, in_x, in_y, in_b;
 static void inp(int id, int type, int x, int y, unsigned b) { in_n++; in_id = id; in_type = type; in_x = x; in_y = y; in_b = (int)b; }
 static void* al(uint64_t n) { return calloc(1, n); }
@@ -14,6 +15,7 @@ static void nt(int id, int v) { notes++; last_id = id; last_vis = v; }
 static void lc(int i) { launches++; last_launch = i; }
 static void tb(int i) { tabs_hit++; last_tab = i; }
 static void launcher(void) { launcher_hits++; }
+static void ws_changed(int workspace) { workspace_changes++; last_workspace = workspace; }
 static int rz_n, rz_id, rz_w, rz_h;
 static void rz(int id, int w, int h) { rz_n++; rz_id = id; rz_w = w; rz_h = h; }
 static uint32_t px(surface_t* s, int x, int y) { return s->px[y * s->pitch + x]; }
@@ -40,7 +42,7 @@ static void same_as_full(surface_t* scr, const char* what) {
 
 int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
-    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, launcher };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, launcher, ws_changed };
     wm_init(&scr, &ops);
     CHECK(wm_get_layout_mode() == WM_LAYOUT_LEGACY);
     int x, y, w, h;
@@ -326,6 +328,34 @@ int main(void) {
     CHECK(wm_side_center(0, &dock_x, &dock_y) == 0 && dock_y > 768 - 100);
     CHECK(wm_side_center(2, &dock_x, &dock_y) == -1); /* bottom action is not a Dock pin */
     CHECK(wm_side_center(3, &dock_x, &dock_y) == -1); /* running, unpinned apps are not in the Dock */
+
+    /* Four isolated workspaces; pinned system windows remain global. */
+    CHECK(wm_workspace_count() == 4 && wm_workspace_current() == 0);
+    CHECK(wm_workspace_switch(-1) == -1 && wm_workspace_switch(4) == -1);
+    CHECK(wm_workspace_center(0, &nav_x, &nav_y) == 0 && nav_x == 204 && nav_y == 20);
+    wm_set_visible(a, 1); wm_set_visible(b, 1);
+    wm_set_visible(a, 0); /* side activation below must restore a from another workspace */
+    CHECK(wm_workspace_switch(1) == 1 && wm_workspace_current() == 1);
+    int ws_window = wm_create("workspace-one", 620, 420, 120, 80, WM_CLOSABLE);
+    CHECK(ws_window >= 0 && wm_visible(ws_window));
+    wm_set_visible(ws_window, 0);
+    CHECK(!wm_visible(a) && !wm_visible(b) && !wm_visible(ws_window));
+    CHECK(wm_visible(p)); /* pinned widget is shared across all workspaces */
+    CHECK(workspace_changes == 1 && last_workspace == 1 && wm_top() == -1);
+    wm_set_visible(ws_window, 1);
+    CHECK(wm_top() == ws_window && wm_visible(ws_window));
+    CHECK(wm_workspace_switch(0) == 1 && !wm_visible(a) && !wm_visible(ws_window));
+    click_side(0); /* Dock activation restores a minimized app in its owning workspace */
+    CHECK(wm_workspace_current() == 0 && wm_visible(a) && wm_top() == a);
+    CHECK(wm_workspace_switch(1) == 1 && wm_top() == ws_window);
+    CHECK(workspace_changes == 3 && last_workspace == 1);
+    CHECK(wm_window_workspace(ws_window) == 1 && wm_window_move_workspace(p, 2) == -1);
+    CHECK(wm_window_move_workspace(ws_window, 2) == 1);
+    CHECK(wm_workspace_current() == 1 && !wm_visible(ws_window) && wm_window_workspace(ws_window) == 2);
+    CHECK(wm_workspace_switch(2) == 1 && wm_visible(ws_window) && wm_top() == ws_window);
+    CHECK(wm_workspace_switch(1) == 1 && !wm_visible(ws_window));
+    wm_destroy(ws_window);
+    CHECK(wm_workspace_switch(0) == 1);
     tabs_hit = 0; launcher_hits = 0;
     click(240, 20);
     CHECK(launcher_hits == 0 && tabs_hit == 0); /* application launcher is no longer duplicated in the top bar */
@@ -387,10 +417,49 @@ int main(void) {
     CHECK(!wm_system_panel_is_open() && wm_top() == panel_under_top);
     wm_destroy(panel_under);
     frame();
-    click(1024 - 26, 20);
-    CHECK(wm_system_panel_is_open());
-    click(1024 - 26, 20);
-    CHECK(!wm_system_panel_is_open());
+    int panel_dismiss_under = wm_create("panel-dismiss-underlay", 440, 260, 120, 80, WM_INPUT);
+    CHECK(panel_dismiss_under >= 0);
+    wm_raise(panel_dismiss_under);
+    int dismiss_top = wm_top();
+    click(1024 - 26, 20); CHECK(wm_system_panel_is_open());
+    in_n = 0; click(500, 300);
+    CHECK(!wm_system_panel_is_open() && wm_top() == dismiss_top && in_n == 0);
+    wm_destroy(panel_dismiss_under);
+    frame();
+
+    /* Bounded notification history and passive toast never steal application input. */
+    int notification_under = wm_create("notification-underlay", 700, 60, 180, 110, WM_INPUT);
+    CHECK(notification_under >= 0);
+    wm_raise(notification_under);
+    move_to(800, 80, 0); in_n = 0;
+    wm_anim(10000, 0);
+    CHECK(wm_notification_post("Система", "Проверочное уведомление", WM_NOTIFY_INFO) == 0);
+    CHECK(wm_notification_count() == 1 && wm_notification_unread_count() == 1);
+    CHECK(wm_notification_toast_is_visible());
+    frame();
+    in_n = 0; click(800, 80); CHECK(in_n == 0 && !wm_notification_toast_is_visible());
+    wm_anim(11000, 0);
+    CHECK(wm_notification_post("Система", "Проверка срока показа", WM_NOTIFY_INFO) == 0);
+    wm_anim(15999, 0); CHECK(wm_notification_toast_is_visible());
+    wm_anim(16000, 0); CHECK(!wm_notification_toast_is_visible());
+    for (int ni = 0; ni < 10; ni++) CHECK(wm_notification_post("Событие", "Проверка ограниченной очереди", ni % 3) == 0);
+    CHECK(wm_notification_count() == 8 && wm_notification_unread_count() == 8);
+    int notification_dismiss_under = wm_create("notification-dismiss-underlay", 420, 250, 120, 80, WM_INPUT);
+    CHECK(notification_dismiss_under >= 0); wm_raise(notification_dismiss_under);
+    click(1024 - 26, 20); CHECK(wm_system_panel_is_open() && !wm_notification_toast_is_visible());
+    in_n = 0; click(900, 108); /* notifications row inside the quick-system panel */
+    CHECK(wm_notification_center_is_open() && !wm_system_panel_is_open());
+    CHECK(wm_notification_unread_count() == 0 && wm_notification_count() == 8);
+    move_to(800, 150, 0); CHECK(in_n == 0);
+    click(800, 150); CHECK(in_n == 0 && wm_notification_center_is_open());
+    move_to(450, 300, 0); CHECK(in_n == 0);
+    click(450, 300); CHECK(!wm_notification_center_is_open() && in_n == 0);
+    click(1024 - 26, 20); click(900, 108);
+    CHECK(wm_notification_center_is_open());
+    click(960, 70); /* clear-history action */
+    CHECK(!wm_notification_center_is_open() && wm_notification_count() == 0);
+    wm_destroy(notification_dismiss_under);
+    wm_destroy(notification_under);
     frame();
 
     /* Spatial window controls expose 32x32 hit areas while retaining compact visual dots. */
@@ -497,6 +566,22 @@ int main(void) {
         narrow_pins[i] = (wm_side_item_t){ pin_labels[i], pin_tags[i], TH_CYAN, ICON_TERMINAL, 0, 0, 0, 0 };
     wm_side_set(narrow_pins, 10);
     frame();
+    int compact_window = wm_create("compact-overview", 40, 100, 100, 60, WM_CLOSABLE);
+    CHECK(compact_window >= 0);
+    wm_window_overview_toggle();
+    CHECK(wm_window_overview_count() == 1);
+    int compact_x, compact_y;
+    CHECK(wm_window_overview_item_center(0, &compact_x, &compact_y) == 0);
+    CHECK(compact_x >= 12 && compact_x < 308 && compact_y >= 78 && compact_y < 192);
+    frame();
+    click(320 - 68, 66);
+    CHECK(!wm_window_overview_is_open());
+    wm_destroy(compact_window);
+    CHECK(wm_workspace_current() == 0 && wm_workspace_count() == 4);
+    click(204, 20); CHECK(wm_workspace_current() == 1);
+    click(204, 20); CHECK(wm_workspace_current() == 2);
+    click(204, 20); CHECK(wm_workspace_current() == 3);
+    click(204, 20); CHECK(wm_workspace_current() == 0);
     int px_, py_;
     int previous_dock_x = -1;
     for (int i = 0; i < 3; i++) {
@@ -537,6 +622,18 @@ int main(void) {
     for (int i = 0; i < 3; i++) click_side(i);
     CHECK(launches == 3 && last_launch == 2);
     CHECK(wm_dock_page_control_center(0, &px_, &py_) == -1);
+
+    int small_notif_under = wm_create("small-notification-underlay", 40, 100, 100, 60, WM_INPUT);
+    CHECK(small_notif_under >= 0);
+    wm_anim(20000, 0);
+    CHECK(wm_notification_post("Система", "Событие на компактном экране", WM_NOTIFY_WARNING) == 0);
+    CHECK(wm_notification_toast_is_visible());
+    click(294, 20); CHECK(wm_system_panel_is_open());
+    click(160, 108); CHECK(wm_notification_center_is_open());
+    in_n = 0; move_to(80, 130, 0); CHECK(in_n == 0);
+    click(80, 130); CHECK(in_n == 0 && wm_notification_center_is_open());
+    click(260, 70); CHECK(!wm_notification_center_is_open() && wm_notification_count() == 0);
+    wm_destroy(small_notif_under);
 
     printf("wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw passed\n");
