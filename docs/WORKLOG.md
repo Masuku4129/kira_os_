@@ -320,3 +320,10 @@
 - Исправление: WM_SPATIAL_RAIL_W=88 опубликован как layout constant в wm.h; приватное определение удалено из wm.c. Дополнительно обзорные thumbnails переведены на blit_content(), чтобы использовать frame-sequence consistency и не читать кадр Ring 3 в обход защитного механизма.
 - Корректирующие commits: e7313529727fd2edc8041e553682b43a220680d8, 2a26892334a2fb1ed312381ae18504cfd647a2b0, 09e39f118adf389abd106e0bce31efc9bc95f2c9.
 - На актуальном SHA 09e39f118adf389abd106e0bce31efc9bc95f2c9 новый workflow run/commit status пока не виден через Actions connector; запуск и тесты этого SHA не подтверждены. Не переносить результаты старого run.
+
+
+### Window overview input-safety follow-up — 2026-11-13
+- Independent code review identified an input-routing edge: while the overlay was open, an underlying captured app could still receive pointer events; the mouse release following an overview selection could also be delivered after the overlay closed.
+- Fixed by clearing capture/drag/resize on overview activation, routing all pointer events exclusively to the overlay while open, and consuming the release edge that closes it.
+- Added a WM_INPUT regression case proving no motion, press, or release is forwarded to a covered window during selection.
+- Latest code/test head before this log update: 8f5ea7c0666f6414f8c62b373113ee62631baf6e. Actions run 43381183587 was pending at inspection; no jobs had started yet. Await a fresh run on the final documented head.
