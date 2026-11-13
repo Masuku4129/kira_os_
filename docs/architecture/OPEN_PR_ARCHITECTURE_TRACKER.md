@@ -1,6 +1,6 @@
 # KIRA OS — реестр открытых архитектурно значимых PR
 
-**Снимок GitHub:** 2026-11-12  
+**Снимок GitHub:** 2026-11-13  
 **Базовая ветка main:** `bbc7f7ab948e72511aed113b69043add10ec8350`  
 **Архитектурная ветка:** `architecture/target-baseline-2026-11`  
 **Правило:** PR — отдельная ветка предложений, не часть main до merge. Статус CI проверять на текущем head SHA, не переносить старый PASS на новый commit.
@@ -9,7 +9,7 @@
 
 | PR | Head branch / SHA | Base | Направление | Следующая проверка |
 |---|---|---|---|---|
-| #135 | architecture/target-baseline-2026-11 / current head см. GitHub PR | main | Целевая архитектура, аудит, контракты | Проверить diff/docs/links и согласовать владельцем; draft, не merge |
+| #135 | architecture/target-baseline-2026-11 / `8626c4e1f063796da383880e656a36d654fb27fa` | main | Целевая архитектура, аудит, контракты, HAL/PCI source slices | Exact-head CI обязателен: run 43298087855 PASS относится к более раннему `618ce013...`; текущий head не проверен. Draft, не merge |
 | #136 | security/kdrv-require-iommu-for-dma-msi / current head см. GitHub PR | main | Block Ring 3 DMA/MSI without per-device IOMMU | Host/build/ARM64/QEMU CI running; review exact head before merge |
 | #137 | security/pci-clear-firmware-busmaster / current head см. GitHub PR | main | Clear firmware bus-master before PCI ownership | Host/build/ARM64 CI running; review PCI mock test and exact head before merge |
 | #136 | security/kdrv-require-iommu-for-dma-msi / 720a2020f6d78501aed60b5013ad9b7d1c62b30d | main | Fail-closed KDRV DMA/MSI isolation | Review security diff and require exact-head CI success; do not merge without review |
