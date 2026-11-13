@@ -647,9 +647,9 @@ int main(void) {
     CHECK(wm_notification_toast_is_visible());
     click(294, 20); CHECK(wm_system_panel_is_open());
     frame();
-    CHECK(px(&narrow, 40, 177) == TH_RED); /* KIRA Mind remains visible in the compact panel */
+    CHECK(px(&narrow, 48, 177) == TH_RED); /* KIRA Mind remains visible in the compact panel */
     CHECK(px(&narrow, 180, 177) == TH_GREEN); /* live network link is rendered */
-    CHECK(px(&narrow, 40, 209) == TH_CYAN); /* audio master volume is rendered */
+    CHECK(px(&narrow, 48, 209) == TH_CYAN); /* audio master volume is rendered */
     click(230, 209); /* set master volume through the live audio card */
     CHECK(volume_changes == 1 && last_volume >= 75 && last_volume <= 80);
     click(160, 108); CHECK(wm_notification_center_is_open());
