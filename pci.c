@@ -154,9 +154,9 @@ static void probe_bars(pci_dev_t* d) {
     pci_write16(d, 0x04, cmd);
 }
 
-static void scan_bus(uint8_t bus);
+static void scan_bus(uint8_t bus, uint8_t bus_limit);
 
-static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
+static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t bus_limit) {
     pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = fn;
     uint32_t id = cr32(&t, 0);
     if ((id & 0xFFFF) == 0xFFFF) return;
@@ -172,13 +172,18 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     d->header_type = pci_read8(d, 0x0E);
     probe_bars(d);
     if ((d->header_type & 0x7F) == 1 && d->class_code == 6 && d->subclass == 4) {
-        uint8_t sec = pci_read8(d, 0x19);                          /* вторичная шина моста */
-        if (sec) scan_bus(sec);
+        uint8_t primary = pci_read8(d, 0x18);
+        uint8_t sec = pci_read8(d, 0x19);
+        uint8_t subordinate = pci_read8(d, 0x1A);
+        uint8_t child_limit = subordinate < bus_limit ? subordinate : bus_limit;
+        /* A child bridge may not escape either this bridge's subordinate window or the host aperture. */
+        if (primary == bus && sec >= scan_bus_min && sec <= child_limit)
+            scan_bus(sec, child_limit);
     }
 }
 
-static void scan_bus(uint8_t bus) {
-    if (bus < scan_bus_min || bus > scan_bus_max) return;
+static void scan_bus(uint8_t bus, uint8_t bus_limit) {
+    if (bus < scan_bus_min || bus > scan_bus_max || bus > bus_limit) return;
     if (bus_seen[bus]) return;                                       /* защита от петель в неверно настроенных мостах */
     bus_seen[bus] = 1;
     for (uint8_t dev = 0; dev < 32; dev++) {
@@ -200,7 +205,7 @@ int pci_init_range(uint8_t first_bus, uint8_t last_bus) {
     pci_snapshot_generation++;
     scan_bus_min = first_bus;
     scan_bus_max = last_bus;
-    scan_bus(first_bus);
+    scan_bus(first_bus, last_bus);
     if (pci_identity_exhausted) { ndevs = 0; return -1; }
     return ndevs;
 }
