@@ -109,8 +109,8 @@ int device_registry_transition(device_handle_t handle, device_state_t expected,
     const device_descriptor_t* resolved = device_resolve(handle);
     if (!resolved) return DEVICE_E_STALE;
     device_descriptor_t* descriptor = (device_descriptor_t*)resolved;
-    int observed = (int)expected;
-    if (!__atomic_compare_exchange_n((int*)&descriptor->state, &observed, (int)next,
+    device_state_t observed = expected;
+    if (!__atomic_compare_exchange_n(&descriptor->state, &observed, next,
                                      0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
         return DEVICE_E_STATE;
     return DEVICE_OK;
