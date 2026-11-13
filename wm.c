@@ -1338,6 +1338,7 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         ui_round_rect(c, ox + W - 42, y + 6, 32, 28, 8, TH_TILE, 255);
         ui_round_frame(c, ox + W - 42, y + 6, 32, 28, 8, system_panel_open ? TH_CYAN : TH_BORDER, 220);
         icon_draw(c, ox + W - 26, y + 20, 16, ICON_MONITOR, system_panel_open ? TH_CYAN : TH_TEXT_DIM, 0);
+        if (notification_unread()) ui_disc(c, ox + W - 13, y + 8, 4, TH_AMBER, 255);
         int rx = W - 58 + ox;
         if (clock_hm[0]) {
             rx -= gfx_text_width(clock_hm);
@@ -1496,12 +1497,21 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     ui_round_frame(c, x + ox, y + oy, w, h, 16, TH_BORDER, 255);
     gfx_text(c, x + 16 + ox, y + 14 + oy, "СИСТЕМА", TH_TEXT, -1);
     gfx_text(c, x + 16 + ox, y + 32 + oy, "Текущие показатели", TH_TEXT_DIM, -1);
+    ui_round_rect(c, x + 12 + ox, y + 48 + oy, w - 24, 24, 7, TH_TILE, 255);
+    ui_round_frame(c, x + 12 + ox, y + 48 + oy, w - 24, 24, 7, TH_BORDER, 200);
+    gfx_text(c, x + 22 + ox, y + 55 + oy, "УВЕДОМЛЕНИЯ", TH_TEXT, -1);
+    char unread_text[8]; int unread = notification_unread(), un = 0;
+    if (unread > 99) unread = 99;
+    if (unread >= 10) unread_text[un++] = (char)('0' + unread / 10);
+    unread_text[un++] = (char)('0' + unread % 10); unread_text[un] = 0;
+    ui_text_bold(c, x + w - 28 - gfx_text_width(unread_text) + ox, y + 55 + oy, unread_text, unread ? TH_AMBER : TH_TEXT_FAINT);
     unsigned cpu = 0;
     for (int i = 0; i < m_cores; i++) cpu += m_busy[i];
     int values[3] = { m_cores > 0 ? (int)(cpu / (unsigned)m_cores) : -1, m_mem, m_health };
     const char* labels[3] = { "ПРОЦЕССОР", "ПАМЯТЬ", "KIRA MIND" };
-    for (int i = 0; i < 3; i++) {
-        int ry = y + 58 + i * 38;
+    int rows = (h - 88) / 32; if (rows > 3) rows = 3; if (rows < 1) rows = 1;
+    for (int i = 0; i < rows; i++) {
+        int ry = y + 80 + i * 32;
         gfx_text(c, x + 16 + ox, ry + oy, labels[i], TH_TEXT_DIM, -1);
         if (values[i] < 0) { gfx_text(c, x + w - 28 + ox, ry + oy, "—", TH_TEXT_FAINT, -1); continue; }
         int v = values[i] > 100 ? 100 : values[i];
@@ -1512,8 +1522,8 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
         uint32_t col; meter_color((unsigned)v, &col);
         if (i == 2) col = v >= 70 ? TH_GREEN : v >= 50 ? TH_AMBER : TH_RED;
         ui_text_bold(c, x + w - 16 - gfx_text_width(num) + ox, ry + oy, num, col);
-        ui_round_rect(c, x + 16 + ox, ry + 18 + oy, w - 32, 5, 2, TH_TILE, 255);
-        ui_round_rect(c, x + 16 + ox, ry + 18 + oy, (w - 32) * v / 100, 5, 2, col, 255);
+        ui_round_rect(c, x + 16 + ox, ry + 16 + oy, w - 32, 4, 2, TH_TILE, 255);
+        ui_round_rect(c, x + 16 + ox, ry + 16 + oy, (w - 32) * v / 100, 4, 2, col, 255);
     }
     gfx_text(c, x + 16 + ox, y + h - 20 + oy, "Закрыть: нажмите вне панели", TH_TEXT_FAINT, -1);
 }
