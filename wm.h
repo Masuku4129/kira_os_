@@ -119,7 +119,7 @@ void wm_set_culling(int on);
 /* Верхняя панель: дата («ПЯТНИЦА, 30 ОКТЯБРЯ 2026») и время; ядра (занятость, %), память (%), здоровье Разума. */
 void wm_set_clock(const char* date, const char* hm);
 void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health);
-/* Spatial Minimal: real link state (-1 unknown/no adapter, 0 down, 1 up) and master audio volume (-1 unavailable). */
+/* Spatial Minimal: real link state (-2 no adapter, -1 unknown, 0 down, 1 up) and master audio volume (-1 unavailable). */
 void wm_set_system_io(int network_link, int audio_volume);
 /* Фон: уровень анимации 0..3 и шаг анимации (каждый цикл дисплея). */
 void wm_set_fx(int level);
