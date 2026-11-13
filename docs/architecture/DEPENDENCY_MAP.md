@@ -130,3 +130,5 @@ Firmware / bus discovery
 ```
 
 Discovery is not authorization. Device location (PCI BDF) is not identity. DMA/MSI stays disabled until per-device isolation is established. This is a target dependency flow, not a claim that all boxes exist in the current implementation.
+
+Current transitional source slice: `pci_dev_t` carries a boot-local monotonic `device_id` and the current full-scan `generation`; `pci_get_handle()` returns the opaque pair and `pci_resolve()` rejects stale snapshots. The generation is deliberately scan-wide (a rescan invalidates every prior PCI handle), not per-location. This does not yet provide a bus-independent registry, resource ownership, or driver authorization. `kdrv.c` still keys bindings by raw `pci_dev_t*`; migrate it to handles before enabling PCI rescan/hotplug or claiming lifecycle safety.
