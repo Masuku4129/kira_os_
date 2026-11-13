@@ -548,6 +548,22 @@ int main(void) {
         narrow_pins[i] = (wm_side_item_t){ pin_labels[i], pin_tags[i], TH_CYAN, ICON_TERMINAL, 0, 0, 0, 0 };
     wm_side_set(narrow_pins, 10);
     frame();
+    int compact_window = wm_create("compact-overview", 40, 100, 100, 60, WM_CLOSABLE);
+    CHECK(compact_window >= 0);
+    wm_window_overview_toggle();
+    CHECK(wm_window_overview_count() == 1);
+    int compact_x, compact_y;
+    CHECK(wm_window_overview_item_center(0, &compact_x, &compact_y) == 0);
+    CHECK(compact_x >= 12 && compact_x < 308 && compact_y >= 78 && compact_y < 192);
+    frame();
+    click(320 - 68, 66);
+    CHECK(!wm_window_overview_is_open());
+    wm_destroy(compact_window);
+    CHECK(wm_workspace_current() == 0 && wm_workspace_count() == 4);
+    click(204, 20); CHECK(wm_workspace_current() == 1);
+    click(204, 20); CHECK(wm_workspace_current() == 2);
+    click(204, 20); CHECK(wm_workspace_current() == 3);
+    click(204, 20); CHECK(wm_workspace_current() == 0);
     int px_, py_;
     int previous_dock_x = -1;
     for (int i = 0; i < 3; i++) {
