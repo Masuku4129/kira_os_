@@ -1424,7 +1424,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         }
     }
     if (fs < 0) {
-        if (y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
+        if (layout_mode == WM_LAYOUT_LEGACY && y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
         if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
             if (x0 < WM_SPATIAL_RAIL_W + 220 || y1 > scr->h - WM_SPATIAL_DOCK_H) draw_side(&clip, ox, oy);
         } else if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
