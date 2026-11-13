@@ -69,6 +69,7 @@ static struct {
 /* снимки данных для приложений */
 static mind_view_t mv;
 static exp_view_t ev;
+static int mind_health_band = -1;
 static uint32_t mv_ver = ~0u, ev_ver = ~0u;
 static app_hit_t files_hover;
 static int set_hover = -1, files_drop = -1;
@@ -551,7 +552,15 @@ static void update_mind(void) {
     if (v == mv_ver) return;
     mv_ver = v;
     mind_sys_view(&mv);
-    if (mv.t) wm_set_meters(mv.busy, (int)(mv.cores > 64 ? 64 : mv.cores), (int)mv.mem_used, mv.health);
+    if (mv.t) {
+        wm_set_meters(mv.busy, (int)(mv.cores > 64 ? 64 : mv.cores), (int)mv.mem_used, mv.health);
+        int band = mv.health < 25 ? 2 : mv.health < 50 ? 1 : 0;
+        if (mind_health_band >= 0 && band > mind_health_band)
+            (void)display_notify("KIRA Mind", band == 2 ? "Критическое снижение здоровья системы" : "Здоровье системы ниже 50%", band == 2 ? WM_NOTIFY_CRITICAL : WM_NOTIFY_WARNING);
+        else if (mind_health_band > 0 && band == 0)
+            (void)display_notify("KIRA Mind", "Показатель здоровья системы восстановился", WM_NOTIFY_INFO);
+        mind_health_band = band;
+    }
     draw_mind();
     draw_monitor();
     draw_settings();
