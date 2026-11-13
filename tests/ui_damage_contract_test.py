@@ -23,6 +23,7 @@ def body_after(signature):
 dock = body_after("static void damage_side(void)")
 nav = body_after("static void damage_spatial_tab(int i)")
 hover = body_after("static void update_hover(void)")
+compose = body_after("static int compose_prepare(void)")
 
 if "spatial_dock_y() - 40" not in dock:
     raise AssertionError("Spatial Minimal Dock damage must be limited to its bottom band")
@@ -32,5 +33,9 @@ if "WM_SPATIAL_RAIL_W" not in nav or "gfx_text_width(tabs[i].label)" not in nav:
     raise AssertionError("navigation damage must cover the rail icon and only its label tooltip")
 if "damage_spatial_tab(old_tab)" not in hover or "damage_spatial_tab(th)" not in hover:
     raise AssertionError("navigation hover must repaint only the previous and current rail items")
+if "damage_spatial_tab(old_tab)" not in compose or "damage_spatial_tab(at)" not in compose:
+    raise AssertionError("active navigation changes must repaint only the previous and current rail items")
+if "damage_side()" in compose:
+    raise AssertionError("active-tab changes must not invalidate the Dock when only the rail changed")
 
 print("Spatial Minimal damage bounds: Dock bottom band and per-item navigation repaint passed")
