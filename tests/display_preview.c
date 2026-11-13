@@ -271,7 +271,7 @@ int main(int argc, char** argv) {
     { int x, y; CHECK(wm_side_center(0, &x, &y) == 0 && wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) != 0); }
 
     /* разделы: Разум */
-    click_tab(2);
+    click_tab(3);
     run(4);
     int w_mind = wm_find("Mind");
     CHECK(w_mind >= 0 && wm_top() == w_mind);
@@ -285,7 +285,7 @@ int main(int argc, char** argv) {
     save_shot("monitor.ppm");
 
     /* Проводник: две панели, мышь и клавиши */
-    click_tab(3);
+    click_tab(2);
     run(3);
     int w_files = wm_find("Files");
     CHECK(w_files >= 0 && wm_top() == w_files);
@@ -389,7 +389,7 @@ int main(int argc, char** argv) {
     CHECK(con_n == 1 && !strcmp(con_cmd, "cube3d"));
     static uint32_t pa[320 * 240];
     for (int j = 0; j < 240; j++) for (int i = 0; i < 320; i++) pa[j * 320 + i] = ((i * 160 / 320) << 16) | ((j * 120 / 240 + 40) << 8) | 0xA0;
-    click_tab(2);
+    click_tab(3);
     int uf = wm_create_user("cube3d", WM_AUTO, WM_AUTO, 320, 240, pa);
     wm_set_tag(uf, "cube3d");
     CHECK(uf >= 0 && wm_top() == uf);
