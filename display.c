@@ -488,6 +488,12 @@ static void on_tab(int i) {
     if (i > 0 && i < (int)(sizeof app_of_tab / sizeof app_of_tab[0])) open_app(app_of_tab[i]);
 }
 
+static void on_workspace_changed(int workspace) {
+    (void)workspace;
+    if (w_con >= 0) wm_invalidate(w_con);
+    draw_mind(); draw_monitor(); draw_files(); draw_settings(); draw_launcher();
+}
+
 /* ---------------- верхняя панель ---------------- */
 
 static void update_clock(void) {
@@ -682,7 +688,7 @@ int display_init(unsigned long mbi) {
     if (rc != 0 && virtio_gpu_probe() == 0) rc = 0;
     if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
-    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher };
+    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher, on_workspace_changed };
 #ifdef KIRA_SPATIAL_PREVIEW
     wm_init_mode(fb_surface(), &ops, WM_LAYOUT_SPATIAL_MINIMAL);
 #else
