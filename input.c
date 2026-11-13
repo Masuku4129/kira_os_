@@ -161,6 +161,8 @@ int input_pop_mouse(mouse_event_t* ev) {
     return 1;
 }
 
+static volatile int hotkey_pending;
+
 void input_init(void) {
     for (int i = 0; i < INPUT_SRC_N; i++) ps2_decoder_reset(&decs[i]);
     ps2_mouse_reset(&mdec);
@@ -168,8 +170,6 @@ void input_init(void) {
     mhead = mtail = 0;
     __atomic_store_n(&hotkey_pending, 0, __ATOMIC_RELEASE);
 }
-
-static volatile int hotkey_pending;
 
 int input_take_hotkey(void) { return __atomic_exchange_n(&hotkey_pending, 0, __ATOMIC_ACQ_REL); }
 
