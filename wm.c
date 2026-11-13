@@ -990,7 +990,9 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         rx = bx - 8;
         char t[8]; int n = 0, v = m_mem; char d[4]; int k = 0;
         do { d[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 3);
-        while (k) t[n++] = d[--k]; t[n++] = '%'; t[n] = 0;
+        while (k) t[n++] = d[--k];
+        t[n++] = '%';
+        t[n] = 0;
         rx -= gfx_text_width(t); gfx_text(c, rx, y + 12, t, TH_TEXT_DIM, -1); rx -= 14;
     }
     if (m_cores > 0) {
