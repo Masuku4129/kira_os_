@@ -567,3 +567,9 @@
 - Updated `tests/virtio_test.c` to register an explicit always-allow guard for its synthetic multi-scan PCI model; production defaults remain fail-closed after the first snapshot. `tests/architecture_test.py` now requires that test-only authorization so repeated model scans cannot accidentally rely on the production default.
 
 - Clarified the GitHub Actions host-test step label to call out PCI range/rescan and KDRV identity coverage explicitly. The underlying command remains `bash tests/run_host_tests.sh`; this is observability only and does not replace test execution.
+
+### Pre-rescan-guard CI run outcome (2026-11-13)
+
+- Run `43399558761` was built from the earlier branch head `dc7ea6c55df4a9f114d0ad01bad50809c437dcb7`, before the PCI rescan guard and its regression tests were added.
+- x86-64 build completed successfully; all 27 VM scenario jobs completed successfully. Host-tests and ARM64 jobs were cancelled when the run was superseded. The overall workflow is therefore not PASS and does not validate the rescan-guard changes.
+- Current branch head `29708b0aad5a72c4e33183c49cb0a410918f3080` still requires a fresh full host/build/ARM64/VM run. No physical hardware or Android Limbo validation is claimed.
