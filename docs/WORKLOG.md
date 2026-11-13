@@ -409,3 +409,13 @@
 - Исправлено в `display.c`: оба режима теперь выводят `[KIRA DISPLAY] Shell online:` и затем описание layout. Commit `613a6e734b767914c14b1d511c8e5677e5d3e246`.
 - На момент проверки host-tests в run `43395060732` ещё выполнялись. Новый CI на exact fix commit пока не подтверждён; Limbo/physical hardware не тестировались.
 - Следующее: получить свежий CI для ветки `docs/ui0-spatial-minimal-audit`, проверить host-tests + ARM64 VM; затем продолжить responsive Dock/short-screen acceptance and performance baseline. PR не сливать.
+
+
+## 14. Spatial Minimal partial-redraw regression fix (2026-11-13)
+
+- Root cause found in `wm.c`: `damage_side()` marked the full desktop below the top edge dirty in Spatial Minimal. It is called on Dock hover changes and on app/window lifecycle changes. The navigation hover path also reused `damage_side()`, causing unrelated desktop tiles to be recomposed for a rail tooltip.
+- Dock invalidation is now limited to the bottom band containing the Dock and its hover label.
+- Navigation hover invalidation now targets only the previous/current rail item and its tooltip bounds through `damage_spatial_tab()`.
+- Added `tests/ui_damage_contract_test.py` and wired it into `tests/run_host_tests.sh` to prevent full-desktop invalidation from returning.
+- This is a source-level performance correction, not a measured performance claim. Exact-head host tests, QEMU/Limbo visual check and frame-time comparison are still required.
+- Legacy invalidation path is unchanged. No default-layout switch or ISO release is made by this change.
