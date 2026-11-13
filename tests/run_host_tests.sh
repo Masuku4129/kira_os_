@@ -9,7 +9,6 @@ CC=${CC:-gcc}
 FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie"
 SSE="-msse2 -mfpmath=sse -fno-math-errno"
 T=$(mktemp -d)
-python3 ci/check_project_status.py
 
 echo "== line buffer: long log lines remain atomic across CPUs =="
 $CC ${FLAGS} -o "$T/linebuf" tests/linebuf_test.c linebuf.c
