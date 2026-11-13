@@ -62,7 +62,9 @@ require('#include "pci_host.h"' in arm_main
 pci_core = read("pci.c")
 require("int pci_init_range(uint8_t first_bus, uint8_t last_bus)" in pci_core
         and "if (bus < scan_bus_min || bus > scan_bus_max) return;" in pci_core
-        and "scan_bus(first_bus);" in pci_core,
+        and "scan_bus(first_bus);" in pci_core
+        and "pci_set_rescan_guard" in pci_core
+        and "pci_snapshot_generation && (!pci_rescan_guard || !pci_rescan_guard())" in pci_core,
         "PCI enumeration does not enforce the declared root/bridge bus range")
 require("static void arm_pci_init" not in arm_main
         and "pci_use_ecam(" not in arm_main
@@ -277,6 +279,7 @@ require("pci_handle_t device;" in kdrv
         and "B_QUARANTINED" in kdrv
         and "pci_resolve(binds[i].device)" in kdrv
         and "if (create && stale_binding) r = 0;" in kdrv
+        and "pci_set_rescan_guard(kdrv_pci_rescan_allowed);" in kdrv
         and not re.search(r"\bb->dev(?:\s*->|\s*[;,)])", kdrv)
         and not re.search(r"binds\[i\]\.dev\b", kdrv),
         "KDRV binding identity must use generation-safe PCI handles and quarantine stale bindings")
