@@ -270,3 +270,15 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+## Продолжение 2026-11-13 — трёхсекционный реестр и аудит разветвления файлов
+
+- Создан Draft PR #148: https://github.com/Masuku4129/kira_os_/pull/148. Ветка: project/status-ledger-2026-11-13. main не изменён; merge не выполнялся.
+- Добавлены три постоянных раздела: docs/PROJECT_STATUS/01_READY.md (текущий baseline и реальные build inputs), 02_IN_PROGRESS.md (файлы и PR в отдельных ветках), 03_PLANNED.md (незакрытые требования мастер-плана A–N).
+- Снимок branch_inventory_2026-11-13.json содержит точные SHA и деревья основных линий, полный список 829 файлов main, branch-only списки и PR metadata. Он датирован и требует обновления перед дальнейшей интеграцией.
+- Обнаружено: main — 829 файлов; v46/unified-release-integration — 1245 файлов, 437 путей отсутствуют в main; autodrv — 1300 файлов, 56 путей отсутствуют в v46; 21 путь main отсутствует в v46; архитектурная ветка имеет 50 уникальных путей, Spatial base — 10, token branch — 2.
+- Критичные пропуски в интеграции v46: boot/UEFI/BootInfo, IOMMU/VT-d/SMMUv3, KDRV signature/catalogue/manager, KCC/KAS/KLink, Mind build, RTL8139, release/update tooling и 157 тестовых путей. Это branch-only работа, не удалённые файлы; автоматический перенос запрещён до проверки зависимости/лицензии/build/test evidence.
+- Сохранены и отдельно учтены 21 main-only путь, включая AGENTS.md, MASTER_DEVELOPMENT_PLAN.md, WORKLOG.md, ADR-0001, RTL8139 legacy recipe/driver и KCC negative fixtures. Их нельзя потерять при интеграции v46.
+- Добавлен ci/check_project_status.py; он проверяет отсутствие исчезнувших baseline paths, запрещает неучтённые новые tracked files и сверяет x86-64/ARM64 source lists с build scripts. Проверка подключена к tests/run_host_tests.sh и host-tests workflow.
+- Выполнена проверка текущего GitHub tree/manifest: 836 файлов = 829 baseline + 7 управляемых файлов; missing=0, extra=0; все 27 обязательных файлов присутствуют; x86 source lists 98+16, ARM64 common source list 88, userland app lists совпадают с build scripts; branch diff counts совпадают со снимком.
+- Это проверка структуры GitHub и согласованности manifest, а не запуск Python checker/полного CI. Для PR #148 exact-head Actions run не обнаружен; CI/host suite остаются UNVERIFIED. Следующий шаг — получить фактический CI на текущем PR head, затем начать dependency-ordered review 437 v46-only файлов и сверку release manifests.
