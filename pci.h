@@ -9,7 +9,10 @@
 #define PCI_MAX_DEVS 1024         /* функций на всех шинах: у ПК 40-80, у серверов - сотни */
 #define PCI_BARS 6
 
+typedef struct { uint64_t id, generation; } pci_handle_t;
+
 typedef struct {
+    uint64_t device_id, generation; /* opaque boot-local identity; generation invalidates snapshot handles on rescan */
     uint8_t bus, dev, fn;
     uint16_t vendor, device;
     uint8_t class_code, subclass, prog_if, revision, header_type;
@@ -29,6 +32,8 @@ int  pci_init(void);                               /* совместимый р�
 int  pci_init_range(uint8_t first_bus, uint8_t last_bus); /* root bus и рекурсивные мосты ограничены диапазоном host bridge */
 int  pci_count(void);
 const pci_dev_t* pci_get(int i);
+pci_handle_t pci_get_handle(int i);                 /* opaque handle for the current enumeration snapshot */
+const pci_dev_t* pci_resolve(pci_handle_t handle);   /* stale/unknown handles resolve to NULL */
 const pci_dev_t* pci_find(uint16_t vendor, uint16_t device);
 
 uint8_t  pci_read8(const pci_dev_t* d, uint16_t off);
