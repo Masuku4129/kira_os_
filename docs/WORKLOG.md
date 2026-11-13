@@ -466,3 +466,9 @@
 - Добавлен GUI-тест открытия, отрисовки, закрытия снаружи и повторного переключения. Проверка на телефоне в Limbo ещё не выполнена.
 
 - Dock адаптирует размер значков и промежутки к ширине экрана; добавлен тест 320×240 с десятью закреплёнными приложениями и проверкой доступности каждого hit-target (`552446a8`, тест `8ab19e28`).
+
+
+### Spatial status-panel host-test fixture correction — PR #142 (2026-11-13)
+- Exact-head workflow `43412409335` exposed a test-fixture assertion error at `tests/wm_test.c:385`: the sampled pixel at (780,70) overlapped the rendered “СИСТЕМА” title glyph, so it was not a valid plain-background sample.
+- Kept the modal-input interaction at (780,70), but moved the color assertion to unobstructed panel interior at (990,70). This changes only the test sample, not panel behavior.
+- Corrected test commit: `b2709611b40961d9c52101a5509f793e0517721c`. Fresh exact-head CI is required; previous run does not validate this commit. Limbo/touch validation remains open.
