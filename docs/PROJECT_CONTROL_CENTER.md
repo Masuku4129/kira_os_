@@ -33,11 +33,11 @@ A Architecture/Platform; B Kernel; C KVR and application runtimes; D Mind; E KCC
 ## 3. Текущий снимок GitHub (2026-11-13)
 
 - Default branch: `main`; live SHA при проверке: `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`.
-- Архитектурная ветка: `architecture/target-baseline-2026-11`; live SHA: `f3d7d43b3434e817254f12a9a15a3097e8e99b97`.
-- PR #135: open, Draft; base SHA в PR snapshot: `bbc7f7ab948e72511aed113b69043add10ec8350`; live main уже продвинулся до другого SHA, поэтому перед интеграцией нужно обновить base/проверить merge base и cumulative diff. PR не mergeable на момент чтения.
+- Архитектурная ветка: `architecture/target-baseline-2026-11`; исходный кодовый baseline до организационных документационных коммитов: `f3d7d43b3434e817254f12a9a15a3097e8e99b97`. После него добавлены только control-center/AGENTS/README/PR-template/WORKLOG/tracker documentation commits. Перед любой задачей обязательно получить текущий live HEAD; этот файл намеренно не притворяется динамическим указателем.
+- PR #135: open, Draft; base SHA в исходном PR snapshot: `bbc7f7ab948e72511aed113b69043add10ec8350`; live main уже продвинулся до `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`, поэтому перед интеграцией нужно обновить base/проверить merge base и cumulative diff. PR не mergeable на момент чтения.
 - На первой странице GitHub API получено 50 открытых PR и 100 refs веток. Это не доказательство общего количества: список веток запрашивался страницей до 100 элементов. Многие ветки связаны с открытыми PR, CI snapshots или вложенными зависимостями.
 - Дерево архитектурной ветки: 910 entries; присутствуют legacy root-level C/H файлы и новые каталоги `arch/`, `kernel/`, `services/`, `drivers/`, `userland/`. Перемещение/удаление исходников без проверки build manifests, include graph, tests и всех consumers запрещено.
-- Exact-head checks для `f3d7d43...`: GitHub commit status = pending с 0 statuses; check-runs = 0. Следовательно, текущий HEAD не имеет обнаруженного подтверждения CI.
+- Exact-head checks для исходного кодового baseline `f3d7d43...`: GitHub commit status = pending с 0 statuses; check-runs = 0. Следовательно, этот кодовый baseline не имеет обнаруженного подтверждения CI. Документационные commits не подтверждают код и не заменяют новый exact-head CI.
 - Последний найденный полный successful run: [43298087855](https://github.com/Masuku4129/kira_os_/actions/runs/43298087855), 30/30 jobs, но он проверял SHA `618ce01344e219991323aca51f9de58c55ed2aab`, а не текущий HEAD. Не переносить PASS на новые коммиты.
 - Физические x86-64/ARM64 устройства не проверены этим CI; QEMU/Limbo не считать физической проверкой.
 
