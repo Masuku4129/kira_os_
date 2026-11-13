@@ -10,7 +10,7 @@ CFLAGS="$KIRA_ARM64_EXTRA -ffreestanding -fno-builtin -nostdlib -mgeneral-regs-o
 mkdir -p build-arm64
 # Программы для ARM64 (EL0): те же исходники, что и для x86-64; ядро их не содержит - они лежат на диске в /bin
 HOSTCC="${HOSTCC:-clang}"
-[ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
+$HOSTCC -O1 -Wall -Werror -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
 UCFLAGS="-ffreestanding -fno-builtin -fno-math-errno -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 UELF=""
 for app in mt ipc burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk-jmp atk-cap serve melody wasm udpecho rec; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
@@ -67,6 +67,7 @@ for app in edit view; do                 # с текстом: шрифт ядр�
     UELF="$UELF build-arm64/$app.elf"
 done
 tools/kfstool manifest $UELF > build-arm64/manifest.h        # доверенные программы ARM64 (SHA-256)
+tools/kfstool catalog $UELF > build-arm64/app_catalog.h
 OBJ=""
 for f in $A/boot.S $A/mem.S $A/context.S $A/fpu.S $A/uaccess.S; do
     o=build-arm64/$(basename $f .S)_s.o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
@@ -74,7 +75,7 @@ done
 # Общее ядро (те же файлы, что и на x86-64) и платформа ARM64
 for f in fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
          experience.c fscmd.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
-         immune.c kobj.c futex.c corefault.c crypto.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
+         immune.c kobj.c futex.c corefault.c crypto.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c prog_queue.c prog_catalog.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
          virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
          icons.c brainfx.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
          $A/main.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c; do

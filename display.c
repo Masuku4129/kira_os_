@@ -16,11 +16,13 @@
 #include "gfxsrv.h"
 #include "proc.h"
 #include "progs.h"
+#include "prog_catalog.h"
 #include "platform.h"
 #include "virtio_gpu.h"
 #include "mind_sys.h"
 #include "explorer.h"
 #include "apps.h"
+#include "gfxui.h"
 #include "icons.h"
 #include "theme.h"
 #include "rtc.h"
@@ -47,7 +49,7 @@ void* gfx_alloc_pages(uint64_t bytes) {
 
 static int ready;
 static int in_flush;
-static int w_con = -1, w_mind = -1, w_mon = -1, w_files = -1, w_set = -1;
+static int w_con = -1, w_mind = -1, w_mon = -1, w_files = -1, w_set = -1, w_launcher = -1;
 static volatile int fx_req = 3;
 
 static struct {
@@ -72,10 +74,16 @@ static app_hit_t files_hover;
 static int set_hover = -1, files_drop = -1;
 static unsigned files_btn, set_btn;
 static char files_status[96];
+static uint32_t files_launch_id;
 static uint64_t files_click_ns; static int files_click_panel = -1, files_click_row = -1;
 static struct { int on, panel, row, x, y; } drag;       /* файл тащат мышью на другую панель */
 static uint32_t act_seen;                                /* последняя обработанная просьба менеджера (открыть, закрепить) */
-static volatile int files_focus;                         /* клавиатура у Проводника (читает консоль) */
+static volatile int files_focus;
+static volatile int launcher_focus;
+static char launcher_query[64], launcher_status[96];
+static unsigned launcher_matches[16], launcher_count, launcher_selected;
+static unsigned launcher_btn;
+static uint32_t launcher_request;
 static spinlock_t rq_lk = SPINLOCK_INIT;                 /* просьба консоли «files» открыть Проводник на путях */
 static char rq_l[FM_PATH], rq_r[FM_PATH]; static int rq_pending;
 
@@ -84,14 +92,14 @@ static char rq_l[FM_PATH], rq_r[FM_PATH]; static int rq_pending;
 /* Приложения ядра открываются разделами верхней панели. Левая панель - быстрый доступ: программы из /bin,
    которые пользователь закрепил сам (Проводник: «закрепить»), ниже черты - запущенные, но не закреплённые
    (их свёрнутые окна иначе было бы не вернуть), внизу «+» - открыть /bin в Проводнике. */
-enum { APP_TERM, APP_MIND, APP_FILES, APP_MON, APP_SET, APP_N };
-static const char* const app_tag[APP_N] = { "Console", "Mind", "Files", "Monitor", "Settings" };
+enum { APP_TERM, APP_MIND, APP_FILES, APP_MON, APP_SET, APP_LAUNCHER, APP_N };
+static const char* const app_tag[APP_N] = { "Console", "Mind", "Files", "Monitor", "Settings", "Launcher" };
 
 static const wm_tab_t tabs[] = {
-    { "ГЛАВНАЯ", "" }, { "ТЕРМИНАЛ", "Console" }, { "РАЗУМ", "Mind" }, { "ПРОВОДНИК", "Files" }, { "МОНИТОР", "Monitor" },
-    { "НАСТРОЙКИ", "Settings" },
+    { "ГЛАВНАЯ", "" }, { "ПРИЛОЖЕНИЯ", "Launcher" }, { "ПРОВОДНИК", "Files" },
+    { "KIRA AI", "Mind" }, { "МОНИТОР", "Monitor" }, { "НАСТРОЙКИ", "Settings" }, { "ТЕРМИНАЛ", "Console" },
 };
-static const int app_of_tab[] = { -1, APP_TERM, APP_MIND, APP_FILES, APP_MON, APP_SET };
+static const int app_of_tab[] = { -1, APP_LAUNCHER, APP_FILES, APP_MIND, APP_MON, APP_SET, APP_TERM };
 
 #define SIDE_N (DOCK_MAX + 8 + 1)
 static dock_t dock;
@@ -119,6 +127,22 @@ static void draw_files(void) {
     wm_invalidate(w_files);
 }
 
+static int scpy(char* d, int p, const char* s, int cap);
+static void files_launch_poll(void) {
+    if (!files_launch_id) return;
+    int result = 0;
+    prog_result_state_t state = prog_request_take_result(files_launch_id, &result);
+    if (state == PROG_RESULT_PENDING) return;
+    files_launch_id = 0;
+    if (state != PROG_RESULT_COMPLETE) (void)scpy(files_status, 0, "результат запуска недоступен", sizeof files_status);
+    else if (result > 0) (void)scpy(files_status, 0, "программа успешно запущена", sizeof files_status);
+    else if (result == -2) (void)scpy(files_status, 0, "запуск отклонён: проверка доверия", sizeof files_status);
+    else if (result == -3) (void)scpy(files_status, 0, "ошибка формата исполняемого файла", sizeof files_status);
+    else if (result == -4) (void)scpy(files_status, 0, "лимит запуска KIRA Mind", sizeof files_status);
+    else (void)scpy(files_status, 0, "не удалось открыть файл/запустить программу", sizeof files_status);
+    draw_files();
+}
+
 static void settings_state(app_settings_t* s) {
     surface_t* scr = fb_surface();
     s->mode = mv.mode; s->fx_user = mv.fx_user; s->fx = mv.fx; s->tz_min = mv.t ? mv.tz_min : mind_sys_tz(); s->rtc_local = mind_sys_rtc_local();
@@ -134,11 +158,90 @@ static void draw_settings(void) {
     wm_invalidate(w_set);
 }
 
+static int scpy(char* d, int p, const char* s, int cap);
+
+static void launcher_refresh(void) {
+    launcher_count = prog_catalog_search(launcher_query, launcher_matches, 7);
+    if (launcher_selected >= launcher_count) launcher_selected = launcher_count ? launcher_count - 1 : 0;
+}
+static void draw_launcher(void) {
+    if (w_launcher < 0 || !wm_visible(w_launcher)) return;
+    surface_t* s = wm_content(w_launcher);
+    gfx_fill(s, TH_CONTENT);
+    ui_card(s, 12, 10, s->w - 24, 58, "ПОИСК ПРИЛОЖЕНИЙ", TH_CYAN);
+    ui_round_rect(s, 24, 36, s->w - 48, 26, 7, TH_TILE, 255);
+    ui_round_frame(s, 24, 36, s->w - 48, 26, 7, TH_BORDER, 255);
+    ui_text_fit(s, 34, 43, launcher_query[0] ? launcher_query : "Начните вводить название или назначение…", s->w - 68, launcher_query[0] ? TH_TEXT : TH_TEXT_FAINT);
+    if (!launcher_count) gfx_text(s, 28, 92, "Ничего не найдено. Измените запрос.", TH_TEXT_DIM, -1);
+    for (unsigned i = 0; i < launcher_count && i < 7; i++) {
+        const prog_catalog_entry_t* e = prog_catalog_get(launcher_matches[i]);
+        if (!e) continue;
+        int y = 82 + (int)i * 38;
+        if (i == launcher_selected) ui_round_rect(s, 20, y - 3, s->w - 40, 34, 7, TH_CYAN, 34);
+        gfx_text(s, 30, y, e->title, i == launcher_selected ? TH_CYAN : TH_TEXT, -1);
+        ui_text_fit(s, 220, y, e->description, s->w - 250, TH_TEXT_DIM);
+        gfx_text(s, 30, y + 16, e->category, TH_TEXT_FAINT, -1);
+    }
+    ui_statusbar(s, s->h - TH_BAR_H, launcher_status[0] ? launcher_status : "Enter — запуск · ↑/↓ — выбор · Esc — закрыть", TH_TEXT_DIM, "Проверка доверия — в ядре");
+    wm_invalidate(w_launcher);
+}
+static void launcher_search_update(void) { launcher_selected = 0; launcher_refresh(); draw_launcher(); }
+static void launcher_launch_selected(void) {
+    if (launcher_selected >= launcher_count) return;
+    const prog_catalog_entry_t* e = prog_catalog_get(launcher_matches[launcher_selected]);
+    if (!e) return;
+    uint32_t id = 0;
+    prog_request_status_t st = prog_request(e->name, &id);
+    if (st == PROG_REQUEST_ACCEPTED) {
+        launcher_request = id;
+        (void)scpy(launcher_status, 0, "Запрос принят: ожидание запуска…", sizeof launcher_status);
+    } else if (st == PROG_REQUEST_BUSY) {
+        (void)scpy(launcher_status, 0, "Очередь запуска занята. Повторите позже.", sizeof launcher_status);
+    } else {
+        (void)scpy(launcher_status, 0, "Некорректное имя приложения.", sizeof launcher_status);
+    }
+    draw_launcher();
+}
+static void launcher_poll(void) {
+    if (!launcher_request) return;
+    int result = 0;
+    prog_result_state_t state = prog_request_take_result(launcher_request, &result);
+    if (state == PROG_RESULT_PENDING) return;
+    launcher_request = 0;
+    if (state != PROG_RESULT_COMPLETE) (void)scpy(launcher_status, 0, "Результат запуска недоступен.", sizeof launcher_status);
+    else if (result > 0) (void)scpy(launcher_status, 0, "Приложение успешно запущено.", sizeof launcher_status);
+    else if (result == -2) (void)scpy(launcher_status, 0, "Запуск отклонён проверкой доверия.", sizeof launcher_status);
+    else if (result == -3) (void)scpy(launcher_status, 0, "Неверный формат исполняемого файла.", sizeof launcher_status);
+    else (void)scpy(launcher_status, 0, "Не удалось запустить приложение.", sizeof launcher_status);
+    draw_launcher();
+}
+static void launcher_key(const input_event_t* ke) {
+    if (ke->type != INPUT_KEY_DOWN) return;
+    if (ke->key == KEY_ESC) { wm_set_visible(w_launcher, 0); launcher_focus = 0; return; }
+    if (ke->key == KEY_ENTER) { launcher_launch_selected(); return; }
+    if (ke->key == KEY_UP) { if (launcher_selected) launcher_selected--; draw_launcher(); return; }
+    if (ke->key == KEY_DOWN) { if (launcher_selected + 1 < launcher_count) launcher_selected++; draw_launcher(); return; }
+    if (ke->key == KEY_BACKSPACE) {
+        unsigned n = 0; while (launcher_query[n]) n++;
+        if (n) { do { n--; } while (n && (((unsigned char)launcher_query[n] & 0xC0) == 0x80)); launcher_query[n] = 0; launcher_search_update(); }
+        return;
+    }
+    uint16_t c = input_cyr(ke->key, ke->ch, ke->mods);
+    if (c >= 32 && c != 127) {
+        unsigned n = 0; while (launcher_query[n]) n++;
+        if (c < 0x80 && n + 1 < sizeof launcher_query) launcher_query[n++] = (char)c;
+        else if (c < 0x800 && n + 2 < sizeof launcher_query) { launcher_query[n++] = (char)(0xC0 | (c >> 6)); launcher_query[n++] = (char)(0x80 | (c & 63)); }
+        else if (n + 3 < sizeof launcher_query) { launcher_query[n++] = (char)(0xE0 | (c >> 12)); launcher_query[n++] = (char)(0x80 | ((c >> 6) & 63)); launcher_query[n++] = (char)(0x80 | (c & 63)); }
+        launcher_query[n] = 0; launcher_search_update();
+    }
+}
+
 static void redraw_app(int id) {
     if (id == w_mind) draw_mind();
     else if (id == w_mon) draw_monitor();
     else if (id == w_files) draw_files();
     else if (id == w_set) draw_settings();
+    else if (id == w_launcher) draw_launcher();
 }
 
 static int open_app(int app) {
@@ -148,6 +251,7 @@ static int open_app(int app) {
     case APP_MON:   slot = &w_mon;   title = "Монитор";   w = APP_MON_W;   h = APP_MON_H;   break;
     case APP_FILES: slot = &w_files; title = "Проводник"; w = APP_FILES_W; h = APP_FILES_H; break;
     case APP_SET:   slot = &w_set;   title = "Настройки"; w = APP_SET_W;   h = APP_SET_H;   break;
+    case APP_LAUNCHER: slot = &w_launcher; title = "Приложения"; w = 640; h = 390; break;
     case APP_TERM:  slot = &w_con;   title = "Терминал";  w = CON_W;       h = CON_H;       break;
     default: return -1;
     }
@@ -157,6 +261,7 @@ static int open_app(int app) {
         wm_set_tag(*slot, app_tag[app]);
         if (app == APP_MIND) wm_set_subtitle(*slot, "ядро");
         if (app == APP_FILES) { wm_set_subtitle(*slot, "KiraFS"); explorer_refresh(); }
+        if (app == APP_LAUNCHER) wm_set_subtitle(*slot, "поиск и запуск");
     } else {
         wm_set_visible(*slot, 1);
         wm_raise(*slot);
@@ -168,7 +273,7 @@ static int open_app(int app) {
 /* ---------------- события оболочки ---------------- */
 
 static void on_visibility(int id, int visible) {
-    if (visible == -1) { gfx_on_close(id); return; }   // красная кнопка на окне приложения
+    if (visible == -1) { if (id == w_launcher) { w_launcher = -1; launcher_focus = 0; } gfx_on_close(id); return; }   // красная кнопка на окне приложения
     if (visible == 1) redraw_app(id);                  // свёрнутое окно вернулось: содержимое могло устареть
 }
 
@@ -219,12 +324,25 @@ static void files_act(void) {
     if (ev.fm.act_kind == FM_ACT_OPEN && prog) { files_run(prog); return; }
     unsigned pl = 0; while (path[pl]) pl++;
     int is_wasm = ev.fm.act_kind == FM_ACT_OPEN && pl > 5 && path[pl - 5] == '.' && path[pl - 4] == 'w' && path[pl - 3] == 'a' && path[pl - 2] == 's' && path[pl - 1] == 'm';
-    prog_request_file(is_wasm ? "wasm" : "view", path);
-    int p = scpy(files_status, 0, "открыто в просмотре: ", sizeof files_status);
-    (void)scpy(files_status, p, path, sizeof files_status);
+    uint32_t request_id = 0;
+    prog_request_status_t accepted = prog_request_file(is_wasm ? "wasm" : "view", path, &request_id);
+    if (accepted == PROG_REQUEST_ACCEPTED) {
+        files_launch_id = request_id;
+        (void)scpy(files_status, 0, "запрос просмотра принят", sizeof files_status);
+    } else if (accepted == PROG_REQUEST_BUSY) {
+        (void)scpy(files_status, 0, "запуск занят: дождитесь результата", sizeof files_status);
+    } else {
+        (void)scpy(files_status, 0, "путь или имя файла некорректны/слишком длинны", sizeof files_status);
+    }
 }
 
 static void on_input(int id, int type, int x, int y, unsigned buttons) {
+    if (id == w_launcher) {
+        int press = type == 4 && (buttons & 1) && !(launcher_btn & 1);
+        if (type == 4) launcher_btn = buttons;
+        if (press && y >= 78) { unsigned row = (unsigned)(y - 78) / 38; if (row < launcher_count && row < 7) { launcher_selected = row; launcher_launch_selected(); } }
+        return;
+    }
     if (id == w_files) {
         app_hit_t h; app_files_hit(&ev, x, y, &h);
         int press = type == 4 && (buttons & 1) && !(files_btn & 1);
@@ -353,6 +471,11 @@ static void on_launch(int index) {
     launch_program(side_names[index]);
 }
 
+static void on_launcher(void) {
+    launcher_query[0] = 0; launcher_status[0] = 0; launcher_selected = 0; launcher_refresh();
+    open_app(APP_LAUNCHER);
+}
+
 static void on_side_alt(int index) {
     if (index < 0 || index >= side_n || side[index].bottom) return;
     char name[16]; scpy(name, 0, side_names[index], 16);
@@ -361,7 +484,8 @@ static void on_side_alt(int index) {
 
 static void on_tab(int i) {
     if (i == 0) { wm_minimize_all(); return; }
-    if (i < (int)(sizeof app_of_tab / sizeof app_of_tab[0])) open_app(app_of_tab[i]);
+    if (i == 1) { on_launcher(); return; }
+    if (i > 0 && i < (int)(sizeof app_of_tab / sizeof app_of_tab[0])) open_app(app_of_tab[i]);
 }
 
 /* ---------------- верхняя панель ---------------- */
@@ -467,12 +591,22 @@ static void display_main(void* arg) {
         int timed = t0 != 0;
 
         gfx_server_run();                 // окна приложений Ring 3: создание, перерисовка, закрытие
+        files_launch_poll();
+        launcher_poll();               // результат ранее принятого запроса
 
-        {                                 // Проводник сверху: клавиатура у него (консоль в это время не читает)
-            int own = w_files >= 0 && wm_visible(w_files) && wm_top() == w_files;
-            __atomic_store_n(&files_focus, own, __ATOMIC_RELEASE);
+        {                                 // Клавиатура принадлежит верхнему окну ввода.
             input_event_t ke;
-            while (own && input_pop(&ke)) if (ke.type == INPUT_KEY_DOWN && !(ke.key >= KEY_LSHIFT && ke.key <= KEY_CAPS)) explorer_key(ke.key, ke.ch);   // модификаторы - не команды
+            for (;;) {
+                /* Re-evaluate ownership after every key: Escape may close Launcher. */
+                int lown = w_launcher >= 0 && wm_visible(w_launcher) && wm_top() == w_launcher;
+                int fown = !lown && w_files >= 0 && wm_visible(w_files) && wm_top() == w_files;
+                __atomic_store_n(&launcher_focus, lown, __ATOMIC_RELEASE);
+                __atomic_store_n(&files_focus, fown, __ATOMIC_RELEASE);
+                if (!lown && !fown) break;
+                if (!input_pop(&ke)) break;
+                if (lown) launcher_key(&ke);
+                else if (ke.type == INPUT_KEY_DOWN && !(ke.key >= KEY_LSHIFT && ke.key <= KEY_CAPS)) explorer_key(ke.key, ke.ch);
+            }
         }
         if (__atomic_load_n(&rq_pending, __ATOMIC_ACQUIRE)) {      // команда «files»: открыть Проводник на этих путях
             char l[FM_PATH], r[FM_PATH];
@@ -548,8 +682,12 @@ int display_init(unsigned long mbi) {
     if (rc != 0 && virtio_gpu_probe() == 0) rc = 0;
     if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
-    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt };
+    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher };
+#ifdef KIRA_SPATIAL_PREVIEW
+    wm_init_mode(fb_surface(), &ops, WM_LAYOUT_SPATIAL_MINIMAL);
+#else
     wm_init(fb_surface(), &ops);
+#endif
     surface_t* fbs = fb_surface();
     w_con = wm_create_ex("Терминал", WM_AUTO, WM_AUTO, CON_W, CON_H, WM_RESIZABLE, fbs->w, fbs->h);   // можно растянуть до размера экрана
     if (w_con < 0) { uart_print("[KIRA DISPLAY] cannot allocate window surfaces.\n"); return -7; }
@@ -578,9 +716,11 @@ int display_init(unsigned long mbi) {
         return -6;
     }
     ready = 1;
-    uart_print("[KIRA DISPLAY] Shell online: top bar (sections, clock, cores, memory, health), side launcher, "
-               "apps Terminal / Mind / Files / Monitor / Settings, Ring 3 programs from /bin, neural background, "
-               "fullscreen (F11), minimize (F10), damage tiles composed in parallel on all cores.\n");
+#ifdef KIRA_SPATIAL_PREVIEW
+    uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal preview, left navigation, pinned-only bottom Dock, quiet canvas.\n");
+#else
+    uart_print("[KIRA DISPLAY] Shell online: Legacy layout, top navigation, side launcher, apps Terminal / Mind / Files / Monitor / Settings.\n");
+#endif
     return 0;
 }
 
@@ -598,7 +738,7 @@ void display_request_files(const char* left, const char* right) {
     spin_unlock_irqrestore(&rq_lk, fl);
 }
 
-int display_kbd_owner(void) { return __atomic_load_n(&files_focus, __ATOMIC_ACQUIRE); }
+int display_kbd_owner(void) { return __atomic_load_n(&files_focus, __ATOMIC_ACQUIRE) || __atomic_load_n(&launcher_focus, __ATOMIC_ACQUIRE); }
 
 void display_print_info(void) {
     const fb_info_t* i = fb_get_info();

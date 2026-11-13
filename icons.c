@@ -114,6 +114,15 @@ static void shape(const pen_t* p, int kind) {
         poly(p, d, 4, 0);
         break;
     }
+    case ICON_APPS: {
+        /* Каталог приложений: четыре самостоятельные плитки. */
+        static const int a[] = { 8, 8, 26, 8, 26, 26, 8, 26 };
+        static const int b[] = { 38, 8, 56, 8, 56, 26, 38, 26 };
+        static const int c[] = { 8, 38, 26, 38, 26, 56, 8, 56 };
+        static const int d[] = { 38, 38, 56, 38, 56, 56, 38, 56 };
+        poly(p, a, 4, 1); poly(p, b, 4, 1); poly(p, c, 4, 1); poly(p, d, 4, 1);
+        break;
+    }
     case ICON_CHIP: {                                    /* микросхема: корпус, сердцевина и выводы по четырём сторонам */
         static const int body[] = { 16, 16, 48, 16, 48, 48, 16, 48 };
         poly(p, body, 4, 1);

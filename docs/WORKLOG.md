@@ -1,4 +1,22 @@
+## Текущая точка продолжения — исправление Android Spatial preview (2026-11-13)
+
+- Причина неверного интерфейса: `display_init()` безусловно вызывал Legacy `wm_init()`; Android build не выбирал `WM_LAYOUT_SPATIAL_MINIMAL`. Предыдущая выдача готового preview была ошибочной.
+- Внесено: `wm_init_mode()` с сохранением `wm_init()` как Legacy wrapper; `build_clang.sh --android` включает `KIRA_SPATIAL_PREVIEW`; только этот build переключает `display_init()` на Spatial Minimal.
+- Spatial preview не выделяет и не строит анимированный brain background. Legacy фон создаётся только в Legacy startup или при возврате в Legacy.
+- Добавлен отдельный host regression test startup mode. Требуется свежий CI на новом SHA и отдельная проверка Limbo screenshot/latency. PASS пока не заявляется.
+- PR #138 остаётся Draft; `main` не изменён. Мастер-план: J/J.1, D, K, N; workstreams 9 и 12.
+
 # KIRA OS — журнал продолжения работ
+
+## Текущая точка продолжения — PR #138 / Spatial Minimal navigation and Launcher (2026-11-13)
+
+- Ветка: `docs/ui0-spatial-minimal-audit`; PR #138 открыт, Draft, не слит. Не менять `main` и не выполнять merge без разрешения владельца.
+- Последний полностью зелёный CI: run `43387644283`, SHA `00d05f93d0cb63667f1f85c1d445e5bde11bbd3e`: build, host-tests, ARM64 и все VM jobs — SUCCESS. Это подтверждение только указанного SHA.
+- После этого добавлены изменения на текущем head: `prog_catalog.c` проверяет наличие байтов продолжения UTF-8 перед чтением; тесты включают усечённые 2/3/4-байтовые последовательности; ARM64 kernel source list включает `prog_catalog.c` рядом с `prog_queue.c`. Изменения требуют нового CI; PASS для нового head пока не подтверждён.
+- Контракт очереди запуска уже существует и покрыт `tests/prog_queue_test.c`: ACCEPTED/BUSY/INVALID, request ID, PENDING/RUNNING/COMPLETE, результат с однократным потреблением, строгие пределы имени/пути и 12-поточная конкуренция. Не переписывать этот контракт заново.
+- Build-time curated catalog уже существует: `tools/kfstool catalog` + `prog_catalog.c/h`, явный allowlist с русскими метаданными; тест исключает `atk-mem` и неизвестные ELF. Проверка доверия остаётся отдельно в `prog_run_ex()` через SHA-256 `PROG_MANIFEST`.
+- UI-3 Launcher уже подключён к каталогу и асинхронной очереди запуска. Последнее изменение переносит пункт «Приложения» в левую основную навигацию, удаляет дублирующую кнопку из верхней системной зоны и сохраняет нижний Dock только для закреплённых программ. Новый CI на текущем head обязателен.
+- Архитектурная трассировка: мастер-план J/J.1, K, F, N; workstreams 2, 5, 9, 12. Физическое железо не тестировалось.
 
 > Снимок состояния на 2026-11-12. Перед использованием сверять SHA и CI с GitHub: статусы быстро меняются.
 
@@ -270,3 +288,124 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+
+### UI-0 — фактическая инвентаризация KIRA Spatial Minimal (2026-11-12)
+- Проверены текущие исходники `wm.c/.h`, `dock.c/.h`, `gfxui.c/.h`, `theme.h`, а также `tests/wm_test.c`, `tests/dock_test.c`, `tests/ui_test.c`, `tests/gfx_test.c`.
+- Подтверждено: текущий desktop всё ещё использует верхнюю панель с вкладками/телеметрией и левую панель, совмещающую launcher со списком окон; тесты WM прямо фиксируют эти элементы. Это legacy UI, а не реализация Spatial Minimal.
+- Существующая модель Dock `/var/dock`, оконный менеджер, композитор, damage tracking и UI primitives пригодны для переиспользования; их API нельзя ломать при визуальной миграции.
+- Добавлен `docs/UI0_SPATIAL_MINIMAL_AUDIT.md`: карта модулей, конфликты с дизайн-контрактом, сохраняемые инварианты и последовательность UI-1…UI-5.
+- Commit audit: `a8cab94c1c2b76cb3bd66d10545aa777d4f870dc` на ветке `docs/ui0-spatial-minimal-audit`. Изменены только документы; runtime/GUI тесты не запускались и PASS не заявляется.
+- Следующий шаг: проследить wiring `wm_side_set/wm_tabs_set/wm_set_meters` и жизненный цикл Dock в системном цикле; затем подготовить UI-1 token/layout contract и acceptance tests до изменения production GUI.
+
+
+### UI-1 — контракт Spatial Minimal (2026-11-12)
+- Прослежена фактическая дисплейная интеграция в `display.c`: `side_rebuild()` объединяет закреплённые приложения, незакреплённые запущенные окна и «Добавить программу»; `dock_toggle()` сохраняет модель в `/var/dock`; `update_mind()` публикует метрики в постоянную верхнюю панель; `on_tab()` связывает вкладки с системными приложениями.
+- UI-0 audit дополнен точной картой этих связей. Это подтверждает, что миграция должна разделить Dock model, navigation и window overview, сохранив запуск приложений и storage.
+- Добавлен `docs/UI1_SPATIAL_LAYOUT_CONTRACT.md`: состояния idle/contextual, responsive tokens, семантическая палитра, motion/accessibility/security invariants, 10 acceptance tests и безопасная стратегия feature-gated migration.
+- Commits на `docs/ui0-spatial-minimal-audit`: UI-0 audit `a8cab94c1c2b76cb3bd66d10545aa777d4f870dc`, display wiring `e782aa7fb7f2d9f175478cdd96e257e836a93756`, UI-1 contract `a02367a98bf794b11ed9c5340608ca8bbb7ee90b`; PR #138 draft открыт, не слит.
+- Только документация. Production GUI и тесты не менялись/не запускались; PASS не заявляется.
+- Следующий implementation gate: отдельно спроектировать layout-mode state/API и тестовые doubles в `tests/wm_test.c`, затем добавить новый layout за feature gate без изменения legacy default.
+
+
+## 2026-11-13 — Spatial Minimal UI-2 continuation
+
+- Branch: `docs/ui0-spatial-minimal-audit`; PR #138 remains Draft/open; no merge.
+- Starting exact code head before this log update: `f992cd55c0bd3f4ca464745ee8f4a25e5d391a95`.
+- Scope: master plan J/J.1 (desktop and Spatial Minimal), D (telemetry remains contextual), K (existing system/app interfaces), N (regression evidence); workstream 9 (desktop/compositor/system apps) and 12 (CI/verification). No other workstream is declared complete or superseded.
+- Files changed in this continuation: `wm.c` (compact icon navigation rail, hover labels, partial-damage coverage for the tooltip), `tests/wm_test.c` (navigation destination callback coverage), `docs/UI0_SPATIAL_MINIMAL_AUDIT.md` (implementation progress).
+- Verification: Actions run `43379609018` on older head `3aef7f87af90e89e52626ee8b1900d611f2744be` had build and 28 VM jobs complete successfully; host tests and ARM64 QEMU scenarios were still running at last inspection. It is not a full PASS and does not verify the later code changes.
+- Actions run `43380318838` was pending on head `f992cd55c0bd3f4ca464745ee8f4a25e5d391a95`; the current documentation commit will produce a newer head and must be checked separately.
+- No local host test, local cross-build, physical device test, or visual screenshot comparison was run in this session.
+- No main-branch changes, merges, deletions, or destructive operations.
+- Remaining UI-2 work: app discovery/search, temporary window overview and a supported way to reach unpinned running applications; user-facing layout preference; contextual KIRA AI/system surfaces; responsive rail/Dock overflow and touch/DPI verification; performance baselines.
+
+
+### Продолжение 2026-11-13 — Spatial Minimal: temporary window overview
+- PR #138, ветка docs/ui0-spatial-minimal-audit; добавлен реальный временный обзор окон поверх существующего WM.
+- Изменены wm.h, wm.c, tests/wm_test.c, docs/UI0_SPATIAL_MINIMAL_AUDIT.md.
+- Контракт: список по текущему z-order; включены скрытые/свёрнутые окна; pinned widgets исключены; миниатюры берутся из текущих content surfaces; выбор валидирует handle, восстанавливает видимость и вызывает raise; закрытие не меняет состояние окон. Большое число окон поддерживается страницами.
+- UI entrypoint: кнопка «ОКНА» в Spatial top bar. Legacy layout и его click path не менялись; Spatial остаётся opt-in.
+- Тесты добавлены для списка, исключения pinned, выбора свёрнутого окна, topbar entrypoint, закрытия overlay и full-vs-damage redraw.
+- Коммиты: API ca8b1398c5bfff9c29c46d65045e992c2065e485; реализация c02d6ff503b7a2f83a97c117dc26437102ba1899; тесты 59de35e3c6f81f900fb40ff9941e04863e9244b7.
+- На момент записи автоматическая сборка и host tests для нового head не подтверждены; локальная сборка не выполнялась. Проверки Limbo/физического оборудования не выполнялись. Не объявлять PASS до CI.
+- Следующий шаг: дождаться и разобрать CI точного head; исправить все реальные ошибки; затем оценить window overview на малых разрешениях и переходить к app discovery/search.
+
+
+### CI diagnosis and corrective follow-up — PR #138
+- Run 43380385194 на SHA 05529d987587dc017a5e653a5d2cf33442f2f2d2 завершился: host-tests FAILED на compile step tests/wm_test.c:327, потому что тест ссылался на WM_SPATIAL_RAIL_W, определённый только приватно в wm.c и недоступный через wm.h. Это существующий дефект тестового контракта, не связанный с новым overview.
+- Build прошёл; большинство VM-сценариев завершились success; ARM64 и несколько VM jobs были cancelled при последующем обновлении commit. Никакой общий PASS не заявляется.
+- Исправление: WM_SPATIAL_RAIL_W=88 опубликован как layout constant в wm.h; приватное определение удалено из wm.c. Дополнительно обзорные thumbnails переведены на blit_content(), чтобы использовать frame-sequence consistency и не читать кадр Ring 3 в обход защитного механизма.
+- Корректирующие commits: e7313529727fd2edc8041e553682b43a220680d8, 2a26892334a2fb1ed312381ae18504cfd647a2b0, 09e39f118adf389abd106e0bce31efc9bc95f2c9.
+- На актуальном SHA 09e39f118adf389abd106e0bce31efc9bc95f2c9 новый workflow run/commit status пока не виден через Actions connector; запуск и тесты этого SHA не подтверждены. Не переносить результаты старого run.
+
+
+### Window overview input-safety follow-up — 2026-11-13
+- Independent code review identified an input-routing edge: while the overlay was open, an underlying captured app could still receive pointer events; the mouse release following an overview selection could also be delivered after the overlay closed.
+- Fixed by clearing capture/drag/resize on overview activation, routing all pointer events exclusively to the overlay while open, and consuming the release edge that closes it.
+- Added a WM_INPUT regression case proving no motion, press, or release is forwarded to a covered window during selection.
+- Latest code/test head before this log update: 8f5ea7c0666f6414f8c62b373113ee62631baf6e. Actions run 43381183587 was pending at inspection; no jobs had started yet. Await a fresh run on the final documented head.
+
+
+### Window overview hardening and CI follow-up — 2026-11-13
+- Run 43381228981 on SHA 2a07ef6a7ec72c21afce121250dfebdf0ae65b94 failed x86 build: click() called overview_click() before declaration. Added a static forward declaration; this was a defect in the new implementation and is corrected in subsequent head.
+- Run 43381369536 on SHA ecc2249e447229254d73bb7da96e2e90f60754df was cancelled by a newer push before jobs completed; it is not evidence of PASS or FAIL for later code.
+- Added per-window generation tokens to prevent stale overview cards from selecting a different window after WM slot reuse. Added a test that destroys a window and reuses its ID before the next compose.
+- Added overview-card damage mapping so title/visibility/content updates refresh the corresponding card, including a hidden app's thumbnail, without forcing a full-screen redraw on every pointer move.
+- Added regression coverage for hidden-window thumbnail refresh and retained input isolation/release tests.
+- Latest code/test SHA at this log entry: 92457448177442e9d429fbaf0685faa55961815c. Latest exact-head Actions run not yet visible at time of writing; no PASS declared. Local compile, Limbo and physical-hardware tests were not run.
+
+
+### UI-3 app discovery/search — architecture reconnaissance
+- Подтверждён каталог встроенных программ: tools/kfstool генерирует PROG_MANIFEST из ELF, включённых в /bin. Дисплейный поток не должен сканировать и хешировать бинарники.
+- prog_list() выполняет синхронное чтение/хеширование; запуск из GUI идёт через prog_request() -> prog_poll() в основном цикле ядра, а trust_check остаётся в prog_run_ex().
+- Текущая очередь запуска односоставная и молча игнорирует новый запрос при занятой очереди; нужен явный busy/result contract до UI интеграции.
+- Манифест содержит тестовые и атакующие бинарники, их нужно скрывать/маркировать в пользовательском каталоге.
+- Keyboard ownership сейчас только у верхнего Проводника; launcher должен забрать ввод у console через display_kbd_owner и display_main.
+- Отдельный Spatial launcher affordance предпочтительнее нового tab, чтобы не менять legacy UI.
+- Полный контракт добавлен в docs/UI0_SPATIAL_MINIMAL_AUDIT.md, раздел 10. Production app launcher пока не реализован.
+
+
+### CI correction result — code head f6ecb467e4abc50eef9858cb6f62b78335de71c5
+- Исправлена ошибка поколения handle: сравнение overview_generations[index] находится только в ветке выбора карточки; overview_refresh сравнивает локальные id/generation пары. Также заголовок карточки ограничен ui_text_fit, чтобы длинное имя не заходило на соседнюю карточку.
+- Run 43381639422 на точном code SHA f6ecb467e4abc50eef9858cb6f62b78335de71c5: x86-64 build SUCCESS. На момент записи host-tests и ARM64 ещё in_progress; несколько VM jobs in_progress, несколько cancelled/queued. Общий результат не PASS.
+- PR head после дополнительной документации app discovery: 99a078618ada444ffa2f47242577e112e911764c. Документы не меняют production code; проверяемый кодовый SHA остаётся f6ecb467e4abc50eef9858cb6f62b78335de71c5.
+
+
+### Host-test regression isolation — 2026-11-13
+- Run 43381832589 on SHA 1ee5a49b08187acfb276561ccb063846450a3261: x86 build SUCCESS; host-tests FAILED at tests/wm_test.c:390 (`!wm_compose(...)`). Failure occurred because the preceding overview/window-destruction regression sequence had left legitimate damage pending; the telemetry assertion was not isolated from that lifecycle damage.
+- Updated tests/wm_test.c to call frame() after destroying the replacement window, consuming the lifecycle damage before testing that meter telemetry is inert in Spatial Minimal. This changes test setup only, not WM production behavior.
+- Fix commit: db2ec664dd131ba209079485c4e2181de24bbebe. A fresh CI run is required on this exact head; the failed host-test result from 1ee5a49 is not applicable to the corrected test head.
+- In run 43381832589, ARM64 remained in progress and most completed VM scenarios succeeded; several VM shards were cancelled or still running. No full CI PASS is claimed.
+
+
+### UI-3 — curated application catalog model (2026-11-13)
+- Starting exact PR #138 head: 26c802299f1425a31237b35d0732481f81359d44; CI run 43385228857 on that SHA completed successfully: host-tests, x86-64 build, ARM64 build and all VM matrix jobs reported success. This verifies the previous launch-request contract and Window Overview on that SHA, not physical hardware.
+- Added explicit end-user allowlist in tools/kfstool catalog. The catalog header is generated from the actual architecture-specific ELF input list; test/attack/benchmark/internal binaries are not surfaced.
+- Added prog_catalog.c / prog_catalog.h: immutable metadata, bounded indexed access and UTF-8 case-insensitive substring search across name/title/category/description (ASCII and Russian Cyrillic, including Ё).
+- x86-64 and ARM64 build scripts generate separate catalog headers and compile the same catalog API. Trust remains independent in PROG_MANIFEST; launch still passes through the existing SHA-256 check.
+- Added tests/prog_catalog_test.c and host runner coverage for generated allowlist membership, hidden test/unknown binaries, search, case folding and bounds.
+- Validation for this catalog change is pending a new CI run. No local build was run; no Limbo or physical hardware test was performed.
+- Next: verify this exact head; then implement Spatial-only Launcher surface and keyboard focus without changing legacy navigation or console behavior.
+
+
+### UI-3 — integrated Spatial Minimal Launcher (2026-11-13)
+- Confirmed run 43388886629 on exact prior code SHA 37a53ba6229ab7f8a556c6ff93815c5851549b2a: x86-64 build, ARM64 build, host-tests and every VM matrix job completed SUCCESS.
+- Added a dedicated WM callback and “ПРИЛОЖЕНИЯ” action in Spatial Minimal topbar; Legacy navigation is not modified. Added host WM coverage for the callback.
+- Integrated a kernel Launcher window over the generated curated catalog: Russian/English substring search, keyboard selection, Enter launch, mouse row selection, Escape close, and async launch status.
+- Keyboard ownership is exclusive between Launcher and Explorer; display_kbd_owner() suppresses console reads while either owns input. Launches use prog_request() and result retrieval; trust verification remains in the kernel launch path.
+- Current code head before this log entry: 82844f2bd69e774480deadd18eb8c860f9f47181. This code is newer than run 43388886629 and has not yet passed CI. No local build or Limbo/physical device test performed. Next: run fresh x86/ARM/host/VM CI, fix any compile/test failures, then add focused Launcher state/keyboard tests.
+
+
+### Launcher CI compile correction — 2026-11-13
+- Run 43390614381 failed the x86 build at the new Launcher drawing calls: display.c lacked declarations for gfxui primitives (ui_card, ui_round_rect, ui_round_frame, ui_text_fit, ui_statusbar). This is a real compile failure; it is not being marked as passed.
+- Added the missing gfxui.h include, and bounded the search-field text with ui_text_fit. The failed run used earlier head c46522f81c5c60a9b76f634a8965bf6f86b110e3 and therefore does not include this correction.
+- Corrected source head at this note: 569c028388e2f011c2199b64419870a3af575329. Fresh CI on the corrected tree is still required.
+
+
+### Продолжение KIRA Spatial Minimal — ARM64 startup marker (2026-11-13)
+- Проверен workflow run `43395060732`: x86-64 build success; ARM64 build success; 20 VM scenarios success; ARM64 job failed только на `arm64-gui`, `arm64-explorer2`, `arm64-ramfb`, `arm64-dma-nc` с отсутствующим литералом `[KIRA DISPLAY] Shell online`. В job log сами четыре сценария завершаются по отсутствию этого маркера; это не доказательство отказа display hardware/init.
+- Root cause: startup log был переименован в `Legacy shell online` / `Spatial Minimal preview online`, а сценарии ARM64 ожидали стабильное mode-independent событие готовности оболочки.
+- Исправлено в `display.c`: оба режима теперь выводят `[KIRA DISPLAY] Shell online:` и затем описание layout. Commit `613a6e734b767914c14b1d511c8e5677e5d3e246`.
+- На момент проверки host-tests в run `43395060732` ещё выполнялись. Новый CI на exact fix commit пока не подтверждён; Limbo/physical hardware не тестировались.
+- Следующее: получить свежий CI для ветки `docs/ui0-spatial-minimal-audit`, проверить host-tests + ARM64 VM; затем продолжить responsive Dock/short-screen acceptance and performance baseline. PR не сливать.

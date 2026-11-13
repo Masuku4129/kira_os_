@@ -70,8 +70,17 @@ static int gin_n;
 void gfx_on_input(int w, int t, int x, int y, unsigned b) { (void)w; (void)t; (void)x; (void)y; (void)b; gin_n++; }
 void gfx_on_close(int w) { (void)w; }
 static char spawned[16];
-void prog_request(const char* n) { snprintf(spawned, sizeof spawned, "%s", n); }
-void prog_request_file(const char* n, const char* f) { (void)f; snprintf(spawned, sizeof spawned, "%s", n); }
+prog_request_status_t prog_request(const char* n, uint32_t* id) {
+    if (!id) return PROG_REQUEST_INVALID;
+    *id = 1; snprintf(spawned, sizeof spawned, "%s", n); return PROG_REQUEST_ACCEPTED;
+}
+prog_request_status_t prog_request_file(const char* n, const char* f, uint32_t* id) {
+    if (!id || !n || !f) return PROG_REQUEST_INVALID;
+    *id = 1; (void)f; snprintf(spawned, sizeof spawned, "%s", n); return PROG_REQUEST_ACCEPTED;
+}
+prog_result_state_t prog_request_take_result(uint32_t id, int* result) {
+    (void)id; (void)result; return PROG_RESULT_PENDING;
+}
 static char con_cmd[64]; static int con_n;
 int console_request(const char* l) { snprintf(con_cmd, sizeof con_cmd, "%s", l); con_n++; return 0; }
 
@@ -245,7 +254,15 @@ int main(int argc, char** argv) {
              "WARN: heap 81% (cube3d)\n"
              "кира> ai why\n");
 
-    if (display_init(0x10000) != 0) { printf("display_init failed\n"); return 1; }
+    if (display_init(0x10000) != 0) { printf("display_init failed\\n"); return 1; }
+#ifdef KIRA_SPATIAL_PREVIEW
+    CHECK(wm_get_layout_mode() == WM_LAYOUT_SPATIAL_MINIMAL);
+    run(3);
+    CHECK(presents_rect > 0);
+    save_shot("spatial-minimal-startup.ppm");
+    printf("%s\\n", fails ? "SPATIAL PREVIEW FAILED" : "Spatial Minimal display startup passed");
+    return fails != 0;
+#endif
     run(30);
     CHECK(presents_rect > 10);
     save_shot("terminal.ppm");
@@ -254,7 +271,7 @@ int main(int argc, char** argv) {
     { int x, y; CHECK(wm_side_center(0, &x, &y) == 0 && wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) != 0); }
 
     /* разделы: Разум */
-    click_tab(2);
+    click_tab(3);
     run(4);
     int w_mind = wm_find("Mind");
     CHECK(w_mind >= 0 && wm_top() == w_mind);
@@ -268,7 +285,7 @@ int main(int argc, char** argv) {
     save_shot("monitor.ppm");
 
     /* Проводник: две панели, мышь и клавиши */
-    click_tab(3);
+    click_tab(2);
     run(3);
     int w_files = wm_find("Files");
     CHECK(w_files >= 0 && wm_top() == w_files);
@@ -372,7 +389,7 @@ int main(int argc, char** argv) {
     CHECK(con_n == 1 && !strcmp(con_cmd, "cube3d"));
     static uint32_t pa[320 * 240];
     for (int j = 0; j < 240; j++) for (int i = 0; i < 320; i++) pa[j * 320 + i] = ((i * 160 / 320) << 16) | ((j * 120 / 240 + 40) << 8) | 0xA0;
-    click_tab(2);
+    click_tab(3);
     int uf = wm_create_user("cube3d", WM_AUTO, WM_AUTO, 320, 240, pa);
     wm_set_tag(uf, "cube3d");
     CHECK(uf >= 0 && wm_top() == uf);

@@ -17,11 +17,17 @@
 #define WM_PAD       10      /* поля окна вокруг содержимого */
 #define WM_HEAD      36      /* заголовок окна */
 #define WM_SIDE_W    76      /* место под боковую панель слева */
+#define WM_SPATIAL_RAIL_W 88  /* ширина компактной навигации Spatial Minimal */
 #define WM_GLOW      4       /* свечение окна в фокусе (за пределами рамки) */
 #define WM_AUTO      (-100000) /* координата "разместить самому" */
 #define WM_SIDE_MAX  10
 #define WM_TAB_MAX   8
 #define WM_DOCK_MAX  WM_SIDE_MAX
+
+typedef enum {
+    WM_LAYOUT_LEGACY = 0,
+    WM_LAYOUT_SPATIAL_MINIMAL = 1
+} wm_layout_mode_t;
 
 #define WM_CLOSABLE  1       /* окно можно закрыть (иначе красная кнопка сворачивает) */
 #define WM_PINNED    2       /* виджет: не двигается, не поднимается, без кнопок */
@@ -44,9 +50,18 @@ typedef struct {
     void  (*resize)(int id, int w, int h);        /* у окна с WM_RESIZABLE изменился размер содержимого */
     void  (*tab)(int tab_index);                  /* нажат раздел в верхней панели */
     void  (*side_alt)(int side_index);            /* правая кнопка на значке боковой панели */
+    void  (*launcher)(void);                     /* открыть каталог приложений (только Spatial Minimal) */
 } wm_ops_t;
 
-void wm_init(surface_t* screen, const wm_ops_t* ops);
+void wm_init(surface_t* screen, const wm_ops_t* ops); /* legacy-compatible entry point */
+void wm_init_mode(surface_t* screen, const wm_ops_t* ops, wm_layout_mode_t mode);
+void wm_set_layout_mode(wm_layout_mode_t mode);
+wm_layout_mode_t wm_get_layout_mode(void);
+/* Spatial Minimal: временный обзор всех неприкреплённых окон, включая свёрнутые. */
+void wm_window_overview_toggle(void);
+int wm_window_overview_is_open(void);
+int wm_window_overview_count(void);
+int wm_window_overview_item_center(int item, int* x, int* y);
 int  wm_create(const char* title, int x, int y, int content_w, int content_h, int flags); /* id или -1 */
 /* Как wm_create, но память под содержимое выделяется на cap_w x cap_h: размер можно менять до этого предела. */
 int  wm_create_ex(const char* title, int x, int y, int content_w, int content_h, int flags, int cap_w, int cap_h);
