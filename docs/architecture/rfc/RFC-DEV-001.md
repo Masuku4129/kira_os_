@@ -192,9 +192,9 @@ Tests must include host models for deterministic malformed-input coverage, but a
 
 ## 11. Open decisions
 
-- Whether opaque IDs should be boot-local monotonic values or include a boot epoch for cross-reboot diagnostics.
-- Whether topology parent references are stable handles or registry indices.
-- Whether scan-wide PCI handle invalidation is sufficient for early boot or per-location generations are required for hotplug.
+- Boot-local monotonic IDs and snapshot generations are the current implementation; adding a boot epoch for cross-reboot diagnostics remains open.
+- Parent topology is represented by optional generation-safe handles; PCI parent links are not populated yet.
+- Scan-wide snapshot invalidation is the current boot-time policy; per-location generations are required before safe hotplug is considered.
 - Driver matching precedence and conflict resolution.
 - Interrupt abstraction and event delivery contract.
 - Resource sharing rules for bridges, multifunction devices and platform devices.
@@ -222,3 +222,14 @@ No ABI freeze or production Device Model claim is made by this RFC.
 - Host tests, x86-64 build, ARM64 build/QEMU and all 27 VM scenarios completed successfully.
 - R-07's source/test gate is closed for this head. Android Limbo visual validation and physical hardware remain separate, unverified gates.
 - The generic bus-independent registry, typed resource ownership and full driver teardown remain unimplemented; DEV-001 stays Draft.
+
+
+## 13. Common registry implementation slice — PR #141 (2026-11-13)
+
+- Added bounded registry API in `device_model.h/.c`: `device_handle_t`, typed bus identity, bus-neutral location, optional parent handle, immutable descriptor lookup, duplicate-location rejection, snapshot generation invalidation and fail-closed capacity/overflow behavior.
+- PCI is the first discovery adapter. `pci_init_range()` begins the registry snapshot, registers each discovered PCI function, and stores the registry handle in `pci_dev_t`. `pci_resolve()` validates the common handle and PCI location before returning the PCI descriptor.
+- `pci_handle_t` remains a compatibility alias only. KDRV binding storage now uses `device_handle_t`, but device operations still pass through PCI-specific helpers.
+- Invalid bus ranges preserve the last valid snapshot. A registry insertion failure aborts the new snapshot and invalidates all handles from it.
+- Host tests cover multiple bus types, duplicate and malformed locations, parent-handle validation, stale generations, bounded capacity and PCI adapter consistency. x86-64 and ARM64 manifests include the registry.
+- Explicitly not implemented: USB/virtio/platform/ACPI discovery adapters, resource reservation/ownership, interrupt ownership, DMA/IOMMU domain binding, lifecycle state transitions, quiesce/revoke, hotplug and generic driver binding.
+- PR #141 is Draft and stacked on PR #139. Exact-head CI is pending; no PASS is claimed.
