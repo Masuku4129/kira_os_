@@ -484,4 +484,4 @@
 ### Spatial window touch targets — 2026-11-13
 - Spatial Minimal window title controls now use non-overlapping 32×32 hit areas spaced 36 px apart; compact visual dots remain. Hover damage covers the full control group.
 - Spatial resize/zoom corner hit area expanded to 36×36. Legacy geometry/input remains unchanged.
-- Added tests clicking the far corner of minimize/fullscreen targets. Fresh exact-head CI and phone/Limbo validation remain pending.
+- Added tests clicking the far corner of minimize/fullscreen targets and resizing from the expanded corner target. Fresh exact-head CI and phone/Limbo validation remain pending.
