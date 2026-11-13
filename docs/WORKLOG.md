@@ -521,3 +521,12 @@
 - Code/test commits in this follow-up: `wm.c` `9a0c768883d6fd4e520a3b64c77ef8c7d828a085`, `display.c` `6fb899aedbec63d53393a330819dfeb359d80a5c`, `tests/wm_test.c` `2eaa2c408ef7322511c448d12fdf47422ab8670d`; documentation `1be8a7305888cbc612d6963255d9aa0713c1999c`.
 - A new CI run was queued for the corrected host assertion; latest exact-head result must be checked after the newest code/docs commits. No local build, Limbo visual acceptance or measured performance comparison is available in this session.
 - Still not implemented: actual network enable/disable, audio control interaction, battery/power controls, wallpaper preferences, full DPI/reduced-motion/accessibility, and a separate AI assistant overlay. These are not represented as completed. No PR merge, main update or ISO release.
+
+
+### Spatial quick-panel volume interaction — 2026-11-13
+
+- Added a bounded pointer interaction on the audio card: clicking its level bar computes a 0–100 master-volume value and invokes the display callback, which calls the existing audio mixer API. The displayed value refreshes immediately; the display loop also polls the real mixer state.
+- Added host WM coverage for the callback and verifies a click on the compact 320×240 audio bar produces the expected 75–80% setting.
+- Network status remains read-only link state; no unsafe stop/start operation was added because the network stack has no corresponding lifecycle API. Battery/power controls, wallpaper, DPI/accessibility and a separate assistant surface remain outside the current implementation.
+- Exact code/test commits: wm.h e8f103b55a0a5723ee4da200fc3dc2bdc21d97d9, wm.c 574f594e404f8a6b6793109f33bf11d77132addd, display.c 7a3fc15de2becd2ee2f9e6d6258d5e29e3b81761, tests/wm_test.c 9010cb709e67de9762a924d5b0df0daefb1e0138.
+- Fresh exact-head CI is required after these commits; no build/test PASS is claimed yet.
