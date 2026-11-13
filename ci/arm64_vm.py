@@ -145,7 +145,7 @@ SC = [
                ("@log drvedu: dma denied \\(expected without CAP_DMA/IOMMU\\)", []),
                ("@log drvedu: refused: other-bar=-2 past-bar=-10 bar-move=-12 bad-cmd=-12 cfg-id=0x", []),
                ("@log drvedu: PASS", []),
-               ("drv", [r"drv-edunc pid \\d+", r"отображений 1", r"прерываний 0"]),
+               ("drv", [r"drv-edunc pid \d+", r"отображений 1", r"прерываний 0"]),
                ("drv stop edunc", [r"останавливаю drv-edunc"]), ("@sleep 2", []),
                ("@log \\[KIRA DRV\\] drv-edunc \\(pid \\d+\\) завершён: устройство .* остановлено", []),
                ("@log \\[KIRA DRV\\] edunc: возвращено памяти DMA и колец 0 из 0 стр\\..*утечек нет", []),
