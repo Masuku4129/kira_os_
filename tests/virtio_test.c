@@ -199,7 +199,10 @@ static void model_init(vopt_t o, uint16_t devid) {
 static uint8_t buf[300 * 512], ref[300 * 512];
 static void rnd(uint8_t* p, size_t n, unsigned seed) { for (size_t i = 0; i < n; i++) { seed = seed * 1103515245u + 12345u; p[i] = (uint8_t)(seed >> 16); } }
 
+static int test_pci_rescan_allowed(void) { return 1; }
+
 int main(void) {
+    pci_set_rescan_guard(test_pci_rescan_allowed); /* test model explicitly owns repeated enumeration */
     vopt_t o0; memset(&o0, 0, sizeof o0);
     /* --- PCI --- */
     model_init(o0, 0x1042);
