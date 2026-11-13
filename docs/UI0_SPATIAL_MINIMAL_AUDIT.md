@@ -205,3 +205,10 @@
 - Extended `tests/ui_damage_contract_test.py` to assert both hover transitions and active-section transitions use bounded per-item invalidation, and that active-tab changes do not call `damage_side()`.
 - Source/test commits: `85884292734df3ae4a4b08888a8768aa835fc682`, `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae`.
 - Prior run `43396919980` validated the earlier Dock/hover fix only. Fresh exact-head CI is required for this follow-up. Android Limbo visual check and frame-time/dirty-pixel measurements remain open.
+
+
+## 17. Exact-head CI verification (2026-11-13)
+
+- Exact-head run `43408346184` passed on branch head `1850c0ea0f4f3436116b1b3e3942f5f05293ef34`; source/test head was `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae` (later commits are documentation-only).
+- Host tests, x86-64 build, ARM64/QEMU and all VM scenarios passed, including `limbo-spam`, `limbo-mttcg`, USB-UHCI, USB-xHCI and driver scenarios.
+- This verifies the bounded invalidation contracts and builds. It does not measure FPS/frame time/dirty-pixel reduction and does not replace the user's Android Limbo visual comparison.
