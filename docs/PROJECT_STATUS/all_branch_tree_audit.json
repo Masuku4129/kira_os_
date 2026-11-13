@@ -7,9 +7,11 @@
     "file_count": 829
   },
   "scope": {
-    "all_branch_refs": 211,
-    "unique_commit_heads": 199,
-    "completed_unique_heads": 205
+    "all_branch_refs": 302,
+    "all_unique_commit_heads": 290,
+    "non_ci_branch_refs": 211,
+    "non_ci_unique_tree_heads": 205,
+    "ci_result_and_preview_refs": 91
   },
   "completed_tree_heads": [
     "8d624bd887da29f75f163c29f1b7a0d052ae578d",
@@ -2596,5 +2598,2867 @@
     "docs/KIRA_INSTRUCTION_LANGUAGE.md": 2,
     "docs/BUILD_FACTORY.md": 1
   },
-  "note": "Tree snapshots compare each unique non-CI branch head to pinned main baseline. No branch is deleted; branch-only paths remain catalogued for review, not auto-merged."
+  "note": "Complete tree-level inventory of all unique non-CI branch heads against pinned main baseline. Branch-only paths are retained for triage and must never be auto-merged. Non-CI branches without a PR are preserved as references; CI preview/result refs are recorded but excluded from source-tree comparison.",
+  "branch_refs": [
+    {
+      "name": "ai/appbox-object-accounting-safety",
+      "sha": "8d624bd887da29f75f163c29f1b7a0d052ae578d"
+    },
+    {
+      "name": "ai/appbox-untrusted-launch-no-caps",
+      "sha": "f055aa6c31cb22c19c1d466b8b225580d50bf128"
+    },
+    {
+      "name": "ai/kcc-context-a64-state",
+      "sha": "715eb1a9a50497586f94f102168a4c22751e52cb"
+    },
+    {
+      "name": "ai/kcc-context-a64-state-v2",
+      "sha": "fe1037b5b85787adcf567f370f5d93d72b876098"
+    },
+    {
+      "name": "ai/kcc-context-backend-regression",
+      "sha": "2f0e38254fbde12ff1a1673b27f0337690c319fb"
+    },
+    {
+      "name": "ai/kcc-context-complete",
+      "sha": "4863fb778dd664d2e0604c09792255f72cff1add"
+    },
+    {
+      "name": "ai/kcc-context-complete-v2",
+      "sha": "ea9f8b1d261af1d2b02c0f70632370f56b350557"
+    },
+    {
+      "name": "ai/kcc-context-complete-v3",
+      "sha": "c75beb9342a58a55a7c1fb8e6a49addedc4fb150"
+    },
+    {
+      "name": "ai/kcc-context-complete-v4",
+      "sha": "74e7e654f3881369b1a15449652be72f8354ab11"
+    },
+    {
+      "name": "ai/kcc-context-gen-state",
+      "sha": "a33f881079585209ae9c2a3b317af04ca9e6f8e8"
+    },
+    {
+      "name": "ai/kcc-context-gen-state-v2",
+      "sha": "354205a53d70d87011fefc77cdb70ef06dbc78bf"
+    },
+    {
+      "name": "ai/kcc-context-ir-state",
+      "sha": "292c2f4af247bad024106eca6cc0e09df14ffbcf"
+    },
+    {
+      "name": "ai/kcc-context-ir-state-v2",
+      "sha": "4af78ac99e52b9669bc78eff9d6155201245f43c"
+    },
+    {
+      "name": "ai/kcc-context-migration-complete",
+      "sha": "68982123089baf344aca1541698d3101c23cc932"
+    },
+    {
+      "name": "ai/kcc-context-more-state",
+      "sha": "b7cb6f655128b38f3b626da6a31f4fba35cad1df"
+    },
+    {
+      "name": "ai/kcc-context-opt-state",
+      "sha": "1a0a914081e74f4e714eab8a9cdb6330cdfcae5d"
+    },
+    {
+      "name": "ai/kcc-context-options",
+      "sha": "7c741516a584230609ae43ba4aa4308101a48ed2"
+    },
+    {
+      "name": "ai/kcc-context-parser-state",
+      "sha": "10a19683fa11f8afea77742067f2e4498e6cacad"
+    },
+    {
+      "name": "ai/kcc-context-parser-state-v2",
+      "sha": "5f2f8b4b8cb529dd5f585cbf547a0e273c872500"
+    },
+    {
+      "name": "ai/kcc-context-preprocessor-state",
+      "sha": "133646047c57895ea6c4d74552c75c44279e3b63"
+    },
+    {
+      "name": "ai/kcc-context-x86-state",
+      "sha": "b16db6997813fb0f00ecbc470d6c969c30274b52"
+    },
+    {
+      "name": "ai/kira-agent-bootstrap",
+      "sha": "7fc578f313b39c1ef93a6d66d7614af7ccf83389"
+    },
+    {
+      "name": "ai/mind-memory-pressure-forecast",
+      "sha": "8cc5a43526ceba82fee959626f45858cf620d469"
+    },
+    {
+      "name": "ai/mind-memory-pressure-forecast-v2",
+      "sha": "579e807f74efe21f9049c57a4111021a6f3ffec7"
+    },
+    {
+      "name": "ai/mind-multitask-foundation",
+      "sha": "aeb9f2b7865ca5101be6daeb7aecf2bab801173b"
+    },
+    {
+      "name": "ai/mind-recall-trust-gate",
+      "sha": "b346f1131755b9a21d3c4280162a541d3df62923"
+    },
+    {
+      "name": "ai/mind-validity-feature",
+      "sha": "464070a038c35a22fa385395d6a47645f2caa489"
+    },
+    {
+      "name": "ai/process-thread-metadata-atomic-create",
+      "sha": "f3e77f159749b440a1e95c1408443498faff3fc0"
+    },
+    {
+      "name": "ai/userland-assistant-architecture",
+      "sha": "137655c8d10226fbbd8b3139882958d71088382b"
+    },
+    {
+      "name": "architecture/device-registry-pci-adapter-2026-11",
+      "sha": "cda2ba2b3b9432f0dcae1843bc331ac858c4b6e2"
+    },
+    {
+      "name": "architecture/pci-range-device-model-2026-11",
+      "sha": "ea83f83bdc59307bba22a6bd013b24c5c5c09731"
+    },
+    {
+      "name": "architecture/target-baseline-2026-11",
+      "sha": "78a76003d0d808147f994c7ed23098c607039fd8"
+    },
+    {
+      "name": "audit/ci-architecture",
+      "sha": "b733570fee91e1b97e91552d11e9beca284bc578"
+    },
+    {
+      "name": "autodrv",
+      "sha": "3b709121700294d5ae72414276186e404a2d4a74"
+    },
+    {
+      "name": "baseline/spatial-preview-5fc8f491",
+      "sha": "5fc8f49184e2e27e44790bdcd238977bfd126cc4"
+    },
+    {
+      "name": "ci/watchdog-10m",
+      "sha": "e087289a8ab82706f990176fa299b0decb87188b"
+    },
+    {
+      "name": "ci-preview-autodrv",
+      "sha": "5b348f12df8063c69bff07f6db67360b76deefaf"
+    },
+    {
+      "name": "ci-preview-v46-unified-release-integration",
+      "sha": "f07443c289f2a6d1bde36445805b443d18691c12"
+    },
+    {
+      "name": "ci-results",
+      "sha": "e6ed91ff29589e3bd09ade395a022d07361d9ee9"
+    },
+    {
+      "name": "ci-results-3-merge",
+      "sha": "0f11a3e86c48ea82ef56fbaee1d0222b4272bfda"
+    },
+    {
+      "name": "ci-results-4-merge",
+      "sha": "25c878fb1694ae7a733ae83cd097f44858aa57d7"
+    },
+    {
+      "name": "ci-results-47-merge",
+      "sha": "8971e02dc7a50336fa283036b550cf6c1f849d74"
+    },
+    {
+      "name": "ci-results-48-merge",
+      "sha": "4b13e7d6d841d238cc453be6a7aaaa238c3564fb"
+    },
+    {
+      "name": "ci-results-131-merge",
+      "sha": "dcb077fc70727d20d88d0d85fe9a06d6246e733d"
+    },
+    {
+      "name": "ci-results-135-merge",
+      "sha": "85a7b3d242c1fa86aa355719083d105760fed798"
+    },
+    {
+      "name": "ci-results-136-merge",
+      "sha": "a0a758a8858172d71a983e2c23366ea5a0e461b8"
+    },
+    {
+      "name": "ci-results-137-merge",
+      "sha": "23e8168c8de8102ec1decd3954313be492d89d7f"
+    },
+    {
+      "name": "ci-results-138-merge",
+      "sha": "eb1329df599f8c0c34ff5d101e379af5df911f3f"
+    },
+    {
+      "name": "ci-results-139-merge",
+      "sha": "65ce478a0da0081f013113cd4b2c9fed051ac4a0"
+    },
+    {
+      "name": "ci-results-140-merge",
+      "sha": "6cc99241d09e910560483821a5b422c188402cd9"
+    },
+    {
+      "name": "ci-results-141-merge",
+      "sha": "bbe3018c522402ef76b6f5a9801febf6b310d10a"
+    },
+    {
+      "name": "ci-results-142-merge",
+      "sha": "78aec202db46090a90252255b33a33fb39bc91cb"
+    },
+    {
+      "name": "ci-results-143-merge",
+      "sha": "75b0690a508b12cb4d8878802c8cd9567323ccd0"
+    },
+    {
+      "name": "ci-results-144-merge",
+      "sha": "d05aa5fe57ff842cb9b6cccbfffee6e4d9397b35"
+    },
+    {
+      "name": "ci-results-145-merge",
+      "sha": "5fcd4c77c49676fd27cd1fc48aa011a3dca83df2"
+    },
+    {
+      "name": "ci-results-146-merge",
+      "sha": "ef1167bce8f509a4bb964ee1ba921ca441e6d876"
+    },
+    {
+      "name": "ci-results-147-merge",
+      "sha": "f8028f311d1d653a28bbf4d15104f4edb0e065ea"
+    },
+    {
+      "name": "ci-results-148-merge",
+      "sha": "9a89340f27a045ebf925b0fc33c542c849414adb"
+    },
+    {
+      "name": "ci-results-audit-ci-architecture",
+      "sha": "4d89c64d427d8b7853f0da878c889ac9020767ca"
+    },
+    {
+      "name": "ci-results-autodrv",
+      "sha": "e2fe4615bcde985e86576082999283b86dc39f43"
+    },
+    {
+      "name": "ci-results-ci-watchdog-10m",
+      "sha": "4e0843248c8d8a9bc5f7445e0fa95254f6a01479"
+    },
+    {
+      "name": "ci-results-factory-architecture-parallel",
+      "sha": "f4ee5218da215e16b29a3a679aca817edb365888"
+    },
+    {
+      "name": "ci-results-factory-architecture-round-2",
+      "sha": "8e7a2095c03a3b1cc402f59686553e79afd395b4"
+    },
+    {
+      "name": "ci-results-fix-wasm-module-header-bounds",
+      "sha": "350f6d5940f98101abf4a1b16c15e278eda8076e"
+    },
+    {
+      "name": "ci-results-integ",
+      "sha": "203fdd07cb58f83acf2aabc8d74503af18eabeaf"
+    },
+    {
+      "name": "ci-results-integ2",
+      "sha": "fbbc8bd766cf8e366d2dfe41d4d5fa9a62619395"
+    },
+    {
+      "name": "ci-results-integ3",
+      "sha": "4ce9e19ff513a3fb9803d292eb525bb407e27e4c"
+    },
+    {
+      "name": "ci-results-integ4",
+      "sha": "cbbc52e4daff7fd2268699dfc781f28ab367e233"
+    },
+    {
+      "name": "ci-results-integ5",
+      "sha": "65dafc84c5f09ae298ae91e10f6a08281f1e3ea1"
+    },
+    {
+      "name": "ci-results-kira-lab-robust-futex-2026-11-09",
+      "sha": "f5de27e411195f64d7aefef280fc5205dd8fcf2b"
+    },
+    {
+      "name": "ci-results-maintenance-watchdog-v45",
+      "sha": "7519ea80c371d35fcb94aaff437a02e16f2eb627"
+    },
+    {
+      "name": "ci-results-pkg-A",
+      "sha": "fe357c858f166133d22e8d612d35cc04292146c8"
+    },
+    {
+      "name": "ci-results-pkg-C",
+      "sha": "86c67ca4c14311d8a21858a817a714fbd6de8833"
+    },
+    {
+      "name": "ci-results-pkg-D",
+      "sha": "71cf94a52e8c39e3c06ff6cbf54ddd53efe5bc18"
+    },
+    {
+      "name": "ci-results-pkg-DK",
+      "sha": "b0078593fb74b40afc20c1fe95a237400c583ace"
+    },
+    {
+      "name": "ci-results-pkg-DM",
+      "sha": "c83700a01ef7ed710d2b67ff3b6cef09a9126b68"
+    },
+    {
+      "name": "ci-results-pkg-E",
+      "sha": "635ffecdae879ceaaa208d6006f25009e37c6efc"
+    },
+    {
+      "name": "ci-results-pkg-F",
+      "sha": "d7bc21ac4ba51e86efa36bba1a83c049ece94710"
+    },
+    {
+      "name": "ci-results-pkg-G",
+      "sha": "4040c0b425890e96a8a704b427e56ad53f16d10a"
+    },
+    {
+      "name": "ci-results-pkg-H",
+      "sha": "686d9713ec83e835dbffed4afce401fbe9f39400"
+    },
+    {
+      "name": "ci-results-pkg-H0",
+      "sha": "fc64db66bad9e06804c65255e3b432ac62a7606e"
+    },
+    {
+      "name": "ci-results-pkg-I",
+      "sha": "ea8acfc47e793ba1aa17efb3df0e921faf95cfc7"
+    },
+    {
+      "name": "ci-results-pkg-J",
+      "sha": "174fba388925c56ccbc12fb714cec85d615e4173"
+    },
+    {
+      "name": "ci-results-pkg-K",
+      "sha": "e365b77fcae72f327604c4cac0e0abefbe6c81b0"
+    },
+    {
+      "name": "ci-results-pkg-LN",
+      "sha": "060a225a8f77be006fc6044d297e3f3bf1f8ae81"
+    },
+    {
+      "name": "ci-results-pkg-M",
+      "sha": "29ca8b43fc74c63562b9c902b2da687b83f40956"
+    },
+    {
+      "name": "ci-results-pkg-M4",
+      "sha": "7ef431617e63c61b39eb718b0948646134da19c0"
+    },
+    {
+      "name": "ci-results-pkg-STAB",
+      "sha": "43d840e3bfc2d1a7ea8e201f8519032ec0b924f7"
+    },
+    {
+      "name": "ci-results-pkg-UX",
+      "sha": "88f713e959a6007126f686358afe891672d71df8"
+    },
+    {
+      "name": "ci-results-pkg-WJ",
+      "sha": "1ec4e0638a44ec4ef86475f729ac2d21c5b6e240"
+    },
+    {
+      "name": "ci-results-research-architecture-validation-round2-2026-11-09",
+      "sha": "fdfb5df7c137526b6ac13d284509ac9a3b575d09"
+    },
+    {
+      "name": "ci-results-research-data-format-lab-2026-11",
+      "sha": "a08047ed91f2b9a4e273cf05b9025d615aa1f266"
+    },
+    {
+      "name": "ci-results-research-driver-adaptation-lab-2026-11",
+      "sha": "db23f19e1ec5b5f0184455a9cc24a902a89df9a4"
+    },
+    {
+      "name": "ci-results-v43-integration",
+      "sha": "f9c6da7324a309e3840df3c27d001bab36df33a7"
+    },
+    {
+      "name": "ci-results-v44-global-upgrade",
+      "sha": "cd30dd03d917773eac31e612fd936ff563a7cc72"
+    },
+    {
+      "name": "ci-results-v44-next-batch",
+      "sha": "6c6e6a88a92dbfcf05ae01d89f1d2b75f80f1ec8"
+    },
+    {
+      "name": "ci-results-v45-overhaul",
+      "sha": "6dc827a27840e0b1b5b5cb32620b6b9fa744ed05"
+    },
+    {
+      "name": "ci-results-v46-architecture-completion",
+      "sha": "27cffffe29f9c8f1df909896cb00c429a3175c02"
+    },
+    {
+      "name": "ci-results-v46-ci-final-20261107b",
+      "sha": "89292c56fd07596f0c44bc7bf2c9358a1db08734"
+    },
+    {
+      "name": "ci-results-v46-ci-validation-20261107",
+      "sha": "9efe84ffa67ccb7caa0eec0177d6a46cf090ac89"
+    },
+    {
+      "name": "ci-results-v46-ci-validation-fdt-20261107",
+      "sha": "ed36a4e93c7c52766bc46cfe30a2a7eb03428a85"
+    },
+    {
+      "name": "ci-results-v46-ci-validation-final-20261107",
+      "sha": "0f7825038caa633348e23eb854b0ca731ade48a9"
+    },
+    {
+      "name": "ci-results-v46-dma-cleanup-validation",
+      "sha": "09b2fa4c46e8bfb37b8cf56da698e336469aea21"
+    },
+    {
+      "name": "ci-results-v46-dma-device-cleanup",
+      "sha": "8a6dd6cad279ceca258e2a2a3f0784526bd7c1df"
+    },
+    {
+      "name": "ci-results-v46-ed25519-strict-subgroup",
+      "sha": "2dc52f4b661d8e3e0435a25a8983a834c021c2f7"
+    },
+    {
+      "name": "ci-results-v46-engineering-work",
+      "sha": "7c33d8bcb41775b08be7c797b27b306a70a8ecea"
+    },
+    {
+      "name": "ci-results-v46-iommu-network-compile-fixes",
+      "sha": "5d6b1c0d465dd87809b048015002e807015148a8"
+    },
+    {
+      "name": "ci-results-v46-kdrv-auth-integration-final",
+      "sha": "30ee704ab3a690b9bfa8bb4d2b941a0587a62efe"
+    },
+    {
+      "name": "ci-results-v46-kdrv-catalogue-signature-policy",
+      "sha": "657c0db839bde9e1880b2c246d0bf69a82a64f13"
+    },
+    {
+      "name": "ci-results-v46-kdrv-host-link-fix",
+      "sha": "e056e7dc2a465f20a355a8cfd09d96fb57f4140b"
+    },
+    {
+      "name": "ci-results-v46-kdrv-keyring-array",
+      "sha": "f17cf1ff8e4bd63420bd2088258bc498d366bae3"
+    },
+    {
+      "name": "ci-results-v46-kdrv-runtime-signature-import",
+      "sha": "e9f1fa4d4fb67818c5f9d134e516c46a9e05eae6"
+    },
+    {
+      "name": "ci-results-v46-kdrv-signature-ci-routing",
+      "sha": "4a599c839b53de7bf9099ab284b5d5726c6e26aa"
+    },
+    {
+      "name": "ci-results-v46-kdrv-signature-work",
+      "sha": "0814f9e50b76280c9007b329712b9a591e366cac"
+    },
+    {
+      "name": "ci-results-v46-kdrv-tool-ignore",
+      "sha": "0364ae78d576df8e065682eab875cb288a787ea9"
+    },
+    {
+      "name": "ci-results-v46-kira-agent-bootstrap",
+      "sha": "1d8027aa8ad27570d09b176ab5fa8204eac128bb"
+    },
+    {
+      "name": "ci-results-v46-kira-vm-core-v1",
+      "sha": "d47295b48f3c711294fb54a8d4012eea99ef061e"
+    },
+    {
+      "name": "ci-results-v46-release-completion",
+      "sha": "83794f4e23995a768af56ee91afbc757344c530a"
+    },
+    {
+      "name": "ci-results-v46-release-gate-hardening",
+      "sha": "b88dabbff724b90849b57fb167665096c9078576"
+    },
+    {
+      "name": "ci-results-v46-uefi-bootinfo-validation",
+      "sha": "88d81b9e2dd2d08a984a80b7168ff7bb540804be"
+    },
+    {
+      "name": "ci-results-v46-unified-release-integration",
+      "sha": "e958a9bd65f679da09db72935cfd2ba8fc86dbae"
+    },
+    {
+      "name": "ci-results-v46-validation-dma-sync-current",
+      "sha": "8d8ed8bef72f5c41d0eb81cbf5f2740ba10d6cbb"
+    },
+    {
+      "name": "ci-results-v46-validation-lifecycle-current",
+      "sha": "98ae3888bb51276483e0cfde6d1dbcd0cfa97380"
+    },
+    {
+      "name": "ci-results-v46-virtio-release-quiesce",
+      "sha": "072c6bbd0f283d15ade082011d7ea1922ecba261"
+    },
+    {
+      "name": "ci-results-work-ci-drvman-log-fix",
+      "sha": "e0a5d44999301ec727899c21700fe4667f961c33"
+    },
+    {
+      "name": "ci-results-work-kdrv-auth",
+      "sha": "7e6628e503cfcf038d519a92a9a25a95a0181486"
+    },
+    {
+      "name": "ci-results-work-parallel-build-factory",
+      "sha": "2487b63036812806d1d8da8447ee0b9008fdb3c0"
+    },
+    {
+      "name": "docs/ui0-spatial-minimal-audit",
+      "sha": "c05dac32ac9ced00e8e8856f2520012e3ef23128"
+    },
+    {
+      "name": "docs/user-work-contract-and-project-tracker",
+      "sha": "f6657bd55f20ee5ef9f2047a8720658a92966b6e"
+    },
+    {
+      "name": "factory/architecture-parallel",
+      "sha": "4afb6a78f9ec171bc2142b3580b9f9010bf9131c"
+    },
+    {
+      "name": "factory/architecture-round-2",
+      "sha": "a7895ee3b8a24d70c96c2e40cd41b9d2bfcd8a18"
+    },
+    {
+      "name": "factory/parallel-build-boxes",
+      "sha": "ceccebf2b454509d060facbc287ba0e152bc9bf6"
+    },
+    {
+      "name": "factory/parallel-build-boxes-v2",
+      "sha": "9599290c422added1085405e4542699a8e0647fb"
+    },
+    {
+      "name": "factory/parallel-build-boxes-v3",
+      "sha": "556fc1837c95ae824714e6aba3efcd57716f5a54"
+    },
+    {
+      "name": "feat/arm64-iommu-runtime",
+      "sha": "16af3af9657478114634cc59297f120c3b863e25"
+    },
+    {
+      "name": "feat/fdt-iommu-map",
+      "sha": "6c37c98569986f088e184c2ce158c0a6dd49d1df"
+    },
+    {
+      "name": "feat/kira-vm-core-v1",
+      "sha": "e77ad6ed9af08b1f7f215d87a22c3058839335c3"
+    },
+    {
+      "name": "feat/kira-vm-runtime-foundation",
+      "sha": "5bd8f65958b5e38fd370579d823dd69906568b75"
+    },
+    {
+      "name": "feat/spatial-context-panel-2026-11",
+      "sha": "10650832ad60d3d1cf871c53a675dda2b28136fc"
+    },
+    {
+      "name": "feat/spatial-minimal-desktop-visual-2026-11",
+      "sha": "95a672eae2ef94a61eb29df60e509d69ce5c4335"
+    },
+    {
+      "name": "feat/spatial-visual-tokens-2026-11-13",
+      "sha": "29017f5d5835f569086d8a6a5a3acaf9e1066ede"
+    },
+    {
+      "name": "feat/spatial-workspaces-notifications-2026-11",
+      "sha": "5fc8f49184e2e27e44790bdcd238977bfd126cc4"
+    },
+    {
+      "name": "fix/arm64-dma-coherency-fail-closed",
+      "sha": "6e92326d5336ce87de67fdbedcf3d01dc7e8b580"
+    },
+    {
+      "name": "fix/arm64-pci-ecam-validation",
+      "sha": "838e4c57746783cf6b79df7ce5f6c9381482e726"
+    },
+    {
+      "name": "fix/arm-smmu-domain-encoding",
+      "sha": "932f39a8a305da899e8616e3cd50eabb50400e82"
+    },
+    {
+      "name": "fix/arm-smmu-integrated-hardening",
+      "sha": "cf35a78b385c0b9939702e19b097b01a4296e273"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor",
+      "sha": "a2c8e18555214a8f71dd947b15e220530e9ef822"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor-v2",
+      "sha": "fb48864dd2de2992a1a5e2e5c4082a96deed81b7"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor-v3",
+      "sha": "229d1f226c15989fb48d79bb38494fac6d347833"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor-v4",
+      "sha": "050ca7c22278c9e0287e262bbb07249a9d056029"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor-v5",
+      "sha": "fa7a1574c1a7a348f687a90cb7b72711f27c7dfb"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor-v6",
+      "sha": "b2e478c51f382d27fe7244ebe780adfa4ef5b2c9"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor-v7",
+      "sha": "185d434cdf1a3b0b36149b15b79146e94631ac59"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor-v8",
+      "sha": "91929a5be1901066b363f8c6828950a27f675c3a"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor-v9",
+      "sha": "185d434cdf1a3b0b36149b15b79146e94631ac59"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor-v10",
+      "sha": "eb3334f2ed7ff4da2ece9c4d5d378728e4e67e4f"
+    },
+    {
+      "name": "fix/arm-smmu-stage1-context-descriptor-v11",
+      "sha": "680d01376cf43050471da867844dcb1cd5097df2"
+    },
+    {
+      "name": "fix/bios-mbr-partition-cmdline",
+      "sha": "2dcf255ff4832f5631b1105c7b05fb5fe872d4b6"
+    },
+    {
+      "name": "fix/bios-mbr-partition-cmdline-v2",
+      "sha": "2dcf255ff4832f5631b1105c7b05fb5fe872d4b6"
+    },
+    {
+      "name": "fix/boot-bios-smoke-initrd-count-verified",
+      "sha": "c1d75e5ba382d1a42d63b595dae875059bcfc7d8"
+    },
+    {
+      "name": "fix/boot-bios-smoke-no-initrd",
+      "sha": "029c18a47825e480b2d50f99e6095c9200094208"
+    },
+    {
+      "name": "fix/bootinfo-module-ram-bounds",
+      "sha": "65e2477a460e18cc385d8cb979b5650e8dd0ee45"
+    },
+    {
+      "name": "fix/bsd-driver-license-accuracy",
+      "sha": "c1f0c0583bea23bad9e41d12252998944074e004"
+    },
+    {
+      "name": "fix/bsd-driver-license-accuracy-rebased",
+      "sha": "65b6ef2ad9d8ae59596223c3ad808f624f7800a6"
+    },
+    {
+      "name": "fix/bsd-driver-license-accuracy-rebased2",
+      "sha": "3b8f685caee564a8697ff6f4547e14a8d82066d8"
+    },
+    {
+      "name": "fix/bsd-driver-license-accuracy-verified",
+      "sha": "e3a088205a4eddefb8154b198f24ec8c576fd832"
+    },
+    {
+      "name": "fix/bsd-driver-license-strict-verified",
+      "sha": "248e5a8b702f390d1b73cf13386077932b4f5815"
+    },
+    {
+      "name": "fix/fdt-cell-width-validation",
+      "sha": "ce5134a6fe57ef362a7b3e3d3cd7057b46375983"
+    },
+    {
+      "name": "fix/fdt-short-buffer-guard",
+      "sha": "c8f5f5535f76cfa8e5e00154b80ef317af0cdb25"
+    },
+    {
+      "name": "fix/kcc-fp-aggregate-abi-guard",
+      "sha": "cd4235686eae6a6dddbbe5503817767d87bf4383"
+    },
+    {
+      "name": "fix/kcc-selfhost-ir-context",
+      "sha": "8ea14eacba228ba6d2bc2904d41e59c454a04fa5"
+    },
+    {
+      "name": "fix/kcc-selfhost-ir-member-expansion",
+      "sha": "8fb0055239f88af1e39b5ef9089c04f69f42ce0e"
+    },
+    {
+      "name": "fix/kdrv-clear-inherited-busmaster",
+      "sha": "097678422f7580e64296bd7f8a19463b0b4c83c8"
+    },
+    {
+      "name": "fix/kfs-flush-fail-closed",
+      "sha": "c4fbe3f187a67b85a0bf701c9be601ba46296b32"
+    },
+    {
+      "name": "fix/parallel-factory-bios-module-count",
+      "sha": "2070c70fb6aa1a19252fc5854b48e64591857a9c"
+    },
+    {
+      "name": "fix/pci-ecam-nonzero-first-bus",
+      "sha": "e2222d88cbe2507a7280adde20362df2ea4c3cb5"
+    },
+    {
+      "name": "fix/process-pid-wrap-isolation",
+      "sha": "c188141517765b7ded1b7e81622511dbf9d19e6d"
+    },
+    {
+      "name": "fix/process-pid-wrap-isolation-rebased",
+      "sha": "1fb839fe7865c52f0e1f4b99fbfd4ec5f016f456"
+    },
+    {
+      "name": "fix/process-pid-wrap-isolation-rebased2",
+      "sha": "23a941d8ecd9117913917c4a235e24b1a8ead41b"
+    },
+    {
+      "name": "fix/ui-spatial-damage-bounds-2026-11",
+      "sha": "efada8f2d64c55516ac6ac76f41b58a1bf1cad16"
+    },
+    {
+      "name": "fix/vmm-kstack-double-free",
+      "sha": "2b8569ad1baf8596e48c81ebebcdcefe8fae859d"
+    },
+    {
+      "name": "fix/vmm-kstack-host-tests",
+      "sha": "b3c9f9e51cb89ca8295e845bdfb39343f191da56"
+    },
+    {
+      "name": "fix/wasm-module-header-bounds",
+      "sha": "55328f649baad52f68a0cc5c39c166502eccf278"
+    },
+    {
+      "name": "gpt/bios-stage2",
+      "sha": "22f19b798aa8bab00ec27d15b36c270fc790b057"
+    },
+    {
+      "name": "impl/arm64-smmu",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/bios-uefi-boot",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/kcc-selfhost",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/kdrv-trust-lifecycle",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/platform-acpi",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/rtl8139-cleanroom",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/x86-iommu",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl2/arm64-smmu",
+      "sha": "24ecbf5e855341031db789baf9541bddfd5524aa"
+    },
+    {
+      "name": "impl2/bios-uefi",
+      "sha": "faba8803ba41284d23dc70781b6dec3e1d65b8ff"
+    },
+    {
+      "name": "impl2/kcc-selfhost",
+      "sha": "c974fdce44cc1ca8f0f04b982a1737f71a371112"
+    },
+    {
+      "name": "impl2/kdrv-trust",
+      "sha": "40a211ebfacb21a32b95d8d752c7d25518029d46"
+    },
+    {
+      "name": "impl2/platform-acpi",
+      "sha": "d9fb95afa9592dd2d7d0235788042d155cefb8f8"
+    },
+    {
+      "name": "impl2/rtl8139-cleanroom",
+      "sha": "91d26301b7c5064762d6af67ce0313e0b9f5e6dd"
+    },
+    {
+      "name": "impl2/x86-iommu",
+      "sha": "45c46c0464e78ef76e8483b3a35524d38bad9d3d"
+    },
+    {
+      "name": "integ",
+      "sha": "0d82e9e1fd150dfd98a9b33a163331de5587f0e0"
+    },
+    {
+      "name": "integ2",
+      "sha": "b0ad27f682b58c47d753deb5f70e7c32cc391951"
+    },
+    {
+      "name": "integ3",
+      "sha": "656959c53da9a3cc96c938f9c311a9bebf5a2dbb"
+    },
+    {
+      "name": "integ4",
+      "sha": "9ad0175e7dcf360b61111fe01002b2fbf2c4f16a"
+    },
+    {
+      "name": "integ5",
+      "sha": "367cc15e22e5a4e71b8679e45c7dde10c2c1e6bf"
+    },
+    {
+      "name": "integration/kira-2026-11-07",
+      "sha": "a381366c74046f493dbfe625deaf689ebd782871"
+    },
+    {
+      "name": "kira-lab/robust-futex-2026-11-09",
+      "sha": "61b1e53e57c4bc30594b43ed91ea1cdf4b315171"
+    },
+    {
+      "name": "main",
+      "sha": "811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4"
+    },
+    {
+      "name": "maintenance/watchdog-v45",
+      "sha": "db3439b78abd35e6d082ab610795f5a36c0a2918"
+    },
+    {
+      "name": "mem-patch1",
+      "sha": "4756f469d6ef2cc64ddc9ef38e4da9b9ffcb4e36"
+    },
+    {
+      "name": "mobile/kira-assistant-v1",
+      "sha": "bbc7f7ab948e72511aed113b69043add10ec8350"
+    },
+    {
+      "name": "patch2-notify-null-usb",
+      "sha": "163103fe643db6a8f8814441ed7a88e5d888bbd0"
+    },
+    {
+      "name": "perf/scheduler-sleep-heap",
+      "sha": "5acdc5e359a434bfa1a14a198397b3189fb2b2f5"
+    },
+    {
+      "name": "perf/scheduler-snapshot-current-cpu",
+      "sha": "592d868561bdf0e0cb71cdc350e528f156fa34d2"
+    },
+    {
+      "name": "perf/scheduler-snapshot-linear",
+      "sha": "5568c8f11dd8717ac19a4a17fcae07b5dfa13120"
+    },
+    {
+      "name": "pkg-A",
+      "sha": "83ddbdc4c839cd1bf2313aa7b6c50bb30c8ce414"
+    },
+    {
+      "name": "pkg-C",
+      "sha": "89a0188eae927e0be69a9329f6cd944db9d53ce6"
+    },
+    {
+      "name": "pkg-D",
+      "sha": "38ffae70ee8e52f3d87e4b235f68a1e0caa7111b"
+    },
+    {
+      "name": "pkg-DK",
+      "sha": "a9a9d543ee39f7d9b351be0ad0f2a20f12a55e18"
+    },
+    {
+      "name": "pkg-DM",
+      "sha": "ad18c88247e18aa497d47973c79731e98d4248fd"
+    },
+    {
+      "name": "pkg-E",
+      "sha": "b0d99dd20eb6a3ae1f909697db1011ad3312ef16"
+    },
+    {
+      "name": "pkg-F",
+      "sha": "861c7c217def40c9fd52a76d32d65a5d65101567"
+    },
+    {
+      "name": "pkg-G",
+      "sha": "d7ad84058021cb671d2603e848ad055db9242138"
+    },
+    {
+      "name": "pkg-H",
+      "sha": "0de152bfa9dfef1762fa19929467932ecceae82e"
+    },
+    {
+      "name": "pkg-H0",
+      "sha": "9d76416ad713547b778d753267a172978d93b4dd"
+    },
+    {
+      "name": "pkg-I",
+      "sha": "6eccfebf3304af43d25318a6ef21d4e7e4afeefe"
+    },
+    {
+      "name": "pkg-J",
+      "sha": "ba9b86782d3855904d08b1c61af60fb729df4d27"
+    },
+    {
+      "name": "pkg-K",
+      "sha": "05299430788e3c80b41d093c7f85fb9e1e48c78c"
+    },
+    {
+      "name": "pkg-L",
+      "sha": "1f62be2ccace50fe23218b21d13e20166c459f2c"
+    },
+    {
+      "name": "pkg-LN",
+      "sha": "cf966b750ba2ac271eb6b17a171574aa30cd0c19"
+    },
+    {
+      "name": "pkg-M",
+      "sha": "f868d14b054703fb94f31f27f6a24123f5348646"
+    },
+    {
+      "name": "pkg-M4",
+      "sha": "a42cf34440abb877c6fd7f4b633e46886399f992"
+    },
+    {
+      "name": "pkg-N4",
+      "sha": "16842854996fe78c8c89693d43465f8b24adb6ea"
+    },
+    {
+      "name": "pkg-STAB",
+      "sha": "f20663e3ddb332d09b6bd2f64a649597c0ece950"
+    },
+    {
+      "name": "pkg-UX",
+      "sha": "908015da1437d4c44e74e63fecbe56f4d6656bf4"
+    },
+    {
+      "name": "pkg-WJ",
+      "sha": "ed43b347052e42f66f153405d344ee0334f3156d"
+    },
+    {
+      "name": "project/status-ledger-2026-11-13",
+      "sha": "8b5a5dee68f5f8239d226ab6f31e169aa0f602d0"
+    },
+    {
+      "name": "release/full-os-artifacts-2026-11-13",
+      "sha": "4b28ee5fb60ec7aa95d959b6c5defac64dc4f127"
+    },
+    {
+      "name": "research/architecture-combination-2026-11",
+      "sha": "bf5353bcf34dec193f399514d160714f9f32db11"
+    },
+    {
+      "name": "research/architecture-validation-round2-2026-11-09",
+      "sha": "7d82e6e92bcd5d39f3f44824e763d0bc9d269851"
+    },
+    {
+      "name": "research/combined-tech-lab-2026-11",
+      "sha": "efdb68009b4e822493b1e1d88eb181cc754e4d65"
+    },
+    {
+      "name": "research/data-format-lab-2026-11",
+      "sha": "e7ca8f061de3147f5fcc7f0a0d2dee6bd223dbb4"
+    },
+    {
+      "name": "research/driver-adaptation-lab-2026-11",
+      "sha": "085325afcbe2a5a5ec8babe6f9089e2e341e6799"
+    },
+    {
+      "name": "research/ipc-process-lab-2026-11",
+      "sha": "d86ef3aebb615a01cae7c75e88b2cc2cdbb67fe8"
+    },
+    {
+      "name": "security/kdrv-require-iommu-for-dma-msi",
+      "sha": "761a212f3ab73c41f7a867c0337526b70cb8a174"
+    },
+    {
+      "name": "security/pci-clear-firmware-busmaster",
+      "sha": "d35c00069bf41bc0316a0dc743c7a9fe4a01be56"
+    },
+    {
+      "name": "stable",
+      "sha": "367cc15e22e5a4e71b8679e45c7dde10c2c1e6bf"
+    },
+    {
+      "name": "v43/integration",
+      "sha": "edae4ab3367a055826f431e261af5d6dee790ddf"
+    },
+    {
+      "name": "v44/global-upgrade",
+      "sha": "c7dfee3dc6223e26ec1c58d20846150f95990cf5"
+    },
+    {
+      "name": "v44/next-batch",
+      "sha": "f01d970a451a7b011e4f65f7442305337524804b"
+    },
+    {
+      "name": "v45/overhaul",
+      "sha": "c07a7a3465fa8d3ed88b4b2478fa9955b0a756ca"
+    },
+    {
+      "name": "v46/architecture-completion",
+      "sha": "813b1de9cf0a2d079bfeb08b3b20ada76347afba"
+    },
+    {
+      "name": "v46/arm64-dma-pool-validation",
+      "sha": "0e82b23149fc8defc72eb4e676a38a77ab9b1882"
+    },
+    {
+      "name": "v46/ci-final-20261107b",
+      "sha": "232bae450581c0e0e5d2fc0b974a311d1bde2b8e"
+    },
+    {
+      "name": "v46/ci-final-20261107c",
+      "sha": "232bae450581c0e0e5d2fc0b974a311d1bde2b8e"
+    },
+    {
+      "name": "v46/ci-final-20261107d",
+      "sha": "8a893e34d37625745c974797ab1950fc6b082b8f"
+    },
+    {
+      "name": "v46/ci-final-check-20261107",
+      "sha": "5272a12a68afec5c90e9947e26f9acf864e1c08f"
+    },
+    {
+      "name": "v46/ci-validation-20261107",
+      "sha": "37f988ec059794429e90bfd31c5421879005a8cf"
+    },
+    {
+      "name": "v46/ci-validation-fdt-20261107",
+      "sha": "b75c40e7b96dc9c3df2874d24e304596dcd0b571"
+    },
+    {
+      "name": "v46/ci-validation-final",
+      "sha": "37f988ec059794429e90bfd31c5421879005a8cf"
+    },
+    {
+      "name": "v46/ci-validation-final-20261107",
+      "sha": "bd09ea926d09cca9c524b4cbd7c239d8deebc366"
+    },
+    {
+      "name": "v46/dma-cleanup-validation",
+      "sha": "62cdb1c032d97194d7bede85540d83f4fdc085b8"
+    },
+    {
+      "name": "v46/dma-device-cleanup",
+      "sha": "152a17a82c8a9992bc3de2b6cf5b2fbdb40257c2"
+    },
+    {
+      "name": "v46/ed25519-strict-subgroup",
+      "sha": "fb12562b5ca07d3e19c2901db871f1e5fa91b0cd"
+    },
+    {
+      "name": "v46/engineering-work",
+      "sha": "7c616fa608be66cbc3e9ee9682915a2ca09a28bb"
+    },
+    {
+      "name": "v46/iommu-network-compile-fixes",
+      "sha": "b72a5b1f58bc1d8f585add9e3c05efa1a7cfd877"
+    },
+    {
+      "name": "v46/kdrv-auth-integration-final",
+      "sha": "5aefeb8cf1d0d13f8e9781c3cf5fe85bfedb2b8e"
+    },
+    {
+      "name": "v46/kdrv-catalogue-signature-policy",
+      "sha": "2d1ffeaa5faeb13b5ad6f56ae344b2219fa89ffa"
+    },
+    {
+      "name": "v46/kdrv-host-link-fix",
+      "sha": "39427ad9a8b56a476042ece2ffd9399942a45eb6"
+    },
+    {
+      "name": "v46/kdrv-keyring-array",
+      "sha": "03511e430e09d27869208c4eefe5eefc63988a54"
+    },
+    {
+      "name": "v46/kdrv-runtime-signature-import",
+      "sha": "7504bda7cff2cafdd53b94f9f922698238f76a21"
+    },
+    {
+      "name": "v46/kdrv-signature",
+      "sha": "7123a9a51eb11aca23313e0d41b3cf3ee0e19c88"
+    },
+    {
+      "name": "v46/kdrv-signature-ci-routing",
+      "sha": "de5928260f8739d9a23e92a3d4367181e2ebc6cf"
+    },
+    {
+      "name": "v46/kdrv-signature-work",
+      "sha": "d5b85234a518948911a7fcda486d0cc8e90c0891"
+    },
+    {
+      "name": "v46/kdrv-tool-ignore",
+      "sha": "64c645d3e2b8c292eb84175cfe77084ece995979"
+    },
+    {
+      "name": "v46/kira-agent-bootstrap",
+      "sha": "89707a285bd7548412a141dc344f50e3450042b2"
+    },
+    {
+      "name": "v46/kira-vm-core-v1",
+      "sha": "aa5378d2a1cc52f9cbc55ab7432a4b0f7dad25a7"
+    },
+    {
+      "name": "v46/release-completion",
+      "sha": "c3342321667045a29b3c7e4726a31b926117a9b1"
+    },
+    {
+      "name": "v46/release-gate-hardening",
+      "sha": "2a54dc3e868c345fa4e1bc34543df42fef3683c6"
+    },
+    {
+      "name": "v46/uefi-bootinfo-validation",
+      "sha": "f7e05a2a20f2eadbf3e99787933085bf0bc46b71"
+    },
+    {
+      "name": "v46/unified-release-integration",
+      "sha": "dacc04d0dafd507ef0721698b5e9c2512f1947a5"
+    },
+    {
+      "name": "v46/validation-dma-sync-current",
+      "sha": "2ac166d8194f88191228a89e5eceb4e09f871b73"
+    },
+    {
+      "name": "v46/validation-lifecycle-current",
+      "sha": "3a6b228a4ebddd8504f5286a56a0356bfe74d336"
+    },
+    {
+      "name": "v46/virtio-dma-lifecycle-validation",
+      "sha": "4a979cefec3bdd68e985dacbaaffb4ea54f02c8b"
+    },
+    {
+      "name": "v46/virtio-release-quiesce",
+      "sha": "31a9a1436c1fd0e9c6b488fa91deb8e2ae1daa86"
+    },
+    {
+      "name": "verify/spatial-visual-tokens-2026-11-13",
+      "sha": "85f364575fed1891a001d0d0d865c3ad6dd88df1"
+    },
+    {
+      "name": "work/arch-parity-abi-v1",
+      "sha": "5ed9b14405239fc6ef585ab500ee2d65680fbf87"
+    },
+    {
+      "name": "work/architecture-decisions-2026-11",
+      "sha": "6b01625f25525e796b9c4cb66880a087b827ff01"
+    },
+    {
+      "name": "work/architecture-selection-2026-11",
+      "sha": "024739047bd7a6ac2528f49b7b197be96177d111"
+    },
+    {
+      "name": "work/arm-pmm-test-order",
+      "sha": "6807895b7bcd77f9da730f32c6f8f4f3acd406cb"
+    },
+    {
+      "name": "work/bios-boot-module-loader",
+      "sha": "207ffe63a3718d5651e3e7afb5afdb9bcb8f1d66"
+    },
+    {
+      "name": "work/bios-boot-module-loader-rebased",
+      "sha": "63f222a5bcb0b671c7072f36ed6bd7b745833a11"
+    },
+    {
+      "name": "work/bootinfo-uefi-modules-cmdline",
+      "sha": "0a4060f322ca5d884efd8fd71d9e310981736aad"
+    },
+    {
+      "name": "work/ci-drvman-log-fix",
+      "sha": "11582736308187700ac7b1f3ae5cf648046a2f37"
+    },
+    {
+      "name": "work/ed25519-subgroup-validation",
+      "sha": "0a3744829b5395d299e6238bbd437b216a44caa2"
+    },
+    {
+      "name": "work/isolation-ipc-e2e",
+      "sha": "3c420948283e74fbd0c8486b3903978b38484eee"
+    },
+    {
+      "name": "work/isolation-ipc-v1",
+      "sha": "9eae47fed27fc1d6bb0be9bb25b0b3fbdda7f64b"
+    },
+    {
+      "name": "work/kdrv-auth",
+      "sha": "31d186176f69efa7bd2df4c91d41e1d851c6ffce"
+    },
+    {
+      "name": "work/kdrv-runtime-signature-import",
+      "sha": "55fbf15b1afb61c55e6c34982e671eeae03a99d4"
+    },
+    {
+      "name": "work/kil-language-design",
+      "sha": "a1c8fdcc8af9a14f1ff1979b5cad552bdbe225a7"
+    },
+    {
+      "name": "work/kil-language-design-v2",
+      "sha": "9a9a92d1e5072e568288ff2bbd3ca1ed43fb0a45"
+    },
+    {
+      "name": "work/parallel-build-factory",
+      "sha": "96a11542585473c823eed531330e17882543f612"
+    },
+    {
+      "name": "work/sb16-dma-diagnostics",
+      "sha": "49e83abc88098d63a10358e7624312a173f0a8c7"
+    },
+    {
+      "name": "work/uefi-boot-module-loader",
+      "sha": "ab393f2967d89f2883a47161c47a74bb5efc567f"
+    }
+  ],
+  "pull_requests": [
+    {
+      "number": 148,
+      "title": "docs: add three-stage project status and file-loss guard",
+      "state": "open",
+      "draft": true,
+      "head_ref": "project/status-ledger-2026-11-13",
+      "head_sha": "8b5a5dee68f5f8239d226ab6f31e169aa0f602d0",
+      "base_ref": "main",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/148"
+    },
+    {
+      "number": 146,
+      "title": "ui(spatial): apply approved visual design tokens across shell and apps",
+      "state": "open",
+      "draft": true,
+      "head_ref": "feat/spatial-visual-tokens-2026-11-13",
+      "head_sha": "29017f5d5835f569086d8a6a5a3acaf9e1066ede",
+      "base_ref": "feat/spatial-minimal-desktop-visual-2026-11",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/146"
+    },
+    {
+      "number": 145,
+      "title": "ci(release): publish complete x86-64 and ARM64 system images",
+      "state": "open",
+      "draft": true,
+      "head_ref": "release/full-os-artifacts-2026-11-13",
+      "head_sha": "4b28ee5fb60ec7aa95d959b6c5defac64dc4f127",
+      "base_ref": "feat/spatial-minimal-desktop-visual-2026-11",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/145"
+    },
+    {
+      "number": 144,
+      "title": "feat(gui): complete Spatial Minimal desktop visual pass",
+      "state": "open",
+      "draft": true,
+      "head_ref": "feat/spatial-minimal-desktop-visual-2026-11",
+      "head_sha": "95a672eae2ef94a61eb29df60e509d69ce5c4335",
+      "base_ref": "baseline/spatial-preview-5fc8f491",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/144"
+    },
+    {
+      "number": 143,
+      "title": "Spatial workspaces and contextual notifications",
+      "state": "open",
+      "draft": true,
+      "head_ref": "feat/spatial-workspaces-notifications-2026-11",
+      "head_sha": "5fc8f49184e2e27e44790bdcd238977bfd126cc4",
+      "base_ref": "feat/spatial-context-panel-2026-11",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/143"
+    },
+    {
+      "number": 142,
+      "title": "feat(gui): add on-demand Spatial system status panel",
+      "state": "open",
+      "draft": true,
+      "head_ref": "feat/spatial-context-panel-2026-11",
+      "head_sha": "10650832ad60d3d1cf871c53a675dda2b28136fc",
+      "base_ref": "fix/ui-spatial-damage-bounds-2026-11",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/142"
+    },
+    {
+      "number": 141,
+      "title": "feat(device-model): add common registry and PCI discovery adapter",
+      "state": "open",
+      "draft": true,
+      "head_ref": "architecture/device-registry-pci-adapter-2026-11",
+      "head_sha": "cda2ba2b3b9432f0dcae1843bc331ac858c4b6e2",
+      "base_ref": "architecture/pci-range-device-model-2026-11",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/141"
+    },
+    {
+      "number": 140,
+      "title": "fix(gui): restore partial redraw performance in Spatial Minimal",
+      "state": "open",
+      "draft": true,
+      "head_ref": "fix/ui-spatial-damage-bounds-2026-11",
+      "head_sha": "efada8f2d64c55516ac6ac76f41b58a1bf1cad16",
+      "base_ref": "docs/ui0-spatial-minimal-audit",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/140"
+    },
+    {
+      "number": 139,
+      "title": "feat(architecture): bounded PCI host bus enumeration",
+      "state": "open",
+      "draft": true,
+      "head_ref": "architecture/pci-range-device-model-2026-11",
+      "head_sha": "ea83f83bdc59307bba22a6bd013b24c5c5c09731",
+      "base_ref": "architecture/target-baseline-2026-11",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/139"
+    },
+    {
+      "number": 138,
+      "title": "feat(gui): gated KIRA Spatial Minimal first layout slice",
+      "state": "open",
+      "draft": true,
+      "head_ref": "docs/ui0-spatial-minimal-audit",
+      "head_sha": "c05dac32ac9ced00e8e8856f2520012e3ef23128",
+      "base_ref": "main",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/138"
+    },
+    {
+      "number": 137,
+      "title": "security: clear firmware PCI bus mastering before driver ownership",
+      "state": "open",
+      "draft": false,
+      "head_ref": "security/pci-clear-firmware-busmaster",
+      "head_sha": "d35c00069bf41bc0316a0dc743c7a9fe4a01be56",
+      "base_ref": "main",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/137"
+    },
+    {
+      "number": 136,
+      "title": "security: block Ring 3 DMA/MSI drivers until IOMMU isolation",
+      "state": "open",
+      "draft": false,
+      "head_ref": "security/kdrv-require-iommu-for-dma-msi",
+      "head_sha": "761a212f3ab73c41f7a867c0337526b70cb8a174",
+      "base_ref": "main",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/136"
+    },
+    {
+      "number": 135,
+      "title": "Architecture: закрепить целевую архитектуру KIRA OS и план полного аудита",
+      "state": "open",
+      "draft": true,
+      "head_ref": "architecture/target-baseline-2026-11",
+      "head_sha": "78a76003d0d808147f994c7ed23098c607039fd8",
+      "base_ref": "main",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/135"
+    },
+    {
+      "number": 134,
+      "title": "feat(kvm): add KVP0 experimental interpreter prototype",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/kira-vm-core-v1",
+      "head_sha": "aa5378d2a1cc52f9cbc55ab7432a4b0f7dad25a7",
+      "base_ref": "v46/unified-release-integration",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/134"
+    },
+    {
+      "number": 132,
+      "title": "fix(vmm): harden kernel stack slot lifecycle",
+      "state": "open",
+      "draft": true,
+      "head_ref": "fix/vmm-kstack-double-free",
+      "head_sha": "2b8569ad1baf8596e48c81ebebcdcefe8fae859d",
+      "base_ref": "v46/unified-release-integration",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/132"
+    },
+    {
+      "number": 131,
+      "title": "fix(wasm): harden module validation and KIRA import ABI",
+      "state": "open",
+      "draft": true,
+      "head_ref": "fix/wasm-module-header-bounds",
+      "head_sha": "55328f649baad52f68a0cc5c39c166502eccf278",
+      "base_ref": "main",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/131"
+    },
+    {
+      "number": 125,
+      "title": "fix(iommu): combine hardened SMMUv3 domains and controller safety",
+      "state": "open",
+      "draft": false,
+      "head_ref": "fix/arm-smmu-integrated-hardening",
+      "head_sha": "cf35a78b385c0b9939702e19b097b01a4296e273",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/125"
+    },
+    {
+      "number": 121,
+      "title": "test(boot): align BIOS smoke test with image contents",
+      "state": "open",
+      "draft": false,
+      "head_ref": "fix/boot-bios-smoke-no-initrd",
+      "head_sha": "029c18a47825e480b2d50f99e6095c9200094208",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/121"
+    },
+    {
+      "number": 120,
+      "title": "fix(iommu): implement valid SMMUv3 stage-1 domains",
+      "state": "open",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-domain-encoding",
+      "head_sha": "932f39a8a305da899e8616e3cd50eabb50400e82",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/120"
+    },
+    {
+      "number": 116,
+      "title": "feat(fdt): resolve PCI requester IDs through iommu-map",
+      "state": "open",
+      "draft": true,
+      "head_ref": "feat/fdt-iommu-map",
+      "head_sha": "6c37c98569986f088e184c2ce158c0a6dd49d1df",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/116"
+    },
+    {
+      "number": 115,
+      "title": "fix(iommu): enforce SMMUv3 DMA address-width limits",
+      "state": "open",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor-v11",
+      "head_sha": "680d01376cf43050471da867844dcb1cd5097df2",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/115"
+    },
+    {
+      "number": 112,
+      "title": "fix(boot): complete BIOS MBR and command-line handoff",
+      "state": "open",
+      "draft": true,
+      "head_ref": "fix/bios-mbr-partition-cmdline-v2",
+      "head_sha": "2dcf255ff4832f5631b1105c7b05fb5fe872d4b6",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/112"
+    },
+    {
+      "number": 95,
+      "title": "refactor(kcc): isolate remaining preprocessor and optimizer state",
+      "state": "open",
+      "draft": true,
+      "head_ref": "ai/kcc-context-more-state",
+      "head_sha": "b7cb6f655128b38f3b626da6a31f4fba35cad1df",
+      "base_ref": "ai/kcc-context-backend-regression",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/95"
+    },
+    {
+      "number": 93,
+      "title": "test(kcc): verify sequential isolation across x86-64 and AArch64",
+      "state": "open",
+      "draft": true,
+      "head_ref": "ai/kcc-context-backend-regression",
+      "head_sha": "2f0e38254fbde12ff1a1673b27f0337690c319fb",
+      "base_ref": "ai/kcc-context-x86-state",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/93"
+    },
+    {
+      "number": 81,
+      "title": "feat(mind): forecast memory pressure four seconds ahead",
+      "state": "open",
+      "draft": true,
+      "head_ref": "ai/mind-memory-pressure-forecast-v2",
+      "head_sha": "579e807f74efe21f9049c57a4111021a6f3ffec7",
+      "base_ref": "ai/mind-validity-feature",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/81"
+    },
+    {
+      "number": 79,
+      "title": "perf(sched): replace timed-sleep scans with min-heap",
+      "state": "open",
+      "draft": true,
+      "head_ref": "perf/scheduler-sleep-heap",
+      "head_sha": "5acdc5e359a434bfa1a14a198397b3189fb2b2f5",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/79"
+    },
+    {
+      "number": 78,
+      "title": "feat(mind): distinguish missing disk telemetry from zero latency",
+      "state": "open",
+      "draft": true,
+      "head_ref": "ai/mind-validity-feature",
+      "head_sha": "464070a038c35a22fa385395d6a47645f2caa489",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/78"
+    },
+    {
+      "number": 76,
+      "title": "docs: audit system bottlenecks and define Mind vNext",
+      "state": "open",
+      "draft": true,
+      "head_ref": "ai/mind-multitask-foundation",
+      "head_sha": "aeb9f2b7865ca5101be6daeb7aecf2bab801173b",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/76"
+    },
+    {
+      "number": 74,
+      "title": "perf(sched): reduce snapshot lock hold time",
+      "state": "open",
+      "draft": true,
+      "head_ref": "perf/scheduler-snapshot-linear",
+      "head_sha": "5568c8f11dd8717ac19a4a17fcae07b5dfa13120",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/74"
+    },
+    {
+      "number": 72,
+      "title": "fix(drivers): enforce exact per-file source licenses",
+      "state": "open",
+      "draft": false,
+      "head_ref": "fix/bsd-driver-license-accuracy-rebased2",
+      "head_sha": "3b8f685caee564a8697ff6f4547e14a8d82066d8",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/72"
+    },
+    {
+      "number": 63,
+      "title": "docs: record KIRA OS working contract and project constraints",
+      "state": "open",
+      "draft": true,
+      "head_ref": "docs/user-work-contract-and-project-tracker",
+      "head_sha": "f6657bd55f20ee5ef9f2047a8720658a92966b6e",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/63"
+    },
+    {
+      "number": 59,
+      "title": "CI: восемь параллельных боксов проверки KIRA OS",
+      "state": "open",
+      "draft": true,
+      "head_ref": "factory/parallel-build-boxes-v3",
+      "head_sha": "556fc1837c95ae824714e6aba3efcd57716f5a54",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/59"
+    },
+    {
+      "number": 58,
+      "title": "Architecture: decisions from November 2026 technology research",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/architecture-selection-2026-11",
+      "head_sha": "024739047bd7a6ac2528f49b7b197be96177d111",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/58"
+    },
+    {
+      "number": 57,
+      "title": "Design: язык инструкций KIL для человека и ИИ",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/kil-language-design-v2",
+      "head_sha": "9a9a92d1e5072e568288ff2bbd3ca1ed43fb0a45",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/57"
+    },
+    {
+      "number": 55,
+      "title": "docs: зафиксировать выбор технологий по результатам исследования",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/architecture-decisions-2026-11",
+      "head_sha": "6b01625f25525e796b9c4cb66880a087b827ff01",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/55"
+    },
+    {
+      "number": 54,
+      "title": "fix(sb16): diagnose and enforce ISA DMA ring constraints",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/sb16-dma-diagnostics",
+      "head_sha": "49e83abc88098d63a10358e7624312a173f0a8c7",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/54"
+    },
+    {
+      "number": 52,
+      "title": "CI: девять изолированных параллельных боксов разработки KIRA",
+      "state": "open",
+      "draft": true,
+      "head_ref": "factory/parallel-build-boxes",
+      "head_sha": "ceccebf2b454509d060facbc287ba0e152bc9bf6",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/52"
+    },
+    {
+      "number": 51,
+      "title": "Design: KIL — декларативный язык инструкций для человека и ИИ",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/kil-language-design",
+      "head_sha": "a1c8fdcc8af9a14f1ff1979b5cad552bdbe225a7",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/51"
+    },
+    {
+      "number": 50,
+      "title": "Draft: единый syscall ABI x86-64 / ARM64",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/arch-parity-abi-v1",
+      "head_sha": "5ed9b14405239fc6ef585ab500ee2d65680fbf87",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/50"
+    },
+    {
+      "number": 49,
+      "title": "Isolation: private IPC objects and per-process capability boundary",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/isolation-ipc-v1",
+      "head_sha": "9eae47fed27fc1d6bb0be9bb25b0b3fbdda7f64b",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/49"
+    },
+    {
+      "number": 48,
+      "title": "Research: global KIRA validation program and full-system gates",
+      "state": "open",
+      "draft": true,
+      "head_ref": "research/driver-adaptation-lab-2026-11",
+      "head_sha": "085325afcbe2a5a5ec8babe6f9089e2e341e6799",
+      "base_ref": "main",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/48"
+    },
+    {
+      "number": 47,
+      "title": "Research: add KIRA data-format benchmark lab",
+      "state": "open",
+      "draft": true,
+      "head_ref": "research/data-format-lab-2026-11",
+      "head_sha": "e7ca8f061de3147f5fcc7f0a0d2dee6bd223dbb4",
+      "base_ref": "main",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/47"
+    },
+    {
+      "number": 46,
+      "title": "Draft: KIRA OS unified release integration and UEFI boot validation",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/unified-release-integration",
+      "head_sha": "dacc04d0dafd507ef0721698b5e9c2512f1947a5",
+      "base_ref": "v46/kdrv-catalogue-signature-policy",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/46"
+    },
+    {
+      "number": 45,
+      "title": "Harden x86-64 UEFI ELF loading and BootInfo conversion",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/uefi-bootinfo-validation",
+      "head_sha": "f7e05a2a20f2eadbf3e99787933085bf0bc46b71",
+      "base_ref": "v46/kdrv-catalogue-signature-policy",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/45"
+    },
+    {
+      "number": 44,
+      "title": "Harden VT-d domains, SMMUv3 command queue and RTL8139 TX status",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/iommu-network-compile-fixes",
+      "head_sha": "b72a5b1f58bc1d8f585add9e3c05efa1a7cfd877",
+      "base_ref": "v46/kdrv-catalogue-signature-policy",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/44"
+    },
+    {
+      "number": 43,
+      "title": "Prepare KIRA OS autonomous coding agent",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/kira-agent-bootstrap",
+      "head_sha": "89707a285bd7548412a141dc344f50e3450042b2",
+      "base_ref": "v46/kdrv-catalogue-signature-policy",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/43"
+    },
+    {
+      "number": 42,
+      "title": "KDRV: enforce publisher-required policy through install and kernel load",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/kdrv-catalogue-signature-policy",
+      "head_sha": "2d1ffeaa5faeb13b5ad6f56ae344b2219fa89ffa",
+      "base_ref": "v46/kdrv-auth-integration-final",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/42"
+    },
+    {
+      "number": 41,
+      "title": "KDRV: authenticate publisher packages and make signed installs crash-safe",
+      "state": "open",
+      "draft": false,
+      "head_ref": "v46/kdrv-auth-integration-final",
+      "head_sha": "5aefeb8cf1d0d13f8e9781c3cf5fe85bfedb2b8e",
+      "base_ref": "v46/release-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/41"
+    },
+    {
+      "number": 40,
+      "title": "KDRV: integrate publisher signatures and installer verification",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/kdrv-runtime-signature-import",
+      "head_sha": "7504bda7cff2cafdd53b94f9f922698238f76a21",
+      "base_ref": "v46/release-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/40"
+    },
+    {
+      "number": 39,
+      "title": "ci: exercise driver E2E for KDRV signature changes",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/kdrv-signature-ci-routing",
+      "head_sha": "de5928260f8739d9a23e92a3d4367181e2ebc6cf",
+      "base_ref": "v46/ed25519-strict-subgroup",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/39"
+    },
+    {
+      "number": 38,
+      "title": "crypto: reject Ed25519 small-order and identity public keys",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/ed25519-strict-subgroup",
+      "head_sha": "fb12562b5ca07d3e19c2901db871f1e5fa91b0cd",
+      "base_ref": "v46/kdrv-host-link-fix",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/38"
+    },
+    {
+      "number": 36,
+      "title": "v46: fix KDRV signature host links and keyring identifiers",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/kdrv-keyring-array",
+      "head_sha": "03511e430e09d27869208c4eefe5eefc63988a54",
+      "base_ref": "v46/kdrv-signature-work",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/36"
+    },
+    {
+      "number": 35,
+      "title": "v46: integrate detached Ed25519 signatures for KDRV packages",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/kdrv-signature-work",
+      "head_sha": "d5b85234a518948911a7fcda486d0cc8e90c0891",
+      "base_ref": "v46/dma-device-cleanup",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/35"
+    },
+    {
+      "number": 32,
+      "title": "Add parallel architecture baseline factory",
+      "state": "open",
+      "draft": true,
+      "head_ref": "factory/architecture-parallel",
+      "head_sha": "4afb6a78f9ec171bc2142b3580b9f9010bf9131c",
+      "base_ref": "work/ci-drvman-log-fix",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/32"
+    },
+    {
+      "number": 24,
+      "title": "Fix Driver Manager CI diagnostics and package listing",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/ci-drvman-log-fix",
+      "head_sha": "11582736308187700ac7b1f3ae5cf648046a2f37",
+      "base_ref": "work/kdrv-auth",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/24"
+    },
+    {
+      "number": 23,
+      "title": "ci: add KIRA OS parallel build factory notifications",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/parallel-build-factory",
+      "head_sha": "96a11542585473c823eed531330e17882543f612",
+      "base_ref": "v46/architecture-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/23"
+    },
+    {
+      "number": 22,
+      "title": "Harden Ed25519 verification against small-order points",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/ed25519-subgroup-validation",
+      "head_sha": "0a3744829b5395d299e6238bbd437b216a44caa2",
+      "base_ref": "v46/architecture-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/22"
+    },
+    {
+      "number": 21,
+      "title": "KIRA OS v46: harden release gate and authenticate KDRV packages",
+      "state": "open",
+      "draft": true,
+      "head_ref": "work/kdrv-auth",
+      "head_sha": "31d186176f69efa7bd2df4c91d41e1d851c6ffce",
+      "base_ref": "v46/architecture-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/21"
+    },
+    {
+      "number": 12,
+      "title": "[Draft] v46 release completion: audit fixes and architecture blockers",
+      "state": "open",
+      "draft": true,
+      "head_ref": "v46/release-completion",
+      "head_sha": "c3342321667045a29b3c7e4726a31b926117a9b1",
+      "base_ref": "v45/overhaul",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/12"
+    },
+    {
+      "number": 147,
+      "title": "ui(spatial): verified visual token pass (supersedes PR #146)",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "verify/spatial-visual-tokens-2026-11-13",
+      "head_sha": "85f364575fed1891a001d0d0d865c3ad6dd88df1",
+      "base_ref": "feat/spatial-minimal-desktop-visual-2026-11",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/147"
+    },
+    {
+      "number": 133,
+      "title": "feat(kvm): add portable KVM1 interpreter core",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "feat/kira-vm-core-v1",
+      "head_sha": "e77ad6ed9af08b1f7f215d87a22c3058839335c3",
+      "base_ref": "v46/unified-release-integration",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/133"
+    },
+    {
+      "number": 130,
+      "title": "Validate boot modules against declared physical RAM",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/bootinfo-module-ram-bounds",
+      "head_sha": "65e2477a460e18cc385d8cb979b5650e8dd0ee45",
+      "base_ref": "v46/release-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/130"
+    },
+    {
+      "number": 129,
+      "title": "Clear inherited PCI bus mastering before Ring 3 driver activation",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/kdrv-clear-inherited-busmaster",
+      "head_sha": "097678422f7580e64296bd7f8a19463b0b4c83c8",
+      "base_ref": "v46/release-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/129"
+    },
+    {
+      "number": 128,
+      "title": "Fail closed on ambiguous ARM64 DMA coherency",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/arm64-dma-coherency-fail-closed",
+      "head_sha": "6e92326d5336ce87de67fdbedcf3d01dc7e8b580",
+      "base_ref": "v46/release-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/128"
+    },
+    {
+      "number": 127,
+      "title": "Fail closed after KiraFS persistence barrier errors",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/kfs-flush-fail-closed",
+      "head_sha": "c4fbe3f187a67b85a0bf701c9be601ba46296b32",
+      "base_ref": "v46/release-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/127"
+    },
+    {
+      "number": 126,
+      "title": "Reject malformed FDT cell-width properties",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/fdt-cell-width-validation",
+      "head_sha": "ce5134a6fe57ef362a7b3e3d3cd7057b46375983",
+      "base_ref": "v46/release-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/126"
+    },
+    {
+      "number": 124,
+      "title": "fix(drivers): enforce complete BSD license notices",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/bsd-driver-license-strict-verified",
+      "head_sha": "248e5a8b702f390d1b73cf13386077932b4f5815",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/124"
+    },
+    {
+      "number": 123,
+      "title": "test(boot): verify packaged initrd in BIOS smoke scenario",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/boot-bios-smoke-initrd-count-verified",
+      "head_sha": "c1d75e5ba382d1a42d63b595dae875059bcfc7d8",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/123"
+    },
+    {
+      "number": 122,
+      "title": "fix(drivers): enforce exact per-file source licenses",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/bsd-driver-license-accuracy-verified",
+      "head_sha": "e3a088205a4eddefb8154b198f24ec8c576fd832",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/122"
+    },
+    {
+      "number": 119,
+      "title": "fix(kcc): simplify IR context expansion for self-hosting",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/kcc-selfhost-ir-member-expansion",
+      "head_sha": "8fb0055239f88af1e39b5ef9089c04f69f42ce0e",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/119"
+    },
+    {
+      "number": 118,
+      "title": "fix(arm64): validate PCI ECAM and BAR windows",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/arm64-pci-ecam-validation",
+      "head_sha": "838e4c57746783cf6b79df7ce5f6c9381482e726",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/118"
+    },
+    {
+      "number": 117,
+      "title": "fix(pci): enumerate ECAM windows with nonzero first bus",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/pci-ecam-nonzero-first-bus",
+      "head_sha": "e2222d88cbe2507a7280adde20362df2ea4c3cb5",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/117"
+    },
+    {
+      "number": 114,
+      "title": "fix(iommu): complete ARM SMMUv3 domain and event lifecycle",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor-v10",
+      "head_sha": "eb3334f2ed7ff4da2ece9c4d5d378728e4e67e4f",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/114"
+    },
+    {
+      "number": 113,
+      "title": "fix(kcc): finish self-hosting backend macro compatibility",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-complete-v4",
+      "head_sha": "74e7e654f3881369b1a15449652be72f8354ab11",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/113"
+    },
+    {
+      "number": 111,
+      "title": "fix(iommu): complete ARM SMMUv3 domain and event lifecycle",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor-v9",
+      "head_sha": "185d434cdf1a3b0b36149b15b79146e94631ac59",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/111"
+    },
+    {
+      "number": 110,
+      "title": "fix(iommu): complete ARM SMMUv3 domains and event handling",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor-v8",
+      "head_sha": "91929a5be1901066b363f8c6828950a27f675c3a",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/110"
+    },
+    {
+      "number": 109,
+      "title": "fix(iommu): complete ARM SMMUv3 stage-1 domain path",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor-v7",
+      "head_sha": "91929a5be1901066b363f8c6828950a27f675c3a",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/109"
+    },
+    {
+      "number": 108,
+      "title": "fix(kcc): complete unity self-hosting backend state isolation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-complete-v3",
+      "head_sha": "c75beb9342a58a55a7c1fb8e6a49addedc4fb150",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/108"
+    },
+    {
+      "number": 107,
+      "title": "fix(iommu): complete ARM SMMUv3 stage-1 domain path",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor-v6",
+      "head_sha": "b2e478c51f382d27fe7244ebe780adfa4ef5b2c9",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/107"
+    },
+    {
+      "number": 106,
+      "title": "fix(iommu): complete ARM SMMUv3 stage-1 domain path",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor-v5",
+      "head_sha": "fa7a1574c1a7a348f687a90cb7b72711f27c7dfb",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/106"
+    },
+    {
+      "number": 105,
+      "title": "fix(iommu): complete ARM SMMUv3 stage-1 domain path",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor-v4",
+      "head_sha": "050ca7c22278c9e0287e262bbb07249a9d056029",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/105"
+    },
+    {
+      "number": 104,
+      "title": "fix(iommu): complete ARM SMMUv3 stage-1 translation domains",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor-v3",
+      "head_sha": "229d1f226c15989fb48d79bb38494fac6d347833",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/104"
+    },
+    {
+      "number": 103,
+      "title": "fix(iommu): make ARM SMMUv3 stage-1 domains functional (v2)",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor-v2",
+      "head_sha": "fb48864dd2de2992a1a5e2e5c4082a96deed81b7",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/103"
+    },
+    {
+      "number": 102,
+      "title": "fix(kcc): complete unity self-hosting context isolation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-complete-v2",
+      "head_sha": "ea9f8b1d261af1d2b02c0f70632370f56b350557",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/102"
+    },
+    {
+      "number": 101,
+      "title": "fix(iommu): make ARM SMMUv3 stage-1 domains functional",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/arm-smmu-stage1-context-descriptor",
+      "head_sha": "a2c8e18555214a8f71dd947b15e220530e9ef822",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/101"
+    },
+    {
+      "number": 100,
+      "title": "fix(kcc): unblock self-hosting stage1",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/kcc-selfhost-ir-context",
+      "head_sha": "8ea14eacba228ba6d2bc2904d41e59c454a04fa5",
+      "base_ref": "ai/kcc-context-complete",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/100"
+    },
+    {
+      "number": 99,
+      "title": "fix(sched): publish process threads with complete metadata",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "ai/process-thread-metadata-atomic-create",
+      "head_sha": "f3e77f159749b440a1e95c1408443498faff3fc0",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/99"
+    },
+    {
+      "number": 98,
+      "title": "fix(security): keep untrusted signed apps capability-free",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "ai/appbox-untrusted-launch-no-caps",
+      "head_sha": "f055aa6c31cb22c19c1d466b8b225580d50bf128",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/98"
+    },
+    {
+      "number": 97,
+      "title": "refactor(kcc): isolate compiler state and options per invocation",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "ai/kcc-context-complete",
+      "head_sha": "4863fb778dd664d2e0604c09792255f72cff1add",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/97"
+    },
+    {
+      "number": 96,
+      "title": "refactor(kcc): move compiler flags into per-invocation options",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-options",
+      "head_sha": "7c741516a584230609ae43ba4aa4308101a48ed2",
+      "base_ref": "ai/kcc-context-migration-complete",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/96"
+    },
+    {
+      "number": 94,
+      "title": "refactor(kcc): consolidate per-compilation compiler state",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-migration-complete",
+      "head_sha": "68982123089baf344aca1541698d3101c23cc932",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/94"
+    },
+    {
+      "number": 92,
+      "title": "refactor(kcc): isolate optimizer state per compilation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-opt-state",
+      "head_sha": "1a0a914081e74f4e714eab8a9cdb6330cdfcae5d",
+      "base_ref": "ai/kcc-context-x86-state",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/92"
+    },
+    {
+      "number": 91,
+      "title": "refactor(kcc): isolate x86-64 codegen state per compilation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-x86-state",
+      "head_sha": "ace418857a25ec473594b40d5a5995aa7dd4ee6d",
+      "base_ref": "ai/kcc-context-a64-state-v2",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/91"
+    },
+    {
+      "number": 90,
+      "title": "refactor(kcc): isolate AArch64 codegen state per compilation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-a64-state-v2",
+      "head_sha": "e3cb503ed7768806f83ffb2f872c25d8713c2631",
+      "base_ref": "ai/kcc-context-gen-state-v2",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/90"
+    },
+    {
+      "number": 89,
+      "title": "refactor(kcc): isolate backend preparation state per compilation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-gen-state-v2",
+      "head_sha": "b483f8e4f8eb9eba088c532ecdc62bbd430e40d4",
+      "base_ref": "ai/kcc-context-ir-state-v2",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/89"
+    },
+    {
+      "number": 88,
+      "title": "refactor(kcc): isolate AArch64 codegen state per compilation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-a64-state",
+      "head_sha": "715eb1a9a50497586f94f102168a4c22751e52cb",
+      "base_ref": "ai/kcc-context-gen-state",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/88"
+    },
+    {
+      "number": 87,
+      "title": "refactor(kcc): isolate backend preparation state per compilation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-gen-state",
+      "head_sha": "a33f881079585209ae9c2a3b317af04ca9e6f8e8",
+      "base_ref": "ai/kcc-context-ir-state-v2",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/87"
+    },
+    {
+      "number": 86,
+      "title": "refactor(kcc): isolate IR lowering state per compilation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-ir-state-v2",
+      "head_sha": "48ddbd11dcb33cc01befec6e91a799ce817c3aa0",
+      "base_ref": "ai/kcc-context-parser-state-v2",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/86"
+    },
+    {
+      "number": 85,
+      "title": "refactor(kcc): isolate IR lowering state per compilation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-ir-state",
+      "head_sha": "292c2f4af247bad024106eca6cc0e09df14ffbcf",
+      "base_ref": "ai/kcc-context-parser-state-v2",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/85"
+    },
+    {
+      "number": 84,
+      "title": "refactor(kcc): isolate parser state per compilation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-parser-state-v2",
+      "head_sha": "5f2f8b4b8cb529dd5f585cbf547a0e273c872500",
+      "base_ref": "ai/kcc-context-preprocessor-state",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/84"
+    },
+    {
+      "number": 83,
+      "title": "refactor(kcc): isolate preprocessor state per compilation",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/kcc-context-preprocessor-state",
+      "head_sha": "133646047c57895ea6c4d74552c75c44279e3b63",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/83"
+    },
+    {
+      "number": 82,
+      "title": "fix(appbox): synchronize shared object accounting",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "ai/appbox-object-accounting-safety",
+      "head_sha": "8d624bd887da29f75f163c29f1b7a0d052ae578d",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/82"
+    },
+    {
+      "number": 80,
+      "title": "feat(mind): forecast memory pressure four seconds ahead",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/mind-memory-pressure-forecast",
+      "head_sha": "8cc5a43526ceba82fee959626f45858cf620d469",
+      "base_ref": "ai/mind-validity-feature",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/80"
+    },
+    {
+      "number": 77,
+      "title": "docs(ai): define isolated KIRA Assistant architecture",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "ai/userland-assistant-architecture",
+      "head_sha": "137655c8d10226fbbd8b3139882958d71088382b",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/77"
+    },
+    {
+      "number": 75,
+      "title": "fix(mind): reject low-recall trusted forecasts",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "ai/mind-recall-trust-gate",
+      "head_sha": "b346f1131755b9a21d3c4280162a541d3df62923",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/75"
+    },
+    {
+      "number": 73,
+      "title": "perf(sched): reduce scheduler snapshot lock cost",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "perf/scheduler-snapshot-current-cpu",
+      "head_sha": "592d868561bdf0e0cb71cdc350e528f156fa34d2",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/73"
+    },
+    {
+      "number": 71,
+      "title": "fix(isolation): prevent process PID reuse on wraparound",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/process-pid-wrap-isolation-rebased2",
+      "head_sha": "23a941d8ecd9117913917c4a235e24b1a8ead41b",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/71"
+    },
+    {
+      "number": 70,
+      "title": "Superseded by rebased PR #72",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/bsd-driver-license-accuracy-rebased",
+      "head_sha": "65b6ef2ad9d8ae59596223c3ad808f624f7800a6",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/70"
+    },
+    {
+      "number": 69,
+      "title": "Superseded by rebased PR #71",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/process-pid-wrap-isolation-rebased",
+      "head_sha": "1fb839fe7865c52f0e1f4b99fbfd4ec5f016f456",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/69"
+    },
+    {
+      "number": 68,
+      "title": "bios: load initrd modules and validate module CRC",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "work/bios-boot-module-loader-rebased",
+      "head_sha": "63f222a5bcb0b671c7072f36ed6bd7b745833a11",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/68"
+    },
+    {
+      "number": 67,
+      "title": "Superseded by rebased PR #69",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/process-pid-wrap-isolation",
+      "head_sha": "c188141517765b7ded1b7e81622511dbf9d19e6d",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/67"
+    },
+    {
+      "number": 66,
+      "title": "Superseded by rebased PR #70",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/bsd-driver-license-accuracy",
+      "head_sha": "c1f0c0583bea23bad9e41d12252998944074e004",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/66"
+    },
+    {
+      "number": 65,
+      "title": "Closed: FP aggregate ABI guard was too broad",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "fix/kcc-fp-aggregate-abi-guard",
+      "head_sha": "cd4235686eae6a6dddbbe5503817767d87bf4383",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/65"
+    },
+    {
+      "number": 64,
+      "title": "fix: reject undersized FDT handoff buffers",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "fix/fdt-short-buffer-guard",
+      "head_sha": "c8f5f5535f76cfa8e5e00154b80ef317af0cdb25",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/64"
+    },
+    {
+      "number": 62,
+      "title": "Superseded by rebased PR #68",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "work/bios-boot-module-loader",
+      "head_sha": "207ffe63a3718d5651e3e7afb5afdb9bcb8f1d66",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/62"
+    },
+    {
+      "number": 61,
+      "title": "uefi: load initrd modules and preserve boot options",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "work/uefi-boot-module-loader",
+      "head_sha": "ab393f2967d89f2883a47161c47a74bb5efc567f",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/61"
+    },
+    {
+      "number": 60,
+      "title": "boot: preserve UEFI cmdline and modules in kernel handoff",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "work/bootinfo-uefi-modules-cmdline",
+      "head_sha": "0a4060f322ca5d884efd8fd71d9e310981736aad",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/60"
+    },
+    {
+      "number": 56,
+      "title": "test(isolation): проверить запрет доступа к чужим приватным IPC/SHM в QEMU",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "work/isolation-ipc-e2e",
+      "head_sha": "3c420948283e74fbd0c8486b3903978b38484eee",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/56"
+    },
+    {
+      "number": 53,
+      "title": "test(arm64): remove stale next-fit address assumption",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "work/arm-pmm-test-order",
+      "head_sha": "6807895b7bcd77f9da730f32c6f8f4f3acd406cb",
+      "base_ref": "autodrv",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/53"
+    },
+    {
+      "number": 37,
+      "title": "v46: link Ed25519 verifier into all host KDRV consumers",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "v46/kdrv-host-link-fix",
+      "head_sha": "39427ad9a8b56a476042ece2ffd9399942a45eb6",
+      "base_ref": "v46/kdrv-keyring-array",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/37"
+    },
+    {
+      "number": 34,
+      "title": "v46: harden DMA ownership and virtio device teardown",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "v46/dma-device-cleanup",
+      "head_sha": "152a17a82c8a9992bc3de2b6cf5b2fbdb40257c2",
+      "base_ref": "v46/release-completion",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/34"
+    },
+    {
+      "number": 33,
+      "title": "Integrate ACPI PCI routing and platform table parsing",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "impl2/platform-acpi",
+      "head_sha": "1fc34e79ef31eb5ce4dbac6b5cbc5389b876925c",
+      "base_ref": "integration/kira-2026-11-07",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/33"
+    },
+    {
+      "number": 20,
+      "title": "[Draft] v46 CI validation — final BootInfo/FDT and PMM snapshot",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "v46/ci-final-20261107d",
+      "head_sha": "8a893e34d37625745c974797ab1950fc6b082b8f",
+      "base_ref": "v45/overhaul",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/20"
+    },
+    {
+      "number": 19,
+      "title": "[Draft] v46 final validation — corrected driver-manager regression",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "v46/ci-final-20261107c",
+      "head_sha": "232bae450581c0e0e5d2fc0b974a311d1bde2b8e",
+      "base_ref": "v45/overhaul",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/19"
+    },
+    {
+      "number": 18,
+      "title": "[Draft] v46 final validation — ARM BootInfo/FDT and PMM",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "v46/ci-final-20261107b",
+      "head_sha": "232bae450581c0e0e5d2fc0b974a311d1bde2b8e",
+      "base_ref": "v45/overhaul",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/18"
+    },
+    {
+      "number": 17,
+      "title": "[Draft] v46 final validation — ARM BootInfo and FDT hardening",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "v46/ci-final-check-20261107",
+      "head_sha": "5272a12a68afec5c90e9947e26f9acf864e1c08f",
+      "base_ref": "v45/overhaul",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/17"
+    },
+    {
+      "number": 16,
+      "title": "[Draft] v46 CI validation — ARM PMM and FDT hardening",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "v46/ci-validation-final-20261107",
+      "head_sha": "bd09ea926d09cca9c524b4cbd7c239d8deebc366",
+      "base_ref": "v45/overhaul",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/16"
+    },
+    {
+      "number": 15,
+      "title": "[Draft] v46 CI validation — FDT parser hardening",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "v46/ci-validation-fdt-20261107",
+      "head_sha": "b75c40e7b96dc9c3df2874d24e304596dcd0b571",
+      "base_ref": "v45/overhaul",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/15"
+    },
+    {
+      "number": 14,
+      "title": "[Draft] v46 CI validation — corrected PMM and BootInfo tests",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "v46/ci-validation-final",
+      "head_sha": "37f988ec059794429e90bfd31c5421879005a8cf",
+      "base_ref": "v45/overhaul",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/14"
+    },
+    {
+      "number": 13,
+      "title": "[Draft] v46 CI validation snapshot",
+      "state": "closed",
+      "draft": true,
+      "head_ref": "v46/ci-validation-20261107",
+      "head_sha": "37f988ec059794429e90bfd31c5421879005a8cf",
+      "base_ref": "v45/overhaul",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/13"
+    },
+    {
+      "number": 4,
+      "title": "CI: monitor v46 release branch with ten-minute watchdog",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "maintenance/watchdog-v45",
+      "head_sha": "db3439b78abd35e6d082ab610795f5a36c0a2918",
+      "base_ref": "main",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/4"
+    },
+    {
+      "number": 3,
+      "title": "CI: add a 10-minute KIRA workflow watchdog",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "ci/watchdog-10m",
+      "head_sha": "e087289a8ab82706f990176fa299b0decb87188b",
+      "base_ref": "main",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/3"
+    },
+    {
+      "number": 2,
+      "title": "v43: integrate adaptive compositor stability improvements",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "pkg-STAB",
+      "head_sha": "f20663e3ddb332d09b6bd2f64a649597c0ece950",
+      "base_ref": "v43/integration",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/2"
+    },
+    {
+      "number": 1,
+      "title": "v43: integrate pkg-DK application and dock improvements",
+      "state": "closed",
+      "draft": false,
+      "head_ref": "pkg-DK",
+      "head_sha": "a9a9d543ee39f7d9b351be0ad0f2a20f12a55e18",
+      "base_ref": "v43/integration",
+      "url": "https://github.com/Masuku4129/kira_os_/pull/1"
+    }
+  ],
+  "non_ci_branches_without_pr": [
+    {
+      "name": "ai/kcc-context-parser-state",
+      "sha": "10a19683fa11f8afea77742067f2e4498e6cacad"
+    },
+    {
+      "name": "ai/kira-agent-bootstrap",
+      "sha": "7fc578f313b39c1ef93a6d66d7614af7ccf83389"
+    },
+    {
+      "name": "audit/ci-architecture",
+      "sha": "b733570fee91e1b97e91552d11e9beca284bc578"
+    },
+    {
+      "name": "autodrv",
+      "sha": "3b709121700294d5ae72414276186e404a2d4a74"
+    },
+    {
+      "name": "baseline/spatial-preview-5fc8f491",
+      "sha": "5fc8f49184e2e27e44790bdcd238977bfd126cc4"
+    },
+    {
+      "name": "factory/architecture-round-2",
+      "sha": "a7895ee3b8a24d70c96c2e40cd41b9d2bfcd8a18"
+    },
+    {
+      "name": "factory/parallel-build-boxes-v2",
+      "sha": "9599290c422added1085405e4542699a8e0647fb"
+    },
+    {
+      "name": "feat/arm64-iommu-runtime",
+      "sha": "16af3af9657478114634cc59297f120c3b863e25"
+    },
+    {
+      "name": "feat/kira-vm-runtime-foundation",
+      "sha": "5bd8f65958b5e38fd370579d823dd69906568b75"
+    },
+    {
+      "name": "fix/bios-mbr-partition-cmdline",
+      "sha": "2dcf255ff4832f5631b1105c7b05fb5fe872d4b6"
+    },
+    {
+      "name": "fix/parallel-factory-bios-module-count",
+      "sha": "2070c70fb6aa1a19252fc5854b48e64591857a9c"
+    },
+    {
+      "name": "fix/vmm-kstack-host-tests",
+      "sha": "b3c9f9e51cb89ca8295e845bdfb39343f191da56"
+    },
+    {
+      "name": "gpt/bios-stage2",
+      "sha": "22f19b798aa8bab00ec27d15b36c270fc790b057"
+    },
+    {
+      "name": "impl/arm64-smmu",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/bios-uefi-boot",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/kcc-selfhost",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/kdrv-trust-lifecycle",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/platform-acpi",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/rtl8139-cleanroom",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl/x86-iommu",
+      "sha": "08bd83c0e3af1f96599b259caaa96b7fa51bcee1"
+    },
+    {
+      "name": "impl2/arm64-smmu",
+      "sha": "24ecbf5e855341031db789baf9541bddfd5524aa"
+    },
+    {
+      "name": "impl2/bios-uefi",
+      "sha": "faba8803ba41284d23dc70781b6dec3e1d65b8ff"
+    },
+    {
+      "name": "impl2/kcc-selfhost",
+      "sha": "c974fdce44cc1ca8f0f04b982a1737f71a371112"
+    },
+    {
+      "name": "impl2/kdrv-trust",
+      "sha": "40a211ebfacb21a32b95d8d752c7d25518029d46"
+    },
+    {
+      "name": "impl2/rtl8139-cleanroom",
+      "sha": "91d26301b7c5064762d6af67ce0313e0b9f5e6dd"
+    },
+    {
+      "name": "impl2/x86-iommu",
+      "sha": "45c46c0464e78ef76e8483b3a35524d38bad9d3d"
+    },
+    {
+      "name": "integ",
+      "sha": "0d82e9e1fd150dfd98a9b33a163331de5587f0e0"
+    },
+    {
+      "name": "integ2",
+      "sha": "b0ad27f682b58c47d753deb5f70e7c32cc391951"
+    },
+    {
+      "name": "integ3",
+      "sha": "656959c53da9a3cc96c938f9c311a9bebf5a2dbb"
+    },
+    {
+      "name": "integ4",
+      "sha": "9ad0175e7dcf360b61111fe01002b2fbf2c4f16a"
+    },
+    {
+      "name": "integ5",
+      "sha": "367cc15e22e5a4e71b8679e45c7dde10c2c1e6bf"
+    },
+    {
+      "name": "integration/kira-2026-11-07",
+      "sha": "a381366c74046f493dbfe625deaf689ebd782871"
+    },
+    {
+      "name": "kira-lab/robust-futex-2026-11-09",
+      "sha": "61b1e53e57c4bc30594b43ed91ea1cdf4b315171"
+    },
+    {
+      "name": "main",
+      "sha": "811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4"
+    },
+    {
+      "name": "mem-patch1",
+      "sha": "4756f469d6ef2cc64ddc9ef38e4da9b9ffcb4e36"
+    },
+    {
+      "name": "mobile/kira-assistant-v1",
+      "sha": "bbc7f7ab948e72511aed113b69043add10ec8350"
+    },
+    {
+      "name": "patch2-notify-null-usb",
+      "sha": "163103fe643db6a8f8814441ed7a88e5d888bbd0"
+    },
+    {
+      "name": "pkg-A",
+      "sha": "83ddbdc4c839cd1bf2313aa7b6c50bb30c8ce414"
+    },
+    {
+      "name": "pkg-C",
+      "sha": "89a0188eae927e0be69a9329f6cd944db9d53ce6"
+    },
+    {
+      "name": "pkg-D",
+      "sha": "38ffae70ee8e52f3d87e4b235f68a1e0caa7111b"
+    },
+    {
+      "name": "pkg-DM",
+      "sha": "ad18c88247e18aa497d47973c79731e98d4248fd"
+    },
+    {
+      "name": "pkg-E",
+      "sha": "b0d99dd20eb6a3ae1f909697db1011ad3312ef16"
+    },
+    {
+      "name": "pkg-F",
+      "sha": "861c7c217def40c9fd52a76d32d65a5d65101567"
+    },
+    {
+      "name": "pkg-G",
+      "sha": "d7ad84058021cb671d2603e848ad055db9242138"
+    },
+    {
+      "name": "pkg-H",
+      "sha": "0de152bfa9dfef1762fa19929467932ecceae82e"
+    },
+    {
+      "name": "pkg-H0",
+      "sha": "9d76416ad713547b778d753267a172978d93b4dd"
+    },
+    {
+      "name": "pkg-I",
+      "sha": "6eccfebf3304af43d25318a6ef21d4e7e4afeefe"
+    },
+    {
+      "name": "pkg-J",
+      "sha": "ba9b86782d3855904d08b1c61af60fb729df4d27"
+    },
+    {
+      "name": "pkg-K",
+      "sha": "05299430788e3c80b41d093c7f85fb9e1e48c78c"
+    },
+    {
+      "name": "pkg-L",
+      "sha": "1f62be2ccace50fe23218b21d13e20166c459f2c"
+    },
+    {
+      "name": "pkg-LN",
+      "sha": "cf966b750ba2ac271eb6b17a171574aa30cd0c19"
+    },
+    {
+      "name": "pkg-M",
+      "sha": "f868d14b054703fb94f31f27f6a24123f5348646"
+    },
+    {
+      "name": "pkg-M4",
+      "sha": "a42cf34440abb877c6fd7f4b633e46886399f992"
+    },
+    {
+      "name": "pkg-N4",
+      "sha": "16842854996fe78c8c89693d43465f8b24adb6ea"
+    },
+    {
+      "name": "pkg-UX",
+      "sha": "908015da1437d4c44e74e63fecbe56f4d6656bf4"
+    },
+    {
+      "name": "pkg-WJ",
+      "sha": "ed43b347052e42f66f153405d344ee0334f3156d"
+    },
+    {
+      "name": "research/architecture-combination-2026-11",
+      "sha": "bf5353bcf34dec193f399514d160714f9f32db11"
+    },
+    {
+      "name": "research/architecture-validation-round2-2026-11-09",
+      "sha": "7d82e6e92bcd5d39f3f44824e763d0bc9d269851"
+    },
+    {
+      "name": "research/combined-tech-lab-2026-11",
+      "sha": "efdb68009b4e822493b1e1d88eb181cc754e4d65"
+    },
+    {
+      "name": "research/ipc-process-lab-2026-11",
+      "sha": "d86ef3aebb615a01cae7c75e88b2cc2cdbb67fe8"
+    },
+    {
+      "name": "stable",
+      "sha": "367cc15e22e5a4e71b8679e45c7dde10c2c1e6bf"
+    },
+    {
+      "name": "v43/integration",
+      "sha": "edae4ab3367a055826f431e261af5d6dee790ddf"
+    },
+    {
+      "name": "v44/global-upgrade",
+      "sha": "c7dfee3dc6223e26ec1c58d20846150f95990cf5"
+    },
+    {
+      "name": "v44/next-batch",
+      "sha": "f01d970a451a7b011e4f65f7442305337524804b"
+    },
+    {
+      "name": "v45/overhaul",
+      "sha": "c07a7a3465fa8d3ed88b4b2478fa9955b0a756ca"
+    },
+    {
+      "name": "v46/architecture-completion",
+      "sha": "813b1de9cf0a2d079bfeb08b3b20ada76347afba"
+    },
+    {
+      "name": "v46/arm64-dma-pool-validation",
+      "sha": "0e82b23149fc8defc72eb4e676a38a77ab9b1882"
+    },
+    {
+      "name": "v46/dma-cleanup-validation",
+      "sha": "62cdb1c032d97194d7bede85540d83f4fdc085b8"
+    },
+    {
+      "name": "v46/engineering-work",
+      "sha": "7c616fa608be66cbc3e9ee9682915a2ca09a28bb"
+    },
+    {
+      "name": "v46/kdrv-signature",
+      "sha": "7123a9a51eb11aca23313e0d41b3cf3ee0e19c88"
+    },
+    {
+      "name": "v46/kdrv-tool-ignore",
+      "sha": "64c645d3e2b8c292eb84175cfe77084ece995979"
+    },
+    {
+      "name": "v46/release-gate-hardening",
+      "sha": "2a54dc3e868c345fa4e1bc34543df42fef3683c6"
+    },
+    {
+      "name": "v46/validation-dma-sync-current",
+      "sha": "2ac166d8194f88191228a89e5eceb4e09f871b73"
+    },
+    {
+      "name": "v46/validation-lifecycle-current",
+      "sha": "3a6b228a4ebddd8504f5286a56a0356bfe74d336"
+    },
+    {
+      "name": "v46/virtio-dma-lifecycle-validation",
+      "sha": "4a979cefec3bdd68e985dacbaaffb4ea54f02c8b"
+    },
+    {
+      "name": "v46/virtio-release-quiesce",
+      "sha": "31a9a1436c1fd0e9c6b488fa91deb8e2ae1daa86"
+    },
+    {
+      "name": "work/kdrv-runtime-signature-import",
+      "sha": "55fbf15b1afb61c55e6c34982e671eeae03a99d4"
+    }
+  ]
 }
