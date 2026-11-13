@@ -539,3 +539,5 @@
 - Added `B_QUARANTINED`: if a driver exits after its PCI handle has become stale, KDRV does not pretend it successfully quiesced the device and deliberately retains DMA/resource memory rather than freeing pages while device quiescence is unconfirmed.
 - Extended `tests/architecture_test.py` to reject pointer-based KDRV binding identity and require the generation-safe resolver/quarantine path. The existing `tests/pci_range_test.c` continues to cover stale-snapshot rejection.
 - This migration does not implement hotplug, coordinated rescan, bus-independent registry, resource reservation or full lifecycle teardown. No local test run is claimed; exact-head CI is required.
+
+- Tightened the migration gate: if any KDRV slot holds a handle that no longer resolves after a full PCI scan, `find_slot(..., create=1)` refuses all new KDRV bindings until recovery; a stale driver-exit path quarantines the slot and retains DMA pages. This is intentionally conservative and does not claim hotplug support.
