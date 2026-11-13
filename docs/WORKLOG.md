@@ -1,3 +1,11 @@
+## Текущая точка продолжения — исправление Android Spatial preview (2026-11-13)
+
+- Причина неверного интерфейса: `display_init()` безусловно вызывал Legacy `wm_init()`; Android build не выбирал `WM_LAYOUT_SPATIAL_MINIMAL`. Предыдущая выдача готового preview была ошибочной.
+- Внесено: `wm_init_mode()` с сохранением `wm_init()` как Legacy wrapper; `build_clang.sh --android` включает `KIRA_SPATIAL_PREVIEW`; только этот build переключает `display_init()` на Spatial Minimal.
+- Spatial preview не выделяет и не строит анимированный brain background. Legacy фон создаётся только в Legacy startup или при возврате в Legacy.
+- Добавлен отдельный host regression test startup mode. Требуется свежий CI на новом SHA и отдельная проверка Limbo screenshot/latency. PASS пока не заявляется.
+- PR #138 остаётся Draft; `main` не изменён. Мастер-план: J/J.1, D, K, N; workstreams 9 и 12.
+
 # KIRA OS — журнал продолжения работ
 
 ## Текущая точка продолжения — PR #138 / Spatial Minimal navigation and Launcher (2026-11-13)
