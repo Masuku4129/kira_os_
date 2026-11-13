@@ -234,7 +234,7 @@ void wm_notification_clear(void) {
 static int fs_top(void) {
     for (int i = zcount - 1; i >= 0; i--) {
         const win_t* w = &win[zorder[i]];
-        if (w->visible && !w->pinned) return w->full ? zorder[i] : -1;
+        if (w->visible && window_on_workspace(w) && !w->pinned) return w->full ? zorder[i] : -1;
     }
     return -1;
 }
@@ -723,7 +723,7 @@ void wm_set_fullscreen(int id, int on) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used || win[id].pinned) return;
     on = on != 0;
     if (win[id].full == on) return;
-    if (on) system_panel_open = 0;
+    if (on) { system_panel_open = 0; notification_center_open = 0; notification_toast_active = 0; }
     damage_win(&win[id]);
     win[id].full = on;
     if (win[id].resizable) {
@@ -795,7 +795,7 @@ void wm_set_layout_mode(wm_layout_mode_t mode) {
     if (mode != WM_LAYOUT_LEGACY && mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
     if (layout_mode == mode) return;
     layout_mode = mode;
-    system_panel_open = 0;
+    system_panel_open = 0; notification_center_open = 0; notification_toast_active = 0;
     if (mode == WM_LAYOUT_LEGACY && !bg) bg_render();
     side_hover = -1; tab_hover = -1; last_tab = -2;
     if (scr) damage(0, 0, scr->w, scr->h);
@@ -860,7 +860,7 @@ static int overview_refresh(void) {
 }
 
 void wm_window_overview_toggle(void) {
-    system_panel_open = 0;
+    system_panel_open = 0; notification_center_open = 0; notification_toast_active = 0;
     if (overview_open) overview_open = 0;
     else { overview_page = 0; overview_refresh(); overview_open = 1; }
     capture = -1; dragging = -1; resizing = -1;
