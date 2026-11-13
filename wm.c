@@ -10,6 +10,10 @@
 #define TILE 44                    /* плитка значка боковой панели */
 #define TILE_GAP 10
 #define SIDE_X 10
+#define WM_SPATIAL_RAIL_W 88
+#define WM_SPATIAL_DOCK_H 76
+#define WM_SPATIAL_TAB_H 40
+#define WM_SPATIAL_TAB_GAP 8
 #define PILL_ZONE 56               /* в полноэкранном режиме панель кнопок показывается, когда курсор выше этой черты */
 #define LIGHT_R 6                  /* «светофор» окна */
 
@@ -44,6 +48,7 @@ static int tab_n, tab_hover = -1, last_tab = -2;
 static int light_hover = -1;       /* окно, над «светофором» которого курсор */
 static int last_fs = -1, last_pill;
 static int cascade;
+static wm_layout_mode_t layout_mode = WM_LAYOUT_LEGACY;
 static uint32_t* bg;
 static surface_t bgs;
 static char clock_date[48], clock_hm[8];
@@ -145,11 +150,38 @@ static int side_item_y(int i) {
     return WM_TOP_H + 10 + side_panel_h() - 12 - TILE - k * (TILE + TILE_GAP);
 }
 
-static void damage_side(void) { damage(0, WM_TOP_H, WM_SIDE_W + 300, scr->h); }
+static int spatial_dock_count(void) {
+    int n = 0;
+    for (int i = 0; i < side_n; i++) if (!side[i].temp && !side[i].bottom) n++;
+    return n;
+}
+
+static int spatial_dock_slot(int item) {
+    int slot = 0;
+    for (int i = 0; i < item; i++) if (!side[i].temp && !side[i].bottom) slot++;
+    return slot;
+}
+
+static int spatial_dock_x(int item) {
+    int n = spatial_dock_count();
+    int width = n ? n * TILE + (n - 1) * TILE_GAP + 24 : 0;
+    int left = (scr->w - width) / 2 + 12;
+    return left + spatial_dock_slot(item) * (TILE + TILE_GAP);
+}
+
+static int spatial_dock_y(void) { return scr->h - TILE - 20; }
+static int spatial_tab_y(int i) { return WM_TOP_H + 18 + i * (WM_SPATIAL_TAB_H + WM_SPATIAL_TAB_GAP); }
+
+static void damage_side(void) {
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) damage(0, WM_TOP_H, scr->w, scr->h);
+    else damage(0, WM_TOP_H, WM_SIDE_W + 300, scr->h);
+}
 
 static int side_hit(int px, int py) {
     for (int i = 0; i < side_n; i++) {
-        int x = SIDE_X + 6, y = side_item_y(i);
+        if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && (side[i].temp || side[i].bottom)) continue;
+        int x = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? spatial_dock_x(i) : SIDE_X + 6;
+        int y = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? spatial_dock_y() : side_item_y(i);
         if (px >= x && px < x + TILE && py >= y && py < y + TILE) return i;
     }
     return -1;
@@ -157,7 +189,10 @@ static int side_hit(int px, int py) {
 
 int wm_side_center(int i, int* x, int* y) {
     if (i < 0 || i >= side_n) return -1;
-    *x = SIDE_X + 6 + TILE / 2; *y = side_item_y(i) + TILE / 2;
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        if (side[i].temp || side[i].bottom) return -1;
+        *x = spatial_dock_x(i) + TILE / 2; *y = spatial_dock_y() + TILE / 2;
+    } else { *x = SIDE_X + 6 + TILE / 2; *y = side_item_y(i) + TILE / 2; }
     return 0;
 }
 
@@ -174,6 +209,14 @@ static int tab_x(int i) {
 static int tab_w(int i) { return gfx_text_width(tabs[i].label) + 22; }
 
 static int tab_hit(int px, int py) {
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        if (px < 8 || px >= WM_SPATIAL_RAIL_W - 8) return -1;
+        for (int i = 0; i < tab_n; i++) {
+            int y = spatial_tab_y(i);
+            if (py >= y && py < y + WM_SPATIAL_TAB_H) return i;
+        }
+        return -1;
+    }
     if (py < 7 || py >= 7 + TAB_H) return -1;
     for (int i = 0; i < tab_n; i++) if (px >= tab_x(i) && px < tab_x(i) + tab_w(i)) return i;
     return -1;
@@ -181,7 +224,9 @@ static int tab_hit(int px, int py) {
 
 int wm_tab_center(int i, int* x, int* y) {
     if (i < 0 || i >= tab_n) return -1;
-    *x = tab_x(i) + tab_w(i) / 2; *y = 7 + TAB_H / 2;
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        *x = WM_SPATIAL_RAIL_W / 2; *y = spatial_tab_y(i) + WM_SPATIAL_TAB_H / 2;
+    } else { *x = tab_x(i) + tab_w(i) / 2; *y = 7 + TAB_H / 2; }
     return 0;
 }
 
@@ -229,6 +274,7 @@ static void str_copy(char* d, const char* s, int cap) {
 }
 
 void wm_init(surface_t* screen, const wm_ops_t* o) {
+    layout_mode = WM_LAYOUT_LEGACY;
     scr = screen;
     ops = *o;
     for (int i = 0; i < WM_MAX_WIN; i++) win[i].used = 0;
@@ -243,8 +289,9 @@ void wm_init(surface_t* screen, const wm_ops_t* o) {
 
 static void auto_place(win_t* w) {
     int ow = outer_w(w), oh = outer_h(w);
-    int ax = scr->w >= 800 ? WM_SIDE_W + 8 : 8, aw = scr->w - ax - 12;
-    int ay = WM_TOP_H + 12, ah = scr->h - ay - 12;
+    int left = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? WM_SPATIAL_RAIL_W + 8 : (scr->w >= 800 ? WM_SIDE_W + 8 : 8);
+    int ax = left, aw = scr->w - ax - 12;
+    int ay = WM_TOP_H + 12, ah = scr->h - ay - (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? WM_SPATIAL_DOCK_H : 12);
     int k = cascade++ % 4;
     int x = ax + (aw - ow) / 2 + k * 26, y = ay + (ah - oh) / 2 + k * 22 - 8;
     if (x + ow > scr->w - 8) x = scr->w - 8 - ow;
@@ -501,8 +548,18 @@ void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
     if (!changed) return;
     for (int i = 0; i < ncores; i++) m_busy[i] = busy[i];
     m_cores = ncores; m_mem = mem_pct; m_health = health;
-    damage_top();
+    if (layout_mode == WM_LAYOUT_LEGACY) damage_top();
 }
+
+void wm_set_layout_mode(wm_layout_mode_t mode) {
+    if (mode != WM_LAYOUT_LEGACY && mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
+    if (layout_mode == mode) return;
+    layout_mode = mode;
+    side_hover = -1; tab_hover = -1; last_tab = -2;
+    damage(0, 0, scr->w, scr->h);
+}
+
+wm_layout_mode_t wm_get_layout_mode(void) { return layout_mode; }
 
 void wm_set_fx(int level) { fx_level = level < 0 ? 0 : level > 3 ? 3 : level; }
 
@@ -510,7 +567,7 @@ static void anim_damage(int x0, int y0, int x1, int y1) { damage(x0, y0, x1, y1)
 
 void wm_anim(uint32_t now_ms, unsigned activity) {
     anim_ms = now_ms;
-    if (fs_top() >= 0) return;                        /* во весь экран фон не виден */
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL || fs_top() >= 0) return;                        /* во весь экран фон не виден */
     brainfx_anim(now_ms, fx_level, activity, anim_damage);
 }
 
@@ -655,7 +712,8 @@ static void click(int px, int py) {
         if (gets_input(&win[fs])) capture = fs;
         return;
     }
-    if (py < WM_TOP_H) {
+    if ((layout_mode == WM_LAYOUT_LEGACY && py < WM_TOP_H) ||
+        (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && tab_hit(px, py) >= 0)) {
         int t = tab_hit(px, py);
         if (t >= 0 && ops.tab) ops.tab(t);
         return;
@@ -685,7 +743,7 @@ static void update_hover(void) {
     int sh = fs >= 0 ? -1 : side_hit(cx, cy);
     if (sh != side_hover) { side_hover = sh; damage_side(); }
     int th = fs >= 0 ? -1 : tab_hit(cx, cy);
-    if (th != tab_hover) { tab_hover = th; damage_top(); }
+    if (th != tab_hover) { tab_hover = th; if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) damage_side(); else damage_top(); }
     int lh = -1;
     if (fs < 0 && cy >= WM_TOP_H) {
         int id = hit_window(cx, cy);
@@ -876,6 +934,23 @@ static void meter_color(unsigned pct, uint32_t* c) { *c = pct < 60 ? TH_GREEN : 
 
 static void draw_topbar(surface_t* c, int ox, int oy) {
     int y = oy, W = scr->w;
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        gfx_rect(c, ox, y, W, WM_TOP_H, TH_BAR0);
+        gfx_rect(c, ox, y + WM_TOP_H - 1, W, 1, TH_BORDER);
+        icon_draw(c, ox + 22, y + 20, 24, ICON_BRAIN, TH_CYAN, 1);
+        ui_text_smooth(c, ox + 40, y + 10, "KIRA", 20, TH_TEXT);
+        int rx = W - 14 + ox;
+        if (clock_hm[0]) {
+            rx -= gfx_text_width(clock_hm);
+            ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT);
+            rx -= 16;
+            if (clock_date[0]) {
+                int dw = gfx_text_width(clock_date);
+                if (rx - dw > ox + WM_SPATIAL_RAIL_W + 12) gfx_text(c, rx - dw, y + 12, clock_date, TH_TEXT_DIM, -1);
+            }
+        }
+        return;
+    }
     ui_vgrad(c, ox, y, W, WM_TOP_H, TH_BAR0, TH_BAR1);
     for (int i = 0; i < W; i++) ui_blend(c, ox + i, y + WM_TOP_H - 1, TH_CYAN, (unsigned)(i < W / 2 ? 30 + i * 60 / W : 90 - i * 60 / W));
     icon_draw(c, ox + 30, y + 20, 30, ICON_BRAIN, TH_CYAN, 1);
@@ -889,7 +964,6 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         } else if (i == tab_hover) ui_round_rect(c, tx, y + 7, tw, TAB_H, 7, TH_CYAN, 20);
         gfx_text(c, tx + 11, y + 12, tabs[i].label, i == act ? TH_CYAN : (i == tab_hover ? TH_TEXT : TH_TEXT_DIM), -1);
     }
-    /* справа налево: здоровье, память, ядра, время, дата */
     int rx = W - 14 + ox;
     if (m_health >= 0) {
         char t[8]; int n = 0, v = m_health; char d[4]; int k = 0;
@@ -897,14 +971,10 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         while (k) t[n++] = d[--k];
         t[n] = 0;
         uint32_t hc = m_health >= 70 ? TH_GREEN : m_health >= 50 ? TH_AMBER : TH_RED;
-        rx -= gfx_text_width(t);
-        ui_text_bold(c, rx, y + 12, t, hc);
-        rx -= 14;
-        ui_disc(c, rx + 4, y + 20, 4, hc, 255);
-        ui_disc(c, rx + 4, y + 20, 7, hc, 50);
-        rx -= 16;
+        rx -= gfx_text_width(t); ui_text_bold(c, rx, y + 12, t, hc); rx -= 14;
+        ui_disc(c, rx + 4, y + 20, 4, hc, 255); ui_disc(c, rx + 4, y + 20, 7, hc, 50); rx -= 16;
     }
-    if (m_mem >= 0) {                                  /* память: «батарейка» с заполнением */
+    if (m_mem >= 0) {
         int bw = 26, bh = 12, bx = rx - bw, by = y + 14;
         uint32_t mc; meter_color((unsigned)m_mem, &mc);
         ui_round_frame(c, bx, by, bw, bh, 3, TH_TEXT_DIM, 200);
@@ -914,20 +984,16 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         rx = bx - 8;
         char t[8]; int n = 0, v = m_mem; char d[4]; int k = 0;
         do { d[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 3);
-        while (k) t[n++] = d[--k];
-        t[n++] = '%'; t[n] = 0;
-        rx -= gfx_text_width(t);
-        gfx_text(c, rx, y + 12, t, TH_TEXT_DIM, -1);
-        rx -= 14;
+        while (k) t[n++] = d[--k]; t[n++] = '%'; t[n] = 0;
+        rx -= gfx_text_width(t); gfx_text(c, rx, y + 12, t, TH_TEXT_DIM, -1); rx -= 14;
     }
-    if (m_cores > 0) {                                 /* ядра: столбики, как уровень сигнала */
+    if (m_cores > 0) {
         int shown = m_cores > 16 ? 16 : m_cores, per = (m_cores + shown - 1) / shown;
         int bw = 4, gap = 2, bx = rx - shown * (bw + gap);
         for (int i = 0; i < shown; i++) {
             unsigned sum = 0, cnt = 0;
             for (int k = i * per; k < (i + 1) * per && k < m_cores; k++) { sum += m_busy[k]; cnt++; }
-            unsigned p = cnt ? sum / cnt : 0;
-            uint32_t col; meter_color(p, &col);
+            unsigned p = cnt ? sum / cnt : 0; uint32_t col; meter_color(p, &col);
             gfx_rect(c, bx + i * (bw + gap), y + 10, bw, 20, 0x00142238);
             int hgt = (int)(p * 20 / 100); if (hgt < 2) hgt = 2;
             gfx_rect(c, bx + i * (bw + gap), y + 30 - hgt, bw, hgt, col);
@@ -935,23 +1001,62 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         rx = bx - 16;
     }
     if (clock_hm[0]) {
-        rx -= gfx_text_width(clock_hm);
-        ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT);
-        rx -= 20;
+        rx -= gfx_text_width(clock_hm); ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT); rx -= 20;
         gfx_rect(c, rx + 9, y + 12, 1, 16, TH_BORDER);
         const char* d = clock_date;
         int left_limit = tab_n ? tab_x(tab_n - 1) + tab_w(tab_n - 1) + 16 + ox : 200 + ox;
-        while (*d && rx - gfx_text_width(d) < left_limit) {                /* не хватает места: без дня недели */
+        while (*d && rx - gfx_text_width(d) < left_limit) {
             const char* comma = d; while (*comma && *comma != ',') comma++;
-            if (!*comma) { d = ""; break; }
-            d = comma + 2;
+            if (!*comma) { d = ""; break; } d = comma + 2;
         }
-        rx -= gfx_text_width(d);
-        gfx_text(c, rx, y + 12, d, TH_TEXT_DIM, -1);
+        rx -= gfx_text_width(d); gfx_text(c, rx, y + 12, d, TH_TEXT_DIM, -1);
+    }
+}
+
+static void draw_spatial_shell(surface_t* c, int ox, int oy) {
+    int rail_x = 8 + ox, rail_y = WM_TOP_H + 10 + oy;
+    int rail_h = tab_n ? tab_n * (WM_SPATIAL_TAB_H + WM_SPATIAL_TAB_GAP) - WM_SPATIAL_TAB_GAP + 20 : 20;
+    ui_round_rect(c, rail_x, rail_y, WM_SPATIAL_RAIL_W - 16, rail_h, 16, TH_BAR0, 255);
+    ui_round_frame(c, rail_x, rail_y, WM_SPATIAL_RAIL_W - 16, rail_h, 16, TH_BORDER, 255);
+    int act = active_tab();
+    for (int i = 0; i < tab_n; i++) {
+        int ty = spatial_tab_y(i) + oy, tx = rail_x + 6, tw = WM_SPATIAL_RAIL_W - 28;
+        if (i == act) ui_round_rect(c, tx, ty, tw, WM_SPATIAL_TAB_H, 10, TH_CYAN, 42);
+        else if (i == tab_hover) ui_round_rect(c, tx, ty, tw, WM_SPATIAL_TAB_H, 10, TH_TILE, 255);
+        gfx_text(c, tx + 6, ty + 14, tabs[i].label, i == act ? TH_CYAN : TH_TEXT_DIM, -1);
+    }
+    int count = spatial_dock_count();
+    if (!count) return;
+    int width = count * TILE + (count - 1) * TILE_GAP + 24;
+    int dx = (scr->w - width) / 2 + ox, dy = spatial_dock_y() + oy - 8;
+    ui_round_rect(c, dx, dy, width, TILE + 16, 18, TH_BAR0, 248);
+    ui_round_frame(c, dx, dy, width, TILE + 16, 18, TH_BORDER, 255);
+    int top = wm_top();
+    for (int i = 0; i < side_n; i++) {
+        if (side[i].temp || side[i].bottom) continue;
+        int id = wm_find(side[i].tag);
+        int running = id >= 0, shown = running && win[id].visible, focused = shown && id == top;
+        uint32_t col = side[i].color;
+        int tx = spatial_dock_x(i) + ox, ty = spatial_dock_y() + oy;
+        uint32_t fill = i == side_hover ? ui_mix(TH_TILE, col, 40) : TH_TILE;
+        if (focused) ui_glow(c, tx, ty, TILE, TILE, 12, 3, col, 110);
+        ui_round_rect(c, tx, ty, TILE, TILE, 12, fill, 255);
+        ui_round_frame(c, tx, ty, TILE, TILE, 12, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 150 : 70), 255);
+        icon_draw(c, tx + TILE / 2, ty + TILE / 2, 26, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
+        if (shown) ui_round_rect(c, tx + 12, ty + TILE - 3, TILE - 24, 2, 1, col, 255);
+    }
+    if (side_hover >= 0 && side_hover < side_n && !side[side_hover].temp && !side[side_hover].bottom) {
+        const char* label = side[side_hover].label;
+        int lw = gfx_text_width(label) + 20, tx = spatial_dock_x(side_hover) + TILE / 2 - lw / 2 + ox;
+        int ty = spatial_dock_y() + oy - 40;
+        ui_round_rect(c, tx, ty, lw, 28, 8, TH_BAR0, 250);
+        ui_round_frame(c, tx, ty, lw, 28, 8, side[side_hover].color, 180);
+        gfx_text(c, tx + 10, ty + 8, label, TH_TEXT, -1);
     }
 }
 
 static void draw_side(surface_t* c, int ox, int oy) {
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) { draw_spatial_shell(c, ox, oy); return; }
     if (!side_n) return;
     int x = SIDE_X + ox, y = WM_TOP_H + 10 + oy, w = TILE + 12, h = side_panel_h();
     ui_round_rect(c, x, y, w, h, 16, TH_BAR0, 255);
@@ -972,7 +1077,7 @@ static void draw_side(surface_t* c, int ox, int oy) {
         ui_round_rect(c, tx, ty, TILE, TILE, 12, fill, 255);
         ui_round_frame(c, tx, ty, TILE, TILE, 12, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 160 : 70), 255);
         icon_draw(c, tx + TILE / 2, ty + TILE / 2, 26, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
-        if (side[i].badge) {                                /* буква программы в углу: одинаковые значки различимы */
+        if (side[i].badge) {
             char b[2] = { side[i].badge, 0 };
             ui_disc(c, tx + TILE - 9, ty + TILE - 9, 8, TH_BAR0, 255);
             ui_ring(c, tx + TILE - 9, ty + TILE - 9, 7, 8, col, 255);
@@ -980,7 +1085,7 @@ static void draw_side(surface_t* c, int ox, int oy) {
         }
         if (running) ui_round_rect(c, SIDE_X + 1 + ox, ty + TILE / 2 - (shown ? 8 : 3), 3, shown ? 16 : 6, 2, shown ? col : TH_TEXT_FAINT, 255);
     }
-    if (side_hover >= 0) {                                   /* подпись к значку под курсором */
+    if (side_hover >= 0) {
         const char* hint = side[side_hover].hint;
         int th = hint ? 44 : 26;
         int ty = side_item_y(side_hover) + oy + TILE / 2 - th / 2;
@@ -1013,7 +1118,7 @@ static int compose_prepare(void) {
     int pill = pill_visible(fs);
     if (pill != last_pill) { last_pill = pill; damage_pill(); }
     int at = active_tab();
-    if (at != last_tab) { last_tab = at; damage_top(); }
+    if (at != last_tab) { last_tab = at; if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) damage_side(); else damage_top(); }
     return fs;
 }
 
@@ -1056,9 +1161,12 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         blit_content(&clip, wn->x + WM_PAD + ox, wn->y + WM_HEAD + oy, disp_w(wn), disp_h(wn), wn);
     } else {
         if (start < 0) {
-            if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
-            else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
-            if (fs < 0) brainfx_draw(&clip, ox, oy, anim_ms);
+            if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
+            else {
+                if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
+                else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
+                if (fs < 0) brainfx_draw(&clip, ox, oy, anim_ms);
+            }
             start = 0;
         }
         for (int k = start; k < ns; k++) {
@@ -1069,7 +1177,9 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     }
     if (fs < 0) {
         if (y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
-        if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
+        if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+            if (x0 < WM_SPATIAL_RAIL_W || y1 > scr->h - WM_SPATIAL_DOCK_H) draw_side(&clip, ox, oy);
+        } else if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
     draw_cursor(&clip, ox, oy);
 }
