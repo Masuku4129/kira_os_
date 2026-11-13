@@ -41,9 +41,10 @@ int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
     wm_ops_t ops = { al, nt, inp, lc, rz, tb };
     wm_init(&scr, &ops);
+    CHECK(wm_get_layout_mode() == WM_LAYOUT_LEGACY);
     int x, y, w, h;
-    wm_side_item_t side[3] = { { "A", "A", TH_CYAN, ICON_TERMINAL, 0 }, { "Z", "zzz", TH_PURPLE, ICON_AI, 0 }, { "S", "set", TH_TEXT_DIM, ICON_GEAR, 1 } };
-    wm_side_set(side, 3);
+    wm_side_item_t side[4] = { { "A", "A", TH_CYAN, ICON_TERMINAL, 0 }, { "Z", "zzz", TH_PURPLE, ICON_AI, 0 }, { "S", "set", TH_TEXT_DIM, ICON_GEAR, 1 }, { "RUN", "run", TH_CYAN, ICON_TERMINAL, 0, 1 } };
+    wm_side_set(side, 4);
     wm_tab_t tabs[3] = { { "ГЛАВНАЯ", "" }, { "РАЗУМ", "A" }, { "НАСТРОЙКИ", "set" } };
     wm_tabs_set(tabs, 3);
 
@@ -312,6 +313,31 @@ int main(void) {
             same_as_full(&scr, "pulses");
         }
     }
+    /* Spatial Minimal is a real, opt-in layout; legacy remains the default. */
+    wm_set_layout_mode(WM_LAYOUT_SPATIAL_MINIMAL);
+    CHECK(wm_get_layout_mode() == WM_LAYOUT_SPATIAL_MINIMAL);
+    frame();
+    int nav_x, nav_y, dock_x, dock_y;
+    CHECK(wm_tab_center(1, &nav_x, &nav_y) == 0 && nav_x < WM_SIDE_W && nav_y >= WM_TOP_H);
+    CHECK(wm_side_center(0, &dock_x, &dock_y) == 0 && dock_y > 768 - 100);
+    CHECK(wm_side_center(2, &dock_x, &dock_y) == -1); /* bottom action is not a Dock pin */
+    CHECK(wm_side_center(3, &dock_x, &dock_y) == -1); /* running, unpinned apps are not in the Dock */
+    tabs_hit = 0;
+    click(nav_x, nav_y);
+    CHECK(tabs_hit == 1 && last_tab == 1);
+    click_side(0);
+    CHECK(wm_top() == a);
+    frame();
+    same_as_full(&scr, "Spatial Minimal");
+    uint8_t spatial_busy[1] = { 99 };
+    wm_set_meters(spatial_busy, 1, 88, 20);
+    CHECK(!wm_compose(&x, &y, &w, &h)); /* hidden telemetry must not invalidate the idle shell */
+    wm_set_clock("13 НОЯБРЯ", "13:05");
+    CHECK(wm_compose(&x, &y, &w, &h));
+    wm_set_layout_mode(WM_LAYOUT_LEGACY);
+    CHECK(wm_get_layout_mode() == WM_LAYOUT_LEGACY);
+    frame();
+    same_as_full(&scr, "Legacy after Spatial Minimal");
     printf("wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw passed\n");
     return 0;
