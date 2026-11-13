@@ -230,3 +230,27 @@
 - Added a 800×400 GUI regression scenario with all seven navigation destinations; it verifies the final navigation hit target ends above the Dock and remains clickable.
 - Very small viewports below 240 px height are not an acceptance target yet; touch/DPI and phone-specific scaling still require device validation.
 - Exact-head CI for the source/test follow-up is pending.
+
+
+## 20. On-demand system status panel (2026-11-13)
+
+- Added a compact status affordance at the right end of the Spatial top strip. It opens a contextual panel; it does not reserve permanent desktop space.
+- The panel reports CPU average from per-core busy samples, memory percentage and KIRA Mind health. Missing telemetry is shown as unavailable rather than fabricated.
+- Panel refreshes when new metrics arrive while it is open. Clicking outside dismisses it and consumes that click so it cannot activate an obscured window. The Window Overview and status panel are mutually exclusive.
+- Added host GUI coverage for opening, drawing, outside dismissal and toggling closed. Phone/Limbo appearance and touch-target validation remain outstanding.
+
+- The earlier responsive-shrink implementation was superseded by the paged touch Dock below; do not use its 320×240 all-visible geometry as the current contract.
+
+
+### Compact-display Dock paging — 2026-11-13
+- Replaced sub-40px icon shrinking on compact Spatial Minimal screens with paged Dock navigation. At 320px width, three pinned apps are shown per page with 40×40 app tiles and 44×44 previous/next hit targets; the remaining pins stay reachable without reducing target size.
+- Larger viewports retain the unpaged Dock when all pins fit at the normal tile size. The persisted pin order is unchanged; paging is presentation-only.
+- Added WM API for active page-control centers and host regression coverage for page visibility, previous/next bounds, and launching every pin across all pages.
+- This change still requires fresh exact-head CI and a visual/touch check in Android Limbo; no hardware validation is claimed.
+
+
+## Spatial touch window controls — 2026-11-13
+- In Spatial Minimal only, the three window title controls now have distinct 32×32 hit regions while retaining compact circular visual indicators. Their centers are spaced 36 px apart to prevent hit-region overlap.
+- Hover invalidation spans the full control group; Legacy control positions and 9 px circular hit behavior are unchanged.
+- The resize/zoom corner target expands from 22×22 to 36×36 in Spatial Minimal; Legacy remains unchanged.
+- Host GUI tests activate minimize and fullscreen from the far corner of the 32×32 target and resize from within the 36×36 corner target. Exact-head CI and Android Limbo touch verification are required before acceptance.

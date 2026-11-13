@@ -366,6 +366,69 @@ int main(void) {
     frame();
     same_as_full(&scr, "Spatial Minimal");
 
+    /* Spatial system status is modal: it must not leak pointer input to a covered app. */
+    int panel_under = wm_create("panel-underlay", 740, 50, 120, 100, WM_INPUT);
+    wm_raise(panel_under);
+    int panel_under_top = wm_top();
+    in_n = 0;
+    click(1024 - 26, 20);
+    CHECK(wm_system_panel_is_open());
+    move_to(780, 70, 0);
+    CHECK(in_n == 0);
+    click(780, 70);
+    CHECK(in_n == 0 && wm_system_panel_is_open());
+    frame();
+    uint8_t panel_busy[2] = { 20, 80 };
+    wm_set_meters(panel_busy, 2, 65, 75);
+    CHECK(wm_compose(&x, &y, &w, &h)); /* live telemetry invalidates the open panel */
+    frame();
+    CHECK(px(&scr, 990, 70) == TH_BAR0); /* unobstructed panel interior, away from the title glyph */
+    click(500, 300);
+    CHECK(!wm_system_panel_is_open() && wm_top() == panel_under_top);
+    wm_destroy(panel_under);
+    frame();
+    click(1024 - 26, 20);
+    CHECK(wm_system_panel_is_open());
+    click(1024 - 26, 20);
+    CHECK(!wm_system_panel_is_open());
+    frame();
+
+    /* Spatial window controls expose 32x32 hit areas while retaining compact visual dots. */
+    int touch_window = wm_create("touch-controls", 280, 180, 160, 100, WM_CLOSABLE);
+    CHECK(touch_window >= 0);
+    wm_raise(touch_window);
+    int t1x, t1y, t2x, t2y, t3x, t3y;
+    CHECK(wm_button_center(touch_window, 1, &t1x, &t1y) == 0);
+    CHECK(wm_button_center(touch_window, 2, &t2x, &t2y) == 0);
+    CHECK(wm_button_center(touch_window, 3, &t3x, &t3y) == 0);
+    CHECK(t2x - t1x == 36 && t3x - t2x == 36);
+    notes = 0;
+    click(t2x + 15, t2y + 15); /* far corner of the 32x32 minimize target */
+    CHECK(!wm_visible(touch_window) && notes == 1 && last_id == touch_window && last_vis == 0);
+    wm_set_visible(touch_window, 1);
+    wm_raise(touch_window);
+    click(t3x + 15, t3y + 15); /* far corner of the 32x32 fullscreen target */
+    CHECK(wm_fullscreen(touch_window));
+    wm_set_fullscreen(touch_window, 0);
+    wm_destroy(touch_window);
+    frame();
+
+    /* The Spatial resize corner also accepts a finger-sized 36x36 target. */
+    int touch_resize = wm_create_ex("touch-resize", 500, 200, 160, 96, WM_RESIZABLE, 240, 160);
+    CHECK(touch_resize >= 0);
+    wm_set_resize_limits(touch_resize, 80, 48, 8, 8);
+    wm_raise(touch_resize);
+    int trw0, trh0, trw1, trh1;
+    wm_content_size(touch_resize, &trw0, &trh0);
+    move_to(650, 312, 0); /* 30px from the lower-right edge: inside 36x36 target */
+    wm_mouse(0, 0, 1);
+    wm_mouse(30, 30, 1);
+    wm_mouse(0, 0, 0);
+    wm_content_size(touch_resize, &trw1, &trh1);
+    CHECK(trw1 > trw0 && trh1 > trh0);
+    wm_destroy(touch_resize);
+    frame();
+
     /* Hidden app content can still refresh its overview thumbnail without exposing the window. */
     wm_set_visible(a, 0);
     wm_window_overview_toggle();
@@ -422,6 +485,58 @@ int main(void) {
     tabs_hit = 0;
     click(last_nav_x, last_nav_y);
     CHECK(tabs_hit == 1 && last_tab == 6);
+
+    /* Narrow Spatial viewport: 40px app tiles and 44px pager hit targets. */
+    surface_t narrow = { calloc(320 * 240, 4), 320, 240, 320 };
+    CHECK(narrow.px != 0);
+    wm_init_mode(&narrow, &ops, WM_LAYOUT_SPATIAL_MINIMAL);
+    static const char* pin_labels[10] = { "A", "B", "C", "D", "E", "F", "G", "H", "I", "J" };
+    static const char* pin_tags[10] = { "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9" };
+    wm_side_item_t narrow_pins[10];
+    for (int i = 0; i < 10; i++)
+        narrow_pins[i] = (wm_side_item_t){ pin_labels[i], pin_tags[i], TH_CYAN, ICON_TERMINAL, 0, 0, 0, 0 };
+    wm_side_set(narrow_pins, 10);
+    frame();
+    int px_, py_;
+    int previous_dock_x = -1;
+    for (int i = 0; i < 3; i++) {
+        CHECK(wm_side_center(i, &px_, &py_) == 0);
+        CHECK(px_ >= 20 && px_ < 300 && py_ >= 0 && py_ < 240);
+        if (i) CHECK(px_ - previous_dock_x == 48); /* 40px target + 8px gap */
+        previous_dock_x = px_;
+    }
+    for (int i = 3; i < 10; i++) CHECK(wm_side_center(i, &px_, &py_) == -1);
+    CHECK(wm_dock_page_control_center(0, &px_, &py_) == -1);
+    CHECK(wm_dock_page_control_center(1, &px_, &py_) == 0);
+    click(px_ - 21, py_ - 21); /* edge of the 44x44 touch target */
+    for (int i = 3; i < 6; i++) CHECK(wm_side_center(i, &px_, &py_) == 0);
+    CHECK(wm_side_center(2, &px_, &py_) == -1);
+    CHECK(wm_dock_page_control_center(1, &px_, &py_) == 0);
+    click(px_, py_);
+    for (int i = 6; i < 9; i++) CHECK(wm_side_center(i, &px_, &py_) == 0);
+    CHECK(wm_dock_page_control_center(1, &px_, &py_) == 0);
+    click(px_, py_);
+    CHECK(wm_side_center(9, &px_, &py_) == 0);
+    CHECK(wm_dock_page_control_center(1, &px_, &py_) == -1);
+    launches = 0;
+    click_side(9);
+    CHECK(launches == 1 && last_launch == 9);
+    CHECK(wm_dock_page_control_center(0, &px_, &py_) == 0);
+    click(px_, py_);
+    launches = 0;
+    for (int i = 6; i < 9; i++) click_side(i);
+    CHECK(launches == 3 && last_launch == 8);
+    CHECK(wm_dock_page_control_center(0, &px_, &py_) == 0);
+    click(px_, py_);
+    launches = 0;
+    for (int i = 3; i < 6; i++) click_side(i);
+    CHECK(launches == 3 && last_launch == 5);
+    CHECK(wm_dock_page_control_center(0, &px_, &py_) == 0);
+    click(px_, py_);
+    launches = 0;
+    for (int i = 0; i < 3; i++) click_side(i);
+    CHECK(launches == 3 && last_launch == 2);
+    CHECK(wm_dock_page_control_center(0, &px_, &py_) == -1);
 
     printf("wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw passed\n");

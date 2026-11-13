@@ -457,3 +457,31 @@
 - Изменения: `9d6ead69c82ad5b5747ea689cbab5df2809498b1`, `9f5f35879f3e4ccd29e307552d0a1d6fee274891`. Exact-head CI ожидается; телефонный Limbo пока не проверен.
 
 - Дополнительно поджата высота фона rail: его нижняя граница теперь не заходит на поверхность Dock в коротком Spatial viewport (`a9adb4101b3a7a01425d5ffbfcb60772d22cbbe5`).
+
+
+### Spatial contextual status panel — 2026-11-13
+- Добавлена кнопка системного состояния справа в компактной верхней полосе. Панель открывается по запросу и не занимает постоянное место на рабочем столе.
+- Показывает среднюю загрузку CPU по ядрам, использование памяти и здоровье KIRA Mind. Если источник телеметрии отсутствует, значение обозначается как недоступное.
+- Панель обновляется при поступлении новых показателей; панель блокирует события мыши под собой; клик снаружи закрывает её и поглощается, не активируя скрытое окно. Обзор окон и панель состояния взаимоисключающие.
+- Добавлен GUI-тест открытия, отрисовки, закрытия снаружи и повторного переключения. Проверка на телефоне в Limbo ещё не выполнена.
+
+- Dock адаптирует размер значков и промежутки к ширине экрана; добавлен тест 320×240 с десятью закреплёнными приложениями и проверкой доступности каждого hit-target (`552446a8`, тест `8ab19e28`).
+
+
+### Spatial status-panel host-test fixture correction — PR #142 (2026-11-13)
+- Exact-head workflow `43412409335` exposed a test-fixture assertion error at `tests/wm_test.c:385`: the sampled pixel at (780,70) overlapped the rendered “СИСТЕМА” title glyph, so it was not a valid plain-background sample.
+- Kept the modal-input interaction at (780,70), but moved the color assertion to unobstructed panel interior at (990,70). This changes only the test sample, not panel behavior.
+- Corrected test commit: `b2709611b40961d9c52101a5509f793e0517721c`. Fresh exact-head CI is required; previous run does not validate this commit. Limbo/touch validation remains open.
+
+
+### Touch-sized Dock paging — PR #142 (2026-11-13)
+- Compact Spatial Minimal layouts no longer shrink pinned Dock tiles below 40px to fit ten entries on one row. The Dock now pages the existing pin order, with previous/next controls and 40px tiles and 44px paging hit targets; at 320px viewport width three pins are visible per page.
+- Wider layouts retain the unpaged 44px Dock when all pins fit. The underlying pinned-app list and persistence format are unchanged.
+- Added `wm_dock_page_control_center()` for deterministic control hit-test integration and expanded `tests/wm_test.c` to verify page bounds, visible/hidden entries, navigation, and launching all ten pins.
+- Fresh exact-head CI is required. Android Limbo touch/visual validation remains outstanding.
+
+
+### Spatial window touch targets — 2026-11-13
+- Spatial Minimal window title controls now use non-overlapping 32×32 hit areas spaced 36 px apart; compact visual dots remain. Hover damage covers the full control group.
+- Spatial resize/zoom corner hit area expanded to 36×36. Legacy geometry/input remains unchanged.
+- Added tests clicking the far corner of minimize/fullscreen targets and resizing from the expanded corner target. Fresh exact-head CI and phone/Limbo validation remain pending.

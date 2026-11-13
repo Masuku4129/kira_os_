@@ -51,9 +51,13 @@ static int cascade;
 static wm_layout_mode_t layout_mode = WM_LAYOUT_LEGACY;
 static uint32_t win_generation;
 static int overview_open, overview_page, overview_n, overview_release_guard;
+static int system_panel_open;
+static int dock_page;
 static int overview_ids[WM_MAX_WIN];
 static uint32_t overview_generations[WM_MAX_WIN];
 static void overview_click(int px, int py);
+static void draw_system_panel(surface_t* c, int ox, int oy);
+static void damage_system_panel(void);
 static void overview_damage_window(int id);
 static uint32_t* bg;
 static surface_t bgs;
@@ -131,6 +135,21 @@ static void damage_win(const win_t* w) {
 static void damage_cursor(void) { damage(cx, cy, cx + CUR_W, cy + CUR_H); }
 static void damage_top(void) { damage(0, 0, scr->w, WM_TOP_H); }
 
+#define WM_SYSTEM_PANEL_W 264
+#define WM_SYSTEM_PANEL_H 204
+static void system_panel_rect(int* x, int* y, int* w, int* h) {
+    *w = scr->w - 24; if (*w > WM_SYSTEM_PANEL_W) *w = WM_SYSTEM_PANEL_W;
+    if (*w < 160) *w = scr->w - 8;
+    *h = scr->h - 64; if (*h > WM_SYSTEM_PANEL_H) *h = WM_SYSTEM_PANEL_H;
+    if (*h < 112) *h = scr->h - 48;
+    *x = scr->w - *w - 12; *y = WM_TOP_H + 8;
+}
+static void damage_system_panel(void) {
+    int x, y, w, h; system_panel_rect(&x, &y, &w, &h);
+    damage(x, y, x + w, y + h); damage(scr->w - 48, 0, scr->w, WM_TOP_H);
+}
+int wm_system_panel_is_open(void) { return system_panel_open; }
+
 static int fs_top(void) {
     for (int i = zcount - 1; i >= 0; i--) {
         const win_t* w = &win[zorder[i]];
@@ -156,6 +175,10 @@ static int side_item_y(int i) {
     return WM_TOP_H + 10 + side_panel_h() - 12 - TILE - k * (TILE + TILE_GAP);
 }
 
+#define WM_DOCK_TOUCH_TILE 40
+#define WM_DOCK_TOUCH_GAP 8
+#define WM_DOCK_CONTROL_W 44
+
 static int spatial_dock_count(void) {
     int n = 0;
     for (int i = 0; i < side_n; i++) if (!side[i].temp && !side[i].bottom) n++;
@@ -168,14 +191,85 @@ static int spatial_dock_slot(int item) {
     return slot;
 }
 
-static int spatial_dock_x(int item) {
+/* On compact displays keep 40px touch tiles and page the pins instead of shrinking them. */
+static int spatial_dock_page_size(void) {
     int n = spatial_dock_count();
-    int width = n ? n * TILE + (n - 1) * TILE_GAP + 24 : 0;
-    int left = (scr->w - width) / 2 + 12;
-    return left + spatial_dock_slot(item) * (TILE + TILE_GAP);
+    int available = scr->w - 48;
+    if (n <= 0) return 0;
+    if (n * TILE + (n - 1) * TILE_GAP <= available - 24) return n;
+    int inner = available - 24 - 2 * WM_DOCK_CONTROL_W;
+    int fit = (inner + WM_DOCK_TOUCH_GAP) / (WM_DOCK_TOUCH_TILE + WM_DOCK_TOUCH_GAP);
+    if (fit < 1) fit = 1;
+    if (fit > n) fit = n;
+    return fit;
 }
 
-static int spatial_dock_y(void) { return scr->h - TILE - 20; }
+static int spatial_dock_pages(void) {
+    int n = spatial_dock_count(), page_size = spatial_dock_page_size();
+    return page_size > 0 ? (n + page_size - 1) / page_size : 0;
+}
+
+static int spatial_dock_page_first(void) {
+    int pages = spatial_dock_pages(), page = dock_page;
+    if (page < 0) page = 0;
+    if (pages > 0 && page >= pages) page = pages - 1;
+    return page * spatial_dock_page_size();
+}
+
+static int spatial_dock_visible_count(void) {
+    int n = spatial_dock_count(), first = spatial_dock_page_first();
+    int remaining = n - first, page_size = spatial_dock_page_size();
+    return remaining < page_size ? remaining : page_size;
+}
+
+static int spatial_dock_tile(void) {
+    return spatial_dock_pages() > 1 ? WM_DOCK_TOUCH_TILE : TILE;
+}
+
+static int spatial_dock_gap(void) {
+    return spatial_dock_pages() > 1 ? WM_DOCK_TOUCH_GAP : TILE_GAP;
+}
+
+static int spatial_dock_width(void) {
+    int count = spatial_dock_visible_count(), tile = spatial_dock_tile(), gap = spatial_dock_gap();
+    int controls = spatial_dock_pages() > 1 ? 2 * WM_DOCK_CONTROL_W : 0;
+    return count ? count * tile + (count - 1) * gap + controls + 24 : 0;
+}
+
+static int spatial_dock_x(int item) {
+    int slot = spatial_dock_slot(item), first = spatial_dock_page_first();
+    int count = spatial_dock_visible_count(), tile = spatial_dock_tile(), gap = spatial_dock_gap();
+    if (slot < first || slot >= first + count) return -10000;
+    int controls = spatial_dock_pages() > 1 ? WM_DOCK_CONTROL_W : 0;
+    int left = (scr->w - spatial_dock_width()) / 2 + 12 + controls;
+    return left + (slot - first) * (tile + gap);
+}
+
+static int spatial_dock_y(void) { return scr->h - spatial_dock_tile() - 20; }
+
+static int spatial_dock_control_center(int next, int* x, int* y) {
+    if (spatial_dock_pages() <= 1) return -1;
+    int width = spatial_dock_width(), left = (scr->w - width) / 2;
+    *x = next ? left + width - WM_DOCK_CONTROL_W / 2 - 2 : left + WM_DOCK_CONTROL_W / 2 + 2;
+    *y = spatial_dock_y() + spatial_dock_tile() / 2;
+    return 0;
+}
+
+int wm_dock_page_control_center(int next, int* x, int* y) {
+    if (!x || !y || (next != 0 && next != 1)) return -1;
+    if (spatial_dock_control_center(next, x, y) != 0) return -1;
+    if (next && dock_page + 1 >= spatial_dock_pages()) return -1;
+    if (!next && dock_page <= 0) return -1;
+    return 0;
+}
+
+static int spatial_dock_control_hit(int px, int py) {
+    int x, y;
+    if (spatial_dock_pages() <= 1) return 0;
+    if (spatial_dock_control_center(0, &x, &y) == 0 && px >= x - 22 && px < x + 22 && py >= y - 22 && py < y + 22) return -1;
+    if (spatial_dock_control_center(1, &x, &y) == 0 && px >= x - 22 && px < x + 22 && py >= y - 22 && py < y + 22) return 1;
+    return 0;
+}
 
 /* Keep the complete navigation rail above the Dock on short Limbo/mobile modes. */
 static int spatial_tab_height(void) {
@@ -217,10 +311,11 @@ static void damage_side(void) {
 
 static int side_hit(int px, int py) {
     for (int i = 0; i < side_n; i++) {
-        if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && (side[i].temp || side[i].bottom)) continue;
+        if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && (side[i].temp || side[i].bottom || spatial_dock_x(i) < 0)) continue;
+        int tile = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? spatial_dock_tile() : TILE;
         int x = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? spatial_dock_x(i) : SIDE_X + 6;
         int y = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? spatial_dock_y() : side_item_y(i);
-        if (px >= x && px < x + TILE && py >= y && py < y + TILE) return i;
+        if (px >= x && px < x + tile && py >= y && py < y + tile) return i;
     }
     return -1;
 }
@@ -229,7 +324,10 @@ int wm_side_center(int i, int* x, int* y) {
     if (i < 0 || i >= side_n) return -1;
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
         if (side[i].temp || side[i].bottom) return -1;
-        *x = spatial_dock_x(i) + TILE / 2; *y = spatial_dock_y() + TILE / 2;
+        int dx = spatial_dock_x(i);
+        if (dx < 0) return -1;
+        int tile = spatial_dock_tile();
+        *x = dx + tile / 2; *y = spatial_dock_y() + tile / 2;
     } else { *x = SIDE_X + 6 + TILE / 2; *y = side_item_y(i) + TILE / 2; }
     return 0;
 }
@@ -314,6 +412,7 @@ static void str_copy(char* d, const char* s, int cap) {
 void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
     layout_mode = (mode == WM_LAYOUT_SPATIAL_MINIMAL) ? WM_LAYOUT_SPATIAL_MINIMAL : WM_LAYOUT_LEGACY;
     overview_open = 0; overview_page = 0; overview_n = 0; overview_release_guard = 0;
+    system_panel_open = 0; dock_page = 0;
     win_generation = 0;
     scr = screen;
     ops = *o;
@@ -460,6 +559,7 @@ void wm_side_set(const wm_side_item_t* items, int n) {
     if (n > WM_SIDE_MAX) n = WM_SIDE_MAX;
     for (int i = 0; i < n; i++) side[i] = items[i];
     side_n = n;
+    if (dock_page >= spatial_dock_pages()) dock_page = spatial_dock_pages() > 0 ? spatial_dock_pages() - 1 : 0;
     damage_side();
 }
 
@@ -538,6 +638,7 @@ void wm_set_fullscreen(int id, int on) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used || win[id].pinned) return;
     on = on != 0;
     if (win[id].full == on) return;
+    if (on) system_panel_open = 0;
     damage_win(&win[id]);
     win[id].full = on;
     if (win[id].resizable) {
@@ -602,12 +703,14 @@ void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
     for (int i = 0; i < ncores; i++) m_busy[i] = busy[i];
     m_cores = ncores; m_mem = mem_pct; m_health = health;
     if (layout_mode == WM_LAYOUT_LEGACY) damage_top();
+    else if (system_panel_open) damage_system_panel();
 }
 
 void wm_set_layout_mode(wm_layout_mode_t mode) {
     if (mode != WM_LAYOUT_LEGACY && mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
     if (layout_mode == mode) return;
     layout_mode = mode;
+    system_panel_open = 0;
     if (mode == WM_LAYOUT_LEGACY && !bg) bg_render();
     side_hover = -1; tab_hover = -1; last_tab = -2;
     if (scr) damage(0, 0, scr->w, scr->h);
@@ -646,6 +749,7 @@ static int overview_refresh(void) {
 }
 
 void wm_window_overview_toggle(void) {
+    system_panel_open = 0;
     if (overview_open) overview_open = 0;
     else { overview_page = 0; overview_refresh(); overview_open = 1; }
     capture = -1; dragging = -1; resizing = -1;
@@ -721,7 +825,10 @@ static int hit_window(int px, int py) {
 }
 
 /* «Светофор»: 1 - закрыть (красный), 2 - свернуть (жёлтый), 3 - на весь экран (зелёный). */
-static int light_x(const win_t* w, int which) { return w->x + 18 + (which - 1) * 20; }
+static int light_x(const win_t* w, int which) {
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) return w->x + 22 + (which - 1) * 36;
+    return w->x + 18 + (which - 1) * 20;
+}
 static int light_y(const win_t* w) { return w->y + WM_HEAD / 2; }
 
 int wm_button_center(int id, int which, int* x, int* y) {
@@ -734,7 +841,9 @@ static int ctl_hit(const win_t* w, int px, int py) {
     if (w->pinned) return 0;
     for (int k = 1; k <= 3; k++) {
         int dx = px - light_x(w, k), dy = py - light_y(w);
-        if (dx * dx + dy * dy <= 9 * 9) return k;
+        if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+            if (dx >= -16 && dx < 16 && dy >= -16 && dy < 16) return k;
+        } else if (dx * dx + dy * dy <= 9 * 9) return k;
     }
     return 0;
 }
@@ -771,7 +880,8 @@ static int click_pill(int fs, int px, int py) {
 
 static int grip_hit(const win_t* w, int px, int py) {
     if (!(w->resizable || w->zoomable) || w->full) return 0;
-    return px >= w->x + outer_w(w) - 22 && py >= w->y + outer_h(w) - 22;
+    int target = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? 36 : 22;
+    return px >= w->x + outer_w(w) - target && py >= w->y + outer_h(w) - target;
 }
 
 static void apply_resize(int id) {
@@ -813,8 +923,17 @@ static void click(int px, int py) {
         if (gets_input(&win[fs])) capture = fs;
         return;
     }
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && system_panel_open) {
+        int sx, sy, sw, sh; system_panel_rect(&sx, &sy, &sw, &sh);
+        if (px >= sx && px < sx + sw && py >= sy && py < sy + sh) return;
+        system_panel_open = 0; damage_system_panel();
+        return; /* dismissing the overlay must not activate a covered window */
+    }
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && py < WM_TOP_H) {
-        if (px >= 104 && px < 188 && py >= 6 && py < 34) wm_window_overview_toggle();
+        if (px >= 104 && px < 188 && py >= 6 && py < 34) { wm_window_overview_toggle(); return; }
+        if (px >= scr->w - 48 && px < scr->w - 8 && py >= 6 && py < 34) {
+            system_panel_open = !system_panel_open; damage_system_panel(); return;
+        }
         return;
     }
     if (layout_mode == WM_LAYOUT_LEGACY && py < WM_TOP_H) {
@@ -827,6 +946,17 @@ static void click(int px, int py) {
         int t = tab_hit(px, py);
         if (t >= 0 && ops.tab) ops.tab(t);
         return;
+    }
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        int page_control = spatial_dock_control_hit(px, py);
+        if (page_control) {
+            int pages = spatial_dock_pages();
+            if (page_control < 0 && dock_page > 0) dock_page--;
+            if (page_control > 0 && dock_page + 1 < pages) dock_page++;
+            side_hover = -1;
+            damage_side();
+            return;
+        }
     }
     int si = side_hit(px, py);
     if (si >= 0) { side_click(si); return; }
@@ -862,14 +992,17 @@ static void update_hover(void) {
         } else damage_top();
     }
     int lh = -1;
+    int controls_w = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? 116 : 72;
     if (fs < 0 && cy >= WM_TOP_H) {
         int id = hit_window(cx, cy);
-        if (id >= 0 && !win[id].pinned && !win[id].full && cy < win[id].y + WM_HEAD && cx < win[id].x + 70) lh = id;
+        if (id >= 0 && !win[id].pinned && !win[id].full &&
+            cy < win[id].y + WM_HEAD && cx >= win[id].x && cx < win[id].x + controls_w) lh = id;
     }
     if (lh != light_hover) {
-        if (light_hover >= 0 && win[light_hover].used) damage(win[light_hover].x, win[light_hover].y, win[light_hover].x + 72, win[light_hover].y + WM_HEAD);
+        if (light_hover >= 0 && win[light_hover].used)
+            damage(win[light_hover].x, win[light_hover].y, win[light_hover].x + controls_w, win[light_hover].y + WM_HEAD);
         light_hover = lh;
-        if (lh >= 0) damage(win[lh].x, win[lh].y, win[lh].x + 72, win[lh].y + WM_HEAD);
+        if (lh >= 0) damage(win[lh].x, win[lh].y, win[lh].x + controls_w, win[lh].y + WM_HEAD);
     }
 }
 
@@ -898,6 +1031,12 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
         capture = -1; dragging = -1; resizing = -1;
         prev_buttons = buttons;
         return; /* overlay owns input; never leak clicks or pointer events to an underlying app */
+    }
+    if (system_panel_open && layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        if (left && !was) click(cx, cy);
+        capture = -1; dragging = -1; resizing = -1;
+        prev_buttons = buttons;
+        return; /* status panel is modal: do not forward pointer movement or buttons underneath */
     }
     if (left && !was) click(cx, cy);
     if ((buttons & 2) && !(prev_buttons & 2) && fs_top() < 0 && ops.side_alt) {      /* правая кнопка на значке */
@@ -990,7 +1129,8 @@ static void blit_content(surface_t* c, int dx, int dy, int dw, int dh, const win
 static void draw_lights(surface_t* c, int x, int y, int hover) {
     static const uint32_t col[3] = { TH_CLOSE, TH_MIN, TH_FULL };
     for (int k = 0; k < 3; k++) {
-        int lx = x + 18 + k * 20, ly = y + WM_HEAD / 2;
+        int lx = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? x + 22 + k * 36 : x + 18 + k * 20;
+        int ly = y + WM_HEAD / 2;
         ui_disc(c, lx, ly, LIGHT_R, col[k], 255);
         if (!hover) continue;
         uint32_t g = 0x003A1010;
@@ -1075,7 +1215,10 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         ui_round_rect(c, ox + 104, y + 7, 76, 26, 8, TH_TILE, 255);
         ui_round_frame(c, ox + 104, y + 7, 76, 26, 8, TH_BORDER, 220);
         gfx_text(c, ox + 119, y + 14, "ОКНА", TH_TEXT_DIM, -1);
-        int rx = W - 14 + ox;
+        ui_round_rect(c, ox + W - 42, y + 6, 32, 28, 8, TH_TILE, 255);
+        ui_round_frame(c, ox + W - 42, y + 6, 32, 28, 8, system_panel_open ? TH_CYAN : TH_BORDER, 220);
+        icon_draw(c, ox + W - 26, y + 20, 16, ICON_MONITOR, system_panel_open ? TH_CYAN : TH_TEXT_DIM, 0);
+        int rx = W - 58 + ox;
         if (clock_hm[0]) {
             rx -= gfx_text_width(clock_hm);
             ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT);
@@ -1182,32 +1325,77 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     }
     int count = spatial_dock_count();
     if (!count) return;
-    int width = count * TILE + (count - 1) * TILE_GAP + 24;
+    int tile = spatial_dock_tile(), pages = spatial_dock_pages();
+    int width = spatial_dock_width();
     int dx = (scr->w - width) / 2 + ox, dy = spatial_dock_y() + oy - 8;
-    ui_round_rect(c, dx, dy, width, TILE + 16, 18, TH_BAR0, 248);
-    ui_round_frame(c, dx, dy, width, TILE + 16, 18, TH_BORDER, 255);
+    ui_round_rect(c, dx, dy, width, tile + 16, 18, TH_BAR0, 248);
+    ui_round_frame(c, dx, dy, width, tile + 16, 18, TH_BORDER, 255);
+    if (pages > 1) {
+        int cy = spatial_dock_y() + tile / 2 + oy;
+        int lx = dx + WM_DOCK_CONTROL_W / 2 + 2;
+        int rx = dx + width - WM_DOCK_CONTROL_W / 2 - 2;
+        uint32_t lc = dock_page > 0 ? TH_TEXT : TH_TEXT_FAINT;
+        uint32_t rc = dock_page + 1 < pages ? TH_TEXT : TH_TEXT_FAINT;
+        ui_round_rect(c, lx - 18, cy - 20, 36, 40, 11, TH_TILE, 255);
+        ui_round_rect(c, rx - 18, cy - 20, 36, 40, 11, TH_TILE, 255);
+        gfx_line(c, lx + 3, cy - 7, lx - 3, cy, lc);
+        gfx_line(c, lx - 3, cy, lx + 3, cy + 7, lc);
+        gfx_line(c, rx - 3, cy - 7, rx + 3, cy, rc);
+        gfx_line(c, rx + 3, cy, rx - 3, cy + 7, rc);
+    }
     int top = wm_top();
     for (int i = 0; i < side_n; i++) {
-        if (side[i].temp || side[i].bottom) continue;
+        if (side[i].temp || side[i].bottom || spatial_dock_x(i) < 0) continue;
         int id = wm_find(side[i].tag);
         int running = id >= 0, shown = running && win[id].visible, focused = shown && id == top;
         uint32_t col = side[i].color;
         int tx = spatial_dock_x(i) + ox, ty = spatial_dock_y() + oy;
+        int icon_size = tile >= 40 ? 26 : tile >= 28 ? 20 : 14;
+        int radius = tile >= 32 ? 12 : 7;
         uint32_t fill = i == side_hover ? ui_mix(TH_TILE, col, 40) : TH_TILE;
-        if (focused) ui_glow(c, tx, ty, TILE, TILE, 12, 3, col, 110);
-        ui_round_rect(c, tx, ty, TILE, TILE, 12, fill, 255);
-        ui_round_frame(c, tx, ty, TILE, TILE, 12, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 150 : 70), 255);
-        icon_draw(c, tx + TILE / 2, ty + TILE / 2, 26, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
-        if (shown) ui_round_rect(c, tx + 12, ty + TILE - 3, TILE - 24, 2, 1, col, 255);
+        if (focused) ui_glow(c, tx, ty, tile, tile, 10, 3, col, 110);
+        ui_round_rect(c, tx, ty, tile, tile, radius, fill, 255);
+        ui_round_frame(c, tx, ty, tile, tile, radius, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 150 : 70), 255);
+        icon_draw(c, tx + tile / 2, ty + tile / 2, icon_size, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
+        if (shown && tile >= 20) ui_round_rect(c, tx + tile / 3, ty + tile - 3, tile / 3, 2, 1, col, 255);
     }
     if (side_hover >= 0 && side_hover < side_n && !side[side_hover].temp && !side[side_hover].bottom) {
         const char* label = side[side_hover].label;
-        int lw = gfx_text_width(label) + 20, tx = spatial_dock_x(side_hover) + TILE / 2 - lw / 2 + ox;
+        int lw = gfx_text_width(label) + 20, tx = spatial_dock_x(side_hover) + tile / 2 - lw / 2 + ox;
         int ty = spatial_dock_y() + oy - 40;
         ui_round_rect(c, tx, ty, lw, 28, 8, TH_BAR0, 250);
         ui_round_frame(c, tx, ty, lw, 28, 8, side[side_hover].color, 180);
         gfx_text(c, tx + 10, ty + 8, label, TH_TEXT, -1);
     }
+}
+
+static void draw_system_panel(surface_t* c, int ox, int oy) {
+    if (!system_panel_open || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
+    int x, y, w, h; system_panel_rect(&x, &y, &w, &h);
+    ui_round_rect(c, x + ox, y + oy, w, h, 16, TH_BAR0, 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, 16, TH_BORDER, 255);
+    gfx_text(c, x + 16 + ox, y + 14 + oy, "СИСТЕМА", TH_TEXT, -1);
+    gfx_text(c, x + 16 + ox, y + 32 + oy, "Текущие показатели", TH_TEXT_DIM, -1);
+    unsigned cpu = 0;
+    for (int i = 0; i < m_cores; i++) cpu += m_busy[i];
+    int values[3] = { m_cores > 0 ? (int)(cpu / (unsigned)m_cores) : -1, m_mem, m_health };
+    const char* labels[3] = { "ПРОЦЕССОР", "ПАМЯТЬ", "KIRA MIND" };
+    for (int i = 0; i < 3; i++) {
+        int ry = y + 58 + i * 38;
+        gfx_text(c, x + 16 + ox, ry + oy, labels[i], TH_TEXT_DIM, -1);
+        if (values[i] < 0) { gfx_text(c, x + w - 28 + ox, ry + oy, "—", TH_TEXT_FAINT, -1); continue; }
+        int v = values[i] > 100 ? 100 : values[i];
+        char num[5]; int n = 0, q = v, digits[3], nd = 0;
+        do { digits[nd++] = q % 10; q /= 10; } while (q && nd < 3);
+        while (nd) num[n++] = (char)('0' + digits[--nd]);
+        num[n++] = '%'; num[n] = 0;
+        uint32_t col; meter_color((unsigned)v, &col);
+        if (i == 2) col = v >= 70 ? TH_GREEN : v >= 50 ? TH_AMBER : TH_RED;
+        ui_text_bold(c, x + w - 16 - gfx_text_width(num) + ox, ry + oy, num, col);
+        ui_round_rect(c, x + 16 + ox, ry + 18 + oy, w - 32, 5, 2, TH_TILE, 255);
+        ui_round_rect(c, x + 16 + ox, ry + 18 + oy, (w - 32) * v / 100, 5, 2, col, 255);
+    }
+    gfx_text(c, x + 16 + ox, y + h - 20 + oy, "Закрыть: нажмите вне панели", TH_TEXT_FAINT, -1);
 }
 
 static void draw_side(surface_t* c, int ox, int oy) {
@@ -1478,6 +1666,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         if (y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
         if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
             if (x0 < WM_SPATIAL_RAIL_W + 220 || y1 > scr->h - WM_SPATIAL_DOCK_H) draw_side(&clip, ox, oy);
+            if (system_panel_open) draw_system_panel(&clip, ox, oy);
         } else if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
     draw_cursor(&clip, ox, oy);
