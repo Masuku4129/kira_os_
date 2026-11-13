@@ -7,6 +7,7 @@
 #define CHECK(c) do{ if(!(c)){ printf("FAIL line %d: %s\n",__LINE__,#c); exit(1);} }while(0)
 
 static int notes, last_id, last_vis, launches, last_launch, tabs_hit, last_tab, launcher_hits;
+static int workspace_changes, last_workspace;
 static int in_n, in_id, in_type, in_x, in_y, in_b;
 static void inp(int id, int type, int x, int y, unsigned b) { in_n++; in_id = id; in_type = type; in_x = x; in_y = y; in_b = (int)b; }
 static void* al(uint64_t n) { return calloc(1, n); }
@@ -14,6 +15,7 @@ static void nt(int id, int v) { notes++; last_id = id; last_vis = v; }
 static void lc(int i) { launches++; last_launch = i; }
 static void tb(int i) { tabs_hit++; last_tab = i; }
 static void launcher(void) { launcher_hits++; }
+static void ws_changed(int workspace) { workspace_changes++; last_workspace = workspace; }
 static int rz_n, rz_id, rz_w, rz_h;
 static void rz(int id, int w, int h) { rz_n++; rz_id = id; rz_w = w; rz_h = h; }
 static uint32_t px(surface_t* s, int x, int y) { return s->px[y * s->pitch + x]; }
@@ -40,7 +42,7 @@ static void same_as_full(surface_t* scr, const char* what) {
 
 int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
-    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, launcher };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, launcher, ws_changed };
     wm_init(&scr, &ops);
     CHECK(wm_get_layout_mode() == WM_LAYOUT_LEGACY);
     int x, y, w, h;
@@ -326,6 +328,27 @@ int main(void) {
     CHECK(wm_side_center(0, &dock_x, &dock_y) == 0 && dock_y > 768 - 100);
     CHECK(wm_side_center(2, &dock_x, &dock_y) == -1); /* bottom action is not a Dock pin */
     CHECK(wm_side_center(3, &dock_x, &dock_y) == -1); /* running, unpinned apps are not in the Dock */
+
+    /* Four isolated workspaces; pinned system windows remain global. */
+    CHECK(wm_workspace_count() == 4 && wm_workspace_current() == 0);
+    CHECK(wm_workspace_switch(-1) == -1 && wm_workspace_switch(4) == -1);
+    CHECK(wm_workspace_center(0, &nav_x, &nav_y) == 0 && nav_x == 204 && nav_y == 20);
+    int ws_window = wm_create("workspace-one", 620, 420, 120, 80, WM_CLOSABLE);
+    CHECK(ws_window >= 0 && wm_visible(ws_window));
+    wm_set_visible(ws_window, 0);
+    CHECK(wm_workspace_switch(1) == 1 && wm_workspace_current() == 1);
+    CHECK(!wm_visible(a) && !wm_visible(b) && !wm_visible(ws_window));
+    CHECK(wm_visible(p)); /* pinned widget is shared across all workspaces */
+    CHECK(workspace_changes == 1 && last_workspace == 1 && wm_top() == -1);
+    wm_set_visible(ws_window, 1);
+    CHECK(wm_top() == ws_window && wm_visible(ws_window));
+    CHECK(wm_workspace_switch(0) == 1 && wm_visible(a) && !wm_visible(ws_window));
+    click_side(0); /* Dock activation follows an app to its owning workspace */
+    CHECK(wm_workspace_current() == 0 && wm_top() == a);
+    CHECK(wm_workspace_switch(1) == 1 && wm_top() == ws_window);
+    CHECK(workspace_changes == 4 && last_workspace == 1);
+    wm_destroy(ws_window);
+    CHECK(wm_workspace_switch(0) == 1);
     tabs_hit = 0; launcher_hits = 0;
     click(240, 20);
     CHECK(launcher_hits == 0 && tabs_hit == 0); /* application launcher is no longer duplicated in the top bar */
