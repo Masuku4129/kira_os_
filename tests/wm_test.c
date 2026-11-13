@@ -401,6 +401,28 @@ int main(void) {
     CHECK(wm_get_layout_mode() == WM_LAYOUT_LEGACY);
     frame();
     same_as_full(&scr, "Legacy after Spatial Minimal");
+
+    /* Short-screen Spatial rail must fit above the pinned-only Dock. */
+    surface_t small = { calloc(800 * 400, 4), 800, 400, 800 };
+    CHECK(small.px != 0);
+    wm_init_mode(&small, &ops, WM_LAYOUT_SPATIAL_MINIMAL);
+    wm_tab_t small_tabs[7] = {
+        { "ГЛАВНАЯ", "" }, { "ПРИЛОЖЕНИЯ", "Launcher" },
+        { "ПРОВОДНИК", "Files" }, { "KIRA AI", "Mind" },
+        { "МОНИТОР", "Monitor" }, { "НАСТРОЙКИ", "Settings" },
+        { "ТЕРМИНАЛ", "Console" }
+    };
+    wm_tabs_set(small_tabs, 7);
+    wm_side_set(side, 4);
+    frame();
+    int last_nav_x, last_nav_y, pin_x, pin_y;
+    CHECK(wm_tab_center(6, &last_nav_x, &last_nav_y) == 0);
+    CHECK(wm_side_center(0, &pin_x, &pin_y) == 0);
+    CHECK(last_nav_y + 16 < pin_y - 30); /* nav hit target ends above Dock surface */
+    tabs_hit = 0;
+    click(last_nav_x, last_nav_y);
+    CHECK(tabs_hit == 1 && last_tab == 6);
+
     printf("wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw passed\n");
     return 0;
