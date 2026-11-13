@@ -51,6 +51,7 @@ typedef struct {
     void  (*tab)(int tab_index);                  /* нажат раздел в верхней панели */
     void  (*side_alt)(int side_index);            /* правая кнопка на значке боковой панели */
     void  (*launcher)(void);                     /* открыть каталог приложений (только Spatial Minimal) */
+    void  (*workspace_changed)(int workspace);  /* новое рабочее пространство стало активным */
 } wm_ops_t;
 
 void wm_init(surface_t* screen, const wm_ops_t* ops); /* legacy-compatible entry point */
@@ -63,6 +64,11 @@ int wm_window_overview_is_open(void);
 int wm_window_overview_count(void);
 int wm_window_overview_item_center(int item, int* x, int* y);
 int wm_system_panel_is_open(void);
+#define WM_WORKSPACE_MAX 4
+int wm_workspace_current(void);
+int wm_workspace_count(void);
+int wm_workspace_switch(int workspace);
+int wm_workspace_center(int workspace, int* x, int* y);
 /* Spatial Minimal: centers of active previous/next Dock page controls for hit-test integration. */
 int wm_dock_page_control_center(int next, int* x, int* y);
 int  wm_create(const char* title, int x, int y, int content_w, int content_h, int flags); /* id или -1 */
