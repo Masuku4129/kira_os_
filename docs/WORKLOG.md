@@ -434,3 +434,9 @@
 - Fixed active-tab transitions to damage only the previous/current rail entries using `damage_spatial_tab()`; Legacy still uses `damage_top()`.
 - Extended `tests/ui_damage_contract_test.py` to guard active-tab redraw as well as hover redraw.
 - Exact source/test head: `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae`. The prior CI run `43396919980` predates this follow-up; fresh exact-head CI is pending. No measured frame-time improvement or Android Limbo visual result is claimed.
+
+
+### Spatial Minimal dirty-region follow-up — PR #140 exact-head CI (2026-11-13)
+- Branch head: `1850c0ea0f4f3436116b1b3e3942f5f05293ef34`; source/test head: `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae`.
+- Workflow `43408346184` passed host-tests, x86-64, ARM64/QEMU and all VM jobs.
+- Verified source contract covers Dock bottom-band invalidation, previous/current navigation hover entries, and previous/current active navigation entries. Android Limbo visual comparison and measured frame-time/dirty-pixel data remain unverified.
