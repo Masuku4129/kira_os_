@@ -442,7 +442,7 @@ static void on_resize(int id, int w, int h) {
 
 static int streq(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 
-/* Собрать значки: закреплённые, затем идущие незакреплённые, внизу «+». Перестраивается, только если что-то изменилось. */
+/* Собрать только закреплённые значки Dock. Перестраивается при изменении списка закреплений. */
 static void side_rebuild(int force) {
     /* Spatial Minimal Dock is intentionally pin-only: running windows are
        reached through the workspace overview, never appended as task buttons. */
