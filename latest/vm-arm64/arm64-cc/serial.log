@@ -1,0 +1,128 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA ARM64] RAM: 1024 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 1017 MB free pages; kernel heap and scheduler online (per-core ready queues, 48 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 99 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 2 of 2 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 2 of 2 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 2 function(s), 2 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 647436 bytes, prefix 7f166f5e...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 2 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 16 MB (PCI 0:1.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA DISK] vda: virtio-blk, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14460 KB free.
+[KIRA PROC] up to 8 programs at once (2 cores, 1024 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): ПЯТНИЦА, 13 НОЯБРЯ 2026 08:48
+[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.
+[KIRA NET] No supported network card: networking is off.
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+ls /etc/kcc/include
+         4176  caps.h
+          699  ctype.h
+         2426  kdrv.h
+         6955  kdrv_bsd.h
+        11206  kdrv_format.h
+        18303  kira.h
+          636  limits.h
+          461  stdarg.h
+          172  stdbool.h
+          227  stddef.h
+          930  stdint.h
+         5821  stdio.h
+         4861  stdlib.h
+         2407  string.h
+кира> [KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA TELEMETRY] t=1s health=100 load=24% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+cc hello.c
+использование: cc исходник результат   (файлы в /data/kcc, например: cc hello.c hello; запуск: runlocal hello)
+кира> [KIRA TELEMETRY] t=2s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+cc hello.c hello
+[KIRA PROC] pid 1 'kcc' started from ELF: Ring 3, own address space, 48 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] kcc: ok: hello.c -> hello, 24624 байт (память компилятора 3485 КБ)
+[KIRA PROC] pid 1 'kcc' finished, exit code 0, address space destroyed (1089 pages returned to PMM).
+[KIRA TELEMETRY] t=3s health=100 load=5% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+ls /data/kcc
+         1741  hello.c
+          148  bad.c
+          607  net.c
+         2575  lang.c
+        24624  hello
+кира> [KIRA TELEMETRY] t=4s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+runlocal hello
+[LOCAL] /data/kcc/hello запускается по явной команде пользователя как 'local-hello' без прав, иммунитет: неопознанная (не из манифеста сборки)
+[KIRA PROC] pid 2 'local-hello' started from ELF: Ring 3, own address space, 6 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 2] native: hello from kcc on Kira
+кира> [USER pid 2] native: total=240
+[USER pid 2] native: fib20=6765
+[USER pid 2] native: sorted gear bolt nut
+[USER pid 2] native: reversed=so-arik
+[USER pid 2] native: hex=c0ffee
+[USER pid 2] native: clock ok
+[USER pid 2] native: done
+[KIRA PROC] pid 2 'local-hello' finished, exit code 0, address space destroyed (39 pages returned to PMM).
+[KIRA TELEMETRY] t=5s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+cc bad.c bad
+[KIRA PROC] pid 3 'kcc' started from ELF: Ring 3, own address space, 48 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 3] bad.c:9: error: expected ',' before 'k_puts'
+[KIRA PROC] pid 3 'kcc' finished, exit code 1, address space destroyed (321 pages returned to PMM).
+[KIRA TELEMETRY] t=6s health=100 load=2% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+runlocal bad
+[LOCAL] /data/kcc/bad: нет такого файла или каталога (собрать: cc исходник.c bad)
+кира> [KIRA TELEMETRY] t=7s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+cc net.c net
+[KIRA PROC] pid 4 'kcc' started from ELF: Ring 3, own address space, 48 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 4] kcc: ok: net.c -> net, 12288 байт (память компилятора 2189 КБ)
+[KIRA PROC] pid 4 'kcc' finished, exit code 0, address space destroyed (833 pages returned to PMM).
+[KIRA TELEMETRY] t=8s health=100 load=3% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+runlocal net
+[LOCAL] /data/kcc/net запускается по явной команде пользователя как 'local-net' без прав, иммунитет: неопознанная (не из манифеста сборки)
+[KIRA PROC] pid 5 'local-net' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [KIRA CAPS] process 'local-net' (pid 5): system call 25 denied, no right CAP_NET.
+[USER pid 5] net: dns=-12 connect=-12 file=-100
+[USER pid 5] net: refused (PASS)
+[KIRA PROC] pid 5 'local-net' finished, exit code 0, address space destroyed (19 pages returned to PMM).
+[KIRA TELEMETRY] t=9s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+cc lang.c lang
+[KIRA PROC] pid 6 'kcc' started from ELF: Ring 3, own address space, 48 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 6] kcc: ok: lang.c -> lang, 32768 байт (память компилятора 2177 КБ)
+[KIRA PROC] pid 6 'kcc' finished, exit code 0, address space destroyed (833 pages returned to PMM).
+[KIRA TELEMETRY] t=10s health=100 load=4% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+runlocal lang
+[LOCAL] /data/kcc/lang запускается по явной команде пользователя как 'local-lang' без прав, иммунитет: неопознанная (не из манифеста сборки)
+[KIRA PROC] pid 7 'local-lang' started from ELF: Ring 3, own address space, 7 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 7] atomic: counter=9 ok1=1 ok2=0 seen=100 xchg=100 sync=42
+[USER pid 7] struct: 526 42 -5
+[USER pid 7] varargs: 60 45
+[USER pid 7] case: zero digit two-digit big
+[USER pid 7] elvis: 11 6
+[USER pid 7] fmt: [   42][ab   ][000ff][k]
+[KIRA PROC] pid 7 'local-lang' finished, exit code 0, address space destroyed (24 pages returned to PMM).
+[KIRA TELEMETRY] t=11s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+runlocal ../bin/plasma
+[LOCAL] недопустимое имя файла: до первой точки строчные латинские буквы, цифры, - и _, не больше 9 знаков
+кира> [KIRA TELEMETRY] t=12s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+status
+
+[STATUS] uptime ticks: 6382, precise clock ms: 12359
+[STATUS] PMM free: 1017 MB of 1024 MB
+[STATUS] kernel heap: 6 blocks, 53 KB in use; pages: 7 small-block, 13 large-block
+[STATUS] mind: health 100 (просыпается), mode act, quantum 40 ms, decisions 0
+[STATUS] immune: kernel integrity OK, antibodies 3, quarantine 3
+[STATUS] interrupts: GICv3, generic timer (virtual), PSCI
+
+кира> [KIRA TELEMETRY] t=13s health=100 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
