@@ -437,6 +437,29 @@ int main(void) {
     click(last_nav_x, last_nav_y);
     CHECK(tabs_hit == 1 && last_tab == 6);
 
+    /* Narrow Spatial viewport: all ten pinned Dock entries stay visible and clickable. */
+    surface_t narrow = { calloc(320 * 240, 4), 320, 240, 320 };
+    CHECK(narrow.px != 0);
+    wm_init_mode(&narrow, &ops, WM_LAYOUT_SPATIAL_MINIMAL);
+    static const char* pin_labels[10] = { "A", "B", "C", "D", "E", "F", "G", "H", "I", "J" };
+    static const char* pin_tags[10] = { "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9" };
+    wm_side_item_t narrow_pins[10];
+    for (int i = 0; i < 10; i++)
+        narrow_pins[i] = (wm_side_item_t){ pin_labels[i], pin_tags[i], TH_CYAN, ICON_TERMINAL, 0, 0, 0, 0 };
+    wm_side_set(narrow_pins, 10);
+    frame();
+    int previous_x = -1;
+    for (int i = 0; i < 10; i++) {
+        int px_, py_;
+        CHECK(wm_side_center(i, &px_, &py_) == 0);
+        CHECK(px_ >= 0 && px_ < 320 && py_ >= 0 && py_ < 240);
+        CHECK(px_ > previous_x);
+        previous_x = px_;
+    }
+    launches = 0;
+    for (int i = 0; i < 10; i++) click_side(i);
+    CHECK(launches == 10 && last_launch == 9);
+
     printf("wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw passed\n");
     return 0;
