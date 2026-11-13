@@ -1027,11 +1027,25 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     ui_round_rect(c, rail_x, rail_y, WM_SPATIAL_RAIL_W - 16, rail_h, 16, TH_BAR0, 255);
     ui_round_frame(c, rail_x, rail_y, WM_SPATIAL_RAIL_W - 16, rail_h, 16, TH_BORDER, 255);
     int act = active_tab();
+    static const int nav_icon[WM_TAB_MAX] = {
+        ICON_HOME, ICON_TERMINAL, ICON_AI, ICON_FOLDER, ICON_MONITOR, ICON_GEAR, ICON_CHIP, ICON_WAVE
+    };
     for (int i = 0; i < tab_n; i++) {
         int ty = spatial_tab_y(i) + oy, tx = rail_x + 6, tw = WM_SPATIAL_RAIL_W - 28;
-        if (i == act) ui_round_rect(c, tx, ty, tw, WM_SPATIAL_TAB_H, 10, TH_CYAN, 42);
-        else if (i == tab_hover) ui_round_rect(c, tx, ty, tw, WM_SPATIAL_TAB_H, 10, TH_TILE, 255);
-        gfx_text(c, tx + 6, ty + 14, tabs[i].label, i == act ? TH_CYAN : TH_TEXT_DIM, -1);
+        if (i == act) {
+            ui_round_rect(c, tx, ty, tw, WM_SPATIAL_TAB_H, 10, TH_CYAN, 42);
+            ui_round_rect(c, tx, ty + 9, 3, WM_SPATIAL_TAB_H - 18, 2, TH_CYAN, 255);
+        } else if (i == tab_hover) ui_round_rect(c, tx, ty, tw, WM_SPATIAL_TAB_H, 10, TH_TILE, 255);
+        icon_draw(c, tx + tw / 2, ty + WM_SPATIAL_TAB_H / 2, 22, nav_icon[i], i == act ? TH_CYAN : TH_TEXT_DIM, 0);
+    }
+    if (tab_hover >= 0 && tab_hover < tab_n) {
+        const char* label = tabs[tab_hover].label;
+        int lw = gfx_text_width(label) + 20;
+        int tx = WM_SPATIAL_RAIL_W + 8 + ox;
+        int ty = spatial_tab_y(tab_hover) + oy + 6;
+        ui_round_rect(c, tx, ty, lw, 28, 8, TH_BAR0, 255);
+        ui_round_frame(c, tx, ty, lw, 28, 8, TH_BORDER, 255);
+        gfx_text(c, tx + 10, ty + 8, label, TH_TEXT, -1);
     }
     int count = spatial_dock_count();
     if (!count) return;
