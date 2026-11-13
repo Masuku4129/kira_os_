@@ -23,6 +23,7 @@ int main(void) {
     device_handle_t first = {0, 0};
     device_handle_t child = {0, 0};
     device_handle_t controller_b = {0, 0};
+    device_handle_t stale_parent = {0, 0};
     device_descriptor_t d;
 
     assert(device_registry_begin_snapshot() == DEVICE_OK);
@@ -84,6 +85,7 @@ int main(void) {
                                       DEVICE_STATE_FAILED) == DEVICE_OK);
     assert(device_registry_transition(first, DEVICE_STATE_FAILED,
                                       DEVICE_STATE_VALIDATED) == DEVICE_E_STATE);
+    stale_parent = child; /* Preserve the live handle before the rejected add clears its output. */
     memset(&d, 0, sizeof d);
     d.bus = DEVICE_BUS_USB;
     d.location.key = 0x10002;
@@ -101,7 +103,7 @@ int main(void) {
     memset(&d, 0, sizeof d);
     d.bus = DEVICE_BUS_USB;
     d.location.key = 0x20001;
-    d.parent = child;
+    d.parent = stale_parent;
     assert(device_registry_add(&d, &child) == DEVICE_E_STALE);
 
     /* Capacity is bounded; exhaustion does not overwrite a live descriptor. */
