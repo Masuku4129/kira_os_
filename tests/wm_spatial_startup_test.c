@@ -9,7 +9,7 @@ static void* alloc_surface(uint64_t bytes) { allocations++; return calloc(1, (si
 int main(void) {
     surface_t screen = { calloc(1024 * 768, 4), 1024, 768, 1024 };
     CHECK(screen.px != 0);
-    wm_ops_t ops = { alloc_surface, 0, 0, 0, 0, 0, 0, 0 };
+    wm_ops_t ops = { alloc_surface, 0, 0, 0, 0, 0, 0, 0, 0 };
     wm_init_mode(&screen, &ops, WM_LAYOUT_SPATIAL_MINIMAL);
     CHECK(wm_get_layout_mode() == WM_LAYOUT_SPATIAL_MINIMAL);
     CHECK(allocations == 0);
