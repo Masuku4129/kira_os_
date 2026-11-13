@@ -231,5 +231,14 @@ No ABI freeze or production Device Model claim is made by this RFC.
 - `pci_handle_t` remains a compatibility alias only. KDRV binding storage now uses `device_handle_t`, but device operations still pass through PCI-specific helpers.
 - Invalid bus ranges preserve the last valid snapshot. A registry insertion failure aborts the new snapshot and invalidates all handles from it.
 - Host tests cover multiple bus types, duplicate and malformed locations, parent-handle validation, stale generations, bounded capacity and PCI adapter consistency. x86-64 and ARM64 manifests include the registry.
-- Explicitly not implemented: USB/virtio/platform/ACPI discovery adapters, resource reservation/ownership, interrupt ownership, DMA/IOMMU domain binding, lifecycle state transitions, quiesce/revoke, hotplug and generic driver binding.
+- Explicitly not implemented: USB/virtio/platform/ACPI discovery adapters, resource reservation/ownership, interrupt ownership, DMA/IOMMU domain binding, hardware quiesce/revoke, hotplug and generic driver binding.
 - PR #141 is Draft and stacked on PR #139. Exact-head run `43408288041` passed host-tests, x86-64, ARM64/QEMU and all 27 VM jobs on branch head `3a8064f053ad74bdb9b5e5ad78926a26b4facca0` (code head `2048058c87f9ff0f55d6ae882cf87ebf3460e213`); PR compliance run `43408709474` passed. The wider Device Model remains partial by design.
+
+## 14. Guarded lifecycle state primitive — PR #141 follow-up (2026-11-13)
+
+- Added a registry-owned compare-and-transition API for descriptor lifecycle state.
+- Permitted transitions are monotonic and fail-closed: DISCOVERED -> VALIDATED / QUARANTINED / FAILED; VALIDATED -> QUARANTINED / FAILED; QUARANTINED -> FAILED. FAILED is terminal.
+- The operation validates the generation-bearing handle and uses an atomic compare/exchange against the caller's expected state. Stale handles and unexpected state observations are rejected.
+- Host regression coverage now checks legal transitions, stale/invalid transition rejection, quarantine irreversibility and terminal failure.
+- This primitive does not stop hardware, revoke MMIO/IRQ/DMA, unbind a driver, or establish that a device is safe to reuse. Resource teardown and hardware quiesce remain separate unimplemented lifecycle stages.
+- Exact-head CI is pending for the follow-up commits; earlier green workflow does not validate this code.
