@@ -411,15 +411,44 @@ static void cmd_random(const char* a) {
 }
 static void cmd_poweroff(const char* a) { (void)a; power_prepare(); platform_poweroff(); }
 static void cmd_reboot(const char* a) { (void)a; power_prepare(); platform_reboot(); }
-static void cmd_wasm(const char* a) {                       /* модуль WebAssembly - в интерпретаторе (Ring 3) */
+static uint32_t console_prog_request_id;
+
+static void console_launch_file(const char* name, const char* path) {
+    uint32_t id = 0;
+    prog_request_status_t status = prog_request_file(name, path, &id);
+    if (status == PROG_REQUEST_ACCEPTED) {
+        console_prog_request_id = id;
+        uart_print("[PROG] запрос принят; ожидается результат запуска.\n");
+    } else if (status == PROG_REQUEST_BUSY) {
+        uart_print("[PROG] очередь занята; дождитесь завершения текущего запуска.\n");
+    } else {
+        uart_print("[PROG] некорректное имя или слишком длинный путь.\n");
+    }
+}
+
+static void console_prog_poll(void) {
+    if (!console_prog_request_id) return;
+    int result = 0;
+    prog_result_state_t state = prog_request_take_result(console_prog_request_id, &result);
+    if (state == PROG_RESULT_PENDING) return;
+    console_prog_request_id = 0;
+    if (state != PROG_RESULT_COMPLETE) uart_print("[PROG] результат запуска недоступен.\n");
+    else if (result > 0) uart_print("[PROG] программа запущена.\n");
+    else if (result == -2) uart_print("[PROG] запуск отклонён: проверка доверия.\n");
+    else if (result == -3) uart_print("[PROG] исполняемый файл повреждён или имеет неверный формат.\n");
+    else if (result == -4) uart_print("[PROG] запуск отклонён: лимит ресурсов KIRA Mind.\n");
+    else uart_print("[PROG] ошибка запуска или чтения файла.\n");
+}
+
+static void cmd_wasm(const char* a) {
     while (a && *a == ' ') a++;
     if (!a || *a != '/') { uart_print("wasm /путь/модуль.wasm: программа WebAssembly (одна для x86-64 и ARM64), модули - в /wasm\n"); return; }
-    prog_request_file("wasm", a);
+    console_launch_file("wasm", a);
 }
-static void cmd_view(const char* a) {                       /* то же, что двойной щелчок в Проводнике */
+static void cmd_view(const char* a) {
     while (a && *a == ' ') a++;
     if (!a || *a != '/') { uart_print("view /путь/к/файлу: просмотр (текст, PNG, BMP, PPM, шестнадцатерично)\n"); return; }
-    prog_request_file("view", a);
+    console_launch_file("view", a);
 }
 static void cmd_paint(const char* a) { (void)a; prog_start("paint"); }
 static void cmd_exp(const char* a) { (void)a; experience_print(); }
@@ -754,6 +783,7 @@ static void run_requests(void) {
 
 void console_poll(void) {
     static int last_cr;
+    console_prog_poll();
     if (!prompt_shown) { uart_print("\n"); show_prompt(); }
     run_requests();
     int c, budget = 512;                       /* за один вызов - не больше 512 знаков: основной поток всегда идёт дальше */
