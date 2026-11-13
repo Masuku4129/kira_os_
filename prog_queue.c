@@ -19,6 +19,7 @@ static void copy_string(char* dst, const char* src) {
     if (src) while (src[i]) { dst[i] = src[i]; i++; }
     dst[i] = 0;
 }
+/* Admission owns the slot through completion retrieval, so producers cannot overwrite a pending result. */
 int prog_queue_submit(prog_queue_t* q, const char* name, const char* file, uint32_t* request_id) {
     if (!q || !request_id || !name_valid(name) || !file_length_valid(file)) return PROG_REQUEST_INVALID;
     uint64_t flags = spin_lock_irqsave(&q->lock);
