@@ -379,3 +379,11 @@
 - Added tests/prog_catalog_test.c and host runner coverage for generated allowlist membership, hidden test/unknown binaries, search, case folding and bounds.
 - Validation for this catalog change is pending a new CI run. No local build was run; no Limbo or physical hardware test was performed.
 - Next: verify this exact head; then implement Spatial-only Launcher surface and keyboard focus without changing legacy navigation or console behavior.
+
+
+### UI-3 — integrated Spatial Minimal Launcher (2026-11-13)
+- Confirmed run 43388886629 on exact prior code SHA 37a53ba6229ab7f8a556c6ff93815c5851549b2a: x86-64 build, ARM64 build, host-tests and every VM matrix job completed SUCCESS.
+- Added a dedicated WM callback and “ПРИЛОЖЕНИЯ” action in Spatial Minimal topbar; Legacy navigation is not modified. Added host WM coverage for the callback.
+- Integrated a kernel Launcher window over the generated curated catalog: Russian/English substring search, keyboard selection, Enter launch, mouse row selection, Escape close, and async launch status.
+- Keyboard ownership is exclusive between Launcher and Explorer; display_kbd_owner() suppresses console reads while either owns input. Launches use prog_request() and result retrieval; trust verification remains in the kernel launch path.
+- Current code head before this log entry: 82844f2bd69e774480deadd18eb8c860f9f47181. This code is newer than run 43388886629 and has not yet passed CI. No local build or Limbo/physical device test performed. Next: run fresh x86/ARM/host/VM CI, fix any compile/test failures, then add focused Launcher state/keyboard tests.
