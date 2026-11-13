@@ -417,10 +417,14 @@ int main(void) {
     CHECK(!wm_system_panel_is_open() && wm_top() == panel_under_top);
     wm_destroy(panel_under);
     frame();
-    click(1024 - 26, 20);
-    CHECK(wm_system_panel_is_open());
-    click(1024 - 26, 20);
-    CHECK(!wm_system_panel_is_open());
+    int panel_dismiss_under = wm_create("panel-dismiss-underlay", 440, 260, 120, 80, WM_INPUT);
+    CHECK(panel_dismiss_under >= 0);
+    wm_raise(panel_dismiss_under);
+    int dismiss_top = wm_top();
+    click(1024 - 26, 20); CHECK(wm_system_panel_is_open());
+    in_n = 0; click(500, 300);
+    CHECK(!wm_system_panel_is_open() && wm_top() == dismiss_top && in_n == 0);
+    wm_destroy(panel_dismiss_under);
     frame();
 
     /* Bounded notification history and passive toast never steal application input. */
