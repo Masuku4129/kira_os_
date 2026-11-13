@@ -275,6 +275,7 @@ kdrv = read("kdrv.c")
 require("pci_handle_t device;" in kdrv
         and "return pci_resolve(b->device);" in kdrv
         and "B_QUARANTINED" in kdrv
+        and "pci_resolve(binds[i].device)" in kdrv
         and not re.search(r"\bb->dev(?:\s*->|\s*[;,)])", kdrv)
         and "binds[i].dev" not in kdrv,
         "KDRV binding identity must use generation-safe PCI handles and quarantine stale bindings")
