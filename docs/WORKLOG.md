@@ -282,3 +282,9 @@
 - Добавлен ci/check_project_status.py; он проверяет отсутствие исчезнувших baseline paths, запрещает неучтённые новые tracked files и сверяет x86-64/ARM64 source lists с build scripts. Проверка подключена к tests/run_host_tests.sh и host-tests workflow.
 - Выполнена проверка текущего GitHub tree/manifest: 836 файлов = 829 baseline + 7 управляемых файлов; missing=0, extra=0; все 27 обязательных файлов присутствуют; x86 source lists 98+16, ARM64 common source list 88, userland app lists совпадают с build scripts; branch diff counts совпадают со снимком.
 - Это проверка структуры GitHub и согласованности manifest, а не запуск Python checker/полного CI. Для PR #148 exact-head Actions run не обнаружен; CI/host suite остаются UNVERIFIED. Следующий шаг — получить фактический CI на текущем PR head, затем начать dependency-ordered review 437 v46-only файлов и сверку release manifests.
+
+### Long kernel log line interleaving — EDU driver VM regression (2026-11-13)
+
+- Run #43455111511 exposed a deterministic false-negative in VM scenario `drv-edu`: the driver itself passed PCI discovery, SHA-256 validation, MSI, DMA round-trip and negative access checks, but the serial log split the kernel status line at byte 192 and inserted another CPU's user-process line in the middle. The exact missing substring in the test was caused by the fixed `LB_SIZE=192` buffer flushing a long UTF-8 status line before newline.
+- This was not a driver start failure and the test is not weakened. `linebuf.h` raises the per-CPU/per-context line buffer to 512 bytes; a new `tests/linebuf_test.c` regression checks a 400-byte line is emitted once, intact, at newline, and verifies delayed prompt flush remains intact.
+- The regression is added to `tests/run_host_tests.sh` and registered in `docs/PROJECT_STATUS/status_manifest.json`. Exact-head CI after this fix is pending; do not call this fixed/PASS until host test and `drv-edu` VM scenario pass on the new SHA.
