@@ -734,7 +734,7 @@ void wm_set_fullscreen(int id, int on) {
             owner_resize(id, nw / win[id].step_w * win[id].step_w, nh / win[id].step_h * win[id].step_h);
         } else owner_resize(id, win[id].norm_w, win[id].norm_h);
     }
-    if (win[id].visible) wm_raise(id);
+    if (wm_visible(id)) wm_raise(id);
     damage_win(&win[id]);
     damage(0, 0, scr->w, scr->h);
 }
