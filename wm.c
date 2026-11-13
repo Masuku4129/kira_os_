@@ -18,6 +18,7 @@
 
 typedef struct {
     int used, visible, closable, pinned, user, full, input;
+    int workspace;
     uint32_t generation;
     int resizable, zoomable;
     int zoom16;
@@ -53,9 +54,13 @@ static uint32_t win_generation;
 static int overview_open, overview_page, overview_n, overview_release_guard;
 static int system_panel_open;
 static int dock_page;
+#define WM_WORKSPACE_MAX 4
+static int current_workspace;
 static int overview_ids[WM_MAX_WIN];
 static uint32_t overview_generations[WM_MAX_WIN];
 static void overview_click(int px, int py);
+static int window_on_workspace(const win_t* w) { return w->pinned || w->workspace == current_workspace; }
+static void workspace_changed(void);
 static void draw_system_panel(surface_t* c, int ox, int oy);
 static void damage_system_panel(void);
 static void overview_damage_window(int id);
@@ -412,7 +417,7 @@ static void str_copy(char* d, const char* s, int cap) {
 void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
     layout_mode = (mode == WM_LAYOUT_SPATIAL_MINIMAL) ? WM_LAYOUT_SPATIAL_MINIMAL : WM_LAYOUT_LEGACY;
     overview_open = 0; overview_page = 0; overview_n = 0; overview_release_guard = 0;
-    system_panel_open = 0; dock_page = 0;
+    system_panel_open = 0; dock_page = 0; current_workspace = 0;
     win_generation = 0;
     scr = screen;
     ops = *o;
@@ -459,6 +464,7 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
     }
     win_t* w = &win[id];
     w->used = 1; w->visible = 1; w->full = 0; w->seq = 0;
+    w->workspace = (flags & WM_PINNED) ? -1 : current_workspace;
     w->generation = ++win_generation;
     if (!w->generation) w->generation = ++win_generation;
     w->closable = (flags & WM_CLOSABLE) != 0; w->pinned = (flags & WM_PINNED) != 0; w->user = user;
@@ -578,7 +584,8 @@ int wm_user_tags(char (*out)[16], int max) {
 }
 
 int wm_top(void) {
-    for (int i = zcount - 1; i >= 0; i--) if (win[zorder[i]].visible && !win[zorder[i]].pinned) return zorder[i];
+    for (int i = zcount - 1; i >= 0; i--)
+        if (win[zorder[i]].visible && !win[zorder[i]].pinned && window_on_workspace(&win[zorder[i]])) return zorder[i];
     return -1;
 }
 
@@ -591,6 +598,7 @@ static int active_tab(void) {
 
 void wm_raise(int id) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used || win[id].pinned) return;
+    if (win[id].workspace != current_workspace) wm_workspace_switch(win[id].workspace);
     int pos = -1;
     for (int i = 0; i < zcount; i++) if (zorder[i] == id) pos = i;
     if (pos < 0 || pos == zcount - 1) return;
@@ -606,7 +614,7 @@ void wm_raise(int id) {
 void wm_set_visible(int id, int v) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
     v = v != 0;
-    if (win[id].visible == v) return;
+    if (win[id].visible == v) { if (v && !win[id].pinned) wm_raise(id); return; }
     win[id].visible = v;
     if (v) wm_raise(id);
     damage_win(&win[id]);
@@ -615,7 +623,7 @@ void wm_set_visible(int id, int v) {
     overview_damage_window(id);
 }
 
-int wm_visible(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used && win[id].visible; }
+int wm_visible(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used && win[id].visible && window_on_workspace(&win[id]); }
 
 void wm_minimize(int id) {
     if (!wm_visible(id) || win[id].pinned) return;
@@ -625,7 +633,7 @@ void wm_minimize(int id) {
 }
 
 void wm_minimize_all(void) {
-    for (int i = 0; i < WM_MAX_WIN; i++) if (win[i].used && win[i].visible && !win[i].pinned) wm_minimize(i);
+    for (int i = 0; i < WM_MAX_WIN; i++) if (wm_visible(i) && !win[i].pinned) wm_minimize(i);
 }
 
 static void owner_resize(int id, int nw, int nh) {
@@ -723,7 +731,7 @@ static int overview_refresh(void) {
     uint32_t generations[WM_MAX_WIN];
     for (int i = zcount - 1; i >= 0; i--) {
         int id = zorder[i];
-        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned) {
+        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned && win[id].workspace == current_workspace) {
             ids[n] = id;
             generations[n] = win[id].generation;
             n++;
@@ -818,7 +826,7 @@ static int hit_window(int px, int py) {
     for (int pass = 0; pass < 2; pass++)
         for (int i = zcount - 1; i >= 0; i--) {
             const win_t* w = &win[zorder[i]];
-            if (!w->visible || w->pinned != pass) continue;
+            if (!w->visible || !window_on_workspace(w) || w->pinned != pass) continue;
             if (hit_rect(w, px, py)) return zorder[i];
         }
     return -1;
@@ -858,7 +866,7 @@ static void side_click(int i) {
     if (i < 0 || i >= side_n) return;
     int id = wm_find(side[i].tag);
     if (id < 0) { if (ops.launch) ops.launch(i); return; }
-    if (win[id].visible && wm_top() == id) { wm_minimize(id); return; }
+    if (wm_visible(id) && wm_top() == id) { wm_minimize(id); return; }
     int was = win[id].visible;
     wm_set_visible(id, 1);
     wm_raise(id);
@@ -1347,7 +1355,7 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     for (int i = 0; i < side_n; i++) {
         if (side[i].temp || side[i].bottom || spatial_dock_x(i) < 0) continue;
         int id = wm_find(side[i].tag);
-        int running = id >= 0, shown = running && win[id].visible, focused = shown && id == top;
+        int running = id >= 0, shown = running && wm_visible(id), focused = shown && id == top;
         uint32_t col = side[i].color;
         int tx = spatial_dock_x(i) + ox, ty = spatial_dock_y() + oy;
         int icon_size = tile >= 40 ? 26 : tile >= 28 ? 20 : 14;
@@ -1621,7 +1629,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < zcount; i++) {
             const win_t* wn = &win[zorder[i]];
-            if (wn->visible && wn->pinned == (pass == 0)) seq[ns++] = zorder[i];
+            if (wn->visible && window_on_workspace(wn) && wn->pinned == (pass == 0)) seq[ns++] = zorder[i];
         }
     int start = -1, content_only = 0;
     if (fs < 0 && cull_enabled) {
