@@ -427,3 +427,10 @@
 
 - Run 43396919980: x86-64 build PASS; host-tests PASS (`ALL HOST TESTS PASSED`); ARM64 build PASS with Clang `-Werror`; ARM64 QEMU scenarios PASS; all 29 VM jobs PASS. The host suite executes `tests/ui_damage_contract_test.py`.
 - This validates the CI source/test paths, not a user-visible performance improvement. Android Limbo visual verification and frame-time/dirty-pixel measurements remain open. No ISO release, PR merge or `main` update.
+
+
+### Spatial Minimal active-rail invalidation follow-up — PR #140 (2026-11-13)
+- Review found `compose_prepare()` still called `damage_side()` when the active tab changed. With Dock invalidation now scoped to the bottom band, this left the left-rail active marker potentially stale.
+- Fixed active-tab transitions to damage only the previous/current rail entries using `damage_spatial_tab()`; Legacy still uses `damage_top()`.
+- Extended `tests/ui_damage_contract_test.py` to guard active-tab redraw as well as hover redraw.
+- Exact source/test head: `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae`. The prior CI run `43396919980` predates this follow-up; fresh exact-head CI is pending. No measured frame-time improvement or Android Limbo visual result is claimed.
