@@ -605,6 +605,18 @@ int main(void) {
     CHECK(launches == 3 && last_launch == 2);
     CHECK(wm_dock_page_control_center(0, &px_, &py_) == -1);
 
+    int small_notif_under = wm_create("small-notification-underlay", 40, 100, 100, 60, WM_INPUT);
+    CHECK(small_notif_under >= 0);
+    wm_anim(20000, 0);
+    CHECK(wm_notification_post("Система", "Событие на компактном экране", WM_NOTIFY_WARNING) == 0);
+    CHECK(wm_notification_toast_is_visible());
+    click(294, 20); CHECK(wm_system_panel_is_open());
+    click(160, 108); CHECK(wm_notification_center_is_open());
+    in_n = 0; move_to(80, 130, 0); CHECK(in_n == 0);
+    click(80, 130); CHECK(in_n == 0 && wm_notification_center_is_open());
+    click(260, 70); CHECK(!wm_notification_center_is_open() && wm_notification_count() == 0);
+    wm_destroy(small_notif_under);
+
     printf("wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw passed\n");
     return 0;
