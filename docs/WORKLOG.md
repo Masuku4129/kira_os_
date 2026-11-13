@@ -555,3 +555,11 @@
 - Fresh CI after commit `36c2fdc1081239e3e90a103b1903c06b49ac7b7a` is required. No host-test PASS is claimed.
 
 - Follow-up source review tightened `find_slot`: a stale binding now blocks both new slots and restarting an otherwise matching current slot. This closes the case where one stale device could coexist with a fresh driver binding after a rescan.
+
+### PCI re-enumeration ownership gate — DEV-001 follow-up (2026-11-13)
+
+- Added `pci_rescan_guard_fn` and `pci_set_rescan_guard()`. After the first successful PCI snapshot, `pci_init_range()` now refuses re-enumeration unless an owner callback is registered and explicitly approves; a denied request leaves the current snapshot and handles intact.
+- KDRV registers its guard from `kdrv_poll()`. It refuses PCI rescan after any KDRV binding slot has been assigned, including a stopped/released slot, because the current driver model cannot transactionally revoke existing Ring 3 MMIO mappings, drain DMA and release resources before a new snapshot.
+- Extended `tests/pci_range_test.c` to verify denied rescans preserve the current snapshot and handles; architecture guards require the PCI callback contract and KDRV registration.
+- This is deliberately a conservative reboot-required restriction, not hotplug support. Replacing it requires the full Device Model quiesce → MMIO revoke → DMA drain → resource release lifecycle.
+- Exact-head CI for the PCI rescan gate and KDRV migration is pending. No local test run or hardware validation is claimed.
