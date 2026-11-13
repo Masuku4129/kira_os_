@@ -1,0 +1,198 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA ARM64] RAM: 1024 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 1017 MB free pages; kernel heap and scheduler online (per-core ready queues, 72 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 99 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 4 of 4 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 4 of 4 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 6 function(s), 9 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 673332 bytes, prefix 69251215...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 6 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 16 MB (PCI 0:1.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA DISK] vda: virtio-blk, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14308 KB free.
+[KIRA PROC] up to 16 programs at once (4 cores, 1024 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): ПЯТНИЦА, 13 НОЯБРЯ 2026 15:15
+[KIRA GPU] virtio-gpu: 1280x800 2D scanout, frames are sent to the host after each composed frame.
+[KIRA PAR] parallel helpers: 3 (compositor and other split work)
+[KIRA DISPLAY] Shell online: Legacy layout, top navigation, side launcher, apps Terminal / Mind / Files / Monitor / Settings.
+[KIRA INPUT] virtio-input: QEMU Virtio Keyboard, MSI-X interrupt
+[KIRA INPUT] virtio-input: QEMU Virtio Tablet (absolute pointer), MSI-X interrupt
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA NET] No supported network card: networking is off.
+[KIRA HDA] Sound: codec 0x0000000000001AF4:0x0000000000000022, output path pin 3 <- DAC 2, 48 kHz 16-bit stereo (commands: sound, beep).
+[KIRA HDA] Input: line in pin 5 -> ADC 4, recording ring running (command: record).
+[KIRA AUDIO] Mixer online: up to 4 programs + tone, 48 kHz 16-bit stereo, 100 ms ahead of the card.
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA TELEMETRY] t=1s health=95 load=16% mem=3% run=1 frames=24 late=1 q=40ms fx=3
+[KIRA TELEMETRY] t=2s health=100 load=3% mem=3% run=1 frames=55 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=3s health=100 load=2% mem=3% run=1 frames=54 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=4s health=100 load=2% mem=3% run=2 frames=53 late=0 q=40ms fx=3
+smp
+  core 0: MPIDR 0x0000000000000000, online, ticks 2205
+  core 1: MPIDR 0x0000000000000001, online, ticks 34
+  core 2: MPIDR 0x0000000000000002, online, ticks 3
+  core 3: MPIDR 0x0000000000000003, online, ticks 4
+кира> [KIRA TELEMETRY] t=5s health=100 load=3% mem=3% run=1 frames=55 late=0 q=40ms fx=3
+plasma
+[KIRA PROC] pid 1 'plasma' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] plasma: running; close the window to exit
+[KIRA MIND] фокус: plasma - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA TELEMETRY] t=6s health=100 load=3% mem=3% run=1 frames=55 late=0 q=40ms fx=3
+cube3d
+[KIRA PROC] pid 2 'cube3d' started from ELF: Ring 3, own address space, 4 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 2] cube3d: selftest PASS (trig, face winding, rasterizer, z-test)
+[USER pid 2] cube3d: software renderer running; close the window or press q to exit
+[KIRA MIND] фокус: cube3d - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA TELEMETRY] t=7s health=100 load=12% mem=3% run=1 frames=57 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=8s health=100 load=13% mem=3% run=2 frames=57 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=9s health=100 load=13% mem=3% run=2 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=10s health=100 load=13% mem=3% run=2 frames=55 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=11s health=100 load=11% mem=3% run=1 frames=57 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=12s health=100 load=12% mem=3% run=2 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=13s health=100 load=12% mem=3% run=1 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=14s health=100 load=10% mem=3% run=1 frames=58 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=15s health=100 load=12% mem=3% run=1 frames=56 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=16s health=100 load=10% mem=3% run=1 frames=58 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=17s health=100 load=11% mem=3% run=1 frames=57 late=0 q=40ms fx=3
+ps
+
+  ID  PID NAME             STATE    PRIO      CPU(ms)  SWITCHES  CORE
+  1  -  core             RUNNING  critical  696  8742  0
+  2  -  idle             ready  idle  14952  8643  0
+  3  -  idle1            RUNNING  idle  15879  2498  1
+  4  -  idle2            RUNNING  idle  16193  1592  2
+  5  -  idle3            RUNNING  idle  16746  1093  3
+  6  -  mind-tact        sleep  critical  43  718  0
+  7  -  explorer         sleep  normal  10  61  3
+  8  -  par-0            sleep  critical  1390  918  1
+  9  -  par-1            sleep  critical  996  735  2
+  10  -  par-2            sleep  critical  463  491  3
+  11  -  display          sleep  critical  1698  1560  3
+  12  -  vinput           sleep  critical  2  96  3
+  15  1  plasma           sleep  normal  343  628  1
+  14  -  audio            sleep  critical  50  1707  2
+  16  2  cube3d           sleep  normal  940  2876  0
+  quantum: 40 ms, context switches: 32359, threads: 15 of 72
+
+кира> [KIRA TELEMETRY] t=18s health=100 load=13% mem=3% run=1 frames=58 late=0 q=40ms fx=3
+ai
+
+[MIND] здоровье 100 (просыпается): отзывчивость 100, запас памяти 100, баланс ядер 100, стабильность 100
+[MIND] режим: управление, квант 40 мс (проб 0, удачных 0), анимация 3 (авто)
+[MIND] за жизнь: 18 с, решений 2, необычностей 0, остановлено программ 0
+[MIND] предвидение: риск опоздания экрана в следующую секунду 0%; модель обучена на 107 с (опозданий 0), предупреждения сбываются 0%, замечено опозданий заранее 0%, пока без права действовать, упреждений 0
+[MIND] тактика: фон - не больше 50% ядер при нехватке; фоновые окна - без предела кадров
+[MIND] композитор: параллельно на всех ядрах (цена 1000 точек: параллельно 17839 нс, на одном ядре 23119 нс; 0 - ещё не мерили)
+[MIND] замок планировщика: ядра ждут его 0,1% времени; взятий с ожиданием 8409 из 54866
+[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai levers (рычаги), ai act | ai observe, ai fx auto|0..3
+
+кира> [KIRA TELEMETRY] t=19s health=100 load=13% mem=3% run=1 frames=57 late=0 q=40ms fx=3
+beep 440 300
+звук 440 Гц, 300 мс: DMA прошёл 58600 байт - карта играет
+кира> [KIRA TELEMETRY] t=20s health=100 load=12% mem=3% run=3 frames=56 late=0 q=40ms fx=3
+melody
+[KIRA PROC] pid 3 'melody' started from ELF: Ring 3, own address space, 4 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [KIRA TELEMETRY] t=21s health=100 load=12% mem=3% run=2 frames=57 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=22s health=100 load=13% mem=3% run=1 frames=55 late=0 q=40ms fx=3
+[USER pid 3] melody: 8 notes, 76800 frames queued
+[KIRA PROC] pid 3 'melody' finished, exit code 0, address space destroyed (21 pages returned to PMM).
+[KIRA TELEMETRY] t=23s health=100 load=12% mem=3% run=4 frames=56 late=0 q=40ms fx=3
+sound
+Intel HDA: кодек 0x000000001AF40022 (адрес 0), выход: вывод 3 <- ЦАП 2, 48 кГц, 16 бит, стерео
+микшер: работает, программ со звуком 0, карта забрала кадров 1100809, от программ смешано 76799, недоборов 0, громкость 100%
+вход: line in
+проверка: beep [Гц] [мс], record [мс]
+кира> [KIRA TELEMETRY] t=24s health=100 load=12% mem=3% run=3 frames=58 late=0 q=40ms fx=3
+melody 22050
+[KIRA PROC] pid 4 'melody' started from ELF: Ring 3, own address space, 4 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [KIRA TELEMETRY] t=25s health=100 load=11% mem=3% run=2 frames=58 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=26s health=100 load=9% mem=3% run=1 frames=57 late=0 q=40ms fx=3
+[USER pid 4] melody: 8 notes, 35280 frames queued at 22050 Hz stereo
+[KIRA PROC] pid 4 'melody' finished, exit code 0, address space destroyed (21 pages returned to PMM).
+[KIRA TELEMETRY] t=27s health=100 load=10% mem=3% run=1 frames=55 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=28s health=100 load=12% mem=3% run=2 frames=57 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=29s health=100 load=11% mem=3% run=2 frames=58 late=0 q=40ms fx=3
+sound
+Intel HDA: кодек 0x000000001AF40022 (адрес 0), выход: вывод 3 <- ЦАП 2, 48 кГц, 16 бит, стерео
+микшер: работает, программ со звуком 0, карта забрала кадров 1384201, от программ смешано 153597, недоборов 0, громкость 100%
+вход: line in
+проверка: beep [Гц] [мс], record [мс]
+кира> [KIRA TELEMETRY] t=30s health=100 load=12% mem=3% run=1 frames=57 late=0 q=40ms fx=3
+record 200
+запись: line in, 9600 кадров за 202 мс, пик 0, RMS 0 (тишина на входе)
+кира> [KIRA TELEMETRY] t=31s health=100 load=13% mem=3% run=1 frames=58 late=0 q=40ms fx=3
+edit
+[KIRA PROC] pid 5 'edit' started from ELF: Ring 3, own address space, 14 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [KIRA MIND] фокус: edit - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA TELEMETRY] t=32s health=100 load=9% mem=3% run=2 frames=57 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=33s health=100 load=8% mem=3% run=1 frames=59 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=34s health=100 load=7% mem=3% run=2 frames=58 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=35s health=100 load=8% mem=3% run=1 frames=58 late=0 q=40ms fx=3
+[USER pid 5] edit: note.txt - сохранено: 10 байт
+[KIRA TELEMETRY] t=36s health=100 load=7% mem=3% run=1 frames=58 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=37s health=100 load=5% mem=3% run=1 frames=59 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=38s health=100 load=5% mem=3% run=2 frames=59 late=0 q=40ms fx=3
+cat /dat[KIRA TELEMETRY] t=39s health=100 load=6% mem=3% run=1 frames=59 late=0 q=40ms fx=3
+a/edit/note.txt
+hello kira
+кира> vie[KIRA TELEMETRY] t=40s health=100 load=7% mem=3% run=2 frames=58 late=0 q=40ms fx=3
+w /pic.png
+[PROG] запрос принят; ожидается результат запуска.
+кира> [KIRA PROC] pid 6 'view' started from ELF: Ring 3, own address space, 17 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 6] view: /pic.png - PNG 97x61, цвет 2, 8 бит sum 83623c20
+[PROG] программа запущена.
+[KIRA MIND] фокус: view - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA TELEMETRY] t=41s health=100 load=7% mem=4% run=1 frames=58 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=42s health=100 load=6% mem=4% run=2 frames=59 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=43s health=100 load=6% mem=4% run=1 frames=59 late=0 q=40ms fx=3
+[KIRA PROC] pid 6 'view' finished, exit code 0, address space destroyed (48 pages returned to PMM).
+[KIRA MIND] фокус: edit - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA TELEMETRY] t=44s health=100 load=8% mem=3% run=1 frames=58 late=0 q=40ms fx=3
+view /pic.jpg
+[PROG] запрос принят; ожидается результат запуска.
+кира> [KIRA PROC] pid 7 'view' started from ELF: Ring 3, own address space, 17 page(s) of segments, W^X enforced, stack RW-NX.
+[PROG] программа запущена.
+[USER pid 7] view: /pic.jpg - JPEG 97x61, YCbCr 2x2 sum 8164b2cd
+[KIRA MIND] фокус: view - вес 6/4 (квант больше обычного), пока окно впереди
+[KIRA TELEMETRY] t=45s health=100 load=8% mem=4% run=1 frames=58 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=46s health=100 load=6% mem=4% run=3 frames=58 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=47s health=100 load=6% mem=4% run=1 frames=59 late=0 q=40ms fx=3
+ps
+
+  ID  PID NAME             STATE    PRIO      CPU(ms)  SWITCHES  CORE
+  1  -  core             RUNNING  critical  1015  23706  0
+  2  -  idle             ready  idle  40730  23927  0
+  3  -  idle1            ready  idle  42988  7786  1
+  4  -  idle2            ready  idle  43936  5044  2
+  5  -  idle3            ready  idle  45374  3142  3
+  6  -  mind-tact        sleep  critical  133  1961  3
+  7  -  explorer         sleep  normal  10  61  3
+  8  -  par-0            sleep  critical  3338  2626  0
+  9  -  par-1            sleep  critical  2425  1862  1
+  10  -  par-2            sleep  critical  1063  983  3
+  11  -  display          RUNNING  critical  4503  4326  1
+  12  -  vinput           sleep  critical  8  267  3
+  15  1  plasma           sleep  normal  1180  2232  0
+  14  -  audio            sleep  critical  149  4678  0
+  16  2  cube3d           RUNNING  normal  3425  10560  2
+  19  5  edit             RUNNING  normal  62  861  3
+  21  7  view             ready  normal  19  181  0
+  quantum: 40 ms, context switches: 94419, threads: 17 of 72
+
+кира> [KIRA TELEMETRY] t=48s health=100 load=7% mem=4% run=1 frames=58 late=0 q=40ms fx=3
