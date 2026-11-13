@@ -325,7 +325,7 @@ int main(void) {
     CHECK(wm_side_center(3, &dock_x, &dock_y) == -1); /* running, unpinned apps are not in the Dock */
     tabs_hit = 0; launcher_hits = 0;
     click(240, 20);
-    CHECK(launcher_hits == 1 && tabs_hit == 0); /* dedicated Spatial Minimal launcher callback */
+    CHECK(launcher_hits == 0 && tabs_hit == 0); /* application launcher is no longer duplicated in the top bar */
     for (int tab = 0; tab < 3; tab++) {
         CHECK(wm_tab_center(tab, &nav_x, &nav_y) == 0 && nav_x < WM_SPATIAL_RAIL_W && nav_y >= WM_TOP_H);
         click(nav_x, nav_y);
