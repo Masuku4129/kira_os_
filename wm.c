@@ -60,6 +60,7 @@ typedef struct { char title[40]; char message[112]; uint32_t created_ms; uint8_t
 static wm_notification_t notifications[WM_NOTIFICATION_MAX];
 static unsigned notification_head, notification_count;
 static int notification_center_open, notification_toast_active;
+static int modal_release_guard;
 static uint32_t notification_toast_until;
 static void str_copy(char* d, const char* s, int cap);
 static int overview_ids[WM_MAX_WIN];
@@ -494,7 +495,7 @@ void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
     layout_mode = (mode == WM_LAYOUT_SPATIAL_MINIMAL) ? WM_LAYOUT_SPATIAL_MINIMAL : WM_LAYOUT_LEGACY;
     overview_open = 0; overview_page = 0; overview_n = 0; overview_release_guard = 0;
     system_panel_open = 0; dock_page = 0; current_workspace = 0;
-    notification_head = notification_count = 0; notification_center_open = notification_toast_active = 0; notification_toast_until = 0;
+    notification_head = notification_count = 0; notification_center_open = notification_toast_active = 0; notification_toast_until = 0; modal_release_guard = 0;
     win_generation = 0;
     scr = screen;
     ops = *o;
@@ -1160,6 +1161,12 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
         prev_buttons = buttons;
         return; /* consume the release belonging to the overlay click */
     }
+    if (modal_release_guard) {
+        modal_release_guard = left;
+        capture = -1; dragging = -1; resizing = -1;
+        prev_buttons = buttons;
+        return; /* consume release after a modal/toast click, even if it closed the surface */
+    }
     if (overview_open) {
         if (left && !was) {
             click(cx, cy);
@@ -1170,7 +1177,7 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
         return; /* overlay owns input; never leak clicks or pointer events to an underlying app */
     }
     if (notification_center_open && layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
-        if (left && !was) click(cx, cy);
+        if (left && !was) { click(cx, cy); modal_release_guard = 1; }
         capture = -1; dragging = -1; resizing = -1;
         prev_buttons = buttons;
         return; /* history is modal to the pointer, but never changes keyboard focus */
@@ -1179,11 +1186,11 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
         int tx, ty, tw, th; notification_toast_rect(&tx, &ty, &tw, &th);
         if (cx >= tx && cx < tx + tw && cy >= ty && cy < ty + th) {
             notification_toast_active = 0; damage(tx, ty, tx + tw, ty + th);
-            prev_buttons = buttons; return; /* dismiss toast without delivering click to covered app */
+            modal_release_guard = 1; prev_buttons = buttons; return; /* dismiss toast without delivering click to covered app */
         }
     }
     if (system_panel_open && layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
-        if (left && !was) click(cx, cy);
+        if (left && !was) { click(cx, cy); modal_release_guard = 1; }
         capture = -1; dragging = -1; resizing = -1;
         prev_buttons = buttons;
         return; /* status panel is modal: do not forward pointer movement or buttons underneath */
