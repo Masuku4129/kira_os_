@@ -419,7 +419,7 @@ int main(void) {
     frame();
 
     /* Bounded notification history and passive toast never steal application input. */
-    int notification_under = wm_create("notification-underlay", 400, 250, 180, 110, WM_INPUT);
+    int notification_under = wm_create("notification-underlay", 700, 60, 180, 110, WM_INPUT);
     CHECK(notification_under >= 0);
     wm_raise(notification_under);
     wm_anim(10000, 0);
@@ -427,8 +427,11 @@ int main(void) {
     CHECK(wm_notification_count() == 1 && wm_notification_unread_count() == 1);
     CHECK(wm_notification_toast_is_visible());
     frame();
-    wm_anim(14999, 0); CHECK(wm_notification_toast_is_visible());
-    wm_anim(15000, 0); CHECK(!wm_notification_toast_is_visible());
+    in_n = 0; click(800, 80); CHECK(in_n == 0 && !wm_notification_toast_is_visible());
+    wm_anim(11000, 0);
+    CHECK(wm_notification_post("Система", "Проверка срока показа", WM_NOTIFY_INFO) == 0);
+    wm_anim(15999, 0); CHECK(wm_notification_toast_is_visible());
+    wm_anim(16000, 0); CHECK(!wm_notification_toast_is_visible());
     for (int ni = 0; ni < 10; ni++) CHECK(wm_notification_post("Событие", "Проверка ограниченной очереди", ni % 3) == 0);
     CHECK(wm_notification_count() == 8 && wm_notification_unread_count() == 8);
     click(1024 - 26, 20); CHECK(wm_system_panel_is_open());
