@@ -36,6 +36,19 @@ int main(void) {
            found->location.function == 1);
     assert(found->vendor_id == 0x1234 && found->product_id == 0x5678);
     assert(found->state == DEVICE_STATE_DISCOVERED);
+    assert(device_registry_transition(first, DEVICE_STATE_DISCOVERED,
+                                      DEVICE_STATE_VALIDATED) == DEVICE_OK);
+    assert(device_resolve(first)->state == DEVICE_STATE_VALIDATED);
+    assert(device_registry_transition(first, DEVICE_STATE_DISCOVERED,
+                                      DEVICE_STATE_FAILED) == DEVICE_E_STATE);
+    assert(device_registry_transition(first, DEVICE_STATE_VALIDATED,
+                                      DEVICE_STATE_QUARANTINED) == DEVICE_OK);
+    assert(device_registry_transition(first, DEVICE_STATE_QUARANTINED,
+                                      DEVICE_STATE_VALIDATED) == DEVICE_E_STATE);
+    assert(device_registry_transition(first, DEVICE_STATE_QUARANTINED,
+                                      DEVICE_STATE_FAILED) == DEVICE_OK);
+    assert(device_registry_transition(first, DEVICE_STATE_FAILED,
+                                      DEVICE_STATE_VALIDATED) == DEVICE_E_STATE);
     assert(device_registry_get(0) == found);
     assert(device_registry_get(-1) == 0 && device_registry_get(1) == 0);
 
