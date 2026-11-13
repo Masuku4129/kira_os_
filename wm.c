@@ -1378,7 +1378,14 @@ static int compose_prepare(void) {
     int pill = pill_visible(fs);
     if (pill != last_pill) { last_pill = pill; damage_pill(); }
     int at = active_tab();
-    if (at != last_tab) { last_tab = at; if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) damage_side(); else damage_top(); }
+    if (at != last_tab) {
+        int old_tab = last_tab;
+        last_tab = at;
+        if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+            damage_spatial_tab(old_tab);
+            damage_spatial_tab(at);
+        } else damage_top();
+    }
     return fs;
 }
 
