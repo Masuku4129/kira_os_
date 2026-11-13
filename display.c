@@ -541,17 +541,15 @@ static void update_clock(void) {
     wm_set_clock(date, hm);
 }
 
-static int system_link_state(void) {
 #ifndef KIRA_HOST_TEST
+static int system_link_state(void) {
     netdev_t* dev = net_dev();
     if (!dev) return -2;
     if (!dev->link) return -1;
     int state = dev->link(dev);
     return state > 0 ? 1 : state == 0 ? 0 : -1;
-#else
-    return -1;
-#endif
 }
+#endif
 
 static void update_system_io(void) {
 #ifndef KIRA_HOST_TEST
