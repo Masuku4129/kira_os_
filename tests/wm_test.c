@@ -592,10 +592,13 @@ int main(void) {
     CHECK(!wm_window_overview_is_open());
     wm_destroy(compact_window);
     CHECK(wm_workspace_current() == 0 && wm_workspace_count() == 4);
-    click(204, 20); CHECK(wm_workspace_current() == 1);
-    click(204, 20); CHECK(wm_workspace_current() == 2);
-    click(204, 20); CHECK(wm_workspace_current() == 3);
-    click(204, 20); CHECK(wm_workspace_current() == 0);
+    int workspace_x, workspace_y;
+    CHECK(wm_workspace_center(1, &workspace_x, &workspace_y) == 0);
+    CHECK(workspace_x == 320 - 82 && workspace_y == 20);
+    click(workspace_x, workspace_y); CHECK(wm_workspace_current() == 1);
+    click(workspace_x, workspace_y); CHECK(wm_workspace_current() == 2);
+    click(workspace_x, workspace_y); CHECK(wm_workspace_current() == 3);
+    click(workspace_x, workspace_y); CHECK(wm_workspace_current() == 0);
     int px_, py_;
     int previous_dock_x = -1;
     for (int i = 0; i < 3; i++) {
