@@ -565,3 +565,5 @@
 - Exact-head CI for the PCI rescan gate and KDRV migration is pending. No local test run or hardware validation is claimed.
 
 - Updated `tests/virtio_test.c` to register an explicit always-allow guard for its synthetic multi-scan PCI model; production defaults remain fail-closed after the first snapshot. `tests/architecture_test.py` now requires that test-only authorization so repeated model scans cannot accidentally rely on the production default.
+
+- Clarified the GitHub Actions host-test step label to call out PCI range/rescan and KDRV identity coverage explicitly. The underlying command remains `bash tests/run_host_tests.sh`; this is observability only and does not replace test execution.
