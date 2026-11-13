@@ -10,7 +10,6 @@
 #define TILE 44                    /* плитка значка боковой панели */
 #define TILE_GAP 10
 #define SIDE_X 10
-#define WM_SPATIAL_RAIL_W 88
 #define WM_SPATIAL_DOCK_H 76
 #define WM_SPATIAL_TAB_H 40
 #define WM_SPATIAL_TAB_GAP 8
