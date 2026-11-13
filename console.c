@@ -426,6 +426,7 @@ static void console_launch_file(const char* name, const char* path) {
     }
 }
 
+/* Console is the consumer for command-line wasm/view requests; it releases the queue result on the next core tick. */
 static void console_prog_poll(void) {
     if (!console_prog_request_id) return;
     int result = 0;
