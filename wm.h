@@ -69,6 +69,15 @@ int wm_workspace_current(void);
 int wm_workspace_count(void);
 int wm_workspace_switch(int workspace);
 int wm_workspace_center(int workspace, int* x, int* y);
+/* Bounded, non-modal notifications. Posting never changes focus or window ownership. */
+enum { WM_NOTIFY_INFO = 0, WM_NOTIFY_WARNING = 1, WM_NOTIFY_CRITICAL = 2 };
+int wm_notification_post(const char* title, const char* message, int priority);
+int wm_notification_count(void);
+int wm_notification_unread_count(void);
+int wm_notification_center_is_open(void);
+int wm_notification_toast_is_visible(void);
+void wm_notification_center_toggle(void);
+void wm_notification_clear(void);
 /* Spatial Minimal: centers of active previous/next Dock page controls for hit-test integration. */
 int wm_dock_page_control_center(int next, int* x, int* y);
 int  wm_create(const char* title, int x, int y, int content_w, int content_h, int flags); /* id или -1 */
