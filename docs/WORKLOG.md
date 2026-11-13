@@ -510,3 +510,14 @@
 - Latest code/test SHA: `31a74257f2adb68d3e3ca0b5e32a5a4254e5db9c`; latest documentation SHA: `7ecdcb98d7572bdc2a52d2fe202e0dd914b74d5d`.
 - No local checkout/build is available in this session. Exact-head CI has not yet reported a run for the latest commits; do not claim host/x86/ARM/QEMU PASS. Android Limbo visual acceptance and measured render performance remain unverified.
 - Remaining UI work outside this slice: real network/audio/power quick controls via stable system APIs, wallpaper/preferences, DPI/reduced-motion/accessibility, a distinct KIRA AI assistant surface, and final Limbo review. No PR merge, main update or ISO release.
+
+
+### Spatial quick-panel live I/O integration and regression correction — 2026-11-13
+
+- The contextual panel now receives the actual network adapter link callback state and audio mixer/master-volume state from the display loop. It explicitly labels link state (not Internet reachability); absent adapters/mixers remain unavailable rather than being shown as connected.
+- Reworked the panel into compact metric cards for CPU, memory, KIRA Mind, network link and audio volume. The 320×240 host fixture now checks all three visible rows, including the Mind, network and audio indicators.
+- Exact-head CI run `43432439272` exposed a pre-existing stale host assertion: the overview test clicked x=140 although the Spatial overview affordance had moved to the right-side capsule. Updated the test to click x=800. That run had x86 build success, host-tests failure at the stale click, and several VM scenarios success; ARM64 and several VM shards were cancelled by newer commits. It is not a full pass.
+- Added the Spatial window surface and compact panel pixel assertions; Legacy renderer remains on its original branch.
+- Code/test commits in this follow-up: `wm.c` `9a0c768883d6fd4e520a3b64c77ef8c7d828a085`, `display.c` `6fb899aedbec63d53393a330819dfeb359d80a5c`, `tests/wm_test.c` `2eaa2c408ef7322511c448d12fdf47422ab8670d`; documentation `1be8a7305888cbc612d6963255d9aa0713c1999c`.
+- A new CI run was queued for the corrected host assertion; latest exact-head result must be checked after the newest code/docs commits. No local build, Limbo visual acceptance or measured performance comparison is available in this session.
+- Still not implemented: actual network enable/disable, audio control interaction, battery/power controls, wallpaper preferences, full DPI/reduced-motion/accessibility, and a separate AI assistant overlay. These are not represented as completed. No PR merge, main update or ISO release.
