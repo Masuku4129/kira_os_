@@ -419,3 +419,5 @@
 - Added `tests/ui_damage_contract_test.py` and wired it into `tests/run_host_tests.sh` to prevent full-desktop invalidation from returning.
 - This is a source-level performance correction, not a measured performance claim. Exact-head host tests, QEMU/Limbo visual check and frame-time comparison are still required.
 - Legacy invalidation path is unchanged. No default-layout switch or ISO release is made by this change.
+
+- PR #140 now carries R-01/R-02 requirement-to-evidence rows pinned to `cb0d41e29ae7b01fe4b82e2be66e77414c71e39c`; final CI/limbo evidence remains pending.
