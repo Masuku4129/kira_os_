@@ -22,6 +22,7 @@ static device_descriptor_t pci_candidate(uint8_t bus, uint8_t dev, uint8_t fn) {
 int main(void) {
     device_handle_t first = {0, 0};
     device_handle_t child = {0, 0};
+    device_handle_t controller_b = {0, 0};
     device_descriptor_t d;
 
     assert(device_registry_begin_snapshot() == DEVICE_OK);
@@ -38,7 +39,7 @@ int main(void) {
     assert(device_registry_get(0) == found);
     assert(device_registry_get(-1) == 0 && device_registry_get(1) == 0);
 
-    /* Duplicate bus locations and malformed PCI locations fail closed. */
+    /* Duplicate PCI bus locations and malformed PCI locations fail closed. */
     assert(device_registry_add(&d, &child) == DEVICE_E_DUPLICATE);
     d.location.device = 32;
     assert(device_registry_add(&d, &child) == DEVICE_E_INVALID);
@@ -46,23 +47,37 @@ int main(void) {
     d.vendor_id = 0xFFFF;
     assert(device_registry_add(&d, &child) == DEVICE_E_INVALID);
 
-    /* The registry accepts another bus type without leaking PCI-specific identity. */
+    /* Controller-local addresses may repeat below different parent controllers. */
+    memset(&d, 0, sizeof d);
+    d.bus = DEVICE_BUS_PLATFORM;
+    d.location.key = 0x10;
+    assert(device_registry_add(&d, &controller_b) == DEVICE_OK);
+
     memset(&d, 0, sizeof d);
     d.bus = DEVICE_BUS_USB;
     d.location.key = 0x10001;
     d.parent = first;
     assert(device_registry_add(&d, &child) == DEVICE_OK);
-    assert(child.id > first.id && child.generation == first.generation);
+    assert(child.id > controller_b.id && child.generation == first.generation);
     found = device_resolve(child);
     assert(found && found->bus == DEVICE_BUS_USB && found->parent.id == first.id);
+
+    device_handle_t duplicate = {0, 0};
+    assert(device_registry_add(&d, &duplicate) == DEVICE_E_DUPLICATE);
+    d.parent = controller_b;
+    assert(device_registry_add(&d, &duplicate) == DEVICE_OK);
+    assert(duplicate.id > child.id);
+    found = device_resolve(duplicate);
+    assert(found && found->parent.id == controller_b.id);
 
     /* A new discovery snapshot invalidates every old handle and never reuses IDs. */
     assert(device_registry_begin_snapshot() == DEVICE_OK);
     assert(device_registry_count() == 0);
-    assert(device_resolve(first) == 0 && device_resolve(child) == 0);
+    assert(device_resolve(first) == 0 && device_resolve(child) == 0 &&
+           device_resolve(duplicate) == 0);
     d = pci_candidate(0, 3, 1);
     assert(device_registry_add(&d, &first) == DEVICE_OK);
-    assert(first.id > child.id && first.generation > child.generation);
+    assert(first.id > duplicate.id && first.generation > duplicate.generation);
     memset(&d, 0, sizeof d);
     d.bus = DEVICE_BUS_USB;
     d.location.key = 0x20001;
@@ -88,6 +103,6 @@ int main(void) {
     device_registry_abort_snapshot();
     assert(device_registry_count() == 0);
     assert(device_resolve(first) == 0);
-    puts("Device Model: typed bus identity, bounded registry, duplicate rejection, generation invalidation and fail-closed capacity passed");
+    puts("Device Model: controller-scoped locations, typed bus identity, bounded registry, duplicate rejection, generation invalidation and fail-closed capacity passed");
     return 0;
 }
