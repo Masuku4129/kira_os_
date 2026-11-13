@@ -383,7 +383,11 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     uhci_t* u = ctl_state[nctl];
     for (unsigned long i = 0; i < sizeof *u; i++) ((volatile uint8_t*)u)[i] = 0;
     u->io = (uint16_t)p->bar[4].base;
+    usb_log("[KIRA USB TRACE] UHCI DMA allocation complete; enabling PCI bus master\\n");
     pci_enable(p, PCI_CMD_IO | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    usb_log("[KIRA USB TRACE] UHCI PCI command after enable: ");
+    usb_log_hex(pci_read16(p, 0x04));
+    usb_log("\\n");
     pci_write16(p, 0xC0, 0x8F00);                     /* LEGSUP: BIOS больше не перехватывает USB (SMI, эмуляция PS/2) */
 
     uint64_t phys;
