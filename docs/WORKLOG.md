@@ -440,3 +440,12 @@
 - Branch head: `1850c0ea0f4f3436116b1b3e3942f5f05293ef34`; source/test head: `e5234a8c3126898c1bf9dc2feb1b39f9b0f3bcae`.
 - Workflow `43408346184` passed host-tests, x86-64, ARM64/QEMU and all VM jobs.
 - Verified source contract covers Dock bottom-band invalidation, previous/current navigation hover entries, and previous/current active navigation entries. Android Limbo visual comparison and measured frame-time/dirty-pixel data remain unverified.
+
+
+### Spatial system-zone visibility correction — PR #140 (2026-11-13)
+- Исправлен пропуск в композиторе: компактная ветка `draw_topbar()` для Spatial Minimal существовала, но `compose_rect()` вызывал её только для Legacy. Поэтому кнопка «ОКНА» была невидимой, а часы не имели видимой системной поверхности.
+- Теперь для обоих режимов рисуется собственная верхняя системная зона: Spatial — только компактные KIRA / «ОКНА» / дата-время, без старой навигации и постоянной телеметрии.
+- В `tests/wm_test.c` добавлена проверка пикселей верхней зоны Spatial Minimal и нижней границы; существующий тест проверяет действие кнопки обзора окон.
+- Android/Limbo preview выбирается `build_clang.sh --android`; Legacy сохраняется для обычных сборок и CI.
+- Код/тесты: `a558aa9dd23db02759fa673cec979c021a93ca35`, `9064c5581d0a05716042412cd2ac036a0bfb1d73`. Документация: `826574fdc3d9de512519c6fb82097808f8bc6b39`.
+- Exact-head CI ещё не подтверждён. Проверка в Limbo на телефоне и измерения производительности остаются обязательными.
