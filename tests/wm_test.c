@@ -325,6 +325,7 @@ int main(void) {
     tabs_hit = 0;
     click(nav_x, nav_y);
     CHECK(tabs_hit == 1 && last_tab == 1);
+    wm_set_visible(a, 0);
     click_side(0);
     CHECK(wm_top() == a);
     frame();
