@@ -22,6 +22,7 @@
 #include "mind_sys.h"
 #include "explorer.h"
 #include "apps.h"
+#include "gfxui.h"
 #include "icons.h"
 #include "theme.h"
 #include "rtc.h"
