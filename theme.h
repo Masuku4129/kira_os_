@@ -86,6 +86,13 @@
 #define TH_RED        0x00F87171u
 #define TH_PINK       0x00F472B6u
 
+/* Semantic names remain available to code compiled in Legacy mode. */
+#define TH_ACCENT_PRIMARY TH_CYAN
+#define TH_ACCENT_SECONDARY TH_BLUE
+#define TH_STATE_SUCCESS TH_GREEN
+#define TH_STATE_WARNING TH_AMBER
+#define TH_STATE_DANGER TH_RED
+
 #define TH_TEXT       0x00E2E8F0u
 #define TH_TEXT_DIM   0x008DA2C0u
 #define TH_TEXT_FAINT 0x00566B8Eu
