@@ -112,6 +112,7 @@ static bind_t* find_slot(const pci_dev_t* d, int create) {
     uint64_t f = spin_lock_irqsave(&klock);
     bind_t* r = 0;
     for (unsigned i = 0; i < KDRV_SLOTS && !r; i++) if (handle_equal(binds[i].device, h)) r = &binds[i];
+    /* A full PCI rescan invalidates every old handle. Until coordinated quiesce exists, fail closed globally. */
     int stale_binding = 0;
     if (create) for (unsigned i = 0; i < KDRV_SLOTS; i++) {
         if (binds[i].device.id && !pci_resolve(binds[i].device)) { stale_binding = 1; break; }
