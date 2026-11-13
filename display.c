@@ -140,6 +140,7 @@ static void files_launch_poll(void) {
     else if (result == -3) (void)scpy(files_status, 0, "ошибка формата исполняемого файла", sizeof files_status);
     else if (result == -4) (void)scpy(files_status, 0, "лимит запуска KIRA Mind", sizeof files_status);
     else (void)scpy(files_status, 0, "не удалось открыть файл/запустить программу", sizeof files_status);
+    wm_notification_post("Проводник", files_status, state == PROG_RESULT_COMPLETE && result > 0 ? WM_NOTIFY_INFO : WM_NOTIFY_WARNING);
     draw_files();
 }
 
@@ -213,6 +214,7 @@ static void launcher_poll(void) {
     else if (result == -2) (void)scpy(launcher_status, 0, "Запуск отклонён проверкой доверия.", sizeof launcher_status);
     else if (result == -3) (void)scpy(launcher_status, 0, "Неверный формат исполняемого файла.", sizeof launcher_status);
     else (void)scpy(launcher_status, 0, "Не удалось запустить приложение.", sizeof launcher_status);
+    wm_notification_post("Приложения", launcher_status, state == PROG_RESULT_COMPLETE && result > 0 ? WM_NOTIFY_INFO : WM_NOTIFY_WARNING);
     draw_launcher();
 }
 static void launcher_key(const input_event_t* ke) {
