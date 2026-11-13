@@ -717,9 +717,9 @@ int display_init(unsigned long mbi) {
     }
     ready = 1;
 #ifdef KIRA_SPATIAL_PREVIEW
-    uart_print("[KIRA DISPLAY] Spatial Minimal preview online: left navigation, pinned-only bottom Dock, quiet canvas.\n");
+    uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal preview, left navigation, pinned-only bottom Dock, quiet canvas.\n");
 #else
-    uart_print("[KIRA DISPLAY] Legacy shell online: top navigation, side launcher, apps Terminal / Mind / Files / Monitor / Settings.\n");
+    uart_print("[KIRA DISPLAY] Shell online: Legacy layout, top navigation, side launcher, apps Terminal / Mind / Files / Monitor / Settings.\n");
 #endif
     return 0;
 }
