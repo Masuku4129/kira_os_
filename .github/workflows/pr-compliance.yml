@@ -1,0 +1,17 @@
+name: PR request-plan compliance
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  request-plan-matrix:
+    name: Request-to-plan evidence matrix
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate PR compliance matrix structure
+        run: python3 ci/check_pr_compliance.py
