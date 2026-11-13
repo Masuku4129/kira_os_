@@ -75,6 +75,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          name: kira-arm64-image
+          path: |
+            kira-arm64.img
+            kira-arm64.elf
+            kira-arm64.disk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
           name: vm-arm64
           path: ci-out/arm64
 
@@ -152,3 +161,65 @@ jobs:
           git add -A
           git commit -q -m "ci: ${GITHUB_SHA::7}"
           git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "$B"
+
+  # Full system bundle is published only when every validation gate is green.
+  release-bundle:
+    name: Full OS images (x86-64 + ARM64)
+    needs: [host-tests, build, vm, arm64]
+    if: ${{ needs.host-tests.result == 'success' && needs.build.result == 'success' && needs.vm.result == 'success' && needs.arm64.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-image
+          path: input/x86_64
+      - uses: actions/download-artifact@v4
+        with:
+          name: kira-arm64-image
+          path: input/arm64
+      - name: Assemble full system images and checksums
+        run: |
+          set -euo pipefail
+          mkdir -p dist/full/x86_64 dist/full/arm64
+          test -s input/x86_64/kira.iso
+          test -s input/x86_64/kira.disk
+          test -s input/x86_64/kira.bin
+          test -s input/arm64/kira-arm64.img
+          test -s input/arm64/kira-arm64.disk
+          test -s input/arm64/kira-arm64.elf
+          install -m 0644 input/x86_64/kira.iso dist/full/x86_64/kira.iso
+          install -m 0644 input/x86_64/kira.disk dist/full/x86_64/kira_disk.img
+          install -m 0644 input/x86_64/kira.bin dist/full/x86_64/kira.bin
+          install -m 0644 input/arm64/kira-arm64.img dist/full/arm64/kira-arm64.img
+          install -m 0644 input/arm64/kira-arm64.disk dist/full/arm64/kira-arm64.disk
+          install -m 0644 input/arm64/kira-arm64.elf dist/full/arm64/kira-arm64.elf
+          cat > dist/full/README-RU.txt <<EOF
+          KIRA OS — полный комплект системных образов
+          Commit: ${GITHUB_SHA}
+
+          x86-64:
+            kira.iso       — загрузочный ISO (BIOS/UEFI при наличии соответствующих GRUB-модулей)
+            kira_disk.img  — системный диск KiraFS; подключать как Hard Disk A
+            kira.bin       — ядро для диагностики
+
+          ARM64:
+            kira-arm64.img  — загрузочный образ для QEMU virt/ARM64 (это не ISO)
+            kira-arm64.disk — системный диск KiraFS
+            kira-arm64.elf  — ELF с символами для диагностики
+
+          Limbo x86: подключить x86_64/kira.iso как CD-ROM,
+          x86_64/kira_disk.img как Hard Disk A, загрузка с CD-ROM.
+          ARM64 image предназначен для QEMU virt; физическая совместимость с платами не заявляется.
+
+          Комплект публикуется только после успешных host, x86-64, ARM64 и всех VM matrix проверок.
+          EOF
+          (cd dist/full && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          mkdir -p dist/out
+          zip -X -qr "dist/out/KIRA-OS-full-${GITHUB_SHA::12}.zip" dist/full
+          sha256sum "dist/out/KIRA-OS-full-${GITHUB_SHA::12}.zip" > "dist/out/SHA256SUMS"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kira-os-full-${{ github.sha }}
+          path: dist/out/*
+          if-no-files-found: error
+          retention-days: 30
