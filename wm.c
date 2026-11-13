@@ -830,6 +830,25 @@ static void workspace_changed(void) {
     if (ops.workspace_changed) ops.workspace_changed(current_workspace);
 }
 
+int wm_window_workspace(int id) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used || win[id].pinned) return -1;
+    return win[id].workspace;
+}
+
+int wm_window_move_workspace(int id, int workspace) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used || win[id].pinned ||
+        workspace < 0 || workspace >= WM_WORKSPACE_MAX) return -1;
+    if (win[id].workspace == workspace) return 0;
+    int active = wm_visible(id);
+    if (win[id].full) wm_set_fullscreen(id, 0);
+    if (active) damage_win(&win[id]);
+    win[id].workspace = workspace;
+    overview_open = 0; system_panel_open = 0; notification_center_open = 0; notification_toast_active = 0;
+    damage(0, 0, scr->w, scr->h);
+    if (active) workspace_changed();
+    return 1;
+}
+
 static int overview_refresh(void) {
     int ids[WM_MAX_WIN], n = 0;
     uint32_t generations[WM_MAX_WIN];
