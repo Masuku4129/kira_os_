@@ -778,6 +778,15 @@ void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns) 
     st.worst_gap_ns = 0;                       /* худший промежуток - за период между вызовами */
 }
 
+void display_get_render_stats(uint64_t* frames, uint64_t* composed, uint64_t* pixels, uint64_t* busy_ns, uint64_t* worst_busy_ns, uint64_t* last_present_ns) {
+    if (frames) *frames = st.frames;
+    if (composed) *composed = st.composed;
+    if (pixels) *pixels = st.pixels;
+    if (busy_ns) *busy_ns = st.busy_ns;
+    if (worst_busy_ns) *worst_busy_ns = st.worst_busy_ns;
+    if (last_present_ns) *last_present_ns = st.present_ns;
+}
+
 void display_request_files(const char* left, const char* right) {
     uint64_t fl = spin_lock_irqsave(&rq_lk);
     scpy(rq_l, 0, left ? left : "", FM_PATH); scpy(rq_r, 0, right ? right : "", FM_PATH);
@@ -805,7 +814,8 @@ void display_print_info(void) {
     uart_print(" us\n[DISPLAY] drawn frames "); uart_print_dec(st.composed);
     uint64_t span = clock_ns() - st.start_ns;
     uart_print(" ("); uart_print_dec(span ? st.composed * 1000000000ULL / span : 0);
-    uart_print(" per second on average), late cycles "); uart_print_dec(st.late);
+    uart_print(" per second on average), avg dirty pixels/composed frame "); uart_print_dec(st.composed ? st.pixels / st.composed : 0);
+    uart_print(", late cycles "); uart_print_dec(st.late);
     uart_print(", worst gap "); uart_print_dec(st.worst_gap_ns / 1000);
     uart_print(" us, worst cycle "); uart_print_dec(st.worst_busy_ns / 1000);
     uart_print(" us, budget "); uart_print_dec(FRAME_NS / 1000);
