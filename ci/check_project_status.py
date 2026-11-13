@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""Fail CI when a tracked source disappears or a new file is not classified."""
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+STATUS_DIR = ROOT / "docs" / "PROJECT_STATUS"
+
+
+def fail(message: str) -> None:
+    print("FAIL: " + message)
+    sys.exit(1)
+
+
+def words_from(pattern: str, source: str, label: str) -> list[str]:
+    match = re.search(pattern, source, re.MULTILINE)
+    if not match:
+        fail("cannot read " + label + " from build script")
+    return match.group(1).strip().split()
+
+
+manifest = json.loads((STATUS_DIR / "status_manifest.json").read_text(encoding="utf-8"))
+inventory = json.loads((STATUS_DIR / "branch_inventory_2026-11-13.json").read_text(encoding="utf-8"))
+
+# 1. Every file in the pinned main baseline must still exist.
+baseline = set(inventory["baseline"]["files"])
+missing = sorted(path for path in baseline if not (ROOT / path).is_file())
+if missing:
+    fail("baseline files disappeared: " + ", ".join(missing[:30]))
+
+# 2. Every tracked path must be accounted for by the baseline or this registry.
+managed = set(manifest["managed_files"])
+try:
+    raw = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
+except (OSError, subprocess.CalledProcessError) as exc:
+    fail("git ls-files unavailable: " + str(exc))
+tracked = {p.decode("utf-8") for p in raw.split(b"\0") if p}
+unclassified = sorted(tracked - baseline - managed)
+stale = sorted((baseline | managed) - tracked)
+if unclassified:
+    fail("new tracked files are not classified in status_manifest: " + ", ".join(unclassified[:30]))
+if stale:
+    fail("manifest expects paths absent from Git index: " + ", ".join(stale[:30]))
+
+# 3. All declared baseline/build inputs must exist.
+ready = manifest["ready"]
+required = set(ready["required_files"])
+required.update(ready["x86_64_kernel_sources"])
+required.update(ready["x86_64_arch_sources"])
+required.update(ready["arm64_kernel_sources"])
+for path in sorted(required):
+    if not (ROOT / path).is_file():
+        fail("required baseline/build input is missing: " + path)
+
+# 4. Keep the release-input lists synchronized with the actual build scripts.
+x86_script = (ROOT / "build_clang.sh").read_text(encoding="utf-8")
+arm_script = (ROOT / "build_arm64.sh").read_text(encoding="utf-8")
+x86_sources = words_from(r'^C_SOURCES="([^"]+)"$', x86_script, "C_SOURCES")
+x86_arch = [
+    item.replace("$ARCH/", "arch/x86_64/")
+    for item in words_from(r'^ARCH_SOURCES="([^"]+)"$', x86_script, "ARCH_SOURCES")
+]
+arm_match = re.search(r"# Общее ядро[\s\S]*?for f in([\s\S]*?); do", arm_script)
+if not arm_match:
+    fail("cannot locate ARM64 common-kernel source list")
+arm_sources = [
+    item.replace("$A/", "arch/aarch64/")
+    for item in arm_match.group(1).strip().split()
+    if item != "\\"
+]
+
+def app_names(source: str) -> list[str]:
+    found: set[str] = set()
+    for match in re.finditer(r"for app in ([^;]+); do", source):
+        found.update(match.group(1).strip().split())
+    return sorted(found)
+
+checks = [
+    ("x86_64_kernel_sources", x86_sources),
+    ("x86_64_arch_sources", x86_arch),
+    ("arm64_kernel_sources", arm_sources),
+    ("x86_userland_app_names", app_names(x86_script)),
+    ("arm64_userland_app_names", app_names(arm_script)),
+]
+for key, actual in checks:
+    expected = ready[key]
+    if actual != expected:
+        fail(key + " differs from build script; update the manifest after reviewing the build change")
+
+# Userland programs are selected by name in shell loops; verify their source files too.
+for target, names in (
+    ("x86-64", ready["x86_userland_app_names"]),
+    ("ARM64", ready["arm64_userland_app_names"]),
+):
+    for name in names:
+        if not (ROOT / "userland" / (name + ".c")).is_file() and not (ROOT / "userland" / (name + ".s")).is_file():
+            fail(target + " userland source is missing for app " + name)
+
+# 5. The branch-only inventory must remain pinned and internally complete.
+v46_only = set(inventory["differences"]["v46_not_in_main"])
+baseline_paths = set(inventory["baseline"]["files"])
+build_diff = manifest["in_progress"]["build_source_differences"]
+for architecture, record in build_diff.items():
+    for source in record["v46_only"]:
+        # A source can exist in main but not be compiled there; build-list delta != tree-path delta.
+        if source not in baseline_paths and source not in v46_only:
+            fail(architecture + " build-only source is absent from both baseline and v46 inventory: " + source)
+for source in manifest["in_progress"]["release_pipeline_files"]:
+    if source not in v46_only:
+        fail("release pipeline path is absent from v46 inventory: " + source)
+if len(build_diff["x86_64"]["v46_only"]) != 14 or len(build_diff["arm64"]["v46_only"]) != 9:
+    fail("v46 build source gap counts changed; refresh build comparison")
+expected_diffs = {
+    "v46_not_in_main": 437,
+    "main_not_in_v46": 21,
+    "autodrv_not_in_v46": 56,
+    "architecture_not_in_main": 50,
+    "spatial_not_in_main": 10,
+    "spatial_tokens_not_in_spatial_base": 2,
+    "release_not_in_spatial": 0,
+}
+for key, count in expected_diffs.items():
+    actual = inventory["differences"].get(key)
+    if actual is None or len(actual) != count:
+        fail("branch snapshot count changed for " + key + "; refresh the snapshot deliberately")
+if len(inventory["open_pull_requests"]) != 59 or len(inventory["closed_unmerged_pull_requests"]) != 49:
+    fail("PR snapshot changed; refresh branch/PR inventory deliberately")
+
+for pr in inventory["open_pull_requests"] + inventory["closed_unmerged_pull_requests"]:
+    if not pr.get("head") or not pr.get("head_sha") or not pr.get("base"):
+        fail("PR snapshot contains an incomplete head/base record")
+
+# 6. Preserve every branch ref in the pinned repository snapshot.
+branch_heads = json.loads((STATUS_DIR / "branch_heads_2026-11-13.json").read_text(encoding="utf-8"))
+if len(branch_heads["branches"]) != manifest["in_progress"]["branch_heads_count"]:
+    fail("branch head inventory count changed; refresh all branch refs deliberately")
+if len({item["name"] for item in branch_heads["branches"]}) != len(branch_heads["branches"]):
+    fail("branch head inventory contains duplicate names")
+if len({item["sha"] for item in branch_heads["branches"]}) != branch_heads["unique_head_commits"]:
+    fail("branch head inventory unique SHA count is inconsistent")
+
+# 7. Keep the complete non-CI branch-tree audit and the three-stage file ledger pinned.
+branch_audit = json.loads((STATUS_DIR / "all_branch_tree_audit.json").read_text(encoding="utf-8"))
+scope = branch_audit["scope"]
+if scope["all_branch_refs"] != branch_heads["branch_count"]:
+    fail("all-branch audit and branch-head snapshot counts differ")
+if scope["all_unique_commit_heads"] != branch_heads["unique_head_commits"]:
+    fail("all-branch audit and branch-head unique SHA counts differ")
+if scope["non_ci_unique_tree_heads"] != len(branch_audit["completed_tree_heads"]):
+    fail("not every non-CI branch tree has been audited")
+if len(set(branch_audit["completed_tree_heads"])) != len(branch_audit["completed_tree_heads"]):
+    fail("branch tree audit contains duplicate completed HEADs")
+if any("error" in item for item in branch_audit["trees"].values()):
+    fail("one or more branch trees could not be audited")
+if len(branch_audit["branch_only_paths"]) != 722:
+    fail("branch-only path inventory changed; refresh the all-branch audit deliberately")
+if len(branch_audit["non_ci_branches_without_pr"]) != 77:
+    fail("non-CI branches without PR changed; refresh the branch audit deliberately")
+if len(branch_audit["pull_requests"]) != 134:
+    fail("all-PR snapshot changed; refresh the branch audit deliberately")
+if len(branch_audit["branch_refs"]) != branch_heads["branch_count"]:
+    fail("all-branch refs are incomplete in the branch audit")
+if len(branch_audit["branch_refs"]) != len(branch_heads["branches"]):
+    fail("all-branch refs differ from the pinned branch-head inventory")
+branch_ref_pairs = {(item["name"], item["sha"]) for item in branch_audit["branch_refs"]}
+head_ref_pairs = {(item["name"], item["sha"]) for item in branch_heads["branches"]}
+if branch_ref_pairs != head_ref_pairs:
+    fail("branch names or HEAD SHAs differ between the two snapshots")
+classified_paths = {}
+for category, records in branch_audit["branch_only_path_classes"].items():
+    for record in records:
+        path = record["path"]
+        if path in classified_paths:
+            fail("branch-only path appears in multiple categories: " + path)
+        classified_paths[path] = record["head_occurrences"]
+if classified_paths != branch_audit["branch_only_paths"]:
+    fail("branch-only path categories do not cover the complete path inventory")
+
+# 8. Keep the documented artifact contract aligned with the main CI workflow.
+workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+for artifact in ready["release_outputs_current_main"]:
+    if artifact not in workflow:
+        fail("main CI no longer publishes documented x86 artifact " + artifact)
+for artifact in ready["arm64_outputs_built_but_not_published_by_current_main_ci"]:
+    if artifact in workflow:
+        fail("ARM64 artifact publication changed; update the status manifest for " + artifact)
+
+print("PASS: all pinned baseline files still exist")
+print("PASS: every tracked file is classified by the three-stage registry")
+print("PASS: x86-64 and ARM64 build inputs match the manifest")
+print("PASS: branch-only files and PR snapshots remain pinned")
