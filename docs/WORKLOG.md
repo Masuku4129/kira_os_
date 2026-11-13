@@ -503,3 +503,12 @@
 - CI follow-up: the first PR #139 host-tests job stopped in `ci/lint.sh` before compiling anything. It falsely matched the legitimate validator's literal list of empty-answer markers in `ci/check_pr_compliance.py`. Rewrote those markers without embedding the linter's banned tokens; this is a lint self-match correction, not a production runtime change. Await a fresh exact-head CI run.
 
 - PR #139 evidence matrix now includes stable R-01/R-02 requirement rows with exact branch SHA `4d2edd61aa4aea3c3aa0ba25d348fa694e90398d`; the first compliance retry reused the original `opened` payload and therefore still saw the old body. A new branch synchronization is used to validate the corrected body.
+
+
+### Architecture documentation reconciliation — 2026-11-13
+
+- Updated COMPONENT_INVENTORY.md, CONTRACT_REGISTRY.md, DEPENDENCY_MAP.md, CURRENT_STATE_AND_HANDOFF_2026-11-13.md, SOURCE_AUDIT_FINDINGS.md, ARCHITECTURE_AUDIT_AND_EXECUTION_PLAN.md and OPEN_PR_ARCHITECTURE_TRACKER.md for the new range-aware PCI API.
+- Preserved the remaining boundaries: PCI BDF is still a location, not stable identity; generation-safe registry, resource ownership, bind/unbind, teardown/hotplug, and x86 PCI boot parity are not implemented by this slice.
+- Security gates remain unchanged: do not enable x86 enumeration or KDRV bus mastering until firmware bus-master sanitization and per-device IOMMU domain lifecycle are verified.
+- PR #139 requirement matrix now pins source-bearing commit 965678e235a298f017d5bdc8ab62c8c3f305f996. Structural compliance check succeeded on an earlier synchronized event; later documentation-only commits mean exact-head host/build/ARM64/QEMU results must still be obtained.
+- No code merge or main update. PR #139 remains draft and dependent on #135.
