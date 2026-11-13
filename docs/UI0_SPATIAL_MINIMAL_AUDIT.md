@@ -254,3 +254,14 @@
 - Hover invalidation spans the full control group; Legacy control positions and 9 px circular hit behavior are unchanged.
 - The resize/zoom corner target expands from 22×22 to 36×36 in Spatial Minimal; Legacy remains unchanged.
 - Host GUI tests activate minimize and fullscreen from the far corner of the 32×32 target and resize from within the 36×36 corner target. Exact-head CI and Android Limbo touch verification are required before acceptance.
+
+
+## UI-2/3 — workspaces and contextual notifications (2026-11-13)
+- Window ownership now includes a fixed four-workspace model. New ordinary windows belong to the current workspace; pinned system windows remain global. Window overview lists only the active workspace. Focusing an app from Dock returns to its owning workspace; windows can be moved with Ctrl+Alt+Shift+Left/Right.
+- Spatial topbar shows four workspace indicators; tapping the control cycles spaces. Ctrl+Alt+Left/Right switches spaces. The display owner refreshes system-app surfaces on workspace changes.
+- Added a bounded eight-entry notification history, unread counter, priority styling, five-second passive toast, clear-history action, and modal history panel. Toast dismissal and panel dismissal consume click/release edges; history never changes keyboard focus. System quick panel links to history.
+- Added a thread-safe 16-entry `display_notify()` queue for kernel services; display thread is the only consumer and calls WM. Current producers: application-launch outcomes and KIRA Mind health-threshold transitions.
+- Window overview layout now reserves a compact header/footer on narrow/short viewports and avoids forcing oversized cards at 320×240. Compact Dock paging and touch hit targets remain covered by GUI tests.
+- Compositor counters are exposed through `display_get_render_stats()`; boot diagnostics now report average dirty pixels per composed frame. This is instrumentation, not a measured legacy-vs-Spatial benchmark.
+- Added host regressions for workspace isolation, pinned-global windows, moving windows, shortcut routing, bounded notification history, toast expiry/dismissal, modal pointer isolation, and compact viewport geometry.
+- Pending: exact-head CI, QEMU/Limbo runtime visual verification, actual Android touch test, multi-resolution/DPI matrix and measured frame-time comparison. DPI scaling is not claimed; physical density is not currently provided by the display abstraction.
