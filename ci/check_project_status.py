@@ -122,6 +122,15 @@ for pr in inventory["open_pull_requests"] + inventory["closed_unmerged_pull_requ
     if not pr.get("head") or not pr.get("head_sha") or not pr.get("base"):
         fail("PR snapshot contains an incomplete head/base record")
 
+# 6. Keep the documented artifact contract aligned with the main CI workflow.
+workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+for artifact in ready["release_outputs_current_main"]:
+    if artifact not in workflow:
+        fail("main CI no longer publishes documented x86 artifact " + artifact)
+for artifact in ready["arm64_outputs_built_but_not_published_by_current_main_ci"]:
+    if artifact in workflow:
+        fail("ARM64 artifact publication changed; update the status manifest for " + artifact)
+
 print("PASS: all pinned baseline files still exist")
 print("PASS: every tracked file is classified by the three-stage registry")
 print("PASS: x86-64 and ARM64 build inputs match the manifest")
