@@ -91,5 +91,6 @@ RFC index: `docs/architecture/rfc/README.md`. No draft RFC is approved or ABI-fr
 
 - MIND-001 → `docs/architecture/rfc/RFC-MIND-001.md` (telemetry, model integrity, bounded control and rollback; draft).
 - SVC-001 / HOST-001 → `docs/architecture/rfc/RFC-SVC-001.md` (syscall core vs service adapters; draft, transitional in-kernel extraction).
+- DEV-001 → `docs/architecture/rfc/RFC-DEV-001.md` (device identity, resource ownership, driver binding and lifecycle; draft, source-backed migration contract).
 
 - SVC-001 implementation boundary: syscall router and per-subsystem adapters are separated in source; current execution remains in kernel context pending IPC and Service Manager contracts.
