@@ -541,3 +541,9 @@
 - This migration does not implement hotplug, coordinated rescan, bus-independent registry, resource reservation or full lifecycle teardown. No local test run is claimed; exact-head CI is required.
 
 - Tightened the migration gate: if any KDRV slot holds a handle that no longer resolves after a full PCI scan, `find_slot(..., create=1)` refuses all new KDRV bindings until recovery; a stale driver-exit path quarantines the slot and retains DMA pages. This is intentionally conservative and does not claim hotplug support.
+
+### KDRV architecture guard correction (2026-11-13)
+
+- Exact CI run `43399057283` stopped at the architecture guard before host tests: the new negative assertion searched for the substring `binds[i].dev`, which also appears in the valid field name `binds[i].device`.
+- Narrowed the assertion to match only raw pointer field operations and corrected its regular-expression escaping. This was a test-guard defect, not a compiler or runtime failure.
+- A fresh CI run for the corrected guard and KDRV handle migration is required; the failed run is not counted as validation.
