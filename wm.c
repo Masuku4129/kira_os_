@@ -1837,6 +1837,8 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
             if (system_panel_open) draw_system_panel(&clip, ox, oy);
         } else if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
+    if (notification_center_open) draw_notification_center(&clip, ox, oy);
+    else if (notification_toast_active) draw_notification_toast(&clip, ox, oy);
     draw_cursor(&clip, ox, oy);
 }
 
