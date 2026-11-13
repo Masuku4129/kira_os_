@@ -401,3 +401,11 @@
 - Run 43390614381 failed the x86 build at the new Launcher drawing calls: display.c lacked declarations for gfxui primitives (ui_card, ui_round_rect, ui_round_frame, ui_text_fit, ui_statusbar). This is a real compile failure; it is not being marked as passed.
 - Added the missing gfxui.h include, and bounded the search-field text with ui_text_fit. The failed run used earlier head c46522f81c5c60a9b76f634a8965bf6f86b110e3 and therefore does not include this correction.
 - Corrected source head at this note: 569c028388e2f011c2199b64419870a3af575329. Fresh CI on the corrected tree is still required.
+
+
+### Продолжение KIRA Spatial Minimal — ARM64 startup marker (2026-11-13)
+- Проверен workflow run `43395060732`: x86-64 build success; ARM64 build success; 20 VM scenarios success; ARM64 job failed только на `arm64-gui`, `arm64-explorer2`, `arm64-ramfb`, `arm64-dma-nc` с отсутствующим литералом `[KIRA DISPLAY] Shell online`. В job log сами четыре сценария завершаются по отсутствию этого маркера; это не доказательство отказа display hardware/init.
+- Root cause: startup log был переименован в `Legacy shell online` / `Spatial Minimal preview online`, а сценарии ARM64 ожидали стабильное mode-independent событие готовности оболочки.
+- Исправлено в `display.c`: оба режима теперь выводят `[KIRA DISPLAY] Shell online:` и затем описание layout. Commit `613a6e734b767914c14b1d511c8e5677e5d3e246`.
+- На момент проверки host-tests в run `43395060732` ещё выполнялись. Новый CI на exact fix commit пока не подтверждён; Limbo/physical hardware не тестировались.
+- Следующее: получить свежий CI для ветки `docs/ui0-spatial-minimal-audit`, проверить host-tests + ARM64 VM; затем продолжить responsive Dock/short-screen acceptance and performance baseline. PR не сливать.
