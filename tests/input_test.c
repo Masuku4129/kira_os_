@@ -34,6 +34,11 @@ int main(void) {
     uint8_t ws_move[] = {0x1D, 0x38, 0x2A, 0xE0, 0x4B, 0xE0, 0xCB, 0xAA, 0xB8, 0x9D};
     CHECK(feed(ws_move, (int)sizeof ws_move, ev) == 6);
     CHECK(input_take_hotkey() == KEY_WORKSPACE_MOVE_PREV);
+    input_init();
+    uint8_t notif_toggle[] = {0x1D, 0x38, 0x31, 0xB1, 0xB8, 0x9D}; /* Ctrl+Alt+N opens notification history */
+    CHECK(feed(notif_toggle, (int)sizeof notif_toggle, ev) == 4);
+    for (int i = 0; i < 4; i++) CHECK(ev[i].key != 'n');
+    CHECK(input_take_hotkey() == KEY_NOTIFICATION_TOGGLE && input_take_hotkey() == 0);
         uint8_t junk[] = {0xFA, 0xE1, 0x00, 0xFF};        /* ACK/Pause/ошибки: без событий */
     input_init(); CHECK(feed(junk,4,ev)==0);
     uint8_t ent[] = {0x1C, 0x9C};
