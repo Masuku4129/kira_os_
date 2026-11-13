@@ -1683,7 +1683,7 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
     gfx_text(c, x + 16 + ox, y + 12 + oy, "СИСТЕМА", TH_TEXT, -1);
     gfx_text(c, x + 16 + ox, y + 30 + oy, "Состояние устройства", TH_TEXT_DIM, -1);
 
-    ui_round_rect(c, x + 12 + ox, y + 46 + oy, w - 24, 22, 7, TH_TILE, 255);
+    ui_round_rect(c, x + 12 + ox, y + 46 + oy, w - 24, 22, TH_RADIUS_CONTROL, TH_TILE, 255);
     gfx_text(c, x + 22 + ox, y + 52 + oy, "УВЕДОМЛЕНИЯ", TH_TEXT, -1);
     char unread_text[8]; int unread = notification_unread(), un = 0;
     if (unread > 99) unread = 99;
@@ -1726,7 +1726,7 @@ static void draw_system_panel(surface_t* c, int ox, int oy) {
         int cx = x + 16 + col * (columns + 8);
         int cy = y + 74 + row * 30;
         int cw = i == 4 ? w - 32 : columns;
-        ui_round_rect(c, cx + ox, cy + oy, cw, 28, 7, TH_TILE, 255);
+        ui_round_rect(c, cx + ox, cy + oy, cw, 28, TH_RADIUS_CONTROL, TH_TILE, 255);
         gfx_text(c, cx + 8 + ox, cy + 4 + oy, labels[i], TH_TEXT_DIM, -1);
         int vw = gfx_text_width(values[i]);
         ui_text_fit(c, cx + cw - 8 - vw + ox, cy + 4 + oy, values[i], vw, 
@@ -1764,13 +1764,13 @@ static void draw_notification_toast(surface_t* c, int ox, int oy) {
 static void draw_notification_center(surface_t* c, int ox, int oy) {
     if (!notification_center_open) return;
     int x, y, w, h; notification_center_rect(&x, &y, &w, &h);
-    ui_round_rect(c, x + ox, y + oy, w, h, 16, TH_BAR0, 255);
-    ui_round_frame(c, x + ox, y + oy, w, h, 16, TH_BORDER, 255);
+    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BORDER, 255);
     gfx_text(c, x + 16 + ox, y + 14 + oy, "УВЕДОМЛЕНИЯ", TH_TEXT, -1);
     gfx_text(c, x + 16 + ox, y + 34 + oy, notification_count ? "Последние системные события" : "Новых событий нет", TH_TEXT_DIM, -1);
     int clear_w = 76;
-    ui_round_rect(c, x + w - clear_w - 12 + ox, y + 10 + oy, clear_w, 26, 7, TH_TILE, 255);
-    ui_round_frame(c, x + w - clear_w - 12 + ox, y + 10 + oy, clear_w, 26, 7, TH_BORDER, 200);
+    ui_round_rect(c, x + w - clear_w - 12 + ox, y + 10 + oy, clear_w, 26, TH_RADIUS_CONTROL, TH_TILE, 255);
+    ui_round_frame(c, x + w - clear_w - 12 + ox, y + 10 + oy, clear_w, 26, TH_RADIUS_CONTROL, TH_BORDER, 200);
     gfx_text(c, x + w - clear_w - 2 + ox, y + 18 + oy, "Очистить", TH_TEXT_DIM, -1);
     int visible = (h - 58) / 48; if (visible > 6) visible = 6;
     for (int i = 0; i < visible && (unsigned)i < notification_count; i++) {
