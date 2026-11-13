@@ -169,3 +169,12 @@
 - Host display-preview failure was caused by the test still clicking legacy tab indices after the navigation catalog was reordered. Updated the test to activate Mind at index 3 and Files at index 2; Settings/Home retain their indices.
 - Spatial Minimal compositor no longer draws the Legacy top bar. This removes the duplicate horizontal navigation/status strip; the primary navigation remains on the left rail and pinned apps remain in the bottom Dock.
 - The host suite must pass both the dedicated Spatial Minimal startup smoke test and the full Legacy display-preview interaction sequence. Neither result is inferred from a build-only pass.
+
+
+## 13. ARM64 GUI scenario marker compatibility fix (2026-11-13)
+
+- Run `43395060732` built x86-64 and ARM64 successfully; all 20 listed VM scenarios passed. ARM64 build itself passed, but `arm64-gui`, `arm64-explorer2`, `arm64-ramfb` and `arm64-dma-nc` failed their startup assertion because the expected literal `[KIRA DISPLAY] Shell online` had been changed to mode-specific strings.
+- The job log showed the failure was the missing marker, not a reported kernel/display initialization error. This is a test-contract regression: the shell-ready event must remain mode-independent.
+- Fixed both startup variants in `display.c` to retain the stable prefix `[KIRA DISPLAY] Shell online:` and append the selected layout details.
+- Fix commit: `613a6e734b767914c14b1d511c8e5677e5d3e246`.
+- This fix has not yet been validated by a workflow run on its exact commit. Host-tests were still in progress in run `43395060732`; ARM64 VM scenarios need a fresh run after the fix. No local build or Limbo visual test is claimed.
