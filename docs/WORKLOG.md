@@ -485,3 +485,12 @@
 - Spatial Minimal window title controls now use non-overlapping 32×32 hit areas spaced 36 px apart; compact visual dots remain. Hover damage covers the full control group.
 - Spatial resize/zoom corner hit area expanded to 36×36. Legacy geometry/input remains unchanged.
 - Added tests clicking the far corner of minimize/fullscreen targets and resizing from the expanded corner target. Fresh exact-head CI and phone/Limbo validation remain pending.
+
+
+### Spatial workspaces and notifications — PR #143 (2026-11-13)
+- Added four workspace IDs to WM window ownership. Ordinary windows are scoped to their creation workspace; pinned windows are global. Top-window selection, hit testing, fullscreen detection, composition and overview now filter by active workspace. Dock activation switches back to the app's workspace; focused windows can be moved between spaces.
+- Spatial topbar exposes four workspace indicators and a tap-to-cycle target. Ctrl+Alt+Left/Right switches; Ctrl+Alt+Shift+Left/Right moves the focused window. Display callback redraws app-owned surfaces after a switch.
+- Added bounded WM notification history (8), unread count, 5-second passive toast, severity, center/clear action and pointer-modal behavior without keyboard-focus theft. Added a bounded thread-safe display queue (16) for other kernel producers. Actual producers currently include launcher/file-launch result and KIRA Mind health transitions.
+- Responsive overview uses compact geometry at short widths; tests cover 320×240. `display_get_render_stats()` exposes frames/composed/dirtied pixels/busy time/present time; no performance benchmark result is claimed.
+- Host tests added for workspace isolation/global pinned windows/move-window, hotkeys, notification FIFO bound, toast timer/dismissal, modal release consumption and compact viewport.
+- Exact-head CI and runtime checks are pending; no Limbo or physical-hardware claim. DPI scaling and system toggles for network/audio/power remain unsupported because no corresponding display-density/control service API is wired yet.
