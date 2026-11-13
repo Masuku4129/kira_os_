@@ -24,7 +24,8 @@ int main(void) {
     /* Ctrl+Alt+Left/Right are shell workspace shortcuts, not app key events. */
     input_init();
     uint8_t ws_prev[] = {0x1D, 0x38, 0xE0, 0x4B, 0xE0, 0xCB, 0xB8, 0x9D};
-    CHECK(feed(ws_prev, (int)sizeof ws_prev, ev) == 0);
+    CHECK(feed(ws_prev, (int)sizeof ws_prev, ev) == 4); /* only modifier events remain in the app queue */
+    for (int i = 0; i < 4; i++) CHECK(ev[i].key != KEY_LEFT && ev[i].key != KEY_RIGHT);
     CHECK(input_take_hotkey() == KEY_WORKSPACE_PREV && input_take_hotkey() == 0);
     uint8_t ws_next[] = {0x1D, 0x38, 0xE0, 0x4D};
     (void)feed(ws_next, (int)sizeof ws_next, ev);
