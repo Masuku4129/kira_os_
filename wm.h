@@ -53,7 +53,8 @@ typedef struct {
     void  (*launcher)(void);                     /* открыть каталог приложений (только Spatial Minimal) */
 } wm_ops_t;
 
-void wm_init(surface_t* screen, const wm_ops_t* ops);
+void wm_init(surface_t* screen, const wm_ops_t* ops); /* legacy-compatible entry point */
+void wm_init_mode(surface_t* screen, const wm_ops_t* ops, wm_layout_mode_t mode);
 void wm_set_layout_mode(wm_layout_mode_t mode);
 wm_layout_mode_t wm_get_layout_mode(void);
 /* Spatial Minimal: временный обзор всех неприкреплённых окон, включая свёрнутые. */
