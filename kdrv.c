@@ -59,6 +59,15 @@ static bind_t binds[KDRV_SLOTS];
 static spinlock_t klock = SPINLOCK_INIT;
 static volatile uint32_t ndead;
 
+static int kdrv_pci_rescan_allowed(void) {
+    uint64_t f = spin_lock_irqsave(&klock);
+    int allowed = 1;
+    for (unsigned i = 0; i < KDRV_SLOTS; i++)
+        if (binds[i].device.id || binds[i].device.generation) { allowed = 0; break; }
+    spin_unlock_irqrestore(&klock, f);
+    return allowed;
+}
+
 static void print_bdf(const pci_dev_t* d) {
     static const char hx[] = "0123456789abcdef";
     char s[10] = { hx[d->bus >> 4], hx[d->bus & 15], ':', hx[d->dev >> 4], hx[d->dev & 15], '.', (char)('0' + (d->fn & 7)), 0 };
@@ -417,7 +426,11 @@ static void ctl_run(void) {
 }
 
 void kdrv_poll(void) {
-    static int scanned;
+    static int scanned, rescan_guard_installed;
+    if (!rescan_guard_installed) {
+        pci_set_rescan_guard(kdrv_pci_rescan_allowed);
+        rescan_guard_installed = 1;
+    }
     if (!scanned) { scanned = 1; scan(); }
     else if (__atomic_exchange_n(&rescan_req, 0, __ATOMIC_ACQ_REL)) scan();               /* drvget установил пакет */
     ctl_run();                                                                             /* окно «Драйверы»: запуск и остановка по просьбе */
