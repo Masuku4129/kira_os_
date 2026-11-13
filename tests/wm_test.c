@@ -332,6 +332,24 @@ int main(void) {
     wm_set_visible(a, 0);
     click_side(0);
     CHECK(wm_top() == a);
+
+    /* Window overview includes minimized windows, excludes pinned widgets, and restores the selected window. */
+    wm_set_visible(a, 0);
+    wm_window_overview_toggle();
+    CHECK(wm_window_overview_is_open());
+    CHECK(wm_window_overview_count() == 2);
+    frame();
+    same_as_full(&scr, "Spatial window overview");
+    CHECK(wm_window_overview_item_center(0, &nav_x, &nav_y) == 0);
+    click(nav_x, nav_y);
+    CHECK(!wm_window_overview_is_open() && wm_visible(a) && wm_top() == a);
+
+    /* The visible Spatial top-bar affordance opens the same overlay; close button exits without selecting. */
+    click(140, 20);
+    CHECK(wm_window_overview_is_open());
+    frame();
+    click(1024 - 68, 66);
+    CHECK(!wm_window_overview_is_open());
     frame();
     same_as_full(&scr, "Spatial Minimal");
     uint8_t spatial_busy[1] = { 99 };
