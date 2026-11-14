@@ -1,6 +1,7 @@
 #include "wallpaper.h"
 #include "wm.h"
 #include "gfx2d.h"
+#include "uart.h"
 #include <stdint.h>
 
 #define WP_W 320
@@ -157,4 +158,5 @@ void kira_wallpaper_init(void) {
         ready = 1;
     }
     wm_set_wallpaper(&image);
+    uart_print("[KIRA DISPLAY] Built-in KIRA wallpaper installed.\\n");
 }
