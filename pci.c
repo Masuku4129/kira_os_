@@ -117,6 +117,13 @@ void pci_enable(const pci_dev_t* d, uint16_t bits) {
     pci_write16(d, 0x04, (uint16_t)(pci_read16(d, 0x04) | bits));
 }
 
+int pci_disable_bus_master(const pci_dev_t* d) {
+    uint16_t command = pci_read16(d, 0x04);
+    if (command & PCI_CMD_MASTER)
+        pci_write16(d, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
+    return (pci_read16(d, 0x04) & PCI_CMD_MASTER) ? -1 : 0;
+}
+
 /* Размер и тип BAR: пишем единицы, читаем маску, возвращаем исходное значение. Декодирование на время зонда выключено. */
 static void probe_bars(pci_dev_t* d) {
     uint16_t cmd = pci_read16(d, 0x04);
