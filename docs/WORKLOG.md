@@ -352,3 +352,12 @@
 - Downloaded and inspected the failing VM artifact `vm-apps-drvman` (serial log + result.json). The installed `rl` package was present and verified; the expected `drv` command output was absent because the scenario issued `drv` immediately after observing `drvget verify rl: OK`, before the `drvget` process had exited and returned the console prompt. The harness returned in 0.00 s on the stale/queued prompt; the serial log ends at the next prompt without executing `drv`.
 - This is a scenario synchronization race, not evidence of a broken package list or PMM/VMM regression. The test now explicitly waits for `кира> ` after verify and before issuing `drv`.
 - New exact head: `4dd1454093af90f7d569df03b4425650da8da8bc`; exact-head workflow `43590094470` is running. Do not mark PR #154 green until all jobs finish.
+
+
+### F-010 remediation implementation (2026-11-14)
+
+- Created main-based draft branch `fix/x86-tlb-shootdown-fail-closed-2026-11-14`.
+- Replaced the shared pending-bit completion protocol with a monotonically increasing 64-bit shootdown generation and per-CPU acknowledged generation. The sender accepts only the exact generation it published.
+- A 200 ms threshold now emits one warning only. It no longer breaks the wait or releases `sd_busy`; the request payload remains immutable and backing pages cannot be reclaimed until every target CPU has completed its invalidation.
+- Added `arch/x86_64/tlb_shootdown.h` and host cases for partial acknowledgements, old-generation acknowledgements, newer generation and empty target mask in `tests/smp_test.c`.
+- Updated VMM/SMP contract comments. Exact-head CI has not yet been accepted; the change remains pending verification.
