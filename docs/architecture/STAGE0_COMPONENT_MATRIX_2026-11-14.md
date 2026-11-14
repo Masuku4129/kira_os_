@@ -542,3 +542,8 @@ Installed records currently preserve the recipe URL and declared license plus co
 
 - TLS and X.509 parsing/verification must be reentrant per connection; remove mutable file-scope/static scratch state or enforce a documented and tested serialization contract. Test concurrent handshakes and certificate/OCSP verification.
 - X.509 must reject every unknown critical extension, parse/enforce basicConstraints pathLenConstraint, and enforce keyUsage plus serverAuth EKU for TLS server identity. Add hostile certificate fixtures for each negative case.
+
+
+### F-039 TCP lifecycle acceptance gate
+
+TCP state and queue fields are changed under tlk but tcp_wait() predicates and several syscall checks access them without that lock. Timeout cleanup and handle reuse also need a consistent lifetime contract. Close/reset/receive, accept/unlisten, connect timeout and process teardown must be stress-tested with generation-tagged or pinned handles.
