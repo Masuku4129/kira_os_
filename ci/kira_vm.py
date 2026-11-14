@@ -11,6 +11,7 @@ import argparse, json, os, re, select, shutil, socket, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scenarios  # noqa: E402
+from qemu_diagnostics import summarize_qemu_log  # noqa: E402
 
 def host_http(port, path):
     """Запрос с машины-хозяина к серверу в гостевой системе (hostfwd): строка итога для журнала."""
@@ -107,7 +108,18 @@ class VM:
         if sc.get("limbo"): self.k = max(self.k, 8.0)       # эмуляция одним потоком в разы медленнее KVM
         self.log = bytearray()
         self.notes = []
+        self.qemu_log_files = []
+        self.qemu_ready_markers = {}
+        self.qemu_serial_markers = []
+        self.serial_pending = bytearray()
+        self.serial_processed_bytes = 0
+        self.qemu_instance = 0
+        self.qemu_log_path = None
         os.makedirs(out, exist_ok=True)
+        # A reused ci-out directory must not mix diagnostics from an earlier scenario attempt.
+        for name in os.listdir(out):
+            if name in ("qemu.log", "qemu-diagnostics.json") or re.fullmatch(r"qemu-phase-\d+\.log", name):
+                os.unlink(os.path.join(out, name))
         self.disk = os.path.join(out, "disk.img")
         shutil.copyfile(disk, self.disk)
         if sc.get("files"):                         # тестовые файлы (ci/mkfiles.py) - на диск машины
@@ -142,7 +154,7 @@ class VM:
              "-boot", "order=d", "-cdrom", self.iso,
              "-chardev", f"socket,id=ser0,path={self.ser_path},server=on,wait=on", "-serial", "chardev:ser0",
              "-qmp", f"unix:{self.qmp_path},server=on,wait=off",
-             "-audiodev", "none,id=a0", "-d", "guest_errors", "-D", os.path.join(self.out, "qemu.log")]
+             "-audiodev", "none,id=a0", "-d", "guest_errors", "-D", self.qemu_log_path]
         if not sc.get("reboot"):                    # сброс = выход QEMU (иначе виснущая перезагрузка не видна)
             a.append("-no-reboot")
         if sc.get("limbo"):                         # как Limbo на телефоне: эмуляция одним потоком, без KVM
@@ -171,6 +183,11 @@ class VM:
         return a
 
     def start(self):
+        self.qemu_instance += 1
+        log_name = "qemu.log" if self.qemu_instance == 1 else f"qemu-phase-{self.qemu_instance:02d}.log"
+        self.qemu_log_path = os.path.join(self.out, log_name)
+        self.qemu_log_files.append(self.qemu_log_path)
+        self.qemu_started_at = time.monotonic()
         self.qemu = subprocess.Popen(self.args(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         deadline = time.time() + 30
         while not os.path.exists(self.ser_path):
@@ -227,6 +244,43 @@ class VM:
             self.qemu.kill()
         with open(os.path.join(self.out, "serial.log"), "wb") as f:
             f.write(bytes(self.log))
+        self.write_qemu_diagnostics()
+
+    def mark_guest_ready(self, serial_offset):
+        """Record the QEMU log byte offset corresponding to the guest console-ready marker."""
+        try:
+            offset = os.path.getsize(self.qemu_log_path)
+        except OSError:
+            offset = None
+        self.qemu_ready_markers[self.qemu_log_path] = {
+            "event": "guest-ready",
+            "serial_offset": serial_offset,
+            "qemu_log_offset": offset,
+            "seconds_since_qemu_start": round(time.monotonic() - self.qemu_started_at, 3),
+        }
+
+    def write_qemu_diagnostics(self):
+        logs = []
+        for path in self.qemu_log_files:
+            marker = self.qemu_ready_markers.get(path, {})
+            try:
+                logs.append(summarize_qemu_log(path, marker.get("qemu_log_offset")))
+            except (OSError, ValueError) as e:
+                logs.append({"path": os.path.basename(path), "exists": False, "error": str(e)})
+        report = {
+            "schema_version": 1,
+            "log_scope": "QEMU guest_errors from process start; firmware and guest are both included",
+            "phase_boundary": "QEMU log byte offset captured when KIRA console prompt is first observed",
+            "phase_boundary_accuracy": "best-effort file-size snapshot; QEMU may buffer log writes; not a timestamped ownership boundary",
+            "logs": logs,
+            "ready_markers": [
+                {"path": os.path.basename(path), **marker}
+                for path, marker in self.qemu_ready_markers.items()
+            ],
+            "serial_markers": self.qemu_serial_markers,
+        }
+        with open(os.path.join(self.out, "qemu-diagnostics.json"), "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
 
     # ---------- QMP ----------
     def _qmp_read(self):
@@ -256,6 +310,31 @@ class VM:
             pass
 
     # ---------- последовательный порт ----------
+    def record_qemu_serial_markers(self, data):
+        self.serial_pending.extend(data)
+        while b"\n" in self.serial_pending:
+            line, _, rest = self.serial_pending.partition(b"\n")
+            self.serial_pending = bytearray(rest)
+            self.serial_processed_bytes += len(line) + 1
+            line = line.rstrip(b"\r")
+            if (b"[PCI TRACE]" not in line and
+                    b"[KIRA USB] UHCI at I/O" not in line and
+                    b"[KIRA USB] xHCI " not in line and
+                    b"[KIRA OS] Ready." not in line):
+                continue
+            try:
+                offset = os.path.getsize(self.qemu_log_path)
+            except (OSError, TypeError):
+                offset = None
+            self.qemu_serial_markers.append({
+                "line": line.decode(errors="replace")[:240],
+                "serial_offset": self.serial_processed_bytes,
+                "qemu_log": os.path.basename(self.qemu_log_path) if self.qemu_log_path else None,
+                "qemu_log_offset": offset,
+                "seconds_since_qemu_start": round(time.monotonic() - self.qemu_started_at, 3)
+                    if self.qemu_log_path else None,
+            })
+
     def pump(self, wait):
         r, _, _ = select.select([self.ser], [], [], wait)
         if r:
@@ -265,6 +344,7 @@ class VM:
                 d = b""
             if d:
                 self.log += d
+                self.record_qemu_serial_markers(d)
                 for pat in FATAL:
                     m = re.search(pat, bytes(self.log[-len(d) - 200:]))
                     if m:
@@ -287,6 +367,7 @@ class VM:
                 if not d and self.qemu.poll() is not None:
                     break
                 self.log += d
+                self.record_qemu_serial_markers(d)
 
     def expect(self, pattern, timeout, since):
         rx = re.compile(pattern.encode() if isinstance(pattern, str) else pattern)
@@ -324,6 +405,7 @@ def run(sc, args):
     try:
         vm.start()
         boot = vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), 0)
+        vm.mark_guest_ready(boot)
         result["boot_seconds"] = round(time.time() - t0, 1)
         time.sleep(1.0)
         vm.screenshot("00-boot")
@@ -369,7 +451,8 @@ def run(sc, args):
                     raise Fail("relaunch: машина не выключилась сама")
                 vm.drain(0.5)
                 vm.restart(st["relaunch"])
-                vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
+                boot = vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
+                vm.mark_guest_ready(boot)
                 time.sleep(1.0)
                 mark = len(vm.log)
                 result["checks"].append({"relaunch": True, "ok": True})
@@ -432,6 +515,7 @@ def run(sc, args):
         result["error"] = f"{type(e).__name__}: {e}"
     finally:
         vm.stop()
+        result["qemu_diagnostics"] = "qemu-diagnostics.json"
         result["seconds"] = round(time.time() - t0, 1)
         result["commands"] = vm.notes
         with open(os.path.join(out, "result.json"), "w") as f:
