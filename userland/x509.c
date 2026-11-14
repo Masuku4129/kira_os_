@@ -245,7 +245,7 @@ static int parse_ext(der_t exts, x509_t* c) {
         unsigned bit = 0;
         int r = 0;
         if (oid_is(&oid, "551d13")) { bit = 1u; r = parse_basic_constraints(val, c); }
-        else if (oid_is(&oid, "551d15")) { bit = 2u; r = parse_key_usage(val, c); }
+        else if (oid_is(&oid, "551d0f")) { bit = 2u; r = parse_key_usage(val, c); }
         else if (oid_is(&oid, "551d25")) { bit = 4u; r = parse_extended_key_usage(val, c); }
         else if (oid_is(&oid, "551d11")) { bit = 8u; r = parse_subject_alt_name(val, c); }
         else if (critical) return -1;                              /* unknown critical extension: RFC 5280 fail closed */
