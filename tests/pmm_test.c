@@ -29,7 +29,7 @@ static uint8_t* mk_mbi(uint64_t at, int with_mmap){
         *(uint32_t*)p=3; *(uint32_t*)(p+4)=16; *(uint32_t*)(p+8)=0x40200000U; *(uint32_t*)(p+12)=0x40400000U; p+=16;
         struct E{uint64_t a,l;uint32_t t,r;} ents[]={
             {0,0x9FC00,1,0},{0x9FC00,0x60400,2,0},{0x100000,0x1FF00000ULL,1,0},
-            {0x20000000ULL,0x100000,2,0},{0x100000000ULL,0x40000000ULL,1,0}};
+            {0x20000000ULL,0x100000,2,0},{0x40000000ULL,0x4000000ULL,1,0}};
         uint32_t sz=16+sizeof ents;
         *(uint32_t*)p=6; *(uint32_t*)(p+4)=sz; *(uint32_t*)(p+8)=24; *(uint32_t*)(p+12)=0;
         memcpy(p+16,ents,sizeof ents); p+=(sz+7)&~7u;
@@ -107,21 +107,21 @@ int main(void){
     {
         pmm_range_t r[PMM_MAX_HIGH];
         unsigned k = pmm_high_ranges(r, PMM_MAX_HIGH);
-        CHECK(k == 1 && r[0].start == 0x100000000ULL && r[0].end == 0x140000000ULL);
-        CHECK(pmm_managed_top() == 0x140000000ULL);
-        CHECK(pmm_free_page(0x100000000ULL) == -1);            // ещё не добавлена
-        CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 1536);
+        CHECK(k == 1 && r[0].start == 0x40000000ULL && r[0].end == 0x44000000ULL);
+        CHECK(pmm_managed_top() == 0x44000000ULL);
+        CHECK(pmm_free_page(0x40000000ULL) == -1);            // ещё не добавлена
+        CHECK(pmm_add_high(0x40000000ULL, 0x40000000ULL + (8ULL<<20)) == 1536);
         CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 0);   // повтор ничего не меняет
-        CHECK(pmm_add_high(0x13FF00000ULL, 0x140100000ULL) == -1);               // выходит за диапазон
+        CHECK(pmm_add_high(0x43F00000ULL, 0x44100000ULL) == -1);               // выходит за диапазон
         CHECK(pmm_add_high(0x50000000ULL, 0x50200000ULL) == -1);                 // не ОЗУ выше 1 ГБ
-        CHECK(pmm_add_high(0x100000001ULL, 0x100002000ULL) == -1);               // не выровнен
+        CHECK(pmm_add_high(0x40000001ULL, 0x40002000ULL) == -1);               // не выровнен
         CHECK(pmm_get_free_memory_kb() == 1536 * 4);
         CHECK(pmm_free_page(0x40200000U) == -1); // embedded module above 1 GB
         uint64_t a = pmm_alloc_page();
-        CHECK(a >= 0x100000000ULL && a < 0x100000000ULL + (8ULL<<20));
+        CHECK(a >= 0x40000000ULL && a < 0x40000000ULL + (8ULL<<20));
         CHECK(a < 0x40200000U || a >= 0x40400000U);
         uint64_t blk = pmm_alloc_contiguous(512);
-        CHECK(blk >= 0x100000000ULL && blk + 512*4096 <= 0x100000000ULL + (8ULL<<20));
+        CHECK(blk >= 0x40000000ULL && blk + 512*4096 <= 0x40000000ULL + (8ULL<<20));
         CHECK(pmm_free_contiguous(blk, 512) == 0);
         CHECK(pmm_free_page(a) == 0);
         CHECK(pmm_free_page(0x100000000ULL + (9ULL<<20)) == -1);                 // за добавленной частью
