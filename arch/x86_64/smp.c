@@ -162,7 +162,7 @@ void vmm_tlb_shootdown(uint64_t root, uint64_t va, uint32_t pages) {
         int warned = 0;
         while (!tlb_shootdown_all_acked(&mask, sd_ack, generation)) {
             if (!warned && limit && rdtsc() - t0 > limit) {
-                uart_print("[KIRA SMP] TLB shootdown: CPU acknowledgement exceeded 200 ms; holding request and backing memory until every target responds.\\n");
+                uart_print("[KIRA SMP] TLB shootdown: CPU acknowledgement exceeded 200 ms; holding request and backing memory until every target responds.\n");
                 warned = 1;
             }
             __asm__ volatile ("pause");
