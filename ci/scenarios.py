@@ -541,7 +541,7 @@ def _dg(cmd, rx, t):     # программа запускается в фоне
 
 _DRV_WWW, _DRV_SET8 = _drv_www()
 _DRV_HTTP = "guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE
-ALL.append(sc("drvget-rl", "drvget: HTTPS source validation, license/hash confirmation and on-device KCC build; after install, RTL8139 driver requests DMA and is denied because no IOMMU domain exists", [
+ALL.append(sc("drvget-rl", "drvget: HTTPS source validation and on-device KCC build; after install RTL8139 DMA is denied without IOMMU while virtio-net retains DHCP/HTTPS control traffic", [
     {"log": BOOT_LOG}, {"sleep": 6},
     *_dg("drvget base https://10.0.2.100", r"каталог рецептов теперь https://10\.0\.2\.100", 20),
     *_dg("drvget install gpl", r"drvget: отказ: .*GPL", 90),
