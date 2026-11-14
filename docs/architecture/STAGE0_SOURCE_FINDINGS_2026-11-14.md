@@ -221,6 +221,15 @@ Source: [pmm.c at baseline SHA, lines 357–363](https://github.com/Masuku4129/k
 
 A failed release can leave a physically fragmented ownership state while the caller treats the range as one allocation. Because individual pages are returned under separate lock acquisitions, another CPU can reuse part of a block before the original release completes. This can become DMA use-after-free or allocator double ownership.
 
+### Remediation implemented on draft branch
+
+- Each shootdown publishes a monotonically increasing 64-bit request generation after writing `root/va/pages`.
+- Each target CPU stores the generation it acknowledged only after completing its local TLB invalidation.
+- The sender accepts only acknowledgements equal to the exact current generation; stale acknowledgements cannot satisfy a newer request.
+- After 200 ms the sender emits a warning but keeps the request lock and backing-memory ownership; it does not return or allow another request to overwrite the payload until every target CPU responds. A permanently unresponsive CPU therefore blocks reclamation (fail-closed) instead of risking use-after-free.
+- Added host regression cases for multi-CPU acknowledgement, partial acknowledgement, stale-generation rejection, zero generation and empty target mask.
+- Exact-head CI is pending; this is not yet accepted as fixed.
+
 ### Required closure
 
 Implement a single-lock transaction:
@@ -277,7 +286,7 @@ If a remote CPU does not acknowledge before timeout, its stale translation may r
 | F-006 | ARCHITECTURE.md vs current sources/build/CI | Source/document comparison only | No docs consistency guard in main | CONFIRMED DOCUMENTATION DRIFT |
 | F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
 | F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
-| F-010 | x86-64 TLB shootdown timeout and late IPI handling | Source and caller review | No timeout/late-IPI regression in main | CONFIRMED CRITICAL SMP MEMORY-SAFETY GAP |
+| F-010 | x86-64 TLB shootdown timeout and late IPI handling | Source and caller review | Draft PR #155: generation-bound per-CPU ack + fail-closed wait; exact-head CI pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
 | F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI 43/43 PASS; combined PR #154 integration pending | FIX VERIFIED ON DRAFT BRANCH; combined integration pending |
 
 No code was changed on `main` by this audit. All implementation changes remain in separate unmerged Draft PRs. No test was executed locally. Exact-head CI evidence from other PRs is branch-only and is not transferred to `main`.
