@@ -39,6 +39,10 @@ int main(void) {
     ack[65] = 8; ack[255] = 8;
     CHECK(tlb_shootdown_all_acked(&targets, ack, 8));
     CHECK(!tlb_shootdown_all_acked(&targets, ack, 0)); /* нулевое поколение недопустимо */
+    uint64_t next_generation = 0;
+    CHECK(tlb_shootdown_next_generation(0, &next_generation) && next_generation == 1);
+    CHECK(tlb_shootdown_next_generation(7, &next_generation) && next_generation == 8);
+    CHECK(!tlb_shootdown_next_generation(UINT64_MAX, &next_generation)); /* поколения никогда не переиспользуются */
     cpumask_t no_targets = cm_none();
     CHECK(tlb_shootdown_all_acked(&no_targets, ack, 9));
     CHECK((SMP_TRAMP_BASE & 0xFFF) == 0 && SMP_TRAMP_BASE < 0x100000 && (SMP_TRAMP_BASE >> 12) <= 0xFF);   /* вектор SIPI - номер страницы ниже 1 МБ */
