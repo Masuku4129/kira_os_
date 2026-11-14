@@ -749,3 +749,10 @@ The fix was refined: allocate and initialize all DMA structures with Bus Master 
 ## 34. FDT string-property value bounds — 2026-11-14
 
 **Stage 0 progress: 70%.** Added F-058 after source review found that `device_type` and `status` consumers call unbounded string comparison on property data with explicit lengths but no NUL-termination validation. The existing host FDT tests do not cover unterminated values. Finding is source/test-coverage only; no production code changed and no test is claimed as run.
+
+
+## 33. USB fix split verification — 2026-11-14
+
+**Stage 0 progress: 69%.** On the stacked PR #169 intermediate head, QEMU xHCI passes end-to-end with a zero-byte guest_errors log after moving Bus Master grant before DMA pointer exposure. UHCI also passes functional USB/storage checks, but its QEMU log still contains 589,375 invalid reads (40.1 MB; repeated 0x0/4/8/C).
+
+Therefore the xHCI part of F-054 has strong targeted QEMU evidence, but the UHCI/F-025 issue is not closed. Added serial/QEMU offset snapshots to the current branch so the next run can place the UHCI storm relative to PCI BAR probing, Bus Master revocation, driver start and console readiness.
