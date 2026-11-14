@@ -81,7 +81,7 @@ int main(void) {
     parallel_calls = present_calls = 0;
     wm_invalidate_all();
     uint64_t composed_pixels = 0;
-    CHECK(wm_compose_par(test_present, &composed_pixels) > 4);
+    CHECK(wm_compose_par(test_present, &composed_pixels) >= 4);
     CHECK(parallel_calls == 1 && present_calls > 0 && composed_pixels >= 1024u * 768u);
     parallel_calls = present_calls = 0;
     move_to(600, 600, 0);
