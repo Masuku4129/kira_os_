@@ -1065,3 +1065,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - PR #125 current state: open, not Draft; base `autodrv` SHA `e2c55cec08a972187953dce17fcb0e231e382c1a`. PR #165: open Draft; base main SHA `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`. Neither merged.
 - Stage 0 stays **43%**: the network/TLS audit had already advanced it from 40%; this CI recheck closes no new audit domain. No production source changed; main untouched; no merge or ISO build.
 - Detailed per-job status lists and source/trace comparison: [Stage 0 repository audit, section 12](architecture/STAGE0_REPOSITORY_AUDIT_2026-11-14.md#12-exact-ci-attempt-history-and-uhci-comparison--2026-11-14-1645-utc). Next: instrument PCI Command read/write separately and capture UHCI `USBCMD`, `USBSTS`, `FLBASEADD` before handoff.
+
+
+## 47. KCC compiler, ELF backend and Ring 3 runtime audit — 2026-11-14
+
+- Reviewed KCC lexer, preprocessor, parser/type system, IR lowering, x86-64/AArch64 code generation, ELF emission, compiler CLI and Ring 3 compiler integration.
+- Confirmed F-040: kcc_compile() uses singleton global KCtx; preprocessor, parser, IR and both backends also keep mutable file-scope state. Concurrent calls in one process are not isolated and can corrupt each other's compile state. The shipped cc app is currently single-invocation, so this is an API concurrency defect rather than a demonstrated reachable application exploit.
+- Reviewed the KCC acceptance harness: it builds with ASan/UBSan, compares C acceptance and constant values against clang, checks host execution output for x86-64 and AArch64, exercises native compiler app integration, malformed inputs and 20,000–100,000-token stress cases, plus fuzzing (default 3,000 iterations). This review inspected the harness but did not execute it; no PASS is claimed.
+- Confirmed compiler feature boundary: the test harness explicitly separates supported C, strict rejections and valid-but-unsupported constructs; current compiler is a substantial C subset, not a complete ISO C compiler.
+- Reviewed Ring 3 cc filesystem sandbox/header access and growable arena. No production changes made.
