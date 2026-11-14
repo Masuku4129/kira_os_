@@ -186,8 +186,8 @@ static u64 const_expr(const u8** p, const u8* end) {
         if (op == 0x41) v = (u64)(u32)leb_s(p, end, 32);
         else if (op == 0x42) v = (u64)leb_s(p, end, 64);
         else if (op == 0x23) { u32 g = leb_u(p, end); v = g < nglobals ? globals[g] : 0; }
-        else if (op == 0x43) { if (*p + 4 > end) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
-        else if (op == 0x44) { if (*p + 8 > end) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
+        else if (op == 0x43) { if ((u64)(end - *p) < 4) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
+        else if (op == 0x44) { if ((u64)(end - *p) < 8) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
         else { trap("unsupported constant expression"); return 0; }
     }
     trap("unterminated constant expression"); return 0;
@@ -614,9 +614,14 @@ static int load(void) {
     types = (ftype_t*)alloc(sizeof(ftype_t) * 256); funcs = (func_t*)alloc(sizeof(func_t) * MAXF);
     if (!types || !funcs) { trap("no memory"); return -1; }
     const u8* p = mod + 8; const u8* end = mod + modlen;
-    u32 nfuncdecl = 0; u32* decl = 0;
+    u32 nfuncdecl = 0; u32* decl = 0, seen_sections = 0, last_section = 0;
     while (p < end && !trapped) {
         u8 id = *p++; u32 sz = leb_u(&p, end);
+        if (trapped) return -1;
+        if (id) {
+            if (id > 11 || (seen_sections & (1u << id)) || id <= last_section) { trap("invalid, duplicate or out-of-order section"); return -1; }
+            seen_sections |= 1u << id; last_section = id;
+        }
         if (trapped || sz > (u32)(end - p)) { trap("section past end"); return -1; }
         const u8* s = p; const u8* se = p + sz;
         if (id == 1) {                                            /* типы */
@@ -761,11 +766,12 @@ static int load(void) {
                 if (fl != 0 && fl != 2) { trap("unsupported data segment flags"); return -1; }
                 u32 off = (u32)const_expr(&s, se), len = leb_u(&s, se);
                 if (trapped) return -1;
-                if ((u64)off + len > (u64)mem_pages * 65536 || s + len > se) { trap("data segment out of memory"); return -1; }
+                if ((u64)off + len > (u64)mem_pages * 65536 || len > (u32)(se - s)) { trap("data segment out of memory or truncated"); return -1; }
                 for (u32 k = 0; k < len; k++) mem[off + k] = s[k];
                 s += len;
             }
         }
+        if (id && s != se) { trap("section size does not match its contents"); return -1; }
         p = se;
     }
     if (!trapped && !mem) {
