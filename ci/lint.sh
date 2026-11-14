@@ -12,5 +12,6 @@ if echo "$d" | grep -nE '\)\s*\{\s*(return\s+(0|-1|NULL);)?\s*\}\s*$'; then echo
 [ $bad = 0 ] && echo "lint: чисто"
 
 # Keep the QEMU log parser covered in the existing PR host-tests gate.
+python3 -m py_compile ci/kira_vm.py ci/qemu_diagnostics.py ci/test_kira_vm_diagnostics.py || bad=1
 python3 -m unittest discover -s ci -p 'test_kira_vm_diagnostics.py' -v || bad=1
 exit $bad
