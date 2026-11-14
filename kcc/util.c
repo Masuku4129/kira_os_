@@ -5,6 +5,7 @@
 #include <string.h>
 
 KCtx K;
+static volatile int kcc_active;
 
 void *ka_new(size_t n) {
     if (n > ((size_t)1 << 40)) n = (size_t)1 << 40;            /* заведомо больше любой арены: уйдёт в отказ ниже */
@@ -97,14 +98,19 @@ void kwarn(const char *file, int line, const char *fmt, ...) {
 }
 
 int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res) {
-    memset(&K, 0, sizeof K);
     memset(res, 0, sizeof *res);
+    if (__sync_lock_test_and_set(&kcc_active, 1)) {
+        res->err = "error: KCC already has an active compilation in this process; retry after it finishes";
+        return KCC_BUSY;
+    }
+    memset(&K, 0, sizeof K);
     K.abase = mem; K.acap = memsz; K.cfg = cfg;
     K.tokbudget = 4000000;
     if (setjmp(K.jb)) {
         res->err = K.err;
         res->warn = K.warn.p;
-        return 1;
+        __sync_lock_release(&kcc_active);
+        return KCC_ERROR;
     }
     K.srcpath = path;
     Token *t = preprocess(path);
@@ -121,5 +127,6 @@ int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int 
         res->elf = elf; res->elflen = n;
     }
     res->warn = K.warn.p;
-    return 0;
+    __sync_lock_release(&kcc_active);
+    return KCC_OK;
 }
