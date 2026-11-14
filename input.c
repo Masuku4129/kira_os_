@@ -130,8 +130,9 @@ static mouse_event_t mring[MRING];
 static volatile uint32_t mhead, mtail;
 
 static void mpush(const mouse_event_t* ev) {
-    uint32_t h = mhead;
-    if (h - mtail >= MRING) return;                 /* очередь полна: потребитель отстал, старое важнее */
+    uint32_t h = __atomic_load_n(&mhead, __ATOMIC_RELAXED);
+    uint32_t t = __atomic_load_n(&mtail, __ATOMIC_ACQUIRE);
+    if (h - t >= MRING) return;                     /* очередь полна: потребитель отстал, старое важнее */
     mring[h & (MRING - 1)] = *ev;
     __atomic_store_n(&mhead, h + 1, __ATOMIC_RELEASE);
 }
@@ -153,7 +154,7 @@ static spinlock_t min_lock = SPINLOCK_INIT;
 
 int input_pop_mouse(mouse_event_t* ev) {
     uint64_t f = spin_lock_irqsave(&min_lock);
-    uint32_t t = mtail;
+    uint32_t t = __atomic_load_n(&mtail, __ATOMIC_RELAXED);
     if (t == __atomic_load_n(&mhead, __ATOMIC_ACQUIRE)) { spin_unlock_irqrestore(&min_lock, f); return 0; }
     *ev = mring[t & (MRING - 1)];
     __atomic_store_n(&mtail, t + 1, __ATOMIC_RELEASE);
@@ -164,8 +165,11 @@ int input_pop_mouse(mouse_event_t* ev) {
 void input_init(void) {
     for (int i = 0; i < INPUT_SRC_N; i++) ps2_decoder_reset(&decs[i]);
     ps2_mouse_reset(&mdec);
-    head = tail = dropped = 0;
-    mhead = mtail = 0;
+    __atomic_store_n(&head, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&tail, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&dropped, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&mhead, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&mtail, 0, __ATOMIC_RELAXED);
 }
 
 static volatile int hotkey_pending;
@@ -178,12 +182,14 @@ static uint8_t raw[RAW_N];
 static volatile uint32_t raw_head, raw_seen;
 
 unsigned input_raw_take(uint8_t* out, unsigned max) {
+    uint64_t f = spin_lock_irqsave(&prod_lock);
     uint32_t h = __atomic_load_n(&raw_head, __ATOMIC_ACQUIRE);
     uint32_t from = raw_seen;
     if (h - from > RAW_N) from = h - RAW_N;
     unsigned n = 0;
     while (from != h && n < max) out[n++] = raw[from++ % RAW_N];
     raw_seen = h;
+    spin_unlock_irqrestore(&prod_lock, f);
     return n;
 }
 
@@ -205,7 +211,7 @@ uint16_t input_cyr(uint16_t key, uint16_t ch, uint16_t mods) {
 }
 
 static volatile int layout_ru;
-int input_layout(void) { return layout_ru; }
+int input_layout(void) { return __atomic_load_n(&layout_ru, __ATOMIC_ACQUIRE); }
 
 void input_push_scancode_from(int src, uint8_t byte) {
     if (src < 0 || src >= INPUT_SRC_N) return;
@@ -219,13 +225,14 @@ void input_push_scancode_from(int src, uint8_t byte) {
         if (ev.type == INPUT_KEY_DOWN &&                     /* Alt+Shift - другая раскладка */
             (((ev.key == KEY_LSHIFT || ev.key == KEY_RSHIFT) && (ev.mods & INPUT_MOD_ALT)) ||
              ((ev.key == KEY_LALT || ev.key == KEY_RALT) && (ev.mods & INPUT_MOD_SHIFT))))
-            layout_ru = !layout_ru;
-        if (layout_ru) ev.ch = input_cyr(ev.key, ev.ch, ev.mods);
+            __atomic_store_n(&layout_ru, !__atomic_load_n(&layout_ru, __ATOMIC_RELAXED), __ATOMIC_RELEASE);
+        if (__atomic_load_n(&layout_ru, __ATOMIC_RELAXED)) ev.ch = input_cyr(ev.key, ev.ch, ev.mods);
         if (ev.key == KEY_F10 || ev.key == KEY_F11) {     /* горячие клавиши оболочки: в очередь не кладём */
             if (ev.type == INPUT_KEY_DOWN) __atomic_store_n(&hotkey_pending, (int)ev.key, __ATOMIC_RELEASE);
         } else {
-            uint32_t h = head;
-            if (h - tail >= RING) dropped++;
+            uint32_t h = __atomic_load_n(&head, __ATOMIC_RELAXED);
+            uint32_t t = __atomic_load_n(&tail, __ATOMIC_ACQUIRE);
+            if (h - t >= RING) __atomic_add_fetch(&dropped, 1, __ATOMIC_RELAXED);
             else { ring[h & (RING - 1)] = ev; __atomic_store_n(&head, h + 1, __ATOMIC_RELEASE); }
         }
     }
@@ -240,7 +247,7 @@ static spinlock_t in_lock = SPINLOCK_INIT;
 
 int input_pop(input_event_t* ev) {
     uint64_t f = spin_lock_irqsave(&in_lock);
-    uint32_t t = tail;
+    uint32_t t = __atomic_load_n(&tail, __ATOMIC_RELAXED);
     if (t == __atomic_load_n(&head, __ATOMIC_ACQUIRE)) { spin_unlock_irqrestore(&in_lock, f); return 0; }
     *ev = ring[t & (RING - 1)];
     __atomic_store_n(&tail, t + 1, __ATOMIC_RELEASE);
@@ -248,4 +255,4 @@ int input_pop(input_event_t* ev) {
     return 1;
 }
 
-uint32_t input_dropped(void) { return dropped; }
+uint32_t input_dropped(void) { return __atomic_load_n(&dropped, __ATOMIC_ACQUIRE); }
