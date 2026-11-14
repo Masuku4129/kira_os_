@@ -371,9 +371,10 @@ static int compile_func(func_t* f) {
         case 0x00: lz_flush(); ew(OP_TRAP); ew(TM_UNREACH); c_unr = 1; break;
         case 0x01: break;
         case 0x02: case 0x03: case 0x04: {
-            u8 bt = *p; u32 ar = 0; int bad = 0;
-            if (bt == 0x40) p++;
-            else if (bt == 0x7F || bt == 0x7E || bt == 0x7D || bt == 0x7C) { p++; ar = 1; }
+            u8 bt; u32 ar = 0; int bad = 0;
+            if (take_u8(&p, end, &bt) != 0) return -1;
+            if (bt == 0x40) { }
+            else if (bt == 0x7F || bt == 0x7E || bt == 0x7D || bt == 0x7C) { ar = 1; }
             else { i64 ti = leb_s(&p, end, 64); if (ti < 0 || (u64)ti >= ntypes || types[ti].np) bad = 1; else ar = types[ti].nr; }
             if (nctl >= 256) CERR("blocks nested too deep");
             ctl_t* n = &ctl[nctl];
@@ -469,7 +470,9 @@ static int compile_func(func_t* f) {
             c_h -= t->np; hpush(t->nr); break;
         }
         case 0x11: {
-            u32 ti = leb_u(&p, end); p++;
+            u32 ti = leb_u(&p, end); u8 table_index;
+            if (take_u8(&p, end, &table_index) != 0) return -1;
+            if (trapped || table_index != 0) CERR("call_indirect: invalid table index");
             if (ti >= ntypes) CERR("call_indirect: bad type");
             const ftype_t* t = &types[ti];
             NEED(t->np + 1u); lz_flush(); ew(OP_CALLI | ti << 16);
@@ -480,7 +483,7 @@ static int compile_func(func_t* f) {
             if (!vk[c_h - 1]) ew(0x1A);
             c_h--; break;
         case 0x1B: case 0x1C: {
-            if (op == 0x1C) { u32 k = leb_u(&p, end); p += k; }
+            if (op == 0x1C) { u32 k = leb_u(&p, end); if (trapped || skip_bytes(&p, end, k) != 0) return -1; }
             NEED(3);
             u32 ic = c_h - 1, ib = c_h - 2, ia = c_h - 3;
             if (vk[ic] != 2) {                                    /* значения и условие: со стека, локальная или константа; константа-условие - на стек */
@@ -547,27 +550,31 @@ static int compile_func(func_t* f) {
             }
             c_h -= 2; break;
         }
-        case 0x3F: case 0x40:
-            p++; lz_flush();
+        case 0x3F: case 0x40: {
+            u8 memory_index;
+            if (take_u8(&p, end, &memory_index) != 0) return -1;
+            if (memory_index != 0) CERR("invalid memory index");
+            lz_flush();
             if (op == 0x3F) { ew(op); hpush(1); } else { NEED(1); ew(op); }
             break;
+        }
         case 0x41: lz_push(2, (u32)leb_s(&p, end, 32)); break;
         case 0x43: {
-            if (p + 4 > end) CERR("truncated f32.const");
+            if ((u64)(end - p) < 4) CERR("truncated f32.const");
             lz_push(2, (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24); p += 4; break;
         }
         case 0x42: case 0x44: {
             u64 v = 0;
             if (op == 0x42) v = (u64)leb_s(&p, end, 64);
-            else { if (p + 8 > end) CERR("truncated f64.const"); for (int i = 7; i >= 0; i--) v = v << 8 | p[i]; p += 8; }
+            else { if ((u64)(end - p) < 8) CERR("truncated f64.const"); for (int i = 7; i >= 0; i--) v = v << 8 | p[i]; p += 8; }
             lz_flush(); ew(op); ew((u32)v); ew((u32)(v >> 32)); hpush(1); break;
         }
         case 0xFC: {
             u32 sub = leb_u(&p, end);
             if (sub <= 7) { NEED(1); lz_flush(); ew(OP_FC + sub); }
-            else if (sub == 10) { p += 2; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
-            else if (sub == 11) { p++; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
-            else { p--; skip_imm(0xFC, &p, end); if (sub == 8 || sub == 9) { lz_flush(); ew(OP_TRAP); ew(TM_PASSIVE); c_unr = 1; } }
+            else if (sub == 10) { if (skip_bytes(&p, end, 2) != 0) return -1; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
+            else if (sub == 11) { u8 memory_index; if (take_u8(&p, end, &memory_index) != 0) return -1; if (memory_index != 0) CERR("invalid memory index"); NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
+            else { p--; skip_imm(0xFC, &p, end); if (trapped) return -1; if (sub == 8 || sub == 9) { lz_flush(); ew(OP_TRAP); ew(TM_PASSIVE); c_unr = 1; } }
             break;
         }
         default: {
