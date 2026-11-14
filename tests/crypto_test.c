@@ -118,6 +118,11 @@ int main(void) {
     label[65] = 0;
     CHECK(hkdf_expand_label(secret, (const char*)label, long_ctx, sizeof long_ctx, label_out, sizeof label_out) == 0);
     CHECK(eqhex(label_out, "d2db7af59bb17706c6ef277a4fdd06e019f516b144ca0f92054dfb02b1023251"));
+    uint8_t max_label[250], max_ctx[255];
+    memset(max_label, 'M', 249); max_label[249] = 0;
+    for (int i = 0; i < 255; i++) max_ctx[i] = (uint8_t)(i * 3);
+    CHECK(hkdf_expand_label(secret, (const char*)max_label, max_ctx, sizeof max_ctx, label_out, sizeof label_out) == 0);
+    CHECK(eqhex(label_out, "6e5678cd970af24165a2d6925322df3f4ad8e569e1bf33239df1442d2a01bd21"));
     memset(bad_label, 'X', sizeof bad_label); bad_label[250] = 0;
     memset(bad_ctx, 0x5A, sizeof bad_ctx); memset(bad_out, 0xA5, sizeof bad_out);
     CHECK(hkdf_expand_label(secret, (const char*)bad_label, long_ctx, sizeof long_ctx, bad_out, sizeof bad_out) == -1);
