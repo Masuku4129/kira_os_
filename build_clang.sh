@@ -176,7 +176,8 @@ case " $* " in
         [ -d "$OUT" ] || { echo "[!] Нет папки $OUT (в Termux: termux-setup-storage; в proot - проверьте, что /storage примонтирован)"; exit 1; }
         DISK_TMP="$OUT/.kira_disk.img.tmp.$"
         ISO_TMP="$OUT/.kira.iso.tmp.$"
-        cleanup_full() { rm -f "$DISK_TMP" "$ISO_TMP"; }
+        SUM_TMP="$OUT/.KIRA-FULL-SHA256SUMS.tmp.$"
+        cleanup_full() { rm -f "$DISK_TMP" "$ISO_TMP" "$SUM_TMP"; }
         trap cleanup_full EXIT INT TERM
         if [ -f "$OUT/kira_disk.img" ]; then
             echo "[*] Подготовка безопасной копии существующего диска..."
@@ -192,10 +193,10 @@ case " $* " in
             echo "[*] Создан новый полный системный диск."
         fi
         cp kira.iso "$ISO_TMP"
-        sha256sum "$ISO_TMP" "$DISK_TMP" > "$OUT/KIRA-FULL-SHA256SUMS.tmp"
         mv -f "$DISK_TMP" "$OUT/kira_disk.img"
         mv -f "$ISO_TMP" "$OUT/kira.iso"
-        mv -f "$OUT/KIRA-FULL-SHA256SUMS.tmp" "$OUT/KIRA-FULL-SHA256SUMS"
+        (cd "$OUT" && sha256sum kira.iso kira_disk.img > "$SUM_TMP")
+        mv -f "$SUM_TMP" "$OUT/KIRA-FULL-SHA256SUMS"
         trap - EXIT INT TERM
         echo "[*] Полный образ готов:"
         ls -lh "$OUT/kira.iso" "$OUT/kira_disk.img" "$OUT/KIRA-FULL-SHA256SUMS"
