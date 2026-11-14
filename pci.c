@@ -1,4 +1,7 @@
 #include "pci.h"
+#ifndef KIRA_HOST_TEST
+#include "uart.h"
+#endif
 
 #if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
 #include "spinlock.h"
@@ -194,6 +197,9 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t parent_limit) 
 
 static void scan_bus(uint8_t bus, uint8_t parent_limit) {
     if (bus < scan_bus_min || bus > scan_bus_max || bus > parent_limit) return;
+#ifndef KIRA_HOST_TEST
+    uart_print("[PCI TRACE] enter bus "); uart_putchar("0123456789abcdef"[bus >> 4]); uart_putchar("0123456789abcdef"[bus & 15]); uart_print("\\n");
+#endif
     if (bus_seen[bus]) return;                                       /* защита от петель в неверно настроенных мостах */
     bus_seen[bus] = 1;
     for (uint8_t dev = 0; dev < 32; dev++) {
@@ -203,6 +209,9 @@ static void scan_bus(uint8_t bus, uint8_t parent_limit) {
         scan_fn(bus, dev, 0, parent_limit);
         if (multi) for (uint8_t fn = 1; fn < 8; fn++) scan_fn(bus, dev, fn, parent_limit);
     }
+#ifndef KIRA_HOST_TEST
+    uart_print("[PCI TRACE] leave bus "); uart_putchar("0123456789abcdef"[bus >> 4]); uart_putchar("0123456789abcdef"[bus & 15]); uart_print("\\n");
+#endif
 }
 
 int pci_init_range(uint8_t bus_start, uint8_t bus_end) {
@@ -211,7 +220,13 @@ int pci_init_range(uint8_t bus_start, uint8_t bus_end) {
     scan_bus_min = bus_start;
     scan_bus_max = bus_end;
     for (int i = 0; i < 256; i++) bus_seen[i] = 0;
+#ifndef KIRA_HOST_TEST
+    uart_print("[PCI TRACE] scan range start\\n");
+#endif
     scan_bus(bus_start, bus_end);
+#ifndef KIRA_HOST_TEST
+    uart_print("[PCI TRACE] scan range done\\n");
+#endif
     return ndevs;
 }
 
