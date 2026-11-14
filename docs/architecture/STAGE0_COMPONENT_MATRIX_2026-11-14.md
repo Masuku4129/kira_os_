@@ -213,3 +213,10 @@ High-priority source families visible in the preserved branch inventory include:
 - Release pipeline: image audit, release gate, package update, signed artifacts and reproducibility tests.
 
 These are not approved designs or production-ready code by presence alone. They must be mapped to their exact source branch/PR, compared against the 829-file main baseline, reviewed for API/ABI conflicts, and tested before integration. Priority order is BootInfo/boot, PMM/IOMMU/DMA, Device Model/PCI, driver trust/lifecycle, then release and higher services.
+
+
+### CI failure/fix record — PR #166 FDT v16 test (2026-11-14)
+
+- Exact head `61b124d9a912b4c5cc2106ab6aadbf28f289c9ab`, workflow `43608737160`: `host-tests` failed at `ci/lint.sh` before compilation. Lint flagged the newly added fixture string `linux,dummy-virt` as a dummy marker. This was a test-fixture naming false positive, not a compiler or runtime-test failure; host tests were not reached.
+- Removed the marker from the v16 fixture assertion; no lint rules were disabled or relaxed.
+- Corrected branch head: `539285048cdd97f5d71ba5aefc9afda4058b7512`. Fresh exact-head workflow had not appeared at the last check. Do not carry forward any PASS from the failed head.
