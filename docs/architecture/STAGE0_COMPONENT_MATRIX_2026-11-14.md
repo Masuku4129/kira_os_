@@ -739,3 +739,7 @@ Different source heads mean this is not a controlled A/B. The contrast strengthe
 | `usb-uhci` | Tablet, hub, keyboard, storage and FAT32 read PASS | 40,081,525 bytes; 589,375 invalid reads; repeated 0x0/4/8/C | F-025/UHCI DMA anomaly remains OPEN |
 
 This is an intermediate run superseded by later instrumentation commits; the two targeted VM jobs themselves completed successfully. It is not full exact-head CI.
+
+
+### F-059 UDP socket lifecycle acceptance gate
+UDP owner checks currently occur outside `ulk`, and teardown clears ownership without that lock. Even the locked close path does not protect operations that validated the slot earlier. Require generation-tagged handles or pin/drain semantics, atomic lifecycle transitions, lock-order review, and concurrent close/teardown/delivery/reopen tests before treating UDP sockets as safe for concurrent Ring 3 use.
