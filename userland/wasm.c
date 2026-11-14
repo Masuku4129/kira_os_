@@ -156,11 +156,11 @@ static int import_signature_valid(u32 id, const ftype_t* t) {
     static const u8 i32t = 0x7F, i64t = 0x7E;
     switch (id) {
     case IMP_WRITE: return t->np == 2 && t->nr == 1 && t->r == i32t && t->p[0] == i32t && t->p[1] == i32t;
-    case IMP_SLEEP: return t->np == 1 && t->nr == 0 && t->p[0] == i64t;
+    case IMP_SLEEP: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
     case IMP_TICKS: return t->np == 0 && t->nr == 1 && t->r == i64t;
     case IMP_EXIT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
     case IMP_GFX_CREATE: return t->np == 2 && t->nr == 1 && t->r == i32t && t->p[0] == i32t && t->p[1] == i32t;
-    case IMP_GFX_PRESENT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
+    case IMP_GFX_PRESENT: return t->np == 1 && t->nr == 1 && t->r == i32t && t->p[0] == i32t;
     case IMP_GFX_EVENT: return t->np == 1 && t->nr == 1 && t->r == i32t && t->p[0] == i32t;
     default: return 0;
     }
