@@ -885,3 +885,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Main CI has distinct host-tests, x86 build, x86 scenario matrix, ARM64 build/scenarios and artifact/report jobs. The x86 scenario runner uses KVM when available and increases timeout scale when it is not; ARM64 harness explicitly uses QEMU TCG.
 - The earlier count of 38 referred only to explicit sc(...) declarations, not the expanded runtime catalogue or architecture-specific totals. The matrix documentation now distinguishes all three.
 - This topology supports tiered testing: run a focused named x86 scenario and matching ARM64 case for shared contracts, then affected neighbors, then full 39+16 acceptance. Keep the separate mind-train job out of routine regression loops unless Mind training/persistence is changed.
+
+
+## 31. Three-bucket preservation model and remaining source-review queue — 2026-11-14
+
+- Parsed the 829-row CSV with a quote-aware CSV parser (the first quick comma split was invalid because classification text contains commas; no inventory data was changed by that failed read).
+- Exact classification counts: 129 AUXILIARY_SOURCE_REVIEW, 22 ARCH_SUPPORT_REVIEW, 10 TEST_HELPER_REVIEW, 60 USERLAND_BUILD_OR_SUPPORT_REVIEW and 3 DRIVER_SOURCE_REVIEW = 224 paths still needing semantic ownership/build-profile review. The 365 KCC fixtures are separately classified as test fixtures, not production source omissions.
+- Confirmed build-input groups remain separate: 98 x86-64 common kernel C inputs (80 shared + 18 x86-specific), 88 ARM64 kernel C inputs (80 shared + 8 ARM64-specific), 16 x86 architecture sources, plus 12 architecture build-support files referenced by build scripts and 4 boot build inputs.
+- Reframed the project inventory into three preservation buckets: (1) baseline—tracked production/build/test inputs that must never disappear from complete builds; (2) under audit/rework—review-status source files and active Draft PR changes; (3) planned/branch-only—features preserved in branches or architecture plans but not active production inputs in main.
+- The buckets are preservation/work-state labels, not readiness claims. A file in the baseline bucket can still contain a defect; a branch-only feature is not integrated merely because it has source and tests.
+- Stage 0 remains incomplete: 224 source/support paths require semantic review and cross-branch API/build linkage checks. No percentage increase is claimed from inventory counting alone.
