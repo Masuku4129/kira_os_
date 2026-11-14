@@ -334,3 +334,13 @@
 - `proc_shm_unmap()` после void shootdown освобождает shared object; `proc_unmap_pages()` тоже не получает статус, а DMA cleanup может освободить backing pages. Это требует fail-closed lifecycle.
 - ARM64 использует отдельный broadcast TLBI `vae1is/aside1is` с барьерами; отдельная проверка ASID lifecycle ещё нужна.
 - Приоритет: после проверки combined F-001/F-009 закрыть F-010 до дальнейшего расширения DMA/driver security.
+
+
+### Correction — combined memory integration isolated F-001 regression (2026-11-14)
+
+- Предыдущий вывод о том, что apps-drvman failure PR #152 связан с F-009, был преждевременным и заменяется этим результатом.
+- PR #153 (PMM-only) passed 43/43, включая apps-drvman.
+- Combined PR #154 (PMM + stack-slot) снова FAILED vm (apps-drvman). Следовательно, регрессия находится в F-001 stack-slot changes, а не в F-009 PMM patch.
+- В исходной F-001 реализации active bitmap предотвращал немедленный double-free, но не защищал от ABA: запоздалый free старого владельца мог попасть в тот же slot после его повторного выделения.
+- Исправление: добавлены 64-bit generation per slot; token проходит через vmm_kstack_alloc/free, сохраняется в thread_t и проверяется при teardown. Host regression теперь проверяет stale free после повторного выделения.
+- PR #154 latest head e299838c074604ee9cfeb734c819f84a2a5185ae; новый exact-head CI ожидается. До прохождения apps-drvman и всей матрицы F-001 не закрыт.
