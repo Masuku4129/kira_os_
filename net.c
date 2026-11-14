@@ -980,47 +980,83 @@ int tcp_connect6(const uint8_t ip[16], uint16_t port) { ipa_t d = ipa_v6(ip); re
 
 static int tcp_listen_fam(uint16_t port, uint8_t fam) {
     uint64_t f = spin_lock_irqsave(&tlk);
-    int l = -1;
-    for (int i = 0; i < LISTEN_MAX; i++) if (listens[i].used && listens[i].port == port && listens[i].fam == fam) { spin_unlock_irqrestore(&tlk, f); return -3; }
-    for (int i = 0; i < LISTEN_MAX && l < 0; i++) if (!listens[i].used) l = i;
-    if (l >= 0) { listens[l].used = 1; listens[l].port = port; listens[l].fam = fam; }
+    for (int i = 0; i < LISTEN_MAX; i++)
+        if (listens[i].used && listens[i].port == port && listens[i].fam == fam) {
+            spin_unlock_irqrestore(&tlk, f); return -3;
+        }
+    int handle = -9;
+    for (int i = 0; i < LISTEN_MAX; i++) {
+        tcp_listener_t* l = &listens[i];
+        if (l->used || l->refs || l->retired) continue;
+        if (l->generation == UINT16_MAX) { l->retired = 1; continue; }
+        l->generation++;
+        l->used = 1; l->closing = 0; l->owner = 0; l->port = port; l->fam = fam;
+        handle = net_tcp_listener_handle_make((unsigned)i, l->generation);
+        break;
+    }
     spin_unlock_irqrestore(&tlk, f);
-    return l < 0 ? -9 : l;
+    return handle;
 }
 int tcp_listen(uint16_t port) { return tcp_listen_fam(port, 4); }
 int tcp_listen6(uint16_t port) { return tcp_listen_fam(port, 6); }
+
 /* Адрес собеседника соединения: семейство (4/6) или <0. */
 int tcp_peer(int h, uint8_t addr[16], uint16_t* port) {
-    if (h < 0 || h >= TCP_MAX || tcbs[h].state == T_FREE) return -1;
-    cpy(addr, tcbs[h].rip.a, 16); *port = tcbs[h].rport;
-    return tcbs[h].rip.fam;
+    if (!addr || !port) return -1;
+    tcb_t* t = tcp_pin(h);
+    if (!t) return -1;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    cpy(addr, t->rip.a, 16); *port = t->rport;
+    int fam = t->rip.fam;
+    spin_unlock_irqrestore(&tlk, f);
+    tcp_unpin(t);
+    return fam;
 }
 
-int tcp_accept(int l, uint32_t timeout_ticks) {
-    if (l < 0 || l >= LISTEN_MAX || !listens[l].used) return -1;
+int tcp_accept(int handle, uint32_t timeout_ticks) {
+    unsigned slot; uint16_t generation;
+    tcp_listener_t* l = tcp_listener_pin(handle, &slot, &generation);
+    if (!l) return -1;
     uint64_t until = timer_get_ticks() + timeout_ticks;
     for (;;) {
         uint64_t f = spin_lock_irqsave(&tlk);
+        if (!l->used || l->closing || l->generation != generation) {
+            spin_unlock_irqrestore(&tlk, f); tcp_listener_unpin(l); return -8;
+        }
         for (int i = 0; i < TCP_MAX; i++) {
             tcb_t* t = &tcbs[i];
-            if (t->listener == l && !t->accepted && t->state != T_FREE && t->state != T_SYN_RCVD) {
+            if (t->listener == (int)slot && t->listener_generation == generation &&
+                !t->accepted && t->state != T_FREE && t->state != T_SYN_RCVD) {
                 t->accepted = 1;
+                int accepted = net_tcp_handle_make((unsigned)i, t->generation);
                 spin_unlock_irqrestore(&tlk, f);
-                return i;
+                tcp_listener_unpin(l);
+                return accepted;
             }
         }
         spin_unlock_irqrestore(&tlk, f);
-        if (timer_get_ticks() >= until) return -5;
+        if (timer_get_ticks() >= until) { tcp_listener_unpin(l); return -5; }
         sched_sleep_ticks(1);
     }
 }
 
-void tcp_unlisten(int l) {
-    if (l < 0 || l >= LISTEN_MAX) return;
+void tcp_unlisten(int handle) {
+    unsigned slot; uint16_t generation;
+    if (net_tcp_listener_handle_decode(handle, &slot, &generation)) return;
     uint64_t f = spin_lock_irqsave(&tlk);
-    listens[l].used = 0;
-    for (int i = 0; i < TCP_MAX; i++)                            /* не принятые - сбросить */
-        if (tcbs[i].listener == l && !tcbs[i].accepted && tcbs[i].state != T_FREE) { tcp_out(&tcbs[i], F_RST | F_ACK, tcbs[i].snd_nxt, 0, 0); tcbs[i].state = T_FREE; }
+    tcp_listener_t* l = &listens[slot];
+    if (!l->used || l->generation != generation) { spin_unlock_irqrestore(&tlk, f); return; }
+    l->closing = 1; l->used = 0; l->owner = 0;
+    if (generation == UINT16_MAX) l->retired = 1;
+    for (int i = 0; i < TCP_MAX; i++) {
+        tcb_t* t = &tcbs[i];
+        if (t->listener == (int)slot && t->listener_generation == generation &&
+            !t->accepted && t->state != T_FREE) {
+            tcp_out(t, F_RST | F_ACK, t->snd_nxt, 0, 0);
+            t->state = T_FREE; t->rto_at = 0; t->listener = -1;
+            if (t->generation == UINT16_MAX) t->retired = 1;
+        }
+    }
     spin_unlock_irqrestore(&tlk, f);
 }
 
