@@ -228,6 +228,40 @@ Implement a single-lock transaction:
 5. Add host tests for valid release, invalid middle page, double release, range overflow, zero length and concurrent allocation/release stress where supported.
 6. Re-run all DMA/device scenarios and exact-SHA host/build/VM CI.
 
+
+## F-010 — x86-64 TLB shootdown timeout can return before remote CPUs acknowledge invalidation
+
+**Severity:** Critical SMP memory-safety risk  
+**Confidence:** High — direct source and caller evidence  
+**Master-plan mapping:** B, F, M, N; streams 1, 5, 11, 12.
+
+### Evidence
+
+- `arch/x86_64/smp.c::vmm_tlb_shootdown()` waits up to 200 ms for `sd_pending`; on timeout it logs a warning, breaks the wait loop, clears `sd_busy` and returns normally. The API returns `void`, so callers cannot detect failure.
+- The pending mask and request parameters (`sd_root`, `sd_va`, `sd_pages`) are global. After timeout, the next shootdown can overwrite them while an old IPI is still pending. A late IPI may then flush the newer request's range and clear a bit in the newer pending mask, falsely acknowledging the wrong request.
+- `proc_shm_unmap()` unmaps, calls the void shootdown, then releases the shared-memory object.
+- `proc_unmap_pages()` unmaps and calls the void shootdown; DMA cleanup paths can then release the physical pages.
+- ARM64 has a separate broadcast TLBI implementation using `vae1is/aside1is` and barriers; this specific timeout/global-request issue is in the x86-64 software IPI implementation.
+
+Sources:
+- [x86-64 shootdown and IPI handler, lines 123–166](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/arch/x86_64/smp.c#L123-L166)
+- [proc_shm_unmap(), lines 558–576](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/proc.c#L558-L576)
+- [proc_unmap_pages(), lines 590–598](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/proc.c#L590-L598)
+- [ARM64 broadcast TLBI, lines 172–181](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/arch/aarch64/vmm_user.c#L172-L181)
+
+### Consequence
+
+If a remote CPU does not acknowledge before timeout, its stale translation may remain usable while the caller frees/reuses the backing pages. Reusing the global request state before a late IPI arrives can also create a false acknowledgement. This can become use-after-free, cross-process memory exposure or DMA/page-table corruption.
+
+### Required closure
+
+1. Make shootdown completion explicit (status + request generation/sequence).
+2. Do not release backing pages, shared-memory references or DMA blocks until every target CPU has acknowledged the exact request.
+3. On timeout, quarantine backing resources and retain request state; do not overwrite it with a new request. Define a safe failed-CPU policy (halt/offline only when execution is provably stopped, otherwise fail-stop).
+4. Update callers to propagate failure and preserve ownership.
+5. Add host model tests for timeout, late IPI, stale generation and overlapping requests; add QEMU SMP regression/fault injection.
+6. Confirm ARM64 broadcast TLBI completion and ASID lifecycle separately.
+
 ## Verification ledger
 
 | Finding | Source reviewed | Runtime reproduction | Targeted regression in current main | Status |
