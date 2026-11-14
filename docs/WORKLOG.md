@@ -699,3 +699,26 @@ F-020 remains OPEN. No SMMU/VT-d code is considered integrated into main; do not
 - PR #46 (`v46/unified-release-integration`, base `v46/kdrv-catalogue-signature-policy`, head `dacc04d0dafd507ef0721698b5e9c2512f1947a5`) adds UEFI BootInfo, BIOS/UEFI boot composition, UEFI builder/tests, IOMMU modules, driver trust/signatures and broad release integration. No exact-head workflow run was found for #46.
 - PR #45's UEFI ELF loader hardening is a separate branch on the same v46 stack; its recorded run `42385882597` failed. PRs #60/#61 preserve UEFI command line/modules and initrd loading on base `autodrv` and each passed CI; PR #130 adds module-to-usable-RAM validation on the v46 release branch and is closed there. None of these results are current-main acceptance.
 - Integration rule: retain BootInfo v1 ABI and producer tests from the v46/autodrv work; compare the exact structures and ownership rules against proposed ADR-0006; transplant one adapter at a time onto current main; do not replace working MB2/FDT paths until the common consumer and PMM reservation ledger pass both-architecture boot tests.
+
+
+## 11. Current-main kernel remediation stack — verified but not integrated
+
+These are separate Draft PRs directly based on current main. Their exact-head CI has passed, but main remains unchanged:
+
+| PR | Scope | Exact-head run | Result | Integration note |
+|---|---|---:|---|---|
+| #154 | Kernel stack slot ownership/generation, partial-map cleanup, x86 PMM atomic block release | `43590094470` | success | Overlaps #164 in `kstack.h`, `sched.c`, `sched.h`; integrate together. Also overlaps standalone #153 in `pmm.c`; do not merge both PMM implementations. |
+| #155 | x86 TLB shootdown fail-closed behavior | `43590730265` | success | Separate SMP/VMM contract; re-run with the final combined memory branch. |
+| #158 | ARM64 PMM reserved-page ownership, overflow-safe reserve, atomic contiguous release | `43592051859` | success | Required by FDT reservation-map application in #166; #166 now carries this implementation. |
+| #161 | Ring 3 DMA/MSI denial until per-device IOMMU is verified | `43602754339` | success | Current-main security gate; intentionally blocks DMA/MSI because main has no domain implementation. |
+| #164 | Remove heap-stack fallback, zero new stacks, fail closed on guarded stack exhaustion | `43600699384` | success | Overlaps #154's scheduler/stack ownership changes; combine and re-run together. |
+| #165 | PCI firmware Bus Master handoff mitigation, diagnostics removed | `43608372681` | 30/30 success | F-017 remains open during BAR probing; reconcile with PCI range #139/#162. |
+| #166 | FDT reservation map + ARM64 PMM integration + v16 parser | current head `539285048cdd97f5d71ba5aefc9afda4058b7512` | pending | Previous expanded head failed lint only; corrected head requires exact CI. |
+
+### Required integration sequence
+1. Combine #154 + #164 in one scheduler/stack ownership change; keep #153 as an overlapping alternate, not a second independent merge.
+2. Integrate #155 against the final VMM/stack baseline and verify cross-CPU shootdown failure semantics.
+3. Integrate #158 through #166's FDT-to-PMM test; ensure permanent firmware reservations cannot be freed.
+4. Keep #161's DMA/MSI denial active until real VT-d/SMMUv3 domains are integrated and per-device readiness is proven.
+5. Reconcile #139/#141 PCI identity/range work with #165's firmware Bus Master logic before accepting Device Model/PCI.
+6. Run the full exact-head host, x86-64, ARM64 and QEMU matrix after all overlapping changes are combined. Individual green PRs do not prove the combined tree.
