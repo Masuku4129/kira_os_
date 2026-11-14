@@ -603,3 +603,8 @@ Graphics syscalls obtain raw app-slot pointers without in-flight references; asy
 - F-047: partial FAT cluster allocation must be fully rolled back on every `fat_set`/I/O failure; preserve original errors; fault-inject FAT12 sector-boundary and FAT16/32 allocation failures; remount and run fsck.
 - F-048: propagate `chain_free` failures from unlink and replacement; report incomplete reclamation/degraded volume; fault-inject every chain traversal and FAT write.
 - KiraFS host crash-cutoff tests exist, but flush-failure and concurrent-call coverage are not present because the test flush always succeeds and host lock is disabled.
+
+
+### F-049 ARM64 PMM parity gate
+
+The ARM64 PMM must implement ADR-0003: reservations must be distinct from ordinary allocations, reserved pages must never be freed, and contiguous release must be atomic. Current `pmm_arm.c` has one used bitmap and a sequential partial-free implementation. Require host fault/ownership tests, ASan/UBSan, ARM64 build and exact-head QEMU acceptance.
