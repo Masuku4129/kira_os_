@@ -41,7 +41,6 @@ static int ecam_configured, ecam_valid;
 void pci_set_backend(const pci_backend_t* b) {
     ecam_configured = 0;
     ecam_valid = 0;
-    ecam = 0;
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
 }
 
