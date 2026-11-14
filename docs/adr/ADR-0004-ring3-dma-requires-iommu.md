@@ -40,5 +40,5 @@ A driver-owned DMA buffer, user confirmation, package hash, cache-coherent memor
 ## Current implementation evidence
 
 - Draft PR #161, based on the current Stage 0 main baseline, adds the fail-closed policy and test/scenario changes.
-- Initial exact-head workflow `43593017450` exposed three scenario defects; the implementation now also verifies PCI quiesce readback and scenarios assert the result. Latest exact-head CI remains pending; no PASS is claimed.
+- Initial exact-head workflow `43593017450` exposed three scenario defects; artifact review drove corrections to test hardware, stopped-package identity and the separate control NIC. A later run `43593787066` exposed one global-log assertion that incorrectly forbade DHCP from virtio-net while the RTL8139 target was denied; that assertion was narrowed to the RTL8139 network-registration signal. The implementation now verifies PCI quiesce readback and scenarios assert it. Latest exact-head workflow `43594252642` on `c92f22b545af9342edad59ad9a1a89813e7681f9` is pending; no PASS is claimed.
 - PR #161 does not implement IOMMU hardware support.
