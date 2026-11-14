@@ -288,14 +288,20 @@ static int has_work(unsigned cpu, unsigned minp, const thread_t* self) {
 
 /* Стек потока: в ядре - ячейка с пустотой ниже (vmm), в хост-тесте - обычная память. */
 #ifdef KIRA_HOST_TEST
-static uint8_t* kstack_new(void) { return (uint8_t*)kmalloc(SCHED_STACK_SIZE); }
-static void kstack_del(uint8_t* s) { kfree(s); }
+static uint8_t* kstack_new(uint64_t* generation) {
+    if (generation) *generation = 0;
+    return (uint8_t*)kmalloc(SCHED_STACK_SIZE);
+}
+static void kstack_del(uint8_t* s, uint64_t generation) { (void)generation; kfree(s); }
 #else
-static uint8_t* kstack_new(void) {
-    uint8_t* s = (uint8_t*)vmm_kstack_alloc(SCHED_STACK_SIZE);
+static uint8_t* kstack_new(uint64_t* generation) {
+    uint8_t* s = (uint8_t*)vmm_kstack_alloc(SCHED_STACK_SIZE, generation);
     return s ? s : (uint8_t*)kmalloc(SCHED_STACK_SIZE);           /* окно исчерпано: стек из кучи, с меткой на дне */
 }
-static void kstack_del(uint8_t* s) { if (vmm_is_kstack((uint64_t)(uintptr_t)s)) vmm_kstack_free(s); else kfree(s); }
+static void kstack_del(uint8_t* s, uint64_t generation) {
+    if (vmm_is_kstack((uint64_t)(uintptr_t)s)) vmm_kstack_free(s, generation);
+    else kfree(s);
+}
 #endif
 
 static void check_canary(const thread_t* t) {
@@ -449,7 +455,8 @@ thread_t* sched_create_proc(const char* name, void (*entry)(void*), void* arg, t
 static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg, thread_prio_t prio,
                                uint64_t cr3, void* proc, cpumask_t affinity, uint32_t flags) {
     if (!entry) return 0;
-    uint8_t* stack = kstack_new();
+    uint64_t stack_generation = 0;
+    uint8_t* stack = kstack_new(&stack_generation);
     if (!stack) return 0;
 
     uint64_t f = irq_save();
@@ -459,7 +466,7 @@ static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg
     if (!t) {
         spin_unlock_raw(&sched_lock);
         irq_restore(f);
-        kstack_del(stack);
+        kstack_del(stack, stack_generation);
         return 0;
     }
 
@@ -479,6 +486,7 @@ static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg
     t->cpu_cycles = 0;
     t->switches_in = 0;
     t->stack_base = stack;
+    t->stack_generation = stack_generation;
     t->kstack_top = kstack_top;
     t->cr3 = cr3;
     t->proc = proc;
@@ -597,11 +605,13 @@ unsigned sched_reap(void) {
         /* on_cpu: пока ядро не ушло со стека завершённого потока, освобождать его нельзя */
         if (t->state == THREAD_ZOMBIE && t != this_cpu()->current && !t->on_cpu) {
             uint8_t* stack = t->stack_base;
+            uint64_t stack_generation = t->stack_generation;
             t->state = THREAD_UNUSED;
             t->stack_base = 0;
+            t->stack_generation = 0;
             spin_unlock_raw(&sched_lock);
             irq_restore(f);
-            kstack_del(stack);
+            kstack_del(stack, stack_generation);
             f = irq_save();
             sl_lock();
             n++;
@@ -698,6 +708,7 @@ int sched_attach_cpu(void) {
     t->cpu_cycles = 0;
     t->switches_in = 0;
     t->stack_base = 0;           // стек запуска ядра: освобождать нечего
+    t->stack_generation = 0;
     t->kstack_top = 0;
     t->cr3 = 0;
     t->proc = 0;
