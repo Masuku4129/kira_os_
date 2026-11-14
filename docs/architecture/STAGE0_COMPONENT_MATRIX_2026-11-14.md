@@ -596,3 +596,10 @@ Multiple threads in one process are supported, while graphics event dequeue uses
 ### F-046 Graphics app/framebuffer lifetime acceptance gate
 
 Graphics syscalls obtain raw app-slot pointers without in-flight references; asynchronous process teardown can free the shared framebuffer and release the slot while an operation is still in flight. Require closing state, generation-tagged handles, pinned operations, drain-before-free, user unmap and TLB shootdown before PMM reuse. Test draw/event/input/exit/reopen under QEMU SMP and stale-handle reuse.
+
+
+### F-047/F-048 FAT allocator error-path acceptance gates
+
+- F-047: partial FAT cluster allocation must be fully rolled back on every `fat_set`/I/O failure; preserve original errors; fault-inject FAT12 sector-boundary and FAT16/32 allocation failures; remount and run fsck.
+- F-048: propagate `chain_free` failures from unlink and replacement; report incomplete reclamation/degraded volume; fault-inject every chain traversal and FAT write.
+- KiraFS host crash-cutoff tests exist, but flush-failure and concurrent-call coverage are not present because the test flush always succeeds and host lock is disabled.
