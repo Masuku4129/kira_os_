@@ -1091,3 +1091,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Host import signatures are not validated against the fixed KIRA host ABI. `host_call()` accepts up to 32 declared parameters but captures only the first four in its local argument array; mismatched imports can therefore invoke host operations with unintended argument/result layouts.
 - Capability boundary: the wasm executable is granted CAP_GFX, CAP_GRANT and CAP_JIT; host imports expose only the documented KIRA write/sleep/ticks/exit/graphics surface. The module itself remains inside its Ring 3 process address space. No production code changed.
 - Reviewed ELF parser/loader and existing tests/prog_test.c: segment mapping is page-aligned, W^X and window bounds are enforced, overlapping pages rejected, stack is RW-NX, and 20,000 corruption mutations are tested. Header `e_ehsize`/`e_version` and PT_LOAD `p_align` are not validated; record as hardening follow-up, not a demonstrated loader escape. No host tests were run in this pass.
+
+
+## 50. System-call authorization and user-memory boundary audit — 2026-11-14
+
+- Reviewed syscall capability dispatch and authorization table, all user-facing syscall dispatch branches, `copy_from_user`, `copy_to_user`, `user_range`, futex user-word access, process capability assignment, trust digest checking and the wasm executable's trusted capability profile.
+- Confirmed the intended OR semantics for combined rights (e.g. CAP_NET or CAP_NET_SERVE) are explicit in the dispatcher comment and applied as `!(caps & need)`. Filesystem authorization remains delegated to operation-specific checks in fsrv; driver syscalls use device-bound capability checks.
+- User-memory copies validate the complete range before architecture-specific fault-contained copy; stack growth is retried through `proc_stack_prepare`. `user_read32` requires aligned, mapped user memory before the architecture-specific read.
+- No new confirmed privilege-escalation finding in the reviewed syscall/uaccess paths. This is a bounded source review, not proof of all syscall implementations; network, FS, audio, IPC, graphics and KDRV subsystem internals retain their own findings and acceptance gates.
+- No production source changed and no host tests were run in this pass.
