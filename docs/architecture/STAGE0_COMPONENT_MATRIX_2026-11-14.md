@@ -342,3 +342,17 @@ The audit will no longer treat a full multi-shard CI run as the first diagnostic
 - Gate E: release image contents, manifest and boot modes are audited; only then may ISO generation be considered.
 
 This strategy changes test scheduling, not the acceptance standard. No feature is considered complete because a reduced test set passed; reduced tiers are for faster diagnosis, while T4 remains mandatory for integration.
+
+
+### Test inventory baseline — pinned main SHA 811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4
+
+- Host runner tests/run_host_tests.sh: **47 named host suites**.
+- QEMU scenario catalogue ci/scenarios.py: **38 named VM scenarios**.
+- Coverage families include boot/storage, PMM/VMM, scheduler/context/FPU, SMP, ACPI/IOAPIC, PCI/virtio, KiraFS/VFS/FAT, USB UHCI/xHCI, network IPv4/IPv6/TLS, KCC/WASM, KIRA Mind, graphics/UI/apps, power, fault isolation and driver package/install/management.
+- These are test entry-point counts, not proof of complete coverage. Each scenario must be mapped to ISA, build profile, hardware model, prerequisite services, assertions and known omissions. In particular, FDT property-name string-table termination is not covered by the existing FDT host fixture; see F-027.
+
+### Exact-head correction — PR #166 FDT/ARM64 PMM gate (2026-11-14)
+
+- PR #166 current head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e, associated workflow 43610515593: **30/30 jobs succeeded**.
+- This supersedes earlier pending notes for the prior corrected head. It verifies the current PR #166 implementation on its exact head, not main.
+- The new FDT header reservation-map validation/application, block-overlap checks, v16 structure-size handling and reg index/address-overflow tests are present. F-027 remains open for bounded property-name lookup.
