@@ -109,16 +109,58 @@ enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESEN
 static const char* const imp_names[IMP_N] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event" };
 
 static u32 leb_u(const u8** p, const u8* end) {
-    u32 r = 0; int s = 0;
-    while (*p < end) { u8 b = *(*p)++; if (s < 32) r |= (u32)(b & 0x7F) << s; s += 7; if (!(b & 0x80)) return r; if (s > 35) break; }
-    trap("bad LEB128"); return 0;
+    u32 r = 0;
+    for (unsigned i = 0; i < 5; i++) {
+        if (*p >= end) { trap("truncated unsigned LEB128"); return 0; }
+        u8 b = *(*p)++;
+        if (i == 4 && (b & 0xF0)) { trap("unsigned LEB128 overflow"); return 0; }
+        r |= (u32)(b & 0x7F) << (i * 7);
+        if (!(b & 0x80)) {
+            if (i && !(b & 0x7F)) { trap("overlong unsigned LEB128"); return 0; }
+            return r;
+        }
+    }
+    trap("unterminated or oversized unsigned LEB128"); return 0;
 }
 static i64 leb_s(const u8** p, const u8* end, int bits) {
-    u64 r = 0; int s = 0; u8 b = 0;                               /* беззнаково: сдвиги определены */
-    while (*p < end) { b = *(*p)++; if (s < 64) r |= (u64)(b & 0x7F) << s; s += 7; if (!(b & 0x80)) break; if (s > 70) { trap("bad LEB128"); return 0; } }
-    if (s < 64 && (b & 0x40)) r |= ~0ull << s;
-    if (bits == 32) return (i64)(int)(u32)r;
-    return (i64)r;
+    if (bits != 32 && bits != 64) { trap("invalid signed LEB128 width"); return 0; }
+    u64 r = 0; u8 b = 0, prev = 0;
+    unsigned max = bits == 32 ? 5 : 10;
+    for (unsigned i = 0; i < max; i++) {
+        if (*p >= end) { trap("truncated signed LEB128"); return 0; }
+        b = *(*p)++;
+        if (i == max - 1) {
+            u8 unused = bits == 32 ? (u8)(b & 0x70) : (u8)(b & 0x7E);
+            if ((b & 0x80) || (unused != 0 && unused != (bits == 32 ? 0x70 : 0x7E))) {
+                trap("signed LEB128 overflow"); return 0;
+            }
+        }
+        unsigned shift = i * 7;
+        r |= (u64)(b & 0x7F) << shift;
+        if (!(b & 0x80)) {
+            if (i && (((b & 0x7F) == 0 && !(prev & 0x40)) ||
+                      ((b & 0x7F) == 0x7F && (prev & 0x40)))) {
+                trap("overlong signed LEB128"); return 0;
+            }
+            if (bits == 32) return (i64)(int32_t)(uint32_t)r;
+            return (i64)r;
+        }
+        prev = b;
+    }
+    trap("unterminated signed LEB128"); return 0;
+}
+static int import_signature_valid(u32 id, const ftype_t* t) {
+    static const u8 i32t = 0x7F, i64t = 0x7E;
+    switch (id) {
+    case IMP_WRITE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
+    case IMP_SLEEP: return t->np == 1 && t->nr == 0 && t->p[0] == i64t;
+    case IMP_TICKS: return t->np == 0 && t->nr == 1;
+    case IMP_EXIT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
+    case IMP_GFX_CREATE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
+    case IMP_GFX_PRESENT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
+    case IMP_GFX_EVENT: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;
+    default: return 0;
+    }
 }
 static int name_is(const u8* n, u32 len, const char* s) { u32 i = 0; for (; i < len && s[i]; i++) if (n[i] != (u8)s[i]) return 0; return i == len && !s[i]; }
 
@@ -575,6 +617,8 @@ static int load(void) {
                     int found = -1;
                     for (int k = 0; k < IMP_N; k++) if ((name_is(mn, ml, "kira") || name_is(mn, ml, "env")) && name_is(nn, nl, imp_names[k])) found = k;
                     if (found < 0) { trap("unknown import (module kira: write, sleep, ticks, exit, gfx_create, gfx_present, gfx_event)"); return -1; }
+                    if (ti >= ntypes) { trap("import function type index out of range"); return -1; }
+                    if (!import_signature_valid((u32)found, &types[ti])) { trap("import has an incompatible KIRA host ABI signature"); return -1; }
                     if (nfuncs == MAXF) { trap("too many functions"); return -1; }
                     funcs[nfuncs].type = ti; funcs[nfuncs].import = 1; funcs[nfuncs].imp_id = (u32)found; nfuncs++; nimports++;
                 } else if (kind == 2) {                           /* импорт памяти: создаём свою */
@@ -659,6 +703,7 @@ static int load(void) {
     }
     if (!trapped && entry == ~0u) trap("no exported main/_start");
     if (!trapped && entry >= nfuncs) trap("entry function index out of range");
+    if (!trapped && entry < nimports) trap("entry point must be a defined function, not a host import");
     if (!trapped && nfuncs > nimports && !code) trap("function and code counts differ");
     return trapped ? -1 : 0;
 }
