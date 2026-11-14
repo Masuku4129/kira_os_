@@ -164,7 +164,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
         uart_print(ec_rc == 0 ? "text console on screen" : "serial console only");
         uart_print(").\n");
     }
-
+    uart_print("[KIRA BOOT TRACE] display_init end\\n");
+    uart_print("[KIRA BOOT TRACE] keyboard_init begin\\n");
     if (keyboard_init() != 0)       kernel_panic("Keyboard IRQ registration failed");
     uart_print("[KIRA BOOT TRACE] keyboard_init end\\n");
     uart_print("[KIRA BOOT TRACE] mouse_init begin\\n");
