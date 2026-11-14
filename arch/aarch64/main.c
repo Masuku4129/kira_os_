@@ -114,6 +114,7 @@ static void kprintf(const char* f, ...) {
 /* Интерфейс uart.h для общего ядра. Вывод не буферизуется (строка уходит в порт сразу под замком), поэтому при
    смене потока досылать нечего. */
 void uart_print(const char* s) { uint64_t f = lock(); puts_raw(s); unlock(f); }
+void uart_print_atomic(const char* s) { uart_print(s); } /* ARM64 uart_print already serializes the complete string */
 void uart_putchar(char c) { char b[2] = { c, 0 }; uart_print(b); }
 void uart_print_dec(uint64_t v) { uint64_t f = lock(); put_dec_raw(v); unlock(f); }
 void uart_print_hex(uint64_t v) { uint64_t f = lock(); put_hex_raw(v); unlock(f); }

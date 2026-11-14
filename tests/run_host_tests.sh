@@ -22,6 +22,10 @@ $CC -O1 -Wall -fno-builtin -Dmemcpy=k_memcpy -Dmemmove=k_memmove -Dmemset=k_mems
 $CC -O1 -Wall -o $T/mem tests/mem_test.c $T/kmem.o
 $T/mem
 
+echo "== VMM MMIO physical range arithmetic (alignment and overflow) =="
+$CC $FLAGS -fsanitize=undefined,address -o $T/mmio_range tests/mmio_range_test.c
+$T/mmio_range
+
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
 $T/pmm | head -4
