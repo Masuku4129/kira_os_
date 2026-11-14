@@ -581,3 +581,8 @@ The audio syscall path currently validates reusable stream slots outside the mix
 ### IPC trust and object-lifetime acceptance gate
 
 Port and shared-memory object references, handle close, mapping retention and port waiter queueing have a coherent locking/refcount design in the reviewed paths. Before closing IPC security, document whether globally named objects are intentionally public or must be access-controlled. If protected, enforce owner/ACL or capability checks at open/send/receive/map; test guessed-name cross-process access, close-vs-in-flight operations, waiter cancellation, process exit and shared-memory unmap. Synchronize diagnostic counters such as object count and queued-message count.
+
+
+### F-044 Input ring concurrency acceptance gate
+
+Keyboard and mouse producer/consumer paths currently mix plain volatile reads with atomic release stores for consumer-owned tail indices. The diagnostic dropped counter is also read without synchronization. Require consistently atomic index access, explicit acquire/release semantics and atomic/locked diagnostics. Sequential decoder tests do not close this issue; add concurrent producer/consumer wraparound and overflow tests, TSan and QEMU SMP validation.
