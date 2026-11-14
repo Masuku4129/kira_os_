@@ -736,3 +736,24 @@ F-025 remains OPEN pending exact-head CI and later PCI/device-model reconciliati
 - This exact run includes host-tests (including FDT v16 and one-byte overlap regression), x86 build, ARM64 build/scenarios, and all VM matrix scenarios including `usb-uhci`.
 - This verifies the FDT validator correction and the FDT reservation-map/ARM64 PMM integration on the PR branch. It does not integrate the separate branch-only IOMMU backends or close F-021.
 
+
+
+## F-026 — Device Model registry is not yet a complete resource/lifecycle owner (2026-11-14)
+
+**Severity:** HIGH / architecture acceptance blocker. Current implementation remains a discovery/identity slice.
+
+### Exact source evidence
+- PR #141 is Draft and stacked on PR #139's architecture branch, not main. Exact head `cda2ba2b3b9432f0dcae1843bc331ac858c4b6e2` has five successful workflow runs (latest `43413762769`).
+- `device_model.h/.c` stores bus, location, parent, vendor/product/class and generation-bearing identity. It does not store typed MMIO/port/IRQ/DMA resources, IOMMU domain, power/reset dependencies, firmware provenance, package identity, rights or teardown status.
+- The current lifecycle enum contains only DISCOVERED, VALIDATED, QUARANTINED and FAILED. The atomic compare-and-transition primitive does not implement RESOURCES_RESERVED, MATCHED, AUTHORIZED, STARTING, RUNNING, QUIESCING, STOPPED, REVOKED or REMOVED.
+- KDRV uses the generation-bearing device handle and quarantines stale bindings while retaining DMA pages if quiesce cannot be confirmed. Its registered `kdrv_pci_rescan_allowed()` guard only checks KDRV binding slots; it returns true when those slots are empty.
+- Built-in PCI drivers in the current source independently enable Bus Master and map BAR resources (e.g. virtio-blk, UHCI, xHCI, HDA and e1000). Those owners are not represented in the KDRV-only rescan guard. A post-boot rescan must therefore remain denied until a global owner/quiesce/revoke transaction covers built-in drivers too; a KDRV-only approval is insufficient.
+- The RFC itself explicitly lists resource reservation, interrupt ownership, DMA/IOMMU binding, hardware quiesce/revoke, hotplug and generic driver binding as not implemented.
+
+### Required resolution
+1. Keep the Device Model labelled as a partial discovery/identity registry, not a complete Device Model.
+2. Make post-boot PCI rescan globally fail closed until every built-in and KDRV owner participates in a coordinated quiesce, DMA drain, IRQ mask, mapping revoke and resource-release protocol.
+3. Add typed resource records and owner handles before introducing RUNNING/REMOVED states or hotplug.
+4. Keep the RFC Draft until cross-ISA resource ownership and failure/teardown tests exist.
+
+F-026 remains OPEN. The five successful PR #141 CI runs verify the current implementation slice only, not the missing lifecycle contract.
