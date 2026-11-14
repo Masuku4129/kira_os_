@@ -1615,3 +1615,26 @@ F-056 remains OPEN.
 - The QEMU guest log recorded `xhci_er_reset: DMA memory access failed!` and rejected reads at `0xE15000`, `0xE15004`, `0xE15008`, `0xE1500C`. In that attempt, the driver wrote ERSTBA while PCI Bus Master was still disabled; `0xE15000` was the ERST table address.
 - This demonstrates that, in QEMU's xHCI model, writing ERSTBA can immediately cause a DMA fetch even before USBCMD.RUN. Therefore the safe sequence is not simply “enable BM immediately before RUN”: allocate and initialize all DMA objects with BM off, grant BM while the controller remains halted, then expose DCBAAP/CRCR/ERST pointers, and finally set RUN.
 - PR #169 has been adjusted to that order and the xHCI host model now asserts that DMA objects exist while the pointer registers are still zero at the BM grant point. The corrected exact-head QEMU/host CI is pending; do not close F-054 until it passes.
+
+
+## New finding F-057 — failed USB controller startup leaks DMA allocations (2026-11-14)
+
+**Severity:** MEDIUM; resource exhaustion risk when multiple controllers or initialization failures are encountered.
+
+### Evidence
+- \x60usb_dma_alloc()\x60 allocates either from the platform DMA pool or via \x60pmm_alloc_contiguous()\x60 and exposes no matching USB DMA free/release API.
+- \x60uhci_start()\x60 allocates controller state and a 13-page DMA region for the frame list, QH/TD structures and transfer buffers. If halt/reset or a later startup step fails, it returns without releasing the successful allocations. \x60nctl\x60 increments only after complete startup, so the next controller attempt reuses the same index but allocates another schedule region.
+- \x60xhci_start()\x60 similarly allocates controller state, DCBAA, command ring, optional scratchpad array/pages, event ring and ERST. Failure at a later allocation, reset, register validation or startup step returns without transactional rollback. \x60started\x60 increments only after full success, so the next controller attempt reuses the same slot while prior allocations remain consumed.
+- Existing xHCI host tests inject failures for per-device slot IN/OUT/buffer/EP0 allocations and retry the same device slot. They do not inject failures into controller-start allocations or verify that a second controller can start after the first fails. The UHCI host test covers successful startup, not failed halt/reset/allocation followed by another controller.
+
+### Consequence
+A failed controller can permanently consume DMA pool/physical memory. A UHCI failure can strand at least the 13-page schedule region; xHCI scratchpad allocation can strand a variable number of pages. Subsequent supported controllers may fail for lack of DMA memory even when enough memory would have existed if failed initialization had rolled back.
+
+### Required closure
+1. Introduce an explicit DMA allocation ownership/transaction object for controller startup, with a real release operation for PMM-backed pages and a reclaimable or safely quarantined platform-pool contract.
+2. Do not publish \x60started\x60/\x60nctl\x60 or controller state until all required resources and hardware state are committed.
+3. On failure, keep Bus Master disabled, ensure the controller is halted, then release only allocations proven unreachable by hardware; never free DMA pages while a device can still access them.
+4. Add deterministic failure injection at each controller-level allocation and reset/halt stage; after each injected failure, start a second controller and assert DMA accounting is restored and no stale pointers are programmed.
+5. Run host ASan/UBSan tests and the full x86-64/ARM64 USB matrix where applicable.
+
+F-057 remains OPEN. This is a source/test-coverage finding; no runtime reproduction or production fix is claimed.
