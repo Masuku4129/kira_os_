@@ -711,3 +711,10 @@ The happy-path tests do not cover F-050 pool exhaustion, F-051 malformed FDT pro
 **Stage 0 progress: 64%.** Reviewed PCI enumeration against the full UHCI and xHCI startup paths. Added F-054: both drivers re-enable PCI Bus Master before controller quiesce/reset and before allocating/programming their DMA schedule/rings. This is a strong hypothesis for the remaining QEMU invalid-read storm, but the DMA requester is not yet proven.
 
 No production code changed. No tests were run in this pass. The next safe step is to instrument register/activation ordering and add failure-injection tests, then implement the corrected sequence on an isolated Draft PR.
+
+
+## 29. QEMU diagnostic attribution correction — 2026-11-14
+
+**Stage 0 progress: 65%.** Inspected the actual UHCI artifact and found a test-instrumentation gap: QEMU `guest_errors` logging starts before firmware and the runner does not capture a boundary at KIRA's ready prompt. The 393,600 invalid-read records therefore cannot currently be attributed to KIRA or UHCI. Corrected the audit to avoid treating the raw count as guest-driver evidence and added F-055.
+
+F-054 remains a real, source-confirmed ordering defect: UHCI/xHCI re-enable Bus Master before quiesce/reset and DMA initialization. It requires a separate safe fix and failure-path tests.
