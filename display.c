@@ -11,6 +11,7 @@
 #include "pmm.h"
 #include "uart.h"
 #include "wm.h"
+#include "wallpaper.h"
 #include "input.h"
 #include "experience.h"
 #include "gfxsrv.h"
@@ -788,6 +789,7 @@ int display_init(unsigned long mbi) {
     wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher, on_workspace_changed, on_system_volume };
 /* Spatial Minimal is the production desktop, not a preview-only code path. */
     wm_init_mode(fb_surface(), &ops, WM_LAYOUT_SPATIAL_MINIMAL);
+    kira_wallpaper_init();
     surface_t* fbs = fb_surface();
     w_con = wm_create_ex("Терминал", WM_AUTO, WM_AUTO, CON_W, CON_H, WM_RESIZABLE, fbs->w, fbs->h);   // можно растянуть до размера экрана
     if (w_con < 0) { uart_print("[KIRA DISPLAY] cannot allocate window surfaces.\n"); return -7; }
