@@ -17,7 +17,11 @@ typedef struct {
     size_t tbs_len, sig_len, issuer_len, subject_len, rsa_n_len, rsa_e_len, ec_pub_len, ed_pub_len, san_len;
     const uint8_t *serial, *spk;            /* серийный номер (значение INTEGER); subjectPublicKey (без байта «неиспользованных битов») */
     size_t serial_len, spk_len;
-    int sig_alg, key_type, is_ca, has_bc, eku_ocsp;   /* eku_ocsp: в extKeyUsage есть id-kp-OCSPSigning */
+    int sig_alg, key_type, is_ca, has_bc, eku_ocsp;
+    int has_key_usage, key_cert_sign, digital_signature;
+    int has_eku, eku_server_auth, eku_any;
+    int has_path_len;
+    uint32_t path_len;
     int pss_hash, pss_mgf, pss_salt;        /* подпись RSA-PSS: хэш и хэш MGF1 (PK_SHA*), длина соли */
     int kp_hash, kp_mgf, kp_salt;           /* ключ id-RSASSA-PSS: ограничения (kp_hash = 0 - без ограничений); соль - минимум */
     int64_t not_before, not_after;          /* секунды UTC от 1970 */

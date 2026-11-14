@@ -8,7 +8,7 @@ Ed25519 (подпись Ed25519); pss_* - сервер с ключом id-RSASSA
 ocsp_*.der - ответы OCSP для сервера основной цепочки (good, delegated, revoked, unknown, stale, forged, other, tryagain)."""
 import datetime, ipaddress, os, subprocess, sys
 from cryptography import x509
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import NameOID, ObjectIdentifier, ExtendedKeyUsageOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519, padding
 from cryptography.x509 import ocsp
@@ -16,13 +16,15 @@ from cryptography.x509 import ocsp
 out = sys.argv[1]; os.makedirs(out, exist_ok=True)
 now = datetime.datetime.now(datetime.timezone.utc)
 def name(cn): return x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
-def cert(subj, key, issuer, ikey, h, ca, days=(-1, 30), san=None, pad=None, eku=None):
+def cert(subj, key, issuer, ikey, h, ca, days=(-1, 30), san=None, pad=None, eku=None, path_length=None, key_usage=None, unknown_critical=False):
     b = (x509.CertificateBuilder().subject_name(name(subj)).issuer_name(name(issuer)).public_key(key.public_key())
          .serial_number(x509.random_serial_number()).not_valid_before(now + datetime.timedelta(days=days[0]))
          .not_valid_after(now + datetime.timedelta(days=days[1]))
-         .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True))
+         .add_extension(x509.BasicConstraints(ca=ca, path_length=path_length), critical=True))
     if san: b = b.add_extension(x509.SubjectAlternativeName(san), critical=False)
     if eku: b = b.add_extension(x509.ExtendedKeyUsage(eku), critical=False)
+    if key_usage: b = b.add_extension(key_usage, critical=True)
+    if unknown_critical: b = b.add_extension(x509.UnrecognizedExtension(ObjectIdentifier("1.2.3.4.5.6"), b"\x05\x00"), critical=True)
     return b.sign(ikey, h, rsa_padding=pad) if pad else b.sign(ikey, h)
 def save(n, c): open(os.path.join(out, n + ".der"), "wb").write(c.public_bytes(serialization.Encoding.DER)); open(os.path.join(out, n + ".pem"), "wb").write(c.public_bytes(serialization.Encoding.PEM))
 def savekey(n, k): open(os.path.join(out, n + ".key"), "wb").write(k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
@@ -31,13 +33,74 @@ rk = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 ik = ec.generate_private_key(ec.SECP384R1())
 lk = ec.generate_private_key(ec.SECP256R1())
 san = [x509.DNSName("kira.test"), x509.DNSName("*.kira.test"), x509.IPAddress(ipaddress.ip_address("10.0.2.100")), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
-root = cert("Kira Test Root", rk, "Kira Test Root", rk, hashes.SHA256(), True, (-1, 365))
-inter = cert("Kira Test Intermediate", ik, "Kira Test Root", rk, hashes.SHA256(), True)
-leaf = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, san=san)
+root = cert("Kira Test Root", rk, "Kira Test Root", rk, hashes.SHA256(), True, (-1, 365),
+            key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
+            data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True,
+            encipher_only=None, decipher_only=None))
+inter = cert("Kira Test Intermediate", ik, "Kira Test Root", rk, hashes.SHA256(), True,
+             key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
+             data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True,
+             encipher_only=None, decipher_only=None))
+leaf = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, san=san,
+            eku=[ExtendedKeyUsageOID.SERVER_AUTH],
+            key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
+            data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+            encipher_only=None, decipher_only=None))
 old = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, (-60, -30), san=san)
 sk = ec.generate_private_key(ec.SECP256R1())
 selfs = cert("kira.test", sk, "kira.test", sk, hashes.SHA256(), False, san=san)
 for n, c in [("root", root), ("inter", inter), ("leaf", leaf), ("expired", old), ("self", selfs)]: save(n, c)
+# ---- Negative RFC 5280 path/usage fixtures ----
+bad_ku = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, san=san,
+              key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=True,
+              data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+              encipher_only=None, decipher_only=None))
+bad_eku = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, san=san,
+               eku=[ExtendedKeyUsageOID.CLIENT_AUTH])
+bad_critical = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, san=san, unknown_critical=True)
+bad_inter_ku = cert("Kira Test Intermediate", ik, "Kira Test Root", rk, hashes.SHA256(), True,
+                    key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
+                    data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+                    encipher_only=None, decipher_only=None))
+for n, c in [("bad_ku", bad_ku), ("bad_eku", bad_eku), ("bad_critical", bad_critical), ("bad_inter_ku", bad_inter_ku)]:
+    save(n, c)
+
+# pathLenConstraint=0 issuer with one subordinate CA below it must reject.
+top0 = cert("Kira PathLen Zero", ik, "Kira Test Root", rk, hashes.SHA256(), True,
+            path_length=0, key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False,
+            key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=True,
+            crl_sign=True, encipher_only=None, decipher_only=None))
+subk = ec.generate_private_key(ec.SECP256R1())
+subca = cert("Kira Subordinate CA", subk, "Kira PathLen Zero", ik, hashes.SHA256(), True,
+             key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
+             data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True,
+             encipher_only=None, decipher_only=None))
+subleaf = cert("kira.test", lk, "Kira Subordinate CA", subk, hashes.SHA256(), False, san=san,
+               eku=[ExtendedKeyUsageOID.SERVER_AUTH],
+               key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
+               data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+               encipher_only=None, decipher_only=None))
+path0_directleaf = cert("kira.test", lk, "Kira PathLen Zero", ik, hashes.SHA256(), False, san=san,
+                       eku=[ExtendedKeyUsageOID.SERVER_AUTH],
+                       key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
+                       data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+                       encipher_only=None, decipher_only=None))
+for n, c in [("path0_inter", top0), ("path0_subca", subca), ("path0_leaf", subleaf)]:
+    save(n, c)
+save("path0_directleaf", path0_directleaf)
+# A self-issued subordinate CA does not consume pathLenConstraint (RFC 5280 §6.1.4).
+self_issued_ca = cert("Kira PathLen Zero", subk, "Kira PathLen Zero", ik, hashes.SHA256(), True,
+                      key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
+                      data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True,
+                      encipher_only=None, decipher_only=None))
+self_issued_leaf = cert("kira.test", lk, "Kira PathLen Zero", subk, hashes.SHA256(), False, san=san,
+                        eku=[ExtendedKeyUsageOID.SERVER_AUTH],
+                        key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
+                        data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+                        encipher_only=None, decipher_only=None))
+save("path0_selfissued", self_issued_ca)
+save("path0_selfissued_leaf", self_issued_leaf)
+
 savekey("leaf", lk); savekey("self", sk)
 open(os.path.join(out, "chain.pem"), "wb").write(leaf.public_bytes(serialization.Encoding.PEM) + inter.public_bytes(serialization.Encoding.PEM))
 savekey("root", rk)

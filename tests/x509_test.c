@@ -26,13 +26,50 @@ int main(int argc, char** argv) {
     CHECK(x509_parse(leaf, ll, &L) == 0 && L.key_type == X509_KEY_EC256 && L.sig_alg == X509_SIG_EC_SHA384 && !L.is_ca);
     CHECK(x509_parse(inter, il, &I) == 0 && I.key_type == X509_KEY_EC384 && I.sig_alg == X509_SIG_RSA_SHA256 && I.is_ca);
     CHECK(x509_parse(root, rl, &R) == 0 && R.key_type == X509_KEY_RSA && R.is_ca);
+    CHECK(R.has_key_usage && R.key_cert_sign && I.has_key_usage && I.key_cert_sign);
+    CHECK(L.has_key_usage && L.digital_signature && L.has_eku && L.eku_server_auth);
+
+    int64_t now = L.not_before + 3600;
+    const char* why = 0;
+    /* RFC 5280 critical extensions, KeyUsage, EKU and pathLenConstraint. */
+    static uint8_t badcert[4096], badissuer[4096], pathleaf[4096], pathsub[4096], pathinter[4096], directleaf[4096];
+    size_t bkl = rd(d, "bad_ku.der", badcert, sizeof badcert);
+    x509_t BX;
+    CHECK(bkl && x509_parse(badcert, bkl, &BX) == 0 && BX.has_key_usage && !BX.digital_signature);
+    const uint8_t* badku_chain[2] = { badcert, inter }; size_t badku_lens[2] = { bkl, il };
+    CHECK(x509_verify_chain(badku_chain, badku_lens, 2, root, rl, "kira.test", now, &why) == -7);
+
+    size_t bel = rd(d, "bad_eku.der", badcert, sizeof badcert);
+    CHECK(bel && x509_parse(badcert, bel, &BX) == 0 && BX.has_eku && !BX.eku_server_auth);
+    const uint8_t* badeku_chain[2] = { badcert, inter }; size_t badeku_lens[2] = { bel, il };
+    CHECK(x509_verify_chain(badeku_chain, badeku_lens, 2, root, rl, "kira.test", now, &why) == -8);
+
+    size_t bcl = rd(d, "bad_critical.der", badcert, sizeof badcert);
+    CHECK(bcl && x509_parse(badcert, bcl, &BX) < 0); /* unknown critical extension fails closed */
+
+    size_t bil = rd(d, "bad_inter_ku.der", badissuer, sizeof badissuer);
+    const uint8_t* badinter_chain[2] = { leaf, badissuer }; size_t badinter_lens[2] = { ll, bil };
+    CHECK(bil && x509_verify_chain(badinter_chain, badinter_lens, 2, root, rl, "kira.test", now, &why) < 0);
+
+    size_t pli = rd(d, "path0_inter.der", pathinter, sizeof pathinter);
+    size_t pls = rd(d, "path0_subca.der", pathsub, sizeof pathsub);
+    size_t plf = rd(d, "path0_leaf.der", pathleaf, sizeof pathleaf);
+    const uint8_t* path_chain[3] = { pathleaf, pathsub, pathinter };
+    size_t path_lens[3] = { plf, pls, pli };
+    CHECK(pli && pls && plf && x509_verify_chain(path_chain, path_lens, 3, root, rl, "kira.test", now, &why) == -10);
+    size_t pdl = rd(d, "path0_directleaf.der", directleaf, sizeof directleaf);
+    const uint8_t* path_ok_chain[2] = { directleaf, pathinter }; size_t path_ok_lens[2] = { pdl, pli };
+    CHECK(pdl && x509_verify_chain(path_ok_chain, path_ok_lens, 2, root, rl, "kira.test", now, &why) == 0);
+    size_t sil = rd(d, "path0_selfissued_leaf.der", pathleaf, sizeof pathleaf);
+    size_t sic = rd(d, "path0_selfissued.der", pathsub, sizeof pathsub);
+    const uint8_t* path_self_chain[3] = { pathleaf, pathsub, pathinter };
+    size_t path_self_lens[3] = { sil, sic, pli };
+    CHECK(sil && sic && x509_verify_chain(path_self_chain, path_self_lens, 3, root, rl, "kira.test", now, &why) == 0);
     CHECK(x509_check_sig(&L, &I) == 0 && x509_check_sig(&I, &R) == 0 && x509_check_sig(&L, &R) == -1);
     CHECK(x509_match_host(&L, "kira.test") && x509_match_host(&L, "WWW.Kira.Test") && x509_match_host(&L, "10.0.2.100"));
     CHECK(!x509_match_host(&L, "a.b.kira.test") && !x509_match_host(&L, "kira.test.evil") && !x509_match_host(&L, "10.0.2.101") && !x509_match_host(&L, "test"));
 
-    int64_t now = L.not_before + 3600;
     const uint8_t* c2[2] = { leaf, inter }; size_t l2[2] = { ll, il };
-    const char* why = 0;
     CHECK(x509_verify_chain(c2, l2, 2, root, rl, "kira.test", now, &why) == 0 && !why);
     CHECK(x509_verify_chain(c2, l2, 2, root, rl, "kira.test", 0, &why) == 0 && why);           /* часы неизвестны: сказано */
     CHECK(x509_verify_chain(c2, l2, 2, root, rl, "other.test", now, &why) < 0);
