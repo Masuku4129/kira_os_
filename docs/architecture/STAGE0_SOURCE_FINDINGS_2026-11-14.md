@@ -1285,3 +1285,22 @@ F-042 remains OPEN.
 5. Add adversarial concurrent tests for write/gain/close/process-exit/open/reuse and run under ThreadSanitizer where supported.
 
 F-043 remains OPEN.
+
+
+## New finding F-044 — Input ring indices and diagnostics have mixed synchronization (2026-11-14)
+
+**Severity:** MEDIUM concurrency correctness; possible dropped/corrupted input under SMP load.
+
+### Evidence
+- Keyboard producer holds `prod_lock` and reads `tail` as a plain volatile load to decide whether the ring is full (`input.c:227-229`). Consumers advance `tail` with an atomic release store while holding a different lock, `in_lock` (`input.c:241-247`). The producer and consumer therefore do not share a lock for this index, and one side uses a non-atomic access while the other uses an atomic access.
+- Mouse producer `mpush()` reads `mtail` as a plain load (`input.c:132-136`); consumer advances it atomically under `min_lock` (`input.c:154-160`). This repeats the mixed atomic/non-atomic index access.
+- `dropped` is incremented by producer paths under `prod_lock`, but `input_dropped()` reads it without that lock or an atomic load (`input.c:228-229,251`).
+- Existing `tests/input_test.c` exercises overflow sequentially; it does not concurrently run producers and consumers, so it cannot detect these races.
+
+### Required closure
+1. Make each cross-context ring index consistently atomic, including every load/store; use acquire/release ordering appropriate to the SPSC or serialized multi-producer design.
+2. Keep producer serialization for multiple input sources, but do not rely on a producer-only lock to synchronize with consumers.
+3. Make `dropped` an atomic counter or read it under its writer lock.
+4. Add SMP stress tests with concurrent keyboard/mouse producers and multiple consumers, wraparound and overflow assertions; run TSan on host build and targeted QEMU SMP tests.
+
+F-044 remains OPEN.
