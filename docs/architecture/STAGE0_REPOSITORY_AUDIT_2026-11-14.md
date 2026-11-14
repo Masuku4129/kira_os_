@@ -845,3 +845,18 @@ This is a branch/PR-stack defect, not a confirmed defect in pinned main. No PR w
 - Вывод: PR-граф разветвлён на несколько независимых исторических линий; нельзя считать его одной очередью и автоматически менять base.
 - F-062 остаётся отдельным блокером для stacked PR #179/#181/#182. Исторические UI/release и v46/autodrv ветки требуют отдельной проверки ancestry и сохранности артефактов.
 - Реестр — инвентаризация метаданных, а не подтверждение совместимости или готовности к merge.
+
+
+## 12. Current-main CI regression confirmation — F-062 (2026-11-15)
+
+The latest push workflow for current `main` SHA `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e` is run `43643758138` and concluded **failure**. Exact jobs inspected:
+
+| Job | Job ID | Result | Evidence |
+|---|---:|---|---|
+| `arm64` | `132596796555` | FAIL | `userland/wasm.c:145`: undeclared `int32_t`, `uint32_t` |
+| `host-tests` | `132596796794` | FAIL | `tests/../userland/wasm.c:145`: undeclared `uint32_t` |
+| `build` | `132596796963` | FAIL | `userland/wasm.c:145`: undeclared `int32_t`, `uint32_t` |
+| `vm` | — | SKIPPED | Build/test prerequisites failed |
+| `report` | — | SUCCESS | Reporting job only; does not make the workflow successful |
+
+This proves F-062 is not limited to the PR stack: the current main commit itself is not build-green. The source finding has been upgraded accordingly. No production change or merge was performed during Stage 0 audit.
