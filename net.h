@@ -38,6 +38,16 @@ void netcmd_ping6(const char* arg);   /* ping6 адрес [число] */
 #define NET_TCP_LISTEN_SLOTS 4u
 #define NET_TCP_LISTEN_HANDLE_BASE 0x40000000u
 
+static inline int net_tcp_ref_acquire(uint32_t* refs) {
+    if (!refs || *refs == UINT32_MAX) return -1;
+    (*refs)++;
+    return 0;
+}
+static inline int net_tcp_ref_release(uint32_t* refs) {
+    if (!refs || !*refs) return -1;
+    (*refs)--;
+    return 0;
+}
 static inline int net_tcp_slot_reusable(int is_free, uint32_t refs, uint8_t retired) {
     return is_free && refs == 0 && !retired;
 }
