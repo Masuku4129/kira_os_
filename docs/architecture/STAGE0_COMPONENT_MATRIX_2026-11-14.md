@@ -497,3 +497,10 @@ This is an ordering audit, not a claim that all devices fail today. Tests must m
 - Current ci/kira_vm.py always passes QEMU -d guest_errors and -D qemu.log. This is valuable for full evidence but the UHCI failure generated a 4.18 GB log in 90.9 seconds.
 - The runner already supports per-scenario boot_timeout. Add an optional QEMU guest-error logging switch and a short 10–15 s PCI/USB diagnostic scenario after the audit. Routine focused checks should rely on serial/register assertions; turn guest_errors logging on only for a targeted evidence run.
 - Keep the existing 90 s USB acceptance scenario and full T4 matrix unchanged. Faster diagnostic profile must never replace the acceptance test.
+
+
+### F-031 KDRV startup DMA gate
+
+Current KDRV start() turns on PCI Bus Master before spawning any driver with CAP_DMA or CAP_IRQ. That precedes device reset and DMA setup. The syscall permits later command-register writes, but there is no kernel-owned readiness state or IOMMU-domain verification. The contiguous identity-mapped DMA allocator tracks memory for the driver but does not constrain the hardware requester.
+
+Required sequence: register DMA allocations → quiesce/reset controller → program validated DMA structures → verify IOMMU requester domain (or deny DMA) → grant Bus Master → verify readback. CAP_IRQ alone must not imply unrestricted DMA. Revoke and verify Bus Master on teardown/failure.
