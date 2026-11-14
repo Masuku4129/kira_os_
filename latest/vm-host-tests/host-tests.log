@@ -1,0 +1,29 @@
+== logic (sha256, immune) ==
+sha256 boundary vectors checked: 12
+ALL LOGIC TESTS PASSED
+== kernel heap (size classes, large page runs, ownership table, bad frees, random load, OOM) ==
+heap: classes, alignment, large blocks, ownership table growth, bad frees, 200k random ops, OOM recovery passed
+== kernel string functions (rep movsb/stosb, overlap both ways) ==
+mem: memcpy/memmove (both directions)/memset/memcmp passed
+== pmm (synthetic Multiboot2 memory map, contiguous blocks) ==
+free kb = 521084, expected 521084 (info_size=168)
+contiguous 3 MB block at 0x320000
+allocated 130271 pages, first=0x320000 last=0x1FFFF000
+ALL PMM TESTS PASSED
+== ramext (mapping RAM above 1 GB) ==
+ALL RAMEXT TESTS PASSED
+== scheduler policy (incl. regression: pulsing critical thread) ==
+fair share: A=400 B=400 idle=0 switches=200
+fair share with a pulsing critical thread: A=1000 B=1000 pulses=2000
+quantum 8: switches=100
+core wake: due 3610, got 3610
+periodic runs=20 max wake latency=0 ticks
+extra threads created: 32
+ALL SCHEDULER TESTS PASSED
+== REAL context switch + FXSAVE/FXRSTOR (arch/x86_64/context.s, 3 threads, xmm live across switches) ==
+real FPU save/restore: context switches=102965, workers=3, rounds each=40, mismatches=0
+PASS
+no-FPU-save control: context switches=102965, workers=3, rounds each=40, mismatches=120
+CONTROL OK: corruption detected without FPU save
+== input layer (PS/2 decoder, ring, overflow) ==
+FAIL line 18: ev[0].ch=='a' && ev[0].type==INPUT_KEY_DOWN
