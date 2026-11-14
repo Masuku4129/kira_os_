@@ -306,7 +306,7 @@ Sources:
 - `vmm_map_mmio()` now obtains `first/last` only through the checked helper and reuses the validated raw end for overlap checks.
 - Added host tests for normal alignment, cross-page ranges, exact final representable page, raw addition overflow and align-up overflow; wired them into `tests/run_host_tests.sh`.
 - Original PR #156 run `43591102543` had one `drv-edu` log assertion failure; its serial artifact exposed the separate F-012 logging defect. PR #157 fixes F-012 and passed 43/43 on exact head `59b391696baabfd49f2ff48acf5aba2b9db538de` (run `43591626068`).
-- Combined integration PR #160 is based on that verified UART head and includes F-011; exact head `d5628989db142212bf6af26510a06e5bd0e70c90`, workflow `43592802619` in progress. No combined PASS claimed yet.
+- Combined integration PR #160 is based on that verified UART head and includes F-011; exact head `d5628989db142212bf6af26510a06e5bd0e70c90`, workflow `43592802619`: 43/43 PASS, including host, x86-64, ARM64 and QEMU. Verified on unmerged Draft PR; main unchanged.
 
 ### Required closure
 
@@ -430,7 +430,7 @@ Source:
 | F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
 | F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
 | F-010 | x86-64 TLB shootdown timeout and late IPI handling | Draft PR #155 exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; CI run `43590730265` | 43/43 checks PASS, including host, ARM64 and QEMU SMP matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
-| F-011 | MMIO page-range overflow during page align-up | Combined Draft PR #160 based on verified PR #157 UART fix | Exact-head run `43592802619` in progress; host/x86/ARM64/QEMU pending | FIX IMPLEMENTED; COMBINED VERIFICATION PENDING |
+| F-011 | MMIO page-range overflow during page align-up | Combined Draft PR #160 based on verified PR #157 UART fix | Workflow `43592802619`: 43/43 PASS incl. host, x86-64, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-013 | ARM64 PMM reserved-page ownership | Draft PR #158 exact head `70d0e89a65414818c22d61532f7ca4288c464d2c` | Workflow `43592051859`: 43/43 PASS incl. host, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-015 | FDT reg index/address-size overflow | Draft PR #159 exact head `1a61bd5bdc11b3dd0338c3142113c963308598bf` | Workflow `43592382535`: 43/43 PASS incl. ASan/UBSan FDT tests, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-014 | ARM64 PMM contiguous release is non-atomic | Draft PR #158 validates whole range under one lock | Workflow `43592051859`: 43/43 PASS incl. host, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
