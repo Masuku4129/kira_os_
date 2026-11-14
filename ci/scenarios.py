@@ -645,7 +645,7 @@ ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиату�
     *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, источник: https://10\.0\.2\.100/rl/drvget\.rec", 30),
     *_dg("drvget verify rl", r"verify rl: OK", 30),
     {"cmd": "drv", "forbid": [r"drv-rl pid"]},
-    {"send": ""}, {"keys": "", "then": ["f4"]},
+    {"send": ""}, {"keys": "", "then": ["f4"]}, {"sleep": 7},  # Driver Manager polls asynchronous kernel completion (up to 6 s).
     {"log": [r"\[KIRA DRV\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
              r"\[KIRA DRV\] rl: PCI quiesce verified \(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\)",
              r"drvman: драйвер rl не запущен: нет свободного подходящего устройства PCI",
