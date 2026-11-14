@@ -490,3 +490,10 @@ The PCI enumeration Bus Master clear is not sufficient if a driver re-enables it
 | UHCI/xHCI | IO/MEM + MASTER at start of controller start | stop/reset and replace firmware DMA pointers | decode → halt/reset → DMA structures → MASTER → RUN |
 
 This is an ordering audit, not a claim that all devices fail today. Tests must model firmware-active devices and stale DMA addresses; the final gate is exact-head x86/ARM64 runtime evidence and IOMMU policy.
+
+
+### CI diagnostic profile improvement (planned after Stage 0)
+
+- Current ci/kira_vm.py always passes QEMU -d guest_errors and -D qemu.log. This is valuable for full evidence but the UHCI failure generated a 4.18 GB log in 90.9 seconds.
+- The runner already supports per-scenario boot_timeout. Add an optional QEMU guest-error logging switch and a short 10–15 s PCI/USB diagnostic scenario after the audit. Routine focused checks should rely on serial/register assertions; turn guest_errors logging on only for a targeted evidence run.
+- Keep the existing 90 s USB acceptance scenario and full T4 matrix unchanged. Faster diagnostic profile must never replace the acceptance test.
