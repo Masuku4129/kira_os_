@@ -518,3 +518,8 @@ Before this can be treated as safe autonomous policy, add kernel-owned process c
 - FAT flush currently drops the block-device flush error. Propagate it and add failure injection to tests/fat_test.c; external-volume eject must fail closed when flush fails.
 - VFS per-slot operations are locked, but vfs_any() and root vfs_list() inspect mount entries without slot locks. Snapshot state safely under locks, then call listing callbacks outside locks to avoid re-entrancy deadlock.
 - KiraFS file replacement writes new data/metadata before switching the inode and freeing old blocks, but it is not a general journaled filesystem. Preserve its crash/recovery tests and do not imply full transactional semantics.
+
+
+### Test and verification matrix
+
+See [STAGE0_TEST_MATRIX_2026-11-14.md](STAGE0_TEST_MATRIX_2026-11-14.md) for exact existing host-test binaries, QEMU scenarios, ARM64 coverage, untested contracts for current findings and the proposed T0–T6 verification sequence. The proposed short QEMU diagnostic profile is not yet implemented.
