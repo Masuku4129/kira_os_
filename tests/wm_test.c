@@ -1,5 +1,6 @@
 #include "wm.h"
 #include "theme.h"
+#include "gfxui.h"
 #include "icons.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -350,7 +351,7 @@ int main(void) {
     CHECK(wm_window_pos(spatial_style, &style_x, &style_y) == 0);
     CHECK(px(&scr, style_x + 140, style_y + WM_HEAD - 1) == TH_BORDER);
     /* Sample the flat center of the translucent title surface, away from the rounded corner. */
-    CHECK(px(&scr, style_x + 220, style_y + 30) == TH_BAR0);
+    CHECK(px(&scr, style_x + 220, style_y + 30) == ui_mix(TH_BG0, TH_BAR0, 225));
     wm_destroy(spatial_style);
     frame();
 
