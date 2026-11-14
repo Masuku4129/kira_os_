@@ -282,3 +282,12 @@
 - This is complementary to PR #161: firmware handoff sanitization prevents inherited bus mastering; PR #161 blocks Ring 3 CAP_DMA/CAP_IRQ while no real per-device IOMMU domain exists.
 - The diagnostic UHCI trace-only edits from old PR #137 were deliberately not transplanted; USB UHCI startup remains a separate investigation.
 - Exact-head CI pending; no PASS claimed.
+
+
+### PR #165 — USB UHCI regression investigation (2026-11-14)
+
+- Exact head `626a21c029a203e3e4634886c4a894d27d8f0ce5`, workflow `43601249166`: host tests and all builds passed; 41 checks succeeded, but `vm (usb-uhci)` failed to reach the console prompt after 90 seconds. The report job consequently failed. No PASS claimed.
+- This is a real regression signal, not dismissed as pre-existing: baseline full CI run `43244194123` on code ancestor `bbc7f7ab948e72511aed113b69043add10ec8350` passed the same `vm (usb-uhci)` scenario (job `131272930217`) and the full matrix.
+- The serial artifact stops after syscall initialization. QEMU guest-error log repeatedly records invalid reads at 0x0, 0x4, 0x8 and 0xC. The earlier PR #137 diagnostic USB trace also produced no USB worker/ UHCI-start trace, so the hang occurs before the USB worker begins.
+- Hypothesis under test: clearing bus mastering before BAR probing disturbs a live firmware-configured controller during enumeration. Moved the clear to immediately after BAR probing, still before any device is exposed to a driver. This preserves the security handoff boundary while avoiding state changes during config/BAR discovery.
+- Fresh exact-head CI is required to determine whether this ordering resolves the UHCI regression. If not, add boot-stage/PCI readback traces and continue root-cause isolation; do not merge this PR while the baseline regression remains.
