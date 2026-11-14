@@ -444,3 +444,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Do not run a multi-gigabyte QEMU log as the default diagnostic path. The full UHCI log was 4,187,160,076 bytes and yielded useful evidence only after streaming counts.
 
 No production source was changed. Main remains pinned and untouched; no PR merged; no ISO built.
+
+
+### Exact-head CI refresh — current refs, 2026-11-14 16:40 UTC
+
+- PR #165 current head 7ad140cfadb51c4dacf809eca77fff60ff7fe12c; workflow 43613588426: **29/30 success, 1 failure** — vm (usb-uhci), job 132504574309. The artifact is 18.7 MB compressed and contains a 4,187,160,076-byte qemu.log; serial stops immediately after "[PCI TRACE] probed 0:1.2", before "[PCI TRACE] secured 0:1.2". result.json reports no console prompt after 90.9 s. The failure is current and unresolved.
+- PR #166 current head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e; workflow 43610515593: **30/30 success**. This exact result supersedes the cancelled workflow 43608492629 for an earlier head. It remains Draft/unmerged.
+- PR #151 latest audit-doc head d2a53c8847bf40525780bb2624ea42efe9ba287a; base remains main 811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4. Docs-only branch; no workflow run was returned for this head. Do not infer CI pass from the documentation commits.
+- In PR #165 current pci.c, the Bus Master clear is after probe_bars(). The trace boundary proves the VM stalls within the subsequent PCI Command read/clear sequence or its immediate path, but does not yet distinguish pci_read16 from pci_write16. The invalid DMA storm is present concurrently. Next discriminating instrumentation must place separate markers around the PCI Command read and write and capture the command value; no root cause claim beyond this boundary.
