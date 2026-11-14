@@ -414,6 +414,10 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
 
     outw((uint16_t)(u->io + USBCMD), 0);
     for (int i = 0; i < 20 && !(inw((uint16_t)(u->io + USBSTS)) & STS_HALTED); i++) usb_sleep_ms(1);
+    if (!(inw((uint16_t)(u->io + USBSTS)) & STS_HALTED)) {
+        usb_log("[KIRA USB] UHCI: controller did not halt before reset\n");
+        return -1;
+    }
     outw((uint16_t)(u->io + USBCMD), CMD_GRESET);
     usb_sleep_ms(20);
     outw((uint16_t)(u->io + USBCMD), 0);
@@ -429,6 +433,10 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     /* The frame list and every reachable QH/TD/buffer are now initialized and FRBASE is programmed. */
     __sync_synchronize();
     pci_enable(p, PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        usb_log("[KIRA USB] UHCI: Bus Master enable was not confirmed\n");
+        return -1;
+    }
     outw((uint16_t)(u->io + USBCMD), CMD_RS | CMD_CF | CMD_MAXP);
     usb_sleep_ms(5);
     if (inw((uint16_t)(u->io + USBSTS)) & STS_HALTED) {
