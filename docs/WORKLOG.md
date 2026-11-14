@@ -1380,3 +1380,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Added `STAGE0_CURRENT_MAIN_INVENTORY_2026-11-15.md` with x86-64/ARM64 build-profile and artifact-composition review. Documented that Limbo delivery requires both ISO and KiraFS disk, x86 Android release filters the TESTPROGS set, and ARM64 currently has a different unfiltered app list.
 - Updated Stage Tracker and A–N crosswalk with links and remaining evidence work. Requirement mapping is recorded, but per-item source/build/test verification remains open.
 - No production code, ISO or disk image changed/generated. No PR merged; main unchanged.
+
+
+## #79 — Stage 0: source/build/test coverage mapping (2026-11-15)
+
+- Added `STAGE0_SOURCE_BUILD_TEST_MATRIX_2026-11-15.md`: 20 critical subsystem rows mapped to source files, x86/ARM64 build profiles and wired host tests, plus explicit test coverage gaps.
+- Confirmed the host runner wires broad tests, but the latest current-main CI stops at F-062 before the runner's final success marker; no current-main full-host-suite PASS is claimed.
+- Added F-064 for FDT test coverage gap and a bounded string-table lookup risk: parser accepts v16 but fixture is v17; missing v16, strings-block NUL/boundary and malformed name-offset tests. This is an audit finding, not a code fix.
+- Identified priority Stage 0 gaps: VMM harness, malformed ELF corpus, release-profile manifest snapshots, old-disk update integration, QEMU scenario mapping and per-architecture source inclusion map.
+- No production code changed; main and open PRs untouched.
