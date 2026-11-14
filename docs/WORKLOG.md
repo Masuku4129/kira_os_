@@ -308,3 +308,11 @@
 - Подтверждены callers в KDRV DMA cleanup/rollback, VirtIO, USB DMA и storage/controller paths.
 - Открыт Draft PR #153 на свежей main-based ветке: один lock, предварительная проверка всех страниц, all-or-nothing bitmap transition, обновление счётчиков один раз; `tests/pmm_test.c` покрывает invalid middle page, no partial free, double release, zero/unaligned/out-of-range.
 - Head PR #153: `861707fc4538d396e00066cfbfe2ec171edb8abb`; exact-head CI ожидается. Локальные тесты не запускались; PASS не заявлять до CI.
+
+
+### PR #152 — exact-head CI result (2026-11-14)
+
+- Exact head `48518fac18ba16e49d66fb641ece96ae06515811`, run `43586203250`: x86-64 build PASS; ARM64 build/scenario PASS; host-tests PASS; shared `kstack_slot_test` PASS under ASan/UBSan.
+- QEMU passed SMP, 8-CPU boot/soak, stress, NVMe, VirtIO/SATA/ATA, USB UHCI, network, WASM, isolation and other matrix scenarios.
+- One QEMU job `vm (apps-drvman)` FAILED. Downloaded artifact `vm-apps-drvman` shows the shell command `drv` prints `пакеты в /drv: 5` but then emits no package rows. The pinned `kdrv.c::show()` source should iterate those rows. Root cause is unresolved; do not label it pre-existing or attribute it to F-001 without a baseline comparison.
+- PR #152 is therefore NOT fully green. F-001 implementation is present and core stack tests/stress pass, but integration acceptance is blocked until the `apps-drvman` scenario is explained and passes (or an independently proven test defect is corrected without weakening coverage).
