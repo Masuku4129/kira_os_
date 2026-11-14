@@ -824,7 +824,7 @@ int display_init(unsigned long mbi) {
 #ifdef KIRA_SPATIAL_PREVIEW
     uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal preview, left navigation, pinned-only bottom Dock, quiet canvas.\n");
 #else
-    uart_print("[KIRA DISPLAY] Shell online: Legacy layout, top navigation, side launcher, apps Terminal / Mind / Files / Monitor / Settings.\n");
+    uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal desktop, glass panels, Dock, workspaces and contextual system controls.\\n");
 #endif
     return 0;
 }
