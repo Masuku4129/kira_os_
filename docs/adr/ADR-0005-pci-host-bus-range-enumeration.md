@@ -1,6 +1,6 @@
 # ADR-0005: PCI enumeration is bounded by host and bridge bus windows
 
-- **Status:** Proposed; source defect confirmed, implementation not yet started.
+- **Status:** Proposed; implementation in Draft PR #162, exact-head CI pending.
 - **Date:** 2026-11-14
 - **Owners:** KIRA OS HAL / PCI Device Model
 
