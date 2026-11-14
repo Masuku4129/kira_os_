@@ -961,3 +961,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - This is a broad static source finding, not proof every device actually DMA-writes before reset. The safe contract must not rely on firmware leaving every controller idle.
 - Added F-030. Future remediation should stage IO/MEM decode, controller quiesce/reset, DMA memory preparation/programming, Bus Master grant/readback, then start. The grant must also pass the IOMMU/DMA policy gate.
 - No driver source changed; the remaining current-main DMA source review and test matrix are still part of Stage 0.
+
+
+## 39. CI diagnostic latency and QEMU log-volume audit — 2026-11-14
+
+- Read the pinned-main ci/kira_vm.py runner. Every x86 VM currently launches QEMU with -d guest_errors and writes all guest-error output to qemu.log.
+- The UHCI hang produced a 4.18 GB qemu.log in a 90.9 s run while serial stopped during PCI enumeration. This artifact is useful for root-cause analysis but expensive to store, transfer and inspect; the ordinary test harness waits the scenario's default boot_timeout=90 before failing.
+- The runner already supports per-scenario boot_timeout, and its VM configuration is centralized in VM.args(). A future diagnostic profile can set a short boot_timeout (10–15 s) and optionally disable verbose QEMU guest-error logging; full acceptance scenarios keep their existing complete timeouts.
+- Recommended harness improvement after Stage 0: add a scenario/CLI switch for QEMU guest-error logging, plus a dedicated short PCI/USB preflight scenario. Keep one focused evidence run with guest_errors enabled when needed; use serial/register assertions for routine regressions to avoid multi-gigabyte artifacts.
+- Do not shorten the full acceptance USB scenario; the short profile is only a diagnostic gate. Final T4 CI retains all current acceptance checks.
