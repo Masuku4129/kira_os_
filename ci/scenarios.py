@@ -554,6 +554,7 @@ ALL.append(sc("drvget-rl", "drvget: HTTPS source validation, license/hash confir
     *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, источник: https://10\.0\.2\.100/rl/drvget\.rec", 30),
     *_dg("drvget verify rl", r"verify rl: OK", 20),
     {"log_forbid": NO_ERR},
+    # Keep virtio-net for HTTPS/DHCP control traffic; RTL8139 is the target device whose Ring 3 DMA request must be denied.
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "virtio-net-pci,netdev=n0", "-netdev", "user,id=n1", "-device", "rtl8139,netdev=n1"]},
     {"sleep": 10},
     {"log": [r"\[KIRA DRV\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен"]},
