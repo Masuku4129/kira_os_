@@ -34,11 +34,11 @@ Status vocabulary:
 
 | Stream | Scope | Preliminary status | Primary dependencies / immediate gate |
 |---|---|---|---|
-| **1. Kernel + processes + IPC + SMP** | Boot, exceptions, scheduler, process/thread lifecycle, IPC, synchronization | PARTIAL | A, B, F, M. Close stack lifecycle F-001/F-008/F-009/F-010/F-011; verify process teardown, cross-CPU TLB and MMIO range validation. |
+| **1. Kernel + processes + IPC + SMP** | Boot, exceptions, scheduler, process/thread lifecycle, IPC, synchronization | PARTIAL | A, B, F, M. Close stack lifecycle F-001/F-008/F-009/F-010/F-011/F-013/F-014; verify x86/ARM64 PMM parity, process teardown, cross-CPU TLB and MMIO range validation. |
 | **2. KVR + application ABI + compatibility runtimes** | WASM, Native ABI, KIRA VM decision, Linux/Windows app compatibility | PARTIAL / EXPERIMENTAL | A, B, C, F, K. WASM audit first; no second production VM ISA without ADR. Windows/Linux kernel drivers are not app-runtime compatibility. |
 | **3. KCC + IR + backends + build pipeline** | Compiler, object/link formats, x86-64/AArch64 backends, bootstrap | PARTIAL | A, E, F, N. Freeze ABI/IR contracts before expanding compiler scope. |
 | **4. Mind Core + specialized models + safe control** | Telemetry, prediction, diagnosis, bounded resource control | PARTIAL | A, B, D, F, N. Policy-mediated requests only; no arbitrary kernel memory/MMIO/lock access. |
-| **5. Memory safety + IOMMU + secure boot/signatures** | Ownership, W^X, DMA isolation, signing, trust and rollback | BLOCKED for DMA/MSI | B, F, G, M. Fail closed before DMA/MSI; implement VT-d and SMMUv3 lifecycle; make PMM block release transactional; close MMIO overflow F-011 before trusting BAR mappings. |
+| **5. Memory safety + IOMMU + secure boot/signatures** | Ownership, W^X, DMA isolation, signing, trust and rollback | BLOCKED for DMA/MSI | B, F, G, M. Fail closed before DMA/MSI; implement VT-d and SMMUv3 lifecycle; make PMM block release transactional on both architectures, track reserved ownership on ARM64, and close MMIO overflow F-011 before trusting BAR mappings. |
 | **6. Driver framework + drivers + Driver Manager** | Device discovery, registry, resources, bind/unbind, drivers, acquisition pipeline | PARTIAL | A, F, G, M. DEV-001, PCI range, IOMMU, stable handles and resource ownership. |
 | **7. KiraFS + storage + recovery** | Filesystems, block layer, caching, flush, crash consistency, removable media | PARTIAL | B, F, G, H, L. Block/VFS contracts and recovery/fault injection. |
 | **8. Network stack + network services** | Ethernet, IPv4/IPv6, transport, sockets, TLS, policy | PARTIAL | F, G, I, K. Audit protocol semantics, DMA-safe buffers and isolation. |
@@ -82,7 +82,7 @@ This is an integration order. All twelve workstreams remain visible in the proje
 1. Finish exact-head validation of PR #152 (F-001) and close any CI failures without weakening tests.
 2. Complete platform handoff and early boot audit on x86-64 and ARM64.
 3. Audit IRQ/timer/SMP/TLB operations and per-CPU state.
-4. Audit PMM/VMM page-table ownership, process address-space lifecycle, user-access boundaries and MMIO arithmetic.
+4. Audit PMM/VMM page-table ownership, reserved-page semantics, atomic block release on x86/ARM64, process address-space lifecycle, user-access boundaries and MMIO arithmetic.
 5. Audit Device Model/PCI topology and DMA/MSI security before enabling device DMA.
 6. Reconcile source inventory with build scripts and PR #148 file-loss manifest.
 7. Produce a complete file-to-component-to-build-profile matrix for all 829 baseline blobs.
