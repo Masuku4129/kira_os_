@@ -399,3 +399,23 @@ The 38 explicit x86 declarations include mind-train; the two generated stress-sp
 - Mind path: telemetry sources → quality/calibration/holdout tests → bounded policy proposal → capability/security gate → scheduler/resource API. Mind must not bypass device ownership, DMA isolation or kernel locks.
 
 Regression selection follows dependency edges: a shared contract change runs the upstream producer test, consumer test, at least one runtime case per affected ISA, and one downstream smoke case. Only after these pass do we run the full matrix. This reduces redundant waits without lowering the final acceptance bar.
+
+
+## 13. Three-bucket project preservation model
+
+Use these buckets for every tracked source, test, resource and planned subsystem. This is the user's requested separation of stable project contents, active work and future work; it does not imply a component is functionally READY.
+
+| Bucket | Meaning | Current contents / rule |
+|---|---|---|
+| **1. BASELINE — always preserve** | Files already tracked as production inputs, build support, tests, CI, docs or packaged resources. They remain present in every complete project update and applicable full build. | Confirmed x86/ARM64 kernel inputs, architecture sources, userland build outputs, boot/build scripts, host tests, KCC fixtures, CI tooling and packaged resources. Never delete or silently omit; validate per build profile. |
+| **2. UNDER AUDIT / REWORK** | Existing files or APIs whose ownership, semantic role, build linkage, architecture parity or correctness is not yet fully verified; plus active Draft PR changes. | 224 source/support paths currently marked for review: 129 auxiliary sources, 22 architecture-support headers/files, 10 test helpers, 60 userland build/support files and 3 driver recipe/source files. Also the active kernel/PCI/FDT/PMM/GUI Draft PR stacks. |
+| **3. PLANNED / BRANCH-ONLY** | Target capabilities not integrated into current main production build, including preserved implementation work and approved architecture targets. | Unified BootInfo/UEFI integration, full Device Model lifecycle, VT-d/SMMUv3 domains, driver trust/revocation lifecycle, installer/update/recovery and other target architecture items. Keep branch sources/tests intact; do not count as production support until reconciled and accepted. |
+
+### Exact inventory counts feeding the buckets
+
+- Pinned main tree: **829 tracked blobs** (tree API reported not truncated).
+- Review-status queue: **224 paths** across the five review classes listed above.
+- KCC test fixtures: **365** separately classified fixtures.
+- Kernel inputs: x86-64 **98** common C sources (80 shared + 18 x86-specific); ARM64 **88** (80 shared + 8 ARM64-specific); x86 architecture source list **16**.
+- Architecture build support: **12** files referenced by build scripts; boot build inputs **4**.
+- These are file-role classifications, not test results. Baseline means preserve, not "bug-free"; planned/branch-only means preserve, not "integrated".
