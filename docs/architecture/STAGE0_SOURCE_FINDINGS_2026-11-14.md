@@ -1661,3 +1661,11 @@ A malformed FDT can make CPU/device enumeration and node-enabled checks read out
 4. Run host ASan/UBSan and ARM64 QEMU FDT/boot tests.
 
 F-058 remains OPEN. Source/test-coverage finding only; no production fix or runtime reproduction is claimed.
+
+
+### Stacked-fix QEMU results: xHCI clean, UHCI still noisy (2026-11-14)
+
+- PR #169 intermediate exact head `6fd90d39b87766574e427991eb79d66b33eaab4b`, run `43622220409`: both targeted QEMU jobs completed successfully before the run was superseded by additional diagnostics work.
+- `usb-xhci`: 12.0 s, all checks passed (xHCI, 8-port hub, keyboard, tablet, USB storage, FAT32 mount, read/write/unmount). QEMU log is 0 bytes; no `Invalid read`, `Invalid write` or `xhci_er_reset: DMA memory access failed` records. This supports the corrected xHCI order: Bus Master enabled after allocations but before ERSTBA/pointer exposure.
+- `usb-uhci`: functional checks also passed (tablet, hub, keyboard, USB storage and FAT32 read), but QEMU log remains 40,081,525 bytes with 589,375 invalid-read records. 579 distinct addresses; 147,200 reads each at 0x0, 0x4, 0x8 and 0xC. The QEMU log is not clean, so F-025 and the UHCI portion of F-054 remain OPEN.
+- This is evidence that the xHCI fix addresses its immediate ERSTBA DMA failure, while the UHCI anomaly is separate or occurs earlier in the PCI/firmware handoff. The latest branch adds serial/QEMU offset snapshots at PCI scan, controller start and OS-ready to localize the remaining storm. Exact-head CI for that instrumentation is pending.
