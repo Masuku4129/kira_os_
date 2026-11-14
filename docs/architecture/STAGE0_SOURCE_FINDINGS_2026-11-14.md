@@ -918,3 +918,16 @@ F-028 remains OPEN. PR #12 and PR #46 remain preserved branch work; neither is t
 - The ledger carefully defines READY as present in current main/build baseline, not feature-complete or hardware-qualified. It distinguishes x86 artifacts published by main CI from ARM64 artifacts built but not published.
 - The checker pins the 829-file baseline, 98 x86 and 88 ARM64 kernel input lists, 16 x86 architecture inputs, userland program inventories and all branch/PR snapshots; exact current PR head passed.
 - PR #148 remains Draft and unmerged. Do not claim this guard is active on main until accepted/integrated; no main change made.
+
+
+### F-025 QEMU DMA-log addendum — repeated UHCI frame-list reads from zero (2026-11-14)
+
+- Stream-inspected the complete PR #165 UHCI qemu.log without loading it into memory. Uncompressed size: **4,187,160,076 bytes**.
+- Counted rejected 4-byte DMA reads:
+  - address 0x0: **15,377,534**
+  - address 0x4: **15,377,534**
+  - address 0x8: **15,377,534**
+  - address 0xC: **15,377,533**
+- The final log records repeatedly cycle through exactly these four low addresses. The matching VM scenario attaches USB tablet and keyboard to the chipset's UHCI controller. This is consistent with an active UHCI controller repeatedly fetching a frame list whose base is zero or otherwise invalid.
+- This strengthens the controller-not-quiesced hypothesis, but the QEMU log alone does not prove the actual USBCMD/USBSTS/FLBASEADD register values or whether the PCI Command write completed. The serial trace still ends after “probed 0:1.2” and before “secured 0:1.2”.
+- The next diagnostic must capture UHCI USBCMD, USBSTS and FLBASEADD before the Bus Master handoff; then test a bounded controller halt/reset before clearing Bus Master. Keep the IOMMU-first alternative in the design review. Do not classify the hypothesis as confirmed until the register state and a clean repeated scenario support it.
