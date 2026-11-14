@@ -375,13 +375,16 @@ int x509_match_host(const x509_t* c, const char* host) {
 }
 
 /* Корневой, выпустивший cur (имя издателя совпадает и подпись верна): 1 - найден. */
-static int by_root(const x509_t* cur, const uint8_t* roots, size_t rl) {
+static int by_root(const x509_t* cur, const uint8_t* roots, size_t rl, uint32_t ca_below) {
     der_t in = { roots, rl };
     while (in.n) {
         der_t whole; uint8_t t;
         if (der_next(&in, &t, 0, &whole) || t != 0x30) return 0;
         x509_t r;
         if (x509_parse(whole.p, whole.n, &r)) continue;
+        if (!r.is_ca || (r.has_key_usage && !r.key_cert_sign) ||
+            (r.has_eku && !r.eku_server_auth && !r.eku_any) ||
+            (r.has_path_len && ca_below > r.path_len)) continue;
         if (same(r.subject, r.subject_len, cur->issuer, cur->issuer_len) && x509_check_sig(cur, &r) == 0) return 1;
     }
     return 0;
@@ -404,18 +407,36 @@ int x509_verify_chain(const uint8_t* const* certs, const size_t* lens, int n, co
     if (n > 8) n = 8;
     for (int i = 0; i < n; i++) if (x509_parse(certs[i], lens[i], &chain[i])) { *why = i ? "intermediate certificate is not valid DER/X.509" : "server certificate is not valid DER/X.509"; return -1; }
     if (!x509_match_host(&chain[0], host)) { *why = "certificate is for another name (subjectAltName)"; return -2; }
+    if (chain[0].has_key_usage && !chain[0].digital_signature) {
+        *why = "server certificate keyUsage does not permit digitalSignature"; return -7;
+    }
     *why = 0;
     const x509_t* cur = &chain[0];
     int used[8] = { 1 };
+    uint32_t ca_below = 0;
     for (int depth = 0; depth < 8; depth++) {
         if (now && (now < cur->not_before || now > cur->not_after)) { *why = depth ? "intermediate certificate expired or not yet valid" : "certificate expired or not yet valid"; return -3; }
         if (cur->sig_alg == X509_SIG_NONE) { *why = "unsupported signature algorithm in the chain"; return -4; }
-        if (by_root(cur, roots, roots_len)) { if (!now) *why = "trusted, but the clock is unknown: validity dates were not checked"; return 0; }
+        if (cur->has_eku && !cur->eku_server_auth && !cur->eku_any) {
+            *why = "certificate extendedKeyUsage does not permit TLS server authentication"; return -8;
+        }
+        if (cur->is_ca && cur->has_key_usage && !cur->key_cert_sign) {
+            *why = "CA certificate keyUsage does not permit certificate signing"; return -9;
+        }
+        if (cur->is_ca && cur->has_path_len && ca_below > cur->path_len) {
+            *why = "certificate basicConstraints pathLenConstraint exceeded"; return -10;
+        }
+        if (by_root(cur, roots, roots_len, ca_below)) { if (!now) *why = "trusted, but the clock is unknown: validity dates were not checked"; return 0; }
         int next = -1;
-        for (int i = 1; i < n && next < 0; i++)
-            if (!used[i] && same(chain[i].subject, chain[i].subject_len, cur->issuer, cur->issuer_len) && chain[i].is_ca &&
-                x509_check_sig(cur, &chain[i]) == 0) next = i;
+        for (int i = 1; i < n && next < 0; i++) {
+            const x509_t* issuer = &chain[i];
+            if (used[i] || !issuer->is_ca || (issuer->has_key_usage && !issuer->key_cert_sign) ||
+                (issuer->has_eku && !issuer->eku_server_auth && !issuer->eku_any)) continue;
+            if (same(issuer->subject, issuer->subject_len, cur->issuer, cur->issuer_len) &&
+                x509_check_sig(cur, issuer) == 0) next = i;
+        }
         if (next < 0) { *why = "issuer is not trusted (no path to a root certificate)"; return -5; }
+        if (cur->is_ca) ca_below++;
         used[next] = 1; cur = &chain[next];
     }
     *why = "chain too long"; return -6;
