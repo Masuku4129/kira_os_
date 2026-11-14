@@ -1137,8 +1137,17 @@ static void icmp_input(const uint8_t* eth_src, uint32_t src, const uint8_t* m, u
 #define UDP_RING 16384
 #define UDP_REC 22                                                  /* длина 2, порт 2, семейство 1, запас 1, адрес 16 */
 #define UDP_DATA (IPF_MAX - 8)
-#define UH 300
-static struct { uint32_t owner; uint16_t lport; uint8_t fam; uint32_t head, tail; uint64_t dropped; uint8_t ring[UDP_RING]; } us[UDP_MAX];
+static struct {
+    uint32_t owner;
+    uint16_t lport;
+    uint8_t fam;
+    uint32_t head, tail;
+    uint64_t dropped;
+    uint16_t generation;
+    uint8_t retired;
+    uint32_t refs;
+    uint8_t ring[UDP_RING];
+} us[UDP_MAX];
 static spinlock_t ulk = SPINLOCK_INIT;
 static uint16_t next_uport = 50000;
 
@@ -1235,8 +1244,44 @@ static void ip6_input(const uint8_t* eth_src, const uint8_t* p, uint32_t len) {
     ip6_deliver(eth_src, src, dst, p[7], ds, proto, d, n);
 }
 
-static void udp_gone(uint32_t pid) { for (int i = 0; i < UDP_MAX; i++) if (us[i].owner == pid) us[i].owner = 0; }
-static int uown(int64_t h) { return h >= UH && h < UH + UDP_MAX && us[h - UH].owner && us[h - UH].owner == proc_current_pid(); }
+/* A pin keeps a socket slot immutable while a syscall may sleep or copy user memory. */
+static int udp_pin(uint16_t handle, uint32_t pid, unsigned* slot, uint16_t* generation) {
+    uint8_t index;
+    uint16_t gen;
+    if (!net_udp_handle_decode(handle, &index, &gen)) return 0;
+    uint64_t f = spin_lock_irqsave(&ulk);
+    int ok = us[index].owner == pid && us[index].generation == gen && us[index].refs != UINT32_MAX;
+    if (ok) us[index].refs++;
+    spin_unlock_irqrestore(&ulk, f);
+    if (!ok) return 0;
+    *slot = index;
+    *generation = gen;
+    return 1;
+}
+
+static void udp_unpin(unsigned slot, uint16_t generation) {
+    uint64_t f = spin_lock_irqsave(&ulk);
+    if (us[slot].generation == generation && us[slot].refs) us[slot].refs--;
+    spin_unlock_irqrestore(&ulk, f);
+}
+
+static void udp_close_pinned(unsigned slot, uint16_t generation, uint32_t pid) {
+    uint64_t f = spin_lock_irqsave(&ulk);
+    if (us[slot].generation == generation && us[slot].owner == pid) {
+        us[slot].owner = 0;                 /* no new pins or packet delivery after this point */
+        if (generation == NET_UDP_HANDLE_GEN_MAX) us[slot].retired = 1;
+    }
+    spin_unlock_irqrestore(&ulk, f);
+}
+
+static void udp_gone(uint32_t pid) {
+    uint64_t f = spin_lock_irqsave(&ulk);
+    for (int i = 0; i < UDP_MAX; i++) if (us[i].owner == pid) {
+        us[i].owner = 0;
+        if (us[i].generation == NET_UDP_HANDLE_GEN_MAX) us[i].retired = 1;
+    }
+    spin_unlock_irqrestore(&ulk, f);
+}
 
 /* Отправка датаграммы из сокета s: адрес получателя dst, порт, данные из ядра. */
 static int64_t udp_xmit(int s, const ipa_t* dst, uint16_t port, uint8_t* b, uint32_t n) {
@@ -1260,7 +1305,7 @@ static int64_t udp_xmit(int s, const ipa_t* dst, uint16_t port, uint8_t* b, uint
 }
 
 int64_t net_udp_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
-    if (op == NET_UDP_OPEN) {                                       /* (порт или 0 | семейство << 16) -> сокет */
+    if (op == NET_UDP_OPEN) {                                       /* (порт или 0 | семейство << 16) -> handle */
         uint64_t fam = a1 >> 16;
         a1 &= 0xFFFF;
         if (a1 == 67 || a1 == 68 || (fam && fam != 4 && fam != 6)) return -10;
@@ -1268,74 +1313,111 @@ int64_t net_udp_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
         uint64_t f = spin_lock_irqsave(&ulk);
         uint16_t port = (uint16_t)a1;
         uint8_t sf = fam == 6 ? 6 : 4;
-        for (int tries = 0; !port && tries < 16000; tries++) {      /* свободный эфемерный */
-            uint16_t c = next_uport++; if (next_uport < 50000) next_uport = 50000;
-            int busy = 0; for (int i = 0; i < UDP_MAX; i++) if (us[i].owner && us[i].lport == c && us[i].fam == sf) busy = 1;
-            if (!busy) port = c;
+        for (int tries = 0; !port && tries < 16000; tries++) {
+            uint16_t candidate = next_uport++;
+            if (next_uport < 50000) next_uport = 50000;
+            int busy = 0;
+            for (int i = 0; i < UDP_MAX; i++)
+                if (us[i].owner && us[i].lport == candidate && us[i].fam == sf) busy = 1;
+            if (!busy) port = candidate;
         }
         int slot = -1;
-        for (int i = 0; i < UDP_MAX; i++) { if (us[i].owner && us[i].lport == port && us[i].fam == sf) { slot = -2; break; } if (!us[i].owner && slot == -1) slot = i; }
-        if (slot >= 0) { us[slot].owner = proc_current_pid(); us[slot].lport = port; us[slot].fam = sf; us[slot].head = us[slot].tail = 0; us[slot].dropped = 0; }
+        for (int i = 0; i < UDP_MAX; i++) {
+            if (us[i].owner && us[i].lport == port && us[i].fam == sf) { slot = -2; break; }
+            if (!us[i].owner && !us[i].refs && !us[i].retired && slot == -1) slot = i;
+        }
+        uint16_t handle = 0;
+        if (slot >= 0) {
+            if (us[slot].generation >= NET_UDP_HANDLE_GEN_MAX) {
+                us[slot].retired = 1;
+                slot = -1;
+            } else {
+                uint16_t gen = ++us[slot].generation;
+                us[slot].owner = proc_current_pid();
+                us[slot].lport = port;
+                us[slot].fam = sf;
+                us[slot].head = us[slot].tail = 0;
+                us[slot].dropped = 0;
+                handle = net_udp_handle_make(gen, (uint8_t)slot);
+            }
+        }
         spin_unlock_irqrestore(&ulk, f);
-        return slot >= 0 ? UH + slot : slot == -2 ? -3 : -4;
+        return slot >= 0 ? handle : slot == -2 ? -3 : -4;
     }
-    int64_t sock = (int64_t)(a1 & 0xFFFF);
-    if (!uown(sock)) return -8;
-    int s = (int)sock - UH;
-    if (op == NET_UDP_CLOSE) { uint64_t f = spin_lock_irqsave(&ulk); us[s].owner = 0; spin_unlock_irqrestore(&ulk, f); return 0; }
+
+    unsigned s;
+    uint16_t generation;
+    uint32_t pid = proc_current_pid();
+    uint16_t handle = (uint16_t)(a1 & 0xFFFF);
+    if (!udp_pin(handle, pid, &s, &generation)) return -8;
+#define UDP_RETURN(value) do { int64_t udp_result_ = (value); udp_unpin(s, generation); return udp_result_; } while (0)
+
+    if (op == NET_UDP_CLOSE) {
+        udp_close_pinned(s, generation, pid);
+        UDP_RETURN(0);
+    }
+
     if (op == NET_UDP_SEND || op == NET_UDP_SENDTO) {
-        /* SEND: (сокет | порт << 16 | адрес << 32, буфер, длина), сокет IPv4; SENDTO: (сокет | длина << 16, адрес сокета, буфер) */
+        /* SEND: (handle | порт << 16 | адрес << 32, буфер, длина); SENDTO: (handle | длина << 16, адрес, буфер) */
         ipa_t dst; uint16_t port; uint64_t n; uint64_t buf;
         if (op == NET_UDP_SEND) {
-            if (us[s].fam != 4) return -10;
+            if (us[s].fam != 4) UDP_RETURN(-10);
             dst = ipa_v4((uint32_t)(a1 >> 32)); port = (uint16_t)(a1 >> 16); n = a3; buf = a2;
-            if (!(uint32_t)(a1 >> 32)) return -10;
+            if (!(uint32_t)(a1 >> 32)) UDP_RETURN(-10);
         } else {
             ksockaddr_t sa;
-            if (copy_from_user(&sa, a2, sizeof sa) || sa.family != us[s].fam) return -10;
+            if (copy_from_user(&sa, a2, sizeof sa) || sa.family != us[s].fam) UDP_RETURN(-10);
             if (sa.family == 4) dst = ipa_v4(get32(sa.addr)); else dst = ipa_v6(sa.addr);
             port = sa.port; n = a1 >> 16; buf = a3;
         }
-        if (!port || n > UDP_DATA) return -10;
+        if (!port || n > UDP_DATA) UDP_RETURN(-10);
         uint8_t* b = (uint8_t*)kmalloc(8 + n);
-        if (!b) return -7;
+        if (!b) UDP_RETURN(-7);
         int64_t r = -10;
-        if (!n || !copy_from_user(b + 8, buf, n)) r = udp_xmit(s, &dst, port, b, (uint32_t)n);
+        if (!n || !copy_from_user(b + 8, buf, n)) r = udp_xmit((int)s, &dst, port, b, (uint32_t)n);
         kfree(b);
-        return r;
+        UDP_RETURN(r);
     }
-    if (op == NET_UDP_RECV || op == NET_UDP_RECVFROM) {             /* (сокет, буфер, ёмкость | мс << 32) -> байт данных */
+
+    if (op == NET_UDP_RECV || op == NET_UDP_RECVFROM) {
         uint32_t cap = (uint32_t)a3, ms = (uint32_t)(a3 >> 32);
         uint32_t hdr = op == NET_UDP_RECV ? 8 : 24;
-        if (cap < hdr || !user_range(a2, cap, 1) || (op == NET_UDP_RECV && us[s].fam != 4)) return -10;
+        if (cap < hdr || !user_range(a2, cap, 1) || (op == NET_UDP_RECV && us[s].fam != 4)) UDP_RETURN(-10);
         uint64_t until = timer_get_ticks() + ((uint64_t)(ms ? ms : 10000) * TIMER_HZ + 999) / 1000;
         uint8_t* out = (uint8_t*)kmalloc(hdr + UDP_DATA);
-        if (!out) return -7;
+        if (!out) UDP_RETURN(-7);
         for (;;) {
             uint64_t f = spin_lock_irqsave(&ulk);
+            if (us[s].generation != generation || us[s].owner != pid) {
+                spin_unlock_irqrestore(&ulk, f);
+                kfree(out);
+                UDP_RETURN(-8);
+            }
             if (us[s].tail != us[s].head) {
                 uint8_t h[UDP_REC];
-                ring_get((unsigned)s, us[s].head, h, UDP_REC);
-                uint32_t len = get16(h), n = len < cap - hdr ? len : cap - hdr;   /* не влезло - хвост теряется, как у recvfrom */
-                if (op == NET_UDP_RECV) { cpy(out, h + 6, 4); put16(out + 4, get16(h + 2)); put16(out + 6, (uint16_t)len); }
-                else {
+                ring_get(s, us[s].head, h, UDP_REC);
+                uint32_t len = get16(h), n = len < cap - hdr ? len : cap - hdr;
+                if (op == NET_UDP_RECV) {
+                    cpy(out, h + 6, 4); put16(out + 4, get16(h + 2)); put16(out + 6, (uint16_t)len);
+                } else {
                     ksockaddr_t sa;
                     sa.family = h[4]; sa.port = get16(h + 2); cpy(sa.addr, h + 6, 16);
                     cpy(out, &sa, sizeof sa); out[20] = (uint8_t)len; out[21] = (uint8_t)(len >> 8); out[22] = out[23] = 0;
                 }
-                ring_get((unsigned)s, us[s].head + UDP_REC, out + hdr, n);
+                ring_get(s, us[s].head + UDP_REC, out + hdr, n);
                 us[s].head += UDP_REC + len;
                 spin_unlock_irqrestore(&ulk, f);
                 int64_t r = copy_to_user(a2, out, hdr + n) ? -10 : (int64_t)n;
                 kfree(out);
-                return r;
+                UDP_RETURN(r);
             }
             spin_unlock_irqrestore(&ulk, f);
-            if (timer_get_ticks() >= until) { kfree(out); return -5; }
+            if (timer_get_ticks() >= until) { kfree(out); UDP_RETURN(-5); }
             sched_sleep_ticks(1);
         }
     }
-    return -10;
+    UDP_RETURN(-10);
+#undef UDP_RETURN
 }
 
 static void net_main(void* arg) {
