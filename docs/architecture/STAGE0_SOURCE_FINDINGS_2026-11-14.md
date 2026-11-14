@@ -1201,3 +1201,24 @@ F-038 remains OPEN.
 5. Add concurrent tests for receive vs close, send vs reset, accept vs unlisten, connect timeout vs packet arrival, and teardown vs slot reuse.
 
 F-039 remains OPEN.
+
+
+## New finding F-040 — KCC compiler API is process-global and non-reentrant (2026-11-14)
+
+**Severity:** MEDIUM API concurrency / compiler isolation.
+
+### Evidence
+- The public kcc_compile() entry point stores the active compilation in global KCtx K (kcc/util.c). Each invocation begins by memset() of that singleton context.
+- The preprocessor keeps mutable file-scope macro table, include-once list, output token list and include-level state (kcc/pp.c).
+- The parser keeps file-scope token cursor, global symbol/scope lists, current function/labels and local counters (kcc/parse.c).
+- IR and both code generators keep mutable file-scope counters and backend state (kcc/ir.c, kcc/gen_x86.c, kcc/gen_a64.c, including assembler label/fixup contexts).
+- Two concurrent kcc_compile() calls in the same process can overwrite each other's token streams, macro table, diagnostics, IR/backend state and arena pointers. One call can therefore corrupt or miscompile another; this is not a safe parallel compilation API.
+- The shipped Ring 3 cc application currently invokes one compile at a time, so this is not evidence of a presently reachable userland exploit. The public API does not document or enforce a single-caller restriction.
+
+### Required closure
+1. Move compiler context, preprocessor, parser, IR and backend mutable state into a per-compilation context passed explicitly through the pipeline.
+2. Until refactored, document and enforce a single-active-compilation contract (e.g. caller-owned serialization) at every API integration point; do not imply thread safety.
+3. Add parallel host tests compiling distinct x86-64 and AArch64 translation units concurrently, verifying outputs and diagnostics do not cross-contaminate.
+4. Run ThreadSanitizer where supported after context isolation.
+
+F-040 remains OPEN.
