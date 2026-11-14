@@ -118,15 +118,17 @@ void smp_ap_main(uint64_t idx) {
 }
 
 #include "irqmode.h"
+#include "tlb_shootdown.h"
 static volatile unsigned timekeeper;     /* ядро, которое тикает всегда (0 - загрузочное, пока оно живо) */
 
 // ---- Сброс TLB на других ядрах ----
-// Одна рассылка за раз (sd_busy). Ждущий держит прерывания включёнными: пока он ждёт, другие ядра могут прислать
-// ему свои прерывания, и ничего не встаёт.
+// Одна рассылка за раз (sd_busy). Поколение и ack связывают подтверждение с конкретным запросом.
+// По истечении 200 мс печатается предупреждение, но запрос и блокировка остаются активными до ответа всех CPU:
+// иначе страницы могут быть освобождены при живой старой трансляции.
 static volatile uint64_t sd_root, sd_va;
 static volatile uint32_t sd_pages;
-static volatile uint64_t sd_pending[CPUMASK_WORDS];
-static int sd_any(void) { for (int w = 0; w < CPUMASK_WORDS; w++) if (__atomic_load_n(&sd_pending[w], __ATOMIC_ACQUIRE)) return 1; return 0; }
+static volatile uint64_t sd_generation;
+static volatile uint64_t sd_ack[CPU_MAX];
 static volatile int sd_busy;
 
 static void tlb_flush_local(uint64_t root, uint64_t va, uint32_t pages) {
@@ -141,7 +143,6 @@ void vmm_tlb_shootdown(uint64_t root, uint64_t va, uint32_t pages) {
     irq_restore(f);
     if (percpu_count() < 2 || !apic_is_enabled()) return;
     while (__atomic_exchange_n(&sd_busy, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("pause");
-    sd_root = root; sd_va = va; sd_pages = pages;
     unsigned me = this_cpu()->cpu_id;
     cpumask_t mask = cm_none();
     for (unsigned i = 0; i < percpu_count(); i++) {
@@ -149,16 +150,23 @@ void vmm_tlb_shootdown(uint64_t root, uint64_t va, uint32_t pages) {
         if (i == me || !p->online || p->failed) continue;
         if (__atomic_load_n(&p->active_cr3, __ATOMIC_SEQ_CST) == root) cm_set(&mask, i);
     }
-    for (int w = 0; w < CPUMASK_WORDS; w++) __atomic_store_n(&sd_pending[w], mask.w[w], __ATOMIC_SEQ_CST);
-    for (unsigned i = 0; i < percpu_count(); i++)
-        if (cm_test(&mask, i)) apic_send_ipi(percpu_table[i].apic_id, ICR_FIXED(IPI_TLB_VECTOR));
-    uint64_t t0 = rdtsc(), limit = clock_tsc_khz() * 200;           /* 200 мс: отказавшее ядро не держит систему */
-    while (sd_any()) {
-        if (limit && rdtsc() - t0 > limit) {
-            uart_print("[KIRA SMP] TLB shootdown: a core did not answer within 200 ms.\n");
-            break;
+    if (!cm_empty(&mask)) {
+        uint64_t generation = __atomic_load_n(&sd_generation, __ATOMIC_RELAXED) + 1;
+        if (!generation) generation = 1; /* нулевое поколение зарезервировано как «нет ack» */
+        sd_root = root; sd_va = va; sd_pages = pages;
+        __atomic_store_n(&sd_generation, generation, __ATOMIC_RELEASE); /* публикуем payload до отправки IPI */
+        for (unsigned i = 0; i < percpu_count(); i++)
+            if (cm_test(&mask, i)) apic_send_ipi(percpu_table[i].apic_id, ICR_FIXED(IPI_TLB_VECTOR));
+
+        uint64_t t0 = rdtsc(), limit = clock_tsc_khz() * 200;
+        int warned = 0;
+        while (!tlb_shootdown_all_acked(&mask, sd_ack, generation)) {
+            if (!warned && limit && rdtsc() - t0 > limit) {
+                uart_print("[KIRA SMP] TLB shootdown: CPU acknowledgement exceeded 200 ms; holding request and backing memory until every target responds.\\n");
+                warned = 1;
+            }
+            __asm__ volatile ("pause");
         }
-        __asm__ volatile ("pause");
     }
     __atomic_store_n(&sd_busy, 0, __ATOMIC_RELEASE);
 }
@@ -169,8 +177,9 @@ void ipi_dispatch(uint64_t vector, uint64_t cs) {
     if (c->cpu_id == timekeeper) smp_idle_tick_on();                /* роль хранителя времени перешла к этому ядру */
     if (vector == IPI_RESCHED_VECTOR) c->need_resched = 1;           // выбор потока - ниже, после EOI
     else if (vector == IPI_TLB_VECTOR) {
+        uint64_t generation = __atomic_load_n(&sd_generation, __ATOMIC_ACQUIRE);
         tlb_flush_local(sd_root, sd_va, sd_pages);
-        __atomic_and_fetch(&sd_pending[c->cpu_id / 64], ~(1ULL << (c->cpu_id % 64)), __ATOMIC_ACQ_REL);
+        __atomic_store_n(&sd_ack[c->cpu_id], generation, __ATOMIC_RELEASE);
     }
     else __atomic_fetch_add(&c->ipi_count, 1, __ATOMIC_RELAXED);
     apic_send_eoi();
