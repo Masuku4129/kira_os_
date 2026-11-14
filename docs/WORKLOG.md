@@ -895,3 +895,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Reframed the project inventory into three preservation buckets: (1) baseline—tracked production/build/test inputs that must never disappear from complete builds; (2) under audit/rework—review-status source files and active Draft PR changes; (3) planned/branch-only—features preserved in branches or architecture plans but not active production inputs in main.
 - The buckets are preservation/work-state labels, not readiness claims. A file in the baseline bucket can still contain a defect; a branch-only feature is not integrated merely because it has source and tests.
 - Stage 0 remains incomplete: 224 source/support paths require semantic review and cross-branch API/build linkage checks. No percentage increase is claimed from inventory counting alone.
+
+
+## 32. Architecture-support header review — x86-64 / ARM64 — 2026-11-14
+
+- Reviewed all 22 architecture-support headers classified in the pinned-main matrix, plus the 12 architecture assembly/linker files classified as build-support inputs.
+- Verified the shared per-CPU and scheduler interfaces are architecture-specific implementations with expected ABI differences: x86-64 starts a new thread with return-address stack alignment; ARM64 uses aligned SP and link register semantics. User VA layout differs by architecture as expected.
+- x86 CPU/FPU no-op helpers are explicitly guarded by KIRA_HOST_TEST (or the dedicated host FPU test switch); production branches use x86 instructions. They are test harness accommodations, not production stubs.
+- ARM64 smp_crash_test(mode=1) explicitly returns -5 because the platform cannot software-inject SError without the relevant RAS feature. The ARM64 QEMU scenario asserts the documented “cannot raise SError from software” result rather than pretending that path passed. This is an explicit unsupported diagnostic mode, not a silent stub.
+- ARM64 FPU state is 528 bytes versus x86-64 512 bytes; architecture-specific formats must remain separate and are covered through architecture FPU/context tests, not forced into one raw layout.
+- No production empty function or silent success stub was identified in this reviewed header set. This is limited to the reviewed architecture interfaces; it is not a project-wide stub audit.
