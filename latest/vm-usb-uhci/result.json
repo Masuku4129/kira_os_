@@ -1,0 +1,63 @@
+{
+ "name": "usb-uhci",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "step": "usb",
+   "must": "UHCI",
+   "ok": true
+  },
+  {
+   "step": "usb",
+   "must": "клавиатура|планшет",
+   "ok": true
+  },
+  {
+   "step": "cat /usb0/hello.txt",
+   "must": "kira-ci",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.7,
+ "seconds": 11.6,
+ "commands": [
+  {
+   "cmd": "usb",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "cat /usb0/hello.txt",
+   "seconds": 0.02
+  }
+ ]
+}
