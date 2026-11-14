@@ -188,11 +188,12 @@ static int parse_key_usage(der_t val, x509_t* c) {
     unsigned unused = bits.p[0];
     uint8_t last = bits.p[bits.n - 1];
     if (unused && (last & ((1u << unused) - 1u))) return -1;
+    unsigned trailing = 0;
+    while (trailing < 8 && !(last & (1u << trailing))) trailing++;
+    if (!last || trailing != unused) return -1;                /* DER named-bit list ends at its last set bit */
     size_t bytes = bits.n - 1;
-    /* RFC 5280 KeyUsage defines bits 0..8 only; DER named-bit lists end at the last set bit. */
-    if (bytes == 1) {
-        if (!bits.p[1]) return -1;
-    } else if (bits.p[2] != 0x80 || unused != 7) return -1;
+    /* RFC 5280 KeyUsage defines bits 0..8 only. */
+    if (bytes == 2 && (bits.p[2] != 0x80 || unused != 7)) return -1;
     c->has_key_usage = 1;
     c->digital_signature = (bits.p[1] & 0x80) != 0;
     c->key_cert_sign = (bits.p[1] & 0x04) != 0;
