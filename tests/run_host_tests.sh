@@ -80,6 +80,10 @@ echo "== KiraFS (files, dirs, crash at every write, corruption fuzz) =="
 $CC $FLAGS -fsanitize=address,undefined -Itests -o $T/kfs tests/kfs_test.c tests/kfs_v1_ref.c kfs.c store.c
 $T/kfs
 
+echo "== PCI ECAM (nonzero MCFG root bus and downstream bridge enumeration) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/pciroot tests/pci_root_bus_test.c pci.c
+$T/pciroot
+
 echo "== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS over virtio) =="
 $CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c kfs.c store.c
 $T/virtio
