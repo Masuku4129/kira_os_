@@ -267,6 +267,13 @@ If a remote CPU does not acknowledge before timeout, its stale translation may r
 
 ### Required closure
 
+1. Publish immutable request payload under one serialized request owner and assign a nonzero 64-bit generation.
+2. Each target CPU acknowledges that exact generation only after completing local invalidation.
+3. The sender may return and permit reclamation only after every target CPU in the snapshot acknowledges the generation.
+4. A timeout is diagnostic, not permission to reclaim: warn, retain the request lock and backing-memory ownership, and continue waiting. A permanently failed CPU may stall reclamation/system operations; this deliberate liveness trade-off is safer than stale-translation use-after-free.
+5. Any future CPU-offline recovery must prove that the CPU is stopped and cannot resume before it is removed from the target set; merely marking it failed is insufficient.
+6. Add host generation/late-ack tests and QEMU SMP regression/fault injection; separately verify ARM64 broadcast TLBI completion and ASID lifecycle.
+
 1. Make shootdown completion explicit (status + request generation/sequence).
 2. Do not release backing pages, shared-memory references or DMA blocks until every target CPU has acknowledged the exact request.
 3. On timeout, quarantine backing resources and retain request state; do not overwrite it with a new request. Define a safe failed-CPU policy (halt/offline only when execution is provably stopped, otherwise fail-stop).
