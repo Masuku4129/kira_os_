@@ -761,3 +761,10 @@ Therefore the xHCI part of F-054 has strong targeted QEMU evidence, but the UHCI
 ## 35. UDP socket ownership and slot lifetime — 2026-11-14
 
 **Stage 0 progress: 71%.** Added F-059 after tracing `uown()`, `net_udp_sys()`, `udp_gone()`, `udp_deliver()` and the UDP table lock. The unlocked owner check and unlocked process-teardown write allow a validated operation to race with close, slot reuse and packet delivery. Existing network host tests do not exercise kernel UDP lifecycle. Finding is source-confirmed; no production code or runtime behavior was changed or tested in this audit pass.
+
+
+## 34. Early UHCI quiesce gap identified — 2026-11-14
+
+**Stage 0 progress: 70%.** Phase-aware QEMU evidence shows the UHCI scenario emits 393,600 invalid reads to 0x0/4/8/C while the same-branch no-USB control is clean. PCI enumeration clears Bus Master but does not stop the firmware-running controller; the USB driver stops it only after the entire PCI scan. This is a likely source of the rejected-DMA storm, not evidence of successful memory writes.
+
+Added F-057: quiesce UHCI immediately after BM revocation during PCI discovery, verify HCHalted, and keep BM off on timeout. The proposed helper will have mocked-port host tests and QEMU log acceptance. No source fix claimed yet.
