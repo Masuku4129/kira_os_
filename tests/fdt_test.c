@@ -78,9 +78,10 @@ int main(void) {
     CHECK(fdt_reg(blob, mem, UINT32_MAX, &a, &s) != 0); /* index multiplication cannot wrap */
     memcpy(bad, blob, sizeof bad);
     int badmem = fdt_find_path(bad, "/memory");
-    uint8_t* badreg = (uint8_t*)fdt_prop(bad, badmem, "reg", &len);
-    CHECK(badreg && len == 16);
-    if (badreg && len == 16) {
+    uint32_t reglen = 0;
+    uint8_t* badreg = (uint8_t*)fdt_prop(bad, badmem, "reg", &reglen);
+    CHECK(badreg && reglen == 16);
+    if (badreg && reglen == 16) {
         be(badreg, 0xFFFFFFFFu); be(badreg + 4, 0xFFFFFFF0u); /* base = UINT64_MAX - 15 */
         be(badreg + 8, 0); be(badreg + 12, 0x100);            /* end wraps */
         CHECK(fdt_reg(bad, badmem, 0, &a, &s) != 0);
