@@ -290,7 +290,6 @@ int hkdf_expand(const uint8_t prk[32], const uint8_t* info, size_t ilen, uint8_t
         done += take;
     }
     crypto_wipe(t, sizeof t);
-    counter = 0;
     return 0;
 }
 
