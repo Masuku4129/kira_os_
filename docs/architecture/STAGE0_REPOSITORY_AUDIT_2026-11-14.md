@@ -491,3 +491,31 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - F-039 — TCP state/queue fields are mutated under tlk but tcp_wait() predicates and several syscall paths read them without that lock; timeout cleanup, listener teardown and TCB slot reuse lack one consistent pin/generation contract.
 - The current host network test only covers checksum and IPv4 text parsing; it does not exercise TCP lifecycle or concurrency. The test matrix now requires close/reset/receive, accept/unlisten, connect timeout/packet arrival and teardown/slot-reuse stress tests.
 - Stage 0 remains 43%; the added TCP finding is part of the same network domain, not a new completed audit domain.
+
+
+## 12. Exact CI attempt history and UHCI comparison — 2026-11-14 16:45 UTC
+
+### PR #125 — workflow 43613583149
+
+- Run completed with conclusion **failure**, attempt 1, exact PR head `fee8c9aed19ffc37dab7fd599c2bd63bfc496924`. PR #125 is open (not Draft) and targets `autodrv` at base SHA `e2c55cec08a972187953dce17fcb0e231e382c1a`; it is not a main-based change.
+- All 23 job conclusions:
+  - **success (20):** `detect-changes`, `host-tests`, `mind-quality`, `driver-e2e`, `kcc-tests`, `gui-regression`, `build`, `audit`, `arm64`, `uefi-ovmf`, `vm (1)`, `vm (2)`, `vm (3)`, `vm (4)`, `vm (5)`, `vm (6)`, `vm (7)`, `vm (8)`, `vm (9)`, `report`.
+  - **failure (1):** `vm (0)`, job `132504922587`.
+  - **skipped (2):** `package`, `preview-package`.
+- The failed shard contained five scenarios: `boot-virtio`, `drv-io`, `apps-explorer2`, `net-ipv6` passed; `usb-uhci` failed after 90.7 s because the console prompt was not received. Artifact `14120979815` contains per-scenario `result.json`, `serial.log` and `qemu.log`.
+- UHCI serial's last complete PCI trace marker is `[PCI TRACE] disable BM 0:1.2`; the following `BM disabled` marker is absent. In this branch's exact `pci.c` blob `047c79fd8b363dc88d20ea61d0c492f46b862309`, `scan_fn()` calls `pci_disable_bus_master()` before `probe_bars()`. That helper reads PCI Command, writes the cleared value and reads it back. The trace does not distinguish which of those config accesses stalled.
+
+### PR #165 — workflow 43613588426, both attempts retained
+
+- PR #165 remains open Draft, based on main SHA `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`; exact head remained `7ad140cfadb51c4dacf809eca77fff60ff7fe12c` across both attempts.
+- **Attempt 1:** 43 jobs total — **41 success**, **2 failure**. The failures were `vm (usb-uhci)` (job `132504574309`) and `report`; all other jobs succeeded: `arm64`, `host-tests`, `build`, `vm (boot-nvme)`, `vm (boot-sata)`, `vm (isolation)`, `vm (boot-8cpu)`, `vm (boot-ata)`, `vm (soak-8cpu)`, `vm (stress-spam)`, `vm (boot-1cpu)`, `vm (stress-spam-4)`, `vm (smp)`, `vm (usb-xhci)`, `vm (boot-virtio)`, `vm (limbo-mttcg)`, `vm (sound-hda)`, `vm (apps-view)`, `vm (net-e1000)`, `vm (apps-edit)`, `vm (apps-explorer2)`, `vm (power-off)`, `vm (stress-spam-2)`, `vm (drvman-edu)`, `vm (mind-levers)`, `vm (stress-3d)`, `vm (crash-isolation)`, `vm (limbo-spam)`, `vm (power-reboot)`, `vm (sound-ac97)`, `vm (apps-wasm)`, `vm (drv-edu)`, `vm (mind-seed)`, `vm (apps-drvman)`, `vm (net-ipv6)`, `vm (net-e1000e)`, `vm (net-virtio)`, `vm (cc-native)`, `vm (drvget-rl)`, `vm (wasm-speed)`, `vm (sound-sb16)`.
+- Attempt 1 UHCI result: prompt timeout after 90.9 s; artifact `14121317727`. Serial ends after `[PCI TRACE] probed 0:1.2`, before `[PCI TRACE] secured 0:1.2`. Exact `pci.c` blob `68c943c689f3baa403952a0c4d39dc0c1830317f` calls `probe_bars()` first, then reads PCI Command and conditionally clears Bus Master. The boundary therefore narrows the stall to that later command read/conditional write path, not BAR probing itself.
+- **Attempt 2:** the run's final conclusion is **success**. Its latest-attempt job list contains 30 jobs, all **success**: `build`, `vm (boot-sata)`, `vm (stress-spam)`, `vm (stress-spam-4)`, `vm (boot-1cpu)`, `vm (smp)`, `vm (boot-8cpu)`, `vm (soak-8cpu)`, `vm (stress-spam-2)`, `vm (isolation)`, `vm (usb-xhci)`, `vm (net-e1000)`, `vm (stress-3d)`, `vm (limbo-spam)`, `vm (net-virtio)`, `vm (apps-edit)`, `vm (limbo-mttcg)`, `vm (apps-wasm)`, `vm (power-reboot)`, `vm (apps-explorer2)`, `vm (sound-hda)`, `vm (wasm-speed)`, `vm (apps-view)`, `vm (net-e1000e)`, `vm (usb-uhci)`, `vm (sound-ac97)`, `vm (net-ipv6)`, `vm (crash-isolation)`, `vm (power-off)`, `vm (mind-levers)`. The retried UHCI log reports **OK in 11.7 s** (job `132514447432`, artifact `14121774090`). This is a same-head retry result; it does not erase attempt 1 or prove the underlying race/root cause fixed.
+- Both failed-attempt QEMU logs begin with repeated rejected 4-byte reads at addresses `0x0`, `0x4`, `0x8`, and `0xC`. This is consistent with the controller repeatedly fetching from an invalid/zero-based DMA structure, but neither artifact records the UHCI `USBCMD`, `USBSTS` or `FLBASEADD` values. It is not register-level proof.
+- Comparison: both failures occur in the `usb-uhci` scenario at PCI function `0:1.2`, with the same low-address rejected-read pattern, but the serial boundaries differ because PCI scan order differs between branches. PR #125 stops inside its pre-BAR Bus Master disable helper; PR #165 attempt 1 stops after BAR probing in its later Command read/clear path. PR #165 then passed on retry at the unchanged SHA. **Root cause remains unresolved; no implementation fix is claimed.**
+
+### Audit disposition
+
+- Stage 0 remains **43%**, as recorded by the network/TLS audit update in section 11. This CI recheck adds evidence but does not close a new source-audit domain or justify another percentage increase.
+- PR #151 remains a documentation-only Draft against main. Main SHA remains pinned; no production source changed, no PR merged and no ISO built.
+- Next diagnostic must split and log the PCI Command read and write separately, record the command value, and capture UHCI `USBCMD`/`USBSTS`/`FLBASEADD` before handoff. Keep the full 90-second acceptance test; use a separate short diagnostic profile for iteration.
