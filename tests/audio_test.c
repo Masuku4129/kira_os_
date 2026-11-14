@@ -134,6 +134,13 @@ static void fir_tests(void) {
 static int16_t in[96000 * 2], o1[48000 * 2 + 64], o2[48000 * 2 + 64];
 
 int main(void) {
+    unsigned slot = 99, generation = 99;
+    int64_t ah = audio_handle_make(3, AUDIO_HANDLE_GENERATION_MAX);
+    CHECK(ah == 65535);
+    CHECK(audio_handle_decode(ah, &slot, &generation) == 0 && slot == 3 && generation == AUDIO_HANDLE_GENERATION_MAX);
+    CHECK(audio_handle_make(4, 1) == -1 && audio_handle_make(0, 0) == -1);
+    CHECK(audio_handle_decode(0, &slot, &generation) != 0);
+    CHECK(audio_handle_decode(65536, &slot, &generation) != 0);
     int16_t a[4] = { 1000, 30000, -30000, 0 }, b[4] = { 2000, 10000, -10000, -5 }, out[4];
     const int16_t* src[2] = { a, b };
     audio_mix(out, src, 0, 2, 4, 65536);
