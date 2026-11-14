@@ -434,3 +434,6 @@
 - Exact head `59b391696baabfd49f2ff48acf5aba2b9db538de`, workflow `43591626068`: **43/43 checks PASS**, zero failures/cancellations.
 - Includes host tests, ARM64 build and full QEMU matrix, including `drv-edu`. The long driver-start record now remains contiguous while the driver still completes its DMA/MSI scenario.
 - Status: verified on unmerged Draft PR #157. PR #156 must be rerun with this dependency to obtain a clean exact-head MMIO result; its earlier `drv-edu` failure is explained by F-012, not F-011.
+
+
+- PR #159 first host run `43592195609` reached FDT tests and caught a test-only undeclared `len` variable in the new malformed-reg case. Replaced it with a dedicated `reglen`; implementation had compiled up to that test stage. Current head `1a61bd5bdc11b3dd0338c3142113c963308598bf`, exact-head workflow `43592382535` pending.
