@@ -266,7 +266,7 @@ If a remote CPU does not acknowledge before timeout, its stale translation may r
 
 | Finding | Source reviewed | Runtime reproduction | Targeted regression in current main | Status |
 |---|---|---|---|---|
-| F-001 | x86-64 and ARM64 stack allocator | PR #152 exact-head QEMU stress scenarios pass (SMP, 8-CPU boot/soak, stress); `apps-drvman` QEMU scenario fails with unresolved package-list output truncation | Shared helper test passes under ASan/UBSan; x86-64 build and ARM64 build/scenario pass | FIX IMPLEMENTED ON DRAFT BRANCH; standalone PR #152 had one baseline-dependent QEMU failure; combined PR #154 CI pending |
+| F-001 | x86-64 and ARM64 stack allocator | PR #152 exact-head QEMU stress scenarios pass (SMP, 8-CPU boot/soak, stress); `apps-drvman` QEMU scenario fails with unresolved package-list output truncation | Shared helper test passes under ASan/UBSan; x86-64 build and ARM64 build/scenario pass | FIX IMPLEMENTED WITH ACTIVE BITMAP; integration exposed an `apps-drvman` regression on PR #152 and combined PR #154. Per-slot generation tokens were added in latest PR #154 to reject stale frees after slot reuse; exact-head CI pending |
 | F-002 | KDRV, syscall capability gate, ARM64 DMA/MSI paths | Not run in this session | PR #136/137 tests are branch-only | CONFIRMED SOURCE SECURITY GAP |
 | F-003 | PCI ECAM backend and scan root | Not run in this session | PR #139 tests are branch-only | CONFIRMED SOURCE DEFECT |
 | F-004 | x86-64 and ARM64 entry paths/tree | Not run in this session | No unified BootInfo test in main | ARCHITECTURE GAP |
