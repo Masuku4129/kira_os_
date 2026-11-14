@@ -1218,3 +1218,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Found F-054: UHCI enables Bus Master before schedule allocation, FRBASE programming and controller stop/reset; xHCI enables Bus Master before BAR mapping, BIOS handoff, stop/halt, reset and ring allocation. Both have post-enable failure exits without a shared quiesce/disable rollback.
 - This is a strong candidate explanation for the remaining QEMU invalid-read DMA records because firmware may leave a controller running with stale pointers. It is not yet proven: no QEMU register/requester trace ties the messages to UHCI.
 - No production changes or tests in this pass. Next verification is register-level trace and host ordering/failure-injection tests before changing controller code.
+
+
+## 64. QEMU invalid-read log attribution audit — 2026-11-14
+
+- Inspected the actual PR #165 UHCI success artifact locally, not just its workflow summary. The result JSON confirms keyboard/tablet, USB storage, FAT32 mount and file-read checks all pass.
+- Independently counted 393,600 QEMU `Invalid read` records: 384 unique addresses across 0x3FFDE000–0x3FFDE2A8 and 0x3FFDECAC–0x3FFDEFFC, plus 98,304 reads each at 0x0/0x4/0x8/0xC.
+- Found F-055: `ci/kira_vm.py` starts `-d guest_errors` before firmware and never records a byte offset/phase boundary at the OS-ready serial prompt. Therefore the artifact cannot establish whether the records come from firmware, PCI enumeration or KIRA's USB runtime. Previous wording that implied the log necessarily represented guest-driver DMA was too strong; attribution remains unresolved.
+- Updated the next diagnostic requirement: preserve full log, add pre-ready/post-ready segmentation and a no-USB negative control. F-025 remains open; F-054 remains an independently confirmed source-ordering hazard.
+- No production source changed and no tests run in this pass.
