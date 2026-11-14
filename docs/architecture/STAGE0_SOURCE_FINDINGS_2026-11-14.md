@@ -757,3 +757,12 @@ F-025 remains OPEN pending exact-head CI and later PCI/device-model reconciliati
 4. Keep the RFC Draft until cross-ISA resource ownership and failure/teardown tests exist.
 
 F-026 remains OPEN. The five successful PR #141 CI runs verify the current implementation slice only, not the missing lifecycle contract.
+
+
+## Scheduler integration CI follow-up — UART long-line failure diagnosed (2026-11-14)
+
+- PR #154 integration head `8f4b9be58f63d93911817184dcbbce0e4eca36c1`, workflow `43610795635`: 29/30 jobs succeeded; only `vm (drv-edu)` failed its expected KDRV success-line regex.
+- Downloaded and inspected the VM artifact. The driver did start, DMA round-trip matched, protected PCI config writes were rejected, and the user test printed `PASS`. The serial log showed the KDRV success line split at the 192-byte per-CPU line-buffer boundary in the middle of a UTF-8 character, with another CPU's user log interleaved.
+- Fixed `uart_print()` in the PR #154 integration branch: strings at least `LB_SIZE` bytes now flush any pending prefix and emit the complete string under the UART line lock instead of being split into independently locked chunks. The test assertion was not weakened.
+- Corrected PR #154 head: `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110` queued at last check. Exact-head verification is pending; the 29/30 result belongs to the previous head.
+
