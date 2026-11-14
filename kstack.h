@@ -2,7 +2,7 @@
 #define KSTACK_H
 #include <stdint.h>
 /* Стеки потоков ядра с пустотой ниже (переполнение - ошибка доступа, а не порча чужой памяти). Реализует vmm своей
-   архитектуры. 0 - окно исчерпано: планировщик берёт стек из кучи с меткой на дне. */
+   архитектуры. 0 - guarded stack window exhausted or allocation failed; thread creation must fail closed. */
 void* vmm_kstack_alloc(uint32_t bytes, uint64_t* generation); // адрес стека + token поколения
 void  vmm_kstack_free(void* base, uint64_t generation);
 int   vmm_kstack_guard_hit(uint64_t addr);         // 1 - адрес в пустоте под стеком
