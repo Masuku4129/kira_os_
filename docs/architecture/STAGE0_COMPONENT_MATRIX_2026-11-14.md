@@ -466,3 +466,12 @@ Do not require identical source order across ISAs. Require explicit prerequisite
 ### F-025 additional evidence — UHCI DMA storm
 
 PR #165's full QEMU log (4,187,160,076 uncompressed bytes) contains more than 15.37 million rejected DMA reads at each of 0x0, 0x4, 0x8 and 0xC. The scenario uses the chipset UHCI controller with USB tablet and keyboard. This is consistent with an active UHCI frame-list fetch from an invalid/zero base, but the register values are not captured. Require USBCMD/USBSTS/FLBASEADD instrumentation and a bounded halt/reset experiment before declaring root cause.
+
+
+### F-029 USB DMA ownership gate
+
+The PCI enumeration Bus Master clear is not sufficient if a driver re-enables it too early:
+- UHCI currently enables IO + MASTER before USBCMD stop/HCHalted and before replacing FRBASE.
+- xHCI currently enables MEM + MASTER before BIOS handoff, stop/reset and replacement of DCBAAP/CRCR/event-ring state.
+- Required driver lifecycle: enable register decode only → bounded firmware handoff/stop/reset → allocate and program kernel-owned DMA structures → grant MASTER only through verified DMA/IOMMU policy → start controller. Failure must leave MASTER denied and quarantine the device.
+- Add QEMU scenarios for firmware-started controllers with stale/invalid DMA bases; the existing UHCI scenario currently fails earlier in PCI enumeration, so it cannot yet validate this downstream gate.
