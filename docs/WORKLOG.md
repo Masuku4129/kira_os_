@@ -1009,3 +1009,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - PR #166 current head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e, workflow 43610515593: 30/30 success. Earlier workflow 43608492629 was cancelled on an older head and is superseded.
 - PR #151 current head d2a53c8847bf40525780bb2624ea42efe9ba287a, base still main 811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4. No workflow run returned for this docs-only commit; no CI PASS is claimed.
 - No code changed in this diagnostic cycle.
+
+
+## 44. Test-to-component matrix and staged CI strategy added — 2026-11-14
+
+- Created docs/architecture/STAGE0_TEST_MATRIX_2026-11-14.md from the actual current-main tests/run_host_tests.sh, ci/scenarios.py, .github/workflows/ci.yml and ci/arm64_vm.py.
+- Mapped current host tests and x86-64/ARM64 QEMU scenarios by subsystem, explicitly recording skipped/conditional coverage (FAT depends on dosfstools/mtools) and the difference between host models and production drivers.
+- Added targeted test requirements for F-017/F-025/F-029…F-034: PCI command ordering, firmware-active DMA controllers, KDRV CAP_IRQ/CAP_DMA gates, Mind termination vetoes, FAT flush fault injection and VFS mount-table races.
+- Defined T0–T6 order: static/source → focused host → short diagnostic QEMU → subsystem acceptance → cross-ISA → full exact-head CI → PR integration compatibility.
+- The 10–15 second QEMU diagnostic profile and optional guest-error logging switch are recommendations only; current harness has not been changed. Full 90-second acceptance scenarios remain required.
+- No production source changed.
