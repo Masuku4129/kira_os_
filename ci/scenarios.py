@@ -574,7 +574,7 @@ ALL.append(sc("drvget-rl", "drvget: HTTPS source validation and on-device KCC bu
 # Окно «Драйверы» (/bin/drvman, пакет DM). Ядро чистое: окно - программа Ring 3; список PCI читается одним вызовом ядра под правом CAP_PCILIST,
 # установка - тот же код, что у drvget (userland/drvget.c с -DDRVGET_LIB). Режим «drvman do КОМАНДА;...» выполняет теми же функциями то,
 # что делают кнопки, и печатает те же строки, что рисуются в окне (устройства, пакеты, кадр), поэтому стенд проверяет именно показанное.
-ALL.append(sc("drvman-edu", "Driver Manager: MMIO-only Ring 3 driver starts; DMA/MSI package is refused without IOMMU; stop/restart/remove flows preserve ownership and status", [
+ALL.append(sc("drvman-edu", "Driver Manager: MMIO-only Ring 3 driver starts; asynchronous DMA/MSI denial is visible in kernel log without IOMMU; stop/restart/remove preserve ownership and status", [
     {"log": BOOT_LOG}, {"sleep": 6},
     {"log": [r"\[KIRA DRV\] edu: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
              r"\[KIRA DRV\] edu: PCI quiesce verified \(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\)",
