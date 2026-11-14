@@ -106,7 +106,6 @@ for app in demo atk-mem atk-priv atk-sys atk-gs; do
 done
 
 # All targets preserve the complete userland; no release flag may filter binaries.
-TESTPROGS="burn mt ipc udpecho melody demo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
 echo "[*] Инструмент kfstool, манифест доверенных программ и установка в образ диска..."
 HOSTCC="${HOSTCC:-clang}"
 $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
@@ -169,11 +168,10 @@ case " $* " in
         [ -d "$OUT" ] || { echo "[!] Нет папки $OUT (в Termux: termux-setup-storage; в proot - проверьте, что /storage примонтирован)"; exit 1; }
         cp kira.iso "$OUT/kira.iso"
         if [ -f "$OUT/kira_disk.img" ]; then
-            tools/kfstool "$OUT/kira_disk.img" init >/dev/null
-            for t in $TESTPROGS; do tools/kfstool "$OUT/kira_disk.img" rm /bin/$t >/dev/null 2>&1 || true; done   # убрать тестовые программы прежних версий
+            # Never format or prune an existing user disk: update only known paths in place.
             for e in $UELF; do tools/kfstool "$OUT/kira_disk.img" put /bin/$(basename $e .elf) $e >/dev/null; done
-            for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
-            for h in kcc/include/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
+            for w in build-wasm/*.wasm; do [ -f "$w" ] && tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
+            for h in kcc/include/*.h; do [ -f "$h" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
             [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."
         else
