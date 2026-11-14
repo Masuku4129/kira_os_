@@ -331,12 +331,12 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     uint64_t f = irq_save();
     while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
     uint32_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_RELAXED);
+    uint32_t slot = 0;
+    uint64_t va = 0;
     if (stack_size && stack_size != bytes) goto out;
     if (!stack_size) __atomic_store_n(&ks_size, bytes, __ATOMIC_RELEASE);
     if (ks_nfree > KSTACK_SLOTS) goto out;
 
-    uint32_t slot = 0;
-    uint64_t va = 0;
     int reuse = ks_nfree != 0;
     if (reuse) {
         if (!kstack_slot_free_pop(ks_free, &ks_nfree, ks_active,
