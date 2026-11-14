@@ -438,6 +438,37 @@ Source:
 2. ARM64 build/QEMU matrix passes.
 3. Audit remaining FDT-derived arithmetic (overlapping RAM ranges, total-size accounting, reserved-memory ranges and address-width limits) separately; this patch only closes the parser-level wrap.
 
+## F-016 — ARM64 ignores the FDT header memory-reservation map
+
+**Severity:** High memory ownership / firmware handoff risk  
+**Confidence:** High — direct absence in parser API and ARM64 PMM initialization  
+**Master-plan mapping:** A, B, F, L, M, N; streams 1, 6, 10, 11, 12.
+
+### Evidence
+
+- The FDT header includes `off_mem_rsvmap` at byte offset 16. The map is a sequence of 64-bit big-endian address/size pairs terminated by a zero/zero pair.
+- Before this remediation, `fdt_valid()` did not validate the reserve-map offset, alignment, bounds, terminator or address/size overflow, and `fdt.h` exposed no iterator.
+- ARM64 PMM startup reserved the kernel, DTB blob, early allocations, DMA pool and `/reserved-memory` nodes, but did not consume the header's independent reservation map.
+- Firmware-reserved physical pages described only in `mem_rsvmap` could therefore be marked free and overwritten by general allocation.
+
+Sources:
+- [FDT header validation and parser](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/fdt.c)
+- [ARM64 PMM initialization and reservations](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/arch/aarch64/main.c)
+
+### Remediation on current-main Draft PR
+
+- PR #166 validates the reservation-map offset/alignment, bounded entry count, in-blob terminator, non-wrapping ranges and non-overlap with the structure/strings blocks.
+- Adds `fdt_reserve_count()` and `fdt_reserve_get()`; ARM64 startup intersects each entry with all discovered RAM banks and reserves those pages before allocator exposure.
+- Carries forward the independently verified F-015 `fdt_reg()` overflow guard.
+- Host tests cover a valid range, invalid alignment, overlap, missing terminator and address+size wrap.
+- Exact-head CI pending; no PASS claimed.
+
+### Required closure
+
+1. Host FDT suite passes under ASan/UBSan.
+2. ARM64 build and QEMU matrix pass.
+3. Confirm the PMM cannot allocate any page intersecting a firmware reservation; preserve the separate reserved-page ownership guarantees from F-013.
+
 ## Verification ledger
 
 | Finding | Source reviewed | Runtime reproduction / branch evidence | Targeted regression evidence | Status |
@@ -453,6 +484,7 @@ Source:
 | F-010 | x86-64 TLB shootdown timeout and late IPI handling | Draft PR #155 exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; CI run `43590730265` | 43/43 checks PASS, including host, ARM64 and QEMU SMP matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
 | F-011 | MMIO page-range overflow during page align-up | Combined Draft PR #160 based on verified PR #157 UART fix | Workflow `43592802619`: 43/43 PASS incl. host, x86-64, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-013 | ARM64 PMM reserved-page ownership | Draft PR #158 exact head `70d0e89a65414818c22d61532f7ca4288c464d2c` | Workflow `43592051859`: 43/43 PASS incl. host, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
+| F-016 | FDT header `mem_rsvmap` and ARM64 PMM init | Draft PR #166 validates and consumes firmware reservation entries before allocator exposure | Exact-head CI pending; host FDT sanitizers + ARM64/QEMU required | FIRMWARE MEMORY RESERVATION FIX UNDER VERIFICATION |
 | F-015 | FDT reg index/address-size overflow | Draft PR #159 exact head `1a61bd5bdc11b3dd0338c3142113c963308598bf` | Workflow `43592382535`: 43/43 PASS incl. ASan/UBSan FDT tests, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-014 | ARM64 PMM contiguous release is non-atomic | Draft PR #158 validates whole range under one lock | Workflow `43592051859`: 43/43 PASS incl. host, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-012 | Driver-start log line split at 192-byte buffer boundary | QEMU serial artifact `43591102543` confirms driver success but interleaved log | Draft PR #157 exact head `59b391696baabfd49f2ff48acf5aba2b9db538de`; run `43591626068` 43/43 PASS including ARM64 and QEMU `drv-edu` | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
