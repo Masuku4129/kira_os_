@@ -25,7 +25,7 @@ void pci_set_backend(const pci_backend_t* b);      /* 0 - порты 0xCF8/0xCFC
 void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end);   /* конфигурация через ECAM */
 typedef struct { uint64_t pci_base, size, next; int64_t cpu_off; } pci_window_t;   /* окно адресов моста */
 int  pci_assign(pci_window_t* mem32, pci_window_t* mem64);   /* назначить пустые BAR (после pci_init); число BAR */
-int  pci_init(void);                               /* число найденных устройств */
+int  pci_init(void);                               /* число найденных устройств; гасит firmware bus mastering у host/endpoint/прочих функций; сохраняет только PCI-to-PCI и CardBus bridge forwarding */
 int  pci_count(void);
 const pci_dev_t* pci_get(int i);
 const pci_dev_t* pci_find(uint16_t vendor, uint16_t device);
