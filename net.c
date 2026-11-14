@@ -1116,7 +1116,10 @@ void tcp_close(int h) {
     tcb_t* t = tcp_pin(h);
     if (!t) return;
     uint64_t f = spin_lock_irqsave(&tlk);
-    t->closing = 1;                                              /* запретить новые операции над этим поколением */
+    if (t->closing) {                                             /* другой поток уже выполняет close */
+        spin_unlock_irqrestore(&tlk, f); tcp_unpin(t); return;
+    }
+    t->closing = 1;                                               /* запретить новые операции над этим поколением */
     spin_unlock_irqrestore(&tlk, f);
     tcp_wait(t, c_sent, 10 * TIMER_HZ);
     f = spin_lock_irqsave(&tlk);
