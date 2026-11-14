@@ -325,7 +325,7 @@ These are not approved designs or production-ready code by presence alone. They 
 
 ### CI completion correction — PR #165 diagnostic cleanup (2026-11-14)
 
-- PR #165 cleanup exact head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`, workflow `43608372681`: **30/30 jobs completed successfully**, zero failed jobs. This supersedes earlier queued/in-progress notes for that head.
+- PR #165 cleanup exact head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`, workflow `43608372681`: **43/43 jobs completed successfully**, zero failed jobs. This supersedes earlier queued/in-progress notes for that head.
 - Temporary boot/PCI diagnostics are removed; the earlier UHCI regression did not recur on this cleanup head.
 - F-017 remains OPEN: Bus Master is still cleared after BAR probing, leaving the firmware-DMA window during BAR probing unresolved. PR #162's PCI host-bus/subordinate-window changes still need reconciliation with PR #165 in `pci.c`.
 - This is a Draft branch result only; no main merge and no physical hardware claim.
@@ -415,7 +415,7 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - PCI/USB and cross-driver DMA grant ordering;
 - Mind ACT-mode authority and memory-pressure termination policy;
 - KiraFS/FAT persistence, VFS mount locking and test coverage boundaries;
-- exact-head project status registry PR #148 (30/30 jobs on its current reviewed head).
+- exact-head project status registry PR #148 (43/43 jobs on its current reviewed head).
 
 **Не закрыто:** полный смысловой аудит всех 829 baseline paths и всех 722 branch-only paths; source/test review оставшихся device, process, runtime, KCC, graphics, networking, security and boot areas; exact-head CI reconciliation for current PCI/ARM64 integration heads; full test-matrix mapping; execution of host tests in a local reproducible environment; physical x86-64/ARM64 acceptance.
 
@@ -434,7 +434,7 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - 22 architecture-support headers plus 12 assembly/linker support files reviewed; architecture-specific ABI and host-test guards recorded.
 - All 10 TEST_HELPER_REVIEW files inspected; tests/stub/kira.h and device/filesystem test models are not in production x86/ARM build scripts.
 - x86-64 and ARM64 kernel initialization orders compared; dependency equivalence is required, not identical source order.
-- PR #148 current head bf35ca714526d38f5fdc3021c03b2bedf3ec2c99 exact-head workflow 43609627054: 30/30 jobs succeeded. PR remains Draft/unmerged.
+- PR #148 current head bf35ca714526d38f5fdc3021c03b2bedf3ec2c99 exact-head workflow 43609627054: 43/43 jobs succeeded. PR remains Draft/unmerged.
 
 ### Test planning changes
 
@@ -696,4 +696,11 @@ Source audit only; no runtime tests or hardware validation. No kernel changes, m
 
 ## 26. UHCI acceptance evidence update — 2026-11-14
 
-PR #165 latest exact-head workflow attempt 2 is 30/30 PASS and the UHCI scenario functionally passes: keyboard/hub/USB storage detected, FAT32 mounted, test file read successfully. However, artifact inspection found 393,602 QEMU rejected invalid-read records in the 11.7-second run. Earlier PR #125 failure artifact had 72,286,473 such records and stalled during PCI BM-disable trace. This is not a controlled A/B comparison; F-025 remains OPEN pending requester/register correlation and a clean DMA/error log.
+PR #165 latest exact-head workflow attempt 2 is 43/43 PASS and the UHCI scenario functionally passes: keyboard/hub/USB storage detected, FAT32 mounted, test file read successfully. However, artifact inspection found 393,602 QEMU rejected invalid-read records in the 11.7-second run. Earlier PR #125 failure artifact had 72,286,473 such records and stalled during PCI BM-disable trace. This is not a controlled A/B comparison; F-025 remains OPEN pending requester/register correlation and a clean DMA/error log.
+
+
+## 27. Full CI and ARM64 acceptance reconciliation — 2026-11-14
+
+The latest exact-head runs for PRs #154, #164, #166 and #165 each have 43/43 successful jobs, including ARM64 build/QEMU. The PR #165 ARM64 artifact confirms 16 scenarios: GICv2/GICv3+ITS, HVC/SMC PSCI, 8-core EL2, GUI, USB, isolation/fault paths and non-coherent DMA with a 32 MB pool. This is emulator coverage only.
+
+The happy-path tests do not cover F-050 pool exhaustion, F-051 malformed FDT property-name, F-052 mixed coherency or F-053 PSCI absent. The x86 UHCI functional pass still has 393,602 rejected QEMU invalid-read records, so F-025 remains open.
