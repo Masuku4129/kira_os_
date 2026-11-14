@@ -652,3 +652,14 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - KiraFS crash-cutoff tests are substantial, but they do not test flush failure or concurrent filesystem callers; host locking is deliberately disabled in the test build.
 
 Source audit only; no production code modified. No tests claimed as run in this turn. Main untouched; no merge; no ISO build.
+
+
+## 22. ARM64 parity audit — 2026-11-14
+
+**Stage 0 progress: 59%.** Reviewed ARM64 boot and exception entry, scheduler context/FPU switching, user memory access, page-table and ASID management, PMM and SMP paths against x86-64/shared contracts.
+
+- F-049 — ARM64 PMM does not distinguish reserved pages from allocated pages, so an invalid free can release kernel/FDT/early memory; contiguous free is not atomic. This contradicts ADR-0003.
+- F-001 already covers the ARM64 kernel-stack slot ownership weakness; kept it as one finding rather than duplicating it.
+- ARM64 QEMU test scenarios exist, but no CI run or physical hardware validation was performed during this source audit pass.
+
+No kernel source changes, no merges, no ISO build.
