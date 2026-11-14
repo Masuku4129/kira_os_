@@ -1217,7 +1217,7 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
     if (op == NET_SYS_CONNECT) {                                 /* (адрес, порт) -> opaque handle */
         if (a1 > 0xFFFFFFFFull || !a2 || a2 > 65535) return -10;
         int h = tcp_connect((uint32_t)a1, (uint16_t)a2);
-        if (h >= 0 && tcp_set_owner(h, proc_current_pid())) return -8;
+        if (h >= 0 && tcp_set_owner(h, proc_current_pid())) { tcp_close(h); return -8; }
         return h;
     }
     if (op == NET_SYS_CONNECT_SA) {                              /* (адрес сокета) -> opaque handle */
