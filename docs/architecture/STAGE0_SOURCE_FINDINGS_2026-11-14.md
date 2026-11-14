@@ -1472,3 +1472,25 @@ On a mixed-coherency ARM64 platform without a PCI host node, one node's `dma-coh
 5. Test that non-coherent devices never use cacheable fallback after pool absence/exhaustion (F-050).
 
 F-052 remains OPEN.
+
+
+## New finding F-053 — PSCI power commands execute HVC when PSCI is absent (2026-11-14)
+
+**Severity:** HIGH platform power-control fault; conditional on firmware without PSCI or malformed/missing method.
+
+### Evidence
+- `psci_hvc` is initialized to `-1` to represent “no PSCI” (`arch/aarch64/main.c`, PSCI section).
+- `psci_call()` selects HVC with `if (psci_hvc)`; because `-1` is nonzero, the absent-PSCI state selects HVC instead of rejecting the call. Only the exact value 0 selects SMC.
+- CPU bring-up guards calls with `if (psci_hvc >= 0)`, but `platform_poweroff()` and `platform_reboot()` call `psci_call()` unconditionally using SYSTEM_OFF and SYSTEM_RESET function IDs.
+- The firmware method parser can leave `psci_hvc == -1` when the node or a usable method string is missing. The status string currently always advertises PSCI regardless of availability.
+
+### Consequence
+On ARM64 firmware without PSCI, selecting poweroff/reboot attempts an HVC from EL1. If HVC is not enabled/handled, the operation can raise an exception instead of returning a controlled “unsupported” result; it may panic or halt the system. This is distinct from a firmware that implements PSCI but refuses the requested power operation.
+
+### Required closure
+1. Make `psci_call()` reject calls unless `psci_hvc` is exactly 0 (SMC) or 1 (HVC); never treat -1 as HVC.
+2. Guard SYSTEM_OFF/SYSTEM_RESET and report unsupported when PSCI is unavailable; retain the returned firmware error when it is present.
+3. Parse only exact supported `method = "hvc"\0` or `"smc"\0` values and validate compatible/version support before enabling PSCI calls.
+4. Add host policy tests for absent/invalid/HVC/SMC method states and QEMU tests for power operation with PSCI disabled and enabled. Verify no HVC/SMC instruction is issued in the absent case.
+
+F-053 remains OPEN.
