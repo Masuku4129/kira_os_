@@ -72,7 +72,7 @@ int  tcp_listen(uint16_t port);                                   /* номер 
 int  tcp_accept(int l, uint32_t timeout_ticks);                   /* номер соединения или <0 (-5 срок) */
 void tcp_unlisten(int l);
 
-/* Системные вызовы сети для программ (syscall.c): соединение принадлежит открывшему процессу. */
+/* Системные вызовы сети для программ (syscall.c): TCP и listener handles непрозрачны, содержат поколение; владелец - открывший процесс. */
 enum { NET_SYS_DNS = 0, NET_SYS_CONNECT = 1, NET_SYS_SEND = 2, NET_SYS_RECV = 3, NET_SYS_CLOSE = 4,
        NET_SYS_LISTEN = 6, NET_SYS_ACCEPT = 7,            /* 5 - вызов ARGS (не сеть) */
        NET_SYS_CONNECT_SA = 8, NET_SYS_PEER = 9 };        /* вызовы 44 и 47: адрес сокета любого семейства */
