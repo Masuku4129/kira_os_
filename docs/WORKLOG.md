@@ -839,3 +839,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - PR #165 head `7ad140cfadb51c4dacf809eca77fff60ff7fe12c`, run `43613588426`, UHCI job `132504574309`: serial trace completed functions 00:00.0, 00:01.0 and 00:01.1, then stopped between `begin 0:1.2` and `probed 0:1.2`. This isolates the hang to `probe_bars()` on the UHCI controller (00:01.2).
 - The uploaded QEMU log is ~4.19 GB; its tail repeats rejected DMA reads from 0x0/0x4/0x8/0xC. #165 clears Bus Master only after BAR probing, while #125 clears it before probing. This is strong evidence of an interaction between active firmware DMA and BAR probing, not yet a fully proven root-cause mechanism.
 - #125 corrected run `43613583149`: UEFI OVMF and all non-VM checks pass; remaining VM shards are still running. Compare its UHCI result before any PCI policy change. Both PRs remain unmerged; temporary trace must be removed after diagnosis and clean full CI rerun.
+
+
+## 26. F-025 trace interpretation corrected from exact artifacts — 2026-11-14
+
+- Re-downloaded and inspected both VM ZIP artifacts instead of relying on the earlier summary. PR #165 run 43613588426, job 132504574309: serial trace reaches “probed 0:1.2” and then stops before “secured 0:1.2”; BAR probing returned. The remaining policy sequence reads PCI Command and conditionally clears Bus Master with pci_write16().
+- PR #125 run 43613583149, failed shard-0 job 132504922587: serial trace reaches “disable BM 0:1.2” but not “BM disabled 0:1.2”; its pci_disable_bus_master() helper performs config read/write/readback under cfg_rmw_lock.
+- Both branches therefore stall while attempting to change the UHCI function's Bus Master state, but their instrumentation does not yet identify the exact sub-operation. The earlier Stage 0 statement that PR #165 stalled inside probe_bars() is withdrawn and corrected in STAGE0_SOURCE_FINDINGS.
+- PR #125's other shard-0 scenarios boot-virtio, apps-explorer2 and net-ipv6 passed their recorded checks; UHCI failed after 90 s waiting for the prompt. At inspection, #125 had 18 successful jobs, one failed VM shard and one in progress; #165 had 29 successful jobs and the UHCI VM failure.
+- Next: instrument bounded Command read/write/readback and UHCI USBCMD/USBSTS state; compare class-aware controller quiesce against early IOMMU isolation; add bounded host/QEMU regressions. Do not merge either PCI branch until repeated clean full CI passes. No main change, no merge, no ISO build.
