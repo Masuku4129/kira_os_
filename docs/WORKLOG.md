@@ -270,3 +270,214 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+
+## Продолжение работ — Stage 0 repository audit (2026-11-14)
+
+- Audit baseline: `main` SHA `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`; Git tree: 829 blobs; 61 open PRs.
+- Открыт Draft PR #151: [Stage 0 repository audit](https://github.com/Masuku4129/kira_os_/pull/151). Документы: `docs/architecture/STAGE0_REPOSITORY_AUDIT_2026-11-14.md` и `STAGE0_SOURCE_FINDINGS_2026-11-14.md`.
+- Зафиксированы source findings F-001…F-005: kernel stack ownership на обеих ISA; Ring 3 DMA/MSI без IOMMU domain; PCI ECAM enumeration всегда с bus 0; отсутствие общего BootInfo contract в main; отсутствие bus-independent Device Model lifecycle.
+- F-001 remediation начата отдельным Draft PR #152, основанным непосредственно на main: общий `kstack_slot.h`, проверки exact-base/active ownership, bounded free list, ARM64 allocator metadata вынесена из stack memory, host regression включён в `tests/run_host_tests.sh`. Текущий head `8358d14850ff48f0a710486106a550e01701f2a5`; workflow `43585911384` запущен. До exact-head CI результата PASS не заявлять.
+- PR #132 содержит похожую работу, но основан на `v46/unified-release-integration`; его нельзя переносить целиком без reconciliation. Использован как reference, а исправление сделано на свежей main-based ветке.
+- DMA/MSI security gate остаётся открытым: PR #136 и #137 имеют новые head SHA без exact-head CI; реальная IOMMU implementation отсутствует в main.
+- PCI range/device registry work в PR #139/#141 зависит от архитектурной ветки #135 и не интегрирован в main; PR #139 exact head имеет один упавший VM job.
+- PR #150 exact-head host-tests failure разобран по job log: `tests/wm_test.c:84`, assertion `wm_compose_par(test_present, &composed_pixels) > 4`; это compositor regression, не причина kernel stack finding.
+- Текущая сессия использовала GitHub source/API review; локальный checkout и локальный запуск тестов отсутствовали. Никакой PR не объединён, main не изменён.
+- Next: дождаться exact-head CI PR #152; исправить найденные регрессии без ослабления тестов; продолжить Stage 0 matrix для всех 14 областей A–N и 12 streams, затем закрывать нижние зависимости по очереди.
+
+
+### Stage 0 — documentation drift and release profile (2026-11-14)
+
+- Добавлены F-006/F-007 в source findings. `ARCHITECTURE.md` содержит устаревшие ранние утверждения (один CPU, нет USB/NVMe, нет QEMU), хотя текущий main содержит соответствующие реализации/драйверы и CI scenarios. Документ нужно явно отделить как исторический журнал либо обновить его верхний verified summary.
+- `build_clang.sh --android` включает `RELEASE=1` и исключает `TESTPROGS` из `UELF`; это не полный тестовый/учебный образ. Для полного Limbo ISO нужно явно выбрать full profile и проверять manifest содержимого.
+- PR #152 первый exact-head workflow `43585911384` выявил две ошибки интеграции: x86-64 не включил `kstack_slot.h`; ARM64 замена allocator state не попала в declaration block. Ошибки исправлены отдельными коммитами.
+- Последний зафиксированный head PR #152: `29d8b5842ff5de0b93dc8da97f665496c6e507bb`; exact-head workflow `43586072209` выполняется. До завершения build, ARM64 и host-tests PASS не заявлять.
+
+
+### Stage 0 — component matrix and additional stack finding (2026-11-14)
+
+- Создан `docs/architecture/STAGE0_COMPONENT_MATRIX_2026-11-14.md`: предварительная карта всех 14 областей A–N и 12 потоков. Никакая область не объявлена READY; это inventory, а не acceptance report.
+- Добавлен F-008: `sched.c` fallback-ит на `kmalloc`, когда guarded VMM stack недоступен, а `create_thread()` записывает только canary и не очищает остальную память стека. Политика исчерпания stack window и очистка перед публикацией потока требуют отдельного решения/тестов.
+- Проверена точная CI matrix main: QEMU scenarios включают `boot-nvme`, `boot-8cpu`, `soak-8cpu`, `smp`, `usb-xhci`, `usb-uhci`, `net-e1000`, `net-virtio`, `net-ipv6` и другие. Это опровергает устаревшие ранние summary statements в `ARCHITECTURE.md`, но не является доказательством поддержки физического железа.
+- PR #152 exact-head run `43586072209` на SHA `29d8b5842ff5de0b93dc8da97f665496c6e507bb` выявил ARM64 предупреждение `va` may be uninitialized; исправлено на head `48518fac18ba16e49d66fb641ece96ae06515811`. Exact-head run `43586203250` для этого SHA выполняется; PASS ещё не заявлен.
+
+
+### Stage 0 — PMM contiguous ownership finding (2026-11-14)
+
+- Добавлен F-009: `pmm_free_contiguous()` ранее вызывал `pmm_free_page()` отдельно для каждой страницы; диапазон мог частично освобождаться, а другие CPU могли получить страницы до завершения всей операции.
+- Подтверждены callers в KDRV DMA cleanup/rollback, VirtIO, USB DMA и storage/controller paths.
+- Открыт Draft PR #153 на свежей main-based ветке: один lock, предварительная проверка всех страниц, all-or-nothing bitmap transition, обновление счётчиков один раз; `tests/pmm_test.c` покрывает invalid middle page, no partial free, double release, zero/unaligned/out-of-range.
+- Head PR #153: `861707fc4538d396e00066cfbfe2ec171edb8abb`; exact-head CI ожидается. Локальные тесты не запускались; PASS не заявлять до CI.
+
+
+### PR #152 — exact-head CI result (2026-11-14)
+
+- Exact head `48518fac18ba16e49d66fb641ece96ae06515811`, run `43586203250`: x86-64 build PASS; ARM64 build/scenario PASS; host-tests PASS; shared `kstack_slot_test` PASS under ASan/UBSan.
+- QEMU passed SMP, 8-CPU boot/soak, stress, NVMe, VirtIO/SATA/ATA, USB UHCI, network, WASM, isolation and other matrix scenarios.
+- One QEMU job `vm (apps-drvman)` FAILED. Downloaded artifact `vm-apps-drvman` shows the shell command `drv` prints `пакеты в /drv: 5` but then emits no package rows. The pinned `kdrv.c::show()` source should iterate those rows. Root cause is unresolved; do not label it pre-existing or attribute it to F-001 without a baseline comparison.
+- PR #152 is therefore NOT fully green. F-001 implementation is present and core stack tests/stress pass, but integration acceptance is blocked until the `apps-drvman` scenario is explained and passes (or an independently proven test defect is corrected without weakening coverage).
+
+
+### Сравнительная интеграция F-001 + F-009 (2026-11-14)
+
+- PR #153 (только PMM F-009), head `861707fc4538d396e00066cfbfe2ec171edb8abb`, exact-head run `43586614175`: **43/43 checks success**. В том числе `vm (apps-drvman)` PASS; артефакт показывает полный вывод списка всех пяти пакетов.
+- PR #152 (только VMM stack F-001), head `48518fac18ba16e49d66fb641ece96ae06515811`, exact-head run `43586203250`: 42/43 checks success; единственный failure `vm (apps-drvman)`. Артефакт показывает, что после пятого пакета команда `drv` останавливается после строки count и не выводит rows.
+- Это сравнение указывает, что F-009 из baseline является необходимой предпосылкой для прохождения данного сценария; F-001 не следует обвинять в этом failure без дополнительного evidence.
+- Создана combined main-based ветка и Draft PR #154, включающие оба изменения F-001 + F-009. Head `a3bd9a47f9a9f2f7fad09823ac50c3c90c2a01cd`; exact-head host/build/ARM64 checks запущены, затем ожидается полная QEMU matrix.
+- Ни один PR не объединён; main не изменён. Финальная интеграционная приёмка зависит от PR #154 exact-head CI.
+
+
+### Stage 0 — x86-64 TLB shootdown safety finding (2026-11-14)
+
+- Добавлен F-010. `arch/x86_64/smp.c::vmm_tlb_shootdown()` после 200 мс таймаута возвращает управление без подтверждения всех CPU, при этом очищает `sd_busy`; запрос хранится в общих глобальных полях.
+- Поздний IPI может увидеть уже перезаписанные `sd_root/sd_va/sd_pages` и очистить бит нового pending mask, создав ложное подтверждение.
+- `proc_shm_unmap()` после void shootdown освобождает shared object; `proc_unmap_pages()` тоже не получает статус, а DMA cleanup может освободить backing pages. Это требует fail-closed lifecycle.
+- ARM64 использует отдельный broadcast TLBI `vae1is/aside1is` с барьерами; отдельная проверка ASID lifecycle ещё нужна.
+- Приоритет: после проверки combined F-001/F-009 закрыть F-010 до дальнейшего расширения DMA/driver security.
+
+
+### Correction — combined memory integration isolated F-001 regression (2026-11-14)
+
+- Предыдущий вывод о том, что apps-drvman failure PR #152 связан с F-009, был преждевременным и заменяется этим результатом.
+- PR #153 (PMM-only) passed 43/43, включая apps-drvman.
+- Combined PR #154 (PMM + stack-slot) снова FAILED vm (apps-drvman). Следовательно, регрессия находится в F-001 stack-slot changes, а не в F-009 PMM patch.
+- В исходной F-001 реализации active bitmap предотвращал немедленный double-free, но не защищал от ABA: запоздалый free старого владельца мог попасть в тот же slot после его повторного выделения.
+- Исправление: добавлены 64-bit generation per slot; token проходит через vmm_kstack_alloc/free, сохраняется в thread_t и проверяется при teardown. Host regression теперь проверяет stale free после повторного выделения.
+- PR #154 latest head e299838c074604ee9cfeb734c819f84a2a5185ae; новый exact-head CI ожидается. До прохождения apps-drvman и всей матрицы F-001 не закрыт.
+
+
+### PR #154 — integration CI diagnosis and test synchronization (2026-11-14)
+
+- Combined run `43587356143` on the earlier PR #154 head passed 41 checks, failed only `vm (apps-drvman)`, and had one cancelled job.
+- Downloaded and inspected the failing VM artifact `vm-apps-drvman` (serial log + result.json). The installed `rl` package was present and verified; the expected `drv` command output was absent because the scenario issued `drv` immediately after observing `drvget verify rl: OK`, before the `drvget` process had exited and returned the console prompt. The harness returned in 0.00 s on the stale/queued prompt; the serial log ends at the next prompt without executing `drv`.
+- This is a scenario synchronization race, not evidence of a broken package list or PMM/VMM regression. The test now explicitly waits for `кира> ` after verify and before issuing `drv`.
+- New exact head: `4dd1454093af90f7d569df03b4425650da8da8bc`; exact-head workflow `43590094470` is running. Do not mark PR #154 green until all jobs finish.
+
+
+### F-010 remediation implementation (2026-11-14)
+
+- Created main-based draft branch `fix/x86-tlb-shootdown-fail-closed-2026-11-14`.
+- Replaced the shared pending-bit completion protocol with a monotonically increasing 64-bit shootdown generation and per-CPU acknowledged generation. The sender accepts only the exact generation it published.
+- A 200 ms threshold now emits one warning only. It no longer breaks the wait or releases `sd_busy`; the request payload remains immutable and backing pages cannot be reclaimed until every target CPU has completed its invalidation.
+- Added `arch/x86_64/tlb_shootdown.h` and host cases for partial acknowledgements, old-generation acknowledgements, newer generation and empty target mask in `tests/smp_test.c`.
+- Updated VMM/SMP contract comments. Exact-head CI has not yet been accepted; the change remains pending verification.
+
+
+- Follow-up hardening: generation wrap is now rejected instead of reusing generation 1; counter exhaustion enters fail-closed wait. Host tests cover next-generation progression and UINT64_MAX rejection. Draft PR #155 head is `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; exact-head workflow `43590730265` queued.
+
+
+### F-011 — MMIO range overflow remediation (2026-11-14)
+
+- Source review found `vmm_map_mmio()` checked overflow of `pa + len` but then separately added `PAGE_SIZE - 1` for align-up without checking that second addition.
+- Added `vmm_mmio_range.h` with checked half-open range arithmetic; the helper rejects raw-end overflow, align-up overflow, null outputs, zero length and non-increasing aligned bounds.
+- Updated `vmm_map_mmio()` to use the checked page range and validated raw end.
+- Added `tests/mmio_range_test.c` for normal/cross-page ranges, final representable page, raw-end overflow and align-up overflow; wired into `tests/run_host_tests.sh`.
+- Draft PR #156 branch: `fix/mmio-range-overflow-2026-11-14`. Exact-head CI pending. No local test run claimed.
+
+
+### PR #154 — combined F-001 + F-009 accepted by exact-head CI (2026-11-14)
+
+- Latest PR #154 head: `4dd1454093af90f7d569df03b4425650da8da8bc`.
+- Exact-head workflow `43590094470`: **43/43 jobs PASS**, zero failures, zero cancellations.
+- This closes the prior `apps-drvman` test synchronization issue on this exact combined head and verifies stack-slot generation ownership plus atomic PMM contiguous release across the CI host/ARM64/QEMU matrix.
+- Status: fixes are verified on an unmerged Draft PR branch. They are not yet part of `main`; do not claim main is fixed until review/merge.
+
+
+### PR #155 — F-010 exact-head CI passed (2026-11-14)
+
+- Exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`, workflow `43590730265`: **43/43 checks PASS**, zero failures/cancellations.
+- Host suite, ARM64 build and QEMU matrix all passed. This verifies generation-bound per-CPU acknowledgements, stale-generation rejection, non-reusable counter policy and fail-closed timeout behavior under the current automated matrix.
+- Status: verified on unmerged Draft PR #155; main remains unchanged. Hardware fault-injection for a permanently nonresponsive AP is not covered by the current CI and remains a limitation to record.
+
+
+### F-012 — long driver-start record interleaving (2026-11-14)
+
+- PR #156 run `43591102543` failed only `vm (drv-edu)` at the point checked by the expected driver-start regex.
+- Downloaded artifact `vm-drv-edu` and inspected `serial.log` + `result.json`: driver process started, MSI was enabled, DMA round-trip succeeded, protected config write was rejected and user driver printed PASS. The failure was the kernel's long driver-start record split at `LB_SIZE=192`, with another CPU's user log inserted between fragments.
+- Root cause: `kdrv.c` assembled a >192-byte record in `ln[320]` then used streaming `uart_print()`; `linebuf.c` flushes at exactly `LB_SIZE` even without newline.
+- Added `uart_print_atomic()` using existing `emit_line()` lock; driver-start assembled record now uses this path. Draft PR #157, exact-head CI pending.
+- This is a real observability/logging defect, not a driver launch/DMA/MSI failure. PR #156 acceptance needs a rerun after the logging fix is available; do not mask or weaken the QEMU assertion.
+
+
+- F-012 cross-architecture follow-up: first PR #157 CI run `43591470627` caught an undefined `uart_print_atomic` symbol on ARM64. Added an ARM64 alias to its existing whole-string locked UART implementation. Current head `59b391696baabfd49f2ff48acf5aba2b9db538de`; exact-head workflow `43591626068` pending.
+
+
+### ARM64 PMM ownership parity findings F-013/F-014 (2026-11-14)
+
+- Source review of `arch/aarch64/pmm_arm.c` found no reserved bitmap: `pmm_arm_reserve()` only set the used bit, while `pmm_free_page()` accepted any used page. A stale free could release kernel/FDT/early page-table/DMA-reserved memory.
+- ARM64 `pmm_free_contiguous()` looped over individual frees and could partially release a block before encountering an invalid middle page. This was not covered by the x86-64 F-009 fix.
+- Draft PR #158 adds a separate reserved bitmap, counts overlapping RAM entries once, rejects frees of reserved pages, and validates/releases contiguous ranges atomically under one lock.
+- Added `tests/pmm_arm_test.c` for reserved-page rejection, overlapping regions, late reservations, double free and invalid-middle all-or-nothing block release; wired into host CI with ASan/UBSan.
+- Exact-head CI pending; no local tests claimed.
+
+
+- PR #158 first host run `43591902136` stopped before compiling the new test because its include path omitted `arch/aarch64`; added the missing `-Iarch/aarch64` flag. This was a test harness path error, not a PMM implementation result. Updated head `a0b0a722957cdc75e550ff4ee9de3e5835dd7d22`, workflow `43591985380` pending.
+
+
+### ADR-0003 — PMM ownership contract (2026-11-14)
+
+- Added `docs/adr/ADR-0003-pmm-reservation-and-atomic-block-release.md`.
+- Defines distinct free/allocated/reserved page ownership, rejects freeing reserved pages, requires all-or-nothing contiguous release, counts overlapping RAM regions once and requires x86-64/ARM64 behavioral parity.
+- Status remains Proposed while ARM64 implementation PR #158 completes exact-head verification; x86-64 F-001/F-009 fixes are verified on Draft PR #154.
+
+
+### F-015 — FDT reg-range parser hardening (2026-11-14)
+
+- Source review found two parser arithmetic defects in `fdt_reg()`: `idx + 1` wrapped as 32-bit before widening, and decoded nonzero-size `addr + size` ranges were not checked for uint64 overflow.
+- ARM64 startup consumes these ranges for RAM, UART, GIC, PCI ECAM and framebuffer setup; invalid ranges could propagate into memory/MMIO setup.
+- Draft PR #159 computes the entry offset in 64-bit with subtraction-based bounds checks, rejects wrapping half-open ranges, and adds FDT host regressions for `UINT32_MAX` index and address/size overflow.
+- Exact-head CI pending. Remaining FDT arithmetic (overlapping RAM totals, reserved-memory and physical-address limits) remains a separate audit item.
+
+
+### PR #157 — F-012 exact-head CI passed (2026-11-14)
+
+- Exact head `59b391696baabfd49f2ff48acf5aba2b9db538de`, workflow `43591626068`: **43/43 checks PASS**, zero failures/cancellations.
+- Includes host tests, ARM64 build and full QEMU matrix, including `drv-edu`. The long driver-start record now remains contiguous while the driver still completes its DMA/MSI scenario.
+- Status: verified on unmerged Draft PR #157. PR #156 must be rerun with this dependency to obtain a clean exact-head MMIO result; its earlier `drv-edu` failure is explained by F-012, not F-011.
+
+
+- PR #159 first host run `43592195609` reached FDT tests and caught a test-only undeclared `len` variable in the new malformed-reg case. Replaced it with a dedicated `reglen`; implementation had compiled up to that test stage. Current head `1a61bd5bdc11b3dd0338c3142113c963308598bf`, exact-head workflow `43592382535` pending.
+
+
+### PR #158 — ARM64 PMM ownership parity exact-head CI passed (2026-11-14)
+
+- Exact head `70d0e89a65414818c22d61532f7ca4288c464d2c`, workflow `43592051859`: **43/43 checks PASS**, zero failures/cancellations.
+- Includes the new ARM64 PMM host suite under ASan/UBSan, x86-64 build, ARM64 build and full QEMU matrix.
+- F-013 and F-014 are verified on this unmerged Draft PR. This does not mean main has the fix; no merge was performed.
+
+
+### PR #159 — FDT reg parser exact-head CI passed (2026-11-14)
+
+- Exact head `1a61bd5bdc11b3dd0338c3142113c963308598bf`, workflow `43592382535`: **43/43 checks PASS**, zero failures/cancellations.
+- Includes the new malformed-index and address/size-overflow FDT host cases under ASan/UBSan, x86-64 build, ARM64 build and QEMU matrix.
+- F-015 is verified on this unmerged Draft PR. Remaining FDT-derived RAM overlap, reserved-memory and physical-address-width validation are explicitly not covered by this finding.
+
+
+### ADR-0004 — Ring 3 DMA/MSI requires per-device IOMMU isolation (2026-11-14)
+
+- Added `docs/adr/ADR-0004-ring3-dma-requires-iommu.md`.
+- Records that DMA and MSI/MSI-X both require bus mastering and must be denied to Ring 3 drivers until a per-device IOMMU domain is created, attached, invalidated, mapped/unmapped and safely torn down.
+- Defines fail-closed behavior, PCI quiesce, MMIO-only exception, future VT-d/SMMUv3 acceptance requirements and physical-hardware evidence requirements.
+- Implementation candidate is Draft PR #161; exact-head CI `43593017450` pending at time of record.
+
+
+### PR #160 — MMIO range + atomic UART combined exact-head CI passed (2026-11-14)
+
+- Exact head `d5628989db142212bf6af26510a06e5bd0e70c90`, workflow `43592802619`: **43/43 checks PASS**, zero failures/cancellations.
+- Includes F-011 checked MMIO range arithmetic and its ASan/UBSan host boundary tests, plus F-012 atomic UART records from the previously verified PR #157.
+- Host tests, x86-64 build, ARM64 build and full QEMU matrix passed. F-011/F-012 are verified on this unmerged Draft PR; main remains unchanged.
+
+
+### ADR-0005 — PCI host bus-range and bridge subordinate bounds (2026-11-14)
+
+- Added `docs/adr/ADR-0005-pci-host-bus-range-enumeration.md`.
+- Records the F-003 source defect: `pci_use_ecam()` stores a host bus range but `pci_init()` starts at bus 0; bridge traversal follows secondary bus without carrying the subordinate limit.
+- Defines nonzero root-bus support, validated primary/secondary/subordinate tuples, parent-window inheritance, cycle protection and legacy x86 bus-0 compatibility.
+- Implementation and host/QEMU regression remain pending.
+
+
+### F-003 — PCI host bus-range implementation opened for current-main verification (2026-11-14)
+
+- Draft PR #162: `pci_init_range()`, ECAM root starts at declared `bus_start`, bridge primary/secondary/subordinate validation, parent subordinate bound inheritance and legacy bus-0 compatibility.
+- Host tests include nonzero root, nested windows, out-of-range bridge, wrong primary, invalid-range snapshot preservation, legacy scan and real ECAM path.
+- Exact-head CI pending. No main changes and no PASS claimed.
