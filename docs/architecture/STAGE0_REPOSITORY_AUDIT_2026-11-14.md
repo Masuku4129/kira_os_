@@ -629,3 +629,14 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - Existing window-manager tests provide useful full-redraw-vs-damage equivalence and interaction coverage, but they do not prove multi-thread graphics event safety.
 
 No production source changed. Main remains untouched; no PR merged; no ISO built.
+
+
+## 20. Graphics app and framebuffer lifetime audit — 2026-11-14
+
+**Stage 0 progress: 57%.** Reviewed graphics app-slot lookup, syscall use, process-exit notification, compositor cleanup and shared framebuffer backing pages.
+
+- F-046 — raw unpinned graphics app pointers can outlive the slot or framebuffer when asynchronous process teardown races with an in-flight syscall. The destroy path frees physical pages without a demonstrated service-level drain/unmap/TLB-shootdown protocol.
+- This is a source-level concurrency/lifetime finding; no runtime crash or exploit was demonstrated. SMP/QEMU validation remains outstanding.
+- Existing graphics rendering tests do not cover process-exit vs in-flight drawing/event access or physical-page reuse.
+
+No production source changed. Main remains untouched; no PR merged; no ISO built.
