@@ -67,6 +67,9 @@ tests/rl_build.sh $T/rl
 echo "== PCI enumeration clears firmware bus mastering before driver ownership =="
 $CC $FLAGS -o $T/pci tests/pci_test.c pci.c
 $T/pci
+echo "== PCI host bus range (nonzero root, nested subordinate bounds, ECAM and legacy) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/pci-range tests/pci_range_test.c pci.c
+$T/pci-range
 
 echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
 $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
