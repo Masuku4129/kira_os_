@@ -270,3 +270,15 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+
+### F-002 complementary firmware PCI Bus Master handoff fix — current-main Draft PR candidate (2026-11-14)
+
+- PR #137 was based on stale ancestor `bbc7f7ab948e72511aed113b69043add10ec8350`; its PCI hardening has been transplanted onto a fresh branch based on current `main`.
+- During PCI enumeration, firmware-enabled `PCI_CMD_MASTER` is now cleared for endpoints, host bridges and non-forwarding bridge-class functions before BAR probing / driver ownership.
+- Bus mastering is preserved only for real PCI-to-PCI bridges (header type 1, class 06/subclass 04) and CardBus bridges (header type 2, class 06/subclass 07), because those functions must forward downstream bus-master transactions.
+- IO/MEM decode bits are preserved; a driver may explicitly enable the bits it owns after its policy checks.
+- Added a host PCI backend regression for host bridge, PCI-to-PCI bridge, ISA bridge, CardBus bridge and endpoint; it verifies the exact classification and explicit owner enable. Wired into `tests/run_host_tests.sh`.
+- This is complementary to PR #161: firmware handoff sanitization prevents inherited bus mastering; PR #161 blocks Ring 3 CAP_DMA/CAP_IRQ while no real per-device IOMMU domain exists.
+- The diagnostic UHCI trace-only edits from old PR #137 were deliberately not transplanted; USB UHCI startup remains a separate investigation.
+- Exact-head CI pending; no PASS claimed.
