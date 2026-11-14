@@ -117,21 +117,33 @@ Stage 0 — инвентаризация всего репозитория и д
 
 **Запрещено:** ставить READY только по наличию исходника, имени функции, комментария, успешной компиляции или наличию теста без фактического запуска.
 
-## 7. Очередь ближайшей работы
+## 7. Source-level findings
+
+Подтверждённые первичные findings вынесены в [STAGE0_SOURCE_FINDINGS_2026-11-14.md](STAGE0_SOURCE_FINDINGS_2026-11-14.md):
+- F-001 — небезопасное владение kernel stack slots на x86-64 и ARM64; дополнительно выявлен зависающий partial-map slot на x86-64.
+- F-002 — Ring 3 DMA/MSI может включить PCI bus mastering без per-device IOMMU isolation.
+- F-003 — PCI ECAM bus range сохраняется, но root enumeration начинается с bus 0.
+- F-004 — unified BootInfo contract отсутствует в текущем main.
+- F-005 — generic bus-independent Device Model lifecycle отсутствует в текущем main.
+
+Это подтверждённые по исходникам findings, а не runtime reproduction. Тесты для них в рамках этого аудита локально не запускались.
+
+## 8. Очередь ближайшей работы
 
 - [x] Получить актуальный main SHA и дерево.
 - [x] Получить список открытых PR и текущие head/base SHA.
 - [x] Сверить архитектурную ветку #135 с main.
 - [x] Проверить exact-head CI #148 и #150.
 - [ ] Независимо разобрать падение `host-tests` PR #150.
-- [ ] Полностью прочитать актуальные `AGENTS.md`, `README.md`, `ARCHITECTURE.md`, мастер-план и WORKLOG.
+- [x] Прочитать актуальные `AGENTS.md`, `README.md`, `ARCHITECTURE.md`, мастер-план и WORKLOG.
 - [ ] Сверить build scripts x86-64/ARM64 с tree и status manifest PR #148.
 - [ ] Составить актуальную компонентную матрицу по всем A–N и 12 потокам.
-- [ ] Провести source-level аудит нижних уровней и зарегистрировать подтверждённые findings.
+- [x] Выполнить первичный source-level проход по kernel stacks, DMA/IOMMU, PCI enumeration, boot handoff и Device Model; зарегистрировать F-001…F-005. Полный аудит всех нижних уровней ещё не завершён.
 - [ ] Сформировать отдельный набор RFC/ADR для незафиксированных контрактов.
 
-## 8. История изменений
+## 9. История изменений
 
 | Дата | Commit / источник | Изменение | Проверка |
 |---|---|---|---|
 | 2026-11-14 | main `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4` | Зафиксирован исходный baseline Stage 0 | GitHub tree/API read; исполняемые тесты в этой записи не запускались |
+| 2026-11-14 | audit branch `cd12b7c31dccf97c1bd6d5ebf001bd0f3b9dac0a` | Добавлены F-001…F-005 по исходникам | Source review на pinned main SHA; runtime reproduction не выполнялся |
