@@ -1235,3 +1235,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Retry uses only `xs.slot[sl].in` as the initialization sentinel. If IN succeeded but OUT failed, the retry takes the initialized branch and clears `xs.slot[sl].out[i]` through NULL. A missing transfer buffer/ring can also leave a slot marked initialized without complete resources.
 - The current DMA allocator has no public free operation, so failure recovery must explicitly preserve/reuse partial resources or introduce a real DMA free contract; simply zeroing the slot would leak already allocated pages.
 - Source-only finding; no production code or tests changed in this audit pass. Required regression: fail each allocation stage, retry same slot, and verify safe reuse.
+
+
+## 66. Phase-aware QEMU baseline and PCI/UHCI differential — 2026-11-14
+
+- PR #168 exact head `7ad4b30cf9e7cbb2cefaecaa06359838c5971841`, run `43620850523`: 43/43 jobs passed. Inspected actual artifacts for `usb-uhci` and `boot-virtio`; each contains `qemu-diagnostics.json`, a zero-byte raw `qemu.log`, and 0 invalid read/write records on either side of the ready marker.
+- Compared against PR #165 run `43613588426`, whose UHCI artifact contains 393,602 invalid-read records despite a functional pass.
+- This strengthens, but does not prove, the F-054 hypothesis that the PCI firmware Bus Master clear/re-enable sequence in #165 exposes a controller's stale firmware DMA schedule before reset. The runs are different source heads, not a controlled A/B.
+- PR #169 is stacked on #165 and moves BM activation after controller reset and DMA ring/schedule setup; its exact-head host/QEMU results will decide whether this hypothesis is supported. No production fix is claimed before that verification.
