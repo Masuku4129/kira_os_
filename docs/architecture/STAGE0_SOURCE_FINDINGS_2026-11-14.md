@@ -1222,3 +1222,24 @@ F-039 remains OPEN.
 4. Run ThreadSanitizer where supported after context isolation.
 
 F-040 remains OPEN.
+
+
+## New finding F-041 — WASM binary decoder advances pointers beyond validated section bounds (2026-11-14)
+
+**Severity:** HIGH untrusted-module parser memory safety.
+
+### Evidence
+- userland/wasm.c parses user-selected WebAssembly modules in Ring 3. The section loop validates `se = s + sz` against module end, but many nested fields then advance `s` without first proving the field fits within the current section: type parameter/result bytes, import/export names and kinds, table/memory limits, global descriptors, element entries, function-body local declarations and several instruction immediates.
+- `skip_imm()` directly advances over memory-size/alignment bytes, float constants and typed-select type vectors (`*p += 1/4/8/n`) without checking remaining bytes against `e`.
+- `leb_s()` returns a partial decoded value when input ends before a terminating byte; unlike `leb_u()`, it does not explicitly trap on unterminated/truncated LEB128.
+- These parser paths can read outside the declared section and, for truncated final input, beyond the supplied module buffer. This is a source-level out-of-bounds-read risk when processing an untrusted .wasm file; no runtime exploit is claimed.
+- Existing WASM differential/fuzz tests generate valid operations, trap cases and damaged copies, but this review did not establish coverage for every truncated section/LEB/immediate boundary or execute the harness.
+
+### Required closure
+1. Replace raw pointer increments with checked readers that receive the current section/body end and fail closed before every byte/range read.
+2. Make signed and unsigned LEB readers reject unterminated, overlong and out-of-range encodings per WebAssembly binary rules.
+3. Validate section order/uniqueness, vector counts, name lengths, type bytes, import/export indices, table/memory limits, element/data ranges and function-body boundaries before allocating or compiling.
+4. Add systematic truncation tests at every byte boundary for each section and opcode immediate, plus oversized LEB/vector/section lengths.
+5. Run the full WASM corpus under ASan/UBSan and fuzz malformed modules with bounded fuel and a strict timeout; require no out-of-bounds access, hang or cross-module state leakage.
+
+F-041 remains OPEN.
