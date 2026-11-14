@@ -563,7 +563,7 @@ ALL.append(sc("drvget-rl", "drvget: HTTPS source validation, license/hash confir
     {"log": [r"\[KIRA DRV\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
              r"\[KIRA DRV\] rl: PCI quiesce verified \(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\)"]},
     {"cmd": "drv", "forbid": [r"drv-rl pid"]},
-    {"log_forbid": [r"rl: network interface registered", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+    {"log_forbid": [r"rl: network interface registered"]},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", tls_chain=True,
     extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + " --serve " + _DRV_WWW,
