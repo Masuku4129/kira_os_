@@ -208,6 +208,13 @@ static int pkg_for_dev(const kdrv_pcient_t *e) {              /* подходя�
     return first;
 }
 
+static int pkg_named_for_dev(const char *name, const kdrv_pcient_t *e) {
+    if (!name || !name[0]) return -1;
+    for (int i = 0; i < npkg; i++)
+        if (!strcmp(pkg[i].name, name) && pkg_matches(&pkg[i], e)) return i;
+    return -1;
+}
+
 /* Состояние устройства словами; col - цвет. */
 static void dev_state(const kdrv_pcient_t *e, char *b, int cap, u32 *col) {
     *col = FG;
@@ -217,7 +224,8 @@ static void dev_state(const kdrv_pcient_t *e, char *b, int cap, u32 *col) {
     case KDRV_OWN_RING3: snprintf(b, (size_t)cap, "драйвер Ring 3 drv-%s запущен", e->name); *col = GREEN; return;
     default: break;
     }
-    int k = pkg_for_dev(e);
+    int k = pkg_named_for_dev(e->name, e);
+    if (k < 0) k = pkg_for_dev(e);
     if (k >= 0) { snprintf(b, (size_t)cap, "пакет %s установлен, не запущен", pkg[k].name); *col = AMBER; }
     else { snprintf(b, (size_t)cap, "драйвера нет"); *col = RED; }
 }
