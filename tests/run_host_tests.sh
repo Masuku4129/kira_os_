@@ -266,7 +266,7 @@ for mod in wmix wmix0; do
 done
 echo "wasm: calls, call_indirect, i64, br_table, loops, 8/16-bit memory, memory.copy, f64 (-O2 and -O0 builds) equal native"
 $CC -O1 -g -w -DWASM_FUEL -I. -fsanitize=address,undefined -o $T/wasmfz tests/wasm_host.c -lm
-UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmfz selftest || exit 1
+UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmfz selftest build-wasm/wtest.wasm || exit 1
 for mod in wtest ftest wgfx wmix wmix0; do
     UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmfz fuzz build-wasm/$mod.wasm 3000 > $T/wfz.out 2>&1 || { tail -5 $T/wfz.out; exit 1; }
     tail -1 $T/wfz.out
