@@ -15,7 +15,7 @@ Status vocabulary:
 
 | Area | Main-tree inventory | Preliminary status | Confirmed gaps / next audit |
 |---|---|---|---|
-| **A. Architecture & base platform** | `ARCHITECTURE.md`, `docs/MASTER_DEVELOPMENT_PLAN.md`, boot/CPU/memory/device contracts spread across source | PARTIAL | Current architecture baseline, versioned BootInfo, Native ABI, IPC, Device Model and service contracts are not all consolidated in main. Target architecture package in PR #135 is BRANCH-ONLY and heavily diverged. F-004/F-005/F-006. |
+| **A. Architecture & base platform** | `ARCHITECTURE.md`, `docs/MASTER_DEVELOPMENT_PLAN.md`, boot/CPU/memory/device contracts spread across source | PARTIAL | Current architecture baseline, versioned BootInfo, Native ABI, IPC, Device Model and service contracts are not all consolidated in main. ADR-0006 proposes the BootInfo contract; implementation and producer/consumer tests remain open. Target architecture package in PR #135 is BRANCH-ONLY and heavily diverged. F-004/F-005/F-006. |
 | **B. KIRA Kernel** | `kernel.c`, `pmm.c`, `vmm.c`, `proc.c`, `sched.c`, `syscall.c`, `percpu.c`, `kobj.c`, `futex.c`, x86-64 and ARM64 backends | PARTIAL | Boot and memory lifecycle, SMP, process/thread teardown, syscalls, IPC and lock ordering need a line-by-line contract audit. F-001 and F-008 are confirmed stack lifecycle/hardening gaps; x86-64 PMM release (F-009) and TLB shootdown (F-010) are verified on unmerged Draft PRs; ARM64 reserved-page ownership and atomic block release (F-013/F-014) are verified 43/43 on PR #158 but remain absent from main until integration. |
 | **C. KIRA Virtual Runtime / application ABI** | `userland/wasm.c`, `userland/wasm_jit_x64.h`, `userland/wasm_jit_x64_gen.h`, module build/tests | PARTIAL | Existing WASM is a bounded subset, not full modern WASM conformance. Parser/verifier, type/index bounds, quotas, cancellation, JIT W^X and host API need independent audit. KVM1 research implementation is in PR #134/branch-only and must not be treated as production KVR; ADR-0001 keeps WASM primary. |
 | **D. KIRA Mind** | `mind.c`, `mindnet.c`, `mind_sys.c`, `experience.c`, `watchdog.c` | PARTIAL | Telemetry causality, policy authority, audit/rollback, lock/latency impact and all actions that can change scheduler/resources need explicit policy-boundary review. Tests exist but do not prove safe authority boundaries. |
@@ -49,7 +49,7 @@ Status vocabulary:
 
 ## 3. Bottom-up integration gates
 
-1. **Firmware and platform handoff:** BIOS/UEFI/Multiboot2/ARM64 FDT (close F-015 parser bounds), memory map, modules, framebuffer and versioned BootInfo.
+1. **Firmware and platform handoff:** BIOS/UEFI/Multiboot2/ARM64 FDT (close F-015 parser bounds), memory map, modules, framebuffer and versioned BootInfo (ADR-0006 proposed; implementation pending).
 2. **CPU/HAL:** CPU features, GDT/IDT, exception frame, IRQ, timers, APIC/GIC, SMP and TLB operations.
 3. **Device discovery and ownership:** PCI host range, bridges, stable handles, resources, DMA/MSI policy, IOMMU and device lifecycle.
 4. **Physical/virtual memory:** PMM, VMM, page-table ownership, stack/heap guards, W^X/NX, TLB, DMA pin/unpin.
