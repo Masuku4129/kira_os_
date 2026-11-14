@@ -1007,3 +1007,26 @@ The 4.18 GB qemu.log was generated because the current VM harness always enables
 6. Preserve explicit fail-closed behavior on platforms without an IOMMU. Do not claim that the existing contiguous allocator alone isolates DMA.
 
 F-031 remains OPEN. This is a separate manager-level flaw in addition to the built-in driver's early-grant ordering in F-029/F-030.
+
+
+## New finding F-032 — KIRA Mind can terminate the largest process without a critical-service exclusion contract (2026-11-14)
+
+**Severity:** HIGH reliability/policy risk in ACT mode; the current rule is implemented, not a placeholder.
+
+### Evidence
+- mind.c memory() has three thresholds: at 88% memory it asks the kernel to trim caches; at 93% it restricts heap growth; at 97% it may kill a process, no more than once per 10 seconds.
+- The kill candidate is the process with the largest reported heap, provided it uses at least 16 MiB and at least 20% of total RAM. The code does not rank by service criticality, user data durability, foreground status, or restartability before calling proc_kill().
+- mind_sys.c supplies the callback directly as proc_kill(). proc_kill() marks the process dying and wakes its threads; teardown later closes network/audio/graphics and driver resources.
+- The sample and policy interfaces shown in current main do not expose a protected/essential service class or a per-process kill-veto callback. Therefore a large system-facing process or a process with unsaved work may be eligible under the same heuristic as an ordinary application.
+- This is not proof that a specific critical process is killed in the current boot profile; it is a missing policy contract that must be closed before autonomous memory-pressure termination is considered safe.
+- The current Mind is an adaptive rule/profile-based resource controller (measured scheduler tuning, process profiles, thresholds, throttling and memory-pressure actions). The inspected implementation does not demonstrate a general neural/LLM reasoning model or an unrestricted AI authority. Keep those as planned architecture, not claim them as present.
+
+### Required closure
+1. Add explicit process classes and a kernel-owned non-killable/essential flag for boot/system services, drivers, storage/network core and user-confirmed protected work.
+2. Require a termination policy callback that checks class, foreground status, pending writes/transactions, driver binding and restartability; default deny if metadata is absent.
+3. Prefer reversible reclamation (cache trim, heap admission control, background throttling) and bounded service restart before application termination.
+4. Expose a user-visible policy mode and auditable reason; provide observe-only default for new/untrusted deployments until the protection matrix is verified.
+5. Add tests with synthetic process sets: largest process is essential, foreground, unsaved, driver, restartable, and ordinary app; assert only permitted victims are selected.
+6. Add adversarial tests for threshold oscillation, multiple concurrent memory events, and process exit racing with the kill callback.
+
+F-032 remains OPEN. Do not describe the current heuristic as safe general autonomous AI process management.
