@@ -24,7 +24,8 @@ enum {
     IOMMU_E_HW = -6,        /* hardware refused or timed out */
     IOMMU_E_EXIST = -7,     /* overlaps an existing mapping / table full */
     IOMMU_E_NOENT = -8,     /* no such domain or mapping */
-    IOMMU_E_RANGE = -9      /* address beyond what the hardware or the domain can express */
+    IOMMU_E_RANGE = -9      /* address beyond what the hardware or the domain can express */,
+    IOMMU_E_UNSUPPORTED = -10 /* valid platform topology requires an unsupported multi-controller path */
 };
 
 #if defined(__aarch64__)
