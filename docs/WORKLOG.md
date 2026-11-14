@@ -409,3 +409,6 @@
 - Draft PR #158 adds a separate reserved bitmap, counts overlapping RAM entries once, rejects frees of reserved pages, and validates/releases contiguous ranges atomically under one lock.
 - Added `tests/pmm_arm_test.c` for reserved-page rejection, overlapping regions, late reservations, double free and invalid-middle all-or-nothing block release; wired into host CI with ASan/UBSan.
 - Exact-head CI pending; no local tests claimed.
+
+
+- PR #158 first host run `43591902136` stopped before compiling the new test because its include path omitted `arch/aarch64`; added the missing `-Iarch/aarch64` flag. This was a test harness path error, not a PMM implementation result. Updated head `a0b0a722957cdc75e550ff4ee9de3e5835dd7d22`, workflow `43591985380` pending.
