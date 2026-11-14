@@ -651,7 +651,7 @@ These are not approved designs or production-ready code by presence alone. They 
 
 ### CI completion correction — PR #165 diagnostic cleanup (2026-11-14)
 
-- PR #165 cleanup exact head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`, workflow `43608372681`: **30/30 jobs completed successfully**, zero failed jobs. This supersedes earlier queued/in-progress notes for that head.
+- PR #165 cleanup exact head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`, workflow `43608372681`: **43/43 jobs completed successfully**, zero failed jobs. This supersedes earlier queued/in-progress notes for that head.
 - Temporary boot/PCI diagnostics are removed; the earlier UHCI regression did not recur on this cleanup head.
 - F-017 remains OPEN: Bus Master is still cleared after BAR probing, leaving the firmware-DMA window during BAR probing unresolved. PR #162's PCI host-bus/subordinate-window changes still need reconciliation with PR #165 in `pci.c`.
 - This is a Draft branch result only; no main merge and no physical hardware claim.
@@ -767,14 +767,14 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 
 - Merged the source logic from main-based PR #162 into PR #165's security branch without touching main: host ECAM range validation, nonzero root-bus enumeration, bridge primary/secondary/subordinate checks, and nested subordinate limits.
 - Preserved #165's firmware Bus Master cleanup policy and added both #165's `pci_test.c` and #162's `pci_range_test.c` to the same host test runner. Updated the virtio bridge model to state its primary bus explicitly.
-- PR #165 combined head is `f986d3f84fdc6bac6dd72ce7d4fd6a76bc4d3caf`. Exact-head CI has not yet appeared; prior #165 30/30 PASS is not reusable for this combined head.
+- PR #165 combined head is `f986d3f84fdc6bac6dd72ce7d4fd6a76bc4d3caf`. Exact-head CI has not yet appeared; prior #165 43/43 PASS is not reusable for this combined head.
 - F-017 remains open because Bus Master is still cleared after BAR probing; the earlier pre-probe attempt caused a UHCI VM regression. No security-complete claim is made.
 - PR #162 is a duplicate source candidate after integration; do not merge it independently. PR #139's device registry/PCI branch stack remains separate.
 
 
 ## 16. FDT exact-head CI completion — 2026-11-14
 
-- PR #166 corrected head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, workflow `43610515593`: 30/30 jobs succeeded.
+- PR #166 corrected head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, workflow `43610515593`: 43/43 jobs succeeded.
 - Confirmed host-tests, x86 build, ARM64 build/scenarios and all VM matrix scenarios succeeded on the corrected source, including the FDT v16 and overlap regression tests.
 - This is a verified branch CI result, not a main merge or release claim. Main remains untouched.
 
@@ -803,7 +803,7 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 
 ## 20. Kernel memory/scheduler integration exact-head CI — 2026-11-14
 
-- PR #154 head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110`: 30/30 jobs succeeded across host-tests, x86, ARM64 and full VM matrix.
+- PR #154 head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110`: 43/43 jobs succeeded across host-tests, x86, ARM64 and full VM matrix.
 - UART oversized-line correction resolved the earlier `drv-edu` log assertion without weakening tests. Both `drv-edu` and `usb-uhci` pass on this exact head.
 - PR remains Draft; no main merge and no ISO build.
 
@@ -853,7 +853,7 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 ## 27. FDT parser source review and test coverage inventory — 2026-11-14
 
 - Reviewed main FDT parser and host fixtures. The current main parser has bounded structure/property payload traversal and rejects malformed structure tokens, but property-name comparison uses streq(strings + nameoff, name) without a remaining-length bound. Added F-027 as a MEDIUM malformed-firmware-input validation gap; no crash or exploit is claimed.
-- PR #166 exact head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e, associated workflow 43610515593: 30/30 jobs succeeded. This includes FDT v16 structure-size compatibility, header reservation-map validation/application, block overlap checks and reg index/address overflow regressions. Its fdt_prop() property-name terminator boundary remains uncovered and F-027 is still open.
+- PR #166 exact head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e, associated workflow 43610515593: 43/43 jobs succeeded. This includes FDT v16 structure-size compatibility, header reservation-map validation/application, block overlap checks and reg index/address overflow regressions. Its fdt_prop() property-name terminator boundary remains uncovered and F-027 is still open.
 - Counted the pinned-main test entry points: tests/run_host_tests.sh defines 47 named host suites; ci/scenarios.py defines 38 QEMU VM scenarios. Host coverage spans PMM, scheduler/context/FPU, KDRV package parsing, PCI/virtio, KiraFS, process/ELF, IPC, SMP, graphics/UI, KIRA Mind, FDT, USB UHCI/xHCI, FAT/VFS, networking/TLS, KCC and driver workflows.
 - The 38 VM scenarios cover boot devices/modes, memory/SMP, USB, networking, sound, graphics/apps, power, fault isolation, KIRA Mind and driver installation/management. This is a broad existing test base, but scenario names alone do not prove every failure mode or both-ISA coverage; map each scenario to the component/ISA/build profile before acceptance.
 - Stage 0 percentage unchanged: inventory and test entry-point counts are verified, but semantic review of all auxiliary source paths and branch-only integration dependencies is not complete.
@@ -1198,6 +1198,15 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 
 - Downloaded and inspected exact PR #125 failing shard artifact and PR #165 successful UHCI artifact, rather than relying only on workflow summary.
 - PR #125 run 43613583149 failed shard 0: `usb-uhci` timed out at 90.7 s. Serial stopped at `disable BM 0:1.2` before the completion marker. QEMU log: 4,915,946,761 bytes; 72,286,473 rejected invalid-read messages (0x0/0x4/0x8/0xC recurring; first anomalous address 0x3FFDE384).
-- PR #165 run 43613588426 latest attempt 2: 30/30 jobs success. UHCI scenario 11.7 s / boot 5.8 s; keyboard, hub, USB mass storage, FAT32 mount and file read all confirmed in serial/result artifact.
+- PR #165 run 43613588426 latest attempt 2: 43/43 jobs success. UHCI scenario 11.7 s / boot 5.8 s; keyboard, hub, USB mass storage, FAT32 mount and file read all confirmed in serial/result artifact.
 - Important: PR #165 passing artifact still contains 393,602 rejected invalid-read messages in a 26,767,488-byte QEMU log. Thus the scenario's functional PASS does not close F-025; exact DMA requester/register origin is still unproven. These runs are not controlled A/B because branches and PR bases differ.
 - Updated audit disposition: PR #165 CI latest attempt PASS; F-025 remains OPEN; no source implementation changed.
+
+
+## 62. CI result reconciliation — full pagination and ARM64 artifact review — 2026-11-14
+
+- Corrected the previous partial-page count: full jobs API enumeration shows runs #154 (43611654110), #164 (43600699384), #166 (43610515593) and #165 (43613588426 attempt 2) each completed 43/43 jobs successfully.
+- PR #165 includes successful host tests, x86 build/VM matrix and ARM64 job. Downloaded artifact 14121710332 and verified all 16 ARM64 scenarios report OK.
+- Confirmed actual ARM64 coverage: GICv2 and GICv3+ITS; PSCI HVC and SMC paths; 8-core EL2 entry; GUI and USB; fault/isolation; non-coherent DMA with a 32 MB pool. This is QEMU evidence, not physical hardware.
+- Negative cases remain absent: PSCI unavailable, FDT unterminated property-name, mixed DMA coherency and non-coherent pool exhaustion. Their findings F-050..F-053 remain open.
+- x86 UHCI passing artifact still emits 393,602 rejected QEMU invalid-read records; F-025 remains open despite functional test pass.
