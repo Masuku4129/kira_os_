@@ -191,7 +191,7 @@ static u64 const_expr(const u8** p, const u8* end) {
         if (op == 0x0B) return v;
         if (op == 0x41) v = (u64)(u32)leb_s(p, end, 32);
         else if (op == 0x42) v = (u64)leb_s(p, end, 64);
-        else if (op == 0x23) { u32 g = leb_u(p, end); v = g < nglobals ? globals[g] : 0; }
+        else if (op == 0x23) { u32 g = leb_u(p, end); if (g >= nglobals) { trap("constant expression global index out of range"); return 0; } v = globals[g]; }
         else if (op == 0x43) { if (!wasm_need(*p, end, 4)) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
         else if (op == 0x44) { if (!wasm_need(*p, end, 8)) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
         else { trap("unsupported constant expression"); return 0; }
@@ -201,7 +201,12 @@ static u64 const_expr(const u8** p, const u8* end) {
 
 static void skip_imm(u8 op, const u8** p, const u8* e) {
     if (op == 0x0C || op == 0x0D || op == 0x10 || (op >= 0x20 && op <= 0x24)) { leb_u(p, e); return; }
-    if (op == 0x0E) { u32 n = leb_u(p, e); for (u32 i = 0; i <= n && !trapped; i++) leb_u(p, e); return; }
+    if (op == 0x0E) {
+        u32 n = leb_u(p, e);
+        if ((u64)n + 1 > (u64)(e - *p)) { trap("truncated br_table immediate"); return; }
+        for (u32 i = 0; i <= n && !trapped; i++) leb_u(p, e);
+        return;
+    }
     if (op == 0x11) { leb_u(p, e); wasm_skip(p, e, 1); return; }
     if (op >= 0x28 && op <= 0x3E) { leb_u(p, e); leb_u(p, e); return; }
     if (op == 0x3F || op == 0x40) { wasm_skip(p, e, 1); return; }
@@ -412,6 +417,7 @@ static int compile_func(func_t* f) {
         case 0x0B: {
             ctl_t* fr = &ctl[nctl - 1];
             if (nctl == 1) {                                      /* конец функции */
+                if (p != end) CERR("trailing bytes after function end");
                 if (!c_unr) {
                     if (c_h != ft->nr) CERR("invalid module: stack height at function end");
                     lz_flush(); ew(OP_RET);
@@ -453,7 +459,7 @@ static int compile_func(func_t* f) {
         }
         case 0x0E: {
             u32 cnt = leb_u(&p, end);
-            if (cnt > (u32)(end - p)) CERR("bad br_table");
+            if ((u64)cnt + 1 > (u64)(end - p)) CERR("bad br_table");
             NEED(1); lz_flush(); c_h--;
             ew(OP_BRTAB); ew(cnt);
             for (u32 i = 0; i <= cnt && !trapped; i++) {
@@ -479,6 +485,7 @@ static int compile_func(func_t* f) {
             u8 table_index = wasm_u8(&p, end);
             if (trapped || table_index != 0) CERR("call_indirect: invalid table index");
             if (ti >= ntypes) CERR("call_indirect: bad type");
+            if (!table || !ntable) CERR("call_indirect requires a non-empty table");
             const ftype_t* t = &types[ti];
             NEED(t->np + 1u); lz_flush(); ew(OP_CALLI | ti << 16);
             c_h -= t->np + 1u; hpush(t->nr); break;
