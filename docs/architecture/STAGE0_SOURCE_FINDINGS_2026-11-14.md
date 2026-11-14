@@ -806,3 +806,12 @@ F-025 remains OPEN.
 - PR #125 exact head `cf35a78b385c0b9939702e19b097b01a4296e273` failed host tests and ARM64 compilation because `iommu_arm64.c` returned the missing shared enum member `IOMMU_E_UNSUPPORTED`.
 - Added `IOMMU_E_UNSUPPORTED = -10` to the shared `iommu_error_t` contract, preserving a distinct result for a valid but unsupported multi-controller topology. No fail-closed checks were relaxed.
 - Corrected PR #125 head `8dc795e14575b77bde6182dddfb9d4c1ece54a0c`, workflow `43612438370`, is running. Exact-head host, ARM64 and VM results remain pending.
+
+
+## F-025 clean-run confirmation — PCI enumeration hang persists without trace (2026-11-14)
+
+- Clean no-trace PR #165 head `4b99d54da30f20bf0bed98e6c8ddb630f9bfcd36`, workflow `43612506879`: 28/30 jobs succeeded; only `vm (usb-uhci)` failed (host-tests and ARM64 still running when inspected). The serial log again stopped immediately after syscall initialization, before `[KIRA PCI]`; QEMU accumulated tens of millions of rejected UHCI DMA reads from physical address 0 while the firmware controller remained active.
+- A prior trace-only build of the same PCI-range logic passed UHCI, but was cancelled after 23 successful jobs when the trace was removed. This confirms timing sensitivity; it does not establish correctness.
+- A new diagnostic head `2b3b59828bacabee18001fc80faea1ff3e39cc31` now logs each PCI function immediately before/after BAR probing and after the Bus Master policy. Workflow is queued/running. Its purpose is to identify the exact function/operation where the scan stalls.
+- Do not merge #165 while this reproducible no-trace failure remains. F-025 stays OPEN; F-017 remains independently OPEN.
+
