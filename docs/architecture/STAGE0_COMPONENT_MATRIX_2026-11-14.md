@@ -637,3 +637,13 @@ The table is a source-review index, not a claim that any listed hardware path ha
 |---|---|---|---|
 | PSCI method detection/call dispatch | `arch/aarch64/main.c:psci_call()`, `platform_poweroff()`, `platform_reboot()` | F-053: absent state (-1) is truthy and selects HVC; power commands are unguarded | No PSCI / invalid method / HVC / SMC host policy tests and QEMU instruction-path checks |
 | CPU_ON startup | `arch/aarch64/main.c:arm_secondary_main()`, boot CPU_ON loop | Existing guard prevents CPU_ON when PSCI is absent; verify timeout and failed-core stack reclamation | QEMU PSCI success/failure/timeout and allocation accounting |
+
+
+### PCI/UHCI QEMU evidence ledger (2026-11-14)
+
+| PR / run | Exact state | UHCI result | QEMU invalid-read evidence | Disposition |
+|---|---|---|---|---|
+| #125 / 43613583149 | commit `fee8c9a`, base `autodrv`, failed | 90.7 s timeout; serial stops at BM-disable trace for 0:1.2 | 72,286,473 records; 4.916 GB log | Failure reproduced in artifact; exact blocked instruction/requester unresolved |
+| #165 / 43613588426 attempt 2 | commit `7ad140c`, base `main`, 30/30 jobs PASS | 11.7 s; keyboard/hub/storage/FAT/file read all pass | 393,602 records; 26.77 MB log | Functional pass, but invalid-read storm persists; F-025 stays open |
+
+The two jobs are not a controlled A/B because the source branches and base commits differ. A clean QEMU error log plus DMA requester/register evidence is still required before closing F-025.
