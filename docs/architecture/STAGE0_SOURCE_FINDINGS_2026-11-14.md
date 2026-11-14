@@ -1069,3 +1069,8 @@ F-033 remains OPEN.
 4. Document the VFS lock order relative to FAT/block-device locks.
 
 F-034 remains OPEN.
+
+
+### F-025 exact-current-run refresh
+
+Current PR #165 head 7ad140cfadb51c4dacf809eca77fff60ff7fe12c still fails workflow 43613588426: 29/30 jobs, with vm (usb-uhci) failing. Exact serial output stops after the BAR probe marker for 00:01.2 and before the PCI "secured" marker. The PCI source at this head performs the Command register read and conditional Bus Master clear between these markers. Current evidence narrows the stall to that sequence but cannot yet distinguish read from write; separate markers and a command-register value are required. Keep F-025 OPEN.
