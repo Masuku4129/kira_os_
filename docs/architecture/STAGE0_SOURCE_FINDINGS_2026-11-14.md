@@ -232,7 +232,7 @@ Implement a single-lock transaction:
 
 | Finding | Source reviewed | Runtime reproduction | Targeted regression in current main | Status |
 |---|---|---|---|---|
-| F-001 | x86-64 and ARM64 stack allocator | Not run in this session | Not present in current main host suite | CONFIRMED SOURCE DEFECT; runtime test pending |
+| F-001 | x86-64 and ARM64 stack allocator | PR #152 exact-head QEMU stress scenarios pass (SMP, 8-CPU boot/soak, stress); `apps-drvman` QEMU scenario fails with unresolved package-list output truncation | Shared helper test passes under ASan/UBSan; x86-64 build and ARM64 build/scenario pass | FIX IMPLEMENTED ON DRAFT BRANCH; INTEGRATION CI NOT FULLY GREEN |
 | F-002 | KDRV, syscall capability gate, ARM64 DMA/MSI paths | Not run in this session | PR #136/137 tests are branch-only | CONFIRMED SOURCE SECURITY GAP |
 | F-003 | PCI ECAM backend and scan root | Not run in this session | PR #139 tests are branch-only | CONFIRMED SOURCE DEFECT |
 | F-004 | x86-64 and ARM64 entry paths/tree | Not run in this session | No unified BootInfo test in main | ARCHITECTURE GAP |
@@ -240,6 +240,6 @@ Implement a single-lock transaction:
 | F-006 | ARCHITECTURE.md vs current sources/build/CI | Source/document comparison only | No docs consistency guard in main | CONFIRMED DOCUMENTATION DRIFT |
 | F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
 | F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
-| F-009 | PMM contiguous block release | Source review and caller inventory | No atomic block-release regression in main | CONFIRMED ALLOCATOR DEFECT |
+| F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI pending | FIX IN DRAFT BRANCH; NOT YET VERIFIED |
 
 No code was changed by this audit. No test was executed locally. Exact-head CI evidence from other PRs is explicitly branch-only and is not transferred to main.
