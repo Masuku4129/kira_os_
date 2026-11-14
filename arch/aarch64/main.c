@@ -297,6 +297,7 @@ static int mmu_init(uint64_t top) {
 static uint32_t ks_next, ks_nfree, ks_size;
 static uint16_t ks_free[KSTACK_SLOTS];
 static uint8_t ks_active[(KSTACK_SLOTS + 7u) / 8u];
+static uint64_t ks_generation[KSTACK_SLOTS];
 static volatile uint32_t ks_lock;
 
 void vmm_user_kernel_l0_changed(unsigned idx, uint64_t entry);
@@ -326,8 +327,9 @@ static int map_kpage(uint64_t va, uint64_t pa) {
     return 0;
 }
 
-void* vmm_kstack_alloc(uint32_t bytes) {
-    if (!bytes || bytes > KSTACK_STRIDE / 2 || (bytes & 4095u)) return 0;
+void* vmm_kstack_alloc(uint32_t bytes, uint64_t* generation) {
+    if (generation) *generation = 0;
+    if (!generation || !bytes || bytes > KSTACK_STRIDE / 2 || (bytes & 4095u)) return 0;
     uint64_t f = irq_save();
     while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
     uint32_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_RELAXED);
@@ -339,8 +341,8 @@ void* vmm_kstack_alloc(uint32_t bytes) {
 
     int reuse = ks_nfree != 0;
     if (reuse) {
-        if (!kstack_slot_free_pop(ks_free, &ks_nfree, ks_active,
-                                  KSTACK_SLOTS, ks_next, &slot)) goto out;
+        if (!kstack_slot_free_pop(ks_free, &ks_nfree, ks_active, ks_generation,
+                                  KSTACK_SLOTS, ks_next, &slot, generation)) goto out;
         va = KSTACK_VA + (uint64_t)slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
     } else if (ks_next < KSTACK_SLOTS) {
         slot = ks_next;
@@ -357,7 +359,8 @@ void* vmm_kstack_alloc(uint32_t bytes) {
             }
             mapped = 1;
         }
-        if (ok && kstack_slot_activate(ks_active, KSTACK_SLOTS, slot)) {
+        if (ok && kstack_slot_activate(ks_active, ks_generation, KSTACK_SLOTS,
+                                       slot, generation)) {
             ks_next++;
             va = base;
         } else if (mapped || quarantine) {
@@ -370,15 +373,16 @@ out:
     return (void*)(uintptr_t)va;
 }
 
-void vmm_kstack_free(void* base) {
+void vmm_kstack_free(void* base, uint64_t generation) {
     uint64_t va = (uint64_t)(uintptr_t)base;
+    if (!generation) return;
     uint64_t f = irq_save();
     while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
     uint32_t slot;
     if (kstack_slot_from_base(va, KSTACK_VA, KSTACK_STRIDE, KSTACK_SLOTS,
                               __atomic_load_n(&ks_size, __ATOMIC_RELAXED), ks_next, &slot))
-        (void)kstack_slot_free_push(ks_free, &ks_nfree, ks_active,
-                                    KSTACK_SLOTS, ks_next, slot);
+        (void)kstack_slot_free_push(ks_free, &ks_nfree, ks_active, ks_generation,
+                                    KSTACK_SLOTS, ks_next, slot, generation);
     __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
     irq_restore(f);
 }
