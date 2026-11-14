@@ -270,3 +270,12 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+
+### F-002 — Ring 3 DMA/MSI fail-closed policy transplanted to current main baseline (2026-11-14)
+
+- Earlier PR #136 was based on `bbc7f7ab948e72511aed113b69043add10ec8350`; current audit baseline `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4` is three documentation-only commits ahead. To avoid leaving a security fix on a stale base, its source/test/scenario changes were transplanted onto a fresh branch from current `main`.
+- The policy rejects any Ring 3 package requesting `CAP_DMA` or `CAP_IRQ` unless a per-device IOMMU-isolation predicate is true. Current production call deliberately passes false because no IOMMU domain lifecycle exists in main.
+- On rejection, the PCI function is quiesced (MSI/MSI-X disabled and IO/MEM/BUS_MASTER command bits cleared) before the driver process is spawned. MMIO-only packages remain supported.
+- Updated x86-64 and ARM64 QEMU scenarios, package generation, drvget/drvman warnings and host policy tests. The tests preserve both negative DMA/MSI cases and positive MMIO-only behavior.
+- Exact-head CI has not yet run; no PASS claimed. PR #137's firmware bus-master handoff sanitization remains a separate required protection.
