@@ -417,6 +417,7 @@ static int compile_func(func_t* f) {
                     lz_flush(); ew(OP_RET);
                 }
                 f->maxh = c_maxh;
+                if (p != end) CERR("trailing bytes after function end");
                 return trapped ? -1 : 0;
             }
             if (!c_unr) {
@@ -788,6 +789,8 @@ static int load(void) {
     if (!trapped && entry >= nfuncs) trap("entry function index out of range");
     if (!trapped && entry < nimports) trap("entry point must be a defined function, not a host import");
     if (!trapped && nfuncs > nimports && !code) trap("function and code counts differ");
+    if (!trapped) for (u32 i = 0; i < ntable; i++)
+        if (table[i] != ~0u && table[i] >= nfuncs) { trap("element segment function index out of range"); break; }
     return trapped ? -1 : 0;
 }
 
