@@ -789,3 +789,20 @@ F-026 remains OPEN. The five successful PR #141 CI runs verify the current imple
 ## F-022 status correction — exact-head CI closed (2026-11-14)
 
 PR #154 head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a` / workflow `43611654110` completed 30/30 successfully. The earlier 29/30 failure on the preceding head was diagnosed from the VM artifact and fixed in UART output. F-022's CI gate is now closed; architecture-wide acceptance remains open pending per-ISA source review and final merge composition.
+
+
+## F-025 investigation update — UHCI failure not reproduced with PCI trace (2026-11-14)
+
+- Combined no-trace head `f986d3f84fdc6bac6dd72ce7d4fd6a76bc4d3caf`, workflow `43611237456`: build, ARM64 and host tests passed; `vm (usb-uhci)` failed before the PCI enumeration completion log, with serial output ending after syscall initialization and QEMU reporting `Kernel died`.
+- Added temporary bus-scan trace on head `3c9e066ddf8fd1eed55c68aaa0378329b1a0fcaf`. The exact `usb-uhci` VM then passed, found 8 PCI devices, initialized UHCI, mounted USB storage and passed all checks. Trace showed a single root bus 00 and no downstream bridge recursion.
+- Removed all temporary diagnostics. Clean head `4b99d54da30f20bf0bed98e6c8ddb630f9bfcd36` has a fresh workflow `43612506879` pending. The debug run was interrupted by the next push after 23 successes and two cancelled jobs; it is not a full green result.
+- The first UHCI failure is therefore not yet reproduced, but timing sensitivity remains possible because the diagnostic build passed. Do not close F-025 or F-017 until the clean exact-head matrix passes repeatedly and the failure mechanism is understood.
+
+F-025 remains OPEN.
+
+
+## IOMMU common error contract correction — exact-head CI pending (2026-11-14)
+
+- PR #125 exact head `cf35a78b385c0b9939702e19b097b01a4296e273` failed host tests and ARM64 compilation because `iommu_arm64.c` returned the missing shared enum member `IOMMU_E_UNSUPPORTED`.
+- Added `IOMMU_E_UNSUPPORTED = -10` to the shared `iommu_error_t` contract, preserving a distinct result for a valid but unsupported multi-controller topology. No fail-closed checks were relaxed.
+- Corrected PR #125 head `8dc795e14575b77bde6182dddfb9d4c1ece54a0c`, workflow `43612438370`, is running. Exact-head host, ARM64 and VM results remain pending.
