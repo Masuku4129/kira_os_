@@ -592,12 +592,13 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     /* All controller DMA structures and register pointers are valid before Bus Master is granted. */
     __sync_synchronize();
     pci_enable(p, PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
-    uint16_t command = pci_read16(p, 0x04);
-    if (command == 0xFFFF || !(command & PCI_CMD_MASTER)) {
+    uint16_t pci_cmd_value = pci_read16(p, 0x04);
+    if (pci_cmd_value == 0xFFFF || !(pci_cmd_value & PCI_CMD_MASTER)) {
         (void)pci_disable_bus_master(p);
         usb_log("[KIRA USB] xHCI: Bus Master enable was not confirmed\n");
         return -1;
     }
+    __sync_synchronize();                                               /* PCI command visibility before MMIO RUN */
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     if (r32(xs.op, 4) & 1u) {
