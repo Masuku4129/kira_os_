@@ -52,7 +52,7 @@
 | S0-03 | Инвентаризация репозитория/build/test | IN PROGRESS — current-main tree captured | `STAGE0_CURRENT_MAIN_INVENTORY_2026-11-15.md`: 830 blobs, no removed paths vs pinned baseline; 3 source files changed. ISO + KiraFS disk pair, x86 release filter and ARM64 profile asymmetry documented. Exact UELF/disk manifests and image hashes still missing |
 | S0-04 | PR/branch graph | PARTIAL | `STAGE0_OPEN_PR_GRAPH_2026-11-15.md`; 92 PR на момент снимка, ещё нет полного diff/ancestry/CI review каждого PR |
 | S0-05 | Source-level findings | IN PROGRESS — F-062 current-main CI break confirmed | `STAGE0_SOURCE_FINDINGS_2026-11-14.md`; current-main FDT/WASM findings and subsystem source audit remain open |
-| S0-06 | CI/test baseline | IN PROGRESS — CURRENT MAIN FAIL | Main SHA `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`, run `43643758138`: ARM64/host-tests/x86 build FAIL on F-062; QEMU skipped. Fix and exact-head rerun are required before baseline can be accepted |
+| S0-06 | CI/test baseline | IN PROGRESS — CURRENT MAIN FAIL; coverage matrix added | Main SHA `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`, run `43643758138`: ARM64/host-tests/x86 build FAIL on F-062; QEMU skipped. Fix and exact-head rerun are required before baseline can be accepted |
 | S0-07 | ADR и technology decisions | IN PROGRESS | Сформировать ADR backlog и закрыть блокирующие контракты/решения |
 | S0-08 | Migration/dependency plan | NOT STARTED | По каждому Stage определить последовательность и rollback без потери функций |
 | S0-09 | Independent Stage 0 review | NOT STARTED | Независимая проверка completeness и exit gate |
@@ -71,3 +71,7 @@
 - Requirement traceability: `architecture/STAGE0_REQUIREMENT_TRACEABILITY_2026-11-15.md` — 233 source-linked rows.
 - Current main tree/build profile: `architecture/STAGE0_CURRENT_MAIN_INVENTORY_2026-11-15.md` — recursive tree comparison, x86/ARM64 build-profile comparison, CI exact-head failure evidence.
 - Current main is not CI-green: F-062 is a confirmed build blocker on `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`.
+
+
+- Source/build/test coverage matrix: `architecture/STAGE0_SOURCE_BUILD_TEST_MATRIX_2026-11-15.md`. This maps critical subsystems to source, build profiles and wired host tests, while explicitly identifying VMM, FDT, ELF, update/recovery and architecture parity gaps.
+- New finding F-064: FDT parser accepts v16 but host fixture is v17 only; missing strings-block boundary and NUL-termination tests, with a bounded string-compare risk in `fdt_prop()`.
