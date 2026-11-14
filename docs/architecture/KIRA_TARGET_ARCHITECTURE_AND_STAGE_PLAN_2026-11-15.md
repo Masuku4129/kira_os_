@@ -196,3 +196,9 @@ Current build/CI evidence in source:
 - Rust and the proposed schema/data formats are target candidates, not current integrated production components.
 
 These facts are pinned to the stated baseline. Later branch/main changes must be re-inventoried before using them as current state.
+
+## 8. Связанные нормативные документы
+
+- Единый мастер-план с новой языковой/форматной политикой и Stage 0–13: [\`docs/MASTER_DEVELOPMENT_PLAN.md\`](../MASTER_DEVELOPMENT_PLAN.md).
+- Матрица соответствия всех направлений A–N новой архитектуре и Stage: [\`STAGE0_REQUIREMENTS_CROSSWALK_2026-11-15.md\`](STAGE0_REQUIREMENTS_CROSSWALK_2026-11-15.md).
+- Полный текущий source audit: [\`STAGE0_SOURCE_FINDINGS_2026-11-14.md\`](STAGE0_SOURCE_FINDINGS_2026-11-14.md).
