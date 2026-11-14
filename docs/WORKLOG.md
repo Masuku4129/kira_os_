@@ -1047,3 +1047,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed F-038: parse_ext() reads but ignores the critical BOOLEAN and silently skips unknown extension OIDs. basicConstraints stores CA=true/false but ignores pathLenConstraint; chain validation checks is_ca without enforcing path length. keyUsage/serverAuth EKU also require explicit acceptance-policy review.
 - Existing x509 tests cover several positive and negative chain/signature/hostname/time/OCSP cases, but not critical-extension rejection or CA path-length constraints.
 - No production source changed.
+
+
+## 46. TCP state-machine locking and handle lifetime audit — 2026-11-14
+
+- Followed TCP packet input/tick updates under tlk against syscall paths and wait predicates.
+- Confirmed F-039: tcp_wait() evaluates TCB condition callbacks without tlk while packet/timer paths mutate those fields under tlk. Additional unlocked reads/writes exist in tcp_send(), tcp_connect_ipa() timeout cleanup, tcp_peer() and tcp_accept() listener pre-check. Connection/listener ownership teardown has no complete slot-pinning/generation contract.
+- Existing tests/net_test.c only exercises checksums and IPv4 address parsing; it does not test TCP concurrency or socket lifecycle.
+- Required closure is a single TCB/listener synchronization contract, lock-safe wait predicates, slot pinning/generation handles, and concurrent lifecycle tests. No source code changed.
