@@ -8,6 +8,12 @@ static int feed(const uint8_t* s, int n, input_event_t* out) {
 }
 int main(void) {
     input_event_t ev[16]; input_init();
+    uint8_t raw_bytes[64];
+    for (unsigned i = 0; i < 70; i++) input_push_scancode((uint8_t)i);
+    CHECK(input_raw_take(raw_bytes, sizeof raw_bytes) == sizeof raw_bytes);
+    for (unsigned i = 0; i < sizeof raw_bytes; i++) CHECK(raw_bytes[i] == (uint8_t)(i + 6));
+    CHECK(input_raw_take(raw_bytes, sizeof raw_bytes) == 0);
+    input_init();
     uint8_t a[] = {0x1E, 0x9E};                       /* a вниз/вверх */
     CHECK(feed(a,2,ev)==2); CHECK(ev[0].ch=='a' && ev[0].type==INPUT_KEY_DOWN); CHECK(ev[1].type==INPUT_KEY_UP && ev[1].ch==0);
     uint8_t sh[] = {0x2A, 0x1E, 0x9E, 0xAA};          /* Shift+a -> 'A' */
