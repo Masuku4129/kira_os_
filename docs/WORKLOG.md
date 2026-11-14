@@ -1397,3 +1397,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Compare: diverged, audit branch 422 commits ahead / 6 behind; GitHub reports mergeable=false. The diff is 22 documentation-only paths; no production source file changed by the audit PR.
 - Enumerated the six current-main commits after the pinned base, including WASM commit `12cf3fb` that causes F-062 and gfx queue serialization `3497f48`.
 - Updated PR graph and Stage Tracker. Kept main, audit history and PR state untouched; no merge, rebase, reset or force-push.
+
+
+## #81 — Stage 0: PR #166 focused candidate review (2026-11-15)
+
+- Re-read PR #166 exact head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, diff and exact-head check-runs.
+- Candidate covers FDT v16 structure sizing, firmware reservation-map parsing, ARM64 reserved-page ownership/atomic PMM release and F-015 `fdt_reg()` overflow. Observed check-run set: 30/30 successful jobs on that exact candidate head.
+- Candidate is still draft/open and based on pinned `811ca3a`, not current main. This PASS does not transfer to main.
+- Residual F-064/F-061: property-name lookup still uses unbounded `streq(strs(fdt) + no, name)`; no final-byte NUL/nameoff boundary regression tests were added.
+- No merge/cherry-pick; production branch unchanged.
