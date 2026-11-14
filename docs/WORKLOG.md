@@ -419,3 +419,11 @@
 - Added `docs/adr/ADR-0003-pmm-reservation-and-atomic-block-release.md`.
 - Defines distinct free/allocated/reserved page ownership, rejects freeing reserved pages, requires all-or-nothing contiguous release, counts overlapping RAM regions once and requires x86-64/ARM64 behavioral parity.
 - Status remains Proposed while ARM64 implementation PR #158 completes exact-head verification; x86-64 F-001/F-009 fixes are verified on Draft PR #154.
+
+
+### F-015 — FDT reg-range parser hardening (2026-11-14)
+
+- Source review found two parser arithmetic defects in `fdt_reg()`: `idx + 1` wrapped as 32-bit before widening, and decoded nonzero-size `addr + size` ranges were not checked for uint64 overflow.
+- ARM64 startup consumes these ranges for RAM, UART, GIC, PCI ECAM and framebuffer setup; invalid ranges could propagate into memory/MMIO setup.
+- Draft PR #159 computes the entry offset in 64-bit with subtraction-based bounds checks, rejects wrapping half-open ranges, and adds FDT host regressions for `UINT32_MAX` index and address/size overflow.
+- Exact-head CI pending. Remaining FDT arithmetic (overlapping RAM totals, reserved-memory and physical-address limits) remains a separate audit item.
