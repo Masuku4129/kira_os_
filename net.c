@@ -650,10 +650,10 @@ int net_dns(const char* name, uint32_t* ip) {
    в кольцо 16 КБ с окном по свободному месту; вне порядка - повтор подтверждения. Закрывший первым держит
    TIME_WAIT 2*MSL (60 с) в маленькой таблице (не в слоте соединения): на повтор FIN собеседника - снова ACK, четвёрка
    адресов не используется заново. На сегмент без соединения - RST (RFC 793), чтобы собеседник не ждал зря. */
-#define TCP_MAX 8
+#define TCP_MAX NET_TCP_HANDLE_SLOTS
 #define TCP_RX  16384
 #define TCP_TX  16384
-#define LISTEN_MAX 4
+#define LISTEN_MAX NET_TCP_LISTEN_SLOTS
 #define BACKLOG 4
 enum { T_FREE, T_SYN_SENT, T_SYN_RCVD, T_EST, T_FIN_WAIT1, T_FIN_WAIT2, T_CLOSE_WAIT, T_LAST_ACK, T_CLOSED };
 enum { F_FIN = 1, F_SYN = 2, F_RST = 4, F_PSH = 8, F_ACK = 16 };
