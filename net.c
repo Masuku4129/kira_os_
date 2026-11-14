@@ -1121,7 +1121,7 @@ void tcp_close(int h) {
     t->closing = 1;                                              /* запретить новые операции над этим поколением */
     spin_unlock_irqrestore(&tlk, f);
     tcp_wait(t, c_sent, 10 * TIMER_HZ);
-    f = spin_lock_irqsave(&tlk, f);
+    f = spin_lock_irqsave(&tlk);
     if (t->state == T_EST || t->state == T_CLOSE_WAIT) {
         t->state = t->state == T_EST ? T_FIN_WAIT1 : T_LAST_ACK;
         t->fin_sent = 1;
