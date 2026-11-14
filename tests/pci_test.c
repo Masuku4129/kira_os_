@@ -61,7 +61,10 @@ int main(void) {
     /* Bus mastering remains available only when the owning endpoint driver explicitly enables it. */
     pci_enable(dev, PCI_CMD_MASTER);
     assert((pci_read16(dev, 0x04) & PCI_CMD_MASTER) != 0);
+    assert(pci_disable_bus_master(dev) == 0);
+    assert((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
+    assert((pci_read16(dev, 0x04) & (PCI_CMD_IO | PCI_CMD_MEM)) == (PCI_CMD_IO | PCI_CMD_MEM));
 
-    puts("pci enumeration: firmware bus mastering cleared on host/ISA/endpoints; bridge forwarding preserved");
+    puts("pci enumeration: firmware bus mastering cleared; explicit enable/disable read-back preserves decode bits");
     return 0;
 }
