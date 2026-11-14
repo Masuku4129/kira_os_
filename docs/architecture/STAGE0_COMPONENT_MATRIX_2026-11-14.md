@@ -86,3 +86,14 @@ This is an integration order. All twelve workstreams remain visible in the proje
 5. Audit Device Model/PCI topology and DMA/MSI security before enabling device DMA.
 6. Reconcile source inventory with build scripts and PR #148 file-loss manifest.
 7. Produce a complete file-to-component-to-build-profile matrix for all 829 baseline blobs.
+
+
+## 6. Status correction — 2026-11-14 follow-up
+
+This section supersedes earlier PR #165/#166 status descriptions in the preliminary rows above.
+
+- **F-002 / Area F + G:** PR #165 exact head `64afef2c74f72597dd9620468c4b6bff1fc1bb31`, run `43603442098`, completed successfully; all 29 returned jobs succeeded, including `vm (usb-uhci)`. Temporary trace cleanup produced head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`; exact-head CI for that cleanup is still UNVERIFIED. PR #161's Ring 3 DMA/MSI fail-closed gate and PR #165's firmware handoff sanitization are complementary, not IOMMU implementation. Real per-device VT-d/SMMUv3 remains BLOCKED.
+- **F-016 / Area A + B + F + M:** PR #166 exact head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229`, run `43602565437`, completed successfully; all 29 returned jobs succeeded. The firmware FDT reservation map is parsed and applied during ARM64 startup on this branch.
+- **Integration dependency:** PR #166 must be combined with or follow PR #158's ARM64 PMM reserved-page ownership fix. Otherwise a later PMM free can release a late-reserved page. #158 exact head `70d0e89a65414818c22d61532f7ca4288c464d2c`, run `43592051859`, 43/43 PASS. Add an FDT-to-PMM integration regression before marking the whole memory-reservation lifecycle accepted.
+
+All areas remain PARTIAL/BLOCKED/UNVERIFIED as previously stated; no area is promoted to READY by these branch-only results.
