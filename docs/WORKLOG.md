@@ -728,7 +728,7 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 
 - Exact head `2bbcef9eb86a43919099d2f26eb8af817c4c893b`, workflow `43609381410`: host-tests failed with `SyntaxError: unmatched ')'` at line 211. A duplicated stale tail of the previous checker implementation remained after the final success messages.
 - Removed the entire duplicate tail; the single checker now ends after the four success messages. No checks were bypassed.
-- Corrected PR #148 head: `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`. Fresh exact-head CI has not yet appeared; no PASS claimed.
+- Corrected PR #148 head `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`, workflow `43609627054`: all 30 jobs succeeded, including host-tests, x86 build, ARM64 and QEMU VM scenarios.
 
 
 
@@ -741,3 +741,14 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - PR #125's failed host and ARM64 logs were inspected. Besides the known undeclared `IOMMU_E_UNSUPPORTED` symbol, its QEMU shard failed `usb-uhci` because the guest did not reach the shell prompt in 90 seconds. This confirms that the branch is not ready to transplant.
 - Added F-021: the branch-only x86 VT-d and ARM64 SMMUv3 backends have different effective legacy/no-coverage DMA policies. Keep current-main PR #161's fail-closed DMA/MSI gate until one explicit cross-architecture policy contract and matching tests exist.
 - Main remains untouched. No ISO or release archive was produced.
+
+
+## 13. Scheduler and memory overlap integration — 2026-11-14
+
+- Reviewed exact diffs for PR #154 (generation-token guarded stack ownership + atomic PMM contiguous release), #164 (fail-closed guarded-stack allocation + zeroing), and #153 (duplicate PMM-only change).
+- Found #154 still fell back to unguarded heap stacks on VMM allocation failure. Integrated #164's fail-closed policy and stack clearing into #154's branch, preserving generation-token allocation/free signatures and architecture-specific VMM implementations.
+- Added host regression checking the canary and zeroed stack body before publication.
+- Latest #154 integration head: `8f4b9be58f63d93911817184dcbbce0e4eca36c1`. No exact-head CI result is available yet; the previous 43/43 pass belongs to the earlier head and is not evidence for this change.
+- #153 is a duplicate of the PMM contiguous-release code already included in #154; #164 is an overlapping scheduler reference. Keep the integration candidate separate and do not merge duplicates independently.
+- Corrected #148 record: head `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`, workflow `43609627054`, all 30 jobs succeeded.
+- PR #166's corrected head remains under workflow `43610515593`; host-tests and ARM64 were still running at the last poll. No final PASS is claimed.
