@@ -19,6 +19,17 @@ int main(void) {
     CHECK(net_parse_ip("1.2.3", &a) != 0);
     CHECK(net_parse_ip("1.2.3.4x", &a) != 0);
     CHECK(net_parse_ip("", &a) != 0);
+
+    uint8_t udp_slot = 0xFF;
+    uint16_t udp_generation = 0;
+    uint16_t udp_handle = net_udp_handle_make(1, 7);
+    CHECK(net_udp_handle_decode(udp_handle, &udp_slot, &udp_generation));
+    CHECK(udp_slot == 7 && udp_generation == 1);
+    CHECK(!net_udp_handle_decode(0, &udp_slot, &udp_generation));
+    CHECK(net_udp_handle_make(2, 7) != udp_handle); /* stale handle cannot alias immediate reuse */
+    udp_handle = net_udp_handle_make(NET_UDP_HANDLE_GEN_MAX, 0);
+    CHECK(net_udp_handle_decode(udp_handle, &udp_slot, &udp_generation));
+    CHECK(udp_slot == 0 && udp_generation == NET_UDP_HANDLE_GEN_MAX);
     if (fails) return 1;
     printf("net: checksum, address parsing passed\n");
     return 0;
