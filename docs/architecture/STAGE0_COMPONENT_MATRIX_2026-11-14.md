@@ -475,3 +475,18 @@ The PCI enumeration Bus Master clear is not sufficient if a driver re-enables it
 - xHCI currently enables MEM + MASTER before BIOS handoff, stop/reset and replacement of DCBAAP/CRCR/event-ring state.
 - Required driver lifecycle: enable register decode only → bounded firmware handoff/stop/reset → allocate and program kernel-owned DMA structures → grant MASTER only through verified DMA/IOMMU policy → start controller. Failure must leave MASTER denied and quarantine the device.
 - Add QEMU scenarios for firmware-started controllers with stale/invalid DMA bases; the existing UHCI scenario currently fails earlier in PCI enumeration, so it cannot yet validate this downstream gate.
+
+
+### F-030 cross-driver DMA grant matrix
+
+| Driver | Current Bus Master grant | What happens afterward | Required order |
+|---|---|---|---|
+| VirtIO (block/net/GPU/input) | MEM + MASTER in virtio_pci_init | status reset, feature negotiation, queue allocation/programming | decode → reset/negotiate → queues → MASTER → DRIVER_OK |
+| NVMe | MEM + MASTER at start of ctl_init | controller disable/RDY wait, admin queue allocation/programming | decode → stop → queues → MASTER → CC.EN |
+| AHCI | MEM + MASTER at start of ctl_init | BIOS handoff, GHC reset, port stop/start and command structures | decode → handoff/reset → port structures → MASTER → FRE/ST |
+| e1000 | MEM + MASTER at start of e1000_probe | device reset, RX/TX ring allocation/programming | decode → reset → rings → MASTER → RCTL/TCTL enable |
+| HDA | MEM + MASTER at start of hda_probe | controller reset, CORB/RIRB/BDL allocation/programming | decode → reset → rings → MASTER → CORB/RIRB/stream run |
+| AC'97 | IO + MASTER at start of ac97_probe | codec reset/init, DMA buffers and BDL allocation | IO decode → reset/init → BDL/buffers → MASTER → DMA run |
+| UHCI/xHCI | IO/MEM + MASTER at start of controller start | stop/reset and replace firmware DMA pointers | decode → halt/reset → DMA structures → MASTER → RUN |
+
+This is an ordering audit, not a claim that all devices fail today. Tests must model firmware-active devices and stale DMA addresses; the final gate is exact-head x86/ARM64 runtime evidence and IOMMU policy.
