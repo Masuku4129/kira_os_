@@ -19,6 +19,10 @@ int main(void) {
     CHECK(net_parse_ip("1.2.3", &a) != 0);
     CHECK(net_parse_ip("1.2.3.4x", &a) != 0);
     CHECK(net_parse_ip("", &a) != 0);
+
+    CHECK(net_udp_send_result(0, 37) == 37);             /* NIC accepted frame: report payload length */
+    CHECK(net_udp_send_result(-1, 37) == -1);            /* TX queue full: preserve driver failure */
+    CHECK(net_udp_send_result(-7, 0) == -7);             /* preserve failure even for zero-length payload */
     if (fails) return 1;
     printf("net: checksum, address parsing passed\n");
     return 0;
