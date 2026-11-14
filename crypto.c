@@ -243,16 +243,29 @@ void x25519_base(uint8_t out[32], const uint8_t scalar[32]) {
 }
 
 /* ---------------- HMAC-SHA256, HKDF ---------------- */
-void hmac_sha256(const uint8_t* key, size_t klen, const uint8_t* msg, size_t mlen, uint8_t out[32]) {
+static void hmac_sha256_parts(const uint8_t* key, size_t klen,
+                                const uint8_t* a, size_t alen,
+                                const uint8_t* b, size_t blen,
+                                const uint8_t* d, size_t dlen,
+                                uint8_t out[32]) {
     uint8_t k[64], pad[64], ih[32];
     for (int i = 0; i < 64; i++) k[i] = 0;
-    if (klen > 64) sha256(key, klen, k); else for (size_t i = 0; i < klen; i++) k[i] = key[i];
+    if (klen > 64) sha256(key, klen, k);
+    else for (size_t i = 0; i < klen; i++) k[i] = key[i];
     sha256_ctx_t c;
     for (int i = 0; i < 64; i++) pad[i] = k[i] ^ 0x36;
-    sha256_init(&c); sha256_update(&c, pad, 64); sha256_update(&c, msg, mlen); sha256_final(&c, ih);
+    sha256_init(&c); sha256_update(&c, pad, 64);
+    if (alen) sha256_update(&c, a, alen);
+    if (blen) sha256_update(&c, b, blen);
+    if (dlen) sha256_update(&c, d, dlen);
+    sha256_final(&c, ih);
     for (int i = 0; i < 64; i++) pad[i] = k[i] ^ 0x5c;
     sha256_init(&c); sha256_update(&c, pad, 64); sha256_update(&c, ih, 32); sha256_final(&c, out);
     crypto_wipe(k, sizeof k); crypto_wipe(pad, sizeof pad); crypto_wipe(ih, sizeof ih); crypto_wipe(&c, sizeof c);
+}
+
+void hmac_sha256(const uint8_t* key, size_t klen, const uint8_t* msg, size_t mlen, uint8_t out[32]) {
+    hmac_sha256_parts(key, klen, msg, mlen, 0, 0, 0, 0, out);
 }
 
 void hkdf_extract(const uint8_t* salt, size_t slen, const uint8_t* ikm, size_t ilen, uint8_t prk[32]) {
@@ -261,35 +274,42 @@ void hkdf_extract(const uint8_t* salt, size_t slen, const uint8_t* ikm, size_t i
     hmac_sha256(salt, slen, ikm, ilen, prk);
 }
 
-void hkdf_expand(const uint8_t prk[32], const uint8_t* info, size_t ilen, uint8_t* out, size_t olen) {
-    uint8_t t[32], msg[32 + 300 + 1];
+/* RFC 5869: L must not exceed 255 * HashLen (255 * 32 for SHA-256).
+   HMAC is updated in pieces so the caller's info is never silently truncated. */
+int hkdf_expand(const uint8_t prk[32], const uint8_t* info, size_t ilen, uint8_t* out, size_t olen) {
+    if (!olen) return 0;
+    if (!prk || !out || (ilen && !info) || olen > 255u * 32u) return -1;
+    uint8_t t[32], counter;
     size_t tl = 0, done = 0;
-    if (ilen > 300) ilen = 300;
-    for (uint8_t i = 1; done < olen; i++) {
-        size_t m = 0;
-        for (size_t k = 0; k < tl; k++) msg[m++] = t[k];
-        for (size_t k = 0; k < ilen; k++) msg[m++] = info[k];
-        msg[m++] = i;
-        hmac_sha256(prk, 32, msg, m, t);
+    for (uint16_t block = 1; done < olen; block++) {
+        counter = (uint8_t)block;
+        hmac_sha256_parts(prk, 32, t, tl, info, ilen, &counter, 1, t);
         tl = 32;
-        for (size_t k = 0; k < 32 && done < olen; k++) out[done++] = t[k];
+        size_t take = olen - done < 32 ? olen - done : 32;
+        for (size_t k = 0; k < take; k++) out[done + k] = t[k];
+        done += take;
     }
-    crypto_wipe(t, sizeof t); crypto_wipe(msg, sizeof msg);
+    crypto_wipe(t, sizeof t);
+    counter = 0;
+    return 0;
 }
 
-void hkdf_expand_label(const uint8_t secret[32], const char* label, const uint8_t* ctx, size_t clen, uint8_t* out, size_t olen) {
-    uint8_t info[2 + 1 + 6 + 64 + 1 + 64];
+int hkdf_expand_label(const uint8_t secret[32], const char* label, const uint8_t* ctx, size_t clen, uint8_t* out, size_t olen) {
+    uint8_t info[2 + 1 + 255 + 1 + 255];
     size_t n = 0, ll = 0;
-    while (label[ll] && ll < 64) ll++;
-    if (clen > 64) clen = 64;
+    if (!secret || !label || (clen && !ctx) || (olen && !out) || olen > 255u * 32u) return -1;
+    while (ll < 250 && label[ll]) ll++;
+    if (ll > 249 || clen > 255) return -1;   /* 6-byte "tls13 " prefix plus label fits uint8 length */
     info[n++] = (uint8_t)(olen >> 8); info[n++] = (uint8_t)olen;
     info[n++] = (uint8_t)(6 + ll);
-    const char* p = "tls13 ";
-    for (int i = 0; i < 6; i++) info[n++] = (uint8_t)p[i];
+    const char* prefix = "tls13 ";
+    for (int i = 0; i < 6; i++) info[n++] = (uint8_t)prefix[i];
     for (size_t i = 0; i < ll; i++) info[n++] = (uint8_t)label[i];
     info[n++] = (uint8_t)clen;
     for (size_t i = 0; i < clen; i++) info[n++] = ctx[i];
-    hkdf_expand(secret, info, n, out, olen);
+    int r = hkdf_expand(secret, info, n, out, olen);
+    crypto_wipe(info, sizeof info);
+    return r;
 }
 
 /* ---------------- SHA-512 / SHA-384 ---------------- */
