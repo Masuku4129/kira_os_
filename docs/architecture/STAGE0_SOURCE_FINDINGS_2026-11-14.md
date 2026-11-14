@@ -499,3 +499,13 @@ No code was changed on `main` by this audit. All implementation changes remain i
 - **F-016:** PR #166 exact head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229`, workflow `43602565437`, completed successfully; all 29 returned jobs succeeded. This verifies the FDT header reservation-map parser and ARM64 boot integration on that Draft PR head.
 - **F-016 integration caveat:** PR #166 is based on main and uses the current main `pmm_arm_reserve()`. Main's ARM64 PMM has no separate reserved-page bitmap, so a later `pmm_free_page()` can clear a page reserved by the new call. PR #158 implements reserved-page ownership and atomic contiguous release, exact head `70d0e89a65414818c22d61532f7ca4288c464d2c`, workflow `43592051859`, 43/43 PASS. Treat #158 as a prerequisite or integrate #158+#166 as one reviewed change set. Add an integration test that proves a page described only by FDT `mem_rsvmap` remains unavailable after PMM initialization and cannot be freed.
 - These are branch-level results only. No result is transferred to main, and no physical ARM64 hardware qualification is claimed.
+
+
+### Follow-up — FDT-to-PMM integration added to PR #166 (2026-11-14)
+
+- PR #166 was expanded beyond the original FDT parser patch to carry the verified ARM64 PMM reserved-page ownership and atomic contiguous-release implementation from PR #158.
+- Added an end-to-end host regression in `tests/fdt_test.c`: parse the FDT header reservation, apply it to ARM64 PMM, prove the reserved page cannot be freed, exhaust all remaining allocatable pages and prove the reserved page is never returned.
+- Added the independent `tests/pmm_arm_test.c` suite and wired it into `tests/run_host_tests.sh`; the FDT test now links the actual ARM64 PMM implementation.
+- Updated PR #166 description to state the combined scope and exact verification boundary. Current head: `5846df979218bd43e0edfdd456f7042d45e8c195`; exact-head workflow `43608492629` is pending. The earlier FDT-only head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229` passed 29/29 returned jobs, but that result does not transfer to the expanded head.
+- PR #158 remains open as the standalone source of the PMM change; do not merge both independently or duplicate the same implementation. Review the combined #166 diff and decide which PR is the integration vehicle after its exact-head CI completes.
+- PR #165 diagnostic-cleanup head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb` has workflow `43608372681` queued/in progress; the previous pre-cleanup head passed all 30 returned jobs (not 29; the latest job listing contains 30 entries). No result is claimed for the cleanup head yet.
