@@ -21,7 +21,8 @@ int main(void) {
     /* Both the raw addition and the subsequent page align-up must reject overflow. */
     CHECK(!vmm_mmio_page_range(UINT64_MAX - 7, 8, &first, &end));
     CHECK(!vmm_mmio_page_range(UINT64_MAX - 4095, 1, &first, &end));
-    CHECK(!vmm_mmio_page_range(UINT64_MAX - 4096, 1, &first, &end));
+    CHECK(vmm_mmio_page_range(UINT64_MAX - 4096, 1, &first, &end));
+    CHECK(first == (UINT64_MAX - 4096) / 4096 * 4096 && end == (UINT64_MAX - 4096) / 4096 * 4096 + 4096);
     CHECK(!vmm_mmio_page_range(UINT64_MAX & ~0xfffULL, 4096, &first, &end));
 
     if (fails) return 1;
