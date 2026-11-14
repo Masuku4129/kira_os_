@@ -1315,3 +1315,14 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Обновлён Stage 0 audit report ссылкой на новый план и явным разграничением integrated baseline vs proposed technology.
 - Это документационная и inventory работа. Production code не менялся; новые технологии не объявлены внедрёнными; тесты и сборки в рамках этой записи не запускались.
 - Stage 0 остаётся IN PROGRESS. Ранее записанные 70% — предварительная оценка старого объёма аудита; новая архитектурная/форматная сверка расширила критерии закрытия и требует повторного расчёта после reconciliation всех A–N workstreams.
+
+
+## 72. Новые требования закреплены в нормативном мастер-плане — 2026-11-15
+
+- В `docs/MASTER_DEVELOPMENT_PLAN.md` добавлен раздел 8: целевая гибридная capability-микроархитектура, языковая политика, правила выбора форматов, KIRA IR/SSA, технологические ворота и новая последовательность Stage 0–13.
+- Создана `docs/architecture/STAGE0_REQUIREMENTS_CROSSWALK_2026-11-15.md`: все направления A–N сопоставлены с целевыми компонентами и Stage; отдельно закреплены общие контракты, распределение языков/форматов и дополнительные exit checks Stage 0.
+- Связи добавлены в целевой архитектурный документ и Stage 0 audit report. Старые требования A–N не удалялись и не сокращались.
+- Документы записаны только в рабочую audit-ветку `architecture/stage0-repository-audit-2026-11-14`; `main` не менялся. Production-код и сборочные файлы не затрагивались.
+- Выполнена повторная проверка GitHub fetch: целевой план, master plan, crosswalk и audit report доступны в ветке; новые ссылки присутствуют.
+- Проверки кода/сборки/CI не запускались в рамках этой документационной операции; PASS не заявляется.
+- Stage 0 остаётся IN PROGRESS. Следующая работа — сверка A–N crosswalk с полным component/file/build/test inventory, затем продолжение source audit и PR dependency reconciliation.
