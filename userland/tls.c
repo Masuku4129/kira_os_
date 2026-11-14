@@ -240,7 +240,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     while (!got_fin) {
         if (next_hs(t, 1, &ty, &bl, timeout_ms)) return -1;
         const u8* m = t->hs + 4;
-        if (ty == HS_EE) { hs_consume(bl, 1); continue; }
+        if (ty == HS_EE) { hs_consume(t, bl, 1); continue; }
         if (t->resumed && (ty == HS_CERT || ty == HS_CV)) return fail(t, "server sent a certificate in a resumed session");
         if (ty == HS_CERT) {                                      /* цепочка: контекст, список (длина 3), записи */
             if (bl < 4 || bl > sizeof t->certmsg) return fail(t, "bad or too large Certificate");
@@ -269,7 +269,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
                 c += 2 + xl;
             }
             if (!t->cert_n || x509_parse(t->cert_p[0], t->cert_l[0], &t->leaf)) return fail(t, "server certificate is not valid X.509");
-            hs_consume(bl, 1); continue;
+            hs_consume(t, bl, 1); continue;
         }
         if (ty == HS_CV) {                                        /* подпись переписки ключом сертификата сервера */
             if (!t->cert_n || bl < 4 || 4 + be16(m + 2) != bl) return fail(t, "bad CertificateVerify");
@@ -283,15 +283,15 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
             if (vr == -2) return fail(t, "server signed with an unsupported scheme");
             if (vr) return fail(t, "CertificateVerify signature is wrong (server does not own the certificate key)");
             t->cv_ok = 1; t->cv_scheme = (u16)be16(m);
-            hs_consume(bl, 1); continue;
+            hs_consume(t, bl, 1); continue;
         }
         if (ty == HS_FIN) {
             u8 fk[32], want[32];
             hkdf_expand_label(ssec, "finished", 0, 0, fk, 32);
-            th_hash(h);
+            th_hash(t, h);
             hmac_sha256(fk, 32, h, 32, want);
             if (bl != 32 || !crypto_eq(want, m, 32)) return fail(t, "server Finished is wrong (handshake was altered)");
-            hs_consume(bl, 1);
+            hs_consume(t, bl, 1);
             got_fin = 1; continue;
         }
         return fail(t, "unexpected handshake message");
@@ -315,7 +315,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
 
     /* ---- ключи приложения (по переписке до Finished сервера включительно) ---- */
     u8 ms_[32], cap[32], sap[32];
-    th_hash(h);
+    th_hash(t, h);
     hkdf_expand_label(hsec, "derived", empty, 32, der, 32);
     hkdf_extract(der, 32, zero, 32, ms_);
     hkdf_expand_label(ms_, "c ap traffic", h, 32, cap, 32);
@@ -331,7 +331,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     hmac_sha256(fk, 32, h, 32, fin + 4);
     if (write_record(t, CT_HS, fin, 36)) return fail(t, "Finished not sent");
     sha256_update(&t->transcript, fin, 36);                                  /* переписка до Finished клиента включительно: для resumption_master_secret */
-    th_hash(h);
+    th_hash(t, h);
     hkdf_expand_label(ms_, "res master", h, 32, t->resm, 32);
 
     keys(t, cap, 1);
