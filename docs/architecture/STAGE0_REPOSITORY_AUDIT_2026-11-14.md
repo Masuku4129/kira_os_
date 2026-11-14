@@ -725,3 +725,10 @@ F-054 remains a real, source-confirmed ordering defect: UHCI/xHCI re-enable Bus 
 **Stage 0 progress: 66%.** Added F-056: partial per-slot DMA allocation failure can leave xHCI slot pointers inconsistent; retry uses only the IN pointer as an initialization sentinel and can dereference a missing OUT buffer. The shared USB DMA allocator currently has no public free API, so failure recovery needs an explicit resource lifecycle rather than clearing the slot blindly.
 
 No production source changed. The next code fix should be stacked on the PCI firmware-Bus-Master PR and include allocation-failure injection plus same-slot retry tests.
+
+
+## 31. QEMU diagnostic baseline and stacked USB fix verification — 2026-11-14
+
+**Stage 0 progress: 67%.** Phase-aware QEMU runner is implemented and its exact-head CI passed 43/43 on PR #168. Artifact inspection confirmed the current-main `usb-uhci` and `boot-virtio` scenarios both have zero-byte QEMU guest_errors logs and zero invalid read/write counts.
+
+Compared with PR #165's 393,602 invalid-read records on its UHCI artifact, this strengthens F-054 as a likely regression mechanism: BM is cleared in PCI enumeration, then UHCI/xHCI re-enable it before controller reset and DMA setup. This is not controlled A/B evidence; PR #169 is stacked on #165 and is running the staged fix plus same-slot xHCI allocation-failure tests.
