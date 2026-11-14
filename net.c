@@ -1255,8 +1255,8 @@ static int64_t udp_xmit(int s, const ipa_t* dst, uint16_t port, uint8_t* b, uint
         lip = ipa_v6(sa);
         uint16_t cs = net_csum6(lip.a, dst->a, 17, b, 8 + n); put16(b + 6, cs ? cs : 0xFFFF);   /* 0 - «нет суммы» в IPv6 нельзя */
     }
-    ipa_send(mac, &lip, dst, 17, b, 8 + n);
-    return (int64_t)n;
+    int sent = ipa_send(mac, &lip, dst, 17, b, 8 + n);
+    return net_udp_send_result(sent, n);
 }
 
 int64_t net_udp_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
