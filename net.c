@@ -920,6 +920,7 @@ static void tcp_tick(uint64_t now) {
 static int tcp_wait(tcb_t* t, int (*cond)(const tcb_t*), uint64_t ticks) {
     uint64_t until = timer_get_ticks() + ticks;
     for (;;) {
+        if (proc_dying()) return -2;                         /* process exit must release the pinned slot promptly */
         uint64_t f = spin_lock_irqsave(&tlk);
         int ready = cond(t);
         spin_unlock_irqrestore(&tlk, f);
