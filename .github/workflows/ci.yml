@@ -64,7 +64,7 @@ jobs:
           mkdir -p ci-out/android
           KIRA_OUT="$GITHUB_WORKSPACE/ci-out/android" ./build_clang.sh --android-full
           # Exercise the existing-disk update path: /var and /data must survive a full rebuild.
-          printf 'KIRA_DISK_UPDATE_PRESERVATION_OK\\n' > ci-out/android/preserve-marker.txt
+          printf 'KIRA_DISK_UPDATE_PRESERVATION_OK\n' > ci-out/android/preserve-marker.txt
           tools/kfstool ci-out/android/kira_disk.img put /data/.ci-preserve-marker ci-out/android/preserve-marker.txt >/dev/null
           tools/kfstool ci-out/android/kira_disk.img put /var/.ci-preserve-marker ci-out/android/preserve-marker.txt >/dev/null
           KIRA_OUT="$GITHUB_WORKSPACE/ci-out/android" ./build_clang.sh --android-full
