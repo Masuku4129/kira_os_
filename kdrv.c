@@ -181,6 +181,16 @@ static uint16_t quiesce(const pci_dev_t* d) {
     return pci_read16(d, 0x04);
 }
 
+/* Read back the PCI command and MSI controls; a write attempt alone is not proof of quiescence. */
+static int quiesce_verified(const pci_dev_t* d) {
+    if (pci_read16(d, 0x04) & (PCI_CMD_IO | PCI_CMD_MEM | PCI_CMD_MASTER)) return 0;
+    uint16_t c = find_cap(d, 0x05);
+    if (c && (pci_read16(d, (uint16_t)(c + 2)) & 1u)) return 0;
+    c = find_cap(d, 0x11);
+    if (c && (pci_read16(d, (uint16_t)(c + 2)) & 0x8000u)) return 0;
+    return 1;
+}
+
 /* ---- запуск ---- */
 static void bind_reset(bind_t* b) {
     b->granted = b->version = b->pid = 0;
@@ -206,10 +216,14 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     /* Bus mastering is unsafe without a verified per-device IOMMU domain. CAP_IRQ also enables MSI writes and therefore bus mastering. */
     if (!kdrv_dma_policy_allow(granted, 0)) {
         quiesce(d);                                                                  /* ensure firmware/device state cannot keep bus mastering or MSI active */
+        int stopped = quiesce_verified(d);
         kfree(p.buf);
         uart_print("[KIRA DRV] "); uart_print(name);
         uart_print(": DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен\n");
-        life_note("drv-denied", name, KDRV_E_ISOLATION);
+        uart_print("[KIRA DRV] "); uart_print(name);
+        uart_print(stopped ? ": PCI quiesce verified (IO/MEM/BUS_MASTER and MSI/MSI-X disabled)\n"
+                           : ": CRITICAL: PCI quiesce readback failed; device may retain active bus mastering or MSI\n");
+        life_note(stopped ? "drv-denied" : "drv-quiesce-failed", name, KDRV_E_ISOLATION);
         return KDRV_E_ISOLATION;
     }
     if ((granted & CAP_DMA) && platform_dma_noncoherent && platform_dma_noncoherent()) {
