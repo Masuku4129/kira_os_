@@ -683,7 +683,7 @@ static tcb_t* tcp_pin(int handle) {
     if (net_tcp_handle_decode(handle, &slot, &generation)) return 0;
     uint64_t f = spin_lock_irqsave(&tlk);
     tcb_t* t = &tcbs[slot];
-    if (!net_tcp_handle_matches(handle, slot, t->generation, t->state != T_FREE, t->closing) || t->refs == UINT32_MAX) t = 0;
+    if (t->generation != generation || !net_tcp_handle_matches(handle, slot, t->generation, t->state != T_FREE, t->closing) || t->refs == UINT32_MAX) t = 0;
     else t->refs++;
     spin_unlock_irqrestore(&tlk, f);
     return t;
@@ -699,7 +699,7 @@ static tcp_listener_t* tcp_listener_pin(int handle, unsigned* slot_out, uint16_t
     if (net_tcp_listener_handle_decode(handle, &slot, &generation)) return 0;
     uint64_t f = spin_lock_irqsave(&tlk);
     tcp_listener_t* l = &listens[slot];
-    if (!net_tcp_listener_handle_matches(handle, slot, l->generation, l->used, l->closing) || l->refs == UINT32_MAX) l = 0;
+    if (l->generation != generation || !net_tcp_listener_handle_matches(handle, slot, l->generation, l->used, l->closing) || l->refs == UINT32_MAX) l = 0;
     else { l->refs++; if (slot_out) *slot_out = slot; if (generation_out) *generation_out = generation; }
     spin_unlock_irqrestore(&tlk, f);
     return l;
