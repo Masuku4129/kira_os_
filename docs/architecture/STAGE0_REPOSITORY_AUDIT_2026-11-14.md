@@ -129,7 +129,12 @@ These are exact-head CI results, not main-branch acceptance:
 - F-013/F-014: PR #158, 43/43 PASS, run `43592051859`.
 - F-015: PR #159, 43/43 PASS, run `43592382535`.
 
-Combined F-011/F-012 verification is running in PR #160; current-main F-002 fail-closed policy verification is running in PR #161. No PR has been merged.
+- F-011/F-012: PR #160, 43/43 PASS, run `43592802619`.
+- F-003: PR #162, 43/43 PASS, run `43594509620`.
+- F-002: current-main fail-closed policy in PR #161; latest head `ea6572f4d1a8f28732fa1c008cea0151fcd9d00b`, run `43600660082` in progress after scenario timing/expectation corrections.
+- F-008: guarded-stack-only allocation and stack zeroing in PR #164; latest head `3729347c19f8a5dad2ac5587f60876d8adca6cda`, run `43600699384` pending after correcting the test to exclude the initialized context frame.
+- F-004: proposed versioned BootInfo contract is documented in ADR-0006; no implementation yet.
+No PR has been merged.
 
 ## 7. Source-level findings
 
