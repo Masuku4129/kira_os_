@@ -1638,3 +1638,26 @@ A failed controller can permanently consume DMA pool/physical memory. A UHCI fai
 5. Run host ASan/UBSan tests and the full x86-64/ARM64 USB matrix where applicable.
 
 F-057 remains OPEN. This is a source/test-coverage finding; no runtime reproduction or production fix is claimed.
+
+
+## New finding F-058 — FDT string-property consumers can read beyond property bounds (2026-11-14)
+
+**Severity:** MEDIUM; malformed firmware-supplied device tree can cause out-of-bounds reads during platform discovery.
+
+### Evidence
+- `fdt_prop()` validates the property token and value length within the structure block, but it returns the raw value pointer and length without validating string termination for string-valued properties.
+- `fdt_count_type()` obtains `device_type` and calls unbounded `streq(t, type)`; the property length is checked only for nonzero. A malformed property with no NUL byte within its declared length causes the comparison to continue into alignment padding or subsequent structure tokens.
+- `fdt_node_enabled()` obtains `status` and similarly calls unbounded `streq(s, "okay")` / `streq(s, "ok")` without requiring a NUL within the property length.
+- `fdt_compatible()` has a bounded string-list walk, so this is not a blanket claim about every FDT string consumer. The issue is specifically the plain string properties consumed by the two helpers above.
+- Existing `tests/fdt_test.c` covers invalid header/size/structure lengths and traversal, but does not construct a non-NUL-terminated `device_type` or `status` property and run those helpers under ASan.
+
+### Consequence
+A malformed FDT can make CPU/device enumeration and node-enabled checks read outside the declared property value. Depending on adjacent bytes, this can produce false classification or an out-of-bounds read; when the value ends at the end of the structure block, the read may leave the block entirely.
+
+### Required closure
+1. Add a bounded string-property helper that verifies a NUL exists within the declared property length before comparison; use it for `device_type` and `status`.
+2. Decide whether malformed string properties should make the individual property unavailable or invalidate the complete FDT; document the policy consistently.
+3. Add malformed values with no NUL, empty values, exact-length valid strings, and boundary-at-end cases for both helpers.
+4. Run host ASan/UBSan and ARM64 QEMU FDT/boot tests.
+
+F-058 remains OPEN. Source/test-coverage finding only; no production fix or runtime reproduction is claimed.
