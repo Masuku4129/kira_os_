@@ -100,6 +100,15 @@ int main(void) {
         return 1;
     }
 
+    /* A backward bridge link must not create a cycle or duplicate the root bus. */
+    set_bridge_buses(root, 5, 6, 7);
+    set_bridge_buses(nested, 6, 5, 7);
+    count = pci_init_range(5, 7);
+    if (count != 3 || pci_find(0x4321, 0x8765) || out_of_range_reads != 0) {
+        puts("FAIL: backward bridge link caused a cycle or escaped its bus window");
+        return 1;
+    }
+
     /* Secondary bus outside host range and mismatched primary bus must not recurse. */
     set_bridge_buses(root, 5, 9, 9);
     count = pci_init_range(5, 7);
