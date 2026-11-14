@@ -663,3 +663,14 @@ Source audit only; no production code modified. No tests claimed as run in this 
 - ARM64 QEMU test scenarios exist, but no CI run or physical hardware validation was performed during this source audit pass.
 
 No kernel source changes, no merges, no ISO build.
+
+
+## 23. ARM64 DMA and firmware-input audit — 2026-11-14
+
+**Stage 0 progress: 60%.** Traced DMA coherency detection and fallback through ARM64 platform code, VirtIO, USB and Ring 3 driver policy; also audited malformed FDT property-name handling.
+
+- F-050 — non-coherent DMA pool failure/exhaustion falls back to cacheable PMM memory in VirtIO/USB. The platform query reports non-coherent only if a pool exists, so the Ring 3 guard can also lose its signal when pool creation fails.
+- F-051 — FDT property-name lookup uses an unbounded string comparison after checking only the starting offset, allowing reads beyond the declared strings block for malformed firmware input.
+- ADR-0004 IOMMU isolation remains independent and is not satisfied by a DMA pool.
+
+Source audit only; no runtime tests or hardware validation. No kernel changes, merges or ISO build.
