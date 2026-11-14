@@ -7,7 +7,7 @@
 #include "fsrv.h"
 #include "uart.h"
 #include "cpu.h"
-#include "spinlock.h"
+#include "prog_queue.h"
 #include "manifest.h"      /* создаётся сборкой (kfstool manifest) */
 #include "heap.h"
 #include "pmm.h"
@@ -17,10 +17,7 @@
    четверти свободной ОЗУ (остальное нужно самой программе и системе). */
 #define NAME_MAX (KFS_NAME_MAX + 1)
 
-static char pending[NAME_MAX];
-static char pending_file[128];
-static volatile int pending_set;
-static spinlock_t prog_lock = SPINLOCK_INIT;
+static prog_queue_t prog_requests = PROG_QUEUE_INIT;
 
 static int name_ok(const char* n) {
     if (!n[0]) return 0;
@@ -148,34 +145,21 @@ int prog_run_local(const char* file) {
     return pid;
 }
 
-void prog_request_file(const char* name, const char* file) {
-    if (!name_ok(name)) return;
-    uint64_t f = spin_lock_irqsave(&prog_lock);
-    if (!pending_set) {
-        unsigned i = 0;
-        while (name[i]) { pending[i] = name[i]; i++; }
-        pending[i] = 0;
-        i = 0;
-        if (file) for (; file[i] && i + 1 < sizeof pending_file; i++) pending_file[i] = file[i];
-        pending_file[i] = 0;
-        pending_set = 1;
-    }
-    spin_unlock_irqrestore(&prog_lock, f);
+prog_request_status_t prog_request_file(const char* name, const char* file, uint32_t* request_id) {
+    return prog_queue_submit(&prog_requests, name, file, request_id);
 }
-void prog_request(const char* name) { prog_request_file(name, 0); }
-
+prog_request_status_t prog_request(const char* name, uint32_t* request_id) {
+    return prog_request_file(name, 0, request_id);
+}
+prog_result_state_t prog_request_take_result(uint32_t request_id, int* result) {
+    return prog_queue_take_result(&prog_requests, request_id, result);
+}
 void prog_poll(void) {
-    if (!pending_set) return;
-    char name[NAME_MAX], file[128];
-    uint64_t f = spin_lock_irqsave(&prog_lock);
-    unsigned i = 0;
-    while (pending[i]) { name[i] = pending[i]; i++; }
-    name[i] = 0;
-    for (i = 0; pending_file[i]; i++) file[i] = pending_file[i];
-    file[i] = 0;
-    pending_set = 0;
-    spin_unlock_irqrestore(&prog_lock, f);
-    (void)prog_run_grant(name, file[0] ? file : 0);
+    char name[PROG_QUEUE_NAME_CAP], file[PROG_QUEUE_FILE_CAP];
+    uint32_t request_id;
+    if (!prog_queue_take(&prog_requests, name, file, &request_id)) return;
+    int result = prog_run_grant(name, file[0] ? file : 0);
+    (void)prog_queue_complete(&prog_requests, request_id, result);
 }
 
 /* Список /bin: имена собираются в буфер из кучи (сколько программ - столько записей), затем проверяется каждая. */

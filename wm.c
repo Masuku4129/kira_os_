@@ -10,11 +10,15 @@
 #define TILE 44                    /* плитка значка боковой панели */
 #define TILE_GAP 10
 #define SIDE_X 10
+#define WM_SPATIAL_DOCK_H 76
+#define WM_SPATIAL_TAB_H 40
+#define WM_SPATIAL_TAB_GAP 8
 #define PILL_ZONE 56               /* в полноэкранном режиме панель кнопок показывается, когда курсор выше этой черты */
 #define LIGHT_R 6                  /* «светофор» окна */
 
 typedef struct {
     int used, visible, closable, pinned, user, full, input;
+    uint32_t generation;
     int resizable, zoomable;
     int zoom16;
     int cap_w, cap_h, min_w, min_h, step_w, step_h, norm_w, norm_h;
@@ -44,6 +48,13 @@ static int tab_n, tab_hover = -1, last_tab = -2;
 static int light_hover = -1;       /* окно, над «светофором» которого курсор */
 static int last_fs = -1, last_pill;
 static int cascade;
+static wm_layout_mode_t layout_mode = WM_LAYOUT_LEGACY;
+static uint32_t win_generation;
+static int overview_open, overview_page, overview_n, overview_release_guard;
+static int overview_ids[WM_MAX_WIN];
+static uint32_t overview_generations[WM_MAX_WIN];
+static void overview_click(int px, int py);
+static void overview_damage_window(int id);
 static uint32_t* bg;
 static surface_t bgs;
 static char clock_date[48], clock_hm[8];
@@ -145,11 +156,38 @@ static int side_item_y(int i) {
     return WM_TOP_H + 10 + side_panel_h() - 12 - TILE - k * (TILE + TILE_GAP);
 }
 
-static void damage_side(void) { damage(0, WM_TOP_H, WM_SIDE_W + 300, scr->h); }
+static int spatial_dock_count(void) {
+    int n = 0;
+    for (int i = 0; i < side_n; i++) if (!side[i].temp && !side[i].bottom) n++;
+    return n;
+}
+
+static int spatial_dock_slot(int item) {
+    int slot = 0;
+    for (int i = 0; i < item; i++) if (!side[i].temp && !side[i].bottom) slot++;
+    return slot;
+}
+
+static int spatial_dock_x(int item) {
+    int n = spatial_dock_count();
+    int width = n ? n * TILE + (n - 1) * TILE_GAP + 24 : 0;
+    int left = (scr->w - width) / 2 + 12;
+    return left + spatial_dock_slot(item) * (TILE + TILE_GAP);
+}
+
+static int spatial_dock_y(void) { return scr->h - TILE - 20; }
+static int spatial_tab_y(int i) { return WM_TOP_H + 18 + i * (WM_SPATIAL_TAB_H + WM_SPATIAL_TAB_GAP); }
+
+static void damage_side(void) {
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) damage(0, WM_TOP_H, scr->w, scr->h);
+    else damage(0, WM_TOP_H, WM_SIDE_W + 300, scr->h);
+}
 
 static int side_hit(int px, int py) {
     for (int i = 0; i < side_n; i++) {
-        int x = SIDE_X + 6, y = side_item_y(i);
+        if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && (side[i].temp || side[i].bottom)) continue;
+        int x = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? spatial_dock_x(i) : SIDE_X + 6;
+        int y = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? spatial_dock_y() : side_item_y(i);
         if (px >= x && px < x + TILE && py >= y && py < y + TILE) return i;
     }
     return -1;
@@ -157,7 +195,10 @@ static int side_hit(int px, int py) {
 
 int wm_side_center(int i, int* x, int* y) {
     if (i < 0 || i >= side_n) return -1;
-    *x = SIDE_X + 6 + TILE / 2; *y = side_item_y(i) + TILE / 2;
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        if (side[i].temp || side[i].bottom) return -1;
+        *x = spatial_dock_x(i) + TILE / 2; *y = spatial_dock_y() + TILE / 2;
+    } else { *x = SIDE_X + 6 + TILE / 2; *y = side_item_y(i) + TILE / 2; }
     return 0;
 }
 
@@ -174,6 +215,14 @@ static int tab_x(int i) {
 static int tab_w(int i) { return gfx_text_width(tabs[i].label) + 22; }
 
 static int tab_hit(int px, int py) {
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        if (px < 8 || px >= WM_SPATIAL_RAIL_W - 8) return -1;
+        for (int i = 0; i < tab_n; i++) {
+            int y = spatial_tab_y(i);
+            if (py >= y && py < y + WM_SPATIAL_TAB_H) return i;
+        }
+        return -1;
+    }
     if (py < 7 || py >= 7 + TAB_H) return -1;
     for (int i = 0; i < tab_n; i++) if (px >= tab_x(i) && px < tab_x(i) + tab_w(i)) return i;
     return -1;
@@ -181,7 +230,9 @@ static int tab_hit(int px, int py) {
 
 int wm_tab_center(int i, int* x, int* y) {
     if (i < 0 || i >= tab_n) return -1;
-    *x = tab_x(i) + tab_w(i) / 2; *y = 7 + TAB_H / 2;
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        *x = WM_SPATIAL_RAIL_W / 2; *y = spatial_tab_y(i) + WM_SPATIAL_TAB_H / 2;
+    } else { *x = tab_x(i) + tab_w(i) / 2; *y = 7 + TAB_H / 2; }
     return 0;
 }
 
@@ -228,7 +279,10 @@ static void str_copy(char* d, const char* s, int cap) {
     int i = 0; while (s[i] && i + 1 < cap) { d[i] = s[i]; i++; } d[i] = 0;
 }
 
-void wm_init(surface_t* screen, const wm_ops_t* o) {
+void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
+    layout_mode = (mode == WM_LAYOUT_SPATIAL_MINIMAL) ? WM_LAYOUT_SPATIAL_MINIMAL : WM_LAYOUT_LEGACY;
+    overview_open = 0; overview_page = 0; overview_n = 0; overview_release_guard = 0;
+    win_generation = 0;
     scr = screen;
     ops = *o;
     for (int i = 0; i < WM_MAX_WIN; i++) win[i].used = 0;
@@ -237,14 +291,20 @@ void wm_init(surface_t* screen, const wm_ops_t* o) {
     last_fs = -1; last_pill = 0; cascade = 0; clock_date[0] = 0; clock_hm[0] = 0; m_cores = 0; m_mem = -1; m_health = -1;
     cx = scr->w / 2; cy = scr->h / 2;
     dmg_valid = 0;
-    bg_render();
+    bg = 0; bgs.px = 0; bgs.w = bgs.h = bgs.pitch = 0;
+    if (layout_mode == WM_LAYOUT_LEGACY) bg_render();
     damage(0, 0, scr->w, scr->h);
+}
+
+void wm_init(surface_t* screen, const wm_ops_t* o) {
+    wm_init_mode(screen, o, WM_LAYOUT_LEGACY);
 }
 
 static void auto_place(win_t* w) {
     int ow = outer_w(w), oh = outer_h(w);
-    int ax = scr->w >= 800 ? WM_SIDE_W + 8 : 8, aw = scr->w - ax - 12;
-    int ay = WM_TOP_H + 12, ah = scr->h - ay - 12;
+    int left = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? WM_SPATIAL_RAIL_W + 8 : (scr->w >= 800 ? WM_SIDE_W + 8 : 8);
+    int ax = left, aw = scr->w - ax - 12;
+    int ay = WM_TOP_H + 12, ah = scr->h - ay - (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? WM_SPATIAL_DOCK_H : 12);
     int k = cascade++ % 4;
     int x = ax + (aw - ow) / 2 + k * 26, y = ay + (ah - oh) / 2 + k * 22 - 8;
     if (x + ow > scr->w - 8) x = scr->w - 8 - ow;
@@ -268,6 +328,8 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
     }
     win_t* w = &win[id];
     w->used = 1; w->visible = 1; w->full = 0; w->seq = 0;
+    w->generation = ++win_generation;
+    if (!w->generation) w->generation = ++win_generation;
     w->closable = (flags & WM_CLOSABLE) != 0; w->pinned = (flags & WM_PINNED) != 0; w->user = user;
     w->input = (flags & WM_INPUT) != 0;
     str_copy(w->title, title, sizeof(w->title));
@@ -337,6 +399,7 @@ void wm_set_title(int id, const char* t) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
     str_copy(win[id].title, t, sizeof(win[id].title));
     if (win[id].visible && !win[id].full) damage(win[id].x, win[id].y, win[id].x + outer_w(&win[id]), win[id].y + WM_HEAD);
+    overview_damage_window(id);
 }
 
 void wm_set_subtitle(int id, const char* t) {
@@ -417,6 +480,7 @@ void wm_set_visible(int id, int v) {
     damage_win(&win[id]);
     damage_side();
     damage_top();
+    overview_damage_window(id);
 }
 
 int wm_visible(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used && win[id].visible; }
@@ -459,6 +523,8 @@ void wm_set_fullscreen(int id, int on) {
 int wm_fullscreen(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used && win[id].full; }
 
 void wm_invalidate(int id) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
+    if (overview_open) { overview_damage_window(id); return; }
     if (!wm_visible(id)) return;
     win_t* w = &win[id];
     int ox, oy, dw, dh; geom(w, &ox, &oy, &dw, &dh);
@@ -466,6 +532,8 @@ void wm_invalidate(int id) {
 }
 
 void wm_invalidate_rows(int id, int y0, int y1) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
+    if (overview_open) { overview_damage_window(id); return; }
     if (!wm_visible(id)) return;
     win_t* w = &win[id];
     if (y0 < 0) y0 = 0;
@@ -501,8 +569,64 @@ void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
     if (!changed) return;
     for (int i = 0; i < ncores; i++) m_busy[i] = busy[i];
     m_cores = ncores; m_mem = mem_pct; m_health = health;
-    damage_top();
+    if (layout_mode == WM_LAYOUT_LEGACY) damage_top();
 }
+
+void wm_set_layout_mode(wm_layout_mode_t mode) {
+    if (mode != WM_LAYOUT_LEGACY && mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
+    if (layout_mode == mode) return;
+    layout_mode = mode;
+    if (mode == WM_LAYOUT_LEGACY && !bg) bg_render();
+    side_hover = -1; tab_hover = -1; last_tab = -2;
+    if (scr) damage(0, 0, scr->w, scr->h);
+}
+
+wm_layout_mode_t wm_get_layout_mode(void) { return layout_mode; }
+
+static int overview_refresh(void) {
+    int ids[WM_MAX_WIN], n = 0;
+    uint32_t generations[WM_MAX_WIN];
+    for (int i = zcount - 1; i >= 0; i--) {
+        int id = zorder[i];
+        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned) {
+            ids[n] = id;
+            generations[n] = win[id].generation;
+            n++;
+        }
+    }
+    int changed = n != overview_n;
+    for (int i = 0; i < n && !changed; i++)
+        if (ids[i] != overview_ids[i] || generations[i] != overview_generations[i]) changed = 1;
+    if (changed) {
+        for (int i = 0; i < n; i++) {
+            overview_ids[i] = ids[i];
+            overview_generations[i] = generations[i];
+        }
+        overview_n = n;
+        int cols = scr->w >= 900 ? 3 : scr->w >= 600 ? 2 : 1;
+        int rows = scr->h >= 560 ? 2 : 1;
+        int per_page = cols * rows;
+        int pages = n ? (n + per_page - 1) / per_page : 1;
+        if (overview_page >= pages) overview_page = pages - 1;
+        if (overview_page < 0) overview_page = 0;
+    }
+    return changed;
+}
+
+void wm_window_overview_toggle(void) {
+    if (overview_open) overview_open = 0;
+    else { overview_page = 0; overview_refresh(); overview_open = 1; }
+    capture = -1; dragging = -1; resizing = -1;
+    damage(0, 0, scr->w, scr->h);
+}
+
+int wm_window_overview_is_open(void) { return overview_open; }
+
+int wm_window_overview_count(void) {
+    overview_refresh();
+    return overview_n;
+}
+
 
 void wm_set_fx(int level) { fx_level = level < 0 ? 0 : level > 3 ? 3 : level; }
 
@@ -510,7 +634,7 @@ static void anim_damage(int x0, int y0, int x1, int y1) { damage(x0, y0, x1, y1)
 
 void wm_anim(uint32_t now_ms, unsigned activity) {
     anim_ms = now_ms;
-    if (fs_top() >= 0) return;                        /* во весь экран фон не виден */
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL || fs_top() >= 0) return;                        /* во весь экран фон не виден */
     brainfx_anim(now_ms, fx_level, activity, anim_damage);
 }
 
@@ -544,6 +668,7 @@ void wm_set_content_size(int id, int w, int h) {
     damage_win(wn);
     wn->content.w = w; wn->content.h = h;
     damage_win(wn);
+    overview_damage_window(id);
 }
 
 /* --- мышь --- */
@@ -649,13 +774,24 @@ static void apply_resize(int id) {
 static int gets_input(const win_t* w) { return w->user || w->input; }
 
 static void click(int px, int py) {
+    if (overview_open) { overview_click(px, py); return; }
     int fs = fs_top();
     if (fs >= 0) {
         if (pill_visible(fs) && click_pill(fs, px, py)) return;
         if (gets_input(&win[fs])) capture = fs;
         return;
     }
-    if (py < WM_TOP_H) {
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && py < WM_TOP_H) {
+        if (px >= 104 && px < 188 && py >= 6 && py < 34) wm_window_overview_toggle();
+        return;
+    }
+    if (layout_mode == WM_LAYOUT_LEGACY && py < WM_TOP_H) {
+        int t = tab_hit(px, py);
+        if (t >= 0 && ops.tab) ops.tab(t);
+        return;
+    }
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && py < WM_TOP_H) return;
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL && tab_hit(px, py) >= 0) {
         int t = tab_hit(px, py);
         if (t >= 0 && ops.tab) ops.tab(t);
         return;
@@ -685,7 +821,7 @@ static void update_hover(void) {
     int sh = fs >= 0 ? -1 : side_hit(cx, cy);
     if (sh != side_hover) { side_hover = sh; damage_side(); }
     int th = fs >= 0 ? -1 : tab_hit(cx, cy);
-    if (th != tab_hover) { tab_hover = th; damage_top(); }
+    if (th != tab_hover) { tab_hover = th; if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) damage_side(); else damage_top(); }
     int lh = -1;
     if (fs < 0 && cy >= WM_TOP_H) {
         int id = hit_window(cx, cy);
@@ -709,6 +845,21 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
     update_hover();
 
     int left = buttons & 1, was = prev_buttons & 1;
+    if (overview_release_guard) {
+        overview_release_guard = left;
+        capture = -1; dragging = -1; resizing = -1;
+        prev_buttons = buttons;
+        return; /* consume the release belonging to the overlay click */
+    }
+    if (overview_open) {
+        if (left && !was) {
+            click(cx, cy);
+            if (!overview_open) overview_release_guard = 1;
+        }
+        capture = -1; dragging = -1; resizing = -1;
+        prev_buttons = buttons;
+        return; /* overlay owns input; never leak clicks or pointer events to an underlying app */
+    }
     if (left && !was) click(cx, cy);
     if ((buttons & 2) && !(prev_buttons & 2) && fs_top() < 0 && ops.side_alt) {      /* правая кнопка на значке */
         int si = side_hit(cx, cy);
@@ -719,7 +870,8 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
     if (left && dragging >= 0 && win[dragging].used) {
         win_t* w = &win[dragging];
         int nx = cx - drag_ox, ny = cy - drag_oy;
-        if (nx < 80 - outer_w(w)) nx = 80 - outer_w(w);
+        int min_visible_x = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? WM_SPATIAL_RAIL_W : 80;
+        if (nx < min_visible_x - outer_w(w)) nx = min_visible_x - outer_w(w);
         if (nx > scr->w - 80) nx = scr->w - 80;
         if (ny < WM_TOP_H) ny = WM_TOP_H;
         if (ny > scr->h - WM_HEAD) ny = scr->h - WM_HEAD;
@@ -876,6 +1028,26 @@ static void meter_color(unsigned pct, uint32_t* c) { *c = pct < 60 ? TH_GREEN : 
 
 static void draw_topbar(surface_t* c, int ox, int oy) {
     int y = oy, W = scr->w;
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+        gfx_rect(c, ox, y, W, WM_TOP_H, TH_BAR0);
+        gfx_rect(c, ox, y + WM_TOP_H - 1, W, 1, TH_BORDER);
+        icon_draw(c, ox + 22, y + 20, 24, ICON_BRAIN, TH_CYAN, 1);
+        ui_text_smooth(c, ox + 40, y + 10, "KIRA", 20, TH_TEXT);
+        ui_round_rect(c, ox + 104, y + 7, 76, 26, 8, TH_TILE, 255);
+        ui_round_frame(c, ox + 104, y + 7, 76, 26, 8, TH_BORDER, 220);
+        gfx_text(c, ox + 119, y + 14, "ОКНА", TH_TEXT_DIM, -1);
+        int rx = W - 14 + ox;
+        if (clock_hm[0]) {
+            rx -= gfx_text_width(clock_hm);
+            ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT);
+            rx -= 16;
+            if (clock_date[0]) {
+                int dw = gfx_text_width(clock_date);
+                if (rx - dw > ox + WM_SPATIAL_RAIL_W + 12) gfx_text(c, rx - dw, y + 12, clock_date, TH_TEXT_DIM, -1);
+            }
+        }
+        return;
+    }
     ui_vgrad(c, ox, y, W, WM_TOP_H, TH_BAR0, TH_BAR1);
     for (int i = 0; i < W; i++) ui_blend(c, ox + i, y + WM_TOP_H - 1, TH_CYAN, (unsigned)(i < W / 2 ? 30 + i * 60 / W : 90 - i * 60 / W));
     icon_draw(c, ox + 30, y + 20, 30, ICON_BRAIN, TH_CYAN, 1);
@@ -889,7 +1061,6 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         } else if (i == tab_hover) ui_round_rect(c, tx, y + 7, tw, TAB_H, 7, TH_CYAN, 20);
         gfx_text(c, tx + 11, y + 12, tabs[i].label, i == act ? TH_CYAN : (i == tab_hover ? TH_TEXT : TH_TEXT_DIM), -1);
     }
-    /* справа налево: здоровье, память, ядра, время, дата */
     int rx = W - 14 + ox;
     if (m_health >= 0) {
         char t[8]; int n = 0, v = m_health; char d[4]; int k = 0;
@@ -897,14 +1068,10 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         while (k) t[n++] = d[--k];
         t[n] = 0;
         uint32_t hc = m_health >= 70 ? TH_GREEN : m_health >= 50 ? TH_AMBER : TH_RED;
-        rx -= gfx_text_width(t);
-        ui_text_bold(c, rx, y + 12, t, hc);
-        rx -= 14;
-        ui_disc(c, rx + 4, y + 20, 4, hc, 255);
-        ui_disc(c, rx + 4, y + 20, 7, hc, 50);
-        rx -= 16;
+        rx -= gfx_text_width(t); ui_text_bold(c, rx, y + 12, t, hc); rx -= 14;
+        ui_disc(c, rx + 4, y + 20, 4, hc, 255); ui_disc(c, rx + 4, y + 20, 7, hc, 50); rx -= 16;
     }
-    if (m_mem >= 0) {                                  /* память: «батарейка» с заполнением */
+    if (m_mem >= 0) {
         int bw = 26, bh = 12, bx = rx - bw, by = y + 14;
         uint32_t mc; meter_color((unsigned)m_mem, &mc);
         ui_round_frame(c, bx, by, bw, bh, 3, TH_TEXT_DIM, 200);
@@ -915,19 +1082,17 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         char t[8]; int n = 0, v = m_mem; char d[4]; int k = 0;
         do { d[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 3);
         while (k) t[n++] = d[--k];
-        t[n++] = '%'; t[n] = 0;
-        rx -= gfx_text_width(t);
-        gfx_text(c, rx, y + 12, t, TH_TEXT_DIM, -1);
-        rx -= 14;
+        t[n++] = '%';
+        t[n] = 0;
+        rx -= gfx_text_width(t); gfx_text(c, rx, y + 12, t, TH_TEXT_DIM, -1); rx -= 14;
     }
-    if (m_cores > 0) {                                 /* ядра: столбики, как уровень сигнала */
+    if (m_cores > 0) {
         int shown = m_cores > 16 ? 16 : m_cores, per = (m_cores + shown - 1) / shown;
         int bw = 4, gap = 2, bx = rx - shown * (bw + gap);
         for (int i = 0; i < shown; i++) {
             unsigned sum = 0, cnt = 0;
             for (int k = i * per; k < (i + 1) * per && k < m_cores; k++) { sum += m_busy[k]; cnt++; }
-            unsigned p = cnt ? sum / cnt : 0;
-            uint32_t col; meter_color(p, &col);
+            unsigned p = cnt ? sum / cnt : 0; uint32_t col; meter_color(p, &col);
             gfx_rect(c, bx + i * (bw + gap), y + 10, bw, 20, 0x00142238);
             int hgt = (int)(p * 20 / 100); if (hgt < 2) hgt = 2;
             gfx_rect(c, bx + i * (bw + gap), y + 30 - hgt, bw, hgt, col);
@@ -935,23 +1100,76 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         rx = bx - 16;
     }
     if (clock_hm[0]) {
-        rx -= gfx_text_width(clock_hm);
-        ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT);
-        rx -= 20;
+        rx -= gfx_text_width(clock_hm); ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT); rx -= 20;
         gfx_rect(c, rx + 9, y + 12, 1, 16, TH_BORDER);
         const char* d = clock_date;
         int left_limit = tab_n ? tab_x(tab_n - 1) + tab_w(tab_n - 1) + 16 + ox : 200 + ox;
-        while (*d && rx - gfx_text_width(d) < left_limit) {                /* не хватает места: без дня недели */
+        while (*d && rx - gfx_text_width(d) < left_limit) {
             const char* comma = d; while (*comma && *comma != ',') comma++;
-            if (!*comma) { d = ""; break; }
-            d = comma + 2;
+            if (!*comma) { d = ""; break; } d = comma + 2;
         }
-        rx -= gfx_text_width(d);
-        gfx_text(c, rx, y + 12, d, TH_TEXT_DIM, -1);
+        rx -= gfx_text_width(d); gfx_text(c, rx, y + 12, d, TH_TEXT_DIM, -1);
+    }
+}
+
+static void draw_spatial_shell(surface_t* c, int ox, int oy) {
+    int rail_x = 8 + ox, rail_y = WM_TOP_H + 10 + oy;
+    int rail_h = tab_n ? tab_n * (WM_SPATIAL_TAB_H + WM_SPATIAL_TAB_GAP) - WM_SPATIAL_TAB_GAP + 20 : 20;
+    ui_round_rect(c, rail_x, rail_y, WM_SPATIAL_RAIL_W - 16, rail_h, 16, TH_BAR0, 255);
+    ui_round_frame(c, rail_x, rail_y, WM_SPATIAL_RAIL_W - 16, rail_h, 16, TH_BORDER, 255);
+    int act = active_tab();
+    static const int nav_icon[WM_TAB_MAX] = {
+        ICON_HOME, ICON_APPS, ICON_FOLDER, ICON_AI, ICON_MONITOR, ICON_GEAR, ICON_TERMINAL, ICON_WAVE
+    };
+    for (int i = 0; i < tab_n; i++) {
+        int ty = spatial_tab_y(i) + oy, tx = rail_x + 6, tw = WM_SPATIAL_RAIL_W - 28;
+        if (i == act) {
+            ui_round_rect(c, tx, ty, tw, WM_SPATIAL_TAB_H, 10, TH_CYAN, 42);
+            ui_round_rect(c, tx, ty + 9, 3, WM_SPATIAL_TAB_H - 18, 2, TH_CYAN, 255);
+        } else if (i == tab_hover) ui_round_rect(c, tx, ty, tw, WM_SPATIAL_TAB_H, 10, TH_TILE, 255);
+        icon_draw(c, tx + tw / 2, ty + WM_SPATIAL_TAB_H / 2, 22, nav_icon[i], i == act ? TH_CYAN : TH_TEXT_DIM, 0);
+    }
+    if (tab_hover >= 0 && tab_hover < tab_n) {
+        const char* label = tabs[tab_hover].label;
+        int lw = gfx_text_width(label) + 20;
+        int tx = WM_SPATIAL_RAIL_W + 8 + ox;
+        int ty = spatial_tab_y(tab_hover) + oy + 6;
+        ui_round_rect(c, tx, ty, lw, 28, 8, TH_BAR0, 255);
+        ui_round_frame(c, tx, ty, lw, 28, 8, TH_BORDER, 255);
+        gfx_text(c, tx + 10, ty + 8, label, TH_TEXT, -1);
+    }
+    int count = spatial_dock_count();
+    if (!count) return;
+    int width = count * TILE + (count - 1) * TILE_GAP + 24;
+    int dx = (scr->w - width) / 2 + ox, dy = spatial_dock_y() + oy - 8;
+    ui_round_rect(c, dx, dy, width, TILE + 16, 18, TH_BAR0, 248);
+    ui_round_frame(c, dx, dy, width, TILE + 16, 18, TH_BORDER, 255);
+    int top = wm_top();
+    for (int i = 0; i < side_n; i++) {
+        if (side[i].temp || side[i].bottom) continue;
+        int id = wm_find(side[i].tag);
+        int running = id >= 0, shown = running && win[id].visible, focused = shown && id == top;
+        uint32_t col = side[i].color;
+        int tx = spatial_dock_x(i) + ox, ty = spatial_dock_y() + oy;
+        uint32_t fill = i == side_hover ? ui_mix(TH_TILE, col, 40) : TH_TILE;
+        if (focused) ui_glow(c, tx, ty, TILE, TILE, 12, 3, col, 110);
+        ui_round_rect(c, tx, ty, TILE, TILE, 12, fill, 255);
+        ui_round_frame(c, tx, ty, TILE, TILE, 12, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 150 : 70), 255);
+        icon_draw(c, tx + TILE / 2, ty + TILE / 2, 26, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
+        if (shown) ui_round_rect(c, tx + 12, ty + TILE - 3, TILE - 24, 2, 1, col, 255);
+    }
+    if (side_hover >= 0 && side_hover < side_n && !side[side_hover].temp && !side[side_hover].bottom) {
+        const char* label = side[side_hover].label;
+        int lw = gfx_text_width(label) + 20, tx = spatial_dock_x(side_hover) + TILE / 2 - lw / 2 + ox;
+        int ty = spatial_dock_y() + oy - 40;
+        ui_round_rect(c, tx, ty, lw, 28, 8, TH_BAR0, 250);
+        ui_round_frame(c, tx, ty, lw, 28, 8, side[side_hover].color, 180);
+        gfx_text(c, tx + 10, ty + 8, label, TH_TEXT, -1);
     }
 }
 
 static void draw_side(surface_t* c, int ox, int oy) {
+    if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) { draw_spatial_shell(c, ox, oy); return; }
     if (!side_n) return;
     int x = SIDE_X + ox, y = WM_TOP_H + 10 + oy, w = TILE + 12, h = side_panel_h();
     ui_round_rect(c, x, y, w, h, 16, TH_BAR0, 255);
@@ -972,7 +1190,7 @@ static void draw_side(surface_t* c, int ox, int oy) {
         ui_round_rect(c, tx, ty, TILE, TILE, 12, fill, 255);
         ui_round_frame(c, tx, ty, TILE, TILE, 12, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 160 : 70), 255);
         icon_draw(c, tx + TILE / 2, ty + TILE / 2, 26, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
-        if (side[i].badge) {                                /* буква программы в углу: одинаковые значки различимы */
+        if (side[i].badge) {
             char b[2] = { side[i].badge, 0 };
             ui_disc(c, tx + TILE - 9, ty + TILE - 9, 8, TH_BAR0, 255);
             ui_ring(c, tx + TILE - 9, ty + TILE - 9, 7, 8, col, 255);
@@ -980,7 +1198,7 @@ static void draw_side(surface_t* c, int ox, int oy) {
         }
         if (running) ui_round_rect(c, SIDE_X + 1 + ox, ty + TILE / 2 - (shown ? 8 : 3), 3, shown ? 16 : 6, 2, shown ? col : TH_TEXT_FAINT, 255);
     }
-    if (side_hover >= 0) {                                   /* подпись к значку под курсором */
+    if (side_hover >= 0) {
         const char* hint = side[side_hover].hint;
         int th = hint ? 44 : 26;
         int ty = side_item_y(side_hover) + oy + TILE / 2 - th / 2;
@@ -992,6 +1210,134 @@ static void draw_side(surface_t* c, int ox, int oy) {
         gfx_text(c, lx + 10, ty + 5, side[side_hover].label, TH_TEXT, -1);
         if (hint) gfx_text(c, lx + 10, ty + 23, hint, TH_TEXT_FAINT, -1);
     }
+}
+
+
+static void overview_grid(int* cols, int* rows, int* per, int* left, int* top, int* cw, int* ch) {
+    *cols = scr->w >= 900 ? 3 : scr->w >= 600 ? 2 : 1;
+    *rows = scr->h >= 560 ? 2 : 1;
+    *per = *cols * *rows;
+    *left = 28;
+    *top = 100;
+    int gap = 14;
+    *cw = (scr->w - 2 * *left - (*cols - 1) * gap) / *cols;
+    *ch = (scr->h - *top - 68 - (*rows - 1) * gap) / *rows;
+    if (*cw < 120) *cw = 120;
+    if (*ch < 100) *ch = 100;
+}
+
+static int overview_card_rect(int slot, int* x, int* y, int* w, int* h) {
+    int cols, rows, per, left, top, cw, ch;
+    overview_grid(&cols, &rows, &per, &left, &top, &cw, &ch);
+    if (slot < 0 || slot >= per || overview_page * per + slot >= overview_n) return -1;
+    *x = left + (slot % cols) * (cw + 14);
+    *y = top + (slot / cols) * (ch + 14);
+    *w = cw; *h = ch;
+    return 0;
+}
+
+int wm_window_overview_item_center(int item, int* x, int* y) {
+    int rx, ry, rw, rh;
+    if (!overview_open || !x || !y || overview_card_rect(item, &rx, &ry, &rw, &rh) != 0) return -1;
+    *x = rx + rw / 2; *y = ry + rh / 2;
+    return 0;
+}
+
+static void overview_damage_window(int id) {
+    if (!overview_open || id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
+    int cols, rows, per, left, top, cw, ch;
+    overview_grid(&cols, &rows, &per, &left, &top, &cw, &ch);
+    for (int i = 0; i < overview_n; i++) {
+        if (overview_ids[i] != id || overview_generations[i] != win[id].generation) continue;
+        if (i / per != overview_page) return;
+        int x, y, w, h;
+        if (overview_card_rect(i % per, &x, &y, &w, &h) == 0) damage(x, y, x + w, y + h);
+        return;
+    }
+}
+
+static int overview_hit_item(int px, int py) {
+    int cols, rows, per, left, top, cw, ch;
+    overview_grid(&cols, &rows, &per, &left, &top, &cw, &ch);
+    for (int i = 0; i < per; i++) {
+        int x, y, w, h;
+        if (overview_card_rect(i, &x, &y, &w, &h) == 0 &&
+            px >= x && px < x + w && py >= y && py < y + h) return overview_page * per + i;
+    }
+    return -1;
+}
+
+static void overview_button(surface_t* c, int ox, int oy, int x, int y, int w, const char* label, int enabled) {
+    uint32_t edge = enabled ? TH_CYAN : TH_BORDER;
+    ui_round_rect(c, x + ox, y + oy, w, 32, 9, TH_TILE, 255);
+    ui_round_frame(c, x + ox, y + oy, w, 32, 9, edge, enabled ? 210 : 90);
+    int tw = gfx_text_width(label);
+    gfx_text(c, x + ox + (w - tw) / 2, y + oy + 10, label, enabled ? TH_TEXT : TH_TEXT_FAINT, -1);
+}
+
+static void draw_overview(surface_t* c, int ox, int oy) {
+    gfx_rect(c, 0, 0, c->w, c->h, TH_BG0);
+    ui_round_rect(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BAR0, 255);
+    ui_round_frame(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BORDER, 255);
+    gfx_text(c, 36 + ox, 58 + oy, "ОКНА", TH_TEXT, -1);
+    gfx_text(c, 118 + ox, 60 + oy, "Выберите окно для возврата", TH_TEXT_DIM, -1);
+    overview_button(c, ox, oy, scr->w - 104, 50, 72, "Закрыть", 1);
+
+    int cols, rows, per, left, top, cw, ch;
+    overview_grid(&cols, &rows, &per, &left, &top, &cw, &ch);
+    int first = overview_page * per;
+    if (!overview_n) {
+        gfx_text(c, scr->w / 2 - 74 + ox, scr->h / 2 + oy, "Нет открытых окон", TH_TEXT_DIM, -1);
+    }
+    for (int slot = 0; slot < per && first + slot < overview_n; slot++) {
+        int id = overview_ids[first + slot];
+        if (id < 0 || id >= WM_MAX_WIN || !win[id].used) continue;
+        const win_t* w = &win[id];
+        int x, y, ww, hh;
+        if (overview_card_rect(slot, &x, &y, &ww, &hh) != 0) continue;
+        int focused = id == wm_top();
+        ui_round_rect(c, x + ox, y + oy, ww, hh, 14, TH_CARD, 255);
+        ui_round_frame(c, x + ox, y + oy, ww, hh, 14, focused ? TH_CYAN : TH_CARD_EDGE, focused ? 255 : 180);
+        int px = x + 10, py = y + 10, pw = ww - 20, ph = hh - 62;
+        if (ph < 32) ph = 32;
+        ui_round_rect(c, px + ox, py + oy, pw, ph, 8, TH_CONTENT, 255);
+        if (w->content.px && w->content.w > 0 && w->content.h > 0)
+            blit_content(c, px + ox, py + oy, pw, ph, w);
+        ui_text_fit(c, x + 12 + ox, y + hh - 42 + oy, w->title, ww - 24, TH_TEXT);
+        gfx_text(c, x + 12 + ox, y + hh - 23 + oy, w->visible ? "ОТКРЫТО" : "СВЁРНУТО",
+                 w->visible ? TH_CYAN : TH_TEXT_FAINT, -1);
+        if (focused) ui_round_rect(c, x + ww - 18 + ox, y + hh - 18 + oy, 6, 6, 3, TH_CYAN, 255);
+    }
+    int pages = overview_n ? (overview_n + per - 1) / per : 1;
+    overview_button(c, ox, oy, 32, scr->h - 48, 88, "Назад", overview_page > 0);
+    overview_button(c, ox, oy, scr->w - 120, scr->h - 48, 88, "Далее", overview_page + 1 < pages);
+}
+
+static void overview_click(int px, int py) {
+    int cols, rows, per, left, top, cw, ch;
+    overview_grid(&cols, &rows, &per, &left, &top, &cw, &ch);
+    int pages = overview_n ? (overview_n + per - 1) / per : 1;
+    if (px >= scr->w - 104 && px < scr->w - 32 && py >= 50 && py < 82) {
+        overview_open = 0; damage(0, 0, scr->w, scr->h); return;
+    }
+    if (px >= 32 && px < 120 && py >= scr->h - 48 && py < scr->h - 16) {
+        if (overview_page > 0) { overview_page--; damage(0, 0, scr->w, scr->h); }
+        return;
+    }
+    if (px >= scr->w - 120 && px < scr->w - 32 && py >= scr->h - 48 && py < scr->h - 16) {
+        if (overview_page + 1 < pages) { overview_page++; damage(0, 0, scr->w, scr->h); }
+        return;
+    }
+    int index = overview_hit_item(px, py);
+    if (index >= 0 && index < overview_n) {
+        int id = overview_ids[index];
+        if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].pinned && win[id].generation == overview_generations[index]) {
+            wm_set_visible(id, 1);
+            wm_raise(id);
+        }
+    }
+    overview_open = 0;
+    damage(0, 0, scr->w, scr->h);
 }
 
 static void draw_cursor(surface_t* c, int ox, int oy) {
@@ -1008,12 +1354,13 @@ void wm_set_culling(int on) { cull_enabled = on; }
 
 /* Признаки, меняющие всю картинку (полноэкранный режим, плашка, вкладка), - до сборки изменённых мест. */
 static int compose_prepare(void) {
+    if (overview_open && overview_refresh()) damage(0, 0, scr->w, scr->h);
     int fs = fs_top();
     if (fs != last_fs) { last_fs = fs; damage(0, 0, scr->w, scr->h); }
     int pill = pill_visible(fs);
     if (pill != last_pill) { last_pill = pill; damage_pill(); }
     int at = active_tab();
-    if (at != last_tab) { last_tab = at; damage_top(); }
+    if (at != last_tab) { last_tab = at; if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) damage_side(); else damage_top(); }
     return fs;
 }
 
@@ -1024,6 +1371,12 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     int pill = last_pill;
     surface_t clip = { scr->px + (long)y0 * scr->pitch + x0, rw, rh, scr->pitch };
     int ox = -x0, oy = -y0;
+
+    if (overview_open) {
+        draw_overview(&clip, ox, oy);
+        draw_cursor(&clip, ox, oy);
+        return;
+    }
 
     /* Ищем самое верхнее окно, которое целиком закрывает изменённую область: всё, что под ним, рисовать незачем.
        Окно сверху «задевает» область вместе со своим свечением. */
@@ -1056,9 +1409,12 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         blit_content(&clip, wn->x + WM_PAD + ox, wn->y + WM_HEAD + oy, disp_w(wn), disp_h(wn), wn);
     } else {
         if (start < 0) {
-            if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
-            else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
-            if (fs < 0) brainfx_draw(&clip, ox, oy, anim_ms);
+            if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
+            else {
+                if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
+                else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
+                if (fs < 0) brainfx_draw(&clip, ox, oy, anim_ms);
+            }
             start = 0;
         }
         for (int k = start; k < ns; k++) {
@@ -1068,8 +1424,10 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         }
     }
     if (fs < 0) {
-        if (y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
-        if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
+        if (layout_mode == WM_LAYOUT_LEGACY && y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
+        if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
+            if (x0 < WM_SPATIAL_RAIL_W + 220 || y1 > scr->h - WM_SPATIAL_DOCK_H) draw_side(&clip, ox, oy);
+        } else if (x0 < WM_SIDE_W + 300) draw_side(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
     draw_cursor(&clip, ox, oy);
 }

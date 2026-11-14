@@ -80,7 +80,24 @@ void audiocmd_sound(const char* a) { (void)a; }
 void audiocmd_beep(const char* a) { (void)a; }
 int blk_flush_all(void) { return 0; }
 int vfs_flush(int n) { (void)n; return 0; }
-void prog_request_file(const char* n, const char* f) { (void)n; (void)f; }
+static char prog_req_name[16], prog_req_file[128];
+static uint32_t prog_req_id, prog_req_count;
+static int prog_req_active, prog_req_complete, prog_req_result;
+prog_request_status_t prog_request_file(const char* n, const char* f, uint32_t* id) {
+    if (!n || !f || !id) return PROG_REQUEST_INVALID;
+    if (prog_req_active) return PROG_REQUEST_BUSY;
+    snprintf(prog_req_name, sizeof prog_req_name, "%s", n);
+    snprintf(prog_req_file, sizeof prog_req_file, "%s", f);
+    prog_req_id++; if (!prog_req_id) prog_req_id = 1;
+    *id = prog_req_id; prog_req_active = 1; prog_req_complete = 0; prog_req_count++;
+    return PROG_REQUEST_ACCEPTED;
+}
+prog_result_state_t prog_request_take_result(uint32_t id, int* result) {
+    if (!prog_req_active || id != prog_req_id || !result) return PROG_RESULT_UNKNOWN;
+    if (!prog_req_complete) return PROG_RESULT_PENDING;
+    *result = prog_req_result; prog_req_active = 0; prog_req_complete = 0;
+    return PROG_RESULT_COMPLETE;
+}
 void life_print(void) {}
 void display_print_info(void) { emit("[FB] info\n"); }
 static char rf_l[160], rf_r[160]; static int rf_n;
@@ -147,6 +164,14 @@ int main(void) {
     CHECK(rf_n == 1 && !strcmp(rf_l, "/fm-a") && !strcmp(rf_r, "/fm-b") && has("[KIRA FILES] explorer: /fm-a | /fm-b"));
     reset(); feed("files\n");
     CHECK(rf_n == 2 && !rf_l[0] && !rf_r[0]);
+    /* view/wasm consume the launch queue result; a second request is reported BUSY, never dropped. */
+    reset(); feed("view /docs/readme.txt\n");
+    CHECK(prog_req_count == 1 && prog_req_active && !strcmp(prog_req_name, "view") && !strcmp(prog_req_file, "/docs/readme.txt") && has("запрос принят"));
+    reset(); feed("wasm /wasm/demo.wasm\n");
+    CHECK(prog_req_count == 1 && has("очередь занята"));
+    prog_req_complete = 1; prog_req_result = -2;
+    reset(); feed("");
+    CHECK(!prog_req_active && has("запуск отклонён: проверка доверия"));
     /* Backspace стирает символ до Enter: "plasmx" -> "plasm" + "a" */
     spawned = -1; spawned_name = 0; reset(); feed("plasmx\b");
     CHECK(has("\b \b"));

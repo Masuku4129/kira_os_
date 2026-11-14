@@ -6,13 +6,14 @@
 #include <string.h>
 #define CHECK(c) do{ if(!(c)){ printf("FAIL line %d: %s\n",__LINE__,#c); exit(1);} }while(0)
 
-static int notes, last_id, last_vis, launches, last_launch, tabs_hit, last_tab;
+static int notes, last_id, last_vis, launches, last_launch, tabs_hit, last_tab, launcher_hits;
 static int in_n, in_id, in_type, in_x, in_y, in_b;
 static void inp(int id, int type, int x, int y, unsigned b) { in_n++; in_id = id; in_type = type; in_x = x; in_y = y; in_b = (int)b; }
 static void* al(uint64_t n) { return calloc(1, n); }
 static void nt(int id, int v) { notes++; last_id = id; last_vis = v; }
 static void lc(int i) { launches++; last_launch = i; }
 static void tb(int i) { tabs_hit++; last_tab = i; }
+static void launcher(void) { launcher_hits++; }
 static int rz_n, rz_id, rz_w, rz_h;
 static void rz(int id, int w, int h) { rz_n++; rz_id = id; rz_w = w; rz_h = h; }
 static uint32_t px(surface_t* s, int x, int y) { return s->px[y * s->pitch + x]; }
@@ -39,11 +40,12 @@ static void same_as_full(surface_t* scr, const char* what) {
 
 int main(void) {
     surface_t scr = { calloc(1024 * 768, 4), 1024, 768, 1024 };
-    wm_ops_t ops = { al, nt, inp, lc, rz, tb };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, launcher };
     wm_init(&scr, &ops);
+    CHECK(wm_get_layout_mode() == WM_LAYOUT_LEGACY);
     int x, y, w, h;
-    wm_side_item_t side[3] = { { "A", "A", TH_CYAN, ICON_TERMINAL, 0 }, { "Z", "zzz", TH_PURPLE, ICON_AI, 0 }, { "S", "set", TH_TEXT_DIM, ICON_GEAR, 1 } };
-    wm_side_set(side, 3);
+    wm_side_item_t side[4] = { { "A", "A", TH_CYAN, ICON_TERMINAL, 0 }, { "Z", "zzz", TH_PURPLE, ICON_AI, 0 }, { "S", "set", TH_TEXT_DIM, ICON_GEAR, 1 }, { "RUN", "run", TH_CYAN, ICON_TERMINAL, 0, 1 } };
+    wm_side_set(side, 4);
     wm_tab_t tabs[3] = { { "ГЛАВНАЯ", "" }, { "РАЗУМ", "A" }, { "НАСТРОЙКИ", "set" } };
     wm_tabs_set(tabs, 3);
 
@@ -312,6 +314,90 @@ int main(void) {
             same_as_full(&scr, "pulses");
         }
     }
+    /* Spatial Minimal is a real, opt-in layout; legacy remains the default. */
+    wm_set_layout_mode(WM_LAYOUT_SPATIAL_MINIMAL);
+    CHECK(wm_get_layout_mode() == WM_LAYOUT_SPATIAL_MINIMAL);
+    frame();
+    int nav_x, nav_y, dock_x, dock_y;
+    CHECK(wm_tab_center(1, &nav_x, &nav_y) == 0 && nav_x < WM_SIDE_W && nav_y >= WM_TOP_H);
+    CHECK(wm_side_center(0, &dock_x, &dock_y) == 0 && dock_y > 768 - 100);
+    CHECK(wm_side_center(2, &dock_x, &dock_y) == -1); /* bottom action is not a Dock pin */
+    CHECK(wm_side_center(3, &dock_x, &dock_y) == -1); /* running, unpinned apps are not in the Dock */
+    tabs_hit = 0; launcher_hits = 0;
+    click(240, 20);
+    CHECK(launcher_hits == 0 && tabs_hit == 0); /* application launcher is no longer duplicated in the top bar */
+    for (int tab = 0; tab < 3; tab++) {
+        CHECK(wm_tab_center(tab, &nav_x, &nav_y) == 0 && nav_x < WM_SPATIAL_RAIL_W && nav_y >= WM_TOP_H);
+        click(nav_x, nav_y);
+        CHECK(last_tab == tab);
+    }
+    CHECK(tabs_hit == 3);
+    wm_set_visible(a, 0);
+    click_side(0);
+    CHECK(wm_top() == a);
+
+    /* Window overview includes minimized windows, excludes pinned widgets, and restores the selected window. */
+    int ov_input = wm_create("overview-input", 600, 400, 100, 60, WM_INPUT);
+    wm_set_visible(a, 0);
+    wm_window_overview_toggle();
+    CHECK(wm_window_overview_is_open());
+    CHECK(wm_window_overview_count() == 3); /* a, b and overview-input; pinned widget is excluded */
+    frame();
+    same_as_full(&scr, "Spatial window overview");
+    int ovx, ovy; wm_window_pos(ov_input, &ovx, &ovy);
+    in_n = 0;
+    move_to(ovx + WM_PAD + 10, ovy + WM_HEAD + 10, 0);
+    CHECK(in_n == 0); /* overlay must not leak pointer input to the underlying app */
+    CHECK(wm_window_overview_item_center(1, &nav_x, &nav_y) == 0); /* hidden a follows the frontmost input window */
+    click(nav_x, nav_y);
+    CHECK(in_n == 0); /* including the release edge, no event reaches the covered app */
+    CHECK(!wm_window_overview_is_open() && wm_visible(a) && wm_top() == a);
+    wm_destroy(ov_input);
+
+    /* The visible Spatial top-bar affordance opens the same overlay; close button exits without selecting. */
+    click(140, 20);
+    CHECK(wm_window_overview_is_open());
+    frame();
+    click(1024 - 68, 66);
+    CHECK(!wm_window_overview_is_open());
+    frame();
+    same_as_full(&scr, "Spatial Minimal");
+
+    /* Hidden app content can still refresh its overview thumbnail without exposing the window. */
+    wm_set_visible(a, 0);
+    wm_window_overview_toggle();
+    CHECK(wm_window_overview_count() == 2);
+    frame();
+    gfx_fill(wm_content(a), 0x00334455);
+    wm_invalidate(a);
+    same_as_full(&scr, "Spatial overview hidden content update");
+    CHECK(wm_window_overview_item_center(0, &nav_x, &nav_y) == 0);
+    click(nav_x, nav_y);
+    CHECK(wm_visible(a) && wm_top() == a);
+
+    /* A destroyed window ID may be reused before the next compose; stale overview cards must not select the replacement. */
+    wm_window_overview_toggle();
+    CHECK(wm_window_overview_count() == 2);
+    frame();
+    CHECK(wm_window_overview_item_center(1, &nav_x, &nav_y) == 0); /* second card is b */
+    wm_destroy(b);
+    int replacement = wm_create("replacement", 500, 300, 100, 60, WM_INPUT);
+    CHECK(replacement == b); /* exercise immediate slot reuse */
+    wm_raise(a);
+    click(nav_x, nav_y);
+    CHECK(!wm_window_overview_is_open() && wm_top() == a);
+    wm_destroy(replacement);
+    frame(); /* consume window lifecycle damage before isolating telemetry invalidation */
+
+    uint8_t spatial_busy[1] = { 99 };
+    wm_set_meters(spatial_busy, 1, 88, 20);
+    CHECK(!wm_compose(&x, &y, &w, &h)); /* hidden telemetry must not invalidate the idle shell */
+    wm_set_clock("13 НОЯБРЯ", "13:05");
+    CHECK(wm_compose(&x, &y, &w, &h));
+    wm_set_layout_mode(WM_LAYOUT_LEGACY);
+    CHECK(wm_get_layout_mode() == WM_LAYOUT_LEGACY);
+    frame();
+    same_as_full(&scr, "Legacy after Spatial Minimal");
     printf("wm: shell top bar (tabs, clock, meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw passed\n");
     return 0;
