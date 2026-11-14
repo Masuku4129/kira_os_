@@ -186,3 +186,15 @@ No PR has been merged.
 
 
 | 2026-11-14 | main `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4` / Draft PR #156 | F-011: checked MMIO page-range arithmetic and overflow regression | Exact-head CI pending |
+
+
+## 8. Follow-up evidence and integration dependencies — 2026-11-14
+
+This section supersedes earlier pending/stale PR status statements above where the same PR is listed.
+
+- **PR #165 — F-002 firmware PCI bus-master handoff:** exact head `64afef2c74f72597dd9620468c4b6bff1fc1bb31`, workflow `43603442098`, completed successfully. All 29 jobs returned by the workflow-jobs endpoint completed with conclusion `success`, including host tests, x86-64 build, ARM64 build, USB UHCI, USB xHCI, SMP, NVMe, networking and application scenarios. This resolves the earlier USB-UHCI regression on that exact head. The patch still had temporary boot/PCI tracing; those diagnostics have now been removed in cleanup head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`. **The cleanup head has no CI run/status yet and is not accepted until exact-head CI passes.**
+- **PR #166 — F-016 ARM64 FDT header memory-reservation map:** exact head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229`, workflow `43602565437`, completed successfully. All 29 jobs returned by the workflow-jobs endpoint completed with conclusion `success`, including host tests, x86-64 build, ARM64 build, USB UHCI, QEMU ARM64/ARM-related boot scenarios and the broader VM matrix. F-016 parser/boot integration is therefore verified on this Draft PR head, not on main.
+- **Required PMM integration ordering:** PR #166 calls `pmm_arm_reserve()` after `pmm_arm_init()`. On its main-based parent, ARM64 PMM tracks only the used bitmap; `pmm_free_page()` can therefore release a page that was reserved late. Draft PR #158 adds a separate reserved bitmap, refuses to free reserved pages, makes reservation range arithmetic overflow-safe, deduplicates overlapping RAM regions and makes contiguous release atomic; its exact head `70d0e89a65414818c22d61532f7ca4288c464d2c` passed 43/43 checks (workflow `43592051859`). PR #158 and #166 touch disjoint implementation files and should be reviewed/integrated together, with the reserved-page ownership change present before accepting F-016 as a permanent PMM guarantee. The FDT host tests alone do not prove the complete FDT-to-PMM allocation invariant.
+- **PR #165 cleanup:** temporary `[KIRA BOOT TRACE]` statements in `kernel.c`, PCI USB trace statements and the PCI-only UART include were removed from the branch after the successful diagnostic run. New cleanup head: `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`; workflow not yet observed. No source changes were made to main.
+
+Stage 0 remains IN PROGRESS. No PR was merged, and no local tests or physical-hardware tests were run in this session.
