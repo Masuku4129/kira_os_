@@ -36,7 +36,7 @@ static unsigned long long cpu_ticks[4096]; // индекс - id потока (id
 
 // Один тик времени: таймер -> sched_tick -> (после EOI) вытеснение.
 static int stack_body_is_zero(const thread_t* t) {
-    if (!t || !t->stack_base) return 0;
+    if (!t || !t->stack_base || *(const uint64_t*)t->stack_base != SCHED_STACK_CANARY) return 0;
     for (unsigned i = sizeof(uint64_t); i < SCHED_STACK_SIZE; i++)
         if (t->stack_base[i] != 0) return 0;
     return 1;
