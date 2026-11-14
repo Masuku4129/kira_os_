@@ -35,6 +35,13 @@ static void dummy(void* a) { (void)a; }
 static unsigned long long cpu_ticks[4096]; // индекс - id потока (id растут монотонно)
 
 // Один тик времени: таймер -> sched_tick -> (после EOI) вытеснение.
+static int stack_body_is_zero(const thread_t* t) {
+    if (!t || !t->stack_base) return 0;
+    for (unsigned i = sizeof(uint64_t); i < SCHED_STACK_SIZE; i++)
+        if (t->stack_base[i] != 0) return 0;
+    return 1;
+}
+
 static void tick(void) {
     fake_ticks++;
     sched_tick();
@@ -62,6 +69,7 @@ int main(void) {
     thread_t* a = sched_create("A", dummy, 0, PRIO_NORMAL);
     thread_t* b = sched_create("B", dummy, 0, PRIO_NORMAL);
     CHECK(a && b && a->id != b->id);
+    CHECK(stack_body_is_zero(a) && stack_body_is_zero(b)); // stack contents from a previous owner are never exposed
     thread_t* core = (thread_t*)sched_current();
     uint32_t core_id = core->id;
     sched_sleep_ticks(100000);                              // core засыпает -> выбран A или B
