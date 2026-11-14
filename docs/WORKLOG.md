@@ -388,3 +388,12 @@
 - Exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`, workflow `43590730265`: **43/43 checks PASS**, zero failures/cancellations.
 - Host suite, ARM64 build and QEMU matrix all passed. This verifies generation-bound per-CPU acknowledgements, stale-generation rejection, non-reusable counter policy and fail-closed timeout behavior under the current automated matrix.
 - Status: verified on unmerged Draft PR #155; main remains unchanged. Hardware fault-injection for a permanently nonresponsive AP is not covered by the current CI and remains a limitation to record.
+
+
+### F-012 — long driver-start record interleaving (2026-11-14)
+
+- PR #156 run `43591102543` failed only `vm (drv-edu)` at the point checked by the expected driver-start regex.
+- Downloaded artifact `vm-drv-edu` and inspected `serial.log` + `result.json`: driver process started, MSI was enabled, DMA round-trip succeeded, protected config write was rejected and user driver printed PASS. The failure was the kernel's long driver-start record split at `LB_SIZE=192`, with another CPU's user log inserted between fragments.
+- Root cause: `kdrv.c` assembled a >192-byte record in `ln[320]` then used streaming `uart_print()`; `linebuf.c` flushes at exactly `LB_SIZE` even without newline.
+- Added `uart_print_atomic()` using existing `emit_line()` lock; driver-start assembled record now uses this path. Draft PR #157, exact-head CI pending.
+- This is a real observability/logging defect, not a driver launch/DMA/MSI failure. PR #156 acceptance needs a rerun after the logging fix is available; do not mask or weaken the QEMU assertion.
