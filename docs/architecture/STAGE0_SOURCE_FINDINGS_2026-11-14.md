@@ -901,3 +901,11 @@ F-027 remains OPEN pending a reproducing regression test and exact-head verifica
 6. Require exact-head host, BIOS, OVMF, ARM64 QEMU and memory-reservation tests on the combined candidate.
 
 F-028 remains OPEN. PR #12 and PR #46 remain preserved branch work; neither is treated as integrated into main.
+
+
+### F-025 final status for PR #125 diagnostic run — exact head completed (2026-11-14)
+
+- PR #125 head fee8c9aed19ffc37dab7fd599c2bd63bfc496924, workflow 43613583149: all 23 jobs reached terminal state; 20 succeeded, one failed (vm (0), job 132504922587), and two packaging jobs were skipped by workflow conditions.
+- The other 9 VM shards, host-tests, x86 build, ARM64 build, UEFI OVMF, audit, KCC, GUI, driver E2E and mind-quality succeeded. This does not make the workflow green: the UHCI VM failure remains a blocking failure.
+- PR #165 head 7ad140cfadb51c4dacf809eca77fff60ff7fe12c, workflow 43613588426: 29/30 jobs succeeded; vm (usb-uhci) failed.
+- Both diagnostic heads remain unaccepted. The exact artifact evidence and corrected trace interpretation are in F-025 above.
