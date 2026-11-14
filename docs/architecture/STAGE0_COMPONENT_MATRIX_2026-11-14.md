@@ -49,7 +49,7 @@ Status vocabulary:
 
 ## 3. Bottom-up integration gates
 
-1. **Firmware and platform handoff:** BIOS/UEFI/Multiboot2/ARM64 FDT, memory map, modules, framebuffer and versioned BootInfo.
+1. **Firmware and platform handoff:** BIOS/UEFI/Multiboot2/ARM64 FDT (close F-015 parser bounds), memory map, modules, framebuffer and versioned BootInfo.
 2. **CPU/HAL:** CPU features, GDT/IDT, exception frame, IRQ, timers, APIC/GIC, SMP and TLB operations.
 3. **Device discovery and ownership:** PCI host range, bridges, stable handles, resources, DMA/MSI policy, IOMMU and device lifecycle.
 4. **Physical/virtual memory:** PMM, VMM, page-table ownership, stack/heap guards, W^X/NX, TLB, DMA pin/unpin.
