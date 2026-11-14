@@ -34,6 +34,7 @@ A duplicate or interior-pointer release can corrupt the free list and make the s
 - PR #132 is based on `v46/unified-release-integration`, not current main. It must not be merged or copied wholesale without reconciling its full diff and dependencies.
 - At this audit snapshot, PR #132 head `2b8569ad1baf8596e48c81ebebcdcefe8fae859d` has no check-runs. The PR itself says no isolated allocator host test previously existed; the added helper test is not a complete integration test of the production allocator.
 - Current main `tests/run_host_tests.sh` has no kernel-stack slot lifecycle test.
+- A separate main-based fix is now tracked in [PR #152](https://github.com/Masuku4129/kira_os_/pull/152). It adds shared exact-base/ownership helpers for both ISAs and a host regression test. At head `8358d14850ff48f0a710486106a550e01701f2a5`, workflow `43585911384` is in progress; no PASS is claimed.
 
 ### Additional x86-64 failure path
 
