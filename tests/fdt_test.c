@@ -74,6 +74,16 @@ int main(void) {
     CHECK(fdt_reg(blob, gic, 2, &a, &s) != 0);                    /* третьей пары нет */
     int mem = fdt_find_path(blob, "/memory");
     CHECK(mem >= 0 && fdt_reg(blob, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
+    CHECK(fdt_reg(blob, mem, UINT32_MAX, &a, &s) != 0); /* index multiplication cannot wrap */
+    memcpy(bad, blob, sizeof bad);
+    int badmem = fdt_find_path(bad, "/memory");
+    uint8_t* badreg = (uint8_t*)fdt_prop(bad, badmem, "reg", &len);
+    CHECK(badreg && len == 16);
+    if (badreg && len == 16) {
+        be(badreg, 0xFFFFFFFFu); be(badreg + 4, 0xFFFFFFF0u); /* base = UINT64_MAX - 15 */
+        be(badreg + 8, 0); be(badreg + 12, 0x100);            /* end wraps */
+        CHECK(fdt_reg(bad, badmem, 0, &a, &s) != 0);
+    }
     int cpus = fdt_find_path(blob, "/cpus");
     CHECK(cpus >= 0 && fdt_count_type(blob, cpus, "cpu") == 4);  /* cpu-map не ядро */
     int cpu2 = fdt_find_path(blob, "/cpus/cpu@2");
