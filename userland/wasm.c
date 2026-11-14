@@ -143,10 +143,7 @@ static u32 leb_u(const u8** p, const u8* end) {
         u32 payload = b & 0x7Fu;
         if (count > 5 || (count == 5 && (payload & 0x70u))) { trap("unsigned LEB128 out of range"); return 0; }
         r |= (u64)payload << shift;
-        if (!(b & 0x80u)) {
-            if (count > 1 && payload == 0) { trap("overlong unsigned LEB128"); return 0; }
-            return (u32)r;
-        }
+        if (!(b & 0x80u)) return (u32)r;
         if (count == 5) { trap("unterminated unsigned LEB128"); return 0; }
         shift += 7;
     }
@@ -154,7 +151,7 @@ static u32 leb_u(const u8** p, const u8* end) {
 static i64 leb_s(const u8** p, const u8* end, int bits) {
     if (bits != 32 && bits != 33 && bits != 64) { trap("unsupported signed LEB128 width"); return 0; }
     u64 r = 0; unsigned shift = 0, count = 0, max_bytes = (unsigned)(bits + 6) / 7;
-    u8 b = 0, prev = 0;
+    u8 b = 0;
     for (;;) {
         if (!wasm_need(*p, end, 1)) return 0;
         b = *(*p)++; count++;
@@ -170,16 +167,11 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
         r |= (u64)payload << shift;
         shift += 7;
         if (!(b & 0x80u)) {
-            if (count > 1 && ((payload == 0 && !(prev & 0x40u)) ||
-                              (payload == 0x7Fu && (prev & 0x40u)))) {
-                trap("overlong signed LEB128"); return 0;
-            }
             if (count < max_bytes && shift < 64 && (b & 0x40u)) r |= ~0ull << shift;
             if (count == max_bytes && bits < 64 && (r & (1ull << (bits - 1)))) r |= ~0ull << bits;
             return bits == 32 ? (i64)(int)(u32)r : (i64)r;
         }
         if (count == max_bytes) { trap("unterminated signed LEB128"); return 0; }
-        prev = b;
     }
 }
 static int name_is(const u8* n, u32 len, const char* s) { u32 i = 0; for (; i < len && s[i]; i++) if (n[i] != (u8)s[i]) return 0; return i == len && !s[i]; }
