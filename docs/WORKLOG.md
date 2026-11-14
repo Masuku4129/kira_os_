@@ -1119,3 +1119,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Remaining security contract: named ports and shared-memory objects are global by name, and the reviewed open path has no per-object owner/ACL check. This may be intentional public IPC, but the architecture must explicitly define whether names are public rendezvous identifiers or protected capabilities; add negative cross-process access tests for the intended policy before treating IPC isolation as complete.
 - The `kobj_count()` / `port_queued()` diagnostic counters also need a documented synchronization/atomic-read contract if called concurrently.
 - Source review only; no IPC stress, race-detector or QEMU tests were run in this pass. No production code changed.
+
+
+## 53. Input queue SMP synchronization audit — 2026-11-14
+
+- Reviewed PS/2 keyboard/mouse decoders, multi-source producer serialization, keyboard and mouse rings, two-consumer keyboard access, raw-byte diagnostics and overflow accounting.
+- Confirmed F-044: keyboard producer reads `tail` non-atomically while consumer advances it atomically under a different lock; mouse producer similarly reads `mtail` non-atomically while consumer atomically advances it under another lock. The `dropped` diagnostic counter is also read without synchronization.
+- Existing input tests cover decoder correctness and sequential overflow only; no concurrent SMP stress or TSan run was performed.
+- Required fix: consistently atomic ring indices, atomic/locked diagnostics, then concurrent multi-producer/multi-consumer stress and QEMU SMP validation.
+- Source audit only; no production code changed.
