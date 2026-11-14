@@ -1908,8 +1908,49 @@ static void overview_button(surface_t* c, int ox, int oy, int x, int y, int w, c
     gfx_text(c, x + ox + (w - tw) / 2, y + oy + 10, label, enabled ? TH_TEXT : TH_TEXT_FAINT, -1);
 }
 
+/* Optional full-screen wallpaper. The source surface remains owned by the caller and must
+   stay alive until wm_set_wallpaper() replaces it or the display shuts down. */
+static const surface_t* wallpaper;
+
+static void draw_wallpaper(surface_t* dst, int origin_x, int origin_y) {
+    const surface_t* src = wallpaper;
+    if (!src || !src->px || src->w <= 0 || src->h <= 0) {
+        gfx_rect(dst, 0, 0, dst->w, dst->h, TH_BG0);
+        return;
+    }
+    int sw = src->w, sh = src->h;
+    int sx0 = 0, sy0 = 0, crop_w = sw, crop_h = sh;
+    if ((uint64_t)sw * (uint64_t)scr->h > (uint64_t)sh * (uint64_t)scr->w) {
+        crop_w = (int)((uint64_t)sh * (uint64_t)scr->w / (uint64_t)scr->h);
+        if (crop_w < 1) crop_w = 1;
+        sx0 = (sw - crop_w) / 2;
+    } else {
+        crop_h = (int)((uint64_t)sw * (uint64_t)scr->h / (uint64_t)scr->w);
+        if (crop_h < 1) crop_h = 1;
+        sy0 = (sh - crop_h) / 2;
+    }
+    for (int y = 0; y < dst->h; y++) {
+        int ay = origin_y + y;
+        int sy = sy0 + (int)((uint64_t)(unsigned)ay * (uint64_t)(unsigned)crop_h / (uint64_t)(unsigned)scr->h);
+        if (sy >= sy0 + crop_h) sy = sy0 + crop_h - 1;
+        uint32_t* out = dst->px + (long)y * dst->pitch;
+        const uint32_t* in = src->px + (long)sy * src->pitch;
+        for (int x = 0; x < dst->w; x++) {
+            int ax = origin_x + x;
+            int sx = sx0 + (int)((uint64_t)(unsigned)ax * (uint64_t)(unsigned)crop_w / (uint64_t)(unsigned)scr->w);
+            if (sx >= sx0 + crop_w) sx = sx0 + crop_w - 1;
+            out[x] = in[sx] & 0x00FFFFFFu;
+        }
+    }
+}
+
+void wm_set_wallpaper(const surface_t* image) {
+    wallpaper = (image && image->px && image->w > 0 && image->h > 0) ? image : 0;
+    if (scr) damage(0, 0, scr->w, scr->h);
+}
+
 static void draw_overview(surface_t* c, int ox, int oy) {
-    gfx_rect(c, 0, 0, c->w, c->h, TH_BG0);
+    draw_wallpaper(c, -ox, -oy);
     ui_round_rect(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BAR0, 255);
     ui_round_frame(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BORDER, 255);
     gfx_text(c, 36 + ox, 58 + oy, "ОКНА", TH_TEXT, -1);
@@ -2049,7 +2090,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         blit_content(&clip, wn->x + WM_PAD + ox, wn->y + WM_HEAD + oy, disp_w(wn), disp_h(wn), wn);
     } else {
         if (start < 0) {
-            if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
+            if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) draw_wallpaper(&clip, x0, y0);
             else {
                 if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
                 else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
