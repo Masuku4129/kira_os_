@@ -713,7 +713,7 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 | #161 | Ring 3 DMA/MSI denial until per-device IOMMU is verified | `43602754339` | success | Current-main security gate; intentionally blocks DMA/MSI because main has no domain implementation. |
 | #164 | Remove heap-stack fallback, zero new stacks, fail closed on guarded stack exhaustion | `43600699384` | success | Overlaps #154's scheduler/stack ownership changes; combine and re-run together. |
 | #165 | PCI firmware Bus Master handoff mitigation, diagnostics removed | `43608372681` | 30/30 success | F-017 remains open during BAR probing; reconcile with PCI range #139/#162. |
-| #166 | FDT reservation map + ARM64 PMM integration + v16 parser | current head `539285048cdd97f5d71ba5aefc9afda4058b7512` | pending | Previous expanded head failed lint only; corrected head requires exact CI. |
+| #166 | FDT reservation map + ARM64 PMM integration + v16 parser | `43609132620` at head `539285048cdd97f5d71ba5aefc9afda4058b7512` | 30/30 success | Subsequent source review found and corrected a block-overlap validation defect; new head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e` requires fresh exact-head CI. |
 
 ### Required integration sequence
 1. Combine #154 + #164 in one scheduler/stack ownership change; keep #153 as an overlapping alternate, not a second independent merge.
@@ -729,3 +729,15 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Exact head `2bbcef9eb86a43919099d2f26eb8af817c4c893b`, workflow `43609381410`: host-tests failed with `SyntaxError: unmatched ')'` at line 211. A duplicated stale tail of the previous checker implementation remained after the final success messages.
 - Removed the entire duplicate tail; the single checker now ends after the four success messages. No checks were bypassed.
 - Corrected PR #148 head: `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`. Fresh exact-head CI has not yet appeared; no PASS claimed.
+
+
+
+## 12. Exact-head CI and source-audit follow-up — 2026-11-14
+
+- PR #166 head `539285048cdd97f5d71ba5aefc9afda4058b7512`, workflow `43609132620`: all 30 jobs succeeded (host-tests, x86 build, ARM64 and VM scenarios).
+- A deeper source review then found that `fdt_valid()` paired the structure and strings offsets with the opposite size fields during overlap checks. Corrected only those range pairings and added a one-byte-overlap regression test in PR #166.
+- Corrected PR #166 head: `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`. No exact-head CI result is available yet; do not reuse the prior head's PASS.
+- PR #148 head `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`, workflow `43609627054`: all 30 jobs succeeded. The complete x86-64, ARM64 and Android-release app manifest is verified by that exact-head CI.
+- PR #125's failed host and ARM64 logs were inspected. Besides the known undeclared `IOMMU_E_UNSUPPORTED` symbol, its QEMU shard failed `usb-uhci` because the guest did not reach the shell prompt in 90 seconds. This confirms that the branch is not ready to transplant.
+- Added F-021: the branch-only x86 VT-d and ARM64 SMMUv3 backends have different effective legacy/no-coverage DMA policies. Keep current-main PR #161's fail-closed DMA/MSI gate until one explicit cross-architecture policy contract and matching tests exist.
+- Main remains untouched. No ISO or release archive was produced.
