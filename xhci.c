@@ -433,17 +433,25 @@ static usb_dev_t* xhci_enumerate(usb_hc_t* hc, usb_dev_t* parent, uint8_t port, 
     usb_dev_t* d = usb_dev_new(hc, parent, port, speed);
     if (!d) { usb_log("[KIRA USB] too many USB devices\n"); command(0, 0, (TRB_DISABLE_SLOT << 10) | (sl << 24), 0); return 0; }
     d->hc_slot = sl;
-    if (!xs.slot[sl].in) {
-        xs.slot[sl].in = (uint8_t*)usb_dma_alloc(33 * 64, &xs.slot[sl].in_phys, !xs.ac64);
-        xs.slot[sl].out = (uint8_t*)usb_dma_alloc(32 * 64, &xs.slot[sl].out_phys, !xs.ac64);
-        xs.slot[sl].buf = (uint8_t*)usb_dma_alloc(1024, &xs.slot[sl].buf_phys, !xs.ac64);
-        if (!xs.slot[sl].in || !xs.slot[sl].out || !xs.slot[sl].buf || ring_init(&xs.slot[sl].ep0) != 0) {
-            usb_log("[KIRA USB] xHCI: no memory\n"); usb_dev_free(d); return 0;
+    /* Keep partial allocations on failure and retry only missing resources. DMA pages have no free API. */
+    if (!xs.slot[sl].in) xs.slot[sl].in = (uint8_t*)usb_dma_alloc(33 * 64, &xs.slot[sl].in_phys, !xs.ac64);
+    if (!xs.slot[sl].out) xs.slot[sl].out = (uint8_t*)usb_dma_alloc(32 * 64, &xs.slot[sl].out_phys, !xs.ac64);
+    if (!xs.slot[sl].buf) xs.slot[sl].buf = (uint8_t*)usb_dma_alloc(1024, &xs.slot[sl].buf_phys, !xs.ac64);
+    if (!xs.slot[sl].in || !xs.slot[sl].out || !xs.slot[sl].buf) {
+        usb_log("[KIRA USB] xHCI: no memory for slot contexts\n");
+        usb_dev_free(d);
+        return 0;
+    }
+    if (!xs.slot[sl].ep0.t) {
+        if (ring_init(&xs.slot[sl].ep0) != 0) {
+            usb_log("[KIRA USB] xHCI: no memory for EP0 ring\n");
+            usb_dev_free(d);
+            return 0;
         }
     } else {
-        for (unsigned i = 0; i < 32 * xs.csz; i++) xs.slot[sl].out[i] = 0;
         ring_reset(&xs.slot[sl].ep0);
     }
+    for (unsigned i = 0; i < 32 * xs.csz; i++) xs.slot[sl].out[i] = 0;
     xs.dcbaa[sl] = xs.slot[sl].out_phys;
     clear_input(sl);
     in_ctl(sl)[1] = 3u;                                                 /* слот и EP0 */
@@ -526,7 +534,11 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if (!xall[started]) { usb_log("[KIRA USB] xHCI: no memory for controller state\n"); return -1; }
     X = xall[started];
     if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) { usb_log("[KIRA USB] xHCI without memory BAR0: skipped\n"); return -1; }
-    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    if (pci_disable_bus_master(p) != 0) {
+        usb_log("[KIRA USB] xHCI: cannot revoke firmware bus mastering\n");
+        return -1;
+    }
+    pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     if (p->vendor == 0x8086) {                                        /* Intel: порты, отданные EHCI, вернуть xHCI */
         pci_write32(p, 0xD8, pci_read32(p, 0xDC));
         pci_write32(p, 0xD0, pci_read32(p, 0xD4));
@@ -544,8 +556,12 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if ((uint64_t)(xs.rt - cap) + 0x40 > sz || (uint64_t)((volatile uint8_t*)xs.db - cap) + 4 * (MAXSLOT + 1) > sz) { usb_log("[KIRA USB] xHCI: registers outside BAR\n"); return -1; }
 
     bios_handoff(cap);
-    w32(xs.op, 0, r32(xs.op, 0) & ~1u);                               /* стоп */
+    w32(xs.op, 0, r32(xs.op, 0) & ~1u);                               /* стоп при отключённом Bus Master */
     for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
+    if (!(r32(xs.op, 4) & 1u)) {
+        usb_log("[KIRA USB] xHCI: controller did not halt before reset\n");
+        return -1;
+    }
     w32(xs.op, 0, 2u);                                                 /* HCRST */
     for (int i = 0; i < 200 && ((r32(xs.op, 0) & 2u) || (r32(xs.op, 4) & (1u << 11))); i++) usb_sleep_ms(5);
     if ((r32(xs.op, 0) & 2u) || (r32(xs.op, 4) & (1u << 11))) { usb_log("[KIRA USB] xHCI reset timeout\n"); return -1; }
@@ -573,9 +589,22 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
     w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
     w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
+    /* All controller DMA structures and register pointers are valid before Bus Master is granted. */
+    __sync_synchronize();
+    pci_enable(p, PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        usb_log("[KIRA USB] xHCI: Bus Master enable was not confirmed\n");
+        return -1;
+    }
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
-    if (r32(xs.op, 4) & 1u) { usb_log("[KIRA USB] xHCI does not start\n"); return -1; }
+    if (r32(xs.op, 4) & 1u) {
+        w32(xs.op, 0, r32(xs.op, 0) & ~1u);
+        for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
+        if (pci_disable_bus_master(p) != 0) usb_log("[KIRA USB] xHCI: failed to revoke Bus Master after start failure\n");
+        usb_log("[KIRA USB] xHCI does not start\n");
+        return -1;
+    }
     if (hcc1 & (1u << 3))                                              /* питание портов управляется: включить */
         for (uint32_t port = 1; port <= xs.nports; port++) { uint32_t v = r32(xs.op, portsc_off(port)); if (!(v & PS_PP)) w32(xs.op, portsc_off(port), (v & PS_PRESERVE) | PS_PP); }
     usb_sleep_ms(50);                                                  /* линии USB 3 успевают натренироваться */
