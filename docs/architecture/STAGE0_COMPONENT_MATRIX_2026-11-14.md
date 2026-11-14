@@ -419,3 +419,13 @@ Use these buckets for every tracked source, test, resource and planned subsystem
 - Kernel inputs: x86-64 **98** common C sources (80 shared + 18 x86-specific); ARM64 **88** (80 shared + 8 ARM64-specific); x86 architecture source list **16**.
 - Architecture build support: **12** files referenced by build scripts; boot build inputs **4**.
 - These are file-role classifications, not test results. Baseline means preserve, not "bug-free"; planned/branch-only means preserve, not "integrated".
+
+
+### Architecture-support header review notes
+
+- Reviewed the 22 architecture-support headers and mapped the 12 assembly/linker support files to the build-support category.
+- Preserve architecture-specific thread-entry ABI: x86-64 initial stack includes the return-address slot; ARM64 uses aligned SP and LR. Do not unify these by copying one architecture's stack convention.
+- x86-64 host-test no-op CPU/FPU helpers are behind KIRA_HOST_TEST / KIRA_HOST_REAL_FPU guards. They are not production implementations.
+- ARM64 crash-test mode 1 is explicitly unavailable (-5) because software cannot inject SError on the tested platform without RAS support; the ARM64 VM scenario checks this explicit limitation.
+- FPU save-state layouts differ (x86-64 512 bytes; ARM64 528 bytes). Keep architecture-specific implementations and tests.
+- No production stub was found in this reviewed header set; project-wide source stub audit remains open.
