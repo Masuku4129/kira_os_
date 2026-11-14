@@ -19,7 +19,8 @@ Use a serialized, generation-bound shootdown protocol:
 3. Every target CPU invalidates the requested translation and then stores the exact generation in its per-CPU acknowledgement slot.
 4. The sender accepts only acknowledgements equal to the current generation.
 5. The sender releases the request lock and returns only after all CPUs in the target snapshot acknowledge.
-6. The 200 ms threshold emits a diagnostic warning only. It never releases the lock, changes the request payload, or permits backing-memory reclamation.
+6. Generations are never reused. If the 64-bit counter is exhausted, the kernel fails closed rather than wrapping to an old value.
+7. The 200 ms threshold emits a diagnostic warning only. It never releases the lock, changes the request payload, or permits backing-memory reclamation.
 
 ## Consequences
 
@@ -36,7 +37,7 @@ Use a serialized, generation-bound shootdown protocol:
 
 ## Verification requirements
 
-- Host tests prove exact-generation matching, partial acknowledgement rejection, stale-generation rejection and empty-target completion.
+- Host tests prove exact-generation matching, partial acknowledgement rejection, stale-generation rejection, empty-target completion, and fail-closed generation exhaustion.
 - Exact-head x86-64 build and host suite pass.
 - QEMU SMP, multi-CPU boot/soak and memory/process lifecycle scenarios pass.
 - Fault injection for delayed/missing IPI acknowledgement is still required before this ADR can be accepted.
