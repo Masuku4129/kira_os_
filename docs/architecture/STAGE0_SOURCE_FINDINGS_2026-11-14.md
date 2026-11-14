@@ -1607,3 +1607,11 @@ F-056 remains OPEN.
 - This is a useful differential: the invalid-read storm is not reproduced on current-main baseline and appears in the PR #165 branch. It strengthens F-054 (PCI Bus Master is cleared during enumeration, then UHCI/xHCI re-enable it before reset and DMA setup) as a causal hypothesis.
 - It is **not a controlled A/B**: the two runs use different source heads, and PR #165 contains other changes. Do not claim that F-054 is proven to generate every record. PR #169 is a stacked fix that tests the revised activation order on the PR #165 base; its exact-head CI and artifacts are still required.
 - The phase-aware runner itself passed 43/43 on #168 and wrote diagnostics for both scenarios. The log was genuinely empty, not a missing diagnostic file.
+
+
+### QEMU confirmation: xHCI ERSTBA can trigger DMA before controller RUN (2026-11-14)
+
+- PR #169 first QEMU attempt, run `43621930596`, UHCI/xHCI stack on PR #165 base: xHCI controller initialization reached the console, but the USB scenario failed. Serial reported `[KIRA USB] xHCI command timeout` and `no free slot`.
+- The QEMU guest log recorded `xhci_er_reset: DMA memory access failed!` and rejected reads at `0xE15000`, `0xE15004`, `0xE15008`, `0xE1500C`. In that attempt, the driver wrote ERSTBA while PCI Bus Master was still disabled; `0xE15000` was the ERST table address.
+- This demonstrates that, in QEMU's xHCI model, writing ERSTBA can immediately cause a DMA fetch even before USBCMD.RUN. Therefore the safe sequence is not simply “enable BM immediately before RUN”: allocate and initialize all DMA objects with BM off, grant BM while the controller remains halted, then expose DCBAAP/CRCR/ERST pointers, and finally set RUN.
+- PR #169 has been adjusted to that order and the xHCI host model now asserts that DMA objects exist while the pointer registers are still zero at the BM grant point. The corrected exact-head QEMU/host CI is pending; do not close F-054 until it passes.
