@@ -32,8 +32,9 @@ void netcmd_http(const char* arg);    /* http адрес[:порт] [путь] *
 void netcmd_ping6(const char* arg);   /* ping6 адрес [число] */
 
 /* Opaque generation-tagged TCP handles. Low three bits select one of 8 TCB slots. */
+#define NET_TCP_HANDLE_SLOTS 8u
 #define NET_TCP_HANDLE_SLOT_BITS 3u
-#define NET_TCP_HANDLE_SLOT_MASK 7u
+#define NET_TCP_HANDLE_SLOT_MASK (NET_TCP_HANDLE_SLOTS - 1u)
 #define NET_TCP_LISTEN_SLOTS 4u
 #define NET_TCP_LISTEN_HANDLE_BASE 0x40000000u
 
@@ -47,7 +48,7 @@ static inline int net_tcp_generation_advance(uint16_t* generation, uint8_t* reti
     return *generation ? 0 : -1;
 }
 static inline int net_tcp_handle_make(unsigned slot, uint16_t generation) {
-    if (slot >= 8u || !generation) return -1;
+    if (slot >= NET_TCP_HANDLE_SLOTS || !generation) return -1;
     return (int)(((uint32_t)generation << NET_TCP_HANDLE_SLOT_BITS) | slot);
 }
 static inline int net_tcp_handle_decode(int handle, unsigned* slot, uint16_t* generation) {
@@ -55,7 +56,7 @@ static inline int net_tcp_handle_decode(int handle, unsigned* slot, uint16_t* ge
     uint32_t raw = (uint32_t)handle;
     uint32_t gen = raw >> NET_TCP_HANDLE_SLOT_BITS;
     unsigned idx = raw & NET_TCP_HANDLE_SLOT_MASK;
-    if (!gen || gen > UINT16_MAX || idx >= 8u) return -1;
+    if (!gen || gen > UINT16_MAX || idx >= NET_TCP_HANDLE_SLOTS) return -1;
     *slot = idx; *generation = (uint16_t)gen;
     return 0;
 }
