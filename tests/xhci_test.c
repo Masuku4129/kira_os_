@@ -435,6 +435,7 @@ int main(void) {
         mdev_kbd(&devm[3]);
         force_slot = retry_slots[i];
         dma_fail_call = dma_alloc_calls + fail_offsets[i];
+        usb_sleep_ms(1);
         hc.ports(&hc);                         /* fail IN, OUT, buffer or EP0 ring allocation */
         dma_fail_call = 0;
         CHECK(usb_dev_on_port(&hc, 4) == 0);    /* failed enumeration released the controller slot */
