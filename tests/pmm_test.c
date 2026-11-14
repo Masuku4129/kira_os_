@@ -111,7 +111,7 @@ int main(void){
         CHECK(pmm_managed_top() == 0x44000000ULL);
         CHECK(pmm_free_page(0x40000000ULL) == -1);            // ещё не добавлена
         CHECK(pmm_add_high(0x40000000ULL, 0x40000000ULL + (8ULL<<20)) == 1536);
-        CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 0);   // повтор ничего не меняет
+        CHECK(pmm_add_high(0x40000000ULL, 0x40000000ULL + (8ULL<<20)) == 0);   // повтор ничего не меняет
         CHECK(pmm_add_high(0x43F00000ULL, 0x44100000ULL) == -1);               // выходит за диапазон
         CHECK(pmm_add_high(0x50000000ULL, 0x50200000ULL) == -1);                 // не ОЗУ выше 1 ГБ
         CHECK(pmm_add_high(0x40000001ULL, 0x40002000ULL) == -1);               // не выровнен
@@ -124,8 +124,8 @@ int main(void){
         CHECK(blk >= 0x40000000ULL && blk + 512*4096 <= 0x40000000ULL + (8ULL<<20));
         CHECK(pmm_free_contiguous(blk, 512) == 0);
         CHECK(pmm_free_page(a) == 0);
-        CHECK(pmm_free_page(0x100000000ULL + (9ULL<<20)) == -1);                 // за добавленной частью
-        CHECK(pmm_free_page(0x140000000ULL) == -1);
+        CHECK(pmm_free_page(0x40900000ULL) == -1);                 // за добавленной частью
+        CHECK(pmm_free_page(0x44000000ULL) == -1);
     }
     printf("%s\n--- log ---\n%.*s", fails?"FAILED":"ALL PMM TESTS PASSED",(int)outlen,outbuf);
     return fails!=0;
