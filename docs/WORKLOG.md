@@ -270,3 +270,46 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+## Продолжение 2026-11-13 — трёхсекционный реестр и аудит разветвления файлов
+
+- Создан Draft PR #148: https://github.com/Masuku4129/kira_os_/pull/148. Ветка: project/status-ledger-2026-11-13. main не изменён; merge не выполнялся.
+- Добавлены три постоянных раздела: docs/PROJECT_STATUS/01_READY.md (текущий baseline и реальные build inputs), 02_IN_PROGRESS.md (файлы и PR в отдельных ветках), 03_PLANNED.md (незакрытые требования мастер-плана A–N).
+- Снимок branch_inventory_2026-11-13.json содержит точные SHA и деревья основных линий, полный список 829 файлов main, branch-only списки и PR metadata. Он датирован и требует обновления перед дальнейшей интеграцией.
+- Обнаружено: main — 829 файлов; v46/unified-release-integration — 1245 файлов, 437 путей отсутствуют в main; autodrv — 1300 файлов, 56 путей отсутствуют в v46; 21 путь main отсутствует в v46; архитектурная ветка имеет 50 уникальных путей, Spatial base — 10, token branch — 2.
+- Критичные пропуски в интеграции v46: boot/UEFI/BootInfo, IOMMU/VT-d/SMMUv3, KDRV signature/catalogue/manager, KCC/KAS/KLink, Mind build, RTL8139, release/update tooling и 157 тестовых путей. Это branch-only работа, не удалённые файлы; автоматический перенос запрещён до проверки зависимости/лицензии/build/test evidence.
+- Сохранены и отдельно учтены 21 main-only путь, включая AGENTS.md, MASTER_DEVELOPMENT_PLAN.md, WORKLOG.md, ADR-0001, RTL8139 legacy recipe/driver и KCC negative fixtures. Их нельзя потерять при интеграции v46.
+- Добавлен ci/check_project_status.py; он проверяет отсутствие исчезнувших baseline paths, запрещает неучтённые новые tracked files и сверяет x86-64/ARM64 source lists с build scripts. Проверка подключена к tests/run_host_tests.sh и host-tests workflow.
+- Выполнена проверка текущего GitHub tree/manifest: 836 файлов = 829 baseline + 7 управляемых файлов; missing=0, extra=0; все 27 обязательных файлов присутствуют; x86 source lists 98+16, ARM64 common source list 88, userland app lists совпадают с build scripts; branch diff counts совпадают со снимком.
+- Это проверка структуры GitHub и согласованности manifest, а не запуск Python checker/полного CI. Для PR #148 exact-head Actions run не обнаружен; CI/host suite остаются UNVERIFIED. Следующий шаг — получить фактический CI на текущем PR head, затем начать dependency-ordered review 437 v46-only файлов и сверку release manifests.
+
+### Long kernel log line interleaving — EDU driver VM regression (2026-11-13)
+
+- Run #43455111511 exposed a deterministic false-negative in VM scenario `drv-edu`: the driver itself passed PCI discovery, SHA-256 validation, MSI, DMA round-trip and negative access checks, but the serial log split the kernel status line at byte 192 and inserted another CPU's user-process line in the middle. The exact missing substring in the test was caused by the fixed `LB_SIZE=192` buffer flushing a long UTF-8 status line before newline.
+- This was not a driver start failure and the test is not weakened. `linebuf.h` raises the per-CPU/per-context line buffer to 512 bytes; a new `tests/linebuf_test.c` regression checks a 400-byte line is emitted once, intact, at newline, and verifies delayed prompt flush remains intact.
+- The regression is added to `tests/run_host_tests.sh` and registered in `docs/PROJECT_STATUS/status_manifest.json`. Exact-head CI after this fix is pending; do not call this fixed/PASS until host test and `drv-edu` VM scenario pass on the new SHA.
+
+### Реестр: исправлена проверка разницы build lists и Git trees (2026-11-13)
+
+- Первый host CI на snapshot ветки выявил ошибку самого нового guard: он трактовал source-list delta как tree-file delta и ошибочно требовал, чтобы `pk.c` отсутствовал в main tree. Файл существует в baseline, но не включён в main kernel source list.
+- Guard исправлен: каждый source input из v46 должен быть либо в pinned main baseline, либо в v46-only tree paths; разница сборочных списков и разница Git trees теперь учитываются отдельно.
+- В `02_IN_PROGRESS.md` добавлено явное пояснение: 14 x86-64 и 9 ARM64 source-list deltas — это не автоматически 23 отсутствующих файла.
+- Предыдущий CI на SHA `f78970a` подтвердил, что registry step и lint прошли; host-tests остановился на этом ложном условии. Повторный CI для исправленного checker и увеличенного line buffer ожидается.
+
+### Полный снимок Git branch refs (2026-11-13)
+
+- Получены все страницы GitHub branches API: **302 ветки, 290 уникальных HEAD commit SHA**.
+- Создан `docs/PROJECT_STATUS/branch_heads_2026-11-13.json` с каждым именем ветки и точным SHA; добавлен в managed_files и CI guard.
+- Это закрывает риск потерять сами branch refs из-за отсутствия списка. Полный tree diff пока выполнен только для восьми ключевых линий, описанных в `02_IN_PROGRESS.md`; остальные ветки требуют следующего сравнения путей. До завершения сравнения их нельзя считать пустыми или безопасными для удаления.
+
+### Завершён полный tree-level аудит всех веток и обновлён трёхсекционный реестр (2026-11-13)
+
+- Сверены 302 branch refs (290 уникальных HEAD): 211 не-CI refs, 205 уникальных не-CI деревьев исходников, 91 CI-result/preview refs.
+- Все 205 уникальных не-CI Git trees успешно прочитаны и сравнены с pinned main baseline SHA `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`; tree read errors = 0.
+- Найдены 722 уникальных пути, присутствующих в не-CI ветках, но отсутствующих в main. Классификация: 201 source/runtime, 62 CI/build/tools, 217 tests/fixtures, 164 research, 74 docs, 4 other.
+- 77 не-CI refs без PR сохранены для отдельного triage (включая main, т.е. 76 дополнительных веток). Ветки и PR не удалялись, изменения не переносились в main.
+- Все 302 branch refs и 134 PR snapshot (59 open, 49 closed-unmerged, 26 merged) сохранены в `all_branch_tree_audit.json`; `branch_heads_2026-11-13.json` синхронизирован с тем же ref snapshot.
+- `status_manifest.json` связывает три раздела: baseline main (829 файлов), branch-only backlog (722 пути) и planned work в `03_PLANNED.md`. Полный path catalog и частота присутствия каждого пути лежат в `all_branch_tree_audit.json`.
+- CI guard дополнен проверками согласованности двух branch snapshots, полноты 205 tree records, PR/branch counts и полного непересекающегося распределения 722 путей по категориям.
+- В ходе исправления VM `drv-edu` false-negative увеличен `LB_SIZE` с 192 до 512; добавлен host regression для длинной строки, idle prompt flush и full-buffer boundary. Удалён дублирующий запуск registry guard из host script.
+- Exact-head CI на SHA `2c5e960bc8edbfa4ff3b07350ef9a3f66f7ec877` запущен; build, ARM64 и host-tests наблюдались как in progress. До завершения и получения результатов PASS не заявлять.
