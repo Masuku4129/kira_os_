@@ -264,7 +264,11 @@ int main(int argc, char** argv) {
     return fails != 0;
 #endif
     run(30);
-    CHECK(presents_rect + presents_full > 10);
+    uint64_t frames = 0, composed = 0, pixels = 0, busy = 0, worst = 0, present = 0;
+    display_get_render_stats(&frames, &composed, &pixels, &busy, &worst, &present);
+    printf("display preview stats: frames=%llu composed=%llu pixels=%llu partial=%d full=%d\n",
+           (unsigned long long)frames, (unsigned long long)composed, (unsigned long long)pixels, presents_rect, presents_full);
+    CHECK(frames > 10 && composed > 0 && pixels > 0);
     save_shot("terminal.ppm");
 
     /* Spatial Minimal Dock: five pinned defaults, no legacy task buttons or plus tile. */
