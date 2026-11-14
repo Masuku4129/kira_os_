@@ -668,3 +668,17 @@ F-021 remains OPEN. This is an audit finding, not a claim that either backend is
 - Review of the exact PR #166 source found the structure/string overlap test paired `off_dt_struct` with `size_dt_strings` and `off_dt_strings` with `size_dt_struct`. This inverted the two ranges and could miss an actual one-byte overlap.
 - Corrected the range pairing in PR #166 and added a v17 malformed-blob regression fixture that places the strings block one byte inside the structure block.
 - PR #166's earlier exact head `539285048cdd97f5d71ba5aefc9afda4058b7512` passed 30/30 jobs, but the corrected head is now `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`; its own CI is still required. The prior green result does not verify this new fix.
+
+
+## F-022 — scheduler stack fallback weakens guard and ownership guarantees (2026-11-14)
+
+**Severity:** HIGH. Integrated fix is under exact-head verification.
+
+- PR #154 adds generation-token ownership for guarded VMM stack slots and atomic PMM contiguous release. PR #164 independently adds fail-closed allocation and stack-memory clearing, but overlaps `kstack.h`, `sched.c`, `sched.h`, and scheduler tests.
+- PR #154's initial implementation still fell back to `kmalloc(SCHED_STACK_SIZE)` when guarded VMM allocation failed. That made stack-window exhaustion silently weaken the guard guarantee.
+- Integrated the non-fallback policy and stack clearing into PR #154's generation-aware branch. New production threads now fail creation if guarded stack allocation fails; allocated stack memory is zeroed before publishing the thread and then receives the stack canary.
+- Added host coverage that checks the canary and verifies the stack body is zero while excluding the architecture's initial context frame.
+- Current integration candidate: PR #154 head `8f4b9be58f63d93911817184dcbbce0e4eca36c1`. Exact-head CI is not yet available. Prior PR #154 success (43/43) predates this integration and cannot be used as its validation.
+- PR #153 duplicates the atomic PMM change already included in #154; PR #164 overlaps scheduler changes. Do not merge the duplicates independently. Keep #154 as the candidate pending fresh CI and review.
+
+F-022 remains OPEN pending exact-head CI and source-level review of all architecture-specific stack allocator paths.
