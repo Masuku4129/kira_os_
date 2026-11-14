@@ -172,7 +172,7 @@ static int take_u8(const u8** p, const u8* end, u8* out) {
 }
 static int skip_bytes(const u8** p, const u8* end, u64 count) {
     if (*p > end || count > (u64)(end - *p)) { trap("truncated byte range"); return -1; }
-    *p += (size_t)count;
+    *p += count;
     return 0;
 }
 static int name_is(const u8* n, u32 len, const char* s) { u32 i = 0; for (; i < len && s[i]; i++) if (n[i] != (u8)s[i]) return 0; return i == len && !s[i]; }
@@ -372,10 +372,15 @@ static int compile_func(func_t* f) {
         case 0x01: break;
         case 0x02: case 0x03: case 0x04: {
             u8 bt; u32 ar = 0; int bad = 0;
-            if (take_u8(&p, end, &bt) != 0) return -1;
-            if (bt == 0x40) { }
-            else if (bt == 0x7F || bt == 0x7E || bt == 0x7D || bt == 0x7C) { ar = 1; }
-            else { i64 ti = leb_s(&p, end, 64); if (ti < 0 || (u64)ti >= ntypes || types[ti].np) bad = 1; else ar = types[ti].nr; }
+            if (p >= end) CERR("truncated block type");
+            bt = *p;
+            if (bt == 0x40 || bt == 0x7F || bt == 0x7E || bt == 0x7D || bt == 0x7C) {
+                if (take_u8(&p, end, &bt) != 0) return -1;
+                if (bt != 0x40) ar = 1;
+            } else {
+                i64 ti = leb_s(&p, end, 64);
+                if (trapped || ti < 0 || (u64)ti >= ntypes || types[ti].np) bad = 1; else ar = types[ti].nr;
+            }
             if (nctl >= 256) CERR("blocks nested too deep");
             ctl_t* n = &ctl[nctl];
             n->kind = op == 0x03 ? 1 : op == 0x04 ? 2 : 0; n->ar = (u8)ar; n->pend = 0; n->ifz = 0; n->start = 0;
