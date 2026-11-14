@@ -607,3 +607,14 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - No IPC stress/race tests or QEMU tests were run in this pass.
 
 No production source changed. Main remains untouched; no PR merged; no ISO built.
+
+
+## 18. Input subsystem SMP source audit — 2026-11-14
+
+**Stage 0 progress: 55%.** Reviewed keyboard and mouse decoders, PS/2/USB producer serialization, input rings, display/window consumers and diagnostic counters.
+
+- F-044 — keyboard and mouse ring indices are accessed with mixed plain and atomic operations across producer/consumer locks; the dropped-event counter is also read unsynchronized. This is an SMP data-race risk not covered by sequential tests.
+- Decoder tests cover scan codes, modifiers, Cyrillic layout and sequential overflow, but no concurrent SMP/TSan evidence was found or run.
+- Graphics and window-manager source review continues separately; the existing UI tests exercise damage/redraw and interactions but do not establish cross-core lifetime safety for graphics app slots.
+
+No production source changed. Main remains untouched; no PR merged; no ISO built.
