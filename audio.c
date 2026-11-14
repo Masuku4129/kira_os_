@@ -309,7 +309,7 @@ int64_t audio_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
         else { s->writing = 1; writer = 1; }
         spin_unlock_irqrestore(&lk, f);
         while (!err && done < frames) {
-            uint32_t space, rate = s->rate, ch = s->ch;
+            uint32_t space, rate = s->rate;
             uint64_t n = frames - done; if (n > 128) n = 128;
             uint64_t need = (n * 48000 + rate - 1) / rate + 2;
             f = spin_lock_irqsave(&lk);
@@ -327,7 +327,6 @@ int64_t audio_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
             }
             s->tail += m;
             spin_unlock_irqrestore(&lk, f);
-            (void)ch;
             done += n;
         }
         if (writer) {
