@@ -838,7 +838,7 @@ static int load(void) {
                     if (trapped || memidx != 0) { trap("invalid data memory index"); return -1; }
                 }
                 u64 off64 = const_expr(&s, se);
-                if (off64 > UINT32_MAX) { trap("data offset out of range"); return -1; }
+                if (off64 > 0xFFFFFFFFu) { trap("data offset out of range"); return -1; }
                 u32 off = (u32)off64, len = leb_u(&s, se);
                 if ((u64)off + len > (u64)mem_pages * 65536 || !wasm_need(s, se, len)) {
                     trap("data segment out of bounds"); return -1;
