@@ -821,11 +821,7 @@ int display_init(unsigned long mbi) {
         return -6;
     }
     __atomic_store_n(&ready, 1, __ATOMIC_RELEASE);
-#ifdef KIRA_SPATIAL_PREVIEW
-    uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal preview, left navigation, pinned-only bottom Dock, quiet canvas.\n");
-#else
-    uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal desktop, glass panels, Dock, workspaces and contextual system controls.\\n");
-#endif
+    uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal desktop, glass panels, Dock, workspaces and contextual system controls.\n");
     return 0;
 }
 
