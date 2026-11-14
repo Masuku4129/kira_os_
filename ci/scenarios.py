@@ -637,6 +637,7 @@ ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиату�
     {"shot": "drvman-installed"},
     *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, источник: https://10\.0\.2\.100/rl/drvget\.rec", 30),
     *_dg("drvget verify rl", r"verify rl: OK", 30),
+    {"expect": r"кира> "},  # дождаться завершения drvget и возврата консоли; не принимать старое приглашение за ответ следующей команды
     {"cmd": "drv", "must": [r"rl: версия 1, SHA-256 сверен, запрошено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV, подтверждено: CAP_MMIO CAP_DMA CAP_PCIDEV CAP_NETDEV"]},
     {"send": ""}, {"keys": "", "then": ["f4"]},
     {"expect": r"drvman: драйвер rl не запущен: нет свободного подходящего устройства PCI", "timeout": 40},
