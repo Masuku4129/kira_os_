@@ -788,3 +788,27 @@ The TCP lifecycle change `b8560dc6c0f939d28b92234092bb74f0f7bfd71a` was followed
 **Control rule:** do not write to, reset, force-push, merge into, or build acceptance claims against current main as though it were the pinned baseline. Keep Stage 0 comparisons anchored to the immutable baseline SHA above; separately review the six intervening commits and their exact source/test/CI evidence. No corrective history rewrite is authorized. No ISO build is part of Stage 0.
 
 The current-main drift is a repository-control deviation to resolve explicitly before later integration. This note records evidence only; it does not modify production source.
+
+
+## 8. Новый целевой архитектурный план (2026-11-15)
+
+Создан отдельный проектный документ:
+[`KIRA_TARGET_ARCHITECTURE_AND_STAGE_PLAN_2026-11-15.md`](KIRA_TARGET_ARCHITECTURE_AND_STAGE_PLAN_2026-11-15.md).
+
+Он задаёт целевое направление гибридного capability-микроядра, распределение языков по зонам ответственности, кандидаты форматов IPC/хранения, компиляторную цепочку и новую последовательность Stage 0–13. Это **DRAFT FOR STAGE 0**, не утверждение, что Rust, FlatBuffers, Cap’n Proto, Arrow, Parquet, Zstd, MLIR, CAS/Merkle DAG или IOMMU уже внедрены.
+
+### Подтверждённая инвентаризация pinned baseline
+
+Рекурсивный Git tree для `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4` содержит 861 запись. В tracked blobs: 593 `.c`, 165 `.h`, 15 assembly `.s`, 13 `.sh`, 11 `.py`, 16 `.md`, 3 `.yml` и несколько единичных файлов иных расширений. В дереве не обнаружены `.rs`, `Cargo.toml`, `.toml`, `.proto`, `.fbs`, `.capnp`, `.cddl`, `.wasm` или `.wat`. Следовательно, Rust и перечисленные schema/data форматы — кандидаты будущей интеграции, а не текущие компоненты baseline.
+
+Уже присутствуют:
+- C + Assembly как основа ядра и userland;
+- Clang + LLD + NASM в x86-64 build path;
+- отдельный AArch64 build path;
+- Python/Bash в tooling и CI;
+- WASM runtime на C и x86-64 JIT, при этом ARM64 остаётся interpreter path согласно ADR-0001;
+- host tests, x86-64 build, ARM64 build/QEMU и широкий x86 QEMU scenario matrix.
+
+Эта инвентаризация описывает только pinned baseline и не заменяет проверку текущего main/веток/генерируемых артефактов.
+
+**Stage 0 остаётся IN PROGRESS.** Новый план не закрывает source audit, PR reconciliation, выполнение тестов или baseline acceptance.
