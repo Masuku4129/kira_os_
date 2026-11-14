@@ -108,17 +108,63 @@ static const u8* mod; static u32 modlen;
 enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT, IMP_N };
 static const char* const imp_names[IMP_N] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event" };
 
+static int wasm_need(const u8* p, const u8* end, u64 n) {
+    if (!p || !end || p > end || n > (u64)(end - p)) { trap("truncated WASM input"); return 0; }
+    return 1;
+}
+static u8 wasm_u8(const u8** p, const u8* end) {
+    if (!wasm_need(*p, end, 1)) return 0;
+    return *(*p)++;
+}
+static void wasm_skip(const u8** p, const u8* end, u64 n) {
+    if (!wasm_need(*p, end, n)) return;
+    *p += (size_t)n;
+}
 static u32 leb_u(const u8** p, const u8* end) {
-    u32 r = 0; int s = 0;
-    while (*p < end) { u8 b = *(*p)++; if (s < 32) r |= (u32)(b & 0x7F) << s; s += 7; if (!(b & 0x80)) return r; if (s > 35) break; }
-    trap("bad LEB128"); return 0;
+    u64 r = 0; unsigned shift = 0, count = 0; u8 b = 0;
+    for (;;) {
+        if (!wasm_need(*p, end, 1)) return 0;
+        b = *(*p)++; count++;
+        u32 payload = b & 0x7Fu;
+        if (count > 5 || (count == 5 && (payload & 0x70u))) { trap("unsigned LEB128 out of range"); return 0; }
+        r |= (u64)payload << shift;
+        if (!(b & 0x80u)) {
+            if (count > 1 && payload == 0) { trap("overlong unsigned LEB128"); return 0; }
+            return (u32)r;
+        }
+        if (count == 5) { trap("unterminated unsigned LEB128"); return 0; }
+        shift += 7;
+    }
 }
 static i64 leb_s(const u8** p, const u8* end, int bits) {
-    u64 r = 0; int s = 0; u8 b = 0;                               /* беззнаково: сдвиги определены */
-    while (*p < end) { b = *(*p)++; if (s < 64) r |= (u64)(b & 0x7F) << s; s += 7; if (!(b & 0x80)) break; if (s > 70) { trap("bad LEB128"); return 0; } }
-    if (s < 64 && (b & 0x40)) r |= ~0ull << s;
-    if (bits == 32) return (i64)(int)(u32)r;
-    return (i64)r;
+    if (bits != 32 && bits != 64) { trap("unsupported signed LEB128 width"); return 0; }
+    u64 r = 0; unsigned shift = 0, count = 0, max_bytes = (unsigned)(bits + 6) / 7;
+    u8 b = 0, prev = 0;
+    for (;;) {
+        if (!wasm_need(*p, end, 1)) return 0;
+        b = *(*p)++; count++;
+        u8 payload = b & 0x7Fu;
+        if (count > max_bytes) { trap("signed LEB128 out of range"); return 0; }
+        if (count == max_bytes) {
+            unsigned valid = (unsigned)bits - shift;
+            unsigned sign = (payload >> (valid - 1)) & 1u;
+            unsigned upper = payload >> valid;
+            unsigned upper_mask = (1u << (7u - valid)) - 1u;
+            if ((!sign && upper) || (sign && upper != upper_mask)) { trap("signed LEB128 out of range"); return 0; }
+        }
+        r |= (u64)payload << shift;
+        shift += 7;
+        if (!(b & 0x80u)) {
+            if (count > 1 && ((payload == 0 && !(prev & 0x40u)) ||
+                              (payload == 0x7Fu && (prev & 0x40u)))) {
+                trap("overlong signed LEB128"); return 0;
+            }
+            if (count < max_bytes && shift < 64 && (b & 0x40u)) r |= ~0ull << shift;
+            return bits == 32 ? (i64)(int32_t)(u32)r : (i64)r;
+        }
+        if (count == max_bytes) { trap("unterminated signed LEB128"); return 0; }
+        prev = b;
+    }
 }
 static int name_is(const u8* n, u32 len, const char* s) { u32 i = 0; for (; i < len && s[i]; i++) if (n[i] != (u8)s[i]) return 0; return i == len && !s[i]; }
 
@@ -131,8 +177,8 @@ static u64 const_expr(const u8** p, const u8* end) {
         if (op == 0x41) v = (u64)(u32)leb_s(p, end, 32);
         else if (op == 0x42) v = (u64)leb_s(p, end, 64);
         else if (op == 0x23) { u32 g = leb_u(p, end); v = g < nglobals ? globals[g] : 0; }
-        else if (op == 0x43) { if (*p + 4 > end) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
-        else if (op == 0x44) { if (*p + 8 > end) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
+        else if (op == 0x43) { if (!wasm_need(*p, end, 4)) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
+        else if (op == 0x44) { if (!wasm_need(*p, end, 8)) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
         else { trap("unsupported constant expression"); return 0; }
     }
     trap("unterminated constant expression"); return 0;
@@ -141,18 +187,20 @@ static u64 const_expr(const u8** p, const u8* end) {
 static void skip_imm(u8 op, const u8** p, const u8* e) {
     if (op == 0x0C || op == 0x0D || op == 0x10 || (op >= 0x20 && op <= 0x24)) { leb_u(p, e); return; }
     if (op == 0x0E) { u32 n = leb_u(p, e); for (u32 i = 0; i <= n && !trapped; i++) leb_u(p, e); return; }
-    if (op == 0x11) { leb_u(p, e); leb_u(p, e); return; }
+    if (op == 0x11) { leb_u(p, e); wasm_skip(p, e, 1); return; }
     if (op >= 0x28 && op <= 0x3E) { leb_u(p, e); leb_u(p, e); return; }
-    if (op == 0x3F || op == 0x40) { (*p)++; return; }
+    if (op == 0x3F || op == 0x40) { wasm_skip(p, e, 1); return; }
     if (op == 0x41) { leb_s(p, e, 32); return; }
     if (op == 0x42) { leb_s(p, e, 64); return; }
-    if (op == 0x43) { *p += 4; return; }
-    if (op == 0x44) { *p += 8; return; }
-    if (op == 0x1C) { u32 n = leb_u(p, e); *p += n; return; }
+    if (op == 0x43) { wasm_skip(p, e, 4); return; }
+    if (op == 0x44) { wasm_skip(p, e, 8); return; }
+    if (op == 0x1C) { u32 n = leb_u(p, e); wasm_skip(p, e, n); return; }
     if (op == 0xFC) {
         u32 sub = leb_u(p, e);
-        if (sub == 8) { leb_u(p, e); (*p)++; } else if (sub == 9) leb_u(p, e);
-        else if (sub == 10) *p += 2; else if (sub == 11) (*p)++;
+        if (sub == 8) { leb_u(p, e); wasm_skip(p, e, 1); }
+        else if (sub == 9) leb_u(p, e);
+        else if (sub == 10) wasm_skip(p, e, 2);
+        else if (sub == 11) wasm_skip(p, e, 1);
         else if (sub >= 12) trap("unsupported 0xFC instruction");
     }
 }
