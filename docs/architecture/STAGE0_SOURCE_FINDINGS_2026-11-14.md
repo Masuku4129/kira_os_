@@ -77,7 +77,15 @@ A Ring 3 driver with DMA or interrupt rights can cause a bus-master-capable devi
 - These are separate protections: firmware handoff sanitization does not replace IOMMU isolation; a KDRV policy gate does not implement an IOMMU.
 - Do not label DMA safe, isolated or production-ready until per-device domain setup, requester-ID mapping, attach/detach, invalidation, teardown, fault handling and adversarial tests are demonstrated on x86-64 and ARM64.
 
-**Required closure:** first establish a fail-closed DMA/MSI policy; then implement and test real per-device IOMMU domain lifecycle for VT-d and SMMUv3 before allowing DMA/MSI. MMIO-only drivers remain a separate policy case.
+### Remediation on current-main draft branch
+
+- Previous PR #136 was based on a stale main ancestor. Its changes have been transplanted to Draft PR #161 based directly on the Stage 0 main SHA.
+- `kdrv_dma_policy_allow()` rejects `CAP_DMA` and `CAP_IRQ` while no per-device IOMMU domain is confirmed; current production call deliberately passes false.
+- Before rejecting the package, `quiesce()` disables MSI/MSI-X and clears PCI IO/MEM/BUS_MASTER command bits.
+- MMIO-only packages remain allowed. Host policy tests and x86-64/ARM64 QEMU scenarios cover denial and MMIO-only operation/cleanup.
+- PR #161 exact-head CI is pending; no verification claim yet.
+
+**Required closure:** first establish and verify the fail-closed DMA/MSI policy plus firmware handoff sanitization; then implement and test real per-device IOMMU domain lifecycle for VT-d and SMMUv3 before allowing DMA/MSI. MMIO-only drivers remain a separate policy case.
 
 ## F-003 — PCI ECAM host bus range is stored but enumeration always starts at bus 0
 
@@ -414,7 +422,7 @@ Source:
 | Finding | Source reviewed | Runtime reproduction / branch evidence | Targeted regression evidence | Status |
 |---|---|---|---|---|
 | F-001 | x86-64 and ARM64 stack allocator | Combined PR #154 exact head `4dd1454093af90f7d569df03b4425650da8da8bc`; CI run `43590094470` | 43/43 checks PASS, including apps-drvman, host, ARM64 and QEMU matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, merge/review pending |
-| F-002 | KDRV, syscall capability gate, ARM64 DMA/MSI paths | Not run in this session | PR #136/137 tests are branch-only | CONFIRMED SOURCE SECURITY GAP |
+| F-002 | KDRV, syscall capability gate, ARM64 DMA/MSI paths | Draft PR #161 current-main transplant: fail-closed CAP_DMA/CAP_IRQ gate + quiesce | Exact-head CI pending; PR #137 firmware handoff fix still separate | SECURITY FIX UNDER VERIFICATION; DMA/MSI REMAINS BLOCKED UNTIL REAL IOMMU |
 | F-003 | PCI ECAM backend and scan root | Not run in this session | PR #139 tests are branch-only | CONFIRMED SOURCE DEFECT |
 | F-004 | x86-64 and ARM64 entry paths/tree | Not run in this session | No unified BootInfo test in main | ARCHITECTURE GAP |
 | F-005 | PCI/KDRV structure and PR #141 dependency | Not run in this session | No generic registry test in main | ARCHITECTURE GAP |
