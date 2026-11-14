@@ -761,3 +761,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Inspected PR #130 module validator, merged into `v46/release-completion`. It accepts module ranges only in `KBI_MEM_USABLE` or `KBI_MEM_MODULE`.
 - PR #61 classifies UEFI `EfiLoaderData` as `KBI_MEM_BOOTLOADER` and does not reclassify the exact INITRD.IMG allocation as `KBI_MEM_MODULE`. This is a real integration conflict: applying PR #130 unchanged would reject the module, while broadly accepting LoaderData would weaken validation.
 - Added findings F-023 and F-024 with exact branch evidence and required resolution. No branch merge or main change was made.
+
+
+## 15. PCI range + firmware DMA policy integration — 2026-11-14
+
+- Merged the source logic from main-based PR #162 into PR #165's security branch without touching main: host ECAM range validation, nonzero root-bus enumeration, bridge primary/secondary/subordinate checks, and nested subordinate limits.
+- Preserved #165's firmware Bus Master cleanup policy and added both #165's `pci_test.c` and #162's `pci_range_test.c` to the same host test runner. Updated the virtio bridge model to state its primary bus explicitly.
+- PR #165 combined head is `f986d3f84fdc6bac6dd72ce7d4fd6a76bc4d3caf`. Exact-head CI has not yet appeared; prior #165 30/30 PASS is not reusable for this combined head.
+- F-017 remains open because Bus Master is still cleared after BAR probing; the earlier pre-probe attempt caused a UHCI VM regression. No security-complete claim is made.
+- PR #162 is a duplicate source candidate after integration; do not merge it independently. PR #139's device registry/PCI branch stack remains separate.
