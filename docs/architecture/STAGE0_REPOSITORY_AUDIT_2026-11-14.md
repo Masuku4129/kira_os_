@@ -819,3 +819,18 @@ The current-main drift is a repository-control deviation to resolve explicitly b
 - Целевой план Stage 0–13: [\`KIRA_TARGET_ARCHITECTURE_AND_STAGE_PLAN_2026-11-15.md\`](KIRA_TARGET_ARCHITECTURE_AND_STAGE_PLAN_2026-11-15.md).
 - Полное соответствие направлений A–N новым Stage: [\`STAGE0_REQUIREMENTS_CROSSWALK_2026-11-15.md\`](STAGE0_REQUIREMENTS_CROSSWALK_2026-11-15.md).
 - Это расширяет Stage 0 exit criteria: пока crosswalk и component matrix не reconciled, Stage 0 не закрывать.
+
+
+## 10. Актуальная проверка stacked PR #179/#181/#182 — 2026-11-15
+
+GitHub API и exact-head workflow job logs повторно проверены после фиксации новой архитектуры.
+
+| PR | Назначение | Exact head | CI evidence | Статус аудита |
+|---|---|---|---|---|
+| #179 | WASM import/type and malformed LEB validation | `2fdb2c04fc3d5a938c547ad3b8285bebd1a7f736` | run `43644011093`: host-tests FAIL; x86 build, ARM64 and QEMU jobs PASS | BLOCKED |
+| #181 | Input ring producer/consumer synchronization; based on #179 stack | `17614b29e4bbd75ae1dd14fd7db0772d14449200` | run `43643351332`: host-tests, x86 build and ARM64 FAIL | BLOCKED |
+| #182 | GFX queue publication synchronization; based on #179 head | `49e2914e620e6ac6e98adbdd49b2f04936b2a7d3` | run `43644247467`: host-tests, x86 build and ARM64 FAIL | BLOCKED |
+
+The shared compile failure is `userland/wasm.c:145`: undeclared `int32_t` and `uint32_t`. See F-062 for exact scope and closure criteria. #181/#182 inherit the broken common ancestor; their independent changes have not yet received valid verification on a buildable base.
+
+This is a branch/PR-stack defect, not a confirmed defect in pinned main. No PR was merged, retargeted or modified. No production source was changed in this audit operation.
