@@ -566,3 +566,8 @@ Reject out-of-range import type indices before storing them, validate every impo
 ### ELF loader hardening follow-up
 
 `elf_parse()` already enforces ET_EXEC/architecture, bounded program-header table, page-aligned PT_LOAD, W^X, window and file bounds, non-overlapping pages, and executable entry point. Add explicit ELF header-size/version and PT_LOAD p_align validation plus malformed-header tests; this is a hardening gap, not currently classified as an exploitable mapping bypass.
+
+
+### System-call and user-memory security audit coverage
+
+Reviewed `cap_needed()` authorization mapping, capability assignment/trust checks, user-pointer range validation and fault-contained copy entry points. No new confirmed privilege escalation in this bounded dispatcher/uaccess review. Subsystem-specific syscall handlers still require independent validation; a clean dispatcher table does not close the UDP/TCP, FS, KDRV, IPC or graphics findings.
