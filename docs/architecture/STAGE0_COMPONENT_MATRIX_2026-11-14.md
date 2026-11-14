@@ -591,3 +591,8 @@ Keyboard and mouse producer/consumer paths currently mix plain volatile reads wi
 ### F-045 Graphics event dequeue acceptance gate
 
 Multiple threads in one process are supported, while graphics event dequeue uses an unprotected tail read/copy/store. Two consumers can duplicate delivery and fail to advance the queue correctly. Require per-app dequeue serialization or an enforced single-consumer contract, with multi-thread same-PID queue-wrap, copy-failure and teardown tests. Separately verify graphics app-slot lifetime across process exit and compositor reclamation.
+
+
+### F-046 Graphics app/framebuffer lifetime acceptance gate
+
+Graphics syscalls obtain raw app-slot pointers without in-flight references; asynchronous process teardown can free the shared framebuffer and release the slot while an operation is still in flight. Require closing state, generation-tagged handles, pinned operations, drain-before-free, user unmap and TLB shootdown before PMM reuse. Test draw/event/input/exit/reopen under QEMU SMP and stale-handle reuse.
