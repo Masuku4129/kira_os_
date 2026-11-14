@@ -786,11 +786,8 @@ int display_init(unsigned long mbi) {
     if (rc != 0) return rc;
     notify_head = notify_tail = 0;
     wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher, on_workspace_changed, on_system_volume };
-#ifdef KIRA_SPATIAL_PREVIEW
+/* Spatial Minimal is the production desktop, not a preview-only code path. */
     wm_init_mode(fb_surface(), &ops, WM_LAYOUT_SPATIAL_MINIMAL);
-#else
-    wm_init(fb_surface(), &ops);
-#endif
     surface_t* fbs = fb_surface();
     w_con = wm_create_ex("Терминал", WM_AUTO, WM_AUTO, CON_W, CON_H, WM_RESIZABLE, fbs->w, fbs->h);   // можно растянуть до размера экрана
     if (w_con < 0) { uart_print("[KIRA DISPLAY] cannot allocate window surfaces.\n"); return -7; }
