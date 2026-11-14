@@ -26,7 +26,7 @@ static uint8_t* mk_mbi(uint64_t at, int with_mmap){
     if(with_mmap){
         // Embedded boot modules: one below 1 GB and one in RAMEXT's high range.
         *(uint32_t*)p=3; *(uint32_t*)(p+4)=16; *(uint32_t*)(p+8)=0x18000000; *(uint32_t*)(p+12)=0x18400000; p+=16;
-        *(uint32_t*)p=3; *(uint32_t*)(p+4)=16; *(uint32_t*)(p+8)=0x100200000ULL; *(uint32_t*)(p+12)=0x100400000ULL; p+=16;
+        *(uint32_t*)p=3; *(uint32_t*)(p+4)=16; *(uint32_t*)(p+8)=0x40200000U; *(uint32_t*)(p+12)=0x40400000U; p+=16;
         struct E{uint64_t a,l;uint32_t t,r;} ents[]={
             {0,0x9FC00,1,0},{0x9FC00,0x60400,2,0},{0x100000,0x1FF00000ULL,1,0},
             {0x20000000ULL,0x100000,2,0},{0x100000000ULL,0x40000000ULL,1,0}};
@@ -116,10 +116,10 @@ int main(void){
         CHECK(pmm_add_high(0x50000000ULL, 0x50200000ULL) == -1);                 // не ОЗУ выше 1 ГБ
         CHECK(pmm_add_high(0x100000001ULL, 0x100002000ULL) == -1);               // не выровнен
         CHECK(pmm_get_free_memory_kb() == 1536 * 4);
-        CHECK(pmm_free_page(0x100200000ULL) == -1); // embedded module above 1 GB
+        CHECK(pmm_free_page(0x40200000U) == -1); // embedded module above 1 GB
         uint64_t a = pmm_alloc_page();
         CHECK(a >= 0x100000000ULL && a < 0x100000000ULL + (8ULL<<20));
-        CHECK(a < 0x100200000ULL || a >= 0x100400000ULL);
+        CHECK(a < 0x40200000U || a >= 0x40400000U);
         uint64_t blk = pmm_alloc_contiguous(512);
         CHECK(blk >= 0x100000000ULL && blk + 512*4096 <= 0x100000000ULL + (8ULL<<20));
         CHECK(pmm_free_contiguous(blk, 512) == 0);
