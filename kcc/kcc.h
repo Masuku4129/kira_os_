@@ -169,7 +169,10 @@ void a64_build_elf(Obj *globals, unsigned char **out, size_t *outlen);
 
 /* ---------- API ---------- */
 typedef struct { const char *ir; const char *err; const char *warn; const unsigned char *elf; size_t elflen; } KResult;
-/* Компиляция одного файла. mem/memsz - арена. emit_ir=0: только проверка, 1: текстовый IR, 2: ELF x86-64. Возврат 0 - успех. */
+enum { KCC_OK = 0, KCC_ERROR = 1, KCC_BUSY = 2 };
+/* Компиляция одного файла. mem/memsz - арена. emit_ir=0: только проверка, 1: текстовый IR, 2: ELF x86-64.
+   Возврат: KCC_OK - успех, KCC_ERROR - ошибка компиляции, KCC_BUSY - другой вызов уже компилирует в этом процессе.
+   Важно: текущий компилятор использует общие внутренние таблицы; параллельный/вложенный вызов не запускается и должен быть повторён позже. */
 int kcc_compile(const KCfg *cfg, void *mem, size_t memsz, const char *path, int emit_ir, KResult *res);
 
 #endif
