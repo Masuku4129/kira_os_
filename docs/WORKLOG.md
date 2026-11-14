@@ -325,3 +325,12 @@
 - Это сравнение указывает, что F-009 из baseline является необходимой предпосылкой для прохождения данного сценария; F-001 не следует обвинять в этом failure без дополнительного evidence.
 - Создана combined main-based ветка и Draft PR #154, включающие оба изменения F-001 + F-009. Head `a3bd9a47f9a9f2f7fad09823ac50c3c90c2a01cd`; exact-head host/build/ARM64 checks запущены, затем ожидается полная QEMU matrix.
 - Ни один PR не объединён; main не изменён. Финальная интеграционная приёмка зависит от PR #154 exact-head CI.
+
+
+### Stage 0 — x86-64 TLB shootdown safety finding (2026-11-14)
+
+- Добавлен F-010. `arch/x86_64/smp.c::vmm_tlb_shootdown()` после 200 мс таймаута возвращает управление без подтверждения всех CPU, при этом очищает `sd_busy`; запрос хранится в общих глобальных полях.
+- Поздний IPI может увидеть уже перезаписанные `sd_root/sd_va/sd_pages` и очистить бит нового pending mask, создав ложное подтверждение.
+- `proc_shm_unmap()` после void shootdown освобождает shared object; `proc_unmap_pages()` тоже не получает статус, а DMA cleanup может освободить backing pages. Это требует fail-closed lifecycle.
+- ARM64 использует отдельный broadcast TLBI `vae1is/aside1is` с барьерами; отдельная проверка ASID lifecycle ещё нужна.
+- Приоритет: после проверки combined F-001/F-009 закрыть F-010 до дальнейшего расширения DMA/driver security.
