@@ -28,6 +28,15 @@ static void click(int x, int y) { move_to(x, y, 0); wm_mouse(0, 0, 1); wm_mouse(
 static void click_btn(int id, int which) { int bx, by; CHECK(wm_button_center(id, which, &bx, &by) == 0); click(bx, by); }
 static void click_side(int i) { int sx, sy; CHECK(wm_side_center(i, &sx, &sy) == 0); click(sx, sy); }
 static void frame(void) { wm_compose(&X, &Y, &X, &Y); }
+static int parallel_calls, present_calls;
+static void test_runner(void (*fn)(void*, uint32_t), void* ctx, uint32_t n) {
+    parallel_calls++;
+    for (uint32_t i = 0; i < n; i++) fn(ctx, i);
+}
+static void test_present(int x, int y, int w, int h) {
+    (void)x; (void)y; (void)w; (void)h;
+    present_calls++;
+}
 
 /* Отсечение закрытых слоёв даёт ту же картинку, что полная перерисовка с нуля. */
 static void same_as_full(surface_t* scr, const char* what) {
@@ -65,6 +74,20 @@ int main(void) {
     /* содержимое лежит со смещением (поля, заголовок); B выше A */
     CHECK(px(&scr, 400, 200) == 0x0000BB00);
     CHECK(px(&scr, 320, 140) == 0x00AA0000);
+
+    /* Large desktop damage may use helpers; cursor-only damage must stay local
+       and avoid waking/joining parallel compositor workers. */
+    wm_set_runner(test_runner);
+    parallel_calls = present_calls = 0;
+    wm_invalidate_all();
+    uint64_t composed_pixels = 0;
+    CHECK(wm_compose_par(test_present, &composed_pixels) > 4);
+    CHECK(parallel_calls == 1 && present_calls > 0 && composed_pixels >= 1024u * 768u);
+    parallel_calls = present_calls = 0;
+    move_to(600, 600, 0);
+    CHECK(wm_compose_par(test_present, &composed_pixels) > 0);
+    CHECK(parallel_calls == 0 && present_calls > 0 && composed_pixels < 65536u);
+    wm_set_runner(0);
     int ox, oy, sc;
     CHECK(wm_content_origin(a, &ox, &oy, &sc) == 0 && ox == 300 + WM_PAD && oy == 100 + WM_HEAD && sc == 1);
     /* фон нарисован (градиент, сетка, мозг), а не пустой чёрный; верхняя панель и боковая есть */
