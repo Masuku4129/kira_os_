@@ -1323,3 +1323,24 @@ F-044 remains OPEN.
 4. Audit app-slot lifetime concurrently with `gfx_proc_gone()` and server reclamation; this finding does not claim that separate lifetime question is closed.
 
 F-045 remains OPEN.
+
+
+## New finding F-046 — Graphics app slots and shared framebuffer lack in-flight lifetime pins (2026-11-14)
+
+**Severity:** HIGH concurrency/lifetime; potential use-after-free and stale-slot access.
+
+### Evidence
+- `find_pid()` and `find_win()` return raw pointers into the reusable global `apps[]` table after an atomic `used == 1` check, without taking `gfx_lock` or retaining a reference (`gfxsrv.c:42-48`).
+- Graphics syscalls then use the returned pointer to access metadata and the physical double buffer. For example, `gfx_sys_draw()` copies into `a->phys` and increments `a->seq` after the lookup (`gfxsrv.c:100-120`); event dequeue similarly uses the queue after lookup.
+- `gfx_proc_gone()` only sets `need_destroy` on the raw slot pointer (`gfxsrv.c:148-151`). The display server later frees the double-buffer physical allocation and publishes `used = 0` (`gfxsrv.c:163-173`).
+- No in-flight syscall reference or generation token prevents the display server from freeing/reusing a slot while a syscall that already passed `find_pid()` is still copying or updating it. A concurrent lookup can also race with slot reuse and observe a new owner through an old pointer.
+- The user framebuffer is shared with the process page tables. The reviewed graphics destroy path frees the backing allocation; a complete proof that all user mappings and CPU translations are revoked before reuse was not found in this service path.
+
+### Required closure
+1. Add per-slot references/pins acquired atomically with owner/generation validation; reject new pins after transition to CLOSING.
+2. Process teardown must mark CLOSING, prevent new syscalls, wait for in-flight references to drain, revoke/unmap the user framebuffer mapping and complete required TLB shootdowns, then free physical pages.
+3. Use generation-tagged app/window handles to prevent stale syscalls from acting on a reused slot.
+4. Ensure compositor/window callbacks also pin the slot or execute under a documented serialized ownership contract.
+5. Add adversarial QEMU SMP tests for draw/event/input/close/process-exit/reopen, stale handles, mapping revocation and allocator reuse; run ASan/TSan host models where applicable.
+
+F-046 remains OPEN.
