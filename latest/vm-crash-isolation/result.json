@@ -1,0 +1,98 @@
+{
+ "name": "crash-isolation",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CORE \\d+\\] kernel-mode fault #14 at RIP 0x[0-9A-Fa-f]+, thread 'smpcrash'\\. Thread terminated",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CORE\\] fault detail: error 0x[0-9A-Fa-f]+, CR2 0x[0-9A-Fa-f]+, RSP 0x[0-9A-Fa-f]+, RBP 0x[0-9A-Fa-f]+, stack:",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CORE 2\\] machine check #18",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CORE 2\\] out of service",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.04,
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.04,
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.2,
+ "seconds": 16.5,
+ "commands": [
+  {
+   "cmd": "test crash thread",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "test crash 2",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "smp",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.01
+  }
+ ]
+}
