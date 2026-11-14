@@ -1082,3 +1082,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed F-041: multiple nested parser fields and skip_imm() advance pointers without checking the current section/body end; leb_s() can return a partial value when a continuation byte is truncated. This creates out-of-bounds-read risk for malformed user-supplied modules. No runtime exploit is claimed.
 - The runtime has meaningful existing limits and traps (module size cap, bounded memory, value/call stacks, JIT sealing and interpreter fallback), and tests include differential operation/trap generation and damaged-module fuzzing. However, this review did not prove exhaustive truncation coverage and did not run those tests.
 - No production source changed.
+
+
+## 49. WASM import ABI and entry-point validation audit — 2026-11-14
+
+- Followed the import section through export selection and runtime entry dispatch.
+- Confirmed F-042: imported function type indices are stored without checking `ti < ntypes`; imported functions can be exported as the program entry; final entry validation checks only the function index, then umain dereferences `types[funcs[entry].type]`. This permits an out-of-bounds type-array dereference on a crafted module.
+- Host import signatures are not validated against the fixed KIRA host ABI. `host_call()` accepts up to 32 declared parameters but captures only the first four in its local argument array; mismatched imports can therefore invoke host operations with unintended argument/result layouts.
+- Capability boundary: the wasm executable is granted CAP_GFX, CAP_GRANT and CAP_JIT; host imports expose only the documented KIRA write/sleep/ticks/exit/graphics surface. The module itself remains inside its Ring 3 process address space. No production code changed.
+- Reviewed ELF parser/loader and existing tests/prog_test.c: segment mapping is page-aligned, W^X and window bounds are enforced, overlapping pages rejected, stack is RW-NX, and 20,000 corruption mutations are tested. Header `e_ehsize`/`e_version` and PT_LOAD `p_align` are not validated; record as hardening follow-up, not a demonstrated loader escape. No host tests were run in this pass.
