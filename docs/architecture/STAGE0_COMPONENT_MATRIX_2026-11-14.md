@@ -571,3 +571,8 @@ Reject out-of-range import type indices before storing them, validate every impo
 ### System-call and user-memory security audit coverage
 
 Reviewed `cap_needed()` authorization mapping, capability assignment/trust checks, user-pointer range validation and fault-contained copy entry points. No new confirmed privilege escalation in this bounded dispatcher/uaccess review. Subsystem-specific syscall handlers still require independent validation; a clean dispatcher table does not close the UDP/TCP, FS, KDRV, IPC or graphics findings.
+
+
+### F-043 Audio stream lifecycle acceptance gate
+
+The audio syscall path currently validates reusable stream slots outside the mixer lock and does not pin a slot across a complete operation. Close/process teardown can race with write/gain, and gain is written without the lock used by the mixer reader. Require generation-tagged/pinned handles, closing/drain semantics, and one synchronization contract for format, resampler, gain and queue state. Test write/gain/close/process-exit/open/reuse concurrently; run TSan where supported.
