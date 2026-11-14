@@ -123,6 +123,51 @@ Main contains a PCI device array and KDRV binding table, but no bus-independent 
 
 **Required closure:** define DEV-001 identity/generation and resource ownership, enumerate devices through bus adapters, bind/unbind drivers through a common lifecycle, and prove stale-reference, failure-unwind, hotplug/rescan and resource-revocation behavior.
 
+
+## F-006 — Current architecture documentation contains stale statements that contradict main
+
+**Severity:** High documentation/integration risk  
+**Confidence:** High — direct contradiction between pinned docs, build inputs and test matrix  
+**Master-plan mapping:** A, N; all 12 streams are affected because status decisions depend on accurate architecture records.
+
+### Evidence
+
+The current `ARCHITECTURE.md` is a long historical version narrative. Its early summary sections still state that the kernel supports only one CPU, USB is absent, NVMe is a future step, and no QEMU run has occurred. These statements contradict the same current main tree:
+- x86-64 SMP implementation is in `arch/x86_64/smp.c`; scheduler/per-CPU code is built and CI has `smp`, `boot-8cpu` and `soak-8cpu` scenarios.
+- USB stack and UHCI/xHCI drivers are built from `usb.c`, `usbhid.c`, `usbhub.c`, `usbmsc.c`, `uhci.c`, `xhci.c`; host tests model USB and CI has `usb-uhci`/`usb-xhci`.
+- `nvme.c` is included in x86-64 and ARM64 build lists; CI has `boot-nvme`.
+- `.github/workflows/ci.yml` runs the QEMU VM matrix.
+
+Sources:
+- [ARCHITECTURE.md historical claims, lines 48–54 and 103–108](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/ARCHITECTURE.md#L48-L54)
+- [build_clang.sh source/build profile](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/build_clang.sh)
+- [build_arm64.sh source/build profile](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/build_arm64.sh)
+- [CI scenario matrix](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/.github/workflows/ci.yml)
+
+### Consequence
+
+An agent or developer following the stale summary may duplicate already-present work, misclassify working components as absent, or make unsafe changes based on an obsolete platform model. Conversely, later historical entries must not be treated as proof of present production readiness.
+
+**Required closure:** label `ARCHITECTURE.md` as historical development log or rewrite its opening summary to current verified state; maintain a concise current architecture baseline, implementation matrix and contract registry. Every status must link to current source and exact-SHA tests.
+
+## F-007 — x86-64 Android build profile deliberately omits test and educational programs
+
+**Severity:** High release completeness risk  
+**Confidence:** High — direct build-script logic  
+**Master-plan mapping:** L, M, N; streams 2, 3, 10, 11, 12.
+
+### Evidence
+
+In current `build_clang.sh`, passing `--android` sets `RELEASE=1`; release mode filters the `TESTPROGS` list out of `UELF` before disk creation. The list includes `burn`, `mt`, `ipc`, `udpecho`, `melody`, `demo`, `fpu`, and multiple `atk-*` programs. The script comment explicitly says these test/educational programs are not placed on the user build disk, while CI builds the full set.
+
+Source: [build_clang.sh at baseline SHA, lines 104–109](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/build_clang.sh#L104-L109).
+
+### Consequence
+
+An ISO made with `./build_clang.sh --android` is a release-filtered profile, not the complete CI/userland profile. It must not be described as containing every test and educational program. This is directly relevant to the project's no-loss/full-image requirement.
+
+**Required closure:** define named build profiles with explicit manifests (full development/test image vs release-filtered image); make the chosen profile visible in build metadata; add a manifest diff test that proves which ELF files and resources are present; for the user's complete Limbo image, use the full profile and verify the ISO contents rather than relying on the filename or successful build.
+
 ## Verification ledger
 
 | Finding | Source reviewed | Runtime reproduction | Targeted regression in current main | Status |
@@ -132,5 +177,7 @@ Main contains a PCI device array and KDRV binding table, but no bus-independent 
 | F-003 | PCI ECAM backend and scan root | Not run in this session | PR #139 tests are branch-only | CONFIRMED SOURCE DEFECT |
 | F-004 | x86-64 and ARM64 entry paths/tree | Not run in this session | No unified BootInfo test in main | ARCHITECTURE GAP |
 | F-005 | PCI/KDRV structure and PR #141 dependency | Not run in this session | No generic registry test in main | ARCHITECTURE GAP |
+| F-006 | ARCHITECTURE.md vs current sources/build/CI | Source/document comparison only | No docs consistency guard in main | CONFIRMED DOCUMENTATION DRIFT |
+| F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
 
 No code was changed by this audit. No test was executed locally. Exact-head CI evidence from other PRs is explicitly branch-only and is not transferred to main.
