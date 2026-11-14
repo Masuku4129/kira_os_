@@ -806,3 +806,9 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - PR #154 head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110`: 30/30 jobs succeeded across host-tests, x86, ARM64 and full VM matrix.
 - UART oversized-line correction resolved the earlier `drv-edu` log assertion without weakening tests. Both `drv-edu` and `usb-uhci` pass on this exact head.
 - PR remains Draft; no main merge and no ISO build.
+
+
+## 21. F-022 status correction — 2026-11-14
+
+- Replaced the stale pending-CI status for F-022: PR #154 exact corrected head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a` passed 30/30.
+- CI gate closed; per-ISA stack allocator source review and final merge composition remain open.
