@@ -190,3 +190,12 @@
   5. `12cf3fb` — WASM import validation and signed LEB change (introduces the F-062 current-main compile failure);
   6. `3497f48` — gfx event queue serialization.
 - Decision: do not merge PR #151 or rewrite its history during Stage 0. It is a documentation-only PR, but its base/ancestry must be reconciled explicitly before any integration. Main remains untouched.
+
+
+## PR #166 focused source/test review — 2026-11-15
+
+- Current head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, still draft/open and based on pinned main `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`.
+- Diff touches ARM64 startup/PMM, FDT parser/API, FDT tests, ARM64 PMM tests and host runner. It carries F-015 `fdt_reg()` overflow protection, F-016 firmware reservation-map handling and F-018 FDT v16 support.
+- Retrieved exact-head check-runs: 30 jobs, all observed successful. This is candidate evidence only; it does not change current main's F-062 failure and does not transfer to any later head.
+- Residual: the candidate retains the current `fdt_prop()` unbounded property-name comparison and does not test malformed strings-block termination/name offsets. F-064/F-061 remain open even if #166 is later integrated.
+- No merge or cherry-pick performed.
