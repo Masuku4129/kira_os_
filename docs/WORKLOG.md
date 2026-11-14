@@ -942,3 +942,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - The VM scenario attaches a USB tablet and keyboard to the UHCI controller. The repeated low-address reads are consistent with a live controller fetching an invalid/zero-based frame list while the PCI handoff stalls.
 - This is strong supporting evidence, not register-level proof. The artifact does not contain USBCMD/USBSTS/FLBASEADD values, and the serial log stops after BAR probe before the “secured” marker.
 - Next discriminating test: capture those UHCI registers before handoff, halt/reset the controller with bounded waits, then clear Bus Master and verify the same Limbo-like USB scenario repeatedly. Preserve the IOMMU-first alternative. No kernel code changed.
+
+
+## 37. USB controller DMA handoff order reviewed — 2026-11-14
+
+- Compared the PCI scan path with the actual USB driver entry sequence. usb_main() starts controllers only after pci_init() returns.
+- Found a second DMA handoff issue beyond the UHCI enumeration stall: uhci_start() re-enables PCI_CMD_MASTER together with I/O decode before requesting USBCMD stop/HCHalted and before programming the new FRBASE. xhci_start() similarly enables PCI_CMD_MASTER with MEM decode before BIOS handoff, USBCMD stop, HCRST, and before replacing DCBAAP/CRCR/event-ring state.
+- Therefore the PCI enumeration clear is not a durable boundary. The drivers can re-grant DMA while firmware-owned controller state is still active. Added F-029 as HIGH and separate from F-025 (current UHCI boot hang) and F-017 (firmware DMA during BAR probing).
+- Safer order: enable IO/MEM decode without MASTER; bounded controller-specific BIOS handoff/stop/reset; allocate and program kernel-owned DMA structures; only then enable MASTER through the DMA/IOMMU policy gate. On any timeout, keep MASTER denied and quarantine.
+- No source changes made; this is Stage 0 source evidence and a required test dependency for the future PCI/USB fix.
