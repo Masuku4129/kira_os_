@@ -770,3 +770,10 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - PR #165 combined head is `f986d3f84fdc6bac6dd72ce7d4fd6a76bc4d3caf`. Exact-head CI has not yet appeared; prior #165 30/30 PASS is not reusable for this combined head.
 - F-017 remains open because Bus Master is still cleared after BAR probing; the earlier pre-probe attempt caused a UHCI VM regression. No security-complete claim is made.
 - PR #162 is a duplicate source candidate after integration; do not merge it independently. PR #139's device registry/PCI branch stack remains separate.
+
+
+## 16. FDT exact-head CI completion — 2026-11-14
+
+- PR #166 corrected head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, workflow `43610515593`: 30/30 jobs succeeded.
+- Confirmed host-tests, x86 build, ARM64 build/scenarios and all VM matrix scenarios succeeded on the corrected source, including the FDT v16 and overlap regression tests.
+- This is a verified branch CI result, not a main merge or release claim. Main remains untouched.
