@@ -1038,3 +1038,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed F-036: HKDF-Expand uses an 8-bit block counter but does not enforce RFC 5869's 255-block maximum; >8160-byte output wraps the counter. It also silently truncates info to 300 bytes. TLS HKDF label/context are silently truncated at 64 bytes and encoded output length is not range-checked. Existing crypto tests cover standard vectors, not these boundaries.
 - Also flagged ChaCha20/AES-GCM maximum-length/counter checks for the crypto hardening pass; no exploit in a current TLS caller is claimed.
 - Existing tests/net_test.c is narrow (checksum and address parsing); it does not exercise socket ownership/teardown concurrency. No production source changed.
+
+
+## 45. TLS reentrancy and X.509 critical-extension policy audit — 2026-11-14
+
+- Reviewed TLS handshake state, certificate parsing, chain verification and OCSP scratch ownership.
+- Confirmed F-037: TLS transcript/hash/certificate/OCSP scratch buffers are file-scope static mutable state, and X.509 chain/OCSP validators also use static mutable scratch objects. Concurrent connections/verifications in threads of one process are not isolated by tls_t contexts; no reentrancy lock or single-connection API contract was found in the inspected headers.
+- Confirmed F-038: parse_ext() reads but ignores the critical BOOLEAN and silently skips unknown extension OIDs. basicConstraints stores CA=true/false but ignores pathLenConstraint; chain validation checks is_ca without enforcing path length. keyUsage/serverAuth EKU also require explicit acceptance-policy review.
+- Existing x509 tests cover several positive and negative chain/signature/hostname/time/OCSP cases, but not critical-extension rejection or CA path-length constraints.
+- No production source changed.
