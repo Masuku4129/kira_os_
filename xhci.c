@@ -583,13 +583,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     xs.ev_deq = 0; xs.ev_cycle = 1;
 
     w32(xs.op, 0x38, xs.maxslots);                                     /* CONFIG */
-    w64(xs.op, 0x30, xs.dcbaa_phys);                                   /* DCBAAP */
-    w64(xs.op, 0x18, xs.cmd.phys | 1u);                                /* CRCR, RCS = 1 */
-    w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
-    w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
-    w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
-    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
-    /* All controller DMA structures and register pointers are valid before Bus Master is granted. */
+    /* All DMA objects are allocated and initialized while Bus Master is disabled. */
     __sync_synchronize();
     pci_enable(p, PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
     uint16_t pci_cmd_value = pci_read16(p, 0x04);
@@ -599,7 +593,14 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
         usb_log("[KIRA USB] xHCI: Bus Master enable was not confirmed\n");
         return -1;
     }
-    __sync_synchronize();                                               /* PCI command visibility before MMIO RUN */
+    __sync_synchronize();                                               /* DMA permission visible before exposing pointers */
+    w64(xs.op, 0x30, xs.dcbaa_phys);                                   /* DCBAAP */
+    w64(xs.op, 0x18, xs.cmd.phys | 1u);                                /* CRCR, RCS = 1 */
+    w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
+    w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
+    w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
+    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA can fetch the table immediately */
+    __sync_synchronize();
     w32(xs.op, 0, 1u);                                                 /* пуск */
     for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
     if (r32(xs.op, 4) & 1u) {
