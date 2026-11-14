@@ -436,3 +436,14 @@ Use these buckets for every tracked source, test, resource and planned subsystem
 - All 10 TEST_HELPER_REVIEW paths were inspected. The apparent kernel API stub at tests/stub/kira.h is used only by the host paint/window test via the host runner's tests/stub include directory.
 - Production build_clang.sh and build_arm64.sh do not include the tests tree; the real userland ABI header is userland/kira.h. USB/driver/KFS reference models and TLS/WASM helpers are test-only.
 - Keep test doubles isolated to host tests; never substitute them for production driver, filesystem, kernel API or hardware implementations.
+
+
+### Three-stage status registry already implemented in PR #148
+
+The canonical project ledger for eventual integration is the PR #148 set:
+- docs/PROJECT_STATUS/01_READY.md — baseline files and current published/build artifacts.
+- docs/PROJECT_STATUS/02_IN_PROGRESS.md — preserved branch/PR work, tree differences and current blockers.
+- docs/PROJECT_STATUS/03_PLANNED.md — future capabilities with completion criteria.
+- docs/PROJECT_STATUS/status_manifest.json + ci/check_project_status.py — pinned inventory and automated loss/build-list guard.
+
+Exact current PR #148 head bf35ca714526d38f5fdc3021c03b2bedf3ec2c99 passed workflow 43609627054 at **30/30**. This is the preferred source of truth for the user's three-section organization when integrating project controls; the Stage 0 three-bucket model above is a matching audit view, not a replacement. PR #148 remains Draft; main is unchanged.
