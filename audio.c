@@ -154,8 +154,9 @@ static void audio_main(void* arg) {
         if (card->service) card->service();
         uint32_t pos = card->pos() / 4;
         uint32_t d = (pos + ring - last_pos) % ring;
-        if (d < ring - ring / 8) { hw += d; last_pos = pos; }      /* шаг назад (< 1/8 кольца - дрожание позиции карты) - не «почти круг вперёд» */
-        if (wr < hw) { underruns++; wr = hw; }                     /* не успели: догоняем карту */
+        if (d < ring - ring / 8) { __atomic_add_fetch(&hw, d, __ATOMIC_RELAXED); last_pos = pos; }      /* шаг назад (< 1/8 кольца - дрожание позиции карты) - не «почти круг вперёд» */
+        uint64_t hw_now = __atomic_load_n(&hw, __ATOMIC_RELAXED);
+        if (wr < hw_now) { __atomic_add_fetch(&underruns, 1, __ATOMIC_RELAXED); wr = hw_now; }                     /* не успели: догоняем карту */
         while (wr < hw + lead_frames) {
             uint32_t at = (uint32_t)(wr % ring), n = CHUNK;
             if (at + n > ring) n = ring - at;
@@ -180,7 +181,7 @@ int audio_attach(const audio_card_t* c) {
     return 0;
 }
 
-uint64_t audio_hw_frames(void) { return hw; }
+uint64_t audio_hw_frames(void) { return __atomic_load_n(&hw, __ATOMIC_RELAXED); }
 
 /* Рычаги Разума: опережение записи (мс) и период микшера (мс). Границы держит Разум; здесь - защита от безумных значений:
    опережение не меньше 20 мс и не больше четверти кольца карты, период не меньше 2 мс. */
@@ -192,8 +193,9 @@ void audio_set_lead_ms(uint32_t ms) {
 void audio_set_period_ms(uint32_t ms) { period_ms = ms < 2 ? 2 : ms > 50 ? 50 : ms; }
 void audio_stats(uint64_t* mixed_frames, uint64_t* under) {
     uint64_t f = spin_lock_irqsave(&lk);
-    *mixed_frames = mixed_prog; *under = underruns;
+    *mixed_frames = mixed_prog;
     spin_unlock_irqrestore(&lk, f);
+    *under = __atomic_load_n(&underruns, __ATOMIC_RELAXED);
 }
 
 int audio_tone(unsigned hz, unsigned ms) {
@@ -213,10 +215,11 @@ void audio_print(void) {
         snapshot[k].pid = src[k].pid; snapshot[k].rate = src[k].rate; snapshot[k].ch = src[k].ch;
         if (snapshot[k].used) n++;
     }
-    mixed = mixed_prog; under = underruns; pct = master_pct; is_running = running;
+    mixed = mixed_prog; under = __atomic_load_n(&underruns, __ATOMIC_RELAXED); pct = master_pct; is_running = running;
+    uint64_t hw_snapshot = __atomic_load_n(&hw, __ATOMIC_RELAXED);
     spin_unlock_irqrestore(&lk, f);
     uart_print("микшер: "); uart_print(is_running ? "работает" : "не запущен");
-    uart_print(", программ со звуком "); uart_print_dec(n); uart_print(", карта забрала кадров "); uart_print_dec(hw);
+    uart_print(", программ со звуком "); uart_print_dec(n); uart_print(", карта забрала кадров "); uart_print_dec(hw_snapshot);
     uart_print(", от программ смешано "); uart_print_dec(mixed); uart_print(", недоборов "); uart_print_dec(under);
     uart_print(", громкость "); uart_print_dec((uint64_t)pct); uart_print("%\n");
     for (int k = 0; k < AUDIO_SRC_MAX; k++) if (snapshot[k].used) {
