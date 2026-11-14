@@ -278,5 +278,5 @@
 - Added `pci_init_range()`; `pci_init()` now starts at ECAM host `bus_start` and returns an error for an invalid ECAM range rather than silently scanning bus 0.
 - Bridge traversal now requires primary bus to match the current bus, secondary to be greater than primary and no greater than subordinate, and subordinate to fit both the host range and parent bridge's subordinate limit. Cycle/repeated-bus protection remains.
 - Updated the virtio PCI model to provide valid primary/secondary/subordinate fields.
-- Added ASan/UBSan host cases for nonzero root bus, nested bridge windows, out-of-range secondary bus, mismatched primary, invalid-range snapshot preservation, legacy bus-0 behavior and the actual ECAM wrapper.
+- Added ASan/UBSan host cases for nonzero root bus, nested bridge windows, backward bridge-link/cycle rejection, out-of-range secondary bus, mismatched primary, invalid-range snapshot preservation, legacy bus-0 behavior and the actual ECAM wrapper.
 - Exact-head CI pending; no local execution claimed.
