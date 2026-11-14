@@ -773,3 +773,18 @@ Added F-057: quiesce UHCI immediately after BM revocation during PCI discovery, 
 ## 36. UDP transmit error propagation — 2026-11-14
 
 **Stage 0 progress: 72%.** Added F-060 after tracing the return contract from `netdev_t.send` through e1000/virtio-net, `eth_send()`, IP send and `udp_xmit()`. Both NIC drivers report TX queue exhaustion, and the lower network layers propagate it, but `udp_xmit()` ignores that result and reports the payload length. Source-confirmed; no production code or runtime test changed in this audit pass.
+
+
+## Live main drift check — 2026-11-15
+
+The pinned Stage 0 source baseline remains `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`. A fresh comparison against the current `main` head `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e` reports **6 commits ahead, 0 behind**. The final tree differs in four paths:
+- `gfxsrv.c` — event-queue synchronization change is present in current main (commit `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`).
+- `userland/wasm.c` — parser/import validation change is present in current main (commit `12cf3fb8e05b3d04c0b08e9cc9aeaad750214f2d`).
+- `kcc/kcc.h` — KCC compilation-result interface change is present in current main (commit `1944bc6063371c715339b52784b5a206358a48de`).
+- `docs/architecture/STAGE0_SOURCE_FINDINGS_2026-11-14.md` — audit findings document is present in current main.
+
+The TCP lifecycle change `b8560dc6c0f939d28b92234092bb74f0f7bfd71a` was followed by revert commit `d2557ad35a9e3b1e31944bb0d1fedd77539fdb9e`; therefore `net.c` is not a net difference in the current tree. The WASM change is explicitly described by Draft PR #179 as having been written to the default branch inadvertently; PRs #181 and #182 are stacked on #179. These facts mean the earlier statement that the audit itself did not modify main must not be misread as proof that main still equals the pinned baseline.
+
+**Control rule:** do not write to, reset, force-push, merge into, or build acceptance claims against current main as though it were the pinned baseline. Keep Stage 0 comparisons anchored to the immutable baseline SHA above; separately review the six intervening commits and their exact source/test/CI evidence. No corrective history rewrite is authorized. No ISO build is part of Stage 0.
+
+The current-main drift is a repository-control deviation to resolve explicitly before later integration. This note records evidence only; it does not modify production source.
