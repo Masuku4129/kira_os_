@@ -1575,3 +1575,26 @@ The previous audit correctly kept F-025 open, but the invalid-read count alone c
 5. Close F-025 only after post-ready errors are attributed to a requester/device and the targeted guest phase is clean.
 
 F-055 remains OPEN.
+
+
+## New finding F-056 — xHCI slot retry dereferences partially allocated DMA buffers (2026-11-14)
+
+**Severity:** HIGH under DMA allocation failure during USB device enumeration.
+
+### Evidence
+- `xhci_enumerate()` allocates `xs.slot[sl].in`, `out`, and `buf` sequentially at `xhci.c:437-439`. If any allocation or EP0 ring initialization fails, it calls `usb_dev_free(d)` and returns, but does not reset the partially populated slot fields.
+- The retry decision at `xhci.c:436` uses only `!xs.slot[sl].in` as the initialization flag. If `in` allocation succeeded but `out` or `buf` failed, `in` remains non-NULL.
+- On a later attempt that reuses the same xHCI slot, the `else` branch at `xhci.c:445-447` writes through `xs.slot[sl].out[i]` without checking it. If the earlier `out` allocation failed, this dereferences NULL in kernel context. If `buf` or EP0 ring allocation failed, the retry can proceed with incomplete state and later use missing DMA memory.
+- `usb_dev_free()` calls `xhci_release()`; that disables the slot and clears the DCBAA entry, but does not roll back or normalize the partial per-slot allocations. The shared `usb_dma_alloc()` has no public free operation, so the current path cannot transactionally unwind these buffers.
+
+### Consequence
+A transient DMA allocation failure can leave a partially initialized slot. If the controller assigns that slot again on a later device-enumeration attempt, the retry path may dereference a NULL DMA buffer and crash the kernel. This is distinct from the controller-start Bus Master ordering issue in F-054.
+
+### Required closure
+1. Replace the single-pointer initialization sentinel with explicit per-slot initialization state and validate every pointer before use.
+2. Make allocation retry-safe: either add a real DMA free/rollback contract or retain each successfully allocated buffer and allocate only missing resources on retry.
+3. Do not mark a slot ready until IN/OUT contexts, transfer buffer and EP0 ring are all valid.
+4. Add deterministic allocation-failure injection at each of the four allocation stages, force the same slot to be reused, then assert retry succeeds or returns a controlled error without NULL access, stale DCBAA state or leaks.
+5. Run the xHCI host model under ASan/UBSan and the QEMU xHCI/USB hub/storage scenarios.
+
+F-056 remains OPEN.
