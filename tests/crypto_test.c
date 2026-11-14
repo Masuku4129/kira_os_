@@ -97,8 +97,32 @@ int main(void) {
     memset(ikm, 0x0b, 22); for (int i = 0; i < 13; i++) salt[i] = (uint8_t)i; for (int i = 0; i < 10; i++) info[i] = (uint8_t)(0xf0 + i);
     hkdf_extract(salt, 13, ikm, 22, prk);
     CHECK(eqhex(prk, "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5"));
-    hkdf_expand(prk, info, 10, out, 42);
+    CHECK(hkdf_expand(prk, info, 10, out, 42) == 0);
     CHECK(eqhex(out, "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"));
+
+    /* F-036: info is processed in full (301 bytes), not silently clipped at 300. */
+    uint8_t long_info[301], long_out[32], max_out[8160], over_out[8161];
+    for (size_t i = 0; i < sizeof long_info; i++) long_info[i] = (uint8_t)i;
+    CHECK(hkdf_expand(prk, long_info, sizeof long_info, long_out, sizeof long_out) == 0);
+    CHECK(eqhex(long_out, "60a9c8ebd320f360b3e005bcae6c37a0746dcd3c8e1eb524dea2cb5104b4f9f3"));
+    CHECK(hkdf_expand(prk, info, sizeof info, max_out, sizeof max_out) == 0);
+    CHECK(!memcmp(max_out, out, 32));  /* first block is identical to the RFC 5869 vector */
+    memset(over_out, 0xA5, sizeof over_out);
+    CHECK(hkdf_expand(prk, info, sizeof info, over_out, sizeof over_out) == -1);
+    for (size_t i = 0; i < sizeof over_out; i++) CHECK(over_out[i] == 0xA5);
+
+    /* TLS label/context lengths are encoded exactly; no 64-byte clipping. */
+    uint8_t secret[32], long_ctx[65], label[66], label_out[32], bad_out[32], bad_label[251], bad_ctx[256];
+    for (int i = 0; i < 32; i++) secret[i] = (uint8_t)i;
+    for (int i = 0; i < 65; i++) { label[i] = 'L'; long_ctx[i] = (uint8_t)i; }
+    label[65] = 0;
+    CHECK(hkdf_expand_label(secret, (const char*)label, long_ctx, sizeof long_ctx, label_out, sizeof label_out) == 0);
+    CHECK(eqhex(label_out, "d2db7af59bb17706c6ef277a4fdd06e019f516b144ca0f92054dfb02b1023251"));
+    memset(bad_label, 'X', sizeof bad_label); bad_label[250] = 0;
+    memset(bad_ctx, 0x5A, sizeof bad_ctx); memset(bad_out, 0xA5, sizeof bad_out);
+    CHECK(hkdf_expand_label(secret, (const char*)bad_label, long_ctx, sizeof long_ctx, bad_out, sizeof bad_out) == -1);
+    CHECK(hkdf_expand_label(secret, "ctx-too-long", bad_ctx, sizeof bad_ctx, bad_out, sizeof bad_out) == -1);
+    for (size_t i = 0; i < sizeof bad_out; i++) CHECK(bad_out[i] == 0xA5);
 
     uint8_t early[32], empty[32], derived[32];
     hkdf_extract(0, 0, zero, 32, early);
