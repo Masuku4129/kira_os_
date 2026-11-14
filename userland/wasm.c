@@ -717,7 +717,13 @@ static int load(void) {
             if (nfuncdecl > MAXF - nfuncs) { trap("too many defined functions"); return -1; }
             decl = (u32*)alloc(4ull * (nfuncdecl ? nfuncdecl : 1));
             if (!decl) { trap("no memory for function declarations"); return -1; }
-            for (u32 i = 0; i < nfuncdecl && !trapped; i++) decl[i] = leb_u(&s, se);
+            for (u32 i = 0; i < nfuncdecl && !trapped; i++) {
+                decl[i] = leb_u(&s, se);
+                if (decl[i] >= ntypes) { trap("bad function type"); return -1; }
+                funcs[nfuncs + i].type = decl[i]; funcs[nfuncs + i].import = 0;
+            }
+            if (trapped) return -1;
+            nfuncs += nfuncdecl;
         } else if (id == 4) {                                       /* table */
             u32 n = leb_u(&s, se);
             if (n > 1 || (n && table_seen)) { trap("multiple tables are not supported"); return -1; }
@@ -799,12 +805,8 @@ static int load(void) {
             ccap = 2 * sz + 8 * n + 16;
             code = (u32*)alloc(4ull * ccap);
             if (!code) { trap("no memory for compiled code"); return -1; }
-            if (nfuncs + n > MAXF) { trap("too many functions"); return -1; }
-            for (u32 i = 0; i < n; i++) {
-                if (decl[i] >= ntypes) { trap("bad function type"); return -1; }
-                funcs[nfuncs + i].type = decl[i]; funcs[nfuncs + i].import = 0;
-            }
-            u32 first = nfuncs; nfuncs += n;
+            if (n != nfuncdecl || n > nfuncs - nimports) { trap("function and code counts differ"); return -1; }
+            u32 first = nfuncs - nfuncdecl;
             for (u32 i = 0; i < n && !trapped; i++) {
                 u32 bs = leb_u(&s, se);
                 if (trapped || !wasm_need(s, se, bs)) return -1;
