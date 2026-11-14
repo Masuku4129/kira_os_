@@ -515,3 +515,12 @@
 - Clear the full stack allocation before installing its canary and publishing the thread, preventing stale stack contents from carrying across reuse.
 - Added a scheduler host regression for zeroed stack body and updated the `kstack.h` contract.
 - Exact-head CI pending; no PASS claimed. Production guarded-window exhaustion still needs explicit integration coverage.
+
+
+### Stage 0 follow-up — exact CI evidence and dependency review (2026-11-14)
+
+- Rechecked PR #165 after the earlier UHCI regression: exact head `64afef2c74f72597dd9620468c4b6bff1fc1bb31`, workflow `43603442098`, completed successfully. All 29 jobs returned by the workflow-jobs endpoint succeeded, including `vm (usb-uhci)`. This supersedes the previous failure status for that head.
+- Removed temporary `[KIRA BOOT TRACE]` instrumentation from `kernel.c` and temporary USB PCI trace code / UART include from `pci.c` on PR #165. Cleanup head is `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`; no exact-head CI run/status has appeared yet. Do not accept the cleanup head until CI confirms it.
+- Rechecked PR #166 F-016: exact head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229`, workflow `43602565437`, completed successfully; all 29 returned jobs succeeded, including host tests, x86-64, ARM64 and QEMU matrix.
+- Source review found a cross-PR dependency: #166's new late `pmm_arm_reserve()` calls require #158's reserved bitmap semantics so reserved firmware pages cannot later be freed. #158 exact head `70d0e89a65414818c22d61532f7ca4288c464d2c`, workflow `43592051859`, 43/43 PASS. Plan combined review/integration and add an FDT-reservation-to-PMM host regression; no merge performed.
+- Main remains unchanged. No local test execution or physical ARM64 test was performed.
