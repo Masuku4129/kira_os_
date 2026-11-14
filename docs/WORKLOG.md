@@ -905,3 +905,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - ARM64 smp_crash_test(mode=1) explicitly returns -5 because the platform cannot software-inject SError without the relevant RAS feature. The ARM64 QEMU scenario asserts the documented “cannot raise SError from software” result rather than pretending that path passed. This is an explicit unsupported diagnostic mode, not a silent stub.
 - ARM64 FPU state is 528 bytes versus x86-64 512 bytes; architecture-specific formats must remain separate and are covered through architecture FPU/context tests, not forced into one raw layout.
 - No production empty function or silent success stub was identified in this reviewed header set. This is limited to the reviewed architecture interfaces; it is not a project-wide stub audit.
+
+
+## 33. Test-helper and stub containment audit — 2026-11-14
+
+- Reviewed all 10 paths classified TEST_HELPER_REVIEW. The special tests/stub/kira.h contains deterministic fake kernel APIs for a host-only window/application test; tests/run_host_tests.sh references it through tests/stub include path for the paint test.
+- Production build scripts build_clang.sh and build_arm64.sh do not include tests/ or tests/stub. The host runner compiles with KIRA_HOST_TEST and test-only model headers; production userland build uses userland/kira.h and the real syscall ABI.
+- tests/usbdev_model.h and tests/rl_test.c provide host device/driver models; tests/kfs_v1_impl.inc is a test reference implementation. They are not production driver or filesystem implementations.
+- tests/tls_host_api.h and tests/wasm_gen.py are test harness support. The test-only fixtures are not evidence of production functionality.
+- No reviewed test helper is linked into the production ISO build manifests. This closes the classification ambiguity for these 10 paths; the actual test quality remains separately assessed by the 47-suite runner and VM matrix.
