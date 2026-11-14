@@ -812,3 +812,9 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 
 - Replaced the stale pending-CI status for F-022: PR #154 exact corrected head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a` passed 30/30.
 - CI gate closed; per-ISA stack allocator source review and final merge composition remain open.
+
+
+## 22. PCI UHCI diagnostic rerun and IOMMU enum correction — 2026-11-14
+
+- PR #165 combined PCI range + Bus Master branch had one UHCI VM failure on `f986d3f...` before PCI enumeration completed. A temporary trace build passed the same UHCI scenario and showed root bus 00 only, then the diagnostics were removed. Clean no-trace head `4b99d54...` is pending fresh exact-head CI; no claim of resolution.
+- PR #125 had a real compile blocker: missing `IOMMU_E_UNSUPPORTED` in the common error enum. Added the explicit `-10` code. Corrected head `8dc795e...` workflow `43612438370` is running; do not claim pass until all jobs complete.
