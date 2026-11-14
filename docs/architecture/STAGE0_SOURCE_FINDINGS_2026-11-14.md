@@ -583,7 +583,7 @@ F-019 remains OPEN pending exact-head CI and review of release artifact contents
 
 ### CI completion correction — PR #165 diagnostic cleanup (2026-11-14)
 
-- PR #165 cleanup exact head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`, workflow `43608372681`: **30/30 jobs completed successfully**, zero failed jobs. This supersedes earlier queued/in-progress notes for that head.
+- PR #165 cleanup exact head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`, workflow `43608372681`: **43/43 jobs completed successfully**, zero failed jobs. This supersedes earlier queued/in-progress notes for that head.
 - Temporary boot/PCI diagnostics are removed; the earlier UHCI regression did not recur on this cleanup head.
 - F-017 remains OPEN: Bus Master is still cleared after BAR probing, leaving the firmware-DMA window during BAR probing unresolved. PR #162's PCI host-bus/subordinate-window changes still need reconciliation with PR #165 in `pci.c`.
 - This is a Draft branch result only; no main merge and no physical hardware claim.
@@ -667,7 +667,7 @@ F-021 remains OPEN. This is an audit finding, not a claim that either backend is
 
 - Review of the exact PR #166 source found the structure/string overlap test paired `off_dt_struct` with `size_dt_strings` and `off_dt_strings` with `size_dt_struct`. This inverted the two ranges and could miss an actual one-byte overlap.
 - Corrected the range pairing in PR #166 and added a v17 malformed-blob regression fixture that places the strings block one byte inside the structure block.
-- PR #166's earlier exact head `539285048cdd97f5d71ba5aefc9afda4058b7512` passed 30/30 jobs, but the corrected head is now `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`; its own CI is still required. The prior green result does not verify this new fix.
+- PR #166's earlier exact head `539285048cdd97f5d71ba5aefc9afda4058b7512` passed 43/43 jobs, but the corrected head is now `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`; its own CI is still required. The prior green result does not verify this new fix.
 
 
 ## F-022 — scheduler stack fallback weakens guard and ownership guarantees (2026-11-14)
@@ -678,11 +678,11 @@ F-021 remains OPEN. This is an audit finding, not a claim that either backend is
 - PR #154's initial implementation still fell back to `kmalloc(SCHED_STACK_SIZE)` when guarded VMM allocation failed. That made stack-window exhaustion silently weaken the guard guarantee.
 - Integrated the non-fallback policy and stack clearing into PR #154's generation-aware branch. New production threads now fail creation if guarded stack allocation fails; allocated stack memory is zeroed before publishing the thread and then receives the stack canary.
 - Added host coverage that checks the canary and verifies the stack body is zero while excluding the architecture's initial context frame.
-- Current integration candidate: PR #154 head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`. Exact-head workflow `43611654110` completed **30/30 jobs successfully**, including host-tests, x86 build, ARM64 build and the full VM matrix.
+- Current integration candidate: PR #154 head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`. Exact-head workflow `43611654110` completed **43/43 jobs successfully**, including host-tests, x86 build, ARM64 build and the full VM matrix.
 - The UART oversized-line regression discovered in the earlier `drv-edu` VM run was corrected in the same branch and the exact corrected head passed. No test assertion was weakened.
 - PR #153 duplicates the atomic PMM change already included in #154; PR #164 overlaps scheduler changes. Do not merge the duplicates independently. Keep #154 as the canonical integration candidate for this set, pending independent source review and explicit merge decision.
 
-F-022's integrated branch CI gate is CLOSED (30/30 PASS). Its architecture-wide acceptance remains OPEN until all per-ISA stack allocator paths and the final merge composition are independently reviewed.
+F-022's integrated branch CI gate is CLOSED (43/43 PASS). Its architecture-wide acceptance remains OPEN until all per-ISA stack allocator paths and the final merge composition are independently reviewed.
 
 
 ## F-023 — UEFI BootInfo capabilities are split across incompatible branch stacks (2026-11-14)
@@ -733,7 +733,7 @@ F-025 remains OPEN pending exact-head CI and later PCI/device-model reconciliati
 
 ## FDT overlap fix — exact-head verification complete (2026-11-14)
 
-- PR #166 corrected head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, workflow `43610515593`: **30/30 jobs succeeded**.
+- PR #166 corrected head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, workflow `43610515593`: **43/43 jobs succeeded**.
 - This exact run includes host-tests (including FDT v16 and one-byte overlap regression), x86 build, ARM64 build/scenarios, and all VM matrix scenarios including `usb-uhci`.
 - This verifies the FDT validator correction and the FDT reservation-map/ARM64 PMM integration on the PR branch. It does not integrate the separate branch-only IOMMU backends or close F-021.
 
@@ -779,7 +779,7 @@ F-026 remains OPEN. The five successful PR #141 CI runs verify the current imple
 
 ## Kernel memory/scheduler integration — exact-head CI complete (2026-11-14)
 
-- PR #154 corrected head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110`: **30/30 jobs succeeded**.
+- PR #154 corrected head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110`: **43/43 jobs succeeded**.
 - Verified host-tests, x86 build, ARM64 build and full VM matrix, including the previously failing `drv-edu` and `usb-uhci` scenarios.
 - The fix includes guarded kernel stacks, scheduler fallback behavior, PMM ownership/atomic contiguous release and UART atomic emission for oversized log lines.
 - This is a green PR branch, not a main merge or release build. PR remains Draft for integration review.
@@ -913,7 +913,7 @@ F-028 remains OPEN. PR #12 and PR #46 remain preserved branch work; neither is t
 
 ### PR #148 exact-head acceptance update — three-stage status registry (2026-11-14)
 
-- PR #148 current head bf35ca714526d38f5fdc3021c03b2bedf3ec2c99, workflow 43609627054: **30/30 jobs succeeded**. This supersedes earlier notes that the corrected manifest head was still pending.
+- PR #148 current head bf35ca714526d38f5fdc3021c03b2bedf3ec2c99, workflow 43609627054: **43/43 jobs succeeded**. This supersedes earlier notes that the corrected manifest head was still pending.
 - The PR adds the requested three-stage project ledger: docs/PROJECT_STATUS/01_READY.md, 02_IN_PROGRESS.md and 03_PLANNED.md, plus a machine-readable status_manifest.json, branch-tree inventories and ci/check_project_status.py.
 - The ledger carefully defines READY as present in current main/build baseline, not feature-complete or hardware-qualified. It distinguishes x86 artifacts published by main CI from ARM64 artifacts built but not published.
 - The checker pins the 829-file baseline, 98 x86 and 88 ARM64 kernel input lists, 16 x86 architecture inputs, userland program inventories and all branch/PR snapshots; exact current PR head passed.
@@ -1504,12 +1504,26 @@ F-053 remains OPEN.
 - Captured QEMU log is 4,915,946,761 bytes and contains 72,286,473 occurrences of `Invalid read at addr`, repeatedly at 0x0, 0x4, 0x8 and 0xC, plus an initial address 0x3FFDE384. The requester and exact DMA transaction were not identified; do not label these messages as proven UHCI DMA without device/register correlation.
 
 ### Later rerun: PR #165, run 43613588426, attempt 2, exact commit `7ad140cfadb51c4dacf809eca77fff60ff7fe12c`
-- Exact-head workflow now reports 30/30 jobs successful. The earlier failure was attempt 1; attempt 2 is the latest and successful result.
+- Exact-head workflow now reports 43/43 jobs successful. The earlier failure was attempt 1; attempt 2 is the latest and successful result.
 - `vm (usb-uhci)` job 132514447432 reports `OK usb-uhci` in 11.7 s, boot 5.8 s. The serial log shows UHCI, tablet, hub, keyboard, USB storage, FAT32 mounted at `/usb0`, and successful `cat /usb0/hello.txt` returning `kira-ci: флешка стенда`.
 - The passing artifact's QEMU log is 26,767,488 bytes but still contains 393,602 `Invalid read at addr` records, again including 0x0/0x4/0x8/0xC. Functional scenario PASS therefore does not close the invalid-read/DMA anomaly. The reduced count is not proof of root-cause correction; the QEMU log is still noisy and needs requester-level diagnosis.
 - The two runs are different PR branches/bases and not a controlled A/B comparison. PR #125 targets `autodrv`; PR #165 targets `main`. Do not infer the precise cause from this comparison.
 
 ### Current disposition
-- PR #165 exact-head CI: **30/30 PASS on attempt 2**; functional UHCI smoke scenario passes.
+- PR #165 exact-head CI: **43/43 PASS on attempt 2**; functional UHCI smoke scenario passes.
 - F-025 remains **OPEN** because the invalid-read storm persists and no requester/register proof identifies its source.
 - F-017/F-029/F-030 sequencing concerns remain open; a green boot test does not prove safe DMA quiesce, reset, queue setup, teardown or failure recovery.
+
+
+### Correction and ARM64 evidence — exact PR #165 run enumeration (2026-11-14)
+
+The workflow jobs API was paginated by the first-page wrapper. Full run enumeration shows PR #165 run 43613588426 attempt 2 completed **43/43 jobs successfully**, not merely 30 jobs. This includes host-tests, x86 build, all VM matrix jobs and the ARM64 job.
+
+ARM64 artifact 14121710332 was downloaded and inspected:
+- 16 ARM64 QEMU scenarios report OK: GICv2, GICv3+ITS, ARM64 compiler, EL2/eight CPUs, GUI, Explorer, isolation, driver manager, faults/crashes/stack overflow, ramfb, USB, power and non-coherent DMA.
+- GICv2: 2/2 CPUs online; GICv3: 4/4; EL2 scenario: 8/8 using PSCI SMC; standard QEMU scenarios use PSCI HVC.
+- Non-coherent scenario creates a 32 MB DMA pool and successfully exercises xHCI storage. This validates the normal pool-present path, not pool absence/exhaustion (F-050) or mixed-coherency detection (F-052).
+- Power scenario verifies reboot and poweroff when PSCI HVC is available; it does not test the absent-PSCI state in F-053.
+- FDT malformed-name coverage (F-051) is not part of these 16 scenarios.
+
+The #165 run is therefore strong emulator evidence for the supported ARM64 happy paths, but does not close the specific negative-path findings above. It is not physical ARM64 hardware validation. The separate x86 UHCI artifact still has 393,602 rejected QEMU invalid-read records, so F-025 remains open.
