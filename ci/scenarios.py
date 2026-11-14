@@ -563,6 +563,7 @@ ALL.append(sc("drvget-rl", "drvget: HTTPS source validation, license/hash confir
     {"log": [r"\[KIRA DRV\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
              r"\[KIRA DRV\] rl: PCI quiesce verified \(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\)"]},
     {"cmd": "drv", "forbid": [r"drv-rl pid"]},
+    # DHCP is expected from the separate virtio control NIC; only RTL8139 driver registration is forbidden.
     {"log_forbid": [r"rl: network interface registered"]},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", tls_chain=True,
