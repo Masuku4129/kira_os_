@@ -1128,3 +1128,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Existing input tests cover decoder correctness and sequential overflow only; no concurrent SMP stress or TSan run was performed.
 - Required fix: consistently atomic ring indices, atomic/locked diagnostics, then concurrent multi-producer/multi-consumer stress and QEMU SMP validation.
 - Source audit only; no production code changed.
+
+
+## 54. Graphics event consumer concurrency audit — 2026-11-14
+
+- Reviewed graphics syscall event dequeue, event producer path, compositor-owned slot processing and process thread creation.
+- Confirmed F-045: a process may have multiple user threads, but `gfx_sys_event()` has no per-slot consumer serialization. Concurrent threads can read the same queue tail, copy the same event, and publish the same tail increment, causing duplicate delivery and lost dequeue progress.
+- Existing graphics tests do not exercise concurrent same-PID event consumers. No runtime stress or race-detector test was run.
+- Required fix: serialized dequeue/commit or a strictly enforced single-consumer API contract, plus multi-thread same-process event stress and copy-failure/lifecycle coverage.
+- The independent app-slot reclamation/lifetime race remains under review; no conclusion is claimed for that path.
