@@ -766,3 +766,11 @@ F-026 remains OPEN. The five successful PR #141 CI runs verify the current imple
 - Fixed `uart_print()` in the PR #154 integration branch: strings at least `LB_SIZE` bytes now flush any pending prefix and emit the complete string under the UART line lock instead of being split into independently locked chunks. The test assertion was not weakened.
 - Corrected PR #154 head: `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110` queued at last check. Exact-head verification is pending; the 29/30 result belongs to the previous head.
 
+
+
+## Project status manifest guard — exact-head CI complete (2026-11-14)
+
+- PR #148 exact head `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`, workflow `43609627054`: all 3 jobs succeeded (host-tests, x86 build, ARM64 build).
+- The corrected manifest parser includes explicit UELF outputs and the Android release subset. Inventory counts remain 25 x86-64 apps, 25 ARM64 apps and 13 x86-64 Android release apps.
+- This verifies the manifest guard on that branch head. It does not prove all repository files are semantically reviewed, and it does not authorize deleting or replacing any project content.
+
