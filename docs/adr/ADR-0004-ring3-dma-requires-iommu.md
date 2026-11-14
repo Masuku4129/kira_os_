@@ -16,7 +16,7 @@ A driver-owned DMA buffer, user confirmation, package hash, cache-coherent memor
 
 1. Ring 3 drivers must not receive `CAP_DMA` or `CAP_IRQ` unless the kernel has created, attached and verified an IOMMU domain for that specific PCI requester identity.
 2. Until that complete domain lifecycle exists, the policy is fail-closed: deny either capability.
-3. On denial, disable MSI/MSI-X and clear PCI IO, MEM and BUS_MASTER command bits before the driver process is spawned.
+3. On denial, disable MSI/MSI-X and clear PCI IO, MEM and BUS_MASTER command bits before the driver process is spawned; read back the command and capability controls to verify quiescence. A failed readback is a critical device-state failure and must be reported distinctly.
 4. MMIO-only Ring 3 drivers may remain available under their independent capability checks.
 5. A future IOMMU implementation may enable the capabilities only after requester-ID mapping, domain attach, translation-table invalidation, DMA mapping/unmapping, detach, fault handling, teardown and reset paths are tested.
 6. VT-d and ARM SMMUv3 are separate hardware implementations but must satisfy one architecture-independent isolation contract.
@@ -40,5 +40,5 @@ A driver-owned DMA buffer, user confirmation, package hash, cache-coherent memor
 ## Current implementation evidence
 
 - Draft PR #161, based on the current Stage 0 main baseline, adds the fail-closed policy and test/scenario changes.
-- Exact-head workflow `43593017450` is still running at the time of this ADR; no PASS is claimed.
+- Initial exact-head workflow `43593017450` exposed three scenario defects; the implementation now also verifies PCI quiesce readback and scenarios assert the result. Latest exact-head CI remains pending; no PASS is claimed.
 - PR #161 does not implement IOMMU hardware support.
