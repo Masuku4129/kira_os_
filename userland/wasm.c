@@ -208,9 +208,9 @@ static void skip_imm(u8 op, const u8** p, const u8* e) {
         for (u32 i = 0; i <= n && !trapped; i++) leb_u(p, e);
         return;
     }
-    if (op == 0x11) { leb_u(p, e); wasm_skip(p, e, 1); return; }
+    if (op == 0x11) { leb_u(p, e); if (leb_u(p, e) != 0) trap("invalid call_indirect table index"); return; }
     if (op >= 0x28 && op <= 0x3E) { leb_u(p, e); leb_u(p, e); return; }
-    if (op == 0x3F || op == 0x40) { wasm_skip(p, e, 1); return; }
+    if (op == 0x3F || op == 0x40) { if (leb_u(p, e) != 0) trap("invalid memory index"); return; }
     if (op == 0x41) { leb_s(p, e, 32); return; }
     if (op == 0x42) { leb_s(p, e, 64); return; }
     if (op == 0x43) { wasm_skip(p, e, 4); return; }
@@ -218,10 +218,10 @@ static void skip_imm(u8 op, const u8** p, const u8* e) {
     if (op == 0x1C) { u32 n = leb_u(p, e); wasm_skip(p, e, n); return; }
     if (op == 0xFC) {
         u32 sub = leb_u(p, e);
-        if (sub == 8) { leb_u(p, e); wasm_skip(p, e, 1); }
+        if (sub == 8) { leb_u(p, e); if (leb_u(p, e) != 0) trap("invalid memory.init memory index"); }
         else if (sub == 9) leb_u(p, e);
-        else if (sub == 10) wasm_skip(p, e, 2);
-        else if (sub == 11) wasm_skip(p, e, 1);
+        else if (sub == 10) { if (leb_u(p, e) != 0 || leb_u(p, e) != 0) trap("invalid memory.copy index"); }
+        else if (sub == 11) { if (leb_u(p, e) != 0) trap("invalid memory.fill index"); }
         else if (sub >= 12) trap("unsupported 0xFC instruction");
     }
 }
@@ -483,7 +483,7 @@ static int compile_func(func_t* f) {
         }
         case 0x11: {
             u32 ti = leb_u(&p, end);
-            u8 table_index = wasm_u8(&p, end);
+            u32 table_index = leb_u(&p, end);
             if (trapped || table_index != 0) CERR("call_indirect: invalid table index");
             if (ti >= ntypes) CERR("call_indirect: bad type");
             if (!table || !ntable) CERR("call_indirect requires a non-empty table");
@@ -569,7 +569,7 @@ static int compile_func(func_t* f) {
             c_h -= 2; break;
         }
         case 0x3F: case 0x40: {
-            u8 memidx = wasm_u8(&p, end);
+            u32 memidx = leb_u(&p, end);
             if (trapped || memidx != 0) CERR("invalid memory index");
             lz_flush();
             if (op == 0x3F) { ew(op); hpush(1); } else { NEED(1); ew(op); }
@@ -590,8 +590,15 @@ static int compile_func(func_t* f) {
         case 0xFC: {
             u32 sub = leb_u(&p, end);
             if (sub <= 7) { NEED(1); lz_flush(); ew(OP_FC + sub); }
-            else if (sub == 10) { wasm_skip(&p, end, 2); if (trapped) CERR("truncated memory.copy immediate"); NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
-            else if (sub == 11) { wasm_skip(&p, end, 1); if (trapped) CERR("truncated memory.fill immediate"); NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
+            else if (sub == 10) {
+                u32 dstmem = leb_u(&p, end), srcmem = leb_u(&p, end);
+                if (trapped || dstmem || srcmem) CERR("invalid memory.copy memory index");
+                NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3;
+            } else if (sub == 11) {
+                u32 memidx = leb_u(&p, end);
+                if (trapped || memidx) CERR("invalid memory.fill memory index");
+                NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3;
+            }
             else { p--; skip_imm(0xFC, &p, end); if (sub == 8 || sub == 9) { lz_flush(); ew(OP_TRAP); ew(TM_PASSIVE); c_unr = 1; } }
             break;
         }
