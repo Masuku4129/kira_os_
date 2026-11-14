@@ -292,3 +292,11 @@
 - `build_clang.sh --android` включает `RELEASE=1` и исключает `TESTPROGS` из `UELF`; это не полный тестовый/учебный образ. Для полного Limbo ISO нужно явно выбрать full profile и проверять manifest содержимого.
 - PR #152 первый exact-head workflow `43585911384` выявил две ошибки интеграции: x86-64 не включил `kstack_slot.h`; ARM64 замена allocator state не попала в declaration block. Ошибки исправлены отдельными коммитами.
 - Последний зафиксированный head PR #152: `29d8b5842ff5de0b93dc8da97f665496c6e507bb`; exact-head workflow `43586072209` выполняется. До завершения build, ARM64 и host-tests PASS не заявлять.
+
+
+### Stage 0 — component matrix and additional stack finding (2026-11-14)
+
+- Создан `docs/architecture/STAGE0_COMPONENT_MATRIX_2026-11-14.md`: предварительная карта всех 14 областей A–N и 12 потоков. Никакая область не объявлена READY; это inventory, а не acceptance report.
+- Добавлен F-008: `sched.c` fallback-ит на `kmalloc`, когда guarded VMM stack недоступен, а `create_thread()` записывает только canary и не очищает остальную память стека. Политика исчерпания stack window и очистка перед публикацией потока требуют отдельного решения/тестов.
+- Проверена точная CI matrix main: QEMU scenarios включают `boot-nvme`, `boot-8cpu`, `soak-8cpu`, `smp`, `usb-xhci`, `usb-uhci`, `net-e1000`, `net-virtio`, `net-ipv6` и другие. Это опровергает устаревшие ранние summary statements в `ARCHITECTURE.md`, но не является доказательством поддержки физического железа.
+- PR #152 exact-head run `43586072209` на SHA `29d8b5842ff5de0b93dc8da97f665496c6e507bb` выявил ARM64 предупреждение `va` may be uninitialized; исправлено на head `48518fac18ba16e49d66fb641ece96ae06515811`. Exact-head run `43586203250` для этого SHA выполняется; PASS ещё не заявлен.
