@@ -145,7 +145,7 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
             }
             unsigned used = shift + 7;
             if ((b & 0x40) && used < 64) r |= ~0ull << used;
-            if (bits == 32) return (i64)(int32_t)(uint32_t)r;
+            if (bits == 32) return (i64)(int)(u32)r;
             return (i64)r;
         }
         prev = b;
