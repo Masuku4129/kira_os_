@@ -4,8 +4,9 @@ import pathlib
 import subprocess
 import tempfile
 import time
+import sys
 
-iso = pathlib.Path("kira.iso").resolve()
+iso = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "kira.iso").resolve()
 if not iso.is_file():
     raise SystemExit("missing kira.iso")
 
