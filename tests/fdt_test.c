@@ -67,6 +67,16 @@ static unsigned build(void) {
 int main(void) {
     unsigned total = build();
     CHECK(fdt_valid(blob, sizeof blob) && fdt_total_size(blob) == total);
+    /* FDT v16 has no size_dt_struct field; derive the structure extent from off_dt_strings. */
+    {
+        uint8_t v16[8192];
+        memcpy(v16, blob, sizeof v16);
+        be(v16 + 20, 16);
+        be(v16 + 36, 0); /* bytes 36..39 are not a v16 header field */
+        CHECK(fdt_valid(v16, sizeof v16));
+        CHECK(fdt_root(v16) >= 0 && fdt_compatible(v16, fdt_root(v16), "linux,dummy-virt"));
+        CHECK(fdt_reserve_count(v16) == 1);
+    }
     uint64_t ra = 0, rs = 0;
     CHECK(fdt_reserve_count(blob) == 1);
     CHECK(fdt_reserve_get(blob, 0, &ra, &rs) == 0 && ra == 0x40010000ull && rs == 0x1000ull);
