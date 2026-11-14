@@ -1264,3 +1264,24 @@ F-041 remains OPEN.
 5. Add hostile fixtures for absent type section, out-of-range type indices, wrong parameter/result types, 5+ arguments, and imported functions exported as entry points. Run under ASan/UBSan on both interpreter and JIT-enabled host builds.
 
 F-042 remains OPEN.
+
+
+## New finding F-043 — Audio stream handles are not pinned or consistently locked (2026-11-14)
+
+**Severity:** HIGH concurrency/lifecycle correctness; possible cross-process audio stream corruption.
+
+### Evidence
+- `audio_sys()` validates `src[a1].used` and `src[a1].pid` without `lk`, then retains a raw pointer to the reusable global slot (`audio.c:242-243`).
+- `audio_proc_gone()` clears matching slots under `lk` (`audio.c:333-336`); close also clears `used` under the lock (`audio.c:244`). A syscall can pass the unlocked owner check, be descheduled, then resume after teardown/close and slot reuse by another process. Its subsequent writes/resampling can affect the new owner's stream.
+- The gain operation writes `s->gain` outside `lk` (`audio.c:245`), while the mixer reads it under `lk` (`audio.c:123-143`). This is an unsynchronized shared access.
+- The write operation reads `s->ch`, `s->rate`, `s->tail`, `s->head` and mutates the resampler outside the lock before briefly locking only to enqueue output (`audio.c:247-262`). Concurrent close/process teardown and handle reuse are not excluded for the full operation.
+- This is a source-level race/lifetime defect. No runtime corruption or privilege escalation has been demonstrated.
+
+### Required closure
+1. Validate owner and acquire a per-stream reference/pin under `lk`; keep the slot unavailable until all in-flight operations release the pin.
+2. Use generation-tagged handles or equivalent stale-handle protection; do not expose a reusable array index as the entire lifetime identity.
+3. Serialize resampler state and stream format/queue state consistently. Keep all accesses to `gain` under the same lock or use a documented atomic type.
+4. Make close and process teardown mark the stream closing, prevent new pins, wait for in-flight operations to drain, then release it.
+5. Add adversarial concurrent tests for write/gain/close/process-exit/open/reuse and run under ThreadSanitizer where supported.
+
+F-043 remains OPEN.
