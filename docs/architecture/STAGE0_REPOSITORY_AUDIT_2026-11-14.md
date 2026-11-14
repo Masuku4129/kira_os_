@@ -567,3 +567,20 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - Continue remaining desktop UX, service and architecture-specific runtime review.
 
 No production source changed. Main remains untouched; no PR merged; no ISO built.
+
+
+## 15. System-call authorization and user-memory boundary review — 2026-11-14
+
+**Stage 0 progress: 52%.** Reviewed the central syscall capability gate, process trust/capability assignment and architecture-independent user-memory access boundary.
+
+- No new confirmed privilege-escalation issue was found in the central dispatcher/uaccess paths reviewed.
+- Capability checks use the documented any-of semantics for combined rights; filesystem operations retain operation-specific authorization; driver calls are separated by device-bound rights.
+- User pointers are range-checked before fault-contained copies, with stack growth retried where supported. Futex word reads require alignment and a mapped user range.
+- This does not close subsystem handlers: network lifecycle races, KDRV early DMA authority, FAT flush propagation, and VFS mount enumeration remain open findings.
+
+### Remaining work
+- Audit KiraFS service/driver, package trust/update and recovery paths, graphics/input/window manager, audio, IPC and storage services.
+- Review ARM64-specific user entry, exception recovery and syscall calling convention against x86-64.
+- Reconcile every open finding with owning PR and the exact-head CI matrix; then decide fix order by dependency and risk.
+
+No production source changed. Main remains untouched; no PR merged; no ISO built.
