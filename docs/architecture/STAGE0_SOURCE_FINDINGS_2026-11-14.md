@@ -1212,7 +1212,7 @@ F-038 remains OPEN.
 
 ### Implementation tracking
 - Draft PR #173: https://github.com/Masuku4129/kira_os_/pull/173
-- Candidate patch replaces raw slot indices with generation-tagged connection/listener handles, pins TCB/listener slots across blocking operations, synchronizes wait predicates and ownership under `tlk`, and drains in-flight references before reuse.
+- Candidate patch replaces raw slot indices with generation-tagged connection/listener handles, pins TCB/listener slots across blocking operations, synchronizes wait predicates and ownership under `tlk`, drains references before reuse, interrupts waits on process exit, and aborts owned sockets nonblocking during teardown.
 - Host handle/generation tests are included. Exact-head kernel/VM CI is pending; concurrent SMP lifecycle stress is not yet demonstrated.
 
 F-039 remains OPEN until exact-head CI and targeted lifecycle validation pass and the candidate is integrated.
