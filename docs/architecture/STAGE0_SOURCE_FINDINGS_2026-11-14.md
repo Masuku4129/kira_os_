@@ -401,7 +401,7 @@ Source:
 - Compute record offset with 64-bit multiplication and subtraction-based bounds checks.
 - Reject nonzero-size ranges whose half-open end would overflow uint64.
 - Add host tests for `UINT32_MAX` record index and crafted wrapping 64-bit address/size.
-- Draft PR #159; exact-head CI pending.
+- Draft PR #159 exact head `1a61bd5bdc11b3dd0338c3142113c963308598bf`; workflow `43592382535`: 43/43 checks PASS, including FDT host tests under ASan/UBSan, x86-64 build, ARM64 build and QEMU matrix. Verified on unmerged Draft PR; main unchanged.
 
 ### Required closure
 
@@ -424,7 +424,7 @@ Source:
 | F-010 | x86-64 TLB shootdown timeout and late IPI handling | Draft PR #155 exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; CI run `43590730265` | 43/43 checks PASS, including host, ARM64 and QEMU SMP matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
 | F-011 | MMIO page-range overflow during page align-up | Combined Draft PR #160 based on verified PR #157 UART fix | Exact-head run `43592802619` in progress; host/x86/ARM64/QEMU pending | FIX IMPLEMENTED; COMBINED VERIFICATION PENDING |
 | F-013 | ARM64 PMM reserved-page ownership | Draft PR #158 exact head `70d0e89a65414818c22d61532f7ca4288c464d2c` | Workflow `43592051859`: 43/43 PASS incl. host, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
-| F-015 | FDT reg index/address-size overflow | Draft PR #159 uses 64-bit index offsets and rejects wrapping ranges; exact-head CI pending | Host FDT regression + ARM64/QEMU pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
+| F-015 | FDT reg index/address-size overflow | Draft PR #159 exact head `1a61bd5bdc11b3dd0338c3142113c963308598bf` | Workflow `43592382535`: 43/43 PASS incl. ASan/UBSan FDT tests, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-014 | ARM64 PMM contiguous release is non-atomic | Draft PR #158 validates whole range under one lock | Workflow `43592051859`: 43/43 PASS incl. host, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-012 | Driver-start log line split at 192-byte buffer boundary | QEMU serial artifact `43591102543` confirms driver success but interleaved log | Draft PR #157 exact head `59b391696baabfd49f2ff48acf5aba2b9db538de`; run `43591626068` 43/43 PASS including ARM64 and QEMU `drv-edu` | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
 | F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI 43/43 PASS; combined PR #154 integration pending | FIX VERIFIED ON DRAFT BRANCH; combined integration pending |
