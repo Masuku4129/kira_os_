@@ -2182,7 +2182,11 @@ uint32_t wm_compose_par(void (*present)(int x, int y, int w, int h), uint64_t* p
         }
     }
     job_fs = fs; job_present = present;
-    if (runner) runner(run_job, 0, njobs);
+    /* Cursor and hover updates usually dirty only one or two tiles. Waking and
+       joining helper threads for such tiny jobs costs more than drawing them.
+       Keep small damage local to the display thread; parallelize only a
+       substantial frame update where the scheduling overhead can be amortized. */
+    if (runner && njobs >= 4 && px >= 65536) runner(run_job, 0, njobs);
     else for (uint32_t i = 0; i < njobs; i++) run_job(0, i);
     if (pixels) *pixels = px;
     return njobs;
