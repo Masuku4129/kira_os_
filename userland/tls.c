@@ -92,8 +92,10 @@ static int write_record(tls_t* t, u8 itype, const u8* p, u32 n) {
     out[0] = CT_APP; out[1] = 3; out[2] = 3; out[3] = (u8)(L >> 8); out[4] = (u8)L;
     cp(out + 5, p, n); out[5 + n] = itype;
     u8 nn[12]; nonce(t->wiv, t->wseq, nn);
-    if (t->cipher == SUITE_AES128) aes128_gcm_seal(&t->wg, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1);
-    else aead_chacha20_poly1305_seal(t->wkey, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1);
+    int enc = t->cipher == SUITE_AES128
+        ? aes128_gcm_seal(&t->wg, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1)
+        : aead_chacha20_poly1305_seal(t->wkey, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1);
+    if (enc) return -1;
     t->wseq++;
     return send_all(t, out, 5 + L);
 }
