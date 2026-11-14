@@ -105,6 +105,7 @@ void pci_enable(const pci_dev_t* d, uint16_t b) {
     }
     pci_command |= b;
 }
+uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { (void)d; return off == 0x04 ? pci_command : 0; }
 int pci_disable_bus_master(const pci_dev_t* d) { (void)d; pci_command &= (uint16_t)~PCI_CMD_MASTER; return 0; }
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) { (void)d; if (off == 0xC0) legsup = v; }
 
