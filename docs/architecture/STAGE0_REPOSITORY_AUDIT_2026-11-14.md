@@ -457,3 +457,30 @@ No production source was changed. Main remains pinned and untouched; no PR merge
 ### Test plan and verification cost control
 
 The detailed test-to-component mapping and staged verification plan is now recorded in [STAGE0_TEST_MATRIX_2026-11-14.md](STAGE0_TEST_MATRIX_2026-11-14.md). It distinguishes existing host tests, x86-64 QEMU scenarios, ARM64 QEMU scenarios, targeted missing tests for F-017/F-025/F-029…F-034, and proposed short diagnostics versus full acceptance. The short diagnostic harness is a plan only; it has not yet been implemented.
+
+
+## 11. Network, cryptography and TLS/X.509 audit extension — 2026-11-14
+
+**Stage 0 progress: 43%.** This increase reflects source-and-test review of additional network, cryptographic and certificate-validation surfaces. It does not mean these subsystems are accepted; the new findings remain open.
+
+### New findings
+- F-035 — UDP socket ownership teardown bypasses the UDP table lock; owner checks and slot use are not pinned across operations. TCP/listener ownership arrays require the same lifecycle review.
+- F-036 — HKDF-Expand does not enforce the RFC 5869 255-block output limit and silently truncates info; TLS label/context inputs are also silently truncated.
+- F-037 — TLS handshake/transcript/certificate scratch and X.509 verification scratch use mutable static state, so concurrent TLS or certificate-validation work in threads of one process is not reentrant.
+- F-038 — X.509 parsing silently ignores unknown critical extensions and does not enforce CA pathLenConstraint; keyUsage and serverAuth EKU require explicit validation policy.
+
+### Scope reviewed
+- Kernel network stack and UDP/TCP syscall ownership; process teardown hooks and UDP ring delivery.
+- IPv4/IPv6 parsing and fragmentation helpers, network test coverage, crypto primitives and RFC-vector tests.
+- Kernel RNG interface and seed/reseed lifecycle.
+- TLS 1.3 userland handshake state, session tickets, record protection, X.509 DER parser, chain builder and OCSP validation.
+- Existing tests cover selected RFC crypto vectors, TLS handshakes against real host TLS servers, certificate-chain/hostname/time/signature/OCSP cases, and basic network parsing/checksums. They do not currently cover the new concurrency, HKDF boundary, unknown-critical-extension or CA path-length cases.
+
+### Remaining work
+- Review complete TCP state-machine locking and listener/connection ownership lifecycle.
+- Inspect DHCP/DNS/IPv4/IPv6/ND behavior under hostile packets and concurrency.
+- Audit all TLS callers and trust-store loading/update paths; confirm serverAuth certificate policy and clock-unavailable behavior.
+- Add missing host tests and run ASan/UBSan/TSan where supported; no local host-test execution is claimed in this pass.
+- Continue review of KCC/runtime, graphics/input, security/trust, drivers, boot and installer/update/recovery.
+
+No production source changed. Main remains untouched; no PR merged; no ISO built.
