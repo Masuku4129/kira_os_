@@ -552,9 +552,13 @@ int aes128_gcm_seal(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* 
 }
 int aes128_gcm_open(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
                     const uint8_t* in, size_t len, const uint8_t tag[16], uint8_t* out) {
+    if (!g || !nonce || !tag || (alen && !aad) || (len && (!in || !out)) ||
+        !gcm_lengths_valid(alen, len)) return -1;
     uint8_t t[16];
     gcm_tag(g, nonce, aad, alen, in, len, t);
-    if (!crypto_eq(t, tag, 16)) return -1;
+    int ok = crypto_eq(t, tag, 16);
+    crypto_wipe(t, sizeof t);
+    if (!ok) return -1;
     gcm_ctr(g, nonce, in, out, len);
     return 0;
 }
