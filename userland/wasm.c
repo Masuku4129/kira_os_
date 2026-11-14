@@ -617,21 +617,22 @@ static int load(void) {
     u32 nfuncdecl = 0; u32* decl = 0;
     while (p < end && !trapped) {
         u8 id = *p++; u32 sz = leb_u(&p, end);
+        if (trapped || sz > (u32)(end - p)) { trap("section past end"); return -1; }
         const u8* s = p; const u8* se = p + sz;
-        if (se > end) { trap("section past end"); return -1; }
         if (id == 1) {                                            /* типы */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
-                if (ntypes == 256 || *s++ != 0x60) { trap("bad type"); return -1; }
+                u8 form;
+                if (ntypes == 256 || take_u8(&s, se, &form) != 0 || form != 0x60) { trap("bad type"); return -1; }
                 ftype_t* t = &types[ntypes++];
-                u32 np = leb_u(&s, se); if (np > 32) { trap("too many params"); return -1; }
+                u32 np = leb_u(&s, se); if (trapped || np > 32) { trap("too many or truncated params"); return -1; }
                 t->np = (u8)np;
                 for (u32 k = 0; k < np; k++) {
                     if (s >= se) { trap("truncated function parameter type"); return -1; }
                     t->p[k] = *s++;
                     if (t->p[k] != 0x7F && t->p[k] != 0x7E && t->p[k] != 0x7D && t->p[k] != 0x7C) { trap("invalid function parameter type"); return -1; }
                 }
-                u32 nr = leb_u(&s, se); if (nr > 1) { trap("multi-value results not supported"); return -1; }
+                u32 nr = leb_u(&s, se); if (trapped || nr > 1) { trap("multi-value results not supported"); return -1; }
                 t->nr = (u8)nr;
                 if (nr) {
                     if (s >= se) { trap("truncated function result type"); return -1; }
@@ -642,9 +643,11 @@ static int load(void) {
         } else if (id == 2) {                                     /* импорт */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 ml = leb_u(&s, se); const u8* mn = s; s += ml;
-                u32 nl = leb_u(&s, se); const u8* nn = s; s += nl;
-                u8 kind = *s++;
+                u32 ml = leb_u(&s, se); if (trapped || ml > (u32)(se - s)) { trap("truncated import module name"); return -1; }
+                const u8* mn = s; s += ml;
+                u32 nl = leb_u(&s, se); if (trapped || nl > (u32)(se - s)) { trap("truncated import name"); return -1; }
+                const u8* nn = s; s += nl;
+                u8 kind; if (take_u8(&s, se, &kind) != 0) return -1;
                 if (kind == 0) {
                     u32 ti = leb_u(&s, se);
                     int found = -1;
@@ -655,40 +658,66 @@ static int load(void) {
                     if (nfuncs == MAXF) { trap("too many functions"); return -1; }
                     funcs[nfuncs].type = ti; funcs[nfuncs].import = 1; funcs[nfuncs].imp_id = (u32)found; nfuncs++; nimports++;
                 } else if (kind == 2) {                           /* импорт памяти: создаём свою */
-                    u8 fl = *s++; u32 mn2 = leb_u(&s, se); if (fl & 1) leb_u(&s, se);
+                    u8 fl; if (take_u8(&s, se, &fl) != 0) return -1;
+                    if (fl > 1) { trap("unsupported imported memory limits"); return -1; }
+                    u32 mn2 = leb_u(&s, se); if (trapped) return -1;
+                    if (fl & 1) (void)leb_u(&s, se);
+                    if (trapped) return -1;
                     mem_pages = mn2;
                 } else { trap("only function and memory imports are supported"); return -1; }
             }
         } else if (id == 3) {                                     /* функции */
             nfuncdecl = leb_u(&s, se);
+            if (trapped || nfuncdecl > MAXF) { trap("too many function declarations"); return -1; }
             decl = (u32*)alloc(4ull * (nfuncdecl + 1));
+            if (!decl) { trap("no memory for function declarations"); return -1; }
             for (u32 i = 0; i < nfuncdecl && !trapped; i++) decl[i] = leb_u(&s, se);
+            if (trapped) return -1;
         } else if (id == 4) {                                     /* таблица */
             u32 n = leb_u(&s, se);
-            if (n) { s++; u8 fl = *s++; ntable = leb_u(&s, se); if (fl & 1) leb_u(&s, se); if (ntable > 65536) ntable = 65536;
-                     table = (u32*)alloc(4ull * (ntable + 1)); for (u32 i = 0; i < ntable; i++) table[i] = ~0u; }
+            if (n) {
+                u8 elem_type, fl;
+                if (n != 1 || take_u8(&s, se, &elem_type) != 0 || elem_type != 0x70 || take_u8(&s, se, &fl) != 0 || fl > 1) { trap("invalid table limits"); return -1; }
+                ntable = leb_u(&s, se); if (fl & 1) (void)leb_u(&s, se);
+                if (trapped || ntable > 65536) { trap("table limits out of range"); return -1; }
+                table = (u32*)alloc(4ull * (ntable + 1)); if (!table) { trap("no memory for table"); return -1; }
+                for (u32 i = 0; i < ntable; i++) table[i] = ~0u;
+            }
         } else if (id == 5) {                                     /* память */
             u32 n = leb_u(&s, se);
-            if (n) { u8 fl = *s++; mem_pages = leb_u(&s, se); mem_max = (fl & 1) ? leb_u(&s, se) : MAXMEM / 65536; }
+            if (n) {
+                u8 fl; if (n != 1 || take_u8(&s, se, &fl) != 0 || fl > 1) { trap("invalid memory limits"); return -1; }
+                mem_pages = leb_u(&s, se); mem_max = (fl & 1) ? leb_u(&s, se) : MAXMEM / 65536;
+                if (trapped || mem_pages > mem_max || mem_max > MAXMEM / 65536) { trap("memory limits out of range"); return -1; }
+            }
         } else if (id == 6) {                                     /* глобальные */
             u32 n = leb_u(&s, se);
-            for (u32 i = 0; i < n && !trapped; i++) { s++; s++; if (nglobals == MAXG) { trap("too many globals"); return -1; } globals[nglobals++] = const_expr(&s, se); }
+            if (n > MAXG - nglobals) { trap("too many globals"); return -1; }
+            for (u32 i = 0; i < n && !trapped; i++) {
+                u8 type, mut;
+                if (take_u8(&s, se, &type) != 0 || take_u8(&s, se, &mut) != 0) return -1;
+                if ((type != 0x7F && type != 0x7E && type != 0x7D && type != 0x7C) || mut > 1) { trap("invalid global type"); return -1; }
+                globals[nglobals++] = const_expr(&s, se);
+            }
         } else if (id == 7) {                                     /* экспорт: точка входа */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 nl = leb_u(&s, se); const u8* nn = s; s += nl;
-                u8 kind = *s++; u32 idx = leb_u(&s, se);
+                u32 nl = leb_u(&s, se); if (trapped || nl > (u32)(se - s)) { trap("truncated export name"); return -1; }
+                const u8* nn = s; s += nl;
+                u8 kind; if (take_u8(&s, se, &kind) != 0) return -1;
+                u32 idx = leb_u(&s, se); if (trapped) return -1;
                 if (kind == 0 && (name_is(nn, nl, "main") || name_is(nn, nl, "_start") || name_is(nn, nl, "kmain"))) entry = idx;
             }
         } else if (id == 8) {
-            entry = leb_u(&s, se);
+            entry = leb_u(&s, se); if (trapped) return -1;
         } else if (id == 9) {                                     /* элементы таблицы */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
                 u32 fl = leb_u(&s, se);
                 if (fl != 0) { trap("only active element segments (flag 0) are supported"); return -1; }
                 u32 off = (u32)const_expr(&s, se), cnt = leb_u(&s, se);
-                for (u32 k = 0; k < cnt; k++) { u32 f = leb_u(&s, se); if (off + k < ntable) table[off + k] = f; }
+                if (trapped || cnt > (u32)((se - s) / 1)) return -1;
+                for (u32 k = 0; k < cnt; k++) { u32 fn = leb_u(&s, se); if (trapped) return -1; if ((u64)off + k < ntable) table[off + k] = fn; }
             }
         } else if (id == 10) {                                    /* код */
             u32 n = leb_u(&s, se);
@@ -701,9 +730,17 @@ static int load(void) {
             for (u32 i = 0; i < n; i++) { funcs[nfuncs + i].type = decl[i]; funcs[nfuncs + i].import = 0; if (decl[i] >= ntypes) { trap("bad function type"); return -1; } }
             u32 first = nfuncs; nfuncs += n;                      /* все функции известны до разбора тел: вызовы вперёд */
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 bs = leb_u(&s, se); const u8* b = s; const u8* be = s + bs;
+                u32 bs = leb_u(&s, se);
+                if (trapped || bs > (u32)(se - s)) { trap("function body past code section"); return -1; }
+                const u8* b = s; const u8* be = s + bs;
                 u32 groups = leb_u(&b, be), nl = 0;
-                for (u32 g = 0; g < groups; g++) { u32 c = leb_u(&b, be); b++; nl += c; if (nl > 4096) { trap("too many locals"); return -1; } }
+                if (trapped || groups > (u32)(be - b) / 2 + 1) { trap("invalid local declaration vector"); return -1; }
+                for (u32 g = 0; g < groups; g++) {
+                    u32 c = leb_u(&b, be); u8 type;
+                    if (trapped || take_u8(&b, be, &type) != 0 || (type != 0x7F && type != 0x7E && type != 0x7D && type != 0x7C)) { trap("invalid local declaration"); return -1; }
+                    if (c > 4096 - nl) { trap("too many locals"); return -1; } nl += c;
+                }
+                if (trapped) return -1;
                 func_t* f = &funcs[first + i];
                 f->code = b; f->end = be; f->nlocals = nl;
                 if (compile_func(f)) return -1;
@@ -719,9 +756,11 @@ static int load(void) {
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
                 u32 fl = leb_u(&s, se);
-                if (fl == 2) leb_u(&s, se);
+                if (fl == 2) (void)leb_u(&s, se);
                 if (fl == 1) { trap("passive data segments are not supported"); return -1; }
+                if (fl != 0 && fl != 2) { trap("unsupported data segment flags"); return -1; }
                 u32 off = (u32)const_expr(&s, se), len = leb_u(&s, se);
+                if (trapped) return -1;
                 if ((u64)off + len > (u64)mem_pages * 65536 || s + len > se) { trap("data segment out of memory"); return -1; }
                 for (u32 k = 0; k < len; k++) mem[off + k] = s[k];
                 s += len;
