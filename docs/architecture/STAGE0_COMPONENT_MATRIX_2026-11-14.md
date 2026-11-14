@@ -530,3 +530,9 @@ See [STAGE0_TEST_MATRIX_2026-11-14.md](STAGE0_TEST_MATRIX_2026-11-14.md) for exa
 Current drvget is a genuine constrained source build flow (HTTPS/TLS, recipe, per-file scanning/pins, manual source-set hash confirmation, KCC compile, KDRV package). It does not translate arbitrary Linux/Windows binary drivers or ABIs.
 
 Installed records currently preserve the recipe URL and declared license plus combined source-set/package/ELF hashes, but not each source file's URL, detected license and individual hash. Require a versioned per-file provenance manifest, recipe/file license consistency and signed trust metadata. The minimum 8-hex confirmation prefix is 32 bits and is not a signature; increase the default minimum and label its role accurately.
+
+
+### F-035 / F-036 network and cryptography closure gates
+
+- UDP owner validation and teardown must share the UDP table lock, and the slot must remain pinned across the whole syscall to prevent release/reuse after validation. Audit TCP/listener owner tables for the same lifecycle race. Add concurrent teardown/send/receive/reopen and packet-delivery tests.
+- HKDF-Expand must reject output beyond 255 × 32 bytes, and all HKDF info/label/context limits must be explicit errors rather than silent truncation. Add boundary tests at 8160/8161 bytes. Audit ChaCha20/AES-GCM counter-length limits and ensure APIs can report invalid sizes.
