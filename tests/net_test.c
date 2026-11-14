@@ -20,6 +20,14 @@ int main(void) {
     CHECK(net_parse_ip("1.2.3.4x", &a) != 0);
     CHECK(net_parse_ip("", &a) != 0);
 
+    /* Checked references cannot overflow or underflow; production pins use these helpers under tlk. */
+    uint32_t refs = 0;
+    CHECK(net_tcp_ref_acquire(&refs) == 0 && refs == 1);
+    CHECK(net_tcp_ref_release(&refs) == 0 && refs == 0);
+    CHECK(net_tcp_ref_release(&refs) == -1 && refs == 0);
+    refs = UINT32_MAX;
+    CHECK(net_tcp_ref_acquire(&refs) == -1 && refs == UINT32_MAX);
+
     /* Slot reuse is forbidden while referenced or retired; generation never wraps. */
     uint16_t gen = 0; uint8_t retired = 0;
     CHECK(net_tcp_slot_reusable(1, 0, 0));
