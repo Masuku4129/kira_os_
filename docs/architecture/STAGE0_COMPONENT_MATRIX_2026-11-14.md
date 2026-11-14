@@ -504,3 +504,10 @@ This is an ordering audit, not a claim that all devices fail today. Tests must m
 Current KDRV start() turns on PCI Bus Master before spawning any driver with CAP_DMA or CAP_IRQ. That precedes device reset and DMA setup. The syscall permits later command-register writes, but there is no kernel-owned readiness state or IOMMU-domain verification. The contiguous identity-mapped DMA allocator tracks memory for the driver but does not constrain the hardware requester.
 
 Required sequence: register DMA allocations → quiesce/reset controller → program validated DMA structures → verify IOMMU requester domain (or deny DMA) → grant Bus Master → verify readback. CAP_IRQ alone must not imply unrestricted DMA. Revoke and verify Bus Master on teardown/failure.
+
+
+### F-032 Mind memory-pressure termination policy
+
+Current ACT-mode memory policy: cache trim at 88%, heap-growth restriction at 93%, and at 97% potentially terminate the largest process if its heap is at least 16 MiB and 20% of RAM. The callback is direct proc_kill(). The reviewed contract does not distinguish essential services, foreground work, pending storage transactions, drivers, or restartability.
+
+Before this can be treated as safe autonomous policy, add kernel-owned process criticality/protection classes, termination vetoes, reversible reclaim-first behavior and adversarial tests. The implemented Mind is presently a heuristic/profile-based resource controller; general AI reasoning and policy authority remain planned, not proven by mind.c.
