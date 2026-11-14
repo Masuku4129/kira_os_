@@ -551,3 +551,19 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - Next: harden decoder boundaries, inspect WASM import/syscall authority and JIT lifecycle, then review package/ELF loader and application runtime integration.
 
 No production source changed. Main remains untouched; no PR merged; no ISO built.
+
+
+## 14. WASM import ABI and ELF loader audit — 2026-11-14
+
+**Stage 0 progress: 50%.** Reviewed the WASM host-call boundary and the ELF process loader in addition to the decoder/JIT pass.
+
+- F-042 — imported WASM function type indices are not checked against the type table before use. An imported function can be exported as the entry point; runtime then dereferences the unchecked type index. Host import signatures are also not checked against the fixed KIRA ABI.
+- ELF loader strengths confirmed: ET_EXEC and architecture checks, bounded program-header table, bounded page-aligned segments, W^X, overlap rejection, user-window limits, executable entry check, RW-NX stack and per-process address space. `tests/prog_test.c` includes truncation and 20,000 mutation cases, but was not executed in this pass.
+- ELF hardening follow-up: validate `e_ehsize`, ELF `e_version` and PT_LOAD `p_align`; current parser does not inspect these fields. No direct mapping bypass was established.
+- WASM capability model: the trusted wasm executable has CAP_GFX, CAP_GRANT and CAP_JIT; its host ABI exposes write/sleep/ticks/exit and graphics operations. These rights apply to the WASM process, not per-module grants.
+
+### Remaining work
+- Review the full system-call authorization and user-memory-copy paths, package/trust manifest and executable update lifecycle.
+- Continue remaining desktop UX, service and architecture-specific runtime review.
+
+No production source changed. Main remains untouched; no PR merged; no ISO built.
