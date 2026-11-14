@@ -344,3 +344,11 @@
 - В исходной F-001 реализации active bitmap предотвращал немедленный double-free, но не защищал от ABA: запоздалый free старого владельца мог попасть в тот же slot после его повторного выделения.
 - Исправление: добавлены 64-bit generation per slot; token проходит через vmm_kstack_alloc/free, сохраняется в thread_t и проверяется при teardown. Host regression теперь проверяет stale free после повторного выделения.
 - PR #154 latest head e299838c074604ee9cfeb734c819f84a2a5185ae; новый exact-head CI ожидается. До прохождения apps-drvman и всей матрицы F-001 не закрыт.
+
+
+### PR #154 — integration CI diagnosis and test synchronization (2026-11-14)
+
+- Combined run `43587356143` on the earlier PR #154 head passed 41 checks, failed only `vm (apps-drvman)`, and had one cancelled job.
+- Downloaded and inspected the failing VM artifact `vm-apps-drvman` (serial log + result.json). The installed `rl` package was present and verified; the expected `drv` command output was absent because the scenario issued `drv` immediately after observing `drvget verify rl: OK`, before the `drvget` process had exited and returned the console prompt. The harness returned in 0.00 s on the stale/queued prompt; the serial log ends at the next prompt without executing `drv`.
+- This is a scenario synchronization race, not evidence of a broken package list or PMM/VMM regression. The test now explicitly waits for `кира> ` after verify and before issuing `drv`.
+- New exact head: `4dd1454093af90f7d569df03b4425650da8da8bc`; exact-head workflow `43590094470` is running. Do not mark PR #154 green until all jobs finish.
