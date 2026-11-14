@@ -593,6 +593,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     __sync_synchronize();
     pci_enable(p, PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
     if (!(pci_read16(p, 0x04) & PCI_CMD_MASTER)) {
+        (void)pci_disable_bus_master(p);
         usb_log("[KIRA USB] xHCI: Bus Master enable was not confirmed\n");
         return -1;
     }
