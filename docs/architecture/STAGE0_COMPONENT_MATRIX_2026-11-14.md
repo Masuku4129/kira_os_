@@ -576,3 +576,8 @@ Reviewed `cap_needed()` authorization mapping, capability assignment/trust check
 ### F-043 Audio stream lifecycle acceptance gate
 
 The audio syscall path currently validates reusable stream slots outside the mixer lock and does not pin a slot across a complete operation. Close/process teardown can race with write/gain, and gain is written without the lock used by the mixer reader. Require generation-tagged/pinned handles, closing/drain semantics, and one synchronization contract for format, resampler, gain and queue state. Test write/gain/close/process-exit/open/reuse concurrently; run TSan where supported.
+
+
+### IPC trust and object-lifetime acceptance gate
+
+Port and shared-memory object references, handle close, mapping retention and port waiter queueing have a coherent locking/refcount design in the reviewed paths. Before closing IPC security, document whether globally named objects are intentionally public or must be access-controlled. If protected, enforce owner/ACL or capability checks at open/send/receive/map; test guessed-name cross-process access, close-vs-in-flight operations, waiter cancellation, process exit and shared-memory unmap. Synchronize diagnostic counters such as object count and queued-message count.
