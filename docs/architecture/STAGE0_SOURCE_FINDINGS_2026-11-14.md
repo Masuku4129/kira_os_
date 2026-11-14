@@ -1494,3 +1494,22 @@ On ARM64 firmware without PSCI, selecting poweroff/reboot attempts an HVC from E
 4. Add host policy tests for absent/invalid/HVC/SMC method states and QEMU tests for power operation with PSCI disabled and enabled. Verify no HVC/SMC instruction is issued in the absent case.
 
 F-053 remains OPEN.
+
+
+## F-025 / PR #125 vs PR #165 — new QEMU evidence (2026-11-14, exact artifacts inspected)
+
+### Earlier failure: PR #125, run 43613583149, commit `fee8c9aed19ffc37dab7fd599c2bd63bfc496924`
+- QEMU shard 0 failed `usb-uhci` after 90.7 s; boot prompt was not reached.
+- Serial log ends during `[PCI TRACE] disable BM 0:1.2`; the next `BM disabled` marker never appears. This localizes the observed stall to the `pci_disable_bus_master()` call path, but does not prove whether the lock, config read/write or readback is the exact blocking instruction.
+- Captured QEMU log is 4,915,946,761 bytes and contains 72,286,473 occurrences of `Invalid read at addr`, repeatedly at 0x0, 0x4, 0x8 and 0xC, plus an initial address 0x3FFDE384. The requester and exact DMA transaction were not identified; do not label these messages as proven UHCI DMA without device/register correlation.
+
+### Later rerun: PR #165, run 43613588426, attempt 2, exact commit `7ad140cfadb51c4dacf809eca77fff60ff7fe12c`
+- Exact-head workflow now reports 30/30 jobs successful. The earlier failure was attempt 1; attempt 2 is the latest and successful result.
+- `vm (usb-uhci)` job 132514447432 reports `OK usb-uhci` in 11.7 s, boot 5.8 s. The serial log shows UHCI, tablet, hub, keyboard, USB storage, FAT32 mounted at `/usb0`, and successful `cat /usb0/hello.txt` returning `kira-ci: флешка стенда`.
+- The passing artifact's QEMU log is 26,767,488 bytes but still contains 393,602 `Invalid read at addr` records, again including 0x0/0x4/0x8/0xC. Functional scenario PASS therefore does not close the invalid-read/DMA anomaly. The reduced count is not proof of root-cause correction; the QEMU log is still noisy and needs requester-level diagnosis.
+- The two runs are different PR branches/bases and not a controlled A/B comparison. PR #125 targets `autodrv`; PR #165 targets `main`. Do not infer the precise cause from this comparison.
+
+### Current disposition
+- PR #165 exact-head CI: **30/30 PASS on attempt 2**; functional UHCI smoke scenario passes.
+- F-025 remains **OPEN** because the invalid-read storm persists and no requester/register proof identifies its source.
+- F-017/F-029/F-030 sequencing concerns remain open; a green boot test does not prove safe DMA quiesce, reset, queue setup, teardown or failure recovery.
