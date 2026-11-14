@@ -65,6 +65,7 @@ jobs:
           KIRA_OUT="$GITHUB_WORKSPACE/ci-out/android" ./build_clang.sh --android-full
           test -s ci-out/android/kira.iso
           test -s ci-out/android/kira_disk.img
+          python3 ci/iso_module_smoke.py ci-out/android/kira.iso
           xorriso -indev ci-out/android/kira.iso -report_el_torito plain 2>&1 | tee ci-out/android/boot-report.txt
           grep -qi uefi ci-out/android/boot-report.txt
           sha256sum ci-out/android/kira.iso ci-out/android/kira_disk.img > ci-out/android/SHA256SUMS
