@@ -5,6 +5,7 @@
 #include "pci.h"
 
 static uint32_t cfg[5][64];
+static int reject_master_clear;
 
 static uint32_t model_read(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
     if (bus || dev >= 5 || fn || off >= sizeof cfg[0]) return 0xFFFFFFFFu;
@@ -16,7 +17,10 @@ static void model_write(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint
     if (off >= 0x10 && off < 0x28) return; /* BARs are absent in this synthetic device model. */
     if (off == 4) {
         /* PCI status is write-one-to-clear; the driver's pci_write16 masks it to zero. */
-        cfg[dev][1] = value & 0xFFFFu;
+        uint32_t command = value & 0xFFFFu;
+        if (reject_master_clear && (cfg[dev][1] & PCI_CMD_MASTER) && !(command & PCI_CMD_MASTER))
+            command |= PCI_CMD_MASTER;
+        cfg[dev][1] = command;
     } else {
         cfg[dev][off / 4u] = value;
     }
@@ -64,7 +68,14 @@ int main(void) {
     assert(pci_disable_bus_master(dev) == 0);
     assert((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
     assert((pci_read16(dev, 0x04) & (PCI_CMD_IO | PCI_CMD_MEM)) == (PCI_CMD_IO | PCI_CMD_MEM));
+    pci_enable(dev, PCI_CMD_MASTER);
+    reject_master_clear = 1;
+    assert(pci_disable_bus_master(dev) == -1);     /* a failed config write must be observed, not reported as success */
+    assert((pci_read16(dev, 0x04) & PCI_CMD_MASTER) != 0);
+    reject_master_clear = 0;
+    assert(pci_disable_bus_master(dev) == 0);
+    assert((pci_read16(dev, 0x04) & PCI_CMD_MASTER) == 0);
 
-    puts("pci enumeration: firmware bus mastering cleared; explicit enable/disable read-back preserves decode bits");
+    puts("pci enumeration: firmware bus mastering cleared; explicit enable/disable read-back preserves decode bits and fails closed");
     return 0;
 }
