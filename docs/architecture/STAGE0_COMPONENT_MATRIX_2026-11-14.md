@@ -523,3 +523,10 @@ Before this can be treated as safe autonomous policy, add kernel-owned process c
 ### Test and verification matrix
 
 See [STAGE0_TEST_MATRIX_2026-11-14.md](STAGE0_TEST_MATRIX_2026-11-14.md) for exact existing host-test binaries, QEMU scenarios, ARM64 coverage, untested contracts for current findings and the proposed T0–T6 verification sequence. The proposed short QEMU diagnostic profile is not yet implemented.
+
+
+### F-035 Driver Manager provenance and capability boundary
+
+Current drvget is a genuine constrained source build flow (HTTPS/TLS, recipe, per-file scanning/pins, manual source-set hash confirmation, KCC compile, KDRV package). It does not translate arbitrary Linux/Windows binary drivers or ABIs.
+
+Installed records currently preserve the recipe URL and declared license plus combined source-set/package/ELF hashes, but not each source file's URL, detected license and individual hash. Require a versioned per-file provenance manifest, recipe/file license consistency and signed trust metadata. The minimum 8-hex confirmation prefix is 32 bits and is not a signature; increase the default minimum and label its role accurately.
