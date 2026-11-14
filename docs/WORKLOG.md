@@ -444,3 +444,10 @@
 - Exact head `70d0e89a65414818c22d61532f7ca4288c464d2c`, workflow `43592051859`: **43/43 checks PASS**, zero failures/cancellations.
 - Includes the new ARM64 PMM host suite under ASan/UBSan, x86-64 build, ARM64 build and full QEMU matrix.
 - F-013 and F-014 are verified on this unmerged Draft PR. This does not mean main has the fix; no merge was performed.
+
+
+### PR #159 — FDT reg parser exact-head CI passed (2026-11-14)
+
+- Exact head `1a61bd5bdc11b3dd0338c3142113c963308598bf`, workflow `43592382535`: **43/43 checks PASS**, zero failures/cancellations.
+- Includes the new malformed-index and address/size-overflow FDT host cases under ASan/UBSan, x86-64 build, ARM64 build and QEMU matrix.
+- F-015 is verified on this unmerged Draft PR. Remaining FDT-derived RAM overlap, reserved-memory and physical-address-width validation are explicitly not covered by this finding.
