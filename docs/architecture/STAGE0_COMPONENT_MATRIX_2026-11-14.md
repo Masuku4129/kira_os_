@@ -557,3 +557,12 @@ KCC's public compile API and internal preprocessing/parsing/IR/backend state are
 ### F-041 WASM hostile-input acceptance gate
 
 Every parser read must be bounded by the active section/body end; signed/unsigned LEB128 must reject truncated and overlong encodings. Add exhaustive section/opcode truncation and oversized-length tests, then run interpreter and JIT paths under ASan/UBSan plus bounded malformed-module fuzzing.
+
+
+### F-042 WASM import ABI acceptance gate
+
+Reject out-of-range import type indices before storing them, validate every imported function against exact host signatures, and reject unsupported imported entry points. Test missing/out-of-range type sections, mismatched ABI signatures and more-than-four-argument imports under ASan/UBSan on interpreter and JIT paths.
+
+### ELF loader hardening follow-up
+
+`elf_parse()` already enforces ET_EXEC/architecture, bounded program-header table, page-aligned PT_LOAD, W^X, window and file bounds, non-overlapping pages, and executable entry point. Add explicit ELF header-size/version and PT_LOAD p_align validation plus malformed-header tests; this is a hardening gap, not currently classified as an exploitable mapping bypass.
