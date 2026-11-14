@@ -1288,20 +1288,27 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
 static void udp_gone(uint32_t pid);
 void net_proc_gone(uint32_t pid) {
     udp_gone(pid);
-    int listeners[LISTEN_MAX], connections[TCP_MAX];
-    unsigned nl = 0, nc = 0;
+    int listeners[LISTEN_MAX];
+    unsigned nl = 0;
     uint64_t f = spin_lock_irqsave(&tlk);
     for (int i = 0; i < LISTEN_MAX; i++) if (listens[i].used && listens[i].owner == pid) {
         listeners[nl++] = net_tcp_listener_handle_make((unsigned)i, listens[i].generation);
         listens[i].owner = 0;
     }
-    for (int i = 0; i < TCP_MAX; i++) if (tcbs[i].state != T_FREE && tcbs[i].owner == pid) {
-        connections[nc++] = net_tcp_handle_make((unsigned)i, tcbs[i].generation);
-        tcbs[i].owner = 0;
+    /* Last process thread has exited: abort owned TCP connections without a blocking FIN wait. */
+    for (int i = 0; i < TCP_MAX; i++) {
+        tcb_t* t = &tcbs[i];
+        if (t->state == T_FREE || t->owner != pid) continue;
+        t->owner = 0; t->closing = 1; t->reap_on_unpin = 1; t->rto_at = 0;
+        if (t->state != T_CLOSED) tcp_out(t, F_RST | F_ACK, t->snd_nxt, 0, 0);
+        t->state = T_CLOSED;
+        if (!t->refs) {
+            t->state = T_FREE; t->closing = 0; t->reap_on_unpin = 0; t->listener = -1;
+            if (t->generation == UINT16_MAX) t->retired = 1;
+        }
     }
     spin_unlock_irqrestore(&tlk, f);
     for (unsigned i = 0; i < nl; i++) tcp_unlisten(listeners[i]);
-    for (unsigned i = 0; i < nc; i++) tcp_close(connections[i]);
 }
 
 /* ---------- приём ---------- */
