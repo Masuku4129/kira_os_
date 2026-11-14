@@ -177,11 +177,13 @@ int fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* s
     uint32_t len;
     const uint8_t* r = (const uint8_t*)fdt_prop(fdt, node, "reg", &len);
     uint32_t stride = 4 * (ac + sc);
-    if (!r || (uint64_t)(idx + 1) * stride > len) return -1;
-    r += idx * stride;
+    uint64_t off = (uint64_t)idx * stride;
+    if (!r || off > len || stride > (uint64_t)len - off) return -1;
+    r += off;
     uint64_t a = 0, s = 0;
     for (uint32_t i = 0; i < ac; i++) a = (a << 32) | fdt_u32(r + 4 * i);
     for (uint32_t i = 0; i < sc; i++) s = (s << 32) | fdt_u32(r + 4 * (ac + i));
+    if (s && s > UINT64_MAX - a) return -1; /* reg must describe a non-wrapping half-open range */
     if (addr) *addr = a;
     if (size) *size = s;
     return 0;
