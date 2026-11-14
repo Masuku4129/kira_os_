@@ -104,7 +104,7 @@ static int next_hs(tls_t* t, int encrypted, u8* type, u32* blen, u32 timeout_ms)
             if (it == CT_ALERT) return fail(t, "server alert during handshake");
         }
         if (it != CT_HS) return fail(t, "unexpected record during handshake");
-        if (hs_len + pl > sizeof hs) return fail(t, "handshake too large");
+        if (t->hs_len + pl > sizeof t->hs) return fail(t, "handshake too large");
         cp(t->hs + t->hs_len, rec, pl); t->hs_len += pl;
     }
 }
@@ -247,22 +247,22 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
             cp(t->certmsg, m, bl); t->certmsg_len = bl; t->cert_n = 0;
             u32 c = 1 + t->certmsg[0];
             if (c + 3 > bl) return fail(t, "bad Certificate");
-            u32 end = c + 3 + be24(certmsg + c);
+            u32 end = c + 3 + be24(t->certmsg + c);
             if (end > bl) return fail(t, "bad Certificate");
             c += 3;
             while (c + 3 <= end) {
-                u32 cl = be24(certmsg + c);
+                u32 cl = be24(t->certmsg + c);
                 if (c + 3 + cl + 2 > end) return fail(t, "bad Certificate entry");
                 if (t->cert_n < 8) { t->cert_p[t->cert_n] = t->certmsg + c + 3; t->cert_l[t->cert_n] = cl; t->cert_n++; }
                 if (!t->cert_count) t->leaf_len = cl;
                 c += 3 + cl;
-                u32 xl = be16(certmsg + c), xe = c + 2;
+                u32 xl = be16(t->certmsg + c), xe = c + 2;
                 if (c + 2 + xl > end) return fail(t, "bad Certificate extensions");
                 if (!t->cert_count)                               /* расширения листа: status_request с ответом OCSP (RFC 8446 4.4.2.1) */
                     for (u32 x = xe; x + 4 <= xe + xl; ) {
-                        u32 xt = be16(certmsg + x), xn = be16(certmsg + x + 2);
+                        u32 xt = be16(t->certmsg + x), xn = be16(t->certmsg + x + 2);
                         if (x + 4 + xn > xe + xl) return fail(t, "bad Certificate extension");
-                        if (xt == 0x0005 && xn >= 4 && certmsg[x + 4] == 1 && be24(certmsg + x + 5) == xn - 4) { t->ocsp_p = t->certmsg + x + 8; t->ocsp_l = xn - 4; t->ocsp_stapled = 1; }
+                        if (xt == 0x0005 && xn >= 4 && t->certmsg[x + 4] == 1 && be24(t->certmsg + x + 5) == xn - 4) { t->ocsp_p = t->certmsg + x + 8; t->ocsp_l = xn - 4; t->ocsp_stapled = 1; }
                         x += 4 + xn;
                     }
                 t->cert_count++;
