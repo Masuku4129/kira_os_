@@ -979,3 +979,8 @@ F-029 remains OPEN. Do not accept PCI or USB DMA safety based solely on the init
 6. Run focused device tests first (VirtIO, NVMe, AHCI, e1000, HDA, AC'97, UHCI, xHCI), then affected x86/ARM64 matrix and full exact-head CI.
 
 F-030 remains OPEN. This finding is separate from F-017 (enumeration-time firmware DMA), F-025 (UHCI QEMU stall) and F-029 (USB-specific ordering).
+
+
+### F-025 harness cost note
+
+The 4.18 GB qemu.log was generated because the current VM harness always enables QEMU guest_errors logging. The same runner has a per-scenario boot_timeout setting (default 90 s). A future short diagnostic case should use a 10–15 s boot timeout and optional QEMU error logging; do not shorten the full USB acceptance scenario.
