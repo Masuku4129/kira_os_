@@ -614,3 +614,18 @@ The ARM64 PMM must implement ADR-0003: reservations must be distinct from ordina
 
 - F-050: non-coherent state must be independent of pool existence; no cacheable fallback on non-coherent devices; test no-pool/exhaustion/below-4G failure and ensure drivers remain quiesced.
 - F-051: bound FDT property-name matching to the declared strings block; reject unterminated/out-of-range names; add fuzz/truncation and sanitizer coverage.
+
+
+### ARM64 DMA and driver readiness cross-check (2026-11-14)
+
+| Area | Source path reviewed | Current risk / audit link | Validation still required |
+|---|---|---|---|
+| DMA coherency detection | `arch/aarch64/main.c:dma_noncoherent()` | F-052: any FDT node may incorrectly upgrade the whole platform to coherent when no PCI host node exists | Mixed-coherency FDT fixtures and per-device policy |
+| Non-coherent DMA pool | `arch/aarch64/main.c:platform_dma_pool()`, `virtio.c:virtio_dma_alloc()`, `usb.c:usb_dma_alloc()` | F-050: absent/exhausted pool falls back to cacheable PMM memory | No-pool/exhaustion fault injection; no queue activation after failure |
+| Ring 3 driver DMA/MSI | `kdrv.c:start()`, `docs/adr/ADR-0004-ring3-dma-requires-iommu.md` | F-031 and ADR-0004: Bus Master is granted before IOMMU-isolated DMA readiness; pool is not isolation | IOMMU domain lifecycle and denied-capability QEMU tests |
+| UHCI/xHCI | `uhci.c:uhci_start()`, `xhci.c:xhci_start()` | F-030/F-025/F-029: Bus Master enabled before reset and full DMA setup; UHCI QEMU failure unresolved | Register-level staged trace, quiesce-before-reset, failure teardown |
+| AHCI/NVMe | `ahci.c:ctl_init()`, `nvme.c:ctl_init()` | F-030: Bus Master before controller reset and DMA queue setup | Targeted controller QEMU fault and reset-order assertions |
+| e1000/HDA/AC'97 | `e1000.c:e1000_probe()`, `hda.c:hda_probe()`, `ac97.c:ac97_probe()` | F-030: Bus Master before DMA ring allocation / reset completion | Allocation failure and quiesce assertions; targeted QEMU |
+| FDT parser | `fdt.c:fdt_valid()`, `fdt.c:fdt_prop()` | F-051: unbounded property-name comparison | Unterminated strings, out-of-range name offsets, ASan/UBSan |
+
+The table is a source-review index, not a claim that any listed hardware path has passed runtime acceptance.
