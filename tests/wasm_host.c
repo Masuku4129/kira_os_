@@ -112,6 +112,27 @@ static int wasm_parser_selftest(void) {
     puts("wasm: bounded LEB128 and import ABI validation passed");
     return 0;
 }
+static int wasm_truncation_selftest(const char* path) {
+    FILE* f = fopen(path, "rb"); if (!f) return 2;
+    if (fseek(f, 0, SEEK_END)) { fclose(f); return 2; }
+    long n = ftell(f);
+    if (n < 8 || n > (8 << 20) || fseek(f, 0, SEEK_SET)) { fclose(f); return 2; }
+    u8* original = malloc((size_t)n);
+    if (!original || fread(original, 1, (size_t)n, f) != (size_t)n) { free(original); fclose(f); return 2; }
+    fclose(f);
+    for (long cut = 0; cut < n; cut++) {
+        wasm_reset(); mod = original; modlen = (u32)cut;
+        int rc = load();
+        if (rc == 0 && trapped) {
+            fprintf(stderr, "WASM parser inconsistent result at truncated prefix %ld/%ld\\n", cut, n);
+            free(original); return 1;
+        }
+    }
+    wasm_reset();
+    free(original);
+    printf("wasm: every truncated prefix of %s (%ld byte boundaries) parsed safely\\n", path, n);
+    return 0;
+}
 static int fuzz_module(const char* path, int iters) {
     FILE* f = fopen(path, "rb"); if (!f) return 2;
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
@@ -142,6 +163,10 @@ int main(int argc, char** argv) {
     if (getenv("WASM_NOJIT")) jit_on = 0;                          /* только интерпретатор (как на ARM64) */
 #ifdef WASM_FUEL
     if (argc == 2 && !strcmp(argv[1], "selftest")) return wasm_parser_selftest();
+    if (argc == 3 && !strcmp(argv[1], "selftest")) {
+        int rc = wasm_parser_selftest();
+        return rc ? rc : wasm_truncation_selftest(argv[2]);
+    }
     if (argc == 4 && !strcmp(argv[1], "fuzz")) return fuzz_module(argv[2], atoi(argv[3]));
 #endif
     if (argc < 2) return 2;
