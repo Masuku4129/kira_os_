@@ -608,3 +608,9 @@ Graphics syscalls obtain raw app-slot pointers without in-flight references; asy
 ### F-049 ARM64 PMM parity gate
 
 The ARM64 PMM must implement ADR-0003: reservations must be distinct from ordinary allocations, reserved pages must never be freed, and contiguous release must be atomic. Current `pmm_arm.c` has one used bitmap and a sequential partial-free implementation. Require host fault/ownership tests, ASan/UBSan, ARM64 build and exact-head QEMU acceptance.
+
+
+### F-050/F-051 acceptance gates
+
+- F-050: non-coherent state must be independent of pool existence; no cacheable fallback on non-coherent devices; test no-pool/exhaustion/below-4G failure and ensure drivers remain quiesced.
+- F-051: bound FDT property-name matching to the declared strings block; reject unterminated/out-of-range names; add fuzz/truncation and sanitizer coverage.
