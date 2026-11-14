@@ -756,3 +756,8 @@ The fix was refined: allocate and initialize all DMA structures with Bus Master 
 **Stage 0 progress: 69%.** On the stacked PR #169 intermediate head, QEMU xHCI passes end-to-end with a zero-byte guest_errors log after moving Bus Master grant before DMA pointer exposure. UHCI also passes functional USB/storage checks, but its QEMU log still contains 589,375 invalid reads (40.1 MB; repeated 0x0/4/8/C).
 
 Therefore the xHCI part of F-054 has strong targeted QEMU evidence, but the UHCI/F-025 issue is not closed. Added serial/QEMU offset snapshots to the current branch so the next run can place the UHCI storm relative to PCI BAR probing, Bus Master revocation, driver start and console readiness.
+
+
+## 35. UDP socket ownership and slot lifetime — 2026-11-14
+
+**Stage 0 progress: 71%.** Added F-059 after tracing `uown()`, `net_udp_sys()`, `udp_gone()`, `udp_deliver()` and the UDP table lock. The unlocked owner check and unlocked process-teardown write allow a validated operation to race with close, slot reuse and packet delivery. Existing network host tests do not exercise kernel UDP lifecycle. Finding is source-confirmed; no production code or runtime behavior was changed or tested in this audit pass.
