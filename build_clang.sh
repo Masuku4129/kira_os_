@@ -105,16 +105,8 @@ for app in demo atk-mem atk-priv atk-sys atk-gs; do
     UELF="$UELF userland/$app.elf"
 done
 
-# Пользовательская сборка (--android или KIRA_RELEASE=1): тестовые и учебные программы на диск не кладутся (CI собирает полный набор).
+# All targets preserve the complete userland; no release flag may filter binaries.
 TESTPROGS="burn mt ipc udpecho melody demo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
-RELEASE=0; case " $* " in *" --android "*) RELEASE=1 ;; esac; [ -n "$KIRA_RELEASE" ] && RELEASE=1
-# --android-full deliberately keeps the complete userland, including test and educational tools.
-case " $* " in *" --android-full "*) RELEASE=0 ;; esac
-if [ "$RELEASE" = 1 ]; then
-    KEEP=""; for e in $UELF; do n=$(basename $e .elf); case " $TESTPROGS " in *" $n "*) ;; *) KEEP="$KEEP $e" ;; esac; done
-    UELF="$KEEP"
-fi
-
 echo "[*] Инструмент kfstool, манифест доверенных программ и установка в образ диска..."
 HOSTCC="${HOSTCC:-clang}"
 $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
