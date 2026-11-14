@@ -1022,6 +1022,7 @@ int tcp_accept(int handle, uint32_t timeout_ticks) {
     if (!l) return -1;
     uint64_t until = timer_get_ticks() + timeout_ticks;
     for (;;) {
+        if (proc_dying()) { tcp_listener_unpin(l); return -8; }
         uint64_t f = spin_lock_irqsave(&tlk);
         if (!l->used || l->closing || l->generation != generation) {
             spin_unlock_irqrestore(&tlk, f); tcp_listener_unpin(l); return -8;
