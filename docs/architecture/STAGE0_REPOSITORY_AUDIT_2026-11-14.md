@@ -692,3 +692,8 @@ Source audit only; no runtime tests or hardware validation. No kernel changes, m
 - F-053 — PSCI unavailable is represented by -1, but the common dispatcher treats any nonzero value as HVC. CPU_ON is guarded; SYSTEM_OFF and SYSTEM_RESET are not. This can issue unsupported HVC calls on firmware without PSCI.
 - GICv2/v3 and ITS paths are source-reviewed only; no physical ARM64 or QEMU acceptance is claimed here.
 - No production source changes, merges or ISO build.
+
+
+## 26. UHCI acceptance evidence update — 2026-11-14
+
+PR #165 latest exact-head workflow attempt 2 is 30/30 PASS and the UHCI scenario functionally passes: keyboard/hub/USB storage detected, FAT32 mounted, test file read successfully. However, artifact inspection found 393,602 QEMU rejected invalid-read records in the 11.7-second run. Earlier PR #125 failure artifact had 72,286,473 such records and stalled during PCI BM-disable trace. This is not a controlled A/B comparison; F-025 remains OPEN pending requester/register correlation and a clean DMA/error log.
