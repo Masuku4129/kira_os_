@@ -1803,3 +1803,29 @@ A firmware-controlled property-name offset can make the kernel read beyond the d
 **Evidence boundary:** source-confirmed unbounded read path and missing boundary coverage. No runtime reproduction or production fix is claimed.
 
 F-061 remains OPEN.
+
+
+## F-062 — WASM validation PR stack fails C builds due to undeclared fixed-width integer types (2026-11-15)
+
+**Severity:** HIGH for the open PR stack; not present as a confirmed regression in the pinned main baseline.  
+**Scope:** PR #179 and dependent PRs #181/#182.  
+**Evidence:** exact GitHub Actions job logs for the recorded heads.
+
+### Evidence
+
+- PR #179 head `2fdb2c04fc3d5a938c547ad3b8285bebd1a7f736`, run `43644011093`: x86 build, ARM64 build and all QEMU scenarios succeeded, but `host-tests` failed.
+- The failure is in `userland/wasm.c:145`: `int32_t` and `uint32_t` are undeclared in the WASM signed-LEB/type conversion path.
+- Dependent PR #181 head `17614b29e4bbd75ae1dd14fd7db0772d14449200`, run `43643351332`: host-tests, x86 build and ARM64 build all failed. The x86/ARM64 compiler logs show the same undeclared `int32_t`/`uint32_t` identifiers in `userland/wasm.c:145`.
+- Dependent PR #182 head `49e2914e620e6ac6e98adbdd49b2f04936b2a7d3`, run `43644247467`: host-tests, x86 build and ARM64 build all failed at the same `userland/wasm.c:145` undeclared type error.
+- PR #181 is based on an intermediate commit in the PR #179 branch; PR #182 is based on PR #179 head. These are stacked changes, so the shared compile defect blocks verification of their independent input/GFX fixes.
+- The PRs are open drafts. No merge has occurred. This finding does not imply the same failure exists in current `main`.
+
+### Required closure
+
+1. Inspect the freestanding typedef/header conventions used by `userland/wasm.c`; use the project's existing fixed-width types or include a compatible freestanding definition without importing host libc assumptions.
+2. Run the exact host-test command locally/CI and verify signed-LEB boundary tests.
+3. Re-run x86-64 build, ARM64 build and the dependent PR checks on the exact corrected heads.
+4. Verify PR #181 and #182 independently after the common base is fixed; do not inherit a PASS from an earlier parent SHA.
+5. Keep the stacked PR dependency graph explicit and do not merge a subset that silently drops later fixes.
+
+**Disposition:** OPEN. Source/CI evidence is confirmed; no fix has been applied in this Stage 0 audit pass.
