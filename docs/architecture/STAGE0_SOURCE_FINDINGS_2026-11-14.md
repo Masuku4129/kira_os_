@@ -857,3 +857,22 @@ This section supersedes the previous F-025 paragraph that attributed the PR #165
 5. Remove temporary trace after localization, then require repeated clean full exact-head x86/ARM64 CI. Do not merge #125 or #165 on current evidence.
 
 F-025 remains OPEN. F-017 remains OPEN independently: firmware DMA must be contained before unsafe BAR probing/driver handoff, but the exact safe ownership transition is still undecided.
+
+
+## New finding F-027 — FDT property-name lookup is not bounded by the strings block (2026-11-14)
+
+**Severity:** MEDIUM robustness / malformed-firmware-input boundary; source-level gap, not yet reproduced as a fault.
+
+### Evidence
+- Current main FDT parser validates the strings block's offset and total size, and fdt_prop() checks that a property name offset is less than size_dt_strings.
+- The comparison then calls streq(strings + nameoff, requested_name), but streq() has no remaining-length argument. It does not prove that the stored property name has a NUL terminator within the strings block.
+- PR #166 adds strong checks for the reservation map, block overlap, FDT v16 structure sizing and reg index/address overflow. Its exact head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e passed workflow 43610515593 (30/30), but the current fdt_prop()/streq() path remains unchanged and the expanded fdt_test.c still has no unterminated property-name fixture.
+- A malformed nameoff at the final byte(s) of the strings block can make the comparison inspect a byte beyond that block. The precise impact depends on adjacent blob layout; do not describe this as a demonstrated arbitrary read or crash.
+
+### Required closure
+1. Replace unbounded streq() for property-name lookup with a length-bounded comparison that requires the NUL terminator before strings_size.
+2. Extend fdt_valid() or the property parser to reject invalid name offsets and missing terminators without reading outside the block.
+3. Add ASan/UBSan fixtures for nameoff == strings_size, nameoff at the final byte with no terminator, a name that matches a known property prefix but lacks NUL, and a valid final string with its terminator.
+4. Run the focused FDT host test, ARM64 build and QEMU boot scenarios on the exact candidate; then run full CI.
+
+F-027 remains OPEN pending a reproducing regression test and exact-head verification.
