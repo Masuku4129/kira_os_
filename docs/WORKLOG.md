@@ -279,3 +279,12 @@
 - On rejection, the PCI function is quiesced (MSI/MSI-X disabled and IO/MEM/BUS_MASTER command bits cleared) before the driver process is spawned. MMIO-only packages remain supported.
 - Updated x86-64 and ARM64 QEMU scenarios, package generation, drvget/drvman warnings and host policy tests. The tests preserve both negative DMA/MSI cases and positive MMIO-only behavior.
 - Exact-head CI has not yet run; no PASS claimed. PR #137's firmware bus-master handoff sanitization remains a separate required protection.
+
+
+### F-002 policy integration — exact-head CI failure analysis and corrections (2026-11-14)
+
+- First current-main PR #161 head `a15a0a9fa54df28ecba438c9ffd28348ac9c0579`, workflow `43593017450`, did not pass: three VM scenarios failed; no overall PASS claimed.
+- `apps-drvman`: the scenario expected the DMA/MSI policy denial for RTL8139, but the VM had no RTL8139 device attached. The artifact proved only 7 PCI devices were present and the driver manager had no matching 10ec:8139 endpoint. Added a dedicated RTL8139 device with a separate QEMU user network backend to exercise the real policy path.
+- `drvman-edu`: after stopping `edunc`, the PCI list discarded the last bound package name and the UI selected the first matching valid package (`edu`) instead. Preserved the last bound package identity in the PCI-list result and made Driver Manager prefer that identity for stopped devices; fallback remains matching installed package when the previous package has been removed.
+- `drvget-rl`: after relaunch the scenario replaced the original virtio network adapter with RTL8139 only. The DMA gate correctly denied RTL8139, so DHCP was absent. Updated relaunch to keep virtio-net for HTTPS/DHCP while attaching RTL8139 separately to verify that the latter is denied.
+- These are implementation/test-environment corrections, not waived assertions. Fresh exact-head CI is required after these changes.
