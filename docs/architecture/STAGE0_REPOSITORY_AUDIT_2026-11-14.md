@@ -540,3 +540,14 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - Continue with application runtime, WASM interpreter/JIT, package/loader and desktop UX integration.
 
 No production source changed. Main remains untouched; no PR merged; no ISO built.
+
+
+## 13. WebAssembly runtime audit — 2026-11-14
+
+**Stage 0 progress: 48%.** Reviewed the WASM loader, decoder, interpreter and x86-64 JIT path; the newly identified hostile-input validation issue remains open.
+
+- F-041 — nested section/body parsing and instruction-immediate skipping contain unchecked pointer advances; signed LEB decoding can accept truncated input. This is an out-of-bounds-read risk for malformed user-provided modules.
+- Existing strengths: bounded module file size, memory cap, interpreter/JIT fallback, JIT write-then-seal design, stack guards and differential/trap/fuzz test infrastructure. These were source-reviewed, not independently executed in this pass.
+- Next: harden decoder boundaries, inspect WASM import/syscall authority and JIT lifecycle, then review package/ELF loader and application runtime integration.
+
+No production source changed. Main remains untouched; no PR merged; no ISO built.
