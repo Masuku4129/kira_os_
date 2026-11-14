@@ -302,3 +302,43 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Exact head `2bbcef9eb86a43919099d2f26eb8af817c4c893b`, workflow `43609381410`: host-tests failed with `SyntaxError: unmatched ')'` at line 211. A duplicated stale tail of the previous checker implementation remained after the final success messages.
 - Removed the entire duplicate tail; the single checker now ends after the four success messages. No checks were bypassed.
 - Corrected PR #148 head: `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`. Fresh exact-head CI has not yet appeared; no PASS claimed.
+
+
+## 12. Test execution strategy — dependency-first, risk-tiered, artifact-driven
+
+The audit will no longer treat a full multi-shard CI run as the first diagnostic step for every defect. Full CI remains mandatory at acceptance gates, but diagnosis and regression selection will be staged to reduce repeated wait time and improve fault localization.
+
+### Test tiers
+
+| Tier | Purpose | Required evidence | When to run |
+|---|---|---|---|
+| T0 — static/source | Catch API, ownership, arithmetic, ABI and build-manifest defects before boot | exact diff review, compiler/lint, dependency and source-provenance checks | every change |
+| T1 — focused host | Fast deterministic unit/regression coverage | named host test, sanitizer where supported, negative cases | every logic change |
+| T2 — focused VM | Reproduce the specific runtime contract on one ISA/device | QEMU scenario, serial log, result JSON, QEMU log, bounded timeout | after T1 passes |
+| T3 — affected matrix | Exercise directly coupled components and adjacent drivers | selected QEMU shards, boot modes, SMP/device cases, both ISAs where shared code changes | before considering a fix stable |
+| T4 — full acceptance | Detect cross-subsystem regressions and release/build omissions | exact-head full CI, all host/build/ARM64/UEFI/QEMU jobs, artifact audits | only after T0–T3 pass and before integration acceptance |
+| T5 — external qualification | Validate platform behavior CI cannot prove | Limbo on user's phone; later real x86/ARM hardware and firmware combinations | after software gates, with limitations recorded |
+
+### Dependency graph and test selection
+- Each finding gets one owner component, upstream prerequisites, downstream dependants, exact source paths, test IDs and acceptance evidence.
+- A change to a shared contract (BootInfo, PCI config access, PMM ownership, syscall/ABI, KDRV or DMA) automatically expands the affected set to every consumer on x86-64 and ARM64.
+- A leaf-only change starts with T0/T1 and its focused T2 scenario; it does not trigger unrelated GUI/Mind/network suites until a dependency edge requires them.
+- Any shared kernel or architecture boundary change requires at least one T2 case per affected ISA. A driver change also requires its class-specific scenario and one neighboring device scenario.
+- Full T4 runs are performed on the final combined candidate, not separately on every overlapping PR. Exact SHA and artifact links are recorded; results never transfer between heads.
+
+### Failure handling and evidence quality
+1. Preserve the first failing artifact before reruns; do not overwrite or infer from a later timing-sensitive pass.
+2. Classify failure as source/build, host regression, boot, runtime contract, harness/regex, timeout, or nondeterministic/timing-sensitive.
+3. Inspect result.json and serial first; inspect QEMU log only around the relevant interval or with bounded streaming so multi-gigabyte logs do not exhaust memory.
+4. Add the smallest instrumentation possible; instrumentation-only passes are diagnostic, not acceptance evidence.
+5. Reproduce at least twice without instrumentation for timing-sensitive failures before closing them.
+6. A test is PASS only when the exact head, job, scenario, result and expected assertion are known. A green sibling shard does not offset a failed shard.
+
+### Integration gates
+- Gate A: source/API compatibility and no unreviewed file loss.
+- Gate B: focused tests pass for every changed contract.
+- Gate C: affected x86-64/ARM64 runtime matrix passes.
+- Gate D: overlapping PR changes are combined on one candidate and the complete matrix passes.
+- Gate E: release image contents, manifest and boot modes are audited; only then may ISO generation be considered.
+
+This strategy changes test scheduling, not the acceptance standard. No feature is considered complete because a reduced test set passed; reduced tiers are for faster diagnosis, while T4 remains mandatory for integration.
