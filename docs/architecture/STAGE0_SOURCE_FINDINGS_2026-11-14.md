@@ -1225,9 +1225,10 @@ F-038 remains OPEN on `main` until the candidate is reviewed/integrated.
 ### Implementation tracking
 - Draft PR #173: https://github.com/Masuku4129/kira_os_/pull/173
 - Candidate patch replaces raw slot indices with generation-tagged connection/listener handles, pins TCB/listener slots across blocking operations, synchronizes wait predicates and ownership under `tlk`, drains references before reuse, interrupts waits on process exit, and aborts owned sockets nonblocking during teardown.
-- Host handle/generation tests are included. Exact-head kernel/VM CI is pending; concurrent SMP lifecycle stress is not yet demonstrated.
+- Host handle/generation tests are included. Exact-head commit `aa6e7832d93a35797b93faae8daa79f3ae74d029`; CI run #43626310419 completed **30/30 jobs successfully**, including host tests, x86-64, ARM64 and VM matrix.
+- Concurrent SMP lifecycle stress (close/reset/receive, accept/unlisten, connect timeout/late SYN-ACK, process-exit-vs-I/O and slot reuse) is still not demonstrated.
 
-F-039 remains OPEN until exact-head CI and targeted lifecycle validation pass and the candidate is integrated.
+F-039 remains OPEN until targeted lifecycle stress is added and the candidate is integrated.
 
 
 ## New finding F-040 — KCC compiler API is process-global and non-reentrant (2026-11-14)
