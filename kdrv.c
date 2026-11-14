@@ -621,9 +621,11 @@ static int64_t sys_pcilist(uint64_t buf, uint64_t max, uint64_t first) {
         e->bus = d->bus; e->dev = d->dev; e->fn = d->fn;
         e->owner = d->class_code == 0x06 ? KDRV_OWN_BRIDGE : builtin_owned(d) ? KDRV_OWN_KERNEL : KDRV_OWN_NONE;
         bind_t* b = e->owner == KDRV_OWN_NONE ? find_slot(d, 0) : 0;
-        if (b && b->state == B_RUN) {
-            e->owner = KDRV_OWN_RING3;
+        if (b) {
+            /* Preserve the last bound package name after stop so Driver Manager reports the actual
+               stopped package instead of an earlier, different package that also matches this PCI ID. */
             for (unsigned k = 0; b->name[k] && k < sizeof e->name - 1; k++) e->name[k] = b->name[k];
+            if (b->state == B_RUN) e->owner = KDRV_OWN_RING3;
         }
     }
     int64_t rc = (int64_t)n;
