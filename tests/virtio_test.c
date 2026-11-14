@@ -175,7 +175,7 @@ static uint8_t* vblk_cfg_space;
 static void model_init(vopt_t o, uint16_t devid) {
     opt = o; memset(&dv, 0, sizeof dv); memset(bus_dev, 0, sizeof bus_dev); memset(mmio, 0, sizeof mmio); viol = 0;
     mkhdr(F(0, 0, 0), 0x8086, 0x1237, 6, 0, 0);                                         /* хост-мост */
-    mkhdr(F(0, 1, 0), 0x8086, 0x1111, 6, 4, 1); F(0, 1, 0)->cfg[0x19] = 1;              /* мост на шину 1 */
+    mkhdr(F(0, 1, 0), 0x8086, 0x1111, 6, 4, 1); F(0, 1, 0)->cfg[0x18] = 0; F(0, 1, 0)->cfg[0x19] = 1; F(0, 1, 0)->cfg[0x1A] = 1; /* primary 0, secondary/subordinate 1 */
     mkhdr(F(0, 2, 0), 0x8086, 0x7010, 1, 1, 0x80);                                       /* многофункциональное */
     F(0, 2, 0)->bar_size[4] = 32; F(0, 2, 0)->bar_io[4] = 1; put32(F(0, 2, 0), 0x20, 0xC041);
     mkhdr(F(0, 2, 1), 0x8086, 0x7011, 12, 3, 0);
