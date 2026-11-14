@@ -376,3 +376,26 @@ This strategy changes test scheduling, not the acceptance standard. No feature i
 - PR #125 exact head fee8c9aed19ffc37dab7fd599c2bd63bfc496924 / run 43613583149: 23 terminal jobs = 20 success, 1 failure (vm (0)), 2 skipped package jobs. All non-VM lanes and 9/10 VM shards passed; UHCI failed.
 - PR #165 exact head 7ad140cfadb51c4dacf809eca77fff60ff7fe12c / run 43613588426: 29/30 success; UHCI failed.
 - Neither candidate is green. Keep F-017/F-025 open and do not merge.
+
+
+### CI execution topology — verified from pinned-main workflow and harness
+
+| Lane | Runtime coverage | Execution details |
+|---|---|---|
+| Host | 47 named suites in tests/run_host_tests.sh | One host job; deterministic parser/model/regression suites, sanitizer where configured |
+| x86-64 VM | 40 available scenarios = 38 explicit declarations + 2 generated stress-spam variants | Main workflow matrix runs 39; KVM enabled on GitHub runner; named scenario produces serial/result/artifacts |
+| ARM64 VM | 16 scenarios | Separate ARM64 build and QEMU TCG harness; GICv2/v3, EL1/EL2, SMP, GUI, drivers, storage, network and DMA-noncoherent cases |
+| Mind training | 1 long mind-train scenario | Separate manual workflow, about 25 minutes; not part of routine CI matrix |
+
+The 38 explicit x86 declarations include mind-train; the two generated stress-spam variants are added at module load. The main workflow excludes mind-train and includes the two variants, hence 39 x86 jobs. Do not conflate the explicit declaration count, expanded catalogue count and workflow matrix count.
+
+### Dependency-first regression graph (provisional; finalize after remaining source audit)
+
+- Firmware/boot: BIOS/UEFI/MB2/FDT producers → BootInfo normalization → memory map and reservations → PMM → VMM/MMIO → heap → scheduler/SMP → process/syscall/IPC → system services and applications.
+- Device path: ACPI/FDT/PCI config and host ranges → stable device identity/Device Model → resource ownership/BAR/IRQ → IOMMU domain and DMA mapping → driver authorization/binding → block/network/USB/audio services → applications.
+- Storage path: PCI/virtio/NVMe/AHCI/USB storage drivers → block layer → KiraFS/store and FAT → VFS → file services and applications.
+- Graphics path: framebuffer/virtio-gpu/input devices → display backend → graphics server/compositor → window manager/shell → desktop applications.
+- Toolchain path: host KCC tests → target compiler/linker/ELF contract → in-OS KCC self-hosting → userland runtime and applications.
+- Mind path: telemetry sources → quality/calibration/holdout tests → bounded policy proposal → capability/security gate → scheduler/resource API. Mind must not bypass device ownership, DMA isolation or kernel locks.
+
+Regression selection follows dependency edges: a shared contract change runs the upstream producer test, consumer test, at least one runtime case per affected ISA, and one downstream smoke case. Only after these pass do we run the full matrix. This reduces redundant waits without lowering the final acceptance bar.
