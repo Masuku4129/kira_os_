@@ -683,15 +683,14 @@ static tcb_t* tcp_pin(int handle) {
     if (net_tcp_handle_decode(handle, &slot, &generation)) return 0;
     uint64_t f = spin_lock_irqsave(&tlk);
     tcb_t* t = &tcbs[slot];
-    if (t->generation != generation || !net_tcp_handle_matches(handle, slot, t->generation, t->state != T_FREE, t->closing) || t->refs == UINT32_MAX) t = 0;
-    else t->refs++;
+    if (t->generation != generation || !net_tcp_handle_matches(handle, slot, t->generation, t->state != T_FREE, t->closing) || net_tcp_ref_acquire(&t->refs)) t = 0;
     spin_unlock_irqrestore(&tlk, f);
     return t;
 }
 static void tcp_unpin(tcb_t* t) {
     if (!t) return;
     uint64_t f = spin_lock_irqsave(&tlk);
-    if (t->refs) t->refs--;
+    (void)net_tcp_ref_release(&t->refs);
     spin_unlock_irqrestore(&tlk, f);
 }
 static tcp_listener_t* tcp_listener_pin(int handle, unsigned* slot_out, uint16_t* generation_out) {
@@ -699,15 +698,15 @@ static tcp_listener_t* tcp_listener_pin(int handle, unsigned* slot_out, uint16_t
     if (net_tcp_listener_handle_decode(handle, &slot, &generation)) return 0;
     uint64_t f = spin_lock_irqsave(&tlk);
     tcp_listener_t* l = &listens[slot];
-    if (l->generation != generation || !net_tcp_listener_handle_matches(handle, slot, l->generation, l->used, l->closing) || l->refs == UINT32_MAX) l = 0;
-    else { l->refs++; if (slot_out) *slot_out = slot; if (generation_out) *generation_out = generation; }
+    if (l->generation != generation || !net_tcp_listener_handle_matches(handle, slot, l->generation, l->used, l->closing) || net_tcp_ref_acquire(&l->refs)) l = 0;
+    else { if (slot_out) *slot_out = slot; if (generation_out) *generation_out = generation; }
     spin_unlock_irqrestore(&tlk, f);
     return l;
 }
 static void tcp_listener_unpin(tcp_listener_t* l) {
     if (!l) return;
     uint64_t f = spin_lock_irqsave(&tlk);
-    if (l->refs) l->refs--;
+    (void)net_tcp_ref_release(&l->refs);
     spin_unlock_irqrestore(&tlk, f);
 }
 
