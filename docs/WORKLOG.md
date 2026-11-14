@@ -284,3 +284,11 @@
 - PR #150 exact-head host-tests failure разобран по job log: `tests/wm_test.c:84`, assertion `wm_compose_par(test_present, &composed_pixels) > 4`; это compositor regression, не причина kernel stack finding.
 - Текущая сессия использовала GitHub source/API review; локальный checkout и локальный запуск тестов отсутствовали. Никакой PR не объединён, main не изменён.
 - Next: дождаться exact-head CI PR #152; исправить найденные регрессии без ослабления тестов; продолжить Stage 0 matrix для всех 14 областей A–N и 12 streams, затем закрывать нижние зависимости по очереди.
+
+
+### Stage 0 — documentation drift and release profile (2026-11-14)
+
+- Добавлены F-006/F-007 в source findings. `ARCHITECTURE.md` содержит устаревшие ранние утверждения (один CPU, нет USB/NVMe, нет QEMU), хотя текущий main содержит соответствующие реализации/драйверы и CI scenarios. Документ нужно явно отделить как исторический журнал либо обновить его верхний verified summary.
+- `build_clang.sh --android` включает `RELEASE=1` и исключает `TESTPROGS` из `UELF`; это не полный тестовый/учебный образ. Для полного Limbo ISO нужно явно выбрать full profile и проверять manifest содержимого.
+- PR #152 первый exact-head workflow `43585911384` выявил две ошибки интеграции: x86-64 не включил `kstack_slot.h`; ARM64 замена allocator state не попала в declaration block. Ошибки исправлены отдельными коммитами.
+- Последний зафиксированный head PR #152: `29d8b5842ff5de0b93dc8da97f665496c6e507bb`; exact-head workflow `43586072209` выполняется. До завершения build, ARM64 и host-tests PASS не заявлять.
