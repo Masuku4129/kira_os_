@@ -648,4 +648,5 @@ ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиату�
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", tls_chain=True, put={"/data/drvman/base": _DM_BASE},
     extra=["-netdev", "user,id=n0,guestfwd=tcp:10.0.2.100:443-cmd:python3 " + HTTPS_ONCE + " --chain " + TLS_CHAIN + " --serve " + _DRV_WWW,
-           "-device", "virtio-net-pci,netdev=n0"]))
+           "-device", "virtio-net-pci,netdev=n0",
+           "-netdev", "user,id=n1", "-device", "rtl8139,netdev=n1"]))
