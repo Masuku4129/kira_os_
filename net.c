@@ -821,14 +821,16 @@ static void tcp_input(const ipa_t* src, const ipa_t* dst, const uint8_t* eth_src
         }
     }
     if (!t) {                                                   /* новое входящее: только SYN на слушаемый порт */
-        int l = -1;
-        for (int i = 0; i < LISTEN_MAX; i++) if (listens[i].used && listens[i].port == dport && listens[i].fam == src->fam) l = i;
+        int l = -1; uint16_t lgen = 0;
+        for (int i = 0; i < LISTEN_MAX; i++)
+            if (listens[i].used && !listens[i].closing && listens[i].port == dport && listens[i].fam == src->fam) { l = i; lgen = listens[i].generation; }
         if (l >= 0 && (fl & (F_SYN | F_ACK | F_RST)) == F_SYN) {
             unsigned pending = 0;
-            for (int i = 0; i < TCP_MAX; i++) if (tcbs[i].state != T_FREE && tcbs[i].listener == l && !tcbs[i].accepted) pending++;
+            for (int i = 0; i < TCP_MAX; i++)
+                if (tcbs[i].state != T_FREE && tcbs[i].listener == l && tcbs[i].listener_generation == lgen && !tcbs[i].accepted) pending++;
             tcb_t* n = pending < BACKLOG ? tcb_new() : 0;
             if (n) {
-                n->rip = *src; n->lip = *dst; n->rport = sport; n->lport = dport; cpy(n->mac, eth_src, 6); n->listener = l;
+                n->rip = *src; n->lip = *dst; n->rport = sport; n->lport = dport; cpy(n->mac, eth_src, 6); n->listener = l; n->listener_generation = lgen;
                 n->iss = (uint32_t)(clock_ns() >> 6); n->snd_una = n->iss; n->snd_nxt = n->iss + 1;
                 n->rcv_nxt = seq + 1; n->mss = mss; n->snd_wnd = win;
                 n->state = T_SYN_RCVD; n->rto_at = now + TIMER_HZ;
