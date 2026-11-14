@@ -452,3 +452,8 @@ No production source was changed. Main remains pinned and untouched; no PR merge
 - PR #166 current head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e; workflow 43610515593: **30/30 success**. This exact result supersedes the cancelled workflow 43608492629 for an earlier head. It remains Draft/unmerged.
 - PR #151 latest audit-doc head d2a53c8847bf40525780bb2624ea42efe9ba287a; base remains main 811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4. Docs-only branch; no workflow run was returned for this head. Do not infer CI pass from the documentation commits.
 - In PR #165 current pci.c, the Bus Master clear is after probe_bars(). The trace boundary proves the VM stalls within the subsequent PCI Command read/clear sequence or its immediate path, but does not yet distinguish pci_read16 from pci_write16. The invalid DMA storm is present concurrently. Next discriminating instrumentation must place separate markers around the PCI Command read and write and capture the command value; no root cause claim beyond this boundary.
+
+
+### Test plan and verification cost control
+
+The detailed test-to-component mapping and staged verification plan is now recorded in [STAGE0_TEST_MATRIX_2026-11-14.md](STAGE0_TEST_MATRIX_2026-11-14.md). It distinguishes existing host tests, x86-64 QEMU scenarios, ARM64 QEMU scenarios, targeted missing tests for F-017/F-025/F-029…F-034, and proposed short diagnostics versus full acceptance. The short diagnostic harness is a plan only; it has not yet been implemented.
