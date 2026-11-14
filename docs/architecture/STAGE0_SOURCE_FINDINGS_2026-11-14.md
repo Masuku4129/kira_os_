@@ -274,12 +274,35 @@ If a remote CPU does not acknowledge before timeout, its stale translation may r
 5. Any future CPU-offline recovery must prove that the CPU is stopped and cannot resume before it is removed from the target set; merely marking it failed is insufficient.
 6. Add host generation/late-ack tests and QEMU SMP regression/fault injection; separately verify ARM64 broadcast TLBI completion and ASID lifecycle.
 
-1. Make shootdown completion explicit (status + request generation/sequence).
-2. Do not release backing pages, shared-memory references or DMA blocks until every target CPU has acknowledged the exact request.
-3. On timeout, quarantine backing resources and retain request state; do not overwrite it with a new request. Define a safe failed-CPU policy (halt/offline only when execution is provably stopped, otherwise fail-stop).
-4. Update callers to propagate failure and preserve ownership.
-5. Add host model tests for timeout, late IPI, stale generation and overlapping requests; add QEMU SMP regression/fault injection.
-6. Confirm ARM64 broadcast TLBI completion and ASID lifecycle separately.
+## F-011 — MMIO page-range alignment can overflow after the initial range check
+
+**Severity:** Medium; malformed firmware/device BAR address can turn a rejected-range expectation into a wrapped page extent  
+**Confidence:** High — direct arithmetic evidence  
+**Master-plan mapping:** B, G, M, N; streams 1, 6, 9, 11, 12.
+
+### Evidence
+
+- `vmm_map_mmio()` checks only whether `pa + len` wraps.
+- It then computes `last = (pa + len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1)`. The second addition can overflow even when the first `pa + len` did not.
+- If the result wraps, `last - first` can become zero or a small wrapped extent; subsequent mapping and overlap accounting no longer describe the requested physical range.
+- The path is used for device MMIO/BARs and other hardware register mappings. Physical addresses near the top of the 64-bit range are not valid on ordinary current systems, but malformed/untrusted firmware or device metadata must be rejected explicitly rather than relying on typical address width.
+
+Sources:
+- [vmm_map_mmio(), lines 169–185](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/vmm.c#L169-L185)
+- [vmm_map_mmio declaration and contract](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/vmm.h)
+
+### Remediation on draft branch
+
+- Added checked half-open range helper `vmm_mmio_page_range()`: validates nonzero length, raw-end addition, page align-up addition, and strictly increasing aligned bounds.
+- `vmm_map_mmio()` now obtains `first/last` only through the checked helper and reuses the validated raw end for overlap checks.
+- Added host tests for normal alignment, cross-page ranges, exact final representable page, raw addition overflow and align-up overflow; wired them into `tests/run_host_tests.sh`.
+- Exact-head CI is pending; not yet accepted.
+
+### Required closure
+
+1. Run the exact-head host suite with ASan/UBSan and x86-64/ARM64 builds.
+2. Confirm malformed 64-bit BAR/firmware ranges fail without changing MMIO allocator state.
+3. Add a VM-side negative test if a suitable PCI/MMIO injection path exists.
 
 ## Verification ledger
 
@@ -293,7 +316,8 @@ If a remote CPU does not acknowledge before timeout, its stale translation may r
 | F-006 | ARCHITECTURE.md vs current sources/build/CI | Source/document comparison only | No docs consistency guard in main | CONFIRMED DOCUMENTATION DRIFT |
 | F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
 | F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
-| F-010 | x86-64 TLB shootdown timeout and late IPI handling | Source and caller review | Draft PR #155: generation-bound per-CPU ack + fail-closed wait; exact-head CI pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
+| F-010 | x86-64 TLB shootdown timeout and late IPI handling | Source and caller review | Draft PR #155: generation-bound per-CPU ack + fail-closed wait; latest exact-head CI running | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
+| F-011 | MMIO page-range overflow during page align-up | Source arithmetic review | Draft PR #156: checked helper + host regression; exact-head CI pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
 | F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI 43/43 PASS; combined PR #154 integration pending | FIX VERIFIED ON DRAFT BRANCH; combined integration pending |
 
 No code was changed on `main` by this audit. All implementation changes remain in separate unmerged Draft PRs. No test was executed locally. Exact-head CI evidence from other PRs is branch-only and is not transferred to `main`.
