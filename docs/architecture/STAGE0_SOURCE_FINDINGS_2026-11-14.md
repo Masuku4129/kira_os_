@@ -1304,3 +1304,22 @@ F-043 remains OPEN.
 4. Add SMP stress tests with concurrent keyboard/mouse producers and multiple consumers, wraparound and overflow assertions; run TSan on host build and targeted QEMU SMP tests.
 
 F-044 remains OPEN.
+
+
+## New finding F-045 — Graphics event queue has no multi-thread consumer serialization (2026-11-14)
+
+**Severity:** MEDIUM event integrity/concurrency.
+
+### Evidence
+- Processes can create multiple user threads through `proc_thread_create()` (`proc.c:480-505`); all share the process PID and address space.
+- `gfx_sys_event(pid,...)` obtains the process graphics slot and reads `a->qt`, copies the event, then stores `qt + 1` without a per-application consumer lock or atomic compare/exchange (`gfxsrv.c:126-145`).
+- Two threads in the same process can enter concurrently, observe the same `qt`, copy the same queue entry to separate user buffers, and both publish the same increment. One logical event is therefore delivered twice and the next event remains queued. With interleaving around queue wrap/producer updates, queue accounting can also become inconsistent.
+- The existing graphics test file exercises drawing/clock/log behavior; no concurrent multi-thread event-consumer test was found in the reviewed fixture.
+
+### Required closure
+1. Serialize dequeue and commit for each app slot, or use a single-consumer contract enforced by the syscall/API and tested; do not use an unprotected load/copy/store sequence.
+2. Preserve the event on failed user copy while ensuring only one consumer can own the in-flight entry. A per-slot lock or reservation/commit sequence must define this.
+3. Add a two-or-more-thread same-PID event-consumer stress test with unique sequence-tagged events, queue wrap, copy failure and close/process-exit cases.
+4. Audit app-slot lifetime concurrently with `gfx_proc_gone()` and server reclamation; this finding does not claim that separate lifetime question is closed.
+
+F-045 remains OPEN.
