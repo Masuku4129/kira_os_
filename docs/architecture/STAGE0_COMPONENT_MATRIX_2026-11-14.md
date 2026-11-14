@@ -729,3 +729,13 @@ Different source heads mean this is not a controlled A/B. The contrast strengthe
 | `fdt_count_type()` / `device_type` | Uses unbounded `streq()` after checking only that the declared property length is nonzero | Bounded NUL-termination check; malformed-value tests under ASan/UBSan |
 | `fdt_node_enabled()` / `status` | Uses unbounded `streq()` without checking for NUL within the declared property length | Same bounded string helper and malformed-value tests |
 | `fdt_compatible()` | Already iterates within the property length | Retain bounded behavior; include regression test to prevent weakening |
+
+
+### Stacked PR #169 targeted QEMU evidence (intermediate head 6fd90d3)
+
+| Scenario | Functional result | QEMU log | Status |
+|---|---|---:|---|
+| `usb-xhci` | Hub, keyboard, tablet, storage, FAT32 read/write/unmount all PASS | 0 bytes; no invalid reads/writes; no ERST DMA error | xHCI ordering change supported by QEMU test |
+| `usb-uhci` | Tablet, hub, keyboard, storage and FAT32 read PASS | 40,081,525 bytes; 589,375 invalid reads; repeated 0x0/4/8/C | F-025/UHCI DMA anomaly remains OPEN |
+
+This is an intermediate run superseded by later instrumentation commits; the two targeted VM jobs themselves completed successfully. It is not full exact-head CI.
