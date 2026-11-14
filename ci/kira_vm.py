@@ -249,6 +249,7 @@ class VM:
             "schema_version": 1,
             "log_scope": "QEMU guest_errors from process start; firmware and guest are both included",
             "phase_boundary": "QEMU log byte offset captured when KIRA console prompt is first observed",
+            "phase_boundary_accuracy": "best-effort file-size snapshot; QEMU may buffer log writes; not a timestamped ownership boundary",
             "logs": logs,
             "ready_markers": [
                 {"path": os.path.basename(path), **marker}
