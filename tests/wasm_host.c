@@ -53,6 +53,8 @@ static int wasm_parser_selftest(void) {
     const u8 u_long[] = { 0x80, 0x00 };
     const u8 u_over[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x10 };
     const u8 s_ok[] = { 0x7F };
+    const u8 s_neg64[] = { 0x40 };
+    const u8 s_pos64[] = { 0xC0, 0x00 };
     const u8 s_short[] = { 0x80 };
     const u8 s_long[] = { 0xC0, 0x7F };
     const u8 s_over[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x08 };
@@ -63,6 +65,8 @@ static int wasm_parser_selftest(void) {
     wasm_reset(); p = u_long; (void)leb_u(&p, u_long + sizeof u_long); if (!trapped) return 1;
     wasm_reset(); p = u_over; (void)leb_u(&p, u_over + sizeof u_over); if (!trapped) return 1;
     wasm_reset(); p = s_ok; if (leb_s(&p, s_ok + sizeof s_ok, 32) != -1 || trapped) return 1;
+    wasm_reset(); p = s_neg64; if (leb_s(&p, s_neg64 + sizeof s_neg64, 64) != -64 || trapped) return 1;
+    wasm_reset(); p = s_pos64; if (leb_s(&p, s_pos64 + sizeof s_pos64, 64) != 64 || trapped) return 1;
     wasm_reset(); p = s_short; (void)leb_s(&p, s_short + sizeof s_short, 32); if (!trapped) return 1;
     wasm_reset(); p = s_long; (void)leb_s(&p, s_long + sizeof s_long, 32); if (!trapped) return 1;
     wasm_reset(); p = s_over; (void)leb_s(&p, s_over + sizeof s_over, 32); if (!trapped) return 1;
@@ -77,6 +81,11 @@ static int wasm_parser_selftest(void) {
         1,7,1,0x60,2,0x7F,0x7F,1,0x7F,
         2,14,1,4,'k','i','r','a',5,'w','r','i','t','e',0,1
     };
+    static const u8 bad_signature[] = {
+        0,0x61,0x73,0x6D,1,0,0,0,
+        1,7,1,0x60,2,0x7E,0x7F,1,0x7F,
+        2,14,1,4,'k','i','r','a',5,'w','r','i','t','e',0,0
+    };
     static const u8 imported_entry[] = {
         0,0x61,0x73,0x6D,1,0,0,0,
         1,7,1,0x60,2,0x7F,0x7F,1,0x7F,
@@ -89,6 +98,9 @@ static int wasm_parser_selftest(void) {
     wasm_reset(); mod = bad_type_index; modlen = sizeof bad_type_index;
     (void)load();
     if (!trapped || !trap_msg || strcmp(trap_msg, "import function type index out of range")) return 1;
+    wasm_reset(); mod = bad_signature; modlen = sizeof bad_signature;
+    (void)load();
+    if (!trapped || !trap_msg || strcmp(trap_msg, "import has an incompatible KIRA host ABI signature")) return 1;
     wasm_reset(); mod = imported_entry; modlen = sizeof imported_entry;
     (void)load();
     if (!trapped || !trap_msg || strcmp(trap_msg, "entry point must be a defined function, not a host import")) return 1;
