@@ -49,7 +49,7 @@ CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
         tools/kfstool "$DISK_TMP" ls / >/dev/null
         ISO_HASH=$(sha256sum "$ISO_TMP" | awk '{print $1}')
         DISK_HASH=$(sha256sum "$DISK_TMP" | awk '{print $1}')
-        printf '%s  kira.iso\\n%s  kira_disk.img\\n' "$ISO_HASH" "$DISK_HASH" > "$SUM_TMP"
+        printf '%s  kira.iso\n%s  kira_disk.img\n' "$ISO_HASH" "$DISK_HASH" > "$SUM_TMP"
 
         # Each rename is atomic because all temporary files live in OUT.
         mv -f "$DISK_TMP" "$OUT/kira_disk.img"
