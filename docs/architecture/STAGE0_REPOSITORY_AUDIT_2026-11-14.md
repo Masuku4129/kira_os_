@@ -812,3 +812,10 @@ The current-main drift is a repository-control deviation to resolve explicitly b
 Эта инвентаризация описывает только pinned baseline и не заменяет проверку текущего main/веток/генерируемых артефактов.
 
 **Stage 0 остаётся IN PROGRESS.** Новый план не закрывает source audit, PR reconciliation, выполнение тестов или baseline acceptance.
+
+## 9. Требования нового плана и контроль полноты
+
+- Новые архитектурные, языковые и форматные требования внесены в \`docs/MASTER_DEVELOPMENT_PLAN.md\`, раздел 8.
+- Целевой план Stage 0–13: [\`KIRA_TARGET_ARCHITECTURE_AND_STAGE_PLAN_2026-11-15.md\`](KIRA_TARGET_ARCHITECTURE_AND_STAGE_PLAN_2026-11-15.md).
+- Полное соответствие направлений A–N новым Stage: [\`STAGE0_REQUIREMENTS_CROSSWALK_2026-11-15.md\`](STAGE0_REQUIREMENTS_CROSSWALK_2026-11-15.md).
+- Это расширяет Stage 0 exit criteria: пока crosswalk и component matrix не reconciled, Stage 0 не закрывать.
