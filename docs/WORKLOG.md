@@ -300,3 +300,11 @@
 - Добавлен F-008: `sched.c` fallback-ит на `kmalloc`, когда guarded VMM stack недоступен, а `create_thread()` записывает только canary и не очищает остальную память стека. Политика исчерпания stack window и очистка перед публикацией потока требуют отдельного решения/тестов.
 - Проверена точная CI matrix main: QEMU scenarios включают `boot-nvme`, `boot-8cpu`, `soak-8cpu`, `smp`, `usb-xhci`, `usb-uhci`, `net-e1000`, `net-virtio`, `net-ipv6` и другие. Это опровергает устаревшие ранние summary statements в `ARCHITECTURE.md`, но не является доказательством поддержки физического железа.
 - PR #152 exact-head run `43586072209` на SHA `29d8b5842ff5de0b93dc8da97f665496c6e507bb` выявил ARM64 предупреждение `va` may be uninitialized; исправлено на head `48518fac18ba16e49d66fb641ece96ae06515811`. Exact-head run `43586203250` для этого SHA выполняется; PASS ещё не заявлен.
+
+
+### Stage 0 — PMM contiguous ownership finding (2026-11-14)
+
+- Добавлен F-009: `pmm_free_contiguous()` ранее вызывал `pmm_free_page()` отдельно для каждой страницы; диапазон мог частично освобождаться, а другие CPU могли получить страницы до завершения всей операции.
+- Подтверждены callers в KDRV DMA cleanup/rollback, VirtIO, USB DMA и storage/controller paths.
+- Открыт Draft PR #153 на свежей main-based ветке: один lock, предварительная проверка всех страниц, all-or-nothing bitmap transition, обновление счётчиков один раз; `tests/pmm_test.c` покрывает invalid middle page, no partial free, double release, zero/unaligned/out-of-range.
+- Head PR #153: `861707fc4538d396e00066cfbfe2ec171edb8abb`; exact-head CI ожидается. Локальные тесты не запускались; PASS не заявлять до CI.
