@@ -427,3 +427,10 @@
 - ARM64 startup consumes these ranges for RAM, UART, GIC, PCI ECAM and framebuffer setup; invalid ranges could propagate into memory/MMIO setup.
 - Draft PR #159 computes the entry offset in 64-bit with subtraction-based bounds checks, rejects wrapping half-open ranges, and adds FDT host regressions for `UINT32_MAX` index and address/size overflow.
 - Exact-head CI pending. Remaining FDT arithmetic (overlapping RAM totals, reserved-memory and physical-address limits) remains a separate audit item.
+
+
+### PR #157 — F-012 exact-head CI passed (2026-11-14)
+
+- Exact head `59b391696baabfd49f2ff48acf5aba2b9db538de`, workflow `43591626068`: **43/43 checks PASS**, zero failures/cancellations.
+- Includes host tests, ARM64 build and full QEMU matrix, including `drv-edu`. The long driver-start record now remains contiguous while the driver still completes its DMA/MSI scenario.
+- Status: verified on unmerged Draft PR #157. PR #156 must be rerun with this dependency to obtain a clean exact-head MMIO result; its earlier `drv-edu` failure is explained by F-012, not F-011.
