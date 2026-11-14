@@ -951,3 +951,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Therefore the PCI enumeration clear is not a durable boundary. The drivers can re-grant DMA while firmware-owned controller state is still active. Added F-029 as HIGH and separate from F-025 (current UHCI boot hang) and F-017 (firmware DMA during BAR probing).
 - Safer order: enable IO/MEM decode without MASTER; bounded controller-specific BIOS handoff/stop/reset; allocate and program kernel-owned DMA structures; only then enable MASTER through the DMA/IOMMU policy gate. On any timeout, keep MASTER denied and quarantine.
 - No source changes made; this is Stage 0 source evidence and a required test dependency for the future PCI/USB fix.
+
+
+## 38. Cross-driver PCI Bus Master ordering audit — 2026-11-14
+
+- Reviewed current-main PCI enable helper and DMA setup order across VirtIO, NVMe, AHCI, e1000, HDA, AC'97 and USB.
+- pci_enable() only ORs bits into PCI Command; callers commonly request MASTER at the same time as IO/MEM decode.
+- Identified early MASTER grants before reset or kernel-owned DMA structures: VirtIO before status reset/queue setup; NVMe before CC.EN stop and admin queues; AHCI before BIOS handoff/GHC reset and per-port setup; e1000 before device reset and RX/TX rings; HDA before controller reset and CORB/RIRB/BDL; AC'97 before cold reset and DMA buffers; UHCI/xHCI as F-029.
+- This is a broad static source finding, not proof every device actually DMA-writes before reset. The safe contract must not rely on firmware leaving every controller idle.
+- Added F-030. Future remediation should stage IO/MEM decode, controller quiesce/reset, DMA memory preparation/programming, Bus Master grant/readback, then start. The grant must also pass the IOMMU/DMA policy gate.
+- No driver source changed; the remaining current-main DMA source review and test matrix are still part of Stage 0.
