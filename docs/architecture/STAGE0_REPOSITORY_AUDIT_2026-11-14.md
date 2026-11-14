@@ -120,6 +120,17 @@ Stage 0 — инвентаризация всего репозитория и д
 
 **Запрещено:** ставить READY только по наличию исходника, имени функции, комментария, успешной компиляции или наличию теста без фактического запуска.
 
+## 6.1 Verified source remediations on unmerged Draft PRs
+
+These are exact-head CI results, not main-branch acceptance:
+- F-001/F-009: PR #154, 43/43 PASS, run `43590094470`.
+- F-010: PR #155, 43/43 PASS, run `43590730265`.
+- F-012: PR #157, 43/43 PASS, run `43591626068`.
+- F-013/F-014: PR #158, 43/43 PASS, run `43592051859`.
+- F-015: PR #159, 43/43 PASS, run `43592382535`.
+
+Combined F-011/F-012 verification is running in PR #160; current-main F-002 fail-closed policy verification is running in PR #161. No PR has been merged.
+
 ## 7. Source-level findings
 
 Подтверждённые первичные findings вынесены в [STAGE0_SOURCE_FINDINGS_2026-11-14.md](STAGE0_SOURCE_FINDINGS_2026-11-14.md):
