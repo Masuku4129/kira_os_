@@ -377,16 +377,16 @@ static void uhci_ports(usb_hc_t* hc) {
 int uhci_start(usb_hc_t* hc, const void* pd) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
     if (nctl >= 8) { usb_log("[KIRA USB] more than 8 UHCI controllers: the rest are not used\n"); return -1; }
+    if (pci_disable_bus_master(p) != 0) {
+        usb_log("[KIRA USB] UHCI: cannot revoke firmware bus mastering\n");
+        return -1;
+    }
     if (!p->bar[4].io || !p->bar[4].base) { usb_log("[KIRA USB] UHCI without I/O BAR4: skipped\n"); return -1; }
     if (!ctl_state[nctl]) ctl_state[nctl] = (uhci_t*)usb_dma_alloc(sizeof(uhci_t), &(uint64_t){ 0 }, 0);
     if (!ctl_state[nctl]) { usb_log("[KIRA USB] UHCI: no memory for controller state\n"); return -1; }
     uhci_t* u = ctl_state[nctl];
     for (unsigned long i = 0; i < sizeof *u; i++) ((volatile uint8_t*)u)[i] = 0;
     u->io = (uint16_t)p->bar[4].base;
-    if (pci_disable_bus_master(p) != 0) {
-        usb_log("[KIRA USB] UHCI: cannot revoke firmware bus mastering\n");
-        return -1;
-    }
     pci_enable(p, PCI_CMD_IO | PCI_CMD_INTX_OFF);
     pci_write16(p, 0xC0, 0x8F00);                     /* LEGSUP: BIOS больше не перехватывает USB (SMI, эмуляция PS/2) */
 
