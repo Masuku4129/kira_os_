@@ -412,3 +412,10 @@
 
 
 - PR #158 first host run `43591902136` stopped before compiling the new test because its include path omitted `arch/aarch64`; added the missing `-Iarch/aarch64` flag. This was a test harness path error, not a PMM implementation result. Updated head `a0b0a722957cdc75e550ff4ee9de3e5835dd7d22`, workflow `43591985380` pending.
+
+
+### ADR-0003 — PMM ownership contract (2026-11-14)
+
+- Added `docs/adr/ADR-0003-pmm-reservation-and-atomic-block-release.md`.
+- Defines distinct free/allocated/reserved page ownership, rejects freeing reserved pages, requires all-or-nothing contiguous release, counts overlapping RAM regions once and requires x86-64/ARM64 behavioral parity.
+- Status remains Proposed while ARM64 implementation PR #158 completes exact-head verification; x86-64 F-001/F-009 fixes are verified on Draft PR #154.
