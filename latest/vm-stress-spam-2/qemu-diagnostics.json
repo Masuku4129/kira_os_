@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "log_scope": "QEMU guest_errors from process start; firmware and guest are both included",
+  "phase_boundary": "QEMU log byte offset captured when KIRA console prompt is first observed",
+  "phase_boundary_accuracy": "best-effort file-size snapshot; QEMU may buffer log writes; not a timestamped ownership boundary",
+  "logs": [
+    {
+      "path": "qemu.log",
+      "exists": true,
+      "log_bytes": 0,
+      "ready_boundary_bytes": 0,
+      "boundary_status": "available",
+      "invalid_reads_total": 0,
+      "invalid_reads_before_guest_ready": 0,
+      "invalid_reads_after_guest_ready": 0,
+      "invalid_writes_total": 0,
+      "invalid_writes_before_guest_ready": 0,
+      "invalid_writes_after_guest_ready": 0
+    }
+  ],
+  "ready_markers": [
+    {
+      "path": "qemu.log",
+      "event": "guest-ready",
+      "serial_offset": 5618,
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 5.407
+    }
+  ]
+}
