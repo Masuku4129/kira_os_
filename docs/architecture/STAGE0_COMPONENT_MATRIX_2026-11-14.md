@@ -369,3 +369,10 @@ This strategy changes test scheduling, not the acceptance standard. No feature i
 | PR #130, base v46/release-completion | validate loader modules against declared physical RAM | runs 43164087429 and 43164087483 succeeded | closed PR on divergent base |
 
 **Contract warning (F-028):** PR #12 and #46 both call the contract BootInfo v1, but their validators and FDT adapters differ. Canonicalize the stronger module-in-RAM and reservation behavior before adding the UEFI producer. Main still has direct MB2 and FDT paths; no common BootInfo integration is claimed.
+
+
+### PCI/UHCI exact-head workflow terminal correction
+
+- PR #125 exact head fee8c9aed19ffc37dab7fd599c2bd63bfc496924 / run 43613583149: 23 terminal jobs = 20 success, 1 failure (vm (0)), 2 skipped package jobs. All non-VM lanes and 9/10 VM shards passed; UHCI failed.
+- PR #165 exact head 7ad140cfadb51c4dacf809eca77fff60ff7fe12c / run 43613588426: 29/30 success; UHCI failed.
+- Neither candidate is green. Keep F-017/F-025 open and do not merge.
