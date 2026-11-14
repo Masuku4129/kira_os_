@@ -480,6 +480,7 @@ ALL.append(sc("drv-edu", "Ring 3 driver policy: DMA/MSI package is denied withou
     {"log": [r"\[KIRA DRV\] abad: SHA-256 не совпал с записью /drv/abad\.rec - драйвер НЕ запущен",
              r"\[KIRA DRV\] eduun: пакет отклонён \(установка не подтверждена пользователем\)",
              r"\[KIRA DRV\] edu: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
+             r"\[KIRA DRV\] edu: PCI quiesce verified \(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\)",
              r"\[KIRA DRV\] edunc: устройство .* 1234:11e8 -> драйвер запущен как drv-edunc \(pid \d+\), SHA-256 сверен, права: CAP_MMIO CAP_PCIDEV",
              r"drvedu: device .* no MSI",
              r"drvedu: 10!=3628800",
@@ -557,7 +558,8 @@ ALL.append(sc("drvget-rl", "drvget: HTTPS source validation, license/hash confir
     # Keep virtio-net for HTTPS/DHCP control traffic; RTL8139 is the target device whose Ring 3 DMA request must be denied.
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "virtio-net-pci,netdev=n0", "-netdev", "user,id=n1", "-device", "rtl8139,netdev=n1"]},
     {"sleep": 10},
-    {"log": [r"\[KIRA DRV\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен"]},
+    {"log": [r"\[KIRA DRV\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
+             r"\[KIRA DRV\] rl: PCI quiesce verified \(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\)"]},
     {"cmd": "drv", "forbid": [r"drv-rl pid"]},
     {"log_forbid": [r"rl: network interface registered", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
     {"responsive": "status", "within": 5},
