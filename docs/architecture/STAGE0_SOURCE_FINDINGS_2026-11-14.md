@@ -1857,3 +1857,11 @@ F-061 remains OPEN.
 3. Re-run exact-head host tests, x86 build, ARM64 build and QEMU matrix after any subsequent PR changes.
 
 **Disposition:** OPEN on main; candidate fix verified on draft PR #166.
+
+
+## F-064 — FDT host-test corpus does not cover accepted v16 and string-table boundaries
+
+**Severity:** HIGH — parser accepts FDT v16 headers but the only host fixture is version 17, leaving an accepted-format path untested.  
+**Scope:** current main `fdt.c` and `tests/fdt_test.c`.  
+**Evidence:** current-main source SHA `2e8541a28517cb4b6a5382566e99211c8350200a`; test SHA `3b00bda0822288fcf89b2042d4106180007bd3c0`. The fixture writes version 17 / last-compatible 16. No v16 fixture or tests for strings-block final-byte NUL, unterminated property names, `nameoff == size_dt_strings`, or malformed string offsets were found. `fdt_prop()` uses `streq(strs(fdt) + no, name)` after only `no < stsz`, so it relies on a NUL terminator inside the declared strings block that `fdt_valid()` does not validate. This is a boundedness defect candidate requiring regression reproduction before code changes.
+**Disposition:** OPEN — test gap and source risk recorded; no production fix applied. Related existing findings F-058/F-061/F-063 remain separate.
