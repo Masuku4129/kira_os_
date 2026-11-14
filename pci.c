@@ -176,11 +176,11 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t parent_limit) 
     d->revision = (uint8_t)cls; d->prog_if = (uint8_t)(cls >> 8); d->subclass = (uint8_t)(cls >> 16); d->class_code = (uint8_t)(cls >> 24);
     d->header_type = pci_read8(d, 0x0E);
 #ifndef KIRA_HOST_TEST
-    uart_print("[PCI TRACE] begin "); uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\\n");
+    uart_print("[PCI TRACE] begin "); uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\n");
 #endif
     probe_bars(d);
 #ifndef KIRA_HOST_TEST
-    uart_print("[PCI TRACE] probed "); uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\\n");
+    uart_print("[PCI TRACE] probed "); uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\n");
 #endif
     /* Clear firmware bus mastering before exposing host/endpoint/other functions
        to any driver. Preserve it only on PCI-to-PCI and CardBus forwarding bridges. */
@@ -190,7 +190,7 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t parent_limit) 
             pci_write16(d, 0x04, (uint16_t)(command & ~PCI_CMD_MASTER));
     }
 #ifndef KIRA_HOST_TEST
-    uart_print("[PCI TRACE] secured "); uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\\n");
+    uart_print("[PCI TRACE] secured "); uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\n");
 #endif
     if ((d->header_type & 0x7F) == 1 && d->class_code == 6 && d->subclass == 4) {
         uint8_t primary = pci_read8(d, 0x18);
