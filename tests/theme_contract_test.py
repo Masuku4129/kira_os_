@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Guard the Spatial Minimal palette and ensure default Legacy builds stay unchanged."""
+"""Guard the production Spatial Minimal palette and explicit Legacy compatibility palette."""
 from pathlib import Path
 import re
 
 source = Path(__file__).resolve().parents[1].joinpath("theme.h").read_text(encoding="utf-8")
-spatial = source.split("#ifdef KIRA_SPATIAL_PREVIEW", 1)[1].split("#else", 1)[0]
+spatial = source.split("#ifndef KIRA_LEGACY_THEME", 1)[1].split("#else", 1)[0]
 legacy = source.split("#else", 1)[1].split("#endif", 1)[0]
 
 spatial_expected = {
