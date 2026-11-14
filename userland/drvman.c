@@ -208,6 +208,13 @@ static int pkg_for_dev(const kdrv_pcient_t *e) {              /* подходя�
     return first;
 }
 
+static int pkg_named_for_dev(const char *name, const kdrv_pcient_t *e) {
+    if (!name || !name[0]) return -1;
+    for (int i = 0; i < npkg; i++)
+        if (!strcmp(pkg[i].name, name) && pkg_matches(&pkg[i], e)) return i;
+    return -1;
+}
+
 /* Состояние устройства словами; col - цвет. */
 static void dev_state(const kdrv_pcient_t *e, char *b, int cap, u32 *col) {
     *col = FG;
@@ -217,7 +224,8 @@ static void dev_state(const kdrv_pcient_t *e, char *b, int cap, u32 *col) {
     case KDRV_OWN_RING3: snprintf(b, (size_t)cap, "драйвер Ring 3 drv-%s запущен", e->name); *col = GREEN; return;
     default: break;
     }
-    int k = pkg_for_dev(e);
+    int k = pkg_named_for_dev(e->name, e);
+    if (k < 0) k = pkg_for_dev(e);
     if (k >= 0) { snprintf(b, (size_t)cap, "пакет %s установлен, не запущен", pkg[k].name); *col = AMBER; }
     else { snprintf(b, (size_t)cap, "драйвера нет"); *col = RED; }
 }
@@ -481,8 +489,8 @@ static void draw_confirm(void) {
     snprintf(b, sizeof b, "запрашиваемые права: %s", cs);
     text(x, y, b, FG, 66); y += CH;
     text(x, y, "права действуют только на устройство этого драйвера.", DIM, 66); y += CH + 6;
-    if (r->caps & CAP_DMA) {
-        text(x, y, "ВНИМАНИЕ: IOMMU нет. Устройство с DMA способно писать", RED, 66); y += CH;
+    if (r->caps & (CAP_DMA | CAP_IRQ)) {
+        text(x, y, "ВНИМАНИЕ: IOMMU нет. Пакеты с DMA/MSI не запустятся", RED, 66); y += CH;
         text(x, y, "в любую память; программно это не отключить. Ставьте", RED, 66); y += CH;
         text(x, y, "только драйверы, чьим исходникам вы доверяете.", RED, 66); y += CH;
     }
@@ -579,7 +587,7 @@ static void confirm_open(void) {                           /* окно подт�
     lg("drvman: подтверждение: источник %s\n", drvget_staged_url());
     lg("drvman: подтверждение: лицензия %s, права: %s\n", r->license, cs);
     lg("drvman: подтверждение: SHA-256 набора %s\n", drvget_staged_hash());
-    if (r->caps & CAP_DMA) lg("drvman: подтверждение: предупреждение: IOMMU нет, DMA-устройство может писать в любую память\n");
+    if (r->caps & (CAP_DMA | CAP_IRQ)) lg("drvman: подтверждение: IOMMU нет: DMA/MSI права заблокированы, пакет не запустится до изоляции устройства\n");
 }
 
 static void press(int id) {

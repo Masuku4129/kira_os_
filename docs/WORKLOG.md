@@ -270,3 +270,30 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+
+### F-002 — Ring 3 DMA/MSI fail-closed policy transplanted to current main baseline (2026-11-14)
+
+- Earlier PR #136 was based on `bbc7f7ab948e72511aed113b69043add10ec8350`; current audit baseline `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4` is three documentation-only commits ahead. To avoid leaving a security fix on a stale base, its source/test/scenario changes were transplanted onto a fresh branch from current `main`.
+- The policy rejects any Ring 3 package requesting `CAP_DMA` or `CAP_IRQ` unless a per-device IOMMU-isolation predicate is true. Current production call deliberately passes false because no IOMMU domain lifecycle exists in main.
+- On rejection, the PCI function is quiesced (MSI/MSI-X disabled and IO/MEM/BUS_MASTER command bits cleared) before the driver process is spawned. MMIO-only packages remain supported.
+- Updated x86-64 and ARM64 QEMU scenarios, package generation, drvget/drvman warnings and host policy tests. The tests preserve both negative DMA/MSI cases and positive MMIO-only behavior.
+- Exact-head CI has not yet run; no PASS claimed. PR #137's firmware bus-master handoff sanitization remains a separate required protection.
+
+
+### F-002 policy integration — exact-head CI failure analysis and corrections (2026-11-14)
+
+- First current-main PR #161 head `a15a0a9fa54df28ecba438c9ffd28348ac9c0579`, workflow `43593017450`, did not pass: three VM scenarios failed; no overall PASS claimed.
+- `apps-drvman`: the scenario expected the DMA/MSI policy denial for RTL8139, but the VM had no RTL8139 device attached. The artifact proved only 7 PCI devices were present and the driver manager had no matching 10ec:8139 endpoint. Added a dedicated RTL8139 device with a separate QEMU user network backend to exercise the real policy path.
+- `drvman-edu`: after stopping `edunc`, the PCI list discarded the last bound package name and the UI selected the first matching valid package (`edu`) instead. Preserved the last bound package identity in the PCI-list result and made Driver Manager prefer that identity for stopped devices; fallback remains matching installed package when the previous package has been removed.
+- `drvget-rl`: after relaunch the scenario replaced the original virtio network adapter with RTL8139 only. The DMA gate correctly denied RTL8139, so DHCP was absent. Updated relaunch to keep virtio-net for HTTPS/DHCP while attaching RTL8139 separately to verify that the latter is denied.
+- These are implementation/test-environment corrections, not waived assertions. Fresh exact-head CI is required after these changes.
+
+
+- Follow-up security review: the first fail-closed implementation attempted `quiesce()` but did not inspect PCI readback. Added `quiesce_verified()` to verify IO/MEM/BUS_MASTER command bits and MSI/MSI-X enable bits are actually clear; a failed readback now emits a CRITICAL diagnostic and a distinct lifecycle event while still refusing to spawn the driver. QEMU scenarios now assert successful quiesce readback for denied DMA/MSI packages.
+
+
+- Second PR #161 run `43593787066` showed the remaining `drvget-rl` failure was a test assertion scope issue: the scenario's global `log_forbid` rejected DHCP even though DHCP came from the separate virtio control NIC, not the blocked RTL8139. The serial artifact showed the RTL8139 DMA denial and successful PCI quiesce readback, plus DHCP from virtio-net. Removed only the invalid global DHCP prohibition; retained the explicit prohibition on `rl: network interface registered`. This preserves the actual security assertion without rejecting valid control-plane networking.
+
+
+- PR #161 exact-head run `43594252642` confirmed the quiesce readback and RTL8139 denial, but `drvman-edu` failed one assertion expecting a synchronous `доступ запрещён (-100)` result. Artifact serial proved the actual API is asynchronous: `drvget_ctl()` accepts the request, the kernel later denies it, and Driver Manager correctly reports that the driver did not start and that the kernel log contains the reason. Updated both Driver Manager scenarios to assert this real async status plus the kernel DMA/IOMMU denial, rather than an impossible synchronous error code. No security assertion removed.

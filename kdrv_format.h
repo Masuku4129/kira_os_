@@ -54,12 +54,13 @@ _Static_assert(sizeof(kdrv_header_t) == 136, "kdrv_header_t");
 _Static_assert(sizeof(kdrv_rec_t) == 216, "kdrv_rec_t");
 
 enum { KDRV_OK = 0, KDRV_E_SHORT = -1, KDRV_E_MAGIC = -2, KDRV_E_FORMAT = -3, KDRV_E_NAME = -4, KDRV_E_CAPS = -5,
-       KDRV_E_MATCH = -6, KDRV_E_SIZE = -7, KDRV_E_UNCONFIRMED = -8, KDRV_E_HASH = -9 };
+       KDRV_E_MATCH = -6, KDRV_E_SIZE = -7, KDRV_E_UNCONFIRMED = -8, KDRV_E_HASH = -9, KDRV_E_ISOLATION = -10 };
 
 /* Чистые функции (kdrv_fmt.c; проверяются на хосте). */
 int kdrv_header_check(const void* file, uint32_t len, kdrv_header_t* out);      /* заголовок корректен и файл ровно hdr_size + elf_size */
 int kdrv_rec_check(const void* rec, uint32_t len, kdrv_rec_t* out);             /* запись корректна и подтверждена пользователем */
 int kdrv_match_dev(const kdrv_header_t* h, uint16_t vendor, uint16_t device, uint32_t cls);   /* 1 - подходит */
+int kdrv_dma_policy_allow(uint32_t granted_caps, int device_isolated); /* DMA/MSI only with per-device IOMMU isolation */
 const char* kdrv_strerror(int err);
 
 /* ---- Договор драйвера с ядром (системные вызовы 48..54; номера не пересекаются с syscall.c) ---- */
@@ -99,7 +100,7 @@ typedef struct {
     uint16_t vendor, device;
     uint32_t cls;                          /* класс << 16 | подкласс << 8 | prog_if */
     uint8_t  bus, dev, fn, owner;          /* адрес BDF; owner - KDRV_OWN_* */
-    char     name[16];                     /* KDRV_OWN_RING3: имя пакета драйвера (процесс drv-ИМЯ); иначе пусто */
+    char     name[16];                     /* KDRV_OWN_RING3: работающий драйвер; owner NONE: последний привязанный пакет, если остановлен */
 } kdrv_pcient_t;
 enum { KDRV_OWN_NONE = 0,                  /* ни встроенного драйвера, ни работающего драйвера Ring 3 */
        KDRV_OWN_KERNEL = 1,                /* устройство такого типа обслуживает встроенный драйвер ядра (определяется по идентификатору и классу) */
