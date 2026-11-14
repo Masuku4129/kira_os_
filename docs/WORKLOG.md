@@ -799,3 +799,10 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 
 - PR #148 head `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`, workflow `43609627054`: 3/3 jobs succeeded (host-tests, x86 build, ARM64 build).
 - Manifest now parses explicit UELF additions and Android profile exclusions; verified counts: x86-64 25, ARM64 25, Android release 13. This is inventory guard coverage, not a claim of full semantic review.
+
+
+## 20. Kernel memory/scheduler integration exact-head CI — 2026-11-14
+
+- PR #154 head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110`: 30/30 jobs succeeded across host-tests, x86, ARM64 and full VM matrix.
+- UART oversized-line correction resolved the earlier `drv-edu` log assertion without weakening tests. Both `drv-edu` and `usb-uhci` pass on this exact head.
+- PR remains Draft; no main merge and no ISO build.
