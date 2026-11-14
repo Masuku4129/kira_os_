@@ -9,17 +9,12 @@ enum { HS_CH = 1, HS_SH = 2, HS_NST = 4, HS_EE = 8, HS_CERT = 11, HS_CV = 15, HS
 #define SUITE_CHACHA 0x1303
 #define SUITE_AES128 0x1301
 
-static u8 hs[40000]; static u32 hs_len;          /* собранные сообщения рукопожатия (могут идти через записи) */
-static sha256_ctx_t th;                           /* хэш переписки */
-static u8 certmsg[40000]; static u32 certmsg_len;  /* сообщение Certificate: цепочка сервера */
-static const u8* ocsp_p; static u32 ocsp_l;       /* ответ OCSP из записи листа */
-static const u8* cert_p[8]; static size_t cert_l[8]; static int cert_n;
 static x509_t leaf;
 
 static void cp(u8* d, const u8* s, u32 n) { for (u32 i = 0; i < n; i++) d[i] = s[i]; }
 static u32 be16(const u8* p) { return (u32)p[0] << 8 | p[1]; }
 static u32 be24(const u8* p) { return (u32)p[0] << 16 | (u32)p[1] << 8 | p[2]; }
-static void th_hash(u8 out[32]) { sha256_ctx_t c = th; sha256_final(&c, out); }
+static void th_hash(tls_t* t, u8 out[32]) { sha256_ctx_t c = t->transcript; sha256_final(&c, out); }
 static int fail(tls_t* t, const char* e) { t->err = e; t->state = -1; return -1; }
 
 /* Ключ и IV направления из секрета трафика: ChaCha20 - 32 байта ключа, AES-128-GCM - 16 (и развёрнутые раунды). */
@@ -59,7 +54,6 @@ static int read_record(tls_t* t, u8* type, u8* body, u32* len, u32 timeout_ms) {
     }
 }
 
-static u8 rec[16384 + 512];
 
 /* Расшифровать запись: внутренний тип и содержимое на месте. */
 static int open_record(tls_t* t, const u8* hdr, u8* body, u32 len, u8* itype, u32* plen) {
@@ -78,7 +72,7 @@ static int open_record(tls_t* t, const u8* hdr, u8* body, u32 len, u8* itype, u3
 }
 
 static int write_record(tls_t* t, u8 itype, const u8* p, u32 n) {
-    static u8 out[5 + 16384 + 1 + 16];
+    u8 out[5 + 16384 + 1 + 16];
     if (n > 16384) return -1;
     u32 L = n + 1 + 16;
     out[0] = CT_APP; out[1] = 3; out[2] = 3; out[3] = (u8)(L >> 8); out[4] = (u8)L;
@@ -115,18 +109,18 @@ static int next_hs(tls_t* t, int encrypted, u8* type, u32* blen, u32 timeout_ms)
         cp(hs + hs_len, rec, pl); hs_len += pl;
     }
 }
-static void hs_consume(u32 blen, int to_transcript) {
-    if (to_transcript) sha256_update(&th, hs, blen + 4);
-    u32 rest = hs_len - (blen + 4);
-    for (u32 i = 0; i < rest; i++) hs[i] = hs[blen + 4 + i];
-    hs_len = rest;
+static void hs_consume(tls_t* t, u32 blen, int to_transcript) {
+    if (to_transcript) sha256_update(&t->transcript, t->hs, blen + 4);
+    u32 rest = t->hs_len - (blen + 4);
+    for (u32 i = 0; i < rest; i++) t->hs[i] = t->hs[blen + 4 + i];
+    t->hs_len = rest;
 }
 
 static u32 put16(u8* p, u32 v) { p[0] = (u8)(v >> 8); p[1] = (u8)v; return 2; }
 
 int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* roots, u32 roots_len, i64 now,
                 const tls_ticket_t* resume) {
-    static tls_ticket_t tk; int use_tk = 0;                       /* копия: resume может лежать внутри самого t */
+    tls_ticket_t tk; int use_tk = 0;                       /* копия: resume может лежать внутри самого t */
     u32 hlen = 0; while (host[hlen]) hlen++;
     if (resume && resume->valid && resume->ticket_len && resume->ticket_len <= TLS_TICKET_MAX && hlen < sizeof tk.host) {
         tk = *resume; use_tk = 1;
@@ -136,8 +130,8 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     for (u32 i = 0; i < sizeof *t; i++) ((u8*)t)[i] = 0;
     t->now0 = now;
     if (hlen < sizeof t->host) for (u32 i = 0; i <= hlen; i++) t->host[i] = host[i];
-    t->sock = sock; t->state = 1; hs_len = 0;
-    sha256_init(&th);
+    t->sock = sock; t->state = 1; t->hs_len = 0;
+    sha256_init(&t->transcript);
 
     /* ---- ClientHello ---- */
     u8 rnd[96], priv[32], pub[32];
@@ -146,7 +140,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     t->weak_random = q == 0;
     cp(priv, rnd + 64, 32);
     x25519_base(pub, priv);
-    static u8 ch[512 + TLS_TICKET_MAX + 64];
+    u8 ch[512 + TLS_TICKET_MAX + 64];
     u32 n = 0, hl = 0; while (host[hl] && hl < 253) hl++;
     ch[n++] = HS_CH; n += 3;                                      /* длина - потом */
     ch[n++] = 3; ch[n++] = 3;
@@ -195,7 +189,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
         hmac_sha256(fk0, 32, trunc, 32, ch + bind_at + 3);
         crypto_wipe(bk, 32); crypto_wipe(fk0, 32);
     }
-    sha256_update(&th, ch, n);
+    sha256_update(&t->transcript, ch, n);
     u8 rh[5] = { CT_HS, 3, 1, (u8)(n >> 8), (u8)n };
     if (send_all(t, rh, 5) || send_all(t, ch, n)) return fail(t, "ClientHello not sent");
 
@@ -236,7 +230,7 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     hkdf_expand_label(early, "derived", empty, 32, der, 32);
     hkdf_extract(der, 32, shared, 32, hsec);
     crypto_wipe(shared, sizeof shared);
-    th_hash(h);
+    th_hash(t, h);
     hkdf_expand_label(hsec, "c hs traffic", h, 32, csec, 32);
     hkdf_expand_label(hsec, "s hs traffic", h, 32, ssec, 32);
     keys(t, ssec, 0);
