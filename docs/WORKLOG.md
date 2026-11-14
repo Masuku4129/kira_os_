@@ -364,3 +364,12 @@
 
 
 - Follow-up hardening: generation wrap is now rejected instead of reusing generation 1; counter exhaustion enters fail-closed wait. Host tests cover next-generation progression and UINT64_MAX rejection. Draft PR #155 head is `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; exact-head workflow `43590730265` queued.
+
+
+### F-011 — MMIO range overflow remediation (2026-11-14)
+
+- Source review found `vmm_map_mmio()` checked overflow of `pa + len` but then separately added `PAGE_SIZE - 1` for align-up without checking that second addition.
+- Added `vmm_mmio_range.h` with checked half-open range arithmetic; the helper rejects raw-end overflow, align-up overflow, null outputs, zero length and non-increasing aligned bounds.
+- Updated `vmm_map_mmio()` to use the checked page range and validated raw end.
+- Added `tests/mmio_range_test.c` for normal/cross-page ranges, final representable page, raw-end overflow and align-up overflow; wired into `tests/run_host_tests.sh`.
+- Draft PR #156 branch: `fix/mmio-range-overflow-2026-11-14`. Exact-head CI pending. No local test run claimed.
