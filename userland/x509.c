@@ -336,7 +336,7 @@ int x509_count(const uint8_t* roots, size_t rl) {
 
 int x509_verify_chain(const uint8_t* const* certs, const size_t* lens, int n, const uint8_t* roots, size_t roots_len,
                       const char* host, int64_t now, const char** why) {
-    static x509_t chain[8];
+    x509_t chain[8];
     if (n < 1) { *why = "no certificate"; return -1; }
     if (n > 8) n = 8;
     for (int i = 0; i < n; i++) if (x509_parse(certs[i], lens[i], &chain[i])) { *why = i ? "intermediate certificate is not valid DER/X.509" : "server certificate is not valid DER/X.509"; return -1; }
@@ -382,7 +382,7 @@ static int find_issuer(const x509_t* leaf, const uint8_t* const* certs, const si
 
 int x509_ocsp(const uint8_t* resp, size_t rlen, const uint8_t* const* certs, const size_t* lens, int n,
               const uint8_t* roots, size_t roots_len, int64_t now, const char** why) {
-    static x509_t leaf, iss, rc, o;
+    x509_t leaf, iss, rc, o;
     *why = 0;
     if (n < 1 || x509_parse(certs[0], lens[0], &leaf)) { *why = "OCSP: no server certificate"; return -1; }
     if (find_issuer(&leaf, certs, lens, n, roots, roots_len, &iss)) { *why = "OCSP: the issuer of the certificate is not available, response not checked"; return OCSP_NOASSURANCE; }
