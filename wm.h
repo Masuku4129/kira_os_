@@ -57,6 +57,8 @@ typedef struct {
 
 void wm_init(surface_t* screen, const wm_ops_t* ops); /* legacy-compatible entry point */
 void wm_init_mode(surface_t* screen, const wm_ops_t* ops, wm_layout_mode_t mode);
+/* Set a caller-owned 0x00RRGGBB wallpaper surface; NULL restores the theme background. */
+void wm_set_wallpaper(const surface_t* image);
 void wm_set_layout_mode(wm_layout_mode_t mode);
 wm_layout_mode_t wm_get_layout_mode(void);
 /* Spatial Minimal: временный обзор всех неприкреплённых окон, включая свёрнутые. */

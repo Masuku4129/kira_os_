@@ -32,6 +32,8 @@ typedef struct {
 } win_t;
 
 static surface_t* scr;
+/* Caller-owned desktop wallpaper; initialized before first composition. */
+static const surface_t* wallpaper;
 static wm_ops_t ops;
 static win_t win[WM_MAX_WIN];
 static int zorder[WM_MAX_WIN];
@@ -514,6 +516,7 @@ void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
     notification_head = notification_count = 0; notification_center_open = notification_toast_active = 0; notification_toast_until = 0; modal_release_guard = 0;
     win_generation = 0;
     scr = screen;
+    wallpaper = 0;
     ops = *o;
     for (int i = 0; i < WM_MAX_WIN; i++) win[i].used = 0;
     zcount = 0; dragging = -1; resizing = -1; capture = -1; prev_buttons = 0;
@@ -1347,16 +1350,25 @@ static void blit_content(surface_t* c, int dx, int dy, int dw, int dh, const win
 }
 
 static void draw_lights(surface_t* c, int x, int y, int hover) {
-    static const uint32_t col[3] = { TH_CLOSE, TH_MIN, TH_FULL };
+    /* Spatial glass controls: one neutral shape language, no legacy traffic-light dots. */
     for (int k = 0; k < 3; k++) {
-        int lx = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? x + 22 + k * 36 : x + 18 + k * 20;
+        int lx = x + 22 + k * 36;
         int ly = y + WM_HEAD / 2;
-        ui_disc(c, lx, ly, LIGHT_R, col[k], 255);
-        if (!hover) continue;
-        uint32_t g = 0x003A1010;
-        if (k == 0) { gfx_line(c, lx - 2, ly - 2, lx + 2, ly + 2, g); gfx_line(c, lx + 2, ly - 2, lx - 2, ly + 2, g); }
-        else if (k == 1) gfx_hline(c, lx - 3, ly, 7, g);
-        else { gfx_line(c, lx - 3, ly + 3, lx + 1, ly - 1, g); gfx_line(c, lx - 1, ly - 3, lx + 3, ly + 1, g); }
+        int bx = lx - 13, by = ly - 10;
+        uint32_t fill = hover ? ui_mix(TH_TILE, TH_CYAN, 38) : TH_TILE;
+        ui_round_rect(c, bx, by, 26, 20, 7, fill, hover ? 220 : 178);
+        ui_round_frame(c, bx, by, 26, 20, 7, TH_BORDER, 210);
+        uint32_t glyph = hover ? TH_TEXT : TH_TEXT_DIM;
+        if (k == 0) {
+            gfx_line(c, lx - 3, ly - 3, lx + 3, ly + 3, glyph);
+            gfx_line(c, lx + 3, ly - 3, lx - 3, ly + 3, glyph);
+        } else if (k == 1) {
+            gfx_hline(c, lx - 4, ly + 3, 9, glyph);
+        } else {
+            gfx_rect(c, lx - 4, ly - 4, 8, 8, glyph);
+            gfx_line(c, lx + 1, ly - 4, lx + 4, ly - 4, glyph);
+            gfx_line(c, lx + 4, ly - 4, lx + 4, ly - 1, glyph);
+        }
     }
 }
 
@@ -1369,9 +1381,9 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
         /* Spatial windows are quiet work surfaces: no neon perimeter glow or
            decorative title stripe. Keep the Legacy renderer below untouched. */
-        ui_round_rect(c, x, y, ow, oh, TH_RADIUS_SURFACE, TH_PANEL1, 255);
-        ui_round_rect(c, x, y, ow, WM_HEAD, TH_RADIUS_SURFACE, TH_BAR0, 255);
-        gfx_rect(c, x + 1, y + TH_RADIUS_SURFACE, ow - 2, WM_HEAD - TH_RADIUS_SURFACE, TH_BAR0);
+        ui_round_rect(c, x, y, ow, oh, TH_RADIUS_SURFACE, TH_PANEL1, 218);
+        ui_round_rect(c, x, y, ow, WM_HEAD, TH_RADIUS_SURFACE, TH_BAR0, 224);
+        /* Keep the title surface translucent; avoid an opaque rectangular fill. */
         if (!w->pinned) draw_lights(c, x, y, light_hover == id);
         gfx_rect(c, x + 12, y + WM_HEAD - 1, ow - 24, 1, TH_BORDER);
         ui_round_frame(c, x, y, ow, oh, TH_RADIUS_SURFACE,
@@ -1395,7 +1407,7 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
             if (max_sw < 24) max_sw = 24;
             if (sw > max_sw) sw = max_sw;
             int sx = x + ow - sw - 20;
-            ui_round_rect(c, sx, y + 7, sw + 12, 22, TH_RADIUS_CONTROL, TH_TILE, 255);
+            ui_round_rect(c, sx, y + 7, sw + 12, 22, TH_RADIUS_CONTROL, TH_TILE, 190);
             ui_text_fit(c, sx + 6, y + 10, sub, sw, TH_TEXT_DIM);
             right = sx - 8;
         }
@@ -1465,10 +1477,17 @@ static void draw_pill(surface_t* c, int ox, int oy, int fs, int show) {
     if (!show) { ui_round_rect(c, scr->w / 2 - 24 + ox, 4 + oy, 48, 4, 2, TH_CYAN, 110); return; }
     int x, y, pw, ph, n; pill_rect(w, &x, &y, &pw, &ph, &n);
     x += ox; y += oy;
-    ui_round_rect(c, x, y, pw, ph, 18, TH_BAR0, 240);
-    ui_round_frame(c, x, y, pw, ph, 18, ui_mix(TH_BORDER, TH_CYAN, 120), 255);
-    static const uint32_t col[3] = { TH_CLOSE, TH_MIN, TH_FULL };
-    for (int k = 0; k < n; k++) ui_disc(c, x + 12 + k * 36 + 18, y + 18, 8, col[k], 255);
+    ui_round_rect(c, x, y, pw, ph, 18, TH_BAR0, 218);
+    ui_round_frame(c, x, y, pw, ph, 18, ui_mix(TH_BORDER, TH_CYAN, 120), 230);
+    for (int k = 0; k < n; k++) {
+        int bx = x + 12 + k * 36 + 5, by = y + 8;
+        ui_round_rect(c, bx, by, 26, 20, 7, TH_TILE, 190);
+        ui_round_frame(c, bx, by, 26, 20, 7, TH_BORDER, 210);
+        uint32_t glyph = TH_TEXT_DIM;
+        if (k == 0) { gfx_line(c, bx + 8, by + 6, bx + 18, by + 14, glyph); gfx_line(c, bx + 18, by + 6, bx + 8, by + 14, glyph); }
+        else if (k == 1) gfx_hline(c, bx + 7, by + 14, 12, glyph);
+        else gfx_rect(c, bx + 8, by + 6, 10, 9, glyph);
+    }
 }
 
 static void meter_color(unsigned pct, uint32_t* c) { *c = pct < 60 ? TH_GREEN : pct < 85 ? TH_AMBER : TH_RED; }
@@ -1479,7 +1498,7 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         /* No full-width top bar: only a floating context capsule remains. */
         int gx = W >= 640 ? W - 270 : W - 56;
         int gw = W >= 640 ? 260 : 48;
-        ui_round_rect(c, gx + ox, y + 7, gw, 34, TH_RADIUS_CONTROL + 4, TH_BAR0, 244);
+        ui_round_rect(c, gx + ox, y + 7, gw, 34, TH_RADIUS_CONTROL + 4, TH_BAR0, 218);
         ui_round_frame(c, gx + ox, y + 7, gw, 34, TH_RADIUS_CONTROL + 4, TH_BORDER, 220);
         if (W >= 640) {
             ui_round_rect(c, gx + 7 + ox, y + 11, 62, 26, TH_RADIUS_CONTROL, TH_TILE, 255);
@@ -1578,7 +1597,7 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     int rail_x = 8 + ox, rail_y = 8 + oy;
     int rail_h = scr->h - 16;
     int tab_h = spatial_tab_height();
-    ui_round_rect(c, rail_x, rail_y, rail_w - 16, rail_h, TH_RADIUS_SURFACE, TH_BAR0, 242);
+    ui_round_rect(c, rail_x, rail_y, rail_w - 16, rail_h, TH_RADIUS_SURFACE, TH_BAR0, 222);
     ui_round_frame(c, rail_x, rail_y, rail_w - 16, rail_h, TH_RADIUS_SURFACE, TH_BORDER, 220);
 
     /* Brand and navigation header are part of the left workspace rail, not a top bar. */
@@ -1626,7 +1645,7 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     int tile = spatial_dock_tile(), pages = spatial_dock_pages();
     int width = spatial_dock_width();
     int dx = (scr->w - width) / 2 + ox, dy = spatial_dock_y() + oy - 8;
-    ui_round_rect(c, dx, dy, width, tile + 16, TH_RADIUS_SURFACE, TH_BAR0, 248);
+    ui_round_rect(c, dx, dy, width, tile + 16, TH_RADIUS_SURFACE, TH_BAR0, 224);
     ui_round_frame(c, dx, dy, width, tile + 16, TH_RADIUS_SURFACE, TH_BORDER, 255);
     if (pages > 1) {
         int cy = spatial_dock_y() + tile / 2 + oy;
@@ -1678,7 +1697,7 @@ static void system_percent(char* out, int value) {
 static void draw_system_panel(surface_t* c, int ox, int oy) {
     if (!system_panel_open || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
     int x, y, w, h; system_panel_rect(&x, &y, &w, &h);
-    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 255);
+    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 226);
     ui_round_frame(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BORDER, 255);
     gfx_text(c, x + 16 + ox, y + 12 + oy, "СИСТЕМА", TH_TEXT, -1);
     gfx_text(c, x + 16 + ox, y + 30 + oy, "Состояние устройства", TH_TEXT_DIM, -1);
@@ -1755,7 +1774,7 @@ static void draw_notification_toast(surface_t* c, int ox, int oy) {
     const wm_notification_t* n = &notifications[at];
     int x, y, w, h; notification_toast_rect(&x, &y, &w, &h);
     uint32_t col = notification_color(n->priority);
-    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 255);
+    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 226);
     ui_round_frame(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, col, 230);
     ui_round_rect(c, x + 10 + ox, y + 12 + oy, 4, h - 24, 2, col, 255);
     ui_text_fit(c, x + 24 + ox, y + 12 + oy, n->title, w - 42, col);
@@ -1764,7 +1783,7 @@ static void draw_notification_toast(surface_t* c, int ox, int oy) {
 static void draw_notification_center(surface_t* c, int ox, int oy) {
     if (!notification_center_open) return;
     int x, y, w, h; notification_center_rect(&x, &y, &w, &h);
-    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 255);
+    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 226);
     ui_round_frame(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BORDER, 255);
     gfx_text(c, x + 16 + ox, y + 14 + oy, "УВЕДОМЛЕНИЯ", TH_TEXT, -1);
     gfx_text(c, x + 16 + ox, y + 34 + oy, notification_count ? "Последние системные события" : "Новых событий нет", TH_TEXT_DIM, -1);
@@ -1892,8 +1911,55 @@ static void overview_button(surface_t* c, int ox, int oy, int x, int y, int w, c
     gfx_text(c, x + ox + (w - tw) / 2, y + oy + 10, label, enabled ? TH_TEXT : TH_TEXT_FAINT, -1);
 }
 
+static void draw_wallpaper(surface_t* dst, int origin_x, int origin_y) {
+    const surface_t* src = wallpaper;
+    if (!src || !src->px || src->w <= 0 || src->h <= 0 ||
+        !scr || scr->w <= 0 || scr->h <= 0) {
+        gfx_rect(dst, 0, 0, dst->w, dst->h, TH_BG0);
+        return;
+    }
+    int sw = src->w, sh = src->h;
+    int sx0 = 0, sy0 = 0, crop_w = sw, crop_h = sh;
+    if ((uint64_t)sw * (uint64_t)scr->h > (uint64_t)sh * (uint64_t)scr->w) {
+        crop_w = (int)((uint64_t)sh * (uint64_t)scr->w / (uint64_t)scr->h);
+        if (crop_w < 1) crop_w = 1;
+        sx0 = (sw - crop_w) / 2;
+    } else {
+        crop_h = (int)((uint64_t)sw * (uint64_t)scr->h / (uint64_t)scr->w);
+        if (crop_h < 1) crop_h = 1;
+        sy0 = (sh - crop_h) / 2;
+    }
+    /* Fixed-point nearest-neighbour mapping avoids a 64-bit divide per pixel.
+       This path is hit even for small cursor-damage redraws. */
+    uint64_t xstep = ((uint64_t)(unsigned)crop_w << 32) / (uint64_t)(unsigned)scr->w;
+    uint64_t ystep = ((uint64_t)(unsigned)crop_h << 32) / (uint64_t)(unsigned)scr->h;
+    for (int y = 0; y < dst->h; y++) {
+        int ay = origin_y + y;
+        if (ay < 0) ay = 0;
+        if (ay >= scr->h) ay = scr->h - 1;
+        int sy = sy0 + (int)(((uint64_t)(unsigned)ay * ystep) >> 32);
+        if (sy >= sy0 + crop_h) sy = sy0 + crop_h - 1;
+        uint32_t* out = dst->px + (long)y * dst->pitch;
+        const uint32_t* in = src->px + (long)sy * src->pitch;
+        int ax = origin_x;
+        if (ax < 0) ax = 0;
+        if (ax >= scr->w) ax = scr->w - 1;
+        uint64_t sx_fp = ((uint64_t)(unsigned)sx0 << 32) + (uint64_t)(unsigned)ax * xstep;
+        for (int x = 0; x < dst->w; x++, sx_fp += xstep) {
+            unsigned sx = (unsigned)(sx_fp >> 32);
+            if (sx >= (unsigned)(sx0 + crop_w)) sx = (unsigned)(sx0 + crop_w - 1);
+            out[x] = in[sx] & 0x00FFFFFFu;
+        }
+    }
+}
+
+void wm_set_wallpaper(const surface_t* image) {
+    wallpaper = (image && image->px && image->w > 0 && image->h > 0) ? image : 0;
+    if (scr) damage(0, 0, scr->w, scr->h);
+}
+
 static void draw_overview(surface_t* c, int ox, int oy) {
-    gfx_rect(c, 0, 0, c->w, c->h, TH_BG0);
+    draw_wallpaper(c, -ox, -oy);
     ui_round_rect(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BAR0, 255);
     ui_round_frame(c, 16 + ox, 42 + oy, scr->w - 32, scr->h - 58, 20, TH_BORDER, 255);
     gfx_text(c, 36 + ox, 58 + oy, "ОКНА", TH_TEXT, -1);
@@ -2033,7 +2099,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         blit_content(&clip, wn->x + WM_PAD + ox, wn->y + WM_HEAD + oy, disp_w(wn), disp_h(wn), wn);
     } else {
         if (start < 0) {
-            if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
+            if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) draw_wallpaper(&clip, x0, y0);
             else {
                 if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
                 else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
@@ -2121,7 +2187,11 @@ uint32_t wm_compose_par(void (*present)(int x, int y, int w, int h), uint64_t* p
         }
     }
     job_fs = fs; job_present = present;
-    if (runner) runner(run_job, 0, njobs);
+    /* Cursor and hover updates usually dirty only one or two tiles. Waking and
+       joining helper threads for such tiny jobs costs more than drawing them.
+       Keep small damage local to the display thread; parallelize only a
+       substantial frame update where the scheduling overhead can be amortized. */
+    if (runner && njobs >= 4 && px >= 65536) runner(run_job, 0, njobs);
     else for (uint32_t i = 0; i < njobs; i++) run_job(0, i);
     if (pixels) *pixels = px;
     return njobs;

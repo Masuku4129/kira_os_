@@ -44,11 +44,14 @@ enum { MIX_IRQ = 0x80, MIX_DMA = 0x81, MIX_ISTAT = 0x82 };
 #define BUFSZ 131072                         /* 128 КБ = 64 К слов: предел одного прохода 16-битного канала 8237 (~680 мс) */
 #define BUFPAGES (BUFSZ / 4096)
 #define ISA_DMA_TOP 0x1000000ull             /* 8237 адресует 24 бита */
+/* Keep one ISA-DMA-capable ring inside the kernel image when the loader places
+   the image below 16 MB. The boot module may consume the remaining low RAM. */
+static uint8_t sb_dma_static[BUFSZ] __attribute__((aligned(BUFSZ)));
 
 static struct {
     uint16_t base; uint8_t vmaj, vmin;
     int irq, dma8, dma16;
-    uint8_t* buf; uint64_t buf_p;
+    uint8_t* buf; uint64_t buf_p; int buf_static;
     uint64_t acks, pos_retries;
     uint16_t dma_addr, dma_cnt, dma_page;
 } sb;
@@ -84,6 +87,15 @@ static int dsp_reset(uint16_t base) {
 
 /* Кольцо: 32 страницы подряд ниже 16 МБ, начало кратно 128 КБ. Берём 64 страницы, лишнее с краёв возвращаем. */
 static uint8_t* dma_ring_alloc(uint64_t* phys) {
+    uint64_t static_pa = 0;
+    if ((((uintptr_t)sb_dma_static & (BUFSZ - 1)) == 0) &&
+        vmm_translate((uint64_t)(uintptr_t)sb_dma_static, &static_pa) == 0 &&
+        static_pa == (uint64_t)(uintptr_t)sb_dma_static &&
+        static_pa + BUFSZ <= ISA_DMA_TOP) {
+        for (uint32_t i = 0; i < BUFSZ; i++) sb_dma_static[i] = 0;
+        *phys = static_pa;
+        return sb_dma_static;
+    }
     uint64_t pa = pmm_alloc_contiguous(2 * BUFPAGES);
     if (!pa) return 0;
     if (pa + 2ull * BUFSZ > ISA_DMA_TOP) { pmm_free_contiguous(pa, 2 * BUFPAGES); return 0; }
@@ -178,6 +190,7 @@ int sb16_probe(void) {
     }
     sb.dma_addr = sb16_dma16_port_addr(sb.dma16); sb.dma_cnt = sb16_dma16_port_count(sb.dma16); sb.dma_page = sb16_dma16_port_page(sb.dma16);
     sb.buf = dma_ring_alloc(&sb.buf_p);
+    sb.buf_static = sb.buf == sb_dma_static;
     if (!sb.buf) { uart_print("[KIRA SB16] no 128 KB buffer below 16 MB aligned to 128 KB for ISA DMA.\n"); return -5; }
     uart_print("[KIRA SB16] Sound: Sound Blaster 16 DSP "); uart_print_dec(sb.vmaj); uart_print("."); uart_print_dec(sb.vmin);
     uart_print(" at port "); uart_print_hex(sb.base); uart_print(" (DSP reset answered), IRQ ");
@@ -191,8 +204,8 @@ int sb16_probe(void) {
     int rc = audio_attach(&card);
     if (rc != 0) {                                                /* карта не принята: остановить DMA и вернуть память */
         out_stop();
-        pmm_free_contiguous(sb.buf_p, BUFPAGES);
-        sb.buf = 0;
+        if (!sb.buf_static) pmm_free_contiguous(sb.buf_p, BUFPAGES);
+        sb.buf = 0; sb.buf_static = 0;
     }
     return rc;
 }

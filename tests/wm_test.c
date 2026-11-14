@@ -1,5 +1,6 @@
 #include "wm.h"
 #include "theme.h"
+#include "gfxui.h"
 #include "icons.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +28,15 @@ static void click(int x, int y) { move_to(x, y, 0); wm_mouse(0, 0, 1); wm_mouse(
 static void click_btn(int id, int which) { int bx, by; CHECK(wm_button_center(id, which, &bx, &by) == 0); click(bx, by); }
 static void click_side(int i) { int sx, sy; CHECK(wm_side_center(i, &sx, &sy) == 0); click(sx, sy); }
 static void frame(void) { wm_compose(&X, &Y, &X, &Y); }
+static int parallel_calls, present_calls;
+static void test_runner(void (*fn)(void*, uint32_t), void* ctx, uint32_t n) {
+    parallel_calls++;
+    for (uint32_t i = 0; i < n; i++) fn(ctx, i);
+}
+static void test_present(int x, int y, int w, int h) {
+    (void)x; (void)y; (void)w; (void)h;
+    present_calls++;
+}
 
 /* Отсечение закрытых слоёв даёт ту же картинку, что полная перерисовка с нуля. */
 static void same_as_full(surface_t* scr, const char* what) {
@@ -64,6 +74,20 @@ int main(void) {
     /* содержимое лежит со смещением (поля, заголовок); B выше A */
     CHECK(px(&scr, 400, 200) == 0x0000BB00);
     CHECK(px(&scr, 320, 140) == 0x00AA0000);
+
+    /* Large desktop damage may use helpers; cursor-only damage must stay local
+       and avoid waking/joining parallel compositor workers. */
+    wm_set_runner(test_runner);
+    parallel_calls = present_calls = 0;
+    wm_invalidate_all();
+    uint64_t composed_pixels = 0;
+    CHECK(wm_compose_par(test_present, &composed_pixels) > 4);
+    CHECK(parallel_calls == 1 && present_calls > 0 && composed_pixels >= 1024u * 768u);
+    parallel_calls = present_calls = 0;
+    move_to(600, 600, 0);
+    CHECK(wm_compose_par(test_present, &composed_pixels) > 0);
+    CHECK(parallel_calls == 0 && present_calls > 0 && composed_pixels < 65536u);
+    wm_set_runner(0);
     int ox, oy, sc;
     CHECK(wm_content_origin(a, &ox, &oy, &sc) == 0 && ox == 300 + WM_PAD && oy == 100 + WM_HEAD && sc == 1);
     /* фон нарисован (градиент, сетка, мозг), а не пустой чёрный; верхняя панель и боковая есть */
@@ -146,7 +170,7 @@ int main(void) {
     frame();
     CHECK(wm_content_origin(a, &ox, &oy, &sc) == 0 && sc == 5 && ox == (1024 - 1000) / 2 && oy == (768 - 500) / 2);
     CHECK(px(&scr, 512, 384) == 0x00AA0000);               /* центр - содержимое */
-    CHECK(px(&scr, 4, 700) == 0x0004070E);                 /* вне содержимого - тёмный фон без панелей */
+    CHECK(px(&scr, 4, 700) == TH_FULLSCREEN_BG);             /* вне содержимого - тема полноэкранного фона */
     /* панель кнопок сверху: курсор в зоне - появляется, третья кнопка - обратно */
     move_to(512, 20, 0); frame();
     click(446 + 12 + 2 * 36 + 18, 26);
@@ -321,6 +345,16 @@ int main(void) {
     /* Spatial Minimal is a real, opt-in layout; legacy remains the default. */
     wm_set_layout_mode(WM_LAYOUT_SPATIAL_MINIMAL);
     CHECK(wm_get_layout_mode() == WM_LAYOUT_SPATIAL_MINIMAL);
+    static uint32_t wallpaper_pixels[12] = {
+        0x00112233, 0x00223344, 0x00334455, 0x00445566,
+        0x00556677, 0x00667788, 0x00778899, 0x008899AA,
+        0x0099AABB, 0x00AABBCC, 0x00BBCCDD, 0x00CCDDEE
+    };
+    surface_t wallpaper_surface = { wallpaper_pixels, 4, 3, 4 };
+    wm_set_wallpaper(&wallpaper_surface);
+    frame();
+    CHECK(px(&scr, 512, 384) == wallpaper_pixels[6]); /* aspect-fit scaling reaches the expected source texel */
+    wm_set_wallpaper(0);
     frame();
     /* Spatial has no full-width top bar; the center canvas remains visually quiet. */
     CHECK(px(&scr, 500, 20) == TH_BG0);
@@ -339,7 +373,8 @@ int main(void) {
     int style_x, style_y;
     CHECK(wm_window_pos(spatial_style, &style_x, &style_y) == 0);
     CHECK(px(&scr, style_x + 140, style_y + WM_HEAD - 1) == TH_BORDER);
-    CHECK(px(&scr, style_x + 230, style_y + 12) == TH_BAR0);
+    /* Sample the flat center of the translucent title surface, away from the rounded corner. */
+    CHECK(px(&scr, style_x + 100, style_y + 30) != TH_BAR0); /* title is blended with the window beneath, not opaque */
     wm_destroy(spatial_style);
     frame();
 
@@ -426,7 +461,7 @@ int main(void) {
     wm_set_meters(panel_busy, 2, 65, 75);
     CHECK(wm_compose(&x, &y, &w, &h)); /* live telemetry invalidates the open panel */
     frame();
-    CHECK(px(&scr, 990, 70) == TH_BAR0); /* unobstructed panel interior, away from the title glyph */
+    CHECK(px(&scr, 990, 70) != TH_BAR0 && px(&scr, 990, 70) != TH_BG0); /* glass panel blends with the desktop beneath it */
     click(500, 300);
     CHECK(!wm_system_panel_is_open() && wm_top() == panel_under_top);
     wm_destroy(panel_under);

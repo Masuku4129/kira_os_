@@ -11,6 +11,7 @@
 #include "pmm.h"
 #include "uart.h"
 #include "wm.h"
+#include "wallpaper.h"
 #include "input.h"
 #include "experience.h"
 #include "gfxsrv.h"
@@ -786,11 +787,9 @@ int display_init(unsigned long mbi) {
     if (rc != 0) return rc;
     notify_head = notify_tail = 0;
     wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, on_launcher, on_workspace_changed, on_system_volume };
-#ifdef KIRA_SPATIAL_PREVIEW
+/* Spatial Minimal is the production desktop, not a preview-only code path. */
     wm_init_mode(fb_surface(), &ops, WM_LAYOUT_SPATIAL_MINIMAL);
-#else
-    wm_init(fb_surface(), &ops);
-#endif
+    kira_wallpaper_init();
     surface_t* fbs = fb_surface();
     w_con = wm_create_ex("Терминал", WM_AUTO, WM_AUTO, CON_W, CON_H, WM_RESIZABLE, fbs->w, fbs->h);   // можно растянуть до размера экрана
     if (w_con < 0) { uart_print("[KIRA DISPLAY] cannot allocate window surfaces.\n"); return -7; }
@@ -824,11 +823,7 @@ int display_init(unsigned long mbi) {
         return -6;
     }
     __atomic_store_n(&ready, 1, __ATOMIC_RELEASE);
-#ifdef KIRA_SPATIAL_PREVIEW
-    uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal preview, left navigation, pinned-only bottom Dock, quiet canvas.\n");
-#else
-    uart_print("[KIRA DISPLAY] Shell online: Legacy layout, top navigation, side launcher, apps Terminal / Mind / Files / Monitor / Settings.\n");
-#endif
+    uart_print("[KIRA DISPLAY] Shell online: Spatial Minimal desktop, glass panels, Dock, workspaces and contextual system controls.\n");
     return 0;
 }
 
