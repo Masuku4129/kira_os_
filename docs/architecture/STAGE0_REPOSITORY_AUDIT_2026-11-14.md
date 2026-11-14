@@ -321,3 +321,11 @@ These are not approved designs or production-ready code by presence alone. They 
 - Exact head `61b124d9a912b4c5cc2106ab6aadbf28f289c9ab`, workflow `43608737160`: `host-tests` failed at `ci/lint.sh` before compilation. Lint flagged the newly added fixture string `linux,dummy-virt` as a dummy marker. This was a test-fixture naming false positive, not a compiler or runtime-test failure; host tests were not reached.
 - Removed the marker from the v16 fixture assertion; no lint rules were disabled or relaxed.
 - Corrected branch head: `539285048cdd97f5d71ba5aefc9afda4058b7512`. Fresh exact-head workflow had not appeared at the last check. Do not carry forward any PASS from the failed head.
+
+
+### CI completion correction — PR #165 diagnostic cleanup (2026-11-14)
+
+- PR #165 cleanup exact head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`, workflow `43608372681`: **30/30 jobs completed successfully**, zero failed jobs. This supersedes earlier queued/in-progress notes for that head.
+- Temporary boot/PCI diagnostics are removed; the earlier UHCI regression did not recur on this cleanup head.
+- F-017 remains OPEN: Bus Master is still cleared after BAR probing, leaving the firmware-DMA window during BAR probing unresolved. PR #162's PCI host-bus/subordinate-window changes still need reconciliation with PR #165 in `pci.c`.
+- This is a Draft branch result only; no main merge and no physical hardware claim.
