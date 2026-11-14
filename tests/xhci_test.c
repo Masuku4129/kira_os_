@@ -287,7 +287,19 @@ static char logbuf[16384];
 void usb_log(const char* s) { strncat(logbuf, s, sizeof logbuf - strlen(logbuf) - 1); }
 void usb_log_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsigned long long)v); usb_log(b); }
 void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); usb_log(b); }
-void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; (void)b; }
+static uint16_t pci_command;
+static int bus_master_enable_calls;
+void pci_enable(const pci_dev_t* d, uint16_t b) {
+    (void)d;
+    if (b & PCI_CMD_MASTER) {
+        CHECK(!(*R(OP, 0) & 1u));             /* controller remains halted until all DMA registers are ready */
+        CHECK(R64(OP, 0x30) && R64(OP, 0x18) && R64(RT, 0x30));
+        bus_master_enable_calls++;
+    }
+    pci_command |= b;
+}
+int pci_disable_bus_master(const pci_dev_t* d) { (void)d; pci_command &= (uint16_t)~PCI_CMD_MASTER; return 0; }
+uint16_t pci_read16(const pci_dev_t* d, uint16_t off) { (void)d; return off == 0x04 ? pci_command : 0; }
 uint32_t pci_read32(const pci_dev_t* d, uint16_t off) { (void)d; (void)off; return 0; }
 void pci_write32(const pci_dev_t* d, uint16_t off, uint32_t v) { (void)d; (void)off; (void)v; }
 volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t len) { (void)d; (void)bar; (void)len; return regs + off; }
@@ -310,6 +322,7 @@ int main(void) {
     int rc = xhci_start(&hc, &pd);
     if (rc) printf("%s", logbuf);
     CHECK(rc == 0 && handoff_done && resets == 1 && running);
+    CHECK((pci_command & PCI_CMD_MASTER) && bus_master_enable_calls == 1);
     hc.ports(&hc);
     if (usb_hid_count() != 2) printf("%s", logbuf);
     CHECK(cmds_seen[9] == 2 && cmds_seen[11] == 2 && cmds_seen[12] == 2);
