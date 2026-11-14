@@ -305,6 +305,36 @@ Sources:
 2. Confirm malformed 64-bit BAR/firmware ranges fail without changing MMIO allocator state.
 3. Add a VM-side negative test if a suitable PCI/MMIO injection path exists.
 
+## F-012 — complete driver-start log record is split at the per-CPU line-buffer limit
+
+**Severity:** Low functional / medium observability and CI reliability  
+**Confidence:** High — QEMU serial artifact and exact source path  
+**Master-plan mapping:** B, G, N; streams 1, 6, 12.
+
+### Evidence
+
+- `linebuf.h` defines `LB_SIZE=192`; `lb_putc()` flushes immediately when the buffer reaches that size, even without a newline.
+- `kdrv.c` assembles the full driver-start record into a local `ln[320]` buffer and then passes it to streaming `uart_print()`. The record is longer than 192 bytes.
+- In PR #156 exact-head QEMU run `43591102543`, scenario `drv-edu` failed the expected log regex. The downloaded `vm-drv-edu` serial artifact shows the driver did start, MSI was enabled, DMA round-trip passed and the driver printed PASS; the kernel log record was split at the 192-byte boundary and another CPU's user log appeared between the chunks.
+- This is not evidence of driver-start failure; it is a real log atomicity defect and a CI observability false negative.
+
+Sources:
+- [linebuf.h, LB_SIZE=192](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/linebuf.h)
+- [linebuf.c, flush at LB_SIZE](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/linebuf.c)
+- [kdrv.c, complete record assembly and uart_print](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/kdrv.c#L238-L253)
+
+### Remediation on draft branch
+
+- Added `uart_print_atomic()` for already assembled complete strings; it uses the existing uart/klog/early-console lock and emits the whole record in one critical section.
+- Changed the driver-start record to use the atomic path; ordinary per-CPU streaming line buffers remain unchanged.
+- Draft PR #157; exact-head CI pending.
+
+### Required closure
+
+1. Exact-head QEMU `drv-edu` must pass and serial artifact must contain one contiguous driver-start record.
+2. Host/build/ARM64/full QEMU matrix must pass.
+3. Keep streaming line-buffer semantics unchanged for ordinary multi-call output.
+
 ## Verification ledger
 
 | Finding | Source reviewed | Runtime reproduction / branch evidence | Targeted regression evidence | Status |
@@ -318,7 +348,8 @@ Sources:
 | F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
 | F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
 | F-010 | x86-64 TLB shootdown timeout and late IPI handling | Draft PR #155 exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; CI run `43590730265` | 43/43 checks PASS, including host, ARM64 and QEMU SMP matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
-| F-011 | MMIO page-range overflow during page align-up | Source arithmetic review | Draft PR #156: checked helper + host regression; exact-head CI pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
+| F-011 | MMIO page-range overflow during page align-up | Source arithmetic review | Draft PR #156 exact head `cbad3a2198747867e72a02e811efa38133d1dd08`; CI run `43591102543` has one unrelated `drv-edu` log assertion failure; host/ARM64 still running | FIX IMPLEMENTED; CI ACCEPTANCE BLOCKED BY F-012, RERUN REQUIRED |
+| F-012 | Driver-start log line split at 192-byte buffer boundary | QEMU serial artifact from run `43591102543` confirms driver success but interleaved log | Draft PR #157: atomic complete-line output; exact-head CI pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
 | F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI 43/43 PASS; combined PR #154 integration pending | FIX VERIFIED ON DRAFT BRANCH; combined integration pending |
 
 No code was changed on `main` by this audit. All implementation changes remain in separate unmerged Draft PRs. No test was executed locally. Exact-head CI evidence from other PRs is branch-only and is not transferred to `main`.
