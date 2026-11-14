@@ -174,3 +174,19 @@
 ## Ограничение
 
 Этот реестр фиксирует метаданные PR (head/base refs и SHA). Он не является code review всех 65 diff и не доказывает, что PR совместимы, безопасны или готовы к merge. Source-level review и exact-head workflow audit остаются частью Stage 0.
+
+
+## 2026-11-15 refresh — audit PR #151 ancestry and current-main drift
+
+- Current `main` remains `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`.
+- Audit PR #151 current head: `0c28f4f689e15251822b80eb07f91da6c1d78bc7`; base remains pinned `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`.
+- GitHub compare of current main to audit head: `diverged`, audit branch **422 commits ahead / 6 behind**. GitHub reports `mergeable=false`.
+- The large ahead count is ancestry/history, not 422 changed files. The compare reports 22 changed paths, all documentation: audit/handoff/architecture/stage tracker/worklog/ADR/matrix files. No production source path is in this audit PR diff.
+- The six commits now on main after the pinned base are:
+  1. `8a9fd97` — TCP lifecycle candidate CI record;
+  2. `1944bc6` — KCC single-active compilation contract;
+  3. `b8560dc` — TCP socket state/wakeup synchronization;
+  4. `d2557ad` — revert restoring `net.c` after unintended default-branch write;
+  5. `12cf3fb` — WASM import validation and signed LEB change (introduces the F-062 current-main compile failure);
+  6. `3497f48` — gfx event queue serialization.
+- Decision: do not merge PR #151 or rewrite its history during Stage 0. It is a documentation-only PR, but its base/ancestry must be reconciled explicitly before any integration. Main remains untouched.
