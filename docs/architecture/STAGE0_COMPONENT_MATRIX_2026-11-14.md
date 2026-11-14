@@ -447,3 +447,17 @@ The canonical project ledger for eventual integration is the PR #148 set:
 - docs/PROJECT_STATUS/status_manifest.json + ci/check_project_status.py — pinned inventory and automated loss/build-list guard.
 
 Exact current PR #148 head bf35ca714526d38f5fdc3021c03b2bedf3ec2c99 passed workflow 43609627054 at **30/30**. This is the preferred source of truth for the user's three-section organization when integrating project controls; the Stage 0 three-bucket model above is a matching audit view, not a replacement. PR #148 remains Draft; main is unchanged.
+
+
+### Boot sequence comparison — architecture-specific, contract-equivalent
+
+| Dependency stage | x86-64 current main | ARM64 current main | Required verification |
+|---|---|---|---|
+| Firmware handoff | Multiboot2 relocation and early console | FDT validation and early PL011 discovery | bounded loader data, source provenance, malformed-input rejection |
+| CPU/interrupt foundation | GDT, per-CPU, PIC/IDT, FPU; later APIC/IOAPIC | MMU, GICv2/v3, generic timer, PSCI | exception entry, timer tick, interrupt routing and SMP startup |
+| Memory | MB2 map → PMM/VMM → null guard, SMEP/SMAP | FDT memory banks → MMU → ARM PMM and later reservations | no reserved page allocation, overflow-safe map, guard/fault tests |
+| Scheduler/process | heap/scheduler/process/syscall before filesystem/Mind | heap/scheduler and early SMP before process/syscall | ABI, context/FPU state, affinity, teardown, IPC |
+| Storage/services | experience → filesystem → life/Mind | PCI/storage → experience → filesystem → life/process/Mind | block readiness, KiraFS mount, persistence and failure recovery |
+| Device/UX | display/input/USB/network/audio before final timer/APIC/SMP completion | PCI/RNG/services, then display/input/USB/network/audio after SMP | device identity, DMA/IRQ policy, UI and I/O smoke tests |
+
+Do not require identical source order across ISAs. Require explicit prerequisite edges and equivalent user-visible contracts, then run the matching x86 and ARM64 scenario for each shared contract change.
