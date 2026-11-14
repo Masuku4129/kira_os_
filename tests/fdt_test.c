@@ -67,6 +67,7 @@ int main(void) {
 
     int uart = fdt_find_compatible(blob, -1, "arm,pl011");
     uint64_t a, s;
+    uint8_t bad[8192];
     CHECK(uart >= 0 && fdt_reg(blob, uart, 0, &a, &s) == 0 && a == 0x09000000 && s == 0x1000);
     CHECK(fdt_compatible(blob, uart, "arm,primecell") && !fdt_compatible(blob, uart, "arm,pl01"));
     int gic = fdt_find_compatible(blob, -1, "arm,cortex-a15-gic");
@@ -106,7 +107,6 @@ int main(void) {
           fb.stride == 3200 && !strcmp(fb.format, "a8r8g8b8"));          /* выключенный узел пропущен */
 
     /* испорченные блобы */
-    uint8_t bad[8192];
     memcpy(bad, blob, sizeof bad); be(bad, 0x12345678); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 4, 100000); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 36, total); CHECK(!fdt_valid(bad, sizeof bad));
