@@ -720,3 +720,12 @@ Different source heads mean this is not a controlled A/B. The contrast strengthe
 | UHCI startup | Allocates controller state + 13-page DMA schedule; failure returns without a DMA release; controller index advances only on success | Startup allocation transaction; fail each allocation/halt/reset stage, then start a second controller and verify memory accounting and Bus Master state |
 | xHCI startup | Allocates controller state, DCBAA, command/event rings, ERST and optional scratchpad array/pages; failure returns without releasing prior allocations | Transactional allocation ownership; fail each stage and prove safe halt, no DMA pointers exposed, reclaim/quarantine semantics and second-controller startup |
 | Shared USB DMA allocator | \x60usb_dma_alloc()\x60 has no matching release API; platform-pool allocations may be bump-only | Define allocator-specific release/quarantine contract; never free pages until device DMA is impossible |
+
+
+### FDT string-property value bounds (F-058)
+
+| Consumer | Current behavior | Required closure |
+|---|---|---|
+| `fdt_count_type()` / `device_type` | Uses unbounded `streq()` after checking only that the declared property length is nonzero | Bounded NUL-termination check; malformed-value tests under ASan/UBSan |
+| `fdt_node_enabled()` / `status` | Uses unbounded `streq()` without checking for NUL within the declared property length | Same bounded string helper and malformed-value tests |
+| `fdt_compatible()` | Already iterates within the property length | Retain bounded behavior; include regression test to prevent weakening |
