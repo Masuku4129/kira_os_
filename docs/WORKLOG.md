@@ -1296,3 +1296,10 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - QEMU `usb-uhci` artifact contains 393,600 invalid reads at 0x0/4/8/C; same-branch `boot-virtio` no-USB control has no QEMU guest_errors. The UHCI log is fully populated by the driver-start marker and does not grow after guest-ready. File-size offsets are best-effort due QEMU buffering.
 - Likely mechanism: the controller continues trying to fetch its old frame list while BM is revoked; QEMU rejects the accesses. This is not proof of successful DMA or memory corruption.
 - Required next fix: quiesce UHCI immediately after BM revocation during PCI enumeration, with bounded HCHalted polling and mocked-port host tests. Keep BM off if quiesce fails.
+
+
+## 70. UDP transmit error-path audit — 2026-11-14
+
+- Traced the documented `netdev_t.send` return contract and both production NIC send callbacks (`e1000.c`, `virtio_net.c`): queue/buffer exhaustion returns a negative error.
+- Confirmed `eth_send()`, `ip_send()` and `ip6_send()` propagate that error, but `udp_xmit()` discards the `ipa_send()` result and returns the payload length unconditionally.
+- Recorded F-060 with required error propagation and fake-netdev IPv4/IPv6 tests. No runtime test or production fix is claimed.
