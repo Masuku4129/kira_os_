@@ -1714,3 +1714,22 @@ Clearing Bus Master prevents the device from successfully accessing guest memory
 4. Re-run QEMU `usb-uhci` and require the raw `guest_errors` log to be clean or limited to a documented bounded transition; preserve the no-USB control.
 
 F-057 remains OPEN. This finding is separate from F-054's late BM re-enable ordering and F-025's unresolved DMA log anomaly.
+
+
+## New finding F-060 — UDP transmit reports success after link-layer enqueue failure (2026-11-14)
+
+**Severity:** MEDIUM syscall result correctness / silent datagram loss.
+
+### Evidence
+- `netdev_t.send` documents a zero return as successful handoff to the NIC; both `e1000.c::send()` and `virtio_net.c::send()` return a negative error when their transmit ring/buffers are unavailable.
+- `eth_send()` propagates the NIC driver's return value, and `ip_send()` / `ip6_send()` propagate an `eth_send()` failure.
+- `udp_xmit()` calls `ipa_send(...)` but discards its return value, then unconditionally returns the payload length. Therefore UDP SEND/SENDTO can report all bytes sent when the NIC explicitly rejected the frame because its TX queue is full or the frame could not be enqueued.
+- The existing `tests/net_test.c` does not test transmit propagation or UDP syscall behavior.
+
+### Required closure
+1. Propagate `ipa_send()` failures from `udp_xmit()` to the syscall caller; define clearly whether a positive byte count means local NIC-queue acceptance, not remote delivery.
+2. Add a fake netdev whose send callback deterministically returns success and failure; test IPv4 and IPv6 UDP send result propagation.
+3. Test e1000/virtio TX-ring-full paths and verify syscall reports failure rather than payload-length success.
+4. Keep asynchronous network delivery semantics distinct from local enqueue success; do not imply remote receipt without an acknowledgement protocol.
+
+**Evidence boundary:** source-confirmed ignored error path. No runtime reproduction or packet delivery claim is made; no production code was changed.
