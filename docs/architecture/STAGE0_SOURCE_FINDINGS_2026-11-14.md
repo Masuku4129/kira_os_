@@ -286,6 +286,7 @@ If a remote CPU does not acknowledge before timeout, its stale translation may r
 - It then computes `last = (pa + len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1)`. The second addition can overflow even when the first `pa + len` did not.
 - If the result wraps, `last - first` can become zero or a small wrapped extent; subsequent mapping and overlap accounting no longer describe the requested physical range.
 - The path is used for device MMIO/BARs and other hardware register mappings. Physical addresses near the top of the 64-bit range are not valid on ordinary current systems, but malformed/untrusted firmware or device metadata must be rejected explicitly rather than relying on typical address width.
+- ARM64 has a separate implementation that checks raw addition overflow and enforces its 48-bit mapping limit; this F-011 arithmetic defect is specific to the x86-64 helper path.
 
 Sources:
 - [vmm_map_mmio(), lines 169–185](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/vmm.c#L169-L185)
