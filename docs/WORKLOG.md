@@ -507,3 +507,11 @@
 - Reviewed current x86-64 Multiboot2 entry (`kernel_main(magic, addr)`, including high-address MBI relocation) and ARM64 FDT entry (`arm_main(dtb, entry_el)`, which currently parses RAM, reserved-memory, framebuffer, PSCI/GIC and PCI host data directly).
 - Added proposed ADR-0006 defining immutable/versioned BootInfo, normalized memory-map ownership, bounded optional firmware/module/framebuffer/command-line/DMA/IOMMU records, physical-range validation, source lifetime and adapter responsibilities.
 - Updated F-004 in the source findings ledger. This is documentation/contract work only; no implementation or acceptance is claimed. Existing boot paths remain unchanged.
+
+
+### F-008 — scheduler guarded-stack policy hardened on Draft PR #164 (2026-11-14)
+
+- Removed production fallback from guarded `vmm_kstack_alloc()` to unguarded `kmalloc()`; guarded-window exhaustion now causes thread creation to fail closed.
+- Clear the full stack allocation before installing its canary and publishing the thread, preventing stale stack contents from carrying across reuse.
+- Added a scheduler host regression for zeroed stack body and updated the `kstack.h` contract.
+- Exact-head CI pending; no PASS claimed. Production guarded-window exhaustion still needs explicit integration coverage.
