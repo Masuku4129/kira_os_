@@ -1030,3 +1030,42 @@ F-031 remains OPEN. This is a separate manager-level flaw in addition to the bui
 6. Add adversarial tests for threshold oscillation, multiple concurrent memory events, and process exit racing with the kill callback.
 
 F-032 remains OPEN. Do not describe the current heuristic as safe general autonomous AI process management.
+
+
+## New finding F-033 — FAT flush discards the underlying block-device flush error (2026-11-14)
+
+**Severity:** HIGH data-integrity reporting defect.
+
+### Evidence
+- In current-main fat.c, fat_flush() writes the dirty FAT sectors and FSInfo, then calls v->dev->flush(v->dev) if available but discards its return value and unconditionally returns 0.
+- fat_write(), fat_mkdir(), fat_unlink() and vfs_flush() rely on fat_flush() to report persistence completion. A device cache flush failure can therefore be reported as success even though durable media ordering is not confirmed.
+- tests/fat_test.c supplies a memory block device with no flush callback, so the FAT suite does not exercise this failure. tests/store_test.c does test a flush failure for the separate store module; that does not cover fat_flush().
+- This is a source-confirmed defect; no runtime media failure was needed to identify the lost error.
+
+### Required closure
+1. Return the exact nonzero device flush result as KFS_ERR_IO (and record device health) from fat_flush().
+2. Add a fake block device with a controllable flush callback to tests/fat_test.c. Verify fat_flush(), fat_write(), mkdir/unlink and vfs_flush propagate the failure.
+3. Test failure at each persistence boundary (FAT copy write, FSInfo write, device flush) and remount the image to check consistency.
+4. Do not report an external volume as safely flushed/ejected if the flush operation failed.
+
+F-033 remains OPEN.
+
+
+## New finding F-034 — VFS root enumeration and availability checks read mount entries without their per-volume locks (2026-11-14)
+
+**Severity:** MEDIUM concurrency/lifetime race.
+
+### Evidence
+- vfs_mount_fat(), vfs_unmount(), vfs_unmount_try(), vfs_flush(), vfs_mounts() and per-volume operations protect each mount slot with lk[i].
+- In contrast, vfs_any() reads mnt[i].used without taking lk[i], and the root-directory branch of vfs_list() reads mnt[i].used and publishes the corresponding /usbN entry without locking that slot.
+- A concurrent mount/unmount can change a slot while these reads occur. The result can be a stale or inconsistent root listing/availability answer; the code does not establish a coherent snapshot.
+- The VFS root path and mount operations are reachable from separate processes/threads, so this is not inherently single-threaded.
+- The per-volume FAT operations themselves are serialized by the slot lock. The finding is specifically the unlocked global/root observations, not a claim that all VFS operations are unprotected.
+
+### Required closure
+1. Take each slot lock while reading used/vol/label/description, or build a bounded consistent mount snapshot under a documented lock order.
+2. Ensure root listing does not invoke callbacks while holding a lock if callbacks can re-enter VFS; copy slot presence to a local array under locks, then invoke callbacks after unlock.
+3. Add concurrent mount/unmount versus vfs_any()/root-vfs_list() host and kernel tests, including slot reuse.
+4. Document the VFS lock order relative to FAT/block-device locks.
+
+F-034 remains OPEN.
