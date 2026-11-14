@@ -643,6 +643,7 @@ int net_dns(const char* name, uint32_t* ip) {
     return -6;
 }
 
+/* TCP lifecycle synchronization work-in-progress. */
 /* ---------- TCP ----------
    Соединения ядра - исходящие (tcp_connect) и входящие (tcp_listen + tcp_accept). Передача - окном: в пути сколько
    позволяет окно собеседника и кольцо отправки (16 КБ), сегментами по MSS; по сроку повторяется первый
