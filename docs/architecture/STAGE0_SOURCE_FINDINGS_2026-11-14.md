@@ -34,7 +34,10 @@ A duplicate or interior-pointer release can corrupt the free list and make the s
 - PR #132 is based on `v46/unified-release-integration`, not current main. It must not be merged or copied wholesale without reconciling its full diff and dependencies.
 - At this audit snapshot, PR #132 head `2b8569ad1baf8596e48c81ebebcdcefe8fae859d` has no check-runs. The PR itself says no isolated allocator host test previously existed; the added helper test is not a complete integration test of the production allocator.
 - Current main `tests/run_host_tests.sh` has no kernel-stack slot lifecycle test.
-- A separate main-based fix is now tracked in [PR #152](https://github.com/Masuku4129/kira_os_/pull/152). It adds shared exact-base/ownership helpers for both ISAs and a host regression test. At head `8358d14850ff48f0a710486106a550e01701f2a5`, workflow `43585911384` is in progress; no PASS is claimed.
+- Initial main-based remediation is in [PR #152](https://github.com/Masuku4129/kira_os_/pull/152). Its active-bitmap-only version passed host tests and architecture builds but had an `apps-drvman` QEMU regression.
+- Combined [PR #154](https://github.com/Masuku4129/kira_os_/pull/154) also reproduced that regression, isolating it to F-001 stack-slot changes; PMM-only PR #153 passed the same scenario.
+- Active-bit ownership alone does not prevent ABA: a delayed free from an old owner can arrive after the slot has been reused. The latest PR #154 adds a 64-bit generation per slot, passes it through `vmm_kstack_alloc/free` and stores it in `thread_t`; a stale owner token cannot free a new owner's slot.
+- Latest generation-token head: `e299838c074604ee9cfeb734c819f84a2a5185ae`; exact-head CI run `43587913640` is in progress. No PASS is claimed yet.
 
 ### Additional x86-64 failure path
 
@@ -264,9 +267,9 @@ If a remote CPU does not acknowledge before timeout, its stale translation may r
 
 ## Verification ledger
 
-| Finding | Source reviewed | Runtime reproduction | Targeted regression in current main | Status |
+| Finding | Source reviewed | Runtime reproduction / branch evidence | Targeted regression evidence | Status |
 |---|---|---|---|---|
-| F-001 | x86-64 and ARM64 stack allocator | PR #152 exact-head QEMU stress scenarios pass (SMP, 8-CPU boot/soak, stress); `apps-drvman` QEMU scenario fails with unresolved package-list output truncation | Shared helper test passes under ASan/UBSan; x86-64 build and ARM64 build/scenario pass | FIX IMPLEMENTED WITH ACTIVE BITMAP; integration exposed an `apps-drvman` regression on PR #152 and combined PR #154. Per-slot generation tokens were added in latest PR #154 to reject stale frees after slot reuse; exact-head CI pending |
+| F-001 | x86-64 and ARM64 stack allocator | PR #152 active-bitmap version and combined PR #154 pre-generation version failed `apps-drvman`; PMM-only PR #153 passed it | Latest PR #154 adds 64-bit per-slot generations and ABA regression; exact-head CI run `43587913640` pending | FIX IN PROGRESS; do not accept until combined exact-head CI passes all scenarios |
 | F-002 | KDRV, syscall capability gate, ARM64 DMA/MSI paths | Not run in this session | PR #136/137 tests are branch-only | CONFIRMED SOURCE SECURITY GAP |
 | F-003 | PCI ECAM backend and scan root | Not run in this session | PR #139 tests are branch-only | CONFIRMED SOURCE DEFECT |
 | F-004 | x86-64 and ARM64 entry paths/tree | Not run in this session | No unified BootInfo test in main | ARCHITECTURE GAP |
@@ -274,6 +277,7 @@ If a remote CPU does not acknowledge before timeout, its stale translation may r
 | F-006 | ARCHITECTURE.md vs current sources/build/CI | Source/document comparison only | No docs consistency guard in main | CONFIRMED DOCUMENTATION DRIFT |
 | F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
 | F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
-| F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI pending | PR #153 exact-head CI 43/43 PASS; combined PR #154 integration CI pending |
+| F-010 | x86-64 TLB shootdown timeout and late IPI handling | Source and caller review | No timeout/late-IPI regression in main | CONFIRMED CRITICAL SMP MEMORY-SAFETY GAP |
+| F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI 43/43 PASS; combined PR #154 integration pending | FIX VERIFIED ON DRAFT BRANCH; combined integration pending |
 
-No code was changed by this audit. No test was executed locally. Exact-head CI evidence from other PRs is explicitly branch-only and is not transferred to main.
+No code was changed on `main` by this audit. All implementation changes remain in separate unmerged Draft PRs. No test was executed locally. Exact-head CI evidence from other PRs is branch-only and is not transferred to `main`.
