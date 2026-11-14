@@ -860,3 +860,11 @@ The latest push workflow for current `main` SHA `3497f48fe769dc61d90ee63da8cc7fc
 | `report` | — | SUCCESS | Reporting job only; does not make the workflow successful |
 
 This proves F-062 is not limited to the PR stack: the current main commit itself is not build-green. The source finding has been upgraded accordingly. No production change or merge was performed during Stage 0 audit.
+
+
+## 13. Requirement traceability and current-main build inventory (2026-11-15)
+
+- [Requirement traceability ledger](STAGE0_REQUIREMENT_TRACEABILITY_2026-11-15.md): 233 source-linked entries covering A–N subrequirements, 12 workstreams, legacy gates, release requirements and section 8 technology policy.
+- [Current-main inventory](STAGE0_CURRENT_MAIN_INVENTORY_2026-11-15.md): complete recursive tree comparison between pinned baseline and main @ `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`; 830 blobs, one added documentation file, no removed paths, three changed source/header paths.
+- Build-profile review confirms the documented Limbo delivery is a pair (`kira.iso` + `kira_disk.img`), not ISO-only; x86 Android release filtering and ARM64 profile differences require artifact-manifest verification.
+- Current-main push workflow `43643758138` fails x86 build, ARM64 and host tests due F-062. QEMU is skipped. No current-main green CI baseline can be claimed.
