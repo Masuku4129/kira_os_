@@ -4,7 +4,7 @@
 **Статус:** рабочая карта Stage 0; не является отчётом о готовности подсистем.  
 **База исходного аудита:** `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`.
 
-Цель — сохранить весь объём мастер-плана и назначить каждому направлению место в новой архитектуре Stage 0–13. Если требование затрагивает несколько этапов, оно не считается закрытым после выполнения только одного из них.
+Цель — сохранить весь объём мастер-плана и назначить каждому направлению место в новой архитектуре Stage 0–13. Если требование затрагивает несколько этапов, оно не считается закрытым после выполнения только одного из них. Для проверки на уровне каждого вложенного пункта создан [полный source-linked traceability ledger](STAGE0_REQUIREMENT_TRACEABILITY_2026-11-15.md) с исходными строками мастер-плана; ledger фиксирует маршрутизацию, но не доказывает реализацию.
 
 | Направление | Архитектурная зона | Основные Stage | Что обязательно сохранить/проверить |
 |---|---|---:|---|
@@ -73,3 +73,11 @@ These contracts are shared and must not be implemented as incompatible per-subsy
 ## 5. Current limitations of this map
 
 This is a requirement allocation document, not proof that all components have been audited or tested. The source audit and A–N reconciliation remain open. No new language or serialization library is claimed to be integrated. Physical hardware support remains unverified unless a specific device has independent evidence.
+
+
+## 6. Requirement-level traceability extension (2026-11-15)
+
+- Полный ledger: [`STAGE0_REQUIREMENT_TRACEABILITY_2026-11-15.md`](STAGE0_REQUIREMENT_TRACEABILITY_2026-11-15.md).
+- Он сохраняет 233 записи: все вложенные пункты A–N, 12 параллельных потоков, исторические integration gates, статусную политику, правила изменения плана, release requirements и технологическую политику §8.
+- Каждая запись имеет ID, исходную секцию/строку, целевые Stage и явный статус доказательства.
+- Это закрывает только перенос/трассировку требований. Проверка каждой записи по source files, build targets, runtime и тестам остаётся открытой частью Stage 0.
