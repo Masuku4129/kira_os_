@@ -519,3 +519,24 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - Stage 0 remains **43%**, as recorded by the network/TLS audit update in section 11. This CI recheck adds evidence but does not close a new source-audit domain or justify another percentage increase.
 - PR #151 remains a documentation-only Draft against main. Main SHA remains pinned; no production source changed, no PR merged and no ISO built.
 - Next diagnostic must split and log the PCI Command read and write separately, record the command value, and capture UHCI `USBCMD`/`USBSTS`/`FLBASEADD` before handoff. Keep the full 90-second acceptance test; use a separate short diagnostic profile for iteration.
+
+
+## 12. KCC compiler and Ring 3 runtime audit — 2026-11-14
+
+**Stage 0 progress: 46%.** This reflects source and test-harness review of the compiler, both code-generation targets, ELF output and the in-OS compiler application. It does not mean the compiler is fully accepted or that the test harness passed in this turn.
+
+### New finding
+- F-040 — KCC's public compile API and preprocessing/parser/IR/backend state are global mutable singletons. Concurrent calls are unsafe; the current Ring 3 app calls it serially, but the API does not document or enforce this contract.
+
+### Scope reviewed
+- Lexer, preprocessing directives/macro expansion, parser/type system, IR lowering and helper reachability.
+- x86-64 and AArch64 code generation, assembler/fixup paths and ELF segment construction.
+- Host CLI and Ring 3 cc integration, filesystem sandbox/header access, heap-backed growable arena and libc-lite runtime.
+- Reviewed test harness includes clang differential acceptance/value/output tests, x86-64 and AArch64 execution checks, compiler-in-Kira integration, ASan/UBSan, malformed-source fuzzing and large-input stress tests. The harness was read, not run in this pass.
+
+### Remaining work
+- Inspect the compiler's full supported-C conformance boundary, ABI/varargs/aggregate calling conventions and ELF loader compatibility on both architectures.
+- Audit libc-lite formatting/string/sort edge cases and syscall contracts used by the compiler app.
+- Continue with application runtime, WASM interpreter/JIT, package/loader and desktop UX integration.
+
+No production source changed. Main remains untouched; no PR merged; no ISO built.
