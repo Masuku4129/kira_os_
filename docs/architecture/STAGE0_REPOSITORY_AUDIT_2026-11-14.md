@@ -640,3 +640,15 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - Existing graphics rendering tests do not cover process-exit vs in-flight drawing/event access or physical-page reuse.
 
 No production source changed. Main remains untouched; no PR merged; no ISO built.
+
+
+## 21. KiraFS/FAT durability and allocation audit — 2026-11-14
+
+**Stage 0 progress: 58%.** Reviewed KiraFS mount/repair and write transaction paths, FAT allocation/freeing and the actual host fault-injection coverage.
+
+- F-047 — FAT chain allocation can leave allocated clusters behind if a FAT-sector write fails mid-allocation; rollback is incomplete on specific `fat_set()` errors.
+- F-048 — FAT unlink/replacement ignore cluster-chain release errors and can report success with incomplete reclamation.
+- F-033 rechecked: FAT device flush error is still discarded.
+- KiraFS crash-cutoff tests are substantial, but they do not test flush failure or concurrent filesystem callers; host locking is deliberately disabled in the test build.
+
+Source audit only; no production code modified. No tests claimed as run in this turn. Main untouched; no merge; no ISO build.
