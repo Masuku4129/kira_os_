@@ -1166,3 +1166,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - F-001 already records the separate ARM64 kernel-stack free-list ownership issue; it is not duplicated here.
 - QEMU ARM64 CI scenarios are defined in `ci/arm64_vm.py`, including SMP, EL2, GUI, storage, USB, crash and DMA-pool tests. This source review did not execute them or establish physical-board support.
 - No production code changed and no runtime tests were run in this audit pass.
+
+
+## 58. ARM64 DMA coherency and FDT parser security audit — 2026-11-14
+
+- Traced non-coherent ARM64 detection, pool carving/reservation, DMA allocator behavior and Ring 3 DMA guard. Confirmed F-050: VirtIO and USB allocators fall back to ordinary cacheable PMM pages when the non-cacheable pool is absent or exhausted; the platform coherency query itself is derived from pool existence, so pool-creation failure is misreported as coherent to the Ring 3 guard.
+- This can invalidate DMA data visibility on non-coherent boards. No runtime data-corruption reproduction was run; the finding is source-confirmed and requires forced-noncoherent fault-injection/QEMU validation.
+- Confirmed F-051: FDT property-name comparison is unbounded after checking only that its offset is inside the strings block. A missing NUL can make lookup read beyond the bounded block. Existing FDT tests do not cover this malformed-name case.
+- ADR-0004 remains a separate mandatory IOMMU policy gate; this audit does not treat the DMA pool as isolation.
+- No production code changed; no tests run in this source-only pass.
