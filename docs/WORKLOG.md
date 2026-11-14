@@ -291,3 +291,6 @@
 
 
 - Follow-up security review: the first fail-closed implementation attempted `quiesce()` but did not inspect PCI readback. Added `quiesce_verified()` to verify IO/MEM/BUS_MASTER command bits and MSI/MSI-X enable bits are actually clear; a failed readback now emits a CRITICAL diagnostic and a distinct lifecycle event while still refusing to spawn the driver. QEMU scenarios now assert successful quiesce readback for denied DMA/MSI packages.
+
+
+- Second PR #161 run `43593787066` showed the remaining `drvget-rl` failure was a test assertion scope issue: the scenario's global `log_forbid` rejected DHCP even though DHCP came from the separate virtio control NIC, not the blocked RTL8139. The serial artifact showed the RTL8139 DMA denial and successful PCI quiesce readback, plus DHCP from virtio-net. Removed only the invalid global DHCP prohibition; retained the explicit prohibition on `rl: network interface registered`. This preserves the actual security assertion without rejecting valid control-plane networking.
