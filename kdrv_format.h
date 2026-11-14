@@ -100,7 +100,7 @@ typedef struct {
     uint16_t vendor, device;
     uint32_t cls;                          /* класс << 16 | подкласс << 8 | prog_if */
     uint8_t  bus, dev, fn, owner;          /* адрес BDF; owner - KDRV_OWN_* */
-    char     name[16];                     /* KDRV_OWN_RING3: имя пакета драйвера (процесс drv-ИМЯ); иначе пусто */
+    char     name[16];                     /* KDRV_OWN_RING3: работающий драйвер; owner NONE: последний привязанный пакет, если остановлен */
 } kdrv_pcient_t;
 enum { KDRV_OWN_NONE = 0,                  /* ни встроенного драйвера, ни работающего драйвера Ring 3 */
        KDRV_OWN_KERNEL = 1,                /* устройство такого типа обслуживает встроенный драйвер ядра (определяется по идентификатору и классу) */
