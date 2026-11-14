@@ -10,4 +10,7 @@ pat='TODO|FIXME|XXX|HACK|stub|not implemented|unimplemented|NotImplemented|за�
 if echo "$d" | grep -inE "$pat"; then echo "lint: найдены признаки заглушек (выше)"; bad=1; fi
 if echo "$d" | grep -nE '\)\s*\{\s*(return\s+(0|-1|NULL);)?\s*\}\s*$'; then echo "lint: пустые функции или функции-только-возврат (выше): оправдать в отчёте или реализовать"; bad=1; fi
 [ $bad = 0 ] && echo "lint: чисто"
+
+# Keep the QEMU log parser covered in the existing PR host-tests gate.
+python3 -m unittest discover -s ci -p 'test_kira_vm_diagnostics.py' -v || bad=1
 exit $bad
