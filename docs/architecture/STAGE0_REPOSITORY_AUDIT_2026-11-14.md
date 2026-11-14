@@ -683,3 +683,12 @@ Source audit only; no runtime tests or hardware validation. No kernel changes, m
 - F-052 — ARM64 coherency detection can treat one node's `dma-coherent` property as platform-wide when no PCI host node exists. Mixed-coherency devices can therefore be misclassified.
 - F-030 remains a common integration blocker: multiple built-in drivers enable PCI Bus Master before reset/quiesce and before all DMA rings/queues are ready. No duplicate issue opened.
 - F-050/F-051/F-052 are source findings only; runtime tests have not been run for this pass. No production source changes, merges or ISO build.
+
+
+## 25. ARM64 firmware control review — 2026-11-14
+
+**Stage 0 progress: 62%.** Reviewed GICv2/v3 initialization, ITS/GICv2m MSI allocation, generic timer setup, CPU topology and PSCI secondary-core/power-control paths.
+
+- F-053 — PSCI unavailable is represented by -1, but the common dispatcher treats any nonzero value as HVC. CPU_ON is guarded; SYSTEM_OFF and SYSTEM_RESET are not. This can issue unsupported HVC calls on firmware without PSCI.
+- GICv2/v3 and ITS paths are source-reviewed only; no physical ARM64 or QEMU acceptance is claimed here.
+- No production source changes, merges or ISO build.
