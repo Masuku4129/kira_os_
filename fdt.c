@@ -15,17 +15,69 @@ static const char* strs(const void* fdt) { return (const char*)fdt + hdr(fdt, 3)
 
 static int streq(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 static unsigned slen0(const char* s, unsigned cap) { unsigned n = 0; while (n < cap && s[n]) n++; return n; }
+static uint64_t fdt_u64(const void* p) {
+    return ((uint64_t)fdt_u32(p) << 32) | fdt_u32((const uint8_t*)p + 4);
+}
+#define FDT_RESERVE_MAX 1024u
+
+/* Validate and measure the header's memory-reservation map. It is a bounded sequence
+   of 64-bit BE address/size pairs terminated by the all-zero pair. */
+static int reserve_map_scan(const void* fdt, uint32_t total, uint32_t* map_end, unsigned* count) {
+    uint32_t off = hdr(fdt, 4);
+    if (off < 40 || (off & 7u) || off > total || total - off < 16) return 0;
+    uint32_t pos = off;
+    unsigned n = 0;
+    while (pos <= total - 16) {
+        uint64_t addr = fdt_u64((const uint8_t*)fdt + pos);
+        uint64_t size = fdt_u64((const uint8_t*)fdt + pos + 8);
+        if (!addr && !size) {
+            if (map_end) *map_end = pos + 16;
+            if (count) *count = n;
+            return 1;
+        }
+        if (size && size > UINT64_MAX - addr) return 0;
+        if (++n > FDT_RESERVE_MAX) return 0;
+        pos += 16;
+    }
+    return 0;
+}
+static int ranges_overlap(uint32_t a, uint32_t ae, uint32_t b, uint32_t be) {
+    return a < be && b < ae;
+}
 
 int fdt_valid(const void* fdt, uint32_t max_len) {
     if (!fdt || hdr(fdt, 0) != FDT_MAGIC) return 0;
     uint32_t total = hdr(fdt, 1), so = hdr(fdt, 2), sto = hdr(fdt, 3), ver = hdr(fdt, 5);
-    uint32_t ss = hdr(fdt, 9), sts = hdr(fdt, 8);
+    uint32_t ss = hdr(fdt, 9), sts = hdr(fdt, 8), ro = hdr(fdt, 4), re = 0;
     if (total < 40 || (max_len && total > max_len) || ver < 16) return 0;
-    if (so >= total || ss > total - so || sto > total || sts > total - sto || (so & 3) || ss < 4) return 0;
+    if (so < 40 || sto < 40 || so >= total || ss > total - so ||
+        sto > total || sts > total - sto || (so & 3) || ss < 4) return 0;
+    if (!reserve_map_scan(fdt, total, &re, 0)) return 0;
+    if (ranges_overlap(so, so + sts, sto, sto + ss) ||
+        ranges_overlap(ro, re, so, so + sts) ||
+        ranges_overlap(ro, re, sto, sto + ss)) return 0;
     return 1;
 }
 
 uint32_t fdt_total_size(const void* fdt) { return hdr(fdt, 1); }
+
+int fdt_reserve_count(const void* fdt) {
+    uint32_t end;
+    unsigned count;
+    if (!fdt || !reserve_map_scan(fdt, hdr(fdt, 1), &end, &count)) return -1;
+    return (int)count;
+}
+
+int fdt_reserve_get(const void* fdt, unsigned idx, uint64_t* addr, uint64_t* size) {
+    if (!fdt || !addr || !size) return -1;
+    uint32_t total = hdr(fdt, 1), pos = hdr(fdt, 4);
+    unsigned count;
+    if (!reserve_map_scan(fdt, total, 0, &count) || idx >= count) return -1;
+    for (unsigned i = 0; i < idx; i++) pos += 16;
+    *addr = fdt_u64((const uint8_t*)fdt + pos);
+    *size = fdt_u64((const uint8_t*)fdt + pos + 8);
+    return 0;
+}
 
 /* Смещение следующего токена после токена в off; токен в *tok. -1 - выход за блок. */
 static int step(const void* fdt, int off, uint32_t* tok) {
