@@ -28,9 +28,10 @@
 
 ## Stage 0 — критерии закрытия
 
-- [ ] Полная инвентаризация всех tracked-файлов, сборочных целей, образов, ресурсов и генерируемых артефактов; размеры/manifest полной сборки зафиксированы.
+- [ ] Полная инвентаризация всех tracked-файлов, сборочных целей, образов, ресурсов и генерируемых артефактов; размеры/manifest полной сборки зафиксированы. Current-main tree comparison completed; actual built image and disk manifests still open.
 - [ ] File → subsystem → build target → test → runtime matrix без неучтённых файлов и orphaned production modules.
-- [ ] Все требования мастер-плана A–N и прежние 12 потоков сопоставлены с Stage 0–13; нет потерянных требований.
+- [x] Все требования мастер-плана A–N и прежние 12 потоков перенесены в source-linked traceability ledger и сопоставлены с Stage 0–13 (routing ещё требует verification по компонентам).
+- [ ] Проверить каждую запись traceability ledger по source/build/test matrix; подтвердить, что нет потерянных требований или ошибочного Stage mapping.
 - [ ] Полный PR/branch graph: каждый открытый PR классифицирован по ancestry, base/head SHA, diff, CI exact head, зависимости и риску потери уникального изменения.
 - [ ] Source-level аудит критических путей по всем подсистемам, не только найденных CI failures; findings имеют severity, точные файлы/строки, доказательство, remediation и тест закрытия.
 - [ ] CI/host/QEMU baseline привязан к SHA; Limbo и физическое железо указаны отдельно, неподтверждённые среды не называются проверенными.
@@ -47,10 +48,10 @@
 | ID | Пакет | Статус | Артефакт / следующий шаг |
 |---|---|---|---|
 | S0-01 | Целевая архитектура и карта Stage | PARTIAL | `KIRA_TARGET_ARCHITECTURE_AND_STAGE_PLAN_2026-11-15.md`; draft, требуется полный cross-check |
-| S0-02 | Crosswalk требований A–N | PARTIAL | `STAGE0_REQUIREMENTS_CROSSWALK_2026-11-15.md`; проверить отсутствие пропусков по исходному master plan |
-| S0-03 | Инвентаризация репозитория/build/test | IN PROGRESS | Component/file/build/test matrices; довести до актуального main и всех branch-only изменений |
+| S0-02 | Crosswalk требований A–N | PARTIAL — 233 source-linked records | `STAGE0_REQUIREMENT_TRACEABILITY_2026-11-15.md` содержит 135 вложенных требований A–N, 12 потоков, исторические gates, release и §8 policy. Осталось проверить каждый пункт по source/build/test matrix и уточнить Stage routing |
+| S0-03 | Инвентаризация репозитория/build/test | IN PROGRESS — current-main tree captured | `STAGE0_CURRENT_MAIN_INVENTORY_2026-11-15.md`: 830 blobs, no removed paths vs pinned baseline; 3 source files changed. ISO + KiraFS disk pair, x86 release filter and ARM64 profile asymmetry documented. Exact UELF/disk manifests and image hashes still missing |
 | S0-04 | PR/branch graph | PARTIAL | `STAGE0_OPEN_PR_GRAPH_2026-11-15.md`; 92 PR на момент снимка, ещё нет полного diff/ancestry/CI review каждого PR |
-| S0-05 | Source-level findings | IN PROGRESS | `STAGE0_SOURCE_FINDINGS_2026-11-14.md`; F-058/F-061/F-062/F-063 и остальные требуют triage/verification |
+| S0-05 | Source-level findings | IN PROGRESS — F-062 current-main CI break confirmed | `STAGE0_SOURCE_FINDINGS_2026-11-14.md`; current-main FDT/WASM findings and subsystem source audit remain open |
 | S0-06 | CI/test baseline | IN PROGRESS — CURRENT MAIN FAIL | Main SHA `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`, run `43643758138`: ARM64/host-tests/x86 build FAIL on F-062; QEMU skipped. Fix and exact-head rerun are required before baseline can be accepted |
 | S0-07 | ADR и technology decisions | IN PROGRESS | Сформировать ADR backlog и закрыть блокирующие контракты/решения |
 | S0-08 | Migration/dependency plan | NOT STARTED | По каждому Stage определить последовательность и rollback без потери функций |
@@ -63,3 +64,10 @@
 3. Не закрывать finding только потому, что fix существует в draft PR.
 4. Не считать branch-only реализацию частью main или релизного ISO.
 5. Любое изменение stage gate согласовывать через документированное решение; не удалять критерии ради ускорения.
+
+
+### Stage 0 evidence links added 2026-11-15
+
+- Requirement traceability: `architecture/STAGE0_REQUIREMENT_TRACEABILITY_2026-11-15.md` — 233 source-linked rows.
+- Current main tree/build profile: `architecture/STAGE0_CURRENT_MAIN_INVENTORY_2026-11-15.md` — recursive tree comparison, x86/ARM64 build-profile comparison, CI exact-head failure evidence.
+- Current main is not CI-green: F-062 is a confirmed build blocker on `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`.
