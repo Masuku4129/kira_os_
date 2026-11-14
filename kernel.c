@@ -38,6 +38,7 @@
 #include "experience.h"
 #include "irqmode.h"
 #include "mbinfo.h"
+#include "ramdisk.h"
 #include "earlycon.h"
 #include "spinlock.h"
 #include "rtc.h"
@@ -95,6 +96,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // Загрузчик (UEFI) мог положить Multiboot2-структуру выше 1 ГБ: переносим её в ядро
     // и сразу включаем раннюю консоль на экране, чтобы любой сбой дальше был виден.
     addr = mbinfo_relocate(magic, addr);
+    ramdisk_set_boot_info(addr);
     if (earlycon_init(addr) == 0) uart_print("[KIRA BOOT] Early console is on screen.\n");
 
     // Каждый модуль печатает "online" только после реальной проверки;
