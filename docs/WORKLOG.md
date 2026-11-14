@@ -1353,3 +1353,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed F-016 candidate PR #166 now includes FDT reserve-map parsing plus reserved-page ownership/atomic PMM release. Exact current PR head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, workflow `43610515593`: 30/30 jobs succeeded.
 - Added F-063: main accepts FDT v16 but interprets header word 9 as v17 `size_dt_struct`; PR #166 contains the version-aware calculation and v16 fixture. F-063 remains open on main pending integration.
 - No production source changed; evidence and candidate disposition recorded in Stage 0 findings.
+
+
+## #76 — Stage 0: подготовлен постоянный AI handoff и единый Stage tracker (2026-11-15)
+
+- Создан корневой `AI_HANDOFF.md`: обязательный порядок чтения, fresh-state procedure, правила работы, evidence policy, параллельное распределение задач и команда для продолжения без повторного сбора контекста.
+- Создан `docs/STAGE_TRACKER.md`: все Stage 0–13, зависимости, gate-критерии, текущие статусы и Stage 0 work packages/exit criteria.
+- Добавлены ссылки на handoff и tracker в `AGENTS.md` и `README.md`, чтобы новый агент находил их с первой минуты.
+- Текущий статус зафиксирован честно: Stage 0 IN PROGRESS; Stage 1–13 ожидают прохождения последовательных gates. Никакие будущие технологии не объявлены интегрированными.
+- Артефакты находятся в рабочей ветке `architecture/stage0-repository-audit-2026-11-14`; `main` не изменялся. Merge не выполнялся.
