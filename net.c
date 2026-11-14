@@ -41,6 +41,7 @@ void netcmd_ping6(const char* a) { (void)a; }
 void net_proc_gone(uint32_t pid) { (void)pid; }
 #else
 #include "sched.h"
+#include "proc.h"
 #include "timer.h"
 #include "clock.h"
 #include "uart.h"
@@ -661,7 +662,7 @@ typedef struct {
     int state, reset, fin_rcvd, fin_sent, accepted, listener;
     uint16_t generation, listener_generation;
     uint32_t refs, owner;
-    uint8_t retired, closing;
+    uint8_t retired, closing, reap_on_unpin;
     ipa_t rip, lip; uint16_t rport, lport; uint8_t mac[6];
     uint32_t iss, snd_una, snd_nxt, snd_wnd, rcv_nxt; uint16_t mss;
     uint8_t tx[TCP_TX]; uint32_t tx_len;
@@ -690,7 +691,10 @@ static tcb_t* tcp_pin(int handle) {
 static void tcp_unpin(tcb_t* t) {
     if (!t) return;
     uint64_t f = spin_lock_irqsave(&tlk);
-    (void)net_tcp_ref_release(&t->refs);
+    if (!net_tcp_ref_release(&t->refs) && !t->refs && t->reap_on_unpin && t->state == T_CLOSED) {
+        t->state = T_FREE; t->owner = 0; t->closing = 0; t->reap_on_unpin = 0; t->listener = -1; t->rto_at = 0;
+        if (t->generation == UINT16_MAX) t->retired = 1;
+    }
     spin_unlock_irqrestore(&tlk, f);
 }
 static tcp_listener_t* tcp_listener_pin(int handle, unsigned* slot_out, uint16_t* generation_out) {
@@ -777,7 +781,7 @@ static tcb_t* tcb_new(void) {                         /* вызывается т
         if (!net_tcp_slot_reusable(t->state == T_FREE, t->refs, t->retired)) continue;
         if (net_tcp_generation_advance(&t->generation, &t->retired)) continue;
         t->reset = t->fin_rcvd = t->fin_sent = t->accepted = 0; t->listener = -1; t->listener_generation = 0;
-        t->closing = 0; t->owner = 0;
+        t->closing = 0; t->reap_on_unpin = 0; t->owner = 0;
         t->rx_head = t->rx_tail = 0; t->tx_len = 0; t->rto_at = 0; t->tries = 0; t->dupacks = 0;
         t->mss = 536; t->snd_wnd = 0;
         return t;
@@ -967,7 +971,7 @@ static int tcp_connect_ipa(const ipa_t* dst, uint16_t port) {
 
     int handle = net_tcp_handle_make(slot, generation);
     if (!connected) {
-        t->state = T_FREE; t->rto_at = 0; t->closing = 0;
+        t->state = T_FREE; t->rto_at = 0; t->closing = 0; t->reap_on_unpin = 0;
         if (generation == UINT16_MAX) t->retired = 1;
     }
     spin_unlock_irqrestore(&tlk, f);
@@ -1051,7 +1055,7 @@ void tcp_unlisten(int handle) {
         if (t->listener == (int)slot && t->listener_generation == generation &&
             !t->accepted && t->state != T_FREE) {
             tcp_out(t, F_RST | F_ACK, t->snd_nxt, 0, 0);
-            t->state = T_FREE; t->rto_at = 0; t->listener = -1;
+            t->state = T_FREE; t->rto_at = 0; t->listener = -1; t->reap_on_unpin = 0;
             if (t->generation == UINT16_MAX) t->retired = 1;
         }
     }
@@ -1143,7 +1147,7 @@ void tcp_close(int h) {
         sched_sleep_ticks(1);
     }
     f = spin_lock_irqsave(&tlk);
-    t->state = T_FREE; t->owner = 0; t->closing = 0; t->listener = -1; t->rto_at = 0;
+    t->state = T_FREE; t->owner = 0; t->closing = 0; t->reap_on_unpin = 0; t->listener = -1; t->rto_at = 0;
     if (t->generation == UINT16_MAX) t->retired = 1;
     spin_unlock_irqrestore(&tlk, f);
     tcp_unpin(t);
@@ -1153,7 +1157,6 @@ void tcp_close(int h) {
    Соединение принадлежит процессу, который его открыл: чужой номер - отказ; при завершении процесса его соединения
    закрываются (net_proc_gone). Данные копируются через буфер ядра проверенными копиями (uaccess). */
 #include "uaccess.h"
-#include "proc.h"
 static int own(int64_t h) {
     if (h < 0 || h > INT32_MAX) return 0;
     unsigned slot; uint16_t generation;
