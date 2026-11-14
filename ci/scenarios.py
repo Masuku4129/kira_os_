@@ -477,6 +477,7 @@ ALL.append(sc("cc-native", "kcc на Кире: cc собирает C-прогр�
 ALL.append(sc("drv-edu", "Ring 3 driver policy: DMA/MSI package is denied without IOMMU; MMIO-only package runs, probes device, receives no IRQ/DMA rights, and is cleanly stopped/restarted after a crash", [
     {"log": BOOT_LOG},
     {"sleep": 6},
+    # A denial is accepted only with PCI config readback proving IO/MEM/BUS_MASTER and MSI/MSI-X are disabled.
     {"log": [r"\[KIRA DRV\] abad: SHA-256 не совпал с записью /drv/abad\.rec - драйвер НЕ запущен",
              r"\[KIRA DRV\] eduun: пакет отклонён \(установка не подтверждена пользователем\)",
              r"\[KIRA DRV\] edu: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
