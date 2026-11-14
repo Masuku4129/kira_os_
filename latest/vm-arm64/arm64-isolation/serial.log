@@ -1,0 +1,126 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA ARM64] RAM: 1024 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 44-bit physical addresses, RAM cached, devices non-executable
+[KIRA ARM64] interrupt controller GICv3: distributor 0x0000000008000000, redistributors 0x00000000080A0000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 1017 MB free pages; kernel heap and scheduler online (per-core ready queues, 72 thread slots)
+[KIRA GIC] ITS at 0x0000000008080000: LPIs on the boot core, device id bits 16 - PCI interrupts by message (MSI/MSI-X)
+[KIRA ARM64] generic timer verified: 95 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 4 of 4 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 4 of 4 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 2 function(s), 2 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 630884 bytes, prefix ed9baae0...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 2 device(s) found.
+[KIRA VIRTIO] Disk virtio-blk, 16 MB (PCI 0:1.0, virtio 1.0, completion by MSI-X interrupt).
+[KIRA DISK] vda: virtio-blk, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14484 KB free.
+[KIRA PROC] up to 16 programs at once (4 cores, 1024 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): СУББОТА, 14 НОЯБРЯ 2026 11:30
+[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.
+[KIRA NET] No supported network card: networking is off.
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+test isolation
+[TEST] two demo processes write the same address: each must see only its own value
+[KIRA PROC] pid 1 'demo' started from ELF: Ring 3, own address space, 3 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 1] demo: wrote my pid to a shared virtual address
+[KIRA PROC] pid 2 'demo' started from ELF: Ring 3, own address space, 3 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 2] demo: wrote my pid to a shared virtual address
+кира> [KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA TELEMETRY] t=1s health=100 load=12% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+[USER pid 1] demo: address spaces are isolated (PASS)
+[KIRA PROC] pid 1 'demo' finished, exit code 0, address space destroyed (20 pages returned to PMM).
+[USER pid 2] demo: address spaces are isolated (PASS)
+[KIRA PROC] pid 2 'demo' finished, exit code 0, address space destroyed (20 pages returned to PMM).
+[KIRA TELEMETRY] t=2s health=100 load=0% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+test atk
+[TEST] four hostile programs: kernel memory write, privileged instruction, kernel pointer to a syscall, jump into kernel code; each must be stopped, the kernel lives
+[KIRA PROC] pid 3 'atk-mem' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 3] attack: writing to kernel memory 0x40000000 ...
+[KIRA PROC] pid 3: data abort at PC 0x0000808000000060, address 0x0000000040000000 (ESR 0x000000009200004D): process terminated, the kernel keeps running.
+[KIRA PROC] pid 3 'atk-mem' finished, exit code -1 (killed), address space destroyed (19 pages returned to PMM).
+[KIRA PROC] pid 4 'atk-priv' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 4] attack: reading SCTLR_EL1 from EL0 ...
+[KIRA PROC] pid 4: unknown instruction at PC 0x0000808000000054, address 0x0000000000000000 (ESR 0x0000000002000000): process terminated, the kernel keeps running.
+[KIRA PROC] pid 4 'atk-priv' finished, exit code -1 (killed), address space destroyed (19 pages returned to PMM).
+[KIRA PROC] pid 5 'atk-sys' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 5] kernel pointer passed to write() was rejected (PASS)
+[KIRA PROC] pid 5 'atk-sys' finished, exit code 0, address space destroyed (19 pages returned to PMM).
+[KIRA PROC] pid 6 'atk-jmp' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 6] attack: jumping into kernel memory 0x40080000 ...
+кира> [KIRA PROC] pid 6: unknown instruction at PC 0x0000000040080044, address 0x0000000000000000 (ESR 0x0000000002000000): process terminated, the kernel keeps running.
+[KIRA PROC] pid 6 'atk-jmp' finished, exit code -1 (killed), address space destroyed (19 pages returned to PMM).
+[KIRA TELEMETRY] t=3s health=80 load=1% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=4s health=84 load=0% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=5s health=87 load=0% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=6s health=88 load=0% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+test caps
+[TEST] program without rights calls every protected system call: each must be refused
+[KIRA PROC] pid 7 'atk-cap' started from ELF: Ring 3, own address space, 3 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [KIRA CAPS] process 'atk-cap' (pid 7): system call 7 denied, no right CAP_GFX.
+[USER pid 7] atk-cap: 15 calls without rights refused, harmless calls work (PASS)
+[KIRA PROC] pid 7 'atk-cap' finished, exit code 0, address space destroyed (21 pages returned to PMM).
+[KIRA TELEMETRY] t=7s health=88 load=0% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+test fpu
+[FPU TEST] 3 fpu processes compute x87 + SSE + double in parallel; each reports its own verdict
+[KIRA PROC] pid 8 'fpu' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+[KIRA PROC] pid 9 'fpu' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+[KIRA PROC] pid 10 'fpu' started from ELF: Ring 3, own address space, 2 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 8] fpu: FP/NEON + double, every result checked against a reference, 3 s...
+[USER pid 9] fpu: FP/NEON + double, every result checked against a reference, 3 s...
+[USER pid 10] fpu: FP/NEON + double, every result checked against a reference, 3 s...
+[KIRA TELEMETRY] t=8s health=89 load=47% mem=1% run=4 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=9s health=90 load=76% mem=1% run=4 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=10s health=91 load=75% mem=1% run=4 frames=0 late=0 q=40ms fx=3
+[USER pid 8] fpu: rounds 2402, mismatches 0 - PASS: FP/vector state is private to every process
+[KIRA PROC] pid 8 'fpu' finished, exit code [USER pid 9] fpu: rounds 2580, mismatches 0 - PASS: FP/vector state is private to every process
+0, address space destroyed ([USER pid 10] fpu: rounds 2464, mismatches 0 - PASS: FP/vector state is private to every process
+19 pages returned to PMM).
+[KIRA PROC] pid 9 '[KIRA PROC] pid fpu10' finished, exit code  '0fpu' finished, exit code 0, address space destroyed (, address space destroyed (1919 pages returned to PMM).
+ pages returned to PMM).
+[KIRA TELEMETRY] t=11s health=91 load=30% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+test threads
+[TEST] program mt: 4 threads of one process, futex mutex, then exit with live threads
+[KIRA PROC] pid 11 'mt' started from ELF: Ring 3, own address space, 3 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 11] mt: 4 threads x 20000 locked increments
+[USER pid 11] mt: counter 80000 (expected 80000) in 14 ms, thread ids 19 20 21 22 - PASS
+[USER pid 11] mt: exiting with a spinning and a sleeping thread still alive (ps must show no 'mt' afterwards)
+[KIRA PROC] pid 11 'mt' finished, exit code 0, address space destroyed (44 pages returned to PMM).
+[KIRA TELEMETRY] t=12s health=92 load=5% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+status
+
+[STATUS] uptime ticks: 6132, precise clock ms: 11854
+[STATUS] PMM free: 1016 MB of 1024 MB
+[STATUS] kernel heap: 6 blocks, 81 KB in use; pages: 3 small-block, 20 large-block
+[STATUS] mind: health 92 (просыпается), mode act, quantum 40 ms, decisions 0
+[STATUS] immune: kernel integrity OK, antibodies 3, quarantine 0
+[STATUS] interrupts: GICv3, generic timer (virtual), PSCI
+
+кира> [KIRA TELEMETRY] t=13s health=93 load=0% mem=1% run=1 frames=0 late=0 q=40ms fx=3
+wasm /wasm/wtest.wasm
+кира> [KIRA PROC] pid 12 'wasm' started from ELF: Ring 3, own address space, 28 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 12] wasm: /wasm/wtest.wasm - 3 functions, 1 imports, memory 256 KB
+[USER pid 12] wasm: interpreter mode
+[USER pid 12] wtest: fib(24)=46368 primes<20000=2262 sort=ad642057dcc4b702 switch=4148393079 ops=ba422c8d525a9aea sext=269715
+[USER pid 12] wasm: finished with code 0 in 46 ms
+[KIRA PROC] pid 12 'wasm' finished, exit code 0, address space destroyed (706 pages returned to PMM).
+[KIRA TELEMETRY] t=14s health=93 load=2% mem=1% run=2 frames=0 late=0 q=40ms fx=3
+wasm /wasm/ftest.wasm
+кира> [KIRA PROC] pid 13 'wasm' started from ELF: Ring 3, own address space, 28 page(s) of segments, W^X enforced, stack RW-NX.
+[USER pid 13] wasm: /wasm/ftest.wasm - 2 functions, 1 imports, memory 256 KB
+[USER pid 13] wasm: interpreter mode
+[USER pid 13] ftest: mandel inside=662 iters=146978 pi=400921f61616ca3a f32sum=000000004004dfe3 hash=225e25f3d90cf161
+[USER pid 13] wasm: finished with code 0 in 90 ms
+[KIRA PROC] pid 13 'wasm' finished, exit code 0, address space destroyed (705 pages returned to PMM).
+[KIRA TELEMETRY] t=15s health=94 load=3% mem=1% run=1 frames=0 late=0 q=40ms fx=3
