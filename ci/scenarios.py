@@ -561,8 +561,8 @@ ALL.append(sc("drvget-rl", "drvget: HTTPS source validation and on-device KCC bu
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "virtio-net-pci,netdev=n0", "-netdev", "user,id=n1", "-device", "rtl8139,netdev=n1"]},
     {"sleep": 10},
     {"log": [r"\[KIRA DRV\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
-    {"log": [r"\[KIRA NET\] No supported network card: networking is off"]},
              r"\[KIRA DRV\] rl: PCI quiesce verified \(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\)"]},
+    {"log": [r"\[KIRA NET\] No supported network card: networking is off"]},
     {"cmd": "drv", "forbid": [r"drv-rl pid"]},
     # DHCP is expected from the separate virtio control NIC; only RTL8139 driver registration is forbidden.
     {"log_forbid": [r"rl: network interface registered"]},
