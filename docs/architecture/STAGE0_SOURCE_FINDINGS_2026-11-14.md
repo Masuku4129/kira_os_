@@ -774,3 +774,12 @@ F-026 remains OPEN. The five successful PR #141 CI runs verify the current imple
 - The corrected manifest parser includes explicit UELF outputs and the Android release subset. Inventory counts remain 25 x86-64 apps, 25 ARM64 apps and 13 x86-64 Android release apps.
 - This verifies the manifest guard on that branch head. It does not prove all repository files are semantically reviewed, and it does not authorize deleting or replacing any project content.
 
+
+
+## Kernel memory/scheduler integration — exact-head CI complete (2026-11-14)
+
+- PR #154 corrected head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110`: **30/30 jobs succeeded**.
+- Verified host-tests, x86 build, ARM64 build and full VM matrix, including the previously failing `drv-edu` and `usb-uhci` scenarios.
+- The fix includes guarded kernel stacks, scheduler fallback behavior, PMM ownership/atomic contiguous release and UART atomic emission for oversized log lines.
+- This is a green PR branch, not a main merge or release build. PR remains Draft for integration review.
+
