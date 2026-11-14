@@ -110,6 +110,9 @@ class VM:
         self.notes = []
         self.qemu_log_files = []
         self.qemu_ready_markers = {}
+        self.qemu_serial_markers = []
+        self.serial_pending = bytearray()
+        self.serial_processed_bytes = 0
         self.qemu_instance = 0
         self.qemu_log_path = None
         os.makedirs(out, exist_ok=True)
@@ -274,6 +277,7 @@ class VM:
                 {"path": os.path.basename(path), **marker}
                 for path, marker in self.qemu_ready_markers.items()
             ],
+            "serial_markers": self.qemu_serial_markers,
         }
         with open(os.path.join(self.out, "qemu-diagnostics.json"), "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
@@ -306,6 +310,31 @@ class VM:
             pass
 
     # ---------- последовательный порт ----------
+    def record_qemu_serial_markers(self, data):
+        self.serial_pending.extend(data)
+        while b"\n" in self.serial_pending:
+            line, _, rest = self.serial_pending.partition(b"\n")
+            self.serial_pending = bytearray(rest)
+            self.serial_processed_bytes += len(line) + 1
+            line = line.rstrip(b"\r")
+            if (b"[PCI TRACE]" not in line and
+                    b"[KIRA USB] UHCI at I/O" not in line and
+                    b"[KIRA USB] xHCI " not in line and
+                    b"[KIRA OS] Ready." not in line):
+                continue
+            try:
+                offset = os.path.getsize(self.qemu_log_path)
+            except (OSError, TypeError):
+                offset = None
+            self.qemu_serial_markers.append({
+                "line": line.decode(errors="replace")[:240],
+                "serial_offset": self.serial_processed_bytes,
+                "qemu_log": os.path.basename(self.qemu_log_path) if self.qemu_log_path else None,
+                "qemu_log_offset": offset,
+                "seconds_since_qemu_start": round(time.monotonic() - self.qemu_started_at, 3)
+                    if self.qemu_log_path else None,
+            })
+
     def pump(self, wait):
         r, _, _ = select.select([self.ser], [], [], wait)
         if r:
@@ -315,6 +344,7 @@ class VM:
                 d = b""
             if d:
                 self.log += d
+                self.record_qemu_serial_markers(d)
                 for pat in FATAL:
                     m = re.search(pat, bytes(self.log[-len(d) - 200:]))
                     if m:
@@ -337,6 +367,7 @@ class VM:
                 if not d and self.qemu.poll() is not None:
                     break
                 self.log += d
+                self.record_qemu_serial_markers(d)
 
     def expect(self, pattern, timeout, since):
         rx = re.compile(pattern.encode() if isinstance(pattern, str) else pattern)
