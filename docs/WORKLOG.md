@@ -1109,3 +1109,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Exact source evidence: `audio.c:120-143` (mixer reads under `lk`), `224-262` (syscall validation and operations), `333-336` (process teardown under `lk`).
 - Required fix is a pinned/generation-tagged stream handle with close/drain semantics and one lock contract for resampler and queue state. Add concurrent write/gain/close/exit/reopen tests and TSan.
 - This is a source audit only; no audio tests or runtime race reproducer were executed in this pass. No production source changed.
+
+
+## 52. IPC objects, port waiters and shared-memory lifetime audit — 2026-11-14
+
+- Reviewed `kobj.c`, process handle-table operations, shared-memory mapping/unmapping, port send/receive and the syscall entry paths.
+- Positive source evidence: `proc_handle_get()` retains the kernel object while holding the process handle-table mutex; close removes the handle under that mutex and releases the reference afterward. Shared-memory mappings retain an object reference independently of the descriptor. Port queue and waiter-list mutations use the per-port lock, and receive waiters are removed or awakened under that lock.
+- No confirmed use-after-free in the reviewed object-reference and waiter paths was established from this source pass.
+- Remaining security contract: named ports and shared-memory objects are global by name, and the reviewed open path has no per-object owner/ACL check. This may be intentional public IPC, but the architecture must explicitly define whether names are public rendezvous identifiers or protected capabilities; add negative cross-process access tests for the intended policy before treating IPC isolation as complete.
+- The `kobj_count()` / `port_queued()` diagnostic counters also need a documented synchronization/atomic-read contract if called concurrently.
+- Source review only; no IPC stress, race-detector or QEMU tests were run in this pass. No production code changed.
