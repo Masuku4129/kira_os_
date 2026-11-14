@@ -1691,3 +1691,26 @@ F-058 remains OPEN. Source/test-coverage finding only; no production fix or runt
 5. Add host-testable UDP table/lifecycle tests plus SMP stress for close-vs-send, close-vs-recv, process-exit-vs-delivery, and immediate cross-process slot reuse. Run TSan where supported and targeted QEMU SMP tests.
 
 **Evidence boundary:** source-confirmed race and missing test coverage. No runtime reproduction or packet-level exploit is claimed. No production source was changed in Stage 0.
+
+
+## New finding F-057 — PCI enumeration revokes UHCI Bus Master but leaves firmware controller running (2026-11-14)
+
+**Severity:** MEDIUM; QEMU DMA-denial storm / early-device quiesce gap. No successful DMA into guest RAM is demonstrated.
+
+### Evidence
+- PCI enumeration in `pci.c:186-200` probes the UHCI BAR, clears PCI Bus Master and prints `[PCI TRACE] secured`, but does not stop the controller's USBCMD.RUN state or verify USBSTS.HALTED.
+- The UHCI driver is started later, after the full PCI scan. Its `uhci_start()` first revokes BM, then writes USBCMD=0 and waits for HALTED before reset and schedule initialization.
+- PR #169 phase-aware artifact `usb-uhci`, run `43622980003`, contains 393,600 QEMU invalid-read records (26,767,488 bytes). The repeated addresses are 0x0/0x4/0x8/0xC, consistent with an active controller attempting to fetch a frame list at a zero base while DMA is rejected. The no-USB `boot-virtio` control artifact on the same branch has a zero-byte QEMU log.
+- Serial/QEMU offset snapshots show the log has grown by the time the PCI scan reaches later functions and is fully populated by the `[KIRA USB] UHCI at I/O` startup marker; no further records appear after the guest-ready marker. QEMU log buffering means offsets are approximate, not a cycle-accurate attribution.
+- The PCI scan's `secured` marker does not prove that the controller is halted. The later driver startup explicitly stops it; the QEMU storm ceases by that point.
+
+### Consequence
+Clearing Bus Master prevents the device from successfully accessing guest memory, but a firmware-running UHCI controller can continue issuing rejected DMA requests for the interval between PCI enumeration and USB driver startup. This creates a large QEMU error log and leaves hardware active in an undefined pre-driver state.
+
+### Required closure
+1. After revoking Bus Master for a UHCI function, perform an early, bounded quiesce using BAR4: enable I/O decode only as needed, write USBCMD=0, poll USBSTS.HALTED, then restore the original I/O-decode state while keeping BM off.
+2. If the controller does not halt, keep BM revoked, report the failure and let the normal driver perform controlled recovery; never re-enable BM on the stale schedule.
+3. Add a host test with mocked port I/O for successful halt, timeout, BM-off precondition and restoration of I/O decode.
+4. Re-run QEMU `usb-uhci` and require the raw `guest_errors` log to be clean or limited to a documented bounded transition; preserve the no-USB control.
+
+F-057 remains OPEN. This finding is separate from F-054's late BM re-enable ordering and F-025's unresolved DMA log anomaly.
