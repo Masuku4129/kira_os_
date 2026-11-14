@@ -917,11 +917,14 @@ static void tcp_tick(uint64_t now) {
 
 static int tcp_wait(tcb_t* t, int (*cond)(const tcb_t*), uint64_t ticks) {
     uint64_t until = timer_get_ticks() + ticks;
-    while (!cond(t)) {
+    for (;;) {
+        uint64_t f = spin_lock_irqsave(&tlk);
+        int ready = cond(t);
+        spin_unlock_irqrestore(&tlk, f);
+        if (ready) return 0;
         if (timer_get_ticks() >= until) return -1;
         sched_sleep_ticks(1);
     }
-    return 0;
 }
 static int c_open(const tcb_t* t) { return t->state != T_SYN_SENT; }
 static int c_room(const tcb_t* t) { return t->tx_len < TCP_TX || t->state == T_CLOSED; }
@@ -946,8 +949,11 @@ static int tcp_connect_ipa(const ipa_t* dst, uint16_t port) {
     uint64_t f = spin_lock_irqsave(&tlk);
     tcb_t* t = tcb_new();
     if (!t) { spin_unlock_irqrestore(&tlk, f); return -3; }
+    t->refs = 1;                                             /* удержать слот до завершения блокирующего connect */
+    unsigned slot = (unsigned)(t - tcbs);
+    uint16_t generation = t->generation;
     uint64_t now0 = timer_get_ticks();
-    do {                                                            /* четвёрка в TIME_WAIT заново не берётся */
+    do {
         t->lport = next_lport++;
         if (next_lport < 49152) next_lport = 49152;
     } while (tw_find(dst, port, t->lport, now0) >= 0);
@@ -957,8 +963,17 @@ static int tcp_connect_ipa(const ipa_t* dst, uint16_t port) {
     t->state = T_SYN_SENT; t->rto_at = timer_get_ticks() + TIMER_HZ;
     tcp_out(t, F_SYN, t->iss, 0, 0);
     spin_unlock_irqrestore(&tlk, f);
-    if (tcp_wait(t, c_open, 30 * TIMER_HZ) != 0 || t->state != T_EST) { t->state = T_FREE; return -4; }
-    return (int)(t - tcbs);
+    int waited = tcp_wait(t, c_open, 30 * TIMER_HZ);
+    f = spin_lock_irqsave(&tlk);
+    int connected = waited == 0 && t->state == T_EST;
+    int handle = net_tcp_handle_make(slot, generation);
+    if (!connected) {
+        t->state = T_FREE; t->rto_at = 0; t->closing = 0;
+        if (generation == UINT16_MAX) t->retired = 1;
+    }
+    spin_unlock_irqrestore(&tlk, f);
+    tcp_unpin(t);
+    return connected ? handle : -4;
 }
 int tcp_connect(uint32_t ip, uint16_t port) { ipa_t d = ipa_v4(ip); return tcp_connect_ipa(&d, port); }
 int tcp_connect6(const uint8_t ip[16], uint16_t port) { ipa_t d = ipa_v6(ip); return tcp_connect_ipa(&d, port); }
