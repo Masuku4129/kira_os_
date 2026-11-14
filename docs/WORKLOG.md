@@ -980,3 +980,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - sys_dma_alloc() allocates contiguous identity-mapped memory and tracks the pages in the binding, but does not program/establish an IOMMU domain restricting the requester to those pages. This must not be described as DMA isolation.
 - RTL8139's own order is map BAR → allocate RX/TX buffers → reset/read MAC → initialize ring addresses and enable RX/TX, but the manager has already enabled Bus Master before the driver starts. This manager-level grant defeats the otherwise safer driver order.
 - Added F-031 HIGH. Required fix is staged decode/IRQ/DMA permission, registered DMA ownership, verified IOMMU domain or fail-closed policy, bounded quiesce, and Bus Master readback/revocation. No source code changed.
+
+
+## 41. KIRA Mind authority and memory-pressure kill policy reviewed — 2026-11-14
+
+- Reviewed Mind process profiling, ACT-mode scheduler tuning, adaptive limits and memory() policy, plus mind_sys callback wiring and proc_kill().
+- Current implemented Mind is a rule/profile-based adaptive resource controller: it learns per-machine norms, compares process syscall behavior to saved profiles, tunes scheduler quantum, adjusts weights/limits, manages graphics load and memory pressure. The inspected source does not establish a general neural/LLM reasoning engine.
+- At 97% memory usage in ACT mode, Mind can kill the process with the largest heap if it uses at least 16 MiB and at least 20% of total RAM, throttled to one kill attempt per 10 seconds. Callback goes directly to proc_kill().
+- The inspected process sample and policy have no explicit essential/non-killable service class, foreground/user-work veto, pending-write/transaction check or restartability requirement. Thus the current candidate selection can choose a critical service or unsaved application if it happens to be the largest process.
+- Added F-032 HIGH policy/reliability finding. Required closure: kernel-owned process classes, protected services, reversible reclaim first, safe termination/restart vetoes, observe-only deployment and adversarial selection tests.
+- This does not claim a concrete process was killed in a VM; it records the source-level authority gap. No code changed.
