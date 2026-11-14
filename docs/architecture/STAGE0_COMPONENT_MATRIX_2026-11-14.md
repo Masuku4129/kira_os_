@@ -461,3 +461,8 @@ Exact current PR #148 head bf35ca714526d38f5fdc3021c03b2bedf3ec2c99 passed workf
 | Device/UX | display/input/USB/network/audio before final timer/APIC/SMP completion | PCI/RNG/services, then display/input/USB/network/audio after SMP | device identity, DMA/IRQ policy, UI and I/O smoke tests |
 
 Do not require identical source order across ISAs. Require explicit prerequisite edges and equivalent user-visible contracts, then run the matching x86 and ARM64 scenario for each shared contract change.
+
+
+### F-025 additional evidence — UHCI DMA storm
+
+PR #165's full QEMU log (4,187,160,076 uncompressed bytes) contains more than 15.37 million rejected DMA reads at each of 0x0, 0x4, 0x8 and 0xC. The scenario uses the chipset UHCI controller with USB tablet and keyboard. This is consistent with an active UHCI frame-list fetch from an invalid/zero base, but the register values are not captured. Require USBCMD/USBSTS/FLBASEADD instrumentation and a bounded halt/reset experiment before declaring root cause.
