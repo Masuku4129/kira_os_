@@ -41,6 +41,7 @@ void netcmd_ping6(const char* a) { (void)a; }
 void net_proc_gone(uint32_t pid) { (void)pid; }
 #else
 #include "sched.h"
+#include "proc.h"
 #include "timer.h"
 #include "clock.h"
 #include "uart.h"
@@ -650,25 +651,69 @@ int net_dns(const char* name, uint32_t* ip) {
    в кольцо 16 КБ с окном по свободному месту; вне порядка - повтор подтверждения. Закрывший первым держит
    TIME_WAIT 2*MSL (60 с) в маленькой таблице (не в слоте соединения): на повтор FIN собеседника - снова ACK, четвёрка
    адресов не используется заново. На сегмент без соединения - RST (RFC 793), чтобы собеседник не ждал зря. */
-#define TCP_MAX 8
+#define TCP_MAX ((int)NET_TCP_HANDLE_SLOTS)
 #define TCP_RX  16384
 #define TCP_TX  16384
-#define LISTEN_MAX 4
+#define LISTEN_MAX ((int)NET_TCP_LISTEN_SLOTS)
 #define BACKLOG 4
 enum { T_FREE, T_SYN_SENT, T_SYN_RCVD, T_EST, T_FIN_WAIT1, T_FIN_WAIT2, T_CLOSE_WAIT, T_LAST_ACK, T_CLOSED };
 enum { F_FIN = 1, F_SYN = 2, F_RST = 4, F_PSH = 8, F_ACK = 16 };
 typedef struct {
     int state, reset, fin_rcvd, fin_sent, accepted, listener;
+    uint16_t generation, listener_generation;
+    uint32_t refs, owner;
+    uint8_t retired, closing, reap_on_unpin;
     ipa_t rip, lip; uint16_t rport, lport; uint8_t mac[6];
     uint32_t iss, snd_una, snd_nxt, snd_wnd, rcv_nxt; uint16_t mss;
-    uint8_t tx[TCP_TX]; uint32_t tx_len;                      /* данные с snd_una (неподтверждённые + ждущие) */
+    uint8_t tx[TCP_TX]; uint32_t tx_len;
     uint64_t rto_at; unsigned tries, dupacks;
-    uint8_t rx[TCP_RX]; uint32_t rx_head, rx_tail;           /* занято: tail - head */
+    uint8_t rx[TCP_RX]; uint32_t rx_head, rx_tail;
 } tcb_t;
+typedef struct {
+    uint16_t port, generation;
+    uint32_t refs, owner;
+    uint8_t fam, retired, closing;
+    int used;
+} tcp_listener_t;
 static tcb_t tcbs[TCP_MAX];
-static struct { uint16_t port; int used; uint8_t fam; } listens[LISTEN_MAX];
+static tcp_listener_t listens[LISTEN_MAX];
 static spinlock_t tlk = SPINLOCK_INIT;
 static uint16_t next_lport = 49152;
+static tcb_t* tcp_pin(int handle) {
+    unsigned slot; uint16_t generation;
+    if (net_tcp_handle_decode(handle, &slot, &generation)) return 0;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    tcb_t* t = &tcbs[slot];
+    if (t->generation != generation || !net_tcp_handle_matches(handle, slot, t->generation, t->state != T_FREE, t->closing) || net_tcp_ref_acquire(&t->refs)) t = 0;
+    spin_unlock_irqrestore(&tlk, f);
+    return t;
+}
+static void tcp_unpin(tcb_t* t) {
+    if (!t) return;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    if (!net_tcp_ref_release(&t->refs) && !t->refs && t->reap_on_unpin && t->state == T_CLOSED) {
+        t->state = T_FREE; t->owner = 0; t->closing = 0; t->reap_on_unpin = 0; t->listener = -1; t->rto_at = 0;
+        if (t->generation == UINT16_MAX) t->retired = 1;
+    }
+    spin_unlock_irqrestore(&tlk, f);
+}
+static tcp_listener_t* tcp_listener_pin(int handle, unsigned* slot_out, uint16_t* generation_out) {
+    unsigned slot; uint16_t generation;
+    if (net_tcp_listener_handle_decode(handle, &slot, &generation)) return 0;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    tcp_listener_t* l = &listens[slot];
+    if (l->generation != generation || !net_tcp_listener_handle_matches(handle, slot, l->generation, l->used, l->closing) || net_tcp_ref_acquire(&l->refs)) l = 0;
+    else { if (slot_out) *slot_out = slot; if (generation_out) *generation_out = generation; }
+    spin_unlock_irqrestore(&tlk, f);
+    return l;
+}
+static void tcp_listener_unpin(tcp_listener_t* l) {
+    if (!l) return;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    (void)net_tcp_ref_release(&l->refs);
+    spin_unlock_irqrestore(&tlk, f);
+}
+
 
 #define TW_MAX 32
 #define TW_TICKS (60 * TIMER_HZ)                                   /* 2*MSL: MSL = 30 с */
@@ -730,10 +775,13 @@ static void tcp_retransmit(tcb_t* t) {
     } else if (t->fin_sent) tcp_out(t, F_FIN | F_ACK, t->snd_nxt - 1, 0, 0);
 }
 
-static tcb_t* tcb_new(void) {
-    for (int i = 0; i < TCP_MAX; i++) if (tcbs[i].state == T_FREE) {
+static tcb_t* tcb_new(void) {                         /* вызывается только под tlk */
+    for (int i = 0; i < TCP_MAX; i++) {
         tcb_t* t = &tcbs[i];
-        t->reset = t->fin_rcvd = t->fin_sent = t->accepted = 0; t->listener = -1;
+        if (!net_tcp_slot_reusable(t->state == T_FREE, t->refs, t->retired)) continue;
+        if (net_tcp_generation_advance(&t->generation, &t->retired)) continue;
+        t->reset = t->fin_rcvd = t->fin_sent = t->accepted = 0; t->listener = -1; t->listener_generation = 0;
+        t->closing = 0; t->reap_on_unpin = 0; t->owner = 0;
         t->rx_head = t->rx_tail = 0; t->tx_len = 0; t->rto_at = 0; t->tries = 0; t->dupacks = 0;
         t->mss = 536; t->snd_wnd = 0;
         return t;
@@ -775,14 +823,16 @@ static void tcp_input(const ipa_t* src, const ipa_t* dst, const uint8_t* eth_src
         }
     }
     if (!t) {                                                   /* новое входящее: только SYN на слушаемый порт */
-        int l = -1;
-        for (int i = 0; i < LISTEN_MAX; i++) if (listens[i].used && listens[i].port == dport && listens[i].fam == src->fam) l = i;
+        int l = -1; uint16_t lgen = 0;
+        for (int i = 0; i < LISTEN_MAX; i++)
+            if (listens[i].used && !listens[i].closing && listens[i].port == dport && listens[i].fam == src->fam) { l = i; lgen = listens[i].generation; }
         if (l >= 0 && (fl & (F_SYN | F_ACK | F_RST)) == F_SYN) {
             unsigned pending = 0;
-            for (int i = 0; i < TCP_MAX; i++) if (tcbs[i].state != T_FREE && tcbs[i].listener == l && !tcbs[i].accepted) pending++;
+            for (int i = 0; i < TCP_MAX; i++)
+                if (tcbs[i].state != T_FREE && tcbs[i].listener == l && tcbs[i].listener_generation == lgen && !tcbs[i].accepted) pending++;
             tcb_t* n = pending < BACKLOG ? tcb_new() : 0;
             if (n) {
-                n->rip = *src; n->lip = *dst; n->rport = sport; n->lport = dport; cpy(n->mac, eth_src, 6); n->listener = l;
+                n->rip = *src; n->lip = *dst; n->rport = sport; n->lport = dport; cpy(n->mac, eth_src, 6); n->listener = l; n->listener_generation = lgen;
                 n->iss = (uint32_t)(clock_ns() >> 6); n->snd_una = n->iss; n->snd_nxt = n->iss + 1;
                 n->rcv_nxt = seq + 1; n->mss = mss; n->snd_wnd = win;
                 n->state = T_SYN_RCVD; n->rto_at = now + TIMER_HZ;
@@ -869,11 +919,15 @@ static void tcp_tick(uint64_t now) {
 
 static int tcp_wait(tcb_t* t, int (*cond)(const tcb_t*), uint64_t ticks) {
     uint64_t until = timer_get_ticks() + ticks;
-    while (!cond(t)) {
+    for (;;) {
+        if (proc_dying()) return -2;                         /* process exit must release the pinned slot promptly */
+        uint64_t f = spin_lock_irqsave(&tlk);
+        int ready = cond(t);
+        spin_unlock_irqrestore(&tlk, f);
+        if (ready) return 0;
         if (timer_get_ticks() >= until) return -1;
         sched_sleep_ticks(1);
     }
-    return 0;
 }
 static int c_open(const tcb_t* t) { return t->state != T_SYN_SENT; }
 static int c_room(const tcb_t* t) { return t->tx_len < TCP_TX || t->state == T_CLOSED; }
@@ -898,8 +952,11 @@ static int tcp_connect_ipa(const ipa_t* dst, uint16_t port) {
     uint64_t f = spin_lock_irqsave(&tlk);
     tcb_t* t = tcb_new();
     if (!t) { spin_unlock_irqrestore(&tlk, f); return -3; }
+    t->refs = 1;                                             /* удержать слот до завершения блокирующего connect */
+    unsigned slot = (unsigned)(t - tcbs);
+    uint16_t generation = t->generation;
     uint64_t now0 = timer_get_ticks();
-    do {                                                            /* четвёрка в TIME_WAIT заново не берётся */
+    do {
         t->lport = next_lport++;
         if (next_lport < 49152) next_lport = 49152;
     } while (tw_find(dst, port, t->lport, now0) >= 0);
@@ -909,82 +966,142 @@ static int tcp_connect_ipa(const ipa_t* dst, uint16_t port) {
     t->state = T_SYN_SENT; t->rto_at = timer_get_ticks() + TIMER_HZ;
     tcp_out(t, F_SYN, t->iss, 0, 0);
     spin_unlock_irqrestore(&tlk, f);
-    if (tcp_wait(t, c_open, 30 * TIMER_HZ) != 0 || t->state != T_EST) { t->state = T_FREE; return -4; }
-    return (int)(t - tcbs);
+    (void)tcp_wait(t, c_open, 30 * TIMER_HZ);
+    f = spin_lock_irqsave(&tlk);
+    int connected = t->state == T_EST;                  /* late SYN-ACK wins if it arrived before timeout cleanup lock */
+
+    int handle = net_tcp_handle_make(slot, generation);
+    if (!connected) {
+        t->state = T_FREE; t->rto_at = 0; t->closing = 0; t->reap_on_unpin = 0;
+        if (generation == UINT16_MAX) t->retired = 1;
+    }
+    spin_unlock_irqrestore(&tlk, f);
+    tcp_unpin(t);
+    return connected ? handle : -4;
 }
 int tcp_connect(uint32_t ip, uint16_t port) { ipa_t d = ipa_v4(ip); return tcp_connect_ipa(&d, port); }
 int tcp_connect6(const uint8_t ip[16], uint16_t port) { ipa_t d = ipa_v6(ip); return tcp_connect_ipa(&d, port); }
 
 static int tcp_listen_fam(uint16_t port, uint8_t fam) {
     uint64_t f = spin_lock_irqsave(&tlk);
-    int l = -1;
-    for (int i = 0; i < LISTEN_MAX; i++) if (listens[i].used && listens[i].port == port && listens[i].fam == fam) { spin_unlock_irqrestore(&tlk, f); return -3; }
-    for (int i = 0; i < LISTEN_MAX && l < 0; i++) if (!listens[i].used) l = i;
-    if (l >= 0) { listens[l].used = 1; listens[l].port = port; listens[l].fam = fam; }
+    for (int i = 0; i < LISTEN_MAX; i++)
+        if (listens[i].used && listens[i].port == port && listens[i].fam == fam) {
+            spin_unlock_irqrestore(&tlk, f); return -3;
+        }
+    int handle = -9;
+    for (int i = 0; i < LISTEN_MAX; i++) {
+        tcp_listener_t* l = &listens[i];
+        if (!net_tcp_slot_reusable(!l->used, l->refs, l->retired)) continue;
+        if (net_tcp_generation_advance(&l->generation, &l->retired)) continue;
+        l->used = 1; l->closing = 0; l->owner = 0; l->port = port; l->fam = fam;
+        handle = net_tcp_listener_handle_make((unsigned)i, l->generation);
+        break;
+    }
     spin_unlock_irqrestore(&tlk, f);
-    return l < 0 ? -9 : l;
+    return handle;
 }
 int tcp_listen(uint16_t port) { return tcp_listen_fam(port, 4); }
 int tcp_listen6(uint16_t port) { return tcp_listen_fam(port, 6); }
+
 /* Адрес собеседника соединения: семейство (4/6) или <0. */
 int tcp_peer(int h, uint8_t addr[16], uint16_t* port) {
-    if (h < 0 || h >= TCP_MAX || tcbs[h].state == T_FREE) return -1;
-    cpy(addr, tcbs[h].rip.a, 16); *port = tcbs[h].rport;
-    return tcbs[h].rip.fam;
+    if (!addr || !port) return -1;
+    tcb_t* t = tcp_pin(h);
+    if (!t) return -1;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    cpy(addr, t->rip.a, 16); *port = t->rport;
+    int fam = t->rip.fam;
+    spin_unlock_irqrestore(&tlk, f);
+    tcp_unpin(t);
+    return fam;
 }
 
-int tcp_accept(int l, uint32_t timeout_ticks) {
-    if (l < 0 || l >= LISTEN_MAX || !listens[l].used) return -1;
+int tcp_accept(int handle, uint32_t timeout_ticks) {
+    unsigned slot; uint16_t generation;
+    tcp_listener_t* l = tcp_listener_pin(handle, &slot, &generation);
+    if (!l) return -1;
     uint64_t until = timer_get_ticks() + timeout_ticks;
     for (;;) {
+        if (proc_dying()) { tcp_listener_unpin(l); return -8; }
         uint64_t f = spin_lock_irqsave(&tlk);
+        if (!l->used || l->closing || l->generation != generation) {
+            spin_unlock_irqrestore(&tlk, f); tcp_listener_unpin(l); return -8;
+        }
         for (int i = 0; i < TCP_MAX; i++) {
             tcb_t* t = &tcbs[i];
-            if (t->listener == l && !t->accepted && t->state != T_FREE && t->state != T_SYN_RCVD) {
+            if (t->listener == (int)slot && t->listener_generation == generation &&
+                !t->accepted && t->state != T_FREE && t->state != T_SYN_RCVD) {
                 t->accepted = 1;
+                int accepted = net_tcp_handle_make((unsigned)i, t->generation);
                 spin_unlock_irqrestore(&tlk, f);
-                return i;
+                tcp_listener_unpin(l);
+                return accepted;
             }
         }
         spin_unlock_irqrestore(&tlk, f);
-        if (timer_get_ticks() >= until) return -5;
+        if (timer_get_ticks() >= until) { tcp_listener_unpin(l); return -5; }
         sched_sleep_ticks(1);
     }
 }
 
-void tcp_unlisten(int l) {
-    if (l < 0 || l >= LISTEN_MAX) return;
+void tcp_unlisten(int handle) {
+    unsigned slot; uint16_t generation;
+    if (net_tcp_listener_handle_decode(handle, &slot, &generation)) return;
     uint64_t f = spin_lock_irqsave(&tlk);
-    listens[l].used = 0;
-    for (int i = 0; i < TCP_MAX; i++)                            /* не принятые - сбросить */
-        if (tcbs[i].listener == l && !tcbs[i].accepted && tcbs[i].state != T_FREE) { tcp_out(&tcbs[i], F_RST | F_ACK, tcbs[i].snd_nxt, 0, 0); tcbs[i].state = T_FREE; }
+    tcp_listener_t* l = &listens[slot];
+    if (!l->used || l->generation != generation) { spin_unlock_irqrestore(&tlk, f); return; }
+    l->closing = 1; l->used = 0; l->owner = 0;
+    if (generation == UINT16_MAX) l->retired = 1;
+    for (int i = 0; i < TCP_MAX; i++) {
+        tcb_t* t = &tcbs[i];
+        if (t->listener == (int)slot && t->listener_generation == generation &&
+            !t->accepted && t->state != T_FREE) {
+            tcp_out(t, F_RST | F_ACK, t->snd_nxt, 0, 0);
+            t->state = T_FREE; t->rto_at = 0; t->listener = -1; t->reap_on_unpin = 0;
+            if (t->generation == UINT16_MAX) t->retired = 1;
+        }
+    }
     spin_unlock_irqrestore(&tlk, f);
 }
 
 int tcp_send(int h, const void* data, uint32_t len) {
-    if (h < 0 || h >= TCP_MAX) return -1;
-    tcb_t* t = &tcbs[h];
+    if (len && !data) return -1;
+    tcb_t* t = tcp_pin(h);
+    if (!t) return -1;
     const uint8_t* p = (const uint8_t*)data;
     uint32_t done = 0;
     while (done < len) {
-        if (t->state != T_EST && t->state != T_CLOSE_WAIT) return done ? (int)done : -1;
-        if (tcp_wait(t, c_room, 60 * TIMER_HZ) != 0 || t->state == T_CLOSED) return done ? (int)done : -2;
         uint64_t f = spin_lock_irqsave(&tlk);
-        uint32_t room = TCP_TX - t->tx_len, n = len - done < room ? len - done : room;
+        int allowed = !t->closing && (t->state == T_EST || t->state == T_CLOSE_WAIT);
+        spin_unlock_irqrestore(&tlk, f);
+        if (!allowed) { tcp_unpin(t); return done ? (int)done : -1; }
+        if (tcp_wait(t, c_room, 60 * TIMER_HZ) != 0) { tcp_unpin(t); return done ? (int)done : -2; }
+        f = spin_lock_irqsave(&tlk);
+        if (t->closing || (t->state != T_EST && t->state != T_CLOSE_WAIT)) {
+            spin_unlock_irqrestore(&tlk, f); tcp_unpin(t); return done ? (int)done : -2;
+        }
+        uint32_t room = TCP_TX - t->tx_len;
+        uint32_t n = len - done < room ? len - done : room;
+        if (!n) { spin_unlock_irqrestore(&tlk, f); continue; }
         for (uint32_t i = 0; i < n; i++) t->tx[t->tx_len + i] = p[done + i];
         t->tx_len += n;
         tcp_push(t, timer_get_ticks());
         spin_unlock_irqrestore(&tlk, f);
         done += n;
     }
-    if (tcp_wait(t, c_sent, 60 * TIMER_HZ) != 0 || t->reset) return -2;    /* вызов возвращается, когда всё подтверждено */
-    return (int)done;
+    if (tcp_wait(t, c_sent, 60 * TIMER_HZ) != 0) { tcp_unpin(t); return -2; }
+    uint64_t f = spin_lock_irqsave(&tlk);
+    int reset = t->reset || t->state == T_CLOSED;
+    spin_unlock_irqrestore(&tlk, f);
+    tcp_unpin(t);
+    return reset ? -2 : (int)done;                              /* вызов возвращается, когда всё подтверждено */
 }
 
 int tcp_recv(int h, void* buf, uint32_t max, uint32_t timeout_ticks) {
-    if (h < 0 || h >= TCP_MAX) return -1;
-    tcb_t* t = &tcbs[h];
-    if (tcp_wait(t, c_data, timeout_ticks) != 0) return -1;
+    if (max && !buf) return -1;
+    tcb_t* t = tcp_pin(h);
+    if (!t) return -1;
+    if (tcp_wait(t, c_data, timeout_ticks) != 0) { tcp_unpin(t); return -1; }
     uint64_t f = spin_lock_irqsave(&tlk);
     uint32_t have = t->rx_tail - t->rx_head, n = have < max ? have : max;
     uint32_t before = TCP_RX - have;
@@ -992,19 +1109,26 @@ int tcp_recv(int h, void* buf, uint32_t max, uint32_t timeout_ticks) {
     for (uint32_t i = 0; i < n; i++) o[i] = t->rx[(t->rx_head + i) % TCP_RX];
     t->rx_head += n;
     if (n && before < t->mss && TCP_RX - (t->rx_tail - t->rx_head) >= t->mss && t->state != T_CLOSED)
-        tcp_out(t, F_ACK, t->snd_nxt, 0, 0);                         /* окно снова открыто - сообщить */
+        tcp_out(t, F_ACK, t->snd_nxt, 0, 0);                     /* окно снова открыто - сообщить */
     int closed = !n && (t->fin_rcvd || t->state == T_CLOSED);
     int reset = t->reset;
     spin_unlock_irqrestore(&tlk, f);
+    tcp_unpin(t);
     if (closed) return reset ? -2 : 0;
     return (int)n;
 }
 
 void tcp_close(int h) {
-    if (h < 0 || h >= TCP_MAX) return;
-    tcb_t* t = &tcbs[h];
-    tcp_wait(t, c_sent, 10 * TIMER_HZ);                          /* сначала - отправленное */
+    tcb_t* t = tcp_pin(h);
+    if (!t) return;
     uint64_t f = spin_lock_irqsave(&tlk);
+    if (t->closing) {                                             /* другой поток уже выполняет close */
+        spin_unlock_irqrestore(&tlk, f); tcp_unpin(t); return;
+    }
+    t->closing = 1;                                               /* запретить новые операции над этим поколением */
+    spin_unlock_irqrestore(&tlk, f);
+    tcp_wait(t, c_sent, 10 * TIMER_HZ);
+    f = spin_lock_irqsave(&tlk);
     if (t->state == T_EST || t->state == T_CLOSE_WAIT) {
         t->state = t->state == T_EST ? T_FIN_WAIT1 : T_LAST_ACK;
         t->fin_sent = 1;
@@ -1015,20 +1139,76 @@ void tcp_close(int h) {
     spin_unlock_irqrestore(&tlk, f);
     tcp_wait(t, c_closed, 3 * TIMER_HZ);
     f = spin_lock_irqsave(&tlk);
-    t->state = T_FREE; t->rto_at = 0; t->listener = -1;
+    t->state = T_CLOSED; t->rto_at = 0;                           /* разбудить все оставшиеся I/O */
     spin_unlock_irqrestore(&tlk, f);
+    for (;;) {
+        f = spin_lock_irqsave(&tlk);
+        uint32_t refs = t->refs;
+        spin_unlock_irqrestore(&tlk, f);
+        if (refs <= 1) break;
+        sched_sleep_ticks(1);
+    }
+    f = spin_lock_irqsave(&tlk);
+    t->state = T_FREE; t->owner = 0; t->closing = 0; t->reap_on_unpin = 0; t->listener = -1; t->rto_at = 0;
+    if (t->generation == UINT16_MAX) t->retired = 1;
+    spin_unlock_irqrestore(&tlk, f);
+    tcp_unpin(t);
 }
-
 
 /* ---------- сеть для программ (системные вызовы) ----------
    Соединение принадлежит процессу, который его открыл: чужой номер - отказ; при завершении процесса его соединения
    закрываются (net_proc_gone). Данные копируются через буфер ядра проверенными копиями (uaccess). */
 #include "uaccess.h"
-#include "proc.h"
-static uint32_t tcp_owner[TCP_MAX], listen_owner[LISTEN_MAX];
-static int own(int64_t h) { return h >= 0 && h < TCP_MAX && tcp_owner[h] && tcp_owner[h] == proc_current_pid(); }
-#define LH 100                                                   /* номера слушателей: 100 + индекс */
-static int own_l(int64_t h) { return h >= LH && h < LH + LISTEN_MAX && listen_owner[h - LH] == proc_current_pid(); }
+static int own(int64_t h) {
+    if (h < 0 || h > INT32_MAX) return 0;
+    unsigned slot; uint16_t generation;
+    if (net_tcp_handle_decode((int)h, &slot, &generation)) return 0;
+    uint32_t pid = proc_current_pid();
+    uint64_t f = spin_lock_irqsave(&tlk);
+    tcb_t* t = &tcbs[slot];
+    int ok = t->generation == generation && t->state != T_FREE && !t->closing && t->owner == pid;
+    spin_unlock_irqrestore(&tlk, f);
+    return ok;
+}
+static int own_l(int64_t h) {
+    if (h < 0 || h > INT32_MAX) return 0;
+    unsigned slot; uint16_t generation;
+    if (net_tcp_listener_handle_decode((int)h, &slot, &generation)) return 0;
+    uint32_t pid = proc_current_pid();
+    uint64_t f = spin_lock_irqsave(&tlk);
+    tcp_listener_t* l = &listens[slot];
+    int ok = l->used && !l->closing && l->generation == generation && l->owner == pid;
+    spin_unlock_irqrestore(&tlk, f);
+    return ok;
+}
+static int tcp_set_owner(int handle, uint32_t pid) {
+    unsigned slot; uint16_t generation;
+    if (net_tcp_handle_decode(handle, &slot, &generation)) return -1;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    tcb_t* t = &tcbs[slot];
+    int ok = t->generation == generation && t->state != T_FREE && !t->closing;
+    if (ok) t->owner = pid;
+    spin_unlock_irqrestore(&tlk, f);
+    return ok ? 0 : -1;
+}
+static int tcp_listener_set_owner(int handle, uint32_t pid) {
+    unsigned slot; uint16_t generation;
+    if (net_tcp_listener_handle_decode(handle, &slot, &generation)) return -1;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    tcp_listener_t* l = &listens[slot];
+    int ok = l->used && !l->closing && l->generation == generation;
+    if (ok) l->owner = pid;
+    spin_unlock_irqrestore(&tlk, f);
+    return ok ? 0 : -1;
+}
+static void tcp_clear_owner(int handle, uint32_t pid) {
+    unsigned slot; uint16_t generation;
+    if (net_tcp_handle_decode(handle, &slot, &generation)) return;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    tcb_t* t = &tcbs[slot];
+    if (t->generation == generation && t->owner == pid) t->owner = 0;
+    spin_unlock_irqrestore(&tlk, f);
+}
 
 int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
     if (op == NET_SYS_DNS) {                                     /* (имя, длина) -> адрес */
@@ -1039,36 +1219,36 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
         int r = net_dns(name, &ip);
         return r ? r : (int64_t)ip;
     }
-    if (op == NET_SYS_CONNECT) {                                 /* (адрес, порт) -> номер соединения */
+    if (op == NET_SYS_CONNECT) {                                 /* (адрес, порт) -> opaque handle */
         if (a1 > 0xFFFFFFFFull || !a2 || a2 > 65535) return -10;
         int h = tcp_connect((uint32_t)a1, (uint16_t)a2);
-        if (h >= 0) tcp_owner[h] = proc_current_pid();
+        if (h >= 0 && tcp_set_owner(h, proc_current_pid())) { tcp_close(h); return -8; }
         return h;
     }
-    if (op == NET_SYS_CONNECT_SA) {                              /* (адрес сокета) -> номер соединения */
+    if (op == NET_SYS_CONNECT_SA) {                              /* (адрес сокета) -> opaque handle */
         ksockaddr_t sa;
         if (copy_from_user(&sa, a1, sizeof sa) || !sa.port || (sa.family != 4 && sa.family != 6)) return -10;
         int h = sa.family == 4 ? tcp_connect(get32(sa.addr), sa.port) : tcp_connect6(sa.addr, sa.port);
-        if (h >= 0) tcp_owner[h] = proc_current_pid();
+        if (h >= 0 && tcp_set_owner(h, proc_current_pid())) { tcp_close(h); return -8; }
         return h;
     }
-    if (op == NET_SYS_LISTEN) {                                  /* (порт | семейство << 16; 0 или 4 - IPv4, 6 - IPv6) -> номер слушателя */
+    if (op == NET_SYS_LISTEN) {                                  /* (порт | семейство << 16) -> opaque listener */
         uint64_t fam = a1 >> 16;
         a1 &= 0xFFFF;
         if (!a1 || (fam && fam != 4 && fam != 6)) return -10;
         int l = fam == 6 ? tcp_listen6((uint16_t)a1) : tcp_listen((uint16_t)a1);
         if (l < 0) return l;
-        listen_owner[l] = proc_current_pid();
-        return LH + l;
+        if (tcp_listener_set_owner(l, proc_current_pid())) { tcp_unlisten(l); return -8; }
+        return l;
     }
-    if (op == NET_SYS_ACCEPT) {                                  /* (слушатель, мс) -> номер соединения */
+    if (op == NET_SYS_ACCEPT) {                                  /* (opaque listener, ms) -> opaque connection */
         if (!own_l((int64_t)a1)) return -8;
         uint64_t ticks = a2 ? (a2 * TIMER_HZ + 999) / 1000 : ~0u;
-        int h = tcp_accept((int)(a1 - LH), (uint32_t)(ticks > 0xFFFFFFFFull ? 0xFFFFFFFFull : ticks));
-        if (h >= 0) tcp_owner[h] = proc_current_pid();
+        int h = tcp_accept((int)a1, (uint32_t)(ticks > 0xFFFFFFFFull ? 0xFFFFFFFFull : ticks));
+        if (h >= 0 && tcp_set_owner(h, proc_current_pid())) { tcp_close(h); return -8; }
         return h;
     }
-    if (op == NET_SYS_CLOSE && own_l((int64_t)a1)) { listen_owner[a1 - LH] = 0; tcp_unlisten((int)(a1 - LH)); return 0; }
+    if (op == NET_SYS_CLOSE && own_l((int64_t)a1)) { tcp_unlisten((int)a1); return 0; }
     if (!own((int64_t)a1)) return -8;                            /* неверный дескриптор */
     int h = (int)a1;
     if (op == NET_SYS_SEND) {                                    /* (h, буфер, длина) -> отправлено */
@@ -1101,15 +1281,34 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
         sa.family = (uint16_t)fam;
         return copy_to_user(a2, &sa, sizeof sa) ? -10 : fam;
     }
-    if (op == NET_SYS_CLOSE) { tcp_owner[h] = 0; tcp_close(h); return 0; }
+    if (op == NET_SYS_CLOSE) { tcp_clear_owner(h, proc_current_pid()); tcp_close(h); return 0; }
     return -10;
 }
 
 static void udp_gone(uint32_t pid);
 void net_proc_gone(uint32_t pid) {
     udp_gone(pid);
-    for (int i = 0; i < LISTEN_MAX; i++) if (listen_owner[i] == pid) { listen_owner[i] = 0; tcp_unlisten(i); }
-    for (int i = 0; i < TCP_MAX; i++) if (tcp_owner[i] == pid) { tcp_owner[i] = 0; tcp_close(i); }
+    int listeners[LISTEN_MAX];
+    unsigned nl = 0;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    for (int i = 0; i < LISTEN_MAX; i++) if (listens[i].used && listens[i].owner == pid) {
+        listeners[nl++] = net_tcp_listener_handle_make((unsigned)i, listens[i].generation);
+        listens[i].owner = 0;
+    }
+    /* Last process thread has exited: abort owned TCP connections without a blocking FIN wait. */
+    for (int i = 0; i < TCP_MAX; i++) {
+        tcb_t* t = &tcbs[i];
+        if (t->state == T_FREE || t->owner != pid) continue;
+        t->owner = 0; t->closing = 1; t->reap_on_unpin = 1; t->rto_at = 0;
+        if (t->state != T_CLOSED) tcp_out(t, F_RST | F_ACK, t->snd_nxt, 0, 0);
+        t->state = T_CLOSED;
+        if (!t->refs) {
+            t->state = T_FREE; t->closing = 0; t->reap_on_unpin = 0; t->listener = -1;
+            if (t->generation == UINT16_MAX) t->retired = 1;
+        }
+    }
+    spin_unlock_irqrestore(&tlk, f);
+    for (unsigned i = 0; i < nl; i++) tcp_unlisten(listeners[i]);
 }
 
 /* ---------- приём ---------- */

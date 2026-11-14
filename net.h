@@ -31,18 +31,85 @@ void netcmd_dns(const char* arg);     /* dns имя */
 void netcmd_http(const char* arg);    /* http адрес[:порт] [путь] */
 void netcmd_ping6(const char* arg);   /* ping6 адрес [число] */
 
+/* Opaque generation-tagged TCP handles. Low three bits select one of 8 TCB slots. */
+#define NET_TCP_HANDLE_SLOTS 8u
+#define NET_TCP_HANDLE_SLOT_BITS 3u
+#define NET_TCP_HANDLE_SLOT_MASK (NET_TCP_HANDLE_SLOTS - 1u)
+#define NET_TCP_LISTEN_SLOTS 4u
+#define NET_TCP_LISTEN_HANDLE_BASE 0x40000000u
+
+static inline int net_tcp_ref_acquire(uint32_t* refs) {
+    if (!refs || *refs == UINT32_MAX) return -1;
+    (*refs)++;
+    return 0;
+}
+static inline int net_tcp_ref_release(uint32_t* refs) {
+    if (!refs || !*refs) return -1;
+    (*refs)--;
+    return 0;
+}
+static inline int net_tcp_slot_reusable(int is_free, uint32_t refs, uint8_t retired) {
+    return is_free && refs == 0 && !retired;
+}
+static inline int net_tcp_generation_advance(uint16_t* generation, uint8_t* retired) {
+    if (!generation || !retired || *retired) return -1;
+    if (*generation == UINT16_MAX) { *retired = 1; return -1; }
+    (*generation)++;
+    return *generation ? 0 : -1;
+}
+static inline int net_tcp_handle_make(unsigned slot, uint16_t generation) {
+    if (slot >= NET_TCP_HANDLE_SLOTS || !generation) return -1;
+    return (int)(((uint32_t)generation << NET_TCP_HANDLE_SLOT_BITS) | slot);
+}
+static inline int net_tcp_handle_decode(int handle, unsigned* slot, uint16_t* generation) {
+    if (handle <= 0 || !slot || !generation) return -1;
+    uint32_t raw = (uint32_t)handle;
+    uint32_t gen = raw >> NET_TCP_HANDLE_SLOT_BITS;
+    unsigned idx = raw & NET_TCP_HANDLE_SLOT_MASK;
+    if (!gen || gen > UINT16_MAX || idx >= NET_TCP_HANDLE_SLOTS) return -1;
+    *slot = idx; *generation = (uint16_t)gen;
+    return 0;
+}
+static inline int net_tcp_handle_matches(int handle, unsigned current_slot, uint16_t current_generation,
+                                         int active, int closing) {
+    unsigned slot; uint16_t generation;
+    return !net_tcp_handle_decode(handle, &slot, &generation) && slot == current_slot &&
+           generation == current_generation && active && !closing;
+}
+static inline int net_tcp_listener_handle_make(unsigned slot, uint16_t generation) {
+    if (slot >= NET_TCP_LISTEN_SLOTS || !generation) return -1;
+    return (int)(NET_TCP_LISTEN_HANDLE_BASE | ((uint32_t)generation << 2) | slot);
+}
+static inline int net_tcp_listener_handle_decode(int handle, unsigned* slot, uint16_t* generation) {
+    if (handle < (int)NET_TCP_LISTEN_HANDLE_BASE || !slot || !generation) return -1;
+    uint32_t raw = (uint32_t)handle - NET_TCP_LISTEN_HANDLE_BASE;
+    if (raw > (((uint32_t)UINT16_MAX << 2) | (NET_TCP_LISTEN_SLOTS - 1u))) return -1;
+    uint32_t gen = raw >> 2;
+    unsigned idx = raw & 3u;
+    if (!gen || idx >= NET_TCP_LISTEN_SLOTS) return -1;
+    *slot = idx; *generation = (uint16_t)gen;
+    return 0;
+}
+
+static inline int net_tcp_listener_handle_matches(int handle, unsigned current_slot, uint16_t current_generation,
+                                                  int active, int closing) {
+    unsigned slot; uint16_t generation;
+    return !net_tcp_listener_handle_decode(handle, &slot, &generation) && slot == current_slot &&
+           generation == current_generation && active && !closing;
+}
+
 /* Для ядра (и будущих сокетов программ): DNS и соединения TCP. Блокирующие, зовутся из потоков (не из «net»). */
 int  net_dns(const char* name, uint32_t* ip);                     /* 0 - адрес найден (или name - уже адрес) */
-int  tcp_connect(uint32_t ip, uint16_t port);                     /* номер соединения или <0 */
+int  tcp_connect(uint32_t ip, uint16_t port);                     /* непрозрачный дескриптор соединения или <0 */
 int  tcp_connect6(const uint8_t ip[16], uint16_t port);           /* то же по IPv6 (адрес - 16 байт) */
-int  tcp_listen6(uint16_t port);                                  /* слушатель IPv6 (tcp_listen - IPv4) */
-int  tcp_peer(int h, uint8_t addr[16], uint16_t* port);           /* собеседник: семейство 4/6 (адрес IPv4 - в первых 4 байтах) */
-int  tcp_send(int h, const void* data, uint32_t len);             /* отправлено байт (подтверждено) или <0 */
-int  tcp_recv(int h, void* buf, uint32_t max, uint32_t timeout_ticks);   /* байт; 0 - собеседник закрыл; <0 - сброс/срок */
-void tcp_close(int h);
-int  tcp_listen(uint16_t port);                                   /* номер слушателя или <0 (-3 порт занят) */
-int  tcp_accept(int l, uint32_t timeout_ticks);                   /* номер соединения или <0 (-5 срок) */
-void tcp_unlisten(int l);
+int  tcp_listen6(uint16_t port);                                  /* непрозрачный дескриптор слушателя IPv6 */
+int  tcp_peer(int h, uint8_t addr[16], uint16_t* port);           /* opaque handle; собеседник: семейство 4/6 */
+int  tcp_send(int h, const void* data, uint32_t len);             /* opaque handle; отправлено байт (подтверждено) или <0 */
+int  tcp_recv(int h, void* buf, uint32_t max, uint32_t timeout_ticks);   /* opaque handle; 0 - собеседник закрыл; <0 - сброс/срок */
+void tcp_close(int h);                                                /* закрывает только совпадающее поколение */
+int  tcp_listen(uint16_t port);                                   /* дескриптор слушателя IPv4 или <0 (-3 порт занят) */
+int  tcp_accept(int l, uint32_t timeout_ticks);                   /* дескриптор соединения или <0 (-5 срок) */
+void tcp_unlisten(int l);                                            /* закрывает только совпадающее поколение слушателя */
 
 /* Системные вызовы сети для программ (syscall.c): соединение принадлежит открывшему процессу. */
 enum { NET_SYS_DNS = 0, NET_SYS_CONNECT = 1, NET_SYS_SEND = 2, NET_SYS_RECV = 3, NET_SYS_CLOSE = 4,

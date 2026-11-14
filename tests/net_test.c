@@ -19,7 +19,57 @@ int main(void) {
     CHECK(net_parse_ip("1.2.3", &a) != 0);
     CHECK(net_parse_ip("1.2.3.4x", &a) != 0);
     CHECK(net_parse_ip("", &a) != 0);
+
+    /* Checked references cannot overflow or underflow; production pins use these helpers under tlk. */
+    uint32_t refs = 0;
+    CHECK(net_tcp_ref_acquire(&refs) == 0 && refs == 1);
+    CHECK(net_tcp_ref_release(&refs) == 0 && refs == 0);
+    CHECK(net_tcp_ref_release(&refs) == -1 && refs == 0);
+    refs = UINT32_MAX;
+    CHECK(net_tcp_ref_acquire(&refs) == -1 && refs == UINT32_MAX);
+
+    /* Slot reuse is forbidden while referenced or retired; generation never wraps. */
+    uint16_t gen = 0; uint8_t retired = 0;
+    CHECK(net_tcp_slot_reusable(1, 0, 0));
+    CHECK(!net_tcp_slot_reusable(0, 0, 0));
+    CHECK(!net_tcp_slot_reusable(1, 1, 0));
+    CHECK(!net_tcp_slot_reusable(1, 0, 1));
+    CHECK(net_tcp_generation_advance(&gen, &retired) == 0 && gen == 1 && !retired);
+    gen = UINT16_MAX; retired = 0;
+    CHECK(net_tcp_generation_advance(&gen, &retired) == -1 && gen == UINT16_MAX && retired);
+    CHECK(net_tcp_generation_advance(&gen, &retired) == -1 && gen == UINT16_MAX && retired);
+
+    /* Generation-tagged TCP connection handles reject zero and preserve slot/generation identity. */
+    unsigned slot = 99; uint16_t generation = 99;
+    int th0 = net_tcp_handle_make(0, 1), th7 = net_tcp_handle_make(7, UINT16_MAX);
+    CHECK(th0 == 8 && th7 > th0);
+    CHECK(net_tcp_handle_decode(th0, &slot, &generation) == 0 && slot == 0 && generation == 1);
+    CHECK(net_tcp_handle_decode(th7, &slot, &generation) == 0 && slot == 7 && generation == UINT16_MAX);
+    CHECK(net_tcp_handle_matches(th0, 0, 1, 1, 0));
+    CHECK(!net_tcp_handle_matches(th0, 0, 2, 1, 0)); /* stale generation */
+    CHECK(!net_tcp_handle_matches(th0, 1, 1, 1, 0)); /* wrong slot */
+    CHECK(!net_tcp_handle_matches(th0, 0, 1, 0, 0)); /* freed */
+    CHECK(!net_tcp_handle_matches(th0, 0, 1, 1, 1)); /* closing */
+    CHECK(net_tcp_handle_make(8, 1) == -1 && net_tcp_handle_make(0, 0) == -1);
+    CHECK(net_tcp_handle_decode(0, &slot, &generation) != 0);
+    CHECK(net_tcp_handle_decode(-1, &slot, &generation) != 0);
+    CHECK(net_tcp_handle_decode((int)NET_TCP_LISTEN_HANDLE_BASE, &slot, &generation) != 0);
+    CHECK(net_tcp_handle_make(2, 7) != net_tcp_handle_make(2, 8)); /* старый handle не совпадает с новым поколением */
+
+    /* Listener handles use a disjoint positive range and the same no-zero-generation rule. */
+    int lh0 = net_tcp_listener_handle_make(0, 1), lh3 = net_tcp_listener_handle_make(3, UINT16_MAX);
+    CHECK(lh0 == (int)(NET_TCP_LISTEN_HANDLE_BASE | 4u));
+    CHECK(lh3 > lh0);
+    CHECK(net_tcp_listener_handle_decode(lh0, &slot, &generation) == 0 && slot == 0 && generation == 1);
+    CHECK(net_tcp_listener_handle_decode(lh3, &slot, &generation) == 0 && slot == 3 && generation == UINT16_MAX);
+    CHECK(net_tcp_listener_handle_matches(lh0, 0, 1, 1, 0));
+    CHECK(!net_tcp_listener_handle_matches(lh0, 0, 2, 1, 0));
+    CHECK(!net_tcp_listener_handle_matches(lh0, 0, 1, 0, 0));
+    CHECK(!net_tcp_listener_handle_matches(lh0, 0, 1, 1, 1));
+    CHECK(net_tcp_listener_handle_make(4, 1) == -1 && net_tcp_listener_handle_make(0, 0) == -1);
+    CHECK(net_tcp_listener_handle_decode(th0, &slot, &generation) != 0);
+    CHECK(net_tcp_listener_handle_decode((int)NET_TCP_LISTEN_HANDLE_BASE, &slot, &generation) != 0);
     if (fails) return 1;
-    printf("net: checksum, address parsing passed\n");
+    printf("net: checksum, address parsing, TCP generation handles passed\n");
     return 0;
 }
