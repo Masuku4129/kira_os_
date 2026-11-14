@@ -484,7 +484,7 @@ Sources:
 | F-010 | x86-64 TLB shootdown timeout and late IPI handling | Draft PR #155 exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; CI run `43590730265` | 43/43 checks PASS, including host, ARM64 and QEMU SMP matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
 | F-011 | MMIO page-range overflow during page align-up | Combined Draft PR #160 based on verified PR #157 UART fix | Workflow `43592802619`: 43/43 PASS incl. host, x86-64, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-013 | ARM64 PMM reserved-page ownership | Draft PR #158 exact head `70d0e89a65414818c22d61532f7ca4288c464d2c` | Workflow `43592051859`: 43/43 PASS incl. host, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
-| F-016 | FDT header `mem_rsvmap` and ARM64 PMM init | Draft PR #166 validates and consumes firmware reservation entries before allocator exposure | Exact-head CI pending; host FDT sanitizers + ARM64/QEMU required | FIRMWARE MEMORY RESERVATION FIX UNDER VERIFICATION |
+| F-016 | FDT header `mem_rsvmap` and ARM64 PMM init | Draft PR #166 exact head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e` includes reserve-map parser, ARM64 integration, reserved-page ownership and atomic PMM release | Workflow `43610515593`: 30/30 jobs PASS, including host-tests, x86 build, ARM64 and all returned QEMU jobs | VERIFIED ON DRAFT PR; main unchanged, review/merge pending |
 | F-015 | FDT reg index/address-size overflow | Draft PR #159 exact head `1a61bd5bdc11b3dd0338c3142113c963308598bf` | Workflow `43592382535`: 43/43 PASS incl. ASan/UBSan FDT tests, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-014 | ARM64 PMM contiguous release is non-atomic | Draft PR #158 validates whole range under one lock | Workflow `43592051859`: 43/43 PASS incl. host, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-012 | Driver-start log line split at 192-byte buffer boundary | QEMU serial artifact `43591102543` confirms driver success but interleaved log | Draft PR #157 exact head `59b391696baabfd49f2ff48acf5aba2b9db538de`; run `43591626068` 43/43 PASS including ARM64 and QEMU `drv-edu` | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
@@ -496,8 +496,7 @@ No code was changed on `main` by this audit. All implementation changes remain i
 ## Follow-up — F-002 / F-016 exact-head evidence and PMM dependency (2026-11-14)
 
 - **F-002 firmware handoff:** PR #165 exact head `64afef2c74f72597dd9620468c4b6bff1fc1bb31`, workflow `43603442098`, completed successfully; all 30 returned jobs succeeded, including `vm (usb-uhci)`. This supersedes the earlier entry that described the UHCI regression as still open on the previous head. Temporary diagnostic traces were removed afterward; cleanup head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb` has no exact-head CI result yet. Keep F-002 branch-only until that cleanup head passes. Real per-device VT-d/SMMUv3 domains remain absent; PR #161's fail-closed Ring 3 DMA/MSI gate does not implement IOMMU.
-- **F-016:** PR #166 exact head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229`, workflow `43602565437`, completed successfully; all 30 returned jobs succeeded. This verifies the FDT header reservation-map parser and ARM64 boot integration on that Draft PR head.
-- **F-016 integration caveat:** PR #166 is based on main and uses the current main `pmm_arm_reserve()`. Main's ARM64 PMM has no separate reserved-page bitmap, so a later `pmm_free_page()` can clear a page reserved by the new call. PR #158 implements reserved-page ownership and atomic contiguous release, exact head `70d0e89a65414818c22d61532f7ca4288c464d2c`, workflow `43592051859`, 43/43 PASS. Treat #158 as a prerequisite or integrate #158+#166 as one reviewed change set. Add an integration test that proves a page described only by FDT `mem_rsvmap` remains unavailable after PMM initialization and cannot be freed.
+- **F-016:** The latest observed PR #166 head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, workflow `43610515593`, completed successfully: 30/30 jobs PASS. This head includes both the FDT reservation-map parser and the ARM64 reserved-page ownership/atomic contiguous-release changes; the earlier PMM dependency is integrated in this candidate. The PR remains draft and unmerged; main is unchanged.
 - These are branch-level results only. No result is transferred to main, and no physical ARM64 hardware qualification is claimed.
 
 
@@ -1829,3 +1828,31 @@ F-061 remains OPEN.
 5. Keep the stacked PR dependency graph explicit and do not merge a subset that silently drops later fixes.
 
 **Disposition:** OPEN. Source/CI evidence is confirmed; no fix has been applied in this Stage 0 audit pass.
+
+
+## F-063 — FDT v16 header is accepted but parsed using the v17-only structure-size field
+
+**Severity:** MEDIUM; firmware compatibility / parser correctness.  
+**Confidence:** HIGH — direct source evidence in current main.  
+**Mapping:** A, B, F, L, M, N; Stage 1 (BootInfo/firmware handoff), Stage 3 (memory ownership), Stage 0 parser validation.
+
+### Evidence on current main `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`
+
+- `fdt_valid()` rejects versions below 16, so version 16 is explicitly accepted.
+- It unconditionally reads header word 9 (`size_dt_struct`) for the structure-block length. That field is defined in the v17 header; v16 requires deriving the structure extent from the next block offset rather than trusting this field.
+- The current host fixture in `tests/fdt_test.c` uses version 17 and does not include a v16 compatibility case.
+- ARM64 boot calls `fdt_valid()` directly on the firmware-provided DTB, so this is on the boot-critical parser path.
+
+### Candidate remediation already present in PR #166
+
+- PR #166 changes the structure-size calculation: explicit `size_dt_struct` for v17+, and `off_dt_strings - off_dt_struct` for v16.
+- Its body records a v16 regression fixture. The currently exposed PR head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e` completed workflow `43610515593` with 30/30 jobs successful.
+- This candidate evidence does not change current main and does not close F-063 until reviewed and integrated.
+
+### Closure
+
+1. Retain the v16 and v17 fixtures and verify the derived v16 extent cannot cross another block.
+2. Test malformed v16 offsets, truncated header, and block ordering under ASan/UBSan.
+3. Re-run exact-head host tests, x86 build, ARM64 build and QEMU matrix after any subsequent PR changes.
+
+**Disposition:** OPEN on main; candidate fix verified on draft PR #166.
