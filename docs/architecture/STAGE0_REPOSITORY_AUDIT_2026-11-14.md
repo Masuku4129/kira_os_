@@ -584,3 +584,14 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - Reconcile every open finding with owning PR and the exact-head CI matrix; then decide fix order by dependency and risk.
 
 No production source changed. Main remains untouched; no PR merged; no ISO built.
+
+
+## 16. Audio subsystem source audit — 2026-11-14
+
+**Stage 0 progress: 53%.** Reviewed the audio mixer, per-process source table, resampling path, stream syscalls, close/teardown and capture flow.
+
+- F-043 — audio stream slots are validated without the slot lock and are not pinned for the duration of an operation. Concurrent close/process teardown and slot reuse can race with a stale syscall; gain and resampler state also lack one consistent synchronization contract.
+- Mixer consumption itself snapshots queued samples and gain under the audio lock, but this does not protect the syscall-side accesses that occur outside that lock.
+- The finding is source-level; audio tests and runtime race reproduction were not run in this pass.
+
+No production source changed. Main remains untouched; no PR merged; no ISO built.
