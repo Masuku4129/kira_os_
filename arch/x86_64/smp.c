@@ -151,8 +151,11 @@ void vmm_tlb_shootdown(uint64_t root, uint64_t va, uint32_t pages) {
         if (__atomic_load_n(&p->active_cr3, __ATOMIC_SEQ_CST) == root) cm_set(&mask, i);
     }
     if (!cm_empty(&mask)) {
-        uint64_t generation = __atomic_load_n(&sd_generation, __ATOMIC_RELAXED) + 1;
-        if (!generation) generation = 1; /* нулевое поколение зарезервировано как «нет ack» */
+        uint64_t generation;
+        if (!tlb_shootdown_next_generation(__atomic_load_n(&sd_generation, __ATOMIC_RELAXED), &generation)) {
+            uart_print("[KIRA SMP] TLB shootdown generation exhausted; refusing to reuse an old generation.\\n");
+            for (;;) __asm__ volatile ("pause"); /* поколения нельзя переиспользовать: fail closed */
+        }
         sd_root = root; sd_va = va; sd_pages = pages;
         __atomic_store_n(&sd_generation, generation, __ATOMIC_RELEASE); /* публикуем payload до отправки IPI */
         for (unsigned i = 0; i < percpu_count(); i++)
