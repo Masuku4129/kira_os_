@@ -481,3 +481,22 @@
 - Draft PR #162: `pci_init_range()`, ECAM root starts at declared `bus_start`, bridge primary/secondary/subordinate validation, parent subordinate bound inheritance and legacy bus-0 compatibility.
 - Host tests include nonzero root, nested windows, out-of-range bridge, wrong primary, invalid-range snapshot preservation, legacy scan and real ECAM path.
 - Exact-head CI pending. No main changes and no PASS claimed.
+
+
+### PR #160 — MMIO overflow + atomic UART integration exact-head CI passed (2026-11-14)
+
+- Exact head `d5628989db142212bf6af26510a06e5bd0e70c90`, workflow `43592802619`: **43/43 checks PASS**, zero failures/cancellations.
+- Includes checked MMIO page-range arithmetic and the exact-head-verified atomic UART record fix, host tests, x86-64/ARM64 builds and full QEMU matrix.
+- F-011 is verified on this unmerged Draft PR; main unchanged.
+
+### PR #162 — PCI ECAM host-bus and subordinate-window bounds exact-head CI passed (2026-11-14)
+
+- Exact head `2e30dc5c9edff973a949d40dacbed18d2d666ab8`, workflow `43594509620`: **43/43 checks PASS**, zero failures/cancellations.
+- Host ASan/UBSan coverage includes nonzero ECAM root bus, nested subordinate windows, host-range escape, mismatched primary bus, invalid-range snapshot preservation, legacy bus-0 behavior and actual ECAM wrapper; x86-64/ARM64 builds and QEMU matrix passed.
+- F-003 is verified on this unmerged Draft PR. Exploratory duplicate PR #163 was closed without merge in favor of #162. Main unchanged.
+
+### PR #161 — DMA/MSI fail-closed policy test correction (2026-11-14)
+
+- First exact-head run `43593017450` exposed three scenario assertions that did not match the current behavior: escaped bracket regexes in the app UI scenario, a package-selection assertion that assumed one of two matching packages would always be selected after stop, and a global DHCP prohibition that also matched the earlier boot phase.
+- A corrected scenario commit `11538b6685e504e861e48328553b5b973a41a977` was run as `43599700642`. The corrected UI assertion reached the actual asynchronous driver-denial path; it then exposed a timing issue because Driver Manager polls for kernel completion for up to 6 seconds. The scenario now waits 7 seconds before checking the final user-facing result.
+- A fresh exact-head run is required for the timing correction. No PASS claimed; PR #161 remains Draft/unmerged.
