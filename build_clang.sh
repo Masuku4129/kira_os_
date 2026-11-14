@@ -7,8 +7,8 @@
 #   ./build_clang.sh --no-run   только собрать
 #   ./build_clang.sh --no-run --spatial-preview  собрать Spatial Minimal для CI без Android-пути и без исключения тестовых программ
 #   ./build_clang.sh --vnc --xhci --hub --flash   собрать и запустить с USB-хабом и флешкой (см. run_qemu.sh)
-#   ./build_clang.sh --android       собрать облегчённый Spatial пакет без тестовых программ.
-#   ./build_clang.sh --android-full  собрать полный Spatial пакет со всеми программами и положить ISO + диск в Download телефона (Limbo x86):
+#   ./build_clang.sh --android       собрать полный Spatial пакет со всеми системными, тестовыми и учебными программами.
+#   ./build_clang.sh --android-full  то же самое: полный Spatial пакет со всеми программами и ISO + диск в Download телефона (Limbo x86):
 #                               диск в Download обновляется на месте - /bin новый, опыт (/var) и файлы программ (/data) сохраняются.
 #                               Папку можно задать: KIRA_OUT=/путь ./build_clang.sh --android
 set -e
@@ -189,7 +189,7 @@ case " $* " in
             echo "[*] Диск: $OUT/kira_disk.img (новый)."
         fi
         echo "[*] Образ: $OUT/kira.iso ($(( $(stat -c %s kira.iso) / 1024 )) КБ)"
-        echo "[*] Limbo x86: CD-ROM = kira.iso, Hard Disk A = kira_disk.img, Boot from = CD-ROM, VGA = std. Подробно - LIMBO.md"
+        echo "[*] Limbo x86: CD-ROM = kira.iso (self-contained boot + embedded KiraFS); Hard Disk A = kira_disk.img (persistent state, recommended), Boot from = CD-ROM, VGA = std. Подробно - LIMBO.md"
         exit 0 ;;
     --vnc|--ata|--sata|--nvme|--usb|--xhci|--hub|--flash*|--uefi) exec ./run_qemu.sh "$@" ;;
     *)        exec ./run_qemu.sh ;;
