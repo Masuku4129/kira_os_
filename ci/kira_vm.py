@@ -113,6 +113,10 @@ class VM:
         self.qemu_instance = 0
         self.qemu_log_path = None
         os.makedirs(out, exist_ok=True)
+        # A reused ci-out directory must not mix diagnostics from an earlier scenario attempt.
+        for name in os.listdir(out):
+            if name in ("qemu.log", "qemu-diagnostics.json") or re.fullmatch(r"qemu-phase-\d+\.log", name):
+                os.unlink(os.path.join(out, name))
         self.disk = os.path.join(out, "disk.img")
         shutil.copyfile(disk, self.disk)
         if sc.get("files"):                         # тестовые файлы (ci/mkfiles.py) - на диск машины
