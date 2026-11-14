@@ -1029,3 +1029,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Found F-035: the install report shows per-file URL/license/hash, but the installed KDRV record preserves only recipe URL, recipe-declared license, combined source-set hash, package hash and ELF hash. Per-file provenance is not retained. The parser also does not require detected per-file license markers to match the recipe-level declared license.
 - The minimum accepted manual confirmation is 8 hex characters (32 bits); this is a user confirmation token, not a cryptographic signature. The current flow has no source signature/key rotation/revocation layer.
 - Added F-035 MEDIUM. Recommended versioned per-file provenance manifest, explicit license-set consistency, stronger default confirmation length and separate signed provenance. No source code changed.
+
+
+## 44. Network socket lifecycle and cryptographic API boundary audit — 2026-11-14
+
+- Reviewed current-main UDP/TCP syscall ownership, process teardown, packet delivery, RNG and cryptographic primitive APIs, plus existing network/crypto tests.
+- Confirmed F-035: UDP allocation/close and packet delivery use ulk, but udp_gone() revokes owners without ulk and uown() reads owner without synchronization. A teardown/close/reopen race can invalidate a slot while another syscall or packet-delivery path is using it. tcp_owner[] and listen_owner[] need the same lifecycle audit.
+- Confirmed F-036: HKDF-Expand uses an 8-bit block counter but does not enforce RFC 5869's 255-block maximum; >8160-byte output wraps the counter. It also silently truncates info to 300 bytes. TLS HKDF label/context are silently truncated at 64 bytes and encoded output length is not range-checked. Existing crypto tests cover standard vectors, not these boundaries.
+- Also flagged ChaCha20/AES-GCM maximum-length/counter checks for the crypto hardening pass; no exploit in a current TLS caller is claimed.
+- Existing tests/net_test.c is narrow (checksum and address parsing); it does not exercise socket ownership/teardown concurrency. No production source changed.
