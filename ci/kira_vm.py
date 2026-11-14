@@ -102,8 +102,6 @@ class Fail(Exception):
     pass
 
 
-from qemu_diagnostics import summarize_qemu_log
-
 class VM:
     def __init__(self, sc, out, iso, disk, kvm, timeout_scale):
         self.sc, self.out, self.iso, self.kvm, self.k = sc, out, iso, kvm, timeout_scale
