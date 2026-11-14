@@ -37,6 +37,11 @@ int main(void) {
     CHECK(th0 == 8 && th7 > th0);
     CHECK(net_tcp_handle_decode(th0, &slot, &generation) == 0 && slot == 0 && generation == 1);
     CHECK(net_tcp_handle_decode(th7, &slot, &generation) == 0 && slot == 7 && generation == UINT16_MAX);
+    CHECK(net_tcp_handle_matches(th0, 0, 1, 1, 0));
+    CHECK(!net_tcp_handle_matches(th0, 0, 2, 1, 0)); /* stale generation */
+    CHECK(!net_tcp_handle_matches(th0, 1, 1, 1, 0)); /* wrong slot */
+    CHECK(!net_tcp_handle_matches(th0, 0, 1, 0, 0)); /* freed */
+    CHECK(!net_tcp_handle_matches(th0, 0, 1, 1, 1)); /* closing */
     CHECK(net_tcp_handle_make(8, 1) == -1 && net_tcp_handle_make(0, 0) == -1);
     CHECK(net_tcp_handle_decode(0, &slot, &generation) != 0);
     CHECK(net_tcp_handle_decode(-1, &slot, &generation) != 0);
@@ -49,6 +54,10 @@ int main(void) {
     CHECK(lh3 > lh0);
     CHECK(net_tcp_listener_handle_decode(lh0, &slot, &generation) == 0 && slot == 0 && generation == 1);
     CHECK(net_tcp_listener_handle_decode(lh3, &slot, &generation) == 0 && slot == 3 && generation == UINT16_MAX);
+    CHECK(net_tcp_listener_handle_matches(lh0, 0, 1, 1, 0));
+    CHECK(!net_tcp_listener_handle_matches(lh0, 0, 2, 1, 0));
+    CHECK(!net_tcp_listener_handle_matches(lh0, 0, 1, 0, 0));
+    CHECK(!net_tcp_listener_handle_matches(lh0, 0, 1, 1, 1));
     CHECK(net_tcp_listener_handle_make(4, 1) == -1 && net_tcp_listener_handle_make(0, 0) == -1);
     CHECK(net_tcp_listener_handle_decode(th0, &slot, &generation) != 0);
     CHECK(net_tcp_listener_handle_decode((int)NET_TCP_LISTEN_HANDLE_BASE, &slot, &generation) != 0);
