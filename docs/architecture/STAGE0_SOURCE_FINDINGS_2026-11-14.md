@@ -168,6 +168,30 @@ An ISO made with `./build_clang.sh --android` is a release-filtered profile, not
 
 **Required closure:** define named build profiles with explicit manifests (full development/test image vs release-filtered image); make the chosen profile visible in build metadata; add a manifest diff test that proves which ELF files and resources are present; for the user's complete Limbo image, use the full profile and verify the ISO contents rather than relying on the filename or successful build.
 
+
+## F-008 — Scheduler silently falls back to unguarded heap stacks and does not clear reused stacks
+
+**Severity:** Medium-high kernel hardening gap  
+**Confidence:** High — direct source evidence  
+**Master-plan mapping:** B, F, N; streams 1, 5, 12.
+
+### Evidence
+
+- `sched.c:kstack_new()` first calls `vmm_kstack_alloc(SCHED_STACK_SIZE)`, but falls back to `kmalloc(SCHED_STACK_SIZE)` if the guarded stack window cannot provide a slot.
+- `create_thread()` writes only the canary at the stack base; it does not clear the remaining stack bytes before constructing the initial context.
+- The heap fallback is released through `kfree()`; it has no VMM guard page. The scheduler's canary is checked on context-switch paths, not as a page-level guard.
+
+Sources:
+- [sched.c stack allocator fallback, lines 291–299](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/sched.c#L291-L299)
+- [sched.c thread stack initialization, lines 452–466](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/sched.c#L452-L466)
+- [sched.c canary check, lines 300–305](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/sched.c#L300-L305)
+
+### Consequence
+
+When guarded stack allocation fails or the slot window is exhausted, a thread may still be created with an unguarded heap stack. This weakens the invariant that every kernel thread has a guard page. Reused stacks may also contain prior thread data until overwritten.
+
+**Required closure:** explicitly define stack-exhaustion policy (fail thread creation or use a separately guarded fallback); zero stack contents before publishing a new thread; add tests for allocation failure, fallback classification, canary initialization and zeroing; ensure all supported architectures enforce the same policy. Do not silently treat heap fallback as equivalent to guarded stacks.
+
 ## Verification ledger
 
 | Finding | Source reviewed | Runtime reproduction | Targeted regression in current main | Status |
@@ -179,5 +203,6 @@ An ISO made with `./build_clang.sh --android` is a release-filtered profile, not
 | F-005 | PCI/KDRV structure and PR #141 dependency | Not run in this session | No generic registry test in main | ARCHITECTURE GAP |
 | F-006 | ARCHITECTURE.md vs current sources/build/CI | Source/document comparison only | No docs consistency guard in main | CONFIRMED DOCUMENTATION DRIFT |
 | F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
+| F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
 
 No code was changed by this audit. No test was executed locally. Exact-head CI evidence from other PRs is explicitly branch-only and is not transferred to main.
