@@ -743,3 +743,12 @@ This is an intermediate run superseded by later instrumentation commits; the two
 
 ### F-059 UDP socket lifecycle acceptance gate
 UDP owner checks currently occur outside `ulk`, and teardown clears ownership without that lock. Even the locked close path does not protect operations that validated the slot earlier. Require generation-tagged handles or pin/drain semantics, atomic lifecycle transitions, lock-order review, and concurrent close/teardown/delivery/reopen tests before treating UDP sockets as safe for concurrent Ring 3 use.
+
+
+### Early UHCI quiesce at PCI discovery (2026-11-14)
+
+| Point | Current action | Gap | Required action |
+|---|---|---|---|
+| PCI BAR probe complete | Clear PCI Bus Master | Firmware UHCI can remain RUNning; no USBSTS.HALTED verification | Stop UHCI via BAR4 immediately after BM revoke |
+| Remaining PCI scan | Continue probing other devices | UHCI can issue rejected DMA attempts throughout this interval | Bounded USBCMD=0 / USBSTS.HALTED poll; keep BM off |
+| USB driver start | Revoke BM again, stop/reset, allocate schedule and start | Too late to avoid the boot-time rejected-DMA storm | Keep as second-stage reset/reinitialize after early quiesce |
