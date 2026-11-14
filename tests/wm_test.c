@@ -321,6 +321,16 @@ int main(void) {
     /* Spatial Minimal is a real, opt-in layout; legacy remains the default. */
     wm_set_layout_mode(WM_LAYOUT_SPATIAL_MINIMAL);
     CHECK(wm_get_layout_mode() == WM_LAYOUT_SPATIAL_MINIMAL);
+    static uint32_t wallpaper_pixels[12] = {
+        0x00112233, 0x00223344, 0x00334455, 0x00445566,
+        0x00556677, 0x00667788, 0x00778899, 0x008899AA,
+        0x0099AABB, 0x00AABBCC, 0x00BBCCDD, 0x00CCDDEE
+    };
+    surface_t wallpaper_surface = { wallpaper_pixels, 4, 3, 4 };
+    wm_set_wallpaper(&wallpaper_surface);
+    frame();
+    CHECK(px(&scr, 512, 384) == wallpaper_pixels[6]); /* aspect-fit scaling reaches the expected source texel */
+    wm_set_wallpaper(0);
     frame();
     /* Spatial has no full-width top bar; the center canvas remains visually quiet. */
     CHECK(px(&scr, 500, 20) == TH_BG0);
