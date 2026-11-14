@@ -60,6 +60,11 @@ int main(int argc, char** argv) {
     size_t pdl = rd(d, "path0_directleaf.der", directleaf, sizeof directleaf);
     const uint8_t* path_ok_chain[2] = { directleaf, pathinter }; size_t path_ok_lens[2] = { pdl, pli };
     CHECK(pdl && x509_verify_chain(path_ok_chain, path_ok_lens, 2, root, rl, "kira.test", now, &why) == 0);
+    size_t sil = rd(d, "path0_selfissued_leaf.der", pathleaf, sizeof pathleaf);
+    size_t sic = rd(d, "path0_selfissued.der", pathsub, sizeof pathsub);
+    const uint8_t* path_self_chain[3] = { pathleaf, pathsub, pathinter };
+    size_t path_self_lens[3] = { sil, sic, pli };
+    CHECK(sil && sic && x509_verify_chain(path_self_chain, path_self_lens, 3, root, rl, "kira.test", now, &why) == 0);
     CHECK(x509_check_sig(&L, &I) == 0 && x509_check_sig(&I, &R) == 0 && x509_check_sig(&L, &R) == -1);
     CHECK(x509_match_host(&L, "kira.test") && x509_match_host(&L, "WWW.Kira.Test") && x509_match_host(&L, "10.0.2.100"));
     CHECK(!x509_match_host(&L, "a.b.kira.test") && !x509_match_host(&L, "kira.test.evil") && !x509_match_host(&L, "10.0.2.101") && !x509_match_host(&L, "test"));
