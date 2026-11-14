@@ -190,7 +190,11 @@ void audio_set_lead_ms(uint32_t ms) {
     lead_frames = (uint32_t)((uint64_t)ms * AUDIO_RATE / 1000);
 }
 void audio_set_period_ms(uint32_t ms) { period_ms = ms < 2 ? 2 : ms > 50 ? 50 : ms; }
-void audio_stats(uint64_t* mixed_frames, uint64_t* under) { *mixed_frames = mixed_prog; *under = underruns; }
+void audio_stats(uint64_t* mixed_frames, uint64_t* under) {
+    uint64_t f = spin_lock_irqsave(&lk);
+    *mixed_frames = mixed_prog; *under = underruns;
+    spin_unlock_irqrestore(&lk, f);
+}
 
 int audio_tone(unsigned hz, unsigned ms) {
     if (!running) return -1;
@@ -201,15 +205,24 @@ int audio_tone(unsigned hz, unsigned ms) {
 }
 
 void audio_print(void) {
-    unsigned n = 0; for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used) n++;
-    uart_print("микшер: "); uart_print(running ? "работает" : "не запущен");
+    struct { uint32_t pid, rate, ch; int used; } snapshot[AUDIO_SRC_MAX];
+    uint64_t mixed, under; unsigned n = 0; int pct, is_running;
+    uint64_t f = spin_lock_irqsave(&lk);
+    for (int k = 0; k < AUDIO_SRC_MAX; k++) {
+        snapshot[k].used = src[k].used;
+        snapshot[k].pid = src[k].pid; snapshot[k].rate = src[k].rate; snapshot[k].ch = src[k].ch;
+        if (snapshot[k].used) n++;
+    }
+    mixed = mixed_prog; under = underruns; pct = master_pct; is_running = running;
+    spin_unlock_irqrestore(&lk, f);
+    uart_print("микшер: "); uart_print(is_running ? "работает" : "не запущен");
     uart_print(", программ со звуком "); uart_print_dec(n); uart_print(", карта забрала кадров "); uart_print_dec(hw);
-    uart_print(", от программ смешано "); uart_print_dec(mixed_prog); uart_print(", недоборов "); uart_print_dec(underruns);
-    uart_print(", громкость "); uart_print_dec((uint64_t)master_pct); uart_print("%\n");
-    for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used) {
-        uart_print("  поток "); uart_print_dec((uint64_t)k); uart_print(": процесс "); uart_print_dec(src[k].pid);
-        uart_print(", "); uart_print_dec(src[k].rate); uart_print(" Гц, каналов "); uart_print_dec(src[k].ch);
-        uart_print(src[k].rate != AUDIO_RATE || src[k].ch != 2 ? " (пересчёт в 48 кГц стерео)\n" : "\n");
+    uart_print(", от программ смешано "); uart_print_dec(mixed); uart_print(", недоборов "); uart_print_dec(under);
+    uart_print(", громкость "); uart_print_dec((uint64_t)pct); uart_print("%\n");
+    for (int k = 0; k < AUDIO_SRC_MAX; k++) if (snapshot[k].used) {
+        uart_print("  поток "); uart_print_dec((uint64_t)k); uart_print(": процесс "); uart_print_dec(snapshot[k].pid);
+        uart_print(", "); uart_print_dec(snapshot[k].rate); uart_print(" Гц, каналов "); uart_print_dec(snapshot[k].ch);
+        uart_print(snapshot[k].rate != AUDIO_RATE || snapshot[k].ch != 2 ? " (пересчёт в 48 кГц стерео)\n" : "\n");
     }
 }
 
@@ -253,7 +266,7 @@ int64_t audio_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
     if (!running) return -2;
     if (op == 0) {                                                  /* open(частота, каналы) */
         unsigned rate = a1 ? (unsigned)a1 : AUDIO_RATE, ch = a2 ? (unsigned)a2 : 2;
-        if (a1 > 96000 || rate < 8000 || ch > 2 || ch < 1) return -10;
+        if (a1 > 96000 || rate < 8000 || (a2 && (a2 < 1 || a2 > 2))) return -10;
         uint64_t f = spin_lock_irqsave(&lk);
         int h = -9;
         for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used && src[k].pid == pid) { h = -3; break; }
