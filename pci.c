@@ -340,8 +340,6 @@ static void scan_bus(uint8_t bus);
 
 static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = fn;
-#ifndef KIRA_HOST_TEST
-#endif
     uint32_t id = cr32(&t, 0);
     if ((id & 0xFFFF) == 0xFFFF) return;
     if (ndevs >= PCI_MAX_DEVS) return;
@@ -356,14 +354,8 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     uint32_t cls = cr32(d, 0x08);
     d->revision = (uint8_t)cls; d->prog_if = (uint8_t)(cls >> 8); d->subclass = (uint8_t)(cls >> 16); d->class_code = (uint8_t)(cls >> 24);
     d->header_type = pci_read8(d, 0x0E);
-#ifndef KIRA_HOST_TEST
-#endif
     pci_disable_bus_master(d);
-#ifndef KIRA_HOST_TEST
-#endif
     probe_bars(d);
-#ifndef KIRA_HOST_TEST
-#endif
     if (pci_is_bridge(d)) {
         pci_enable(d, PCI_CMD_MASTER);
         uint8_t sec = pci_read8(d, 0x19);
@@ -374,27 +366,15 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
 static void scan_bus(uint8_t bus) {
     if (bus_seen[bus]) return;                                       /* защита от петель в неверно настроенных мостах */
     bus_seen[bus] = 1;
-#ifndef KIRA_HOST_TEST
-#endif
     for (uint8_t dev = 0; dev < 32; dev++) {
         pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = 0;
-#ifndef KIRA_HOST_TEST
-#endif
         if ((cr32(&t, 0) & 0xFFFF) == 0xFFFF) continue;
-#ifndef KIRA_HOST_TEST
-#endif
         uint8_t multi = pci_read8(&t, 0x0E) & 0x80;
-#ifndef KIRA_HOST_TEST
-#endif
         scan_fn(bus, dev, 0);
         if (multi) for (uint8_t fn = 1; fn < 8; fn++) {
-#ifndef KIRA_HOST_TEST
-#endif
             scan_fn(bus, dev, fn);
         }
     }
-#ifndef KIRA_HOST_TEST
-#endif
 }
 
 int pci_init(void) {
