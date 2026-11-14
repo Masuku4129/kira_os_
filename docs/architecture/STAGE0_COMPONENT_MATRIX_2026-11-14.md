@@ -356,3 +356,16 @@ This strategy changes test scheduling, not the acceptance standard. No feature i
 - PR #166 current head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e, associated workflow 43610515593: **30/30 jobs succeeded**.
 - This supersedes earlier pending notes for the prior corrected head. It verifies the current PR #166 implementation on its exact head, not main.
 - The new FDT header reservation-map validation/application, block-overlap checks, v16 structure-size handling and reg index/address-overflow tests are present. F-027 remains open for bounded property-name lookup.
+
+
+### BootInfo / firmware handoff branch map
+
+| Source stack | Existing implementation | Exact evidence | Main integration state |
+|---|---|---|---|
+| PR #12, base v45/overhaul | KBI v1 common validator, MB2 producer, FDT producer, FDT/PMM reservation tests | runs 43236520117 and 43236520194 succeeded | not main-based; stronger module-RAM and FDT reservation semantics |
+| PR #46, base v46/kdrv-catalogue-signature-policy | UEFI KBI producer, PE32+ loader, GOP/RSDP capture, ExitBootServices retry, direct KBI kernel entry | no exact-head CI run found | divergent stack; requires exact OVMF/combined verification |
+| PR #45, base v46/kdrv-catalogue-signature-policy | UEFI ELF loader hardening | run 42385882597 failed | preserve and review failure before reuse |
+| PR #60/#61, base autodrv | UEFI command line/module and initrd handoff preservation | runs 42779406776 and 42780403870 succeeded | closed PRs on divergent base |
+| PR #130, base v46/release-completion | validate loader modules against declared physical RAM | runs 43164087429 and 43164087483 succeeded | closed PR on divergent base |
+
+**Contract warning (F-028):** PR #12 and #46 both call the contract BootInfo v1, but their validators and FDT adapters differ. Canonicalize the stronger module-in-RAM and reservation behavior before adding the UEFI producer. Main still has direct MB2 and FDT paths; no common BootInfo integration is claimed.
