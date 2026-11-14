@@ -29,7 +29,7 @@
 | `docs/architecture/` в main | отсутствует | Нормативный архитектурный пакет пока не принят в main |
 | PR #135 | Draft; head `78a76003d0d808147f994c7ed23098c607039fd8`; 300 commits ahead / 3 behind относительно текущего main | Не использовать как базу новой разработки и не сливать вслепую |
 | PR #148 | Draft; head `2476dc6d50e6616e9ca7ce6ef469d45c10816081`; 77 commits ahead / 0 behind | Содержит трёхсекционный статусный реестр и file-loss guard; exact-head CI: 43/43 checks success |
-| PR #150 | Draft; head `79e956f591e83628b7a014b0958fecff00b4ce70` | Exact-head CI: 42/43 checks success; `host-tests` failed. Это блокирующий незакрытый результат, не PASS |
+| PR #150 | Draft; head `79e956f591e83628b7a014b0958fecff00b4ce70` | Exact-head CI: 42/43 checks success; `host-tests` failed in `tests/wm_test.c:84`: `wm_compose_par(test_present, &composed_pixels) > 4` was false. This is a GUI compositor regression, not a kernel-stack test failure |
 | CI `main` | 6 check-runs `inspect` = success; commit status API: 0 statuses, pending | Это не подтверждает build, host tests или VM matrix |
 
 Ссылки:
@@ -134,7 +134,7 @@ Stage 0 — инвентаризация всего репозитория и д
 - [x] Получить список открытых PR и текущие head/base SHA.
 - [x] Сверить архитектурную ветку #135 с main.
 - [x] Проверить exact-head CI #148 и #150.
-- [ ] Независимо разобрать падение `host-tests` PR #150.
+- [x] Получить host-tests log PR #150: failure is `wm_compose_par(test_present, &composed_pixels) > 4` at `tests/wm_test.c:84`; GUI failure remains open and must not be hidden by the kernel work.
 - [x] Прочитать актуальные `AGENTS.md`, `README.md`, `ARCHITECTURE.md`, мастер-план и WORKLOG.
 - [ ] Сверить build scripts x86-64/ARM64 с tree и status manifest PR #148.
 - [ ] Составить актуальную компонентную матрицу по всем A–N и 12 потокам.
@@ -147,3 +147,4 @@ Stage 0 — инвентаризация всего репозитория и д
 |---|---|---|---|
 | 2026-11-14 | main `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4` | Зафиксирован исходный baseline Stage 0 | GitHub tree/API read; исполняемые тесты в этой записи не запускались |
 | 2026-11-14 | audit branch `cd12b7c31dccf97c1bd6d5ebf001bd0f3b9dac0a` | Добавлены F-001…F-005 по исходникам | Source review на pinned main SHA; runtime reproduction не выполнялся |
+| 2026-11-14 | PR #152, head `8358d14850ff48f0a710486106a550e01701f2a5` | Начато исправление F-001: общий ownership helper, x86-64/ARM64 allocator hardening и host regression | Exact-head workflow `43585911384` запущен; результат ещё не получен |
