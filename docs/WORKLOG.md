@@ -1271,3 +1271,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - No production source changed and no test is claimed as run. Main remains unchanged; no merge or ISO build.
 
 **Stage 0 progress: 70%.** Added a distinct FDT string-value boundary review and a concrete malformed-input test requirement. Remaining work includes broader semantic review, branch reconciliation, and actual verification of the resulting integrated source.
+
+
+## 68. Stacked USB fix QEMU artifact review — 2026-11-14
+
+- PR #169 intermediate head `6fd90d39`, run `43622220409`: targeted UHCI and xHCI VM jobs both completed successfully before later instrumentation commits superseded the run.
+- xHCI: all hub/keyboard/tablet/storage/FAT32 read-write checks pass; QEMU `qemu.log` is 0 bytes, with no invalid reads/writes and no `xhci_er_reset: DMA memory access failed`. The corrected BM-before-pointer-exposure order resolves the observed ERSTBA failure in this QEMU scenario.
+- UHCI: functional USB and FAT32 checks pass, but `qemu.log` is 40,081,525 bytes with 589,375 invalid-read records; 147,200 reads each at addresses 0x0/0x4/0x8/0xC. F-025 remains open. The earlier UHCI BM-order fix alone did not remove the QEMU log storm.
+- The current PR #169 branch adds serial/QEMU log offsets at PCI scan, UHCI/xHCI initialization and OS-ready to identify whether the remaining UHCI errors precede PCI securing, occur during controller startup, or continue at runtime.
