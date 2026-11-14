@@ -931,3 +931,25 @@ F-028 remains OPEN. PR #12 and PR #46 remain preserved branch work; neither is t
 - The final log records repeatedly cycle through exactly these four low addresses. The matching VM scenario attaches USB tablet and keyboard to the chipset's UHCI controller. This is consistent with an active UHCI controller repeatedly fetching a frame list whose base is zero or otherwise invalid.
 - This strengthens the controller-not-quiesced hypothesis, but the QEMU log alone does not prove the actual USBCMD/USBSTS/FLBASEADD register values or whether the PCI Command write completed. The serial trace still ends after “probed 0:1.2” and before “secured 0:1.2”.
 - The next diagnostic must capture UHCI USBCMD, USBSTS and FLBASEADD before the Bus Master handoff; then test a bounded controller halt/reset before clearing Bus Master. Keep the IOMMU-first alternative in the design review. Do not classify the hypothesis as confirmed until the register state and a clean repeated scenario support it.
+
+
+## New finding F-029 — USB drivers re-enable Bus Master before quiescing firmware controller state (2026-11-14)
+
+**Severity:** HIGH DMA ownership/handoff risk. Source-level ordering defect; runtime impact on all physical controllers is not yet measured.
+
+### Evidence
+- In the PCI scan path, PR #165 clears endpoint Bus Master after BAR probing and before publishing the device. The USB driver starts later in usb_main(), after pci_init() returns.
+- UHCI: uhci_start() calls pci_enable(p, PCI_CMD_IO | PCI_CMD_MASTER | PCI_CMD_INTX_OFF) before its first USBCMD=0 halt request and USBSTS.HCHalted wait. It only programs FRBASE to the new kernel-owned frame list after reset. Thus Bus Master is re-enabled while the firmware-owned controller state may still be active and before the new frame-list base is installed.
+- xHCI: xhci_start() calls pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF) before BAR mapping, BIOS ownership handoff, USBCMD.Run clear, HCHalted wait and HCRST. It then allocates/programs DCBAAP, CRCR and event-ring registers and starts the controller.
+- These orderings mean the generic PCI scan's earlier clear is not a durable DMA boundary: each USB driver grants Bus Master again before it has stopped/reset the controller and replaced firmware DMA state.
+- The current UHCI QEMU failure occurs earlier in pci_init(), before uhci_start() is reached. F-029 is a separate downstream defect that would remain after F-025 is fixed.
+- PCI Command I/O/MEM decode can be enabled without granting Bus Master. UHCI needs I/O decode to access its port registers; xHCI needs memory decode to access its BAR. The driver can defer PCI_CMD_MASTER until after bounded stop/reset and after valid kernel DMA structures/addresses are programmed.
+
+### Required closure
+1. Split decode enable from DMA permission: enable IO/MEM decode without MASTER so the driver can access controller registers while DMA remains denied.
+2. Perform controller-specific BIOS handoff, stop and reset with bounded waits; capture status and quarantine the controller on timeout.
+3. Allocate and initialize DMA structures, program UHCI FRBASE / xHCI DCBAAP+CRCR+event ring, and only then request Bus Master under the DMA policy/IOMMU gate.
+4. Add host tests for PCI Command transition order and QEMU tests with firmware-started UHCI/xHCI controllers whose old DMA bases are invalid/nonzero.
+5. Verify that failure at any point leaves Bus Master denied and does not expose partially initialized rings; repeat on x86-64 and relevant ARM64 xHCI path.
+
+F-029 remains OPEN. Do not accept PCI or USB DMA safety based solely on the initial PCI enumeration clear.
