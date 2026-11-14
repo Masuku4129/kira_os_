@@ -876,3 +876,28 @@ F-025 remains OPEN. F-017 remains OPEN independently: firmware DMA must be conta
 4. Run the focused FDT host test, ARM64 build and QEMU boot scenarios on the exact candidate; then run full CI.
 
 F-027 remains OPEN pending a reproducing regression test and exact-head verification.
+
+
+## New finding F-028 — BootInfo v1 implementations diverge across preserved branch stacks (2026-11-14)
+
+**Severity:** HIGH integration/boot-contract risk. This is branch divergence, not evidence that the individual adapters currently fail their recorded tests.
+
+### Evidence
+- Current main still has separate loader handoffs: x86-64 BIOS enters through Multiboot2 and pmm.c parses the MB2 map directly; ARM64 arch/aarch64/main.c consumes the FDT directly. The versioned KIRA BootInfo consumer/producer contract is not integrated into main.
+- PR #12 head c3342321667045a29b3c7e4726a31b926117a9b1 (base v45/overhaul) contains BootInfo v1, common validation, Multiboot2 and FDT adapters, and tests. Its exact-head runs 43236520117 and 43236520194 succeeded.
+- PR #46 head dacc04d0dafd507ef0721698b5e9c2512f1947a5 (base v46/kdrv-catalogue-signature-policy) adds a UEFI producer and loader that calls kira_uefi_build_kbi(), exits boot services, and enters the kernel with RCX=BootInfo pointer and RDX=size. No exact-head workflow run is associated with #46.
+- Both branches advertise BootInfo version 1 and share the same packed header/memory-map/module layouts, but their implementation files are not equivalent:
+  - PR #12 bootinfo.c adds module_in_ram() and rejects modules unless their full physical extent is covered by ordered USABLE or MODULE memory-map ranges. PR #46's bootinfo.c lacks this validation.
+  - PR #12 bootinfo_fdt.c consumes the FDT firmware reservation map, reserves the kernel image and DTB, subtracts /reserved-memory ranges, and reserves simple-framebuffer memory before publishing usable RAM. PR #46's bootinfo_fdt.c is a shorter implementation without the same reservation-subtraction path.
+  - PR #46's bootinfo.h adds a kbi_to_multiboot2() compatibility declaration; its bootinfo_uefi.c implements that conversion. This adapter is additional surface, not part of the PR #12 header.
+- PR #46 does include tests/uefi_kbi_test.c for descriptor conversion, memory-type classification, GOP geometry, overflow, overlapping descriptors and RSDP alignment. PR #12 includes common BootInfo and MB2/FDT conversion tests. Those test sets are complementary, not interchangeable.
+
+### Required resolution
+1. Freeze one canonical BootInfo v1 header and validation semantics before transplanting producers.
+2. Carry forward the stronger module-in-RAM validation and FDT reservation subtraction; do not regress them when adding the UEFI producer.
+3. Decide whether kbi_to_multiboot2() is a required compatibility adapter or legacy transition code; keep it out of the core ABI unless a real consumer needs it.
+4. Reconcile UEFI kernel entry ABI, ExitBootServices retry behavior, BootInfo lifetime/physical ownership, and x86/ARM64 kernel consumer before replacing either current boot path.
+5. Add cross-producer golden fixtures: MB2, UEFI and FDT should produce semantically equivalent normalized memory maps for equivalent firmware layouts, with reserved/module/framebuffer regions preserved.
+6. Require exact-head host, BIOS, OVMF, ARM64 QEMU and memory-reservation tests on the combined candidate.
+
+F-028 remains OPEN. PR #12 and PR #46 remain preserved branch work; neither is treated as integrated into main.
