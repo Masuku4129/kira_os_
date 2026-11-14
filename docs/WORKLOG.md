@@ -1145,3 +1145,14 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed F-046: graphics lookup returns an unpinned pointer into a reusable global slot. Process exit schedules asynchronous destruction; the display server frees framebuffer pages and clears the slot without waiting for syscalls that already acquired the pointer. This creates a credible use-after-free/stale-slot race under SMP.
 - The service destruction path does not itself show explicit user unmap/TLB shootdown before physical page reuse; this must be resolved in the lifetime protocol, not assumed safe.
 - No runtime reproducer or SMP QEMU test was run. Source audit only; no production code changed.
+
+
+## 56. KiraFS and FAT persistence/error-path audit — 2026-11-14
+
+- Reviewed KiraFS v2 superblock validation, mount scan/repair, inode/data block allocation, direct/indirect/double/triple-indirect trees, directory operations, write replacement, unlink and crash-cutoff tests.
+- KiraFS has useful host fault-injection coverage: writes can be cut off sector-by-sector and operations are remounted/rechecked. But the test flush callback always returns success and host-test locking is a no-op; flush-failure and concurrent-operation behavior remain untested.
+- FAT audit confirmed F-033 remains open: `fat_flush()` discards the block-device flush return value and returns success.
+- F-047 — FAT allocation may leave a partially allocated chain behind when `fat_set()` fails; some `chain_alloc()` error paths return without rollback, and `fat_write()` does not have an independent allocation list for cleanup.
+- F-048 — FAT unlink and replacement discard `chain_free()` errors after directory metadata has been changed, allowing incomplete reclamation to be reported as success.
+- Existing FAT test device has no flush callback and its write-failure check does not inject failures at each FAT-sector transition; it therefore does not close these gaps.
+- No runtime fault-injection suite was executed in this audit turn. Source review only; no production code changed.
