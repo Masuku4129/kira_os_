@@ -1243,3 +1243,24 @@ F-040 remains OPEN.
 5. Run the full WASM corpus under ASan/UBSan and fuzz malformed modules with bounded fuel and a strict timeout; require no out-of-bounds access, hang or cross-module state leakage.
 
 F-041 remains OPEN.
+
+
+## New finding F-042 — WASM imported function type indices are not validated before use (2026-11-14)
+
+**Severity:** HIGH malformed-module memory-safety risk.
+
+### Evidence
+- During import-section parsing, function imports store the supplied type index `ti` directly in `funcs[nfuncs].type`; unlike defined functions, this value is not checked against `ntypes`.
+- The export section may designate any function index, including an imported function, as `main`, `_start` or `kmain`. Final validation checks only `entry < nfuncs`.
+- `umain()` then evaluates `&types[funcs[entry].type]` before execution. A module with an imported entry function whose type index is outside the allocated type array can therefore cause an out-of-bounds pointer dereference before a normal WASM trap is produced.
+- Imports also are not checked against the required host ABI signatures (argument count/types and result count/type) for `write`, `sleep`, `ticks`, `exit`, `gfx_create`, `gfx_present` and `gfx_event`. `host_call()` assumes the import's declared type is compatible with the host operation; its local argument array has only four entries while the parser permits up to 32 parameters.
+- This is a parser/ABI validation defect for untrusted WASM modules. No runtime exploit is claimed.
+
+### Required closure
+1. Reject every function import whose type index is `>= ntypes` during parsing.
+2. Validate exact host import signatures against a single authoritative ABI table before accepting the module.
+3. Reject imported entry points unless the runtime explicitly supports them and validates their exact signature.
+4. Bound host-call parameter handling to the ABI's actual maximum; do not silently discard extra arguments.
+5. Add hostile fixtures for absent type section, out-of-range type indices, wrong parameter/result types, 5+ arguments, and imported functions exported as entry points. Run under ASan/UBSan on both interpreter and JIT-enabled host builds.
+
+F-042 remains OPEN.
