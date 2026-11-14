@@ -1179,3 +1179,25 @@ F-037 remains OPEN.
 5. Keep unsupported critical extensions fail-closed; do not silently accept or strip them.
 
 F-038 remains OPEN.
+
+
+## New finding F-039 — TCP state and listener fields are read outside the transport lock (2026-11-14)
+
+**Severity:** HIGH concurrency correctness / connection-lifecycle race.
+
+### Evidence
+- TCP connection state, sequence numbers, queue lengths and listener state are mutated by tcp_input(), tcp_tick(), tcp_close() and other paths under tlk.
+- tcp_wait() repeatedly evaluates condition callbacks without taking tlk. The callbacks read tcb fields such as state, tx_len, rx_tail/rx_head and reset while the network thread can update those fields under tlk.
+- tcp_send() reads state before locking; tcp_connect_ipa() checks state after tcp_wait() and writes T_FREE on timeout without tlk; tcp_peer() reads TCB state/address/port without tlk.
+- tcp_accept() reads listens[l].used before acquiring tlk. Listener ownership and TCP handle ownership arrays are also not consistently synchronized with process teardown.
+- These are unsynchronized shared accesses between the application thread and network thread. A timeout, close, packet arrival or slot reuse can race with a waiter or syscall and observe stale/inconsistent connection state.
+- This finding is about data-race and lifecycle correctness; no packet-level exploit is claimed.
+
+### Required closure
+1. Make every TCB/listener state access use one documented synchronization contract; condition waits should snapshot predicates under tlk and sleep only after releasing it.
+2. Ensure connection allocation/free, timeout cleanup, close and listener teardown all transition state under tlk.
+3. Pin a connection slot for the duration of each syscall or use generation-tagged handles so a freed/reused TCB cannot be accessed by a stale handle.
+4. Synchronize tcp_owner/listen_owner with the same lifecycle and avoid lock-order inversion with tlk.
+5. Add concurrent tests for receive vs close, send vs reset, accept vs unlisten, connect timeout vs packet arrival, and teardown vs slot reuse.
+
+F-039 remains OPEN.
