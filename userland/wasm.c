@@ -95,7 +95,7 @@ static int trapped;
 static void trap(const char* m) { if (!trapped) { trapped = 1; trap_msg = m; } }
 
 /* ---------- модуль ---------- */
-typedef struct { u8 np, nr; u8 p[32]; } ftype_t;
+typedef struct { u8 np, nr, r; u8 p[32]; } ftype_t;
 typedef struct { u32 type; int import; u32 imp_id; const u8* code; const u8* end; u32 nlocals, centry, maxh; } func_t;
 static ftype_t* types; static u32 ntypes;
 static func_t* funcs; static u32 nfuncs, nimports;
@@ -107,6 +107,21 @@ static const u8* mod; static u32 modlen;
 
 enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT, IMP_N };
 static const char* const imp_names[IMP_N] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event" };
+
+static int wasm_valtype(u8 t) { return t == 0x7F || t == 0x7E || t == 0x7D || t == 0x7C; }
+static int import_type_ok(u32 id, const ftype_t* t) {
+    const u8 i32 = 0x7F, i64 = 0x7E;
+    switch (id) {
+    case IMP_WRITE: return t->np == 2 && t->p[0] == i32 && t->p[1] == i32 && t->nr == 1 && t->r == i32;
+    case IMP_SLEEP: return t->np == 1 && t->p[0] == i32 && t->nr == 0;
+    case IMP_TICKS: return t->np == 0 && t->nr == 1 && t->r == i64;
+    case IMP_EXIT: return t->np == 1 && t->p[0] == i32 && t->nr == 0;
+    case IMP_GFX_CREATE: return t->np == 2 && t->p[0] == i32 && t->p[1] == i32 && t->nr == 1 && t->r == i32;
+    case IMP_GFX_PRESENT: case IMP_GFX_EVENT:
+        return t->np == 1 && t->p[0] == i32 && t->nr == 1 && t->r == i32;
+    default: return 0;
+    }
+}
 
 static int wasm_need(const u8* p, const u8* end, u64 n) {
     if (!p || !end || p > end || n > (u64)(end - p)) { trap("truncated WASM input"); return 0; }
@@ -616,13 +631,16 @@ static int load(void) {
         if (se > end) { trap("section past end"); return -1; }
         if (id == 1) {                                            /* типы */
             u32 n = leb_u(&s, se);
+            if (n > 256) { trap("too many function types"); return -1; }
             for (u32 i = 0; i < n && !trapped; i++) {
-                if (ntypes == 256 || *s++ != 0x60) { trap("bad type"); return -1; }
+                if (wasm_u8(&s, se) != 0x60 || trapped) { trap("bad function type"); return -1; }
                 ftype_t* t = &types[ntypes++];
-                u32 np = leb_u(&s, se); if (np > 32) { trap("too many params"); return -1; }
-                t->np = (u8)np; for (u32 k = 0; k < np; k++) t->p[k] = *s++;
+                u32 np = leb_u(&s, se); if (np > 32 || !wasm_need(s, se, np)) { trap("invalid function parameter vector"); return -1; }
+                t->np = (u8)np;
+                for (u32 k = 0; k < np; k++) { t->p[k] = wasm_u8(&s, se); if (!wasm_valtype(t->p[k])) { trap("unsupported parameter type"); return -1; } }
                 u32 nr = leb_u(&s, se); if (nr > 1) { trap("multi-value results not supported"); return -1; }
-                t->nr = (u8)nr; for (u32 k = 0; k < nr; k++) s++;
+                t->nr = (u8)nr;
+                if (nr) { t->r = wasm_u8(&s, se); if (!wasm_valtype(t->r)) { trap("unsupported result type"); return -1; } }
             }
         } else if (id == 2) {                                     /* импорт */
             u32 n = leb_u(&s, se);
