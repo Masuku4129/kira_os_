@@ -180,5 +180,7 @@ int main(int argc, char** argv) {
 #ifdef WASM_FUEL
     if (g_count) { g_quiet = 1; int r = wasm_main(); printf("wasm: %llu instructions executed\n", (1ull << 62) - wasm_fuel); return r; }
 #endif
-    return wasm_main();
+    int rc = wasm_main();
+    if (rc && trapped) fprintf(stderr, "wasm host execution trapped: %s\\n", trap_msg ? trap_msg : "(no trap message)");
+    return rc;
 }
