@@ -1450,3 +1450,25 @@ A malformed firmware-provided device tree can trigger an out-of-bounds read duri
 4. Add malformed-blob tests for unterminated final string, out-of-range offsets, strings overlapping adjacent blocks and fuzzed truncation; run ASan/UBSan and QEMU early-boot negative cases.
 
 F-051 remains OPEN.
+
+
+## New finding F-052 — ARM64 DMA coherency is inferred from an unrelated device-tree node (2026-11-14)
+
+**Severity:** HIGH on mixed-coherency ARM64 platforms; conditional pending board inventory.
+
+### Evidence
+- `dma_noncoherent()` first checks the root `dma-coherent` property, then checks the PCI host node if one exists. If no PCI host node exists, it walks every FDT node and returns “coherent” as soon as any node has a `dma-coherent` property (`arch/aarch64/main.c:231-241`).
+- Device-tree `dma-coherent` is a property of the node/device or its applicable bus hierarchy, not proof that every DMA-capable device on the platform is coherent. A single coherent peripheral can therefore cause the global DMA allocator policy to classify unrelated non-coherent devices as coherent.
+- The result controls whether the kernel creates the non-cacheable DMA pool and whether `platform_dma_noncoherent()` rejects Ring 3 DMA drivers. The DMA allocator is shared by multiple built-in PCI drivers, so a global false-positive can affect more than the node carrying the property.
+
+### Consequence
+On a mixed-coherency ARM64 platform without a PCI host node, one node's `dma-coherent` property may suppress the non-cacheable pool for other devices. Combined with F-050, generic DMA allocations can then use cacheable memory without cache maintenance.
+
+### Required closure
+1. Replace platform-wide inference with per-device DMA coherency derived from the device node and its parent bus hierarchy, or use a conservative platform-wide non-coherent policy when per-device routing is not implemented.
+2. Do not allow a single peripheral property to upgrade unrelated devices to coherent.
+3. Make coherency immutable per DMA device context and pass it into allocator decisions.
+4. Add FDT fixtures for mixed coherent/non-coherent devices, absent PCI host, inherited bus properties, root-level property and conflicting declarations; assert each device receives the correct policy.
+5. Test that non-coherent devices never use cacheable fallback after pool absence/exhaustion (F-050).
+
+F-052 remains OPEN.
