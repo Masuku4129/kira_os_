@@ -19,6 +19,22 @@ int main(void) {
     CHECK(net_parse_ip("1.2.3", &a) != 0);
     CHECK(net_parse_ip("1.2.3.4x", &a) != 0);
     CHECK(net_parse_ip("", &a) != 0);
+
+    unsigned slot = 99, generation = 99;
+    int th = net_tcp_handle_make(7, NET_TCP_GENERATION_MAX);
+    CHECK(th == 65535);
+    CHECK(net_tcp_handle_decode(th, &slot, &generation) == 0 && slot == 7 && generation == NET_TCP_GENERATION_MAX);
+    CHECK(net_tcp_handle_make(8, 1) == -1);
+    CHECK(net_tcp_handle_make(0, 0) == -1);
+    CHECK(net_tcp_handle_decode(0, &slot, &generation) != 0);
+    CHECK(net_tcp_handle_decode(65536, &slot, &generation) != 0);
+
+    int64_t lh = net_listen_handle_make(3, NET_LISTEN_GENERATION_MAX);
+    CHECK(lh == (int64_t)(NET_LISTEN_HANDLE_TAG | 0xFFFFu));
+    CHECK(net_listen_handle_decode(lh, &slot, &generation) == 0 && slot == 3 && generation == NET_LISTEN_GENERATION_MAX);
+    CHECK(net_listen_handle_make(4, 1) == -1);
+    CHECK(net_listen_handle_make(0, 0) == -1);
+    CHECK(net_listen_handle_decode(100, &slot, &generation) != 0);
     if (fails) return 1;
     printf("net: checksum, address parsing passed\n");
     return 0;

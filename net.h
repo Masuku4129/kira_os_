@@ -2,6 +2,34 @@
 #define KIRA_NET_H
 #include <stdint.h>
 
+/* TCP handles are opaque generation-tagged values; the low bits select a table slot.
+   Listener handles use a separate positive tag so they cannot alias socket handles. */
+enum { NET_TCP_SLOT_BITS = 3, NET_TCP_SLOT_MASK = 7, NET_TCP_GENERATION_MAX = 0x1FFF,
+       NET_LISTEN_SLOT_BITS = 2, NET_LISTEN_SLOT_MASK = 3, NET_LISTEN_GENERATION_MAX = 0x3FFF };
+#define NET_LISTEN_HANDLE_TAG 0x40000000u
+static inline int net_tcp_handle_make(unsigned slot, unsigned generation) {
+    return slot <= NET_TCP_SLOT_MASK && generation && generation <= NET_TCP_GENERATION_MAX
+        ? (int)((generation << NET_TCP_SLOT_BITS) | slot) : -1;
+}
+static inline int net_tcp_handle_decode(int64_t handle, unsigned* slot, unsigned* generation) {
+    if (handle <= 0 || handle > 0xFFFF) return -1;
+    *slot = (unsigned)handle & NET_TCP_SLOT_MASK;
+    *generation = (unsigned)handle >> NET_TCP_SLOT_BITS;
+    return *generation ? 0 : -1;
+}
+static inline int64_t net_listen_handle_make(unsigned slot, unsigned generation) {
+    return slot <= NET_LISTEN_SLOT_MASK && generation && generation <= NET_LISTEN_GENERATION_MAX
+        ? (int64_t)(NET_LISTEN_HANDLE_TAG | (generation << NET_LISTEN_SLOT_BITS) | slot) : -1;
+}
+static inline int net_listen_handle_decode(int64_t handle, unsigned* slot, unsigned* generation) {
+    if (handle < NET_LISTEN_HANDLE_TAG ||
+        ((uint64_t)handle & ~(uint64_t)(NET_LISTEN_HANDLE_TAG | 0xFFFFu))) return -1;
+    unsigned value = (unsigned)handle & 0xFFFFu;
+    *slot = value & NET_LISTEN_SLOT_MASK;
+    *generation = value >> NET_LISTEN_SLOT_BITS;
+    return *generation ? 0 : -1;
+}
+
 /* Сеть: драйвер карты (e1000 и др.) даёт кадры Ethernet, стек ядра - ARP, IPv4, ICMP (ping), UDP, клиент DHCP.
    Обработка входящих кадров и DHCP - в потоке «net»; консоль только спрашивает. */
 
@@ -44,7 +72,7 @@ int  tcp_listen(uint16_t port);                                   /* номер 
 int  tcp_accept(int l, uint32_t timeout_ticks);                   /* номер соединения или <0 (-5 срок) */
 void tcp_unlisten(int l);
 
-/* Системные вызовы сети для программ (syscall.c): соединение принадлежит открывшему процессу. */
+/* Системные вызовы сети для программ (syscall.c): TCP и listener handles непрозрачны, содержат поколение; владелец - открывший процесс. */
 enum { NET_SYS_DNS = 0, NET_SYS_CONNECT = 1, NET_SYS_SEND = 2, NET_SYS_RECV = 3, NET_SYS_CLOSE = 4,
        NET_SYS_LISTEN = 6, NET_SYS_ACCEPT = 7,            /* 5 - вызов ARGS (не сеть) */
        NET_SYS_CONNECT_SA = 8, NET_SYS_PEER = 9 };        /* вызовы 44 и 47: адрес сокета любого семейства */
