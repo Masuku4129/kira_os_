@@ -1779,3 +1779,27 @@ F-057 remains OPEN. This finding is separate from F-054's late BM re-enable orde
 - Propagates the `ipa_send()` result through `udp_xmit()` and adds deterministic host regression tests for success, negative enqueue errors and zero-length payloads.
 - Exact-head CI completed **30/30 jobs successfully**.
 - Finding remains OPEN on `main` until the candidate is integrated; driver-level TX-ring-full coverage remains a follow-up.
+
+
+## New finding F-061 — FDT property-name lookup is not bounded by the strings block (2026-11-15)
+
+**Severity:** MEDIUM; malformed firmware-supplied DTB can cause an out-of-bounds read during property lookup.
+
+### Evidence
+- `fdt_valid()` checks that the strings block extent `size_dt_strings` lies within `totalsize`, but it does not validate that every referenced property-name string is NUL-terminated inside that extent.
+- `fdt_prop()` reads the property-name offset `no`, checks only `no < stsz`, then calls the unbounded `streq(strs(fdt) + no, name)`.
+- `streq()` walks until it encounters a NUL or a differing character. A malformed DTB can place a property-name offset at the final byte of the strings block and omit the terminator; lookup can then read alignment bytes, another DTB block, or beyond the supplied blob.
+- The existing FDT tests cover block-size/header bounds and ordinary property lookup, but do not create a strings block whose referenced property name has no NUL within the declared strings extent. The existing malformed-property case changes a structure token; it does not exercise this strings-block boundary.
+
+### Consequence
+A firmware-controlled property-name offset can make the kernel read beyond the declared FDT strings block while searching for a property. This is a separate boundary from F-058, which concerns unterminated *property values* consumed as `device_type` and `status`.
+
+### Required closure
+1. Add a bounded property-name comparison that receives the remaining strings-block length and succeeds only when a NUL terminator is found within that length and the complete name matches.
+2. Reject or safely ignore a property whose name offset is out of range or whose name is not terminated inside the strings block; document one consistent policy.
+3. Add host regressions for an offset equal to `size_dt_strings`, an offset at the final byte with no terminator, a terminator exactly at the final valid byte, and a valid name followed by another string.
+4. Run the FDT host suite under ASan/UBSan and the ARM64 boot/QEMU matrix on the exact candidate head.
+
+**Evidence boundary:** source-confirmed unbounded read path and missing boundary coverage. No runtime reproduction or production fix is claimed.
+
+F-061 remains OPEN.
