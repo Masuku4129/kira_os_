@@ -297,3 +297,11 @@
 
 
 - PR #161 exact-head run `43594252642` confirmed the quiesce readback and RTL8139 denial, but `drvman-edu` failed one assertion expecting a synchronous `доступ запрещён (-100)` result. Artifact serial proved the actual API is asynchronous: `drvget_ctl()` accepts the request, the kernel later denies it, and Driver Manager correctly reports that the driver did not start and that the kernel log contains the reason. Updated both Driver Manager scenarios to assert this real async status plus the kernel DMA/IOMMU denial, rather than an impossible synchronous error code. No security assertion removed.
+
+
+### PR #161 — ARM64 matrix failure analysis and test correction (2026-11-14)
+
+- Exact head `ea6572f4d1a8f28732fa1c008cea0151fcd9d00b`, workflow `43600660082`: 42/43 checks PASS; only ARM64 matrix failed, while ARM64 compilation itself passed.
+- ARM64 driver scenario still expected the old free-device label after stopping `edunc`; the new KDRV PCI-list contract intentionally retains the last bound package identity, so the correct state is `драйвер edunc не работает`.
+- ARM64 Driver Manager final PID assertion had an over-escaped raw regex (`\\d+`), so it searched for a literal backslash instead of digits. The serial artifact contains the real `drv-edunc pid 5` line.
+- Corrected only those two stale ARM64 expectations in `ci/arm64_vm.py`. No production behavior was weakened or changed. A fresh exact-head run is required.
