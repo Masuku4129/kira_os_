@@ -962,9 +962,10 @@ static int tcp_connect_ipa(const ipa_t* dst, uint16_t port) {
     t->state = T_SYN_SENT; t->rto_at = timer_get_ticks() + TIMER_HZ;
     tcp_out(t, F_SYN, t->iss, 0, 0);
     spin_unlock_irqrestore(&tlk, f);
-    int waited = tcp_wait(t, c_open, 30 * TIMER_HZ);
+    (void)tcp_wait(t, c_open, 30 * TIMER_HZ);
     f = spin_lock_irqsave(&tlk);
-    int connected = waited == 0 && t->state == T_EST;
+    int connected = t->state == T_EST;                  /* late SYN-ACK wins if it arrived before timeout cleanup lock */
+
     int handle = net_tcp_handle_make(slot, generation);
     if (!connected) {
         t->state = T_FREE; t->rto_at = 0; t->closing = 0;
