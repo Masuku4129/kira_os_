@@ -111,12 +111,14 @@ static spinlock_t ks_lock = SPINLOCK_INIT;
 static uint32_t ks_used_hi;                       /* ячеек, когда-либо отображённых */
 static uint16_t ks_free[KSTACK_SLOTS]; static uint32_t ks_nfree;
 static uint8_t ks_active[(KSTACK_SLOTS + 7u) / 8u];
+static uint64_t ks_generation[KSTACK_SLOTS];
 static uint32_t ks_size;
 
 static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags);
 
-void* vmm_kstack_alloc(uint32_t bytes) {
-    if (!kernel_root || bytes == 0 || bytes > KSTACK_STRIDE / 2 || (bytes & (PAGE_SIZE - 1))) return 0;
+void* vmm_kstack_alloc(uint32_t bytes, uint64_t* generation) {
+    if (generation) *generation = 0;
+    if (!generation || !kernel_root || bytes == 0 || bytes > KSTACK_STRIDE / 2 || (bytes & (PAGE_SIZE - 1))) return 0;
     uint64_t f = spin_lock_irqsave(&ks_lock);
     uint32_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_RELAXED);
     if (stack_size && stack_size != bytes) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
@@ -127,8 +129,8 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     uint64_t slot_top = 0;
     int reuse = ks_nfree != 0;
     if (reuse) {
-        if (!kstack_slot_free_pop(ks_free, &ks_nfree, ks_active,
-                                  KSTACK_SLOTS, ks_used_hi, &slot)) {
+        if (!kstack_slot_free_pop(ks_free, &ks_nfree, ks_active, ks_generation,
+                                  KSTACK_SLOTS, ks_used_hi, &slot, generation)) {
             spin_unlock_irqrestore(&ks_lock, f);
             return 0;
         }
@@ -149,7 +151,8 @@ void* vmm_kstack_alloc(uint32_t bytes) {
             }
             mapped = 1;
         }
-        if (ok && kstack_slot_activate(ks_active, KSTACK_SLOTS, slot)) {
+        if (ok && kstack_slot_activate(ks_active, ks_generation, KSTACK_SLOTS,
+                                       slot, generation)) {
             ks_used_hi++;
         } else {
             /* A partially mapped or otherwise suspect slot is never reused over its old PTEs. */
@@ -162,14 +165,15 @@ void* vmm_kstack_alloc(uint32_t bytes) {
     return (void*)(uintptr_t)(slot_top - bytes);
 }
 
-void vmm_kstack_free(void* base) {
+void vmm_kstack_free(void* base, uint64_t generation) {
     uint64_t va = (uint64_t)(uintptr_t)base;
+    if (!generation) return;
     uint64_t f = spin_lock_irqsave(&ks_lock);
     uint32_t slot;
     if (kstack_slot_from_base(va, KSTACK_BASE, KSTACK_STRIDE, KSTACK_SLOTS,
                               __atomic_load_n(&ks_size, __ATOMIC_RELAXED), ks_used_hi, &slot))
-        (void)kstack_slot_free_push(ks_free, &ks_nfree, ks_active,
-                                    KSTACK_SLOTS, ks_used_hi, slot);
+        (void)kstack_slot_free_push(ks_free, &ks_nfree, ks_active, ks_generation,
+                                    KSTACK_SLOTS, ks_used_hi, slot, generation);
     spin_unlock_irqrestore(&ks_lock, f);
 }
 
