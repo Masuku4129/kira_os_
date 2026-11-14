@@ -484,3 +484,10 @@ The detailed test-to-component mapping and staged verification plan is now recor
 - Continue review of KCC/runtime, graphics/input, security/trust, drivers, boot and installer/update/recovery.
 
 No production source changed. Main remains untouched; no PR merged; no ISO built.
+
+
+### TCP follow-up added to the network audit
+
+- F-039 — TCP state/queue fields are mutated under tlk but tcp_wait() predicates and several syscall paths read them without that lock; timeout cleanup, listener teardown and TCB slot reuse lack one consistent pin/generation contract.
+- The current host network test only covers checksum and IPv4 text parsing; it does not exercise TCP lifecycle or concurrency. The test matrix now requires close/reset/receive, accept/unlisten, connect timeout/packet arrival and teardown/slot-reuse stress tests.
+- Stage 0 remains 43%; the added TCP finding is part of the same network domain, not a new completed audit domain.
