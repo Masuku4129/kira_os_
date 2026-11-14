@@ -1243,3 +1243,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Compared against PR #165 run `43613588426`, whose UHCI artifact contains 393,602 invalid-read records despite a functional pass.
 - This strengthens, but does not prove, the F-054 hypothesis that the PCI firmware Bus Master clear/re-enable sequence in #165 exposes a controller's stale firmware DMA schedule before reset. The runs are different source heads, not a controlled A/B.
 - PR #169 is stacked on #165 and moves BM activation after controller reset and DMA ring/schedule setup; its exact-head host/QEMU results will decide whether this hypothesis is supported. No production fix is claimed before that verification.
+
+
+## 67. QEMU xHCI immediate ERSTBA DMA evidence — 2026-11-14
+
+- Inspected PR #169 first QEMU failure artifact, run `43621930596`. xHCI initialized but USB enumeration failed with command timeouts/no free slot.
+- QEMU log explicitly reported `xhci_er_reset: DMA memory access failed!` and rejected reads at 0xE15000/04/08/0C, matching the ERST table address written by the driver.
+- Root cause of this specific failure: the first fix delayed Bus Master until after ERSTBA was written. QEMU fetches the ERST table immediately on ERSTBA write, so the DMA permission was still disabled. Corrected the ordering: allocate/initialize all DMA objects with BM off; grant BM while xHCI remains halted; then write DCBAAP/CRCR/ERST pointers; finally RUN. The host model now checks that pointers are still unexposed at the BM grant point.
+- Corrected exact-head CI run is pending. This validates the need for a device-specific activation boundary and refines F-054; it does not yet close it.
