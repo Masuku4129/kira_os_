@@ -1163,7 +1163,13 @@ F-036 remains OPEN.
 4. Add two-thread tests that run simultaneous handshakes to different hosts, plus concurrent X.509 chain and OCSP verification with distinct certificate sets.
 5. Run ThreadSanitizer host tests where supported and verify no cross-context certificate or transcript contamination.
 
-F-037 remains OPEN.
+### Implementation tracking
+- Draft PR #175: https://github.com/Masuku4129/kira_os_/pull/175
+- Candidate moves TLS handshake/transcript/certificate/OCSP state into each `tls_t`; X.509 chain and OCSP parser scratch objects are automatic locals.
+- Exact-head commit `4c7f7562d30d18ca8a32f54e17bffc430edf04e1`; CI run #43630721004 completed **30/30 jobs successfully**, including TLS/X.509 host tests, x86-64, ARM64 and VM matrix.
+- Dedicated concurrent independent-handshake and ThreadSanitizer stress remain follow-ups.
+
+F-037 remains OPEN on `main` until the candidate is reviewed/integrated and concurrent handshake stress coverage is added.
 
 
 ## New finding F-038 — X.509 parser silently accepts unknown critical extensions and omits CA path-length enforcement (2026-11-14)
