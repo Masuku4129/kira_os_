@@ -1,4 +1,7 @@
 #include "pci.h"
+#ifndef KIRA_HOST_TEST
+#include "uart.h"
+#endif
 #include "iommu.h"
 #ifdef KIRA_HOST_TEST
 /* Most host models do not instantiate a hardware IOMMU. Dedicated PCI policy
@@ -354,8 +357,20 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     uint32_t cls = cr32(d, 0x08);
     d->revision = (uint8_t)cls; d->prog_if = (uint8_t)(cls >> 8); d->subclass = (uint8_t)(cls >> 16); d->class_code = (uint8_t)(cls >> 24);
     d->header_type = pci_read8(d, 0x0E);
+#ifndef KIRA_HOST_TEST
+    uart_print("[PCI TRACE] disable BM ");
+    uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\\n");
+#endif
     pci_disable_bus_master(d);
+#ifndef KIRA_HOST_TEST
+    uart_print("[PCI TRACE] BM disabled ");
+    uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\\n");
+#endif
     probe_bars(d);
+#ifndef KIRA_HOST_TEST
+    uart_print("[PCI TRACE] BAR probe done ");
+    uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\\n");
+#endif
     if (pci_is_bridge(d)) {
         pci_enable(d, PCI_CMD_MASTER);
         uint8_t sec = pci_read8(d, 0x19);
@@ -411,7 +426,6 @@ volatile void* pci_map_bar(const pci_dev_t* d, int bar, uint64_t off, uint64_t l
 #endif
 
 #ifndef KIRA_HOST_TEST
-#include "uart.h"
 static void hex2(uint32_t v, int digits) {
     for (int i = digits - 1; i >= 0; i--) uart_putchar("0123456789abcdef"[(v >> (4 * i)) & 15]);
 }
