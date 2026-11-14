@@ -511,3 +511,10 @@ Required sequence: register DMA allocations → quiesce/reset controller → pro
 Current ACT-mode memory policy: cache trim at 88%, heap-growth restriction at 93%, and at 97% potentially terminate the largest process if its heap is at least 16 MiB and 20% of RAM. The callback is direct proc_kill(). The reviewed contract does not distinguish essential services, foreground work, pending storage transactions, drivers, or restartability.
 
 Before this can be treated as safe autonomous policy, add kernel-owned process criticality/protection classes, termination vetoes, reversible reclaim-first behavior and adversarial tests. The implemented Mind is presently a heuristic/profile-based resource controller; general AI reasoning and policy authority remain planned, not proven by mind.c.
+
+
+### F-033 / F-034 storage closure gates
+
+- FAT flush currently drops the block-device flush error. Propagate it and add failure injection to tests/fat_test.c; external-volume eject must fail closed when flush fails.
+- VFS per-slot operations are locked, but vfs_any() and root vfs_list() inspect mount entries without slot locks. Snapshot state safely under locks, then call listing callbacks outside locks to avoid re-entrancy deadlock.
+- KiraFS file replacement writes new data/metadata before switching the inode and freeing old blocks, but it is not a general journaled filesystem. Preserve its crash/recovery tests and do not imply full transactional semantics.
