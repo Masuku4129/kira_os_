@@ -834,3 +834,14 @@ GitHub API и exact-head workflow job logs повторно проверены �
 The shared compile failure is `userland/wasm.c:145`: undeclared `int32_t` and `uint32_t`. See F-062 for exact scope and closure criteria. #181/#182 inherit the broken common ancestor; their independent changes have not yet received valid verification on a buildable base.
 
 This is a branch/PR-stack defect, not a confirmed defect in pinned main. No PR was merged, retargeted or modified. No production source was changed in this audit operation.
+
+
+## 11. Полный снимок открытого PR-графа (2026-11-15)
+
+Получен полный список **92 открытых PR**, сгруппированных по 47 комбинациям base branch + base SHA. Реестр фиксирует head/base SHA, draft-статус и зависимости, но не подменяет review diff и exact-head CI.
+
+- Полный реестр: [`STAGE0_OPEN_PR_GRAPH_2026-11-15.md`](STAGE0_OPEN_PR_GRAPH_2026-11-15.md).
+- Текущий `main` на момент снимка: `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`.
+- Вывод: PR-граф разветвлён на несколько независимых исторических линий; нельзя считать его одной очередью и автоматически менять base.
+- F-062 остаётся отдельным блокером для stacked PR #179/#181/#182. Исторические UI/release и v46/autodrv ветки требуют отдельной проверки ancestry и сохранности артефактов.
+- Реестр — инвентаризация метаданных, а не подтверждение совместимости или готовности к merge.
