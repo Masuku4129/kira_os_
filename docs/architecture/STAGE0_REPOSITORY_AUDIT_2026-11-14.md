@@ -732,3 +732,10 @@ No production source changed. The next code fix should be stacked on the PCI fir
 **Stage 0 progress: 67%.** Phase-aware QEMU runner is implemented and its exact-head CI passed 43/43 on PR #168. Artifact inspection confirmed the current-main `usb-uhci` and `boot-virtio` scenarios both have zero-byte QEMU guest_errors logs and zero invalid read/write counts.
 
 Compared with PR #165's 393,602 invalid-read records on its UHCI artifact, this strengthens F-054 as a likely regression mechanism: BM is cleared in PCI enumeration, then UHCI/xHCI re-enable it before controller reset and DMA setup. This is not controlled A/B evidence; PR #169 is stacked on #165 and is running the staged fix plus same-slot xHCI allocation-failure tests.
+
+
+## 32. xHCI Bus Master activation boundary refinement — 2026-11-14
+
+**Stage 0 progress: 68%.** The first stacked implementation exposed a real ordering edge: QEMU's xHCI model reads the ERST table immediately when ERSTBA is written, before USBCMD.RUN. The failed artifact recorded rejected DMA reads at the exact ERST address while Bus Master was disabled.
+
+The fix was refined: allocate and initialize all DMA structures with Bus Master off; grant Bus Master while the controller remains halted; only then write DCBAAP/CRCR/ERST pointers; finally start the controller. The xHCI host model now asserts this boundary. Corrected exact-head CI is pending; no PASS claimed.
