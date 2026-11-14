@@ -3,7 +3,7 @@
 #include <string.h>
 #include "pci.h"
 
-static uint8_t ecam[2u * 1024u * 1024u];
+_Alignas(4096) static uint8_t ecam[2u * 1024u * 1024u];
 
 static void put32(uint8_t bus, uint8_t dev, uint16_t off, uint32_t value) {
     uint64_t pos = ((uint64_t)(bus - 0x20) << 20) |
