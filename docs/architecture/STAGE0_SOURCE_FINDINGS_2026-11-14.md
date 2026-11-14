@@ -1383,3 +1383,26 @@ F-048 remains OPEN.
 
 ### KiraFS durability test coverage note
 The KiraFS host suite has meaningful write-cutoff/remount tests across multiple operations, including large indirect files. However, its block-device flush callback always succeeds, so it does not validate persistence-ordering failures where writes reach the device but flush reports failure. The suite also uses the host-test lock configuration with no-op locking; it does not validate concurrent callers. These are explicit remaining acceptance gaps, not passing tests.
+
+
+## New finding F-049 — ARM64 PMM cannot distinguish reserved pages and frees contiguous ranges non-atomically (2026-11-14)
+
+**Severity:** HIGH memory-integrity invariant; MEDIUM confidence of accidental trigger through current call paths.
+
+### Evidence
+- `arch/aarch64/pmm_arm.c` has a single `bits` bitmap. `pmm_arm_init()` marks all RAM free, then `pmm_arm_reserve()` marks the kernel image, FDT and early allocations as used. No second reservation bitmap or per-page ownership state is retained.
+- `pmm_free_page()` checks only alignment, range and whether the used bit is set. It therefore cannot distinguish an allocated page from a reserved kernel/FDT/early-allocation page; any stale or invalid free of a reserved page clears its bit and returns it to the allocator.
+- `pmm_free_contiguous()` calls `pmm_free_page()` one page at a time and returns at the first failure. If an invalid/already-free page occurs after one or more valid allocated pages, the prefix has already been released; the operation is not all-or-nothing.
+- The shared contract is explicitly specified in `docs/adr/ADR-0003-pmm-reservation-and-atomic-block-release.md`: separate reservation ownership, reject reserved frees, and validate an entire contiguous range under one lock before changing any state. That ADR describes the required ARM64 parity, but the current ARM64 implementation does not satisfy it.
+
+### Consequence
+A stale/double/incorrect free can make reserved physical memory eligible for allocation. A partial contiguous release can also leave ownership and free-page accounting inconsistent after an invalid release request. These are allocator-invariant violations; this audit did not demonstrate a live caller currently freeing a reserved page.
+
+### Required closure
+1. Add separate reserved and allocated/free state (or equivalent ownership metadata) on ARM64, and size/validate the bitmap before indexing.
+2. Make reserve operations safe for overlapping ranges and keep reserved pages permanently non-freeable.
+3. Validate the entire aligned contiguous range under one PMM lock; release all pages or none.
+4. Add ARM64 host tests for reserved kernel/FDT/early pages, duplicate free, unaligned/out-of-range free, invalid-middle contiguous release, overlapping RAM regions and unchanged counters on failure.
+5. Run ASan/UBSan, ARM64 build and QEMU memory/DMA/SMP/driver scenarios on the exact resulting SHA.
+
+F-049 remains OPEN. Related contract: ADR-0003.
