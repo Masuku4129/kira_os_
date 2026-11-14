@@ -122,7 +122,7 @@ int main(void) {
     memcpy(bad, blob, sizeof bad); be64(bad + 40, UINT64_MAX - 15); be64(bad + 48, 0x100); CHECK(!fdt_valid(bad, sizeof bad)); /* address + size wraps */
     memcpy(bad, blob, sizeof bad); be(bad + 8, 64); CHECK(!fdt_valid(bad, sizeof bad)); /* reserve map overlaps structure */
     memcpy(bad, blob, sizeof bad); be(bad + 16, total - 8); CHECK(!fdt_valid(bad, sizeof bad)); /* no room for terminator */
-    memcpy(bad, blob, sizeof bad); be(bad + 56 + 4 + 0, 0x7FFFFFFF);  /* длина первого свойства за пределами */
+    memcpy(bad, blob, sizeof bad); be(bad + fdt_u32(bad + 8) + 4, 0x7FFFFFFF);  /* длина первого свойства за пределами */
     CHECK(fdt_valid(bad, sizeof bad) && fdt_prop(bad, fdt_root(bad), "#address-cells", &len) == 0);
     /* обход с испорченными данными не уходит за блок */
     int depth = 0, n = fdt_root(bad), steps = 0;
