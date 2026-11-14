@@ -32,7 +32,7 @@
 | PR #150 | Draft; head `79e956f591e83628b7a014b0958fecff00b4ce70` | Exact-head CI: 42/43 checks success; `host-tests` failed in `tests/wm_test.c:84`: `wm_compose_par(test_present, &composed_pixels) > 4` was false. This is a GUI compositor regression, not a kernel-stack test failure |
 | PR #152 | Draft; current head `48518fac18ba16e49d66fb641ece96ae06515811` | F-001 fix; exact-head CI run `43586203250`: x86-64 build PASS, ARM64 PASS, host-tests PASS including stack helper under ASan/UBSan, all QEMU scenarios except `vm (apps-drvman)` PASS. `apps-drvman` failed after the fifth package was installed: `drv` printed only the package count and omitted package rows. Cause unresolved; no overall PASS claimed | 
 | PR #153 | Draft; head `861707fc4538d396e00066cfbfe2ec171edb8abb` | F-009 atomic PMM contiguous release; exact-head CI **43/43 success**, including `apps-drvman` |
-| PR #154 | Draft; current head `e299838c074604ee9cfeb734c819f84a2a5185ae` | Combined F-001 + F-009 plus per-slot 64-bit generation tokens to close ABA/stale-free risk; new exact-head CI pending |
+| PR #154 | Draft; current head `e299838c074604ee9cfeb734c819f84a2a5185ae` | Combined F-001 + F-009 plus per-slot 64-bit generation tokens to close ABA/stale-free risk; exact-head workflow `43587913640` running |
 | CI `main` | 6 check-runs `inspect` = success; commit status API: 0 statuses, pending | Это не подтверждает build, host tests или VM matrix |
 
 Ссылки:
