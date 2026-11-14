@@ -793,3 +793,9 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Inspected the uploaded VM artifact (`result.json`, `serial.log`, screenshots). The driver actually launched, DMA round-trip passed, protected PCI configuration writes were rejected, and the driver printed PASS. The log line was 225 UTF-8 bytes but the per-CPU line buffer was 192 bytes, splitting it inside a multibyte character and allowing another CPU's log to appear between chunks.
 - Fixed long-string output in `uart_print()` to flush pending text and emit an oversized string atomically. No test was weakened.
 - PR #154 new head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110` queued; exact-head CI is pending.
+
+
+## 19. Status manifest exact-head CI — 2026-11-14
+
+- PR #148 head `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`, workflow `43609627054`: 3/3 jobs succeeded (host-tests, x86 build, ARM64 build).
+- Manifest now parses explicit UELF additions and Android profile exclusions; verified counts: x86-64 25, ARM64 25, Android release 13. This is inventory guard coverage, not a claim of full semantic review.
