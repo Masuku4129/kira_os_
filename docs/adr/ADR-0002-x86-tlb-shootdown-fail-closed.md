@@ -1,6 +1,6 @@
 # ADR-0002: x86-64 TLB shootdown must fail closed
 
-- **Status:** Proposed (implementation under exact-head CI in PR #155)
+- **Status:** Proposed; implementation passed exact-head CI in Draft PR #155 (review/merge pending)
 - **Date:** 2026-11-14
 - **Owners:** KIRA OS kernel architecture
 
