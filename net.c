@@ -775,9 +775,8 @@ static void tcp_retransmit(tcb_t* t) {
 static tcb_t* tcb_new(void) {                         /* вызывается только под tlk */
     for (int i = 0; i < TCP_MAX; i++) {
         tcb_t* t = &tcbs[i];
-        if (t->state != T_FREE || t->refs || t->retired) continue;
-        if (t->generation == UINT16_MAX) { t->retired = 1; continue; }
-        t->generation++;
+        if (!net_tcp_slot_reusable(t->state == T_FREE, t->refs, t->retired)) continue;
+        if (net_tcp_generation_advance(&t->generation, &t->retired)) continue;
         t->reset = t->fin_rcvd = t->fin_sent = t->accepted = 0; t->listener = -1; t->listener_generation = 0;
         t->closing = 0; t->owner = 0;
         t->rx_head = t->rx_tail = 0; t->tx_len = 0; t->rto_at = 0; t->tries = 0; t->dupacks = 0;
@@ -987,9 +986,8 @@ static int tcp_listen_fam(uint16_t port, uint8_t fam) {
     int handle = -9;
     for (int i = 0; i < LISTEN_MAX; i++) {
         tcp_listener_t* l = &listens[i];
-        if (l->used || l->refs || l->retired) continue;
-        if (l->generation == UINT16_MAX) { l->retired = 1; continue; }
-        l->generation++;
+        if (!net_tcp_slot_reusable(!l->used, l->refs, l->retired)) continue;
+        if (net_tcp_generation_advance(&l->generation, &l->retired)) continue;
         l->used = 1; l->closing = 0; l->owner = 0; l->port = port; l->fam = fam;
         handle = net_tcp_listener_handle_make((unsigned)i, l->generation);
         break;
