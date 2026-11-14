@@ -785,3 +785,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed the registry is a partial discovery/identity slice: no typed MMIO/port/IRQ/DMA resources, IOMMU domains, power/reset, package provenance, resource teardown or full lifecycle states.
 - Found the rescan guard checks KDRV binding slots only. Built-in PCI drivers also enable bus mastering and map BARs, but are not represented in that guard. Post-boot PCI rescan must remain globally denied until all built-in and KDRV owners participate in a coordinated quiesce/revoke transaction.
 - Added F-026. No registry or PCI code was transplanted into main-based PRs; the separate architecture branch remains preserved for later coherent integration.
+
+
+## 18. PR #154 VM failure diagnosis and UART correction — 2026-11-14
+
+- Workflow `43610795635` on PR #154 head `8f4b9be58f63d93911817184dcbbce0e4eca36c1`: 29/30 jobs succeeded; only `vm (drv-edu)` failed the expected KDRV success log match.
+- Inspected the uploaded VM artifact (`result.json`, `serial.log`, screenshots). The driver actually launched, DMA round-trip passed, protected PCI configuration writes were rejected, and the driver printed PASS. The log line was 225 UTF-8 bytes but the per-CPU line buffer was 192 bytes, splitting it inside a multibyte character and allowing another CPU's log to appear between chunks.
+- Fixed long-string output in `uart_print()` to flush pending text and emit an oversized string atomically. No test was weakened.
+- PR #154 new head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`, workflow `43611654110` queued; exact-head CI is pending.
