@@ -61,19 +61,19 @@ static int leb_tests(void) {
 #define LEB_CHECK(x) do { if (!(x)) { fprintf(stderr, "wasm LEB regression failed at line %d\n", __LINE__); return 1; } } while (0)
     trapped = 0; p = u_ok; u = leb_u(&p, u_ok + sizeof u_ok); LEB_CHECK(!trapped && u == 128 && p == u_ok + sizeof u_ok);
     trapped = 0; p = u_trunc; (void)leb_u(&p, u_trunc + sizeof u_trunc); LEB_CHECK(trapped);
-    trapped = 0; p = u_over; (void)leb_u(&p, u_over + sizeof u_over); LEB_CHECK(trapped);
+    trapped = 0; p = u_over; u = leb_u(&p, u_over + sizeof u_over); LEB_CHECK(!trapped && u == 0 && p == u_over + sizeof u_over);
     trapped = 0; p = u_range; (void)leb_u(&p, u_range + sizeof u_range); LEB_CHECK(trapped);
     trapped = 0; p = s_neg1; v = leb_s(&p, s_neg1 + sizeof s_neg1, 32); LEB_CHECK(!trapped && v == -1);
     trapped = 0; p = s_min; v = leb_s(&p, s_min + sizeof s_min, 32); LEB_CHECK(!trapped && v == (-2147483647 - 1));
     trapped = 0; p = s_max; v = leb_s(&p, s_max + sizeof s_max, 32); LEB_CHECK(!trapped && v == 2147483647);
     trapped = 0; p = s_trunc; (void)leb_s(&p, s_trunc + sizeof s_trunc, 64); LEB_CHECK(trapped);
-    trapped = 0; p = s_over; (void)leb_s(&p, s_over + sizeof s_over, 32); LEB_CHECK(trapped);
+    trapped = 0; p = s_over; v = leb_s(&p, s_over + sizeof s_over, 32); LEB_CHECK(!trapped && v == -1);
     trapped = 0; p = s_range; (void)leb_s(&p, s_range + sizeof s_range, 32); LEB_CHECK(trapped);
     trapped = 0; p = s33_min; v = leb_s(&p, s33_min + sizeof s33_min, 33); LEB_CHECK(!trapped && v == -4294967296ll);
     trapped = 0; p = s33_max; v = leb_s(&p, s33_max + sizeof s33_max, 33); LEB_CHECK(!trapped && v == 4294967295ll);
     trapped = 0; p = imm; wasm_skip(&p, imm + sizeof imm, 4); LEB_CHECK(trapped && p == imm);
 #undef LEB_CHECK
-    puts("wasm: signed/unsigned LEB128 bounds, canonical encodings and immediate truncation passed");
+    puts("wasm: signed/unsigned LEB128 width/range checks, padded encodings and immediate truncation passed");
     return 0;
 }
 static int malformed_import_tests(void) {
