@@ -311,3 +311,78 @@ KIRA OS — самостоятельная операционная систем
 - список проверенных функций и известных ограничений.
 
 Нельзя объявлять обновление завершённым, пока артефакты не собраны, проверены и доступны по ссылкам/релизу.
+
+
+## 8. Целевая архитектура и обязательная технологическая политика (2026-11-15)
+
+**Нормативное дополнение к разделам 1–7.** Для новых архитектурных решений и планирования миграции использовать документ `docs/architecture/KIRA_TARGET_ARCHITECTURE_AND_STAGE_PLAN_2026-11-15.md`. При расхождении старую карту направлений A–N и требования этого мастер-плана не сокращать; новый документ задаёт целевую архитектуру, порядок Stage и критерии миграции. Изменения production-кода допускаются только после прохождения Stage 0 и соответствующих архитектурных ворот.
+
+### 8.1 Целевая архитектура
+
+- Целевое направление — гибридное capability-микроядро с постепенно выносимыми в user mode системными службами и драйверами.
+- Привилегированное ядро сохраняет минимальные механизмы: CPU/IRQ, адресные пространства, планирование, syscall entry, capability/object primitives и безопасное управление памятью.
+- HAL отделяет общие контракты от x86-64/AArch64 backends.
+- IPC должен быть типизированным, версионированным, ограниченным по размерам и правам; shared memory/ring buffers/zero-copy разрешены только с явными ownership/lifetime правилами.
+- Драйверы по возможности изолировать в user mode; MMIO/IRQ/DMA выдавать через capabilities и device-resource manager. DMA-capable драйверы не допускаются без fail-closed IOMMU policy.
+- KIRA Mind — отдельная ограниченная служба без неявных привилегий управления ядром.
+- KIRA Driver Manager не загружает неизвестные бинарные драйверы напрямую: provenance, license, source review, sandbox, ABI validation, build, signing and rollback обязательны.
+- Существующие рабочие пути сохраняются до доказанной parity и rollback; массовая перепись ради архитектурной чистоты запрещена.
+
+### 8.2 Языковая политика
+
+- C + KCC — текущая основа ядра и критических низкоуровневых компонентов; сохранять и развивать, не переписывать автоматически.
+- Assembly — только узкие boot/exception/context-switch/ISA-specific участки за контрактами HAL.
+- Rust `no_std` — кандидат для новых изолированных служб и user-mode драйверов после подтверждения cross-target toolchain, panic/allocator strategy, ABI/FFI и воспроизводимых сборок x86-64/AArch64.
+- WASM/WASI-профиль — переносимая среда приложений и расширений с capability-limited host API; существующий WASM runtime остаётся базой до сравнительного ADR.
+- Python и Bash — host tooling, тестовая оркестрация и CI, не обязательные runtime зависимости ядра.
+- SPARK Ada и Zig — только исследовательские кандидаты до отдельного ADR.
+- Любой новый язык обязан иметь зафиксированные ABI, build integration, тесты, лицензионный/снабженческий аудит и критерии отказа/отката.
+
+### 8.3 Политика форматов и хранения
+
+- FlatBuffers, Cap’n Proto и CBOR — конкурирующие кандидаты для typed IPC/config/metadata; выбрать по benchmark, fuzzing, schema evolution и security review, а не назначать один формат повсеместно.
+- Arrow + Zstd + bounded event log — кандидат аналитического контура KIRA Mind; не переносить в критический syscall path без обоснования.
+- Parquet — только долговременная аналитика/экспорт, если подтвердится практическая необходимость.
+- CAS + Merkle DAG + CoW + signatures — целевое направление для целостности и атомарных объектов/пакетов, после crash-consistency и recovery tests.
+- LSM-tree и B+Tree — выбирать по workload, write amplification, recovery и memory benchmarks.
+- ELF и текущий WASM binary path сохранять до совместимого versioned executable/package contract.
+- Все форматы должны иметь bounded parsing, versioning, canonical signature rules, fuzz tests и явную миграцию.
+
+### 8.4 Компилятор и типовая модель
+
+- Целевой pipeline: language frontends → MLIR where justified → KIRA IR/SSA → verifier/optimization → architecture backend → signed artifact.
+- KIRA IR должен явно представлять фиксированные integer/float типы, bool, aggregate/enum/Option/Result, slices, ownership/lifetimes где применимо, atomics, endian types, capability handles и отдельные PhysAddr/VirtAddr/DmaAddr.
+- Content-addressed cache и PGO внедрять после reproducible builds и базовых измерений.
+- MLIR — компиляторная инфраструктура/bridge, не требование включать тяжёлую зависимость в ядро.
+
+### 8.5 Новая последовательность Stage
+
+Новая целевая последовательность — Stage 0–13 из целевого архитектурного документа:
+0) аудит, архитектура и migration map;
+1) boot/firmware/BootInfo;
+2) HAL/CPU;
+3) memory/address-space safety;
+4) kernel core/process/syscall;
+5) typed IPC/capabilities;
+6) device model/drivers/IOMMU/DMA;
+7) storage/filesystems/integrity;
+8) networking/service runtime;
+9) compiler/KIRA IR/toolchain;
+10) KVR/WASM/apps;
+11) KIRA Mind/data services;
+12) graphics/Spatial Minimal;
+13) hypervisor/install/update/recovery/release.
+
+Старые этапы раздела 4 остаются историческим интеграционным представлением и не являются основанием исключать требования; новые задачи планировать по Stage 0–13 и вести crosswalk к A–N.
+
+### 8.6 Обязательные технологические ворота
+
+Нельзя объявлять новую технологию принятой или интегрированной только по наличию документа/зависимости/прототипа. Требуются:
+- конкретный workload и сравниваемые альтернативы;
+- benchmark на x86-64 и AArch64, где это применимо;
+- измерения latency, throughput, memory, code size, cold start, failure recovery и verifier cost;
+- security review, bounded parser/fuzzing и lifecycle tests;
+- license/provenance/supply-chain review;
+- ADR с результатами, ограничениями, fallback и миграционным планом.
+
+Stage 0 является текущим блокирующим этапом: до его закрытия допускаются аудит, инвентаризация, документация и тестовая инфраструктура, но не массовая миграция production-кода на новые языки/форматы.
