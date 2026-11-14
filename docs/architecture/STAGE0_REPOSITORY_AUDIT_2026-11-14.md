@@ -125,6 +125,8 @@ Stage 0 — инвентаризация всего репозитория и д
 - F-003 — PCI ECAM bus range сохраняется, но root enumeration начинается с bus 0.
 - F-004 — unified BootInfo contract отсутствует в текущем main.
 - F-005 — generic bus-independent Device Model lifecycle отсутствует в текущем main.
+- F-006 — `ARCHITECTURE.md` содержит исторические утверждения, противоречащие текущему коду/CI (SMP, USB, NVMe, QEMU).
+- F-007 — `build_clang.sh --android` включает release filter и исключает тестовые/учебные программы из ISO.
 
 Это подтверждённые по исходникам findings, а не runtime reproduction. Тесты для них в рамках этого аудита локально не запускались.
 
@@ -147,4 +149,4 @@ Stage 0 — инвентаризация всего репозитория и д
 |---|---|---|---|
 | 2026-11-14 | main `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4` | Зафиксирован исходный baseline Stage 0 | GitHub tree/API read; исполняемые тесты в этой записи не запускались |
 | 2026-11-14 | audit branch `cd12b7c31dccf97c1bd6d5ebf001bd0f3b9dac0a` | Добавлены F-001…F-005 по исходникам | Source review на pinned main SHA; runtime reproduction не выполнялся |
-| 2026-11-14 | PR #152, head `8358d14850ff48f0a710486106a550e01701f2a5` | Начато исправление F-001: общий ownership helper, x86-64/ARM64 allocator hardening и host regression | Exact-head workflow `43585911384` запущен; результат ещё не получен |
+| 2026-11-14 | PR #152, head `29d8b5842ff5de0b93dc8da97f665496c6e507bb` | Исправление F-001: общий ownership helper, x86-64/ARM64 allocator hardening и host regression | Первый CI run выявил пропущенные include/state declarations; исправлены. Exact-head workflow `43586072209` выполняется |
