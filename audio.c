@@ -157,7 +157,7 @@ static void audio_main(void* arg) {
         if (d < ring - ring / 8) { __atomic_add_fetch(&hw, d, __ATOMIC_RELAXED); last_pos = pos; }      /* шаг назад (< 1/8 кольца - дрожание позиции карты) - не «почти круг вперёд» */
         uint64_t hw_now = __atomic_load_n(&hw, __ATOMIC_RELAXED);
         if (wr < hw_now) { __atomic_add_fetch(&underruns, 1, __ATOMIC_RELAXED); wr = hw_now; }                     /* не успели: догоняем карту */
-        while (wr < hw + lead_frames) {
+        while (wr < __atomic_load_n(&hw, __ATOMIC_RELAXED) + lead_frames) {
             uint32_t at = (uint32_t)(wr % ring), n = CHUNK;
             if (at + n > ring) n = ring - at;
             mix_chunk(buf + 2 * at, n);
@@ -450,10 +450,10 @@ void audiocmd_beep(const char* a) {
     if (!running) { uart_print("звуковой карты нет\n"); return; }
     if (hz < 20 || hz > 20000 || !ms) { uart_print("beep [Гц 20..20000] [мс]\n"); return; }
     if (ms > 2000) ms = 2000;
-    uint64_t hw0 = hw;
+    uint64_t hw0 = __atomic_load_n(&hw, __ATOMIC_RELAXED);
     audio_tone(hz, ms);
     sched_sleep_ticks((uint64_t)ms * TIMER_HZ / 1000 + 1);
-    uint64_t pos = (hw - hw0) * 4;
+    uint64_t pos = (__atomic_load_n(&hw, __ATOMIC_RELAXED) - hw0) * 4;
     uart_print("звук "); uart_print_dec(hz); uart_print(" Гц, "); uart_print_dec(ms);
     uart_print(" мс: DMA прошёл "); uart_print_dec(pos); uart_print(pos ? " байт - карта играет\n" : " байт - карта не забирает звук\n");
 }
