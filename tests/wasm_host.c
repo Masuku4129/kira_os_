@@ -47,6 +47,46 @@ static void wasm_reset(void) {
     for (u32 i = 0; i < MAXG; i++) globals[i] = 0;
     g_used = 0; jit_free_all();
 }
+static int leb_tests(void) {
+    const u8 u_ok[] = { 0x80, 0x01 }, u_trunc[] = { 0x80 }, u_over[] = { 0x80, 0x00 };
+    const u8 u_range[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x10 };
+    const u8 s_neg1[] = { 0x7F }, s_min[] = { 0x80, 0x80, 0x80, 0x80, 0x78 };
+    const u8 s_max[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x07 };
+    const u8 s_trunc[] = { 0x80 }, s_over[] = { 0xFF, 0x7F };
+    const u8 s_range[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x0F };
+    const u8 imm[] = { 1, 2, 3 };
+    const u8 *p; u32 u; i64 v;
+#define LEB_CHECK(x) do { if (!(x)) { fprintf(stderr, "wasm LEB regression failed at line %d\n", __LINE__); return 1; } } while (0)
+    trapped = 0; p = u_ok; u = leb_u(&p, u_ok + sizeof u_ok); LEB_CHECK(!trapped && u == 128 && p == u_ok + sizeof u_ok);
+    trapped = 0; p = u_trunc; (void)leb_u(&p, u_trunc + sizeof u_trunc); LEB_CHECK(trapped);
+    trapped = 0; p = u_over; (void)leb_u(&p, u_over + sizeof u_over); LEB_CHECK(trapped);
+    trapped = 0; p = u_range; (void)leb_u(&p, u_range + sizeof u_range); LEB_CHECK(trapped);
+    trapped = 0; p = s_neg1; v = leb_s(&p, s_neg1 + sizeof s_neg1, 32); LEB_CHECK(!trapped && v == -1);
+    trapped = 0; p = s_min; v = leb_s(&p, s_min + sizeof s_min, 32); LEB_CHECK(!trapped && v == INT32_MIN);
+    trapped = 0; p = s_max; v = leb_s(&p, s_max + sizeof s_max, 32); LEB_CHECK(!trapped && v == INT32_MAX);
+    trapped = 0; p = s_trunc; (void)leb_s(&p, s_trunc + sizeof s_trunc, 64); LEB_CHECK(trapped);
+    trapped = 0; p = s_over; (void)leb_s(&p, s_over + sizeof s_over, 32); LEB_CHECK(trapped);
+    trapped = 0; p = s_range; (void)leb_s(&p, s_range + sizeof s_range, 32); LEB_CHECK(trapped);
+    trapped = 0; p = imm; wasm_skip(&p, imm + sizeof imm, 4); LEB_CHECK(trapped && p == imm);
+#undef LEB_CHECK
+    puts("wasm: signed/unsigned LEB128 bounds, canonical encodings and immediate truncation passed");
+    return 0;
+}
+static int trunc_module(const char* path) {
+    FILE* f = fopen(path, "rb"); if (!f) return 2;
+    fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
+    if (n <= 0 || n > (8 << 20)) { fclose(f); return 2; }
+    u8* orig = malloc((size_t)n);
+    if (!orig || fread(orig, 1, (size_t)n, f) != (size_t)n) { fclose(f); free(orig); return 2; }
+    fclose(f); g_data = orig; g_path = path; g_quiet = 1; jit_on = 0;
+    for (long len = 0; len < n; len++) {
+        g_len = len; wasm_reset(); wasm_fuel = 100000;
+        (void)wasm_main();                                          /* every strict prefix must remain bounded */
+    }
+    g_quiet = 0; free(orig);
+    printf("wasm: all %ld truncated prefixes of %s remained bounded\n", n, path);
+    return 0;
+}
 static int fuzz_module(const char* path, int iters) {
     FILE* f = fopen(path, "rb"); if (!f) return 2;
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
@@ -76,6 +116,8 @@ static int fuzz_module(const char* path, int iters) {
 int main(int argc, char** argv) {
     if (getenv("WASM_NOJIT")) jit_on = 0;                          /* только интерпретатор (как на ARM64) */
 #ifdef WASM_FUEL
+    if (argc == 2 && !strcmp(argv[1], "leb")) return leb_tests();
+    if (argc == 3 && !strcmp(argv[1], "trunc")) return trunc_module(argv[2]);
     if (argc == 4 && !strcmp(argv[1], "fuzz")) return fuzz_module(argv[2], atoi(argv[3]));
 #endif
     if (argc < 2) return 2;
