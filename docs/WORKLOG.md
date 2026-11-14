@@ -437,3 +437,10 @@
 
 
 - PR #159 first host run `43592195609` reached FDT tests and caught a test-only undeclared `len` variable in the new malformed-reg case. Replaced it with a dedicated `reglen`; implementation had compiled up to that test stage. Current head `1a61bd5bdc11b3dd0338c3142113c963308598bf`, exact-head workflow `43592382535` pending.
+
+
+### PR #158 — ARM64 PMM ownership parity exact-head CI passed (2026-11-14)
+
+- Exact head `70d0e89a65414818c22d61532f7ca4288c464d2c`, workflow `43592051859`: **43/43 checks PASS**, zero failures/cancellations.
+- Includes the new ARM64 PMM host suite under ASan/UBSan, x86-64 build, ARM64 build and full QEMU matrix.
+- F-013 and F-014 are verified on this unmerged Draft PR. This does not mean main has the fix; no merge was performed.
