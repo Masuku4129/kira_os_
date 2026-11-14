@@ -1061,29 +1061,43 @@ void tcp_unlisten(int handle) {
 }
 
 int tcp_send(int h, const void* data, uint32_t len) {
-    if (h < 0 || h >= TCP_MAX) return -1;
-    tcb_t* t = &tcbs[h];
+    if (len && !data) return -1;
+    tcb_t* t = tcp_pin(h);
+    if (!t) return -1;
     const uint8_t* p = (const uint8_t*)data;
     uint32_t done = 0;
     while (done < len) {
-        if (t->state != T_EST && t->state != T_CLOSE_WAIT) return done ? (int)done : -1;
-        if (tcp_wait(t, c_room, 60 * TIMER_HZ) != 0 || t->state == T_CLOSED) return done ? (int)done : -2;
         uint64_t f = spin_lock_irqsave(&tlk);
-        uint32_t room = TCP_TX - t->tx_len, n = len - done < room ? len - done : room;
+        int allowed = !t->closing && (t->state == T_EST || t->state == T_CLOSE_WAIT);
+        spin_unlock_irqrestore(&tlk, f);
+        if (!allowed) { tcp_unpin(t); return done ? (int)done : -1; }
+        if (tcp_wait(t, c_room, 60 * TIMER_HZ) != 0) { tcp_unpin(t); return done ? (int)done : -2; }
+        f = spin_lock_irqsave(&tlk);
+        if (t->closing || (t->state != T_EST && t->state != T_CLOSE_WAIT)) {
+            spin_unlock_irqrestore(&tlk, f); tcp_unpin(t); return done ? (int)done : -2;
+        }
+        uint32_t room = TCP_TX - t->tx_len;
+        uint32_t n = len - done < room ? len - done : room;
+        if (!n) { spin_unlock_irqrestore(&tlk, f); continue; }
         for (uint32_t i = 0; i < n; i++) t->tx[t->tx_len + i] = p[done + i];
         t->tx_len += n;
         tcp_push(t, timer_get_ticks());
         spin_unlock_irqrestore(&tlk, f);
         done += n;
     }
-    if (tcp_wait(t, c_sent, 60 * TIMER_HZ) != 0 || t->reset) return -2;    /* вызов возвращается, когда всё подтверждено */
-    return (int)done;
+    if (tcp_wait(t, c_sent, 60 * TIMER_HZ) != 0) { tcp_unpin(t); return -2; }
+    uint64_t f = spin_lock_irqsave(&tlk);
+    int reset = t->reset || t->state == T_CLOSED;
+    spin_unlock_irqrestore(&tlk, f);
+    tcp_unpin(t);
+    return reset ? -2 : (int)done;                              /* вызов возвращается, когда всё подтверждено */
 }
 
 int tcp_recv(int h, void* buf, uint32_t max, uint32_t timeout_ticks) {
-    if (h < 0 || h >= TCP_MAX) return -1;
-    tcb_t* t = &tcbs[h];
-    if (tcp_wait(t, c_data, timeout_ticks) != 0) return -1;
+    if (max && !buf) return -1;
+    tcb_t* t = tcp_pin(h);
+    if (!t) return -1;
+    if (tcp_wait(t, c_data, timeout_ticks) != 0) { tcp_unpin(t); return -1; }
     uint64_t f = spin_lock_irqsave(&tlk);
     uint32_t have = t->rx_tail - t->rx_head, n = have < max ? have : max;
     uint32_t before = TCP_RX - have;
@@ -1091,19 +1105,23 @@ int tcp_recv(int h, void* buf, uint32_t max, uint32_t timeout_ticks) {
     for (uint32_t i = 0; i < n; i++) o[i] = t->rx[(t->rx_head + i) % TCP_RX];
     t->rx_head += n;
     if (n && before < t->mss && TCP_RX - (t->rx_tail - t->rx_head) >= t->mss && t->state != T_CLOSED)
-        tcp_out(t, F_ACK, t->snd_nxt, 0, 0);                         /* окно снова открыто - сообщить */
+        tcp_out(t, F_ACK, t->snd_nxt, 0, 0);                     /* окно снова открыто - сообщить */
     int closed = !n && (t->fin_rcvd || t->state == T_CLOSED);
     int reset = t->reset;
     spin_unlock_irqrestore(&tlk, f);
+    tcp_unpin(t);
     if (closed) return reset ? -2 : 0;
     return (int)n;
 }
 
 void tcp_close(int h) {
-    if (h < 0 || h >= TCP_MAX) return;
-    tcb_t* t = &tcbs[h];
-    tcp_wait(t, c_sent, 10 * TIMER_HZ);                          /* сначала - отправленное */
+    tcb_t* t = tcp_pin(h);
+    if (!t) return;
     uint64_t f = spin_lock_irqsave(&tlk);
+    t->closing = 1;                                              /* запретить новые операции над этим поколением */
+    spin_unlock_irqrestore(&tlk, f);
+    tcp_wait(t, c_sent, 10 * TIMER_HZ);
+    f = spin_lock_irqsave(&tlk, f);
     if (t->state == T_EST || t->state == T_CLOSE_WAIT) {
         t->state = t->state == T_EST ? T_FIN_WAIT1 : T_LAST_ACK;
         t->fin_sent = 1;
@@ -1114,10 +1132,21 @@ void tcp_close(int h) {
     spin_unlock_irqrestore(&tlk, f);
     tcp_wait(t, c_closed, 3 * TIMER_HZ);
     f = spin_lock_irqsave(&tlk);
-    t->state = T_FREE; t->rto_at = 0; t->listener = -1;
+    t->state = T_CLOSED; t->rto_at = 0;                           /* разбудить все оставшиеся I/O */
     spin_unlock_irqrestore(&tlk, f);
+    for (;;) {
+        f = spin_lock_irqsave(&tlk);
+        uint32_t refs = t->refs;
+        spin_unlock_irqrestore(&tlk, f);
+        if (refs <= 1) break;
+        sched_sleep_ticks(1);
+    }
+    f = spin_lock_irqsave(&tlk);
+    t->state = T_FREE; t->owner = 0; t->closing = 0; t->listener = -1; t->rto_at = 0;
+    if (t->generation == UINT16_MAX) t->retired = 1;
+    spin_unlock_irqrestore(&tlk, f);
+    tcp_unpin(t);
 }
-
 
 /* ---------- сеть для программ (системные вызовы) ----------
    Соединение принадлежит процессу, который его открыл: чужой номер - отказ; при завершении процесса его соединения
