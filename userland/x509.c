@@ -444,7 +444,7 @@ int x509_verify_chain(const uint8_t* const* certs, const size_t* lens, int n, co
                 x509_check_sig(cur, issuer) == 0) next = i;
         }
         if (next < 0) { *why = "issuer is not trusted (no path to a root certificate)"; return -5; }
-        if (cur->is_ca) ca_below++;
+        if (cur->is_ca && !same(cur->subject, cur->subject_len, cur->issuer, cur->issuer_len)) ca_below++; /* RFC 5280 excludes self-issued CAs */
         used[next] = 1; cur = &chain[next];
     }
     *why = "chain too long"; return -6;
