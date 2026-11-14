@@ -142,7 +142,7 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
                       ((b & 0x7F) == 0x7F && (prev & 0x40)))) {
                 trap("overlong signed LEB128"); return 0;
             }
-            if (bits == 32) return (i64)(int32_t)(uint32_t)r;
+            if (bits == 32) return (i64)(int)(u32)r;
             return (i64)r;
         }
         prev = b;
