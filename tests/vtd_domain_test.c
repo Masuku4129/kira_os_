@@ -149,6 +149,18 @@ int main(void)
     CHECK(!iotlb.valid);
     CHECK(dma_translate(&dom, 0x10000, &pa) != 0);     /* no stale access after unmap */
 
+    /* If the PTE is cleared but the first invalidation times out, a retry must
+       still flush the stale IOTLB entry even though the leaf is already zero. */
+    CHECK(kira_vtd_domain_map_4k(&dom, 0x11000, 0x210000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_OK);
+    CHECK(dma_translate(&dom, 0x11000, &pa) == 0 && pa == 0x210000);
+    hw_never_completes = 1;
+    CHECK(kira_vtd_domain_unmap_4k(&dom, 0x11000, &plat) == KIRA_VTD_TIMEOUT);
+    CHECK(iotlb.valid);
+    hw_never_completes = 0;
+    *reg64(IOTLB_OFF) = 0;
+    CHECK(kira_vtd_domain_unmap_4k(&dom, 0x11000, &plat) == KIRA_VTD_OK);
+    CHECK(!iotlb.valid && dma_translate(&dom, 0x11000, &pa) != 0);
+
     /* Hardware that rejects the request, or never completes it, must surface as an error. */
     hw_rejects = 1;
     CHECK(kira_vtd_domain_map_4k(&dom, 0x20000, 0x300000, KIRA_VTD_MAP_READ, &plat) == KIRA_VTD_HARDWARE_ERROR);

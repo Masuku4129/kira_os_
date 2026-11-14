@@ -28,6 +28,8 @@ static int logged(const char* s) { return strstr(logbuf, s) != 0; }
 typedef struct { pci_dev_t d; uint8_t sec, sub; } mdev_t;
 static mdev_t mdev[8];
 static int nmdev;
+static int d3_bus_master_enabled = 1;
+static int model_busmaster_gate;
 static void add_dev(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t ven, uint16_t id, uint8_t hdr, uint8_t cls, uint8_t sub, uint8_t sec, uint8_t subo) {
     pci_dev_t* d = &mdev[nmdev].d;
     memset(d, 0, sizeof *d);
@@ -39,6 +41,12 @@ const pci_dev_t* pci_get(int i) { return i >= 0 && i < nmdev ? &mdev[i].d : 0; }
 uint8_t pci_read8(const pci_dev_t* d, uint16_t off) {
     for (int i = 0; i < nmdev; i++) if (&mdev[i].d == d) return off == 0x19 ? mdev[i].sec : off == 0x1A ? mdev[i].sub : 0;
     return 0;
+}
+int pci_disable_bus_master(const pci_dev_t* d) {
+    if (!d) return 0;
+    if (model_busmaster_gate && d->bus == 0 && d->dev == 3 && d->fn == 0)
+        d3_bus_master_enabled = 0;
+    return 1;
 }
 
 /* ---- ACPI + DMAR ---- */
@@ -158,6 +166,8 @@ static void record_fault(uint16_t sid, uint64_t iova, int write, int reason) {
 /* One DMA access by a device. 0 = allowed (pa filled), -1 = blocked and recorded. */
 static int hw_dma(uint16_t sid, uint64_t iova, int write, uint64_t* pa) {
     hw_sync();
+    if (model_busmaster_gate && sid == (uint16_t)(3u << 3) && !d3_bus_master_enabled)
+        return -1;
     int rc = -1;
     if (!(*r32(R_GSTS) & (1u << 31))) { *pa = iova; return 0; }            /* translation off */
     for (int i = 0; i < 16; i++)
@@ -230,6 +240,7 @@ int main(int argc, char** argv) {
         CHECK(iommu_init() == 0);
         CHECK(logged("No DMAR table"));
         CHECK(!iommu_enabled() && iommu_isolate_device(d3) == IOMMU_E_NONE && !iommu_device_isolated(d3));
+        CHECK(iommu_device_ready(d3));
         CHECK(iommu_map(d3, 0x1000, 0x2000, 0x1000, IOMMU_R) == IOMMU_E_NONE);
         CHECK(!(*r32(R_GSTS) & (1u << 31)));         /* hardware never touched */
         puts("iommu_test D: PASS"); return 0;
@@ -237,15 +248,19 @@ int main(int argc, char** argv) {
     if (sc == 'C') {                                 /* damaged table is rejected, nothing is enabled */
         CHECK(iommu_init() < 0);
         CHECK(logged("DMAR table rejected"));
-        CHECK(!iommu_enabled() && iommu_isolate_device(d3) == IOMMU_E_NONE);
+        CHECK(!iommu_enabled() && iommu_isolate_device(d3) == IOMMU_E_HW);
+        CHECK(!iommu_device_ready(d3));
         CHECK(!(*r32(R_GSTS) & (1u << 31)) && root_phys == 0);
         puts("iommu_test C: PASS"); return 0;
     }
     if (sc == 'E') {                                 /* unit without pass-through: left off, nothing blocked */
         CHECK(iommu_init() == 0);
+        unsigned prepared_pages = live_pages;
+        CHECK(iommu_init() == 0 && live_pages == prepared_pages);
         CHECK(logged("no pass-through support"));
         CHECK(!(*r32(R_GSTS) & (1u << 31)));
-        CHECK(iommu_isolate_device(d3) == IOMMU_E_NONE);
+        CHECK(iommu_isolate_device(d3) == IOMMU_E_HW);
+        CHECK(!iommu_device_ready(d3));
         puts("iommu_test E: PASS"); return 0;
     }
 
@@ -254,14 +269,31 @@ int main(int argc, char** argv) {
     CHECK(logged("VT-d translation enabled on 1 unit"));
     CHECK(logged("0 isolated until a driver asks"));
 
+    if (sc == 'F') {                                 /* rejected context/IOTLB invalidation must never count as isolation */
+        CHECK(hw_dma(sid_of(d3), 0x123456000ull, 1, &pa) == 0 &&
+              pa == 0x123456000ull);                /* initial pass-through */
+        model_busmaster_gate = 1;
+        hw_reject = 1;                               /* hardware refuses the flush after the context is published */
+        CHECK(iommu_isolate_device(d3) == IOMMU_E_HW);
+        CHECK(!iommu_device_isolated(d3) && !iommu_device_ready(d3));
+        /* A failed invalidation leaves the hardware state uncertain: either the
+           cached bypass remains or DMA is blocked. It must never claim isolation. */
+        CHECK(!d3_bus_master_enabled);
+        CHECK(hw_dma(sid_of(d3), 0x123456000ull, 1, &pa) != 0); /* requester stopped after failed invalidation */
+        puts("iommu_test F: PASS (failed invalidation is not isolation)");
+        return 0;
+    }
+
     if (sc == 'B') {                                 /* scope-limited unit: uncovered devices are reported, not isolated */
         CHECK(logged("00:00.0 8086:29c0 no DMAR unit covers it"));
         CHECK(logged("00:03.0 1af4:1042 passthrough"));
         CHECK(logged("01:00.0 10ec:8139 passthrough"));            /* found through the bridge path 00:1c.0 -> bus 1 */
         CHECK(iommu_isolate_device(dev_at(0, 0, 0)) == IOMMU_E_NOCOVER);
         CHECK(!iommu_device_isolated(dev_at(0, 0, 0)));
+        CHECK(!iommu_device_ready(d3) && iommu_device_ready(dev_at(0, 0, 0)));
         const pci_dev_t* b1 = dev_at(1, 0, 0);
         CHECK(iommu_isolate_device(d3) == IOMMU_OK && iommu_isolate_device(b1) == IOMMU_OK);
+        CHECK(iommu_device_ready(d3) && iommu_device_ready(b1));
         CHECK(did_of(sid_of(d3)) != did_of(sid_of(b1)) && did_of(sid_of(d3)) != 0 && did_of(sid_of(b1)) != 0);
         CHECK(iommu_map(d3, 0x10000, 0x40000000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_OK);
         CHECK(hw_dma(sid_of(d3), 0x10000, 0, &pa) == 0 && pa == 0x40000000);
@@ -278,13 +310,15 @@ int main(int argc, char** argv) {
     CHECK(logged("00:02.0 8086:10d3 passthrough: unrestricted DMA, NOT isolated (RMRR 0x7F000000-0x7F000FFF"));
     CHECK(logged("1 of them RMRR"));
     CHECK(iommu_isolate_device(d2) == IOMMU_E_RMRR && !iommu_device_isolated(d2));      /* RMRR device stays passthrough */
+    CHECK(!iommu_device_ready(d2) && !iommu_device_ready(d3));
     CHECK(hw_dma(sid_of(d2), 0x7F000000, 1, &pa) == 0);
     CHECK(logged("NOT isolated: named by RMRR"));
     CHECK(iommu_map(d3, 0x1000, 0x2000, 0x1000, IOMMU_R) == IOMMU_E_NOENT);            /* no domain yet */
 
     unsigned pages_before = live_pages;
     CHECK(iommu_isolate_device(d3) == IOMMU_OK && iommu_isolate_device(d3) == IOMMU_OK);
-    CHECK(iommu_device_isolated(d3) && !iommu_device_isolated(dev_at(0, 0, 0)));
+    CHECK(iommu_device_isolated(d3) && iommu_device_ready(d3) &&
+          !iommu_device_isolated(dev_at(0, 0, 0)) && !iommu_device_ready(dev_at(0, 0, 0)));
     CHECK(logged("00:03.0 isolated: own translation domain"));
     CHECK(hw_dma(sid_of(d3), 0x5000, 0, &pa) != 0);                                     /* nothing mapped: everything faults */
     CHECK(hw_dma(sid_of(dev_at(0, 0, 0)), 0x5000, 1, &pa) == 0);                        /* neighbours unaffected */
@@ -320,33 +354,37 @@ int main(int argc, char** argv) {
     CHECK(hw_dma(sid_of(d3), 0x20000, 0, &pa) != 0);                                    /* no stale translation */
     CHECK(iommu_unmap(d3, 0x20000, 0x1000) == IOMMU_E_NOENT);
 
-    /* hardware that does not complete invalidation: the map reports it and leaves no access behind */
+    /* A failed invalidation leaves uncertain translations pinned and quarantines DMA. */
     hw_hang = 1;
     CHECK(iommu_map(d3, 0x50000, 0xB0000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_E_HW);
+    CHECK(!iommu_device_ready(d3));
     hw_hang = 0; *r64(R_IOTLB) &= ~(1ull << 63); *r64(R_CCMD) &= ~(1ull << 63); hw_sync();
+    iommu_unmap_all(d3); /* retry invalidation; caller-owned backing stays pinned until success */
     CHECK(hw_dma(sid_of(d3), 0x50000, 0, &pa) != 0);
-    CHECK(iommu_map(d3, 0x50000, 0xB0000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_OK);     /* and the address is usable afterwards */
+    CHECK(iommu_release_device(d3) == IOMMU_OK);
+    CHECK(iommu_isolate_device(d3) == IOMMU_OK && iommu_device_ready(d3));
+    CHECK(iommu_map(d3, 0x50000, 0xB0000, 0x1000, IOMMU_R | IOMMU_W) == IOMMU_OK);
     CHECK(iommu_unmap(d3, 0x50000, 0x1000) == IOMMU_OK);
 
     /* table of mappings is bounded */
     unsigned n_ok = 0;
-    for (unsigned i = 0; i < 40; i++) if (iommu_map(d3, 0x100000 + 0x2000ull * i, 0x200000 + 0x2000ull * i, 0x1000, IOMMU_R) == IOMMU_OK) n_ok++;
-    CHECK(n_ok > 0 && n_ok < 40);
+    for (unsigned i = 0; i < 2060; i++) if (iommu_map(d3, 0x100000 + 0x2000ull * i, 0x200000 + 0x2000ull * i, 0x1000, IOMMU_R) == IOMMU_OK) n_ok++;
+    CHECK(n_ok > 0 && n_ok < 2060);
 
     /* faults: recorded by the hardware, one log line each, counted per device, never fatal */
     iommu_fault_poll();                                                                 /* drain what accumulated */
     uint32_t before = iommu_fault_count(d3);
     memset(logbuf, 0, 1);                                                               /* new log from here */
-    for (int i = 0; i < 6; i++) hw_dma(sid_of(d3), 0x900000 + 0x1000ull * i, i & 1, &pa);   /* 6 violations, 4 fault records */
+    for (int i = 0; i < 6; i++) hw_dma(sid_of(d3), 0x50000000 + 0x1000ull * i, i & 1, &pa);   /* 6 violations, 4 fault records */
     int got = iommu_fault_poll();
     CHECK(got == NFR);
     CHECK(iommu_fault_count(d3) == before + NFR);
-    CHECK(logged("DMA fault: device 00:03.0 read 0x900000: read not permitted"));
-    CHECK(logged("DMA fault: device 00:03.0 write 0x901000: write not permitted"));
+    CHECK(logged("DMA fault: device 00:03.0 read 0x50000000: read not permitted"));
+    CHECK(logged("DMA fault: device 00:03.0 write 0x50001000: write not permitted"));
     hw_sync();
     CHECK(iommu_fault_poll() == 0);                                                     /* records and overflow flag cleared */
-    CHECK(hw_dma(sid_of(d3), 0xA00000, 1, &pa) != 0 && iommu_fault_poll() == 1);        /* works again after the overflow */
-    for (int i = 0; i < 20; i++) { hw_dma(sid_of(d3), 0xB00000 + 0x1000ull * i, 0, &pa); iommu_fault_poll(); }
+    CHECK(hw_dma(sid_of(d3), 0x60000000, 1, &pa) != 0 && iommu_fault_poll() == 1);        /* works again after the overflow */
+    for (int i = 0; i < 20; i++) { hw_dma(sid_of(d3), 0x61000000 + 0x1000ull * i, 0, &pa); iommu_fault_poll(); }
     int lines = 0; for (const char* s = logbuf; (s = strstr(s, "DMA fault: device 00:03.0")) != 0; s++) lines++;
     CHECK(lines <= 8 + 2);                                                              /* log is rate limited per device */
 

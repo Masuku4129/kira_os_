@@ -33,6 +33,14 @@ unsigned fdt_count_type(const void* fdt, int parent, const char* type);
 
 /* Узел включён: status нет, «okay» или «ok». */
 int fdt_node_enabled(const void* fdt, int node);
+
+/* Resolve a unique enabled node by phandle. IOMMU-map currently supports
+   targets with exactly one #iommu-cells argument (the SMMUv3 StreamID). */
+int fdt_phandle_node(const void* fdt, uint32_t phandle);
+/* Translate a PCI requester ID through a host node's iommu-map. Returns 0 on
+   one unique mapping, -1 when absent, and -2 for malformed/ambiguous data. */
+int fdt_iommu_map(const void* fdt, int host_node, uint32_t requester_id,
+                  uint32_t* iommu_phandle, uint32_t* stream_id);
 /* Кадровый буфер от загрузчика/прошивки (compatible = «simple-framebuffer», включённый): 0 - найден и формат
    32 бита x8r8g8b8/a8r8g8b8 (как у ядра); -1 - нет узла; -2 - неполный узел; -3 - другой формат (в format). */
 typedef struct { uint64_t base, size; uint32_t width, height, stride; char format[16]; } fdt_fb_t;

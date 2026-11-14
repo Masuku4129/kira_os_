@@ -22,6 +22,7 @@
 #include "pmm.h"
 #include "selftest_arm.h"
 #include "pci.h"
+#include "iommu.h"
 #include "blk.h"
 #include "experience.h"
 #include "fscmd.h"
@@ -247,16 +248,26 @@ static int bootarg_has(const void* fdt, const char* word) {
     }
     return 0;
 }
+static int dma_nc_policy;
+static int fdt_bool_property(const void* fdt, int node, const char* name) {
+    uint32_t len = 0;
+    return fdt_prop(fdt, node, name, &len) != 0 && len == 0;
+}
 static int dma_noncoherent(const void* fdt) {
     if (bootarg_has(fdt, "kira.dma=noncoherent")) return 1;
-    if (bootarg_has(fdt, "kira.dma=coherent")) return 0;
-    uint32_t l;
-    if (fdt_prop(fdt, fdt_root(fdt), "dma-coherent", &l)) return 0;
-    int pci = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
-    if (pci >= 0) return fdt_prop(fdt, pci, "dma-coherent", &l) ? 0 : 1;
-    int depth = 0;                                               /* нет PCI-узла: любой узел с dma-coherent - согласованная платформа */
-    for (int n = fdt_root(fdt); n >= 0; n = fdt_next_node(fdt, n, &depth)) if (fdt_prop(fdt, n, "dma-coherent", &l)) return 0;
-    return 1;
+    if (bootarg_has(fdt, "kira.dma=coherent"))
+        kprintf("[KIRA ARM64] DMA policy: ignoring unsafe coherent override; firmware declarations required\n");
+    /* Coherency belongs to each actual DMA host. A root property or a single
+       coherent host cannot authorize all PCI requesters. Missing declarations
+       force the non-cacheable pool, and pool exhaustion keeps DMA disabled. */
+    unsigned enabled_hosts = 0;
+    for (int node = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
+         node >= 0; node = fdt_find_compatible(fdt, node, "pci-host-ecam-generic")) {
+        if (!fdt_node_enabled(fdt, node)) continue;
+        enabled_hosts++;
+        if (!fdt_bool_property(fdt, node, "dma-coherent")) return 1;
+    }
+    return enabled_hosts == 0;
 }
 /* Пул - верх того участка ОЗУ, где лежат ядро и ранние выделения: до 32 МБ (но не больше 1/8 участка), блоки по 2 МБ. */
 static void dma_pool_choose(void) {
@@ -265,26 +276,38 @@ static void dma_pool_choose(void) {
         uint64_t end = (ram[i].base + ram[i].size) & ~((2ull << 20) - 1), sz = ram[i].size / 8;
         if (sz > (32ull << 20)) sz = 32ull << 20;
         sz &= ~((2ull << 20) - 1);
-        if (sz < (2ull << 20) || end < sz || end - sz < bump + (8ull << 20)) return;      /* места нет - пула нет */
+        if (sz < (2ull << 20) || end < sz || end - sz < bump + (8ull << 20)) return;
         dma_lo = end - sz; dma_hi = end; dma_bump = dma_lo;
-        bump_end = dma_lo;                                       /* ранние выделения (таблицы MMU) не залезают в пул */
+        bump_end = dma_lo;
         return;
     }
 }
-int platform_dma_noncoherent(void) { return dma_lo != 0; }   /* драйверам Ring 3 DMA без согласованного кэша не отдаётся (kdrv.c) */
+int platform_dma_noncoherent(void) { return dma_nc_policy; }
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) {
-    if (!dma_lo) return 0;
-    uint64_t need = ((uint64_t)bytes + 4095) & ~4095ull, f = irq_save(), a = 0;
+    if (!dma_lo || !bytes || !phys || bytes > UINT32_MAX - 4095u) return 0;
+    uint64_t need = ((uint64_t)bytes + 4095u) & ~4095ull, flags = irq_save(), a = 0;
     static volatile uint32_t lk;
     while (__atomic_exchange_n(&lk, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
-    if (dma_bump + need <= dma_hi && (!below_4g || dma_bump + need <= 0x100000000ull)) { a = dma_bump; dma_bump += need; }
+    if (dma_bump <= dma_hi && need <= dma_hi - dma_bump &&
+        (!below_4g || (dma_bump <= 0x100000000ull && need <= 0x100000000ull - dma_bump))) {
+        a = dma_bump;
+        dma_bump += need;
+    }
     __atomic_store_n(&lk, 0, __ATOMIC_RELEASE);
-    irq_restore(f);
+    irq_restore(flags);
     if (!a) return 0;
     for (uint64_t i = 0; i < need; i += 8) *(volatile uint64_t*)(uintptr_t)(a + i) = 0;
     dsb();
     *phys = a;
     return (void*)(uintptr_t)a;
+}
+void platform_dma_sync_for_device(void* cpu, uint64_t phys, uint32_t bytes) {
+    (void)cpu; (void)phys; (void)bytes;
+    dsb();
+}
+void platform_dma_sync_for_cpu(void* cpu, uint64_t phys, uint32_t bytes) {
+    (void)cpu; (void)phys; (void)bytes;
+    dsb();
 }
 
 /* ---------------- W^X: права образа ядра ----------------
@@ -1109,7 +1132,14 @@ static void arm_pci_init(const void* fdt) {
         kprintf("[KIRA PCI] cannot map ECAM window\n");
         return;
     }
-    pci_use_ecam(e, first_bus, last_bus);
+    pci_ecam_config_t ecam_config = {
+        .base = e, .size = size,
+        .first_bus = first_bus, .last_bus = last_bus
+    };
+    if (pci_configure_ecam(&ecam_config) != 0) {
+        kprintf("[KIRA PCI] rejected ECAM configuration after mapping\n");
+        return;
+    }
 
     pci_window_t m32 = { 0, 0, 0, 0 }, m64 = { 0, 0, 0, 0 };
     uint32_t pac = 2, sc = 2, prop_len = 0;
@@ -1184,6 +1214,9 @@ static void arm_pci_init(const void* fdt) {
         kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s), %u BAR(s) assigned (windows: 32-bit %x, 64-bit %x)\n",
                 base, (uint64_t)first_bus, (uint64_t)last_bus, (uint64_t)nd,
                 (uint64_t)nb, m32.pci_base, m64.pci_base);
+        int iommu = iommu_arm64_init(fdt, n);
+        if (iommu < 0)
+            kprintf("[KIRA SMMU] initialization rejected (%d); covered PCI bus mastering stays disabled\n", iommu);
     }
     return;
 
@@ -1192,6 +1225,9 @@ enumerate_only:
         int nd = pci_init();
         kprintf("[KIRA PCI] ECAM at %x, buses %u-%u: %u function(s); BAR assignment disabled\n",
                 base, (uint64_t)first_bus, (uint64_t)last_bus, (uint64_t)nd);
+        int iommu = iommu_arm64_init(fdt, n);
+        if (iommu < 0)
+            kprintf("[KIRA SMMU] initialization rejected (%d); covered PCI bus mastering stays disabled\n", iommu);
     }
 }
 
@@ -1269,11 +1305,16 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     for (unsigned i = 0; i < nram; i++) if (bump >= ram[i].base && bump < ram[i].base + ram[i].size) bump_end = ram[i].base + ram[i].size;
     kprintf("[KIRA ARM64] RAM: %u MB in %u region(s)\n", total >> 20, (uint64_t)nram);
 
-    if (dma_noncoherent(fdt)) dma_pool_choose();
+    dma_nc_policy = dma_noncoherent(fdt);
+    if (dma_nc_policy) dma_pool_choose();
     int bits = mmu_init(top);
     if (bits < 0) { kprintf("[KIRA ARM64] FATAL: cannot build page tables\n"); for (;;) __asm__ volatile ("wfe"); }
-    if (dma_lo) kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at %x without CPU cache for device buffers\n", (dma_hi - dma_lo) >> 20, dma_lo);
-    else kprintf("[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)\n");
+    if (dma_nc_policy && dma_lo)
+        kprintf("[KIRA ARM64] DMA: devices are NOT cache-coherent: %u MB pool at 0x%x\n", (dma_hi - dma_lo) >> 20, dma_lo);
+    else if (dma_nc_policy)
+        kprintf("[KIRA ARM64] DMA: non-coherent platform has no safe pool; DMA allocation fails closed\n");
+    else
+        kprintf("[KIRA ARM64] DMA: all enabled PCI hosts declare dma-coherent\n");
     kprintf("[KIRA ARM64] MMU on: identity map up to %x, %u-bit physical addresses, RAM cached, devices non-executable\n", top, (uint64_t)bits);
     wx_verify(1);
 
@@ -1446,6 +1487,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
         kdrv_poll();                                             /* драйверы Ring 3 */
         life_tick();
         watchdog_feed();
+        (void)iommu_fault_poll();
         sched_sleep_ticks(1);
     }
 }

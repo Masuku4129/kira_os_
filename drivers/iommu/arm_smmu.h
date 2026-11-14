@@ -4,17 +4,31 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Platform contract:
+   - MMIO must be mapped as device/uncached memory.
+   - DMA allocation must return contiguous, CPU-accessible pages and their real
+     physical base; the caller retains the exact tuple for the matching free.
+   - Metadata allocations are ordinary kernel memory, never SMMU DMA tables.
+   - Cache callbacks operate on the supplied virtual range and complete the
+     required maintenance before returning; barriers provide system ordering. */
 struct kira_smmu_platform {
     void *context;
     volatile void *(*map_mmio)(void *context, uint64_t physical, size_t length);
     void *(*alloc_dma_pages)(void *context, size_t pages, uint64_t *physical);
     void (*free_dma_pages)(void *context, void *virtual_address,
                            uint64_t physical, size_t pages);
+    void *(*alloc_metadata)(void *context, size_t bytes);
+    void (*free_metadata)(void *context, void *memory);
     void (*clean_cache)(void *context, const void *address, size_t length);
     void (*invalidate_cache)(void *context, const void *address, size_t length);
     void (*write_barrier)(void *context);
     void (*read_barrier)(void *context);
     void (*delay)(void *context);
+    /* Must synchronously stop bus mastering on all DMA-capable PCI functions.
+       Return nonzero if any device could not be quiesced. */
+    int (*quiesce_devices)(void *context);
+    /* Invoked under the event-queue lock: nonblocking, no SMMU re-entry. */
+    void (*report_event)(void *context, const uint64_t event[4]);
 };
 
 struct kira_smmu {
@@ -44,6 +58,7 @@ struct kira_smmu {
     uint64_t stream_table_allocation_physical;
     size_t stream_table_allocation_pages;
     uint32_t stream_table_lock;
+    uint32_t evtq_lock;
     /* Serializes CMDQ publication through matching CMD_SYNC completion. */
     uint32_t cmdq_lock;
     uint32_t stream_ids[8];
@@ -59,11 +74,22 @@ enum kira_smmu_result {
     KIRA_SMMU_HARDWARE_ERROR = -6
 };
 
+/* Controller storage must be zero-initialized before first prepare and must
+   remain at a stable address until disable/cleanup has completed.
+   prepare() quiesces devices, maps registers and allocates controller tables.
+   enable() programs queues/global state but does not authorize a PCI device by
+   itself: a valid stream-table entry/domain must exist first.
+   disable() quiesces devices before shutting the controller down. */
 int kira_smmu_v3_prepare(struct kira_smmu *smmu, uint64_t physical_base,
                          const struct kira_smmu_platform *platform);
 int kira_smmu_v3_enable(struct kira_smmu *smmu,
                         const struct kira_smmu_platform *platform);
 int kira_smmu_v3_disable(struct kira_smmu *smmu,
                          const struct kira_smmu_platform *platform);
+int kira_smmu_v3_invalidate_all(struct kira_smmu *smmu,
+                                const struct kira_smmu_platform *platform);
+int kira_smmu_v3_poll_events(struct kira_smmu *smmu,
+                             const struct kira_smmu_platform *platform,
+                             uint32_t max_events, uint32_t *processed);
 
 #endif

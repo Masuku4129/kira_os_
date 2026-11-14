@@ -89,7 +89,7 @@ start:
     or eax, 3
     mov [pml4_table], eax
 
-    ; Higher-half НЕ реализован: ядро слинковано по адресу 1 МБ и работает в
+    ; Higher-half НЕ реализован: ядро слинковано по адресу 32 МиБ и работает в
     ; identity-карте. Настоящий higher-half - отдельный этап (смена VMA в linker.ld).
 
     mov eax, pd_table
