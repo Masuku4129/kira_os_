@@ -678,10 +678,11 @@ F-021 remains OPEN. This is an audit finding, not a claim that either backend is
 - PR #154's initial implementation still fell back to `kmalloc(SCHED_STACK_SIZE)` when guarded VMM allocation failed. That made stack-window exhaustion silently weaken the guard guarantee.
 - Integrated the non-fallback policy and stack clearing into PR #154's generation-aware branch. New production threads now fail creation if guarded stack allocation fails; allocated stack memory is zeroed before publishing the thread and then receives the stack canary.
 - Added host coverage that checks the canary and verifies the stack body is zero while excluding the architecture's initial context frame.
-- Current integration candidate: PR #154 head `8f4b9be58f63d93911817184dcbbce0e4eca36c1`. Exact-head CI is not yet available. Prior PR #154 success (43/43) predates this integration and cannot be used as its validation.
-- PR #153 duplicates the atomic PMM change already included in #154; PR #164 overlaps scheduler changes. Do not merge the duplicates independently. Keep #154 as the candidate pending fresh CI and review.
+- Current integration candidate: PR #154 head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a`. Exact-head workflow `43611654110` completed **30/30 jobs successfully**, including host-tests, x86 build, ARM64 build and the full VM matrix.
+- The UART oversized-line regression discovered in the earlier `drv-edu` VM run was corrected in the same branch and the exact corrected head passed. No test assertion was weakened.
+- PR #153 duplicates the atomic PMM change already included in #154; PR #164 overlaps scheduler changes. Do not merge the duplicates independently. Keep #154 as the canonical integration candidate for this set, pending independent source review and explicit merge decision.
 
-F-022 remains OPEN pending exact-head CI and source-level review of all architecture-specific stack allocator paths.
+F-022's integrated branch CI gate is CLOSED (30/30 PASS). Its architecture-wide acceptance remains OPEN until all per-ISA stack allocator paths and the final merge composition are independently reviewed.
 
 
 ## F-023 — UEFI BootInfo capabilities are split across incompatible branch stacks (2026-11-14)
@@ -783,3 +784,8 @@ F-026 remains OPEN. The five successful PR #141 CI runs verify the current imple
 - The fix includes guarded kernel stacks, scheduler fallback behavior, PMM ownership/atomic contiguous release and UART atomic emission for oversized log lines.
 - This is a green PR branch, not a main merge or release build. PR remains Draft for integration review.
 
+
+
+## F-022 status correction — exact-head CI closed (2026-11-14)
+
+PR #154 head `bfdffa64555ae221aa66c7c71efbb47f169c3f6a` / workflow `43611654110` completed 30/30 successfully. The earlier 29/30 failure on the preceding head was diagnosed from the VM artifact and fixed in UART output. F-022's CI gate is now closed; architecture-wide acceptance remains open pending per-ISA source review and final merge composition.
