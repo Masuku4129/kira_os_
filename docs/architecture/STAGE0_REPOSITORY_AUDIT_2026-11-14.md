@@ -618,3 +618,14 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - Graphics and window-manager source review continues separately; the existing UI tests exercise damage/redraw and interactions but do not establish cross-core lifetime safety for graphics app slots.
 
 No production source changed. Main remains untouched; no PR merged; no ISO built.
+
+
+## 19. Graphics event delivery source audit — 2026-11-14
+
+**Stage 0 progress: 56%.** Reviewed window-manager redraw/damage paths, 2D/UI drawing primitives, graphics service event queues, process-thread support and input routing.
+
+- F-045 — graphics event dequeue is not serialized per process even though processes may have multiple threads. Concurrent event consumers can read the same tail and deliver one event more than once.
+- App-slot reclamation is asynchronous through the display server; full cross-core slot lifetime and framebuffer reclamation still need a dedicated race audit. No runtime reproduction or TSan run was performed.
+- Existing window-manager tests provide useful full-redraw-vs-damage equivalence and interaction coverage, but they do not prove multi-thread graphics event safety.
+
+No production source changed. Main remains untouched; no PR merged; no ISO built.
