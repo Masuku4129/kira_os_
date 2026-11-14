@@ -397,3 +397,6 @@
 - Root cause: `kdrv.c` assembled a >192-byte record in `ln[320]` then used streaming `uart_print()`; `linebuf.c` flushes at exactly `LB_SIZE` even without newline.
 - Added `uart_print_atomic()` using existing `emit_line()` lock; driver-start assembled record now uses this path. Draft PR #157, exact-head CI pending.
 - This is a real observability/logging defect, not a driver launch/DMA/MSI failure. PR #156 acceptance needs a rerun after the logging fix is available; do not mask or weaken the QEMU assertion.
+
+
+- F-012 cross-architecture follow-up: first PR #157 CI run `43591470627` caught an undefined `uart_print_atomic` symbol on ARM64. Added an ARM64 alias to its existing whole-string locked UART implementation. Current head `59b391696baabfd49f2ff48acf5aba2b9db538de`; exact-head workflow `43591626068` pending.
