@@ -1,0 +1,83 @@
+{
+ "name": "limbo-mttcg",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.05,
+   "ok": true
+  },
+  {
+   "step": "ai",
+   "must": "замок планировщика: ядра ждут его",
+   "ok": true
+  },
+  {
+   "step": "ai",
+   "must": "композитор: .*параллельно [1-9]\\d* нс, на одном ядре [1-9]",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.4,
+ "seconds": 32.9,
+ "commands": [
+  {
+   "cmd": "status",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "ai",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "smp",
+   "seconds": 0.0
+  }
+ ]
+}
