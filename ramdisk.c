@@ -1,5 +1,7 @@
 #include "ramdisk.h"
 #include "mbinfo.h"
+#include "kfs.h"
+#include "uart.h"
 #include <stdint.h>
 
 #define MB2_TAG_MODULE 3u
@@ -58,5 +60,18 @@ blk_dev_t* ramdisk_probe(void) {
     dev.write = ram_write;
     dev.flush = ram_flush;
     dev.priv = (void*)(uintptr_t)start;
+    int detected = kfs_detect(&dev, KFS_BASE_LBA);
+    uart_print("[KIRA RAMDISK] module bytes="); uart_print_dec(bytes);
+    uart_print(" start="); uart_print_hex(start);
+    uart_print(" KiraFS detect="); uart_print_dec((uint64_t)(uint32_t)detected);
+    uart_print("\\n");
+    if (detected != 0) {
+        uint8_t probe[BLK_SECTOR];
+        if (ram_read(&dev, KFS_BASE_LBA, 1, probe) == 0) {
+            uart_print("[KIRA RAMDISK] superblock prefix=");
+            for (unsigned k = 0; k < 16; k++) { uart_print_hex(probe[k]); uart_print(" "); }
+            uart_print("\\n");
+        }
+    }
     return &dev;
 }
