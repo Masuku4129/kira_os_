@@ -1279,3 +1279,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - xHCI: all hub/keyboard/tablet/storage/FAT32 read-write checks pass; QEMU `qemu.log` is 0 bytes, with no invalid reads/writes and no `xhci_er_reset: DMA memory access failed`. The corrected BM-before-pointer-exposure order resolves the observed ERSTBA failure in this QEMU scenario.
 - UHCI: functional USB and FAT32 checks pass, but `qemu.log` is 40,081,525 bytes with 589,375 invalid-read records; 147,200 reads each at addresses 0x0/0x4/0x8/0xC. F-025 remains open. The earlier UHCI BM-order fix alone did not remove the QEMU log storm.
 - The current PR #169 branch adds serial/QEMU log offsets at PCI scan, UHCI/xHCI initialization and OS-ready to identify whether the remaining UHCI errors precede PCI securing, occur during controller startup, or continue at runtime.
+
+
+## 69. UDP socket lifecycle audit — 2026-11-14
+
+- Reviewed the current-main UDP implementation in `net.c`: `uown()`, `net_udp_sys()`, `udp_gone()`, `udp_deliver()` and `ulk`.
+- Confirmed that owner validation is unlocked, process teardown clears owner unlocked, and operations do not pin or generation-check a slot after validation. A concurrent close/exit and immediate reopen can recycle the slot while an old syscall is still using its index.
+- Confirmed `tests/net_test.c` only exercises pure checksum/IP parsing functions; no UDP ownership or lifecycle tests exist.
+- Recorded F-059 with explicit lifetime, locking, lock-order and concurrency-test closure criteria. This is source evidence only: no runtime reproduction, production fix or test PASS is claimed.
+- The existing F-039 TCP state/lifetime finding remains open and is not counted as fixed by this UDP audit.
