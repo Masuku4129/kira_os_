@@ -80,8 +80,14 @@ subleaf = cert("kira.test", lk, "Kira Subordinate CA", subk, hashes.SHA256(), Fa
                key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
                data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
                encipher_only=False, decipher_only=False))
+path0_directleaf = cert("kira.test", lk, "Kira PathLen Zero", ik, hashes.SHA256(), False, san=san,
+                       eku=[ExtendedKeyUsageOID.SERVER_AUTH],
+                       key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
+                       data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+                       encipher_only=False, decipher_only=False))
 for n, c in [("path0_inter", top0), ("path0_subca", subca), ("path0_leaf", subleaf)]:
     save(n, c)
+save("path0_directleaf", path0_directleaf)
 
 savekey("leaf", lk); savekey("self", sk)
 open(os.path.join(out, "chain.pem"), "wb").write(leaf.public_bytes(serialization.Encoding.PEM) + inter.public_bytes(serialization.Encoding.PEM))
