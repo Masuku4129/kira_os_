@@ -30,6 +30,8 @@
 | PR #135 | Draft; head `78a76003d0d808147f994c7ed23098c607039fd8`; 300 commits ahead / 3 behind относительно текущего main | Не использовать как базу новой разработки и не сливать вслепую |
 | PR #148 | Draft; head `2476dc6d50e6616e9ca7ce6ef469d45c10816081`; 77 commits ahead / 0 behind | Содержит трёхсекционный статусный реестр и file-loss guard; exact-head CI: 43/43 checks success |
 | PR #150 | Draft; head `79e956f591e83628b7a014b0958fecff00b4ce70` | Exact-head CI: 42/43 checks success; `host-tests` failed in `tests/wm_test.c:84`: `wm_compose_par(test_present, &composed_pixels) > 4` was false. This is a GUI compositor regression, not a kernel-stack test failure |
+| PR #152 | Draft; current head `48518fac18ba16e49d66fb641ece96ae06515811` | F-001 fix; exact-head CI run `43586203250` currently has x86-64 build success and several QEMU scenarios (SMP, 8-CPU boot/soak, NVMe, USB UHCI, WASM) success; host-tests and ARM64 still running | 
+| PR #153 | Draft; head `861707fc4538d396e00066cfbfe2ec171edb8abb` | F-009 atomic PMM contiguous release; exact-head CI pending |
 | CI `main` | 6 check-runs `inspect` = success; commit status API: 0 statuses, pending | Это не подтверждает build, host tests или VM matrix |
 
 Ссылки:
@@ -128,6 +130,7 @@ Stage 0 — инвентаризация всего репозитория и д
 - F-006 — `ARCHITECTURE.md` содержит устаревшие утверждения, противоречащие текущему коду и CI.
 - F-007 — `build_clang.sh --android` исключает тестовые/учебные программы из полного состава образа.
 - F-008 — scheduler использует heap fallback без guard page и не очищает стек перед использованием.
+- F-009 — PMM освобождает contiguous block постранично, без атомарной проверки всего диапазона.
 - F-006 — `ARCHITECTURE.md` содержит исторические утверждения, противоречащие текущему коду/CI (SMP, USB, NVMe, QEMU).
 - F-007 — `build_clang.sh --android` включает release filter и исключает тестовые/учебные программы из ISO.
 
@@ -155,4 +158,5 @@ Stage 0 — инвентаризация всего репозитория и д
 | 2026-11-14 | audit branch `9d6616b21f06418559f23d4a0b60130acbd9ffaf` | Добавлены F-006/F-007: docs drift и release profile | Сверены source/build/CI; runtime tests не запускались |
 | 2026-11-14 | audit branch `d3c046b0ef2c7507e554d1eda6dc3e67e8cfec4e` | Добавлен F-008: heap fallback/stack initialization | Source review на pinned main SHA |
 | 2026-11-14 | audit branch `a82791d821e7f8d5f0e8409a6aa616e9b01d023b` | Добавлена предварительная матрица 14 областей и 12 потоков | Inventory only; no READY statuses claimed |
+| 2026-11-14 | PR #153, head `861707fc4538d396e00066cfbfe2ec171edb8abb` | Начато исправление F-009: all-or-nothing contiguous PMM free и host regressions | Exact-head CI pending |
 | 2026-11-14 | PR #152, head `29d8b5842ff5de0b93dc8da97f665496c6e507bb` | Исправление F-001: общий ownership helper, x86-64/ARM64 allocator hardening и host regression | Первый CI run выявил пропущенные include/state declarations; исправлены. Exact-head workflow `43586072209` выполняется |
