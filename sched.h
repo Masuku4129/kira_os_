@@ -40,6 +40,7 @@ typedef struct thread {
     uint64_t cpu_cycles;           // накопленное время на CPU (такты TSC)
     uint64_t switches_in;          // сколько раз поток получал процессор
     uint8_t* stack_base;           // 0 для ядра-загрузчика (использует boot-стек)
+    uint64_t stack_generation;     // токен владельца VMM-стека: защищает от stale/double free после reuse
     uint64_t kstack_top;           // вершина kernel-стека (TSS.rsp0 и стек SYSCALL); 0 - boot-стек
     uint64_t cr3;                  // корень таблиц процесса; 0 - адресное пространство ядра
     void* proc;                    // владелец-процесс (proc_t*) или 0 для потоков ядра

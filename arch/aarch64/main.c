@@ -16,6 +16,7 @@
 #include "uart.h"
 #include "smp.h"
 #include "kstack.h"
+#include "kstack_slot.h"
 #include "pmm_arm.h"
 #include "pmm.h"
 #include "selftest_arm.h"
@@ -287,13 +288,16 @@ static int mmu_init(uint64_t top) {
 /* ---------------- стеки потоков ядра с пустотой ниже ----------------
    Отдельное окно адресов (вне тождественной карты): ячейки по 64 КБ, отображена только верхняя часть размером со
    стек (страницы 4 КБ), ниже - пустота: переполнение стека - ошибка доступа, а не порча соседней памяти.
-   Освобождённая ячейка остаётся отображённой и уходит в список свободных (номер следующей - в её первом слове). */
+   Освобождённая ячейка остаётся отображённой; её индекс хранится во внешнем ограниченном free-list, а владение — в bitmap. */
 #define KSTACK_VA     0x0000700000000000ull               /* нижняя половина TTBR0: верхняя - программам */
 #define KSTACK_STRIDE 0x10000ull
 #define KSTACK_SLOTS  65536ull
 #define PTE_PAGE      3ull
 #define PTE_KDATA     ((2ull << 2) | PTE_AF | PTE_SH_IN | (1ull << 53) | (1ull << 54))
-static uint64_t ks_next, ks_free = ~0ull, ks_size;
+static uint32_t ks_next, ks_nfree, ks_size;
+static uint16_t ks_free[KSTACK_SLOTS];
+static uint8_t ks_active[(KSTACK_SLOTS + 7u) / 8u];
+static uint64_t ks_generation[KSTACK_SLOTS];
 static volatile uint32_t ks_lock;
 
 void vmm_user_kernel_l0_changed(unsigned idx, uint64_t entry);
@@ -316,41 +320,69 @@ static int map_kpage(uint64_t va, uint64_t pa) {
     uint64_t* l2 = l1 ? table_page(l1, (unsigned)(va >> 30) & 511) : 0;
     uint64_t* l3 = l2 ? table_page(l2, (unsigned)(va >> 21) & 511) : 0;
     if (!l3) return -1;
-    l3[(va >> 12) & 511] = pa | PTE_KDATA | PTE_PAGE;
+    unsigned idx = (unsigned)((va >> 12) & 511);
+    if (l3[idx] & PTE_VALID) return -1;
+    l3[idx] = pa | PTE_KDATA | PTE_PAGE;
     __asm__ volatile ("dsb ishst\n isb" ::: "memory");
     return 0;
 }
 
-void* vmm_kstack_alloc(uint32_t bytes) {
-    bytes = (bytes + 4095) & ~4095u;
-    if (bytes >= KSTACK_STRIDE) return 0;
+void* vmm_kstack_alloc(uint32_t bytes, uint64_t* generation) {
+    if (generation) *generation = 0;
+    if (!generation || !bytes || bytes > KSTACK_STRIDE / 2 || (bytes & 4095u)) return 0;
     uint64_t f = irq_save();
     while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
+    uint32_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_RELAXED);
+    uint32_t slot = 0;
     uint64_t va = 0;
-    if (ks_size == bytes && ks_free != ~0ull) {
-        va = KSTACK_VA + ks_free * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
-        ks_free = *(volatile uint64_t*)(uintptr_t)va;
-    } else if (ks_next < KSTACK_SLOTS && (!ks_size || ks_size == bytes)) {
-        uint64_t slot = ks_next, base = KSTACK_VA + slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
-        int ok = 1;
-        for (uint64_t o = 0; o < bytes && ok; o += 4096) {
+    if (stack_size && stack_size != bytes) goto out;
+    if (!stack_size) __atomic_store_n(&ks_size, bytes, __ATOMIC_RELEASE);
+    if (ks_nfree > KSTACK_SLOTS) goto out;
+
+    int reuse = ks_nfree != 0;
+    if (reuse) {
+        if (!kstack_slot_free_pop(ks_free, &ks_nfree, ks_active, ks_generation,
+                                  KSTACK_SLOTS, ks_next, &slot, generation)) goto out;
+        va = KSTACK_VA + (uint64_t)slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
+    } else if (ks_next < KSTACK_SLOTS) {
+        slot = ks_next;
+        uint64_t base = KSTACK_VA + (uint64_t)slot * KSTACK_STRIDE + KSTACK_STRIDE - bytes;
+        int mapped = 0, quarantine = 0, ok = 1;
+        for (uint64_t off = 0; off < bytes; off += 4096) {
             uint64_t pa = pmm_alloc_page();
-            ok = pa && map_kpage(base + o, pa) == 0;
+            if (!pa) { ok = 0; break; }
+            if (map_kpage(base + off, pa) != 0) {
+                pmm_free_page(pa);
+                ok = 0;
+                quarantine = 1; /* never retry over an existing or partially built mapping */
+                break;
+            }
+            mapped = 1;
         }
-        if (ok) { ks_next++; ks_size = bytes; va = base; }
+        if (ok && kstack_slot_activate(ks_active, ks_generation, KSTACK_SLOTS,
+                                       slot, generation)) {
+            ks_next++;
+            va = base;
+        } else if (mapped || quarantine) {
+            ks_next++; /* quarantine a partially mapped or otherwise suspect slot */
+        }
     }
+out:
     __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
     irq_restore(f);
     return (void*)(uintptr_t)va;
 }
 
-void vmm_kstack_free(void* base) {
+void vmm_kstack_free(void* base, uint64_t generation) {
     uint64_t va = (uint64_t)(uintptr_t)base;
-    if (!vmm_is_kstack(va)) return;
+    if (!generation) return;
     uint64_t f = irq_save();
     while (__atomic_exchange_n(&ks_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("yield");
-    *(volatile uint64_t*)(uintptr_t)va = ks_free;
-    ks_free = (va - KSTACK_VA) / KSTACK_STRIDE;
+    uint32_t slot;
+    if (kstack_slot_from_base(va, KSTACK_VA, KSTACK_STRIDE, KSTACK_SLOTS,
+                              __atomic_load_n(&ks_size, __ATOMIC_RELAXED), ks_next, &slot))
+        (void)kstack_slot_free_push(ks_free, &ks_nfree, ks_active, ks_generation,
+                                    KSTACK_SLOTS, ks_next, slot, generation);
     __atomic_store_n(&ks_lock, 0, __ATOMIC_RELEASE);
     irq_restore(f);
 }
@@ -360,7 +392,11 @@ void vmm_kstack_free(void* base) {
 int vmm_enable_write_combining(void) { return -1; }
 
 int vmm_is_kstack(uint64_t a) { return a >= KSTACK_VA && a < KSTACK_VA + KSTACK_SLOTS * KSTACK_STRIDE; }
-int vmm_kstack_guard_hit(uint64_t a) { return vmm_is_kstack(a) && ks_size && (a - KSTACK_VA) % KSTACK_STRIDE < KSTACK_STRIDE - ks_size; }
+int vmm_kstack_guard_hit(uint64_t a) {
+    uint32_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_ACQUIRE);
+    return vmm_is_kstack(a) && stack_size &&
+           (a - KSTACK_VA) % KSTACK_STRIDE < KSTACK_STRIDE - stack_size;
+}
 
 /* ---------------- окно устройств и проверка отображения (vmm.h) ----------------
    Тождественная карта уже покрывает ОЗУ и первые 4 ГБ; регистры устройств выше (ECAM, окна PCIe за 4 ГБ)
