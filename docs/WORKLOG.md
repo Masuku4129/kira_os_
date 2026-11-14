@@ -1074,3 +1074,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Reviewed the KCC acceptance harness: it builds with ASan/UBSan, compares C acceptance and constant values against clang, checks host execution output for x86-64 and AArch64, exercises native compiler app integration, malformed inputs and 20,000–100,000-token stress cases, plus fuzzing (default 3,000 iterations). This review inspected the harness but did not execute it; no PASS is claimed.
 - Confirmed compiler feature boundary: the test harness explicitly separates supported C, strict rejections and valid-but-unsupported constructs; current compiler is a substantial C subset, not a complete ISO C compiler.
 - Reviewed Ring 3 cc filesystem sandbox/header access and growable arena. No production changes made.
+
+
+## 48. WebAssembly interpreter/JIT binary validation audit — 2026-11-14
+
+- Reviewed WASM 1.0 module loader, LEB128 decoding, instruction-immediate skipping, section parsing, function-body compilation, memory/table setup, interpreter and x86-64 JIT entry/guard paths.
+- Confirmed F-041: multiple nested parser fields and skip_imm() advance pointers without checking the current section/body end; leb_s() can return a partial value when a continuation byte is truncated. This creates out-of-bounds-read risk for malformed user-supplied modules. No runtime exploit is claimed.
+- The runtime has meaningful existing limits and traps (module size cap, bounded memory, value/call stacks, JIT sealing and interpreter fallback), and tests include differential operation/trap generation and damaged-module fuzzing. However, this review did not prove exhaustive truncation coverage and did not run those tests.
+- No production source changed.
