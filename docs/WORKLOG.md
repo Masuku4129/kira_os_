@@ -1019,3 +1019,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Defined T0–T6 order: static/source → focused host → short diagnostic QEMU → subsystem acceptance → cross-ISA → full exact-head CI → PR integration compatibility.
 - The 10–15 second QEMU diagnostic profile and optional guest-error logging switch are recommendations only; current harness has not been changed. Full 90-second acceptance scenarios remain required.
 - No production source changed.
+
+
+## 45. Driver Manager / drvget capability and provenance audit — 2026-11-14
+
+- Reviewed drvget_core.c, drvget.c, drvman.c, KDRV record format, RTL8139 recipe, unit tests and drvget end-to-end harness.
+- Confirmed current behavior is a real but constrained source-porting workflow: HTTPS/TLS 1.3 recipe + source downloads, optional per-file pins, allow-listed license scanning, manual combined SHA-256 confirmation, KCC compilation on the target OS, KDRV package and Ring 3 launch. It rejects ELF/PE/archive binaries and GPL/unknown licenses.
+- It is not a universal Linux/Windows driver adapter: no arbitrary foreign binary loading, Linux/Windows ABI translation or automatic rewrite of any driver. The present compatibility is limited to supported C source recipes and the BSD compatibility header; P-06 remains planned.
+- Found F-035: the install report shows per-file URL/license/hash, but the installed KDRV record preserves only recipe URL, recipe-declared license, combined source-set hash, package hash and ELF hash. Per-file provenance is not retained. The parser also does not require detected per-file license markers to match the recipe-level declared license.
+- The minimum accepted manual confirmation is 8 hex characters (32 bits); this is a user confirmation token, not a cryptographic signature. The current flow has no source signature/key rotation/revocation layer.
+- Added F-035 MEDIUM. Recommended versioned per-file provenance manifest, explicit license-set consistency, stronger default confirmation length and separate signed provenance. No source code changed.
