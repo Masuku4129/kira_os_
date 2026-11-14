@@ -2179,9 +2179,10 @@ uint32_t wm_compose_par(void (*present)(int x, int y, int w, int h), uint64_t* p
             while (tx < tw && tdirty[ty][tx]) tdirty[ty][tx++] = 0;
             job_t j = { (int16_t)(a * DTILE), (int16_t)(ty * DTILE), (int16_t)(tx * DTILE > scr->w ? scr->w : tx * DTILE),
                         (int16_t)((ty + 1) * DTILE > scr->h ? scr->h : (ty + 1) * DTILE) };
-            /* та же полоса столбцов, что у строки выше, - одно задание выше ростом (меньше заданий, меньше накладных) */
+            /* Merge matching column spans, but cap each job at two tile rows so large frames
+               retain enough independent work for the compositor worker pool. */
             if (njobs && jobs[njobs - 1].x0 == j.x0 && jobs[njobs - 1].x1 == j.x1 && jobs[njobs - 1].y1 == j.y0 &&
-                jobs[njobs - 1].y1 - jobs[njobs - 1].y0 < 4 * DTILE) jobs[njobs - 1].y1 = j.y1;
+                jobs[njobs - 1].y1 - jobs[njobs - 1].y0 < 2 * DTILE) jobs[njobs - 1].y1 = j.y1;
             else if (njobs < sizeof jobs / sizeof jobs[0]) jobs[njobs++] = j;
             px += (uint64_t)(j.x1 - j.x0) * (uint64_t)(j.y1 - j.y0);
         }
