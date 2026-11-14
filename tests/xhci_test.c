@@ -18,8 +18,11 @@
 #define CHECK(c) do{ if(!(c)){ printf("FAIL line %d: %s\n",__LINE__,#c); exit(1);} }while(0)
 
 static uint8_t* arena; static size_t arena_used;
+static size_t dma_alloc_calls, dma_fail_call;
 void* usb_dma_alloc(uint32_t b, uint64_t* phys, int lo) {
     (void)lo;
+    dma_alloc_calls++;
+    if (dma_fail_call && dma_alloc_calls == dma_fail_call) return 0;
     size_t n = ((size_t)b + 4095) & ~(size_t)4095;
     if (arena_used + n > (32u << 20)) return 0;
     void* p = arena + arena_used; arena_used += n; memset(p, 0x5A, n); memset(p, 0, n);
@@ -43,6 +46,7 @@ static int running;
 static uint64_t cr_deq; static uint32_t cr_cycle;
 static uint64_t ev_base; static uint32_t ev_size, ev_enq, ev_cycle;
 static struct { int used, port; mdev_t* dev; uint64_t ep_deq[32]; uint32_t ep_cycle[32]; int maxp0, halted[32], type[32], maxp[32], hub, hub_ports; } slots[17];
+static uint32_t force_slot;
 static int bulk_trbs, max_bulk_len, tt_checked, drops;
 static int cmds_seen[64], events_written, link_follows, resets, handoff_done;
 static uint8_t addr_next = 1;
@@ -90,7 +94,13 @@ static void do_command(volatile uint32_t* t, uint64_t at) {
     volatile uint64_t* dcbaa = (volatile uint64_t*)P(R64(OP, 0x30));
     if (type == 9) {                                        /* Enable Slot */
         rslot = 0;
-        for (int s = 1; s <= 16; s++) if (!slots[s].used) { memset(&slots[s], 0, sizeof slots[s]); slots[s].used = 1; rslot = (uint32_t)s; break; }
+        if (force_slot && force_slot <= 16 && !slots[force_slot].used) {
+            rslot = force_slot;
+            force_slot = 0;
+            memset(&slots[rslot], 0, sizeof slots[rslot]);
+            slots[rslot].used = 1;
+        }
+        for (int s = 1; !rslot && s <= 16; s++) if (!slots[s].used) { memset(&slots[s], 0, sizeof slots[s]); slots[s].used = 1; rslot = (uint32_t)s; break; }
         if (!rslot) cc = 9;
     } else if (type == 11) {                                /* Address Device: маршрут -> устройство */
         CHECK(ictx(in, 0)[1] == 3);
@@ -417,6 +427,31 @@ int main(void) {
     devm[2].connected = 0;
     usb_sleep_ms(1); hc.ports(&hc);
     CHECK(hub_count() == 0 && usb_hid_count() == 1 && cmds_seen[10] == dis0 + 4);
+
+    /* Partial DMA allocation failures must leave a retryable slot, not a stale non-NULL sentinel. */
+    static const size_t fail_offsets[] = { 1, 2, 3, 4 };
+    static const uint32_t retry_slots[] = { 16, 15, 14, 13 };
+    for (unsigned i = 0; i < sizeof fail_offsets / sizeof fail_offsets[0]; i++) {
+        mdev_kbd(&devm[3]);
+        force_slot = retry_slots[i];
+        dma_fail_call = dma_alloc_calls + fail_offsets[i];
+        hc.ports(&hc);                         /* fail IN, OUT, buffer or EP0 ring allocation */
+        dma_fail_call = 0;
+        CHECK(usb_dev_on_port(&hc, 4) == 0);    /* failed enumeration released the controller slot */
+        devm[3].connected = 0;
+        usb_sleep_ms(1);
+        hc.ports(&hc);                         /* clear the port's seen state */
+        devm[3].connected = 1;
+        force_slot = retry_slots[i];          /* force reuse of the same controller slot */
+        usb_sleep_ms(1);
+        hc.ports(&hc);
+        CHECK(usb_dev_on_port(&hc, 4) != 0 && usb_hid_count() == 2);
+        devm[3].connected = 0;
+        usb_sleep_ms(1);
+        hc.ports(&hc);
+        CHECK(usb_dev_on_port(&hc, 4) == 0 && usb_hid_count() == 1);
+    }
+    printf("xhci: per-slot IN/OUT/buffer/EP0 allocation failure and same-slot retry passed\n");
     printf("xhci: hubs (route string, TT for LS/FS behind HS hub, hub slot context), flash stick (bulk 16 KB TRBs, STALL recovery, short data), /usb0 read/write, unplug from hub, whole tree removal passed\n");
     printf("xhci: BIOS handoff, reset, DCBAA+scratchpad, command/event rings, Enable Slot, Address Device, Evaluate Context, Configure Endpoint, control (short, STALL), interrupt reports across ring wrap, unplug/Disable Slot passed (%d events)\n", events_written);
     return 0;
