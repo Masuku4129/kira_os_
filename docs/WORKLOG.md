@@ -1184,3 +1184,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Added F-052: when no PCI host node exists, ARM64 coherency detection scans all FDT nodes and treats any one node's `dma-coherent` property as platform-wide coherency. This can misclassify unrelated devices on mixed-coherency boards.
 - Reviewed FDT validation/tests: test fixture covers header offsets, malformed property payload length and normal QEMU-virt-like tree, but no unterminated property-name or mixed-coherency negative fixture.
 - No production source changed; no tests run in this source-only audit pass.
+
+
+## 60. ARM64 PSCI power-control path — 2026-11-14
+
+- Reviewed PSCI detection and CPU_ON, secondary entry, SYSTEM_OFF and SYSTEM_RESET call sites.
+- Confirmed F-053: `psci_hvc == -1` means PSCI unavailable, but `psci_call()` tests it as a boolean; -1 selects HVC. CPU_ON is guarded, while poweroff/reboot call it unconditionally. This can execute an unsupported HVC when firmware has no PSCI.
+- Also noted platform status currently prints PSCI unconditionally; correct reporting belongs in the same fix and tests.
+- Source-only finding; no runtime power test was run and no production code changed.
