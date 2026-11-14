@@ -744,3 +744,8 @@ The fix was refined: allocate and initialize all DMA structures with Bus Master 
 ## 33. USB controller startup allocation-failure lifecycle — 2026-11-14
 
 **Stage 0 progress: 69%.** Added F-057 after tracing the shared USB DMA allocator and UHCI/xHCI controller startup failure paths. A failed controller can strand already allocated schedule/ring/scratchpad pages; because the controller index advances only on success, the next controller reuses the index but allocates more memory. Existing failure-injection tests cover xHCI device slots, not controller-start rollback. No production code changed and no test is claimed as run. PR #169 exact-head CI is still pending; F-054/F-056 remain open.
+
+
+## 34. FDT string-property value bounds — 2026-11-14
+
+**Stage 0 progress: 70%.** Added F-058 after source review found that `device_type` and `status` consumers call unbounded string comparison on property data with explicit lengths but no NUL-termination validation. The existing host FDT tests do not cover unterminated values. Finding is source/test-coverage only; no production code changed and no test is claimed as run.
