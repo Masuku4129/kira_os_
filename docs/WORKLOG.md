@@ -1227,3 +1227,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Found F-055: `ci/kira_vm.py` starts `-d guest_errors` before firmware and never records a byte offset/phase boundary at the OS-ready serial prompt. Therefore the artifact cannot establish whether the records come from firmware, PCI enumeration or KIRA's USB runtime. Previous wording that implied the log necessarily represented guest-driver DMA was too strong; attribution remains unresolved.
 - Updated the next diagnostic requirement: preserve full log, add pre-ready/post-ready segmentation and a no-USB negative control. F-025 remains open; F-054 remains an independently confirmed source-ordering hazard.
 - No production source changed and no tests run in this pass.
+
+
+## 65. xHCI slot allocation failure/retry audit — 2026-11-14
+
+- Found F-056: xHCI allocates per-slot IN context, OUT context, transfer buffer and EP0 ring sequentially. On partial failure, `usb_dev_free()` disables the slot but leaves the partial pointers in `xs.slot[sl]`.
+- Retry uses only `xs.slot[sl].in` as the initialization sentinel. If IN succeeded but OUT failed, the retry takes the initialized branch and clears `xs.slot[sl].out[i]` through NULL. A missing transfer buffer/ring can also leave a slot marked initialized without complete resources.
+- The current DMA allocator has no public free operation, so failure recovery must explicitly preserve/reuse partial resources or introduce a real DMA free contract; simply zeroing the slot would leak already allocated pages.
+- Source-only finding; no production code or tests changed in this audit pass. Required regression: fail each allocation stage, retry same slot, and verify safe reuse.
