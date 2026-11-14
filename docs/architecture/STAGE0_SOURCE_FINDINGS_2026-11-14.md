@@ -832,3 +832,28 @@ F-025 remains OPEN.
 - The QEMU log artifact is 4,187,160,076 bytes and its tail repeatedly reports rejected DMA reads at physical addresses 0x0, 0x4, 0x8 and 0xC. The current #165 code disables IO/MEM decode inside `probe_bars()` but does not clear PCI Bus Master until after `probe_bars()`; firmware DMA is therefore still enabled during this exact operation. This is strong causal evidence for the DMA/probe interaction, but the precise hardware/QEMU mechanism is not yet proven.
 - PR #125 uses the opposite ordering (`pci_disable_bus_master(d)` before `probe_bars(d)`). Its corrected exact-head run `43613583149` has UEFI OVMF, build, ARM64, host tests, KCC, GUI, driver E2E and audit passing; several VM shards remain in progress. Compare its eventual UHCI artifact before changing policy or merging either branch.
 - Keep F-025 and F-017 OPEN. Do not merge #165 or #125 on this evidence. Remove temporary UART trace after the comparison and rerun the full clean matrix.
+
+
+## F-025 evidence correction — PCI trace boundaries and shared UHCI stop point (2026-11-14)
+
+This section supersedes the previous F-025 paragraph that attributed the PR #165 stall to BAR probing. The prior interpretation was incorrect because it treated the absence of a later trace record as proof that the preceding function had not returned; the exact artifact shows otherwise.
+
+### Exact artifact evidence
+- PR #165 head 7ad140cfadb51c4dacf809eca77fff60ff7fe12c, workflow 43613588426, job 132504574309, artifact vm-usb-uhci: serial.log contains “probed 0:1.2” and no “secured 0:1.2”. Therefore probe_bars() returned for UHCI function 00:01.2. The stall is in the post-probe policy sequence, which reads Command and, when Bus Master is set, clears it via pci_write16(); exact sub-operation (read, write or lower-level config access) is not yet isolated.
+- PR #125 head fee8c9aed19ffc37dab7fd599c2bd63bfc496924, workflow 43613583149, job 132504922587, artifact vm-shard-0/usb-uhci: serial.log contains “disable BM 0:1.2” and no “BM disabled 0:1.2”. In this branch the pre-probe pci_disable_bus_master() helper performs config read, write, readback and quarantine handling under cfg_rmw_lock; the trace only bounds the stall to that helper, not to one instruction inside it.
+- Both exact artifacts fail the UHCI scenario after 90 seconds waiting for the shell prompt. Other scenarios in PR #125 shard 0 (including boot-virtio, apps-explorer2 and net-ipv6) passed their recorded checks. PR #125 run has 18 successful jobs, one failed VM shard and one VM shard still in progress at the time of inspection; PR #165 run has 29 successes and the UHCI VM failure.
+
+### Source comparison
+- PR #125 performs pci_disable_bus_master(d) before probe_bars(d); PR #165 probes BARs first, then reads/writes the PCI Command register to clear Bus Master.
+- PR #125's helper uses a read-modify-write-readback sequence under cfg_rmw_lock; PR #165's policy uses pci_read16() + pci_write16() without that outer lock (the x86 config-port backend still serializes each CF8/CFC transaction).
+- Both code paths attempt to clear the same UHCI function's Bus Master bit while the firmware-started controller is active. This is now the strongest shared hypothesis. It is not yet proven whether the stall is caused by controller activity/firmware DMA, config-space access ordering/locking, or a QEMU UHCI interaction.
+- The previous claim that PR #165 stopped inside probe_bars() is withdrawn. Do not use that claim in integration decisions.
+
+### Next discriminating checks
+1. Add bounded, single-purpose trace points around Command read, Command write and readback, with no long UART strings and no trace-only changes to timing-sensitive behavior beyond the minimum.
+2. Capture the exact Command value and UHCI USBCMD/USBSTS state before touching Bus Master; determine whether firmware left the controller running and whether its schedule base is zero/invalid.
+3. Compare a class-aware UHCI quiesce sequence (halt/reset with bounded waits) against early IOMMU isolation; do not assume a generic Bus Master clear is safe before a controller-specific stop.
+4. Add a host regression for the config lock/read/write/readback path and a QEMU negative test where firmware leaves UHCI active; assert bounded completion or explicit quarantine, never an indefinite boot hang.
+5. Remove temporary trace after localization, then require repeated clean full exact-head x86/ARM64 CI. Do not merge #125 or #165 on current evidence.
+
+F-025 remains OPEN. F-017 remains OPEN independently: firmware DMA must be contained before unsafe BAR probing/driver handoff, but the exact safe ownership transition is still undecided.
