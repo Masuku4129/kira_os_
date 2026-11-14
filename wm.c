@@ -1594,7 +1594,7 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     int rail_x = 8 + ox, rail_y = 8 + oy;
     int rail_h = scr->h - 16;
     int tab_h = spatial_tab_height();
-    ui_round_rect(c, rail_x, rail_y, rail_w - 16, rail_h, TH_RADIUS_SURFACE, TH_BAR0, 242);
+    ui_round_rect(c, rail_x, rail_y, rail_w - 16, rail_h, TH_RADIUS_SURFACE, TH_BAR0, 222);
     ui_round_frame(c, rail_x, rail_y, rail_w - 16, rail_h, TH_RADIUS_SURFACE, TH_BORDER, 220);
 
     /* Brand and navigation header are part of the left workspace rail, not a top bar. */
@@ -1642,7 +1642,7 @@ static void draw_spatial_shell(surface_t* c, int ox, int oy) {
     int tile = spatial_dock_tile(), pages = spatial_dock_pages();
     int width = spatial_dock_width();
     int dx = (scr->w - width) / 2 + ox, dy = spatial_dock_y() + oy - 8;
-    ui_round_rect(c, dx, dy, width, tile + 16, TH_RADIUS_SURFACE, TH_BAR0, 248);
+    ui_round_rect(c, dx, dy, width, tile + 16, TH_RADIUS_SURFACE, TH_BAR0, 224);
     ui_round_frame(c, dx, dy, width, tile + 16, TH_RADIUS_SURFACE, TH_BORDER, 255);
     if (pages > 1) {
         int cy = spatial_dock_y() + tile / 2 + oy;
@@ -1694,7 +1694,7 @@ static void system_percent(char* out, int value) {
 static void draw_system_panel(surface_t* c, int ox, int oy) {
     if (!system_panel_open || layout_mode != WM_LAYOUT_SPATIAL_MINIMAL) return;
     int x, y, w, h; system_panel_rect(&x, &y, &w, &h);
-    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 255);
+    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 226);
     ui_round_frame(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BORDER, 255);
     gfx_text(c, x + 16 + ox, y + 12 + oy, "СИСТЕМА", TH_TEXT, -1);
     gfx_text(c, x + 16 + ox, y + 30 + oy, "Состояние устройства", TH_TEXT_DIM, -1);
@@ -1771,7 +1771,7 @@ static void draw_notification_toast(surface_t* c, int ox, int oy) {
     const wm_notification_t* n = &notifications[at];
     int x, y, w, h; notification_toast_rect(&x, &y, &w, &h);
     uint32_t col = notification_color(n->priority);
-    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 255);
+    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 226);
     ui_round_frame(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, col, 230);
     ui_round_rect(c, x + 10 + ox, y + 12 + oy, 4, h - 24, 2, col, 255);
     ui_text_fit(c, x + 24 + ox, y + 12 + oy, n->title, w - 42, col);
@@ -1780,7 +1780,7 @@ static void draw_notification_toast(surface_t* c, int ox, int oy) {
 static void draw_notification_center(surface_t* c, int ox, int oy) {
     if (!notification_center_open) return;
     int x, y, w, h; notification_center_rect(&x, &y, &w, &h);
-    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 255);
+    ui_round_rect(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BAR0, 226);
     ui_round_frame(c, x + ox, y + oy, w, h, TH_RADIUS_SURFACE, TH_BORDER, 255);
     gfx_text(c, x + 16 + ox, y + 14 + oy, "УВЕДОМЛЕНИЯ", TH_TEXT, -1);
     gfx_text(c, x + 16 + ox, y + 34 + oy, notification_count ? "Последние системные события" : "Новых событий нет", TH_TEXT_DIM, -1);
