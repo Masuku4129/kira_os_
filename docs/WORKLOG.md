@@ -294,3 +294,6 @@
 
 
 - Second PR #161 run `43593787066` showed the remaining `drvget-rl` failure was a test assertion scope issue: the scenario's global `log_forbid` rejected DHCP even though DHCP came from the separate virtio control NIC, not the blocked RTL8139. The serial artifact showed the RTL8139 DMA denial and successful PCI quiesce readback, plus DHCP from virtio-net. Removed only the invalid global DHCP prohibition; retained the explicit prohibition on `rl: network interface registered`. This preserves the actual security assertion without rejecting valid control-plane networking.
+
+
+- PR #161 exact-head run `43594252642` confirmed the quiesce readback and RTL8139 denial, but `drvman-edu` failed one assertion expecting a synchronous `доступ запрещён (-100)` result. Artifact serial proved the actual API is asynchronous: `drvget_ctl()` accepts the request, the kernel later denies it, and Driver Manager correctly reports that the driver did not start and that the kernel log contains the reason. Updated both Driver Manager scenarios to assert this real async status plus the kernel DMA/IOMMU denial, rather than an impossible synchronous error code. No security assertion removed.
