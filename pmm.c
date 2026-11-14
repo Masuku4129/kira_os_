@@ -98,6 +98,40 @@ static void reserve_range(uint64_t base, uint64_t len) {
     }
 }
 
+/* Move bitmap storage past any Multiboot2 module that overlaps the candidate range.
+   GRUB may place the init module immediately after the kernel; choosing it as bitmap
+   storage would silently overwrite the embedded root filesystem before it is mounted. */
+static uint64_t skip_module_overlap(unsigned long addr, uint64_t start, uint64_t bytes) {
+    if (!start || start > UINT64_MAX - bytes) return 0;
+    uint64_t limit = start + bytes;
+    uint32_t info_size = *(const uint32_t*)addr;
+    const uint8_t* p = (const uint8_t*)(addr + 8);
+    const uint8_t* end = (const uint8_t*)(addr + info_size);
+    for (unsigned pass = 0; pass < PMM_MAX_MODULES; pass++) {
+        int moved = 0;
+        for ( ; p + sizeof(struct mb2_tag) <= end; ) {
+            const struct mb2_tag* tag = (const struct mb2_tag*)p;
+            if (tag->type == MB2_TAG_END) break;
+            if (tag->size < sizeof(struct mb2_tag) || p + tag->size > end) return 0;
+            if (tag->type == 3 && tag->size >= 16) {
+                const uint32_t* mod = (const uint32_t*)p;
+                uint64_t ms = mod[2], me = mod[3];
+                if (me > ms && start < me && ms < limit) {
+                    start = (me + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
+                    if (!start || start > UINT64_MAX - bytes) return 0;
+                    limit = start + bytes;
+                    moved = 1;
+                    break;
+                }
+            }
+            p += (tag->size + 7) & ~7u;
+        }
+        if (!moved) return start;
+        p = (const uint8_t*)(addr + 8);
+    }
+    return 0;
+}
+
 // Запоминает кусок ОЗУ выше 1 ГБ до отображения; в конце pmm_init список сортируется и сливается.
 static void defer_range(uint64_t base, uint64_t end) {
     uint64_t s = (base + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
@@ -219,7 +253,8 @@ int pmm_init(unsigned long magic, unsigned long addr) {
                     s = (s + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
                     uint64_t t = ent->addr + ent->len;
                     if (t > PMM_LOW) t = PMM_LOW;
-                    if (t > s && t - s >= store_bytes) { store_base = s; break; }
+                    s = skip_module_overlap(addr, s, store_bytes);
+                    if (s && t > s && t - s >= store_bytes) { store_base = s; break; }
                 }
             }
             p += (tag->size + 7) & ~7u;
