@@ -109,6 +109,12 @@ int main(void) {
     int uart = fdt_find_compatible(blob, -1, "arm,pl011");
     uint64_t a, s;
     uint8_t bad[8192];
+    /* v17 structure/string blocks overlap by one byte. The validator must use
+       size_dt_struct with off_dt_struct and size_dt_strings with off_dt_strings. */
+    CHECK(sn > tn);
+    memcpy(bad, blob, sizeof bad);
+    be(bad + 12, fdt_u32(bad + 8) + sn - 1);
+    CHECK(!fdt_valid(bad, sizeof bad));
     CHECK(uart >= 0 && fdt_reg(blob, uart, 0, &a, &s) == 0 && a == 0x09000000 && s == 0x1000);
     CHECK(fdt_compatible(blob, uart, "arm,primecell") && !fdt_compatible(blob, uart, "arm,pl01"));
     int gic = fdt_find_compatible(blob, -1, "arm,cortex-a15-gic");
