@@ -914,3 +914,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - tests/usbdev_model.h and tests/rl_test.c provide host device/driver models; tests/kfs_v1_impl.inc is a test reference implementation. They are not production driver or filesystem implementations.
 - tests/tls_host_api.h and tests/wasm_gen.py are test harness support. The test-only fixtures are not evidence of production functionality.
 - No reviewed test helper is linked into the production ISO build manifests. This closes the classification ambiguity for these 10 paths; the actual test quality remains separately assessed by the 47-suite runner and VM matrix.
+
+
+## 34. PR #148 three-stage registry exact-head verification — 2026-11-14
+
+- Re-fetched the three status documents and manifest from PR #148 current head bf35ca714526d38f5fdc3021c03b2bedf3ec2c99: 01_READY, 02_IN_PROGRESS, 03_PLANNED. This directly implements the user's requested separation of stable baseline, active branch work and future work.
+- Verified the definitions are careful: READY means present in current baseline/build inputs, not complete; IN_PROGRESS includes branch-only source that is preserved but not in main; PLANNED lists explicit acceptance criteria.
+- The status manifest distinguishes current x86 release artifacts (kira.iso, kira.disk, kira.bin) from ARM64 images built but not published by current main CI.
+- Exact current PR head workflow 43609627054 completed **30/30 success**. This supersedes previous pending status for PR #148.
+- The checker protects the pinned 829-file baseline, source lists, 25 x86/25 ARM64 userland programs, 13-app x86 Android profile and complete branch/PR snapshots. PR #148 is still Draft/unmerged, so the protection is not yet active on main.
