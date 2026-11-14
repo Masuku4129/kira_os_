@@ -711,7 +711,7 @@ static int load(void) {
                     nfuncs++; nimports++;
                 } else if (kind == 2) {                              /* imported memory */
                     if (memory_seen) { trap("multiple memories are not supported"); return -1; }
-                    u32 flags = wasm_u8(&s, se);
+                    u32 flags = leb_u(&s, se);
                     if (flags > 1) { trap("invalid memory limits flags"); return -1; }
                     u32 min = leb_u(&s, se);
                     u32 max = flags ? leb_u(&s, se) : MAXMEM / 65536;
@@ -735,7 +735,7 @@ static int load(void) {
             u32 n = leb_u(&s, se);
             if (n > 1 || (n && table_seen)) { trap("multiple tables are not supported"); return -1; }
             if (n) {
-                u8 elem = wasm_u8(&s, se), flags = wasm_u8(&s, se);
+                u8 elem = wasm_u8(&s, se); u32 flags = leb_u(&s, se);
                 if (trapped || elem != 0x70 || flags > 1) { trap("invalid table type or limits"); return -1; }
                 u32 min = leb_u(&s, se), max = flags ? leb_u(&s, se) : 65536;
                 if (trapped || min > max || max > 65536) { trap("invalid table limits"); return -1; }
