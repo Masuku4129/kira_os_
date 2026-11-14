@@ -1406,3 +1406,47 @@ A stale/double/incorrect free can make reserved physical memory eligible for all
 5. Run ASan/UBSan, ARM64 build and QEMU memory/DMA/SMP/driver scenarios on the exact resulting SHA.
 
 F-049 remains OPEN. Related contract: ADR-0003.
+
+
+## New finding F-050 — ARM64 non-coherent DMA pool exhaustion silently falls back to cacheable RAM (2026-11-14)
+
+**Severity:** HIGH DMA data-integrity / device-control risk on non-coherent ARM64 platforms.
+
+### Evidence
+- ARM64 detects a non-coherent platform from FDT/bootargs and attempts to carve out a non-cacheable DMA pool (`arch/aarch64/main.c:231-254`). The pool is optional: `dma_pool_choose()` can return without creating one if there is insufficient room.
+- `platform_dma_pool()` returns NULL both when no pool exists and when the bump allocator has exhausted the pool (`arch/aarch64/main.c:256-268`).
+- Both generic DMA allocators treat NULL as permission to fall back to ordinary PMM contiguous pages: `virtio_dma_alloc()` (`virtio.c:50-68`) and `usb_dma_alloc()` (`usb.c:308-326`). Those pages are mapped as normal cacheable RAM. The generic VirtIO/xHCI paths shown do not perform the required per-buffer clean/invalidate cache maintenance; a memory barrier alone does not make non-coherent caches coherent.
+- A second fail-open state is present: `platform_dma_noncoherent()` returns `dma_lo != 0` (`arch/aarch64/main.c:255`). If the platform is detected as non-coherent but pool selection fails, it reports coherent. `kdrv.c:206` uses this result to decide whether to reject Ring 3 CAP_DMA packages, so this specific guard is bypassed when the pool could not be created.
+- This is separate from the broader Ring 3 IOMMU requirement in ADR-0004 and the existing F-031 bus-master sequencing issue. ADR-0004 correctly states that a non-coherent bounce pool is not IOMMU isolation.
+
+### Consequence
+On a non-coherent ARM64 machine, exhausting or failing to create the special pool can place device-visible descriptors/data in cacheable RAM without cache maintenance. Device and CPU can observe stale or partially updated contents, causing silent corruption, failed I/O or DMA protocol instability. The Ring 3 non-coherent guard also loses its signal when the pool is absent.
+
+### Required closure
+1. Track platform coherency as an independent immutable platform property; never infer it from whether a pool was successfully allocated.
+2. On a non-coherent platform, make DMA allocation fail closed if the non-cacheable pool is absent/exhausted, unless a fully implemented and tested cache-maintenance allocator is used.
+3. Keep ordinary cacheable PMM fallback only for positively verified coherent devices/platforms.
+4. Add fault-injection tests for no-pool, pool-exhaustion, below-4G exhaustion and partial allocation; assert no device queue/BM activation follows failure.
+5. Add ARM64 QEMU/device tests for VirtIO block/net/GPU and xHCI under forced non-coherent mode, with cache visibility and data-integrity assertions.
+
+F-050 remains OPEN.
+
+## New finding F-051 — FDT property-name lookup reads past the bounded strings block (2026-11-14)
+
+**Severity:** HIGH boot-input parser memory-safety risk.
+
+### Evidence
+- `fdt_valid()` verifies the strings block offset and declared size are within `totalsize`, but does not validate that every referenced property-name offset points to a NUL-terminated string within that block (`fdt.c:19-25`).
+- `fdt_prop()` checks only `no < stsz`, then calls unbounded `streq(strs(fdt) + no, name)` (`fdt.c:80-93`). If the name has no NUL before the end of the strings block, `streq` continues reading beyond that block and potentially beyond the FDT blob.
+- The FDT host tests cover malformed header offsets and property payload lengths, but do not cover unterminated property-name strings or name offsets at the final byte of the strings block (`tests/fdt_test.c`).
+
+### Consequence
+A malformed firmware-provided device tree can trigger an out-of-bounds read during early boot property lookup. Depending on memory placement this can read unrelated boot memory or fault before the OS has established normal recovery.
+
+### Required closure
+1. Replace unbounded property-name comparison with a length-bounded comparison whose NUL search cannot cross `size_dt_strings`.
+2. Validate name offsets and NUL termination when reading each property; reject malformed names rather than searching adjacent memory.
+3. Validate all FDT block ranges, alignment and non-overlap constraints required by the supported FDT versions.
+4. Add malformed-blob tests for unterminated final string, out-of-range offsets, strings overlapping adjacent blocks and fuzzed truncation; run ASan/UBSan and QEMU early-boot negative cases.
+
+F-051 remains OPEN.
