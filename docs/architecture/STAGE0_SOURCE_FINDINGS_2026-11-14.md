@@ -682,3 +682,35 @@ F-021 remains OPEN. This is an audit finding, not a claim that either backend is
 - PR #153 duplicates the atomic PMM change already included in #154; PR #164 overlaps scheduler changes. Do not merge the duplicates independently. Keep #154 as the candidate pending fresh CI and review.
 
 F-022 remains OPEN pending exact-head CI and source-level review of all architecture-specific stack allocator paths.
+
+
+## F-023 — UEFI BootInfo capabilities are split across incompatible branch stacks (2026-11-14)
+
+**Severity:** HIGH / release integration blocker.
+
+### Exact branch evidence
+- Unified UEFI integration PR #46 is based on `v46/kdrv-catalogue-signature-policy`, head `dacc04d0dafd507ef0721698b5e9c2512f1947a5`. Its `kira_uefi_kbi_info` contains kernel, framebuffer and RSDP fields only. Its loader does not collect `LoadedImage.LoadOptions` or load `EFI/KIRA/INITRD.IMG`. Its KBI-to-Multiboot2 adapter emits only memory-map, optional framebuffer, and end tags.
+- UEFI command-line and initrd support exists in PRs #60 and #61, both merged into the separate `autodrv` branch on 2026-11-10. PR #61 adds LoadOptions UTF-16-to-UTF-8 conversion, bounded optional INITRD.IMG loading below the 1-GiB bootstrap map, KBI module/cmdline fields, and PR #60's Multiboot2 module/cmdline tag serialization.
+- Those commits are not part of PR #46's base or head. Their existence in `autodrv` does not prove the unified UEFI branch carries the features.
+- PR #12 / `v46/release-completion` is another separate base stack; PR #130's stricter module-range validation was merged there, not into `main` or PR #46.
+
+### Required integration
+1. Select one canonical KBI v1 contract and transplant the UEFI module/LoadOptions implementation into the selected unified loader branch.
+2. Test the entire path: EFI file + LoadOptions -> KBI blob -> kernel entry -> compatibility MB2 tags -> kernel parser/consumer. Loader-side log lines alone do not prove the kernel receives the data.
+3. Reconcile the module memory-map classification with PR #130 before combining the validator and UEFI loader; see F-024.
+4. Preserve explicit no-initrd/no-LoadOptions boot as a valid path and test it.
+
+F-023 remains OPEN. No UEFI release-complete claim is justified from these divergent branches.
+
+
+## F-024 — strict BootInfo module-in-RAM validation conflicts with UEFI LoaderData classification (2026-11-14)
+
+**Severity:** HIGH / security integration blocker.
+
+- PR #130 adds `module_in_ram()` to the KBI validator. It accepts module bytes only when the entire range is covered by sorted `KBI_MEM_USABLE` or `KBI_MEM_MODULE` entries; reserved, bootloader-owned, MMIO, and unmapped ranges are rejected.
+- PR #61's UEFI loader allocates INITRD.IMG using `AllocatePages(..., EfiLoaderData, ...)`. Its UEFI memory-map adapter classifies `EfiLoaderData` as `KBI_MEM_BOOTLOADER`, and the module is not overlaid/reclassified as `KBI_MEM_MODULE` in the observed `uefi_kbi.c` descriptor conversion.
+- Therefore, transplanting PR #130's validator unchanged into the PR #61 UEFI module path would reject the loader-created initrd range. Conversely, weakening the validator to accept arbitrary `KBI_MEM_BOOTLOADER` would broaden the trust boundary to all loader-owned memory.
+- Required resolution: identify and reclassify only the exact module pages as `KBI_MEM_MODULE` in the KBI memory map (splitting descriptors as needed), or introduce an equally explicit validated module-ownership rule. Preserve all other LoaderData as reserved.
+- Add an integration test where the module occupies a subrange of an EfiLoaderData descriptor, and tests for adjacent, partial, overlapping, and out-of-map module ranges.
+
+F-024 remains OPEN. The PR #130 policy and PR #61 loader must not be combined until this contract is resolved.
