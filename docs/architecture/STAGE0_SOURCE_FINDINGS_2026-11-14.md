@@ -1344,3 +1344,42 @@ F-045 remains OPEN.
 5. Add adversarial QEMU SMP tests for draw/event/input/close/process-exit/reopen, stale handles, mapping revocation and allocator reuse; run ASan/TSan host models where applicable.
 
 F-046 remains OPEN.
+
+
+## New finding F-047 — FAT chain allocation can leak partially allocated clusters on write failure (2026-11-14)
+
+**Severity:** MEDIUM data-space integrity / recovery.
+
+### Evidence
+- `chain_alloc()` mutates the FAT incrementally: it marks each free cluster EOC and links it from the previous cluster (`fat.c:132-147`).
+- The error paths for a failed `fat_get()` and an insufficient number of free clusters attempt `chain_free(*first)`, but errors returned by either `fat_set(v, c, eoc(v))` or `fat_set(v, prev, c)` return immediately without rolling back the chain already created.
+- `fat_write()` calls `chain_alloc()`; on error it invokes `fat_flush(v)` and returns, but does not know or recover the partially allocated chain (`fat.c:670-681`).
+- A `fat_set()` failure is reachable when switching FAT sectors requires flushing a dirty FAT-sector cache and the block-device write fails. The already modified FAT entries can remain allocated/orphaned; the caller has no allocation journal/list to release them.
+
+### Required closure
+1. Track every cluster allocated during the operation independently of the on-disk chain, and roll back all successfully modified entries on every failure path.
+2. Preserve the original I/O error if rollback also fails; mark the volume as requiring remount/recovery rather than reporting it healthy.
+3. Add fault-injection tests failing each FAT-sector write boundary during allocation, including both FAT12 cross-sector entries and FAT16/32 multi-sector chains.
+4. After simulated reboot/remount, verify free-space accounting and `fsck.fat` consistency; ensure no lost clusters remain.
+
+F-047 remains OPEN.
+
+## New finding F-048 — FAT unlink discards cluster-chain release errors (2026-11-14)
+
+**Severity:** MEDIUM data-space integrity / error reporting.
+
+### Evidence
+- `fat_unlink()` removes directory entries, then calls `chain_free(v, d.clus)` when the file/directory has a cluster chain, but discards its return value and unconditionally returns `fat_flush(v)` (`fat.c:721-738`).
+- If reading the next FAT entry or writing a FAT sector fails during `chain_free()`, unlink can still return success when the subsequent flush sees no dirty cache or succeeds. The directory entry is already removed, while some clusters may remain allocated and unavailable until repair/reformat.
+- Related replacement path in `fat_write()` also ignores `chain_free(v, old.clus)` after publishing the new directory entry (`fat.c:687-694`).
+
+### Required closure
+1. Propagate chain-release errors and distinguish “name removed, reclamation incomplete” from complete success.
+2. Ensure the volume is marked degraded/remount-required after partial metadata failure; do not silently continue with uncertain allocator state.
+3. Fault-inject reads and writes at every chain-free step for FAT12/16/32; remount and verify consistency with `fsck.fat` and free-cluster recount.
+4. Define safe recovery for already-unlinked files whose old chain is only partially released.
+
+F-048 remains OPEN.
+
+### KiraFS durability test coverage note
+The KiraFS host suite has meaningful write-cutoff/remount tests across multiple operations, including large indirect files. However, its block-device flush callback always succeeds, so it does not validate persistence-ordering failures where writes reach the device but flush reports failure. The suite also uses the host-test lock configuration with no-op locking; it does not validate concurrent callers. These are explicit remaining acceptance gaps, not passing tests.
