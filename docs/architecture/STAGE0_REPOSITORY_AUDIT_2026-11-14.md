@@ -133,8 +133,7 @@ Stage 0 — инвентаризация всего репозитория и д
 - F-008 — scheduler использует heap fallback без guard page и не очищает стек перед использованием.
 - F-009 — PMM освобождает contiguous block постранично, без атомарной проверки всего диапазона.
 - F-010 — x86-64 TLB shootdown может завершиться по таймауту без подтверждения CPU, а backing pages затем освобождаются.
-- F-006 — `ARCHITECTURE.md` содержит исторические утверждения, противоречащие текущему коду/CI (SMP, USB, NVMe, QEMU).
-- F-007 — `build_clang.sh --android` включает release filter и исключает тестовые/учебные программы из ISO.
+- F-011 — MMIO page align-up может переполнить `pa + len + PAGE_SIZE - 1` после успешной первичной проверки диапазона.
 
 Это подтверждённые по исходникам findings, а не runtime reproduction. Тесты для них в рамках этого аудита локально не запускались.
 
@@ -147,6 +146,7 @@ Stage 0 — инвентаризация всего репозитория и д
 - [x] Получить host-tests log PR #150: failure is `wm_compose_par(test_present, &composed_pixels) > 4` at `tests/wm_test.c:84`; GUI failure remains open and must not be hidden by the kernel work.
 - [x] Прочитать актуальные `AGENTS.md`, `README.md`, `ARCHITECTURE.md`, мастер-план и WORKLOG.
 - [ ] Сверить build scripts x86-64/ARM64 с tree и status manifest PR #148.
+- [x] Зарегистрировать F-011 и подготовить checked MMIO range helper + host regression; точная CI-проверка ожидается.
 - [x] Составить предварительную компонентную матрицу по всем A–N и 12 потокам; полный file-to-component/build-profile mapping ещё не завершён.
 - [x] Выполнить первичный source-level проход по kernel stacks, DMA/IOMMU, PCI enumeration, boot handoff и Device Model; зарегистрировать F-001…F-005. Полный аудит всех нижних уровней ещё не завершён.
 - [ ] Сформировать отдельный набор RFC/ADR для незафиксированных контрактов.
@@ -163,3 +163,6 @@ Stage 0 — инвентаризация всего репозитория и д
 | 2026-11-14 | PR #153, head `861707fc4538d396e00066cfbfe2ec171edb8abb` | Исправлен F-009: all-or-nothing contiguous PMM free и host regressions | Exact-head CI 43/43 success |
 | 2026-11-14 | PR #154, head `a3bd9a47f9a9f2f7fad09823ac50c3c90c2a01cd` | Combined integration F-001 + F-009 | Exact-head CI queued/in progress |
 | 2026-11-14 | PR #152, head `29d8b5842ff5de0b93dc8da97f665496c6e507bb` | Исправление F-001: общий ownership helper, x86-64/ARM64 allocator hardening и host regression | Первый CI run выявил пропущенные include/state declarations; исправлены. Exact-head workflow `43586203250` завершён с одним unresolved QEMU failure `vm (apps-drvman)` |
+
+
+| 2026-11-14 | main `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4` / Draft PR #156 | F-011: checked MMIO page-range arithmetic and overflow regression | Exact-head CI pending |
