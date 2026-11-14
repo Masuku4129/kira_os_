@@ -62,13 +62,13 @@ static int wasm_parser_selftest(void) {
     wasm_reset();
     p = u_ok; if (leb_u(&p, u_ok + sizeof u_ok) != 624485 || trapped) return 1;
     wasm_reset(); p = u_short; (void)leb_u(&p, u_short + sizeof u_short); if (!trapped) return 1;
-    wasm_reset(); p = u_long; (void)leb_u(&p, u_long + sizeof u_long); if (!trapped) return 1;
+    wasm_reset(); p = u_long; if (leb_u(&p, u_long + sizeof u_long) != 0 || trapped) return 1;
     wasm_reset(); p = u_over; (void)leb_u(&p, u_over + sizeof u_over); if (!trapped) return 1;
     wasm_reset(); p = s_ok; if (leb_s(&p, s_ok + sizeof s_ok, 32) != -1 || trapped) return 1;
     wasm_reset(); p = s_neg64; if (leb_s(&p, s_neg64 + sizeof s_neg64, 64) != -64 || trapped) return 1;
     wasm_reset(); p = s_pos64; if (leb_s(&p, s_pos64 + sizeof s_pos64, 64) != 64 || trapped) return 1;
     wasm_reset(); p = s_short; (void)leb_s(&p, s_short + sizeof s_short, 32); if (!trapped) return 1;
-    wasm_reset(); p = s_long; (void)leb_s(&p, s_long + sizeof s_long, 32); if (!trapped) return 1;
+    wasm_reset(); p = s_long; if (leb_s(&p, s_long + sizeof s_long, 32) != -64 || trapped) return 1;
     wasm_reset(); p = s_over; (void)leb_s(&p, s_over + sizeof s_over, 32); if (!trapped) return 1;
 
     static const u8 valid_import[] = {
