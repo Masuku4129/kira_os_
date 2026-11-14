@@ -240,7 +240,6 @@
       "arch/aarch64/uaccess_arch.c"
     ],
     "x86_userland_app_names": [
-      "$app",
       "atk-cap",
       "atk-gs",
       "atk-mem",
@@ -268,7 +267,6 @@
       "wasm"
     ],
     "arm64_userland_app_names": [
-      "$app",
       "atk-cap",
       "atk-jmp",
       "atk-mem",
@@ -329,7 +327,6 @@
     "baseline_file_count": 829,
     "baseline_inventory": "docs/PROJECT_STATUS/branch_inventory_2026-11-13.json",
     "x86_userland_android_release_app_names": [
-      "$app",
       "cube3d",
       "drvget",
       "drvman",
