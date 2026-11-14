@@ -95,8 +95,17 @@ void usb_log(const char* s) { strncat(logbuf, s, sizeof logbuf - strlen(logbuf) 
 void usb_log_dec(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsigned long long)v); usb_log(b); }
 void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); usb_log(b); }
 
-static uint16_t legsup;
-void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; (void)b; }
+static uint16_t legsup, pci_command;
+static int bus_master_enable_calls;
+void pci_enable(const pci_dev_t* d, uint16_t b) {
+    (void)d;
+    if (b & PCI_CMD_MASTER) {
+        CHECK(frbase != 0 && !(cmd & 1));       /* schedule programmed while controller halted */
+        bus_master_enable_calls++;
+    }
+    pci_command |= b;
+}
+int pci_disable_bus_master(const pci_dev_t* d) { (void)d; pci_command &= (uint16_t)~PCI_CMD_MASTER; return 0; }
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) { (void)d; if (off == 0xC0) legsup = v; }
 
 static void port_write(int i, uint16_t v) {
@@ -140,6 +149,7 @@ int main(void) {
     usb_hc_t hc;
     CHECK(uhci_start(&hc, &pd) == 0);
     CHECK(legsup == 0x8F00 && (cmd & 1) && frbase && sof == 0x40 && strstr(logbuf, "2 ports"));
+    CHECK((pci_command & PCI_CMD_MASTER) && bus_master_enable_calls == 1);
     hc.ports(&hc);
     CHECK(devm[0].addr != 0 && devm[1].addr != 0 && devm[0].addr != devm[1].addr);
     CHECK(devm[0].configured == 1 && devm[0].protocol == 0 && devm[0].idle && devm[1].configured == 1);
