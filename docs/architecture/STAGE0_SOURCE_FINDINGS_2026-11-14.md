@@ -109,7 +109,7 @@ Source: [pci.c at baseline SHA, lines 47–59 and 170–188](https://github.com/
 - [PR #141](https://github.com/Masuku4129/kira_os_/pull/141) builds a common registry/PCI discovery adapter on top of PR #139; its 47/47 check-runs are on that dependent branch chain, not current main.
 - Neither branch is an integrated main implementation. Their code and test assumptions must be reconciled against current main before use.
 
-**Required closure:** range-aware API with explicit host bridge bounds; bridge subordinate-range enforcement; invalid/stale handle behavior; host tests for zero/nonzero starts, nested bridges, malformed ranges and cycles; x86-64/ARM64 builds and QEMU tests on exact final SHA.
+**Required closure:** range-aware API with explicit host bridge bounds; bridge subordinate-range enforcement; invalid/stale handle behavior; host tests for zero/nonzero starts, nested bridges, malformed ranges and cycles; x86-64/ARM64 builds and QEMU tests on exact final SHA. Contract and acceptance gates are recorded in [ADR-0005](https://github.com/Masuku4129/kira_os_/blob/9d10d50095e406794f925a384e2e006db53599f8/docs/adr/ADR-0005-pci-host-bus-range-enumeration.md).
 
 ## F-004 — Boot handoff contract is not unified in current main
 
