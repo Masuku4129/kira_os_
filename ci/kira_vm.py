@@ -136,6 +136,42 @@ def count_file_pattern(path, pattern, start=0, end=None, chunk_size=1024 * 1024)
     return count
 
 
+def count_file_patterns(path, patterns, boundary=None, chunk_size=1024 * 1024):
+    """Count several patterns in one streaming pass, keeping matches on either side of a phase boundary separate."""
+    if chunk_size < 1 or not patterns or any(not isinstance(p, bytes) or not p for p in patterns.values()):
+        raise ValueError("patterns and positive chunk_size are required")
+    size = os.path.getsize(path)
+    if boundary is not None and (boundary < 0 or boundary > size):
+        raise ValueError("boundary is outside the file")
+    phases = ("all",) if boundary is None else ("before", "after")
+    counts = {phase: {name: 0 for name in patterns} for phase in phases}
+    overlaps = {phase: b"" for phase in phases}
+    keep = max(len(p) for p in patterns.values()) - 1
+
+    def consume(data, phase):
+        if not data:
+            return
+        combined = overlaps[phase] + data
+        for name, pattern in patterns.items():
+            counts[phase][name] += combined.count(pattern)
+        overlaps[phase] = combined[-keep:] if keep else b""
+
+    offset = 0
+    with open(path, "rb") as f:
+        while True:
+            block = f.read(chunk_size)
+            if not block:
+                break
+            if boundary is None:
+                consume(block, "all")
+            else:
+                before = max(0, min(len(block), boundary - offset))
+                consume(block[:before], "before")
+                consume(block[before:], "after")
+            offset += len(block)
+    return counts
+
+
 def summarize_qemu_log(path, ready_offset):
     """Split QEMU guest_errors at the byte boundary captured when KIRA reaches its console."""
     if not os.path.isfile(path):
@@ -151,12 +187,16 @@ def summarize_qemu_log(path, ready_offset):
         "boundary_status": "available" if valid_boundary else
             ("not-recorded" if ready_offset is None else "invalid-after-log-truncation"),
     }
-    for name, pattern in QEMU_DIAGNOSTIC_PATTERNS.items():
-        report[name + "_total"] = count_file_pattern(path, pattern)
+    counts = count_file_patterns(path, QEMU_DIAGNOSTIC_PATTERNS, ready_offset if valid_boundary else None)
+    for name in QEMU_DIAGNOSTIC_PATTERNS:
         if valid_boundary:
-            report[name + "_before_guest_ready"] = count_file_pattern(path, pattern, 0, ready_offset)
-            report[name + "_after_guest_ready"] = count_file_pattern(path, pattern, ready_offset, size)
+            before = counts["before"][name]
+            after = counts["after"][name]
+            report[name + "_total"] = before + after
+            report[name + "_before_guest_ready"] = before
+            report[name + "_after_guest_ready"] = after
         else:
+            report[name + "_total"] = counts["all"][name]
             report[name + "_before_guest_ready"] = None
             report[name + "_after_guest_ready"] = None
     return report
