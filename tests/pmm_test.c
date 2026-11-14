@@ -24,6 +24,9 @@ static uint8_t* mk_mbi(uint64_t at, int with_mmap){
     // tag type 1 (cmdline) "x"
     *(uint32_t*)p=1; *(uint32_t*)(p+4)=9; p[8]='x'; p+=16;
     if(with_mmap){
+        // Embedded boot modules: one below 1 GB and one in RAMEXT's high range.
+        *(uint32_t*)p=3; *(uint32_t*)(p+4)=16; *(uint32_t*)(p+8)=0x18000000; *(uint32_t*)(p+12)=0x18400000; p+=16;
+        *(uint32_t*)p=3; *(uint32_t*)(p+4)=16; *(uint32_t*)(p+8)=0x100200000ULL; *(uint32_t*)(p+12)=0x100400000ULL; p+=16;
         struct E{uint64_t a,l;uint32_t t,r;} ents[]={
             {0,0x9FC00,1,0},{0x9FC00,0x60400,2,0},{0x100000,0x1FF00000ULL,1,0},
             {0x20000000ULL,0x100000,2,0},{0x100000000ULL,0x40000000ULL,1,0}};
@@ -52,7 +55,7 @@ int main(void){
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==-5);                // нет места под карты
     pmm_test_store=store_buf; pmm_test_store_bytes=sizeof store_buf;
     CHECK(pmm_init(0x36D76289UL,mbi_addr)==0);
-    uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 1;
+    uint64_t expect_pages=0x1FF00000ULL/4096 - (0x320000-0x100000)/4096 - 1 - (0x400000ULL/4096);
     printf("free kb = %u, expected %llu (info_size=%u)\n",pmm_get_free_memory_kb(),(unsigned long long)expect_pages*4,info_size);
     CHECK(pmm_get_free_memory_kb()==expect_pages*4);
 
@@ -93,6 +96,7 @@ int main(void){
     CHECK(pmm_free_page(first)==-1);          // double free
     CHECK(pmm_free_page(0x200000)==-1);       // kernel image
     CHECK(pmm_free_page(mbi_addr)==-1);       // mbi
+    CHECK(pmm_free_page(0x18000000ULL)==-1); // embedded module below 1 GB
     CHECK(pmm_free_page(0x1000)==-1);         // low memory
     CHECK(pmm_free_page(first+1)==-1);        // unaligned
     CHECK(pmm_free_page(1ULL<<30)==-1);       // out of range
@@ -106,14 +110,16 @@ int main(void){
         CHECK(k == 1 && r[0].start == 0x100000000ULL && r[0].end == 0x140000000ULL);
         CHECK(pmm_managed_top() == 0x140000000ULL);
         CHECK(pmm_free_page(0x100000000ULL) == -1);            // ещё не добавлена
-        CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 2048);
+        CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 1536);
         CHECK(pmm_add_high(0x100000000ULL, 0x100000000ULL + (8ULL<<20)) == 0);   // повтор ничего не меняет
         CHECK(pmm_add_high(0x13FF00000ULL, 0x140100000ULL) == -1);               // выходит за диапазон
         CHECK(pmm_add_high(0x50000000ULL, 0x50200000ULL) == -1);                 // не ОЗУ выше 1 ГБ
         CHECK(pmm_add_high(0x100000001ULL, 0x100002000ULL) == -1);               // не выровнен
-        CHECK(pmm_get_free_memory_kb() == 2048 * 4);
+        CHECK(pmm_get_free_memory_kb() == 1536 * 4);
+        CHECK(pmm_free_page(0x100200000ULL) == -1); // embedded module above 1 GB
         uint64_t a = pmm_alloc_page();
         CHECK(a >= 0x100000000ULL && a < 0x100000000ULL + (8ULL<<20));
+        CHECK(a < 0x100200000ULL || a >= 0x100400000ULL);
         uint64_t blk = pmm_alloc_contiguous(512);
         CHECK(blk >= 0x100000000ULL && blk + 512*4096 <= 0x100000000ULL + (8ULL<<20));
         CHECK(pmm_free_contiguous(blk, 512) == 0);
