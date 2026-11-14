@@ -1,0 +1,28 @@
+name: qemu-diagnostics-tests
+
+on:
+  push:
+    branches: [main, stable]
+    paths:
+      - 'ci/kira_vm.py'
+      - 'ci/test_kira_vm_diagnostics.py'
+      - '.github/workflows/ci-vm-diagnostics.yml'
+  pull_request:
+    paths:
+      - 'ci/kira_vm.py'
+      - 'ci/test_kira_vm_diagnostics.py'
+      - '.github/workflows/ci-vm-diagnostics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parser-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python diagnostics unit tests
+        run: python3 -m unittest discover -s ci -p 'test_kira_vm_diagnostics.py' -v
+      - name: Syntax check
+        run: python3 -m py_compile ci/kira_vm.py ci/test_kira_vm_diagnostics.py
