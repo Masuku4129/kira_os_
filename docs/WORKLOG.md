@@ -270,3 +270,17 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+
+## Продолжение работ — Stage 0 repository audit (2026-11-14)
+
+- Audit baseline: `main` SHA `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`; Git tree: 829 blobs; 61 open PRs.
+- Открыт Draft PR #151: [Stage 0 repository audit](https://github.com/Masuku4129/kira_os_/pull/151). Документы: `docs/architecture/STAGE0_REPOSITORY_AUDIT_2026-11-14.md` и `STAGE0_SOURCE_FINDINGS_2026-11-14.md`.
+- Зафиксированы source findings F-001…F-005: kernel stack ownership на обеих ISA; Ring 3 DMA/MSI без IOMMU domain; PCI ECAM enumeration всегда с bus 0; отсутствие общего BootInfo contract в main; отсутствие bus-independent Device Model lifecycle.
+- F-001 remediation начата отдельным Draft PR #152, основанным непосредственно на main: общий `kstack_slot.h`, проверки exact-base/active ownership, bounded free list, ARM64 allocator metadata вынесена из stack memory, host regression включён в `tests/run_host_tests.sh`. Текущий head `8358d14850ff48f0a710486106a550e01701f2a5`; workflow `43585911384` запущен. До exact-head CI результата PASS не заявлять.
+- PR #132 содержит похожую работу, но основан на `v46/unified-release-integration`; его нельзя переносить целиком без reconciliation. Использован как reference, а исправление сделано на свежей main-based ветке.
+- DMA/MSI security gate остаётся открытым: PR #136 и #137 имеют новые head SHA без exact-head CI; реальная IOMMU implementation отсутствует в main.
+- PCI range/device registry work в PR #139/#141 зависит от архитектурной ветки #135 и не интегрирован в main; PR #139 exact head имеет один упавший VM job.
+- PR #150 exact-head host-tests failure разобран по job log: `tests/wm_test.c:84`, assertion `wm_compose_par(test_present, &composed_pixels) > 4`; это compositor regression, не причина kernel stack finding.
+- Текущая сессия использовала GitHub source/API review; локальный checkout и локальный запуск тестов отсутствовали. Никакой PR не объединён, main не изменён.
+- Next: дождаться exact-head CI PR #152; исправить найденные регрессии без ослабления тестов; продолжить Stage 0 matrix для всех 14 областей A–N и 12 streams, затем закрывать нижние зависимости по очереди.
