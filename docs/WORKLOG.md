@@ -270,3 +270,13 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+
+### F-003 — PCI ECAM host-range and subordinate-bus enforcement (2026-11-14)
+
+- Current main stores ECAM `bus_start/bus_end` but `pci_init()` starts at bus 0; bridge traversal follows only secondary bus and ignores primary/subordinate windows.
+- Added `pci_init_range()`; `pci_init()` now starts at ECAM host `bus_start` and returns an error for an invalid ECAM range rather than silently scanning bus 0.
+- Bridge traversal now requires primary bus to match the current bus, secondary to be greater than primary and no greater than subordinate, and subordinate to fit both the host range and parent bridge's subordinate limit. Cycle/repeated-bus protection remains.
+- Updated the virtio PCI model to provide valid primary/secondary/subordinate fields.
+- Added ASan/UBSan host cases for nonzero root bus, nested bridge windows, out-of-range secondary bus, mismatched primary, invalid-range snapshot preservation, legacy bus-0 behavior and the actual ECAM wrapper.
+- Exact-head CI pending; no local execution claimed.
