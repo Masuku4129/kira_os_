@@ -151,9 +151,20 @@ void uart_print_serial(const char* str) {
 }
 
 void uart_print(const char* str) {
+    unsigned n = 0;
+    while (str[n]) n++;
     uint64_t f = irq_save();
     linebuf_t* b = my_line();
-    while (*str) lb_putc(b, *str++, emit_line, 0);
+    if (n >= LB_SIZE) {
+        /* A full line larger than the per-CPU buffer must not be split into
+           independently locked chunks: another CPU could interleave output,
+           and a UTF-8 code point could be cut in half. Flush any pending prefix,
+           then emit the complete long string atomically. */
+        lb_flush(b, emit_line, 0);
+        emit_line(str, n, 0);
+    } else {
+        while (*str) lb_putc(b, *str++, emit_line, 0);
+    }
     irq_restore(f);
 }
 

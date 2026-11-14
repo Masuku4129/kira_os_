@@ -117,6 +117,28 @@ int main(void){
         uint64_t blk = pmm_alloc_contiguous(512);
         CHECK(blk >= 0x100000000ULL && blk + 512*4096 <= 0x100000000ULL + (8ULL<<20));
         CHECK(pmm_free_contiguous(blk, 512) == 0);
+
+        /* A malformed block release must not partially return pages to another CPU. */
+        uint64_t partial = pmm_alloc_contiguous(4);
+        CHECK(partial != 0);
+        CHECK(pmm_free_page(partial + 4096) == 0);
+        uint32_t free_after_middle = pmm_get_free_memory_kb();
+        CHECK(pmm_free_contiguous(partial, 4) == -1);
+        CHECK(pmm_get_free_memory_kb() == free_after_middle);
+        CHECK(pmm_free_page(partial) == 0);
+        CHECK(pmm_free_page(partial + 2 * 4096) == 0);
+        CHECK(pmm_free_page(partial + 3 * 4096) == 0);
+
+        uint64_t twice = pmm_alloc_contiguous(2);
+        CHECK(twice != 0);
+        CHECK(pmm_free_contiguous(twice, 2) == 0);
+        uint32_t free_after_release = pmm_get_free_memory_kb();
+        CHECK(pmm_free_contiguous(twice, 2) == -1);
+        CHECK(pmm_get_free_memory_kb() == free_after_release);
+        CHECK(pmm_free_contiguous(twice, 0) == -1);
+        CHECK(pmm_free_contiguous(twice + 1, 1) == -1);
+        CHECK(pmm_free_contiguous(pmm_managed_top() - 4096, 2) == -1);
+
         CHECK(pmm_free_page(a) == 0);
         CHECK(pmm_free_page(0x100000000ULL + (9ULL<<20)) == -1);                 // за добавленной частью
         CHECK(pmm_free_page(0x140000000ULL) == -1);
