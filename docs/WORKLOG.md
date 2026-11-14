@@ -1175,3 +1175,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed F-051: FDT property-name comparison is unbounded after checking only that its offset is inside the strings block. A missing NUL can make lookup read beyond the bounded block. Existing FDT tests do not cover this malformed-name case.
 - ADR-0004 remains a separate mandatory IOMMU policy gate; this audit does not treat the DMA pool as isolation.
 - No production code changed; no tests run in this source-only pass.
+
+
+## 59. ARM64 device-tree DMA coherency scope and controller sequencing — 2026-11-14
+
+- Extended the driver audit across UHCI/xHCI, AHCI, NVMe, e1000, HDA, AC'97 and VirtIO (block/net/GPU/input/RNG). Confirmed the existing F-030 class of issue across multiple built-in drivers: Bus Master is enabled before all DMA structures are allocated/programmed and before controller reset/quiesce is complete. This remains an existing finding, not duplicated as a new one.
+- Confirmed F-050 is shared by both generic DMA allocators: VirtIO and USB fall back to ordinary PMM pages after the ARM64 non-cacheable pool returns NULL.
+- Added F-052: when no PCI host node exists, ARM64 coherency detection scans all FDT nodes and treats any one node's `dma-coherent` property as platform-wide coherency. This can misclassify unrelated devices on mixed-coherency boards.
+- Reviewed FDT validation/tests: test fixture covers header offsets, malformed property payload length and normal QEMU-virt-like tree, but no unterminated property-name or mixed-coherency negative fixture.
+- No production source changed; no tests run in this source-only audit pass.
