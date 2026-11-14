@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from kira_vm import count_file_pattern, summarize_qemu_log
+from qemu_diagnostics import count_file_pattern, summarize_qemu_log
 
 
 class QemuDiagnosticsTests(unittest.TestCase):
