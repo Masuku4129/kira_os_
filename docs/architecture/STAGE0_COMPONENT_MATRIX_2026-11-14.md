@@ -536,3 +536,9 @@ Installed records currently preserve the recipe URL and declared license plus co
 
 - UDP owner validation and teardown must share the UDP table lock, and the slot must remain pinned across the whole syscall to prevent release/reuse after validation. Audit TCP/listener owner tables for the same lifecycle race. Add concurrent teardown/send/receive/reopen and packet-delivery tests.
 - HKDF-Expand must reject output beyond 255 × 32 bytes, and all HKDF info/label/context limits must be explicit errors rather than silent truncation. Add boundary tests at 8160/8161 bytes. Audit ChaCha20/AES-GCM counter-length limits and ensure APIs can report invalid sizes.
+
+
+### F-037 / F-038 TLS and certificate-validation gates
+
+- TLS and X.509 parsing/verification must be reentrant per connection; remove mutable file-scope/static scratch state or enforce a documented and tested serialization contract. Test concurrent handshakes and certificate/OCSP verification.
+- X.509 must reject every unknown critical extension, parse/enforce basicConstraints pathLenConstraint, and enforce keyUsage plus serverAuth EKU for TLS server identity. Add hostile certificate fixtures for each negative case.
