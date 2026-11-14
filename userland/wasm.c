@@ -116,7 +116,6 @@ static u32 leb_u(const u8** p, const u8* end) {
         if (i == 4 && (b & 0xF0)) { trap("unsigned LEB128 overflow"); return 0; }
         r |= (u32)(b & 0x7F) << (i * 7);
         if (!(b & 0x80)) {
-            if (i && !(b & 0x7F)) { trap("overlong unsigned LEB128"); return 0; }
             return r;
         }
     }
@@ -124,40 +123,38 @@ static u32 leb_u(const u8** p, const u8* end) {
 }
 static i64 leb_s(const u8** p, const u8* end, int bits) {
     if (bits != 32 && bits != 64) { trap("invalid signed LEB128 width"); return 0; }
-    u64 r = 0; u8 b = 0, prev = 0;
+    u64 r = 0; u8 b = 0;
     unsigned max = bits == 32 ? 5 : 10;
     for (unsigned i = 0; i < max; i++) {
         if (*p >= end) { trap("truncated signed LEB128"); return 0; }
         b = *(*p)++;
         if (i == max - 1) {
             u8 unused = bits == 32 ? (u8)(b & 0x70) : (u8)(b & 0x7E);
-            if ((b & 0x80) || (unused != 0 && unused != (bits == 32 ? 0x70 : 0x7E))) {
+            u8 sign_extension = bits == 32 ? ((b & 0x08) ? 0x70 : 0) : ((b & 0x01) ? 0x7E : 0);
+            if ((b & 0x80) || unused != sign_extension) {
                 trap("signed LEB128 overflow"); return 0;
             }
         }
         unsigned shift = i * 7;
         r |= (u64)(b & 0x7F) << shift;
         if (!(b & 0x80)) {
-            if (i && (((b & 0x7F) == 0 && !(prev & 0x40)) ||
-                      ((b & 0x7F) == 0x7F && (prev & 0x40)))) {
-                trap("overlong signed LEB128"); return 0;
-            }
-            if (bits == 32) return (i64)(int32_t)(uint32_t)r;
+            unsigned used = shift + 7;
+            if ((b & 0x40) && used < 64) r |= ~0ull << used;
+            if (bits == 32) return (i64)(int)(u32)r;
             return (i64)r;
         }
-        prev = b;
     }
     trap("unterminated signed LEB128"); return 0;
 }
 static int import_signature_valid(u32 id, const ftype_t* t) {
-    static const u8 i32t = 0x7F, i64t = 0x7E;
+    static const u8 i32t = 0x7F;
     switch (id) {
     case IMP_WRITE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
-    case IMP_SLEEP: return t->np == 1 && t->nr == 0 && t->p[0] == i64t;
+    case IMP_SLEEP: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
     case IMP_TICKS: return t->np == 0 && t->nr == 1;
     case IMP_EXIT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
     case IMP_GFX_CREATE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
-    case IMP_GFX_PRESENT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
+    case IMP_GFX_PRESENT: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;
     case IMP_GFX_EVENT: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;
     default: return 0;
     }

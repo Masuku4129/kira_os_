@@ -96,7 +96,9 @@ static volatile uint32_t period_ms = 10;                    /* период ра
 #define CHUNK 480                              /* смешивается по 10 мс */
 
 typedef struct {
-    int used; uint32_t pid;
+    int used, closing, retired, writing;
+    uint32_t pid;
+    uint16_t generation, refs;
     int16_t* q; uint32_t head, tail;           /* кадры 48 кГц стерео: занято tail - head */
     audio_rs_t rs; unsigned rate, ch;          /* формат программы и пересчёт */
     uint32_t gain;                             /* громкость потока (доля 65536) */
@@ -152,9 +154,10 @@ static void audio_main(void* arg) {
         if (card->service) card->service();
         uint32_t pos = card->pos() / 4;
         uint32_t d = (pos + ring - last_pos) % ring;
-        if (d < ring - ring / 8) { hw += d; last_pos = pos; }      /* шаг назад (< 1/8 кольца - дрожание позиции карты) - не «почти круг вперёд» */
-        if (wr < hw) { underruns++; wr = hw; }                     /* не успели: догоняем карту */
-        while (wr < hw + lead_frames) {
+        if (d < ring - ring / 8) { __atomic_add_fetch(&hw, d, __ATOMIC_RELAXED); last_pos = pos; }      /* шаг назад (< 1/8 кольца - дрожание позиции карты) - не «почти круг вперёд» */
+        uint64_t hw_now = __atomic_load_n(&hw, __ATOMIC_RELAXED);
+        if (wr < hw_now) { __atomic_add_fetch(&underruns, 1, __ATOMIC_RELAXED); wr = hw_now; }                     /* не успели: догоняем карту */
+        while (wr < __atomic_load_n(&hw, __ATOMIC_RELAXED) + lead_frames) {
             uint32_t at = (uint32_t)(wr % ring), n = CHUNK;
             if (at + n > ring) n = ring - at;
             mix_chunk(buf + 2 * at, n);
@@ -178,7 +181,7 @@ int audio_attach(const audio_card_t* c) {
     return 0;
 }
 
-uint64_t audio_hw_frames(void) { return hw; }
+uint64_t audio_hw_frames(void) { return __atomic_load_n(&hw, __ATOMIC_RELAXED); }
 
 /* Рычаги Разума: опережение записи (мс) и период микшера (мс). Границы держит Разум; здесь - защита от безумных значений:
    опережение не меньше 20 мс и не больше четверти кольца карты, период не меньше 2 мс. */
@@ -188,7 +191,12 @@ void audio_set_lead_ms(uint32_t ms) {
     lead_frames = (uint32_t)((uint64_t)ms * AUDIO_RATE / 1000);
 }
 void audio_set_period_ms(uint32_t ms) { period_ms = ms < 2 ? 2 : ms > 50 ? 50 : ms; }
-void audio_stats(uint64_t* mixed_frames, uint64_t* under) { *mixed_frames = mixed_prog; *under = underruns; }
+void audio_stats(uint64_t* mixed_frames, uint64_t* under) {
+    uint64_t f = spin_lock_irqsave(&lk);
+    *mixed_frames = mixed_prog;
+    spin_unlock_irqrestore(&lk, f);
+    *under = __atomic_load_n(&underruns, __ATOMIC_RELAXED);
+}
 
 int audio_tone(unsigned hz, unsigned ms) {
     if (!running) return -1;
@@ -199,15 +207,25 @@ int audio_tone(unsigned hz, unsigned ms) {
 }
 
 void audio_print(void) {
-    unsigned n = 0; for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used) n++;
-    uart_print("микшер: "); uart_print(running ? "работает" : "не запущен");
-    uart_print(", программ со звуком "); uart_print_dec(n); uart_print(", карта забрала кадров "); uart_print_dec(hw);
-    uart_print(", от программ смешано "); uart_print_dec(mixed_prog); uart_print(", недоборов "); uart_print_dec(underruns);
-    uart_print(", громкость "); uart_print_dec((uint64_t)master_pct); uart_print("%\n");
-    for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used) {
-        uart_print("  поток "); uart_print_dec((uint64_t)k); uart_print(": процесс "); uart_print_dec(src[k].pid);
-        uart_print(", "); uart_print_dec(src[k].rate); uart_print(" Гц, каналов "); uart_print_dec(src[k].ch);
-        uart_print(src[k].rate != AUDIO_RATE || src[k].ch != 2 ? " (пересчёт в 48 кГц стерео)\n" : "\n");
+    struct { uint32_t pid, rate, ch; int used; } snapshot[AUDIO_SRC_MAX];
+    uint64_t mixed, under; unsigned n = 0; int pct, is_running;
+    uint64_t f = spin_lock_irqsave(&lk);
+    for (int k = 0; k < AUDIO_SRC_MAX; k++) {
+        snapshot[k].used = src[k].used;
+        snapshot[k].pid = src[k].pid; snapshot[k].rate = src[k].rate; snapshot[k].ch = src[k].ch;
+        if (snapshot[k].used) n++;
+    }
+    mixed = mixed_prog; under = __atomic_load_n(&underruns, __ATOMIC_RELAXED); pct = master_pct; is_running = running;
+    uint64_t hw_snapshot = __atomic_load_n(&hw, __ATOMIC_RELAXED);
+    spin_unlock_irqrestore(&lk, f);
+    uart_print("микшер: "); uart_print(is_running ? "работает" : "не запущен");
+    uart_print(", программ со звуком "); uart_print_dec(n); uart_print(", карта забрала кадров "); uart_print_dec(hw_snapshot);
+    uart_print(", от программ смешано "); uart_print_dec(mixed); uart_print(", недоборов "); uart_print_dec(under);
+    uart_print(", громкость "); uart_print_dec((uint64_t)pct); uart_print("%\n");
+    for (int k = 0; k < AUDIO_SRC_MAX; k++) if (snapshot[k].used) {
+        uart_print("  поток "); uart_print_dec((uint64_t)k); uart_print(": процесс "); uart_print_dec(snapshot[k].pid);
+        uart_print(", "); uart_print_dec(snapshot[k].rate); uart_print(" Гц, каналов "); uart_print_dec(snapshot[k].ch);
+        uart_print(snapshot[k].rate != AUDIO_RATE || snapshot[k].ch != 2 ? " (пересчёт в 48 кГц стерео)\n" : "\n");
     }
 }
 
@@ -221,49 +239,121 @@ int audio_master(int pct) {
     return master_pct;
 }
 
+static void audio_src_release_locked(src_t* s) {
+    if (!s->refs && s->closing) {
+        s->closing = 0; s->pid = 0; s->writing = 0; s->head = s->tail = 0;
+    }
+}
+static int audio_src_pin(int64_t handle, uint32_t pid, int* slot) {
+    unsigned index, generation;
+    if (audio_handle_decode(handle, &index, &generation) != 0) return 0;
+    uint64_t f = spin_lock_irqsave(&lk);
+    src_t* s = &src[index];
+    int ok = s->used && !s->closing && s->pid == pid &&
+             s->generation == generation && s->refs != 0xFFFF;
+    if (ok) { s->refs++; *slot = (int)index; }
+    spin_unlock_irqrestore(&lk, f);
+    return ok;
+}
+static void audio_src_unpin(int slot) {
+    if (slot < 0 || slot >= AUDIO_SRC_MAX) return;
+    uint64_t f = spin_lock_irqsave(&lk);
+    src_t* s = &src[slot];
+    if (s->refs) s->refs--;
+    audio_src_release_locked(s);
+    spin_unlock_irqrestore(&lk, f);
+}
+
 int64_t audio_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
     uint32_t pid = proc_current_pid();
     if (!running) return -2;
     if (op == 0) {                                                  /* open(частота, каналы) */
         unsigned rate = a1 ? (unsigned)a1 : AUDIO_RATE, ch = a2 ? (unsigned)a2 : 2;
-        if (a1 > 96000 || rate < 8000 || ch > 2) return -10;
+        if (a1 > 96000 || rate < 8000 || (a2 && (a2 < 1 || a2 > 2))) return -10;
         uint64_t f = spin_lock_irqsave(&lk);
         int h = -9;
         for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used && src[k].pid == pid) { h = -3; break; }
-        if (h == -9) for (int k = 0; k < AUDIO_SRC_MAX; k++) if (!src[k].used && src[k].q) {
+        if (h == -9) for (int k = 0; k < AUDIO_SRC_MAX; k++) {
             src_t* s = &src[k];
+            if (s->used || s->closing || s->refs || s->retired || !s->q) continue;
+            if (s->generation == AUDIO_HANDLE_GENERATION_MAX) { s->retired = 1; continue; }
+            s->generation++;
             s->used = 1; s->pid = pid; s->head = s->tail = 0; s->rate = rate; s->ch = ch; s->gain = 65536;
+            s->writing = 0; s->refs = 0;
             audio_rs_init(&s->rs, rate, ch);
-            h = k; break;
+            h = (int)audio_handle_make((unsigned)k, s->generation);
+            break;
         }
         spin_unlock_irqrestore(&lk, f);
         return h;
     }
-    if (a1 >= AUDIO_SRC_MAX || !src[a1].used || src[a1].pid != pid) return -8;
-    src_t* s = &src[a1];
-    if (op == 2) { uint64_t f = spin_lock_irqsave(&lk); s->used = 0; spin_unlock_irqrestore(&lk, f); return 0; }
-    if (op == 3) { if (a2 > 100) return -10; s->gain = audio_vol_gain((unsigned)a2); return 0; }
-    if (op == 1) {                                                  /* write: сколько влезло (байт во формате программы) */
-        uint32_t fb = 2 * s->ch;                                     /* байт в кадре программы */
+    if (op == 2) {                                                  /* close: блокировать новые операции и дождаться pin-ов */
+        unsigned index, generation;
+        if (audio_handle_decode((int64_t)a1, &index, &generation) != 0) return -8;
+        uint64_t f = spin_lock_irqsave(&lk);
+        src_t* s = &src[index];
+        int ok = s->used && !s->closing && s->pid == pid && s->generation == generation;
+        if (ok) {
+            s->used = 0; s->closing = 1;
+            audio_src_release_locked(s);
+        }
+        spin_unlock_irqrestore(&lk, f);
+        return ok ? 0 : -8;
+    }
+    if (op != 1 && op != 3) return -10;
+    int slot;
+    if (!audio_src_pin((int64_t)a1, pid, &slot)) return -8;
+    src_t* s = &src[slot];
+    if (op == 3) {
+        if (a2 > 100) { audio_src_unpin(slot); return -10; }
+        uint64_t f = spin_lock_irqsave(&lk);
+        int ok = s->used && !s->closing;
+        if (ok) s->gain = audio_vol_gain((unsigned)a2);
+        spin_unlock_irqrestore(&lk, f);
+        audio_src_unpin(slot);
+        return ok ? 0 : -8;
+    }
+    {                                                               /* write: сколько влезло (байт во формате программы) */
+        uint32_t fb = 2 * s->ch;
         uint64_t frames = a3 / fb, done = 0;
-        if (a3 > (1u << 22) || (a3 && !user_range(a2, a3, 0))) return -10;
-        int16_t tmp[128 * 2], rs[(128 * 6 + 2) * 2];                /* до 128 кадров за раз: при 8 кГц -> до 6x */
-        while (done < frames) {
-            uint32_t space = SRC_FRAMES - (s->tail - s->head);
+        int err = 0, writer = 0;
+        if (a3 > (1u << 22) || (a3 && !user_range(a2, a3, 0))) { audio_src_unpin(slot); return -10; }
+        int16_t tmp[128 * 2], rs[(128 * 6 + 2) * 2];
+        uint64_t f = spin_lock_irqsave(&lk);
+        if (!s->used || s->closing) err = -8;
+        else if (s->writing) err = -3;
+        else { s->writing = 1; writer = 1; }
+        spin_unlock_irqrestore(&lk, f);
+        while (!err && done < frames) {
+            uint32_t space, rate = s->rate;
             uint64_t n = frames - done; if (n > 128) n = 128;
-            uint64_t need = (n * 48000 + s->rate - 1) / s->rate + 2;  /* сколько кадров 48 кГц может выйти */
+            uint64_t need = (n * 48000 + rate - 1) / rate + 2;
+            f = spin_lock_irqsave(&lk);
+            if (!s->used || s->closing) { spin_unlock_irqrestore(&lk, f); err = -8; break; }
+            space = SRC_FRAMES - (s->tail - s->head);
+            spin_unlock_irqrestore(&lk, f);
             if (space < need) break;
-            if (copy_from_user(tmp, a2 + done * fb, n * fb)) return done ? (int64_t)(done * fb) : -10;
-            uint64_t f = spin_lock_irqsave(&lk);
+            if (copy_from_user(tmp, a2 + done * fb, n * fb)) { err = -10; break; }
             uint32_t m = audio_resample(&s->rs, tmp, (uint32_t)n, rs, (uint32_t)(sizeof rs / 4));
-            for (uint32_t i = 0; i < m; i++) { uint32_t j = (s->tail + i) % SRC_FRAMES; s->q[2 * j] = rs[2 * i]; s->q[2 * j + 1] = rs[2 * i + 1]; }
+            f = spin_lock_irqsave(&lk);
+            if (!s->used || s->closing) { spin_unlock_irqrestore(&lk, f); err = -8; break; }
+            for (uint32_t i = 0; i < m; i++) {
+                uint32_t j = (s->tail + i) % SRC_FRAMES;
+                s->q[2 * j] = rs[2 * i]; s->q[2 * j + 1] = rs[2 * i + 1];
+            }
             s->tail += m;
             spin_unlock_irqrestore(&lk, f);
             done += n;
         }
+        if (writer) {
+            f = spin_lock_irqsave(&lk);
+            s->writing = 0;
+            spin_unlock_irqrestore(&lk, f);
+        }
+        audio_src_unpin(slot);
+        if (!done && err) return err;
         return (int64_t)(done * fb);
     }
-    return -10;
 }
 
 /* ---------- запись ---------- */
@@ -332,7 +422,10 @@ void audiocmd_record(const char* a) {
 
 void audio_proc_gone(uint32_t pid) {
     uint64_t f = spin_lock_irqsave(&lk);
-    for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used && src[k].pid == pid) src[k].used = 0;
+    for (int k = 0; k < AUDIO_SRC_MAX; k++) if (src[k].used && src[k].pid == pid) {
+        src[k].used = 0; src[k].closing = 1;
+        audio_src_release_locked(&src[k]);
+    }
     spin_unlock_irqrestore(&lk, f);
 }
 #endif
@@ -357,10 +450,10 @@ void audiocmd_beep(const char* a) {
     if (!running) { uart_print("звуковой карты нет\n"); return; }
     if (hz < 20 || hz > 20000 || !ms) { uart_print("beep [Гц 20..20000] [мс]\n"); return; }
     if (ms > 2000) ms = 2000;
-    uint64_t hw0 = hw;
+    uint64_t hw0 = __atomic_load_n(&hw, __ATOMIC_RELAXED);
     audio_tone(hz, ms);
     sched_sleep_ticks((uint64_t)ms * TIMER_HZ / 1000 + 1);
-    uint64_t pos = (hw - hw0) * 4;
+    uint64_t pos = (__atomic_load_n(&hw, __ATOMIC_RELAXED) - hw0) * 4;
     uart_print("звук "); uart_print_dec(hz); uart_print(" Гц, "); uart_print_dec(ms);
     uart_print(" мс: DMA прошёл "); uart_print_dec(pos); uart_print(pos ? " байт - карта играет\n" : " байт - карта не забирает звук\n");
 }
