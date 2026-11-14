@@ -51,7 +51,7 @@
 | S0-03 | Инвентаризация репозитория/build/test | IN PROGRESS | Component/file/build/test matrices; довести до актуального main и всех branch-only изменений |
 | S0-04 | PR/branch graph | PARTIAL | `STAGE0_OPEN_PR_GRAPH_2026-11-15.md`; 92 PR на момент снимка, ещё нет полного diff/ancestry/CI review каждого PR |
 | S0-05 | Source-level findings | IN PROGRESS | `STAGE0_SOURCE_FINDINGS_2026-11-14.md`; F-058/F-061/F-062/F-063 и остальные требуют triage/verification |
-| S0-06 | CI/test baseline | IN PROGRESS | Exact-head evidence ledger; проверить все релевантные ветки и gaps, не переносить PASS между SHA |
+| S0-06 | CI/test baseline | IN PROGRESS — CURRENT MAIN FAIL | Main SHA `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`, run `43643758138`: ARM64/host-tests/x86 build FAIL on F-062; QEMU skipped. Fix and exact-head rerun are required before baseline can be accepted |
 | S0-07 | ADR и technology decisions | IN PROGRESS | Сформировать ADR backlog и закрыть блокирующие контракты/решения |
 | S0-08 | Migration/dependency plan | NOT STARTED | По каждому Stage определить последовательность и rollback без потери функций |
 | S0-09 | Independent Stage 0 review | NOT STARTED | Независимая проверка completeness и exit gate |
