@@ -1,0 +1,82 @@
+{
+ "name": "sound-ac97",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA AC97\\] Sound: codec 0x[0-9A-F]+, 48 kHz 16-bit stereo output and microphone input",
+   "ok": true
+  },
+  {
+   "step": "sound",
+   "must": "AC'97: кодек",
+   "ok": true
+  },
+  {
+   "step": "sound",
+   "must": "микшер: работает",
+   "ok": true
+  },
+  {
+   "step": "sound",
+   "must": "вход: microphone",
+   "ok": true
+  },
+  {
+   "step": "beep 440 400",
+   "must": "DMA прошёл [1-9]\\d* байт - карта играет",
+   "ok": true
+  },
+  {
+   "log": "melody: 8 notes, 76800 frames queued",
+   "ok": true
+  },
+  {
+   "step": "sound",
+   "must": "от программ смешано (7[6-9]|[89]\\d)\\d\\d\\d",
+   "ok": true
+  },
+  {
+   "step": "sound",
+   "must": "недоборов 0",
+   "ok": false
+  }
+ ],
+ "error": "«sound»: в выводе нет «недоборов 0»\nsound\nAC'97: кодек 0x83847600, частота задана 48 кГц (VRA), порты 0xC000/0xC400, перезапусков DMA 0\nмикшер: работает, программ со звуком 0, карта забрала кадров 392546, от программ смешано 76799, недоборов 1, громкость 100%\nвход: microphone\nпроверка: beep [Гц] [мс], record [мс]\nкира> ",
+ "boot_seconds": 5.4,
+ "seconds": 13.7,
+ "commands": [
+  {
+   "cmd": "sound",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "beep 440 400",
+   "seconds": 0.41
+  },
+  {
+   "cmd": "melody",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "sound",
+   "seconds": 0.01
+  }
+ ]
+}

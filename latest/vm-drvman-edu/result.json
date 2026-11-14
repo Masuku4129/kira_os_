@@ -1,0 +1,150 @@
+{
+ "name": "drvman-edu",
+ "ok": false,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] edu: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] edu: PCI quiesce verified \\(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\\)",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] edunc: устройство .* 1234:11e8 -> драйвер запущен как drv-edunc",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово",
+   "ok": true
+  },
+  {
+   "log": "drvman: окно создано 640x560",
+   "ok": true
+  },
+  {
+   "log": "drvman: кадр: строк в списках [1-9]\\d*, устройств [1-9]\\d*, пакетов 4",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*драйвер Ring 3 drv-edunc запущен",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+[0-9a-f]{4}:[0-9a-f]{4}\\s+[0-9a-f]{6}\\s+.*встроенный драйвер ядра",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+[0-9a-f]{4}:[0-9a-f]{4}\\s+060000\\s+.*мост или шина",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакетов в /drv: 4",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет edu \\| edu\\s+v\\d+\\s+лицензия: не записана\\s+не запущен\\s+сверка: SHA-256 сходится",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет edunc \\| edunc\\s+v\\d+\\s+лицензия: не записана\\s+ЗАПУЩЕН\\s+сверка: SHA-256 сходится",
+   "ok": true
+  },
+  {
+   "log": "drvman: пакет edunc \\| права запрошены: MMIO PCIDEV\\s+подтверждены: MMIO PCIDEV",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово",
+   "ok": true
+  },
+  {
+   "log": "drvman: просьба остановить edunc принята",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] останавливаю drv-edunc",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] drv-edunc \\(pid \\d+\\) завершён: устройство .* остановлено",
+   "ok": true
+  },
+  {
+   "log": "drvman: драйвер edunc остановлен, устройство возвращено ядру",
+   "ok": true
+  },
+  {
+   "log": "drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*пакет edunc установлен, не запущен",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "drv-edunc pid",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] edu: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
+   "ok": true
+  },
+  {
+   "log": "drvman: драйвер edu не запущен: нет свободного подходящего устройства PCI",
+   "ok": true
+  },
+  {
+   "log": "drvman: либо пакет не прошёл проверку ядра: причина в журнале ядра",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "drv-edu pid",
+   "ok": true
+  },
+  {
+   "expect": "drvman: готово",
+   "ok": true
+  },
+  {
+   "log": "drvman: просьба запустить edunc принята",
+   "ok": true
+  },
+  {
+   "log": "drvman: драйвер edunc запущен на устройстве \\d\\d:\\d\\d\\.\\d \\(1234:11e8\\)",
+   "ok": true
+  }
+ ],
+ "error": "не дождались «drvman: готово с ошибками» за 50 с",
+ "boot_seconds": 5.4,
+ "seconds": 81.1,
+ "commands": [
+  {
+   "cmd": "drv",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "drv",
+   "seconds": 0.02
+  }
+ ]
+}
