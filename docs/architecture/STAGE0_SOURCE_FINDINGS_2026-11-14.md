@@ -714,3 +714,17 @@ F-023 remains OPEN. No UEFI release-complete claim is justified from these diver
 - Add an integration test where the module occupies a subrange of an EfiLoaderData descriptor, and tests for adjacent, partial, overlapping, and out-of-map module ranges.
 
 F-024 remains OPEN. The PR #130 policy and PR #61 loader must not be combined until this contract is resolved.
+
+
+## F-025 — PCI host-range bounds and firmware DMA cleanup were split across main-based PRs (2026-11-14)
+
+**Severity:** HIGH / integration candidate now under exact-head CI.
+
+- PR #162 (main-based) adds host bridge bus-range tracking, starts enumeration at ECAM bus_start, rejects invalid ECAM ranges, validates bridge primary/secondary/subordinate windows, and bounds nested bridge traversal.
+- PR #165 (main-based) clears firmware Bus Master on host bridges, endpoints and non-forwarding functions, while preserving PCI-to-PCI and CardBus bridge functions. Its original implementation still performed BAR probing before clearing Bus Master.
+- The two changes overlapped in `pci.c`, `pci.h`, and host test wiring. Integrated #162's bounded enumeration into #165's security branch, preserving the Bus Master policy. Both PCI regression suites now run from `tests/run_host_tests.sh`; the virtio model explicitly sets the primary bridge bus.
+- Combined PR #165 head: `f986d3f84fdc6bac6dd72ce7d4fd6a76bc4d3caf`. No exact-head CI result is available yet. Previous PR #165 30/30 success belongs to the earlier head and is not evidence for this combined change.
+- PR #162 remains a separate Draft source PR; do not merge it independently after this integration. PR #139's PCI/device-registry stack is still based on a separate architecture branch and needs later reconciliation.
+- Existing F-017 remains open: firmware Bus Master is cleared only after BAR probing, leaving a DMA exposure window during probing. A previous pre-probe change caused a UHCI VM regression; the cause and a safe transition sequence remain unresolved.
+
+F-025 remains OPEN pending exact-head CI and later PCI/device-model reconciliation. F-017 remains independently OPEN.
