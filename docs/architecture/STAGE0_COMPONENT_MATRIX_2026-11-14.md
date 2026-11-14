@@ -756,3 +756,12 @@ UDP owner checks currently occur outside `ulk`, and teardown clears ownership wi
 
 ### F-060 UDP transmit result acceptance gate
 `udp_xmit()` currently discards the result of `ipa_send()` and reports the payload length even when `eth_send()` returns a NIC TX enqueue error. Require propagation and deterministic fake-netdev tests for IPv4/IPv6, including full e1000/virtio TX queues. A successful UDP send result may mean local enqueue only, never remote receipt.
+
+
+## 4. Current-main FDT/ARM64 handoff audit update (2026-11-15)
+
+- Main source tree at `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e` has 863 tree entries (pinned baseline had 861); all new counts are tied to this exact SHA.
+- Current main still contains F-058 and F-061 string-boundary gaps in the FDT parser/consumers.
+- Current main still accepts FDT v16 while reading the v17-only structure-size header word (F-063).
+- Draft PR #166 candidate includes the reserve-map parser, version-aware v16 handling, and reserved-page PMM ownership; exact-head workflow `43610515593` on `4bc69a224887ead8d8d1737e782ed76cf4b8e95e` reports 30/30 jobs successful.
+- Candidate success does not close findings on main. Keep F-016 and F-063 OPEN until code review and integration; preserve the separate F-058/F-061 fixes and their boundary tests.
