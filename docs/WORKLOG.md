@@ -316,3 +316,12 @@
 - QEMU passed SMP, 8-CPU boot/soak, stress, NVMe, VirtIO/SATA/ATA, USB UHCI, network, WASM, isolation and other matrix scenarios.
 - One QEMU job `vm (apps-drvman)` FAILED. Downloaded artifact `vm-apps-drvman` shows the shell command `drv` prints `пакеты в /drv: 5` but then emits no package rows. The pinned `kdrv.c::show()` source should iterate those rows. Root cause is unresolved; do not label it pre-existing or attribute it to F-001 without a baseline comparison.
 - PR #152 is therefore NOT fully green. F-001 implementation is present and core stack tests/stress pass, but integration acceptance is blocked until the `apps-drvman` scenario is explained and passes (or an independently proven test defect is corrected without weakening coverage).
+
+
+### Сравнительная интеграция F-001 + F-009 (2026-11-14)
+
+- PR #153 (только PMM F-009), head `861707fc4538d396e00066cfbfe2ec171edb8abb`, exact-head run `43586614175`: **43/43 checks success**. В том числе `vm (apps-drvman)` PASS; артефакт показывает полный вывод списка всех пяти пакетов.
+- PR #152 (только VMM stack F-001), head `48518fac18ba16e49d66fb641ece96ae06515811`, exact-head run `43586203250`: 42/43 checks success; единственный failure `vm (apps-drvman)`. Артефакт показывает, что после пятого пакета команда `drv` останавливается после строки count и не выводит rows.
+- Это сравнение указывает, что F-009 из baseline является необходимой предпосылкой для прохождения данного сценария; F-001 не следует обвинять в этом failure без дополнительного evidence.
+- Создана combined main-based ветка и Draft PR #154, включающие оба изменения F-001 + F-009. Head `a3bd9a47f9a9f2f7fad09823ac50c3c90c2a01cd`; exact-head host/build/ARM64 checks запущены, затем ожидается полная QEMU matrix.
+- Ни один PR не объединён; main не изменён. Финальная интеграционная приёмка зависит от PR #154 exact-head CI.
