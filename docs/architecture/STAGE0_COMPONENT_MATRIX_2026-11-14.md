@@ -701,3 +701,13 @@ Do not infer guest-driver DMA origin from a whole-process guest_errors count.
 | PCI firmware handoff PR #165, `7ad140c` | `usb-uhci` | 393,602 invalid-read records | Functional pass with anomalous QEMU log |
 
 Different source heads mean this is not a controlled A/B. The contrast strengthens F-054 as a hypothesis; PR #169 must verify the staged Bus Master fix on the #165 base.
+
+
+### xHCI activation boundary refinement (2026-11-14)
+
+| Stage | Safe state | Evidence / requirement |
+|---|---|---|
+| Controller state and DMA allocations | Bus Master off; controller stopped/reset | Allocate DCBAA, scratchpads, command/event rings and ERST; initialize contents |
+| DMA permission grant | Controller halted; DMA objects valid; device pointers not yet programmed | Host model asserts allocated objects exist and DCBAAP/CRCR/ERSTBA registers remain zero |
+| Pointer exposure | Bus Master on; controller still halted | QEMU's `xhci_er_reset` immediately reads ERSTBA, so BM must already be available |
+| Controller RUN | All DMA pointers valid and visible | Start only after pointer registers and barriers |
