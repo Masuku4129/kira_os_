@@ -970,3 +970,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - The runner already supports per-scenario boot_timeout, and its VM configuration is centralized in VM.args(). A future diagnostic profile can set a short boot_timeout (10–15 s) and optionally disable verbose QEMU guest-error logging; full acceptance scenarios keep their existing complete timeouts.
 - Recommended harness improvement after Stage 0: add a scenario/CLI switch for QEMU guest-error logging, plus a dedicated short PCI/USB preflight scenario. Keep one focused evidence run with guest_errors enabled when needed; use serial/register assertions for routine regressions to avoid multi-gigabyte artifacts.
 - Do not shorten the full acceptance USB scenario; the short profile is only a diagnostic gate. Final T4 CI retains all current acceptance checks.
+
+
+## 40. KDRV Ring 3 DMA authorization and startup sequence audited — 2026-11-14
+
+- Read current-main kdrv.c start(), quiesce(), sys_dma_alloc() and KDRV_SYS_CFG_WRITE, then compared with the in-tree RTL8139 driver.
+- Found that KDRV start() enables PCI_CMD_MASTER before proc_spawn_driver() whenever CAP_DMA or CAP_IRQ is granted. This is earlier than the driver's BAR mapping, controller reset, DMA allocation and ring programming.
+- CAP_IRQ is not a safe substitute for DMA authorization: PCI Bus Master is device-wide. An MSI write is a memory transaction, but enabling the bit for an IRQ-capable driver also gives the requester general bus-master access; absent an IOMMU domain, that cannot be restricted to just the MSI message.
+- sys_dma_alloc() allocates contiguous identity-mapped memory and tracks the pages in the binding, but does not program/establish an IOMMU domain restricting the requester to those pages. This must not be described as DMA isolation.
+- RTL8139's own order is map BAR → allocate RX/TX buffers → reset/read MAC → initialize ring addresses and enable RX/TX, but the manager has already enabled Bus Master before the driver starts. This manager-level grant defeats the otherwise safer driver order.
+- Added F-031 HIGH. Required fix is staged decode/IRQ/DMA permission, registered DMA ownership, verified IOMMU domain or fail-closed policy, bounded quiesce, and Bus Master readback/revocation. No source code changed.
