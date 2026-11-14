@@ -777,3 +777,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - PR #166 corrected head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, workflow `43610515593`: 30/30 jobs succeeded.
 - Confirmed host-tests, x86 build, ARM64 build/scenarios and all VM matrix scenarios succeeded on the corrected source, including the FDT v16 and overlap regression tests.
 - This is a verified branch CI result, not a main merge or release claim. Main remains untouched.
+
+
+## 17. Device Model completeness and rescan-owner audit — 2026-11-14
+
+- Inspected PR #141's exact registry, PCI adapter, KDRV handle binding, rescan guard and tests. Exact head `cda2ba2b3b9432f0dcae1843bc331ac858c4b6e2` has five successful workflow runs; PR remains Draft and stacked on #139's architecture branch.
+- Confirmed the registry is a partial discovery/identity slice: no typed MMIO/port/IRQ/DMA resources, IOMMU domains, power/reset, package provenance, resource teardown or full lifecycle states.
+- Found the rescan guard checks KDRV binding slots only. Built-in PCI drivers also enable bus mastering and map BARs, but are not represented in that guard. Post-boot PCI rescan must remain globally denied until all built-in and KDRV owners participate in a coordinated quiesce/revoke transaction.
+- Added F-026. No registry or PCI code was transplanted into main-based PRs; the separate architecture branch remains preserved for later coherent integration.
