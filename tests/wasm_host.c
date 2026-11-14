@@ -92,6 +92,11 @@ static int wasm_parser_selftest(void) {
         2,14,1,4,'k','i','r','a',5,'w','r','i','t','e',0,0,
         7,8,1,4,'m','a','i','n',0,0
     };
+    for (u32 cut = 0; cut < sizeof valid_import; cut++) {
+        wasm_reset(); mod = valid_import; modlen = cut;
+        (void)load();
+        if (!trapped) { fprintf(stderr, "truncated module accepted at byte %u\\n", cut); return 1; }
+    }
     wasm_reset(); mod = valid_import; modlen = sizeof valid_import;
     (void)load();
     if (!trapped || !trap_msg || strcmp(trap_msg, "no exported main/_start")) return 1;
