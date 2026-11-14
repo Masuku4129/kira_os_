@@ -68,7 +68,7 @@ PR #148 уже содержит модель:
 
 ## 4. Полный объём, который нельзя потерять
 
-Мастер-план остаётся источником требований:
+Мастер-план остаётся источником требований. Предварительная карта всех областей и потоков: [STAGE0_COMPONENT_MATRIX_2026-11-14.md](STAGE0_COMPONENT_MATRIX_2026-11-14.md).
 - 14 областей A–N;
 - 12 параллельных рабочих потоков;
 - критерии выпуска ISO и обновления;
@@ -125,6 +125,9 @@ Stage 0 — инвентаризация всего репозитория и д
 - F-003 — PCI ECAM bus range сохраняется, но root enumeration начинается с bus 0.
 - F-004 — unified BootInfo contract отсутствует в текущем main.
 - F-005 — generic bus-independent Device Model lifecycle отсутствует в текущем main.
+- F-006 — `ARCHITECTURE.md` содержит устаревшие утверждения, противоречащие текущему коду и CI.
+- F-007 — `build_clang.sh --android` исключает тестовые/учебные программы из полного состава образа.
+- F-008 — scheduler использует heap fallback без guard page и не очищает стек перед использованием.
 - F-006 — `ARCHITECTURE.md` содержит исторические утверждения, противоречащие текущему коду/CI (SMP, USB, NVMe, QEMU).
 - F-007 — `build_clang.sh --android` включает release filter и исключает тестовые/учебные программы из ISO.
 
@@ -139,7 +142,7 @@ Stage 0 — инвентаризация всего репозитория и д
 - [x] Получить host-tests log PR #150: failure is `wm_compose_par(test_present, &composed_pixels) > 4` at `tests/wm_test.c:84`; GUI failure remains open and must not be hidden by the kernel work.
 - [x] Прочитать актуальные `AGENTS.md`, `README.md`, `ARCHITECTURE.md`, мастер-план и WORKLOG.
 - [ ] Сверить build scripts x86-64/ARM64 с tree и status manifest PR #148.
-- [ ] Составить актуальную компонентную матрицу по всем A–N и 12 потокам.
+- [x] Составить предварительную компонентную матрицу по всем A–N и 12 потокам; полный file-to-component/build-profile mapping ещё не завершён.
 - [x] Выполнить первичный source-level проход по kernel stacks, DMA/IOMMU, PCI enumeration, boot handoff и Device Model; зарегистрировать F-001…F-005. Полный аудит всех нижних уровней ещё не завершён.
 - [ ] Сформировать отдельный набор RFC/ADR для незафиксированных контрактов.
 
@@ -149,4 +152,7 @@ Stage 0 — инвентаризация всего репозитория и д
 |---|---|---|---|
 | 2026-11-14 | main `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4` | Зафиксирован исходный baseline Stage 0 | GitHub tree/API read; исполняемые тесты в этой записи не запускались |
 | 2026-11-14 | audit branch `cd12b7c31dccf97c1bd6d5ebf001bd0f3b9dac0a` | Добавлены F-001…F-005 по исходникам | Source review на pinned main SHA; runtime reproduction не выполнялся |
+| 2026-11-14 | audit branch `9d6616b21f06418559f23d4a0b60130acbd9ffaf` | Добавлены F-006/F-007: docs drift и release profile | Сверены source/build/CI; runtime tests не запускались |
+| 2026-11-14 | audit branch `d3c046b0ef2c7507e554d1eda6dc3e67e8cfec4e` | Добавлен F-008: heap fallback/stack initialization | Source review на pinned main SHA |
+| 2026-11-14 | audit branch `a82791d821e7f8d5f0e8409a6aa616e9b01d023b` | Добавлена предварительная матрица 14 областей и 12 потоков | Inventory only; no READY statuses claimed |
 | 2026-11-14 | PR #152, head `29d8b5842ff5de0b93dc8da97f665496c6e507bb` | Исправление F-001: общий ownership helper, x86-64/ARM64 allocator hardening и host regression | Первый CI run выявил пропущенные include/state declarations; исправлены. Exact-head workflow `43586072209` выполняется |
