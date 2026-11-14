@@ -768,3 +768,8 @@ Therefore the xHCI part of F-054 has strong targeted QEMU evidence, but the UHCI
 **Stage 0 progress: 70%.** Phase-aware QEMU evidence shows the UHCI scenario emits 393,600 invalid reads to 0x0/4/8/C while the same-branch no-USB control is clean. PCI enumeration clears Bus Master but does not stop the firmware-running controller; the USB driver stops it only after the entire PCI scan. This is a likely source of the rejected-DMA storm, not evidence of successful memory writes.
 
 Added F-057: quiesce UHCI immediately after BM revocation during PCI discovery, verify HCHalted, and keep BM off on timeout. The proposed helper will have mocked-port host tests and QEMU log acceptance. No source fix claimed yet.
+
+
+## 36. UDP transmit error propagation — 2026-11-14
+
+**Stage 0 progress: 72%.** Added F-060 after tracing the return contract from `netdev_t.send` through e1000/virtio-net, `eth_send()`, IP send and `udp_xmit()`. Both NIC drivers report TX queue exhaustion, and the lower network layers propagate it, but `udp_xmit()` ignores that result and reports the payload length. Source-confirmed; no production code or runtime test changed in this audit pass.
