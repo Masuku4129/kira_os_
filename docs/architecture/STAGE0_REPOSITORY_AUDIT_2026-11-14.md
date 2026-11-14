@@ -403,3 +403,44 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Exact head `2bbcef9eb86a43919099d2f26eb8af817c4c893b`, workflow `43609381410`: host-tests failed with `SyntaxError: unmatched ')'` at line 211. A duplicated stale tail of the previous checker implementation remained after the final success messages.
 - Removed the entire duplicate tail; the single checker now ends after the four success messages. No checks were bypassed.
 - Corrected PR #148 head: `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`. Fresh exact-head CI has not yet appeared; no PASS claimed.
+
+
+## 10. Stage 0 progress update — 2026-11-14
+
+**Текущий Stage 0: 40%.** Это оценка закрытых аудиторских доменов, а не процента прочитанных строк или готовности ОС. Повышение с 35% обосновано завершёнными source-level проходами по следующим дополнительным областям:
+- x86-64/ARM64 architecture-support headers и ABI различия потоков/FPU;
+- тестовые помощники и подтверждение, что рассмотренные test doubles не попадают в production build;
+- отдельные x86-64 и ARM64 kernel initialization sequences и их dependency ordering;
+- KDRV Ring 3 capability/DMA grant lifecycle;
+- PCI/USB and cross-driver DMA grant ordering;
+- Mind ACT-mode authority and memory-pressure termination policy;
+- KiraFS/FAT persistence, VFS mount locking and test coverage boundaries;
+- exact-head project status registry PR #148 (30/30 jobs on its current reviewed head).
+
+**Не закрыто:** полный смысловой аудит всех 829 baseline paths и всех 722 branch-only paths; source/test review оставшихся device, process, runtime, KCC, graphics, networking, security and boot areas; exact-head CI reconciliation for current PCI/ARM64 integration heads; full test-matrix mapping; execution of host tests in a local reproducible environment; physical x86-64/ARM64 acceptance.
+
+### Новые source findings с момента исходного реестра
+
+- F-025 — UHCI QEMU DMA storm: миллионы отклонённых DMA reads по 0x0/0x4/0x8/0xC; strongly consistent with an active controller fetching an invalid frame list, but register-level proof is still missing.
+- F-029 — UHCI/xHCI re-enable Bus Master before controller quiesce/reset and replacement of firmware DMA pointers.
+- F-030 — VirtIO, NVMe, AHCI, e1000, HDA and AC'97 also grant Bus Master before controller reset and/or kernel DMA queue/ring setup.
+- F-031 — KDRV enables Bus Master before spawning Ring 3 driver for CAP_DMA or CAP_IRQ; contiguous identity-mapped allocation is not IOMMU isolation.
+- F-032 — Mind ACT-mode may terminate the largest process at 97% memory without an essential-service/unsaved-work veto.
+- F-033 — FAT fat_flush() ignores the underlying block-device flush error.
+- F-034 — vfs_any() and root vfs_list() read mount slots without their per-slot locks.
+
+### Additional completed reviews
+
+- 22 architecture-support headers plus 12 assembly/linker support files reviewed; architecture-specific ABI and host-test guards recorded.
+- All 10 TEST_HELPER_REVIEW files inspected; tests/stub/kira.h and device/filesystem test models are not in production x86/ARM build scripts.
+- x86-64 and ARM64 kernel initialization orders compared; dependency equivalence is required, not identical source order.
+- PR #148 current head bf35ca714526d38f5fdc3021c03b2bedf3ec2c99 exact-head workflow 43609627054: 30/30 jobs succeeded. PR remains Draft/unmerged.
+
+### Test planning changes
+
+- Split fast diagnostics from full acceptance: short 10–15 second PCI/USB diagnostic with serial/register assertions; enable QEMU guest-error logging only for targeted evidence runs.
+- Preserve the full 90-second USB acceptance scenario and complete x86/ARM64 matrix.
+- For each fix: focused host regression → one-device QEMU reproduction → subsystem matrix → cross-PR changed-file/dependency check → full exact-head CI.
+- Do not run a multi-gigabyte QEMU log as the default diagnostic path. The full UHCI log was 4,187,160,076 bytes and yielded useful evidence only after streaming counts.
+
+No production source was changed. Main remains pinned and untouched; no PR merged; no ISO built.
