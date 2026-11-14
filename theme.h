@@ -3,9 +3,8 @@
 
 /*
  * Semantic design tokens shared by the shell and built-in applications.
- * KIRA_SPATIAL_PREVIEW opts into the approved Spatial Minimal visual system.
- * The default branch keeps the Legacy palette unchanged until Spatial is
- * accepted as the default layout.
+ * Spatial Minimal is the production desktop. Its palette is therefore the
+ * default for every build; KIRA_LEGACY_THEME is an explicit compatibility opt-out.
  */
 
 #define TH_SPACE_1 4
@@ -15,7 +14,7 @@
 #define TH_SPACE_6 24
 #define TH_BAR_H 24
 
-#ifdef KIRA_SPATIAL_PREVIEW
+#ifndef KIRA_LEGACY_THEME
 
 /* Spatial Minimal: canvas, layered surfaces and controls. */
 #define TH_BG0                 0x00070D19u
