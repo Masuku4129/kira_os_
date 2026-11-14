@@ -76,6 +76,31 @@ static int leb_tests(void) {
     puts("wasm: signed/unsigned LEB128 bounds, canonical encodings and immediate truncation passed");
     return 0;
 }
+static int malformed_import_tests(void) {
+    static const u8 bad_type_index[] = {
+        0, 'a', 's', 'm', 1, 0, 0, 0,
+        1, 5, 1, 0x60, 0, 1, 0x7E,
+        2, 14, 1, 4, 'k', 'i', 'r', 'a', 5, 't', 'i', 'c', 'k', 's', 0, 1
+    };
+    static const u8 bad_signature[] = {
+        0, 'a', 's', 'm', 1, 0, 0, 0,
+        1, 4, 1, 0x60, 0, 0,
+        2, 14, 1, 4, 'k', 'i', 'r', 'a', 5, 't', 'i', 'c', 'k', 's', 0, 0
+    };
+    static const u8 imported_entry[] = {
+        0, 'a', 's', 'm', 1, 0, 0, 0,
+        1, 5, 1, 0x60, 0, 1, 0x7E,
+        2, 14, 1, 4, 'k', 'i', 'r', 'a', 5, 't', 'i', 'c', 'k', 's', 0, 0,
+        7, 8, 1, 4, 'm', 'a', 'i', 'n', 0, 0
+    };
+#define LOAD_REJECTS(bytes) do { wasm_reset(); mod = (bytes); modlen = sizeof(bytes); if (load() == 0 || !trapped) { fprintf(stderr, "malformed WASM import accepted at line %d\n", __LINE__); return 1; } } while (0)
+    LOAD_REJECTS(bad_type_index);
+    LOAD_REJECTS(bad_signature);
+    LOAD_REJECTS(imported_entry);
+#undef LOAD_REJECTS
+    puts("wasm: invalid import type index, host ABI signature and imported entry rejected");
+    return 0;
+}
 static int trunc_module(const char* path) {
     FILE* f = fopen(path, "rb"); if (!f) return 2;
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
@@ -121,6 +146,7 @@ int main(int argc, char** argv) {
     if (getenv("WASM_NOJIT")) jit_on = 0;                          /* только интерпретатор (как на ARM64) */
 #ifdef WASM_FUEL
     if (argc == 2 && !strcmp(argv[1], "leb")) return leb_tests();
+    if (argc == 2 && !strcmp(argv[1], "malformed")) return malformed_import_tests();
     if (argc == 3 && !strcmp(argv[1], "trunc")) return trunc_module(argv[2]);
     if (argc == 4 && !strcmp(argv[1], "fuzz")) return fuzz_module(argv[2], atoi(argv[3]));
 #endif
