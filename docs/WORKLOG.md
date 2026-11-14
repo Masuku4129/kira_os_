@@ -857,3 +857,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Counted the pinned-main test entry points: tests/run_host_tests.sh defines 47 named host suites; ci/scenarios.py defines 38 QEMU VM scenarios. Host coverage spans PMM, scheduler/context/FPU, KDRV package parsing, PCI/virtio, KiraFS, process/ELF, IPC, SMP, graphics/UI, KIRA Mind, FDT, USB UHCI/xHCI, FAT/VFS, networking/TLS, KCC and driver workflows.
 - The 38 VM scenarios cover boot devices/modes, memory/SMP, USB, networking, sound, graphics/apps, power, fault isolation, KIRA Mind and driver installation/management. This is a broad existing test base, but scenario names alone do not prove every failure mode or both-ISA coverage; map each scenario to the component/ISA/build profile before acceptance.
 - Stage 0 percentage unchanged: inventory and test entry-point counts are verified, but semantic review of all auxiliary source paths and branch-only integration dependencies is not complete.
+
+
+## 28. BootInfo branch-stack comparison — 2026-11-14
+
+- Compared PR #12 and PR #46 exact source files, not only PR descriptions. Both expose BootInfo v1 with the same packed header and record layouts, but the implementations differ materially.
+- PR #12 has the stronger common validator: it verifies that each module's complete physical range is covered by USABLE/MODULE memory-map entries. Its FDT producer consumes the firmware reserve map, reserves kernel+DTB, subtracts /reserved-memory and reserves simple-framebuffer memory.
+- PR #46 supplies the missing UEFI path: PE32+ loader reads the kernel ELF, collects GOP/RSDP and EFI memory descriptors, builds KBI, retries GetMemoryMap/ExitBootServices on stale map keys, then enters the kernel with Microsoft x64 ABI arguments (BootInfo pointer and size). It also adds UEFI KBI tests for memory-type mapping, GOP geometry, descriptor overflow/overlap and RSDP alignment.
+- PR #46's bootinfo.c does not contain PR #12's module_in_ram() validation; its bootinfo_fdt.c is also a shorter implementation without the same reserve-map and reserved-memory subtraction. The headers share v1 layout, but their semantic validators are not interchangeable.
+- Exact CI evidence: PR #12 runs 43236520117 and 43236520194 succeeded; PR #46 has no workflow run associated with its exact head. PR #45 UEFI hardening run 42385882597 failed; PR #60 run 42779406776 and #61 run 42780403870 succeeded; PR #130 runs 43164087429 and 43164087483 succeeded, all on divergent bases.
+- Added F-028. Integration rule: preserve the stronger PR #12 validator/FDT reservation semantics while adapting and separately verifying the PR #46 UEFI producer/loader. Do not merge branch stacks wholesale or assume same ABI version means same semantics.
