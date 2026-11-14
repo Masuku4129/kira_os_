@@ -1156,6 +1156,22 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     if (!map) kernel_panic("no memory for the page map");
     /* занято: ядро, дерево устройств, ранние выделения (таблицы MMU, сама карта) */
     pmm_arm_init((const pmm_arm_region_t*)ram, nram, lo, hi, map, (uint64_t)(uintptr_t)__kernel_start, (uint64_t)(uintptr_t)__kernel_end);
+    /* Firmware's header reserve map is separate from /reserved-memory. Apply every range
+       to each intersecting RAM bank before any general allocator can hand those pages out. */
+    int nreserve = fdt_reserve_count(fdt);
+    if (nreserve < 0) kernel_panic("invalid FDT memory reservation map");
+    for (int i = 0; i < nreserve; i++) {
+        uint64_t ra, rs;
+        if (fdt_reserve_get(fdt, (unsigned)i, &ra, &rs) != 0) kernel_panic("invalid FDT reservation entry");
+        if (!rs) continue;
+        uint64_t re = ra + rs; /* fdt_valid rejects wrapping address/size pairs */
+        for (unsigned j = 0; j < nram; j++) {
+            uint64_t rb = ram[j].base, rend = rb + ram[j].size;
+            uint64_t a = ra > rb ? ra : rb, e = re < rend ? re : rend;
+            if (e > a) pmm_arm_reserve(a, e);
+        }
+    }
+    if (nreserve) kprintf("[KIRA ARM64] firmware memory reservation map: %u range(s) applied\\n", (uint64_t)nreserve);
     pmm_arm_reserve((uint64_t)(uintptr_t)fdt, (uint64_t)(uintptr_t)fdt + fdt_total_size(fdt));
     pmm_arm_reserve(bump_start, bump);
     if (dma_lo) pmm_arm_reserve(dma_lo, dma_hi);                 /* пул DMA - не для pmm */
