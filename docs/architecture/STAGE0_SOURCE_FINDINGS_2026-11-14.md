@@ -984,3 +984,26 @@ F-030 remains OPEN. This finding is separate from F-017 (enumeration-time firmwa
 ### F-025 harness cost note
 
 The 4.18 GB qemu.log was generated because the current VM harness always enables QEMU guest_errors logging. The same runner has a per-scenario boot_timeout setting (default 90 s). A future short diagnostic case should use a 10–15 s boot timeout and optional QEMU error logging; do not shorten the full USB acceptance scenario.
+
+
+## New finding F-031 — KDRV grants PCI Bus Master before a Ring 3 driver has initialized the device (2026-11-14)
+
+**Severity:** HIGH, breaks the intended least-privilege DMA boundary.
+
+### Evidence
+- In current-main kdrv.c, start() computes the user-approved capability intersection, enables PCI MEM decode for CAP_MMIO, then enables PCI_CMD_MASTER immediately whenever either CAP_DMA or CAP_IRQ is granted. This occurs before proc_spawn_driver().
+- The driver process has not yet mapped BARs, allocated/initialized DMA buffers, reset the controller, or programmed new DMA addresses at the time Bus Master is enabled.
+- CAP_IRQ is not equivalent to permission to DMA arbitrary buffers. MSI is a device-originated memory write, but the PCI Bus Master bit is a device-wide transaction permission; granting it for IRQ also opens the device's general bus-master capability. Without an IOMMU domain, MSI-only permission cannot be safely isolated from arbitrary DMA by this bit alone.
+- The syscall path also permits a driver with CAP_DMA or CAP_IRQ to set PCI_CMD_MASTER through KDRV_SYS_CFG_WRITE. This can be a deliberate driver-controlled transition, but there is no required readiness state, IOMMU-domain token, or kernel-owned DMA-registration check before the bit is set.
+- KDRV's DMA allocator creates contiguous identity-mapped pages and records them per binding, but the code does not establish an IOMMU translation domain or constrain a device to those pages. This is not DMA isolation: the device can still address any bus-visible physical address.
+- The in-tree RTL8139 Ring 3 driver requests DMA and IRQ capabilities. Its start path maps the BAR, allocates RX/TX buffers, resets the NIC, then initializes ring addresses and starts RX/TX. However KDRV has already granted Bus Master before the driver process starts, so the safe order inside rl.c does not close the manager-level early grant.
+
+### Required closure
+1. Do not enable PCI_CMD_MASTER in start() merely because CAP_DMA or CAP_IRQ was approved. Keep decode permissions separate.
+2. Model MSI as a distinct, narrowly scoped interrupt operation; do not treat CAP_IRQ as generic DMA authorization. Where the platform cannot enforce MSI separately from arbitrary requester DMA, require an IOMMU requester domain or keep the untrusted device's Bus Master disabled.
+3. Add a kernel-owned DMA readiness/registration transition: registered DMA allocations + controller quiesced/reset + driver-reported/programmed ring addresses + IOMMU mapping all verified before Bus Master can be enabled.
+4. Revoke Bus Master before process teardown and verify PCI Command readback; on failure, quarantine the device.
+5. Add negative tests: CAP_IRQ-only must not grant unrestricted DMA; CAP_DMA driver must not obtain Bus Master before its first registered queue/ring; failed driver startup leaves Bus Master clear; teardown clears it.
+6. Preserve explicit fail-closed behavior on platforms without an IOMMU. Do not claim that the existing contiguous allocator alone isolates DMA.
+
+F-031 remains OPEN. This is a separate manager-level flaw in addition to the built-in driver's early-grant ordering in F-029/F-030.
