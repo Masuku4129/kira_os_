@@ -97,3 +97,13 @@ This section supersedes earlier PR #165/#166 status descriptions in the prelimin
 - **Integration dependency:** PR #166 must be combined with or follow PR #158's ARM64 PMM reserved-page ownership fix. Otherwise a later PMM free can release a late-reserved page. #158 exact head `70d0e89a65414818c22d61532f7ca4288c464d2c`, run `43592051859`, 43/43 PASS. Add an FDT-to-PMM integration regression before marking the whole memory-reservation lifecycle accepted.
 
 All areas remain PARTIAL/BLOCKED/UNVERIFIED as previously stated; no area is promoted to READY by these branch-only results.
+
+
+### Follow-up — FDT-to-PMM integration added to PR #166 (2026-11-14)
+
+- PR #166 was expanded beyond the original FDT parser patch to carry the verified ARM64 PMM reserved-page ownership and atomic contiguous-release implementation from PR #158.
+- Added an end-to-end host regression in `tests/fdt_test.c`: parse the FDT header reservation, apply it to ARM64 PMM, prove the reserved page cannot be freed, exhaust all remaining allocatable pages and prove the reserved page is never returned.
+- Added the independent `tests/pmm_arm_test.c` suite and wired it into `tests/run_host_tests.sh`; the FDT test now links the actual ARM64 PMM implementation.
+- Updated PR #166 description to state the combined scope and exact verification boundary. Current head: `5846df979218bd43e0edfdd456f7042d45e8c195`; exact-head workflow `43608492629` is pending. The earlier FDT-only head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229` passed 29/29 returned jobs, but that result does not transfer to the expanded head.
+- PR #158 remains open as the standalone source of the PMM change; do not merge both independently or duplicate the same implementation. Review the combined #166 diff and decide which PR is the integration vehicle after its exact-head CI completes.
+- PR #165 diagnostic-cleanup head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb` has workflow `43608372681` queued/in progress; the previous pre-cleanup head passed all 30 returned jobs (not 29; the latest job listing contains 30 entries). No result is claimed for the cleanup head yet.
