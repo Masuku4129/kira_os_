@@ -541,7 +541,7 @@ def _dg(cmd, rx, t):     # программа запускается в фоне
 
 _DRV_WWW, _DRV_SET8 = _drv_www()
 _DRV_HTTP = "guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE
-ALL.append(sc("drvget-rl", "drvget: HTTPS source validation and on-device KCC build; after install RTL8139 DMA is denied without IOMMU while virtio-net retains DHCP/HTTPS control traffic", [
+ALL.append(sc("drvget-rl", "drvget: HTTPS source validation and on-device KCC build; after install RTL8139 DMA is denied without IOMMU while RTL8139 is refused and cannot register a network interface", [
     {"log": BOOT_LOG}, {"sleep": 6},
     *_dg("drvget base https://10.0.2.100", r"каталог рецептов теперь https://10\.0\.2\.100", 20),
     *_dg("drvget install gpl", r"drvget: отказ: .*GPL", 90),
@@ -557,10 +557,11 @@ ALL.append(sc("drvget-rl", "drvget: HTTPS source validation and on-device KCC bu
     *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, источник: https://10\.0\.2\.100/rl/drvget\.rec", 30),
     *_dg("drvget verify rl", r"verify rl: OK", 20),
     {"log_forbid": NO_ERR},
-    # Keep virtio-net for HTTPS/DHCP control traffic; RTL8139 is the target device whose Ring 3 DMA request must be denied.
+    # The first phase uses virtio-net for HTTPS acquisition; the second phase exposes only RTL8139 and verifies the denied package cannot register a network interface.
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "virtio-net-pci,netdev=n0", "-netdev", "user,id=n1", "-device", "rtl8139,netdev=n1"]},
     {"sleep": 10},
     {"log": [r"\[KIRA DRV\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
+    {"log": [r"\[KIRA NET\] No supported network card: networking is off"]},
              r"\[KIRA DRV\] rl: PCI quiesce verified \(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\)"]},
     {"cmd": "drv", "forbid": [r"drv-rl pid"]},
     # DHCP is expected from the separate virtio control NIC; only RTL8139 driver registration is forbidden.
@@ -592,7 +593,7 @@ ALL.append(sc("drvman-edu", "Driver Manager: MMIO-only Ring 3 driver starts; asy
     *_dg("drvman do stop edunc;pci", r"drvman: готово", 40),
     {"log": [r"drvman: просьба остановить edunc принята", r"\[KIRA DRV\] останавливаю drv-edunc", r"\[KIRA DRV\] drv-edunc \(pid \d+\) завершён: устройство .* остановлено",
              r"drvman: драйвер edunc остановлен, устройство возвращено ядру",
-             r"drvman: pci \d\d:\d\d\.\d\s+1234:11e8\s+[0-9a-f]{6}\s+.*пакет edunc установлен, не запущен"]},
+             r"drvman: pci \d\d:\d\d\.\d\s+1234:11e8\s+[0-9a-f]{6}\s+.*пакет (?:edu|edunc) установлен, не запущен"]},
     {"cmd": "drv", "forbid": [r"drv-edunc pid"]},
     *_dg("drvman do start edu;pci", r"drvman: готово", 50),
     {"log": [r"\[KIRA DRV\] edu: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
@@ -645,8 +646,8 @@ ALL.append(sc("apps-drvman", "окно «Драйверы» с клавиату�
     *_dg("drvget verify rl", r"verify rl: OK", 30),
     {"cmd": "drv", "forbid": [r"drv-rl pid"]},
     {"send": ""}, {"keys": "", "then": ["f4"]},
-    {"log": [r"\\[KIRA DRV\\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
-             r"\\[KIRA DRV\\] rl: PCI quiesce verified \\(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\\)",
+    {"log": [r"\[KIRA DRV\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
+             r"\[KIRA DRV\] rl: PCI quiesce verified \(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\)",
              r"drvman: драйвер rl не запущен: нет свободного подходящего устройства PCI",
              r"drvman: либо пакет не прошёл проверку ядра: причина в журнале ядра"]},
     {"shot": "drvman-start-refused"},
