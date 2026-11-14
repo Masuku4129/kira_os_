@@ -151,3 +151,22 @@ F-017 is OPEN. PR #165 is a partial mitigation, not full DMA-handoff acceptance.
 - Add or confirm at least one real bootloader-produced v16 DTB fixture if support for v16 is retained; otherwise explicitly reject v16 and document v17+ as the minimum supported FDT ABI.
 
 F-018 remains OPEN pending exact-head verification and compatibility decision.
+
+
+## New finding F-019 — userland artifact manifest omitted explicit UELF outputs (2026-11-14)
+
+**Severity:** HIGH for release completeness / project-control integrity; no kernel runtime defect implied.
+
+### Evidence
+- The three-stage status manifest listed only names collected from `for app in ...; do` loops.
+- Both build scripts also append five independently linked programs directly to `UELF`: `fetch`, `net6`, `kcc`, `drvget`, `drvman`. These were absent from the manifest's prior 20-name arrays.
+- x86-64 actual UELF inventory is 25 apps; ARM64 actual UELF inventory is 25 apps. The x86 Android/release profile removes `TESTPROGS` and retains 13 apps.
+- The previous CI checker repeated the same loop-only assumption and could not detect loss of one of the five explicit outputs.
+
+### Remediation under verification — PR #148
+- Updated `status_manifest.json` to record all 25 x86-64 and 25 ARM64 app outputs and the 13-app x86 Android/release profile.
+- Updated `ci/check_project_status.py` to combine loop-built and literal `UELF` outputs, exclude the literal loop variable `$app`, compare exact lists and check all corresponding userland source files.
+- Current PR #148 head `8f6657ac793ccfc8c2755fdafdecbdebf413ec5f`; exact-head workflow `43608902362` pending. No PASS claimed.
+- PR #148 remains Draft and separate from main. Do not treat the corrected registry as active protection until the PR is reviewed and integrated.
+
+F-019 remains OPEN pending exact-head CI and review of release artifact contents.
