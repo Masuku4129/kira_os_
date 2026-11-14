@@ -670,3 +670,14 @@ Counts use the full jobs API total, not the first-page 30-job wrapper response. 
 | PCI enumeration | `pci.c:181-193` on PR #165 head | Clears BM only after BAR probe | F-017: firmware BM can remain enabled during BAR probing |
 
 The ordering table is based on source inspection. It does not establish the origin of the QEMU invalid-read log entries.
+
+
+### QEMU guest-error log provenance (2026-11-14)
+
+| Evidence source | Current behavior | Limitation | Required improvement |
+|---|---|---|---|
+| `ci/kira_vm.py:140-145` | Starts `-d guest_errors` at QEMU process creation | Captures firmware and guest with no timestamp or phase boundary | Capture log boundary at OS-ready; report pre-ready/post-ready separately |
+| PR #165 UHCI artifact | 393,600 invalid-read records in raw qemu.log | Cannot attribute to firmware, PCI enumeration or KIRA USB runtime | No-USB negative control and controller register markers |
+| `serial.log` | Contains boot-ready and UHCI functional logs | Separate file; no corresponding QEMU log offsets | Record QEMU log offset alongside serial phase markers |
+
+Do not infer guest-driver DMA origin from a whole-process guest_errors count.
