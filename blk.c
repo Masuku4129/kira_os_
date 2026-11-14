@@ -9,7 +9,9 @@
 #include "clock.h"
 #include "sched.h"
 #include "msi.h"
+#if defined(__x86_64__)
 #include "ramdisk.h"
+#endif
 
 /* Диски системы. Порядок опроса: virtio-blk (виртуальные машины), NVMe, AHCI (SATA), и только если на шине есть
    IDE-контроллер (или PCI нет вообще) - ATA PIO по старым портам: в режиме AHCI те же диски через порты не видны,
@@ -142,8 +144,10 @@ void blk_probe(void) {
 #if defined(__x86_64__)
     if (has_ide()) { blk_dev_t* a = ata_probe(); if (a) blk_register(a, "ata0", a->name); }   /* порты IDE - только у ПК */
 #endif
+#if defined(__x86_64__)
     blk_dev_t* embedded = ramdisk_probe();
     if (embedded) blk_register(embedded, "kira-iso", "embedded KiraFS (RAM, volatile)");
+#endif
     for (int i = 0; i < nslots; i++) if (slots[i].info.kira) { primary = &slots[i].pub; break; }
     if (nslots && !primary) {
         int blank = -1;
