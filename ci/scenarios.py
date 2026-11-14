@@ -557,14 +557,14 @@ ALL.append(sc("drvget-rl", "drvget: HTTPS source validation and on-device KCC bu
     *_dg("drvget list", r"rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен, источник: https://10\.0\.2\.100/rl/drvget\.rec", 30),
     *_dg("drvget verify rl", r"verify rl: OK", 20),
     {"log_forbid": NO_ERR},
-    # The first phase uses virtio-net for HTTPS acquisition; the second phase exposes only RTL8139 and verifies the denied package cannot register a network interface.
+    # Both phases keep virtio-net as control network; phase two adds RTL8139 and verifies its denied Ring 3 package cannot register a network interface.
     {"relaunch": ["-netdev", "user,id=n0," + _DRV_HTTP, "-device", "virtio-net-pci,netdev=n0", "-netdev", "user,id=n1", "-device", "rtl8139,netdev=n1"]},
     {"sleep": 10},
     {"log": [r"\[KIRA DRV\] rl: DMA/MSI требует изоляции устройства через IOMMU; сейчас её нет - драйвер НЕ запущен",
              r"\[KIRA DRV\] rl: PCI quiesce verified \(IO/MEM/BUS_MASTER and MSI/MSI-X disabled\)"]},
-    {"log": [r"\[KIRA NET\] No supported network card: networking is off"]},
+    {"cmd": "net", "must": [r"карта virtio-net, канал есть", r"адрес 10\.0\.2\.15"]},
     {"cmd": "drv", "forbid": [r"drv-rl pid"]},
-    # DHCP is expected from the separate virtio control NIC; only RTL8139 driver registration is forbidden.
+    # The control NIC must stay online; only the denied RTL8139 driver must not register a network interface.
     {"log_forbid": [r"rl: network interface registered"]},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", tls_chain=True,
