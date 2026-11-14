@@ -752,3 +752,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - #153 is a duplicate of the PMM contiguous-release code already included in #154; #164 is an overlapping scheduler reference. Keep the integration candidate separate and do not merge duplicates independently.
 - Corrected #148 record: head `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`, workflow `43609627054`, all 30 jobs succeeded.
 - PR #166's corrected head remains under workflow `43610515593`; host-tests and ARM64 were still running at the last poll. No final PASS is claimed.
+
+
+## 14. UEFI branch-stack and module-memory policy audit — 2026-11-14
+
+- Inspected exact PR #46 UEFI loader, KBI v1 adapter, and kernel entry. That branch does not collect UEFI LoadOptions or load INITRD.IMG; its compatibility adapter emits only mmap/framebuffer tags.
+- Confirmed UEFI initrd + LoadOptions work exists in PR #61 and MB2 module/cmdline serialization in PR #60, both merged into the separate `autodrv` branch on 2026-11-10. Neither is integrated into PR #46's current branch head.
+- Inspected PR #130 module validator, merged into `v46/release-completion`. It accepts module ranges only in `KBI_MEM_USABLE` or `KBI_MEM_MODULE`.
+- PR #61 classifies UEFI `EfiLoaderData` as `KBI_MEM_BOOTLOADER` and does not reclassify the exact INITRD.IMG allocation as `KBI_MEM_MODULE`. This is a real integration conflict: applying PR #130 unchanged would reject the module, while broadly accepting LoaderData would weaken validation.
+- Added findings F-023 and F-024 with exact branch evidence and required resolution. No branch merge or main change was made.
