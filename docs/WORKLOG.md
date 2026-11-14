@@ -288,3 +288,6 @@
 - `drvman-edu`: after stopping `edunc`, the PCI list discarded the last bound package name and the UI selected the first matching valid package (`edu`) instead. Preserved the last bound package identity in the PCI-list result and made Driver Manager prefer that identity for stopped devices; fallback remains matching installed package when the previous package has been removed.
 - `drvget-rl`: after relaunch the scenario replaced the original virtio network adapter with RTL8139 only. The DMA gate correctly denied RTL8139, so DHCP was absent. Updated relaunch to keep virtio-net for HTTPS/DHCP while attaching RTL8139 separately to verify that the latter is denied.
 - These are implementation/test-environment corrections, not waived assertions. Fresh exact-head CI is required after these changes.
+
+
+- Follow-up security review: the first fail-closed implementation attempted `quiesce()` but did not inspect PCI readback. Added `quiesce_verified()` to verify IO/MEM/BUS_MASTER command bits and MSI/MSI-X enable bits are actually clear; a failed readback now emits a CRITICAL diagnostic and a distinct lifecycle event while still refusing to spawn the driver. QEMU scenarios now assert successful quiesce readback for denied DMA/MSI packages.
