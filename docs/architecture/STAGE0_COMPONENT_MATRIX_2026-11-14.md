@@ -690,3 +690,14 @@ Do not infer guest-driver DMA origin from a whole-process guest_errors count.
 | `xhci.c:436-447` | Sequentially allocates IN, OUT, buffer and EP0 ring; `in != NULL` is the only retry sentinel | F-056: partial failure can leave OUT/buffer/ring missing; same-slot retry may dereference NULL | Fail each allocation in turn, re-enumerate using same slot, ASan/UBSan |
 | `usb.c:308-326` | DMA allocation uses PMM contiguous pages; no public matching free API | Partial resources cannot be rolled back transactionally | Explicit ownership/free or retry-safe partial-resource state |
 | `usb.c:60`, `xhci.c:xhci_release()` | Device free disables slot and clears DCBAA entry; does not reset partial slot allocation state | Retry sees stale partial fields | Slot state transitions and cleanup assertions |
+
+
+### Comparative QEMU baseline / PCI-UHCI evidence (2026-11-14)
+
+| Source | Run / scenario | QEMU guest_errors | Interpretation |
+|---|---|---:|---|
+| Current-main diagnostic branch PR #168, `7ad4b30` | `usb-uhci` | 0 bytes; 0 invalid reads/writes | Storm not reproduced on current-main baseline |
+| Current-main diagnostic branch PR #168, `7ad4b30` | `boot-virtio` | 0 bytes; 0 invalid reads/writes | No-USB baseline also clean |
+| PCI firmware handoff PR #165, `7ad140c` | `usb-uhci` | 393,602 invalid-read records | Functional pass with anomalous QEMU log |
+
+Different source heads mean this is not a controlled A/B. The contrast strengthens F-054 as a hypothesis; PR #169 must verify the staged Bus Master fix on the #165 base.
