@@ -68,7 +68,9 @@ int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h) 
     if (find_pid(pid)) return -1;                     /* одно окно на процесс */
     app_t* a = 0;
     uint64_t lf = spin_lock_irqsave(&gfx_lock);
-    for (int i = 0; i < MAX_APPS; i++) if (!apps[i].used) { a = &apps[i]; a->used = 2; break; }
+    for (int i = 0; i < MAX_APPS; i++) if (__atomic_load_n(&apps[i].used, __ATOMIC_ACQUIRE) == 0) {
+        a = &apps[i]; __atomic_store_n(&a->used, 2, __ATOMIC_RELEASE); break;
+    }
     spin_unlock_irqrestore(&gfx_lock, lf);
     if (!a) return -1;
 
@@ -88,10 +90,10 @@ int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h) 
             return -1;
         }
     }
-    a->pid = pid; a->win = -1; a->w = w; a->h = h; a->pages = pages; a->phys = phys;
+    a->win = -1; a->w = w; a->h = h; a->pages = pages; a->phys = phys;
     unsigned k = 0; while (title[k] && k < sizeof(a->title) - 1) { a->title[k] = title[k]; k++; } a->title[k] = 0;
     uint64_t qf = spin_lock_irqsave(&a->q_lock);
-    a->qh = a->qt = 0;
+    a->pid = pid; a->qh = a->qt = 0;
     spin_unlock_irqrestore(&a->q_lock, qf);
     a->seq = 0; a->dirty = 0; a->need_destroy = 0; a->need_create = 1;
     __atomic_store_n(&a->used, 1, __ATOMIC_RELEASE);
