@@ -373,3 +373,11 @@
 - Updated `vmm_map_mmio()` to use the checked page range and validated raw end.
 - Added `tests/mmio_range_test.c` for normal/cross-page ranges, final representable page, raw-end overflow and align-up overflow; wired into `tests/run_host_tests.sh`.
 - Draft PR #156 branch: `fix/mmio-range-overflow-2026-11-14`. Exact-head CI pending. No local test run claimed.
+
+
+### PR #154 — combined F-001 + F-009 accepted by exact-head CI (2026-11-14)
+
+- Latest PR #154 head: `4dd1454093af90f7d569df03b4425650da8da8bc`.
+- Exact-head workflow `43590094470`: **43/43 jobs PASS**, zero failures, zero cancellations.
+- This closes the prior `apps-drvman` test synchronization issue on this exact combined head and verifies stack-slot generation ownership plus atomic PMM contiguous release across the CI host/ARM64/QEMU matrix.
+- Status: fixes are verified on an unmerged Draft PR branch. They are not yet part of `main`; do not claim main is fixed until review/merge.
