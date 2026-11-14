@@ -67,6 +67,7 @@ int main(void) {
 
     int uart = fdt_find_compatible(blob, -1, "arm,pl011");
     uint64_t a, s;
+    uint8_t bad[8192];
     CHECK(uart >= 0 && fdt_reg(blob, uart, 0, &a, &s) == 0 && a == 0x09000000 && s == 0x1000);
     CHECK(fdt_compatible(blob, uart, "arm,primecell") && !fdt_compatible(blob, uart, "arm,pl01"));
     int gic = fdt_find_compatible(blob, -1, "arm,cortex-a15-gic");
@@ -74,6 +75,17 @@ int main(void) {
     CHECK(fdt_reg(blob, gic, 2, &a, &s) != 0);                    /* третьей пары нет */
     int mem = fdt_find_path(blob, "/memory");
     CHECK(mem >= 0 && fdt_reg(blob, mem, 0, &a, &s) == 0 && a == 0x40000000 && s == 0x40000000);
+    CHECK(fdt_reg(blob, mem, UINT32_MAX, &a, &s) != 0); /* index multiplication cannot wrap */
+    memcpy(bad, blob, sizeof bad);
+    int badmem = fdt_find_path(bad, "/memory");
+    uint32_t reglen = 0;
+    uint8_t* badreg = (uint8_t*)fdt_prop(bad, badmem, "reg", &reglen);
+    CHECK(badreg && reglen == 16);
+    if (badreg && reglen == 16) {
+        be(badreg, 0xFFFFFFFFu); be(badreg + 4, 0xFFFFFFF0u); /* base = UINT64_MAX - 15 */
+        be(badreg + 8, 0); be(badreg + 12, 0x100);            /* end wraps */
+        CHECK(fdt_reg(bad, badmem, 0, &a, &s) != 0);
+    }
     int cpus = fdt_find_path(blob, "/cpus");
     CHECK(cpus >= 0 && fdt_count_type(blob, cpus, "cpu") == 4);  /* cpu-map не ядро */
     int cpu2 = fdt_find_path(blob, "/cpus/cpu@2");
@@ -96,7 +108,6 @@ int main(void) {
           fb.stride == 3200 && !strcmp(fb.format, "a8r8g8b8"));          /* выключенный узел пропущен */
 
     /* испорченные блобы */
-    uint8_t bad[8192];
     memcpy(bad, blob, sizeof bad); be(bad, 0x12345678); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 4, 100000); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 36, total); CHECK(!fdt_valid(bad, sizeof bad));
