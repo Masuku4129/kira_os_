@@ -163,7 +163,7 @@ fi
 
 case " $* " in
     *" --no-run "*) exit 0 ;;
-    *" --android-full "*|"*" --android "*)
+    *" --android-full "*|*" --android "*)
         OUT="${KIRA_OUT:-/storage/emulated/0/Download}"
         [ -d "$OUT" ] || { echo "[!] Нет папки $OUT (в Termux: termux-setup-storage; в proot - проверьте, что /storage примонтирован)"; exit 1; }
         DISK_TMP="$OUT/.kira_disk.img.tmp.$$"
