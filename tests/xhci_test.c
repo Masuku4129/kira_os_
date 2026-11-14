@@ -302,8 +302,9 @@ static int bus_master_enable_calls;
 void pci_enable(const pci_dev_t* d, uint16_t b) {
     (void)d;
     if (b & PCI_CMD_MASTER) {
-        CHECK(!(*R(OP, 0) & 1u));             /* controller remains halted until all DMA registers are ready */
-        CHECK(R64(OP, 0x30) && R64(OP, 0x18) && R64(RT, 0x30));
+        CHECK(!(*R(OP, 0) & 1u));             /* controller remains halted */
+        CHECK(dma_alloc_calls >= 8);          /* controller state, DCBAA, command ring, scratchpads, event ring, ERST */
+        CHECK(!R64(OP, 0x30) && !R64(OP, 0x18) && !R64(RT, 0x30)); /* no DMA pointer exposed before permission */
         bus_master_enable_calls++;
     }
     pci_command |= b;
