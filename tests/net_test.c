@@ -20,6 +20,17 @@ int main(void) {
     CHECK(net_parse_ip("1.2.3.4x", &a) != 0);
     CHECK(net_parse_ip("", &a) != 0);
 
+    /* Slot reuse is forbidden while referenced or retired; generation never wraps. */
+    uint16_t gen = 0; uint8_t retired = 0;
+    CHECK(net_tcp_slot_reusable(1, 0, 0));
+    CHECK(!net_tcp_slot_reusable(0, 0, 0));
+    CHECK(!net_tcp_slot_reusable(1, 1, 0));
+    CHECK(!net_tcp_slot_reusable(1, 0, 1));
+    CHECK(net_tcp_generation_advance(&gen, &retired) == 0 && gen == 1 && !retired);
+    gen = UINT16_MAX; retired = 0;
+    CHECK(net_tcp_generation_advance(&gen, &retired) == -1 && gen == UINT16_MAX && retired);
+    CHECK(net_tcp_generation_advance(&gen, &retired) == -1 && gen == UINT16_MAX && retired);
+
     /* Generation-tagged TCP connection handles reject zero and preserve slot/generation identity. */
     unsigned slot = 99; uint16_t generation = 99;
     int th0 = net_tcp_handle_make(0, 1), th7 = net_tcp_handle_make(7, UINT16_MAX);
