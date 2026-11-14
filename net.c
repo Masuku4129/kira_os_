@@ -643,7 +643,6 @@ int net_dns(const char* name, uint32_t* ip) {
     return -6;
 }
 
-/* TCP lifecycle synchronization work-in-progress. */
 /* ---------- TCP ----------
    Соединения ядра - исходящие (tcp_connect) и входящие (tcp_listen + tcp_accept). Передача - окном: в пути сколько
    позволяет окно собеседника и кольцо отправки (16 КБ), сегментами по MSS; по сроку повторяется первый
@@ -1116,7 +1115,7 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
         ksockaddr_t sa;
         if (copy_from_user(&sa, a1, sizeof sa) || !sa.port || (sa.family != 4 && sa.family != 6)) return -10;
         int h = sa.family == 4 ? tcp_connect(get32(sa.addr), sa.port) : tcp_connect6(sa.addr, sa.port);
-        if (h >= 0) tcp_owner[h] = proc_current_pid();
+        if (h >= 0) { uint64_t f = spin_lock_irqsave(&tlk); tcp_owner[h] = proc_current_pid(); spin_unlock_irqrestore(&tlk, f); }
         return h;
     }
     if (op == NET_SYS_LISTEN) {                                  /* (порт | семейство << 16; 0 или 4 - IPv4, 6 - IPv6) -> номер слушателя */
