@@ -3,6 +3,7 @@
 #include "pmm.h"
 #include "uart.h"
 #include "spinlock.h"
+#include "vmm_mmio_range.h"
 
 #define PAGE_SIZE   4096UL
 #define PTE_PRESENT (1ULL << 0)
@@ -167,16 +168,17 @@ static int map_huge_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) 
 }
 
 volatile void* vmm_map_mmio(uint64_t pa, uint64_t len, int cache) {
-    if (len == 0 || pa + len < pa) return 0;
+    uint64_t first, last;
+    if (!vmm_mmio_page_range(pa, len, &first, &last)) return 0;
+    uint64_t raw_end = pa + len; /* checked by vmm_mmio_page_range */
     uint64_t f = spin_lock_irqsave(&mmio_lock);
     for (unsigned i = 0; i < mmio_n; i++) {                       // уже отображено (другая часть того же BAR, LAPIC)
-        if (pa >= mmio[i].pa && pa + len <= mmio[i].pa + mmio[i].len && mmio[i].cache == (uint64_t)cache) {
+        if (pa >= mmio[i].pa && raw_end <= mmio[i].pa + mmio[i].len && mmio[i].cache == (uint64_t)cache) {
             volatile void* v = (volatile void*)(uintptr_t)(mmio[i].va + (pa - mmio[i].pa));
             spin_unlock_irqrestore(&mmio_lock, f);
             return v;
         }
     }
-    uint64_t first = pa & ~(PAGE_SIZE - 1), last = (pa + len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     uint64_t size = last - first;
     const uint64_t BIG = 2ULL << 20;
     uint64_t va = (mmio_next + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
