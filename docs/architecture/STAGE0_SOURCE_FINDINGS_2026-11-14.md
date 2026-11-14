@@ -638,3 +638,33 @@ F-020 remains OPEN. No SMMU/VT-d code is considered integrated into main; do not
 - Exact head `2bbcef9eb86a43919099d2f26eb8af817c4c893b`, workflow `43609381410`: host-tests failed with `SyntaxError: unmatched ')'` at line 211. A duplicated stale tail of the previous checker implementation remained after the final success messages.
 - Removed the entire duplicate tail; the single checker now ends after the four success messages. No checks were bypassed.
 - Corrected PR #148 head: `bf35ca714526d38f5fdc3021c03b2bedf3ec2c99`. Fresh exact-head CI has not yet appeared; no PASS claimed.
+
+
+
+## New finding F-021 — branch-only IOMMU backends do not share one fail-closed policy (2026-11-14)
+
+**Severity:** HIGH / integration blocker. Do not transplant the x86 VT-d and ARM64 SMMUv3 glue as one finished security contract.
+
+### Evidence from PR #125 exact head `cf35a78b385c0b9939702e19b097b01a4296e273`
+- The shared `iommu.h` describes pass-through as an explicit state and says devices become DMA-ready only after private translated domains are established.
+- The x86 VT-d glue in `iommu.c` logs that absence of ACPI DMAR leaves devices with unrestricted DMA; `iommu_device_ready()` returns true when no unit covers a requester. A covered device whose unit is inactive is denied, but an uncovered device follows legacy unrestricted DMA.
+- The ARM64 SMMUv3 glue has a different rule when `iommu-map` is present: it quiesces PCI endpoints before parsing; malformed maps and unsupported multiple targets keep bus mastering blocked; unknown/uncovered requesters remain blocked; explicit bypass STEs are transition/quarantine states and are not DMA-ready until a private stage-1 domain replaces bypass.
+- ARM64 also preserves legacy behavior when the PCI host has no `iommu-map` property (`iommu_device_ready() == 1`). Thus the effective policy differs by platform and firmware description.
+- Shared StreamIDs are rejected for per-function isolation; the ARM code intentionally blocks them rather than pretending they are independent requesters.
+- PR #125 exact-head workflow `43207054075` failed host-tests, ARM64 build and QEMU `usb-uhci`; the compile error is `IOMMU_E_UNSUPPORTED` undeclared at `iommu_arm64.c:351` (the SMMU API exposes `KIRA_SMMU_UNSUPPORTED`). The UHCI VM failed to reach the shell prompt within 90 seconds. Other lanes passing does not resolve these failures.
+
+### Required resolution
+1. Define one architecture-neutral contract for: no IOMMU, no firmware mapping, uncovered requester, malformed firmware map, shared requester ID, pass-through, isolated domain, failed invalidation, and teardown.
+2. Keep the current-main PR #161 DMA/MSI deny gate in force until that contract is implemented and tested end-to-end.
+3. Reconcile whether legacy DMA is ever permitted; if permitted, make the exception explicit, measurable and limited to a documented trust policy rather than implicit `return 1` fallbacks.
+4. Add matching x86-64 and ARM64 policy tests for each state, including no-DMAR/no-`iommu-map`, uncovered devices, and failure after a device has started.
+5. Fix the PR #125 compile and UHCI failures on its own branch before any source is transplanted.
+
+F-021 remains OPEN. This is an audit finding, not a claim that either backend is integrated into current main.
+
+
+## FDT validator correction discovered during PR #166 review (2026-11-14)
+
+- Review of the exact PR #166 source found the structure/string overlap test paired `off_dt_struct` with `size_dt_strings` and `off_dt_strings` with `size_dt_struct`. This inverted the two ranges and could miss an actual one-byte overlap.
+- Corrected the range pairing in PR #166 and added a v17 malformed-blob regression fixture that places the strings block one byte inside the structure block.
+- PR #166's earlier exact head `539285048cdd97f5d71ba5aefc9afda4058b7512` passed 30/30 jobs, but the corrected head is now `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`; its own CI is still required. The prior green result does not verify this new fix.
