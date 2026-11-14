@@ -8,7 +8,7 @@
 #include "immune.h"          /* sha256_ctx_t, sha256_* */
 
 /* ChaCha20 (RFC 8439): ключ 32 байта, nonce 12 байт, счётчик блоков. out = in XOR поток; out может совпадать с in. */
-void chacha20_xor(const uint8_t key[32], uint32_t counter, const uint8_t nonce[12], const uint8_t* in, uint8_t* out, size_t len);
+int  chacha20_xor(const uint8_t key[32], uint32_t counter, const uint8_t nonce[12], const uint8_t* in, uint8_t* out, size_t len); /* -1 if counter would wrap */
 void chacha20_block(const uint8_t key[32], uint32_t counter, const uint8_t nonce[12], uint8_t out[64]);
 
 /* Poly1305 (RFC 8439): ключ 32 байта (одноразовый), метка 16 байт. */
@@ -19,7 +19,7 @@ void poly1305_final(poly1305_ctx_t* c, uint8_t tag[16]);
 
 /* AEAD ChaCha20-Poly1305 (RFC 8439 §2.8). Шифрование: out = шифротекст, tag - метка.
    Расшифровка: 0 - метка верна (out заполнен), -1 - подделка (out не заполняется). */
-void aead_chacha20_poly1305_seal(const uint8_t key[32], const uint8_t nonce[12], const uint8_t* aad, size_t aad_len,
+int  aead_chacha20_poly1305_seal(const uint8_t key[32], const uint8_t nonce[12], const uint8_t* aad, size_t aad_len,
                                  const uint8_t* in, size_t len, uint8_t* out, uint8_t tag[16]);
 int  aead_chacha20_poly1305_open(const uint8_t key[32], const uint8_t nonce[12], const uint8_t* aad, size_t aad_len,
                                  const uint8_t* in, size_t len, const uint8_t tag[16], uint8_t* out);
@@ -39,7 +39,7 @@ int  hkdf_expand_label(const uint8_t secret[32], const char* label, const uint8_
    GHASH - побитовое умножение без таблиц. */
 typedef struct { uint32_t rk[44]; uint8_t h[16]; } aes_gcm_t;
 void aes128_gcm_init(aes_gcm_t* g, const uint8_t key[16]);
-void aes128_gcm_seal(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
+int  aes128_gcm_seal(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
                      const uint8_t* in, size_t len, uint8_t* out, uint8_t tag[16]);
 int  aes128_gcm_open(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
                      const uint8_t* in, size_t len, const uint8_t tag[16], uint8_t* out);   /* 0 - метка верна */
