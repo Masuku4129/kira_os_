@@ -1699,7 +1699,13 @@ F-058 remains OPEN. Source/test-coverage finding only; no production fix or runt
 4. Audit lock ordering between `ulk`, process teardown, user copies, memory allocation and network resolution; never sleep or perform potentially blocking work while holding the spinlock.
 5. Add host-testable UDP table/lifecycle tests plus SMP stress for close-vs-send, close-vs-recv, process-exit-vs-delivery, and immediate cross-process slot reuse. Run TSan where supported and targeted QEMU SMP tests.
 
-**Evidence boundary:** source-confirmed race and missing test coverage. No runtime reproduction or packet-level exploit is claimed. No production source was changed in Stage 0.
+**Evidence boundary:** source-confirmed race and missing test coverage. No runtime reproduction or packet-level exploit is claimed.
+
+### Implementation tracking
+- Draft PR #171: https://github.com/Masuku4129/kira_os_/pull/171
+- Adds generation-tagged UDP handles, slot references/pinning across syscalls, synchronized owner teardown, and regression tests for handle encoding.
+- Exact-head workflow rerun completed **30/30 jobs successfully**. The initial run had one unrelated timing-sensitive Driver Manager output check; rerun passed.
+- Finding remains OPEN on `main` until the candidate is integrated and lifecycle stress coverage is expanded.
 
 
 ## New finding F-057 — PCI enumeration revokes UHCI Bus Master but leaves firmware controller running (2026-11-14)
@@ -1741,4 +1747,10 @@ F-057 remains OPEN. This finding is separate from F-054's late BM re-enable orde
 3. Test e1000/virtio TX-ring-full paths and verify syscall reports failure rather than payload-length success.
 4. Keep asynchronous network delivery semantics distinct from local enqueue success; do not imply remote receipt without an acknowledgement protocol.
 
-**Evidence boundary:** source-confirmed ignored error path. No runtime reproduction or packet delivery claim is made; no production code was changed.
+**Evidence boundary:** source-confirmed ignored error path. No remote packet-delivery claim is made.
+
+### Implementation tracking
+- Draft PR #170: https://github.com/Masuku4129/kira_os_/pull/170
+- Propagates the `ipa_send()` result through `udp_xmit()` and adds deterministic host regression tests for success, negative enqueue errors and zero-length payloads.
+- Exact-head CI completed **30/30 jobs successfully**.
+- Finding remains OPEN on `main` until the candidate is integrated; driver-level TX-ring-full coverage remains a follow-up.
