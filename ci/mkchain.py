@@ -88,6 +88,18 @@ path0_directleaf = cert("kira.test", lk, "Kira PathLen Zero", ik, hashes.SHA256(
 for n, c in [("path0_inter", top0), ("path0_subca", subca), ("path0_leaf", subleaf)]:
     save(n, c)
 save("path0_directleaf", path0_directleaf)
+# A self-issued subordinate CA does not consume pathLenConstraint (RFC 5280 §6.1.4).
+self_issued_ca = cert("Kira PathLen Zero", subk, "Kira PathLen Zero", ik, hashes.SHA256(), True,
+                      key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
+                      data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True,
+                      encipher_only=None, decipher_only=None))
+self_issued_leaf = cert("kira.test", lk, "Kira PathLen Zero", subk, hashes.SHA256(), False, san=san,
+                        eku=[ExtendedKeyUsageOID.SERVER_AUTH],
+                        key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
+                        data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+                        encipher_only=None, decipher_only=None))
+save("path0_selfissued", self_issued_ca)
+save("path0_selfissued_leaf", self_issued_leaf)
 
 savekey("leaf", lk); savekey("self", sk)
 open(os.path.join(out, "chain.pem"), "wb").write(leaf.public_bytes(serialization.Encoding.PEM) + inter.public_bytes(serialization.Encoding.PEM))
