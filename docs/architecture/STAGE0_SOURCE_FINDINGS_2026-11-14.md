@@ -1074,3 +1074,25 @@ F-034 remains OPEN.
 ### F-025 exact-current-run refresh
 
 Current PR #165 head 7ad140cfadb51c4dacf809eca77fff60ff7fe12c still fails workflow 43613588426: 29/30 jobs, with vm (usb-uhci) failing. Exact serial output stops after the BAR probe marker for 00:01.2 and before the PCI "secured" marker. The PCI source at this head performs the Command register read and conditional Bus Master clear between these markers. Current evidence narrows the stall to that sequence but cannot yet distinguish read from write; separate markers and a command-register value are required. Keep F-025 OPEN.
+
+
+## New finding F-035 — installed driver record loses per-file source and license provenance (2026-11-14)
+
+**Severity:** MEDIUM supply-chain traceability gap; the current source-download and confirmation flow does function.
+
+### Evidence
+- drvget parses a recipe containing one or more source-file URLs, downloads each file over HTTPS, checks optional per-file SHA-256 pins, scans each file for an allowed license marker, and computes a combined hash over the recipe and all source contents.
+- The install report prints the recipe URL, the declared recipe license, and each file's size, detected license and SHA-256. The actual per-file download URLs are printed during download, but they are not retained in the installed package record.
+- The installed KDRV record stores one source string (the recipe URL plus a single declared license marker), one combined source-set SHA-256, the package hash and ELF hash. It does not retain the per-file URL/license/hash manifest.
+- The code accepts a recipe-level declared license from the allowed set, while each source file is independently scanned for an allowed license. It does not require every detected file license to match the recipe's declared license; the report can therefore show differing values, while the installed record preserves only the recipe-level value.
+- The user confirmation accepts an eight-or-more-hex-character prefix of the combined SHA-256. Eight hex characters are 32 bits; this is a human confirmation token, not a cryptographic signature or strong authenticity proof.
+- drvget explicitly has no source signatures and does not translate arbitrary Linux/Windows binaries or ABIs. It is a constrained HTTPS source-recipe + KCC build workflow with a limited BSD compatibility header. The universal Driver Adaptation Layer remains planned (P-06).
+
+### Required closure
+1. Extend the installed provenance record to retain a versioned per-file manifest: normalized URL, detected license, file SHA-256, recipe hash, compiler/toolchain version and target ABI.
+2. Require recipe license to be compatible with every file's detected license, or record the exact per-file license set and require explicit user review when they differ.
+3. Make the default confirmation length materially stronger (e.g. at least 16 hex characters) while preserving the ability to enter the full digest; clearly label it as manual confirmation, not a signature.
+4. Add signed recipe/package support with key rotation and revocation as a separate trust layer; never treat HTTPS alone as source authenticity.
+5. Keep universal Linux/Windows binary/ABI translation as a separate planned project with source-level porting, sandbox build/test and rollback criteria. Do not market the present recipe installer as a universal adapter.
+
+F-035 remains OPEN as a provenance/acceptance gap, not a claim that current source installation is a mock.
