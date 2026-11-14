@@ -552,3 +552,8 @@ TCP state and queue fields are changed under tlk but tcp_wait() predicates and s
 ### F-040 KCC API concurrency acceptance gate
 
 KCC's public compile API and internal preprocessing/parsing/IR/backend state are singleton globals. Parallel invocations are unsafe until all mutable state is moved into a per-compilation context. Until then, enforce a documented single-active-compile contract and add parallel x86-64/AArch64 isolation tests after refactoring.
+
+
+### F-041 WASM hostile-input acceptance gate
+
+Every parser read must be bounded by the active section/body end; signed/unsigned LEB128 must reject truncated and overlong encodings. Add exhaustive section/opcode truncation and oversized-length tests, then run interpreter and JIT paths under ASan/UBSan plus bounded malformed-module fuzzing.
