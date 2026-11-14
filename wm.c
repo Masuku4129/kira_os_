@@ -32,6 +32,8 @@ typedef struct {
 } win_t;
 
 static surface_t* scr;
+/* Caller-owned desktop wallpaper; initialized before first composition. */
+static const surface_t* wallpaper;
 static wm_ops_t ops;
 static win_t win[WM_MAX_WIN];
 static int zorder[WM_MAX_WIN];
@@ -1908,10 +1910,6 @@ static void overview_button(surface_t* c, int ox, int oy, int x, int y, int w, c
     int tw = gfx_text_width(label);
     gfx_text(c, x + ox + (w - tw) / 2, y + oy + 10, label, enabled ? TH_TEXT : TH_TEXT_FAINT, -1);
 }
-
-/* Optional full-screen wallpaper. The source surface remains owned by the caller and must
-   stay alive until wm_set_wallpaper() replaces it or the display shuts down. */
-static const surface_t* wallpaper;
 
 static void draw_wallpaper(surface_t* dst, int origin_x, int origin_y) {
     const surface_t* src = wallpaper;
