@@ -953,3 +953,29 @@ F-028 remains OPEN. PR #12 and PR #46 remain preserved branch work; neither is t
 5. Verify that failure at any point leaves Bus Master denied and does not expose partially initialized rings; repeat on x86-64 and relevant ARM64 xHCI path.
 
 F-029 remains OPEN. Do not accept PCI or USB DMA safety based solely on the initial PCI enumeration clear.
+
+
+## New finding F-030 — multiple PCI DMA drivers grant Bus Master before quiesce and DMA setup (2026-11-14)
+
+**Severity:** HIGH, cross-driver DMA ownership risk. The call ordering is present in current main; real firmware-active hardware impact requires targeted QEMU/physical validation.
+
+### Evidence from current-main source
+- pci_enable() simply ORs requested bits into PCI Command. It has no staged decode-vs-DMA policy, no readiness check and no readback.
+- VirtIO: virtio_pci_init() enables MEM | MASTER before virtio_begin() resets device status and before virtio_queue_setup() allocates/programs queue memory.
+- NVMe: ctl_init() enables MEM | MASTER before disabling CC.EN/waiting CSTS.RDY=0 and before allocating/programming admin queues.
+- AHCI: ctl_init() enables MEM | MASTER before BIOS/OS handoff and GHC controller reset; per-port command/FIS structures are initialized later.
+- e1000: e1000_probe() enables MEM | MASTER before device reset and before RX/TX rings and buffers are allocated/programmed.
+- HDA: hda_probe() enables MEM | MASTER before controller reset and before CORB/RIRB/BDL and stream buffers are allocated/programmed.
+- AC'97: ac97_probe() enables IO | MASTER before cold reset/codec initialization and before DMA buffers/BDLs are allocated.
+- UHCI/xHCI have the analogous sequence documented in F-029.
+- Some devices may reset or remain idle after firmware handoff, but the kernel cannot assume that universally. A firmware-started device can retain DMA pointers/state when Bus Master is re-enabled.
+
+### Required closure
+1. Replace one-shot pci_enable(bits) usage with staged command policy: IO/MEM decode separately from MASTER; MASTER only after controller-specific stop/reset and kernel-owned DMA structures are programmed.
+2. For each DMA driver, define a bounded quiesce sequence and a failure state that leaves Bus Master disabled.
+3. Enable Bus Master only immediately before the device's documented start/ready transition; read back PCI Command and verify it matches policy.
+4. Add tests that seed firmware-active register state and stale DMA pointers, then assert no device DMA occurs before its new queues/rings are valid.
+5. Gate the final grant on a verified IOMMU domain where supported. Until real VT-d/SMMUv3 is integrated, retain fail-closed DMA policy for untrusted/Ring 3 drivers and clearly record remaining built-in-driver exposure.
+6. Run focused device tests first (VirtIO, NVMe, AHCI, e1000, HDA, AC'97, UHCI, xHCI), then affected x86/ARM64 matrix and full exact-head CI.
+
+F-030 remains OPEN. This finding is separate from F-017 (enumeration-time firmware DMA), F-025 (UHCI QEMU stall) and F-029 (USB-specific ordering).
