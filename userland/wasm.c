@@ -165,6 +165,16 @@ static int import_signature_valid(u32 id, const ftype_t* t) {
     default: return 0;
     }
 }
+static int take_u8(const u8** p, const u8* end, u8* out) {
+    if (*p >= end) { trap("truncated byte field"); return -1; }
+    *out = *(*p)++;
+    return 0;
+}
+static int skip_bytes(const u8** p, const u8* end, u64 count) {
+    if (*p > end || count > (u64)(end - *p)) { trap("truncated byte range"); return -1; }
+    *p += (size_t)count;
+    return 0;
+}
 static int name_is(const u8* n, u32 len, const char* s) { u32 i = 0; for (; i < len && s[i]; i++) if (n[i] != (u8)s[i]) return 0; return i == len && !s[i]; }
 
 /* Постоянное выражение (смещение данных/элементов, начало глобальной). */
@@ -184,20 +194,23 @@ static u64 const_expr(const u8** p, const u8* end) {
 }
 
 static void skip_imm(u8 op, const u8** p, const u8* e) {
-    if (op == 0x0C || op == 0x0D || op == 0x10 || (op >= 0x20 && op <= 0x24)) { leb_u(p, e); return; }
-    if (op == 0x0E) { u32 n = leb_u(p, e); for (u32 i = 0; i <= n && !trapped; i++) leb_u(p, e); return; }
-    if (op == 0x11) { leb_u(p, e); leb_u(p, e); return; }
-    if (op >= 0x28 && op <= 0x3E) { leb_u(p, e); leb_u(p, e); return; }
-    if (op == 0x3F || op == 0x40) { (*p)++; return; }
-    if (op == 0x41) { leb_s(p, e, 32); return; }
-    if (op == 0x42) { leb_s(p, e, 64); return; }
-    if (op == 0x43) { *p += 4; return; }
-    if (op == 0x44) { *p += 8; return; }
-    if (op == 0x1C) { u32 n = leb_u(p, e); *p += n; return; }
+    u8 ignored;
+    if (op == 0x0C || op == 0x0D || op == 0x10 || (op >= 0x20 && op <= 0x24)) { (void)leb_u(p, e); return; }
+    if (op == 0x0E) { u32 n = leb_u(p, e); for (u32 i = 0; i <= n && !trapped; i++) (void)leb_u(p, e); return; }
+    if (op == 0x11) { (void)leb_u(p, e); (void)leb_u(p, e); return; }
+    if (op >= 0x28 && op <= 0x3E) { (void)leb_u(p, e); (void)leb_u(p, e); return; }
+    if (op == 0x3F || op == 0x40) { (void)take_u8(p, e, &ignored); return; }
+    if (op == 0x41) { (void)leb_s(p, e, 32); return; }
+    if (op == 0x42) { (void)leb_s(p, e, 64); return; }
+    if (op == 0x43) { (void)skip_bytes(p, e, 4); return; }
+    if (op == 0x44) { (void)skip_bytes(p, e, 8); return; }
+    if (op == 0x1C) { u32 n = leb_u(p, e); (void)skip_bytes(p, e, n); return; }
     if (op == 0xFC) {
         u32 sub = leb_u(p, e);
-        if (sub == 8) { leb_u(p, e); (*p)++; } else if (sub == 9) leb_u(p, e);
-        else if (sub == 10) *p += 2; else if (sub == 11) (*p)++;
+        if (sub == 8) { (void)leb_u(p, e); (void)take_u8(p, e, &ignored); }
+        else if (sub == 9) (void)leb_u(p, e);
+        else if (sub == 10) (void)skip_bytes(p, e, 2);
+        else if (sub == 11) (void)take_u8(p, e, &ignored);
         else if (sub >= 12) trap("unsupported 0xFC instruction");
     }
 }
