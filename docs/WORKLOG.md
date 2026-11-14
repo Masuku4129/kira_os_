@@ -875,3 +875,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - All 23 jobs are terminal: 20 success, one failure (vm (0), job 132504922587), two packaging jobs skipped by workflow conditions. All non-VM checks and 9 of 10 VM shards passed; the sole failure is usb-uhci.
 - PR #165 workflow 43613588426 remains 29/30 with only vm (usb-uhci) failed.
 - The two exact artifact traces stop at different diagnostic boundaries but both fail on UHCI Bus Master handling. This is not a PASS and does not authorize merge.
+
+
+## 30. CI topology and architecture-specific test inventory — 2026-11-14
+
+- Read the pinned-main .github/workflows/ci.yml, ci/scenarios.py, ci/kira_vm.py, ci/arm64_vm.py and .github/workflows/mind-train.yml rather than inferring test coverage from filenames.
+- x86 scenario catalogue: 38 explicitly declared scenario definitions plus two dynamically generated stress-spam variants (2-core and 4-core) = 40 available x86 scenarios. The main CI matrix runs 39; mind-train is intentionally excluded and runs only through the separate manual ~25-minute workflow.
+- ARM64 has 16 separately defined QEMU TCG scenarios, including GICv2/v3, 1–8 cores, EL1/EL2, graphics/input, storage/NVMe, networking/TLS, KCC, drivers, DMA-noncoherent and power/fault paths.
+- Main CI has distinct host-tests, x86 build, x86 scenario matrix, ARM64 build/scenarios and artifact/report jobs. The x86 scenario runner uses KVM when available and increases timeout scale when it is not; ARM64 harness explicitly uses QEMU TCG.
+- The earlier count of 38 referred only to explicit sc(...) declarations, not the expanded runtime catalogue or architecture-specific totals. The matrix documentation now distinguishes all three.
+- This topology supports tiered testing: run a focused named x86 scenario and matching ARM64 case for shared contracts, then affected neighbors, then full 39+16 acceptance. Keep the separate mind-train job out of routine regression loops unless Mind training/persistence is changed.
