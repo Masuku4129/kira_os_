@@ -1261,3 +1261,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - F-057 is source/test-coverage only. No production code changed and no test is claimed as run in this audit pass. Main remains unchanged; no merge or ISO build.
 
 **Stage 0 progress: 69%.** Added controller-start resource-lifecycle review and a concrete negative-path test requirement. The remaining 31% is not a count of unread files; it covers unfinished semantic review, cross-branch reconciliation, integration and verification gates.
+
+
+## 69. FDT string-property bounds review — 2026-11-14
+
+- Rechecked FDT parsing and existing host tests after the earlier property-name termination finding (F-051).
+- Added F-058: `fdt_count_type()` and `fdt_node_enabled()` call unbounded `streq()` on `device_type` and `status` property values, despite `fdt_prop()` returning an explicit byte length and not validating NUL termination. Existing tests do not cover malformed unterminated values.
+- Kept the finding scoped: `fdt_compatible()` already walks a bounded string-list value and is not included in this defect.
+- No production source changed and no test is claimed as run. Main remains unchanged; no merge or ISO build.
+
+**Stage 0 progress: 70%.** Added a distinct FDT string-value boundary review and a concrete malformed-input test requirement. Remaining work includes broader semantic review, branch reconciliation, and actual verification of the resulting integrated source.
