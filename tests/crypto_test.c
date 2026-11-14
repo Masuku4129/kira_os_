@@ -128,7 +128,7 @@ int main(void) {
     hkdf_extract(0, 0, zero, 32, early);
     CHECK(eqhex(early, "33ad0a1c607ec03b09e6cd9893680ce210adf300aa1f2660e1b22e10f170f92a"));
     sha256("", 0, empty);
-    hkdf_expand_label(early, "derived", empty, 32, derived, 32);
+    CHECK(hkdf_expand_label(early, "derived", empty, 32, derived, 32) == 0);
     CHECK(eqhex(derived, "6f2615a108c702c5678f54fc9dbab69716c076189c48250cebeac3576c3611ba"));
 
     sha512_ctx_t q5; sha512_init(&q5); sha512_update(&q5, "abc", 3); sha512_final(&q5, out);
