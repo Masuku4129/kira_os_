@@ -170,3 +170,23 @@ F-018 remains OPEN pending exact-head verification and compatibility decision.
 - PR #148 remains Draft and separate from main. Do not treat the corrected registry as active protection until the PR is reviewed and integrated.
 
 F-019 remains OPEN pending exact-head CI and review of release artifact contents.
+
+
+## 9. Full baseline file inventory — 2026-11-14
+
+Created `docs/architecture/STAGE0_FILE_BUILD_MATRIX_2026-11-14.csv` from the recursive Git tree pinned to main SHA `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`. The snapshot contains exactly **829/829 tracked blobs**; the tree API reported `truncated=false`.
+
+### Exact production build inputs
+- x86-64 kernel common C sources: **98** = 80 shared with ARM64 + 18 x86-only.
+- ARM64 kernel sources: **88** = 80 shared with x86-64 + 8 ARM64-only.
+- x86-64 architecture source list: **16**.
+- Userland UELF outputs: **25 x86-64 + 25 ARM64**; the x86 Android/release profile retains **13** after filtering `TESTPROGS`. The corrected source-of-truth and guard are in PR #148.
+
+### File classification and unresolved coverage
+- 365 KCC host fixtures; 64 host-test script references; 10 test helpers/fixtures needing linkage review.
+- 22 architecture-support files need exact assembly/linker/build linkage review; 12 other architecture-support files are explicitly referenced by build scripts.
+- 60 userland files are build outputs or linked support requiring file-level linkage review.
+- 129 auxiliary source/support files are not in the pinned kernel source manifests and still require semantic ownership/build-profile review.
+- Remaining documentation, CI, build tools, driver package inputs and packaged resources are categorized in the CSV.
+
+The CSV is an **inventory baseline**, not a claim that every file has passed semantic review. Every row includes a primary area, provisional component, build profile, status and classification basis. Any `*_REVIEW` status remains open until its inclusion, dependency or intentional non-production role is verified against the build graph and source references.
