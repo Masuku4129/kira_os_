@@ -1192,3 +1192,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed F-053: `psci_hvc == -1` means PSCI unavailable, but `psci_call()` tests it as a boolean; -1 selects HVC. CPU_ON is guarded, while poweroff/reboot call it unconditionally. This can execute an unsupported HVC when firmware has no PSCI.
 - Also noted platform status currently prints PSCI unconditionally; correct reporting belongs in the same fix and tests.
 - Source-only finding; no runtime power test was run and no production code changed.
+
+
+## 61. PCI/UHCI artifact re-analysis — 2026-11-14
+
+- Downloaded and inspected exact PR #125 failing shard artifact and PR #165 successful UHCI artifact, rather than relying only on workflow summary.
+- PR #125 run 43613583149 failed shard 0: `usb-uhci` timed out at 90.7 s. Serial stopped at `disable BM 0:1.2` before the completion marker. QEMU log: 4,915,946,761 bytes; 72,286,473 rejected invalid-read messages (0x0/0x4/0x8/0xC recurring; first anomalous address 0x3FFDE384).
+- PR #165 run 43613588426 latest attempt 2: 30/30 jobs success. UHCI scenario 11.7 s / boot 5.8 s; keyboard, hub, USB mass storage, FAT32 mount and file read all confirmed in serial/result artifact.
+- Important: PR #165 passing artifact still contains 393,602 rejected invalid-read messages in a 26,767,488-byte QEMU log. Thus the scenario's functional PASS does not close F-025; exact DMA requester/register origin is still unproven. These runs are not controlled A/B because branches and PR bases differ.
+- Updated audit disposition: PR #165 CI latest attempt PASS; F-025 remains OPEN; no source implementation changed.
