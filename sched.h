@@ -7,6 +7,7 @@
 #include "spinlock.h"
 
 #define SCHED_STACK_SIZE  16384
+#define SCHED_STACK_CANARY 0x4B49524153544B21ULL /* KIRASTK! */
 #define SCHED_NAME_LEN    16
 
 typedef enum {

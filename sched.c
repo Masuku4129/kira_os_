@@ -12,7 +12,7 @@
 #include "kstack.h"
 #endif
 
-#define STACK_CANARY 0x4B49524153544B21ULL // "KIRASTK!"
+#define STACK_CANARY SCHED_STACK_CANARY
 #define DEFAULT_QUANTUM (4 * TIMER_PER_10MS)      /* 40 мс при любой частоте тиков */
 #define MAX_QUANTUM (20 * TIMER_PER_10MS)
 
@@ -292,8 +292,9 @@ static uint8_t* kstack_new(void) { return (uint8_t*)kmalloc(SCHED_STACK_SIZE); }
 static void kstack_del(uint8_t* s) { kfree(s); }
 #else
 static uint8_t* kstack_new(void) {
-    uint8_t* s = (uint8_t*)vmm_kstack_alloc(SCHED_STACK_SIZE);
-    return s ? s : (uint8_t*)kmalloc(SCHED_STACK_SIZE);           /* окно исчерпано: стек из кучи, с меткой на дне */
+    /* Never fall back to an unguarded heap stack: exhausting the guarded
+       virtual stack window must fail thread creation rather than weaken isolation. */
+    return (uint8_t*)vmm_kstack_alloc(SCHED_STACK_SIZE);
 }
 static void kstack_del(uint8_t* s) { if (vmm_is_kstack((uint64_t)(uintptr_t)s)) vmm_kstack_free(s); else kfree(s); }
 #endif
@@ -451,6 +452,10 @@ static thread_t* create_thread(const char* name, void (*entry)(void*), void* arg
     if (!entry) return 0;
     uint8_t* stack = kstack_new();
     if (!stack) return 0;
+
+    /* A reused stack slot may contain data from its previous owner. Clear the
+       entire stack before publishing the thread; the canary is installed below. */
+    __builtin_memset(stack, 0, SCHED_STACK_SIZE);
 
     uint64_t f = irq_save();
     sl_lock();
