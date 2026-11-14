@@ -129,7 +129,13 @@ Sources:
 - [kernel.c at baseline SHA, kernel_main entry](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/kernel.c#L87-L105)
 - [ARM64 main entry](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/arch/aarch64/main.c)
 
-**Required closure:** define versioned BootInfo/platform handoff, memory map ownership, modules/initrd, framebuffer, command line, firmware tables, DMA/IOMMU topology and lifetime; add BIOS/UEFI/ARM64 producer-consumer tests.
+### Contract proposal
+
+- [ADR-0006 — Versioned cross-architecture BootInfo handoff](ADR-0006-versioned-bootinfo-handoff.md) is proposed.
+- Defines immutable versioned header, normalized half-open physical ranges, memory ownership/reservation types, bounded optional records for FDT/ACPI/command line/modules/framebuffer/entropy/DMA/IOMMU, explicit source lifetimes, x86 Multiboot2 and ARM64 FDT adapters, and a future UEFI adapter.
+- This is a contract decision proposal only. No BootInfo implementation has been added to main or accepted; current entry paths remain architecture-specific.
+
+**Required closure:** approve/finalize the ABI, implement both architecture producers and common consumer without removing existing parsers prematurely, integrate reservation ledger before PMM free-list publication, then pass producer/consumer host tests plus x86-64 and ARM64 QEMU boot matrices.
 
 ## F-005 — Device Model is not yet a bus-independent lifecycle in main
 
