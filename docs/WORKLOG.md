@@ -1326,3 +1326,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Выполнена повторная проверка GitHub fetch: целевой план, master plan, crosswalk и audit report доступны в ветке; новые ссылки присутствуют.
 - Проверки кода/сборки/CI не запускались в рамках этой документационной операции; PASS не заявляется.
 - Stage 0 остаётся IN PROGRESS. Следующая работа — сверка A–N crosswalk с полным component/file/build/test inventory, затем продолжение source audit и PR dependency reconciliation.
+
+
+## 73. Проверка актуального PR-стека WASM/Input/GFX — 2026-11-15
+
+- Сверены открытые PR #179/#181/#182: #179 меняет `userland/wasm.c` и WASM host tests; #181 добавляет синхронизацию input ring; #182 исправляет публикацию reused app slots в gfx queue. #181 и #182 основаны на стеке #179.
+- Скачаны полные GitHub Actions job logs для exact heads. PR #179 (`2fdb2c04`, run `43644011093`) имеет 42/43 успешных checks: host-tests FAIL. PR #181 (`17614b29`, run `43643351332`) имеет build, ARM64 и host-tests FAIL. PR #182 (`49e2914e`, run `43644247467`) имеет те же три группы FAIL.
+- Общая причина по compiler logs: `userland/wasm.c:145` использует неопределённые `int32_t` и `uint32_t`. В #179 x86 build/ARM64/QEMU прошли, но host tests всё равно упали; в зависимых #181/#182 общий compile error ломает все три сборочных/test job.
+- Добавлен F-062 как blocker открытого PR stack. Он отделён от current-main findings: это не доказательство дефекта pinned main и не основание считать production baseline сломанным.
+- Исправление намеренно не внесено: Stage 0 фиксирует причину и зависимость; перед изменением веток нужно согласовать точку исправления общего предка и повторить exact-head проверки. PR не сливались и не переназначались.
+- Тестовые результаты получены из GitHub Actions; локальные тесты не запускались. Текущая ветка аудита содержит только документационные изменения.
