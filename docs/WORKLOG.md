@@ -867,3 +867,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - PR #46's bootinfo.c does not contain PR #12's module_in_ram() validation; its bootinfo_fdt.c is also a shorter implementation without the same reserve-map and reserved-memory subtraction. The headers share v1 layout, but their semantic validators are not interchangeable.
 - Exact CI evidence: PR #12 runs 43236520117 and 43236520194 succeeded; PR #46 has no workflow run associated with its exact head. PR #45 UEFI hardening run 42385882597 failed; PR #60 run 42779406776 and #61 run 42780403870 succeeded; PR #130 runs 43164087429 and 43164087483 succeeded, all on divergent bases.
 - Added F-028. Integration rule: preserve the stronger PR #12 validator/FDT reservation semantics while adapting and separately verifying the PR #46 UEFI producer/loader. Do not merge branch stacks wholesale or assume same ABI version means same semantics.
+
+
+## 29. PR #125 diagnostic workflow terminal result — 2026-11-14
+
+- Re-polled workflow 43613583149 on exact PR #125 head fee8c9aed19ffc37dab7fd599c2bd63bfc496924 after the last VM shard finished.
+- All 23 jobs are terminal: 20 success, one failure (vm (0), job 132504922587), two packaging jobs skipped by workflow conditions. All non-VM checks and 9 of 10 VM shards passed; the sole failure is usb-uhci.
+- PR #165 workflow 43613588426 remains 29/30 with only vm (usb-uhci) failed.
+- The two exact artifact traces stop at different diagnostic boundaries but both fail on UHCI Bus Master handling. This is not a PASS and does not authorize merge.
