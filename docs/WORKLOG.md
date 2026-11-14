@@ -361,3 +361,6 @@
 - A 200 ms threshold now emits one warning only. It no longer breaks the wait or releases `sd_busy`; the request payload remains immutable and backing pages cannot be reclaimed until every target CPU has completed its invalidation.
 - Added `arch/x86_64/tlb_shootdown.h` and host cases for partial acknowledgements, old-generation acknowledgements, newer generation and empty target mask in `tests/smp_test.c`.
 - Updated VMM/SMP contract comments. Exact-head CI has not yet been accepted; the change remains pending verification.
+
+
+- Follow-up hardening: generation wrap is now rejected instead of reusing generation 1; counter exhaustion enters fail-closed wait. Host tests cover next-generation progression and UINT64_MAX rejection. Draft PR #155 head is `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; exact-head workflow `43590730265` queued.
