@@ -1303,3 +1303,15 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Traced the documented `netdev_t.send` return contract and both production NIC send callbacks (`e1000.c`, `virtio_net.c`): queue/buffer exhaustion returns a negative error.
 - Confirmed `eth_send()`, `ip_send()` and `ip6_send()` propagate that error, but `udp_xmit()` discards the `ipa_send()` result and returns the payload length unconditionally.
 - Recorded F-060 with required error propagation and fake-netdev IPv4/IPv6 tests. No runtime test or production fix is claimed.
+
+
+## 71. Целевая архитектура и новая Stage-карта — 2026-11-15
+
+- Создан `docs/architecture/KIRA_TARGET_ARCHITECTURE_AND_STAGE_PLAN_2026-11-15.md`: draft целевой гибридной capability-микроархитектуры и Stage 0–13.
+- Зафиксировано распределение языков: C/KCC для текущего ядра и критического low-level кода; Assembly для узких ISA участков; Rust `no_std` как кандидат для новых изолированных служб/user-mode драйверов после проверки toolchain/ABI; WASM/WASI-профиль для переносимых приложений; Python/Bash для host tooling. SPARK/Zig остаются экспериментальными кандидатами.
+- Зафиксированы кандидаты форматов/технологий по назначению: FlatBuffers/Cap’n Proto/CBOR для IPC и metadata; Arrow/Zstd/event log для аналитики; Parquet для долговременных аналитических данных; CAS/Merkle DAG/CoW/signatures для integrity/object storage; LSM/B+Tree — по benchmark.
+- Проверен recursive Git tree pinned baseline `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`: 861 entries; 593 C, 165 headers, 15 assembly, 13 shell scripts, 11 Python scripts, 16 Markdown, 3 YAML. Tracked Rust manifests, schema files for proposed binary formats, and WASM/WAT modules were not found in this snapshot. Existing WASM runtime is C source; x86-64 JIT is not ARM64 JIT.
+- Проверены `build_clang.sh`, CI workflow, `ARCHITECTURE.md`, README, ADR-0001 and master-plan sections. Existing baseline is Clang/LLD/NASM on x86-64 with a separate AArch64 build and host/QEMU test layers.
+- Обновлён Stage 0 audit report ссылкой на новый план и явным разграничением integrated baseline vs proposed technology.
+- Это документационная и inventory работа. Production code не менялся; новые технологии не объявлены внедрёнными; тесты и сборки в рамках этой записи не запускались.
+- Stage 0 остаётся IN PROGRESS. Ранее записанные 70% — предварительная оценка старого объёма аудита; новая архитектурная/форматная сверка расширила критерии закрытия и требует повторного расчёта после reconciliation всех A–N workstreams.
