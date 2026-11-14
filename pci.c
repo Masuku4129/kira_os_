@@ -195,7 +195,7 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     }
 #if defined(__x86_64__) && !defined(KIRA_HOST_TEST)
     if (trace_usb) {
-        uart_print("[KIRA PCI TRACE] USB post-handoff cmd="); uart_print_hex(pci_read16(d, 0x04)); uart_print("\\n");
+        uart_print("[KIRA PCI TRACE] USB post-handoff cmd="); uart_print_hex(pci_read16(d, 0x04)); uart_print("\n");
     }
 #endif
     if ((d->header_type & 0x7F) == 1 && d->class_code == 6 && d->subclass == 4) {
