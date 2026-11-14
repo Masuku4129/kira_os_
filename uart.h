@@ -8,6 +8,7 @@ int  uart_present(void);                // 1 - COM1 есть и прошёл п�
 void uart_putchar(char c);
 int uart_getchar(void);                // -1, если во входном буфере пусто
 void uart_print(const char* str);
+void uart_print_atomic(const char* str); // одна законченная строка целиком, без разбиения на LB_SIZE фрагменты
 void uart_print_serial(const char* str); // только в последовательный порт, не в журнал экрана
 void uart_tick_flush(void);            // раз в тик: вывести застрявший хвост строки этого ядра
 void uart_switch_flush(void);          // смена потока: вывести хвост строки прежнего потока этого ядра
