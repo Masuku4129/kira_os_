@@ -1224,7 +1224,7 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
         ksockaddr_t sa;
         if (copy_from_user(&sa, a1, sizeof sa) || !sa.port || (sa.family != 4 && sa.family != 6)) return -10;
         int h = sa.family == 4 ? tcp_connect(get32(sa.addr), sa.port) : tcp_connect6(sa.addr, sa.port);
-        if (h >= 0 && tcp_set_owner(h, proc_current_pid())) return -8;
+        if (h >= 0 && tcp_set_owner(h, proc_current_pid())) { tcp_close(h); return -8; }
         return h;
     }
     if (op == NET_SYS_LISTEN) {                                  /* (порт | семейство << 16) -> opaque listener */
