@@ -739,3 +739,8 @@ Compared with PR #165's 393,602 invalid-read records on its UHCI artifact, this 
 **Stage 0 progress: 68%.** The first stacked implementation exposed a real ordering edge: QEMU's xHCI model reads the ERST table immediately when ERSTBA is written, before USBCMD.RUN. The failed artifact recorded rejected DMA reads at the exact ERST address while Bus Master was disabled.
 
 The fix was refined: allocate and initialize all DMA structures with Bus Master off; grant Bus Master while the controller remains halted; only then write DCBAAP/CRCR/ERST pointers; finally start the controller. The xHCI host model now asserts this boundary. Corrected exact-head CI is pending; no PASS claimed.
+
+
+## 33. USB controller startup allocation-failure lifecycle — 2026-11-14
+
+**Stage 0 progress: 69%.** Added F-057 after tracing the shared USB DMA allocator and UHCI/xHCI controller startup failure paths. A failed controller can strand already allocated schedule/ring/scratchpad pages; because the controller index advances only on success, the next controller reuses the index but allocates more memory. Existing failure-injection tests cover xHCI device slots, not controller-start rollback. No production code changed and no test is claimed as run. PR #169 exact-head CI is still pending; F-054/F-056 remain open.
