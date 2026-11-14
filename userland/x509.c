@@ -157,30 +157,93 @@ static int parse_spki(der_t spki, x509_t* c) {
     return 0;                                                     /* неизвестный тип ключа: KEY_NONE */
 }
 
+static int der_nonnegative_integer(der_t* in, uint32_t* out) {
+    der_t v;
+    if (der_expect(in, 0x02, &v, 0) || !v.n || v.n > 5 || (v.p[0] & 0x80)) return -1;
+    if (v.n > 1 && v.p[0] == 0 && !(v.p[1] & 0x80)) return -1; /* non-minimal DER INTEGER */
+    if (v.n == 5 && v.p[0] != 0) return -1;
+    uint32_t n = 0;
+    for (size_t i = v.n == 5 ? 1 : 0; i < v.n; i++) n = (n << 8) | v.p[i];
+    *out = n;
+    return 0;
+}
+static int parse_basic_constraints(der_t val, x509_t* c) {
+    der_t seq, v;
+    if (der_expect(&val, 0x30, &seq, 0) || val.n) return -1;
+    c->has_bc = 1;
+    if (seq.n && seq.p[0] == 0x01) {
+        if (der_expect(&seq, 0x01, &v, 0) || v.n != 1 || (v.p[0] != 0x00 && v.p[0] != 0xFF)) return -1;
+        c->is_ca = v.p[0] == 0xFF;
+    }
+    if (seq.n) {
+        uint32_t path_len;
+        if (der_nonnegative_integer(&seq, &path_len) || !c->is_ca) return -1;
+        c->has_path_len = 1; c->path_len = path_len;
+    }
+    return seq.n ? -1 : 0;
+}
+static int parse_key_usage(der_t val, x509_t* c) {
+    der_t bits;
+    if (der_expect(&val, 0x03, &bits, 0) || val.n || bits.n < 2 || bits.n > 3 || bits.p[0] > 7) return -1;
+    unsigned unused = bits.p[0];
+    uint8_t last = bits.p[bits.n - 1];
+    if (unused && (last & ((1u << unused) - 1u))) return -1;
+    size_t bytes = bits.n - 1;
+    if (bytes == 2 && unused == 0) return -1; /* DER named-bit list must omit trailing zero octets */
+    c->has_key_usage = 1;
+    c->digital_signature = (bits.p[1] & 0x80) != 0;
+    c->key_cert_sign = (bits.p[1] & 0x04) != 0;
+    return 0;
+}
+static int parse_extended_key_usage(der_t val, x509_t* c) {
+    der_t seq, oid;
+    if (der_expect(&val, 0x30, &seq, 0) || val.n || !seq.n) return -1;
+    c->has_eku = 1;
+    while (seq.n) {
+        if (der_expect(&seq, 0x06, &oid, 0)) return -1;
+        if (oid_is(&oid, "2b06010505070301")) c->eku_server_auth = 1; /* id-kp-serverAuth */
+        else if (oid_is(&oid, "2b06010505070309")) c->eku_ocsp = 1; /* id-kp-OCSPSigning */
+        else if (oid_is(&oid, "551d2500")) c->eku_any = 1;         /* anyExtendedKeyUsage */
+    }
+    return 0;
+}
+static int parse_subject_alt_name(der_t val, x509_t* c) {
+    der_t seq;
+    if (der_expect(&val, 0x30, &seq, 0) || val.n || !seq.n) return -1;
+    der_t names = seq;
+    while (names.n) {
+        uint8_t tag;
+        if (der_next(&names, &tag, 0, 0) || (tag & 0xC0) != 0x80) return -1;
+    }
+    c->san = seq.p; c->san_len = seq.n;
+    return 0;
+}
 static int parse_ext(der_t exts, x509_t* c) {
     der_t list;
-    if (der_expect(&exts, 0x30, &list, 0)) return -1;
+    unsigned seen = 0;
+    if (der_expect(&exts, 0x30, &list, 0) || exts.n) return -1;
     while (list.n) {
-        der_t ext, oid, val; uint8_t t;
+        der_t ext, oid, val, crit;
+        uint8_t t;
         if (der_expect(&list, 0x30, &ext, 0) || der_expect(&ext, 0x06, &oid, 0)) return -1;
-        der_t save = ext; der_t crit;
-        if (der_next(&ext, &t, &crit, 0)) return -1;
-        if (t != 0x01) ext = save;                                /* critical - необязателен */
-        if (der_expect(&ext, 0x04, &val, 0)) return -1;
-        if (oid_is(&oid, "551d13")) {                            /* basicConstraints { cA BOOLEAN DEFAULT FALSE, ... } */
-            der_t seq, b;
-            c->has_bc = 1;
-            if (der_expect(&val, 0x30, &seq, 0)) return -1;
-            if (!der_expect(&seq, 0x01, &b, 0) && b.n == 1 && b.p[0]) c->is_ca = 1;
-        } else if (oid_is(&oid, "551d25")) {                     /* extKeyUsage: SEQUENCE OF OID */
-            der_t seq, k;
-            if (der_expect(&val, 0x30, &seq, 0)) return -1;
-            while (seq.n) { if (der_expect(&seq, 0x06, &k, 0)) return -1; if (oid_is(&k, "2b06010505070309")) c->eku_ocsp = 1; }
-        } else if (oid_is(&oid, "551d11")) {                     /* subjectAltName */
-            der_t seq;
-            if (der_expect(&val, 0x30, &seq, 0)) return -1;
-            c->san = seq.p; c->san_len = seq.n;
+        int critical = 0;
+        if (ext.n && ext.p[0] == 0x01) {
+            if (der_expect(&ext, 0x01, &crit, 0) || crit.n != 1 ||
+                (crit.p[0] != 0x00 && crit.p[0] != 0xFF)) return -1;
+            critical = crit.p[0] == 0xFF;
         }
+        if (der_expect(&ext, 0x04, &val, 0) || ext.n) return -1;
+        unsigned bit = 0;
+        int r = 0;
+        if (oid_is(&oid, "551d13")) { bit = 1u; r = parse_basic_constraints(val, c); }
+        else if (oid_is(&oid, "551d15")) { bit = 2u; r = parse_key_usage(val, c); }
+        else if (oid_is(&oid, "551d25")) { bit = 4u; r = parse_extended_key_usage(val, c); }
+        else if (oid_is(&oid, "551d11")) { bit = 8u; r = parse_subject_alt_name(val, c); }
+        else if (critical) return -1;                              /* unknown critical extension: RFC 5280 fail closed */
+        if (bit && (seen & bit)) return -1;                        /* duplicate extension */
+        if (bit) seen |= bit;
+        if (r) return -1;
+        (void)t;
     }
     return 0;
 }
