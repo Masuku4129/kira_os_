@@ -718,3 +718,10 @@ No production code changed. No tests were run in this pass. The next safe step i
 **Stage 0 progress: 65%.** Inspected the actual UHCI artifact and found a test-instrumentation gap: QEMU `guest_errors` logging starts before firmware and the runner does not capture a boundary at KIRA's ready prompt. The 393,600 invalid-read records therefore cannot currently be attributed to KIRA or UHCI. Corrected the audit to avoid treating the raw count as guest-driver evidence and added F-055.
 
 F-054 remains a real, source-confirmed ordering defect: UHCI/xHCI re-enable Bus Master before quiesce/reset and DMA initialization. It requires a separate safe fix and failure-path tests.
+
+
+## 30. xHCI resource lifecycle review — 2026-11-14
+
+**Stage 0 progress: 66%.** Added F-056: partial per-slot DMA allocation failure can leave xHCI slot pointers inconsistent; retry uses only the IN pointer as an initialization sentinel and can dereference a missing OUT buffer. The shared USB DMA allocator currently has no public free API, so failure recovery needs an explicit resource lifecycle rather than clearing the slot blindly.
+
+No production source changed. The next code fix should be stacked on the PCI firmware-Bus-Master PR and include allocation-failure injection plus same-slot retry tests.
