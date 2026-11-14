@@ -109,6 +109,7 @@ static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags) {
 static spinlock_t ks_lock = SPINLOCK_INIT;
 static uint32_t ks_used_hi;                       /* ячеек, когда-либо отображённых */
 static uint16_t ks_free[KSTACK_SLOTS]; static uint32_t ks_nfree;
+static uint8_t ks_active[(KSTACK_SLOTS + 7u) / 8u];
 static uint32_t ks_size;
 
 static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags);
@@ -116,23 +117,45 @@ static int map_in(uint64_t root, uint64_t va, uint64_t pa, uint64_t flags);
 void* vmm_kstack_alloc(uint32_t bytes) {
     if (!kernel_root || bytes == 0 || bytes > KSTACK_STRIDE / 2 || (bytes & (PAGE_SIZE - 1))) return 0;
     uint64_t f = spin_lock_irqsave(&ks_lock);
-    if (ks_size && ks_size != bytes) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
-    ks_size = bytes;
-    uint64_t slot_top;
-    if (ks_nfree) slot_top = KSTACK_BASE + (uint64_t)(ks_free[--ks_nfree] + 1) * KSTACK_STRIDE;
-    else {
+    uint32_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_RELAXED);
+    if (stack_size && stack_size != bytes) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
+    if (!stack_size) __atomic_store_n(&ks_size, bytes, __ATOMIC_RELEASE);
+    if (ks_nfree > KSTACK_SLOTS) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
+
+    uint32_t slot = 0;
+    uint64_t slot_top = 0;
+    int reuse = ks_nfree != 0;
+    if (reuse) {
+        if (!kstack_slot_free_pop(ks_free, &ks_nfree, ks_active,
+                                  KSTACK_SLOTS, ks_used_hi, &slot)) {
+            spin_unlock_irqrestore(&ks_lock, f);
+            return 0;
+        }
+        slot_top = KSTACK_BASE + (uint64_t)(slot + 1u) * KSTACK_STRIDE;
+    } else {
         if (ks_used_hi >= KSTACK_SLOTS) { spin_unlock_irqrestore(&ks_lock, f); return 0; }
-        slot_top = KSTACK_BASE + (uint64_t)(ks_used_hi + 1) * KSTACK_STRIDE;
+        slot = ks_used_hi;
+        slot_top = KSTACK_BASE + (uint64_t)(slot + 1u) * KSTACK_STRIDE;
+        int mapped = 0, quarantine = 0, ok = 1;
         for (uint64_t va = slot_top - bytes; va < slot_top; va += PAGE_SIZE) {
             uint64_t pa = pmm_alloc_page();
-            if (!pa || map_in(kernel_root, va, pa, PTE_WRITE | VMM_NOEXEC) != 0) {
-                if (pa) pmm_free_page(pa);
-                /* частично отображённая ячейка не выдаётся (ks_used_hi не растёт), её страницы остаются ей */
-                spin_unlock_irqrestore(&ks_lock, f);
-                return 0;
+            if (!pa) { ok = 0; break; }
+            if (map_in(kernel_root, va, pa, PTE_WRITE | VMM_NOEXEC) != 0) {
+                pmm_free_page(pa);
+                ok = 0;
+                quarantine = 1; /* unexpected existing PTE or page-table failure: never retry this VA */
+                break;
             }
+            mapped = 1;
         }
-        ks_used_hi++;
+        if (ok && kstack_slot_activate(ks_active, KSTACK_SLOTS, slot)) {
+            ks_used_hi++;
+        } else {
+            /* A partially mapped or otherwise suspect slot is never reused over its old PTEs. */
+            if (mapped || quarantine) ks_used_hi++;
+            spin_unlock_irqrestore(&ks_lock, f);
+            return 0;
+        }
     }
     spin_unlock_irqrestore(&ks_lock, f);
     return (void*)(uintptr_t)(slot_top - bytes);
@@ -140,16 +163,20 @@ void* vmm_kstack_alloc(uint32_t bytes) {
 
 void vmm_kstack_free(void* base) {
     uint64_t va = (uint64_t)(uintptr_t)base;
-    if (va < KSTACK_BASE || va >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE) return;
     uint64_t f = spin_lock_irqsave(&ks_lock);
-    ks_free[ks_nfree++] = (uint16_t)((va - KSTACK_BASE) / KSTACK_STRIDE);
+    uint32_t slot;
+    if (kstack_slot_from_base(va, KSTACK_BASE, KSTACK_STRIDE, KSTACK_SLOTS,
+                              __atomic_load_n(&ks_size, __ATOMIC_RELAXED), ks_used_hi, &slot))
+        (void)kstack_slot_free_push(ks_free, &ks_nfree, ks_active,
+                                    KSTACK_SLOTS, ks_used_hi, slot);
     spin_unlock_irqrestore(&ks_lock, f);
 }
 
 int vmm_kstack_guard_hit(uint64_t addr) {
-    if (addr < KSTACK_BASE || addr >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE || !ks_size) return 0;
+    uint32_t stack_size = __atomic_load_n(&ks_size, __ATOMIC_ACQUIRE);
+    if (addr < KSTACK_BASE || addr >= KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE || !stack_size) return 0;
     uint64_t off = (addr - KSTACK_BASE) % KSTACK_STRIDE;
-    return off < KSTACK_STRIDE - ks_size;                                   /* ниже отображённой части ячейки */
+    return off < KSTACK_STRIDE - stack_size;                               /* ниже отображённой части ячейки */
 }
 
 int vmm_is_kstack(uint64_t addr) { return addr >= KSTACK_BASE && addr < KSTACK_BASE + (uint64_t)KSTACK_SLOTS * KSTACK_STRIDE; }
