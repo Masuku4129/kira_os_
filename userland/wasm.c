@@ -152,7 +152,7 @@ static u32 leb_u(const u8** p, const u8* end) {
     }
 }
 static i64 leb_s(const u8** p, const u8* end, int bits) {
-    if (bits != 32 && bits != 64) { trap("unsupported signed LEB128 width"); return 0; }
+    if (bits != 32 && bits != 33 && bits != 64) { trap("unsupported signed LEB128 width"); return 0; }
     u64 r = 0; unsigned shift = 0, count = 0, max_bytes = (unsigned)(bits + 6) / 7;
     u8 b = 0, prev = 0;
     for (;;) {
@@ -175,6 +175,7 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
                 trap("overlong signed LEB128"); return 0;
             }
             if (count < max_bytes && shift < 64 && (b & 0x40u)) r |= ~0ull << shift;
+            if (count == max_bytes && bits < 64 && (r & (1ull << (bits - 1)))) r |= ~0ull << bits;
             return bits == 32 ? (i64)(int32_t)(u32)r : (i64)r;
         }
         if (count == max_bytes) { trap("unterminated signed LEB128"); return 0; }
@@ -385,7 +386,7 @@ static int compile_func(func_t* f) {
             u8 bt = *p; u32 ar = 0; int bad = 0;
             if (bt == 0x40) p++;
             else if (bt == 0x7F || bt == 0x7E || bt == 0x7D || bt == 0x7C) { p++; ar = 1; }
-            else { i64 ti = leb_s(&p, end, 64); if (ti < 0 || (u64)ti >= ntypes || types[ti].np) bad = 1; else ar = types[ti].nr; }
+            else { i64 ti = leb_s(&p, end, 33); if (ti < 0 || (u64)ti >= ntypes || types[ti].np) bad = 1; else ar = types[ti].nr; }
             if (nctl >= 256) CERR("blocks nested too deep");
             ctl_t* n = &ctl[nctl];
             n->kind = op == 0x03 ? 1 : op == 0x04 ? 2 : 0; n->ar = (u8)ar; n->pend = 0; n->ifz = 0; n->start = 0;
