@@ -704,3 +704,10 @@ PR #165 latest exact-head workflow attempt 2 is 43/43 PASS and the UHCI scenario
 The latest exact-head runs for PRs #154, #164, #166 and #165 each have 43/43 successful jobs, including ARM64 build/QEMU. The PR #165 ARM64 artifact confirms 16 scenarios: GICv2/GICv3+ITS, HVC/SMC PSCI, 8-core EL2, GUI, USB, isolation/fault paths and non-coherent DMA with a 32 MB pool. This is emulator coverage only.
 
 The happy-path tests do not cover F-050 pool exhaustion, F-051 malformed FDT property-name, F-052 mixed coherency or F-053 PSCI absent. The x86 UHCI functional pass still has 393,602 rejected QEMU invalid-read records, so F-025 remains open.
+
+
+## 28. USB controller DMA activation review — 2026-11-14
+
+**Stage 0 progress: 64%.** Reviewed PCI enumeration against the full UHCI and xHCI startup paths. Added F-054: both drivers re-enable PCI Bus Master before controller quiesce/reset and before allocating/programming their DMA schedule/rings. This is a strong hypothesis for the remaining QEMU invalid-read storm, but the DMA requester is not yet proven.
+
+No production code changed. No tests were run in this pass. The next safe step is to instrument register/activation ordering and add failure-injection tests, then implement the corrected sequence on an isolated Draft PR.
