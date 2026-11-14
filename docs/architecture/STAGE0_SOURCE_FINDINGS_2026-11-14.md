@@ -1248,7 +1248,13 @@ F-039 remains OPEN until exact-head CI and targeted lifecycle validation pass an
 3. Add parallel host tests compiling distinct x86-64 and AArch64 translation units concurrently, verifying outputs and diagnostics do not cross-contaminate.
 4. Run ThreadSanitizer where supported after context isolation.
 
-F-040 remains OPEN.
+### Implementation tracking
+- Draft PR #176: https://github.com/Masuku4129/kira_os_/pull/176
+- Adds an atomic single-active-compilation guard. Concurrent/nested calls return `KCC_BUSY` before touching global compiler state; success and longjmp error paths both release the guard.
+- Exact-head commit `6ff41ceb5fe0bc6724cfaa6bc7b32e4198143523`; CI run #43631380730 completed **30/30 jobs successfully**, including a pthread host regression that proves the second invocation is rejected and the first completes without state corruption.
+- This is a fail-closed serialization contract, **not** per-compilation context isolation. ThreadSanitizer and concurrent independent compilation are still outstanding.
+
+F-040 remains OPEN until the compiler pipeline is context-isolated and parallel output/diagnostic tests pass.
 
 
 ## New finding F-041 — WASM binary decoder advances pointers beyond validated section bounds (2026-11-14)
