@@ -1389,3 +1389,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Added F-064 for FDT test coverage gap and a bounded string-table lookup risk: parser accepts v16 but fixture is v17; missing v16, strings-block NUL/boundary and malformed name-offset tests. This is an audit finding, not a code fix.
 - Identified priority Stage 0 gaps: VMM harness, malformed ELF corpus, release-profile manifest snapshots, old-disk update integration, QEMU scenario mapping and per-architecture source inclusion map.
 - No production code changed; main and open PRs untouched.
+
+
+## #80 — Stage 0: audit branch ancestry refreshed (2026-11-15)
+
+- Refreshed PR #151 against current main. Audit branch head `0c28f4f689e15251822b80eb07f91da6c1d78bc7`, pinned base `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`, main `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`.
+- Compare: diverged, audit branch 422 commits ahead / 6 behind; GitHub reports mergeable=false. The diff is 22 documentation-only paths; no production source file changed by the audit PR.
+- Enumerated the six current-main commits after the pinned base, including WASM commit `12cf3fb` that causes F-062 and gfx queue serialization `3497f48`.
+- Updated PR graph and Stage Tracker. Kept main, audit history and PR state untouched; no merge, rebase, reset or force-push.
