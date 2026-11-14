@@ -491,3 +491,11 @@ Sources:
 | F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI 43/43 PASS; combined PR #154 integration pending | FIX VERIFIED ON DRAFT BRANCH; combined integration pending |
 
 No code was changed on `main` by this audit. All implementation changes remain in separate unmerged Draft PRs. No test was executed locally. Exact-head CI evidence from other PRs is branch-only and is not transferred to `main`.
+
+
+## Follow-up — F-002 / F-016 exact-head evidence and PMM dependency (2026-11-14)
+
+- **F-002 firmware handoff:** PR #165 exact head `64afef2c74f72597dd9620468c4b6bff1fc1bb31`, workflow `43603442098`, completed successfully; all 29 returned jobs succeeded, including `vm (usb-uhci)`. This supersedes the earlier entry that described the UHCI regression as still open on the previous head. Temporary diagnostic traces were removed afterward; cleanup head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb` has no exact-head CI result yet. Keep F-002 branch-only until that cleanup head passes. Real per-device VT-d/SMMUv3 domains remain absent; PR #161's fail-closed Ring 3 DMA/MSI gate does not implement IOMMU.
+- **F-016:** PR #166 exact head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229`, workflow `43602565437`, completed successfully; all 29 returned jobs succeeded. This verifies the FDT header reservation-map parser and ARM64 boot integration on that Draft PR head.
+- **F-016 integration caveat:** PR #166 is based on main and uses the current main `pmm_arm_reserve()`. Main's ARM64 PMM has no separate reserved-page bitmap, so a later `pmm_free_page()` can clear a page reserved by the new call. PR #158 implements reserved-page ownership and atomic contiguous release, exact head `70d0e89a65414818c22d61532f7ca4288c464d2c`, workflow `43592051859`, 43/43 PASS. Treat #158 as a prerequisite or integrate #158+#166 as one reviewed change set. Add an integration test that proves a page described only by FDT `mem_rsvmap` remains unavailable after PMM initialization and cannot be freed.
+- These are branch-level results only. No result is transferred to main, and no physical ARM64 hardware qualification is claimed.
