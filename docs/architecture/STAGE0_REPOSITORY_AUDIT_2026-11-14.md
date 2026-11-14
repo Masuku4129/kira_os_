@@ -674,3 +674,12 @@ No kernel source changes, no merges, no ISO build.
 - ADR-0004 IOMMU isolation remains independent and is not satisfied by a DMA pool.
 
 Source audit only; no runtime tests or hardware validation. No kernel changes, merges or ISO build.
+
+
+## 24. Driver and ARM64 DMA audit expansion — 2026-11-14
+
+**Stage 0 progress: 61%.** Reviewed the built-in driver startup paths across USB (UHCI/xHCI), storage (AHCI/NVMe/VirtIO block), networking (e1000/VirtIO net), audio (HDA/AC'97) and VirtIO GPU/input/RNG. Cross-checked Bus Master timing against existing F-030 and DMA allocation paths against F-050.
+
+- F-052 — ARM64 coherency detection can treat one node's `dma-coherent` property as platform-wide when no PCI host node exists. Mixed-coherency devices can therefore be misclassified.
+- F-030 remains a common integration blocker: multiple built-in drivers enable PCI Bus Master before reset/quiesce and before all DMA rings/queues are ready. No duplicate issue opened.
+- F-050/F-051/F-052 are source findings only; runtime tests have not been run for this pass. No production source changes, merges or ISO build.
