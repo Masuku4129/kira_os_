@@ -1288,3 +1288,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed `tests/net_test.c` only exercises pure checksum/IP parsing functions; no UDP ownership or lifecycle tests exist.
 - Recorded F-059 with explicit lifetime, locking, lock-order and concurrency-test closure criteria. This is source evidence only: no runtime reproduction, production fix or test PASS is claimed.
 - The existing F-039 TCP state/lifetime finding remains open and is not counted as fixed by this UDP audit.
+
+
+## 69. UHCI firmware-controller quiesce gap — 2026-11-14
+
+- Added F-057 after reviewing the phase-aware `usb-uhci` artifact and PCI scan source. PCI enumeration clears Bus Master but does not stop the firmware-running UHCI controller; the normal USB driver does not run until after the complete PCI scan.
+- QEMU `usb-uhci` artifact contains 393,600 invalid reads at 0x0/4/8/C; same-branch `boot-virtio` no-USB control has no QEMU guest_errors. The UHCI log is fully populated by the driver-start marker and does not grow after guest-ready. File-size offsets are best-effort due QEMU buffering.
+- Likely mechanism: the controller continues trying to fetch its old frame list while BM is revoked; QEMU rejects the accesses. This is not proof of successful DMA or memory corruption.
+- Required next fix: quiesce UHCI immediately after BM revocation during PCI enumeration, with bounded HCHalted polling and mocked-port host tests. Keep BM off if quiesce fails.
