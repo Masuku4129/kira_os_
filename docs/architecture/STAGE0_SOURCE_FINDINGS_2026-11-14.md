@@ -728,3 +728,11 @@ F-024 remains OPEN. The PR #130 policy and PR #61 loader must not be combined un
 - Existing F-017 remains open: firmware Bus Master is cleared only after BAR probing, leaving a DMA exposure window during probing. A previous pre-probe change caused a UHCI VM regression; the cause and a safe transition sequence remain unresolved.
 
 F-025 remains OPEN pending exact-head CI and later PCI/device-model reconciliation. F-017 remains independently OPEN.
+
+
+## FDT overlap fix — exact-head verification complete (2026-11-14)
+
+- PR #166 corrected head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, workflow `43610515593`: **30/30 jobs succeeded**.
+- This exact run includes host-tests (including FDT v16 and one-byte overlap regression), x86 build, ARM64 build/scenarios, and all VM matrix scenarios including `usb-uhci`.
+- This verifies the FDT validator correction and the FDT reservation-map/ARM64 PMM integration on the PR branch. It does not integrate the separate branch-only IOMMU backends or close F-021.
+
