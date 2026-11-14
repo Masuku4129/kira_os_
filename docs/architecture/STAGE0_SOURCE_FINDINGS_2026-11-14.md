@@ -1137,3 +1137,45 @@ F-035 remains OPEN.
 4. Audit ChaCha20 and AES-GCM maximum-length/counter bounds as part of the same crypto API hardening pass; primitive callers must not be able to wrap a block counter and repeat keystream.
 
 F-036 remains OPEN.
+
+
+## New finding F-037 — TLS and X.509 verification use process-global mutable scratch state (2026-11-14)
+
+**Severity:** HIGH security isolation / concurrency risk.
+
+### Evidence
+- userland/tls.c keeps the handshake transcript buffer and length, transcript hash context, Certificate message buffer, OCSP pointers, certificate pointer/length arrays and parsed leaf certificate in file-scope static variables.
+- tls_connect() resets and mutates these globals for each connection. A tls_t* context does not own these buffers/state.
+- userland/x509.c also uses static x509_t chain[8] in x509_verify_chain() and static certificate scratch objects in x509_ocsp().
+- Two threads in the same process performing TLS handshakes or certificate/OCSP verification concurrently can overwrite each other's transcript, certificate pointers and parsed chain. The resulting behavior can include handshake failure or validation being performed against another connection's mutable certificate state.
+- This finding assumes the API is used concurrently; no specific exploit or runtime race has been demonstrated. There is no per-context lock or documented single-active-connection contract in the inspected headers.
+
+### Required closure
+1. Move all handshake/transcript/certificate/OCSP scratch state into tls_t or a per-handshake context passed down the call chain.
+2. Make x509_verify_chain() and x509_ocsp() reentrant by using caller-owned/local scratch rather than static mutable objects.
+3. If any shared immutable trust data remains global, make it read-only after initialization.
+4. Add two-thread tests that run simultaneous handshakes to different hosts, plus concurrent X.509 chain and OCSP verification with distinct certificate sets.
+5. Run ThreadSanitizer host tests where supported and verify no cross-context certificate or transcript contamination.
+
+F-037 remains OPEN.
+
+
+## New finding F-038 — X.509 parser silently accepts unknown critical extensions and omits CA path-length enforcement (2026-11-14)
+
+**Severity:** HIGH certificate-validation policy defect.
+
+### Evidence
+- userland/x509.c parse_ext() reads the optional critical BOOLEAN into a temporary DER value but does not retain or evaluate it. Unknown extension OIDs fall through the loop and are silently ignored even when marked critical.
+- RFC 5280 requires a certificate to be rejected when it contains a critical extension the implementation does not recognize and process. Ignoring one can bypass a constraint the issuer intended the relying party to enforce.
+- basicConstraints parsing records only the CA BOOLEAN; any pathLenConstraint field is not parsed or enforced.
+- x509_verify_chain() checks that an intermediate has is_ca set, but it does not enforce pathLenConstraint. The inspected chain code also needs an explicit policy review for keyUsage and serverAuth EKU before accepting a server certificate.
+- Existing tests/x509_test.c covers signatures, chain construction, SAN/hostname, time validity, untrusted and tampered certificates, and OCSP. It does not demonstrate rejection of unknown critical extensions or pathLenConstraint violations.
+
+### Required closure
+1. Track the critical flag for every extension. Reject unknown critical extensions; explicitly parse and enforce every supported critical extension.
+2. Parse basicConstraints pathLenConstraint and enforce it across the constructed certification path.
+3. Parse and enforce keyUsage and extendedKeyUsage for TLS server authentication; reject certificates whose asserted constraints do not permit the intended use.
+4. Add hostile DER test certificates with unknown critical extensions, pathLenConstraint=0 with subordinate CA, missing/incorrect keyUsage and incompatible EKU.
+5. Keep unsupported critical extensions fail-closed; do not silently accept or strip them.
+
+F-038 remains OPEN.
