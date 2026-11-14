@@ -1344,3 +1344,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Added `docs/architecture/STAGE0_OPEN_PR_GRAPH_2026-11-15.md` with exact head/base refs and SHA, draft status, integration rules and explicit evidence limits.
 - Confirmed `main` remains at `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`; audit work stays on the dedicated audit branch.
 - This is metadata inventory only; all 92 diffs, ancestry, review threads and exact-head CI still require classification before integration.
+
+
+## #75 — Stage 0: FDT parser and ARM64 firmware memory ownership review (2026-11-15)
+
+- Re-read current-main `fdt.c`, `fdt.h`, `tests/fdt_test.c`, ARM64 PMM and boot initialization.
+- Confirmed F-061 (unbounded property-name comparison) and F-058 (unbounded property-value string consumers) remain present in current main; no fix or PASS claimed.
+- Confirmed F-016 candidate PR #166 now includes FDT reserve-map parsing plus reserved-page ownership/atomic PMM release. Exact current PR head `4bc69a224887ead8d8d1737e782ed76cf4b8e95e`, workflow `43610515593`: 30/30 jobs succeeded.
+- Added F-063: main accepts FDT v16 but interprets header word 9 as v17 `size_dt_struct`; PR #166 contains the version-aware calculation and v16 fixture. F-063 remains open on main pending integration.
+- No production source changed; evidence and candidate disposition recorded in Stage 0 findings.
