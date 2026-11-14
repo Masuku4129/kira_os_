@@ -72,6 +72,11 @@ jobs:
           tools/kfstool ci-out/android/kira_disk.img cat /var/.ci-preserve-marker > ci-out/android/var-preserved.txt
           cmp ci-out/android/preserve-marker.txt ci-out/android/data-preserved.txt
           cmp ci-out/android/preserve-marker.txt ci-out/android/var-preserved.txt
+          # Remove CI-only markers before publishing the user disk and its checksums.
+          tools/kfstool ci-out/android/kira_disk.img rm /data/.ci-preserve-marker
+          tools/kfstool ci-out/android/kira_disk.img rm /var/.ci-preserve-marker
+          rm -f ci-out/android/preserve-marker.txt ci-out/android/data-preserved.txt ci-out/android/var-preserved.txt
+          (cd ci-out/android && sha256sum kira.iso kira_disk.img > KIRA-FULL-SHA256SUMS && sha256sum -c KIRA-FULL-SHA256SUMS)
           test -s ci-out/android/kira.iso
           test -s ci-out/android/kira_disk.img
           python3 ci/iso_module_smoke.py ci-out/android/kira.iso
