@@ -98,6 +98,7 @@ static void reserve_range(uint64_t base, uint64_t len) {
     }
 }
 
+#ifndef KIRA_HOST_TEST
 /* Move bitmap storage past any Multiboot2 module that overlaps the candidate range.
    GRUB may place the init module immediately after the kernel; choosing it as bitmap
    storage would silently overwrite the embedded root filesystem before it is mounted. */
@@ -131,6 +132,8 @@ static uint64_t skip_module_overlap(unsigned long addr, uint64_t start, uint64_t
     }
     return 0;
 }
+
+#endif /* !KIRA_HOST_TEST */
 
 // Запоминает кусок ОЗУ выше 1 ГБ до отображения; в конце pmm_init список сортируется и сливается.
 static void defer_range(uint64_t base, uint64_t end) {
