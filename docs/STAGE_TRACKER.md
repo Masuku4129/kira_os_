@@ -75,3 +75,6 @@
 
 - Source/build/test coverage matrix: `architecture/STAGE0_SOURCE_BUILD_TEST_MATRIX_2026-11-15.md`. This maps critical subsystems to source, build profiles and wired host tests, while explicitly identifying VMM, FDT, ELF, update/recovery and architecture parity gaps.
 - New finding F-064: FDT parser accepts v16 but host fixture is v17 only; missing strings-block boundary and NUL-termination tests, with a bounded string-compare risk in `fdt_prop()`.
+
+
+- PR #151 ancestry refresh: audit branch head `0c28f4f689e15251822b80eb07f91da6c1d78bc7`, pinned base `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4`, current main `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`; compare is diverged (422 ahead / 6 behind), GitHub mergeable=false. Diff is 22 documentation-only paths. No merge/rebase/force-push performed.
