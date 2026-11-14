@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "fdt.h"
+#include "pmm.h"
 #include "pmm_arm.h"
 
 static int fails;
