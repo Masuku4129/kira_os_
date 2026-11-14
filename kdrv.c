@@ -249,7 +249,7 @@ static int start(const char* name, const pci_dev_t* d, const char* args) {
     if (!(granted & CAP_DRIVER_)) LN_ADD(" -");
     LN_ADD(b->irq_on ? ", прерывание MSI включено" : (granted & CAP_IRQ) ? ", прерывания у устройства нет" : ""); LN_ADD("\n");
     #undef LN_ADD
-    ln[n] = 0; uart_print(ln);
+    ln[n] = 0; uart_print_atomic(ln);
     life_note("drv-start", name, pid);
     return pid;
 }
