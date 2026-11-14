@@ -752,3 +752,7 @@ UDP owner checks currently occur outside `ulk`, and teardown clears ownership wi
 | PCI BAR probe complete | Clear PCI Bus Master | Firmware UHCI can remain RUNning; no USBSTS.HALTED verification | Stop UHCI via BAR4 immediately after BM revoke |
 | Remaining PCI scan | Continue probing other devices | UHCI can issue rejected DMA attempts throughout this interval | Bounded USBCMD=0 / USBSTS.HALTED poll; keep BM off |
 | USB driver start | Revoke BM again, stop/reset, allocate schedule and start | Too late to avoid the boot-time rejected-DMA storm | Keep as second-stage reset/reinitialize after early quiesce |
+
+
+### F-060 UDP transmit result acceptance gate
+`udp_xmit()` currently discards the result of `ipa_send()` and reports the payload length even when `eth_send()` returns a NIC TX enqueue error. Require propagation and deterministic fake-netdev tests for IPv4/IPv6, including full e1000/virtio TX queues. A successful UDP send result may mean local enqueue only, never remote receipt.
