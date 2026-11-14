@@ -500,3 +500,10 @@
 - First exact-head run `43593017450` exposed three scenario assertions that did not match the current behavior: escaped bracket regexes in the app UI scenario, a package-selection assertion that assumed one of two matching packages would always be selected after stop, and a global DHCP prohibition that also matched the earlier boot phase.
 - A corrected scenario commit `11538b6685e504e861e48328553b5b973a41a977` was run as `43599700642`. The corrected UI assertion reached the actual asynchronous driver-denial path; it then exposed a timing issue because Driver Manager polls for kernel completion for up to 6 seconds. The scenario now waits 7 seconds before checking the final user-facing result.
 - A fresh exact-head run is required for the timing correction. No PASS claimed; PR #161 remains Draft/unmerged.
+
+
+### F-004 — BootInfo contract proposal drafted (2026-11-14)
+
+- Reviewed current x86-64 Multiboot2 entry (`kernel_main(magic, addr)`, including high-address MBI relocation) and ARM64 FDT entry (`arm_main(dtb, entry_el)`, which currently parses RAM, reserved-memory, framebuffer, PSCI/GIC and PCI host data directly).
+- Added proposed ADR-0006 defining immutable/versioned BootInfo, normalized memory-map ownership, bounded optional firmware/module/framebuffer/command-line/DMA/IOMMU records, physical-range validation, source lifetime and adapter responsibilities.
+- Updated F-004 in the source findings ledger. This is documentation/contract work only; no implementation or acceptance is claimed. Existing boot paths remain unchanged.
