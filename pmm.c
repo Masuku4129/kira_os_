@@ -355,11 +355,27 @@ uint64_t pmm_alloc_contiguous(uint32_t pages) {
 }
 
 int pmm_free_contiguous(uint64_t paddr, uint32_t pages) {
-    int rc = 0;
-    for (uint32_t i = 0; i < pages; i++) {
-        if (pmm_free_page(paddr + (uint64_t)i * PMM_PAGE_SIZE) != 0) rc = -1;
+    if (!pages || (paddr & (PMM_PAGE_SIZE - 1)) || paddr >= managed_top) return -1;
+    if ((uint64_t)pages > (managed_top - paddr) / PMM_PAGE_SIZE) return -1;
+
+    uint64_t first = paddr / PMM_PAGE_SIZE;
+    uint64_t end = first + (uint64_t)pages;
+    if (end > nwords * 32) return -1;
+
+    /* A contiguous allocation is one ownership unit: validate every page before freeing any. */
+    uint64_t f = spin_lock_irqsave(&pmm_lock);
+    for (uint64_t page = first; page < end; page++) {
+        if (test_bit(reserved_map, page) || !test_bit(used_map, page)) {
+            spin_unlock_irqrestore(&pmm_lock, f);
+            return -1;
+        }
     }
-    return rc;
+    for (uint64_t page = first; page < end; page++) clear_bit(used_map, page);
+    free_pages += pages;
+    uint32_t first_word = (uint32_t)(first >> 5);
+    if (first_word < search_hint) search_hint = first_word;
+    spin_unlock_irqrestore(&pmm_lock, f);
+    return 0;
 }
 
 int pmm_free_page(uint64_t paddr) {
