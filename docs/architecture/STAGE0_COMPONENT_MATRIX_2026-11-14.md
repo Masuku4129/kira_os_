@@ -586,3 +586,8 @@ Port and shared-memory object references, handle close, mapping retention and po
 ### F-044 Input ring concurrency acceptance gate
 
 Keyboard and mouse producer/consumer paths currently mix plain volatile reads with atomic release stores for consumer-owned tail indices. The diagnostic dropped counter is also read without synchronization. Require consistently atomic index access, explicit acquire/release semantics and atomic/locked diagnostics. Sequential decoder tests do not close this issue; add concurrent producer/consumer wraparound and overflow tests, TSan and QEMU SMP validation.
+
+
+### F-045 Graphics event dequeue acceptance gate
+
+Multiple threads in one process are supported, while graphics event dequeue uses an unprotected tail read/copy/store. Two consumers can duplicate delivery and fail to advance the queue correctly. Require per-app dequeue serialization or an enforced single-consumer contract, with multi-thread same-PID queue-wrap, copy-failure and teardown tests. Separately verify graphics app-slot lifetime across process exit and compositor reclamation.
