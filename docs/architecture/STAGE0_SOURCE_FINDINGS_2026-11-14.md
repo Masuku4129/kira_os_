@@ -192,6 +192,42 @@ When guarded stack allocation fails or the slot window is exhausted, a thread ma
 
 **Required closure:** explicitly define stack-exhaustion policy (fail thread creation or use a separately guarded fallback); zero stack contents before publishing a new thread; add tests for allocation failure, fallback classification, canary initialization and zeroing; ensure all supported architectures enforce the same policy. Do not silently treat heap fallback as equivalent to guarded stacks.
 
+
+## F-009 — PMM contiguous-block release is not atomic
+
+**Severity:** High memory allocator integrity risk  
+**Confidence:** High — direct source evidence; used by DMA and device-buffer paths  
+**Master-plan mapping:** B, F, G, H, J, M, N; streams 1, 5, 6, 7, 9, 11, 12.
+
+### Evidence
+
+`pmm_free_contiguous(paddr, pages)` currently loops over the block and calls `pmm_free_page()` separately for every page. Each individual call acquires/releases the PMM lock and may succeed or fail independently. If one page is reserved, already freed, or otherwise invalid, earlier and later pages may still be freed; another CPU can allocate a just-freed page before the block release finishes.
+
+The function therefore has neither all-or-nothing validation nor one lock covering the complete block transition.
+
+Source: [pmm.c at baseline SHA, lines 357–363](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/pmm.c#L357-L363).
+
+### Impacted callers
+
+- `kdrv.c`: DMA block cleanup, allocation rollback and user mapping failure.
+- `virtio.c`: contiguous DMA allocation rollback.
+- `usb.c`: USB DMA allocation rollback, including below-4-GiB validation.
+- `nvme.c`, `ahci.c`, `virtio_blk.c`, `xhci.c`, `uhci.c`: use the shared DMA allocators.
+
+### Consequence
+
+A failed release can leave a physically fragmented ownership state while the caller treats the range as one allocation. Because individual pages are returned under separate lock acquisitions, another CPU can reuse part of a block before the original release completes. This can become DMA use-after-free or allocator double ownership.
+
+### Required closure
+
+Implement a single-lock transaction:
+1. Validate nonzero page count, alignment, range/overflow and managed bounds.
+2. Under one PMM lock, validate every page is allocated and not reserved before changing any bit.
+3. If any page is invalid, return an error without freeing any page.
+4. Otherwise clear all allocation bits and update `free_pages`/search hint once.
+5. Add host tests for valid release, invalid middle page, double release, range overflow, zero length and concurrent allocation/release stress where supported.
+6. Re-run all DMA/device scenarios and exact-SHA host/build/VM CI.
+
 ## Verification ledger
 
 | Finding | Source reviewed | Runtime reproduction | Targeted regression in current main | Status |
@@ -204,5 +240,6 @@ When guarded stack allocation fails or the slot window is exhausted, a thread ma
 | F-006 | ARCHITECTURE.md vs current sources/build/CI | Source/document comparison only | No docs consistency guard in main | CONFIRMED DOCUMENTATION DRIFT |
 | F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
 | F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
+| F-009 | PMM contiguous block release | Source review and caller inventory | No atomic block-release regression in main | CONFIRMED ALLOCATOR DEFECT |
 
 No code was changed by this audit. No test was executed locally. Exact-head CI evidence from other PRs is explicitly branch-only and is not transferred to main.
