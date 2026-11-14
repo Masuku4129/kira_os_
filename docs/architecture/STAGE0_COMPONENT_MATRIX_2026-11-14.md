@@ -547,3 +547,8 @@ Installed records currently preserve the recipe URL and declared license plus co
 ### F-039 TCP lifecycle acceptance gate
 
 TCP state and queue fields are changed under tlk but tcp_wait() predicates and several syscall checks access them without that lock. Timeout cleanup and handle reuse also need a consistent lifetime contract. Close/reset/receive, accept/unlisten, connect timeout and process teardown must be stress-tested with generation-tagged or pinned handles.
+
+
+### F-040 KCC API concurrency acceptance gate
+
+KCC's public compile API and internal preprocessing/parsing/IR/backend state are singleton globals. Parallel invocations are unsafe until all mutable state is moved into a per-compilation context. Until then, enforce a documented single-active-compile contract and add parallel x86-64/AArch64 isolation tests after refactoring.
