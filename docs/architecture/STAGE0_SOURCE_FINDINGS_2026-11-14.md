@@ -379,6 +379,35 @@ Source:
 - Add host regression for invalid middle page and unchanged free count on failure.
 - Draft PR #158; exact-head CI pending.
 
+## F-015 — FDT `reg` parser can wrap record indices and address ranges
+
+**Severity:** High firmware-handoff input validation risk  
+**Confidence:** High — direct parser arithmetic and caller usage  
+**Master-plan mapping:** A, B, L, M, N; streams 1, 10, 11, 12.
+
+### Evidence
+
+- `fdt_reg()` checked `(uint64_t)(idx + 1) * stride`, but `idx + 1` was evaluated in 32-bit unsigned arithmetic before the cast. `UINT32_MAX` wrapped to zero and bypassed the record bounds check.
+- The parser decoded 64-bit address and size cells but did not reject a nonzero-size range where `addr + size` wraps.
+- ARM64 startup consumes `fdt_reg()` for RAM regions, UART, GIC, ECAM, framebuffer and other MMIO resources; the RAM path then derives `top`, `lo`, `hi`, DMA pool and PMM bounds from these values.
+
+Source:
+- [fdt_reg() implementation](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/fdt.c#L172-L190)
+- [ARM64 RAM discovery consumes reg ranges](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/arch/aarch64/main.c#L1067-L1082)
+
+### Remediation on draft branch
+
+- Compute record offset with 64-bit multiplication and subtraction-based bounds checks.
+- Reject nonzero-size ranges whose half-open end would overflow uint64.
+- Add host tests for `UINT32_MAX` record index and crafted wrapping 64-bit address/size.
+- Draft PR #159; exact-head CI pending.
+
+### Required closure
+
+1. Exact-head FDT host suite passes under sanitizers.
+2. ARM64 build/QEMU matrix passes.
+3. Audit remaining FDT-derived arithmetic (overlapping RAM ranges, total-size accounting, reserved-memory ranges and address-width limits) separately; this patch only closes the parser-level wrap.
+
 ## Verification ledger
 
 | Finding | Source reviewed | Runtime reproduction / branch evidence | Targeted regression evidence | Status |
@@ -394,6 +423,7 @@ Source:
 | F-010 | x86-64 TLB shootdown timeout and late IPI handling | Draft PR #155 exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; CI run `43590730265` | 43/43 checks PASS, including host, ARM64 and QEMU SMP matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
 | F-011 | MMIO page-range overflow during page align-up | Source arithmetic review | Draft PR #156 exact head `cbad3a2198747867e72a02e811efa38133d1dd08`; CI run `43591102543` has one unrelated `drv-edu` log assertion failure; host/ARM64 still running | FIX IMPLEMENTED; CI ACCEPTANCE BLOCKED BY F-012, RERUN REQUIRED |
 | F-013 | ARM64 PMM reserved-page ownership | Source review; Draft PR #158 adds separate reserved bitmap and host regressions | Exact-head CI pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
+| F-015 | FDT reg index/address-size overflow | Draft PR #159 uses 64-bit index offsets and rejects wrapping ranges; exact-head CI pending | Host FDT regression + ARM64/QEMU pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
 | F-014 | ARM64 PMM contiguous release is non-atomic | Source review; Draft PR #158 validates whole range under one lock | Exact-head CI pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
 | F-012 | Driver-start log line split at 192-byte buffer boundary | QEMU serial artifact `43591102543` confirms driver success but interleaved log; initial PR #157 ARM64 build exposed missing API implementation | Draft PR #157 head `59b391696baabfd49f2ff48acf5aba2b9db538de` adds ARM64 alias; exact-head run `43591626068` pending | FIX IMPLEMENTED; EXACT-HEAD VERIFICATION PENDING |
 | F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI 43/43 PASS; combined PR #154 integration pending | FIX VERIFIED ON DRAFT BRANCH; combined integration pending |
