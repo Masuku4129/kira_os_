@@ -54,6 +54,8 @@ static int leb_tests(void) {
     const u8 s_max[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x07 };
     const u8 s_trunc[] = { 0x80 }, s_over[] = { 0xFF, 0x7F };
     const u8 s_range[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x0F };
+    const u8 s33_min[] = { 0x80, 0x80, 0x80, 0x80, 0x70 };
+    const u8 s33_max[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x0F };
     const u8 imm[] = { 1, 2, 3 };
     const u8 *p; u32 u; i64 v;
 #define LEB_CHECK(x) do { if (!(x)) { fprintf(stderr, "wasm LEB regression failed at line %d\n", __LINE__); return 1; } } while (0)
@@ -67,6 +69,8 @@ static int leb_tests(void) {
     trapped = 0; p = s_trunc; (void)leb_s(&p, s_trunc + sizeof s_trunc, 64); LEB_CHECK(trapped);
     trapped = 0; p = s_over; (void)leb_s(&p, s_over + sizeof s_over, 32); LEB_CHECK(trapped);
     trapped = 0; p = s_range; (void)leb_s(&p, s_range + sizeof s_range, 32); LEB_CHECK(trapped);
+    trapped = 0; p = s33_min; v = leb_s(&p, s33_min + sizeof s33_min, 33); LEB_CHECK(!trapped && v == -4294967296ll);
+    trapped = 0; p = s33_max; v = leb_s(&p, s33_max + sizeof s33_max, 33); LEB_CHECK(!trapped && v == 4294967295ll);
     trapped = 0; p = imm; wasm_skip(&p, imm + sizeof imm, 4); LEB_CHECK(trapped && p == imm);
 #undef LEB_CHECK
     puts("wasm: signed/unsigned LEB128 bounds, canonical encodings and immediate truncation passed");
