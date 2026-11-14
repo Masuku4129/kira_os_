@@ -2,6 +2,23 @@
 #define KIRA_NET_H
 #include <stdint.h>
 
+/* UDP handles are opaque 16-bit values: 3 slot bits and a non-wrapping generation. */
+#define NET_UDP_HANDLE_SLOT_BITS 3u
+#define NET_UDP_HANDLE_SLOT_MASK 7u
+#define NET_UDP_HANDLE_GEN_MAX 0x1FFFu
+static inline uint16_t net_udp_handle_make(uint16_t generation, uint8_t slot) {
+    return (uint16_t)((generation << NET_UDP_HANDLE_SLOT_BITS) | slot);
+}
+static inline int net_udp_handle_decode(uint16_t handle, uint8_t* slot, uint16_t* generation) {
+    uint16_t gen = (uint16_t)(handle >> NET_UDP_HANDLE_SLOT_BITS);
+    uint8_t index = (uint8_t)(handle & NET_UDP_HANDLE_SLOT_MASK);
+    if (!gen || index >= 8) return 0;
+    if (slot) *slot = index;
+    if (generation) *generation = gen;
+    return 1;
+}
+
+
 /* Сеть: драйвер карты (e1000 и др.) даёт кадры Ethernet, стек ядра - ARP, IPv4, ICMP (ping), UDP, клиент DHCP.
    Обработка входящих кадров и DHCP - в потоке «net»; консоль только спрашивает. */
 
