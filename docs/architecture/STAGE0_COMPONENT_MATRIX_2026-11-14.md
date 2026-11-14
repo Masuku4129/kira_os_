@@ -190,3 +190,26 @@ Created `docs/architecture/STAGE0_FILE_BUILD_MATRIX_2026-11-14.csv` from the rec
 - Remaining documentation, CI, build tools, driver package inputs and packaged resources are categorized in the CSV.
 
 The CSV is an **inventory baseline**, not a claim that every file has passed semantic review. Every row includes a primary area, provisional component, build profile, status and classification basis. Any `*_REVIEW` status remains open until its inclusion, dependency or intentional non-production role is verified against the build graph and source references.
+
+
+## 10. Preserved branch-only work — priority review queue
+
+The pinned all-branch audit from PR #148 records **302 refs**, **205 unique non-CI tree heads**, **722 unique branch-only paths**, and **77 non-CI branches without a PR**. No branch-only path is treated as integrated merely because it exists in a branch; all remain preserved until exact changes are reviewed.
+
+Branch-only path classes:
+- 201 source/runtime paths;
+- 217 tests and test fixtures;
+- 164 research/prototype files;
+- 74 documentation files;
+- 62 CI/build/release files;
+- 4 assets/other files.
+
+High-priority source families visible in the preserved branch inventory include:
+- Versioned BootInfo producers/consumers: `bootinfo.c`, `bootinfo_mb2.c`, `bootinfo_fdt.c`, `bootinfo_uefi.c` and BIOS/UEFI architecture adapters.
+- IOMMU and DMA isolation: `iommu_vtd*`, `iommu_arm*`, `drivers/iommu/amd_vi*`, plus tests.
+- Device Model and bus routing: `device_model.*`, `drivers/bus/*`, `acpi_prt.*`, PCI routing and resource lifecycle.
+- Driver trust/signatures/revocation/state transitions: `kdrv_sig*`, `kdrv_trust.h`, `kdrv_revocation*`, `kdrv_transition*`, signing tools and tests.
+- GICv3, UEFI loaders, VMM policy and KIRA Mind synchronization/build subsystems.
+- Release pipeline: image audit, release gate, package update, signed artifacts and reproducibility tests.
+
+These are not approved designs or production-ready code by presence alone. They must be mapped to their exact source branch/PR, compared against the 829-file main baseline, reviewed for API/ABI conflicts, and tested before integration. Priority order is BootInfo/boot, PMM/IOMMU/DMA, Device Model/PCI, driver trust/lifecycle, then release and higher services.
