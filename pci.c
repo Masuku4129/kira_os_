@@ -359,17 +359,17 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     d->header_type = pci_read8(d, 0x0E);
 #ifndef KIRA_HOST_TEST
     uart_print("[PCI TRACE] disable BM ");
-    uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\\n");
+    uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\n");
 #endif
     pci_disable_bus_master(d);
 #ifndef KIRA_HOST_TEST
     uart_print("[PCI TRACE] BM disabled ");
-    uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\\n");
+    uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\n");
 #endif
     probe_bars(d);
 #ifndef KIRA_HOST_TEST
     uart_print("[PCI TRACE] BAR probe done ");
-    uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\\n");
+    uart_print_dec(bus); uart_putchar(':'); uart_print_dec(dev); uart_putchar('.'); uart_print_dec(fn); uart_print("\n");
 #endif
     if (pci_is_bridge(d)) {
         pci_enable(d, PCI_CMD_MASTER);
