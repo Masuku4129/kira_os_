@@ -32,7 +32,15 @@ void chacha20_block(const uint8_t key[32], uint32_t counter, const uint8_t nonce
     crypto_wipe(x, sizeof x); crypto_wipe(s, sizeof s);
 }
 
-void chacha20_xor(const uint8_t key[32], uint32_t counter, const uint8_t nonce[12], const uint8_t* in, uint8_t* out, size_t len) {
+static int chacha20_length_valid(uint32_t counter, size_t len) {
+    uint64_t blocks = (uint64_t)(len / 64) + (uint64_t)((len % 64) != 0);
+    uint64_t available = (uint64_t)UINT32_MAX - counter + 1;
+    return blocks <= available;
+}
+
+int chacha20_xor(const uint8_t key[32], uint32_t counter, const uint8_t nonce[12], const uint8_t* in, uint8_t* out, size_t len) {
+    if (!len) return 0;
+    if (!key || !nonce || !in || !out || !chacha20_length_valid(counter, len)) return -1;
     uint8_t ks[64];
     while (len) {
         chacha20_block(key, counter++, nonce, ks);
@@ -41,6 +49,7 @@ void chacha20_xor(const uint8_t key[32], uint32_t counter, const uint8_t nonce[1
         in += n; out += n; len -= n;
     }
     crypto_wipe(ks, sizeof ks);
+    return 0;
 }
 
 /* ---------------- Poly1305 (пять 26-битных частей) ---------------- */
@@ -141,21 +150,31 @@ static void aead_tag(const uint8_t key[32], const uint8_t nonce[12], const uint8
     crypto_wipe(blk, sizeof blk);
 }
 
-void aead_chacha20_poly1305_seal(const uint8_t key[32], const uint8_t nonce[12], const uint8_t* aad, size_t aad_len,
-                                 const uint8_t* in, size_t len, uint8_t* out, uint8_t tag[16]) {
-    chacha20_xor(key, 1, nonce, in, out, len);
+static int aead_chacha20_lengths_valid(size_t aad_len, size_t len) {
+    /* RFC 8439: payload counter starts at 1; each 64-byte block consumes one 32-bit counter. */
+    return (uint64_t)aad_len <= UINT64_MAX / 8 && (uint64_t)len <= UINT64_MAX / 8 &&
+           chacha20_length_valid(1, len);
+}
+
+int aead_chacha20_poly1305_seal(const uint8_t key[32], const uint8_t nonce[12], const uint8_t* aad, size_t aad_len,
+                                const uint8_t* in, size_t len, uint8_t* out, uint8_t tag[16]) {
+    if (!key || !nonce || !tag || (aad_len && !aad) || (len && (!in || !out)) ||
+        !aead_chacha20_lengths_valid(aad_len, len)) return -1;
+    if (chacha20_xor(key, 1, nonce, in, out, len)) return -1;
     aead_tag(key, nonce, aad, aad_len, out, len, tag);
+    return 0;
 }
 
 int aead_chacha20_poly1305_open(const uint8_t key[32], const uint8_t nonce[12], const uint8_t* aad, size_t aad_len,
                                 const uint8_t* in, size_t len, const uint8_t tag[16], uint8_t* out) {
+    if (!key || !nonce || !tag || (aad_len && !aad) || (len && (!in || !out)) ||
+        !aead_chacha20_lengths_valid(aad_len, len)) return -1;
     uint8_t t[16];
     aead_tag(key, nonce, aad, aad_len, in, len, t);
     int ok = crypto_eq(t, tag, 16);
     crypto_wipe(t, sizeof t);
     if (!ok) return -1;
-    chacha20_xor(key, 1, nonce, in, out, len);
-    return 0;
+    return chacha20_xor(key, 1, nonce, in, out, len);
 }
 
 /* ---------------- X25519: поле 2^255-19, 16 частей по 16 бит ---------------- */
@@ -504,6 +523,12 @@ static void gcm_ctr(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* 
         for (size_t i = 0; i < k; i++) out[i] = in[i] ^ ks[i];
         in += k; out += k; len -= k;
     }
+    crypto_wipe(cb, sizeof cb); crypto_wipe(ks, sizeof ks);
+}
+static int gcm_lengths_valid(size_t alen, size_t len) {
+    /* SP 800-38D: at most 2^32-2 counter blocks, 16 bytes per block. */
+    const uint64_t max_len = (UINT64_C(1) << 36) - 32;
+    return (uint64_t)alen <= UINT64_MAX / 8 && (uint64_t)len <= max_len;
 }
 static void gcm_tag(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen, const uint8_t* ct, size_t clen, uint8_t tag[16]) {
     uint8_t y[16] = { 0 }, lens[16], j0[16], ek[16];
@@ -517,10 +542,13 @@ static void gcm_tag(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* 
     aes128_encrypt_block(g->rk, j0, ek);
     for (int i = 0; i < 16; i++) tag[i] = y[i] ^ ek[i];
 }
-void aes128_gcm_seal(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
-                     const uint8_t* in, size_t len, uint8_t* out, uint8_t tag[16]) {
+int aes128_gcm_seal(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
+                    const uint8_t* in, size_t len, uint8_t* out, uint8_t tag[16]) {
+    if (!g || !nonce || !tag || (alen && !aad) || (len && (!in || !out)) ||
+        !gcm_lengths_valid(alen, len)) return -1;
     gcm_ctr(g, nonce, in, out, len);
     gcm_tag(g, nonce, aad, alen, out, len, tag);
+    return 0;
 }
 int aes128_gcm_open(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
                     const uint8_t* in, size_t len, const uint8_t tag[16], uint8_t* out) {
