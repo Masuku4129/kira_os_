@@ -95,7 +95,7 @@ static int trapped;
 static void trap(const char* m) { if (!trapped) { trapped = 1; trap_msg = m; } }
 
 /* ---------- модуль ---------- */
-typedef struct { u8 np, nr; u8 p[32]; } ftype_t;
+typedef struct { u8 np, nr, r; u8 p[32]; } ftype_t;
 typedef struct { u32 type; int import; u32 imp_id; const u8* code; const u8* end; u32 nlocals, centry, maxh; } func_t;
 static ftype_t* types; static u32 ntypes;
 static func_t* funcs; static u32 nfuncs, nimports;
@@ -152,13 +152,13 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
 static int import_signature_valid(u32 id, const ftype_t* t) {
     static const u8 i32t = 0x7F, i64t = 0x7E;
     switch (id) {
-    case IMP_WRITE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
+    case IMP_WRITE: return t->np == 2 && t->nr == 1 && t->r == i32t && t->p[0] == i32t && t->p[1] == i32t;
     case IMP_SLEEP: return t->np == 1 && t->nr == 0 && t->p[0] == i64t;
-    case IMP_TICKS: return t->np == 0 && t->nr == 1;
+    case IMP_TICKS: return t->np == 0 && t->nr == 1 && t->r == i64t;
     case IMP_EXIT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
-    case IMP_GFX_CREATE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
+    case IMP_GFX_CREATE: return t->np == 2 && t->nr == 1 && t->r == i32t && t->p[0] == i32t && t->p[1] == i32t;
     case IMP_GFX_PRESENT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
-    case IMP_GFX_EVENT: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;
+    case IMP_GFX_EVENT: return t->np == 1 && t->nr == 1 && t->r == i32t && t->p[0] == i32t;
     default: return 0;
     }
 }
@@ -602,9 +602,19 @@ static int load(void) {
                 if (ntypes == 256 || *s++ != 0x60) { trap("bad type"); return -1; }
                 ftype_t* t = &types[ntypes++];
                 u32 np = leb_u(&s, se); if (np > 32) { trap("too many params"); return -1; }
-                t->np = (u8)np; for (u32 k = 0; k < np; k++) t->p[k] = *s++;
+                t->np = (u8)np;
+                for (u32 k = 0; k < np; k++) {
+                    if (s >= se) { trap("truncated function parameter type"); return -1; }
+                    t->p[k] = *s++;
+                    if (t->p[k] != 0x7F && t->p[k] != 0x7E && t->p[k] != 0x7D && t->p[k] != 0x7C) { trap("invalid function parameter type"); return -1; }
+                }
                 u32 nr = leb_u(&s, se); if (nr > 1) { trap("multi-value results not supported"); return -1; }
-                t->nr = (u8)nr; for (u32 k = 0; k < nr; k++) s++;
+                t->nr = (u8)nr;
+                if (nr) {
+                    if (s >= se) { trap("truncated function result type"); return -1; }
+                    t->r = *s++;
+                    if (t->r != 0x7F && t->r != 0x7E && t->r != 0x7D && t->r != 0x7C) { trap("invalid function result type"); return -1; }
+                }
             }
         } else if (id == 2) {                                     /* импорт */
             u32 n = leb_u(&s, se);
