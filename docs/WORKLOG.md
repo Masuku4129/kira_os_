@@ -1137,3 +1137,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Existing graphics tests do not exercise concurrent same-PID event consumers. No runtime stress or race-detector test was run.
 - Required fix: serialized dequeue/commit or a strictly enforced single-consumer API contract, plus multi-thread same-process event stress and copy-failure/lifecycle coverage.
 - The independent app-slot reclamation/lifetime race remains under review; no conclusion is claimed for that path.
+
+
+## 55. Graphics service teardown and framebuffer lifetime audit — 2026-11-14
+
+- Reviewed app-slot lookup, graphics syscall use, process-exit notification, compositor destruction, double-buffer physical allocation and VMM shared mapping behavior.
+- Confirmed F-046: graphics lookup returns an unpinned pointer into a reusable global slot. Process exit schedules asynchronous destruction; the display server frees framebuffer pages and clears the slot without waiting for syscalls that already acquired the pointer. This creates a credible use-after-free/stale-slot race under SMP.
+- The service destruction path does not itself show explicit user unmap/TLB shootdown before physical page reuse; this must be resolved in the lifetime protocol, not assumed safe.
+- No runtime reproducer or SMP QEMU test was run. Source audit only; no production code changed.
