@@ -681,3 +681,12 @@ The ordering table is based on source inspection. It does not establish the orig
 | `serial.log` | Contains boot-ready and UHCI functional logs | Separate file; no corresponding QEMU log offsets | Record QEMU log offset alongside serial phase markers |
 
 Do not infer guest-driver DMA origin from a whole-process guest_errors count.
+
+
+### xHCI per-slot DMA allocation/retry audit (2026-11-14)
+
+| Source | Current behavior | Risk | Required test |
+|---|---|---|---|
+| `xhci.c:436-447` | Sequentially allocates IN, OUT, buffer and EP0 ring; `in != NULL` is the only retry sentinel | F-056: partial failure can leave OUT/buffer/ring missing; same-slot retry may dereference NULL | Fail each allocation in turn, re-enumerate using same slot, ASan/UBSan |
+| `usb.c:308-326` | DMA allocation uses PMM contiguous pages; no public matching free API | Partial resources cannot be rolled back transactionally | Explicit ownership/free or retry-safe partial-resource state |
+| `usb.c:60`, `xhci.c:xhci_release()` | Device free disables slot and clears DCBAA entry; does not reset partial slot allocation state | Retry sees stale partial fields | Slot state transitions and cleanup assertions |
