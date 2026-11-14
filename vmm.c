@@ -3,6 +3,7 @@
 #include "pmm.h"
 #include "uart.h"
 #include "spinlock.h"
+#include "kstack_slot.h"
 
 #define PAGE_SIZE   4096UL
 #define PTE_PRESENT (1ULL << 0)
