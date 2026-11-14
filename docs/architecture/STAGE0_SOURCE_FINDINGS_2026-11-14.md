@@ -909,3 +909,12 @@ F-028 remains OPEN. PR #12 and PR #46 remain preserved branch work; neither is t
 - The other 9 VM shards, host-tests, x86 build, ARM64 build, UEFI OVMF, audit, KCC, GUI, driver E2E and mind-quality succeeded. This does not make the workflow green: the UHCI VM failure remains a blocking failure.
 - PR #165 head 7ad140cfadb51c4dacf809eca77fff60ff7fe12c, workflow 43613588426: 29/30 jobs succeeded; vm (usb-uhci) failed.
 - Both diagnostic heads remain unaccepted. The exact artifact evidence and corrected trace interpretation are in F-025 above.
+
+
+### PR #148 exact-head acceptance update — three-stage status registry (2026-11-14)
+
+- PR #148 current head bf35ca714526d38f5fdc3021c03b2bedf3ec2c99, workflow 43609627054: **30/30 jobs succeeded**. This supersedes earlier notes that the corrected manifest head was still pending.
+- The PR adds the requested three-stage project ledger: docs/PROJECT_STATUS/01_READY.md, 02_IN_PROGRESS.md and 03_PLANNED.md, plus a machine-readable status_manifest.json, branch-tree inventories and ci/check_project_status.py.
+- The ledger carefully defines READY as present in current main/build baseline, not feature-complete or hardware-qualified. It distinguishes x86 artifacts published by main CI from ARM64 artifacts built but not published.
+- The checker pins the 829-file baseline, 98 x86 and 88 ARM64 kernel input lists, 16 x86 architecture inputs, userland program inventories and all branch/PR snapshots; exact current PR head passed.
+- PR #148 remains Draft and unmerged. Do not claim this guard is active on main until accepted/integrated; no main change made.
