@@ -140,49 +140,49 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     console_init();
     proc_init(hw_get()->cpus, hw_get()->ram_kb);
     syscall_init();
-    uart_print("[KIRA BOOT TRACE] experience_init begin\\n");
+    uart_print("[KIRA BOOT TRACE] experience_init begin\n");
     experience_init();   // опыт прошлых жизней: если есть диск, организм вспоминает
-    uart_print("[KIRA BOOT TRACE] experience_init end\\n");
-    uart_print("[KIRA BOOT TRACE] fs_init begin\\n");
+    uart_print("[KIRA BOOT TRACE] experience_init end\n");
+    uart_print("[KIRA BOOT TRACE] fs_init begin\n");
     fs_init();           // файловая система на том же диске (после хранилища опыта)
-    uart_print("[KIRA BOOT TRACE] fs_init end\\n");
-    uart_print("[KIRA BOOT TRACE] life_init begin\\n");
+    uart_print("[KIRA BOOT TRACE] fs_init end\n");
+    uart_print("[KIRA BOOT TRACE] life_init begin\n");
     life_init();         // журнал организма и профили программ в /var
-    uart_print("[KIRA BOOT TRACE] life_init end\\n");
-    uart_print("[KIRA BOOT TRACE] mind_sys_init begin\\n");
+    uart_print("[KIRA BOOT TRACE] life_init end\n");
+    uart_print("[KIRA BOOT TRACE] mind_sys_init begin\n");
     mind_sys_init();     // Разум: нормы, профили и выученный квант из /var/mind*
-    uart_print("[KIRA BOOT TRACE] mind_sys_init end\\n");
+    uart_print("[KIRA BOOT TRACE] mind_sys_init end\n");
 
     // Экран необязателен. Раннее окно снимается до того, как драйвер дисплея сам
     // отобразит видеопамять; если драйвер не смог (формат пикселей, память), ранняя
     // консоль возвращается и показывает весь журнал, а не оставляет чёрный экран.
     earlycon_stop();
-    uart_print("[KIRA BOOT TRACE] display_init begin\\n");
+    uart_print("[KIRA BOOT TRACE] display_init begin\n");
     if (display_init(addr) != 0) {
         int ec_rc = earlycon_init(addr);
         uart_print("[KIRA DISPLAY] Running without the graphical shell (");
         uart_print(ec_rc == 0 ? "text console on screen" : "serial console only");
         uart_print(").\n");
     }
-    uart_print("[KIRA BOOT TRACE] display_init end\\n");
-    uart_print("[KIRA BOOT TRACE] keyboard_init begin\\n");
+    uart_print("[KIRA BOOT TRACE] display_init end\n");
+    uart_print("[KIRA BOOT TRACE] keyboard_init begin\n");
     if (keyboard_init() != 0)       kernel_panic("Keyboard IRQ registration failed");
-    uart_print("[KIRA BOOT TRACE] keyboard_init end\\n");
-    uart_print("[KIRA BOOT TRACE] mouse_init begin\\n");
+    uart_print("[KIRA BOOT TRACE] keyboard_init end\n");
+    uart_print("[KIRA BOOT TRACE] mouse_init begin\n");
     mouse_init();   // необязательна: без мыши клавиатура работает как раньше
-    uart_print("[KIRA BOOT TRACE] mouse_init end\\n");
+    uart_print("[KIRA BOOT TRACE] mouse_init end\n");
     fat_set_clock(fat_clock);
     rng_init();            // генератор случайных чисел: RDSEED/RDRAND, virtio-rng, времена прерываний
-    uart_print("[KIRA BOOT TRACE] usb_init begin\\n");
+    uart_print("[KIRA BOOT TRACE] usb_init begin\n");
     usb_init();
-    uart_print("[KIRA BOOT TRACE] usb_init end\\n");
+    uart_print("[KIRA BOOT TRACE] usb_init end\n");
     virtio_input_init();
     if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
     net_start();
     if (hda_probe() != 0 && ac97_probe() != 0) sb16_probe();   // звук: Intel HDA, иначе AC'97 (Limbo: Sound ac97), иначе Sound Blaster 16 (ISA)           // стек: ARP, IPv4, ICMP, UDP, DHCP - свой поток   // клавиатура/мышь/планшет virtio (если машина их даёт)     // USB: клавиатуры, мыши, планшеты, хабы, флешки (UHCI, xHCI): свой поток, работает рядом с PS/2
-    uart_print("[KIRA BOOT TRACE] timer_init begin\\n");
+    uart_print("[KIRA BOOT TRACE] timer_init begin\n");
     if (timer_init(TIMER_HZ) != 0)  kernel_panic("Timer initialization failed");
-    uart_print("[KIRA BOOT TRACE] timer_init end\\n");
+    uart_print("[KIRA BOOT TRACE] timer_init end\n");
 
     // Частота TSC - до прерываний и без тика: канал 2 PIT / CPUID 0x15 (см. clock.c). От неё зависят часы,
     // кванты по времени и период таймера LAPIC, поэтому меряем точно (раньше - 100 мс по тикам 2 мс, ошибка до 2%).
