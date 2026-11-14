@@ -294,7 +294,9 @@ static int mmu_init(uint64_t top) {
 #define KSTACK_SLOTS  65536ull
 #define PTE_PAGE      3ull
 #define PTE_KDATA     ((2ull << 2) | PTE_AF | PTE_SH_IN | (1ull << 53) | (1ull << 54))
-static uint64_t ks_next, ks_free = ~0ull, ks_size;
+static uint32_t ks_next, ks_nfree, ks_size;
+static uint16_t ks_free[KSTACK_SLOTS];
+static uint8_t ks_active[(KSTACK_SLOTS + 7u) / 8u];
 static volatile uint32_t ks_lock;
 
 void vmm_user_kernel_l0_changed(unsigned idx, uint64_t entry);
