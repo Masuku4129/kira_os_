@@ -79,8 +79,9 @@ def app_names(source: str) -> list[str]:
     found: set[str] = set()
     for match in re.finditer(r"for app in ([^;]+); do", source):
         found.update(match.group(1).strip().split())
-    for match in re.finditer(r'UELF="\\$UELF (?:userland|build-arm64)/([^"]+)\\.elf"', source):
-        found.add(match.group(1))
+    for match in re.finditer(r'UELF="\$UELF (?:userland|build-arm64)/([^"]+)\.elf"', source):
+        if match.group(1) != "$app":
+            found.add(match.group(1))
     return sorted(found)
 
 
