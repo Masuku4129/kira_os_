@@ -933,3 +933,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - The order is not identical and should not be forced into one sequence. The acceptance rule is dependency readiness: no consumer before its memory, interrupt, identity and security prerequisites are established. Tests must exercise the distinct boot path and verify equivalent externally visible contracts.
 - Current-main gaps remain: ARM64 does not yet apply the FDT header reservation map to PMM (PR #166 adds and verifies this on a Draft branch); x86/ARM64 still consume loader-specific data directly rather than a unified BootInfo v1 contract (F-028).
 - Added explicit dependency ordering to the test graph; no kernel source changed and no readiness claim was upgraded from this comparison alone.
+
+
+## 36. PR #165 UHCI QEMU log streamed and counted — 2026-11-14
+
+- Streamed the entire 4,187,160,076-byte uncompressed qemu.log from artifact 14121317727; did not allocate the full log in memory.
+- Rejected 4-byte DMA reads: 0x0 = 15,377,534; 0x4 = 15,377,534; 0x8 = 15,377,534; 0xC = 15,377,533.
+- The VM scenario attaches a USB tablet and keyboard to the UHCI controller. The repeated low-address reads are consistent with a live controller fetching an invalid/zero-based frame list while the PCI handoff stalls.
+- This is strong supporting evidence, not register-level proof. The artifact does not contain USBCMD/USBSTS/FLBASEADD values, and the serial log stops after BAR probe before the “secured” marker.
+- Next discriminating test: capture those UHCI registers before handoff, halt/reset the controller with bounded waits, then clear Bus Master and verify the same Limbo-like USB scenario repeatedly. Preserve the IOMMU-first alternative. No kernel code changed.
