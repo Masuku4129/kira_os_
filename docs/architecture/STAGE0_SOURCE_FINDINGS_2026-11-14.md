@@ -317,7 +317,7 @@ Sources:
 | F-006 | ARCHITECTURE.md vs current sources/build/CI | Source/document comparison only | No docs consistency guard in main | CONFIRMED DOCUMENTATION DRIFT |
 | F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
 | F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
-| F-010 | x86-64 TLB shootdown timeout and late IPI handling | Source and caller review | Draft PR #155: generation-bound per-CPU ack + fail-closed wait; latest exact-head CI running | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
+| F-010 | x86-64 TLB shootdown timeout and late IPI handling | Draft PR #155 exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; CI run `43590730265` | 43/43 checks PASS, including host, ARM64 and QEMU SMP matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
 | F-011 | MMIO page-range overflow during page align-up | Source arithmetic review | Draft PR #156: checked helper + host regression; exact-head CI pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
 | F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI 43/43 PASS; combined PR #154 integration pending | FIX VERIFIED ON DRAFT BRANCH; combined integration pending |
 
