@@ -133,7 +133,7 @@ static u8 wasm_u8(const u8** p, const u8* end) {
 }
 static void wasm_skip(const u8** p, const u8* end, u64 n) {
     if (!wasm_need(*p, end, n)) return;
-    *p += (size_t)n;
+    *p += n;
 }
 static u32 leb_u(const u8** p, const u8* end) {
     u64 r = 0; unsigned shift = 0, count = 0; u8 b = 0;
@@ -176,7 +176,7 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
             }
             if (count < max_bytes && shift < 64 && (b & 0x40u)) r |= ~0ull << shift;
             if (count == max_bytes && bits < 64 && (r & (1ull << (bits - 1)))) r |= ~0ull << bits;
-            return bits == 32 ? (i64)(int32_t)(u32)r : (i64)r;
+            return bits == 32 ? (i64)(int)(u32)r : (i64)r;
         }
         if (count == max_bytes) { trap("unterminated signed LEB128"); return 0; }
         prev = b;
@@ -782,7 +782,7 @@ static int load(void) {
                 u32 flags = leb_u(&s, se);
                 if (flags != 0 || !table_seen) { trap("only active element segments for table 0 are supported"); return -1; }
                 u64 off64 = const_expr(&s, se);
-                if (off64 > UINT32_MAX) { trap("element offset out of range"); return -1; }
+                if (off64 > 0xFFFFFFFFu) { trap("element offset out of range"); return -1; }
                 u32 off = (u32)off64, cnt = leb_u(&s, se);
                 if ((u64)off + cnt > ntable) { trap("element segment exceeds table bounds"); return -1; }
                 for (u32 k = 0; k < cnt; k++) {
