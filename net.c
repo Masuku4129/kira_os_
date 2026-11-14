@@ -659,7 +659,8 @@ enum { T_FREE, T_SYN_SENT, T_SYN_RCVD, T_EST, T_FIN_WAIT1, T_FIN_WAIT2, T_CLOSE_
 enum { F_FIN = 1, F_SYN = 2, F_RST = 4, F_PSH = 8, F_ACK = 16 };
 typedef struct {
     int state, reset, fin_rcvd, fin_sent, accepted, listener, closing;
-    uint16_t refs;
+    uint16_t refs, generation;
+    uint8_t retired;
     ipa_t rip, lip; uint16_t rport, lport; uint8_t mac[6];
     uint32_t iss, snd_una, snd_nxt, snd_wnd, rcv_nxt; uint16_t mss;
     uint8_t tx[TCP_TX]; uint32_t tx_len;                      /* данные с snd_una (неподтверждённые + ждущие) */
@@ -667,7 +668,7 @@ typedef struct {
     uint8_t rx[TCP_RX]; uint32_t rx_head, rx_tail;           /* занято: tail - head */
 } tcb_t;
 static tcb_t tcbs[TCP_MAX];
-static struct { uint16_t port; int used, refs; uint8_t fam; } listens[LISTEN_MAX];
+static struct { uint16_t port, generation; int used, refs, retired; uint8_t fam; } listens[LISTEN_MAX];
 static spinlock_t tlk = SPINLOCK_INIT;
 static uint16_t next_lport = 49152;
 
@@ -732,8 +733,10 @@ static void tcp_retransmit(tcb_t* t) {
 }
 
 static tcb_t* tcb_new(void) {
-    for (int i = 0; i < TCP_MAX; i++) if (tcbs[i].state == T_FREE) {
+    for (int i = 0; i < TCP_MAX; i++) if (tcbs[i].state == T_FREE && !tcbs[i].retired) {
         tcb_t* t = &tcbs[i];
+        if (t->generation == NET_TCP_GENERATION_MAX) { t->retired = 1; continue; }
+        t->generation++;
         t->reset = t->fin_rcvd = t->fin_sent = t->accepted = t->closing = 0; t->listener = -1;
         t->refs = 0;
         t->rx_head = t->rx_tail = 0; t->tx_len = 0; t->rto_at = 0; t->tries = 0; t->dupacks = 0;
@@ -933,7 +936,11 @@ static int tcp_listen_fam(uint16_t port, uint8_t fam) {
     uint64_t f = spin_lock_irqsave(&tlk);
     int l = -1;
     for (int i = 0; i < LISTEN_MAX; i++) if (listens[i].used && listens[i].port == port && listens[i].fam == fam) { spin_unlock_irqrestore(&tlk, f); return -3; }
-    for (int i = 0; i < LISTEN_MAX && l < 0; i++) if (!listens[i].used && listens[i].refs == 0) l = i;
+    for (int i = 0; i < LISTEN_MAX && l < 0; i++) if (!listens[i].used && listens[i].refs == 0 && !listens[i].retired) {
+        if (listens[i].generation == NET_LISTEN_GENERATION_MAX) { listens[i].retired = 1; continue; }
+        listens[i].generation++;
+        l = i;
+    }
     if (l >= 0) { listens[l].used = 1; listens[l].refs = 0; listens[l].port = port; listens[l].fam = fam; }
     spin_unlock_irqrestore(&tlk, f);
     return l < 0 ? -9 : l;
@@ -1062,12 +1069,14 @@ void tcp_close(int h) {
 #include "uaccess.h"
 #include "proc.h"
 static uint32_t tcp_owner[TCP_MAX], listen_owner[LISTEN_MAX];
-static int tcp_pin_owned(int64_t h, uint32_t pid) {
-    if (h < 0 || h >= TCP_MAX) return 0;
+static int tcp_pin_owned(int64_t handle, uint32_t pid, int* slot) {
+    unsigned index, generation;
+    if (net_tcp_handle_decode(handle, &index, &generation) != 0) return 0;
     uint64_t f = spin_lock_irqsave(&tlk);
-    tcb_t* t = &tcbs[h];
-    int ok = tcp_owner[h] == pid && t->state != T_FREE && !t->closing && t->refs != 0xFFFF;
-    if (ok) t->refs++;
+    tcb_t* t = &tcbs[index];
+    int ok = tcp_owner[index] == pid && t->generation == generation &&
+             t->state != T_FREE && !t->closing && t->refs != 0xFFFF;
+    if (ok) { t->refs++; *slot = (int)index; }
     spin_unlock_irqrestore(&tlk, f);
     return ok;
 }
@@ -1080,12 +1089,13 @@ static void tcp_unpin(int h) {
     spin_unlock_irqrestore(&tlk, f);
 }
 #define LH 100                                                   /* номера слушателей: 100 + индекс */
-static int listen_pin_owned(int64_t h, uint32_t pid, int* slot) {
-    if (h < LH || h >= LH + LISTEN_MAX) return 0;
-    int l = (int)(h - LH);
+static int listen_pin_owned(int64_t handle, uint32_t pid, int* slot) {
+    unsigned index, generation;
+    if (net_listen_handle_decode(handle, &index, &generation) != 0) return 0;
     uint64_t f = spin_lock_irqsave(&tlk);
-    int ok = listen_owner[l] == pid && listens[l].used && listens[l].refs < 0xFFFF;
-    if (ok) { listens[l].refs++; *slot = l; }
+    int ok = listen_owner[index] == pid && listens[index].used &&
+             listens[index].generation == generation && listens[index].refs < 0xFFFF;
+    if (ok) { listens[index].refs++; *slot = (int)index; }
     spin_unlock_irqrestore(&tlk, f);
     return ok;
 }
@@ -1108,14 +1118,26 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
     if (op == NET_SYS_CONNECT) {                                 /* (адрес, порт) -> номер соединения */
         if (a1 > 0xFFFFFFFFull || !a2 || a2 > 65535) return -10;
         int h = tcp_connect((uint32_t)a1, (uint16_t)a2);
-        if (h >= 0) { uint64_t f = spin_lock_irqsave(&tlk); tcp_owner[h] = proc_current_pid(); spin_unlock_irqrestore(&tlk, f); }
+        if (h >= 0) {
+            uint64_t f = spin_lock_irqsave(&tlk);
+            tcp_owner[h] = proc_current_pid();
+            int handle = net_tcp_handle_make((unsigned)h, tcbs[h].generation);
+            spin_unlock_irqrestore(&tlk, f);
+            return handle;
+        }
         return h;
     }
     if (op == NET_SYS_CONNECT_SA) {                              /* (адрес сокета) -> номер соединения */
         ksockaddr_t sa;
         if (copy_from_user(&sa, a1, sizeof sa) || !sa.port || (sa.family != 4 && sa.family != 6)) return -10;
         int h = sa.family == 4 ? tcp_connect(get32(sa.addr), sa.port) : tcp_connect6(sa.addr, sa.port);
-        if (h >= 0) { uint64_t f = spin_lock_irqsave(&tlk); tcp_owner[h] = proc_current_pid(); spin_unlock_irqrestore(&tlk, f); }
+        if (h >= 0) {
+            uint64_t f = spin_lock_irqsave(&tlk);
+            tcp_owner[h] = proc_current_pid();
+            int handle = net_tcp_handle_make((unsigned)h, tcbs[h].generation);
+            spin_unlock_irqrestore(&tlk, f);
+            return handle;
+        }
         return h;
     }
     if (op == NET_SYS_LISTEN) {                                  /* (порт | семейство << 16; 0 или 4 - IPv4, 6 - IPv6) -> номер слушателя */
@@ -1124,8 +1146,11 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
         if (!a1 || (fam && fam != 4 && fam != 6)) return -10;
         int l = fam == 6 ? tcp_listen6((uint16_t)a1) : tcp_listen((uint16_t)a1);
         if (l < 0) return l;
-        uint64_t f = spin_lock_irqsave(&tlk); listen_owner[l] = proc_current_pid(); spin_unlock_irqrestore(&tlk, f);
-        return LH + l;
+        uint64_t f = spin_lock_irqsave(&tlk);
+        listen_owner[l] = proc_current_pid();
+        int64_t handle = net_listen_handle_make((unsigned)l, listens[l].generation);
+        spin_unlock_irqrestore(&tlk, f);
+        return handle;
     }
     if (op == NET_SYS_ACCEPT) {                                  /* (слушатель, мс) -> номер соединения */
         int l;
@@ -1136,34 +1161,41 @@ int64_t net_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
         if (h >= 0) {
             uint64_t f = spin_lock_irqsave(&tlk);
             int still_owned = listen_owner[l] == pid && listens[l].used;
-            if (still_owned) tcp_owner[h] = pid;
+            int64_t socket_handle = -8;
+            if (still_owned) {
+                tcp_owner[h] = pid;
+                socket_handle = net_tcp_handle_make((unsigned)h, tcbs[h].generation);
+            }
             spin_unlock_irqrestore(&tlk, f);
             if (!still_owned) { tcp_close(h); h = -8; }
+            else h = (int)socket_handle;
         }
         listen_unpin(l);
         return h;
     }
-    if (op == NET_SYS_CLOSE && a1 >= LH && a1 < LH + LISTEN_MAX) {
-        int l = (int)(a1 - LH);
-        uint64_t f = spin_lock_irqsave(&tlk);
-        int ok = listen_owner[l] == proc_current_pid() && listens[l].used;
-        if (ok) listen_owner[l] = 0;
-        spin_unlock_irqrestore(&tlk, f);
-        if (!ok) return -8;
-        tcp_unlisten(l); return 0;
-    }
     uint32_t pid = proc_current_pid();
-    if (op == NET_SYS_CLOSE) {
-        if (a1 >= TCP_MAX) return -8;
+    if (op == NET_SYS_CLOSE && (((uint64_t)a1 & NET_LISTEN_HANDLE_TAG) != 0)) {
+        unsigned index, generation;
+        if (net_listen_handle_decode((int64_t)a1, &index, &generation) != 0) return -8;
         uint64_t f = spin_lock_irqsave(&tlk);
-        int ok = tcp_owner[a1] == pid && tcbs[a1].state != T_FREE;
-        if (ok) tcp_owner[a1] = 0;
+        int ok = listen_owner[index] == pid && listens[index].used && listens[index].generation == generation;
+        if (ok) listen_owner[index] = 0;
         spin_unlock_irqrestore(&tlk, f);
         if (!ok) return -8;
-        tcp_close((int)a1); return 0;
+        tcp_unlisten((int)index); return 0;
     }
-    if (!tcp_pin_owned((int64_t)a1, pid)) return -8;
-    int h = (int)a1;
+    if (op == NET_SYS_CLOSE) {
+        unsigned index, generation;
+        if (net_tcp_handle_decode((int64_t)a1, &index, &generation) != 0) return -8;
+        uint64_t f = spin_lock_irqsave(&tlk);
+        int ok = tcp_owner[index] == pid && tcbs[index].generation == generation && tcbs[index].state != T_FREE;
+        if (ok) tcp_owner[index] = 0;
+        spin_unlock_irqrestore(&tlk, f);
+        if (!ok) return -8;
+        tcp_close((int)index); return 0;
+    }
+    int h;
+    if (!tcp_pin_owned((int64_t)a1, pid, &h)) return -8;
 #define TCP_RETURN(v) do { int64_t _r = (v); tcp_unpin(h); return _r; } while (0)
     if (op == NET_SYS_SEND) {                                    /* (h, буфер, длина) -> отправлено */
         uint8_t b[1024]; uint64_t done = 0;
