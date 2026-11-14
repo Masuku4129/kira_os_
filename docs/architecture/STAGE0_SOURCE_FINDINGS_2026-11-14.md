@@ -1139,7 +1139,8 @@ F-035 remains OPEN.
 ### Implementation tracking
 - Draft PR #172: https://github.com/Masuku4129/kira_os_/pull/172
 - The candidate implementation now covers HKDF output/input bounds, TLS HKDF label/context validation, ChaCha20 counter exhaustion and AES-GCM maximum message length. TLS call sites propagate derivation/sealing errors.
-- Exact-head CI is pending; the finding remains OPEN until host vectors, x86-64, ARM64 and VM checks pass and the change is integrated.
+- Exact-head CI for PR #172 completed **30/30 jobs successfully**, including host crypto tests, x86-64, ARM64 and VM matrix.
+- The candidate remains a Draft PR; the finding remains OPEN on `main` until integrated.
 
 F-036 remains OPEN.
 
