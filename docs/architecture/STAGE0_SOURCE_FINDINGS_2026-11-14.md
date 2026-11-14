@@ -1096,3 +1096,44 @@ Current PR #165 head 7ad140cfadb51c4dacf809eca77fff60ff7fe12c still fails workfl
 5. Keep universal Linux/Windows binary/ABI translation as a separate planned project with source-level porting, sandbox build/test and rollback criteria. Do not market the present recipe installer as a universal adapter.
 
 F-035 remains OPEN as a provenance/acceptance gap, not a claim that current source installation is a mock.
+
+
+## New finding F-035 — UDP socket ownership teardown bypasses the UDP table lock (2026-11-14)
+
+**Severity:** MEDIUM concurrency and socket-isolation race.
+
+### Evidence
+- UDP socket allocation and close mutate us[].owner, lport, fam, ring cursors and counters under ulk.
+- Packet delivery (udp_deliver) also reads the slot and writes its ring under ulk.
+- In contrast, udp_gone(pid) clears us[i].owner without acquiring ulk, and uown() reads the owner without the lock. net_proc_gone() calls udp_gone() during process teardown.
+- A concurrent teardown can therefore race with packet delivery, socket close/reopen, or a syscall validating the socket. Slot ownership and slot metadata are not observed as one synchronized state. A slot can be released/reused while another path is still using it.
+- This is a source-level race; no runtime corruption is claimed.
+
+### Required closure
+1. Make udp_gone() acquire ulk while revoking all sockets owned by the process.
+2. Make uown() validate ownership under ulk, and ensure the subsequent operation cannot race with slot release/reuse (generation-tagged handles or a per-operation reference/pin is preferable to merely unlocking after the check).
+3. Ensure send/recv copy the slot's family and local port from a pinned slot snapshot; do not read mutable slot metadata outside the lock.
+4. Add concurrent tests: process teardown vs UDP receive, send, close, reopen, and packet delivery; verify no cross-process datagram exposure and no stale-handle reuse.
+5. Audit tcp_owner[] and listen_owner[] for the same lifecycle synchronization contract; they are also accessed without an ownership-table lock.
+
+F-035 remains OPEN.
+
+
+## New finding F-036 — HKDF-Expand silently exceeds RFC output limits and truncates info (2026-11-14)
+
+**Severity:** MEDIUM cryptographic API correctness.
+
+### Evidence
+- In current-main crypto.c, hkdf_expand() uses an 8-bit block counter and does not reject output lengths greater than 255 × 32 = 8160 bytes. For a larger request the counter wraps and repeats block labels, producing output outside RFC 5869's defined limit.
+- hkdf_expand() silently truncates info to 300 bytes.
+- hkdf_expand_label() silently truncates labels to 64 bytes and context to 64 bytes, and encodes olen into a 16-bit field without validating the TLS 1.3 label/output bounds.
+- Existing tests/crypto_test.c checks the standard RFC 5869 42-byte vector and one TLS 1.3 "derived" label vector. It does not test maximum permitted output, one-byte-over-limit output, or oversized info/label/context rejection.
+- Current in-tree TLS callers may only use short, bounded values; this finding concerns the public primitive API's missing input validation, not a demonstrated exploit in a current TLS handshake.
+
+### Required closure
+1. Enforce RFC 5869's L <= 255 × HashLen before entering the counter loop; return an error rather than wrap. Change the API contract if needed so callers can observe rejection.
+2. Validate the TLS 1.3 HKDF label encoding constraints and exact supported label/context bounds; do not silently truncate.
+3. Add boundary tests for 8160 and 8161 bytes, oversized info, label, context and output length, plus regression vectors for all supported valid cases.
+4. Audit ChaCha20 and AES-GCM maximum-length/counter bounds as part of the same crypto API hardening pass; primitive callers must not be able to wrap a block counter and repeat keystream.
+
+F-036 remains OPEN.
