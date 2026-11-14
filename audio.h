@@ -7,6 +7,18 @@
    каждого потока и общая (0..100), применяется при смешивании. */
 #define AUDIO_RATE 48000
 #define AUDIO_SRC_MAX 4
+/* User audio handles are opaque: 2 slot bits plus a non-wrapping 14-bit generation. */
+enum { AUDIO_HANDLE_SLOT_BITS = 2, AUDIO_HANDLE_SLOT_MASK = 3, AUDIO_HANDLE_GENERATION_MAX = 0x3FFF };
+static inline int64_t audio_handle_make(unsigned slot, unsigned generation) {
+    return slot <= AUDIO_HANDLE_SLOT_MASK && generation && generation <= AUDIO_HANDLE_GENERATION_MAX
+        ? (int64_t)((generation << AUDIO_HANDLE_SLOT_BITS) | slot) : -1;
+}
+static inline int audio_handle_decode(int64_t handle, unsigned* slot, unsigned* generation) {
+    if (handle <= 0 || handle > 0xFFFF) return -1;
+    *slot = (unsigned)handle & AUDIO_HANDLE_SLOT_MASK;
+    *generation = (unsigned)handle >> AUDIO_HANDLE_SLOT_BITS;
+    return *generation ? 0 : -1;
+}
 
 /* Чистые функции (тест на хосте).
    audio_mix: out[i] = (сумма in[k][i] * gain[k]) * master с ограничением 16 бит; усиления - доли 65536 (gain 0 - все 65536). */
