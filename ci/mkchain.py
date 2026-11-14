@@ -24,7 +24,7 @@ def cert(subj, key, issuer, ikey, h, ca, days=(-1, 30), san=None, pad=None, eku=
     if san: b = b.add_extension(x509.SubjectAlternativeName(san), critical=False)
     if eku: b = b.add_extension(x509.ExtendedKeyUsage(eku), critical=False)
     if key_usage: b = b.add_extension(key_usage, critical=True)
-    if unknown_critical: b = b.add_extension(x509.UnrecognizedExtension(ObjectIdentifier("1.2.3.4.5.6"), b"\\x05\\x00"), critical=True)
+    if unknown_critical: b = b.add_extension(x509.UnrecognizedExtension(ObjectIdentifier("1.2.3.4.5.6"), b"\x05\x00"), critical=True)
     return b.sign(ikey, h, rsa_padding=pad) if pad else b.sign(ikey, h)
 def save(n, c): open(os.path.join(out, n + ".der"), "wb").write(c.public_bytes(serialization.Encoding.DER)); open(os.path.join(out, n + ".pem"), "wb").write(c.public_bytes(serialization.Encoding.PEM))
 def savekey(n, k): open(os.path.join(out, n + ".key"), "wb").write(k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
