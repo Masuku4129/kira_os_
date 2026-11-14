@@ -77,7 +77,6 @@ jobs:
           python3 ci/iso_module_smoke.py ci-out/android/kira.iso
           xorriso -indev ci-out/android/kira.iso -report_el_torito plain 2>&1 | tee ci-out/android/boot-report.txt
           grep -qi uefi ci-out/android/boot-report.txt
-          sha256sum ci-out/android/kira.iso ci-out/android/kira_disk.img > ci-out/android/SHA256SUMS
           sudo apt-get install -y -q qemu-system-x86
           python3 ci/kira_vm.py --scenario boot-ata --iso ci-out/android/kira.iso --disk ci-out/android/kira_disk.img --out ci-out/android-smoke
           grep -q "Shell online: Spatial Minimal desktop" ci-out/android-smoke/boot-ata/serial.log
@@ -93,7 +92,8 @@ jobs:
             echo "ISO: BIOS + UEFI, embedded KiraFS root module"
             echo "Persistence: companion kira_disk.img recommended"
           } > ci-out/android/BUILD_INFO.txt
-          sha256sum ci-out/android/kira.iso ci-out/android/kira_disk.img ci-out/android/kira_os_spatial_2026-11-14.tar.gz > ci-out/android/SHA256SUMS
+          (cd ci-out/android && sha256sum kira.iso kira_disk.img kira_os_spatial_2026-11-14.tar.gz > SHA256SUMS)
+          (cd ci-out/android && sha256sum -c SHA256SUMS && sha256sum -c KIRA-FULL-SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
           name: kira-android-full-update
