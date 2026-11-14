@@ -31,8 +31,8 @@ void x25519_base(uint8_t out[32], const uint8_t scalar[32]);
 /* HMAC-SHA256 (RFC 2104/4231), HKDF (RFC 5869), HKDF-Expand-Label TLS 1.3 (RFC 8446 §7.1). */
 void hmac_sha256(const uint8_t* key, size_t klen, const uint8_t* msg, size_t mlen, uint8_t out[32]);
 void hkdf_extract(const uint8_t* salt, size_t slen, const uint8_t* ikm, size_t ilen, uint8_t prk[32]);
-int  hkdf_expand(const uint8_t prk[32], const uint8_t* info, size_t ilen, uint8_t* out, size_t olen);
-int  hkdf_expand_label(const uint8_t secret[32], const char* label, const uint8_t* ctx, size_t clen, uint8_t* out, size_t olen);
+int  hkdf_expand(const uint8_t prk[32], const uint8_t* info, size_t ilen, uint8_t* out, size_t olen); /* 0 success; -1 invalid input or L > 8160 */
+int  hkdf_expand_label(const uint8_t secret[32], const char* label, const uint8_t* ctx, size_t clen, uint8_t* out, size_t olen); /* 0 success; -1 invalid TLS label/context/length */
 
 /* AES-128-GCM (FIPS 197, SP 800-38D): обязательный набор TLS 1.3 (TLS_AES_128_GCM_SHA256), nonce 12 байт.
    AES - без таблиц: S-блок вычисляется в GF(2^8) в битовой нарезке (без индексирования по секрету и ветвей),
