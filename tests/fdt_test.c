@@ -11,6 +11,7 @@ static int fails;
 static uint8_t sb[4096], st[1024], blob[8192];
 static unsigned sn, tn;
 static void be(uint8_t* p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v; }
+static void be64(uint8_t* p, uint64_t v) { be(p, (uint32_t)(v >> 32)); be(p + 4, (uint32_t)v); }
 static void w32(uint32_t v) { be(sb + sn, v); sn += 4; }
 static void begin(const char* name) { w32(1); unsigned l = strlen(name) + 1; memcpy(sb + sn, name, l); sn += (l + 3) & ~3u; }
 static void end(void) { w32(2); }
@@ -51,10 +52,12 @@ static unsigned build(void) {
       begin("chosen"); pstr("stdout-path", "/pl011@9000000", 15); end();
     end();
     w32(9);
-    unsigned off_struct = 40 + 16, off_str = off_struct + sn, total = off_str + tn;
+    unsigned off_struct = 40 + 32, off_str = off_struct + sn, total = off_str + tn;
     memset(blob, 0, sizeof blob);
     be(blob, FDT_MAGIC); be(blob + 4, total); be(blob + 8, off_struct); be(blob + 12, off_str); be(blob + 16, 40);
     be(blob + 20, 17); be(blob + 24, 16); be(blob + 28, 0); be(blob + 32, tn); be(blob + 36, sn);
+    be64(blob + 40, 0x40010000ull); be64(blob + 48, 0x1000ull); /* firmware-reserved page range */
+    /* 0/0 terminator occupies bytes 56..71 */
     memcpy(blob + off_struct, sb, sn); memcpy(blob + off_str, st, tn);
     return total;
 }
@@ -62,6 +65,10 @@ static unsigned build(void) {
 int main(void) {
     unsigned total = build();
     CHECK(fdt_valid(blob, sizeof blob) && fdt_total_size(blob) == total);
+    uint64_t ra = 0, rs = 0;
+    CHECK(fdt_reserve_count(blob) == 1);
+    CHECK(fdt_reserve_get(blob, 0, &ra, &rs) == 0 && ra == 0x40010000ull && rs == 0x1000ull);
+    CHECK(fdt_reserve_get(blob, 1, &ra, &rs) != 0);
     int root = fdt_root(blob);
     CHECK(root >= 0 && fdt_compatible(blob, root, "linux,dummy-virt"));
 
@@ -111,6 +118,10 @@ int main(void) {
     memcpy(bad, blob, sizeof bad); be(bad, 0x12345678); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 4, 100000); CHECK(!fdt_valid(bad, sizeof bad));
     memcpy(bad, blob, sizeof bad); be(bad + 36, total); CHECK(!fdt_valid(bad, sizeof bad));
+    memcpy(bad, blob, sizeof bad); be(bad + 16, 41); CHECK(!fdt_valid(bad, sizeof bad)); /* reserve-map alignment */
+    memcpy(bad, blob, sizeof bad); be64(bad + 40, UINT64_MAX - 15); be64(bad + 48, 0x100); CHECK(!fdt_valid(bad, sizeof bad)); /* address + size wraps */
+    memcpy(bad, blob, sizeof bad); be(bad + 8, 64); CHECK(!fdt_valid(bad, sizeof bad)); /* reserve map overlaps structure */
+    memcpy(bad, blob, sizeof bad); be(bad + 16, total - 8); CHECK(!fdt_valid(bad, sizeof bad)); /* no room for terminator */
     memcpy(bad, blob, sizeof bad); be(bad + 56 + 4 + 0, 0x7FFFFFFF);  /* длина первого свойства за пределами */
     CHECK(fdt_valid(bad, sizeof bad) && fdt_prop(bad, fdt_root(bad), "#address-cells", &len) == 0);
     /* обход с испорченными данными не уходит за блок */
