@@ -1251,3 +1251,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - QEMU log explicitly reported `xhci_er_reset: DMA memory access failed!` and rejected reads at 0xE15000/04/08/0C, matching the ERST table address written by the driver.
 - Root cause of this specific failure: the first fix delayed Bus Master until after ERSTBA was written. QEMU fetches the ERST table immediately on ERSTBA write, so the DMA permission was still disabled. Corrected the ordering: allocate/initialize all DMA objects with BM off; grant BM while xHCI remains halted; then write DCBAAP/CRCR/ERST pointers; finally RUN. The host model now checks that pointers are still unexposed at the BM grant point.
 - Corrected exact-head CI run is pending. This validates the need for a device-specific activation boundary and refines F-054; it does not yet close it.
+
+
+## 68. USB controller startup allocation-failure lifecycle — 2026-11-14
+
+- Traced \x60usb_dma_alloc()\x60 and both controller startup paths after reviewing the stacked F-054/F-056 changes.
+- Added F-057: UHCI and xHCI controller-level DMA allocations are not transactionally released on failed startup. Because \x60usb_dma_alloc()\x60 has no matching free API and \x60nctl\x60/\x60started\x60 advance only on successful startup, a failed controller can strand its schedule/rings/scratchpad pages while the next controller reuses the same index and allocates again.
+- Existing xHCI failure injection covers device-slot buffers and EP0 retry, not controller-start allocation failures; UHCI tests cover successful start only. No test demonstrates restored DMA accounting followed by successful startup of another controller.
+- F-057 is source/test-coverage only. No production code changed and no test is claimed as run in this audit pass. Main remains unchanged; no merge or ISO build.
+
+**Stage 0 progress: 69%.** Added controller-start resource-lifecycle review and a concrete negative-path test requirement. The remaining 31% is not a count of unread files; it covers unfinished semantic review, cross-branch reconciliation, integration and verification gates.
