@@ -824,3 +824,11 @@ F-025 remains OPEN.
 - Host tests exercise shared bounds/ownership/ABA/free-list logic under ASan/UBSan. PR #154's full x86/ARM64 CI and VM matrices passed, including ARM64 scheduler/mutex worker scenarios.
 - Remaining coverage gap: no dedicated QEMU test deliberately exhausts guarded slots or triggers a guard-page fault on each ISA. The source review found no concrete defect in the reviewed allocation/free paths, but this missing negative-path test keeps architecture-wide acceptance open.
 
+
+
+## F-025 diagnostic result — exact PCI function isolated (2026-11-14)
+
+- PR #165 diagnostic head `7ad140cfadb51c4dacf809eca77fff60ff7fe12c`, workflow `43613588426`, job `132504574309` (`vm (usb-uhci)`): failed after 90.9 s waiting for the shell prompt. The serial artifact is now readable and shows `begin 0:1.2` followed by no `probed 0:1.2`; all earlier functions 00:00.0, 00:01.0 and 00:01.1 complete all trace points. The stall is therefore inside `probe_bars()` for PCI function 00:01.2, the UHCI controller, not in later bridge traversal or the post-probe Bus Master policy.
+- The QEMU log artifact is 4,187,160,076 bytes and its tail repeatedly reports rejected DMA reads at physical addresses 0x0, 0x4, 0x8 and 0xC. The current #165 code disables IO/MEM decode inside `probe_bars()` but does not clear PCI Bus Master until after `probe_bars()`; firmware DMA is therefore still enabled during this exact operation. This is strong causal evidence for the DMA/probe interaction, but the precise hardware/QEMU mechanism is not yet proven.
+- PR #125 uses the opposite ordering (`pci_disable_bus_master(d)` before `probe_bars(d)`). Its corrected exact-head run `43613583149` has UEFI OVMF, build, ARM64, host tests, KCC, GUI, driver E2E and audit passing; several VM shards remain in progress. Compare its eventual UHCI artifact before changing policy or merging either branch.
+- Keep F-025 and F-017 OPEN. Do not merge #165 or #125 on this evidence. Remove temporary UART trace after the comparison and rerun the full clean matrix.
