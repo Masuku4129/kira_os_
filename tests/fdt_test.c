@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "fdt.h"
+#include "pmm_arm.h"
 
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
@@ -69,6 +70,28 @@ int main(void) {
     CHECK(fdt_reserve_count(blob) == 1);
     CHECK(fdt_reserve_get(blob, 0, &ra, &rs) == 0 && ra == 0x40010000ull && rs == 0x1000ull);
     CHECK(fdt_reserve_get(blob, 1, &ra, &rs) != 0);
+
+    /* End-to-end: feed the parsed firmware reservation into ARM64 PMM before allocation. */
+    {
+        const uint64_t ram_lo = 0x40000000ull, page_count = 256;
+        const uint64_t ram_hi = ram_lo + page_count * PMM_PAGE_SIZE;
+        uint64_t page_maps[8] = {0};
+        pmm_arm_region_t ram = { ram_lo, page_count * PMM_PAGE_SIZE };
+        pmm_arm_init(&ram, 1, ram_lo, ram_hi, page_maps, ram_lo, ram_lo + PMM_PAGE_SIZE);
+        for (int i = 0; i < fdt_reserve_count(blob); i++) {
+            uint64_t reserve_base = 0, reserve_size = 0;
+            CHECK(fdt_reserve_get(blob, (unsigned)i, &reserve_base, &reserve_size) == 0);
+            if (reserve_size) pmm_arm_reserve(reserve_base, reserve_base + reserve_size);
+        }
+        CHECK(pmm_get_free_memory_kb() == (page_count - 2) * 4);
+        CHECK(pmm_free_page(0x40010000ull) == -1);
+        for (uint64_t i = 0; i < page_count - 2; i++) {
+            uint64_t allocated = pmm_alloc_page();
+            CHECK(allocated != 0);
+            CHECK(allocated != 0x40010000ull);
+        }
+        CHECK(pmm_alloc_page() == 0);
+    }
     int root = fdt_root(blob);
     CHECK(root >= 0 && fdt_compatible(blob, root, "linux,dummy-virt"));
 
