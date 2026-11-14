@@ -26,6 +26,10 @@ echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
 $T/pmm | head -4
 
+echo "== ARM64 PMM (reserved-page ownership, overlap accounting, atomic contiguous release) =="
+$CC $FLAGS -Iarch/aarch64 -fsanitize=address,undefined -o $T/pmm_arm tests/pmm_arm_test.c arch/aarch64/pmm_arm.c
+$T/pmm_arm
+
 echo "== ramext (mapping RAM above 1 GB) =="
 $CC $FLAGS -o $T/ramext tests/ramext_test.c ramext.c
 $T/ramext
@@ -168,7 +172,7 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/mindlv tests/mind_lever_test.c min
 $T/mindlv
 
 echo "== device tree (FDT) parser =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c
+$CC $FLAGS -Iarch/aarch64 -fsanitize=address,undefined -o $T/fdt tests/fdt_test.c fdt.c arch/aarch64/pmm_arm.c
 $T/fdt
 $CC $FLAGS -fsanitize=address,undefined -o $T/crypto tests/crypto_test.c crypto.c sha256.c
 $T/crypto

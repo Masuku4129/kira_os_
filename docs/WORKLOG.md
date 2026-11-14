@@ -270,3 +270,13 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+
+### F-016 — ARM64 ignored FDT header memory-reservation map (2026-11-14)
+
+- Source audit found that the ARM64 PMM reserved the kernel image, DTB blob, early allocations, DMA pool and `/reserved-memory` nodes, but did not parse the FDT header's separate `mem_rsvmap` table at header offset 16.
+- Firmware-reserved physical ranges described only in that table could therefore be returned by the general page allocator and overwritten.
+- Added bounded parsing for the 64-bit big-endian reservation map: 8-byte alignment, in-blob bounds, mandatory zero/zero terminator, maximum 1024 entries, address+size overflow rejection, and non-overlap with structure/strings blocks.
+- Added `fdt_reserve_count()` / `fdt_reserve_get()`; ARM64 startup intersects each reservation with every RAM bank and marks the pages reserved before the allocator is exposed.
+- Carried forward the independently verified F-015 `fdt_reg()` index/range overflow fix from PR #159.
+- Host FDT tests now include a real reservation entry plus malformed alignment, overlap, missing-terminator and address-wrap cases. Exact-head CI has not yet run.

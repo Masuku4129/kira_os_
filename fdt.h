@@ -20,6 +20,9 @@ int      fdt_compatible(const void* fdt, int node, const char* compat);   /* 1 -
 int      fdt_find_compatible(const void* fdt, int after, const char* compat);  /* следующий после after (-1 - с начала) */
 int      fdt_find_path(const void* fdt, const char* path);       /* «/cpus», «/chosen»; имя без @адреса тоже подходит */
 int      fdt_parent(const void* fdt, int node);
+/* Firmware memory-reservation map (64-bit big-endian address/size pairs). Count returns -1 for malformed data. */
+int      fdt_reserve_count(const void* fdt);
+int      fdt_reserve_get(const void* fdt, unsigned idx, uint64_t* addr, uint64_t* size);
 /* reg[idx] узла в числах родителя (#address-cells / #size-cells). 0 - есть. */
 int      fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* size);
 uint32_t fdt_u32(const void* p);                                  /* большой порядок байт -> число */
