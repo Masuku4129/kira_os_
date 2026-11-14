@@ -1347,16 +1347,25 @@ static void blit_content(surface_t* c, int dx, int dy, int dw, int dh, const win
 }
 
 static void draw_lights(surface_t* c, int x, int y, int hover) {
-    static const uint32_t col[3] = { TH_CLOSE, TH_MIN, TH_FULL };
+    /* Spatial glass controls: one neutral shape language, no legacy traffic-light dots. */
     for (int k = 0; k < 3; k++) {
-        int lx = layout_mode == WM_LAYOUT_SPATIAL_MINIMAL ? x + 22 + k * 36 : x + 18 + k * 20;
+        int lx = x + 22 + k * 36;
         int ly = y + WM_HEAD / 2;
-        ui_disc(c, lx, ly, LIGHT_R, col[k], 255);
-        if (!hover) continue;
-        uint32_t g = 0x003A1010;
-        if (k == 0) { gfx_line(c, lx - 2, ly - 2, lx + 2, ly + 2, g); gfx_line(c, lx + 2, ly - 2, lx - 2, ly + 2, g); }
-        else if (k == 1) gfx_hline(c, lx - 3, ly, 7, g);
-        else { gfx_line(c, lx - 3, ly + 3, lx + 1, ly - 1, g); gfx_line(c, lx - 1, ly - 3, lx + 3, ly + 1, g); }
+        int bx = lx - 13, by = ly - 10;
+        uint32_t fill = hover ? ui_mix(TH_TILE, TH_CYAN, 38) : TH_TILE;
+        ui_round_rect(c, bx, by, 26, 20, 7, fill, hover ? 220 : 178);
+        ui_round_frame(c, bx, by, 26, 20, 7, TH_BORDER, 210);
+        uint32_t glyph = hover ? TH_TEXT : TH_TEXT_DIM;
+        if (k == 0) {
+            gfx_line(c, lx - 3, ly - 3, lx + 3, ly + 3, glyph);
+            gfx_line(c, lx + 3, ly - 3, lx - 3, ly + 3, glyph);
+        } else if (k == 1) {
+            gfx_hline(c, lx - 4, ly + 3, 9, glyph);
+        } else {
+            gfx_rect(c, lx - 4, ly - 4, 8, 8, glyph);
+            gfx_line(c, lx + 1, ly - 4, lx + 4, ly - 4, glyph);
+            gfx_line(c, lx + 4, ly - 4, lx + 4, ly - 1, glyph);
+        }
     }
 }
 
@@ -1369,9 +1378,9 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     if (layout_mode == WM_LAYOUT_SPATIAL_MINIMAL) {
         /* Spatial windows are quiet work surfaces: no neon perimeter glow or
            decorative title stripe. Keep the Legacy renderer below untouched. */
-        ui_round_rect(c, x, y, ow, oh, TH_RADIUS_SURFACE, TH_PANEL1, 255);
-        ui_round_rect(c, x, y, ow, WM_HEAD, TH_RADIUS_SURFACE, TH_BAR0, 255);
-        gfx_rect(c, x + 1, y + TH_RADIUS_SURFACE, ow - 2, WM_HEAD - TH_RADIUS_SURFACE, TH_BAR0);
+        ui_round_rect(c, x, y, ow, oh, TH_RADIUS_SURFACE, TH_PANEL1, 218);
+        ui_round_rect(c, x, y, ow, WM_HEAD, TH_RADIUS_SURFACE, TH_BAR0, 224);
+        /* Keep the title surface translucent; avoid an opaque rectangular fill. */
         if (!w->pinned) draw_lights(c, x, y, light_hover == id);
         gfx_rect(c, x + 12, y + WM_HEAD - 1, ow - 24, 1, TH_BORDER);
         ui_round_frame(c, x, y, ow, oh, TH_RADIUS_SURFACE,
@@ -1395,7 +1404,7 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
             if (max_sw < 24) max_sw = 24;
             if (sw > max_sw) sw = max_sw;
             int sx = x + ow - sw - 20;
-            ui_round_rect(c, sx, y + 7, sw + 12, 22, TH_RADIUS_CONTROL, TH_TILE, 255);
+            ui_round_rect(c, sx, y + 7, sw + 12, 22, TH_RADIUS_CONTROL, TH_TILE, 190);
             ui_text_fit(c, sx + 6, y + 10, sub, sw, TH_TEXT_DIM);
             right = sx - 8;
         }
@@ -1465,10 +1474,17 @@ static void draw_pill(surface_t* c, int ox, int oy, int fs, int show) {
     if (!show) { ui_round_rect(c, scr->w / 2 - 24 + ox, 4 + oy, 48, 4, 2, TH_CYAN, 110); return; }
     int x, y, pw, ph, n; pill_rect(w, &x, &y, &pw, &ph, &n);
     x += ox; y += oy;
-    ui_round_rect(c, x, y, pw, ph, 18, TH_BAR0, 240);
-    ui_round_frame(c, x, y, pw, ph, 18, ui_mix(TH_BORDER, TH_CYAN, 120), 255);
-    static const uint32_t col[3] = { TH_CLOSE, TH_MIN, TH_FULL };
-    for (int k = 0; k < n; k++) ui_disc(c, x + 12 + k * 36 + 18, y + 18, 8, col[k], 255);
+    ui_round_rect(c, x, y, pw, ph, 18, TH_BAR0, 218);
+    ui_round_frame(c, x, y, pw, ph, 18, ui_mix(TH_BORDER, TH_CYAN, 120), 230);
+    for (int k = 0; k < n; k++) {
+        int bx = x + 12 + k * 36 + 5, by = y + 8;
+        ui_round_rect(c, bx, by, 26, 20, 7, TH_TILE, 190);
+        ui_round_frame(c, bx, by, 26, 20, 7, TH_BORDER, 210);
+        uint32_t glyph = TH_TEXT_DIM;
+        if (k == 0) { gfx_line(c, bx + 8, by + 6, bx + 18, by + 14, glyph); gfx_line(c, bx + 18, by + 6, bx + 8, by + 14, glyph); }
+        else if (k == 1) gfx_hline(c, bx + 7, by + 14, 12, glyph);
+        else gfx_rect(c, bx + 8, by + 6, 10, 9, glyph);
+    }
 }
 
 static void meter_color(unsigned pct, uint32_t* c) { *c = pct < 60 ? TH_GREEN : pct < 85 ? TH_AMBER : TH_RED; }
@@ -1479,7 +1495,7 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         /* No full-width top bar: only a floating context capsule remains. */
         int gx = W >= 640 ? W - 270 : W - 56;
         int gw = W >= 640 ? 260 : 48;
-        ui_round_rect(c, gx + ox, y + 7, gw, 34, TH_RADIUS_CONTROL + 4, TH_BAR0, 244);
+        ui_round_rect(c, gx + ox, y + 7, gw, 34, TH_RADIUS_CONTROL + 4, TH_BAR0, 218);
         ui_round_frame(c, gx + ox, y + 7, gw, 34, TH_RADIUS_CONTROL + 4, TH_BORDER, 220);
         if (W >= 640) {
             ui_round_rect(c, gx + 7 + ox, y + 11, 62, 26, TH_RADIUS_CONTROL, TH_TILE, 255);
