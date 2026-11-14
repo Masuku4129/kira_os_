@@ -8,7 +8,7 @@
 #include "immune.h"          /* sha256_ctx_t, sha256_* */
 
 /* ChaCha20 (RFC 8439): ключ 32 байта, nonce 12 байт, счётчик блоков. out = in XOR поток; out может совпадать с in. */
-void chacha20_xor(const uint8_t key[32], uint32_t counter, const uint8_t nonce[12], const uint8_t* in, uint8_t* out, size_t len);
+int  chacha20_xor(const uint8_t key[32], uint32_t counter, const uint8_t nonce[12], const uint8_t* in, uint8_t* out, size_t len); /* -1 if counter would wrap */
 void chacha20_block(const uint8_t key[32], uint32_t counter, const uint8_t nonce[12], uint8_t out[64]);
 
 /* Poly1305 (RFC 8439): ключ 32 байта (одноразовый), метка 16 байт. */
@@ -17,9 +17,9 @@ void poly1305_init(poly1305_ctx_t* c, const uint8_t key[32]);
 void poly1305_update(poly1305_ctx_t* c, const uint8_t* m, size_t n);
 void poly1305_final(poly1305_ctx_t* c, uint8_t tag[16]);
 
-/* AEAD ChaCha20-Poly1305 (RFC 8439 §2.8). Шифрование: out = шифротекст, tag - метка.
-   Расшифровка: 0 - метка верна (out заполнен), -1 - подделка (out не заполняется). */
-void aead_chacha20_poly1305_seal(const uint8_t key[32], const uint8_t nonce[12], const uint8_t* aad, size_t aad_len,
+/* AEAD ChaCha20-Poly1305 (RFC 8439 §2.8). seal: 0 - успех, -1 - недопустимая длина/аргументы.
+   open: 0 - метка верна (out заполнен), -1 - подделка или недопустимая длина/аргументы. */
+int  aead_chacha20_poly1305_seal(const uint8_t key[32], const uint8_t nonce[12], const uint8_t* aad, size_t aad_len,
                                  const uint8_t* in, size_t len, uint8_t* out, uint8_t tag[16]);
 int  aead_chacha20_poly1305_open(const uint8_t key[32], const uint8_t nonce[12], const uint8_t* aad, size_t aad_len,
                                  const uint8_t* in, size_t len, const uint8_t tag[16], uint8_t* out);
@@ -31,15 +31,16 @@ void x25519_base(uint8_t out[32], const uint8_t scalar[32]);
 /* HMAC-SHA256 (RFC 2104/4231), HKDF (RFC 5869), HKDF-Expand-Label TLS 1.3 (RFC 8446 §7.1). */
 void hmac_sha256(const uint8_t* key, size_t klen, const uint8_t* msg, size_t mlen, uint8_t out[32]);
 void hkdf_extract(const uint8_t* salt, size_t slen, const uint8_t* ikm, size_t ilen, uint8_t prk[32]);
-void hkdf_expand(const uint8_t prk[32], const uint8_t* info, size_t ilen, uint8_t* out, size_t olen);
-void hkdf_expand_label(const uint8_t secret[32], const char* label, const uint8_t* ctx, size_t clen, uint8_t* out, size_t olen);
+int  hkdf_expand(const uint8_t prk[32], const uint8_t* info, size_t ilen, uint8_t* out, size_t olen); /* 0 success; -1 invalid input or L > 8160 */
+int  hkdf_expand_label(const uint8_t secret[32], const char* label, const uint8_t* ctx, size_t clen, uint8_t* out, size_t olen); /* 0 success; -1 invalid TLS label/context/length */
 
 /* AES-128-GCM (FIPS 197, SP 800-38D): обязательный набор TLS 1.3 (TLS_AES_128_GCM_SHA256), nonce 12 байт.
+   seal/open возвращают 0 при успехе и -1 при недопустимой длине/аргументах или ошибке аутентификации.
    AES - без таблиц: S-блок вычисляется в GF(2^8) в битовой нарезке (без индексирования по секрету и ветвей),
    GHASH - побитовое умножение без таблиц. */
 typedef struct { uint32_t rk[44]; uint8_t h[16]; } aes_gcm_t;
 void aes128_gcm_init(aes_gcm_t* g, const uint8_t key[16]);
-void aes128_gcm_seal(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
+int  aes128_gcm_seal(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
                      const uint8_t* in, size_t len, uint8_t* out, uint8_t tag[16]);
 int  aes128_gcm_open(const aes_gcm_t* g, const uint8_t nonce[12], const uint8_t* aad, size_t alen,
                      const uint8_t* in, size_t len, const uint8_t tag[16], uint8_t* out);   /* 0 - метка верна */

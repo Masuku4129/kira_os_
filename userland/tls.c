@@ -23,13 +23,21 @@ static void th_hash(u8 out[32]) { sha256_ctx_t c = th; sha256_final(&c, out); }
 static int fail(tls_t* t, const char* e) { t->err = e; t->state = -1; return -1; }
 
 /* Ключ и IV направления из секрета трафика: ChaCha20 - 32 байта ключа, AES-128-GCM - 16 (и развёрнутые раунды). */
-static void keys(tls_t* t, const u8 secret[32], int write) {
-    u8* key = write ? t->wkey : t->rkey;
+static int keys(tls_t* t, const u8 secret[32], int write) {
+    u8 newkey[32], newiv[12];
     int kl = t->cipher == SUITE_AES128 ? 16 : 32;
-    hkdf_expand_label(secret, "key", 0, 0, key, (size_t)kl);
-    hkdf_expand_label(secret, "iv", 0, 0, write ? t->wiv : t->riv, 12);
+    if (hkdf_expand_label(secret, "key", 0, 0, newkey, (size_t)kl) ||
+        hkdf_expand_label(secret, "iv", 0, 0, newiv, sizeof newiv)) {
+        crypto_wipe(newkey, sizeof newkey); crypto_wipe(newiv, sizeof newiv);
+        return -1;
+    }
+    u8* key = write ? t->wkey : t->rkey;
+    u8* iv = write ? t->wiv : t->riv;
+    cp(key, newkey, (u32)kl); cp(iv, newiv, sizeof newiv);
     if (kl == 16) aes128_gcm_init(write ? &t->wg : &t->rg, key);
     if (write) t->wseq = 0; else t->rseq = 0;
+    crypto_wipe(newkey, sizeof newkey); crypto_wipe(newiv, sizeof newiv);
+    return 0;
 }
 static void nonce(const u8 iv[12], u64 seq, u8 n[12]) {
     for (int i = 0; i < 12; i++) n[i] = iv[i];
@@ -84,8 +92,10 @@ static int write_record(tls_t* t, u8 itype, const u8* p, u32 n) {
     out[0] = CT_APP; out[1] = 3; out[2] = 3; out[3] = (u8)(L >> 8); out[4] = (u8)L;
     cp(out + 5, p, n); out[5 + n] = itype;
     u8 nn[12]; nonce(t->wiv, t->wseq, nn);
-    if (t->cipher == SUITE_AES128) aes128_gcm_seal(&t->wg, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1);
-    else aead_chacha20_poly1305_seal(t->wkey, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1);
+    int enc = t->cipher == SUITE_AES128
+        ? aes128_gcm_seal(&t->wg, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1)
+        : aead_chacha20_poly1305_seal(t->wkey, nn, out, 5, out + 5, n + 1, out + 5, out + 5 + n + 1);
+    if (enc) return -1;
     t->wseq++;
     return send_all(t, out, 5 + L);
 }
@@ -189,8 +199,9 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
         u8 emp[32], bk[32], fk0[32], trunc[32];
         hkdf_extract(0, 0, tk.psk, 32, early);
         sha256("", 0, emp);
-        hkdf_expand_label(early, "res binder", emp, 32, bk, 32);
-        hkdf_expand_label(bk, "finished", 0, 0, fk0, 32);
+        if (hkdf_expand_label(early, "res binder", emp, 32, bk, 32) ||
+            hkdf_expand_label(bk, "finished", 0, 0, fk0, 32))
+            return fail(t, "HKDF resumption binder derivation failed");
         sha256(ch, bind_at, trunc);
         hmac_sha256(fk0, 32, trunc, 32, ch + bind_at + 3);
         crypto_wipe(bk, 32); crypto_wipe(fk0, 32);
@@ -233,13 +244,14 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     sha256("", 0, empty);
     if (psk_sel) t->resumed = 1;                                  /* сервер принял билет: ранний секрет - из PSK (уже в early) */
     else hkdf_extract(0, 0, zero, 32, early);                     /* отказал или билета не было: обычное рукопожатие */
-    hkdf_expand_label(early, "derived", empty, 32, der, 32);
+    if (hkdf_expand_label(early, "derived", empty, 32, der, 32))
+        return fail(t, "HKDF early derived secret failed");
     hkdf_extract(der, 32, shared, 32, hsec);
     crypto_wipe(shared, sizeof shared);
     th_hash(h);
-    hkdf_expand_label(hsec, "c hs traffic", h, 32, csec, 32);
-    hkdf_expand_label(hsec, "s hs traffic", h, 32, ssec, 32);
-    keys(t, ssec, 0);
+    if (hkdf_expand_label(hsec, "c hs traffic", h, 32, csec, 32) ||
+        hkdf_expand_label(hsec, "s hs traffic", h, 32, ssec, 32) || keys(t, ssec, 0))
+        return fail(t, "HKDF handshake traffic key derivation failed");
 
     /* ---- EncryptedExtensions, Certificate, CertificateVerify, Finished ---- */
     int got_fin = 0;
@@ -294,7 +306,8 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
         }
         if (ty == HS_FIN) {
             u8 fk[32], want[32];
-            hkdf_expand_label(ssec, "finished", 0, 0, fk, 32);
+            if (hkdf_expand_label(ssec, "finished", 0, 0, fk, 32))
+                return fail(t, "HKDF server Finished key derivation failed");
             th_hash(h);
             hmac_sha256(fk, 32, h, 32, want);
             if (bl != 32 || !crypto_eq(want, m, 32)) return fail(t, "server Finished is wrong (handshake was altered)");
@@ -323,26 +336,30 @@ int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* 
     /* ---- ключи приложения (по переписке до Finished сервера включительно) ---- */
     u8 ms_[32], cap[32], sap[32];
     th_hash(h);
-    hkdf_expand_label(hsec, "derived", empty, 32, der, 32);
+    if (hkdf_expand_label(hsec, "derived", empty, 32, der, 32))
+        return fail(t, "HKDF master derived secret failed");
     hkdf_extract(der, 32, zero, 32, ms_);
-    hkdf_expand_label(ms_, "c ap traffic", h, 32, cap, 32);
-    hkdf_expand_label(ms_, "s ap traffic", h, 32, sap, 32);
+    if (hkdf_expand_label(ms_, "c ap traffic", h, 32, cap, 32) ||
+        hkdf_expand_label(ms_, "s ap traffic", h, 32, sap, 32))
+        return fail(t, "HKDF application traffic key derivation failed");
 
     /* ---- Finished клиента (ключом рукопожатия) ---- */
     static const u8 ccs[6] = { CT_CCS, 3, 3, 0, 1, 1 };
     if (send_all(t, ccs, 6)) return fail(t, "send failed");
-    keys(t, csec, 1);
+    if (keys(t, csec, 1)) return fail(t, "HKDF client handshake key derivation failed");
     u8 fk[32], fin[36];
-    hkdf_expand_label(csec, "finished", 0, 0, fk, 32);
+    if (hkdf_expand_label(csec, "finished", 0, 0, fk, 32))
+        return fail(t, "HKDF client Finished key derivation failed");
     fin[0] = HS_FIN; fin[1] = 0; fin[2] = 0; fin[3] = 32;
     hmac_sha256(fk, 32, h, 32, fin + 4);
     if (write_record(t, CT_HS, fin, 36)) return fail(t, "Finished not sent");
     sha256_update(&th, fin, 36);                                  /* переписка до Finished клиента включительно: для resumption_master_secret */
     th_hash(h);
-    hkdf_expand_label(ms_, "res master", h, 32, t->resm, 32);
+    if (hkdf_expand_label(ms_, "res master", h, 32, t->resm, 32))
+        return fail(t, "HKDF resumption master secret derivation failed");
 
-    keys(t, cap, 1);
-    keys(t, sap, 0);
+    if (keys(t, cap, 1) || keys(t, sap, 0))
+        return fail(t, "HKDF application key installation failed");
     cp(t->rsec, sap, 32);
     crypto_wipe(hsec, 32); crypto_wipe(csec, 32); crypto_wipe(ssec, 32); crypto_wipe(ms_, 32); crypto_wipe(cap, 32); crypto_wipe(sap, 32);
     crypto_wipe(fk, 32); crypto_wipe(early, 32); crypto_wipe(tk.psk, 32);
@@ -391,7 +408,8 @@ i64 tls_recv(tls_t* t, void* p, u32 n, u32 timeout_ms) {
                             if (k->lifetime_s > 604800) k->lifetime_s = 604800;
                             k->age_add = (u32)m[4] << 24 | (u32)m[5] << 16 | (u32)m[6] << 8 | m[7];
                             cp(k->ticket, m + 9 + nl + 2, tl); k->ticket_len = tl;
-                            hkdf_expand_label(t->resm, "resumption", m + 9, nl, k->psk, 32);
+                            if (hkdf_expand_label(t->resm, "resumption", m + 9, nl, k->psk, 32))
+                                return fail(t, "HKDF resumption ticket key derivation failed");
                             k->issued_s = t->now0; k->cipher = t->cipher; k->verified = t->verified;
                             u32 hl = 0; while (t->host[hl]) { k->host[hl] = t->host[hl]; hl++; }
                             k->host[hl] = 0;
@@ -401,8 +419,9 @@ i64 tls_recv(tls_t* t, void* p, u32 n, u32 timeout_ms) {
                 }
                 if (rec[c] == HS_KU) {                            /* новый ключ чтения; ответить своим, если просят */
                     u8 ns[32];
-                    hkdf_expand_label(t->rsec, "traffic upd", 0, 0, ns, 32);
-                    cp(t->rsec, ns, 32); keys(t, ns, 0);
+                    if (hkdf_expand_label(t->rsec, "traffic upd", 0, 0, ns, 32) || keys(t, ns, 0))
+                        return fail(t, "HKDF traffic update failed");
+                    cp(t->rsec, ns, 32);
                     if (ml >= 1 && rec[c + 4] == 1) { fail(t, "server requested KeyUpdate (not supported yet)"); return -1; }
                 }
                 c += 4 + ml;

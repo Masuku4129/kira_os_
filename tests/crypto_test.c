@@ -73,7 +73,7 @@ int main(void) {
     for (int i = 0; i < 32; i++) key[i] = (uint8_t)(0x80 + i);
     hex("070000004041424344454647", nonce);
     uint8_t aad[12]; hex("50515253c0c1c2c3c4c5c6c7", aad);
-    aead_chacha20_poly1305_seal(key, nonce, aad, 12, (const uint8_t*)pt, n, out, tag);
+    CHECK(aead_chacha20_poly1305_seal(key, nonce, aad, 12, (const uint8_t*)pt, n, out, tag) == 0);
     CHECK(eqhex(out, "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d6"));
     CHECK(eqhex(tag, "1ae10b594f09e26a7e902ecbd0600691"));
     uint8_t back[256];
@@ -97,14 +97,43 @@ int main(void) {
     memset(ikm, 0x0b, 22); for (int i = 0; i < 13; i++) salt[i] = (uint8_t)i; for (int i = 0; i < 10; i++) info[i] = (uint8_t)(0xf0 + i);
     hkdf_extract(salt, 13, ikm, 22, prk);
     CHECK(eqhex(prk, "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5"));
-    hkdf_expand(prk, info, 10, out, 42);
+    CHECK(hkdf_expand(prk, info, 10, out, 42) == 0);
     CHECK(eqhex(out, "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"));
+
+    /* F-036: info is processed in full (301 bytes), not silently clipped at 300. */
+    uint8_t long_info[301], long_out[32], max_out[8160], over_out[8161];
+    for (size_t i = 0; i < sizeof long_info; i++) long_info[i] = (uint8_t)i;
+    CHECK(hkdf_expand(prk, long_info, sizeof long_info, long_out, sizeof long_out) == 0);
+    CHECK(eqhex(long_out, "60a9c8ebd320f360b3e005bcae6c37a0746dcd3c8e1eb524dea2cb5104b4f9f3"));
+    CHECK(hkdf_expand(prk, info, sizeof info, max_out, sizeof max_out) == 0);
+    CHECK(!memcmp(max_out, out, 32));  /* first block is identical to the RFC 5869 vector */
+    memset(over_out, 0xA5, sizeof over_out);
+    CHECK(hkdf_expand(prk, info, sizeof info, over_out, sizeof over_out) == -1);
+    for (size_t i = 0; i < sizeof over_out; i++) CHECK(over_out[i] == 0xA5);
+
+    /* TLS label/context lengths are encoded exactly; no 64-byte clipping. */
+    uint8_t secret[32], long_ctx[65], label[66], label_out[32], bad_out[32], bad_label[251], bad_ctx[256];
+    for (int i = 0; i < 32; i++) secret[i] = (uint8_t)i;
+    for (int i = 0; i < 65; i++) { label[i] = 'L'; long_ctx[i] = (uint8_t)i; }
+    label[65] = 0;
+    CHECK(hkdf_expand_label(secret, (const char*)label, long_ctx, sizeof long_ctx, label_out, sizeof label_out) == 0);
+    CHECK(eqhex(label_out, "d2db7af59bb17706c6ef277a4fdd06e019f516b144ca0f92054dfb02b1023251"));
+    uint8_t max_label[250], max_ctx[255];
+    memset(max_label, 'M', 249); max_label[249] = 0;
+    for (int i = 0; i < 255; i++) max_ctx[i] = (uint8_t)(i * 3);
+    CHECK(hkdf_expand_label(secret, (const char*)max_label, max_ctx, sizeof max_ctx, label_out, sizeof label_out) == 0);
+    CHECK(eqhex(label_out, "6e5678cd970af24165a2d6925322df3f4ad8e569e1bf33239df1442d2a01bd21"));
+    memset(bad_label, 'X', sizeof bad_label); bad_label[250] = 0;
+    memset(bad_ctx, 0x5A, sizeof bad_ctx); memset(bad_out, 0xA5, sizeof bad_out);
+    CHECK(hkdf_expand_label(secret, (const char*)bad_label, long_ctx, sizeof long_ctx, bad_out, sizeof bad_out) == -1);
+    CHECK(hkdf_expand_label(secret, "ctx-too-long", bad_ctx, sizeof bad_ctx, bad_out, sizeof bad_out) == -1);
+    for (size_t i = 0; i < sizeof bad_out; i++) CHECK(bad_out[i] == 0xA5);
 
     uint8_t early[32], empty[32], derived[32];
     hkdf_extract(0, 0, zero, 32, early);
     CHECK(eqhex(early, "33ad0a1c607ec03b09e6cd9893680ce210adf300aa1f2660e1b22e10f170f92a"));
     sha256("", 0, empty);
-    hkdf_expand_label(early, "derived", empty, 32, derived, 32);
+    CHECK(hkdf_expand_label(early, "derived", empty, 32, derived, 32) == 0);
     CHECK(eqhex(derived, "6f2615a108c702c5678f54fc9dbab69716c076189c48250cebeac3576c3611ba"));
 
     sha512_ctx_t q5; sha512_init(&q5); sha512_update(&q5, "abc", 3); sha512_final(&q5, out);
@@ -113,6 +142,24 @@ int main(void) {
     for (int i = 0; i < 1000; i++) sha512_update(&q5, "a", 1);           /* через границу блока */
     sha512_final(&q5, out);
     CHECK(eqhex(out, "f54480689c6b0b11d0303285d9a81b21a93bca6ba5a1b4472765dca4da45ee328082d469c650cd3b61b16d3266ab8ced"));
+
+#if SIZE_MAX > UINT32_MAX
+    /* ChaCha20-Poly1305 must reject a payload that would wrap its 32-bit block counter. */
+    uint8_t tiny = 0, test_tag[16] = { 0 };
+    size_t chacha_over = (size_t)((uint64_t)UINT32_MAX * 64u + 1u);
+    CHECK(chacha20_xor(key, UINT32_MAX, nonce, &tiny, &tiny, 65) == -1);
+    CHECK(aead_chacha20_poly1305_seal(key, nonce, 0, 0, &tiny, chacha_over, &tiny, test_tag) == -1);
+    CHECK(aead_chacha20_poly1305_open(key, nonce, 0, 0, &tiny, chacha_over, test_tag, &tiny) == -1);
+    CHECK(aead_chacha20_poly1305_seal(key, nonce, &tiny, SIZE_MAX, 0, 0, 0, test_tag) == -1);
+
+    /* GCM permits at most 2^32-2 payload counter blocks (2^36-32 bytes). */
+    aes_gcm_t bound_gcm;
+    aes128_gcm_init(&bound_gcm, key);
+    size_t gcm_over = (size_t)((UINT64_C(1) << 36) - 31);
+    CHECK(aes128_gcm_seal(&bound_gcm, nonce, 0, 0, &tiny, gcm_over, &tiny, test_tag) == -1);
+    CHECK(aes128_gcm_open(&bound_gcm, nonce, 0, 0, &tiny, gcm_over, test_tag, &tiny) == -1);
+    CHECK(aes128_gcm_seal(&bound_gcm, nonce, &tiny, SIZE_MAX, 0, 0, 0, test_tag) == -1);
+#endif
 
     { uint8_t k[16], blk[16]; aes_gcm_t g;                                   /* FIPS-197 C.1; GCM: McGrew-Viega 3 и 4 */
       for (int i = 0; i < 16; i++) k[i] = (uint8_t)i;
@@ -123,10 +170,10 @@ int main(void) {
       hex("d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b391aafd255", P);
       hex("feedfacedeadbeeffeedfacedeadbeefabaddad2", A);
       aes128_gcm_init(&g, k);
-      aes128_gcm_seal(&g, N, 0, 0, P, 64, C, tag);
+      CHECK(aes128_gcm_seal(&g, N, 0, 0, P, 64, C, tag) == 0);
       CHECK(eqhex(C, "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091473f5985"));
       CHECK(eqhex(tag, "4d5c2af327cd64a62cf35abd2ba6fab4"));
-      aes128_gcm_seal(&g, N, A, 20, P, 60, C, tag);
+      CHECK(aes128_gcm_seal(&g, N, A, 20, P, 60, C, tag) == 0);
       CHECK(eqhex(tag, "5bc94fbc3221a5db94fae95ae7121a47"));
       CHECK(aes128_gcm_open(&g, N, A, 20, C, 60, tag, back2) == 0 && !memcmp(back2, P, 60));
       C[7] ^= 1; CHECK(aes128_gcm_open(&g, N, A, 20, C, 60, tag, back2) == -1); }
