@@ -100,7 +100,7 @@ int main(void) {
         return 1;
     }
 
-    /* A backward bridge link must not create a cycle or duplicate the root bus. */
+    /* Reject backward links before recursion; bus_seen remains the independent cycle guard. */
     set_bridge_buses(root, 5, 6, 7);
     set_bridge_buses(nested, 6, 5, 7);
     count = pci_init_range(5, 7);
