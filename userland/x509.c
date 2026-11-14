@@ -223,12 +223,17 @@ static int parse_subject_alt_name(der_t val, x509_t* c) {
 }
 static int parse_ext(der_t exts, x509_t* c) {
     der_t list;
-    unsigned seen = 0;
+    unsigned seen = 0, oid_count = 0;
+    der_t seen_oids[32];
     if (der_expect(&exts, 0x30, &list, 0) || exts.n) return -1;
     while (list.n) {
         der_t ext, oid, val, crit;
         uint8_t t;
         if (der_expect(&list, 0x30, &ext, 0) || der_expect(&ext, 0x06, &oid, 0)) return -1;
+        if (oid_count == sizeof seen_oids / sizeof seen_oids[0]) return -1;
+        for (unsigned i = 0; i < oid_count; i++)
+            if (same(seen_oids[i].p, seen_oids[i].n, oid.p, oid.n)) return -1;
+        seen_oids[oid_count++] = oid;
         int critical = 0;
         if (ext.n && ext.p[0] == 0x01) {
             if (der_expect(&ext, 0x01, &crit, 0) || crit.n != 1 ||
