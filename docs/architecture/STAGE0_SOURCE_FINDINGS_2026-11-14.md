@@ -308,7 +308,7 @@ Sources:
 
 | Finding | Source reviewed | Runtime reproduction / branch evidence | Targeted regression evidence | Status |
 |---|---|---|---|---|
-| F-001 | x86-64 and ARM64 stack allocator | PR #152 active-bitmap version and combined PR #154 pre-generation version failed `apps-drvman`; PMM-only PR #153 passed it | Latest PR #154 adds 64-bit per-slot generations and ABA regression; exact-head CI run `43587913640` pending | FIX IN PROGRESS; do not accept until combined exact-head CI passes all scenarios |
+| F-001 | x86-64 and ARM64 stack allocator | Combined PR #154 exact head `4dd1454093af90f7d569df03b4425650da8da8bc`; CI run `43590094470` | 43/43 checks PASS, including apps-drvman, host, ARM64 and QEMU matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, merge/review pending |
 | F-002 | KDRV, syscall capability gate, ARM64 DMA/MSI paths | Not run in this session | PR #136/137 tests are branch-only | CONFIRMED SOURCE SECURITY GAP |
 | F-003 | PCI ECAM backend and scan root | Not run in this session | PR #139 tests are branch-only | CONFIRMED SOURCE DEFECT |
 | F-004 | x86-64 and ARM64 entry paths/tree | Not run in this session | No unified BootInfo test in main | ARCHITECTURE GAP |
