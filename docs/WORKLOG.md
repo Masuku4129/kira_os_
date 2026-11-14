@@ -305,3 +305,11 @@
 - ARM64 driver scenario still expected the old free-device label after stopping `edunc`; the new KDRV PCI-list contract intentionally retains the last bound package identity, so the correct state is `драйвер edunc не работает`.
 - ARM64 Driver Manager final PID assertion had an over-escaped raw regex (`\\d+`), so it searched for a literal backslash instead of digits. The serial artifact contains the real `drv-edunc pid 5` line.
 - Corrected only those two stale ARM64 expectations in `ci/arm64_vm.py`. No production behavior was weakened or changed. A fresh exact-head run is required.
+
+
+### PR #161 — current-main Ring 3 DMA/MSI fail-closed exact-head CI passed (2026-11-14)
+
+- Exact head `bf65ea8e302871eb847bdaa232f0462697b00512`, workflow `43601644815`: **43/43 checks PASS**, zero failures/cancellations.
+- Includes host capability-policy tests, x86-64 build, ARM64 build/QEMU driver scenarios and full x86-64 QEMU matrix.
+- ARM64 assertions were corrected to reflect the retained stopped-driver identity and the final PID regex was fixed; no production behavior was weakened for the tests.
+- F-002 fail-closed Ring 3 `CAP_DMA/CAP_IRQ` policy and PCI quiesce readback are verified on this unmerged Draft PR. Firmware handoff bus-master sanitization remains a separate, still failing integration candidate PR #165; real VT-d/SMMUv3 IOMMU domains remain unimplemented.
