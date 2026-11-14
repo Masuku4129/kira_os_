@@ -264,11 +264,15 @@ int main(int argc, char** argv) {
     return fails != 0;
 #endif
     run(30);
-    CHECK(presents_rect > 10);
+    uint64_t frames = 0, composed = 0, pixels = 0, busy = 0, worst = 0, present = 0;
+    display_get_render_stats(&frames, &composed, &pixels, &busy, &worst, &present);
+    printf("display preview stats: frames=%llu composed=%llu pixels=%llu partial=%d full=%d\n",
+           (unsigned long long)frames, (unsigned long long)composed, (unsigned long long)pixels, presents_rect, presents_full);
+    CHECK(frames > 10 && composed > 0 && pixels > 0);
     save_shot("terminal.ppm");
 
-    /* левая панель: закреплённые по умолчанию (файла /var/dock нет) и «+» */
-    { int x, y; CHECK(wm_side_center(0, &x, &y) == 0 && wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) != 0); }
+    /* Spatial Minimal Dock: five pinned defaults, no legacy task buttons or plus tile. */
+    { int x, y; CHECK(wm_side_center(0, &x, &y) == 0 && wm_side_center(4, &x, &y) == 0 && wm_side_center(5, &x, &y) != 0); }
 
     /* разделы: Разум */
     click_tab(3);
@@ -346,14 +350,14 @@ int main(int argc, char** argv) {
     save_shot("files_run.ppm");
     writes = 0; click_in(w_files, 3 * 800 / 9 + 30, KY); run(2);              /* F4: закрепить burn */
     CHECK(writes == 1 && !strcmp(written_path, "/var/dock") && !strcmp(written, "plasma\npaint\ncube3d\nedit\ndrvman\nburn\n"));
-    { int x, y; CHECK(wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) == 0 && wm_side_center(7, &x, &y) != 0); }
+    { int x, y; CHECK(wm_side_center(5, &x, &y) == 0 && wm_side_center(6, &x, &y) != 0); }
     con_n = 0; click_side(5); CHECK(con_n == 1 && !strcmp(con_cmd, "burn"));
     run(1);
     { int x, y; wm_side_center(0, &x, &y); move_to(x, y, 0); wm_mouse(0, 0, 2); wm_mouse(0, 0, 0); }   /* plasma - открепить */
     run(1);
     CHECK(writes == 2 && !strcmp(written, "paint\ncube3d\nedit\ndrvman\nburn\n"));
-    /* «+» открывает Проводник с /bin */
-    click_side(5);
+    /* Spatial Minimal has no legacy «+» task button: Files navigation remains in the rail. */
+    click_tab(2);
     run(2);
     CHECK(wm_top() == w_files);
     explorer_view(&e); CHECK(!strcmp(e.fm.p[e.fm.active].path, "/bin"));
@@ -395,13 +399,19 @@ int main(int argc, char** argv) {
     CHECK(uf >= 0 && wm_top() == uf);
     gin_n = 0; { int x, y, sc; wm_content_origin(uf, &x, &y, &sc); move_to(x + 30, y + 30, 0); }
     CHECK(gin_n > 0);
-    /* незакреплённая идущая программа появляется ниже черты; правая кнопка - закрепить */
+    /* An unpinned running window is shown in Overview, not appended to the Dock. */
     static uint32_t pm[200 * 120];
     int um = wm_create_user("mt", WM_AUTO, WM_AUTO, 200, 120, pm);
     run(2);
-    { int x, y; CHECK(wm_side_center(5, &x, &y) == 0); move_to(x, y, 0); wm_mouse(0, 0, 2); wm_mouse(0, 0, 0); }
+    /* Running windows live in Overview, not as temporary Dock task buttons. */
+    { int x, y; CHECK(wm_side_center(5, &x, &y) != 0); }
+    wm_window_overview_toggle();
     run(1);
-    CHECK(!strcmp(written, "paint\ncube3d\nedit\ndrvman\nburn\nmt\n"));
+    CHECK(wm_window_overview_is_open() && wm_window_overview_count() >= 2);
+    { int x, y; CHECK(wm_window_overview_item_center(0, &x, &y) == 0); click(x, y); }
+    run(1);
+    CHECK(!wm_window_overview_is_open());
+    CHECK(writes == 2 && !strcmp(written, "paint\ncube3d\nedit\ndrvman\nburn\n"));
     wm_destroy(um);
     run(4);
     save_shot("apps.ppm");

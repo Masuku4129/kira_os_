@@ -235,7 +235,7 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/wmsp tests/wm_spatial_startup_test
 $T/wmsp
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
-$CC $FLAGS -I$T -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c prog_catalog.c -lm
+$CC $FLAGS -I$T -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c wallpaper.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c prog_catalog.c -lm
 # код возврата превью - не через tail (раньше сбой терялся в конвейере)
 for r in "" "1280 720" "1920 1080"; do
     rc=0
@@ -244,7 +244,7 @@ for r in "" "1280 720" "1920 1080"; do
     [ $rc -eq 0 ] || { echo "display preview failed (exit $rc, args: $r)"; cat $T/disp.out; exit 1; }
 done
 echo "== display thread: Spatial Minimal Android preview startup =="
-$CC $FLAGS -DKIRA_SPATIAL_PREVIEW=1 -I$T -fsanitize=address,undefined -o $T/disps tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c prog_catalog.c -lm
+$CC $FLAGS -DKIRA_SPATIAL_PREVIEW=1 -I$T -fsanitize=address,undefined -o $T/disps tests/display_preview.c display.c wallpaper.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c prog_catalog.c -lm
 rc=0
 ASAN_OPTIONS=detect_leaks=0 $T/disps > $T/disps.out 2>&1 || rc=$?
 tail -1 $T/disps.out

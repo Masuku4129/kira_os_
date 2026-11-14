@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Guard the Spatial Minimal palette and ensure default Legacy builds stay unchanged."""
+"""Guard the production Spatial Minimal palette and explicit Legacy compatibility palette."""
 from pathlib import Path
 import re
 
+root = Path(__file__).resolve().parents[1]
+
 source = Path(__file__).resolve().parents[1].joinpath("theme.h").read_text(encoding="utf-8")
-spatial = source.split("#ifdef KIRA_SPATIAL_PREVIEW", 1)[1].split("#else", 1)[0]
+spatial = source.split("#ifndef KIRA_LEGACY_THEME", 1)[1].split("#else", 1)[0]
 legacy = source.split("#else", 1)[1].split("#endif", 1)[0]
 
 spatial_expected = {
@@ -58,5 +60,14 @@ for name, value in legacy_expected.items():
     pattern = rf"^#define\s+{name}\s+{re.escape(value)}\s*$"
     if not re.search(pattern, legacy, re.MULTILINE):
         raise SystemExit(f"FAIL: Legacy {name} must remain {value}")
+
+# Built-in application surfaces must consume the shared semantic palette rather than
+# introducing per-screen RGB literals that drift away from Spatial Minimal.
+for path in ("apps.c", "display.c", "gfxui.c"):
+    source = root.joinpath(path).read_text(encoding="utf-8")
+    if '#include "theme.h"' not in source:
+        raise SystemExit(f"FAIL: {path} must include the shared theme contract")
+    if re.search(r"0x[0-9A-Fa-f]{6,8}u", source):
+        raise SystemExit(f"FAIL: {path} contains a hard-coded RGB color; use a semantic theme token")
 
 print("theme: Spatial Minimal tokens and Legacy palette preservation passed")

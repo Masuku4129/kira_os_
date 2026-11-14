@@ -19,6 +19,7 @@
 #define MB2_MEM_ACPI      3
 #define MB2_MEM_NVS       4
 #define PMM_MAX_ACPI      64
+#define PMM_MAX_MODULES   16
 
 struct mb2_tag {
     uint32_t type;
@@ -49,6 +50,8 @@ static uint32_t free_pages;
 static uint32_t search_hint;             // слово, с которого искать (next-fit)
 static pmm_range_t high[PMM_MAX_HIGH];
 static unsigned high_n;
+static pmm_range_t mb_modules[PMM_MAX_MODULES];
+static unsigned mb_module_n;
 static pmm_range_t acpi_r[PMM_MAX_ACPI];
 static unsigned acpi_n;
 static spinlock_t pmm_lock = SPINLOCK_INIT;
@@ -95,6 +98,43 @@ static void reserve_range(uint64_t base, uint64_t len) {
     }
 }
 
+#ifndef KIRA_HOST_TEST
+/* Move bitmap storage past any Multiboot2 module that overlaps the candidate range.
+   GRUB may place the init module immediately after the kernel; choosing it as bitmap
+   storage would silently overwrite the embedded root filesystem before it is mounted. */
+static uint64_t skip_module_overlap(unsigned long addr, uint64_t start, uint64_t bytes) {
+    if (!start || start > UINT64_MAX - bytes) return 0;
+    uint64_t limit = start + bytes;
+    uint32_t info_size = *(const uint32_t*)addr;
+    const uint8_t* p = (const uint8_t*)(addr + 8);
+    const uint8_t* end = (const uint8_t*)(addr + info_size);
+    for (unsigned pass = 0; pass < PMM_MAX_MODULES; pass++) {
+        int moved = 0;
+        for ( ; p + sizeof(struct mb2_tag) <= end; ) {
+            const struct mb2_tag* tag = (const struct mb2_tag*)p;
+            if (tag->type == MB2_TAG_END) break;
+            if (tag->size < sizeof(struct mb2_tag) || p + tag->size > end) return 0;
+            if (tag->type == 3 && tag->size >= 16) {
+                const uint32_t* mod = (const uint32_t*)p;
+                uint64_t ms = mod[2], me = mod[3];
+                if (me > ms && start < me && ms < limit) {
+                    start = (me + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
+                    if (!start || start > UINT64_MAX - bytes) return 0;
+                    limit = start + bytes;
+                    moved = 1;
+                    break;
+                }
+            }
+            p += (tag->size + 7) & ~7u;
+        }
+        if (!moved) return start;
+        p = (const uint8_t*)(addr + 8);
+    }
+    return 0;
+}
+
+#endif /* !KIRA_HOST_TEST */
+
 // Запоминает кусок ОЗУ выше 1 ГБ до отображения; в конце pmm_init список сортируется и сливается.
 static void defer_range(uint64_t base, uint64_t end) {
     uint64_t s = (base + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
@@ -106,6 +146,12 @@ static void defer_range(uint64_t base, uint64_t end) {
         return;
     }
     high[high_n].start = s; high[high_n].end = e; high_n++;
+}
+
+static int module_page(uint64_t page_addr) {
+    for (unsigned i = 0; i < mb_module_n; i++)
+        if (page_addr >= mb_modules[i].start && page_addr < mb_modules[i].end) return 1;
+    return 0;
 }
 
 static void merge_high(void) {
@@ -210,7 +256,8 @@ int pmm_init(unsigned long magic, unsigned long addr) {
                     s = (s + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
                     uint64_t t = ent->addr + ent->len;
                     if (t > PMM_LOW) t = PMM_LOW;
-                    if (t > s && t - s >= store_bytes) { store_base = s; break; }
+                    s = skip_module_overlap(addr, s, store_bytes);
+                    if (s && t > s && t - s >= store_bytes) { store_base = s; break; }
                 }
             }
             p += (tag->size + 7) & ~7u;
@@ -228,7 +275,7 @@ int pmm_init(unsigned long magic, unsigned long addr) {
     // Старт: всё занято и зарезервировано; освобождаем то, что карта памяти называет доступным.
     for (uint64_t i = 0; i < nwords; i++) { used_map[i] = 0xFFFFFFFFu; reserved_map[i] = 0xFFFFFFFFu; }
     total_pages = 0;
-    high_n = 0; acpi_n = 0;
+    high_n = 0; acpi_n = 0; mb_module_n = 0;
 
     uint64_t usable_bytes = 0;
     for (const uint8_t* p = (const uint8_t*)(addr + 8); p + sizeof(struct mb2_tag) <= end; ) {
@@ -252,11 +299,31 @@ int pmm_init(unsigned long magic, unsigned long addr) {
     }
     merge_high();
 
+    // Multiboot2 modules are not ordinary free RAM. Keep every module reserved;
+    // high-memory modules must also be skipped when ramext later releases mapped ranges.
+    for (const uint8_t* p = (const uint8_t*)(addr + 8); p + sizeof(struct mb2_tag) <= end; ) {
+        const struct mb2_tag* tag = (const struct mb2_tag*)p;
+        if (tag->type == MB2_TAG_END) break;
+        if (tag->size < sizeof(struct mb2_tag) || p + tag->size > end) return -3;
+        if (tag->type == 3 && tag->size >= 16 && mb_module_n < PMM_MAX_MODULES) {
+            const uint32_t* mod = (const uint32_t*)p;
+            uint64_t s = mod[2], e = mod[3];
+            if (e > s && e <= PMM_LIMIT) {
+                mb_modules[mb_module_n].start = s & ~(PMM_PAGE_SIZE - 1);
+                mb_modules[mb_module_n].end = (e + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
+                mb_module_n++;
+            }
+        }
+        p += (tag->size + 7) & ~7u;
+    }
+
     // Резервируем то, что занято НЕ по карте памяти:
     reserve_range(0, 0x100000);                                  // всё ниже 1 МБ (BIOS, IVT, VGA, EBDA)
     reserve_range((uint64_t)(uintptr_t)kernel_start,
                   (uint64_t)(uintptr_t)kernel_end - (uint64_t)(uintptr_t)kernel_start); // образ ядра, .bss, стек, таблицы страниц, куча
     reserve_range(addr, info_size);                              // сама Multiboot2-структура
+    for (unsigned i = 0; i < mb_module_n; i++)
+        if (mb_modules[i].start < PMM_LOW) reserve_range(mb_modules[i].start, mb_modules[i].end - mb_modules[i].start);
     if (store_base) reserve_range(store_base, store_bytes);      // карты страниц
 
     free_pages = 0;
@@ -302,7 +369,7 @@ int64_t pmm_add_high(uint64_t start, uint64_t end) {
     int64_t added = 0;
     for (uint64_t a = start; a < end; a += PMM_PAGE_SIZE) {
         uint64_t p = a / PMM_PAGE_SIZE;
-        if (!test_bit(used_map, p)) continue;                    // уже выдаётся
+        if (!test_bit(used_map, p) || module_page(a)) continue;  // уже выдана или принадлежит Multiboot2 module
         clear_bit(used_map, p);
         clear_bit(reserved_map, p);
         total_pages++; free_pages++; added++;
