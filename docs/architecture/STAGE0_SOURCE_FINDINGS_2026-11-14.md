@@ -220,7 +220,7 @@ When guarded stack allocation fails or the slot window is exhausted, a thread ma
 - Draft PR #164 removes the production heap fallback: when the guarded VMM stack window cannot allocate, thread creation fails closed.
 - `create_thread()` now clears all stack bytes before writing the canary and publishing the thread.
 - The host scheduler regression checks that bytes above the canary are zero on newly created stacks.
-- Exact-head CI is pending; no PASS claimed. The host test covers stack clearing; a production guarded-window exhaustion scenario still needs a QEMU/integration test.
+- Draft PR #164 exact head `3729347c19f8a5dad2ac5587f60876d8adca6cda`; workflow `43600699384`: **43/43 checks PASS**, including host scheduler regression, x86-64/ARM64 builds and QEMU matrix. The host test covers stack clearing; a dedicated production guarded-window exhaustion scenario remains a follow-up.
 
 **Required closure:** exact-head host suite, x86-64/ARM64 builds and QEMU matrix; add/confirm a production test that exhausting the guarded stack window cannot produce a heap-backed kernel thread. Do not silently treat heap fallback as equivalent to guarded stacks.
 
@@ -475,12 +475,12 @@ Sources:
 |---|---|---|---|---|
 | F-001 | x86-64 and ARM64 stack allocator | Combined PR #154 exact head `4dd1454093af90f7d569df03b4425650da8da8bc`; CI run `43590094470` | 43/43 checks PASS, including apps-drvman, host, ARM64 and QEMU matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, merge/review pending |
 | F-002 | KDRV, syscall capability gate, PCI firmware handoff, ARM64 DMA/MSI paths | Draft PR #161 current-main fail-closed CAP_DMA/CAP_IRQ gate + verified quiesce; Draft PR #165 clears inherited firmware bus mastering | PR #161 exact head `bf65ea8e302871eb847bdaa232f0462697b00512`, run `43601644815`: 43/43 PASS; PR #165 still fails `vm (usb-uhci)` on run `43602087949` and is under regression investigation | RING 3 DMA/MSI GATE VERIFIED ON DRAFT; FIRMWARE HANDOFF FIX NOT ACCEPTED; REAL IOMMU STILL ABSENT |
-| F-003 | PCI ECAM backend and scan root | Draft PR #162 adds nonzero root and parent-bounded bridge traversal | Exact-head CI pending; host ASan/UBSan + x86/ARM64/QEMU required | FIX IMPLEMENTED ON CURRENT-MAIN DRAFT; NOT YET VERIFIED |
+| F-003 | PCI ECAM backend and scan root | Draft PR #162 adds nonzero root and parent-bounded bridge traversal | Exact head `2e30dc5c9edff973a949d40dacbed18d2d666ab8`, run `43594509620`: 43/43 PASS incl. ASan/UBSan host, x86/ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-004 | x86-64 and ARM64 entry paths/tree | Not run in this session | No unified BootInfo test in main | ARCHITECTURE GAP |
 | F-005 | PCI/KDRV structure and PR #141 dependency | Not run in this session | No generic registry test in main | ARCHITECTURE GAP |
 | F-006 | ARCHITECTURE.md vs current sources/build/CI | Source/document comparison only | No docs consistency guard in main | CONFIRMED DOCUMENTATION DRIFT |
 | F-007 | build_clang.sh release filtering | Static build-script review | No full-image manifest comparison in main | CONFIRMED PROFILE COMPLETENESS RISK |
-| F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
+| F-008 | sched.c stack fallback and initialization | Draft PR #164 removes heap fallback and clears reused stacks | Exact head `3729347c19f8a5dad2ac5587f60876d8adca6cda`, run `43600699384`: 43/43 PASS; guarded-window exhaustion-specific runtime test remains follow-up | VERIFIED ON DRAFT PR; main unchanged; one targeted coverage gap remains |
 | F-010 | x86-64 TLB shootdown timeout and late IPI handling | Draft PR #155 exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; CI run `43590730265` | 43/43 checks PASS, including host, ARM64 and QEMU SMP matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
 | F-011 | MMIO page-range overflow during page align-up | Combined Draft PR #160 based on verified PR #157 UART fix | Workflow `43592802619`: 43/43 PASS incl. host, x86-64, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
 | F-013 | ARM64 PMM reserved-page ownership | Draft PR #158 exact head `70d0e89a65414818c22d61532f7ca4288c464d2c` | Workflow `43592051859`: 43/43 PASS incl. host, ARM64 and QEMU | VERIFIED ON DRAFT PR; main unchanged |
