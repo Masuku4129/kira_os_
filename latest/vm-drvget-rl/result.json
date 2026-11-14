@@ -1,0 +1,237 @@
+{
+ "name": "drvget-rl",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "expect": "каталог рецептов теперь https://10\\.0\\.2\\.100",
+   "ok": true
+  },
+  {
+   "expect": "drvget: отказ: .*GPL",
+   "ok": true
+  },
+  {
+   "expect": "drvget: отказ: if_rlreg",
+   "ok": true
+  },
+  {
+   "expect": "drvget: отказ: if_rlreg",
+   "ok": true
+  },
+  {
+   "expect": "разрешён только https",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "forbid": "drv-rl",
+   "ok": true
+  },
+  {
+   "expect": "drvget confirm rl 0d110b29",
+   "ok": true
+  },
+  {
+   "log": "лицензия:   заявлена BSD-3-Clause",
+   "ok": true
+  },
+  {
+   "log": "if_rlreg\\.h",
+   "ok": true
+  },
+  {
+   "log": "10ec:8139",
+   "ok": true
+  },
+  {
+   "log": "CAP_DMA",
+   "ok": true
+  },
+  {
+   "log": "CAP_NETDEV",
+   "ok": true
+  },
+  {
+   "log": "IOMMU",
+   "ok": true
+  },
+  {
+   "log": "Установка НЕ выполнена",
+   "ok": true
+  },
+  {
+   "expect": "хеш не совпал",
+   "ok": true
+  },
+  {
+   "expect": "установлено: /drv/rl\\.kdrv и /drv/rl\\.rec",
+   "ok": true
+  },
+  {
+   "log": "собрано, образ ELF \\d+ байт",
+   "ok": true
+  },
+  {
+   "expect": "rl: версия 1, права: MMIO DMA PCIDEV NETDEV, SHA-256 сверен",
+   "ok": true
+  },
+  {
+   "expect": "verify rl: OK",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "relaunch": true,
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA DRV\\] rl: устройство .* 10ec:8139 -> драйвер запущен",
+   "ok": true
+  },
+  {
+   "log": "rl: network interface registered, link up",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA NET\\] DHCP: address 10\\.0\\.2\\.15/24",
+   "ok": true
+  },
+  {
+   "step": "net",
+   "must": "адрес 10\\.0\\.2\\.15",
+   "ok": true
+  },
+  {
+   "step": "ping 10.0.2.2 3",
+   "must": "отправлено 3, получено [1-3]",
+   "ok": true
+  },
+  {
+   "log": "fetch: 10\\.0\\.2\\.100/kira - HTTP/1\\.0 200 OK",
+   "ok": true
+  },
+  {
+   "log": "rl: first frame received",
+   "ok": true
+  },
+  {
+   "log": "rl: first frame transmitted",
+   "ok": true
+  },
+  {
+   "step": "drv",
+   "must": "drv-rl pid \\d+",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "log_forbid": "УТЕЧКА",
+   "ok": true
+  },
+  {
+   "responsive": "status",
+   "seconds": 0.04,
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 5.3,
+ "seconds": 58.3,
+ "commands": [
+  {
+   "cmd": "drv",
+   "seconds": 0.0
+  },
+  {
+   "cmd": "net",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "ping 10.0.2.2 3",
+   "seconds": 1.02
+  },
+  {
+   "cmd": "fetch 10.0.2.100 /kira",
+   "seconds": 0.01
+  },
+  {
+   "cmd": "drv",
+   "seconds": 0.02
+  },
+  {
+   "cmd": "status",
+   "seconds": 0.01
+  }
+ ]
+}
