@@ -87,7 +87,12 @@ def app_names(source: str) -> list[str]:
 
 def android_release_app_names(source: str) -> list[str]:
     all_apps = set(app_names(source))
-    match = re.search(r'^TESTPROGS="([^"]+)"
+    match = re.search(r'^TESTPROGS="([^"]+)"$', source, re.MULTILINE)
+    if not match:
+        fail("cannot read TESTPROGS from x86 build script")
+    return sorted(all_apps - set(match.group(1).strip().split()))
+
+
 checks = [
     ("x86_64_kernel_sources", x86_sources),
     ("x86_64_arch_sources", x86_arch),
