@@ -1156,3 +1156,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - F-048 — FAT unlink and replacement discard `chain_free()` errors after directory metadata has been changed, allowing incomplete reclamation to be reported as success.
 - Existing FAT test device has no flush callback and its write-failure check does not inject failures at each FAT-sector transition; it therefore does not close these gaps.
 - No runtime fault-injection suite was executed in this audit turn. Source review only; no production code changed.
+
+
+## 57. ARM64 architecture parity and physical allocator audit — 2026-11-14
+
+- Compared ARM64 boot/EL transition, exception vectors and frame layout, context switch, FPU state, user-access fault fixups/PAN, TTBR0/ASID lifecycle, page-table teardown/TLBI, PMM and SMP paths with the shared x86-64 contracts.
+- Confirmed several parity features exist in source: per-thread SIMD state save/restore, EL0 SVC routing, fault-contained LDTR/STTR user copies, PAN where supported, ASID-tagged TTBR0 and inner-shareable TLB invalidation.
+- F-049 — ARM64 PMM uses one bitmap for both allocated and reserved pages. Consequently `pmm_free_page()` can release a reserved page; `pmm_free_contiguous()` frees sequentially and can partially release a range before an error. This violates the explicit shared ADR-0003 contract.
+- F-001 already records the separate ARM64 kernel-stack free-list ownership issue; it is not duplicated here.
+- QEMU ARM64 CI scenarios are defined in `ci/arm64_vm.py`, including SMP, EL2, GUI, storage, USB, crash and DMA-pool tests. This source review did not execute them or establish physical-board support.
+- No production code changed and no runtime tests were run in this audit pass.
