@@ -214,7 +214,14 @@ Sources:
 
 When guarded stack allocation fails or the slot window is exhausted, a thread may still be created with an unguarded heap stack. This weakens the invariant that every kernel thread has a guard page. Reused stacks may also contain prior thread data until overwritten.
 
-**Required closure:** explicitly define stack-exhaustion policy (fail thread creation or use a separately guarded fallback); zero stack contents before publishing a new thread; add tests for allocation failure, fallback classification, canary initialization and zeroing; ensure all supported architectures enforce the same policy. Do not silently treat heap fallback as equivalent to guarded stacks.
+### Remediation on current-main draft branch
+
+- Draft PR #164 removes the production heap fallback: when the guarded VMM stack window cannot allocate, thread creation fails closed.
+- `create_thread()` now clears all stack bytes before writing the canary and publishing the thread.
+- The host scheduler regression checks that bytes above the canary are zero on newly created stacks.
+- Exact-head CI is pending; no PASS claimed. The host test covers stack clearing; a production guarded-window exhaustion scenario still needs a QEMU/integration test.
+
+**Required closure:** exact-head host suite, x86-64/ARM64 builds and QEMU matrix; add/confirm a production test that exhausting the guarded stack window cannot produce a heap-backed kernel thread. Do not silently treat heap fallback as equivalent to guarded stacks.
 
 
 ## F-009 — PMM contiguous-block release is not atomic
