@@ -1527,3 +1527,28 @@ ARM64 artifact 14121710332 was downloaded and inspected:
 - FDT malformed-name coverage (F-051) is not part of these 16 scenarios.
 
 The #165 run is therefore strong emulator evidence for the supported ARM64 happy paths, but does not close the specific negative-path findings above. It is not physical ARM64 hardware validation. The separate x86 UHCI artifact still has 393,602 rejected QEMU invalid-read records, so F-025 remains open.
+
+
+## New finding F-054 — USB controllers regain Bus Master before being stopped/reset (2026-11-14)
+
+**Severity:** HIGH; potentially explains the persistent QEMU invalid-DMA reads, but correlation is not yet proven.
+
+### Evidence
+- PCI enumeration in PR #165 clears firmware Bus Master for non-bridge functions, but only after `probe_bars()` has completed. The BAR probe disables IO/MEM decode, not Bus Master. Thus a firmware-enabled controller can retain Bus Master throughout BAR probing (F-017 remains relevant).
+- `uhci_start()` then calls `pci_enable(... PCI_CMD_MASTER ...)` at the beginning of startup, before allocating the 13-page frame-list/QH/TD/buffer region and before writing FRBASE or issuing USBCMD stop/global reset/host reset (`uhci.c:386-418`). If firmware left UHCI RUN set with stale FRBASE, re-enabling Bus Master can let it fetch stale descriptors before the driver has quiesced it.
+- On allocation failure after the enable, the function returns without first clearing Bus Master or forcing the controller halted.
+- `xhci_start()` has the analogous ordering: enables MEM+MASTER at `xhci.c:529`, before mapping BAR, BIOS handoff, clearing Run/Stop, waiting for Halted, issuing HCRST, and allocating DCBAA/command/event rings (`xhci.c:531-564`). Failure paths can also return after Bus Master is enabled without a common quiesce/disable rollback.
+- The PCI scan's late clear is a mitigation but does not make driver re-enable safe; it does not prove the controller is halted or that firmware-owned DMA pointers are invalidated.
+
+### Consequence
+A running controller can resume DMA against firmware-owned/stale schedule or context pointers as soon as Bus Master is re-enabled. This can cause invalid DMA reads and memory corruption before the driver's own DMA structures are ready. The QEMU UHCI artifact's invalid-read records make this a high-priority hypothesis, not a demonstrated one: no register snapshot or DMA requester trace yet ties those log entries to UHCI.
+
+### Required closure
+1. Keep Bus Master disabled while mapping registers, taking ownership, stopping controller, waiting for Halted, resetting, and allocating/initializing every DMA structure.
+2. Clear/disable old controller DMA pointers and pending events before reset/ownership transition where hardware spec requires it.
+3. Program validated schedule/ring addresses and barriers, then enable Bus Master as the final activation step immediately before starting the controller.
+4. Add one cleanup path for every failure after ownership: stop, wait Halted, clear Bus Master, quarantine/free only after DMA is proven quiescent, release mappings.
+5. Add QEMU register trace snapshots before/after PCI enumeration, immediately before/after BM enable, before/after reset and before RUN; assert no DMA before initialized schedule/rings.
+6. Extend host tests to assert call ordering and injected allocation/reset/mapping failure always leaves BM disabled and controller halted.
+
+F-054 remains OPEN. Do not close F-025 until requester/register evidence confirms the QEMU invalid-read source and the error log is clean.
