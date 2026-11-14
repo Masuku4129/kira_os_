@@ -95,7 +95,7 @@ static int trapped;
 static void trap(const char* m) { if (!trapped) { trapped = 1; trap_msg = m; } }
 
 /* ---------- модуль ---------- */
-typedef struct { u8 np, nr; u8 p[32]; } ftype_t;
+typedef struct { u8 np, nr, r; u8 p[32]; } ftype_t;
 typedef struct { u32 type; int import; u32 imp_id; const u8* code; const u8* end; u32 nlocals, centry, maxh; } func_t;
 static ftype_t* types; static u32 ntypes;
 static func_t* funcs; static u32 nfuncs, nimports;
@@ -108,17 +108,71 @@ static const u8* mod; static u32 modlen;
 enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT, IMP_N };
 static const char* const imp_names[IMP_N] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event" };
 
+static int wasm_valtype(u8 t) { return t == 0x7F || t == 0x7E || t == 0x7D || t == 0x7C; }
+static int import_type_ok(u32 id, const ftype_t* t) {
+    const u8 i32 = 0x7F, i64 = 0x7E;
+    switch (id) {
+    case IMP_WRITE: return t->np == 2 && t->p[0] == i32 && t->p[1] == i32 && t->nr == 1 && t->r == i32;
+    case IMP_SLEEP: return t->np == 1 && t->p[0] == i32 && t->nr == 0;
+    case IMP_TICKS: return t->np == 0 && t->nr == 1 && t->r == i64;
+    case IMP_EXIT: return t->np == 1 && t->p[0] == i32 && t->nr == 0;
+    case IMP_GFX_CREATE: return t->np == 2 && t->p[0] == i32 && t->p[1] == i32 && t->nr == 1 && t->r == i32;
+    case IMP_GFX_PRESENT: case IMP_GFX_EVENT:
+        return t->np == 1 && t->p[0] == i32 && t->nr == 1 && t->r == i32;
+    default: return 0;
+    }
+}
+
+static int wasm_need(const u8* p, const u8* end, u64 n) {
+    if (!p || !end || p > end || n > (u64)(end - p)) { trap("truncated WASM input"); return 0; }
+    return 1;
+}
+static u8 wasm_u8(const u8** p, const u8* end) {
+    if (!wasm_need(*p, end, 1)) return 0;
+    return *(*p)++;
+}
+static void wasm_skip(const u8** p, const u8* end, u64 n) {
+    if (!wasm_need(*p, end, n)) return;
+    *p += n;
+}
 static u32 leb_u(const u8** p, const u8* end) {
-    u32 r = 0; int s = 0;
-    while (*p < end) { u8 b = *(*p)++; if (s < 32) r |= (u32)(b & 0x7F) << s; s += 7; if (!(b & 0x80)) return r; if (s > 35) break; }
-    trap("bad LEB128"); return 0;
+    u64 r = 0; unsigned shift = 0, count = 0; u8 b = 0;
+    for (;;) {
+        if (!wasm_need(*p, end, 1)) return 0;
+        b = *(*p)++; count++;
+        u32 payload = b & 0x7Fu;
+        if (count > 5 || (count == 5 && (payload & 0x70u))) { trap("unsigned LEB128 out of range"); return 0; }
+        r |= (u64)payload << shift;
+        if (!(b & 0x80u)) return (u32)r;
+        if (count == 5) { trap("unterminated unsigned LEB128"); return 0; }
+        shift += 7;
+    }
 }
 static i64 leb_s(const u8** p, const u8* end, int bits) {
-    u64 r = 0; int s = 0; u8 b = 0;                               /* беззнаково: сдвиги определены */
-    while (*p < end) { b = *(*p)++; if (s < 64) r |= (u64)(b & 0x7F) << s; s += 7; if (!(b & 0x80)) break; if (s > 70) { trap("bad LEB128"); return 0; } }
-    if (s < 64 && (b & 0x40)) r |= ~0ull << s;
-    if (bits == 32) return (i64)(int)(u32)r;
-    return (i64)r;
+    if (bits != 32 && bits != 33 && bits != 64) { trap("unsupported signed LEB128 width"); return 0; }
+    u64 r = 0; unsigned shift = 0, count = 0, max_bytes = (unsigned)(bits + 6) / 7;
+    u8 b = 0;
+    for (;;) {
+        if (!wasm_need(*p, end, 1)) return 0;
+        b = *(*p)++; count++;
+        u8 payload = b & 0x7Fu;
+        if (count > max_bytes) { trap("signed LEB128 out of range"); return 0; }
+        if (count == max_bytes) {
+            unsigned valid = (unsigned)bits - shift;
+            unsigned sign = (payload >> (valid - 1)) & 1u;
+            unsigned upper = payload >> valid;
+            unsigned upper_mask = (1u << (7u - valid)) - 1u;
+            if ((!sign && upper) || (sign && upper != upper_mask)) { trap("signed LEB128 out of range"); return 0; }
+        }
+        r |= (u64)payload << shift;
+        shift += 7;
+        if (!(b & 0x80u)) {
+            if (count < max_bytes && shift < 64 && (b & 0x40u)) r |= ~0ull << shift;
+            if (count == max_bytes && bits < 64 && (r & (1ull << (bits - 1)))) r |= ~0ull << bits;
+            return bits == 32 ? (i64)(int)(u32)r : (i64)r;
+        }
+        if (count == max_bytes) { trap("unterminated signed LEB128"); return 0; }
+    }
 }
 static int name_is(const u8* n, u32 len, const char* s) { u32 i = 0; for (; i < len && s[i]; i++) if (n[i] != (u8)s[i]) return 0; return i == len && !s[i]; }
 
@@ -130,9 +184,9 @@ static u64 const_expr(const u8** p, const u8* end) {
         if (op == 0x0B) return v;
         if (op == 0x41) v = (u64)(u32)leb_s(p, end, 32);
         else if (op == 0x42) v = (u64)leb_s(p, end, 64);
-        else if (op == 0x23) { u32 g = leb_u(p, end); v = g < nglobals ? globals[g] : 0; }
-        else if (op == 0x43) { if (*p + 4 > end) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
-        else if (op == 0x44) { if (*p + 8 > end) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
+        else if (op == 0x23) { u32 g = leb_u(p, end); if (g >= nglobals) { trap("constant expression global index out of range"); return 0; } v = globals[g]; }
+        else if (op == 0x43) { if (!wasm_need(*p, end, 4)) break; v = (u64)((*p)[0] | (*p)[1] << 8 | (*p)[2] << 16 | (u32)(*p)[3] << 24); *p += 4; }
+        else if (op == 0x44) { if (!wasm_need(*p, end, 8)) break; v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | (*p)[i]; *p += 8; }
         else { trap("unsupported constant expression"); return 0; }
     }
     trap("unterminated constant expression"); return 0;
@@ -140,19 +194,26 @@ static u64 const_expr(const u8** p, const u8* end) {
 
 static void skip_imm(u8 op, const u8** p, const u8* e) {
     if (op == 0x0C || op == 0x0D || op == 0x10 || (op >= 0x20 && op <= 0x24)) { leb_u(p, e); return; }
-    if (op == 0x0E) { u32 n = leb_u(p, e); for (u32 i = 0; i <= n && !trapped; i++) leb_u(p, e); return; }
-    if (op == 0x11) { leb_u(p, e); leb_u(p, e); return; }
+    if (op == 0x0E) {
+        u32 n = leb_u(p, e);
+        if ((u64)n + 1 > (u64)(e - *p)) { trap("truncated br_table immediate"); return; }
+        for (u32 i = 0; i <= n && !trapped; i++) leb_u(p, e);
+        return;
+    }
+    if (op == 0x11) { leb_u(p, e); if (leb_u(p, e) != 0) trap("invalid call_indirect table index"); return; }
     if (op >= 0x28 && op <= 0x3E) { leb_u(p, e); leb_u(p, e); return; }
-    if (op == 0x3F || op == 0x40) { (*p)++; return; }
+    if (op == 0x3F || op == 0x40) { if (leb_u(p, e) != 0) trap("invalid memory index"); return; }
     if (op == 0x41) { leb_s(p, e, 32); return; }
     if (op == 0x42) { leb_s(p, e, 64); return; }
-    if (op == 0x43) { *p += 4; return; }
-    if (op == 0x44) { *p += 8; return; }
-    if (op == 0x1C) { u32 n = leb_u(p, e); *p += n; return; }
+    if (op == 0x43) { wasm_skip(p, e, 4); return; }
+    if (op == 0x44) { wasm_skip(p, e, 8); return; }
+    if (op == 0x1C) { u32 n = leb_u(p, e); wasm_skip(p, e, n); return; }
     if (op == 0xFC) {
         u32 sub = leb_u(p, e);
-        if (sub == 8) { leb_u(p, e); (*p)++; } else if (sub == 9) leb_u(p, e);
-        else if (sub == 10) *p += 2; else if (sub == 11) (*p)++;
+        if (sub == 8) { leb_u(p, e); if (leb_u(p, e) != 0) trap("invalid memory.init memory index"); }
+        else if (sub == 9) leb_u(p, e);
+        else if (sub == 10) { if (leb_u(p, e) != 0 || leb_u(p, e) != 0) trap("invalid memory.copy index"); }
+        else if (sub == 11) { if (leb_u(p, e) != 0) trap("invalid memory.fill index"); }
         else if (sub >= 12) trap("unsupported 0xFC instruction");
     }
 }
@@ -307,16 +368,17 @@ static int compile_func(func_t* f) {
     f->centry = cn; nctl = 0; c_h = c_maxh = 0; c_unr = 0; c_inv = 0; barrier = cn; lc_start = lc_end = lf_start = lf_end = lp_start = lp_end = ~0u;
     ctl[0].kind = 3; ctl[0].ar = ft->nr; ctl[0].dead = 0; ctl[0].h = 0; ctl[0].start = 0; ctl[0].pend = 0; ctl[0].ifz = 0; nctl = 1;
     while (p < end && !trapped) {
-        u8 op = *p++;
+        u8 op = wasm_u8(&p, end); if (trapped) break;
         if (c_unr && op != 0x02 && op != 0x03 && op != 0x04 && op != 0x05 && op != 0x0B) { skip_imm(op, &p, end); continue; }
         switch (op) {
         case 0x00: lz_flush(); ew(OP_TRAP); ew(TM_UNREACH); c_unr = 1; break;
         case 0x01: break;
         case 0x02: case 0x03: case 0x04: {
+            if (!wasm_need(p, end, 1)) CERR("truncated block type");
             u8 bt = *p; u32 ar = 0; int bad = 0;
             if (bt == 0x40) p++;
             else if (bt == 0x7F || bt == 0x7E || bt == 0x7D || bt == 0x7C) { p++; ar = 1; }
-            else { i64 ti = leb_s(&p, end, 64); if (ti < 0 || (u64)ti >= ntypes || types[ti].np) bad = 1; else ar = types[ti].nr; }
+            else { i64 ti = leb_s(&p, end, 33); if (ti < 0 || (u64)ti >= ntypes || types[ti].np) bad = 1; else ar = types[ti].nr; }
             if (nctl >= 256) CERR("blocks nested too deep");
             ctl_t* n = &ctl[nctl];
             n->kind = op == 0x03 ? 1 : op == 0x04 ? 2 : 0; n->ar = (u8)ar; n->pend = 0; n->ifz = 0; n->start = 0;
@@ -348,6 +410,7 @@ static int compile_func(func_t* f) {
         case 0x0B: {
             ctl_t* fr = &ctl[nctl - 1];
             if (nctl == 1) {                                      /* конец функции */
+                if (p != end) CERR("trailing bytes after function end");
                 if (!c_unr) {
                     if (c_h != ft->nr) CERR("invalid module: stack height at function end");
                     lz_flush(); ew(OP_RET);
@@ -389,7 +452,7 @@ static int compile_func(func_t* f) {
         }
         case 0x0E: {
             u32 cnt = leb_u(&p, end);
-            if (cnt > (u32)(end - p)) CERR("bad br_table");
+            if ((u64)cnt + 1 > (u64)(end - p)) CERR("bad br_table");
             NEED(1); lz_flush(); c_h--;
             ew(OP_BRTAB); ew(cnt);
             for (u32 i = 0; i <= cnt && !trapped; i++) {
@@ -411,8 +474,11 @@ static int compile_func(func_t* f) {
             c_h -= t->np; hpush(t->nr); break;
         }
         case 0x11: {
-            u32 ti = leb_u(&p, end); p++;
+            u32 ti = leb_u(&p, end);
+            u32 table_index = leb_u(&p, end);
+            if (trapped || table_index != 0) CERR("call_indirect: invalid table index");
             if (ti >= ntypes) CERR("call_indirect: bad type");
+            if (!table || !ntable) CERR("call_indirect requires a non-empty table");
             const ftype_t* t = &types[ti];
             NEED(t->np + 1u); lz_flush(); ew(OP_CALLI | ti << 16);
             c_h -= t->np + 1u; hpush(t->nr); break;
@@ -422,7 +488,12 @@ static int compile_func(func_t* f) {
             if (!vk[c_h - 1]) ew(0x1A);
             c_h--; break;
         case 0x1B: case 0x1C: {
-            if (op == 0x1C) { u32 k = leb_u(&p, end); p += k; }
+            if (op == 0x1C) {
+                u32 k = leb_u(&p, end);
+                if (k != 1) CERR("typed select must declare exactly one result type");
+                u8 ty = wasm_u8(&p, end);
+                if (ty != 0x7F && ty != 0x7E && ty != 0x7D && ty != 0x7C) CERR("unsupported typed select type");
+            }
             NEED(3);
             u32 ic = c_h - 1, ib = c_h - 2, ia = c_h - 3;
             if (vk[ic] != 2) {                                    /* значения и условие: со стека, локальная или константа; константа-условие - на стек */
@@ -489,26 +560,37 @@ static int compile_func(func_t* f) {
             }
             c_h -= 2; break;
         }
-        case 0x3F: case 0x40:
-            p++; lz_flush();
+        case 0x3F: case 0x40: {
+            u32 memidx = leb_u(&p, end);
+            if (trapped || memidx != 0) CERR("invalid memory index");
+            lz_flush();
             if (op == 0x3F) { ew(op); hpush(1); } else { NEED(1); ew(op); }
             break;
+        }
         case 0x41: lz_push(2, (u32)leb_s(&p, end, 32)); break;
         case 0x43: {
-            if (p + 4 > end) CERR("truncated f32.const");
-            lz_push(2, (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24); p += 4; break;
+            if (!wasm_need(p, end, 4)) CERR("truncated f32.const");
+            lz_push(2, (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24);
+            p += 4; break;
         }
         case 0x42: case 0x44: {
             u64 v = 0;
             if (op == 0x42) v = (u64)leb_s(&p, end, 64);
-            else { if (p + 8 > end) CERR("truncated f64.const"); for (int i = 7; i >= 0; i--) v = v << 8 | p[i]; p += 8; }
+            else { if (!wasm_need(p, end, 8)) CERR("truncated f64.const"); for (int i = 7; i >= 0; i--) v = v << 8 | p[i]; p += 8; }
             lz_flush(); ew(op); ew((u32)v); ew((u32)(v >> 32)); hpush(1); break;
         }
         case 0xFC: {
             u32 sub = leb_u(&p, end);
             if (sub <= 7) { NEED(1); lz_flush(); ew(OP_FC + sub); }
-            else if (sub == 10) { p += 2; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
-            else if (sub == 11) { p++; NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3; }
+            else if (sub == 10) {
+                u32 dstmem = leb_u(&p, end), srcmem = leb_u(&p, end);
+                if (trapped || dstmem || srcmem) CERR("invalid memory.copy memory index");
+                NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3;
+            } else if (sub == 11) {
+                u32 memidx = leb_u(&p, end);
+                if (trapped || memidx) CERR("invalid memory.fill memory index");
+                NEED(3); lz_flush(); ew(OP_FC + sub); c_h -= 3;
+            }
             else { p--; skip_imm(0xFC, &p, end); if (sub == 8 || sub == 9) { lz_flush(); ew(OP_TRAP); ew(TM_PASSIVE); c_unr = 1; } }
             break;
         }
@@ -545,121 +627,246 @@ static int compile_func(func_t* f) {
 
 /* ---------- загрузка ---------- */
 static int load(void) {
-    if (modlen < 8 || mod[0] || mod[1] != 'a' || mod[2] != 's' || mod[3] != 'm' || mod[4] != 1) { trap("not a WebAssembly 1.0 module"); return -1; }
-    types = (ftype_t*)alloc(sizeof(ftype_t) * 256); funcs = (func_t*)alloc(sizeof(func_t) * MAXF);
+    if (!mod || modlen < 8 || mod[0] != 0 || mod[1] != 'a' || mod[2] != 's' || mod[3] != 'm' ||
+        mod[4] != 1 || mod[5] || mod[6] || mod[7]) {
+        trap("not a WebAssembly 1.0 module"); return -1;
+    }
+    types = (ftype_t*)alloc(sizeof(ftype_t) * 256);
+    funcs = (func_t*)alloc(sizeof(func_t) * MAXF);
     if (!types || !funcs) { trap("no memory"); return -1; }
-    const u8* p = mod + 8; const u8* end = mod + modlen;
-    u32 nfuncdecl = 0; u32* decl = 0;
+
+    const u8* p = mod + 8;
+    const u8* end = mod + modlen;
+    u32 nfuncdecl = 0, *decl = 0;
+    u32 last_section = 0;
+    u16 seen_sections = 0;
+    int memory_seen = 0, table_seen = 0, code_seen = 0;
+
     while (p < end && !trapped) {
-        u8 id = *p++; u32 sz = leb_u(&p, end);
-        const u8* s = p; const u8* se = p + sz;
-        if (se > end) { trap("section past end"); return -1; }
-        if (id == 1) {                                            /* типы */
+        u8 id = wasm_u8(&p, end);
+        u32 sz = leb_u(&p, end);
+        if (trapped) return -1;
+        if (id > 11) { trap("unsupported WASM section id"); return -1; }
+        if (id) {
+            u16 bit = (u16)(1u << id);
+            if (id < last_section || (seen_sections & bit)) { trap("WASM sections out of order or duplicated"); return -1; }
+            last_section = id; seen_sections |= bit;
+        }
+        if (!wasm_need(p, end, sz)) { trap("section past end"); return -1; }
+        const u8* s = p;
+        const u8* se = p + sz;
+
+        if (id == 0) {
+            s = se;                                                   /* custom sections are opaque */
+        } else if (id == 1) {                                        /* types */
             u32 n = leb_u(&s, se);
+            if (n > 256) { trap("too many function types"); return -1; }
             for (u32 i = 0; i < n && !trapped; i++) {
-                if (ntypes == 256 || *s++ != 0x60) { trap("bad type"); return -1; }
+                if (wasm_u8(&s, se) != 0x60 || trapped) { trap("bad function type"); return -1; }
                 ftype_t* t = &types[ntypes++];
-                u32 np = leb_u(&s, se); if (np > 32) { trap("too many params"); return -1; }
-                t->np = (u8)np; for (u32 k = 0; k < np; k++) t->p[k] = *s++;
-                u32 nr = leb_u(&s, se); if (nr > 1) { trap("multi-value results not supported"); return -1; }
-                t->nr = (u8)nr; for (u32 k = 0; k < nr; k++) s++;
+                u32 np = leb_u(&s, se);
+                if (np > 32 || !wasm_need(s, se, np)) { trap("invalid function parameter vector"); return -1; }
+                t->np = (u8)np;
+                for (u32 k = 0; k < np; k++) {
+                    t->p[k] = wasm_u8(&s, se);
+                    if (!wasm_valtype(t->p[k])) { trap("unsupported parameter type"); return -1; }
+                }
+                u32 nr = leb_u(&s, se);
+                if (nr > 1) { trap("multi-value results not supported"); return -1; }
+                t->nr = (u8)nr;
+                if (nr) {
+                    t->r = wasm_u8(&s, se);
+                    if (!wasm_valtype(t->r)) { trap("unsupported result type"); return -1; }
+                }
             }
-        } else if (id == 2) {                                     /* импорт */
+        } else if (id == 2) {                                       /* imports */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 ml = leb_u(&s, se); const u8* mn = s; s += ml;
-                u32 nl = leb_u(&s, se); const u8* nn = s; s += nl;
-                u8 kind = *s++;
+                u32 ml = leb_u(&s, se);
+                if (!wasm_need(s, se, ml)) return -1;
+                const u8* mn = s; s += ml;
+                u32 nl = leb_u(&s, se);
+                if (!wasm_need(s, se, nl)) return -1;
+                const u8* nn = s; s += nl;
+                u8 kind = wasm_u8(&s, se);
+                if (trapped) return -1;
                 if (kind == 0) {
                     u32 ti = leb_u(&s, se);
+                    if (trapped || ti >= ntypes) { trap("import function has invalid type index"); return -1; }
                     int found = -1;
-                    for (int k = 0; k < IMP_N; k++) if ((name_is(mn, ml, "kira") || name_is(mn, ml, "env")) && name_is(nn, nl, imp_names[k])) found = k;
-                    if (found < 0) { trap("unknown import (module kira: write, sleep, ticks, exit, gfx_create, gfx_present, gfx_event)"); return -1; }
+                    for (int k = 0; k < IMP_N; k++)
+                        if ((name_is(mn, ml, "kira") || name_is(mn, ml, "env")) && name_is(nn, nl, imp_names[k])) found = k;
+                    if (found < 0) { trap("unknown host import"); return -1; }
+                    if (!import_type_ok((u32)found, &types[ti])) { trap("host import signature mismatch"); return -1; }
                     if (nfuncs == MAXF) { trap("too many functions"); return -1; }
-                    funcs[nfuncs].type = ti; funcs[nfuncs].import = 1; funcs[nfuncs].imp_id = (u32)found; nfuncs++; nimports++;
-                } else if (kind == 2) {                           /* импорт памяти: создаём свою */
-                    u8 fl = *s++; u32 mn2 = leb_u(&s, se); if (fl & 1) leb_u(&s, se);
-                    mem_pages = mn2;
+                    funcs[nfuncs].type = ti; funcs[nfuncs].import = 1; funcs[nfuncs].imp_id = (u32)found;
+                    nfuncs++; nimports++;
+                } else if (kind == 2) {                              /* imported memory */
+                    if (memory_seen) { trap("multiple memories are not supported"); return -1; }
+                    u32 flags = leb_u(&s, se);
+                    if (flags > 1) { trap("invalid memory limits flags"); return -1; }
+                    u32 min = leb_u(&s, se);
+                    u32 max = flags ? leb_u(&s, se) : MAXMEM / 65536;
+                    if (trapped || min > max || max > MAXMEM / 65536) { trap("invalid imported memory limits"); return -1; }
+                    mem_pages = min; mem_max = max; memory_seen = 1;
                 } else { trap("only function and memory imports are supported"); return -1; }
             }
-        } else if (id == 3) {                                     /* функции */
+        } else if (id == 3) {                                       /* function declarations */
             nfuncdecl = leb_u(&s, se);
-            decl = (u32*)alloc(4ull * (nfuncdecl + 1));
-            for (u32 i = 0; i < nfuncdecl && !trapped; i++) decl[i] = leb_u(&s, se);
-        } else if (id == 4) {                                     /* таблица */
+            if (nfuncdecl > MAXF - nfuncs) { trap("too many defined functions"); return -1; }
+            decl = (u32*)alloc(4ull * (nfuncdecl ? nfuncdecl : 1));
+            if (!decl) { trap("no memory for function declarations"); return -1; }
+            for (u32 i = 0; i < nfuncdecl && !trapped; i++) {
+                decl[i] = leb_u(&s, se);
+                if (decl[i] >= ntypes) { trap("bad function type"); return -1; }
+                funcs[nfuncs + i].type = decl[i]; funcs[nfuncs + i].import = 0;
+            }
+            if (trapped) return -1;
+            nfuncs += nfuncdecl;
+        } else if (id == 4) {                                       /* table */
             u32 n = leb_u(&s, se);
-            if (n) { s++; u8 fl = *s++; ntable = leb_u(&s, se); if (fl & 1) leb_u(&s, se); if (ntable > 65536) ntable = 65536;
-                     table = (u32*)alloc(4ull * (ntable + 1)); for (u32 i = 0; i < ntable; i++) table[i] = ~0u; }
-        } else if (id == 5) {                                     /* память */
+            if (n > 1 || (n && table_seen)) { trap("multiple tables are not supported"); return -1; }
+            if (n) {
+                u8 elem = wasm_u8(&s, se); u32 flags = leb_u(&s, se);
+                if (trapped || elem != 0x70 || flags > 1) { trap("invalid table type or limits"); return -1; }
+                u32 min = leb_u(&s, se), max = flags ? leb_u(&s, se) : 65536;
+                if (trapped || min > max || max > 65536) { trap("invalid table limits"); return -1; }
+                ntable = min;
+                table = (u32*)alloc(4ull * ((u64)ntable + 1));
+                if (!table) { trap("no memory for table"); return -1; }
+                for (u32 i = 0; i < ntable; i++) table[i] = ~0u;
+                table_seen = 1;
+            }
+        } else if (id == 5) {                                       /* memory */
             u32 n = leb_u(&s, se);
-            if (n) { u8 fl = *s++; mem_pages = leb_u(&s, se); mem_max = (fl & 1) ? leb_u(&s, se) : MAXMEM / 65536; }
-        } else if (id == 6) {                                     /* глобальные */
+            if (n > 1 || (n && memory_seen)) { trap("multiple memories are not supported"); return -1; }
+            if (n) {
+                u32 flags = wasm_u8(&s, se);
+                if (flags > 1) { trap("invalid memory limits flags"); return -1; }
+                u32 min = leb_u(&s, se), max = flags ? leb_u(&s, se) : MAXMEM / 65536;
+                if (trapped || min > max || max > MAXMEM / 65536) { trap("invalid memory limits"); return -1; }
+                mem_pages = min; mem_max = max; memory_seen = 1;
+            }
+        } else if (id == 6) {                                       /* globals */
             u32 n = leb_u(&s, se);
-            for (u32 i = 0; i < n && !trapped; i++) { s++; s++; if (nglobals == MAXG) { trap("too many globals"); return -1; } globals[nglobals++] = const_expr(&s, se); }
-        } else if (id == 7) {                                     /* экспорт: точка входа */
+            if (n > MAXG - nglobals) { trap("too many globals"); return -1; }
+            for (u32 i = 0; i < n && !trapped; i++) {
+                u8 ty = wasm_u8(&s, se), mut = wasm_u8(&s, se);
+                if (!wasm_valtype(ty) || mut > 1) { trap("invalid global type or mutability"); return -1; }
+                globals[nglobals++] = const_expr(&s, se);
+            }
+        } else if (id == 7) {                                       /* exports */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 nl = leb_u(&s, se); const u8* nn = s; s += nl;
-                u8 kind = *s++; u32 idx = leb_u(&s, se);
-                if (kind == 0 && (name_is(nn, nl, "main") || name_is(nn, nl, "_start") || name_is(nn, nl, "kmain"))) entry = idx;
+                u32 nl = leb_u(&s, se);
+                if (!wasm_need(s, se, nl)) return -1;
+                const u8* nn = s; s += nl;
+                u8 kind = wasm_u8(&s, se);
+                u32 idx = leb_u(&s, se);
+                if (trapped) return -1;
+                if (kind == 0) {
+                    if (idx >= nfuncs) { trap("export function index out of range"); return -1; }
+                    if (name_is(nn, nl, "main") || name_is(nn, nl, "_start") || name_is(nn, nl, "kmain")) entry = idx;
+                } else if (kind == 1) {
+                    if (!table_seen || idx != 0) { trap("export table index out of range"); return -1; }
+                } else if (kind == 2) {
+                    if (!memory_seen || idx != 0) { trap("export memory index out of range"); return -1; }
+                } else if (kind == 3) {
+                    if (idx >= nglobals) { trap("export global index out of range"); return -1; }
+                } else { trap("invalid export kind"); return -1; }
             }
-        } else if (id == 8) {
-            entry = leb_u(&s, se);
-        } else if (id == 9) {                                     /* элементы таблицы */
+        } else if (id == 8) {                                       /* start function */
+            u32 idx = leb_u(&s, se);
+            if (trapped || idx >= nfuncs) { trap("start function index out of range"); return -1; }
+            const ftype_t* t = &types[funcs[idx].type];
+            if (t->np || t->nr) { trap("start function must have type () -> ()"); return -1; }
+            entry = idx;
+        } else if (id == 9) {                                       /* active table elements */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 fl = leb_u(&s, se);
-                if (fl != 0) { trap("only active element segments (flag 0) are supported"); return -1; }
-                u32 off = (u32)const_expr(&s, se), cnt = leb_u(&s, se);
-                for (u32 k = 0; k < cnt; k++) { u32 f = leb_u(&s, se); if (off + k < ntable) table[off + k] = f; }
+                u32 flags = leb_u(&s, se);
+                if (flags != 0 || !table_seen) { trap("only active element segments for table 0 are supported"); return -1; }
+                u64 off64 = const_expr(&s, se);
+                if (off64 > 0xFFFFFFFFu) { trap("element offset out of range"); return -1; }
+                u32 off = (u32)off64, cnt = leb_u(&s, se);
+                if ((u64)off + cnt > ntable) { trap("element segment exceeds table bounds"); return -1; }
+                for (u32 k = 0; k < cnt; k++) {
+                    u32 fi = leb_u(&s, se);
+                    if (fi >= nfuncs) { trap("element function index out of range"); return -1; }
+                    table[off + k] = fi;
+                }
             }
-        } else if (id == 10) {                                    /* код */
+        } else if (id == 10) {                                      /* function bodies */
+            code_seen = 1;
             u32 n = leb_u(&s, se);
             if (n != nfuncdecl) { trap("function and code counts differ"); return -1; }
             if (mem_max == 0) mem_max = MAXMEM / 65536;
-            ccap = 2 * sz + 8 * n + 16;                           /* не больше двух слов на байт кода + запас на функцию */
+            ccap = 2 * sz + 8 * n + 16;
             code = (u32*)alloc(4ull * ccap);
             if (!code) { trap("no memory for compiled code"); return -1; }
-            if (nfuncs + n > MAXF) { trap("too many functions"); return -1; }
-            for (u32 i = 0; i < n; i++) { funcs[nfuncs + i].type = decl[i]; funcs[nfuncs + i].import = 0; if (decl[i] >= ntypes) { trap("bad function type"); return -1; } }
-            u32 first = nfuncs; nfuncs += n;                      /* все функции известны до разбора тел: вызовы вперёд */
+            if (n != nfuncdecl || n > nfuncs - nimports) { trap("function and code counts differ"); return -1; }
+            u32 first = nfuncs - nfuncdecl;
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 bs = leb_u(&s, se); const u8* b = s; const u8* be = s + bs;
+                u32 bs = leb_u(&s, se);
+                if (trapped || !wasm_need(s, se, bs)) return -1;
+                const u8* b = s; const u8* be = s + bs;
                 u32 groups = leb_u(&b, be), nl = 0;
-                for (u32 g = 0; g < groups; g++) { u32 c = leb_u(&b, be); b++; nl += c; if (nl > 4096) { trap("too many locals"); return -1; } }
-                func_t* f = &funcs[first + i];
-                f->code = b; f->end = be; f->nlocals = nl;
-                if (compile_func(f)) return -1;
+                for (u32 g = 0; g < groups && !trapped; g++) {
+                    u32 c = leb_u(&b, be);
+                    u8 ty = wasm_u8(&b, be);
+                    if (trapped || !wasm_valtype(ty) || c > 4096 - nl) { trap("invalid function local declaration"); return -1; }
+                    nl += c;
+                }
+                if (trapped) return -1;
+                func_t* fn = &funcs[first + i];
+                fn->code = b; fn->end = be; fn->nlocals = nl;
+                if (compile_func(fn)) return -1;
                 s = be;
             }
-        } else if (id == 11) {                                    /* данные - после выделения памяти */
+        } else if (id == 11) {                                      /* data segments */
+            if (!memory_seen) { trap("data section without memory"); return -1; }
             if (!mem) {
-                if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
-                if (mem_pages > mem_max) { trap("module needs more memory than 2 MB"); return -1; }
+                if (mem_max * 65536ull > MAXMEM || mem_pages > mem_max) { trap("module needs more memory than supported"); return -1; }
                 mem = (u8*)alloc((u64)mem_max * 65536);
-                if (!mem) { trap("no memory for the module"); return -1; }
+                if (!mem) { trap("no memory for module data"); return -1; }
             }
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) {
-                u32 fl = leb_u(&s, se);
-                if (fl == 2) leb_u(&s, se);
-                if (fl == 1) { trap("passive data segments are not supported"); return -1; }
-                u32 off = (u32)const_expr(&s, se), len = leb_u(&s, se);
-                if ((u64)off + len > (u64)mem_pages * 65536 || s + len > se) { trap("data segment out of memory"); return -1; }
+                u32 flags = leb_u(&s, se);
+                if (flags == 1 || flags > 2) { trap("passive or invalid data segments are not supported"); return -1; }
+                if (flags == 2) {
+                    u8 memidx = wasm_u8(&s, se);
+                    if (trapped || memidx != 0) { trap("invalid data memory index"); return -1; }
+                }
+                u64 off64 = const_expr(&s, se);
+                if (off64 > 0xFFFFFFFFu) { trap("data offset out of range"); return -1; }
+                u32 off = (u32)off64, len = leb_u(&s, se);
+                if ((u64)off + len > (u64)mem_pages * 65536 || !wasm_need(s, se, len)) {
+                    trap("data segment out of bounds"); return -1;
+                }
                 for (u32 k = 0; k < len; k++) mem[off + k] = s[k];
                 s += len;
             }
         }
+
+        if (trapped) return -1;
+        if (s != se) { trap("section size does not match its contents"); return -1; }
         p = se;
     }
+
     if (!trapped && !mem) {
-        if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
-        if (mem_pages > mem_max) { trap("module needs more memory than 2 MB"); return -1; }
+        if (mem_max == 0) mem_max = MAXMEM / 65536;
+        if (mem_pages > mem_max || mem_max * 65536ull > MAXMEM) { trap("module needs more memory than supported"); return -1; }
         mem = (u8*)alloc((u64)(mem_max ? mem_max : 1) * 65536);
+        if (!mem) { trap("no memory for module"); return -1; }
     }
-    if (!trapped && entry == ~0u) trap("no exported main/_start");
-    if (!trapped && entry >= nfuncs) trap("entry function index out of range");
-    if (!trapped && nfuncs > nimports && !code) trap("function and code counts differ");
+    if (!trapped && !code_seen && nfuncdecl) trap("function and code counts differ");
+    if (!trapped && entry == ~0u) trap("no exported main/_start/kmain");
+    if (!trapped && (entry >= nfuncs || entry < nimports)) trap("entry must be a defined function");
+    if (!trapped) {
+        const ftype_t* t = &types[funcs[entry].type];
+        if (t->np || t->nr > 1 || (t->nr && t->r != 0x7F)) trap("entry function must have type () -> () or () -> i32");
+    }
     return trapped ? -1 : 0;
 }
 
