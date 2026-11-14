@@ -832,3 +832,10 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Reviewed x86-64 `vmm.c` and ARM64 `arch/aarch64/main.c` guarded-stack allocators plus common `sched.c` wrappers and `kstack_slot.h`.
 - Both paths use generation-bearing slots, retain guard pages, quarantine partial mappings and reject stale/double frees. Host ASan/UBSan tests cover the shared helper, including ARM64's last slot at index 65,535.
 - PR #154 full x86/ARM64 CI and VM matrices pass normal scheduler/mutex worker paths. Dedicated guard-fault and full slot-exhaustion QEMU tests are still absent; no false claim of complete negative-path coverage.
+
+
+## 25. Exact UHCI PCI probe stall isolated — 2026-11-14
+
+- PR #165 head `7ad140cfadb51c4dacf809eca77fff60ff7fe12c`, run `43613588426`, UHCI job `132504574309`: serial trace completed functions 00:00.0, 00:01.0 and 00:01.1, then stopped between `begin 0:1.2` and `probed 0:1.2`. This isolates the hang to `probe_bars()` on the UHCI controller (00:01.2).
+- The uploaded QEMU log is ~4.19 GB; its tail repeats rejected DMA reads from 0x0/0x4/0x8/0xC. #165 clears Bus Master only after BAR probing, while #125 clears it before probing. This is strong evidence of an interaction between active firmware DMA and BAR probing, not yet a fully proven root-cause mechanism.
+- #125 corrected run `43613583149`: UEFI OVMF and all non-VM checks pass; remaining VM shards are still running. Compare its UHCI result before any PCI policy change. Both PRs remain unmerged; temporary trace must be removed after diagnosis and clean full CI rerun.
