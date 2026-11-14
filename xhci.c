@@ -530,14 +530,14 @@ static void bios_handoff(volatile uint8_t* cap) {
 int xhci_start(usb_hc_t* hc, const void* pd) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
     if (started >= XHCI_MAX) { usb_log("[KIRA USB] more than 16 xHCI controllers: the rest are not used\n"); return -1; }
-    if (!xall[started]) xall[started] = (xhci_t*)usb_dma_alloc(sizeof(xhci_t), &(uint64_t){ 0 }, 0);   /* обнулённые страницы */
-    if (!xall[started]) { usb_log("[KIRA USB] xHCI: no memory for controller state\n"); return -1; }
-    X = xall[started];
-    if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) { usb_log("[KIRA USB] xHCI without memory BAR0: skipped\n"); return -1; }
     if (pci_disable_bus_master(p) != 0) {
         usb_log("[KIRA USB] xHCI: cannot revoke firmware bus mastering\n");
         return -1;
     }
+    if (p->bar[0].io || !p->bar[0].base || p->bar[0].size < 0x1000) { usb_log("[KIRA USB] xHCI without memory BAR0: skipped\n"); return -1; }
+    if (!xall[started]) xall[started] = (xhci_t*)usb_dma_alloc(sizeof(xhci_t), &(uint64_t){ 0 }, 0);   /* обнулённые страницы */
+    if (!xall[started]) { usb_log("[KIRA USB] xHCI: no memory for controller state\n"); return -1; }
+    X = xall[started];
     pci_enable(p, PCI_CMD_MEM | PCI_CMD_INTX_OFF);
     if (p->vendor == 0x8086) {                                        /* Intel: порты, отданные EHCI, вернуть xHCI */
         pci_write32(p, 0xD8, pci_read32(p, 0xDC));
