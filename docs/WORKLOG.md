@@ -1210,3 +1210,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed actual ARM64 coverage: GICv2 and GICv3+ITS; PSCI HVC and SMC paths; 8-core EL2 entry; GUI and USB; fault/isolation; non-coherent DMA with a 32 MB pool. This is QEMU evidence, not physical hardware.
 - Negative cases remain absent: PSCI unavailable, FDT unterminated property-name, mixed DMA coherency and non-coherent pool exhaustion. Their findings F-050..F-053 remain open.
 - x86 UHCI passing artifact still emits 393,602 rejected QEMU invalid-read records; F-025 remains open despite functional test pass.
+
+
+## 63. USB controller Bus Master re-enable ordering — 2026-11-14
+
+- Compared PCI enumeration mitigation with actual UHCI/xHCI driver start sequences.
+- Found F-054: UHCI enables Bus Master before schedule allocation, FRBASE programming and controller stop/reset; xHCI enables Bus Master before BAR mapping, BIOS handoff, stop/halt, reset and ring allocation. Both have post-enable failure exits without a shared quiesce/disable rollback.
+- This is a strong candidate explanation for the remaining QEMU invalid-read DMA records because firmware may leave a controller running with stale pointers. It is not yet proven: no QEMU register/requester trace ties the messages to UHCI.
+- No production changes or tests in this pass. Next verification is register-level trace and host ordering/failure-injection tests before changing controller code.
