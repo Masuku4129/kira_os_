@@ -45,12 +45,6 @@ static void line(int x0, int y0, int x1, int y1, uint32_t c) {
         if (e <= dx) { err += dx; y0 += sy; }
     }
 }
-static void disc(int cx, int cy, int r, uint32_t c) {
-    for (int y = cy - r; y <= cy + r; y++) for (int x = cx - r; x <= cx + r; x++) {
-        int dx = x - cx, dy = y - cy;
-        if (dx * dx + dy * dy <= r * r) px(x, y, c);
-    }
-}
 static int peak_y(int x, int center, int half_width, int base, int height) {
     int d = abs_i(x - center);
     return d >= half_width ? base : base - height * (half_width - d) / half_width;
