@@ -659,16 +659,58 @@ enum { T_FREE, T_SYN_SENT, T_SYN_RCVD, T_EST, T_FIN_WAIT1, T_FIN_WAIT2, T_CLOSE_
 enum { F_FIN = 1, F_SYN = 2, F_RST = 4, F_PSH = 8, F_ACK = 16 };
 typedef struct {
     int state, reset, fin_rcvd, fin_sent, accepted, listener;
+    uint16_t generation, listener_generation;
+    uint32_t refs, owner;
+    uint8_t retired, closing;
     ipa_t rip, lip; uint16_t rport, lport; uint8_t mac[6];
     uint32_t iss, snd_una, snd_nxt, snd_wnd, rcv_nxt; uint16_t mss;
-    uint8_t tx[TCP_TX]; uint32_t tx_len;                      /* данные с snd_una (неподтверждённые + ждущие) */
+    uint8_t tx[TCP_TX]; uint32_t tx_len;
     uint64_t rto_at; unsigned tries, dupacks;
-    uint8_t rx[TCP_RX]; uint32_t rx_head, rx_tail;           /* занято: tail - head */
+    uint8_t rx[TCP_RX]; uint32_t rx_head, rx_tail;
 } tcb_t;
+typedef struct {
+    uint16_t port, generation;
+    uint32_t refs, owner;
+    uint8_t fam, retired, closing;
+    int used;
+} tcp_listener_t;
 static tcb_t tcbs[TCP_MAX];
-static struct { uint16_t port; int used; uint8_t fam; } listens[LISTEN_MAX];
+static tcp_listener_t listens[LISTEN_MAX];
 static spinlock_t tlk = SPINLOCK_INIT;
 static uint16_t next_lport = 49152;
+static tcb_t* tcp_pin(int handle) {
+    unsigned slot; uint16_t generation;
+    if (net_tcp_handle_decode(handle, &slot, &generation)) return 0;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    tcb_t* t = &tcbs[slot];
+    if (t->generation != generation || t->state == T_FREE || t->closing || t->refs == UINT32_MAX) t = 0;
+    else t->refs++;
+    spin_unlock_irqrestore(&tlk, f);
+    return t;
+}
+static void tcp_unpin(tcb_t* t) {
+    if (!t) return;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    if (t->refs) t->refs--;
+    spin_unlock_irqrestore(&tlk, f);
+}
+static tcp_listener_t* tcp_listener_pin(int handle, unsigned* slot_out, uint16_t* generation_out) {
+    unsigned slot; uint16_t generation;
+    if (net_tcp_listener_handle_decode(handle, &slot, &generation)) return 0;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    tcp_listener_t* l = &listens[slot];
+    if (!l->used || l->closing || l->generation != generation || l->refs == UINT32_MAX) l = 0;
+    else { l->refs++; if (slot_out) *slot_out = slot; if (generation_out) *generation_out = generation; }
+    spin_unlock_irqrestore(&tlk, f);
+    return l;
+}
+static void tcp_listener_unpin(tcp_listener_t* l) {
+    if (!l) return;
+    uint64_t f = spin_lock_irqsave(&tlk);
+    if (l->refs) l->refs--;
+    spin_unlock_irqrestore(&tlk, f);
+}
+
 
 #define TW_MAX 32
 #define TW_TICKS (60 * TIMER_HZ)                                   /* 2*MSL: MSL = 30 с */
@@ -730,10 +772,14 @@ static void tcp_retransmit(tcb_t* t) {
     } else if (t->fin_sent) tcp_out(t, F_FIN | F_ACK, t->snd_nxt - 1, 0, 0);
 }
 
-static tcb_t* tcb_new(void) {
-    for (int i = 0; i < TCP_MAX; i++) if (tcbs[i].state == T_FREE) {
+static tcb_t* tcb_new(void) {                         /* вызывается только под tlk */
+    for (int i = 0; i < TCP_MAX; i++) {
         tcb_t* t = &tcbs[i];
-        t->reset = t->fin_rcvd = t->fin_sent = t->accepted = 0; t->listener = -1;
+        if (t->state != T_FREE || t->refs || t->retired) continue;
+        if (t->generation == UINT16_MAX) { t->retired = 1; continue; }
+        t->generation++;
+        t->reset = t->fin_rcvd = t->fin_sent = t->accepted = 0; t->listener = -1; t->listener_generation = 0;
+        t->closing = 0; t->owner = 0;
         t->rx_head = t->rx_tail = 0; t->tx_len = 0; t->rto_at = 0; t->tries = 0; t->dupacks = 0;
         t->mss = 536; t->snd_wnd = 0;
         return t;
