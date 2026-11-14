@@ -2,6 +2,12 @@
 #define KIRA_NET_H
 #include <stdint.h>
 
+/* Map a network-device enqueue result to the UDP syscall contract. */
+static inline int64_t net_udp_send_result(int send_result, uint32_t payload_len) {
+    return send_result == 0 ? (int64_t)payload_len : (int64_t)send_result;
+}
+
+
 /* Сеть: драйвер карты (e1000 и др.) даёт кадры Ethernet, стек ядра - ARP, IPv4, ICMP (ping), UDP, клиент DHCP.
    Обработка входящих кадров и DHCP - в потоке «net»; консоль только спрашивает. */
 
