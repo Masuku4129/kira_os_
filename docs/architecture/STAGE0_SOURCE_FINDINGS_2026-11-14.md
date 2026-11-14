@@ -1209,7 +1209,12 @@ F-038 remains OPEN.
 6. Add deterministic lifecycle tests plus concurrent stress for receive-vs-close, send-vs-reset, accept-vs-unlisten, connect-timeout-vs-late-SYN-ACK, process-exit-vs-I/O, and stale-handle-vs-slot-reuse.
 7. Exercise both IPv4 and IPv6 paths, timeout boundaries, repeated close/unlisten, slot exhaustion and generation retirement.
 
-F-039 remains OPEN. No TCP production fix or TCP lifecycle test has been accepted yet.
+### Implementation tracking
+- Draft PR #173: https://github.com/Masuku4129/kira_os_/pull/173
+- Candidate patch replaces raw slot indices with generation-tagged connection/listener handles, pins TCB/listener slots across blocking operations, synchronizes wait predicates and ownership under `tlk`, and drains in-flight references before reuse.
+- Host handle/generation tests are included. Exact-head kernel/VM CI is pending; concurrent SMP lifecycle stress is not yet demonstrated.
+
+F-039 remains OPEN until exact-head CI and targeted lifecycle validation pass and the candidate is integrated.
 
 
 ## New finding F-040 — KCC compiler API is process-global and non-reentrant (2026-11-14)
