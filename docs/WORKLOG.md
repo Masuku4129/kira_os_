@@ -923,3 +923,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - The status manifest distinguishes current x86 release artifacts (kira.iso, kira.disk, kira.bin) from ARM64 images built but not published by current main CI.
 - Exact current PR head workflow 43609627054 completed **30/30 success**. This supersedes previous pending status for PR #148.
 - The checker protects the pinned 829-file baseline, source lists, 25 x86/25 ARM64 userland programs, 13-app x86 Android profile and complete branch/PR snapshots. PR #148 is still Draft/unmerged, so the protection is not yet active on main.
+
+
+## 35. x86-64 / ARM64 kernel initialization-order comparison — 2026-11-14
+
+- Read the complete x86 kernel_main() and ARM64 arm_main() initialization sequences from pinned main, rather than assuming the two builds share one boot path.
+- x86 sequence: Multiboot2 relocation/early console → GDT/per-CPU/PIC/IDT/FPU → PMM/VMM/null guard/SMEP/SMAP → RAM extension/ACPI/hardware profile → heap/scheduler/security/watchdog/console/process/syscall → experience/KiraFS/life/Mind → display/input/USB/network/audio → PIT/TSC/APIC/IOAPIC → SMP → Ready.
+- ARM64 sequence: FDT validation/firmware discovery → RAM map/DMA policy/MMU → GIC/timer/CPU/PSCI → early PMM + reserved ranges → heap/scheduler/GIC online → timer verification → PSCI SMP → clock/PCI/RNG/security/watchdog/storage/filesystem/life/process/syscall/Mind → RTC/input/display/USB/network/audio → Ready.
+- The order is not identical and should not be forced into one sequence. The acceptance rule is dependency readiness: no consumer before its memory, interrupt, identity and security prerequisites are established. Tests must exercise the distinct boot path and verify equivalent externally visible contracts.
+- Current-main gaps remain: ARM64 does not yet apply the FDT header reservation map to PMM (PR #166 adds and verifies this on a Draft branch); x86/ARM64 still consume loader-specific data directly rather than a unified BootInfo v1 contract (F-028).
+- Added explicit dependency ordering to the test graph; no kernel source changed and no readiness claim was upgraded from this comparison alone.
