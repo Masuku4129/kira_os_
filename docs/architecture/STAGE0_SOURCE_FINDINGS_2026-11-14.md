@@ -109,7 +109,13 @@ Source: [pci.c at baseline SHA, lines 47–59 and 170–188](https://github.com/
 - [PR #141](https://github.com/Masuku4129/kira_os_/pull/141) builds a common registry/PCI discovery adapter on top of PR #139; its 47/47 check-runs are on that dependent branch chain, not current main.
 - Neither branch is an integrated main implementation. Their code and test assumptions must be reconciled against current main before use.
 
-**Required closure:** range-aware API with explicit host bridge bounds; bridge subordinate-range enforcement; invalid/stale handle behavior; host tests for zero/nonzero starts, nested bridges, malformed ranges and cycles; x86-64/ARM64 builds and QEMU tests on exact final SHA. Contract and acceptance gates are recorded in [ADR-0005](https://github.com/Masuku4129/kira_os_/blob/9d10d50095e406794f925a384e2e006db53599f8/docs/adr/ADR-0005-pci-host-bus-range-enumeration.md).
+### Remediation on current-main draft branch
+
+- Draft PR #162 adds `pci_init_range()`, makes ECAM `pci_init()` start at `bus_start`, and validates primary/secondary/subordinate bridge numbers while inheriting the parent subordinate limit.
+- Host regressions cover nonzero root, nested windows, host-range escape, invalid primary, invalid range snapshot preservation, legacy bus-0 and actual ECAM wrapper.
+- Exact-head CI is pending; no PASS claimed. ADR-0005 defines the target contract.
+
+**Required closure:** exact-head host ASan/UBSan, x86-64/ARM64 builds and QEMU on final SHA; then integrate with current-main device discovery/registry work and verify ARM64 FDT bus-range handoff. Contract and acceptance gates are recorded in [ADR-0005](https://github.com/Masuku4129/kira_os_/blob/9d10d50095e406794f925a384e2e006db53599f8/docs/adr/ADR-0005-pci-host-bus-range-enumeration.md).
 
 ## F-004 — Boot handoff contract is not unified in current main
 
@@ -424,7 +430,7 @@ Source:
 |---|---|---|---|---|
 | F-001 | x86-64 and ARM64 stack allocator | Combined PR #154 exact head `4dd1454093af90f7d569df03b4425650da8da8bc`; CI run `43590094470` | 43/43 checks PASS, including apps-drvman, host, ARM64 and QEMU matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, merge/review pending |
 | F-002 | KDRV, syscall capability gate, ARM64 DMA/MSI paths | Draft PR #161 current-main transplant: fail-closed CAP_DMA/CAP_IRQ gate + quiesce; PCI-list stopped identity preserved | First run exposed 3 failures and drove test/implementation fixes; exact-head run `43593501355` pending; PR #137 firmware handoff fix separate | SECURITY FIX UNDER VERIFICATION; DMA/MSI REMAINS BLOCKED UNTIL REAL IOMMU |
-| F-003 | PCI ECAM backend and scan root | Not run in this session | PR #139 tests are branch-only | CONFIRMED SOURCE DEFECT |
+| F-003 | PCI ECAM backend and scan root | Draft PR #162 adds nonzero root and parent-bounded bridge traversal | Exact-head CI pending; host ASan/UBSan + x86/ARM64/QEMU required | FIX IMPLEMENTED ON CURRENT-MAIN DRAFT; NOT YET VERIFIED |
 | F-004 | x86-64 and ARM64 entry paths/tree | Not run in this session | No unified BootInfo test in main | ARCHITECTURE GAP |
 | F-005 | PCI/KDRV structure and PR #141 dependency | Not run in this session | No generic registry test in main | ARCHITECTURE GAP |
 | F-006 | ARCHITECTURE.md vs current sources/build/CI | Source/document comparison only | No docs consistency guard in main | CONFIRMED DOCUMENTATION DRIFT |
