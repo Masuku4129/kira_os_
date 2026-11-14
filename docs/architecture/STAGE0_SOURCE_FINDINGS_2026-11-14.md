@@ -1806,9 +1806,9 @@ F-061 remains OPEN.
 
 ## F-062 — WASM validation PR stack fails C builds due to undeclared fixed-width integer types (2026-11-15)
 
-**Severity:** HIGH for the open PR stack; not present as a confirmed regression in the pinned main baseline.  
-**Scope:** PR #179 and dependent PRs #181/#182.  
-**Evidence:** exact GitHub Actions job logs for the recorded heads.
+**Severity:** CRITICAL — current `main` is not build-green; also blocks the stacked PR #179/#181/#182.  
+**Scope:** current `main` @ `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e` and open stacked PRs #179/#181/#182.  
+**Evidence:** exact GitHub Actions logs for current-main push run `43643758138` and the recorded PR heads.
 
 ### Evidence
 
@@ -1826,8 +1826,9 @@ F-061 remains OPEN.
 3. Re-run x86-64 build, ARM64 build and the dependent PR checks on the exact corrected heads.
 4. Verify PR #181 and #182 independently after the common base is fixed; do not inherit a PASS from an earlier parent SHA.
 5. Keep the stacked PR dependency graph explicit and do not merge a subset that silently drops later fixes.
+6. After correction, rerun the current-main workflow-equivalent jobs and verify the full QEMU matrix is no longer skipped.
 
-**Disposition:** OPEN. Source/CI evidence is confirmed; no fix has been applied in this Stage 0 audit pass.
+**Disposition:** OPEN — confirmed current-main build break and stacked-PR blocker. No production fix has been applied in this Stage 0 audit pass. The current-main exact-head CI result is FAIL, not PASS.
 
 
 ## F-063 — FDT v16 header is accepted but parsed using the v17-only structure-size field
