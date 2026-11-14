@@ -659,3 +659,14 @@ The two jobs are not a controlled A/B because the source branches and base commi
 | #165 | 43613588426 attempt 2 | 43/43 | PASS | Includes ARM64 job; 16 ARM64 scenarios inspected |
 
 Counts use the full jobs API total, not the first-page 30-job wrapper response. These are branch-specific CI results and do not imply that the PRs have been merged or that physical ARM64 hardware has been tested.
+
+
+### USB Bus Master activation ordering (2026-11-14)
+
+| Controller | Current activation point | Work that still follows activation | Risk / test requirement |
+|---|---|---|---|
+| UHCI | `uhci.c:386` | 13-page schedule allocation; stop/global reset/host reset; FRBASE programming | F-054: stale firmware schedule can resume DMA; assert BM disabled until schedule is initialized |
+| xHCI | `xhci.c:529` | BAR mapping, BIOS handoff, stop/halt, HCRST, DCBAA/scratchpad/command/event ring allocation | F-054: stale firmware contexts can be fetched; failure paths must quiesce and revoke BM |
+| PCI enumeration | `pci.c:181-193` on PR #165 head | Clears BM only after BAR probe | F-017: firmware BM can remain enabled during BAR probing |
+
+The ordering table is based on source inspection. It does not establish the origin of the QEMU invalid-read log entries.
