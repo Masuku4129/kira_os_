@@ -47,6 +47,92 @@ static void wasm_reset(void) {
     for (u32 i = 0; i < MAXG; i++) globals[i] = 0;
     g_used = 0; jit_free_all();
 }
+static int wasm_parser_selftest(void) {
+    const u8 u_ok[] = { 0xE5, 0x8E, 0x26 };
+    const u8 u_short[] = { 0x80 };
+    const u8 u_long[] = { 0x80, 0x00 };
+    const u8 u_over[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x10 };
+    const u8 s_ok[] = { 0x7F };
+    const u8 s_neg64[] = { 0x40 };
+    const u8 s_pos64[] = { 0xC0, 0x00 };
+    const u8 s_short[] = { 0x80 };
+    const u8 s_long[] = { 0xC0, 0x7F };
+    const u8 s_over[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x08 };
+    const u8* p;
+    wasm_reset();
+    p = u_ok; if (leb_u(&p, u_ok + sizeof u_ok) != 624485 || trapped) return 1;
+    wasm_reset(); p = u_short; (void)leb_u(&p, u_short + sizeof u_short); if (!trapped) return 1;
+    wasm_reset(); p = u_long; if (leb_u(&p, u_long + sizeof u_long) != 0 || trapped) return 1;
+    wasm_reset(); p = u_over; (void)leb_u(&p, u_over + sizeof u_over); if (!trapped) return 1;
+    wasm_reset(); p = s_ok; if (leb_s(&p, s_ok + sizeof s_ok, 32) != -1 || trapped) return 1;
+    wasm_reset(); p = s_neg64; if (leb_s(&p, s_neg64 + sizeof s_neg64, 64) != -64 || trapped) return 1;
+    wasm_reset(); p = s_pos64; if (leb_s(&p, s_pos64 + sizeof s_pos64, 64) != 64 || trapped) return 1;
+    wasm_reset(); p = s_short; (void)leb_s(&p, s_short + sizeof s_short, 32); if (!trapped) return 1;
+    wasm_reset(); p = s_long; if (leb_s(&p, s_long + sizeof s_long, 32) != -64 || trapped) return 1;
+    wasm_reset(); p = s_over; (void)leb_s(&p, s_over + sizeof s_over, 32); if (!trapped) return 1;
+
+    static const u8 valid_import[] = {
+        0,0x61,0x73,0x6D,1,0,0,0,
+        1,7,1,0x60,2,0x7F,0x7F,1,0x7F,
+        2,14,1,4,'k','i','r','a',5,'w','r','i','t','e',0,0
+    };
+    static const u8 bad_type_index[] = {
+        0,0x61,0x73,0x6D,1,0,0,0,
+        1,7,1,0x60,2,0x7F,0x7F,1,0x7F,
+        2,14,1,4,'k','i','r','a',5,'w','r','i','t','e',0,1
+    };
+    static const u8 bad_signature[] = {
+        0,0x61,0x73,0x6D,1,0,0,0,
+        1,7,1,0x60,2,0x7E,0x7F,1,0x7F,
+        2,14,1,4,'k','i','r','a',5,'w','r','i','t','e',0,0
+    };
+    static const u8 imported_entry[] = {
+        0,0x61,0x73,0x6D,1,0,0,0,
+        1,7,1,0x60,2,0x7F,0x7F,1,0x7F,
+        2,14,1,4,'k','i','r','a',5,'w','r','i','t','e',0,0,
+        7,8,1,4,'m','a','i','n',0,0
+    };
+    for (u32 cut = 0; cut < sizeof valid_import; cut++) {
+        wasm_reset(); mod = valid_import; modlen = cut;
+        (void)load();
+        if (!trapped) { fprintf(stderr, "truncated module accepted at byte %u\\n", cut); return 1; }
+    }
+    wasm_reset(); mod = valid_import; modlen = sizeof valid_import;
+    (void)load();
+    if (!trapped || !trap_msg || strcmp(trap_msg, "no exported main/_start")) return 1;
+    wasm_reset(); mod = bad_type_index; modlen = sizeof bad_type_index;
+    (void)load();
+    if (!trapped || !trap_msg || strcmp(trap_msg, "import function type index out of range")) return 1;
+    wasm_reset(); mod = bad_signature; modlen = sizeof bad_signature;
+    (void)load();
+    if (!trapped || !trap_msg || strcmp(trap_msg, "import has an incompatible KIRA host ABI signature")) return 1;
+    wasm_reset(); mod = imported_entry; modlen = sizeof imported_entry;
+    (void)load();
+    if (!trapped || !trap_msg || strcmp(trap_msg, "entry point must be a defined function, not a host import")) return 1;
+    puts("wasm: bounded LEB128 and import ABI validation passed");
+    return 0;
+}
+static int wasm_truncation_selftest(const char* path) {
+    FILE* f = fopen(path, "rb"); if (!f) return 2;
+    if (fseek(f, 0, SEEK_END)) { fclose(f); return 2; }
+    long n = ftell(f);
+    if (n < 8 || n > (8 << 20) || fseek(f, 0, SEEK_SET)) { fclose(f); return 2; }
+    u8* original = malloc((size_t)n);
+    if (!original || fread(original, 1, (size_t)n, f) != (size_t)n) { free(original); fclose(f); return 2; }
+    fclose(f);
+    for (long cut = 0; cut < n; cut++) {
+        wasm_reset(); mod = original; modlen = (u32)cut;
+        int rc = load();
+        if (rc == 0 && trapped) {
+            fprintf(stderr, "WASM parser inconsistent result at truncated prefix %ld/%ld\\n", cut, n);
+            free(original); return 1;
+        }
+    }
+    wasm_reset();
+    free(original);
+    printf("wasm: every truncated prefix of %s (%ld byte boundaries) parsed safely\\n", path, n);
+    return 0;
+}
 static int fuzz_module(const char* path, int iters) {
     FILE* f = fopen(path, "rb"); if (!f) return 2;
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
@@ -76,6 +162,11 @@ static int fuzz_module(const char* path, int iters) {
 int main(int argc, char** argv) {
     if (getenv("WASM_NOJIT")) jit_on = 0;                          /* только интерпретатор (как на ARM64) */
 #ifdef WASM_FUEL
+    if (argc == 2 && !strcmp(argv[1], "selftest")) return wasm_parser_selftest();
+    if (argc == 3 && !strcmp(argv[1], "selftest")) {
+        int rc = wasm_parser_selftest();
+        return rc ? rc : wasm_truncation_selftest(argv[2]);
+    }
     if (argc == 4 && !strcmp(argv[1], "fuzz")) return fuzz_module(argv[2], atoi(argv[3]));
 #endif
     if (argc < 2) return 2;
@@ -89,5 +180,7 @@ int main(int argc, char** argv) {
 #ifdef WASM_FUEL
     if (g_count) { g_quiet = 1; int r = wasm_main(); printf("wasm: %llu instructions executed\n", (1ull << 62) - wasm_fuel); return r; }
 #endif
-    return wasm_main();
+    int rc = wasm_main();
+    if (rc && trapped) fprintf(stderr, "wasm host execution trapped: %s\\n", trap_msg ? trap_msg : "(no trap message)");
+    return rc;
 }

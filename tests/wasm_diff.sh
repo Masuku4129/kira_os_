@@ -12,7 +12,14 @@ for f in "$W"/ops/*.wasm "$W"/traps/*.wasm "$W"/rnd/*.wasm "$W"/deep/*.wasm; do
     n=$((n+1))
     run j "$f" > "$W/j.out"; run i "$f" > "$W/i.out"
     if "$H" "$f" 2>&1 | grep -aq "native code"; then jitted=$((jitted+1)); fi
-    if ! cmp -s "$W/j.out" "$W/i.out"; then bad=$((bad+1)); echo "РАЗЛИЧИЕ: $f"; [ $bad -le 3 ] && cmp "$W/j.out" "$W/i.out" | head -2; fi
+    if ! cmp -s "$W/j.out" "$W/i.out"; then
+        bad=$((bad+1)); echo "РАЗЛИЧИЕ: $f"
+        if [ $bad -le 3 ]; then
+            echo "  JIT: $(tr '\\n' '|' < "$W/j.out")"
+            echo "  INT: $(tr '\\n' '|' < "$W/i.out")"
+            cmp -l "$W/j.out" "$W/i.out" | head -2 || true
+        fi
+    fi
 done
 echo "wasm_diff: $n модулей, из них JIT-компилировано $jitted, различий $bad"
 [ $bad -eq 0 ] && [ $jitted -ge $((n * 9 / 10)) ]
