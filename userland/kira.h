@@ -141,7 +141,7 @@ static inline i64 k_close(i64 h) { return ksys(K_CLOSE, (u64)h, 0, 0); }
 enum { K_NET_DNS = 25, K_NET_CONNECT = 26, K_NET_SEND = 27, K_NET_RECV = 28, K_NET_CLOSE = 29, K_ARGS = 30 };
 /* Адрес по имени (или строка «a.b.c.d»): >= 0 - адрес IPv4 (старший байт - первое число), < 0 - ошибка. */
 static inline i64 k_net_dns(const char* name) { return ksys(K_NET_DNS, (u64)name, k_strlen(name), 0); }
-static inline i64 k_net_connect(u32 ip, u32 port) { return ksys(K_NET_CONNECT, ip, port, 0); }   /* номер соединения */
+static inline i64 k_net_connect(u32 ip, u32 port) { return ksys(K_NET_CONNECT, ip, port, 0); }   /* opaque handle соединения */
 static inline i64 k_net_send(i64 h, const void* p, u64 n) { return ksys(K_NET_SEND, (u64)h, (u64)p, n); }
 /* Байт принято; 0 - собеседник закрыл; < 0 - сброс или срок (timeout_ms, 0 - 10 с). */
 static inline i64 k_net_recv(i64 h, void* p, u32 n, u32 timeout_ms) { return ksys(K_NET_RECV, (u64)h, (u64)p, (u64)n | ((u64)timeout_ms << 32)); }
@@ -168,8 +168,8 @@ static inline i64 k_udp_open(u32 port) { return ksys(K_UDP_OPEN, port, 0, 0); }
 static inline i64 k_udp_send(i64 s, u32 ip, u32 port, const void* p, u64 n) { return ksys(K_UDP_SEND, (u64)s | (u64)port << 16 | (u64)ip << 32, (u64)p, n); }
 static inline i64 k_udp_recv(i64 s, void* buf, u32 cap, u32 timeout_ms) { return ksys(K_UDP_RECV, (u64)s, (u64)buf, (u64)cap | (u64)timeout_ms << 32); }
 static inline i64 k_udp_close(i64 s) { return ksys(K_UDP_CLOSE, (u64)s, 0, 0); }
-static inline i64 k_net_listen(u32 port) { return ksys(K_NET_LISTEN, port, 0, 0); }             /* слушатель (100+) */
-static inline i64 k_net_accept(i64 l, u32 timeout_ms) { return ksys(K_NET_ACCEPT, (u64)l, timeout_ms, 0); }   /* 0 мс - ждать без срока */
+static inline i64 k_net_listen(u32 port) { return ksys(K_NET_LISTEN, port, 0, 0); }             /* opaque handle слушателя */
+static inline i64 k_net_accept(i64 l, u32 timeout_ms) { return ksys(K_NET_ACCEPT, (u64)l, timeout_ms, 0); }   /* opaque listener; 0 мс - ждать без срока */
 /* Адреса любого семейства (вызовы 44-47). Семейство сокета задаёт открытие: порт | семейство << 16 (0 или 4 - IPv4, 6 - IPv6);
    слушатель TCP - так же. Старые вызовы выше - только IPv4. Отправка датаграммы IPv6 - до 1452 байт (без разбиения). */
 typedef struct { u16 family, port; u8 addr[16]; } ksockaddr_t;      /* family 4: адрес в первых 4 байтах; порт - число хоста */
