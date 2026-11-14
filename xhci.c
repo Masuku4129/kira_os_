@@ -594,7 +594,8 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     pci_enable(p, PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
     uint16_t pci_cmd_value = pci_read16(p, 0x04);
     if (pci_cmd_value == 0xFFFF || !(pci_cmd_value & PCI_CMD_MASTER)) {
-        (void)pci_disable_bus_master(p);
+        if (pci_disable_bus_master(p) != 0)
+            usb_log("[KIRA USB] xHCI: Bus Master state could not be revoked after read-back failure\n");
         usb_log("[KIRA USB] xHCI: Bus Master enable was not confirmed\n");
         return -1;
     }
