@@ -74,6 +74,17 @@ jobs:
           grep -q "Shell online: Spatial Minimal desktop" ci-out/android-smoke/boot-ata/serial.log
           cp ci-out/android-smoke/boot-ata/serial.log ci-out/android/boot-smoke.log
           cp ci-out/android-smoke/boot-ata/result.json ci-out/android/boot-smoke-result.json
+          git archive --format=tar.gz --prefix=kira_os/ -o ci-out/android/kira_os_spatial_2026-11-14.tar.gz HEAD
+          {
+            echo "KIRA OS Spatial Minimal update"
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "Source branch: ${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+            echo "Architecture: x86_64"
+            echo "Userland: complete (system, test, educational and diagnostic programs)"
+            echo "ISO: BIOS + UEFI, embedded KiraFS root module"
+            echo "Persistence: companion kira_disk.img recommended"
+          } > ci-out/android/BUILD_INFO.txt
+          sha256sum ci-out/android/kira.iso ci-out/android/kira_disk.img ci-out/android/kira_os_spatial_2026-11-14.tar.gz > ci-out/android/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: kira-android-full-update
