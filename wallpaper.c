@@ -28,7 +28,8 @@ static void px(int x, int y, uint32_t c) {
 }
 static void rect(int x, int y, int w, int h, uint32_t c) {
     if (x < 0) { w += x; x = 0; } if (y < 0) { h += y; y = 0; }
-    if (x + w > WP_W) w = WP_W - x; if (y + h > WP_H) h = WP_H - y;
+    if (x + w > WP_W) w = WP_W - x;
+    if (y + h > WP_H) h = WP_H - y;
     if (w <= 0 || h <= 0) return;
     for (int j = 0; j < h; j++) {
         uint32_t* p = pixels + (y + j) * WP_W + x;
