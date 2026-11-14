@@ -12,7 +12,7 @@
 #include "kstack.h"
 #endif
 
-#define STACK_CANARY 0x4B49524153544B21ULL // "KIRASTK!"
+#define STACK_CANARY SCHED_STACK_CANARY
 #define DEFAULT_QUANTUM (4 * TIMER_PER_10MS)      /* 40 мс при любой частоте тиков */
 #define MAX_QUANTUM (20 * TIMER_PER_10MS)
 
