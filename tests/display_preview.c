@@ -267,7 +267,7 @@ int main(int argc, char** argv) {
     CHECK(presents_rect + presents_full > 10);
     save_shot("terminal.ppm");
 
-    /* левая панель: закреплённые по умолчанию (файла /var/dock нет) и «+» */
+    /* Spatial Minimal Dock: five pinned defaults, no legacy task buttons or plus tile. */
     { int x, y; CHECK(wm_side_center(0, &x, &y) == 0 && wm_side_center(4, &x, &y) == 0 && wm_side_center(5, &x, &y) != 0); }
 
     /* разделы: Разум */
@@ -395,7 +395,7 @@ int main(int argc, char** argv) {
     CHECK(uf >= 0 && wm_top() == uf);
     gin_n = 0; { int x, y, sc; wm_content_origin(uf, &x, &y, &sc); move_to(x + 30, y + 30, 0); }
     CHECK(gin_n > 0);
-    /* незакреплённая идущая программа появляется ниже черты; правая кнопка - закрепить */
+    /* An unpinned running window is shown in Overview, not appended to the Dock. */
     static uint32_t pm[200 * 120];
     int um = wm_create_user("mt", WM_AUTO, WM_AUTO, 200, 120, pm);
     run(2);
