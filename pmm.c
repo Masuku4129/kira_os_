@@ -19,6 +19,7 @@
 #define MB2_MEM_ACPI      3
 #define MB2_MEM_NVS       4
 #define PMM_MAX_ACPI      64
+#define PMM_MAX_MODULES   16
 
 struct mb2_tag {
     uint32_t type;
@@ -49,6 +50,8 @@ static uint32_t free_pages;
 static uint32_t search_hint;             // слово, с которого искать (next-fit)
 static pmm_range_t high[PMM_MAX_HIGH];
 static unsigned high_n;
+static pmm_range_t mb_modules[PMM_MAX_MODULES];
+static unsigned mb_module_n;
 static pmm_range_t acpi_r[PMM_MAX_ACPI];
 static unsigned acpi_n;
 static spinlock_t pmm_lock = SPINLOCK_INIT;
@@ -106,6 +109,12 @@ static void defer_range(uint64_t base, uint64_t end) {
         return;
     }
     high[high_n].start = s; high[high_n].end = e; high_n++;
+}
+
+static int module_page(uint64_t page_addr) {
+    for (unsigned i = 0; i < mb_module_n; i++)
+        if (page_addr >= mb_modules[i].start && page_addr < mb_modules[i].end) return 1;
+    return 0;
 }
 
 static void merge_high(void) {
@@ -228,7 +237,7 @@ int pmm_init(unsigned long magic, unsigned long addr) {
     // Старт: всё занято и зарезервировано; освобождаем то, что карта памяти называет доступным.
     for (uint64_t i = 0; i < nwords; i++) { used_map[i] = 0xFFFFFFFFu; reserved_map[i] = 0xFFFFFFFFu; }
     total_pages = 0;
-    high_n = 0; acpi_n = 0;
+    high_n = 0; acpi_n = 0; mb_module_n = 0;
 
     uint64_t usable_bytes = 0;
     for (const uint8_t* p = (const uint8_t*)(addr + 8); p + sizeof(struct mb2_tag) <= end; ) {
@@ -252,11 +261,31 @@ int pmm_init(unsigned long magic, unsigned long addr) {
     }
     merge_high();
 
+    // Multiboot2 modules are not ordinary free RAM. Keep every module reserved;
+    // high-memory modules must also be skipped when ramext later releases mapped ranges.
+    for (const uint8_t* p = (const uint8_t*)(addr + 8); p + sizeof(struct mb2_tag) <= end; ) {
+        const struct mb2_tag* tag = (const struct mb2_tag*)p;
+        if (tag->type == MB2_TAG_END) break;
+        if (tag->size < sizeof(struct mb2_tag) || p + tag->size > end) return -3;
+        if (tag->type == 3 && tag->size >= 16 && mb_module_n < PMM_MAX_MODULES) {
+            const uint32_t* mod = (const uint32_t*)p;
+            uint64_t s = mod[2], e = mod[3];
+            if (e > s && e <= PMM_LIMIT) {
+                mb_modules[mb_module_n].start = s & ~(PMM_PAGE_SIZE - 1);
+                mb_modules[mb_module_n].end = (e + PMM_PAGE_SIZE - 1) & ~(PMM_PAGE_SIZE - 1);
+                mb_module_n++;
+            }
+        }
+        p += (tag->size + 7) & ~7u;
+    }
+
     // Резервируем то, что занято НЕ по карте памяти:
     reserve_range(0, 0x100000);                                  // всё ниже 1 МБ (BIOS, IVT, VGA, EBDA)
     reserve_range((uint64_t)(uintptr_t)kernel_start,
                   (uint64_t)(uintptr_t)kernel_end - (uint64_t)(uintptr_t)kernel_start); // образ ядра, .bss, стек, таблицы страниц, куча
     reserve_range(addr, info_size);                              // сама Multiboot2-структура
+    for (unsigned i = 0; i < mb_module_n; i++)
+        if (mb_modules[i].start < PMM_LOW) reserve_range(mb_modules[i].start, mb_modules[i].end - mb_modules[i].start);
     if (store_base) reserve_range(store_base, store_bytes);      // карты страниц
 
     free_pages = 0;
@@ -302,7 +331,7 @@ int64_t pmm_add_high(uint64_t start, uint64_t end) {
     int64_t added = 0;
     for (uint64_t a = start; a < end; a += PMM_PAGE_SIZE) {
         uint64_t p = a / PMM_PAGE_SIZE;
-        if (!test_bit(used_map, p)) continue;                    // уже выдаётся
+        if (!test_bit(used_map, p) || module_page(a)) continue;  // уже выдана или принадлежит Multiboot2 module
         clear_bit(used_map, p);
         clear_bit(reserved_map, p);
         total_pages++; free_pages++; added++;
