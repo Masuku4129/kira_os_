@@ -28,6 +28,7 @@ typedef struct {
     volatile uint32_t seq;            /* нечётный, пока идёт копия кадра в передний буфер */
     gfx_event_t q[EVQ];
     spinlock_t q_lock;                /* очередь событий: несколько потоков одного PID могут читать одновременно */
+    spinlock_t present_lock;          /* сериализация публикации кадров из нескольких потоков процесса */
     uint32_t qh, qt;                  /* все операции над очередью выполняются под q_lock */
     uint64_t last_present;            /* тик последнего кадра (темп фоновых окон) */
 } app_t;
@@ -65,10 +66,17 @@ int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h) 
     uint32_t mw = fi && fi->width ? fi->width : 1024, mh = fi && fi->height ? fi->height : 768;   /* не больше экрана */
     if (pid == 0 || w < GFX_MIN_W || h < GFX_MIN_H || w > mw || h > mh) return -1;
     if ((uint64_t)w * h * 4 > GFX_USER_END - GFX_USER_VA) return -1;
-    if (find_pid(pid)) return -1;                     /* одно окно на процесс */
     app_t* a = 0;
     uint64_t lf = spin_lock_irqsave(&gfx_lock);
-    for (int i = 0; i < MAX_APPS; i++) if (!apps[i].used) { a = &apps[i]; a->used = 2; break; }
+    for (int i = 0; i < MAX_APPS; i++) {
+        int state = __atomic_load_n(&apps[i].used, __ATOMIC_ACQUIRE);
+        if (state && apps[i].pid == pid) { a = 0; break; }
+        if (!state && !a) a = &apps[i];
+    }
+    if (a) {
+        a->pid = pid;
+        __atomic_store_n(&a->used, 2, __ATOMIC_RELEASE);
+    }
     spin_unlock_irqrestore(&gfx_lock, lf);
     if (!a) return -1;
 
@@ -88,7 +96,7 @@ int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h) 
             return -1;
         }
     }
-    a->pid = pid; a->win = -1; a->w = w; a->h = h; a->pages = pages; a->phys = phys;
+    a->win = -1; a->w = w; a->h = h; a->pages = pages; a->phys = phys;
     unsigned k = 0; while (title[k] && k < sizeof(a->title) - 1) { a->title[k] = title[k]; k++; } a->title[k] = 0;
     uint64_t qf = spin_lock_irqsave(&a->q_lock);
     a->qh = a->qt = 0;
@@ -109,10 +117,17 @@ int64_t gfx_sys_present(uint32_t pid) {
     if (!a) return -1;
     uint32_t per = __atomic_load_n(&bg_period, __ATOMIC_ACQUIRE);
     if (per && gfx_focus_pid() != (int)pid) {
-        uint64_t due = a->last_present + per, now = timer_get_ticks();
+        uint64_t last = __atomic_load_n(&a->last_present, __ATOMIC_ACQUIRE);
+        uint64_t due = last + per, now = timer_get_ticks();
         if (now < due && !proc_dying()) sched_sleep_ticks((uint32_t)(due - now));
     }
-    a->last_present = timer_get_ticks();
+    if (proc_dying()) return -1;
+    uint64_t pf = spin_lock_irqsave(&a->present_lock);
+    if (__atomic_load_n(&a->used, __ATOMIC_ACQUIRE) != 1 || a->pid != pid || proc_dying()) {
+        spin_unlock_irqrestore(&a->present_lock, pf);
+        return -1;
+    }
+    __atomic_store_n(&a->last_present, timer_get_ticks(), __ATOMIC_RELEASE);
     /* Программа рисует в задний буфер; композитор видит только готовые кадры. Писатель один (поток процесса-
        владельца), читатель - композитор, возможно на другом ядре: счётчик seq нечётен, пока идёт копия, и
        композитор перечитывает кадр (wm.c). Обе записи seq - с полным барьером (xchg), поэтому слабо упорядоченные
@@ -122,10 +137,11 @@ int64_t gfx_sys_present(uint32_t pid) {
     for (int i = 0; __atomic_load_n(&a->dirty, __ATOMIC_ACQUIRE) && i < 25 && !proc_dying(); i++) sched_sleep_ticks(1);
     /* Копия - с включёнными прерываниями: окно размером с экран копируется миллисекунды, и всё это время ядро
        не должно быть глухим. Вытеснение посреди копии безопасно: композитор видит нечётный seq и перечитывает. */
-    __atomic_store_n(&a->seq, a->seq + 1, __ATOMIC_SEQ_CST);
+    __atomic_add_fetch(&a->seq, 1, __ATOMIC_SEQ_CST);
     gfx_copy64((void*)(uintptr_t)a->phys, (const void*)(uintptr_t)(a->phys + (uint64_t)a->pages * 4096), (uint64_t)a->pages * 4096 / 8);
-    __atomic_store_n(&a->seq, a->seq + 1, __ATOMIC_SEQ_CST);
+    __atomic_add_fetch(&a->seq, 1, __ATOMIC_SEQ_CST);
     __atomic_store_n(&a->dirty, 1, __ATOMIC_RELEASE);
+    spin_unlock_irqrestore(&a->present_lock, pf);
     return 0;
 }
 
@@ -166,7 +182,7 @@ int64_t gfx_sys_event(uint32_t pid, uint64_t user_ptr) {
 
 void gfx_proc_gone(uint32_t pid) {
     app_t* a = find_pid(pid);
-    if (a) a->need_destroy = 1;                        /* окно и память освободит поток дисплея */
+    if (a) __atomic_store_n(&a->need_destroy, 1, __ATOMIC_RELEASE);
 }
 
 void gfx_on_input(int win, int type, int x, int y, unsigned buttons) {
@@ -183,14 +199,14 @@ void gfx_server_run(void) {
     for (int i = 0; i < MAX_APPS; i++) {
         app_t* a = &apps[i];
         if (__atomic_load_n(&a->used, __ATOMIC_ACQUIRE) != 1) continue;
-        if (a->need_destroy) {
+        if (__atomic_load_n(&a->need_destroy, __ATOMIC_ACQUIRE)) {
             uint64_t qf = spin_lock_irqsave(&a->q_lock);
             if (__atomic_load_n(&a->used, __ATOMIC_ACQUIRE) == 1) __atomic_store_n(&a->used, 2, __ATOMIC_RELEASE);
             spin_unlock_irqrestore(&a->q_lock, qf);
             if (a->win >= 0) wm_destroy(a->win);
             pmm_free_contiguous(a->phys, a->pages * 2);    /* страницы помечены SHARED: процесс их не освобождал */
             a->win = -1;
-            a->need_destroy = 0; a->need_create = 0;
+            __atomic_store_n(&a->need_destroy, 0, __ATOMIC_RELEASE); a->need_create = 0;
             __atomic_store_n(&a->used, 0, __ATOMIC_RELEASE);
             continue;
         }
@@ -204,7 +220,10 @@ void gfx_server_run(void) {
                 wm_set_frame_seq(a->win, &a->seq); wm_raise(a->win);
             }
         }
-        if (a->dirty && a->win >= 0) { a->dirty = 0; wm_invalidate(a->win); }
+        if (__atomic_load_n(&a->dirty, __ATOMIC_ACQUIRE) && a->win >= 0) {
+            __atomic_store_n(&a->dirty, 0, __ATOMIC_RELEASE);
+            wm_invalidate(a->win);
+        }
     }
     const app_t* top = find_win(wm_top());
     __atomic_store_n(&focus_pid_pub, top ? (int)top->pid : 0, __ATOMIC_RELEASE);
