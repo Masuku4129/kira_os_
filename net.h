@@ -70,13 +70,13 @@ int  net_dns(const char* name, uint32_t* ip);                     /* 0 - адр�
 int  tcp_connect(uint32_t ip, uint16_t port);                     /* непрозрачный дескриптор соединения или <0 */
 int  tcp_connect6(const uint8_t ip[16], uint16_t port);           /* то же по IPv6 (адрес - 16 байт) */
 int  tcp_listen6(uint16_t port);                                  /* непрозрачный дескриптор слушателя IPv6 */
-int  tcp_peer(int h, uint8_t addr[16], uint16_t* port);           /* собеседник: семейство 4/6 (адрес IPv4 - в первых 4 байтах) */
-int  tcp_send(int h, const void* data, uint32_t len);             /* отправлено байт (подтверждено) или <0 */
-int  tcp_recv(int h, void* buf, uint32_t max, uint32_t timeout_ticks);   /* байт; 0 - собеседник закрыл; <0 - сброс/срок */
-void tcp_close(int h);
+int  tcp_peer(int h, uint8_t addr[16], uint16_t* port);           /* opaque handle; собеседник: семейство 4/6 */
+int  tcp_send(int h, const void* data, uint32_t len);             /* opaque handle; отправлено байт (подтверждено) или <0 */
+int  tcp_recv(int h, void* buf, uint32_t max, uint32_t timeout_ticks);   /* opaque handle; 0 - собеседник закрыл; <0 - сброс/срок */
+void tcp_close(int h);                                                /* закрывает только совпадающее поколение */
 int  tcp_listen(uint16_t port);                                   /* дескриптор слушателя IPv4 или <0 (-3 порт занят) */
 int  tcp_accept(int l, uint32_t timeout_ticks);                   /* дескриптор соединения или <0 (-5 срок) */
-void tcp_unlisten(int l);
+void tcp_unlisten(int l);                                            /* закрывает только совпадающее поколение слушателя */
 
 /* Системные вызовы сети для программ (syscall.c): соединение принадлежит открывшему процессу. */
 enum { NET_SYS_DNS = 0, NET_SYS_CONNECT = 1, NET_SYS_SEND = 2, NET_SYS_RECV = 3, NET_SYS_CLOSE = 4,
