@@ -29,6 +29,8 @@ int main(int argc, char** argv) {
     CHECK(R.has_key_usage && R.key_cert_sign && I.has_key_usage && I.key_cert_sign);
     CHECK(L.has_key_usage && L.digital_signature && L.has_eku && L.eku_server_auth);
 
+    int64_t now = L.not_before + 3600;
+    const char* why = 0;
     /* RFC 5280 critical extensions, KeyUsage, EKU and pathLenConstraint. */
     static uint8_t badcert[4096], badissuer[4096], pathleaf[4096], pathsub[4096], pathinter[4096], directleaf[4096];
     size_t bkl = rd(d, "bad_ku.der", badcert, sizeof badcert);
@@ -62,9 +64,7 @@ int main(int argc, char** argv) {
     CHECK(x509_match_host(&L, "kira.test") && x509_match_host(&L, "WWW.Kira.Test") && x509_match_host(&L, "10.0.2.100"));
     CHECK(!x509_match_host(&L, "a.b.kira.test") && !x509_match_host(&L, "kira.test.evil") && !x509_match_host(&L, "10.0.2.101") && !x509_match_host(&L, "test"));
 
-    int64_t now = L.not_before + 3600;
     const uint8_t* c2[2] = { leaf, inter }; size_t l2[2] = { ll, il };
-    const char* why = 0;
     CHECK(x509_verify_chain(c2, l2, 2, root, rl, "kira.test", now, &why) == 0 && !why);
     CHECK(x509_verify_chain(c2, l2, 2, root, rl, "kira.test", 0, &why) == 0 && why);           /* часы неизвестны: сказано */
     CHECK(x509_verify_chain(c2, l2, 2, root, rl, "other.test", now, &why) < 0);
