@@ -818,3 +818,10 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 
 - PR #165 combined PCI range + Bus Master branch had one UHCI VM failure on `f986d3f...` before PCI enumeration completed. A temporary trace build passed the same UHCI scenario and showed root bus 00 only, then the diagnostics were removed. Clean no-trace head `4b99d54...` is pending fresh exact-head CI; no claim of resolution.
 - PR #125 had a real compile blocker: missing `IOMMU_E_UNSUPPORTED` in the common error enum. Added the explicit `-10` code. Corrected head `8dc795e...` workflow `43612438370` is running; do not claim pass until all jobs complete.
+
+
+## 23. PCI enumeration hang: per-function instrumentation — 2026-11-14
+
+- Clean PR #165 run `43612506879` reproduced the UHCI boot hang: 28/30 completed jobs passed; `vm (usb-uhci)` failed before the PCI enumeration completion log. QEMU emitted tens of millions of rejected UHCI DMA reads at physical address 0 while firmware DMA remained active.
+- Root cause is still not isolated. Trace-only PCI range build passed once; clean build failed again. Added temporary per-function diagnostics around BAR probing and Bus Master clearing on PR #165 head `2b3b59828bacabee18001fc80faea1ff3e39cc31`. Await exact-head VM logs; remove diagnostics after locating the stall.
+- #165 is blocked from merge until clean full-matrix verification succeeds.
