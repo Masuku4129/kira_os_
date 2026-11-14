@@ -153,7 +153,7 @@ void vmm_tlb_shootdown(uint64_t root, uint64_t va, uint32_t pages) {
     if (!cm_empty(&mask)) {
         uint64_t generation;
         if (!tlb_shootdown_next_generation(__atomic_load_n(&sd_generation, __ATOMIC_RELAXED), &generation)) {
-            uart_print("[KIRA SMP] TLB shootdown generation exhausted; refusing to reuse an old generation.\\n");
+            uart_print("[KIRA SMP] TLB shootdown generation exhausted; refusing to reuse an old generation.\n");
             for (;;) __asm__ volatile ("pause"); /* поколения нельзя переиспользовать: fail closed */
         }
         sd_root = root; sd_va = va; sd_pages = pages;
