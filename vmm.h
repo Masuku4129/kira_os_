@@ -62,6 +62,7 @@ unsigned vmm_space_destroy(uint64_t root);             // число освоб�
 int      vmm_space_unmap(uint64_t root, uint64_t va);
 // Сбросить записи TLB [va, va + pages*4096) пространства root на всех ядрах, где оно загружено (межъядерное
 // прерывание и ожидание ответа). Вызывать с включёнными прерываниями и без спин-замков (реализация - smp.c).
+/* Ожидает ack всех CPU с этим root; после 200 мс только предупреждает и продолжает ждать. Возврат означает безопасный reclaim. */
 void     vmm_tlb_shootdown(uint64_t root, uint64_t va, uint32_t pages);
 int      vmm_user_range_ok(uint64_t va, uint64_t len, int write);
 // Стеки потоков ядра с пустотой ниже (переполнение - #PF/#DF, а не порча памяти). bytes кратно 4 КБ, одинаково для всех.
