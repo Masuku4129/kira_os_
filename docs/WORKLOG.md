@@ -999,3 +999,13 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Confirmed F-034: per-slot locks protect mount/unmount and volume operations, but vfs_any() and the root branch of vfs_list() read mount slot state without locks. Concurrent unmount/reuse can yield an inconsistent root listing/availability result.
 - KiraFS write path has a stronger copy-on-write-like ordering for file replacement: new data and metadata are flushed before inode switch, then old blocks are freed. KiraFS still has no general journal/atomic transaction layer, so crash tests and mount repair remain essential.
 - Added F-033 HIGH and F-034 MEDIUM to source findings. No filesystem code changed.
+
+
+## 43. Current exact-head CI and UHCI failure boundary refreshed — 2026-11-14
+
+- Rechecked current PR metadata and exact commit workflow runs.
+- PR #165 head 7ad140cfadb51c4dacf809eca77fff60ff7fe12c, run 43613588426: 29/30 success, only vm (usb-uhci) fails (job 132504574309). Re-downloaded artifact 14121317727 and inspected the exact serial/result: serial stops after "[PCI TRACE] probed 0:1.2"; no "[PCI TRACE] secured 0:1.2"; prompt not received after 90.9 s. qemu.log is 4,187,160,076 bytes.
+- Compared exact pci.c source at that PR head: after probe_bars(), scan_fn reads PCI Command and conditionally writes it with PCI_CMD_MASTER cleared; only after that does the "secured" marker print. Current evidence localizes the stall to this read/conditional write path, but the trace does not distinguish the config read from the config write. The invalid DMA storm occurs concurrently. Next run needs two separate markers and the PCI Command value.
+- PR #166 current head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e, workflow 43610515593: 30/30 success. Earlier workflow 43608492629 was cancelled on an older head and is superseded.
+- PR #151 current head d2a53c8847bf40525780bb2624ea42efe9ba287a, base still main 811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4. No workflow run returned for this docs-only commit; no CI PASS is claimed.
+- No code changed in this diagnostic cycle.
