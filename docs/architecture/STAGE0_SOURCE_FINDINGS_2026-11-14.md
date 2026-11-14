@@ -1185,22 +1185,26 @@ F-038 remains OPEN.
 
 **Severity:** HIGH concurrency correctness / connection-lifecycle race.
 
-### Evidence
-- TCP connection state, sequence numbers, queue lengths and listener state are mutated by tcp_input(), tcp_tick(), tcp_close() and other paths under tlk.
-- tcp_wait() repeatedly evaluates condition callbacks without taking tlk. The callbacks read tcb fields such as state, tx_len, rx_tail/rx_head and reset while the network thread can update those fields under tlk.
-- tcp_send() reads state before locking; tcp_connect_ipa() checks state after tcp_wait() and writes T_FREE on timeout without tlk; tcp_peer() reads TCB state/address/port without tlk.
-- tcp_accept() reads listens[l].used before acquiring tlk. Listener ownership and TCP handle ownership arrays are also not consistently synchronized with process teardown.
-- These are unsynchronized shared accesses between the application thread and network thread. A timeout, close, packet arrival or slot reuse can race with a waiter or syscall and observe stale/inconsistent connection state.
-- This finding is about data-race and lifecycle correctness; no packet-level exploit is claimed.
+### Evidence (confirmed against main source SHA 7449015b5fad92b20d7bc2fc866e3a65ab296a39)
+- `tcp_input()` (around lines 765–867) and `tcp_tick()` (858–868) mutate connection state, sequence numbers, retransmit deadlines and RX/TX queues under `tlk`.
+- `tcp_wait()` (870–877) calls condition callbacks without `tlk`; `c_open`, `c_room`, `c_sent`, `c_data` and `c_closed` read `state`, `tx_len`, `rx_head/rx_tail` and FIN state concurrently with the network thread.
+- `tcp_connect_ipa()` waits on a raw TCB pointer, then checks `t->state` and writes `T_FREE` on timeout outside `tlk`. A late SYN-ACK/timeout transition can race with this cleanup.
+- `tcp_send()` reads state before locking and uses a raw slot pointer across two blocking waits. `tcp_recv()` also waits on a raw pointer before locking the RX ring. Neither operation pins the TCB against close/unlisten/free and immediate slot reuse.
+- `tcp_peer()` reads the TCB state/address/port without `tlk`; `tcp_accept()` reads `listens[l].used` before taking `tlk`, then sleeps while retaining only the numeric listener slot.
+- `tcp_unlisten()` frees pending TCBs under `tlk`, but there is no generation or reference contract connecting those TCBs to a listener incarnation. A listener slot can be closed and reused while an accept waiter still holds its old integer.
+- `tcp_owner[]` and `listen_owner[]` are separate global arrays. `net_sys()` reads/writes them without `tlk`; `net_proc_gone()` walks and clears them while invoking blocking `tcp_close()` / `tcp_unlisten()`. Ownership validation is therefore not atomic with connection/listener lifetime.
+- These are source-confirmed synchronization/lifetime defects. No packet-level exploit or runtime corruption is claimed.
 
 ### Required closure
-1. Make every TCB/listener state access use one documented synchronization contract; condition waits should snapshot predicates under tlk and sleep only after releasing it.
-2. Ensure connection allocation/free, timeout cleanup, close and listener teardown all transition state under tlk.
-3. Pin a connection slot for the duration of each syscall or use generation-tagged handles so a freed/reused TCB cannot be accessed by a stale handle.
-4. Synchronize tcp_owner/listen_owner with the same lifecycle and avoid lock-order inversion with tlk.
-5. Add concurrent tests for receive vs close, send vs reset, accept vs unlisten, connect timeout vs packet arrival, and teardown vs slot reuse.
+1. Define one lock/ref/generation contract for TCBs and listener slots. Never sleep or copy user memory while holding `tlk`.
+2. Evaluate all wait predicates and state snapshots under `tlk`; perform timeout cleanup and every FREE/CLOSED transition under the same lock.
+3. Pin each TCB for the full duration of every blocking syscall and prevent reuse until all pins drain; use generation-tagged opaque handles to reject stale indices after reuse.
+4. Give listeners equivalent generation/ref semantics so accept-vs-unlisten and listener-slot reuse cannot attach a waiter to a new listener.
+5. Make owner authorization part of the synchronized lifetime transition; avoid unsynchronized side arrays or protect them with a documented lock order.
+6. Add deterministic lifecycle tests plus concurrent stress for receive-vs-close, send-vs-reset, accept-vs-unlisten, connect-timeout-vs-late-SYN-ACK, process-exit-vs-I/O, and stale-handle-vs-slot-reuse.
+7. Exercise both IPv4 and IPv6 paths, timeout boundaries, repeated close/unlisten, slot exhaustion and generation retirement.
 
-F-039 remains OPEN.
+F-039 remains OPEN. No TCP production fix or TCP lifecycle test has been accepted yet.
 
 
 ## New finding F-040 — KCC compiler API is process-global and non-reentrant (2026-11-14)
