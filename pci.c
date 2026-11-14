@@ -35,8 +35,12 @@ static pci_backend_t be = { port_read32, port_write32 };
 static pci_dev_t devs[PCI_MAX_DEVS];
 static int ndevs;
 static uint8_t bus_seen[256];
+static uint8_t scan_bus_min, scan_bus_max;
+static int ecam_configured, ecam_valid;
 
 void pci_set_backend(const pci_backend_t* b) {
+    ecam_configured = 0;
+    ecam_valid = 0;
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
 }
 
@@ -53,6 +57,8 @@ static void ecam_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uin
     *(volatile uint32_t*)(ecam + ((uint64_t)(bus - ecam_bus0) << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12 | (off & 0xFFC))) = v;
 }
 void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end) {
+    ecam_configured = 1;
+    ecam_valid = base != 0 && bus_start <= bus_end;
     ecam = (volatile uint8_t*)base; ecam_bus0 = bus_start; ecam_bus1 = bus_end;
     be.read32 = ecam_read32; be.write32 = ecam_write32;
 }
@@ -147,9 +153,9 @@ static void probe_bars(pci_dev_t* d) {
     pci_write16(d, 0x04, cmd);
 }
 
-static void scan_bus(uint8_t bus);
+static void scan_bus(uint8_t bus, uint8_t parent_limit);
 
-static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
+static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t parent_limit) {
     pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = fn;
     uint32_t id = cr32(&t, 0);
     if ((id & 0xFFFF) == 0xFFFF) return;
@@ -162,28 +168,46 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     d->header_type = pci_read8(d, 0x0E);
     probe_bars(d);
     if ((d->header_type & 0x7F) == 1 && d->class_code == 6 && d->subclass == 4) {
-        uint8_t sec = pci_read8(d, 0x19);                          /* вторичная шина моста */
-        if (sec) scan_bus(sec);
+        uint8_t primary = pci_read8(d, 0x18);
+        uint8_t secondary = pci_read8(d, 0x19);
+        uint8_t subordinate = pci_read8(d, 0x1A);
+        /* A bridge may expose only its declared child window, never a sibling or host-external bus. */
+        if (primary == bus && secondary > bus && secondary <= subordinate &&
+            secondary >= scan_bus_min && subordinate <= parent_limit &&
+            subordinate <= scan_bus_max)
+            scan_bus(secondary, subordinate);
     }
 }
 
-static void scan_bus(uint8_t bus) {
+static void scan_bus(uint8_t bus, uint8_t parent_limit) {
+    if (bus < scan_bus_min || bus > scan_bus_max || bus > parent_limit) return;
     if (bus_seen[bus]) return;                                       /* защита от петель в неверно настроенных мостах */
     bus_seen[bus] = 1;
     for (uint8_t dev = 0; dev < 32; dev++) {
         pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = 0;
         if ((cr32(&t, 0) & 0xFFFF) == 0xFFFF) continue;
         uint8_t multi = pci_read8(&t, 0x0E) & 0x80;
-        scan_fn(bus, dev, 0);
-        if (multi) for (uint8_t fn = 1; fn < 8; fn++) scan_fn(bus, dev, fn);
+        scan_fn(bus, dev, 0, parent_limit);
+        if (multi) for (uint8_t fn = 1; fn < 8; fn++) scan_fn(bus, dev, fn, parent_limit);
     }
 }
 
-int pci_init(void) {
+int pci_init_range(uint8_t bus_start, uint8_t bus_end) {
+    if (bus_start > bus_end) return -1; /* preserve the current snapshot on invalid input */
     ndevs = 0;
+    scan_bus_min = bus_start;
+    scan_bus_max = bus_end;
     for (int i = 0; i < 256; i++) bus_seen[i] = 0;
-    scan_bus(0);
+    scan_bus(bus_start, bus_end);
     return ndevs;
+}
+
+int pci_init(void) {
+    if (ecam_configured) {
+        if (!ecam_valid) return -1;
+        return pci_init_range(ecam_bus0, ecam_bus1);
+    }
+    return pci_init_range(0, 255);
 }
 
 int pci_count(void) { return ndevs; }

@@ -64,6 +64,10 @@ $T/drvget
 echo "== драйвер rl(4) (RTL8139) против модели чипа =="
 tests/rl_build.sh $T/rl
 
+echo "== PCI host bus range (nonzero root, nested subordinate bounds, ECAM and legacy) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/pci-range tests/pci_range_test.c pci.c
+$T/pci-range
+
 echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
 $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
 $T/acpi
