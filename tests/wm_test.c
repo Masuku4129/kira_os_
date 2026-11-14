@@ -339,7 +339,8 @@ int main(void) {
     int style_x, style_y;
     CHECK(wm_window_pos(spatial_style, &style_x, &style_y) == 0);
     CHECK(px(&scr, style_x + 140, style_y + WM_HEAD - 1) == TH_BORDER);
-    CHECK(px(&scr, style_x + 230, style_y + 12) == TH_BAR0);
+    /* Sample the flat center of the translucent title surface, away from the rounded corner. */
+    CHECK(px(&scr, style_x + 220, style_y + 30) == TH_BAR0);
     wm_destroy(spatial_style);
     frame();
 
