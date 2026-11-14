@@ -10,7 +10,13 @@ uint32_t fdt_u32(const void* p) {
 }
 static uint32_t hdr(const void* fdt, unsigned i) { return fdt_u32((const uint8_t*)fdt + 4 * i); }
 static const uint8_t* sblk(const void* fdt) { return (const uint8_t*)fdt + hdr(fdt, 2); }
-static uint32_t slen(const void* fdt) { return hdr(fdt, 9); }
+static uint32_t slen(const void* fdt) {
+    uint32_t version = hdr(fdt, 5);
+    if (version >= 17) return hdr(fdt, 9);
+    /* FDT v16 has no size_dt_struct header field; its structure block ends at strings. */
+    uint32_t structure = hdr(fdt, 2), strings = hdr(fdt, 3);
+    return strings >= structure ? strings - structure : 0;
+}
 static const char* strs(const void* fdt) { return (const char*)fdt + hdr(fdt, 3); }
 
 static int streq(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
@@ -48,7 +54,8 @@ static int ranges_overlap(uint32_t a, uint32_t ae, uint32_t b, uint32_t be) {
 int fdt_valid(const void* fdt, uint32_t max_len) {
     if (!fdt || hdr(fdt, 0) != FDT_MAGIC) return 0;
     uint32_t total = hdr(fdt, 1), so = hdr(fdt, 2), sto = hdr(fdt, 3), ver = hdr(fdt, 5);
-    uint32_t ss = hdr(fdt, 9), sts = hdr(fdt, 8), ro = hdr(fdt, 4), re = 0;
+    uint32_t ss = ver >= 17 ? hdr(fdt, 9) : (sto >= so ? sto - so : 0);
+    uint32_t sts = hdr(fdt, 8), ro = hdr(fdt, 4), re = 0;
     if (total < 40 || (max_len && total > max_len) || ver < 16) return 0;
     if (so < 40 || sto < 40 || so >= total || ss > total - so ||
         sto > total || sts > total - sto || (so & 3) || ss < 4) return 0;
