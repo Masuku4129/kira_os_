@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix="kira-iso-smoke-") as tmp:
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     try:
         deadline = time.monotonic() + 35
-        required = ("[KIRA DISK] kira-iso: embedded KiraFS", "[KIRA FS] KiraFS mounted:")
+        required = ("[KIRA DISK] kira-iso: embedded KiraFS", "[KIRA FS] KiraFS mounted:", "[KIRA DISPLAY] Built-in KIRA wallpaper installed.")
         while time.monotonic() < deadline:
             if log.exists():
                 data = log.read_text(errors="replace")
