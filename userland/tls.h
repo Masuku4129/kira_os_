@@ -18,6 +18,7 @@
 #include "kira.h"
 #endif
 #include "../crypto.h"
+#include "x509.h"
 
 #define TLS_TICKET_MAX 1024
 typedef struct {
@@ -55,6 +56,13 @@ typedef struct {
     u64 rseq, wseq;
     u8 in[16384 + 512]; u32 in_len;  /* сырой входной поток (записи) */
     u8 pt[16384 + 256]; u32 pt_off, pt_len;   /* расшифрованные данные приложения */
+    /* Per-connection handshake workspace: no mutable process-global TLS scratch. */
+    u8 hs[40000]; u32 hs_len;
+    sha256_ctx_t transcript;
+    u8 certmsg[40000]; u32 certmsg_len;
+    const u8* ocsp_p; u32 ocsp_l;
+    const u8* cert_p[8]; size_t cert_l[8]; int cert_n;
+    x509_t leaf;
 } tls_t;
 
 int tls_connect(tls_t* t, i64 sock, const char* host, u32 timeout_ms, const u8* roots, u32 roots_len, i64 now,
