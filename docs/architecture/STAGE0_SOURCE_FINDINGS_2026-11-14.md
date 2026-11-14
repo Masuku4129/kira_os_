@@ -815,3 +815,12 @@ F-025 remains OPEN.
 - A new diagnostic head `2b3b59828bacabee18001fc80faea1ff3e39cc31` now logs each PCI function immediately before/after BAR probing and after the Bus Master policy. Workflow is queued/running. Its purpose is to identify the exact function/operation where the scan stalls.
 - Do not merge #165 while this reproducible no-trace failure remains. F-025 stays OPEN; F-017 remains independently OPEN.
 
+
+
+## F-022 architecture-source review addendum — stack allocator parity (2026-11-14)
+
+- Reviewed the exact PR #154 stack path on both architectures: shared scheduler allocation/free wrapper in `sched.c`; x86-64 guarded mapping in `vmm.c`; ARM64 guarded mapping in `arch/aarch64/main.c`; shared generation/free-list helper in `kstack_slot.h`.
+- Both implementations reserve 64-KiB slots, map only the 16-KiB stack region, retain the unmapped lower guard, quarantine partially mapped slots rather than reusing suspect virtual addresses, and use generation tokens to reject stale/double frees. ARM64 uses 65,536 slots (16-bit slot IDs) and its helper tests explicitly exercise the final slot.
+- Host tests exercise shared bounds/ownership/ABA/free-list logic under ASan/UBSan. PR #154's full x86/ARM64 CI and VM matrices passed, including ARM64 scheduler/mutex worker scenarios.
+- Remaining coverage gap: no dedicated QEMU test deliberately exhausts guarded slots or triggers a guard-page fault on each ISA. The source review found no concrete defect in the reviewed allocation/free paths, but this missing negative-path test keeps architecture-wide acceptance open.
+
