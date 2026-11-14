@@ -511,7 +511,7 @@ int main(void) {
     wm_destroy(notification_under);
     frame();
 
-    /* Spatial window controls expose 32x32 hit areas while retaining compact visual dots. */
+    /* Spatial window controls expose 32x32 touch hit areas around translucent rectangular buttons. */
     int touch_window = wm_create("touch-controls", 280, 180, 160, 100, WM_CLOSABLE);
     CHECK(touch_window >= 0);
     wm_raise(touch_window);
