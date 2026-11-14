@@ -1190,7 +1190,13 @@ F-037 remains OPEN on `main` until the candidate is reviewed/integrated and conc
 4. Add hostile DER test certificates with unknown critical extensions, pathLenConstraint=0 with subordinate CA, missing/incorrect keyUsage and incompatible EKU.
 5. Keep unsupported critical extensions fail-closed; do not silently accept or strip them.
 
-F-038 remains OPEN.
+### Implementation tracking
+- Draft PR #174: https://github.com/Masuku4129/kira_os_/pull/174
+- Candidate enforces unknown-critical-extension rejection, duplicate extension rejection, BasicConstraints/pathLenConstraint (including the self-issued CA exception), KeyUsage and EKU rules.
+- Exact-head commit `d8e20596ca411782cfd0318f87a787bce5bf7526`; CI run #43631654211 completed **30/30 jobs successfully**, including X.509 host tests, x86-64, ARM64 and VM matrix.
+- The first host run caught an incorrect KeyUsage OID mapping; it was corrected to `2.5.29.15` and the full exact-head run passed.
+
+F-038 remains OPEN on `main` until the candidate is reviewed/integrated.
 
 
 ## New finding F-039 — TCP state and listener fields are read outside the transport lock (2026-11-14)
