@@ -1669,3 +1669,25 @@ F-058 remains OPEN. Source/test-coverage finding only; no production fix or runt
 - `usb-xhci`: 12.0 s, all checks passed (xHCI, 8-port hub, keyboard, tablet, USB storage, FAT32 mount, read/write/unmount). QEMU log is 0 bytes; no `Invalid read`, `Invalid write` or `xhci_er_reset: DMA memory access failed` records. This supports the corrected xHCI order: Bus Master enabled after allocations but before ERSTBA/pointer exposure.
 - `usb-uhci`: functional checks also passed (tablet, hub, keyboard, USB storage and FAT32 read), but QEMU log remains 40,081,525 bytes with 589,375 invalid-read records. 579 distinct addresses; 147,200 reads each at 0x0, 0x4, 0x8 and 0xC. The QEMU log is not clean, so F-025 and the UHCI portion of F-054 remain OPEN.
 - This is evidence that the xHCI fix addresses its immediate ERSTBA DMA failure, while the UHCI anomaly is separate or occurs earlier in the PCI/firmware handoff. The latest branch adds serial/QEMU offset snapshots at PCI scan, controller start and OS-ready to localize the remaining storm. Exact-head CI for that instrumentation is pending.
+
+
+## New finding F-059 — UDP socket ownership is not synchronized with slot lifetime (2026-11-14)
+
+**Severity:** HIGH syscall ownership / concurrent teardown race.
+
+### Evidence
+- `udp_gone(pid)` iterates the global `us[]` socket table and clears `owner` without acquiring `ulk`.
+- `uown(h)` reads `owner` and the socket slot without `ulk`; it is called at the start of send, receive and close operations.
+- `net_udp_sys()` validates ownership once, then uses the slot across operations that may allocate memory, copy user data, wait for a datagram, resolve a neighbor or transmit. It does not pin the slot or revalidate a generation before committing.
+- `NET_UDP_CLOSE` clears `owner` under `ulk`, but a concurrent operation that passed the earlier unlocked `uown()` can continue using the same slot. Another process can then open the freed slot and reset its ring/owner while the old operation is still active.
+- `udp_deliver()` correctly takes `ulk` while locating a socket and appending to its ring; this does not protect a syscall that already retained the slot index outside the lock.
+- Existing `tests/net_test.c` covers only checksum and IPv4 text parsing. It does not instantiate the kernel UDP table or test ownership, close, process teardown, slot reuse, concurrent send/receive, or packet delivery.
+
+### Required closure
+1. Use a consistent locked ownership check and slot-lifetime protocol; do not treat a successful owner check as a durable reference.
+2. Add generation-tagged socket handles or reference/pin counts so close/process teardown cannot recycle a slot while an operation is active.
+3. Make open, close, process teardown and ring reset one atomic lifecycle transition under `ulk`; define how in-flight operations drain or fail.
+4. Audit lock ordering between `ulk`, process teardown, user copies, memory allocation and network resolution; never sleep or perform potentially blocking work while holding the spinlock.
+5. Add host-testable UDP table/lifecycle tests plus SMP stress for close-vs-send, close-vs-recv, process-exit-vs-delivery, and immediate cross-process slot reuse. Run TSan where supported and targeted QEMU SMP tests.
+
+**Evidence boundary:** source-confirmed race and missing test coverage. No runtime reproduction or packet-level exploit is claimed. No production source was changed in Stage 0.
