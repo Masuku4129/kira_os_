@@ -1,0 +1,116 @@
+
+[KIRA ARM64] Kira OS on ARM64: device tree at 0x0000000048000000 (1048576 bytes), console PL011 at 0x0000000009000000
+[KIRA ARM64] entered at EL1, running at EL1
+[KIRA ARM64] RAM: 512 MB in 1 region(s)
+[KIRA ARM64] DMA: devices are cache-coherent (dma-coherent in the device tree)
+[KIRA ARM64] MMU on: identity map up to 0x0000000100000000, 40-bit physical addresses, RAM cached, devices non-executable
+[KIRA ARM64] interrupt controller GICv2: distributor 0x0000000008000000, CPU interface 0x0000000008010000; generic timer 62500000 Hz, virtual timer INTID 27
+[KIRA HEAP] Kernel heap online: size classes 16..2016 B on pages, large blocks as page runs, grows with RAM.
+[KIRA SCHED] Preemptive scheduler online: threads core(critical) + idle, round-robin per priority class, quantum and per-process weight set by the mind state.
+[KIRA ARM64] memory manager: 505 MB free pages; kernel heap and scheduler online (per-core ready queues, 48 thread slots)
+[KIRA ARM64] generic timer verified: 98 ticks in 200 ms (expected 100)
+[KIRA ARM64] Processors online: 2 of 2 (PSCI via hvc)
+[KIRA ARM64] cores with a working timer interrupt: 2 of 2 (idle cores then switch their tick off)
+[KIRA PCI] ECAM at 0x0000004010000000, buses 0-255: 3 function(s), 3 BAR(s) assigned (windows: 32-bit 0x0000000010000000, 64-bit 0x0000008000000000)
+[KIRA IMMUNE] Self baseline taken (SHA-256 of kernel .rodata+.text: 630732 bytes, prefix 67b89802...). 3 built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.
+[KIRA WATCHDOG] Software watchdog armed (5 s timeout, fed by main loop, checked by every core).
+[KIRA PCI] 3 device(s) found.
+[KIRA NVMe] QEMU NVMe Ctrl, NVMe 1.4, namespaces 256, completion by interrupt
+[KIRA NVMe] nvme0n1: 16 MB, block 512 B
+[KIRA DISK] nvme0n1: QEMU NVMe Ctrl, 16 MB - system disk
+[KIRA EXPERIENCE] Disk found, no saved experience: this is the organism's first life.
+[KIRA FS] KiraFS mounted: 14612 KB free.
+[KIRA PROC] up to 8 programs at once (2 cores, 512 MB RAM).
+[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN not offered by this CPU (copies still use LDTR/STTR); user pointers validated.
+[KIRA MIND] Mind online: learns this machine's norms (load, queue, memory, frame delays, disk, IPC, faults, syscalls), tunes the scheduler quantum by measurement, limits background programs when the screen is late, watches program behaviour against saved profiles, manages memory pressure. Mode: act, experience restored from /var/mind.dat.
+[KIRA RTC] Real-time clock (PL031, UTC): СУББОТА, 14 НОЯБРЯ 2026 10:40
+[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.
+[KIRA USB] No supported USB controller: keyboard and mouse stay on PS/2.
+[KIRA NET] virtio-net: MAC 52:54:00:12:34:56, receive wakes the network thread by MSI-X
+[KIRA NET] Network stack online: Ethernet, ARP, IPv4 (fragments), ICMP, UDP, DHCP client, DNS, TCP, IPv6 (ND, SLAAC, ICMPv6, UDP, TCP) (commands: net, ping, ping6, dns, http).
+[KIRA ARM64] Ready. Type a command (help: any unknown word).
+[KIRA CONSOLE] Command line ready: type 'help' and press Enter.
+
+кира> [KIRA DRV] drvd: устройства PCI без встроенного драйвера просмотрены, драйверов Ring 3 запущено: 0
+[KIRA NET] DHCP: address 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, lease 86400 s
+smp
+  core 0: MPIDR 0x0000000000000000, online, ticks 293
+  core 1: MPIDR 0x0000000000000001, online, ticks 2
+кира> [KIRA MIND] нет своего опыта: взято семя (из QEMU, на железе лишь подсказка), веса на 90 с
+[KIRA TELEMETRY] t=1s health=100 load=24% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+test smp
+[KIRA SELFTEST] started: 3 pinned workers, 4 mutex threads, 1 sleeper
+[KIRA SMPTEST] started 2 worker threads on the other cores; result will be printed when they finish.
+кира> [KIRA SELFTEST] workers finished:
+  worker 0: core 0, checksum ok, stayed on its core, preempted by tick
+  worker 1: core 1, checksum ok, stayed on its core
+  worker 2: core 0, checksum ok, stayed on its core
+  spin-lock counter 60000 of 60000 ok, atomic 60000 ok
+  kernel mutex (threads sleep while waiting): 8000 of 8000 ok
+  sleep 200 ms: early by 1 ms
+RESULT: PASS
+[KIRA TELEMETRY] t=2s health=100 load=8% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA NET] IPv6: fe80::5054:ff:fe12:3456 (link-local, DAD passed) ready
+write /irq.txt kira-v2m
+/irq.txt: записано 9 байт
+кира> [KIRA TELEMETRY] t=3s health=100 load=2% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA NET] IPv6: router advertisement from fe80::2, default router
+cat /irq.txt
+kira-v2m
+
+кира> [KIRA TELEMETRY] t=4s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+disk
+  nvme0n1  16 МБ  QEMU NVMe Ctrl  [системный]
+прерываний устройств (MSI): 285, из них разбудили ждущий поток: 266
+кира> [KIRA NET] IPv6: fec0::5054:ff:fe12:3456 (SLAAC /64, DAD passed) ready
+[KIRA TELEMETRY] t=5s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=6s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=7s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=8s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=9s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+net
+карта virtio-net, канал есть, TIME_WAIT: 0 (всего 0), прерываний приёма 5
+адрес 10.0.2.15, маска 255.255.255.0, шлюз 10.0.2.2, DNS 10.0.2.3 (DHCP, аренда 86400 с)
+кадров принято 3, отправлено 5, отброшено 0
+фрагменты IP: собрано 0, собирается 0, повторов 0, перекрытий 0, негодных 0, слишком больших 0, не нашлось места 0, по сроку 0
+IPv6: fe80::5054:ff:fe12:3456/64 (адрес канала)
+IPv6: fec0::5054:ff:fe12:3456/64 (SLAAC)
+IPv6: маршрутизатор fe80::2
+IPv6: соседей в кэше 1, MTU 1500, отброшено ND/IP 0
+кира> fetch [KIRA TELEMETRY] t=10s health=100 load=2% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+10.0.2.100 /v2m
+[KIRA PROC] pid 1 'fetch' started from ELF: Ring 3, own address space, 206 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 1] fetch: 10.0.2.100/v2m - HTTP/1.0 200 OK - 3397 bytes in 30 ms (server closed), saved to /data/fetch/last.txt
+[KIRA PROC] pid 1 'fetch' finished, exit code 0, address space destroyed (223 pages returned to PMM).
+[KIRA TELEMETRY] t=11s health=100 load=2% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+fetch https://10.0.2.100:8443/self
+[KIRA PROC] pid 2 'fetch' started from ELF: Ring 3, own address space, 206 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 2] fetch: TLS failed: issuer is not trusted (no path to a root certificate)
+[KIRA PROC] pid 2 'fetch' finished, exit code 0, address space destroyed (223 pages returned to PMM).
+[KIRA TELEMETRY] t=12s health=100 load=4% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+fetch https://10.0.2.100/arm-tls
+[KIRA PROC] pid 3 'fetch' started from ELF: Ring 3, own address space, 206 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 3] fetch: TLS 1.3, X25519 + ChaCha20-Poly1305; certificate verified (chain to a root, name, dates); key from timing-only randomness (no hardware RNG)
+[USER pid 3] fetch: OCSP: no stapled response (not an error)
+[USER pid 3] fetch: 10.0.2.100/arm-tls - HTTP/1.0 200 OK - 22113 bytes in 135 ms (server closed), saved to /data/fetch/last.txt
+[KIRA PROC] pid 3 'fetch' finished, exit code 0, address space destroyed (223 pages returned to PMM).
+[KIRA TELEMETRY] t=13s health=100 load=5% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+random
+генератор случайных чисел: источники - interrupt timing (аппаратного источника нет: только времена событий - для ключей слабее)
+проба: 6b1bb387fd19a417e99d0dac85cf8933
+кира> [KIRA TELEMETRY] t=14s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+udpecho 9000 1
+[KIRA PROC] pid 4 'udpecho' started from ELF: Ring 3, own address space, 5 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 4] udpecho: listening on UDP port 9000
+[KIRA TELEMETRY] t=15s health=100 load=2% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[HOST] udp reply 'kira-udp: arm-ping'
+[USER pid 4] udpecho: 8 bytes from 10.0.2.2:33589, answered
+[USER pid 4] udpecho: done, 1 answered
+[KIRA PROC] pid 4 'udpecho' finished, exit code 0, address space destroyed (22 pages returned to PMM).
+[KIRA TELEMETRY] t=16s health=100 load=2% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+[KIRA TELEMETRY] t=17s health=100 load=1% mem=2% run=1 frames=0 late=0 q=40ms fx=3
+serve
+[KIRA PROC] pid 5 'serve' started from ELF: Ring 3, own address space, 8 page(s) of segments, W^X enforced, stack RW-NX.
+кира> [USER pid 5] serve: listening on port 8080
+[KIRA TELEMETRY] t=18s health=100 load=2% mem=2% run=2 frames=0 late=0 q=40ms fx=3
+[HOST] http /arm-server: 19827 bytes, first line 'kira-server-ok /arm-server', window lines 900
