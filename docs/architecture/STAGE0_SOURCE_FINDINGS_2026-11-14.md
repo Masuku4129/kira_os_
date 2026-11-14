@@ -113,7 +113,7 @@ Source: [pci.c at baseline SHA, lines 47–59 and 170–188](https://github.com/
 
 - Draft PR #162 adds `pci_init_range()`, makes ECAM `pci_init()` start at `bus_start`, and validates primary/secondary/subordinate bridge numbers while inheriting the parent subordinate limit.
 - Host regressions cover nonzero root, nested windows, host-range escape, invalid primary, invalid range snapshot preservation, legacy bus-0 and actual ECAM wrapper.
-- Exact-head CI is pending; no PASS claimed. ADR-0005 defines the target contract.
+- Draft PR #162 exact head `2e30dc5c9edff973a949d40dacbed18d2d666ab8`; workflow `43594509620`: **43/43 checks PASS**, including ASan/UBSan host coverage for nonzero root, nested subordinate windows, host-range escape, invalid primary, snapshot preservation, legacy bus 0 and the ECAM wrapper; x86-64/ARM64 builds and QEMU matrix also pass. Verified on unmerged Draft PR; main unchanged. ADR-0005 defines the target contract.
 
 **Required closure:** exact-head host ASan/UBSan, x86-64/ARM64 builds and QEMU on final SHA; then integrate with current-main device discovery/registry work and verify ARM64 FDT bus-range handoff. Contract and acceptance gates are recorded in [ADR-0005](https://github.com/Masuku4129/kira_os_/blob/9d10d50095e406794f925a384e2e006db53599f8/docs/adr/ADR-0005-pci-host-bus-range-enumeration.md).
 
