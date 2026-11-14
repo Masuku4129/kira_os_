@@ -629,3 +629,11 @@ The ARM64 PMM must implement ADR-0003: reservations must be distinct from ordina
 | FDT parser | `fdt.c:fdt_valid()`, `fdt.c:fdt_prop()` | F-051: unbounded property-name comparison | Unterminated strings, out-of-range name offsets, ASan/UBSan |
 
 The table is a source-review index, not a claim that any listed hardware path has passed runtime acceptance.
+
+
+### ARM64 firmware control acceptance index (2026-11-14)
+
+| Area | Source reviewed | Finding | Required verification |
+|---|---|---|---|
+| PSCI method detection/call dispatch | `arch/aarch64/main.c:psci_call()`, `platform_poweroff()`, `platform_reboot()` | F-053: absent state (-1) is truthy and selects HVC; power commands are unguarded | No PSCI / invalid method / HVC / SMC host policy tests and QEMU instruction-path checks |
+| CPU_ON startup | `arch/aarch64/main.c:arm_secondary_main()`, boot CPU_ON loop | Existing guard prevents CPU_ON when PSCI is absent; verify timeout and failed-core stack reclamation | QEMU PSCI success/failure/timeout and allocation accounting |
