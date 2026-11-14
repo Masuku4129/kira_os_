@@ -1371,3 +1371,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - QEMU matrix was skipped because build/test prerequisites failed. The report job success is not an overall CI pass.
 - Reclassified F-062 from PR-stack-only to CRITICAL current-main build blocker; exact evidence and closure steps are in `STAGE0_SOURCE_FINDINGS_2026-11-14.md` and audit section 12.
 - No production source changed; Stage 0 remains audit-only. No PR merged; main unchanged.
+
+
+## #78 — Stage 0: requirement-level traceability and current-main build inventory (2026-11-15)
+
+- Added `STAGE0_REQUIREMENT_TRACEABILITY_2026-11-15.md`: 233 records covering all A–N subrequirements, all 12 parallel workstreams, historical stage criteria, status/change policies, release requirements and section 8 architecture/technology policies. Each record points to its source section/line and target Stage.
+- Compared complete recursive Git trees: pinned baseline `811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4` (829 blobs) vs current main `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e` (830 blobs); one documentation file added, no paths removed, and three changed source/header files: `gfxsrv.c`, `kcc/kcc.h`, `userland/wasm.c`.
+- Added `STAGE0_CURRENT_MAIN_INVENTORY_2026-11-15.md` with x86-64/ARM64 build-profile and artifact-composition review. Documented that Limbo delivery requires both ISO and KiraFS disk, x86 Android release filters the TESTPROGS set, and ARM64 currently has a different unfiltered app list.
+- Updated Stage Tracker and A–N crosswalk with links and remaining evidence work. Requirement mapping is recorded, but per-item source/build/test verification remains open.
+- No production code, ISO or disk image changed/generated. No PR merged; main unchanged.
