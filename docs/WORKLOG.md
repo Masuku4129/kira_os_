@@ -1362,3 +1362,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Добавлены ссылки на handoff и tracker в `AGENTS.md` и `README.md`, чтобы новый агент находил их с первой минуты.
 - Текущий статус зафиксирован честно: Stage 0 IN PROGRESS; Stage 1–13 ожидают прохождения последовательных gates. Никакие будущие технологии не объявлены интегрированными.
 - Артефакты находятся в рабочей ветке `architecture/stage0-repository-audit-2026-11-14`; `main` не изменялся. Merge не выполнялся.
+
+
+## #77 — Stage 0: current-main CI failure confirmed (2026-11-15)
+
+- Refreshed current main: `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`; latest push workflow `43643758138` concluded FAILURE.
+- Retrieved all three failed job logs: ARM64 job `132596796555`, host-tests `132596796794`, x86 build `132596796963`. Each independently fails at `userland/wasm.c:145` because `int32_t` / `uint32_t` are undeclared.
+- QEMU matrix was skipped because build/test prerequisites failed. The report job success is not an overall CI pass.
+- Reclassified F-062 from PR-stack-only to CRITICAL current-main build blocker; exact evidence and closure steps are in `STAGE0_SOURCE_FINDINGS_2026-11-14.md` and audit section 12.
+- No production source changed; Stage 0 remains audit-only. No PR merged; main unchanged.
