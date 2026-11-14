@@ -224,7 +224,7 @@ These are not approved designs or production-ready code by presence alone. They 
 
 ### CI completion correction — PR #165 diagnostic cleanup (2026-11-14)
 
-- PR #165 cleanup exact head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`, workflow `43608372681`: **30/30 jobs completed successfully**, zero failed jobs. This supersedes earlier queued/in-progress notes for that head.
+- PR #165 cleanup exact head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`, workflow `43608372681`: **43/43 jobs completed successfully**, zero failed jobs. This supersedes earlier queued/in-progress notes for that head.
 - Temporary boot/PCI diagnostics are removed; the earlier UHCI regression did not recur on this cleanup head.
 - F-017 remains OPEN: Bus Master is still cleared after BAR probing, leaving the firmware-DMA window during BAR probing unresolved. PR #162's PCI host-bus/subordinate-window changes still need reconciliation with PR #165 in `pci.c`.
 - This is a Draft branch result only; no main merge and no physical hardware claim.
@@ -353,7 +353,7 @@ This strategy changes test scheduling, not the acceptance standard. No feature i
 
 ### Exact-head correction — PR #166 FDT/ARM64 PMM gate (2026-11-14)
 
-- PR #166 current head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e, associated workflow 43610515593: **30/30 jobs succeeded**.
+- PR #166 current head 4bc69a224887ead8d8d1737e782ed76cf4b8e95e, associated workflow 43610515593: **43/43 jobs succeeded**.
 - This supersedes earlier pending notes for the prior corrected head. It verifies the current PR #166 implementation on its exact head, not main.
 - The new FDT header reservation-map validation/application, block-overlap checks, v16 structure-size handling and reg index/address-overflow tests are present. F-027 remains open for bounded property-name lookup.
 
@@ -644,6 +644,18 @@ The table is a source-review index, not a claim that any listed hardware path ha
 | PR / run | Exact state | UHCI result | QEMU invalid-read evidence | Disposition |
 |---|---|---|---|---|
 | #125 / 43613583149 | commit `fee8c9a`, base `autodrv`, failed | 90.7 s timeout; serial stops at BM-disable trace for 0:1.2 | 72,286,473 records; 4.916 GB log | Failure reproduced in artifact; exact blocked instruction/requester unresolved |
-| #165 / 43613588426 attempt 2 | commit `7ad140c`, base `main`, 30/30 jobs PASS | 11.7 s; keyboard/hub/storage/FAT/file read all pass | 393,602 records; 26.77 MB log | Functional pass, but invalid-read storm persists; F-025 stays open |
+| #165 / 43613588426 attempt 2 | commit `7ad140c`, base `main`, 43/43 jobs PASS | 11.7 s; keyboard/hub/storage/FAT/file read all pass | 393,602 records; 26.77 MB log | Functional pass, but invalid-read storm persists; F-025 stays open |
 
 The two jobs are not a controlled A/B because the source branches and base commits differ. A clean QEMU error log plus DMA requester/register evidence is still required before closing F-025.
+
+
+### Full CI run matrix — exact latest heads (2026-11-14)
+
+| PR | Run | Jobs | Result | Coverage note |
+|---|---:|---:|---|---|
+| #154 | 43611654110 | 43/43 | PASS | Includes ARM64 job |
+| #164 | 43600699384 | 43/43 | PASS | Includes ARM64 job |
+| #166 | 43610515593 | 43/43 | PASS | Includes ARM64 job |
+| #165 | 43613588426 attempt 2 | 43/43 | PASS | Includes ARM64 job; 16 ARM64 scenarios inspected |
+
+Counts use the full jobs API total, not the first-page 30-job wrapper response. These are branch-specific CI results and do not imply that the PRs have been merged or that physical ARM64 hardware has been tested.
