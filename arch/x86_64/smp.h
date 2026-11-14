@@ -23,6 +23,8 @@
 unsigned smp_plan(const uint32_t* ids, unsigned n, uint32_t bsp_apic_id, uint32_t* out, unsigned max);
 
 // Запускает процессоры из MADT. Возвращает число запущенных (без загрузочного). Требует кучу, APIC и часы TSC.
+// TLB shootdown: request generation + per-CPU ack; при задержке >200 мс только предупреждение, не ранний возврат.
+// Если CPU не ответил, блокировка запроса удерживается и backing memory не может быть переиспользована.
 unsigned smp_start(const acpi_info_t* acpi);
 unsigned smp_online(void);              /* включая загрузочный */
 void smp_describe(void (*out)(const char*));
