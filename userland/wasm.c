@@ -131,7 +131,8 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
         b = *(*p)++;
         if (i == max - 1) {
             u8 unused = bits == 32 ? (u8)(b & 0x70) : (u8)(b & 0x7E);
-            if ((b & 0x80) || (unused != 0 && unused != (bits == 32 ? 0x70 : 0x7E))) {
+            u8 sign_extension = bits == 32 ? ((b & 0x08) ? 0x70 : 0) : ((b & 0x01) ? 0x7E : 0);
+            if ((b & 0x80) || unused != sign_extension) {
                 trap("signed LEB128 overflow"); return 0;
             }
         }
@@ -142,6 +143,8 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
                       ((b & 0x7F) == 0x7F && (prev & 0x40)))) {
                 trap("overlong signed LEB128"); return 0;
             }
+            unsigned used = shift + 7;
+            if ((b & 0x40) && used < 64) r |= ~0ull << used;
             if (bits == 32) return (i64)(int32_t)(uint32_t)r;
             return (i64)r;
         }
