@@ -429,3 +429,10 @@ Use these buckets for every tracked source, test, resource and planned subsystem
 - ARM64 crash-test mode 1 is explicitly unavailable (-5) because software cannot inject SError on the tested platform without RAS support; the ARM64 VM scenario checks this explicit limitation.
 - FPU save-state layouts differ (x86-64 512 bytes; ARM64 528 bytes). Keep architecture-specific implementations and tests.
 - No production stub was found in this reviewed header set; project-wide source stub audit remains open.
+
+
+### Test-helper boundary verified
+
+- All 10 TEST_HELPER_REVIEW paths were inspected. The apparent kernel API stub at tests/stub/kira.h is used only by the host paint/window test via the host runner's tests/stub include directory.
+- Production build_clang.sh and build_arm64.sh do not include the tests tree; the real userland ABI header is userland/kira.h. USB/driver/KFS reference models and TLS/WASM helpers are test-only.
+- Keep test doubles isolated to host tests; never substitute them for production driver, filesystem, kernel API or hardware implementations.
