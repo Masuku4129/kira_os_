@@ -335,6 +335,50 @@ Sources:
 2. Host/build/ARM64/full QEMU matrix must pass.
 3. Keep streaming line-buffer semantics unchanged for ordinary multi-call output.
 
+## F-013 — ARM64 PMM does not distinguish reserved pages from allocated pages
+
+**Severity:** Critical memory-ownership violation  
+**Confidence:** High — direct source evidence  
+**Master-plan mapping:** B, F, M, N; streams 1, 5, 11, 12.
+
+### Evidence
+
+- `pmm_arm_init()` marked every non-free page as used, then `pmm_arm_reserve()` marked kernel/FDT/early-allocation/DMA ranges by setting the same used bit.
+- `pmm_free_page()` checked only whether the page was used. Unlike x86-64 PMM, ARM64 had no reserved bitmap and therefore could not reject a free request for a reserved page.
+- A stale/invalid free of a kernel, FDT, early page-table or DMA-pool page could make it allocatable again.
+
+Source:
+- [ARM64 PMM implementation](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/arch/aarch64/pmm_arm.c)
+
+### Remediation on draft branch
+
+- Add a separate reserved bitmap. Non-RAM holes begin unavailable/reserved; only validated RAM pages become allocatable.
+- Reservation marks both reserved and used; page and block free reject reserved pages.
+- Host regression covers kernel reservation and late reservation rejection.
+- Draft PR #158; exact-head CI pending.
+
+## F-014 — ARM64 PMM contiguous release is not atomic
+
+**Severity:** High allocator-integrity risk  
+**Confidence:** High — direct source evidence  
+**Master-plan mapping:** B, F, G, H, M, N; streams 1, 5, 6, 7, 11, 12.
+
+### Evidence
+
+- ARM64 `pmm_free_contiguous()` called `pmm_free_page()` sequentially and returned at the first failed page.
+- If a middle page was already free or otherwise invalid, all preceding pages had already been released. This violated all-or-nothing block ownership and differed from the x86-64 transactional implementation in PR #154.
+- ARM64 contiguous allocation/free is used by page-run consumers and must have the same contract on both architectures.
+
+Source:
+- [ARM64 PMM contiguous free](https://github.com/Masuku4129/kira_os_/blob/811ca3a44ce0d3d59812b28a7ea0cfacdad2d5b4/arch/aarch64/pmm_arm.c)
+
+### Remediation on draft branch
+
+- Validate alignment, range bounds, page ownership and reserved status under one PMM lock.
+- Only after every page validates, release the complete range and update the free count once.
+- Add host regression for invalid middle page and unchanged free count on failure.
+- Draft PR #158; exact-head CI pending.
+
 ## Verification ledger
 
 | Finding | Source reviewed | Runtime reproduction / branch evidence | Targeted regression evidence | Status |
@@ -349,6 +393,8 @@ Sources:
 | F-008 | sched.c stack fallback and initialization | Source review | No stack-zeroing/fallback policy regression in main | CONFIRMED HARDENING GAP |
 | F-010 | x86-64 TLB shootdown timeout and late IPI handling | Draft PR #155 exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`; CI run `43590730265` | 43/43 checks PASS, including host, ARM64 and QEMU SMP matrix | FIX VERIFIED ON DRAFT BRANCH; main unchanged, review/merge pending |
 | F-011 | MMIO page-range overflow during page align-up | Source arithmetic review | Draft PR #156 exact head `cbad3a2198747867e72a02e811efa38133d1dd08`; CI run `43591102543` has one unrelated `drv-edu` log assertion failure; host/ARM64 still running | FIX IMPLEMENTED; CI ACCEPTANCE BLOCKED BY F-012, RERUN REQUIRED |
+| F-013 | ARM64 PMM reserved-page ownership | Source review; Draft PR #158 adds separate reserved bitmap and host regressions | Exact-head CI pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
+| F-014 | ARM64 PMM contiguous release is non-atomic | Source review; Draft PR #158 validates whole range under one lock | Exact-head CI pending | FIX IMPLEMENTED ON DRAFT BRANCH; NOT YET ACCEPTED |
 | F-012 | Driver-start log line split at 192-byte buffer boundary | QEMU serial artifact `43591102543` confirms driver success but interleaved log; initial PR #157 ARM64 build exposed missing API implementation | Draft PR #157 head `59b391696baabfd49f2ff48acf5aba2b9db538de` adds ARM64 alias; exact-head run `43591626068` pending | FIX IMPLEMENTED; EXACT-HEAD VERIFICATION PENDING |
 | F-009 | PMM contiguous block release | Source review and caller inventory | PR #153 exact-head CI 43/43 PASS; combined PR #154 integration pending | FIX VERIFIED ON DRAFT BRANCH; combined integration pending |
 
