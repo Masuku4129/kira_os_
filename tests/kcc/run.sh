@@ -15,6 +15,8 @@ if ! command -v "$REF" >/dev/null; then echo "kcc tests: нужен $REF для 
 export ASAN_OPTIONS=exitcode=99:detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1:exitcode=98:print_stacktrace=1
 SAN="-fsanitize=address,undefined -fno-sanitize-recover=undefined"
 $CC -std=c99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter $SAN -o $T/kcc kcc/*.c || exit 1
+$CC -std=c99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter $SAN -pthread -Ikcc -o $T/reentrancy tests/kcc/reentrancy.c $(ls kcc/*.c | grep -v main.c) || exit 1
+$T/reentrancy || exit 1
 INC=tests/kcc/inc
 fail=0; total=0
 note() { echo "FAIL: $*"; fail=$((fail+1)); }
