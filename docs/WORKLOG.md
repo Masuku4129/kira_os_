@@ -825,3 +825,10 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Clean PR #165 run `43612506879` reproduced the UHCI boot hang: 28/30 completed jobs passed; `vm (usb-uhci)` failed before the PCI enumeration completion log. QEMU emitted tens of millions of rejected UHCI DMA reads at physical address 0 while firmware DMA remained active.
 - Root cause is still not isolated. Trace-only PCI range build passed once; clean build failed again. Added temporary per-function diagnostics around BAR probing and Bus Master clearing on PR #165 head `2b3b59828bacabee18001fc80faea1ff3e39cc31`. Await exact-head VM logs; remove diagnostics after locating the stall.
 - #165 is blocked from merge until clean full-matrix verification succeeds.
+
+
+## 24. F-022 per-ISA source review — 2026-11-14
+
+- Reviewed x86-64 `vmm.c` and ARM64 `arch/aarch64/main.c` guarded-stack allocators plus common `sched.c` wrappers and `kstack_slot.h`.
+- Both paths use generation-bearing slots, retain guard pages, quarantine partial mappings and reject stale/double frees. Host ASan/UBSan tests cover the shared helper, including ARM64's last slot at index 65,535.
+- PR #154 full x86/ARM64 CI and VM matrices pass normal scheduler/mutex worker paths. Dedicated guard-fault and full slot-exhaustion QEMU tests are still absent; no false claim of complete negative-path coverage.
