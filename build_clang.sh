@@ -173,6 +173,8 @@ case " $* " in
             for w in build-wasm/*.wasm; do [ -f "$w" ] && tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
             for h in kcc/include/*.h; do [ -f "$h" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
             [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
+            [ -f data/mind_seed.bin ] && tools/kfstool "$OUT/kira_disk.img" put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
+            tools/mkdrv.sh "$OUT/kira_disk.img" userland/drvedu.elf "$HOSTCC"
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."
         else
             cp kira.disk "$OUT/kira_disk.img"
