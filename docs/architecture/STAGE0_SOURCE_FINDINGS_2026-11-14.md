@@ -1552,3 +1552,26 @@ A running controller can resume DMA against firmware-owned/stale schedule or con
 6. Extend host tests to assert call ordering and injected allocation/reset/mapping failure always leaves BM disabled and controller halted.
 
 F-054 remains OPEN. Do not close F-025 until requester/register evidence confirms the QEMU invalid-read source and the error log is clean.
+
+
+## New finding F-055 — QEMU guest_errors artifact mixes firmware and OS activity without a phase boundary (2026-11-14)
+
+**Severity:** MEDIUM test-observability gap; it blocks attribution of the current invalid-read anomaly.
+
+### Evidence
+- `ci/kira_vm.py:140-145` launches QEMU with `-d guest_errors -D <scenario>/qemu.log` from process start, before firmware/SeaBIOS execution and before KIRA's bootloader/kernel.
+- The runner records serial output separately (`serial.log`) and never records a QEMU log byte offset, timestamp, or guest-phase marker at the moment the OS reaches its ready prompt.
+- The PR #165 UHCI success artifact has 393,600 `Invalid read` records: 384 distinct addresses in two ranges (0x3FFDE000–0x3FFDE2A8 and 0x3FFDECAC–0x3FFDEFFC), plus exactly 98,304 reads each at 0x0, 0x4, 0x8 and 0xC. The first logged invalid read appears at the beginning of qemu.log. The artifact has no timestamps or phase labels to determine whether these reads happened in firmware, KIRA PCI enumeration, UHCI startup, or later guest activity.
+- Serial shows the OS eventually detects UHCI, keyboard/tablet/hub/storage, mounts FAT32 and reads the test file. This proves functional success, but does not timestamp or attribute the QEMU error records.
+
+### Consequence
+The previous audit correctly kept F-025 open, but the invalid-read count alone cannot be used as evidence that KIRA's UHCI driver generated the errors. Firmware may be responsible for some or all of the records; the current artifact format cannot distinguish this. F-054 is a real source-ordering hazard independent of that attribution question.
+
+### Required closure
+1. Change the VM runner to capture a QEMU guest_errors log boundary at the exact serial boot-ready marker and report separate pre-ready and post-ready counts.
+2. For focused USB diagnostics, add structured serial markers before PCI enumeration, before/after UHCI BM enable, before/after USBCMD stop/reset, FRBASE programming and controller RUN.
+3. Preserve full raw QEMU log but summarize post-ready errors separately; don't delete firmware evidence.
+4. Add a negative-control QEMU run without USB device/driver activation to estimate firmware-only noise.
+5. Close F-025 only after post-ready errors are attributed to a requester/device and the targeted guest phase is clean.
+
+F-055 remains OPEN.
