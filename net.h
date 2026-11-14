@@ -60,6 +60,12 @@ static inline int net_tcp_handle_decode(int handle, unsigned* slot, uint16_t* ge
     *slot = idx; *generation = (uint16_t)gen;
     return 0;
 }
+static inline int net_tcp_handle_matches(int handle, unsigned current_slot, uint16_t current_generation,
+                                         int active, int closing) {
+    unsigned slot; uint16_t generation;
+    return !net_tcp_handle_decode(handle, &slot, &generation) && slot == current_slot &&
+           generation == current_generation && active && !closing;
+}
 static inline int net_tcp_listener_handle_make(unsigned slot, uint16_t generation) {
     if (slot >= NET_TCP_LISTEN_SLOTS || !generation) return -1;
     return (int)(NET_TCP_LISTEN_HANDLE_BASE | ((uint32_t)generation << 2) | slot);
@@ -73,6 +79,13 @@ static inline int net_tcp_listener_handle_decode(int handle, unsigned* slot, uin
     if (!gen || idx >= NET_TCP_LISTEN_SLOTS) return -1;
     *slot = idx; *generation = (uint16_t)gen;
     return 0;
+}
+
+static inline int net_tcp_listener_handle_matches(int handle, unsigned current_slot, uint16_t current_generation,
+                                                  int active, int closing) {
+    unsigned slot; uint16_t generation;
+    return !net_tcp_listener_handle_decode(handle, &slot, &generation) && slot == current_slot &&
+           generation == current_generation && active && !closing;
 }
 
 /* Для ядра (и будущих сокетов программ): DNS и соединения TCP. Блокирующие, зовутся из потоков (не из «net»). */
