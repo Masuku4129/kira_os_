@@ -1598,3 +1598,12 @@ A transient DMA allocation failure can leave a partially initialized slot. If th
 5. Run the xHCI host model under ASan/UBSan and the QEMU xHCI/USB hub/storage scenarios.
 
 F-056 remains OPEN.
+
+
+### Comparative QEMU evidence from the phase-aware baseline run (2026-11-14)
+
+- PR #168, exact head `7ad4b30cf9e7cbb2cefaecaa06359838c5971841`, run `43620850523`: **43/43 jobs PASS**. Its actual `vm-usb-uhci` and `vm-boot-virtio` artifacts were inspected. Both `qemu.log` files are 0 bytes; diagnostics report 0 invalid reads and 0 invalid writes before and after guest-ready.
+- PR #165, run `43613588426`, exact head `7ad140cfadb51c4dacf809eca77fff60ff7fe12c`: prior UHCI artifact had 393,602 invalid-read records in its QEMU log while its functional scenario passed.
+- This is a useful differential: the invalid-read storm is not reproduced on current-main baseline and appears in the PR #165 branch. It strengthens F-054 (PCI Bus Master is cleared during enumeration, then UHCI/xHCI re-enable it before reset and DMA setup) as a causal hypothesis.
+- It is **not a controlled A/B**: the two runs use different source heads, and PR #165 contains other changes. Do not claim that F-054 is proven to generate every record. PR #169 is a stacked fix that tests the revised activation order on the PR #165 base; its exact-head CI and artifacts are still required.
+- The phase-aware runner itself passed 43/43 on #168 and wrote diagnostics for both scenarios. The log was genuinely empty, not a missing diagnostic file.
