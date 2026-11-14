@@ -73,7 +73,7 @@ int main(void) {
     for (int i = 0; i < 32; i++) key[i] = (uint8_t)(0x80 + i);
     hex("070000004041424344454647", nonce);
     uint8_t aad[12]; hex("50515253c0c1c2c3c4c5c6c7", aad);
-    aead_chacha20_poly1305_seal(key, nonce, aad, 12, (const uint8_t*)pt, n, out, tag);
+    CHECK(aead_chacha20_poly1305_seal(key, nonce, aad, 12, (const uint8_t*)pt, n, out, tag) == 0);
     CHECK(eqhex(out, "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d6"));
     CHECK(eqhex(tag, "1ae10b594f09e26a7e902ecbd0600691"));
     uint8_t back[256];
@@ -138,6 +138,24 @@ int main(void) {
     sha512_final(&q5, out);
     CHECK(eqhex(out, "f54480689c6b0b11d0303285d9a81b21a93bca6ba5a1b4472765dca4da45ee328082d469c650cd3b61b16d3266ab8ced"));
 
+#if SIZE_MAX > UINT32_MAX
+    /* ChaCha20-Poly1305 must reject a payload that would wrap its 32-bit block counter. */
+    uint8_t tiny = 0, test_tag[16] = { 0 };
+    size_t chacha_over = (size_t)((uint64_t)UINT32_MAX * 64u + 1u);
+    CHECK(chacha20_xor(key, UINT32_MAX, nonce, &tiny, &tiny, 65) == -1);
+    CHECK(aead_chacha20_poly1305_seal(key, nonce, 0, 0, &tiny, chacha_over, &tiny, test_tag) == -1);
+    CHECK(aead_chacha20_poly1305_open(key, nonce, 0, 0, &tiny, chacha_over, test_tag, &tiny) == -1);
+    CHECK(aead_chacha20_poly1305_seal(key, nonce, &tiny, SIZE_MAX, 0, 0, 0, test_tag) == -1);
+
+    /* GCM permits at most 2^32-2 payload counter blocks (2^36-32 bytes). */
+    aes_gcm_t bound_gcm;
+    aes128_gcm_init(&bound_gcm, key);
+    size_t gcm_over = (size_t)((UINT64_C(1) << 36) - 31);
+    CHECK(aes128_gcm_seal(&bound_gcm, nonce, 0, 0, &tiny, gcm_over, &tiny, test_tag) == -1);
+    CHECK(aes128_gcm_open(&bound_gcm, nonce, 0, 0, &tiny, gcm_over, test_tag, &tiny) == -1);
+    CHECK(aes128_gcm_seal(&bound_gcm, nonce, &tiny, SIZE_MAX, 0, 0, 0, test_tag) == -1);
+#endif
+
     { uint8_t k[16], blk[16]; aes_gcm_t g;                                   /* FIPS-197 C.1; GCM: McGrew-Viega 3 и 4 */
       for (int i = 0; i < 16; i++) k[i] = (uint8_t)i;
       hex("00112233445566778899aabbccddeeff", blk); aes128_gcm_init(&g, k); aes128_encrypt_block(g.rk, blk, out);
@@ -147,10 +165,10 @@ int main(void) {
       hex("d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b391aafd255", P);
       hex("feedfacedeadbeeffeedfacedeadbeefabaddad2", A);
       aes128_gcm_init(&g, k);
-      aes128_gcm_seal(&g, N, 0, 0, P, 64, C, tag);
+      CHECK(aes128_gcm_seal(&g, N, 0, 0, P, 64, C, tag) == 0);
       CHECK(eqhex(C, "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091473f5985"));
       CHECK(eqhex(tag, "4d5c2af327cd64a62cf35abd2ba6fab4"));
-      aes128_gcm_seal(&g, N, A, 20, P, 60, C, tag);
+      CHECK(aes128_gcm_seal(&g, N, A, 20, P, 60, C, tag) == 0);
       CHECK(eqhex(tag, "5bc94fbc3221a5db94fae95ae7121a47"));
       CHECK(aes128_gcm_open(&g, N, A, 20, C, 60, tag, back2) == 0 && !memcmp(back2, P, 60));
       C[7] ^= 1; CHECK(aes128_gcm_open(&g, N, A, 20, C, 60, tag, back2) == -1); }
