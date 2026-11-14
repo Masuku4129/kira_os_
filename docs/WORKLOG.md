@@ -558,3 +558,23 @@
 - PR #165 pre-cleanup head `64afef2c74f72597dd9620468c4b6bff1fc1bb31`, workflow `43603442098`: all 30 returned jobs succeeded. Cleanup head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`, workflow `43608372681`: queued/in progress at last check.
 
 F-017 is OPEN. PR #165 is a partial mitigation, not full DMA-handoff acceptance.
+
+
+## New source finding F-018 — FDT v16 structure-size compatibility (2026-11-14)
+
+**Severity:** MEDIUM; boot compatibility gap, not a memory-safety bypass once malformed blobs are rejected.
+
+### Evidence
+- The main FDT parser accepted `version >= 16` but unconditionally read header word 9 (`size_dt_struct`), which is introduced by FDT v17. FDT v16 has no such header field; its structure extent is derived from the offset ordering of the structure and strings blocks.
+- The parser also used this value as the structure-block bound for every token traversal. There was no v16 fixture in the host test.
+
+### Remediation under verification
+- PR #166 now derives v16 structure size as `off_dt_strings - off_dt_struct` and uses the explicit `size_dt_struct` field only for v17+.
+- Added a v16 fixture with the v17-only header word cleared; tests validate the tree root, compatible string and memory-reservation map.
+- Current PR #166 head after combined FDT/PMM and v16 changes: `61b124d9a912b4c5cc2106ab6aadbf28f289c9ab`. Exact-head CI was not yet visible at last check; no PASS claimed.
+
+### Required closure
+- Host FDT parser tests under ASan/UBSan and complete ARM64/QEMU matrix pass on the exact head.
+- Add or confirm at least one real bootloader-produced v16 DTB fixture if support for v16 is retained; otherwise explicitly reject v16 and document v17+ as the minimum supported FDT ABI.
+
+F-018 remains OPEN pending exact-head verification and compatibility decision.
