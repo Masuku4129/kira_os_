@@ -44,11 +44,32 @@ static int ram_flush(blk_dev_t* dev) {
 
 blk_dev_t* ramdisk_probe(void) {
     const uint32_t* tag = (const uint32_t*)mbinfo_find_tag(boot_info, MB2_TAG_MODULE);
-    if (!tag || tag[1] < 17) return 0;
+    if (!tag) {
+        uart_print("[KIRA RAMDISK] Multiboot2 module tag is missing.\\n");
+        return 0;
+    }
+    if (tag[1] < 17) {
+        uart_print("[KIRA RAMDISK] module tag is too short: "); uart_print_dec(tag[1]); uart_print("\\n");
+        return 0;
+    }
     uint32_t start = tag[2], end = tag[3];
-    if (end <= start || !module_is_root((const uint8_t*)(tag + 4), tag[1] - 16)) return 0;
+    const uint8_t* cmd = (const uint8_t*)(tag + 4);
+    uint32_t cmd_len = tag[1] - 16;
+    if (!module_is_root(cmd, cmd_len)) {
+        uart_print("[KIRA RAMDISK] module cmdline mismatch: ");
+        for (uint32_t i = 0; i < cmd_len && cmd[i]; i++) uart_putc((char)cmd[i]);
+        uart_print("\\n");
+        return 0;
+    }
+    if (end <= start) {
+        uart_print("[KIRA RAMDISK] invalid module bounds.\\n");
+        return 0;
+    }
     uint32_t bytes = end - start;
-    if ((bytes % BLK_SECTOR) != 0 || bytes / BLK_SECTOR < RAMDISK_MIN_SECTORS) return 0;
+    if ((bytes % BLK_SECTOR) != 0 || bytes / BLK_SECTOR < RAMDISK_MIN_SECTORS) {
+        uart_print("[KIRA RAMDISK] invalid module size: "); uart_print_dec(bytes); uart_print(" bytes\\n");
+        return 0;
+    }
 
     static blk_dev_t dev;
     static const char name[] = "kira-iso-ram";
