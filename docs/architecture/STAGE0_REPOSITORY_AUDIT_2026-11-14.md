@@ -595,3 +595,15 @@ No production source changed. Main remains untouched; no PR merged; no ISO built
 - The finding is source-level; audio tests and runtime race reproduction were not run in this pass.
 
 No production source changed. Main remains untouched; no PR merged; no ISO built.
+
+
+## 17. IPC object and shared-memory source audit — 2026-11-14
+
+**Stage 0 progress: 54%.** Reviewed named kernel objects, port queues/waiters, process handle references, shared-memory mapping lifetime and IPC syscall entry points.
+
+- No confirmed object use-after-free was established in the reviewed handle/reference paths: syscalls retain objects across operations, mappings retain shared-memory objects, and port queue/waiter changes use the port lock.
+- **Open architecture/security gate:** ports and shared-memory objects are globally discoverable by name in the reviewed open path, without per-object owner/ACL checks. This may be intended public IPC, but the trust model must explicitly say so or add capability/ACL enforcement and cross-process negative tests.
+- Diagnostic counter reads (`kobj_count`, `port_queued`) need an explicit synchronization contract if used concurrently.
+- No IPC stress/race tests or QEMU tests were run in this pass.
+
+No production source changed. Main remains untouched; no PR merged; no ISO built.
