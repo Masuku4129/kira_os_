@@ -381,3 +381,10 @@
 - Exact-head workflow `43590094470`: **43/43 jobs PASS**, zero failures, zero cancellations.
 - This closes the prior `apps-drvman` test synchronization issue on this exact combined head and verifies stack-slot generation ownership plus atomic PMM contiguous release across the CI host/ARM64/QEMU matrix.
 - Status: fixes are verified on an unmerged Draft PR branch. They are not yet part of `main`; do not claim main is fixed until review/merge.
+
+
+### PR #155 — F-010 exact-head CI passed (2026-11-14)
+
+- Exact head `f2df3472d78241e6287d5cc7601b5d3a632b3e52`, workflow `43590730265`: **43/43 checks PASS**, zero failures/cancellations.
+- Host suite, ARM64 build and QEMU matrix all passed. This verifies generation-bound per-CPU acknowledgements, stale-generation rejection, non-reusable counter policy and fail-closed timeout behavior under the current automated matrix.
+- Status: verified on unmerged Draft PR #155; main remains unchanged. Hardware fault-injection for a permanently nonresponsive AP is not covered by the current CI and remains a limitation to record.
