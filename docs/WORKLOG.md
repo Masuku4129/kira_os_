@@ -1336,3 +1336,11 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - Добавлен F-062 как blocker открытого PR stack. Он отделён от current-main findings: это не доказательство дефекта pinned main и не основание считать production baseline сломанным.
 - Исправление намеренно не внесено: Stage 0 фиксирует причину и зависимость; перед изменением веток нужно согласовать точку исправления общего предка и повторить exact-head проверки. PR не сливались и не переназначались.
 - Тестовые результаты получены из GitHub Actions; локальные тесты не запускались. Текущая ветка аудита содержит только документационные изменения.
+
+
+## #74 — Stage 0: complete open PR graph inventory (2026-11-15)
+
+- Captured all **92 open PRs** and grouped them by 47 base-ref/base-SHA combinations.
+- Added `docs/architecture/STAGE0_OPEN_PR_GRAPH_2026-11-15.md` with exact head/base refs and SHA, draft status, integration rules and explicit evidence limits.
+- Confirmed `main` remains at `3497f48fe769dc61d90ee63da8cc7fc85d6eab7e`; audit work stays on the dedicated audit branch.
+- This is metadata inventory only; all 92 diffs, ancestry, review threads and exact-head CI still require classification before integration.
