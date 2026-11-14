@@ -36,16 +36,16 @@ san = [x509.DNSName("kira.test"), x509.DNSName("*.kira.test"), x509.IPAddress(ip
 root = cert("Kira Test Root", rk, "Kira Test Root", rk, hashes.SHA256(), True, (-1, 365),
             key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
             data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True,
-            encipher_only=False, decipher_only=False))
+            encipher_only=None, decipher_only=None))
 inter = cert("Kira Test Intermediate", ik, "Kira Test Root", rk, hashes.SHA256(), True,
              key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
              data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True,
-             encipher_only=False, decipher_only=False))
+             encipher_only=None, decipher_only=None))
 leaf = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, san=san,
             eku=[ExtendedKeyUsageOID.SERVER_AUTH],
             key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
             data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
-            encipher_only=False, decipher_only=False))
+            encipher_only=None, decipher_only=None))
 old = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, (-60, -30), san=san)
 sk = ec.generate_private_key(ec.SECP256R1())
 selfs = cert("kira.test", sk, "kira.test", sk, hashes.SHA256(), False, san=san)
@@ -54,14 +54,14 @@ for n, c in [("root", root), ("inter", inter), ("leaf", leaf), ("expired", old),
 bad_ku = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, san=san,
               key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=True,
               data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
-              encipher_only=False, decipher_only=False))
+              encipher_only=None, decipher_only=None))
 bad_eku = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, san=san,
                eku=[ExtendedKeyUsageOID.CLIENT_AUTH])
 bad_critical = cert("kira.test", lk, "Kira Test Intermediate", ik, hashes.SHA384(), False, san=san, unknown_critical=True)
 bad_inter_ku = cert("Kira Test Intermediate", ik, "Kira Test Root", rk, hashes.SHA256(), True,
                     key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
                     data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
-                    encipher_only=False, decipher_only=False))
+                    encipher_only=None, decipher_only=None))
 for n, c in [("bad_ku", bad_ku), ("bad_eku", bad_eku), ("bad_critical", bad_critical), ("bad_inter_ku", bad_inter_ku)]:
     save(n, c)
 
@@ -69,22 +69,22 @@ for n, c in [("bad_ku", bad_ku), ("bad_eku", bad_eku), ("bad_critical", bad_crit
 top0 = cert("Kira PathLen Zero", ik, "Kira Test Root", rk, hashes.SHA256(), True,
             path_length=0, key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False,
             key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=True,
-            crl_sign=True, encipher_only=False, decipher_only=False))
+            crl_sign=True, encipher_only=None, decipher_only=None))
 subk = ec.generate_private_key(ec.SECP256R1())
 subca = cert("Kira Subordinate CA", subk, "Kira PathLen Zero", ik, hashes.SHA256(), True,
              key_usage=x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
              data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True,
-             encipher_only=False, decipher_only=False))
+             encipher_only=None, decipher_only=None))
 subleaf = cert("kira.test", lk, "Kira Subordinate CA", subk, hashes.SHA256(), False, san=san,
                eku=[ExtendedKeyUsageOID.SERVER_AUTH],
                key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
                data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
-               encipher_only=False, decipher_only=False))
+               encipher_only=None, decipher_only=None))
 path0_directleaf = cert("kira.test", lk, "Kira PathLen Zero", ik, hashes.SHA256(), False, san=san,
                        eku=[ExtendedKeyUsageOID.SERVER_AUTH],
                        key_usage=x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
                        data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
-                       encipher_only=False, decipher_only=False))
+                       encipher_only=None, decipher_only=None))
 for n, c in [("path0_inter", top0), ("path0_subca", subca), ("path0_leaf", subleaf)]:
     save(n, c)
 save("path0_directleaf", path0_directleaf)
