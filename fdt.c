@@ -1,5 +1,7 @@
 #include "fdt.h"
 
+/* Заголовок: magic, totalsize, off_dt_struct, off_dt_strings, off_mem_rsvmap, version, last_comp_version,
+   boot_cpuid_phys, size_dt_strings, size_dt_struct (все - 32 бита, большой порядок). */
 enum { T_BEGIN = 1, T_END = 2, T_PROP = 3, T_NOP = 4, T_FINISH = 9 };
 
 uint32_t fdt_u32(const void* p) {
@@ -11,6 +13,7 @@ static const uint8_t* sblk(const void* fdt) { return (const uint8_t*)fdt + hdr(f
 static uint32_t slen(const void* fdt) {
     uint32_t version = hdr(fdt, 5);
     if (version >= 17) return hdr(fdt, 9);
+    /* FDT v16 has no size_dt_struct header field; its structure block ends at strings. */
     uint32_t structure = hdr(fdt, 2), strings = hdr(fdt, 3);
     return strings >= structure ? strings - structure : 0;
 }
@@ -23,6 +26,8 @@ static uint64_t fdt_u64(const void* p) {
 }
 #define FDT_RESERVE_MAX 1024u
 
+/* Validate and measure the header's memory-reservation map. It is a bounded sequence
+   of 64-bit BE address/size pairs terminated by the all-zero pair. */
 static int reserve_map_scan(const void* fdt, uint32_t total, uint32_t* map_end, unsigned* count) {
     uint32_t off = hdr(fdt, 4);
     if (off < 40 || (off & 7u) || off > total || total - off < 16) return 0;
@@ -83,6 +88,7 @@ int fdt_reserve_get(const void* fdt, unsigned idx, uint64_t* addr, uint64_t* siz
     return 0;
 }
 
+/* Смещение следующего токена после токена в off; токен в *tok. -1 - выход за блок. */
 static int step(const void* fdt, int off, uint32_t* tok) {
     uint32_t n = slen(fdt);
     if (off < 0 || (uint32_t)off + 4 > n) return -1;
@@ -117,7 +123,7 @@ int fdt_root(const void* fdt) {
 
 int fdt_next_node(const void* fdt, int node, int* depth) {
     uint32_t tok;
-    int off = step(fdt, node, &tok);
+    int off = step(fdt, node, &tok);           /* за BEGIN текущего узла */
     if (off < 0 || tok != T_BEGIN) return -1;
     int d = depth ? *depth : 0;
     for (;;) {
@@ -144,7 +150,7 @@ const void* fdt_prop(const void* fdt, int node, const char* name, uint32_t* len)
         if (tok == T_PROP) {
             uint32_t l = fdt_u32(s + off + 4), no = fdt_u32(s + off + 8);
             if (no < stsz && streq(strs(fdt) + no, name)) { if (len) *len = l; return s + off + 12; }
-        } else if (tok != T_NOP) return 0;
+        } else if (tok != T_NOP) return 0;     /* свойства идут до первого дочернего узла */
         off = nx;
     }
 }
@@ -154,7 +160,7 @@ int fdt_compatible(const void* fdt, int node, const char* compat) {
     const char* c = (const char*)fdt_prop(fdt, node, "compatible", &len);
     if (!c) return 0;
     uint32_t i = 0;
-    while (i < len) {
+    while (i < len) {                          /* список строк через \0 */
         unsigned l = slen0(c + i, len - i);
         if (i + l < len && streq(c + i, compat)) return 1;
         i += l + 1;
@@ -172,6 +178,7 @@ int fdt_find_compatible(const void* fdt, int after, const char* compat) {
     return -1;
 }
 
+/* Сравнение одного шага пути с именем узла: «cpus» совпадает с «cpus» и с «cpus@0». */
 static int name_match(const char* node, const char* part, unsigned plen) {
     unsigned i = 0;
     while (i < plen && node[i] == part[i]) i++;
@@ -185,6 +192,7 @@ int fdt_find_path(const void* fdt, const char* path) {
     const char* p = path + 1;
     while (*p) {
         unsigned plen = 0; while (p[plen] && p[plen] != '/') plen++;
+        /* среди прямых детей node */
         int depth = 0, found = -1;
         int c = fdt_next_node(fdt, node, &depth);
         while (c >= 0 && depth > 0) {
@@ -224,7 +232,7 @@ int fdt_prop_u32(const void* fdt, int node, const char* name, uint32_t* out) {
 
 int fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* size) {
     int par = fdt_parent(fdt, node);
-    uint32_t ac = 2, sc = 1;
+    uint32_t ac = 2, sc = 1;                   /* значения по умолчанию спецификации */
     if (par >= 0) { fdt_prop_u32(fdt, par, "#address-cells", &ac); fdt_prop_u32(fdt, par, "#size-cells", &sc); }
     if (ac < 1 || ac > 2 || sc > 2) return -1;
     uint32_t len;
@@ -236,7 +244,7 @@ int fdt_reg(const void* fdt, int node, unsigned idx, uint64_t* addr, uint64_t* s
     uint64_t a = 0, s = 0;
     for (uint32_t i = 0; i < ac; i++) a = (a << 32) | fdt_u32(r + 4 * i);
     for (uint32_t i = 0; i < sc; i++) s = (s << 32) | fdt_u32(r + 4 * (ac + i));
-    if (s && s > UINT64_MAX - a) return -1;
+    if (s && s > UINT64_MAX - a) return -1; /* reg must describe a non-wrapping half-open range */
     if (addr) *addr = a;
     if (size) *size = s;
     return 0;
@@ -256,6 +264,7 @@ unsigned fdt_count_type(const void* fdt, int parent, const char* type) {
     }
     return n;
 }
+
 
 int fdt_node_enabled(const void* fdt, int node) {
     uint32_t len;
