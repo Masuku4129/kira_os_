@@ -990,3 +990,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - The inspected process sample and policy have no explicit essential/non-killable service class, foreground/user-work veto, pending-write/transaction check or restartability requirement. Thus the current candidate selection can choose a critical service or unsaved application if it happens to be the largest process.
 - Added F-032 HIGH policy/reliability finding. Required closure: kernel-owned process classes, protected services, reversible reclaim first, safe termination/restart vetoes, observe-only deployment and adversarial selection tests.
 - This does not claim a concrete process was killed in a VM; it records the source-level authority gap. No code changed.
+
+
+## 42. FAT/VFS persistence and mount-table concurrency audit — 2026-11-14
+
+- Inspected FAT mount/write/replace/mkdir/unlink/flush paths, KiraFS write/rollback paths, block-device flush wrapper, VFS mount/unmount and tests.
+- Confirmed F-033: fat_flush() propagates FAT-sector and FSInfo write errors but discards the underlying device flush callback result and returns success. vfs_flush() therefore can falsely report durable completion. Existing FAT host fixture has no flush callback; separate store_test flush-failure coverage does not test FAT.
+- Confirmed F-034: per-slot locks protect mount/unmount and volume operations, but vfs_any() and the root branch of vfs_list() read mount slot state without locks. Concurrent unmount/reuse can yield an inconsistent root listing/availability result.
+- KiraFS write path has a stronger copy-on-write-like ordering for file replacement: new data and metadata are flushed before inode switch, then old blocks are freed. KiraFS still has no general journal/atomic transaction layer, so crash tests and mount repair remain essential.
+- Added F-033 HIGH and F-034 MEDIUM to source findings. No filesystem code changed.
