@@ -519,9 +519,9 @@
 
 ### Stage 0 follow-up — exact CI evidence and dependency review (2026-11-14)
 
-- Rechecked PR #165 after the earlier UHCI regression: exact head `64afef2c74f72597dd9620468c4b6bff1fc1bb31`, workflow `43603442098`, completed successfully. All 29 jobs returned by the workflow-jobs endpoint succeeded, including `vm (usb-uhci)`. This supersedes the previous failure status for that head.
+- Rechecked PR #165 after the earlier UHCI regression: exact head `64afef2c74f72597dd9620468c4b6bff1fc1bb31`, workflow `43603442098`, completed successfully. All 30 jobs returned by the workflow-jobs endpoint succeeded, including `vm (usb-uhci)`. This supersedes the previous failure status for that head.
 - Removed temporary `[KIRA BOOT TRACE]` instrumentation from `kernel.c` and temporary USB PCI trace code / UART include from `pci.c` on PR #165. Cleanup head is `18a4bc319d85c3b05ea3fc9f341db616acfdffdb`; no exact-head CI run/status has appeared yet. Do not accept the cleanup head until CI confirms it.
-- Rechecked PR #166 F-016: exact head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229`, workflow `43602565437`, completed successfully; all 29 returned jobs succeeded, including host tests, x86-64, ARM64 and QEMU matrix.
+- Rechecked PR #166 F-016: exact head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229`, workflow `43602565437`, completed successfully; all 30 returned jobs succeeded, including host tests, x86-64, ARM64 and QEMU matrix.
 - Source review found a cross-PR dependency: #166's new late `pmm_arm_reserve()` calls require #158's reserved bitmap semantics so reserved firmware pages cannot later be freed. #158 exact head `70d0e89a65414818c22d61532f7ca4288c464d2c`, workflow `43592051859`, 43/43 PASS. Plan combined review/integration and add an FDT-reservation-to-PMM host regression; no merge performed.
 - Main remains unchanged. No local test execution or physical ARM64 test was performed.
 
@@ -531,6 +531,6 @@
 - PR #166 was expanded beyond the original FDT parser patch to carry the verified ARM64 PMM reserved-page ownership and atomic contiguous-release implementation from PR #158.
 - Added an end-to-end host regression in `tests/fdt_test.c`: parse the FDT header reservation, apply it to ARM64 PMM, prove the reserved page cannot be freed, exhaust all remaining allocatable pages and prove the reserved page is never returned.
 - Added the independent `tests/pmm_arm_test.c` suite and wired it into `tests/run_host_tests.sh`; the FDT test now links the actual ARM64 PMM implementation.
-- Updated PR #166 description to state the combined scope and exact verification boundary. Current head: `5846df979218bd43e0edfdd456f7042d45e8c195`; exact-head workflow `43608492629` is pending. The earlier FDT-only head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229` passed 29/29 returned jobs, but that result does not transfer to the expanded head.
+- Updated PR #166 description to state the combined scope and exact verification boundary. Current head: `5846df979218bd43e0edfdd456f7042d45e8c195`; exact-head workflow `43608492629` is pending. The earlier FDT-only head `9d6443ff2db7195e8abf0c6d63a6257c1c38f229` passed 29/30 returned jobs, but that result does not transfer to the expanded head.
 - PR #158 remains open as the standalone source of the PMM change; do not merge both independently or duplicate the same implementation. Review the combined #166 diff and decide which PR is the integration vehicle after its exact-head CI completes.
 - PR #165 diagnostic-cleanup head `18a4bc319d85c3b05ea3fc9f341db616acfdffdb` has workflow `43608372681` queued/in progress; the previous pre-cleanup head passed all 30 returned jobs (not 29; the latest job listing contains 30 entries). No result is claimed for the cleanup head yet.
