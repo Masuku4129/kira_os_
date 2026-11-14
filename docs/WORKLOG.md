@@ -400,3 +400,12 @@
 
 
 - F-012 cross-architecture follow-up: first PR #157 CI run `43591470627` caught an undefined `uart_print_atomic` symbol on ARM64. Added an ARM64 alias to its existing whole-string locked UART implementation. Current head `59b391696baabfd49f2ff48acf5aba2b9db538de`; exact-head workflow `43591626068` pending.
+
+
+### ARM64 PMM ownership parity findings F-013/F-014 (2026-11-14)
+
+- Source review of `arch/aarch64/pmm_arm.c` found no reserved bitmap: `pmm_arm_reserve()` only set the used bit, while `pmm_free_page()` accepted any used page. A stale free could release kernel/FDT/early page-table/DMA-reserved memory.
+- ARM64 `pmm_free_contiguous()` looped over individual frees and could partially release a block before encountering an invalid middle page. This was not covered by the x86-64 F-009 fix.
+- Draft PR #158 adds a separate reserved bitmap, counts overlapping RAM entries once, rejects frees of reserved pages, and validates/releases contiguous ranges atomically under one lock.
+- Added `tests/pmm_arm_test.c` for reserved-page rejection, overlapping regions, late reservations, double free and invalid-middle all-or-nothing block release; wired into host CI with ASan/UBSan.
+- Exact-head CI pending; no local tests claimed.
