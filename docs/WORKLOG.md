@@ -474,3 +474,10 @@
 - Records the F-003 source defect: `pci_use_ecam()` stores a host bus range but `pci_init()` starts at bus 0; bridge traversal follows secondary bus without carrying the subordinate limit.
 - Defines nonzero root-bus support, validated primary/secondary/subordinate tuples, parent-window inheritance, cycle protection and legacy x86 bus-0 compatibility.
 - Implementation and host/QEMU regression remain pending.
+
+
+### F-003 — PCI host bus-range implementation opened for current-main verification (2026-11-14)
+
+- Draft PR #162: `pci_init_range()`, ECAM root starts at declared `bus_start`, bridge primary/secondary/subordinate validation, parent subordinate bound inheritance and legacy bus-0 compatibility.
+- Host tests include nonzero root, nested windows, out-of-range bridge, wrong primary, invalid-range snapshot preservation, legacy scan and real ECAM path.
+- Exact-head CI pending. No main changes and no PASS claimed.
