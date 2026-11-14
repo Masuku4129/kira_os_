@@ -466,3 +466,11 @@
 - Exact head `d5628989db142212bf6af26510a06e5bd0e70c90`, workflow `43592802619`: **43/43 checks PASS**, zero failures/cancellations.
 - Includes F-011 checked MMIO range arithmetic and its ASan/UBSan host boundary tests, plus F-012 atomic UART records from the previously verified PR #157.
 - Host tests, x86-64 build, ARM64 build and full QEMU matrix passed. F-011/F-012 are verified on this unmerged Draft PR; main remains unchanged.
+
+
+### ADR-0005 — PCI host bus-range and bridge subordinate bounds (2026-11-14)
+
+- Added `docs/adr/ADR-0005-pci-host-bus-range-enumeration.md`.
+- Records the F-003 source defect: `pci_use_ecam()` stores a host bus range but `pci_init()` starts at bus 0; bridge traversal follows secondary bus without carrying the subordinate limit.
+- Defines nonzero root-bus support, validated primary/secondary/subordinate tuples, parent-window inheritance, cycle protection and legacy x86 bus-0 compatibility.
+- Implementation and host/QEMU regression remain pending.
