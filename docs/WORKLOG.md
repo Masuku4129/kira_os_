@@ -1100,3 +1100,12 @@ These are separate Draft PRs directly based on current main. Their exact-head CI
 - User-memory copies validate the complete range before architecture-specific fault-contained copy; stack growth is retried through `proc_stack_prepare`. `user_read32` requires aligned, mapped user memory before the architecture-specific read.
 - No new confirmed privilege-escalation finding in the reviewed syscall/uaccess paths. This is a bounded source review, not proof of all syscall implementations; network, FS, audio, IPC, graphics and KDRV subsystem internals retain their own findings and acceptance gates.
 - No production source changed and no host tests were run in this pass.
+
+
+## 51. Audio stream lifecycle and synchronization audit — 2026-11-14
+
+- Reviewed the software mixer, per-process stream table, resampler write path, mixer consumption, close and process-teardown paths, and capture entry points.
+- Confirmed F-043: `audio_sys()` validates a reusable stream slot without the stream lock and uses it without pinning; close/process teardown can release the slot while an operation is in flight, allowing a reused slot to be touched by a stale operation. Gain writes also race with mixer reads, and resampler/format fields are not covered by one consistent synchronization contract.
+- Exact source evidence: `audio.c:120-143` (mixer reads under `lk`), `224-262` (syscall validation and operations), `333-336` (process teardown under `lk`).
+- Required fix is a pinned/generation-tagged stream handle with close/drain semantics and one lock contract for resampler and queue state. Add concurrent write/gain/close/exit/reopen tests and TSan.
+- This is a source audit only; no audio tests or runtime race reproducer were executed in this pass. No production source changed.
