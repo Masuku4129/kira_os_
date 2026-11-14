@@ -427,7 +427,7 @@ int main(void) {
     wm_set_meters(panel_busy, 2, 65, 75);
     CHECK(wm_compose(&x, &y, &w, &h)); /* live telemetry invalidates the open panel */
     frame();
-    CHECK(px(&scr, 990, 70) == TH_BAR0); /* unobstructed panel interior, away from the title glyph */
+    CHECK(px(&scr, 990, 70) != TH_BAR0 && px(&scr, 990, 70) != TH_BG0); /* glass panel blends with the desktop beneath it */
     click(500, 300);
     CHECK(!wm_system_panel_is_open() && wm_top() == panel_under_top);
     wm_destroy(panel_under);
