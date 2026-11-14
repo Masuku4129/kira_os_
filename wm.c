@@ -514,6 +514,7 @@ void wm_init_mode(surface_t* screen, const wm_ops_t* o, wm_layout_mode_t mode) {
     notification_head = notification_count = 0; notification_center_open = notification_toast_active = 0; notification_toast_until = 0; modal_release_guard = 0;
     win_generation = 0;
     scr = screen;
+    wallpaper = 0;
     ops = *o;
     for (int i = 0; i < WM_MAX_WIN; i++) win[i].used = 0;
     zcount = 0; dragging = -1; resizing = -1; capture = -1; prev_buttons = 0;
