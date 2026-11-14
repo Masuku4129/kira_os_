@@ -1931,22 +1931,22 @@ static void draw_wallpaper(surface_t* dst, int origin_x, int origin_y) {
     }
     /* Fixed-point nearest-neighbour mapping avoids a 64-bit divide per pixel.
        This path is hit even for small cursor-damage redraws. */
-    uint64_t xstep = ((uint64_t)(unsigned)crop_w << 16) / (uint64_t)(unsigned)scr->w;
-    uint64_t ystep = ((uint64_t)(unsigned)crop_h << 16) / (uint64_t)(unsigned)scr->h;
+    uint64_t xstep = ((uint64_t)(unsigned)crop_w << 32) / (uint64_t)(unsigned)scr->w;
+    uint64_t ystep = ((uint64_t)(unsigned)crop_h << 32) / (uint64_t)(unsigned)scr->h;
     for (int y = 0; y < dst->h; y++) {
         int ay = origin_y + y;
         if (ay < 0) ay = 0;
         if (ay >= scr->h) ay = scr->h - 1;
-        int sy = sy0 + (int)(((uint64_t)(unsigned)ay * ystep) >> 16);
+        int sy = sy0 + (int)(((uint64_t)(unsigned)ay * ystep) >> 32);
         if (sy >= sy0 + crop_h) sy = sy0 + crop_h - 1;
         uint32_t* out = dst->px + (long)y * dst->pitch;
         const uint32_t* in = src->px + (long)sy * src->pitch;
         int ax = origin_x;
         if (ax < 0) ax = 0;
         if (ax >= scr->w) ax = scr->w - 1;
-        uint64_t sx_fp = ((uint64_t)(unsigned)sx0 << 16) + (uint64_t)(unsigned)ax * xstep;
+        uint64_t sx_fp = ((uint64_t)(unsigned)sx0 << 32) + (uint64_t)(unsigned)ax * xstep;
         for (int x = 0; x < dst->w; x++, sx_fp += xstep) {
-            unsigned sx = (unsigned)(sx_fp >> 16);
+            unsigned sx = (unsigned)(sx_fp >> 32);
             if (sx >= (unsigned)(sx0 + crop_w)) sx = (unsigned)(sx0 + crop_w - 1);
             out[x] = in[sx] & 0x00FFFFFFu;
         }
