@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "log_scope": "QEMU guest_errors from process start; firmware and guest are both included",
+  "phase_boundary": "QEMU log byte offset captured when KIRA console prompt is first observed",
+  "phase_boundary_accuracy": "best-effort file-size snapshot; QEMU may buffer log writes; not a timestamped ownership boundary",
+  "logs": [
+    {
+      "path": "qemu.log",
+      "exists": true,
+      "log_bytes": 0,
+      "ready_boundary_bytes": 0,
+      "boundary_status": "available",
+      "invalid_reads_total": 0,
+      "invalid_reads_before_guest_ready": 0,
+      "invalid_reads_after_guest_ready": 0,
+      "invalid_writes_total": 0,
+      "invalid_writes_before_guest_ready": 0,
+      "invalid_writes_after_guest_ready": 0
+    }
+  ],
+  "ready_markers": [
+    {
+      "path": "qemu.log",
+      "event": "guest-ready",
+      "serial_offset": 6124,
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 5.407
+    }
+  ],
+  "serial_markers": [
+    {
+      "line": "[PCI TRACE] begin 0:0.0",
+      "serial_offset": 2732,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.844
+    },
+    {
+      "line": "[PCI TRACE] probed 0:0.0",
+      "serial_offset": 2757,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.845
+    },
+    {
+      "line": "[PCI TRACE] secured 0:0.0",
+      "serial_offset": 2783,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.846
+    },
+    {
+      "line": "[PCI TRACE] begin 0:1.0",
+      "serial_offset": 2807,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.847
+    },
+    {
+      "line": "[PCI TRACE] probed 0:1.0",
+      "serial_offset": 2832,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.849
+    },
+    {
+      "line": "[PCI TRACE] secured 0:1.0",
+      "serial_offset": 2858,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.85
+    },
+    {
+      "line": "[PCI TRACE] begin 0:1.1",
+      "serial_offset": 2882,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.85
+    },
+    {
+      "line": "[PCI TRACE] probed 0:1.1",
+      "serial_offset": 2907,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.852
+    },
+    {
+      "line": "[PCI TRACE] secured 0:1.1",
+      "serial_offset": 2933,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.853
+    },
+    {
+      "line": "[PCI TRACE] begin 0:1.3",
+      "serial_offset": 2957,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.854
+    },
+    {
+      "line": "[PCI TRACE] probed 0:1.3",
+      "serial_offset": 2982,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.856
+    },
+    {
+      "line": "[PCI TRACE] secured 0:1.3",
+      "serial_offset": 3008,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.856
+    },
+    {
+      "line": "[PCI TRACE] begin 0:2.0",
+      "serial_offset": 3032,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.857
+    },
+    {
+      "line": "[PCI TRACE] probed 0:2.0",
+      "serial_offset": 3057,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.861
+    },
+    {
+      "line": "[PCI TRACE] secured 0:2.0",
+      "serial_offset": 3083,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.862
+    },
+    {
+      "line": "[PCI TRACE] begin 0:3.0",
+      "serial_offset": 3107,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.863
+    },
+    {
+      "line": "[PCI TRACE] probed 0:3.0",
+      "serial_offset": 3132,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.865
+    },
+    {
+      "line": "[PCI TRACE] secured 0:3.0",
+      "serial_offset": 3158,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.866
+    },
+    {
+      "line": "[PCI TRACE] begin 0:4.0",
+      "serial_offset": 3182,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.867
+    },
+    {
+      "line": "[PCI TRACE] probed 0:4.0",
+      "serial_offset": 3207,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.869
+    },
+    {
+      "line": "[PCI TRACE] secured 0:4.0",
+      "serial_offset": 3233,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 4.872
+    },
+    {
+      "line": "[KIRA OS] Ready. Type 'help' and press Enter.",
+      "serial_offset": 6113,
+      "qemu_log": "qemu.log",
+      "qemu_log_offset": 0,
+      "seconds_since_qemu_start": 5.407
+    }
+  ]
+}
