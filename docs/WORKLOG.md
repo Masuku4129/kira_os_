@@ -459,3 +459,10 @@
 - Records that DMA and MSI/MSI-X both require bus mastering and must be denied to Ring 3 drivers until a per-device IOMMU domain is created, attached, invalidated, mapped/unmapped and safely torn down.
 - Defines fail-closed behavior, PCI quiesce, MMIO-only exception, future VT-d/SMMUv3 acceptance requirements and physical-hardware evidence requirements.
 - Implementation candidate is Draft PR #161; exact-head CI `43593017450` pending at time of record.
+
+
+### PR #160 — MMIO range + atomic UART combined exact-head CI passed (2026-11-14)
+
+- Exact head `d5628989db142212bf6af26510a06e5bd0e70c90`, workflow `43592802619`: **43/43 checks PASS**, zero failures/cancellations.
+- Includes F-011 checked MMIO range arithmetic and its ASan/UBSan host boundary tests, plus F-012 atomic UART records from the previously verified PR #157.
+- Host tests, x86-64 build, ARM64 build and full QEMU matrix passed. F-011/F-012 are verified on this unmerged Draft PR; main remains unchanged.
