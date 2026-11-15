@@ -37,6 +37,7 @@
 #include "life.h"
 #include "progs.h"
 #include "fssvc.h"
+#include "gfxctl.h"
 #include "kdrv.h"
 #include "fsrv.h"
 #include "experience.h"
@@ -332,10 +333,12 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     uint64_t last_verify = 0;
 
     fssvc_init();        // порт kira.fs: файловая служба на сообщениях CBOR
+    gfxctl_init();       // порт kira.gfx: окна и события на сообщениях CBOR
     for (;;) {
         console_poll();
         prog_poll();         // запуск, заказанный дисплеем (иконки дока)
         fssvc_poll();        // запросы к порту kira.fs
+        gfxctl_poll();       // запросы к порту kira.gfx
         kdrv_poll();         // драйверы Ring 3: первое сканирование /drv, возврат памяти погибших
         (void)iommu_fault_poll();   // нарушения DMA, записанные VT-d: строка в журнал, без остановки ядра
         life_tick();         // журнал организма: запись накопленных событий

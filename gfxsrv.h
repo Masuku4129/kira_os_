@@ -21,6 +21,9 @@ enum { GEV_KEY_DOWN = 1, GEV_KEY_UP = 2, GEV_MOUSE_MOVE = 3, GEV_MOUSE_BUTTON = 
 int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h);   /* адрес пикселей в процессе или -1 */
 int64_t gfx_sys_present(uint32_t pid);
 int64_t gfx_sys_event(uint32_t pid, uint64_t user_ptr);                            /* 1 - событие, 0 - нет, -1 - ошибка */
+/* Для службы kira.gfx (gfxctl.c): те же данные, что у вызовов процесса, но в память ядра. */
+int     gfx_win_info(uint32_t pid, uint32_t* w, uint32_t* h, int* focus);                  /* 0 - окно есть, -1 - нет */
+int     gfx_event_take(uint32_t pid, gfx_event_t* out);                                    /* 1 - событие забрано, 0 - нет, -1 - окна нет */
 void    gfx_proc_gone(uint32_t pid);                                               /* процесс завершён (IF может быть 0) */
 
 /* Поток дисплея. */

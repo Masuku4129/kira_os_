@@ -37,6 +37,7 @@
 #include "uaccess.h"
 #include "progs.h"
 #include "fssvc.h"
+#include "gfxctl.h"
 #include "kdrv.h"
 #include "kfs.h"
 #include "klog.h"
@@ -1459,6 +1460,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
 
     console_init();                                              /* общая консоль: те же команды, что у x86-64 */
     fssvc_init();                                                /* порт kira.fs: файловая служба на сообщениях CBOR */
+    gfxctl_init();                                               /* порт kira.gfx: окна и события на сообщениях CBOR */
     for (;;) {                                                   /* поток core: консоль и секундные дела */
         console_poll();
         static uint64_t last_sec, seconds;
@@ -1471,6 +1473,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
         }
         prog_poll();                                             /* запуск, заказанный оболочкой (док, Проводник) */
         fssvc_poll();                                            /* запросы к порту kira.fs */
+        gfxctl_poll();                                           /* запросы к порту kira.gfx */
         kdrv_poll();                                             /* драйверы Ring 3 */
         life_tick();
         watchdog_feed();

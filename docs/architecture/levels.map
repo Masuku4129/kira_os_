@@ -149,6 +149,7 @@ kapi kstack.h
 3 ramext.*
 3 kpar.*
 3 cbor.*
+3 userland/kframe.h   # каркас сообщений служб (CBOR v1): общий для ядра и программ, зависит только от cbor
 3 json.*
 3 cas.*
 3 sysseal.*
@@ -158,6 +159,8 @@ kapi kstack.h
 6 progs.*   # запуск программ из ФС: читает файлы (kfs), опирается на иммунитет, подписи и журнал жизни; вызывается консолью и дисплеем
 6 fscmd.*
 6 fsrv.*
+6 ksvc.*     # каркас служб ядра на портах (CBOR v1): привязка ответных портов, личность отправителя
+6 gfxctl.*   # управляющий слой графического сервера на портах (CBOR): окно и события
 6 fssvc.*   # служба файлов на портах (CBOR): читает порт kira.fs и исполняет запросы через fsrv
 6 net.*
 6 ip6.*
@@ -171,6 +174,7 @@ kapi kstack.h
 6 console.*
 6 services/*
 7 userland/wasm*
+7 userland/wasi_host.h   # заглушек нет: общий заголовок WASI-хоста для wasm.c и хост-теста
 7 userland/kccrt*
 7 userland/libc_min.*
 7 userland/kira.h

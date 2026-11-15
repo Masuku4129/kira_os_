@@ -163,6 +163,34 @@ int64_t gfx_sys_event(uint32_t pid, uint64_t user_ptr) {
     return 0;
 }
 
+int gfx_win_info(uint32_t pid, uint32_t* w, uint32_t* h, int* focus) {
+    app_t* a = find_pid(pid);
+    if (!a) return -1;
+    *w = a->w; *h = a->h; *focus = gfx_focus_pid() == (int)pid;
+    return 0;
+}
+
+int gfx_event_take(uint32_t pid, gfx_event_t* out) {
+    app_t* a = find_pid(pid);
+    if (!a) return -1;
+    uint64_t f = spin_lock_irqsave(&a->q_lock);
+    if (__atomic_load_n(&a->used, __ATOMIC_ACQUIRE) != 1 || a->pid != pid) { spin_unlock_irqrestore(&a->q_lock, f); return -1; }
+    uint32_t t = a->qt;
+    if (t != a->qh) { *out = a->q[t % EVQ]; a->qt = t + 1; spin_unlock_irqrestore(&a->q_lock, f); return 1; }
+    spin_unlock_irqrestore(&a->q_lock, f);
+    if (gfx_focus_pid() == (int)pid) {                 /* клавиатура уходит окну, которое сверху */
+        input_event_t ev;
+        if (input_pop(&ev)) {
+            gfx_event_t e = { 0 };
+            e.type = ev.type == INPUT_KEY_DOWN ? GEV_KEY_DOWN : GEV_KEY_UP;
+            e.a = ev.key; e.b = ev.ch; e.c = ev.mods;
+            *out = e;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 void gfx_proc_gone(uint32_t pid) {
     app_t* a = find_pid(pid);
     if (a) a->need_destroy = 1;                        /* окно и память освободит поток дисплея */
