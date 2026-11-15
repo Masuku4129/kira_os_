@@ -36,7 +36,7 @@
 | C (ядро, службы, программы) | clang+lld (сборка ОС); KCC на устройстве | x86-64, AArch64 | clang РАБОТАЕТ; KCC ЧАСТИЧНО (подмножество C, саморазмещение не закрыто) | `kcc-tests` (≈430 образцов), сценарии build-* |
 | Ассемблер | NASM (ядро); `kcc/asm_x86.c`, `kcc/asm_a64.c` | x86-64, AArch64 | РАБОТАЕТ | сборка |
 | WebAssembly (из C через wasm-ld) | `userland/wasm/build.sh` | wasm32 | РАБОТАЕТ | `tests/wasm_*` |
-| KAS (собственный ассемблер), KLink (компоновщик) | в `kas/`, `klink/` | x86-64 | ЧАСТИЧНО: есть код и тесты, в сборку ОС не входят | `tests/kas_*`, `tests/klink/*` |
+| KAS (собственный ассемблер), KLink (компоновщик) | в `kas/`, `klink/` | x86-64 | РАБОТАЕТ: ядро, собранное только KCC+KAS+KLink, грузится (основная сборка по-прежнему clang/nasm, своя цепочка проверяется отдельно, CI-задание own-toolchain) | `tests/kas_test.sh`, `tests/klink_test.sh`, `tests/kernel_selfbuilt_boot_test.sh` |
 | KIL (язык инструкций для человека и ИИ) | — | — | СПЕЦИФИКАЦИЯ | — |
 | Rust, Zig, C (wasm32-wasi) | clang/rustc на хосте → `.wasm` | wasm32 | РАБОТАЕТ для консольных программ через WASI-подмножество; Rust no_std для Ring 3 — `userland/rust/rsdemo.rs` (хост-цель, сценарий «isolation»); wasm32-цель Rust не проверялась | `wasitest` (C) |
 | Python, JS на устройстве | — | — | НЕ НАЧАТО: нужен рантайм (интерпретатор) в виде WASM-модуля или нативно | — |
