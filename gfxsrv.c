@@ -99,25 +99,14 @@ int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h) 
     return (int64_t)GFX_USER_VA;
 }
 
-/* Темп фоновых окон (задаёт компоновщик): окно не сверху отдаёт кадр не чаще раза в bg_period тиков. Каждый кадр окна -
-   это копия размером с окно и сборка его плиток композитором: десять окон, рисующих по 60 кадров, съедают экран
-   так же, как одно большое. Программа при этом просто ждёт - и её процессор тоже свободен. 0 - без предела. */
-static volatile uint32_t bg_period;
-void gfx_set_bg_period(uint32_t ticks) { __atomic_store_n(&bg_period, ticks, __ATOMIC_RELEASE); }
-
+/* Темп окон: открытые окна (в фокусе и нет) идут в полный темп экрана - 60 кадров/с, ничем не ограничены. Ограничено только
+   свёрнутое окно: его никто не видит, кадр нужен раз в четверть секунды. Дальше работает обратное давление экрана ниже. */
 int64_t gfx_sys_present(uint32_t pid) {
     app_t* a = find_pid(pid);
     if (!a) return -1;
-    uint32_t per = __atomic_load_n(&bg_period, __ATOMIC_ACQUIRE);
-    /* Окно не в фокусе всегда ограничено (не только когда экран опаздывает): его кадры копирует и собирает экран, а видит их человек
-       мельком. Невидимое (свёрнутое) окно - ещё реже. Разум может установить предел и ниже. */
-    const uint32_t bg_floor = TIMER_HZ / 20, hid_floor = TIMER_HZ / 4;
-    if (gfx_focus_pid() != (int)pid) {
-        uint32_t fl = __atomic_load_n(&a->hidden, __ATOMIC_ACQUIRE) ? hid_floor : bg_floor;
-        if (per < fl) per = fl;
-    }
-    if (per && gfx_focus_pid() != (int)pid) {
-        uint64_t due = a->last_present + per, now = timer_get_ticks();
+    if (__atomic_load_n(&a->hidden, __ATOMIC_ACQUIRE)) {
+        const uint32_t hid_period = TIMER_HZ / 4;
+        uint64_t due = a->last_present + hid_period, now = timer_get_ticks();
         if (now < due && !proc_dying()) sched_sleep_ticks((uint32_t)(due - now));
     }
     a->last_present = timer_get_ticks();

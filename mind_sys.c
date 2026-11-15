@@ -303,7 +303,7 @@ static void publish(const mind_t* model) {
     v.net_n = model->m.net.n; v.net_pos = model->m.net.pos; v.net_prec = mnet_precision(&model->m.net); v.net_rec = mnet_recall(&model->m.net);
     v.net_trusted = (uint8_t)mnet_trusted(&model->m.net); v.forecasts = model->m.forecasts; v.net_loss_x1e4 = model->m.net.loss_x1e4;
     for (int i = 0; i < MNET_F; i++) v.net_w[i] = model->m.net.w[i];
-    v.bg_fps = display_get_bg_fps(); v.core_cap = mind_core_cap(model);
+    v.core_cap = mind_core_cap(model);
     v.stab_episodes = model->stab_episodes; v.stab_limited_s = model->stab_limited_ms / 1000; v.stab_relapses = model->stab_relapses; v.stab_longest_s = model->stab_longest_ms / 1000; v.tact_cost_x100 = model->tact_cost_x100;
     display_compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
     v.dev_errors=S.dev_errors; scopy(v.dev_name,S.dev_name,sizeof v.dev_name);
@@ -705,8 +705,7 @@ void mind_sys_print(const char* what) {
         uart_print("  2. вес потоков: окно в фокусе x1,5, голодающий x2; проснувшийся более тяжёлый вытесняет лёгкий сразу (рефлекс в планировщике)\n");
         uart_print("  3. доля ядра фоновых программ: при нехватке процессора фон получает не больше "); uart_print_dec(v->core_cap);
         uart_print("% всех ядер и не больше свободного (ai cap N)\n");
-        uart_print("  4. кадрами экрана Разум не управляет: темп фоновых окон ("); if (v->bg_fps) { uart_print("сейчас не чаще "); uart_print_dec(v->bg_fps); uart_print(" кадров/с"); } else uart_print("сейчас без предела");
-        uart_print(") и анимацию решает компоновщик по своим замерам\n");
+        uart_print("  4. кадрами экрана Разум не управляет: открытые окна идут в 60 кадров/с, свёрнутые - 4 кадра/с (правило компоновщика)\n");
         uart_print("  5. сборка кадра: "); uart_print(v->comp_par ? "на всех ядрах" : "на одном ядре"); uart_print(" (по замеренной цене)\n");
         uart_print("  6. анимация фона (только настройка пользователя): уровень "); uart_print_dec(v->fx); uart_print(v->fx_user == MIND_FX_AUTO ? " (авто: решает компоновщик)\n" : " (задана вручную)\n");
         uart_print("  7. допуск запусков: копий одной программы и запусков в секунду - по ядрам и здоровью\n");
@@ -787,8 +786,7 @@ void mind_sys_print(const char* what) {
         uart_print("), предупреждения сбываются "); uart_print_dec(v->net_prec); uart_print("%, замечено опозданий заранее ");
         uart_print_dec(v->net_rec); uart_print("%, "); uart_print(v->net_trusted ? "доверие есть" : "пока без права действовать");
         uart_print(", упреждений "); uart_print_dec(v->forecasts);
-        uart_print("\n[MIND] тактика: фон - не больше "); uart_print_dec(v->core_cap); uart_print("% ядер при нехватке; фоновые окна - ");
-        if (v->bg_fps) { uart_print("не чаще "); uart_print_dec(v->bg_fps); uart_print(" кадров/с"); } else uart_print("без предела кадров");
+        uart_print("\n[MIND] тактика: фон - не больше "); uart_print_dec(v->core_cap); uart_print("% ядер при нехватке");
         uart_print("\n[MIND] стабилизация: фон ужимался "); uart_print_dec(v->stab_episodes); uart_print(" раз, всего "); uart_print_dec(v->stab_limited_s);
         uart_print(" с (самый долгий период "); uart_print_dec(v->stab_longest_s); uart_print(" с), возвратов давления после снятия предела "); uart_print_dec(v->stab_relapses);
         uart_print("; цена тактики "); uart_print_dec(v->tact_cost_x100 / 100); uart_print(","); uart_print_dec(v->tact_cost_x100 / 10 % 10); uart_print_dec(v->tact_cost_x100 % 10); uart_print("% ядра");

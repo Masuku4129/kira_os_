@@ -575,8 +575,7 @@ static void governor(uint64_t now) {
     if (!now || now - gov_t0 < 1000000000ULL) return;
     uint64_t df = st.frames - gov_frames, dl = st.late - gov_late;
     gov_t0 = now; gov_frames = st.frames; gov_late = st.late;
-    if (framegov_second(&gov, (uint32_t)df, (uint32_t)dl, fx_req))
-        gfx_set_bg_period(gov.bg_fps ? (TIMER_HZ + gov.bg_fps - 1) / gov.bg_fps : 0);
+    framegov_second(&gov, (uint32_t)df, (uint32_t)dl, fx_req);
 }
 
 /* ---------------- цикл ---------------- */
@@ -721,7 +720,6 @@ int display_init(unsigned long mbi) {
 
 void display_set_fx(int level) { fx_req = level < 0 ? 0 : level > 4 ? 4 : level; }   /* 4 - авто */
 int display_get_fx(void) { return fx_req == FGOV_FX_AUTO ? (int)gov.fx : fx_req; }
-unsigned display_get_bg_fps(void) { return gov.bg_fps; }
 
 void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns) {
     *loops = st.frames; *late = st.late; *worst_gap_ns = st.worst_gap_ns;

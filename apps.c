@@ -361,7 +361,7 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
     p = cat(t, 0, "опозданий/с: "); p = cat_u(t, p, v->late_per_s); gfx_text(s, 316, 230, t, v->late_per_s ? TH_AMBER : TH_GREEN, -1);
     p = cat(t, 0, "сборка: "); cat(t, p, v->comp_par ? "параллельная" : "одно ядро"); gfx_text(s, 316, 256, t, TH_TEXT_DIM, -1);
     card(s, 10, 320, 580, 205, "ПОЛИТИКИ РЕСУРСОВ", TH_BLUE);
-    p = cat(t, 0, "кадры фоновых окон/с: "); p = cat_u(t, p, v->bg_fps); gfx_text(s, 26, 360, t, TH_TEXT_DIM, -1);
+    gfx_text(s, 26, 360, "окна: открытые 60 кадров/с, свёрнутые 4", TH_TEXT_DIM, -1);
     p = cat(t, 0, "лимит фона при нехватке ЦП: "); p = cat_u(t, p, v->core_cap); cat(t, p, "%"); gfx_text(s, 26, 386, t, TH_TEXT_DIM, -1);
     gfx_text(s, 26, 412, "темп кадров и анимацию решает компоновщик", TH_TEXT_FAINT, -1);
     p = cat(t, 0, "композитор, нс/1000 точек: "); p = cat_u(t, p, v->comp_ns_kpx_par);

@@ -67,7 +67,6 @@ unsigned sched_cpu_count(void) { return 4; }
 int experience_enabled(void) { return 1; }
 const char* platform_irq_name(void) { return "IOAPIC"; }
 void gfx_server_run(void) {}
-void gfx_set_bg_period(uint32_t ticks) { (void)ticks; }
 static int gin_n;
 void gfx_on_input(int w, int t, int x, int y, unsigned b) { (void)w; (void)t; (void)x; (void)y; (void)b; gin_n++; }
 void gfx_on_close(int w) { (void)w; }
@@ -140,7 +139,7 @@ static void fill_mind(void) {
         v->lv[i].backs = (uint16_t)(i % 3); v->lv[i].state = (uint8_t)(i % 4);
     }
     v->lv_changes = 37; v->lv_general = 2; v->lv_seed = 1;
-    v->bg_fps = 30; v->core_cap = 60;
+    v->core_cap = 60;
     v->comp_par = 1; v->comp_ns_kpx_par = 840; v->comp_ns_kpx_ser = 1190;
     v->dev_errors = 2; snprintf(v->dev_name, sizeof v->dev_name, "virtio-blk");
     v->hid_suspect = 1; v->hid_rate = 240; snprintf(v->hid_name, sizeof v->hid_name, "USB-HID");

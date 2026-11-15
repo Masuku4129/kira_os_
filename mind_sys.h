@@ -39,7 +39,7 @@ typedef struct {
     uint32_t net_n, net_pos, net_prec, net_rec, forecasts, net_loss_x1e4;
     uint8_t  net_trusted;
     int32_t  net_w[MNET_F];
-    uint32_t bg_fps, core_cap;
+    uint32_t core_cap;
     uint32_t stab_episodes, stab_limited_s, stab_relapses, stab_longest_s;   /* стабилизация за запуск */
     uint32_t tact_cost_x100;               /* цена тактики: доля одного ядра, % x100, за последнюю секунду */
     uint32_t comp_par, comp_ns_kpx_par, comp_ns_kpx_ser;   /* композитор: параллельно ли сейчас и цена 1000 точек */
