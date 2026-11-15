@@ -1,0 +1,80 @@
+{
+ "name": "wasm-speed",
+ "ok": true,
+ "kvm": true,
+ "checks": [
+  {
+   "log": "\\[KIRA SCHED\\] Preemptive scheduler online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA MIND\\] Mind online",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA CONSOLE\\] Command line ready",
+   "ok": true
+  },
+  {
+   "log": "\\[KIRA FS\\] KiraFS mounted",
+   "ok": true
+  },
+  {
+   "log": "wasm: x86-64 native code, \\d+ bytes \\(JIT\\)",
+   "ok": true
+  },
+  {
+   "log": "wgfx: frame0=0000000054f339aa frame30=000000000943d884",
+   "ok": true
+  },
+  {
+   "log": "wasm: finished with code 0 in \\d{1,3} ms",
+   "ok": true
+  },
+  {
+   "log_forbid": "kernel-mode fault",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA IRET\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA GS\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA VMM ERROR\\]",
+   "ok": true
+  },
+  {
+   "log_forbid": "Kernel thread stack overflow",
+   "ok": true
+  },
+  {
+   "log_forbid": "bad free|double free",
+   "ok": true
+  },
+  {
+   "log_forbid": "\\[KIRA SMP\\].*did not answer",
+   "ok": true
+  },
+  {
+   "log_forbid": "wasm: stopped",
+   "ok": true
+  },
+  {
+   "log_forbid": "wasm: interpreter mode",
+   "ok": true
+  }
+ ],
+ "error": null,
+ "boot_seconds": 1.8,
+ "seconds": 10.3,
+ "commands": [
+  {
+   "cmd": "wasm /wasm/wgfx.wasm",
+   "seconds": 0.0
+  }
+ ]
+}
