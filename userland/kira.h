@@ -133,6 +133,17 @@ static inline i64 k_port_open(const char* name, u32 flags) { return ksys(K_PORT_
 static inline i64 k_port_send(i64 h, const void* data, u64 len) { return ksys(K_PORT_SEND, (u64)h, (u64)data, len); }
 static inline i64 k_port_recv(i64 h, void* buf, u32 cap, u32 timeout) { return ksys(K_PORT_RECV, (u64)h, (u64)buf, (u64)cap | ((u64)timeout << 32)); }
 /* Разделяемая память: страницы обнулены при создании; отображение - адрес в программе. */
+/* Вложение: дескриптор порта или памяти едет с сообщением (att, 0 - нет); получатель принимает его новым дескриптором. */
+typedef struct { u64 buf; u32 cap, timeout; u32 from; int att; } kport_recv_t;
+enum { K_PORT_RECVA = 59 };
+static inline i64 k_port_send_att(i64 h, i64 att, const void* data, u64 len) { return ksys(K_PORT_SEND, (u64)h | ((u64)att << 32), (u64)data, len); }
+/* -> длина сообщения или ошибка; *from - pid отправителя, *att - дескриптор вложения (0 - нет) */
+static inline i64 k_port_recv_att(i64 h, void* buf, u32 cap, u32 timeout, u32* from, int* att) {
+    kport_recv_t q; q.buf = (u64)buf; q.cap = cap; q.timeout = timeout; q.from = 0; q.att = 0;
+    i64 r = ksys(K_PORT_RECVA, (u64)h, (u64)&q, 0);
+    if (r >= 0) { if (from) *from = q.from; if (att) *att = q.att; }
+    return r;
+}
 static inline i64 k_shm_open(const char* name, u32 pages, u32 flags) { return ksys(K_SHM_OPEN, (u64)name, k_strlen(name), (u64)pages | ((u64)flags << 32)); }
 static inline void* k_shm_map(i64 h) { i64 r = ksys(K_SHM_MAP, (u64)h, 0, 0); return r < 0 ? (void*)0 : (void*)(u64)r; }
 static inline i64 k_shm_unmap(void* va) { return ksys(K_SHM_UNMAP, (u64)va, 0, 0); }

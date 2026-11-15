@@ -1,12 +1,49 @@
 /* Проверка обмена между процессами: два экземпляра. Первый занимает порт kira.test (сервер), второй - клиент.
    Клиент шлёт 200 сообщений и ждёт ответа на каждое через свой порт; оба работают с общей страницей памяти. */
 #include "kira.h"
+#include "kframe.h"    /* каркас сообщений служб v1 (передача дескрипторов) */
 #include "kmsg.h"      /* сообщения портов - детерминированный CBOR, строгий разбор (cbor.c - тот же файл, что у ядра) */
 KIRA_ENTRY()
 
 static void say(const char* s) { k_write(s, k_strlen(s)); }
 static void say_u(u64 v) { char t[21]; int n = 0; do { t[n++] = (char)('0' + v % 10); v /= 10; } while (v); char o[21]; int i = 0; while (n) o[i++] = t[--n]; k_write(o, (u64)i); }
 #define N 200
+
+
+/* Передача дескрипторов: клиент отдаёт свой ПРИВАТНЫЙ порт и свою ПРИВАТНУЮ память вложением; по имени сервер их открыть не может (проверено выше),
+   а через сообщение - может. В ответ сервер шлёт в полученный порт вложением свою приватную память. */
+static int server_att(i64 reply_hint) {
+    (void)reply_hint;
+    i64 p2 = k_port_open("kira.test.att", KOPEN_CREATE | KOPEN_PUBLIC);
+    if (p2 < 0) { say("ipc server: FAIL attach port\n"); return 1; }
+    u8 m[96], o[48]; u32 from = 0; int att = 0;
+    i64 r = k_port_recv_att(p2, m, sizeof m, 1000, &from, &att);
+    kframe_t f;
+    if (r < 0 || kf_parse_req(m, (u32)r, &f) || f.op[0] != 'p' || att <= 0) { say("ipc server: FAIL port request\n"); return 1; }
+    i64 mine = k_shm_open("kira.test.att.srv", 1, KOPEN_CREATE);                   /* приватная память сервера */
+    volatile u32* mp = mine < 0 ? (volatile u32*)0 : (volatile u32*)k_shm_map(mine);
+    if (!mp) { say("ipc server: FAIL own shm\n"); return 1; }
+    mp[0] = 0xBEEF1234;
+    u32 ol = kf_resp_code(o, sizeof o, f.id, 0);
+    if (!ol || k_port_send_att(att, mine, o, ol) != 0) { say("ipc server: FAIL reply with attachment\n"); return 1; }
+    k_close(att);
+    att = 0;
+    r = k_port_recv_att(p2, m, sizeof m, 1000, &from, &att);
+    if (r < 0 || kf_parse_req(m, (u32)r, &f) || f.op[0] != 'm' || att <= 0) { say("ipc server: FAIL mem request\n"); return 1; }
+    volatile u32* cp = (volatile u32*)k_shm_map(att);
+    int okm = cp && cp[0] == 0xC11E0001;
+    if (cp) cp[1] = 0xACC0ACC0;
+    i64 rep = -1;
+    for (int i = 0; i < 100 && rep < 0; i++) { rep = k_port_open("kira.test.reply", 0); if (rep < 0) k_sleep(1); }
+    ol = kf_resp_code(o, sizeof o, f.id, okm ? 0 : -1);
+    if (rep < 0 || !ol || k_port_send(rep, o, ol) != 0) { say("ipc server: FAIL ack\n"); return 1; }
+    if (cp) k_shm_unmap((void*)cp);
+    k_close(att);
+    k_close(p2);
+    say("ipc server: descriptors received through messages: client's private port and shared memory ");
+    say(okm ? "(PASS)\n" : "(FAIL)\n");
+    return okm ? 0 : 1;
+}
 
 static int server(i64 port) {
     /* Keep foreign private objects alive while the client attempts to open them. */
@@ -22,6 +59,7 @@ static int server(i64 port) {
     page[0] = 0x4B495241;                                       /* метка для клиента */
     __atomic_store_n(&page[1], 1, __ATOMIC_RELEASE);
     k_futex_wake(&page[1], 1);
+    if (server_att(0)) return 1;
     say("ipc server: waiting on port kira.test\n");
     i64 reply = -1;
     u32 got = 0, rejected = 0;
@@ -44,6 +82,37 @@ static int server(i64 port) {
     say(page[2] == 0x434C4945 ? "seen" : "MISSING"); say(ok ? " - PASS\n" : " - FAIL\n");
     k_shm_unmap((void*)page);
     return ok ? 0 : 1;
+}
+
+
+static int client_att(i64 reply) {
+    i64 rep2 = k_port_open("kira.test.att.rep", KOPEN_CREATE);                        /* приватные: чужому по имени не открыть */
+    i64 shm2 = k_shm_open("kira.test.att.shm", 1, KOPEN_CREATE);
+    volatile u32* pg = shm2 < 0 ? (volatile u32*)0 : (volatile u32*)k_shm_map(shm2);
+    i64 p2 = -1;
+    for (int i = 0; i < 100 && p2 < 0; i++) { p2 = k_port_open("kira.test.att", 0); if (p2 < 0) k_sleep(1); }
+    if (rep2 < 0 || !pg || p2 < 0) { say("ipc client: FAIL attach setup\n"); return 1; }
+    pg[0] = 0xC11E0001;
+    u8 m[64], r[48];
+    cbor_w w; cbor_w_init(&w, m, sizeof m); kf_req_begin(&w, 1, "port", 0);
+    if (w.err || k_port_send_att(p2, 0x7FFFFFF, m, (u64)w.n) != KE_BADH) { say("ipc client: FAIL bad attachment handle accepted\n"); return 1; }
+    if (k_port_send_att(p2, p2, m, (u64)w.n) != KE_ARG) { say("ipc client: FAIL port attached to itself\n"); return 1; }
+    if (k_port_send_att(p2, rep2, m, (u64)w.n) != 0) { say("ipc client: FAIL send port attachment\n"); return 1; }
+    u32 from = 0; int att = 0;
+    i64 n = k_port_recv_att(rep2, r, sizeof r, 1000, &from, &att);
+    kframe_t f;
+    if (n < 0 || kf_parse_resp(r, (u32)n, &f) || f.id != 1 || f.code != 0 || att <= 0) { say("ipc client: FAIL reply on passed port\n"); return 1; }
+    volatile u32* sp = (volatile u32*)k_shm_map(att);                               /* приватная память сервера - у нас по дескриптору из сообщения */
+    int ok1 = sp && sp[0] == 0xBEEF1234;
+    cbor_w_init(&w, m, sizeof m); kf_req_begin(&w, 2, "mem", 0);
+    if (k_port_send_att(p2, shm2, m, (u64)w.n) != 0) { say("ipc client: FAIL send memory attachment\n"); return 1; }
+    n = k_port_recv(reply, r, sizeof r, 1000);
+    int ok2 = n > 0 && !kf_parse_resp(r, (u32)n, &f) && f.id == 2 && f.code == 0 && pg[1] == 0xACC0ACC0;   /* сервер записал через переданный дескриптор */
+    if (sp) k_shm_unmap((void*)sp);
+    k_close(att); k_close(p2);
+    say("ipc client: descriptors passed through messages (private port and shared memory, both directions) ");
+    say(ok1 && ok2 ? "(PASS)\n" : "(FAIL)\n");
+    return ok1 && ok2 ? 0 : 1;
 }
 
 static int client(void) {
@@ -71,6 +140,7 @@ static int client(void) {
         return 1;
     }
     say("ipc client: foreign private port and SHM denied (PASS)\n");
+    if (client_att(reply)) return 1;
     while (!__atomic_load_n(&page[1], __ATOMIC_ACQUIRE)) k_futex_wait(&page[1], 0, 100);   /* futex через общую память */
     if (page[0] != 0x4B495241) { say("ipc client: FAIL shared memory content\n"); return 1; }
     u64 t0 = k_clock_ns();

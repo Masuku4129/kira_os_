@@ -24,6 +24,10 @@ for f in userland/ipc.c cbor.c userland/libc_min.c; do
 done
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/ipc.elf build-arm64/ui_*.o
 UELF="$UELF build-arm64/ipc.elf"
+# fsport: проверка файловой службы на портах (CBOR)
+$CC $UCFLAGS -I. -Iuserland -c userland/fsport.c -o build-arm64/fp_fsport.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/fsport.elf build-arm64/fp_fsport.o build-arm64/ui_cbor.o build-arm64/ui_libc_min.o
+UELF="$UELF build-arm64/fsport.elf"
 # fetch: HTTP и HTTPS (TLS 1.3 и криптография внутри программы)
 for f in userland/fetch.c userland/tls.c userland/x509.c pk.c crypto.c sha256.c userland/libc_min.c; do
     $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/uf_$(basename $f .c).o
@@ -84,7 +88,7 @@ done
 # Общее ядро (те же файлы, что и на x86-64) и платформа ARM64
 for f in fdt.c bootinfo.c bootinfo_fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
          experience.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c vfs.c fat.c part.c life.c wire.c usbmsc_fs.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
-         immune.c iommu_smmu.c drivers/iommu/arm_smmu.c drivers/iommu/smmu_dom.c kobj.c futex.c corefault.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
+         immune.c iommu_smmu.c drivers/iommu/arm_smmu.c drivers/iommu/smmu_dom.c kobj.c fssvc.c futex.c corefault.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
          virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c framegov.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
          icons.c brainfx.c wallpaper.c zstd.c cbor.c cas.c sysseal.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
          $A/main.c $A/wx_arm.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c; do

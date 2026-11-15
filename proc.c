@@ -379,6 +379,21 @@ unsigned proc_stats(proc_stat_t* out, unsigned max) {
     return n;
 }
 
+/* Кто такой процесс с этим номером (служба на портах определяет отправителя по номеру, который проставило ядро, а не по словам сообщения).
+   Номера не переиспользуются. 1 - найден и жив. */
+int proc_info(uint32_t pid, char name[16], uint32_t* caps, uint32_t* domain) {
+    for (unsigned i = 0; i < max_procs; i++) {
+        proc_t* p = &procs[i];
+        if (!__atomic_load_n(&p->used, __ATOMIC_ACQUIRE) || p->pid != pid || __atomic_load_n(&p->dying, __ATOMIC_ACQUIRE)) continue;
+        for (unsigned k = 0; k < 16; k++) name[k] = p->name[k];
+        name[15] = 0;
+        if (caps) *caps = p->caps;
+        if (domain) *domain = p->domain;
+        return 1;
+    }
+    return 0;
+}
+
 /* Завершить процесс по номеру (Разум: исчерпание памяти). Потоки уходят сами на выходе из ядра;
    тот, что крутится без системных вызовов, - по ближайшему прерыванию таймера. */
 int proc_kill(uint32_t pid) {

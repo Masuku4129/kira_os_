@@ -15,6 +15,7 @@ static const struct { const char* name; uint32_t caps; } table[] = {
     { "melody",   CAP_SND },
     { "rec",      CAP_REC | CAP_FS },
     { "ipc",      CAP_IPC },
+    { "fsport",   CAP_IPC | CAP_FS },       /* проверка файловой службы на портах (kira.fs) */
     { "ipcx",     CAP_IPC },                /* проверка границы доменов: живёт в домене media, открывает общий объект домена tools (ядро обязано отказать) */
     { "mt",       CAP_THREAD },
     { "kcc",      CAP_FS },                 /* компилятор: исходники и результат в /data/kcc, заголовки - FS_OP_INC_* (только kcc); больше ничего */
@@ -83,7 +84,7 @@ uint32_t domain_for_program(const char* name) {
         { "plasma", DOM_MEDIA }, { "cube3d", DOM_MEDIA }, { "paint", DOM_MEDIA }, { "view", DOM_MEDIA },
         { "melody", DOM_MEDIA }, { "rec", DOM_MEDIA }, { "ipcx", DOM_MEDIA },
         { "fetch", DOM_NET }, { "serve", DOM_NET }, { "udpecho", DOM_NET }, { "net6", DOM_NET },
-        { "edit", DOM_TOOLS }, { "kcc", DOM_TOOLS }, { "wasm", DOM_TOOLS }, { "ipc", DOM_TOOLS }, { "mt", DOM_TOOLS },
+        { "edit", DOM_TOOLS }, { "kcc", DOM_TOOLS }, { "wasm", DOM_TOOLS }, { "ipc", DOM_TOOLS }, { "fsport", DOM_TOOLS }, { "mt", DOM_TOOLS },
     };
     for (unsigned i = 0; i < sizeof map / sizeof map[0]; i++) if (name_is(map[i].name, name)) return map[i].dom;
     return DOM_UNTRUSTED;

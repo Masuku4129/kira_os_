@@ -36,6 +36,7 @@
 #include "syscall.h"
 #include "uaccess.h"
 #include "progs.h"
+#include "fssvc.h"
 #include "kdrv.h"
 #include "kfs.h"
 #include "klog.h"
@@ -1457,6 +1458,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 
     console_init();                                              /* общая консоль: те же команды, что у x86-64 */
+    fssvc_init();                                                /* порт kira.fs: файловая служба на сообщениях CBOR */
     for (;;) {                                                   /* поток core: консоль и секундные дела */
         console_poll();
         static uint64_t last_sec, seconds;
@@ -1468,6 +1470,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
             sched_reap();
         }
         prog_poll();                                             /* запуск, заказанный оболочкой (док, Проводник) */
+        fssvc_poll();                                            /* запросы к порту kira.fs */
         kdrv_poll();                                             /* драйверы Ring 3 */
         life_tick();
         watchdog_feed();

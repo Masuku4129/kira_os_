@@ -45,7 +45,8 @@ static userlog_t ulog;
 #define SYS_FUTEX_WAIT    15 // (адрес слова, ожидаемое, срок в 10 мс или ~0) -> 0 / KE_AGAIN / KE_TIMEOUT / KE_INTR
 #define SYS_FUTEX_WAKE    16 // (адрес слова, сколько) -> разбужено
 #define SYS_PORT_OPEN     17 // (имя, длина, флаги KOPEN_*) -> дескриптор
-#define SYS_PORT_SEND     18 // (дескриптор, данные, длина до PORT_MSG_MAX) -> 0 / KE_FULL
+#define SYS_PORT_SEND     18 // (дескриптор | вложение << 32, данные, длина до PORT_MSG_MAX) -> 0 / KE_FULL; вложение - дескриптор порта или памяти (0 - нет)
+#define SYS_PORT_RECVA    59 // (дескриптор, указатель на kport_recv_t) -> длина сообщения; у получателя появляется дескриптор вложения (att, 0 - нет)
 #define SYS_PORT_RECV     19 // (дескриптор, буфер, ёмкость | срок_10мс << 32; срок 0xFFFFFFFF - без срока) -> длина | pid отправителя << 32
 #define SYS_SHM_OPEN      20 // (имя, длина, страниц | флаги << 32) -> дескриптор
 #define SYS_SHM_MAP       21 // (дескриптор) -> адрес
@@ -132,7 +133,7 @@ static uint32_t cap_needed(uint64_t nr) {
     case SYS_UDP_OPEN: case SYS_UDP_SEND: case SYS_UDP_RECV: case SYS_UDP_CLOSE: case SYS_UDP_SENDTO: case SYS_UDP_RECVFROM: return CAP_UDP;
     case SYS_SND_OPEN: case SYS_SND_WRITE: case SYS_SND_CLOSE: case SYS_SND_VOLUME: return CAP_SND;
     case SYS_SND_RECORD: return CAP_REC;
-    case SYS_PORT_OPEN: case SYS_PORT_SEND: case SYS_PORT_RECV: case SYS_SHM_OPEN: case SYS_SHM_MAP: return CAP_IPC;
+    case SYS_PORT_OPEN: case SYS_PORT_SEND: case SYS_PORT_RECV: case SYS_PORT_RECVA: case SYS_SHM_OPEN: case SYS_SHM_MAP: return CAP_IPC;
     case SYS_THREAD_CREATE: return CAP_THREAD;
     case SYS_JIT: return CAP_JIT;
     case SYS_STDIN: return CAP_STDIN;
@@ -224,21 +225,61 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return (uint64_t)proc_handle_add(o);
     }
     case SYS_PORT_SEND: {
-        int handle;
-        if (!syscall_handle(a1, &handle)) return (uint64_t)(int64_t)KE_BADH;
+        int handle, ah = 0;
+        if (!syscall_handle(a1 & 0xFFFFFFFFULL, &handle)) return (uint64_t)(int64_t)KE_BADH;
+        if (a1 >> 32 && !syscall_handle(a1 >> 32, &ah)) return (uint64_t)(int64_t)KE_BADH;
         if (a3 > PORT_MSG_MAX) return (uint64_t)(int64_t)KE_ARG;
         kobj_t* o = proc_handle_get(handle, KOBJ_PORT);
         if (!o) return (uint64_t)(int64_t)KE_BADH;
+        kobj_t* att = 0;
+        if (ah) {                                                    /* вложение: порт или память из таблицы отправителя (+1 ссылка) */
+            att = proc_handle_get(ah, 0);
+            if (!att) { kobj_release(o); return (uint64_t)(int64_t)KE_BADH; }
+        }
         uint8_t* buf = (uint8_t*)kmalloc(a3 ? a3 : 1);              /* копия: программа не изменит данные во время отправки */
-        if (!buf) { kobj_release(o); return (uint64_t)(int64_t)KE_NOMEM; }
+        if (!buf) { kobj_release(att); kobj_release(o); return (uint64_t)(int64_t)KE_NOMEM; }
         if (a3 && copy_from_user(buf, a2, a3) != 0) {
-            kfree(buf); kobj_release(o);
+            kfree(buf); kobj_release(att); kobj_release(o);
             return (uint64_t)(int64_t)KE_ARG;
         }
-        int rc = port_send(o, proc_current_pid(), buf, (uint32_t)a3);
+        int rc = port_send_att(o, proc_current_pid(), buf, (uint32_t)a3, att);
+        if (rc && att) kobj_release(att);                          /* при успехе ссылку забрала очередь */
         kfree(buf);
         kobj_release(o);
         return (uint64_t)(int64_t)rc;
+    }
+    case SYS_PORT_RECVA: {
+        int handle;
+        kport_recv_t rq;
+        if (!syscall_handle(a1, &handle)) return (uint64_t)(int64_t)KE_BADH;
+        if (copy_from_user(&rq, a2, sizeof rq) != 0) return (uint64_t)(int64_t)KE_ARG;
+        uint32_t cap = rq.cap;
+        if (cap > PORT_MSG_MAX) cap = PORT_MSG_MAX;
+        kobj_t* o = proc_handle_get(handle, KOBJ_PORT);
+        if (!o) return (uint64_t)(int64_t)KE_BADH;
+        if (cap && !user_range(rq.buf, cap, 1)) { kobj_release(o); return (uint64_t)(int64_t)KE_ARG; }
+        uint8_t* kb = (uint8_t*)kmalloc(cap ? cap : 1);
+        if (!kb) { kobj_release(o); return (uint64_t)(int64_t)KE_NOMEM; }
+        uint32_t from = 0; kobj_t* att = 0;
+        int64_t n = port_recv_att(o, kb, cap, ticks_from_10ms(rq.timeout), &from, proc_dying, &att);
+        kobj_release(o);
+        rq.from = from; rq.att = 0;
+        if (n >= 0) {
+            uint32_t c = (uint64_t)n < cap ? (uint32_t)n : cap;
+            if (att && att->owner_pid != proc_current_pid() && !domain_may_reach(proc_current_domain(), att->owner_dom)) {
+                kobj_release(att); att = 0; n = KE_PERM;             /* получатель из домена, до которого вложение не дотягивается: сообщение потеряно */
+            }
+            else if (c && copy_to_user(rq.buf, kb, c) != 0) { kobj_release(att); att = 0; n = KE_ARG; }
+            else if (att) {
+                int64_t h = proc_handle_add(att);                    /* забирает ссылку */
+                att = 0;
+                if (h < 0) n = h; else rq.att = (int32_t)h;
+            }
+        }
+        if (att) kobj_release(att);
+        if (n >= 0 && copy_to_user(a2, &rq, sizeof rq) != 0) n = KE_ARG;   /* и здесь вложение уже у получателя: закроет при выходе процесса */
+        kfree(kb);
+        return (uint64_t)n;
     }
     case SYS_PORT_RECV: {
         int handle;

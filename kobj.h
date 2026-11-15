@@ -34,6 +34,9 @@
 
 enum { KOBJ_PORT = 1, KOBJ_SHM = 2 };
 
+// Запрос приёма с вложением (SYS_PORT_RECVA): программа заполняет buf/cap/timeout (срок в 10 мс, 0xFFFFFFFF - без срока), ядро возвращает from и att.
+typedef struct { uint64_t buf; uint32_t cap, timeout; uint32_t from; int32_t att; } kport_recv_t;
+
 typedef struct kobj {
     uint32_t type;
     volatile uint32_t refs;
@@ -58,11 +61,18 @@ void kobj_release(kobj_t* o);                             // последняя 
 // Порты
 int     port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out);
 int     port_open_in(const char* name, int flags, uint32_t owner_pid, uint32_t dom, kobj_t** out);   // то же с доменом процесса (DOM_*)
+int     port_open_service(const char* name, kobj_t** out);                    // служба ядра: общий порт, открывается из любого домена (владелец - ядро, домен system)
 int     port_open(const char* name, int flags, kobj_t** out);                 // совместимость host callers (PID 0); +1 ссылка
 int     port_send(kobj_t* port, uint32_t from_pid, const void* data, uint32_t len);   // 0, KE_FULL, KE_ARG, KE_NOMEM
 // Приём: длина сообщения (копируется не больше cap) и отправитель. timeout_ticks: 0 - не ждать, ~0 - без срока.
 // stop() != 0 - ожидание прерывается (процесс завершается). Сообщение копируется в kbuf (ядерный буфер cap байт).
 int64_t port_recv(kobj_t* port, void* kbuf, uint32_t cap, uint64_t timeout_ticks, uint32_t* from_pid, int (*stop)(void));
+// Вложение: объект (порт или разделяемая память) едет вместе с сообщением и появляется у получателя дескриптором.
+// att - с ВЗЯТОЙ ссылкой: при успехе она переходит очереди, при ошибке остаётся у вызывающего. Порт с вложениями сам не вкладывается,
+// порт-вложение вложений не принимает; домен порта-получателя должен дотягиваться до домена владельца вложения (KE_PERM).
+int     port_send_att(kobj_t* port, uint32_t from_pid, const void* data, uint32_t len, kobj_t* att);
+// att_out получает вложение (ссылка у вызывающего) или 0; с att_out == 0 вложение отбрасывается.
+int64_t port_recv_att(kobj_t* port, void* kbuf, uint32_t cap, uint64_t timeout_ticks, uint32_t* from_pid, int (*stop)(void), kobj_t** att_out);
 unsigned port_queued(kobj_t* port);
 
 // Разделяемая память (страницы обнулены при создании)

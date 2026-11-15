@@ -288,6 +288,9 @@ $T/zstdt
 echo "== kmsg (сообщения портов: CBOR, строгий разбор, мусор) =="
 $CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -Iuserland -o $T/kmsg tests/kmsg_test.c cbor.c
 $T/kmsg
+echo "== kframe (каркас сообщений служб v1: запрос/ответ, строгие ключи, мусор) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -Iuserland -o $T/kframe tests/kframe_test.c cbor.c
+$T/kframe
 
 echo "== sysseal (печать системы: CBOR-манифест, корень Меркла, подмена и пропажа файлов) =="
 $CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/sysseal tests/sysseal_test.c sysseal.c cbor.c cas.c sha256.c

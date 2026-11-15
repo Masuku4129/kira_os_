@@ -60,6 +60,7 @@ typedef struct { uint32_t pid; char name[16]; uint32_t threads; uint32_t heap_kb
 unsigned proc_stats(proc_stat_t* out, unsigned max);
 uint32_t proc_faults_total(void);
 int      proc_kill(uint32_t pid);
+int      proc_info(uint32_t pid, char name[16], uint32_t* caps, uint32_t* domain);   /* имя, права и домен живого процесса по номеру; 1 - найден */
 void     proc_set_heap_restrict(int level);
 void     proc_count_syscall(void);                            /* из обработчика системного вызова */
 
