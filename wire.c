@@ -4,6 +4,8 @@
 #include "net.h"
 #include "kdrv.h"
 #include "life.h"
+#include "klog.h"
+#include "display.h"
 #include "syscall.h"
 #include "fsrv.h"
 
@@ -27,4 +29,5 @@ void wire_init(void) {
     proc_add_gone_hook(wire_gone_early, 0);
     proc_add_gone_hook(wire_gone_late, 1);
     proc_set_note_hook(life_note);
+    klog_set_panic_flush(display_panic_flush);
 }

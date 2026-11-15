@@ -6,7 +6,7 @@
 #include "spinlock.h"
 #include "sched.h"
 #include "percpu.h"
-#include "display.h"
+#include "klog.h"
 
 // Тики таймера (TIMER_HZ): 5 секунд без watchdog_feed() => паника.
 // Это программный watchdog, а не аппаратный (iTCO/WDT). Срок считается по общему времени (тики выводятся из TSC),
@@ -75,6 +75,6 @@ void watchdog_trigger_panic(const char* reason) {
     sched_crash_report(uart_print);
     uart_print("[KIRA WATCHDOG] Halting execution immediately.\n");
     uart_flush_all();
-    display_panic_flush();
+    klog_panic_flush();
     for (;;) cpu_halt();
 }

@@ -113,11 +113,11 @@ kapi kstack.h
 7 userland/kdrv.*   # SDK драйвера Ring 3 (включает userland/kira.h)
 6 kdrv.*   # менеджер драйверов Ring 3: грузит пакеты из ФС, держит сетевые карты, сверяет подписи (ур.4) и жизненный цикл (ур.5)
 5 mind*
-5 devhealth.*
+2 devhealth.*   # счётчики ошибок обмена от драйверов (только spinlock); Разум (ур.5) забирает
 5 experience.*
 5 life.*
 
-5 watchdog.*
+2 watchdog.*   # сторож тактов: опирается на таймер, планировщик и smp, экран получает через klog_set_panic_flush
 3 kernel*
 3 kernel/*
 3 sched.*
