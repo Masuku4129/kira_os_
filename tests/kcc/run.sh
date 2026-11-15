@@ -187,29 +187,29 @@ if command -v ld.lld >/dev/null && clang --target=x86_64-unknown-none-elf -ffree
     if [ $built != 1 ]; then note "kcc как программа Киры не собрана: $(head -c 300 $T/err)"
     else
         mkdir -p $T/sb; cp tests/kcc/native/*.c $T/sb/
-        $T/kloader -s $T/sb -i kcc/include -a "hello.c hello" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "hello.c hello" $T/kcc_kira.elf >$T/got 2>&1
         grep -q '^kcc: ok: hello.c -> hello' $T/got || note "kcc-на-Кире: hello.c не собран: $(head -c 200 $T/got)"
         total=$((total+1))
         $T/kloader $T/sb/hello >$T/got 2>&1
         cmp -s tests/kcc/native/hello.out $T/got || note "kcc-на-Кире: собранная программа печатает другое: $(head -c 160 $T/got | tr '\n' ' ')"
         total=$((total+1))
         # режим @build (задание на сборку) того же kcc-на-Кире: отчёт с хешем, образ и запись в песочнице, образ запускается и даёт эталон
-        $T/kloader -s $T/sb -i kcc/include -a "@build probe 50000 7" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "@build probe 50000 7" $T/kcc_kira.elf >$T/got 2>&1
         grep -q '^\[BUILD\] mb1[0-9a-f]\{6\} sha256 [0-9a-f]\{64\}' $T/got && ls $T/sb/mb1*.mbj >/dev/null 2>&1 || note "kcc-на-Кире: @build не собрал образ: $(head -c 200 $T/got)"
         total=$((total+1))
         img=$(ls $T/sb/mb1* 2>/dev/null | grep -v '\.mbj$' | head -1)
         [ -n "$img" ] && [ "$($T/kloader "$img" 2>&1 | head -1)" = 1153170643 ] || note "kcc-на-Кире: образ @build дал не 1153170643"
         total=$((total+1))
-        $T/kloader -s $T/sb -i kcc/include -a "@build probe 0 1" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "@build probe 0 1" $T/kcc_kira.elf >$T/got 2>&1
         grep -q 'отказ' $T/got || note "kcc-на-Кире: @build принял probe 0: $(head -c 200 $T/got)"
         total=$((total+1))
-        $T/kloader -s $T/sb -i kcc/include -a "bad.c bad" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "bad.c bad" $T/kcc_kira.elf >$T/got 2>&1
         grep -q '^bad.c:9: error: ' $T/got || note "kcc-на-Кире: ошибка без номера строки: $(head -c 200 $T/got)"
         total=$((total+1))
-        $T/kloader -s $T/sb -i kcc/include -a "nofile.c out" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "nofile.c out" $T/kcc_kira.elf >$T/got 2>&1
         grep -q 'nofile.c' $T/got && grep -q 'not found\|cannot\|No such' $T/got || note "kcc-на-Кире: нет файла должно давать сообщение: $(head -c 200 $T/got)"
         total=$((total+1))
-        $T/kloader -s $T/sb -i kcc/include -a "one" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "one" $T/kcc_kira.elf >$T/got 2>&1
         grep -q 'использование: cc' $T/got || note "kcc-на-Кире: без результата должна быть справка: $(head -c 200 $T/got)"
     fi
 else
