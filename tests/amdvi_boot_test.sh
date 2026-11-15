@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 skip() { echo "SKIP: $1 (amdvi_boot_test НЕ выполнен)"; exit 0; }
 for t in qemu-system-x86_64 nasm python3 timeout; do command -v $t >/dev/null || skip "нет $t"; done
 qemu-system-x86_64 -device help 2>&1 | grep -q '"amd-iommu"' || skip "этот QEMU без устройства amd-iommu"
-T=${KEEP_T:-$(mktemp -d)}; mkdir -p $T; [ -n "$KEEP_T" ] || trap 'rm -rf "$T"' EXIT
+T=${KEEP_T:-$(mktemp -d)}; mkdir -p $T; [ -n "${KEEP_T:-}" ] || trap 'rm -rf "$T"' EXIT
 HOSTCC=${HOSTCC:-gcc}
 
 KERNEL=${1:-}
