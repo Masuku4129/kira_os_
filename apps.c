@@ -110,48 +110,33 @@ static uint32_t kind_color(int k) {
     }
 }
 
-static void orb(surface_t* s, int cx, int cy, const mind_view_t* v) {
-    static const uint32_t col[4] = { TH_CYAN, TH_GREEN, TH_PURPLE, TH_AMBER };
-    const unsigned val[4] = { v->c_resp, v->c_room, v->c_bal, v->c_stab };   /* каждая часть здоровья - 0..100 */
-    ui_disc(s, cx, cy, 86, TH_PURPLE, 14);
-    ui_disc(s, cx, cy, 52, 0x00060B16, 255);
-    for (int i = 0; i < 4; i++) {
-        int ro = 84 - i * 9, ri = ro - 6;
-        ui_ring(s, cx, cy, ri, ro, TRACK, 255);
-        unsigned sweep = val[i] >= 100 ? 3600 : val[i] * 36;
-        ui_arc(s, cx, cy, ri, ro, 0, (int)sweep, col[i]);
-    }
-    char t[8]; app_fmt_u(t, v->health);
-    int tw = ui_text_smooth_width(t, 40);
-    ui_text_smooth(s, cx - tw / 2, cy - 26, t, 40, health_color(v->health));
-    gfx_text(s, cx - gfx_text_width("здоровье") / 2, cy + 16, "здоровье", TH_TEXT_FAINT, -1);
-}
-
 static void mind_draw_state(surface_t* s, const mind_view_t* v) {
     gfx_fill(s, TH_CONTENT);
     char t[96]; int p;
 
-    /* здоровье и настроение */
-    card(s, 10, 10, 200, 320, 0, 0);
-    orb(s, 110, 104, v);
+    /* здоровье: одно крупное число и четыре подписанные шкалы, из которых оно сложено */
+    card(s, 10, 10, 200, 320, "ЗДОРОВЬЕ СИСТЕМЫ", health_color(v->health));
+    char hv[8]; app_fmt_u(hv, v->health);
+    int hw = ui_text_smooth_width(hv, 56);
+    ui_text_smooth(s, 110 - (hw + 36) / 2, 38, hv, 56, health_color(v->health));
+    gfx_text(s, 110 - (hw + 36) / 2 + hw + 4, 72, "/100", TH_TEXT_FAINT, -1);
     const char* mood = v->mood[0] ? v->mood : "просыпается";
-    gfx_text(s, 110 - gfx_text_width(mood) / 2, 196, mood, TH_TEXT, -1);
+    gfx_text(s, 110 - gfx_text_width(mood) / 2, 108, mood, TH_TEXT, -1);
     p = cat(t, 0, v->mode ? "действует" : "наблюдает");
     p = cat(t, p, " · квант "); p = cat_u(t, p, v->quantum_ms); cat(t, p, " мс");
-    gfx_text(s, 110 - gfx_text_width(t) / 2, 216, t, v->mode ? TH_GREEN : TH_TEXT_DIM, -1);
-    p = cat(t, 0, "анимация "); p = cat_u(t, p, v->fx); cat(t, p, v->fx_user == MIND_FX_AUTO ? " · авто" : " · вручную");
-    gfx_text(s, 110 - gfx_text_width(t) / 2, 234, t, TH_TEXT_FAINT, -1);
-    /* из чего сложено здоровье: кольца снаружи внутрь */
-    gfx_rect(s, 22, 256, 176, 1, CARD_EDGE);
+    gfx_text(s, 110 - gfx_text_width(t) / 2, 128, t, v->mode ? TH_GREEN : TH_TEXT_DIM, -1);
+    gfx_rect(s, 22, 156, 176, 1, CARD_EDGE);
     static const char* const part[4] = { "отклик", "запас", "равновесие", "стабильность" };
     static const uint32_t pcol[4] = { TH_CYAN, TH_GREEN, TH_PURPLE, TH_AMBER };
     const unsigned pval[4] = { v->c_resp, v->c_room, v->c_bal, v->c_stab };
     for (int i = 0; i < 4; i++) {
-        int y = 264 + i * 16;
-        ui_disc(s, 27, y + 8, 4, pcol[i], 255);
-        gfx_text(s, 38, y, part[i], TH_TEXT_DIM, -1);
+        int y = 168 + i * 36;
+        gfx_text(s, 24, y, part[i], TH_TEXT_DIM, -1);
         app_fmt_u(t, pval[i]);
-        gfx_text(s, 198 - gfx_text_width(t), y, t, pval[i] >= 70 ? TH_TEXT : pval[i] >= 40 ? TH_AMBER : TH_RED, -1);
+        gfx_text(s, 196 - gfx_text_width(t), y, t, pval[i] >= 70 ? TH_TEXT : pval[i] >= 40 ? TH_AMBER : TH_RED, -1);
+        ui_round_rect(s, 24, y + 20, 172, 6, 3, TRACK, 255);
+        unsigned pv = pval[i] > 100 ? 100 : pval[i];
+        if (pv) ui_round_rect(s, 24, y + 20, (int)(172 * pv / 100) < 6 ? 6 : (int)(172 * pv / 100), 6, 3, pcol[i], 255);
     }
 
     /* сигналы: значение, отклонение от нормы, минута истории */
