@@ -5,7 +5,7 @@
    SHA-256 - из sha256.c (общий с иммунной системой). */
 #include <stdint.h>
 #include <stddef.h>
-#include "immune.h"          /* sha256_ctx_t, sha256_* */
+#include "sha256.h"          /* sha256_ctx_t, sha256_* */
 
 /* ChaCha20 (RFC 8439): ключ 32 байта, nonce 12 байт, счётчик блоков. out = in XOR поток; out может совпадать с in. */
 void chacha20_xor(const uint8_t key[32], uint32_t counter, const uint8_t nonce[12], const uint8_t* in, uint8_t* out, size_t len);

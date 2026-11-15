@@ -30,6 +30,7 @@
 #include "percpu.h"
 #include "smp.h"
 #include "proc.h"
+#include "wire.h"
 #include "syscall.h"
 #include "fscmd.h"
 #include "life.h"
@@ -218,6 +219,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     watchdog_init();
     console_init();
     proc_init(hw_get()->cpus, hw_get()->ram_kb);
+    wire_init();
     syscall_init();
     experience_init();   // опыт прошлых жизней: если есть диск, организм вспоминает
     fs_init();           // файловая система на том же диске (после хранилища опыта)

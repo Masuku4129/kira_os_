@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "sha256.h"      /* sha256_* (уровень 3) */
 
 typedef enum {
     IMMUNE_SELF = 0,     // дайджест есть в базе "своих"
@@ -16,19 +17,6 @@ typedef struct {
     immune_verdict_t verdict;
     char reason[32];
 } immune_quarantine_entry_t;
-
-// SHA-256 (потоковый интерфейс и одним вызовом)
-typedef struct {
-    uint32_t state[8];
-    uint64_t bitlen;
-    uint8_t buffer[64];
-    uint32_t buflen;
-} sha256_ctx_t;
-
-void sha256_init(sha256_ctx_t* c);
-void sha256_update(sha256_ctx_t* c, const void* data, size_t len);
-void sha256_final(sha256_ctx_t* c, uint8_t out[32]);
-void sha256(const void* data, size_t len, uint8_t out[32]);
 
 // Снимает эталонный дайджест кода и констант ядра (.rodata + .text).
 void immune_init(void);
