@@ -340,6 +340,32 @@ u_int32_t ether_crc32_le(const u_int8_t* p, size_t n) {
     return crc;
 }
 int pci_matchbyid(struct pci_attach_args* pa, const struct pci_matchid* ids, int n) { return pci_matchid(pa, ids, n); }
+/* тип BAR: порт - бит 0; память - биты 0..2 (0 - 32 бита, 4 - 64 бита), как в OpenBSD */
+pcireg_t pci_mapreg_type(pci_chipset_tag_t pc, pcitag_t tag, int reg) { pcireg_t v = pci_conf_read(pc, tag, reg); return (v & 1) ? 1 : (v & 7); }
+/* поиск возможности по списку (указатель в 0x34 при бите списка в состоянии); 1 - найдена (смещение и первое слово - через offset/value), 0 - нет */
+int pci_get_capability(pci_chipset_tag_t pc, pcitag_t tag, int capid, int* offset, pcireg_t* value) {
+    if (!(pci_conf_read(pc, tag, 0x04) & 0x00100000)) return 0;
+    unsigned ptr = pci_conf_read(pc, tag, 0x34) & 0xfc;
+    for (int guard = 0; ptr >= 0x40 && guard < 48; guard++) {
+        u32 h = pci_conf_read(pc, tag, (int)ptr);
+        if ((int)(h & 0xff) == capid) { if (offset) *offset = (int)ptr; if (value) *value = h; return 1; }
+        ptr = (h >> 8) & 0xfc;
+    }
+    return 0;
+}
+/* чтение VPD (PCI 2.2): адрес (15 бит) в старшие 16 бит слова возможности, готовность - старший бит; данные в +4. 0 - успех, 1 - отказ */
+int pci_vpd_read(pci_chipset_tag_t pc, pcitag_t tag, int offset, int count, pcireg_t* data) {
+    int cap; pcireg_t reg;
+    if (offset < 0 || (offset & 3) || count < 0 || !pci_get_capability(pc, tag, PCI_CAP_VPD, &cap, &reg)) return 1;
+    for (int i = 0; i < count; i++, offset += 4) {
+        pci_conf_write(pc, tag, cap, (reg & 0x0000ffffu) | (((u32)offset & 0x7fffu) << 16));
+        int k = 0;
+        do { delay(1); reg = pci_conf_read(pc, tag, cap); } while (!(reg & 0x80000000u) && k++ < 4);
+        if (!(reg & 0x80000000u)) return 1;
+        data[i] = pci_conf_read(pc, tag, cap + 4);
+    }
+    return 0;
+}
 /* состояние питания через возможность PM (id 1, PMCSR = +4, биты 0..1); устройству нужно время на выход из D3 */
 int pci_set_powerstate(pci_chipset_tag_t pc, pcitag_t tag, int state) {
     (void)pc; (void)tag;
@@ -492,6 +518,8 @@ void pci_conf_write(pci_chipset_tag_t pc, pcitag_t tag, int reg, pcireg_t v) { (
 #define NIH 4
 static struct { int (*fn)(void*); void* arg; } ihs[NIH]; static int nih;
 int pci_intr_map(struct pci_attach_args* pa, pci_intr_handle_t* ih) { (void)pa; *ih = 0; return 0; }
+/* MSI-X/MSI выбирает ядро (право irq): драйверу всегда достаётся одна линия, поэтому «MSI не получен» - драйвер переходит на pci_intr_map */
+int pci_intr_map_msi(struct pci_attach_args* pa, pci_intr_handle_t* ih) { (void)pa; (void)ih; return 1; }
 const char* pci_intr_string(pci_chipset_tag_t pc, pci_intr_handle_t ih) { (void)pc; (void)ih; return (g_info.flags & KDRV_INFO_INTX) ? "intx" : (g_info.flags & KDRV_INFO_MSI) ? "msi" : "polling"; }
 void* pci_intr_establish(pci_chipset_tag_t pc, pci_intr_handle_t ih, int ipl, int (*fn)(void*), void* arg, const char* name) {
     (void)pc; (void)ih; (void)ipl; (void)name; if (nih >= NIH) return NULL; ihs[nih].fn = fn; ihs[nih].arg = arg; return &ihs[nih++];
@@ -515,7 +543,7 @@ KIRA_ENTRY()
 int umain(void) {
     if (kdrv_info(&g_info) != 0) { printf("bsdrt: info refused\n"); return 1; }
     struct pci_attach_args pa; bzero(&pa, sizeof pa);
-    pa.pa_dmat = kd_dmat(); pa.pa_id = (u32)g_info.vendor | ((u32)g_info.device << 16); { i64 cr = kdrv_cfg_read(PCI_CLASS_REG, 4); pa.pa_class = cr >= 0 ? (u32)cr : (u32)(g_info.cls << 8); }   /* класс и РЕВИЗИЯ: драйверы выбирают возможности по ревизии */
+    pa.pa_flags = PCI_FLAGS_IO_ENABLED | PCI_FLAGS_MEM_ENABLED; pa.pa_dmat = kd_dmat(); pa.pa_id = (u32)g_info.vendor | ((u32)g_info.device << 16); { i64 cr = kdrv_cfg_read(PCI_CLASS_REG, 4); pa.pa_class = cr >= 0 ? (u32)cr : (u32)(g_info.cls << 8); }   /* класс и РЕВИЗИЯ: драйверы выбирают возможности по ревизии */
     struct device* dev = (struct device*)malloc(kd_ca->ca_devsize, M_DEVBUF, M_ZERO);
     if (!dev) { printf("bsdrt: no memory for softc\n"); return 1; }
     snprintf(dev->dv_xname, sizeof dev->dv_xname, "%s0", kd_devname);

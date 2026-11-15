@@ -483,11 +483,28 @@ struct pci_matchid { pci_vendor_id_t pm_vid; pci_product_id_t pm_pid; };
 #define PCI_PMCSR_STATE_D3 0x03
 struct pci_attach_args {
     pci_chipset_tag_t pa_pc; pcitag_t pa_tag; pcireg_t pa_id, pa_class;
-    bus_space_tag_t pa_iot, pa_memt; bus_dma_tag_t pa_dmat; int pa_intrline;
+    bus_space_tag_t pa_iot, pa_memt; bus_dma_tag_t pa_dmat; int pa_intrline; int pa_flags;
 };
+#define PCI_FLAGS_IO_ENABLED 0x01
+#define PCI_FLAGS_MEM_ENABLED 0x02
+#define PCI_ID_CODE(vid, pid) ((((vid) & 0xffff) << 0) | (((pid) & 0xffff) << 16))
+#define PCI_CAP_PWRMGMT 0x01
+#define PCI_CAP_VPD 0x03
+#define PCI_CAP_MSI 0x05
+#define PCI_CAP_PCIEXPRESS 0x10
+#define PCI_CAP_MSIX 0x11
+#define PCI_MAPREG_TYPE_MASK 0x00000001
+#define PCI_MAPREG_MEM_TYPE_MASK 0x00000006
+#define PCI_MAPREG_TYPE(mr) ((mr) & PCI_MAPREG_TYPE_MASK)
+#define PCI_MAPREG_MEM_TYPE(mr) ((mr) & PCI_MAPREG_MEM_TYPE_MASK)
+
 int pci_matchid(struct pci_attach_args*, const struct pci_matchid*, int n);
 int pci_matchbyid(struct pci_attach_args*, const struct pci_matchid*, int n);
 int pci_set_powerstate(pci_chipset_tag_t, pcitag_t, int state);
+pcireg_t pci_mapreg_type(pci_chipset_tag_t, pcitag_t, int reg);
+int pci_get_capability(pci_chipset_tag_t, pcitag_t, int capid, int* offset, pcireg_t* value);
+int pci_vpd_read(pci_chipset_tag_t, pcitag_t, int offset, int count, pcireg_t* data);
+int pci_intr_map_msi(struct pci_attach_args*, pci_intr_handle_t*);
 int pci_mapreg_map(struct pci_attach_args*, int reg, pcireg_t type, int flags, bus_space_tag_t* tp, bus_space_handle_t* hp, bus_addr_t* basep, bus_size_t* sizep, bus_size_t maxsize);
 pcireg_t pci_conf_read(pci_chipset_tag_t pc, pcitag_t tag, int reg);
 void pci_conf_write(pci_chipset_tag_t pc, pcitag_t tag, int reg, pcireg_t v);
