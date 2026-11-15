@@ -255,6 +255,25 @@ static void damage_side(void) { damage_side_full(); }
 
 /* Наведение мыши на значок: перерисовывается сам значок и его подпись, а не весь Dock шириной в экран
    (раньше каждый переход курсора по значкам давал около 170 тысяч точек, на медленной машине - десятки миллисекунд). */
+/* Размер и место подписи над значком Dock; одно и то же считают рисование и перерисовка наведения.
+   stl - строка состояния (0 - нет). */
+static void tip_geom(int i, const char* stl, int* out_lx, int* out_ty, int* out_lw, int* out_th) {
+    const char* desc = side[i].desc; const char* hint = side[i].hint;
+    int lines = 1 + (desc && *desc) + (stl != 0) + (hint && *hint);
+    int th = 12 + lines * 18;
+    int lw = gfx_text_width(side[i].label);
+    if (desc && gfx_text_width(desc) > lw) lw = gfx_text_width(desc);
+    if (hint && gfx_text_width(hint) > lw) lw = gfx_text_width(hint);
+    if (stl && gfx_text_width(stl) > lw) lw = gfx_text_width(stl);
+    lw += 20;
+    if (lw > 440) lw = 440;
+    if (lw > scr->w - 8) lw = scr->w - 8;
+    int lx = side_item_x(i) + side_ts / 2 - lw / 2;
+    if (lx < 4) lx = 4;
+    if (lx + lw > scr->w - 4) lx = scr->w - 4 - lw;
+    *out_lx = lx; *out_ty = dock_y() - 10 - th; *out_lw = lw; *out_th = th;
+}
+#define TIP_STL_MAX "свёрнуто - щелчок вернёт"      /* самая длинная строка состояния: запас по размеру при перерисовке */
 static void damage_hover_item(int i, int from_desk) {
     if (i < 0 || i >= side_n) return;
     if (from_desk) {
@@ -265,14 +284,8 @@ static void damage_hover_item(int i, int from_desk) {
     }
     int x = side_item_x(i), y = side_ty();
     damage(x - 12, y - 12, x + side_ts + 12, y + side_ts + 12);               /* значок с подсветкой */
-    const char* desc = side[i].desc; const char* hint = side[i].hint;
-    int lines = 1 + (desc && *desc) + 1 + (hint && *hint);                    /* подпись: название, описание, состояние, подсказка (с запасом на состояние) */
-    int th = 12 + lines * 18;
-    int lw = 440 < scr->w - 8 ? 440 : scr->w - 8;
-    int lx = x + side_ts / 2 - lw / 2;
-    if (lx < 4) lx = 4;
-    if (lx + lw > scr->w - 4) lx = scr->w - 4 - lw;
-    int ty = dock_y() - 10 - th;
+    int lx, ty, lw, th;
+    tip_geom(i, TIP_STL_MAX, &lx, &ty, &lw, &th);
     damage(lx - 4, ty - 4, lx + lw + 4, dock_y() - 4);
 }
 
@@ -1408,19 +1421,8 @@ static void draw_side(surface_t* c, int ox, int oy) {
         const char* hint = side[side_hover].hint;
         const char* desc = side[side_hover].desc;
         const char* stl = st == 3 ? "в фокусе" : st == 2 ? "открыто" : st == 1 ? "свёрнуто - щелчок вернёт" : 0;
-        int lines = 1 + (desc && *desc) + (stl != 0) + (hint && *hint);
-        int th = 12 + lines * 18;
-        int lw = gfx_text_width(side[side_hover].label);
-        if (desc && gfx_text_width(desc) > lw) lw = gfx_text_width(desc);
-        if (hint && gfx_text_width(hint) > lw) lw = gfx_text_width(hint);
-        if (stl && gfx_text_width(stl) > lw) lw = gfx_text_width(stl);
-        lw += 20;
-        if (lw > 440) lw = 440;
-        if (lw > scr->w - 8) lw = scr->w - 8;
-        int lx = side_item_x(side_hover) + ts / 2 - lw / 2;
-        if (lx < 4) lx = 4;
-        if (lx + lw > scr->w - 4) lx = scr->w - 4 - lw;
-        int ty = dock_y() - 10 - th;
+        int lx, ty, lw, th;
+        tip_geom(side_hover, stl, &lx, &ty, &lw, &th);
         lx += ox; ty += oy;
         ui_round_rect(c, lx, ty, lw, th, 10, TH_BAR0, 245);
         ui_round_frame(c, lx, ty, lw, th, 10, side[side_hover].color, 200);

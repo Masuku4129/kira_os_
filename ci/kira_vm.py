@@ -441,6 +441,13 @@ def run(sc, args):
                 time.sleep(1.0)
                 mark = len(vm.log)
                 result["checks"].append({"relaunch": True, "ok": True})
+            elif "pointer" in st:                     # поставить указатель в точку экрана (x, y в точках; экран wxh) абсолютным движением
+                px, py, sw, sh = st["pointer"]
+                for _ in range(2):
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [
+                        {"type": "abs", "data": {"axis": "x", "value": int(px * 32767 / sw)}},
+                        {"type": "abs", "data": {"axis": "y", "value": int(py * 32767 / sh)}}]}})
+                    vm.pump(0.4)
             elif "mouse" in st:                       # поток движения мыши через QMP: кружит по экрану; hz - событий в секунду, step - пикселей за событие
                 m = st["mouse"]
                 hz, secs, step = m.get("hz", 125), m.get("seconds", 10), m.get("step", 8)

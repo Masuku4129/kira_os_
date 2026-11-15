@@ -312,6 +312,12 @@ ALL = [
         {"sleep": 5}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
         {"cmd": "ai", "must": [r"."]},
     ], smp=4, mem="512M", limbo=True),
+    sc("hover-look", "вид: наведение на значок Dock и вкладку - подпись рисуется целиком, следов нет", [
+        {"log": BOOT_LOG}, {"sleep": 6},
+        {"pointer": [603, 672, 1280, 720]}, {"shot": "hover-dock"},
+        {"pointer": [660, 20, 1280, 720]}, {"shot": "hover-tab"},
+        {"pointer": [1100, 300, 1280, 720]}, {"shot": "hover-away"},
+    ], smp=2, mem="512M"),
     sc("wasm-speed", "WebAssembly: JIT x86-64 - плазма wgfx на стенде укладывается в порог по времени (до JIT на этом стенде было 1257 мс)", [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wgfx.wasm"}, {"sleep": 6},
