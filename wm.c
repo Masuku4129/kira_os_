@@ -64,7 +64,9 @@ static wm_notice_t notices[WM_NOTIFY_MAX];
 static int notice_count;
 static int brain_cx, brain_cy;
 
+#define SYS_ZONE_W 200
 static void damage_home(void);
+static int home_open;                                  /* обзор системы: по клику на системную зону, по умолчанию скрыт */
 
 static const char* const cursor_art[CUR_H] = {
     "#           ", "##          ", "#.#         ", "#..#        ", "#...#       ", "#....#      ",
@@ -834,6 +836,7 @@ static void click(int px, int py) {
     if (py < WM_TOP_H) {
         int t = tab_hit(px, py);
         if (t >= 0 && ops.tab) ops.tab(t);
+        else if (px >= scr->w - SYS_ZONE_W) { damage_home(); home_open = !home_open; damage_home(); }   /* системная зона: время и состояние - вызов обзора */
         return;
     }
     int si = side_hit(px, py);
@@ -1089,6 +1092,8 @@ static void home_metric(surface_t* c, int x, int y, int w, int ox, int oy,
     }
 }
 
+int wm_home_open(void) { return home_open; }
+
 static void damage_home(void) {
     if (!scr || scr->w < 900 || scr->h < 620) return;
     damage(scr->w - 318, scr->h - 176, scr->w - 18, scr->h - 18);
@@ -1151,36 +1156,7 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         ui_disc(c, rx + 4, y + 20, 7, hc, 50);
         rx -= 16;
     }
-    if (W >= 1024 && m_mem >= 0) {                                  /* память: «батарейка» с заполнением */
-        int bw = 26, bh = 12, bx = rx - bw, by = y + 14;
-        uint32_t mc; meter_color((unsigned)m_mem, &mc);
-        ui_round_frame(c, bx, by, bw, bh, 3, TH_TEXT_DIM, 200);
-        gfx_rect(c, bx + bw, by + 3, 2, 6, TH_TEXT_DIM);
-        int fw = (bw - 4) * m_mem / 100; if (fw < 1) fw = 1;
-        ui_round_rect(c, bx + 2, by + 2, fw, bh - 4, 2, mc, 255);
-        rx = bx - 8;
-        char t[8]; int n = 0, v = m_mem; char d[4]; int k = 0;
-        do { d[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 3);
-        while (k) t[n++] = d[--k];
-        t[n++] = '%'; t[n] = 0;
-        rx -= gfx_text_width(t);
-        gfx_text(c, rx, y + 12, t, TH_TEXT_DIM, -1);
-        rx -= 14;
-    }
-    if (W >= 1024 && m_cores > 0) {                                 /* ядра: столбики, как уровень сигнала */
-        int shown = m_cores > 16 ? 16 : m_cores, per = (m_cores + shown - 1) / shown;
-        int bw = 4, gap = 2, bx = rx - shown * (bw + gap);
-        for (int i = 0; i < shown; i++) {
-            unsigned sum = 0, cnt = 0;
-            for (int k = i * per; k < (i + 1) * per && k < m_cores; k++) { sum += m_busy[k]; cnt++; }
-            unsigned p = cnt ? sum / cnt : 0;
-            uint32_t col; meter_color(p, &col);
-            gfx_rect(c, bx + i * (bw + gap), y + 10, bw, 20, 0x00142238);
-            int hgt = (int)(p * 20 / 100); if (hgt < 2) hgt = 2;
-            gfx_rect(c, bx + i * (bw + gap), y + 30 - hgt, bw, hgt, col);
-        }
-        rx = bx - 16;
-    }
+    /* Ядра и память постоянно не показываются (KIRA_DESIGN_SYSTEM, инвариант 1): они в обзоре по клику на системную зону. */
     if (clock_hm[0]) {
         rx -= gfx_text_width(clock_hm);
         ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT);
@@ -1364,7 +1340,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
             else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
             if (fs < 0) {
                 brainfx_draw(&clip, ox, oy, anim_ms);
-                draw_home(&clip, ox, oy);
+                if (home_open) draw_home(&clip, ox, oy);
             }
             start = 0;
         }

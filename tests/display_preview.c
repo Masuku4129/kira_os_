@@ -445,6 +445,13 @@ int main(int argc, char** argv) {
     { int x, y; wm_side_center(1, &x, &y); move_to(x, y, 0); }
     run(40);
     save_shot("home.ppm");
+    {   /* чистый рабочий стол: обзор скрыт; клик по системной зоне открывает его, второй - закрывает */
+        int sx = W - 60, sy = 16;
+        extern int wm_home_open(void);
+        CHECK(!wm_home_open());
+        click(sx, sy); run(3); CHECK(wm_home_open()); save_shot("home_overview.ppm");
+        click(sx, sy); run(3); CHECK(!wm_home_open());
+    }
 
     /* программы Ring 3: значок запускает (команда в терминал), окно приложения рядом с Разумом */
     con_n = 0; click_side(0);
