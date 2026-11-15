@@ -451,6 +451,10 @@ int main(int argc, char** argv) {
         CHECK(!wm_home_open());
         click(sx, sy); run(3); CHECK(wm_home_open()); save_shot("home_overview.ppm");
         click(sx, sy); run(3); CHECK(!wm_home_open());
+        wm_launcher_toggle(); run(2); save_shot("launcher.ppm");                 /* пустой запрос: все программы */
+        wm_launcher_key(0, 0x0442); wm_launcher_key(0, 0x0435); run(2);          /* «те»: Терминал, Текстовый редактор... */
+        CHECK(wm_launcher_active() && wm_launcher_count() >= 1); save_shot("launcher_query.ppm");
+        wm_launcher_key(KEY_ESC, 0); run(2); CHECK(!wm_launcher_active());
     }
 
     /* программы Ring 3: значок запускает (команда в терминал), окно приложения рядом с Разумом */

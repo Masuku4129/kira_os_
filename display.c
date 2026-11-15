@@ -599,9 +599,13 @@ static void display_main(void* arg) {
 
         gfx_server_run();                 // окна приложений Ring 3: создание, перерисовка, закрытие
 
+        if (wm_launcher_active()) {       // поиск и запуск: клавиатура у него
+            input_event_t ke;
+            while (input_pop(&ke)) if (ke.type == INPUT_KEY_DOWN && !(ke.key >= KEY_LSHIFT && ke.key <= KEY_CAPS)) wm_launcher_key(ke.key, ke.ch);
+        }
         {                                 // Проводник сверху: клавиатура у него (консоль в это время не читает)
             int own = w_files >= 0 && wm_visible(w_files) && wm_top() == w_files;
-            __atomic_store_n(&files_focus, own, __ATOMIC_RELEASE);
+            __atomic_store_n(&files_focus, own || wm_launcher_active(), __ATOMIC_RELEASE);
             input_event_t ke;
             while (own && input_pop(&ke)) if (ke.type == INPUT_KEY_DOWN && !(ke.key >= KEY_LSHIFT && ke.key <= KEY_CAPS)) explorer_key(ke.key, ke.ch);   // модификаторы - не команды
         }
@@ -615,8 +619,9 @@ static void display_main(void* arg) {
             if (l[0]) explorer_goto(0, l);
         }
 
-        int hk = input_take_hotkey();     // F11 - на весь экран, F10 - свернуть на фон
-        if (hk) {
+        int hk = input_take_hotkey();     // F11 - на весь экран, F10 - свернуть на фон, F9 - поиск и запуск
+        if (hk == KEY_F9) wm_launcher_toggle();
+        else if (hk) {
             int top = wm_top();
             if (hk == KEY_F11) wm_set_fullscreen(top, !wm_fullscreen(top));
             else if (hk == KEY_F10) wm_minimize(top);

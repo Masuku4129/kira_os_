@@ -1,4 +1,5 @@
 #include "wm.h"
+#include "input.h"
 #include "theme.h"
 #include "icons.h"
 #include <stdio.h>
@@ -226,6 +227,30 @@ int main(void) {
     /* значок без окна запускает приложение */
     launches = 0; click_side(1);
     CHECK(launches == 1 && last_launch == 1);
+    /* Launcher: поиск по части имени, выбор стрелками, Enter запускает, Esc закрывает */
+    {
+        CHECK(!wm_launcher_active());
+        wm_launcher_toggle();
+        CHECK(wm_launcher_active() && wm_launcher_count() == 3);        /* пустой запрос: все программы */
+        wm_launcher_key(0, 'Z');                                         /* регистр не важен: метка «Z», метка окна «zzz» */
+        CHECK(wm_launcher_count() == 1);
+        wm_launcher_key(0, 'q'); CHECK(wm_launcher_count() == 0);       /* ничего не найдено */
+        wm_launcher_key(KEY_BACKSPACE, 0); CHECK(wm_launcher_count() == 1);
+        launches = 0; wm_launcher_key(KEY_ENTER, 0);
+        CHECK(!wm_launcher_active() && launches == 1 && last_launch == 1);
+        wm_launcher_toggle();
+        wm_launcher_key(0, 'E');                                         /* по метке: «set» */
+        CHECK(wm_launcher_count() == 1);
+        wm_launcher_key(KEY_BACKSPACE, 0); CHECK(wm_launcher_count() == 3);
+        wm_launcher_key(KEY_DOWN, 0); wm_launcher_key(KEY_DOWN, 0); wm_launcher_key(KEY_DOWN, 0);   /* дальше последней не уходит */
+        launches = 0; wm_launcher_key(KEY_ENTER, 0);
+        CHECK(launches == 1 && last_launch == 2);
+        wm_launcher_toggle(); wm_launcher_key(KEY_ESC, 0);
+        CHECK(!wm_launcher_active());
+        wm_launcher_toggle(); wm_launcher_key(0, 0x0416);                /* кириллица «Ж» - ничего не найдено, не падает */
+        CHECK(wm_launcher_count() == 0); wm_launcher_toggle();
+        frame();
+    }
     /* подсказка под курсором над значком рисуется */
     move_to(sx0, sy0, 0);
     CHECK(wm_compose(&x, &y, &w, &h) && x == 0 && w > WM_SIDE_W);

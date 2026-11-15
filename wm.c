@@ -3,6 +3,7 @@
 #include "icons.h"
 #include "brainfx.h"
 #include "theme.h"
+#include "input.h"
 
 #define CUR_W 12
 #define CUR_H 19
@@ -836,6 +837,7 @@ static void click(int px, int py) {
     if (py < WM_TOP_H) {
         int t = tab_hit(px, py);
         if (t >= 0 && ops.tab) ops.tab(t);
+        else if (px < 150) wm_launcher_toggle();                                   /* логотип: поиск и запуск */
         else if (px >= scr->w - SYS_ZONE_W) { damage_home(); home_open = !home_open; damage_home(); }   /* системная зона: время и состояние - вызов обзора */
         return;
     }
@@ -1093,7 +1095,6 @@ static void home_metric(surface_t* c, int x, int y, int w, int ox, int oy,
 }
 
 int wm_home_open(void) { return home_open; }
-
 static void damage_home(void) {
     if (!scr || scr->w < 900 || scr->h < 620) return;
     damage(scr->w - 318, scr->h - 176, scr->w - 18, scr->h - 18);
@@ -1299,6 +1300,103 @@ static int compose_prepare(void) {
 
 /* Собрать прямоугольник экрана [x0,x1)x[y0,y1). Только читает состояние оконного менеджера: несколько
    прямоугольников собираются параллельно, пока поток дисплея ждёт (wm_compose_par). */
+
+/* ---------------- Launcher: поиск и запуск по имени (UI-3) ----------------
+   Открывается по F9 или клику на логотип; печатаем часть имени (латиница и кириллица, регистр не важен), стрелки выбирают,
+   Enter запускает или поднимает окно, Esc закрывает. Ничего не висит на экране, пока не вызван. */
+#define LQ_MAX 40
+#define LROWS  8
+static int launcher_open, lq_n, l_sel, l_nm;
+static char lq[LQ_MAX];
+static int l_match[WM_SIDE_MAX];
+
+static unsigned u8next(const char** p) {
+    const unsigned char* s = (const unsigned char*)*p;
+    unsigned c = s[0];
+    if (c < 0x80) { *p += 1; return c; }
+    if ((c & 0xE0) == 0xC0 && s[1]) { *p += 2; return ((c & 0x1F) << 6) | (s[1] & 0x3F); }
+    *p += 1; return c;
+}
+static unsigned cpfold(unsigned c) {
+    if (c >= 'A' && c <= 'Z') return c + 32;
+    if (c >= 0x410 && c <= 0x42F) return c + 32;
+    return c == 0x401 ? 0x451 : c;
+}
+static int has_fold(const char* hay, const char* nd) {
+    if (!nd[0]) return 1;
+    if (!hay) return 0;
+    for (const char* h = hay; *h; ) {
+        const char* a = h; const char* b = nd; int ok = 1;
+        while (*b) { if (!*a) { ok = 0; break; } if (cpfold(u8next(&a)) != cpfold(u8next(&b))) { ok = 0; break; } }
+        if (ok) return 1;
+        u8next(&h);
+    }
+    return 0;
+}
+static void launcher_damage(void) { damage(0, WM_TOP_H, scr->w, WM_TOP_H + 60 + 70 + LROWS * 36 + 40); }
+static void launcher_rebuild(void) {
+    l_nm = 0;
+    for (int i = 0; i < side_n; i++) {
+        if (!side[i].label || !side[i].label[0]) continue;
+        if (has_fold(side[i].label, lq) || has_fold(side[i].tag, lq) || has_fold(side[i].desc, lq)) l_match[l_nm++] = i;
+    }
+    if (l_sel >= l_nm) l_sel = l_nm ? l_nm - 1 : 0;
+}
+void wm_launcher_toggle(void) {
+    launcher_damage();
+    launcher_open = !launcher_open;
+    lq_n = 0; lq[0] = 0; l_sel = 0;
+    if (launcher_open) launcher_rebuild();
+    launcher_damage();
+}
+int wm_launcher_active(void) { return launcher_open; }
+int wm_launcher_count(void) { return l_nm; }
+void wm_launcher_key(int key, int ch) {
+    if (!launcher_open) return;
+    launcher_damage();
+    if (key == KEY_ESC) launcher_open = 0;
+    else if (key == KEY_ENTER) {
+        if (l_nm) { int i = l_match[l_sel]; launcher_open = 0; launcher_damage(); side_click(i); return; }
+    } else if (key == KEY_UP) { if (l_sel > 0) l_sel--; }
+    else if (key == KEY_DOWN) { if (l_sel + 1 < l_nm) l_sel++; }
+    else if (key == KEY_BACKSPACE) {
+        while (lq_n > 0 && (lq[lq_n - 1] & 0xC0) == 0x80) lq_n--;     /* хвост символа UTF-8 */
+        if (lq_n > 0) lq_n--;
+        lq[lq_n] = 0; l_sel = 0; launcher_rebuild();
+    } else if (ch >= 32 && ch != 127) {
+        int need = ch < 0x80 ? 1 : 2;
+        if (lq_n + need < LQ_MAX) {
+            if (need == 1) lq[lq_n++] = (char)ch;
+            else { lq[lq_n++] = (char)(0xC0 | (ch >> 6)); lq[lq_n++] = (char)(0x80 | (ch & 0x3F)); }
+            lq[lq_n] = 0; l_sel = 0; launcher_rebuild();
+        }
+    }
+    launcher_damage();
+}
+
+static void draw_launcher(surface_t* c, int ox, int oy) {
+    int pw = scr->w - 40 < 560 ? scr->w - 40 : 560;
+    if (pw < 200) return;
+    int px = (scr->w - pw) / 2, py = WM_TOP_H + 60;
+    int ph = 64 + (l_nm ? l_nm : 1) * 36 + 12;
+    ui_round_rect(c, px + 4 + ox, py + 8 + oy, pw, ph, 18, 0x00000000, 110);          /* тень */
+    ui_round_rect(c, px + ox, py + oy, pw, ph, 18, TH_BAR0, 244);
+    ui_round_frame(c, px + ox, py + oy, pw, ph, 18, TH_CYAN, 110);
+    ui_round_rect(c, px + 14 + ox, py + 12 + oy, pw - 28, 40, 12, TH_TRACK, 255);
+    if (lq_n) ui_text_fit(c, px + 28 + ox, py + 22 + oy, lq, pw - 60, TH_TEXT);
+    else gfx_text(c, px + 28 + ox, py + 22 + oy, "Найти программу...", TH_TEXT_FAINT, -1);
+    if (lq_n) { int cw = gfx_text_width(lq); gfx_rect(c, px + 29 + cw + ox, py + 22 + oy, 2, 18, TH_CYAN); }
+    if (!l_nm) { gfx_text(c, px + 28 + ox, py + 70 + oy, "Ничего не найдено", TH_TEXT_DIM, -1); return; }
+    for (int k = 0; k < l_nm && k < LROWS; k++) {
+        int i = l_match[k], ry = py + 62 + k * 36;
+        if (k == l_sel) { ui_round_rect(c, px + 10 + ox, ry + oy, pw - 20, 32, 10, TH_CYAN, 38); ui_round_frame(c, px + 10 + ox, ry + oy, pw - 20, 32, 10, TH_CYAN, 120); }
+        icon_draw(c, px + 34 + ox, ry + 16 + oy, 20, side[i].icon, side[i].color, 0);
+        ui_text_fit(c, px + 56 + ox, ry + 8 + oy, side[i].label, pw / 3, k == l_sel ? TH_CYAN : TH_TEXT);
+        if (side[i].desc) ui_text_fit(c, px + 56 + pw / 3 + 10 + ox, ry + 8 + oy, side[i].desc, pw - pw / 3 - 90, TH_TEXT_DIM);
+        if (wm_find(side[i].tag) >= 0) gfx_text(c, px + pw - 40 + ox, ry + 8 + oy, "\xE2\x97\x8F", TH_GREEN, -1);
+    }
+}
+
 static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     int rw = x1 - x0, rh = y1 - y0;
     int pill = last_pill;
@@ -1354,6 +1452,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         if (y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
         if (x0 < SIDE_AREA_W) draw_side(&clip, ox, oy);
         if (notice_count) draw_notifications(&clip, ox, oy);
+        if (launcher_open) draw_launcher(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
     draw_cursor(&clip, ox, oy);
 }
