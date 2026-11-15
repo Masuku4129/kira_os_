@@ -73,7 +73,7 @@ has iommu "passthrough: unrestricted DMA, NOT isolated" "остальные ус
 has iommu "virtio-blk isolated: own translation domain\|\.[0-9] isolated: own translation domain" "virtio-blk получил свой домен"
 has iommu "DMA fault: device .* blocked\|DMA fault: device" "нарушение DMA записано в журнал"
 has iommu "enforcement check passed" "проверка принуждения: обращение к невыданной памяти остановлено"
-has iommu "Disk virtio-blk.*DMA isolated by VT-d" "диск поднят через отображение"
+has iommu "Disk virtio-blk.*DMA isolated by IOMMU" "диск поднят через отображение"
 has iommu "Command line ready" "система дошла до консоли с диском за IOMMU"
 hasnot iommu "KERNEL PANIC" "без паники"
 hasnot iommu "blk request timeout" "запросы к диску не зависли"
@@ -95,7 +95,7 @@ run noplat -device intel-iommu,aw-bits=48 -device virtio-blk-pci,drive=kd0,disab
 has noplat "VT-d translation enabled on 1 unit" "VT-d включён и без iommu_platform"
 has noplat "does not negotiate ACCESS_PLATFORM" "честная пометка: DMA устройства мимо IOMMU"
 has noplat "DMA not isolated" "диск поднят с пометкой 'не изолирован'"
-hasnot noplat "DMA isolated by VT-d" "изоляция не заявлена"
+hasnot noplat "DMA isolated by IOMMU" "изоляция не заявлена"
 has noplat "Command line ready" "диск работает"
 
 # --- 3. без IOMMU поведение прежнее ---

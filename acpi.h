@@ -24,6 +24,8 @@ typedef struct {
     uint32_t tables_seen, tables_bad, tables_skipped_high;
     uint64_t dmar_phys;             /* physical address of checksum-validated DMAR table, 0 if absent */
     uint32_t dmar_len;
+    uint64_t ivrs_phys;             /* AMD-Vi: physical address of checksum-validated IVRS table, 0 if absent */
+    uint32_t ivrs_len;
     uint8_t  source;               /* 0 - ACPI (MADT), 1 - таблицы Intel MP (ACPI нет или в нём нет процессоров) */
     /* питание (FADT и \_S5 из DSDT) */
     uint32_t pm1a_cnt, pm1b_cnt, smi_cmd;   /* порты; 0 - нет */

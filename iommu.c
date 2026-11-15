@@ -7,6 +7,7 @@
    Nothing is printed under G.lock. */
 #include "iommu.h"
 #include "iommu_vtd.h"
+#include "iommu_amd.h"
 #include "drivers/iommu/intel_vtd.h"
 #include "drivers/iommu/vtd_domain.h"
 #include "acpi.h"
@@ -139,6 +140,7 @@ static idom_t* dom_find(uint8_t bus, uint8_t dev, uint8_t fn) {
 /* ---- Initialisation ---- */
 
 int iommu_enabled(void) {
+    if (amd_iommu_active()) return 1;
     int n = 0;
     for (int i = 0; i < VTD_MAX_UNITS; i++) n += G.on[i];
     return n;
@@ -147,8 +149,9 @@ int iommu_enabled(void) {
 static void zero_bytes(void* p, size_t n) { uint8_t* b = (uint8_t*)p; while (n--) *b++ = 0; }
 
 int iommu_init(void) {
-    if (G.active) return iommu_enabled();
+    if (G.active || amd_iommu_active()) return iommu_enabled();
     const acpi_info_t* ai = acpi_get();
+    if (ai && !ai->dmar_phys && ai->ivrs_phys) return amd_iommu_init();      /* платформа AMD: таблица IVRS вместо DMAR */
     if (!ai || !ai->dmar_phys) {
         uart_print("[KIRA IOMMU] No DMAR table: DMA isolation is not available, devices keep unrestricted DMA.\n");
         return 0;
@@ -255,6 +258,7 @@ int iommu_init(void) {
 /* ---- Domains ---- */
 
 int iommu_device_isolated(const pci_dev_t* d) {
+    if (amd_iommu_active()) return amd_iommu_isolated(d);
     if (!d || !G.active) return 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
@@ -264,6 +268,7 @@ int iommu_device_isolated(const pci_dev_t* d) {
 }
 
 int iommu_isolate_device(const pci_dev_t* d) {
+    if (amd_iommu_active()) return amd_iommu_isolate(d);
     if (!d) return IOMMU_E_ARG;
     if (!G.active) return IOMMU_E_NONE;
     int ui = unit_of(d->bus, d->dev, d->fn);
@@ -295,6 +300,7 @@ int iommu_isolate_device(const pci_dev_t* d) {
 }
 
 int iommu_release_device(const pci_dev_t* d) {
+    if (amd_iommu_active()) return amd_iommu_release(d);
     if (!d) return IOMMU_E_ARG;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
@@ -333,6 +339,7 @@ static void undo_pages(idom_t* x, uint64_t first, uint32_t done) {
 }
 
 int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, unsigned rw) {
+    if (amd_iommu_active()) return amd_iommu_map(d, iova, phys, len, rw);
     uint64_t first; uint32_t pages;
     if (!d) return IOMMU_E_ARG;
     if (!G.active) return IOMMU_E_NONE;
@@ -360,6 +367,7 @@ int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, un
 }
 
 int iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len) {
+    if (amd_iommu_active()) return amd_iommu_unmap(d, iova, len);
     uint64_t first; uint32_t pages;
     if (!d) return IOMMU_E_ARG;
     if (!G.active) return IOMMU_E_NONE;
@@ -380,6 +388,7 @@ int iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len) {
 }
 
 void iommu_unmap_all(const pci_dev_t* d) {
+    if (amd_iommu_active()) { amd_iommu_unmap_all(d); return; }
     if (!d || !G.active) return;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
@@ -402,6 +411,7 @@ static void collect_fault(void* ctx, const struct kira_vtd_fault* ft) {
 }
 
 int iommu_fault_poll(void) {
+    if (amd_iommu_active()) return amd_iommu_fault_poll();
     if (!G.active) return 0;
     if (__atomic_exchange_n(&G.polling, 1, __ATOMIC_ACQUIRE)) return 0;      /* another CPU is draining */
     int total = 0;
@@ -436,6 +446,7 @@ int iommu_fault_poll(void) {
 }
 
 uint32_t iommu_fault_count(const pci_dev_t* d) {
+    if (amd_iommu_active()) return amd_iommu_fault_count(d);
     if (!d || !G.active) return 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
