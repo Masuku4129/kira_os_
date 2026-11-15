@@ -16,8 +16,8 @@ BOOT_LOG = [r"\[KIRA SCHED\] Preemptive scheduler online", r"\[KIRA MIND\] Mind 
             r"\[KIRA FS\] KiraFS mounted"]
 NO_ERR = [r"kernel-mode fault", r"\[KIRA IRET\]", r"\[KIRA GS\]", r"\[KIRA VMM ERROR\]", r"Kernel thread stack overflow", r"bad free|double free", r"\[KIRA SMP\].*did not answer"]
 
-# Пакетов драйверов на диске сборки: abad, eduun, edu, edunc, ne2kio + bsdne, bsdpcn, bsdfxp, bsddc (build_clang.sh). Менять вместе со списком пакетов.
-NPKG = 9
+# Пакетов драйверов на диске сборки: abad, eduun, edu, edunc, rsedu, ne2kio + bsdne, bsdpcn, bsdfxp, bsddc (build_clang.sh). Менять вместе со списком пакетов.
+NPKG = 10
 
 BASIC = [
     {"log": BOOT_LOG},
@@ -543,7 +543,16 @@ ALL.append(sc("drv-edu", "MMIO-only Ring 3: хеш и подтверждение
     {"log": [r"drvedu: crashing on purpose", r"\[KIRA PROC\] pid \d+ killed by CPU exception #14", r"\[KIRA DRV\] drv-edu \(pid \d+\) завершён"]},
     {"sleep": 2},
     {"cmd": "drv start edu", "must": [r"драйвер запущен как drv-edu"]}, {"sleep": 3},
-    {"log_forbid": [r"drvedu: .*\(FAIL\)", r"УТЕЧКА"] + NO_ERR},
+    {"cmd": "drv stop edu"}, {"sleep": 2},
+    # Тот же драйвер на Rust (userland/rust/rsedu.rs): те же проверки устройства и отказов ядра, без unsafe в коде драйвера
+    {"cmd": "drv start rsedu", "must": [r"драйвер запущен как drv-rsedu"]}, {"sleep": 3},
+    {"log": [r"rsedu: device 0x1234:0x11e8, rights 0x4800, no MSI", r"rsedu: id=0x10000ed", r"rsedu: factorial ok",
+             r"rsedu: DMA denied: CAP_DMA not granted \(least-privilege PASS\)", r"rsedu: kernel guards ok", r"rsedu: PASS"]},
+    {"cmd": "drv stop rsedu"}, {"sleep": 2},
+    # выход за BAR в Rust - проверка смещения, паника и штатный выход 101 (не исключение процессора)
+    {"cmd": "drv start rsedu oob", "must": [r"драйвер запущен как drv-rsedu"]}, {"sleep": 3},
+    {"log": [r"rsedu: reading past the BAR on purpose", r"rust: panic", r"\[KIRA DRV\] drv-rsedu \(pid \d+\) завершён"]},
+    {"log_forbid": [r"drvedu: .*\(FAIL\)", r"rsedu: .*\(FAIL\)", r"УТЕЧКА"] + NO_ERR},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", extra=["-device", "edu"]))
 

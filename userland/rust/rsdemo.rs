@@ -5,42 +5,8 @@
 #![no_std]
 #![no_main]
 
-use core::arch::{asm, global_asm};
-use core::panic::PanicInfo;
-
-// --- уровень 7: системные вызовы Kira (номера как в userland/kira.h) ---
-mod sys {
-    use super::asm;
-    const K_WRITE: u64 = 1;
-    const K_EXIT: u64 = 2;
-    const K_GETPID: u64 = 6;
-
-    #[inline(always)]
-    unsafe fn call(n: u64, a: u64, b: u64, c: u64) -> i64 {
-        let r: i64;
-        asm!("syscall", inlateout("rax") n as i64 => r, in("rdi") a, in("rsi") b, in("rdx") c,
-             lateout("rcx") _, lateout("r11") _, lateout("r8") _, lateout("r9") _, lateout("r10") _,
-             options(nostack));
-        r
-    }
-    pub fn write(s: &str) { unsafe { call(K_WRITE, s.as_ptr() as u64, s.len() as u64, 0); } }
-    pub fn getpid() -> u64 { unsafe { call(K_GETPID, 0, 0, 0) as u64 } }
-    pub fn exit(code: i32) -> ! { loop { unsafe { call(K_EXIT, code as u64, 0, 0); } } }
-}
-
-// Вывод чисел без форматировщика core::fmt (меньше кода и нет скрытых зависимостей)
-fn put_u64(mut v: u64) {
-    let mut buf = [0u8; 20];
-    let mut i = buf.len();
-    loop { i -= 1; buf[i] = b'0' + (v % 10) as u8; v /= 10; if v == 0 { break; } }
-    if let Ok(s) = core::str::from_utf8(&buf[i..]) { sys::write(s); }
-}
-fn put_hex(bytes: &[u8]) {
-    const H: &[u8; 16] = b"0123456789abcdef";
-    let mut line = [0u8; 64];
-    for (i, b) in bytes.iter().take(32).enumerate() { line[2 * i] = H[(b >> 4) as usize]; line[2 * i + 1] = H[(b & 15) as usize]; }
-    if let Ok(s) = core::str::from_utf8(&line[..2 * bytes.len().min(32)]) { sys::write(s); }
-}
+#[path = "lib/kira.rs"] mod kira;
+use kira::{write, getpid, put_u64, put_hex_bytes};
 
 // --- SHA-256 (FIPS 180-4) ---
 const K: [u32; 64] = [
@@ -110,19 +76,19 @@ impl<const N: usize> Ring<N> {
 }
 
 fn check(name: &str, ok: bool, failed: &mut u32) {
-    sys::write("rsdemo: "); sys::write(name); sys::write(if ok { " ok\n" } else { " FAIL\n" });
+    write("rsdemo: "); write(name); write(if ok { " ok\n" } else { " FAIL\n" });
     if !ok { *failed += 1; }
 }
 
 fn run() -> u32 {
     let mut failed = 0;
-    sys::write("rsdemo: Rust no_std on Kira OS, pid "); put_u64(sys::getpid()); sys::write("\n");
+    write("rsdemo: Rust no_std on Kira OS, pid "); put_u64(getpid()); write("\n");
 
     let mut h = Sha256::new(); h.update(b"abc");
     let d = h.finish();
     const ABC: [u8; 32] = [0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,0x41,0x41,0x40,0xde,0x5d,0xae,0x22,0x23,0xb0,0x03,0x61,0xa3,0x96,0x17,0x7a,0x9c,0xb4,0x10,0xff,0x61,0xf2,0x00,0x15,0xad];
     check("sha256(abc)", d == ABC, &mut failed);
-    sys::write("rsdemo: digest "); put_hex(&d); sys::write("\n");
+    write("rsdemo: digest "); put_hex_bytes(&d); write("\n");
 
     // 1 000 000 байт «a»: известный контрольный дайджест cdc76e5c...
     let mut h = Sha256::new(); let chunk = [b'a'; 1000];
@@ -147,36 +113,15 @@ fn run() -> u32 {
     check("ring buffer", ok, &mut failed);
 
     // проверка границ: индекс из «внешних данных» - get() возвращает None, без паники и без выхода за массив
-    let idx = (sys::getpid() as usize).wrapping_add(1000);
+    let idx = (getpid() as usize).wrapping_add(1000);
     check("bounds", v.get(idx).is_none(), &mut failed);
     failed
 }
 
 #[no_mangle]
-pub extern "C" fn rmain() -> ! {
+fn kira_main() -> i32 {
     let failed = run();
-    if failed == 0 { sys::write("rsdemo: all checks passed (PASS)\n"); sys::exit(0) }
-    sys::write("rsdemo: FAILED\n");
-    sys::exit(1)
+    if failed == 0 { write("rsdemo: all checks passed (PASS)\n"); return 0; }
+    write("rsdemo: FAILED\n");
+    1
 }
-
-global_asm!(".section .text.start", ".global _start", "_start:", "and rsp, -16", "call rmain", "ud2");
-
-#[panic_handler]
-fn panic(_: &PanicInfo) -> ! { sys::write("rsdemo: panic\n"); sys::exit(101) }
-
-// core требует эти функции от среды; без libc они наши (побайтово, чтобы компилятор не подменил цикл вызовом самой себя)
-#[no_mangle] pub unsafe extern "C" fn memcpy(d: *mut u8, s: *const u8, n: usize) -> *mut u8 { let mut i = 0; while i < n { core::ptr::write_volatile(d.add(i), *s.add(i)); i += 1; } d }
-#[no_mangle] pub unsafe extern "C" fn memmove(d: *mut u8, s: *const u8, n: usize) -> *mut u8 {
-    if (d as usize) <= (s as usize) { let mut i = 0; while i < n { core::ptr::write_volatile(d.add(i), *s.add(i)); i += 1; } }
-    else { let mut i = n; while i > 0 { i -= 1; core::ptr::write_volatile(d.add(i), *s.add(i)); } }
-    d
-}
-#[no_mangle] pub unsafe extern "C" fn memset(d: *mut u8, c: i32, n: usize) -> *mut u8 { let mut i = 0; while i < n { core::ptr::write_volatile(d.add(i), c as u8); i += 1; } d }
-#[no_mangle] pub unsafe extern "C" fn memcmp(a: *const u8, b: *const u8, n: usize) -> i32 {
-    let mut i = 0; while i < n { let (x, y) = (*a.add(i), *b.add(i)); if x != y { return x as i32 - y as i32; } i += 1; } 0
-}
-#[no_mangle] pub unsafe extern "C" fn bcmp(a: *const u8, b: *const u8, n: usize) -> i32 { memcmp(a, b, n) }
-
-// Предкомпилированный core ссылается на личность раскрутки стека; при panic=abort она не вызывается никогда.
-#[no_mangle] pub extern "C" fn rust_eh_personality() { sys::exit(102) }

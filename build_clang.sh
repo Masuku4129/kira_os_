@@ -109,7 +109,7 @@ done
 # На машине без rustc или без core для x86-64 (Debian на телефоне ARM64) шаг пропускается, сборка ОС продолжается.
 if command -v rustc >/dev/null 2>&1; then
     if userland/rust/build.sh; then
-        for src in userland/rust/*.rs; do UELF="$UELF userland/$(basename $src .rs).elf"; done
+        for src in userland/rust/*.rs; do n=$(basename $src .rs); [ "$n" = rsedu ] || UELF="$UELF userland/$n.elf"; done   # rsedu - драйвер, идёт в /drv
     else
         rc=$?; [ $rc -eq 3 ] || { echo "[!] Rust: ошибка сборки (код $rc)"; exit $rc; }
     fi
@@ -140,6 +140,8 @@ if [ "$RELEASE" != 1 ]; then
     $CC $UCFLAGS -I. -Iuserland -c userland/drvedu.c -o userland/drvedu.o
     ld.lld $ULINK -o userland/drvedu.elf userland/drvedu.o
     tools/mkdrv.sh kira.disk userland/drvedu.elf "$HOSTCC"
+    # Тот же edu на Rust (userland/rust/rsedu.rs): драйвер Ring 3 без unsafe в своём коде; запускается сценарием после остановки edu
+    [ -s userland/rsedu.elf ] && tools/mkdrv_pkg.sh kira.disk rsedu userland/rsedu.elf 1234:11e8 mmio,pcidev "$HOSTCC"
     $CC $UCFLAGS -I. -Iuserland -c userland/drvne2kio.c -o userland/drvne2kio.o
     ld.lld $ULINK -o userland/drvne2kio.elf userland/drvne2kio.o
     tools/mkdrv_pkg.sh kira.disk ne2kio userland/drvne2kio.elf 10ec:8029 mmio,pcidev "$HOSTCC"
@@ -282,7 +284,7 @@ case "$1" in
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
             for t in $TESTPROGS; do tools/kfstool "$OUT/kira_disk.img" rm /bin/$t >/dev/null 2>&1 || true; done   # убрать тестовые программы прежних версий
             # Удалить учебные unsigned EDU-пакеты из ранее собранных образов; пользовательские драйверы не трогать.
-            for t in abad eduun edu edunc; do
+            for t in abad eduun edu edunc rsedu; do
                 tools/kfstool "$OUT/kira_disk.img" rm /drv/$t.kdrv >/dev/null 2>&1 || true
                 tools/kfstool "$OUT/kira_disk.img" rm /drv/$t.rec >/dev/null 2>&1 || true
             done
