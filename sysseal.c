@@ -53,6 +53,7 @@ int seal_check(const uint8_t* m, size_t n, seal_hash_fn fn, void* ctx, uint8_t (
     for (int i = 0; i < 32; i++) rep->root[i] = it.data[i];
     if (cbor_map_find(m, n, "files", &it, &at) != 0 || it.type != CBOR_ARRAY || it.val > SEAL_MAX_FILES) return rep->format = -100;
     uint64_t count = it.val;
+    if (cbor_next(&at, &it) || it.type != CBOR_ARRAY || it.val != count) return rep->format = -100;   /* at стоит на заголовке массива */
     for (uint64_t k = 0; k < count; k++) {
         cbor_item a, p, sz, h;
         if (cbor_next(&at, &a) || a.type != CBOR_ARRAY || a.val != 3) return rep->format = -100;

@@ -608,6 +608,7 @@ static const cmd_t cmds[] = {
     { "mkdir",     0,   "создать каталог: mkdir путь", fscmd_mkdir },
     { "rm",        0,   "удалить файл или пустой каталог: rm путь", fscmd_rm },
     { "df",        0,   "место: системный диск и флешки", fscmd_df },
+    { "verify",    0,   "сверить /bin и /etc с печатью системы (SHA-256 каждого файла, корень Меркла)", fscmd_verify },
     { "cp",        0,   "копировать файл: cp откуда куда (флешка /usb0 <-> диск)", fscmd_cp },
     { "umount",    0,   "отключить флешку перед извлечением: umount usb0", fscmd_umount },
     { "remount",   0,   "запись на флешку: remount usb0 rw / ro (по умолчанию только чтение)", fscmd_remount },

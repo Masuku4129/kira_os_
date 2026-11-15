@@ -5,6 +5,8 @@
 #include "vfs.h"
 #include "heap.h"
 #include "experience.h"
+#include "sysseal.h"
+#include "sha256.h"
 
 static void fail(const char* what, int e) {
     uart_print(what); uart_print(": "); uart_print(kfs_strerror(e)); uart_print("\n");
@@ -184,11 +186,65 @@ void fs_init(void) {
         uart_print("[KIRA FS] KiraFS mounted: "); uart_print_dec((uint64_t)i.free_blocks * 4); uart_print(" KB free");
         if (i.repaired) { uart_print(", repaired after unclean shutdown: "); uart_print_dec(i.repaired); }
         uart_print(".\n");
+        (void)fs_verify_seal(1);                 /* печать системы: одна строка в журнал; подробности - команда verify */
     } else if (r == KFS_ERR_NOFS) {
         uart_print("[KIRA FS] No KiraFS on disk. Type 'format yes' to create one.\n");
     } else {
         uart_print("[KIRA FS] Mount failed: "); uart_print(kfs_strerror(r)); uart_print(" (data untouched; see 'format').\n");
     }
+}
+
+/* Печать системы (sysseal.h): хэш файла считается кусками, целиком в памяти файл не держится. */
+static int seal_hash_file(void* ctx, const char* path, uint64_t* size, uint8_t hash[32]) {
+    uint8_t* buf = (uint8_t*)ctx;
+    kfs_stat_t st;
+    if (kfs_stat(path, &st) != 0 || st.type != KFS_FILE) return -1;
+    sha256_ctx_t c; sha256_init(&c);
+    for (uint64_t off = 0; off < st.size;) {
+        uint64_t part = st.size - off > 65536 ? 65536 : st.size - off;
+        int64_t got = kfs_read(path, off, buf, (size_t)part);
+        if (got <= 0) return -1;
+        sha256_update(&c, buf, (size_t)got);
+        off += (uint64_t)got;
+    }
+    sha256_final(&c, hash);
+    *size = st.size;
+    return 0;
+}
+static void seal_bad(void* ctx, const char* path, const char* why) { (void)ctx; uart_print("  "); uart_print(path); uart_print(": "); uart_print(why); uart_print("\n"); }
+
+/* 0 - печать совпала, 1 - расхождения, -1 - печати нет или она не читается. quiet: печатать только итог. */
+int fs_verify_seal(int quiet) {
+    kfs_stat_t st;
+    if (!kfs_mounted() || kfs_stat(SEAL_PATH, &st) != 0 || st.size == 0 || st.size > (1u << 20)) return -1;
+    uint8_t* m = kmalloc((size_t)st.size);
+    uint8_t* buf = kmalloc(65536);
+    uint8_t (*leaves)[32] = kmalloc(SEAL_MAX_FILES * 32);
+    int rc = -1;
+    if (m && buf && leaves && kfs_read(SEAL_PATH, 0, m, (size_t)st.size) == (int64_t)st.size) {
+        seal_report rep;
+        if (seal_check(m, (size_t)st.size, seal_hash_file, buf, leaves, quiet ? 0 : seal_bad, &rep) == 0) {
+            uart_print("[KIRA SEAL] "); uart_print_dec(rep.files); uart_print(" файлов в печати: совпало "); uart_print_dec(rep.ok);
+            if (rep.changed) { uart_print(", изменено "); uart_print_dec(rep.changed); }
+            if (rep.missing) { uart_print(", нет "); uart_print_dec(rep.missing); }
+            uart_print(rep.root_ok ? "; корень Меркла верен" : "; КОРЕНЬ МЕРКЛА НЕ СХОДИТСЯ (печать повреждена)");
+            uart_print("\n");
+            rc = (rep.changed || rep.missing || !rep.root_ok) ? 1 : 0;
+        } else {
+            uart_print("[KIRA SEAL] печать не разбирается: ошибка "); uart_print_dec((uint64_t)(-rep.format)); uart_print("\n");
+        }
+    } else if (!quiet) uart_print("[KIRA SEAL] не хватило памяти или печать не читается\n");
+    kfree(leaves); kfree(buf); kfree(m);
+    return rc;
+}
+
+void fscmd_verify(const char* arg) {
+    (void)arg;
+    if (!need_fs()) return;
+    int r = fs_verify_seal(0);
+    if (r < 0) uart_print("печати нет: /etc/system.cbor пишет kfstool seal при сборке образа\n");
+    else if (r == 0) uart_print("образ цел: все файлы /bin и /etc совпали с печатью\n");
+    else uart_print("ВНИМАНИЕ: образ отличается от печати (порча носителя или подмена файлов)\n");
 }
 
 /* cp откуда куда: копирование между любыми томами (флешка <-> системный диск). Файл читается целиком в память. */

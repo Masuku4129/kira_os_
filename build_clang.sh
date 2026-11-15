@@ -17,7 +17,7 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
 
-C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c wallpaper.c zstd.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c futex.c wx.c framegov.c wire.c usbmsc_fs.c"
+C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c wallpaper.c zstd.c cbor.c cas.c sysseal.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c futex.c wx.c framegov.c wire.c usbmsc_fs.c"
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
 ARCH=arch/x86_64
 ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c"
@@ -106,9 +106,13 @@ for app in demo atk-mem atk-priv atk-sys atk-gs; do
     UELF="$UELF userland/$app.elf"
 done
 # Rust (no_std): userland/rust/*.rs -> ELF для Ring 3 (docs/architecture/FORMATS_AND_LANGUAGES.md). Нет rustc - сборка идёт без Rust-программ.
+# На машине без rustc или без core для x86-64 (Debian на телефоне ARM64) шаг пропускается, сборка ОС продолжается.
 if command -v rustc >/dev/null 2>&1; then
-    userland/rust/build.sh
-    for src in userland/rust/*.rs; do UELF="$UELF userland/$(basename $src .rs).elf"; done
+    if userland/rust/build.sh; then
+        for src in userland/rust/*.rs; do UELF="$UELF userland/$(basename $src .rs).elf"; done
+    else
+        rc=$?; [ $rc -eq 3 ] || { echo "[!] Rust: ошибка сборки (код $rc)"; exit $rc; }
+    fi
 else
     echo "[!] rustc не найден: Rust-программы (userland/rust) не собраны"
 fi
@@ -123,7 +127,7 @@ fi
 
 echo "[*] Инструмент kfstool, манифест доверенных программ и установка в образ диска..."
 HOSTCC="${HOSTCC:-clang}"
-$HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
+$HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c sysseal.c cbor.c cas.c
 tools/kfstool manifest $UELF > manifest.h
 rm -f kira.disk; dd if=/dev/zero of=kira.disk bs=1M count=16 2>/dev/null     # образ каждый раз новый: старые файлы не остаются
 tools/kfstool kira.disk init
@@ -176,6 +180,8 @@ tools/kfstool kira.disk put /etc/ssl/drivers.index drivers/index.txt
 [ -f data/mind_seed.bin ] && tools/kfstool kira.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
 # Обои рабочего стола (KWP1; свою картинку - tools/mkwallpaper.py)
 [ -f data/wallpaper.kwp.zst ] && tools/kfstool kira.disk put /etc/wallpaper.kwp.zst data/wallpaper.kwp.zst >/dev/null
+# Печать системы (последней: SHA-256 всех файлов /bin и /etc, корень Меркла) - команда verify и строка [KIRA SEAL] при загрузке
+tools/kfstool kira.disk seal
 
 echo "[*] Компиляция C..."
 OBJ="boot.o"
@@ -280,12 +286,17 @@ case "$1" in
                 tools/kfstool "$OUT/kira_disk.img" rm /drv/$t.kdrv >/dev/null 2>&1 || true
                 tools/kfstool "$OUT/kira_disk.img" rm /drv/$t.rec >/dev/null 2>&1 || true
             done
+            for n in $TESTPROGS; do tools/kfstool "$OUT/kira_disk.img" rm /bin/$n >/dev/null 2>&1 || true; done   # тестовые программы прежних сборок
             for e in $UELF; do tools/kfstool "$OUT/kira_disk.img" put /bin/$(basename $e .elf) $e >/dev/null; done
             for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
             for h in kcc/include/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
             tools/put_bsd_inc.sh "$OUT/kira_disk.img"
             [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
             tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/drivers.index drivers/index.txt >/dev/null
+            [ -f data/mind_seed.bin ] && tools/kfstool "$OUT/kira_disk.img" put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
+            tools/kfstool "$OUT/kira_disk.img" rm /etc/wallpaper.kwp >/dev/null 2>&1 || true     # старые несжатые обои
+            [ -f data/wallpaper.kwp.zst ] && tools/kfstool "$OUT/kira_disk.img" put /etc/wallpaper.kwp.zst data/wallpaper.kwp.zst >/dev/null
+            tools/kfstool "$OUT/kira_disk.img" seal
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."
         else
             cp kira.disk "$OUT/kira_disk.img"

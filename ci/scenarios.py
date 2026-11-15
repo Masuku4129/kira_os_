@@ -24,6 +24,7 @@ BASIC = [
     {"cmd": "test mem", "must": [r"heap: PASS", r"PMM: PASS", r"VMM: PASS"]},
     {"cmd": "disk", "must": [r"\[системный\]"]},
     {"cmd": "df", "must": [r"KiraFS"]},
+    {"cmd": "verify", "must": [r"\[KIRA SEAL\] \d+ файлов в печати", r"образ цел"], "forbid": [r"ВНИМАНИЕ", r"НЕ СХОДИТСЯ"]},
     {"cmd": "status", "must": [r"."]},
     {"cmd": "ls /bin", "must": [r"plasma", r"cube3d"]},
     {"log_forbid": NO_ERR},

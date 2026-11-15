@@ -265,6 +265,9 @@ $T/cas
 echo "== zstd (RFC 8878: эталонные кадры уровней 1-19, контрольные суммы, порча, усечение) =="
 $CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/zstdt tests/zstd_test.c zstd.c sha256.c
 $T/zstdt
+echo "== sysseal (печать системы: CBOR-манифест, корень Меркла, подмена и пропажа файлов) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/sysseal tests/sysseal_test.c sysseal.c cbor.c cas.c sha256.c
+$T/sysseal
 
 echo "== wallpaper (picture wallpaper: KWP1 parse, fill-crop scaling) =="
 $CC $FLAGS -Werror -fsanitize=address,undefined -o $T/wallpaper tests/wallpaper_test.c wallpaper.c
