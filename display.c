@@ -65,6 +65,7 @@ static struct {
     uint64_t worst_busy_ns;   // самый тяжёлый цикл
     uint64_t last_t0;
     uint64_t pixels;          // собрано точек (все полосы всех кадров)
+    uint64_t ns_gfx, ns_mouse, ns_mid, ns_comp;   // замеры по этапам цикла: окна программ, мышь, обновление видов, сборка и показ
 } st;
 
 /* снимки данных для приложений */
@@ -599,7 +600,9 @@ static void display_main(void* arg) {
         st.last_t0 = t0;
         int timed = t0 != 0;
 
+        uint64_t s0 = clock_ns();
         gfx_server_run();                 // окна приложений Ring 3: создание, перерисовка, закрытие
+        st.ns_gfx += clock_ns() - s0;
 
         if (wm_launcher_active()) {       // поиск и запуск: клавиатура у него
             input_event_t ke;
@@ -629,12 +632,15 @@ static void display_main(void* arg) {
             else if (hk == KEY_F10) wm_minimize(top);
         }
 
+        uint64_t s1 = clock_ns();
         mouse_event_t me;
         while (input_pop_mouse(&me)) {
             st.mouse_events++;
             if (me.abs) wm_mouse_abs(me.ax, me.ay, me.buttons); /* планшет/сенсор: абсолютная точка экрана */
             else wm_mouse(me.dx, me.dy, me.buttons);
         }
+        st.ns_mouse += clock_ns() - s1;
+        uint64_t s2 = clock_ns();
 
         int y0 = 0, y1 = 0;
         unsigned n = fbcon_update(&y0, &y1);
@@ -656,12 +662,14 @@ static void display_main(void* arg) {
         wm_set_fx(fx_req == FGOV_FX_AUTO ? (int)gov.fx : fx_req);
         wm_anim((uint32_t)(now0 / 1000000ULL), mv.activity);
 
+        st.ns_mid += clock_ns() - s2;
         uint64_t tp0 = clock_ns();
         uint64_t px = 0;
         int cmode = comp_mode(tp0);
         wm_set_runner(cmode ? kpar_run : 0);
         if (wm_compose_par(fb_present_rect, &px)) { st.composed++; st.pixels += px; }
         st.present_ns = clock_ns() - tp0;
+        st.ns_comp += st.present_ns;
         comp_note(cmode, st.present_ns, px);
         fb_frame_done();                                   /* virtio-gpu: изменённое - устройству (без кадрового буфера в памяти устройства) */
         st.frames++;
@@ -805,7 +813,31 @@ void display_print_info(void) {
     uart_print(", worst gap "); uart_print_dec(st.worst_gap_ns / 1000);
     uart_print(" us, worst cycle "); uart_print_dec(st.worst_busy_ns / 1000);
     uart_print(" us, budget "); uart_print_dec(FRAME_NS / 1000);
-    uart_print(" us\n\n");
+    uart_print(" us\n");
+    /* период с прошлого вызова: для замеров (разница счётчиков, худшие значения сбрасываются) */
+    static uint64_t p_frames, p_comp, p_late, p_mouse, p_t, p_busy, p_gfx, p_mm, p_mid, p_cmp, p_in, p_drop;
+    uint64_t nowp = clock_ns();
+    uint32_t in_n = input_mouse_pushed(), drop_n = input_mouse_dropped();
+    uint64_t dt = nowp - p_t;
+    uint64_t df = st.frames - p_frames;
+    uart_print("[PERIOD] ms "); uart_print_dec(dt / 1000000);
+    uart_print(" frames "); uart_print_dec(df);
+    uart_print(" drawn "); uart_print_dec(st.composed - p_comp);
+    uart_print(" late "); uart_print_dec(st.late - p_late);
+    uart_print(" mouse_in "); uart_print_dec(in_n - p_in);
+    uart_print(" mouse_used "); uart_print_dec(st.mouse_events - p_mouse);
+    uart_print(" mouse_lost "); uart_print_dec(drop_n - p_drop);
+    uart_print(" worst_gap_us "); uart_print_dec(st.worst_gap_ns / 1000);
+    uart_print(" worst_cycle_us "); uart_print_dec(st.worst_busy_ns / 1000);
+    uart_print(" busy_avg_us "); uart_print_dec(df ? (st.busy_ns - p_busy) / df / 1000 : 0);
+    uart_print(" gfx_avg_us "); uart_print_dec(df ? (st.ns_gfx - p_gfx) / df / 1000 : 0);
+    uart_print(" mouse_avg_us "); uart_print_dec(df ? (st.ns_mouse - p_mm) / df / 1000 : 0);
+    uart_print(" mid_avg_us "); uart_print_dec(df ? (st.ns_mid - p_mid) / df / 1000 : 0);
+    uart_print(" compose_avg_us "); uart_print_dec(df ? (st.ns_comp - p_cmp) / df / 1000 : 0);
+    uart_print("\n\n");
+    p_frames = st.frames; p_comp = st.composed; p_late = st.late; p_mouse = st.mouse_events; p_t = nowp; p_busy = st.busy_ns;
+    p_gfx = st.ns_gfx; p_mm = st.ns_mouse; p_mid = st.ns_mid; p_cmp = st.ns_comp; p_in = in_n; p_drop = drop_n;
+    st.worst_gap_ns = 0; st.worst_busy_ns = 0;
 }
 
 void display_panic_flush(void) {

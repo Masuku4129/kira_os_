@@ -441,6 +441,29 @@ def run(sc, args):
                 time.sleep(1.0)
                 mark = len(vm.log)
                 result["checks"].append({"relaunch": True, "ok": True})
+            elif "mouse" in st:                       # поток движения мыши через QMP: кружит по экрану; hz - событий в секунду, step - пикселей за событие
+                m = st["mouse"]
+                hz, secs, step = m.get("hz", 125), m.get("seconds", 10), m.get("step", 8)
+                kind = m.get("kind", "rel")
+                import math
+                t_end = time.time() + secs * args.timeout_scale
+                t_next = time.time(); k = 0; sent = 0
+                while time.time() < t_end:
+                    ang = k * 0.05
+                    if kind == "abs":
+                        ev = [{"type": "abs", "data": {"axis": "x", "value": int(16000 + 12000 * math.cos(ang))}},
+                              {"type": "abs", "data": {"axis": "y", "value": int(16000 + 12000 * math.sin(ang))}}]
+                    else:
+                        ev = [{"type": "rel", "data": {"axis": "x", "value": int(step * math.cos(ang))}},
+                              {"type": "rel", "data": {"axis": "y", "value": int(step * math.sin(ang))}}]
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": ev}})
+                    k += 1; sent += 1
+                    t_next += 1.0 / hz
+                    d = t_next - time.time()
+                    if d > 0: time.sleep(d)
+                    else: vm.drain(0)
+                vm.log += f"[HOST] mouse: sent {sent} move events in {secs * args.timeout_scale} s\n".encode()
+                vm.pump(0.5)
             elif "combo" in st:                       # одновременное нажатие (Alt+Shift - раскладка)
                 vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": k} for k in st["combo"]]}})
                 vm.pump(0.3)

@@ -286,6 +286,15 @@ ALL = [
                  r"ipcbench: 1 MiB in 64 KiB messages \(before\)", r"ipcbench: 1 MiB by one shared-memory attachment \(after\)", r"ipcbench: done"]},
         {"log_forbid": [r"ipcbench: FAIL"] + NO_ERR},
     ], smp=2, mem="512M"),
+    sc("mouse-load", "замер: цикл дисплея без мыши и при потоке движений мыши (PS/2), по этапам цикла", [
+        {"log": BOOT_LOG},
+        {"sleep": 8}, {"cmd": "fb"},
+        {"sleep": 10}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"mouse": {"seconds": 10, "hz": 125, "step": 10}}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"mouse": {"seconds": 10, "hz": 500, "step": 10}}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"sleep": 5}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"cmd": "status", "must": [r"."]},
+    ], smp=2, mem="512M"),
     sc("wasm-speed", "WebAssembly: JIT x86-64 - плазма wgfx на стенде укладывается в порог по времени (до JIT на этом стенде было 1257 мс)", [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wgfx.wasm"}, {"sleep": 6},
